@@ -1,0 +1,636 @@
+# Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
+# Copyright: (c) <spug.dev@gmail.com>
+# Released under the AGPL-3.0 License.
+"""
+合并分片视图
+处理文件分片合并提交
+
+【P1-4修复】代码结构优化：
+将纯静态方法类改为模块级函数，简化代码结构
+"""
+
+from typing import Optional, Any, TYPE_CHECKING
+import os
+import json
+import time
+import logging
+from django.views.generic import View
+from django.conf import settings
+from django.http import HttpRequest
+
+from libs import json_response, auth
+
+if TYPE_CHECKING:
+    from apps.document.models import DocumentTransfer
+    from apps.account.models import User
+from apps.document.constants import TransferStatus, DEFAULT_MAX_FILE_SIZE
+from apps.document.libs.document_utils import get_folder_model, get_file_model, get_chunk_dir_path, is_safe_path, get_document_absolute_path
+from apps.document.views.base import validate_file_name, validate_file_upload, handle_view_errors
+from apps.document.views.upload.lock import get_merge_lock, MERGE_LOCK_TIMEOUT
+from apps.document.views.upload.validators import HashValidator, FolderValidator
+
+logger = logging.getLogger(__name__)
+
+# 【P2-2修复】合并任务目录路径常量
+MERGE_TASKS_DIR_NAME = 'document_merge_tasks'
+MERGE_TASKS_BASE_PATH_PARTS = ('storage', MERGE_TASKS_DIR_NAME)
+
+
+def _get_max_file_size() -> int:
+    return getattr(settings, 'MAX_DOCUMENT_FILE_SIZE', DEFAULT_MAX_FILE_SIZE)
+
+
+# ============================================================================
+# 模块级函数（替代原来的静态方法类）
+# ============================================================================
+
+def parse_merge_request(request: HttpRequest) -> tuple[Optional[dict], Optional[str]]:
+    """
+    解析合并请求数据
+    
+    Args:
+        request: HTTP请求对象
+        
+    Returns:
+        tuple: (data字典或None, 错误消息或None)
+    """
+    try:
+        data = json.loads(request.body)
+        return data, None
+    except json.JSONDecodeError as e:
+        logger.error(f'[Document][Merge] JSON decode error: {e}')
+        return None, '参数错误：无效的JSON格式'
+    except Exception as e:
+        logger.error(f'[Document][Merge] Failed to parse request body: {e}', exc_info=True)
+        return None, '参数错误'
+
+
+def validate_merge_params(data: dict) -> tuple[Optional[dict], Optional[str]]:
+    """
+    验证合并请求参数
+    
+    Args:
+        data: 请求数据字典
+        
+    Returns:
+        tuple: (参数字典或None, 错误消息或None)
+    """
+    file_name = data.get('file_name')
+    file_size = data.get('file_size')
+    total_chunks = data.get('total_chunks')
+    file_hash = data.get('file_hash')
+
+    if not all([file_name, file_size, total_chunks, file_hash]):
+        return None, '参数错误'
+
+    try:
+        total_chunks = int(total_chunks)
+        file_size = int(file_size)
+    except (ValueError, TypeError):
+        return None, '参数类型错误'
+
+    return {
+        'file_name': file_name,
+        'file_size': file_size,
+        'total_chunks': total_chunks,
+        'file_hash': file_hash,
+        'folder_id': data.get('folder_id'),
+        'is_public': data.get('is_public', False),
+        'transfer_id': data.get('transfer_id'),
+    }, None
+
+
+def build_file_path(params: dict, folder: Any, user: 'User') -> dict[str, str]:
+    """
+    构建文件存储路径和名称
+    
+    Args:
+        params: 合并参数字典
+        folder: 文件夹对象
+        user: 当前用户
+        
+    Returns:
+        dict: 包含physical_name, logical_name, display_name, file_path的字典
+    """
+    is_public = params['is_public']
+    folder_id = params['folder_id']
+    file_name = params['file_name']
+
+    # 创建最终文件存储目录
+    upload_dir = get_document_absolute_path(
+        is_public=is_public,
+        user_id=user.id,
+        folder_id=folder_id
+    )
+    os.makedirs(upload_dir, exist_ok=True)
+
+    # 使用新的命名规范生成三层文件名
+    from apps.document.libs.naming_utils import generate_file_names
+
+    FileModel = get_file_model(is_public=is_public)
+    names = generate_file_names(FileModel, file_name, folder, user)
+
+    file_path = os.path.join(upload_dir, names['physical_name'])
+
+    return {
+        'physical_name': names['physical_name'],
+        'logical_name': names['logical_name'],
+        'display_name': names['display_name'],
+        'file_path': file_path,
+    }
+
+
+def check_all_chunks_present(chunk_dir: str, total_chunks: int) -> list[int]:
+    """
+    检查所有分片是否存在
+    
+    Args:
+        chunk_dir: 分片目录路径
+        total_chunks: 总分片数
+        
+    Returns:
+        list: 缺失的分片索引列表
+    """
+    missing_chunks: list[int] = []
+    for i in range(total_chunks):
+        chunk_path = os.path.join(chunk_dir, f'{i}.part')
+        if not os.path.exists(chunk_path):
+            missing_chunks.append(i)
+    return missing_chunks
+
+
+def validate_chunk_directory(file_hash: str, is_public: bool, user: 'User') -> tuple[Optional[str], Optional[str]]:
+    """
+    验证并获取分片目录
+    
+    Args:
+        file_hash: 文件哈希值
+        is_public: 是否公共空间
+        user: 当前用户
+        
+    Returns:
+        tuple: (分片目录路径或None, 错误消息或None)
+    """
+    try:
+        chunk_dir = get_chunk_dir_path(file_hash, is_public, user)
+    except ValueError:
+        return None, '非法的文件哈希值'
+
+    chunk_base_dir = os.path.join(settings.BASE_DIR, 'storage', 'document_chunks')
+    if not is_safe_path(chunk_base_dir, chunk_dir):
+        return None, '非法的文件哈希值'
+
+    return chunk_dir, None
+
+
+def check_idempotency(
+    transfer_id: Optional[int],
+    file_hash: Optional[str] = None,
+    is_public: Optional[bool] = None,
+    user: Optional['User'] = None
+) -> tuple[Optional[dict], Optional[str]]:
+    """
+    【P0-3修复】幂等性检查 - 简化版
+    
+    Args:
+        transfer_id: 传输记录ID（优先使用）
+        file_hash: 文件哈希（当transfer_id为null时使用）
+        is_public: 是否公共空间
+        user: 当前用户
+
+    Returns:
+        tuple: (结果字典或None, 错误消息或None)
+    """
+    from apps.document.models import DocumentTransfer
+    from django.db import transaction
+
+    try:
+        # 步骤1: 优先通过transfer_id查询自己的记录
+        if transfer_id:
+            # 【P0-3修复】使用select_for_update避免竞态条件
+            with transaction.atomic():
+                transfer = DocumentTransfer.objects.select_for_update().filter(id=transfer_id).first()
+                if transfer:
+                    result = _build_result_from_transfer(transfer)
+                    if result:
+                        return result, None
+
+        # 步骤2: 通过file_hash查询MERGING/COMPLETED记录
+        if file_hash and user:
+            query = DocumentTransfer.objects.filter(
+                file_hash=file_hash,
+                status__in=[TransferStatus.MERGING.value, TransferStatus.COMPLETED.value]
+            )
+
+            # 租户过滤：公共空间不过滤，私有空间按租户过滤
+            if not is_public:
+                tenant_id = getattr(user, 'tenant_id', None)
+                if tenant_id:
+                    query = query.filter(tenant_id=tenant_id)
+                else:
+                    query = query.filter(user=user)
+
+            # 【P0-3修复】合并为一个查询：优先返回有task_id的MERGING或COMPLETED
+            transfer = query.filter(
+                status=TransferStatus.MERGING.value,
+                celery_task_id__isnull=False
+            ).first() or query.filter(
+                status=TransferStatus.COMPLETED.value,
+                file_path__isnull=False
+            ).exclude(file_path='').first()
+
+            if transfer:
+                result = _build_result_from_transfer(transfer)
+                if result:
+                    logger.info(f'[Document][Merge] Idempotent hit: id={transfer.id}, status={transfer.status}')
+                    return result, None
+
+        return None, None
+
+    except Exception as e:
+        logger.error(f'[Document][Merge] Idempotent check failed: {e}', exc_info=True)
+        return None, str(e)
+
+
+def _build_result_from_transfer(transfer: 'DocumentTransfer') -> Optional[dict[str, Any]]:
+    """
+    从传输记录构建返回结果
+    
+    Args:
+        transfer: 传输记录对象
+        
+    Returns:
+        dict或None: 结果字典，如果状态不匹配则返回None
+    """
+    if transfer.status == TransferStatus.COMPLETED.value and transfer.file_path:
+        return {
+            'status': 'completed',
+            'file_path': transfer.file_path,
+            'message': '文件已合并完成'
+        }
+
+    # 【修复】只有存在celery_task_id时才返回merging状态
+    if transfer.status == TransferStatus.MERGING.value and transfer.celery_task_id:
+        return {
+            'status': 'merging',
+            'message': '文件正在合并中',
+            'task_id': transfer.celery_task_id,
+            'transfer_id': transfer.id,
+        }
+
+    return None
+
+
+def update_transfer_to_merging(transfer_id: Optional[int], user: 'User') -> None:
+    """
+    更新传输记录为合并中状态
+    
+    Args:
+        transfer_id: 传输记录ID
+        user: 当前用户
+    """
+    if not transfer_id:
+        return
+
+    try:
+        from django.db import transaction
+        from apps.document.models import DocumentTransfer
+
+        with transaction.atomic():
+            transfer_obj = DocumentTransfer.objects.select_for_update().filter(id=transfer_id).first()
+            if transfer_obj and transfer_obj.user == user:
+                if transfer_obj.status in [TransferStatus.UPLOADING.value, TransferStatus.PAUSED.value]:
+                    transfer_obj.status = TransferStatus.MERGING.value
+                    transfer_obj.save()
+    except Exception as e:
+        logger.error(f'[Document][Merge] Update transfer status failed: {e}')
+
+
+def submit_merge_task(
+    params: dict,
+    names: dict,
+    chunk_dir: str,
+    tenant_id: Optional[int],
+    request: HttpRequest
+) -> tuple[Any, str, str]:
+    """
+    提交合并任务到Celery队列
+    
+    Args:
+        params: 合并参数字典
+        names: 文件名信息字典
+        chunk_dir: 分片目录路径
+        tenant_id: 租户ID
+        request: HTTP请求对象
+        
+    Returns:
+        tuple: (Celery任务对象, 合并任务ID, 合并任务文件路径)
+    """
+    from apps.document.tasks import merge_file_chunks
+
+    timestamp = int(time.time())
+    merge_task_id = f"{params['file_hash']}_{timestamp}"
+    merge_task_file = os.path.join(
+        settings.BASE_DIR, *MERGE_TASKS_BASE_PATH_PARTS,
+        f"{merge_task_id}.task"
+    )
+    os.makedirs(os.path.dirname(merge_task_file), exist_ok=True)
+
+    job_data = {
+        'file_name': params['file_name'],
+        'file_hash': params['file_hash'],
+        'file_path': names['file_path'],
+        'physical_name': names['physical_name'],
+        'logical_name': names['logical_name'],
+        'display_name': names['display_name'],
+        'chunk_dir': chunk_dir,
+        'file_size': params['file_size'],
+        'total_chunks': params['total_chunks'],
+        'folder_id': params['folder_id'],
+        'is_public': params['is_public'],
+        'user_id': request.user.id,
+        'username': request.user.username,
+        'tenant_id': tenant_id,
+        'transfer_id': params['transfer_id'],
+        'timestamp': int(time.time()),
+        'start_time': time.time()
+    }
+
+    task = merge_file_chunks.delay(job_data)
+
+    return task, merge_task_id, merge_task_file
+
+
+def save_task_id_to_transfer(transfer_id: Optional[int], task_id: str) -> None:
+    """
+    保存celery_task_id到传输记录
+    
+    Args:
+        transfer_id: 传输记录ID
+        task_id: Celery任务ID
+    """
+    if not transfer_id:
+        return
+
+    try:
+        from apps.document.models import DocumentTransfer
+        DocumentTransfer.objects.filter(id=transfer_id).update(
+            celery_task_id=task_id,
+            status=TransferStatus.MERGING.value
+        )
+    except Exception as db_error:
+        logger.error(f'[Document][Merge] Save task_id failed: {db_error}')
+
+
+def write_merge_task_file(
+    merge_task_file: str,
+    params: dict,
+    is_public: bool,
+    task_id: str,
+    user: 'User'
+) -> None:
+    """
+    写入任务文件
+    
+    Args:
+        merge_task_file: 任务文件路径
+        params: 合并参数字典
+        is_public: 是否公共空间
+        task_id: Celery任务ID
+        user: 当前用户
+    """
+    try:
+        with open(merge_task_file, 'w') as f:
+            f.write(json.dumps({
+                'status': TransferStatus.PENDING.value.lower(),
+                'file_name': params['file_name'],
+                'file_hash': params['file_hash'],
+                'user': user.username,
+                'is_public': is_public,
+                'start_time': time.time(),
+                'task_id': task_id
+            }))
+    except Exception as file_error:
+        logger.error(f'[Document][Merge] Write task file failed: {file_error}')
+
+
+# ============================================================================
+# 视图类
+# ============================================================================
+
+class FileMergeChunksView(View):
+    """合并文件分片视图（Celery异步模式）。
+
+    处理文件分片合并请求，将上传的分片合并为完整文件。
+    使用分布式锁防止并发合并冲突，支持幂等性检查避免重复合并。
+    """
+
+    @auth('document.document.upload')
+    @handle_view_errors
+    def post(self, request):
+        """处理文件分片合并POST请求。
+
+        执行以下步骤：
+        1. 解析并验证请求参数
+        2. 验证文件夹和分片目录
+        3. 获取合并锁
+        4. 检查幂等性（是否已在合并或已完成）
+        5. 提交Celery合并任务
+
+        Args:
+            request: HTTP请求对象，包含合并参数
+
+        Returns:
+            JsonResponse: 包含任务ID或错误信息
+        """
+        # 步骤1: 解析并验证基础参数
+        params, error = self._parse_and_validate_params(request)
+        if error:
+            logger.error(f'[Document][Merge] Param validation failed: {error}')
+            return json_response(error=error)
+
+        # 步骤2: 验证文件夹和文件
+        folder, chunk_dir, error = self._validate_folder_and_chunk(params, request)
+        if error:
+            logger.error(f'[Document][Merge] Folder/chunk validation failed: {error}')
+            return json_response(error=error)
+
+        # 【修复】步骤3: 先获取合并锁，再检查幂等性，确保状态一致性
+        tenant_id = getattr(request.user, 'tenant_id', None)
+        lock_key = f"{params['file_hash']}_{'public' if params['is_public'] else 'private'}_{tenant_id or 'default'}"
+        merge_lock = get_merge_lock(params['file_hash'], params['is_public'], tenant_id)
+
+        try:
+            if not merge_lock.acquire(timeout=MERGE_LOCK_TIMEOUT, blocking=True):
+                logger.error(f'[Document][Merge] Lock acquire timeout: {lock_key}')
+                return json_response(error='合并锁获取超时')
+        except Exception as e:
+            logger.error(f'[Document][Merge] Lock acquire exception: {e}')
+            return json_response(error='获取合并锁失败')
+
+        try:
+            # 步骤4: 在锁保护下构建文件路径并检查幂等性
+            names, result, error = self._prepare_merge(params, folder, request)
+            if error:
+                logger.error(f'[Document][Merge] Idempotent check error: {error}')
+                return json_response(error=error)
+            if result:
+                return json_response(result)
+
+            # 步骤5: 执行实际的合并操作
+            return self._do_merge(params, names, chunk_dir, tenant_id, request)
+        finally:
+            try:
+                merge_lock.release()
+            except Exception as release_error:
+                logger.error(f'[Document][Merge] Lock release failed: {release_error}')
+
+    def _parse_and_validate_params(self, request):
+        """解析并验证基础参数。
+
+        Args:
+            request: HTTP请求对象
+
+        Returns:
+            tuple: (参数字典或None, 错误消息或None)
+        """
+        # 解析请求
+        data, error = parse_merge_request(request)
+        if error:
+            return None, error
+
+        # 验证参数
+        params, error = validate_merge_params(data)
+        if error:
+            return None, error
+
+        # 验证哈希
+        if not HashValidator.validate(params['file_hash']):
+            return None, '非法的文件哈希值'
+
+        # 验证文件名
+        if not validate_file_name(params['file_name']):
+            return None, '文件名包含非法字符'
+
+        # 验证文件大小
+        if params['file_size'] <= 0 or params['file_size'] > _get_max_file_size():
+            return None, '文件大小超出限制（最大10GB）'
+
+        return params, None
+
+    def _validate_folder_and_chunk(self, params, request):
+        """验证文件夹和分片目录。
+
+        Args:
+            params: 合并参数字典
+            request: HTTP请求对象
+
+        Returns:
+            tuple: (文件夹对象或None, 分片目录路径或None, 错误消息或None)
+        """
+        # 解析文件夹
+        folder, error = FolderValidator.validate_folder(params['folder_id'], params['is_public'], request.user)
+        if error:
+            return None, None, error
+
+        # 验证文件
+        is_valid, msg = validate_file_upload(
+            params['file_name'], params['file_size'],
+            max_file_size=_get_max_file_size()
+        )
+        if not is_valid:
+            return None, None, msg
+
+        # 验证分片目录
+        chunk_dir, error = validate_chunk_directory(
+            params['file_hash'], params['is_public'], request.user
+        )
+        if error:
+            return None, None, error
+
+        return folder, chunk_dir, None
+
+    def _prepare_merge(self, params, folder, request):
+        """准备合并：构建路径并检查幂等性。
+
+        Args:
+            params: 合并参数字典
+            folder: 文件夹对象
+            request: HTTP请求对象
+
+        Returns:
+            tuple: (文件名信息字典或None, 幂等性结果或None, 错误消息或None)
+        """
+        # 构建文件路径
+        names = build_file_path(params, folder, request.user)
+
+        # 幂等性检查（支持通过transfer_id或file_hash查询）
+        result, error = check_idempotency(
+            transfer_id=params['transfer_id'],
+            file_hash=params['file_hash'],
+            is_public=params['is_public'],
+            user=request.user
+        )
+        if error:
+            return None, None, error
+        if result:
+            return None, result, None
+
+        return names, None, None
+
+    def _do_merge(self, params, names, chunk_dir, tenant_id, request):
+        """执行实际的合并操作。
+
+        创建状态文件、检查分片完整性、提交Celery合并任务。
+
+        Args:
+            params: 合并参数字典
+            names: 文件名信息字典
+            chunk_dir: 分片目录路径
+            tenant_id: 租户ID
+            request: HTTP请求对象
+
+        Returns:
+            JsonResponse: 包含任务提交结果或错误信息
+        """
+        # 【P1-5修复】使用try-except替代存在性检查，避免TOCTOU竞态条件
+        try:
+            # 尝试创建状态文件，如果目录不存在会抛出FileNotFoundError
+            status_file = os.path.join(chunk_dir, '.merge_status')
+            with open(status_file, 'w') as f:
+                f.write(TransferStatus.MERGING.value.lower())
+        except FileNotFoundError:
+            logger.error(f'[Document][Merge] Chunk dir not exists: {chunk_dir}')
+            return json_response(error='分片目录不存在，可能已被清理，请重新上传')
+        except Exception as e:
+            logger.error(f'[Document][Merge] Create status file failed: {e}')
+            return json_response(error='创建状态文件失败')
+
+        # 检查所有分片
+        missing_chunks = check_all_chunks_present(chunk_dir, params['total_chunks'])
+        if missing_chunks:
+            logger.error(f'[Document][Merge] Missing chunks: {missing_chunks}')
+            with open(status_file, 'w') as f:
+                f.write(TransferStatus.FAILED.value.lower())
+            return json_response(error=f'缺少分片: {missing_chunks}')
+
+        # 【修复竞态条件】先提交Celery任务获取task_id，再一次性更新传输记录
+        task, merge_task_id, merge_task_file = submit_merge_task(
+            params, names, chunk_dir, tenant_id, request
+        )
+        logger.info(f'[Document][Merge] Celery task submitted: task_id={task.id}, file={params["file_name"]}')
+
+        # 一次性更新状态和task_id，避免并发查询看到不一致的状态
+        save_task_id_to_transfer(params['transfer_id'], task.id)
+
+        # 写入任务文件
+        write_merge_task_file(
+            merge_task_file, params, params['is_public'], task.id, request.user
+        )
+
+        return json_response({
+            'task_id': task.id,
+            'merge_task_id': merge_task_id,
+            'status': 'pending',
+            'message': '合并任务已提交'
+        })

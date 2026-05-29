@@ -1,0 +1,8 @@
+子目录或文件 -p 已经存在。
+处理: -p 时出错。
+子目录或文件 E:/TDYW/.git/hooks 已经存在。
+处理: E:/TDYW/.git/hooks 时出错。
+子目录或文件 E:/TDYW/spug-3.0/scripts/hooks/pre-commit-template 已经存在。
+处理: E:/TDYW/spug-3.0/scripts/hooks/pre-commit-template 时出错。
+子目录或文件 E:/TDYW/.git/hooks/pre-commit 已经存在。
+处理: E:/TDYW/.git/hooks/pre-commit 时出错。

@@ -1,0 +1,233 @@
+{
+  "test_name": "运行日志模块压力测试",
+  "version": "1.0.0",
+  "created_at": "2024-03-18",
+
+  "test_scenarios": [
+    {
+      "name": "轻量级测试",
+      "description": "日常测试，快速验证功能正常",
+      "users": 20,
+      "spawn_rate": 5,
+      "duration": "3m",
+      "host": "http://localhost:80",
+      "expected_rps": 50,
+      "expected_p95_ms": 300
+    },
+    {
+      "name": "标准测试",
+      "description": "常规性能测试",
+      "users": 50,
+      "spawn_rate": 10,
+      "duration": "5m",
+      "host": "http://localhost:80",
+      "expected_rps": 100,
+      "expected_p95_ms": 500
+    },
+    {
+      "name": "高并发测试",
+      "description": "压力测试，验证系统稳定性",
+      "users": 100,
+      "spawn_rate": 20,
+      "duration": "10m",
+      "host": "http://localhost:80",
+      "expected_rps": 150,
+      "expected_p95_ms": 1000
+    },
+    {
+      "name": "极限压力测试",
+      "description": "系统极限测试",
+      "users": 200,
+      "spawn_rate": 30,
+      "duration": "15m",
+      "host": "http://localhost:80",
+      "expected_rps": 200,
+      "expected_p95_ms": 2000
+    },
+    {
+      "name": "长稳测试",
+      "description": "长时间稳定性测试",
+      "users": 50,
+      "spawn_rate": 10,
+      "duration": "1h",
+      "host": "http://localhost:80",
+      "expected_rps": 100,
+      "expected_p95_ms": 500
+    }
+  ],
+
+  "test_tasks": {
+    "查询任务": {
+      "GET /api/runlog/ (列表)": {
+        "weight": 15,
+        "priority": "high",
+        "description": "获取日志列表，带随机筛选",
+        "expected_p95_ms": 300
+      },
+      "GET /api/runlog/detail/ (详情)": {
+        "weight": 8,
+        "priority": "high",
+        "description": "获取事件详情（含动态列表）",
+        "expected_p95_ms": 500
+      },
+      "GET /api/runlog/statistics/ (统计)": {
+        "weight": 5,
+        "priority": "medium",
+        "description": "获取统计数据",
+        "expected_p95_ms": 400
+      }
+    },
+    "创建任务": {
+      "POST /api/runlog/ (创建事件)": {
+        "weight": 3,
+        "priority": "medium",
+        "description": "创建新的运行日志事件",
+        "expected_p95_ms": 800
+      },
+      "POST /api/runlog/update/ (添加动态)": {
+        "weight": 8,
+        "priority": "high",
+        "description": "添加动态",
+        "expected_p95_ms": 600
+      },
+      "POST /api/runlog/upload/ (图片上传)": {
+        "weight": 3,
+        "priority": "low",
+        "description": "上传运行日志图片",
+        "expected_p95_ms": 2000
+      }
+    },
+    "更新任务": {
+      "PUT /api/runlog/ (更新事件)": {
+        "weight": 4,
+        "priority": "medium",
+        "description": "更新事件信息",
+        "expected_p95_ms": 600
+      },
+      "PUT /api/runlog/update/ (编辑动态)": {
+        "weight": 2,
+        "priority": "low",
+        "description": "编辑动态（24小时内）",
+        "expected_p95_ms": 700
+      }
+    },
+    "删除任务": {
+      "DELETE /api/runlog/ (删除事件)": {
+        "weight": 1,
+        "priority": "low",
+        "description": "删除运行日志事件",
+        "expected_p95_ms": 800
+      },
+      "DELETE /api/runlog/update/ (删除动态)": {
+        "weight": 1,
+        "priority": "low",
+        "description": "删除动态",
+        "expected_p95_ms": 500
+      }
+    },
+    "并发测试": {
+      "[并发] 同时添加动态": {
+        "weight": 5,
+        "priority": "critical",
+        "description": "多个用户同时为同一事件添加动态",
+        "expected_p95_ms": 1000,
+        "validation": "序号不重复，数据一致"
+      }
+    }
+  },
+
+  "test_data": {
+    "event_types": ["运行异常", "设备故障", "安全事件", "其他", "数据异常"],
+    "system_names": ["ERP系统", "MES系统", "WMS系统", "HR系统", "OA系统"],
+    "severity_levels": ["P0", "P1", "P2"],
+    "status_types": ["open", "in_progress", "resolved", "closed"],
+    "shift_names": ["白班", "夜班", "中班"]
+  },
+
+  "performance_metrics": {
+    "rps_targets": {
+      "20_users": 50,
+      "50_users": 100,
+      "100_users": 150,
+      "200_users": 200
+    },
+    "response_time_targets": {
+      "p50_ms": 200,
+      "p95_ms": {
+        "50_users": 500,
+        "100_users": 1000,
+        "200_users": 2000
+      },
+      "p99_ms": {
+        "50_users": 1000,
+        "100_users": 2000,
+        "200_users": 3000
+      }
+    },
+    "failure_rate_target": "1%"
+  },
+
+  "validation_points": {
+    "tenant_isolation": {
+      "name": "租户隔离",
+      "priority": "critical",
+      "description": "不同租户的数据互不可见",
+      "validation_method": "使用同一账号创建和查询，验证只返回当前租户数据"
+    },
+    "sequence_calculation": {
+      "name": "序号计算",
+      "priority": "critical",
+      "description": "同一天内的动态序号正确递增",
+      "validation_method": "多个并发用户同时为同一事件添加动态"
+    },
+    "edit_time_limit": {
+      "name": "编辑时间限制",
+      "priority": "high",
+      "description": "24小时内的动态可编辑",
+      "validation_method": "尝试编辑不同时间的动态"
+    },
+    "status_flow": {
+      "name": "状态流转",
+      "priority": "high",
+      "description": "状态流转符合业务规则",
+      "validation_method": "尝试各种状态变更"
+    },
+    "cascade_delete": {
+      "name": "级联删除",
+      "priority": "medium",
+      "description": "删除事件时级联删除动态",
+      "validation_method": "删除事件后检查动态"
+    },
+    "concurrent_conflict": {
+      "name": "并发冲突",
+      "priority": "critical",
+      "description": "高并发下数据一致性",
+      "validation_method": "多用户同时操作同一资源"
+    }
+  },
+
+  "cleanup": {
+    "sql_commands": [
+      "DELETE FROM runlog_run_log_updates WHERE created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR);",
+      "DELETE FROM runlog_run_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR);"
+    ]
+  },
+
+  "reporting": {
+    "csv_files": [
+      "runlog_test_stats.csv",
+      "runlog_test_stats_history.csv",
+      "runlog_test_failures.csv"
+    ],
+    "key_metrics": [
+      "Total Requests",
+      "RPS",
+      "Failures",
+      "Failure Rate",
+      "P50 Response Time",
+      "P95 Response Time",
+      "P99 Response Time",
+      "User Count"
+    ]
+  }
+}

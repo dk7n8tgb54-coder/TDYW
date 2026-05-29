@@ -1,0 +1,28 @@
+# MySQL/MariaDB 镜像 - 包含自定义配置
+# 镜像名称: mysql-custom
+# 基于官方 MariaDB 镜像，添加自定义配置文件
+# 使用方法：docker run -d --name mysql-custom -p 3306:3306 -e MYSQL_ROOT_PASSWORD=<PASSWORD> mysql-custom:latest
+# 注意：请替换 <PASSWORD> 为实际的 MySQL root 密码
+# 构建命令：docker build -t mysql-custom:latest -f docker/Dockerfile.mysql .
+
+# 基于 MariaDB 官方镜像
+FROM registry.cn-hangzhou.aliyuncs.com/openspug/mariadb:10.8.2
+
+# 复制自定义配置文件到镜像中
+COPY docker/config/mysql.cnf /etc/mysql/conf.d/custom.cnf
+
+# 设置正确的权限（644：所有者可读写，其他人只读）
+RUN chmod 644 /etc/mysql/conf.d/custom.cnf && \
+    chown root:root /etc/mysql/conf.d/custom.cnf
+
+# 暴露 MySQL 端口
+EXPOSE 3306
+
+# 健康检查 - 已针对数据库迁移优化
+# 参数说明：
+# - interval=30s：每 30 秒检查一次（从 10s 调整，减少迁移时的检查频率）
+# - timeout=10s：每次检查超时时间 10 秒（从 5s 菜单，容忍更长的响应时间）
+# - start-period=60s：容器启动后等待 60 秒才开始检查（从 30s 调整，给数据库更多启动时间）
+# - retries=8：连续失败 8 次才认为不健康（从 5 次增加到 8 次，降低重启触发频率）
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=8 \
+    CMD mysqladmin ping -h 127.0.0.1 - u root -p${MYSQL_ROOT_PASSWORD} -s || exit 1

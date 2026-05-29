@@ -1,0 +1,63 @@
+Count,Message,Traceback,Nodes
+655,'str' object has no attribute 'get',"  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 362, in run
+    self.execute_next_task()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 395, in execute_next_task
+    self.execute_task(self._task_queue.popleft())
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 512, in execute_task
+    task(self.user)
+    ~~~~^^^^^^^^^^^
+  File ""e:\TDYW\spug-3.0\locustfile\locustfile_interference.py"", line 250, in test_interference
+    token = result.get('data', {}).get('token')
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+",local
+468,'str' object has no attribute 'get',"  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 362, in run
+    self.execute_next_task()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 395, in execute_next_task
+    self.execute_task(self._task_queue.popleft())
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 512, in execute_task
+    task(self.user)
+    ~~~~^^^^^^^^^^^
+  File ""e:\TDYW\spug-3.0\locustfile\locustfile_interference.py"", line 250, in test_interference
+    response.failure(f""ÒµÎñ´íÎó: {result.get('error')}"")
+    ^^^^^^^^^^^^^^^^^^^^^
+",local
+1,'str' object has no attribute 'get',"  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 362, in run
+    self.execute_next_task()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 395, in execute_next_task
+    self.execute_task(self._task_queue.popleft())
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 512, in execute_task
+    task(self.user)
+    ~~~~^^^^^^^^^^^
+  File ""e:\TDYW\spug-3.0\locustfile\locustfile_interference.py"", line 250, in test_interference
+",local
+334,'str' object has no attribute 'get',"  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 362, in run
+    self.execute_next_task()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 395, in execute_next_task
+    self.execute_task(self._task_queue.popleft())
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 512, in execute_task
+    task(self.user)
+    ~~~~^^^^^^^^^^^
+  File ""e:\TDYW\spug-3.0\locustfile\locustfile_interference.py"", line 250, in test_interference
+    ""username"": ""test"",
+            ^^^^^^^^^^^
+",local
+650,'str' object has no attribute 'get',"  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 362, in run
+    self.execute_next_task()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 395, in execute_next_task
+    self.execute_task(self._task_queue.popleft())
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""C:\Users\JayChoi\AppData\Roaming\Python\Python314\site-packages\locust\user\task.py"", line 512, in execute_task
+    task(self.user)
+    ~~~~^^^^^^^^^^^
+  File ""e:\TDYW\spug-3.0\locustfile\locustfile_interference.py"", line 250, in test_interference
+    # ÏÈµÇÂ¼
+",local

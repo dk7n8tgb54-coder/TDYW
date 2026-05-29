@@ -1,0 +1,90 @@
+.container {
+    background-image: url("./bg2.png");
+    background-repeat: no-repeat;
+    background-position: center center;
+    background-size: 100% 100%;
+    background-color: #f0f2f5;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.titleContainer {
+    padding-top: 50px;
+    text-align: center;
+}
+
+.titleContainer .logo {
+    margin-bottom: 20px;
+}
+
+.titleContainer .logo img {
+    height: 45px;
+}
+
+.titleContainer .title {
+    font-size: 34px;
+    font-weight: 700;
+    color: #1a1a1a;
+    margin-bottom: 40px;
+    letter-spacing: 2px;
+    background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.formContainer {
+    width: 368px;
+    margin: 0 auto;
+    flex: 1;
+}
+
+.formContainer .tabs {
+    margin-bottom: 10px;
+}
+
+.formContainer .formItem {
+    margin-bottom: 24px;
+}
+
+.formContainer .icon {
+    color: rgba(0, 0, 0, .25);
+    font-size: 14px;
+    margin-right: 4px;
+}
+
+.formContainer .button {
+    margin-top: 10px;
+}
+
+.formContainer .slogan {
+    text-align: center;
+    margin-top: 24px;
+    font-size: 14px;
+    color: rgba(0, 0, 0, .55);
+    letter-spacing: 3px;
+    font-weight: 400;
+}
+
+.footerZone {
+    width: 100%;
+    bottom: 0;
+    padding: 20px;
+    font-size: 14px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+}
+
+.footerZone .linksZone {
+    margin-bottom: 7px;
+}
+
+.footerZone .links {
+    margin-right: 40px;
+}
+
+.tips {
+    top: 230px
+}

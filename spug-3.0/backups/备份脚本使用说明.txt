@@ -1,0 +1,17 @@
+powershell
+python backup.py
+
+# 1. 从PowerShell切换到CMD
+cmd
+
+# 2. 在CMD中执行导入命令（此时<可用）
+docker exec -i tdyw-db mysql -uspug -pspug.cc spug < E:\TDYW\spug-3.0\backups\spug_backup_20260228_221143.sql
+
+# 3. 导入完成后，输入exit回到PowerShell
+exit
+
+# 进入数据库，查询核心表是否有数据
+docker exec spug-db mysql -uspug -pspug.cc spug -e "SELECT COUNT(*) FROM spug_document_folder_public;"
+
+
+docker exec -i tdyw-db-test mysql -uroot -pDt6299093 tdyw < E:\TDYW\spug-3.0\backups\spug_backup_20260320_155406.sql

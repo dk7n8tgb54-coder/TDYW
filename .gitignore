@@ -1,0 +1,62 @@
+# 部署包
+通道运维平台部署包/
+通道运维平台部署包V1.0版本/
+tdyw部署包V2.0/
+tdywV3.0/
+
+# Node.js
+node_modules/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 数据库备份
+*.db
+*.sqlite
+*.sqlite3
+backup_*.sql
+backups/
+
+# SSL & 密钥
+*.crt
+*.csr
+*.key
+*.pem
+
+# 临时文件
+*.tmp
+*.temp
+
+# 环境变量
+.env
+.env.local
+
+# 用户个人文件
+导出镜像文件.txt
+*.rar
+/*.docx
+/*.txt
+/build_frontend_output.log
+.tmp-spug-service
+
+# 备份目录
+资料库备份/

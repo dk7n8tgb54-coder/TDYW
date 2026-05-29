@@ -1,0 +1,610 @@
+# Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
+# Copyright: (c) <spug.dev@gmail.com>
+# Released under the AGPL-3.0 License.
+from django.views import View
+from django.http import HttpResponse
+from django.db.models import Max, Count, Q
+from django.db import DatabaseError
+from django.utils.encoding import escape_uri_path
+from libs import json_response, auth, human_datetime
+from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
+from libs import Argument, JsonParser
+from datetime import datetime, timedelta
+from collections import defaultdict
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class RunLogView(View):
+    """运行日志事件视图"""
+
+    def get(self, request):
+        """获取事件列表"""
+        from .models import RunLog
+
+        logs = apply_tenant_filter(RunLog.objects.all(), request.user)
+
+        # 筛选参数 - 从 request.GET 获取
+        filters = request.GET.dict()
+        if filters.get('status'):
+            logs = logs.filter(status=filters['status'])
+        if filters.get('severity'):
+            logs = logs.filter(severity=filters['severity'])
+        if filters.get('event_type'):
+            logs = logs.filter(event_type=filters['event_type'])
+        if filters.get('responsible_user_name'):
+            logs = logs.filter(responsible_user_name__icontains=filters['responsible_user_name'])
+        if filters.get('system_name'):
+            logs = logs.filter(system_name__icontains=filters['system_name'])
+        if filters.get('date'):
+            logs = logs.filter(created_at__startswith=filters['date'])
+        if filters.get('date_range'):
+            start_date, end_date = filters['date_range']
+            logs = logs.filter(created_at__gte=start_date, created_at__lte=end_date)
+
+        # 分页参数
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 50))
+
+        # 排序和分页
+        logs = logs.order_by('-created_at', '-id')
+
+        # 获取系统名称列表（用于筛选）- 必须在切片前
+        system_names = [x['system_name'] for x in logs.order_by('system_name').values('system_name').distinct()]
+
+        # 分页处理
+        total_count = logs.count()
+        start_index = (page - 1) * page_size
+        end_index = start_index + page_size
+        logs = logs[start_index:end_index]
+
+        return json_response({
+            'system_names': system_names,
+            'logs': [x.to_view() for x in logs],
+            'pagination': {
+                'page': page,
+                'page_size': page_size,
+                'total_count': total_count,
+                'total_pages': (total_count + page_size - 1) // page_size
+            }
+        })
+    
+    @auth('runlog.runlog.add')
+    def post(self, request):
+        """创建事件（必须包含首次动态）"""
+        from .models import RunLog, RunLogUpdate
+        
+        form, error = JsonParser(
+            Argument('event_title', help='事件标题不能为空'),
+            Argument('event_type', help='事件类型不能为空'),
+            Argument('system_name', help='系统名称不能为空'),
+            Argument('severity', required=False, default='P2'),
+            Argument('responsible_user_id', type=int, required=False),
+            Argument('responsible_user_name', required=False),
+            Argument('first_update', type=dict, required=False, default={}),
+        ).parse(request.body)
+        
+        if error is None:
+            # 验证首次动态必填
+            first_update = form.first_update
+            if not first_update.get('update_date'):
+                return json_response(error='首次动态内容不能为空')
+            
+            # 创建事件
+            tenant_id = request.user.tenant_id
+
+            # 提取 RunLog 模型的字段（排除 first_update）
+            log_data = {
+                'event_title': form.event_title,
+                'event_type': form.event_type,
+                'system_name': form.system_name,
+                'severity': form.severity,
+                'responsible_user_id': form.responsible_user_id,
+                'responsible_user_name': form.responsible_user_name,
+                'status': 'in_progress',
+                'created_by': request.user,
+                'tenant_id': tenant_id,
+            }
+            event = RunLog.objects.create(**log_data)
+            
+            # 创建首次动态
+            editable_until = (datetime.now() + timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+            
+            # 计算序号
+            max_seq = RunLogUpdate.objects.filter(
+                runlog_id=event.id,
+                update_date=first_update['update_date']
+            ).aggregate(Max('sequence'))['sequence__max'] or 0
+            
+            RunLogUpdate.objects.create(
+                runlog_id=event.id,
+                event_title=event.event_title,
+                update_date=first_update['update_date'],
+                sequence=1,
+                recorder=request.user.nickname,
+                detail_content=first_update.get('detail_content', ''),
+                editable_until=editable_until,
+                created_by=request.user,
+                tenant_id=tenant_id,
+            )
+            
+            # 更新统计信息
+            event.update_count = 1
+            event.first_update_date = first_update['update_date']
+            event.last_update_date = first_update['update_date']
+            event.save()
+        
+        return json_response(error=error)
+    
+    @auth('runlog.runlog.edit')
+    def put(self, request):
+        """更新事件（含状态流转）"""
+        from .models import RunLog
+        
+        form, error = JsonParser(
+            Argument('id', type=int, help='请指定操作对象'),
+            Argument('event_type', required=False),
+            Argument('system_name', required=False),
+            Argument('severity', required=False),
+            Argument('responsible_user_id', type=int, required=False),
+            Argument('responsible_user_name', required=False),
+            Argument('status', required=False),
+            Argument('resolution', required=False),
+        ).parse(request.body)
+        
+        if error is None:
+            event = apply_tenant_filter(RunLog.objects.filter(pk=form.id), request.user).first()
+            if not event:
+                return json_response(error='无权限操作')
+            
+            # 可编辑字段
+            editable_fields = ['event_type', 'system_name', 'severity',
+                             'responsible_user_id', 'responsible_user_name']
+            for field in editable_fields:
+                if hasattr(form, field) and getattr(form, field) is not None:
+                    setattr(event, field, getattr(form, field))
+            
+            # 状态流转控制
+            if form.status and form.status != event.status:
+                status_rules = {
+                    'in_progress': ['resolved'],
+                    'resolved': ['in_progress'],  # 允许回退
+                }
+                
+                if form.status not in status_rules.get(event.status, []):
+                    return json_response(error='不允许的状态流转')
+
+                # 如果填写了处理措施，更新相关信息
+                if form.resolution:
+                    event.resolution = form.resolution
+                    event.verifier_id = request.user.id
+                    event.verifier_name = request.user.username
+                    event.verified_at = human_datetime()
+                    event.closed_at = human_datetime()
+
+                event.status = form.status
+            
+            event.updated_by = request.user
+            event.updated_at = human_datetime()
+            event.save()
+        
+        return json_response(error=error)
+    
+    @auth('runlog.runlog.del')
+    def delete(self, request):
+        """删除事件（级联删除动态及附件）"""
+        from .models import RunLog, RunLogUpdate
+        from django.conf import settings
+        import os
+        import json
+
+        form, error = JsonParser(
+            Argument('id', type=int, help='请指定操作对象')
+        ).parse(request.GET)
+
+        if error is None:
+            event = apply_tenant_filter(RunLog.objects.filter(pk=form.id), request.user).first()
+            if not event:
+                return json_response(error='无权限操作')
+
+            # 获取关联的所有动态记录（需租户过滤）
+            updates = apply_tenant_filter(
+                RunLogUpdate.objects.filter(runlog_id=event.id),
+                request.user
+            )
+
+            print(f'[RunLog] 删除事件 ID={event.id}, 关联动态数={updates.count()}')
+
+            # 清理附件文件
+            for update in updates:
+                if update.attachments:
+                    try:
+                        attachments = json.loads(update.attachments)
+                        for attachment_path in attachments:
+                            # 构造完整文件路径
+                            full_path = os.path.join(settings.MEDIA_ROOT, attachment_path.lstrip('/'))
+                            if os.path.exists(full_path):
+                                os.remove(full_path)
+                    except (json.JSONDecodeError, OSError) as e:
+                        print(f'[RunLog] 清理附件失败: {e}')
+
+            # 级联删除动态记录
+            updates.delete()
+
+            # 删除主表单
+            event.delete()
+
+        return json_response(error=error)
+
+    @auth('runlog.runlog.update_view')
+    def get_detail(self, request):
+        """获取事件详情（含动态列表）"""
+        from .models import RunLog, RunLogUpdate
+
+        event_id = request.GET.get('id')
+        event = apply_tenant_filter(RunLog.objects.filter(pk=event_id), request.user).first()
+
+        if not event:
+            return json_response(error='事件不存在', status=404)
+
+        # 获取动态列表
+        updates = apply_tenant_filter(
+            RunLogUpdate.objects.filter(runlog_id=event_id),
+            request.user
+        ).order_by('update_date', 'sequence', 'id')
+
+        result = event.to_view()
+        result['updates'] = [x.to_view() for x in updates]
+
+        return json_response(result)
+
+
+class RunLogUpdateView(View):
+    """运行日志动态视图"""
+    
+    @auth('runlog.runlog.update_add')
+    def post(self, request):
+        """添加动态"""
+        from .models import RunLog, RunLogUpdate
+        import json
+
+        form, error = JsonParser(
+            Argument('runlog_id', type=int, help='请指定关联事件'),
+            Argument('update_date', help='请选择日期'),
+            Argument('recorder', required=False),
+            Argument('detail_content', help='请输入详细记录'),
+            Argument('attachments', type=list, required=False, default=[]),
+        ).parse(request.body)
+
+        if error is None:
+            # 验证事件存在且有权限
+            event = apply_tenant_filter(RunLog.objects.filter(pk=form.runlog_id), request.user).first()
+            if not event:
+                return json_response(error='无权限操作')
+
+            # 计算序号（同一天内的序号）
+            max_seq = apply_tenant_filter(
+                RunLogUpdate.objects.filter(
+                    runlog_id=form.runlog_id,
+                    update_date=form.update_date
+                ),
+                request.user
+            ).aggregate(Max('sequence'))['sequence__max'] or 0
+            
+            # 设置可修改截止时间（24小时）
+            editable_until = (datetime.now() + timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+            
+            # 创建动态
+            update = RunLogUpdate.objects.create(
+                runlog_id=form.runlog_id,
+                event_title=event.event_title,
+                update_date=form.update_date,
+                sequence=max_seq + 1,
+                recorder=request.user.nickname,
+                detail_content=form.detail_content,
+                attachments=json.dumps(form.attachments) if form.attachments else None,
+                editable_until=editable_until,
+                created_by=request.user,
+                tenant_id=request.user.tenant_id
+            )
+
+            # 更新事件统计信息
+            updates = apply_tenant_filter(
+                RunLogUpdate.objects.filter(runlog_id=form.runlog_id),
+                request.user
+            )
+            event.update_count = updates.count()
+
+            # 如果是第一条动态，更新首次动态日期
+            if event.update_count == 1:
+                event.first_update_date = form.update_date
+
+            event.last_update_date = form.update_date
+            event.save()
+
+        return json_response(error=error)
+
+    @auth('runlog.runlog.update_edit')
+    def put(self, request):
+        """编辑动态（24小时内）"""
+        from .models import RunLogUpdate
+        import json
+
+        form, error = JsonParser(
+            Argument('id', type=int, help='请指定操作对象'),
+            Argument('update_date', required=False),
+            Argument('recorder', required=False),
+            Argument('detail_content', help='请输入详细记录'),
+            Argument('attachments', type=list, required=False),
+        ).parse(request.body)
+
+        if error is None:
+            update = RunLogUpdate.objects.filter(pk=form.id).first()
+            if not update:
+                return json_response(error='动态不存在', status=404)
+
+            # 租户过滤
+            update = apply_tenant_filter(
+                RunLogUpdate.objects.filter(pk=update.id),
+                request.user
+            ).first()
+            if not update:
+                return json_response(error='无权限操作', status=403)
+
+            # 检查是否可修改
+            now = datetime.now()
+            deadline = datetime.strptime(update.editable_until, '%Y-%m-%d %H:%M:%S')
+            if now >= deadline:
+                return json_response(error='该动态已超过24小时，不可修改。请添加新动态。', status=403)
+
+            # 更新字段
+            if form.update_date:
+                update.update_date = form.update_date
+            update.recorder = request.user.nickname
+            update.detail_content = form.detail_content
+            if form.attachments is not None:
+                update.attachments = json.dumps(form.attachments) if form.attachments else None
+            update.save()
+
+        return json_response(error=error)
+    
+    @auth('runlog.runlog.update_del')
+    def delete(self, request):
+        """删除动态"""
+        from .models import RunLogUpdate, RunLog
+        
+        form, error = JsonParser(
+            Argument('id', type=int, help='请指定操作对象')
+        ).parse(request.GET)
+        
+        if error is None:
+            update = RunLogUpdate.objects.filter(pk=form.id).first()
+            if not update:
+                return json_response(error='动态不存在', status=404)
+            
+            # 租户过滤
+            update = apply_tenant_filter(
+                RunLogUpdate.objects.filter(pk=update.id),
+                request.user
+            ).first()
+            if not update:
+                return json_response(error='无权限操作', status=403)
+            
+            runlog_id = update.runlog_id
+            update.delete()
+
+            # 更新事件统计信息
+            event = apply_tenant_filter(RunLog.objects.filter(pk=runlog_id), request.user).first()
+            if not event:
+                return json_response(error='事件不存在', status=404)
+
+            # 使用租户过滤查询动态记录
+            updates = apply_tenant_filter(
+                RunLogUpdate.objects.filter(runlog_id=runlog_id),
+                request.user
+            )
+
+            event.update_count = updates.count()
+            if event.update_count > 0:
+                last_update = updates.order_by('-update_date', '-sequence').first()
+                event.last_update_date = last_update.update_date
+                # 更新首次动态日期
+                first_update = updates.order_by('update_date', 'sequence').first()
+                event.first_update_date = first_update.update_date
+            else:
+                event.last_update_date = None
+                event.first_update_date = None
+            event.save()
+
+        return json_response(error=error)
+
+
+class RunLogStatisticsView(View):
+    """运行日志统计视图（已优化）"""
+
+    def get(self, request):
+        """
+        获取统计数据（优化版本）
+
+        优化内容：
+        - 2次聚合查询替代12次独立查询
+        - 租户ID有效性校验
+        - 7天内无数据时的边界处理
+        - 数据库异常分类处理
+        - 详细的日志记录
+        """
+        from .models import RunLog
+
+        # 在try外定义tenant_id，避免异常处理时NameError
+        tenant_id = request.user.tenant_id
+
+        try:
+            logs = apply_tenant_filter(RunLog.objects.all(), request.user)
+
+            # 边界条件1：校验租户ID有效性
+            if not tenant_id:
+                logger.warning(f"无效的租户ID: {tenant_id}, 请求来源: {request.META.get('REMOTE_ADDR')}")
+                return json_response(error='无效的租户ID')
+
+            now = datetime.now()
+
+            # 边界条件2：初始化统计结果，避免KeyError（7天内无数据时）
+            status_stats = {}
+            for status, text in [('in_progress', '处理中'), ('resolved', '已解决')]:
+                status_stats[status] = {'count': 0, 'text': text}
+
+            severity_stats = {}
+            for severity, text in [('P0', '紧急'), ('P1', '重要'), ('P2', '一般')]:
+                severity_stats[severity] = {'count': 0, 'text': text}
+
+            date_stats = defaultdict(int)
+            for i in range(7):
+                date = (now - timedelta(days=i)).strftime('%Y-%m-%d')
+                date_stats[date] = 0
+
+            # 边界条件3：异常捕获（数据库查询失败）
+            # 查询1：聚合统计状态和级别
+            agg_stats = logs.aggregate(
+                in_progress_count=Count('id', filter=Q(status='in_progress')),
+                resolved_count=Count('id', filter=Q(status='resolved')),
+                p0_count=Count('id', filter=Q(severity='P0')),
+                p1_count=Count('id', filter=Q(severity='P1')),
+                p2_count=Count('id', filter=Q(severity='P2'))
+            )
+
+            # 更新状态统计
+            status_stats['in_progress']['count'] = agg_stats['in_progress_count'] or 0
+            status_stats['resolved']['count'] = agg_stats['resolved_count'] or 0
+
+            # 更新级别统计
+            severity_stats['P0']['count'] = agg_stats['p0_count'] or 0
+            severity_stats['P1']['count'] = agg_stats['p1_count'] or 0
+            severity_stats['P2']['count'] = agg_stats['p2_count'] or 0
+
+            # 查询2：日期分组统计（使用range查询优化，避免startswith的低效匹配）
+            start_date = (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+            logs_by_date = logs.filter(created_at__range=(start_date, end_date)).extra(
+                select={'day': 'DATE(created_at)'}
+            ).values('day').annotate(count=Count('id'))
+
+            for item in logs_by_date:
+                date_str = item['day'].strftime('%Y-%m-%d')
+                date_stats[date_str] = item['count']
+
+            logger.info(f"[统计查询成功] tenant_id={tenant_id}, "
+                       f"in_progress={status_stats['in_progress']['count']}, "
+                       f"resolved={status_stats['resolved']['count']}")
+
+            # 构建趋势数据（按日期正序）
+            trend_data = [
+                {'date': date, 'count': date_stats[date]}
+                for date in sorted(date_stats.keys())
+            ]
+
+            return json_response({
+                'status_stats': status_stats,
+                'severity_stats': severity_stats,
+                'trend_data': trend_data,
+            })
+
+        except DatabaseError as e:
+            # 数据库异常
+            logger.error(f"[统计接口数据库查询失败] tenant_id={tenant_id}, 错误={str(e)}", exc_info=True)
+            return json_response(error='数据库查询失败')
+        except Exception as e:
+            # 其他未捕获异常
+            logger.error(f"[统计接口未知错误] tenant_id={tenant_id}, 错误={str(e)}", exc_info=True)
+            return json_response(error='服务器内部错误')
+
+
+class RunLogExportView(View):
+    """运行日志PDF导出视图"""
+
+    @auth('runlog.runlog.view')
+    def post(self, request):
+        """导出运行日志PDF
+
+        前端传入筛选条件，后端查询数据并生成PDF返回
+        """
+        from .models import RunLog, RunLogUpdate
+
+        try:
+            data = json.loads(request.body) if request.body else {}
+        except (json.JSONDecodeError, ValueError):
+            data = {}
+
+        try:
+            # 租户过滤
+            logs = apply_tenant_filter(RunLog.objects.all(), request.user)
+
+            # 筛选条件
+            if data.get('status'):
+                logs = logs.filter(status=data['status'])
+            if data.get('severity'):
+                logs = logs.filter(severity=data['severity'])
+            if data.get('event_type'):
+                logs = logs.filter(event_type=data['event_type'])
+            if data.get('system_name'):
+                logs = logs.filter(system_name__icontains=data['system_name'])
+
+            # 日期范围
+            start_date = data.get('start_date')
+            end_date = data.get('end_date')
+            date_range_text = ''
+            if start_date and end_date:
+                logs = logs.filter(created_at__gte=start_date, created_at__lte=end_date)
+                date_range_text = f'{start_date}-{end_date}'
+            elif start_date:
+                logs = logs.filter(created_at__gte=start_date)
+                date_range_text = f'{start_date}起'
+            elif end_date:
+                logs = logs.filter(created_at__lte=end_date)
+                date_range_text = f'至{end_date}'
+
+            logs = logs.order_by('-created_at', '-id')
+
+            if not logs.exists():
+                return json_response(error='没有可导出的数据')
+
+            # 限制最大导出条数，防止超时
+            MAX_EXPORT_COUNT = 500
+            logs = logs[:MAX_EXPORT_COUNT]
+
+            # 序列化事件数据
+            events_data = []
+            for log in logs:
+                event_dict = log.to_view()
+                # 批量查询关联动态
+                updates = apply_tenant_filter(
+                    RunLogUpdate.objects.filter(runlog_id=log.id),
+                    request.user
+                ).order_by('update_date', 'sequence', 'id')
+                event_dict['updates'] = [u.to_view() for u in updates]
+                events_data.append(event_dict)
+
+            # 生成PDF
+            from .pdf_export import generate_runlog_pdf
+            pdf_output = generate_runlog_pdf(events_data, date_range_text)
+
+            # 构建文件名
+            now = datetime.now().strftime('%Y%m%d_%H%M%S')
+            if date_range_text:
+                filename = f'运行日志报告_{date_range_text}_{now}.pdf'
+            else:
+                filename = f'运行日志报告_{now}.pdf'
+            safe_filename = escape_uri_path(filename)
+
+            response = HttpResponse(
+                pdf_output.getvalue(),
+                content_type='application/pdf'
+            )
+            response['Content-Disposition'] = f"attachment; filename*=UTF-8''{safe_filename}"
+            return response
+
+        except Exception as e:
+            import traceback
+            logger.error(f'导出运行日志PDF失败｜用户：{request.user.username}｜错误：{e}\n{traceback.format_exc()}')
+            return json_response(error=f'导出PDF失败：{type(e).__name__}: {str(e)[:80]}')

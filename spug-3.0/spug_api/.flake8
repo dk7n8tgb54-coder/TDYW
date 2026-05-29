@@ -1,0 +1,30 @@
+[flake8]
+# 【任务5.1】Flake8 配置 - 后端代码检查工具
+# 与 setup.cfg 保持一致，供直接使用 flake8 命令时读取
+
+max-line-length = 120
+max-complexity = 15
+ignore = E203,W503,E402
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    env,
+    .env,
+    migrations,
+    media,
+    static,
+    logs,
+    tests/*,
+    */tests/*,
+    */migrations/*
+select = E,W,F,C
+per-file-ignores =
+    */settings*.py:E402
+    */urls.py:E501
+    manage.py:E402
+    */__init__.py:F401
+format = %(path)s:%(row)d:%(col)d: %(code)s %(text)s
+show-source = true
+statistics = true

@@ -1,0 +1,203 @@
+# Docker Compose 格式版本 3.3
+# 使用方法：docker-compose -f dev/docker-compose.yml up -d
+version: "3.3"
+
+services:
+  # 数据库服务（MariaDB）
+  db:
+    # 使用阿里云镜像仓库的 MariaDB 10.8.2
+    image: registry.cn-hangzhou.aliyuncs.com/openspug/mariadb:10.8.2
+    # 容器名称
+    container_name: tdyw-db
+    # 容器退出时自动重启
+    restart: always
+    # MySQL 启动参数配置
+    # 由于 Windows Docker 权限问题，使用 command 参数而非配置文件挂载
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --server-id=1
+      --expire_logs_days=7
+      --max_connections=500
+      --innodb-buffer-pool-size=6G
+      --innodb-log-file-size=128M
+      --innodb-lock-wait-timeout=120
+      --innodb-flush-log-at-trx-commit=2
+      --innodb-log-buffer-size=64M
+      --innodb-file-per-table=1
+      --innodb-adaptive-flushing=1
+      --innodb-read-io-threads=8
+      --innodb-write-io-threads=8
+      --slow-query-log=1
+      --long-query-time=2
+      --max-connect-errors=1000
+      --wait-timeout=300
+      --interactive-timeout=300
+      --table-open-cache=4000
+      --thread-cache-size=32
+      --max-allowed-packet=256M
+    volumes:
+      - mysql-data:/var/lib/mysql
+    # 端口映射：宿主机 3307 -> 容器 3306
+    # 避免与宿主机已有的 MySQL（默认3306端口）冲突
+    ports:
+      - "3307:3306"
+    # MySQL 环境变量配置（从.env文件读取）
+    environment:
+      - MYSQL_DATABASE=${MYSQL_DATABASE}          # 数据库名称
+      - MYSQL_USER=${MYSQL_USER}                  # 普通用户名
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}          # 普通用户密码
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD} # Root 密码
+    # 资源限制（与生产环境保持一致）
+    deploy:
+      resources:
+        limits:
+          cpus: '2'           # 数据库 CPU 限制
+          memory: 8G          # 数据库内存限制：8GB（支持 4G buffer_pool）
+        reservations:
+          cpus: '0.5'         # 保证至少 0.5 个 CPU 核心
+          memory: 2G          # 保证至少 2GB 内存
+    # 健康检查：定期检查数据库是否可连接
+    # 已优化：放宽检查条件，避免数据库迁移时触发重启
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD not set} || exit 1"]
+      interval: 30s      # 从 10s 调整为 30s，降低检查频率
+      timeout: 10s       # 从 5s 调整为 10s，容忍更长响应时间
+      retries: 8         # 从 5 次增加到 8 次，降低重启触发频率
+      start_period: 60s  # 从 30s 调整为 60s，给数据库更多启动时间
+
+  # 主应用服务（Spug）
+  spug:
+    # 使用本地镜像（含 Celery）
+    image: tdyw:v3.0
+    # 容器名称
+    container_name: tdyw
+    # 特权模式：容器可以访问宿主机所有设备
+    # 注意：生产环境不推荐使用 privileged，应移除此配置
+    privileged: true
+    # 容器退出时自动重启
+    restart: always
+    # 使用绝对路径的 Bind Mount 映射：将本地目录映射到容器内，便于开发时直接修改代码
+    # 开发环境：可以直接在宿主机修改代码，容器内实时生效（热重载）
+    # 生产环境：建议改为 Volume 方式
+    volumes:
+      # 前端构建产物目录映射（用于生产环境构建后的静态文件）
+      - E:/TDYW/spug-3.0/spug_web/build:/data/spug/spug_web/build
+      # 后端代码目录映射（用于开发时热重载）
+      - E:/TDYW/spug-3.0/spug_api:/data/spug/spug_api
+      # Development Nginx configuration mapping - 生产环境请使用更安全的配置方式
+      - E:/TDYW/spug-3.0/config/dev/nginx.conf:/etc/nginx/nginx.conf:ro
+      # Supervisor配置 - 多文件模式，主配置+子配置分离
+      - E:/TDYW/spug-3.0/config/dev/supervisor/supervisord.conf:/etc/supervisor/supervisord.conf:rw
+      - E:/TDYW/spug-3.0/config/dev/supervisor/conf.d:/etc/supervisor/conf.d:rw
+      - tdyw-documents:/data/spug/spug_api/storage/documents  # 资料库文件存储
+      - tdyw-document-chunks:/data/spug/spug_api/storage/document_chunks  # 资料库上传分片存储
+    # 端口映射：宿主机 80 -> 容器 80
+    # 开发环境仅使用 HTTP
+    ports:
+      - "80:80"
+      # 开发环境：暴露后端 API 端口，用于前端开发服务器代理
+      - "10001:9001"  # Django API (宿主机10001->容器9001，避开Hyper-V保留)
+      - "10002:9002"  # WebSocket (宿主机10002->容器9002，避开Hyper-V保留)
+    # 数据库连接配置（通过环境变量传递给应用）
+    environment:
+      - MYSQL_DATABASE=${MYSQL_DATABASE}          # 数据库名称
+      - MYSQL_USER=${MYSQL_USER}                  # 数据库用户
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}          # 数据库密码
+      # 使用服务名 'db' 作为主机名（Docker 内部网络通信）
+      # 容器之间通过服务名通信，不需要暴露 MySQL 端口到外网
+      - MYSQL_HOST=db
+      - MYSQL_PORT=3306              # 容器内 MySQL 端口
+      # Django SECRET_KEY - 生产环境应使用随机密钥，避免硬编码
+      # 开发环境使用默认值，生产环境请修改为随机字符串
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      # 开发环境：DEBUG模式开启
+      - DEBUG=True
+      # kkFileView 配置 - Office文档在线预览
+      # KKFILEVIEW_API_URL: 前端浏览器访问kkFileView的地址（通过Nginx代理）
+      # KKFILEVIEW_SERVER_URL: kkFileView访问spug API下载文件的地址
+      - KKFILEVIEW_API_URL=${KKFILEVIEW_API_URL:-/kkfileview}
+      - KKFILEVIEW_SERVER_URL=${KKFILEVIEW_SERVER_URL:-http://tdyw}
+    # 依赖关系：spug 服务依赖 db 服务，确保数据库健康后才启动
+    depends_on:
+      db:
+        condition: service_healthy
+    # 资源限制（与生产环境保持一致）
+    deploy:
+      resources:
+        limits:
+          cpus: '4'           # 主应用服务 CPU 限制（MD5计算、文件处理需较多CPU）
+          memory: 4G          # 主应用服务内存限制（资料库、运行日志、Celery需较大内存）
+        reservations:
+          cpus: '1'           # 保证至少 1 个 CPU 核心
+          memory: 1G          # 保证至少 1GB 内存
+    # 【gevent优化】文件描述符限制，支持高并发连接
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    # 健康检查：检查Web服务是否可访问
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ==================== kkFileView 文件预览服务 ====================
+  # Office文档在线预览服务（支持 doc/docx/xls/xlsx/ppt/pptx 等 80+ 格式）
+  # 部署文档：https://github.com/kekingcn/kkFileView
+  kkfileview:
+    image: keking/kkfileview:4.1.0
+    container_name: tdyw-kkfileview
+    restart: always
+    ports:
+      - "8012:8012"
+    environment:
+      - KK_CONTEXT_PATH=/kkfileview        # 上下文路径，与Nginx代理路径1:1映射
+      - KK_OFFICE_PREVIEW_TYPE=image       # Office预览方式：image(图片模式，性能好) 或 pdf
+      - KK_CACHE_ENABLED=true              # 启用缓存，避免重复转换
+      - KK_FILE_UPLOAD_ENABLED=false       # 禁止通过kkFileView上传文件（安全）
+      - KK_HISTORY_FILE_CLEAN_ENABLED=true  # 启用历史文件清理
+      - KK_HISTORY_FILE_CLEAN_CYCLE=720    # 清理周期（分钟），12小时
+      - KK_BASE_URL=${KKFILEVIEW_BASE_URL:-http://localhost/kkfileview}  # 浏览器访问kkFileView的外部地址，否则PDF预览会指向127.0.0.1
+      - TZ=Asia/Shanghai
+    volumes:
+      - kkfileview-cache:/opt/kkFileView-4.1.0/file  # 预览缓存持久化（路径与版本相关，升级时注意修改）
+    deploy:
+      resources:
+        limits:
+          cpus: '2'           # LibreOffice转换需要较多CPU
+          memory: 4G          # Office转换需要较大内存（大docx含图片需4G+）
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8012/kkfileview/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s     # LibreOffice首次启动较慢，给2分钟
+
+# 注意事项：
+# 1. 当前配置使用绝对路径，适用于 Windows 开发环境
+# 2. 部署到 Linux 生产环境时需要：
+#    - 将 Windows 路径改为 Linux 绝对路径（如 /opt/spug-3.0/data/mysql）
+#    - 考虑使用 Volume 替代 Bind Mount 以提升性能和安全性
+#    - 移除 privileged: true
+#    - 使用更安全的密码管理方式（环境变量或 secrets）
+# 3. 生产环境建议关闭 MySQL 端口的宿主机映射（ports: 3307:3306）
+#    仅在 Docker 内部网络通信，增强安全性
+
+# Volume 定义
+volumes:
+  mysql-data:
+    driver: local
+  tdyw-documents:
+    driver: local
+  tdyw-document-chunks:
+    driver: local
+  kkfileview-cache:
+    driver: local

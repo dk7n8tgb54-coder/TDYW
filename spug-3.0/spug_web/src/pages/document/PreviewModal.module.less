@@ -1,0 +1,96 @@
+.previewContainer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100%;
+  height: 100%;
+}
+
+.noPreview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 0;
+  color: #999;
+}
+
+.icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+}
+
+.hint {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+/* 文本/代码预览样式 */
+.codeContainer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.codeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px;
+  background: #fafafa;
+  border-bottom: 1px solid #e8e8e8;
+  min-height: 36px;
+}
+
+.codeLang {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: #e6f7ff;
+  color: #1890ff;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.codeInfo {
+  color: #999;
+  font-size: 12px;
+}
+
+/* 音频预览样式 */
+.audioContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 20px;
+}
+
+.audioIcon {
+  font-size: 72px;
+}
+
+.audioName {
+  font-size: 16px;
+  color: #333;
+  max-width: 80%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Office预览样式 */
+.officeContainer {
+  height: 100%;
+  width: 100%;
+}
+
+/* 加载样式 */
+.loadingContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 300px;
+}

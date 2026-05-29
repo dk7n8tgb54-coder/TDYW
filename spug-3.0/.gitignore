@@ -1,0 +1,74 @@
+# IDE
+/.idea/
+/.vscode/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+venv/
+env/
+ENV/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# 数据库（忽略备份和自动生成的数据库文件）
+mysql/
+backup_*.sql
+data/*.sql
+*.db
+*.sqlite
+*.sqlite3
+
+# 存储文件
+data/document-files/
+data/backend/storage/document_chunks/
+data/backend/storage/document_merge_tasks/
+data/backend/storage/transfer/
+repos/
+data/
+storage/
+backups/
+# 日志文件
+*.log
+logs/
+data/backend/logs/
+
+# 临时文件
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# 环境配置
+.env
+.env.local
+.env.*.local
+
+# 备份文件
+*.bak
+backup_*.sql
+
+# SSL 证书
+*.crt
+*.csr
+*.key
+*.pem
+# 视频
+*.mp4
+# Docker
+.docker/
+.env  

@@ -1,0 +1,17 @@
+[mysqld]
+# 批量删除优化配置 - 解决大批量删除导致的InnoDB崩溃问题
+
+# InnoDB缓冲池大小：提升缓存能力，减少磁盘I/O
+innodb_buffer_pool_size = 512M
+
+# 锁等待超时：从默认50秒增加到120秒
+# 允许长时间事务完成，避免批量删除时超时
+innodb_lock_wait_timeout = 120
+
+# 日志刷新策略：设置为2（每秒写入并刷新到磁盘）
+# 平衡性能和数据安全，避免每次事务都刷盘
+innodb_flush_log_at_trx_commit = 2
+
+# InnoDB日志缓冲区大小：从默认8M增加到64M
+# 减少频繁的日志写入操作，提升批量删除性能
+innodb_log_buffer_size = 64M

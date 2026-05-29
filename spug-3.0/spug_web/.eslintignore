@@ -1,0 +1,30 @@
+# 【任务5.1】ESLint 忽略配置
+# 这些文件和目录不会被 ESLint 检查
+
+# 构建输出
+build/
+dist/
+
+# 依赖
+node_modules/
+
+# 第三方库
+public/lib/
+
+# 测试覆盖率报告
+coverage/
+
+# 日志文件
+*.log
+
+# 配置文件
+*.config.js
+config-overrides.js
+
+# 自动生成的文件
+*.min.js
+*.bundle.js
+
+# 临时文件
+.temp/
+.tmp/

@@ -1,0 +1,4 @@
+Method,Name,Error,Occurrences
+POST,POST /api/interference/ (更新干扰记录),CatchResponseError('业务错误: 编辑失败：记录不存在或无权限编辑'),3
+DELETE,DELETE /api/interference/ (删除干扰记录),CatchResponseError('业务错误: None'),7
+DELETE,DELETE /api/interference/ (删除干扰记录),CatchResponseError('业务错误: 删除失败：记录不存在或无权限删除'),2

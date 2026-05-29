@@ -1,0 +1,90 @@
+/**
+ * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
+ * Copyright (c) <spug.dev@gmail.com>
+ * Released under the AGPL-3.0 License.
+ */
+import React from 'react';
+import {
+  DesktopOutlined,
+  SettingOutlined,
+  FolderOpenOutlined,
+  FileTextOutlined,
+  BugOutlined,
+  ExceptionOutlined,
+  CloudUploadOutlined,
+  ClockCircleOutlined,
+  CalendarOutlined,
+  ApartmentOutlined,
+  CheckSquareOutlined,
+  DeleteOutlined
+} from '@ant-design/icons';
+
+import HomeIndex from './pages/home';
+import RunLogIndex from './pages/runlog';
+import DeviceResume from './pages/device';
+import DeviceHistory from './pages/device/History';
+import ExecFaultRecord from './pages/exec/fault/record';
+import ExecFaultPart from './pages/exec/fault/part';
+import SystemAccount from './pages/system/account';
+import SystemRole from './pages/system/role';
+import SystemSetting from './pages/system/setting';
+import SystemLogin from './pages/system/login';
+import SystemAudit from './pages/system/audit';
+import WelcomeIndex from './pages/welcome/index';
+import WelcomeInfo from './pages/welcome/info';
+import DocumentIndex from './pages/document';
+import RecycleBinIndex from './pages/document/recycle-bin';
+import Interference from './pages/interference';
+import InterferenceStatistics from './pages/interference/Statistics';
+import ExecUpgradeRecord from './pages/upgrade';
+import ExecUpgradeStatistics from './pages/upgrade/Statistics';
+import ExecUpgradeTemplates from './pages/upgrade/TemplateManager';
+import ExecUpgradeChecklists from './pages/upgrade/ChecklistManager';
+import ExecDutyRecord from './pages/duty';
+import ScheduleIndex from './pages/schedule';
+import ScheduleBasis from './pages/schedule/BasisView';
+import CheckSheetIndex from './pages/checksheet';
+
+export default [
+  {icon: <DesktopOutlined/>, title: '工作台', path: '/home', component: HomeIndex},
+  {icon: <CheckSquareOutlined/>, title: '部门值班日检查单', auth: 'checksheet.checksheet.view', path: '/checksheet', component: CheckSheetIndex},
+  {icon: <FolderOpenOutlined/>, title: '资料库', auth: 'document.document.view', child: [
+    {title: '资料管理', auth: 'document.document.view', path: '/document', component: DocumentIndex},
+    {title: '回收站', auth: 'document.recycle-bin.view', path: '/document/recycle-bin', component: RecycleBinIndex},
+  ]},
+  {icon: <FileTextOutlined/>, title: '运行日志', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},
+  {icon: <ApartmentOutlined/>, title: '设备管理', auth: 'device.device_resume.view|device.device_history.view', child: [
+    {title: '设备履历', auth: 'device.device_resume.view', path: '/device/device_resume', component: DeviceResume},
+    {title: '查看履历', auth: 'device.device_history.view', path: '/device/device_history', component: DeviceHistory},
+  ]},
+  {icon: <ExceptionOutlined/>, title: '干扰管理', auth: 'interference.interference.view', child: [
+    {title: '干扰记录', auth: 'interference.interference.view', path: '/interference', component: Interference},
+    {title: '干扰统计', auth: 'interference.interference.view', path: '/interference/statistics', component: InterferenceStatistics},
+  ]},
+  {icon: <CloudUploadOutlined/>, title: '系统升级管理', auth: 'upgrade.upgrade.view', child: [
+    {title: '升级表单', auth: 'upgrade.upgrade.view', path: '/upgrade', component: ExecUpgradeRecord},
+    {title: '统计报表', auth: 'upgrade.upgrade.view', path: '/upgrade/statistics', component: ExecUpgradeStatistics},
+    {title: '升级模板', auth: 'upgrade.upgrade.view', path: '/upgrade/templates', component: ExecUpgradeTemplates},
+    {title: '步骤清单', auth: 'upgrade.upgrade.view', path: '/upgrade/checklists', component: ExecUpgradeChecklists},
+  ]},
+  {icon: <ClockCircleOutlined/>, title: '值班日志', auth: 'duty.duty.view', path: '/duty', component: ExecDutyRecord},
+  {icon: <CalendarOutlined/>, title: '排班管理', auth: 'schedule.schedule.view|schedule.staff.view|schedule.shift.view', child: [
+    {title: '排班日历', auth: 'schedule.schedule.view', path: '/schedule', component: ScheduleIndex},
+    {title: '基础数据', auth: 'schedule.staff.view', path: '/schedule/basis', component: ScheduleBasis},
+  ]},
+  {icon: <BugOutlined/>, title: '故障管理', auth: 'fault.faultrecord.view|fault.faultpart.view', child: [
+    {title: '故障处置记录', auth: 'fault.faultrecord.view', path: '/exec/fault/record', component: ExecFaultRecord},
+    {title: '故障件管理', auth: 'fault.faultpart.view', path: '/exec/fault/part', component: ExecFaultPart},
+  ]},
+  {
+    icon: <SettingOutlined/>, title: '系统管理', auth: "system.account.view|system.role.view|system.setting.view|system.audit.view", child: [
+      {title: '登录日志', auth: 'system.login.view', path: '/system/login', component: SystemLogin},
+      {title: '操作审计', auth: 'system.audit.view', path: '/system/audit', component: SystemAudit},
+      {title: '账户管理', auth: 'system.account.view', path: '/system/account', component: SystemAccount},
+      {title: '角色管理', auth: 'system.role.view', path: '/system/role', component: SystemRole},
+      {title: '系统设置', auth: 'system.setting.view', path: '/system/setting', component: SystemSetting},
+    ]
+  },
+  {path: '/welcome/index', component: WelcomeIndex},
+  {path: '/welcome/info', component: WelcomeInfo},
+]

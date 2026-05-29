@@ -1,0 +1,406 @@
+.container {
+  padding: 24px;
+  min-height: 100%;
+  background: #f0f2f5;
+}
+
+.statsRow {
+  margin: 16px 0;
+}
+
+.alert {
+  margin-bottom: 16px;
+}
+
+.tableCard {
+  margin-top: 16px;
+}
+
+.batchBar {
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: 4px;
+}
+
+.selectedInfo {
+  color: #52c41a;
+  font-size: 14px;
+}
+
+.fileName {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.displayName {
+  font-weight: 500;
+  color: #262626;
+}
+
+.originalName {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.folderPath {
+  color: #595959;
+}
+
+.rootFolder {
+  color: #bfbfbf;
+  font-style: italic;
+}
+
+.folderIcon {
+  font-size: 20px;
+  margin-right: 8px;
+}
+
+.urgentDays {
+  color: #ff4d4f;
+  font-weight: 500;
+}
+
+.normalDays {
+  color: #8c8c8c;
+}
+
+// 弹窗样式
+.restoreOptions {
+  padding: 16px;
+}
+
+.restoreOption {
+  padding: 16px;
+  margin-bottom: 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s;
+
+  &:hover {
+    border-color: #1890ff;
+  }
+
+  &.selected {
+    border-color: #1890ff;
+    background: #e6f7ff;
+  }
+}
+
+.optionTitle {
+  font-weight: 500;
+  font-size: 14px;
+  color: #262626;
+  margin-bottom: 4px;
+}
+
+.optionDesc {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.deleteWarning {
+  text-align: center;
+  padding: 24px;
+}
+
+.warningIcon {
+  font-size: 64px;
+  color: #ff4d4f;
+  margin-bottom: 16px;
+}
+
+.warningTitle {
+  font-size: 18px;
+  font-weight: 500;
+  color: #262626;
+  margin-bottom: 8px;
+}
+
+.warningDesc {
+  color: #8c8c8c;
+  margin-bottom: 24px;
+}
+
+.fileList {
+  max-height: 200px;
+  overflow-y: auto;
+  background: #f5f5f5;
+  border-radius: 4px;
+  padding: 12px;
+  margin: 16px 0;
+}
+
+.fileItem {
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: #fff;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.fileIcon {
+  font-size: 20px;
+}
+
+.fileInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.fileNameText {
+  font-size: 14px;
+  color: #262626;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileSize {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+// 【P2修复】DeleteModal 专用样式
+.deleteContent {
+  padding: 0;
+}
+
+.deleteStats {
+  background: #fff2f0;
+  border: 1px solid #ffccc7;
+  border-radius: 4px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.deleteStatItem {
+  text-align: center;
+}
+
+.deleteStatValue {
+  font-size: 20px;
+  font-weight: bold;
+  color: #ff4d4f;
+}
+
+.fileListSection {
+  margin-bottom: 16px;
+}
+
+.fileListContainer {
+  max-height: 200px;
+  overflow-y: auto;
+  background: #f5f5f5;
+  border-radius: 4px;
+  padding: 12px;
+  margin-top: 8px;
+}
+
+.deleteFileItem {
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: #fff;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.deleteFileItemUrgent {
+  border: 1px solid #ff4d4f;
+}
+
+.deleteFileInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.deleteFileName {
+  font-size: 14px;
+  color: #262626;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deleteFileMeta {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.moreFiles {
+  text-align: center;
+  padding: 8px;
+  color: #8c8c8c;
+  font-size: 12px;
+}
+
+.confirmSection {
+  margin-top: 16px;
+  padding: 12px;
+  background: #fafafa;
+  border-radius: 4px;
+}
+
+.loadingSection {
+  margin-top: 16px;
+  text-align: center;
+}
+
+// 【方案一新增】删除进度弹窗样式
+.totalProgress {
+  padding: 16px 0;
+  border-bottom: 1px solid #f0f0f0;
+  margin-bottom: 16px;
+}
+
+.progressHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.progressTitle {
+  font-size: 16px;
+  font-weight: 500;
+  color: #262626;
+}
+
+.progressCount {
+  font-size: 14px;
+  color: #8c8c8c;
+}
+
+.taskList {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.taskItem {
+  padding: 12px 0 !important;
+  border-bottom: 1px solid #f0f0f0 !important;
+
+  &:last-child {
+    border-bottom: none !important;
+  }
+}
+
+.taskContent {
+  width: 100%;
+}
+
+.taskHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.taskName {
+  font-size: 14px;
+  color: #262626;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileIcon {
+  color: #1890ff;
+  font-size: 16px;
+}
+
+.folderIcon {
+  color: #faad14;
+  font-size: 16px;
+}
+
+.taskProgress {
+  margin-bottom: 4px;
+}
+
+.taskMessage {
+  font-size: 12px;
+  color: #8c8c8c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progressHint {
+  text-align: center;
+  padding: 16px 0 0;
+  color: #8c8c8c;
+  font-size: 12px;
+  border-top: 1px solid #f0f0f0;
+  margin-top: 16px;
+}
+
+// 【新增】文件夹浏览样式
+.folderHeaderCard {
+  margin: 16px 0;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+}
+
+.folderBreadcrumb {
+  padding: 8px 0;
+  
+  :global {
+    .ant-breadcrumb {
+      font-size: 14px;
+    }
+  }
+}
+
+.breadcrumbLink {
+  padding: 0 !important;
+  height: auto !important;
+  
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.folderStats {
+  padding: 8px 12px;
+  background: #fff;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #595959;
+}
+
+.folderNameButton {
+  padding: 0 !important;
+  height: auto !important;
+  font-weight: 500;
+  
+  &:hover {
+    text-decoration: underline;
+  }
+  
+  strong {
+    font-weight: 600;
+  }
+}
+
+.contentStats {
+  color: #1890ff;
+  font-size: 13px;
+}

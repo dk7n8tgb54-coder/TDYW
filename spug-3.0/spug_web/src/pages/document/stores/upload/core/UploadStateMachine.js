@@ -1,0 +1,610 @@
+/**
+ * UploadStateMachine - 上传任务状态机（解耦版）
+ * 【任务4.1】使用事件总线替代隐式回调，与Store完全解耦
+ *
+ * 职责：
+ * - 只管理状态流转逻辑
+ * - 通过事件总线通知外部
+ * - 不直接依赖任何Store
+ *
+ * 依赖：
+ * - guards.js: 守卫条件函数
+ * - actions.js: 动作创建器（通过事件总线通信）
+ * - EventBus.js: 事件总线
+ */
+
+import {
+  canStart,
+  shouldResumeWaiting,
+  shouldRecalculateMD5,
+  shouldResumeUpload,
+  isNormalUpload,
+  isChunkedUpload
+} from './guards';
+
+import { createActions } from './actions';
+
+export class UploadStateMachine {
+  // 静态常量定义
+  static STATES = ['waiting', 'calculating', 'uploading', 'paused', 'merging', 'completed', 'error', 'cancelled'];
+  static EVENTS = ['START', 'MD5_COMPLETE', 'UPLOAD_COMPLETE', 'MERGE_SUCCESS', 'PAUSE', 'RESUME', 'ERROR', 'CANCEL'];
+
+  // 【任务3.3】监听器数量上限配置
+  static MAX_LISTENERS = 10;
+
+  constructor(uploadId, context = {}) {
+    this.uploadId = uploadId;
+    this.context = context;
+    this.currentState = 'waiting';
+    this.history = [];  // 状态历史记录
+    this.listeners = new Set();
+    this._listenerWarningEmitted = false;  // 【任务3.3】防止重复警告
+
+    // 创建 actions（通过事件总线与外部通信）
+    this.actions = createActions(uploadId);
+
+    // 状态定义
+    this.states = {
+      waiting: {
+        entry: this.onWaitingEntry.bind(this),
+        exit: this.onWaitingExit.bind(this),
+        transitions: {
+          START: { target: 'calculating', guard: this.canStart.bind(this) },
+          PAUSE: { target: 'paused' },
+          CANCEL: { target: 'cancelled', action: this.actions.onCancel }
+        }
+      },
+      calculating: {
+        entry: this.onCalculatingEntry.bind(this),
+        exit: this.onCalculatingExit.bind(this),
+        transitions: {
+          MD5_COMPLETE: { target: 'uploading' },
+          PAUSE: { target: 'paused' },
+          ERROR: { target: 'error' },
+          CANCEL: { target: 'cancelled', action: this.actions.onCancel }
+        }
+      },
+      uploading: {
+        entry: this.onUploadingEntry.bind(this),
+        exit: this.onUploadingExit.bind(this),
+        transitions: [
+          {
+            event: 'UPLOAD_COMPLETE',
+            target: 'completed',
+            guard: this.isNormalUpload.bind(this),
+            action: this.actions.onNormalUploadComplete
+          },
+          {
+            event: 'UPLOAD_COMPLETE',
+            target: 'merging',
+            guard: this.isChunkedUpload.bind(this)
+          },
+          { event: 'PAUSE', target: 'paused' },
+          { event: 'ERROR', target: 'error' },
+          { event: 'CANCEL', target: 'cancelled', action: this.actions.onCancel }
+        ]
+      },
+      paused: {
+        entry: this.onPausedEntry.bind(this),
+        exit: this.onPausedExit.bind(this),
+        transitions: [
+          {
+            event: 'RESUME',
+            target: 'waiting',
+            guard: this.shouldResumeWaiting.bind(this),
+            action: this.onResumeToWaitingAction.bind(this)
+          },
+          {
+            event: 'RESUME',
+            target: 'calculating',
+            guard: this.shouldRecalculateMD5.bind(this),
+            action: this.actions.onResumeToCalculating
+          },
+          {
+            event: 'RESUME',
+            target: 'uploading',
+            guard: this.shouldResumeUpload.bind(this),
+            action: this.actions.onResumeToUploading
+          },
+          { event: 'CANCEL', target: 'cancelled', action: this.actions.onCancel }
+        ]
+      },
+      merging: {
+        entry: this.onMergingEntry.bind(this),
+        exit: this.onMergingExit.bind(this),
+        transitions: {
+          MERGE_SUCCESS: { target: 'completed' },
+          ERROR: { target: 'error' },
+          CANCEL: { target: 'cancelled', action: this.actions.onCancel }
+        }
+      },
+      completed: {
+        entry: this.onCompletedEntry.bind(this),
+        type: 'final'
+      },
+      error: {
+        entry: this.onErrorEntry.bind(this),
+        transitions: {
+          RESUME: { target: 'waiting', action: this.onRetryAction.bind(this) }
+        }
+      },
+      cancelled: {
+        entry: this.onCancelledEntry.bind(this),
+        type: 'final'
+      }
+    };
+  }
+
+  // ============ 核心方法 ============
+
+  /**
+   * 状态转换
+   * @param {string} event - 事件名称
+   * @param {object} payload - 事件数据
+   * @returns {boolean} 转换是否成功
+   */
+  transition(event, payload = {}) {
+    console.log(`[UploadStateMachine] ${this.uploadId}: transition(${event}), currentState=${this.currentState}`);
+
+    // 输入验证
+    if (typeof event !== 'string' || !event.trim()) {
+      console.log(`[UploadStateMachine] ${this.uploadId}: 无效的事件名称`);
+      return false;
+    }
+
+    if (typeof payload !== 'object' || payload === null) {
+      console.log(`[UploadStateMachine] ${this.uploadId}: 无效的payload`);
+      return false;
+    }
+
+    const currentStateDef = this.states[this.currentState];
+
+    // 查找匹配的转换规则
+    const transition = this.findTransition(currentStateDef, event);
+
+    if (!transition) {
+      // 监控埋点：非法转换次数
+      if (this.context.metrics) {
+        this.context.metrics.invalidTransitions++;
+      }
+      return false;
+    }
+
+    // 检查守卫条件
+    if (transition.guard && !transition.guard(payload)) {
+      return false;
+    }
+
+    const fromState = this.currentState;
+    const toState = transition.target;
+
+    // 钩子函数异常防护
+    try {
+      console.log(`[UploadStateMachine] ${this.uploadId}: 执行exit钩子`);
+      // 执行退出动作
+      if (currentStateDef.exit) {
+        currentStateDef.exit(payload);
+      }
+
+      console.log(`[UploadStateMachine] ${this.uploadId}: 更新状态 ${fromState} -> ${toState}`);
+      // 更新状态
+      this.currentState = toState;
+      // 更新上下文
+      this.updateContext(payload);
+
+      // 记录历史
+      this.history.push({
+        from: fromState,
+        to: toState,
+        event,
+        timestamp: Date.now(),
+        payload
+      });
+
+      console.log(`[UploadStateMachine] ${this.uploadId}: 执行entry钩子 for ${toState}`);
+      // 执行进入动作
+      const toStateDef = this.states[toState];
+      if (toStateDef.entry) {
+        toStateDef.entry(payload);
+      }
+
+      console.log(`[UploadStateMachine] ${this.uploadId}: 执行action钩子`);
+      // 执行转换动作
+      if (transition.action) {
+        transition.action(payload);
+      }
+
+      console.log(`[UploadStateMachine] ${this.uploadId}: 准备通知监听器`);
+      // 通知监听器
+      this.notifyListeners(fromState, toState, event, payload);
+
+      // 总转换次数埋点
+      if (this.context.metrics) {
+        this.context.metrics.totalTransitions++;
+      }
+
+      return true;
+    } catch (error) {
+      // 钩子函数异常处理
+      console.error(`[UploadStateMachine] ${this.uploadId}: 状态转换异常 ${fromState} -> ${toState}`, error);
+
+      // 钩子异常次数埋点
+      if (this.context.metrics) {
+        this.context.metrics.hookErrors++;
+      }
+
+      // 标记为错误状态
+      this.currentState = 'error';
+      this.actions.reportError(`状态转换异常: ${error.message}`);
+
+      // 通知错误监听器
+      this.notifyListeners(fromState, 'error', 'ERROR', { error, originalEvent: event });
+
+      return false;
+    }
+  }
+
+  /**
+   * 查找转换规则
+   */
+  findTransition(stateDef, event) {
+    const transitions = stateDef.transitions;
+    if (!transitions) return null;
+
+    let candidates = [];
+
+    if (Array.isArray(transitions)) {
+      candidates = transitions.filter(t => t.event === event);
+    } else {
+      candidates = Object.entries(transitions)
+        .filter(([key]) => key === event)
+        .map(([_, value]) => value);
+    }
+
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0];
+
+    return candidates.find(t => !t.guard || t.guard()) || candidates[0];
+  }
+
+  /**
+   * 检查是否可以转换
+   */
+  canTransition(event) {
+    const currentStateDef = this.states[this.currentState];
+    const transition = this.findTransition(currentStateDef, event);
+    return !!transition;
+  }
+
+  /**
+   * 获取当前状态
+   */
+  getState() {
+    return this.currentState;
+  }
+
+  /**
+   * 获取上传项ID
+   */
+  getItemId() {
+    return this.uploadId;
+  }
+
+  /**
+   * 检查是否处于某状态
+   */
+  isInState(state) {
+    if (Array.isArray(state)) {
+      return state.includes(this.currentState);
+    }
+    return this.currentState === state;
+  }
+
+  /**
+   * 添加状态变更监听器
+   */
+  addListener(listener) {
+    // 【任务3.3】检查监听器数量上限
+    if (this.listeners.size >= UploadStateMachine.MAX_LISTENERS) {
+      if (!this._listenerWarningEmitted) {
+        console.warn(`[UploadStateMachine] ${this.uploadId}: 监听器数量已达上限(${UploadStateMachine.MAX_LISTENERS})`);
+        this._listenerWarningEmitted = true;
+      }
+      return () => {};
+    }
+
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * 通知监听器
+   */
+  notifyListeners(fromState, toState, event, payload) {
+    console.log(`[UploadStateMachine] ${this.uploadId}: notifyListeners, listenerCount=${this.listeners.size}`);
+    this.listeners.forEach((listener, index) => {
+      const scheduleTask = typeof queueMicrotask !== 'undefined'
+        ? queueMicrotask
+        : (fn) => Promise.resolve().then(fn);
+
+      scheduleTask(() => {
+        try {
+          console.log(`[UploadStateMachine] ${this.uploadId}: 调用监听器 #${index}`);
+          listener(fromState, toState, event, payload, this.uploadId);
+          console.log(`[UploadStateMachine] ${this.uploadId}: 监听器 #${index} 完成`);
+        } catch (error) {
+          console.error(`[UploadStateMachine] ${this.uploadId}: 监听器 #${index} 错误`, error);
+        }
+      });
+    });
+  }
+
+  /**
+   * 获取状态历史
+   */
+  getHistory() {
+    return [...this.history];
+  }
+
+  // ============ 状态钩子 ============
+
+  onWaitingEntry() {
+    this.actions.updateItem({
+      status: 'waiting',
+      error: null,
+      canAbort: false
+    });
+  }
+
+  onWaitingExit() {
+    // 清理等待状态
+  }
+
+  onCalculatingEntry() {
+    // 【P0修复】检查上传项是否存在
+    const item = this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId);
+    if (!item) {
+      console.warn(`[UploadStateMachine] ${this.uploadId}: item not found in onCalculatingEntry`);
+      // 延迟执行错误转换，避免同步调用导致的问题
+      const scheduleError = typeof queueMicrotask !== 'undefined'
+        ? queueMicrotask
+        : (fn) => Promise.resolve().then(fn);
+      scheduleError(() => {
+        // 【额外检查】确保状态机实例仍然存在（未被清理）
+        if (this.currentState === 'calculating' && this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId)) {
+          this.transition('ERROR', { error: '上传项不存在' });
+        }
+      });
+      return;
+    }
+
+    // 【P0修复】检查File对象是否存在
+    if (!item.file) {
+      console.warn(`[UploadStateMachine] ${this.uploadId}: file object not found`);
+      this.actions.updateItem({
+        status: 'error',
+        error: '请重新选择文件',
+        canAbort: false
+      });
+      // 延迟执行错误转换
+      const scheduleError = typeof queueMicrotask !== 'undefined'
+        ? queueMicrotask
+        : (fn) => Promise.resolve().then(fn);
+      scheduleError(() => {
+        // 【额外检查】确保状态机实例仍然存在
+        if (this.currentState === 'calculating' && this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId)) {
+          this.transition('ERROR', { error: '请重新选择文件' });
+        }
+      });
+      return;
+    }
+
+    this.actions.updateItem({
+      status: 'calculating',
+      percent: 0,
+      canAbort: true
+    });
+
+    // 启动MD5计算
+    this.actions.startMD5Calculation();
+  }
+
+  onCalculatingExit() {
+    // 中断MD5计算
+    this.actions.cancelMD5Calculation();
+  }
+
+  onUploadingEntry() {
+    this.actions.updateItem({
+      status: 'uploading',
+      canAbort: true
+    });
+  }
+
+  onUploadingExit() {
+    // 清理上传资源
+    const item = this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId);
+    if (item) {
+      this.actions.abortUpload(item.abortController, item.abortToken);
+    }
+    this.actions.cleanupUploadResources();
+  }
+
+  onPausedEntry() {
+    this.actions.updateItem({
+      status: 'paused',
+      error: '已暂停',
+      canAbort: false
+    });
+
+    // 更新后端状态
+    this.actions.updateTransferStatus('PAUSED');
+  }
+
+  onPausedExit() {
+    this.actions.updateItem({
+      error: null
+    });
+  }
+
+  onMergingEntry() {
+    // 【P0修复】检查上传项是否存在
+    const item = this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId);
+    if (!item) {
+      console.warn(`[UploadStateMachine] ${this.uploadId}: item not found in onMergingEntry`);
+      // 延迟执行错误转换
+      const scheduleError = typeof queueMicrotask !== 'undefined'
+        ? queueMicrotask
+        : (fn) => Promise.resolve().then(fn);
+      scheduleError(() => {
+        // 【额外检查】确保状态机实例仍然存在
+        if (this.currentState === 'merging' && this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId)) {
+          this.transition('ERROR', { error: '上传项不存在' });
+        }
+      });
+      return;
+    }
+
+    this.actions.updateItem({
+      status: 'merging',
+      canAbort: false
+    });
+  }
+
+  onMergingExit() {
+    // 清理合并资源
+  }
+
+  onCompletedEntry() {
+    this.actions.updateItem({
+      status: 'completed',
+      percent: 100,
+      canAbort: false
+    });
+
+    // 清理资源
+    this.actions.cleanupAllResources();
+
+    // 更新后端状态
+    this.actions.updateTransferStatus('COMPLETED');
+  }
+
+  onErrorEntry() {
+    this.actions.updateItem({
+      status: 'error',
+      canAbort: false
+    });
+
+    // error状态保留file对象用于重试
+    const scheduleCleanup = typeof queueMicrotask !== 'undefined'
+      ? queueMicrotask
+      : (fn) => Promise.resolve().then(fn);
+    scheduleCleanup(() => {
+      this.actions.cleanupUploadResources();
+    });
+  }
+
+  onCancelledEntry() {
+    console.log(`[UploadStateMachine] ${this.uploadId}: onCancelledEntry 开始`);
+    try {
+      this.actions.updateItem({
+        status: 'cancelled',
+        error: '已取消',
+        canAbort: false,
+        percent: 0
+      });
+
+      // 清理资源
+      this.actions.cleanupAllResources();
+
+      // 更新后端状态
+      this.actions.updateTransferStatus('CANCELED');
+      console.log(`[UploadStateMachine] ${this.uploadId}: onCancelledEntry 完成`);
+    } catch (error) {
+      console.error(`[UploadStateMachine] ${this.uploadId}: onCancelledEntry 异常`, error);
+      throw error;
+    }
+  }
+
+  // ============ 守卫条件包装器 ============
+
+  /**
+   * 【P0修复】检查是否可以启动上传
+   * 增强健壮性，确保即使context不完整也能正常工作
+   */
+  canStart() {
+    // 【修复】优先从context获取item（如果创建时已传入）
+    let item = this.context.item;
+    
+    // 如果context中没有item，从queueStore查找
+    if (!item && this.context.queueStore) {
+      item = this.context.queueStore.findUploadItemInCurrentTenant(this.uploadId);
+    }
+    
+    // 【修复】如果没有找到item，说明队列中不存在此任务，不能启动
+    if (!item) {
+      console.warn(`[canStart] ${this.uploadId}: item not found in queue`);
+      return false;
+    }
+    
+    // 【修复】检查是否被取消（优先使用item的属性，其次是context）
+    const isCancelledByUser = item.isCancelledByUser || this.context.isCancelledByUser;
+    
+    return canStart({ item, isCancelledByUser });
+  }
+
+  shouldResumeWaiting() {
+    const item = this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId);
+    return shouldResumeWaiting({ item, history: this.history });
+  }
+
+  shouldRecalculateMD5() {
+    const item = this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId);
+    return shouldRecalculateMD5({ item });
+  }
+
+  shouldResumeUpload() {
+    const item = this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId);
+    return shouldResumeUpload({ item });
+  }
+
+  isNormalUpload() {
+    const item = this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId);
+    return isNormalUpload({ item });
+  }
+
+  isChunkedUpload() {
+    const item = this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId);
+    return isChunkedUpload({ item });
+  }
+
+  // ============ 动作包装器 ============
+
+  onResumeToWaitingAction() {
+    const item = this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId);
+    const needsReSelect = !item?.file;
+    this.actions.onResumeToWaiting(needsReSelect);
+  }
+
+  onRetryAction() {
+    this.actions.onRetry();
+
+    // 重试后自动开始上传
+    const scheduleStart = typeof queueMicrotask !== 'undefined'
+      ? queueMicrotask
+      : (fn) => Promise.resolve().then(fn);
+    scheduleStart(() => {
+      if (this.currentState === 'waiting' && this.canTransition('START')) {
+        this.transition('START');
+      }
+    });
+  }
+
+  // ============ 辅助方法 ============
+
+  updateContext(updates) {
+    this.context = { ...this.context, ...updates };
+  }
+}
+
+export default UploadStateMachine;

@@ -1,0 +1,180 @@
+.container {
+  padding: 16px 12px;
+  border-right: 1px solid #f0f0f0;
+  background: #fafbfc;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.treeWrapper {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: auto;
+  min-height: 0;
+
+  // 滚动条美化
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: #d9d9d9;
+    border-radius: 3px;
+
+    &:hover {
+      background: #bfbfbf;
+    }
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1a1a1a;
+  letter-spacing: 0.5px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+}
+
+// 根节点样式
+.rootNode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 14px;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: rgba(24, 144, 255, 0.06);
+  }
+}
+
+.privateRoot {
+  composes: rootNode;
+  color: #595959;
+}
+
+.publicRoot {
+  composes: rootNode;
+  color: #1890ff;
+}
+
+.rootEmoji {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.rootLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// 子文件夹节点样式
+.folderNode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #595959;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: rgba(24, 144, 255, 0.04);
+    color: #262626;
+  }
+}
+
+.folderEmoji {
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.folderName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folderCreator {
+  font-size: 11px;
+  color: #bfbfbf;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+// Ant Design Tree 覆盖样式
+:global {
+  .ant-tree {
+    background: transparent !important;
+    font-size: 13px;
+
+    .ant-tree-treenode {
+      padding: 2px 0;
+      border-radius: 6px;
+      transition: all 0.15s ease;
+
+      &:hover {
+        background: rgba(24, 144, 255, 0.04) !important;
+      }
+
+      &.ant-tree-treenode-selected {
+        background: #e6f7ff !important;
+
+        .ant-tree-node-content-wrapper {
+          color: #1890ff;
+          font-weight: 500;
+        }
+      }
+    }
+
+    .ant-tree-node-content-wrapper {
+      padding: 0 4px;
+      border-radius: 4px;
+      min-height: 28px;
+      line-height: 28px;
+
+      &:hover {
+        background: transparent !important;
+      }
+
+      &.ant-tree-node-content-wrapper-normal:hover {
+        background: transparent !important;
+      }
+    }
+
+    .ant-tree-indent-unit {
+      width: 20px;
+    }
+  }
+}

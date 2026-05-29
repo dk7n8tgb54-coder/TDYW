@@ -1,0 +1,244 @@
+/**
+ * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
+ * Copyright (c) <spug.dev@gmail.com>
+ * Released under the AGPL-3.0 License.
+ */
+
+/* 矩阵表格容器 */
+.matrix-table-container {
+  overflow-x: auto;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+}
+
+/* 矩阵表格 */
+.matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.matrix-table thead tr {
+  background-color: #fafafa;
+}
+
+.matrix-table th,
+.matrix-table td {
+  border: 1px solid #d9d9d9;
+  padding: 8px 4px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* 列标题 */
+.matrix-table th.col-item {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background-color: #fafafa;
+  min-width: 200px;
+  max-width: 300px;
+  text-align: left;
+  padding: 12px 8px;
+  font-weight: 600;
+  border-right: 2px solid #d9d9d9;
+}
+
+.matrix-table th.col-day {
+  min-width: 45px;
+  max-width: 45px;
+  font-weight: 600;
+}
+
+/* 数据行 */
+.matrix-table td.col-item {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background-color: #fff;
+  min-width: 200px;
+  max-width: 300px;
+  text-align: left;
+  border-right: 2px solid #d9d9d9;
+}
+
+/* 检查项目名称 */
+.item-name {
+  word-wrap: break-word;
+  line-height: 1.4;
+}
+
+/* 日期列 */
+.matrix-table td.col-day {
+  min-width: 45px;
+  max-width: 45px;
+  padding: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.matrix-table td.col-day:hover {
+  background-color: #e6f7ff !important;
+}
+
+/* 不同状态的单元格样式 */
+.matrix-table td.col-day.normal {
+  background-color: #f6ffed;
+}
+
+.matrix-table td.col-day.normal:hover {
+  background-color: #d9f7be !important;
+}
+
+.matrix-table td.col-day.abnormal {
+  background-color: #fff1f0;
+  animation: pulse 1s ease-in-out;
+}
+
+.matrix-table td.col-day.abnormal:hover {
+  background-color: #ffccc7 !important;
+}
+
+.matrix-table td.col-day.unchecked {
+  background-color: #fafafa;
+}
+
+.matrix-table td.col-day.unchecked:hover {
+  background-color: #f5f5f5 !important;
+}
+
+/* 勾选框容器 */
+.checkbox-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex-direction: column;
+}
+
+/* 状态标签 */
+.status-label {
+  font-size: 14px;
+  font-weight: bold;
+  margin-top: 2px;
+}
+
+.matrix-table td.col-day.normal .status-label {
+  color: #52c41a;
+}
+
+.matrix-table td.col-day.abnormal .status-label {
+  color: #ff4d4f;
+}
+
+.matrix-table td.col-day.unchecked .status-label {
+  color: #d9d9d9;
+}
+
+/* 统计卡片 */
+.stat-item {
+  text-align: center;
+  padding: 16px;
+  background: #f5f5f5;
+  border-radius: 4px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: bold;
+  color: #1890ff;
+}
+
+.stat-normal .stat-value {
+  color: #52c41a;
+}
+
+.stat-abnormal .stat-value {
+  color: #ff4d4f;
+}
+
+.stat-unchecked .stat-value {
+  color: #d9d9d9;
+}
+
+/* 图例 */
+.legend {
+  margin-top: 16px;
+  padding: 12px;
+  background: #fafafa;
+  border-radius: 4px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.legend-checkbox.normal {
+  border-color: #52c41a;
+}
+
+.legend-checkbox.abnormal {
+  border-color: #ff4d4f;
+}
+
+.legend-checkbox.unchecked {
+  border-color: #d9d9d9;
+}
+
+/* 脉冲动画 */
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* 响应式调整 */
+@media (max-width: 1400px) {
+  .matrix-table th.col-item,
+  .matrix-table td.col-item {
+    min-width: 180px;
+    max-width: 250px;
+  }
+
+  .item-name {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 768px) {
+  .matrix-table th.col-day,
+  .matrix-table td.col-day {
+    min-width: 40px;
+    max-width: 40px;
+    padding: 4px 2px;
+  }
+
+  .status-label {
+    font-size: 12px;
+  }
+}

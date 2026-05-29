@@ -1,0 +1,58 @@
+
+1.test_account_models.py - 用户账户模块（10个测试）
+✅ 用户模型：创建用户、密码哈希、全局管理员判断
+✅ 角色模型：创建角色、权限管理、缓存清除
+✅ 登录历史：记录用户登录信息
+docker exec spug python3 /data/spug/spug_api/manage.py test tests.test_account_models --settings=spug.test_settings
+
+2. test_home_models.py - 首页模块（15个测试）
+✅ 通知：创建普通/重要通知、读取状态、排序
+✅ 导航：创建快捷导航、链接管理
+✅ 待办事项：创建待办、优先级设置、状态管理、完成操作
+docker exec spug python3 /data/spug/spug_api/manage.py test tests.test_home_models --settings=spug.test_settings
+
+3.Document 测试内容（10个测试）
+文件夹功能测试（5个）
+test_create_folder	创建根文件夹
+test_create_subfolder	创建子文件夹，验证父文件夹关系
+test_folder_str	文件夹字符串表示
+test_folder_ordering	文件夹按创建时间倒序排序
+文件功能测试（6个）
+test_create_file	创建文件，验证文件夹关联、文件大小、类型
+test_create_file_without_folder	创建根目录下的文件
+test_file_str	文件字符串表示
+test_file_folder_relation	文件与文件夹的关联关系（通过 folder.files 访问）
+test_file_ordering	文件按创建时间倒序排序
+test_delete_folder_cascade	删除文件夹时级联删除下属文件
+
+docker exec spug python3 /data/spug/spug_api/manage.py test tests.test_document_models --settings=spug.test_settings
+docker exec spug python3 /data/spug/spug_api/manage.py test tests.test_document_models --settings=spug.settings
+
+4. test_exec_models.py - 执行运维模块（15个测试）
+✅ 运行日志：记录系统运行状态
+✅ 故障记录：设备故障跟踪、处理流程
+✅ 故障部件：维修部件管理
+✅ 干扰记录：信号干扰上报
+✅ 升级记录：系统版本升级管理
+✅ 值班记录：值班日志记录
+✅ 交接班：换班流程管理
+✅ 排班管理：人员、班次、时间配置
+✅ 换班/替班：排班变更申请与审批
+docker exec spug python3 /data/spug/spug_api/manage.py test tests.test_exec_models --settings=spug.test_settings
+5. test_tenant_isolation.py - 多租户隔离（5个测试）
+✅ 数据隔离：不同租户数据严格隔离
+✅ 权限过滤：用户只能访问自己租户的数据
+✅ 全局管理员：可查看所有租户数据
+docker exec spug python3 /data/spug/spug_api/manage.py test tests.test_tenant_isolation --settings=spug.test_settings
+
+
+
+docker exec spug python3 /data/spug/spug_api/manage.py test tests.test_home_api --settings=spug.test_settings
+docker exec spug python3 /data/spug/spug_api/manage.py test tests.test_exec_api --settings=spug.test_settings
+docker exec spug python3 /data/spug/spug_api/manage.py test tests.test_document_api --settings=spug.test_settings
+
+docker exec spug python3 /data/spug/spug_api/manage.py test tests.test_home_api --settings=spug.test_settings
+docker exec spug python3 /data/spug/spug_api/manage.py test tests.test_exec_api --settings=spug.test_settings
+docker exec spug python3 /data/spug/spug_api/manage.py test tests.test_document_api --settings=spug.test_settings	
+
+

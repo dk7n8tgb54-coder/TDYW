@@ -1,0 +1,808 @@
+/**
+ * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
+ * Copyright (c) <spug.dev@gmail.com>
+ * Released under the AGPL-3.0 License.
+ */
+import { observable, action, computed } from 'mobx';
+import * as service from './service';
+import { message } from 'antd';
+
+class RecycleBinStore {
+  // ========== 列表数据 ==========
+  @observable items = [];
+  @observable total = 0;
+  @observable page = 1;
+  @observable pageSize = 20;
+  @observable loading = false;
+  
+  // ========== 查询条件 ==========
+  @observable keyword = '';
+  @observable space = 'all'; // private/public/all
+  
+  // 【P0修复】请求序列号，防止竞态条件
+  _requestId = 0;
+  
+  // ========== 选中项 ==========
+  @observable selectedRowKeys = [];
+  @observable selectedRows = [];
+  
+  // ========== 统计数据 ==========
+  @observable stats = {
+    total_count: 0,
+    total_size: 0,
+    private_count: 0,
+    private_size: 0,
+    public_count: 0,
+    public_size: 0,
+    expiring_soon: 0,
+    retention_days: 30
+  };
+  @observable statsLoading = false;
+  
+  // ========== 弹窗状态 ==========
+  @observable restoreVisible = false;
+  @observable deleteVisible = false;
+  @observable restoreMode = 'original'; // original/current/custom
+  @observable targetFolderId = null;
+  
+  // ========== 操作状态 ==========
+  @observable operationLoading = false;
+  @observable operationProgress = 0;
+  
+  // 【P1修复】幂等键存储
+  @observable idempotentKey = null;
+
+  // 【方案一新增】删除任务进度管理
+  @observable deleteTasks = new Map(); // {taskId: {fileName, progress, status, message}}
+  @observable deleteProgressVisible = false; // 批量删除进度弹窗显示状态
+  
+  // 【新增】文件夹浏览状态
+  @observable currentFolder = null; // 当前查看的文件夹 {id, name, space, parent_chain}
+  @observable folderContent = []; // 文件夹内容
+  @observable folderContentTotal = 0;
+  @observable folderContentPage = 1;
+  @observable folderContentPageSize = 50;
+
+  // ========== 计算属性 ==========
+  @computed get hasSelected() {
+    return this.selectedRowKeys.length > 0;
+  }
+
+  @computed get selectedCount() {
+    return this.selectedRowKeys.length;
+  }
+
+  @computed get selectedTotalSize() {
+    return this.selectedRows.reduce((sum, row) => {
+      // 文件夹使用 total_size，文件使用 file_size
+      const size = row.type === 'folder' ? (row.total_size || 0) : (row.file_size || 0);
+      return sum + size;
+    }, 0);
+  }
+
+  // 【P1修复】改为普通方法，修复计算属性返回函数的问题
+  isExpiringSoon(daysLeft) {
+    return daysLeft <= 7;
+  }
+
+  // ========== Actions ==========
+  
+/**
+   * 获取回收站列表
+   */
+  @action
+  fetchList = async () => {
+    this.loading = true;
+    // 【P2修复】创建AbortController用于取消请求
+    this._abortController = new AbortController();
+    // 【P0修复】生成请求序列号
+    const requestId = ++this._requestId;
+    const currentSpace = this.space; // 记录当前请求的空间
+    
+    try {
+      const params = {
+        page: this.page,
+        page_size: this.pageSize,
+        space: this.space,
+      };
+      if (this.keyword) {
+        params.keyword = this.keyword;
+      }
+      
+      const data = await service.getRecycleBinList(params, this._abortController.signal);
+      
+      // 【P0修复】检查请求是否已过期（空间已切换或新请求已发出）
+      if (requestId !== this._requestId) {
+        console.log('[RecycleBinStore] 忽略过期请求结果:', { requestId, current: this._requestId, space: currentSpace });
+        return;
+      }
+      
+      console.log('[RecycleBinStore] 收到数据:', { space: currentSpace, items: data.items?.length, total: data.total });
+      this.items = data.items || [];
+      this.total = data.total || 0;
+    } catch (error) {
+      // 【P2修复】忽略取消请求的错误
+      if (error.name === 'AbortError') {
+        console.log('[RecycleBin] 请求已取消');
+        return;
+      }
+      message.error('获取回收站列表失败');
+      console.error('Fetch recycle bin list error:', error);
+    } finally {
+      this.loading = false;
+      this._abortController = null;
+    }
+  };
+
+  /**
+   * 获取统计数据
+   */
+  @action
+  fetchStats = async () => {
+    this.statsLoading = true;
+    try {
+      const data = await service.getRecycleBinStats();
+      this.stats = { ...this.stats, ...data };
+    } catch (error) {
+      console.error('Fetch recycle bin stats error:', error);
+    } finally {
+      this.statsLoading = false;
+    }
+  };
+
+  /**
+   * 刷新数据（列表+统计）
+   */
+  @action
+  refresh = async () => {
+    await Promise.all([
+      this.fetchList(),
+      this.fetchStats()
+    ]);
+  };
+
+  /**
+   * 页码变化
+   */
+  @action
+  setPage = (page) => {
+    this.page = page;
+    this.fetchList();
+  };
+
+  /**
+   * 每页数量变化
+   */
+  @action
+  setPageSize = (pageSize) => {
+    this.pageSize = pageSize;
+    this.page = 1;
+    this.fetchList();
+  };
+
+  /**
+   * 搜索关键词变化
+   */
+  @action
+  setKeyword = (keyword) => {
+    this.keyword = keyword;
+  };
+
+  /**
+   * 执行搜索
+   */
+  @action
+  doSearch = () => {
+    // 【P0修复】取消进行中的请求并递增序列号
+    if (this._abortController) {
+      this._abortController.abort();
+      this._abortController = null;
+    }
+    this._requestId++;
+    
+    this.page = 1;
+    this.fetchList();
+  };
+
+  /**
+   * 空间筛选变化
+   */
+  @action
+  setSpace = (space) => {
+    console.log('[RecycleBinStore] 切换空间:', { from: this.space, to: space });
+    // 【P1修复】如果空间没有变化，不重新加载
+    if (this.space === space) {
+      console.log('[RecycleBinStore] 空间未变化，跳过加载');
+      return;
+    }
+    
+    // 【P0修复】取消进行中的请求并递增序列号
+    if (this._abortController) {
+      this._abortController.abort();
+      this._abortController = null;
+    }
+    this._requestId++; // 递增序列号，使过期请求被忽略
+    
+    this.space = space;
+    this.page = 1;
+    this.selectedRowKeys = []; // 【P1修复】切换空间时清空选中
+    this.selectedRows = [];
+    this.fetchList();
+  };
+
+  /**
+   * 选中项变化
+   */
+  @action
+  setSelectedRows = (selectedRowKeys, selectedRows) => {
+    this.selectedRowKeys = selectedRowKeys;
+    this.selectedRows = selectedRows;
+  };
+
+  /**
+   * 清空选中
+   */
+  @action
+  clearSelection = () => {
+    this.selectedRowKeys = [];
+    this.selectedRows = [];
+  };
+
+  /**
+   * 【P1修复】显示恢复弹窗 - 弹窗打开时生成幂等键
+   */
+  @action
+  showRestoreModal = () => {
+    if (!this.hasSelected) {
+      message.warning('请选择要恢复的项目');
+      return;
+    }
+    this.restoreMode = 'original';
+    this.targetFolderId = null;
+    this.restoreVisible = true;
+    // 【P1修复】弹窗打开时生成幂等键，确保重试时幂等性
+    this.idempotentKey = service.generateIdempotentKey();
+  };
+
+  /**
+   * 关闭恢复弹窗
+   */
+  @action
+  hideRestoreModal = () => {
+    this.restoreVisible = false;
+  };
+
+  /**
+   * 设置恢复模式
+   */
+  @action
+  setRestoreMode = (mode) => {
+    this.restoreMode = mode;
+  };
+
+  /**
+   * 设置目标文件夹
+   */
+  @action
+  setTargetFolderId = (folderId) => {
+    this.targetFolderId = folderId;
+  };
+
+  /**
+   * 【P1修复】执行恢复 - 使用弹窗打开时生成的幂等键
+   * 【修复】区分文件和文件夹，调用不同的API
+   */
+  @action
+  doRestore = async () => {
+    if (!this.hasSelected) {
+      message.warning('请选择要恢复的项目');
+      return;
+    }
+
+    this.operationLoading = true;
+    try {
+      // 【修复】分离文件和文件夹
+      const fileIds = [];
+      const folderIds = [];
+      
+      this.selectedRows.forEach(row => {
+        if (row.type === 'folder') {
+          folderIds.push(row.id);
+        } else {
+          fileIds.push(row.id);
+        }
+      });
+
+      let fileResult = null;
+      let folderResult = null;
+
+      // 恢复文件
+      if (fileIds.length > 0) {
+        const fileData = {
+          file_ids: fileIds,
+          restore_mode: this.restoreMode,
+          idempotent_key: this.idempotentKey,
+        };
+
+        if (this.restoreMode === 'custom' && this.targetFolderId) {
+          fileData.target_folder_id = this.targetFolderId;
+        }
+        
+        if (this.restoreMode === 'current') {
+          const currentFolderId = this.getCurrentFolderId();
+          if (currentFolderId) {
+            fileData.current_folder_id = currentFolderId;
+          }
+        }
+
+        fileResult = await service.restoreFiles(fileData);
+      }
+
+      // 恢复文件夹
+      if (folderIds.length > 0) {
+        const folderData = {
+          folder_ids: folderIds,
+          restore_mode: this.restoreMode === 'current' ? 'original' : this.restoreMode, // 文件夹不支持current模式
+          idempotent_key: this.idempotentKey,
+        };
+
+        if (this.restoreMode === 'custom' && this.targetFolderId) {
+          folderData.target_parent_id = this.targetFolderId;
+        }
+
+        folderResult = await service.restoreFolders(folderData);
+      }
+
+      // 合并结果
+      const totalSuccess = (fileResult?.success_count || 0) + (folderResult?.success_count || 0);
+      const totalFailed = (fileResult?.failed_count || 0) + (folderResult?.failed_count || 0);
+      
+      if (totalFailed > 0) {
+        message.warning(`恢复完成：成功${totalSuccess}个，失败${totalFailed}个`);
+      } else {
+        message.success(`成功恢复${totalSuccess}个项目`);
+      }
+      
+      // 【P1修复】成功后清空选中项
+      this.restoreVisible = false;
+      this.clearSelection();
+      await this.refresh();
+      
+      return {
+        success_count: totalSuccess,
+        failed_count: totalFailed,
+        file_result: fileResult,
+        folder_result: folderResult,
+      };
+    } catch (error) {
+      message.error('恢复失败');
+      throw error;
+    } finally {
+      this.operationLoading = false;
+    }
+  };
+
+  /**
+   * 显示删除弹窗
+   */
+  @action
+  showDeleteModal = () => {
+    if (!this.hasSelected) {
+      message.warning('请选择要删除的项目');
+      return;
+    }
+    this.deleteVisible = true;
+  };
+
+  /**
+   * 关闭删除弹窗
+   */
+  @action
+  hideDeleteModal = () => {
+    this.deleteVisible = false;
+  };
+
+  /**
+   * 执行彻底删除
+   * 【修复】区分文件和文件夹，调用不同的API
+   * 【方案一新增】支持异步删除进度轮询
+   */
+  @action
+  doPermanentDelete = async () => {
+    if (!this.hasSelected) {
+      message.warning('请选择要删除的项目');
+      return;
+    }
+
+    this.operationLoading = true;
+    const asyncTasks = []; // 存储异步任务信息
+    
+    try {
+      // 【修复】分离文件和文件夹
+      const fileIds = [];
+      const folderIds = [];
+      
+      this.selectedRows.forEach(row => {
+        if (row.type === 'folder') {
+          folderIds.push(row.id);
+        } else {
+          fileIds.push(row.id);
+        }
+      });
+
+      let fileResult = null;
+      let folderResult = null;
+
+      // 删除文件
+      if (fileIds.length > 0) {
+        const fileData = {
+          file_ids: fileIds,
+          async_mode: true, // 【方案一】统一使用异步模式以支持进度查询
+        };
+        fileResult = await service.permanentDeleteFiles(fileData);
+        if (fileResult?.async && fileResult?.task_id) {
+          asyncTasks.push({
+            taskId: fileResult.task_id,
+            fileName: `文件 (${fileIds.length}个)`,
+            type: 'file',
+            count: fileIds.length,
+          });
+        }
+      }
+
+      // 删除文件夹
+      if (folderIds.length > 0) {
+        const folderData = {
+          folder_ids: folderIds,
+          async_mode: true, // 【方案一】统一使用异步模式以支持进度查询
+        };
+        folderResult = await service.permanentDeleteFolders(folderData);
+        if (folderResult?.async && folderResult?.task_id) {
+          asyncTasks.push({
+            taskId: folderResult.task_id,
+            fileName: `文件夹 (${folderIds.length}个)`,
+            type: 'folder',
+            count: folderIds.length,
+          });
+        }
+      }
+
+      // 【方案一新增】如果有异步任务，显示进度弹窗并开始轮询
+      if (asyncTasks.length > 0) {
+        this.deleteVisible = false;
+        this.deleteProgressVisible = true;
+        
+        // 初始化任务状态
+        asyncTasks.forEach(task => {
+          this.deleteTasks.set(task.taskId, {
+            fileName: task.fileName,
+            progress: 0,
+            status: 'PENDING',
+            message: '等待中...',
+          });
+        });
+        
+        // 开始轮询所有任务
+        this.pollDeleteProgress(asyncTasks);
+      } else {
+        // 同步删除结果（兼容旧逻辑）
+        const totalSuccess = (fileResult?.success_count || 0) + (folderResult?.success_count || 0);
+        const totalFailed = (fileResult?.failed_count || 0) + (folderResult?.failed_count || 0);
+        const totalFreed = (fileResult?.freed_space || 0) + (folderResult?.freed_space || 0);
+        
+        if (totalFailed > 0) {
+          message.warning(`删除完成：成功${totalSuccess}个，失败${totalFailed}个，释放${service.formatFileSize(totalFreed)}`);
+        } else {
+          message.success(`成功删除${totalSuccess}个项目，释放${service.formatFileSize(totalFreed)}`);
+        }
+        
+        this.deleteVisible = false;
+        this.clearSelection();
+        await this.refresh();
+      }
+      
+      return {
+        async: asyncTasks.length > 0,
+        tasks: asyncTasks,
+        file_result: fileResult,
+        folder_result: folderResult,
+      };
+    } catch (error) {
+      message.error('删除失败');
+      throw error;
+    } finally {
+      this.operationLoading = false;
+    }
+  };
+
+  /**
+   * 【方案一新增】轮询删除任务进度
+   * @param {Array} tasks - 任务列表 [{taskId, fileName, type, count}]
+   */
+  @action
+  pollDeleteProgress = async (tasks) => {
+    const maxAttempts = 120; // 最多轮询120次（4分钟，每2秒一次）
+    const interval = 2000;   // 每2秒轮询一次
+    const pendingTasks = new Set(tasks.map(t => t.taskId));
+    
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (pendingTasks.size === 0) break; // 所有任务完成
+      
+      await new Promise(resolve => setTimeout(resolve, interval));
+      
+      // 并行查询所有待处理任务
+      const checkPromises = Array.from(pendingTasks).map(async (taskId) => {
+        try {
+          const status = await service.getTaskStatus(taskId);
+          
+          // 更新任务状态
+          const taskInfo = this.deleteTasks.get(taskId) || {};
+          this.deleteTasks.set(taskId, {
+            ...taskInfo,
+            progress: status.progress || 0,
+            status: status.state,
+            message: this._getStatusMessage(status),
+          });
+          
+          // 检查任务是否完成
+          if (status.ready) {
+            pendingTasks.delete(taskId);
+            
+            if (status.successful) {
+              this.deleteTasks.set(taskId, {
+                ...taskInfo,
+                progress: 100,
+                status: 'SUCCESS',
+                message: '删除成功',
+              });
+            } else {
+              this.deleteTasks.set(taskId, {
+                ...taskInfo,
+                status: 'FAILURE',
+                message: status.error || '删除失败',
+              });
+            }
+          }
+          
+          return { taskId, status };
+        } catch (error) {
+          console.error(`[RecycleBin] 查询任务状态失败: ${taskId}`, error);
+          return { taskId, error };
+        }
+      });
+      
+      await Promise.all(checkPromises);
+    }
+    
+    // 所有任务完成后的处理
+    const hasFailures = Array.from(this.deleteTasks.values()).some(t => t.status === 'FAILURE');
+    const allSuccess = Array.from(this.deleteTasks.values()).every(t => t.status === 'SUCCESS');
+    
+    if (allSuccess) {
+      message.success('所有删除任务已完成');
+    } else if (hasFailures) {
+      message.warning('部分删除任务失败，请查看详情');
+    } else {
+      message.info('删除任务已完成');
+    }
+    
+    // 延迟关闭进度弹窗并刷新列表
+    setTimeout(() => {
+      this.deleteProgressVisible = false;
+      this.deleteTasks.clear();
+      this.clearSelection();
+      this.refresh();
+    }, 1500);
+  };
+
+  /**
+   * 【方案一新增】获取状态描述消息
+   */
+  _getStatusMessage = (status) => {
+    if (status.state === 'PENDING') return '等待中...';
+    if (status.state === 'STARTED') return '开始执行...';
+    if (status.state === 'PROGRESS') {
+      return `正在删除... ${status.progress || 0}% (${status.processed || 0}/${status.total || 0})`;
+    }
+    if (status.state === 'SUCCESS') return '删除成功';
+    if (status.state === 'FAILURE') return status.error || '删除失败';
+    return status.state;
+  };
+
+  /**
+   * 【方案一新增】关闭删除进度弹窗
+   */
+  @action
+  hideDeleteProgress = () => {
+    this.deleteProgressVisible = false;
+  };
+
+  /**
+   * 【P1/P2/P0修复】重置状态 - 补充缺失的状态重置
+   * 【方案一新增】重置删除任务状态
+   */
+  @action
+  reset = () => {
+    this.items = [];
+    this.total = 0;
+    this.page = 1;
+    this.pageSize = 20;
+    this.keyword = '';
+    this.space = 'all';
+    this.selectedRowKeys = [];
+    this.selectedRows = [];
+    this.restoreVisible = false;
+    this.deleteVisible = false;
+    this.operationLoading = false;
+    // 【P1修复】补充缺失的状态重置
+    this.restoreMode = 'original';
+    this.targetFolderId = null;
+    this.idempotentKey = null;
+    this.stats = {
+      total_count: 0,
+      total_size: 0,
+      private_count: 0,
+      private_size: 0,
+      public_count: 0,
+      public_size: 0,
+      expiring_soon: 0,
+      retention_days: 30
+    };
+    this.statsLoading = false;
+    // 【方案一新增】重置删除任务状态
+    this.deleteTasks = new Map();
+    this.deleteProgressVisible = false;
+    // 【P2/P0修复】取消进行中的请求并递增序列号
+    if (this._abortController) {
+      this._abortController.abort();
+      this._abortController = null;
+    }
+    this._requestId++; // 【P0修复】递增序列号，使过期请求被忽略
+  };
+
+  /**
+   * 【P1修复】获取当前文件夹ID - 用于current恢复模式
+   */
+  getCurrentFolderId = () => {
+    // 从URL路径中提取文件夹ID
+    const path = window.location.pathname;
+    const match = path.match(/\/document\/folder\/(\d+)/);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+    // 从查询参数获取
+    const urlParams = new URLSearchParams(window.location.search);
+    const folderId = urlParams.get('folder_id');
+    return folderId ? parseInt(folderId, 10) : null;
+  };
+
+  // ========== 文件夹浏览功能 ==========
+  
+  /**
+   * 进入文件夹（查看已删除文件夹内容）
+   */
+  @action
+  enterFolder = (folder) => {
+    this.currentFolder = {
+      id: folder.id,
+      name: folder.name,
+      space: folder.space,
+      parent_chain: [],
+    };
+    this.folderContentPage = 1;
+    this.folderContent = [];
+    this.selectedRowKeys = [];
+    this.selectedRows = [];
+    this.fetchFolderContent();
+  };
+  
+  /**
+   * 退出当前文件夹（返回回收站根目录）
+   */
+  @action
+  exitFolder = () => {
+    this.currentFolder = null;
+    this.folderContent = [];
+    this.folderContentTotal = 0;
+    this.folderContentPage = 1;
+    this.selectedRowKeys = [];
+    this.selectedRows = [];
+    // 刷新主列表
+    this.fetchList();
+  };
+  
+  /**
+   * 获取文件夹内容
+   */
+  @action
+  fetchFolderContent = async () => {
+    if (!this.currentFolder) return;
+    
+    this.loading = true;
+    try {
+      const params = {
+        folder_id: this.currentFolder.id,
+        space: this.currentFolder.space,
+        page: this.folderContentPage,
+        page_size: this.folderContentPageSize,
+      };
+      
+      const data = await service.getFolderContent(params);
+      
+      this.folderContent = data.items || [];
+      this.folderContentTotal = data.total || 0;
+      
+      // 更新文件夹信息
+      if (data.folder_info) {
+        this.currentFolder = {
+          ...this.currentFolder,
+          ...data.folder_info,
+          parent_chain: data.parent_chain || [],
+        };
+      }
+    } catch (error) {
+      message.error('获取文件夹内容失败');
+      console.error('Fetch folder content error:', error);
+    } finally {
+      this.loading = false;
+    }
+  };
+  
+  /**
+   * 文件夹内容分页变化
+   */
+  @action
+  setFolderContentPage = (page) => {
+    this.folderContentPage = page;
+    this.fetchFolderContent();
+  };
+  
+  /**
+   * 进入子文件夹
+   */
+  @action
+  enterSubFolder = (folder) => {
+    this.currentFolder = {
+      id: folder.id,
+      name: folder.name,
+      space: this.currentFolder.space,
+      parent_chain: [
+        ...(this.currentFolder.parent_chain || []),
+        { id: this.currentFolder.id, name: this.currentFolder.name }
+      ],
+    };
+    this.folderContentPage = 1;
+    this.folderContent = [];
+    this.selectedRowKeys = [];
+    this.selectedRows = [];
+    this.fetchFolderContent();
+  };
+  
+  /**
+   * 返回上级文件夹
+   */
+  @action
+  goToParentFolder = () => {
+    if (!this.currentFolder?.parent_chain?.length) {
+      this.exitFolder();
+      return;
+    }
+    
+    const parentChain = [...this.currentFolder.parent_chain];
+    const parent = parentChain.pop();
+    
+    this.currentFolder = {
+      id: parent.id,
+      name: parent.name,
+      space: this.currentFolder.space,
+      parent_chain: parentChain,
+    };
+    this.folderContentPage = 1;
+    this.folderContent = [];
+    this.selectedRowKeys = [];
+    this.selectedRows = [];
+    this.fetchFolderContent();
+  };
+}
+
+export default new RecycleBinStore();

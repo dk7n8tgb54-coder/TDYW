@@ -1,0 +1,303 @@
+# Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
+# Copyright: (c) <spug.dev@gmail.com>
+# Released under the AGPL-3.0 License.
+"""
+升级表单服务 - 创建/更新/删除/列表/详情
+
+当前模型使用 CharField 存储日期时间、IntegerField 存储关联ID。
+"""
+import logging
+from django.db import transaction
+from django.utils import timezone
+
+from libs.tenant_utils import apply_tenant_filter
+from ..validators import RecordValidator
+from ..serializers import UpgradeRecordSerializer
+from ..constants import UPGRADE_NO_PREFIX, PRESET_SYSTEMS
+
+logger = logging.getLogger(__name__)
+
+
+class RecordService:
+    """升级表单服务 - 对外统一门面"""
+
+    @staticmethod
+    def generate_upgrade_no(user):
+        """自动生成升级单号：UPG-YYYYMMDD-XXXX
+
+        格式说明：
+        - UPG: 固定前缀
+        - YYYYMMDD: 当前日期
+        - XXXX: 当日序号（4位，不足补零）
+
+        Returns:
+            str: 自动生成的升级单号
+        """
+        from ..models import UpgradeRecord
+
+        today_str = timezone.now().strftime('%Y%m%d')
+        prefix = f'{UPGRADE_NO_PREFIX}-{today_str}-'
+
+        # 查询当日已有的最大序号
+        existing = apply_tenant_filter(
+            UpgradeRecord.objects.filter(upgrade_no__startswith=prefix), user
+        ).values_list('upgrade_no', flat=True)
+
+        max_seq = 0
+        for no in existing:
+            try:
+                seq = int(no[len(prefix):])
+                if seq > max_seq:
+                    max_seq = seq
+            except (ValueError, IndexError):
+                continue
+
+        next_seq = max_seq + 1
+        return f'{prefix}{next_seq:04d}'
+
+    @staticmethod
+    def create_record(user, record_data):
+        """创建升级表单
+
+        Args:
+            user: 当前请求用户
+            record_data: 表单数据对象
+
+        Returns:
+            tuple: (record, error)
+        """
+        from ..models import UpgradeRecord
+
+        # 1. 校验
+        error = RecordValidator.validate_create(record_data, user)
+        if error:
+            return None, error
+
+        try:
+            with transaction.atomic():
+                # 2. 创建主表
+                now_str = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+
+                # upgrade_time 转为字符串
+                upgrade_time_val = getattr(record_data, 'upgrade_time', '')
+                if hasattr(upgrade_time_val, 'strftime'):
+                    upgrade_time_val = upgrade_time_val.strftime('%Y-%m-%d %H:%M:%S')
+
+                # 自动生成升级单号（如果未提供）
+                upgrade_no = getattr(record_data, 'upgrade_no', None)
+                if not upgrade_no:
+                    upgrade_no = RecordService.generate_upgrade_no(user)
+
+                record = UpgradeRecord.objects.create(
+                    tenant_id=user.tenant_id,
+                    upgrade_no=upgrade_no,
+                    system=record_data.system,
+                    upgrade_type=record_data.upgrade_type,
+                    version=record_data.version,
+                    upgrade_time=upgrade_time_val,
+                    status=record_data.status,
+                    owner=record_data.owner,
+                    created_at=now_str,
+                    created_by=user,
+                )
+
+            return record, None
+
+        except Exception as e:
+            logger.error(f'[Upgrade] 创建升级表单失败: {e}', exc_info=True)
+            return None, f'创建升级表单失败: {str(e)}'
+
+    @staticmethod
+    def update_record(record_id, user, data):
+        """更新升级表单
+
+        Args:
+            record_id: 升级表单ID
+            user: 当前请求用户
+            data: 更新数据对象
+
+        Returns:
+            tuple: (record, error)
+        """
+        from ..models import UpgradeRecord
+
+        record = apply_tenant_filter(
+            UpgradeRecord.objects.filter(pk=record_id), user
+        ).first()
+        if not record:
+            return None, '升级表单不存在或无权限'
+
+        # 校验
+        error = RecordValidator.validate_update(record, data, user)
+        if error:
+            return None, error
+
+        # 更新可编辑字段
+        editable_fields = ['system', 'upgrade_type', 'version', 'status', 'owner']
+        for field in editable_fields:
+            value = getattr(data, field, None)
+            if value is not None:
+                setattr(record, field, value)
+
+        # upgrade_time 特殊处理：datetime → 字符串
+        upgrade_time = getattr(data, 'upgrade_time', None)
+        if upgrade_time is not None:
+            if hasattr(upgrade_time, 'strftime'):
+                record.upgrade_time = upgrade_time.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                record.upgrade_time = upgrade_time
+
+        record.updated_at = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+        record.updated_by = user
+        record.save()
+
+        return record, None
+
+    @staticmethod
+    def delete_record(record_id, user):
+        """删除升级表单
+
+        Args:
+            record_id: 升级表单ID
+            user: 当前请求用户
+
+        Returns:
+            str: 错误消息，None 表示成功
+        """
+        from ..models import UpgradeRecord
+
+        record = apply_tenant_filter(
+            UpgradeRecord.objects.filter(pk=record_id), user
+        ).first()
+        if not record:
+            return '升级表单不存在或无权限'
+
+        try:
+            record.delete()
+            return None
+        except Exception as e:
+            logger.error(f'[Upgrade] 删除升级表单失败: {e}', exc_info=True)
+            return f'删除升级表单失败: {str(e)}'
+
+    @staticmethod
+    def get_detail(record_id, user):
+        """获取升级表单详情
+
+        Args:
+            record_id: 升级表单ID
+            user: 当前请求用户
+
+        Returns:
+            tuple: (data, error)
+        """
+        from ..models import UpgradeRecord
+
+        record = apply_tenant_filter(
+            UpgradeRecord.objects.filter(pk=record_id), user
+        ).first()
+        if not record:
+            return None, '升级表单不存在'
+
+        data = UpgradeRecordSerializer.to_detail_view(record)
+        return data, None
+
+    @staticmethod
+    def get_list(user, filters=None, page=1, page_size=20):
+        """获取分页列表（含统计注解）
+
+        Args:
+            user: 当前请求用户
+            filters: 筛选参数字典
+            page: 页码
+            page_size: 每页数量
+
+        Returns:
+            dict: {records, total, page, page_size}
+        """
+        from ..models import UpgradeRecord
+
+        queryset = apply_tenant_filter(UpgradeRecord.objects.all(), user)
+
+        # 应用筛选
+        if filters:
+            queryset = RecordService._apply_filters(queryset, filters)
+
+        # 排序
+        queryset = queryset.order_by('-upgrade_time', '-id')
+
+        # 分页
+        total = queryset.count()
+        start = (page - 1) * page_size
+        end = start + page_size
+        records = queryset[start:end]
+
+        return {
+            'records': [
+                UpgradeRecordSerializer.to_list_view(r) for r in records
+            ],
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+        }
+
+    @staticmethod
+    def get_filter_options(user):
+        """获取筛选选项（去重值列表 + 预设系统合并）
+
+        Args:
+            user: 当前请求用户
+
+        Returns:
+            dict: {systems, statuses, upgrade_types}
+        """
+        from ..models import UpgradeRecord
+
+        queryset = apply_tenant_filter(UpgradeRecord.objects.all(), user)
+
+        # 历史系统列表
+        history_systems = list(
+            queryset.values_list('system', flat=True)
+            .distinct()
+            .order_by('system')
+        )
+
+        # 合并预设系统 + 历史系统（去重，预设在前）
+        all_systems = list(PRESET_SYSTEMS)
+        for sys in history_systems:
+            if sys not in all_systems:
+                all_systems.append(sys)
+
+        statuses = list(
+            queryset.values_list('status', flat=True)
+            .distinct()
+            .order_by('status')
+        )
+        upgrade_types = list(
+            queryset.values_list('upgrade_type', flat=True)
+            .distinct()
+            .order_by('upgrade_type')
+        )
+
+        return {
+            'systems': all_systems,
+            'statuses': statuses,
+            'upgrade_types': upgrade_types,
+        }
+
+    @staticmethod
+    def _apply_filters(queryset, filters):
+        """应用筛选条件"""
+        if filters.get('status'):
+            queryset = queryset.filter(status=filters['status'])
+        if filters.get('system'):
+            queryset = queryset.filter(system__icontains=filters['system'])
+        if filters.get('upgrade_type'):
+            queryset = queryset.filter(upgrade_type=filters['upgrade_type'])
+        if filters.get('owner'):
+            queryset = queryset.filter(owner__icontains=filters['owner'])
+        if filters.get('start_date') and filters.get('end_date'):
+            queryset = queryset.filter(
+                upgrade_time__gte=filters['start_date'],
+                upgrade_time__lte=filters['end_date'],
+            )
+        return queryset
