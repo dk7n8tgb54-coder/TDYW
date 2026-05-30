@@ -23,13 +23,23 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'vk0do47)egwzz!uk49%(y3s(fpx4+ha@ugt-hcv&%&d@hwr&p7'
+# SECURITY: Read SECRET_KEY from environment variable
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    if os.environ.get('DEBUG', 'False').lower() == 'true':
+        SECRET_KEY = 'dev-only-insecure-key-do-not-use-in-production'
+    else:
+        raise ValueError(
+            "DJANGO_SECRET_KEY environment variable is required in production! "
+            "Generate one with: python -c \"from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())\""
+        )
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Read from environment, default to safe values
+DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '*']
+# Parse ALLOWED_HOSTS from environment variable (comma-separated)
+_allowed_hosts = os.environ.get('ALLOWED_HOSTS', '127.0.0.1,localhost')
+ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts.split(',') if h.strip()]
 
 # Application definition
 
@@ -62,6 +72,7 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.middleware.common.CommonMiddleware',
     'libs.middleware.AuthenticationMiddleware',
+    'libs.csrf_protection.OriginCheckMiddleware',  # Origin/Referer validation
     'libs.tenant_middleware.TenantMiddleware',
     'apps.logs.middleware.AuditLogMiddleware',
     'libs.middleware.HandleExceptionMiddleware',
@@ -101,12 +112,25 @@ DATABASES = {
     }
 }
 
+# ==================== Redis 配置 ====================
+# Redis connection with optional password support
+_REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', '')
+_REDIS_HOST = os.environ.get('REDIS_HOST', '127.0.0.1')
+_REDIS_PORT = os.environ.get('REDIS_PORT', '6379')
+_REDIS_URL = (
+    f"redis://:{_REDIS_PASSWORD}@{_REDIS_HOST}:{_REDIS_PORT}"
+    if _REDIS_PASSWORD
+    else f"redis://{_REDIS_HOST}:{_REDIS_PORT}"
+)
+
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": "redis://127.0.0.1:6379/1",
+        "LOCATION": f"{_REDIS_URL}/1",
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "SOCKET_CONNECT_TIMEOUT": 5,
+            "RETRY_ON_TIMEOUT": True,
         }
     }
 }
@@ -115,7 +139,7 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [("127.0.0.1", 6379)],
+            "hosts": [f"{_REDIS_URL}/0"],
             "capacity": 1000,
             "expiry": 120,
         },
@@ -124,8 +148,8 @@ CHANNEL_LAYERS = {
 
 # ==================== Celery 配置 ====================
 # 【核心配置】消息队列和结果后端
-CELERY_BROKER_URL = 'redis://127.0.0.1:6379/2'  # Broker（消息队列）
-CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/3'  # Result Backend（结果存储）
+CELERY_BROKER_URL = f'{_REDIS_URL}/2'  # Broker（消息队列）
+CELERY_RESULT_BACKEND = f'{_REDIS_URL}/3'  # Result Backend（结果存储）
 
 # 序列化配置
 CELERY_ACCEPT_CONTENT = ['json']

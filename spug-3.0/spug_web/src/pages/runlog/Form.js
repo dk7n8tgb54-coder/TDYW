@@ -67,7 +67,7 @@ export default observer(function () {
     const formData = {
       runlog_id: S.record.id,
       update_date: updateData.update_date.format('YYYY-MM-DD'),
-      recorder: localStorage.getItem('nickname') || '',
+      recorder: sessionStorage.getItem('nickname') || '',
       detail_content: updateData.detail_content,
       attachments: imageList,  // 添加图片附件
     };
@@ -123,7 +123,7 @@ export default observer(function () {
       id: editingUpdate.id,
       runlog_id: S.record.id,
       update_date: updateData.update_date.format('YYYY-MM-DD'),
-      recorder: localStorage.getItem('nickname') || '',
+      recorder: sessionStorage.getItem('nickname') || '',
       detail_content: updateData.detail_content,
       attachments: imageList,
     };
@@ -284,7 +284,7 @@ export default observer(function () {
   if (!S.record.id) {
     // 新建时初始化首次动态
     updateInitialValues.update_date = moment();
-    updateInitialValues.recorder = localStorage.getItem('nickname') || '';
+    updateInitialValues.recorder = sessionStorage.getItem('nickname') || '';
   }
 
   return (
@@ -364,7 +364,7 @@ export default observer(function () {
                   updateForm.resetFields();
                   updateForm.setFieldsValue({
                     update_date: moment(),
-                    recorder: localStorage.getItem('nickname') || ''
+                    recorder: sessionStorage.getItem('nickname') || ''
                   });
                   setImageList([]);
                   setAddUpdateVisible(true);
@@ -379,7 +379,7 @@ export default observer(function () {
               <Card size="small" title="添加动态" style={{ marginBottom: 16 }} extra={
                 <Button type="link" icon={<CloseOutlined/>} onClick={() => { setAddUpdateVisible(false); setImageList([]); }}/>
               }>
-                <Form form={updateForm} initialValues={{ update_date: moment(), recorder: localStorage.getItem('nickname') || '' }} labelCol={{span: 4}} wrapperCol={{span: 20}}>
+                <Form form={updateForm} initialValues={{ update_date: moment(), recorder: sessionStorage.getItem('nickname') || '' }} labelCol={{span: 4}} wrapperCol={{span: 20}}>
                   <Form.Item required name="update_date" label="动态日期">
                     <DatePicker style={{width: '100%'}} placeholder="请选择日期"/>
                   </Form.Item>
@@ -413,7 +413,7 @@ export default observer(function () {
               <Card size="small" title="编辑动态" style={{ marginBottom: 16 }} extra={
                 <Button type="link" icon={<CloseOutlined/>} onClick={() => { setEditUpdateVisible(false); setImageList([]); setEditingUpdate(null); }}/>
               }>
-                <Form form={updateForm} initialValues={{ recorder: localStorage.getItem('nickname') || '' }} labelCol={{span: 4}} wrapperCol={{span: 20}}>
+                <Form form={updateForm} initialValues={{ recorder: sessionStorage.getItem('nickname') || '' }} labelCol={{span: 4}} wrapperCol={{span: 20}}>
                   <Form.Item required name="update_date" label="动态日期">
                     <DatePicker style={{width: '100%'}} placeholder="请选择日期"/>
                   </Form.Item>

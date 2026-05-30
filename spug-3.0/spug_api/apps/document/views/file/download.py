@@ -9,7 +9,7 @@
 import os
 import logging
 from django.views.generic import View
-from django.http import HttpResponse
+from django.http import FileResponse
 from urllib.parse import quote
 
 from libs import json_response, JsonParser, Argument, auth
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class FileDownloadView(View):
-    """文件下载视图"""
+    """文件下载视图 - 使用流式响应避免内存溢出"""
 
     @auth('document.document.view')
     def get(self, request):
@@ -30,11 +30,11 @@ class FileDownloadView(View):
             Argument('id', type=int, help='参数错误'),
             Argument('is_public', type=bool, required=False, default=False)
         ).parse(request.GET)
-        
+
         if error is not None:
             logger.error(f'[Document] Download parse error: {error}')
             return json_response(error=error)
-            
+
         FileModel = get_file_model(is_public=form.is_public)
 
         logger.info(f'[Document] Downloading file id: {form.id}, is_public={form.is_public}')
@@ -42,34 +42,37 @@ class FileDownloadView(View):
         if not form.is_public:
             file_query = apply_tenant_filter(file_query, request.user, strict_mode=True)
         file = file_query.select_related('created_by').first()
-        
+
         if not file:
             logger.error(f'[Document] File not found with id: {form.id}')
             return json_response(error='文件不存在')
-            
-        logger.info(f'[Document] File path: {file.file_path}, exists: {os.path.exists(file.file_path)}')
+
         if not os.path.exists(file.file_path):
             logger.error(f'[Document] Physical file not found: {file.file_path}')
             return json_response(error='文件不存在')
 
-        # 公共空间下载权限：允许所有人下载
-        # 私有空间已通过租户过滤确保只能下载自己租户的文件
+        # 使用 FileResponse 流式下载（避免整个文件加载到内存）
+        display_name = file.display_name or file.name
+        encoded_filename = quote(display_name)
 
-        with open(file.file_path, 'rb') as f:
-            response = HttpResponse(f.read())
-            # 优先使用display_name，兼容旧数据
-            display_name = file.display_name or file.name
-            encoded_filename = quote(display_name)
-            response['Content-Disposition'] = f'attachment; filename="{encoded_filename}"; filename*=UTF-8\'\'{encoded_filename}'
-            response['Content-Type'] = file.file_type
-            log_operation(
-                action="FILE_DOWNLOAD",
-                user=request.user,
-                resource_type="FILE",
-                resource_id=file.id,
-                is_public=form.is_public,
-                file_name=display_name,
-                file_size=file.file_size
-            )
-            logger.info(f'[Document] File download successful: {file.name}, is_public={form.is_public}')
-            return response
+        response = FileResponse(
+            open(file.file_path, 'rb'),
+            content_type=file.file_type or 'application/octet-stream',
+        )
+        response['Content-Disposition'] = (
+            f'attachment; filename="{encoded_filename}"; '
+            f'filename*=UTF-8\'\'{encoded_filename}'
+        )
+        response['Content-Length'] = os.path.getsize(file.file_path)
+
+        log_operation(
+            action="FILE_DOWNLOAD",
+            user=request.user,
+            resource_type="FILE",
+            resource_id=file.id,
+            is_public=form.is_public,
+            file_name=display_name,
+            file_size=file.file_size
+        )
+        logger.info(f'[Document] File download successful: {file.name}, is_public={form.is_public}')
+        return response

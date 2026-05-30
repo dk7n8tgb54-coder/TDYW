@@ -62,8 +62,8 @@ function RunlogOverview() {
       {stats.severity_stats && stats.severity_stats.length > 0 && (
         <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
           <span style={{ color: '#999', fontSize: 13 }}>处理中等级分布：</span>
-          {stats.severity_stats.map(s => (
-            <Tag key={s.severity} color={severityColors[s.severity]}>
+          {stats.severity_stats.map((s, i) => (
+            <Tag key={`${s.severity}-${i}`} color={severityColors[s.severity]}>
               {severityLabels[s.severity] || s.severity}: {s.count}
             </Tag>
           ))}

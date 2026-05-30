@@ -13,14 +13,18 @@ export let X_TOKEN;
 export const isMobile = /Android|iPhone/i.test(navigator.userAgent)
 export { Permission };
 
-export function updatePermissions() {
-  X_TOKEN = localStorage.getItem('token');
-  Permission.isReady = true;
-  Permission.isSuper = localStorage.getItem('is_supper') === 'true';
-  try {
-    Permission.permissions = JSON.parse(localStorage.getItem('permissions') || '[]');
-  } catch (e) {
+// Use sessionStorage for security - cleared when browser tab closes
+// This reduces the window of token exposure compared to localStorage
+const tokenStorage = sessionStorage;
 
+export function updatePermissions() {
+  X_TOKEN = tokenStorage.getItem('token');
+  Permission.isReady = true;
+  Permission.isSuper = tokenStorage.getItem('is_supper') === 'true';
+  try {
+    Permission.permissions = JSON.parse(tokenStorage.getItem('permissions') || '[]');
+  } catch (e) {
+    Permission.permissions = [];
   }
 }
 

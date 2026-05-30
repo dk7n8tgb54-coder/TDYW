@@ -31,7 +31,7 @@ const SearchBox = ({
     if (onSearchStart) onSearchStart();
 
     try {
-      const tenantId = isPublic ? null : localStorage.getItem('tenant_id');
+      const tenantId = isPublic ? null : sessionStorage.getItem('tenant_id');
       // 全库搜索：folder_id 为 null
       const res = await http.get('/api/document/folder/search/', {
         params: {

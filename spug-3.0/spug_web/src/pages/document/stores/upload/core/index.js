@@ -259,7 +259,7 @@ class UploadCoreStore {
     if (this.rootStore.navigationStore?.isPublic) {
       return 'public';
     }
-    return localStorage.getItem('tenant_id') || 'default';
+    return sessionStorage.getItem('tenant_id') || 'default';
   }
 
   getUploadTargetFolderId() {

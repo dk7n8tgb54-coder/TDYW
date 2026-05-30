@@ -92,7 +92,7 @@ export class FileUploadStore {
         formData.append('transfer_id', transferId);
       }
 
-      const tenantIdForRequest = targetIsPublic ? null : localStorage.getItem('tenant_id');
+      const tenantIdForRequest = targetIsPublic ? null : sessionStorage.getItem('tenant_id');
       if (tenantIdForRequest != null && tenantIdForRequest !== '') {
         formData.append('tenant_id', tenantIdForRequest);
       }
@@ -352,7 +352,7 @@ export class FileUploadStore {
         formData.append('transfer_id', transferId);
       }
 
-      const tenantIdForRequest = targetIsPublic ? null : localStorage.getItem('tenant_id');
+      const tenantIdForRequest = targetIsPublic ? null : sessionStorage.getItem('tenant_id');
       if (tenantIdForRequest != null && tenantIdForRequest !== '') {
         formData.append('tenant_id', tenantIdForRequest);
       }

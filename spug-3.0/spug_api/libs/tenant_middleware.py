@@ -6,6 +6,7 @@
 自动为数据库查询添加租户过滤条件
 """
 from django.utils.deprecation import MiddlewareMixin
+from django.db import models
 import threading
 import logging
 
@@ -58,31 +59,44 @@ class TenantMiddleware(MiddlewareMixin):
         return response
 
 
-class TenantQuerySet:
+class TenantManager(models.Manager):
     """
-    自定义QuerySet,自动添加租户过滤条件
-    """
-    def __init__(self, model=None, query=None, using=None, hints=None):
-        from django.db.models import QuerySet
-        self.queryset = QuerySet(model=model, query=query, using=using, hints=hints)
+    Custom Manager that automatically applies tenant filtering.
 
-    def __getattr__(self, name):
-        # 代理所有QuerySet方法
-        attr = getattr(self.queryset, name)
-        if callable(attr):
-            # 如果是方法,包装它以添加租户过滤
-            def wrapper(*args, **kwargs):
-                current_tenant = get_current_tenant()
-                if current_tenant:
-                    # 在过滤前自动添加租户条件
-                    if name in ['filter', 'get', 'all', 'first', 'last', 'exclude']:
-                        # 对于这些查询方法,添加租户过滤
-                        if 'tenant_id' not in kwargs and hasattr(args[0] if args else None, '__contains__'):
-                            # 如果没有手动指定tenant_id,添加租户过滤
-                            pass  # 这里需要更复杂的处理,改用model.save()自动设置
-                return attr(*args, **kwargs)
-            return wrapper
-        return attr
+    Usage in models:
+        class MyModel(models.Model):
+            tenant_id = models.CharField(max_length=50, db_index=True)
+            objects = TenantManager()           # Auto-filtered by tenant
+            all_objects = models.Manager()      # No filtering (admin use)
+    """
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        tenant_id = get_current_tenant()
+        if tenant_id and hasattr(self.model, 'tenant_id'):
+            return qs.filter(tenant_id=tenant_id)
+        return qs
+
+
+class TenantModel(models.Model):
+    """
+    Abstract base model with tenant isolation.
+    Inherit from this for automatic tenant filtering.
+    """
+    tenant_id = models.CharField(max_length=50, db_index=True, default='default')
+
+    objects = TenantManager()
+    all_objects = models.Manager()  # Unfiltered for admin operations
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        if not self.tenant_id:
+            current_tenant = get_current_tenant()
+            if current_tenant:
+                self.tenant_id = current_tenant
+        super().save(*args, **kwargs)
 
 
 def auto_set_tenant(sender, instance, **kwargs):

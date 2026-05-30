@@ -21,6 +21,12 @@ export default observer(function DeviceResume() {
     };
   }, []);
 
+  const handleQuery = React.useCallback(() => {
+    if (isMounted) {
+      store.fetchRecords();
+    }
+  }, [isMounted]);
+
   return (
     <AuthDiv auth="device.device_resume.view">
       <Breadcrumb>
@@ -74,7 +80,7 @@ export default observer(function DeviceResume() {
           </Select>
         </SearchForm.Item>
         <SearchForm.Item span={18}>
-          <Button type="primary" onClick={store.fetchRecords}>查询</Button>
+          <Button type="primary" onClick={handleQuery}>查询</Button>
           <Button onClick={store.resetFilter} style={{ marginLeft: 8 }}>重置</Button>
         </SearchForm.Item>
       </SearchForm>

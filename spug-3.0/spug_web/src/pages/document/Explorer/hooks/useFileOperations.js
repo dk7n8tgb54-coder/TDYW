@@ -15,8 +15,8 @@ export const useFileOperations = ({
 }) => {
   // 删除文件/文件夹
   const handleDelete = useCallback(async (record) => {
-    const isAdmin = localStorage.getItem('is_supper') === 'true';
-    const currentUserId = parseInt(localStorage.getItem('id') || '0');
+    const isAdmin = sessionStorage.getItem('is_supper') === 'true';
+    const currentUserId = parseInt(sessionStorage.getItem('id') || '0');
     const displayName = record.display_name || record.name;
 
     // 权限检查
@@ -124,14 +124,14 @@ export const useFileOperations = ({
 
   // 下载文件
   const handleDownload = useCallback((file) => {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     const url = `/api/document/download/?id=${file.id}&is_public=${isPublic}&x-token=${token}`;
     window.open(url);
   }, [isPublic]);
 
   // 批量下载
   const handleDownloadSelected = useCallback((selectedRowKeys, items) => {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     const selectedItems = selectedRowKeys.map(key =>
       items.find(i => i.key === key)
     ).filter(item => item && !item.isFolder);
@@ -145,7 +145,7 @@ export const useFileOperations = ({
 
   // 下载文件夹
   const handleFolderDownload = useCallback((folder) => {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     const url = `/api/document/folder/download/?id=${folder.id}&is_public=${isPublic}&x-token=${token}`;
     window.open(url);
   }, [isPublic]);

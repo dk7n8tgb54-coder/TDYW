@@ -1,15 +1,29 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-from paramiko.client import SSHClient, AutoAddPolicy
+from paramiko.client import SSHClient, WarningPolicy
 from paramiko.rsakey import RSAKey
 from paramiko.auth_handler import AuthHandler
 from paramiko.ssh_exception import AuthenticationException, SSHException
-from paramiko.py3compat import b, u
 from io import StringIO
 from uuid import uuid4
+import os
 import time
 import re
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+# paramiko 2.x → 3.x compatibility: py3compat module was removed in 3.x
+def b(s):
+    """Convert string to bytes"""
+    return s.encode() if isinstance(s, str) else s
+
+
+def u(s):
+    """Convert bytes to string"""
+    return s.decode() if isinstance(s, bytes) else s
 
 
 def _finalize_pubkey_algorithm(self, key_type):
@@ -72,6 +86,11 @@ class SSH:
             'look_for_keys': False,
             'banner_timeout': 30
         }
+        # Known hosts file for Trust On First Use (TOFU)
+        self.KNOWN_HOSTS_FILE = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'storage', 'known_hosts'
+        )
 
     @staticmethod
     def generate_key():
@@ -84,8 +103,26 @@ class SSH:
         if self.client is not None:
             return self.client
         self.client = SSHClient()
-        self.client.set_missing_host_key_policy(AutoAddPolicy)
+
+        # Load known hosts if available (TOFU pattern)
+        if os.path.exists(self.KNOWN_HOSTS_FILE):
+            try:
+                self.client.load_host_keys(self.KNOWN_HOSTS_FILE)
+            except Exception as e:
+                logger.warning(f'[SSH] Failed to load known_hosts: {e}')
+
+        # WarningPolicy: logs warning for unknown hosts but still connects
+        # Better than AutoAddPolicy (silent) but less strict than RejectPolicy
+        self.client.set_missing_host_key_policy(WarningPolicy)
+
         self.client.connect(**self.arguments)
+
+        # Save host key after successful connection
+        try:
+            os.makedirs(os.path.dirname(self.KNOWN_HOSTS_FILE), exist_ok=True)
+            self.client.save_host_keys(self.KNOWN_HOSTS_FILE)
+        except Exception as e:
+            logger.warning(f'[SSH] Failed to save known_hosts: {e}')
         return self.client
 
     def ping(self):

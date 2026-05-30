@@ -16,7 +16,7 @@ export const useDataFetching = (isPublic, folderId, onError) => {
   const fetchItems = useCallback(async (currentPage, pageSize, resetSelected = false) => {
     setLoading(true);
     try {
-      const tenantId = isPublic ? null : localStorage.getItem('tenant_id');
+      const tenantId = isPublic ? null : sessionStorage.getItem('tenant_id');
       const res = await http.get('/api/document/folder/', {
         params: {
           id: folderId,

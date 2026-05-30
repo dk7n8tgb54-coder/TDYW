@@ -16,7 +16,7 @@ import LegendPanel from './components/LegendPanel';
 import './CheckSheet.css';
 
 export default observer(function CheckSheet() {
-  const currentUser = localStorage.getItem('nickname') || '';
+  const currentUser = sessionStorage.getItem('nickname') || '';
 
   const {
     allProjectsData,

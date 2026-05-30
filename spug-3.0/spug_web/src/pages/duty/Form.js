@@ -77,7 +77,7 @@ export default observer(function () {
       form.setFieldsValue(data);
     } else {
       form.setFieldsValue({
-        reporter: localStorage.getItem('nickname') || '',
+        reporter: sessionStorage.getItem('nickname') || '',
         report_time: moment(),
       });
     }

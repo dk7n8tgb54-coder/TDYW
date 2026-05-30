@@ -22,7 +22,6 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('account/', include('apps.account.urls')),
-    path('exec/', include('apps.exec.urls')),
     path('fault/', include('apps.fault.urls')),
     path('duty/', include('apps.duty.urls')),
     path('device/', include('apps.device.urls')),

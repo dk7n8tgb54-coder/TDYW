@@ -18,11 +18,11 @@ class Store {
 
   // 当前登录用户是否超管（动态读取，避免SPA切换用户后缓存过期）
   get isSupper() {
-    return localStorage.getItem('is_supper') === 'true'
+    return sessionStorage.getItem('is_supper') === 'true'
   }
   // 当前登录用户的tenant_id
   get currentTenantId() {
-    return localStorage.getItem('tenant_id') || ''
+    return sessionStorage.getItem('tenant_id') || ''
   }
 
   @computed get dataSource() {

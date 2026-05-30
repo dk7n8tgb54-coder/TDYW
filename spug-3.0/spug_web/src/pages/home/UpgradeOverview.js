@@ -50,8 +50,8 @@ function UpgradeOverview() {
             <div style={{ marginBottom: 8 }}>
               <span style={{ color: '#999', fontSize: 13 }}>状态分布：</span>
               <div style={{ marginTop: 4 }}>
-                {stats.status_stats.map(s => (
-                  <Tag key={s.status} color={statusColor(s.status)} style={{ marginBottom: 4 }}>
+                {stats.status_stats.map((s, i) => (
+                  <Tag key={`${s.status}-${i}`} color={statusColor(s.status)} style={{ marginBottom: 4 }}>
                     {s.status}: {s.count}
                   </Tag>
                 ))}

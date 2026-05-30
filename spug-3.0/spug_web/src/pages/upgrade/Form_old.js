@@ -291,7 +291,7 @@ export default observer(function () {
   if (!store.record.id) {
     // 新建时初始化首次升级记录
     updateInitialValues.update_date = moment();
-    updateInitialValues.recorder = localStorage.getItem('username') || '';
+    updateInitialValues.recorder = sessionStorage.getItem('username') || '';
   }
 
   return (

@@ -45,7 +45,7 @@ export default function (props) {
           <Dropdown overlay={UserMenu} style={{background: '#000'}}>
             <span className={styles.action}>
               <Avatar size="small" src={avatar} style={{marginRight: 8}}/>
-              {localStorage.getItem('nickname')}
+              {sessionStorage.getItem('nickname')}
             </span>
           </Dropdown>
         </div>

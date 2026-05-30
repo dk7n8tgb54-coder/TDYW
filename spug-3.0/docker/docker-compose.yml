@@ -10,7 +10,7 @@ services:
   tdyw:
     # 使用预构建的镜像，先执行: docker build -t spug:latest -f docker/Dockerfile .
     #image: tdyw:20260329
-    image: tdyw:0502
+    image: tdyw:0530
     # spug:20260320
     # 如需重新构建镜像，取消以下 build 配置
     # build:
@@ -78,7 +78,7 @@ services:
       - ./config/mysql-entrypoint.sh:/usr/local/bin/mysql-custom-entrypoint.sh:ro
       - tdyw-mysql-data:/var/lib/mysql  # 数据持久化
     ports:
-      - "3308:3306"  # 数据库端口
+      - "127.0.0.1:3308:3306"  # Only bind to localhost, not exposed externally
     # 使用自定义 entrypoint 处理权限问题
     entrypoint: ["/bin/bash", "/usr/local/bin/mysql-custom-entrypoint.sh"]
     command: ["mysqld"]

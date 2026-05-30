@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { Card, Statistic, Tag, Row, Col } from 'antd';
-import { ApiOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
+import { ExceptionOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import { http, history } from 'libs';
 
 function InterferenceOverview() {
@@ -22,7 +22,7 @@ function InterferenceOverview() {
     <Card
       title={
         <span>
-          <ApiOutlined style={{ marginRight: 8 }} />
+          <ExceptionOutlined style={{ marginRight: 8 }} />
           干扰信息今日统计
         </span>
       }

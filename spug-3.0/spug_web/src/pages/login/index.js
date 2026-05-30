@@ -17,7 +17,7 @@ export default function () {
   const [loading, setLoading] = useState(false);
   const [codeVisible, setCodeVisible] = useState(false);
   const [codeLoading, setCodeLoading] = useState(false);
-  const loginType = localStorage.getItem('login_type') || 'default';
+  const loginType = sessionStorage.getItem('login_type') || 'default';
 
   useEffect(() => {
   }, [])
@@ -60,13 +60,13 @@ export default function () {
   }
 
   function doLogin(data) {
-    localStorage.setItem('id', data['id']);
-    localStorage.setItem('token', data['access_token']);
-    localStorage.setItem('nickname', data['nickname']);
-    localStorage.setItem('is_supper', data['is_supper']);
-    localStorage.setItem('tenant_id', data['tenant_id'] || '');
-    localStorage.setItem('permissions', JSON.stringify(data['permissions']));
-    localStorage.setItem('login_type', loginType);
+    sessionStorage.setItem('id', data['id']);
+    sessionStorage.setItem('token', data['access_token']);
+    sessionStorage.setItem('nickname', data['nickname']);
+    sessionStorage.setItem('is_supper', data['is_supper']);
+    sessionStorage.setItem('tenant_id', data['tenant_id'] || '');
+    sessionStorage.setItem('permissions', JSON.stringify(data['permissions']));
+    sessionStorage.setItem('login_type', loginType);
     updatePermissions();
     if (history.location.state && history.location.state['from']) {
       history.push(history.location.state['from'])

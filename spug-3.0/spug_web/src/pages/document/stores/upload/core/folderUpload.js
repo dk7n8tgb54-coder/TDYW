@@ -363,7 +363,7 @@ export class FolderUploadStore {
       is_public: isPublic,
     };
     
-    const tenantId = isPublic ? null : localStorage.getItem('tenant_id');
+    const tenantId = isPublic ? null : sessionStorage.getItem('tenant_id');
     if (tenantId) {
       params.tenant_id = tenantId;
     }

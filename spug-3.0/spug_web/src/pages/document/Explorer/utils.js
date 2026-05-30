@@ -10,10 +10,10 @@ import { formatFileSize as _formatFileSize, formatDate as _formatDate } from '@/
 export const generateKey = (id, type) => `${type}_${id}`;
 
 // 获取当前用户ID
-export const getCurrentUserId = () => parseInt(localStorage.getItem('id') || '0');
+export const getCurrentUserId = () => parseInt(sessionStorage.getItem('id') || '0');
 
 // 检查是否是管理员
-export const checkIsAdmin = () => localStorage.getItem('is_supper') === 'true';
+export const checkIsAdmin = () => sessionStorage.getItem('is_supper') === 'true';
 
 // 判断是否为管理员上传的文件
 export const isCreatedByAdmin = (record) => {

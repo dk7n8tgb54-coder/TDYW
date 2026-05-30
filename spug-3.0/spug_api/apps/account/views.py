@@ -9,7 +9,6 @@ from django.db.models import Count
 from libs.mixins import AdminView, View
 from libs import JsonParser, Argument, human_datetime, json_response
 from libs.utils import get_request_real_ip, generate_random_str
-from libs.push import send_login_code
 from libs.tenant_utils import migrate_existing_data
 import logging
 from apps.account.models import User, Role, History, Tenant
@@ -410,21 +409,47 @@ def login(request):
     if error is None:
         login_type = form.type or 'default'
         handle_response = partial(handle_login_record, request, form.username, login_type)
-        user = User.objects.filter(username=form.username, type=login_type, deleted_by_id__isnull=True).first()
+        x_real_ip = get_request_real_ip(request.headers)
+
+        # IP级别限流：防止分布式暴力破解（30次/小时/IP）
+        ip_key = f'login_fail:ip:{x_real_ip}'
+        ip_fails = cache.get(ip_key, 0)
+        if ip_fails >= 30:
+            return handle_response(error='登录尝试过于频繁，请稍后再试')
+
+        # 用户级别限流：防止针对性攻击（5次/15分钟/用户）
+        user_key = f'login_fail:user:{form.username}'
+        user_fails = cache.get(user_key, 0)
+        if user_fails >= 5:
+            ttl = cache.ttl(user_key) or 900
+            minutes = max(1, ttl // 60)
+            return handle_response(error=f'账户已临时锁定，请{minutes}分钟后重试')
+
+        user = User.objects.filter(
+            username=form.username, type=login_type, deleted_by_id__isnull=True
+        ).first()
+
         if user and not user.is_active:
             return handle_response(error="账户已被系统禁用")
-        if user and user.deleted_by is None:
-                if user.verify_password(form.password):
-                    return handle_user_info(handle_response, request, user, form.captcha)
 
-        value = cache.get_or_set(form.username, 0, 86400)
-        if value >= 3:
-            if user and user.is_active:
-                user.is_active = False
-                user.save()
-            return handle_response(error='账户已被系统禁用')
-        cache.set(form.username, value + 1, 86400)
-        return handle_response(error="用户名或密码错误，连续多次错误账户将会被禁用")
+        if user and user.deleted_by is None:
+            if user.verify_password(form.password):
+                # 登录成功 - 清除失败计数
+                cache.delete(user_key)
+                return handle_user_info(handle_response, request, user, form.captcha)
+
+        # 登录失败 - 递增计数器
+        cache.set(ip_key, ip_fails + 1, 3600)       # IP: 1小时窗口
+        cache.set(user_key, user_fails + 1, 900)    # 用户: 15分钟窗口
+
+        remaining = 5 - user_fails - 1
+        if remaining > 0:
+            return handle_response(
+                error=f"用户名或密码错误，还剩{remaining}次尝试机会"
+            )
+        else:
+            return handle_response(error='账户已临时锁定，请15分钟后重试')
+
     return json_response(error=error)
 
 
@@ -474,18 +499,12 @@ def handle_user_info(handle_response, request, user, captcha):
         if mfa['enable']:
             if not user.wx_token:
                 return handle_response(error='已启用登录双重认证，但您的账户未配置推送标识，请联系管理员')
-            spug_push_key = AppSetting.get_default('spug_push_key')
-            if not spug_push_key:
-                return handle_response(error='已启用登录双重认证，但系统未配置推送服务，请联系管理员')
-            code = generate_random_str(6)
-            send_login_code(spug_push_key, user.wx_token, code)
-            cache.set(key, code, 300)
-            return json_response({'required_mfa': True})
+            return handle_response(error='推送服务已移除，MFA认证不可用')
 
     handle_response()
     x_real_ip = get_request_real_ip(request.headers)
-    token_isvalid = user.access_token and len(user.access_token) == 32 and user.token_expired >= time.time()
-    user.access_token = user.access_token if token_isvalid else uuid.uuid4().hex
+    # SECURITY: Always generate new token on login to prevent session fixation
+    user.access_token = uuid.uuid4().hex
     user.token_expired = time.time() + settings.TOKEN_TTL
     user.last_login = human_datetime()
     user.last_ip = x_real_ip

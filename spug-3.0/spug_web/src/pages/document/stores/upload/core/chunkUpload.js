@@ -296,7 +296,7 @@ export class ChunkUploadStore {
     // 【修复】使用targetIsPublic（传入的值或队列项保存的值），而不是当前导航状态
     formData.append('is_public', targetIsPublic ? 'true' : 'false');
     
-    const tenantIdForRequest = targetIsPublic ? null : localStorage.getItem('tenant_id');
+    const tenantIdForRequest = targetIsPublic ? null : sessionStorage.getItem('tenant_id');
     if (tenantIdForRequest !== null) {
       formData.append('tenant_id', tenantIdForRequest);
     }
@@ -308,7 +308,7 @@ export class ChunkUploadStore {
 
     // 获取Token，添加调试信息
     // 【修复】使用正确的 key 'token'（登录时存储的key）
-    const xToken = localStorage.getItem('token');
+    const xToken = sessionStorage.getItem('token');
     if (!xToken) {
       throw new Error('登录已过期，请重新登录');
     }
@@ -450,7 +450,7 @@ export class ChunkUploadStore {
         file_hash: fileHash,
         folder_id: folderId !== null ? parseInt(folderId) : null,
         is_public: targetIsPublic,
-        tenant_id: targetIsPublic ? null : localStorage.getItem('tenant_id'),
+        tenant_id: targetIsPublic ? null : sessionStorage.getItem('tenant_id'),
         transfer_id: uploadItem?.transferId,
       });
     } catch (error) {

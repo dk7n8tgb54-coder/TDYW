@@ -49,39 +49,35 @@ def mask_path(path, visible_parts=1):
 def check_rate_limit(user_id, rate_limit_config):
     """
     检查限流 - 使用Redis原子操作防止竞态条件
-    
+
     Args:
         user_id: 用户ID
         rate_limit_config: {'requests': 10, 'window': 60}
-    
+
     Returns:
         bool: 是否允许操作
-    
-    NOTE: 临时禁用限流以进行压力测试
     """
-    # TEMPORARILY DISABLED FOR LOAD TESTING
-    # 压测完成后请恢复原始限流逻辑
-    return True
-    
-    # 原始限流逻辑（压测后恢复）：
-    # key = f'rate_limit:restore:{user_id}'
-    # try:
-    #     from django_redis import get_redis_connection
-    #     redis_conn = get_redis_connection("default")
-    #     pipe = redis_conn.pipeline()
-    #     pipe.incr(key)
-    #     pipe.expire(key, rate_limit_config['window'])
-    #     results = pipe.execute()
-    #     current = results[0]
-    #     if current > rate_limit_config['requests']:
-    #         return False
-    #     return True
-    # except Exception:
-    #     current = cache.get(key, 0)
-    #     if current >= rate_limit_config['requests']:
-    #         return False
-    #     cache.set(key, current + 1, rate_limit_config['window'])
-    #     return True
+    key = f'rate_limit:restore:{user_id}'
+    try:
+        from django_redis import get_redis_connection
+        redis_conn = get_redis_connection("default")
+        pipe = redis_conn.pipeline()
+        pipe.incr(key)
+        pipe.expire(key, rate_limit_config['window'])
+        results = pipe.execute()
+        current = results[0]
+        if current > rate_limit_config['requests']:
+            logger.warning(f'[RateLimit] User {user_id} exceeded rate limit: '
+                           f'{current}/{rate_limit_config["requests"]}')
+            return False
+        return True
+    except Exception as e:
+        logger.warning(f'[RateLimit] Redis error, falling back to cache: {e}')
+        current = cache.get(key, 0)
+        if current >= rate_limit_config['requests']:
+            return False
+        cache.set(key, current + 1, rate_limit_config['window'])
+        return True
 
 
 def invalidate_cache(user_id):

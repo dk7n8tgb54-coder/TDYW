@@ -6,7 +6,7 @@
 # 1. 前端构建阶段：使用 Node.js 镜像安装依赖并构建前端
 # 2. 后端构建阶段：使用 Ubuntu 镜像安装 Python 和编译依赖，安装 Python 包
 # 3. 生产镜像阶段：使用 Ubuntu镜像，安装运行时依赖，复制前端构建产物和后端代码
-#docker build -t spug:latest -f docker/Dockerfile .
+#docker build -t tdyw:latest -f docker/Dockerfile .
 
 # ==================== Stage 1: 前端构建 ====================
 FROM m.daocloud.io/docker.io/library/node:18-alpine AS frontend-builder

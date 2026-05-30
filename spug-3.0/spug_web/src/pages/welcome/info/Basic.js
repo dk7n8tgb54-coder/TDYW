@@ -32,7 +32,7 @@ export default observer(function Basic(props) {
     http.patch('/api/account/self/', formData)
       .then(() => {
         message.success('保存成功，昵称将在重新登录或刷新页面后生效');
-        localStorage.setItem('nickname', formData.nickname);
+        sessionStorage.setItem('nickname', formData.nickname);
         store.fetchUser()
       })
       .finally(() => setLoading(false))
