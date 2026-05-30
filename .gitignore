@@ -60,3 +60,5 @@ backups/
 
 # 备份目录
 资料库备份/
+temp_backup.sql 
+/*.sql 
