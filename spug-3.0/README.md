@@ -1,119 +1,145 @@
-<h1 align="center">Spug</h1>
+<h1 align="center">TDYW 通导运维平台</h1>
 
 <div align="center">
 
-Spug是面向中小型企业设计的轻量级无Agent的自动化运维平台，整合了主机管理、主机批量执行、主机在线终端、应用发布部署、在线任务计划、配置中心、监控、报警等一系列功能。
+面向通信导航领域的运维管理平台，基于 Spug v3.3.3 进行深度定制开发，新增排班管理、设备履历、故障管理、值班日志、运行日志、干扰管理、日检查单、系统升级等专业模块。
 
 </div>
 
-- 公司官网：https://www.spug.cc
-- 项目官网：https://ops.spug.cc
-- 使用文档：https://ops.spug.cc/docs/about-spug/
+---
 
-## 演示环境
+## 模块概览
 
-演示地址：https://demo.spug.cc
+### 核心运维模块
 
-## 🔐免费通配符SSL证书
-免费通配符，付费证书价格亲民，性价比超高，低于市场其他平台价格，免费专家一对一配置服务，购买流程简单快速，且支持7天无理由退款和开具发票。提供一键下载和SSL过期通知配置，免费申请：[https://ssl.spug.cc](https://ssl.spug.cc)
+| 模块 | 功能说明 |
+|------|---------|
+| **设备履历** | 设备全生命周期管理（安装→启用→故障→维修→更新→停用→报废），含经纬度定位、负责人管理、5种设备状态 |
+| **故障管理** | 故障处置记录（系统/设备/等级/现象/处理过程）、故障件管理（送修/测试/归档） |
+| **运行日志** | 事件闭环管理（P0/P1/P2级别），含处理中/已解决状态，24小时内可编辑，支持附件图片 |
+| **干扰管理** | 无线电干扰记录（频率/坐标/干扰类型/现象/航班信息），含干扰统计分析 |
+| **部门值班日检查单** | 检查表模板管理、每日检查记录（正常/异常/未检查）、每日汇总、PDF导出 |
+| **值班日志** | 值班人员、填报人、所属科室、值班情况记录 |
+| **排班管理** | 上X休Y或自定义班次、值班日历、换班审批、替班审批 |
 
+### 资料库模块
 
-## 🔥推送助手
+> 基于 Spug 资料库深度改造
 
-推送助手是一个集成了电话、短信、邮件、飞书、钉钉、微信、企业微信等多通道的消息推送平台，可以3分钟实现个人电话短信推送，点击体验：[https://push.spug.cc](https://push.spug.cc)
+- **公共空间 + 私有空间**（多租户隔离）
+- **分片上传**（支持大文件，10GB限制）
+- **回收站**（软删除，30天保留期，批量恢复/彻底删除）
+- **Office文档在线预览**（集成 kkFileView）
+- 秒传检查、文件夹递归操作、路径遍历防护
+- Celery 异步任务（文件合并、批量操作、清理）
 
+### 系统管理
 
-## 特性
+| 模块 | 功能说明 |
+|------|---------|
+| **系统升级管理** | 升级表单管理、升级模板/步骤清单、步骤执行跟踪 |
+| **审计日志** | 中间件自动记录所有写操作（创建/更新/删除/登录等），含IP、租户、操作详情 |
+| **账户管理** | 用户、角色、权限管理 |
+| **系统设置** | 系统配置项 |
 
-- **批量执行**: 主机命令在线批量执行
-- **在线终端**: 主机支持浏览器在线终端登录
-- **文件管理**: 主机文件在线上传下载
-- **任务计划**: 灵活的在线任务计划
-- **发布部署**: 支持自定义发布部署流程
-- **配置中心**: 支持KV、文本、json等格式的配置
-- **监控中心**: 支持站点、端口、进程、自定义等监控
-- **报警中心**: 支持短信、邮件、钉钉、微信等报警方式
-- **优雅美观**: 基于 Ant Design 的UI界面
-- **开源免费**: 前后端代码完全开源
+---
 
+## 技术栈
 
-## 环境
+| 层级 | 技术 |
+|------|------|
+| **后端** | Python 3.10+ / Django 2.2 / Django REST Framework |
+| **前端** | React 16 / Ant Design 4 / MobX |
+| **数据库** | MySQL / MariaDB |
+| **缓存** | Redis |
+| **任务队列** | Celery + Celery Beat |
+| **文件预览** | kkFileView 4.1.0 |
+| **部署** | Docker / Docker Compose |
 
-* Python 3.6+
-* Django 2.2
-* Node 12.14
-* React 16.11
+---
 
-## 安装
+## 架构特性
 
-[官方文档](https://ops.spug.cc/docs/install-docker)
+- **多租户隔离**：所有业务模型通过 `tenant_id` 字段实现数据隔离，超级管理员可跨租户查看
+- **审计追溯**：AuditLogMiddleware 自动记录所有非GET请求的操作日志
+- **代码门禁**：Git pre-commit 钩子自动检查代码质量（ESLint + Flake8 + 行数/复杂度校验）
 
-更多使用帮助请参考： [使用文档](https://ops.spug.cc/docs/host-manage/)
+---
 
+## 快速开始
 
-## 推荐项目
-[Yearning — MYSQL 开源SQL语句审核平台](https://github.com/cookieY/Yearning)
+### Docker 部署
 
+```bash
+# 进入部署目录
+cd docker
 
-## 预览
+# 复制环境变量配置
+cp .env.example .env
+# 编辑 .env 配置数据库密码等参数
 
-### 主机管理
-![image](https://cdn.spug.cc/img/3.0/host.jpg)
+# 启动服务
+docker-compose up -d
 
-#### 主机在线终端
-![image](https://cdn.spug.cc/img/3.0/web-terminal.jpg)
+# 初始化数据库
+docker exec tdyw-test python spug_api/manage.py migrate
+docker exec tdyw-test python spug_api/manage.py init_data
 
-#### 文件在线上传下载
-![image](https://cdn.spug.cc/img/3.0/file-manager.jpg)
+# 访问 http://localhost
+```
 
-#### 主机批量执行
-![image](https://cdn.spug.cc/img/3.0/host-exec.jpg)
-![image](https://cdn.spug.cc/img/3.0/host-exec2.jpg)
+### 开发环境
 
-#### 应用发布
-![image](https://cdn.spug.cc/img/3.0/deploy.jpg)
+```bash
+# 后端
+cd spug_api
+pip install -r requirements.txt
+python manage.py runserver 0.0.0.0:9001
 
-#### 监控报警
-![image](https://cdn.spug.cc/img/3.0/monitor.jpg)
+# 前端
+cd spug_web
+npm install
+npm start
+```
 
-#### 角色权限
-![image](https://cdn.spug.cc/img/3.0/user-role.jpg)
+---
 
+## Docker 服务架构
 
-## 赞助
-<table>
-  <thead>
-    <tr>
-      <th align="center" style="width: 115px;">
-        <a href="https://www.ucloud.cn/site/active/kuaijie.html?invitation_code=C1xD0E5678FBA77">
-          <img src="https://cdn.spug.cc/img/ucloud.png" width="115px"><br>
-          <sub>UCloud</sub><br>
-          <sub>5 元/月云主机</sub>
-        </a>
-      </th>
-        <th align="center" style="width: 115px;">
-        <a href="https://www.aliyun.com/minisite/goods?userCode=bkj6b9tn">
-          <img src="https://cdn.spug.cc/img/aliyun-logo.png" width="115px"><br>
-          <sub>阿里云</sub><br>
-          <sub>2核心2G低至99元/年</sub>
-        </a>
-      </th>
-      <th align="center" style="width: 125px;">
-        <a href="http://www.magedu.com">
-          <img src="https://cdn.spug.cc/img/magedu-logo.jpeg" width="115px"><br>
-          <sub>马哥教育</sub><br>
-          <sub>IT人高薪职业学院</sub>
-        </a>
-      </th>
-    </tr>
-  </thead>
-</table>
+```
+Nginx (80/443)
+  └── Django API (Gunicorn, 4 workers × 16 threads)
+       ├── MariaDB (tdyw-db:3306, 8GB)
+       ├── Redis (127.0.0.1:6379)
+       └── kkFileView (kkfileview:8012, Office预览)
+```
 
-## 开发者群
-#### 关注Spug运维公众号加微信群、QQ群、获取最新产品动态
-<div >
-   <img src="https://cdn.spug.cc/img/spug-club.jpg" width = "300" height = "300" alt="spug-qq" align=center />
-<div>
-  
-## License & Copyright
-[AGPL-3.0](https://opensource.org/licenses/AGPL-3.0)
+| 服务 | 资源限制 |
+|------|---------|
+| tdyw（主应用） | 4 CPU / 4GB 内存 |
+| tdyw-db（数据库） | 2 CPU / 8GB 内存 |
+| kkfileview（文件预览） | 2 CPU / 4GB 内存 |
+
+---
+
+## 数据库表命名
+
+自定义模块表名统一使用 `tdyw_` 前缀：
+- `tdyw_device_resume`, `tdyw_device_event`
+- `tdyw_fault_records`, `tdyw_fault_parts`
+- `tdyw_duty_records`
+- `tdyw_interferences`
+- `tdyw_schedule_*`
+- `tdyw_upgrade_*`
+- `checksheet_*`
+- `audit_logs`
+- `runlog_run_logs`, `runlog_run_log_updates`
+- `tdyw_document_*`
+
+---
+
+## License
+
+基于 [AGPL-3.0](https://opensource.org/licenses/AGPL-3.0) 开源协议发布。
+
+基于 [Spug](https://github.com/openspug/spug) 进行定制开发。

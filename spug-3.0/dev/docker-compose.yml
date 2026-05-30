@@ -71,7 +71,7 @@ services:
   # 主应用服务（Spug）
   spug:
     # 使用本地镜像（含 Celery）
-    image: tdyw:v3.0
+    image: tdyw:0502
     # 容器名称
     container_name: tdyw
     # 特权模式：容器可以访问宿主机所有设备
@@ -83,6 +83,8 @@ services:
     # 开发环境：可以直接在宿主机修改代码，容器内实时生效（热重载）
     # 生产环境：建议改为 Volume 方式
     volumes:
+      #入口脚本映射（用于开发时热重载entrypoint）
+      - E:/TDYW/spug-3.0/docker/config/entrypoint.sh:/entrypoint.sh:ro
       # 前端构建产物目录映射（用于生产环境构建后的静态文件）
       - E:/TDYW/spug-3.0/spug_web/build:/data/spug/spug_web/build
       # 后端代码目录映射（用于开发时热重载）
@@ -90,7 +92,7 @@ services:
       # Development Nginx configuration mapping - 生产环境请使用更安全的配置方式
       - E:/TDYW/spug-3.0/config/dev/nginx.conf:/etc/nginx/nginx.conf:ro
       # Supervisor配置 - 多文件模式，主配置+子配置分离
-      - E:/TDYW/spug-3.0/config/dev/supervisor/supervisord.conf:/etc/supervisor/supervisord.conf:rw
+      - E:/TDYW/spug-3.0/config/dev/supervisor/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:rw
       - E:/TDYW/spug-3.0/config/dev/supervisor/conf.d:/etc/supervisor/conf.d:rw
       - tdyw-documents:/data/spug/spug_api/storage/documents  # 资料库文件存储
       - tdyw-document-chunks:/data/spug/spug_api/storage/document_chunks  # 资料库上传分片存储

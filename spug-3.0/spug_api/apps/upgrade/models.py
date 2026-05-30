@@ -10,20 +10,18 @@
 """
 from django.db import models
 from django.utils import timezone
-from libs import ModelMixin
+from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 from apps.account.models import User
 import logging
 
 logger = logging.getLogger(__name__)
 
-# 租户类型常量
-TENANT_TYPE_PRIVATE = 'PRIVATE'
 
-
-class UpgradeRecord(models.Model, ModelMixin):
+class UpgradeRecord(models.Model, TenantModelMixin):
     """升级表单主表"""
-    TENANT_TYPE = TENANT_TYPE_PRIVATE
-    tenant_id = models.CharField(max_length=50, default='', db_index=True, help_text='租户标识')
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+    upgrade_no = models.CharField(max_length=50)
     upgrade_no = models.CharField(max_length=50)
     system = models.CharField(max_length=100)
     upgrade_type = models.CharField(max_length=50)
@@ -41,7 +39,9 @@ class UpgradeRecord(models.Model, ModelMixin):
         return '<UpgradeRecord %r>' % self.upgrade_no
 
     class Meta:
-        db_table = 'exec_upgrade_records'
+        db_table = 'tdyw_upgrade_records'
+        verbose_name = '升级记录'
+        verbose_name_plural = '升级记录'
         ordering = ('-upgrade_time', '-id',)
         unique_together = [['tenant_id', 'upgrade_no']]
         indexes = [

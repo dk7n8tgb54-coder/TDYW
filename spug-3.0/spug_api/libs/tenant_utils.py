@@ -11,24 +11,27 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# 定义需要租户隔离的模型
-TENANT_MODELS = [
-    'RunLog',
-    'FaultRecord',
-    'FaultPart',
-    'Interference',
-    'UpgradeRecord',
-    'UpgradeTemplate',
-    'DutyRecord',
-    'ScheduleStaff',
-    'ScheduleShift',
-    'ScheduleShiftTime',
-    'Schedule',
-    'ScheduleSwap',
-    'ScheduleSubstitute',
-    'DocumentFolderPrivate',
-    'DocumentFilePrivate',
-]
+def get_tenant_models():
+    """
+    自动发现所有需要租户隔离的模型名称
+    通过运行时反射获取所有包含 tenant_id 字段的模型
+    避免硬编码列表过期导致遗漏
+    """
+    from django.apps import apps
+    from django.core.exceptions import AppRegistryNotReady
+    try:
+        from apps.account.models import User
+        tenant_models = []
+        for model in apps.get_models():
+            if hasattr(model, 'tenant_id') and model is not User:
+                tenant_models.append(model.__name__)
+        return tenant_models
+    except AppRegistryNotReady:
+        return []
+
+
+# 向后兼容：保留原有的 TENANT_MODELS 变量，但通过自动发现获取
+TENANT_MODELS = get_tenant_models()
 
 
 def get_tenant_filter(request_user):

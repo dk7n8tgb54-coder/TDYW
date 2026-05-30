@@ -13,7 +13,7 @@ class CheckSheetTemplate(models.Model):
     updated_at = models.DateTimeField('更新时间', auto_now=True)
 
     class Meta:
-        db_table = 'checksheet_template'
+        db_table = 'tdyw_checksheet_template'
         verbose_name = '检查表模板'
         verbose_name_plural = verbose_name
         ordering = ['-created_at']
@@ -50,7 +50,7 @@ class CheckSheetRecord(models.Model):
     updated_at = models.DateTimeField('更新时间', auto_now=True)
 
     class Meta:
-        db_table = 'checksheet_record'
+        db_table = 'tdyw_checksheet_record'
         verbose_name = '检查记录'
         verbose_name_plural = verbose_name
         ordering = ['year', 'month', 'day', 'item_index']
@@ -72,7 +72,7 @@ class CheckSheetDailySummary(models.Model):
     updated_at = models.DateTimeField('更新时间', auto_now=True)
 
     class Meta:
-        db_table = 'checksheet_daily_summary'
+        db_table = 'tdyw_checksheet_daily_summary'
         verbose_name = '每日检查汇总'
         verbose_name_plural = verbose_name
         unique_together = ['year', 'month', 'day']

@@ -34,11 +34,11 @@ if not User.objects.filter(username='admin').exists():
     user = User.objects.create(
         username='admin',
         nickname='管理员',
-        password_hash=User.make_password('Admin888'),
+        password_hash=User.make_password('Admin888..'),
         is_supper=True,
         is_active=True
     )
-    print('管理员账号已创建: admin / Admin888')
+    print('管理员账号已创建: admin / Admin888..')
 else:
     print('管理员账号已存在')
 " || echo "初始化管理员失败或已跳过"
@@ -46,7 +46,7 @@ else:
 echo "=========================================="
 echo "Spug 运维平台启动完成"
 echo "访问地址: http://localhost"
-echo "默认账号: admin / Admin888"
+echo "默认账号: admin / Admin888.."
 echo "=========================================="
 
 # 执行传入的命令

@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react';
 import { Modal, Form, Input, Select, DatePicker, Button, message, Tabs, Progress, Tag, Popconfirm, Switch, Tooltip, Space } from 'antd';
-import { PlusOutlined, CheckCircleOutlined, CloseCircleOutlined, CopyOutlined } from '@ant-design/icons';
+import { PlusOutlined, CheckCircleOutlined, CloseCircleOutlined, CopyOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
 import moment from 'moment';
 import store from './store';
@@ -177,7 +177,12 @@ export default observer(function () {
         visible
         width={900}
         title="升级表单详情"
-        footer={[<Button key="close" onClick={() => store.formVisible = false}>关闭</Button>]}
+        footer={[
+          <Button key="sync" icon={<DeploymentUnitOutlined />} onClick={() => message.success('已模拟同步到设备履历模块')}>
+            同步到设备履历
+          </Button>,
+          <Button key="close" onClick={() => store.formVisible = false}>关闭</Button>
+        ]}
         onCancel={() => store.formVisible = false}>
         <Tabs defaultActiveKey="basic">
           <TabPane tab="基本信息" key="basic">

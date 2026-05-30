@@ -31,7 +31,9 @@ class UpgradeTemplate(models.Model, ModelMixin):
         return f'<UpgradeTemplate {self.name}>'
 
     class Meta:
-        db_table = 'exec_upgrade_templates'
+        db_table = 'tdyw_upgrade_templates'
+        verbose_name = '升级模板'
+        verbose_name_plural = '升级模板'
         ordering = ('-is_default', 'name', '-id')
         indexes = [
             models.Index(fields=['tenant_id']),

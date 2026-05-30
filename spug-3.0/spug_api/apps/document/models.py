@@ -36,7 +36,7 @@ class TenantType:
 
 # ==================== 私有空间模型（原有数据保留） ====================
 class DocumentFolderPrivate(models.Model):
-    """私有空间文件夹模型 - 原spug_document_folder表重命名"""
+    """私有空间文件夹模型"""
     TENANT_TYPE = 'PRIVATE'
     name = models.CharField(max_length=200, verbose_name='文件夹名称')
     parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.CASCADE, verbose_name='父文件夹')
@@ -68,7 +68,7 @@ class DocumentFolderPrivate(models.Model):
     all_objects = AllObjectsManager()   # 全量：包含已删除
 
     class Meta:
-        db_table = 'spug_document_folder_private'
+        db_table = 'tdyw_document_folder_private'
         verbose_name = '文档文件夹(私有)'
         verbose_name_plural = '文档文件夹(私有)'
         ordering = ['-created_at']
@@ -200,7 +200,7 @@ class DocumentFilePrivate(models.Model):
     all_objects = AllObjectsManager()   # 全量：包含已删除
     
     class Meta:
-        db_table = 'spug_document_file_private'
+        db_table = 'tdyw_document_file_private'
         verbose_name = '文档文件(私有)'
         verbose_name_plural = '文档文件(私有)'
         ordering = ['-created_at']
@@ -287,7 +287,7 @@ class DocumentFolderPublic(models.Model):
     all_objects = AllObjectsManager()   # 全量：包含已删除
 
     class Meta:
-        db_table = 'spug_document_folder_public'
+        db_table = 'tdyw_document_folder_public'
         verbose_name = '文档文件夹(公共)'
         verbose_name_plural = '文档文件夹(公共)'
         ordering = ['-created_at']
@@ -425,7 +425,7 @@ class DocumentFilePublic(models.Model):
     all_objects = AllObjectsManager()   # 全量：包含已删除
     
     class Meta:
-        db_table = 'spug_document_file_public'
+        db_table = 'tdyw_document_file_public'
         verbose_name = '文档文件(公共)'
         verbose_name_plural = '文档文件(公共)'
         ordering = ['-created_at']
@@ -543,7 +543,7 @@ class DocumentTransfer(models.Model):
     )
 
     class Meta:
-        db_table = 'spug_document_transfer'
+        db_table = 'tdyw_document_transfer'
         verbose_name = '文件传输记录'
         verbose_name_plural = '文件传输记录'
         ordering = ['-created_at']

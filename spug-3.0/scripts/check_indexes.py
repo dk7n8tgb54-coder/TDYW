@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""检查exec_interferences表的索引"""
+"""检查tdyw_interferences表的索引"""
 import os
 import django
 
@@ -9,10 +9,10 @@ django.setup()
 from django.db import connection
 
 with connection.cursor() as cursor:
-    cursor.execute("SHOW INDEX FROM exec_interferences;")
+    cursor.execute("SHOW INDEX FROM tdyw_interferences;")
     indexes = cursor.fetchall()
 
-    print("exec_interferences 表的索引:")
+    print("tdyw_interferences 表的索引:")
     print("-" * 80)
     for idx in indexes:
         print(f"表名: {idx[0]}, 索引名: {idx[2]}, 列名: {idx[4]}, 唯一: {idx[1]}")

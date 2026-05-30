@@ -93,9 +93,6 @@ class RunLogView(View):
                 return json_response(error='首次动态内容不能为空')
             
             # 创建事件
-            tenant_id = request.user.tenant_id
-
-            # 提取 RunLog 模型的字段（排除 first_update）
             log_data = {
                 'event_title': form.event_title,
                 'event_type': form.event_type,
@@ -105,8 +102,8 @@ class RunLogView(View):
                 'responsible_user_name': form.responsible_user_name,
                 'status': 'in_progress',
                 'created_by': request.user,
-                'tenant_id': tenant_id,
             }
+            assign_tenant_id(log_data, request.user)
             event = RunLog.objects.create(**log_data)
             
             # 创建首次动态
@@ -127,7 +124,7 @@ class RunLogView(View):
                 detail_content=first_update.get('detail_content', ''),
                 editable_until=editable_until,
                 created_by=request.user,
-                tenant_id=tenant_id,
+                tenant_id=request.user.tenant_id,
             )
             
             # 更新统计信息
@@ -297,18 +294,19 @@ class RunLogUpdateView(View):
             editable_until = (datetime.now() + timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
             
             # 创建动态
-            update = RunLogUpdate.objects.create(
-                runlog_id=form.runlog_id,
-                event_title=event.event_title,
-                update_date=form.update_date,
-                sequence=max_seq + 1,
-                recorder=request.user.nickname,
-                detail_content=form.detail_content,
-                attachments=json.dumps(form.attachments) if form.attachments else None,
-                editable_until=editable_until,
-                created_by=request.user,
-                tenant_id=request.user.tenant_id
-            )
+            update_data = {
+                'runlog_id': form.runlog_id,
+                'event_title': event.event_title,
+                'update_date': form.update_date,
+                'sequence': max_seq + 1,
+                'recorder': request.user.nickname,
+                'detail_content': form.detail_content,
+                'attachments': json.dumps(form.attachments) if form.attachments else None,
+                'editable_until': editable_until,
+                'created_by': request.user,
+            }
+            assign_tenant_id(update_data, request.user)
+            update = RunLogUpdate.objects.create(**update_data)
 
             # 更新事件统计信息
             updates = apply_tenant_filter(

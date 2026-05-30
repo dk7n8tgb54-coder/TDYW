@@ -4,7 +4,7 @@
 -- Released under the AGPL-3.0 License.
 
 -- 创建文件传输记录表
-CREATE TABLE IF NOT EXISTS `spug_document_transfer` (
+CREATE TABLE IF NOT EXISTS `tdyw_document_transfer` (
     `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID',
     `tenant_id` VARCHAR(50) NOT NULL DEFAULT '' COMMENT '租户标识',
     `user_id` INT NULL COMMENT '用户ID',

@@ -29,16 +29,16 @@ def main():
     
     # 统计
     with connection.cursor() as cursor:
-        cursor.execute("SELECT COUNT(*) FROM spug_document_folder_private WHERE is_deleted = 1")
+        cursor.execute("SELECT COUNT(*) FROM tdyw_document_folder_private WHERE is_deleted = 1")
         private_folders = cursor.fetchone()[0]
         
-        cursor.execute("SELECT COUNT(*) FROM spug_document_folder_public WHERE is_deleted = 1")
+        cursor.execute("SELECT COUNT(*) FROM tdyw_document_folder_public WHERE is_deleted = 1")
         public_folders = cursor.fetchone()[0]
         
-        cursor.execute("SELECT COUNT(*) FROM spug_document_file_private WHERE is_deleted = 1")
+        cursor.execute("SELECT COUNT(*) FROM tdyw_document_file_private WHERE is_deleted = 1")
         private_files = cursor.fetchone()[0]
         
-        cursor.execute("SELECT COUNT(*) FROM spug_document_file_public WHERE is_deleted = 1")
+        cursor.execute("SELECT COUNT(*) FROM tdyw_document_file_public WHERE is_deleted = 1")
         public_files = cursor.fetchone()[0]
         
         total = private_folders + public_folders + private_files + public_files
@@ -63,12 +63,12 @@ def main():
     
     with connection.cursor() as cursor:
         # 删除文件
-        cursor.execute("DELETE FROM spug_document_file_private WHERE is_deleted = 1")
-        cursor.execute("DELETE FROM spug_document_file_public WHERE is_deleted = 1")
+        cursor.execute("DELETE FROM tdyw_document_file_private WHERE is_deleted = 1")
+        cursor.execute("DELETE FROM tdyw_document_file_public WHERE is_deleted = 1")
         
         # 删除文件夹
-        cursor.execute("DELETE FROM spug_document_folder_private WHERE is_deleted = 1")
-        cursor.execute("DELETE FROM spug_document_folder_public WHERE is_deleted = 1")
+        cursor.execute("DELETE FROM tdyw_document_folder_private WHERE is_deleted = 1")
+        cursor.execute("DELETE FROM tdyw_document_folder_public WHERE is_deleted = 1")
     
     print(f"\n✅ 已清空 {total} 项数据")
     print("=" * 60)

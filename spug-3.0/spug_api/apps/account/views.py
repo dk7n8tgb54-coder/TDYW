@@ -12,7 +12,7 @@ from libs.utils import get_request_real_ip, generate_random_str
 from libs.push import send_login_code
 from libs.tenant_utils import migrate_existing_data
 import logging
-from apps.account.models import User, Role, History
+from apps.account.models import User, Role, History, Tenant
 from apps.setting.utils import AppSetting
 from apps.account.utils import verify_password
 
@@ -189,15 +189,23 @@ class UserView(AdminView):
 
     @staticmethod
     def get_tenant_choices(request):
-        """获取所有已有的租户ID列表（供前端下拉选择，仅超管可用）"""
+        """获取所有已启用的租户列表（供前端下拉选择，仅超管可用）"""
         if not request.user.is_supper:
             return json_response(error='权限拒绝')
-        tenant_choices = User.objects.filter(
-            deleted_by_id__isnull=True
-        ).values('tenant_id').annotate(
-            user_count=Count('id')
-        ).order_by('tenant_id')
-        return json_response(list(tenant_choices))
+        from django.db.models import Count
+        tenants = Tenant.objects.filter(is_active=True).order_by('id')
+        result = []
+        for t in tenants:
+            user_count = User.objects.filter(
+                tenant_id=t.id,
+                deleted_by_id__isnull=True
+            ).count()
+            result.append({
+                'id': t.id,
+                'name': t.name,
+                'user_count': user_count,
+            })
+        return json_response(result)
 
     @staticmethod
     def restore_user(request):
@@ -296,6 +304,67 @@ class RoleView(AdminView):
             if role.user_set.exists():
                 return json_response(error='已有用户使用了该角色，请解除关联后再尝试删除')
             role.delete()
+        return json_response(error=error)
+
+
+class TenantView(AdminView):
+    """租户管理"""
+    PERM_MAP = {
+        'GET': 'system.tenant.view',
+        'POST': 'system.tenant.add',
+        'PATCH': 'system.tenant.edit',
+        'DELETE': 'system.tenant.del',
+    }
+
+    def get(self, request):
+        tenants = Tenant.objects.all().order_by('id')
+        return json_response(tenants)
+
+    def post(self, request):
+        form, error = JsonParser(
+            Argument('id', help='请输入租户标识'),
+            Argument('name', help='请输入租户名称'),
+            Argument('description', required=False),
+        ).parse(request.body)
+        if error is None:
+            err = validate_tenant_id(form.id)
+            if err:
+                return json_response(error=err)
+            if Tenant.objects.filter(pk=form.id).exists():
+                return json_response(error='租户标识已存在')
+            Tenant.objects.create(
+                id=form.id,
+                name=form.name,
+                description=form.description or '',
+                created_by=request.user,
+            )
+        return json_response(error=error)
+
+    def patch(self, request):
+        form, error = JsonParser(
+            Argument('id', help='请指定操作对象'),
+            Argument('name', required=False),
+            Argument('description', required=False),
+            Argument('is_active', type=bool, required=False),
+        ).parse(request.body)
+        if error is None:
+            tenant = Tenant.objects.filter(pk=form.pop('id')).first()
+            if not tenant:
+                return json_response(error='租户不存在')
+            tenant.update_by_dict(form)
+        return json_response(error=error)
+
+    def delete(self, request):
+        form, error = JsonParser(
+            Argument('id', help='请指定操作对象')
+        ).parse(request.GET)
+        if error is None:
+            tenant = Tenant.objects.filter(pk=form.id).first()
+            if not tenant:
+                return json_response(error='租户不存在')
+            if User.objects.filter(tenant_id=form.id).exists():
+                return json_response(error='该租户下存在用户，无法删除')
+            tenant.delete()
         return json_response(error=error)
 
 

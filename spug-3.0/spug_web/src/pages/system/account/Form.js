@@ -6,7 +6,7 @@
 import React, {useState, useEffect, useRef} from 'react';
 import {Link} from 'react-router-dom';
 import {observer} from 'mobx-react';
-import {Modal, Form, Select, Input, AutoComplete, message} from 'antd';
+import {Modal, Form, Select, Input, message} from 'antd';
 import {http} from 'libs';
 import store from './store';
 import rStore from '../role/store';
@@ -64,17 +64,17 @@ export default observer(function () {
         </Form.Item>
         {isSupper && (
           <Form.Item name="tenant_id" label="所属租户"
-                     extra="新建时默认使用登录名，指定后可共享同租户数据">
-            <AutoComplete allowClear placeholder="请选择或输入租户"
-                          filterOption={(input, option) =>
-                            option.value?.toLowerCase().includes(input.toLowerCase())
-                          }>
+                     extra="选择租户后该用户将与同租户共享数据">
+            <Select allowClear placeholder="请选择租户" showSearch
+                    filterOption={(input, option) =>
+                      option.children?.toLowerCase().includes(input.toLowerCase())
+                    }>
               {tenantChoices.map(item => (
-                <AutoComplete.Option value={item.tenant_id} key={item.tenant_id}>
-                  {item.tenant_id} ({item.user_count}人)
-                </AutoComplete.Option>
+                <Select.Option value={item.id} key={item.id}>
+                  {item.name} ({item.id}) - {item.user_count}人
+                </Select.Option>
               ))}
-            </AutoComplete>
+            </Select>
           </Form.Item>
         )}
         {!isSupper && (

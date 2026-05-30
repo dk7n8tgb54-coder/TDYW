@@ -34,6 +34,8 @@ class FaultRecordView(View):
             if form.id:
                 form.updated_at = human_datetime()
                 form.updated_by = request.user
+                if not apply_tenant_filter(FaultRecord.objects.filter(pk=form.id), request.user).exists():
+                    return json_response(error='记录不存在或无权操作')
                 FaultRecord.objects.filter(pk=form.pop('id')).update(**form)
             else:
                 form.created_by = request.user
@@ -47,6 +49,8 @@ class FaultRecordView(View):
             Argument('id', type=int, help='请指定操作对象')
         ).parse(request.GET)
         if error is None:
+            if not apply_tenant_filter(FaultRecord.objects.filter(pk=form.id), request.user).exists():
+                return json_response(error='记录不存在或无权操作')
             FaultRecord.objects.filter(pk=form.id).delete()
         return json_response(error=error)
 
@@ -83,6 +87,8 @@ class FaultPartView(View):
             if form.id:
                 form.updated_at = human_datetime()
                 form.updated_by = request.user
+                if not apply_tenant_filter(FaultPart.objects.filter(pk=form.id), request.user).exists():
+                    return json_response(error='记录不存在或无权操作')
                 FaultPart.objects.filter(pk=form.pop('id')).update(**form)
             else:
                 form.created_by = request.user
@@ -96,5 +102,7 @@ class FaultPartView(View):
             Argument('id', type=int, help='请指定操作对象')
         ).parse(request.GET)
         if error is None:
+            if not apply_tenant_filter(FaultPart.objects.filter(pk=form.id), request.user).exists():
+                return json_response(error='记录不存在或无权操作')
             FaultPart.objects.filter(pk=form.id).delete()
         return json_response(error=error)

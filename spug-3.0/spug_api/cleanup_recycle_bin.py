@@ -252,23 +252,23 @@ def cleanup_force_mode(args):
     with connection.cursor() as cursor:
         if args.space in ('all', 'private'):
             # 删除私有文件
-            cursor.execute("DELETE FROM spug_document_file_private WHERE is_deleted = 1")
+            cursor.execute("DELETE FROM tdyw_document_file_private WHERE is_deleted = 1")
             private_files = cursor.rowcount
             print(f"  删除私有文件: {private_files} 个")
             
             # 删除私有文件夹
-            cursor.execute("DELETE FROM spug_document_folder_private WHERE is_deleted = 1")
+            cursor.execute("DELETE FROM tdyw_document_folder_private WHERE is_deleted = 1")
             private_folders = cursor.rowcount
             print(f"  删除私有文件夹: {private_folders} 个")
             
         if args.space in ('all', 'public'):
             # 删除公共文件
-            cursor.execute("DELETE FROM spug_document_file_public WHERE is_deleted = 1")
+            cursor.execute("DELETE FROM tdyw_document_file_public WHERE is_deleted = 1")
             public_files = cursor.rowcount
             print(f"  删除公共文件: {public_files} 个")
             
             # 删除公共文件夹
-            cursor.execute("DELETE FROM spug_document_folder_public WHERE is_deleted = 1")
+            cursor.execute("DELETE FROM tdyw_document_folder_public WHERE is_deleted = 1")
             public_folders = cursor.rowcount
             print(f"  删除公共文件夹: {public_folders} 个")
     

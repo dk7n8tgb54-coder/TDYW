@@ -42,7 +42,9 @@ class UpgradeChecklist(models.Model, ModelMixin):
         return f'<UpgradeChecklist {self.name}>'
 
     class Meta:
-        db_table = 'exec_upgrade_checklists'
+        db_table = 'tdyw_upgrade_checklists'
+        verbose_name = '升级步骤清单'
+        verbose_name_plural = '升级步骤清单'
         ordering = ('-is_default', 'name', '-id')
         indexes = [
             models.Index(fields=['tenant_id']),
@@ -71,7 +73,9 @@ class UpgradeChecklistStep(models.Model, ModelMixin):
         return f'<UpgradeChecklistStep {self.title}>'
 
     class Meta:
-        db_table = 'exec_upgrade_checklist_steps'
+        db_table = 'tdyw_upgrade_checklist_steps'
+        verbose_name = '清单步骤项'
+        verbose_name_plural = '清单步骤项'
         ordering = ('checklist_id', 'sequence', 'id')
         indexes = [
             models.Index(fields=['checklist_id']),
@@ -138,7 +142,9 @@ class UpgradeRecordStep(models.Model, ModelMixin):
         self.save(update_fields=['status', 'completed_by', 'completed_at', 'remark'])
 
     class Meta:
-        db_table = 'exec_upgrade_record_steps'
+        db_table = 'tdyw_upgrade_record_steps'
+        verbose_name = '升级记录步骤'
+        verbose_name_plural = '升级记录步骤'
         ordering = ('upgrade_id', 'sequence', 'id')
         indexes = [
             models.Index(fields=['upgrade_id']),

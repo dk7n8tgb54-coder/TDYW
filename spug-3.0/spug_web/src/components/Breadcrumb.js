@@ -12,24 +12,13 @@ export default class extends React.Component {
   static Item = Breadcrumb.Item
 
   render() {
-    let title = this.props.title;
-    if (!title) {
-      const rawChildren = this.props.children;
-      if (Array.isArray(rawChildren)) {
-        title = rawChildren[rawChildren.length - 1].props.children
-      } else {
-        title = rawChildren.props.children
-      }
-    }
-
     return (
       <div className={styles.breadcrumb}>
         <Breadcrumb>
           {this.props.children}
         </Breadcrumb>
         {this.props.extra ? (
-          <div className={styles.title}>
-            <span>{title}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
             {this.props.extra}
           </div>
         ) : null}

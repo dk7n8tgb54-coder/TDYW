@@ -107,168 +107,174 @@ const DocumentIndex = observer(function () {
     };
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 110px)', overflow: 'hidden' }}>
+      <>
         <SpugBreadcrumb extra={
-          <Space>
-            <DiskStatus isPublic={navigationStore.isPublic} />
-            <SearchBox
-              isPublic={navigationStore.isPublic}
-              onSearchStart={handleSearchStart}
-              onSearchResult={handleSearchResult}
-              onSearchError={handleSearchError}
-              onClearSearch={handleClearSearch}
-            />
-            <input
-              type="file"
-              multiple
-              style={{ display: 'none' }}
-              ref={fileInputRef}
-              onChange={handleFileSelect}
-            />
-            <input
-              type="file"
-              webkitdirectory="true"
-              directory="true"
-              multiple
-              style={{ display: 'none' }}
-              ref={folderInputRef}
-              onChange={handleFolderSelect}
-            />
-            <Button icon={<FolderAddOutlined />} onClick={() => {
-              if (explorerRef.current && explorerRef.current.handleAddFolder) {
-                explorerRef.current.handleAddFolder();
-              }
-            }}>
-              新建文件夹
-            </Button>
-            <Button onClick={handleRefresh}>
-              刷新
-            </Button>
-            <Button type="primary" icon={<UploadOutlined />} onClick={() => {
-              if (fileInputRef.current) {
-                fileInputRef.current.click();
-              }
-            }}>
-              上传文件
-            </Button>
-            <Button icon={<CloudUploadOutlined />} onClick={() => {
-              if (folderInputRef.current) {
-                folderInputRef.current.click();
-              }
-            }}>
-              上传文件夹
-            </Button>
-            <Popover
-              content={<UploadPanel />}
-              title={null}
-              trigger="click"
-              placement="bottomRight"
-              open={uploadUIStore.uploadPanelVisible}
-              onOpenChange={(open) => {
-                if (!open) uploadUIStore.hideUploadPanel();
-              }}
-              overlayStyle={{ padding: 0, backgroundColor: 'transparent', boxShadow: 'none' }}
-              overlayInnerStyle={{ padding: 0, backgroundColor: 'transparent', boxShadow: 'none' }}
-            >
-              <Badge count={uploadCoreStore.currentUploadQueue.length} offset={[-5, 5]}>
-                <Button icon={<CloudUploadOutlined />} />
-              </Badge>
-            </Popover>
-          </Space>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+            <Space wrap>
+              <DiskStatus isPublic={navigationStore.isPublic} />
+              <SearchBox
+                isPublic={navigationStore.isPublic}
+                onSearchStart={handleSearchStart}
+                onSearchResult={handleSearchResult}
+                onSearchError={handleSearchError}
+                onClearSearch={handleClearSearch}
+              />
+            </Space>
+            <Space wrap>
+              <input
+                type="file"
+                multiple
+                style={{ display: 'none' }}
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+              />
+              <input
+                type="file"
+                webkitdirectory="true"
+                directory="true"
+                multiple
+                style={{ display: 'none' }}
+                ref={folderInputRef}
+                onChange={handleFolderSelect}
+              />
+              <Button icon={<FolderAddOutlined />} onClick={() => {
+                if (explorerRef.current && explorerRef.current.handleAddFolder) {
+                  explorerRef.current.handleAddFolder();
+                }
+              }}>
+                新建文件夹
+              </Button>
+              <Button onClick={handleRefresh}>
+                刷新
+              </Button>
+              <Button type="primary" icon={<UploadOutlined />} onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.click();
+                }
+              }}>
+                上传文件
+              </Button>
+              <Button icon={<CloudUploadOutlined />} onClick={() => {
+                if (folderInputRef.current) {
+                  folderInputRef.current.click();
+                }
+              }}>
+                上传文件夹
+              </Button>
+              <Popover
+                content={<UploadPanel />}
+                title={null}
+                trigger="click"
+                placement="bottomRight"
+                open={uploadUIStore.uploadPanelVisible}
+                onOpenChange={(open) => {
+                  if (!open) uploadUIStore.hideUploadPanel();
+                }}
+                overlayStyle={{ padding: 0, backgroundColor: 'transparent', boxShadow: 'none' }}
+                overlayInnerStyle={{ padding: 0, backgroundColor: 'transparent', boxShadow: 'none' }}
+              >
+                <Badge count={uploadCoreStore.currentUploadQueue.length} offset={[-5, 5]}>
+                  <Button icon={<CloudUploadOutlined />} />
+                </Badge>
+              </Popover>
+            </Space>
+          </div>
         }>
           <SpugBreadcrumb.Item>首页</SpugBreadcrumb.Item>
           <SpugBreadcrumb.Item>资料库</SpugBreadcrumb.Item>
         </SpugBreadcrumb>
 
-        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
-            {currentPath.length > 0 && (
-              <Space style={{ marginRight: 12 }}>
-                <Button
-                  type="text"
-                  icon={<ArrowLeftOutlined />}
-                  onClick={navigationStore.goUp}
-                  style={{ color: '#1890ff' }}
-                >
-                  返回上一级
-                </Button>
-                <span style={{ color: '#d9d9d9' }}>|</span>
-              </Space>
-            )}
-            <AntdBreadcrumb separator=">">
-              <AntdBreadcrumb.Item
-                onClick={() => navigationStore.navigateTo(-1)}
-                style={{ cursor: 'pointer', color: currentPath.length > 0 ? '#1890ff' : '#999' }}
-              >
-                {spacePrefix}
-              </AntdBreadcrumb.Item>
-              {currentPath.map((item, index) => (
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, padding: '0 24px' }}>
+          <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
+              {currentPath.length > 0 && (
+                <Space style={{ marginRight: 12 }}>
+                  <Button
+                    type="text"
+                    icon={<ArrowLeftOutlined />}
+                    onClick={navigationStore.goUp}
+                    style={{ color: '#1890ff' }}
+                  >
+                    返回上一级
+                  </Button>
+                  <span style={{ color: '#d9d9d9' }}>|</span>
+                </Space>
+              )}
+              <AntdBreadcrumb separator=">">
                 <AntdBreadcrumb.Item
-                  key={item.id}
-                  onClick={() => navigationStore.navigateTo(index)}
-                  style={{ cursor: 'pointer', color: index === currentPath.length - 1 ? '#999' : '#1890ff' }}
+                  onClick={() => navigationStore.navigateTo(-1)}
+                  style={{ cursor: 'pointer', color: currentPath.length > 0 ? '#1890ff' : '#999' }}
                 >
-                  {item.name}
+                  {spacePrefix}
                 </AntdBreadcrumb.Item>
-              ))}
-            </AntdBreadcrumb>
+                {currentPath.map((item, index) => (
+                  <AntdBreadcrumb.Item
+                    key={item.id}
+                    onClick={() => navigationStore.navigateTo(index)}
+                    style={{ cursor: 'pointer', color: index === currentPath.length - 1 ? '#999' : '#1890ff' }}
+                  >
+                    {item.name}
+                  </AntdBreadcrumb.Item>
+                ))}
+              </AntdBreadcrumb>
+            </div>
+
+            {/* 视图切换按钮 */}
+            <Radio.Group
+              value={viewMode}
+              onChange={(e) => setViewMode(e.target.value)}
+              size="small"
+              style={{ marginRight: 8 }}
+            >
+              <Radio.Button value="list" title="列表视图">
+                <UnorderedListOutlined />
+              </Radio.Button>
+              <Radio.Button value="grid" title="缩略图视图">
+                <AppstoreOutlined />
+              </Radio.Button>
+            </Radio.Group>
+
+            {/* 右上角展开/收起详情面板按钮 */}
+            <Button
+              type="text"
+              icon={detailPanelExpanded ? <RightOutlined /> : <LeftOutlined />}
+              onClick={() => {
+                if (explorerRef.current && explorerRef.current.toggleDetailPanel) {
+                  explorerRef.current.toggleDetailPanel((newState) => {
+                    setDetailPanelExpanded(newState);
+                  });
+                }
+              }}
+              style={{ fontSize: 12, color: '#666' }}
+            >
+              {detailPanelExpanded ? '收起' : '展开'}
+            </Button>
           </div>
 
-          {/* 视图切换按钮 */}
-          <Radio.Group
-            value={viewMode}
-            onChange={(e) => setViewMode(e.target.value)}
-            size="small"
-            style={{ marginRight: 8 }}
-          >
-            <Radio.Button value="list" title="列表视图">
-              <UnorderedListOutlined />
-            </Radio.Button>
-            <Radio.Button value="grid" title="缩略图视图">
-              <AppstoreOutlined />
-            </Radio.Button>
-          </Radio.Group>
+          <div style={{ display: 'flex', flex: 1, overflow: 'hidden', width: '100%', minWidth: 0 }}>
+            {/* 左侧树形菜单 */}
+            <div style={{ width: 260, borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <FolderTree
+                ref={folderTreeRef}
+                isPublic={navigationStore.isPublic}
+                onFolderChange={() => {}}
+              />
+            </div>
 
-          {/* 右上角展开/收起详情面板按钮 */}
-          <Button
-            type="text"
-            icon={detailPanelExpanded ? <RightOutlined /> : <LeftOutlined />}
-            onClick={() => {
-              if (explorerRef.current && explorerRef.current.toggleDetailPanel) {
-                explorerRef.current.toggleDetailPanel((newState) => {
-                  setDetailPanelExpanded(newState);
-                });
-              }
-            }}
-            style={{ fontSize: 12, color: '#666' }}
-          >
-            {detailPanelExpanded ? '收起' : '展开'}
-          </Button>
+            {/* 主内容区 */}
+            <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+              <Explorer
+                folderId={navigationStore.currentFolderId}
+                onFolderChange={() => {}}
+                ref={explorerRef}
+                viewMode={viewMode}
+                isPublic={navigationStore.isPublic}
+                searchState={searchState}
+              />
+            </div>
+          </div>
         </div>
-
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', width: '100%', minWidth: 0 }}>
-          {/* 左侧树形菜单 */}
-          <div style={{ width: 260, borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <FolderTree
-              ref={folderTreeRef}
-              isPublic={navigationStore.isPublic}
-              onFolderChange={() => {}}
-            />
-          </div>
-
-          {/* 主内容区 */}
-          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <Explorer
-              folderId={navigationStore.currentFolderId}
-              onFolderChange={() => {}}
-              ref={explorerRef}
-              viewMode={viewMode}
-              isPublic={navigationStore.isPublic}
-              searchState={searchState}
-            />
-          </div>
-        </div>
-      </div>
+      </>
     );
   } catch (error) {
     return <div>渲染错误: {error.message}</div>;

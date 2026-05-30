@@ -2,20 +2,18 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.db import models
-from libs import ModelMixin, human_datetime
+from libs import human_datetime
+from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 from apps.account.models import User
 import logging
 
 logger = logging.getLogger(__name__)
 
-# 租户类型常量
-TENANT_TYPE_PRIVATE = 'PRIVATE'
 
-
-class Interference(models.Model, ModelMixin):
-    """干扰记录表 - 数据库表名保持为exec_interferences"""
-    TENANT_TYPE = TENANT_TYPE_PRIVATE
-    tenant_id = models.CharField(max_length=50, default='', help_text='租户标识')
+class Interference(models.Model, TenantModelMixin):
+    """干扰记录表"""
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
     serial_number = models.IntegerField(default=0)
     frequency = models.CharField(max_length=100)
     report_dept = models.CharField(max_length=100)
@@ -38,5 +36,7 @@ class Interference(models.Model, ModelMixin):
         return self.to_dict()
 
     class Meta:
-        db_table = 'exec_interferences'  # 保持原表名，确保数据库兼容
+        db_table = 'tdyw_interferences'
+        verbose_name = '干扰记录'
+        verbose_name_plural = '干扰记录'
         ordering = ('serial_number', '-datetime', '-id',)

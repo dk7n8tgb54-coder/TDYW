@@ -11,7 +11,7 @@
 -- 或者使用phpMyAdmin等图形工具直接执行以下SQL语句
 
 -- 创建文档文件夹表
-CREATE TABLE IF NOT EXISTS `spug_document_folder` (
+CREATE TABLE IF NOT EXISTS `tdyw_document_folder` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(200) NOT NULL COMMENT '文件夹名称',
   `parent_id` int(11) DEFAULT NULL COMMENT '父文件夹ID',
@@ -19,14 +19,14 @@ CREATE TABLE IF NOT EXISTS `spug_document_folder` (
   `created_at` datetime NOT NULL COMMENT '创建时间',
   `updated_at` datetime NOT NULL COMMENT '更新时间',
   PRIMARY KEY (`id`),
-  KEY `spug_document_folder_parent_id_idx` (`parent_id`),
-  KEY `spug_document_folder_created_by_id_idx` (`created_by_id`),
-  CONSTRAINT `spug_document_folder_parent_id_refs_id` FOREIGN KEY (`parent_id`) REFERENCES `spug_document_folder` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `spug_document_folder_created_by_id_refs_id` FOREIGN KEY (`created_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+  KEY `tdyw_document_folder_parent_id_idx` (`parent_id`),
+  KEY `tdyw_document_folder_created_by_id_idx` (`created_by_id`),
+  CONSTRAINT `tdyw_document_folder_parent_id_refs_id` FOREIGN KEY (`parent_id`) REFERENCES `tdyw_document_folder` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `tdyw_document_folder_created_by_id_refs_id` FOREIGN KEY (`created_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档文件夹表';
 
 -- 创建文档文件表
-CREATE TABLE IF NOT EXISTS `spug_document_file` (
+CREATE TABLE IF NOT EXISTS `tdyw_document_file` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(200) NOT NULL COMMENT '文件名',
   `folder_id` int(11) DEFAULT NULL COMMENT '所属文件夹ID',
@@ -36,10 +36,10 @@ CREATE TABLE IF NOT EXISTS `spug_document_file` (
   `created_by_id` int(11) DEFAULT NULL COMMENT '上传人ID',
   `created_at` datetime NOT NULL COMMENT '上传时间',
   PRIMARY KEY (`id`),
-  KEY `spug_document_file_folder_id_idx` (`folder_id`),
-  KEY `spug_document_file_created_by_id_idx` (`created_by_id`),
-  CONSTRAINT `spug_document_file_folder_id_refs_id` FOREIGN KEY (`folder_id`) REFERENCES `spug_document_folder` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `spug_document_file_created_by_id_refs_id` FOREIGN KEY (`created_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+  KEY `tdyw_document_file_folder_id_idx` (`folder_id`),
+  KEY `tdyw_document_file_created_by_id_idx` (`created_by_id`),
+  CONSTRAINT `tdyw_document_file_folder_id_refs_id` FOREIGN KEY (`folder_id`) REFERENCES `tdyw_document_folder` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `tdyw_document_file_created_by_id_refs_id` FOREIGN KEY (`created_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档文件表';
 
 -- 显示创建成功信息

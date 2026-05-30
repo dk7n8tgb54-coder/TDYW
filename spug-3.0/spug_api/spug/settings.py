@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
+    'libs',
     'apps.account',
     'apps.setting',
     'apps.exec',
@@ -61,6 +62,7 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.middleware.common.CommonMiddleware',
     'libs.middleware.AuthenticationMiddleware',
+    'libs.tenant_middleware.TenantMiddleware',
     'apps.logs.middleware.AuditLogMiddleware',
     'libs.middleware.HandleExceptionMiddleware',
 ]

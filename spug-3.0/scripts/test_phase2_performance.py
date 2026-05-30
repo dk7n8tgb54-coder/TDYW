@@ -203,12 +203,12 @@ def main():
 
 查看索引:
   USE spug;
-  SHOW INDEX FROM exec_schedule;
-  SHOW INDEX FROM exec_schedule_swap;
-  SHOW INDEX FROM exec_schedule_substitute;
+  SHOW INDEX FROM tdyw_schedule;
+  SHOW INDEX FROM tdyw_schedule_swap;
+  SHOW INDEX FROM tdyw_schedule_substitute;
 
 验证索引使用 (EXPLAIN):
-  EXPLAIN SELECT * FROM exec_schedule 
+  EXPLAIN SELECT * FROM tdyw_schedule 
   WHERE tenant_id = 'xxx' AND schedule_date = '2026-03-17';
   -- 应看到 key 列显示使用了索引
 """)

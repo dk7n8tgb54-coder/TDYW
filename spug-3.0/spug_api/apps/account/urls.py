@@ -13,6 +13,7 @@ urlpatterns = [
     url(r'^user/tenant_choices/$', UserView.get_tenant_choices),
     url(r'^user/restore/$', UserView.restore_user),
     url(r'^role/$', RoleView.as_view()),
+    url(r'^tenant/$', TenantView.as_view()),
     url(r'^self/$', SelfView.as_view()),
     url(r'^login/history/$', HistoryView.as_view())
 ]

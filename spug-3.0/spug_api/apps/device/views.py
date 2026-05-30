@@ -121,30 +121,30 @@ class DeviceResumeView(View):
         from libs import human_datetime
 
         try:
-            # get_or_create本身是原子操作，无需外层事务
+            defaults_data = {
+                'device_name': form.device_name,
+                'device_model': form.device_model,
+                'frequency': form.frequency,
+                'call_sign': form.call_sign,
+                'install_location': form.install_location,
+                'geo_coordinate': form.geo_coordinate,
+                'device_purpose': form.device_purpose,
+                'manufacturer': form.manufacturer,
+                'install_unit': form.install_unit,
+                'use_unit': form.use_unit,
+                'install_time': form.install_time,
+                'enable_time': form.enable_time,
+                'current_status': form.current_status,
+                'responsible_user_id': None,
+                'responsible_user_name': responsible_user_name,
+                'tenant_id': tenant_id,
+                'remark': form.remark,
+                'created_by': request.user,
+                'is_deleted': False
+            }
             record, created = DeviceResume.objects.get_or_create(
                 device_sn=form.device_sn,
-                defaults={
-                    'tenant_id': tenant_id,
-                    'device_name': form.device_name,
-                    'device_model': form.device_model,
-                    'frequency': form.frequency,
-                    'call_sign': form.call_sign,
-                    'install_location': form.install_location,
-                    'geo_coordinate': form.geo_coordinate,
-                    'device_purpose': form.device_purpose,
-                    'manufacturer': form.manufacturer,
-                    'install_unit': form.install_unit,
-                    'use_unit': form.use_unit,
-                    'install_time': form.install_time,
-                    'enable_time': form.enable_time,
-                    'current_status': form.current_status,
-                    'responsible_user_id': None,
-                    'responsible_user_name': responsible_user_name,
-                    'remark': form.remark,
-                    'created_by': request.user,
-                    'is_deleted': False
-                }
+                defaults=defaults_data
             )
             if not created:
                 logging.warning(f'创建设备失败：设备编号已存在｜设备编号：{form.device_sn}｜租户：{tenant_id}｜用户：{request.user.username}')
@@ -364,6 +364,7 @@ class DeviceEventView(View):
         # Create event record
         try:
             event_data = DeviceEventBuilder.build_event_data(form, device, request.user)
+            assign_tenant_id(event_data, request.user)
             event = DeviceEvent.objects.create(**event_data)
             logging.info(f'创建设备事件成功｜租户：{event.tenant_id}｜用户：{request.user.username}｜设备编号：{event.device_sn}｜事件类型：{event.event_type}')
             return json_response(event.to_view())

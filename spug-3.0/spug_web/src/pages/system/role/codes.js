@@ -219,6 +219,15 @@ export default [{
     perms: [
       {key: 'view', label: '查看操作审计'},
     ]
+  }, {
+    key: 'tenant',
+    label: '租户管理',
+    perms: [
+      {key: 'view', label: '查看租户'},
+      {key: 'add', label: '新建租户'},
+      {key: 'edit', label: '编辑租户'},
+      {key: 'del', label: '删除租户'},
+    ]
   }]
 }, {
   key: 'fault',

@@ -127,10 +127,10 @@ def test_database_tables():
             tables = connection.introspection.table_names()
 
             required_tables = [
-                'spug_document_folder_private',
-                'spug_document_file_private',
-                'spug_document_folder_public',
-                'spug_document_file_public'
+                'tdyw_document_folder_private',
+                'tdyw_document_file_private',
+                'tdyw_document_folder_public',
+                'tdyw_document_file_public'
             ]
 
             for table in required_tables:

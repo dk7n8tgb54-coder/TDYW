@@ -5,7 +5,7 @@
  */
 import React, { useState } from 'react';
 import { observer } from 'mobx-react';
-import { ExclamationCircleOutlined } from '@ant-design/icons';
+import { ExclamationCircleOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import { Modal, Form, Input, Select, DatePicker, Button, message, Descriptions } from 'antd';
 import { http, hasPermission } from 'libs';
 import moment from 'moment';
@@ -70,6 +70,9 @@ export default observer(function () {
         width={800}
         title="故障处置记录详情"
         footer={[
+          <Button key="sync" icon={<DeploymentUnitOutlined />} onClick={() => message.success('已模拟同步到设备履历模块')}>
+            同步到设备履历
+          </Button>,
           <Button key="close" onClick={() => S.formVisible = false}>关闭</Button>
         ]}
         onCancel={() => S.formVisible = false}>

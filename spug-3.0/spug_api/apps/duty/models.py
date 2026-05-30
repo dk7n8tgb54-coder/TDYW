@@ -2,21 +2,18 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.db import models
-from libs import ModelMixin, human_datetime
+from libs import human_datetime
+from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 from apps.account.models import User
 import logging
 
 logger = logging.getLogger(__name__)
 
-# 租户类型常量
-TENANT_TYPE_PRIVATE = 'PRIVATE'
 
-
-class DutyRecord(models.Model, ModelMixin):
+class DutyRecord(models.Model, TenantModelMixin):
     """值班日志"""
-    TENANT_TYPE = TENANT_TYPE_PRIVATE
-    tenant_id = models.CharField(max_length=50, default='', help_text='租户标识')
-
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
     duty_person = models.CharField(max_length=100, help_text='值班人员')
     reporter = models.CharField(max_length=100, help_text='填报人')
     department = models.CharField(max_length=100, help_text='所属科室')
@@ -34,5 +31,7 @@ class DutyRecord(models.Model, ModelMixin):
         return self.to_dict()
 
     class Meta:
-        db_table = 'exec_duty_records'
+        db_table = 'tdyw_duty_records'
+        verbose_name = '值班日志'
+        verbose_name_plural = '值班日志'
         ordering = ('-duty_date', '-id',)

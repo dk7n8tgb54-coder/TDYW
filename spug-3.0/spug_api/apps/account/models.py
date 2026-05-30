@@ -151,3 +151,22 @@ class History(models.Model, ModelMixin):
     class Meta:
         db_table = 'login_histories'
         ordering = ('-id',)
+
+
+class Tenant(models.Model, ModelMixin):
+    """租户模型"""
+    id = models.CharField(max_length=50, primary_key=True, help_text='租户标识')
+    name = models.CharField(max_length=100, help_text='租户名称')
+    description = models.TextField(default='', blank=True, help_text='租户描述')
+    is_active = models.BooleanField(default=True, help_text='是否启用')
+    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
+
+    def __repr__(self):
+        return '<Tenant %r>' % self.id
+
+    class Meta:
+        db_table = 'tenants'
+        verbose_name = '租户'
+        verbose_name_plural = '租户'
+        ordering = ('id',)

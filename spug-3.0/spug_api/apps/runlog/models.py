@@ -1,18 +1,17 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
+import json
 from django.db import models
-from libs import ModelMixin, human_datetime
+from libs import human_datetime
+from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 from apps.account.models import User
 
-# 租户类型常量
-TENANT_TYPE_PRIVATE = 'PRIVATE'
 
-
-class RunLog(models.Model, ModelMixin):
+class RunLog(models.Model, TenantModelMixin):
     """运行日志事件表（闭环管理）"""
-    TENANT_TYPE = TENANT_TYPE_PRIVATE
-    tenant_id = models.CharField(max_length=50, default='', help_text='租户标识')
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
     
     # === 事件基本信息 ===
     event_title = models.CharField(max_length=200, help_text='事件标题')
@@ -68,7 +67,9 @@ class RunLog(models.Model, ModelMixin):
 
     class Meta:
         managed = True  # 由 Django 管理表结构
-        db_table = 'runlog_run_logs'
+        db_table = 'tdyw_run_logs'
+        verbose_name = '运行日志'
+        verbose_name_plural = '运行日志'
         ordering = ('-created_at', '-id')
         indexes = [
             models.Index(fields=['tenant_id', 'status']),
@@ -76,10 +77,10 @@ class RunLog(models.Model, ModelMixin):
         ]
 
 
-class RunLogUpdate(models.Model, ModelMixin):
+class RunLogUpdate(models.Model, TenantModelMixin):
     """运行日志动态表"""
-    TENANT_TYPE = TENANT_TYPE_PRIVATE
-    tenant_id = models.CharField(max_length=50, default='', help_text='租户标识')
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
     
     # 关联事件
     runlog_id = models.IntegerField(help_text='关联事件ID')
@@ -111,6 +112,15 @@ class RunLogUpdate(models.Model, ModelMixin):
 
     def to_view(self):
         tmp = self.to_dict()
+        # 将 attachments 从 JSON 字符串解析为数组
+        if isinstance(tmp.get('attachments'), str):
+            try:
+                parsed = json.loads(tmp['attachments'])
+                tmp['attachments'] = parsed if isinstance(parsed, list) else []
+            except (json.JSONDecodeError, TypeError):
+                tmp['attachments'] = []
+        elif tmp.get('attachments') is None:
+            tmp['attachments'] = []
         # 添加是否可编辑标识 - 比较时间戳字符串
         from datetime import datetime
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -118,7 +128,9 @@ class RunLogUpdate(models.Model, ModelMixin):
         return tmp
 
     class Meta:
-        db_table = 'runlog_run_log_updates'
+        db_table = 'tdyw_run_log_updates'
+        verbose_name = '运行日志动态'
+        verbose_name_plural = '运行日志动态'
         ordering = ('update_date', 'sequence', 'id')
         indexes = [
             models.Index(fields=['runlog_id']),

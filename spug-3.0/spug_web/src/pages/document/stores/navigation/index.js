@@ -54,7 +54,7 @@ class NavigationStore {
    * 当前是否公共空间 false=我的文件, true=公共共享库
    * @type {boolean}
    */
-  @observable isPublic = false;
+  @observable isPublic = true;
 
   // ============================================================
   // 代理属性（兼容原API）

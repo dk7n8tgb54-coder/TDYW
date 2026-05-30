@@ -97,7 +97,7 @@ class FolderTree extends React.Component {
       children: isPublic ? this.buildTreeData(null, folders) : []
     };
 
-    return [privateRoot, publicRoot];
+    return [publicRoot, privateRoot];
   };
 
   /**

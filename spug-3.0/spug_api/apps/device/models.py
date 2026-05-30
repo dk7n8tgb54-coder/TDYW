@@ -2,17 +2,16 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.db import models
-from libs import ModelMixin, human_datetime
+from libs import human_datetime
+from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 from apps.account.models import User
 
-# 租户类型常量
-TENANT_TYPE_PRIVATE = 'PRIVATE'
 
-
-class DeviceResume(models.Model, ModelMixin):
+class DeviceResume(models.Model, TenantModelMixin):
     """设备档案主表"""
-    TENANT_TYPE = TENANT_TYPE_PRIVATE
-    tenant_id = models.CharField(max_length=50, default='', help_text='租户标识')
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+    device_sn = models.CharField(max_length=50, unique=True, help_text='设备资产编号，全局唯一')
     device_sn = models.CharField(max_length=50, unique=True, help_text='设备资产编号，全局唯一')
     device_name = models.CharField(max_length=50, help_text='设备名称')
     device_model = models.CharField(max_length=50, help_text='设备型号')
@@ -27,7 +26,7 @@ class DeviceResume(models.Model, ModelMixin):
     install_time = models.CharField(max_length=20, help_text='安装时间')
     enable_time = models.CharField(max_length=20, help_text='启用时间')
     current_status = models.CharField(max_length=20, help_text='当前设备状况：1=正常，2=故障，3=维修中，4=停用，5=报废')
-    responsible_user_id = models.IntegerField(help_text='设备负责人ID')
+    responsible_user_id = models.IntegerField(null=True, blank=True, help_text='设备负责人ID（已废弃，使用负责人姓名字段）')
     responsible_user_name = models.CharField(max_length=100, help_text='设备负责人姓名')
     remark = models.TextField(null=True, blank=True, max_length=1000, help_text='备注')
     is_deleted = models.BooleanField(default=False, help_text='是否已删除')
@@ -53,7 +52,9 @@ class DeviceResume(models.Model, ModelMixin):
         return tmp
 
     class Meta:
-        db_table = 'exec_device_resume'
+        db_table = 'tdyw_device_resume'
+        verbose_name = '设备档案'
+        verbose_name_plural = '设备档案'
         ordering = ('-created_at', '-id')
         # device_sn已全局唯一，无需unique_together
         indexes = [
@@ -62,10 +63,10 @@ class DeviceResume(models.Model, ModelMixin):
         ]
 
 
-class DeviceEvent(models.Model, ModelMixin):
+class DeviceEvent(models.Model, TenantModelMixin):
     """设备事件记录表"""
-    TENANT_TYPE = TENANT_TYPE_PRIVATE
-    tenant_id = models.CharField(max_length=50, default='', help_text='租户标识')
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
     device_resume_id = models.IntegerField(help_text='关联设备档案ID')
     device_name = models.CharField(max_length=100, help_text='设备名称（冗余字段，便于查询）')
     device_sn = models.CharField(max_length=50, help_text='设备编号（冗余字段，便于查询）')
@@ -75,7 +76,7 @@ class DeviceEvent(models.Model, ModelMixin):
     fault_part = models.CharField(max_length=100, null=True, blank=True, help_text='故障件（仅检修类型）')
     fault_phenomenon_cause = models.TextField(null=True, blank=True, max_length=1000, help_text='故障现象及原因（仅检修类型）')
     maintenance_measures = models.TextField(null=True, blank=True, max_length=2000, help_text='检修措施（仅检修类型）')
-    related_user_id = models.IntegerField(help_text='记录人ID')
+    related_user_id = models.IntegerField(null=True, blank=True, help_text='记录人ID（已废弃，使用记录人姓名字段）')
     related_user_name = models.CharField(max_length=100, help_text='记录人姓名')
     repair_time = models.CharField(max_length=20, null=True, blank=True, help_text='修复时间（仅检修类型）')
     remark = models.TextField(null=True, blank=True, max_length=500, help_text='备注')
@@ -98,7 +99,9 @@ class DeviceEvent(models.Model, ModelMixin):
         return tmp
 
     class Meta:
-        db_table = 'exec_device_event'
+        db_table = 'tdyw_device_event'
+        verbose_name = '设备事件'
+        verbose_name_plural = '设备事件'
         ordering = ('-event_time', '-id')
         indexes = [
             models.Index(fields=['tenant_id', 'device_resume_id']),
