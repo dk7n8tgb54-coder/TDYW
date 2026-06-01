@@ -11,37 +11,16 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, PageBreak, Spacer
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 
 # 配置ReportLab处理中文字符
 import reportlab.rl_config
 reportlab.rl_config.TTFSearchPath.append('/data/spug/spug_api/apps/checksheet/fonts')
 
-# 全局字体注册标志
-_FONT_REGISTERED = False
 from io import BytesIO
 import json
 import logging
-import sys
-import os
-from datetime import datetime
 
-# 配置专门用于调试的日志文件
-DEBUG_LOG_FILE = '/data/spug/spug_api/logs/checksheet_debug.log'
-os.makedirs(os.path.dirname(DEBUG_LOG_FILE), exist_ok=True)
-
-def log_debug(message):
-    """输出调试信息到文件和控制台"""
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    log_line = f'[{timestamp}] {message}\n'
-    # 写入文件
-    with open(DEBUG_LOG_FILE, 'a', encoding='utf-8') as f:
-        f.write(log_line)
-    # 输出到控制台
-    print(f'[CheckSheet] {message}', flush=True)
-    sys.stdout.flush()
-
+logger = logging.getLogger(__name__)
 
 class RecordListView(View):
     """检查记录视图 - 处理查询和创建"""
@@ -115,10 +94,6 @@ class RecordListView(View):
     @auth('checksheet.checksheet.edit')
     def post(self, request):
         """保存检查记录"""
-        print(f'[CheckSheet] RecordListView.post request.body: {request.body}')
-        print(f'[CheckSheet] RecordListView.post request.body type: {type(request.body)}')
-        print(f'[CheckSheet] RecordListView.post request.content_type: {request.content_type}')
-
         try:
             form, error = JsonParser(
                 Argument('year', help='请输入年份'),
@@ -130,16 +105,12 @@ class RecordListView(View):
                 Argument('daily_summary', type=dict, default={})
             ).parse(request.body)
         except Exception as e:
-            print(f'[CheckSheet] JsonParser exception: {type(e).__name__}: {e}')
+            logger.error(f'CheckSheet RecordListView post JsonParser error: {e}')
             return json_response(error=str(e))
 
         if error:
-            print(f'[CheckSheet] RecordListView.post parse error: {error}')
+            logger.warning(f'CheckSheet RecordListView post parse error: {error}')
             return json_response(error=error)
-
-        print(f'[CheckSheet] RecordListView.post parsed: year={form.year}, month={form.month}, day={form.day}, project={form.project}')
-        print(f'[CheckSheet] RecordListView.post records count: {len(form.records) if form.records else 0}')
-        print(f'[CheckSheet] RecordListView.post daily_summary: {form.daily_summary}')
 
         year = form.year
         month = form.month
@@ -162,8 +133,6 @@ class RecordListView(View):
                     item_index = record_data.get('item_index')
                     day = record_data.get('day')
                     status = record_data.get('status', 'UNCHECKED')
-
-                    print(f'[CheckSheet] Saving record: item_index={item_index}, day={day}, status={status}')
 
                     # 使用 update_or_create
                     CheckSheetRecord.objects.update_or_create(
@@ -193,11 +162,10 @@ class RecordListView(View):
                         }
                     )
 
+            logger.info(f'CheckSheet saved: year={year}, month={month}, day={day}, project={project}, records_count={len(records)}')
             return json_response({'msg': '保存成功'})
         except Exception as e:
-            print(f'[CheckSheet] RecordListView.post exception: {type(e).__name__}: {e}')
-            import traceback
-            traceback.print_exc()
+            logger.error(f'CheckSheet RecordListView post error: {e}', exc_info=True)
             return JsonResponse({'error': str(e)}, status=500)
 
 
@@ -301,7 +269,7 @@ class TemplateDetailView(View):
 @auth('checksheet.checksheet.view')
 def export_pdf(request):
     """导出PDF - 使用前端发送的表格数据，保证PDF与前端显示一致"""
-    log_debug(f'export_pdf called, method={request.method}')
+    logger.info(f'CheckSheet export_pdf: method={request.method}, user={request.user}')
 
     try:
         # 解析请求参数
@@ -311,25 +279,24 @@ def export_pdf(request):
 
         # 注册中文字体
         from .font_manager import FontManager
-        font_registered = FontManager.register_chinese_font(debug_logger=log_debug)
+        font_registered = FontManager.register_chinese_font()
 
         # 根据请求类型生成PDF
         if params.get('use_table_data'):
-            log_debug(f'Using POST table_data with {len(params["table_data"])} rows')
+            logger.info(f'CheckSheet export_pdf: generating PDF with table_data, {len(params["table_data"])} rows')
             return _generate_pdf_from_table_data(
                 params['year'], params['month'], params['title'],
                 params['table_data'], params['daily_summaries'], font_registered
             )
 
         # 否则使用旧逻辑（从数据库读取）
+        logger.info(f'CheckSheet export_pdf: generating PDF from database, projects={params.get("project_list")}')
         return _generate_pdf_from_database(
             params['year'], params['month'], params['project_list'], font_registered
         )
 
     except Exception as e:
-        log_debug(f'export_pdf error: {type(e).__name__}: {e}')
-        import traceback
-        traceback.print_exc()
+        logger.error(f'CheckSheet export_pdf error: {e}', exc_info=True)
         return JsonResponse({'error': str(e)}, status=500)
 
 
@@ -373,35 +340,30 @@ def _parse_pdf_request(request):
 def _generate_pdf_from_table_data(year, month, title, table_data, daily_summaries, font_registered):
     """使用前端发送的表格数据生成PDF（与前端显示完全一致）"""
     from . import pdf_utils
-    log_debug(f'_generate_pdf_from_table_data called with {len(table_data)} rows, {len(daily_summaries)} daily summaries')
+    logger.info(f'CheckSheet PDF generation: {len(table_data)} rows, {len(daily_summaries)} daily summaries')
 
     try:
         # 创建文档
         doc, output = pdf_utils.create_pdf_document()
         elements = []
         actual_font = 'SimHei' if font_registered else 'Helvetica'
-        log_debug(f'Using font: {actual_font}')
 
         # 转换表格数据
         table_data_str = pdf_utils.convert_table_data_to_strings(table_data)
-        log_debug(f'Table data converted to strings')
 
         # 转换为Paragraph并计算列宽
         paragraph_table_data = pdf_utils.convert_to_paragraphs(table_data_str, actual_font)
         col_widths = pdf_utils.calculate_column_widths(table_data_str)
 
         # 创建主表格
-        log_debug(f'Creating table with {len(paragraph_table_data)} rows')
         table = pdf_utils.create_main_table(paragraph_table_data, col_widths, table_data_str)
 
         # 添加标题和主表格
-        log_debug(f'Adding title')
         elements.append(pdf_utils.create_title_paragraph(title, actual_font))
         elements.append(table)
 
         # 添加汇总信息表格
         if daily_summaries:
-            log_debug(f'Adding summary table with {len(daily_summaries)} days of data')
             elements.append(Spacer(1, 0.5 * cm))
 
             days = pdf_utils.extract_days_from_headers(table_data_str)
@@ -411,18 +373,11 @@ def _generate_pdf_from_table_data(year, month, title, table_data, daily_summarie
             elements.append(summary_table)
 
         # 生成PDF
-        log_debug(f'Building PDF')
         doc.build(elements)
         output.seek(0)
 
         pdf_bytes = output.getvalue()
-        log_debug(f'PDF generated successfully, size: {len(pdf_bytes)} bytes')
-
-        # 保存到临时文件以便调试
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.pdf') as f:
-            f.write(pdf_bytes)
-            log_debug(f'PDF saved to temp file: {f.name}')
+        logger.info(f'CheckSheet PDF generated: {len(pdf_bytes)} bytes')
 
         # 创建PDF响应
         response = HttpResponse(pdf_bytes, content_type='application/pdf')
@@ -430,9 +385,7 @@ def _generate_pdf_from_table_data(year, month, title, table_data, daily_summarie
         return response
 
     except Exception as e:
-        log_debug(f'Error in _generate_pdf_from_table_data: {type(e).__name__}: {e}')
-        import traceback
-        traceback.print_exc()
+        logger.error(f'CheckSheet PDF generation error: {e}', exc_info=True)
         raise
 
 

@@ -3,7 +3,7 @@
  * Copyright (c) <spug.dev@gmail.com>
  * Released under the AGPL-3.0 License.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { observer } from 'mobx-react';
 import { Modal, Form, Input, Select, DatePicker, Button, message, Descriptions, Tabs, Upload, Image, Card } from 'antd';
 import { PlusOutlined, PlusCircleOutlined, CloseOutlined, EditOutlined } from '@ant-design/icons';
@@ -24,7 +24,7 @@ export default observer(function () {
   const [addUpdateVisible, setAddUpdateVisible] = useState(false);
   const [editUpdateVisible, setEditUpdateVisible] = useState(false);
   const [editingUpdate, setEditingUpdate] = useState(null);
-  const [imageList, setImageList] = useState([]);  // 图片列表
+  const [attachmentList, setAttachmentList] = useState([]);  // 附件列表
   const [uploading, setUploading] = useState(false);  // 上传状态
 
   function handleSubmit() {
@@ -64,29 +64,39 @@ export default observer(function () {
       return;
     }
 
+    console.log('[handleAddUpdate] 当前 attachmentList:', attachmentList);
+    console.log('[handleAddUpdate] attachmentList 是否为数组:', Array.isArray(attachmentList));
+
     const formData = {
       runlog_id: S.record.id,
       update_date: updateData.update_date.format('YYYY-MM-DD'),
       recorder: sessionStorage.getItem('nickname') || '',
       detail_content: updateData.detail_content,
-      attachments: imageList,  // 添加图片附件
+      attachments: attachmentList,  // 添加附件
     };
 
+    console.log('[handleAddUpdate] 发送的 formData:', JSON.stringify(formData));
+    console.log('[handleAddUpdate] 发送的 formData.attachments:', JSON.stringify(formData.attachments));
+
     http.post('/api/runlog/update/', formData)
-      .then(() => {
+      .then(res => {
+        console.log('[handleAddUpdate] 添加成功, 响应:', res);
         message.success('动态添加成功');
         updateForm.resetFields();
-        setImageList([]);  // 清空图片列表
+        setAttachmentList([]);  // 清空附件列表
         setAddUpdateVisible(false);
         fetchUpdates();
         S.fetchRecords();
+      })
+      .catch(err => {
+        console.error('[handleAddUpdate] 添加失败:', err);
       });
   }
 
   function handleEditUpdate(update) {
     // 打开编辑弹窗，填充现有数据
     setEditingUpdate(update);
-    setImageList(update.attachments || []);
+    setAttachmentList(update.attachments || []);
     updateForm.setFieldsValue({
       update_date: moment(update.update_date),
       recorder: update.recorder,
@@ -125,14 +135,14 @@ export default observer(function () {
       update_date: updateData.update_date.format('YYYY-MM-DD'),
       recorder: sessionStorage.getItem('nickname') || '',
       detail_content: updateData.detail_content,
-      attachments: imageList,
+      attachments: attachmentList,
     };
 
     http.put('/api/runlog/update/', formData)
       .then(() => {
         message.success('动态更新成功');
         updateForm.resetFields();
-        setImageList([]);
+        setAttachmentList([]);
         setEditUpdateVisible(false);
         setEditingUpdate(null);
         fetchUpdates();
@@ -140,67 +150,109 @@ export default observer(function () {
       });
   }
 
-  // 图片上传处理
+  // 附件上传处理
   const uploadProps = {
     name: 'file',
     action: '/api/runlog/upload/',
-    accept: 'image/*',
+    accept: 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx',
     listType: 'picture-card',
     headers: {
       'X-Token': X_TOKEN,
     },
-    fileList: imageList.map((url, index) => ({
-      uid: `-${index}`,
-      name: `image-${index}.png`,
-      status: 'done',
-      url: url,
-    })),
     onChange: (info) => {
-      console.log('Upload onChange:', info.file, info.fileList);
+      console.log('Upload onChange:', info.file.status, info.fileList.length);
+
+      // 只处理上传完成的文件
       if (info.file.status === 'done') {
-        console.log('Upload success response:', info.file.response);
-        const newUrl = info.file.response?.url;
+        // 兼容两种响应格式：1) json_response格式 {data: {url:...}}  2) 直接格式 {url:...}
+        const newUrl = info.file.response?.data?.url || info.file.response?.url;
+        console.log('Upload response:', info.file.response, 'Extracted URL:', newUrl);
         if (newUrl) {
-          setImageList(prev => [...prev, newUrl]);
-          message.success('图片上传成功');
+          // 避免重复添加
+          if (!attachmentList.includes(newUrl)) {
+            setAttachmentList(prev => [...prev, newUrl]);
+          }
+          message.success('附件上传成功');
         } else {
-          message.error('上传响应中没有URL');
+          console.error('附件上传失败：未获取到文件URL', info.file.response);
+          message.error('附件上传失败：未获取到文件URL');
         }
       } else if (info.file.status === 'error') {
-        console.log('Upload error:', info.file);
-        message.error(`图片上传失败: ${info.file.response?.error || '未知错误'}`);
+        console.log('Upload error:', info.file.response);
+        const errorMsg = info.file.response?.error || info.file.response?.data?.error || '未知错误';
+        message.error(`附件上传失败: ${errorMsg}`);
       }
     },
     beforeUpload: (file) => {
       console.log('Before upload:', file.name, file.type, file.size);
-      const isImage = file.type.startsWith('image/');
-      if (!isImage) {
-        message.error('只能上传图片文件');
+      // 允许的图片和Office文件类型
+      const allowedTypes = [
+        'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      ];
+      const isAllowed = allowedTypes.includes(file.type);
+      if (!isAllowed) {
+        message.error('只支持上传图片（ JPG、PNG、GIF、WebP）或Office文件（Word、Excel、PowerPoint、PDF）');
         return false;
       }
-      const isLt10M = file.size / 1024 / 1024 < 10;
-      if (!isLt10M) {
-        message.error('图片大小不能超过10MB');
+      const isLt50M = file.size / 1024 / 1024 < 50;
+      if (!isLt50M) {
+        message.error('文件大小不能超过50MB');
         return false;
       }
       return true;
     },
     onRemove: (file) => {
-      setImageList(prev => prev.filter(url => url !== file.url));
+      console.log('onRemove:', file.url);
+      // 移除时从 attachmentList 中删除
+      const urlToRemove = file.url;
+      if (urlToRemove) {
+        setAttachmentList(prev => prev.filter(url => url !== urlToRemove));
+      }
+      return true;
     },
   };
 
   function fetchUpdates() {
     if (S.record.id) {
+      console.log('[fetchUpdates] 开始获取动态, record.id:', S.record.id);
       http.get('/api/runlog/detail/', {params: {id: S.record.id}})
         .then(res => {
-          setUpdatesList(res.updates || []);
+          console.log('[fetchUpdates] 原始响应 keys:', Object.keys(res));
+          console.log('[fetchUpdates] 原始响应:', JSON.stringify(res).substring(0, 500));
+          // json_response 返回结构是 {data: {...}, error: ""}，需要访问 res.data
+          const data = res.data || res;
+          console.log('[fetchUpdates] 解析后数据 keys:', Object.keys(data));
+          console.log('[fetchUpdates] data.updates:', data.updates, 'length:', data.updates?.length);
+          if (data.updates && data.updates.length > 0) {
+            console.log('[fetchUpdates] 第一个 update 的 attachments:', data.updates[0].attachments);
+          }
+          setUpdatesList(data.updates || []);
+          console.log('[fetchUpdates] 设置 updatesList 完成, 长度:', (data.updates || []).length);
+          // 如果 S.record 没有完整数据，更新它
+          if (data.id && (!S.record.event_title || !S.record.updates)) {
+            Object.assign(S.record, data);
+            console.log('[fetchUpdates] 更新 S.record 完成');
+          }
+        })
+        .catch(err => {
+          console.error('[fetchUpdates] 请求失败:', err);
         });
+    } else {
+      console.log('[fetchUpdates] record.id 不存在，不获取动态');
     }
   }
 
   useEffect(() => {
+    console.log('[useEffect] 触发, S.record.id:', S.record.id, 'isViewMode:', S.record.isViewMode);
     if (S.record.id) {
+      console.log('[useEffect] 调用 fetchUpdates');
       fetchUpdates();  // 编辑模式下也需要加载动态列表
       if (S.record.isViewMode || !hasPermission('runlog.runlog.edit')) {
         setViewMode(true);
@@ -240,34 +292,74 @@ export default observer(function () {
             </div>
           </Descriptions.Item>
           <Descriptions.Item label="动态记录">
-            {updatesList.map(update => (
-              <div key={update.id} style={{
-                marginBottom: 12,
-                padding: 8,
-                border: '1px solid #e8e8e8',
-                borderRadius: 4
-              }}>
-                <div><strong>{update.update_date} [{update.sequence}] {update.recorder}</strong></div>
-                <div>{update.detail_content}</div>
-                {/* 显示附件图片 */}
-                {update.attachments && update.attachments.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>附件：</div>
-                    <Image.PreviewGroup>
-                      {update.attachments.map((img, idx) => (
-                        <Image
-                          key={idx}
-                          src={img}
-                          width={100}
-                          height={100}
-                          style={{ objectFit: 'cover', marginRight: 8, marginBottom: 8 }}
-                        />
-                      ))}
-                    </Image.PreviewGroup>
-                  </div>
-                )}
+            {updatesList.length === 0 ? (
+              <div style={{textAlign: 'center', color: '#999'}}>
+                暂无动态记录 (updatesList.length={updatesList.length}, info.updates={info.updates?.length})
               </div>
-            ))}
+            ) : (
+              updatesList.map(update => (
+                <div key={update.id} style={{
+                  marginBottom: 12,
+                  padding: 8,
+                  border: '1px solid #e8e8e8',
+                  borderRadius: 4
+                }}>
+                  <div><strong>{update.update_date} [{update.sequence}] {update.recorder}</strong></div>
+                  <div>{update.detail_content}</div>
+                  {/* 显示附件列表 */}
+                  {update.attachments && update.attachments.length > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>附件：</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {update.attachments.map((url, idx) => {
+                          const fileName = url.split('/').pop() || `附件${idx + 1}`;
+                          const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
+                          if (isImage) {
+                            return (
+                              <Image
+                                key={idx}
+                                src={url}
+                                width={100}
+                                height={100}
+                                style={{ objectFit: 'cover' }}
+                              />
+                            );
+                          } else {
+                            // 非图片文件显示为下载链接
+                            return (
+                              <a
+                                key={idx}
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                download={fileName}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  width: 100,
+                                  height: 100,
+                                  border: '1px solid #d9d9d9',
+                                  borderRadius: 4,
+                                  textAlign: 'center',
+                                  fontSize: 12,
+                                  color: '#666',
+                                  textDecoration: 'none',
+                                  padding: 8,
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                {fileName}
+                              </a>
+                            );
+                          }
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
           </Descriptions.Item>
         </Descriptions>
       </Modal>
@@ -360,13 +452,13 @@ export default observer(function () {
           <TabPane tab="动态记录" key="updates">
             <div style={{ marginBottom: 16 }}>
               {!addUpdateVisible && !editUpdateVisible && (
-                <Button type="primary" icon={<PlusOutlined/>} onClick={() => {
+                <Button type="primary" icon={<PlusOutlined/>}                 onClick={() => {
                   updateForm.resetFields();
                   updateForm.setFieldsValue({
                     update_date: moment(),
                     recorder: sessionStorage.getItem('nickname') || ''
                   });
-                  setImageList([]);
+                  setAttachmentList([]);
                   setAddUpdateVisible(true);
                 }}>
                   添加动态
@@ -377,7 +469,7 @@ export default observer(function () {
             {/* 内联添加动态表单 */}
             {addUpdateVisible && (
               <Card size="small" title="添加动态" style={{ marginBottom: 16 }} extra={
-                <Button type="link" icon={<CloseOutlined/>} onClick={() => { setAddUpdateVisible(false); setImageList([]); }}/>
+                <Button type="link" icon={<CloseOutlined/>} onClick={() => { setAddUpdateVisible(false); setAttachmentList([]); }}/>
               }>
                 <Form form={updateForm} initialValues={{ update_date: moment(), recorder: sessionStorage.getItem('nickname') || '' }} labelCol={{span: 4}} wrapperCol={{span: 20}}>
                   <Form.Item required name="update_date" label="动态日期">
@@ -389,20 +481,20 @@ export default observer(function () {
                   <Form.Item required name="detail_content" label="详细记录">
                     <Input.TextArea rows={4} placeholder="请输入详细记录"/>
                   </Form.Item>
-                  <Form.Item label="图片附件">
+                  <Form.Item label="附件上传">
                     <Upload {...uploadProps}>
                       <div>
                         <PlusCircleOutlined />
-                        <div style={{ marginTop: 8 }}>上传图片</div>
+                        <div style={{ marginTop: 8 }}>上传附件</div>
                       </div>
                     </Upload>
                     <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-                      支持JPG、PNG、GIF、WebP格式，单个文件最大10MB
+                      支持图片（ JPG、PNG、GIF、WebP）和Office文件（Word、Excel、PowerPoint、PDF），单个文件最大50MB
                     </div>
                   </Form.Item>
                   <Form.Item wrapperCol={{offset: 4, span: 20}}>
                     <Button type="primary" onClick={handleAddUpdate}>提交</Button>
-                    <Button style={{ marginLeft: 8 }} onClick={() => { setAddUpdateVisible(false); setImageList([]); }}>取消</Button>
+                    <Button style={{ marginLeft: 8 }} onClick={() => { setAddUpdateVisible(false); setAttachmentList([]); }}>取消</Button>
                   </Form.Item>
                 </Form>
               </Card>
@@ -411,7 +503,7 @@ export default observer(function () {
             {/* 内联编辑动态表单 */}
             {editUpdateVisible && (
               <Card size="small" title="编辑动态" style={{ marginBottom: 16 }} extra={
-                <Button type="link" icon={<CloseOutlined/>} onClick={() => { setEditUpdateVisible(false); setImageList([]); setEditingUpdate(null); }}/>
+                <Button type="link" icon={<CloseOutlined/>} onClick={() => { setEditUpdateVisible(false); setAttachmentList([]); setEditingUpdate(null); }}/>
               }>
                 <Form form={updateForm} initialValues={{ recorder: sessionStorage.getItem('nickname') || '' }} labelCol={{span: 4}} wrapperCol={{span: 20}}>
                   <Form.Item required name="update_date" label="动态日期">
@@ -423,20 +515,20 @@ export default observer(function () {
                   <Form.Item required name="detail_content" label="详细记录">
                     <Input.TextArea rows={4} placeholder="请输入详细记录"/>
                   </Form.Item>
-                  <Form.Item label="图片附件">
+                  <Form.Item label="附件上传">
                     <Upload {...uploadProps}>
                       <div>
                         <PlusCircleOutlined />
-                        <div style={{ marginTop: 8 }}>上传图片</div>
+                        <div style={{ marginTop: 8 }}>上传附件</div>
                       </div>
                     </Upload>
                     <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-                      支持JPG、PNG、GIF、WebP格式，单个文件最大10MB
+                      支持图片（ JPG、PNG、GIF、WebP）和Office文件（Word、Excel、PowerPoint、PDF），单个文件最大50MB
                     </div>
                   </Form.Item>
                   <Form.Item wrapperCol={{offset: 4, span: 20}}>
                     <Button type="primary" onClick={handleUpdateUpdate}>保存</Button>
-                    <Button style={{ marginLeft: 8 }} onClick={() => { setEditUpdateVisible(false); setImageList([]); setEditingUpdate(null); }}>取消</Button>
+                    <Button style={{ marginLeft: 8 }} onClick={() => { setEditUpdateVisible(false); setAttachmentList([]); setEditingUpdate(null); }}>取消</Button>
                   </Form.Item>
                 </Form>
               </Card>
@@ -469,21 +561,55 @@ export default observer(function () {
                   )}
                 </div>
                 <div>{update.detail_content}</div>
-                {/* 显示附件图片 */}
+                {/* 显示附件列表 */}
                 {update.attachments && update.attachments.length > 0 && (
                   <div style={{ marginTop: 8 }}>
                     <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>附件：</div>
-                    <Image.PreviewGroup>
-                      {update.attachments.map((img, idx) => (
-                        <Image
-                          key={idx}
-                          src={img}
-                          width={100}
-                          height={100}
-                          style={{ objectFit: 'cover', marginRight: 8, marginBottom: 8 }}
-                        />
-                      ))}
-                    </Image.PreviewGroup>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {update.attachments.map((url, idx) => {
+                        const fileName = url.split('/').pop() || `附件${idx + 1}`;
+                        const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
+                        if (isImage) {
+                          return (
+                            <Image
+                              key={idx}
+                              src={url}
+                              width={100}
+                              height={100}
+                              style={{ objectFit: 'cover' }}
+                            />
+                          );
+                        } else {
+                          // 非图片文件显示为下载链接
+                          return (
+                            <a
+                              key={idx}
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              download={fileName}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: 100,
+                                height: 100,
+                                border: '1px solid #d9d9d9',
+                                borderRadius: 4,
+                                textAlign: 'center',
+                                fontSize: 12,
+                                color: '#666',
+                                textDecoration: 'none',
+                                padding: 8,
+                                overflow: 'hidden',
+                              }}
+                            >
+                              {fileName}
+                            </a>
+                          );
+                        }
+                      })}
+                    </div>
                   </div>
                 )}
               </div>

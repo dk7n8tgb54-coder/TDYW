@@ -37,31 +37,54 @@ class RunLogDetailView(View):
         return json_response(result)
 
 
-class RunLogUploadImageView(View):
-    """运行日志图片上传视图"""
+class RunLogUploadAttachmentView(View):
+    """运行日志附件上传视图（支持图片和Office文件）"""
     @auth('runlog.runlog.update_add')
     def post(self, request):
-        """上传图片"""
-        from PIL import Image
-
+        """上传附件（图片和Office文件）"""
         # 获取上传的文件
         file = request.FILES.get('file')
         if not file:
-            return json_response(error='请选择要上传的图片')
+            return json_response(error='请选择要上传的文件')
 
         # 验证文件类型
-        allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+        allowed_types = [
+            # 图片格式
+            'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+            # Office 文档格式
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        ]
         if file.content_type not in allowed_types:
-            return json_response(error='只支持上传图片格式：JPG、PNG、GIF、WebP')
+            return json_response(error='只支持上传图片格式（JPG、PNG、GIF、WebP）或Office文件（Word、Excel、PowerPoint、PDF）')
 
-        # 验证文件大小（最大10MB）
-        max_size = 10 * 1024 * 1024
+        # 验证文件大小（最大50MB）
+        max_size = 50 * 1024 * 1024
         if file.size > max_size:
-            return json_response(error='图片大小不能超过10MB')
+            return json_response(error='文件大小不能超过50MB')
 
         try:
+            # 根据文件类型选择存储目录
+            if file.content_type.startswith('image/'):
+                subdir = 'images'
+            elif file.content_type == 'application/pdf':
+                subdir = 'documents'
+            elif file.content_type in ['application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']:
+                subdir = 'documents'
+            elif file.content_type in ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']:
+                subdir = 'documents'
+            elif file.content_type in ['application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation']:
+                subdir = 'documents'
+            else:
+                subdir = 'documents'
+
             # 创建上传目录
-            upload_dir = os.path.join(settings.MEDIA_ROOT, 'runlog', 'images')
+            upload_dir = os.path.join(settings.MEDIA_ROOT, 'runlog', subdir)
             os.makedirs(upload_dir, exist_ok=True)
 
             # 生成唯一文件名
@@ -74,29 +97,34 @@ class RunLogUploadImageView(View):
                 for chunk in file.chunks():
                     f.write(chunk)
 
-            # 可选：压缩图片
-            try:
-                img = Image.open(filepath)
-                if img.mode in ('RGBA', 'P'):
-                    img = img.convert('RGB')
-
-                # 限制图片尺寸，最大宽度1920px
-                max_width = 1920
-                if img.width > max_width:
-                    ratio = max_width / img.width
-                    new_height = int(img.height * ratio)
-                    img = img.resize((max_width, new_height), Image.Resampling.LANCZOS)
-
-                    # 覆盖保存
+            # 如果是图片，可选压缩
+            if file.content_type.startswith('image/'):
+                try:
+                    from PIL import Image
+                    img = Image.open(filepath)
+                    if img.mode in ('RGBA', 'P'):
+                        img = img.convert('RGB')
+                    # 限制图片尺寸，最大宽度1920px
+                    max_width = 1920
+                    if img.width > max_width:
+                        ratio = max_width / img.width
+                        new_height = int(img.height * ratio)
+                        img = img.resize((max_width, new_height), Image.Resampling.LANCZOS)
                     img.save(filepath, quality=85, optimize=True)
-            except Exception as e:
-                print(f'[RunLog] 图片压缩失败: {e}')
+                except Exception as e:
+                    logger.warning(f'[RunLog] 图片压缩失败，已保存原始图片: {filepath}, 错误: {e}')
 
-            # 返回文件URL
-            file_url = f"{settings.MEDIA_URL}runlog/images/{filename}"
-            return json_response({'url': file_url})
+            # 返回文件URL和原始文件名
+            file_url = f"{settings.MEDIA_URL}runlog/{subdir}/{filename}"
+            return json_response({
+                'url': file_url,
+                'name': file.name,
+                'type': file.content_type,
+                'size': file.size
+            })
 
         except Exception as e:
+            logger.error(f'[RunLog] 附件上传失败: {str(e)}')
             return json_response(error=f'上传失败：{str(e)}')
 
 
@@ -105,6 +133,6 @@ urlpatterns = [
     path('detail/', RunLogDetailView.as_view()),
     path('update/', RunLogUpdateView.as_view()),
     path('statistics/', RunLogStatisticsView.as_view()),
-    path('upload/', RunLogUploadImageView.as_view()),
+    path('upload/', RunLogUploadAttachmentView.as_view()),
     path('export/pdf/', RunLogExportView.as_view()),
 ]

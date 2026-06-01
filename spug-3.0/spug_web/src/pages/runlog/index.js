@@ -23,7 +23,8 @@ export default observer(function () {
       // 获取事件详情并打开查看弹窗
       http.get('/api/runlog/detail/', { params: { id: viewId } })
         .then(res => {
-          store.showForm(res, true); // true表示查看模式
+          // json_response 返回结构是 {data: {...}, error: ""}，需要访问 res.data
+          store.showForm(res.data || res, true); // true表示查看模式
         })
         .catch(e => {
           console.error('[运行日志] 获取事件详情失败:', e);

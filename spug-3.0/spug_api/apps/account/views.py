@@ -95,8 +95,13 @@ class UserView(AdminView):
         return None
 
     def _handle_user_edit(self, request, form, role_ids, password):
-        user = User.objects.get(pk=form.id)
+        try:
+            user = User.objects.get(pk=form.id)
+        except User.DoesNotExist:
+            logger.error(f'Account: User {form.id} not found for edit')
+            return json_response(error='用户不存在')
         if not request.user.is_supper and user.tenant_id != request.user.tenant_id:
+            logger.warning(f'Account: User {request.user.username} denied to edit user {user.username} (cross-tenant)')
             return json_response(error='无权编辑其他租户的用户')
         if not request.user.is_supper and 'tenant_id' in form:
             del form['tenant_id']
@@ -110,6 +115,7 @@ class UserView(AdminView):
 
     def _handle_user_create(self, request, form, role_ids, password):
         if not verify_password(password):
+            logger.warning(f'Account: Password validation failed for new user creation by {request.user.username}')
             return json_response(error='请设置至少8位包含数字、小写和大写字母、特殊字符的新密码')
         tenant_value, err = self._resolve_tenant_id(request, form)
         if err:
@@ -143,12 +149,18 @@ class UserView(AdminView):
             Argument('tenant_id', required=False),
         ).parse(request.body)
         if error is None:
-            user = User.objects.get(pk=form.id)
+            try:
+                user = User.objects.get(pk=form.id)
+            except User.DoesNotExist:
+                logger.error(f'Account: User {form.id} not found for patch')
+                return json_response(error='用户不存在')
             # 非超管只能操作本租户用户
             if not request.user.is_supper and user.tenant_id != request.user.tenant_id:
+                logger.warning(f'Account: User {request.user.username} denied to patch user {user.username} (cross-tenant)')
                 return json_response(error='无权操作其他租户的用户')
             # 非超管禁止修改 tenant_id
             if not request.user.is_supper and form.tenant_id:
+                logger.warning(f'Account: User {request.user.username} denied to modify tenant_id')
                 return json_response(error='无权修改用户租户')
             # 超管修改 tenant_id 时，同步迁移历史数据+清理缓存
             if (request.user.is_supper and form.tenant_id
@@ -157,6 +169,7 @@ class UserView(AdminView):
                 user.tenant_id = form.tenant_id
             if form.password:
                 if not verify_password(form.password):
+                    logger.warning(f'Account: Password validation failed for user {user.username}')
                     return json_response(error='请设置至少8位包含数字、小写和大写字母、特殊字符的新密码')
                 user.token_expired = 0
                 user.password_hash = User.make_password(form.pop('password'))
@@ -175,8 +188,10 @@ class UserView(AdminView):
             if user:
                 # 非超管只能删除本租户用户
                 if not request.user.is_supper and user.tenant_id != request.user.tenant_id:
+                    logger.warning(f'Account: User {request.user.username} denied to delete user {user.username} (cross-tenant)')
                     return json_response(error='无权操作其他租户的用户')
                 if user.id == request.user.id:
+                    logger.warning(f'Account: User {request.user.username} tried to delete themselves')
                     return json_response(error='无法删除当前登录账户')
                 # 执行软删除
                 user.is_active = False
@@ -216,14 +231,18 @@ class UserView(AdminView):
             return json_response(error=error)
         user = User.objects.filter(pk=form.id).first()
         if not user:
+            logger.warning(f'Account: User {form.id} not found for restore')
             return json_response(error='用户不存在')
         if not user.deleted_by:
+            logger.warning(f'Account: User {user.username} is not deleted, cannot restore')
             return json_response(error='该用户未被删除')
         # 非超管只能恢复本租户用户
         if not request.user.is_supper and user.tenant_id != request.user.tenant_id:
+            logger.warning(f'Account: User {request.user.username} denied to restore user {user.username} (cross-tenant)')
             return json_response(error='无权操作其他租户的用户')
         # 检查是否有未删除的同名用户
         if User.objects.filter(username=user.username, deleted_by_id__isnull=True).exists():
+            logger.warning(f'Account: Cannot restore user {user.username}: username already exists')
             return json_response(error=f'已存在登录名为【{user.username}】的用户，无法恢复')
         user.is_active = True
         user.deleted_at = None
@@ -235,7 +254,10 @@ class UserView(AdminView):
     def _migrate_user_tenant(user, new_tenant_id):
         """超管修改用户租户时，迁移历史数据+清理缓存"""
         old_tenant_id = user.tenant_id
-        migrate_existing_data({user.username: new_tenant_id})
+        try:
+            migrate_existing_data({user.username: new_tenant_id})
+        except Exception as e:
+            logger.error(f'Account: Failed to migrate user {user.username} tenant data: {e}', exc_info=True)
         # 清理排班缓存：同时清理新旧租户
         try:
             from apps.schedule.cache_utils import invalidate_schedule_cache
@@ -243,7 +265,9 @@ class UserView(AdminView):
                 invalidate_schedule_cache(tenant_id=old_tenant_id)
             invalidate_schedule_cache(tenant_id=new_tenant_id)
         except ImportError:
-            pass
+            logger.warning(f'Account: Cannot import invalidate_schedule_cache')
+        except Exception as e:
+            logger.error(f'Account: Failed to invalidate schedule cache: {e}')
 
 
 class RoleView(AdminView):
@@ -282,6 +306,7 @@ class RoleView(AdminView):
         if error is None:
             role = Role.objects.filter(pk=form.pop('id')).first()
             if not role:
+                logger.warning(f'Account: Role not found for patch by user {request.user}')
                 return json_response(error='未找到指定角色')
             if form.page_perms is not None:
                 role.page_perms = json.dumps(form.page_perms)
@@ -299,8 +324,13 @@ class RoleView(AdminView):
             Argument('id', type=int, help='参数错误')
         ).parse(request.GET)
         if error is None:
-            role = Role.objects.get(pk=form.id)
+            try:
+                role = Role.objects.get(pk=form.id)
+            except Role.DoesNotExist:
+                logger.warning(f'Account: Role {form.id} not found for delete by user {request.user}')
+                return json_response(error='角色不存在')
             if role.user_set.exists():
+                logger.warning(f'Account: Role {role.name} has associated users, cannot delete')
                 return json_response(error='已有用户使用了该角色，请解除关联后再尝试删除')
             role.delete()
         return json_response(error=error)
@@ -328,8 +358,10 @@ class TenantView(AdminView):
         if error is None:
             err = validate_tenant_id(form.id)
             if err:
+                logger.warning(f'Account: Invalid tenant_id format: {form.id}')
                 return json_response(error=err)
             if Tenant.objects.filter(pk=form.id).exists():
+                logger.warning(f'Account: Tenant id already exists: {form.id}')
                 return json_response(error='租户标识已存在')
             Tenant.objects.create(
                 id=form.id,
@@ -349,6 +381,7 @@ class TenantView(AdminView):
         if error is None:
             tenant = Tenant.objects.filter(pk=form.pop('id')).first()
             if not tenant:
+                logger.warning(f'Account: Tenant not found for patch by user {request.user}')
                 return json_response(error='租户不存在')
             tenant.update_by_dict(form)
         return json_response(error=error)
@@ -360,8 +393,10 @@ class TenantView(AdminView):
         if error is None:
             tenant = Tenant.objects.filter(pk=form.id).first()
             if not tenant:
+                logger.warning(f'Account: Tenant not found for delete by user {request.user}')
                 return json_response(error='租户不存在')
             if User.objects.filter(tenant_id=form.id).exists():
+                logger.warning(f'Account: Cannot delete tenant {form.id}: has associated users')
                 return json_response(error='该租户下存在用户，无法删除')
             tenant.delete()
         return json_response(error=error)
@@ -382,6 +417,7 @@ class SelfView(View):
         if error is None:
             if form.old_password and form.new_password:
                 if not verify_password(form.new_password):
+                    logger.warning(f'Account: Password validation failed for user {request.user.username}')
                     return json_response(error='请设置至少8位包含数字、小写和大写字母、特殊字符的新密码')
 
                 if request.user.verify_password(form.old_password):
@@ -390,6 +426,7 @@ class SelfView(View):
                     request.user.save()
                     return json_response()
                 else:
+                    logger.warning(f'Account: Wrong old password for user {request.user.username}')
                     return json_response(error='原密码错误，请重新输入')
             if form.nickname is not None:
                 request.user.nickname = form.nickname
