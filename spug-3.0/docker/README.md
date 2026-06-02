@@ -39,7 +39,7 @@ docker/
 │   ├── nginx.conf          # Nginx 配置
 │   ├── supervisord.conf    # Supervisor 配置
 │   ├── entrypoint.sh       # 启动脚本
-│   └── mysql.cnf           # MySQL 配置
+│   └── mysqlnew.cnf       # MySQL 配置
 └── README.md               # 本文档
 ```
 

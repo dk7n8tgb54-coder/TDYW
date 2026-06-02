@@ -166,9 +166,9 @@ const DocumentIndex = observer(function () {
                 title={null}
                 trigger="click"
                 placement="bottomRight"
-                open={uploadUIStore.uploadPanelVisible}
-                onOpenChange={(open) => {
-                  if (!open) uploadUIStore.hideUploadPanel();
+                visible={uploadUIStore.uploadPanelVisible}
+                onVisibleChange={(vis) => {
+                  if (!vis) uploadUIStore.hideUploadPanel();
                 }}
                 overlayStyle={{ padding: 0, backgroundColor: 'transparent', boxShadow: 'none' }}
                 overlayInnerStyle={{ padding: 0, backgroundColor: 'transparent', boxShadow: 'none' }}

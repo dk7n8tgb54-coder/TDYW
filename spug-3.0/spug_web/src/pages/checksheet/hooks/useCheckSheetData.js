@@ -30,10 +30,13 @@ export default function useCheckSheetData() {
     }
 
     try {
-      const projectsData = {};
-
-      await Promise.all(store.projects.map(async (project) => {
+      const results = await Promise.all(store.projects.map(async (project) => {
         const data = await store.fetchCheckRecords(selectedYear, selectedMonth, project, todayDay);
+        return { project, data };
+      }));
+
+      const projectsData = {};
+      results.forEach(({ project, data }) => {
         if (data.template && data.records) {
           const dailySummary = data.daily_summaries && data.daily_summaries[todayDay] || { operator: '', remark: '', rectification: '' };
 
@@ -52,7 +55,7 @@ export default function useCheckSheetData() {
             }
           });
         }
-      }));
+      });
 
       setAllProjectsData(projectsData);
       setLoaded(true);

@@ -19,9 +19,9 @@ services:
       --log-bin=mysql-bin
       --binlog-format=ROW
       --server-id=1
-      --expire_logs_days=7
+      --binlog_expire_logs_seconds=604800
       --max_connections=500
-      --innodb-buffer-pool-size=6G
+      --innodb-buffer-pool-size=4G
       --innodb-log-file-size=128M
       --innodb-lock-wait-timeout=120
       --innodb-flush-log-at-trx-commit=2
@@ -71,7 +71,7 @@ services:
   # 主应用服务（Spug）
   spug:
     # 使用本地镜像（含 Celery）
-    image: tdyw:0502
+    image: tdyw:0601x
     # 容器名称
     container_name: tdyw
     # 特权模式：容器可以访问宿主机所有设备

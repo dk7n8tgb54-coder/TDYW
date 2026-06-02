@@ -16,7 +16,7 @@ class CheckSheetTemplate(models.Model):
         db_table = 'tdyw_checksheet_template'
         verbose_name = '检查表模板'
         verbose_name_plural = verbose_name
-        ordering = ['-created_at']
+        ordering = ['created_at']
 
     def __str__(self):
         items = json.loads(self.check_items) if isinstance(self.check_items, str) else self.check_items

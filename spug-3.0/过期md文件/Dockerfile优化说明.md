@@ -206,7 +206,7 @@ VOLUME ["/data/spug", "/data/repos"]
 
 ```dockerfile
 HEALTHCHECK --interval=30s --timeout=10s \
-    CMD curl -fsS http://localhost:80/api/account/user/ > /dev/null || exit 1
+    CMD curl -fsS http://localhost/api/document/health/ > /dev/null || exit 1
 ```
 
 ---

@@ -28,7 +28,10 @@ class OriginCheckMiddleware(MiddlewareMixin):
         """Check if origin/host is in allowed list."""
         parsed = urlparse(origin)
         check_host = parsed.netloc or parsed.path
-        return check_host == host or check_host in allowed_origins
+        # 去掉端口进行比较，解决非默认端口访问时 Origin 带端口但 Host 不带端口的问题
+        check_host_without_port = check_host.split(':')[0]
+        host_without_port = host.split(':')[0]
+        return check_host == host or check_host_without_port == host_without_port or check_host in allowed_origins
 
     def _validate_request_origin(self, request):
         """Validate Origin or Referer header. Returns True if allowed."""

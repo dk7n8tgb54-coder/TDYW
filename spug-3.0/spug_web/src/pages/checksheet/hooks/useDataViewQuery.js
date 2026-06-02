@@ -23,11 +23,15 @@ export default function useDataViewQuery() {
     }
 
     try {
-      const allProjectsData = {};
-      await Promise.all(store.projects.map(async (project) => {
+      const results = await Promise.all(store.projects.map(async (project) => {
         const data = await store.fetchCheckRecords(selectedYear, selectedMonth, project);
-        allProjectsData[project] = data;
+        return { project, data };
       }));
+
+      const allProjectsData = {};
+      results.forEach(({ project, data }) => {
+        allProjectsData[project] = data;
+      });
       setViewData(allProjectsData);
     } catch (error) {
       console.error('查询失败:', error);

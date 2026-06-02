@@ -26,7 +26,6 @@ pip-delete-this-directory.txt
 
 # Node.js
 node_modules
-**/node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -34,8 +33,8 @@ yarn-error.log*
 .npm
 
 # 构建产物
-spug_web/build/
-spug_web/dist/
+spug_web/build
+spug_web/dist
 *.map
 
 # IDE
@@ -68,13 +67,11 @@ CHANGELOG.md
 logs
 
 # Spug 运行时数据（重要！）
-spug_api/storage/
-spug_api/storage/**
-spug_api/logs/
-spug_api/logs/**
+spug_api/storage
+spug_api/logs
 spug_api/*.sqlite3
-spug_api/media/
-spug_api/static/
+spug_api/media
+spug_api/static
 
 # 备份文件
 *.bak

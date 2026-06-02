@@ -25,7 +25,8 @@ binlog-format=ROW
 # 数据库服务器唯一 ID（主从复制场景需要）
 server-id=1
 # 保留最近 7 天的二进制日志（根据数据量调整）
-expire_logs_days=7
+# 注意：expire_logs_days 在 MariaDB 10.8+ 已弃用，使用 binlog_expire_logs_seconds
+binlog_expire_logs_seconds=604800
 
 # ================================================================================
 # 性能优化 - 连接数
@@ -62,8 +63,9 @@ max_allowed_packet=256M
 # - 8GB 内存：建议 4GB（50%，保守方案 A）
 # - 16GB 内存：建议 6-8GB
 # ================================================================================
-# 【优化 2026-04-01】从 512M 提升到 6G（12 倍提升）
-innodb_buffer_pool_size=6G
+# 【优化 2026-04-01】从 512M 提升到 4G（容器 8G 内存，预留 4G 给连接/OS/日志）
+# 生产经验：buffer_pool 占容器内存 50%，剩余给连接缓冲、OS、日志等
+innodb_buffer_pool_size=4G
 
 # 事务日志大小：增加可减少 I/O，但恢复时间增加
 # 【优化 2026-04-01】从 64M 提升到 128M（批量上传优化）
@@ -98,8 +100,8 @@ innodb_adaptive_flushing=1
 slow_query_log=1
 # 慢查询日志文件路径
 slow_query_log_file=/var/log/mysql/slow
-# 慢查询阈值：执行超过 2 秒的 SQL 会被记录（迁移时可适当降低到 1 秒）
-long_query_time=2
+# 慢查询阈值：执行超过 1 秒的 SQL 会被记录
+long_query_time=1
 
 # ================================================================================
 # SQL 模式配置
@@ -109,3 +111,12 @@ long_query_time=2
 # ERROR_FOR_DIVISION_BY_ZERO：禁止除数为 0
 # NO_ENGINE_SUBSTITUTION：未指定存储引擎时报错
 sql_mode=STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+
+# ================================================================================
+# 客户端配置
+# ================================================================================
+[client]
+default-character-set=utf8mb4
+
+[mysqldump]
+max_allowed_packet=256M

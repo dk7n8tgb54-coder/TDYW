@@ -106,7 +106,7 @@ export default observer(function TemplateForm() {
 
   return (
     <Modal
-      open={store.templateFormVisible}
+      visible={store.templateFormVisible}
       forceRender
       title={store.templateRecord.id ? '编辑检查表模板' : '新建检查表模板'}
       onCancel={() => {

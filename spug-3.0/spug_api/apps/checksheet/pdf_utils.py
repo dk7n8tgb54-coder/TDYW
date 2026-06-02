@@ -11,7 +11,12 @@ from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, Paragraph
 from reportlab.lib.styles import ParagraphStyle
 
-from .views import log_debug
+import logging
+logger = logging.getLogger(__name__)
+
+
+def log_debug(msg):
+    logger.debug(f'[CheckSheet PDF] {msg}')
 
 
 def create_pdf_document():

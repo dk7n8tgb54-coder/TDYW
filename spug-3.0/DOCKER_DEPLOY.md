@@ -136,7 +136,7 @@ docker-compose logs -f spug
 # "默认账号: admin / admin123"
 
 # 访问测试
-curl http://localhost/api/account/user/
+curl http://localhost/api/document/health/
 ```
 
 ---

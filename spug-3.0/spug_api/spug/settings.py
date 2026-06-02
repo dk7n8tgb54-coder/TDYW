@@ -41,6 +41,11 @@ DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 _allowed_hosts = os.environ.get('ALLOWED_HOSTS', '127.0.0.1,localhost')
 ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts.split(',') if h.strip()]
 
+# Parse ALLOWED_ORIGINS from environment variable (comma-separated)
+# 用于 Origin/Referer 验证，支持多域名/多IP访问
+_allowed_origins = os.environ.get('ALLOWED_ORIGINS', '')
+ALLOWED_ORIGINS = [h.strip() for h in _allowed_origins.split(',') if h.strip()] if _allowed_origins else []
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -48,6 +53,7 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
+    'django.contrib.staticfiles',
     'libs',
     'apps.account',
     'apps.setting',
@@ -254,6 +260,10 @@ TRANSFER_DIR = os.path.join(BASE_DIR, 'storage', 'transfer')
 # Media files settings
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
+
+# Static files settings
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Internationalization
 # https://docs.djangoproject.com/en/2.2/topics/i18n/
