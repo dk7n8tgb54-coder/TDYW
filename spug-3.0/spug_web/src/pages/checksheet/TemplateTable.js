@@ -30,9 +30,6 @@ class TemplateTable extends React.Component {
   };
 
   render() {
-    console.log('[TemplateTable] render, store.filteredTemplates:', store.filteredTemplates);
-    console.log('[TemplateTable] render, store.filteredTemplates.length:', store.filteredTemplates.length);
-
     const columns = [
       {
         title: '序号',

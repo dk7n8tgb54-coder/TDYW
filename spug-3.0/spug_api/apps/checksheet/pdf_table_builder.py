@@ -37,6 +37,8 @@ class PDFTableBuilder:
         """
         days = list(range(1, 32))
         table_data = cls._build_table_data(project, year, month, check_items, records, daily_summaries, days)
+        # P1-4 修复：先创建 Table 对象，再应用样式（原代码 table 未定义）
+        table = Table(table_data)
         return cls._apply_table_styles(table, table_data)
 
     @classmethod
@@ -184,7 +186,8 @@ class PDFTableBuilder:
         data_end = len(table_data) - 2  # 排除最后两行
 
         for row_idx in range(3, data_end):
-            for day_idx in range(2, 33):
+            # P2-2 修复：动态计算列数，避免硬编码 33（原 range(2,33) 会在闰月等场景越界）
+            for day_idx in range(2, len(table_data[row_idx])):
                 cell_data = table_data[row_idx][day_idx]
                 if cell_data == '√':
                     styles.append(('BACKGROUND', (day_idx, row_idx), (day_idx, row_idx), cls.COLOR_NORMAL_BG))

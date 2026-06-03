@@ -22,6 +22,30 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+# P2-7 复杂度优化：提取记录校验逻辑为独立函数，降低 RecordListView.post 圈复杂度
+def _validate_records_input(records):
+    """校验 records 参数，返回 None（通过）或错误消息字符串（失败）"""
+    VALID_STATUSES = {'NORMAL', 'ABNORMAL', 'UNCHECKED'}
+    if not isinstance(records, list):
+        return 'records 必须是列表'
+    if len(records) > 500:
+        return '单次提交记录数不能超过500条'
+    for idx, record_data in enumerate(records):
+        if not isinstance(record_data, dict):
+            return f'第 {idx + 1} 条记录格式错误'
+        status = record_data.get('status')
+        if status and status not in VALID_STATUSES:
+            return f'第 {idx + 1} 条记录状态无效: {status}'
+        item_index = record_data.get('item_index')
+        if not isinstance(item_index, int) or item_index < 0:
+            return f'第 {idx + 1} 条记录 item_index 无效'
+        rec_day = record_data.get('day')
+        if not isinstance(rec_day, int) or rec_day < 1 or rec_day > 31:
+            return f'第 {idx + 1} 条记录 day 无效: {rec_day}'
+    return None
+
+
 class RecordListView(View):
     """检查记录视图 - 处理查询和创建"""
 
@@ -58,8 +82,9 @@ class RecordListView(View):
                     'item_index': r.item_index,
                     'day': r.day,
                     'status': r.status,
-                    'remark': '',
-                    'rectification': ''
+                    # P1-1 修复：返回实际的 remark/rectification 数据（原代码硬编码为空字符串）
+                    'remark': r.remark or '',
+                    'rectification': r.rectification or ''
                 })
 
             # 获取每日汇总（包含 operator、remark 和 rectification）
@@ -120,6 +145,11 @@ class RecordListView(View):
         signatures = form.signatures
         daily_summary = form.daily_summary
 
+        # P1-3 修复 & P2-7 复杂度优化：提取校验逻辑为独立函数
+        validate_error = _validate_records_input(records)
+        if validate_error:
+            return json_response(error=validate_error)
+
         try:
             with transaction.atomic():
                 # 获取或创建模板
@@ -128,13 +158,20 @@ class RecordListView(View):
                     defaults={'check_items': '[]'}
                 )
 
-                # 保存检查记录（不包含 remark 和 rectification）
+                # 保存检查记录
                 for record_data in records:
                     item_index = record_data.get('item_index')
                     day = record_data.get('day')
                     status = record_data.get('status', 'UNCHECKED')
 
-                    # 使用 update_or_create
+                    # P1-2 修复：保存时保留原有 remark/rectification（原代码强制清空导致数据丢失）
+                    existing = CheckSheetRecord.objects.filter(
+                        template=template, year=year, month=month,
+                        item_index=item_index, day=day
+                    ).first()
+                    existing_remark = existing.remark if existing else ''
+                    existing_rectification = existing.rectification if existing else ''
+
                     CheckSheetRecord.objects.update_or_create(
                         template=template,
                         year=year,
@@ -143,8 +180,8 @@ class RecordListView(View):
                         day=day,
                         defaults={
                             'status': status,
-                            'remark': '',
-                            'rectification': '',
+                            'remark': existing_remark,
+                            'rectification': existing_rectification,
                             'operator': signatures.get('operator', '')
                         }
                     )
@@ -174,10 +211,19 @@ class TemplateView(View):
 
     @auth('checksheet.checksheet.template_view')
     def get(self, request):
-        """获取检查表模板列表"""
+        """获取检查表模板列表（分页）"""
+        # P2-4 修复：添加分页支持，避免大量模板时返回过多数据
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 50))
+        page_size = min(page_size, 200)  # 最大单页200条
+
         templates = CheckSheetTemplate.objects.all()
+        total = templates.count()
+        start_index = (page - 1) * page_size
+        paginated_templates = templates[start_index:start_index + page_size]
+
         data = []
-        for t in templates:
+        for t in paginated_templates:
             data.append({
                 'id': t.id,
                 'project': t.project,
@@ -185,16 +231,18 @@ class TemplateView(View):
                 'created_at': t.created_at.strftime('%Y-%m-%d %H:%M:%S'),
                 'updated_at': t.updated_at.strftime('%Y-%m-%d %H:%M:%S')
             })
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f'[CheckSheet] TemplateView.get returning {len(data)} templates')
-        return json_response({'templates': data})
+        logger.info(f'[CheckSheet] TemplateView.get returning {len(data)}/{total} templates (page {page})')
+        return json_response({
+            'templates': data,
+            'total': total,
+            'page': page,
+            'page_size': page_size
+        })
 
     @auth('checksheet.checksheet.template_add')
     def post(self, request):
         """创建检查表模板"""
-        import logging
-        logger = logging.getLogger(__name__)
+        # P2-1 修复：删除方法内重复的 logging 导入，直接使用模块级 logger
         logger.info(f'[CheckSheet] TemplateView.post request.body: {request.body}')
 
         form, error = JsonParser(
@@ -266,7 +314,7 @@ class TemplateDetailView(View):
             return JsonResponse({'error': '模板不存在'}, status=404)
 
 
-@auth('checksheet.checksheet.view')
+@auth('checksheet.checksheet.edit')  # P0-2 修复：导出操作使用 edit 权限（而非 view）
 def export_pdf(request):
     """导出PDF - 使用前端发送的表格数据，保证PDF与前端显示一致"""
     logger.info(f'CheckSheet export_pdf: method={request.method}, user={request.user}')
@@ -276,6 +324,23 @@ def export_pdf(request):
         params = _parse_pdf_request(request)
         if 'error' in params:
             return JsonResponse({'error': params['error']}, status=400)
+
+        # P0-2 修复：验证 table_data 内容，防止恶意构造假PDF
+        if params.get('use_table_data'):
+            table_data = params.get('table_data', [])
+            if not isinstance(table_data, list) or len(table_data) > 500:
+                return JsonResponse({'error': '表格数据行数必须在1-500之间'}, status=400)
+            if len(table_data) > 0:
+                for row_idx, row in enumerate(table_data):
+                    if not isinstance(row, list):
+                        return JsonResponse({'error': f'第 {row_idx + 1} 行数据格式错误'}, status=400)
+                    for col_idx, cell in enumerate(row):
+                        cell_str = str(cell) if cell is not None else ''
+                        if len(cell_str) > 500:
+                            return JsonResponse(
+                                {'error': f'单元格数据过长（行{row_idx + 1}，列{col_idx + 1}）'},
+                                status=400
+                            )
 
         # 注册中文字体
         from .font_manager import FontManager

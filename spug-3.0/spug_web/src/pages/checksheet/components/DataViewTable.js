@@ -6,12 +6,7 @@
  */
 import React from 'react';
 import { Card } from 'antd';
-
-const STATUS_MAP = {
-  'NORMAL': { label: '√', color: '#52c41a', bgColor: '#f6ffed', text: '正常' },
-  'ABNORMAL': { label: '×', color: '#ff4d4f', bgColor: '#fff1f0', text: '异常' },
-  'UNCHECKED': { label: '—', color: '#d9d9d9', bgColor: '#fafafa', text: '未检查' }
-};
+import { STATUS_MAP } from '../constants';
 
 const tableHeaderStyle = {
   border: '1px solid #d9d9d9',
@@ -66,6 +61,11 @@ export default function DataViewTable({ viewData, days, selectedYear, selectedMo
     const projects = Object.entries(viewData);
     return projects.map(([project, projectData], projectIndex) => {
       const checkItemsLength = projectData.template?.check_items?.length || 0;
+      // P2-5 优化：预构建查找表，将 O(items × days × records) 降为 O(records) 查表
+      const recordLookup = {};
+      for (const record of (projectData.records || [])) {
+        recordLookup[`${record.item_index}-${record.day}`] = record;
+      }
       return (
         <React.Fragment key={project}>
           {projectData.template?.check_items?.map((item, itemIndex) => {
@@ -81,7 +81,7 @@ export default function DataViewTable({ viewData, days, selectedYear, selectedMo
                   {item}
                 </td>
                 {days.map(day => {
-                  const record = projectData.records?.find(r => r.item_index === itemIndex && r.day === day);
+                  const record = recordLookup[`${itemIndex}-${day}`];
                   const status = record?.status || 'UNCHECKED';
                   const statusInfo = STATUS_MAP[status];
                   return (
@@ -97,7 +97,7 @@ export default function DataViewTable({ viewData, days, selectedYear, selectedMo
                       title={record?.remark ? `${statusInfo.text}: ${record.remark}` : statusInfo.text}
                     >
                       <span style={{ fontWeight: 'bold' }}>{statusInfo.label}</span>
-                      {record?.remark && <span title={record.remark}>📝</span>}
+                      {record?.remark && <span role="img" aria-label="有备注" title={record.remark}>📝</span>}
                     </td>
                   );
                 })}

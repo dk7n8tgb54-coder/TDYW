@@ -7,15 +7,24 @@ import { useState, useCallback } from 'react';
 import { message } from 'antd';
 import store from '../store';
 
-const today = new Date();
-const todayDay = today.getDate();
-const selectedYear = today.getFullYear().toString();
-const selectedMonth = (today.getMonth() + 1).toString().padStart(2, '0');
+// P1-7 修复：改为工厂函数，每次调用时计算当前日期（避免模块级别常量跨午夜不更新）
+const getInitialDate = () => {
+  const today = new Date();
+  return {
+    todayDay: today.getDate(),
+    selectedYear: today.getFullYear().toString(),
+    selectedMonth: (today.getMonth() + 1).toString().padStart(2, '0')
+  };
+};
 
 export default function useCheckSheetData() {
+  const { todayDay: initDay, selectedYear: initYear, selectedMonth: initMonth } = getInitialDate();
   const [allProjectsData, setAllProjectsData] = useState({});
   const [loaded, setLoaded] = useState(false);
   const [confirmedOperator, setConfirmedOperator] = useState('');
+  const [todayDay] = useState(initDay);
+  const [selectedYear] = useState(initYear);
+  const [selectedMonth] = useState(initMonth);
 
   const getTotalRows = useCallback(() => {
     return Object.values(allProjectsData).reduce((total, projectData) => {

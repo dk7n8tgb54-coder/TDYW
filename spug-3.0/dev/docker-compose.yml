@@ -71,7 +71,7 @@ services:
   # 主应用服务（Spug）
   spug:
     # 使用本地镜像（含 Celery）
-    image: tdyw:0601x
+    image: tdyw:0601
     # 容器名称
     container_name: tdyw
     # 特权模式：容器可以访问宿主机所有设备

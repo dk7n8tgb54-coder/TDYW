@@ -5,12 +5,7 @@
  */
 import React from 'react';
 import { Card, Input } from 'antd';
-
-const STATUS_MAP = {
-  'NORMAL': { label: '√', color: '#52c41a', text: '正常', bgColor: '#f6ffed' },
-  'ABNORMAL': { label: '×', color: '#ff4d4f', text: '异常', bgColor: '#fff1f0' },
-  'UNCHECKED': { label: '—', color: '#d9d9d9', text: '未检查', bgColor: '#fafafa' }
-};
+import { STATUS_MAP } from '../constants';
 
 export default function CheckSheetTable({
   allProjectsData,
@@ -19,6 +14,9 @@ export default function CheckSheetTable({
   handleRightClick,
   updateDailySummaryField
 }) {
+  // P1-6 修复：统一使用第一个项目的数据作为 daily summary 数据源
+  // 注意：在多项目场景下，所有项目的整改/备注共用同一列（rowSpan），
+  // 当前设计取第一个项目的数据，这可能需要在未来改为合并所有项目数据
   const firstProject = Object.values(allProjectsData)[0];
   const operator = firstProject?.dailySummary?.operator || '（待签字）';
 

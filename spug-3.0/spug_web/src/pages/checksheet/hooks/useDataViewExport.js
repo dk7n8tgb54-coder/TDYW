@@ -7,12 +7,7 @@ import { useCallback } from 'react';
 import { message } from 'antd';
 import { http } from 'libs';
 import store from '../store';
-
-const STATUS_MAP = {
-  'NORMAL': { label: '√', color: '#52c41a', bgColor: '#f6ffed', text: '正常' },
-  'ABNORMAL': { label: '×', color: '#ff4d4f', bgColor: '#fff1f0', text: '异常' },
-  'UNCHECKED': { label: '—', color: '#d9d9d9', bgColor: '#fafafa', text: '未检查' }
-};
+import { STATUS_MAP } from '../constants';
 
 export default function useDataViewExport(viewData, selectedYear, selectedMonth, days) {
   const buildTableData = useCallback(() => {

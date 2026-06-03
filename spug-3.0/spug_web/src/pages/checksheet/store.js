@@ -27,15 +27,9 @@ class Store {
     this.isFetching = true;
     return http.get('/api/checksheet/template/')
       .then(res => {
-        console.log('[CheckSheet Store] fetchTemplates response:', res);
-        console.log('[CheckSheet Store] response type:', typeof res);
-        console.log('[CheckSheet Store] response.keys:', Object.keys(res || {}));
-        console.log('[CheckSheet Store] res.templates:', res.templates);
+        // P3-2 修复：移除调试日志
         this.templates = res.templates || [];
         this.projects = [...new Set(this.templates.map(t => t.project).filter(Boolean))];
-        console.log('[CheckSheet Store] templates count:', this.templates.length);
-        console.log('[CheckSheet Store] templates:', this.templates);
-        console.log('[CheckSheet Store] projects:', this.projects);
       })
       .finally(() => this.isFetching = false);
   };
@@ -68,7 +62,9 @@ class Store {
   };
 
   @action exportPDF = (year, month, project) => {
-    // 使用前端导出 PDF，不再调用后端
+    // 注意：PDF 导出已迁移至 useDataViewExport hook（见 hooks/useDataViewExport.js）
+    // 此方法保留仅用于兼容，不再有实际作用
+    console.warn('[CheckSheet Store] exportPDF is deprecated, use useDataViewExport instead');
     return Promise.resolve();
   };
 }
