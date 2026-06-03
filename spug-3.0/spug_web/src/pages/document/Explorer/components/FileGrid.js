@@ -2,7 +2,7 @@
  * 文件网格视图组件
  * 缩略图/网格模式展示文件列表
  */
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { Empty, Checkbox, Tag, Pagination } from 'antd';
 import { X_TOKEN } from 'libs';
 import { isImage, isVideo, formatFileSize, getFileTypeLabel, getFileIcon, isCreatedByAdmin } from '../utils';
@@ -10,8 +10,9 @@ import styles from './FileGrid.module.less';
 
 /**
  * 网格项缩略图组件
+ * 【性能优化】使用 React.memo 避免不必要的重渲染
  */
-const GridThumbnail = ({ record, isPublic }) => {
+const GridThumbnail = React.memo(({ record, isPublic }) => {
   const [hasError, setHasError] = useState(false);
 
   if (record.isFolder) {
@@ -23,11 +24,16 @@ const GridThumbnail = ({ record, isPublic }) => {
   }
 
   if (isImage(record.file_type) && !hasError) {
+    // 【性能优化】优先使用缩略图路径（后端生成的小图），避免加载10MB原图
+    const imageSrc = record.thumbnail_path
+      ? `/api/document/preview/?id=${record.id}&is_public=${isPublic}&x-token=${X_TOKEN}&thumbnail=true`
+      : `/api/document/preview/?id=${record.id}&is_public=${isPublic}&x-token=${X_TOKEN}`;
     return (
       <img
-        src={`/api/document/preview/?id=${record.id}&is_public=${isPublic}&x-token=${X_TOKEN}`}
+        src={imageSrc}
         alt={record.display_name || record.name}
         className={styles.thumbnailImage}
+        loading="lazy"  // 【性能优化】浏览器原生懒加载
         onError={() => setHasError(true)}
       />
     );
@@ -46,7 +52,7 @@ const GridThumbnail = ({ record, isPublic }) => {
       {getFileIcon(record.display_name || record.name, record.file_type)}
     </div>
   );
-};
+});
 
 /**
  * 文件网格视图组件
@@ -61,21 +67,26 @@ const FileGrid = ({
   currentUserId,
   pagination,
 }) => {
-  const safeSelectedRowKeys = useMemo(() =>
-    Array.isArray(selectedRowKeys) ? selectedRowKeys : []
-  , [selectedRowKeys]);
+  // 【性能优化】使用 ref 存储 selectedRowKeys，避免闭包导致的重复计算
+  const selectedRowKeysRef = useRef(Array.isArray(selectedRowKeys) ? selectedRowKeys : []);
+  useEffect(() => {
+    selectedRowKeysRef.current = selectedRowKeys;
+  }, [selectedRowKeys]);
 
+  // 【性能优化】使用 ref 版本的 isSelected，避免每次 selectedRowKeys 变化都重算
   const isSelected = useCallback((key) =>
-    safeSelectedRowKeys.includes(key)
-  , [safeSelectedRowKeys]);
+    selectedRowKeysRef.current.includes(key)
+  , []);  // 空依赖，因为使用 ref
 
   const handleSelect = useCallback((key, e) => {
     e.stopPropagation();
-    const newKeys = isSelected(key)
-      ? safeSelectedRowKeys.filter(k => k !== key)
-      : [...safeSelectedRowKeys, key];
+    // 【性能优化】使用 ref 获取最新选中状态
+    const currentKeys = selectedRowKeysRef.current;
+    const newKeys = currentKeys.includes(key)
+      ? currentKeys.filter(k => k !== key)
+      : [...currentKeys, key];
     if (onSelectChange) onSelectChange(newKeys);
-  }, [isSelected, safeSelectedRowKeys, onSelectChange]);
+  }, [onSelectChange]);  // 空依赖，因为使用 ref
 
   const handleClick = useCallback((record) => {
     const rowHandlers = onRow ? onRow(record) : null;

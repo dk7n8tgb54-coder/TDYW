@@ -22,7 +22,8 @@ class FolderTree extends React.Component {
 
   componentDidMount() {
     this._isMounted = true;
-    this.fetchFolders();
+    // 【P0-2修复】初始只加载一级子文件夹，不加载全部，实现懒加载
+    this.fetchFolders(true);
   }
 
   componentWillUnmount() {
@@ -36,12 +37,15 @@ class FolderTree extends React.Component {
     }
   }
 
-  fetchFolders = async () => {
+  fetchFolders = async (lazy = false) => {
     try {
       this.setState({ loading: true });
       const { isPublic } = this.props;
       const url = '/api/document/folder/';
-      const params = { id: null, all: true, is_public: isPublic };
+      // 【P0-2修复】懒加载模式：初始只获取一级子文件夹，不获取全部
+      const params = lazy
+        ? { id: null, is_public: isPublic }
+        : { id: null, all: true, is_public: isPublic };
       const res = await http.get(url, { params });
       const folders = Array.isArray(res) ? res : [];
 

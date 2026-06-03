@@ -34,16 +34,16 @@ def cleanup_soft_deleted_files(self, retention_days=30, dry_run=False):
     logger.info(f'[Celery][Cleanup] 开始清理软删除文件，保留天数：{retention_days}，截止时间：{cutoff_time}')
     
     stats = {
-        'private': {'checked': 0, 'deleted': 0, 'errors': 0, 'not_found': 0},
-        'public': {'checked': 0, 'deleted': 0, 'errors': 0, 'not_found': 0}
+        'private': {'checked': 0, 'deleted': 0, 'errors': 0, 'not_found': 0, 'failed_file_ids': []},
+        'public': {'checked': 0, 'deleted': 0, 'errors': 0, 'not_found': 0, 'failed_file_ids': []}
     }
     
-    # 清理私有文件
+    # 清理私有文件（使用 iterator 分页，避免 OOM）
     private_files = DocumentFilePrivate.all_objects.filter(
         is_deleted=True,
         deleted_at__lte=cutoff_time
-    )
-    
+    ).iterator(chunk_size=1000)
+
     for file in private_files:
         stats['private']['checked'] += 1
         
@@ -66,14 +66,15 @@ def cleanup_soft_deleted_files(self, retention_days=30, dry_run=False):
                 
         except (OSError, IOError, DatabaseError) as e:
             stats['private']['errors'] += 1
+            stats['private']['failed_file_ids'].append(file.id)
             logger.error(f'[Celery][Cleanup] 清理私有文件失败：{file.file_path}, error={e}')
     
-    # 清理公共文件
+    # 清理公共文件（使用 iterator 分页，避免 OOM）
     public_files = DocumentFilePublic.all_objects.filter(
         is_deleted=True,
         deleted_at__lte=cutoff_time
-    )
-    
+    ).iterator(chunk_size=1000)
+
     for file in public_files:
         stats['public']['checked'] += 1
         
@@ -96,6 +97,7 @@ def cleanup_soft_deleted_files(self, retention_days=30, dry_run=False):
                 
         except (OSError, IOError, DatabaseError) as e:
             stats['public']['errors'] += 1
+            stats['public']['failed_file_ids'].append(file.id)
             logger.error(f'[Celery][Cleanup] 清理公共文件失败：{file.file_path}, error={e}')
     
     result = {

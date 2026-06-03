@@ -13,9 +13,9 @@ from django.db import transaction
 from django.core.cache import cache
 
 from libs import json_response, JsonParser, Argument, auth
-from ...models import DocumentFilePrivate, DocumentFilePublic, DocumentFolderPrivate, DocumentFolderPublic
-from ..base import log_operation
-from .utils import check_rate_limit, invalidate_cache, check_permission
+from apps.document.models import DocumentFilePrivate, DocumentFilePublic, DocumentFolderPrivate, DocumentFolderPublic
+from apps.document.views.base import log_operation
+from apps.document.views.recycle_bin.utils import check_rate_limit, invalidate_cache, check_permission
 
 logger = logging.getLogger(__name__)
 
@@ -121,117 +121,118 @@ class RecycleBinRestoreView(View):
     
     def _restore_private_file(self, file_obj, user, mode, target_folder_id, current_folder_id):
         """恢复私有空间文件"""
+        return self._restore_file_common(
+            file_obj, user, mode, target_folder_id, current_folder_id,
+            DocumentFolderPrivate, is_public=False
+        )
+
+    def _restore_public_file(self, file_obj, user, mode, target_folder_id, current_folder_id):
+        """恢复公共空间文件"""
+        return self._restore_file_common(
+            file_obj, user, mode, target_folder_id, current_folder_id,
+            DocumentFolderPublic, is_public=True
+        )
+
+    def _resolve_target_folder(self, file_obj, user, mode, target_folder_id, current_folder_id,
+                               FolderModel, is_public, original_folder_exists):
+        """解析恢复目标文件夹
+
+        Args:
+            file_obj: 文件对象
+            user: 当前用户
+            mode: 恢复模式（original/current/custom）
+            target_folder_id: 目标文件夹ID（custom模式）
+            current_folder_id: 当前文件夹ID（current模式）
+            FolderModel: 文件夹模型类
+            is_public: 是否为公共空间
+            original_folder_exists: 原文件夹是否存在
+
+        Returns:
+            文件夹对象或 None（失败时返回错误dict）
+        """
+        if mode == 'original':
+            return None if not original_folder_exists else file_obj.folder
+
+        folder_id = current_folder_id if mode == 'current' else target_folder_id
+        if not folder_id:
+            return None
+
+        try:
+            target_folder = FolderModel.all_objects.get(id=folder_id)
+        except FolderModel.DoesNotExist:
+            if mode == 'current':
+                return None
+            return {'id': file_obj.id, 'status': 'failed', 'error': '指定文件夹不存在', 'code': 404002}
+
+        # 租户验证（仅私密空间）
+        if not is_public:
+            user_tenant = getattr(user, 'tenant_id', '') or ''
+            folder_tenant = getattr(target_folder, 'tenant_id', '') or ''
+            if user_tenant != folder_tenant:
+                return {'id': file_obj.id, 'status': 'failed',
+                        'error': '目标文件夹不属于当前租户', 'code': 403002}
+        return target_folder
+
+    def _restore_file_common(self, file_obj, user, mode, target_folder_id, current_folder_id,
+                              FolderModel, is_public):
+        """【P1-2重构】恢复文件的公共逻辑
+
+        Args:
+            file_obj: 文件对象（DocumentFilePrivate 或 DocumentFilePublic）
+            user: 当前用户
+            mode: 恢复模式（original/current/custom）
+            target_folder_id: 目标文件夹ID（custom模式）
+            current_folder_id: 当前文件夹ID（current模式）
+            FolderModel: 文件夹模型类（DocumentFolderPrivate 或 DocumentFolderPublic）
+            is_public: 是否为公共空间
+
+        Returns:
+            dict: 恢复结果
+        """
         if not file_obj.is_deleted:
             return {'id': file_obj.id, 'status': 'failed', 'error': '文件已被恢复或不存在', 'code': 409001}
-        
+
         if not check_permission(file_obj, user):
             return {'id': file_obj.id, 'status': 'failed', 'error': '无操作权限', 'code': 403001}
-        
+
         # 检查原文件夹是否存在
         original_folder_exists = True
         if file_obj.folder:
             try:
-                DocumentFolderPrivate.all_objects.get(id=file_obj.folder.id)
-            except DocumentFolderPrivate.DoesNotExist:
+                FolderModel.all_objects.get(id=file_obj.folder.id)
+            except FolderModel.DoesNotExist:
                 original_folder_exists = False
-        
-        # 恢复模式处理
-        if mode == 'original':
-            if not original_folder_exists:
-                file_obj.folder = None
-        elif mode == 'current':
-            if current_folder_id:
-                try:
-                    target_folder = DocumentFolderPrivate.all_objects.get(id=current_folder_id)
-                    file_obj.folder = target_folder
-                except DocumentFolderPrivate.DoesNotExist:
-                    file_obj.folder = None
-            else:
-                file_obj.folder = None
-        elif mode == 'custom' and target_folder_id:
-            try:
-                target_folder = DocumentFolderPrivate.all_objects.get(id=target_folder_id)
-                file_obj.folder = target_folder
-            except DocumentFolderPrivate.DoesNotExist:
-                return {'id': file_obj.id, 'status': 'failed', 'error': '指定文件夹不存在', 'code': 404002}
-        
+
+        # 设置目标文件夹
+        file_obj.folder = self._resolve_target_folder(
+            file_obj, user, mode, target_folder_id, current_folder_id,
+            FolderModel, is_public, original_folder_exists
+        )
+        if file_obj.folder is None and mode in ('current', 'custom'):
+            return file_obj.folder  # 返回错误信息
+
         # 恢复文件
         file_obj.restore()
-        
+
         # 处理同名冲突
-        from ...libs.naming_utils import generate_unique_logical_name
+        from apps.document.libs.naming_utils import generate_unique_logical_name
+        FileModel = DocumentFilePrivate if not is_public else DocumentFilePublic
         file_obj.name = generate_unique_logical_name(
-            DocumentFilePrivate,
+            FileModel,
             file_obj.display_name or file_obj.name,
             file_obj.folder,
             user
         )
         file_obj.save(update_fields=['folder', 'name'])
-        
+
         # 记录审计日志
         log_operation(
             action="FILE_RESTORE",
             user=user,
             resource_type="FILE",
             resource_id=file_obj.id,
-            is_public=False,
+            is_public=is_public,
             restore_mode=mode
         )
-        
-        return {'id': file_obj.id, 'status': 'success', 'restored_id': file_obj.id}
-    
-    def _restore_public_file(self, file_obj, user, mode, target_folder_id, current_folder_id):
-        """恢复公共空间文件"""
-        if not file_obj.is_deleted:
-            return {'id': file_obj.id, 'status': 'failed', 'error': '文件已被恢复或不存在', 'code': 409001}
-        
-        if not check_permission(file_obj, user):
-            return {'id': file_obj.id, 'status': 'failed', 'error': '无操作权限', 'code': 403001}
-        
-        original_folder_exists = True
-        if file_obj.folder:
-            try:
-                DocumentFolderPublic.all_objects.get(id=file_obj.folder.id)
-            except DocumentFolderPublic.DoesNotExist:
-                original_folder_exists = False
-        
-        if mode == 'original':
-            if not original_folder_exists:
-                file_obj.folder = None
-        elif mode == 'current':
-            if current_folder_id:
-                try:
-                    target_folder = DocumentFolderPublic.all_objects.get(id=current_folder_id)
-                    file_obj.folder = target_folder
-                except DocumentFolderPublic.DoesNotExist:
-                    file_obj.folder = None
-            else:
-                file_obj.folder = None
-        elif mode == 'custom' and target_folder_id:
-            try:
-                target_folder = DocumentFolderPublic.all_objects.get(id=target_folder_id)
-                file_obj.folder = target_folder
-            except DocumentFolderPublic.DoesNotExist:
-                return {'id': file_obj.id, 'status': 'failed', 'error': '指定文件夹不存在', 'code': 404002}
-        
-        file_obj.restore()
-        
-        from ...libs.naming_utils import generate_unique_logical_name
-        file_obj.name = generate_unique_logical_name(
-            DocumentFilePublic,
-            file_obj.display_name or file_obj.name,
-            file_obj.folder,
-            user
-        )
-        file_obj.save(update_fields=['folder', 'name'])
-        
-        log_operation(
-            action="FILE_RESTORE",
-            user=user,
-            resource_type="FILE",
-            resource_id=file_obj.id,
-            is_public=True,
-            restore_mode=mode
-        )
-        
+
         return {'id': file_obj.id, 'status': 'success', 'restored_id': file_obj.id}

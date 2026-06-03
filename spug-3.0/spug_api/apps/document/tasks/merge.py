@@ -312,7 +312,7 @@ class FileRecordCreator:
         """创建文件实例"""
         logger.info(f'[Celery] Creating file instance: physical_name={self.task_manager.physical_name}, logical_name={self.task_manager.logical_name}, display_name={self.task_manager.display_name}')
 
-        return create_instance_func(
+        new_file = create_instance_func(
             FileModel,
             name=self.task_manager.logical_name,
             display_name=self.task_manager.display_name,
@@ -323,6 +323,28 @@ class FileRecordCreator:
             file_type=get_mime_type_func(self.task_manager.file_name),
             created_by=user
         )
+
+        # 生成缩略图
+        self._generate_thumbnail(new_file)
+
+        return new_file
+
+    def _generate_thumbnail(self, new_file):
+        """为新创建的文件生成缩略图"""
+        try:
+            from apps.document.services.thumbnail_service import generate_thumbnail_for_file
+
+            thumbnail_path = generate_thumbnail_for_file(
+                new_file.file_path,
+                new_file.physical_name
+            )
+            if thumbnail_path:
+                new_file.thumbnail_path = thumbnail_path
+                new_file.save(update_fields=['thumbnail_path'])
+                logger.info(f'[Celery] Thumbnail generated for file {new_file.id}: {thumbnail_path}')
+        except Exception as e:
+            # 缩略图生成失败不影响文件记录创建
+            logger.warning(f'[Celery] Failed to generate thumbnail for {new_file.file_path}: {e}')
 
 
 class TransferStatusUpdater:

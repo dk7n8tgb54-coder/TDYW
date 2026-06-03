@@ -8,13 +8,14 @@
 
 import os
 import logging
+from django.conf import settings
 from django.views.generic import View
 from django.http import FileResponse
 from urllib.parse import quote
 
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter
-from ...libs.document_utils import get_file_model
+from ...libs.document_utils import get_file_model, is_safe_path
 from ..base import log_operation
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,12 @@ class FileDownloadView(View):
 
         if not file:
             logger.error(f'[Document] File not found with id: {form.id}')
+            return json_response(error='文件不存在')
+
+        # 【P2-2修复】路径安全检查，防止路径遍历攻击
+        document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
+        if not is_safe_path(document_storage_base, file.file_path):
+            logger.error(f'[Document] Unsafe file path detected: {file.file_path}')
             return json_response(error='文件不存在')
 
         if not os.path.exists(file.file_path):

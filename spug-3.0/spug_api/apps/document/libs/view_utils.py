@@ -115,16 +115,31 @@ def validate_file_upload(file_name, file_size, max_file_size=None):
 
 
 def handle_view_errors(func):
-    """统一处理视图错误的装饰器"""
+    """【E-1修复】统一处理视图错误的装饰器
+
+    - ImportError/AttributeError 等启动错误重新抛出，不被吞掉
+    - DEBUG 模式下返回详细错误信息
+    """
     @wraps(func)
     def wrapper(self, request, *args, **kwargs):
         try:
             return func(self, request, *args, **kwargs)
         except Exception as e:
-            import json
             import traceback
+            from django.conf import settings
+
+            # 【E-1修复】启动错误（ImportError 等）不应被吞掉，重新抛出
+            if isinstance(e, (ImportError, AttributeError, ModuleNotFoundError)):
+                logger.error(f'[Document] 启动错误（不上报给用户）: {str(e)}')
+                logger.error(f'[Document] 异常堆栈:\n{traceback.format_exc()}')
+                raise
+
             logger.error(f'[Document] 未处理的异常: {str(e)}')
             logger.error(f'[Document] 异常堆栈:\n{traceback.format_exc()}')
+
+            # 【E-1修复】DEBUG 模式下返回详细错误
             from libs import json_response
+            if getattr(settings, 'DEBUG', False):
+                return json_response(error=f'服务器内部错误: {str(e)}', detail=traceback.format_exc())
             return json_response(error='服务器内部错误')
     return wrapper

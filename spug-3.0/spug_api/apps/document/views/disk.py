@@ -54,14 +54,16 @@ class DiskUsageView(View):
         except Exception as e:
             logger.warning(f'[Document] 创建存储目录失败: {storage_dir}, 错误: {e}')
 
-        # 计算当前空间的文件大小
+        # 【P0-2修复】计算当前空间的文件大小
+        # 添加 is_deleted=False 过滤，只统计未删除文件
         try:
-            query = FileModel.objects.all()
+            query = FileModel.objects.filter(is_deleted=False)
             if not form.is_public:
                 query = apply_tenant_filter(query, request.user)
 
             total_size = query.aggregate(total_size=Sum('file_size'))['total_size'] or 0
             used_gb = round(total_size / (1024**3), 2)
+            logger.info(f'[Document] Disk usage calculated: {used_gb}GB, is_public={form.is_public}, query count={query.count()}')
         except Exception as e:
             logger.error(f'[Document] Error calculating file size: {e}')
             used_gb = 0

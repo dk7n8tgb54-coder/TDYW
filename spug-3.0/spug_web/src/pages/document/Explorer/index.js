@@ -7,7 +7,7 @@
  * - 拆分为更小的子组件
  * - 简化Hook和Store的嵌套依赖
  */
-import React, { useEffect, useCallback, useState, useMemo, forwardRef, useImperativeHandle } from 'react';
+import React, { useEffect, useCallback, useState, useMemo, forwardRef, useImperativeHandle, useRef } from 'react';
 import { observer } from 'mobx-react';
 import { autorun } from 'mobx';
 import { message } from 'antd';
@@ -84,6 +84,12 @@ const Explorer = observer(forwardRef(({
     startRename,
     cancelRename,
   } = useExplorerState(isPublic, folderId);
+
+  // 【性能优化】使用 ref 存储 selectedRowKeys，避免闭包导致的重复渲染
+  const selectedRowKeysRef = useRef(selectedRowKeys);
+  useEffect(() => {
+    selectedRowKeysRef.current = selectedRowKeys;
+  }, [selectedRowKeys]);
 
   // ===== 文件操作 =====
   const {
@@ -220,17 +226,18 @@ const Explorer = observer(forwardRef(({
 
   const handleRowClick = useCallback((record) => {
     if (clickTimeout) clearTimeout(clickTimeout);
-    
+
     const timeoutId = setTimeout(() => {
       const key = record.key;
-      const currentSelection = Array.isArray(selectedRowKeys) ? selectedRowKeys : [];
+      // 【性能优化】使用 ref 获取最新值，避免 selectedRowKeys 在依赖项中导致的重渲染
+      const currentSelection = Array.isArray(selectedRowKeysRef.current) ? selectedRowKeysRef.current : [];
       const newSelectedKeys = currentSelection.includes(key)
         ? currentSelection.filter(k => k !== key)
         : [...currentSelection, key];
-      
+
       setSelectedRowKeys(newSelectedKeys);
       setClickTimeout(null);
-      
+
       // 加载文件夹内容到详情面板
       if (newSelectedKeys.length > 0 && record.isFolder) {
         fetchFolderContents(record.id).then(contents => setFolderContents(contents));
@@ -238,9 +245,9 @@ const Explorer = observer(forwardRef(({
         setFolderContents(null);
       }
     }, 250);
-    
+
     setClickTimeout(timeoutId);
-  }, [clickTimeout, selectedRowKeys, setSelectedRowKeys, setClickTimeout, fetchFolderContents, setFolderContents]);
+  }, [clickTimeout, setSelectedRowKeys, setClickTimeout, fetchFolderContents, setFolderContents]);
 
   const handleRowDoubleClick = useCallback((record) => {
     if (clickTimeout) {
@@ -337,20 +344,19 @@ const Explorer = observer(forwardRef(({
   ]);
 
   // ===== 表格行事件 =====
+  // 【性能优化】createRowHandlers 不再依赖 selectedRowKeys，使用 ref 获取最新值
   const createRowHandlers = useCallback((record) => ({
     onClick: () => handleRowClick(record),
     onDoubleClick: () => handleRowDoubleClick(record),
     onContextMenu: (e) => {
-      const currentSelection = Array.isArray(selectedRowKeys) ? selectedRowKeys : [];
+      // 使用 ref 获取最新选中状态
+      const currentSelection = Array.isArray(selectedRowKeysRef.current) ? selectedRowKeysRef.current : [];
       const isAlreadySelected = currentSelection.includes(record.key);
       if (!isAlreadySelected) setSelectedRowKeys([record.key]);
       showContextMenu(e, getRowMenuItems(record));
     },
     style: { cursor: 'pointer' },
-  }), [
-    handleRowClick, handleRowDoubleClick, selectedRowKeys,
-    setSelectedRowKeys, showContextMenu, getRowMenuItems,
-  ]);
+  }), [handleRowClick, handleRowDoubleClick, setSelectedRowKeys, showContextMenu, getRowMenuItems]);
 
   // ===== 空白区域右键菜单 =====
   const handleEmptyAreaContextMenu = useCallback((e) => {

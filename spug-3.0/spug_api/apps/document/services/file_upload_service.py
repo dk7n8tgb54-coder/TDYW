@@ -10,6 +10,7 @@ import logging
 from apps.document.libs.document_utils import get_document_absolute_path
 from apps.document.libs.naming_utils import generate_file_names
 from apps.document.views.base import get_mime_type, create_model_instance
+from apps.document.services.thumbnail_service import generate_thumbnail_for_file
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,8 @@ class FileRecordService:
         Returns:
             新创建的文件对象
         """
-        return create_model_instance(
+        # 创建文件记录
+        new_file = create_model_instance(
             FileModel,
             name=file_info['logical_name'],
             display_name=file_info['display_name'],
@@ -75,6 +77,23 @@ class FileRecordService:
             file_type=file_info['file_type'],
             created_by=user
         )
+
+        # 生成缩略图
+        try:
+            thumbnail_path = generate_thumbnail_for_file(
+                file_info['file_path'],
+                file_info['physical_name']
+            )
+            if thumbnail_path:
+                new_file.thumbnail_path = thumbnail_path
+                new_file.save(update_fields=['thumbnail_path'])
+                logger.info(f'[Document] Thumbnail generated for file {new_file.id}: {thumbnail_path}')
+        except Exception as e:
+            # 缩略图生成失败不影响文件上传
+            file_path = file_info.get('file_path', 'unknown')
+            logger.warning(f'[Document] Failed to generate thumbnail for {file_path}: {e}')
+
+        return new_file
 
     @staticmethod
     def generate_file_names(FileModel, original_name, folder, user):

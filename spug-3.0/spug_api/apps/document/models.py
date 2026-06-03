@@ -85,7 +85,6 @@ class DocumentFolderPrivate(models.Model):
         if hard:
             super().delete(*args, **kwargs)
         else:
-            from django.utils import timezone
             self.is_deleted = True
             self.deleted_at = timezone.now()
             self.save(update_fields=['is_deleted', 'deleted_at'])
@@ -190,36 +189,46 @@ class DocumentFilePrivate(models.Model):
         help_text='上次清理尝试时间',
         verbose_name='上次清理尝试时间'
     )
-    
+
+    # 【新增】缩略图字段
+    thumbnail_path = models.CharField(
+        max_length=500,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text='缩略图存储路径',
+        verbose_name='缩略图路径'
+    )
+
     # ========== 时间戳字段 ==========
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='上传时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
-    
+
     # ========== 自定义管理器（【V3】双管理器）==========
     objects = SoftDeletedManager()      # 默认：不包含已删除
     all_objects = AllObjectsManager()   # 全量：包含已删除
-    
+
     class Meta:
         db_table = 'tdyw_document_file_private'
         verbose_name = '文档文件(私有)'
         verbose_name_plural = '文档文件(私有)'
         ordering = ['-created_at']
-    
+
     def __str__(self):
         return self.display_name or self.name
-    
+
     def delete(self, *args, **kwargs):
         """
         【P0修复】重写删除方法：默认软删除，硬删除时确保物理文件删除成功
-        
+
         Args:
             hard: 是否硬删除（默认False软删除）
         """
         import logging
         logger = logging.getLogger(__name__)
-        
+
         hard = kwargs.pop('hard', False)
-        
+
         if hard:
             # 【P0修复】硬删除：先删除物理文件，成功后再删除数据库记录
             physical_deleted = True
@@ -230,7 +239,15 @@ class DocumentFilePrivate(models.Model):
                 except Exception as e:
                     logger.error(f'[RecycleBin] 删除物理文件失败: {self.file_path}, error={e}')
                     physical_deleted = False
-            
+
+            # 删除缩略图
+            if self.thumbnail_path and os.path.exists(self.thumbnail_path):
+                try:
+                    os.remove(self.thumbnail_path)
+                    logger.info(f'[RecycleBin] 缩略图已删除: {self.thumbnail_path}')
+                except Exception as e:
+                    logger.warning(f'[RecycleBin] 删除缩略图失败: {self.thumbnail_path}, error={e}')
+
             # 【P0修复】只有物理文件删除成功才删除数据库记录
             if physical_deleted:
                 super().delete(*args, **kwargs)
@@ -246,7 +263,7 @@ class DocumentFilePrivate(models.Model):
             self.is_deleted = True
             self.deleted_at = timezone.now()
             self.save(update_fields=['is_deleted', 'deleted_at'])
-    
+
     def restore(self):
         """【V3】恢复软删除的文件"""
         self.is_deleted = False
@@ -311,7 +328,6 @@ class DocumentFolderPublic(models.Model):
         if hard:
             super().delete(*args, **kwargs)
         else:
-            from django.utils import timezone
             self.is_deleted = True
             self.deleted_at = timezone.now()
             self.save(update_fields=['is_deleted', 'deleted_at'])
@@ -415,15 +431,25 @@ class DocumentFilePublic(models.Model):
         help_text='上次清理尝试时间',
         verbose_name='上次清理尝试时间'
     )
-    
+
+    # 【新增】缩略图字段
+    thumbnail_path = models.CharField(
+        max_length=500,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text='缩略图存储路径',
+        verbose_name='缩略图路径'
+    )
+
     # ========== 时间戳字段 ==========
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='上传时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
-    
+
     # ========== 自定义管理器（【V3】双管理器）==========
     objects = SoftDeletedManager()      # 默认：不包含已删除
     all_objects = AllObjectsManager()   # 全量：包含已删除
-    
+
     class Meta:
         db_table = 'tdyw_document_file_public'
         verbose_name = '文档文件(公共)'
@@ -436,19 +462,19 @@ class DocumentFilePublic(models.Model):
                 name='unique_file_name_folder_public'
             )
         ]
-    
+
     def __str__(self):
         return self.display_name or self.name
-    
+
     def delete(self, *args, **kwargs):
         """
         【P0修复】重写删除方法：默认软删除，硬删除时确保物理文件删除成功
         """
         import logging
         logger = logging.getLogger(__name__)
-        
+
         hard = kwargs.pop('hard', False)
-        
+
         if hard:
             # 【P0修复】硬删除：先删除物理文件，成功后再删除数据库记录
             physical_deleted = True
@@ -459,7 +485,15 @@ class DocumentFilePublic(models.Model):
                 except Exception as e:
                     logger.error(f'[RecycleBin] 删除物理文件失败: {self.file_path}, error={e}')
                     physical_deleted = False
-            
+
+            # 删除缩略图
+            if self.thumbnail_path and os.path.exists(self.thumbnail_path):
+                try:
+                    os.remove(self.thumbnail_path)
+                    logger.info(f'[RecycleBin] 缩略图已删除: {self.thumbnail_path}')
+                except Exception as e:
+                    logger.warning(f'[RecycleBin] 删除缩略图失败: {self.thumbnail_path}, error={e}')
+
             # 【P0修复】只有物理文件删除成功才删除数据库记录
             if physical_deleted:
                 super().delete(*args, **kwargs)

@@ -207,7 +207,8 @@ class FolderView(View):
             'file_type': f.file_type,
             'created_at': f.created_at.strftime('%Y-%m-%d %H:%M:%S'),
             'created_by': f.created_by.nickname if f.created_by else None,
-            'created_by_id': f.created_by_id
+            'created_by_id': f.created_by_id,
+            'thumbnail_path': f.thumbnail_path if hasattr(f, 'thumbnail_path') else None,  # 缩略图路径
         }
 
     @auth('document.document.create_folder')

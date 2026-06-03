@@ -180,12 +180,12 @@ class ExecutionStage:
 
         # 更新传输记录状态
         from apps.document.views.upload.merge import update_transfer_to_merging
-        update_transfer_to_merging(params['transfer_id'], context.get('request').user)
+        update_transfer_to_merging(params['transfer_id'], context.request.user)
 
         # 提交Celery任务
         from apps.document.views.upload.merge import submit_merge_task, save_task_id_to_transfer, write_merge_task_file
         task, merge_task_id, merge_task_file = submit_merge_task(
-            params, context.names, chunk_dir, tenant_id, context.get('request')
+            params, context.names, chunk_dir, tenant_id, context.request
         )
 
         # 保存task_id到传输记录
@@ -193,7 +193,7 @@ class ExecutionStage:
 
         # 写入任务文件
         write_merge_task_file(
-            merge_task_file, params, params['is_public'], task.id, context.get('request').user
+            merge_task_file, params, params['is_public'], task.id, context.request.user
         )
 
         return {

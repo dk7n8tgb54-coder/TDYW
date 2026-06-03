@@ -195,7 +195,7 @@ export default function useColumns({
                   <span style={{ fontSize: 16 }} role="img" aria-label="文件夹">📁</span>
                 ) : isImage(record.file_type) ? (
                   <img
-                    src={`/api/document/preview/?id=${record.id}&is_public=${isPublic}&x-token=${X_TOKEN}`}
+                    src={`/api/document/preview/?id=${record.id}&is_public=${isPublic}&x-token=${X_TOKEN}${record.thumbnail_path ? '&thumbnail=true' : ''}`}
                     alt={record.display_name || text}
                     style={{
                       width: 32,
@@ -258,7 +258,7 @@ export default function useColumns({
                 <span style={{ marginRight: 8, fontSize: 16 }} role="img" aria-label="打开的文件夹" title="打开的文件夹">📂</span>
               ) : isImage(record.file_type) ? (
                 <LazyThumbnail
-                  src={`/api/document/preview/?id=${record.id}&is_public=${isPublic}&x-token=${X_TOKEN}`}
+                  src={`/api/document/preview/?id=${record.id}&is_public=${isPublic}&x-token=${X_TOKEN}${record.thumbnail_path ? '&thumbnail=true' : ''}`}
                   alt={record.display_name || text}
                   style={{
                     width: 32,

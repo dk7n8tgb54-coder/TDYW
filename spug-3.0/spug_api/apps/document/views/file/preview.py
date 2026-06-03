@@ -54,15 +54,24 @@ class FilePreviewView(View):
     def get(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误'),
-            Argument('is_public', type=bool, required=False, default=False)
+            Argument('is_public', type=bool, required=False, default=False),
+            Argument('thumbnail', type=bool, required=False, default=False)
         ).parse(request.GET)
-        
+
         if error is not None:
             return json_response(error=error)
-            
+
         file = self._get_file(form, request.user)
         if file is None:
             return json_response(error='文件不存在')
+
+        # 【性能优化】缩略图模式：优先返回缩略图路径
+        if form.thumbnail and file.thumbnail_path:
+            if os.path.exists(file.thumbnail_path):
+                return self._stream_file_response(file.thumbnail_path, 'image/jpeg')
+            else:
+                logger.warning(f'[Preview] Thumbnail not found: {file.thumbnail_path}, falling back to original')
+                # 缩略图不存在时回退到原图
 
         if not os.path.exists(file.file_path):
             logger.warning(f'[Preview] File path not exists: id={form.id}, path={file.file_path}')

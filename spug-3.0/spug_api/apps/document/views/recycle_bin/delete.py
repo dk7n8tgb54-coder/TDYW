@@ -50,8 +50,8 @@ class RecycleBinPermanentDeleteView(View):
                 logger.info(f'[RecycleBin] 幂等性命中: user={request.user.username}, files={len(form.file_ids)}')
                 return json_response(data=cached_result)
         
-        # 判断是否需要异步处理
-        total_size = self._calculate_total_size(form.file_ids)
+        # 判断是否需要异步处理（【P0修复】传入user用于租户过滤）
+        total_size = self._calculate_total_size(form.file_ids, request.user)
         need_async = form.async_mode or total_size > self.LARGE_FILE_THRESHOLD or len(form.file_ids) > 10
         
         if need_async:
@@ -116,19 +116,31 @@ class RecycleBinPermanentDeleteView(View):
 
         return json_response(data=response_data)
     
-    def _calculate_total_size(self, file_ids):
-        """计算文件总大小"""
+    def _calculate_total_size(self, file_ids, user):
+        """【P0修复】计算文件总大小（批量查询+租户过滤，修复N+1和信息泄露）
+
+        Args:
+            file_ids: 文件ID列表
+            user: 当前用户（用于租户过滤）
+
+        Returns:
+            int: 文件总大小（字节）
+        """
         total = 0
-        for file_id in file_ids:
-            try:
-                file_obj = DocumentFilePrivate.all_objects.get(id=file_id, is_deleted=True)
-                total += file_obj.file_size
-            except DocumentFilePrivate.DoesNotExist:
-                try:
-                    file_obj = DocumentFilePublic.all_objects.get(id=file_id, is_deleted=True)
-                    total += file_obj.file_size
-                except DocumentFilePublic.DoesNotExist:
-                    pass
+        user_tenant_id = getattr(user, 'tenant_id', '') or ''
+
+        # 批量查询私密空间文件（租户过滤：仅统计当前租户的文件）
+        private_files = DocumentFilePrivate.all_objects.filter(
+            id__in=file_ids, is_deleted=True, tenant_id=user_tenant_id
+        )
+        total += sum(f.file_size for f in private_files)
+
+        # 批量查询公共空间文件（无需租户过滤）
+        public_files = DocumentFilePublic.all_objects.filter(
+            id__in=file_ids, is_deleted=True
+        )
+        total += sum(f.file_size for f in public_files)
+
         return total
     
     def _permanent_delete(self, file_id, user):

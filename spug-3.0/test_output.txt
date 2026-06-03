@@ -1,0 +1,22 @@
+test_p0_1_restore_same_tenant_current_mode (tests.test_recycle_bin_p0_fixes.TestP0RecycleBinFixes)
+P0-1测试1: 同租户恢复 - mode='current'，恢复到自己的文件夹 - 应成功 ... INFO [AUTH] 用户: test_user_a, 需要权限: ['document.recycle-bin.restore']
+<frozen importlib._bootstrap>:914: ImportWarning: _SixMetaPathImporter.find_spec() not found; falling back to find_module()
+INFO [AUTH] 权限检查结果: set()
+FAIL
+
+======================================================================
+FAIL: test_p0_1_restore_same_tenant_current_mode (tests.test_recycle_bin_p0_fixes.TestP0RecycleBinFixes)
+P0-1测试1: 同租户恢复 - mode='current'，恢复到自己的文件夹 - 应成功
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/spug/spug_api/tests/test_recycle_bin_p0_fixes.py", line 132, in test_p0_1_restore_same_tenant_current_mode
+    self.assertEqual(len(success_items), 1)
+AssertionError: 0 != 1
+
+----------------------------------------------------------------------
+Ran 1 test in 0.229s
+
+FAILED (failures=1)
+[Celery] Document tasks imported successfully
+
+[P0-1] 同租户恢复(mode=current) - 验证正常流程...
