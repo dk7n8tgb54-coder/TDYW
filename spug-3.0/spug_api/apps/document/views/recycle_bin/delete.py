@@ -23,84 +23,102 @@ logger = logging.getLogger(__name__)
 
 class RecycleBinPermanentDeleteView(View):
     """彻底删除视图（支持异步批量操作）"""
-    
+
     LARGE_FILE_THRESHOLD = 100 * 1024 * 1024  # 100MB
-    
+
     @auth('document.recycle-bin.permanent_delete')
     def post(self, request):
         """彻底删除文件（支持幂等性校验）"""
         form, error = JsonParser(
             Argument('file_ids', type=list, required=True),
             Argument('async_mode', type=bool, required=False, default=False),
-            Argument('idempotent_key', required=False)  # 【新增】幂等键
+            Argument('idempotent_key', required=False)
         ).parse(request.body)
 
         if error:
             return json_response(error=error)
 
-        # 【修改】移除批量删除数量限制
         if len(form.file_ids) == 0:
             return json_response(error='请选择要删除的文件')
 
-        # 【新增】幂等性检查
         idempotency_checker = IdempotencyChecker('recycle_bin:permanent_delete', ttl=300)
         if form.idempotent_key:
             cached_result = idempotency_checker.check(form.idempotent_key)
             if cached_result:
                 logger.info(f'[RecycleBin] 幂等性命中: user={request.user.username}, files={len(form.file_ids)}')
                 return json_response(data=cached_result)
-        
-        # 判断是否需要异步处理（【P0修复】传入user用于租户过滤）
+
         total_size = self._calculate_total_size(form.file_ids, request.user)
         need_async = form.async_mode or total_size > self.LARGE_FILE_THRESHOLD or len(form.file_ids) > 10
-        
+
         if need_async:
-            from ...tasks.cleanup import async_batch_permanent_delete
-            from celery import current_app as celery_app
-            
-            try:
-                # 检查Celery连接状态
-                inspector = celery_app.control.inspect()
-                active_queues = inspector.active_queues()
-                logger.info(f'[RecycleBin] Celery连接状态: active_queues={active_queues is not None}')
-                
-                # 提交异步任务
-                task = async_batch_permanent_delete.delay(form.file_ids, request.user.id)
-                logger.info(f'[RecycleBin] 异步删除任务已提交: task_id={task.id}, files={len(form.file_ids)}, user={request.user.username}')
+            return self._submit_async_delete(form, request.user, total_size, idempotency_checker)
 
-                response_data = {
-                    'async': True,
-                    'task_id': str(task.id),
-                    'message': '删除任务已提交',
-                    'file_count': len(form.file_ids),
-                    'total_size': total_size
-                }
+        return self._sync_delete(form, request.user, idempotency_checker)
 
-                # 【新增】缓存幂等结果（5分钟）
-                if form.idempotent_key:
-                    idempotency_checker.cache(response_data)
+    def _submit_async_delete(self, form, user, total_size, idempotency_checker):
+        """提交异步删除任务"""
+        from ...tasks.cleanup import async_batch_permanent_delete
+        from celery import current_app as celery_app
 
-                return json_response(data=response_data)
-            except Exception as e:
-                logger.error(f'[RecycleBin] 提交异步任务失败: {e}', exc_info=True)
-                return json_response(error=f'提交删除任务失败: {str(e)}', code=500)
-        
-        # 同步删除
+        try:
+            inspector = celery_app.control.inspect()
+            active_queues = inspector.active_queues()
+            logger.info(f'[RecycleBin] Celery连接状态: active_queues={active_queues is not None}')
+
+            task = async_batch_permanent_delete.delay(form.file_ids, user.id)
+            logger.info(f'[RecycleBin] 异步删除任务已提交: task_id={task.id}, files={len(form.file_ids)}, user={user.username}')
+
+            response_data = {
+                'async': True,
+                'task_id': str(task.id),
+                'message': '删除任务已提交',
+                'file_count': len(form.file_ids),
+                'total_size': total_size
+            }
+
+            if form.idempotent_key:
+                idempotency_checker.cache(response_data)
+
+            return json_response(data=response_data)
+        except Exception as e:
+            logger.error(f'[RecycleBin] 提交异步任务失败: {e}', exc_info=True)
+            return json_response(error=f'提交删除任务失败: {str(e)}', code=500)
+
+    def _sync_delete(self, form, user, idempotency_checker):
+        """同步批量删除"""
         results = []
         total_freed = 0
-        
+
+        user_tenant_id = getattr(user, 'tenant_id', '') or ''
+
+        private_files = {
+            f.id: f for f in DocumentFilePrivate.all_objects.filter(
+                id__in=form.file_ids, is_deleted=True, tenant_id=user_tenant_id
+            ).select_related('created_by')
+        }
+
+        public_files = {
+            f.id: f for f in DocumentFilePublic.all_objects.filter(
+                id__in=form.file_ids, is_deleted=True
+            ).select_related('created_by')
+        }
+
+        all_files = private_files.copy()
+        all_files.update(public_files)
+
         try:
             with transaction.atomic():
                 for file_id in form.file_ids:
-                    result = self._permanent_delete(file_id, request.user)
+                    result = self._delete_single_file(file_id, all_files.get(file_id), user)
                     results.append(result)
                     if result['status'] == 'success':
                         total_freed += result.get('file_size', 0)
         except Exception as e:
             logger.error(f'[RecycleBin] 批量删除事务失败: {e}')
             return json_response(error='删除操作失败')
-        
-        invalidate_cache(request.user.id)
+
+        invalidate_cache(user.id)
 
         response_data = {
             'async': False,
@@ -110,14 +128,40 @@ class RecycleBinPermanentDeleteView(View):
             'details': results
         }
 
-        # 【新增】缓存幂等结果（5分钟）
         if form.idempotent_key:
             idempotency_checker.cache(response_data)
 
         return json_response(data=response_data)
+
+    def _delete_single_file(self, file_id, file_obj, user):
+        """删除单个文件"""
+        if file_obj is None:
+            return {'id': file_id, 'status': 'failed', 'error': '文件不存在或未被删除', 'code': 404001}
+
+        has_perm = check_permission(file_obj, user)
+        if not has_perm:
+            return {'id': file_id, 'status': 'failed', 'error': '只有管理员或文件所有者可以彻底删除文件', 'code': 403001}
+
+        file_size = file_obj.file_size
+        is_public = isinstance(file_obj, DocumentFilePublic)
+
+        try:
+            file_obj.delete(hard=True)
+            log_operation(
+                action="FILE_PERMANENT_DELETE",
+                user=user,
+                resource_type="FILE",
+                resource_id=file_id,
+                is_public=is_public,
+                file_size=file_size
+            )
+            return {'id': file_id, 'status': 'success', 'file_size': file_size}
+        except Exception as del_err:
+            logger.error(f'[RecycleBin] 删除文件失败: file_id={file_id}, error={del_err}')
+            return {'id': file_id, 'status': 'failed', 'error': '删除失败，请稍后重试', 'code': 500001}
     
     def _calculate_total_size(self, file_ids, user):
-        """【P0修复】计算文件总大小（批量查询+租户过滤，修复N+1和信息泄露）
+        """【P0-5修复】计算文件总大小（数据库聚合查询，完全避免内存迭代）
 
         Args:
             file_ids: 文件ID列表
@@ -126,22 +170,21 @@ class RecycleBinPermanentDeleteView(View):
         Returns:
             int: 文件总大小（字节）
         """
-        total = 0
+        from django.db.models import Sum
+
         user_tenant_id = getattr(user, 'tenant_id', '') or ''
 
-        # 批量查询私密空间文件（租户过滤：仅统计当前租户的文件）
-        private_files = DocumentFilePrivate.all_objects.filter(
+        # 私密空间：使用 aggregate(Sum) 在数据库层面聚合
+        private_sum = DocumentFilePrivate.all_objects.filter(
             id__in=file_ids, is_deleted=True, tenant_id=user_tenant_id
-        )
-        total += sum(f.file_size for f in private_files)
+        ).aggregate(total=Sum('file_size'))['total'] or 0
 
-        # 批量查询公共空间文件（无需租户过滤）
-        public_files = DocumentFilePublic.all_objects.filter(
+        # 公共空间：使用 aggregate(Sum) 在数据库层面聚合
+        public_sum = DocumentFilePublic.all_objects.filter(
             id__in=file_ids, is_deleted=True
-        )
-        total += sum(f.file_size for f in public_files)
+        ).aggregate(total=Sum('file_size'))['total'] or 0
 
-        return total
+        return private_sum + public_sum
     
     def _permanent_delete(self, file_id, user):
         """彻底删除单个文件"""

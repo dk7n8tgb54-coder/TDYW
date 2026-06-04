@@ -4,6 +4,7 @@
 import json
 from django.db import models
 from libs import human_datetime
+from libs.mixins import ModelMixin
 from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 from apps.account.models import User
 
@@ -136,4 +137,28 @@ class RunLogUpdate(models.Model, TenantModelMixin):
             models.Index(fields=['runlog_id']),
             models.Index(fields=['tenant_id', 'runlog_id']),
             models.Index(fields=['update_date']),
+        ]
+
+
+class EventTypeConfig(models.Model, ModelMixin):
+    """事件类型配置表（全局配置，所有租户共享）"""
+
+    name = models.CharField(max_length=50, unique=True, help_text='类型名称')
+    is_active = models.BooleanField(default=True, help_text='是否启用')
+    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
+
+    def __repr__(self):
+        return f'<EventTypeConfig {self.name}>'
+
+    def to_view(self):
+        return self.to_dict()
+
+    class Meta:
+        db_table = 'tdyw_run_log_event_types'
+        verbose_name = '事件类型配置'
+        verbose_name_plural = '事件类型配置'
+        ordering = ('id',)
+        indexes = [
+            models.Index(fields=['is_active']),
         ]

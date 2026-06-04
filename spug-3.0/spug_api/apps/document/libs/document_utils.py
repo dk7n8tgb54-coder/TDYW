@@ -12,14 +12,35 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-# 【性能优化】延迟导入模型，避免启动时加载
+# 【性能优化】模块级模型缓存，避免每次调用都解包元组
+_MODEL_CACHE = None
+
+
+def _ensure_models_loaded():
+    """延迟加载模型并缓存（线程安全惰性加载）"""
+    global _MODEL_CACHE
+    if _MODEL_CACHE is None:
+        from apps.document.models import (
+            DocumentFolderPrivate, DocumentFilePrivate,
+            DocumentFolderPublic, DocumentFilePublic
+        )
+        _MODEL_CACHE = {
+            'folder_private': DocumentFolderPrivate,
+            'file_private': DocumentFilePrivate,
+            'folder_public': DocumentFolderPublic,
+            'file_public': DocumentFilePublic,
+        }
+    return _MODEL_CACHE
+
+
+# 【性能优化】延迟导入模型，避免启动时加载（已废弃，保留兼容）
 def _get_models():
     """延迟导入模型"""
-    from apps.document.models import (
-        DocumentFolderPrivate, DocumentFilePrivate,
-        DocumentFolderPublic, DocumentFilePublic
+    cache = _ensure_models_loaded()
+    return (
+        cache['folder_private'], cache['file_private'],
+        cache['folder_public'], cache['file_public']
     )
-    return DocumentFolderPrivate, DocumentFilePrivate, DocumentFolderPublic, DocumentFilePublic
 
 # MIME类型映射表
 MIME_TYPES = {
@@ -63,6 +84,7 @@ def _get_max_recursion_depth():
 def is_child_folder(child_id, parent_id, FolderModel, request_user=None, is_public=False):
     """
     检查child_id是否是parent_id的子文件夹（防止循环引用）
+    【P1-2修复】批量预加载：将逐层查询改为每次批量获取一层
 
     Args:
         child_id: 子文件夹ID
@@ -76,45 +98,48 @@ def is_child_folder(child_id, parent_id, FolderModel, request_user=None, is_publ
     """
     visited_ids = set()  # 防止无限循环
     username = getattr(request_user, 'username', 'Unknown') if request_user else 'Unknown'
+    max_depth = _get_max_recursion_depth()
 
-    while True:
-        # 检查是否已访问（防止循环引用）
-        if child_id in visited_ids:
-            logger.warning(
-                f'[Document] 检测到循环引用，folder_id={child_id} 已被访问！'
-                f'user={username}, parent_id={parent_id}'
-            )
-            return True
-        visited_ids.add(child_id)
+    # 当前层待检查的文件夹ID列表（逐层BFS）
+    current_layer_ids = [child_id]
 
-        # 递归深度限制
-        max_depth = _get_max_recursion_depth()
-        if len(visited_ids) > max_depth:
-            logger.warning(
-                f'[Document] is_child_folder 超过最大递归深度: {max_depth}，'
-                f'可能存在循环引用！user={username}, child_id={child_id}, parent_id={parent_id}'
-            )
-            return False
+    for _ in range(max_depth):
+        if not current_layer_ids:
+            break
 
-        # 私有空间：必须验证租户归属
-        child_query = FolderModel.objects.filter(pk=child_id)
+        # 【优化】一次性查询当前层所有文件夹的父ID
+        batch_query = FolderModel.objects.filter(pk__in=current_layer_ids)
         if request_user and not is_public:
             from libs.tenant_utils import apply_tenant_filter
-            child_query = apply_tenant_filter(child_query, request_user)
+            batch_query = apply_tenant_filter(batch_query, request_user)
 
-        child = child_query.first()
-        if not child:
-            return False
+        folder_batch = {f.pk: f for f in batch_query}
 
-        # 检查是否找到目标父文件夹
-        if child.parent_id == parent_id:
-            return True
+        next_layer_ids = []
+        for folder_id in current_layer_ids:
+            visited_ids.add(folder_id)
+            folder_obj = folder_batch.get(folder_id)
 
-        # 到达根节点，未找到
-        if child.parent_id is None:
-            return False
+            if not folder_obj:
+                # 文件不存在或无权限
+                return False
 
-        child_id = child.parent_id
+            if folder_obj.parent_id == parent_id:
+                return True
+
+            if folder_obj.parent_id is not None and folder_obj.parent_id not in visited_ids:
+                next_layer_ids.append(folder_obj.parent_id)
+
+        current_layer_ids = next_layer_ids
+
+    # 超过最大深度，可能存在循环
+    if len(visited_ids) > max_depth:
+        logger.warning(
+            f'[Document] is_child_folder 超过最大递归深度: {max_depth}，'
+            f'可能存在循环引用！user={username}, child_id={child_id}, parent_id={parent_id}'
+        )
+
+    return False
 
 
 # ==================== 路径生成工具函数 ====================

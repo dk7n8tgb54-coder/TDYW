@@ -12,6 +12,9 @@ import re
 import logging
 from functools import wraps
 
+# 从 document_utils 重新导出 is_safe_path，保持 views/base.py 的导入兼容
+from ..libs.document_utils import is_safe_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -54,21 +57,9 @@ def log_operation(action, user, resource_type, resource_id, **kwargs):
     details = ', '.join([f'{k}={v}' for k, v in kwargs.items() if k != 'is_public'])
 
     logger.debug(
-        f'[TenantAudit] Action={action}, User={user.username}, '
-        f'Tenant={tenant_id}, IsPublic={is_public}, '
-        f'Type={resource_type}, ID={resource_id}, {details}'
+        '[TenantAudit] Action=%s, User=%s, Tenant=%s, IsPublic=%s, Type=%s, ID=%s, %s',
+        action, user.username, tenant_id, is_public, resource_type, resource_id, details
     )
-
-
-def is_safe_path(base_path, target_path):
-    """验证目标路径是否在基础路径内，防止路径遍历"""
-    base_path = os.path.normpath(base_path)
-    target_path = os.path.normpath(target_path)
-    try:
-        common_prefix = os.path.commonpath([base_path, target_path])
-        return common_prefix == base_path
-    except ValueError:
-        return False
 
 
 def create_model_instance(Model, **kwargs):

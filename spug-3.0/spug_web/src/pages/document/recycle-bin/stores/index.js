@@ -7,7 +7,7 @@
  * RecycleBinStore - 回收站统一状态管理
  * 组合 UIStore 和 BusinessStore，提供统一的业务接口
  */
-import { action, computed } from 'mobx';
+import { action } from 'mobx';
 import uiStore from './RecycleBinUIStore';
 import businessStore from './RecycleBinBusinessStore';
 import { message } from 'antd';

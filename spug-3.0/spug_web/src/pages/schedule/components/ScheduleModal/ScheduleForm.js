@@ -14,7 +14,6 @@
  */
 import React from 'react';
 import { Form, Select, Checkbox, DatePicker, Input } from 'antd';
-import moment from 'moment';
 import store from '../../stores';
 
 const { Option } = Select;

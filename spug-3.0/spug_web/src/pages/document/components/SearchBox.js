@@ -115,12 +115,6 @@ const SearchBox = ({
     doSearch(keyword);
   };
 
-  // 清空搜索
-  const handleClear = () => {
-    setKeyword('');
-    if (onClearSearch) onClearSearch();
-  };
-
   return (
     <Input
       placeholder="搜索整个资料库"

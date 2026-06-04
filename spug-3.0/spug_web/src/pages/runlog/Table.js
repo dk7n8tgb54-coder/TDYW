@@ -5,9 +5,9 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Table, Modal, message, DatePicker, Select, Tag, Statistic, Card, Row, Col, Image } from 'antd';
-import { PlusOutlined, DeleteOutlined, CheckCircleOutlined, FilePdfOutlined } from '@ant-design/icons';
-import { http, hasPermission } from 'libs';
+import { Table, Modal, message, DatePicker, Select, Tag, Statistic, Card, Row, Col, Image, Spin, Button } from 'antd';
+import { PlusOutlined, DeleteOutlined, CheckCircleOutlined, FilePdfOutlined, FileOutlined, SettingOutlined } from '@ant-design/icons';
+import { http, hasPermission, Permission } from 'libs';
 import { Action, TableCard, AuthButton } from "components";
 import store from './store';
 import moment from 'moment';
@@ -22,7 +22,34 @@ class ComTable extends React.Component {
 
   state = {
     expandedRowsData: {},  // 存储展开行的动态数据
+    // 附件预览状态
+    previewVisible: false,
+    previewUrl: '',
+    previewLoading: false,
+    previewError: '',
+    previewFileName: '',
   }
+
+  // 获取附件预览URL
+  fetchPreviewUrl = (attachmentPath) => {
+    const fileName = attachmentPath.split('/').pop() || '附件';
+    this.setState({ previewFileName: fileName, previewLoading: true, previewError: '' });
+
+    http.get('/api/runlog/attachment/preview_url/', { params: { path: attachmentPath } })
+      .then(data => {
+        this.setState({ previewUrl: data.preview_url, previewVisible: true, previewLoading: false });
+      })
+      .catch(err => {
+        const errorMsg = err?.error || err?.message || '获取预览失败，请下载后查看';
+        this.setState({ previewError: errorMsg, previewLoading: false });
+        message.error(errorMsg);
+      });
+  };
+
+  // 关闭预览弹窗
+  handleClosePreview = () => {
+    this.setState({ previewVisible: false, previewUrl: '', previewError: '' });
+  };
 
   componentDidMount() {
     this._isMounted = true;
@@ -244,21 +271,61 @@ class ComTable extends React.Component {
               <span style={{ marginLeft: 8 }}>👤 {update.recorder}</span>
             </div>
             <div>{update.detail_content}</div>
-            {/* 显示附件图片 */}
+            {/* 显示附件 */}
             {update.attachments && update.attachments.length > 0 && (
               <div style={{ marginTop: 8 }}>
                 <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>附件：</div>
-                <Image.PreviewGroup>
-                  {update.attachments.map((img, idx) => (
-                    <Image
-                      key={idx}
-                      src={img}
-                      width={100}
-                      height={100}
-                      style={{ objectFit: 'cover', marginRight: 8, marginBottom: 8 }}
-                    />
-                  ))}
-                </Image.PreviewGroup>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {update.attachments.map((url, idx) => {
+                    const fileName = url.split('/').pop() || `附件${idx + 1}`;
+                    const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
+                    if (isImage) {
+                      return (
+                        <Image
+                          key={idx}
+                          src={url}
+                          width={100}
+                          height={100}
+                          style={{ objectFit: 'cover' }}
+                        />
+                      );
+                    } else {
+                      // 非图片文件显示文件名链接，点击预览
+                      return (
+                        <a
+                          key={idx}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            this.fetchPreviewUrl(url);
+                          }}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="点击预览"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 100,
+                            height: 100,
+                            border: '1px solid #d9d9d9',
+                            borderRadius: 4,
+                            textAlign: 'center',
+                            fontSize: 12,
+                            color: '#1890ff',
+                            textDecoration: 'none',
+                            padding: 8,
+                            overflow: 'hidden',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <FileOutlined style={{ fontSize: 24, marginBottom: 4, display: 'block' }} />
+                          <span>{fileName}</span>
+                        </a>
+                      );
+                    }
+                  })}
+                </div>
               </div>
             )}
           </div>
@@ -269,6 +336,30 @@ class ComTable extends React.Component {
 
   render() {
     const { statistics } = store;
+    const actions = [
+      <AuthButton key="add" auth="runlog.runlog.add" type="primary" icon={<PlusOutlined/>} onClick={() => store.showForm({}, false)}>新建</AuthButton>,
+      Permission.isSuper ? <Button key="typeAdmin" icon={<SettingOutlined/>} onClick={() => store.showEventTypeModal()}>类型管理</Button> : null,
+      <span key="filter-system" style={{ marginRight: 8 }}>
+        <Select placeholder="系统名称" style={{ width: 150 }} allowClear showSearch onChange={value => store.setFilter('system_name', value)} open={this._isMounted ? undefined : false}>
+          {store.systemNames && store.systemNames.map(item => <Option value={item} key={item}>{item}</Option>)}
+        </Select>
+      </span>,
+      <span key="filter-status" style={{ marginRight: 8 }}>
+        <Select placeholder="处理状态" style={{ width: 120 }} allowClear onChange={value => store.setFilter('status', value)} open={this._isMounted ? undefined : false}>
+          <Option value="in_progress">处理中</Option>
+          <Option value="resolved">已解决</Option>
+        </Select>
+      </span>,
+      <span key="filter-severity" style={{ marginRight: 8 }}>
+        <Select placeholder="事件级别" style={{ width: 100 }} allowClear onChange={value => store.setFilter('severity', value)} open={this._isMounted ? undefined : false}>
+          <Option value="P0">P0紧急</Option>
+          <Option value="P1">P1重要</Option>
+          <Option value="P2">P2一般</Option>
+        </Select>
+      </span>,
+      <RangePicker key="date-range-picker" placeholder={['创建日期', '结束日期']} onChange={dates => store.setFilter('date_range', dates)} style={{ marginRight: 8, width: 260 }} open={this._isMounted ? undefined : false} />,
+      <AuthButton key="export" auth="runlog.runlog.view" icon={<FilePdfOutlined/>} onClick={this.handleExport}>导出PDF</AuthButton>,
+    ];
 
     return (
       <div>
@@ -306,63 +397,7 @@ class ComTable extends React.Component {
               store.showForm(record, true);
             }
           })}
-          actions={[
-            <AuthButton
-              auth="runlog.runlog.add"
-              type="primary"
-              icon={<PlusOutlined/>}
-              onClick={() => store.showForm({}, false)}>新建</AuthButton>,
-            <span key="filter-system" style={{ marginRight: 8 }}>
-              <Select
-                placeholder="系统名称"
-                style={{ width: 150 }}
-                allowClear
-                showSearch
-                onChange={(value) => { store.setFilter('system_name', value); }}
-                open={this._isMounted ? undefined : false}
-              >
-                {store.systemNames && store.systemNames.map(item => (
-                  <Option value={item} key={item}>{item}</Option>
-                ))}
-              </Select>
-            </span>,
-            <span key="filter-status" style={{ marginRight: 8 }}>
-              <Select
-                placeholder="处理状态"
-                style={{ width: 120 }}
-                allowClear
-                onChange={(value) => { store.setFilter('status', value); }}
-                open={this._isMounted ? undefined : false}
-              >
-                <Option value="in_progress">处理中</Option>
-                <Option value="resolved">已解决</Option>
-              </Select>
-            </span>,
-            <span key="filter-severity" style={{ marginRight: 8 }}>
-              <Select
-                placeholder="事件级别"
-                style={{ width: 100 }}
-                allowClear
-                onChange={(value) => { store.setFilter('severity', value); }}
-                open={this._isMounted ? undefined : false}
-              >
-                <Option value="P0">P0紧急</Option>
-                <Option value="P1">P1重要</Option>
-                <Option value="P2">P2一般</Option>
-              </Select>
-            </span>,
-            <RangePicker
-              key="date-range-picker"
-              placeholder={['创建日期', '结束日期']}
-              onChange={(dates) => { store.setFilter('date_range', dates); }}
-              style={{ marginRight: 8, width: 260 }}
-              open={this._isMounted ? undefined : false}
-            />,
-            <AuthButton
-              auth="runlog.runlog.view"
-              icon={<FilePdfOutlined/>}
-              onClick={this.handleExport}>导出PDF</AuthButton>
-          ]}
+          actions={actions}
           pagination={{
             current: store.pagination.page,
             pageSize: store.pagination.page_size,
@@ -401,6 +436,37 @@ class ComTable extends React.Component {
           )}/>
         )}
       </TableCard>
+
+        {/* 附件预览弹窗 */}
+        <Modal
+          title={this.state.previewFileName || '文件预览'}
+          visible={this.state.previewVisible}
+          onCancel={this.handleClosePreview}
+          footer={null}
+          width="90%"
+          style={{ top: 20 }}
+          bodyStyle={{ padding: 0, height: 'calc(100vh - 150px)' }}
+          destroyOnClose
+        >
+          {this.state.previewLoading ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+              <Spin tip="正在加载预览..." />
+            </div>
+          ) : this.state.previewError ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+              <div style={{ color: '#ff4d4f', marginBottom: 16 }}>{this.state.previewError}</div>
+              <Button type="primary" onClick={() => window.open(this.state.previewUrl, '_blank')}>
+                下载文件
+              </Button>
+            </div>
+          ) : (
+            <iframe
+              src={this.state.previewUrl}
+              style={{ width: '100%', height: '100%', border: 'none' }}
+              title={`Preview: ${this.state.previewFileName}`}
+            />
+          )}
+        </Modal>
     </div>
     )
   }

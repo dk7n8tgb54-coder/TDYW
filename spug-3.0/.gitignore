@@ -69,6 +69,8 @@ backup_*.sql
 *.pem
 # 视频
 *.mp4
+# 媒体上传文件
+spug_api/media/
 # Docker
 .docker/
 .env  

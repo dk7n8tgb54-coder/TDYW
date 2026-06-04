@@ -29,6 +29,11 @@ from apps.document.views.base import validate_file_name, validate_file_upload, h
 from apps.document.views.upload.lock import get_merge_lock, MERGE_LOCK_TIMEOUT
 from apps.document.views.upload.validators import HashValidator, FolderValidator
 
+# 【P1-4修复】模块级导入（无循环依赖，提升性能）
+from apps.document.models import DocumentTransfer
+from apps.document.tasks import merge_file_chunks
+from apps.document.libs.naming_utils import generate_file_names
+
 logger = logging.getLogger(__name__)
 
 # 【P2-2修复】合并任务目录路径常量
@@ -125,8 +130,6 @@ def build_file_path(params: dict, folder: Any, user: 'User') -> dict[str, str]:
     os.makedirs(upload_dir, exist_ok=True)
 
     # 使用新的命名规范生成三层文件名
-    from apps.document.libs.naming_utils import generate_file_names
-
     FileModel = get_file_model(is_public=is_public)
     names = generate_file_names(FileModel, file_name, folder, user)
 
@@ -201,7 +204,6 @@ def check_idempotency(
     Returns:
         tuple: (结果字典或None, 错误消息或None)
     """
-    from apps.document.models import DocumentTransfer
     from django.db import transaction
 
     try:
@@ -326,8 +328,6 @@ def submit_merge_task(
     Returns:
         tuple: (Celery任务对象, 合并任务ID, 合并任务文件路径)
     """
-    from apps.document.tasks import merge_file_chunks
-
     timestamp = int(time.time())
     merge_task_id = f"{params['file_hash']}_{timestamp}"
     merge_task_file = os.path.join(
@@ -373,7 +373,6 @@ def save_task_id_to_transfer(transfer_id: Optional[int], task_id: str) -> None:
         return
 
     try:
-        from apps.document.models import DocumentTransfer
         DocumentTransfer.objects.filter(id=transfer_id).update(
             celery_task_id=task_id,
             status=TransferStatus.MERGING.value

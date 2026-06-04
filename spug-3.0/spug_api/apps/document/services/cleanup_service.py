@@ -46,6 +46,7 @@ class FolderCollector:
     def collect_all_subfolders(folder, FolderModel) -> list:
         """
         收集所有子文件夹（包括自身）
+        【P1-5修复】批量查询：使用 parent_id__in 一次性获取一层子文件夹
 
         Args:
             folder: 起始文件夹
@@ -54,18 +55,26 @@ class FolderCollector:
         Returns:
             文件夹列表（按层级排序）
         """
-        folder_queue = [folder]
-        all_folders = []
+        all_folders = [folder]
+        visited_ids = {folder.id}
+        parent_ids = {folder.id}
 
-        while folder_queue:
-            current = folder_queue.pop(0)
-            all_folders.append(current)
+        # BFS 批量查询：每次批量获取一层子文件夹
+        while parent_ids:
+            # 【优化】使用 parent_id__in 一次性查询所有直接子文件夹
+            children = list(FolderModel.all_objects.filter(
+                parent_id__in=parent_ids, is_deleted=True
+            ))
 
-            # 获取直接子文件夹（已标记为删除的）
-            sub_folders = FolderModel.all_objects.filter(
-                parent=current, is_deleted=True
-            )
-            folder_queue.extend(sub_folders)
+            if not children:
+                break
+
+            parent_ids = set()
+            for child in children:
+                if child.id not in visited_ids:
+                    visited_ids.add(child.id)
+                    all_folders.append(child)
+                    parent_ids.add(child.id)
 
         return all_folders
 

@@ -171,41 +171,33 @@ def generate_unique_logical_name(FileModel, original_name, folder, user, max_ori
     has_tenant_id = hasattr(FileModel, 'tenant_id')
     
     with transaction.atomic():
-        # 查询精确匹配（无序号）
-        exact_pattern = f"{clean_original}{ext}"
+        # 【P2-3修复】合并为一次查询：使用 name__startswith 查出所有可能匹配的文件
+        prefix_pattern = f"{clean_original}_"
         
-        # 构建查询条件
-        exact_filter = {
+        base_filter = {
             'folder_id': folder_id,
-            'name': exact_pattern,
         }
         if has_tenant_id:
-            exact_filter['tenant_id'] = tenant_id
-            
-        exact_exists = FileModel.objects.filter(**exact_filter).exists()
+            base_filter['tenant_id'] = tenant_id
         
-        if not exact_exists:
+        # 使用 name__startswith 一次性查出所有带前缀的同名文件
+        all_matching_files = list(
+            FileModel.objects.filter(
+                name__startswith=prefix_pattern,
+                **base_filter
+            ).values_list('name', flat=True)
+        )
+        
+        # 精确匹配（无序号）
+        exact_pattern = f"{clean_original}{ext}"
+        if exact_pattern not in all_matching_files:
             # 无同名文件，直接用清理后的原始名
             return exact_pattern
         
-        # 有同名文件，需要生成序号
-        # 查询所有匹配前缀的文件，提取最大序号
-        # 匹配模式：clean_original_XXX.ext
+        # 有同名文件，提取最大序号
         regex_pattern = rf"^{re.escape(clean_original)}_(\d{{3}}){re.escape(ext)}$"
-        
-        # 构建查询条件
-        regex_filter = {
-            'folder_id': folder_id,
-            'name__regex': regex_pattern,
-        }
-        if has_tenant_id:
-            regex_filter['tenant_id'] = tenant_id
-            
-        existing_files = FileModel.objects.filter(**regex_filter).values_list('name', flat=True)
-        
-        # 提取最大序号
         max_counter = 0
-        for existing_name in existing_files:
+        for existing_name in all_matching_files:
             match = re.match(regex_pattern, existing_name)
             if match:
                 max_counter = max(max_counter, int(match.group(1)))
@@ -215,7 +207,6 @@ def generate_unique_logical_name(FileModel, original_name, folder, user, max_ori
         
         # 序号溢出检查（999个同名文件，极罕见）
         if new_counter > 999:
-            # 使用4位序号
             return f"{clean_original}_{new_counter:04d}{ext}"
         
         return f"{clean_original}_{new_counter:03d}{ext}"

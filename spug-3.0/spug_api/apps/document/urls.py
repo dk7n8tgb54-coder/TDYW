@@ -15,6 +15,8 @@ from .views.folder import (
     FolderMoveView,
     FolderDownloadView,
     FolderRenameView,
+    FolderDownloadStatusView,  # 【P0-6新增】异步打包状态查询
+    FolderDownloadReadyView,   # 【P0-6新增】异步打包下载
 )
 
 # 搜索 - 独立模块
@@ -103,6 +105,9 @@ urlpatterns = [
     path('folder/move/', FolderMoveView.as_view()),
     path('folder/download/', FolderDownloadView.as_view()),
     path('folder/rename/', FolderRenameView.as_view()),
+    # 【P0-6新增】异步打包相关
+    path('folder/download/status/', FolderDownloadStatusView.as_view()),
+    path('folder/download/ready/', FolderDownloadReadyView.as_view()),
     
     # 分片上传
     path('upload_chunk/', FileChunkUploadView.as_view()),

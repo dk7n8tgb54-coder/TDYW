@@ -7,7 +7,7 @@
  */
 
 // 从主常量文件导入
-import { UPLOAD_CONSTANTS as ORIGINAL_UPLOAD_CONSTANTS, generateUploadId as originalGenerateUploadId } from '../../constants/upload';
+import { UPLOAD_CONSTANTS as ORIGINAL_UPLOAD_CONSTANTS } from '../../constants/upload';
 
 // 重新导出 UPLOAD_CONSTANTS
 export const UPLOAD_CONSTANTS = ORIGINAL_UPLOAD_CONSTANTS;

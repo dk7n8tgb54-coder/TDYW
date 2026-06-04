@@ -11,7 +11,6 @@ import {
   Typography, 
   Alert,
   Checkbox,
-  Progress,
   Tag
 } from 'antd';
 import { 
@@ -23,7 +22,7 @@ import store from './store';
 import * as service from './service';
 import styles from './index.module.less';
 
-const { Title, Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 const DeleteModal = observer(function () {
   const [confirmed, setConfirmed] = React.useState(false);
@@ -33,7 +32,7 @@ const DeleteModal = observer(function () {
     if (!store.deleteVisible) {
       setConfirmed(false);
     }
-  }, [store.deleteVisible]);
+  }, [store.deleteVisible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleOk = async () => {
     if (!confirmed) {

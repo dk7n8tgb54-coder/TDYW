@@ -244,7 +244,7 @@ class RunLogView(View):
         event = apply_tenant_filter(RunLog.objects.filter(pk=event_id), request.user).first()
 
         if not event:
-            return json_response(error='事件不存在', status=404)
+            return json_response(error='事件不存在', code=404)
 
         # 获取动态列表
         updates = apply_tenant_filter(
@@ -309,11 +309,9 @@ class RunLogUpdateView(View):
             update = RunLogUpdate.objects.create(**update_data)
 
             # 更新事件统计信息
-            updates = apply_tenant_filter(
-                RunLogUpdate.objects.filter(runlog_id=form.runlog_id),
-                request.user
-            )
-            event.update_count = updates.count()
+            # 注意：直接统计该事件的所有动态，不使用租户过滤
+            # 因为动态已经通过 runlog_id 关联到事件，runlog_id 本身已受租户控制
+            event.update_count = RunLogUpdate.objects.filter(runlog_id=form.runlog_id).count()
 
             # 如果是第一条动态，更新首次动态日期
             if event.update_count == 1:
@@ -341,7 +339,7 @@ class RunLogUpdateView(View):
         if error is None:
             update = RunLogUpdate.objects.filter(pk=form.id).first()
             if not update:
-                return json_response(error='动态不存在', status=404)
+                return json_response(error='动态不存在', code=404)
 
             # 租户过滤
             update = apply_tenant_filter(
@@ -349,13 +347,13 @@ class RunLogUpdateView(View):
                 request.user
             ).first()
             if not update:
-                return json_response(error='无权限操作', status=403)
+                return json_response(error='无权限操作', code=403)
 
             # 检查是否可修改
             now = datetime.now()
             deadline = datetime.strptime(update.editable_until, '%Y-%m-%d %H:%M:%S')
             if now >= deadline:
-                return json_response(error='该动态已超过24小时，不可修改。请添加新动态。', status=403)
+                return json_response(error='该动态已超过24小时，不可修改。请添加新动态。', code=403)
 
             # 更新字段
             if form.update_date:
@@ -380,15 +378,15 @@ class RunLogUpdateView(View):
         if error is None:
             update = RunLogUpdate.objects.filter(pk=form.id).first()
             if not update:
-                return json_response(error='动态不存在', status=404)
-            
+                return json_response(error='动态不存在', code=404)
+
             # 租户过滤
             update = apply_tenant_filter(
                 RunLogUpdate.objects.filter(pk=update.id),
                 request.user
             ).first()
             if not update:
-                return json_response(error='无权限操作', status=403)
+                return json_response(error='无权限操作', code=403)
             
             runlog_id = update.runlog_id
             update.delete()
@@ -396,7 +394,7 @@ class RunLogUpdateView(View):
             # 更新事件统计信息
             event = apply_tenant_filter(RunLog.objects.filter(pk=runlog_id), request.user).first()
             if not event:
-                return json_response(error='事件不存在', status=404)
+                return json_response(error='事件不存在', code=404)
 
             # 使用租户过滤查询动态记录
             updates = apply_tenant_filter(
@@ -415,6 +413,178 @@ class RunLogUpdateView(View):
                 event.last_update_date = None
                 event.first_update_date = None
             event.save()
+
+        return json_response(error=error)
+
+
+class RunLogRepairView(View):
+    """运行日志修复视图 - 修复 update_count 和 tenant_id 不一致问题"""
+
+    @auth('runlog.runlog.edit')
+    def post(self, request):
+        """
+        修复所有事件的 update_count 统计，以及动态记录的 tenant_id 不一致问题
+        - 如果动态的 tenant_id 与关联事件的 tenant_id 不一致，修正为与事件一致
+        - 同时重新计算 update_count
+        """
+        from .models import RunLog, RunLogUpdate
+
+        try:
+            # 获取所有事件
+            events = apply_tenant_filter(RunLog.objects.all(), request.user)
+            fixed_count = 0
+            fixed_tenant_count = 0
+            error_count = 0
+
+            for event in events:
+                try:
+                    # 1. 先修正 tenant_id 不一致的动态记录
+                    mismatched_updates = RunLogUpdate.objects.filter(
+                        runlog_id=event.id,
+                    ).exclude(tenant_id=event.tenant_id)
+
+                    for update in mismatched_updates:
+                        old_tenant = update.tenant_id
+                        update.tenant_id = event.tenant_id
+                        update.save()
+                        fixed_tenant_count += 1
+                        print(f'[RunLog修复] 动态ID={update.id}, tenant_id: {old_tenant} -> {event.tenant_id} (关联事件ID={event.id})')
+
+                    # 2. 重新计算 update_count
+                    actual_count = RunLogUpdate.objects.filter(runlog_id=event.id).count()
+
+                    # 如果不一致，则修复
+                    if event.update_count != actual_count:
+                        old_count = event.update_count
+                        event.update_count = actual_count
+
+                        # 同时更新首尾日期
+                        if actual_count > 0:
+                            updates = RunLogUpdate.objects.filter(runlog_id=event.id).order_by('update_date', 'sequence', 'id')
+
+                            first_update = updates.first()
+                            last_update = updates.last()
+
+                            if first_update:
+                                event.first_update_date = first_update.update_date
+                            if last_update:
+                                event.last_update_date = last_update.update_date
+                        else:
+                            event.first_update_date = None
+                            event.last_update_date = None
+
+                        event.save()
+                        fixed_count += 1
+                        print(f'[RunLog修复] 事件ID={event.id}, update_count: {old_count} -> {actual_count}')
+
+                except Exception as e:
+                    error_count += 1
+                    print(f'[RunLog修复] 事件ID={event.id} 修复失败: {str(e)}')
+
+            return json_response({
+                'status': 'ok',
+                'message': f'修复完成: 修正租户 {fixed_tenant_count} 条, 修复计数 {fixed_count} 条, 失败 {error_count} 条'
+            })
+
+        except Exception as e:
+            logger.error(f'[RunLog修复] 修复过程出错: {str(e)}', exc_info=True)
+            return json_response(error=f'修复失败: {str(e)}')
+
+
+class EventTypeConfigView(View):
+    """事件类型配置视图（全局配置，所有租户共享，仅超级管理员可管理）"""
+
+    def get(self, request):
+        """获取所有启用的的事件类型"""
+        from .models import EventTypeConfig
+
+        # 全局查询，不再租户过滤
+        items = EventTypeConfig.objects.filter(is_active=True).order_by('id')
+        return json_response([x.to_view() for x in items])
+
+    def post(self, request):
+        """新增事件类型（仅超级管理员）"""
+        from .models import EventTypeConfig
+        from libs.tenant_utils import is_superuser
+
+        # 权限检查：仅超级管理员
+        if not is_superuser(request.user):
+            return json_response(error='无权限操作，仅超级管理员可管理事件类型', code=403)
+
+        form, error = JsonParser(
+            Argument('name', help='类型名称不能为空'),
+        ).parse(request.body)
+
+        if error is None:
+            # 检查名称是否重复
+            existing = EventTypeConfig.objects.filter(name=form.name)
+            if existing.exists():
+                return json_response(error='该类型名称已存在')
+
+            data = {
+                'name': form.name,
+                'is_active': True,
+                'created_by': request.user,
+            }
+            obj = EventTypeConfig.objects.create(**data)
+            return json_response(obj.to_view())
+
+        return json_response(error=error)
+
+    def put(self, request):
+        """编辑事件类型（仅超级管理员）"""
+        from .models import EventTypeConfig
+        from libs.tenant_utils import is_superuser
+
+        # 权限检查：仅超级管理员
+        if not is_superuser(request.user):
+            return json_response(error='无权限操作，仅超级管理员可管理事件类型', code=403)
+
+        form, error = JsonParser(
+            Argument('id', type=int, help='请指定操作对象'),
+            Argument('name', required=False),
+            Argument('is_active', type=bool, required=False),
+        ).parse(request.body)
+
+        if error is None:
+            obj = EventTypeConfig.objects.filter(pk=form.id).first()
+            if not obj:
+                return json_response(error='类型不存在', code=404)
+
+            if form.name and form.name != obj.name:
+                # 检查新名称是否重复
+                if EventTypeConfig.objects.filter(name=form.name).exclude(pk=form.id).exists():
+                    return json_response(error='该类型名称已存在')
+                obj.name = form.name
+            if form.is_active is not None:
+                obj.is_active = form.is_active
+            obj.save()
+            return json_response(obj.to_view())
+
+        return json_response(error=error)
+
+    def delete(self, request):
+        """删除事件类型（软删除：仅超级管理员）"""
+        from .models import EventTypeConfig
+        from libs.tenant_utils import is_superuser
+
+        # 权限检查：仅超级管理员
+        if not is_superuser(request.user):
+            return json_response(error='无权限操作，仅超级管理员可管理事件类型', code=403)
+
+        form, error = JsonParser(
+            Argument('id', type=int, help='请指定操作对象')
+        ).parse(request.GET)
+
+        if error is None:
+            obj = EventTypeConfig.objects.filter(pk=form.id).first()
+            if not obj:
+                return json_response(error='类型不存在', code=404)
+
+            # 软删除：设为非活跃
+            obj.is_active = False
+            obj.save()
+            return json_response({'status': 'ok'})
 
         return json_response(error=error)
 

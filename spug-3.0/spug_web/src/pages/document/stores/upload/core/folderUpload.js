@@ -12,7 +12,6 @@
  */
 import { action } from 'mobx';
 import { message } from 'antd';
-import { UPLOAD_CONSTANTS } from './upload-core-constants';
 
 /**
  * 兜底文件名校验函数
@@ -237,7 +236,7 @@ export class FolderUploadStore {
     this._initUploadState(validFiles, targetFolderId, isPublic, folderUniqueKey);
 
     // 6. 提取并分组路径
-    const { paths, depthGroups } = this._extractAndGroupPaths(validFiles);
+    const { depthGroups } = this._extractAndGroupPaths(validFiles);
     
     // 7. 并发创建文件夹结构
     const folderMap = new Map();
@@ -278,7 +277,6 @@ export class FolderUploadStore {
    * 创建单个文件夹结构（支持幂等检查）
    */
   async _createFolderStructure(folderPath, parentFolderId) {
-    const { http } = await import('libs');
     const isPublic = this.rootStore.pendingFolderFiles?.isPublic ?? 
                      this.rootStore.rootStore?.navigationStore?.isPublic;
     const paths = folderPath.split('/');

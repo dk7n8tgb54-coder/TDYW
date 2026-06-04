@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { observer } from 'mobx-react';
-import { Modal, Form, Input, Select, DatePicker, Button, message, Descriptions, Tabs, Upload, Image, Card } from 'antd';
+import { Modal, Form, Input, Select, DatePicker, Button, message, Descriptions, Tabs, Upload, Image, Card, Spin } from 'antd';
 import { PlusOutlined, PlusCircleOutlined, CloseOutlined, EditOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
 import { X_TOKEN } from 'libs/functools';
@@ -26,6 +26,41 @@ export default observer(function () {
   const [editingUpdate, setEditingUpdate] = useState(null);
   const [attachmentList, setAttachmentList] = useState([]);  // 附件列表
   const [uploading, setUploading] = useState(false);  // 上传状态
+  // 附件预览状态
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const [previewFileName, setPreviewFileName] = useState('');
+
+  // 获取附件预览URL
+  const fetchPreviewUrl = (attachmentPath) => {
+    const fileName = attachmentPath.split('/').pop() || '附件';
+    setPreviewFileName(fileName);
+    setPreviewLoading(true);
+    setPreviewError('');
+
+    http.get('/api/runlog/attachment/preview_url/', { params: { path: attachmentPath } })
+      .then(data => {
+        setPreviewUrl(data.preview_url);
+        setPreviewVisible(true);
+      })
+      .catch(err => {
+        const errorMsg = err?.error || err?.message || '获取预览失败，请下载后查看';
+        setPreviewError(errorMsg);
+        message.error(errorMsg);
+      })
+      .finally(() => {
+        setPreviewLoading(false);
+      });
+  };
+
+  // 关闭预览弹窗
+  const handleClosePreview = () => {
+    setPreviewVisible(false);
+    setPreviewUrl('');
+    setPreviewError('');
+  };
 
   function handleSubmit() {
     setLoading(true);
@@ -250,6 +285,8 @@ export default observer(function () {
   }
 
   useEffect(() => {
+    // 加载事件类型列表
+    S.fetchEventTypes();
     console.log('[useEffect] 触发, S.record.id:', S.record.id, 'isViewMode:', S.record.isViewMode);
     if (S.record.id) {
       console.log('[useEffect] 调用 fetchUpdates');
@@ -325,14 +362,18 @@ export default observer(function () {
                               />
                             );
                           } else {
-                            // 非图片文件显示为下载链接
+                            // 非图片文件点击使用kkfileview预览
                             return (
                               <a
                                 key={idx}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  fetchPreviewUrl(url);
+                                }}
                                 href={url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                download={fileName}
+                                title="点击预览"
                                 style={{
                                   display: 'inline-flex',
                                   alignItems: 'center',
@@ -343,10 +384,11 @@ export default observer(function () {
                                   borderRadius: 4,
                                   textAlign: 'center',
                                   fontSize: 12,
-                                  color: '#666',
+                                  color: '#1890ff',
                                   textDecoration: 'none',
                                   padding: 8,
                                   overflow: 'hidden',
+                                  cursor: 'pointer',
                                 }}
                               >
                                 {fileName}
@@ -396,10 +438,9 @@ export default observer(function () {
             </Form.Item>
             <Form.Item required name="event_type" label="事件类型">
               <Select placeholder="请选择事件类型">
-                <Option value="运行异常">运行异常</Option>
-                <Option value="设备故障">设备故障</Option>
-                <Option value="安全事件">安全事件</Option>
-                <Option value="其他">其他</Option>
+                {S.eventTypes.map(type => (
+                  <Option key={type.id} value={type.name}>{type.name}</Option>
+                ))}
               </Select>
             </Form.Item>
             <Form.Item required name="system_name" label="系统名称">
@@ -580,14 +621,18 @@ export default observer(function () {
                             />
                           );
                         } else {
-                          // 非图片文件显示为下载链接
+                          // 非图片文件点击使用kkfileview预览
                           return (
                             <a
                               key={idx}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                fetchPreviewUrl(url);
+                              }}
                               href={url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              download={fileName}
+                              title="点击预览"
                               style={{
                                 display: 'inline-flex',
                                 alignItems: 'center',
@@ -598,10 +643,11 @@ export default observer(function () {
                                 borderRadius: 4,
                                 textAlign: 'center',
                                 fontSize: 12,
-                                color: '#666',
+                                color: '#1890ff',
                                 textDecoration: 'none',
                                 padding: 8,
                                 overflow: 'hidden',
+                                cursor: 'pointer',
                               }}
                             >
                               {fileName}
@@ -618,7 +664,37 @@ export default observer(function () {
           </TabPane>
         )}
       </Tabs>
-      
+
+      {/* 附件预览弹窗 */}
+      <Modal
+        title={previewFileName || '文件预览'}
+        visible={previewVisible}
+        onCancel={handleClosePreview}
+        footer={null}
+        width="90%"
+        style={{ top: 20 }}
+        bodyStyle={{ padding: 0, height: 'calc(100vh - 150px)' }}
+        destroyOnClose
+      >
+        {previewLoading ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+            <Spin tip="正在加载预览..." />
+          </div>
+        ) : previewError ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+            <div style={{ color: '#ff4d4f', marginBottom: 16 }}>{previewError}</div>
+            <Button type="primary" onClick={() => window.open(previewUrl, '_blank')}>
+              下载文件
+            </Button>
+          </div>
+        ) : (
+          <iframe
+            src={previewUrl}
+            style={{ width: '100%', height: '100%', border: 'none' }}
+            title={`Preview: ${previewFileName}`}
+          />
+        )}
+      </Modal>
     </Modal>
   )
 })

@@ -3,7 +3,8 @@
 > **审查日期**: 2026-06-03  
 > **审查范围**: `spug_api/apps/document/` 全部前后端代码  
 > **审查方法**: 代码静态分析 + 架构审查 + SQL 查询模式审查  
-> **问题总数**: 15 个（7 高危 / 5 中危 / 3 低危）
+> **问题总数**: 15 个（7 高危 / 5 中危 / 3 低危）  
+> **修复状态**: 截至 2026-06-04，P0-1~P0-7 全部高危问题已修复 ✅；P1-1~P1-5 全部中危问题已修复 ✅；P2-1~P2-3 全部低危问题已修复 ✅
 
 ---
 
@@ -43,10 +44,10 @@
 
 ## 2. 高危问题详情
 
-### P0-1：ZIP 下载全部加载到内存（内存溢出）
+### P0-1：ZIP 下载全部加载到内存（内存溢出） ✅ 已修复
 
-**文件**: `views/folder/download.py`，第 54–62 行  
-**严重程度**: 🔴 高危  
+**文件**: `views/folder/download.py`，第 54–62 行
+**严重程度**: 🔴 高危
 **影响**: 大文件夹下载直接导致服务器 OOM
 
 #### 问题描述
@@ -125,10 +126,10 @@ def get(self, request):
 
 ---
 
-### P0-2：文件夹下载递归遍历的 N+1 查询
+### P0-2：文件夹下载递归遍历的 N+1 查询 ✅ 已修复
 
-**文件**: `views/folder/download.py`，第 78–114 行  
-**严重程度**: 🔴 高危  
+**文件**: `views/folder/download.py`，第 78–114 行
+**严重程度**: 🔴 高危
 **影响**: 深层嵌套文件夹查询数量指数增长
 
 #### 问题描述
@@ -215,10 +216,10 @@ def _add_folder_to_zip_batch(self, root_folder, zipf, FolderModel, FileModel, is
 
 ---
 
-### P0-3：批量删除的 N+1 查询
+### P0-3：批量删除的 N+1 查询 ✅ 已修复
 
-**文件**: `views/recycle_bin/delete.py`，第 94–156 行  
-**严重程度**: 🔴 高危  
+**文件**: `views/recycle_bin/delete.py`，第 94–156 行
+**严重程度**: 🔴 高危
 **影响**: 100 个文件删除触发 200 次 DB 查询
 
 #### 问题描述
@@ -294,10 +295,10 @@ def post(self, request):
 
 ---
 
-### P0-4：批量恢复的 N+1 查询
+### P0-4：批量恢复的 N+1 查询 ✅ 已修复
 
-**文件**: `views/recycle_bin/restore.py`，第 64–120 行  
-**严重程度**: 🔴 高危  
+**文件**: `views/recycle_bin/restore.py`，第 64–120 行
+**严重程度**: 🔴 高危
 **影响**: 50 个文件恢复触发 100+ 次 DB 查询
 
 #### 问题描述
@@ -352,10 +353,10 @@ for file_id in form.file_ids:
 
 ---
 
-### P0-5：`_calculate_total_size` 仍然按文件逐条查询
+### P0-5：`_calculate_total_size` 仍然按文件逐条查询 ✅ 已修复
 
-**文件**: `views/recycle_bin/delete.py`，第 119–144 行  
-**严重程度**: 🔴 高危  
+**文件**: `views/recycle_bin/delete.py`，第 119–144 行
+**严重程度**: 🔴 高危
 **影响**: 大批量删除前的大小计算已做批量优化，但 `sum(f.file_size for f in ...)` 仍在内存中迭代所有对象
 
 #### 问题描述
@@ -400,10 +401,10 @@ def _calculate_total_size(self, file_ids, user):
 
 ---
 
-### P0-6：同步 I/O 阻塞 — ZIP 压缩阻塞请求线程
+### P0-6：同步 I/O 阻塞 — ZIP 压缩阻塞请求线程 ✅ 已修复
 
-**文件**: `views/folder/download.py`，第 54–62 行  
-**严重程度**: 🔴 高危  
+**文件**: `views/folder/download.py`，第 54–62 行
+**严重程度**: 🔴 高危
 **影响**: 大文件夹下载期间请求线程长时间阻塞，导致其他请求排队
 
 #### 问题描述
@@ -442,10 +443,10 @@ with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_STORED) as zipf:
 
 ---
 
-### P0-7：合并任务中循环单查 transfer 记录
+### P0-7：合并任务中循环单查 transfer 记录 ✅ 已修复
 
-**文件**: `views/upload/merge.py` 多处  
-**严重程度**: 🔴 高危  
+**文件**: `views/upload/merge.py` 多处
+**严重程度**: 🔴 高危
 **影响**: 合并流程中多次单独查询 `DocumentTransfer` 记录
 
 #### 问题描述
@@ -483,10 +484,10 @@ def _prepare_merge(self, params, folder, request):
 
 ## 3. 中危问题详情
 
-### P1-1：`get_file_model` / `get_folder_model` 每次调用触发延迟导入
+### P1-1：`get_file_model` / `get_folder_model` 每次调用触发延迟导入 ✅ 已修复
 
-**文件**: `libs/document_utils.py`，第 187–212 行  
-**严重程度**: 🟡 中危  
+**文件**: `libs/document_utils.py`，第 15–36 行
+**严重程度**: 🟡 中危
 **影响**: 每次视图调用都有不必要的 `import` 开销
 
 #### 问题描述
@@ -534,9 +535,9 @@ def get_folder_model(is_public=False):
 
 ---
 
-### P1-2：`is_child_folder` 递归循环引用检查逐层查询
+### P1-2：`is_child_folder` 递归循环引用检查逐层查询 ✅ 已修复
 
-**文件**: `libs/document_utils.py`，第 63–117 行  
+**文件**: `libs/document_utils.py`，第 63–127 行
 **严重程度**: 🟡 中危  
 
 #### 问题描述
@@ -580,9 +581,9 @@ def is_child_folder(child_id, parent_id, FolderModel, ...):
 
 ---
 
-### P1-3：`cleanup_soft_deleted_folders` 逐文件夹串行处理
+### P1-3：`cleanup_soft_deleted_folders` 逐文件夹串行处理 ✅ 已修复
 
-**文件**: `tasks/cleanup/soft_deleted.py`，第 145–175 行  
+**文件**: `tasks/cleanup/soft_deleted.py`，第 144–207 行
 **严重程度**: 🟡 中危  
 
 #### 问题描述
@@ -626,9 +627,9 @@ DocumentFolderPrivate.all_objects.filter(
 
 ---
 
-### P1-4：`merge.py` 多处函数内延迟导入
+### P1-4：`merge.py` 多处函数内延迟导入 ✅ 已修复
 
-**文件**: `views/upload/merge.py`，第 128, 204, 296, 329, 376 行  
+**文件**: `views/upload/merge.py`，第 23–32 行（模块级导入）
 **严重程度**: 🟡 中危  
 
 #### 问题描述
@@ -655,9 +656,9 @@ from apps.document.libs.naming_utils import generate_file_names
 
 ---
 
-### P1-5：`FolderCollector.collect_all_subfolders` 逐层查询
+### P1-5：`FolderCollector.collect_all_subfolders` 逐层查询 ✅ 已修复
 
-**文件**: `services/cleanup_service.py`，第 46–70 行  
+**文件**: `services/cleanup_service.py`，第 45–77 行
 **严重程度**: 🟡 中危  
 
 #### 问题描述
@@ -717,19 +718,19 @@ def collect_all_subfolders_batch(folder, FolderModel):
 
 ## 4. 低危问题详情
 
-### P2-1：`is_safe_path` 重复归一化与重复定义
+### P2-1：`is_safe_path` 重复归一化与重复定义 ✅ 已修复
 
-**影响范围**: `libs/document_utils.py:164-183`, `libs/view_utils.py:63-71`
+**影响范围**: `libs/document_utils.py:164-183`, `libs/view_utils.py:63-71`（后者已删除）
 
 两处定义了完全相同的 `is_safe_path` 函数。`document_utils.py` 版本被 views 中的 `download.py` 和 `merge.py` 使用，但 `view_utils.py` 版本也被部分场景引用。每次调用都执行 `os.path.normpath()` 两次（base_path 和 target_path）。
 
-**修复**: 统一使用一个版本，将路径缓存后复用。
+**修复**: 统一使用一个版本，`view_utils.py` 中的重复定义已删除。
 
 ---
 
-### P2-2：日志记录中过度使用 f-string
+### P2-2：日志记录中过度使用 f-string ✅ 已修复
 
-**影响范围**: 多处日志调用
+**影响范围**: `libs/view_utils.py:56-60`, `views/folder/download.py:277-283`
 
 ```python
 logger.debug(f'[TenantAudit] Action={action}, User={user.username}, ...')  # view_utils.py:57
@@ -746,9 +747,9 @@ logger.debug('[TenantAudit] Action=%s, User=%s, ...', action, user.username, ...
 
 ---
 
-### P2-3：`generate_unique_logical_name` 循环内额外查询
+### P2-3：`generate_unique_logical_name` 循环内额外查询 ✅ 已修复
 
-**文件**: `libs/naming_utils.py`，第 136–221 行  
+**文件**: `libs/naming_utils.py`，第 173–217 行
 **严重程度**: 🟢 低危  
 
 #### 问题描述
@@ -803,12 +804,12 @@ for name in existing_names:
 | 6 | P0-6 同步 I/O 阻塞 | 5 小时 | ⭐⭐⭐ 并发能力提升 |
 | 7 | P0-7 merge 重复查询 | 2 小时 | ⭐⭐ |
 
-### 第三阶段（下个迭代 — 编码质量）
+### 第三阶段（下个迭代 — 编码质量） ✅ 已完成
 
 | 优先级 | 问题 | 预期工作量 |
 |--------|------|-----------|
-| 8 | P1-1 ~ P1-5 中危问题 | 8 小时 |
-| 9 | P2-1 ~ P2-3 低危问题 | 3 小时 |
+| 8 | P1-1 ~ P1-5 中危问题 | ✅ 已全部修复 |
+| 9 | P2-1 ~ P2-3 低危问题 | ✅ 已全部修复 |
 
 ### 预期收益总结
 

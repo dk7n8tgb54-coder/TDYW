@@ -8,7 +8,6 @@ import { observer } from 'mobx-react';
 import { Modal, Form, Input, DatePicker, Select, message, Row, Col, Divider } from 'antd';
 import store from './store';
 import moment from 'moment';
-import { http } from 'libs';
 
 export default observer(function () {
   const [form] = Form.useForm();

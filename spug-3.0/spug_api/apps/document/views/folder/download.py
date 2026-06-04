@@ -26,18 +26,27 @@ logger = logging.getLogger(__name__)
 class FolderDownloadView(View):
     """文件夹下载视图 - ZIP打包"""
 
+    # 【P0-6修复】大文件夹阈值：超过此文件数则使用异步模式
+    ASYNC_FILE_COUNT_THRESHOLD = 100
+
     @auth('document.document.view')
     def get(self, request):
+        """【P0-6修复】支持异步打包模式
+
+        流程：
+        1. 小文件夹：同步打包，立即下载
+        2. 大文件夹：异步打包，返回任务 ID，前端轮询状态后下载
+        """
         logger.info(f'[Document] FolderDownloadView.get called, user: {request.user.username}')
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误'),
             Argument('is_public', type=bool, required=False, default=False)
         ).parse(request.GET)
-        
+
         if error is not None:
             logger.error(f'[Document] Download parse error: {error}')
             return json_response(error=error)
-            
+
         FolderModel = get_folder_model(is_public=form.is_public)
         FileModel = get_file_model(is_public=form.is_public)
 
@@ -46,25 +55,96 @@ class FolderDownloadView(View):
         if not form.is_public:
             folder_query = apply_tenant_filter(folder_query, request.user, strict_mode=True)
         folder = folder_query.select_related('created_by').first()
-        
+
         if not folder:
             logger.error(f'[Document] Folder not found with id: {form.id}')
             return json_response(error='文件夹不存在')
 
-        # 【P0-1修复】使用临时文件替代内存缓冲区，避免大文件夹下载OOM
+        # 【P0-6修复】检查是否需要异步模式
+        # 统计文件数量（使用 count 而非加载全部到内存）
+        total_files = self._count_folder_files(folder, FolderModel, FileModel, request.user, form.is_public)
+
+        if total_files >= self.ASYNC_FILE_COUNT_THRESHOLD:
+            return self._submit_async_pack_task(folder, request.user, form.is_public)
+
+        # 小文件夹：同步打包（保持原有逻辑）
+        return self._sync_download(folder, request.user, form.is_public)
+
+    def _count_folder_files(self, folder, FolderModel, FileModel, user, is_public):
+        """统计文件夹内的文件总数（BFS 批量计数）"""
+        total = 0
+        queue = [folder.id]
+        visited = {folder.id}
+
+        while queue:
+            current_id = queue.pop(0)
+            # 批量统计当前层的文件数
+            file_count = FileModel.objects.filter(folder_id=current_id).count()
+            total += file_count
+
+            # 批量获取子文件夹
+            children = FolderModel.objects.filter(parent_id=current_id).values_list('id', flat=True)
+            for child_id in children:
+                if child_id not in visited:
+                    visited.add(child_id)
+                    queue.append(child_id)
+
+        return total
+
+    def _submit_async_pack_task(self, folder, user, is_public):
+        """【P0-6修复】提交异步打包任务"""
+        try:
+            from ...tasks import pack_folder_to_zip
+            from celery import current_app as celery_app
+
+            # 检查 Celery 连接状态
+            inspector = celery_app.control.inspect()
+            if inspector.active_queues() is None:
+                logger.warning('[Document] Celery not available, falling back to sync mode')
+                return self._sync_download(folder, user, is_public)
+
+            # 提交异步任务
+            tenant_id = getattr(user, 'tenant_id', None)
+            task = pack_folder_to_zip.delay(
+                folder_id=folder.id,
+                is_public=is_public,
+                user_id=user.id,
+                tenant_id=tenant_id
+            )
+
+            logger.info(f'[Document] Async pack task submitted: task_id={task.id}, folder_id={folder.id}')
+
+            return json_response(data={
+                'async': True,
+                'task_id': str(task.id),
+                'status': 'pending',
+                'message': '打包任务已提交，请稍后轮询状态'
+            })
+
+        except Exception as e:
+            logger.error(f'[Document] Failed to submit async pack task: {e}', exc_info=True)
+            # 降级到同步模式
+            logger.info(f'[Document] Falling back to sync mode for folder id={folder.id}')
+            return self._sync_download(folder, user, is_public)
+
+    def _sync_download(self, folder, user, is_public):
+        """同步打包下载（原有逻辑）"""
+        FolderModel = get_folder_model(is_public=is_public)
+        FileModel = get_file_model(is_public=is_public)
+
         zip_path = None
         try:
-            # 创建临时 ZIP 文件（不依赖 Windows 文件锁）
+            # 创建临时 ZIP 文件
             zip_fd, zip_path = tempfile.mkstemp(suffix='.zip', prefix='spug_folder_')
-            os.close(zip_fd)  # mkstemp 返回已打开的 fd，需要关闭
+            os.close(zip_fd)
 
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                self._add_folder_to_zip(folder, zipf, '', FolderModel, FileModel, form.is_public, request.user)
+                self._add_folder_to_zip(folder, zipf, '', FolderModel, FileModel, is_public, user)
 
             encoded_foldername = quote(folder.name)
             zip_size = os.path.getsize(zip_path)
 
-            # 【P0-1修复】使用 StreamingHttpResponse 流式传输，内存占用恒定 ~64KB
+            # 使用 StreamingHttpResponse 流式传输
             response = StreamingHttpResponse(
                 self._file_iterator(zip_path, chunk_size=65536),
                 content_type='application/zip'
@@ -84,17 +164,16 @@ class FolderDownloadView(View):
 
             log_operation(
                 action="FOLDER_DOWNLOAD",
-                user=request.user,
+                user=user,
                 resource_type="FOLDER",
                 resource_id=folder.id,
-                is_public=form.is_public,
+                is_public=is_public,
                 folder_name=folder.name
             )
-            logger.info(f'[Document] Folder download streaming: {folder.name}.zip ({zip_size} bytes), is_public={form.is_public}')
+            logger.info(f'[Document] Folder sync download: {folder.name}.zip ({zip_size} bytes)')
             return response
 
         except Exception as e:
-            # 异常时清理临时文件
             if zip_path and os.path.exists(zip_path):
                 try:
                     os.remove(zip_path)
@@ -195,13 +274,13 @@ class FolderDownloadView(View):
                 # 【P2-2修复】路径安全检查，防止路径遍历攻击
                 document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
                 if not is_safe_path(document_storage_base, file.file_path):
-                    logger.warning(f'[Document] Unsafe file path skipped: {file.file_path}')
+                    logger.warning('[Document] Unsafe file path skipped: %s', file.file_path)
                     continue
                 if os.path.exists(file.file_path):
                     zipf.write(file.file_path, f'{current_path}{file.name}')
-                    logger.info(f'[Document] Added file to ZIP: {current_path}{file.name}')
+                    logger.info('[Document] Added file to ZIP: %s', f'{current_path}{file.name}')
                 else:
-                    logger.warning(f'[Document] File not found: {file.file_path}')
+                    logger.warning('[Document] File not found: %s', file.file_path)
 
             # 将子文件夹入栈（逆序保证顺序正确）
             for child_id in reversed(folder_children.get(folder_id, [])):
@@ -209,6 +288,135 @@ class FolderDownloadView(View):
 
     def _file_iterator(self, file_path, chunk_size=65536):
         """【P0-1修复】分块文件迭代器，用于 StreamingHttpResponse 流式传输"""
+        with open(file_path, 'rb') as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+
+
+class FolderDownloadStatusView(View):
+    """【P0-6新增】查询异步打包任务状态"""
+
+    @auth('document.document.view')
+    def get(self, request):
+        """查询打包任务状态
+
+        轮询此接口直到 status变为 success 或 failed
+
+        Returns:
+            pending: 任务进行中
+            success: 打包完成，包含 zip_path
+            failed: 打包失败
+        """
+        form, error = JsonParser(
+            Argument('task_id', required=True, help='任务ID不能为空')
+        ).parse(request.GET)
+
+        if error:
+            return json_response(error=error)
+
+        try:
+            from celery.result import AsyncResult
+            from ...tasks import pack_folder_to_zip
+
+            task = AsyncResult(form.task_id, app=pack_folder_to_zip.app)
+            state = task.state
+            result = task.result if task.ready() else None
+
+            response_data = {
+                'task_id': form.task_id,
+                'state': state,
+                'ready': task.ready(),
+            }
+
+            if task.ready():
+                if task.successful() and result:
+                    response_data['status'] = 'success'
+                    response_data['zip_path'] = result.get('zip_path')
+                    response_data['zip_size'] = result.get('zip_size')
+                    response_data['folder_name'] = result.get('folder_name')
+                else:
+                    response_data['status'] = 'failed'
+                    response_data['error'] = str(result) if result else '任务执行失败'
+            else:
+                response_data['status'] = 'pending'
+
+            logger.info(f'[Document] Pack task status: task_id={form.task_id}, state={state}')
+            return json_response(data=response_data)
+
+        except Exception as e:
+            logger.error(f'[Document] Query pack task status failed: task_id={form.task_id}, error={e}', exc_info=True)
+            return json_response(error=f'查询任务状态失败: {str(e)}', code=500)
+
+
+class FolderDownloadReadyView(View):
+    """【P0-6新增】下载已打包完成的 ZIP 文件"""
+
+    @auth('document.document.view')
+    def get(self, request):
+        """下载已完成的打包任务结果
+
+        Query Params:
+            task_id: 任务ID
+        """
+        form, error = JsonParser(
+            Argument('task_id', required=True, help='任务ID不能为空')
+        ).parse(request.GET)
+
+        if error:
+            return json_response(error=error)
+
+        try:
+            from celery.result import AsyncResult
+            from ...tasks import pack_folder_to_zip
+
+            task = AsyncResult(form.task_id, app=pack_folder_to_zip.app)
+
+            if not task.ready():
+                return json_response(error='任务尚未完成，请先轮询状态', code=400001)
+
+            if not task.successful():
+                return json_response(error='任务执行失败', code=500001)
+
+            result = task.result
+            zip_path = result.get('zip_path')
+            folder_name = result.get('folder_name', 'folder')
+
+            if not zip_path or not os.path.exists(zip_path):
+                logger.error(f'[Document] Pack task zip not found: zip_path={zip_path}')
+                return json_response(error='打包文件不存在或已过期', code=404001)
+
+            zip_size = os.path.getsize(zip_path)
+            encoded_foldername = quote(folder_name)
+
+            response = StreamingHttpResponse(
+                self._file_iterator(zip_path, chunk_size=65536),
+                content_type='application/zip'
+            )
+            response['Content-Disposition'] = f'attachment; filename="{encoded_foldername}.zip"; filename*=UTF-8\'\'{encoded_foldername}.zip'
+            response['Content-Length'] = zip_size
+
+            # 响应结束后清理 ZIP 文件
+            def cleanup_zip():
+                if zip_path and os.path.exists(zip_path):
+                    try:
+                        os.remove(zip_path)
+                    except OSError:
+                        pass
+
+            response.on_close = cleanup_zip
+
+            logger.info(f'[Document] Serving packed folder: {folder_name}.zip ({zip_size} bytes)')
+            return response
+
+        except Exception as e:
+            logger.error(f'[Document] Download packed folder failed: task_id={form.task_id}, error={e}', exc_info=True)
+            return json_response(error=f'下载失败: {str(e)}', code=500)
+
+    def _file_iterator(self, file_path, chunk_size=65536):
+        """分块文件迭代器"""
         with open(file_path, 'rb') as f:
             while True:
                 chunk = f.read(chunk_size)

@@ -14,6 +14,8 @@ class Store {
   @observable addUpdateVisible = false;  // 添加动态弹窗的可见性
   @observable statistics = null;
   @observable systemNames = [];  // 系统名称列表
+  @observable eventTypes = [];  // 事件类型列表（从API加载）
+  @observable eventTypeModalVisible = false;  // 事件类型管理弹窗
   @observable pagination = {    // 分页信息
     page: 1,
     page_size: 50,
@@ -74,6 +76,61 @@ class Store {
       })
       .catch(e => {
         console.error('[运行日志] 获取统计失败:', e);
+      });
+  };
+
+  @action fetchEventTypes = () => {
+    http.get('/api/runlog/event_types/')
+      .then(res => {
+        this.eventTypes = res || [];
+      })
+      .catch(e => {
+        console.error('[运行日志] 获取事件类型失败:', e);
+      });
+  };
+
+  @action showEventTypeModal = () => {
+    this.eventTypeModalVisible = true;
+    this.fetchEventTypes();  // 刷新列表
+  };
+
+  @action hideEventTypeModal = () => {
+    this.eventTypeModalVisible = false;
+  };
+
+  @action addEventType = (data) => {
+    return http.post('/api/runlog/event_types/', data)
+      .then(res => {
+        this.fetchEventTypes();  // 刷新列表
+        return res;
+      })
+      .catch(e => {
+        console.error('[运行日志] 添加事件类型失败:', e);
+        throw e;
+      });
+  };
+
+  @action updateEventType = (id, data) => {
+    return http.put('/api/runlog/event_types/', { id, ...data })
+      .then(res => {
+        this.fetchEventTypes();  // 刷新列表
+        return res;
+      })
+      .catch(e => {
+        console.error('[运行日志] 更新事件类型失败:', e);
+        throw e;
+      });
+  };
+
+  @action deleteEventType = (id) => {
+    return http.delete('/api/runlog/event_types/', { params: { id } })
+      .then(res => {
+        this.fetchEventTypes();  // 刷新列表
+        return res;
+      })
+      .catch(e => {
+        console.error('[运行日志] 删除事件类型失败:', e);
+        throw e;
       });
   };
 

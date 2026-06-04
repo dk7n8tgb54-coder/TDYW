@@ -8,6 +8,7 @@ import { observer } from 'mobx-react';
 import { AuthDiv, Breadcrumb } from 'components';
 import ComTable from './Table';
 import ComForm from './Form';
+import EventTypeModal from './EventTypeModal';
 import store from './store';
 import { http } from 'libs';
 import { useLocation } from 'react-router-dom';
@@ -40,6 +41,7 @@ export default observer(function () {
       </Breadcrumb>
       <ComTable/>
       {store.formVisible && <ComForm/>}
+      <EventTypeModal />
     </AuthDiv>
   );
 })

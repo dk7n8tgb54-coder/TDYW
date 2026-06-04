@@ -7,11 +7,10 @@ import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react';
 import {
   Modal, Form, Input, Button, message, Table, Switch,
-  Popconfirm, Space, Card, Tag, InputNumber, Empty, Tooltip
+  Popconfirm, Space, Card, Tag, Empty
 } from 'antd';
 import {
-  PlusOutlined, EditOutlined, DeleteOutlined,
-  HolderOutlined, CheckCircleOutlined, MinusCircleOutlined
+  PlusOutlined, EditOutlined, DeleteOutlined, MinusCircleOutlined
 } from '@ant-design/icons';
 import store from './store';
 

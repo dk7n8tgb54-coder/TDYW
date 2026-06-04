@@ -8,7 +8,7 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Progress, Button, Tooltip, Spin } from 'antd';
+import { Progress, Button, Tooltip } from 'antd';
 import {
   PauseOutlined,
   CaretRightOutlined,
@@ -20,7 +20,6 @@ import {
   CloseCircleFilled,
   PauseCircleFilled,
   ClockCircleFilled,
-  PlayCircleFilled,
 } from '@ant-design/icons';
 import FileTypeIcon from './FileTypeIcon';
 import { formatSize, formatSpeed } from '@/utils/format';
@@ -298,7 +297,7 @@ const TransferItem = ({
           }}
         >
           <span style={{ fontSize: 12, color: '#ff4d4f', flex: 1 }}>
-            ⚠️ {item.error}
+            <span role="img" aria-label="警告">⚠️</span> {item.error}
           </span>
           {canRetry && (
             <Button

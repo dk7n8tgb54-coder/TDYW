@@ -13,9 +13,15 @@ function UpgradeOverview() {
   const [stats, setStats] = useState(null);
 
   useEffect(() => {
+    let cancelled = false;
     http.get('/api/home/statistic/')
-      .then(res => setStats(res.upgrade || {}))
-      .finally(() => setFetching(false));
+      .then(res => {
+        if (!cancelled) setStats(res.upgrade || {});
+      })
+      .finally(() => {
+        if (!cancelled) setFetching(false);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   const statusColor = (status) => {

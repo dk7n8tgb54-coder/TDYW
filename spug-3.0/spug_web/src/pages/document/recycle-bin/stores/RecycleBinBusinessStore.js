@@ -43,7 +43,9 @@ class RecycleBinBusinessStore {
 
       if (requestId !== this._requestId) return null;
 
-      this.items = data.items || [];
+      // 去重：防止后端返回重复id导致React key警告
+      const uniqueItems = Array.from(new Map((data.items || []).map(item => [item.id, item])).values());
+      this.items = uniqueItems;
       this.total = data.total || 0;
       return data;
     } catch (error) {
@@ -206,7 +208,9 @@ class RecycleBinBusinessStore {
       page_size: pageSize,
     });
 
-    this.folderContent = data.items || [];
+    // 去重：防止后端返回重复id导致React key警告
+    const uniqueItems = Array.from(new Map((data.items || []).map(item => [item.id, item])).values());
+    this.folderContent = uniqueItems;
     this.folderContentTotal = data.total || 0;
     return data;
   };

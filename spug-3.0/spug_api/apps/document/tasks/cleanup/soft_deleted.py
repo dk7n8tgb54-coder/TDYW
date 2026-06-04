@@ -141,69 +141,86 @@ def cleanup_soft_deleted_folders(self, retention_days=30, dry_run=False):
         'public': {'folders': 0, 'files': 0, 'errors': 0}
     }
     
-    # 1. 清理私有文件夹
-    expired_private_folders = DocumentFolderPrivate.all_objects.filter(
+    # 【P1-3修复】批量预查询：一次性获取所有过期文件夹及其文件，避免逐文件夹串行查询
+    expired_private_folders = list(DocumentFolderPrivate.all_objects.filter(
         is_deleted=True,
         deleted_at__lte=cutoff_time
-    ).order_by('deleted_at')  # 先删最早的
-    
-    for folder in expired_private_folders:
-        try:
-            if dry_run:
-                logger.info(f'[Celery][Cleanup][DryRun] 将清理私有文件夹：{folder.name} (id={folder.id})')
-                continue
-            
-            # 先彻底删除文件夹内的所有文件
-            files = DocumentFilePrivate.all_objects.filter(folder=folder, is_deleted=True)
-            for file in files:
-                try:
-                    file.delete(hard=True)
-                    stats['private']['files'] += 1
-                except (OSError, IOError, DatabaseError) as e:
-                    logger.error(f'[Celery][Cleanup] 清理文件夹内文件失败: file_id={file.id}, error={e}')
-                    stats['private']['errors'] += 1
-            
-            # 删除物理目录
-            _delete_physical_folder_safe(folder)
-            
-            # 删除文件夹记录
-            folder.delete(hard=True)
-            stats['private']['folders'] += 1
-            logger.info(f'[Celery][Cleanup] 已清理私有文件夹：{folder.name} (id={folder.id})')
-            
-        except (OSError, IOError, DatabaseError) as e:
-            logger.error(f'[Celery][Cleanup] 清理私有文件夹失败: folder_id={folder.id}, error={e}')
-            stats['private']['errors'] += 1
-    
-    # 2. 清理公共文件夹
-    expired_public_folders = DocumentFolderPublic.all_objects.filter(
+    ).order_by('deleted_at'))  # 先删最早的
+
+    if expired_private_folders:
+        private_folder_ids = [f.id for f in expired_private_folders]
+        # 一次性批量查询所有私有文件夹内的文件
+        all_private_files = DocumentFilePrivate.all_objects.filter(
+            folder_id__in=private_folder_ids, is_deleted=True
+        )
+        # 按 folder_id 分组
+        files_by_folder = {}
+        for f in all_private_files:
+            files_by_folder.setdefault(f.folder_id, []).append(f)
+
+        for folder in expired_private_folders:
+            try:
+                if dry_run:
+                    logger.info(f'[Celery][Cleanup][DryRun] 将清理私有文件夹：{folder.name} (id={folder.id})')
+                    continue
+
+                # 【修复】使用预查询的文件列表
+                folder_files = files_by_folder.get(folder.id, [])
+                for file in folder_files:
+                    try:
+                        file.delete(hard=True)
+                        stats['private']['files'] += 1
+                    except (OSError, IOError, DatabaseError) as e:
+                        logger.error(f'[Celery][Cleanup] 清理文件夹内文件失败: file_id={file.id}, error={e}')
+                        stats['private']['errors'] += 1
+
+                _delete_physical_folder_safe(folder)
+                folder.delete(hard=True)
+                stats['private']['folders'] += 1
+                logger.info(f'[Celery][Cleanup] 已清理私有文件夹：{folder.name} (id={folder.id})')
+
+            except (OSError, IOError, DatabaseError) as e:
+                logger.error(f'[Celery][Cleanup] 清理私有文件夹失败: folder_id={folder.id}, error={e}')
+                stats['private']['errors'] += 1
+
+    # 【P1-3修复】批量预查询：公共文件夹同样优化
+    expired_public_folders = list(DocumentFolderPublic.all_objects.filter(
         is_deleted=True,
         deleted_at__lte=cutoff_time
-    ).order_by('deleted_at')
-    
-    for folder in expired_public_folders:
-        try:
-            if dry_run:
-                logger.info(f'[Celery][Cleanup][DryRun] 将清理公共文件夹：{folder.name} (id={folder.id})')
-                continue
-            
-            files = DocumentFilePublic.all_objects.filter(folder=folder, is_deleted=True)
-            for file in files:
-                try:
-                    file.delete(hard=True)
-                    stats['public']['files'] += 1
-                except (OSError, IOError, DatabaseError) as e:
-                    logger.error(f'[Celery][Cleanup] 清理文件夹内文件失败: file_id={file.id}, error={e}')
-                    stats['public']['errors'] += 1
-            
-            _delete_physical_folder_safe(folder)
-            folder.delete(hard=True)
-            stats['public']['folders'] += 1
-            logger.info(f'[Celery][Cleanup] 已清理公共文件夹：{folder.name} (id={folder.id})')
-            
-        except (OSError, IOError, DatabaseError) as e:
-            logger.error(f'[Celery][Cleanup] 清理公共文件夹失败: folder_id={folder.id}, error={e}')
-            stats['public']['errors'] += 1
+    ).order_by('deleted_at'))
+
+    if expired_public_folders:
+        public_folder_ids = [f.id for f in expired_public_folders]
+        all_public_files = DocumentFilePublic.all_objects.filter(
+            folder_id__in=public_folder_ids, is_deleted=True
+        )
+        files_by_folder = {}
+        for f in all_public_files:
+            files_by_folder.setdefault(f.folder_id, []).append(f)
+
+        for folder in expired_public_folders:
+            try:
+                if dry_run:
+                    logger.info(f'[Celery][Cleanup][DryRun] 将清理公共文件夹：{folder.name} (id={folder.id})')
+                    continue
+
+                folder_files = files_by_folder.get(folder.id, [])
+                for file in folder_files:
+                    try:
+                        file.delete(hard=True)
+                        stats['public']['files'] += 1
+                    except (OSError, IOError, DatabaseError) as e:
+                        logger.error(f'[Celery][Cleanup] 清理文件夹内文件失败: file_id={file.id}, error={e}')
+                        stats['public']['errors'] += 1
+
+                _delete_physical_folder_safe(folder)
+                folder.delete(hard=True)
+                stats['public']['folders'] += 1
+                logger.info(f'[Celery][Cleanup] 已清理公共文件夹：{folder.name} (id={folder.id})')
+
+            except (OSError, IOError, DatabaseError) as e:
+                logger.error(f'[Celery][Cleanup] 清理公共文件夹失败: folder_id={folder.id}, error={e}')
+                stats['public']['errors'] += 1
     
     result = {
         'status': 'success',

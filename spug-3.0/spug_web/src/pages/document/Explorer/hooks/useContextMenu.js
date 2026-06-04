@@ -98,7 +98,6 @@ export const useContextMenu = () => {
   const createSingleSelectMenu = useCallback((record, options) => {
     const {
       canEdit,
-      isPublic,
       onOpen,
       onDownload,
       onCopy,
