@@ -133,8 +133,6 @@ class RecycleBinStore {
       const idempotentKey = Date.now().toString();
       const results = await businessStore.doRestore(
         this.selectedRows,
-        this.restoreMode,
-        this.targetFolderId,
         idempotentKey
       );
 

@@ -69,9 +69,6 @@ export function getRecycleBinList(params, signal) {
  * 恢复文件
  * @param {Object} data - 恢复参数
  * @param {Array<number>} data.file_ids - 要恢复的文件ID列表
- * @param {number} [data.target_folder_id] - 目标文件夹ID（custom模式必填）
- * @param {number} [data.current_folder_id] - 当前文件夹ID（current模式使用）
- * @param {string} [data.restore_mode='original'] - 恢复模式：original/current/custom
  * @param {string} [data.idempotent_key] - 幂等键
  * @returns {Promise<{success_count: number, failed_count: number, details: Array}>}
  */

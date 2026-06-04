@@ -75,7 +75,7 @@ class RecycleBinBusinessStore {
    * 执行恢复操作
    */
   @action
-  doRestore = async (selectedRows, restoreMode, targetFolderId, idempotentKey) => {
+  doRestore = async (selectedRows, idempotentKey) => {
     const fileIds = selectedRows.filter(r => r.type !== 'folder').map(r => r.id);
     const folderIds = selectedRows.filter(r => r.type === 'folder').map(r => r.id);
 
@@ -84,18 +84,15 @@ class RecycleBinBusinessStore {
     if (fileIds.length > 0) {
       results.fileResult = await service.restoreFiles({
         file_ids: fileIds,
-        restore_mode: restoreMode,
         idempotent_key: idempotentKey,
-        target_folder_id: restoreMode === 'custom' ? targetFolderId : undefined,
       });
     }
 
     if (folderIds.length > 0) {
       results.folderResult = await service.restoreFolders({
         folder_ids: folderIds,
-        restore_mode: restoreMode === 'current' ? 'original' : restoreMode,
+        restore_mode: 'original',
         idempotent_key: idempotentKey,
-        target_parent_id: restoreMode === 'custom' ? targetFolderId : undefined,
       });
     }
 

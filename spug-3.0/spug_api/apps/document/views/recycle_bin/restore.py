@@ -34,10 +34,6 @@ class RecycleBinRestoreView(View):
 
         form, error = JsonParser(
             Argument('file_ids', type=list, required=True),
-            Argument('target_folder_id', type=int, required=False),
-            Argument('current_folder_id', type=int, required=False),
-            Argument('restore_mode', required=False, default='original',
-                     filter=lambda x: x in ['original', 'current', 'custom']),
             Argument('idempotent_key', required=False)
         ).parse(request.body)
 
@@ -51,8 +47,8 @@ class RecycleBinRestoreView(View):
         if idempotent_key and cache.get(idempotent_key):
             return json_response(data=cache.get(idempotent_key))
 
-        all_files, target_folders = self._preload_files(form)
-        results, success_count = self._batch_restore(form, request.user, all_files, target_folders)
+        all_files = self._preload_files(form)
+        results, success_count = self._batch_restore(form, request.user, all_files)
         response_data = {
             'success_count': success_count,
             'failed_count': len(form.file_ids) - success_count,
@@ -66,7 +62,7 @@ class RecycleBinRestoreView(View):
         return json_response(data=response_data)
 
     def _preload_files(self, form):
-        """批量预查询文件和目标文件夹"""
+        """批量预查询文件"""
         private_files = {
             f.id: f for f in DocumentFilePrivate.all_objects.select_for_update().filter(
                 id__in=form.file_ids, is_deleted=True
@@ -81,24 +77,9 @@ class RecycleBinRestoreView(View):
 
         all_files = private_files.copy()
         all_files.update(public_files)
+        return all_files
 
-        target_folders = {}
-        if form.restore_mode in ('custom', 'current') and (form.target_folder_id or form.current_folder_id):
-            folder_id = form.target_folder_id if form.restore_mode == 'custom' else form.current_folder_id
-            if folder_id:
-                target_folders['public'] = self._get_folder(DocumentFolderPublic, folder_id)
-                target_folders['private'] = self._get_folder(DocumentFolderPrivate, folder_id)
-
-        return all_files, target_folders
-
-    def _get_folder(self, FolderModel, folder_id):
-        """获取文件夹（不存在返回None）"""
-        try:
-            return FolderModel.all_objects.get(id=folder_id)
-        except FolderModel.DoesNotExist:
-            return None
-
-    def _batch_restore(self, form, user, all_files, target_folders):
+    def _batch_restore(self, form, user, all_files):
         """批量恢复文件"""
         results = []
         success_count = 0
@@ -108,11 +89,7 @@ class RecycleBinRestoreView(View):
             with transaction.atomic():
                 for file_id in form.file_ids:
                     file_obj = all_files.get(file_id)
-                    result = self._restore_single_file(
-                        file_obj, user, form.restore_mode,
-                        form.target_folder_id, form.current_folder_id,
-                        target_folders, file_id
-                    )
+                    result = self._restore_single_file(file_obj, user, file_id)
                     results.append(result)
                     if result['status'] == 'success':
                         success_count += 1
@@ -123,49 +100,9 @@ class RecycleBinRestoreView(View):
         duration = time.time() - start_time
         logger.info(f'[RecycleBinMetrics] operation=restore, success={success_count}, total={len(form.file_ids)}, duration={duration:.3f}s')
         return results, success_count
-    
-    def _restore_file(self, file_id, user, mode, target_folder_id, current_folder_id):
-        """恢复单个文件"""
-        # 先尝试私有空间
-        try:
-            file_obj = DocumentFilePrivate.all_objects.select_for_update().get(
-                id=file_id, is_deleted=True
-            )
-            return self._restore_private_file(file_obj, user, mode, target_folder_id, current_folder_id)
-        except DocumentFilePrivate.DoesNotExist:
-            pass
-        
-        # 再尝试公共空间
-        try:
-            file_obj = DocumentFilePublic.all_objects.select_for_update().get(
-                id=file_id, is_deleted=True
-            )
-            return self._restore_public_file(file_obj, user, mode, target_folder_id, current_folder_id)
-        except DocumentFilePublic.DoesNotExist:
-            return {
-                'id': file_id,
-                'status': 'failed',
-                'error': '文件不存在或未被删除',
-                'code': 404001
-            }
-    
-    def _restore_private_file(self, file_obj, user, mode, target_folder_id, current_folder_id):
-        """恢复私有空间文件"""
-        return self._restore_file_common(
-            file_obj, user, mode, target_folder_id, current_folder_id,
-            DocumentFolderPrivate, is_public=False
-        )
 
-    def _restore_public_file(self, file_obj, user, mode, target_folder_id, current_folder_id):
-        """恢复公共空间文件"""
-        return self._restore_file_common(
-            file_obj, user, mode, target_folder_id, current_folder_id,
-            DocumentFolderPublic, is_public=True
-        )
-
-    def _restore_single_file(self, file_obj, user, mode, target_folder_id, current_folder_id,
-                              target_folders, file_id):
-        """恢复单个文件（批量优化版本）"""
+    def _restore_single_file(self, file_obj, user, file_id):
+        """恢复单个文件（仅支持恢复到原位置）"""
         if file_obj is None:
             return {'id': file_id, 'status': 'failed', 'error': '文件不存在或未被删除', 'code': 404001}
 
@@ -177,15 +114,16 @@ class RecycleBinRestoreView(View):
 
         is_public = isinstance(file_obj, DocumentFilePublic)
         FolderModel = DocumentFolderPublic if is_public else DocumentFolderPrivate
-        preloaded_target_folder = target_folders.get('public' if is_public else 'private')
 
-        target_folder = self._resolve_target_folder(
-            file_obj, user, mode, target_folder_id, current_folder_id,
-            FolderModel, is_public, preloaded_target_folder
-        )
-
-        if isinstance(target_folder, dict):
-            return target_folder
+        # 恢复到原位置
+        target_folder = None
+        if file_obj.folder_id:
+            try:
+                FolderModel.all_objects.get(id=file_obj.folder_id)
+                target_folder = file_obj.folder
+            except FolderModel.DoesNotExist:
+                # 原文件夹已不存在，恢复到根目录
+                target_folder = None
 
         file_obj.folder = target_folder
         file_obj.is_deleted = False
@@ -208,34 +146,9 @@ class RecycleBinRestoreView(View):
             resource_type="FILE",
             resource_id=file_obj.id,
             is_public=is_public,
-            restore_mode=mode
+            restore_mode='original'
         )
 
         return {'id': file_obj.id, 'status': 'success', 'restored_id': file_obj.id}
-
-    def _resolve_target_folder(self, file_obj, user, mode, target_folder_id, current_folder_id,
-                                FolderModel, is_public, preloaded_target_folder):
-        """解析恢复目标文件夹"""
-        original_folder_exists = True
-        if file_obj.folder_id:
-            try:
-                FolderModel.all_objects.get(id=file_obj.folder_id)
-            except FolderModel.DoesNotExist:
-                original_folder_exists = False
-
-        if mode == 'original':
-            return None if not original_folder_exists else file_obj.folder
-
-        if preloaded_target_folder is None:
-            return {'id': file_obj.id, 'status': 'failed', 'error': '指定文件夹不存在', 'code': 404002}
-
-        if not is_public:
-            user_tenant = getattr(user, 'tenant_id', '') or ''
-            folder_tenant = getattr(preloaded_target_folder, 'tenant_id', '') or ''
-            if user_tenant != folder_tenant:
-                return {'id': file_obj.id, 'status': 'failed',
-                        'error': '目标文件夹不属于当前租户', 'code': 403002}
-
-        return preloaded_target_folder
 
 
