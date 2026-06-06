@@ -23,6 +23,12 @@ import {
 } from '@ant-design/icons';
 import FileTypeIcon from './FileTypeIcon';
 import { formatSize, formatSpeed } from '@/utils/format';
+import {
+  ERROR_CODES,
+  RETRYABLE_ERROR_CODES,
+  NON_RETRYABLE_ERROR_CODES,
+  ERROR_CODE_MESSAGES,
+} from '../stores/upload/core/upload-core-constants';
 
 // 状态配置 - 网盘风格
 const STATUS_CONFIG = {
@@ -35,7 +41,7 @@ const STATUS_CONFIG = {
     icon: <ClockCircleFilled />,
   },
   calculating: {
-    text: '计算中',
+    text: '准备上传',
     color: '#fa8c16',
     strokeColor: '#fa8c16',
     showProgress: true,
@@ -127,7 +133,19 @@ const TransferItem = ({
   const canResume = ['paused', 'error', 'waiting'].includes(status);
   const canCancel = ['waiting', 'calculating', 'uploading', 'paused', 'merging'].includes(status);
   const canRemove = ['completed', 'error', 'cancelled'].includes(status);
-  const canRetry = status === 'error';
+  // 【重构 2026-06-06】根据 errorCode 决定是否可重试，而非单纯 status === 'error'
+  // 缺省（无 errorCode）→ 默认可重试（向后兼容老错误）
+  const errorCode = item.errorCode;
+  const canRetry = status === 'error' && (
+    !errorCode ||                                  // 老错误无 code，默认可重试
+    RETRYABLE_ERROR_CODES.has(errorCode)           // 新错误按 code 分类
+  );
+  // 不可重试的错误：权限/配额/客户端错，不显示重试按钮
+  const isNonRetryable = status === 'error' && errorCode && NON_RETRYABLE_ERROR_CODES.has(errorCode);
+  // 用户友好错误文案：有 errorCode 时优先用 ERROR_CODE_MESSAGES，否则用 item.error
+  const displayError = errorCode && ERROR_CODE_MESSAGES[errorCode]
+    ? ERROR_CODE_MESSAGES[errorCode]
+    : item.error;
   
   return (
     <div
@@ -180,11 +198,20 @@ const TransferItem = ({
             
             {item.fileSize && <span>•</span>}
             
-            {/* 状态文字 */}
-            <span style={{ color: config.color, display: 'flex', alignItems: 'center', gap: 4 }}>
-              {config.icon}
-              {config.text}
-            </span>
+            {/* 状态文字 - calculating 状态加 tooltip 解释（避免用户困惑） */}
+            {status === 'calculating' ? (
+              <Tooltip title="计算文件指纹以加速上传（秒传/断点续传），大文件可能需要几秒">
+                <span style={{ color: config.color, display: 'flex', alignItems: 'center', gap: 4, cursor: 'help' }}>
+                  {config.icon}
+                  {config.text}
+                </span>
+              </Tooltip>
+            ) : (
+              <span style={{ color: config.color, display: 'flex', alignItems: 'center', gap: 4 }}>
+                {config.icon}
+                {config.text}
+              </span>
+            )}
             
             {/* 上传速度 */}
             {config.showSpeed && displaySpeed > 0 && (
@@ -282,7 +309,7 @@ const TransferItem = ({
       )}
       
       {/* 错误提示 */}
-      {status === 'error' && item.error && (
+      {status === 'error' && displayError && (
         <div
           style={{
             marginTop: 8,
@@ -297,7 +324,7 @@ const TransferItem = ({
           }}
         >
           <span style={{ fontSize: 12, color: '#ff4d4f', flex: 1 }}>
-            <span role="img" aria-label="警告">⚠️</span> {item.error}
+            <span role="img" aria-label="警告">⚠️</span> {displayError}
           </span>
           {canRetry && (
             <Button
@@ -328,6 +355,7 @@ export default React.memo(ObservedTransferItem, (prevProps, nextProps) => {
     prevItem.status === nextItem.status &&
     prevItem.percent === nextItem.percent &&
     prevProps.speed === nextProps.speed &&
-    prevItem.error === nextItem.error
+    prevItem.error === nextItem.error &&
+    prevItem.errorCode === nextItem.errorCode
   );
 });

@@ -15,10 +15,19 @@ import { UPLOAD_CONSTANTS } from '../stores/constants/upload';
 const { FALLBACK_THRESHOLD } = UPLOAD_CONSTANTS.VIRTUAL_LIST;
 
 const TransferListContainer = (props) => {
-  const { uploadingItems = [], completedItems = [], errorItems = [] } = props;
+  const {
+    uploadingItems = [],
+    completedItems = [],
+    errorItems = [],
+    cancelledItems = [],
+  } = props;
 
-  // 计算总数量
-  const totalCount = uploadingItems.length + completedItems.length + errorItems.length;
+  // 计算总数量（cancelledItems 由 TransferList 内部并入"失败"Tab）
+  const totalCount =
+    uploadingItems.length +
+    completedItems.length +
+    errorItems.length +
+    cancelledItems.length;
 
   // 少量文件使用原生渲染，大量文件使用虚拟列表
   if (totalCount < FALLBACK_THRESHOLD) {

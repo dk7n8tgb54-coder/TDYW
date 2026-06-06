@@ -4,7 +4,7 @@
  * Released under the AGPL-3.0 License.
  *
  * VirtualTransferList - 虚拟列表传输列表组件
- * 【修复】解决大批量文件上传时的渲染性能问题
+ * 【重构 2026-06-06】改为 3 Tab：上传中 / 已完成 / 失败（cancelled 归到失败）
  *
  * 关键修复点：
  * 1. 【P0】移除外层滚动，避免双重滚动冲突
@@ -12,24 +12,22 @@
  * 3. 【P1】新增文件自动滚动到可视区
  * 4. 【P1】添加错误边界，防止渲染崩溃
  */
-import React, { useMemo, useRef, useCallback, useEffect } from 'react';
+import React, { useMemo, useRef, useCallback, useEffect, useState } from 'react';
 import { FixedSizeList as List } from 'react-window';
-import { Empty, Button, Tooltip, Collapse, Badge } from 'antd';
+import { Empty, Button, Tabs, Tooltip } from 'antd';
 import {
   ClearOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
-  CheckCircleFilled,
-  CloseCircleFilled,
-  LoadingOutlined,
 } from '@ant-design/icons';
 import { observer } from 'mobx-react';
 import { areEqual } from 'react-window'; // 【新增】精确比较函数
 import TransferItem from './TransferItem';
 import { UPLOAD_CONSTANTS } from '../stores/constants/upload';
+import { UPLOAD_STATUS } from '../stores/upload/core/upload-core-constants';
 import styles from './VirtualTransferList.module.less';
 
-const { Panel } = Collapse;
+const { TabPane } = Tabs;
 
 // 从常量读取配置
 const {
@@ -98,27 +96,18 @@ const VirtualRow = React.memo(({ index, style, data }) => {
   );
 }, areEqual); // 【关键】使用 react-window 提供的精确比较函数
 
-// ==================== 虚拟列表分组组件 ====================
+// ==================== 虚拟列表分页组件 ====================
 
 /**
- * VirtualGroup - 虚拟列表分组组件
- * 【修复】
- * 1. 回调函数使用 useCallback 缓存
- * 2. itemData 精确控制依赖，避免频繁更新
- * 3. 新增文件自动滚动到可视区
+ * VirtualList - 单个 Tab 的虚拟列表（不再嵌套 Collapse）
  */
-const VirtualGroup = React.memo(({
-  title,
-  icon,
+const VirtualList = React.memo(({
   items,
   uploadSpeed,
-  extra,
-  defaultExpanded = true,
   onPause,
   onResume,
   onCancel,
   onRemove,
-  groupKey, // 用于样式标识和自动滚动
 }) => {
   const listRef = useRef(null);
   const prevLengthRef = useRef(items.length);
@@ -133,7 +122,6 @@ const VirtualGroup = React.memo(({
   callbacksRef.current = { onPause, onResume, onCancel, onRemove };
 
   // 【P0关键修复】itemData 只包含数据，不包含回调函数引用
-  // 回调函数通过 ref 传递，确保 itemData 只在 items/uploadSpeed 变化时更新
   const itemData = useMemo(() => ({
     items,
     uploadSpeed,
@@ -149,57 +137,28 @@ const VirtualGroup = React.memo(({
     prevLengthRef.current = items.length;
   }, [items.length]);
 
-  // 根据颜色类型获取样式类名
-  const groupClass = `${styles.groupContainer} ${styles[groupKey] || ''}`;
-
-  // 根据 groupKey 获取 badge 颜色
-  const getBadgeColor = () => {
-    switch (groupKey) {
-      case 'active': return '#1890ff';
-      case 'paused': return '#faad14';
-      case 'error': return '#ff4d4f';
-      case 'completed': return '#52c41a';
-      default: return '#1890ff';
-    }
-  };
+  if (items.length === 0) {
+    return (
+      <Empty
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+        description="暂无任务"
+        style={{ padding: '40px 0' }}
+      />
+    );
+  }
 
   return (
-    <div className={groupClass}>
-      <Collapse
-        defaultActiveKey={defaultExpanded ? ['group'] : []}
-        ghost
-        bordered={false}
-      >
-        <Panel
-          header={
-            <div className={styles.groupHeader}>
-              <div className={styles.groupTitle}>
-                {icon}
-                <span className={styles.title}>{title}</span>
-                <Badge
-                  count={items.length}
-                  style={{ backgroundColor: getBadgeColor(), fontSize: 11 }}
-                />
-              </div>
-            </div>
-          }
-          key="group"
-          extra={extra}
-        >
-          <List
-            ref={listRef}
-            height={listHeight}
-            itemCount={items.length}
-            itemSize={ITEM_HEIGHT}
-            itemData={itemData}
-            overscanCount={OVERSCAN_COUNT}
-            width="100%"
-          >
-            {VirtualRow}
-          </List>
-        </Panel>
-      </Collapse>
-    </div>
+    <List
+      ref={listRef}
+      height={listHeight}
+      itemCount={items.length}
+      itemSize={ITEM_HEIGHT}
+      itemData={itemData}
+      overscanCount={OVERSCAN_COUNT}
+      width="100%"
+    >
+      {VirtualRow}
+    </List>
   );
 });
 
@@ -207,6 +166,7 @@ const VirtualGroup = React.memo(({
 
 /**
  * VirtualTransferList - 虚拟列表传输列表主组件
+ * 【重构 2026-06-06】3 Tab 结构：上传中 / 已完成 / 失败
  * 【P0修复】
  * 1. 移除外层滚动容器，避免双重滚动冲突
  * 2. 回调函数使用 useCallback 缓存
@@ -216,6 +176,7 @@ const VirtualTransferList = ({
   uploadingItems = [],
   completedItems = [],
   errorItems = [],
+  cancelledItems = [], // 兼容旧调用，内部并入失败 Tab
   uploadSpeed = {},
   onPause,
   onResume,
@@ -225,16 +186,20 @@ const VirtualTransferList = ({
   onResumeAll,
   onClearCompleted,
   onClearErrors,
+  onClearCancelled, // 兼容旧调用
 }) => {
+  const [activeTab, setActiveTab] = useState('uploading');
+
   // 【P0关键修复】使用 useMemo 缓存分组结果，避免每次渲染重新计算
-  const { activeItems, pausedItems } = useMemo(() => ({
-    activeItems: uploadingItems.filter(
-      item => ['waiting', 'calculating', 'uploading', 'merging'].includes(item.status)
-    ),
-    pausedItems: uploadingItems.filter(
-      item => item.status === 'paused'
-    ),
-  }), [uploadingItems]);
+  const { uploadingList, completedList, failedList } = useMemo(() => {
+    // 失败 = error + cancelled
+    const failed = [...errorItems, ...cancelledItems];
+    return {
+      uploadingList: uploadingItems,
+      completedList: completedItems,
+      failedList: failed,
+    };
+  }, [uploadingItems, completedItems, errorItems, cancelledItems]);
 
   // 【关键修复】回调函数使用 useCallback 缓存
   const handlePauseAll = useCallback((e) => {
@@ -247,145 +212,136 @@ const VirtualTransferList = ({
     if (onResumeAll) onResumeAll();
   }, [onResumeAll]);
 
-  const handleClearErrors = useCallback((e) => {
+  const handleClearFailed = useCallback((e) => {
     if (e) e.stopPropagation();
     if (onClearErrors) onClearErrors();
-  }, [onClearErrors]);
+    if (onClearCancelled) onClearCancelled();
+  }, [onClearErrors, onClearCancelled]);
 
   const handleClearCompleted = useCallback((e) => {
     if (e) e.stopPropagation();
     if (onClearCompleted) onClearCompleted();
   }, [onClearCompleted]);
 
-  // 空状态
-  const isEmpty = uploadingItems.length === 0 && completedItems.length === 0 && errorItems.length === 0;
-  if (isEmpty) {
-    return (
-      <Empty
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description="暂无传输任务"
-        style={{ padding: '60px 0' }}
-      />
-    );
-  }
+  // 上传中是否显示"全部开始/暂停"
+  const pausedCount = uploadingList.filter((i) => i.status === UPLOAD_STATUS.PAUSED).length;
+  const activeCount = uploadingList.length - pausedCount;
+
+  const uploadingTabExtra = uploadingList.length > 0 && (
+    <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4 }}>
+      {pausedCount > 0 && (
+        <Tooltip title="全部开始">
+          <Button
+            type="text"
+            size="small"
+            icon={<PlayCircleOutlined />}
+            onClick={handleResumeAll}
+            style={{ color: '#faad14' }}
+          />
+        </Tooltip>
+      )}
+      {activeCount > 0 && (
+        <Tooltip title="全部暂停">
+          <Button
+            type="text"
+            size="small"
+            icon={<PauseCircleOutlined />}
+            onClick={handlePauseAll}
+            style={{ color: '#1890ff' }}
+          />
+        </Tooltip>
+      )}
+    </div>
+  );
 
   return (
     <ErrorBoundary>
       {/* 【P0关键修复】移除外层 overflowY: auto，由 react-window 内部处理滚动 */}
       <div className={styles.virtualTransferList}>
-        {/* 正在传输 */}
-        {activeItems.length > 0 && (
-          <VirtualGroup
-            groupKey="active"
-            title="正在传输"
-            icon={<LoadingOutlined style={{ color: '#1890ff', fontSize: 16 }} />}
-            items={activeItems}
-            uploadSpeed={uploadSpeed}
-            onPause={onPause}
-            onResume={onResume}
-            onCancel={onCancel}
-            onRemove={onRemove}
-            extra={
-              <Tooltip title="全部暂停">
-                <Button
-                  type="primary"
-                  ghost
-                  size="small"
-                  icon={<PauseCircleOutlined />}
-                  onClick={handlePauseAll}
-                  style={{ fontSize: 12, borderRadius: 4 }}
-                >
-                  全部暂停
-                </Button>
-              </Tooltip>
-            }
-          />
-        )}
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          size="small"
+          style={{ display: 'flex', flexDirection: 'column' }}
+          tabBarStyle={{ margin: 0, padding: '0 12px' }}
+        >
+          <TabPane
+            tab={`上传中 ${uploadingList.length > 0 ? `(${uploadingList.length})` : ''}`}
+            key="uploading"
+          >
+            {uploadingTabExtra && (
+              <div style={{ padding: '0 12px 8px', display: 'flex', justifyContent: 'flex-end' }}>
+                {uploadingTabExtra}
+              </div>
+            )}
+            <VirtualList
+              items={uploadingList}
+              uploadSpeed={uploadSpeed}
+              onPause={onPause}
+              onResume={onResume}
+              onCancel={onCancel}
+              onRemove={onRemove}
+            />
+          </TabPane>
 
-        {/* 已暂停 */}
-        {pausedItems.length > 0 && (
-          <VirtualGroup
-            groupKey="paused"
-            title="已暂停"
-            icon={<PauseCircleOutlined style={{ color: '#faad14', fontSize: 16 }} />}
-            items={pausedItems}
-            uploadSpeed={uploadSpeed}
-            onPause={onPause}
-            onResume={onResume}
-            onCancel={onCancel}
-            onRemove={onRemove}
-            extra={
-              <Button
-                type="primary"
-                ghost
-                size="small"
-                icon={<PlayCircleOutlined />}
-                onClick={handleResumeAll}
-                style={{ fontSize: 12, borderRadius: 4, borderColor: '#faad14', color: '#faad14' }}
-              >
-                全部开始
-              </Button>
-            }
-          />
-        )}
+          <TabPane
+            tab={`已完成 ${completedList.length > 0 ? `(${completedList.length})` : ''}`}
+            key="completed"
+          >
+            {completedList.length > 0 && (
+              <div style={{ padding: '0 12px 8px', display: 'flex', justifyContent: 'flex-end' }}>
+                <Tooltip title="清空已完成">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<ClearOutlined />}
+                    onClick={handleClearCompleted}
+                    style={{ fontSize: 12, color: '#8c8c8c' }}
+                  >
+                    清空
+                  </Button>
+                </Tooltip>
+              </div>
+            )}
+            <VirtualList
+              items={completedList}
+              uploadSpeed={uploadSpeed}
+              onPause={onPause}
+              onResume={onResume}
+              onCancel={onCancel}
+              onRemove={onRemove}
+            />
+          </TabPane>
 
-        {/* 传输失败 */}
-        {errorItems.length > 0 && (
-          <VirtualGroup
-            groupKey="error"
-            title="传输失败"
-            icon={<CloseCircleFilled style={{ color: '#ff4d4f', fontSize: 16 }} />}
-            items={errorItems}
-            uploadSpeed={uploadSpeed}
-            onPause={onPause}
-            onResume={onResume}
-            onCancel={onCancel}
-            onRemove={onRemove}
-            defaultExpanded={true}
-            extra={
-              <Tooltip title="清空失败任务">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ClearOutlined />}
-                  onClick={handleClearErrors}
-                  style={{ fontSize: 12, color: '#8c8c8c' }}
-                >
-                  清空
-                </Button>
-              </Tooltip>
-            }
-          />
-        )}
-
-        {/* 已完成 */}
-        {completedItems.length > 0 && (
-          <VirtualGroup
-            groupKey="completed"
-            title="已完成"
-            icon={<CheckCircleFilled style={{ color: '#52c41a', fontSize: 16 }} />}
-            items={completedItems}
-            uploadSpeed={uploadSpeed}
-            onPause={onPause}
-            onResume={onResume}
-            onCancel={onCancel}
-            onRemove={onRemove}
-            defaultExpanded={false}
-            extra={
-              <Tooltip title="清空已完成">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ClearOutlined />}
-                  onClick={handleClearCompleted}
-                  style={{ fontSize: 12, color: '#8c8c8c' }}
-                >
-                  清空
-                </Button>
-              </Tooltip>
-            }
-          />
-        )}
+          <TabPane
+            tab={`失败 ${failedList.length > 0 ? `(${failedList.length})` : ''}`}
+            key="failed"
+          >
+            {failedList.length > 0 && (
+              <div style={{ padding: '0 12px 8px', display: 'flex', justifyContent: 'flex-end' }}>
+                <Tooltip title="清空失败任务">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<ClearOutlined />}
+                    onClick={handleClearFailed}
+                    style={{ fontSize: 12, color: '#8c8c8c' }}
+                  >
+                    清空
+                  </Button>
+                </Tooltip>
+              </div>
+            )}
+            <VirtualList
+              items={failedList}
+              uploadSpeed={uploadSpeed}
+              onPause={onPause}
+              onResume={onResume}
+              onCancel={onCancel}
+              onRemove={onRemove}
+            />
+          </TabPane>
+        </Tabs>
       </div>
     </ErrorBoundary>
   );

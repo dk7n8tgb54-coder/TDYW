@@ -27,8 +27,10 @@ class UploadUIStore {
   // ============================================================
 
   // ----- 面板相关 -----
+  // 【重构 2026-06-06】抽屉模式：uploadPanelVisible 等同于 panel.expanded
+  // 旧代码（Popover 显示/隐藏）现在用 panel.expanded 控制 Drawer 展开
   get uploadPanelVisible() {
-    return this.panel.visible;
+    return this.panel.expanded;
   }
 
   // ----- 弹窗相关 -----

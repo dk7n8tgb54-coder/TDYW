@@ -51,25 +51,158 @@ export class FileUploadCoordinator {
       return;
     }
 
-    if (this.core.rootStore.uploadUIStore && this.core.rootStore.uploadUIStore.showUploadPanel) {
-      this.core.rootStore.uploadUIStore.showUploadPanel();
-    }
+    // 【2026-06-06】不自动展开传输列表抽屉，与文件夹上传保持一致
+    // 新任务进队列时只显示底部小条，用户主动点击/快捷键 (Ctrl+Shift+U) 才展开
     this.core.isPaused = false;
     this.core.isCancelled = false;
     this.core.pendingFiles = [...uniqueFiles];
-    
+
     await this.processUploadQueue(uniqueFiles, targetFolderId);
-    
+
     this.core.queueStore.triggerRefresh();
   }
 
   /**
    * 处理上传队列
-   * @param {Array} files - 文件列表
-   * @param {number} folderId - 目标文件夹ID
+   *
+   * 【重构 2026-06-06】支持两种调用方式（向后兼容）：
+   *   1. 老格式：processUploadQueue(files: File[], folderId: number | null)
+   *      - 普通上传：所有文件共享同一个目标文件夹
+   *   2. 新格式：processUploadQueue(items: Array<{file, folderId, folderPath?}>, null)
+   *      - 文件夹上传：每个文件有自己的目标文件夹
+   *
+   * @param {Array} filesOrItems - 文件列表 或 items 数组
+   * @param {number|null} folderId - 目标文件夹ID（老格式必填，新格式传 null）
    */
   @action
-  async processUploadQueue(files, folderId) {
+  async processUploadQueue(filesOrItems, folderId) {
+    // 【重构】检测输入格式：items 数组 vs 纯文件数组
+    const isBatchFormat = Array.isArray(filesOrItems) && filesOrItems.length > 0 && filesOrItems[0] && filesOrItems[0].file;
+
+    if (isBatchFormat) {
+      return this._processBatch(filesOrItems);
+    }
+    return this._processUniform(filesOrItems, folderId);
+  }
+
+  /**
+   * 【新格式】处理 items 批次（每个文件有自己的 folderId）
+   * 用于文件夹上传：每个文件的目标文件夹不同
+   * @private
+   */
+  @action
+  async _processBatch(items) {
+    const tenantId = this.core.getCurrentTenantId();
+    const isPublic = this.core.rootStore.navigationStore?.isPublic;
+
+    if (!this.core.uploadQueue[tenantId]) {
+      this.core.uploadQueue[tenantId] = [];
+    }
+
+    // 文件名校验
+    const validItems = [];
+    const invalidItems = [];
+    for (const item of items) {
+      const validation = validateFileName(item.file.name);
+      if (validation.valid) {
+        validItems.push(item);
+      } else {
+        invalidItems.push({ name: item.file.name, reason: validation.message });
+      }
+    }
+
+    if (invalidItems.length > 0) {
+      if (invalidItems.length === 1) {
+        message.error(`文件 "${invalidItems[0].name}" 无法上传: ${invalidItems[0].reason}`);
+      } else {
+        message.error(`${invalidItems.length} 个文件无法上传，请检查文件名长度和非法字符`);
+      }
+    }
+
+    if (validItems.length === 0) {
+      return [];
+    }
+
+    const allUploadItems = [];
+
+    for (let index = 0; index < validItems.length; index++) {
+      const { file, folderId, folderPath } = validItems[index];
+      const uniqueKey = this.core.queueStore.generateUniqueKey(file, folderId, isPublic);
+      this.core.queueStore.uploadingUniqueKeys.add(uniqueKey);
+
+      const uploadId = generateUploadId();
+      const estimatedChunks = Math.ceil(file.size / UPLOAD_CONSTANTS.CHUNK_SIZE) || 1;
+
+      const transferId = await this.core.transferStore.createTransfer({
+        transfer_type: 'upload',
+        file_name: file.name,
+        file_size: file.size,
+        is_public: isPublic,
+        total_chunks: estimatedChunks,
+        file_hash: '',
+        ...(folderId !== null && folderId !== undefined && { folder_id: folderId })
+      });
+
+      // 【重构】显示名称优先使用 folderPath（文件夹上传场景）
+      const displayName = folderPath ? `${folderPath}/${file.name}` : file.name;
+
+      const queueItem = {
+        id: uploadId,
+        name: displayName,
+        percent: 0,
+        status: 'waiting',
+        error: null,
+        canAbort: false,
+        fileSize: file.size,
+        chunks: [],
+        currentChunk: 0,
+        uniqueKey: uniqueKey,
+        tenantId: tenantId,
+        transferId: transferId,
+        folderId: folderId,
+        fileHash: null,
+        isPublic: isPublic,
+        totalChunks: estimatedChunks,
+      };
+      Object.defineProperty(queueItem, 'file', {
+        value: file,
+        writable: true,
+        enumerable: false,
+        configurable: true
+      });
+
+      this.core.queueStore.addToQueue(queueItem, tenantId);
+      allUploadItems.push(queueItem);
+
+      if (this.core.stateMachineManager) {
+        this.core.stateMachineManager.create(uploadId, {
+          queueStore: this.core.queueStore,
+          transferStore: this.core.transferStore,
+          md5Store: this.core.md5Store,
+          file: file,
+          folderId: folderId,
+          item: queueItem
+        });
+      }
+    }
+
+    console.log('[_processBatch] 批次启动, 总任务数:', allUploadItems.length);
+    if (this.core.uploadCoordinator) {
+      if (this.core.isPaused && allUploadItems.length > 0) {
+        console.log('[_processBatch] 新添加文件，重置暂停状态');
+        this.core.isPaused = false;
+      }
+      this.core.uploadCoordinator.startWaiting();
+    }
+    return allUploadItems;
+  }
+
+  /**
+   * 【老格式】处理统一 folderId 的文件列表（普通上传）
+   * @private
+   */
+  @action
+  async _processUniform(files, folderId) {
     const tenantId = this.core.getCurrentTenantId();
     const isPublic = this.core.rootStore.navigationStore?.isPublic;
 
@@ -112,7 +245,7 @@ export class FileUploadCoordinator {
 
       const uploadId = generateUploadId();
       const estimatedChunks = Math.ceil(file.size / UPLOAD_CONSTANTS.CHUNK_SIZE) || 1;
-      
+
       const transferId = await this.core.transferStore.createTransfer({
         transfer_type: 'upload',
         file_name: file.name,
@@ -151,7 +284,7 @@ export class FileUploadCoordinator {
       // 【修改】所有任务直接加入主队列
       this.core.queueStore.addToQueue(item, tenantId);
       allUploadItems.push(item);
-      
+
       if (this.core.stateMachineManager) {
         // 【P0修复】创建状态机时传入item，确保canStart守卫可以正确判断
         this.core.stateMachineManager.create(uploadId, {

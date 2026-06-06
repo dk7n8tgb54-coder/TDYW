@@ -106,6 +106,8 @@ export class UploadStateMachine {
             guard: this.shouldResumeUpload.bind(this),
             action: this.actions.onResumeToUploading
           },
+          // 【修复 2026-06-06】暂停期间允许接收 ERROR 事件（如后端推送合并失败）
+          { event: 'ERROR', target: 'error' },
           { event: 'CANCEL', target: 'cancelled', action: this.actions.onCancel }
         ]
       },
@@ -115,6 +117,7 @@ export class UploadStateMachine {
         transitions: {
           MERGE_SUCCESS: { target: 'completed' },
           ERROR: { target: 'error' },
+          // 【修复 2026-06-06】合并中允许取消（之前已有，但已确认无 PAUSE）
           CANCEL: { target: 'cancelled', action: this.actions.onCancel }
         }
       },
@@ -125,7 +128,9 @@ export class UploadStateMachine {
       error: {
         entry: this.onErrorEntry.bind(this),
         transitions: {
-          RESUME: { target: 'waiting', action: this.onRetryAction.bind(this) }
+          RESUME: { target: 'waiting', action: this.onRetryAction.bind(this) },
+          // 【修复 2026-06-06】失败状态下允许取消（之前缺失，导致非法转换被静默吞下）
+          CANCEL: { target: 'cancelled', action: this.actions.onCancel }
         }
       },
       cancelled: {
@@ -217,6 +222,9 @@ export class UploadStateMachine {
       console.log(`[UploadStateMachine] ${this.uploadId}: 准备通知监听器`);
       // 通知监听器
       this.notifyListeners(fromState, toState, event, payload);
+
+      // 【新增 2026-06-06】一致性检查：状态机 currentState 与 Store item.status 应保持一致
+      this.assertStatusConsistency(toState, event);
 
       // 总转换次数埋点
       if (this.context.metrics) {
@@ -604,6 +612,46 @@ export class UploadStateMachine {
 
   updateContext(updates) {
     this.context = { ...this.context, ...updates };
+  }
+
+  /**
+   * 【新增 2026-06-06】状态一致性检查
+   *
+   * 检查状态机 currentState 与 Store item.status 是否一致。
+   * 由于 chunkUpload.js / fileUpload.js 等模块可能绕过状态机直接写 status，
+   * 这个方法用于在每次状态转换后检测并报警（开发环境）或自动修复（生产环境）。
+   *
+   * @param {string} expectedState - 状态机转换后的目标状态
+   * @param {string} event - 触发转换的事件
+   */
+  assertStatusConsistency(expectedState, event) {
+    try {
+      const item = this.context.queueStore?.findUploadItemInCurrentTenant?.(this.uploadId);
+      if (!item) return;
+
+      if (item.status !== expectedState) {
+        const msg = `[UploadStateMachine] 状态不一致! uploadId=${this.uploadId}, stateMachine=${expectedState}, item.status=${item.status}, event=${event}`;
+
+        // 开发环境：报警
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(msg);
+        } else {
+          // 生产环境：静默记录到 metrics
+          if (this.context.metrics) {
+            this.context.metrics.statusInconsistencies = (this.context.metrics.statusInconsistencies || 0) + 1;
+          }
+        }
+
+        // 自动修复：让 item.status 跟随状态机
+        // 这保证了即使有旁路写入，最终状态以状态机为准
+        if (this.context.queueStore?.updateUploadItem) {
+          this.context.queueStore.updateUploadItem(this.uploadId, { status: expectedState });
+        }
+      }
+    } catch (e) {
+      // 一致性检查异常不应阻塞状态转换
+      console.error('[UploadStateMachine] assertStatusConsistency 异常:', e);
+    }
   }
 }
 

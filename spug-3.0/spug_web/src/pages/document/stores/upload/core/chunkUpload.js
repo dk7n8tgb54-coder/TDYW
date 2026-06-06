@@ -176,6 +176,7 @@ export class ChunkUploadStore {
         this.queueStore.updateUploadItem(uploadId, {
           status: 'error',
           error: `分片 ${chunkIndex + 1} 上传失败: ${errorMsg}`,
+          errorCode: 'CHUNK',
           currentChunk: chunkIndex,
         });
         throw new Error(`分片 ${chunkIndex + 1}/${chunkCount} 上传失败: ${errorMsg}`);
@@ -243,10 +244,21 @@ export class ChunkUploadStore {
 
         // 【修复】显示更详细的错误信息
         const detailedError = error.message || '上传失败';
+        // 【新增 2026-06-06】根据 HTTP 状态码推断 errorCode
+        const httpStatus = error?.response?.status;
+        const errorCode = (
+          httpStatus === 401 || httpStatus === 403 ? 'PERMISSION' :
+          httpStatus === 413 ? 'QUOTA' :
+          httpStatus >= 400 && httpStatus < 500 ? 'CLIENT' :
+          httpStatus >= 500 ? 'SERVER' :
+          detailedError.includes('timeout') || detailedError.includes('网络') || detailedError.includes('Network') ? 'NETWORK' :
+          'CHUNK'
+        );
         // 【修复】使用 updateUploadItem 代替直接修改，确保响应式更新
         this.queueStore.updateUploadItem(uploadId, {
           status: 'error',
           error: detailedError,
+          errorCode,
           canAbort: false,
           abortToken: null,
           abortController: null,
@@ -493,7 +505,6 @@ export class ChunkUploadStore {
 
     this.queueStore.updateUploadItem(uploadId, {
       status: 'merging',
-      error: '合并中',
       celeryTaskId: celeryTaskId,
     });
 

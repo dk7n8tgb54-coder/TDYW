@@ -5,14 +5,15 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Button, Space, Breadcrumb as AntdBreadcrumb, Badge, Popover, Radio, message } from 'antd';
+import { Button, Space, Breadcrumb as AntdBreadcrumb, Badge, Radio, message } from 'antd';
 import { ArrowLeftOutlined, UploadOutlined, CloudUploadOutlined, LeftOutlined, RightOutlined, FolderAddOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { Breadcrumb as SpugBreadcrumb } from 'components';
 import Explorer from './Explorer';
-import UploadPanel from './UploadPanel';
+import UploadPanel, { MiniBar } from './UploadPanel';
 import FolderTree from './FolderTree';
 import SearchBox from './components/SearchBox';
 import DiskStatus from './components/DiskStatus';
+import KeyboardShortcuts from './components/KeyboardShortcuts';
 import navigationStore from './stores/navigation';
 import uploadUIStore from './stores/upload/ui';
 import { uploadCoreStore } from './stores';
@@ -161,22 +162,13 @@ const DocumentIndex = observer(function () {
               }}>
                 上传文件夹
               </Button>
-              <Popover
-                content={<UploadPanel />}
-                title={null}
-                trigger="click"
-                placement="bottomRight"
-                visible={uploadUIStore.uploadPanelVisible}
-                onVisibleChange={(vis) => {
-                  if (!vis) uploadUIStore.hideUploadPanel();
-                }}
-                overlayStyle={{ padding: 0, backgroundColor: 'transparent', boxShadow: 'none' }}
-                overlayInnerStyle={{ padding: 0, backgroundColor: 'transparent', boxShadow: 'none' }}
-              >
-                <Badge count={uploadCoreStore.currentUploadQueue.length} offset={[-5, 5]}>
-                  <Button icon={<CloudUploadOutlined />} />
-                </Badge>
-              </Popover>
+              <Badge count={uploadCoreStore.currentUploadQueue.length} offset={[-5, 5]}>
+                <Button
+                  icon={<CloudUploadOutlined />}
+                  onClick={() => uploadUIStore.panel.toggle()}
+                  title="查看传输任务"
+                />
+              </Badge>
             </Space>
           </div>
         }>
@@ -274,6 +266,14 @@ const DocumentIndex = observer(function () {
             </div>
           </div>
         </div>
+
+        {/* 【抽屉模式 2026-06-06】传输列表抽屉 + 底部小条 */}
+        {uploadCoreStore.currentUploadQueue.length > 0 && !uploadUIStore.panel.expanded && (
+          <MiniBar />
+        )}
+        <UploadPanel />
+        {/* 【快捷键 2026-06-06】全局键盘快捷键：Ctrl+Shift+U 打开抽屉 */}
+        <KeyboardShortcuts />
       </>
     );
   } catch (error) {

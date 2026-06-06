@@ -101,7 +101,6 @@ export class UploadLifecycle {
       // 更新状态为计算中
       this.core.queueStore.updateUploadItem(uploadId, {
         status: 'calculating',
-        error: '正在计算文件哈希...',
       });
 
       // 计算MD5（仅大文件）

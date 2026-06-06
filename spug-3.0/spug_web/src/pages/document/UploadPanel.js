@@ -3,63 +3,57 @@
  * Copyright (c) <spug.dev@gmail.com>
  * Released under the AGPL-3.0 License.
  *
- * 上传面板组件 - 网盘风格版本
- * 仿阿里云盘、百度网盘设计
+ * 上传面板 - 抽屉模式（仿百度网盘）
+ *
+ * 形态：
+ *   - 默认：底部小条 "正在传输 X 个任务"
+ *   - 展开：底部抽屉，显示完整 Tabs 列表
+ *   - 收起：拖到底部或点击关闭
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Card, Tag, message } from 'antd';
-import { CloudUploadOutlined, CloudOutlined } from '@ant-design/icons';
+import { Drawer, Tag, message, Badge, Tooltip } from 'antd';
+import {
+  CloudUploadOutlined,
+  CloudOutlined,
+  UpOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  PauseCircleOutlined,
+} from '@ant-design/icons';
 import { uploadCoreStore } from './stores';
 import navigationStore from './stores/navigation';
+import uploadUIStore from './stores/upload/ui';
 import TransferListContainer from './components/TransferListContainer';
 
-// ============================================================
-// 主上传面板组件 - 网盘风格
-// ============================================================
 @observer
 class UploadPanel extends React.Component {
   fileInputRef = React.createRef();
   pendingItemId = null;
 
   componentDidMount() {
-    // 重写 store 的 triggerFileReSelection 方法，使其调用本组件的方法
     uploadCoreStore.triggerFileReSelection = this.handleTriggerFileReSelection;
   }
 
-  /**
-   * 【任务3.4】组件卸载时清理资源，防止内存泄漏
-   */
   componentWillUnmount() {
-    // 清理文件输入框引用
     if (this.fileInputRef.current) {
       this.fileInputRef.current.value = '';
     }
     this.pendingItemId = null;
 
-    // 取消所有进行中的上传任务
     const { currentUploadQueue } = uploadCoreStore;
     const activeItems = currentUploadQueue.filter(
       item => ['waiting', 'calculating', 'uploading', 'merging'].includes(item.status)
     );
+    activeItems.forEach(item => uploadCoreStore.pauseItem(item.id));
 
-    activeItems.forEach(item => {
-      // 使用 store 的 pause 方法暂停任务，这会触发 AbortController.abort()
-      uploadCoreStore.pauseItem(item.id);
-    });
-
-    // 清理 store 中对本组件方法的引用
     if (uploadCoreStore.triggerFileReSelection === this.handleTriggerFileReSelection) {
       uploadCoreStore.triggerFileReSelection = null;
     }
   }
 
-  /**
-   * 触发文件重新选择（断点续传使用）
-   */
   handleTriggerFileReSelection = (itemId) => {
     this.pendingItemId = itemId;
-    // 延迟触发文件选择器，让用户看到提示
     setTimeout(() => {
       if (this.fileInputRef.current) {
         this.fileInputRef.current.click();
@@ -67,9 +61,6 @@ class UploadPanel extends React.Component {
     }, 100);
   };
 
-  /**
-   * 处理文件选择（断点续传）
-   */
   handleFileSelect = async (e) => {
     const file = e.target.files[0];
     if (!file || !this.pendingItemId) return;
@@ -84,7 +75,6 @@ class UploadPanel extends React.Component {
       return;
     }
 
-    // 校验文件信息是否匹配
     if (file.name !== item.name) {
       message.error(`文件名不匹配，请选择正确的文件: ${item.name}`);
       e.target.value = '';
@@ -97,11 +87,9 @@ class UploadPanel extends React.Component {
       return;
     }
 
-    // 清空 input 以便下次选择同一文件
     e.target.value = '';
     this.pendingItemId = null;
 
-    // 调用 store 方法替换文件并恢复上传
     try {
       await uploadCoreStore.replaceFileAndResume(itemId, file);
     } catch (error) {
@@ -110,16 +98,8 @@ class UploadPanel extends React.Component {
     }
   };
 
-  /**
-   * 暂停单个任务
-   */
-  handlePauseItem = (itemId) => {
-    uploadCoreStore.pauseItem(itemId);
-  };
+  handlePauseItem = (itemId) => uploadCoreStore.pauseItem(itemId);
 
-  /**
-   * 继续/重试单个任务
-   */
   handleResumeItem = async (itemId) => {
     try {
       await uploadCoreStore.resumeItem(itemId);
@@ -129,18 +109,9 @@ class UploadPanel extends React.Component {
     }
   };
 
-  /**
-   * 取消单个任务
-   */
-  handleCancelItem = (itemId) => {
-    uploadCoreStore.cancelItem(itemId);
-  };
+  handleCancelItem = (itemId) => uploadCoreStore.cancelItem(itemId);
 
-  /**
-   * 删除单个任务
-   */
   handleRemoveItem = (itemId) => {
-    // 【修复】删除error状态任务时，主动释放file对象避免内存泄漏
     const item = uploadCoreStore.queueStore.findUploadItemInCurrentTenant(itemId);
     if (item?.status === 'error' && item?.file) {
       item.file = null;
@@ -148,150 +119,91 @@ class UploadPanel extends React.Component {
     uploadCoreStore.removeItem(itemId);
   };
 
-  /**
-   * 全部暂停
-   */
-  handlePauseAll = () => {
-    uploadCoreStore.pauseAll();
-  };
+  handlePauseAll = () => uploadCoreStore.pauseAll();
+  handleResumeAll = () => uploadCoreStore.resumeAll();
 
-  /**
-   * 全部开始
-   */
-  handleResumeAll = () => {
-    uploadCoreStore.resumeAll();
-  };
-
-  /**
-   * 清空已完成
-   */
   handleClearCompleted = async () => {
     const { currentUploadQueue } = uploadCoreStore;
     const completedItems = currentUploadQueue.filter(item => item.status === 'completed');
-    
-    // 【新增】同步删除后端传输记录
-    const transferIds = completedItems
-      .map(item => item.transferId)
-      .filter(id => id); // 过滤掉 null/undefined
-    
-    console.log('[UploadPanel] 清空已完成任务:', {
-      completedCount: completedItems.length,
-      transferIds: transferIds,
-      itemsWithNullTransferId: completedItems.filter(item => !item.transferId).length
-    });
-    
+    const transferIds = completedItems.map(item => item.transferId).filter(id => id);
     if (transferIds.length > 0) {
       try {
-        console.log('[UploadPanel] 调用 batchDeleteTransfers, IDs:', transferIds);
         await uploadCoreStore.transferStore.batchDeleteTransfers(transferIds);
-        console.log('[UploadPanel] batchDeleteTransfers 调用成功');
       } catch (error) {
         console.error('[UploadPanel] 批量删除后端传输记录失败:', error);
-        console.error('[UploadPanel] 错误详情:', error?.response?.data || error?.message || error);
-        // 不显示警告，因为 Celery 任务是异步的，即使任务提交成功也可能返回错误
       }
     }
-    
-    // 【修复】批量删除后直接清理前端队列，不调用 removeItem（避免重复删除后端记录）
-    // 【关键修复】使用 uploadCoreStore.getCurrentTenantId() 获取正确的租户ID
     const tenantId = uploadCoreStore.getCurrentTenantId?.() || 'default';
     completedItems.forEach(item => {
       uploadCoreStore.queueStore.removeFromQueue(item.id, tenantId);
     });
-    // 【新增】批量删除后，尝试从等待队列补充新任务
-    setTimeout(() => {
-      uploadCoreStore.replenishDisplayQueue();
-    }, 0);
+    setTimeout(() => uploadCoreStore.replenishDisplayQueue(), 0);
     message.success(`已清空 ${completedItems.length} 个已完成任务`);
   };
 
-  /**
-   * 清空失败任务（包括已取消的）
-   */
   handleClearErrors = async () => {
     const { currentUploadQueue } = uploadCoreStore;
-    const errorItems = currentUploadQueue.filter(item => ['error', 'cancelled'].includes(item.status));
-    
-    // 【新增】同步删除后端传输记录
-    const transferIds = errorItems
-      .map(item => item.transferId)
-      .filter(id => id); // 过滤掉 null/undefined
-    
+    const errorItems = currentUploadQueue.filter(item => item.status === 'error');
+    const transferIds = errorItems.map(item => item.transferId).filter(id => id);
     if (transferIds.length > 0) {
       try {
         await uploadCoreStore.transferStore.batchDeleteTransfers(transferIds);
       } catch (error) {
         console.error('[UploadPanel] 批量删除后端传输记录失败:', error);
-        // 后端删除失败不影响前端清理
       }
     }
-    
-    // 【修复】批量删除后直接清理前端队列，不调用 removeItem（避免重复删除后端记录）
-    // 【关键修复】使用 uploadCoreStore.getCurrentTenantId() 获取正确的租户ID
     const tenantId = uploadCoreStore.getCurrentTenantId?.() || 'default';
     errorItems.forEach(item => {
       uploadCoreStore.queueStore.removeFromQueue(item.id, tenantId);
     });
-    message.success(`已清空 ${errorItems.length} 个失败/取消任务`);
+    message.success(`已清空 ${errorItems.length} 个失败任务`);
+  };
+
+  handleClearCancelled = async () => {
+    const { currentUploadQueue } = uploadCoreStore;
+    const cancelledItems = currentUploadQueue.filter(item => item.status === 'cancelled');
+    const transferIds = cancelledItems.map(item => item.transferId).filter(id => id);
+    if (transferIds.length > 0) {
+      try {
+        await uploadCoreStore.transferStore.batchDeleteTransfers(transferIds);
+      } catch (error) {
+        console.error('[UploadPanel] 批量删除后端传输记录失败:', error);
+      }
+    }
+    const tenantId = uploadCoreStore.getCurrentTenantId?.() || 'default';
+    cancelledItems.forEach(item => {
+      uploadCoreStore.queueStore.removeFromQueue(item.id, tenantId);
+    });
+    message.success(`已清空 ${cancelledItems.length} 个已取消任务`);
   };
 
   render() {
-    // 【P2优化】使用 store 中的 computed 属性，避免每次 render 重复 filter
     const {
       uploadingItems,
       completedItems,
       errorItems,
-      waitingCount,
+      cancelledItems,
       activeCount,
       pausedCount,
       currentUploadQueue
     } = uploadCoreStore;
-    
-    // 访问触发器以确保响应式更新
+
     void uploadCoreStore.uploadRefreshTrigger;
     void uploadCoreStore.folderUploadProgress;
-    
-    // 空间信息
+
     const spaceType = navigationStore.isPublic ? '公共共享库' : '我的文件';
     const spaceColor = navigationStore.isPublic ? 'gold' : 'blue';
     const spaceIcon = navigationStore.isPublic ? <CloudOutlined /> : <CloudUploadOutlined />;
-    
-    // 计算总任务数
+
     const totalTaskCount = currentUploadQueue.length;
-    
+    const failedCount = errorItems.length + cancelledItems.length;
+    const uploadingTotal = activeCount + pausedCount;
+    const completedTotal = completedItems.length;
+    const drawerHeight = uploadUIStore.panel.drawerHeight;
+
     return (
-      <Card
-        size="small"
-        style={{ 
-          width: 520,
-          height: 600, 
-          display: 'flex', 
-          flexDirection: 'column',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-        }}
-        bodyStyle={{ 
-          padding: 0, 
-          flex: 1, 
-          display: 'flex', 
-          flexDirection: 'column', 
-          overflow: 'hidden',
-        }}
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Tag 
-              icon={spaceIcon}
-              color={spaceColor} 
-              style={{ margin: 0, fontSize: 12, borderRadius: 4 }}
-            >
-              {spaceType}
-            </Tag>
-            <span style={{ fontSize: 12, color: '#8c8c8c' }}>
-              共 {totalTaskCount} 个 | 等待中: {waitingCount} | 上传中: {activeCount} | 已暂停: {pausedCount} | 已完成: {completedItems.length} | 失败: {errorItems.length}
-            </span>
-          </div>
-        }
-      >
-        {/* 隐藏的文件选择输入框（用于断点续传重新选择文件） */}
+      <>
+        {/* 隐藏的文件选择输入框（用于断点续传） */}
         <input
           ref={this.fileInputRef}
           type="file"
@@ -299,23 +211,359 @@ class UploadPanel extends React.Component {
           onChange={this.handleFileSelect}
           accept="*/*"
         />
-        <TransferListContainer
-          uploadingItems={uploadingItems}
-          completedItems={completedItems}
-          errorItems={errorItems}
-          uploadSpeed={uploadCoreStore.fileUploadStore?.uploadSpeed || {}}
-          onPause={this.handlePauseItem}
-          onResume={this.handleResumeItem}
-          onCancel={this.handleCancelItem}
-          onRemove={this.handleRemoveItem}
-          onPauseAll={this.handlePauseAll}
-          onResumeAll={this.handleResumeAll}
-          onClearCompleted={this.handleClearCompleted}
-          onClearErrors={this.handleClearErrors}
-        />
-      </Card>
+
+        {/* 抽屉 - 展开时显示完整列表 */}
+        <Drawer
+          title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Tag
+                icon={spaceIcon}
+                color={spaceColor}
+                style={{ margin: 0, fontSize: 12, borderRadius: 4 }}
+              >
+                {spaceType}
+              </Tag>
+              <span style={{ fontSize: 12, color: '#8c8c8c' }}>
+                共 {totalTaskCount} 个 | 上传中: {uploadingTotal} | 已完成: {completedTotal} | 失败: {failedCount}
+              </span>
+            </div>
+          }
+          placement="bottom"
+          height={drawerHeight}
+          visible={uploadUIStore.panel.expanded}
+          onClose={() => uploadUIStore.panel.collapse()}
+          closable={true}
+          mask={true}
+          maskClosable={true}
+          destroyOnClose={false}
+          headerStyle={{ padding: '8px 16px', minHeight: 48, borderBottom: '1px solid #f0f0f0' }}
+          bodyStyle={{ padding: 0, overflow: 'hidden' }}
+          getContainer={false}
+          push={false}
+        >
+          {/* 【新增】抽屉顶部拖拽把手 */}
+          <DrawerDragHandle
+            height={drawerHeight}
+            onChange={(h) => uploadUIStore.panel.setDrawerHeight(h)}
+            onCollapse={() => uploadUIStore.panel.collapse()}
+          />
+          <TransferListContainer
+            uploadingItems={uploadingItems}
+            completedItems={completedItems}
+            errorItems={errorItems}
+            cancelledItems={cancelledItems}
+            uploadSpeed={uploadCoreStore.fileUploadStore?.uploadSpeed || {}}
+            onPause={this.handlePauseItem}
+            onResume={this.handleResumeItem}
+            onCancel={this.handleCancelItem}
+            onRemove={this.handleRemoveItem}
+            onPauseAll={this.handlePauseAll}
+            onResumeAll={this.handleResumeAll}
+            onClearCompleted={this.handleClearCompleted}
+            onClearErrors={this.handleClearErrors}
+            onClearCancelled={this.handleClearCancelled}
+          />
+        </Drawer>
+      </>
     );
   }
 }
 
+/**
+ * MiniBar - 底部小条组件（默认态）
+ * 仿百度网盘：有任务时显示在底部，点击展开抽屉
+ *
+ * 增强功能（2026-06-06）：
+ * 1. 总体进度条：显示所有进行中任务的平均进度
+ * 2. 闪烁提示：完成/失败时 MiniBar 闪烁 1.5s 提醒用户
+ */
+@observer
+class MiniBar extends React.Component {
+  componentDidMount() {
+    this._lastCompleted = 0;
+    this._lastFailed = 0;
+  }
+
+  /**
+   * 计算总体平均进度
+   * 只统计有 fileSize 的进行中任务
+   */
+  calcOverallPercent(queue) {
+    let totalPercent = 0;
+    let count = 0;
+    for (const item of queue) {
+      if (['uploading', 'calculating', 'merging', 'waiting'].includes(item.status)
+          && typeof item.percent === 'number') {
+        totalPercent += item.percent;
+        count++;
+      }
+    }
+    return count > 0 ? Math.round(totalPercent / count) : 0;
+  }
+
+  render() {
+    const { currentUploadQueue } = uploadCoreStore;
+    const total = currentUploadQueue.length;
+
+    // 计算各状态数量
+    let active = 0, paused = 0, completed = 0, failed = 0;
+    for (const item of currentUploadQueue) {
+      if (['uploading', 'calculating', 'merging', 'waiting'].includes(item.status)) active++;
+      else if (item.status === 'paused') paused++;
+      else if (item.status === 'completed') completed++;
+      else if (['error', 'cancelled'].includes(item.status)) failed++;
+    }
+
+    const hasActive = active > 0;
+    const overallPercent = this.calcOverallPercent(currentUploadQueue);
+
+    // 【新增】闪烁提示：完成/失败数量增加时闪烁
+    const completedDelta = completed - (this._lastCompleted || 0);
+    const failedDelta = failed - (this._lastFailed || 0);
+    const shouldFlash = (completedDelta > 0 || failedDelta > 0) && !uploadUIStore.panel.expanded;
+    // 用 ref 持久化计数（避免渲染时重置）
+    if (!this._lastCompleted && this._lastCompleted !== 0) this._lastCompleted = 0;
+    if (!this._lastFailed && this._lastFailed !== 0) this._lastFailed = 0;
+
+    // 在渲染中比较新值与持久值，更新持久值
+    // 注意：这里用 componentDidUpdate 模式更严谨，但用状态 hook 也可以
+    const prevCompleted = this._lastCompleted;
+    const prevFailed = this._lastFailed;
+    if (completed !== prevCompleted || failed !== prevFailed) {
+      // 标记待更新（避免在 render 中 setState）
+      setTimeout(() => {
+        this._lastCompleted = completed;
+        this._lastFailed = failed;
+      }, 0);
+    }
+
+    const flashColor = failedDelta > 0 ? '#ff4d4f' : '#52c41a';
+    const baseGradient = shouldFlash
+      ? `linear-gradient(135deg, ${flashColor} 0%, ${flashColor} 100%)`
+      : 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)';
+    const hoverGradient = shouldFlash
+      ? `linear-gradient(135deg, ${flashColor} 0%, ${flashColor} 100%)`
+      : 'linear-gradient(135deg, #40a9ff 0%, #1890ff 100%)';
+
+    return (
+      <div
+        onClick={() => uploadUIStore.panel.expand()}
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: baseGradient,
+          color: '#fff',
+          padding: '6px 20px 8px',
+          borderRadius: '8px 8px 0 0',
+          boxShadow: '0 -2px 12px rgba(0, 0, 0, 0.15)',
+          cursor: 'pointer',
+          zIndex: 1000,
+          minWidth: 420,
+          maxWidth: 720,
+          userSelect: 'none',
+          transition: 'background 0.3s',
+          animation: shouldFlash ? 'minibarFlash 1.5s ease-out' : 'none',
+        }}
+        onMouseEnter={(e) => {
+          if (!shouldFlash) e.currentTarget.style.background = hoverGradient;
+        }}
+        onMouseLeave={(e) => {
+          if (!shouldFlash) e.currentTarget.style.background = baseGradient;
+        }}
+        title="点击查看传输任务"
+      >
+        {/* 【新增】闪烁动画 keyframes - 注入到全局一次 */}
+        {shouldFlash && (
+          <style>{`
+            @keyframes minibarFlash {
+              0% { box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.15); }
+              20% { box-shadow: 0 -4px 24px ${flashColor}; transform: translateX(-50%) translateY(-3px); }
+              100% { box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.15); transform: translateX(-50%) translateY(0); }
+            }
+          `}</style>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {/* 图标 + 主信息 */}
+          <CloudUploadOutlined style={{ fontSize: 16 }} />
+          <span style={{ fontSize: 13, fontWeight: 500 }}>
+            {hasActive ? '正在传输' : failed > 0 ? '传输异常' : '传输完成'}
+          </span>
+
+          {/* 总体进度（仅在有进行中任务时显示） */}
+          {hasActive && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              fontSize: 12,
+              opacity: 0.95,
+            }}>
+              <div style={{
+                width: 80,
+                height: 4,
+                background: 'rgba(255, 255, 255, 0.3)',
+                borderRadius: 2,
+                overflow: 'hidden',
+              }}>
+                <div style={{
+                  width: `${overallPercent}%`,
+                  height: '100%',
+                  background: '#fff',
+                  transition: 'width 0.3s',
+                }} />
+              </div>
+              <span style={{ minWidth: 32, textAlign: 'right' }}>{overallPercent}%</span>
+            </div>
+          )}
+
+          {/* 状态徽章组 */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {active > 0 && (
+              <Badge
+                count={active}
+                style={{ backgroundColor: '#fff', color: '#1890ff' }}
+                title={`${active} 个进行中`}
+              />
+            )}
+            {paused > 0 && (
+              <Tooltip title={`${paused} 个已暂停`}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 12 }}>
+                  <PauseCircleOutlined /> {paused}
+                </span>
+              </Tooltip>
+            )}
+            {completed > 0 && (
+              <Tooltip title={`${completed} 个已完成${completedDelta > 0 ? `（+${completedDelta}）` : ''}`}>
+                <span style={{
+                  display: 'flex', alignItems: 'center', gap: 2, fontSize: 12,
+                  color: completedDelta > 0 ? '#fff' : 'inherit',
+                  fontWeight: completedDelta > 0 ? 600 : 'normal',
+                }}>
+                  <CheckCircleOutlined /> {completed}
+                </span>
+              </Tooltip>
+            )}
+            {failed > 0 && (
+              <Tooltip title={`${failed} 个失败${failedDelta > 0 ? `（+${failedDelta}）` : ''}`}>
+                <span style={{
+                  display: 'flex', alignItems: 'center', gap: 2, fontSize: 12,
+                  color: completedDelta === 0 && failedDelta > 0 ? '#fff' : 'inherit',
+                  fontWeight: failedDelta > 0 ? 600 : 'normal',
+                }}>
+                  <CloseCircleOutlined /> {failed}
+                </span>
+              </Tooltip>
+            )}
+          </div>
+
+          <span style={{ fontSize: 12, opacity: 0.85 }}>
+            共 {total} 个任务
+          </span>
+
+          {/* 展开箭头 */}
+          <UpOutlined style={{ fontSize: 12, marginLeft: 'auto' }} />
+        </div>
+      </div>
+    );
+  }
+}
+
+/**
+ * DrawerDragHandle - 抽屉顶部拖拽把手
+ *
+ * 仿百度网盘：用户可拖拽调整抽屉高度
+ * 限制范围：240px ~ 720px（由父组件 panel.setDrawerHeight 强制约束）
+ *
+ * 行为：
+ *   - mousedown：记录初始 Y 和当前 drawerHeight
+ *   - mousemove：deltaY（向下为正）→ 新高度 = drawerHeight - deltaY
+ *   - mouseup：解绑事件；高度 < 120 触发收起
+ */
+class DrawerDragHandle extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { dragging: false, startY: 0, startHeight: 0 };
+  }
+
+  handleMouseDown = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+
+    this.setState({
+      dragging: true,
+      startY: e.clientY,
+      startHeight: this.props.height,
+    });
+
+    document.addEventListener('mousemove', this.handleMouseMove);
+    document.addEventListener('mouseup', this.handleMouseUp);
+  };
+
+  handleMouseMove = (e) => {
+    if (!this.state.dragging) return;
+    const deltaY = e.clientY - this.state.startY;
+    const newHeight = this.state.startHeight - deltaY;
+    this.props.onChange(newHeight);
+  };
+
+  handleMouseUp = () => {
+    if (!this.state.dragging) return;
+    this.setState({ dragging: false });
+    document.removeEventListener('mousemove', this.handleMouseMove);
+    document.removeEventListener('mouseup', this.handleMouseUp);
+
+    // 拖到顶部（高度 < 120）触发收起
+    if (this.props.height < 120) {
+      this.props.onCollapse();
+    }
+  };
+
+  componentWillUnmount() {
+    document.removeEventListener('mousemove', this.handleMouseMove);
+    document.removeEventListener('mouseup', this.handleMouseUp);
+  }
+
+  render() {
+    const { dragging } = this.state;
+    return (
+      <div
+        onMouseDown={this.handleMouseDown}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 8,
+          cursor: dragging ? 'row-resize' : 'n-resize',
+          zIndex: 10,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: dragging ? 'rgba(24, 144, 255, 0.1)' : 'transparent',
+          transition: 'background 0.15s',
+        }}
+        onMouseEnter={(e) => {
+          if (!dragging) e.currentTarget.style.background = 'rgba(24, 144, 255, 0.08)';
+        }}
+        onMouseLeave={(e) => {
+          if (!dragging) e.currentTarget.style.background = 'transparent';
+        }}
+        title="拖动调整高度，往上拖到底部收起"
+      >
+        <div style={{
+          width: 36,
+          height: 3,
+          background: '#d9d9d9',
+          borderRadius: 2,
+          transition: 'all 0.15s',
+        }} />
+      </div>
+    );
+  }
+}
+
+export { MiniBar };
 export default UploadPanel;

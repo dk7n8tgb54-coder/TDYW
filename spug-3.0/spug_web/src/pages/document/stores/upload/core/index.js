@@ -9,7 +9,12 @@
  * - 新增 StoreEventAdapter 连接事件总线与Store
  */
 import { observable, action, computed } from 'mobx';
-import { UPLOAD_CONSTANTS } from './upload-core-constants';
+import {
+  UPLOAD_CONSTANTS,
+  UPLOAD_STATUS,
+  PENDING_STATUSES,
+  ACTIVE_STATUSES,
+} from './upload-core-constants';
 
 // 子Store
 import UploadQueueStore from './queue';
@@ -201,11 +206,12 @@ class UploadCoreStore {
   /**
    * 上传中的项目（包括等待、计算、上传、暂停、合并中）
    * 【P2优化】使用 computed 缓存，避免每次 render 重复 filter
+   * 【重构 2026-06-06】使用 UPLOAD_STATUS 常量替代硬编码字符串
    */
   @computed
   get uploadingItems() {
     return this.currentUploadQueue.filter(
-      item => ['waiting', 'calculating', 'uploading', 'paused', 'merging'].includes(item.status)
+      item => [...PENDING_STATUSES, ...ACTIVE_STATUSES, UPLOAD_STATUS.PAUSED].includes(item.status)
     );
   }
 
@@ -214,17 +220,26 @@ class UploadCoreStore {
    */
   @computed
   get completedItems() {
-    return this.currentUploadQueue.filter(item => item.status === 'completed');
+    return this.currentUploadQueue.filter(item => item.status === UPLOAD_STATUS.COMPLETED);
   }
 
   /**
-   * 失败/取消的任务
+   * 失败的任务（error + cancelled 合并为"失败"分组）
+   * 【重构 2026-06-06】cancelled 不再单独成组，统一在"失败"Tab 展示
    */
   @computed
   get errorItems() {
-    return this.currentUploadQueue.filter(
-      item => ['error', 'cancelled'].includes(item.status)
-    );
+    return this.currentUploadQueue.filter(item => item.status === UPLOAD_STATUS.ERROR);
+  }
+
+  /**
+   * 已取消的任务（用户主动取消）
+   * 【重构 2026-06-06】仍保留 computed 供旧代码使用，但 UI 统一归入 errorItems 展示
+   * 推荐直接使用 errorItems（已包含 cancelled 项）
+   */
+  @computed
+  get cancelledItems() {
+    return this.currentUploadQueue.filter(item => item.status === UPLOAD_STATUS.CANCELLED);
   }
 
   /**
@@ -232,7 +247,7 @@ class UploadCoreStore {
    */
   @computed
   get waitingCount() {
-    return this.currentUploadQueue.filter(item => item.status === 'waiting').length;
+    return this.currentUploadQueue.filter(item => item.status === UPLOAD_STATUS.WAITING).length;
   }
 
   /**
@@ -241,7 +256,7 @@ class UploadCoreStore {
   @computed
   get activeCount() {
     return this.currentUploadQueue.filter(
-      item => ['calculating', 'uploading', 'merging'].includes(item.status)
+      item => ACTIVE_STATUSES.includes(item.status)
     ).length;
   }
 
@@ -250,7 +265,7 @@ class UploadCoreStore {
    */
   @computed
   get pausedCount() {
-    return this.currentUploadQueue.filter(item => item.status === 'paused').length;
+    return this.currentUploadQueue.filter(item => item.status === UPLOAD_STATUS.PAUSED).length;
   }
 
   // ===== 工具方法 =====
@@ -264,6 +279,14 @@ class UploadCoreStore {
 
   getUploadTargetFolderId() {
     return this.rootStore.navigationStore?.getUploadTargetFolderId?.() || null;
+  }
+
+  /**
+   * 【P1 修复】获取当前空间类型（公共/私有）
+   * 提供清晰的代理方法，避免外部代码双重访问 rootStore
+   */
+  getIsPublic() {
+    return this.rootStore.navigationStore?.isPublic ?? false;
   }
 
   // ===== 初始化方法 =====
@@ -386,6 +409,10 @@ class UploadCoreStore {
     if (this.storeEventAdapter) {
       this.storeEventAdapter.destroy();
       this.storeEventAdapter = null;
+    }
+    // 【P1 修复】销毁文件夹上传Store，清理 beforeunload 事件监听器，防止内存泄漏
+    if (this.folderUploadStore) {
+      this.folderUploadStore.destroy();
     }
     this.cancelAll();
     this.md5Store.terminateAll();

@@ -53,6 +53,47 @@ export const STATE_MACHINE_CLEANUP_INTERVAL = 60000;   // 1分钟
 export const DEBOUNCE_DELAY_BATCH = 300;    // 批量操作防抖 300ms
 export const DEBOUNCE_DELAY_ITEM = 200;     // 单任务操作防抖 200ms
 
+// ============================================================
+// 状态枚举（统一来源，避免在多处重复定义状态字符串）
+// ============================================================
+
+/**
+ * 上传任务的所有可能状态
+ * 任何新增/删除状态都必须同步更新以下位置：
+ *   - index.js 的 uploadingItems / completedItems / errorItems / cancelledItems
+ *   - TransferList.js 的 activeItems / pausedItems
+ *   - UploadStateMachine.js 的 STATES 静态常量
+ */
+export const UPLOAD_STATUS = Object.freeze({
+  WAITING: 'waiting',
+  CALCULATING: 'calculating',
+  UPLOADING: 'uploading',
+  PAUSED: 'paused',
+  MERGING: 'merging',
+  COMPLETED: 'completed',
+  ERROR: 'error',
+  CANCELLED: 'cancelled',
+});
+
+// 终态集合（状态机不会从这些状态继续转换）
+export const TERMINAL_STATUSES = Object.freeze([
+  UPLOAD_STATUS.COMPLETED,
+  UPLOAD_STATUS.ERROR,
+  UPLOAD_STATUS.CANCELLED,
+]);
+
+// 活跃状态集合（占用并发槽位）
+export const ACTIVE_STATUSES = Object.freeze([
+  UPLOAD_STATUS.CALCULATING,
+  UPLOAD_STATUS.UPLOADING,
+  UPLOAD_STATUS.MERGING,
+]);
+
+// 等待/处理中状态集合（不占用并发槽位但仍在进行）
+export const PENDING_STATUSES = Object.freeze([
+  UPLOAD_STATUS.WAITING,
+]);
+
 // 状态映射：后端状态 -> 前端状态
 export const BACKEND_STATUS_MAP = {
   'UPLOADING': 'uploading',
@@ -77,6 +118,67 @@ export const FRONTEND_STATUS_MAP = {
 
 // 终态集合
 export const FINAL_STATES = ['completed', 'error', 'cancelled'];
+
+// ============================================================
+// 错误分类枚举（2026-06-06 新增）
+// 行业惯例：错误区分"可重试"与"不可重试"，UI 据此决定按钮
+// ============================================================
+
+/**
+ * 错误码枚举
+ * 任意位置产生错误时都应附带 errorCode，用于前端决定 UX
+ */
+export const ERROR_CODES = Object.freeze({
+  NETWORK: 'NETWORK',             // 网络问题（超时/断网/DNS）—— 可重试
+  SERVER: 'SERVER',               // 服务端 5xx —— 可重试
+  CLIENT: 'CLIENT',               // 客户端 4xx（请求格式错）—— 不可重试
+  PERMISSION: 'PERMISSION',       // 401/403 权限错误 —— 不可重试
+  QUOTA: 'QUOTA',                 // 413/磁盘满/配额超限 —— 不可重试
+  MD5_MISMATCH: 'MD5_MISMATCH',   // 文件校验失败（分片损坏/篡改）—— 可重试（重新传）
+  CHUNK: 'CHUNK',                 // 分片上传失败 —— 可重试
+  MERGE: 'MERGE',                 // 服务端合并失败 —— 可重试
+  CANCELLED: 'CANCELLED',         // 用户主动取消（实际用 cancelled 状态，errorCode 作为冗余）
+  UNKNOWN: 'UNKNOWN',             // 未知错误 —— 默认可重试
+});
+
+/**
+ * 错误码 → 是否可重试
+ * UI 根据此映射决定是否显示"重试"按钮
+ */
+export const RETRYABLE_ERROR_CODES = Object.freeze(new Set([
+  ERROR_CODES.NETWORK,
+  ERROR_CODES.SERVER,
+  ERROR_CODES.MD5_MISMATCH,
+  ERROR_CODES.CHUNK,
+  ERROR_CODES.MERGE,
+  ERROR_CODES.UNKNOWN,
+]));
+
+/**
+ * 不可重试的错误码
+ */
+export const NON_RETRYABLE_ERROR_CODES = Object.freeze(new Set([
+  ERROR_CODES.CLIENT,
+  ERROR_CODES.PERMISSION,
+  ERROR_CODES.QUOTA,
+  ERROR_CODES.CANCELLED,
+]));
+
+/**
+ * 错误码 → 用户友好的提示文案（可选；缺省时使用 item.error 原始文本）
+ */
+export const ERROR_CODE_MESSAGES = Object.freeze({
+  [ERROR_CODES.NETWORK]: '网络连接失败，请检查网络后重试',
+  [ERROR_CODES.SERVER]: '服务暂时不可用，请稍后重试',
+  [ERROR_CODES.CLIENT]: '请求格式错误，请联系管理员',
+  [ERROR_CODES.PERMISSION]: '没有上传权限，请联系管理员',
+  [ERROR_CODES.QUOTA]: '存储空间已满，请清理后重试',
+  [ERROR_CODES.MD5_MISMATCH]: '文件校验失败，请重新上传',
+  [ERROR_CODES.CHUNK]: '分片上传失败，请重试',
+  [ERROR_CODES.MERGE]: '服务端合并失败，请重试',
+  [ERROR_CODES.CANCELLED]: '已取消',
+  [ERROR_CODES.UNKNOWN]: '上传失败，请重试',
+});
 
 // 活跃状态集合（占用并发槽位）
 export const ACTIVE_STATES = ['calculating', 'uploading', 'merging'];

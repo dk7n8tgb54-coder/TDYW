@@ -27,7 +27,6 @@ export class ChunkUploadCoordinator {
       if (!item.fileHash) {
         this.core.queueStore.updateUploadItem(uploadId, {
           status: 'calculating',
-          error: '正在计算文件哈希...',
         });
         
         const fileHash = await this.core.md5Store?.calculateFileMD5(file, uploadId);

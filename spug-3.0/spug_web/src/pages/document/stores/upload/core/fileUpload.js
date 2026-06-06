@@ -192,9 +192,18 @@ export class FileUploadStore {
           return;  // 【关键】直接返回，不抛出错误
         } else {
           // 真正的错误
+          const httpStatus = error?.response?.status;
+          const errorCode = (
+            httpStatus === 401 || httpStatus === 403 ? 'PERMISSION' :
+            httpStatus === 413 ? 'QUOTA' :
+            httpStatus >= 400 && httpStatus < 500 ? 'CLIENT' :
+            httpStatus >= 500 ? 'SERVER' :
+            'UNKNOWN'
+          );
           this.queueStore.updateUploadItem(uploadId, {
             status: 'error',
             error: error.message || '上传失败',
+            errorCode,
             canAbort: false,
           });
           
@@ -430,9 +439,18 @@ export class FileUploadStore {
             return;
           }
         } else {
+          const httpStatus = error?.response?.status;
+          const errorCode = (
+            httpStatus === 401 || httpStatus === 403 ? 'PERMISSION' :
+            httpStatus === 413 ? 'QUOTA' :
+            httpStatus >= 400 && httpStatus < 500 ? 'CLIENT' :
+            httpStatus >= 500 ? 'SERVER' :
+            'UNKNOWN'
+          );
           this.queueStore.updateUploadItem(uploadId, {
             status: 'error',
             error: error.message || '上传失败',
+            errorCode,
             canAbort: false,
             abortToken: null,
           });
