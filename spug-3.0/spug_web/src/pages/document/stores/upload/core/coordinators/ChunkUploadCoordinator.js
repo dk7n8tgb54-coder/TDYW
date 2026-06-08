@@ -186,7 +186,12 @@ export class ChunkUploadCoordinator {
         });
 
         if (item.transferId && this.core.transferStore) {
-          await this.core.transferStore.markTransferAsFailed(item.transferId, errMessage || '上传失败');
+          // 【M9 修复】加 try-catch 防止 markTransferAsFailed 抛错影响主流程
+          try {
+            await this.core.transferStore.markTransferAsFailed(item.transferId, errMessage || '上传失败');
+          } catch (markErr) {
+            console.warn('[ChunkUploadCoordinator] markTransferAsFailed 调用本身失败:', markErr);
+          }
         }
         
         throw error;

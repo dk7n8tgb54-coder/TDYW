@@ -150,7 +150,8 @@ export class FileUploadStore {
         try {
           await this.rootStore.transferStore.completeTransfer(transferId);
         } catch (error) {
-          // 完成传输记录失败，静默处理
+          // 【M9 修复】不再完全静默，至少记录
+          console.warn('[FileUpload] completeTransfer 失败:', { transferId, error });
         }
       }
 
@@ -209,10 +210,15 @@ export class FileUploadStore {
           
           // 标记传输记录为失败
           if (item.transferId && this.rootStore.transferStore) {
-            this.rootStore.transferStore.markTransferAsFailed(
-              item.transferId, 
-              error.message || '上传失败'
-            );
+            // 【M9 修复】加 try-catch 防止 markTransferAsFailed 抛错影响主流程
+            try {
+              await this.rootStore.transferStore.markTransferAsFailed(
+                item.transferId,
+                error.message || '上传失败'
+              );
+            } catch (markErr) {
+              console.warn('[FileUpload] markTransferAsFailed 调用本身失败:', markErr);
+            }
           }
           
           // 清理唯一标识
@@ -335,7 +341,8 @@ export class FileUploadStore {
                 error.message || '上传失败'
               );
             } catch (e) {
-              // 静默处理
+              // 【M9 修复】不再完全静默，至少记录
+              console.warn('[FileUpload] markTransferAsFailed 失败:', { transferId, e });
             }
           }
           throw error;
@@ -401,7 +408,8 @@ export class FileUploadStore {
         try {
           await this.rootStore.transferStore.completeTransfer(transferId);
         } catch (error) {
-          // 完成传输记录失败，静默处理
+          // 【M9 修复】不再完全静默，至少记录
+          console.warn('[FileUpload] completeTransfer 失败:', { transferId, error });
         }
       }
 
@@ -463,7 +471,8 @@ export class FileUploadStore {
                 error.message || '上传失败'
               );
             } catch (e) {
-              // 标记传输记录失败，静默处理
+              // 【M9 修复】不再完全静默，至少记录
+              console.warn('[FileUpload] markTransferAsFailed 失败:', { transferId: item.transferId, e });
             }
           }
           

@@ -266,7 +266,13 @@ export class ChunkUploadStore {
 
         // 标记传输记录为失败
         if (item.transferId && this.rootStore.transferStore) {
-          this.rootStore.transferStore.markTransferAsFailed(item.transferId, detailedError);
+          // 【M9 修复】markTransferAsFailed 自身已有 console.error，这里加 try-catch
+          // 是为了防止 markTransferAsFailed 内部抛错影响主流程（虽然现在不会了）
+          try {
+            await this.rootStore.transferStore.markTransferAsFailed(item.transferId, detailedError);
+          } catch (e) {
+            console.warn('[ChunkUpload] markTransferAsFailed 调用本身失败:', e);
+          }
         }
         
         // 只有非暂停错误才抛出

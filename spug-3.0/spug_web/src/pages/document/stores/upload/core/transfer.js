@@ -63,27 +63,41 @@ export class TransferStore {
 
   /**
    * 更新传输进度
+   * @param {Object} [options]
+   * @param {boolean} [options.throwOnError=false] - 失败时是否抛错（默认 false 保持向后兼容）
    */
-  async updateTransferProgress(transferId, progress) {
+  async updateTransferProgress(transferId, progress, options = {}) {
+    const { throwOnError = false } = options;
     try {
       const { http } = await import('libs');
       await http.post(API_ENDPOINTS.TRANSFER_PROGRESS(transferId), { progress });
     } catch (error) {
-      // 静默处理
+      // 【M9 修复】不再静默吞错，至少记录到 console
+      console.error('[TransferStore] updateTransferProgress 失败:', { transferId, error });
+      if (throwOnError) {
+        throw error;
+      }
     }
   }
 
   /**
    * 完成传输
+   * @param {Object} [options]
+   * @param {boolean} [options.throwOnError=false] - 失败时是否抛错（默认 false 保持向后兼容）
    */
-  async completeTransfer(transferId, filePath = null) {
+  async completeTransfer(transferId, filePath = null, options = {}) {
+    const { throwOnError = false } = options;
     try {
       const { http } = await import('libs');
       await http.post(API_ENDPOINTS.TRANSFER_COMPLETE(transferId), {
         file_path: filePath
       });
     } catch (error) {
-      // 静默处理
+      // 【M9 修复】不再静默吞错
+      console.error('[TransferStore] completeTransfer 失败:', { transferId, error });
+      if (throwOnError) {
+        throw error;
+      }
     }
   }
 
@@ -269,15 +283,22 @@ export class TransferStore {
 
   /**
    * 标记传输为失败
+   * @param {Object} [options]
+   * @param {boolean} [options.throwOnError=false] - 失败时是否抛错（默认 false 保持向后兼容）
    */
-  async markTransferAsFailed(transferId, errorMessage) {
+  async markTransferAsFailed(transferId, errorMessage, options = {}) {
+    const { throwOnError = false } = options;
     try {
       const { http } = await import('libs');
       await http.post(API_ENDPOINTS.TRANSFER_FAIL(transferId), {
         error_message: errorMessage
       });
     } catch (error) {
-      // 静默处理
+      // 【M9 修复】不再静默吞错
+      console.error('[TransferStore] markTransferAsFailed 失败:', { transferId, errorMessage, error });
+      if (throwOnError) {
+        throw error;
+      }
     }
   }
 
@@ -359,6 +380,47 @@ export class TransferStore {
     } catch (error) {
       return false;
     }
+  }
+
+  /**
+   * 【M9 修复】带重试的同步传输记录（指数退避）
+   * 用法：调用方把原本直接调 completeTransfer / markTransferAsFailed / updateTransferProgress
+   *       换成这个方法，传入具体操作 + 参数
+   * @param {Function} op - 实际操作函数，签名 `async () => Promise<void>`
+   * @param {Object} [options]
+   * @param {number} [options.maxRetries=3] - 最大重试次数
+   * @param {number} [options.baseDelay=1000] - 基础延迟（ms），实际延迟 = baseDelay * 2^(attempt-1)
+   * @param {string} [options.opName='sync'] - 操作名（用于日志）
+   * @returns {Promise<{success: boolean, attempts: number, error?: Error}>}
+   */
+  async _syncTransferWithRetry(op, options = {}) {
+    const { maxRetries = 3, baseDelay = 1000, opName = 'sync' } = options;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await op();
+        if (attempt > 1) {
+          console.log(`[TransferStore] ${opName} 第 ${attempt} 次重试成功`);
+        }
+        return { success: true, attempts: attempt };
+      } catch (error) {
+        lastError = error;
+        // 4xx 客户端错误不重试（重试无意义）
+        const status = error?.response?.status || error?.status;
+        if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+          console.warn(`[TransferStore] ${opName} 客户端错误 ${status}，不重试:`, error);
+          return { success: false, attempts: attempt, error };
+        }
+        if (attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt - 1);  // 1s, 2s, 4s
+          console.warn(`[TransferStore] ${opName} 第 ${attempt} 次失败，${delay}ms 后重试:`, error);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    console.error(`[TransferStore] ${opName} 重试 ${maxRetries} 次后仍失败:`, lastError);
+    return { success: false, attempts: maxRetries, error: lastError };
   }
 }
 
