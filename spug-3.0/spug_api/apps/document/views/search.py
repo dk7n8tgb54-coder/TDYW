@@ -4,24 +4,111 @@
 """
 文件夹搜索模块
 提供递归搜索文件夹和文件的功能
+
+【M4 2026-06-08 决定】FULLTEXT 在当前 MariaDB 10.8 + 默认分词器环境下不可用
+- MariaDB 默认分词器对带 _/数字 的混合字符串不切分（视为整 token）
+- ngram plugin 需要 SUPER 权限才能 INSTALL，spug 用户无权限
+- 折中方案：保留 FULLTEXT helper 函数（_should_use_fulltext / _apply_fulltext_filter）
+  作为"未来 ngram 装好后的接口"，但 get() 强制走 LIKE（_apply_fallback_filter）
+- 详细分析见 _M4_INFEASIBLE_REPORT.md
+- 当前实际行为 = 修复前的 LIKE 行为
 """
 
 import logging
 from django.views.generic import View
 from django.conf import settings
+from django.db.models import Q
+from django.db import connection
 
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter
 from ..libs.document_utils import get_folder_model, get_file_model
+from ..libs.view_utils import format_file_size
 from ..constants import DEFAULT_MAX_FOLDER_DEPTH
 
 logger = logging.getLogger(__name__)
+
+
+# 【M4 新增】MySQL FULLTEXT 全文索引最小词长（InnoDB 默认 3）
+# 关键词长度 < 此值时 FULLTEXT 不命中，需 fallback 到 LIKE
+FT_MIN_TOKEN_SIZE = 3
 
 
 def _get_max_recursion_depth():
     """延迟获取最大递归深度，避免模块导入时访问 settings"""
     from django.conf import settings
     return getattr(settings, 'MAX_FOLDER_RECURSION_DEPTH', DEFAULT_MAX_FOLDER_DEPTH)
+
+
+def _should_use_fulltext(keyword):
+    """
+    【M4 新增】判断关键词是否走 FULLTEXT 索引
+
+    决策依据：
+    1. 关键词 < FT_MIN_TOKEN_SIZE(3)：FULLTEXT 不索引（InnoDB ft_min_token_size=3）→ fallback LIKE
+    2. 关键词含 FULLTEXT 保留字符（+ -><()~*"@:）：BOOLEAN MODE 解析复杂 → fallback LIKE 更稳
+    3. 关键词是纯 stopword（如 "the"）：FULLTEXT 默认 stopword 不索引 → fallback LIKE
+    4. 其他情况：走 FULLTEXT MATCH AGAINST
+
+    Returns:
+        bool: True 走 FULLTEXT，False 走 LIKE
+    """
+    if not keyword:
+        return False
+    if len(keyword) < FT_MIN_TOKEN_SIZE:
+        return False
+    # FULLTEXT 保留字符：+ -><()~*"@:
+    ft_reserved = set('+-><()~*"@:')
+    if any(c in ft_reserved for c in keyword):
+        return False
+    return True
+
+
+def _apply_fulltext_filter(queryset, keyword, fields):
+    """
+    【M4 新增】对 queryset 追加 FULLTEXT MATCH AGAINST 过滤
+
+    Django 对 MySQL FULLTEXT 的一等支持有限（仅 PostgreSQL 有 SearchVector），
+    用 extra(where=[...], params=[...]) 走原生 SQL 是稳妥方案。
+    关键词作为参数化值传递（防 SQL 注入）。
+
+    Args:
+        queryset: 已构造的 QuerySet
+        keyword: 搜索关键词
+        fields: 字段名列表（多字段走复合索引）
+
+    Returns:
+        QuerySet: 追加了 FULLTEXT WHERE 条件的 queryset
+    """
+    # BOOLEAN MODE: keyword* 前缀匹配，更符合用户预期
+    # 例：搜 "doc" → "document" "docx" "docs" 都能命中
+    boolean_keyword = f'+{keyword}*'
+    match_expr = 'MATCH({}) AGAINST (%s IN BOOLEAN MODE)'.format(', '.join(fields))
+    return queryset.extra(where=[match_expr], params=[boolean_keyword])
+
+
+def _apply_fallback_filter(queryset, keyword, fields):
+    """
+    【M4 新增】对 queryset 追加 LIKE 过滤（FULLTEXT 不可用时的 fallback）
+
+    支持多字段 OR 查询：
+    - 单字段：name__icontains
+    - 多字段：Q(name__icontains) | Q(display_name__icontains)
+
+    Args:
+        queryset: 已构造的 QuerySet
+        keyword: 搜索关键词
+        fields: 字段名列表
+
+    Returns:
+        QuerySet: 追加了 LIKE 条件的 queryset
+    """
+    if len(fields) == 1:
+        return queryset.filter(**{f'{fields[0]}__icontains': keyword})
+    q = Q()
+    for f in fields:
+        q |= Q(**{f'{f}__icontains': keyword})
+    return queryset.filter(q)
 
 
 class FolderSearchView(View):
@@ -79,30 +166,30 @@ class FolderSearchView(View):
             folder_ids_to_search = list(folder_ids_to_search)[:self.MAX_FOLDER_IDS]
 
         # 搜索匹配的文件夹（限制数量）
+        # 【2026-06-08 决定】FULLTEXT 在 MariaDB 10.8 + 默认分词器 + 业务字段带 _/数字 环境下
+        # 不能正确切词（不按 _ 切分），且 ngram plugin 无 SUPER 权限装不上
+        # 暂时只用 LIKE（fallback），保留 FULLTEXT helper 函数作为"未来 ngram 装好后的接口"
+        # 详细分析见 _M4_INFEASIBLE_REPORT.md
         folders_query = FolderModel.objects.filter(
             id__in=folder_ids_to_search,
-            name__icontains=keyword
         ).select_related('created_by')
+        folders_query = _apply_fallback_filter(folders_query, keyword, ['name'])
 
         # 私有空间：添加租户过滤（严格模式）
         if not form.is_public:
             folders_query = apply_tenant_filter(folders_query, request.user, strict_mode=True)
-        
+
         # 【优化】限制总数并分页
         total_folders = min(folders_query.count(), self.MAX_SEARCH_RESULTS)
         folders = folders_query[offset:offset + page_size]
 
         # 搜索匹配的文件（限制数量）
         # 【修复】支持搜索文件夹内和根目录的文件（folder_id=None）
-        from django.db.models import Q
+        # 【M4 优化 2026-06-08】name + display_name 任一命中即可
         files_query = FileModel.objects.filter(
             (Q(folder_id__in=folder_ids_to_search) | Q(folder_id=None)),
-            name__icontains=keyword
         ).select_related('created_by')
-
-        # 私有空间：添加租户过滤（严格模式）
-        if not form.is_public:
-            files_query = apply_tenant_filter(files_query, request.user, strict_mode=True)
+        files_query = _apply_fallback_filter(files_query, keyword, ['name', 'display_name'])
         
         # 【优化】限制总数并分页
         total_files = min(files_query.count(), self.MAX_SEARCH_RESULTS)
@@ -139,12 +226,10 @@ class FolderSearchView(View):
         # 格式化文件数据
         for f in files:
             file_size = f.file_size
-            if file_size >= 1024 * 1024:
-                size = f'{file_size / 1024 / 1024:.2f} MB'
-            elif file_size >= 1024:
-                size = f'{file_size / 1024:.2f} KB'
-            else:
-                size = f'{file_size} B'
+            # 【2026-06-06 M1 修复】调用统一的 format_file_size 而非内联手写
+            # 行为变化：旧实现卡死在 MB（1GB → "1024.00 MB"），新实现按 1024 逐级升级
+            # （1GB → "1.00 GB"）。这是改进但需要前端展示侧能接受。
+            size = format_file_size(file_size)
 
             result['files'].append({
                 'id': f.id,

@@ -40,7 +40,10 @@ class RecycleBinFolderPermanentDeleteView(View):
         form, error = JsonParser(
             Argument('folder_ids', type=list, required=True),
             Argument('async_mode', type=bool, required=False, default=False),
-            Argument('idempotent_key', required=False)  # 【新增】幂等键
+            Argument('idempotent_key', required=False),  # 【新增】幂等键
+            # 【Bug 2 修复 2026-06-08】新增 space 参数，与文件删除保持一致
+            Argument('space', required=False, default=None,
+                     filter=lambda x: x in ('private', 'public', None)),
         ).parse(request.body)
 
         if error:
@@ -58,7 +61,7 @@ class RecycleBinFolderPermanentDeleteView(View):
                 return json_response(data=cached_result)
         
         # 计算总大小决定是否需要异步处理
-        total_size, total_files = self._calculate_total_size(form.folder_ids)
+        total_size, total_files = self._calculate_total_size(form.folder_ids, form.space)
         need_async = form.async_mode or total_size > self.LARGE_FOLDER_THRESHOLD or len(form.folder_ids) > 3
         
         if need_async:
@@ -73,10 +76,10 @@ class RecycleBinFolderPermanentDeleteView(View):
                 
                 # 提交异步任务
                 task = async_batch_folder_permanent_delete.delay(
-                    form.folder_ids, request.user.id
+                    form.folder_ids, request.user.id, form.space
                 )
                 logger.info(f'[RecycleBin] 异步删除文件夹任务已提交: task_id={task.id}, '
-                           f'folders={len(form.folder_ids)}, user={request.user.username}')
+                           f'folders={len(form.folder_ids)}, space={form.space}, user={request.user.username}')
 
                 response_data = {
                     'async': True,
@@ -98,21 +101,37 @@ class RecycleBinFolderPermanentDeleteView(View):
                 logger.info('[RecycleBin] 降级为同步删除')
         
         # 同步删除
+        # 【H3 修复 2026-06-08】每个 folder 单独事务（SAVEPOINT-like 行为）
+        # - 修复前：整个 with transaction.atomic() 包住所有 folders，任一失败全部回滚
+        #   → 单个 folder 失败导致"已删的物理文件"无法回滚
+        # - 修复后：每个 folder 独立事务，单个失败不影响其他 folder
+        # - 与异步路径 (async_batch_folder_permanent_delete) 语义一致
+        # - 物理文件删除仍在事务内（受 DB 失败影响），但**单 folder 隔离**已大幅降低不一致风险
+        #   物理 vs DB 不一致的深层修复需要重写 _delete_folder_recursive（不在本次范围）
         results = []
         total_freed = 0
         total_deleted_files = 0
-        
-        try:
-            with transaction.atomic():
-                for folder_id in form.folder_ids:
-                    result = self._permanent_delete_folder(folder_id, request.user)
+
+        for folder_id in form.folder_ids:
+            try:
+                with transaction.atomic():
+                    result = self._permanent_delete_folder(folder_id, request.user, form.space)
                     results.append(result)
                     if result['status'] == 'success':
                         total_freed += result.get('freed_size', 0)
                         total_deleted_files += result.get('deleted_file_count', 0)
-        except Exception as e:
-            logger.error(f'[RecycleBin] 批量删除文件夹事务失败: {e}')
-            return json_response(error='删除操作失败', code=500001)
+            except Exception as e:
+                # 单个 folder 失败被捕获：不影响其他 folder
+                logger.error(
+                    f'[RecycleBin] 删除文件夹失败: folder_id={folder_id}, error={e}',
+                    exc_info=True
+                )
+                results.append({
+                    'id': folder_id,
+                    'status': 'failed',
+                    'error': f'删除失败: {str(e)}',
+                    'code': 500003
+                })
         
         invalidate_cache(request.user.id)
 
@@ -131,31 +150,35 @@ class RecycleBinFolderPermanentDeleteView(View):
 
         return json_response(data=response_data)
     
-    def _calculate_total_size(self, folder_ids):
+    def _calculate_total_size(self, folder_ids, space=None):
         """计算文件夹总大小和文件数"""
         total_size = 0
         total_files = 0
-        
+
         for folder_id in folder_ids:
-            # 尝试私有空间
-            try:
-                folder = DocumentFolderPrivate.all_objects.get(id=folder_id, is_deleted=True)
-                size, count = self._get_folder_size_and_count(folder, DocumentFolderPrivate, DocumentFilePrivate)
-                total_size += size
-                total_files += count
-                continue
-            except DocumentFolderPrivate.DoesNotExist:
-                pass
-            
-            # 尝试公共空间
-            try:
-                folder = DocumentFolderPublic.all_objects.get(id=folder_id, is_deleted=True)
-                size, count = self._get_folder_size_and_count(folder, DocumentFolderPublic, DocumentFilePublic)
-                total_size += size
-                total_files += count
-            except DocumentFolderPublic.DoesNotExist:
-                pass
-        
+            # 【Bug 2 修复 2026-06-08】按 space 路由，与 _permanent_delete_folder 保持一致
+            if space in ('private', None):
+                try:
+                    folder = DocumentFolderPrivate.all_objects.get(id=folder_id, is_deleted=True)
+                    size, count = self._get_folder_size_and_count(folder, DocumentFolderPrivate, DocumentFilePrivate)
+                    total_size += size
+                    total_files += count
+                    continue
+                except DocumentFolderPrivate.DoesNotExist:
+                    if space == 'private':
+                        pass  # space 明确为 private，查不到就跳过
+                    else:
+                        pass  # 兼容模式，继续查 public
+
+            if space in ('public', None):
+                try:
+                    folder = DocumentFolderPublic.all_objects.get(id=folder_id, is_deleted=True)
+                    size, count = self._get_folder_size_and_count(folder, DocumentFolderPublic, DocumentFilePublic)
+                    total_size += size
+                    total_files += count
+                except DocumentFolderPublic.DoesNotExist:
+                    pass
+
         return total_size, total_files
     
     def _get_folder_size_and_count(self, folder, FolderModel, FileModel):
@@ -176,10 +199,42 @@ class RecycleBinFolderPermanentDeleteView(View):
         
         return stats['total_size'] or 0, stats['total_files'] or 0
     
-    def _permanent_delete_folder(self, folder_id, user):
+    def _permanent_delete_folder(self, folder_id, user, space=None):
         """彻底删除单个文件夹及其内容"""
-        logger.info(f'[RecycleBin] 尝试删除文件夹: folder_id={folder_id}, user={user.username}')
-        
+        logger.info(f'[RecycleBin] 尝试删除文件夹: folder_id={folder_id}, space={space}, user={user.username}')
+
+        # 【Bug 2 修复 2026-06-08】按 space 路由
+        # - 修复前：先查 Private，ID 冲突会错误地走 Private 路径
+        # - 修复后：如果 space 明确，只查对应表
+        if space == 'private':
+            try:
+                folder = DocumentFolderPrivate.all_objects.get(id=folder_id, is_deleted=True)
+                logger.info(f'[RecycleBin] 找到私密空间文件夹: folder_id={folder_id}, tenant_id={repr(folder.tenant_id)}')
+                return self._delete_private_folder(folder, user)
+            except DocumentFolderPrivate.DoesNotExist:
+                logger.error(f'[RecycleBin] 文件夹不存在: folder_id={folder_id}')
+                return {
+                    'id': folder_id,
+                    'status': 'failed',
+                    'error': '文件夹不存在或未被删除',
+                    'code': 404001
+                }
+
+        if space == 'public':
+            try:
+                folder = DocumentFolderPublic.all_objects.get(id=folder_id, is_deleted=True)
+                logger.info(f'[RecycleBin] 找到公共空间文件夹: folder_id={folder_id}, created_by={folder.created_by}')
+                return self._delete_public_folder(folder, user)
+            except DocumentFolderPublic.DoesNotExist:
+                logger.error(f'[RecycleBin] 文件夹不存在: folder_id={folder_id}')
+                return {
+                    'id': folder_id,
+                    'status': 'failed',
+                    'error': '文件夹不存在或未被删除',
+                    'code': 404001
+                }
+
+        # 向后兼容：space 缺省时保持原行为（先 Private 再 Public）
         # 先尝试私有空间
         try:
             folder = DocumentFolderPrivate.all_objects.get(id=folder_id, is_deleted=True)
@@ -187,7 +242,7 @@ class RecycleBinFolderPermanentDeleteView(View):
             return self._delete_private_folder(folder, user)
         except DocumentFolderPrivate.DoesNotExist:
             pass
-        
+
         # 再尝试公共空间
         try:
             folder = DocumentFolderPublic.all_objects.get(id=folder_id, is_deleted=True)

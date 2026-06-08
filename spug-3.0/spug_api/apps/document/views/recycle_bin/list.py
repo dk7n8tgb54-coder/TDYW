@@ -91,14 +91,14 @@ class RecycleBinView(View):
         """获取单空间结果（文件夹+文件）"""
         FileModel = DocumentFilePrivate if space == 'private' else DocumentFilePublic
         FolderModel = DocumentFolderPrivate if space == 'private' else DocumentFolderPublic
-        
+
         # 查询文件夹（只显示顶层文件夹：parent为null或parent未被删除）
         folder_qs = FolderModel.all_objects.filter(
             is_deleted=True
         ).filter(
             Q(parent__isnull=True) | Q(parent__is_deleted=False)
         ).select_related('parent', 'created_by', 'deleted_by')
-        
+
         # 【修改】私密空间完全隔离，超级管理员也不能查看其他租户数据
         # 【修复】公共空间：超级管理员查看所有，普通用户只能查看自己的
         if space == 'private':
@@ -107,7 +107,7 @@ class RecycleBinView(View):
             folder_qs = folder_qs.filter(created_by=user)
         if keyword:
             folder_qs = folder_qs.filter(name__icontains=keyword)
-        
+
         # 查询文件（独立文件，不在已删除文件夹中的）
         file_qs = FileModel.all_objects.filter(is_deleted=True).select_related('folder', 'created_by')
         # 【修改】私密空间完全隔离，超级管理员也不能查看其他租户数据
@@ -120,33 +120,47 @@ class RecycleBinView(View):
         file_qs = file_qs.filter(Q(folder__isnull=True) | Q(folder__is_deleted=False))
         if keyword:
             file_qs = file_qs.filter(Q(display_name__icontains=keyword) | Q(name__icontains=keyword))
-        
-        # 合并并排序
-        folders = list(folder_qs)
-        files = list(file_qs)
-        
+
+        # 【H2 优化 2026-06-07】DB 端 count + DB 端分页，避免全量加载
+        # 旧实现：list(folder_qs) + list(file_qs) + 内存排序 + 内存分页（OOM 风险）
+        # 新实现：每空间多取 page_size 条（覆盖合并排序损耗），合并当前页
+        offset = (page - 1) * page_size
+        # 多取 1 页：应对合并排序时另一类项目挤掉当前页项目的情况
+        # 实际中 deleted_at 相同的概率极低，所以多取 page_size 一般足够
+        fetch_size = page_size * 2
+
+        # DB 端 count（O(log n) 在有索引时）
+        folder_count = folder_qs.count()
+        file_count = file_qs.count()
+        total_count = folder_count + file_count
+
+        # DB 端分页：order_by 必须有 deleted_at 索引（或 id）保证稳定排序
+        # .order_by('-deleted_at', '-id') 保证同 deleted_at 时有 secondary key
+        folder_page = list(folder_qs.order_by('-deleted_at', '-id')[offset:offset + fetch_size])
+        file_page = list(file_qs.order_by('-deleted_at', '-id')[offset:offset + fetch_size])
+
         # 标记类型
-        for f in folders:
+        for f in folder_page:
             f._item_type = 'folder'
             f._space = space
-        for f in files:
+        for f in file_page:
             f._item_type = 'file'
             f._space = space
-        
-        all_items = folders + files
+
+        # 内存合并当前页（最多 fetch_size × 2 = 200 条，几十 KB）
+        all_items = folder_page + file_page
         all_items.sort(key=lambda x: x.deleted_at if x.deleted_at else timezone.now(), reverse=True)
-        
-        total_count = len(all_items)
-        offset = (page - 1) * page_size
-        paginated_items = all_items[offset:offset + page_size]
-        
+
+        # 截取当前页
+        paginated_items = all_items[:page_size]
+
         results = []
         for item in paginated_items:
             if getattr(item, '_item_type', 'file') == 'folder':
                 results.append(self._format_folder(item, space))
             else:
                 results.append(self._format_file(item, space))
-        
+
         return {
             'items': results,
             'total': total_count,
@@ -163,7 +177,7 @@ class RecycleBinView(View):
             Q(parent__isnull=True) | Q(parent__is_deleted=False)
         ).select_related('parent', 'created_by', 'deleted_by')
         private_file_qs = DocumentFilePrivate.all_objects.filter(is_deleted=True).select_related('folder', 'created_by')
-        
+
         # 公共空间（只显示顶层文件夹）
         public_folder_qs = DocumentFolderPublic.all_objects.filter(
             is_deleted=True
@@ -171,7 +185,7 @@ class RecycleBinView(View):
             Q(parent__isnull=True) | Q(parent__is_deleted=False)
         ).select_related('parent', 'created_by', 'deleted_by')
         public_file_qs = DocumentFilePublic.all_objects.filter(is_deleted=True).select_related('folder', 'created_by')
-        
+
         # 【修改】私密空间完全隔离，超级管理员也不能查看其他租户数据
         # 私有空间过滤
         private_folder_qs = private_folder_qs.filter(tenant_id=user_tenant_id)
@@ -180,48 +194,59 @@ class RecycleBinView(View):
         if not user.is_supper:
             public_folder_qs = public_folder_qs.filter(created_by=user)
             public_file_qs = public_file_qs.filter(created_by=user)
-        
+
         # 关键词过滤
         if keyword:
             private_folder_qs = private_folder_qs.filter(name__icontains=keyword)
             private_file_qs = private_file_qs.filter(Q(display_name__icontains=keyword) | Q(name__icontains=keyword))
             public_folder_qs = public_folder_qs.filter(name__icontains=keyword)
             public_file_qs = public_file_qs.filter(Q(display_name__icontains=keyword) | Q(name__icontains=keyword))
-        
+
         # 文件只显示独立文件
         private_file_qs = private_file_qs.filter(Q(folder__isnull=True) | Q(folder__is_deleted=False))
         public_file_qs = public_file_qs.filter(Q(folder__isnull=True) | Q(folder__is_deleted=False))
-        
-        # 合并所有数据
-        all_items = []
-        
-        for f in private_folder_qs:
-            f._item_type = 'folder'
-            f._space = 'private'
-            all_items.append(f)
-        
-        for f in private_file_qs:
-            f._item_type = 'file'
-            f._space = 'private'
-            all_items.append(f)
-        
-        for f in public_folder_qs:
-            f._item_type = 'folder'
-            f._space = 'public'
-            all_items.append(f)
-        
-        for f in public_file_qs:
-            f._item_type = 'file'
-            f._space = 'public'
-            all_items.append(f)
-        
-        # 排序
-        all_items.sort(key=lambda x: x.deleted_at if x.deleted_at else timezone.now(), reverse=True)
-        
-        total_count = len(all_items)
+
+        # 【H2 优化 2026-06-07】DB 端 count + DB 端分页（4 个 queryset 各 1 count + 1 page）
         offset = (page - 1) * page_size
-        paginated_items = all_items[offset:offset + page_size]
-        
+        # 多取 1 页应对合并排序损耗
+        fetch_size = page_size * 2
+
+        # DB 端 count（避免内存 len）
+        total_count = (
+            private_folder_qs.count() +
+            private_file_qs.count() +
+            public_folder_qs.count() +
+            public_file_qs.count()
+        )
+
+        # DB 端分页：每个 queryset order_by + LIMIT/OFFSET
+        # 注意：4 个 query 都从 offset 开始取，合并后只截前 page_size 条
+        pf_page = list(private_folder_qs.order_by('-deleted_at', '-id')[offset:offset + fetch_size])
+        pfile_page = list(private_file_qs.order_by('-deleted_at', '-id')[offset:offset + fetch_size])
+        pubf_page = list(public_folder_qs.order_by('-deleted_at', '-id')[offset:offset + fetch_size])
+        pubfile_page = list(public_file_qs.order_by('-deleted_at', '-id')[offset:offset + fetch_size])
+
+        # 标记类型 + 空间
+        for f in pf_page:
+            f._item_type = 'folder'
+            f._space = 'private'
+        for f in pfile_page:
+            f._item_type = 'file'
+            f._space = 'private'
+        for f in pubf_page:
+            f._item_type = 'folder'
+            f._space = 'public'
+        for f in pubfile_page:
+            f._item_type = 'file'
+            f._space = 'public'
+
+        # 内存合并当前页（最多 fetch_size × 4 = 400 条，~100 KB）
+        all_items = pf_page + pfile_page + pubf_page + pubfile_page
+        all_items.sort(key=lambda x: x.deleted_at if x.deleted_at else timezone.now(), reverse=True)
+
+        # 截取当前页
+        paginated_items = all_items[:page_size]
+
         results = []
         for item in paginated_items:
             space = getattr(item, '_space', 'private')
@@ -229,7 +254,7 @@ class RecycleBinView(View):
                 results.append(self._format_folder(item, space))
             else:
                 results.append(self._format_file(item, space))
-        
+
         return {
             'items': results,
             'total': total_count,

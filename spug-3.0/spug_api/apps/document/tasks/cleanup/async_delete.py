@@ -17,15 +17,19 @@ logger = logging.getLogger(__name__)
     time_limit=3600, 
     queue='document.cleanup'
 )
-def async_batch_permanent_delete(self, file_ids, user_id):
+def async_batch_permanent_delete(self, file_ids, user_id, space=None):
     """
     【V3新增】异步批量彻底删除文件（用于大文件或大批量删除）
     避免阻塞前端用户操作
-    
+
     Args:
         file_ids: 要删除的文件ID列表
         user_id: 执行删除的用户ID
-        
+        space: 【Bug 2 修复 2026-06-08】空间路由 'private'/'public'/None
+            - None (向后兼容): 先查 Private，失败再查 Public（不推荐，ID 冲突时可能错路由）
+            - 'private': 只查 Private
+            - 'public': 只查 Public
+
     Returns:
         dict: 删除结果统计
     """
@@ -61,8 +65,8 @@ def async_batch_permanent_delete(self, file_ids, user_id):
         try:
             with transaction.atomic():
                 for file_id in batch:
-                    logger.info(f'[AsyncDelete] 删除文件: file_id={file_id}')
-                    result = _permanent_delete_single(file_id, user_id, user, log_operation)
+                    logger.info(f'[AsyncDelete] 删除文件: file_id={file_id}, space={space}')
+                    result = _permanent_delete_single(file_id, user_id, user, log_operation, space)
                     results.append(result)
                     
                     if result['status'] == 'success':
@@ -103,55 +107,90 @@ def async_batch_permanent_delete(self, file_ids, user_id):
     }
 
 
-def _permanent_delete_single(file_id, user_id, user=None, log_operation_func=None):
-    """【P0修复】删除单个文件（供异步任务使用）"""
+def _resolve_file_obj(file_id, space):
+    """
+    【M6 重构】按 space 路由查找文件对象。
+    找到返回 (file_obj, is_public, None);
+    找不到返回 (None, None, error_msg)。
+
+    space 路由规避了 DocumentFilePrivate 和 DocumentFilePublic 共享 id sequence
+    导致的 ID 冲突问题(实测 26 个 id 重叠)。
+    """
+    from apps.document.models import DocumentFilePrivate, DocumentFilePublic
+    not_found_msg = '文件不存在或未被删除'
+    if space == 'private':
+        try:
+            return DocumentFilePrivate.all_objects.get(id=file_id, is_deleted=True), False, None
+        except DocumentFilePrivate.DoesNotExist:
+            logger.error(f'[AsyncDelete] 文件不存在(space=private): file_id={file_id}')
+            return None, None, not_found_msg
+    if space == 'public':
+        try:
+            return DocumentFilePublic.all_objects.get(id=file_id, is_deleted=True), True, None
+        except DocumentFilePublic.DoesNotExist:
+            logger.error(f'[AsyncDelete] 文件不存在(space=public): file_id={file_id}')
+            return None, None, not_found_msg
+    # 向后兼容:space 缺省时先 Private 再 Public
+    try:
+        return DocumentFilePrivate.all_objects.get(id=file_id, is_deleted=True), False, None
+    except DocumentFilePrivate.DoesNotExist:
+        try:
+            return DocumentFilePublic.all_objects.get(id=file_id, is_deleted=True), True, None
+        except DocumentFilePublic.DoesNotExist:
+            logger.error(f'[AsyncDelete] 文件不存在: file_id={file_id}')
+            return None, None, not_found_msg
+
+
+def _check_delete_permission(user, file_obj, is_public):
+    """
+    【M6 重构】校验用户对文件的删除权限,返回 None 表示通过,字符串表示失败原因
+    """
+    if not is_public:
+        user_tenant_id = getattr(user, 'tenant_id', None)
+        if user_tenant_id is None or file_obj.tenant_id != user_tenant_id:
+            logger.error(f'[AsyncDelete] 租户隔离检查失败: file_id={file_obj.id}, '
+                         f'file_tenant={file_obj.tenant_id}, user_tenant={user_tenant_id}')
+            return '权限不足(租户隔离)'
+        return None
+    if not user.is_supper and file_obj.created_by != user:
+        logger.error(f'[AsyncDelete] 权限不足: file_id={file_obj.id}, '
+                     f'file_owner={file_obj.created_by}, user={user}')
+        return '无操作权限'
+    return None
+
+
+def _permanent_delete_single(file_id, user_id, user=None, log_operation_func=None, space=None):
+    """【M6 重构】删除单个文件(供异步任务使用)"""
     from apps.account.models import User
     from apps.document.models import DocumentFilePrivate, DocumentFilePublic
-    
-    # 【P0修复】重新查询用户并验证状态
+
+    # 【P0 修复】重新查询用户并验证状态
     if user is None:
         try:
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
             logger.error(f'[AsyncDelete] 用户不存在: user_id={user_id}')
             return {'id': file_id, 'status': 'failed', 'error': '用户不存在'}
-    
+
     try:
-        # 尝试私有空间
-        try:
-            file_obj = DocumentFilePrivate.all_objects.get(id=file_id, is_deleted=True)
-            is_public = False
-            logger.info(f'[AsyncDelete] 找到私有空间文件: file_id={file_id}, physical_name={file_obj.physical_name}')
-        except DocumentFilePrivate.DoesNotExist:
-            try:
-                file_obj = DocumentFilePublic.all_objects.get(id=file_id, is_deleted=True)
-                is_public = True
-                logger.info(f'[AsyncDelete] 找到公共空间文件: file_id={file_id}, physical_name={file_obj.physical_name}')
-            except DocumentFilePublic.DoesNotExist:
-                logger.error(f'[AsyncDelete] 文件不存在: file_id={file_id}')
-                return {'id': file_id, 'status': 'failed', 'error': '文件不存在或未被删除'}
-        
-        # 【修改】权限校验 - 私密空间完全隔离，超级管理员也不能操作其他租户数据
-        user_tenant_id = getattr(user, 'tenant_id', None)
-        if not is_public:
-            # 私密空间：检查租户ID，管理员也不能跨租户
-            if user_tenant_id is None or file_obj.tenant_id != user_tenant_id:
-                logger.error(f'[AsyncDelete] 租户隔离检查失败: file_id={file_id}, file_tenant={file_obj.tenant_id}, user_tenant={user_tenant_id}')
-                return {'id': file_id, 'status': 'failed', 'error': '权限不足（租户隔离）'}
-        else:
-            # 公共空间：管理员可以操作所有，普通用户只能操作自己的
-            if not user.is_supper and file_obj.created_by != user:
-                logger.error(f'[AsyncDelete] 权限不足: file_id={file_id}, file_owner={file_obj.created_by}, user={user}')
-                return {'id': file_id, 'status': 'failed', 'error': '无操作权限'}
-        
+        # 【M6 重构】按 space 路由,避免 ID 冲突
+        file_obj, is_public, resolve_err = _resolve_file_obj(file_id, space)
+        if file_obj is None:
+            return {'id': file_id, 'status': 'failed', 'error': resolve_err}
+
+        # 【M6 重构】权限校验
+        perm_err = _check_delete_permission(user, file_obj, is_public)
+        if perm_err is not None:
+            return {'id': file_id, 'status': 'failed', 'error': perm_err}
+
         file_size = file_obj.file_size
         physical_name = file_obj.physical_name
-        
+
         # 执行硬删除
         logger.info(f'[AsyncDelete] 执行硬删除: file_id={file_id}, physical_name={physical_name}')
         file_obj.delete(hard=True)
         logger.info(f'[AsyncDelete] 硬删除完成: file_id={file_id}')
-        
+
         # 记录审计日志
         if log_operation_func:
             log_operation_func(
@@ -162,9 +201,9 @@ def _permanent_delete_single(file_id, user_id, user=None, log_operation_func=Non
                 is_public=is_public,
                 file_size=file_size
             )
-        
+
         return {'id': file_id, 'status': 'success', 'file_size': file_size}
-        
+
     except (OSError, IOError, DatabaseError) as e:
         logger.error(f'[AsyncDelete] 删除文件失败: file_id={file_id}, error={e}', exc_info=True)
         return {'id': file_id, 'status': 'failed', 'error': str(e)}
@@ -177,15 +216,16 @@ def _permanent_delete_single(file_id, user_id, user=None, log_operation_func=Non
     time_limit=7200, 
     queue='document.cleanup'
 )
-def async_batch_folder_permanent_delete(self, folder_ids, user_id):
+def async_batch_folder_permanent_delete(self, folder_ids, user_id, space=None):
     """
     【V3新增】异步批量彻底删除文件夹及其内容
     用于大文件夹或大批量删除，避免阻塞前端用户操作
-    
+
     Args:
         folder_ids: 要删除的文件夹ID列表
         user_id: 执行删除的用户ID
-        
+        space: 【Bug 2 修复 2026-06-08】空间路由 'private'/'public'/None
+
     Returns:
         dict: 删除结果统计
     """
@@ -215,7 +255,7 @@ def async_batch_folder_permanent_delete(self, folder_ids, user_id):
         
         try:
             with transaction.atomic():
-                result = _permanent_delete_folder_single(folder_id, user_id, user)
+                result = _permanent_delete_folder_single(folder_id, user_id, user, space)
                 results.append(result)
                 
                 if result['status'] == 'success':
@@ -257,37 +297,64 @@ def async_batch_folder_permanent_delete(self, folder_ids, user_id):
     }
 
 
-def _permanent_delete_folder_single(folder_id, user_id, user=None):
+def _permanent_delete_folder_single(folder_id, user_id, user=None, space=None):
     """【新增】删除单个文件夹及其内容（供异步任务使用）"""
     from apps.account.models import User
     from apps.document.models import DocumentFolderPrivate, DocumentFolderPublic, DocumentFilePrivate, DocumentFilePublic
     from apps.document.views.base import log_operation
     from apps.document.tasks.cleanup.base import _delete_folder_contents_iterative, _delete_physical_folder_safe
-    
+
     if user is None:
         try:
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
             logger.error(f'[AsyncFolderDelete] 用户不存在: user_id={user_id}')
             return {'id': folder_id, 'status': 'failed', 'error': '用户不存在'}
-    
-    # 尝试查找文件夹
-    try:
-        folder = DocumentFolderPrivate.all_objects.get(id=folder_id, is_deleted=True)
-        FolderModel = DocumentFolderPrivate
-        FileModel = DocumentFilePrivate
-        is_public = False
-        logger.info(f'[AsyncFolderDelete] 找到私有空间文件夹: folder_id={folder_id}, name={folder.name}')
-    except DocumentFolderPrivate.DoesNotExist:
+
+    # 【Bug 2 修复 2026-06-08】按 space 路由
+    is_public = None
+    folder = None
+    FolderModel = None
+    FileModel = None
+
+    if space == 'private':
+        try:
+            folder = DocumentFolderPrivate.all_objects.get(id=folder_id, is_deleted=True)
+            FolderModel = DocumentFolderPrivate
+            FileModel = DocumentFilePrivate
+            is_public = False
+            logger.info(f'[AsyncFolderDelete] 找到私有空间文件夹(按 space 路由): folder_id={folder_id}, name={folder.name}')
+        except DocumentFolderPrivate.DoesNotExist:
+            logger.error(f'[AsyncFolderDelete] 文件夹不存在(space=private): folder_id={folder_id}')
+            return {'id': folder_id, 'status': 'failed', 'error': '文件夹不存在或未被删除'}
+    elif space == 'public':
         try:
             folder = DocumentFolderPublic.all_objects.get(id=folder_id, is_deleted=True)
             FolderModel = DocumentFolderPublic
             FileModel = DocumentFilePublic
             is_public = True
-            logger.info(f'[AsyncFolderDelete] 找到公共空间文件夹: folder_id={folder_id}, name={folder.name}')
+            logger.info(f'[AsyncFolderDelete] 找到公共空间文件夹(按 space 路由): folder_id={folder_id}, name={folder.name}')
         except DocumentFolderPublic.DoesNotExist:
-            logger.error(f'[AsyncFolderDelete] 文件夹不存在: folder_id={folder_id}')
+            logger.error(f'[AsyncFolderDelete] 文件夹不存在(space=public): folder_id={folder_id}')
             return {'id': folder_id, 'status': 'failed', 'error': '文件夹不存在或未被删除'}
+    else:
+        # 向后兼容：space 缺省时保持原行为（先 Private 再 Public）
+        try:
+            folder = DocumentFolderPrivate.all_objects.get(id=folder_id, is_deleted=True)
+            FolderModel = DocumentFolderPrivate
+            FileModel = DocumentFilePrivate
+            is_public = False
+            logger.info(f'[AsyncFolderDelete] 找到私有空间文件夹(默认路由): folder_id={folder_id}, name={folder.name}')
+        except DocumentFolderPrivate.DoesNotExist:
+            try:
+                folder = DocumentFolderPublic.all_objects.get(id=folder_id, is_deleted=True)
+                FolderModel = DocumentFolderPublic
+                FileModel = DocumentFilePublic
+                is_public = True
+                logger.info(f'[AsyncFolderDelete] 找到公共空间文件夹(默认路由): folder_id={folder_id}, name={folder.name}')
+            except DocumentFolderPublic.DoesNotExist:
+                logger.error(f'[AsyncFolderDelete] 文件夹不存在: folder_id={folder_id}')
+                return {'id': folder_id, 'status': 'failed', 'error': '文件夹不存在或未被删除'}
     
     # 【修改】权限校验 - 私密空间完全隔离，超级管理员也不能操作其他租户数据
     # 【P0修复】使用 is_public 变量判断，避免 hasattr 判断错误

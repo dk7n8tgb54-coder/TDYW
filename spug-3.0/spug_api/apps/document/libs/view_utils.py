@@ -50,15 +50,32 @@ def check_public_space_permission(request_user, resource_obj, resource_type='fil
 
 def log_operation(action, user, resource_type, resource_id, **kwargs):
     """
-    统一的审计日志函数
-    """
-    tenant_id = getattr(user, 'tenant_id', 'N/A')
-    is_public = kwargs.get('is_public', False)
-    details = ', '.join([f'{k}={v}' for k, v in kwargs.items() if k != 'is_public'])
+    【M12 升级 2026-06-08】统一的审计日志函数
 
-    logger.debug(
-        '[TenantAudit] Action=%s, User=%s, Tenant=%s, IsPublic=%s, Type=%s, ID=%s, %s',
-        action, user.username, tenant_id, is_public, resource_type, resource_id, details
+    升级要点：
+    1. 之前：logger.debug 输出字符串，几乎不打印（DEBUG 默认禁用）
+    2. 现在：内部调 audit_log，输出结构化 JSON 到独立 'audit' logger
+    3. 19 个调用点完全保持兼容 — 内部自动从 user 推 user_id/tenant_id
+
+    Args:
+        action: 操作名（如 'FILE_PERMANENT_DELETE'）
+        user: User 对象（必传，从其 .id/.username/.tenant_id 提取）
+        resource_type: 资源类型字符串（如 'FILE' / 'FOLDER'）
+        resource_id: 资源 ID
+        **kwargs: 额外字段（is_public / file_size / folder_name / task_id / space 等）
+
+    Returns:
+        str: 序列化后的 JSON 字符串（同时通过 'audit' logger 输出）
+    """
+    # 延迟 import 避免循环引用
+    from libs.audit_logger import audit_log
+    return audit_log(
+        action=action,
+        target_id=resource_id,
+        status=kwargs.pop('status', 'success'),
+        target_type=resource_type,
+        user=user,
+        **kwargs,
     )
 
 

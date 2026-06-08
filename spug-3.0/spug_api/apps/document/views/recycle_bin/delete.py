@@ -32,7 +32,16 @@ class RecycleBinPermanentDeleteView(View):
         form, error = JsonParser(
             Argument('file_ids', type=list, required=True),
             Argument('async_mode', type=bool, required=False, default=False),
-            Argument('idempotent_key', required=False)
+            Argument('idempotent_key', required=False),
+            # 【Bug 2 修复 2026-06-08】新增 space 参数
+            # - 修复前：前端只传 file_ids，后端不区分空间。
+            #   DocumentFilePrivate 和 DocumentFilePublic 共享 id sequence（实测重叠 26 个 id），
+            #   异步任务 _permanent_delete_single 先查 Private 表 → 公共空间文件被错误地按 Private 路径处理 → 失败
+            #   同步路径虽然两边都查，但同样无法保证正确空间路由。
+            # - 修复后：前端按 space 分组调用，后端按 space 路由，异步任务优先按 space 查表
+            # - 向后兼容：space 缺省时保持原行为（先 Private 再 Public）
+            Argument('space', required=False, default=None,
+                     filter=lambda x: x in ('private', 'public', None)),
         ).parse(request.body)
 
         if error:
@@ -66,8 +75,9 @@ class RecycleBinPermanentDeleteView(View):
             active_queues = inspector.active_queues()
             logger.info(f'[RecycleBin] Celery连接状态: active_queues={active_queues is not None}')
 
-            task = async_batch_permanent_delete.delay(form.file_ids, user.id)
-            logger.info(f'[RecycleBin] 异步删除任务已提交: task_id={task.id}, files={len(form.file_ids)}, user={user.username}')
+            # 【Bug 2 修复 2026-06-08】把 space 透传到异步任务
+            task = async_batch_permanent_delete.delay(form.file_ids, user.id, form.space)
+            logger.info(f'[RecycleBin] 异步删除任务已提交: task_id={task.id}, files={len(form.file_ids)}, space={form.space}, user={user.username}')
 
             response_data = {
                 'async': True,
@@ -92,31 +102,54 @@ class RecycleBinPermanentDeleteView(View):
 
         user_tenant_id = getattr(user, 'tenant_id', '') or ''
 
-        private_files = {
-            f.id: f for f in DocumentFilePrivate.all_objects.filter(
-                id__in=form.file_ids, is_deleted=True, tenant_id=user_tenant_id
-            ).select_related('created_by')
-        }
+        # 【Bug 2 修复 2026-06-08】按 space 路由
+        # - 修复前：all_files = private.copy() + public.update()，ID 冲突时 Public 覆盖 Private
+        #   → 但 dict.get() 拿到的是 Public 对象，_delete_single_file 走 isinstance 检查 → Public 走 Public 路径
+        #   → 实际不会失败（因为 Public 后写入）。但**异步路径**先查 Private 表会错。
+        # - 修复后：如果 form.space 明确，按 space 单独查；否则保持向后兼容
+        all_files = {}
 
-        public_files = {
-            f.id: f for f in DocumentFilePublic.all_objects.filter(
-                id__in=form.file_ids, is_deleted=True
-            ).select_related('created_by')
-        }
+        if form.space in ('private', None):
+            private_files = {
+                f.id: f for f in DocumentFilePrivate.all_objects.filter(
+                    id__in=form.file_ids, is_deleted=True, tenant_id=user_tenant_id
+                ).select_related('created_by')
+            }
+            all_files.update(private_files)
 
-        all_files = private_files.copy()
-        all_files.update(public_files)
+        if form.space in ('public', None):
+            public_files = {
+                f.id: f for f in DocumentFilePublic.all_objects.filter(
+                    id__in=form.file_ids, is_deleted=True
+                ).select_related('created_by')
+            }
+            all_files.update(public_files)
 
-        try:
-            with transaction.atomic():
-                for file_id in form.file_ids:
+        # 【H3 修复 2026-06-08】每个 file 单独事务（SAVEPOINT-like 行为）
+        # - 修复前：整个 with transaction.atomic() 包住所有 files，任一失败全部回滚
+        #   → 单个 file 失败导致"已删的物理文件"无法回滚
+        # - 修复后：每个 file 独立事务，单个失败不影响其他 file
+        # - 与 folder_delete.py 同步路径、async_batch_permanent_delete 异步 task 语义一致
+        # - 物理文件删除仍可能在事务内（受 DB 失败影响），但**单 file 隔离**已大幅降低不一致风险
+        for file_id in form.file_ids:
+            try:
+                with transaction.atomic():
                     result = self._delete_single_file(file_id, all_files.get(file_id), user)
                     results.append(result)
                     if result['status'] == 'success':
                         total_freed += result.get('file_size', 0)
-        except Exception as e:
-            logger.error(f'[RecycleBin] 批量删除事务失败: {e}')
-            return json_response(error='删除操作失败')
+            except Exception as e:
+                # 单个 file 失败被捕获：不影响其他 file
+                logger.error(
+                    f'[RecycleBin] 删除文件失败: file_id={file_id}, error={e}',
+                    exc_info=True
+                )
+                results.append({
+                    'id': file_id,
+                    'status': 'failed',
+                    'error': f'删除失败: {str(e)}',
+                    'code': 500003
+                })
 
         invalidate_cache(user.id)
 

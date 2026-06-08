@@ -14,6 +14,7 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from libs import json_response, auth
+from ...libs.permission_utils import get_folder_stats_optimized
 from ...models import (
     DocumentFilePrivate, DocumentFilePublic,
     DocumentFolderPrivate, DocumentFolderPublic
@@ -147,73 +148,53 @@ class RecycleBinStatsView(View):
         })
     
     def _get_folder_stats(self, FolderModel, user_tenant_id, user):
-        """【新增】获取文件夹统计信息（私有空间）"""
+        """【H1 修复 2026-06-07】获取文件夹统计信息（私有空间）
+        使用 permission_utils.get_folder_stats_optimized 替代 N+1 循环
+        """
         folder_queryset = FolderModel.all_objects.filter(is_deleted=True)
-        
+
         # 【修改】私密空间完全隔离，超级管理员也不能查看其他租户数据
         folder_queryset = folder_queryset.filter(tenant_id=user_tenant_id)
-        
+
         folder_count = folder_queryset.count()
-        
-        # 统计文件夹内的文件数量和大小
+
+        # 统计文件夹内的文件数量和大小（优化版：BFS + 聚合查询，替代原 N+1 循环）
         total_file_count = 0
         total_size = 0
-        
-        FileModel = DocumentFilePrivate if FolderModel == DocumentFolderPrivate else DocumentFilePublic
-        
+        space = 'private' if FolderModel == DocumentFolderPrivate else 'public'
+
         for folder in folder_queryset:
-            file_count, folder_size = self._calculate_folder_contents(folder, FolderModel, FileModel)
+            file_count, folder_size = get_folder_stats_optimized(folder, space)
             total_file_count += file_count
             total_size += folder_size
-        
+
         return folder_count, total_file_count, total_size
-    
+
     def _get_public_folder_stats(self, FolderModel, user):
-        """【新增】获取文件夹统计信息（公共空间）"""
+        """【H1 修复 2026-06-07】获取文件夹统计信息（公共空间）
+        使用 permission_utils.get_folder_stats_optimized 替代 N+1 循环
+        """
         folder_queryset = FolderModel.all_objects.filter(is_deleted=True)
-        
+
         if not user.is_supper:
             # 公共空间普通用户只能看到自己创建的文件夹
             folder_queryset = folder_queryset.filter(created_by=user)
-        
+
         folder_count = folder_queryset.count()
-        
-        # 统计文件夹内的文件数量和大小
+
+        # 统计文件夹内的文件数量和大小（优化版：BFS + 聚合查询，替代原 N+1 循环）
         total_file_count = 0
         total_size = 0
-        
-        FileModel = DocumentFilePublic
-        
+        space = 'public'
+
         for folder in folder_queryset:
-            file_count, folder_size = self._calculate_folder_contents(folder, FolderModel, FileModel)
+            file_count, folder_size = get_folder_stats_optimized(folder, space)
             total_file_count += file_count
             total_size += folder_size
-        
+
         return folder_count, total_file_count, total_size
-    
-    def _calculate_folder_contents(self, folder, FolderModel, FileModel):
-        """【新增】计算文件夹及其子文件夹的内容统计"""
-        total_files = 0
-        total_size = 0
-        
-        # 获取所有子孙文件夹ID
-        folder_ids = self._get_folder_and_descendants(folder, FolderModel)
-        
-        # 统计所有文件
-        for folder_id in folder_ids:
-            files = FileModel.all_objects.filter(folder_id=folder_id, is_deleted=True)
-            total_files += files.count()
-            total_size += sum(f.file_size for f in files)
-        
-        return total_files, total_size
-    
-    def _get_folder_and_descendants(self, folder, FolderModel):
-        """【新增】获取文件夹及其所有子孙文件夹的ID列表"""
-        folder_ids = [folder.id]
-        
-        # 获取直接子文件夹
-        children = FolderModel.all_objects.filter(parent=folder, is_deleted=True)
-        for child in children:
-            folder_ids.extend(self._get_folder_and_descendants(child, FolderModel))
-        
-        return folder_ids
+
+    # 【H1 修复 2026-06-07】删除以下未优化的方法：
+    # - _calculate_folder_contents (N+1 循环)
+    # - _get_folder_and_descendants (递归)
+    # 改用 permission_utils.get_folder_stats_optimized (BFS + 聚合查询)
