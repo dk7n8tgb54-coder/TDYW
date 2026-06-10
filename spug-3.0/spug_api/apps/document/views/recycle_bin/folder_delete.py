@@ -16,6 +16,7 @@ from django.core.cache import cache
 
 from libs import json_response, JsonParser, Argument, auth
 from ...models import DocumentFolderPrivate, DocumentFolderPublic, DocumentFilePrivate, DocumentFilePublic
+from ...exceptions import DocumentPhysicalDeleteError
 from ..base import log_operation
 from .utils import invalidate_cache
 from ...libs.permission_utils import (
@@ -382,13 +383,13 @@ class RecycleBinFolderPermanentDeleteView(View):
             all_folders.append(current_folder)
             
             # 获取直接子文件夹
-            sub_folders = FolderModel.all_objects.filter(parent=current_folder, is_deleted=True)
+            sub_folders = FolderModel.all_objects.filter(parent=current_folder, is_deleted=True).order_by()
             folder_queue.extend(sub_folders)
         
         # 2. 从最深层开始删除（逆序处理）
         for current_folder in reversed(all_folders):
             # 删除当前文件夹内的文件
-            files = FileModel.all_objects.filter(folder=current_folder, is_deleted=True)
+            files = FileModel.all_objects.filter(folder=current_folder, is_deleted=True).order_by()
             for file_obj in files:
                 if self._check_file_permission(file_obj, user):
                     file_size = file_obj.file_size
@@ -396,15 +397,19 @@ class RecycleBinFolderPermanentDeleteView(View):
                         file_obj.delete(hard=True)
                         freed_size += file_size
                         deleted_count += 1
+                    except DocumentPhysicalDeleteError as e:
+                        logger.warning(f'[RecycleBin] 文件物理删除失败，已标记待清理: file_id={file_obj.id}, path={e.file_path}')
                     except Exception as e:
                         logger.error(f'[RecycleBin] 删除文件失败: file_id={file_obj.id}, error={e}')
-            
+
             # 删除子文件夹的物理目录和记录（顶层文件夹除外）
             if current_folder.id != folder.id:
                 if self._check_folder_permission(current_folder, user):
                     self._delete_physical_folder(current_folder)
                     try:
                         current_folder.delete(hard=True)
+                    except DocumentPhysicalDeleteError as e:
+                        logger.warning(f'[RecycleBin] 文件夹物理删除失败，已标记待清理: folder_id={current_folder.id}')
                     except Exception as e:
                         logger.error(f'[RecycleBin] 删除子文件夹记录失败: folder_id={current_folder.id}, error={e}')
             else:

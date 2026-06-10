@@ -51,7 +51,7 @@ class FolderDownloadView(View):
         FileModel = get_file_model(is_public=form.is_public)
 
         logger.info(f'[Document] Downloading folder id: {form.id}, is_public={form.is_public}')
-        folder_query = FolderModel.objects.filter(pk=form.id)
+        folder_query = FolderModel.objects.filter(pk=form.id).order_by()
         if not form.is_public:
             folder_query = apply_tenant_filter(folder_query, request.user, strict_mode=True)
         folder = folder_query.select_related('created_by').first()
@@ -79,11 +79,11 @@ class FolderDownloadView(View):
         while queue:
             current_id = queue.pop(0)
             # 批量统计当前层的文件数
-            file_count = FileModel.objects.filter(folder_id=current_id).count()
+            file_count = FileModel.objects.filter(folder_id=current_id).order_by().count()
             total += file_count
 
             # 批量获取子文件夹
-            children = FolderModel.objects.filter(parent_id=current_id).values_list('id', flat=True)
+            children = FolderModel.objects.filter(parent_id=current_id).order_by().values_list('id', flat=True)
             for child_id in children:
                 if child_id not in visited:
                     visited.add(child_id)
@@ -237,7 +237,7 @@ class FolderDownloadView(View):
                 current_zip_path = f'{parent_path}{current.name}/'
             folder_paths[current.id] = current_zip_path
 
-            children_query = FolderModel.objects.filter(parent=current)
+            children_query = FolderModel.objects.filter(parent=current).order_by()
             if request_user and not is_public:
                 children_query = apply_tenant_filter(children_query, request_user)
             children = list(children_query.select_related('created_by'))
@@ -253,7 +253,7 @@ class FolderDownloadView(View):
 
     def _batch_query_files(self, folder_ids, FolderModel, FileModel, is_public, request_user):
         """批量查询所有文件并按 folder_id 分组"""
-        files_query = FileModel.objects.filter(folder_id__in=list(folder_ids))
+        files_query = FileModel.objects.filter(folder_id__in=list(folder_ids)).order_by()
         if request_user and not is_public:
             files_query = apply_tenant_filter(files_query, request_user)
 

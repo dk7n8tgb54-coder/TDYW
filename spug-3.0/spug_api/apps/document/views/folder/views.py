@@ -12,11 +12,12 @@ import json
 import shutil
 import logging
 from django.views.generic import View
-from django.db import transaction
+from django.db import transaction, IntegrityError
 
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_folder_model, get_file_model, get_document_absolute_path
+from ...libs.view_utils import permission_denied_response
 from ..base import create_model_instance, validate_file_name, check_public_space_permission, log_operation
 from ..recycle_bin.utils import invalidate_cache
 
@@ -64,7 +65,7 @@ class FolderView(View):
     
     def _get_all_folders(self, request, FolderModel, is_public):
         """获取所有文件夹（树形结构）"""
-        query = FolderModel.objects.filter(is_deleted=False).select_related('created_by')
+        query = FolderModel.objects.filter(is_deleted=False).select_related('created_by').order_by('-created_at')
         if not is_public:
             query = apply_tenant_filter(query, request.user, strict_mode=True)
 
@@ -77,6 +78,7 @@ class FolderView(View):
                 'name': f.name, 
                 'parent_id': f.parent_id, 
                 'created_at': f.created_at.strftime('%Y-%m-%d %H:%M:%S'), 
+                'updated_at': f.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
                 'created_by': f.created_by.nickname if f.created_by else None, 
                 'created_by_id': f.created_by_id
             }
@@ -86,11 +88,11 @@ class FolderView(View):
     
     def _get_root_contents(self, request, FolderModel, FileModel, is_public, page, page_size):
         """获取根目录内容（分页优化）"""
-        folders_query = FolderModel.objects.filter(parent__isnull=True, is_deleted=False).select_related('created_by')
+        folders_query = FolderModel.objects.filter(parent__isnull=True, is_deleted=False).select_related('created_by').order_by('-created_at')
         if not is_public:
             folders_query = apply_tenant_filter(folders_query, request.user, strict_mode=True)
 
-        files_query = FileModel.objects.filter(folder__isnull=True).select_related('created_by')
+        files_query = FileModel.objects.filter(folder__isnull=True).select_related('created_by').order_by('-created_at')
         if not is_public:
             files_query = apply_tenant_filter(files_query, request.user, strict_mode=True)
 
@@ -125,6 +127,7 @@ class FolderView(View):
                     'name': f.name,
                     'parent_id': f.parent_id,
                     'created_at': f.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                    'updated_at': f.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
                     'created_by': f.created_by.nickname if f.created_by else None,
                     'created_by_id': f.created_by_id
                 }
@@ -143,11 +146,11 @@ class FolderView(View):
 
     def _get_folder_contents(self, request, FolderModel, FileModel, folder_id, is_public, page, page_size):
         """获取指定文件夹内容（分页优化）"""
-        folders_query = FolderModel.objects.filter(parent_id=folder_id, is_deleted=False).select_related('created_by')
+        folders_query = FolderModel.objects.filter(parent_id=folder_id, is_deleted=False).select_related('created_by').order_by('-created_at')
         if not is_public:
             folders_query = apply_tenant_filter(folders_query, request.user, strict_mode=True)
 
-        files_query = FileModel.objects.filter(folder_id=folder_id).select_related('created_by')
+        files_query = FileModel.objects.filter(folder_id=folder_id).select_related('created_by').order_by('-created_at')
         if not is_public:
             files_query = apply_tenant_filter(files_query, request.user, strict_mode=True)
 
@@ -180,7 +183,9 @@ class FolderView(View):
                 {
                     'id': f.id,
                     'name': f.name,
+                    'parent_id': f.parent_id,
                     'created_at': f.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                    'updated_at': f.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
                     'created_by': f.created_by.nickname if f.created_by else None,
                     'created_by_id': f.created_by_id
                 }
@@ -205,7 +210,9 @@ class FolderView(View):
             'display_name': f.display_name if hasattr(f, 'display_name') else None,
             'size': f.file_size,  # 返回原始字节数，由前端格式化显示
             'file_type': f.file_type,
+            'folder_id': f.folder_id,
             'created_at': f.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'updated_at': f.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
             'created_by': f.created_by.nickname if f.created_by else None,
             'created_by_id': f.created_by_id,
             'thumbnail_path': f.thumbnail_path if hasattr(f, 'thumbnail_path') else None,  # 缩略图路径
@@ -213,7 +220,7 @@ class FolderView(View):
 
     @auth('document.document.create_folder')
     def post(self, request):
-        """创建文件夹"""
+        """创建文件夹（幂等：同名同父目录已存在则返回已有 ID）"""
         try:
             data = json.loads(request.body)
             name = data.get('name')
@@ -230,6 +237,7 @@ class FolderView(View):
             return json_response(error='文件夹名称包含非法字符')
 
         FolderModel = get_folder_model(is_public=is_public)
+        parent = None
 
         if parent_id:
             try:
@@ -240,29 +248,49 @@ class FolderView(View):
             if parent_id <= 0:
                 return json_response(error='父文件夹ID无效')
 
-            parent_query = FolderModel.objects.filter(pk=parent_id, is_deleted=False)
+            parent_query = FolderModel.objects.filter(pk=parent_id, is_deleted=False).order_by()
             if not is_public:
                 parent_query = apply_tenant_filter(parent_query, request.user, strict_mode=True)
             parent = parent_query.first()
             if not parent:
                 return json_response(error='父文件夹不存在')
-                
-            if is_public:
-                if FolderModel.objects.filter(parent_id=parent_id, name=name, is_deleted=False).exists():
-                    return json_response(error='文件夹名称已存在')
-            else:
-                if FolderModel.objects.filter(parent_id=parent_id, name=name, created_by=request.user, is_deleted=False).exists():
-                    return json_response(error='文件夹名称已存在')
-            new_folder = create_model_instance(FolderModel, name=name, parent=parent, created_by=request.user)
+
+        # 幂等创建：先查已有，再创建，撞 unique_key 时再查一次
+        existing = self._find_existing_folder(FolderModel, name, parent_id, is_public, request.user)
+        if existing:
+            return json_response({'id': existing.id, 'created': False})
+
+        try:
+            with transaction.atomic():
+                if parent:
+                    new_folder = create_model_instance(FolderModel, name=name, parent=parent, created_by=request.user)
+                else:
+                    new_folder = create_model_instance(FolderModel, name=name, created_by=request.user)
+            return json_response({'id': new_folder.id, 'created': True})
+        except IntegrityError as e:
+            # 撞 unique_key：并发创建时另一个请求已插入，再查一次拿已有 ID
+            existing = self._find_existing_folder(FolderModel, name, parent_id, is_public, request.user)
+            if existing:
+                logger.info(f'[FolderView] 并发创建冲突，返回已有文件夹: name={name}, parent_id={parent_id}, id={existing.id}')
+                return json_response({'id': existing.id, 'created': False})
+            logger.error(f'[FolderView] 创建文件夹唯一键冲突但未找到已有目录: name={name}, parent_id={parent_id}, error={e}')
+            return json_response(error='文件夹创建失败，请稍后重试')
+
+    @staticmethod
+    def _find_existing_folder(FolderModel, name, parent_id, is_public, user):
+        """查找同名同父目录的已有文件夹（幂等创建辅助方法）"""
+        qs = FolderModel.objects.filter(name=name, is_deleted=False).order_by()
+
+        if parent_id:
+            qs = qs.filter(parent_id=parent_id)
         else:
-            if is_public:
-                if FolderModel.objects.filter(parent__isnull=True, name=name, is_deleted=False).exists():
-                    return json_response(error='文件夹名称已存在')
-            else:
-                if FolderModel.objects.filter(parent__isnull=True, name=name, created_by=request.user, is_deleted=False).exists():
-                    return json_response(error='文件夹名称已存在')
-            new_folder = create_model_instance(FolderModel, name=name, created_by=request.user)
-        return json_response({'id': new_folder.id})
+            qs = qs.filter(parent__isnull=True)
+
+        if not is_public:
+            qs = apply_tenant_filter(qs, user, strict_mode=True)
+            qs = qs.filter(created_by=user)
+
+        return qs.first()
 
     @auth('document.document.delete')
     def delete(self, request):
@@ -278,7 +306,7 @@ class FolderView(View):
         FolderModel = get_folder_model(is_public=form.is_public)
         FileModel = get_file_model(is_public=form.is_public)
 
-        folder_query = FolderModel.objects.filter(pk=form.id, is_deleted=False)
+        folder_query = FolderModel.objects.filter(pk=form.id, is_deleted=False).order_by()
         if not form.is_public:
             folder_query = apply_tenant_filter(folder_query, request.user, strict_mode=True)
         folder = folder_query.first()
@@ -288,7 +316,7 @@ class FolderView(View):
 
         # 公共空间权限校验
         if form.is_public and not check_public_space_permission(request.user, folder, 'folder', '删除'):
-            return json_response(error='公共空间中只能删除自己创建的文件夹')
+            return permission_denied_response('公共空间中只能删除自己创建的文件夹', 'not_owner')
 
         try:
             self._delete_folder(folder, FolderModel, FileModel, form.is_public, request.user, request.user)
@@ -315,7 +343,7 @@ class FolderView(View):
         BATCH_SIZE = 50
 
         # 第一步：递归软删除子文件夹
-        sub_folders_query = FolderModel.objects.filter(parent=folder, is_deleted=False)
+        sub_folders_query = FolderModel.objects.filter(parent=folder, is_deleted=False).order_by()
         if request_user and not is_public:
             sub_folders_query = apply_tenant_filter(sub_folders_query, request_user, strict_mode=True)
         sub_folders_count = sub_folders_query.count()

@@ -6,6 +6,7 @@
 import logging
 from celery import shared_task
 from django.db import transaction, DatabaseError
+from apps.document.exceptions import DocumentPhysicalDeleteError
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +205,9 @@ def _permanent_delete_single(file_id, user_id, user=None, log_operation_func=Non
 
         return {'id': file_id, 'status': 'success', 'file_size': file_size}
 
+    except DocumentPhysicalDeleteError as e:
+        logger.warning(f'[AsyncDelete] 物理文件删除失败，已标记待清理: file_id={file_id}, path={e.file_path}')
+        return {'id': file_id, 'status': 'pending_clean', 'error': '文件删除失败，已加入待清理队列', 'code': 500004}
     except (OSError, IOError, DatabaseError) as e:
         logger.error(f'[AsyncDelete] 删除文件失败: file_id={file_id}, error={e}', exc_info=True)
         return {'id': file_id, 'status': 'failed', 'error': str(e)}

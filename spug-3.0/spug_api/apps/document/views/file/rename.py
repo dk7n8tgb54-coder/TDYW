@@ -13,6 +13,7 @@ from django.views.generic import View
 from libs import json_response, auth
 from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_file_model
+from ...libs.view_utils import permission_denied_response
 from ..base import validate_file_name, check_public_space_permission, log_operation
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ class FileRenameView(View):
 
         FileModel = get_file_model(is_public=is_public)
 
-        file_query = FileModel.objects.filter(pk=file_id)
+        file_query = FileModel.objects.filter(pk=file_id).order_by()
         if not is_public:
             file_query = apply_tenant_filter(file_query, request.user, strict_mode=True)
         file = file_query.select_related('created_by').first()
@@ -53,13 +54,13 @@ class FileRenameView(View):
 
         # 公共空间权限校验
         if is_public and not check_public_space_permission(request.user, file, 'file', '重命名'):
-            return json_response(error='公共空间中只能重命名自己创建的文件')
+            return permission_denied_response('公共空间中只能重命名自己创建的文件', 'not_owner')
 
         # 检查同一文件夹下是否存在同名文件（排除自己，添加租户过滤）
         existing_file_query = FileModel.objects.filter(
             folder_id=file.folder_id,
             display_name=name
-        ).exclude(pk=file_id)
+        ).exclude(pk=file_id).order_by()
 
         if not is_public:
             existing_file_query = apply_tenant_filter(existing_file_query, request.user, strict_mode=True)

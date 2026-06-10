@@ -36,7 +36,7 @@ def cleanup_expired_transfers(self, days=30):
                 TransferStatus.CANCELED.value
             ],
             updated_at__lt=cutoff_date
-        )
+        ).order_by()
         
         count = expired_transfers.count()
         expired_transfers.delete()

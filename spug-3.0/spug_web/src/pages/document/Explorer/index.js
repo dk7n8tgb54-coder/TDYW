@@ -22,7 +22,7 @@ import { uploadCoreStore } from '../stores';
 import PreviewModal from '../PreviewModal';
 import ContextMenu from '../components/ContextMenu';
 import FolderTreeSelector from '../components/FolderTreeSelector';
-import { FileTable, FileGrid, SearchResults, DetailPanel } from './components';
+import { FileTable, FileGrid, SearchResults, DetailPanel, PropertiesModal } from './components';
 
 // Hooks（简化后的统一入口）
 import {
@@ -193,6 +193,9 @@ const Explorer = observer(forwardRef(({
   // ===== 详情面板状态 =====
   const [detailPanelExpanded, setDetailPanelExpanded] = useState(false);
 
+  // ===== 属性弹窗状态 =====
+  const [propertiesModal, setPropertiesModal] = useState({ visible: false, record: null });
+
   // ===== 副作用：监听上传刷新（带防抖） =====
   useEffect(() => {
     let timeoutId = null;
@@ -335,6 +338,7 @@ const Explorer = observer(forwardRef(({
       onCut: () => handleCutToClipboard(record),
       onRename: () => startRename(record),
       onDelete: () => handleDelete(record),
+      onProperties: () => setPropertiesModal({ visible: true, record }),
     });
   }, [
     selectedRowKeys, items, isPublic, isAdmin, currentUserId,
@@ -480,24 +484,15 @@ const Explorer = observer(forwardRef(({
         }}
         onCancel={() => setFolderSelector(prev => ({ ...prev, visible: false }))}
       />
+
+      <PropertiesModal
+        visible={propertiesModal.visible}
+        record={propertiesModal.record}
+        isPublic={isPublic}
+        onClose={() => setPropertiesModal({ visible: false, record: null })}
+      />
     </div>
   );
 }));
 
 export default Explorer;
-
-// 样式：将排序图标移到文字右边
-const style = document.createElement('style');
-style.textContent = `
-  .file-list-container .ant-table-column-sorters {
-    justify-content: flex-start !important;
-  }
-  .file-list-container .ant-table-column-sorters .ant-table-column-title {
-    flex: none !important;
-  }
-  .file-list-container .ant-table-column-sorters .ant-table-column-sorter {
-    margin-left: 4px !important;
-    margin-right: 0 !important;
-  }
-`;
-document.head.appendChild(style);

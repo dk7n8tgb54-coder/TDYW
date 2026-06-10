@@ -129,7 +129,7 @@ def update_transfer_status(transfer_id, status, **kwargs):
     
     try:
         from apps.document.models import DocumentTransfer
-        transfer = DocumentTransfer.objects.filter(id=transfer_id).first()
+        transfer = DocumentTransfer.objects.filter(id=transfer_id).order_by().first()
         if transfer:
             transfer.status = status.value if hasattr(status, 'value') else status
             for key, value in kwargs.items():

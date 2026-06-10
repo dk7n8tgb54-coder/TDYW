@@ -14,6 +14,7 @@ class TransferStatus(Enum):
     """传输记录状态"""
     PENDING = "PENDING"           # 等待中
     UPLOADING = "UPLOADING"       # 上传中
+    DOWNLOADING = "DOWNLOADING"   # 下载中
     PAUSED = "PAUSED"             # 已暂停
     MERGING = "MERGING"           # 合并中
     COMPLETED = "COMPLETED"       # 已完成
@@ -98,14 +99,23 @@ DEFAULT_MERGE_STATUS_TIMEOUT = 300
 ALLOWED_STATUS_TRANSITIONS = {
     # 前端支持 waiting(=PENDING) 状态直接暂停，因此允许 PENDING -> PAUSED
     # 【P1-修复】普通上传（无分片合并）需要支持 PENDING -> COMPLETED
-    TransferStatus.PENDING: [TransferStatus.UPLOADING, TransferStatus.PAUSED, TransferStatus.CANCELED, TransferStatus.COMPLETED],
+    TransferStatus.PENDING: [
+        TransferStatus.UPLOADING,
+        TransferStatus.DOWNLOADING,
+        TransferStatus.PAUSED,
+        TransferStatus.CANCELED,
+        TransferStatus.COMPLETED,
+        TransferStatus.FAILED,
+    ],
     # 上传中允许用户主动取消
     TransferStatus.UPLOADING: [TransferStatus.PAUSED, TransferStatus.MERGING, TransferStatus.FAILED, TransferStatus.CANCELED],
-    TransferStatus.PAUSED: [TransferStatus.UPLOADING, TransferStatus.CANCELED],
+    # 下载中允许暂停、失败、取消和完成
+    TransferStatus.DOWNLOADING: [TransferStatus.PAUSED, TransferStatus.COMPLETED, TransferStatus.FAILED, TransferStatus.CANCELED],
+    TransferStatus.PAUSED: [TransferStatus.UPLOADING, TransferStatus.DOWNLOADING, TransferStatus.CANCELED],
     # 合并中保留取消能力（与现有取消接口行为保持一致）
     TransferStatus.MERGING: [TransferStatus.COMPLETED, TransferStatus.FAILED, TransferStatus.CANCELED],
     TransferStatus.COMPLETED: [],  # 终态
-    TransferStatus.FAILED: [TransferStatus.UPLOADING, TransferStatus.CANCELED],  # 允许重试（P1修复：FAILED可直接到UPLOADING）
+    TransferStatus.FAILED: [TransferStatus.UPLOADING, TransferStatus.DOWNLOADING, TransferStatus.CANCELED],  # 允许重试（P1修复：FAILED可直接到UPLOADING/DOWNLOADING）
     TransferStatus.CANCELED: [],  # 终态
 }
 

@@ -11,6 +11,7 @@ from django.views.generic import View
 from django.db.models import Q
 
 from libs import json_response, JsonParser, Argument, auth
+from apps.document.libs.view_utils import permission_denied_response
 from ...models import (
     DocumentFilePrivate, DocumentFilePublic,
     DocumentFolderPrivate, DocumentFolderPublic
@@ -50,10 +51,10 @@ class RecycleBinFolderContentView(View):
         # 权限检查 - 【修改】私密空间完全隔离，超级管理员也不能查看其他租户数据
         if form.space == 'private':
             if folder.tenant_id != user_tenant_id:
-                return json_response(error='无权访问该文件夹', code=403)
+                return permission_denied_response('无权访问该文件夹', 'tenant_mismatch')
         else:
             if folder.created_by != request.user:
-                return json_response(error='无权访问该文件夹', code=403)
+                return permission_denied_response('无权访问该文件夹', 'not_owner')
         
         # 查询子文件夹（已删除的）
         subfolder_qs = FolderModel.all_objects.filter(
@@ -80,8 +81,8 @@ class RecycleBinFolderContentView(View):
             file_qs = file_qs.filter(created_by=request.user)
         
         # 转换为列表并标记类型
-        subfolders = list(subfolder_qs)
-        files = list(file_qs)
+        subfolders = list(subfolder_qs.order_by('-created_at'))
+        files = list(file_qs.order_by('-created_at'))
         
         for f in subfolders:
             f._item_type = 'folder'
@@ -134,12 +135,12 @@ class RecycleBinFolderContentView(View):
         subfolder_count = FolderModel.all_objects.filter(
             parent=folder_obj, 
             is_deleted=True
-        ).count()
+        ).order_by().count()
         
         file_count = FileModel.all_objects.filter(
             folder=folder_obj,
             is_deleted=True
-        ).count()
+        ).order_by().count()
         
         return {
             'id': folder_obj.id,
@@ -186,7 +187,7 @@ class RecycleBinFolderContentView(View):
         
         # 统计所有文件
         for folder_id in folder_ids:
-            files = FileModel.all_objects.filter(folder_id=folder_id, is_deleted=True)
+            files = FileModel.all_objects.filter(folder_id=folder_id, is_deleted=True).order_by()
             total_files += files.count()
             total_size += sum(f.file_size for f in files)
         
@@ -200,7 +201,7 @@ class RecycleBinFolderContentView(View):
         """获取文件夹及其所有子孙文件夹的ID列表"""
         folder_ids = [folder.id]
         
-        children = FolderModel.all_objects.filter(parent=folder, is_deleted=True)
+        children = FolderModel.all_objects.filter(parent=folder, is_deleted=True).order_by()
         for child in children:
             folder_ids.extend(self._get_folder_and_descendants(child, FolderModel))
         

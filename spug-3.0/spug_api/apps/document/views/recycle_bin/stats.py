@@ -48,10 +48,10 @@ class RecycleBinStatsView(View):
         # 【修改】私密空间完全隔离，超级管理员也不能查看其他租户数据
         private_file_queryset = private_file_queryset.filter(tenant_id=user_tenant_id)
         
-        private_file_total = private_file_queryset.count()
+        private_file_total = private_file_queryset.order_by().count()
         private_file_size = private_file_queryset.aggregate(total=Sum('file_size'))['total'] or 0
         # 【修复】deleted_at__lte 表示删除时间早于阈值（已存放超过23天）
-        private_file_expiring = private_file_queryset.filter(deleted_at__lte=expiring_threshold).count()
+        private_file_expiring = private_file_queryset.filter(deleted_at__lte=expiring_threshold).order_by().count()
         
         # 公共文件统计
         public_file_total = 0
@@ -65,10 +65,10 @@ class RecycleBinStatsView(View):
             ) | public_file_queryset.filter(
                 folder__is_deleted=False
             )
-            public_file_total = public_file_queryset.count()
+            public_file_total = public_file_queryset.order_by().count()
             public_file_size = public_file_queryset.aggregate(total=Sum('file_size'))['total'] or 0
             # 【修复】deleted_at__lte 表示删除时间早于阈值
-            public_file_expiring = public_file_queryset.filter(deleted_at__lte=expiring_threshold).count()
+            public_file_expiring = public_file_queryset.filter(deleted_at__lte=expiring_threshold).order_by().count()
         else:
             # 普通用户只能看到自己删除的公共文件
             public_file_queryset = DocumentFilePublic.all_objects.filter(
@@ -80,10 +80,10 @@ class RecycleBinStatsView(View):
             ) | public_file_queryset.filter(
                 folder__is_deleted=False
             )
-            public_file_total = public_file_queryset.count()
+            public_file_total = public_file_queryset.order_by().count()
             public_file_size = public_file_queryset.aggregate(total=Sum('file_size'))['total'] or 0
             # 【修复】deleted_at__lte 表示删除时间早于阈值
-            public_file_expiring = public_file_queryset.filter(deleted_at__lte=expiring_threshold).count()
+            public_file_expiring = public_file_queryset.filter(deleted_at__lte=expiring_threshold).order_by().count()
         
         # ========== 【新增】文件夹统计 ==========
         private_folder_total, private_folder_file_count, private_folder_size = self._get_folder_stats(
@@ -101,19 +101,19 @@ class RecycleBinStatsView(View):
             deleted_at__lte=expiring_threshold,
             tenant_id=user_tenant_id
         )
-        private_folder_expiring_count = private_folder_expiring.count()
+        private_folder_expiring_count = private_folder_expiring.order_by().count()
         
         if request.user.is_supper:
             public_folder_expiring_count = DocumentFolderPublic.all_objects.filter(
                 is_deleted=True,
                 deleted_at__lte=expiring_threshold
-            ).count()
+            ).order_by().count()
         else:
             public_folder_expiring_count = DocumentFolderPublic.all_objects.filter(
                 is_deleted=True,
                 deleted_at__lte=expiring_threshold,
                 created_by=request.user
-            ).count()
+            ).order_by().count()
         
         return json_response(data={
             # 文件统计
@@ -156,14 +156,14 @@ class RecycleBinStatsView(View):
         # 【修改】私密空间完全隔离，超级管理员也不能查看其他租户数据
         folder_queryset = folder_queryset.filter(tenant_id=user_tenant_id)
 
-        folder_count = folder_queryset.count()
+        folder_count = folder_queryset.order_by().count()
 
         # 统计文件夹内的文件数量和大小（优化版：BFS + 聚合查询，替代原 N+1 循环）
         total_file_count = 0
         total_size = 0
         space = 'private' if FolderModel == DocumentFolderPrivate else 'public'
 
-        for folder in folder_queryset:
+        for folder in folder_queryset.order_by('-created_at'):
             file_count, folder_size = get_folder_stats_optimized(folder, space)
             total_file_count += file_count
             total_size += folder_size
@@ -180,14 +180,14 @@ class RecycleBinStatsView(View):
             # 公共空间普通用户只能看到自己创建的文件夹
             folder_queryset = folder_queryset.filter(created_by=user)
 
-        folder_count = folder_queryset.count()
+        folder_count = folder_queryset.order_by().count()
 
         # 统计文件夹内的文件数量和大小（优化版：BFS + 聚合查询，替代原 N+1 循环）
         total_file_count = 0
         total_size = 0
         space = 'public'
 
-        for folder in folder_queryset:
+        for folder in folder_queryset.order_by('-created_at'):
             file_count, folder_size = get_folder_stats_optimized(folder, space)
             total_file_count += file_count
             total_size += folder_size

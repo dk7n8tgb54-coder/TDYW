@@ -66,13 +66,13 @@ class RecycleBinRestoreView(View):
         private_files = {
             f.id: f for f in DocumentFilePrivate.all_objects.select_for_update().filter(
                 id__in=form.file_ids, is_deleted=True
-            ).select_related('folder', 'created_by')
+            ).select_related('folder', 'created_by').order_by()
         }
 
         public_files = {
             f.id: f for f in DocumentFilePublic.all_objects.select_for_update().filter(
                 id__in=form.file_ids, is_deleted=True
-            ).select_related('folder', 'created_by')
+            ).select_related('folder', 'created_by').order_by()
         }
 
         all_files = private_files.copy()

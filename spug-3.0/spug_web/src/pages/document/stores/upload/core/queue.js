@@ -358,6 +358,17 @@ export class UploadQueueStore {
       console.log('[自动清理] 删除', toDelete.length, '个已完成任务，保留最新', maxCompleted, '个');
     }
   }
+
+  /**
+   * 清理定时器等资源，防止内存泄漏
+   */
+  destroy() {
+    if (this._refreshTriggerTimer) {
+      clearTimeout(this._refreshTriggerTimer);
+      this._refreshTriggerTimer = null;
+    }
+    this._pendingRefresh = false;
+  }
 }
 
 export default UploadQueueStore;

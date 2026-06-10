@@ -14,6 +14,8 @@ from django.utils import timezone
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_file_model
+from ...libs.view_utils import permission_denied_response
+from ...exceptions import DocumentPhysicalDeleteError
 from ..base import check_public_space_permission, log_operation, handle_view_errors
 from ..recycle_bin.utils import invalidate_cache
 
@@ -43,7 +45,7 @@ class FileView(View):
             
         FileModel = get_file_model(is_public=form.is_public)
 
-        file_query = FileModel.objects.filter(pk=form.id)
+        file_query = FileModel.objects.filter(pk=form.id).order_by()
         if not form.is_public:
             file_query = apply_tenant_filter(file_query, request.user, strict_mode=True)
         file = file_query.select_related('created_by').first()
@@ -53,13 +55,13 @@ class FileView(View):
 
         # 公共空间权限校验
         if form.is_public and not check_public_space_permission(request.user, file, 'file', '删除'):
-            return json_response(error='公共空间中只能删除自己创建的文件')
+            return permission_denied_response('公共空间中只能删除自己创建的文件', 'not_owner')
 
         try:
             if form.hard:
                 # 硬删除权限检查：只有管理员可以硬删除
                 if not request.user.is_supper:
-                    return json_response(error='只有管理员可以硬删除文件', code=403)
+                    return permission_denied_response('只有管理员可以硬删除文件', 'admin_required')
                 self._hard_delete(file, form.is_public)
                 logger.info(f'[Document] 文件已硬删除：id={file.id}, physical_name={file.physical_name or file.name}')
             else:
@@ -82,9 +84,12 @@ class FileView(View):
             
             return json_response()
             
+        except DocumentPhysicalDeleteError as e:
+            # 物理文件删除失败，已标记为待清理，不算完全失败
+            logger.warning(f'[Document] 物理文件删除失败，已标记待清理：{e.file_path}')
+            return json_response(error='文件删除失败，已加入待清理队列，系统将自动重试')
         except Exception as e:
             logger.error(f'[Document] 文件删除失败：{e}')
-            # 【P2-6修复】返回通用错误消息，避免信息泄露
             return json_response(error='文件删除失败，请稍后重试')
 
     def _hard_delete(self, file_obj, is_public=False):
@@ -117,4 +122,4 @@ class FileView(View):
             file_obj.clean_retry_count = (file_obj.clean_retry_count or 0) + 1
             file_obj.last_clean_attempt = timezone.now()
             file_obj.save(update_fields=['is_pending_clean', 'clean_retry_count', 'last_clean_attempt'])
-            raise Exception(f'物理文件删除失败，已标记为待清理: {file_path}')
+            raise DocumentPhysicalDeleteError(file_path)

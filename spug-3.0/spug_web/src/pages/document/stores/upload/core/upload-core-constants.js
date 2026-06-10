@@ -68,6 +68,7 @@ export const UPLOAD_STATUS = Object.freeze({
   WAITING: 'waiting',
   CALCULATING: 'calculating',
   UPLOADING: 'uploading',
+  DOWNLOADING: 'downloading',
   PAUSED: 'paused',
   MERGING: 'merging',
   COMPLETED: 'completed',
@@ -97,6 +98,7 @@ export const PENDING_STATUSES = Object.freeze([
 // 状态映射：后端状态 -> 前端状态
 export const BACKEND_STATUS_MAP = {
   'UPLOADING': 'uploading',
+  'DOWNLOADING': 'downloading',
   'PAUSED': 'paused',
   'MERGING': 'merging',
   'COMPLETED': 'completed',
@@ -109,6 +111,7 @@ export const BACKEND_STATUS_MAP = {
 export const FRONTEND_STATUS_MAP = {
   'calculating': 'UPLOADING',
   'uploading': 'UPLOADING',
+  'downloading': 'DOWNLOADING',
   'merging': 'MERGING',
   'paused': 'PAUSED',
   'completed': 'COMPLETED',

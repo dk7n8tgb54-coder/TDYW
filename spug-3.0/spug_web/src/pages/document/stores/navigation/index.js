@@ -21,11 +21,6 @@ class NavigationStore {
     this.sync = new NavigationSync(this);
     this.actions = new NavigationActions(this);
     this.computed = new NavigationComputed(this);
-    
-    // 如果没有传入 rootStore，尝试从 window 获取（开发调试用）
-    if (!this.rootStore && typeof window !== 'undefined' && window.__ROOT_STORE__) {
-      this.rootStore = window.__ROOT_STORE__;
-    }
   }
 
   // ============================================================
@@ -116,6 +111,38 @@ class NavigationStore {
   }
 }
 
-// 创建单例实例（保持向后兼容）
-const navigationStore = new NavigationStore();
-export default navigationStore;
+// 导出类（供 RootStore 创建实例和单元测试使用）
+export { NavigationStore };
+
+// ========== 向后兼容 ==========
+// 旧组件使用: import navigationStore from './stores/navigation'
+// 新组件应使用: import rootStore from './stores'; rootStore.navigationStore
+// 
+// 使用 Proxy 实现延迟绑定：default export 指向 RootStore 中的实例，
+// 避免循环依赖，同时保证旧代码拿到的是 RootStore 管理的同一实例。
+let _rootStoreNavigationStore = null;
+
+export function _bindNavigationStore(instance) {
+  _rootStoreNavigationStore = instance;
+}
+
+// default export 是一个 Proxy，所有属性访问委托给 RootStore 中的实例
+const navigationStoreProxy = typeof Proxy !== 'undefined' 
+  ? new Proxy({}, {
+      get(_target, prop) {
+        const store = _rootStoreNavigationStore;
+        if (!store) {
+          // RootStore 尚未初始化，返回 undefined（不应在正常流程中发生）
+          return undefined;
+        }
+        const value = store[prop];
+        // 绑定方法到正确的 this
+        if (typeof value === 'function') {
+          return value.bind(store);
+        }
+        return value;
+      }
+    })
+  : new NavigationStore(); // 不支持 Proxy 的环境降级为独立实例
+
+export default navigationStoreProxy;

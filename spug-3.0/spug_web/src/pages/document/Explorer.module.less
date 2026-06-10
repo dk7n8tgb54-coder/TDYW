@@ -36,6 +36,20 @@
     min-width: 0 !important;
     box-sizing: border-box !important;
   }
+
+  // 排序图标样式（原顶层 DOM 操作移入）
+  .ant-table-column-sorters {
+    justify-content: flex-start !important;
+
+    .ant-table-column-title {
+      flex: none !important;
+    }
+
+    .ant-table-column-sorter {
+      margin-left: 4px !important;
+      margin-right: 0 !important;
+    }
+  }
 }
 
 // 右侧详情面板

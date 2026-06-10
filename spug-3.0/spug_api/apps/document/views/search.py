@@ -18,6 +18,7 @@ import logging
 from django.views.generic import View
 from django.conf import settings
 from django.db.models import Q
+from django.db.models.expressions import RawSQL
 from django.db import connection
 
 from libs import json_response, JsonParser, Argument, auth
@@ -68,9 +69,8 @@ def _apply_fulltext_filter(queryset, keyword, fields):
     """
     【M4 新增】对 queryset 追加 FULLTEXT MATCH AGAINST 过滤
 
-    Django 对 MySQL FULLTEXT 的一等支持有限（仅 PostgreSQL 有 SearchVector），
-    用 extra(where=[...], params=[...]) 走原生 SQL 是稳妥方案。
-    关键词作为参数化值传递（防 SQL 注入）。
+    使用 Django RawSQL annotation 替代 extra()，
+    MATCH AGAINST 返回相关性分数（>0 表示命中），比 extra(where=[...]) 更安全、更易维护。
 
     Args:
         queryset: 已构造的 QuerySet
@@ -78,13 +78,17 @@ def _apply_fulltext_filter(queryset, keyword, fields):
         fields: 字段名列表（多字段走复合索引）
 
     Returns:
-        QuerySet: 追加了 FULLTEXT WHERE 条件的 queryset
+        QuerySet: 追加了 FULLTEXT 过滤条件的 queryset
     """
     # BOOLEAN MODE: keyword* 前缀匹配，更符合用户预期
     # 例：搜 "doc" → "document" "docx" "docs" 都能命中
     boolean_keyword = f'+{keyword}*'
     match_expr = 'MATCH({}) AGAINST (%s IN BOOLEAN MODE)'.format(', '.join(fields))
-    return queryset.extra(where=[match_expr], params=[boolean_keyword])
+    # RawSQL 作为 annotation，MATCH AGAINST 返回相关性分数（float），
+    # > 0 即表示命中，等价于 extra(where=[match_expr], params=[boolean_keyword])
+    return queryset.annotate(
+        _fulltext_rank=RawSQL(match_expr, [boolean_keyword])
+    ).filter(_fulltext_rank__gt=0)
 
 
 def _apply_fallback_filter(queryset, keyword, fields):
@@ -172,7 +176,7 @@ class FolderSearchView(View):
         # 详细分析见 _M4_INFEASIBLE_REPORT.md
         folders_query = FolderModel.objects.filter(
             id__in=folder_ids_to_search,
-        ).select_related('created_by')
+        ).select_related('created_by').order_by('-created_at')
         folders_query = _apply_fallback_filter(folders_query, keyword, ['name'])
 
         # 私有空间：添加租户过滤（严格模式）
@@ -188,7 +192,7 @@ class FolderSearchView(View):
         # 【M4 优化 2026-06-08】name + display_name 任一命中即可
         files_query = FileModel.objects.filter(
             (Q(folder_id__in=folder_ids_to_search) | Q(folder_id=None)),
-        ).select_related('created_by')
+        ).select_related('created_by').order_by('-created_at')
         files_query = _apply_fallback_filter(files_query, keyword, ['name', 'display_name'])
         
         # 【优化】限制总数并分页
@@ -253,7 +257,7 @@ class FolderSearchView(View):
         """
         if start_folder_id is None:
             # 从根目录搜索，获取所有文件夹
-            query = FolderModel.objects.all()
+            query = FolderModel.objects.all().order_by()
             if not is_public:
                 query = apply_tenant_filter(query, request_user, strict_mode=True)
             return set(f.id for f in query)
@@ -274,7 +278,7 @@ class FolderSearchView(View):
             queue = queue[current_batch_size:]  # 移除当前批次的父文件夹
 
             # 一次性查询所有子文件夹
-            child_folders_query = FolderModel.objects.filter(parent_id__in=parent_ids)
+            child_folders_query = FolderModel.objects.filter(parent_id__in=parent_ids).order_by()
             if not is_public:
                 child_folders_query = apply_tenant_filter(child_folders_query, request_user, strict_mode=True)
 
@@ -301,7 +305,7 @@ class FolderSearchView(View):
         folder_id_to_path = {}
 
         # 查询所有相关文件夹
-        folders_query = FolderModel.objects.filter(id__in=folder_ids).select_related('created_by')
+        folders_query = FolderModel.objects.filter(id__in=folder_ids).select_related('created_by').order_by()
         if not is_public:
             folders_query = apply_tenant_filter(folders_query, request_user, strict_mode=True)
 

@@ -16,6 +16,7 @@
 from ..libs.view_utils import (
     format_file_size,
     check_public_space_permission,
+    permission_denied_response,
     log_operation,
     is_safe_path,
     create_model_instance,
@@ -28,6 +29,7 @@ from ..libs.mime_utils import MIME_TYPES, get_mime_type
 __all__ = [
     'format_file_size',
     'check_public_space_permission',
+    'permission_denied_response',
     'MIME_TYPES',
     'get_mime_type',
     'handle_view_errors',

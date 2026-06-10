@@ -135,7 +135,7 @@ class TransferRecordService:
             from apps.document.models import DocumentTransfer
             from apps.document.constants import TransferStatus
 
-            transfer = DocumentTransfer.objects.filter(id=int(transfer_id)).first()
+            transfer = DocumentTransfer.objects.filter(id=int(transfer_id)).order_by().first()
             if transfer:
                 transfer.status = TransferStatus.COMPLETED.value
                 transfer.file_path = file_path

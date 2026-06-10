@@ -13,6 +13,7 @@ from django.views.generic import View
 from libs import json_response, auth
 from libs.tenant_utils import apply_tenant_filter, check_tenant_unique_name
 from ...libs.document_utils import get_folder_model, is_child_folder
+from ...libs.view_utils import permission_denied_response
 from ..base import check_public_space_permission, log_operation
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class FolderMoveView(View):
 
         FolderModel = get_folder_model(is_public=is_public)
 
-        folder_query = FolderModel.objects.filter(pk=folder_id)
+        folder_query = FolderModel.objects.filter(pk=folder_id).order_by()
         if not is_public:
             folder_query = apply_tenant_filter(folder_query, request.user, strict_mode=True)
         folder = folder_query.select_related('created_by').first()
@@ -46,10 +47,10 @@ class FolderMoveView(View):
 
         # 公共空间权限校验
         if is_public and not check_public_space_permission(request.user, folder, 'folder', '移动'):
-            return json_response(error='公共空间中只能移动自己创建的文件夹')
+            return permission_denied_response('公共空间中只能移动自己创建的文件夹', 'not_owner')
 
         if target_id:
-            target_query = FolderModel.objects.filter(pk=target_id)
+            target_query = FolderModel.objects.filter(pk=target_id).order_by()
             if not is_public:
                 target_query = apply_tenant_filter(target_query, request.user, strict_mode=True)
             target = target_query.first()

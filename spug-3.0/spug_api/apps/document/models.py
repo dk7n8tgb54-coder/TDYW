@@ -2,10 +2,16 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 import os
-from django.db import models
+import hashlib
+import logging
+from django.db import models, transaction
 from django.core.validators import MinValueValidator
 from django.utils import timezone
 from apps.account.models import User
+from .exceptions import DocumentPhysicalDeleteError
+from .constants import DEFAULT_MAX_FOLDER_DEPTH
+
+logger = logging.getLogger(__name__)
 
 
 # ==================== 软删除管理器 ====================
@@ -20,6 +26,7 @@ class AllObjectsManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset()
 
+
 # 定义租户类型枚举
 TENANT_TYPE_CHOICES = (
     ('PUBLIC', '公共表'),
@@ -27,15 +34,197 @@ TENANT_TYPE_CHOICES = (
     ('GLOBAL', '全局表（无租户）'),
 )
 
-# 为了向后兼容，保留类名
+
 class TenantType:
+    """为了向后兼容，保留类名"""
     PUBLIC = 'PUBLIC'
     PRIVATE = 'PRIVATE'
     GLOBAL = 'GLOBAL'
 
 
+# ==================== 模型 Mixin（抽象 Public/Private 重复逻辑） ====================
+
+class SoftDeleteFolderMixin(models.Model):
+    """
+    文件夹软删除 Mixin
+
+    提供 delete(hard=False) 和 restore() 的通用实现。
+    子类必须定义: is_deleted, deleted_at, deleted_by 字段。
+    """
+    class Meta:
+        abstract = True
+
+    def delete(self, hard=False, *args, **kwargs):
+        """
+        删除文件夹
+        hard=True: 硬删除（彻底删除）
+        hard=False: 软删除（移入回收站）
+        """
+        if hard:
+            super().delete(*args, **kwargs)
+        else:
+            self.is_deleted = True
+            self.deleted_at = timezone.now()
+            self.save(update_fields=['is_deleted', 'deleted_at'])
+
+    def restore(self):
+        """恢复软删除的文件夹"""
+        self.is_deleted = False
+        self.deleted_at = None
+        self.deleted_by = None
+        self.save(update_fields=['is_deleted', 'deleted_at', 'deleted_by'])
+
+
+class FolderPathMixin:
+    """
+    文件夹路径 Mixin
+
+    提供 get_full_path() 的迭代实现，带循环引用和深度保护。
+    子类必须定义: name, parent (ForeignKey to self), is_deleted 字段。
+    """
+
+    def get_full_path(self):
+        """获取文件夹完整路径（迭代实现，带深度保护）
+
+        - visited 集合检测循环引用，发现时停止并记录警告
+        - 超过 DEFAULT_MAX_FOLDER_DEPTH 深度时停止并记录警告
+        """
+        parts = []
+        current = self
+        visited = set()
+        depth = 0
+
+        while current and not current.is_deleted:
+            if current.id in visited:
+                logger.warning(
+                    f'[FolderPathMixin] get_full_path 检测到循环引用: '
+                    f'folder_id={current.id}, name={current.name}, '
+                    f'starting_from={self.id}'
+                )
+                break
+            if depth >= DEFAULT_MAX_FOLDER_DEPTH:
+                logger.warning(
+                    f'[FolderPathMixin] get_full_path 超过最大深度 {DEFAULT_MAX_FOLDER_DEPTH}: '
+                    f'folder_id={current.id}, name={current.name}, '
+                    f'starting_from={self.id}'
+                )
+                break
+
+            visited.add(current.id)
+            parts.append(current.name)
+            depth += 1
+            current = current.parent
+
+        return '/'.join(reversed(parts))
+
+
+class UniqueKeyMixin(models.Model):
+    """
+    唯一标识键 Mixin
+
+    提供 save() 中自动计算 unique_key 的通用 hook。
+    子类必须: 1) 定义 unique_key 字段; 2) 实现 _compute_unique_key() 方法。
+    """
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        self.unique_key = self._compute_unique_key()
+        # 确保 unique_key 始终在 update_fields 中
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None and 'unique_key' not in update_fields:
+            kwargs['update_fields'] = set(update_fields) | {'unique_key'}
+        super().save(*args, **kwargs)
+
+
+class SoftDeleteFileMixin(models.Model):
+    """
+    文件软删除 Mixin
+
+    提供 restore() 的通用实现。
+    子类必须定义: is_deleted, deleted_at 字段。
+    """
+    class Meta:
+        abstract = True
+
+    def restore(self):
+        """恢复软删除的文件"""
+        self.is_deleted = False
+        self.deleted_at = None
+        self.save(update_fields=['is_deleted', 'deleted_at'])
+
+
+class DocumentFileDeleteMixin(models.Model):
+    """
+    文件硬删除 Mixin
+
+    提供物理文件+缩略图清理、is_pending_clean 兜底标记、
+    DocumentPhysicalDeleteError 异常的通用实现。
+    子类必须定义: file_path, thumbnail_path, is_pending_clean,
+                  clean_retry_count, last_clean_attempt, is_deleted, deleted_at 字段。
+    """
+    class Meta:
+        abstract = True
+
+    def delete(self, *args, **kwargs):
+        """
+        重写删除方法：默认软删除，硬删除时确保物理文件删除成功
+
+        Args:
+            hard: 是否硬删除（默认False软删除）
+
+        事务语义：
+            - 硬删除成功：super().delete() 在调用方的事务内完成
+            - 物理文件删除失败：先保存 is_pending_clean 标记，再抛出
+              DocumentPhysicalDeleteError。
+              ⚠️ 注意：此保存使用嵌套 transaction.atomic()（即 savepoint），
+              如果调用方外层事务随后回滚，此标记也会被回滚。
+              调用方若需要此标记可靠落库，不应在捕获异常后回滚外层事务，
+              而应让外层事务正常提交。如需更强保障，需改用异步补偿
+              （如 Celery 任务重试待清理文件）。
+        """
+        hard = kwargs.pop('hard', False)
+
+        if hard:
+            # 硬删除：先删除物理文件，成功后再删除数据库记录
+            physical_deleted = True
+            if os.path.exists(self.file_path):
+                try:
+                    os.remove(self.file_path)
+                    logger.info(f'[RecycleBin] 物理文件已删除: {self.file_path}')
+                except Exception as e:
+                    logger.error(f'[RecycleBin] 删除物理文件失败: {self.file_path}, error={e}')
+                    physical_deleted = False
+
+            # 删除缩略图
+            if self.thumbnail_path and os.path.exists(self.thumbnail_path):
+                try:
+                    os.remove(self.thumbnail_path)
+                    logger.info(f'[RecycleBin] 缩略图已删除: {self.thumbnail_path}')
+                except Exception as e:
+                    logger.warning(f'[RecycleBin] 删除缩略图失败: {self.thumbnail_path}, error={e}')
+
+            if physical_deleted:
+                super().delete(*args, **kwargs)
+            else:
+                # 使用 savepoint 保存 is_pending_clean 标记；
+                # 注意：若外层事务回滚，此标记也会回滚
+                with transaction.atomic():
+                    self.is_pending_clean = True
+                    self.clean_retry_count = (self.clean_retry_count or 0) + 1
+                    self.last_clean_attempt = timezone.now()
+                    self.save(update_fields=['is_pending_clean', 'clean_retry_count', 'last_clean_attempt'])
+                raise DocumentPhysicalDeleteError(self.file_path)
+        else:
+            # 软删除：标记删除状态
+            self.is_deleted = True
+            self.deleted_at = timezone.now()
+            self.save(update_fields=['is_deleted', 'deleted_at'])
+
+
 # ==================== 私有空间模型（原有数据保留） ====================
-class DocumentFolderPrivate(models.Model):
+
+class DocumentFolderPrivate(SoftDeleteFolderMixin, FolderPathMixin, UniqueKeyMixin):
     """私有空间文件夹模型"""
     TENANT_TYPE = 'PRIVATE'
     name = models.CharField(max_length=200, verbose_name='文件夹名称')
@@ -63,6 +252,18 @@ class DocumentFolderPrivate(models.Model):
         verbose_name='删除人'
     )
 
+    # ========== 唯一性保障字段 ==========
+    # MariaDB 不支持部分唯一索引（WHERE 条件），因此使用 unique_key 方案：
+    # - 未删除记录：unique_key = MD5("tenant_id:created_by_id:name:parent_id")
+    # - 已删除记录：unique_key = NULL（不参与唯一约束）
+    # 利用 MySQL 中 NULL 不参与唯一索引的特性，实现软删除后同名文件夹可创建
+    unique_key = models.CharField(
+        max_length=32, null=True, blank=True, unique=True,
+        editable=False, db_index=True,
+        help_text='唯一标识键（MD5哈希，仅未删除记录参与唯一约束）',
+        verbose_name='唯一标识键'
+    )
+
     # ========== 自定义管理器（【V3】双管理器）==========
     objects = SoftDeletedManager()      # 默认：不包含已删除
     all_objects = AllObjectsManager()   # 全量：包含已删除
@@ -71,42 +272,22 @@ class DocumentFolderPrivate(models.Model):
         db_table = 'tdyw_document_folder_private'
         verbose_name = '文档文件夹(私有)'
         verbose_name_plural = '文档文件夹(私有)'
-        ordering = ['-created_at']
 
     def __str__(self):
         return self.name
 
-    def delete(self, hard=False, *args, **kwargs):
-        """
-        删除文件夹
-        hard=True: 硬删除（彻底删除）
-        hard=False: 软删除（移入回收站）
-        """
-        if hard:
-            super().delete(*args, **kwargs)
-        else:
-            self.is_deleted = True
-            self.deleted_at = timezone.now()
-            self.save(update_fields=['is_deleted', 'deleted_at'])
-
-    def restore(self):
-        """恢复软删除的文件夹"""
-        self.is_deleted = False
-        self.deleted_at = None
-        self.deleted_by = None
-        self.save(update_fields=['is_deleted', 'deleted_at', 'deleted_by'])
-
-    def get_full_path(self):
-        """获取文件夹完整路径（用于显示）"""
-        if self.parent and not self.parent.is_deleted:
-            return f"{self.parent.get_full_path()}/{self.name}"
-        return self.name
+    def _compute_unique_key(self):
+        """计算唯一标识键：同租户+同用户+同名+同父目录（MD5哈希）"""
+        if self.is_deleted:
+            return None
+        raw = f'{self.tenant_id or ""}:{self.created_by_id or 0}:{self.name}:{self.parent_id or "ROOT"}'
+        return hashlib.md5(raw.encode('utf-8')).hexdigest()
 
 
-class DocumentFilePrivate(models.Model):
+class DocumentFilePrivate(SoftDeleteFileMixin, DocumentFileDeleteMixin):
     """私有空间文件模型 - 生产级映射保障版本"""
     TENANT_TYPE = 'PRIVATE'
-    
+
     # ========== 物理标识字段（只写一次，终身只读）==========
     physical_name = models.CharField(
         max_length=100,  # 【修复】从32增加到100，支持新命名格式（原始名20+时间戳13+随机6+扩展名）
@@ -130,13 +311,13 @@ class DocumentFilePrivate(models.Model):
         help_text='逻辑文件名（API交互用）',
         verbose_name='逻辑文件名'
     )
-    
+
     display_name = models.CharField(
         max_length=128,
         help_text='显示名称（用户看到的文件名）',
         verbose_name='显示名称'
     )
-    
+
     # ========== 关系字段 ==========
     folder = models.ForeignKey(
         DocumentFolderPrivate,
@@ -158,7 +339,7 @@ class DocumentFilePrivate(models.Model):
         verbose_name='上传人'
     )
     tenant_id = models.CharField(max_length=50, default='', help_text='租户标识')
-    
+
     # ========== 软删除字段（【V3】新增）==========
     is_deleted = models.BooleanField(
         default=False,
@@ -171,7 +352,7 @@ class DocumentFilePrivate(models.Model):
         help_text='删除时间',
         verbose_name='删除时间'
     )
-    
+
     # 【P0修复】新增待清理字段（用于物理文件删除失败时的兜底处理）
     is_pending_clean = models.BooleanField(
         default=False,
@@ -212,67 +393,14 @@ class DocumentFilePrivate(models.Model):
         db_table = 'tdyw_document_file_private'
         verbose_name = '文档文件(私有)'
         verbose_name_plural = '文档文件(私有)'
-        ordering = ['-created_at']
 
     def __str__(self):
         return self.display_name or self.name
 
-    def delete(self, *args, **kwargs):
-        """
-        【P0修复】重写删除方法：默认软删除，硬删除时确保物理文件删除成功
-
-        Args:
-            hard: 是否硬删除（默认False软删除）
-        """
-        import logging
-        logger = logging.getLogger(__name__)
-
-        hard = kwargs.pop('hard', False)
-
-        if hard:
-            # 【P0修复】硬删除：先删除物理文件，成功后再删除数据库记录
-            physical_deleted = True
-            if os.path.exists(self.file_path):
-                try:
-                    os.remove(self.file_path)
-                    logger.info(f'[RecycleBin] 物理文件已删除: {self.file_path}')
-                except Exception as e:
-                    logger.error(f'[RecycleBin] 删除物理文件失败: {self.file_path}, error={e}')
-                    physical_deleted = False
-
-            # 删除缩略图
-            if self.thumbnail_path and os.path.exists(self.thumbnail_path):
-                try:
-                    os.remove(self.thumbnail_path)
-                    logger.info(f'[RecycleBin] 缩略图已删除: {self.thumbnail_path}')
-                except Exception as e:
-                    logger.warning(f'[RecycleBin] 删除缩略图失败: {self.thumbnail_path}, error={e}')
-
-            # 【P0修复】只有物理文件删除成功才删除数据库记录
-            if physical_deleted:
-                super().delete(*args, **kwargs)
-            else:
-                # 标记为待清理状态，由定时任务重试
-                self.is_pending_clean = True
-                self.clean_retry_count = (self.clean_retry_count or 0) + 1
-                self.last_clean_attempt = timezone.now()
-                self.save(update_fields=['is_pending_clean', 'clean_retry_count', 'last_clean_attempt'])
-                raise Exception(f'物理文件删除失败，已标记为待清理: {self.file_path}')
-        else:
-            # 软删除：标记删除状态
-            self.is_deleted = True
-            self.deleted_at = timezone.now()
-            self.save(update_fields=['is_deleted', 'deleted_at'])
-
-    def restore(self):
-        """【V3】恢复软删除的文件"""
-        self.is_deleted = False
-        self.deleted_at = None
-        self.save(update_fields=['is_deleted', 'deleted_at'])
-
 
 # ==================== 公共共享空间模型（新建表） ====================
-class DocumentFolderPublic(models.Model):
+
+class DocumentFolderPublic(SoftDeleteFolderMixin, FolderPathMixin, UniqueKeyMixin):
     """公共共享空间文件夹模型 - 支持全平台共享"""
     TENANT_TYPE = 'PUBLIC'
     name = models.CharField(max_length=200, verbose_name='文件夹名称')
@@ -299,6 +427,17 @@ class DocumentFolderPublic(models.Model):
         verbose_name='删除人'
     )
 
+    # ========== 唯一性保障字段 ==========
+    # 与 DocumentFolderPrivate 同理，使用 unique_key 方案替代部分唯一索引
+    # - 未删除记录：unique_key = MD5("name:parent_id")
+    # - 已删除记录：unique_key = NULL
+    unique_key = models.CharField(
+        max_length=32, null=True, blank=True, unique=True,
+        editable=False, db_index=True,
+        help_text='唯一标识键（MD5哈希，仅未删除记录参与唯一约束）',
+        verbose_name='唯一标识键'
+    )
+
     # ========== 自定义管理器（【V3】双管理器）==========
     objects = SoftDeletedManager()      # 默认：不包含已删除
     all_objects = AllObjectsManager()   # 全量：包含已删除
@@ -307,46 +446,19 @@ class DocumentFolderPublic(models.Model):
         db_table = 'tdyw_document_folder_public'
         verbose_name = '文档文件夹(公共)'
         verbose_name_plural = '文档文件夹(公共)'
-        ordering = ['-created_at']
-        # 公共表唯一索引: 同一父文件夹下不允许同名文件夹,避免同名冲突
-        constraints = [
-            models.UniqueConstraint(
-                fields=['name', 'parent'],
-                name='unique_folder_name_parent_public'
-            )
-        ]
 
     def __str__(self):
         return self.name
 
-    def delete(self, hard=False, *args, **kwargs):
-        """
-        删除文件夹
-        hard=True: 硬删除（彻底删除）
-        hard=False: 软删除（移入回收站）
-        """
-        if hard:
-            super().delete(*args, **kwargs)
-        else:
-            self.is_deleted = True
-            self.deleted_at = timezone.now()
-            self.save(update_fields=['is_deleted', 'deleted_at'])
-
-    def restore(self):
-        """恢复软删除的文件夹"""
-        self.is_deleted = False
-        self.deleted_at = None
-        self.deleted_by = None
-        self.save(update_fields=['is_deleted', 'deleted_at', 'deleted_by'])
-
-    def get_full_path(self):
-        """获取文件夹完整路径（用于显示）"""
-        if self.parent and not self.parent.is_deleted:
-            return f"{self.parent.get_full_path()}/{self.name}"
-        return self.name
+    def _compute_unique_key(self):
+        """计算唯一标识键：同名+同父目录（公共空间不区分用户，MD5哈希）"""
+        if self.is_deleted:
+            return None
+        raw = f'{self.name}:{self.parent_id or "ROOT"}'
+        return hashlib.md5(raw.encode('utf-8')).hexdigest()
 
 
-class DocumentFilePublic(models.Model):
+class DocumentFilePublic(SoftDeleteFileMixin, DocumentFileDeleteMixin):
     """公共共享空间文件模型 - 生产级映射保障版本"""
     TENANT_TYPE = 'PUBLIC'
 
@@ -373,13 +485,13 @@ class DocumentFilePublic(models.Model):
         help_text='逻辑文件名（API交互用）',
         verbose_name='逻辑文件名'
     )
-    
+
     display_name = models.CharField(
         max_length=128,
         help_text='显示名称（用户看到的文件名）',
         verbose_name='显示名称'
     )
-    
+
     # ========== 关系字段 ==========
     folder = models.ForeignKey(
         DocumentFolderPublic,
@@ -400,7 +512,7 @@ class DocumentFilePublic(models.Model):
         null=True,
         verbose_name='上传人'
     )
-    
+
     # ========== 软删除字段（【V3】新增）==========
     is_deleted = models.BooleanField(
         default=False,
@@ -413,7 +525,7 @@ class DocumentFilePublic(models.Model):
         help_text='删除时间',
         verbose_name='删除时间'
     )
-    
+
     # 【P0修复】新增待清理字段（用于物理文件删除失败时的兜底处理）
     is_pending_clean = models.BooleanField(
         default=False,
@@ -454,7 +566,6 @@ class DocumentFilePublic(models.Model):
         db_table = 'tdyw_document_file_public'
         verbose_name = '文档文件(公共)'
         verbose_name_plural = '文档文件(公共)'
-        ordering = ['-created_at']
         # 公共表唯一索引: 同一文件夹下不允许同名文件
         constraints = [
             models.UniqueConstraint(
@@ -465,55 +576,6 @@ class DocumentFilePublic(models.Model):
 
     def __str__(self):
         return self.display_name or self.name
-
-    def delete(self, *args, **kwargs):
-        """
-        【P0修复】重写删除方法：默认软删除，硬删除时确保物理文件删除成功
-        """
-        import logging
-        logger = logging.getLogger(__name__)
-
-        hard = kwargs.pop('hard', False)
-
-        if hard:
-            # 【P0修复】硬删除：先删除物理文件，成功后再删除数据库记录
-            physical_deleted = True
-            if os.path.exists(self.file_path):
-                try:
-                    os.remove(self.file_path)
-                    logger.info(f'[RecycleBin] 物理文件已删除: {self.file_path}')
-                except Exception as e:
-                    logger.error(f'[RecycleBin] 删除物理文件失败: {self.file_path}, error={e}')
-                    physical_deleted = False
-
-            # 删除缩略图
-            if self.thumbnail_path and os.path.exists(self.thumbnail_path):
-                try:
-                    os.remove(self.thumbnail_path)
-                    logger.info(f'[RecycleBin] 缩略图已删除: {self.thumbnail_path}')
-                except Exception as e:
-                    logger.warning(f'[RecycleBin] 删除缩略图失败: {self.thumbnail_path}, error={e}')
-
-            # 【P0修复】只有物理文件删除成功才删除数据库记录
-            if physical_deleted:
-                super().delete(*args, **kwargs)
-            else:
-                # 标记为待清理状态，由定时任务重试
-                self.is_pending_clean = True
-                self.clean_retry_count = (self.clean_retry_count or 0) + 1
-                self.last_clean_attempt = timezone.now()
-                self.save(update_fields=['is_pending_clean', 'clean_retry_count', 'last_clean_attempt'])
-                raise Exception(f'物理文件删除失败，已标记为待清理: {self.file_path}')
-        else:
-            self.is_deleted = True
-            self.deleted_at = timezone.now()
-            self.save(update_fields=['is_deleted', 'deleted_at'])
-    
-    def restore(self):
-        """【V3】恢复软删除的文件"""
-        self.is_deleted = False
-        self.deleted_at = None
-        self.save(update_fields=['is_deleted', 'deleted_at'])
 
 
 # ==================== 文件传输记录模型（支持多租户） ====================
@@ -529,6 +591,7 @@ class DocumentTransfer(models.Model):
         ('UPLOADING', '上传中'),
         ('DOWNLOADING', '下载中'),
         ('PAUSED', '已暂停'),
+        ('MERGING', '合并中'),
         ('COMPLETED', '已完成'),
         ('FAILED', '失败'),
         ('CANCELED', '已取消'),
@@ -580,7 +643,6 @@ class DocumentTransfer(models.Model):
         db_table = 'tdyw_document_transfer'
         verbose_name = '文件传输记录'
         verbose_name_plural = '文件传输记录'
-        ordering = ['-created_at']
         # 索引优化：支持租户+用户查询、租户+状态查询、租户+文件哈希查询
         indexes = [
             models.Index(fields=['tenant_id', 'user'], name='idx_transfer_tenant_user'),
@@ -592,4 +654,3 @@ class DocumentTransfer(models.Model):
 
     def __str__(self):
         return f"{self.transfer_type} - {self.file_name} - {self.status}"
-

@@ -40,7 +40,7 @@ class TransferBatchPauseView(View):
             is_supper = getattr(request.user, 'is_supper', False)
 
             # 批量查询
-            all_transfers = DocumentTransfer.objects.filter(id__in=transfer_ids)
+            all_transfers = DocumentTransfer.objects.filter(id__in=transfer_ids).order_by()
             
             # 【P2-5修复】简化权限校验逻辑，提高可读性
             if is_supper:
@@ -109,7 +109,7 @@ class TransferBatchResumeView(View):
             request_tenant_id = getattr(request.user, 'tenant_id', '')
             is_supper = getattr(request.user, 'is_supper', False)
 
-            all_transfers = DocumentTransfer.objects.filter(id__in=transfer_ids)
+            all_transfers = DocumentTransfer.objects.filter(id__in=transfer_ids).order_by()
 
             # 【P2-5修复】简化权限校验逻辑，提高可读性
             if is_supper:
@@ -126,8 +126,8 @@ class TransferBatchResumeView(View):
             skipped_reasons = {}
 
             for transfer in permitted_transfers:
-                # 幂等处理：已是UPLOADING视为成功
-                if transfer.status == TransferStatus.UPLOADING.value:
+                # 幂等处理：已是UPLOADING/DOWNLOADING视为成功
+                if transfer.status in [TransferStatus.UPLOADING.value, TransferStatus.DOWNLOADING.value]:
                     success_ids.append(transfer.id)
                     updated_count += 1
                     continue
@@ -138,13 +138,11 @@ class TransferBatchResumeView(View):
                     skipped_reasons[transfer.id] = f'任务已是终态: {transfer.status}'
                     continue
 
-                # 【修复】恢复时应该设为 UPLOADING 而不是 PENDING
-                # PENDING 只能转换到 UPLOADING/CANCELED，不能到 PAUSED
-                # 如果设为 PENDING，用户再次暂停时会失败（PENDING -> PAUSED 非法）
+                # 根据传输类型决定恢复目标状态：下载任务恢复为DOWNLOADING，上传任务恢复为UPLOADING
                 current_status_enum = next((s for s in TransferStatus if s.value == transfer.status), None)
-                target_status_enum = TransferStatus.UPLOADING
+                target_status_enum = TransferStatus.DOWNLOADING if transfer.transfer_type == 'DOWNLOAD' else TransferStatus.UPLOADING
                 if current_status_enum and is_valid_status_transition(current_status_enum, target_status_enum):
-                    transfer.status = TransferStatus.UPLOADING.value
+                    transfer.status = target_status_enum.value
                     transfer.error_message = ''
                     if not transfer.started_at:
                         transfer.started_at = timezone.now()
@@ -153,7 +151,7 @@ class TransferBatchResumeView(View):
                     updated_count += 1
                 else:
                     skipped_ids.append(transfer.id)
-                    skipped_reasons[transfer.id] = f'无效状态转换: {transfer.status} -> UPLOADING'
+                    skipped_reasons[transfer.id] = f'无效状态转换: {transfer.status} -> {target_status_enum.value}'
 
             return json_response(data={
                 'updated': updated_count,

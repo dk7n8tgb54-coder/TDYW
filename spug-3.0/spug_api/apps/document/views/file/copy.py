@@ -16,6 +16,7 @@ from libs import json_response, auth
 from libs.tenant_utils import apply_tenant_filter
 from apps.document.libs.document_utils import get_folder_model, get_file_model, get_document_absolute_path
 from apps.document.libs.naming_utils import generate_physical_name, generate_unique_logical_name, get_file_ext
+from apps.document.libs.view_utils import permission_denied_response
 from apps.document.views.base import create_model_instance, check_public_space_permission, log_operation
 
 logger = logging.getLogger(__name__)
@@ -42,10 +43,10 @@ class FileCopyValidator:
 
     @staticmethod
     def validate_source_file(file_id, is_public, user):
-        """验证源文件存在性和权限"""
+        """验证源文件存在性（权限由调用方检查）"""
         FileModel = get_file_model(is_public=is_public)
 
-        file_query = FileModel.objects.filter(pk=file_id)
+        file_query = FileModel.objects.filter(pk=file_id).order_by()
         if not is_public:
             file_query = apply_tenant_filter(file_query, user, strict_mode=True)
         file = file_query.select_related('created_by').first()
@@ -53,10 +54,6 @@ class FileCopyValidator:
         if not file:
             logger.error(f'[Document] Source file not found with id: {file_id}')
             return None, '文件不存在'
-
-        # 公共空间权限校验
-        if is_public and not check_public_space_permission(user, file, 'file', '复制'):
-            return None, '公共空间中只能复制自己创建的文件'
 
         return file, None
 
@@ -67,7 +64,7 @@ class FileCopyValidator:
             return None, None
 
         FolderModel = get_folder_model(is_public=is_public)
-        folder_query = FolderModel.objects.filter(pk=folder_id)
+        folder_query = FolderModel.objects.filter(pk=folder_id).order_by()
         if not is_public:
             folder_query = apply_tenant_filter(folder_query, user, strict_mode=True)
         folder = folder_query.first()
@@ -114,7 +111,7 @@ class FileNameGenerator:
         existing_file_query = FileModel.objects.filter(
             folder=folder,
             display_name=new_display_name
-        )
+        ).order_by()
         if not is_public:
             existing_file_query = apply_tenant_filter(existing_file_query, user, strict_mode=True)
         existing_file = existing_file_query.first()
@@ -140,7 +137,7 @@ class FileNameGenerator:
             existing_file_query = FileModel.objects.filter(
                 folder=folder,
                 display_name=new_display_name
-            )
+            ).order_by()
             if not is_public:
                 existing_file_query = apply_tenant_filter(existing_file_query, user, strict_mode=True)
 
@@ -233,6 +230,10 @@ class FileCopyView(View):
         )
         if error:
             return json_response(error=error)
+
+        # 公共空间权限校验
+        if is_public and not check_public_space_permission(request.user, file, 'file', '复制'):
+            return permission_denied_response('公共空间中只能复制自己创建的文件', 'not_owner')
 
         # 验证目标文件夹
         folder, error = FileCopyValidator.validate_target_folder(

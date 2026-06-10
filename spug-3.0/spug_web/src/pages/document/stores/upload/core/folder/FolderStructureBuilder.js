@@ -2,16 +2,17 @@
  * FolderStructureBuilder - 文件夹结构构建器
  *
  * 职责（单一）：
- *   1. 从文件列表解析出需要创建的文件夹路径
- *   2. 按深度分组，并发创建（避免同层级竞态）
+ *   1. 从文件列表解析出需要创建的文件夹路径（全路径展开+去重）
+ *   2. 按深度分组，逐层并发创建（同层可并行，跨层必须串行）
  *   3. 区分本次创建和复用的文件夹，支持失败回滚
  *
  * 设计原则：
- *   - 状态自管理：folderMap, createdByThisInstance, reusedFolderIds 都在实例内
- *   - 无副作用：构建过程不修改外部状态（除了调用 HTTP 接口）
- *   - 可测试：所有依赖通过参数或方法注入
+ *   - 全路径展开：从 A/B/C/file.txt 提取 A, A/B, A/B/C 三条路径
+ *   - 按层创建：先创建所有 1 层，再 2 层，再 3 层
+ *   - 只创建最后一级：创建 A/B/C 时只创建 C，父 ID 从 folderMap 拿
+ *   - 后端幂等：同名同父重复 POST 返回已有 ID，前端无需预查
  *
- * 拆分自：原 folderUpload.js (2026-06-06 重构)
+ * 拆分自：原 folderUpload.js (2026-06-06 重构，2026-06-11 幂等改造)
  */
 import { action } from 'mobx';
 
@@ -85,18 +86,34 @@ export class FolderStructureBuilder {
   }
 
   /**
-   * 从文件列表提取所有唯一路径，按深度分组
+   * 从文件列表提取所有祖先路径，去重后按深度分组
+   *
+   * 例如文件 A/B/C/file.txt 会产生 3 条路径：
+   *   A          (depth=1)
+   *   A/B        (depth=2)
+   *   A/B/C      (depth=3)
+   *
+   * 这样创建 A/B/C 时只需创建 C，父 ID 从 folderMap.get('A/B') 拿。
+   * 不再让每条叶子路径都从 A 开始递归创建，避免并发重复。
+   *
+   * @param {File[]} files
    * @returns {Map<number, string[]>} depth → paths
    */
   _extractDepthGroups(files) {
-    const paths = [...new Set(
-      files
-        .map(f => (f.webkitRelativePath || f.name).split('/').slice(0, -1).join('/'))
-        .filter(p => p)
-    )];
+    const allPaths = new Set();
+
+    files.forEach(file => {
+      const relativePath = file.webkitRelativePath || file.name;
+      const parts = relativePath.split('/').slice(0, -1); // 去掉文件名
+
+      // 展开所有祖先路径：A, A/B, A/B/C
+      for (let i = 1; i <= parts.length; i++) {
+        allPaths.add(parts.slice(0, i).join('/'));
+      }
+    });
 
     const depthGroups = new Map();
-    paths.forEach(path => {
+    [...allPaths].forEach(path => {
       const depth = path.split('/').length;
       if (!depthGroups.has(depth)) depthGroups.set(depth, []);
       depthGroups.get(depth).push(path);
@@ -106,7 +123,7 @@ export class FolderStructureBuilder {
   }
 
   /**
-   * 按深度顺序逐层创建（先浅后深）
+   * 按深度顺序逐层创建（先浅后深，同层并发）
    */
   async _createByDepth(depthGroups, rootTargetId, isPublic) {
     const sortedDepths = Array.from(depthGroups.keys()).sort((a, b) => a - b);
@@ -116,7 +133,7 @@ export class FolderStructureBuilder {
       await this._runInBatches(
         paths,
         async (path) => {
-          const folderId = await this._createPathStructure(path, rootTargetId, isPublic);
+          const folderId = await this._createSinglePath(path, rootTargetId, isPublic);
           this._folderMap.set(path, folderId);
         },
         CONCURRENCY
@@ -125,61 +142,34 @@ export class FolderStructureBuilder {
   }
 
   /**
-   * 创建单条路径的文件夹结构（支持多层级）
-   * 例如路径 "docs/2024/reports" 会逐级创建
+   * 创建单条路径的文件夹（只创建最后一级）
+   *
+   * 例如路径 "A/B/C"：
+   *   - folderName = "C"
+   *   - parentPath = "A/B"
+   *   - parentId = folderMap.get("A/B") （上一轮已创建）
+   *   - 如果 parentId 不存在则 fallback 到 rootTargetId
+   *
+   * 后端幂等保证：即使并发重复请求，也返回已有 ID。
    */
-  async _createPathStructure(folderPath, parentFolderId, isPublic) {
-    const pathParts = folderPath.split('/');
-    let currentParentId = parentFolderId;
-    let currentPath = '';
-
-    for (const folderName of pathParts) {
-      currentPath = currentPath ? `${currentPath}/${folderName}` : folderName;
-
-      // 1. 检查本地缓存
-      const cachedId = this._folderMap.get(currentPath);
-      if (cachedId) {
-        currentParentId = cachedId;
-        this._reusedFolderIds.add(currentParentId);
-        continue;
-      }
-
-      // 2. 服务端幂等检查
-      const existingId = await this._checkExisting(folderName, currentParentId, isPublic);
-      if (existingId) {
-        currentParentId = existingId;
-        this._reusedFolderIds.add(currentParentId);
-        this._folderMap.set(currentPath, currentParentId);
-        continue;
-      }
-
-      // 3. 创建新文件夹
-      const folderId = await this._createOne(folderName, currentParentId, isPublic);
-      currentParentId = folderId;
-      this._createdByThisInstance.add(currentParentId);
-      this._folderMap.set(currentPath, currentParentId);
+  async _createSinglePath(path, rootTargetId, isPublic) {
+    // 已有缓存（同层去重或前序批次已创建）
+    if (this._folderMap.has(path)) {
+      return this._folderMap.get(path);
     }
 
-    return currentParentId;
+    const parts = path.split('/');
+    const folderName = parts[parts.length - 1];
+    const parentPath = parts.slice(0, -1).join('/');
+    const parentId = parentPath ? (this._folderMap.get(parentPath) || rootTargetId) : rootTargetId;
+
+    const folderId = await this._createOne(folderName, parentId, isPublic);
+    this._folderMap.set(path, folderId);
+    return folderId;
   }
 
   /**
-   * 服务端查询是否已存在同名文件夹
-   */
-  async _checkExisting(name, parentId, isPublic) {
-    try {
-      const { http } = await import('libs');
-      const result = await http.get(FOLDER_API_BASE, {
-        params: { parent_id: parentId, name, is_public: isPublic }
-      });
-      return result.results?.[0]?.id || null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  /**
-   * 创建单个文件夹
+   * 创建单个文件夹（后端幂等：同名同父返回已有 ID）
    */
   async _createOne(name, parentId, isPublic) {
     const { http } = await import('libs');
@@ -195,6 +185,12 @@ export class FolderStructureBuilder {
     }
 
     const result = await http.post(FOLDER_API_BASE, params);
+    // 后端幂等返回 { id, created }，created=false 表示复用了已有目录
+    if (result.created === false) {
+      this._reusedFolderIds.add(result.id);
+    } else {
+      this._createdByThisInstance.add(result.id);
+    }
     return result.id;
   }
 

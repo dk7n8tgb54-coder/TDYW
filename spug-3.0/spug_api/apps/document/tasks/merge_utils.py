@@ -179,7 +179,7 @@ def update_transfer_status(transfer_id, status, **kwargs):
     
     try:
         from apps.document.models import DocumentTransfer
-        transfer = DocumentTransfer.objects.filter(id=transfer_id).first()
+        transfer = DocumentTransfer.objects.filter(id=transfer_id).order_by().first()
         if transfer:
             transfer.status = status.value if hasattr(status, 'value') else status
             for key, value in kwargs.items():
@@ -224,7 +224,7 @@ def get_folder_and_user(folder_id, is_public, tenant_id, user_id):
     
     folder = None
     if folder_id:
-        folder_query = FolderModel.objects.filter(pk=folder_id)
+        folder_query = FolderModel.objects.filter(pk=folder_id).order_by()
         if not is_public and tenant_id:
             folder_query = folder_query.filter(tenant_id=tenant_id)
         folder = folder_query.first()

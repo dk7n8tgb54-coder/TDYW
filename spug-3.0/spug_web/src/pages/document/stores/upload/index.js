@@ -38,5 +38,5 @@ export function getUploadStore() {
   return _rootStore.uploadCoreStore;
 }
 
-// UI Store
-export { default as UploadUIStore } from './ui';
+// UI Store（注意：从 named export 导出类，而非 default export 的 Proxy 实例）
+export { UploadUIStore } from './ui';

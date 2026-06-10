@@ -10,6 +10,7 @@ import shutil
 import logging
 from django.conf import settings
 from django.db import DatabaseError
+from apps.document.exceptions import DocumentPhysicalDeleteError
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ class FolderCollector:
             # 【优化】使用 parent_id__in 一次性查询所有直接子文件夹
             children = list(FolderModel.all_objects.filter(
                 parent_id__in=parent_ids, is_deleted=True
-            ))
+            ).order_by())
 
             if not children:
                 break
@@ -134,7 +135,7 @@ class ContentDeleter:
 
     def delete_files_in_folder(self, folder, FileModel) -> None:
         """删除文件夹内的所有文件"""
-        files = FileModel.all_objects.filter(folder=folder, is_deleted=True)
+        files = FileModel.all_objects.filter(folder=folder, is_deleted=True).order_by()
 
         for file_obj in files:
             if not self.permission_checker.can_delete_file(file_obj):
@@ -145,6 +146,10 @@ class ContentDeleter:
                 file_obj.delete(hard=True)
                 self.freed_size += file_size
                 self.deleted_count += 1
+            except DocumentPhysicalDeleteError as e:
+                logger.warning(
+                    f'[AsyncFolderDelete] 文件物理删除失败，已标记待清理: file_id={file_obj.id}, path={e.file_path}'
+                )
             except (OSError, IOError, DatabaseError) as e:
                 logger.error(
                     f'[AsyncFolderDelete] 删除文件失败: file_id={file_obj.id}, error={e}'
@@ -170,6 +175,10 @@ class ContentDeleter:
         if not is_root:
             try:
                 folder.delete(hard=True)
+            except DocumentPhysicalDeleteError as e:
+                logger.warning(
+                    f'[AsyncFolderDelete] 文件夹物理删除失败，已标记待清理: folder_id={folder.id}'
+                )
             except DatabaseError as e:
                 logger.error(
                     f'[AsyncFolderDelete] 删除文件夹记录失败: folder_id={folder.id}, error={e}'

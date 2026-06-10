@@ -14,6 +14,7 @@ const ICON_MAP = {
   rename: '✏️',
   delete: '🗑️',
   preview: '👁️',
+  properties: 'ℹ️',
   newFolder: '📁',
 };
 
@@ -104,6 +105,7 @@ export const useContextMenu = () => {
       onCut,
       onRename,
       onDelete,
+      onProperties,
     } = options;
 
     const baseItems = record.isFolder
@@ -125,7 +127,11 @@ export const useContextMenu = () => {
         ]
       : [];
 
-    return [...baseItems, ...editItems];
+    const propertyItem = [
+      { key: 'properties', label: '属性', icon: getMenuIcon('properties'), onClick: onProperties },
+    ];
+
+    return [...baseItems, ...editItems, ...propertyItem];
   }, []);
 
   /**

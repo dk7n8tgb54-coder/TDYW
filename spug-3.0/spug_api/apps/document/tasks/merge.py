@@ -303,7 +303,7 @@ class FileRecordCreator:
         if not self.task_manager.folder_id:
             return None
 
-        folder_query = FolderModel.objects.filter(pk=self.task_manager.folder_id)
+        folder_query = FolderModel.objects.filter(pk=self.task_manager.folder_id).order_by()
         if not self.task_manager.is_public and self.task_manager.tenant_id:
             folder_query = folder_query.filter(tenant_id=self.task_manager.tenant_id)
         return folder_query.first()
@@ -360,7 +360,7 @@ class TransferStatusUpdater:
 
         try:
             from apps.document.models import DocumentTransfer
-            transfer = DocumentTransfer.objects.filter(id=self.task_manager.transfer_id).first()
+            transfer = DocumentTransfer.objects.filter(id=self.task_manager.transfer_id).order_by().first()
             if transfer:
                 transfer.status = status.value if hasattr(status, 'value') else status
                 for key, value in kwargs.items():
@@ -536,7 +536,7 @@ def _update_transfer_status(transfer_id, status, **kwargs):
         return
     try:
         from apps.document.models import DocumentTransfer
-        transfer = DocumentTransfer.objects.filter(id=transfer_id).first()
+        transfer = DocumentTransfer.objects.filter(id=transfer_id).order_by().first()
         if transfer:
             transfer.status = status.value if hasattr(status, 'value') else status
             for key, value in kwargs.items():

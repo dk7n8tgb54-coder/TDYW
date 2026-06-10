@@ -15,11 +15,6 @@ class UploadUIStore {
     // 初始化子模块
     this.panel = new UploadPanelStore(rootStore);
     this.modal = new UploadModalStore(rootStore);
-    
-    // 如果没有传入 rootStore，尝试从 window 获取（开发调试用）
-    if (!this.rootStore && typeof window !== 'undefined' && window.__ROOT_STORE__) {
-      this.rootStore = window.__ROOT_STORE__;
-    }
   }
 
   // ============================================================
@@ -124,6 +119,36 @@ class UploadUIStore {
   }
 }
 
-// 创建单例实例（保持向后兼容）
-const uploadUIStore = new UploadUIStore();
-export default uploadUIStore;
+// 导出类（供 RootStore 创建实例和单元测试使用）
+export { UploadUIStore };
+
+// ========== 向后兼容 ==========
+// 旧组件使用: import uploadUIStore from './stores/upload/ui'
+// 新组件应使用: import rootStore from './stores'; rootStore.uploadUIStore
+// 
+// 使用 Proxy 实现延迟绑定：default export 指向 RootStore 中的实例，
+// 避免循环依赖，同时保证旧代码拿到的是 RootStore 管理的同一实例。
+let _rootStoreUploadUIStore = null;
+
+export function _bindUploadUIStore(instance) {
+  _rootStoreUploadUIStore = instance;
+}
+
+// default export 是一个 Proxy，所有属性访问委托给 RootStore 中的实例
+const uploadUIStoreProxy = typeof Proxy !== 'undefined' 
+  ? new Proxy({}, {
+      get(_target, prop) {
+        const store = _rootStoreUploadUIStore;
+        if (!store) {
+          return undefined;
+        }
+        const value = store[prop];
+        if (typeof value === 'function') {
+          return value.bind(store);
+        }
+        return value;
+      }
+    })
+  : new UploadUIStore(); // 不支持 Proxy 的环境降级为独立实例
+
+export default uploadUIStoreProxy;

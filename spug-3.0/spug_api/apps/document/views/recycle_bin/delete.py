@@ -14,6 +14,7 @@ from django.core.cache import cache
 
 from libs import json_response, JsonParser, Argument, auth
 from ...models import DocumentFilePrivate, DocumentFilePublic
+from ...exceptions import DocumentPhysicalDeleteError
 from ..base import log_operation
 from .utils import invalidate_cache, check_permission
 from ...libs.idempotency_utils import IdempotencyChecker, build_idempotency_key_from_request
@@ -113,7 +114,7 @@ class RecycleBinPermanentDeleteView(View):
             private_files = {
                 f.id: f for f in DocumentFilePrivate.all_objects.filter(
                     id__in=form.file_ids, is_deleted=True, tenant_id=user_tenant_id
-                ).select_related('created_by')
+                ).select_related('created_by').order_by()
             }
             all_files.update(private_files)
 
@@ -121,7 +122,7 @@ class RecycleBinPermanentDeleteView(View):
             public_files = {
                 f.id: f for f in DocumentFilePublic.all_objects.filter(
                     id__in=form.file_ids, is_deleted=True
-                ).select_related('created_by')
+                ).select_related('created_by').order_by()
             }
             all_files.update(public_files)
 
@@ -189,6 +190,10 @@ class RecycleBinPermanentDeleteView(View):
                 file_size=file_size
             )
             return {'id': file_id, 'status': 'success', 'file_size': file_size}
+        except DocumentPhysicalDeleteError as e:
+            # 物理文件删除失败，已标记为待清理，返回特定错误码
+            logger.warning(f'[RecycleBin] 物理文件删除失败，已标记待清理: file_id={file_id}, path={e.file_path}')
+            return {'id': file_id, 'status': 'pending_clean', 'error': '文件删除失败，已加入待清理队列', 'code': 500004}
         except Exception as del_err:
             logger.error(f'[RecycleBin] 删除文件失败: file_id={file_id}, error={del_err}')
             return {'id': file_id, 'status': 'failed', 'error': '删除失败，请稍后重试', 'code': 500001}
@@ -265,6 +270,9 @@ class RecycleBinPermanentDeleteView(View):
         except (DocumentFilePrivate.DoesNotExist, DocumentFilePublic.DoesNotExist):
             logger.error(f'[RecycleBin] 文件不存在: file_id={file_id}')
             return {'id': file_id, 'status': 'failed', 'error': '文件不存在或未被删除', 'code': 404001}
+        except DocumentPhysicalDeleteError as e:
+            logger.warning(f'[RecycleBin] 物理文件删除失败，已标记待清理: file_id={file_id}, path={e.file_path}')
+            return {'id': file_id, 'status': 'pending_clean', 'error': '文件删除失败，已加入待清理队列', 'code': 500004}
         except Exception as e:
             logger.error(f'[RecycleBin] 彻底删除文件失败: file_id={file_id}, error={e}', exc_info=True)
             return {'id': file_id, 'status': 'failed', 'error': '删除失败，请稍后重试'}

@@ -252,15 +252,13 @@ class RecycleBinFolderRestoreView(View):
     def _resolve_name_conflict(self, name, parent, FolderModel, user):
         """解决文件夹名称冲突，自动重命名"""
         # 检查是否已存在同名文件夹
+        # 注意：公共空间 unique_key = name + parent（全局唯一，不按 created_by 区分），
+        # 所以冲突检查也不能按 created_by 过滤，否则会漏判别人创建的同名文件夹
         existing = FolderModel.objects.filter(
             name=name,
             parent=parent,
             is_deleted=False
-        )
-        
-        # 公共空间需要额外过滤
-        if FolderModel == DocumentFolderPublic:
-            existing = existing.filter(created_by=user)
+        ).order_by()
         
         if not existing.exists():
             return name
@@ -280,9 +278,7 @@ class RecycleBinFolderRestoreView(View):
                 name=new_name,
                 parent=parent,
                 is_deleted=False
-            )
-            if FolderModel == DocumentFolderPublic:
-                existing = existing.filter(created_by=user)
+            ).order_by()
             
             if not existing.exists():
                 return new_name
@@ -325,7 +321,7 @@ class RecycleBinFolderRestoreView(View):
             processed_folders.append(current_folder)
             
             # 获取子文件夹
-            sub_folders = FolderModel.all_objects.filter(parent=current_folder, is_deleted=True)
+            sub_folders = FolderModel.all_objects.filter(parent=current_folder, is_deleted=True).order_by()
             for sub_folder in sub_folders:
                 if not self._check_folder_permission(sub_folder, user):
                     logger.warning(f'[RecycleBin] 无权恢复子文件夹: folder_id={sub_folder.id}')
@@ -334,7 +330,7 @@ class RecycleBinFolderRestoreView(View):
         
         # 2. 恢复所有文件夹内的文件
         for current_folder in processed_folders:
-            files = FileModel.all_objects.filter(folder=current_folder, is_deleted=True)
+            files = FileModel.all_objects.filter(folder=current_folder, is_deleted=True).order_by()
             for file_obj in files:
                 if self._check_file_permission(file_obj, user):
                     file_obj.restore()

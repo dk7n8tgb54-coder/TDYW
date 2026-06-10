@@ -130,8 +130,8 @@ class RecycleBinView(View):
         fetch_size = page_size * 2
 
         # DB 端 count（O(log n) 在有索引时）
-        folder_count = folder_qs.count()
-        file_count = file_qs.count()
+        folder_count = folder_qs.order_by().count()
+        file_count = file_qs.order_by().count()
         total_count = folder_count + file_count
 
         # DB 端分页：order_by 必须有 deleted_at 索引（或 id）保证稳定排序
@@ -213,10 +213,10 @@ class RecycleBinView(View):
 
         # DB 端 count（避免内存 len）
         total_count = (
-            private_folder_qs.count() +
-            private_file_qs.count() +
-            public_folder_qs.count() +
-            public_file_qs.count()
+            private_folder_qs.order_by().count() +
+            private_file_qs.order_by().count() +
+            public_folder_qs.order_by().count() +
+            public_file_qs.order_by().count()
         )
 
         # DB 端分页：每个 queryset order_by + LIMIT/OFFSET

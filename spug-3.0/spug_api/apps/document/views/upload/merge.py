@@ -211,7 +211,7 @@ def check_idempotency(
         if transfer_id:
             # 【P0-3修复】使用select_for_update避免竞态条件
             with transaction.atomic():
-                transfer = DocumentTransfer.objects.select_for_update().filter(id=transfer_id).first()
+                transfer = DocumentTransfer.objects.select_for_update().filter(id=transfer_id).order_by().first()
                 if transfer:
                     result = _build_result_from_transfer(transfer)
                     if result:
@@ -299,7 +299,7 @@ def update_transfer_to_merging(transfer_id: Optional[int], user: 'User') -> None
         from apps.document.models import DocumentTransfer
 
         with transaction.atomic():
-            transfer_obj = DocumentTransfer.objects.select_for_update().filter(id=transfer_id).first()
+            transfer_obj = DocumentTransfer.objects.select_for_update().filter(id=transfer_id).order_by().first()
             if transfer_obj and transfer_obj.user == user:
                 if transfer_obj.status in [TransferStatus.UPLOADING.value, TransferStatus.PAUSED.value]:
                     transfer_obj.status = TransferStatus.MERGING.value

@@ -192,7 +192,7 @@ class FolderValidator:
 
         try:
             folder_id = int(folder_id)
-            folder_query = FolderModel.objects.filter(pk=folder_id)
+            folder_query = FolderModel.objects.filter(pk=folder_id).order_by()
 
             if not is_public:
                 from libs.tenant_utils import apply_tenant_filter

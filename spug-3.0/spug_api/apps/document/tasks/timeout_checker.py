@@ -38,7 +38,7 @@ def check_merge_timeout(self, timeout_minutes=30):
         timeout_tasks = DocumentTransfer.objects.filter(
             status=TransferStatus.MERGING.value,
             updated_at__lt=timeout_threshold
-        ).select_related('user')
+        ).select_related('user').order_by()
         
         timeout_count = timeout_tasks.count()
         if timeout_count == 0:
@@ -132,7 +132,7 @@ def cleanup_stale_merging_tasks(self, older_than_hours=24):
         stale_tasks = DocumentTransfer.objects.filter(
             status=TransferStatus.MERGING.value,
             updated_at__lt=stale_threshold
-        )
+        ).order_by()
         
         stale_count = stale_tasks.count()
         if stale_count == 0:

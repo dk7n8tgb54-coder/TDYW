@@ -10,6 +10,7 @@ from libs import json_response
 from apps.document.libs.document_utils import (
     get_folder_model, get_file_model, is_global_admin
 )
+from apps.document.libs.view_utils import permission_denied_response
 import logging
 
 logger = logging.getLogger(__name__)
@@ -56,29 +57,29 @@ def document_permission_check(need_create_permission=True):
 
                     if folder_id:
                         model = get_folder_model(is_public=True)
-                        folder = model.objects.filter(id=folder_id).first()
+                        folder = model.objects.filter(id=folder_id).order_by().first()
                         if not folder:
-                            return json_response(error='文件夹不存在')
+                            return json_response(error='文件夹不存在', code=404)
 
                         # 校验是否为创建人
                         if need_create_permission and folder.created_by_id != request.user.id:
                             logger.warning(
                                 f'[PERMISSION] 用户 {request.user.username} 尝试操作他人的公共文件夹 ID:{folder_id}'
                             )
-                            return json_response(error='无权限操作他人的公共资源')
+                            return permission_denied_response('无权限操作他人的公共资源', 'not_owner')
 
                     elif file_id:
                         model = get_file_model(is_public=True)
-                        file = model.objects.filter(id=file_id).first()
+                        file = model.objects.filter(id=file_id).order_by().first()
                         if not file:
-                            return json_response(error='文件不存在')
+                            return json_response(error='文件不存在', code=404)
 
                         # 校验是否为创建人
                         if need_create_permission and file.created_by_id != request.user.id:
                             logger.warning(
                                 f'[PERMISSION] 用户 {request.user.username} 尝试操作他人的公共文件 ID:{file_id}'
                             )
-                            return json_response(error='无权限操作他人的公共资源')
+                            return permission_denied_response('无权限操作他人的公共资源', 'not_owner')
 
                 # 私有空间权限校验（已在模型层过滤，无需额外校验）
                 # 私有空间的查询已经在 views 中通过 created_by_id 过滤
@@ -90,7 +91,7 @@ def document_permission_check(need_create_permission=True):
 
             except Exception as e:
                 logger.error(f'[PERMISSION] 权限校验异常: {e}')
-                return json_response(error='权限校验失败')
+                return permission_denied_response('权限校验失败', 'permission_check_error')
 
         return wrapper
     return decorator

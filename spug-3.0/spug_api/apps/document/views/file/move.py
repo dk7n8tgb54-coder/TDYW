@@ -14,6 +14,7 @@ from libs import json_response, auth
 from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_folder_model, get_file_model
 from ...libs.naming_utils import generate_unique_logical_name
+from ...libs.view_utils import permission_denied_response
 from ..base import check_public_space_permission, log_operation
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ class FileMoveView(View):
         FolderModel = get_folder_model(is_public=is_public)
 
         # 查询文件
-        file_query = FileModel.objects.filter(pk=file_id)
+        file_query = FileModel.objects.filter(pk=file_id).order_by()
         if not is_public:
             file_query = apply_tenant_filter(file_query, request.user, strict_mode=True)
         file = file_query.select_related('created_by').first()
@@ -53,12 +54,12 @@ class FileMoveView(View):
 
         # 公共空间权限校验
         if is_public and not check_public_space_permission(request.user, file, 'file', '移动'):
-            return json_response(error='公共空间中只能移动自己创建的文件')
+            return permission_denied_response('公共空间中只能移动自己创建的文件', 'not_owner')
 
         # 查询目标文件夹
         target = None
         if target_id:
-            target_query = FolderModel.objects.filter(pk=target_id)
+            target_query = FolderModel.objects.filter(pk=target_id).order_by()
             if not is_public:
                 target_query = apply_tenant_filter(target_query, request.user, strict_mode=True)
             target = target_query.first()

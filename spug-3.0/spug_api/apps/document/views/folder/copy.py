@@ -13,6 +13,7 @@ from django.views.generic import View
 from libs import json_response, auth
 from libs.tenant_utils import apply_tenant_filter
 from apps.document.libs.document_utils import get_folder_model, get_file_model
+from apps.document.libs.view_utils import permission_denied_response
 from apps.document.views.base import check_public_space_permission, log_operation
 from apps.document.services.folder_copy_service import FolderCopyService
 
@@ -49,7 +50,7 @@ class FolderCopyView(View):
         if is_public and not check_public_space_permission(
             request.user, source_folder, 'folder', '复制'
         ):
-            return json_response(error='公共空间中只能复制自己创建的文件夹')
+            return permission_denied_response('公共空间中只能复制自己创建的文件夹', 'not_owner')
 
         # 查询目标文件夹
         target_folder = self._get_target_folder(target_id, FolderModel, request.user, is_public)
@@ -87,7 +88,7 @@ class FolderCopyView(View):
 
     def _get_source_folder(self, folder_id, FolderModel, user, is_public):
         """获取源文件夹"""
-        query = FolderModel.objects.filter(pk=folder_id)
+        query = FolderModel.objects.filter(pk=folder_id).order_by()
         if not is_public:
             query = apply_tenant_filter(query, user, strict_mode=True)
         return query.select_related('created_by').first()
@@ -97,7 +98,7 @@ class FolderCopyView(View):
         if not target_id:
             return None
 
-        query = FolderModel.objects.filter(pk=target_id)
+        query = FolderModel.objects.filter(pk=target_id).order_by()
         if not is_public:
             query = apply_tenant_filter(query, user, strict_mode=True)
         return query.first()

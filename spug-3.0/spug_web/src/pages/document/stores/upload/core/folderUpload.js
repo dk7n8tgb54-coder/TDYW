@@ -16,6 +16,8 @@ import { action } from 'mobx';
 import { message } from 'antd';
 import { FolderStructureBuilder } from './folder/FolderStructureBuilder';
 
+const FOLDER_UPLOAD_BATCH_SIZE = 20;
+
 /**
  * 兜底文件名校验函数
  */
@@ -107,21 +109,31 @@ export class FolderUploadStore {
       return;
     }
 
-    // 7. 构造 items 数组，委托 FileUploadCoordinator 处理
-    const items = validFiles.map(file => {
-      const relativePath = file.webkitRelativePath || file.name;
-      const folderPath = relativePath.split('/').slice(0, -1).join('/');
-      const itemFolderId = folderPath ? folderMap.get(folderPath) : targetFolderId;
-      const uniqueKey = this.queueStore.generateUniqueKey(file, itemFolderId, isPublic);
-      this._myUniqueKeys.add(uniqueKey);
-      return { file, folderId: itemFolderId, folderPath };
-    });
-
+    // 7. 分批构造上传项并入队，第一批准备好后队列即可开始消费
+    let enqueuedCount = 0;
     try {
-      await this.rootStore.fileUploadCoordinator?.processUploadQueue(items);
+      const coordinator = this.rootStore.fileUploadCoordinator;
+      if (!coordinator) {
+        throw new Error('上传协调器未初始化');
+      }
+
+      for (let i = 0; i < validFiles.length; i += FOLDER_UPLOAD_BATCH_SIZE) {
+        if (this.rootStore.isCancelled) break;
+
+        const batchFiles = validFiles.slice(i, i + FOLDER_UPLOAD_BATCH_SIZE);
+        const batchItems = batchFiles.map(file => (
+          this._buildUploadItem(file, folderMap, targetFolderId, isPublic)
+        ));
+
+        const uploadItems = await coordinator.processUploadQueue(batchItems);
+        enqueuedCount += Array.isArray(uploadItems) ? uploadItems.length : batchItems.length;
+        this.queueStore.setFolderUploadProgress(enqueuedCount, validFiles.length);
+
+        await this._yieldToBrowser();
+      }
     } catch (error) {
-      console.error('[FolderUpload] 上传失败:', error);
-      await this.structureBuilder.rollback();
+      console.error('[FolderUpload] 上传任务入队失败:', error);
+      message.error(`上传任务入队失败: ${this._getErrorMessage(error)}`);
     } finally {
       this._clearFolderKey(folderUniqueKey);
     }
@@ -130,6 +142,30 @@ export class FolderUploadStore {
   // ============================================================
   // 校验和辅助方法
   // ============================================================
+
+  _buildUploadItem(file, folderMap, targetFolderId, isPublic) {
+    const relativePath = file.webkitRelativePath || file.name;
+    const folderPath = relativePath.split('/').slice(0, -1).join('/');
+    const itemFolderId = folderPath ? folderMap.get(folderPath) : targetFolderId;
+
+    if (folderPath && (itemFolderId === null || itemFolderId === undefined)) {
+      throw new Error(`文件夹路径创建失败: ${folderPath}`);
+    }
+
+    const uniqueKey = this.queueStore.generateUniqueKey(file, itemFolderId, isPublic);
+    this._myUniqueKeys.add(uniqueKey);
+    return { file, folderId: itemFolderId, folderPath };
+  }
+
+  _yieldToBrowser() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  _getErrorMessage(error) {
+    if (!error) return '未知错误';
+    if (typeof error === 'string') return error;
+    return error.message || '未知错误';
+  }
 
   _validateFiles(files) {
     const validFiles = [];

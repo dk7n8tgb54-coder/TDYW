@@ -10,6 +10,7 @@ import logging
 from django.views.generic import View
 
 from libs import json_response, JsonParser, Argument, auth
+from apps.document.libs.view_utils import permission_denied_response
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ class TransferProgressUpdateView(View):
 
             if (transfer.user != request.user and not is_supper) or \
                (transfer.tenant_id != request_tenant_id and not is_supper):
-                return json_response(error='无权更新此传输记录')
+                return permission_denied_response('无权更新此传输记录', 'not_owner')
 
             # 更新字段
             if form.uploaded_chunks is not None:

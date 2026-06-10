@@ -106,6 +106,7 @@ class UploadCoreStore {
   // ===== 非observable =====
   cancelTokenSources = new Map();
   cleanupTimer = null;
+  stateMachineCleanupTimer = null;
   failedSyncTransfers = [];
 
   constructor(rootStore) {
@@ -137,7 +138,7 @@ class UploadCoreStore {
         this.stateChangeHandler.handle(fromState, toState, event, payload, uploadId);
       }
     });
-    setInterval(() => {
+    this.stateMachineCleanupTimer = setInterval(() => {
       if (this.stateMachineManager) {
         this.stateMachineManager.cleanup();
       }
@@ -396,6 +397,10 @@ class UploadCoreStore {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
     }
+    if (this.stateMachineCleanupTimer) {
+      clearInterval(this.stateMachineCleanupTimer);
+      this.stateMachineCleanupTimer = null;
+    }
     if (this.networkLifecycle) {
       this.networkLifecycle.cleanup();
     }
@@ -413,6 +418,10 @@ class UploadCoreStore {
     // 【P1 修复】销毁文件夹上传Store，清理 beforeunload 事件监听器，防止内存泄漏
     if (this.folderUploadStore) {
       this.folderUploadStore.destroy();
+    }
+    // 清理队列Store定时器
+    if (this.queueStore) {
+      this.queueStore.destroy();
     }
     this.cancelAll();
     this.md5Store.terminateAll();

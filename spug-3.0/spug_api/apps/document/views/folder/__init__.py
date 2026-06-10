@@ -11,6 +11,7 @@ from .copy import FolderCopyView
 from .move import FolderMoveView
 from .download import FolderDownloadView, FolderDownloadStatusView, FolderDownloadReadyView
 from .rename import FolderRenameView
+from .properties import FolderPropertiesView
 
 __all__ = [
     'FolderView',
@@ -20,4 +21,5 @@ __all__ = [
     'FolderDownloadStatusView',
     'FolderDownloadReadyView',
     'FolderRenameView',
+    'FolderPropertiesView',
 ]

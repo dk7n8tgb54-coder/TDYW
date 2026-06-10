@@ -44,6 +44,7 @@ Document 模块视图子包
 from .base import (
     format_file_size,
     check_public_space_permission,
+    permission_denied_response,
     MIME_TYPES,
     get_mime_type,
     handle_view_errors,
@@ -124,6 +125,7 @@ __all__ = [
     # 工具函数
     'format_file_size',
     'check_public_space_permission',
+    'permission_denied_response',
     'MIME_TYPES',
     'get_mime_type',
     'handle_view_errors',

@@ -38,6 +38,54 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate document
 - spug_web 使用 antd 4.21.5
 - spug_api 使用 Django + MySQL
 - 租户隔离使用 TenantModelMixin
+- **数据库: MariaDB 10.8.2**（不支持部分唯一索引 WHERE 条件）
+- Django `UniqueConstraint(condition=Q(...))` 在 MariaDB 上**静默跳过**，不创建数据库索引
+- 解决方案：使用 `unique_key` 字段（MD5 哈希），is_deleted=True 时设为 NULL，利用 MySQL 中 NULL 不参与唯一索引
+
+### 模型 Mixin 架构（2026-06-11 重构）
+- **5 个 Mixin** 消除了 Public/Private 模型的重复逻辑：
+  1. `SoftDeleteFolderMixin`（abstract Model）：文件夹 delete(hard)/restore()
+  2. `FolderPathMixin`（普通类）：get_full_path() 迭代实现 + 循环/深度保护
+  3. `UniqueKeyMixin`（abstract Model）：save() 自动计算 unique_key hook
+  4. `SoftDeleteFileMixin`（abstract Model）：文件 restore()
+  5. `DocumentFileDeleteMixin`（abstract Model）：硬删除 + 物理文件/缩略图清理 + is_pending_clean 兜底
+- **MRO**: `DocumentFolderPrivate(SoftDeleteFolderMixin, FolderPathMixin, UniqueKeyMixin)`
+- **MRO**: `DocumentFilePrivate(SoftDeleteFileMixin, DocumentFileDeleteMixin)`
+- **不变性**：db_table、字段、约束全部不变，无需 migration
+- **子类差异**：`_compute_unique_key()` 由子类各自实现（Private 含 tenant_id+created_by，Public 不含）
+- `hashlib` 已移到模块顶部 import（之前在 `_compute_unique_key` 函数内 import）
+
+### 迁移 0005 关键设计（2026-06-11 修正）
+- **4 步拆分**：删旧约束 → 加非唯一字段 → 回填+重复检查(raise) → AlterField 加 unique
+- **原因**：如果先加 unique 再回填，历史重复数据会导致 UPDATE 撞唯一索引失败
+- **重复检查**：backfill 函数发现重复时 `raise RuntimeError` 中止迁移，强制先清理数据
+- **回填方向**：需要 reverse_backfill 将 unique_key 清空为 NULL
+
+### DocumentFileDeleteMixin 事务语义（2026-06-11 修正）
+- 嵌套 `transaction.atomic()` 只是 **savepoint**，外层回滚时标记也会丢失
+- 调用方若需要 is_pending_clean 可靠落库，**不应在捕获异常后回滚外层事务**
+- 如需更强保障，需改用异步补偿（如 Celery 任务重试待清理文件）
+
+### 文件夹创建幂等改造（2026-06-11）
+- **问题**：深层目录上传触发 `Duplicate entry for key 'unique_key'`（1062 错误）
+- **根因**：前端 `_createPathStructure` 递归创建路径，多个叶子路径共享祖先时并发重复创建
+- **修复方案（双保险）**：
+  1. **后端** `FolderView.post` 改为幂等接口：先查已有 → 创建 → 撞 IntegrityError 再查一次
+     - 新增 `_find_existing_folder()` 静态方法
+     - 返回 `{ id, created }` 区分新建/复用
+     - IntegrityError 在 `transaction.atomic()` 外捕获（避免事务 broken 状态）
+  2. **前端** `FolderStructureBuilder` 改为"全路径展开 + 按层创建"：
+     - `_extractDepthGroups` 展开所有祖先路径（A/B/C/file.txt → A, A/B, A/B/C）
+     - `_createSinglePath` 只创建路径最后一级，父 ID 从 folderMap 取
+     - 删除 `_checkExisting`（后端已幂等，前端无需预查）
+     - 删除 `_createPathStructure`（递归创建被按层创建替代）
+- **关键约束**：unique_key 保留（最后防线），业务层把 1062 转为返回已有 ID
+
+### 公共空间 unique_key 规则的影响
+- 公共空间 unique_key = `MD5(name:parent_id)`，**不含 created_by**
+- 这意味着公共空间同名文件夹是**全局唯一**（不区分创建人）
+- 所有冲突检查逻辑（恢复、重命名、移动）都不应按 created_by 过滤
+- 之前 folder_restore.py 的 `_resolve_name_conflict` 误加了 `created_by=user` 过滤，已修正
 
 ### 重构方法论（用户偏好）
 - **渐进式重构 > 大爆炸式重构**：每阶段独立 PR、独立可回滚
@@ -163,6 +211,13 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate document
 - 老：`visible: true/false`（只有开/关）
 - 新：`expanded: true/false`（开/关） + `drawerHeight: number`（240-720px）
 - **原则**：状态机升级要**正交分解**，不要堆叠 boolean（否则会出现 `visible && expanded && !collapsed` 的混乱）
+
+### 17. 代码审查中的关键教训（2026-06-11 补充）
+- **迁移加唯一约束必须拆步**：先加非唯一字段 → 回填 → 检查重复 → 再加 unique，否则历史重复数据导致回填撞唯一索引
+- **嵌套 atomic() 不是独立事务**：savepoint 会被外层回滚，注释必须如实说明，不能误导调用方
+- **冲突检查要和约束规则一致**：公共空间 unique_key 不含 created_by，冲突检查也不能按 created_by 过滤
+- **Django Model.save() 签名必须兼容**：`def save(self, *args, **kwargs)` 不能丢 `*args`
+- **ErrorBoundary 不要暴露 error.message**：生产环境显示通用提示，详细错误只打日志
 
 ---
 

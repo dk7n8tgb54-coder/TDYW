@@ -29,6 +29,38 @@ def format_file_size(size_bytes):
     return f'{size_bytes:.2f} PB'
 
 
+def permission_denied_response(message='无权限操作该资源', reason='permission_denied'):
+    """
+    统一权限错误响应格式
+
+    所有权限相关错误统一返回 {error, code, reason} 三字段结构，
+    前端可依赖 code/reason 做标准化处理，不再解析散落文本。
+
+    Args:
+        message: 用户可见的错误描述
+        reason: 机器可读的错误原因码，用于前端分类处理
+
+    Returns:
+        HttpResponse: 统一格式的权限错误响应
+
+    响应格式:
+        {
+            "data": "",
+            "error": "无权限操作该资源",
+            "code": 403,
+            "reason": "permission_denied"
+        }
+    """
+    from libs import json_response
+    response = json_response(error=message, code=403)
+    # json_response 不支持 reason 参数，手动注入到响应内容中
+    import json
+    content = json.loads(response.content)
+    content['reason'] = reason
+    response.content = json.dumps(content, ensure_ascii=False).encode('utf-8')
+    return response
+
+
 def check_public_space_permission(request_user, resource_obj, resource_type='file', operation='操作'):
     """
     检查公共空间权限（仅管理员或创建人可操作）

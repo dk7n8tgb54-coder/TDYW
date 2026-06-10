@@ -11,6 +11,7 @@ from django.views.generic import View
 from django.utils import timezone
 
 from libs import json_response, JsonParser, Argument, auth
+from apps.document.libs.view_utils import permission_denied_response
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class TransferCompleteView(View):
 
             if (transfer.user != request.user and not is_supper) or \
                (transfer.tenant_id != request_tenant_id and not is_supper):
-                return json_response(error='无权操作此传输记录')
+                return permission_denied_response('无权操作此传输记录', 'not_owner')
 
             # 幂等性校验
             if transfer.status == TransferStatus.COMPLETED.value:
@@ -85,7 +86,7 @@ class TransferFailView(View):
 
             if (transfer.user != request.user and not is_supper) or \
                (transfer.tenant_id != request_tenant_id and not is_supper):
-                return json_response(error='无权操作此传输记录')
+                return permission_denied_response('无权操作此传输记录', 'not_owner')
 
             # 幂等性校验
             if transfer.status == TransferStatus.FAILED.value:
@@ -99,6 +100,7 @@ class TransferFailView(View):
             ALLOWED_TO_FAIL = [
                 TransferStatus.PENDING,
                 TransferStatus.UPLOADING,
+                TransferStatus.DOWNLOADING,
                 TransferStatus.PAUSED,
                 TransferStatus.MERGING
             ]
@@ -149,7 +151,7 @@ class TransferStatusUpdateView(View):
 
             if (transfer.user != request.user and not is_supper) or \
                (transfer.tenant_id != request_tenant_id and not is_supper):
-                return json_response(error='无权更新此传输记录')
+                return permission_denied_response('无权更新此传输记录', 'not_owner')
 
             # 状态流转验证
             current_status = transfer.status

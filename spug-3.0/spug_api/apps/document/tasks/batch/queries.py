@@ -35,7 +35,7 @@ class TransferQueryService:
         transfers = list(DocumentTransfer.objects.filter(
             id__in=transfer_ids,
             tenant_id__in=[tenant_filter, None, '']
-        ).only(*cls.DEFAULT_FIELDS))
+        ).only(*cls.DEFAULT_FIELDS).order_by())
 
         # 检查越权ID（日志脱敏，只记录数量）
         found_count = len(transfers)
@@ -69,7 +69,7 @@ class TransferQueryService:
         matched_count = DocumentTransfer.objects.filter(
             id__in=transfer_ids,
             tenant_id__in=[tenant_filter, None, '']
-        ).count()
+        ).order_by().count()
 
         # 执行删除，获取实际删除数量
         deleted_result = DocumentTransfer.objects.filter(
@@ -100,4 +100,4 @@ class TransferQueryService:
             id=transfer_id,
             tenant_id__in=[tenant_filter, None, ''],
             status__in=TransferClassifier.DELETABLE_STATES
-        ).first()
+        ).order_by().first()
