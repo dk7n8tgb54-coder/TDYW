@@ -84,7 +84,12 @@ def pack_folder_to_zip(self, folder_id, is_public, user_id, tenant_id=None):
                 'zip_path': final_path,
                 'zip_size': zip_size,
                 'folder_name': folder.name,
-                'task_id': self.request.id
+                'task_id': self.request.id,
+                # 【H-1修复】返回归属信息，供下载端校验
+                'user_id': user_id,
+                'tenant_id': tenant_id,
+                'is_public': is_public,
+                'folder_id': folder_id,
             }
 
         except Exception as e:

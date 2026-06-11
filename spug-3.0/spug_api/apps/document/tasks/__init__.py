@@ -16,6 +16,7 @@ from .timeout_checker import (
     check_merge_timeout,
     cleanup_stale_merging_tasks,
 )
+from .cleanup.orphan_transfers import cleanup_orphan_transfers
 
 __all__ = [
     'merge_file_chunks',
@@ -32,4 +33,5 @@ __all__ = [
     'cleanup_expired_pack_tasks',
     'check_merge_timeout',
     'cleanup_stale_merging_tasks',
+    'cleanup_orphan_transfers',
 ]

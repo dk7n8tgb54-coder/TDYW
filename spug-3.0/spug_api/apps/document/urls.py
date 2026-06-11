@@ -31,6 +31,7 @@ from .views.file import (
     FilePreviewView,
     FileTextContentView,
     OfficePreviewUrlView,
+    PreviewTokenView,  # 【H-2修复】预览令牌生成
     FileCopyView,
     FileMoveView,
     FileRenameView,
@@ -97,6 +98,7 @@ urlpatterns = [
     path('preview/', FilePreviewView.as_view()),
     path('text_content/', FileTextContentView.as_view()),
     path('office_preview_url/', OfficePreviewUrlView.as_view()),
+    path('preview_token/', PreviewTokenView.as_view()),  # 【H-2修复】生成预览令牌
     path('file/copy/', FileCopyView.as_view()),
     path('file/move/', FileMoveView.as_view()),
     path('file/rename/', FileRenameView.as_view()),

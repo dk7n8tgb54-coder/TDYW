@@ -8,6 +8,7 @@ import os
 from celery import shared_task
 from django.utils import timezone
 from apps.document.exceptions import DocumentPhysicalDeleteError
+from apps.document.libs.document_utils import safe_delete_document_file
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,9 @@ def _process_pending_files(FileModel, space_name):
 
         try:
             if os.path.exists(file.file_path):
-                os.remove(file.file_path)
+                deleted, error = safe_delete_document_file(file.file_path)
+                if not deleted:
+                    logger.error(f'[Cleanup] 安全删除失败，文件路径异常: id={file.id}, path={file.file_path}, error={error}')
 
             file.delete(hard=True)
             success += 1

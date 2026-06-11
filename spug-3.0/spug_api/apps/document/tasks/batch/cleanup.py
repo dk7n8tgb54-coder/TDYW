@@ -54,7 +54,7 @@ class ChunkCleanupService:
     def _local_cleanup_transfer_chunks(cls, transfer):
         """本地分片清理实现（降级方案）"""
         import shutil
-        from apps.document.libs.document_utils import get_chunk_dir_path
+        from apps.document.libs.document_utils import get_chunk_dir_path, is_safe_path
 
         class TempUser:
             def __init__(self, user_id, tenant_id):
@@ -65,12 +65,22 @@ class ChunkCleanupService:
             transfer.user_id or 'anonymous',
             transfer.tenant_id or getattr(settings, 'DEFAULT_TENANT_ID', 'default')
         )
-        chunk_dir = get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user)
 
+        # 清理新路径（带 transfer_id 隔离）和旧路径（兼容历史数据）
         chunk_base_dir = os.path.join(settings.BASE_DIR, 'storage', 'document_chunks')
-        if chunk_dir.startswith(chunk_base_dir) and os.path.exists(chunk_dir):
-            shutil.rmtree(chunk_dir, ignore_errors=True)
-            logger.info(f'[Celery] Cleaned up chunks: {chunk_dir}')
+        try:
+            dir_paths = [
+                get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user, transfer_id=transfer.id),
+                get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user),
+            ]
+        except ValueError as e:
+            logger.error(f'[Celery] Invalid path segment for transfer {transfer.id}: {e}')
+            return
+
+        for dir_path in dir_paths:
+            if is_safe_path(chunk_base_dir, dir_path) and os.path.exists(dir_path):
+                shutil.rmtree(dir_path, ignore_errors=True)
+                logger.info(f'[Celery] Cleaned up chunks: {dir_path}')
 
     @classmethod
     def count_cleaned(cls, results: List[Dict]) -> int:

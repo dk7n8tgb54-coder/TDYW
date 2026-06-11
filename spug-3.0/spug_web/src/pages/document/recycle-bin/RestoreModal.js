@@ -63,7 +63,7 @@ const RestoreModal = observer(function () {
               return (
                 <div key={item.id} className={styles.fileItem}>
                   {isFolder ? (
-                    <span className={styles.folderIcon}>📁</span>
+                    <span className={styles.folderIcon}>{service.FolderIconMap}</span>
                   ) : (
                     service.FileIconMap[service.getFileIcon(item.file_type, item.name)] || service.FileIconMap.file
                   )}

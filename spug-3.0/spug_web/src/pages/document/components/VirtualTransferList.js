@@ -37,6 +37,10 @@ const {
   LIST_MIN_HEIGHT
 } = UPLOAD_CONSTANTS.VIRTUAL_LIST;
 
+// 【2026-06-11 修复】使用 ResizeObserver 让虚拟列表高度跟随容器自适应
+// 之前固定 LIST_MAX_HEIGHT=400,Drawer 拖到 720 时 List 内部留出大片空白
+// 解决：List 高度 = 容器实际高度,但不超过 LIST_MAX_HEIGHT
+
 // ==================== 错误边界组件 ====================
 
 class ErrorBoundary extends React.Component {
@@ -110,12 +114,25 @@ const VirtualList = React.memo(({
   onRemove,
 }) => {
   const listRef = useRef(null);
+  const containerRef = useRef(null);
   const prevLengthRef = useRef(items.length);
+  const [containerHeight, setContainerHeight] = useState(LIST_MAX_HEIGHT);
 
-  // 【关键】计算列表高度：最小高度100px，最大400px
-  const listHeight = useMemo(() => {
-    return Math.min(LIST_MAX_HEIGHT, Math.max(LIST_MIN_HEIGHT, items.length * ITEM_HEIGHT));
-  }, [items.length]);
+  // 【2026-06-11 修复】用 ResizeObserver 监听容器高度,List 高度跟随
+  // 容器高度 ∈ [LIST_MIN_HEIGHT, LIST_MAX_HEIGHT]
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => {
+      const h = el.clientHeight;
+      setContainerHeight(Math.min(LIST_MAX_HEIGHT, Math.max(LIST_MIN_HEIGHT, h)));
+    };
+    update();
+    // ResizeObserver 监听父级 flex 容器尺寸变化（Drawer 拖拽改变高度时）
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // 【P0关键修复】使用 ref 保存回调函数，避免 itemData 频繁变化导致重渲染
   const callbacksRef = useRef({ onPause, onResume, onCancel, onRemove });
@@ -139,26 +156,30 @@ const VirtualList = React.memo(({
 
   if (items.length === 0) {
     return (
-      <Empty
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description="暂无任务"
-        style={{ padding: '40px 0' }}
-      />
+      <div ref={containerRef} style={{ flex: 1, minHeight: 0 }}>
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="暂无任务"
+          style={{ padding: '40px 0' }}
+        />
+      </div>
     );
   }
 
   return (
-    <List
-      ref={listRef}
-      height={listHeight}
-      itemCount={items.length}
-      itemSize={ITEM_HEIGHT}
-      itemData={itemData}
-      overscanCount={OVERSCAN_COUNT}
-      width="100%"
-    >
-      {VirtualRow}
-    </List>
+    <div ref={containerRef} style={{ flex: 1, minHeight: 0 }}>
+      <List
+        ref={listRef}
+        height={containerHeight}
+        itemCount={items.length}
+        itemSize={ITEM_HEIGHT}
+        itemData={itemData}
+        overscanCount={OVERSCAN_COUNT}
+        width="100%"
+      >
+        {VirtualRow}
+      </List>
+    </div>
   );
 });
 
@@ -257,36 +278,57 @@ const VirtualTransferList = ({
   return (
     <ErrorBoundary>
       {/* 【P0关键修复】移除外层 overflowY: auto，由 react-window 内部处理滚动 */}
-      <div className={styles.virtualTransferList}>
+      <div
+        className={styles.virtualTransferList}
+        // 【2026-06-11 修复】与 TransferList 对齐：宽度上限 960 + 居中
+        style={{ width: '100%' }}
+      >
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}
           size="small"
-          style={{ display: 'flex', flexDirection: 'column' }}
+          // 【2026-06-11 修复】关闭 Tab 切换动画
+          // 原因：默认 animated=true 会让 antd 在切换时短暂同时显示多个 TabPane，
+          // 造成 react-window 节点叠加，视觉上"残留"
+          animated={false}
+          style={{
+            // 【2026-06-11 修复】Tabs 容器 minHeight: 0 让 flex 子项正确收缩
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
           tabBarStyle={{ margin: 0, padding: '0 12px' }}
         >
           <TabPane
             tab={`上传中 ${uploadingList.length > 0 ? `(${uploadingList.length})` : ''}`}
             key="uploading"
+            style={{ minHeight: 0 }}
           >
             {uploadingTabExtra && (
               <div style={{ padding: '0 12px 8px', display: 'flex', justifyContent: 'flex-end' }}>
                 {uploadingTabExtra}
               </div>
             )}
-            <VirtualList
-              items={uploadingList}
-              uploadSpeed={uploadSpeed}
-              onPause={onPause}
-              onResume={onResume}
-              onCancel={onCancel}
-              onRemove={onRemove}
-            />
+            {/* 【2026-06-11 修复】用 key={activeTab} 强制 VirtualList 重新挂载
+                原因：3 个 TabPane 同时挂载时，react-window 实例会复用容器，
+                切 Tab 时上一个 List 的滚动位置/高度状态会瞬时显示。
+                用 key 切换时 React 会 unmount 旧 List 再 mount 新 List，避免残留。 */}
+            {activeTab === 'uploading' && (
+              <VirtualList
+                key={`vlist-${activeTab}`}
+                items={uploadingList}
+                uploadSpeed={uploadSpeed}
+                onPause={onPause}
+                onResume={onResume}
+                onCancel={onCancel}
+                onRemove={onRemove}
+              />
+            )}
           </TabPane>
 
           <TabPane
             tab={`已完成 ${completedList.length > 0 ? `(${completedList.length})` : ''}`}
             key="completed"
+            style={{ minHeight: 0 }}
           >
             {completedList.length > 0 && (
               <div style={{ padding: '0 12px 8px', display: 'flex', justifyContent: 'flex-end' }}>
@@ -303,19 +345,23 @@ const VirtualTransferList = ({
                 </Tooltip>
               </div>
             )}
-            <VirtualList
-              items={completedList}
-              uploadSpeed={uploadSpeed}
-              onPause={onPause}
-              onResume={onResume}
-              onCancel={onCancel}
-              onRemove={onRemove}
-            />
+            {activeTab === 'completed' && (
+              <VirtualList
+                key={`vlist-${activeTab}`}
+                items={completedList}
+                uploadSpeed={uploadSpeed}
+                onPause={onPause}
+                onResume={onResume}
+                onCancel={onCancel}
+                onRemove={onRemove}
+              />
+            )}
           </TabPane>
 
           <TabPane
             tab={`失败 ${failedList.length > 0 ? `(${failedList.length})` : ''}`}
             key="failed"
+            style={{ minHeight: 0 }}
           >
             {failedList.length > 0 && (
               <div style={{ padding: '0 12px 8px', display: 'flex', justifyContent: 'flex-end' }}>
@@ -332,14 +378,17 @@ const VirtualTransferList = ({
                 </Tooltip>
               </div>
             )}
-            <VirtualList
-              items={failedList}
-              uploadSpeed={uploadSpeed}
-              onPause={onPause}
-              onResume={onResume}
-              onCancel={onCancel}
-              onRemove={onRemove}
-            />
+            {activeTab === 'failed' && (
+              <VirtualList
+                key={`vlist-${activeTab}`}
+                items={failedList}
+                uploadSpeed={uploadSpeed}
+                onPause={onPause}
+                onResume={onResume}
+                onCancel={onCancel}
+                onRemove={onRemove}
+              />
+            )}
           </TabPane>
         </Tabs>
       </div>

@@ -77,6 +77,17 @@ DOCUMENT_BEAT_SCHEDULE = {
         'kwargs': {'older_than_hours': 24},
         'options': {'queue': 'document.cleanup'},
     },
+
+    # ========================================
+    # 【优化10】孤儿传输记录清理 - 每6小时执行
+    # 清理 PENDING/UPLOADING/MERGING 超时 + 终态超龄的 transfer 记录
+    # ========================================
+    'document-cleanup-orphan-transfers': {
+        'task': 'apps.document.tasks.cleanup.orphan_transfers.cleanup_orphan_transfers',
+        'schedule': crontab(minute=0, hour='*/6'),
+        'kwargs': {'dry_run': False},
+        'options': {'queue': 'document.cleanup'},
+    },
 }
 
 

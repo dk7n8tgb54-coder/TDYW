@@ -133,15 +133,9 @@ export class FileUploadCoordinator {
       const uploadId = generateUploadId();
       const estimatedChunks = Math.ceil(file.size / UPLOAD_CONSTANTS.CHUNK_SIZE) || 1;
 
-      const transferId = await this.core.transferStore.createTransfer({
-        transfer_type: 'upload',
-        file_name: file.name,
-        file_size: file.size,
-        is_public: isPublic,
-        total_chunks: estimatedChunks,
-        file_hash: '',
-        ...(folderId !== null && folderId !== undefined && { folder_id: folderId })
-      });
+      // 【优化1】入队时不再创建 transfer，延迟到真正获得并发槽上传时再创建
+      // 避免批量选择1000个文件时立即产生1000条PENDING记录
+      // transferId 将在 uploadFileNormal / uploadFileChunked 中按需创建
 
       // 【重构】显示名称优先使用 folderPath（文件夹上传场景）
       const displayName = folderPath ? `${folderPath}/${file.name}` : file.name;
@@ -158,7 +152,7 @@ export class FileUploadCoordinator {
         currentChunk: 0,
         uniqueKey: uniqueKey,
         tenantId: tenantId,
-        transferId: transferId,
+        transferId: null,  // 【优化1】延迟创建，初始为null
         folderId: folderId,
         fileHash: null,
         isPublic: isPublic,
@@ -246,15 +240,7 @@ export class FileUploadCoordinator {
       const uploadId = generateUploadId();
       const estimatedChunks = Math.ceil(file.size / UPLOAD_CONSTANTS.CHUNK_SIZE) || 1;
 
-      const transferId = await this.core.transferStore.createTransfer({
-        transfer_type: 'upload',
-        file_name: file.name,
-        file_size: file.size,
-        is_public: isPublic,
-        total_chunks: estimatedChunks,
-        file_hash: '',
-        ...(folderId !== null && { folder_id: folderId })
-      });
+      // 【优化1】入队时不再创建 transfer，延迟到真正获得并发槽上传时再创建
 
       const item = {
         id: uploadId,
@@ -268,7 +254,7 @@ export class FileUploadCoordinator {
         currentChunk: 0,
         uniqueKey: uniqueKey,
         tenantId: tenantId,
-        transferId: transferId,
+        transferId: null,  // 【优化1】延迟创建，初始为null
         folderId: folderId,
         fileHash: null,
         isPublic: isPublic,

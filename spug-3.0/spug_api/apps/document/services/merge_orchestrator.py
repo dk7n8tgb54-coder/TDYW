@@ -4,6 +4,10 @@
 """
 合并流程编排器
 封装文件合并的完整流程
+
+【DEPRECATED】本模块未在任何地方被引用，真实的合并入口为
+apps.document.views.upload.merge.FileMergeChunksView。
+保留仅为历史参考，下一轮清理时建议直接删除。
 """
 import os
 import logging
@@ -189,7 +193,7 @@ class ExecutionStage:
         )
 
         # 保存task_id到传输记录
-        save_task_id_to_transfer(params['transfer_id'], task.id)
+        save_task_id_to_transfer(params['transfer_id'], task.id, user=context.request.user)
 
         # 写入任务文件
         write_merge_task_file(

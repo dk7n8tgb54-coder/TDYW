@@ -20,6 +20,7 @@ import navigationStore from './stores/navigation';
 import { parseRawId, generateKey } from './utils/keyUtils';
 import styles from './FolderTree.module.less';
 import { createLogger } from '@/pages/document/utils/logger';
+import { FolderIcon } from './components/FileTypeIcon';
 const log = createLogger("FolderTree");
 @observer
 class FolderTree extends React.Component {
@@ -149,7 +150,7 @@ class FolderTree extends React.Component {
     const privateRoot = {
       key: 'private-root',
       title: <div className={styles.privateRoot}>
-          <span className={styles.rootEmoji} role="img" aria-label="文件夹">📁</span>
+          <span className={styles.rootEmoji}><FolderIcon size={18} /></span>
           <span className={styles.rootLabel}>我的文件</span>
         </div>,
       selectable: true,
@@ -160,7 +161,7 @@ class FolderTree extends React.Component {
     const publicRoot = {
       key: 'public-root',
       title: <div className={styles.publicRoot}>
-          <span className={styles.rootEmoji} role="img" aria-label="打开的文件夹">📂</span>
+          <span className={styles.rootEmoji}><FolderIcon size={18} open /></span>
           <span className={styles.rootLabel}>公共共享库</span>
         </div>,
       selectable: true,
@@ -270,7 +271,7 @@ class FolderTree extends React.Component {
         rawId: f.id,
         folderName: f.name,
         title: <div className={styles.folderNode}>
-            <span className={styles.folderEmoji} role="img" aria-label="文件夹">📁</span>
+            <span className={styles.folderEmoji}><FolderIcon size={16} /></span>
             <span className={styles.folderName}>{f.name}</span>
             {this.props.isPublic && f.created_by && (f.created_by.nickname || f.created_by.username) && <span className={styles.folderCreator}>
                 {f.created_by.nickname || f.created_by.username}

@@ -199,7 +199,7 @@ class UploadPanel extends React.Component {
     const failedCount = errorItems.length + cancelledItems.length;
     const uploadingTotal = activeCount + pausedCount;
     const completedTotal = completedItems.length;
-    const drawerHeight = uploadUIStore.panel.drawerHeight;
+    const drawerWidth = 560;
 
     return (
       <>
@@ -228,25 +228,20 @@ class UploadPanel extends React.Component {
               </span>
             </div>
           }
-          placement="bottom"
-          height={drawerHeight}
+          placement="right"
+          width={drawerWidth}
           visible={uploadUIStore.panel.expanded}
           onClose={() => uploadUIStore.panel.collapse()}
           closable={true}
           mask={true}
           maskClosable={true}
           destroyOnClose={false}
-          headerStyle={{ padding: '8px 16px', minHeight: 48, borderBottom: '1px solid #f0f0f0' }}
-          bodyStyle={{ padding: 0, overflow: 'hidden' }}
+          headerStyle={{ padding: '12px 16px', minHeight: 52, borderBottom: '1px solid #f0f0f0' }}
+          bodyStyle={{ padding: 0, overflow: 'hidden', height: 'calc(100vh - 52px)' }}
           getContainer={false}
           push={false}
         >
           {/* 【新增】抽屉顶部拖拽把手 */}
-          <DrawerDragHandle
-            height={drawerHeight}
-            onChange={(h) => uploadUIStore.panel.setDrawerHeight(h)}
-            onCollapse={() => uploadUIStore.panel.collapse()}
-          />
           <TransferListContainer
             uploadingItems={uploadingItems}
             completedItems={completedItems}

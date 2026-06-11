@@ -189,20 +189,22 @@ class DocumentFileDeleteMixin(models.Model):
             # 硬删除：先删除物理文件，成功后再删除数据库记录
             physical_deleted = True
             if os.path.exists(self.file_path):
-                try:
-                    os.remove(self.file_path)
+                from apps.document.libs.document_utils import safe_delete_document_file, safe_delete_thumbnail
+                file_deleted, file_error = safe_delete_document_file(self.file_path)
+                if file_deleted:
                     logger.info(f'[RecycleBin] 物理文件已删除: {self.file_path}')
-                except Exception as e:
-                    logger.error(f'[RecycleBin] 删除物理文件失败: {self.file_path}, error={e}')
+                else:
+                    logger.error(f'[RecycleBin] 删除物理文件失败: {self.file_path}, error={file_error}')
                     physical_deleted = False
 
             # 删除缩略图
             if self.thumbnail_path and os.path.exists(self.thumbnail_path):
-                try:
-                    os.remove(self.thumbnail_path)
+                from apps.document.libs.document_utils import safe_delete_thumbnail
+                thumb_deleted, thumb_error = safe_delete_thumbnail(self.thumbnail_path)
+                if thumb_deleted:
                     logger.info(f'[RecycleBin] 缩略图已删除: {self.thumbnail_path}')
-                except Exception as e:
-                    logger.warning(f'[RecycleBin] 删除缩略图失败: {self.thumbnail_path}, error={e}')
+                else:
+                    logger.warning(f'[RecycleBin] 删除缩略图失败: {self.thumbnail_path}, error={thumb_error}')
 
             if physical_deleted:
                 super().delete(*args, **kwargs)

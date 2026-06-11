@@ -5,23 +5,27 @@
  */
 import http from 'libs/http';
 import React from 'react';
+import { getFileTypeIconByKey, FolderIcon } from '../components/FileTypeIcon';
 
 /**
- * 文件图标映射 - emoji 图标（与资料管理统一）
+ * 文件图标映射 - 彩色 SVG 图标（与资料管理统一）
  */
 export const FileIconMap = {
-  file: <span style={{ fontSize: 20, marginRight: 8 }} role="img" aria-label="文件">📄</span>,
-  image: <span style={{ fontSize: 20, marginRight: 8 }} role="img" aria-label="图片">🖼️</span>,
-  pdf: <span style={{ fontSize: 20, marginRight: 8 }} role="img" aria-label="PDF">📄</span>,
-  word: <span style={{ fontSize: 20, marginRight: 8 }} role="img" aria-label="Word">📝</span>,
-  excel: <span style={{ fontSize: 20, marginRight: 8 }} role="img" aria-label="Excel">📊</span>,
-  ppt: <span style={{ fontSize: 20, marginRight: 8 }} role="img" aria-label="PPT">📋</span>,
-  video: <span style={{ fontSize: 20, marginRight: 8 }} role="img" aria-label="视频">🎬</span>,
-  audio: <span style={{ fontSize: 20, marginRight: 8 }} role="img" aria-label="音频">🎵</span>,
-  archive: <span style={{ fontSize: 20, marginRight: 8 }} role="img" aria-label="压缩包">📦</span>,
-  text: <span style={{ fontSize: 20, marginRight: 8 }} role="img" aria-label="文本">📃</span>,
-  code: <span style={{ fontSize: 20, marginRight: 8 }} role="img" aria-label="代码">💻</span>,
+  file: <span style={{ marginRight: 8, display: 'inline-flex', lineHeight: 1 }}>{getFileTypeIconByKey('file', 20)}</span>,
+  image: <span style={{ marginRight: 8, display: 'inline-flex', lineHeight: 1 }}>{getFileTypeIconByKey('image', 20)}</span>,
+  pdf: <span style={{ marginRight: 8, display: 'inline-flex', lineHeight: 1 }}>{getFileTypeIconByKey('pdf', 20)}</span>,
+  word: <span style={{ marginRight: 8, display: 'inline-flex', lineHeight: 1 }}>{getFileTypeIconByKey('word', 20)}</span>,
+  excel: <span style={{ marginRight: 8, display: 'inline-flex', lineHeight: 1 }}>{getFileTypeIconByKey('excel', 20)}</span>,
+  ppt: <span style={{ marginRight: 8, display: 'inline-flex', lineHeight: 1 }}>{getFileTypeIconByKey('ppt', 20)}</span>,
+  video: <span style={{ marginRight: 8, display: 'inline-flex', lineHeight: 1 }}>{getFileTypeIconByKey('video', 20)}</span>,
+  audio: <span style={{ marginRight: 8, display: 'inline-flex', lineHeight: 1 }}>{getFileTypeIconByKey('audio', 20)}</span>,
+  archive: <span style={{ marginRight: 8, display: 'inline-flex', lineHeight: 1 }}>{getFileTypeIconByKey('archive', 20)}</span>,
+  text: <span style={{ marginRight: 8, display: 'inline-flex', lineHeight: 1 }}>{getFileTypeIconByKey('text', 20)}</span>,
+  code: <span style={{ marginRight: 8, display: 'inline-flex', lineHeight: 1 }}>{getFileTypeIconByKey('code', 20)}</span>,
 };
+
+/** 文件夹图标（彩色 SVG） */
+export const FolderIconMap = <span style={{ marginRight: 8, display: 'inline-flex', lineHeight: 1 }}><FolderIcon size={20} /></span>;
 
 /**
  * 获取回收站列表

@@ -7,7 +7,8 @@
 """
 import os
 import logging
-from apps.document.libs.document_utils import get_document_absolute_path
+from django.conf import settings
+from apps.document.libs.document_utils import get_document_absolute_path, is_safe_path
 from apps.document.libs.naming_utils import generate_file_names
 from apps.document.views.base import get_mime_type, create_model_instance
 from apps.document.services.thumbnail_service import generate_thumbnail_for_file
@@ -116,7 +117,7 @@ class TransferRecordService:
     """传输记录服务"""
 
     @staticmethod
-    def mark_transfer_completed(transfer_id, file_path, file_size):
+    def mark_transfer_completed(transfer_id, file_path, file_size, user=None):
         """
         标记传输记录为完成状态
 
@@ -124,6 +125,7 @@ class TransferRecordService:
             transfer_id: 传输记录ID
             file_path: 文件路径
             file_size: 文件大小
+            user: 当前用户（【M-1修复】用于归属校验）
 
         Returns:
             是否成功更新
@@ -135,7 +137,21 @@ class TransferRecordService:
             from apps.document.models import DocumentTransfer
             from apps.document.constants import TransferStatus
 
-            transfer = DocumentTransfer.objects.filter(id=int(transfer_id)).order_by().first()
+            query = DocumentTransfer.objects.filter(id=int(transfer_id))
+            # 【M-1修复】服务层归属校验：私有空间必须同用户+同租户
+            if user and not getattr(user, 'is_supper', False):
+                query = query.filter(user=user)
+                # 私有空间需校验租户
+                transfer = query.first()
+                if transfer and not transfer.is_public:
+                    request_tenant_id = getattr(user, 'tenant_id', None)
+                    if transfer.tenant_id != request_tenant_id:
+                        logger.warning(f'[Document] Transfer tenant mismatch: transfer_id={transfer_id}')
+                        return False
+                # 重新获取 query（因为上面 .first() 已经执行了查询）
+                query = DocumentTransfer.objects.filter(id=int(transfer_id), user=user)
+
+            transfer = query.order_by().first()
             if transfer:
                 transfer.status = TransferStatus.COMPLETED.value
                 transfer.file_path = file_path
@@ -187,6 +203,12 @@ class FileUploadService:
             # 构建文件路径
             file_path = os.path.join(upload_dir, names['physical_name'])
 
+            # 【路径安全校验】验证最终文件路径在 storage/documents 下
+            document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
+            if not is_safe_path(document_storage_base, file_path):
+                logger.error(f'[Document] Unsafe file path detected: {file_path}')
+                return None, '文件路径异常'
+
             # 保存文件
             logger.info(f'[Document] Saving file to: {file_path}, physical_name={names["physical_name"]}')
             FileStorageService.save_uploaded_file(file, file_path)
@@ -220,7 +242,7 @@ class FileUploadService:
             # 更新传输记录
             if transfer_id:
                 TransferRecordService.mark_transfer_completed(
-                    transfer_id, file_path, file.size
+                    transfer_id, file_path, file.size, user=self.user  # 【M-1修复】传入用户做归属校验
                 )
 
             return new_file, None

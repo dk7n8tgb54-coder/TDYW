@@ -133,8 +133,20 @@ class ChunkValidator:
         self.task_manager = task_manager
 
     def validate_environment(self):
-        """验证环境（分片目录、目标目录可写性）"""
+        """验证环境（分片目录、目标目录可写性、路径安全校验）"""
         self.task_manager.update_celery_state('PROGRESS', 10, '验证环境')
+
+        # 【优化8】路径安全校验：确保文件路径和分片目录在安全区域内
+        document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
+        chunk_base_dir = os.path.join(settings.BASE_DIR, 'storage', 'document_chunks')
+        
+        from apps.document.libs.document_utils import is_safe_path
+        
+        if not is_safe_path(document_storage_base, self.task_manager.file_path):
+            return False, f'非法目标文件路径: {self.task_manager.file_path}'
+
+        if not is_safe_path(chunk_base_dir, self.task_manager.chunk_dir):
+            return False, f'非法分片目录路径: {self.task_manager.chunk_dir}'
 
         # 检查分片目录是否存在
         if not os.path.exists(self.task_manager.chunk_dir):

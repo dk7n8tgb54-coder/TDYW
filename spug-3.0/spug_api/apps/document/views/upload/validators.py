@@ -96,6 +96,92 @@ class TransferRecordValidator:
             return False, f'验证传输记录失败: {str(e)}'
 
 
+class TransferOwnershipValidator:
+    """【H-3修复】transfer_id 归属校验器。
+
+    在使用 transfer_id 生成路径/查询缓存前，必须先确认其属于当前用户、
+    当前租户/公共空间，并且 file_hash 匹配，防止 IDOR（不安全的直接对象引用）。
+
+    校验规则：
+    - 管理员（is_supper）跳过校验
+    - 公共空间：要求 transfer.user == request.user
+    - 私有空间：要求 transfer.user == request.user 且 transfer.tenant_id == request.user.tenant_id
+    - 额外校验 transfer.file_hash == request.file_hash, transfer.is_public == request.is_public
+    """
+
+    @staticmethod
+    def validate(transfer_id, file_hash, is_public, user):
+        """校验 transfer_id 归属。
+
+        Args:
+            transfer_id: 传输记录ID（int 或 None）
+            file_hash: 客户端传入的文件哈希
+            is_public: 客户端传入的是否公共空间
+            user: 当前用户对象
+
+        Returns:
+            tuple: (bool, str|None) - 是否归属合法；失败时的错误消息
+        """
+        if not transfer_id:
+            return True, None
+
+        # 管理员跳过校验
+        if getattr(user, 'is_supper', False):
+            return True, None
+
+        try:
+            from apps.document.models import DocumentTransfer
+
+            transfer = DocumentTransfer.objects.filter(id=transfer_id).order_by().first()
+            if not transfer:
+                logger.warning(
+                    f'[Document][TransferOwnership] transfer_id={transfer_id} 不存在'
+                )
+                return False, '传输记录不存在'
+
+            # 1. 用户归属
+            if transfer.user_id != user.id:
+                logger.warning(
+                    f'[Document][TransferOwnership] transfer_id={transfer_id} 归属不符: '
+                    f'transfer.user={transfer.user_id}, request.user={user.id}'
+                )
+                return False, '无权访问此传输记录'
+
+            # 2. 公共/私有空间一致性
+            if transfer.is_public != is_public:
+                logger.warning(
+                    f'[Document][TransferOwnership] transfer_id={transfer_id} 空间类型不符: '
+                    f'transfer.is_public={transfer.is_public}, request.is_public={is_public}'
+                )
+                return False, '传输记录空间类型不匹配'
+
+            # 3. 私有空间额外校验租户
+            if not transfer.is_public:
+                request_tenant_id = getattr(user, 'tenant_id', None)
+                if transfer.tenant_id != request_tenant_id:
+                    logger.warning(
+                        f'[Document][TransferOwnership] transfer_id={transfer_id} 租户不符: '
+                        f'transfer.tenant_id={transfer.tenant_id}, request.tenant_id={request_tenant_id}'
+                    )
+                    return False, '无权访问此传输记录'
+
+            # 4. 文件哈希一致性
+            if file_hash and transfer.file_hash and transfer.file_hash != file_hash:
+                logger.warning(
+                    f'[Document][TransferOwnership] transfer_id={transfer_id} 哈希不符: '
+                    f'transfer.file_hash={transfer.file_hash}, request.file_hash={file_hash}'
+                )
+                return False, '传输记录哈希不匹配'
+
+            return True, None
+
+        except Exception as e:
+            logger.error(
+                f'[Document][TransferOwnership] validate failed: {e}', exc_info=True
+            )
+            return False, '验证传输记录归属失败'
+
+
 class ChunkUploadValidator:
     """分片上传验证器"""
 
@@ -212,21 +298,46 @@ class ChunkStorageManager:
     """分片存储管理器"""
 
     @staticmethod
-    def get_and_validate_chunk_dir(file_hash, is_public, user):
+    def get_and_validate_chunk_dir(file_hash, is_public, user, transfer_id=None, allow_legacy_fallback=False):
         """
         获取并验证分片目录
+
+        Args:
+            file_hash: 文件哈希
+            is_public: 是否公共空间
+            user: 用户对象
+            transfer_id: 传输记录ID（可选，用于任务隔离）
+            allow_legacy_fallback: 是否允许回退到旧分片目录。
+                【P1修复】默认False，仅在 resume / merge / direct_merge 等"读取历史分片"入口
+                显式传 True；上传分片入口（chunk）必须使用新路径，禁止 fallback。
 
         Returns:
             tuple: (chunk_dir, error_message)
         """
         try:
-            chunk_dir = get_chunk_dir_path(file_hash, is_public, user)
-        except ValueError:
-            return None, '非法的文件哈希值'
+            chunk_dir = get_chunk_dir_path(file_hash, is_public, user, transfer_id=transfer_id)
+        except ValueError as e:
+            logger.error(f'[Document] get_chunk_dir_path rejected: {e}')
+            return None, '参数异常，请检查文件哈希或租户信息'
 
         chunk_base_dir = os.path.join(settings.BASE_DIR, 'storage', 'document_chunks')
         if not is_safe_path(chunk_base_dir, chunk_dir):
             return None, '非法的文件哈希值'
+
+        # 【P1修复】上传分片时严格走 transfer_id 隔离的新路径，禁止 fallback。
+        # 防止新 transfer 的首个分片被错误写入旧 transfer 的目录。
+        if not allow_legacy_fallback:
+            return chunk_dir, None
+
+        # 【兼容】仅 resume / merge / direct_merge 等读取历史分片的入口允许回退
+        if transfer_id is not None and not os.path.exists(chunk_dir):
+            legacy_dir = get_chunk_dir_path(file_hash, is_public, user, transfer_id=None)
+            if os.path.exists(legacy_dir):
+                logger.info(
+                    f'[Document] Falling back to legacy chunk dir for hash={file_hash} '
+                    f'(transfer_id={transfer_id})'
+                )
+                chunk_dir = legacy_dir
 
         return chunk_dir, None
 

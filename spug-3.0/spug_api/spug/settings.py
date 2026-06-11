@@ -201,6 +201,8 @@ CELERY_TASK_ROUTES = {
     'apps.document.tasks.cleanup.async_batch_permanent_delete': {'queue': 'document.cleanup'},
     # 【P0修复】待清理文件重试任务
     'apps.document.tasks.cleanup.retry_clean_pending_files': {'queue': 'document.cleanup'},
+    # 【优化10】孤儿传输记录清理
+    'apps.document.tasks.cleanup.orphan_transfers.cleanup_orphan_transfers': {'queue': 'document.cleanup'},
 }
 
 # 【P0修复】Celery Beat 定时任务配置
@@ -282,8 +284,12 @@ AUTHENTICATION_EXCLUDES = (
     '/account/login/',
     '/setting/basic/',
     re.compile('/apis/.*'),
-    re.compile('/document/health/.*'),  # 生产环境：Nginx 去掉 /api 前缀后的路径
-    re.compile('/api/document/health/.*'),  # 开发环境：直接请求带 /api 前缀
+    # 【H-4修复】仅排除公开探活端点，避免误伤需要登录的详细监控接口
+    # 详细健康检查接口（DatabasePoolStatusView / DatabasePoolMetricsView）需要 @auth 认证
+    re.compile('/document/health/$'),
+    re.compile('/document/health/celery/$'),
+    re.compile('/api/document/health/$'),
+    re.compile('/api/document/health/celery/$'),
 )
 
 # IP绑定检查排除列表：这些端点仍需token认证，但跳过IP校验

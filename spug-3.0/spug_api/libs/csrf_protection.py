@@ -39,6 +39,14 @@ class OriginCheckMiddleware(MiddlewareMixin):
         referer = request.headers.get('Referer', '')
 
         if not origin and not referer:
+            # 【M-3修复】缺失两个头时仍放行（当前使用 x-token Header 认证，
+            # 浏览器跨站表单无法携带该头，CSRF 风险较低），
+            # 但在生产环境记录警告，便于审计和未来迁移到 Cookie 认证时收紧策略
+            if not settings.DEBUG:
+                logger.warning(
+                    f'[CSRF] State-changing request without Origin/Referer: '
+                    f'method={request.method}, path={request.path}'
+                )
             return True
 
         host = request.get_host()

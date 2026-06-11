@@ -6,8 +6,9 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Tag, Input, message } from 'antd';
 import { CheckOutlined, CloseOutlined, LoadingOutlined, FileImageOutlined } from '@ant-design/icons';
-import { X_TOKEN } from 'libs';
-import { isImage, isVideo, formatFileSize, getFileTypeLabel, getFileIcon, isCreatedByAdmin } from '../utils';
+import { isImage, isVideo, formatFileSize, getFileTypeLabel, getFileIcon, getFolderIcon, isCreatedByAdmin } from '../utils';
+import { FolderIcon, VideoIcon, getFileTypeIcon } from '../../components/FileTypeIcon';
+import PreviewImage from '../../components/PreviewImage';  // 【H-2修复】安全预览组件
 
 /**
  * 【性能优化】懒加载图片缩略图组件
@@ -145,7 +146,7 @@ export default function useColumns({
           if (record.isTemp) {
             return (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 16 }} role="img" aria-label="文件夹">📁</span>
+                <span style={{ width: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}><FolderIcon size={24} /></span>
                 <Input
                   autoFocus
                   size="small"
@@ -192,24 +193,27 @@ export default function useColumns({
             return (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 {record.isFolder ? (
-                  <span style={{ fontSize: 16 }} role="img" aria-label="文件夹">📁</span>
+                  <span style={{ width: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}><FolderIcon size={24} /></span>
                 ) : isImage(record.file_type) ? (
-                  <img
-                    src={`/api/document/preview/?id=${record.id}&is_public=${isPublic}&x-token=${X_TOKEN}${record.thumbnail_path ? '&thumbnail=true' : ''}`}
+                  <PreviewImage
+                    fileId={record.id}
+                    isPublic={isPublic}
+                    thumbnail={!!record.thumbnail_path}
                     alt={record.display_name || text}
                     style={{
-                      width: 32,
-                      height: 32,
+                      width: 36,
+                      height: 36,
                       objectFit: 'cover',
                       borderRadius: 4,
-                      background: '#f0f0f0'
+                      background: '#f0f0f0',
+                      flexShrink: 0,
                     }}
                     onError={(e) => { e.target.style.display = 'none'; }}
                   />
                 ) : isVideo(record.file_type) ? (
-                  <span style={{ fontSize: 16 }} role="img" aria-label="视频">🎬</span>
+                  <span style={{ width: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}><VideoIcon size={24} /></span>
                 ) : (
-                  getFileIcon(record.display_name || record.name, record.file_type)
+                  <span style={{ width: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>{getFileTypeIcon(record.display_name || record.name, record.file_type, 24)}</span>
                 )}
                 <Input
                   autoFocus
@@ -255,30 +259,30 @@ export default function useColumns({
           return (
             <div style={{ display: 'flex', alignItems: 'center' }}>
               {record.isFolder ? (
-                <span style={{ marginRight: 8, fontSize: 16 }} role="img" aria-label="打开的文件夹" title="打开的文件夹">📂</span>
+                <span style={{ width: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}><FolderIcon size={24} open /></span>
               ) : isImage(record.file_type) ? (
-                <LazyThumbnail
-                  src={`/api/document/preview/?id=${record.id}&is_public=${isPublic}&x-token=${X_TOKEN}${record.thumbnail_path ? '&thumbnail=true' : ''}`}
+                <PreviewImage
+                  fileId={record.id}
+                  isPublic={isPublic}
+                  thumbnail={!!record.thumbnail_path}
                   alt={record.display_name || text}
                   style={{
-                    width: 32,
-                    height: 32,
-                    marginRight: 8,
+                    width: 36,
+                    height: 36,
+                    marginRight: 0,
                     objectFit: 'cover',
                     borderRadius: 4,
+                    flexShrink: 0,
                   }}
                 />
               ) : isVideo(record.file_type) ? (
-                <span style={{ marginRight: 8, fontSize: 16 }} role="img" aria-label="视频" title="视频">🎬</span>
+                  <span style={{ width: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}><VideoIcon size={24} /></span>
               ) : (
-                getFileIcon(record.display_name || record.name, record.file_type)
+                <span style={{ width: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>{getFileTypeIcon(record.display_name || record.name, record.file_type, 24)}</span>
               )}
-              <span title={record.display_name || text}>{record.display_name || text}</span>
-              {isPublic && record.created_by_id === currentUserId && (
-                <Tag color="blue" style={{ marginLeft: 8, fontSize: 12 }}>我的</Tag>
-              )}
+              <span title={record.display_name || text} style={{ marginLeft: 8 }}>{record.display_name || text}</span>
               {isPublic && isCreatedByAdmin(record) && (
-                <Tag color="gold" style={{ marginLeft: 8, fontSize: 12 }}>官方</Tag>
+                <Tag color="gold" style={{ marginLeft: 8, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>官方</Tag>
               )}
             </div>
           );
@@ -333,11 +337,20 @@ export default function useColumns({
         title: '创建人',
         dataIndex: 'created_by',
         key: 'created_by',
-        width: 100,
+        width: 120,
         sorter: true,
         showSorterTooltip: false,
         sortOrder: sortOrder.columnKey === 'created_by' ? sortOrder.order : null,
-        render: (text) => text || '-'
+        render: (text, record) => {
+          const name = text || '-';
+          const isMine = record.created_by_id === currentUserId;
+          return (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              {name}
+              {isMine && <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>我</Tag>}
+            </span>
+          );
+        }
       });
     }
 

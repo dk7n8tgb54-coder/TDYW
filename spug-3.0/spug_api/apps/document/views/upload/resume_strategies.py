@@ -17,7 +17,7 @@ class ChunkSourceStrategy(ABC):
 
     @abstractmethod
     def get_chunks(self, chunk_dir: str, file_hash: str, user_id: int,
-                   is_public: bool, total_chunks: int) -> Tuple[Optional[List[int]], bool]:
+                   is_public: bool, total_chunks: int, transfer_id: int = None) -> Tuple[Optional[List[int]], bool]:
         """
         获取已上传分片列表
 
@@ -45,7 +45,7 @@ class SuccessMarkerStrategy(ChunkSourceStrategy):
         self._marker_factory = marker_factory
 
     def get_chunks(self, chunk_dir: str, file_hash: str, user_id: int,
-                   is_public: bool, total_chunks: int) -> Tuple[Optional[List[int]], bool]:
+                   is_public: bool, total_chunks: int, transfer_id: int = None) -> Tuple[Optional[List[int]], bool]:
         if total_chunks <= 0:
             return None, False
 
@@ -73,18 +73,35 @@ class RedisCacheStrategy(ChunkSourceStrategy):
         self._cache_factory = cache_factory
 
     def get_chunks(self, chunk_dir: str, file_hash: str, user_id: int,
-                   is_public: bool, total_chunks: int) -> Tuple[Optional[List[int]], bool]:
+                   is_public: bool, total_chunks: int, transfer_id: int = None) -> Tuple[Optional[List[int]], bool]:
         if total_chunks <= 0:
             return None, False
 
         try:
-            cache_manager = self._cache_factory(file_hash, user_id, is_public)
+            # 【优化4】优先查新 key（带 transfer_id）
+            cache_manager = self._cache_factory(file_hash, user_id, is_public, transfer_id=transfer_id)
             cached = cache_manager.get_cached_chunks()
 
             if cached is not None:
-                logger.debug(f'[Resume] Redis缓存命中: {file_hash}')
+                logger.debug(f'[Resume] Redis缓存命中: {cache_manager.cache_key}')
                 chunks = list(cached)
                 return chunks, len(chunks) >= total_chunks
+
+            # 【P1修复-二轮】legacy 回退条件化：
+            # 只有当 transfer_id is None（调用方走的 legacy 旧物理目录）时才读旧 key。
+            # 当 transfer_id is not None（走新物理目录）时，旧 key 即使命中也属于"另一个
+            # 旧 transfer 的分片集合"，不能误当作当前 transfer 的分片集合返回——
+            # 否则会出现"物理目录是新 transfer 空目录，但接口告诉前端旧分片都在"的错觉。
+            if transfer_id is None:
+                from django.core.cache import cache as _dj_cache
+                legacy_key = cache_manager.legacy_cache_key
+                legacy_cached = _dj_cache.get(legacy_key)
+                if legacy_cached is not None:
+                    logger.info(
+                        f'[Resume] Redis旧格式缓存命中（仅无transfer_id场景，不回写）: {legacy_key}'
+                    )
+                    chunks = list(legacy_cached)
+                    return chunks, len(chunks) >= total_chunks
         except Exception as e:
             logger.warning(f'[Resume] 缓存查询失败: {e}')
 
@@ -103,7 +120,7 @@ class FilesystemScanStrategy(ChunkSourceStrategy):
         self._cache_factory = cache_factory
 
     def get_chunks(self, chunk_dir: str, file_hash: str, user_id: int,
-                   is_public: bool, total_chunks: int) -> Tuple[Optional[List[int]], bool]:
+                   is_public: bool, total_chunks: int, transfer_id: int = None) -> Tuple[Optional[List[int]], bool]:
         try:
             uploaded_chunks, error = self._scanner_class.scan_uploaded_chunks(chunk_dir)
 
@@ -114,7 +131,7 @@ class FilesystemScanStrategy(ChunkSourceStrategy):
 
             # 扫描成功，更新缓存
             if self._cache_factory:
-                self._update_cache(file_hash, user_id, is_public, uploaded_chunks)
+                self._update_cache(file_hash, user_id, is_public, uploaded_chunks, transfer_id=transfer_id)
 
             all_ready = total_chunks > 0 and len(uploaded_chunks) >= total_chunks
             return uploaded_chunks, all_ready
@@ -124,10 +141,11 @@ class FilesystemScanStrategy(ChunkSourceStrategy):
             return [], False
 
     def _update_cache(self, file_hash: str, user_id: int, is_public: bool,
-                      chunks: List[int]):
+                      chunks: List[int], transfer_id: int = None):
         """更新Redis缓存"""
         try:
-            cache_manager = self._cache_factory(file_hash, user_id, is_public)
+            # 【优化4】传入 transfer_id 实现缓存隔离
+            cache_manager = self._cache_factory(file_hash, user_id, is_public, transfer_id=transfer_id)
             cache_manager.set_cached_chunks(chunks)
         except Exception as e:
             logger.warning(f'[Resume] 更新缓存失败: {e}')
@@ -145,7 +163,7 @@ class ChunkStrategyContext:
         return self
 
     def execute(self, chunk_dir: str, file_hash: str, user_id: int,
-                is_public: bool, total_chunks: int) -> Tuple[List[int], bool, str]:
+                is_public: bool, total_chunks: int, transfer_id: int = None) -> Tuple[List[int], bool, str]:
         """
         执行策略链
 
@@ -154,7 +172,8 @@ class ChunkStrategyContext:
         """
         for strategy in self._strategies:
             chunks, all_ready = strategy.get_chunks(
-                chunk_dir, file_hash, user_id, is_public, total_chunks
+                chunk_dir, file_hash, user_id, is_public, total_chunks,
+                transfer_id=transfer_id
             )
             if chunks is not None:
                 return chunks, all_ready, strategy.strategy_name

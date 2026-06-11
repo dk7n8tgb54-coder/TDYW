@@ -10,6 +10,7 @@
 import { action } from 'mobx';
 import { message } from 'antd';
 import http from 'libs/http';
+import { API_ENDPOINTS } from '../upload-core-constants';
 
 export class ItemOperationController {
   constructor(coreStore) {
@@ -95,16 +96,17 @@ export class ItemOperationController {
         } else {
           console.log(`[ItemOperationController] 分片不完整(${checkResult.uploadedCount}/${item.chunkCount})，需要重新上传`);
           
-          // 【P1修复】添加数组越界保护
+          // 【P1修复】不再用 Math.max(uploaded_chunks) + 1 推断起点——
+          // 旧逻辑会跳过中间缺口（[0,2,3] 会被推断为"从4开始"，中间1永远不会上传）。
+          // 主路径 ChunkUploadStore.uploadFileChunked() 会自己调 checkUploadedChunks
+          // 并基于 uploaded_chunks 集合做"遍历所有分片 + 跳过已上传"的补缺模型。
+          // 这里只更新显示进度，不维护 currentChunk 起点。
           if (checkResult.uploadedChunks && checkResult.uploadedChunks.length > 0) {
-            const maxChunk = Math.max(...checkResult.uploadedChunks);
-            item.currentChunk = maxChunk + 1;
             item.progress = Math.floor(
               (checkResult.uploadedCount / item.chunkCount) * 100
             );
           } else {
             // 空数组保护
-            item.currentChunk = 0;
             item.progress = 0;
           }
         }
@@ -172,13 +174,13 @@ export class ItemOperationController {
   async _checkChunks(item) {
     try {
       const response = await http.post(
-        '/api/v1/documents/check_uploaded_chunks/',
+        API_ENDPOINTS.CHECK_UPLOADED_CHUNKS,
         {
           file_hash: item.fileHash,
           total_chunks: item.chunkCount,
           transfer_id: item.transferId,
-          is_public: item.isPublic !== undefined 
-            ? item.isPublic 
+          is_public: item.isPublic !== undefined
+            ? item.isPublic
             : this.core.rootStore.navigationStore?.isPublic
         }
       );
@@ -211,15 +213,15 @@ export class ItemOperationController {
   async _directMerge(item) {
     try {
       const response = await http.post(
-        '/api/v1/documents/direct_merge/',
+        API_ENDPOINTS.DIRECT_MERGE,
         {
           transfer_id: item.transferId,
           folder_id: item.folderId,
           file_name: item.fileName,
           file_hash: item.fileHash,
           total_chunks: item.chunkCount,
-          is_public: item.isPublic !== undefined 
-            ? item.isPublic 
+          is_public: item.isPublic !== undefined
+            ? item.isPublic
             : this.core.rootStore.navigationStore?.isPublic
         }
       );

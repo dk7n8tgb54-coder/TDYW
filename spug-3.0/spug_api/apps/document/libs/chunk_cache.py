@@ -26,33 +26,58 @@ DEFAULT_CACHE_TIMEOUT = 1800
 class ChunkCacheManager:
     """分片缓存管理器"""
 
-    def __init__(self, file_hash: str, user_id: int, is_public: bool = False):
+    def __init__(self, file_hash: str, user_id: int, is_public: bool = False, transfer_id: int = None):
         self.file_hash = file_hash
         self.user_id = user_id
         self.is_public = is_public
+        self.transfer_id = transfer_id
         self.cache_key = self._make_cache_key()
 
     def _make_cache_key(self) -> str:
-        """生成缓存键"""
+        """生成缓存键
+        
+        【优化4】新 key 包含 transfer_id，隔离同 hash 并发上传
+        格式：document:chunks:{space}:{file_hash}:{transfer_id}
+        兼容：无 transfer_id 时使用旧格式 document:chunks:{space}:{file_hash}
+        """
         space = 'public' if self.is_public else f'user_{self.user_id}'
-        return f'{CHUNK_CACHE_PREFIX}:{space}:{self.file_hash}'
+        base_key = f'{CHUNK_CACHE_PREFIX}:{space}:{self.file_hash}'
+        if self.transfer_id is not None:
+            return f'{base_key}:{self.transfer_id}'
+        return base_key
 
     def get_cached_chunks(self) -> Optional[Set[int]]:
         """
-        获取缓存的分片列表
-        
+        获取缓存的分片列表。
+
+        【P1修复】严格按当前 cache_key 读取，**不再自动 fallback 到旧 key**。
+        原因：update_cache_after_upload 会先读再写，自动 fallback 会让新 transfer
+        的"读已上传分片"误命中同 hash 的旧 transfer 缓存，然后把别人的分片集合写回新 key。
+
+        需要兼容历史数据时，由调用方（resume 策略链）显式查 legacy key，
+        并且仅在实际使用 legacy 物理目录时使用 legacy cache。
+
         Returns:
             分片索引集合，缓存未命中返回None
         """
         try:
             cached = cache.get(self.cache_key)
             if cached is not None:
-                logger.debug(f'[ChunkCache] 缓存命中: {self.file_hash}')
+                logger.debug(f'[ChunkCache] 缓存命中: {self.cache_key}')
                 return set(cached)
             return None
         except Exception as e:
             logger.error(f'[ChunkCache] 获取缓存失败: {e}')
             return None
+
+    @property
+    def legacy_cache_key(self) -> str:
+        """
+        【P1修复】对外暴露旧格式 cache_key，仅供 resume 策略链显式查询。
+        不要在 update_cache_after_upload 等"写"路径中使用。
+        """
+        space = 'public' if self.is_public else f'user_{self.user_id}'
+        return f'{CHUNK_CACHE_PREFIX}:{space}:{self.file_hash}'
 
     def set_cached_chunks(self, chunks: List[int], timeout: int = DEFAULT_CACHE_TIMEOUT) -> bool:
         """
@@ -185,7 +210,7 @@ class SuccessMarkerManager:
             return False
 
 
-def get_chunk_cache_manager(file_hash: str, user_id: int, is_public: bool = False) -> ChunkCacheManager:
+def get_chunk_cache_manager(file_hash: str, user_id: int, is_public: bool = False, transfer_id: int = None) -> ChunkCacheManager:
     """
     获取分片缓存管理器实例
     
@@ -193,11 +218,12 @@ def get_chunk_cache_manager(file_hash: str, user_id: int, is_public: bool = Fals
         file_hash: 文件哈希
         user_id: 用户ID
         is_public: 是否公共空间
+        transfer_id: 传输记录ID（可选，用于缓存隔离）
         
     Returns:
         ChunkCacheManager实例
     """
-    return ChunkCacheManager(file_hash, user_id, is_public)
+    return ChunkCacheManager(file_hash, user_id, is_public, transfer_id)
 
 
 def get_success_marker_manager(chunk_dir: str) -> SuccessMarkerManager:

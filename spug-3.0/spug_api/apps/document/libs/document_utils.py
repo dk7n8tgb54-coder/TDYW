@@ -6,6 +6,7 @@
 提供路径生成、模型获取、权限校验、MD5计算等核心功能
 """
 import os
+import re
 import hashlib
 import logging
 from django.conf import settings
@@ -208,6 +209,58 @@ def is_safe_path(base_path, target_path):
         return False
 
 
+def safe_delete_document_file(file_path):
+    """
+    安全删除文档物理文件，强制校验路径在 storage/documents 下
+
+    Args:
+        file_path: 待删除的文件绝对路径
+
+    Returns:
+        tuple: (是否成功, 错误消息或None)
+    """
+    if not file_path or not os.path.exists(file_path):
+        return True, None
+
+    document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
+    if not is_safe_path(document_storage_base, file_path):
+        logger.error(f'[Document] Refused to delete file outside storage/documents: {file_path}')
+        return False, f'文件路径不在安全区域内，拒绝删除'
+
+    try:
+        os.remove(file_path)
+        return True, None
+    except OSError as e:
+        logger.error(f'[Document] Failed to delete file: {file_path}, error={e}')
+        return False, str(e)
+
+
+def safe_delete_thumbnail(thumbnail_path):
+    """
+    安全删除缩略图文件，强制校验路径在 storage/documents 下
+
+    Args:
+        thumbnail_path: 待删除的缩略图绝对路径
+
+    Returns:
+        tuple: (是否成功, 错误消息或None)
+    """
+    if not thumbnail_path or not os.path.exists(thumbnail_path):
+        return True, None
+
+    document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
+    if not is_safe_path(document_storage_base, thumbnail_path):
+        logger.error(f'[Document] Refused to delete thumbnail outside storage/documents: {thumbnail_path}')
+        return False, f'缩略图路径不在安全区域内，拒绝删除'
+
+    try:
+        os.remove(thumbnail_path)
+        return True, None
+    except OSError as e:
+        logger.error(f'[Document] Failed to delete thumbnail: {thumbnail_path}, error={e}')
+        return False, str(e)
+
+
 # ==================== 模型获取工具函数 ====================
 def get_folder_model(is_public=False):
     """
@@ -361,7 +414,33 @@ def calculate_sampling_md5(file_path):
 
 
 # ==================== 分片路径生成工具函数 ====================
-def get_chunk_dir_path(file_hash, is_public, request_user):
+
+# 路径段白名单正则：只允许字母、数字、下划线、短横线
+_SAFE_PATH_SEGMENT_RE = re.compile(r'^[A-Za-z0-9_-]+$')
+
+
+def validate_path_segment(value, field_name='path segment'):
+    """
+    验证路径段是否只包含安全字符，防止路径注入
+
+    Args:
+        value: 待验证的字符串
+        field_name: 字段名称（用于错误消息）
+
+    Returns:
+        str: 验证通过的安全值
+
+    Raises:
+        ValueError: 如果包含非法字符
+    """
+    if not value or not isinstance(value, str):
+        raise ValueError(f'{field_name} 不能为空')
+    if not _SAFE_PATH_SEGMENT_RE.match(value):
+        raise ValueError(f'{field_name} 包含非法字符: {value!r}')
+    return value
+
+
+def get_chunk_dir_path(file_hash, is_public, request_user, transfer_id=None):
     """
     【P0修复】统一的分片目录路径生成函数
     确保所有视图的路径生成逻辑完全一致
@@ -370,16 +449,19 @@ def get_chunk_dir_path(file_hash, is_public, request_user):
         file_hash: 文件MD5哈希值（32位全量MD5或抽样MD5）
         is_public: 是否为公共空间
         request_user: 请求用户对象
+        transfer_id: 传输记录ID（可选，用于任务隔离）
         
     Returns:
-        str: 分片目录绝对路径，如 '/path/to/storage/document_chunks/public_1_2/abc123...'
+        str: 分片目录绝对路径
+        - 有 transfer_id 时: .../document_chunks/{tenant}/{file_hash}/{transfer_id}/
+        - 无 transfer_id 时: .../document_chunks/{tenant}/{file_hash}/（向后兼容）
         
     Raises:
         ValueError: 如果file_hash格式不正确
     """
     # 【任务3.2修复】验证MD5哈希格式（支持全量MD5和抽样MD5）
-    is_valid_full_md5 = file_hash and isinstance(file_hash, str) and len(file_hash) == 32
-    is_valid_sampling_md5 = file_hash and isinstance(file_hash, str) and file_hash.startswith('sv1_')
+    is_valid_full_md5 = file_hash and isinstance(file_hash, str) and len(file_hash) == 32 and _SAFE_PATH_SEGMENT_RE.match(file_hash)
+    is_valid_sampling_md5 = file_hash and isinstance(file_hash, str) and file_hash.startswith('sv1_') and _SAFE_PATH_SEGMENT_RE.match(file_hash)
     if not (is_valid_full_md5 or is_valid_sampling_md5):
         raise ValueError(f'Invalid file_hash format: {file_hash}')
     
@@ -390,9 +472,28 @@ def get_chunk_dir_path(file_hash, is_public, request_user):
         tenant_path = "public"
     else:
         # 私有空间：租户ID隔离
-        tenant_path = getattr(request_user, 'tenant_id', 'default') or 'default'
+        # 【路径安全校验】白名单校验 tenant_id，只允许安全字符
+        # 【安全修复】非法 tenant_id 直接报错，不再 fallback 到 default（避免隔离混淆）
+        raw_tenant_id = getattr(request_user, 'tenant_id', 'default') or 'default'
+        try:
+            tenant_path = validate_path_segment(str(raw_tenant_id), 'tenant_id')
+        except ValueError:
+            logger.error(f'[Document] Invalid tenant_id for path: {raw_tenant_id!r}, rejecting request')
+            raise ValueError(f'Invalid tenant_id: {raw_tenant_id!r}')
     
-    return os.path.join(chunk_base_dir, tenant_path, file_hash)
+    base_chunk_dir = os.path.join(chunk_base_dir, tenant_path, file_hash)
+
+    # 【路径隔离】有 transfer_id 时在 file_hash 下再加一层，避免同 hash 并发互踩
+    if transfer_id is not None:
+        transfer_id_str = str(transfer_id)
+        try:
+            validate_path_segment(transfer_id_str, 'transfer_id')
+        except ValueError:
+            logger.error(f'[Document] Invalid transfer_id for path: {transfer_id_str!r}')
+            raise ValueError(f'Invalid transfer_id format: {transfer_id_str}')
+        return os.path.join(base_chunk_dir, transfer_id_str)
+
+    return base_chunk_dir
 
 
 # ==================== MIME类型工具函数 ====================

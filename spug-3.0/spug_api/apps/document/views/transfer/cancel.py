@@ -12,7 +12,7 @@ from django.views.generic import View
 from django.conf import settings
 
 from libs import json_response, auth
-from apps.document.libs.document_utils import get_chunk_dir_path
+from apps.document.libs.document_utils import get_chunk_dir_path, is_safe_path
 
 logger = logging.getLogger(__name__)
 
@@ -84,15 +84,16 @@ class ChunkCleaner:
 
     @staticmethod
     def get_chunk_dir(transfer):
-        """获取分片目录路径"""
+        """获取分片目录路径（优先新路径，兼容旧路径）"""
         temp_user = ChunkCleaner.build_temp_user(transfer)
-        return get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user)
+        # 优先使用带 transfer_id 的新路径
+        return get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user, transfer_id=transfer.id)
 
     @staticmethod
     def validate_chunk_dir(chunk_dir):
         """验证分片目录路径安全性"""
         chunk_base_dir = os.path.join(settings.BASE_DIR, 'storage', 'document_chunks')
-        return chunk_dir.startswith(chunk_base_dir) and os.path.exists(chunk_dir)
+        return is_safe_path(chunk_base_dir, chunk_dir) and os.path.exists(chunk_dir)
 
     @staticmethod
     def remove_files(chunk_dir):
@@ -121,14 +122,19 @@ class ChunkCleaner:
                 logger.info(f'[Document] Skip chunk cleanup for transfer {transfer.id}: no file_hash')
                 return
 
+            # 清理新路径（带 transfer_id 隔离）
             chunk_dir = cls.get_chunk_dir(transfer)
+            if cls.validate_chunk_dir(chunk_dir):
+                cls.remove_files(chunk_dir)
+                cls.remove_directory(chunk_dir)
 
-            if not cls.validate_chunk_dir(chunk_dir):
-                logger.warning(f'[Document] Invalid or non-existent chunk dir: {chunk_dir}')
-                return
+            # 也清理旧路径（兼容历史数据）
+            temp_user = cls.build_temp_user(transfer)
+            legacy_chunk_dir = get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user)
+            if cls.validate_chunk_dir(legacy_chunk_dir):
+                cls.remove_files(legacy_chunk_dir)
+                cls.remove_directory(legacy_chunk_dir)
 
-            cls.remove_files(chunk_dir)
-            cls.remove_directory(chunk_dir)
             logger.info(f'[Document] Cleaned up chunks for transfer: {transfer.id}')
 
         except Exception as e:

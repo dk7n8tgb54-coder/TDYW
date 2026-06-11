@@ -22,7 +22,7 @@ import {
   ClockCircleFilled,
 } from '@ant-design/icons';
 import FileTypeIcon from './FileTypeIcon';
-import { formatSize, formatSpeed } from '@/utils/format';
+import { formatSpeed } from '@/utils/format';
 import {
   ERROR_CODES,
   RETRYABLE_ERROR_CODES,
@@ -98,8 +98,6 @@ const STATUS_CONFIG = {
   },
 };
 
-// 【2.3重构】formatSize 和 formatSpeed 已移至 @/utils/format
-
 /**
  * 传输列表项组件 - 网盘风格
  * @param {Object} props
@@ -121,10 +119,9 @@ const TransferItem = ({
   const status = item.status;
   const config = STATUS_CONFIG[status];
   
-  // 计算进度显示
+  // 计算进度显示（仅用于进度条；百分比文字已在重构中移除避免冗余）
   const percent = Math.round(item.percent || 0);
-  const uploadedSize = item.fileSize ? Math.round(item.fileSize * (percent / 100)) : 0;
-  
+
   // 使用传入的速度或 item 中的速度
   const displaySpeed = speed || item.speed || 0;
   
@@ -149,27 +146,29 @@ const TransferItem = ({
   
   return (
     <div
+      // 【2026-06-11 修复】改用 minHeight 而非 height
+      // 原因：错误态需要展示错误文案 + 进度条，行高会撑高
+      // 父组件 react-window ITEM_HEIGHT 80px 是普通态高度，错误态允许超出
+      className="transfer-item"
       style={{
-        // 【关键】固定高度，与 ITEM_HEIGHT (80px) 严格匹配
-        height: '80px',
+        minHeight: '72px',
         padding: '12px 16px',
-        borderBottom: '1px solid #f0f0f0',
         backgroundColor: status === 'error' ? '#fff2f0' : 'transparent',
         transition: 'background-color 0.3s',
         boxSizing: 'border-box',
-        overflow: 'hidden', // 防止内容溢出撑高
+        overflow: 'hidden',
       }}
     >
-      {/* 第一行：图标 + 文件名 + 百分比 + 操作按钮 */}
+      {/* 第一行：图标 + 文件名 + 操作按钮 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         {/* 文件图标 */}
-        <FileTypeIcon 
-          fileName={item.name || item.fileName || 'unknown'} 
+        <FileTypeIcon
+          fileName={item.name || item.fileName || 'unknown'}
           mimeType={item.mimeType || item.fileType}
           isFolder={item.isFolder || false}
-          size={40} 
+          size={40}
         />
-        
+
         {/* 文件名和状态信息 */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
@@ -186,18 +185,9 @@ const TransferItem = ({
           >
             {item.name}
           </div>
-          
-          {/* 状态详情：已传输 / 总大小 • 状态文字 • 速度 */}
-          <div style={{ fontSize: 12, color: '#8c8c8c', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {/* 大小信息 */}
-            {item.fileSize ? (
-              <span>
-                {formatSize(uploadedSize)} / {formatSize(item.fileSize)}
-              </span>
-            ) : null}
-            
-            {item.fileSize && <span>•</span>}
-            
+
+          {/* 状态详情：状态文字 + 速度（一行，不换行） */}
+          <div style={{ fontSize: 12, color: '#8c8c8c', display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden', whiteSpace: 'nowrap' }}>
             {/* 状态文字 - calculating 状态加 tooltip 解释（避免用户困惑） */}
             {status === 'calculating' ? (
               <Tooltip title="计算文件指纹以加速上传（秒传/断点续传），大文件可能需要几秒">
@@ -212,32 +202,14 @@ const TransferItem = ({
                 {config.text}
               </span>
             )}
-            
+
             {/* 上传速度 */}
             {config.showSpeed && displaySpeed > 0 && (
-              <>
-                <span>•</span>
-                <span style={{ color: '#1890ff' }}>{formatSpeed(displaySpeed)}</span>
-              </>
+              <span style={{ color: '#1890ff' }}>{formatSpeed(displaySpeed)}</span>
             )}
           </div>
         </div>
-        
-        {/* 百分比 */}
-        {config.showProgress && (
-          <div
-            style={{
-              fontSize: 14,
-              fontWeight: 500,
-              color: config.color,
-              minWidth: 45,
-              textAlign: 'right',
-            }}
-          >
-            {percent}%
-          </div>
-        )}
-        
+
         {/* 操作按钮组 */}
         <div style={{ display: 'flex', gap: 4 }}>
           {/* 暂停按钮 */}
@@ -252,7 +224,7 @@ const TransferItem = ({
               />
             </Tooltip>
           )}
-          
+
           {/* 开始/重试按钮 */}
           {canResume && (
             <Tooltip title={status === 'error' ? '重试' : '开始'}>
@@ -261,11 +233,11 @@ const TransferItem = ({
                 size="small"
                 icon={<CaretRightOutlined />}
                 onClick={() => onResume(item.id)}
-                style={{ color: '#52c41a' }}
+                style={{ color: status === 'error' ? '#ff4d4f' : '#52c41a' }}
               />
             </Tooltip>
           )}
-          
+
           {/* 取消按钮 */}
           {canCancel && (
             <Tooltip title="取消">
@@ -278,7 +250,7 @@ const TransferItem = ({
               />
             </Tooltip>
           )}
-          
+
           {/* 删除按钮 */}
           {canRemove && (
             <Tooltip title="删除">
@@ -293,7 +265,7 @@ const TransferItem = ({
           )}
         </div>
       </div>
-      
+
       {/* 第二行：进度条 */}
       {config.showProgress && (
         <div style={{ marginTop: 8, marginLeft: 52 }}>
@@ -307,24 +279,34 @@ const TransferItem = ({
           />
         </div>
       )}
-      
-      {/* 错误提示 */}
+
+      {/* 错误提示 - B 步重构：扁平错误条，hover 显示重试按钮 */}
       {status === 'error' && displayError && (
         <div
+          // 关键：单行结构，不抢进度条位置
           style={{
-            marginTop: 8,
+            marginTop: 6,
             marginLeft: 52,
-            padding: '6px 12px',
-            backgroundColor: '#fff',
-            borderRadius: 4,
-            border: '1px solid #ffccc7',
             display: 'flex',
             alignItems: 'center',
-            gap: 8,
+            gap: 6,
+            fontSize: 12,
+            color: '#ff4d4f',
+            lineHeight: '20px',
+            overflow: 'hidden',
           }}
         >
-          <span style={{ fontSize: 12, color: '#ff4d4f', flex: 1 }}>
-            <span role="img" aria-label="警告">⚠️</span> {displayError}
+          <span style={{ flexShrink: 0 }} role="img" aria-label="警告">⚠️</span>
+          <span
+            style={{
+              flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+            title={displayError}
+          >
+            {displayError}
           </span>
           {canRetry && (
             <Button
@@ -332,7 +314,7 @@ const TransferItem = ({
               size="small"
               icon={<RedoOutlined />}
               onClick={() => onResume(item.id)}
-              style={{ padding: 0, height: 'auto', fontSize: 12 }}
+              style={{ padding: 0, height: 'auto', fontSize: 12, flexShrink: 0 }}
             >
               重试
             </Button>

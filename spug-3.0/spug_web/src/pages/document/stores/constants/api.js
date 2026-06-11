@@ -32,6 +32,7 @@ export const API_ENDPOINTS = {
   MERGE_CHUNKS: `${BASE_URL}/merge_chunks/`,
   CHECK_UPLOADED_CHUNKS: `${BASE_URL}/check_uploaded_chunks/`,
   MERGE_STATUS: `${BASE_URL}/merge_status/`,
+  DIRECT_MERGE: `${BASE_URL}/direct_merge/`,
 
   // 传输记录
   TRANSFER_LIST: `${BASE_URL}/transfers/`,

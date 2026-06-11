@@ -379,11 +379,12 @@ class UploadCoreStore {
     return this.itemOperationController?.abortUpload(uploadId);
   }
 
-  // ===== 断点续传（代理到协调器）=====
-
-  resumeChunkedUpload(file, folderId, item, chunkCount) {
-    return this.chunkUploadCoordinator?.resumeChunkedUpload(file, folderId, item, chunkCount);
-  }
+  // ===== 断点续传 =====
+  // 【P1修复】旧的 resumeChunkedUpload 已移除（旧的 Math.max+1 模式会漏传中间缺口分片）。
+  // 断点续传统一走 chunkUploadStore.uploadFileChunked() 的"补缺分片"模型：
+  //   1) 调用 checkUploadedChunks 获取后端已上传分片集合
+  //   2) for 循环遍历所有分片
+  //   3) 跳过 uploadedChunks.has(chunkIndex) 的分片，自动补齐中间缺口
 
   replaceFileAndResume(itemId, newFile) {
     return this.fileUploadCoordinator?.replaceFileAndResume(itemId, newFile);

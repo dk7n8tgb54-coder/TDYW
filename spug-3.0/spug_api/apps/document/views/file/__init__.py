@@ -9,7 +9,7 @@
 from .views import FileView
 from .upload import FileUploadView
 from .download import FileDownloadView
-from .preview import FilePreviewView, FileTextContentView, OfficePreviewUrlView
+from .preview import FilePreviewView, FileTextContentView, OfficePreviewUrlView, PreviewTokenView
 from .copy import FileCopyView
 from .move import FileMoveView
 from .rename import FileRenameView
@@ -21,6 +21,7 @@ __all__ = [
     'FilePreviewView',
     'FileTextContentView',
     'OfficePreviewUrlView',
+    'PreviewTokenView',
     'FileCopyView',
     'FileMoveView',
     'FileRenameView',

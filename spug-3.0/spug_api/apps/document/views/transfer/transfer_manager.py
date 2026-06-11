@@ -7,7 +7,7 @@ import os
 import logging
 from django.conf import settings
 
-from apps.document.libs.document_utils import get_chunk_dir_path
+from apps.document.libs.document_utils import get_chunk_dir_path, is_safe_path
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +48,17 @@ class ChunkCleanupManager:
 
         try:
             temp_user = ChunkCleanupManager._create_temp_user(transfer)
-            chunk_dir = get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user)
+            # 【路径隔离】优先清理带 transfer_id 的新路径
+            transfer_id = transfer.id
+            chunk_dir = get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user, transfer_id=transfer_id)
 
-            if not ChunkCleanupManager._is_safe_chunk_dir(chunk_dir):
-                return
+            # 也清理旧路径（兼容历史数据）
+            legacy_chunk_dir = get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user)
 
-            ChunkCleanupManager._remove_chunk_files(chunk_dir)
-            ChunkCleanupManager._remove_chunk_dir(chunk_dir)
+            for dir_to_clean in [chunk_dir, legacy_chunk_dir]:
+                if ChunkCleanupManager._is_safe_chunk_dir(dir_to_clean):
+                    ChunkCleanupManager._remove_chunk_files(dir_to_clean)
+                    ChunkCleanupManager._remove_chunk_dir(dir_to_clean)
 
         except Exception as e:
             logger.warning(f'[Document] Failed to cleanup chunks: {e}')
@@ -73,7 +77,7 @@ class ChunkCleanupManager:
     def _is_safe_chunk_dir(chunk_dir):
         """检查分片目录路径是否安全"""
         chunk_base_dir = os.path.join(settings.BASE_DIR, 'storage', 'document_chunks')
-        return chunk_dir.startswith(chunk_base_dir) and os.path.exists(chunk_dir)
+        return is_safe_path(chunk_base_dir, chunk_dir) and os.path.exists(chunk_dir)
 
     @staticmethod
     def _remove_chunk_files(chunk_dir):

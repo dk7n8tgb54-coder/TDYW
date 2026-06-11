@@ -8,8 +8,9 @@
 import os
 import shutil
 import logging
+from django.conf import settings
 from libs.tenant_utils import apply_tenant_filter
-from apps.document.libs.document_utils import get_document_absolute_path, is_child_folder
+from apps.document.libs.document_utils import get_document_absolute_path, is_child_folder, is_safe_path
 from apps.document.libs.naming_utils import generate_physical_name, generate_unique_logical_name, get_file_ext
 from apps.document.views.base import create_model_instance
 
@@ -104,6 +105,9 @@ class FileCopier:
             source_file: 源文件对象
             target_folder: 目标文件夹
             upload_dir: 上传目录路径
+
+        Returns:
+            bool: 是否复制成功
         """
         # 获取原始显示名
         original_display_name = source_file.display_name or source_file.name
@@ -118,6 +122,16 @@ class FileCopier:
 
         # 复制物理文件
         new_file_path = os.path.join(upload_dir, physical_name)
+
+        # 【路径安全校验】验证源文件路径和目标文件路径都在 storage/documents 下
+        document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
+        if not is_safe_path(document_storage_base, source_file.file_path):
+            logger.error(f'[Document] Unsafe source file path detected: {source_file.file_path}')
+            return False
+        if not is_safe_path(document_storage_base, new_file_path):
+            logger.error(f'[Document] Unsafe target file path detected: {new_file_path}')
+            return False
+
         shutil.copy2(source_file.file_path, new_file_path)
 
         # 创建文件记录
@@ -132,6 +146,7 @@ class FileCopier:
             file_type=source_file.file_type,
             created_by=self.user
         )
+        return True
 
 
 class FolderCopier:

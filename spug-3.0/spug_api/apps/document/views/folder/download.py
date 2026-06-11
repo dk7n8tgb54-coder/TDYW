@@ -95,6 +95,7 @@ class FolderDownloadView(View):
         """【P0-6修复】提交异步打包任务"""
         try:
             from ...tasks import pack_folder_to_zip
+            from ...libs.pack_task_ownership import record_ownership
             from celery import current_app as celery_app
 
             # 检查 Celery 连接状态
@@ -110,6 +111,14 @@ class FolderDownloadView(View):
                 is_public=is_public,
                 user_id=user.id,
                 tenant_id=tenant_id
+            )
+
+            # 【H-6修复】记录 task_id -> 归属，状态查询和 ready 下载均校验
+            record_ownership(
+                task_id=str(task.id),
+                user_id=user.id,
+                tenant_id=tenant_id,
+                is_public=is_public,
             )
 
             logger.info(f'[Document] Async pack task submitted: task_id={task.id}, folder_id={folder.id}')
@@ -320,10 +329,24 @@ class FolderDownloadStatusView(View):
         try:
             from celery.result import AsyncResult
             from ...tasks import pack_folder_to_zip
+            from ...libs.pack_task_ownership import (
+                verify_ownership as verify_pack_ownership,
+                get_ownership,
+            )
+
+            # 【H-6修复】所有状态都校验任务归属（包含 pending 阶段）
+            # 之前只在 task.ready() 后校验 result，pending 阶段任意用户可探测
+            if not verify_pack_ownership(form.task_id, request.user):
+                return json_response(error='无权访问此打包任务', code=403)
 
             task = AsyncResult(form.task_id, app=pack_folder_to_zip.app)
             state = task.state
             result = task.result if task.ready() else None
+
+            # 【H-1修复】ready 状态后做 result 双重校验（防止 cache 过期被绕过）
+            if task.ready() and result and isinstance(result, dict):
+                if not self._verify_task_ownership(result, request.user):
+                    return json_response(error='无权访问此打包任务', code=403)
 
             response_data = {
                 'task_id': form.task_id,
@@ -350,6 +373,33 @@ class FolderDownloadStatusView(View):
             logger.error(f'[Document] Query pack task status failed: task_id={form.task_id}, error={e}', exc_info=True)
             return json_response(error=f'查询任务状态失败: {str(e)}', code=500)
 
+    @staticmethod
+    def _verify_task_ownership(result, request_user):
+        """【H-1修复】校验打包任务归属
+
+        公共空间：所有登录用户可访问（无租户隔离）
+        私有空间：仅任务创建者（同用户+同租户）可访问
+        管理员：跳过归属校验
+        """
+        if getattr(request_user, 'is_supper', False):
+            return True
+
+        is_public = result.get('is_public', False)
+        if is_public:
+            # 公共空间无租户隔离，所有登录用户可访问
+            return True
+
+        # 私有空间：必须同用户+同租户
+        task_user_id = result.get('user_id')
+        task_tenant_id = result.get('tenant_id')
+        request_tenant_id = getattr(request_user, 'tenant_id', None)
+
+        if task_user_id != request_user.id:
+            return False
+        if task_tenant_id != request_tenant_id:
+            return False
+        return True
+
 
 class FolderDownloadReadyView(View):
     """【P0-6新增】下载已打包完成的 ZIP 文件"""
@@ -370,7 +420,12 @@ class FolderDownloadReadyView(View):
 
         try:
             from celery.result import AsyncResult
-            from ...tasks import pack_folder_to_zip
+            from ...tasks import pack_folder_to_zip, PACK_TASKS_DIR
+            from ...libs.pack_task_ownership import verify_ownership as verify_pack_ownership
+
+            # 【H-6修复】ready 下载前先校验服务侧 ownership
+            if not verify_pack_ownership(form.task_id, request.user):
+                return json_response(error='无权访问此打包任务', code=403)
 
             task = AsyncResult(form.task_id, app=pack_folder_to_zip.app)
 
@@ -381,12 +436,22 @@ class FolderDownloadReadyView(View):
                 return json_response(error='任务执行失败', code=500001)
 
             result = task.result
+
+            # 【H-1修复】校验任务归属
+            if not FolderDownloadStatusView._verify_task_ownership(result, request.user):
+                return json_response(error='无权访问此打包任务', code=403)
+
             zip_path = result.get('zip_path')
             folder_name = result.get('folder_name', 'folder')
 
             if not zip_path or not os.path.exists(zip_path):
                 logger.error(f'[Document] Pack task zip not found: zip_path={zip_path}')
                 return json_response(error='打包文件不存在或已过期', code=404001)
+
+            # 【H-1修复】路径安全复核：zip_path 必须在 PACK_TASKS_DIR 下
+            if not is_safe_path(PACK_TASKS_DIR, zip_path):
+                logger.error(f'[Document] Unsafe zip_path detected: {zip_path}')
+                return json_response(error='打包文件路径异常', code=400)
 
             zip_size = os.path.getsize(zip_path)
             encoded_foldername = quote(folder_name)

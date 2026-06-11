@@ -3,19 +3,20 @@
  * 【任务4.2】从Explorer组件拆分出来的独立Hook
  * 职责：管理右键菜单的显示、定位和菜单项生成
  */
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
+import { MenuIcons } from '../../components/FileTypeIcon';
 
-// 菜单图标映射
+// 菜单图标映射（SVG 图标组件）
 const ICON_MAP = {
-  open: '📂',
-  download: '⬇️',
-  copy: '📋',
-  cut: '✂️',
-  rename: '✏️',
-  delete: '🗑️',
-  preview: '👁️',
-  properties: 'ℹ️',
-  newFolder: '📁',
+  open: <MenuIcons.open />,
+  download: <MenuIcons.download />,
+  copy: <MenuIcons.copy />,
+  cut: <MenuIcons.cut />,
+  rename: <MenuIcons.rename />,
+  delete: <MenuIcons.delete />,
+  preview: <MenuIcons.preview />,
+  properties: <MenuIcons.properties />,
+  newFolder: <MenuIcons.newFolder />,
 };
 
 /**

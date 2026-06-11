@@ -100,8 +100,40 @@ class CheckUploadedChunksView(View):
         )
 
     def _get_chunk_dir(self, form, user):
-        """获取分片目录"""
+        """
+        获取分片目录
+
+        【P1修复-三轮】明确语义（"读哪里写哪里"原则）：
+
+        1. 没传 transfer_id → 旧路径（老客户端兼容）
+        2. 传了 transfer_id 但归属校验失败 → return None（前端从头传）
+        3. 传了 transfer_id 且归属通过 + 新物理目录存在 → 用新目录
+        4. 传了 transfer_id 且归属通过 + 新物理目录不存在 → return None（前端从头传）
+           原因：绝对**不能**回退到旧路径，否则会"读旧分片、写新分片"，分片被拆成两份。
+           因为 chunk.py 上传分片时严格按 transfer_id 写新目录，merge 时也只读新目录。
+        """
         try:
+            transfer_id = getattr(form, 'transfer_id', None)
+            if transfer_id:
+                # 【H-3修复】使用 transfer_id 前必须先校验归属，防止 IDOR
+                from apps.document.views.upload.validators import TransferOwnershipValidator
+                is_valid, error_msg = TransferOwnershipValidator.validate(
+                    transfer_id, form.file_hash, form.is_public, user
+                )
+                if not is_valid:
+                    logger.warning(f'[Document][Resume] transfer_id ownership check failed: {error_msg}')
+                    return None
+                chunk_dir = get_chunk_dir_path(form.file_hash, form.is_public, user, transfer_id=transfer_id)
+                if os.path.exists(chunk_dir):
+                    return chunk_dir
+                # 【P1修复-三轮】新目录不存在时**不**回退 legacy。
+                # 旧路径上残留的分片属于"上一个 transfer（如果存在）"，不是当前 transfer 的；
+                # 让前端从头传（写入新目录）才能保持分片在同一目录。
+                logger.info(
+                    f'[Document][Resume] transfer_id={transfer_id} 新目录不存在，前端需要从头传'
+                )
+                return None
+            # 没传 transfer_id → 走老逻辑（兼容老客户端）
             chunk_dir = get_chunk_dir_path(form.file_hash, form.is_public, user)
             return chunk_dir if os.path.exists(chunk_dir) else None
         except Exception as e:
@@ -130,9 +162,13 @@ class CheckUploadedChunksView(View):
             ChunkScanner, get_chunk_cache_manager
         ))
 
+        # 【优化4】传递 transfer_id 用于缓存隔离
+        transfer_id = getattr(form, 'transfer_id', None)
+
         return context.execute(
             chunk_dir, form.file_hash, user.id,
-            form.is_public, form.total_chunks or 0
+            form.is_public, form.total_chunks or 0,
+            transfer_id=transfer_id
         )
 
     def _check_can_merge(self, form, user, all_ready):
@@ -142,10 +178,14 @@ class CheckUploadedChunksView(View):
 
         try:
             from apps.document.models import DocumentTransfer
-            transfer = DocumentTransfer.objects.get(
-                id=form.transfer_id,
-                user=user
+            from apps.document.views.upload.validators import TransferOwnershipValidator
+            is_valid, _ = TransferOwnershipValidator.validate(
+                form.transfer_id, form.file_hash, form.is_public, user
             )
+            if not is_valid:
+                return False
+
+            transfer = DocumentTransfer.objects.get(id=form.transfer_id)
 
             return transfer.status in [
                 TransferStatus.MERGING.value,
@@ -164,7 +204,14 @@ class CheckUploadedChunksView(View):
 
         try:
             from apps.document.models import DocumentTransfer
-            transfer = DocumentTransfer.objects.get(id=form.transfer_id, user=user)
+            from apps.document.views.upload.validators import TransferOwnershipValidator
+            is_valid, _ = TransferOwnershipValidator.validate(
+                form.transfer_id, form.file_hash, form.is_public, user
+            )
+            if not is_valid:
+                return None
+
+            transfer = DocumentTransfer.objects.get(id=form.transfer_id)
 
             if transfer.status != TransferStatus.FAILED.value:
                 return None

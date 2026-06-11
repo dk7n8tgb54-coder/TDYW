@@ -38,6 +38,22 @@ const isUploadingStatus = (status) =>
 const isFailedStatus = (status) =>
   status === UPLOAD_STATUS.ERROR || status === UPLOAD_STATUS.CANCELLED;
 
+// 【2026-06-11 修复】传输列表布局常量
+// 行业惯例：抽屉宽度上限 960px，与底部 MiniBar (maxWidth 720) 视觉对齐
+const LIST_MAX_WIDTH = 960;
+
+/**
+ * Tab 内容区内层列表的容器样式
+ * 关键：用 flex: 1 + minHeight: 0 让 flex 子项正确收缩，触发 overflowY 滚动
+ * 之前用 maxHeight: 460 在嵌套 Tabs/Drawer 下被父级 flex 撑开后不出现滚动条
+ */
+const listContainerStyle = {
+  flex: 1,
+  minHeight: 0,
+  overflowY: 'auto',
+  overflowX: 'hidden',
+};
+
 /**
  * 分组传输列表组件
  */
@@ -124,7 +140,7 @@ const TransferList = ({
       );
     }
     return (
-      <div style={{ maxHeight: 460, overflowY: 'auto', overflowX: 'hidden' }}>
+      <div style={listContainerStyle}>
         {[...activeItems, ...pausedItems].map((item, index, arr) => (
           <div
             key={item.id}
@@ -158,7 +174,7 @@ const TransferList = ({
       );
     }
     return (
-      <div style={{ maxHeight: 460, overflowY: 'auto', overflowX: 'hidden' }}>
+      <div style={listContainerStyle}>
         {completedItems.map((item, index) => (
           <div
             key={item.id}
@@ -192,7 +208,7 @@ const TransferList = ({
       );
     }
     return (
-      <div style={{ maxHeight: 460, overflowY: 'auto', overflowX: 'hidden' }}>
+      <div style={listContainerStyle}>
         {failedItems.map((item, index) => (
           <div
             key={item.id}
@@ -217,25 +233,41 @@ const TransferList = ({
   return (
     <div
       style={{
-        display: 'flex',
-        flexDirection: 'column',
+        // 【2026-06-11 修复】宽度限制 + 居中
+        // 行业惯例：抽屉列表宽度上限 960px，避免宽屏下拉伸到两端
+        // 与底部 MiniBar (maxWidth 720) 视觉对齐
+        width: '100%',
         height: '100%',
         overflow: 'hidden',
+        // 【2026-06-11 修复】minHeight: 0 是 flex 子项正确收缩的关键
+        // 不加这个，flex: 1 子项不会被压缩，overflow 失效
+        minHeight: 0,
       }}
     >
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
         size="small"
-        style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+        // 【2026-06-11 修复】关闭 Tab 切换动画，避免 antd 短暂叠加多个 TabPane
+        animated={false}
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          // 【2026-06-11 修复】Tabs 容器自身需 minHeight: 0
+          // 否则 Tab 内容区继承不到 flex 收缩
+          minHeight: 0,
+          overflow: 'hidden',
+        }}
         tabBarStyle={{ margin: 0, padding: '0 12px' }}
       >
         <TabPane
           tab={`上传中 ${uploadingCount > 0 ? `(${uploadingCount})` : ''}`}
           key="uploading"
           closeIcon={null}
+          style={{ minHeight: 0 }}
         >
-          <div style={{ padding: '8px 0' }}>
+          <div style={{ padding: '8px 0', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
             {uploadingTabExtra && (
               <div style={{ padding: '0 12px 8px', display: 'flex', justifyContent: 'flex-end' }}>
                 {uploadingTabExtra}
@@ -249,8 +281,9 @@ const TransferList = ({
           tab={`已完成 ${completedCount > 0 ? `(${completedCount})` : ''}`}
           key="completed"
           closeIcon={null}
+          style={{ minHeight: 0 }}
         >
-          <div style={{ padding: '8px 0' }}>
+          <div style={{ padding: '8px 0', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
             {completedCount > 0 && (
               <div style={{ padding: '0 12px 8px', display: 'flex', justifyContent: 'flex-end' }}>
                 <Tooltip title="清空已完成">
@@ -277,8 +310,9 @@ const TransferList = ({
           tab={`失败 ${failedCount > 0 ? `(${failedCount})` : ''}`}
           key="failed"
           closeIcon={null}
+          style={{ minHeight: 0 }}
         >
-          <div style={{ padding: '8px 0' }}>
+          <div style={{ padding: '8px 0', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
             {failedCount > 0 && (
               <div style={{ padding: '0 12px 8px', display: 'flex', justifyContent: 'flex-end' }}>
                 <Tooltip title="清空失败任务">

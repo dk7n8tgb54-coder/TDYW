@@ -67,6 +67,53 @@ export class ChunkUploadStore {
     const fileSize = file.size;
     const chunkCount = Math.ceil(fileSize / UPLOAD_CONSTANTS.CHUNK_SIZE);
 
+    // 【优化1】如果没有 transferId，按需创建
+    if (!uploadItem.transferId) {
+      try {
+        const newTransferId = await this.rootStore.transferStore.createTransfer({
+          transfer_type: 'upload',
+          file_name: file.name,
+          file_size: file.size,
+          is_public: targetIsPublic,
+          total_chunks: chunkCount,
+          file_hash: '',
+          folder_id: folderId,
+        });
+        this.queueStore.updateUploadItem(uploadId, {
+          transferId: newTransferId,
+        });
+        // 刷新 uploadItem 引用
+        uploadItem = this.queueStore.findUploadItemInCurrentTenant(uploadId);
+      } catch (error) {
+        // 【P2修复】大文件分片上传必须 transferId（断点续传/暂停/取消都依赖它），
+        // 创建失败直接中止，避免上传成功但无记录可恢复。
+        this.queueStore.updateUploadItem(uploadId, {
+          status: 'error',
+          error: '创建上传任务失败，请稍后重试',
+          errorCode: 'CLIENT',
+          canAbort: false,
+        });
+        throw new Error('创建上传任务失败，请稍后重试');
+      }
+    }
+
+    // 【P2修复-二轮/三轮】创建后/复用前统一确保后端状态推进到 UPLOADING。
+    // 必须包在 try 里：ensureTransferUploading 失败会抛错（强语义 ensure），
+    // 失败时把队列项置为 error 并中止上传。
+    try {
+      await this.rootStore.transferStore.ensureTransferUploading(
+        uploadItem.transferId
+      );
+    } catch (ensureError) {
+      this.queueStore.updateUploadItem(uploadId, {
+        status: 'error',
+        error: '上传任务状态初始化失败，请稍后重试',
+        errorCode: 'CLIENT',
+        canAbort: false,
+      });
+      throw new Error('上传任务状态初始化失败，请稍后重试');
+    }
+
     // 【修复】更新后端传输记录的 file_hash，支持断点续传
     const item = this.queueStore.findUploadItemInCurrentTenant(uploadId);
     if (item?.transferId && fileHash) {
@@ -80,25 +127,24 @@ export class ChunkUploadStore {
 
     // 【断点续传】查询已上传的分片
     let uploadedChunks = new Set();
-    let startChunkIndex = 0;
     
     if (item?.transferId && fileHash) {
       try {
         const checkResult = await this.rootStore.transferStore.checkUploadedChunks(
-          fileHash, fileSize, chunkCount, targetIsPublic
+          fileHash, fileSize, chunkCount, targetIsPublic, item.transferId
         );
         
         if (checkResult.uploaded_chunks?.length > 0) {
           uploadedChunks = new Set(checkResult.uploaded_chunks);
-          startChunkIndex = Math.max(...checkResult.uploaded_chunks) + 1;
-          
+
+          // 【优化3】不再使用 Math.max + startChunkIndex 跳过缺口
+          // 改为遍历所有分片，跳过已上传分片，确保缺失分片被补齐
           const uploadedCount = checkResult.uploaded_chunks.length;
           const uploadedPercent = Math.min(Math.round((uploadedCount / chunkCount) * 100), 99);
 
           // 更新进度显示
           this.queueStore.updateUploadItem(uploadId, {
             percent: uploadedPercent,
-            currentChunk: startChunkIndex,
           });
         }
       } catch (error) {
@@ -126,8 +172,10 @@ export class ChunkUploadStore {
     // 【修复】跟踪本次会话成功上传的分片
     const sessionUploadedChunks = new Set();
     
-    // 上传分片（从断点处开始）
-    for (let chunkIndex = startChunkIndex; chunkIndex < chunkCount; chunkIndex++) {
+    // 【优化3】遍历所有分片，跳过已上传分片，确保缺失分片被补齐
+    // 不再使用 startChunkIndex = Math.max(...uploaded_chunks) + 1
+    // 因为后端可能返回不连续的分片列表（如 [0, 2, 3]），需要补齐中间缺口
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
       // 重新获取uploadItem（可能被外部修改）
       const currentItem = this.queueStore.findUploadItemInCurrentTenant(uploadId);
       if (!currentItem) break;
@@ -307,6 +355,10 @@ export class ChunkUploadStore {
     formData.append('total_chunks', chunkCount);
     formData.append('file_hash', fileHash);
 
+    // 【优化7】携带分片大小，后端可校验分片完整性
+    const chunkSize = end - start;
+    formData.append('chunk_size', chunkSize);
+
     if (folderId !== null) {
       formData.append('folder_id', parseInt(folderId));
     }
@@ -317,6 +369,12 @@ export class ChunkUploadStore {
     const tenantIdForRequest = targetIsPublic ? null : sessionStorage.getItem('tenant_id');
     if (tenantIdForRequest !== null) {
       formData.append('tenant_id', tenantIdForRequest);
+    }
+
+    // 【路径隔离】传递 transfer_id，使分片写入隔离目录
+    const uploadItem = this.queueStore.findUploadItemInCurrentTenant(uploadId);
+    if (uploadItem?.transferId) {
+      formData.append('transfer_id', uploadItem.transferId);
     }
 
     // 再次检查暂停状态
@@ -527,6 +585,10 @@ export class ChunkUploadStore {
 
   /**
    * 轮询合并状态
+   * 【优化6】渐进式轮询：
+   *   0-30秒：每2秒
+   *   30秒-5分钟：每5秒
+   *   超过5分钟：每15秒（降低服务器压力）
    */
   async pollMergeStatus(mergeTaskId, celeryTaskId = null) {
     const { http } = await import('libs');
@@ -564,9 +626,17 @@ export class ChunkUploadStore {
           // 【P1-12修复】处理未知状态，避免无限循环
         }
 
-        await new Promise(resolve => 
-          setTimeout(resolve, UPLOAD_CONSTANTS.MERGE_POLLING_INTERVAL)
-        );
+        // 【优化6】渐进式轮询间隔
+        let interval;
+        if (elapsed <= 30) {
+          interval = 2000;  // 0-30秒：每2秒
+        } else if (elapsed <= 300) {
+          interval = 5000;  // 30秒-5分钟：每5秒
+        } else {
+          interval = 15000;  // 超过5分钟：每15秒
+        }
+
+        await new Promise(resolve => setTimeout(resolve, interval));
       } catch (error) {
         consecutiveErrors++;
         if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {

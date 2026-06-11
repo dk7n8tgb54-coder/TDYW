@@ -5,6 +5,8 @@
 import React from 'react';
 // 【2.3重构】使用公共工具函数
 import { formatFileSize as _formatFileSize, formatDate as _formatDate } from '@/utils/format';
+// 彩色 SVG 文件图标
+import { getFileTypeIcon, FolderIcon, MenuIcons } from '../components/FileTypeIcon';
 
 // 生成唯一 key - 与原始组件一致
 export const generateKey = (id, type) => `${type}_${id}`;
@@ -114,54 +116,20 @@ export const getFileTypeLabel = (fileType) => {
   return '未知类型';
 };
 
-// 根据文件类型获取对应图标
-export const getFileIcon = (fileName, fileType) => {
-  // 从文件名中提取扩展名
-  let ext = '';
-  if (fileName) {
-    const parts = fileName.split('.');
-    if (parts.length > 1) {
-      ext = parts[parts.length - 1].toLowerCase();
-    }
-  }
-
-  // 也可以根据 MIME 类型判断
-  const mimeType = fileType ? fileType.toLowerCase() : '';
-
-  // 根据扩展名或 MIME 类型判断，返回 emoji
-  if (ext === 'pdf' || mimeType.includes('pdf'))
-    return <span style={{ marginRight: 8, fontSize: 16 }} role="img" aria-label="PDF文档" title="PDF文档">📄</span>;
-  if (ext === 'doc' || ext === 'docx' || mimeType.includes('word') || mimeType.includes('document'))
-    return <span style={{ marginRight: 8, fontSize: 16 }} role="img" aria-label="Word文档" title="Word文档">📝</span>;
-  if (ext === 'xls' || ext === 'xlsx' || mimeType.includes('excel') || mimeType.includes('spreadsheet'))
-    return <span style={{ marginRight: 8, fontSize: 16 }} role="img" aria-label="Excel表格" title="Excel表格">📊</span>;
-  if (ext === 'ppt' || ext === 'pptx' || mimeType.includes('powerpoint') || mimeType.includes('presentation'))
-    return <span style={{ marginRight: 8, fontSize: 16 }} role="img" aria-label="PowerPoint演示" title="PowerPoint演示">📋</span>;
-  if (ext === 'jpg' || ext === 'jpeg' || ext === 'png' || ext === 'gif' || ext === 'bmp' || ext === 'svg' ||
-      mimeType.includes('image'))
-    return <span style={{ marginRight: 8, fontSize: 16 }} role="img" aria-label="图片" title="图片">🖼️</span>;
-  if (ext === 'zip' || ext === 'rar' || ext === '7z' || ext === 'tar' || ext === 'gz' || mimeType.includes('zip'))
-    return <span style={{ marginRight: 8, fontSize: 16 }} role="img" aria-label="压缩包" title="压缩包">📦</span>;
-  if (ext === 'txt' || ext === 'log' || ext === 'md' || mimeType.includes('text') || mimeType.includes('plain'))
-    return <span style={{ marginRight: 8, fontSize: 16 }} role="img" aria-label="文本文件" title="文本文件">📃</span>;
-
-  return <span style={{ marginRight: 8, fontSize: 16 }} role="img" aria-label="文件" title="文件">📄</span>;
+// 根据文件类型获取对应图标（彩色 SVG）
+export const getFileIcon = (fileName, fileType, size) => {
+  return <span style={{ marginRight: 8, display: 'inline-flex', alignItems: 'center', lineHeight: 1 }}>{getFileTypeIcon(fileName, fileType, size || 16)}</span>;
 };
 
-// 获取菜单项图标的符号
+// 获取文件夹图标
+export const getFolderIcon = (size, open = false) => {
+  return <span style={{ marginRight: 8, display: 'inline-flex', alignItems: 'center', lineHeight: 1 }}><FolderIcon size={size || 16} open={open} /></span>;
+};
+
+// 获取菜单项图标（彩色 SVG）
 export const getMenuIconSymbol = (key) => {
-  const iconMap = {
-    'open': '📂',
-    'download': '⬇️',
-    'copy': '📋',
-    'cut': '✂️',
-    'rename': '✏️',
-    'paste': '📎',
-    'delete': '🗑️',
-    'preview': '👁️',
-    'newFolder': '📁'
-  };
-  return iconMap[key] || '';
+  const IconComponent = MenuIcons[key];
+  return IconComponent ? <span style={{ marginRight: 6, display: 'inline-flex', alignItems: 'center', color: '#666' }}><IconComponent /></span> : '';
 };
 
 // 常量配置 - 与原始组件一致

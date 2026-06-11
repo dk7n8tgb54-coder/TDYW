@@ -4,7 +4,6 @@
 清理任务 - 软删除数据清理
 """
 import logging
-import os
 from datetime import timedelta
 from celery import shared_task
 from django.utils import timezone
@@ -42,23 +41,18 @@ def _cleanup_space_files(FileModel, space_name, cutoff_time, dry_run):
             continue
 
         try:
-            if os.path.exists(file.file_path):
-                os.remove(file.file_path)
-                logger.info(f'[Celery][Cleanup] 已清理{space_name}文件：{file.file_path}')
-                space_stats['deleted'] += 1
-            else:
-                logger.warning(f'[Celery][Cleanup] {space_name}文件不存在：{file.file_path}')
-                space_stats['not_found'] += 1
-
+            # 统一走模型层 delete(hard=True)，内部调用 safe_delete_document_file
+            # 失败时会自动标记 is_pending_clean / clean_retry_count / last_clean_attempt
             file.delete(hard=True)
-            logger.info(f'[Celery][Cleanup] 已删除数据库记录：id={file.id}')
+            logger.info(f'[Celery][Cleanup] 已清理{space_name}文件：id={file.id}')
+            space_stats['deleted'] += 1
 
         except DocumentPhysicalDeleteError as e:
             logger.warning(f'[Celery][Cleanup] {space_name}文件物理删除失败，已标记待清理: id={file.id}, path={e.file_path}')
         except (OSError, IOError, DatabaseError) as e:
             space_stats['errors'] += 1
             space_stats['failed_file_ids'].append(file.id)
-            logger.error(f'[Celery][Cleanup] 清理{space_name}文件失败：{file.file_path}, error={e}')
+            logger.error(f'[Celery][Cleanup] 清理{space_name}文件失败：id={file.id}, error={e}')
 
     return space_stats
 

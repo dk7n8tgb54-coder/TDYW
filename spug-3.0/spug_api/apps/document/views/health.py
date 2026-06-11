@@ -20,38 +20,39 @@ class HealthCheckView(View):
     系统健康检查 API
     【修正4】Celery ping为None时返回503错误
     【注意】健康检查不需要登录验证
+    【M-2修复】未认证端点不暴露组件错误细节，仅返回 ok/error 状态
     """
-    
+
     def get(self, request):
         """
         执行健康检查
-        
+
         Returns:
             200: 所有组件正常
-            503: 有组件异常（Celery不可达或无Worker）
+            503: 有组件异常
         """
         checks = {
             'database': self._check_database(),
             'celery': check_celery_health(),
         }
-        
+
         # 判断整体状态
         has_error = any(
-            check.get('status') == 'error' 
+            check.get('status') == 'error'
             for check in checks.values()
         )
-        
+
+        # 【M-2修复】未认证端点仅返回 ok/error，不暴露组件名和错误细节
         response_data = {
             'status': 'error' if has_error else 'ok',
-            'checks': checks,
         }
-        
+
         if has_error:
             logger.error(f'[HealthCheck] 健康检查失败: {checks}')
             response = json_response(response_data)
             response.status_code = 503
             return response
-        
+
         return json_response(response_data)
     
     def _check_database(self):
@@ -62,10 +63,11 @@ class HealthCheckView(View):
                 cursor.fetchone()
             return {'status': 'ok'}
         except Exception as e:
+            # 【M-2修复】不向未认证用户暴露数据库错误细节
             logger.error(f'[HealthCheck] 数据库检查失败: {e}')
             return {
                 'status': 'error',
-                'error': str(e)
+                'error': 'database_error'  # 仅返回通用错误类型
             }
 
 
@@ -262,21 +264,23 @@ class CeleryHealthView(View):
     """
     Celery 单独健康检查 API
     【修正4】ping为None时返回503错误
+    【M-2修复】未认证端点仅返回状态，不暴露错误细节
     """
-    
+
     def get(self, request):
         """
         检查 Celery 健康状态
-        
+
         Returns:
             200: Celery正常
             503: Celery不可达或无Worker
         """
         result = check_celery_health()
-        
+
+        # 【M-2修复】未认证端点不暴露 Celery 内部状态细节
         if result['status'] == 'error':
-            response = json_response(result)
+            response = json_response({'status': 'error'})
             response.status_code = 503
             return response
-        
-        return json_response(result)
+
+        return json_response({'status': 'ok'})

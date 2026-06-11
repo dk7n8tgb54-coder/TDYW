@@ -11,6 +11,7 @@ import logging
 from django.conf import settings
 from django.db import DatabaseError
 from apps.document.exceptions import DocumentPhysicalDeleteError
+from apps.document.libs.document_utils import is_safe_path
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,10 @@ class PhysicalFolderCleaner:
 
             for path in possible_paths:
                 if os.path.exists(path):
+                    # 【路径安全校验】确保删除路径在 storage/documents 下
+                    if not is_safe_path(base_path, path):
+                        logger.error(f'[AsyncFolderDelete] Refused to delete folder outside storage/documents: {path}')
+                        return False
                     shutil.rmtree(path, ignore_errors=True)
                     logger.info(f'[AsyncFolderDelete] 物理目录已删除: {path}')
                     return True

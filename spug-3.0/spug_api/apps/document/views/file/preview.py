@@ -15,7 +15,7 @@ from django.conf import settings
 
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter
-from ...libs.document_utils import get_file_model
+from ...libs.document_utils import get_file_model, is_safe_path
 
 logger = logging.getLogger(__name__)
 
@@ -61,17 +61,37 @@ class FilePreviewView(View):
         if error is not None:
             return json_response(error=error)
 
+        # 【H-2修复】preview_token 作用域校验：令牌绑定的文件必须与请求文件一致
+        if hasattr(request, 'preview_token_data'):
+            token_data = request.preview_token_data
+            if token_data['file_id'] != form.id:
+                logger.warning(f'[Preview] preview_token file_id mismatch: token={token_data["file_id"]}, request={form.id}')
+                return json_response(error='预览令牌与请求文件不匹配')
+            if token_data['is_public'] != form.is_public:
+                return json_response(error='预览令牌与请求空间不匹配')
+
         file = self._get_file(form, request.user)
         if file is None:
             return json_response(error='文件不存在')
 
+        # 【路径安全校验】验证 file_path 在 storage/documents 下
+        document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
+        if not is_safe_path(document_storage_base, file.file_path):
+            logger.error(f'[Preview] Unsafe file path detected: {file.file_path}')
+            return json_response(error='文件不存在')
+
         # 【性能优化】缩略图模式：优先返回缩略图路径
         if form.thumbnail and file.thumbnail_path:
-            if os.path.exists(file.thumbnail_path):
-                return self._stream_file_response(file.thumbnail_path, 'image/jpeg')
+            # 【路径安全校验】缩略图必须在 storage/documents 下
+            if is_safe_path(document_storage_base, file.thumbnail_path):
+                if os.path.exists(file.thumbnail_path):
+                    return self._stream_file_response(file.thumbnail_path, 'image/jpeg')
+                else:
+                    logger.warning(f'[Preview] Thumbnail not found: {file.thumbnail_path}, falling back to original')
+                    # 缩略图不存在时回退到原图
             else:
-                logger.warning(f'[Preview] Thumbnail not found: {file.thumbnail_path}, falling back to original')
-                # 缩略图不存在时回退到原图
+                logger.error(f'[Preview] Unsafe thumbnail path detected: {file.thumbnail_path}')
+                return json_response(error='文件不存在')
 
         if not os.path.exists(file.file_path):
             logger.warning(f'[Preview] File path not exists: id={form.id}, path={file.file_path}')
@@ -234,6 +254,8 @@ class FilePreviewView(View):
             content_type=content_type
         )
         response['Content-Length'] = str(file_size)
+        # 【H-2修复】防止预览 URL 通过 Referer 泄露
+        response['Referrer-Policy'] = 'no-referrer'
         if content_disposition:
             response['Content-Disposition'] = content_disposition
         return response
@@ -251,6 +273,14 @@ class FileTextContentView(View):
         
         if error is not None:
             return json_response(error=error)
+
+        # 【H-2修复】preview_token 作用域校验
+        if hasattr(request, 'preview_token_data'):
+            token_data = request.preview_token_data
+            if token_data['file_id'] != form.id:
+                return json_response(error='预览令牌与请求文件不匹配')
+            if token_data['is_public'] != form.is_public:
+                return json_response(error='预览令牌与请求空间不匹配')
             
         FileModel = get_file_model(is_public=form.is_public)
 
@@ -261,7 +291,13 @@ class FileTextContentView(View):
         
         if not file:
             return json_response(error='文件不存在')
-            
+
+        # 【路径安全校验】验证 file_path 在 storage/documents 下
+        document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
+        if not is_safe_path(document_storage_base, file.file_path):
+            logger.error(f'[TextContent] Unsafe file path detected: {file.file_path}')
+            return json_response(error='文件不存在')
+
         if not os.path.exists(file.file_path):
             return json_response(error='文件不存在')
 
@@ -373,7 +409,13 @@ class OfficePreviewUrlView(View):
         if not file:
             logger.warning(f'[OfficePreviewUrl] File not found: id={form.id}, is_public={form.is_public}')
             return json_response(error='文件不存在')
-            
+
+        # 【路径安全校验】验证 file_path 在 storage/documents 下
+        document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
+        if not is_safe_path(document_storage_base, file.file_path):
+            logger.error(f'[OfficePreviewUrl] Unsafe file path detected: {file.file_path}')
+            return json_response(error='文件不存在')
+
         if not os.path.exists(file.file_path):
             logger.warning(f'[OfficePreviewUrl] File path not exists: id={form.id}, path={file.file_path}')
             return json_response(error='文件不存在')
@@ -390,11 +432,20 @@ class OfficePreviewUrlView(View):
         # 构建kkFileView预览URL
         import base64
         from urllib.parse import urlencode, quote
+        from ...libs.preview_token import generate_preview_token
         
-        # 构建源文件URL（kkFileView通过此URL下载文件）
+        # 【H-2修复】使用短时效 preview_token 替代长期 x-token
+        # kkFileView 通过此 URL 回调下载文件，preview_token 有效期 5 分钟
+        tenant_id = getattr(request.user, 'tenant_id', None)
+        preview_token = generate_preview_token(
+            file_id=file.id,
+            user_id=request.user.id,
+            tenant_id=tenant_id,
+            is_public=form.is_public
+        )
         params = {
             'id': file.id,
-            'x-token': request.META.get('HTTP_X_TOKEN', ''),
+            'preview_token': preview_token,
             'is_public': str(form.is_public).lower(),
         }
         file_url = f"{kkfileview_server_url}/api/document/preview/?{urlencode(params)}"
@@ -416,3 +467,33 @@ class OfficePreviewUrlView(View):
             'preview_url': preview_url,
             'file_name': file_name,
         })
+
+
+class PreviewTokenView(View):
+    """【H-2修复】生成短时效预览令牌
+
+    前端请求此接口获取 preview_token，用于构造图片/视频/音频/PDF 预览 URL，
+    避免将长期 x-token 暴露在 URL 中。
+    """
+
+    @auth('document.document.view')
+    def get(self, request):
+        form, error = JsonParser(
+            Argument('id', type=int, help='参数错误'),
+            Argument('is_public', type=bool, required=False, default=False)
+        ).parse(request.GET)
+
+        if error is not None:
+            return json_response(error=error)
+
+        from ...libs.preview_token import generate_preview_token
+
+        tenant_id = getattr(request.user, 'tenant_id', None)
+        token = generate_preview_token(
+            file_id=form.id,
+            user_id=request.user.id,
+            tenant_id=tenant_id,
+            is_public=form.is_public
+        )
+
+        return json_response(data={'preview_token': token})

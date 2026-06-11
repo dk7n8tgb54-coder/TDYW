@@ -16,7 +16,7 @@ from libs import json_response, auth
 from apps.document.constants import DEFAULT_MAX_FILE_SIZE
 from .validators import (
     ChunkUploadValidator, FolderValidator,
-    TransferRecordValidator, ChunkStorageManager
+    TransferRecordValidator, TransferOwnershipValidator, ChunkStorageManager
 )
 from apps.document.libs.chunk_cache import (
     get_chunk_cache_manager, get_success_marker_manager
@@ -28,6 +28,54 @@ logger = logging.getLogger(__name__)
 def _get_max_file_size():
     """延迟获取配置，避免模块导入时访问 settings"""
     return getattr(settings, 'MAX_DOCUMENT_FILE_SIZE', DEFAULT_MAX_FILE_SIZE)
+
+
+def _parse_transfer_id(request):
+    """解析并校验 transfer_id 参数
+
+    【H-3加强】客户端传了 transfer_id 但格式非法（如 'abc'）时直接拒绝，
+    避免降级到 legacy chunk 目录（与已迁移用户的隔离状态不一致）
+
+    Returns:
+        tuple: (transfer_id 或 None, 错误消息或 None)
+    """
+    raw_transfer_id = request.POST.get('transfer_id')
+    if raw_transfer_id in (None, ''):
+        return None, None
+    try:
+        return int(raw_transfer_id), None
+    except (ValueError, TypeError):
+        logger.warning(
+            f'[ChunkUpload] 非法 transfer_id: raw={raw_transfer_id!r}, user={request.user.id}'
+        )
+        return None, '非法的 transfer_id 格式'
+
+
+def _validate_chunk_size(request, chunk_path, chunk_index):
+    """校验分片大小，检测传输损坏
+
+    Returns:
+        str|None: 错误消息或 None
+    """
+    request_chunk_size = request.POST.get('chunk_size')
+    if not request_chunk_size or not chunk_path:
+        return None
+    try:
+        actual_size = os.path.getsize(chunk_path)
+        expected_size = int(request_chunk_size)
+        if actual_size != expected_size:
+            try:
+                os.remove(chunk_path)
+            except OSError:
+                pass
+            logger.error(
+                f'[ChunkUpload] 分片大小校验失败: expected={expected_size}, '
+                f'actual={actual_size}, chunk={chunk_index}'
+            )
+            return '分片校验失败：大小不匹配'
+    except (ValueError, TypeError):
+        pass  # chunk_size 参数无效，跳过校验
+    return None
 
 
 class FileChunkUploadView(View):
@@ -75,8 +123,20 @@ class FileChunkUploadView(View):
             return json_response(error=error)
 
         # 7. 获取并验证分片目录
+        # 【路径隔离】提取 transfer_id 用于分片目录隔离
+        transfer_id, error = _parse_transfer_id(request)
+        if error:
+            return json_response(error=error)
+
+        # 【H-3修复】使用 transfer_id 前必须先校验归属，防止 IDOR
+        is_valid, error = TransferOwnershipValidator.validate(
+            transfer_id, params['file_hash'], params['is_public'], request.user
+        )
+        if not is_valid:
+            return json_response(error=error)
+
         chunk_dir, error = ChunkStorageManager.get_and_validate_chunk_dir(
-            params['file_hash'], params['is_public'], request.user
+            params['file_hash'], params['is_public'], request.user, transfer_id=transfer_id
         )
         if error:
             return json_response(error=error)
@@ -88,10 +148,28 @@ class FileChunkUploadView(View):
         if error:
             return json_response(error=error)
 
-        # 【P2优化】更新Redis缓存
+        # 9. 校验分片大小
+        error = _validate_chunk_size(request, chunk_path, params['chunk_index'])
+        if error:
+            return json_response(error=error)
+
+        # 10. 更新Redis缓存 + 最后一个分片生成标记文件
+        self._update_cache_and_marker(params, chunk_dir, transfer_id, request.user.id)
+
+        return json_response(data={
+            'chunk_index': params['chunk_index'],
+            'status': 'uploaded',
+            'chunk_path': chunk_path
+        })
+
+    @staticmethod
+    def _update_cache_and_marker(params, chunk_dir, transfer_id, user_id):
+        """更新Redis缓存，最后一个分片时生成_SUCCESS_标记文件"""
+        # 【P2优化+优化4】更新Redis缓存（包含 transfer_id 隔离）
         try:
             cache_manager = get_chunk_cache_manager(
-                params['file_hash'], request.user.id, params['is_public']
+                params['file_hash'], user_id, params['is_public'],
+                transfer_id=transfer_id
             )
             cache_manager.update_cache_after_upload(
                 params['chunk_index'], params['total_chunks']
@@ -106,9 +184,3 @@ class FileChunkUploadView(View):
                 marker_manager.create(params['total_chunks'], params['file_hash'])
             except Exception as e:
                 logger.warning(f'[ChunkUpload] 创建标记文件失败: {e}')
-
-        return json_response(data={
-            'chunk_index': params['chunk_index'],
-            'status': 'uploaded',
-            'chunk_path': chunk_path
-        })

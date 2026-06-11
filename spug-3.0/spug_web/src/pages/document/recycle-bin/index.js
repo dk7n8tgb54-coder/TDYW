@@ -81,7 +81,7 @@ const RecycleBinIndex = observer(function () {
         return (
           <Space>
             {isFolder ? (
-              <span className={styles.folderIcon}>📁</span>
+              <span className={styles.folderIcon}>{service.FolderIconMap}</span>
             ) : (
               service.FileIconMap[service.getFileIcon(record.file_type, record.name)] || service.FileIconMap.file
             )}
@@ -247,7 +247,7 @@ const RecycleBinIndex = observer(function () {
         return (
           <Space>
             {isFolder ? (
-              <span className={styles.folderIcon}>📁</span>
+              <span className={styles.folderIcon}>{service.FolderIconMap}</span>
             ) : (
               service.FileIconMap[service.getFileIcon(record.file_type, record.name)] || service.FileIconMap.file
             )}

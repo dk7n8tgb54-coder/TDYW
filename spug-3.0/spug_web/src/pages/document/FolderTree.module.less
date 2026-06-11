@@ -1,7 +1,7 @@
 .container {
-  padding: 16px 12px;
+  padding: 12px 10px;
   border-right: 1px solid #f0f0f0;
-  background: #fafbfc;
+  background: #fbfcfd;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -42,16 +42,17 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
-  padding-bottom: 12px;
+  margin-bottom: 4px;
+  padding: 0 4px 8px;
   border-bottom: 1px solid #f0f0f0;
 }
 
 .title {
-  font-weight: 600;
-  font-size: 14px;
-  color: #1a1a1a;
-  letter-spacing: 0.5px;
+  font-weight: 500;
+  font-size: 12px;
+  color: #8c8c8c;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
 .actions {
@@ -64,15 +65,13 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 5px 8px;
   border-radius: 6px;
   font-weight: 500;
   font-size: 14px;
   transition: all 0.2s ease;
 
-  &:hover {
-    background: rgba(24, 144, 255, 0.06);
-  }
+  min-width: 0;
 }
 
 .privateRoot {
@@ -86,9 +85,10 @@
 }
 
 .rootEmoji {
-  font-size: 18px;
   line-height: 1;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
 }
 
 .rootLabel {
@@ -101,23 +101,19 @@
 .folderNode {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
+  gap: 7px;
+  padding: 3px 6px;
   border-radius: 4px;
   font-size: 13px;
   color: #595959;
-  transition: all 0.15s ease;
-
-  &:hover {
-    background: rgba(24, 144, 255, 0.04);
-    color: #262626;
-  }
+  min-width: 0;
 }
 
 .folderEmoji {
-  font-size: 16px;
   line-height: 1;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
 }
 
 .folderName {
@@ -140,20 +136,33 @@
     font-size: 13px;
 
     .ant-tree-treenode {
-      padding: 2px 0;
+      padding: 1px 0;
       border-radius: 6px;
       transition: all 0.15s ease;
+      width: 100%;
 
       &:hover {
-        background: rgba(24, 144, 255, 0.04) !important;
+        background: #f2f7ff !important;
       }
 
       &.ant-tree-treenode-selected {
-        background: #e6f7ff !important;
+        background: #e6f4ff !important;
+        position: relative;
+
+        &::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 2px;
+          bottom: 2px;
+          width: 3px;
+          background: #1677ff;
+          border-radius: 0 2px 2px 0;
+        }
 
         .ant-tree-node-content-wrapper {
-          color: #1890ff;
-          font-weight: 500;
+          color: #1677ff;
+          font-weight: 600;
         }
       }
     }
@@ -161,8 +170,10 @@
     .ant-tree-node-content-wrapper {
       padding: 0 4px;
       border-radius: 4px;
-      min-height: 28px;
-      line-height: 28px;
+      min-height: 30px;
+      line-height: 30px;
+      flex: 1;
+      min-width: 0;
 
       &:hover {
         background: transparent !important;
@@ -174,7 +185,7 @@
     }
 
     .ant-tree-indent-unit {
-      width: 20px;
+      width: 16px;
     }
   }
 }

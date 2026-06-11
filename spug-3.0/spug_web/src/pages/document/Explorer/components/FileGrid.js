@@ -4,8 +4,9 @@
  */
 import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { Empty, Checkbox, Tag, Pagination } from 'antd';
-import { X_TOKEN } from 'libs';
-import { isImage, isVideo, formatFileSize, getFileTypeLabel, getFileIcon, isCreatedByAdmin } from '../utils';
+import { isImage, isVideo, formatFileSize, getFileTypeLabel, isCreatedByAdmin } from '../utils';
+import { FolderIcon, VideoIcon, getFileTypeIcon } from '../../components/FileTypeIcon';
+import PreviewImage from '../../components/PreviewImage';  // 【H-2修复】安全预览组件
 import styles from './FileGrid.module.less';
 
 /**
@@ -18,22 +19,20 @@ const GridThumbnail = React.memo(({ record, isPublic }) => {
   if (record.isFolder) {
     return (
       <div className={styles.thumbnailFolder}>
-        <span role="img" aria-label="文件夹">📂</span>
+        <FolderIcon size={46} open />
       </div>
     );
   }
 
   if (isImage(record.file_type) && !hasError) {
-    // 【性能优化】优先使用缩略图路径（后端生成的小图），避免加载10MB原图
-    const imageSrc = record.thumbnail_path
-      ? `/api/document/preview/?id=${record.id}&is_public=${isPublic}&x-token=${X_TOKEN}&thumbnail=true`
-      : `/api/document/preview/?id=${record.id}&is_public=${isPublic}&x-token=${X_TOKEN}`;
+    // 【H-2修复】使用短时效 preview_token 替代 x-token
     return (
-      <img
-        src={imageSrc}
+      <PreviewImage
+        fileId={record.id}
+        isPublic={isPublic}
+        thumbnail={!!record.thumbnail_path}
         alt={record.display_name || record.name}
-        className={styles.thumbnailImage}
-        loading="lazy"  // 【性能优化】浏览器原生懒加载
+        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
         onError={() => setHasError(true)}
       />
     );
@@ -42,14 +41,14 @@ const GridThumbnail = React.memo(({ record, isPublic }) => {
   if (isVideo(record.file_type)) {
     return (
       <div className={styles.thumbnailIcon}>
-        <span role="img" aria-label="视频" style={{ fontSize: 36 }}>🎬</span>
+        <VideoIcon size={44} />
       </div>
     );
   }
 
   return (
     <div className={styles.thumbnailIcon}>
-      {getFileIcon(record.display_name || record.name, record.file_type)}
+      {getFileTypeIcon(record.display_name || record.name, record.file_type, 44)}
     </div>
   );
 });
@@ -153,13 +152,13 @@ const FileGrid = ({
                     {record.size && <span className={styles.fileSize}>{formatFileSize(record.size)}</span>}
                   </>
                 )}
+                {isPublic && record.created_by_id === currentUserId && (
+                  <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>我</Tag>
+                )}
+                {isPublic && isCreatedByAdmin(record) && (
+                  <Tag color="gold" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>官方</Tag>
+                )}
               </div>
-              {isPublic && record.created_by_id === currentUserId && (
-                <Tag color="blue" style={{ marginLeft: 4, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>我的</Tag>
-              )}
-              {isPublic && isCreatedByAdmin(record) && (
-                <Tag color="gold" style={{ marginLeft: 4, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>官方</Tag>
-              )}
             </div>
           </div>
         ))}

@@ -6,7 +6,7 @@
 import React from 'react';
 import { observer } from 'mobx-react';
 import { Modal, Spin } from 'antd';
-import { X_TOKEN } from 'libs';
+import { AudioIcon, FileIcon as FileTypeIcon } from './components/FileTypeIcon';
 import http from 'libs/http';
 import uploadUIStore from './stores/upload/ui';
 import navigationStore from './stores/navigation';
@@ -124,6 +124,9 @@ class PreviewModal extends React.Component {
     officeUrl: '',
     officeLoading: false,
     officeError: '',
+    // 【H-2修复】短时效预览令牌，替代将 x-token 暴露在 URL 中
+    previewToken: '',
+    previewTokenLoading: false,
   };
 
   _prevFileId = null;
@@ -137,6 +140,18 @@ class PreviewModal extends React.Component {
     if (visible && file && (file.id !== this._prevFileId || (visible && !this._prevVisible))) {
       this._prevFileId = file.id;
       this._prevVisible = visible;
+
+      // 【H-2修复】需要 URL 预览的文件类型，先获取 preview_token
+      const isImage = file?.file_type?.startsWith('image/');
+      const isVideo = file?.file_type?.startsWith('video/');
+      const isAudio = file?.file_type?.startsWith('audio/');
+      const isPDF = file?.file_type === 'application/pdf' ||
+                    file?.file_type?.startsWith('application/pdf') ||
+                    (file?.display_name || file?.name || '').toLowerCase().endsWith('.pdf');
+
+      if (isImage || isVideo || isAudio || isPDF) {
+        this.fetchPreviewToken(file);
+      }
 
       if (isCodeFile(file)) {
         this.fetchTextContent(file);
@@ -190,6 +205,20 @@ class PreviewModal extends React.Component {
       });
   };
 
+  // 【H-2修复】获取短时效预览令牌，替代将 x-token 暴露在 URL 中
+  fetchPreviewToken = (file) => {
+    const isPublic = navigationStore.isPublic;
+    this.setState({ previewTokenLoading: true, previewToken: '' });
+    
+    http.get(`/api/document/preview_token/?id=${file.id}&is_public=${isPublic}`)
+      .then((data) => {
+        this.setState({ previewTokenLoading: false, previewToken: data.preview_token });
+      })
+      .catch((err) => {
+        this.setState({ previewTokenLoading: false, previewToken: '' });
+      });
+  };
+
   handleClose = () => {
     this.setState({
       textContent: '',
@@ -199,6 +228,8 @@ class PreviewModal extends React.Component {
       officeUrl: '',
       officeLoading: false,
       officeError: '',
+      previewToken: '',
+      previewTokenLoading: false,
     });
     this._prevFileId = null;
     uploadUIStore.closePreview();
@@ -264,21 +295,26 @@ class PreviewModal extends React.Component {
   };
 
   renderAudioPreview = () => {
+    const { previewToken } = this.state;
     const file = uploadUIStore.previewFile;
     const isPublic = navigationStore.isPublic;
     const fileName = file?.display_name || file?.name || '';
 
     return (
       <div className={styles.audioContainer}>
-        <div className={styles.audioIcon}>🎵</div>
+        <div className={styles.audioIcon}><AudioIcon size={48} /></div>
         <div className={styles.audioName}>{fileName}</div>
-        <audio
-          controls
-          src={`/api/document/preview/?id=${file.id}&x-token=${X_TOKEN}&is_public=${isPublic}`}
-          style={{ width: '80%', maxWidth: '500px' }}
-        >
-          您的浏览器不支持音频播放
-        </audio>
+        {previewToken ? (
+          <audio
+            controls
+            src={`/api/document/preview/?id=${file.id}&preview_token=${previewToken}&is_public=${isPublic}`}
+            style={{ width: '80%', maxWidth: '500px' }}
+          >
+            您的浏览器不支持音频播放
+          </audio>
+        ) : (
+          <Spin tip="加载中..." />
+        )}
       </div>
     );
   };
@@ -336,6 +372,7 @@ class PreviewModal extends React.Component {
     const file = uploadUIStore.previewFile;
     const visible = uploadUIStore.previewVisible;
     const isPublic = navigationStore.isPublic;
+    const { previewToken } = this.state;
 
     // 判断文件类型
     const isImage = file?.file_type?.startsWith('image/');
@@ -347,6 +384,11 @@ class PreviewModal extends React.Component {
     const isPDF = file?.file_type === 'application/pdf' ||
                   file?.file_type?.startsWith('application/pdf') ||
                   fileName.toLowerCase().endsWith('.pdf');
+
+    // 【H-2修复】需要 preview_token 的 URL 构造
+    const previewUrl = previewToken
+      ? `/api/document/preview/?id=${file.id}&preview_token=${previewToken}&is_public=${isPublic}`
+      : '';
 
     return (
       <Modal
@@ -370,21 +412,29 @@ class PreviewModal extends React.Component {
       >
         {isImage ? (
           <div className={styles.previewContainer}>
-            <img
-              src={`/api/document/preview/?id=${file.id}&x-token=${X_TOKEN}&is_public=${isPublic}`}
-              alt={fileName}
-              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-            />
+            {previewUrl ? (
+              <img
+                src={previewUrl}
+                alt={fileName}
+                style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+              />
+            ) : (
+              <Spin tip="加载中..." />
+            )}
           </div>
         ) : isVideo ? (
           visible && (
             <div className={styles.previewContainer}>
-              <ReactPlayer
-                url={`/api/document/preview/?id=${file.id}&x-token=${X_TOKEN}&is_public=${isPublic}`}
-                controls
-                width="100%"
-                height="100%"
-              />
+              {previewUrl ? (
+                <ReactPlayer
+                  url={previewUrl}
+                  controls
+                  width="100%"
+                  height="100%"
+                />
+              ) : (
+                <Spin tip="加载中..." />
+              )}
             </div>
           )
         ) : isAudio ? (
@@ -393,21 +443,25 @@ class PreviewModal extends React.Component {
           this.renderCodePreview()
         ) : isPDF ? (
           <div className={styles.previewContainer} style={{ height: '100%' }}>
-            <iframe
-              src={`/api/document/preview/?id=${file.id}&x-token=${X_TOKEN}&is_public=${isPublic}`}
-              style={{
-                width: '100%',
-                height: '100%',
-                border: 'none'
-              }}
-              title="PDF Preview"
-            />
+            {previewUrl ? (
+              <iframe
+                src={previewUrl}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  border: 'none'
+                }}
+                title="PDF Preview"
+              />
+            ) : (
+              <Spin tip="加载中..." />
+            )}
           </div>
         ) : isOffice ? (
           this.renderOfficePreview()
         ) : (
           <div className={styles.noPreview}>
-            <div className={styles.icon} role="img" aria-label="文件" title="文件">📄</div>
+            <div className={styles.icon}><FileTypeIcon size={48} /></div>
             <div>该文件类型不支持在线预览</div>
             <div className={styles.hint}>请下载文件后使用对应软件打开</div>
           </div>

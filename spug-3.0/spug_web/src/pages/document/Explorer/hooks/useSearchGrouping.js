@@ -3,7 +3,8 @@
  * 【任务4.2】从Explorer组件拆分出来的独立Hook
  * 职责：处理搜索结果按类型分组展示
  */
-import { useMemo } from 'react';
+import React, { useMemo } from 'react';
+import { FolderIcon, ImageIcon, VideoIcon, PdfIcon, ArchiveIcon, FileIcon } from '../../components/FileTypeIcon';
 
 // 文件类型检测函数
 const checkIsImage = (fileType) => {
@@ -44,12 +45,12 @@ const checkIsArchive = (fileType) => {
 
 // 分组配置
 const GROUP_CONFIG = {
-  folder: { title: '📁 文件夹', order: 0 },
-  image: { title: '🖼️ 图片', order: 1 },
-  video: { title: '🎬 视频', order: 2 },
-  document: { title: '📄 文档', order: 3 },
-  archive: { title: '📦 压缩包', order: 4 },
-  other: { title: '📎 其他', order: 5 },
+  folder: { title: <><FolderIcon size={14} /> 文件夹</>, order: 0 },
+  image: { title: <><ImageIcon size={14} /> 图片</>, order: 1 },
+  video: { title: <><VideoIcon size={14} /> 视频</>, order: 2 },
+  document: { title: <><PdfIcon size={14} /> 文档</>, order: 3 },
+  archive: { title: <><ArchiveIcon size={14} /> 压缩包</>, order: 4 },
+  other: { title: <><FileIcon size={14} /> 其他</>, order: 5 },
 };
 
 /**

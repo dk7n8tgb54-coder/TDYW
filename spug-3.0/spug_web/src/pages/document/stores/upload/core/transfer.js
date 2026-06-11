@@ -103,25 +103,67 @@ export class TransferStore {
 
   /**
    * 更新传输状态
+   * @param {number} transferId - 传输记录ID
+   * @param {string} status - 目标状态
+   * @param {Object} [options]
+   * @param {boolean} [options.throwOnError=false] - 失败时是否抛错
+   * @returns {Promise<{success: boolean, attempts?: number, error?: Error, result?: any}>}
    */
-  async updateTransferStatus(transferId, status) {
-    try {
-      const { http } = await import('libs');
-      const result = await http.post(API_ENDPOINTS.TRANSFER_STATUS(transferId), { status });
-      return result;
-    } catch (error) {
-      // 非法状态转换不再伪装为成功，避免前后端状态漂移被掩盖
-      if (error?.message?.includes('无效的状态转换') || error?.message?.includes('状态转换')) {
-        return {
-          success: false,
-          invalidTransition: true,
-          transferId,
-          status,
-          error: error?.message || '无效的状态转换'
-        };
+  async updateTransferStatus(transferId, status, options = {}) {
+    const { throwOnError = false } = options;
+    // 【P2修复-二轮】对"关键状态"做重试，避免状态同步失败导致前后端漂移
+    return this._syncTransferWithRetry(
+      async () => {
+        const { http } = await import('libs');
+        return await http.post(API_ENDPOINTS.TRANSFER_STATUS(transferId), { status });
+      },
+      {
+        maxRetries: 2,
+        baseDelay: 500,
+        opName: `updateTransferStatus(${status})`,
       }
-      return null;
+    ).then((syncResult) => {
+      if (syncResult.success) {
+        return { success: true, attempts: syncResult.attempts };
+      }
+      console.error(
+        '[TransferStore] updateTransferStatus 失败:',
+        { transferId, status, error: syncResult.error }
+      );
+      if (throwOnError) {
+        throw syncResult.error || new Error('updateTransferStatus failed');
+      }
+      return { success: false, attempts: syncResult.attempts, error: syncResult.error };
+    });
+  }
+
+  /**
+   * 【P2修复-三轮】确保 transfer 已推进到 UPLOADING 状态（带重试 + 失败抛错）。
+   *
+   * 不管 transfer 是新建的还是复用的，恢复/重试上传时统一调用一次。
+   * 关键状态同步失败会**抛错**让调用方中止上传（不能"trySet"假装成功），
+   * 因为状态不同步会污染：
+   * - 后端传输列表状态（用户在传输面板看到的状态）
+   * - 失败标记（markTransferAsFailed 撞 PENDING/PAUSED 状态机）
+   * - 后续的清理任务（孤儿清理依赖状态判断）
+   *
+   * 【P2修复-四轮】transferId 必须有效。无 transferId（包括 createTransfer 失败返回 null
+   * 但未抛错的场景）必须抛错，避免"接口异常返回空 id 但流程继续"的洞。
+   *
+   * @param {number} transferId - 传输记录ID（必须为正整数）
+   * @returns {Promise<true>} 成功
+   * @throws {Error} transferId 缺失或状态推进失败
+   */
+  async ensureTransferUploading(transferId) {
+    if (!transferId || typeof transferId !== 'number') {
+      // 强语义：transferId 缺失必须抛错，不掩盖"接口异常返回空 id"的情况
+      throw new Error(
+        `ensureTransferUploading: 缺少有效的 transferId（收到: ${transferId}）`
+      );
     }
+    // throwOnError: true 失败时抛错，调用方必须 catch 并中止上传
+    await this.updateTransferStatus(transferId, 'UPLOADING', { throwOnError: true });
+    return true;
   }
 
   /**
@@ -323,15 +365,19 @@ export class TransferStore {
    * @param {boolean} isPublic - 是否公共空间
    * @returns {Promise<{exists: boolean, uploaded_chunks: number[], count: number}>}
    */
-  async checkUploadedChunks(fileHash, fileSize, totalChunks, isPublic = false) {
+  async checkUploadedChunks(fileHash, fileSize, totalChunks, isPublic = false, transferId = null) {
     try {
       const { http } = await import('libs');
-      const result = await http.post(API_ENDPOINTS.CHECK_UPLOADED_CHUNKS, {
+      const payload = {
         file_hash: fileHash,
         file_size: fileSize,
         total_chunks: totalChunks,
         is_public: isPublic
-      });
+      };
+      if (transferId) {
+        payload.transfer_id = transferId;
+      }
+      const result = await http.post(API_ENDPOINTS.CHECK_UPLOADED_CHUNKS, payload);
       
       // 【边界处理】校验后端返回格式，避免异常导致前端崩溃
       if (!result || typeof result !== 'object') {

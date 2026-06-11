@@ -5,6 +5,7 @@
 import React from 'react';
 import { Modal, Button } from 'antd';
 import { RightOutlined } from '@ant-design/icons';
+import { FolderIcon } from './FileTypeIcon';
 
 const FolderTreeSelector = ({
   visible,
@@ -137,8 +138,8 @@ const FolderTreeSelector = ({
           justifyContent: 'center',
           padding: '20px'
         }}>
-          <span style={{ fontSize: 100, marginBottom: 24, filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.1))' }} role="img" aria-label="文件夹图标" title="文件夹">
-            📁
+          <span style={{ fontSize: 100, marginBottom: 24, filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.1))', display: 'inline-flex', lineHeight: 1 }}>
+            <FolderIcon size={100} />
           </span>
           <div style={{ fontSize: 16, color: '#666', textAlign: 'center' }}>
             {title} {viewFolder.name} 文件夹
@@ -191,7 +192,7 @@ const FolderTreeSelector = ({
               justifyContent: 'center',
               height: '100%'
             }}>
-              <span style={{ fontSize: 80, marginBottom: 16 }} role="img" aria-label="打开的文件夹" title="打开的文件夹">📂</span>
+              <span style={{ fontSize: 80, marginBottom: 16, display: 'inline-flex', lineHeight: 1 }}><FolderIcon size={80} open /></span>
               <div style={{ fontSize: 16, color: '#666' }}>
                 {title} {currentFolder ? currentFolder.name : '根目录'} 文件夹
               </div>
@@ -215,8 +216,8 @@ const FolderTreeSelector = ({
                   onMouseEnter={(e) => e.currentTarget.style.background = '#f5f5f5'}
                   onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                 >
-                  <span style={{ fontSize: 16, marginRight: 8 }} role="img" aria-label="文件夹" title="文件夹">
-                    📁
+                  <span style={{ fontSize: 16, marginRight: 8, display: 'inline-flex', lineHeight: 1 }}>
+                    <FolderIcon size={16} />
                   </span>
                   <span style={{ fontSize: 14 }}>{folder.name}</span>
                   <RightOutlined style={{ marginLeft: 'auto', fontSize: 12, color: '#999' }} />

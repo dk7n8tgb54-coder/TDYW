@@ -23,7 +23,7 @@ from libs import json_response, auth, JsonParser, Argument
 from apps.document.libs.document_utils import get_chunk_dir_path
 from apps.document.constants import TransferStatus
 from apps.document.views.base import validate_file_name
-from apps.document.views.upload.validators import HashValidator, FolderValidator
+from apps.document.views.upload.validators import HashValidator, FolderValidator, TransferOwnershipValidator
 
 logger = logging.getLogger(__name__)
 
@@ -78,11 +78,20 @@ class DirectMergeView(View):
 
             # 【P0-Day1核心修复】使用事务+悲观锁防止并发竞态条件
             with transaction.atomic():
+                # 【H-3 加强】把 TransferOwnershipValidator 移进事务,锁前再校一次
+                # 单一校验源：业务规则变更只改 TransferOwnershipValidator 一处
+                # TOCTOU 防御：4 维校验与加锁在同一个事务内,毫秒级窗口被覆盖
+                is_valid, error = TransferOwnershipValidator.validate(
+                    form.transfer_id, form.file_hash, form.is_public, request.user
+                )
+                if not is_valid:
+                    return json_response(error=error)
+
                 # 3.1 验证传输记录（加锁）
+                # 锁内仅按 id 查：完整归属刚在校验器里过过,select_for_update 只承担并发互斥
                 try:
                     transfer = DocumentTransfer.objects.select_for_update().get(
-                        id=form.transfer_id,
-                        user=request.user
+                        id=form.transfer_id
                     )
                 except DocumentTransfer.DoesNotExist:
                     return json_response(error='传输记录不存在')
@@ -108,7 +117,8 @@ class DirectMergeView(View):
 
                 # 3.2 验证分片目录和分片完整性
                 chunk_dir, error = self._validate_chunks(
-                    form.file_hash, form.is_public, request.user, form.total_chunks
+                    form.file_hash, form.is_public, request.user, form.total_chunks,
+                    transfer_id=form.transfer_id
                 )
                 if error:
                     return json_response(error=error)
@@ -203,18 +213,29 @@ class DirectMergeView(View):
             logger.error(f'[DirectMerge] 直接合并失败: {e}', exc_info=True)
             return json_response(error='提交合并任务失败，请稍后重试')
 
-    def _validate_chunks(self, file_hash, is_public, user, total_chunks):
+    def _validate_chunks(self, file_hash, is_public, user, total_chunks, transfer_id=None):
         """验证分片目录和分片完整性
-        
-        Returns:
-            tuple: (chunk_dir或None, error_message或None)
-        """
-        try:
-            chunk_dir = get_chunk_dir_path(file_hash, is_public, user)
-        except ValueError:
-            return None, '非法的文件哈希值'
 
-        if not os.path.exists(chunk_dir):
+        【分片路径策略 — 有意设计的不一致】
+        - resume.py：拒绝 legacy fallback（return None 让前端从头传）
+        - chunk.py（上传分片）：严格走 transfer_id 新目录，禁止 fallback
+        - merge.py / direct_merge.py（本入口）：**允许 legacy fallback**
+          原因：direct_merge 是"读取历史分片入口"，兼容老用户升级到新逻辑前的失败任务。
+          这些任务的历史分片还在旧目录里，拒绝 fallback 会让它们永远合并不了。
+
+        【P1修复】统一调用 ChunkStorageManager.get_and_validate_chunk_dir，
+        direct_merge 是"读取历史分片"，所以显式传 allow_legacy_fallback=True。
+        """
+        from apps.document.views.upload.validators import ChunkStorageManager
+
+        chunk_dir, error = ChunkStorageManager.get_and_validate_chunk_dir(
+            file_hash, is_public, user,
+            transfer_id=transfer_id,
+            allow_legacy_fallback=True,
+        )
+        if error:
+            return None, error
+        if not chunk_dir or not os.path.exists(chunk_dir):
             return None, '分片目录不存在，可能已被清理，请重新上传'
 
         # 检查所有分片是否存在

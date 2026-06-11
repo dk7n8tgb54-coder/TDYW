@@ -11,10 +11,11 @@ import json
 import shutil
 import logging
 from django.views.generic import View
+from django.conf import settings
 
 from libs import json_response, auth
 from libs.tenant_utils import apply_tenant_filter
-from apps.document.libs.document_utils import get_folder_model, get_file_model, get_document_absolute_path
+from apps.document.libs.document_utils import get_folder_model, get_file_model, get_document_absolute_path, is_safe_path
 from apps.document.libs.naming_utils import generate_physical_name, generate_unique_logical_name, get_file_ext
 from apps.document.libs.view_utils import permission_denied_response
 from apps.document.views.base import create_model_instance, check_public_space_permission, log_operation
@@ -252,6 +253,15 @@ class FileCopyView(View):
         # 生成文件名
         names = FileNameGenerator.generate(file, folder, is_public, request.user)
         new_file_path = os.path.join(upload_dir, names['physical_name'])
+
+        # 【路径安全校验】验证源文件路径和目标文件路径都在 storage/documents 下
+        document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
+        if not is_safe_path(document_storage_base, file.file_path):
+            logger.error(f'[Document] Unsafe source file path in copy: {file.file_path}')
+            return json_response(error='文件路径异常')
+        if not is_safe_path(document_storage_base, new_file_path):
+            logger.error(f'[Document] Unsafe target file path in copy: {new_file_path}')
+            return json_response(error='文件路径异常')
 
         logger.info(f'[Document] Generated names: physical={names["physical_name"]}, logical={names["logical_name"]}')
 

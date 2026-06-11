@@ -27,7 +27,7 @@ from apps.document.constants import TransferStatus, DEFAULT_MAX_FILE_SIZE
 from apps.document.libs.document_utils import get_folder_model, get_file_model, get_chunk_dir_path, is_safe_path, get_document_absolute_path
 from apps.document.views.base import validate_file_name, validate_file_upload, handle_view_errors
 from apps.document.views.upload.lock import get_merge_lock, MERGE_LOCK_TIMEOUT
-from apps.document.views.upload.validators import HashValidator, FolderValidator
+from apps.document.views.upload.validators import HashValidator, FolderValidator, ChunkStorageManager
 
 # 【P1-4修复】模块级导入（无循环依赖，提升性能）
 from apps.document.models import DocumentTransfer
@@ -135,6 +135,11 @@ def build_file_path(params: dict, folder: Any, user: 'User') -> dict[str, str]:
 
     file_path = os.path.join(upload_dir, names['physical_name'])
 
+    # 【路径安全校验】验证最终文件路径在 storage/documents 下
+    document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
+    if not is_safe_path(document_storage_base, file_path):
+        raise ValueError(f'Unsafe file path detected: {file_path}')
+
     return {
         'physical_name': names['physical_name'],
         'logical_name': names['logical_name'],
@@ -162,28 +167,92 @@ def check_all_chunks_present(chunk_dir: str, total_chunks: int) -> list[int]:
     return missing_chunks
 
 
-def validate_chunk_directory(file_hash: str, is_public: bool, user: 'User') -> tuple[Optional[str], Optional[str]]:
+def validate_chunk_directory(file_hash: str, is_public: bool, user: 'User', transfer_id: Optional[int] = None) -> tuple[Optional[str], Optional[str]]:
     """
     验证并获取分片目录
-    
-    Args:
-        file_hash: 文件哈希值
-        is_public: 是否公共空间
-        user: 当前用户
-        
-    Returns:
-        tuple: (分片目录路径或None, 错误消息或None)
+
+    【分片路径策略 — 有意设计的不一致】
+    - resume.py：拒绝 legacy fallback（return None 让前端从头传）
+      原因：避免"读旧分片、写新分片"，分片被拆成两份
+    - chunk.py（上传分片）：严格走 transfer_id 新目录，禁止 fallback
+      原因：写路径绝对不能写错目录
+    - merge.py / direct_merge.py（本入口）：**允许 legacy fallback**
+      原因：merge/direct_merge 是"读取历史分片入口"，已确认分片齐了直接合并，
+      兼容老用户升级到新逻辑前的失败任务——这些任务的历史分片还在旧目录里，
+      拒绝 fallback 会让它们永远合并不了。
+
+    【P1修复】统一调用 ChunkStorageManager.get_and_validate_chunk_dir，
+    合并入口是"读取历史分片"，所以显式传 allow_legacy_fallback=True。
     """
-    try:
-        chunk_dir = get_chunk_dir_path(file_hash, is_public, user)
-    except ValueError:
-        return None, '非法的文件哈希值'
+    return ChunkStorageManager.get_and_validate_chunk_dir(
+        file_hash, is_public, user,
+        transfer_id=transfer_id,
+        allow_legacy_fallback=True,
+    )
 
-    chunk_base_dir = os.path.join(settings.BASE_DIR, 'storage', 'document_chunks')
-    if not is_safe_path(chunk_base_dir, chunk_dir):
-        return None, '非法的文件哈希值'
 
-    return chunk_dir, None
+def _lookup_by_transfer_id(transfer_id: int, user: Optional['User']) -> Optional[dict]:
+    """通过 transfer_id 查询传输记录，含归属校验和租户校验
+
+    Returns:
+        结果字典或 None
+    """
+    from django.db import transaction
+
+    with transaction.atomic():
+        transfer_query = DocumentTransfer.objects.select_for_update().filter(id=transfer_id)
+        # 【M-1修复】加入用户归属校验，防止 IDOR
+        if user and not getattr(user, 'is_supper', False):
+            transfer_query = transfer_query.filter(user=user)
+        transfer = transfer_query.order_by().first()
+        if not transfer:
+            return None
+
+        # 私有空间额外校验租户
+        if not getattr(user, 'is_supper', False) and not transfer.is_public:
+            request_tenant_id = getattr(user, 'tenant_id', None)
+            if transfer.tenant_id != request_tenant_id:
+                logger.warning(f'[Document][Merge] Transfer tenant mismatch: transfer_id={transfer_id}')
+                return None
+
+        return _build_result_from_transfer(transfer)
+
+
+def _lookup_by_file_hash(file_hash: str, is_public: Optional[bool], user: 'User') -> Optional[dict]:
+    """通过 file_hash 查询 MERGING/COMPLETED 记录
+
+    Returns:
+        结果字典或 None
+    """
+    query = DocumentTransfer.objects.filter(
+        file_hash=file_hash,
+        status__in=[TransferStatus.MERGING.value, TransferStatus.COMPLETED.value]
+    )
+
+    # 租户过滤：公共空间不过滤，私有空间按租户过滤
+    if not is_public:
+        tenant_id = getattr(user, 'tenant_id', None)
+        if tenant_id:
+            query = query.filter(tenant_id=tenant_id)
+        else:
+            query = query.filter(user=user)
+
+    # 【P0-3修复】合并为一个查询：优先返回有task_id的MERGING或COMPLETED
+    transfer = query.filter(
+        status=TransferStatus.MERGING.value,
+        celery_task_id__isnull=False
+    ).first() or query.filter(
+        status=TransferStatus.COMPLETED.value,
+        file_path__isnull=False
+    ).exclude(file_path='').first()
+
+    if not transfer:
+        return None
+
+    result = _build_result_from_transfer(transfer)
+    if result:
+        logger.info(f'[Document][Merge] Idempotent hit: id={transfer.id}, status={transfer.status}')
+    return result
 
 
 def check_idempotency(
@@ -194,7 +263,7 @@ def check_idempotency(
 ) -> tuple[Optional[dict], Optional[str]]:
     """
     【P0-3修复】幂等性检查 - 简化版
-    
+
     Args:
         transfer_id: 传输记录ID（优先使用）
         file_hash: 文件哈希（当transfer_id为null时使用）
@@ -204,48 +273,18 @@ def check_idempotency(
     Returns:
         tuple: (结果字典或None, 错误消息或None)
     """
-    from django.db import transaction
-
     try:
         # 步骤1: 优先通过transfer_id查询自己的记录
         if transfer_id:
-            # 【P0-3修复】使用select_for_update避免竞态条件
-            with transaction.atomic():
-                transfer = DocumentTransfer.objects.select_for_update().filter(id=transfer_id).order_by().first()
-                if transfer:
-                    result = _build_result_from_transfer(transfer)
-                    if result:
-                        return result, None
+            result = _lookup_by_transfer_id(transfer_id, user)
+            if result:
+                return result, None
 
         # 步骤2: 通过file_hash查询MERGING/COMPLETED记录
         if file_hash and user:
-            query = DocumentTransfer.objects.filter(
-                file_hash=file_hash,
-                status__in=[TransferStatus.MERGING.value, TransferStatus.COMPLETED.value]
-            )
-
-            # 租户过滤：公共空间不过滤，私有空间按租户过滤
-            if not is_public:
-                tenant_id = getattr(user, 'tenant_id', None)
-                if tenant_id:
-                    query = query.filter(tenant_id=tenant_id)
-                else:
-                    query = query.filter(user=user)
-
-            # 【P0-3修复】合并为一个查询：优先返回有task_id的MERGING或COMPLETED
-            transfer = query.filter(
-                status=TransferStatus.MERGING.value,
-                celery_task_id__isnull=False
-            ).first() or query.filter(
-                status=TransferStatus.COMPLETED.value,
-                file_path__isnull=False
-            ).exclude(file_path='').first()
-
-            if transfer:
-                result = _build_result_from_transfer(transfer)
-                if result:
-                    logger.info(f'[Document][Merge] Idempotent hit: id={transfer.id}, status={transfer.status}')
-                    return result, None
+            result = _lookup_by_file_hash(file_hash, is_public, user)
+            if result:
+                return result, None
 
         return None, None
 
@@ -361,19 +400,24 @@ def submit_merge_task(
     return task, merge_task_id, merge_task_file
 
 
-def save_task_id_to_transfer(transfer_id: Optional[int], task_id: str) -> None:
+def save_task_id_to_transfer(transfer_id: Optional[int], task_id: str, user: Optional['User'] = None) -> None:
     """
     保存celery_task_id到传输记录
-    
+
     Args:
         transfer_id: 传输记录ID
         task_id: Celery任务ID
+        user: 当前用户（【M-1修复】用于归属校验）
     """
     if not transfer_id:
         return
 
     try:
-        DocumentTransfer.objects.filter(id=transfer_id).update(
+        query = DocumentTransfer.objects.filter(id=transfer_id)
+        # 【M-1修复】加入用户归属校验
+        if user and not getattr(user, 'is_supper', False):
+            query = query.filter(user=user)
+        query.update(
             celery_task_id=task_id,
             status=TransferStatus.MERGING.value
         )
@@ -542,7 +586,8 @@ class FileMergeChunksView(View):
 
         # 验证分片目录
         chunk_dir, error = validate_chunk_directory(
-            params['file_hash'], params['is_public'], request.user
+            params['file_hash'], params['is_public'], request.user,
+            transfer_id=params.get('transfer_id')
         )
         if error:
             return None, None, error
@@ -561,7 +606,11 @@ class FileMergeChunksView(View):
             tuple: (文件名信息字典或None, 幂等性结果或None, 错误消息或None)
         """
         # 构建文件路径
-        names = build_file_path(params, folder, request.user)
+        try:
+            names = build_file_path(params, folder, request.user)
+        except ValueError as e:
+            logger.error(f'[Document][Merge] Unsafe file path: {e}')
+            return None, None, '文件路径异常'
 
         # 幂等性检查（支持通过transfer_id或file_hash查询）
         result, error = check_idempotency(
@@ -620,7 +669,7 @@ class FileMergeChunksView(View):
         logger.info(f'[Document][Merge] Celery task submitted: task_id={task.id}, file={params["file_name"]}')
 
         # 一次性更新状态和task_id，避免并发查询看到不一致的状态
-        save_task_id_to_transfer(params['transfer_id'], task.id)
+        save_task_id_to_transfer(params['transfer_id'], task.id, user=request.user)  # 【M-1修复】传入用户
 
         # 写入任务文件
         write_merge_task_file(

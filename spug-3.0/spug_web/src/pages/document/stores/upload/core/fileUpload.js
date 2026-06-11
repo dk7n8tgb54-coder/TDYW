@@ -40,32 +40,61 @@ export class FileUploadStore {
   async uploadFileNormal(file, folderId, uploadId, isPublic = null) {
     const tenantId = this.rootStore.getCurrentTenantId?.() || 'default';
 
-    // 【新增】创建传输记录，与普通上传保持一致
-    let transferId = null;
-    try {
-      const targetIsPublic = isPublic !== null ? isPublic : this.rootStore.navigationStore?.isPublic;
-      transferId = await this.rootStore.transferStore.createTransfer({
-        transfer_type: 'upload',
-        file_name: file.name,
-        file_size: file.size,
-        is_public: targetIsPublic,
-        total_chunks: 1, // 普通上传只有1个"分片"
-        folder_id: folderId,
-      });
+    // 【优化2】复用已有 transferId，避免双重创建
+    // 队列项可能在入队时未创建 transfer（优化1），或已有 transferId（恢复上传）
+    const existingItem = this.queueStore.findUploadItemInCurrentTenant(uploadId);
+    let transferId = existingItem?.transferId || null;
+    const targetIsPublic = isPublic !== null ? isPublic : this.rootStore.navigationStore?.isPublic;
 
-      // 更新队列项，关联传输记录
-      this.queueStore.updateUploadItem(uploadId, {
-        transferId: transferId,
-        canAbort: true,
-        status: 'uploading',
-      });
-    } catch (error) {
-      // 继续上传，不阻塞流程
-      this.queueStore.updateUploadItem(uploadId, {
-        canAbort: true,
-        status: 'uploading',
-      });
+    if (!transferId) {
+      // 没有已有 transfer，按需创建
+      try {
+        transferId = await this.rootStore.transferStore.createTransfer({
+          transfer_type: 'upload',
+          file_name: file.name,
+          file_size: file.size,
+          is_public: targetIsPublic,
+          total_chunks: 1, // 普通上传只有1个"分片"
+          folder_id: folderId,
+        });
+
+        // 更新队列项，关联传输记录
+        this.queueStore.updateUploadItem(uploadId, {
+          transferId: transferId,
+        });
+      } catch (error) {
+        // 【P2修复】创建传输记录失败必须中止上传，
+        // 否则上传成功但无 transferId，丢失暂停/取消/续传/状态持久化能力。
+        this.queueStore.updateUploadItem(uploadId, {
+          status: 'error',
+          error: '创建上传任务失败，请稍后重试',
+          errorCode: 'CLIENT',
+          canAbort: false,
+        });
+        throw new Error('创建上传任务失败，请稍后重试');
+      }
     }
+
+    // 【P2修复-二轮/三轮】创建后/复用前统一确保后端状态推进到 UPLOADING。
+    // 必须包在 try 里：ensureTransferUploading 失败会抛错（强语义 ensure），
+    // 失败时把队列项置为 error 并中止上传，避免后端状态与前端不一致。
+    try {
+      await this.rootStore.transferStore.ensureTransferUploading(transferId);
+    } catch (ensureError) {
+      this.queueStore.updateUploadItem(uploadId, {
+        status: 'error',
+        error: '上传任务状态初始化失败，请稍后重试',
+        errorCode: 'CLIENT',
+        canAbort: false,
+      });
+      throw new Error('上传任务状态初始化失败，请稍后重试');
+    }
+
+    // 标记为上传中
+    this.queueStore.updateUploadItem(uploadId, {
+      canAbort: true,
+      status: 'uploading',
+    });
 
     // 创建进度更新器
     const updateProgress = UploadUtils.createProgressUpdater
@@ -255,24 +284,52 @@ export class FileUploadStore {
     // 【修复】使用传入的isPublic，如果没有则回退到当前导航状态
     const targetIsPublic = isPublic !== null ? isPublic : this.rootStore.navigationStore?.isPublic;
 
-    // 【新增】创建传输记录
-    let transferId = null;
+    // 【优化2】复用已有 transferId，避免双重创建
+    const existingItem = this.queueStore.findUploadItemInCurrentTenant(uploadId);
+    let transferId = existingItem?.transferId || null;
+
+    if (!transferId) {
+      // 没有已有 transfer，按需创建
+      try {
+        // 【关键修复】根据文件大小计算正确的分片数
+        const totalChunks = file.size > UPLOAD_CONSTANTS.NORMAL_UPLOAD_THRESHOLD
+          ? Math.ceil(file.size / UPLOAD_CONSTANTS.CHUNK_SIZE)
+          : 1;
+        
+        transferId = await this.rootStore.transferStore.createTransfer({
+          transfer_type: 'upload',
+          file_name: file.name,
+          file_size: file.size,
+          is_public: targetIsPublic,
+          total_chunks: totalChunks,
+          folder_id: targetFolderId,
+        });
+      } catch (error) {
+        // 【P2修复】创建传输记录失败必须中止上传，
+        // 否则上传成功但无 transferId，丢失暂停/取消/续传/状态持久化能力。
+        this.queueStore.updateUploadItem(uploadId, {
+          status: 'error',
+          error: '创建上传任务失败，请稍后重试',
+          errorCode: 'CLIENT',
+          canAbort: false,
+        });
+        throw new Error('创建上传任务失败，请稍后重试');
+      }
+    }
+
+    // 【P2修复-二轮/三轮】创建后/复用前统一确保后端状态推进到 UPLOADING。
+    // 必须包在 try 里：ensureTransferUploading 失败会抛错（强语义 ensure），
+    // 失败时把队列项置为 error 并中止上传。
     try {
-      // 【关键修复】根据文件大小计算正确的分片数
-      const totalChunks = file.size > UPLOAD_CONSTANTS.NORMAL_UPLOAD_THRESHOLD
-        ? Math.ceil(file.size / UPLOAD_CONSTANTS.CHUNK_SIZE)
-        : 1;
-      
-      transferId = await this.rootStore.transferStore.createTransfer({
-        transfer_type: 'upload',
-        file_name: file.name,
-        file_size: file.size,
-        is_public: targetIsPublic,
-        total_chunks: totalChunks,
-        folder_id: targetFolderId,
+      await this.rootStore.transferStore.ensureTransferUploading(transferId);
+    } catch (ensureError) {
+      this.queueStore.updateUploadItem(uploadId, {
+        status: 'error',
+        error: '上传任务状态初始化失败，请稍后重试',
+        errorCode: 'CLIENT',
+        canAbort: false,
       });
-    } catch (error) {
-      // 创建传输记录失败，继续上传
+      throw new Error('上传任务状态初始化失败，请稍后重试');
     }
 
     // 生成唯一标识
