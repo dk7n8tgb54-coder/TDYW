@@ -54,13 +54,14 @@ class ComTable extends React.Component {
 
   renderFrequencies = (frequencies, record) => {
     if (!frequencies || frequencies.length === 0) return '-';
+    const formatFreq = (f) => {
+      const base = `${f.frequency_value} ${f.frequency_unit}`;
+      return f.frequency_text ? `${base}（${f.frequency_text}）` : base;
+    };
     if (frequencies.length === 1) {
-      const f = frequencies[0];
-      return `${f.frequency_text || (f.frequency_value + ' ' + f.frequency_unit)}`;
+      return formatFreq(frequencies[0]);
     }
-    const first = frequencies[0];
-    const firstText = first.frequency_text || (first.frequency_value + ' ' + first.frequency_unit);
-    return `${firstText} 等 ${frequencies.length} 个`;
+    return `${formatFreq(frequencies[0])} 等 ${frequencies.length} 个`;
   };
 
   renderAttachmentCount = (text, record) => {

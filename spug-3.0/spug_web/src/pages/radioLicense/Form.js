@@ -149,7 +149,7 @@ export default observer(function () {
             <Descriptions bordered column={1} size="small">
               {info.frequencies.map((f, idx) => (
                 <Descriptions.Item key={f.id || idx} label={`频率 ${idx + 1}`}>
-                  {f.frequency_text || `${f.frequency_value} ${f.frequency_unit}`}
+                  {`${f.frequency_value} ${f.frequency_unit}`}{f.frequency_text ? `（${f.frequency_text}）` : ''}
                   {f.remark ? `（${f.remark}）` : ''}
                 </Descriptions.Item>
               ))}
