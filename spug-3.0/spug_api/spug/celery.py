@@ -47,6 +47,18 @@ def import_document_tasks():
 import_document_tasks()
 
 
+def import_radio_license_tasks():
+    """显式导入 radio_license 模块的 Celery 任务"""
+    try:
+        from apps.radio_license.tasks import scan_radio_license_expiration
+        print('[Celery] RadioLicense tasks imported successfully')
+    except Exception as e:
+        print(f'[Celery] Warning: Failed to import radio_license tasks: {e}')
+
+
+import_radio_license_tasks()
+
+
 @app.task(bind=True)
 def debug_task(self):
     """调试任务"""

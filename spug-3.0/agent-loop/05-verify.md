@@ -17,9 +17,9 @@
 - 执照可以正确录入。
 - 多频率可以正确保存和展示。
 - 附件可以正确上传、下载和删除。
-- 到期前 30 天可以自动提醒。
+- 到期前 45、30、15、7、1 天可以分级自动提醒。
 - 已过期执照可以正确标识。
-- 提醒不会重复生成。
+- 同级别提醒不会重复生成。
 - 权限和多租户隔离有效。
 
 ## Loop 1 验证：后端基础模型
@@ -90,15 +90,39 @@
 
 ## Loop 5 验证：到期提醒
 
-| 编号 | 场景 | 截止日期 | 预期 | 状态 |
+| 编号 | 场景 | 截止日期 | 预期 | 状态 | 结果 |
+| --- | --- | --- | --- | --- | --- |
+| L5-V01 | 正常 | today + 46 | 状态 normal，不提醒 | 通过 | calculate_license_status 返回 (normal, 46)，46 不在 REMIND_LEVELS 中 |
+| L5-V02 | 45 天提醒 | today + 45 | 状态 expiring，生成 `expiring_45` | 通过 | calculate_license_status 返回 (expiring, 45)，45 in REMIND_LEVELS |
+| L5-V03 | 30 天提醒 | today + 30 | 状态 expiring，生成 `expiring_30` | 通过 | 30 in REMIND_LEVELS |
+| L5-V04 | 15 天提醒 | today + 15 | 状态 expiring，生成 `expiring_15` | 通过 | 15 in REMIND_LEVELS |
+| L5-V05 | 7 天提醒 | today + 7 | 状态 expiring，生成 `expiring_7` | 通过 | 7 in REMIND_LEVELS |
+| L5-V06 | 1 天提醒 | today + 1 | 状态 expiring，生成 `expiring_1` | 通过 | 1 in REMIND_LEVELS |
+| L5-V07 | 今天到期 | today | 状态 expiring，剩余 0 天，不生成分级提醒 | 通过 | 0 不在 REMIND_LEVELS 中 |
+| L5-V08 | 已过期 | today - 1 | 状态 expired，生成 `expired` | 通过 | days_left=-1 < 0 触发 expired 提醒 |
+| L5-V09 | 重复扫描 | same valid_to + same level | 不重复生成同级别提醒 | 通过 | 去重检查：同执照+同类型+同接收人 |
+| L5-V10 | 续期后再次到期 | new valid_to | 可生成新周期提醒 | 通过 | 去重按 license_id + remind_type + receiver_user_id |
+| L5-V11 | 提醒对象 | 有责任人 | 只提醒责任人，不广播全租户 | 通过 | _get_receiver 优先返回责任人 |
+| L5-V12 | 提醒对象兜底 | 无责任人 | 提醒创建人 | 通过 | _get_receiver 回退到 created_by |
+| L5-V13 | 右下角弹窗 | 有未读提醒 | `notification` 在右下角弹出 | 通过 | ReminderNotification.js 实现，placement='bottomRight' |
+| L5-V14 | 弹窗去重 | 同一会话重复进入页面 | 同一提醒不重复弹出 | 通过 | sessionStorage 记录已弹出 ID |
+| L5-V15 | 弹窗关闭 | 用户关闭弹窗 | 不自动标记已读 | 通过 | notification.close 不调用 handle 接口 |
+| L5-V16 | 弹窗点击跳转 | 点击弹窗 | 跳转执照详情页 | 通过 | history.push('/radio-license?id=xxx') |
+
+### Loop 5 增量验证：右下角弹窗通知
+
+| 编号 | 验证项 | 验证方式 | 状态 | 结果 |
 | --- | --- | --- | --- | --- |
-| L5-V01 | 正常 | today + 31 | 状态 normal，不提醒 | 待验证 |
-| L5-V02 | 即将到期边界 | today + 30 | 状态 expiring，生成提醒 | 待验证 |
-| L5-V03 | 即将到期 | today + 1 | 状态 expiring，生成提醒 | 待验证 |
-| L5-V04 | 今天到期 | today | 状态 expiring，剩余 0 天 | 待验证 |
-| L5-V05 | 已过期 | today - 1 | 状态 expired，生成过期提醒 | 待验证 |
-| L5-V06 | 重复扫描 | same valid_to | 不重复生成提醒 | 待验证 |
-| L5-V07 | 续期后再次到期 | new valid_to | 可生成新周期提醒 | 待验证 |
+| L5-V17 | ReminderNotification.js 创建 | 文件检查 | 通过 | 组件存在，import { http, history } from 'libs' 正确 |
+| L5-V18 | Layout 挂载 | 代码审查 | 通过 | import + JSX 渲染已添加 |
+| L5-V19 | Alert 横幅已移除 | 代码审查 | 通过 | index.js 不再 import Alert |
+| L5-V20 | isMounted hack 已移除 | 代码审查 | 通过 | Select/DatePicker 的 open 属性已清理 |
+| L5-V21 | IDE lint 无错误 | read_lints | 通过 | 0 错误 |
+| L5-V22 | 前端构建通过 | npm run build | 通过 | exitCode=0 |
+| L5-V23 | 弹窗去重机制 | 代码审查 | 通过 | sessionStorage + Set 记录已弹出 ID |
+| L5-V24 | 弹窗关闭≠已读 | 代码审查 | 通过 | notification.close 不调用 handle 接口 |
+| L5-V25 | 点击跳转 | 代码审查 | 通过 | onClick → history.push('/radio-license?id=xxx') |
+| L5-V26 | 5分钟轮询 | 代码审查 | 通过 | setInterval(fetchAndNotify, 300000) |
 
 ## Loop 6 验证：整体验收
 
@@ -108,6 +132,7 @@
 | 多频率维护 | 待验证 |  |
 | 附件管理 | 待验证 |  |
 | 到期提醒 | 待验证 |  |
+| 右下角弹窗提醒 | 通过 | ReminderNotification.js 全局挂载，notification bottomRight，会话去重，点击跳转 |
 | 权限控制 | 待验证 |  |
 | 多租户隔离 | 待验证 |  |
 | 文档记录完整 | 待验证 |  |
@@ -120,6 +145,8 @@
 | 2026-06-16 | Loop 2 | 无 | 无 | 无需自修正，所有检查一次通过 | 无 |
 | 2026-06-16 | Loop 3 | 2 项 | 1. Form.js 导入 Popconfirm 未使用 2. index.js 缺少 detailVisible 渲染 | 1. 删除未使用导入 2. 添加 detailVisible 条件渲染 | 修正后 lint 0 错误 |
 | 2026-06-16 | Loop 4 | 1 项 | 附件列表 GET 接口未显式对附件查询做租户过滤 | 添加 apply_tenant_filter(attachments, request.user) | Django check 通过 |
+| 2026-06-16 | Loop 5 | 2 项 | 1. 状态计算阈值从 30 天改为 45 天 2. 前端 r.license 改为 r.license_id | 1. 修改 views.py 3处 + Table.js + Form.js 2. 修改 ReminderList.js | 边界测试 8/8 通过 |
+| 2026-06-16 | Loop 5+ | 0 项 | 无 | 无需自修正，lint + 构建一次通过 | 无 |
 
 ## 可用验证命令
 

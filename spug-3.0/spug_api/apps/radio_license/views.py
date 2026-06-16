@@ -13,6 +13,7 @@ from libs import json_response, JsonParser, Argument, human_datetime, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from apps.radio_license.models import (
     RadioLicense, RadioLicenseFrequency, RadioLicenseAttachment,
+    RadioLicenseReminder, REMIND_LEVELS, EXPIRED_REMIND_TYPE, REMIND_TYPE_MAP,
     ALLOWED_FILE_EXTENSIONS, MAX_FILE_SIZE_MB,
 )
 import json
@@ -71,7 +72,7 @@ class RadioLicenseView(View):
             days_left = (record.valid_to - today).days
             if days_left < 0:
                 computed_status = 'expired'
-            elif days_left <= 30:
+            elif days_left <= 45:
                 computed_status = 'expiring'
             else:
                 computed_status = 'normal'
@@ -123,7 +124,7 @@ class RadioLicenseView(View):
                 days_left = (valid_to_date - today).days
                 if days_left < 0:
                     form.status = 'expired'
-                elif days_left <= 30:
+                elif days_left <= 45:
                     form.status = 'expiring'
                 else:
                     form.status = 'normal'
@@ -147,7 +148,7 @@ class RadioLicenseView(View):
                 days_left = (valid_to_date - today).days
                 if days_left < 0:
                     form.status = 'expired'
-                elif days_left <= 30:
+                elif days_left <= 45:
                     form.status = 'expiring'
                 else:
                     form.status = 'normal'
@@ -194,7 +195,7 @@ class RadioLicenseDetailView(View):
         days_left = (record.valid_to - today).days
         if days_left < 0:
             computed_status = 'expired'
-        elif days_left <= 30:
+        elif days_left <= 45:
             computed_status = 'expiring'
         else:
             computed_status = 'normal'
@@ -202,6 +203,8 @@ class RadioLicenseDetailView(View):
         item['computed_status'] = computed_status
         # 附件数量
         item['attachment_count'] = RadioLicenseAttachment.objects.filter(license=record).count()
+        # 提醒数量
+        item['reminder_count'] = RadioLicenseReminder.objects.filter(license=record).count()
 
         return json_response(item)
 
@@ -399,3 +402,102 @@ class AttachmentDeleteView(View):
             # 删除数据库记录
             att.delete()
         return json_response(error=error)
+
+
+# ==================== 提醒接口 ====================
+
+class ReminderListView(View):
+    """提醒列表"""
+
+    @auth('radio_license.license.view')
+    def get(self, request):
+        """获取当前用户的提醒列表"""
+        # 只返回当前用户的提醒
+        reminders = RadioLicenseReminder.objects.filter(
+            receiver_user_id=request.user.id,
+        )
+        # 租户过滤
+        reminders = apply_tenant_filter(reminders, request.user)
+
+        # 筛选参数
+        is_read = request.GET.get('is_read', '')
+        is_handled = request.GET.get('is_handled', '')
+        remind_type = request.GET.get('remind_type', '')
+
+        if is_read == 'false':
+            reminders = reminders.filter(is_read=False)
+        elif is_read == 'true':
+            reminders = reminders.filter(is_read=True)
+        if is_handled == 'false':
+            reminders = reminders.filter(is_handled=False)
+        elif is_handled == 'true':
+            reminders = reminders.filter(is_handled=True)
+        if remind_type:
+            reminders = reminders.filter(remind_type=remind_type)
+
+        reminders = reminders.select_related('license').order_by('-created_at')
+
+        # 分页
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 20))
+
+        total_count = reminders.count()
+        offset = (page - 1) * page_size
+        reminders = reminders[offset:offset + page_size]
+
+        data = []
+        for r in reminders:
+            item = r.to_view()
+            item['station_name'] = r.license.station_name if r.license else '-'
+            item['valid_to'] = str(r.license.valid_to) if r.license else '-'
+            data.append(item)
+        return json_response({
+            'records': data,
+            'total': total_count,
+            'page': page,
+            'page_size': page_size,
+        })
+
+
+class ReminderHandleView(View):
+    """提醒处理（已读/已处理）"""
+
+    @auth('radio_license.reminder.handle')
+    def post(self, request):
+        """标记提醒为已读或已处理"""
+        form, error = JsonParser(
+            Argument('id', type=int, required=False, help='提醒ID'),
+            Argument('action', help='操作类型: read / handle'),
+            Argument('ids', type=list, required=False, help='批量操作ID列表'),
+        ).parse(request.body)
+
+        if error is not None:
+            return json_response(error=error)
+
+        # 确定要操作的ID列表
+        ids = []
+        if form.ids:
+            ids = form.ids
+        elif form.id:
+            ids = [form.id]
+        else:
+            return json_response(error='请指定提醒ID')
+
+        # 校验权限：只能操作自己的提醒
+        qs = RadioLicenseReminder.objects.filter(
+            pk__in=ids,
+            receiver_user_id=request.user.id,
+        )
+        # 租户过滤
+        qs = apply_tenant_filter(qs, request.user)
+
+        if form.action == 'read':
+            count = qs.update(is_read=True)
+        elif form.action == 'handle':
+            count = qs.update(is_handled=True, is_read=True)
+        elif form.action == 'unread':
+            count = qs.update(is_read=False)
+        else:
+            return json_response(error='不支持的操作类型，请使用 read / handle / unread')
+
+        return json_response(data={'count': count})

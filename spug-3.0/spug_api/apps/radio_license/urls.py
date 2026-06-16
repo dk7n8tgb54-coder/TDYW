@@ -11,4 +11,6 @@ urlpatterns = [
     url(r'(?P<pk>\d+)/attachments/$', AttachmentListView.as_view()),
     url(r'attachments/(?P<pk>\d+)/download/$', AttachmentDownloadView.as_view()),
     url(r'attachments/$', AttachmentDeleteView.as_view()),
+    url(r'reminders/$', ReminderListView.as_view()),
+    url(r'reminders/handle/$', ReminderHandleView.as_view()),
 ]

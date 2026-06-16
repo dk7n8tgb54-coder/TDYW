@@ -11,6 +11,7 @@ import { http, hasPermission } from 'libs';
 import moment from 'moment';
 import S from './store';
 import AttachmentList from './AttachmentList';
+import ReminderList from './ReminderList';
 
 const STATUS_TAG_MAP = {
   normal: {color: 'green', text: '正常'},
@@ -128,7 +129,7 @@ export default observer(function () {
           <Descriptions.Item label="剩余天数">
             {info.days_left < 0
               ? <span style={{color: '#ff4d4f'}}>已过期 {Math.abs(info.days_left)} 天</span>
-              : info.days_left <= 30
+              : info.days_left <= 45
                 ? <span style={{color: '#fa8c16'}}>{info.days_left} 天</span>
                 : <span>{info.days_left} 天</span>
             }
@@ -158,6 +159,9 @@ export default observer(function () {
 
         <Divider orientation="left">附件</Divider>
         {info.id && <AttachmentList licenseId={info.id} />}
+
+        <Divider orientation="left">提醒记录</Divider>
+        {info.id && <ReminderList licenseId={info.id} />}
 
         <Descriptions bordered column={2} style={{marginTop: 16}}>
           <Descriptions.Item label="创建人">{info.created_by_name || '-'}</Descriptions.Item>

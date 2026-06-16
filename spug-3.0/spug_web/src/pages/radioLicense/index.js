@@ -13,12 +13,6 @@ import store from './store';
 import moment from 'moment';
 
 function RadioLicense() {
-  const [isMounted, setIsMounted] = React.useState(true);
-
-  React.useEffect(() => {
-    return () => { setIsMounted(false); };
-  }, []);
-
   return (
     <AuthDiv auth="radio_license.license.view">
       <Breadcrumb>
@@ -48,7 +42,6 @@ function RadioLicense() {
             value={store.f_status}
             onChange={v => store.f_status = v}
             placeholder="请选择状态"
-            open={isMounted ? undefined : false}
           >
             {store.statusOptions.map(item => (
               <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
@@ -73,7 +66,6 @@ function RadioLicense() {
             }}
             placeholder={['开始日期', '结束日期']}
             style={{ width: '100%' }}
-            open={isMounted ? undefined : false}
           />
         </SearchForm.Item>
       </SearchForm>

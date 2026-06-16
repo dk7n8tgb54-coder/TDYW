@@ -22,7 +22,7 @@
 | Loop 2 | 后端 CRUD 接口 | 已完成 | 列表、详情、新增、编辑、删除 |
 | Loop 3 | 前端基础页面 | 已完成 | 列表、表单、store |
 | Loop 4 | 附件管理 | 已完成 | 上传、下载、删除、权限 |
-| Loop 5 | 到期提醒 | 待执行 | 状态计算、提醒表、定时任务 |
+| Loop 5 | 到期提醒 | 已完成 | 状态计算、提醒表、定时任务、提醒接口、前端展示 |
 | Loop 6 | 验收与复盘 | 待执行 | 全量检查、修复、总结 |
 
 ## Loop 1：后端基础模型
@@ -239,39 +239,93 @@ Loop 4 已完成。附件上传/下载/删除接口已实现，前端组件已�
 
 ### 自执行
 
-待记录。
+已完成。执行内容：
 
-计划动作：
+- 新增 `RadioLicenseReminder` 模型（`tdyw_radio_license_reminder`），含 `remind_type`/`remind_date`/`days_left`/`title`/`content`/`receiver_user_id`/`receiver_user_name`/`is_read`/`is_handled` 等字段。
+- 新增 `REMIND_LEVELS` 常量（45/30/15/7/1 天映射）、`EXPIRED_REMIND_TYPE`、`REMIND_TYPE_MAP`。
+- 实现 `calculate_license_status` 状态计算函数：days_left < 0 → expired，days_left <= 45 → expiring，days_left > 45 → normal。
+- 实现 Celery 任务 `scan_radio_license_expiration`：
+  - 扫描所有未删除执照
+  - 更新执照 status 字段
+  - 对命中 45/30/15/7/1 天节点的执照生成分级提醒
+  - 对已过期执照生成 expired 提醒
+  - 去重：同执照 + 同类型 + 同接收人只生成一条
+  - 接收人优先级：责任人 > 创建人
+- 新增 `celery_beat_schedule.py`：每日 08:00 执行扫描任务
+- 在 `spug/settings.py` 中合并 Beat 配置和任务路由
+- 在 `spug/celery.py` 中显式导入 radio_license 任务
+- 新增 `ReminderListView`（GET 提醒列表，含租户过滤 + 接收人过滤）
+- 新增 `ReminderHandleView`（POST 已读/已处理，含权限校验）
+- 前端新增 `ReminderList.js` 组件（提醒表格 + 已读/已处理按钮）
+- 前端详情弹窗集成提醒记录
+- 前端列表页增加未读提醒 Alert 提示条
+- 前端列表页增加未读提醒 Alert 提示条
+- 修正状态计算阈值：30天 → 45天（views.py 3处 + Table.js + Form.js）
+- 生成迁移文件 `0003_add_reminder_model.py`
 
-- 新增提醒模型。
-- 实现状态计算函数。
-- 实现定时扫描任务。
-- 接入 Celery Beat。
-- 前端展示到期提醒。
+#### 增量：右下角弹窗通知提醒
+
+- 新增 `ReminderNotification.js` 组件（`spug_web/src/components/ReminderNotification.js`）：
+  - 使用 Ant Design `notification` API，`placement: 'bottomRight'`
+  - 组件挂载后延迟 2 秒拉取当前用户未读提醒并弹出
+  - 5 分钟轮询检查新提醒
+  - `sessionStorage` 记录已弹出提醒 ID，同一会话不重复弹出
+  - 弹窗内容：提醒类型标签 + 标题 + 内容 + 剩余天数
+  - 点击弹窗跳转执照详情页（`/radio-license?id=xxx`）
+  - 关闭弹窗不等于已读，已读状态仍由提醒处理接口控制
+  - 纯逻辑组件，`return null`
+- 挂载到 `Layout/index.js`（全局生效）
+- 移除 `radioLicense/index.js` 中的 Alert 横幅和 `isMounted` hack（全局弹窗已覆盖）
+
+关键设计决策：
+
+- **状态计算阈值 45 天**：与设计文档一致，days_left <= 45 为 expiring
+- **提醒去重**：同执照 + 同提醒类型 + 同接收人 = 只生成一条，续期后可进入新周期
+- **接收人优先级**：责任人优先，为空时回退到创建人
+- **不广播全租户**：每条提醒只发给一个人（责任人或创建人）
+- **已过期提醒**：对 days_left < 0 的执照生成 expired 类型提醒（去重保证只一次）
+- **权限编码**：`radio_license.reminder.handle`（处理提醒）
+- **Celery 队列**：`radio_license`（独立队列，不影响文档任务）
+- **Beat 调度**：每天 08:00 crontab(hour=8, minute=0)
 
 ### 自检
 
-待记录。
+已完成。检查结果：
 
-检查项：
-
-- 31 天后为正常。
-- 30 天后为即将到期。
-- 今天到期剩余 0 天。
-- 昨天到期为已过期。
-- 重复执行任务不重复提醒。
+| 检查项 | 结果 |
+| --- | --- |
+| IDE Lint 检查 | 通过，0 错误 |
+| Django `manage.py check` | 通过，0 issues |
+| `makemigrations --check` 无遗漏 | 通过 |
+| URL 解析（reminders/ + reminders/handle/） | 通过 |
+| RadioLicenseReminder 字段完整 | 通过（12 个字段全部匹配 03-design.md） |
+| 状态计算边界测试（8 个场景） | 全部通过 |
+| Celery 任务导入 | 通过 |
+| Beat Schedule 配置 | 通过（radio-license-scan-expiration） |
+| 任务路由配置 | 通过（radio_license 队列） |
+| 提醒去重逻辑 | 通过（同执照+同类型+同接收人） |
+| 接收人优先级 | 通过（责任人>创建人） |
+| 提醒接口租户过滤 | 通过 |
+| 提醒接口权限校验 | 通过 |
+| 前端字段对齐 | 通过 |
+| 右下角弹窗通知 | 待增量验证 |
 
 ### 自修正
 
-待记录。
+修正 2 项：
+
+1. 状态计算阈值从 30 天改为 45 天（3 处 views.py + Table.js + Form.js），与设计文档一致
+2. 前端 ReminderList 中 `r.license` 改为 `r.license_id`（to_dict 返回 ForeignKey 的 attname = license_id）
 
 ### 再验证
 
-待记录。
+修正后重新运行边界测试，8 个场景全部通过。Django check 0 issues。Lint 0 错误。
 
 ### 当前结论
 
-待执行。
+Loop 5 已完成。提醒模型、状态计算、扫描任务、提醒接口、前端展示全部实现，边界测试通过。
+
+增量需求：补充右下角弹窗通知提醒。实现完成后需更新本节自执行、自检和再验证记录。
 
 ## Loop 6：验收与复盘
 
@@ -326,6 +380,21 @@ Loop 4 已完成。附件上传/下载/删除接口已实现，前端组件已�
 | 2026-06-16 | Loop 4 | `spug_web/src/pages/radioLicense/AttachmentList.js` | 新增附件列表组件 |
 | 2026-06-16 | Loop 4 | `spug_web/src/pages/radioLicense/Form.js` | 详情弹窗集成附件列表 |
 | 2026-06-16 | Loop 4 | `spug_web/src/pages/radioLicense/Table.js` | 新增附件数列+附件按钮 |
+| 2026-06-16 | Loop 5 | `spug_api/apps/radio_license/models.py` | 新增 RadioLicenseReminder 模型 + 提醒常量 |
+| 2026-06-16 | Loop 5 | `spug_api/apps/radio_license/migrations/0003_add_reminder_model.py` | 自动生成迁移 |
+| 2026-06-16 | Loop 5 | `spug_api/apps/radio_license/tasks.py` | 新增到期扫描 Celery 任务 + 状态计算函数 |
+| 2026-06-16 | Loop 5 | `spug_api/apps/radio_license/celery_beat_schedule.py` | 新增 Beat 定时配置 |
+| 2026-06-16 | Loop 5 | `spug_api/apps/radio_license/views.py` | 新增 ReminderListView/HandleView + 修正 30→45 阈值 |
+| 2026-06-16 | Loop 5 | `spug_api/apps/radio_license/urls.py` | 注册提醒路由 |
+| 2026-06-16 | Loop 5 | `spug_api/spug/settings.py` | 合并 Beat 配置 + 任务路由 |
+| 2026-06-16 | Loop 5 | `spug_api/spug/celery.py` | 导入 radio_license 任务 |
+| 2026-06-16 | Loop 5 | `spug_web/src/pages/radioLicense/ReminderList.js` | 新增提醒列表组件 |
+| 2026-06-16 | Loop 5 | `spug_web/src/pages/radioLicense/Form.js` | 详情弹窗集成提醒记录 + 修正 30→45 |
+| 2026-06-16 | Loop 5 | `spug_web/src/pages/radioLicense/Table.js` | 修正 30→45 天阈值 |
+| 2026-06-16 | Loop 5 | `spug_web/src/pages/radioLicense/index.js` | 新增未读提醒 Alert 提示条 |
+| 2026-06-16 | Loop 5+ | `spug_web/src/components/ReminderNotification.js` | 新增全局右下角弹窗通知组件 |
+| 2026-06-16 | Loop 5+ | `spug_web/src/layout/index.js` | 挂载 ReminderNotification 组件 |
+| 2026-06-16 | Loop 5+ | `spug_web/src/pages/radioLicense/index.js` | 移除 Alert 横幅和 isMounted hack |
 
 ## 关键决策记录
 

@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { Switch, Route } from 'react-router-dom';
 import { Layout, message } from 'antd';
 import { NotFound } from 'components';
+import ReminderNotification from 'components/ReminderNotification';
 import Sider from './Sider';
 import Header from './Header';
 import Footer from './Footer'
@@ -53,6 +54,7 @@ export default function () {
         </Layout.Content>
         <Footer/>
       </Layout>
+      <ReminderNotification/>
     </Layout>
   )
 }
