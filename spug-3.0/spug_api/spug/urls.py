@@ -35,6 +35,7 @@ urlpatterns = [
     path('upgrade/', include('apps.upgrade.urls')),
     path('checksheet/', include('apps.checksheet.urls')),
     path('logs/', include('apps.logs.urls')),
+    path('radio-license/', include('apps.radio_license.urls')),
 ]
 
 # 在开发环境下提供media文件服务

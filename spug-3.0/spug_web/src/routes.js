@@ -16,7 +16,8 @@ import {
   CalendarOutlined,
   ApartmentOutlined,
   CheckSquareOutlined,
-  DeleteOutlined
+  DeleteOutlined,
+  SafetyCertificateOutlined
 } from '@ant-design/icons';
 
 import HomeIndex from './pages/home';
@@ -45,10 +46,12 @@ import ExecDutyRecord from './pages/duty';
 import ScheduleIndex from './pages/schedule';
 import ScheduleBasis from './pages/schedule/BasisView';
 import CheckSheetIndex from './pages/checksheet';
+import RadioLicenseIndex from './pages/radioLicense';
 
 export default [
   {icon: <DesktopOutlined/>, title: '工作台', path: '/home', component: HomeIndex},
   {icon: <CheckSquareOutlined/>, title: '部门值班日检查单', auth: 'checksheet.checksheet.view', path: '/checksheet', component: CheckSheetIndex},
+  {icon: <SafetyCertificateOutlined/>, title: '无线电台执照', auth: 'radio_license.license.view', path: '/radio-license', component: RadioLicenseIndex},
   {icon: <FolderOpenOutlined/>, title: '资料库', auth: 'document.document.view', child: [
     {title: '资料管理', auth: 'document.document.view', path: '/document', component: DocumentIndex},
     {title: '回收站', auth: 'document.recycle-bin.view', path: '/document/recycle-bin', component: RecycleBinIndex},
