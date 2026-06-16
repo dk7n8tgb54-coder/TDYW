@@ -230,6 +230,33 @@ export default [{
     ]
   }]
 }, {
+  key: 'radio_license',
+  label: '无线电台执照',
+  pages: [{
+    key: 'license',
+    label: '执照管理',
+    perms: [
+      {key: 'view', label: '查看执照'},
+      {key: 'add', label: '新增执照'},
+      {key: 'edit', label: '编辑执照'},
+      {key: 'del', label: '删除执照'},
+      {key: 'export', label: '导出清单'},
+    ]
+  }, {
+    key: 'attachment',
+    label: '附件管理',
+    perms: [
+      {key: 'upload', label: '上传附件'},
+      {key: 'download', label: '下载附件'},
+    ]
+  }, {
+    key: 'reminder',
+    label: '到期提醒',
+    perms: [
+      {key: 'handle', label: '处理提醒'},
+    ]
+  }]
+}, {
   key: 'fault',
   label: '故障管理',
   pages: [{

@@ -24,6 +24,7 @@
 | Loop 4 | 附件管理 | 已完成 | 上传、下载、删除、权限 |
 | Loop 5 | 到期提醒 | 已完成 | 状态计算、提醒表、定时任务、提醒接口、前端展示 |
 | Loop 6 | 验收与复盘 | 已完成 | 全量检查、修复、总结 |
+| Loop 7 | 权限配置补充 | 已完成 | codes.js 权限条目 + permissions.sql + 数据库权限写入 |
 
 ## Loop 1：后端基础模型
 
@@ -368,6 +369,55 @@ Loop 5 已完成。提醒模型、状态计算、扫描任务、提醒接口、�
 
 Loop 6 已完成。所有 P0 验收项通过，功能完整。
 
+## Loop 7：权限配置补充
+
+### 自执行
+
+已完成。执行内容：
+
+- 在 `spug_web/src/pages/system/role/codes.js` 中新增 `radio_license` 模块条目，包含 3 个子页面（license/attachment/reminder）和 8 个权限点。
+- 新增 `spug_api/apps/radio_license/permissions.sql`，仿 `document/permissions.sql` 风格，为指定角色添加全部 radio_license 权限。
+- 在数据库中为现有 2 个角色（ID=1 林杰、ID=2 通信科员工）写入 radio_license 权限，并清除权限缓存。
+
+权限码结构（3 级格式：`{module}.{page}.{perm}`）：
+
+| 权限码 | 中文名称 |
+| --- | --- |
+| `radio_license.license.view` | 查看执照 |
+| `radio_license.license.add` | 新增执照 |
+| `radio_license.license.edit` | 编辑执照 |
+| `radio_license.license.del` | 删除执照 |
+| `radio_license.license.export` | 导出清单 |
+| `radio_license.attachment.upload` | 上传附件 |
+| `radio_license.attachment.download` | 下载附件 |
+| `radio_license.reminder.handle` | 处理提醒 |
+
+### 自检
+
+已完成。检查结果：
+
+| 检查项 | 结果 |
+| --- | --- |
+| 后端 @auth 权限码 vs codes.js | 一致，7/7 已实现权限码匹配（export 为预留） |
+| 前端权限编码 vs codes.js | 一致，AuthDiv/AuthButton/hasPermission 全部匹配 |
+| Django check | 通过，0 issues |
+| 前端 lint | 通过，0 错误 |
+| permissions.sql 语法正确 | 通过，与 document/permissions.sql 风格一致 |
+| 数据库权限已写入 | 通过，2 个角色均已有 radio_license 权限 |
+| 权限缓存已清除 | 通过，2 个用户的缓存已清除 |
+
+### 自修正
+
+无需修正。所有检查项一次通过。
+
+### 再验证
+
+无需再次验证。
+
+### 当前结论
+
+Loop 7 已完成。权限配置已补齐，后端 @auth 编码与前端权限编码与 codes.js 完全一致。
+
 ## 文件变更记录
 
 | 时间 | Loop | 文件 | 变更说明 |
@@ -410,6 +460,8 @@ Loop 6 已完成。所有 P0 验收项通过，功能完整。
 | 2026-06-16 | Loop 5+ | `spug_web/src/pages/radioLicense/index.js` | 移除 Alert 横幅和 isMounted hack |
 | 2026-06-16 | Loop 6 | `spug_api/apps/radio_license/views.py` | 删除重复的频率列表赋值行 |
 | 2026-06-16 | Loop 6 | `spug_web/src/components/ReminderNotification.js` | 去重策略改为 sessionStorage + token key |
+| 2026-06-16 | Loop 7 | `spug_web/src/pages/system/role/codes.js` | 新增 radio_license 权限配置（3 子页面 + 8 权限点） |
+| 2026-06-16 | Loop 7 | `spug_api/apps/radio_license/permissions.sql` | 新增权限初始化 SQL 脚本 |
 
 ## 关键决策记录
 

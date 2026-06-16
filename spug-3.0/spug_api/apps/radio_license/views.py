@@ -2,7 +2,6 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 import os
-import uuid
 import logging
 from django.views.generic import View
 from django.utils import timezone
@@ -16,6 +15,7 @@ from apps.radio_license.models import (
     RadioLicenseReminder, REMIND_LEVELS, EXPIRED_REMIND_TYPE, REMIND_TYPE_MAP,
     ALLOWED_FILE_EXTENSIONS, MAX_FILE_SIZE_MB,
 )
+from apps.radio_license.tasks import scan_single_license
 import json
 
 logger = logging.getLogger(__name__)
@@ -113,20 +113,6 @@ class RadioLicenseView(View):
                 form.updated_at = human_datetime()
                 form.updated_by = request.user
                 record_id = form.pop('id')
-                # 计算状态
-                from datetime import datetime
-                if isinstance(form.valid_to, str):
-                    valid_to_date = datetime.strptime(form.valid_to, '%Y-%m-%d').date()
-                else:
-                    valid_to_date = form.valid_to
-                today = timezone.now().date()
-                days_left = (valid_to_date - today).days
-                if days_left < 0:
-                    form.status = 'expired'
-                elif days_left <= 45:
-                    form.status = 'expiring'
-                else:
-                    form.status = 'normal'
                 form.pop('remark', None)
                 qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
                 updated_count = qs.filter(pk=record_id).update(**form)
@@ -135,28 +121,19 @@ class RadioLicenseView(View):
                 else:
                     # 更新频率明细
                     _update_frequencies(record_id, frequencies, request.user)
+                    # 即时扫描：更新状态 + 生成提醒
+                    license_obj = RadioLicense.objects.get(pk=record_id)
+                    scan_single_license(license_obj)
             else:
                 # 新增模式
-                # 计算状态
-                from datetime import datetime
-                if isinstance(form.valid_to, str):
-                    valid_to_date = datetime.strptime(form.valid_to, '%Y-%m-%d').date()
-                else:
-                    valid_to_date = form.valid_to
-                today = timezone.now().date()
-                days_left = (valid_to_date - today).days
-                if days_left < 0:
-                    form.status = 'expired'
-                elif days_left <= 45:
-                    form.status = 'expiring'
-                else:
-                    form.status = 'normal'
                 form.created_by = request.user
                 form.pop('remark', None)
                 assign_tenant_id(form, request.user)
                 license_obj = RadioLicense.objects.create(**form)
                 # 创建频率明细
                 _create_frequencies(license_obj, frequencies, request.user)
+                # 即时扫描：更新状态 + 生成提醒
+                scan_single_license(license_obj)
 
         return json_response(error=error)
 
@@ -171,6 +148,19 @@ class RadioLicenseView(View):
             updated_count = qs.filter(pk=form.id, is_deleted=False).update(is_deleted=True)
             if updated_count == 0:
                 error = '删除失败：记录不存在或无权限删除'
+            else:
+                # 清理关联提醒
+                RadioLicenseReminder.objects.filter(license_id=form.id).delete()
+                # 清理关联附件（物理文件 + DB 记录）
+                attachments = RadioLicenseAttachment.objects.filter(license_id=form.id)
+                for att in attachments:
+                    full_path = os.path.join(settings.MEDIA_ROOT, att.file_path)
+                    try:
+                        if os.path.exists(full_path):
+                            os.remove(full_path)
+                    except OSError as e:
+                        logger.warning(f'[RadioLicense] 删除附件文件失败: {e}')
+                attachments.delete()
         return json_response(error=error)
 
 
@@ -291,9 +281,15 @@ class AttachmentListView(View):
         save_dir = os.path.join(settings.MEDIA_ROOT, ATTACHMENT_UPLOAD_DIR, date_path)
         os.makedirs(save_dir, exist_ok=True)
 
-        # 生成唯一文件名
-        unique_name = f'{uuid.uuid4().hex}{ext}'
-        file_path = os.path.join(save_dir, unique_name)
+        # 保留原始文件名，遇重名自动加序号（如 xxx.pdf → xxx_1.pdf）
+        disk_name = safe_name
+        file_path = os.path.join(save_dir, disk_name)
+        counter = 1
+        name_base, name_ext = os.path.splitext(safe_name)
+        while os.path.exists(file_path):
+            disk_name = f'{name_base}_{counter}{name_ext}'
+            file_path = os.path.join(save_dir, disk_name)
+            counter += 1
 
         # 保存文件
         try:
@@ -305,7 +301,7 @@ class AttachmentListView(View):
             return json_response(error='附件保存失败')
 
         # 创建数据库记录
-        relative_path = f'{ATTACHMENT_UPLOAD_DIR}/{date_path}/{unique_name}'
+        relative_path = f'{ATTACHMENT_UPLOAD_DIR}/{date_path}/{disk_name}'
         attachment_type = request.POST.get('attachment_type', 'other')
         if attachment_type not in ['license', 'permit', 'approval', 'other']:
             attachment_type = 'other'
@@ -411,9 +407,10 @@ class ReminderListView(View):
     @auth('radio_license.license.view')
     def get(self, request):
         """获取当前用户的提醒列表"""
-        # 只返回当前用户的提醒
+        # 只返回当前用户的提醒，且排除已删除执照的提醒
         reminders = RadioLicenseReminder.objects.filter(
             receiver_user_id=request.user.id,
+            license__is_deleted=False,
         )
         # 租户过滤
         reminders = apply_tenant_filter(reminders, request.user)

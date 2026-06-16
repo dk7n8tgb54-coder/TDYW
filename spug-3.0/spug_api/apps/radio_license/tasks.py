@@ -29,7 +29,7 @@ def calculate_license_status(valid_to, today=None):
     """计算执照状态
 
     Args:
-        valid_to: 截止日期 (date)
+        valid_to: 截止日期 (date 或 str 'YYYY-MM-DD')
         today: 当前日期 (date)，默认为 date.today()
 
     Returns:
@@ -39,6 +39,10 @@ def calculate_license_status(valid_to, today=None):
     """
     if today is None:
         today = date.today()
+    # 兼容字符串输入
+    if isinstance(valid_to, str):
+        from datetime import datetime
+        valid_to = datetime.strptime(valid_to, '%Y-%m-%d').date()
     days_left = (valid_to - today).days
     if days_left < 0:
         return 'expired', days_left
@@ -121,41 +125,31 @@ def _generate_reminder(license_obj, remind_type, days_left, today, receiver_user
     return reminder
 
 
-@shared_task(bind=True, soft_time_limit=300, time_limit=600, queue='radio_license')
-def scan_radio_license_expiration(self):
-    """扫描执照到期状态并生成提醒
+def scan_single_license(license_obj):
+    """扫描单张执照的到期状态并生成提醒
 
-    执行逻辑：
-    1. 查询所有未删除的执照
-    2. 对每张执照计算状态和剩余天数
-    3. 更新执照 status 字段
-    4. 检查是否命中提醒节点（45/30/15/7/1天）
-    5. 检查是否已过期
-    6. 满足条件则生成提醒（去重）
+    用于事件驱动场景（新增/编辑执照时即时触发），
+    与 scan_radio_license_expiration（定时全量扫描）互补。
+
+    Args:
+        license_obj: RadioLicense 实例（需有 valid_to, status 等字段）
+
+    Returns:
+        dict: {'status': str, 'days_left': int, 'new_reminders': int}
     """
     today = timezone.now().date()
-    logger.info(f'[RadioLicense] 开始扫描执照到期状态: today={today}')
+    status, days_left = calculate_license_status(license_obj.valid_to, today)
 
-    licenses = RadioLicense.objects.filter(is_deleted=False).select_related('created_by')
-    total = licenses.count()
-    updated_count = 0
+    # 更新执照状态
+    if license_obj.status != status:
+        RadioLicense.objects.filter(pk=license_obj.id).update(status=status)
+        license_obj.status = status
+
+    # 获取接收人
+    receiver_user_id, receiver_user_name = _get_receiver(license_obj)
     reminder_count = 0
 
-    for license_obj in licenses:
-        # 计算状态
-        status, days_left = calculate_license_status(license_obj.valid_to, today)
-
-        # 更新执照状态
-        if license_obj.status != status:
-            RadioLicense.objects.filter(pk=license_obj.id).update(status=status)
-            updated_count += 1
-
-        # 获取接收人
-        receiver_user_id, receiver_user_name = _get_receiver(license_obj)
-        if not receiver_user_id:
-            logger.warning(f'[RadioLicense] 执照 {license_obj.id} 无接收人，跳过提醒')
-            continue
-
+    if receiver_user_id:
         # 分级提醒：检查是否命中节点
         if days_left in REMIND_LEVELS:
             remind_type = REMIND_LEVELS[days_left]
@@ -166,8 +160,7 @@ def scan_radio_license_expiration(self):
             if reminder:
                 reminder_count += 1
 
-        # 已过期提醒（仅过期当天，days_left == -1 生成，避免每次都检查所有过期执照）
-        # 简化：对 days_left < 0 的执照也生成提醒，但去重保证只生成一次
+        # 已过期提醒
         if days_left < 0:
             reminder = _generate_reminder(
                 license_obj, EXPIRED_REMIND_TYPE, days_left, today,
@@ -175,8 +168,42 @@ def scan_radio_license_expiration(self):
             )
             if reminder:
                 reminder_count += 1
+    else:
+        logger.debug(f'[RadioLicense] 执照 {license_obj.id} 无接收人，跳过提醒')
 
-    logger.info(f'[RadioLicense] 扫描完成: total={total}, updated={updated_count}, '
+    logger.info(f'[RadioLicense] 单条扫描: license={license_obj.id}, '
+                f'status={status}, days_left={days_left}, new_reminders={reminder_count}')
+    return {
+        'status': status,
+        'days_left': days_left,
+        'new_reminders': reminder_count,
+    }
+
+
+@shared_task(bind=True, soft_time_limit=300, time_limit=600, queue='radio_license')
+def scan_radio_license_expiration(self):
+    """扫描所有执照到期状态并生成提醒（定时兜底）
+
+    执行逻辑：
+    1. 查询所有未删除的执照
+    2. 对每张执照调用 scan_single_license
+    3. 汇总统计
+    """
+    today = timezone.now().date()
+    logger.info(f'[RadioLicense] 开始全量扫描执照到期状态: today={today}')
+
+    licenses = RadioLicense.objects.filter(is_deleted=False).select_related('created_by')
+    total = licenses.count()
+    updated_count = 0
+    reminder_count = 0
+
+    for license_obj in licenses:
+        result = scan_single_license(license_obj)
+        if result['status'] != license_obj.status:
+            updated_count += 1
+        reminder_count += result['new_reminders']
+
+    logger.info(f'[RadioLicense] 全量扫描完成: total={total}, updated={updated_count}, '
                 f'new_reminders={reminder_count}')
     return {
         'total': total,

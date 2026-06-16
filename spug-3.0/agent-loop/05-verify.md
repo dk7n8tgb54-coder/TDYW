@@ -148,6 +148,33 @@
 | 2026-06-16 | Loop 5 | 2 项 | 1. 状态计算阈值从 30 天改为 45 天 2. 前端 r.license 改为 r.license_id | 1. 修改 views.py 3处 + Table.js + Form.js 2. 修改 ReminderList.js | 边界测试 8/8 通过 |
 | 2026-06-16 | Loop 5+ | 0 项 | 无 | 无需自修正，lint + 构建一次通过 | 无 |
 | 2026-06-16 | Loop 6 | 3 项 | 1. views.py 频率列表重复赋值 2. 弹窗去重：模块级 Set 刷新后不再弹 3. 弹窗去重：纯 sessionStorage 重新登录后不弹 | 1. 删除重复行 2. 改为 sessionStorage 3. 改为 sessionStorage + token key | lint 0 错误，构建通过 |
+| 2026-06-16 | Loop 7 | 0 项 | 无 | 无需自修正，所有检查一次通过 | 无 |
+
+## Loop 7 验证：权限配置补充
+
+| 编号 | 验证项 | 验证方式 | 状态 | 结果 |
+| --- | --- | --- | --- | --- |
+| L7-V01 | codes.js 包含 radio_license 模块 | 文件检查 | 通过 | 3 子页面 + 8 权限点已添加 |
+| L7-V02 | 后端 @auth 编码与 codes.js 一致 | 代码审查 | 通过 | 7/7 已实现权限码匹配，export 为预留 |
+| L7-V03 | 前端权限编码与 codes.js 一致 | 代码审查 | 通过 | AuthDiv/AuthButton/hasPermission 全部匹配 |
+| L7-V04 | permissions.sql 语法正确 | 对照 document/permissions.sql | 通过 | JSON_SET 格式一致 |
+| L7-V05 | 数据库权限已写入 | Django shell 查询 | 通过 | 2 个角色均有 radio_license 权限 |
+| L7-V06 | 权限缓存已清除 | Django shell | 通过 | 2 个用户缓存已清除 |
+| L7-V07 | Django check | manage.py check | 通过 | 0 issues |
+| L7-V08 | 前端 lint | read_lints | 通过 | 0 错误 |
+
+### 权限码一致性详细对照
+
+| 权限码 | 后端 @auth | 前端组件 | codes.js | 备注 |
+| --- | --- | --- | --- | --- |
+| `radio_license.license.view` | views.py 3处 | index.js AuthDiv, Table Action.Button | ✅ | |
+| `radio_license.license.add` | views.py (`add|edit`) | Table AuthButton | ✅ | |
+| `radio_license.license.edit` | views.py (`add|edit`) | Table Action.Button, Form hasPermission | ✅ | |
+| `radio_license.license.del` | views.py | Table Action.Button | ✅ | |
+| `radio_license.license.export` | 无后端接口 | 无前端按钮 | ✅ | 预留权限，本轮不实现 |
+| `radio_license.attachment.upload` | views.py 2处 | AttachmentList hasPermission | ✅ | |
+| `radio_license.attachment.download` | views.py | AttachmentList hasPermission | ✅ | |
+| `radio_license.reminder.handle` | views.py | ReminderList hasPermission | ✅ | |
 
 ## 可用验证命令
 
