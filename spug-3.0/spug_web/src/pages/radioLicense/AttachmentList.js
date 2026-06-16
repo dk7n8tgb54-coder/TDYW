@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react';
 import { Upload, Button, Table, Tag, message, Popconfirm, Space, Select } from 'antd';
 import { UploadOutlined, DownloadOutlined, DeleteOutlined, PaperClipOutlined } from '@ant-design/icons';
-import { http, hasPermission } from 'libs';
+import { http, hasPermission, X_TOKEN } from 'libs';
 import store from './store';
 
 const ATTACHMENT_TYPE_MAP = {
@@ -72,11 +72,9 @@ export default observer(function AttachmentList({ licenseId }) {
 
   function handleDownload(att) {
     // 使用 x-token GET 参数鉴权下载（项目中间件支持）
-    const token = localStorage.getItem('token') || '';
-    const url = `/api/radio-license/attachments/${att.id}/download/?x-token=${token}`;
+    const url = `/api/radio-license/attachments/${att.id}/download/?x-token=${X_TOKEN}`;
     const link = document.createElement('a');
     link.href = url;
-    link.target = '_blank';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
