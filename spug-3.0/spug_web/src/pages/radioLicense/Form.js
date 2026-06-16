@@ -10,6 +10,7 @@ import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
 import moment from 'moment';
 import S from './store';
+import AttachmentList from './AttachmentList';
 
 const STATUS_TAG_MAP = {
   normal: {color: 'green', text: '正常'},
@@ -105,7 +106,7 @@ export default observer(function () {
     return (
       <Modal
         visible
-        width={800}
+        width={900}
         title="执照详情"
         footer={[
           <Button key="close" onClick={() => S.detailVisible = false}>关闭</Button>,
@@ -154,6 +155,9 @@ export default observer(function () {
             </Descriptions>
           </>
         )}
+
+        <Divider orientation="left">附件</Divider>
+        {info.id && <AttachmentList licenseId={info.id} />}
 
         <Descriptions bordered column={2} style={{marginTop: 16}}>
           <Descriptions.Item label="创建人">{info.created_by_name || '-'}</Descriptions.Item>

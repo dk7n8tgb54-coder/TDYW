@@ -5,8 +5,8 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Table, Modal, Tag, message } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { Table, Modal, Tag, message, Badge } from 'antd';
+import { PlusOutlined, PaperClipOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
 import { Action, TableCard, AuthButton } from "components";
 import store from './store';
@@ -63,6 +63,11 @@ class ComTable extends React.Component {
     return `${firstText} 等 ${frequencies.length} 个`;
   };
 
+  renderAttachmentCount = (text, record) => {
+    const count = record.attachment_count || 0;
+    return count > 0 ? <Badge count={count} size="small" style={{marginLeft: 4}}><PaperClipOutlined /></Badge> : <span>-</span>;
+  };
+
   render() {
     return (
       <TableCard
@@ -107,12 +112,14 @@ class ComTable extends React.Component {
         <Table.Column title="剩余天数" width={120} render={(text, record) => this.renderDaysLeft(record.days_left, record)}/>
         <Table.Column title="状态" width={100} render={(text, record) => this.renderStatus(record.computed_status, record)}/>
         <Table.Column title="责任人" dataIndex="responsible_user_name" width={100}/>
+        <Table.Column title="附件" width={60} render={this.renderAttachmentCount}/>
         <Table.Column title="创建时间" dataIndex="created_at" width={160} ellipsis/>
         {hasPermission('radio_license.license.edit|radio_license.license.del') && (
-          <Table.Column title="操作" width={160} render={info => (
+          <Table.Column title="操作" width={200} render={info => (
             <Action>
               <Action.Button auth="radio_license.license.view" onClick={() => store.showDetail(info)}>查看</Action.Button>
               <Action.Button auth="radio_license.license.edit" onClick={() => store.showForm(info)}>编辑</Action.Button>
+              <Action.Button auth="radio_license.attachment.upload|radio_license.attachment.download" onClick={() => store.showDetail(info)}>附件</Action.Button>
               <Action.Button danger auth="radio_license.license.del" onClick={() => this.handleDelete(info)}>删除</Action.Button>
             </Action>
           )}/>

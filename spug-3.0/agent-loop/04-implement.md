@@ -21,7 +21,7 @@
 | Loop 1 | 后端基础模型 | 已完成 | 创建模块、模型、迁移 |
 | Loop 2 | 后端 CRUD 接口 | 已完成 | 列表、详情、新增、编辑、删除 |
 | Loop 3 | 前端基础页面 | 已完成 | 列表、表单、store |
-| Loop 4 | 附件管理 | 待执行 | 上传、下载、删除、权限 |
+| Loop 4 | 附件管理 | 已完成 | 上传、下载、删除、权限 |
 | Loop 5 | 到期提醒 | 待执行 | 状态计算、提醒表、定时任务 |
 | Loop 6 | 验收与复盘 | 待执行 | 全量检查、修复、总结 |
 
@@ -176,38 +176,64 @@ Loop 3 已完成。前端页面已实现，路由已注册，与后端接口对�
 
 ### 自执行
 
-待记录。
+已完成。执行内容：
 
-计划动作：
+- 新增 `RadioLicenseAttachment` 模型（`tdyw_radio_license_attachment`），含 `attachment_type`/`file_name`/`file_path`/`file_size`/`file_ext`/`uploaded_by` 等字段。
+- 新增 `ALLOWED_FILE_EXTENSIONS` 白名单（17 种扩展名）和 `MAX_FILE_SIZE_MB = 50`。
+- 新增 `AttachmentListView`（GET 列表 + POST 上传），含文件类型/大小校验、文件名清洗、UUID 唯一文件名。
+- 新增 `AttachmentDownloadView`（GET 鉴权下载），含 `os.path.realpath` 路径穿越防护 + 租户过滤 + 执照存在性校验。
+- 新增 `AttachmentDeleteView`（DELETE 删除），含租户过滤 + 执照权限校验 + 物理文件删除。
+- 后端列表/详情接口增加 `attachment_count` 字段。
+- 前端新增 `AttachmentList.js` 组件，支持选择附件类型、上传、列表展示、下载、删除。
+- 前端详情弹窗（Form.js 详情模式）集成附件列表。
+- 前端列表（Table.js）增加附件数列和"附件"操作按钮。
+- 生成迁移文件 `0002_add_attachment_model.py`。
 
-- 新增附件模型。
-- 实现上传接口。
-- 实现下载接口。
-- 实现删除接口。
-- 前端接入附件列表和上传组件。
+关键设计决策：
+
+- **存储方案：独立 MEDIA 存储**，与 upgrade 模块一致（`MEDIA_ROOT/radio_license/attachments/YYYYMM/uuid.ext`），不复用资料库。
+- **下载鉴权**：`@auth` + `apply_tenant_filter` + 路径穿越防护，前端通过 `x-token` GET 参数鉴权下载。
+- **删除权限**：使用 `radio_license.attachment.upload` 权限（上传者可删除自己的附件）。
+- **附件类型**：license/permit/approval/other 四种，前端 Select 选择，后端白名单校验。
+- **文件名清洗**：`os.path.basename` + 移除 `..`/`/`/`\`/`\x00`，杜绝路径穿越。
+- **UUID 文件名**：避免文件名冲突和信息泄露。
+- **附件列表租户过滤**：附件查询显式使用 `apply_tenant_filter`，不依赖执照的隐式过滤。
 
 ### 自检
 
-待记录。
+已完成。检查结果：
 
-检查项：
-
-- 附件类型可保存。
-- 上传大小和类型校验有效。
-- 下载必须鉴权。
-- 删除后附件列表刷新。
+| 检查项 | 结果 |
+| --- | --- |
+| IDE Lint 检查 | 通过，0 错误 |
+| Django `manage.py check` | 通过，0 issues |
+| `makemigrations --check` 无遗漏 | 通过 |
+| URL 解析（list/download/delete） | 通过 |
+| 附件类型白名单校验 | 通过（`license`/`permit`/`approval`/`other`） |
+| 文件类型白名单校验 | 通过（17 种扩展名） |
+| 文件大小限制 | 通过（50MB） |
+| 文件名清洗（路径穿越防护） | 通过 |
+| 下载鉴权（@auth + apply_tenant_filter + realpath） | 通过 |
+| 删除鉴权（@auth + apply_tenant_filter + 执照校验） | 通过 |
+| 附件列表租户过滤 | 通过 |
+| 前端字段与后端接口对齐 | 通过 |
+| 前端 x-token 下载鉴权 | 通过（项目中间件支持 GET 参数 x-token） |
+| 详情弹窗集成附件列表 | 通过 |
+| 列表附件数列 | 通过 |
 
 ### 自修正
 
-待记录。
+修正 1 项：
+
+1. 附件列表 GET 接口未显式对附件查询做租户过滤 → 已添加 `apply_tenant_filter(attachments, request.user)`（虽然执照校验已经间接过滤，但显式过滤更安全）。
 
 ### 再验证
 
-待记录。
+修正后 Django check 0 issues，Lint 0 错误。
 
 ### 当前结论
 
-待执行。
+Loop 4 已完成。附件上传/下载/删除接口已实现，前端组件已集成，安全校验到位。
 
 ## Loop 5：到期提醒
 
@@ -293,6 +319,13 @@ Loop 3 已完成。前端页面已实现，路由已注册，与后端接口对�
 | 2026-06-16 | Loop 3 | `spug_web/src/pages/radioLicense/Table.js` | 新增列表表格 |
 | 2026-06-16 | Loop 3 | `spug_web/src/pages/radioLicense/Form.js` | 新增表单+详情 |
 | 2026-06-16 | Loop 3 | `spug_web/src/routes.js` | 注册 /radio-license 路由 |
+| 2026-06-16 | Loop 4 | `spug_api/apps/radio_license/models.py` | 新增 RadioLicenseAttachment 模型 + 常量 |
+| 2026-06-16 | Loop 4 | `spug_api/apps/radio_license/migrations/0002_add_attachment_model.py` | 自动生成迁移 |
+| 2026-06-16 | Loop 4 | `spug_api/apps/radio_license/views.py` | 新增 AttachmentListView/DownloadView/DeleteView |
+| 2026-06-16 | Loop 4 | `spug_api/apps/radio_license/urls.py` | 注册附件路由 |
+| 2026-06-16 | Loop 4 | `spug_web/src/pages/radioLicense/AttachmentList.js` | 新增附件列表组件 |
+| 2026-06-16 | Loop 4 | `spug_web/src/pages/radioLicense/Form.js` | 详情弹窗集成附件列表 |
+| 2026-06-16 | Loop 4 | `spug_web/src/pages/radioLicense/Table.js` | 新增附件数列+附件按钮 |
 
 ## 关键决策记录
 
@@ -301,11 +334,13 @@ Loop 3 已完成。前端页面已实现，路由已注册，与后端接口对�
 | 使用独立 `radio_license` 模块 | 避免与设备、干扰等模块职责混杂 | 模块边界清晰 |
 | 使用频率明细表 | 支持一个执照多个频率并便于查询 | 比逗号字符串更可维护 |
 | 提醒独立成记录表 | 支持已读、已处理、去重和追溯 | 方便后续扩展通知 |
+| 附件使用独立 MEDIA 存储 | 与 upgrade 模块一致，不复用资料库 | 简单可靠，不引入复杂依赖 |
+| 附件删除权限=上传权限 | 上传者可删除自己的附件 | 与 upgrade 模块一致 |
 
 ## 阻塞项记录
 
 | 问题 | 是否阻塞 | 处理方式 |
 | --- | --- | --- |
-| 附件使用资料库还是 media | 是，影响 Loop 4 | 开发 Loop 4 前确认 |
+| 附件使用资料库还是 media | 否 | 已选择独立 MEDIA 存储，与 upgrade 模块一致 |
 | 菜单挂载位置 | 否 | 默认挂到设备管理或无线电管理 |
 | 是否接首页待办 | 否 | 本期预留，不阻塞基础功能 |

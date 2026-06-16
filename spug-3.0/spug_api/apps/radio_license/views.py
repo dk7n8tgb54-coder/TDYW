@@ -1,13 +1,21 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
+import os
+import uuid
+import logging
 from django.views.generic import View
 from django.utils import timezone
+from django.conf import settings
+from django.http import FileResponse
+from urllib.parse import quote
 from libs import json_response, JsonParser, Argument, human_datetime, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
-from apps.radio_license.models import RadioLicense, RadioLicenseFrequency
+from apps.radio_license.models import (
+    RadioLicense, RadioLicenseFrequency, RadioLicenseAttachment,
+    ALLOWED_FILE_EXTENSIONS, MAX_FILE_SIZE_MB,
+)
 import json
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +62,9 @@ class RadioLicenseView(View):
             item = record.to_view()
             # 附加频率列表
             freqs = RadioLicenseFrequency.objects.filter(license=record).order_by('sort_order', 'id')
+            item['frequencies'] = [f.to_view() for f in freqs]
+            # 附件数量
+            item['attachment_count'] = RadioLicenseAttachment.objects.filter(license=record).count()
             item['frequencies'] = [f.to_view() for f in freqs]
             # 计算剩余天数和状态
             today = timezone.now().date()
@@ -189,6 +200,8 @@ class RadioLicenseDetailView(View):
             computed_status = 'normal'
         item['days_left'] = days_left
         item['computed_status'] = computed_status
+        # 附件数量
+        item['attachment_count'] = RadioLicenseAttachment.objects.filter(license=record).count()
 
         return json_response(item)
 
@@ -213,3 +226,176 @@ def _update_frequencies(license_id, frequencies, user):
     license_obj = RadioLicense.objects.get(pk=license_id)
     RadioLicenseFrequency.objects.filter(license_id=license_id).delete()
     _create_frequencies(license_obj, frequencies, user)
+
+
+# ==================== 附件接口 ====================
+
+ATTACHMENT_UPLOAD_DIR = 'radio_license/attachments'
+
+
+class AttachmentListView(View):
+    """附件列表 / 上传"""
+
+    @auth('radio_license.license.view')
+    def get(self, request, pk):
+        """获取指定执照的附件列表"""
+        # 校验执照存在且有权限
+        qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
+        if not qs.filter(pk=pk, is_deleted=False).exists():
+            return json_response(error='执照不存在或无权限访问')
+
+        attachments = RadioLicenseAttachment.objects.filter(license_id=pk)
+        # 租户过滤：确保只返回当前租户的附件
+        attachments = apply_tenant_filter(attachments, request.user).order_by('-created_at')
+        data = []
+        for att in attachments:
+            item = att.to_view()
+            item['uploaded_by_name'] = att.uploaded_by.nickname if att.uploaded_by else '-'
+            data.append(item)
+        return json_response(data)
+
+    @auth('radio_license.attachment.upload')
+    def post(self, request, pk):
+        """上传附件"""
+        # 校验执照存在且有权限
+        qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
+        license_obj = qs.filter(pk=pk, is_deleted=False).first()
+        if not license_obj:
+            return json_response(error='执照不存在或无权限访问')
+
+        file = request.FILES.get('file')
+        if not file:
+            return json_response(error='请选择要上传的文件')
+
+        # 文件类型校验
+        _, ext = os.path.splitext(file.name)
+        ext = ext.lower()
+        if ext not in ALLOWED_FILE_EXTENSIONS:
+            return json_response(error=f'不支持的文件类型，允许：{", ".join(ALLOWED_FILE_EXTENSIONS)}')
+
+        # 文件大小校验
+        if file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
+            return json_response(error=f'文件大小不能超过 {MAX_FILE_SIZE_MB}MB')
+
+        # 文件名清洗（防路径穿越）
+        safe_name = os.path.basename(file.name)
+        # 移除潜在危险字符
+        safe_name = safe_name.replace('..', '').replace('/', '').replace('\\', '').replace('\x00', '')
+        if not safe_name:
+            safe_name = f'attachment{ext}'
+
+        # 生成存储路径
+        date_path = timezone.now().strftime('%Y%m')
+        save_dir = os.path.join(settings.MEDIA_ROOT, ATTACHMENT_UPLOAD_DIR, date_path)
+        os.makedirs(save_dir, exist_ok=True)
+
+        # 生成唯一文件名
+        unique_name = f'{uuid.uuid4().hex}{ext}'
+        file_path = os.path.join(save_dir, unique_name)
+
+        # 保存文件
+        try:
+            with open(file_path, 'wb+') as destination:
+                for chunk in file.chunks():
+                    destination.write(chunk)
+        except OSError as e:
+            logger.error(f'[RadioLicense] 附件保存失败: {e}')
+            return json_response(error='附件保存失败')
+
+        # 创建数据库记录
+        relative_path = f'{ATTACHMENT_UPLOAD_DIR}/{date_path}/{unique_name}'
+        attachment_type = request.POST.get('attachment_type', 'other')
+        if attachment_type not in ['license', 'permit', 'approval', 'other']:
+            attachment_type = 'other'
+
+        att = RadioLicenseAttachment.objects.create(
+            tenant_id=license_obj.tenant_id,
+            license=license_obj,
+            attachment_type=attachment_type,
+            file_name=safe_name,
+            file_path=relative_path,
+            file_size=file.size,
+            file_ext=ext,
+            uploaded_by=request.user,
+        )
+        result = att.to_view()
+        result['uploaded_by_name'] = request.user.nickname
+        return json_response(result)
+
+
+class AttachmentDownloadView(View):
+    """附件下载（鉴权）"""
+
+    @auth('radio_license.attachment.download')
+    def get(self, request, pk):
+        """下载附件"""
+        # 校验附件存在且属于当前租户
+        qs = apply_tenant_filter(RadioLicenseAttachment.objects.all(), request.user)
+        try:
+            att = qs.get(pk=pk)
+        except RadioLicenseAttachment.DoesNotExist:
+            return json_response(error='附件不存在或无权限访问')
+
+        # 校验关联执照未删除且有权限
+        license_qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
+        if not license_qs.filter(pk=att.license_id, is_deleted=False).exists():
+            return json_response(error='执照不存在或无权限访问')
+
+        # 路径安全检查
+        full_path = os.path.join(settings.MEDIA_ROOT, att.file_path)
+        # 防止路径穿越
+        media_real = os.path.realpath(settings.MEDIA_ROOT)
+        file_real = os.path.realpath(full_path)
+        if not file_real.startswith(media_real):
+            logger.error(f'[RadioLicense] 路径穿越攻击: {att.file_path}')
+            return json_response(error='文件不存在')
+
+        if not os.path.exists(full_path):
+            return json_response(error='文件不存在')
+
+        # 流式下载
+        encoded_filename = quote(att.file_name)
+        response = FileResponse(
+            open(full_path, 'rb'),
+            content_type='application/octet-stream',
+        )
+        response['Content-Disposition'] = (
+            f'attachment; filename="{encoded_filename}"; '
+            f'filename*=UTF-8\'\'{encoded_filename}'
+        )
+        response['Content-Length'] = os.path.getsize(full_path)
+        return response
+
+
+class AttachmentDeleteView(View):
+    """附件删除"""
+
+    @auth('radio_license.attachment.upload')
+    def delete(self, request):
+        """删除附件"""
+        form, error = JsonParser(
+            Argument('id', type=int, help='请指定附件ID')
+        ).parse(request.GET)
+        if error is None:
+            # 校验附件存在且属于当前租户
+            qs = apply_tenant_filter(RadioLicenseAttachment.objects.all(), request.user)
+            att = qs.filter(pk=form.id).first()
+            if not att:
+                return json_response(error='附件不存在或无权限删除')
+
+            # 校验关联执照未删除且有权限
+            license_qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
+            if not license_qs.filter(pk=att.license_id, is_deleted=False).exists():
+                return json_response(error='执照不存在或无权限操作')
+
+            # 删除物理文件
+            full_path = os.path.join(settings.MEDIA_ROOT, att.file_path)
+            try:
+                if os.path.exists(full_path):
+                    os.remove(full_path)
+            except OSError as e:
+                logger.warning(f'[RadioLicense] 删除附件文件失败: {e}')
+
+            # 删除数据库记录
+            att.delete()
+        return json_response(error=error)

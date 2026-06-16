@@ -77,3 +77,54 @@ class RadioLicenseFrequency(models.Model, TenantModelMixin):
         indexes = [
             models.Index(fields=['tenant_id', 'license']),
         ]
+
+
+ATTACHMENT_TYPE_CHOICES = (
+    ('license', '执照'),
+    ('permit', '许可证'),
+    ('approval', '许可批复'),
+    ('other', '其他'),
+)
+
+# 允许上传的文件扩展名
+ALLOWED_FILE_EXTENSIONS = [
+    '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
+    '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+    '.zip', '.rar', '.7z',
+]
+
+# 最大文件大小（MB）
+MAX_FILE_SIZE_MB = 50
+
+
+class RadioLicenseAttachment(models.Model, TenantModelMixin):
+    """无线电台执照附件表"""
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    # ---- 业务字段 ----
+    license = models.ForeignKey(RadioLicense, models.CASCADE, related_name='attachments', help_text='执照')
+    attachment_type = models.CharField(max_length=30, choices=ATTACHMENT_TYPE_CHOICES, default='other', help_text='附件类型')
+    file_name = models.CharField(max_length=255, help_text='原始文件名')
+    file_path = models.CharField(max_length=500, help_text='存储路径')
+    file_size = models.BigIntegerField(default=0, help_text='文件大小(字节)')
+    file_ext = models.CharField(max_length=20, default='', help_text='文件扩展名')
+
+    # ---- 通用字段 ----
+    created_at = models.CharField(max_length=20, default=human_datetime)
+    uploaded_by = models.ForeignKey(User, models.PROTECT, related_name='+', help_text='上传人')
+
+    def __repr__(self):
+        return '<RadioLicenseAttachment %s>' % self.file_name
+
+    def to_view(self):
+        return self.to_dict()
+
+    class Meta:
+        db_table = 'tdyw_radio_license_attachment'
+        verbose_name = '执照附件'
+        verbose_name_plural = '执照附件'
+        ordering = ('-created_at',)
+        indexes = [
+            models.Index(fields=['tenant_id', 'license']),
+        ]
