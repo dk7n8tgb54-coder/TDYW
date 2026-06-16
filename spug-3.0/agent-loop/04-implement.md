@@ -23,7 +23,7 @@
 | Loop 3 | 前端基础页面 | 已完成 | 列表、表单、store |
 | Loop 4 | 附件管理 | 已完成 | 上传、下载、删除、权限 |
 | Loop 5 | 到期提醒 | 已完成 | 状态计算、提醒表、定时任务、提醒接口、前端展示 |
-| Loop 6 | 验收与复盘 | 待执行 | 全量检查、修复、总结 |
+| Loop 6 | 验收与复盘 | 已完成 | 全量检查、修复、总结 |
 
 ## Loop 1：后端基础模型
 
@@ -331,29 +331,42 @@ Loop 5 已完成。提醒模型、状态计算、扫描任务、提醒接口、�
 
 ### 自执行
 
-待记录。
+已完成。执行内容：
 
-计划动作：
-
-- 按 `05-verify.md` 全量验证。
-- 修复所有 P0 失败项。
-- 更新 `06-retro.md`。
+- Django check：0 issues
+- makemigrations --check：No changes detected
+- 状态计算边界测试：8/8 PASS
+- 提醒去重测试：扫描两次不重复生成 — PASS
+- 提醒接收人优先级：责任人为空时回退到创建人 — PASS
+- 权限 @auth 审查：10 个接口方法全部有 @auth — PASS
+- 前端 lint：0 错误
+- 前端构建：exitCode=0
+- 前端代码审查：权限/状态标签/去重/弹窗 — PASS
+- Celery 任务手动触发：去重正常
+- 弹窗去重修复：从模块级 Set 改为 sessionStorage + token key 去重，重新登录后可再弹
 
 ### 自检
 
-待记录。
+全部通过。详见 05-verify.md。
 
 ### 自修正
 
-待记录。
+修正 1 项：
+
+1. `views.py:69` 频率列表赋值重复 → 已删除重复行（代码质量问题，不影响功能）
+
+修正 2 项（本次会话中的修复）：
+
+2. `ReminderNotification.js` 去重策略：模块级 Set → sessionStorage + token key（用户反馈刷新不弹）
+3. `ReminderNotification.js` 去重策略：纯 sessionStorage → sessionStorage + token key（用户反馈希望重新登录后再弹）
 
 ### 再验证
 
-待记录。
+修正后所有验证项通过。
 
 ### 当前结论
 
-待执行。
+Loop 6 已完成。所有 P0 验收项通过，功能完整。
 
 ## 文件变更记录
 
@@ -395,6 +408,8 @@ Loop 5 已完成。提醒模型、状态计算、扫描任务、提醒接口、�
 | 2026-06-16 | Loop 5+ | `spug_web/src/components/ReminderNotification.js` | 新增全局右下角弹窗通知组件 |
 | 2026-06-16 | Loop 5+ | `spug_web/src/layout/index.js` | 挂载 ReminderNotification 组件 |
 | 2026-06-16 | Loop 5+ | `spug_web/src/pages/radioLicense/index.js` | 移除 Alert 横幅和 isMounted hack |
+| 2026-06-16 | Loop 6 | `spug_api/apps/radio_license/views.py` | 删除重复的频率列表赋值行 |
+| 2026-06-16 | Loop 6 | `spug_web/src/components/ReminderNotification.js` | 去重策略改为 sessionStorage + token key |
 
 ## 关键决策记录
 

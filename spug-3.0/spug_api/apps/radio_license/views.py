@@ -66,7 +66,6 @@ class RadioLicenseView(View):
             item['frequencies'] = [f.to_view() for f in freqs]
             # 附件数量
             item['attachment_count'] = RadioLicenseAttachment.objects.filter(license=record).count()
-            item['frequencies'] = [f.to_view() for f in freqs]
             # 计算剩余天数和状态
             today = timezone.now().date()
             days_left = (record.valid_to - today).days

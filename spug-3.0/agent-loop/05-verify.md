@@ -128,14 +128,14 @@
 
 | 验收项 | 是否通过 | 备注 |
 | --- | --- | --- |
-| 执照登记 | 待验证 |  |
-| 多频率维护 | 待验证 |  |
-| 附件管理 | 待验证 |  |
-| 到期提醒 | 待验证 |  |
-| 右下角弹窗提醒 | 通过 | ReminderNotification.js 全局挂载，notification bottomRight，会话去重，点击跳转 |
-| 权限控制 | 待验证 |  |
-| 多租户隔离 | 待验证 |  |
-| 文档记录完整 | 待验证 |  |
+| 执照登记 | 通过 | CRUD 接口 + 前端表单，@auth + apply_tenant_filter 全覆盖 |
+| 多频率维护 | 通过 | Form.List 动态行 + 先删后建更新，后端 type=list 支持 |
+| 附件管理 | 通过 | 上传/下载/删除均鉴权，路径穿越防护，文件类型/大小白名单 |
+| 到期提醒 | 通过 | 8/8 边界测试 PASS，去重 PASS，接收人优先级 PASS |
+| 右下角弹窗提醒 | 通过 | sessionStorage + token key 去重，重新登录后可再弹 |
+| 权限控制 | 通过 | 10 个接口方法全部有 @auth，前端 AuthDiv/AuthButton 全覆盖 |
+| 多租户隔离 | 通过 | 所有接口均有 apply_tenant_filter |
+| 文档记录完整 | 通过 | 04-implement.md / 05-verify.md / 06-retro.md 已更新 |
 
 ## 自修正记录
 
@@ -147,6 +147,7 @@
 | 2026-06-16 | Loop 4 | 1 项 | 附件列表 GET 接口未显式对附件查询做租户过滤 | 添加 apply_tenant_filter(attachments, request.user) | Django check 通过 |
 | 2026-06-16 | Loop 5 | 2 项 | 1. 状态计算阈值从 30 天改为 45 天 2. 前端 r.license 改为 r.license_id | 1. 修改 views.py 3处 + Table.js + Form.js 2. 修改 ReminderList.js | 边界测试 8/8 通过 |
 | 2026-06-16 | Loop 5+ | 0 项 | 无 | 无需自修正，lint + 构建一次通过 | 无 |
+| 2026-06-16 | Loop 6 | 3 项 | 1. views.py 频率列表重复赋值 2. 弹窗去重：模块级 Set 刷新后不再弹 3. 弹窗去重：纯 sessionStorage 重新登录后不弹 | 1. 删除重复行 2. 改为 sessionStorage 3. 改为 sessionStorage + token key | lint 0 错误，构建通过 |
 
 ## 可用验证命令
 
