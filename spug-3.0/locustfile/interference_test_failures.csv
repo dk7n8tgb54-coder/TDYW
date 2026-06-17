@@ -1,4 +1,0 @@
-Method,Name,Error,Occurrences
-POST,POST /api/interference/ (创建干扰记录),CatchResponseError('HTTP错误: 401'),941
-GET,GET /api/interference/statistics/ (统计数据),CatchResponseError('HTTP错误: 401'),423
-GET,GET /api/interference/ (干扰记录列表),CatchResponseError('HTTP错误: 401'),1347

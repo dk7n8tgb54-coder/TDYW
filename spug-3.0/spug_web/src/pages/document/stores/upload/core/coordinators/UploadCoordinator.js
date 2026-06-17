@@ -119,15 +119,22 @@ export class UploadCoordinator {
       }
 
       if (!stateMachine.canTransition('START')) {
-        // 不能 START：只 continue，不 remove（状态机可能正在运行，remove 会误删）
+        // 不能 START：已存在的状态机只 continue（可能正在运行，remove 会误删）
+        // 新创建的 waiting 状态机没有运行中资源，安全 remove 避免泄漏
+        if (!existing) {
+          sm?.remove(item.id);
+        }
         continue;
       }
 
       const success = stateMachine.transition('START');
       if (success) {
         startedCount++;
+      } else if (!existing) {
+        // 新创建但 START 失败：安全 remove，避免 waiting 状态机泄漏累积
+        sm?.remove(item.id);
       }
-      // transition 失败也不 remove（安全第一）
+      // 已存在的状态机 transition 失败不 remove（安全第一）
     }
   }
 

@@ -84,11 +84,14 @@ export class StateMachineManager {
    */
   _aggressiveCleanup() {
     const FINAL_STATES = ['completed', 'error', 'cancelled'];
+    // waiting 状态机没有运行中资源（无网络请求/MD5计算），可安全回收
+    // 下次 startWaiting 会通过 ensureStateMachine 重新创建
+    const SAFE_TO_REMOVE = ['completed', 'error', 'cancelled', 'waiting'];
     const toRemove = [];
     this.machines.forEach((machine, uploadId) => {
       const state = machine.getState();
-      // 1. 终态立即清理
-      if (FINAL_STATES.includes(state)) {
+      // 1. 终态 + waiting 状态机安全清理
+      if (SAFE_TO_REMOVE.includes(state)) {
         toRemove.push(uploadId);
         return;
       }
@@ -102,7 +105,7 @@ export class StateMachineManager {
       }
     });
     if (toRemove.length > 0) {
-      console.log(`[StateMachineManager] 强化清理 ${toRemove.length} 个状态机（终态+orphan）`);
+      console.log(`[StateMachineManager] 强化清理 ${toRemove.length} 个状态机（终态+waiting+orphan）`);
       toRemove.forEach(id => this.remove(id));
     }
     return toRemove.length;
