@@ -193,6 +193,16 @@ export class FileUploadStore {
       }, 100);
       this.queueStore.triggerRefresh();
 
+      // 【关键修复】触发状态机转换：uploading → completed（小文件直通完成，无需合并）
+      // 之前缺失此转换，导致状态机永远卡在 uploading，countByStates 不释放，后续任务无法启动
+      const stateMachine = this.rootStore.stateMachineManager?.get(uploadId);
+      if (stateMachine) {
+        const transitionResult = stateMachine.transition('UPLOAD_COMPLETE');
+        console.log(`[FileUpload] ${uploadId}: 小文件上传完成，触发 UPLOAD_COMPLETE, result=${transitionResult}, newState=${stateMachine.getState()}`);
+      } else {
+        console.warn(`[FileUpload] ${uploadId}: 上传完成但未找到状态机!`);
+      }
+
       return { success: true };
 
     } catch (error) {
@@ -478,6 +488,13 @@ export class FileUploadStore {
         }
       }, 100);
       this.queueStore.triggerRefresh();
+
+      // 【关键修复】触发状态机转换：uploading → completed（小文件直通完成，无需合并）
+      const stateMachine = this.rootStore.stateMachineManager?.get(uploadId);
+      if (stateMachine) {
+        const transitionResult = stateMachine.transition('UPLOAD_COMPLETE');
+        console.log(`[FileUpload] ${uploadId}: 文件夹小文件上传完成，触发 UPLOAD_COMPLETE, result=${transitionResult}, newState=${stateMachine.getState()}`);
+      }
 
       return { success: true };
 

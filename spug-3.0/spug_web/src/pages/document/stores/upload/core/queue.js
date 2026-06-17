@@ -168,6 +168,7 @@ export class UploadQueueStore {
   @action
   incrementActiveUploads() {
     this.activeUploads += 1;
+    console.log('[activeUploads] increment ->', this.activeUploads, new Error().stack?.split('\n').slice(1, 4).join(' <- '));
   }
 
   /**
@@ -176,6 +177,7 @@ export class UploadQueueStore {
   @action
   decrementActiveUploads() {
     this.activeUploads = Math.max(0, this.activeUploads - 1);
+    console.log('[activeUploads] decrement ->', this.activeUploads, new Error().stack?.split('\n').slice(1, 4).join(' <- '));
   }
 
   /**

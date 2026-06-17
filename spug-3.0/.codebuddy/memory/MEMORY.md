@@ -219,6 +219,40 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate document
 - **Django Model.save() 签名必须兼容**：`def save(self, *args, **kwargs)` 不能丢 `*args`
 - **ErrorBoundary 不要暴露 error.message**：生产环境显示通用提示，详细错误只打日志
 
+### 18. 上传并发瓶颈分析（2026-06-16 性能压测方案）
+- **首要瓶颈**：Celery 合并队列容量（general-worker concurrency=4 + dev-worker concurrency=2 = 总计 6 并发）
+- **次要瓶颈**：合并磁盘 I/O 串行写（`FILE_COPY_BUFFER_SIZE = 1MB`，应增到 8-16MB）
+- **第三瓶颈**：MySQL `CONN_MAX_AGE = 0`（gevent 兼容无连接池，每次请求建新连接）
+- **Gunicorn**：gevent worker，4 核容器 → 4 worker，worker_connections=10000
+- **关键文件**：
+  - 前端：`spug_web/src/pages/document/stores/constants/upload.js`（MAX_CONCURRENT_UPLOADS=3）
+  - 后端合并：`spug_api/apps/document/tasks/merge.py`（FILE_COPY_BUFFER_SIZE=1MB）
+  - Celery 启动：`spug_api/tools/start-celery-worker.sh`（concurrency=2）、`start-celery.sh`（concurrency=4）
+  - Gunicorn：`spug_api/gunicorn.conf.py`（gevent, workers=CPU核数）
+  - 压测脚本：`locustfile/locustfile_upload_pressure.py`
+  - 压测方案：`locustfile/UPLOAD_PRESSURE_TEST_PLAN.md`
+- **P0 优化建议**：① merge worker concurrency 2→8 ② FILE_COPY_BUFFER_SIZE 1MB→8MB ③ 安装 django-db-geventpool
+
+### 19. 状态机与上传队列解耦（2026-06-17 Loop-200 修复，zlkloop 闭环）
+- **根因**：入队时为每个文件批量 `stateMachineManager.create()`，`MAX_MACHINES=200` 硬上限 → 第 201 个 `create()` 返回 null → `startWaiting()` 只调度"已有状态机"的 waiting 任务 → 后续任务永久卡住
+- **修复原则**：队列无限制，状态机懒创建，终态及时释放
+- **关键改动**：
+  - `UploadCoordinator.ensureStateMachine(item)`：唯一懒创建入口，调度时才创建，创建失败判空返回 null 保持 waiting
+  - `startWaiting()`：不再 `filter(sm && sm.canTransition)`，改为先筛 waiting 再 `ensureStateMachine`
+  - 入队路径（`_processBatch`/`_processUniform`/`processSingleFile`）：移除全部 `create()` 调用
+  - `StateChangeHandler.handle()`：`completed/error/cancelled` 终态 `setTimeout(0)` 释放状态机
+  - `ItemOperationController.resumeItem`：终态释放后重试时复用 `ensureStateMachine` 重建（**否则重试失效**）
+  - `cancelItem`/`removeItem`：绕过状态机直接出队，需显式 `remove()` 否则泄漏
+  - `MAX_MACHINES` 200→1000（仅保护性上限，不再是容量上限）
+  - `MAX_DISPLAY_COUNT` 注释明确仅显示用途、不参与调度
+- **全局监听器**：`index.js _initStateMachine` 注册的 globalListener 自动接入 `StateChangeHandler.handle`，懒创建的状态机无需单独 addListener
+- **终态释放时机安全**：`onCompleted/onError` 不引用本任务状态机（已核实），`setTimeout(0)` 在回调链后执行
+- **验证**：ESLint 0 错误；Babel 编译 6/6 OK；单测 29 通过/3 失败（3 个失败为预先存在的批量操作测试，与本次无关，`git diff` 证实 StateMachineManager 仅改 MAX_MACHINES）
+- **教训**：保护性上限放错层级会变成业务容量上限；终态释放必须同步检查所有"读取状态机"的入口（resume/retry/cancel/delete）能否处理缺失
+- **第二轮教训（1003 卡住）**：并发计数器 `activeUploads` 只统计 `uploading` 状态，不统计 `calculating`（大文件 MD5 计算期间），导致 `startWaiting` 误判有空闲槽位超发。修复：调度入口 `activeCount` 改为直接 `queue.filter(calculating + uploading)` 统计，不依赖只计 uploading 的计数器。注释写"calculating+uploading"但代码只统计 uploading——注释与代码不一致是 bug 高发区
+- **第三轮教训（保护阈值彻底降级）**：仅抬高 `MAX_MACHINES` 上限不是"无数量限制"的真正解。真正解 = 入队不创建状态机 + 调度按并发槽位懒创建 + 创建失败 break 不扫爆 + 无法 START 立即 remove + 终态释放后触发 processPending 闭环 + 保护阈值只做异常兜底（强化清理终态+orphan）。关键：保护阈值只能限制运行时资源，不能限制单次入队文件数。重命名 `MAX_MACHINES` → `MAX_ACTIVE_MACHINES` 语义更清晰。目标架构：队列无上限、状态机稳定在并发数左右、并发由 `MAX_CONCURRENT_UPLOADS` 控制
+- **第四轮教训（remove 误删运行中状态机）**：在 startWaiting 调度循环里对 `canTransition('START')` 失败的状态机做 `remove` 是灾难性的——状态机可能正在 calculating/uploading，只是 item.status 因时序窗口仍是 waiting。remove 会导致上传中断 + 每轮 processPending 都删除+创建新状态机 → 状态机数量爆炸到保护阈值。修复：(1) 并发槽位统计改用 `StateMachineManager.countByStates(['calculating','uploading'])` 直接读状态机 currentState（transition 内同步更新，唯一可靠真相源），不依赖 item.status 的 EventBus→StoreEventAdapter 更新链；(2) 去掉所有 remove 逻辑，canTransition 失败只 continue；(3) 已有状态机不在 waiting 状态时直接 skip。关键：`transition()` 内部 currentState 在 entry 钩子之前同步更新，`notifyListeners` 是 queueMicrotask 异步
+
 ---
 
 ## 抽屉化历史（参考）

@@ -168,6 +168,7 @@ export class UploadStateMachine {
     const transition = this.findTransition(currentStateDef, event);
 
     if (!transition) {
+      console.warn(`[UploadStateMachine] ${this.uploadId}: 转换失败-无匹配规则 currentState=${this.currentState} event=${event}`);
       // 监控埋点：非法转换次数
       if (this.context.metrics) {
         this.context.metrics.invalidTransitions++;
@@ -177,6 +178,7 @@ export class UploadStateMachine {
 
     // 检查守卫条件
     if (transition.guard && !transition.guard(payload)) {
+      console.warn(`[UploadStateMachine] ${this.uploadId}: 转换失败-守卫不满足 ${this.currentState} --${event}--> ${transition.target}`);
       return false;
     }
 

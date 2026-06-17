@@ -15,9 +15,10 @@ export class UploadLifecycle {
    */
   @action
   onCompleted(uploadId) {
-    // 【P0修复】递减活跃上传计数，释放并发槽位
-    this.core.queueStore.decrementActiveUploads();
-    
+    // 【关键修复】不再在此处递减 activeUploads
+    // handleUploadingState 的 finally 块已统一处理递减（成功/失败/异常均覆盖）
+    // 此处再递减会导致双重递减（小文件直通 completed + 大文件 merging→completed 均受影响）
+
     // 【关键修复】上传完成后，检查是否有暂停的任务需要自动恢复
     if (this.core.recoveryCoordinator) {
       this.core.recoveryCoordinator.schedule();

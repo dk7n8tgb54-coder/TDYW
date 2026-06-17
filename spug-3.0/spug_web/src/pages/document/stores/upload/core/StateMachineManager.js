@@ -15,8 +15,11 @@ import { UploadStateMachine } from './UploadStateMachine';
 export class StateMachineManager {
   // 【任务3.3】全局监听器数量上限
   static MAX_GLOBAL_LISTENERS = 20;
-  // 【任务3.3】状态机数量上限
-  static MAX_MACHINES = 200;
+  // 【Loop-1003修复】保护性阈值（不再是上传容量上限）
+  // 正常运行时状态机数≈活跃并发+暂停+短期历史，远小于此值（如并发3时通常<10）
+  // 仅在异常情况（状态机泄漏/超发）下触达：触达时先强化清理终态+orphan，仍超才拒绝创建
+  // 关键：此阈值只能限制运行时资源，不能限制单次入队文件数（入队不创建状态机）
+  static MAX_ACTIVE_MACHINES = 1000;
 
   constructor() {
     this.machines = new Map();
@@ -43,16 +46,19 @@ export class StateMachineManager {
    * @returns {UploadStateMachine|null} 状态机实例，如果超过上限则返回null
    */
   create(uploadId, context) {
-    // 【任务3.3】检查状态机数量上限
-    if (this.machines.size >= StateMachineManager.MAX_MACHINES) {
+    // 【Loop-1003修复】达到保护阈值时先强化清理（终态+orphan），仍超才拒绝
+    if (this.machines.size >= StateMachineManager.MAX_ACTIVE_MACHINES) {
       if (!this._warningsEmitted.machineLimit) {
-        console.warn(`[StateMachineManager] 状态机数量已达上限(${StateMachineManager.MAX_MACHINES})，触发自动清理`);
+        console.warn(`[StateMachineManager] 状态机数量已达保护阈值(${StateMachineManager.MAX_ACTIVE_MACHINES})，触发强化清理`);
         this._warningsEmitted.machineLimit = true;
       }
-      // 尝试自动清理已完成的任务
-      const cleaned = this.cleanup(0);  // 立即清理所有已完成
-      if (cleaned === 0 || this.machines.size >= StateMachineManager.MAX_MACHINES) {
-        console.error(`[StateMachineManager] 无法创建状态机: 数量已达上限且清理无效`);
+      const cleaned = this._aggressiveCleanup();
+      if (this.machines.size >= StateMachineManager.MAX_ACTIVE_MACHINES) {
+        console.error(`[StateMachineManager] 强化清理后仍达保护阈值，拒绝创建新状态机`, {
+          size: this.machines.size,
+          uploadId,
+          cleaned,
+        });
         return null;
       }
     }
@@ -69,6 +75,37 @@ export class StateMachineManager {
 
     this.machines.set(uploadId, machine);
     return machine;
+  }
+
+  /**
+   * 【Loop-1003修复】强化清理：终态状态机 + orphan（队列中已不存在的非终态状态机）
+   * 在达到保护阈值时调用，腾出空间给即将运行的任务
+   * @returns {number} 清理的数量
+   */
+  _aggressiveCleanup() {
+    const FINAL_STATES = ['completed', 'error', 'cancelled'];
+    const toRemove = [];
+    this.machines.forEach((machine, uploadId) => {
+      const state = machine.getState();
+      // 1. 终态立即清理
+      if (FINAL_STATES.includes(state)) {
+        toRemove.push(uploadId);
+        return;
+      }
+      // 2. orphan 清理：队列中已不存在的非终态状态机（如任务被删除但状态机未释放）
+      const queueStore = machine.context?.queueStore;
+      if (queueStore && typeof queueStore.findUploadItemInCurrentTenant === 'function') {
+        const item = queueStore.findUploadItemInCurrentTenant(uploadId);
+        if (!item) {
+          toRemove.push(uploadId);
+        }
+      }
+    });
+    if (toRemove.length > 0) {
+      console.log(`[StateMachineManager] 强化清理 ${toRemove.length} 个状态机（终态+orphan）`);
+      toRemove.forEach(id => this.remove(id));
+    }
+    return toRemove.length;
   }
 
   /**
@@ -466,6 +503,23 @@ export class StateMachineManager {
    */
   size() {
     return this.machines.size;
+  }
+
+  /**
+   * 【Loop-1003修复】统计指定状态集合内的状态机数量
+   * 用于并发槽位计算，直接读 currentState（同步准确），不依赖 item.status 的 EventBus 更新
+   *
+   * @param {string[]} states - 状态名称数组
+   * @returns {number} 匹配的状态机数量
+   */
+  countByStates(states) {
+    let count = 0;
+    this.machines.forEach(machine => {
+      if (states.includes(machine.getState())) {
+        count++;
+      }
+    });
+    return count;
   }
 
   /**

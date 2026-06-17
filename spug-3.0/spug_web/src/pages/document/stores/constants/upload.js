@@ -182,7 +182,9 @@ export const UPLOAD_CONSTANTS = {
   // 并发控制
   MAX_CONCURRENT_UPLOADS: 3,
   MAX_CONCURRENT_CHUNKS: 3,
-  MAX_DISPLAY_COUNT: 200,           // 传输列表最大显示任务数（虚拟列表支持1000+，提升上限）
+  // 【Loop-200修复】MAX_DISPLAY_COUNT 仅影响传输列表渲染显示数量，不影响真实队列容量和任务调度
+  // 真实队列无上限，调度受 MAX_CONCURRENT_UPLOADS 控制；此值仅用于 UI 层截断/虚拟列表
+  MAX_DISPLAY_COUNT: 200,           // 传输列表最大显示任务数（仅显示用途，不参与调度）
   MAX_COMPLETED_TASKS: 100,         // 自动清理：保留最近100个已完成任务
   
   // 重试配置

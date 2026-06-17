@@ -51,21 +51,28 @@ export class ItemOperationController {
    */
   @action
   async resumeItem(itemId) {
-    const stateMachine = this.core.stateMachineManager?.get(itemId);
-    
-    if (!stateMachine) return;
+    // 【Loop-200修复】终态状态机可能已被释放，重试时通过 ensureStateMachine 懒创建
+    const item = this.core.queueStore.findUploadItemInCurrentTenant(itemId);
+    if (!item) {
+      console.warn(`[ItemOperationController] 未找到上传项: ${itemId}`);
+      return;
+    }
+
+    let stateMachine = this.core.stateMachineManager?.get(itemId);
+    if (!stateMachine) {
+      // 状态机已被终态释放，重新懒创建（重建后状态为 waiting）
+      stateMachine = this.core.uploadCoordinator?.ensureStateMachine?.(item) || null;
+      if (!stateMachine) {
+        console.warn(`[ItemOperationController] 状态机重建失败，无法重试: ${itemId}`);
+        return;
+      }
+    }
 
     const currentState = stateMachine.getState();
     const eventName = currentState === 'waiting' ? 'START' : 'RESUME';
 
     if (!stateMachine.canTransition(eventName)) {
       message.warning(`当前状态(${currentState})不支持${eventName === 'START' ? '开始' : '恢复'}`);
-      return;
-    }
-    
-    const item = this.core.queueStore.findUploadItemInCurrentTenant(itemId);
-    if (!item) {
-      console.warn(`[ItemOperationController] 未找到上传项: ${itemId}`);
       return;
     }
 
@@ -273,6 +280,11 @@ export class ItemOperationController {
     // 【关键修复】立即从UI队列中移除，避免显示中间状态（如暂停/失败）
     this.core.queueStore.removeFromQueue(itemId, tenantId);
 
+    // 【Loop-200修复】释放状态机（cancelItem 绕过状态机直接出队，需显式释放避免泄漏）
+    if (this.core.stateMachineManager) {
+      this.core.stateMachineManager.remove(itemId);
+    }
+
     // 清理唯一标识
     if (item.uniqueKey && item.file) {
       const { file, folderId } = item;
@@ -357,6 +369,11 @@ export class ItemOperationController {
     // 无论后端删除是否成功，都清理前端状态
     const shouldRefresh = item.status === 'completed';
     this.core.queueStore.removeFromQueue(itemId, tenantId);
+
+    // 【Loop-200修复】释放状态机（删除任务后状态机不再需要，避免泄漏）
+    if (this.core.stateMachineManager) {
+      this.core.stateMachineManager.remove(itemId);
+    }
     
     if (shouldRefresh) {
       this.core.queueStore.triggerRefresh();

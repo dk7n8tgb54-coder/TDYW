@@ -168,16 +168,8 @@ export class FileUploadCoordinator {
       this.core.queueStore.addToQueue(queueItem, tenantId);
       allUploadItems.push(queueItem);
 
-      if (this.core.stateMachineManager) {
-        this.core.stateMachineManager.create(uploadId, {
-          queueStore: this.core.queueStore,
-          transferStore: this.core.transferStore,
-          md5Store: this.core.md5Store,
-          file: file,
-          folderId: folderId,
-          item: queueItem
-        });
-      }
+      // 【Loop-200修复】入队阶段不再创建状态机，改由 startWaiting 调度时懒创建
+      // 避免一次上传 870 个文件时瞬间创建 870 个状态机占满 MAX_ACTIVE_MACHINES 保护阈值
     }
 
     console.log('[_processBatch] 批次启动, 总任务数:', allUploadItems.length);
@@ -271,17 +263,8 @@ export class FileUploadCoordinator {
       this.core.queueStore.addToQueue(item, tenantId);
       allUploadItems.push(item);
 
-      if (this.core.stateMachineManager) {
-        // 【P0修复】创建状态机时传入item，确保canStart守卫可以正确判断
-        this.core.stateMachineManager.create(uploadId, {
-          queueStore: this.core.queueStore,
-          transferStore: this.core.transferStore,
-          md5Store: this.core.md5Store,
-          file: file,
-          folderId: folderId,
-          item: item  // 【新增】传入item确保canStart守卫正常工作
-        });
-      }
+      // 【Loop-200修复】入队阶段不再创建状态机，改由 startWaiting 调度时懒创建
+      // 避免一次上传 870 个文件时瞬间创建 870 个状态机占满 MAX_ACTIVE_MACHINES 保护阈值
     }
 
     console.log('[processUploadQueue] 开始启动任务, 总任务数:', allUploadItems.length);

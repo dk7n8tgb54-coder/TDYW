@@ -79,6 +79,23 @@ export class StateChangeHandler {
         this.core.uploadCoordinator.processPending();
       }
     }
+
+    // 【Loop-200修复】终态释放状态机：completed/error/cancelled 后懒释放
+    // 避免状态机数量随总任务数增长；onCompleted/onError 不引用本任务状态机，释放安全
+    // setTimeout(0) 确保当前 handle 回调链执行完毕后再移除
+    // 【Loop-1003修复】释放后立即触发 processPending，让 waiting 任务顶上来
+    if (FINAL_STATES.includes(toState)) {
+      const idToRemove = uploadId;
+      setTimeout(() => {
+        if (this.core.stateMachineManager) {
+          this.core.stateMachineManager.remove(idToRemove);
+        }
+        // 释放后触发调度，让 waiting 任务顶上来
+        if (this.core.uploadCoordinator) {
+          this.core.uploadCoordinator.processPending();
+        }
+      }, 0);
+    }
   }
 
   /**
@@ -125,9 +142,18 @@ export class StateChangeHandler {
 
     // 【M-03修复】等待并发槽位
     const { MAX_CONCURRENT_UPLOADS, CONCURRENT_SLOT_WAIT_INTERVAL } = require('../upload-core-constants');
+    if (this.core.activeUploads >= MAX_CONCURRENT_UPLOADS) {
+      console.log(`[handleUploadingState] ${uploadId}: 开始等待槽位 activeUploads=${this.core.activeUploads} max=${MAX_CONCURRENT_UPLOADS}`);
+    }
+    let _waitRounds = 0;
     while (this.core.activeUploads >= MAX_CONCURRENT_UPLOADS) {
       if (this.core.isCancelled || this.core.isPaused) {
+        console.log(`[handleUploadingState] ${uploadId}: 等待中被取消/暂停 activeUploads=${this.core.activeUploads}`);
         return;
+      }
+      _waitRounds++;
+      if (_waitRounds % 10 === 0) {
+        console.log(`[handleUploadingState] ${uploadId}: 仍在等待 已${_waitRounds}轮 activeUploads=${this.core.activeUploads}`);
       }
       await new Promise(resolve => setTimeout(resolve, CONCURRENT_SLOT_WAIT_INTERVAL));
     }
