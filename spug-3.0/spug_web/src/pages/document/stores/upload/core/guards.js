@@ -77,7 +77,6 @@ export function shouldRecalculateMD5({ item }) {
   // 32MB = 32 * 1024 * 1024 = 33554432 bytes
   const SKIP_MD5_THRESHOLD = 32 * 1024 * 1024;
   if (item.fileSize < SKIP_MD5_THRESHOLD && !item.forceRecalculateMD5) {
-    console.log(`[MD5] 文件小于32MB，跳过MD5计算: ${item.name}, size=${item.fileSize}`);
     return false;
   }
   

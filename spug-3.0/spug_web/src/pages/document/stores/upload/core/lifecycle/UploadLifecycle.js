@@ -26,7 +26,6 @@ export class UploadLifecycle {
     
     // 【新增】从等待显示队列补充新任务到显示队列，并启动waiting任务
     const item = this.core.queueStore.findUploadItemInCurrentTenant(uploadId);
-    console.log('[上传完成] 准备补充显示队列, uploadId:', uploadId, 'item.status:', item?.status);
     
     // 【修复】使用setTimeout确保MobX状态更新完成后再补充队列和启动任务
     setTimeout(() => {
@@ -71,29 +70,22 @@ export class UploadLifecycle {
    */
   @action
   async onCalculating(uploadId, fromState) {
-    console.log(`[UploadLifecycle] ${uploadId}: onCalculating 开始, fromState=${fromState}`);
     const item = this.core.queueStore.findUploadItemInCurrentTenant(uploadId);
     if (!item) {
       console.error(`[UploadLifecycle] ${uploadId}: 未找到上传项!`);
       return;
     }
     if (item.status === 'paused') {
-      console.log(`[UploadLifecycle] ${uploadId}: 任务已暂停，跳过MD5计算`);
       return;
     }
-    
-    console.log(`[UploadLifecycle] ${uploadId}: 文件信息 name=${item.name}, size=${item.fileSize}, hasFile=${!!item.file}`);
 
     // 【优化】小于32MB的文件跳过MD5计算
     const SKIP_MD5_THRESHOLD = 32 * 1024 * 1024; // 32MB
     if (item.fileSize < SKIP_MD5_THRESHOLD) {
-      console.log(`[UploadLifecycle] ${uploadId}: 文件小于32MB，跳过MD5计算，直接开始上传`);
-      
       // 小文件使用空hash，直接触发状态转换：calculating -> waiting
       const stateMachine = this.core.stateMachineManager?.get(uploadId);
       if (stateMachine) {
-        const result = stateMachine.transition('MD5_COMPLETE', { fileHash: '' });
-        console.log(`[UploadLifecycle] ${uploadId}: 小文件跳过MD5，状态转换结果 result=${result}`);
+        stateMachine.transition('MD5_COMPLETE', { fileHash: '' });
       }
       return;
     }
@@ -105,19 +97,15 @@ export class UploadLifecycle {
       });
 
       // 计算MD5（仅大文件）
-      console.log(`[UploadLifecycle] ${uploadId}: 开始调用 calculateFileMD5`);
       const fileHash = await this.core.md5Store?.calculateFileMD5(item.file, uploadId);
-      console.log(`[UploadLifecycle] ${uploadId}: MD5计算完成, hash=${fileHash?.substring(0, 16)}...`);
       
       // 更新item的fileHash
       item.fileHash = fileHash;
 
       // 触发状态转换：calculating -> waiting
       const stateMachine = this.core.stateMachineManager?.get(uploadId);
-      console.log(`[UploadLifecycle] ${uploadId}: 获取状态机, exists=${!!stateMachine}`);
       if (stateMachine) {
-        const result = stateMachine.transition('MD5_COMPLETE', { fileHash });
-        console.log(`[UploadLifecycle] ${uploadId}: 状态转换结果 result=${result}, currentState=${stateMachine.getState()}`);
+        stateMachine.transition('MD5_COMPLETE', { fileHash });
       }
     } catch (error) {
       console.error(`[UploadLifecycle] ${uploadId}: MD5计算失败`, error);

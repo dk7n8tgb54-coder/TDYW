@@ -60,13 +60,8 @@ export class UploadCoordinator {
     const queue = this.core.queueStore.uploadQueue[tenantId] || [];
     const sm = this.core.stateMachineManager;
 
-    // 【诊断日志】记录调用者，确认调度链路是否被触发
-    const caller = new Error().stack?.split('\n')[2]?.trim() || 'unknown';
-    console.log('[启动任务] === startWaiting 被调用 === caller:', caller);
-
     // 【P0修复】如果全局暂停，不启动新任务（但新添加的文件会重置isPaused）
     if (this.core.isPaused) {
-      console.log('[启动任务] 全局暂停中，不启动新任务');
       return;
     }
 
@@ -82,19 +77,12 @@ export class UploadCoordinator {
     // 计算还可以启动多少个任务
     const availableSlots = maxConcurrent - activeCount;
 
-    console.log('[启动任务] 活跃状态机(calculating+uploading):', activeCount,
-      '最大并发:', maxConcurrent, '可用槽位:', availableSlots,
-      '状态机总数:', sm?.size?.());
-
     if (availableSlots <= 0) {
-      console.log('[启动任务] 无可用槽位，跳过');
       return;
     }
 
     // 找到所有 waiting 状态任务
     const waitingItems = queue.filter(item => item.status === 'waiting');
-
-    console.log('[启动任务] 可启动的waiting任务数:', waitingItems.length);
 
     // 【Loop-1003修复】一轮调度最多启动 availableSlots 个任务
     // 关键：不 remove 任何状态机！canTransition('START') 失败只 continue
@@ -108,9 +96,6 @@ export class UploadCoordinator {
 
       // 预检：避免创建无法 START 的状态机
       if (!this.canPrepareStart(item)) {
-        console.log('[启动任务] canPrepareStart失败 跳过:', item.id, item.name, {
-          status: item.status, hasFile: !!item.file, isPausedByUser: item.isPausedByUser, isCancelledByUser: item.isCancelledByUser
-        });
         continue;
       }
 
@@ -135,19 +120,15 @@ export class UploadCoordinator {
 
       if (!stateMachine.canTransition('START')) {
         // 不能 START：只 continue，不 remove（状态机可能正在运行，remove 会误删）
-        console.log('[启动任务] canTransition(START)失败 跳过:', item.id, '状态机当前状态:', stateMachine.getState());
         continue;
       }
 
-      console.log('[启动任务] 启动任务:', item.id, item.name);
       const success = stateMachine.transition('START');
       if (success) {
         startedCount++;
       }
       // transition 失败也不 remove（安全第一）
     }
-
-    console.log('[启动任务] 实际启动:', startedCount);
   }
 
   /**
@@ -215,7 +196,6 @@ export class UploadCoordinator {
     }
 
     // 【修复】使用统一的任务启动方法，受并发限制控制
-    console.log('[processUploadQueue] 开始启动任务, displayItems:', this.core.queueStore.currentUploadQueue.length);
     this.startWaiting();
   }
 

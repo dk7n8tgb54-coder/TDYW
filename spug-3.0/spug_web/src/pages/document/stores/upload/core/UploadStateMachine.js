@@ -149,16 +149,12 @@ export class UploadStateMachine {
    * @returns {boolean} 转换是否成功
    */
   transition(event, payload = {}) {
-    console.log(`[UploadStateMachine] ${this.uploadId}: transition(${event}), currentState=${this.currentState}`);
-
     // 输入验证
     if (typeof event !== 'string' || !event.trim()) {
-      console.log(`[UploadStateMachine] ${this.uploadId}: 无效的事件名称`);
       return false;
     }
 
     if (typeof payload !== 'object' || payload === null) {
-      console.log(`[UploadStateMachine] ${this.uploadId}: 无效的payload`);
       return false;
     }
 
@@ -187,13 +183,11 @@ export class UploadStateMachine {
 
     // 钩子函数异常防护
     try {
-      console.log(`[UploadStateMachine] ${this.uploadId}: 执行exit钩子`);
       // 执行退出动作
       if (currentStateDef.exit) {
         currentStateDef.exit(payload);
       }
 
-      console.log(`[UploadStateMachine] ${this.uploadId}: 更新状态 ${fromState} -> ${toState}`);
       // 更新状态
       this.currentState = toState;
       // 更新上下文
@@ -208,20 +202,17 @@ export class UploadStateMachine {
         payload
       });
 
-      console.log(`[UploadStateMachine] ${this.uploadId}: 执行entry钩子 for ${toState}`);
       // 执行进入动作
       const toStateDef = this.states[toState];
       if (toStateDef.entry) {
         toStateDef.entry(payload);
       }
 
-      console.log(`[UploadStateMachine] ${this.uploadId}: 执行action钩子`);
       // 执行转换动作
       if (transition.action) {
         transition.action(payload);
       }
 
-      console.log(`[UploadStateMachine] ${this.uploadId}: 准备通知监听器`);
       // 通知监听器
       this.notifyListeners(fromState, toState, event, payload);
 
@@ -331,7 +322,6 @@ export class UploadStateMachine {
    * 通知监听器
    */
   notifyListeners(fromState, toState, event, payload) {
-    console.log(`[UploadStateMachine] ${this.uploadId}: notifyListeners, listenerCount=${this.listeners.size}`);
     this.listeners.forEach((listener, index) => {
       const scheduleTask = typeof queueMicrotask !== 'undefined'
         ? queueMicrotask
@@ -339,9 +329,7 @@ export class UploadStateMachine {
 
       scheduleTask(() => {
         try {
-          console.log(`[UploadStateMachine] ${this.uploadId}: 调用监听器 #${index}`);
           listener(fromState, toState, event, payload, this.uploadId);
-          console.log(`[UploadStateMachine] ${this.uploadId}: 监听器 #${index} 完成`);
         } catch (error) {
           console.error(`[UploadStateMachine] ${this.uploadId}: 监听器 #${index} 错误`, error);
         }
@@ -515,7 +503,6 @@ export class UploadStateMachine {
   }
 
   onCancelledEntry() {
-    console.log(`[UploadStateMachine] ${this.uploadId}: onCancelledEntry 开始`);
     try {
       this.actions.updateItem({
         status: 'cancelled',
@@ -529,7 +516,6 @@ export class UploadStateMachine {
 
       // 更新后端状态
       this.actions.updateTransferStatus('CANCELED');
-      console.log(`[UploadStateMachine] ${this.uploadId}: onCancelledEntry 完成`);
     } catch (error) {
       console.error(`[UploadStateMachine] ${this.uploadId}: onCancelledEntry 异常`, error);
       throw error;

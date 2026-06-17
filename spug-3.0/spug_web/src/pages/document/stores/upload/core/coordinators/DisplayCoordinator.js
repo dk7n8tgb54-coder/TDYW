@@ -15,8 +15,6 @@ export class DisplayCoordinator {
    */
   @action
   replenish() {
-    console.log('[DisplayCoordinator] 触发任务调度');
-    
     if (this.core.uploadCoordinator) {
       this.core.uploadCoordinator.startWaiting();
     }

@@ -172,10 +172,8 @@ export class FileUploadCoordinator {
       // 避免一次上传 870 个文件时瞬间创建 870 个状态机占满 MAX_ACTIVE_MACHINES 保护阈值
     }
 
-    console.log('[_processBatch] 批次启动, 总任务数:', allUploadItems.length);
     if (this.core.uploadCoordinator) {
       if (this.core.isPaused && allUploadItems.length > 0) {
-        console.log('[_processBatch] 新添加文件，重置暂停状态');
         this.core.isPaused = false;
       }
       this.core.uploadCoordinator.startWaiting();
@@ -267,11 +265,9 @@ export class FileUploadCoordinator {
       // 避免一次上传 870 个文件时瞬间创建 870 个状态机占满 MAX_ACTIVE_MACHINES 保护阈值
     }
 
-    console.log('[processUploadQueue] 开始启动任务, 总任务数:', allUploadItems.length);
     if (this.core.uploadCoordinator) {
       // 【P0修复】新添加文件时强制重置暂停状态，确保自动开始
       if (this.core.isPaused && allUploadItems.length > 0) {
-        console.log('[processUploadQueue] 新添加文件，重置暂停状态');
         this.core.isPaused = false;
       }
       this.core.uploadCoordinator.startWaiting();

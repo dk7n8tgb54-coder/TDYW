@@ -78,7 +78,6 @@ class StatusSynchronizer {
     const { coreStore } = this;
     const item = coreStore.queueStore.findUploadItemInCurrentTenant(uploadId);
     if (!item?.transferId) {
-      console.log(`[StatusSynchronizer] ${uploadId}: 无transferId，跳过同步`);
       return;
     }
 
@@ -90,7 +89,6 @@ class StatusSynchronizer {
     // 如果当前已经是终态，不允许状态回退
     const { FINAL_STATES } = require('../upload-core-constants');
     if (FINAL_STATES.includes(item.status)) {
-      console.log(`[StatusSynchronizer] ${uploadId}: 已是终态(${item.status})，跳过同步`);
       return;
     }
 
@@ -98,7 +96,6 @@ class StatusSynchronizer {
     const { FRONTEND_STATUS_MAP } = require('../upload-core-constants');
     const backendStatus = FRONTEND_STATUS_MAP[toState];
     if (!backendStatus) {
-      console.log(`[StatusSynchronizer] ${uploadId}: 无法映射状态 ${toState}`);
       return;
     }
 
@@ -106,14 +103,11 @@ class StatusSynchronizer {
       // 避免重复同步相同状态
       const lastStatus = this._lastSyncStatusMap.get(item.transferId);
       if (lastStatus === backendStatus) {
-        console.log(`[StatusSynchronizer] ${uploadId}: 状态未变化(${backendStatus})，跳过同步`);
         return;
       }
       this._lastSyncStatusMap.set(item.transferId, backendStatus);
 
-      console.log(`[StatusSynchronizer] ${uploadId}: 同步状态 ${toState} -> ${backendStatus}`);
       await coreStore.transferStore.updateTransferStatus(item.transferId, backendStatus);
-      console.log(`[StatusSynchronizer] ${uploadId}: 同步成功`);
     } catch (error) {
       console.error(`[StatusSynchronizer] ${uploadId}: 同步失败`, error);
       // 静默处理，不阻塞状态流转

@@ -82,23 +82,18 @@ export class MD5Store {
    * 处理MD5任务队列
    */
   async processMD5TaskQueue() {
-    console.log(`[MD5Store] processMD5TaskQueue 调用, 队列长度=${this.md5TaskQueue.length}`);
     const workerItem = this.getAvailableWorker();
-    console.log(`[MD5Store] 获取Worker, available=${!!workerItem}, poolSize=${this.md5WorkerPool.length}`);
     
     if (!workerItem || this.md5TaskQueue.length === 0) {
-      console.log(`[MD5Store] 无可用Worker或队列为空，跳过`);
       return;
     }
 
     const task = this.md5TaskQueue.shift();
-    console.log(`[MD5Store] ${task.uploadId}: 开始处理任务`);
     workerItem.busy = true;
     workerItem.useCount++;
 
     try {
       const hash = await this.calculateFileMD5WithWorker(task.file, task.uploadId, workerItem.worker);
-      console.log(`[MD5Store] ${task.uploadId}: 任务完成, hash=${hash?.substring(0, 16)}...`);
       task.resolve(hash);
     } catch (error) {
       console.error(`[MD5Store] ${task.uploadId}: 任务失败`, error);
@@ -118,22 +113,17 @@ export class MD5Store {
    * - 大文件(>500MB)：抽样MD5（头/中/尾各2MB）
    */
   async calculateFileMD5(file, uploadId) {
-    console.log(`[MD5Store] ${uploadId}: calculateFileMD5 开始, fileSize=${file?.size}, isPoolInitialized=${this.isPoolInitialized}`);
-    
     // 【任务3.2】判断是否使用抽样MD5
     if (shouldUseSamplingMD5(file.size)) {
-      console.log(`[MD5Store] ${uploadId}: 文件大小超过阈值，使用抽样MD5`);
       return this.calculateSamplingMD5(file, uploadId);
     }
     
     if (!this.isPoolInitialized) {
-      console.log(`[MD5Store] ${uploadId}: 初始化Worker池`);
       this.initMD5WorkerPool();
     }
 
     return new Promise((resolve, reject) => {
       const task = { file, uploadId, resolve, reject };
-      console.log(`[MD5Store] ${uploadId}: 任务加入队列, 当前队列长度=${this.md5TaskQueue.length}`);
       this.md5TaskQueue.push(task);
       this.processMD5TaskQueue();
     });
@@ -149,8 +139,6 @@ export class MD5Store {
    * @returns {Promise<string>} 抽样MD5标识
    */
   async calculateSamplingMD5(file, uploadId) {
-    console.log(`[MD5Store] ${uploadId}: 开始抽样MD5计算`);
-    
     if (!this.isPoolInitialized) {
       this.initMD5WorkerPool();
     }
@@ -172,9 +160,6 @@ export class MD5Store {
       // 依次计算每个抽样块的MD5
       for (let i = 0; i < ranges.length; i++) {
         const range = ranges[i];
-        const position = i === 0 ? '头部' : (i === 1 ? '中部' : '尾部');
-        console.log(`[MD5Store] ${uploadId}: 计算${position}抽样块 ${i + 1}/${ranges.length}`);
-        
         const hash = await this._calculateSampleChunk(file, range, uploadId);
         sampleHashes.push(hash);
         
@@ -185,7 +170,6 @@ export class MD5Store {
       
       // 生成最终的抽样MD5标识
       const samplingHash = generateSamplingHash(sampleHashes, file.size);
-      console.log(`[MD5Store] ${uploadId}: 抽样MD5计算完成, hash=${samplingHash.substring(0, 32)}...`);
       
       return samplingHash;
     } catch (error) {

@@ -18,10 +18,6 @@ export class StateChangeHandler {
    * @param {string} uploadId - 上传任务ID
    */
   handle(fromState, toState, event, payload, uploadId) {
-    console.log(`[StateChangeHandler] ${uploadId}: ${fromState} -> ${toState} (event: ${event})`);
-    console.log(`[StateChangeHandler] ${uploadId}: toState类型=${typeof toState}, 值="${toState}"`);
-    console.log(`[StateChangeHandler] ${uploadId}: toState==='calculating' ? ${toState === 'calculating'}`);
-    
     // 【关键修复】如果目标状态是paused，检查当前任务是否已经是终态，防止终态任务被暂停
     if (toState === 'paused') {
       const item = this.core.queueStore.findUploadItemInCurrentTenant(uploadId);
@@ -43,26 +39,20 @@ export class StateChangeHandler {
     }
     
     // 特殊处理
-    console.log(`[StateChangeHandler] ${uploadId}: 检查状态处理分支, toState=${toState}`);
     if (toState === 'completed') {
-      console.log(`[StateChangeHandler] ${uploadId}: 触发 onCompleted`);
       if (this.core.uploadLifecycle) {
         this.core.uploadLifecycle.onCompleted(uploadId);
       }
     } else if (toState === 'error') {
-      console.log(`[StateChangeHandler] ${uploadId}: 触发 onError`);
       if (this.core.uploadLifecycle) {
         this.core.uploadLifecycle.onError(uploadId, payload);
       }
     } else if (toState === 'cancelled') {
-      console.log(`[StateChangeHandler] ${uploadId}: 任务已取消`);
       // 取消状态不触发额外处理，由状态机entry钩子处理
     } else if (toState === 'uploading') {
-      console.log(`[StateChangeHandler] ${uploadId}: 触发 handleUploadingState`);
       // 【关键修复】状态变为uploading时，触发实际上传逻辑
       this.handleUploadingState(uploadId, fromState);
     } else if (toState === 'calculating') {
-      console.log(`[StateChangeHandler] ${uploadId}: 触发 onCalculating`);
       // 【关键修复】状态变为calculating时，触发MD5计算
       if (this.core.uploadLifecycle) {
         this.core.uploadLifecycle.onCalculating(uploadId, fromState);
@@ -70,7 +60,6 @@ export class StateChangeHandler {
         console.error(`[StateChangeHandler] ${uploadId}: uploadLifecycle 未初始化!`);
       }
     } else if (toState === 'merging') {
-      console.log(`[StateChangeHandler] ${uploadId}: 触发 handleMergingState`);
       // 【关键修复】状态变为merging时，触发合并操作
       this.handleMergingState(uploadId, fromState);
       
@@ -142,18 +131,9 @@ export class StateChangeHandler {
 
     // 【M-03修复】等待并发槽位
     const { MAX_CONCURRENT_UPLOADS, CONCURRENT_SLOT_WAIT_INTERVAL } = require('../upload-core-constants');
-    if (this.core.activeUploads >= MAX_CONCURRENT_UPLOADS) {
-      console.log(`[handleUploadingState] ${uploadId}: 开始等待槽位 activeUploads=${this.core.activeUploads} max=${MAX_CONCURRENT_UPLOADS}`);
-    }
-    let _waitRounds = 0;
     while (this.core.activeUploads >= MAX_CONCURRENT_UPLOADS) {
       if (this.core.isCancelled || this.core.isPaused) {
-        console.log(`[handleUploadingState] ${uploadId}: 等待中被取消/暂停 activeUploads=${this.core.activeUploads}`);
         return;
-      }
-      _waitRounds++;
-      if (_waitRounds % 10 === 0) {
-        console.log(`[handleUploadingState] ${uploadId}: 仍在等待 已${_waitRounds}轮 activeUploads=${this.core.activeUploads}`);
       }
       await new Promise(resolve => setTimeout(resolve, CONCURRENT_SLOT_WAIT_INTERVAL));
     }
