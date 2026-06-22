@@ -492,3 +492,32 @@ class ReminderHandleView(View):
             return json_response(error='不支持的操作类型，请使用 read / handle / unread')
 
         return json_response(data={'count': count})
+
+
+# ==================== 菜单红点接口 ====================
+
+class RadioLicenseBadgeView(View):
+    """菜单红点统计
+
+    返回本租户下"即将到期 + 已过期"执照的数量，用于左侧菜单红点提示。
+    实时计算（按 valid_to 与 today 差值），不依赖 status 缓存字段。
+
+    鉴权：复用 radio_license.license.view（查看权限才能看到红点）。
+    """
+
+    @auth('radio_license.license.view')
+    def get(self, request):
+        from datetime import date, timedelta
+        qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
+        today = date.today()
+        # 即将到期：到期前 60 天内且未过期；已过期：valid_to < today
+        expiring_count = qs.filter(
+            valid_to__gte=today,
+            valid_to__lte=today + timedelta(days=60),
+        ).count()
+        expired_count = qs.filter(valid_to__lt=today).count()
+        return json_response(data={
+            'count': expiring_count + expired_count,  # 红点总数
+            'expiring_count': expiring_count,        # 即将到期
+            'expired_count': expired_count,          # 已过期
+        })

@@ -12,6 +12,7 @@ import Sider from './Sider';
 import Header from './Header';
 import Footer from './Footer'
 import routes from '../routes';
+import radioLicenseBadge from './RadioLicenseBadgeStore';
 import { hasPermission, isMobile } from 'libs';
 import styles from './layout.module.less';
 
@@ -39,6 +40,9 @@ export default function () {
     const Routes = [];
     initRoutes(Routes, routes);
     setRoutes(Routes)
+    // 启动无线电台执照菜单红点轮询
+    radioLicenseBadge.start();
+    return () => radioLicenseBadge.stop();
   }, [])
 
   return (

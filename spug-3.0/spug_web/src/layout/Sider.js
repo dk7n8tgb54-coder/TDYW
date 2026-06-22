@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Layout, Menu } from 'antd';
+import { Layout, Menu, Badge } from 'antd';
+import { observer } from 'mobx-react';
 import { hasPermission, history } from 'libs';
 import styles from './layout.module.less';
 import routes from '../routes';
+import radioLicenseBadge from './RadioLicenseBadgeStore';
 import logo from './logo-spug-white.png';
 
 let selectedKey = window.location.pathname;
@@ -16,6 +18,9 @@ for (let item of routes) {
     OpenKeysMap[item.path] = 1
   }
 }
+
+// 需要显示红点的菜单项 path 集合
+const BADGE_MENU_PATHS = new Set(['/radio-license']);
 
 function handleRoute(item) {
   if (item.auth && !hasPermission(item.auth)) return
@@ -31,7 +36,7 @@ function handleRoute(item) {
   return menu
 }
 
-export default function Sider(props) {
+const Sider = observer(function Sider(props) {
   const [openKeys, setOpenKeys] = useState([]);
   const [activeKey, setActiveKey] = useState(selectedKey);
   const collapsedRef = useRef(props.collapsed);
@@ -82,6 +87,32 @@ export default function Sider(props) {
     return tmp;
   }, []);
 
+  // 给指定菜单项注入红点（读取 store count 触发 observer 重渲染）
+  const badgeCount = radioLicenseBadge.count;
+  const badgeLoaded = radioLicenseBadge.loaded;
+  const renderedMenus = useMemo(() => {
+    if (!badgeLoaded || badgeCount <= 0) return menus;
+    return menus.map(m => {
+      if (BADGE_MENU_PATHS.has(m.key)) {
+        return {
+          ...m,
+          label: (
+            <span>
+              {m.label}
+              <Badge
+                count={badgeCount}
+                offset={[6, -2]}
+                size="small"
+                style={{ backgroundColor: '#ff4d4f' }}
+              />
+            </span>
+          ),
+        };
+      }
+      return m;
+    });
+  }, [menus, badgeCount, badgeLoaded]);
+
   const handleMenuSelect = useCallback(menu => {
     history.push(menu.key);
   }, []);
@@ -95,7 +126,7 @@ export default function Sider(props) {
         <Menu
           theme="dark"
           mode="inline"
-          items={menus}
+          items={renderedMenus}
           className={styles.menus}
           selectedKeys={[activeKey]}
           openKeys={openKeys}
@@ -104,4 +135,6 @@ export default function Sider(props) {
       </div>
     </Layout.Sider>
   )
-}
+})
+
+export default Sider

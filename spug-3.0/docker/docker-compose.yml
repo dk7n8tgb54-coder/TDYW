@@ -19,7 +19,7 @@ services:
     container_name: tdyw-test
     restart: unless-stopped
     ports:
-      - "80:80"   # HTTP 端口
+      - "8080:80"   # HTTP 端口
       - "443:443"  # HTTPS 端口
     environment:
       # 数据库连接配置（固定值）
