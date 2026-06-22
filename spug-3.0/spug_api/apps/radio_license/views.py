@@ -12,8 +12,9 @@ from libs import json_response, JsonParser, Argument, human_datetime, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from apps.radio_license.models import (
     RadioLicense, RadioLicenseFrequency, RadioLicenseAttachment,
-    RadioLicenseReminder, REMIND_LEVELS, EXPIRED_REMIND_TYPE, REMIND_TYPE_MAP,
+    RadioLicenseReminder, REMIND_TYPE_MAP,
     ALLOWED_FILE_EXTENSIONS, MAX_FILE_SIZE_MB,
+    EXPIRING_DAYS_THRESHOLD,
 )
 from apps.radio_license.tasks import scan_single_license
 import json
@@ -64,12 +65,12 @@ class RadioLicenseView(View):
             item['frequencies'] = [f.to_view() for f in freqs]
             # 附件数量
             item['attachment_count'] = RadioLicenseAttachment.objects.filter(license=record).count()
-            # 计算剩余天数和状态
+            # 计算剩余天数和状态（与 BadgeView 的 60 天规则保持一致）
             today = timezone.now().date()
             days_left = (record.valid_to - today).days
             if days_left < 0:
                 computed_status = 'expired'
-            elif days_left <= 45:
+            elif days_left <= EXPIRING_DAYS_THRESHOLD:
                 computed_status = 'expiring'
             else:
                 computed_status = 'normal'
@@ -92,13 +93,23 @@ class RadioLicenseView(View):
             Argument('purpose', help='请输入用途'),
             Argument('valid_from', help='请选择起始日期'),
             Argument('valid_to', help='请选择截止日期'),
-            Argument('responsible_user_id', type=int, required=False),
-            Argument('responsible_user_name', required=False),
+            Argument('responsible_user_id', type=int, help='请选择责任人'),
+            Argument('responsible_user_name', help='请选择责任人'),
             Argument('remark', required=False),
             Argument('frequencies', type=list, required=False, help='频率列表'),
         ).parse(request.body)
 
         if error is None:
+            # 责任人账号存在性校验（强绑定，不允许填错或填已禁用的用户）
+            from apps.account.models import User as UserModel
+            if not UserModel.objects.filter(
+                pk=form.responsible_user_id, is_active=True
+            ).exists():
+                return json_response(error='责任人不存在或已禁用，请重新选择')
+            # 自动用当前真实姓名回填（避免前端拼错或传旧名字）
+            user = UserModel.objects.get(pk=form.responsible_user_id)
+            form.responsible_user_name = user.nickname or user.username
+
             # 日期校验：起始日期不能晚于截止日期
             if form.valid_from and form.valid_to:
                 if form.valid_from > form.valid_to:
@@ -107,20 +118,35 @@ class RadioLicenseView(View):
             frequencies = form.pop('frequencies', []) if hasattr(form, 'frequencies') else []
 
             if form.id:
-                # 编辑模式
+                # 编辑模式：先取旧 valid_to，用于判断是否需要作废旧提醒
+                qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
+                old_license = qs.filter(pk=form.id).only('valid_to').first()
+                old_valid_to = old_license.valid_to if old_license else None
+
                 form.updated_at = human_datetime()
                 form.updated_by = request.user
                 record_id = form.pop('id')
                 form.pop('remark', None)
-                qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
                 updated_count = qs.filter(pk=record_id).update(**form)
                 if updated_count == 0:
                     error = '编辑失败：记录不存在或无权限编辑'
                 else:
                     # 更新频率明细
                     _update_frequencies(record_id, frequencies, request.user)
-                    # 即时扫描：更新状态 + 生成提醒
                     license_obj = RadioLicense.objects.get(pk=record_id)
+                    # 截止日期变化时，作废该执照所有旧未处理提醒
+                    # （旧提醒内容里的 days_left/valid_to 已过时，保留为已处理记录供历史查阅）
+                    # 然后 scan_single_license 会根据新 valid_to 生成内容正确的新提醒
+                    if old_valid_to is not None and old_valid_to != license_obj.valid_to:
+                        RadioLicenseReminder.objects.filter(
+                            license_id=record_id,
+                            is_handled=False,
+                        ).update(is_handled=True, is_read=True)
+                        logger.info(
+                            f'[RadioLicense] 执照 {record_id} 截止日期变更 '
+                            f'({old_valid_to} → {license_obj.valid_to})，已作废旧未处理提醒'
+                        )
+                    # 即时扫描：更新状态 + 生成提醒
                     scan_single_license(license_obj)
             else:
                 # 新增模式
@@ -175,12 +201,12 @@ class RadioLicenseDetailView(View):
         # 附加频率列表
         freqs = RadioLicenseFrequency.objects.filter(license=record).order_by('sort_order', 'id')
         item['frequencies'] = [f.to_view() for f in freqs]
-        # 计算剩余天数和状态
+        # 计算剩余天数和状态（与 BadgeView 的 60 天规则保持一致）
         today = timezone.now().date()
         days_left = (record.valid_to - today).days
         if days_left < 0:
             computed_status = 'expired'
-        elif days_left <= 45:
+        elif days_left <= EXPIRING_DAYS_THRESHOLD:
             computed_status = 'expiring'
         else:
             computed_status = 'normal'
@@ -495,6 +521,31 @@ class ReminderHandleView(View):
 
 
 # ==================== 菜单红点接口 ====================
+
+class ResponsibleUserListView(View):
+    """可选责任人列表（轻量接口）
+
+    为前端执照表单提供可选用户下拉。复用 radio_license.license.view 权限，
+    不要求用户具备 system.account.view，避免给非管理员开账户管理权限。
+
+    租户隔离：非超管只返回本租户激活用户；超管返回全量激活用户。
+
+    Returns:
+        list: [{id, nickname, username}, ...]
+    """
+
+    @auth('radio_license.license.view')
+    def get(self, request):
+        from apps.account.models import User as UserModel
+        qs = UserModel.objects.filter(is_active=True, deleted_by_id__isnull=True)
+        if not getattr(request.user, 'is_supper', False):
+            qs = qs.filter(tenant_id=request.user.tenant_id)
+        data = [
+            {'id': u.id, 'nickname': u.nickname or u.username, 'username': u.username}
+            for u in qs.order_by('nickname', 'username')
+        ]
+        return json_response(data)
+
 
 class RadioLicenseBadgeView(View):
     """菜单红点统计

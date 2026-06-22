@@ -54,6 +54,8 @@ export default observer(function () {
     }
 
     form.setFieldsValue(initialValues);
+    // 加载可选责任人列表（必填项需要）
+    S.fetchResponsibleUsers();
   }, [form]);
 
   function handleSubmit() {
@@ -213,8 +215,36 @@ export default observer(function () {
         <Form.Item required name="purpose" label="用途" rules={[{required: true, message: '请输入用途'}]}>
           <Input.TextArea rows={3} placeholder="请输入用途"/>
         </Form.Item>
-        <Form.Item name="responsible_user_name" label="责任人">
-          <Input placeholder="请输入责任人姓名（非必填）"/>
+        <Form.Item
+          required
+          name="responsible_user_id"
+          label="责任人"
+          rules={[{required: true, message: '请选择责任人'}]}>
+          <Select
+            showSearch
+            allowClear
+            placeholder="请选择责任人（必填，按姓名/账号搜索）"
+            optionFilterProp="label"
+            loading={!S.responsibleUsersLoaded}
+            notFoundContent={S.responsibleUsersLoaded ? '暂无可选用户' : '加载中...'}
+            onChange={(value) => {
+              // 选中后自动回填姓名（后端也会校验并覆盖一次）
+              const u = S.responsibleUsers.find(x => x.id === value);
+              if (u) form.setFieldsValue({responsible_user_name: u.nickname || u.username});
+            }}>
+            {S.responsibleUsers.map(u => (
+              <Select.Option
+                key={u.id}
+                value={u.id}
+                label={`${u.nickname} ${u.username}`}>
+                {u.nickname}（{u.username}）
+              </Select.Option>
+            ))}
+          </Select>
+        </Form.Item>
+        {/* 隐藏字段，提交时同步携带姓名（后端会自动用真名覆盖） */}
+        <Form.Item name="responsible_user_name" hidden noStyle>
+          <Input/>
         </Form.Item>
         <Form.Item name="remark" label="备注">
           <Input.TextArea rows={2} placeholder="请输入备注（非必填）"/>

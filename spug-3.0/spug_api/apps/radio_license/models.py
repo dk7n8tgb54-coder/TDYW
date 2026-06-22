@@ -80,7 +80,14 @@ class RadioLicenseFrequency(models.Model, TenantModelMixin):
 
 # ==================== 提醒相关常量 ====================
 
-# 提醒级别：剩余天数 -> 提醒类型映射
+# 即将到期天数阈值：到期前 60 天内即为"即将到期"
+EXPIRING_DAYS_THRESHOLD = 60
+
+# 当前使用的提醒类型
+EXPIRING_DAILY_REMIND_TYPE = 'expiring_daily'   # 即将到期每日提醒（0 <= days_left <= 60）
+EXPIRED_REMIND_TYPE = 'expired'                  # 已过期提醒（days_left < 0）
+
+# 历史分级提醒类型映射（仅用于历史数据展示/兼容，新生成提醒不再使用）
 REMIND_LEVELS = {
     45: 'expiring_45',
     30: 'expiring_30',
@@ -89,17 +96,17 @@ REMIND_LEVELS = {
     1: 'expiring_1',
 }
 
-# 已过期提醒类型
-EXPIRED_REMIND_TYPE = 'expired'
-
-# 提醒类型中文映射
+# 提醒类型中文映射（含历史类型，保证旧数据在前端能正确显示）
 REMIND_TYPE_MAP = {
+    # 新版（每日提醒）
+    'expiring_daily': '即将到期',
+    'expired': '已过期',
+    # 兼容旧版分级提醒（历史数据）
     'expiring_45': '即将到期（45天）',
     'expiring_30': '即将到期（30天）',
     'expiring_15': '即将到期（15天）',
     'expiring_7': '即将到期（7天）',
     'expiring_1': '即将到期（1天）',
-    'expired': '已过期',
 }
 
 

@@ -39,6 +39,10 @@ class Store {
     {value: 'GHz', label: 'GHz'},
   ];
 
+  // ========== 可选责任人列表 ==========
+  @observable responsibleUsers = [];
+  @observable responsibleUsersLoaded = false;
+
   fetchRecords = () => {
     this.isFetching = true;
     const params = {
@@ -64,6 +68,21 @@ class Store {
         console.error('[电台执照] 获取列表失败:', e);
       })
       .finally(() => this.isFetching = false)
+  };
+
+  // 拉取可选责任人列表（懒加载，首次进入表单时调用）
+  fetchResponsibleUsers = () => {
+    if (this.responsibleUsersLoaded) return Promise.resolve(this.responsibleUsers);
+    return http.get('/api/radio-license/responsible-users/')
+      .then(res => {
+        this.responsibleUsers = res || [];
+        this.responsibleUsersLoaded = true;
+        return this.responsibleUsers;
+      })
+      .catch(e => {
+        console.error('[电台执照] 获取责任人列表失败:', e);
+        return [];
+      });
   };
 
   showForm = (info = {}) => {
