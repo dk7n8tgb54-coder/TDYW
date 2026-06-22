@@ -8,6 +8,7 @@
 """
 import logging
 import os
+import hashlib
 import shutil
 import traceback
 import time
@@ -187,18 +188,34 @@ class ChunkMerger:
 
     def __init__(self, task_manager):
         self.task_manager = task_manager
+        # 合并期顺带计算的 MD5（仅全量 MD5 文件有值，供 verify_file_md5 直接比对）
+        self.merged_md5 = None
 
     def merge_chunks(self):
-        """合并分片文件"""
+        """合并分片文件
+
+        优化（方案5.2）：对全量 MD5 文件，合并写入时同步 md5.update(data)，
+        合并完成后直接得到 merged_md5，避免 verify 阶段二次全量读盘。
+        对 sv1_ 抽样 MD5 文件，无法通过全量比对校验，跳过计算以节省 CPU。
+        """
         self.task_manager.update_celery_state('PROGRESS', 30, '合并分片中')
         logger.info(f'[Celery] Starting chunk merge: target={self.task_manager.file_path}')
+
+        # 仅全量 MD5 文件在合并期顺带计算 MD5
+        compute_md5 = not self.task_manager.file_hash.startswith('sv1_')
+        md5_hash = hashlib.md5() if compute_md5 else None
 
         try:
             with open(self.task_manager.file_path, 'wb+') as merged_file:
                 logger.info(f'[Celery] Created target file: {self.task_manager.file_path}')
                 for i in range(self.task_manager.total_chunks):
-                    self._copy_chunk(merged_file, i)
+                    self._copy_chunk(merged_file, i, md5_hash)
                     self._update_merge_progress(i)
+
+            # 合并完成后得到 merged_md5（仅全量 MD5 文件）
+            if md5_hash is not None:
+                self.merged_md5 = md5_hash.hexdigest()
+                logger.info(f'[Celery] Merged MD5 computed during merge: {self.merged_md5}')
 
             logger.info(f'[Celery] Chunks merged successfully: {self.task_manager.file_path}')
             return True, None
@@ -208,12 +225,22 @@ class ChunkMerger:
             logger.error(f'[Celery] {error_msg}')
             return False, error_msg
 
-    def _copy_chunk(self, merged_file, chunk_index):
-        """复制单个分片到合并文件"""
+    def _copy_chunk(self, merged_file, chunk_index, md5_hash=None):
+        """复制单个分片到合并文件，顺带更新 MD5（若提供）
+
+        用等价于 shutil.copyfileobj 的手动 read/write 循环替换原实现，
+        以便在 write 后立即 md5.update(data)，无需二次读取。
+        """
         chunk_path = os.path.join(self.task_manager.chunk_dir, f"{chunk_index}.part")
         try:
             with open(chunk_path, 'rb') as chunk_file:
-                shutil.copyfileobj(chunk_file, merged_file, FILE_COPY_BUFFER_SIZE)
+                while True:
+                    data = chunk_file.read(FILE_COPY_BUFFER_SIZE)
+                    if not data:
+                        break
+                    merged_file.write(data)
+                    if md5_hash is not None:
+                        md5_hash.update(data)
         except (IOError, OSError) as e:
             raise RuntimeError(f'读取分片{chunk_index}失败: {str(e)}') from e
 
@@ -248,8 +275,12 @@ class FileVerifier:
 
         return True, None
 
-    def verify_file_md5(self, calculate_file_md5_func):
-        """验证文件MD5"""
+    def verify_file_md5(self, merged_md5=None):
+        """验证文件MD5
+
+        优化（方案5.2）：优先使用合并期已计算的 merged_md5 直接比对，
+        避免二次全量读盘。若 merged_md5 为 None（异常回退），重新读盘计算。
+        """
         self.task_manager.update_celery_state('PROGRESS', PROGRESS_VERIFY_MD5, '验证文件MD5')
 
         file_hash = self.task_manager.file_hash
@@ -261,10 +292,19 @@ class FileVerifier:
 
         # 全量MD5校验
         try:
-            merged_file_md5 = calculate_file_md5_func(self.task_manager.file_path)
-            if merged_file_md5 != file_hash:
+            if merged_md5 is not None:
+                # 优先使用合并期已计算的 MD5，避免二次全量读盘
+                logger.info(f'[Celery] Using merged MD5 from merge phase, skip re-read: {merged_md5}')
+                computed_md5 = merged_md5
+            else:
+                # 回退：合并期未计算（理论不应发生），重新读盘计算
+                logger.warning('[Celery] merged_md5 is None, fallback to full re-read')
+                from apps.document.libs.document_utils import calculate_file_md5
+                computed_md5 = calculate_file_md5(self.task_manager.file_path)
+
+            if computed_md5 != file_hash:
                 error_msg = '文件MD5校验失败，文件内容可能已被篡改'
-                logger.error(f'[Celery] MD5 mismatch: expected={file_hash}, got={merged_file_md5}')
+                logger.error(f'[Celery] MD5 mismatch: expected={file_hash}, got={computed_md5}')
                 return False, error_msg
             return True, None
         except Exception as e:
@@ -463,9 +503,9 @@ class MergePipeline:
         if not valid:
             return self._handle_error(error_msg, 65, cleanup='file')
 
-        # 验证MD5
+        # 验证MD5（优先使用合并期已计算的 MD5，避免二次全量读盘）
         try:
-            valid, error_msg = self.verifier.verify_file_md5(calculate_file_md5)
+            valid, error_msg = self.verifier.verify_file_md5(merged_md5=self.merger.merged_md5)
             if not valid:
                 return self._handle_error(error_msg, 75, cleanup='all')
         except Exception:
