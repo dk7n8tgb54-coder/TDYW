@@ -4,7 +4,7 @@
 无线电台执照到期扫描任务
 
 扫描逻辑：
-1. 遍历所有未删除执照
+1. 遍历所有执照
 2. 计算剩余天数和状态
 3. 更新执照 status 字段
 4. 对命中 45/30/15/7/1 天节点的执照生成分级提醒
@@ -185,14 +185,14 @@ def scan_radio_license_expiration(self):
     """扫描所有执照到期状态并生成提醒（定时兜底）
 
     执行逻辑：
-    1. 查询所有未删除的执照
+    1. 查询所有执照
     2. 对每张执照调用 scan_single_license
     3. 汇总统计
     """
     today = timezone.now().date()
     logger.info(f'[RadioLicense] 开始全量扫描执照到期状态: today={today}')
 
-    licenses = RadioLicense.objects.filter(is_deleted=False).select_related('created_by')
+    licenses = RadioLicense.objects.all().select_related('created_by')
     total = licenses.count()
     updated_count = 0
     reminder_count = 0

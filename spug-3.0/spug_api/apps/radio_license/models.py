@@ -23,7 +23,6 @@ class RadioLicense(models.Model, TenantModelMixin):
     last_remind_at = models.CharField(max_length=20, null=True, help_text='最近提醒时间')
 
     # ---- 通用字段 ----
-    is_deleted = models.BooleanField(default=False, help_text='是否已删除')
     created_at = models.CharField(max_length=20, default=human_datetime)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
     updated_at = models.CharField(max_length=20, null=True)
@@ -33,7 +32,7 @@ class RadioLicense(models.Model, TenantModelMixin):
         return '<RadioLicense %r>' % self.station_name
 
     def to_view(self):
-        return self.to_dict(excludes=('is_deleted',))
+        return self.to_dict()
 
     class Meta:
         db_table = 'tdyw_radio_license'

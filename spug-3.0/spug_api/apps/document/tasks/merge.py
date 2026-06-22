@@ -30,8 +30,12 @@ from apps.document.libs.celery_lock import RedisLock
 # 进度更新间隔（每N个分片更新一次进度）
 PROGRESS_UPDATE_INTERVAL = 10
 
-# 文件复制缓冲区大小（1MB）
-FILE_COPY_BUFFER_SIZE = 1024 * 1024
+# 文件复制缓冲区大小（8MB）
+# 1MB 缓冲对大文件合并偏小，会增加 Python 层循环次数和系统调用压力；
+# 调整为 8MB 可显著降低合并阶段 CPU 与系统调用开销。
+# 如服务器内存稳定且压测收益明显，可进一步调整至 16MB。
+# 注意：多个 merge worker 同时合并时会按倍数放大内存占用。
+FILE_COPY_BUFFER_SIZE = 8 * 1024 * 1024
 
 # Celery任务配置
 CELERY_MAX_RETRIES = 3

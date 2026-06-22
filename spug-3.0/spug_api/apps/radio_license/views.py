@@ -27,8 +27,6 @@ class RadioLicenseView(View):
     @auth('radio_license.license.view')
     def get(self, request):
         records = apply_tenant_filter(RadioLicense.objects.all(), request.user)
-        # 软删除过滤
-        records = records.filter(is_deleted=False)
 
         # 筛选参数
         station_name = request.GET.get('station_name', '')
@@ -144,14 +142,11 @@ class RadioLicenseView(View):
         ).parse(request.GET)
         if error is None:
             qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
-            # 软删除
-            updated_count = qs.filter(pk=form.id, is_deleted=False).update(is_deleted=True)
-            if updated_count == 0:
+            license_obj = qs.filter(pk=form.id).first()
+            if not license_obj:
                 error = '删除失败：记录不存在或无权限删除'
             else:
-                # 清理关联提醒
-                RadioLicenseReminder.objects.filter(license_id=form.id).delete()
-                # 清理关联附件（物理文件 + DB 记录）
+                # 先删除关联附件的物理文件（CASCADE 会自动删 DB 记录，但磁盘文件需手动清理）
                 attachments = RadioLicenseAttachment.objects.filter(license_id=form.id)
                 for att in attachments:
                     full_path = os.path.join(settings.MEDIA_ROOT, att.file_path)
@@ -160,7 +155,8 @@ class RadioLicenseView(View):
                             os.remove(full_path)
                     except OSError as e:
                         logger.warning(f'[RadioLicense] 删除附件文件失败: {e}')
-                attachments.delete()
+                # 物理删除执照（CASCADE 自动级联删除频率/附件/提醒记录）
+                license_obj.delete()
         return json_response(error=error)
 
 
@@ -171,7 +167,7 @@ class RadioLicenseDetailView(View):
     def get(self, request, pk):
         qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
         try:
-            record = qs.get(pk=pk, is_deleted=False)
+            record = qs.get(pk=pk)
         except RadioLicense.DoesNotExist:
             return json_response(error='记录不存在或无权限访问')
 
@@ -233,7 +229,7 @@ class AttachmentListView(View):
         """获取指定执照的附件列表"""
         # 校验执照存在且有权限
         qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
-        if not qs.filter(pk=pk, is_deleted=False).exists():
+        if not qs.filter(pk=pk).exists():
             return json_response(error='执照不存在或无权限访问')
 
         attachments = RadioLicenseAttachment.objects.filter(license_id=pk)
@@ -251,7 +247,7 @@ class AttachmentListView(View):
         """上传附件"""
         # 校验执照存在且有权限
         qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
-        license_obj = qs.filter(pk=pk, is_deleted=False).first()
+        license_obj = qs.filter(pk=pk).first()
         if not license_obj:
             return json_response(error='执照不存在或无权限访问')
 
@@ -334,9 +330,9 @@ class AttachmentDownloadView(View):
         except RadioLicenseAttachment.DoesNotExist:
             return json_response(error='附件不存在或无权限访问')
 
-        # 校验关联执照未删除且有权限
+        # 校验关联执照存在且有权限
         license_qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
-        if not license_qs.filter(pk=att.license_id, is_deleted=False).exists():
+        if not license_qs.filter(pk=att.license_id).exists():
             return json_response(error='执照不存在或无权限访问')
 
         # 路径安全检查
@@ -381,9 +377,9 @@ class AttachmentDeleteView(View):
             if not att:
                 return json_response(error='附件不存在或无权限删除')
 
-            # 校验关联执照未删除且有权限
+            # 校验关联执照存在且有权限
             license_qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
-            if not license_qs.filter(pk=att.license_id, is_deleted=False).exists():
+            if not license_qs.filter(pk=att.license_id).exists():
                 return json_response(error='执照不存在或无权限操作')
 
             # 删除物理文件
@@ -407,10 +403,9 @@ class ReminderListView(View):
     @auth('radio_license.license.view')
     def get(self, request):
         """获取当前用户的提醒列表"""
-        # 只返回当前用户的提醒，且排除已删除执照的提醒
+        # 只返回当前用户的提醒
         reminders = RadioLicenseReminder.objects.filter(
             receiver_user_id=request.user.id,
-            license__is_deleted=False,
         )
         # 租户过滤
         reminders = apply_tenant_filter(reminders, request.user)
