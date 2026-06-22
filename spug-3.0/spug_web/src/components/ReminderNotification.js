@@ -22,15 +22,14 @@ import { http, history } from 'libs';
 const POLL_INTERVAL = 5 * 60 * 1000; // 5 分钟
 const MUTE_KEY_PREFIX = 'spug_reminder_muted';
 
-// 基于 token 的用户维度标识（换 token / 重新登录后自动重置）
-function getTokenSuffix() {
-  const token = sessionStorage.getItem('token') || '';
-  return token.slice(-8);
+// 用户维度标识（用户 ID，不随 token 变化，重新登录后仍能保持"今日不再提醒"）
+function getUserId() {
+  return sessionStorage.getItem('id') || '0';
 }
 
 // 今日免提醒的 localStorage key（含用户维度 + 日期维度）
 function getMuteKey(today) {
-  return `${MUTE_KEY_PREFIX}_${getTokenSuffix()}_${today}`;
+  return `${MUTE_KEY_PREFIX}_${getUserId()}_${today}`;
 }
 
 // 获取今日（YYYY-MM-DD）已免提醒的 license_id 集合
@@ -56,7 +55,7 @@ function muteLicenseToday(licenseId) {
 // 清理过期的免提醒记录（仅保留今天的，避免 localStorage 膨胀）
 function cleanupExpiredMute() {
   const today = new Date().toISOString().slice(0, 10);
-  const prefix = `${MUTE_KEY_PREFIX}_${getTokenSuffix()}_`;
+  const prefix = `${MUTE_KEY_PREFIX}_${getUserId()}_`;
   const keysToRemove = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
