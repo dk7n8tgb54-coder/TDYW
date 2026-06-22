@@ -103,6 +103,7 @@ services:
       # 开发环境：暴露后端 API 端口，用于前端开发服务器代理
       - "10001:9001"  # Django API (宿主机10001->容器9001，避开Hyper-V保留)
       - "10002:9002"  # WebSocket (宿主机10002->容器9002，避开Hyper-V保留)
+      - "10003:9003"  # 上传专用 API (宿主机10003->容器9003，避开Hyper-V保留)
     # 数据库连接配置（通过环境变量传递给应用）
     environment:
       - MYSQL_DATABASE=${MYSQL_DATABASE}          # 数据库名称
