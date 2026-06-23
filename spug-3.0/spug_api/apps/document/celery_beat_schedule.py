@@ -40,23 +40,6 @@ DOCUMENT_BEAT_SCHEDULE = {
     },
     
     # ========================================
-    # 【V3新增】软删除文件清理任务 - 每天凌晨4点执行
-    # 清理软删除超过30天的物理文件
-    # ========================================
-    'document-cleanup-soft-deleted-files': {
-        'task': 'apps.document.tasks.cleanup.cleanup_soft_deleted_files',
-        'schedule': crontab(hour=4, minute=0),
-        'kwargs': {
-            'retention_days': 30,  # 保留30天
-            'dry_run': False       # 实际删除（非模拟）
-        },
-        'options': {
-            'queue': 'document.cleanup',
-            'time_limit': 7200,    # 2小时超时
-        },
-    },
-    
-    # ========================================
     # 【P2优化】合并任务超时检测 - 每10分钟执行一次
     # 检测卡在merging状态超过30分钟的任务
     # ========================================
@@ -90,20 +73,3 @@ DOCUMENT_BEAT_SCHEDULE = {
     },
 }
 
-
-# 可选：更激进的清理策略（用于磁盘紧张环境）
-AGGRESSIVE_BEAT_SCHEDULE = {
-    # 每天运行两次清理
-    'document-cleanup-soft-deleted-files-aggressive': {
-        'task': 'apps.document.tasks.cleanup.cleanup_soft_deleted_files',
-        'schedule': crontab(hour='2,14', minute=0),  # 每天2点和14点
-        'kwargs': {
-            'retention_days': 7,   # 只保留7天
-            'dry_run': False
-        },
-        'options': {
-            'queue': 'document.cleanup',
-            'time_limit': 7200,
-        },
-    },
-}

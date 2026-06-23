@@ -228,28 +228,6 @@ export const getFileTypeIcon = (fileName, fileType, size = 20) => {
 };
 
 /**
- * 回收站专用：根据文件类型字符串返回对应图标
- * 与 recycle-bin/service.js 的 getFileIcon() 返回值对应
- */
-export const getFileTypeIconByKey = (key, size = 20) => {
-  const map = {
-    file: FileIcon,
-    image: ImageIcon,
-    pdf: PdfIcon,
-    word: WordIcon,
-    excel: ExcelIcon,
-    ppt: PptIcon,
-    video: VideoIcon,
-    audio: AudioIcon,
-    archive: ArchiveIcon,
-    text: TextIcon,
-    code: CodeIcon,
-  };
-  const Component = map[key] || FileIcon;
-  return <Component size={size} />;
-};
-
-/**
  * React 组件形式的文件类型图标（兼容 <FileTypeIcon fileName={...} mimeType={...} /> 用法）
  * TransferItem 等组件使用此默认导出
  * @param {string} fileName - 文件名（用于提取扩展名）

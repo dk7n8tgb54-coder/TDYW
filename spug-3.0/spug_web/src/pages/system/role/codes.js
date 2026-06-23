@@ -29,14 +29,6 @@ export default [{
       {key: 'move', label: '移动文件'},
       {key: 'rename', label: '重命名文件'},
     ]
-  }, {
-    key: 'recycle-bin',
-    label: '回收站',
-    perms: [
-      {key: 'view', label: '查看回收站'},
-      {key: 'restore', label: '恢复文件'},
-      {key: 'permanent_delete', label: '彻底删除'},
-    ]
   }]
 }, {
   key: 'runlog',

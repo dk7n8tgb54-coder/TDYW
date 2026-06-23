@@ -26,11 +26,6 @@ from .base import (
 from .pending_files import retry_clean_pending_files
 from .chunks import cleanup_old_chunks
 from .transfers import cleanup_expired_transfers
-from .soft_deleted import cleanup_soft_deleted_files, cleanup_soft_deleted_folders
-from .async_delete import (
-    async_batch_permanent_delete,
-    async_batch_folder_permanent_delete,
-)
 
 __all__ = [
     # 基础工具
@@ -41,8 +36,4 @@ __all__ = [
     'retry_clean_pending_files',
     'cleanup_old_chunks',
     'cleanup_expired_transfers',
-    'cleanup_soft_deleted_files',
-    'cleanup_soft_deleted_folders',
-    'async_batch_permanent_delete',
-    'async_batch_folder_permanent_delete',
 ]

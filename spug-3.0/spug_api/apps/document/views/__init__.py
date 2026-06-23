@@ -36,8 +36,6 @@ Document 模块视图子包
 │   └── status.py        # FileMergeStatusView
 ├── transfer/            # 传输记录模块
 │   └── __init__.py      # 传输相关视图
-└── recycle_bin/         # 回收站模块
-    └── __init__.py      # 回收站相关视图
 """
 
 # 基础工具函数
@@ -112,15 +110,6 @@ from .transfer import (
     TransferBatchDeleteView,
 )
 
-# 回收站模块（通过子目录）
-from .recycle_bin import (
-    RecycleBinView,
-    RecycleBinRestoreView,
-    RecycleBinPermanentDeleteView,
-    RecycleBinTaskStatusView,
-    RecycleBinStatsView,
-)
-
 __all__ = [
     # 工具函数
     'format_file_size',
@@ -176,10 +165,4 @@ __all__ = [
     'TransferBatchResumeView',
     'TransferBatchCancelView',
     'TransferBatchDeleteView',
-    # 回收站
-    'RecycleBinView',
-    'RecycleBinRestoreView',
-    'RecycleBinPermanentDeleteView',
-    'RecycleBinTaskStatusView',
-    'RecycleBinStatsView',
 ]

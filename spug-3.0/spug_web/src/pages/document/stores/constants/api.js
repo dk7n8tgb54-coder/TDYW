@@ -52,12 +52,6 @@ export const API_ENDPOINTS = {
   TRANSFERS_BATCH_CANCEL: `${BASE_URL}/transfers/batch/cancel/`,
   TRANSFERS_BATCH_DELETE: `${BASE_URL}/transfers/batch/delete/`,
 
-  // 回收站
-  RECYCLE_BIN_LIST: `${BASE_URL}/recycle-bin/`,
-  RECYCLE_BIN_RESTORE: `${BASE_URL}/recycle-bin/restore/`,
-  RECYCLE_BIN_DELETE: `${BASE_URL}/recycle-bin/delete/`,
-  RECYCLE_BIN_STATS: `${BASE_URL}/recycle-bin/stats/`,
-
   // 搜索
   SEARCH: `${BASE_URL}/search/`,
 

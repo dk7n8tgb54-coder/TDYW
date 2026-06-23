@@ -172,23 +172,3 @@ def transactional_delete(view_method):
         with transaction.atomic():
             return view_method(self, request, *args, **kwargs)
     return wrapper
-
-
-def invalidate_user_cache(user_id, cache=None):
-    """
-    清除用户相关的回收站缓存
-    
-    Args:
-        user_id: 用户ID
-        cache: Django缓存对象（可选，默认使用django.core.cache）
-    """
-    from django.core.cache import cache as default_cache
-    cache = cache or default_cache
-    
-    version_key = f'recycle_bin_version:{user_id}'
-    try:
-        current_version = cache.get(version_key, 1)
-        cache.set(version_key, current_version + 1)
-        logger.debug(f'[Cache] 已清除用户 {user_id} 的回收站缓存')
-    except Exception as e:
-        logger.error(f'[Cache] 清除缓存失败: user_id={user_id}, error={e}')

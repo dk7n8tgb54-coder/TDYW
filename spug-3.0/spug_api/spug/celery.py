@@ -32,11 +32,7 @@ def import_document_tasks():
             batch_cancel_transfers,
             cleanup_old_chunks,
             cleanup_expired_transfers,
-            cleanup_soft_deleted_files,
-            cleanup_soft_deleted_folders,
             retry_clean_pending_files,
-            async_batch_permanent_delete,
-            async_batch_folder_permanent_delete,
         )
         # 任务已通过 @shared_task 装饰器注册
         print('[Celery] Document tasks imported successfully')

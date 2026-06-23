@@ -19,7 +19,6 @@ from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_folder_model, get_file_model, get_document_absolute_path
 from ...libs.view_utils import permission_denied_response
 from ..base import create_model_instance, validate_file_name, check_public_space_permission, log_operation
-from ..recycle_bin.utils import invalidate_cache
 
 logger = logging.getLogger(__name__)
 
@@ -318,46 +317,45 @@ class FolderView(View):
         if form.is_public and not check_public_space_permission(request.user, folder, 'folder', '删除'):
             return permission_denied_response('公共空间中只能删除自己创建的文件夹', 'not_owner')
 
+        folder_name = folder.name
+        folder_id = folder.id
         try:
             self._delete_folder(folder, FolderModel, FileModel, form.is_public, request.user, request.user)
             log_operation(
-                action="FOLDER_SOFT_DELETE",
+                action="FOLDER_DELETE",
                 user=request.user,
                 resource_type="FOLDER",
-                resource_id=folder.id,
+                resource_id=folder_id,
                 is_public=form.is_public,
-                folder_name=folder.name
+                folder_name=folder_name
             )
-            # 清除回收站缓存，确保文件夹内的文件能在回收站立即显示
-            invalidate_cache(request.user.id)
             return json_response()
         except Exception as e:
-            logger.error(f'[Document] Error soft deleting folder {folder.name}: {e}')
+            logger.error(f'[Document] Error deleting folder {folder_name}: {e}')
             # 【P2-6修复】返回通用错误消息，避免信息泄露
             return json_response(error='文件夹删除失败，请稍后重试')
 
     def _delete_folder(self, folder, FolderModel, FileModel, is_public, request_user=None, deleted_by=None):
-        """递归软删除文件夹及其内容"""
-        from django.utils import timezone
+        """递归物理删除文件夹及其内容"""
         start_time = time.time()
         BATCH_SIZE = 50
 
-        # 第一步：递归软删除子文件夹
+        # 第一步：递归物理删除子文件夹
         sub_folders_query = FolderModel.objects.filter(parent=folder, is_deleted=False).order_by()
         if request_user and not is_public:
             sub_folders_query = apply_tenant_filter(sub_folders_query, request_user, strict_mode=True)
         sub_folders_count = sub_folders_query.count()
-        logger.info(f'[Document] Soft deleting folder {folder.name} (id={folder.id}) with {sub_folders_count} subfolders')
+        logger.info(f'[Document] Deleting folder {folder.name} (id={folder.id}) with {sub_folders_count} subfolders')
         
         if sub_folders_count > 0:
-            for sub_folder in sub_folders_query:
+            for sub_folder in list(sub_folders_query):
                 self._delete_folder(sub_folder, FolderModel, FileModel, is_public, request_user, deleted_by)
 
-        # 第二步：分批软删除当前文件夹下的文件
+        # 第二步：分批物理删除当前文件夹下的文件
         delete_errors = []
         files = folder.files.filter(is_deleted=False).select_related('created_by')
         files_count = files.count()
-        logger.info(f'[Document] Soft deleting {files_count} files in folder {folder.name}')
+        logger.info(f'[Document] Deleting {files_count} files in folder {folder.name}')
 
         total_deleted = 0
         for batch_start in range(0, files_count, BATCH_SIZE):
@@ -369,32 +367,29 @@ class FolderView(View):
                 with transaction.atomic():
                     for file in batch_files_list:
                         try:
-                            # 软删除文件（移入回收站）
-                            file.delete(hard=False)
-                            logger.info(f'[Document] File soft deleted: {file.name} (id={file.id})')
+                            file.delete(hard=True)
+                            logger.info(f'[Document] File deleted: {file.name} (id={file.id})')
                         except Exception as e:
                             delete_errors.append(f"文件{file.name}删除失败: {str(e)}")
-                            logger.error(f'[Document] Failed to soft delete file {file.name}: {e}')
+                            logger.error(f'[Document] Failed to delete file {file.name}: {e}')
 
                     total_deleted += len(batch_files_list)
-                    logger.info(f'[Document] Batch soft delete progress: {total_deleted}/{files_count} files deleted')
+                    logger.info(f'[Document] Batch delete progress: {total_deleted}/{files_count} files deleted')
 
             except Exception as batch_error:
-                logger.error(f'[Document] Batch soft delete failed at batch {batch_start//BATCH_SIZE}: {batch_error}')
+                logger.error(f'[Document] Batch delete failed at batch {batch_start//BATCH_SIZE}: {batch_error}')
                 delete_errors.append(f"批次删除失败: {str(batch_error)}")
 
-        # 第三步：软删除文件夹本身
+        # 第三步：删除物理目录 + 文件夹数据库记录
         try:
-            folder.is_deleted = True
-            folder.deleted_at = timezone.now()
-            if deleted_by:
-                folder.deleted_by = deleted_by
-            folder.save(update_fields=['is_deleted', 'deleted_at', 'deleted_by'])
-            logger.info(f'[Document] Folder soft deleted: {folder.name} (id={folder.id})')
+            from apps.document.services.cleanup_service import PhysicalFolderCleaner
+            PhysicalFolderCleaner.delete(folder)
+            folder.delete(hard=True)
+            logger.info(f'[Document] Folder deleted: {folder.name} (id={folder.id})')
         except Exception as e:
-            logger.error(f'[Document] Error soft deleting folder record: {e}')
+            logger.error(f'[Document] Error deleting folder record: {e}')
 
         cost = time.time() - start_time
         if cost > 240:
-            logger.warning(f'[Document] FolderSoftDelete 耗时过长: folder_id={folder.id}, name={folder.name}, cost={cost:.2f}秒')
-        logger.info(f'[Document] Folder {folder.name} (id={folder.id}) soft deleted successfully, cost={cost:.2f}秒')
+            logger.warning(f'[Document] FolderDelete 耗时过长: folder_id={folder.id}, name={folder.name}, cost={cost:.2f}秒')
+        logger.info(f'[Document] Folder {folder.name} (id={folder.id}) deleted successfully, cost={cost:.2f}秒')

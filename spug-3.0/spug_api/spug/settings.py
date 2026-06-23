@@ -197,9 +197,6 @@ CELERY_TASK_ROUTES = {
     # 清理任务使用清理队列
     'apps.document.tasks.cleanup_old_chunks': {'queue': 'document.cleanup'},
     'apps.document.tasks.cleanup_expired_transfers': {'queue': 'document.cleanup'},
-    # 【V3新增】回收站相关任务
-    'apps.document.tasks.cleanup.cleanup_soft_deleted_files': {'queue': 'document.cleanup'},
-    'apps.document.tasks.cleanup.async_batch_permanent_delete': {'queue': 'document.cleanup'},
     # 【P0修复】待清理文件重试任务
     'apps.document.tasks.cleanup.retry_clean_pending_files': {'queue': 'document.cleanup'},
     # 【优化10】孤儿传输记录清理

@@ -86,7 +86,7 @@ def with_idempotency(
     为操作添加幂等性保护
     
     Args:
-        operation_key_prefix: 操作类型前缀，如 'recycle_bin:delete'
+        operation_key_prefix: 操作类型前缀，如 'document:delete'
         idempotency_key_getter: 获取幂等键的函数
         ttl: 缓存过期时间（秒）
         

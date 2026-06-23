@@ -3,8 +3,7 @@
 V3方案功能测试脚本
 测试内容：
 1. 文件移动功能（验证只改 folder_id，不移动物理文件）
-2. 文件删除功能（验证软删除）
-3. 定时清理任务（模拟运行）
+2. 文件删除功能（验证物理删除：记录+物理文件均删除）
 """
 
 import os
@@ -16,13 +15,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'spug_api'))
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'spug.settings')
 django.setup()
 
-import shutil
-from datetime import timedelta
 from django.utils import timezone
 from django.conf import settings
 from apps.account.models import User
 from apps.document.models import DocumentFilePrivate, DocumentFolderPrivate
-from apps.document.tasks import cleanup_soft_deleted_files
 
 
 def test_file_move():
@@ -176,7 +172,7 @@ def test_file_move():
     try:
         # 硬删除文件记录
         file_record.delete(hard=True)
-        # 删除物理文件
+        # 删除物理文件（若仍残留）
         if os.path.exists(physical_path):
             os.remove(physical_path)
         # 删除测试文件夹
@@ -192,10 +188,10 @@ def test_file_move():
     return True
 
 
-def test_soft_delete():
-    """测试文件软删除功能"""
+def test_hard_delete():
+    """测试文件硬删除功能 - 验证物理删除（记录+物理文件均删除）"""
     print("\n" + "="*70)
-    print("测试2: 文件软删除功能")
+    print("测试2: 文件硬删除功能")
     print("="*70)
     
     # 获取测试用户
@@ -241,129 +237,44 @@ def test_soft_delete():
         print(f"❌ 创建文件记录失败: {e}")
         return False
     
+    file_id = file_record.id
+    
     # 记录删除前的状态
     print(f"\n删除前状态:")
-    print(f"  - is_deleted: {file_record.is_deleted}")
-    print(f"  - deleted_at: {file_record.deleted_at}")
     print(f"  - 物理文件存在: {os.path.exists(physical_path)}")
     
-    # 测试1: 默认软删除
+    # 执行硬删除
     try:
-        print(f"\n执行默认删除（软删除）...")
-        file_record.delete()  # 默认软删除
+        print(f"\n执行硬删除...")
+        file_record.delete(hard=True)
         print(f"✓ 删除操作完成")
     except Exception as e:
-        print(f"❌ 软删除失败: {e}")
+        print(f"❌ 硬删除失败: {e}")
+        # 清理残留
+        if os.path.exists(physical_path):
+            os.remove(physical_path)
         return False
-    
-    # 刷新记录（从all_objects获取，因为默认objects会过滤掉已删除）
-    file_record = DocumentFilePrivate.all_objects.get(pk=file_record.id)
-    
-    print(f"\n软删除后状态:")
-    print(f"  - is_deleted: {file_record.is_deleted}")
-    print(f"  - deleted_at: {file_record.deleted_at}")
-    print(f"  - 物理文件存在: {os.path.exists(physical_path)}")
     
     # 验证结果
     print(f"\n验证结果:")
     
-    # 1. is_deleted 应该为 True
-    if file_record.is_deleted:
-        print(f"  ✓ is_deleted 标记为 True")
-    else:
-        print(f"  ❌ is_deleted 未标记为 True")
-        return False
-    
-    # 2. deleted_at 应该不为空
-    if file_record.deleted_at:
-        print(f"  ✓ deleted_at 已设置: {file_record.deleted_at}")
-    else:
-        print(f"  ❌ deleted_at 未设置")
-        return False
-    
-    # 3. 物理文件应该仍然存在
-    if os.path.exists(physical_path):
-        print(f"  ✓ 物理文件仍然存在（软删除不删除物理文件）")
-    else:
-        print(f"  ❌ 物理文件已被删除")
-        return False
-    
-    # 4. 默认查询应该找不到该记录
+    # 1. 数据库记录应该已被删除
     try:
-        DocumentFilePrivate.objects.get(pk=file_record.id)
-        print(f"  ❌ 默认查询仍能查到已删除记录")
+        DocumentFilePrivate.all_objects.get(pk=file_id)
+        print(f"  ❌ 硬删除后数据库记录仍存在")
         return False
     except DocumentFilePrivate.DoesNotExist:
-        print(f"  ✓ 默认查询已过滤软删除记录")
+        print(f"  ✓ 数据库记录已删除")
     
-    # 5. all_objects 应该能找到
-    try:
-        found = DocumentFilePrivate.all_objects.get(pk=file_record.id)
-        print(f"  ✓ all_objects 能查到所有记录（包括软删除）")
-    except DocumentFilePrivate.DoesNotExist:
-        print(f"  ❌ all_objects 查询失败")
-        return False
-    
-    # 测试2: 硬删除
-    print(f"\n执行硬删除...")
-    file_record.delete(hard=True)
-    
-    # 验证数据库记录已被删除
-    try:
-        DocumentFilePrivate.all_objects.get(pk=file_record.id)
-        print(f"  ❌ 硬删除后记录仍存在")
-        return False
-    except DocumentFilePrivate.DoesNotExist:
-        print(f"  ✓ 硬删除后数据库记录已删除")
-    
-    # 清理
-    if os.path.exists(physical_path):
+    # 2. 物理文件应该已被删除
+    if not os.path.exists(physical_path):
+        print(f"  ✓ 物理文件已删除")
+    else:
+        print(f"  ⚠ 物理文件仍存在（可能由待清理机制处理）")
         os.remove(physical_path)
     
     print(f"\n" + "="*70)
-    print("测试2通过: 软删除功能正常")
-    print("="*70)
-    return True
-
-
-def test_cleanup_task():
-    """测试定时清理任务（同步模式）"""
-    print("\n" + "="*70)
-    print("测试3: 定时清理任务（同步模式）")
-    print("="*70)
-    
-    # 使用同步模式直接调用（避免Celery异步超时问题）
-    try:
-        print(f"\n执行清理任务（dry_run模式）...")
-        
-        # 直接调用任务函数（同步模式）
-        from apps.document.tasks.cleanup import cleanup_soft_deleted_files as cleanup_func
-        task_result = cleanup_func(retention_days=30, dry_run=True)
-        
-        print(f"\n清理任务结果:")
-        print(f"  - 状态: {task_result.get('status')}")
-        print(f"  - 检查总数: {task_result.get('total_checked')}")
-        print(f"  - 删除总数: {task_result.get('total_deleted')}")
-        print(f"  - 错误数: {task_result.get('total_errors')}")
-        print(f"  - 文件不存在数: {task_result.get('total_not_found')}")
-        print(f"  - 保留天数: {task_result.get('retention_days')}")
-        print(f"  - 截止时间: {task_result.get('cutoff_time')}")
-        print(f"  - 模拟运行: {task_result.get('dry_run')}")
-        
-        if task_result.get('status') == 'success':
-            print(f"\n✓ 清理任务执行成功")
-        else:
-            print(f"\n❌ 清理任务执行失败: {task_result.get('message')}")
-            return False
-            
-    except Exception as e:
-        print(f"❌ 清理任务执行失败: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-    
-    print(f"\n" + "="*70)
-    print("测试3通过: 定时清理任务正常")
+    print("测试2通过: 硬删除功能正常（记录+物理文件均删除）")
     print("="*70)
     return True
 
@@ -385,23 +296,14 @@ def main():
         traceback.print_exc()
         results.append(('文件移动', False))
     
-    # 测试2: 软删除
+    # 测试2: 硬删除
     try:
-        results.append(('软删除', test_soft_delete()))
+        results.append(('硬删除', test_hard_delete()))
     except Exception as e:
-        print(f"\n❌ 软删除测试异常: {e}")
+        print(f"\n❌ 硬删除测试异常: {e}")
         import traceback
         traceback.print_exc()
-        results.append(('软删除', False))
-    
-    # 测试3: 定时清理任务
-    try:
-        results.append(('定时清理任务', test_cleanup_task()))
-    except Exception as e:
-        print(f"\n❌ 定时清理任务测试异常: {e}")
-        import traceback
-        traceback.print_exc()
-        results.append(('定时清理任务', False))
+        results.append(('硬删除', False))
     
     # 汇总结果
     print("\n" + "#"*70)

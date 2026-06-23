@@ -66,18 +66,6 @@ from .views.transfer import (
     TransferBatchDeleteView,
 )
 
-# 回收站管理 - 从子目录导入
-from .views.recycle_bin import (
-    RecycleBinView,
-    RecycleBinRestoreView,
-    RecycleBinPermanentDeleteView,
-    RecycleBinTaskStatusView,
-    RecycleBinStatsView,
-    RecycleBinFolderRestoreView,
-    RecycleBinFolderPermanentDeleteView,
-    RecycleBinFolderContentView,
-)
-
 # 健康检查
 from .views.health import (
     HealthCheckView, 
@@ -139,20 +127,6 @@ urlpatterns = [
     path('transfers/batch/resume/', TransferBatchResumeView.as_view()),
     path('transfers/batch/cancel/', TransferBatchCancelView.as_view()),
     path('transfers/batch/delete/', TransferBatchDeleteView.as_view()),
-    
-    # 回收站接口
-    path('recycle-bin/', RecycleBinView.as_view()),
-    path('recycle-bin/restore/', RecycleBinRestoreView.as_view()),
-    path('recycle-bin/permanent/', RecycleBinPermanentDeleteView.as_view()),
-    path('recycle-bin/task-status/', RecycleBinTaskStatusView.as_view()),
-    path('recycle-bin/stats/', RecycleBinStatsView.as_view()),
-    
-    # 【新增】文件夹恢复和彻底删除
-    path('recycle-bin/folder-restore/', RecycleBinFolderRestoreView.as_view()),
-    path('recycle-bin/folder-permanent/', RecycleBinFolderPermanentDeleteView.as_view()),
-    
-    # 【新增】查看已删除文件夹内容
-    path('recycle-bin/folder-content/', RecycleBinFolderContentView.as_view()),
     
     # 健康检查
     path('health/', HealthCheckView.as_view()),

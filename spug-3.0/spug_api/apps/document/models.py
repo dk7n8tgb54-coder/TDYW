@@ -192,9 +192,9 @@ class DocumentFileDeleteMixin(models.Model):
                 from apps.document.libs.document_utils import safe_delete_document_file, safe_delete_thumbnail
                 file_deleted, file_error = safe_delete_document_file(self.file_path)
                 if file_deleted:
-                    logger.info(f'[RecycleBin] 物理文件已删除: {self.file_path}')
+                    logger.info(f'[Document] 物理文件已删除: {self.file_path}')
                 else:
-                    logger.error(f'[RecycleBin] 删除物理文件失败: {self.file_path}, error={file_error}')
+                    logger.error(f'[Document] 删除物理文件失败: {self.file_path}, error={file_error}')
                     physical_deleted = False
 
             # 删除缩略图
@@ -202,9 +202,9 @@ class DocumentFileDeleteMixin(models.Model):
                 from apps.document.libs.document_utils import safe_delete_thumbnail
                 thumb_deleted, thumb_error = safe_delete_thumbnail(self.thumbnail_path)
                 if thumb_deleted:
-                    logger.info(f'[RecycleBin] 缩略图已删除: {self.thumbnail_path}')
+                    logger.info(f'[Document] 缩略图已删除: {self.thumbnail_path}')
                 else:
-                    logger.warning(f'[RecycleBin] 删除缩略图失败: {self.thumbnail_path}, error={thumb_error}')
+                    logger.warning(f'[Document] 删除缩略图失败: {self.thumbnail_path}, error={thumb_error}')
 
             if physical_deleted:
                 super().delete(*args, **kwargs)

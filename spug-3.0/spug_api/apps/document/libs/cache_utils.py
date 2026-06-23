@@ -140,25 +140,6 @@ def invalidate_folder_cache(folder_id: int, space: str = 'private') -> None:
     logger.debug(f'文件夹 {folder_id} 缓存已失效')
 
 
-def invalidate_recycle_bin_cache(space: str = 'private') -> None:
-    """
-    使回收站缓存失效
-    
-    Args:
-        space: 空间类型
-    """
-    keys_to_delete = [
-        f'recycle_bin_{space}',
-        f'recycle_bin_stats_{space}',
-        f'stats_{space}',
-    ]
-    
-    for key in keys_to_delete:
-        cache_delete(key)
-    
-    logger.debug(f'回收站 {space} 缓存已失效')
-
-
 def cache_with_key(
     key_func,
     timeout: int = 300,

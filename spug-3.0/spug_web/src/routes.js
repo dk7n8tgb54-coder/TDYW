@@ -35,7 +35,6 @@ import SystemTenant from './pages/system/tenant';
 import WelcomeIndex from './pages/welcome/index';
 import WelcomeInfo from './pages/welcome/info';
 import DocumentIndex from './pages/document';
-import RecycleBinIndex from './pages/document/recycle-bin';
 import Interference from './pages/interference';
 import InterferenceStatistics from './pages/interference/Statistics';
 import ExecUpgradeRecord from './pages/upgrade';
@@ -54,7 +53,6 @@ export default [
   {icon: <SafetyCertificateOutlined/>, title: '无线电台执照', auth: 'radio_license.license.view', path: '/radio-license', component: RadioLicenseIndex},
   {icon: <FolderOpenOutlined/>, title: '资料库', auth: 'document.document.view', child: [
     {title: '资料管理', auth: 'document.document.view', path: '/document', component: DocumentIndex},
-    {title: '回收站', auth: 'document.recycle-bin.view', path: '/document/recycle-bin', component: RecycleBinIndex},
   ]},
   {icon: <FileTextOutlined/>, title: '运行日志', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},
   {icon: <ApartmentOutlined/>, title: '设备管理', auth: 'device.device_resume.view|device.device_history.view', child: [
