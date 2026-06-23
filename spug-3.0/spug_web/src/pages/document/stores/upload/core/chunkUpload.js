@@ -40,26 +40,16 @@ export class ChunkUploadStore {
     
     try {
       if (!fileHash) {
-        // 没有fileHash，需要计算
-        this.queueStore.updateUploadItem(uploadId, {
-          status: 'calculating',
-          percent: 0,
-        });
-
+        // 【7.1 状态机唯一入口】不再写 status:'calculating'，状态机 onCalculatingEntry 已设置
         fileHash = await this.rootStore.md5Store?.calculateFileMD5(file, uploadId);
-        
+
         // 【关键修复】MD5计算完成后检查是否已暂停
         if (this.queueStore.isPaused(uploadId)) {
-          // 用户已暂停，保存fileHash后返回
-          this.queueStore.updateUploadItem(uploadId, { 
-            fileHash,
-            status: 'paused',
-            error: '已暂停',
-            canAbort: false,
-          });
-          return;  // 直接返回，不上传
+          // 用户已暂停，仅保存 fileHash（进度字段，允许直接写），状态由状态机 PAUSE 事件管理
+          this.queueStore.updateUploadItem(uploadId, { fileHash });
+          return;  // 直接返回，不上传，不写生命周期状态
         }
-        
+
         // 保存fileHash
         this.queueStore.updateUploadItem(uploadId, { fileHash });
       }
@@ -87,30 +77,20 @@ export class ChunkUploadStore {
       } catch (error) {
         // 【P2修复】大文件分片上传必须 transferId（断点续传/暂停/取消都依赖它），
         // 创建失败直接中止，避免上传成功但无记录可恢复。
-        this.queueStore.updateUploadItem(uploadId, {
-          status: 'error',
-          error: '创建上传任务失败，请稍后重试',
-          errorCode: 'CLIENT',
-          canAbort: false,
-        });
+        // 【7.1 状态机唯一入口】不写 status:'error'，抛错让 StateChangeHandler 触发 ERROR
         throw new Error('创建上传任务失败，请稍后重试');
       }
     }
 
     // 【P2修复-二轮/三轮】创建后/复用前统一确保后端状态推进到 UPLOADING。
     // 必须包在 try 里：ensureTransferUploading 失败会抛错（强语义 ensure），
-    // 失败时把队列项置为 error 并中止上传。
+    // 失败时中止上传。
     try {
       await this.rootStore.transferStore.ensureTransferUploading(
         uploadItem.transferId
       );
     } catch (ensureError) {
-      this.queueStore.updateUploadItem(uploadId, {
-        status: 'error',
-        error: '上传任务状态初始化失败，请稍后重试',
-        errorCode: 'CLIENT',
-        canAbort: false,
-      });
+      // 【7.1 状态机唯一入口】不写 status:'error'，抛错让 StateChangeHandler 触发 ERROR
       throw new Error('上传任务状态初始化失败，请稍后重试');
     }
 
@@ -154,9 +134,8 @@ export class ChunkUploadStore {
     }
 
     // 开始上传
+    // 【7.1 状态机唯一入口】不再写 status:'uploading'/canAbort，状态机 onUploadingEntry 已设置
     this.queueStore.updateUploadItem(uploadId, {
-      status: 'uploading',
-      canAbort: true,
       chunkCount: chunkCount,
       fileSize: fileSize,
     });
@@ -165,8 +144,7 @@ export class ChunkUploadStore {
     const taskAbortController = new AbortController();
     this.queueStore.updateUploadItem(uploadId, {
       abortController: taskAbortController,
-      isPausedByUser: false,
-      isCancelledByUser: false,
+      // 【7.1】isPausedByUser/isCancelledByUser 由状态机 onUploadingEntry 重置，不再在此写
     });
 
     // 【修复】跟踪本次会话成功上传的分片
@@ -182,22 +160,17 @@ export class ChunkUploadStore {
 
       // 检查暂停/取消状态
       if (this.queueStore.isPaused(uploadId)) {
+        // 【7.1 状态机唯一入口】不写 status:'paused'，状态机已在 paused（用户暂停触发 PAUSE 事件）
+        // 仅保存进度字段
         this.queueStore.updateUploadItem(uploadId, {
-          status: 'paused',
-          error: '已暂停',
           currentChunk: chunkIndex,
-          canAbort: false,
           fileHash: fileHash,  // 【修复】确保fileHash被保存，支持断点续传
         });
         break;
       }
 
       if (this.rootStore.isCancelled || currentItem.isCancelledByUser) {
-        this.queueStore.updateUploadItem(uploadId, {
-          status: 'error',
-          error: '已取消',
-          canAbort: false,
-        });
+        // 【7.1 状态机唯一入口】不写 status:'error'，抛错让上层处理（cancelAll 已统一写状态）
         throw new Error('用户取消');
       }
 
@@ -221,12 +194,7 @@ export class ChunkUploadStore {
         }
         
         // 其他错误，记录并抛出，不继续上传
-        this.queueStore.updateUploadItem(uploadId, {
-          status: 'error',
-          error: `分片 ${chunkIndex + 1} 上传失败: ${errorMsg}`,
-          errorCode: 'CHUNK',
-          currentChunk: chunkIndex,
-        });
+        // 【7.1 状态机唯一入口】不写 status:'error'，抛错让 StateChangeHandler 触发 ERROR
         throw new Error(`分片 ${chunkIndex + 1}/${chunkCount} 上传失败: ${errorMsg}`);
       }
     }
@@ -261,53 +229,37 @@ export class ChunkUploadStore {
 
   } catch (error) {
       const item = this.queueStore.findUploadItemInCurrentTenant(uploadId);
-      
+
       // 【关键修复】统一检查所有暂停/取消相关的错误消息
       const errorMsg = error?.message || String(error);
-      const isPauseError = errorMsg.includes('用户暂停') || 
-                           errorMsg.includes('用户取消') || 
+      const isPauseError = errorMsg.includes('用户暂停') ||
+                           errorMsg.includes('用户取消') ||
                            errorMsg.includes('上传取消') ||
                            errorMsg.includes('已取消');
-      
-      // 【关键修复】如果是暂停错误，确保状态正确后直接返回，不抛出错误
+
+      // 【7.1 状态机唯一入口】暂停/取消错误：不写生命周期状态
+      // 暂停时状态机已通过 PAUSE 事件进入 paused（onPausedEntry 写 status）；取消由 cancelAll 统一处理。
+      // 仅保存 fileHash（进度字段，支持断点续传）后正常返回。
       if (isPauseError) {
-        if (item && item.status !== 'paused') {
-          // 如果状态不是暂停，更新为暂停状态（幂等性保护）
+        if (item) {
           this.queueStore.updateUploadItem(uploadId, {
-            status: 'paused',
-            error: '已暂停',
-            canAbort: false,
-            fileHash: item.fileHash,  // 【修复】使用item中已保存的fileHash
+            fileHash: item.fileHash || fileHash,  // 【修复】确保fileHash被保存，支持断点续传
           });
         }
-        return;  // 【关键】正常返回，不再抛出错误
+        return;  // 【关键】正常返回，不再抛出错误，不写生命周期状态
       }
-      
-      // 非暂停错误，且不是暂停状态，才标记为错误
+
+      // 非暂停错误，且不是暂停状态，才标记后端失败并抛出（由 StateChangeHandler 触发 ERROR）
       if (item && !this.queueStore.isPaused(uploadId)) {
         // 清理唯一标识
         if (item.uniqueKey && !this.rootStore.isCancelled) {
           this.queueStore.removeUniqueKey(file, folderId, this.rootStore.navigationStore?.isPublic);
         }
 
-        // 【修复】显示更详细的错误信息
+        // 【7.1 状态机唯一入口】不写 status:'error'/canAbort，抛错让 StateChangeHandler.startUpload catch 触发 ERROR
+        // 仅做后端记录同步与资源清理
         const detailedError = error.message || '上传失败';
-        // 【新增 2026-06-06】根据 HTTP 状态码推断 errorCode
-        const httpStatus = error?.response?.status;
-        const errorCode = (
-          httpStatus === 401 || httpStatus === 403 ? 'PERMISSION' :
-          httpStatus === 413 ? 'QUOTA' :
-          httpStatus >= 400 && httpStatus < 500 ? 'CLIENT' :
-          httpStatus >= 500 ? 'SERVER' :
-          detailedError.includes('timeout') || detailedError.includes('网络') || detailedError.includes('Network') ? 'NETWORK' :
-          'CHUNK'
-        );
-        // 【修复】使用 updateUploadItem 代替直接修改，确保响应式更新
         this.queueStore.updateUploadItem(uploadId, {
-          status: 'error',
-          error: detailedError,
-          errorCode,
-          canAbort: false,
           abortToken: null,
           abortController: null,
         });
@@ -322,16 +274,16 @@ export class ChunkUploadStore {
             console.warn('[ChunkUpload] markTransferAsFailed 调用本身失败:', e);
           }
         }
-        
+
         // 只有非暂停错误才抛出
         throw error;
       }
-      
+
       // 如果是暂停状态，不抛出错误
       if (this.queueStore.isPaused(uploadId)) {
         return;
       }
-      
+
       // 其他未知错误抛出
       throw error;
     }
@@ -482,13 +434,12 @@ export class ChunkUploadStore {
     } catch (chunkError) {
       const errorMsg = chunkError?.message || String(chunkError);
       const isAbortError = errorMsg.includes('用户暂停') || errorMsg.includes('用户取消');
-      
+
       if (isAbortError) {
-        // 【修复】从item获取fileHash并保存
+        // 【7.1 状态机唯一入口】不写 status:'paused'，状态机已通过 PAUSE 事件进入 paused
+        // 仅保存 fileHash（进度字段，支持断点续传），抛错让上层 catch 统一处理暂停
         const item = this.queueStore.findUploadItemInCurrentTenant(uploadId);
         this.queueStore.updateUploadItem(uploadId, {
-          status: 'paused',
-          error: '已暂停',
           fileHash: item?.fileHash || fileHash,  // 【修复】确保fileHash被保存，支持断点续传
         });
         throw chunkError;
@@ -567,15 +518,16 @@ export class ChunkUploadStore {
     const mergeTaskId = mergeResult.merge_task_id;
     const celeryTaskId = mergeResult.task_id;
 
+    // 【7.1 状态机唯一入口】不写 status:'merging'，状态机 onMergingEntry 已设置
+    // 仅保存 celeryTaskId（进度字段，用于轮询）
     this.queueStore.updateUploadItem(uploadId, {
-      status: 'merging',
       celeryTaskId: celeryTaskId,
     });
 
     await this.pollMergeStatus(mergeTaskId, celeryTaskId);
 
-    // 【修复】合并成功，由调用方（状态机）处理状态转换
-    // 这里只返回成功，不直接更新状态
+    // 【修复】合并成功，由调用方（StateChangeHandler）触发 MERGE_SUCCESS 事件
+    // 这里只返回成功，不直接更新生命周期状态
     return {
       success: true,
       mergeTaskId,

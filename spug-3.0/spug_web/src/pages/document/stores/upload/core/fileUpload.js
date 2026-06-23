@@ -65,37 +65,22 @@ export class FileUploadStore {
       } catch (error) {
         // 【P2修复】创建传输记录失败必须中止上传，
         // 否则上传成功但无 transferId，丢失暂停/取消/续传/状态持久化能力。
-        this.queueStore.updateUploadItem(uploadId, {
-          status: 'error',
-          error: '创建上传任务失败，请稍后重试',
-          errorCode: 'CLIENT',
-          canAbort: false,
-        });
+        // 【7.1 状态机唯一入口】不写 status:'error'，抛错让 StateChangeHandler 触发 ERROR
         throw new Error('创建上传任务失败，请稍后重试');
       }
     }
 
     // 【P2修复-二轮/三轮】创建后/复用前统一确保后端状态推进到 UPLOADING。
     // 必须包在 try 里：ensureTransferUploading 失败会抛错（强语义 ensure），
-    // 失败时把队列项置为 error 并中止上传，避免后端状态与前端不一致。
+    // 失败时中止上传，避免后端状态与前端不一致。
     try {
       await this.rootStore.transferStore.ensureTransferUploading(transferId);
     } catch (ensureError) {
-      this.queueStore.updateUploadItem(uploadId, {
-        status: 'error',
-        error: '上传任务状态初始化失败，请稍后重试',
-        errorCode: 'CLIENT',
-        canAbort: false,
-      });
+      // 【7.1 状态机唯一入口】不写 status:'error'，抛错让 StateChangeHandler 触发 ERROR
       throw new Error('上传任务状态初始化失败，请稍后重试');
     }
 
-    // 标记为上传中
-    this.queueStore.updateUploadItem(uploadId, {
-      canAbort: true,
-      status: 'uploading',
-    });
-
+    // 【7.1 状态机唯一入口】不再写 status:'uploading'/canAbort，状态机 onUploadingEntry 已设置
     // 创建进度更新器
     const updateProgress = UploadUtils.createProgressUpdater
       ? UploadUtils.createProgressUpdater()
@@ -166,9 +151,9 @@ export class FileUploadStore {
       });
 
       // 上传成功
+      // 【7.1 状态机唯一入口】不写 status:'completed'/canAbort，状态机 onCompletedEntry 会写
+      // 仅做资源清理与 completedAt 记录（展示字段）
       this.queueStore.updateUploadItem(uploadId, {
-        status: 'completed',
-        canAbort: false,
         abortToken: null,
         abortController: null,
         completedAt: Date.now(),
@@ -215,38 +200,28 @@ export class FileUploadStore {
       if (item) {
         // 【关键修复】检查是否是暂停，避免误标记为错误
         if (this.queueStore.isPaused(uploadId)) {
-          // 已经是暂停状态，不修改状态，直接清理
+          // 已经是暂停状态，不修改生命周期状态，直接清理资源
+          // 【7.1 状态机唯一入口】不写 canAbort（状态机 onPausedEntry 已写）
           this.queueStore.updateUploadItem(uploadId, {
-            canAbort: false,
             abortToken: null,
           });
           return;  // 【关键】暂停状态直接返回，不抛出错误
         } else if (isCancel || isPauseMessage) {
-          // 【关键修复】如果是暂停导致的取消，标记为暂停而不是错误
+          // 【关键修复】如果是暂停导致的取消，不写生命周期状态（状态机已通过 PAUSE 进入 paused）
+          // 仅清理资源
           this.queueStore.updateUploadItem(uploadId, {
-            status: 'paused',
-            error: '已暂停',
-            canAbort: false,
             abortToken: null,
           });
           return;  // 【关键】直接返回，不抛出错误
         } else {
           // 真正的错误
-          const httpStatus = error?.response?.status;
-          const errorCode = (
-            httpStatus === 401 || httpStatus === 403 ? 'PERMISSION' :
-            httpStatus === 413 ? 'QUOTA' :
-            httpStatus >= 400 && httpStatus < 500 ? 'CLIENT' :
-            httpStatus >= 500 ? 'SERVER' :
-            'UNKNOWN'
-          );
+          // 【7.1 状态机唯一入口】不写 status:'error'/canAbort，抛错让 StateChangeHandler 触发 ERROR
+          // 仅做后端记录同步与资源清理
           this.queueStore.updateUploadItem(uploadId, {
-            status: 'error',
-            error: error.message || '上传失败',
-            errorCode,
-            canAbort: false,
+            abortToken: null,
+            abortController: null,
           });
-          
+
           // 标记传输记录为失败
           if (item.transferId && this.rootStore.transferStore) {
             // 【M9 修复】加 try-catch 防止 markTransferAsFailed 抛错影响主流程
@@ -259,17 +234,17 @@ export class FileUploadStore {
               console.warn('[FileUpload] markTransferAsFailed 调用本身失败:', markErr);
             }
           }
-          
+
           // 清理唯一标识
           if (item.uniqueKey && this.queueStore.uploadingUniqueKeys) {
             this.queueStore.uploadingUniqueKeys.delete(item.uniqueKey);
           }
-          
+
           // 只有真正的错误才抛出
           throw error;
         }
       }
-      
+
       // 如果没有找到item，且不是取消/暂停错误，抛出
       if (!isCancel && !isPauseMessage) {
         throw error;
@@ -287,6 +262,12 @@ export class FileUploadStore {
    */
   @action
   async uploadFileToFolder(file, targetFolderId, folderPath, isPublic = null, existingUploadId = null) {
+    // 【TODO 7.1 状态机唯一入口例外点】此方法是文件夹上传的旧路径，未经过 StateChangeHandler
+    // 调度，直接写 status:'uploading'/'completed'/'error'/'paused' 等生命周期字段。
+    // 当前经核查无外部调用方（仅本文件定义），属于遗留死代码路径。
+    // 文件夹上传主路径已由 FileUploadCoordinator._processBatch → 状态机 START 事件统一调度。
+    // 若未来重新启用此方法，必须改为：入队用 status:'waiting'，成功/失败/暂停通过 transition() 触发。
+    // 详见《资料库并发上传与状态机修复方案.md》7.1 节。
     // 【关键修复】如果已有 uploadId（文件夹上传预创建），复用它
     const uploadId = existingUploadId || generateUploadId();
     const fileName = buildFolderFileName(folderPath, file.name);

@@ -142,12 +142,12 @@ export class StateChangeHandler {
     this.core.queueStore.incrementActiveUploads();
 
     // 更新item状态
-    this.core.queueStore.updateUploadItem(uploadId, { 
-      status: 'uploading',
+    // 【7.1 状态机唯一入口】不写 status:'uploading'/canAbort/isPausedByUser/isCancelledByUser
+    // - status/canAbort 由状态机 onUploadingEntry 写
+    // - isPausedByUser/isCancelledByUser 由状态机 onUploadingEntry 重置
+    // 此处仅做资源管理：创建 abortController（上传中止需要）
+    this.core.queueStore.updateUploadItem(uploadId, {
       error: null,
-      canAbort: true,
-      isPausedByUser: false,
-      isCancelledByUser: false,
       abortController: new AbortController()
     });
 
@@ -203,13 +203,12 @@ export class StateChangeHandler {
         item.isPublic
       );
       
-      // 【修复】合并成功，先更新状态再触发状态转换
+      // 【修复】合并成功，先更新资源/展示字段，再触发状态转换（让状态机 onCompletedEntry 写 status）
       if (mergeResult && mergeResult.success) {
-        // 更新为完成状态
+        // 【7.1 状态机唯一入口】不写 status:'completed'/canAbort，由状态机 onCompletedEntry 写
+        // 仅做资源清理与 completedAt 记录
         this.core.queueStore.updateUploadItem(uploadId, {
-          status: 'completed',
           percent: 100,
-          canAbort: false,
           abortToken: null,
           abortController: null,
           error: null,
@@ -228,7 +227,7 @@ export class StateChangeHandler {
         // 触发刷新
         this.core.queueStore.triggerRefresh();
         
-        // 触发 MERGE_SUCCESS 状态转换（用于状态机清理）
+        // 触发 MERGE_SUCCESS 状态转换：merging -> completed（状态机 onCompletedEntry 写 status/canAbort）
         const stateMachine = this.core.stateMachineManager?.get(uploadId);
         if (stateMachine) {
           stateMachine.transition('MERGE_SUCCESS');
@@ -249,11 +248,9 @@ export class StateChangeHandler {
             // 轮询合并状态
             await this.core.chunkUploadStore.pollMergeStatus(null, existingTaskId);
             
-            // 轮询成功，更新为完成状态
+            // 轮询成功，更新资源/展示字段（不写 status，由状态机 onCompletedEntry 写）
             this.core.queueStore.updateUploadItem(uploadId, {
-              status: 'completed',
               percent: 100,
-              canAbort: false,
               abortToken: null,
               abortController: null,
               error: null,
@@ -271,7 +268,7 @@ export class StateChangeHandler {
             
             this.core.queueStore.triggerRefresh();
             
-            // 触发 MERGE_SUCCESS 状态转换
+            // 触发 MERGE_SUCCESS 状态转换：merging -> completed
             const stateMachine = this.core.stateMachineManager?.get(uploadId);
             if (stateMachine) {
               stateMachine.transition('MERGE_SUCCESS');

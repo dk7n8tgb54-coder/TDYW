@@ -413,9 +413,14 @@ export class UploadStateMachine {
   }
 
   onUploadingEntry() {
+    // 【7.1 状态机唯一入口】生命周期字段全部由状态机 entry 管理
+    // isPausedByUser / isCancelledByUser 原先在 StateChangeHandler.handleUploadingState
+    // 中重置，现收敛到状态机内部，避免业务模块直接写生命周期字段。
     this.actions.updateItem({
       status: 'uploading',
-      canAbort: true
+      canAbort: true,
+      isPausedByUser: false,
+      isCancelledByUser: false
     });
   }
 
@@ -603,11 +608,16 @@ export class UploadStateMachine {
   }
 
   /**
-   * 【新增 2026-06-06】状态一致性检查
+   * 【新增 2026-06-06，7.1 强化 2026-06-23】状态一致性检查
    *
    * 检查状态机 currentState 与 Store item.status 是否一致。
-   * 由于 chunkUpload.js / fileUpload.js 等模块可能绕过状态机直接写 status，
-   * 这个方法用于在每次状态转换后检测并报警（开发环境）或自动修复（生产环境）。
+   * 业务模块（chunkUpload.js / fileUpload.js 等）应通过 transition(event) 触发状态迁移，
+   * 不再直接写 item.status / canAbort / isPausedByUser / isCancelledByUser。
+   *
+   * 策略：
+   * - 开发环境：打印详细报警（含调用栈），便于定位绕写点。
+   * - 生产环境：记录到 metrics，并自动以状态机状态修复 Store 状态。
+   * - 自动修复只是兜底，不应掩盖业务模块绕写问题；修复后绕写点应明显减少。
    *
    * @param {string} expectedState - 状态机转换后的目标状态
    * @param {string} event - 触发转换的事件
@@ -620,9 +630,9 @@ export class UploadStateMachine {
       if (item.status !== expectedState) {
         const msg = `[UploadStateMachine] 状态不一致! uploadId=${this.uploadId}, stateMachine=${expectedState}, item.status=${item.status}, event=${event}`;
 
-        // 开发环境：报警
+        // 开发环境：报警 + 调用栈，便于定位绕写点
         if (process.env.NODE_ENV === 'development') {
-          console.warn(msg);
+          console.warn(msg, '\n调用栈:', new Error().stack);
         } else {
           // 生产环境：静默记录到 metrics
           if (this.context.metrics) {
@@ -630,8 +640,7 @@ export class UploadStateMachine {
           }
         }
 
-        // 自动修复：让 item.status 跟随状态机
-        // 这保证了即使有旁路写入，最终状态以状态机为准
+        // 自动修复：让 item.status 跟随状态机（以状态机为准）
         if (this.context.queueStore?.updateUploadItem) {
           this.context.queueStore.updateUploadItem(this.uploadId, { status: expectedState });
         }

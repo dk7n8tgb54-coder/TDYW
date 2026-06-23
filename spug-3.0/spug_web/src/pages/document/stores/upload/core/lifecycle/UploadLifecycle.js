@@ -91,11 +91,7 @@ export class UploadLifecycle {
     }
 
     try {
-      // 更新状态为计算中
-      this.core.queueStore.updateUploadItem(uploadId, {
-        status: 'calculating',
-      });
-
+      // 【7.1 状态机唯一入口】不再写 status:'calculating'，状态机 onCalculatingEntry 已设置
       // 计算MD5（仅大文件）
       const fileHash = await this.core.md5Store?.calculateFileMD5(item.file, uploadId);
       

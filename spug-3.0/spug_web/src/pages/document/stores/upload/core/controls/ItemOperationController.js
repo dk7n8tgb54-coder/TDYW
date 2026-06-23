@@ -234,14 +234,20 @@ export class ItemOperationController {
       );
       
       console.log('[ItemOperationController] 直接合并任务已提交:', response);
-      
+
       // 【P0-Day1关键修复】接口调用成功后，再更新UI状态
       if (response.is_idempotent) {
         // 幂等响应：任务已在进行中
         console.log('[ItemOperationController] 任务已在进行中，继续轮询');
       }
-      
+
       // 更新UI状态
+      // 【TODO 7.1 状态机唯一入口例外点】此处直接写 item.status='merging' 绕过状态机。
+      // 原因：_directMerge 是合并失败后的"智能重试"快捷路径，此时状态机处于 error 终态，
+      // 需先重建/转换状态机到 merging 才能合法写入。当前实现为快速恢复，直接写状态 + 轮询。
+      // 风险：若轮询期间状态机仍为 error，countByStates 统计会偏差；assertStatusConsistency 会报警。
+      // 后续优化：应通过 ensureStateMachine 重建后 transition('RESUME') → START → ... → UPLOAD_COMPLETE →
+      // 进入 merging，由 onMergingEntry 统一写 status。详见《资料库并发上传与状态机修复方案.md》7.1 节。
       item.state = 'merging';
       item.status = 'merging';
       item.progress = 99;
@@ -393,7 +399,15 @@ export class ItemOperationController {
   abortUpload(uploadId) {
     const { item } = this.core.queueStore.findUploadItem(uploadId);
     if (item) {
-      // 【修复】使用 updateUploadItem 代替直接修改
+      // 【7.1 状态机唯一入口】优先通过状态机 ERROR 事件迁移，由 onErrorEntry 写 status:'error'
+      const stateMachine = this.core.stateMachineManager?.get(uploadId);
+      if (stateMachine && stateMachine.canTransition('ERROR')) {
+        stateMachine.transition('ERROR', { error: '已中止' });
+        return;
+      }
+      // 【例外点降级】状态机不存在或不可转换（如已终态被释放），直接写并记录
+      // TODO 7.1: 此降级分支保留，因终态状态机可能已被清理，无法再 transition
+      console.warn(`[ItemOperationController] ${uploadId}: abortUpload 降级直接写（状态机不可用）`);
       this.core.queueStore.updateUploadItem(uploadId, {
         status: 'error',
         error: '已中止',

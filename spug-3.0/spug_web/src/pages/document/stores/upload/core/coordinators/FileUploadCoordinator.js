@@ -319,6 +319,12 @@ export class FileUploadCoordinator {
     }
     
     // 【修复】使用 updateUploadItem 代替直接修改
+    // 【TODO 7.1 状态机唯一入口例外点】replaceFileAndResume 直接写 status:'waiting' 绕过状态机。
+    // 原因：用户重新选择文件后恢复上传，此时任务处于 paused/error 等状态，状态机需根据历史与 fileHash
+    // 判断恢复目标（waiting/calculating/uploading）。直接写 'waiting' 是为了强制从头调度，简化逻辑。
+    // 风险：与状态机 currentState 不一致，但下方 resumeItem 会触发 transition('RESUME'/'START')，
+    // 状态机守卫会校正目标状态，onWaitingEntry 会重新写 status:'waiting'，最终一致。
+    // 后续优化：应封装为 replaceFileAndResume 专用事件，由状态机统一处理文件替换 + 状态迁移。
     this.core.queueStore.updateUploadItem(itemId, {
       file: newFile,
       status: 'waiting',

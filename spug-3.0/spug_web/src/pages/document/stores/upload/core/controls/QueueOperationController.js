@@ -23,6 +23,13 @@ export class QueueOperationController {
 
     const transferIds = [];
 
+    // 【TODO 7.1 状态机唯一入口例外点】cancelAll 批量取消直接写 status:'error' 绕过状态机。
+    // 原因：批量取消需要"立即中止所有网络请求 + 立即更新 UI"，逐个 transition('CANCEL') 难以保证
+    // 正在 uploading/merging 的任务能立即中断请求（CANCEL 事件会触发 onUploadingExit → abortUpload，
+    // 但异步链路较长）。当前实现直接 abortToken.cancel + updateUploadItem 是经过验证的可靠中断方式。
+    // 风险：状态机 currentState 与 item.status 可能短暂不一致（assertStatusConsistency 会兜底修复）。
+    // 后续优化：可改造为 stateMachineManager.batchCancel() + 统一资源清理，但需充分回归测试。
+    // 详见《资料库并发上传与状态机修复方案.md》7.1 节。
     Object.keys(this.core.uploadQueue).forEach(tenantId => {
       this.core.uploadQueue[tenantId].forEach(item => {
         if (item.canAbort && item.abortToken) {

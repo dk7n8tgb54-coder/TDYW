@@ -209,9 +209,14 @@ export class UploadQueueStore {
 
   /**
    * 暂停上传
+   * 【TODO 7.1 状态机唯一入口例外点 / 废弃方法】
+   * 此方法直接写 status:'paused' 绕过状态机，且经核查无任何调用方（仅测试 mock 引用）。
+   * 暂停应通过 ItemOperationController.pauseItem → stateMachine.transition('PAUSE') 完成。
+   * 保留方法签名仅为向后兼容，后续应在确认无引用后删除。
    */
   @action
   pauseUpload(uploadId) {
+    console.warn('[QueueStore] pauseUpload 已废弃，请使用 ItemOperationController.pauseItem（状态机 PAUSE 事件）');
     this.updateUploadItem(uploadId, { 
       status: 'paused',
       _resumeInfo: { canResume: true }
@@ -220,9 +225,13 @@ export class UploadQueueStore {
 
   /**
    * 恢复上传
+   * 【TODO 7.1 状态机唯一入口例外点 / 废弃方法】
+   * 此方法直接写 status:'waiting' 绕过状态机，且经核查无任何调用方（仅测试 mock 引用）。
+   * 恢复应通过 ItemOperationController.resumeItem → stateMachine.transition('RESUME'/'START') 完成。
    */
   @action
   resumeUpload(uploadId) {
+    console.warn('[QueueStore] resumeUpload 已废弃，请使用 ItemOperationController.resumeItem（状态机 RESUME/START 事件）');
     this.updateUploadItem(uploadId, { status: 'waiting' });
   }
 
