@@ -137,9 +137,11 @@ class DebounceController {
     // 使用状态机批量操作
     if (coreStore.stateMachineManager) {
       // 传入并发限制，防止一次性恢复所有任务突破限制
+      // 【7.2 统一并发槽位口径】getActiveCount 改用状态机状态计数
+      //   calculating + uploading 占用前端上传槽位；merging 不占
       const results = coreStore.stateMachineManager.batchResume(
         MAX_CONCURRENT_UPLOADS,
-        () => coreStore.activeUploads
+        () => coreStore.stateMachineManager.countByStates(['calculating', 'uploading'])
       );
       const successCount = results.filter(r => r.success).length;
 

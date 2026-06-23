@@ -192,6 +192,11 @@ class UploadCoreStore {
   // ===== 代理属性 =====
 
   get uploadQueue() { return this.queueStore.uploadQueue; }
+  /**
+   * @deprecated 【7.2 统一并发槽位口径】不再参与调度决策。
+   *   调度以 stateMachineManager.countByStates(['calculating','uploading']) 为唯一口径。
+   *   保留此代理属性仅为向后兼容 UI/调试展示。
+   */
   get activeUploads() { return this.queueStore.activeUploads; }
   get refreshTrigger() { return this.queueStore.refreshTrigger; }
   get uploadRefreshTrigger() { return this.queueStore.uploadRefreshTrigger; }

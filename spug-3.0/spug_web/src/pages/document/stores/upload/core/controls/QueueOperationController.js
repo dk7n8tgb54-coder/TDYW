@@ -59,6 +59,9 @@ export class QueueOperationController {
       });
     });
 
+    // @deprecated 【7.2 统一并发槽位口径】activeUploads 不再参与调度决策。
+    //   并发槽位以状态机状态计数为准，cancelAll 后所有状态机进入终态，
+    //   countByStates 自然归零。此行保留为防御性清零，避免历史 UI 残留。
     this.core.queueStore.activeUploads = 0;
 
     // 使用批量API替代循环逐个调用

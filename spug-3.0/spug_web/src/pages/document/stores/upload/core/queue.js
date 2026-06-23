@@ -12,6 +12,12 @@ export class UploadQueueStore {
 
   // ============ Observable State ============
   @observable uploadQueue = {};  // 按租户分组的上传队列 { [tenantId]: [items] }
+  /**
+   * @deprecated 【7.2 统一并发槽位口径】不再参与调度决策。
+   *   并发槽位以 stateMachineManager.countByStates(['calculating','uploading']) 为唯一口径。
+   *   此字段保留仅为向后兼容 UI/调试指标，值不再被业务递增递减。
+   *   后续如 UI 已迁移到状态机派生计数，可删除此字段。
+   */
   @observable activeUploads = 0;  // 当前正在上传的文件数量
   @observable refreshTrigger = 0;  // 文件列表刷新触发器
   @observable uploadRefreshTrigger = 0;  // 上传进度刷新触发器
@@ -164,6 +170,7 @@ export class UploadQueueStore {
 
   /**
    * 增加活跃上传计数
+   * @deprecated 【7.2】不再参与调度决策，保留仅为向后兼容。调度以状态机计数为准。
    */
   @action
   incrementActiveUploads() {
@@ -172,6 +179,7 @@ export class UploadQueueStore {
 
   /**
    * 减少活跃上传计数
+   * @deprecated 【7.2】不再参与调度决策，保留仅为向后兼容。调度以状态机计数为准。
    */
   @action
   decrementActiveUploads() {

@@ -32,8 +32,14 @@ export class RecoveryCoordinator {
         });
       }
       
+      // 【7.2 统一并发槽位口径】以状态机状态计数作为唯一并发口径
+      // calculating + uploading 占用前端上传槽位；merging 不占（后端合并、前端只轮询）
+      const activeCount = this.core.stateMachineManager
+        ? this.core.stateMachineManager.countByStates(['calculating', 'uploading'])
+        : 0;
+
       // 如果当前活跃任务数小于最大并发数，且有暂停的任务，恢复一个
-      if (pausedMachines.length > 0 && this.core.activeUploads < MAX_CONCURRENT_UPLOADS) {
+      if (pausedMachines.length > 0 && activeCount < MAX_CONCURRENT_UPLOADS) {
         // 按添加顺序恢复（先入先出）
         const nextToResume = pausedMachines[0];
         console.log('[自动恢复] 恢复暂停任务:', nextToResume.id, nextToResume.item.name);

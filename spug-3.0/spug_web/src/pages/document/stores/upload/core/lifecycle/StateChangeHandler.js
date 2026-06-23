@@ -89,6 +89,17 @@ export class StateChangeHandler {
 
   /**
    * 【状态机】处理uploading状态 - 触发实际上传
+   *
+   * 【7.2 统一并发槽位口径】
+   *   本方法不再参与并发槽位控制：
+   *   - 不再 `while (activeUploads >= MAX)` 等待槽位
+   *   - 不再 `incrementActiveUploads()` / `decrementActiveUploads()`
+   *   能否进入 uploading 由 UploadCoordinator.startWaiting() 基于
+   *     stateMachineManager.countByStates(['calculating','uploading']) 统一决定。
+   *   槽位释放来自状态机状态自然变化：任务离开 uploading 后
+   *     (→ merging/completed/error/cancelled) 不再被 countByStates 统计。
+   *   后续 waiting 任务的启动由 handle() 的终态/merging 分支触发 processPending()。
+   *
    * 【P2-架构说明】当前状态机回调中包含业务逻辑，建议未来重构为：
    *   1. 状态机只负责状态流转，通过事件通知外部
    *   2. 业务逻辑（上传/MD5计算）由 UploadCoreStore 订阅事件后执行
@@ -108,38 +119,30 @@ export class StateChangeHandler {
     const chunkCount = Math.ceil(item.fileSize / UPLOAD_CONSTANTS.CHUNK_SIZE);
     const uploadedChunks = item.currentChunk || 0;
     if (fromState === 'paused' && uploadedChunks >= chunkCount && uploadedChunks > 0) {
-      
+
       // 【关键修复】检查后端状态，如果已经在合并中，直接进入merging状态
       if (item.transferStatus === 'MERGING' || item.status === 'merging') {
         const stateMachine = this.core.stateMachineManager?.get(uploadId);
         if (stateMachine) {
           stateMachine.transition('UPLOAD_COMPLETE');
         }
-        this.core.queueStore.decrementActiveUploads();
+        // 【7.2】不再 decrementActiveUploads：槽位由状态机状态自然释放
         return;
       }
-      
+
       // 触发状态转换：uploading -> merging
       const stateMachine = this.core.stateMachineManager?.get(uploadId);
       if (stateMachine) {
         stateMachine.transition('UPLOAD_COMPLETE');
       }
-      // 【P0修复】递减activeUploads，因为跳过了实际上传
-      this.core.queueStore.decrementActiveUploads();
+      // 【7.2】不再 decrementActiveUploads：槽位由状态机状态自然释放
       return;
     }
 
-    // 【M-03修复】等待并发槽位
-    const { MAX_CONCURRENT_UPLOADS, CONCURRENT_SLOT_WAIT_INTERVAL } = require('../upload-core-constants');
-    while (this.core.activeUploads >= MAX_CONCURRENT_UPLOADS) {
-      if (this.core.isCancelled || this.core.isPaused) {
-        return;
-      }
-      await new Promise(resolve => setTimeout(resolve, CONCURRENT_SLOT_WAIT_INTERVAL));
-    }
-
-    // 【P0修复】占用一个并发槽位
-    this.core.queueStore.incrementActiveUploads();
+    // 【7.2】不再 while 等待并发槽位：
+    //   能否进入 uploading 已由 UploadCoordinator.startWaiting() 基于
+    //   countByStates(['calculating','uploading']) < maxConcurrentUploads 统一决定。
+    //   此处只负责执行上传业务。
 
     // 更新item状态
     // 【7.1 状态机唯一入口】不写 status:'uploading'/canAbort/isPausedByUser/isCancelledByUser
@@ -163,16 +166,18 @@ export class StateChangeHandler {
           stateMachine.transition('ERROR', { error });
         }
       } finally {
-        // 【P0修复】确保activeUploads递减，并处理等待队列
-        this.core.queueStore.decrementActiveUploads();
+        // 【7.2】不再 decrementActiveUploads：槽位由状态机状态自然释放
+        //   （uploading→merging/completed/error 后 countByStates 不再统计本任务）
+        // 保留 processPending 作为防御性兜底，确保上传结束后立即尝试启动 waiting 任务，
+        //   不完全依赖 handle() 终态分支的 setTimeout(0) 触发
         if (this.core.uploadCoordinator) {
           this.core.uploadCoordinator.processPending();
         }
       }
-    } else {
-      // 未知来源状态，递减计数避免泄漏
-      this.core.queueStore.decrementActiveUploads();
     }
+    // 【7.2】不再处理未知来源状态的 decrement：
+    //   UPLOADABLE_FROM_STATES 未命中时，状态机仍停留在 uploading，
+    //   后续由超时/取消/错误等事件自然流转，不会造成槽位泄漏。
   }
 
   /**
