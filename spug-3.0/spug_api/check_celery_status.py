@@ -50,8 +50,12 @@ def check_registered_tasks():
     
     # 检查关键任务是否存在
     required_tasks = [
-        'apps.document.tasks.cleanup.async_batch_permanent_delete',
-        'apps.document.tasks.cleanup.async_batch_folder_permanent_delete',
+        'apps.document.tasks.merge_file_chunks',
+        'apps.document.tasks.cleanup_old_chunks',
+        'apps.document.tasks.cleanup_expired_transfers',
+        'apps.document.tasks.cleanup.retry_clean_pending_files',
+        'apps.document.tasks.cleanup.orphan_transfers.cleanup_orphan_transfers',
+        'apps.document.tasks.timeout_checker.check_merge_timeout',
     ]
     
     print("\n关键任务检查:")
@@ -165,21 +169,23 @@ def main():
     
     print_section("诊断建议")
     print("""
-如果删除任务一直处于"等待中"，请检查:
+如果上传/合并/清理任务一直处于"等待中"，请检查:
 
-1. Celery Worker 是否已启动:
+1. Celery Worker 是否已启动（每个队列应由专用 worker 消费）:
    cd spug_api
-   celery -A spug worker -Q document.cleanup -l info
+   celery -A spug worker -Q document.merge -n merge-worker@%%h -l info
+   celery -A spug worker -Q document.cleanup -n cleanup-worker@%%h -l info
+   celery -A spug worker -Q document.batch -n batch-worker@%%h -l info
+   celery -A spug worker -Q celery -n default-worker@%%h -l info
 
-2. 是否监听了正确的队列:
-   celery -A spug worker -Q document.cleanup,document.merge,document.batch,celery -l info
+2. 检查各 worker 监听的队列是否正确:
+   celery -A spug inspect active_queues
 
 3. Redis 是否正常运行:
    redis-cli ping
 
 4. 重启 Worker (如果配置已修改):
-   pkill -f "celery worker"
-   celery -A spug worker -Q document.cleanup -l info
+   supervisorctl restart spug-celery-merge spug-celery-cleanup spug-celery-batch spug-celery
 """)
 
 if __name__ == '__main__':

@@ -211,10 +211,11 @@ from apps.document.celery_beat_schedule import DOCUMENT_BEAT_SCHEDULE
 from apps.radio_license.celery_beat_schedule import RADIO_LICENSE_BEAT_SCHEDULE
 
 CELERY_BEAT_SCHEDULE = {
-    # 每小时检查一次待清理文件（回收站）
+    # 每小时重试清理标记为待清理的物理文件（上传链路，非回收站）
     'retry-clean-pending-files': {
         'task': 'apps.document.tasks.cleanup.retry_clean_pending_files',
         'schedule': 3600.0,  # 每小时执行一次
+        'options': {'queue': 'document.cleanup'},
     },
 }
 
