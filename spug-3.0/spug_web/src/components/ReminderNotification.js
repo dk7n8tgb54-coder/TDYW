@@ -1,18 +1,17 @@
 /**
- * 全局执照到期提醒弹窗组件
+ * 全局执照到期提醒弹窗组件（执照中心模型）
  *
- * 挂载在 Layout 中，自动拉取当前用户"未处理"提醒并在右下角弹窗通知。
+ * 重构说明（2026-06-23）：
+ * - 改用 /api/radio-license/reminders/popup/ 接口，实时查询 expiring/expired 执照
+ * - days_left 由后端实时计算（基于 license.valid_to），不再读快照
+ * - "已处理"由 LicenseReminderAck 表管理，续期后自动失效
+ * - 去重 key 从 reminder.id 改为 license_id（新接口无 reminder.id）
+ * - content 由前端拼装（不依赖预生成数据）
  *
- * 设计要点（2026-06-22 重构）：
- * - 拉取接口改用 is_handled=false（已读不等于已处理，只有 is_handled=True 才停止弹窗）
- * - 即将到期执照每天都会生成新的 expiring_daily 提醒，从而实现"每日提醒"
- * - 不再用 sessionStorage 按 reminder.id 做永久会话去重（会破坏每日提醒需求）
- * - 用组件内存 Set 控制本次生命周期内不重复弹同一条（5 分钟轮询不会重复弹）
- * - "今日不再提醒"按钮：localStorage 按日期 + license_id + 用户 token 维度抑制当天弹窗
- *   - 不调用 handle，不标记为已处理
- *   - 第二天日期变化后自动失效，可再次弹窗
- * - 普通关闭弹窗只是关闭，不等于"今日不再提醒"
- * - 点击弹窗主体仍跳转到 /radio-license?id={license_id}
+ * 保留逻辑：
+ * - "今日不再提醒"：localStorage 按日期 + license_id + 用户维度抑制当天弹窗
+ * - 5 分钟轮询，组件内存 Set 控制本次生命周期不重复弹同一 license
+ * - 点击弹窗跳转 /radio-license?id={license_id}
  */
 import React, { useEffect, useRef } from 'react';
 import { notification, Tag, Button } from 'antd';
@@ -67,41 +66,40 @@ function cleanupExpiredMute() {
 }
 
 const REMIND_TYPE_MAP = {
-  // 新版
   expiring_daily: {color: 'orange', text: '即将到期'},
   expired:        {color: 'red',    text: '已过期'},
-  // 兼容历史分级提醒数据
-  expiring_45: {color: 'blue',    text: '即将到期'},
-  expiring_30: {color: 'cyan',    text: '即将到期'},
-  expiring_15: {color: 'orange',  text: '即将到期'},
-  expiring_7:  {color: 'volcano', text: '即将到期'},
-  expiring_1:  {color: 'red',     text: '即将到期'},
 };
 
-function showReminderNotification(reminder) {
-  const typeInfo = REMIND_TYPE_MAP[reminder.remind_type] || {color: 'default', text: reminder.remind_type};
-  const isExpired = reminder.remind_type === 'expired';
+function showReminderNotification(record) {
+  const typeInfo = REMIND_TYPE_MAP[record.remind_type] || {color: 'default', text: record.remind_type};
+  const isExpired = record.remind_type === 'expired';
   const icon = isExpired
     ? <WarningOutlined style={{color: '#ff4d4f'}} />
     : <ClockCircleOutlined style={{color: '#fa8c16'}} />;
-  const notifKey = `reminder-${reminder.id}`;
+  // 用 license_id 作为 notification key（新接口无 reminder.id）
+  const notifKey = `license-${record.license_id}`;
+
+  // content 由前端实时拼装（不依赖后端预生成）
+  const content = isExpired
+    ? `执照"${record.station_name}"已过期 ${Math.abs(record.days_left)} 天，请及时处理。`
+    : `执照"${record.station_name}"（${record.valid_from} ~ ${record.valid_to}）将于 ${record.days_left} 天后到期，请及时续期。`;
 
   notification.warning({
     key: notifKey,
     message: (
       <span>
         <Tag color={typeInfo.color} style={{marginRight: 6}}>{typeInfo.text}</Tag>
-        {reminder.title || '执照到期提醒'}
+        {record.station_name || '执照到期提醒'}
       </span>
     ),
     description: (
       <div>
-        <div>{reminder.content}</div>
-        {reminder.days_left !== undefined && reminder.days_left !== null && (
+        <div>{content}</div>
+        {record.days_left !== undefined && record.days_left !== null && (
           <div style={{marginTop: 4, fontSize: 12, color: isExpired ? '#ff4d4f' : '#8c8c8c'}}>
             {isExpired
-              ? `已过期 ${Math.abs(reminder.days_left)} 天`
-              : `剩余 ${reminder.days_left} 天`}
+              ? `已过期 ${Math.abs(record.days_left)} 天`
+              : `剩余 ${record.days_left} 天`}
           </div>
         )}
         <div style={{marginTop: 8, textAlign: 'right'}}>
@@ -111,8 +109,8 @@ function showReminderNotification(reminder) {
             onClick={(e) => {
               // 阻止冒泡到 notification 的 onClick（避免误触发跳转）
               e.stopPropagation();
-              if (reminder.license_id) {
-                muteLicenseToday(reminder.license_id);
+              if (record.license_id) {
+                muteLicenseToday(record.license_id);
               }
               notification.close(notifKey);
             }}
@@ -128,34 +126,35 @@ function showReminderNotification(reminder) {
     onClick: () => {
       notification.close(notifKey);
       // 跳转到执照详情
-      history.push(`/radio-license?id=${reminder.license_id}`);
+      history.push(`/radio-license?id=${record.license_id}`);
     },
   });
 }
 
 export default function ReminderNotification() {
   const timerRef = useRef(null);
-  // 本次组件生命周期内已弹过的 reminder.id 集合
-  // 用于 5 分钟轮询时不重复弹同一条（不持久化，刷新页面后清空）
-  const notifiedIdsRef = useRef(new Set());
+  // 本次组件生命周期内已弹过的 license_id 集合
+  // 用于 5 分钟轮询时不重复弹同一执照（不持久化，刷新页面后清空）
+  const notifiedLicenseIdsRef = useRef(new Set());
 
   function fetchAndNotify() {
-    http.get('/api/radio-license/reminders/', {params: {is_handled: 'false', page_size: 50}})
+    // 改用弹窗专用接口：实时查询 expiring/expired 执照，排除已 ack 的
+    http.get('/api/radio-license/reminders/popup/')
       .then(({records}) => {
         if (!records || !records.length) return;
         // 清理过期免提醒记录
         cleanupExpiredMute();
         // 今日已免提醒的 license_id 集合
         const mutedLicenses = getTodayMutedLicenses();
-        // 本次生命周期已弹过的 reminder.id
-        const notifiedIds = notifiedIdsRef.current;
+        // 本次生命周期已弹过的 license_id
+        const notifiedLicenseIds = notifiedLicenseIdsRef.current;
         records.forEach(r => {
           // 跳过本次生命周期已弹过的（避免 5 分钟轮询重复弹）
-          if (notifiedIds.has(r.id)) return;
+          if (notifiedLicenseIds.has(r.license_id)) return;
           // 跳过今日已免提醒的 license
           if (r.license_id && mutedLicenses.has(r.license_id)) return;
           // 标记已弹过并展示
-          notifiedIds.add(r.id);
+          notifiedLicenseIds.add(r.license_id);
           showReminderNotification(r);
         });
       })

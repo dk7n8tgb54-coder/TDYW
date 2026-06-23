@@ -51,7 +51,9 @@ export default observer(function ReminderList({ licenseId }) {
   }
 
   function handleHandle(r) {
-    http.post('/api/radio-license/reminders/handle/', {id: r.id, action: 'handle'})
+    // 执照中心模型：已处理按钮调 ack 接口（写 LicenseReminderAck）
+    // 续期后 license.valid_to 变化，ack 自动失效，会重新弹窗
+    http.post('/api/radio-license/reminders/ack/', {license_id: r.license_id})
       .then(() => {
         message.success('已标记为已处理');
         fetchReminders();

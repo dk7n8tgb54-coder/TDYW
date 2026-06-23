@@ -111,21 +111,30 @@ REMIND_TYPE_MAP = {
 
 
 class RadioLicenseReminder(models.Model, TenantModelMixin):
-    """无线电台执照提醒记录表"""
+    """无线电台执照提醒记录表（历史日志，只增不改）
+
+    重构说明（2026-06-23 执照中心模型）：
+    - 本表降级为"通知历史日志"，仅供提醒记录页查阅历史
+    - 弹窗判断、days_left、"已处理"状态全部迁移到 LicenseReminderAck
+    - 不再由定时任务预生成（tasks.scan_single_license 只更新 license.status）
+    - 保留旧数据供审计，新数据由编辑执照时的即时扫描按需写入
+
+    字段 days_left / content 为生成时快照，不保证实时，展示时需重新计算。
+    """
     objects = TenantModelManager()
     tenant_id = make_tenant_id()
 
     # ---- 业务字段 ----
     license = models.ForeignKey(RadioLicense, models.CASCADE, related_name='reminders', help_text='执照')
-    remind_type = models.CharField(max_length=30, help_text='提醒类型: expiring_45/expiring_30/.../expired')
+    remind_type = models.CharField(max_length=30, help_text='提醒类型: expiring_daily/expired（历史含 expiring_45/30/15/7/1）')
     remind_date = models.DateField(help_text='提醒日期')
-    days_left = models.IntegerField(help_text='剩余天数')
+    days_left = models.IntegerField(help_text='剩余天数（生成时快照，非实时）')
     title = models.CharField(max_length=200, help_text='标题')
-    content = models.TextField(default='', help_text='内容')
+    content = models.TextField(default='', help_text='内容（生成时快照，非实时）')
     receiver_user_id = models.IntegerField(help_text='接收人ID')
     receiver_user_name = models.CharField(max_length=100, default='', help_text='接收人姓名')
     is_read = models.BooleanField(default=False, help_text='是否已读')
-    is_handled = models.BooleanField(default=False, help_text='是否已处理')
+    is_handled = models.BooleanField(default=False, help_text='是否已处理（历史字段，新逻辑用 LicenseReminderAck）')
 
     # ---- 通用字段 ----
     created_at = models.CharField(max_length=20, default=human_datetime)
@@ -146,6 +155,58 @@ class RadioLicenseReminder(models.Model, TenantModelMixin):
             models.Index(fields=['tenant_id', 'receiver_user_id', 'is_read']),
             # 去重索引：同一执照 + 同一提醒类型 + 同一截止日期周期 + 同一接收人
             models.Index(fields=['tenant_id', 'license', 'remind_type', 'receiver_user_id']),
+        ]
+
+
+class LicenseReminderAck(models.Model, TenantModelMixin):
+    """执照提醒"已处理"确认记录（执照中心模型核心表）
+
+    设计原则：
+    - 派生数据不存储：days_left/content 不在此表，弹窗实时算
+    - 状态与事件分离：此表是"用户确认状态"，RadioLicenseReminder 是"通知事件日志"
+    - 续期失效靠数据本身：ack_valid_to 记录确认时的 valid_to，
+      license.valid_to 变化（续期）后 ack 自动失效，无需手动作废
+
+    弹窗判断逻辑（ReminderPopupView）：
+        license.status IN (expiring, expired)
+        AND NOT EXISTS ack WHERE license_id=X AND user_id=Y AND ack_valid_to=license.valid_to
+
+    用户点"已处理"→ 写一条 ack（license_id + user_id + ack_valid_to=license.valid_to）
+    用户续期（valid_to 变）→ 旧 ack 的 ack_valid_to != 新 valid_to → 自动失效 → 重新弹窗
+    """
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    # ---- 业务字段 ----
+    license = models.ForeignKey(RadioLicense, models.CASCADE, related_name='reminder_acks', help_text='执照')
+    user_id = models.IntegerField(help_text='确认处理的用户ID')
+    user_name = models.CharField(max_length=100, default='', help_text='确认处理的用户姓名')
+    ack_valid_to = models.DateField(help_text='确认时执照的截止日期（用于续期后自动失效）')
+
+    # ---- 通用字段 ----
+    created_at = models.CharField(max_length=20, default=human_datetime)
+
+    def __repr__(self):
+        return '<LicenseReminderAck license=%s user=%s valid_to=%s>' % (self.license_id, self.user_id, self.ack_valid_to)
+
+    def to_view(self):
+        return self.to_dict()
+
+    class Meta:
+        db_table = 'tdyw_radio_license_reminder_ack'
+        verbose_name = '执照提醒确认'
+        verbose_name_plural = '执照提醒确认'
+        ordering = ('-created_at',)
+        indexes = [
+            # 弹窗查询主索引：按用户查未失效的 ack
+            models.Index(fields=['tenant_id', 'user_id', 'license'], name='tdyw_rlra_user_idx'),
+        ]
+        constraints = [
+            # 唯一约束：同一用户对同一执照同一 valid_to 周期只确认一次
+            models.UniqueConstraint(
+                fields=['tenant_id', 'license_id', 'user_id', 'ack_valid_to'],
+                name='uniq_license_user_valid_to',
+            ),
         ]
 
 

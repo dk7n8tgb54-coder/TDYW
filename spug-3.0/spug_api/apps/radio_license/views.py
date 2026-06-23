@@ -12,7 +12,7 @@ from libs import json_response, JsonParser, Argument, human_datetime, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from apps.radio_license.models import (
     RadioLicense, RadioLicenseFrequency, RadioLicenseAttachment,
-    RadioLicenseReminder, REMIND_TYPE_MAP,
+    RadioLicenseReminder, LicenseReminderAck, REMIND_TYPE_MAP,
     ALLOWED_FILE_EXTENSIONS, MAX_FILE_SIZE_MB,
     EXPIRING_DAYS_THRESHOLD,
 )
@@ -134,19 +134,8 @@ class RadioLicenseView(View):
                     # 更新频率明细
                     _update_frequencies(record_id, frequencies, request.user)
                     license_obj = RadioLicense.objects.get(pk=record_id)
-                    # 截止日期变化时，作废该执照所有旧未处理提醒
-                    # （旧提醒内容里的 days_left/valid_to 已过时，保留为已处理记录供历史查阅）
-                    # 然后 scan_single_license 会根据新 valid_to 生成内容正确的新提醒
-                    if old_valid_to is not None and old_valid_to != license_obj.valid_to:
-                        RadioLicenseReminder.objects.filter(
-                            license_id=record_id,
-                            is_handled=False,
-                        ).update(is_handled=True, is_read=True)
-                        logger.info(
-                            f'[RadioLicense] 执照 {record_id} 截止日期变更 '
-                            f'({old_valid_to} → {license_obj.valid_to})，已作废旧未处理提醒'
-                        )
-                    # 即时扫描：更新状态 + 生成提醒
+                    # 执照中心模型：ack 按 ack_valid_to 自动失效，无需手动作废旧提醒
+                    # 即时扫描：更新 license.status（不再预生成 reminder）
                     scan_single_license(license_obj)
             else:
                 # 新增模式
@@ -428,7 +417,11 @@ class ReminderListView(View):
 
     @auth('radio_license.license.view')
     def get(self, request):
-        """获取当前用户的提醒列表"""
+        """获取当前用户的提醒列表（历史日志，只读）
+
+        执照中心模型重构后，此接口返回 RadioLicenseReminder 历史记录供查阅。
+        days_left 为生成时快照，前端展示时如需实时值应由弹窗接口提供。
+        """
         # 只返回当前用户的提醒
         reminders = RadioLicenseReminder.objects.filter(
             receiver_user_id=request.user.id,
@@ -476,22 +469,113 @@ class ReminderListView(View):
         })
 
 
+class ReminderPopupView(View):
+    """弹窗提醒查询接口（执照中心模型）
+
+    实时查询当前用户负责的 expiring/expired 执照，排除已 ack 的。
+    days_left 实时计算，content 前端拼装，不依赖预生成数据。
+
+    返回格式与旧 reminder 兼容（前端 ReminderNotification.js 无需大改）：
+        records: [{
+            license_id, station_name, valid_to, days_left, status, ...
+        }]
+    """
+
+    @auth('radio_license.license.view')
+    def get(self, request):
+        from datetime import date, timedelta
+        today = date.today()
+        # 查询当前用户负责的、即将到期或已过期的执照
+        qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
+        licenses = qs.filter(
+            responsible_user_id=request.user.id,
+            valid_to__lte=today + timedelta(days=EXPIRING_DAYS_THRESHOLD),
+        ).select_related('created_by')
+
+        # 查询该用户所有 ack，构造 (license_id, ack_valid_to) 集合用于排除
+        acks = LicenseReminderAck.objects.filter(
+            user_id=request.user.id,
+        ).values_list('license_id', 'ack_valid_to')
+        ack_set = {(lid, vid) for lid, vid in acks}
+
+        records = []
+        for lic in licenses:
+            days_left = (lic.valid_to - today).days
+            # 排除已 ack 且 ack_valid_to 匹配当前 valid_to 的（续期后自动失效）
+            if (lic.id, lic.valid_to) in ack_set:
+                continue
+            # 兼容旧 reminder 字段命名，前端无需改
+            records.append({
+                'license_id': lic.id,
+                'station_name': lic.station_name,
+                'valid_from': str(lic.valid_from),
+                'valid_to': str(lic.valid_to),
+                'days_left': days_left,
+                'status': lic.status,
+                'remind_type': 'expired' if days_left < 0 else 'expiring_daily',
+            })
+        return json_response({'records': records})
+
+
+class ReminderAckView(View):
+    """提醒确认（已处理）接口（执照中心模型）
+
+    用户点击"已处理"→ 写一条 LicenseReminderAck
+    续期后 license.valid_to 变化 → 旧 ack 自动失效 → 重新弹窗
+    """
+
+    @auth('radio_license.license.view')
+    def post(self, request):
+        form, error = JsonParser(
+            Argument('license_id', type=int, help='执照ID'),
+        ).parse(request.body)
+
+        if error is not None:
+            return json_response(error=error)
+
+        # 校验执照存在且属于当前租户
+        qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
+        license_obj = qs.filter(pk=form.license_id).first()
+        if not license_obj:
+            return json_response(error='执照不存在或无权限')
+
+        # 写入 ack（唯一约束会自动去重同周期重复确认）
+        from django.db import IntegrityError
+        try:
+            LicenseReminderAck.objects.create(
+                tenant_id=license_obj.tenant_id,
+                license=license_obj,
+                user_id=request.user.id,
+                user_name=request.user.nickname or request.user.username,
+                ack_valid_to=license_obj.valid_to,
+            )
+            logger.info(f'[RadioLicense] 用户 {request.user.id} 确认处理执照 {form.license_id} '
+                        f'(valid_to={license_obj.valid_to})')
+        except IntegrityError:
+            # 同周期已确认过，幂等返回成功
+            logger.debug(f'[RadioLicense] 执照 {form.license_id} 本周期已确认，跳过')
+
+        return json_response(data={'license_id': form.license_id, 'acked': True})
+
+
 class ReminderHandleView(View):
-    """提醒处理（已读/已处理）"""
+    """提醒处理（已读/已处理）- 兼容旧接口
+
+    执照中心模型重构后，"已处理"功能由 ReminderAckView 承担。
+    此接口保留"已读"功能供提醒记录页使用，"handle" action 转发到 ack 逻辑。
+    """
 
     @auth('radio_license.reminder.handle')
     def post(self, request):
-        """标记提醒为已读或已处理"""
         form, error = JsonParser(
             Argument('id', type=int, required=False, help='提醒ID'),
-            Argument('action', help='操作类型: read / handle'),
+            Argument('action', help='操作类型: read / handle / unread'),
             Argument('ids', type=list, required=False, help='批量操作ID列表'),
         ).parse(request.body)
 
         if error is not None:
             return json_response(error=error)
 
-        # 确定要操作的ID列表
         ids = []
         if form.ids:
             ids = form.ids
@@ -500,20 +584,34 @@ class ReminderHandleView(View):
         else:
             return json_response(error='请指定提醒ID')
 
-        # 校验权限：只能操作自己的提醒
         qs = RadioLicenseReminder.objects.filter(
             pk__in=ids,
             receiver_user_id=request.user.id,
         )
-        # 租户过滤
         qs = apply_tenant_filter(qs, request.user)
 
         if form.action == 'read':
             count = qs.update(is_read=True)
-        elif form.action == 'handle':
-            count = qs.update(is_handled=True, is_read=True)
         elif form.action == 'unread':
             count = qs.update(is_read=False)
+        elif form.action == 'handle':
+            # handle：标记提醒已处理 + 同步写 ack（兼容旧前端）
+            count = qs.update(is_handled=True, is_read=True)
+            # 为这些提醒对应的执照写 ack（取第一条反推 valid_to）
+            for r in qs.select_related('license'):
+                if r.license:
+                    from django.db import IntegrityError
+                    try:
+                        LicenseReminderAck.objects.create(
+                            tenant_id=r.tenant_id,
+                            license=r.license,
+                            user_id=request.user.id,
+                            user_name=request.user.nickname or request.user.username,
+                            ack_valid_to=r.license.valid_to,
+                        )
+                    except IntegrityError:
+                        pass
+                    break  # 同一执照只写一次 ack
         else:
             return json_response(error='不支持的操作类型，请使用 read / handle / unread')
 

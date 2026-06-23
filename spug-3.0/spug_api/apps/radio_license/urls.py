@@ -13,6 +13,8 @@ urlpatterns = [
     url(r'attachments/$', AttachmentDeleteView.as_view()),
     url(r'reminders/$', ReminderListView.as_view()),
     url(r'reminders/handle/$', ReminderHandleView.as_view()),
+    url(r'reminders/popup/$', ReminderPopupView.as_view()),
+    url(r'reminders/ack/$', ReminderAckView.as_view()),
     url(r'badge/$', RadioLicenseBadgeView.as_view()),
     url(r'responsible-users/$', ResponsibleUserListView.as_view()),
 ]
