@@ -79,13 +79,16 @@ export class UploadLifecycle {
       return;
     }
 
+    // 【7.3 异步操作加版本号】捕获当前操作版本号
+    const operationVersion = this.core.queueStore.getOperationVersion(uploadId);
+
     // 【优化】小于32MB的文件跳过MD5计算
     const SKIP_MD5_THRESHOLD = 32 * 1024 * 1024; // 32MB
     if (item.fileSize < SKIP_MD5_THRESHOLD) {
       // 小文件使用空hash，直接触发状态转换：calculating -> waiting
       const stateMachine = this.core.stateMachineManager?.get(uploadId);
       if (stateMachine) {
-        stateMachine.transition('MD5_COMPLETE', { fileHash: '' });
+        stateMachine.transition('MD5_COMPLETE', { fileHash: '', operationVersion });
       }
       return;
     }
@@ -94,21 +97,32 @@ export class UploadLifecycle {
       // 【7.1 状态机唯一入口】不再写 status:'calculating'，状态机 onCalculatingEntry 已设置
       // 计算MD5（仅大文件）
       const fileHash = await this.core.md5Store?.calculateFileMD5(item.file, uploadId);
-      
+
+      // 【7.3】版本过期检查：不写 fileHash，不触发 MD5_COMPLETE
+      if (!this.core.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+        console.debug(`[UploadLifecycle] ${uploadId}: 过期MD5回调已丢弃 v=${operationVersion}`);
+        return;
+      }
+
       // 更新item的fileHash
       item.fileHash = fileHash;
 
       // 触发状态转换：calculating -> waiting
       const stateMachine = this.core.stateMachineManager?.get(uploadId);
       if (stateMachine) {
-        stateMachine.transition('MD5_COMPLETE', { fileHash });
+        stateMachine.transition('MD5_COMPLETE', { fileHash, operationVersion });
       }
     } catch (error) {
+      // 【7.3】版本过期检查：丢弃旧 MD5 错误回调
+      if (!this.core.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+        console.debug(`[UploadLifecycle] ${uploadId}: 过期MD5错误回调已丢弃 v=${operationVersion}`);
+        return;
+      }
       console.error(`[UploadLifecycle] ${uploadId}: MD5计算失败`, error);
       // 计算失败，触发错误状态
       const stateMachine = this.core.stateMachineManager?.get(uploadId);
       if (stateMachine) {
-        stateMachine.transition('ERROR', { error });
+        stateMachine.transition('ERROR', { error, operationVersion });
       }
     }
   }

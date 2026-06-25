@@ -261,6 +261,45 @@ export class UploadQueueStore {
   // ============ 状态检查方法（新增）============
 
   /**
+   * 【7.3 异步操作加版本号】递增并返回新操作版本号
+   * 每次 START/RESUME/RETRY/CANCEL/PAUSE 时调用，使旧异步回调失效。
+   * 版本号存储在 item.operationVersion 上，初始为 0。
+   * @param {string} uploadId - 上传项ID
+   * @returns {number} 新版本号；item 不存在时返回 0
+   */
+  bumpOperationVersion(uploadId) {
+    const item = this.findUploadItemInCurrentTenant(uploadId);
+    if (!item) return 0;
+    const next = (item.operationVersion || 0) + 1;
+    item.operationVersion = next;
+    return next;
+  }
+
+  /**
+   * 【7.3】获取当前操作版本号
+   * @param {string} uploadId - 上传项ID
+   * @returns {number} 当前版本号；item 不存在或未初始化时返回 0
+   */
+  getOperationVersion(uploadId) {
+    const item = this.findUploadItemInCurrentTenant(uploadId);
+    if (!item) return 0;
+    return item.operationVersion || 0;
+  }
+
+  /**
+   * 【7.3】判断某个异步回调是否仍属于当前操作
+   * @param {string} uploadId - 上传项ID
+   * @param {number} version - 异步操作启动时捕获的版本号
+   * @returns {boolean} true 表示版本有效，回调可继续处理；false 表示已过期，应丢弃
+   */
+  isCurrentOperation(uploadId, version) {
+    // 无版本号视为当前（向后兼容旧调用方/测试 mock）
+    if (!version) return true;
+    const current = this.getOperationVersion(uploadId);
+    return current === version;
+  }
+
+  /**
    * 检查上传项是否处于暂停状态
    * @param {string} uploadId - 上传项ID
    * @returns {boolean} 是否暂停

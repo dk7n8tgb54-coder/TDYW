@@ -114,6 +114,9 @@ export class StateChangeHandler {
       return;
     }
 
+    // 【7.3 异步操作加版本号】捕获当前操作版本号
+    const operationVersion = this.core.queueStore.getOperationVersion(uploadId);
+
     // 【P0修复】检查是否所有分片已上传完成（从paused恢复时）
     const { UPLOAD_CONSTANTS } = require('../upload-core-constants');
     const chunkCount = Math.ceil(item.fileSize / UPLOAD_CONSTANTS.CHUNK_SIZE);
@@ -124,7 +127,7 @@ export class StateChangeHandler {
       if (item.transferStatus === 'MERGING' || item.status === 'merging') {
         const stateMachine = this.core.stateMachineManager?.get(uploadId);
         if (stateMachine) {
-          stateMachine.transition('UPLOAD_COMPLETE');
+          stateMachine.transition('UPLOAD_COMPLETE', { operationVersion });
         }
         // 【7.2】不再 decrementActiveUploads：槽位由状态机状态自然释放
         return;
@@ -133,7 +136,7 @@ export class StateChangeHandler {
       // 触发状态转换：uploading -> merging
       const stateMachine = this.core.stateMachineManager?.get(uploadId);
       if (stateMachine) {
-        stateMachine.transition('UPLOAD_COMPLETE');
+        stateMachine.transition('UPLOAD_COMPLETE', { operationVersion });
       }
       // 【7.2】不再 decrementActiveUploads：槽位由状态机状态自然释放
       return;
@@ -158,12 +161,17 @@ export class StateChangeHandler {
     const { UPLOADABLE_FROM_STATES } = require('../upload-core-constants');
     if (UPLOADABLE_FROM_STATES.includes(fromState)) {
       try {
-        await this.startUpload(item);
+        await this.startUpload(item, operationVersion);
       } catch (error) {
+        // 【7.3】版本过期检查：丢弃旧回调的错误，不触发 ERROR
+        if (!this.core.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+          console.debug(`[StateChangeHandler] ${uploadId}: 过期上传错误回调已丢弃 v=${operationVersion}`);
+          return;
+        }
         // 触发错误状态转换
         const stateMachine = this.core.stateMachineManager ? this.core.stateMachineManager.get(uploadId) : null;
         if (stateMachine) {
-          stateMachine.transition('ERROR', { error });
+          stateMachine.transition('ERROR', { error, operationVersion });
         }
       } finally {
         // 【7.2】不再 decrementActiveUploads：槽位由状态机状态自然释放
@@ -195,6 +203,9 @@ export class StateChangeHandler {
 
     console.log(`[StateChangeHandler] ${uploadId}: 开始执行合并操作`);
 
+    // 【7.3 异步操作加版本号】捕获当前操作版本号
+    const operationVersion = this.core.queueStore.getOperationVersion(uploadId);
+
     try {
       const folderId = item.folderId !== null ? item.folderId : this.core.rootStore.navigationStore?.currentFolderId;
       
@@ -205,9 +216,16 @@ export class StateChangeHandler {
         Math.ceil(item.fileSize / require('../upload-core-constants').UPLOAD_CONSTANTS.CHUNK_SIZE),
         item.fileHash,
         folderId,
-        item.isPublic
+        item.isPublic,
+        operationVersion
       );
       
+      // 【7.3】版本过期检查：丢弃旧合并结果
+      if (!this.core.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+        console.debug(`[StateChangeHandler] ${uploadId}: 过期合并回调已丢弃 v=${operationVersion}`);
+        return;
+      }
+
       // 【修复】合并成功，先更新资源/展示字段，再触发状态转换（让状态机 onCompletedEntry 写 status）
       if (mergeResult && mergeResult.success) {
         // 【7.1 状态机唯一入口】不写 status:'completed'/canAbort，由状态机 onCompletedEntry 写
@@ -235,10 +253,16 @@ export class StateChangeHandler {
         // 触发 MERGE_SUCCESS 状态转换：merging -> completed（状态机 onCompletedEntry 写 status/canAbort）
         const stateMachine = this.core.stateMachineManager?.get(uploadId);
         if (stateMachine) {
-          stateMachine.transition('MERGE_SUCCESS');
+          stateMachine.transition('MERGE_SUCCESS', { operationVersion });
         }
       }
     } catch (error) {
+      // 【7.3】版本过期检查：丢弃旧合并错误回调
+      if (!this.core.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+        console.debug(`[StateChangeHandler] ${uploadId}: 过期合并错误回调已丢弃 v=${operationVersion}`);
+        return;
+      }
+
       // 【修复】获取错误消息，处理多种可能的错误结构
       const errorMessage = error.message || error.response?.data?.error || error.error || String(error);
       
@@ -251,7 +275,13 @@ export class StateChangeHandler {
         if (existingTaskId) {
           try {
             // 轮询合并状态
-            await this.core.chunkUploadStore.pollMergeStatus(null, existingTaskId);
+            await this.core.chunkUploadStore.pollMergeStatus(null, existingTaskId, uploadId, operationVersion);
+
+            // 【7.3】轮询结束后再次检查版本
+            if (!this.core.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+              console.debug(`[StateChangeHandler] ${uploadId}: 过期轮询回调已丢弃 v=${operationVersion}`);
+              return;
+            }
             
             // 轮询成功，更新资源/展示字段（不写 status，由状态机 onCompletedEntry 写）
             this.core.queueStore.updateUploadItem(uploadId, {
@@ -276,15 +306,20 @@ export class StateChangeHandler {
             // 触发 MERGE_SUCCESS 状态转换：merging -> completed
             const stateMachine = this.core.stateMachineManager?.get(uploadId);
             if (stateMachine) {
-              stateMachine.transition('MERGE_SUCCESS');
+              stateMachine.transition('MERGE_SUCCESS', { operationVersion });
             }
             return;
           } catch (pollError) {
+            // 【7.3】轮询失败也检查版本
+            if (!this.core.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+              console.debug(`[StateChangeHandler] ${uploadId}: 过期轮询错误已丢弃 v=${operationVersion}`);
+              return;
+            }
             console.error(`[StateChangeHandler] ${uploadId}: 轮询合并状态失败`, pollError);
             // 轮询失败，标记为错误
             const stateMachine = this.core.stateMachineManager?.get(uploadId);
             if (stateMachine) {
-              stateMachine.transition('ERROR', { error: '合并状态查询失败: ' + pollError.message });
+              stateMachine.transition('ERROR', { error: '合并状态查询失败: ' + pollError.message, operationVersion });
             }
             return;
           }
@@ -299,7 +334,7 @@ export class StateChangeHandler {
       // 合并失败，触发 ERROR 状态转换
       const stateMachine = this.core.stateMachineManager?.get(uploadId);
       if (stateMachine) {
-        stateMachine.transition('ERROR', { error: errorMessage });
+        stateMachine.transition('ERROR', { error: errorMessage, operationVersion });
       }
     }
   }
@@ -307,18 +342,19 @@ export class StateChangeHandler {
   /**
    * 【状态机】开始实际上传
    * @param {Object} item - 上传队列项
+   * @param {number} operationVersion - 【7.3】当前操作版本号
    */
-  async startUpload(item) {
+  async startUpload(item, operationVersion) {
     const folderId = item.folderId !== null ? item.folderId : this.core.rootStore.navigationStore?.currentFolderId;
     const { UPLOAD_CONSTANTS } = require('../upload-core-constants');
     
     try {
       if (item.fileSize > UPLOAD_CONSTANTS.NORMAL_UPLOAD_THRESHOLD) {
         // 大文件使用分片上传（分片上传完成后会触发UPLOAD_COMPLETE，然后handleMergingState执行合并）
-        await this.core.chunkUploadStore.uploadFileChunked(item.file, folderId, item.id, item.isPublic);
+        await this.core.chunkUploadStore.uploadFileChunked(item.file, folderId, item.id, item.isPublic, operationVersion);
       } else {
         // 小文件使用普通上传
-        await this.core.fileUploadStore.uploadFileNormal(item.file, folderId, item.id, item.isPublic);
+        await this.core.fileUploadStore.uploadFileNormal(item.file, folderId, item.id, item.isPublic, operationVersion);
       }
     } catch (error) {
       // 错误已在具体方法中处理

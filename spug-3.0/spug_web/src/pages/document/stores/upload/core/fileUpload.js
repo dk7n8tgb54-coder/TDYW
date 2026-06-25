@@ -35,9 +35,10 @@ export class FileUploadStore {
    * @param {number|null} folderId - 文件夹ID
    * @param {string} uploadId - 上传ID
    * @param {boolean} isPublic - 是否公共空间（传入的值，不使用导航状态）
+   * @param {number} operationVersion - 【7.3】当前操作版本号，用于丢弃过期回调
    */
   @action
-  async uploadFileNormal(file, folderId, uploadId, isPublic = null) {
+  async uploadFileNormal(file, folderId, uploadId, isPublic = null, operationVersion = 0) {
     const tenantId = this.rootStore.getCurrentTenantId?.() || 'default';
 
     // 【优化2】复用已有 transferId，避免双重创建
@@ -150,6 +151,12 @@ export class FileUploadStore {
         }
       });
 
+      // 【7.3】上传请求返回后检查版本，过期则丢弃结果，不写状态不触发转换
+      if (!this.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+        console.debug(`[FileUpload] ${uploadId}: 过期上传回调已丢弃 v=${operationVersion}`);
+        return;
+      }
+
       // 上传成功
       // 【7.1 状态机唯一入口】不写 status:'completed'/canAbort，状态机 onCompletedEntry 会写
       // 仅做资源清理与 completedAt 记录（展示字段）
@@ -182,7 +189,7 @@ export class FileUploadStore {
       // 之前缺失此转换，导致状态机永远卡在 uploading，countByStates 不释放，后续任务无法启动
       const stateMachine = this.rootStore.stateMachineManager?.get(uploadId);
       if (stateMachine) {
-        const transitionResult = stateMachine.transition('UPLOAD_COMPLETE');
+        const transitionResult = stateMachine.transition('UPLOAD_COMPLETE', { operationVersion });
         console.log(`[FileUpload] ${uploadId}: 小文件上传完成，触发 UPLOAD_COMPLETE, result=${transitionResult}, newState=${stateMachine.getState()}`);
       } else {
         console.warn(`[FileUpload] ${uploadId}: 上传完成但未找到状态机!`);
@@ -195,6 +202,12 @@ export class FileUploadStore {
       const isCancel = axios.default.isCancel(error);
       const errorMsg = error?.message || String(error);
       const isPauseMessage = errorMsg.includes('用户暂停') || errorMsg.includes('User paused');
+
+      // 【7.3】版本过期检查：丢弃旧回调的错误，不触发 ERROR
+      if (!this.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+        console.debug(`[FileUpload] ${uploadId}: 过期上传错误回调已丢弃 v=${operationVersion}`);
+        return;
+      }
 
       const item = this.queueStore.findUploadItemInCurrentTenant(uploadId);
       if (item) {

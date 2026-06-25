@@ -34,6 +34,17 @@ export function setupGatewayEnv(overrides = {}) {
       Object.assign(itemRef, updates);
       capturedUpdates.push({ id, ...updates });
     }),
+    // 【7.3】操作版本号方法
+    bumpOperationVersion: jest.fn((id) => {
+      const next = (itemRef.operationVersion || 0) + 1;
+      itemRef.operationVersion = next;
+      return next;
+    }),
+    getOperationVersion: jest.fn(() => itemRef.operationVersion || 0),
+    isCurrentOperation: jest.fn((id, version) => {
+      if (!version) return true;
+      return (itemRef.operationVersion || 0) === version;
+    }),
   };
   const mockTransferStore = { updateTransferStatus: jest.fn() };
 

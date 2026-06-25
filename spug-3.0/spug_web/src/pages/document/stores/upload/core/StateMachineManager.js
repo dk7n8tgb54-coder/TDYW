@@ -28,7 +28,8 @@ export class StateMachineManager {
     this.metrics = {
       invalidTransitions: 0,  // 非法转换次数
       totalTransitions: 0,    // 总转换次数
-      hookErrors: 0          // 钩子函数异常次数
+      hookErrors: 0,          // 钩子函数异常次数
+      staleCallbackRejected: 0, // 【7.3】过期回调拒绝次数
     };
     // 【任务3.3】警告标志，防止重复输出
     this._warningsEmitted = {
@@ -464,7 +465,8 @@ export class StateMachineManager {
     this.metrics = {
       invalidTransitions: 0,
       totalTransitions: 0,
-      hookErrors: 0
+      hookErrors: 0,
+      staleCallbackRejected: 0,
     };
   }
 

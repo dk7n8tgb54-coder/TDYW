@@ -32,6 +32,10 @@ export class QueueOperationController {
     // 详见《资料库并发上传与状态机修复方案.md》7.1 节。
     Object.keys(this.core.uploadQueue).forEach(tenantId => {
       this.core.uploadQueue[tenantId].forEach(item => {
+        // 【7.3 异步操作加版本号】cancelAll 绕过状态机直接写状态，
+        // 需为每个任务递增版本号，使旧异步回调失效
+        this.core.queueStore.bumpOperationVersion(item.id);
+
         if (item.canAbort && item.abortToken) {
           item.abortToken.cancel('用户取消');
         }

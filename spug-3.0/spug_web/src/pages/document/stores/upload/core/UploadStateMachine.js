@@ -158,6 +158,25 @@ export class UploadStateMachine {
       return false;
     }
 
+    // 【7.3 异步操作加版本号】payload 版本兜底检查
+    // 异步回调返回时应在 payload 中携带 operationVersion；
+    // 若版本已过期（用户在此期间执行了 PAUSE/CANCEL/RESUME/RETRY/START），
+    // 则拒绝该转换，防止旧回调覆盖新状态。
+    if (payload.operationVersion !== undefined && payload.operationVersion !== null) {
+      const currentVersion = this.context.queueStore?.getOperationVersion?.(this.uploadId) || 0;
+      if (payload.operationVersion !== currentVersion) {
+        console.debug(
+          `[UploadStateMachine] ${this.uploadId}: 拒绝过期回调 event=${event} ` +
+          `payloadVersion=${payload.operationVersion} currentVersion=${currentVersion}`
+        );
+        if (this.context.metrics) {
+          this.context.metrics.staleCallbackRejected =
+            (this.context.metrics.staleCallbackRejected || 0) + 1;
+        }
+        return false;
+      }
+    }
+
     const currentStateDef = this.states[this.currentState];
 
     // 查找匹配的转换规则
@@ -180,6 +199,20 @@ export class UploadStateMachine {
 
     const fromState = this.currentState;
     const toState = transition.target;
+
+    // 【7.3】对新生命周期事件递增操作版本号（在执行转换前递增）
+    // - START/RESUME：开始新一轮异步操作（MD5/上传/合并），旧回调应失效
+    // - PAUSE：让正在返回的上传/MD5/轮询结果失效
+    // - CANCEL：让所有旧回调失效
+    // 递增后，entry 钩子启动的异步操作将捕获新版本；
+    // 旧版本回调在 payload 兜底检查或调用方 isCurrentOperation 检查中被丢弃。
+    const VERSION_BUMP_EVENTS = ['START', 'RESUME', 'PAUSE', 'CANCEL'];
+    if (VERSION_BUMP_EVENTS.includes(event)) {
+      const queueStore = this.context.queueStore;
+      if (queueStore && queueStore.bumpOperationVersion) {
+        queueStore.bumpOperationVersion(this.uploadId);
+      }
+    }
 
     // 钩子函数异常防护
     try {

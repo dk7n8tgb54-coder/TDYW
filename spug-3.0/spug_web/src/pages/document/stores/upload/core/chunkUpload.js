@@ -21,9 +21,10 @@ export class ChunkUploadStore {
    * @param {number|null} folderId - 文件夹ID
    * @param {string} uploadId - 上传ID
    * @param {boolean} isPublic - 是否公共空间（传入的值，不使用导航状态）
+   * @param {number} operationVersion - 【7.3】当前操作版本号，用于丢弃过期回调
    */
   @action
-  async uploadFileChunked(file, folderId, uploadId, isPublic = null) {
+  async uploadFileChunked(file, folderId, uploadId, isPublic = null, operationVersion = 0) {
     const tenantId = this.rootStore.getCurrentTenantId?.() || 'default';
     
     // 获取队列项
@@ -42,6 +43,12 @@ export class ChunkUploadStore {
       if (!fileHash) {
         // 【7.1 状态机唯一入口】不再写 status:'calculating'，状态机 onCalculatingEntry 已设置
         fileHash = await this.rootStore.md5Store?.calculateFileMD5(file, uploadId);
+
+        // 【7.3】MD5 计算完成后检查版本，过期则丢弃结果
+        if (!this.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+          console.debug(`[ChunkUpload] ${uploadId}: 过期MD5回调已丢弃 v=${operationVersion}`);
+          return;
+        }
 
         // 【关键修复】MD5计算完成后检查是否已暂停
         if (this.queueStore.isPaused(uploadId)) {
@@ -158,6 +165,12 @@ export class ChunkUploadStore {
       const currentItem = this.queueStore.findUploadItemInCurrentTenant(uploadId);
       if (!currentItem) break;
 
+      // 【7.3】每个分片上传前检查版本，过期则停止后续分片
+      if (!this.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+        console.debug(`[ChunkUpload] ${uploadId}: 过期分片上传已停止 v=${operationVersion} chunk=${chunkIndex}/${chunkCount}`);
+        return;
+      }
+
       // 检查暂停/取消状态
       if (this.queueStore.isPaused(uploadId)) {
         // 【7.1 状态机唯一入口】不写 status:'paused'，状态机已在 paused（用户暂停触发 PAUSE 事件）
@@ -182,7 +195,7 @@ export class ChunkUploadStore {
       // 【修复】上传单个分片，失败时抛出错误
       try {
         await this.uploadSingleChunk(
-          file, uploadId, chunkIndex, chunkCount, fileHash, folderId, taskAbortController, targetIsPublic
+          file, uploadId, chunkIndex, chunkCount, fileHash, folderId, taskAbortController, targetIsPublic, operationVersion
         );
         sessionUploadedChunks.add(chunkIndex);
       } catch (error) {
@@ -202,6 +215,12 @@ export class ChunkUploadStore {
     // 检查是否暂停（在检查分片完成数之前）
     if (this.queueStore.isPaused(uploadId)) {
       return;  // 正常返回，不抛出错误
+    }
+
+    // 【7.3】版本过期检查：所有分片上传完成后，丢弃旧回调的最终状态迁移
+    if (!this.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+      console.debug(`[ChunkUpload] ${uploadId}: 过期上传完成回调已丢弃 v=${operationVersion}`);
+      return;
     }
     
     // 【关键修复】检查是否所有分片都上传成功（本次上传 + 之前已上传）
@@ -223,7 +242,7 @@ export class ChunkUploadStore {
       // 状态转换后，StateChangeHandler会检测到merging状态并调用mergeChunks
       const stateMachine = this.rootStore.stateMachineManager?.get(uploadId);
       if (stateMachine) {
-        stateMachine.transition('UPLOAD_COMPLETE');
+        stateMachine.transition('UPLOAD_COMPLETE', { operationVersion });
       }
     }
 
@@ -292,8 +311,9 @@ export class ChunkUploadStore {
   /**
    * 上传单个分片
    * @param {boolean} targetIsPublic - 是否公共空间（由 uploadFileChunked 传入）
+   * @param {number} operationVersion - 【7.3】当前操作版本号，用于进度回调检查
    */
-  async uploadSingleChunk(file, uploadId, chunkIndex, chunkCount, fileHash, folderId, abortController, targetIsPublic) {
+  async uploadSingleChunk(file, uploadId, chunkIndex, chunkCount, fileHash, folderId, abortController, targetIsPublic, operationVersion = 0) {
     const tenantId = this.rootStore.getCurrentTenantId?.() || 'default';
     const start = chunkIndex * UPLOAD_CONSTANTS.CHUNK_SIZE;
     const end = Math.min(start + UPLOAD_CONSTANTS.CHUNK_SIZE, file.size);
@@ -365,6 +385,10 @@ export class ChunkUploadStore {
         
         xhr.upload.addEventListener('progress', (e) => {
           if (e.lengthComputable) {
+            // 【7.3】进度回调检查版本，避免旧进度回退新进度
+            if (operationVersion && !this.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+              return;
+            }
             const now = Date.now();
             const uploadedBytesInChunk = e.loaded;
             const bytesFromPrevChunks = chunkIndex * UPLOAD_CONSTANTS.CHUNK_SIZE;
@@ -457,8 +481,9 @@ export class ChunkUploadStore {
    * @param {string} fileHash - 文件哈希
    * @param {number|null} folderId - 文件夹ID
    * @param {boolean} isPublic - 是否公共空间
+   * @param {number} operationVersion - 【7.3】当前操作版本号
    */
-  async mergeChunks(file, uploadId, chunkCount, fileHash, folderId, isPublic = null) {
+  async mergeChunks(file, uploadId, chunkCount, fileHash, folderId, isPublic = null, operationVersion = 0) {
     const tenantId = this.rootStore.getCurrentTenantId?.() || 'default';
     
     // 【修复】使用传入的isPublic，如果没有则回退到队列项保存的值
@@ -488,14 +513,14 @@ export class ChunkUploadStore {
         // 从错误响应或之前的状态中获取task_id
         const existingTaskId = uploadItem?.celeryTaskId || error.response?.data?.task_id;
         if (existingTaskId) {
-          await this.pollMergeStatus(null, existingTaskId);
+          await this.pollMergeStatus(null, existingTaskId, uploadId, operationVersion);
           return { success: true, celeryTaskId: existingTaskId };
         }
         // 如果没有task_id，等待一段时间后重试
         console.warn(`[ChunkUploadStore] ${uploadId}: 无法获取合并任务ID，等待后重试`);
         await new Promise(resolve => setTimeout(resolve, 2000));
         // 递归重试
-        return this.mergeChunks(file, uploadId, chunkCount, fileHash, folderId, isPublic);
+        return this.mergeChunks(file, uploadId, chunkCount, fileHash, folderId, isPublic, operationVersion);
       }
       throw error;
     }
@@ -505,13 +530,13 @@ export class ChunkUploadStore {
       console.log(`[ChunkUploadStore] ${uploadId}: 文件正在合并中(响应)，开始轮询状态`);
       const existingTaskId = mergeResult.task_id || uploadItem?.celeryTaskId;
       if (existingTaskId) {
-        await this.pollMergeStatus(null, existingTaskId);
+        await this.pollMergeStatus(null, existingTaskId, uploadId, operationVersion);
         return { success: true, celeryTaskId: existingTaskId };
       }
       // 如果没有task_id，等待后重试
       console.warn(`[ChunkUploadStore] ${uploadId}: 无法获取合并任务ID，等待后重试`);
       await new Promise(resolve => setTimeout(resolve, 2000));
-      return this.mergeChunks(file, uploadId, chunkCount, fileHash, folderId, isPublic);
+      return this.mergeChunks(file, uploadId, chunkCount, fileHash, folderId, isPublic, operationVersion);
     }
 
     // 轮询合并状态
@@ -524,7 +549,7 @@ export class ChunkUploadStore {
       celeryTaskId: celeryTaskId,
     });
 
-    await this.pollMergeStatus(mergeTaskId, celeryTaskId);
+    await this.pollMergeStatus(mergeTaskId, celeryTaskId, uploadId, operationVersion);
 
     // 【修复】合并成功，由调用方（StateChangeHandler）触发 MERGE_SUCCESS 事件
     // 这里只返回成功，不直接更新生命周期状态
@@ -541,14 +566,37 @@ export class ChunkUploadStore {
    *   0-30秒：每2秒
    *   30秒-5分钟：每5秒
    *   超过5分钟：每15秒（降低服务器压力）
+   * 【7.3 异步操作加版本号】
+   *   - 每次 await 返回后检查 operationVersion，版本过期则停止轮询
+   *   - 检查 celeryTaskId 与当前 item.celeryTaskId 是否一致，不一致则停止
+   *
+   * @param {string} mergeTaskId - 合并任务ID
+   * @param {string} celeryTaskId - Celery任务ID
+   * @param {string} uploadId - 【7.3】上传ID，用于版本检查
+   * @param {number} operationVersion - 【7.3】当前操作版本号
    */
-  async pollMergeStatus(mergeTaskId, celeryTaskId = null) {
+  async pollMergeStatus(mergeTaskId, celeryTaskId = null, uploadId = null, operationVersion = 0) {
     const { http } = await import('libs');
     let startTime = Date.now();
     let consecutiveErrors = 0;
     const MAX_CONSECUTIVE_ERRORS = 5;
 
     while (true) {
+      // 【7.3】每次轮询前检查版本，过期则停止
+      if (uploadId && operationVersion && !this.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+        console.debug(`[ChunkUpload] ${uploadId}: 过期轮询已停止 v=${operationVersion}`);
+        return;
+      }
+
+      // 【7.3】检查 celeryTaskId 是否仍匹配当前 item，不匹配则停止（新轮询已由新 task 启动）
+      if (uploadId && celeryTaskId) {
+        const currentItem = this.queueStore.findUploadItemInCurrentTenant(uploadId);
+        if (currentItem && currentItem.celeryTaskId && currentItem.celeryTaskId !== celeryTaskId) {
+          console.debug(`[ChunkUpload] ${uploadId}: task_id 不匹配，停止旧轮询 old=${celeryTaskId} current=${currentItem.celeryTaskId}`);
+          return;
+        }
+      }
+
       const elapsed = (Date.now() - startTime) / 1000;
       if (elapsed > UPLOAD_CONSTANTS.MERGE_MAX_POLLING_TIME) {
         throw new Error('合并超时');
@@ -560,6 +608,13 @@ export class ChunkUploadStore {
           : { merge_task_id: mergeTaskId };
 
         const status = await http.get(API_ENDPOINTS.MERGE_STATUS, { params });
+
+        // 【7.3】请求返回后再次检查版本
+        if (uploadId && operationVersion && !this.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+          console.debug(`[ChunkUpload] ${uploadId}: 过期轮询响应已丢弃 v=${operationVersion}`);
+          return;
+        }
+
         consecutiveErrors = 0;
 
         if (status.status === 'completed' || status.status === 'success') {

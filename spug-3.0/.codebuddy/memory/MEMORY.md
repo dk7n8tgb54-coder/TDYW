@@ -2,6 +2,14 @@
 
 ## 项目规范
 
+### 上传状态机 operationVersion（7.3 异步并发安全）
+- 每个上传 item 有 `operationVersion` 字段，方法在 `UploadQueueStore`（queue.js）
+- `bumpOperationVersion` / `getOperationVersion` / `isCurrentOperation`
+- START/RESUME/PAUSE/CANCEL 事件在 `UploadStateMachine.transition` 中自动递增
+- 绕过状态机的取消路径（cancelItem / cancelAll）需显式 `bumpOperationVersion`
+- 异步回调携带 `operationVersion`，过期则丢弃（调用点检查 + 状态机 payload 兜底）
+- 向后兼容：无版本号的 transition 正常执行（旧测试/mock 不受影响）
+
 ### 数据库迁移 ⚠️ 重要
 **修改 Django 模型后必须执行迁移**：
 ```bash

@@ -283,6 +283,10 @@ export class ItemOperationController {
     const { item, tenantId } = this.core.queueStore.findUploadItem(itemId);
     if (!item || !tenantId) return;
 
+    // 【7.3 异步操作加版本号】取消时递增版本号，使所有旧异步回调失效
+    // cancelItem 绕过状态机直接出队，需显式递增版本
+    this.core.queueStore.bumpOperationVersion(itemId);
+
     // 【关键修复】立即从UI队列中移除，避免显示中间状态（如暂停/失败）
     this.core.queueStore.removeFromQueue(itemId, tenantId);
 
