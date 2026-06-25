@@ -293,7 +293,7 @@ application = get_wsgi_application()
 
 ```bash
 # 进入容器
-docker exec -it tdyw-test bash
+docker exec -it tdyw bash
 
 # 安装 gevent
 pip install gevent

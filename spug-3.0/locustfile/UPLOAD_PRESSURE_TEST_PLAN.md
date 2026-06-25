@@ -119,8 +119,8 @@
 
 | 指标 | 采集方式 | 告警阈值 |
 |------|---------|---------|
-| CPU 使用率 | `docker stats tdyw-test` | > 80% |
-| 内存使用率 | `docker stats tdyw-test` | > 85% |
+| CPU 使用率 | `docker stats tdyw` | > 80% |
+| 内存使用率 | `docker stats tdyw` | > 85% |
 | 磁盘 I/O %util | `iostat -x 5`（宿主机） | > 80% |
 | 磁盘 I/O await | `iostat -x 5` | > 50ms |
 | 网络带宽 | `iftop` 或 `nload` | > 80% 带宽 |
@@ -142,21 +142,21 @@
 docker ps | grep tdyw
 
 # 2. 确认 Celery worker 状态
-docker exec tdyw-test celery -A spug inspect active_queues
-docker exec tdyw-test celery -A spug inspect active
+docker exec tdyw celery -A spug inspect active_queues
+docker exec tdyw celery -A spug inspect active
 
 # 3. 确认 Gunicorn worker 数
-docker exec tdyw-test ps aux | grep gunicorn
+docker exec tdyw ps aux | grep gunicorn
 
 # 4. 清理旧测试数据
-docker exec tdyw-test python3 manage.py shell -c "
+docker exec tdyw python3 manage.py shell -c "
 from apps.document.models import DocumentTransfer
 DocumentTransfer.objects.all().delete()
 print('Cleaned up all transfers')
 "
 
 # 5. 确认磁盘空间充足
-docker exec tdyw-test df -h /data/spug/spug_api/storage/
+docker exec tdyw df -h /data/spug/spug_api/storage/
 ```
 
 ### 5.2 构造测试文件
@@ -410,21 +410,21 @@ mkdir -p $OUTPUT_DIR
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 # 1. Docker 资源
-docker stats tdyw-test --no-stream --format "{{.CPUPerc}},{{.MemUsage}},{{.NetIO}},{{.BlockIO}}" \
+docker stats tdyw --no-stream --format "{{.CPUPerc}},{{.MemUsage}},{{.NetIO}},{{.BlockIO}}" \
   > $OUTPUT_DIR/docker_stats_${TIMESTAMP}.csv &
 
 # 2. 磁盘 I/O（宿主机）
 iostat -x 5 > $OUTPUT_DIR/iostat_${TIMESTAMP}.log &
 
 # 3. MySQL 慢查询监控
-docker exec tdyw-db-test mysql -u root -p${MYSQL_ROOT_PASSWORD} -e \
+docker exec tdyw-db mysql -u root -p${MYSQL_ROOT_PASSWORD} -e \
   "SET GLOBAL slow_query_log = 'ON'; SET GLOBAL long_query_time = 1;" &
 
 # 4. Celery 队列监控
 while true; do
   echo "=== $(date) ===" >> $OUTPUT_DIR/celery_queues_${TIMESTAMP}.log
-  docker exec tdyw-test celery -A spug inspect active >> $OUTPUT_DIR/celery_queues_${TIMESTAMP}.log 2>&1
-  docker exec tdyw-test python3 -c "
+  docker exec tdyw celery -A spug inspect active >> $OUTPUT_DIR/celery_queues_${TIMESTAMP}.log 2>&1
+  docker exec tdyw python3 -c "
 import redis; r = redis.Redis(host='127.0.0.1', port=6379, db=2);
 for q in ['document.merge', 'document.batch', 'document.cleanup', 'celery']:
     print(f'{q}: {r.llen(q)}')
@@ -434,7 +434,7 @@ done &
 
 # 5. MySQL 连接数监控
 while true; do
-  docker exec tdyw-db-test mysql -u root -p${MYSQL_ROOT_PASSWORD} -e \
+  docker exec tdyw-db mysql -u root -p${MYSQL_ROOT_PASSWORD} -e \
     "SHOW STATUS LIKE 'Threads_connected'; SHOW STATUS LIKE 'Threads_running';" \
     >> $OUTPUT_DIR/mysql_connections_${TIMESTAMP}.log 2>&1
   sleep 5

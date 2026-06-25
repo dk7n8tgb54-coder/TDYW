@@ -8,7 +8,7 @@ services:
     # 使用阿里云镜像仓库的 MariaDB 10.8.2
     image: registry.cn-hangzhou.aliyuncs.com/openspug/mariadb:10.8.2
     # 容器名称
-    container_name: tdyw-db
+    container_name: tdyw-db-test
     # 容器退出时自动重启
     restart: always
     # MySQL 启动参数配置
@@ -73,7 +73,7 @@ services:
     # 使用本地镜像（含 Celery）
     image: tdyw:0601
     # 容器名称
-    container_name: tdyw
+    container_name: tdyw-test
     # 特权模式：容器可以访问宿主机所有设备
     # 注意：生产环境不推荐使用 privileged，应移除此配置
     privileged: true
@@ -122,7 +122,7 @@ services:
       # KKFILEVIEW_API_URL: 前端浏览器访问kkFileView的地址（通过Nginx代理）
       # KKFILEVIEW_SERVER_URL: kkFileView访问spug API下载文件的地址
       - KKFILEVIEW_API_URL=${KKFILEVIEW_API_URL:-/kkfileview}
-      - KKFILEVIEW_SERVER_URL=${KKFILEVIEW_SERVER_URL:-http://tdyw}
+      - KKFILEVIEW_SERVER_URL=${KKFILEVIEW_SERVER_URL:-http://tdyw-test}
     # 依赖关系：spug 服务依赖 db 服务，确保数据库健康后才启动
     depends_on:
       db:
@@ -154,7 +154,7 @@ services:
   # 部署文档：https://github.com/kekingcn/kkFileView
   kkfileview:
     image: keking/kkfileview:4.1.0
-    container_name: tdyw-kkfileview
+    container_name: tdyw-kkfileview-test
     restart: always
     ports:
       - "8012:8012"

@@ -16,7 +16,7 @@ services:
     # build:
     #   context: ..
     #   dockerfile: docker/Dockerfile
-    container_name: tdyw-test
+    container_name: tdyw
     restart: unless-stopped
     ports:
       - "8080:80"   # HTTP 端口
@@ -73,7 +73,7 @@ services:
   tdyw-db:
     # image: tdyw-mysql:10.8.2
     image: mysql:0601
-    container_name: tdyw-db-test
+    container_name: tdyw-db
     restart: unless-stopped
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
@@ -111,7 +111,7 @@ services:
   # 部署文档：https://github.com/kekingcn/kkFileView
   kkfileview:
     image: keking/kkfileview:4.1.0
-    container_name: tdyw-kkfileview-test
+    container_name: tdyw-kkfileview
     restart: unless-stopped
     ulimits:
       nofile:

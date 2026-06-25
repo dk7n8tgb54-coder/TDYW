@@ -82,8 +82,8 @@ cp .env.example .env
 docker-compose up -d
 
 # 初始化数据库
-docker exec tdyw-test python spug_api/manage.py migrate
-docker exec tdyw-test python spug_api/manage.py init_data
+docker exec tdyw python spug_api/manage.py migrate
+docker exec tdyw python spug_api/manage.py init_data
 
 # 访问 http://localhost
 ```
