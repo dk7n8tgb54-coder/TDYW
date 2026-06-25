@@ -206,6 +206,24 @@ class RecordListView(View):
             return JsonResponse({'error': str(e)}, status=500)
 
 
+class ProjectListView(View):
+    """返回所有检查表模板的项目名称列表（不分页）。
+
+    P0-2 修复：TemplateView.get 默认分页 50 条，导致前端 store.projects 派生时
+    只能拿到前 50 个项目，第 51 个之后的项目在录入/数据查看/PDF 导出/项目筛选
+    下拉框中都会缺失。本接口专门返回完整项目名列表，供前端 store.projects 使用。
+    """
+
+    @auth('checksheet.checksheet.view')
+    def get(self, request):
+        projects = list(
+            CheckSheetTemplate.objects
+            .order_by('created_at')
+            .values_list('project', flat=True)
+        )
+        return json_response({'projects': projects})
+
+
 class TemplateView(View):
     """检查表模板视图 - 处理列表查询和创建"""
 

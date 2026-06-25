@@ -6,6 +6,7 @@ from . import views
 
 urlpatterns = [
     path('template/', views.TemplateView.as_view()),
+    path('template/projects/', views.ProjectListView.as_view()),
     path('template/<int:pk>/', views.TemplateDetailView.as_view()),
     path('record/', views.RecordListView.as_view()),
     path('export/pdf/', views.export_pdf),

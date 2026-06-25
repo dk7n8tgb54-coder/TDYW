@@ -25,11 +25,16 @@ class Store {
 
   @action fetchTemplates = () => {
     this.isFetching = true;
-    return http.get('/api/checksheet/template/')
-      .then(res => {
+    // P0-2 修复：projects 不再从分页的 templates 派生（默认仅前 50 条），
+    // 改为并行请求 /template/projects/ 获取完整项目名列表。
+    return Promise.all([
+      http.get('/api/checksheet/template/'),
+      http.get('/api/checksheet/template/projects/')
+    ])
+      .then(([res, projRes]) => {
         // P3-2 修复：移除调试日志
         this.templates = res.templates || [];
-        this.projects = [...new Set(this.templates.map(t => t.project).filter(Boolean))];
+        this.projects = [...new Set((projRes.projects || []).filter(Boolean))];
       })
       .finally(() => this.isFetching = false);
   };
