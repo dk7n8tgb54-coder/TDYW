@@ -6,7 +6,7 @@
 import { useState, useCallback } from 'react';
 import { Modal, message } from 'antd';
 
-export default function useCheckSheetUI(allProjectsData, loaded, confirmedOperator, updateCellStatus) {
+export default function useCheckSheetUI(loaded, updateCellStatus) {
   const [confirmVisible, setConfirmVisible] = useState(false);
 
   const handleRightClick = useCallback((project, itemIndex, e) => {

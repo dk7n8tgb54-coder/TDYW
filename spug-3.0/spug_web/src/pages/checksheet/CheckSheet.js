@@ -31,6 +31,7 @@ export default observer(function CheckSheet() {
     handleBatchFill,
     handleConfirmOk,
     updateDailySummaryField,
+    updateCellStatus,
     calculateStats
   } = useCheckSheetData();
 
@@ -41,7 +42,7 @@ export default observer(function CheckSheet() {
     setConfirmVisible,
     handleRightClick,
     handleConfirmSignature
-  } = useCheckSheetUI(allProjectsData, loaded, confirmedOperator, updateDailySummaryField);
+  } = useCheckSheetUI(loaded, updateCellStatus);
 
   const stats = calculateStats();
 
