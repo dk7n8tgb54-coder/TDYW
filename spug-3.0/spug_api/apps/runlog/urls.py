@@ -10,6 +10,7 @@ from libs import json_response, auth
 from libs.tenant_utils import apply_tenant_filter
 
 from .views import *
+from .views import media_url_to_path
 
 # 创建详情视图类
 class RunLogDetailView(View):
@@ -32,7 +33,7 @@ class RunLogDetailView(View):
         ).order_by('update_date', 'sequence', 'id')
 
         result = event.to_view()
-        result['updates'] = [x.to_view() for x in updates]
+        result['updates'] = [x.to_view(request.user) for x in updates]
 
         return json_response(result)
 
@@ -152,13 +153,12 @@ class RunLogAttachmentPreviewUrlView(View):
         if not attachment_path:
             return json_response(error='缺少附件路径')
 
-        # 验证路径安全（只允许 runlog 目录下的文件）
-        if not attachment_path.startswith('/media/runlog/'):
+        # 校验路径安全：必须位于 MEDIA_ROOT/runlog 目录下
+        try:
+            full_path = media_url_to_path(attachment_path)
+        except ValueError:
             return json_response(error='无效的附件路径')
 
-        # 构建完整文件路径（attachment_path 以 /media/ 开头，需要去掉前缀）
-        relative_path = attachment_path[len('/media/'):] if attachment_path.startswith('/media/') else attachment_path.lstrip('/')
-        full_path = os.path.join(settings.MEDIA_ROOT, relative_path)
         if not os.path.exists(full_path):
             return json_response(error='附件文件不存在')
 
@@ -195,9 +195,14 @@ class RunLogAttachmentPreviewUrlView(View):
 
 
 class RunLogAttachmentDownloadView(View):
-    """运行日志附件下载视图 - 供kkFileView下载文件"""
+    """运行日志附件下载视图 - 供kkFileView下载文件
+
+    该接口会被 kkFileView 作为后端回调访问，回调时会在 URL 中携带用户的
+    x-token，认证中间件会据此完成用户认证并设置 request.user，因此可
+    直接使用 @auth 装饰器进行权限校验。
+    """
+    @auth('runlog.runlog.view|runlog.runlog.update_view')
     def get(self, request):
-        from django.conf import settings
         from django.http import StreamingHttpResponse
 
         # 获取附件路径
@@ -205,13 +210,12 @@ class RunLogAttachmentDownloadView(View):
         if not attachment_path:
             return HttpResponse('Missing path parameter', status=400)
 
-        # 验证路径安全
-        if not attachment_path.startswith('/media/runlog/'):
+        # 校验路径安全：必须位于 MEDIA_ROOT/runlog 目录下
+        try:
+            full_path = media_url_to_path(attachment_path)
+        except ValueError:
             return HttpResponse('Invalid path', status=400)
 
-        # 构建完整文件路径（attachment_path 以 /media/ 开头，需要去掉前缀）
-        relative_path = attachment_path[len('/media/'):] if attachment_path.startswith('/media/') else attachment_path.lstrip('/')
-        full_path = os.path.join(settings.MEDIA_ROOT, relative_path)
         if not os.path.exists(full_path):
             return HttpResponse('File not found', status=404)
 

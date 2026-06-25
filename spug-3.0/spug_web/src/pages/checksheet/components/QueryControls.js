@@ -5,6 +5,7 @@
  */
 import React from 'react';
 import { Select, Button, Row, Col } from 'antd';
+import { AuthButton } from 'components';
 
 const { Option } = Select;
 
@@ -34,7 +35,8 @@ export default function QueryControls({
         <Button type="primary" onClick={onQuery}>查询全部</Button>
       </Col>
       <Col span={2}>
-        <Button onClick={onExport}>导出PDF</Button>
+        {/* P1-4 修复：导出按钮对齐后端 export_pdf 的 edit 权限，无权限时隐藏 */}
+        <AuthButton auth="checksheet.checksheet.edit" onClick={onExport}>导出PDF</AuthButton>
       </Col>
     </Row>
   );

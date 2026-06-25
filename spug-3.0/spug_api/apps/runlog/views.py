@@ -3,6 +3,7 @@
 # Released under the AGPL-3.0 License.
 from django.views import View
 from django.http import HttpResponse
+from django.conf import settings
 from django.db.models import Max, Count, Q
 from django.db import DatabaseError
 from django.utils.encoding import escape_uri_path
@@ -11,15 +12,59 @@ from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from libs import Argument, JsonParser
 from datetime import datetime, timedelta
 from collections import defaultdict
+import os
 import json
 import logging
 
 logger = logging.getLogger(__name__)
 
 
+def media_url_to_path(url):
+    """将附件 URL 转换为磁盘绝对路径，并校验路径安全（防止路径穿越）。
+
+    附件 URL 形如 ``/media/runlog/images/xxx.png``，对应磁盘路径
+    ``MEDIA_ROOT/runlog/images/xxx.png``。
+
+    Raises:
+        ValueError: URL 不是合法的媒体地址，或解析后的路径不在
+            ``MEDIA_ROOT/runlog`` 目录下。
+    """
+    if not url or not url.startswith(settings.MEDIA_URL):
+        raise ValueError('invalid media url')
+    relative_path = url[len(settings.MEDIA_URL):].lstrip('/')
+    full_path = os.path.abspath(os.path.join(settings.MEDIA_ROOT, relative_path))
+    base_dir = os.path.abspath(os.path.join(settings.MEDIA_ROOT, 'runlog'))
+    if not (full_path == base_dir or full_path.startswith(base_dir + os.sep)):
+        raise ValueError('path outside runlog directory')
+    return full_path
+
+
+def clean_update_attachments(update):
+    """删除单条动态关联的附件文件。
+
+    供删除事件（级联）和删除单条动态共用。失败仅记录日志，不抛异常，
+    以确保数据库清理不被文件清理失败阻塞。
+    """
+    if not update.attachments:
+        return
+    try:
+        attachments = json.loads(update.attachments)
+        for attachment_path in attachments:
+            try:
+                full_path = media_url_to_path(attachment_path)
+            except ValueError:
+                logger.warning(f'[RunLog] 跳过非法附件路径: {attachment_path}')
+                continue
+            if os.path.exists(full_path):
+                os.remove(full_path)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f'[RunLog] 清理附件失败: {e}')
+
+
 class RunLogView(View):
     """运行日志事件视图"""
 
+    @auth('runlog.runlog.view')
     def get(self, request):
         """获取事件列表"""
         from .models import RunLog
@@ -40,9 +85,13 @@ class RunLogView(View):
             logs = logs.filter(system_name__icontains=filters['system_name'])
         if filters.get('date'):
             logs = logs.filter(created_at__startswith=filters['date'])
-        if filters.get('date_range'):
-            start_date, end_date = filters['date_range']
-            logs = logs.filter(created_at__gte=start_date, created_at__lte=end_date)
+        # 日期范围筛选：使用明确的 start_date/end_date 字段，与 PDF 导出接口保持一致
+        start_date = request.GET.get('start_date')
+        end_date = request.GET.get('end_date')
+        if start_date:
+            logs = logs.filter(created_at__gte=f'{start_date} 00:00:00')
+        if end_date:
+            logs = logs.filter(created_at__lte=f'{end_date} 23:59:59')
 
         # 分页参数
         page = int(request.GET.get('page', 1))
@@ -193,9 +242,6 @@ class RunLogView(View):
     def delete(self, request):
         """删除事件（级联删除动态及附件）"""
         from .models import RunLog, RunLogUpdate
-        from django.conf import settings
-        import os
-        import json
 
         form, error = JsonParser(
             Argument('id', type=int, help='请指定操作对象')
@@ -212,20 +258,11 @@ class RunLogView(View):
                 request.user
             )
 
-            print(f'[RunLog] 删除事件 ID={event.id}, 关联动态数={updates.count()}')
+            logger.info(f'[RunLog] 删除事件 ID={event.id}, 关联动态数={updates.count()}')
 
-            # 清理附件文件
+            # 清理附件文件（复用共享函数）
             for update in updates:
-                if update.attachments:
-                    try:
-                        attachments = json.loads(update.attachments)
-                        for attachment_path in attachments:
-                            # 构造完整文件路径
-                            full_path = os.path.join(settings.MEDIA_ROOT, attachment_path.lstrip('/'))
-                            if os.path.exists(full_path):
-                                os.remove(full_path)
-                    except (json.JSONDecodeError, OSError) as e:
-                        print(f'[RunLog] 清理附件失败: {e}')
+                clean_update_attachments(update)
 
             # 级联删除动态记录
             updates.delete()
@@ -253,7 +290,7 @@ class RunLogView(View):
         ).order_by('update_date', 'sequence', 'id')
 
         result = event.to_view()
-        result['updates'] = [x.to_view() for x in updates]
+        result['updates'] = [x.to_view(request.user) for x in updates]
 
         return json_response(result)
 
@@ -349,11 +386,9 @@ class RunLogUpdateView(View):
             if not update:
                 return json_response(error='无权限操作', code=403)
 
-            # 检查是否可修改
-            now = datetime.now()
-            deadline = datetime.strptime(update.editable_until, '%Y-%m-%d %H:%M:%S')
-            if now >= deadline:
-                return json_response(error='该动态已超过24小时，不可修改。请添加新动态。', code=403)
+            # 检查是否可修改：创建者或超级管理员在24小时内可编辑
+            if not update.can_edit(request.user):
+                return json_response(error='该动态不可编辑（仅创建者或管理员在24小时内可修改）', code=403)
 
             # 更新字段
             if form.update_date:
@@ -387,7 +422,10 @@ class RunLogUpdateView(View):
             ).first()
             if not update:
                 return json_response(error='无权限操作', code=403)
-            
+
+            # 清理该动态的附件文件（在删除数据库记录前）
+            clean_update_attachments(update)
+
             runlog_id = update.runlog_id
             update.delete()
 
@@ -592,6 +630,7 @@ class EventTypeConfigView(View):
 class RunLogStatisticsView(View):
     """运行日志统计视图（已优化）"""
 
+    @auth('runlog.runlog.view')
     def get(self, request):
         """
         获取统计数据（优化版本）

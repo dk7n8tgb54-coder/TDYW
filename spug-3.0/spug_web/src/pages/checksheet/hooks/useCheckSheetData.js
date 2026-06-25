@@ -180,13 +180,17 @@ export default function useCheckSheetData() {
   const calculateStats = useCallback(() => {
     const stats = { total: 0, normal: 0, abnormal: 0, unchecked: 0 };
 
+    // P1-3 修复：按模板检查项数量统计，缺失记录视为 UNCHECKED，
+    // 避免模板有 N 项但当天无记录时统计显示总数 0。
     Object.values(allProjectsData).forEach(projectData => {
-      Object.values(projectData.checkData).forEach(item => {
+      const itemCount = projectData.template?.check_items?.length || 0;
+      for (let index = 0; index < itemCount; index++) {
+        const item = projectData.checkData[String(index)] || { status: 'UNCHECKED' };
         stats.total++;
         if (item.status === 'NORMAL') stats.normal++;
         else if (item.status === 'ABNORMAL') stats.abnormal++;
         else stats.unchecked++;
-      });
+      }
     });
 
     return stats;

@@ -2,7 +2,7 @@
 # Copyright (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.http import JsonResponse, HttpResponse
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.views import View
 from libs import json_response, JsonParser, Argument
 from libs.decorators import auth
@@ -46,6 +46,22 @@ def _validate_records_input(records):
     return None
 
 
+def _parse_int(value, name, min_value=None, max_value=None):
+    """P1-2 修复：通用整数参数解析与校验，返回 (result, error)。
+
+    非法输入返回 (None, 'xxx 必须是整数')，通过校验返回 (int, None)。
+    """
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        return None, f'{name} 必须是整数'
+    if min_value is not None and result < min_value:
+        return None, f'{name} 不能小于 {min_value}'
+    if max_value is not None and result > max_value:
+        return None, f'{name} 不能大于 {max_value}'
+    return result, None
+
+
 class RecordListView(View):
     """检查记录视图 - 处理查询和创建"""
 
@@ -60,13 +76,20 @@ class RecordListView(View):
         if not all([year, month, project]):
             return JsonResponse({'error': '缺少必要参数'}, status=400)
 
+        # P1-2 修复：day 参数类型与范围校验，非法输入返回友好错误而非 500
+        day_value = None
+        if day:
+            day_value, error = _parse_int(day, 'day', min_value=1, max_value=31)
+            if error:
+                return json_response(error=error)
+
         try:
             template = CheckSheetTemplate.objects.get(project=project)
 
             # 获取指定日期的检查记录
             day_filter = {}
-            if day:
-                day_filter['day'] = int(day)
+            if day_value is not None:
+                day_filter['day'] = day_value
 
             records = CheckSheetRecord.objects.filter(
                 template=template,
@@ -89,8 +112,8 @@ class RecordListView(View):
 
             # 获取每日汇总（包含 operator、remark 和 rectification）
             summary_filter = {}
-            if day:
-                summary_filter['day'] = int(day)
+            if day_value is not None:
+                summary_filter['day'] = day_value
 
             daily_summaries = {}
             for summary in CheckSheetDailySummary.objects.filter(
@@ -231,9 +254,13 @@ class TemplateView(View):
     def get(self, request):
         """获取检查表模板列表（分页）"""
         # P2-4 修复：添加分页支持，避免大量模板时返回过多数据
-        page = int(request.GET.get('page', 1))
-        page_size = int(request.GET.get('page_size', 50))
-        page_size = min(page_size, 200)  # 最大单页200条
+        # P1-2 修复：分页参数类型与范围校验，非法输入返回友好错误而非 500
+        page, error = _parse_int(request.GET.get('page', 1), 'page', min_value=1)
+        if error:
+            return json_response(error=error)
+        page_size, error = _parse_int(request.GET.get('page_size', 50), 'page_size', min_value=1, max_value=200)
+        if error:
+            return json_response(error=error)
 
         templates = CheckSheetTemplate.objects.all()
         total = templates.count()
@@ -272,12 +299,20 @@ class TemplateView(View):
             logger.error(f'[CheckSheet] TemplateView.post parse error: {error}')
             return json_response(error=error)
 
+        # P0-3 修复：创建前校验项目名唯一，避免 IntegrityError 或同名模板导致后续查询 500
+        if CheckSheetTemplate.objects.filter(project=form.project).exists():
+            return json_response(error='项目模板已存在')
+
         logger.info(f'[CheckSheet] Creating template: project={form.project}, items_count={len(form.check_items)}')
 
-        template = CheckSheetTemplate.objects.create(
-            project=form.project,
-            check_items=json.dumps(form.check_items, ensure_ascii=False)
-        )
+        try:
+            template = CheckSheetTemplate.objects.create(
+                project=form.project,
+                check_items=json.dumps(form.check_items, ensure_ascii=False)
+            )
+        except IntegrityError:
+            # 并发场景下的兜底（校验与创建之间存在竞态）
+            return json_response(error='项目模板已存在')
 
         logger.info(f'[CheckSheet] Template created with id={template.id}')
         return json_response({'id': template.id})
@@ -312,11 +347,19 @@ class TemplateDetailView(View):
             ).parse(request.body)
             if error:
                 return json_response(error=error)
+            # P0-3 修复：改名时校验项目名唯一（排除自身）
+            if form.project and form.project != template.project:
+                if CheckSheetTemplate.objects.filter(project=form.project).exists():
+                    return json_response(error='项目模板已存在')
             if form.project:
                 template.project = form.project
             if form.check_items is not None:
                 template.set_check_items(form.check_items)
-            template.save()
+            try:
+                template.save()
+            except IntegrityError:
+                # 并发场景兜底
+                return json_response(error='项目模板已存在')
             return json_response({'id': template.id})
         except CheckSheetTemplate.DoesNotExist:
             return JsonResponse({'error': '模板不存在'}, status=404)

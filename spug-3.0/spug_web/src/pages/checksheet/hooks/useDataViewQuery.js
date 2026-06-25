@@ -42,21 +42,38 @@ export default function useDataViewQuery() {
   const calculateTotalStats = useCallback(() => {
     if (!viewData) return { total: 0, normal: 0, abnormal: 0, unchecked: 0 };
 
+    // P1-3 修复：按"模板检查项数量 × 当月天数"统计，缺失记录视为 UNCHECKED，
+    // 避免后端无记录时统计显示总数 0。
+    // 当月天数：new Date(year, month, 0).getDate()，month 传 1-12 时取上月末尾即当月天数。
+    const yearInt = parseInt(selectedYear, 10);
+    const monthInt = parseInt(selectedMonth, 10);
+    const daysInMonth = new Date(yearInt, monthInt, 0).getDate();
+
     let total = 0, normal = 0, abnormal = 0, unchecked = 0;
 
     Object.values(viewData).forEach(projectData => {
-      if (projectData.records) {
-        projectData.records.forEach(record => {
+      const itemCount = projectData?.template?.check_items?.length || 0;
+      if (itemCount === 0) return;
+
+      // 把已存在记录按 `${item_index}_${day}` 建索引
+      const recordMap = {};
+      (projectData.records || []).forEach(r => {
+        recordMap[`${r.item_index}_${r.day}`] = r.status;
+      });
+
+      for (let index = 0; index < itemCount; index++) {
+        for (let day = 1; day <= daysInMonth; day++) {
+          const status = recordMap[`${index}_${day}`] || 'UNCHECKED';
           total++;
-          if (record.status === 'NORMAL') normal++;
-          else if (record.status === 'ABNORMAL') abnormal++;
+          if (status === 'NORMAL') normal++;
+          else if (status === 'ABNORMAL') abnormal++;
           else unchecked++;
-        });
+        }
       }
     });
 
     return { total, normal, abnormal, unchecked };
-  }, [viewData]);
+  }, [viewData, selectedYear, selectedMonth]);
 
   return {
     selectedYear,

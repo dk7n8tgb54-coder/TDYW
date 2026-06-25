@@ -57,9 +57,11 @@ class Store {
   };
 
   @action fetchCheckRecords = (year, month, project, day) => {
-    const dayParam = day ? `&day=${day}` : '';
-    return http.get(`/api/checksheet/record/?year=${year}&month=${month}&project=${project}${dayParam}`)
-      .then(res => res);
+    // P1-1 修复：改用 axios params，自动对 project/year/month/day 做 URL 编码，
+    // 避免项目名含 & ? # + 空格等字符时被截断或解析错误；day 为空时自动忽略。
+    return http.get('/api/checksheet/record/', {
+      params: { year, month, project, day }
+    }).then(res => res);
   };
 
   @action saveCheckRecords = (data) => {

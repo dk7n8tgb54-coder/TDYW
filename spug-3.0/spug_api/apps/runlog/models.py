@@ -103,15 +103,18 @@ class RunLogUpdate(models.Model, TenantModelMixin):
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
 
     def can_edit(self, user):
-        """判断动态是否可修改"""
-        # 创建者和管理员始终可修改
-        if self.created_by_id == user.id or user.is_superuser:
+        """判断动态是否可修改
+
+        规则：创建者或超级管理员在 24 小时内可编辑。
+        """
+        # 创建者或超级管理员可修改（需在 24 小时内）
+        if self.created_by_id == user.id or user.is_supper:
             from datetime import datetime
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             return now < self.editable_until
         return False
 
-    def to_view(self):
+    def to_view(self, user=None):
         tmp = self.to_dict()
         # 将 attachments 从 JSON 字符串解析为数组
         if isinstance(tmp.get('attachments'), str):
@@ -122,10 +125,15 @@ class RunLogUpdate(models.Model, TenantModelMixin):
                 tmp['attachments'] = []
         elif tmp.get('attachments') is None:
             tmp['attachments'] = []
-        # 添加是否可编辑标识 - 比较时间戳字符串
-        from datetime import datetime
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        tmp['can_edit'] = now < self.editable_until
+        # 添加是否可编辑标识
+        if user is not None:
+            # 完整校验：创建者/超级管理员 + 24小时内
+            tmp['can_edit'] = self.can_edit(user)
+        else:
+            # 兜底：仅按时间判断（向后兼容无 user 参数的调用方，如 PDF 导出）
+            from datetime import datetime
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            tmp['can_edit'] = now < self.editable_until
         return tmp
 
     class Meta:

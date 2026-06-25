@@ -7,7 +7,9 @@ import json
 
 class CheckSheetTemplate(models.Model):
     """检查表模板"""
-    project = models.CharField('项目名称', max_length=100)
+    # P0-3 修复：project 增加唯一约束，避免同名模板导致
+    # CheckSheetTemplate.objects.get(project=...) 抛 MultipleObjectsReturned (500)
+    project = models.CharField('项目名称', max_length=100, unique=True)
     check_items = models.TextField('检查项目列表', default='[]')
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
     updated_at = models.DateTimeField('更新时间', auto_now=True)

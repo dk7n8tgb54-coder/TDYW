@@ -184,6 +184,11 @@ class ComTable extends React.Component {
       });
     };
 
+    // 无编辑权限时渲染普通标签，不绑定点击、不显示 pointer 光标
+    if (!hasPermission('runlog.runlog.edit')) {
+      return <Tag color={color}>{label}</Tag>;
+    }
+
     return (
       <Tag
         color={color}
@@ -423,7 +428,7 @@ class ComTable extends React.Component {
           <Table.Column title="责任人" dataIndex="responsible_user_name" width={100}/>
           <Table.Column title="动态数" dataIndex="update_count" width={80} align="center"/>
           <Table.Column title="最新动态日期" dataIndex="last_update_date" width={120}/>
-          {hasPermission('runlog.runlog.edit|runlog.runlog.del') && (
+          {hasPermission('runlog.runlog.update_add|runlog.runlog.edit|runlog.runlog.del') && (
           <Table.Column title="操作" render={info => (
             <Action>
               <Action.Button

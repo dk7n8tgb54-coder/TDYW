@@ -584,7 +584,7 @@ export default observer(function () {
               }}>
                 <div>
                   <strong>{update.update_date} [序号{update.sequence}] {update.recorder}</strong>
-                  {update.can_edit && (
+                  {update.can_edit && hasPermission('runlog.runlog.update_edit') && (
                     <span
                       style={{ marginLeft: 8, color: '#1890ff', cursor: 'pointer' }}
                       onClick={() => handleEditUpdate(update)}

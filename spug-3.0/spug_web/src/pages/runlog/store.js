@@ -41,10 +41,8 @@ class Store {
     if (this.f_severity) filters.severity = this.f_severity;
     if (this.f_system_name) filters.system_name = this.f_system_name;
     if (this.f_date_range && this.f_date_range.length === 2) {
-      filters.date_range = [
-        this.f_date_range[0].format('YYYY-MM-DD'),
-        this.f_date_range[1].format('YYYY-MM-DD')
-      ];
+      filters.start_date = this.f_date_range[0].format('YYYY-MM-DD');
+      filters.end_date = this.f_date_range[1].format('YYYY-MM-DD');
     }
 
     // 添加分页参数

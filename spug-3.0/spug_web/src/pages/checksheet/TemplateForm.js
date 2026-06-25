@@ -55,7 +55,9 @@ export default observer(function TemplateForm() {
         setCheckItems([]);
         setSelectedProject('');
       })
-      .catch(() => message.error('保存失败，请重试'));
+      // P0-3 修复：后端返回 error（如"项目模板已存在"）时，
+      // http 拦截器已调用 message.error 并 reject，此处不再重复弹"保存失败"。
+      .catch(() => {});
   };
 
   const handleAddItem = () => setCheckItems([...checkItems, '']);
