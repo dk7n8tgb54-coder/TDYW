@@ -61,6 +61,8 @@ class InterferenceView(View):
         ).parse(request.body)
         if error is None:
             if form.id:
+                if not request.user.has_perms({'interference.interference.edit'}):
+                    return json_response(error='权限拒绝')
                 form.updated_at = human_datetime()
                 form.updated_by = request.user
                 record_id = form.pop('id')
@@ -71,6 +73,8 @@ class InterferenceView(View):
                 if updated_count == 0:
                     error = '编辑失败：记录不存在或无权限编辑'
             else:
+                if not request.user.has_perms({'interference.interference.add'}):
+                    return json_response(error='权限拒绝')
                 form.created_by = request.user
                 assign_tenant_id(form, request.user)
                 Interference.objects.create(**form)
