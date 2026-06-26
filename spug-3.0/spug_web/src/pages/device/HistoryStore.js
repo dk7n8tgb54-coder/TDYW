@@ -4,7 +4,7 @@
  * Released under the AGPL-3.0 License.
  */
 import { observable } from "mobx";
-import { http } from 'libs';
+import { http, exportFile } from 'libs';
 
 /**
  * 设备履历查看页面 Store
@@ -94,7 +94,7 @@ class Store {
   };
 
   // ========== PDF导出 ==========
-  exportPDF = () => {
+  exportPDF = async () => {
     if (!this.deviceInfo) {
       const { message } = require('antd');
       message.warning('请先选择设备');
@@ -102,41 +102,23 @@ class Store {
     }
 
     this.isExporting = true;
-    const requestData = {
-      device_info: this.deviceInfo,
-      events: this.events
-    };
-
-    http.post('/api/device/device-resume/export/pdf/', requestData, {
-      responseType: 'arraybuffer',
-      timeout: 60000
-    }).then(response => {
-      // 处理后端返回的错误（当responseType为arraybuffer时，错误也是arraybuffer）
-      const contentType = response.headers['content-type'] || response.headers['Content-Type'] || '';
-      if (contentType.includes('application/json')) {
-        // 后端返回了JSON错误
-        const errorData = JSON.parse(new TextDecoder().decode(response.data));
-        const { message } = require('antd');
-        message.error(errorData.error || '导出PDF失败');
-        return;
-      }
-      const blob = new Blob([response.data], { type: 'application/pdf' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      const deviceSn = this.deviceInfo.device_sn || 'unknown';
-      const deviceName = this.deviceInfo.device_name || '';
-      link.download = `设备履历_${deviceSn}_${deviceName}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
-      const { message } = require('antd');
-      message.success('PDF导出成功');
-    }).catch(err => {
-      console.error('PDF导出失败:', err);
-      const { message } = require('antd');
-      message.error('导出PDF失败，请重试');
-    }).finally(() => this.isExporting = false);
+    const deviceSn = this.deviceInfo.device_sn || 'unknown';
+    const deviceName = this.deviceInfo.device_name || '';
+    const exportTime = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const ts = `${exportTime.getFullYear()}${pad(exportTime.getMonth() + 1)}${pad(exportTime.getDate())}_${pad(exportTime.getHours())}${pad(exportTime.getMinutes())}${pad(exportTime.getSeconds())}`;
+    try {
+      await exportFile({
+        url: '/api/device/device-resume/export/pdf/',
+        method: 'post',
+        data: { device_info: this.deviceInfo, events: this.events },
+        defaultFilename: `设备履历_${deviceSn}_${deviceName}_${ts}.pdf`,
+        timeout: 60000,
+        loadingText: '正在生成PDF...',
+      });
+    } finally {
+      this.isExporting = false;
+    }
   };
 }
 

@@ -109,6 +109,15 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate document
 - 已添加修复接口：`POST /api/runlog/repair/`
 - 已有检查脚本：`/data/spug/spug_api/check_runlog_update_count.py`
 
+### 导出功能架构（2026-06-26 重新设计）
+- **公共工具**：`spug_api/libs/export_utils.py`（Excel）、`spug_web/src/libs/exportFile.js`（下载）、`spug_web/src/components/ExportButton.js`（按钮）
+- **原则**：统一导出机制不统一业务字段；Excel 模块后端全量导出（非当前页）；PDF 模块保留专用模板
+- **导出上限**：默认 10000 条，超量/空数据返回 `JsonResponse`（http 拦截器解析二进制中的 JSON 错误）
+- **6 模块**：fault/interference/upgrade/device列表(Excel) + checksheet/runlog/device履历(PDF)
+- **复用**：upgrade 复用 `RecordService._apply_filters`；PDF 模块统一改用 `exportFile`（含 `loadingText`）
+- **文件名**：RFC 5987 中文编码（`filename*=UTF-8''`）；格式 `模块名_范围_时间.ext`
+- **store 约定**：每个模块 store 提供 `getExportParams()`，日期范围用 `f_export_date_range`（moment 对象）
+
 ---
 
 ## 反思清单（2026-06-06 固化，源自资料库传输列表重构 5 轮迭代）

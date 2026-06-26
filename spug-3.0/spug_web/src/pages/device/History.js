@@ -190,7 +190,7 @@ export default observer(function DeviceHistoryView() {
               loading={store.isExporting}
               onClick={store.exportPDF}
             >
-              导出PDF
+              导出履历 PDF
             </Button>
           )}
         </div>

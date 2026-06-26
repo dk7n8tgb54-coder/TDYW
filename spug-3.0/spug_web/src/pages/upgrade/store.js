@@ -23,6 +23,7 @@ class Store {
   @observable f_start_date;
   @observable f_end_date;
   @observable f_upgrade_type;
+  @observable f_export_date_range;
 
   // === 表单 ===
   @observable record = {};
@@ -167,6 +168,22 @@ class Store {
 
   deleteChecklist = (id) => {
     return http.delete(`/api/upgrade/checklists/${id}/delete/`);
+  };
+
+  getExportParams = () => {
+    const params = {};
+    if (this.f_system) params.system = this.f_system;
+    if (this.f_status) params.status = this.f_status;
+    if (this.f_upgrade_type) params.upgrade_type = this.f_upgrade_type;
+    // 日期范围：优先用导出专用范围，否则用搜索日期范围
+    if (this.f_export_date_range && this.f_export_date_range.length === 2) {
+      params.start_date = this.f_export_date_range[0].format('YYYY-MM-DD');
+      params.end_date = this.f_export_date_range[1].format('YYYY-MM-DD');
+    } else if (this.f_start_date && this.f_end_date) {
+      params.start_date = this.f_start_date;
+      params.end_date = this.f_end_date;
+    }
+    return params;
   };
 }
 

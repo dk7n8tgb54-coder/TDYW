@@ -45,8 +45,12 @@ from .views.step import (
 # === 兼容旧接口 ===
 from .views.legacy import LegacyUpgradeView
 
+# === 导出 ===
+from .exporters import RecordExportView
+
 urlpatterns = [
     # === 升级表单 ===
+    path('records/export/', RecordExportView.as_view()),            # GET 导出 Excel
     path('records/', RecordListView.as_view()),                     # GET 列表（分页）
     path('records/<int:pk>/', RecordDetailView.as_view()),          # GET 详情
     path('records/create/', RecordCreateView.as_view()),            # POST 创建

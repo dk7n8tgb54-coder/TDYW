@@ -231,6 +231,16 @@ class Store {
     this.page = 1;
     this.fetchRecords();
   };
+
+  getExportParams = () => {
+    const params = {};
+    if (this.f_device_sn) params.device_sn = this.f_device_sn;
+    if (this.f_device_name) params.device_name = this.f_device_name;
+    if (this.f_device_model) params.device_model = this.f_device_model;
+    if (this.f_current_status && this.f_current_status.length > 0) params.current_status = this.f_current_status;
+    if (this.f_use_unit) params.use_unit = this.f_use_unit;
+    return params;
+  };
 }
 
 export default new Store()

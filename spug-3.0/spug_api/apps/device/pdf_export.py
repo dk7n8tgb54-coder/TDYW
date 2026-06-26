@@ -188,13 +188,14 @@ def _empty_style():
 
 # ============ PDF 构建 ============
 
-def generate_device_resume_pdf(device_info, events):
+def generate_device_resume_pdf(device_info, events, operator_name=None):
     """
     生成设备履历PDF文档
 
     Args:
         device_info: dict - 设备基础信息
         events: list[dict] - 事件列表
+        operator_name: str - 导出人姓名（由后端从 request.user 注入，不信任前端传入）
 
     Returns:
         BytesIO: PDF文件流
@@ -216,9 +217,13 @@ def generate_device_resume_pdf(device_info, events):
     # ---- 文档标题 ----
     story.append(Paragraph('设备履历报告', _title_style()))
 
-    # 导出时间
+    # 导出时间 + 导出人
     export_time = datetime.now().strftime('%Y-%m-%d %H:%M')
-    story.append(Paragraph(f'导出时间：{export_time}', _subtitle_style()))
+    if operator_name:
+        subtitle_text = f'导出时间：{export_time}　导出人：{operator_name}'
+    else:
+        subtitle_text = f'导出时间：{export_time}'
+    story.append(Paragraph(subtitle_text, _subtitle_style()))
 
     # 分隔线
     story.append(HRFlowable(

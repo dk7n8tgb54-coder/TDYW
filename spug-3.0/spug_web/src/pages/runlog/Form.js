@@ -5,10 +5,9 @@
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { observer } from 'mobx-react';
-import { Modal, Form, Input, Select, DatePicker, Button, message, Descriptions, Tabs, Upload, Image, Card, Spin } from 'antd';
-import { PlusOutlined, PlusCircleOutlined, CloseOutlined, EditOutlined } from '@ant-design/icons';
+import { Modal, Form, Input, Select, DatePicker, Button, message, Descriptions, Tabs, Image, Card, Spin } from 'antd';
+import { PlusOutlined, CloseOutlined, EditOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
-import { X_TOKEN } from 'libs/functools';
 import moment from 'moment';
 import S from './store';
 
@@ -18,20 +17,23 @@ const { TabPane } = Tabs;
 export default observer(function () {
   const [form] = Form.useForm();
   const [updateForm] = Form.useForm();  // 首次动态表单
+  const [editUpdateForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState(false);
   const [updatesList, setUpdatesList] = useState([]);
   const [addUpdateVisible, setAddUpdateVisible] = useState(false);
   const [editUpdateVisible, setEditUpdateVisible] = useState(false);
   const [editingUpdate, setEditingUpdate] = useState(null);
-  const [attachmentList, setAttachmentList] = useState([]);  // 附件列表
-  const [uploading, setUploading] = useState(false);  // 上传状态
-  // 附件预览状态
+  // 附件预览状态（仅用于历史附件展示，不再支持新增附件）
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
   const [previewFileName, setPreviewFileName] = useState('');
+
+  const notifyRunLogListChanged = () => {
+    window.dispatchEvent(new CustomEvent('runlog:changed'));
+  };
 
   // 获取附件预览URL
   const fetchPreviewUrl = (attachmentPath) => {
@@ -99,29 +101,21 @@ export default observer(function () {
       return;
     }
 
-    console.log('[handleAddUpdate] 当前 attachmentList:', attachmentList);
-    console.log('[handleAddUpdate] attachmentList 是否为数组:', Array.isArray(attachmentList));
-
     const formData = {
       runlog_id: S.record.id,
       update_date: updateData.update_date.format('YYYY-MM-DD'),
       recorder: sessionStorage.getItem('nickname') || '',
       detail_content: updateData.detail_content,
-      attachments: attachmentList,  // 添加附件
+      duty_person: updateData.duty_person || '',
     };
-
-    console.log('[handleAddUpdate] 发送的 formData:', JSON.stringify(formData));
-    console.log('[handleAddUpdate] 发送的 formData.attachments:', JSON.stringify(formData.attachments));
 
     http.post('/api/runlog/update/', formData)
       .then(res => {
-        console.log('[handleAddUpdate] 添加成功, 响应:', res);
         message.success('动态添加成功');
         updateForm.resetFields();
-        setAttachmentList([]);  // 清空附件列表
         setAddUpdateVisible(false);
-        fetchUpdates();
-        S.fetchRecords();
+        notifyRunLogListChanged();
+        return fetchUpdates().then(() => S.fetchRecords());
       })
       .catch(err => {
         console.error('[handleAddUpdate] 添加失败:', err);
@@ -130,12 +124,14 @@ export default observer(function () {
 
   function handleEditUpdate(update) {
     // 打开编辑弹窗，填充现有数据
+    setAddUpdateVisible(false);
+    updateForm.resetFields();
     setEditingUpdate(update);
-    setAttachmentList(update.attachments || []);
-    updateForm.setFieldsValue({
+    editUpdateForm.setFieldsValue({
       update_date: moment(update.update_date),
       recorder: update.recorder,
       detail_content: update.detail_content,
+      duty_person: update.duty_person || '',
     });
     setEditUpdateVisible(true);
   }
@@ -148,6 +144,7 @@ export default observer(function () {
         return http.delete('/api/runlog/update/', {params: {id: update.id}})
           .then(() => {
             message.success('删除成功');
+            notifyRunLogListChanged();
             fetchUpdates();
             S.fetchRecords();
             S.fetchStatistics();
@@ -157,7 +154,7 @@ export default observer(function () {
   }
 
   function handleUpdateUpdate() {
-    const updateData = updateForm.getFieldsValue();
+    const updateData = editUpdateForm.getFieldsValue();
 
     if (!updateData.update_date || !updateData.detail_content) {
       message.warning('请填写完整的动态信息');
@@ -170,94 +167,24 @@ export default observer(function () {
       update_date: updateData.update_date.format('YYYY-MM-DD'),
       recorder: sessionStorage.getItem('nickname') || '',
       detail_content: updateData.detail_content,
-      attachments: attachmentList,
+      duty_person: updateData.duty_person || '',
     };
 
     http.put('/api/runlog/update/', formData)
       .then(() => {
         message.success('动态更新成功');
-        updateForm.resetFields();
-        setAttachmentList([]);
+        editUpdateForm.resetFields();
         setEditUpdateVisible(false);
         setEditingUpdate(null);
-        fetchUpdates();
-        S.fetchRecords();
+        notifyRunLogListChanged();
+        return fetchUpdates().then(() => S.fetchRecords());
       });
   }
-
-  // 附件上传处理
-  const uploadProps = {
-    name: 'file',
-    action: '/api/runlog/upload/',
-    accept: 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx',
-    listType: 'picture-card',
-    headers: {
-      'X-Token': X_TOKEN,
-    },
-    onChange: (info) => {
-      console.log('Upload onChange:', info.file.status, info.fileList.length);
-
-      // 只处理上传完成的文件
-      if (info.file.status === 'done') {
-        // 兼容两种响应格式：1) json_response格式 {data: {url:...}}  2) 直接格式 {url:...}
-        const newUrl = info.file.response?.data?.url || info.file.response?.url;
-        console.log('Upload response:', info.file.response, 'Extracted URL:', newUrl);
-        if (newUrl) {
-          // 避免重复添加
-          if (!attachmentList.includes(newUrl)) {
-            setAttachmentList(prev => [...prev, newUrl]);
-          }
-          message.success('附件上传成功');
-        } else {
-          console.error('附件上传失败：未获取到文件URL', info.file.response);
-          message.error('附件上传失败：未获取到文件URL');
-        }
-      } else if (info.file.status === 'error') {
-        console.log('Upload error:', info.file.response);
-        const errorMsg = info.file.response?.error || info.file.response?.data?.error || '未知错误';
-        message.error(`附件上传失败: ${errorMsg}`);
-      }
-    },
-    beforeUpload: (file) => {
-      console.log('Before upload:', file.name, file.type, file.size);
-      // 允许的图片和Office文件类型
-      const allowedTypes = [
-        'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
-        'application/pdf',
-        'application/msword',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/vnd.ms-excel',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'application/vnd.ms-powerpoint',
-        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      ];
-      const isAllowed = allowedTypes.includes(file.type);
-      if (!isAllowed) {
-        message.error('只支持上传图片（ JPG、PNG、GIF、WebP）或Office文件（Word、Excel、PowerPoint、PDF）');
-        return false;
-      }
-      const isLt50M = file.size / 1024 / 1024 < 50;
-      if (!isLt50M) {
-        message.error('文件大小不能超过50MB');
-        return false;
-      }
-      return true;
-    },
-    onRemove: (file) => {
-      console.log('onRemove:', file.url);
-      // 移除时从 attachmentList 中删除
-      const urlToRemove = file.url;
-      if (urlToRemove) {
-        setAttachmentList(prev => prev.filter(url => url !== urlToRemove));
-      }
-      return true;
-    },
-  };
 
   function fetchUpdates() {
     if (S.record.id) {
       console.log('[fetchUpdates] 开始获取动态, record.id:', S.record.id);
-      http.get('/api/runlog/detail/', {params: {id: S.record.id}})
+      return http.get('/api/runlog/detail/', {params: {id: S.record.id, _t: Date.now()}})
         .then(res => {
           console.log('[fetchUpdates] 原始响应 keys:', Object.keys(res));
           console.log('[fetchUpdates] 原始响应:', JSON.stringify(res).substring(0, 500));
@@ -270,8 +197,8 @@ export default observer(function () {
           }
           setUpdatesList(data.updates || []);
           console.log('[fetchUpdates] 设置 updatesList 完成, 长度:', (data.updates || []).length);
-          // 如果 S.record 没有完整数据，更新它
-          if (data.id && (!S.record.event_title || !S.record.updates)) {
+          // 始终同步当前详情，避免局部刷新后仍引用旧的 record 快照
+          if (data.id) {
             Object.assign(S.record, data);
             console.log('[fetchUpdates] 更新 S.record 完成');
           }
@@ -281,6 +208,7 @@ export default observer(function () {
         });
     } else {
       console.log('[fetchUpdates] record.id 不存在，不获取动态');
+      return Promise.resolve();
     }
   }
 
@@ -341,7 +269,12 @@ export default observer(function () {
                   border: '1px solid #e8e8e8',
                   borderRadius: 4
                 }}>
-                  <div><strong>{update.update_date} [{update.sequence}] {update.recorder}</strong></div>
+                  <div>
+                    <strong>{update.update_date} [{update.sequence}] {update.recorder}</strong>
+                    {update.duty_person && (
+                      <span style={{ marginLeft: 8, color: '#666' }}>值班人：{update.duty_person}</span>
+                    )}
+                  </div>
                   <div>{update.detail_content}</div>
                   {/* 显示附件列表 */}
                   {update.attachments && update.attachments.length > 0 && (
@@ -481,6 +414,9 @@ export default observer(function () {
                 <Form.Item required name="recorder" label="记录人">
                   <Input disabled placeholder="自动填充当前用户"/>
                 </Form.Item>
+                <Form.Item name="duty_person" label="值班人">
+                  <Input placeholder="请输入值班人（选填）"/>
+                </Form.Item>
                 <Form.Item required name="detail_content" label="详细记录">
                   <Input.TextArea rows={6} placeholder="请输入详细记录"/>
                 </Form.Item>
@@ -494,12 +430,14 @@ export default observer(function () {
             <div style={{ marginBottom: 16 }}>
               {!addUpdateVisible && !editUpdateVisible && (
                 <Button type="primary" icon={<PlusOutlined/>}                 onClick={() => {
+                  setEditUpdateVisible(false);
+                  setEditingUpdate(null);
+                  editUpdateForm.resetFields();
                   updateForm.resetFields();
                   updateForm.setFieldsValue({
                     update_date: moment(),
                     recorder: sessionStorage.getItem('nickname') || ''
                   });
-                  setAttachmentList([]);
                   setAddUpdateVisible(true);
                 }}>
                   添加动态
@@ -510,7 +448,7 @@ export default observer(function () {
             {/* 内联添加动态表单 */}
             {addUpdateVisible && (
               <Card size="small" title="添加动态" style={{ marginBottom: 16 }} extra={
-                <Button type="link" icon={<CloseOutlined/>} onClick={() => { setAddUpdateVisible(false); setAttachmentList([]); }}/>
+                <Button type="link" icon={<CloseOutlined/>} onClick={() => { setAddUpdateVisible(false); updateForm.resetFields(); }}/>
               }>
                 <Form form={updateForm} initialValues={{ update_date: moment(), recorder: sessionStorage.getItem('nickname') || '' }} labelCol={{span: 4}} wrapperCol={{span: 20}}>
                   <Form.Item required name="update_date" label="动态日期">
@@ -519,23 +457,15 @@ export default observer(function () {
                   <Form.Item required name="recorder" label="记录人">
                     <Input disabled placeholder="自动填充当前用户"/>
                   </Form.Item>
+                  <Form.Item name="duty_person" label="值班人">
+                    <Input placeholder="请输入值班人（选填）"/>
+                  </Form.Item>
                   <Form.Item required name="detail_content" label="详细记录">
                     <Input.TextArea rows={4} placeholder="请输入详细记录"/>
                   </Form.Item>
-                  <Form.Item label="附件上传">
-                    <Upload {...uploadProps}>
-                      <div>
-                        <PlusCircleOutlined />
-                        <div style={{ marginTop: 8 }}>上传附件</div>
-                      </div>
-                    </Upload>
-                    <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-                      支持图片（ JPG、PNG、GIF、WebP）和Office文件（Word、Excel、PowerPoint、PDF），单个文件最大50MB
-                    </div>
-                  </Form.Item>
                   <Form.Item wrapperCol={{offset: 4, span: 20}}>
                     <Button type="primary" onClick={handleAddUpdate}>提交</Button>
-                    <Button style={{ marginLeft: 8 }} onClick={() => { setAddUpdateVisible(false); setAttachmentList([]); }}>取消</Button>
+                    <Button style={{ marginLeft: 8 }} onClick={() => { setAddUpdateVisible(false); updateForm.resetFields(); }}>取消</Button>
                   </Form.Item>
                 </Form>
               </Card>
@@ -544,32 +474,24 @@ export default observer(function () {
             {/* 内联编辑动态表单 */}
             {editUpdateVisible && (
               <Card size="small" title="编辑动态" style={{ marginBottom: 16 }} extra={
-                <Button type="link" icon={<CloseOutlined/>} onClick={() => { setEditUpdateVisible(false); setAttachmentList([]); setEditingUpdate(null); }}/>
+                <Button type="link" icon={<CloseOutlined/>} onClick={() => { setEditUpdateVisible(false); setEditingUpdate(null); editUpdateForm.resetFields(); }}/>
               }>
-                <Form form={updateForm} initialValues={{ recorder: sessionStorage.getItem('nickname') || '' }} labelCol={{span: 4}} wrapperCol={{span: 20}}>
+                <Form form={editUpdateForm} initialValues={{ recorder: sessionStorage.getItem('nickname') || '' }} labelCol={{span: 4}} wrapperCol={{span: 20}}>
                   <Form.Item required name="update_date" label="动态日期">
                     <DatePicker style={{width: '100%'}} placeholder="请选择日期"/>
                   </Form.Item>
                   <Form.Item required name="recorder" label="记录人">
                     <Input disabled placeholder="自动填充当前用户"/>
                   </Form.Item>
+                  <Form.Item name="duty_person" label="值班人">
+                    <Input placeholder="请输入值班人（选填）"/>
+                  </Form.Item>
                   <Form.Item required name="detail_content" label="详细记录">
                     <Input.TextArea rows={4} placeholder="请输入详细记录"/>
                   </Form.Item>
-                  <Form.Item label="附件上传">
-                    <Upload {...uploadProps}>
-                      <div>
-                        <PlusCircleOutlined />
-                        <div style={{ marginTop: 8 }}>上传附件</div>
-                      </div>
-                    </Upload>
-                    <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-                      支持图片（ JPG、PNG、GIF、WebP）和Office文件（Word、Excel、PowerPoint、PDF），单个文件最大50MB
-                    </div>
-                  </Form.Item>
                   <Form.Item wrapperCol={{offset: 4, span: 20}}>
                     <Button type="primary" onClick={handleUpdateUpdate}>保存</Button>
-                    <Button style={{ marginLeft: 8 }} onClick={() => { setEditUpdateVisible(false); setAttachmentList([]); setEditingUpdate(null); }}>取消</Button>
+                    <Button style={{ marginLeft: 8 }} onClick={() => { setEditUpdateVisible(false); setEditingUpdate(null); editUpdateForm.resetFields(); }}>取消</Button>
                   </Form.Item>
                 </Form>
               </Card>
@@ -584,6 +506,9 @@ export default observer(function () {
               }}>
                 <div>
                   <strong>{update.update_date} [序号{update.sequence}] {update.recorder}</strong>
+                  {update.duty_person && (
+                    <span style={{ marginLeft: 8, color: '#666' }}>值班人：{update.duty_person}</span>
+                  )}
                   {update.can_edit && hasPermission('runlog.runlog.update_edit') && (
                     <span
                       style={{ marginLeft: 8, color: '#1890ff', cursor: 'pointer' }}

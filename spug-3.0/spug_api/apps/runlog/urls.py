@@ -11,6 +11,7 @@ from libs.tenant_utils import apply_tenant_filter
 
 from .views import *
 from .views import media_url_to_path
+from .exporters import RunLogExcelExportView
 
 # 创建详情视图类
 class RunLogDetailView(View):
@@ -264,6 +265,7 @@ urlpatterns = [
     path('event_types/', EventTypeConfigView.as_view()),
     path('upload/', RunLogUploadAttachmentView.as_view()),
     path('export/pdf/', RunLogExportView.as_view()),
+    path('export/excel/', RunLogExcelExportView.as_view()),
     path('attachment/preview_url/', RunLogAttachmentPreviewUrlView.as_view()),
     path('attachment/download/', RunLogAttachmentDownloadView.as_view()),
     path('repair/', RunLogRepairView.as_view()),

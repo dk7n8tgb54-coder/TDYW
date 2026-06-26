@@ -5,7 +5,7 @@
  */
 import { useCallback } from 'react';
 import { message } from 'antd';
-import { http } from 'libs';
+import { http, exportFile } from 'libs';
 import store from '../store';
 import { STATUS_MAP } from '../constants';
 
@@ -69,37 +69,25 @@ export default function useDataViewExport(viewData, selectedYear, selectedMonth,
       return;
     }
 
-    try {
-      const hide = message.loading('正在生成PDF...');
-      const tableData = buildTableData();
-      const dailySummaries = collectDailySummaries();
+    const tableData = buildTableData();
+    const dailySummaries = collectDailySummaries();
 
-      const requestData = {
-        year: selectedYear,
-        month: selectedMonth,
-        table_data: tableData,
-        daily_summaries: dailySummaries,
-        title: `${selectedYear}年${selectedMonth}月 全部项目检查表`
-      };
+    const requestData = {
+      year: selectedYear,
+      month: selectedMonth,
+      table_data: tableData,
+      daily_summaries: dailySummaries,
+      title: `${selectedYear}年${selectedMonth}月 全部项目检查表`
+    };
 
-      const response = await http.post('/api/checksheet/export/pdf/', requestData, {
-        responseType: 'arraybuffer'
-      });
-
-      const blob = new Blob([response.data], { type: 'application/pdf' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `${selectedYear}年${selectedMonth}月_全部项目检查表.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
-      hide();
-      message.success('PDF导出成功');
-    } catch (error) {
-      console.error('[PDF Export] Error:', error);
-      message.error('导出PDF失败');
-    }
+    await exportFile({
+      url: '/api/checksheet/export/pdf/',
+      method: 'post',
+      data: requestData,
+      defaultFilename: `${selectedYear}年${selectedMonth}月_全部项目检查表.pdf`,
+      timeout: 60000,
+      loadingText: '正在生成PDF...',
+    });
   }, [viewData, selectedYear, selectedMonth, buildTableData, collectDailySummaries]);
 
   return { handleExportPDF };

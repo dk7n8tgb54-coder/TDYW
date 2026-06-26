@@ -164,6 +164,10 @@ class RunLogView(View):
                 update_date=first_update['update_date']
             ).aggregate(Max('sequence'))['sequence__max'] or 0
             
+            # duty_person 空字符串按 None 处理
+            first_duty_person = first_update.get('duty_person')
+            if first_duty_person:
+                first_duty_person = first_duty_person.strip()
             RunLogUpdate.objects.create(
                 runlog_id=event.id,
                 event_title=event.event_title,
@@ -171,6 +175,7 @@ class RunLogView(View):
                 sequence=1,
                 recorder=request.user.nickname,
                 detail_content=first_update.get('detail_content', ''),
+                duty_person=first_duty_person or None,
                 editable_until=editable_until,
                 created_by=request.user,
                 tenant_id=request.user.tenant_id,
@@ -302,14 +307,14 @@ class RunLogUpdateView(View):
     def post(self, request):
         """添加动态"""
         from .models import RunLog, RunLogUpdate
-        import json
 
         form, error = JsonParser(
             Argument('runlog_id', type=int, help='请指定关联事件'),
             Argument('update_date', help='请选择日期'),
             Argument('recorder', required=False),
             Argument('detail_content', help='请输入详细记录'),
-            Argument('attachments', type=list, required=False, default=[]),
+            Argument('duty_person', required=False),
+            # attachments 字段已废弃，即使前端传入也会被忽略（兜底防绕过）
         ).parse(request.body)
 
         if error is None:
@@ -326,11 +331,13 @@ class RunLogUpdateView(View):
                 ),
                 request.user
             ).aggregate(Max('sequence'))['sequence__max'] or 0
-            
+
             # 设置可修改截止时间（24小时）
             editable_until = (datetime.now() + timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
-            
-            # 创建动态
+
+            # 创建动态（不再保存 attachments，历史数据保留不动）
+            # duty_person 空字符串按 None 处理
+            duty_person = form.duty_person.strip() if form.duty_person else None
             update_data = {
                 'runlog_id': form.runlog_id,
                 'event_title': event.event_title,
@@ -338,7 +345,7 @@ class RunLogUpdateView(View):
                 'sequence': max_seq + 1,
                 'recorder': request.user.nickname,
                 'detail_content': form.detail_content,
-                'attachments': json.dumps(form.attachments) if form.attachments else None,
+                'duty_person': duty_person or None,
                 'editable_until': editable_until,
                 'created_by': request.user,
             }
@@ -362,15 +369,15 @@ class RunLogUpdateView(View):
     @auth('runlog.runlog.update_edit')
     def put(self, request):
         """编辑动态（24小时内）"""
-        from .models import RunLogUpdate
-        import json
+        from .models import RunLog, RunLogUpdate
 
         form, error = JsonParser(
             Argument('id', type=int, help='请指定操作对象'),
             Argument('update_date', required=False),
             Argument('recorder', required=False),
             Argument('detail_content', help='请输入详细记录'),
-            Argument('attachments', type=list, required=False),
+            Argument('duty_person', required=False),
+            # attachments 字段已废弃，即使前端传入也会被忽略（兜底防绕过）
         ).parse(request.body)
 
         if error is None:
@@ -390,14 +397,31 @@ class RunLogUpdateView(View):
             if not update.can_edit(request.user):
                 return json_response(error='该动态不可编辑（仅创建者或管理员在24小时内可修改）', code=403)
 
-            # 更新字段
+            # 更新字段（不再更新 attachments，历史数据保留不动）
+            # duty_person 空字符串按 None 处理
             if form.update_date:
                 update.update_date = form.update_date
             update.recorder = request.user.nickname
             update.detail_content = form.detail_content
-            if form.attachments is not None:
-                update.attachments = json.dumps(form.attachments) if form.attachments else None
+            if hasattr(form, 'duty_person'):
+                duty_person = form.duty_person.strip() if form.duty_person else None
+                update.duty_person = duty_person or None
             update.save()
+
+            event = apply_tenant_filter(RunLog.objects.filter(pk=update.runlog_id), request.user).first()
+            if event:
+                latest_update = apply_tenant_filter(
+                    RunLogUpdate.objects.filter(runlog_id=update.runlog_id),
+                    request.user
+                ).order_by('-update_date', '-sequence', '-id').first()
+                event.update_count = apply_tenant_filter(
+                    RunLogUpdate.objects.filter(runlog_id=update.runlog_id),
+                    request.user
+                ).count()
+                event.last_update_date = latest_update.update_date if latest_update else None
+                event.updated_at = human_datetime()
+                event.updated_by = request.user
+                event.save()
 
         return json_response(error=error)
     

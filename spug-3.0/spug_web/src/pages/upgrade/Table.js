@@ -6,23 +6,17 @@
 import React from 'react';
 import { observer } from 'mobx-react';
 import { Table, Modal, message, DatePicker } from 'antd';
-import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
+import { PlusOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
-import { Action, TableCard, AuthButton } from "components";
+import { Action, TableCard, AuthButton, ExportButton } from "components";
 import store from './store';
 import StatusTag from './components/StatusTag';
-import * as XLSX from 'xlsx';
-import moment from 'moment';
 
 @observer
 class ComTable extends React.Component {
   componentDidMount() {
     store.fetchRecords();
     store.fetchFilterOptions();
-  }
-
-  state = {
-    exportDateRange: null,
   }
 
   handleDelete = (text) => {
@@ -38,53 +32,6 @@ class ComTable extends React.Component {
           });
       }
     });
-  };
-
-  handleExport = () => {
-    const { exportDateRange } = this.state;
-    let data = store.records;
-
-    if (exportDateRange && exportDateRange.length === 2) {
-      const startDate = moment(exportDateRange[0]).format('YYYY-MM-DD');
-      const endDate = moment(exportDateRange[1]).format('YYYY-MM-DD');
-      data = data.filter(item => {
-        const itemDate = item.upgrade_time?.split(' ')[0] || '';
-        return itemDate >= startDate && itemDate <= endDate;
-      });
-    }
-
-    if (data.length === 0) {
-      message.warning('没有可导出的数据');
-      return;
-    }
-
-    try {
-      const exportData = data.map(item => ({
-        '升级单号': item.upgrade_no || '',
-        '系统': item.system || '',
-        '升级类型': item.upgrade_type || '',
-        '版本': item.version || '',
-        '升级时间': item.upgrade_time || '',
-        '状态': item.status || '',
-        '负责人': item.owner || '',
-        '创建时间': item.created_at || ''
-      }));
-
-      const ws = XLSX.utils.json_to_sheet(exportData);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '升级表单');
-
-      const now = moment().format('YYYYMMDD_HHmmss');
-      const dateRangeText = exportDateRange
-        ? `${moment(exportDateRange[0]).format('YYYYMMDD')}-${moment(exportDateRange[1]).format('YYYYMMDD')}`
-        : 'all';
-      const fileName = `升级表单_${dateRangeText}_${now}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-      message.success(`成功导出 ${data.length} 条记录`);
-    } catch (error) {
-      console.error('导出失败:', error);
-      message.error('导出失败，请重试');
-    }
   };
 
   render() {
@@ -109,15 +56,16 @@ class ComTable extends React.Component {
           <span key="date-range-picker" style={{ marginRight: 8 }}>
             <DatePicker.RangePicker
               placeholder={['开始日期', '结束日期']}
-              value={this.state.exportDateRange}
-              onChange={(dates) => this.setState({ exportDateRange: dates })}
+              value={store.f_export_date_range}
+              onChange={(dates) => store.f_export_date_range = dates}
               style={{ width: 280 }}
             />
           </span>,
-          <AuthButton
+          <ExportButton
             auth="upgrade.upgrade.view"
-            icon={<ExportOutlined/>}
-            onClick={this.handleExport}>导出</AuthButton>
+            url="/api/upgrade/records/export/"
+            params={store.getExportParams()}
+            filename="升级表单.xlsx">导出</ExportButton>
         ]}
         pagination={{
           current: store.page,

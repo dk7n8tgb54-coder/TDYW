@@ -5,12 +5,11 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Table, Modal, message, DatePicker, Select, Tag, Statistic, Card, Row, Col, Image, Spin, Button } from 'antd';
-import { PlusOutlined, DeleteOutlined, CheckCircleOutlined, FilePdfOutlined, FileOutlined, SettingOutlined } from '@ant-design/icons';
-import { http, hasPermission, Permission } from 'libs';
+import { Table, Modal, message, DatePicker, Select, Tag, Statistic, Card, Row, Col, Image, Spin, Button, Dropdown, Menu } from 'antd';
+import { PlusOutlined, DeleteOutlined, CheckCircleOutlined, FilePdfOutlined, FileExcelOutlined, FileOutlined, SettingOutlined, DownOutlined } from '@ant-design/icons';
+import { http, hasPermission, Permission, exportFile } from 'libs';
 import { Action, TableCard, AuthButton } from "components";
 import store from './store';
-import moment from 'moment';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
@@ -53,8 +52,9 @@ class ComTable extends React.Component {
 
   componentDidMount() {
     this._isMounted = true;
+    window.addEventListener('runlog:changed', this.refreshList);
     this.abortController = new AbortController();
-    store.fetchRecords(this.abortController.signal)
+    store.fetchRecords()
       .then(() => {
         // 注释掉自动展开功能，避免大量并发请求
         // this.autoExpandInProgressRows()
@@ -64,10 +64,17 @@ class ComTable extends React.Component {
 
   componentWillUnmount() {
     this._isMounted = false;
+    window.removeEventListener('runlog:changed', this.refreshList);
     if (this.abortController) {
       this.abortController.abort();
     }
   }
+
+  refreshList = () => {
+    this.setState({ expandedRowsData: {}, expandedRowKeys: [] });
+    store.fetchRecords();
+    store.fetchStatistics();
+  };
 
   // 自动展开处理中的行
   autoExpandInProgressRows = () => {
@@ -83,7 +90,7 @@ class ComTable extends React.Component {
     // 批量加载动态数据
     inProgressIds.forEach(id => {
       this.setState({ [`loading_${id}`]: true });
-      http.get('/api/runlog/detail/', {params: {id}})
+      http.get('/api/runlog/detail/', {params: {id, _t: Date.now()}})
         .then(res => {
           this.setState(prevState => ({
             expandedRowsData: {
@@ -108,52 +115,42 @@ class ComTable extends React.Component {
         return http.delete('/api/runlog/', {params: {id: text.id}})
           .then(() => {
             message.success('删除成功');
-            store.fetchRecords()
-            store.fetchStatistics()
+            this.refreshList()
           })
       }
     })
   };
 
-  handleExport = () => {
-    const hide = message.loading('正在生成PDF...');
+  handleExportPDF = async () => {
+    // PDF 导出复用原有逻辑：POST body 传筛选条件
+    await exportFile({
+      url: '/api/runlog/export/pdf/',
+      method: 'post',
+      data: store.getExportParams(),
+      defaultFilename: '运行日志报告.pdf',
+      timeout: 60000,
+      loadingText: '正在生成PDF...',
+    });
+  };
 
-    // 构建筛选条件，传给后端查询
-    const params = {};
-    if (store.f_status) params.status = store.f_status;
-    if (store.f_severity) params.severity = store.f_severity;
-    if (store.f_system_name) params.system_name = store.f_system_name;
-    if (store.f_date_range && store.f_date_range.length === 2) {
-      params.start_date = moment(store.f_date_range[0]).format('YYYY-MM-DD');
-      params.end_date = moment(store.f_date_range[1]).format('YYYY-MM-DD');
+  handleExportExcel = async () => {
+    // Excel 明细导出：GET query 传筛选条件，主从结构（事件行 + 动态行）
+    await exportFile({
+      url: '/api/runlog/export/excel/',
+      method: 'get',
+      params: store.getExportParams(),
+      defaultFilename: '运行日志明细.xlsx',
+      timeout: 60000,
+      loadingText: '正在生成Excel...',
+    });
+  };
+
+  handleExportMenuClick = ({ key }) => {
+    if (key === 'pdf') {
+      this.handleExportPDF();
+    } else if (key === 'excel') {
+      this.handleExportExcel();
     }
-
-    http.post('/api/runlog/export/pdf/', params, {
-      responseType: 'arraybuffer',
-      timeout: 60000
-    }).then(response => {
-      // 检测后端返回的 JSON 错误（responseType 为 arraybuffer 时错误也是二进制）
-      const contentType = response.headers['content-type'] || response.headers['Content-Type'] || '';
-      if (contentType.includes('application/json')) {
-        const errorData = JSON.parse(new TextDecoder().decode(response.data));
-        message.error(errorData.error || '导出PDF失败');
-        return;
-      }
-      // 创建 Blob 并触发下载
-      const blob = new Blob([response.data], { type: 'application/pdf' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      const now = moment().format('YYYYMMDD_HHmmss');
-      link.download = `运行日志报告_${now}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
-      message.success('PDF导出成功');
-    }).catch(err => {
-      console.error('导出PDF失败:', err);
-      message.error('导出PDF失败，请重试');
-    }).finally(() => hide());
   };
 
   // 渲染状态标签（可点击切换）
@@ -177,8 +174,7 @@ class ComTable extends React.Component {
           return http.put('/api/runlog/', { id: record.id, status: newStatus })
             .then(() => {
               message.success('状态修改成功');
-              store.fetchRecords();
-              store.fetchStatistics();
+              this.refreshList();
             })
         }
       });
@@ -221,24 +217,22 @@ class ComTable extends React.Component {
       if (!expandedRowKeys.includes(record.id)) {
         expandedRowKeys.push(record.id);
       }
-      // 加载动态数据（如果未加载）
-      if (!this.state.expandedRowsData[record.id]) {
-        this.setState({ [`loading_${record.id}`]: true });
-        http.get('/api/runlog/detail/', {params: {id: record.id}})
-          .then(res => {
-            this.setState(prevState => ({
-              expandedRowsData: {
-                ...prevState.expandedRowsData,
-                [record.id]: res.updates || []
-              },
-              [`loading_${record.id}`]: false
-            }));
-          })
-          .catch(e => {
-            console.error('[运行日志] 获取动态列表失败:', e);
-            this.setState({ [`loading_${record.id}`]: false });
-          });
-      }
+      // 每次展开都重新加载动态数据，避免添加/编辑后显示旧缓存
+      this.setState({ [`loading_${record.id}`]: true });
+      http.get('/api/runlog/detail/', {params: {id: record.id, _t: Date.now()}})
+        .then(res => {
+          this.setState(prevState => ({
+            expandedRowsData: {
+              ...prevState.expandedRowsData,
+              [record.id]: res.updates || []
+            },
+            [`loading_${record.id}`]: false
+          }));
+        })
+        .catch(e => {
+          console.error('[运行日志] 获取动态列表失败:', e);
+          this.setState({ [`loading_${record.id}`]: false });
+        });
     } else {
       // 收起行
       const index = expandedRowKeys.indexOf(record.id);
@@ -274,6 +268,9 @@ class ComTable extends React.Component {
               <span style={{ fontWeight: 'bold' }}>📅 {update.update_date}</span>
               <span style={{ marginLeft: 8 }}>序号: {update.sequence}</span>
               <span style={{ marginLeft: 8 }}>👤 {update.recorder}</span>
+              {update.duty_person && (
+                <span style={{ marginLeft: 8 }}>🛡 值班人：{update.duty_person}</span>
+              )}
             </div>
             <div>{update.detail_content}</div>
             {/* 显示附件 */}
@@ -363,7 +360,20 @@ class ComTable extends React.Component {
         </Select>
       </span>,
       <RangePicker key="date-range-picker" placeholder={['创建日期', '结束日期']} onChange={dates => store.setFilter('date_range', dates)} style={{ marginRight: 8, width: 260 }} open={this._isMounted ? undefined : false} />,
-      <AuthButton key="export" auth="runlog.runlog.view" icon={<FilePdfOutlined/>} onClick={this.handleExport}>导出PDF</AuthButton>,
+      hasPermission('runlog.runlog.view') ? (
+        <Dropdown
+          key="export"
+          overlay={
+            <Menu onClick={this.handleExportMenuClick}>
+              <Menu.Item key="pdf" icon={<FilePdfOutlined/>}>导出 PDF</Menu.Item>
+              <Menu.Item key="excel" icon={<FileExcelOutlined/>}>导出 Excel</Menu.Item>
+            </Menu>
+          }
+          trigger={['click']}
+        >
+          <Button icon={<FileOutlined/>}>导出 <DownOutlined/></Button>
+        </Dropdown>
+      ) : null,
     ];
 
     return (
@@ -396,7 +406,7 @@ class ComTable extends React.Component {
           rowKey="id"
           loading={store.isFetching}
           dataSource={store.dataSource}
-          onReload={() => { store.fetchRecords(); store.fetchStatistics(); }}
+          onReload={this.refreshList}
           onRow={record => ({
             onDoubleClick: () => {
               store.showForm(record, true);

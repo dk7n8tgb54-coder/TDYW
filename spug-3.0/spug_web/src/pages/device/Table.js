@@ -7,7 +7,7 @@ import React from 'react';
 import { observer } from 'mobx-react';
 import { Table, Tag, Modal, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
-import { AuthButton } from 'components';
+import { AuthButton, ExportButton } from 'components';
 import store from './store';
 import { getDeviceStatusConfig } from './constants';
 
@@ -66,6 +66,12 @@ class ComTable extends React.Component {
           <AuthButton auth="device.device_resume.add" type="primary" icon={<PlusOutlined />} onClick={() => store.showForm({})}>
             新增设备履历
           </AuthButton>
+          <ExportButton
+            auth="device.device_resume.view"
+            url="/api/device/device-resume/export/"
+            params={store.getExportParams()}
+            filename="设备台账.xlsx"
+            style={{ marginLeft: 8 }}>导出设备列表</ExportButton>
         </div>
         <Table
           loading={store.isFetching}

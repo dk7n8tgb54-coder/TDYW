@@ -21,6 +21,7 @@ class Store {
   @observable f_report_dept;
   @observable f_interference_type;
   @observable f_phenomenon;
+  @observable f_export_date_range;
 
   get dataSource() {
     let data = this.records
@@ -65,6 +66,20 @@ class Store {
     this.formVisible = true;
     this.record = {...info, isViewMode};
   }
+
+  getExportParams = () => {
+    const params = {};
+    if (this.f_report_dept) params.report_dept = this.f_report_dept;
+    if (this.f_interference_type) params.interference_type = this.f_interference_type;
+    if (this.f_phenomenon) params.phenomenon = this.f_phenomenon;
+    // 日期范围：优先用导出专用范围，否则回退到搜索日期范围
+    let dateRange = this.f_export_date_range || this.f_datetime;
+    if (dateRange && dateRange.length === 2) {
+      params.start_date = typeof dateRange[0] === 'string' ? dateRange[0] : dateRange[0].format('YYYY-MM-DD');
+      params.end_date = typeof dateRange[1] === 'string' ? dateRange[1] : dateRange[1].format('YYYY-MM-DD');
+    }
+    return params;
+  };
 }
 
 export default new Store()

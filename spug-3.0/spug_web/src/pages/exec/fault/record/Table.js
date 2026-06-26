@@ -6,21 +6,15 @@
 import React from 'react';
 import { observer } from 'mobx-react';
 import { Table, Modal, message, DatePicker } from 'antd';
-import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
+import { PlusOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
-import { Action, TableCard, AuthButton } from "components";
+import { Action, TableCard, AuthButton, ExportButton } from "components";
 import store from './store';
-import * as XLSX from 'xlsx';
-import moment from 'moment';
 
 @observer
 class ComTable extends React.Component {
   componentDidMount() {
     store.fetchRecords()
-  }
-
-  state = {
-    exportDateRange: null
   }
 
   handleDelete = (text) => {
@@ -36,62 +30,6 @@ class ComTable extends React.Component {
           })
       }
     })
-  };
-
-  handleExport = () => {
-    const { exportDateRange } = this.state;
-    
-    let data = store.dataSource;
-    
-    // 如果选择了日期范围，进行过滤
-    if (exportDateRange && exportDateRange.length === 2) {
-      const startDate = moment(exportDateRange[0]).format('YYYY-MM-DD');
-      const endDate = moment(exportDateRange[1]).format('YYYY-MM-DD');
-      data = data.filter(item => {
-        const itemDate = moment(item.fault_date).format('YYYY-MM-DD');
-        return itemDate >= startDate && itemDate <= endDate;
-      });
-    }
-
-    if (data.length === 0) {
-      message.warning('没有可导出的数据');
-      return;
-    }
-
-    try {
-      // 准备导出数据
-      const exportData = data.map(item => ({
-        '系统名称': item.system_name,
-        '设备编号': item.device_code || '',
-        '日期': item.fault_date,
-        '处置人员': item.handler || '',
-        '记录人员': item.recorder || '',
-        '故障评级': item.fault_level || '',
-        '故障现象': item.fault_phenomenon || '',
-        '处置过程': item.handling_process || '',
-        '创建时间': item.created_at || ''
-      }));
-
-      // 创建工作簿和工作表
-      const ws = XLSX.utils.json_to_sheet(exportData);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '故障处置记录');
-
-      // 生成文件名
-      const now = moment().format('YYYYMMDD_HHmmss');
-      const dateRangeText = exportDateRange 
-        ? `${moment(exportDateRange[0]).format('YYYYMMDD')}-${moment(exportDateRange[1]).format('YYYYMMDD')}`
-        : 'all';
-      const fileName = `故障处置记录_${dateRangeText}_${now}.xlsx`;
-
-      // 保存文件（让用户选择保存位置）
-      XLSX.writeFile(wb, fileName);
-      
-      message.success(`成功导出 ${data.length} 条记录`);
-    } catch (error) {
-      console.error('导出失败:', error);
-      message.error('导出失败，请重试');
-    }
   };
 
   render() {
@@ -118,15 +56,16 @@ class ComTable extends React.Component {
           <span key="date-range-picker" style={{ marginRight: 8 }}>
             <DatePicker.RangePicker
               placeholder={['开始日期', '结束日期']}
-              value={this.state.exportDateRange}
-              onChange={(dates) => this.setState({ exportDateRange: dates })}
+              value={store.f_export_date_range}
+              onChange={(dates) => store.f_export_date_range = dates}
               style={{ width: 280 }}
             />
           </span>,
-          <AuthButton
+          <ExportButton
             auth="fault.faultrecord.view"
-            icon={<ExportOutlined/>}
-            onClick={this.handleExport}>导出</AuthButton>
+            url="/api/fault/faultrecord/export/"
+            params={store.getExportParams()}
+            filename="故障处置记录.xlsx">导出</ExportButton>
         ]}
         pagination={{
           showSizeChanger: true,

@@ -16,6 +16,7 @@ import TableCard from './TableCard';
 import Breadcrumb from './Breadcrumb';
 import NotFound from './NotFound';
 import Link from './Link';
+import ExportButton from './ExportButton';
 
 export {
   StatisticsCard,
@@ -31,4 +32,5 @@ export {
   Breadcrumb,
   NotFound,
   Link,
+  ExportButton,
 }

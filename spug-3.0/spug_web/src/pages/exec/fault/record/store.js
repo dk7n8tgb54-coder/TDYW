@@ -17,6 +17,7 @@ class Store {
   @observable f_system_name;
   @observable f_handler;
   @observable f_fault_level;
+  @observable f_export_date_range;
 
   get dataSource() {
     let data = this.records
@@ -41,6 +42,19 @@ class Store {
     this.formVisible = true;
     this.record = {...info, isViewMode};
   }
+
+  getExportParams = () => {
+    const params = {};
+    if (this.f_system_name) params.system_name = this.f_system_name;
+    if (this.f_fault_date) params.fault_date = this.f_fault_date;
+    if (this.f_handler) params.f_handler = this.f_handler;
+    if (this.f_fault_level) params.fault_level = this.f_fault_level;
+    if (this.f_export_date_range && this.f_export_date_range.length === 2) {
+      params.start_date = this.f_export_date_range[0].format('YYYY-MM-DD');
+      params.end_date = this.f_export_date_range[1].format('YYYY-MM-DD');
+    }
+    return params;
+  };
 }
 
 export default new Store()

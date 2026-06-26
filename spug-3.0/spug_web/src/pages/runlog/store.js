@@ -48,6 +48,7 @@ class Store {
     // 添加分页参数
     filters.page = this.pagination.page;
     filters.page_size = this.pagination.page_size;
+    filters._t = Date.now();
 
     return http.get('/api/runlog/', {params: filters})
       .then(res => {
@@ -68,7 +69,7 @@ class Store {
   };
 
   @action fetchStatistics = () => {
-    http.get('/api/runlog/statistics/')
+    http.get('/api/runlog/statistics/', {params: {_t: Date.now()}})
       .then(res => {
         this.statistics = res;
       })
@@ -154,6 +155,21 @@ class Store {
       this.pagination.page_size = pageSize;
     }
     this.fetchRecords();
+  };
+
+  /**
+   * 构建导出参数（PDF 与 Excel 共用），与 fetchRecords 的筛选条件保持一致
+   */
+  getExportParams = () => {
+    const params = {};
+    if (this.f_status) params.status = this.f_status;
+    if (this.f_severity) params.severity = this.f_severity;
+    if (this.f_system_name) params.system_name = this.f_system_name;
+    if (this.f_date_range && this.f_date_range.length === 2) {
+      params.start_date = this.f_date_range[0].format('YYYY-MM-DD');
+      params.end_date = this.f_date_range[1].format('YYYY-MM-DD');
+    }
+    return params;
   };
 }
 

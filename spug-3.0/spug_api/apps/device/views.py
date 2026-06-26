@@ -10,6 +10,7 @@ from django.db import IntegrityError, DatabaseError
 from django.http import HttpResponse
 import logging
 import json
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -494,11 +495,15 @@ class DeviceResumeExportView(View):
 
         try:
             from .pdf_export import generate_device_resume_pdf
-            pdf_output = generate_device_resume_pdf(device_info, events)
+            # 导出人由后端从 request.user 注入，不信任前端传入
+            operator_name = getattr(request.user, 'nickname', None) or \
+                            getattr(request.user, 'username', None) or ''
+            pdf_output = generate_device_resume_pdf(device_info, events, operator_name)
 
             device_sn = device_info.get('device_sn', 'unknown')
             device_name = device_info.get('device_name', '')
-            filename = f'设备履历_{device_sn}_{device_name}.pdf'
+            export_time = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f'设备履历_{device_sn}_{device_name}_{export_time}.pdf'
             # 对文件名做ASCII安全处理（避免中文文件名在部分浏览器乱码）
             from django.utils.encoding import escape_uri_path
             safe_filename = escape_uri_path(filename)

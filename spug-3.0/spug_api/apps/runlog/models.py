@@ -92,6 +92,7 @@ class RunLogUpdate(models.Model, TenantModelMixin):
     sequence = models.IntegerField(default=0, help_text='同一天内的序号')
     recorder = models.CharField(max_length=100, help_text='记录人')
     detail_content = models.TextField(help_text='详细记录')
+    duty_person = models.CharField(max_length=128, null=True, blank=True, help_text='值班人')
 
     # 附件（图片）
     attachments = models.TextField(null=True, blank=True, help_text='附件JSON，存储图片路径列表')
