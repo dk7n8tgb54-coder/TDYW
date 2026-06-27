@@ -36,3 +36,14 @@ class AuditLog(models.Model, ModelMixin):
     class Meta:
         db_table = 'audit_logs'
         ordering = ('-id',)
+        # 审计日志会持续增长，按常用筛选字段建立索引避免列表查询随数据量线性变慢。
+        # - tenant_id + (-id)：租户隔离下的分页主路径（默认按 -id 排序）
+        # - tenant_id + created_at：按时间范围筛选
+        # - action / target_type / username：单项精确筛选
+        indexes = [
+            models.Index(fields=['tenant_id', '-id'], name='audit_tenant_id_idx'),
+            models.Index(fields=['tenant_id', 'created_at'], name='audit_tenant_time_idx'),
+            models.Index(fields=['action'], name='audit_action_idx'),
+            models.Index(fields=['target_type'], name='audit_target_type_idx'),
+            models.Index(fields=['username'], name='audit_username_idx'),
+        ]

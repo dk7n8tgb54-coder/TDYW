@@ -109,6 +109,9 @@ export default observer(function EventTypeModal() {
       width={600}
       destroyOnClose
     >
+      <div style={{ marginBottom: 12, color: '#999', fontSize: 12 }}>
+        事件类型为全局共享配置，仅超级管理员可管理。
+      </div>
       <div style={{ marginBottom: 16 }}>
         <Form form={form} layout="inline" onFinish={handleSubmit}>
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入类型名称' }]}>

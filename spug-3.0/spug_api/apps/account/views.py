@@ -503,6 +503,11 @@ def handle_login_record(request, username, login_type, error=None):
     )
     # 记录登录失败审计日志
     if error:
+        # 租户归属策略（产品定义）：
+        # 1. 已存在的租户用户登录失败 → 写入该用户所属租户，租户管理员可见。
+        # 2. 不存在的用户名登录失败（含跨租户爆破、未知账号尝试）→ 写入 'default' 全局归档，
+        #    仅超管可见，避免普通租户管理员看不到针对本系统的未知账号攻击。
+        # 前端审计页面应对非超管用户在筛选"登录"动作时给出说明：未知账号的登录失败仅超管可见。
         # 尝试获取用户ID（登录失败时可能没有）
         user = User.objects.filter(username=username, type=login_type, deleted_by_id__isnull=True).first()
         save_audit_log(

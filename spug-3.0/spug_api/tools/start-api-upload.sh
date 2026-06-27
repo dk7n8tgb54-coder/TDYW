@@ -24,7 +24,7 @@ if [ -f ./venv/bin/activate ]; then
 fi
 
 # 上传服务超时时间，默认 600s，可通过环境变量覆盖
-UPLOAD_API_TIMEOUT=${UPLOAD_API_TIMEOUT:-600}
+UPLOAD_API_TIMEOUT=${UPLOAD_API_TIMEOUT:-1200}
 
 # 复用 gunicorn.conf.py 基础配置，仅覆盖 bind 和 timeout
 exec gunicorn -c gunicorn.conf.py spug.wsgi \

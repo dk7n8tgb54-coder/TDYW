@@ -20,6 +20,21 @@ from libs.utils import get_request_real_ip
 logger = logging.getLogger(__name__)
 
 
+# 敏感字段关键词黑名单（小写匹配，只要字段名包含任一关键词即脱敏）。
+# 用于在写入审计 detail 前剔除密码、令牌、密钥、私钥、凭证等敏感或半敏感字段。
+# 采用关键词匹配而非固定字段名，可覆盖 old_password/new_password/private_key/public_key/
+# api_key/spug_push_key/wx_token/access_token 等项目内已存在的衍生命名。
+SENSITIVE_KEYWORDS = ('password', 'token', 'secret', 'key', 'private', 'credential')
+
+
+def _is_sensitive_field(name):
+    """判断字段名是否包含敏感关键词（需脱敏）"""
+    if not isinstance(name, str):
+        return False
+    lower = name.lower()
+    return any(keyword in lower for keyword in SENSITIVE_KEYWORDS)
+
+
 class AuditLogMiddleware(MiddlewareMixin):
     """
     审计日志中间件
@@ -195,11 +210,16 @@ class AuditLogMiddleware(MiddlewareMixin):
                     return target_id, target_name, detail
                 body_data = json.loads(body)
             exclude_fields = {
-                'password', 'token', 'secret', 'key', 'access_token',
                 'id', 'tenant_id', 'created_at', 'updated_at',
                 'created_by_id', 'updated_by_id', 'deleted_by_id',
             }
-            detail = {k: v for k, v in body_data.items() if k not in exclude_fields}
+            # 敏感字段采用关键词黑名单匹配（password/token/secret/key/private/credential），
+            # 覆盖 password/old_password/new_password/access_token/private_key/public_key/
+            # api_key/spug_push_key/wx_token 等所有衍生命名，避免敏感信息泄露到审计日志。
+            detail = {
+                k: v for k, v in body_data.items()
+                if k not in exclude_fields and not _is_sensitive_field(k)
+            }
             if not detail:
                 detail = None
             if not target_name:

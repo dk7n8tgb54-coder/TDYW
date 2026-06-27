@@ -93,7 +93,7 @@ class MergeStatusChecker:
             with open(status_file, 'r') as f:
                 result['merge_status'] = f.read().strip()
 
-            if result['merge_status'] == TransferStatus.MERGING.value:
+            if result['merge_status'].upper() == TransferStatus.MERGING.value:
                 task_info = MergeStatusChecker._get_task_info(file_hash)
                 result.update(task_info)
 

@@ -277,28 +277,6 @@ class RunLogView(View):
 
         return json_response(error=error)
 
-    @auth('runlog.runlog.update_view')
-    def get_detail(self, request):
-        """获取事件详情（含动态列表）"""
-        from .models import RunLog, RunLogUpdate
-
-        event_id = request.GET.get('id')
-        event = apply_tenant_filter(RunLog.objects.filter(pk=event_id), request.user).first()
-
-        if not event:
-            return json_response(error='事件不存在', code=404)
-
-        # 获取动态列表
-        updates = apply_tenant_filter(
-            RunLogUpdate.objects.filter(runlog_id=event_id),
-            request.user
-        ).order_by('update_date', 'sequence', 'id')
-
-        result = event.to_view()
-        result['updates'] = [x.to_view(request.user) for x in updates]
-
-        return json_response(result)
-
 
 class RunLogUpdateView(View):
     """运行日志动态视图"""
@@ -510,7 +488,7 @@ class RunLogRepairView(View):
                         update.tenant_id = event.tenant_id
                         update.save()
                         fixed_tenant_count += 1
-                        print(f'[RunLog修复] 动态ID={update.id}, tenant_id: {old_tenant} -> {event.tenant_id} (关联事件ID={event.id})')
+                        logger.info(f'[RunLog修复] 动态ID={update.id}, tenant_id: {old_tenant} -> {event.tenant_id} (关联事件ID={event.id})')
 
                     # 2. 重新计算 update_count
                     actual_count = RunLogUpdate.objects.filter(runlog_id=event.id).count()
@@ -537,11 +515,11 @@ class RunLogRepairView(View):
 
                         event.save()
                         fixed_count += 1
-                        print(f'[RunLog修复] 事件ID={event.id}, update_count: {old_count} -> {actual_count}')
+                        logger.info(f'[RunLog修复] 事件ID={event.id}, update_count: {old_count} -> {actual_count}')
 
                 except Exception as e:
                     error_count += 1
-                    print(f'[RunLog修复] 事件ID={event.id} 修复失败: {str(e)}')
+                    logger.warning(f'[RunLog修复] 事件ID={event.id} 修复失败: {str(e)}')
 
             return json_response({
                 'status': 'ok',

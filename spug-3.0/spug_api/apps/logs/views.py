@@ -30,6 +30,12 @@ class AuditLogView(AdminView):
         if error:
             return json_response(error=error)
 
+        # 分页参数边界保护：
+        # - page 最小为 1，避免负数切片导致 Django QuerySet 异常
+        # - page_size 限制在 10~100，避免一次性查询大量审计日志拖慢数据库
+        page = max(form.page, 1)
+        page_size = min(max(form.page_size, 10), 100)
+
         queryset = AuditLog.objects.all()
 
         # 按用户名筛选
@@ -69,14 +75,14 @@ class AuditLogView(AdminView):
 
         # 分页
         total = queryset.count()
-        start = (form.page - 1) * form.page_size
-        end = start + form.page_size
+        start = (page - 1) * page_size
+        end = start + page_size
         records = queryset[start:end]
 
         return json_response({
             'total': total,
-            'page': form.page,
-            'page_size': form.page_size,
+            'page': page,
+            'page_size': page_size,
             'records': [r.to_dict() for r in records],
         })
 

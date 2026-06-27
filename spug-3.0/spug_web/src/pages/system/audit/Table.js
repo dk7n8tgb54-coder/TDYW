@@ -3,11 +3,9 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Tag, Select, Popover, Descriptions } from 'antd';
+import { Tag, Popover, Descriptions } from 'antd';
 import { TableCard } from 'components';
 import store from './store';
-
-const { Option } = Select;
 
 const ACTION_MAP = {
   create: { text: '创建', color: 'green' },
@@ -23,6 +21,7 @@ const ACTION_MAP = {
 
 const TARGET_TYPE_MAP = {
   user: '用户',
+  tenant: '租户',
   role: '角色',
   auth: '认证',
   device: '设备',
@@ -32,6 +31,7 @@ const TARGET_TYPE_MAP = {
   duty: '值班',
   interference: '干扰',
   runlog: '运行日志',
+  radio_license: '无线电台执照',
   setting: '系统设置',
   upgrade: '升级',
   checksheet: '检查表',
@@ -39,6 +39,7 @@ const TARGET_TYPE_MAP = {
   home: '首页',
   exec: '执行',
   api: 'API',
+  audit: '操作审计',
   unknown: '未知',
 };
 
@@ -196,30 +197,7 @@ class ComTable extends React.Component {
         loading={store.isFetching}
         dataSource={store.dataSource}
         onReload={store.fetchRecords}
-        actions={[
-          <Select
-            allowClear
-            style={{width: 120}}
-            placeholder="操作类型"
-            value={store.f_action || undefined}
-            onChange={val => { store.f_action = val || ''; store.fetchRecords(); }}
-          >
-            {store.actionOptions.map(item => (
-              <Option key={item.value} value={item.value}>{item.label}</Option>
-            ))}
-          </Select>,
-          <Select
-            allowClear
-            style={{width: 120}}
-            placeholder="对象类型"
-            value={store.f_target_type || undefined}
-            onChange={val => { store.f_target_type = val || ''; store.fetchRecords(); }}
-          >
-            {store.targetTypeOptions.map(item => (
-              <Option key={item.value} value={item.value}>{item.label}</Option>
-            ))}
-          </Select>,
-        ]}
+        actions={[]}
         pagination={{
           current: store.page,
           pageSize: store.pageSize,

@@ -370,8 +370,8 @@ export class ItemOperationController {
     }
 
     // 尝试从等待队列补充新任务
-    if (this.core.displayCoordinator) {
-      this.core.displayCoordinator.replenish();
+    if (this.core.uploadCoordinator) {
+      this.core.uploadCoordinator.startWaiting();
     }
   }
 
@@ -444,8 +444,8 @@ export class ItemOperationController {
     }
     
     // 删除任务后，尝试从等待队列补充新任务
-    if (this.core.displayCoordinator) {
-      this.core.displayCoordinator.replenish();
+    if (this.core.uploadCoordinator) {
+      this.core.uploadCoordinator.startWaiting();
     }
   }
 

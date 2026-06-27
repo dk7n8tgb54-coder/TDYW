@@ -183,31 +183,20 @@ export default observer(function () {
 
   function fetchUpdates() {
     if (S.record.id) {
-      console.log('[fetchUpdates] 开始获取动态, record.id:', S.record.id);
       return http.get('/api/runlog/detail/', {params: {id: S.record.id, _t: Date.now()}})
         .then(res => {
-          console.log('[fetchUpdates] 原始响应 keys:', Object.keys(res));
-          console.log('[fetchUpdates] 原始响应:', JSON.stringify(res).substring(0, 500));
           // json_response 返回结构是 {data: {...}, error: ""}，需要访问 res.data
           const data = res.data || res;
-          console.log('[fetchUpdates] 解析后数据 keys:', Object.keys(data));
-          console.log('[fetchUpdates] data.updates:', data.updates, 'length:', data.updates?.length);
-          if (data.updates && data.updates.length > 0) {
-            console.log('[fetchUpdates] 第一个 update 的 attachments:', data.updates[0].attachments);
-          }
           setUpdatesList(data.updates || []);
-          console.log('[fetchUpdates] 设置 updatesList 完成, 长度:', (data.updates || []).length);
           // 始终同步当前详情，避免局部刷新后仍引用旧的 record 快照
           if (data.id) {
             Object.assign(S.record, data);
-            console.log('[fetchUpdates] 更新 S.record 完成');
           }
         })
         .catch(err => {
           console.error('[fetchUpdates] 请求失败:', err);
         });
     } else {
-      console.log('[fetchUpdates] record.id 不存在，不获取动态');
       return Promise.resolve();
     }
   }
@@ -215,9 +204,7 @@ export default observer(function () {
   useEffect(() => {
     // 加载事件类型列表
     S.fetchEventTypes();
-    console.log('[useEffect] 触发, S.record.id:', S.record.id, 'isViewMode:', S.record.isViewMode);
     if (S.record.id) {
-      console.log('[useEffect] 调用 fetchUpdates');
       fetchUpdates();  // 编辑模式下也需要加载动态列表
       if (S.record.isViewMode || !hasPermission('runlog.runlog.edit')) {
         setViewMode(true);

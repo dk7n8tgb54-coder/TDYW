@@ -111,7 +111,7 @@ class DirectMergeView(View):
                     return json_response(data={
                         'status': 'completed',
                         'message': '文件已合并完成',
-                        'file_id': transfer.file_id,
+                        'file_path': transfer.file_path,
                         'is_idempotent': True
                     })
 

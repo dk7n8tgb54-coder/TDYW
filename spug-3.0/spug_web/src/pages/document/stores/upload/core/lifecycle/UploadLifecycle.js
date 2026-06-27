@@ -29,9 +29,6 @@ export class UploadLifecycle {
     
     // 【修复】使用setTimeout确保MobX状态更新完成后再补充队列和启动任务
     setTimeout(() => {
-      if (this.core.displayCoordinator) {
-        this.core.displayCoordinator.replenish();
-      }
       // 【P0修复】强制重置暂停状态，确保新任务可以启动
       this.core.isPaused = false;
       // 【关键】补充队列后，启动所有可运行的waiting任务
@@ -52,9 +49,6 @@ export class UploadLifecycle {
     // 【新增】从等待显示队列补充新任务到显示队列（即使失败也补充）
     // 【修复】使用setTimeout确保MobX状态更新完成后再补充队列和启动任务
     setTimeout(() => {
-      if (this.core.displayCoordinator) {
-        this.core.displayCoordinator.replenish();
-      }
       // 【关键】补充队列后，启动所有可运行的waiting任务
       if (this.core.uploadCoordinator) {
         this.core.uploadCoordinator.startWaiting();

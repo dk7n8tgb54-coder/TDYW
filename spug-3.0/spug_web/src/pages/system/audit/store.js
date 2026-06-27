@@ -62,6 +62,17 @@ class Store {
     this.pageSize = pageSize;
     this.fetchRecords();
   };
+
+  resetFilters = () => {
+    // 清空所有筛选条件并回到第一页重新查询
+    this.f_username = '';
+    this.f_action = '';
+    this.f_target_type = '';
+    this.f_keyword = '';
+    this.f_time_range = null;
+    this.page = 1;
+    this.fetchRecords();
+  };
 }
 
 export default new Store()

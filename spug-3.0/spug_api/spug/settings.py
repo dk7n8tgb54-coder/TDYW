@@ -207,12 +207,15 @@ CELERY_TASK_ROUTES = {
     'apps.document.tasks.cleanup.orphan_transfers.cleanup_orphan_transfers': {'queue': 'document.cleanup'},
     # 【新增】无线电台执照到期扫描任务
     'apps.radio_license.tasks.scan_radio_license_expiration': {'queue': 'radio_license'},
+    # 【新增】审计日志归档清理任务（使用 default 队列）
+    'apps.logs.tasks.cleanup_old_audit_logs': {'queue': 'default'},
 }
 
 # 【P0修复】Celery Beat 定时任务配置
 from celery.schedules import crontab
 from apps.document.celery_beat_schedule import DOCUMENT_BEAT_SCHEDULE
 from apps.radio_license.celery_beat_schedule import RADIO_LICENSE_BEAT_SCHEDULE
+from apps.logs.celery_beat_schedule import LOGS_BEAT_SCHEDULE
 
 CELERY_BEAT_SCHEDULE = {
     # 每小时重试清理标记为待清理的物理文件（上传链路，非回收站）
@@ -228,6 +231,9 @@ CELERY_BEAT_SCHEDULE.update(DOCUMENT_BEAT_SCHEDULE)
 
 # 合并 RadioLicense 模块的定时任务配置
 CELERY_BEAT_SCHEDULE.update(RADIO_LICENSE_BEAT_SCHEDULE)
+
+# 合并 Logs 模块的定时任务配置（审计日志归档清理）
+CELERY_BEAT_SCHEDULE.update(LOGS_BEAT_SCHEDULE)
 
 # 【新增】默认租户ID配置
 DEFAULT_TENANT_ID = os.environ.get('DEFAULT_TENANT_ID', 'default')

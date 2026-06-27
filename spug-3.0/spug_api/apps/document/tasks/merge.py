@@ -578,7 +578,9 @@ class MergePipeline:
             from django.utils import timezone as tz
             self.status_updater.update_status(
                 self._get_transfer_status('COMPLETED'),
-                file_id=new_file.id,
+                file_path=new_file.file_path,
+                progress=100,
+                transferred_size=new_file.file_size,
                 completed_at=tz.now()
             )
 

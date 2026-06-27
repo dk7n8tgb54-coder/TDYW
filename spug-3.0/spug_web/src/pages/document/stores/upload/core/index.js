@@ -36,7 +36,6 @@ import { createActions, UploadEvents } from './actions';
 // 协调器
 import {
   UploadCoordinator,
-  DisplayCoordinator,
   RecoveryCoordinator,
   FileUploadCoordinator,
   ChunkUploadCoordinator,
@@ -73,7 +72,6 @@ class UploadCoreStore {
 
   // ===== 协调器 =====
   uploadCoordinator = null;
-  displayCoordinator = null;
   recoveryCoordinator = null;
   fileUploadCoordinator = null;
   chunkUploadCoordinator = null;
@@ -146,7 +144,6 @@ class UploadCoreStore {
 
   _initCoordinators() {
     this.uploadCoordinator = new UploadCoordinator(this);
-    this.displayCoordinator = new DisplayCoordinator(this);
     this.recoveryCoordinator = new RecoveryCoordinator(this);
     this.fileUploadCoordinator = new FileUploadCoordinator(this);
     this.chunkUploadCoordinator = new ChunkUploadCoordinator(this);
@@ -349,7 +346,7 @@ class UploadCoreStore {
   }
 
   replenishDisplayQueue() {
-    return this.displayCoordinator?.replenish();
+    return this.uploadCoordinator?.startWaiting();
   }
 
   schedulePendingUploadsRecovery() {

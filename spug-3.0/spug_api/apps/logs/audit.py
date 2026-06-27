@@ -42,11 +42,15 @@ def clear_audit_user():
 # ==================== URL → 操作对象映射 ====================
 # 键：URL路径前缀，值：{'type': 对象类型标识, 'name': 中文名称}
 TARGET_MAP = {
+    # 账号体系（租户 / 角色 / 用户 / 个人信息 / 认证）
+    # 注意：`/account/tenant` 必须放在 `/account/` 系列靠前位置，否则会被更细的子前缀吞掉匹配
+    '/account/tenant': {'type': 'tenant', 'name': '租户'},
     '/account/user': {'type': 'user', 'name': '用户'},
     '/account/role': {'type': 'role', 'name': '角色'},
     '/account/self': {'type': 'self', 'name': '个人信息'},
     '/account/login': {'type': 'auth', 'name': '认证'},
     '/account/logout': {'type': 'auth', 'name': '认证'},
+    # 业务模块
     '/device/': {'type': 'device', 'name': '设备'},
     '/document/': {'type': 'document', 'name': '文档'},
     '/schedule/': {'type': 'schedule', 'name': '排班'},
@@ -54,12 +58,15 @@ TARGET_MAP = {
     '/duty/': {'type': 'duty', 'name': '值班'},
     '/interference/': {'type': 'interference', 'name': '干扰'},
     '/runlog/': {'type': 'runlog', 'name': '运行日志'},
+    '/radio-license/': {'type': 'radio_license', 'name': '无线电台执照'},
     '/setting/': {'type': 'setting', 'name': '系统设置'},
     '/upgrade/': {'type': 'upgrade', 'name': '升级'},
     '/checksheet/': {'type': 'checksheet', 'name': '检查表'},
     '/home/': {'type': 'home', 'name': '首页'},
     '/exec/': {'type': 'exec', 'name': '执行'},
     '/apis/': {'type': 'api', 'name': 'API'},
+    # 审计模块自身（查询/导出不记录，但其他写操作按 audit 类型记录）
+    '/logs/': {'type': 'audit', 'name': '操作审计'},
 }
 
 
