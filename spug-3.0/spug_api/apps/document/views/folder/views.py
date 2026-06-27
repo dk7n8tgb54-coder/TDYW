@@ -118,6 +118,8 @@ class FolderView(View):
         # 【P2-3修复】使用已缓存的count结果
         total_folders = folder_count
         total_files = files_query.count()
+        # 合并分页：文件夹在前、文件在后，has_more 应按两者总数判断
+        total_items = total_folders + total_files
 
         result = {
             'folders': [
@@ -138,7 +140,7 @@ class FolderView(View):
                 'page_size': page_size,
                 'total_folders': total_folders,
                 'total_files': total_files,
-                'has_more': (offset + page_size) < max(total_folders, total_files)
+                'has_more': (offset + page_size) < total_items
             }
         }
         return json_response(result)
@@ -176,6 +178,8 @@ class FolderView(View):
         # 【P2-3修复】使用已缓存的count结果
         total_folders = folder_count
         total_files = files_query.count()
+        # 合并分页：文件夹在前、文件在后，has_more 应按两者总数判断
+        total_items = total_folders + total_files
 
         result = {
             'folders': [
@@ -196,7 +200,7 @@ class FolderView(View):
                 'page_size': page_size,
                 'total_folders': total_folders,
                 'total_files': total_files,
-                'has_more': (offset + page_size) < max(total_folders, total_files)
+                'has_more': (offset + page_size) < total_items
             }
         }
         return json_response(result)

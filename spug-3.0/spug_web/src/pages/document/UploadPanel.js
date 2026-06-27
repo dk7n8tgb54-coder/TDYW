@@ -25,6 +25,7 @@ import { uploadCoreStore } from './stores';
 import navigationStore from './stores/navigation';
 import uploadUIStore from './stores/upload/ui';
 import TransferListContainer from './components/TransferListContainer';
+import { PAUSEABLE_STATUSES, DISPLAY_UPLOADING_STATUSES, UPLOAD_STATUS, TERMINAL_STATUSES } from './stores/upload/core/upload-core-constants';
 
 @observer
 class UploadPanel extends React.Component {
@@ -42,8 +43,10 @@ class UploadPanel extends React.Component {
     this.pendingItemId = null;
 
     const { currentUploadQueue } = uploadCoreStore;
+    // 【P0修复 2026-06-27】使用 PAUSEABLE_STATUSES 常量
+    // 之前包含 merging，但 merging 不可暂停（状态机无 PAUSE 转换），pauseItem 会静默失败
     const activeItems = currentUploadQueue.filter(
-      item => ['waiting', 'calculating', 'uploading', 'merging'].includes(item.status)
+      item => PAUSEABLE_STATUSES.includes(item.status)
     );
     activeItems.forEach(item => uploadCoreStore.pauseItem(item.id));
 
@@ -287,8 +290,10 @@ class MiniBar extends React.Component {
     let totalPercent = 0;
     let count = 0;
     for (const item of queue) {
-      if (['uploading', 'calculating', 'merging', 'waiting'].includes(item.status)
-          && typeof item.percent === 'number') {
+      // 【P0修复 2026-06-27】使用 DISPLAY_UPLOADING_STATUSES 常量（排除 paused，暂停不贡献进度）
+      if (DISPLAY_UPLOADING_STATUSES.includes(item.status) &&
+          item.status !== UPLOAD_STATUS.PAUSED &&
+          typeof item.percent === 'number') {
         totalPercent += item.percent;
         count++;
       }
@@ -301,12 +306,13 @@ class MiniBar extends React.Component {
     const total = currentUploadQueue.length;
 
     // 计算各状态数量
+    // 【P0修复 2026-06-27】使用常量替代硬编码数组
     let active = 0, paused = 0, completed = 0, failed = 0;
     for (const item of currentUploadQueue) {
-      if (['uploading', 'calculating', 'merging', 'waiting'].includes(item.status)) active++;
-      else if (item.status === 'paused') paused++;
-      else if (item.status === 'completed') completed++;
-      else if (['error', 'cancelled'].includes(item.status)) failed++;
+      if (DISPLAY_UPLOADING_STATUSES.includes(item.status) && item.status !== UPLOAD_STATUS.PAUSED) active++;
+      else if (item.status === UPLOAD_STATUS.PAUSED) paused++;
+      else if (item.status === UPLOAD_STATUS.COMPLETED) completed++;
+      else if (TERMINAL_STATUSES.includes(item.status) && item.status !== UPLOAD_STATUS.COMPLETED) failed++;
     }
 
     const hasActive = active > 0;

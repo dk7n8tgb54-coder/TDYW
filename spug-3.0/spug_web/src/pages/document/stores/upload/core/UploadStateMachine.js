@@ -27,7 +27,7 @@ import { createActions } from './actions';
 export class UploadStateMachine {
   // 静态常量定义
   static STATES = ['waiting', 'calculating', 'uploading', 'paused', 'merging', 'completed', 'error', 'cancelled'];
-  static EVENTS = ['START', 'MD5_COMPLETE', 'UPLOAD_COMPLETE', 'MERGE_SUCCESS', 'PAUSE', 'RESUME', 'ERROR', 'CANCEL'];
+  static EVENTS = ['START', 'MD5_COMPLETE', 'UPLOAD_COMPLETE', 'MERGE_SUCCESS', 'PAUSE', 'RESUME', 'ERROR', 'CANCEL', 'RETRY_MERGE'];
 
   // 【任务3.3】监听器数量上限配置
   static MAX_LISTENERS = 10;
@@ -51,7 +51,11 @@ export class UploadStateMachine {
         transitions: {
           START: { target: 'calculating', guard: this.canStart.bind(this) },
           PAUSE: { target: 'paused' },
-          CANCEL: { target: 'cancelled', action: this.actions.onCancel }
+          CANCEL: { target: 'cancelled', action: this.actions.onCancel },
+          // 【P1修复 2026-06-27】合并失败重试快捷路径：waiting → merging
+          // 场景：状态机因终态被释放后由 ensureStateMachine 重建为 waiting，
+          // 但分片已全部上传完成，只需重新触发合并，无需重走 calculating → uploading
+          RETRY_MERGE: { target: 'merging' }
         }
       },
       calculating: {
@@ -130,7 +134,10 @@ export class UploadStateMachine {
         transitions: {
           RESUME: { target: 'waiting', action: this.onRetryAction.bind(this) },
           // 【修复 2026-06-06】失败状态下允许取消（之前缺失，导致非法转换被静默吞下）
-          CANCEL: { target: 'cancelled', action: this.actions.onCancel }
+          CANCEL: { target: 'cancelled', action: this.actions.onCancel },
+          // 【P1修复 2026-06-27】合并失败重试快捷路径：error → merging
+          // 场景：分片已全部上传完成，合并失败后直接重试合并，无需重传
+          RETRY_MERGE: { target: 'merging' }
         }
       },
       cancelled: {
@@ -473,8 +480,8 @@ export class UploadStateMachine {
       canAbort: false
     });
 
-    // 更新后端状态
-    this.actions.updateTransferStatus('PAUSED');
+    // 【P0修复 2026-06-27】后端同步由 StateChangeHandler → StatusSynchronizer 统一处理
+    // 不再在 entry 钩子中直接调 updateTransferStatus，避免双重同步链路
   }
 
   onPausedExit() {
@@ -521,8 +528,7 @@ export class UploadStateMachine {
     // 清理资源
     this.actions.cleanupAllResources();
 
-    // 更新后端状态
-    this.actions.updateTransferStatus('COMPLETED');
+    // 【P0修复 2026-06-27】后端同步由 StateChangeHandler → StatusSynchronizer 统一处理
   }
 
   onErrorEntry() {
@@ -552,8 +558,8 @@ export class UploadStateMachine {
       // 清理资源
       this.actions.cleanupAllResources();
 
-      // 更新后端状态
-      this.actions.updateTransferStatus('CANCELED');
+      // 【P0修复 2026-06-27】后端同步由 StateChangeHandler → StatusSynchronizer 统一处理
+      // 不再在 entry 钩子中直接调 updateTransferStatus('CANCELED')
     } catch (error) {
       console.error(`[UploadStateMachine] ${this.uploadId}: onCancelledEntry 异常`, error);
       throw error;

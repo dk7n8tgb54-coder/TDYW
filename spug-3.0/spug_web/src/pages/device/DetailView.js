@@ -85,13 +85,12 @@ export default observer(function () {
         <Tabs
           activeKey={store.eventTypeFilter === null ? 'all' : String(store.eventTypeFilter)}
           onChange={(type) => store.setEventTypeFilter(type, record.id)}
-          items={[
-            { key: 'all', label: `全部事件 (${store.eventTotal})` },
-            { key: '1', label: EVENT_TYPE_MAP['1'].text },
-            { key: '2', label: EVENT_TYPE_MAP['2'].text },
-            { key: '3', label: EVENT_TYPE_MAP['3'].text }
-          ]}
-        />
+        >
+          <Tabs.TabPane tab={`全部事件 (${store.eventTotal})`} key="all" />
+          <Tabs.TabPane tab={EVENT_TYPE_MAP['1'].text} key="1" />
+          <Tabs.TabPane tab={EVENT_TYPE_MAP['2'].text} key="2" />
+          <Tabs.TabPane tab={EVENT_TYPE_MAP['3'].text} key="3" />
+        </Tabs>
         <EventTimeline />
       </div>
       {store.eventFormVisible && <EventForm />}

@@ -8,6 +8,7 @@ import {
   DEBOUNCE_DELAY_BATCH,
   DEBOUNCE_DELAY_ITEM,
 } from '../upload-core-constants';
+import { fetchBackendStatusMap, shouldResumeBackendPaused } from './resumeAllStatus';
 
 class DebounceController {
   constructor(coreStore) {
@@ -126,48 +127,124 @@ class DebounceController {
 
   /**
    * 实际的恢复逻辑
+   * 【P1强化 2026-06-27】批量恢复改为按队列 item 扫描，避免漏掉懒创建状态机的 paused 任务
+   *
+   * 处理规则：
+   * - paused：无论有没有 machine，都纳入恢复处理；没有 machine 时先确认后端 PAUSED，再转回 waiting 调度
+   * - waiting：不主动同步后端，交给 uploadCoordinator.startWaiting() 调度
+   * - uploading/calculating/merging/completed/error/cancelled：跳过
    */
   async _doResumeAll() {
     const { coreStore } = this;
-    const { MAX_CONCURRENT_UPLOADS } = require('../upload-core-constants');
-    
+    const { UPLOAD_STATUS, TERMINAL_STATUSES } = require('../upload-core-constants');
+
     coreStore.isPaused = false;
     coreStore.isCancelled = false;
 
-    // 使用状态机批量操作
-    if (coreStore.stateMachineManager) {
-      // 传入并发限制，防止一次性恢复所有任务突破限制
-      // 【7.2 统一并发槽位口径】getActiveCount 改用状态机状态计数
-      //   calculating + uploading 占用前端上传槽位；merging 不占
-      const results = coreStore.stateMachineManager.batchResume(
-        MAX_CONCURRENT_UPLOADS,
-        () => coreStore.stateMachineManager.countByStates(['calculating', 'uploading'])
-      );
-      const successCount = results.filter(r => r.success).length;
+    if (!coreStore.stateMachineManager) {
+      return;
+    }
 
-      // 收集需要同步到后端的transferIds
-      const transferIds = [];
-      results.filter(r => r.success).forEach(({ uploadId }) => {
-        const item = coreStore.queueStore.findUploadItemInCurrentTenant(uploadId);
-        if (item?.transferId) {
-          transferIds.push(item.transferId);
-        }
-      });
+    // 1. 扫描当前租户队列，收集需要恢复的 paused 任务
+    const tenantId = coreStore.getCurrentTenantId();
+    const queue = coreStore.queueStore.uploadQueue[tenantId] || [];
+    const pausedItems = [];
+    const skippedTerminal = [];
 
-      // 同步到后端
-      if (transferIds.length > 0) {
-        try {
-          await coreStore.transferStore.batchResumeTransfers(transferIds);
-        } catch (error) {
-          // 批量恢复后端记录失败，静默处理
+    queue.forEach(item => {
+      if (item.status === UPLOAD_STATUS.PAUSED) {
+        pausedItems.push(item);
+      } else if (TERMINAL_STATUSES.includes(item.status) ||
+                 item.status === UPLOAD_STATUS.UPLOADING ||
+                 item.status === UPLOAD_STATUS.CALCULATING ||
+                 item.status === UPLOAD_STATUS.MERGING) {
+        // 终态和进行中状态跳过
+        skippedTerminal.push(item.id);
+      }
+      // waiting 不在这里处理，交给 startWaiting 调度
+    });
+
+    // 2. 为每个 paused item 尝试恢复（优先状态机路径）
+    const resumeResults = [];
+    const backendStatusMap = await this._fetchCurrentBackendStatusMap(pausedItems);
+
+    for (const item of pausedItems) {
+      let machine = coreStore.stateMachineManager.get(item.id);
+      if (!machine) {
+        // paused 但无状态机（懒创建场景下理论上少见，但防御性处理）
+        machine = coreStore.uploadCoordinator?.ensureStateMachine?.(item) || null;
+        if (!machine) {
+          console.warn(`[DebounceController] resumeAll: ${item.id} 状态机重建失败，跳过`);
+          continue;
         }
+
+        if (shouldResumeBackendPaused(item, backendStatusMap)) {
+          resumeResults.push({
+            uploadId: item.id,
+            success: true,
+            state: machine.getState(),
+            transferId: item.transferId,
+            source: 'backend-paused-without-machine',
+          });
+        }
+
+        // 重建后 machine 是 waiting；把本地 item 也切回 waiting，统一交给 startWaiting。
+        coreStore.queueStore.updateUploadItem(item.id, {
+          status: UPLOAD_STATUS.WAITING,
+          error: null,
+          canAbort: false,
+          isPausedByUser: false,
+        });
+        continue;
       }
 
-      // 当任务完成时自动恢复等待中的任务，保持并发数
-      if (successCount > 0 && coreStore.recoveryCoordinator) {
-        coreStore.recoveryCoordinator.schedule();
+      if (machine.canTransition('RESUME')) {
+        const success = machine.transition('RESUME');
+        resumeResults.push({ uploadId: item.id, success, state: machine.getState() });
       }
     }
+
+    const successCount = resumeResults.filter(r => r.success).length;
+
+    // 3. 收集需要同步后端的 transferIds（仅同步实际恢复成功的）
+    const transferIds = [];
+    resumeResults.filter(r => r.success).forEach(({ uploadId }) => {
+      const item = coreStore.queueStore.findUploadItemInCurrentTenant(uploadId);
+      if (item?.transferId) {
+        transferIds.push(item.transferId);
+      }
+    });
+
+    if (transferIds.length > 0) {
+      try {
+        await coreStore.transferStore.batchResumeTransfers(transferIds);
+      } catch (error) {
+        // 批量恢复后端记录失败，静默处理
+      }
+    }
+
+    // 4. 启动 waiting 任务（覆盖懒创建状态机场景 + 刚从 paused 恢复但因槽位不足未启动的）
+    if (coreStore.uploadCoordinator) {
+      coreStore.uploadCoordinator.startWaiting();
+    }
+
+    // 5. 调度恢复协调器，保持并发数
+    if (successCount > 0 && coreStore.recoveryCoordinator) {
+      coreStore.recoveryCoordinator.schedule();
+    }
+  }
+
+  async _fetchCurrentBackendStatusMap(items) {
+    const { coreStore } = this;
+    const transferIds = items
+      .map(item => item.transferId)
+      .filter(Boolean);
+    const isPublic = coreStore.rootStore?.navigationStore?.isPublic || false;
+    return fetchBackendStatusMap({
+      transferStore: coreStore.transferStore,
+      transferIds,
+      isPublic,
+    });
   }
 
   /**

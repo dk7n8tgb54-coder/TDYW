@@ -3,7 +3,7 @@
  * 负责任务调度、并发控制和上传流程管理
  */
 import { action } from 'mobx';
-import { MAX_CONCURRENT_UPLOADS, ACTIVE_STATES, UPLOAD_CONSTANTS, generateUploadId } from '../upload-core-constants';
+import { MAX_CONCURRENT_UPLOADS, SLOT_OCCUPYING_STATUSES, UPLOAD_CONSTANTS, generateUploadId } from '../upload-core-constants';
 
 export class UploadCoordinator {
   constructor(coreStore) {
@@ -66,12 +66,11 @@ export class UploadCoordinator {
     }
 
     // 【Loop-1003修复】并发槽位统计改用状态机 currentState，不依赖 item.status
-    // 原因：item.status 通过 EventBus → StoreEventAdapter 更新，虽然通常是同步的，
-    //   但 MobX reaction 批量更新等边界场景可能导致 item.status 延迟更新。
-    //   状态机 currentState 在 transition() 内同步更新（第196行），是唯一可靠的真相源。
-    // merging 不占槽位（后端合并、前端只轮询，不占前端网络/CPU 资源）。
+    // 【P0修复 2026-06-27】使用 SLOT_OCCUPYING_STATUSES 常量替代硬编码
+    // SLOT_OCCUPYING_STATUSES = [calculating, uploading]
+    // merging 不占槽位（后端合并、前端只轮询，不占前端网络/CPU 资源）
     const activeCount = sm
-      ? sm.countByStates(['calculating', 'uploading'])
+      ? sm.countByStates(SLOT_OCCUPYING_STATUSES)
       : 0;
 
     // 计算还可以启动多少个任务

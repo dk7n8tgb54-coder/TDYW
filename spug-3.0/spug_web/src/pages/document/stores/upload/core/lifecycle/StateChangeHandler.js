@@ -61,7 +61,8 @@ export class StateChangeHandler {
       }
     } else if (toState === 'merging') {
       // 【关键修复】状态变为merging时，触发合并操作
-      this.handleMergingState(uploadId, fromState);
+      // 【P1修复 2026-06-27】传入 event，RETRY_MERGE 路径跳过 mergeChunks（_directMerge 已处理）
+      this.handleMergingState(uploadId, fromState, event);
       
       // 【关键修复】merging状态不占用并发槽位，立即启动等待中的任务
       if (this.core.uploadCoordinator) {
@@ -193,11 +194,19 @@ export class StateChangeHandler {
    * 【关键修复】将合并操作从uploadFileChunked中分离，让uploading状态先结束
    * @param {string} uploadId - 上传任务ID
    * @param {string} fromState - 来源状态
+   * @param {string} event - 触发事件（用于区分 RETRY_MERGE 快捷路径）
    */
-  async handleMergingState(uploadId, fromState) {
+  async handleMergingState(uploadId, fromState, event) {
     const item = this.core.queueStore.findUploadItemInCurrentTenant(uploadId);
     if (!item) {
       console.error(`[StateChangeHandler] ${uploadId}: 未找到上传项，无法执行合并`);
+      return;
+    }
+
+    // 【P1修复 2026-06-27】RETRY_MERGE 路径：_directMerge 已调用 DIRECT_MERGE 接口并启动轮询
+    // 此处不再重复调用 mergeChunks，避免双重合并请求
+    if (event === 'RETRY_MERGE') {
+      console.log(`[StateChangeHandler] ${uploadId}: RETRY_MERGE 路径，_directMerge 已处理合并触发和轮询`);
       return;
     }
 

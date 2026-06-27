@@ -392,10 +392,10 @@ const Explorer = observer(forwardRef(({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', minWidth: 0 }}>
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+      <div style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', overflow: 'hidden', position: 'relative' }}>
         <div
           className="file-list-container"
-          style={{ flex: 1, overflowY: 'auto', transition: 'flex 0.3s ease' }}
+          style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', transition: 'flex 0.3s ease' }}
           onContextMenu={handleEmptyAreaContextMenu}
         >
           {isSearching && groupedByType ? (

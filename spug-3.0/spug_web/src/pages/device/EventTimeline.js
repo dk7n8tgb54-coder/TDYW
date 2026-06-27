@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Timeline, Tag, Button, Empty, Modal, message, Radio, Pagination } from 'antd';
+import { Timeline, Tag, Button, Empty, Modal, message, Pagination } from 'antd';
 import { AuthButton } from 'components';
 import store from './store';
 import EventForm from './EventForm';
@@ -26,10 +26,6 @@ export default observer(function () {
         store.handleDeleteEvent(eventId).then(() => message.success('删除成功'));
       }
     });
-  };
-
-  const handleFilterChange = (value) => {
-    store.setEventTypeFilter(value, store.record?.id);
   };
 
   const handlePageChange = (page, pageSize) => {
@@ -53,19 +49,6 @@ export default observer(function () {
 
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
-        <Radio.Group
-          value={store.eventTypeFilter === null ? '' : store.eventTypeFilter}
-          onChange={(e) => handleFilterChange(e.target.value === '' ? null : e.target.value)}
-          buttonStyle="solid"
-        >
-          <Radio.Button value="">全部事件</Radio.Button>
-          <Radio.Button value="1">重大故障维修</Radio.Button>
-          <Radio.Button value="2">设备更新</Radio.Button>
-          <Radio.Button value="3">设备检修</Radio.Button>
-        </Radio.Group>
-      </div>
-
       {!store.eventRecords || store.eventRecords.length === 0 ? (
         <Empty description="暂无事件记录" style={{ marginTop: 32 }} />
       ) : (

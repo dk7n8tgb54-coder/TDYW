@@ -4,6 +4,7 @@
  */
 import { action } from 'mobx';
 import { message } from 'antd';
+import { DISPLAY_UPLOADING_STATUSES } from '../upload-core-constants';
 
 export class QueueOperationController {
   constructor(coreStore) {
@@ -23,7 +24,7 @@ export class QueueOperationController {
 
     const transferIds = [];
 
-    // 【TODO 7.1 状态机唯一入口例外点】cancelAll 批量取消直接写 status:'error' 绕过状态机。
+    // 【TODO 7.1 状态机唯一入口例外点】cancelAll 批量取消直接写 status:'cancelled' 绕过状态机。
     // 原因：批量取消需要"立即中止所有网络请求 + 立即更新 UI"，逐个 transition('CANCEL') 难以保证
     // 正在 uploading/merging 的任务能立即中断请求（CANCEL 事件会触发 onUploadingExit → abortUpload，
     // 但异步链路较长）。当前实现直接 abortToken.cancel + updateUploadItem 是经过验证的可靠中断方式。
@@ -41,9 +42,11 @@ export class QueueOperationController {
         }
         // 【修复】使用 updateUploadItem 代替直接修改
         this.core.queueStore.updateUploadItem(item.id, {
-          status: 'error',
+          status: 'cancelled',
           error: '已取消',
+          errorCode: 'CANCELLED',
           canAbort: false,
+          percent: 0,
         });
 
         if (item.transferId) {
@@ -80,10 +83,12 @@ export class QueueOperationController {
 
   /**
    * 移除所有已完成/失败的任务
+   * 【P0修复 2026-06-27】使用 DISPLAY_UPLOADING_STATUSES 常量替代硬编码
+   * 之前 activeStatuses = ['uploading', 'calculating', 'merging'] 遗漏了 waiting 和 paused，
+   * 导致 removeAll 会误删等待中和已暂停的任务
    */
   @action
   async removeAll() {
-    const activeStatuses = ['uploading', 'calculating', 'merging'];
     const transferIds = [];
 
     const uploadQueue = this.core.queueStore.uploadQueue;
@@ -92,7 +97,8 @@ export class QueueOperationController {
       const queue = uploadQueue[tenantId];
       if (!queue || !Array.isArray(queue)) return;
 
-      const itemsToRemove = queue.filter(item => !activeStatuses.includes(item.status));
+      // 保留仍在进行中的任务（waiting/calculating/uploading/paused/merging）
+      const itemsToRemove = queue.filter(item => !DISPLAY_UPLOADING_STATUSES.includes(item.status));
 
       itemsToRemove.forEach(item => {
         if (item.uniqueKey && item.file) {
@@ -105,7 +111,7 @@ export class QueueOperationController {
         }
       });
 
-      uploadQueue[tenantId] = queue.filter(item => activeStatuses.includes(item.status));
+      uploadQueue[tenantId] = queue.filter(item => DISPLAY_UPLOADING_STATUSES.includes(item.status));
     });
 
     if (transferIds.length > 0) {

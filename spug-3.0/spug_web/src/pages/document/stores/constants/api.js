@@ -11,8 +11,8 @@ export const API_ENDPOINTS = {
   // 文件管理
   FILE_LIST: `${BASE_URL}/file/`,
   FILE_UPLOAD: `${BASE_URL}/upload/`,
-  FILE_DOWNLOAD: `${BASE_URL}/file/download/`,
-  FILE_PREVIEW: `${BASE_URL}/file/preview/`,
+  FILE_DOWNLOAD: `${BASE_URL}/download/`,
+  FILE_PREVIEW: `${BASE_URL}/preview/`,
   FILE_COPY: `${BASE_URL}/file/copy/`,
   FILE_MOVE: `${BASE_URL}/file/move/`,
   FILE_RENAME: `${BASE_URL}/file/rename/`,
@@ -23,6 +23,7 @@ export const API_ENDPOINTS = {
   FOLDER_CREATE: `${BASE_URL}/folder/`,
   FOLDER_UPDATE: `${BASE_URL}/folder/`,
   FOLDER_DELETE: `${BASE_URL}/folder/`,
+  // @deprecated 后端无 /folder/tree/ 路由，且全项目无调用方，保留仅为兼容潜在动态访问，请勿新调用
   FOLDER_TREE: `${BASE_URL}/folder/tree/`,
   FOLDER_COPY: `${BASE_URL}/folder/copy/`,
   FOLDER_MOVE: `${BASE_URL}/folder/move/`,
@@ -53,8 +54,8 @@ export const API_ENDPOINTS = {
   TRANSFERS_BATCH_DELETE: `${BASE_URL}/transfers/batch/delete/`,
 
   // 搜索
-  SEARCH: `${BASE_URL}/search/`,
+  SEARCH: `${BASE_URL}/folder/search/`,
 
   // 磁盘
-  DISK_INFO: `${BASE_URL}/disk/`,
+  DISK_INFO: `${BASE_URL}/disk_usage/`,
 };

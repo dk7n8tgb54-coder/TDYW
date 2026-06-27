@@ -107,66 +107,246 @@ describe('StateMachineManager', () => {
   
   describe('批量操作', () => {
     beforeEach(() => {
+      // 【P0修复 2026-06-27】mock item 包含 totalChunks: 5，
+      // 使 isChunkedUpload 守卫返回 true，UPLOAD_COMPLETE → merging 而非 completed
       const mockQueueStore = {
-        findUploadItemInCurrentTenant: () => ({ file: {} }),
+        findUploadItemInCurrentTenant: () => ({ file: {}, totalChunks: 5 }),
         updateUploadItem: jest.fn()
       };
-      
+
       manager.create('id1', { queueStore: mockQueueStore });
       manager.create('id2', { queueStore: mockQueueStore });
     });
 
     it('批量转换', () => {
       const results = manager.batchTransition('START');
-      
+
       expect(results).toHaveLength(2);
       expect(results.every(r => r.success)).toBe(true);
       expect(results[0].uploadId).toBe('id1');
       expect(results[1].uploadId).toBe('id2');
     });
-    
+
     it('批量转换带过滤', () => {
       // 第一个状态机转换到 calculating
       manager.get('id1').transition('START');
-      
-      // 只过滤可以 PAUSE 的状态机
-      const results = manager.batchTransition('PAUSE', 
+      // id2 转到终态，不可 PAUSE
+      manager.get('id2').transition('CANCEL');
+
+      // 只过滤可以 PAUSE 的状态机（batchTransition 已跳过终态）
+      const results = manager.batchTransition('PAUSE',
         (machine) => machine.canTransition('PAUSE')
       );
-      
+
       expect(results).toHaveLength(1);
       expect(results[0].uploadId).toBe('id1');
     });
-    
+
     it('批量暂停', () => {
       manager.get('id1').transition('START');
       manager.get('id2').transition('START');
-      
+
       const results = manager.batchPause();
-      
+
       expect(results).toHaveLength(2);
       expect(results.every(r => r.success)).toBe(true);
       expect(manager.get('id1').getState()).toBe('paused');
       expect(manager.get('id2').getState()).toBe('paused');
     });
-    
+
     it('批量恢复', () => {
       manager.get('id1').transition('START');
       manager.get('id1').transition('PAUSE');
-      
+      // id2 转到终态，不可恢复
+      manager.get('id2').transition('CANCEL');
+
       const results = manager.batchResume();
-      
+
       expect(results.filter(r => r.success)).toHaveLength(1);
     });
-    
+
     it('批量取消', () => {
       manager.get('id1').transition('START');
       manager.get('id1').transition('PAUSE');
-      
+      // id2 转到终态，batchCancel 已跳过终态
+      manager.get('id2').transition('CANCEL');
+
       const results = manager.batchCancel();
-      
+
       expect(results.filter(r => r.success)).toHaveLength(1);
-      expect(manager.get('id1').getState()).toBe('error');
+      expect(manager.get('id1').getState()).toBe('cancelled');
+    });
+
+    it('批量暂停应跳过合并中任务', () => {
+      manager.get('id1').transition('START');
+      manager.get('id1').transition('MD5_COMPLETE');
+      manager.get('id1').transition('UPLOAD_COMPLETE');
+      expect(manager.get('id1').getState()).toBe('merging');
+
+      const results = manager.batchPause();
+
+      expect(results.find(r => r.uploadId === 'id1')).toBeUndefined();
+      expect(manager.get('id1').getState()).toBe('merging');
+    });
+
+    it('单个取消和批量取消状态语义一致（均进入 cancelled）', () => {
+      const mockQueueStore = {
+        findUploadItemInCurrentTenant: () => ({ file: {} }),
+        updateUploadItem: jest.fn()
+      };
+
+      // 创建两个状态机：一个走单个 CANCEL，一个走 batchCancel
+      manager.create('single', { queueStore: mockQueueStore });
+      manager.create('batch', { queueStore: mockQueueStore });
+
+      // 单个取消
+      manager.get('single').transition('START');
+      expect(manager.get('single').canTransition('CANCEL')).toBe(true);
+      manager.get('single').transition('CANCEL');
+      expect(manager.get('single').getState()).toBe('cancelled');
+
+      // 批量取消
+      manager.get('batch').transition('START');
+      const batchResults = manager.batchCancel();
+      expect(batchResults.find(r => r.uploadId === 'batch')).toBeDefined();
+      expect(manager.get('batch').getState()).toBe('cancelled');
+
+      // 两者最终状态一致
+      expect(manager.get('single').getState()).toBe(manager.get('batch').getState());
+    });
+
+    it('RETRY_MERGE 事件从 error 状态进入 merging', () => {
+      const mockQueueStore = {
+        findUploadItemInCurrentTenant: () => ({ file: {} }),
+        updateUploadItem: jest.fn()
+      };
+      manager.create('retry-merge', { queueStore: mockQueueStore });
+
+      // 走到 error 状态
+      manager.get('retry-merge').transition('START');
+      manager.get('retry-merge').transition('ERROR', { error: '合并失败' });
+      expect(manager.get('retry-merge').getState()).toBe('error');
+
+      // RETRY_MERGE 应能转换到 merging
+      expect(manager.get('retry-merge').canTransition('RETRY_MERGE')).toBe(true);
+      manager.get('retry-merge').transition('RETRY_MERGE');
+      expect(manager.get('retry-merge').getState()).toBe('merging');
+    });
+
+    it('RETRY_MERGE 事件从 waiting 状态进入 merging', () => {
+      const mockQueueStore = {
+        findUploadItemInCurrentTenant: () => ({ file: {} }),
+        updateUploadItem: jest.fn()
+      };
+      manager.create('retry-merge-waiting', { queueStore: mockQueueStore });
+
+      // waiting 状态下直接 RETRY_MERGE（模拟状态机重建后快捷重试合并）
+      expect(manager.get('retry-merge-waiting').canTransition('RETRY_MERGE')).toBe(true);
+      manager.get('retry-merge-waiting').transition('RETRY_MERGE');
+      expect(manager.get('retry-merge-waiting').getState()).toBe('merging');
+    });
+
+    it('批量取消后状态为 cancelled', () => {
+      const mockQueueStore = {
+        findUploadItemInCurrentTenant: () => ({ file: {} }),
+        updateUploadItem: jest.fn()
+      };
+      manager.create('cancel-1', { queueStore: mockQueueStore });
+      manager.create('cancel-2', { queueStore: mockQueueStore });
+
+      manager.get('cancel-1').transition('START');
+      manager.get('cancel-2').transition('START');
+
+      const results = manager.batchCancel();
+
+      expect(results.every(r => r.success)).toBe(true);
+      expect(manager.get('cancel-1').getState()).toBe('cancelled');
+      expect(manager.get('cancel-2').getState()).toBe('cancelled');
+    });
+
+    it('批量取消不会被错误恢复（completed/error/cancelled/merging 跳过）', () => {
+      const mockQueueStore = {
+        findUploadItemInCurrentTenant: () => ({ file: {}, totalChunks: 5 }),
+        updateUploadItem: jest.fn()
+      };
+      // completed（普通上传：START → MD5_COMPLETE → UPLOAD_COMPLETE → completed）
+      // 注意：totalChunks=5 时 isChunkedUpload 返回 true，UPLOAD_COMPLETE → merging
+      // 要走到 completed 需要 totalChunks=1（普通上传）
+      const mockQueueStoreNormal = {
+        findUploadItemInCurrentTenant: () => ({ file: {}, totalChunks: 1 }),
+        updateUploadItem: jest.fn()
+      };
+      manager.create('done', { queueStore: mockQueueStoreNormal });
+      manager.get('done').transition('START');
+      manager.get('done').transition('MD5_COMPLETE');
+      manager.get('done').transition('UPLOAD_COMPLETE');
+      expect(manager.get('done').getState()).toBe('completed');
+
+      // cancelled
+      manager.create('canceled', { queueStore: mockQueueStore });
+      manager.get('canceled').transition('CANCEL');
+
+      // merging
+      manager.create('merging-one', { queueStore: mockQueueStore });
+      manager.get('merging-one').transition('START');
+      manager.get('merging-one').transition('MD5_COMPLETE');
+      manager.get('merging-one').transition('UPLOAD_COMPLETE');
+      expect(manager.get('merging-one').getState()).toBe('merging');
+
+      // batchResume 应跳过所有终态和 merging
+      const results = manager.batchResume(3, () => 0);
+      const resumedIds = results.filter(r => r.success).map(r => r.uploadId);
+      expect(resumedIds).not.toContain('done');
+      expect(resumedIds).not.toContain('canceled');
+      expect(resumedIds).not.toContain('merging-one');
+      expect(manager.get('done').getState()).toBe('completed');
+      expect(manager.get('canceled').getState()).toBe('cancelled');
+      expect(manager.get('merging-one').getState()).toBe('merging');
+    });
+
+    it('completed 终态不会被非终态回滚', () => {
+      const mockQueueStore = {
+        findUploadItemInCurrentTenant: () => ({ file: {}, totalChunks: 1 }),
+        updateUploadItem: jest.fn()
+      };
+      manager.create('done-rollback', { queueStore: mockQueueStore });
+      manager.get('done-rollback').transition('START');
+      manager.get('done-rollback').transition('MD5_COMPLETE');
+      manager.get('done-rollback').transition('UPLOAD_COMPLETE');
+      expect(manager.get('done-rollback').getState()).toBe('completed');
+
+      // completed 是 final 类型，无任何 transitions，无法回滚
+      expect(manager.get('done-rollback').canTransition('PAUSE')).toBe(false);
+      expect(manager.get('done-rollback').canTransition('START')).toBe(false);
+      expect(manager.get('done-rollback').canTransition('ERROR')).toBe(false);
+    });
+
+    it('merging 状态不可暂停（canTransition PAUSE 为 false）', () => {
+      const mockQueueStore = {
+        findUploadItemInCurrentTenant: () => ({ file: {}, totalChunks: 5 }),
+        updateUploadItem: jest.fn()
+      };
+      manager.create('merging-pause', { queueStore: mockQueueStore });
+      manager.get('merging-pause').transition('START');
+      manager.get('merging-pause').transition('MD5_COMPLETE');
+      manager.get('merging-pause').transition('UPLOAD_COMPLETE');
+      expect(manager.get('merging-pause').getState()).toBe('merging');
+
+      // merging 状态定义中无 PAUSE 转换
+      expect(manager.get('merging-pause').canTransition('PAUSE')).toBe(false);
+    });
+
+    it('cancelled 终态不可 RETRY_MERGE（避免已取消任务被错误重试合并）', () => {
+      const mockQueueStore = {
+        findUploadItemInCurrentTenant: () => ({ file: {} }),
+        updateUploadItem: jest.fn()
+      };
+      manager.create('cancelled-no-retry', { queueStore: mockQueueStore });
+      manager.get('cancelled-no-retry').transition('CANCEL');
+      expect(manager.get('cancelled-no-retry').getState()).toBe('cancelled');
+
+      // cancelled 是 final，无 RETRY_MERGE 转换
+      expect(manager.get('cancelled-no-retry').canTransition('RETRY_MERGE')).toBe(false);
     });
   });
 

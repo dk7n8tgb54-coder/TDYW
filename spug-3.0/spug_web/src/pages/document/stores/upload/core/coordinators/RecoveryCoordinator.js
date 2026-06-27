@@ -2,7 +2,7 @@
  * RecoveryCoordinator - 恢复协调器
  * 负责调度恢复等待中的暂停任务
  */
-import { MAX_CONCURRENT_UPLOADS } from '../upload-core-constants';
+import { MAX_CONCURRENT_UPLOADS, SLOT_OCCUPYING_STATUSES } from '../upload-core-constants';
 
 export class RecoveryCoordinator {
   constructor(coreStore) {
@@ -33,9 +33,9 @@ export class RecoveryCoordinator {
       }
       
       // 【7.2 统一并发槽位口径】以状态机状态计数作为唯一并发口径
-      // calculating + uploading 占用前端上传槽位；merging 不占（后端合并、前端只轮询）
+      // 【P0修复 2026-06-27】使用 SLOT_OCCUPYING_STATUSES 常量
       const activeCount = this.core.stateMachineManager
-        ? this.core.stateMachineManager.countByStates(['calculating', 'uploading'])
+        ? this.core.stateMachineManager.countByStates(SLOT_OCCUPYING_STATUSES)
         : 0;
 
       // 如果当前活跃任务数小于最大并发数，且有暂停的任务，恢复一个

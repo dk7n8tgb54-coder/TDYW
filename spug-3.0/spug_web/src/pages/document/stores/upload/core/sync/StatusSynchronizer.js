@@ -1,10 +1,15 @@
 /**
  * StatusSynchronizer - 状态同步器
  * 负责前后端传输状态的同步和映射
+ *
+ * 【P0修复 2026-06-27】移除 @action 装饰器
+ * 原因：@action 需要 Babel decorator 插件支持，但 jest 测试环境未配置该插件，
+ * 导致 StatusSynchronizer.test.js 无法加载。经检查，这两个方法不直接修改 MobX
+ * observable（updateUploadItem 已在 queueStore 中被 @action 包裹，
+ * failedSyncTransfers 是普通属性非 @observable），移除 @action 无副作用。
  */
 
-import { action } from 'mobx';
-import { BACKEND_STATUS_MAP } from '../upload-core-constants';
+import { BACKEND_STATUS_MAP, FINAL_STATES, FRONTEND_STATUS_MAP } from '../upload-core-constants';
 
 class StatusSynchronizer {
   constructor(coreStore) {
@@ -18,7 +23,6 @@ class StatusSynchronizer {
    * @param {boolean} isPublic - 是否公共空间
    * @returns {Promise<void>}
    */
-  @action
   async syncTransferStatus(isPublic = false) {
     const { coreStore } = this;
     
@@ -73,7 +77,6 @@ class StatusSynchronizer {
    * @param {string} toState - 目标状态
    * @param {object} payload - 附加数据
    */
-  @action
   async syncStateToBackend(uploadId, toState, payload) {
     const { coreStore } = this;
     const item = coreStore.queueStore.findUploadItemInCurrentTenant(uploadId);
@@ -86,32 +89,48 @@ class StatusSynchronizer {
       return;
     }
 
-    // 如果当前已经是终态，不允许状态回退
-    const { FINAL_STATES } = require('../upload-core-constants');
-    if (FINAL_STATES.includes(item.status)) {
+    // 如果当前已经是终态，不允许非终态状态回退；终态自身仍必须同步到后端。
+    if (FINAL_STATES.includes(item.status) && !FINAL_STATES.includes(toState)) {
       return;
     }
 
-    // 状态映射：前端状态 -> 后端状态
-    const { FRONTEND_STATUS_MAP } = require('../upload-core-constants');
     const backendStatus = FRONTEND_STATUS_MAP[toState];
     if (!backendStatus) {
       return;
     }
 
-    try {
-      // 避免重复同步相同状态
-      const lastStatus = this._lastSyncStatusMap.get(item.transferId);
-      if (lastStatus === backendStatus) {
-        return;
-      }
-      this._lastSyncStatusMap.set(item.transferId, backendStatus);
+    // 与 StoreEventAdapter 共用的去重检查
+    if (!this.shouldSync(item.transferId, backendStatus)) {
+      return;
+    }
+    this.markSynced(item.transferId, backendStatus);
 
+    try {
       await coreStore.transferStore.updateTransferStatus(item.transferId, backendStatus);
     } catch (error) {
       console.error(`[StatusSynchronizer] ${uploadId}: 同步失败`, error);
       // 静默处理，不阻塞状态流转
     }
+  }
+
+  /**
+   * 检查是否需要同步（与 StoreEventAdapter 共用，避免重复请求后端）
+   * @param {number} transferId - 后端传输记录ID
+   * @param {string} backendStatus - 目标后端状态（如 'COMPLETED'、'CANCELED'）
+   * @returns {boolean} true 表示需要同步
+   */
+  shouldSync(transferId, backendStatus) {
+    const lastStatus = this._lastSyncStatusMap.get(transferId);
+    return lastStatus !== backendStatus;
+  }
+
+  /**
+   * 标记某 transferId 已同步到指定后端状态
+   * @param {number} transferId - 后端传输记录ID
+   * @param {string} backendStatus - 已同步的后端状态
+   */
+  markSynced(transferId, backendStatus) {
+    this._lastSyncStatusMap.set(transferId, backendStatus);
   }
 
   /**

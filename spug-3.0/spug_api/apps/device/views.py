@@ -5,8 +5,8 @@ from django.views.generic import View
 from libs import JsonParser, Argument, json_response, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from apps.device.models import DeviceResume, DeviceEvent
-from apps.account.models import User
 from django.db import IntegrityError, DatabaseError
+from django.db.models import Q
 from django.http import HttpResponse
 import logging
 import json
@@ -48,6 +48,7 @@ class DeviceResumeView(View):
 
         # Otherwise return list (with search and filter support)
         form, error = JsonParser(
+            Argument('keyword', type=str, required=False, help='设备编号/名称关键字'),
             Argument('device_sn', type=str, required=False),
             Argument('device_name', type=str, required=False),
             Argument('device_model', type=str, required=False),
@@ -62,7 +63,12 @@ class DeviceResumeView(View):
 
         query = apply_tenant_filter(DeviceResume.objects.all(), request.user)
 
-        # Fuzzy search
+        # 统一关键字搜索：同时匹配设备编号或设备名称
+        if form.keyword:
+            query = query.filter(
+                Q(device_sn__icontains=form.keyword) | Q(device_name__icontains=form.keyword)
+            )
+        # 兼容旧参数：单独传 device_sn / device_name 时仍按精确字段模糊匹配
         if form.device_sn:
             query = query.filter(device_sn__icontains=form.device_sn)
         if form.device_name:
@@ -78,16 +84,18 @@ class DeviceResumeView(View):
         if form.manufacturer:
             query = query.filter(manufacturer__icontains=form.manufacturer)
 
-        # Pagination
+        # Pagination（边界限制：page>=1, page_size<=200，避免恶意超大请求）
+        page = max(1, form.page)
+        page_size = min(max(1, form.page_size), 200)
         total = query.count()
-        start = (form.page - 1) * form.page_size
-        records = query[start:start + form.page_size]
+        start = (page - 1) * page_size
+        records = query[start:start + page_size]
 
         return json_response({
             'data': [r.to_view() for r in records],
             'total': total,
-            'page': form.page,
-            'page_size': form.page_size
+            'page': page,
+            'page_size': page_size
         })
 
     @auth('device.device_resume.add')
@@ -108,17 +116,25 @@ class DeviceResumeView(View):
             Argument('install_time', type=str, help='Please select installation time'),
             Argument('enable_time', type=str, help='Please select enable time'),
             Argument('current_status', type=str, help='Please select current device status'),
-            Argument('responsible_user_id', type=str, help='Please enter device owner name'),
+            # 字段命名规范化：优先使用 responsible_user_name（姓名）
+            # 兼容旧前端仍传 responsible_user_id（实为姓名字符串）
+            Argument('responsible_user_name', type=str, required=False),
+            Argument('responsible_user_id', type=str, required=False),
             Argument('remark', type=str, required=False)
         ).parse(request.body)
         if error:
             return json_response(error=error)
 
-        # Use owner name directly (responsible_user_id is now a string name)
-        responsible_user_name = form.responsible_user_id
+        # 枚举校验：设备状态必须在合法范围内
+        if form.current_status not in DeviceResume.STATUS_TEXT_MAP:
+            return json_response(error='设备状态非法，仅支持：1=正常，2=故障，3=维修中，4=停用，5=报废')
+
+        # 负责人姓名：优先新字段，兼容旧字段
+        responsible_user_name = form.responsible_user_name or form.responsible_user_id or ''
         tenant_id = request.user.tenant_id
 
         # Create device resume using get_or_create for thread safety
+        # 注意：按 (tenant_id, device_sn) 唯一约束查询，不同租户可创建相同编号
         from libs import human_datetime
 
         try:
@@ -144,6 +160,7 @@ class DeviceResumeView(View):
                 'is_deleted': False
             }
             record, created = DeviceResume.objects.get_or_create(
+                tenant_id=tenant_id,
                 device_sn=form.device_sn,
                 defaults=defaults_data
             )
@@ -178,11 +195,17 @@ class DeviceResumeView(View):
             Argument('install_time', type=str, help='Please select installation time'),
             Argument('enable_time', type=str, help='Please select enable time'),
             Argument('current_status', type=str, help='Please select current device status'),
-            Argument('responsible_user_id', type=str, help='Please enter device owner name'),
+            # 字段命名规范化：优先使用 responsible_user_name（姓名）
+            Argument('responsible_user_name', type=str, required=False),
+            Argument('responsible_user_id', type=str, required=False),
             Argument('remark', type=str, required=False)
         ).parse(request.body)
         if error:
             return json_response(error=error)
+
+        # 枚举校验：设备状态必须在合法范围内
+        if form.current_status not in DeviceResume.STATUS_TEXT_MAP:
+            return json_response(error='设备状态非法，仅支持：1=正常，2=故障，3=维修中，4=停用，5=报废')
 
         # 登录状态校验（@auth装饰器已验证，此处移除冗余检查）
         try:
@@ -196,8 +219,8 @@ class DeviceResumeView(View):
                 logging.warning(f'编辑设备权限不足：尝试编辑全局设备｜设备ID：{form.id}｜设备编号：{record.device_sn}｜用户：{request.user.username}')
                 return json_response(error='无权限编辑全局设备')
 
-            # Use owner name directly
-            responsible_user_name = form.responsible_user_id
+            # 负责人姓名：优先新字段，兼容旧字段
+            responsible_user_name = form.responsible_user_name or form.responsible_user_id or ''
 
             # Update device resume
             from libs import human_datetime
@@ -326,16 +349,18 @@ class DeviceEventView(View):
         # Order by time descending
         query = query.order_by('-event_time', '-id')
 
-        # Pagination
+        # Pagination（边界限制：page>=1, page_size<=200）
+        page = max(1, form.page)
+        page_size = min(max(1, form.page_size), 200)
         total = query.count()
-        start = (form.page - 1) * form.page_size
-        records = query[start:start + form.page_size]
+        start = (page - 1) * page_size
+        records = query[start:start + page_size]
 
         return json_response({
             'data': [r.to_view() for r in records],
             'total': total,
-            'page': form.page,
-            'page_size': form.page_size
+            'page': page,
+            'page_size': page_size
         })
 
     @auth('device.device_resume.history_add')
@@ -343,21 +368,26 @@ class DeviceEventView(View):
         """Create new device event"""
         from .validators import DeviceEventValidator, DeviceEventBuilder
 
-        form, error = self._parse_event_form(request)
+        form, error = self._parse_event_form(request, is_edit=False)
         if error:
             return json_response(error=error)
 
-        # Get device info
+        # 枚举校验：事件类型必须在合法范围内
+        is_valid, error = DeviceEventValidator.validate_event_type(form)
+        if not is_valid:
+            return json_response(error=error)
+
+        # Get device info（按租户过滤，确保不能为其他租户设备创建事件）
         device = apply_tenant_filter(DeviceResume.objects.all(), request.user).filter(pk=form.device_resume_id).first()
         if not device:
-            return json_response(error='Device not found')
+            return json_response(error='关联设备不存在或无权限操作')
 
-        # Validate maintenance fields
+        # Validate maintenance fields（检修类型必填字段）
         is_valid, error = DeviceEventValidator.validate_maintenance_fields(form)
         if not is_valid:
             return json_response(error=error)
 
-        # Validate time logic
+        # Validate time logic（修复时间不能早于故障时间）
         is_valid, error = DeviceEventValidator.validate_time_logic(form)
         if not is_valid:
             return json_response(error=error)
@@ -376,62 +406,67 @@ class DeviceEventView(View):
             logging.error(f'创建设备事件系统异常｜设备ID：{form.device_resume_id}｜用户：{request.user.username}｜错误：{e}', exc_info=True)
             return json_response(error='创建事件失败，请联系管理员')
 
-    def _parse_event_form(self, request):
-        """解析事件表单数据"""
-        return JsonParser(
-            Argument('device_resume_id', type=int, help='Please select associated device'),
-            Argument('event_type', type=int, help='Please select event type'),
+    def _parse_event_form(self, request, is_edit=False):
+        """
+        解析事件表单数据（新增和编辑共用，避免规则分叉）
+
+        Args:
+            is_edit: True=编辑场景（需 id，不需 device_resume_id/event_type）；
+                     False=新增场景（需 device_resume_id/event_type）
+        """
+        args = []
+        if is_edit:
+            args.append(Argument('id', type=int, help='Parameter error'))
+        else:
+            args.append(Argument('device_resume_id', type=int, help='Please select associated device'))
+            args.append(Argument('event_type', type=int, help='Please select event type'))
+        # 共有字段（字段命名规范化：优先 related_user_name，兼容旧字段 related_user_id）
+        args.extend([
             Argument('event_time', type=str, help='Please select event time'),
             Argument('event_title', type=str, help='Please enter event title'),
-            Argument('related_user_id', type=str, help='Please enter recorder name'),
+            Argument('related_user_name', type=str, required=False),
+            Argument('related_user_id', type=str, required=False),
             Argument('fault_part', type=str, required=False),
             Argument('fault_phenomenon_cause', type=str, required=False),
             Argument('maintenance_measures', type=str, required=False),
             Argument('repair_time', type=str, required=False),
             Argument('remark', type=str, required=False)
-        ).parse(request.body)
+        ])
+        return JsonParser(*args).parse(request.body)
 
     @auth('device.device_resume.history_edit')
     def put(self, request):
         """Edit device event"""
-        form, error = JsonParser(
-            Argument('id', type=int, help='Parameter error'),
-            Argument('event_title', type=str, help='Please enter event title'),
-            Argument('event_time', type=str, help='Please select event time'),
-            Argument('related_user_id', type=str, help='Please enter recorder name'),
-            # Device maintenance specific fields
-            Argument('fault_part', type=str, required=False),
-            Argument('fault_phenomenon_cause', type=str, required=False),
-            Argument('maintenance_measures', type=str, required=False),
-            Argument('repair_time', type=str, required=False),
-            Argument('remark', type=str, required=False)
-        ).parse(request.body)
+        from .validators import DeviceEventValidator
+
+        form, error = self._parse_event_form(request, is_edit=True)
         if error:
             return json_response(error=error)
 
         event = apply_tenant_filter(DeviceEvent.objects.all(), request.user).filter(pk=form.id).first()
         if not event:
-            return json_response(error='Event record not found')
+            return json_response(error='事件记录不存在或无权限操作')
 
-        # Validate fields based on event type
-        if event.event_type == 3:  # Device maintenance
-            if form.repair_time and form.event_time:
-                from datetime import datetime
-                try:
-                    repair_time = datetime.strptime(form.repair_time, '%Y-%m-%d %H:%M')
-                    event_time = datetime.strptime(form.event_time, '%Y-%m-%d %H:%M')
-                    if repair_time < event_time:
-                        return json_response(error='Repair time cannot be earlier than fault time')
-                    if repair_time > datetime.now() or event_time > datetime.now():
-                        return json_response(error='时间不能晚于当前时间')
-                except ValueError:
-                    return json_response(error='时间格式错误，请使用YYYY-MM-DD HH:MM格式（如：2026-03-03 14:30）')
+        # 编辑时事件类型不可改（前端 disabled），用数据库中的 event_type 复用校验逻辑
+        form.event_type = event.event_type
+
+        # 复用与新增一致的校验：检修类型必填字段 + 时间逻辑
+        is_valid, error = DeviceEventValidator.validate_maintenance_fields(form)
+        if not is_valid:
+            return json_response(error=error)
+
+        is_valid, error = DeviceEventValidator.validate_time_logic(form)
+        if not is_valid:
+            return json_response(error=error)
+
+        # 记录人姓名：优先新字段，兼容旧字段
+        related_user_name = form.related_user_name or form.related_user_id or ''
 
         # Update event record
         event.event_title = form.event_title
         event.event_time = form.event_time
         event.related_user_id = None
-        event.related_user_name = form.related_user_id
+        event.related_user_name = related_user_name
         event.fault_part = form.fault_part
         event.fault_phenomenon_cause = form.fault_phenomenon_cause
         event.maintenance_measures = form.maintenance_measures
@@ -479,19 +514,36 @@ class DeviceResumeExportView(View):
     @auth('device.device_resume.history_view')
     def post(self, request):
         """导出设备履历PDF
-        
-        前端传入设备信息和事件列表，后端生成PDF返回
+
+        安全原则：后端只接受 device_id，设备和事件数据全部从数据库按租户重新查询，
+        不信任前端传入的 device_info / events，避免请求体被篡改导出伪造履历。
         """
         try:
             data = json.loads(request.body)
         except (json.JSONDecodeError, ValueError):
             return json_response(error='请求数据格式错误')
 
-        device_info = data.get('device_info')
-        events = data.get('events', [])
+        device_id = data.get('device_id')
+        if not device_id:
+            return json_response(error='缺少设备ID')
 
-        if not device_info or not device_info.get('device_sn'):
-            return json_response(error='缺少设备信息')
+        # 可选：事件类型筛选（默认导出全部事件，不受前端分页限制）
+        event_type = data.get('event_type')
+
+        # 按租户过滤查询设备，确保用户只能导出本租户设备
+        device = apply_tenant_filter(DeviceResume.objects.all(), request.user).filter(pk=device_id).first()
+        if not device:
+            return json_response(error='设备不存在或无权限操作')
+
+        # 后端查询事件列表（全量导出，避免前端只传当前分页导致履历不完整）
+        events_qs = apply_tenant_filter(DeviceEvent.objects.all(), request.user).filter(device_resume_id=device_id)
+        if event_type:
+            events_qs = events_qs.filter(event_type=event_type)
+        events_qs = events_qs.order_by('-event_time', '-id')
+
+        # 转换为字典列表（pdf_export 期望 dict 结构）
+        device_info = device.to_view()
+        events = [e.to_view() for e in events_qs]
 
         try:
             from .pdf_export import generate_device_resume_pdf
@@ -516,5 +568,5 @@ class DeviceResumeExportView(View):
             return response
 
         except Exception as e:
-            logger.error(f'导出设备履历PDF失败｜设备编号：{device_info.get("device_sn")}｜错误：{e}', exc_info=True)
+            logger.error(f'导出设备履历PDF失败｜设备ID：{device_id}｜错误：{e}', exc_info=True)
             return json_response(error='导出PDF失败，请重试')

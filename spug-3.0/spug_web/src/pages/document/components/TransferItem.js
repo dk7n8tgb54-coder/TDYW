@@ -28,6 +28,9 @@ import {
   RETRYABLE_ERROR_CODES,
   NON_RETRYABLE_ERROR_CODES,
   ERROR_CODE_MESSAGES,
+  PAUSEABLE_STATUSES,
+  TERMINAL_STATUSES,
+  UPLOAD_STATUS,
 } from '../stores/upload/core/upload-core-constants';
 
 // 状态配置 - 网盘风格
@@ -126,10 +129,12 @@ const TransferItem = ({
   const displaySpeed = speed || item.speed || 0;
   
   // 判断显示哪些操作按钮
-  const canPause = ['waiting', 'calculating', 'uploading', 'merging'].includes(status);
+  // 【P0修复 2026-06-27】使用语义化常量替代硬编码数组
+  const canPause = PAUSEABLE_STATUSES.includes(status);
   const canResume = ['paused', 'error', 'waiting'].includes(status);
-  const canCancel = ['waiting', 'calculating', 'uploading', 'paused', 'merging'].includes(status);
-  const canRemove = ['completed', 'error', 'cancelled'].includes(status);
+  // 可取消 = 可暂停 + paused + merging（合并中允许取消但不允许暂停）
+  const canCancel = [...PAUSEABLE_STATUSES, UPLOAD_STATUS.PAUSED, UPLOAD_STATUS.MERGING].includes(status);
+  const canRemove = TERMINAL_STATUSES.includes(status);
   // 【重构 2026-06-06】根据 errorCode 决定是否可重试，而非单纯 status === 'error'
   // 缺省（无 errorCode）→ 默认可重试（向后兼容老错误）
   const errorCode = item.errorCode;

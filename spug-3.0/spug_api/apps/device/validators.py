@@ -12,8 +12,21 @@ logger = logging.getLogger(__name__)
 class DeviceEventValidator:
     """设备事件验证器"""
 
-    # 事件类型常量
+    # 事件类型常量（与 DeviceEvent.EVENT_TYPE_* 保持一致）
     EVENT_TYPE_MAINTENANCE = 3
+
+    @classmethod
+    def validate_event_type(cls, form):
+        """
+        验证事件类型是否在合法枚举范围内
+
+        Returns:
+            tuple: (is_valid, error_message)
+        """
+        from apps.device.models import DeviceEvent
+        if form.event_type not in DeviceEvent.EVENT_TYPE_VALUES:
+            return False, '事件类型非法，仅支持：1=重大故障维修，2=设备更新，3=设备检修'
+        return True, None
 
     @classmethod
     def validate_maintenance_fields(cls, form):
@@ -56,7 +69,7 @@ class DeviceEventValidator:
             current_time = datetime.now()
 
             if repair_time < event_time:
-                return False, 'Repair time cannot be earlier than fault time'
+                return False, '修复时间不能早于故障时间'
 
             if repair_time > current_time or event_time > current_time:
                 return False, '时间不能晚于当前时间'
@@ -75,10 +88,17 @@ class DeviceEventBuilder:
         """
         构建设备事件数据字典
 
+        前端字段命名已规范化为 related_user_name（姓名），
+        为兼容旧前端仍传 related_user_id 的情况，此处同时读取两个字段。
+
         Returns:
             dict: 用于创建 DeviceEvent 的数据
         """
         tenant_id = getattr(request_user, 'tenant_id', '')
+
+        # 优先使用 related_user_name；兼容旧字段 related_user_id（前端旧版传姓名字符串）
+        related_user_name = getattr(form, 'related_user_name', None) \
+            or getattr(form, 'related_user_id', None) or ''
 
         return {
             'tenant_id': tenant_id,
@@ -92,7 +112,7 @@ class DeviceEventBuilder:
             'fault_phenomenon_cause': form.fault_phenomenon_cause,
             'maintenance_measures': form.maintenance_measures,
             'related_user_id': None,
-            'related_user_name': form.related_user_id,
+            'related_user_name': related_user_name,
             'repair_time': form.repair_time,
             'remark': form.remark,
             'created_by': request_user

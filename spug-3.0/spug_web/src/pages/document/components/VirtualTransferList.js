@@ -24,7 +24,7 @@ import { observer } from 'mobx-react';
 import { areEqual } from 'react-window'; // 【新增】精确比较函数
 import TransferItem from './TransferItem';
 import { UPLOAD_CONSTANTS } from '../stores/constants/upload';
-import { UPLOAD_STATUS } from '../stores/upload/core/upload-core-constants';
+import { UPLOAD_STATUS, PAUSEABLE_STATUSES } from '../stores/upload/core/upload-core-constants';
 import styles from './VirtualTransferList.module.less';
 
 const { TabPane } = Tabs;
@@ -244,9 +244,13 @@ const VirtualTransferList = ({
     if (onClearCompleted) onClearCompleted();
   }, [onClearCompleted]);
 
-  // 上传中是否显示"全部开始/暂停"
+  // 【P0修复 2026-06-27】使用 PAUSEABLE_STATUSES 常量替代 ACTIVE_STATUSES + PENDING_STATUSES 拼接
+  // 之前错误地把 merging 计入可暂停数量（ACTIVE_STATUSES 包含 merging），
+  // 导致列表只有 merging 任务时仍显示"全部暂停"按钮，但批量暂停会跳过 merging
+  const pauseableCount = uploadingList.filter((i) =>
+    PAUSEABLE_STATUSES.includes(i.status)
+  ).length;
   const pausedCount = uploadingList.filter((i) => i.status === UPLOAD_STATUS.PAUSED).length;
-  const activeCount = uploadingList.length - pausedCount;
 
   const uploadingTabExtra = uploadingList.length > 0 && (
     <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4 }}>
@@ -261,7 +265,7 @@ const VirtualTransferList = ({
           />
         </Tooltip>
       )}
-      {activeCount > 0 && (
+      {pauseableCount > 0 && (
         <Tooltip title="全部暂停">
           <Button
             type="text"

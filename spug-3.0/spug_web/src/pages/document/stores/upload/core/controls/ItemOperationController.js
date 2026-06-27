@@ -10,7 +10,7 @@
 import { action } from 'mobx';
 import { message } from 'antd';
 import http from 'libs/http';
-import { API_ENDPOINTS } from '../upload-core-constants';
+import { API_ENDPOINTS, TERMINAL_STATUSES } from '../upload-core-constants';
 
 export class ItemOperationController {
   constructor(coreStore) {
@@ -214,10 +214,36 @@ export class ItemOperationController {
 
   /**
    * 【P0-Day1新增】直接触发合并
+   * 【P1修复 2026-06-27】通过状态机 RETRY_MERGE 事件进入 merging，不再直接写 item.status
+   * 【P1强化 2026-06-27】状态机重建失败时不允许悄悄直接写 merging，
+   *   必须进入 error 并给出可诊断错误，避免 UI/状态机/后端三者长期分裂
    * @private
    * @returns {Promise<boolean>} 是否成功
    */
   async _directMerge(item) {
+    // 先尝试通过状态机进入 merging；状态机不可用则直接返回失败，由调用方走 RESUME 降级
+    const itemId = item.id;
+
+    // 尝试获取或重建状态机
+    let stateMachine = this.core.stateMachineManager?.get(itemId);
+    let rebuildFailed = false;
+    if (!stateMachine) {
+      // 状态机已被终态释放，重建（重建后状态为 waiting，可走 RETRY_MERGE）
+      stateMachine = this.core.uploadCoordinator?.ensureStateMachine?.(item) || null;
+      if (!stateMachine) {
+        rebuildFailed = true;
+      }
+    }
+
+    // 状态机不可用或不可 RETRY_MERGE：不直接写 merging，返回 false 让调用方走 RESUME 降级
+    if (!stateMachine || !stateMachine.canTransition('RETRY_MERGE')) {
+      const reason = rebuildFailed ? '状态机重建失败' : `当前状态(${stateMachine?.getState()})不支持 RETRY_MERGE`;
+      console.warn(`[ItemOperationController] _directMerge: ${reason}，降级为正常重试`);
+      // 不调用 DIRECT_MERGE 接口，避免后端已开始合并但前端状态机仍在 error/waiting
+      return false;
+    }
+
+    // 状态机可用，调用 DIRECT_MERGE 接口
     try {
       const response = await http.post(
         API_ENDPOINTS.DIRECT_MERGE,
@@ -232,50 +258,57 @@ export class ItemOperationController {
             : this.core.rootStore.navigationStore?.isPublic
         }
       );
-      
+
       console.log('[ItemOperationController] 直接合并任务已提交:', response);
 
-      // 【P0-Day1关键修复】接口调用成功后，再更新UI状态
       if (response.is_idempotent) {
-        // 幂等响应：任务已在进行中
         console.log('[ItemOperationController] 任务已在进行中，继续轮询');
       }
 
-      // 更新UI状态
-      // 【TODO 7.1 状态机唯一入口例外点】此处直接写 item.status='merging' 绕过状态机。
-      // 原因：_directMerge 是合并失败后的"智能重试"快捷路径，此时状态机处于 error 终态，
-      // 需先重建/转换状态机到 merging 才能合法写入。当前实现为快速恢复，直接写状态 + 轮询。
-      // 风险：若轮询期间状态机仍为 error，countByStates 统计会偏差；assertStatusConsistency 会报警。
-      // 后续优化：应通过 ensureStateMachine 重建后 transition('RESUME') → START → ... → UPLOAD_COMPLETE →
-      // 进入 merging，由 onMergingEntry 统一写 status。详见《资料库并发上传与状态机修复方案.md》7.1 节。
-      item.state = 'merging';
-      item.status = 'merging';
-      item.progress = 99;
+      // 清除错误状态（在 transition 前清除，避免 onMergingEntry 看到陈旧 error）
       item.error = null;
       item.errorCode = null;
+
+      // 通过状态机 RETRY_MERGE 事件进入 merging：onMergingEntry 会写 status='merging'
+      stateMachine.transition('RETRY_MERGE');
+
+      // 设置进度和任务ID（onMergingEntry 不写这两个字段）
+      item.progress = 99;
       item.taskId = response.task_id;
-      
+
       // 开始轮询合并状态
       if (this.core.chunkUploadStore?.startMergePolling) {
         this.core.chunkUploadStore.startMergePolling(item);
       }
-      
-      return true; // 成功
-      
+
+      return true;
+
     } catch (error) {
       console.error('[ItemOperationController] 直接合并失败:', error);
       message.error('直接合并失败，将尝试重新上传');
-      
-      // 直接合并失败，降级为正常重试流程
+
+      // 接口失败，降级为正常重试流程
       item.error = null;
       item.errorCode = null;
-      
-      return false; // 失败，让调用方继续执行RESUME
+
+      return false;
     }
   }
 
   /**
    * 取消单个任务
+   * 【P0修复 2026-06-27】改为通过状态机 transition('CANCEL') 进入 cancelled 终态，
+   * 与批量取消（cancelAll）语义保持一致。取消后记录保留在列表中（显示为"已取消"），
+   * 用户可通过"删除"按钮永久移除。
+   *
+   * 状态机路径：
+   * - onUploadingExit 会中止上传请求（abortController/abortToken）
+   * - onCancelledEntry 会设置 status='cancelled'、error='已取消'、清理资源
+   * - 后端同步由 StateChangeHandler → StatusSynchronizer 统一处理（CANCELED）
+   *
+   * 降级路径（状态机不可用或已终态）：
+   * - 直接写 status='cancelled' + 手动中止 + 手动同步后端
+   *
    * @param {string} itemId - 任务ID
    */
   @action
@@ -283,19 +316,53 @@ export class ItemOperationController {
     const { item, tenantId } = this.core.queueStore.findUploadItem(itemId);
     if (!item || !tenantId) return;
 
-    // 【7.3 异步操作加版本号】取消时递增版本号，使所有旧异步回调失效
-    // cancelItem 绕过状态机直接出队，需显式递增版本
-    this.core.queueStore.bumpOperationVersion(itemId);
-
-    // 【关键修复】立即从UI队列中移除，避免显示中间状态（如暂停/失败）
-    this.core.queueStore.removeFromQueue(itemId, tenantId);
-
-    // 【Loop-200修复】释放状态机（cancelItem 绕过状态机直接出队，需显式释放避免泄漏）
-    if (this.core.stateMachineManager) {
-      this.core.stateMachineManager.remove(itemId);
+    // 已是终态的任务不需要再取消
+    if (TERMINAL_STATUSES.includes(item.status)) {
+      return;
     }
 
-    // 清理唯一标识
+    // 尝试通过状态机取消
+    let stateMachine = this.core.stateMachineManager?.get(itemId);
+    if (!stateMachine) {
+      // waiting 任务可能未创建状态机（懒创建），补创建后取消
+      stateMachine = this.core.uploadCoordinator?.ensureStateMachine?.(item) || null;
+    }
+
+    if (stateMachine && stateMachine.canTransition('CANCEL')) {
+      // 状态机路径：transition('CANCEL') 会触发版本递增、onUploadingExit 中止请求、
+      // onCancelledEntry 设置 cancelled 状态，StateChangeHandler 同步后端
+      stateMachine.transition('CANCEL');
+    } else {
+      // 降级路径：状态机不存在或不可转换
+      console.warn(`[ItemOperationController] ${itemId}: 状态机不可用或不可 CANCEL，降级直接写`);
+      this.core.queueStore.bumpOperationVersion(itemId);
+      this.core.queueStore.updateUploadItem(itemId, {
+        status: 'cancelled',
+        error: '已取消',
+        errorCode: 'CANCELLED',
+        canAbort: false,
+        percent: 0,
+      });
+
+      // 中止上传请求
+      this._abortItemResources(item);
+
+      // 同步后端
+      if (item.transferId) {
+        try {
+          await this.core.transferStore.cancelTransfer(item.transferId);
+        } catch (e) {
+          // 后端取消失败也忽略，前端状态已更新
+        }
+      }
+
+      // 释放状态机
+      if (this.core.stateMachineManager) {
+        this.core.stateMachineManager.remove(itemId);
+      }
+    }
+
+    // 清理唯一标识（允许用户重新上传同一文件）
     if (item.uniqueKey && item.file) {
       const { file, folderId } = item;
       const isPublic = item.isPublic !== undefined ? item.isPublic : this.core.rootStore.navigationStore?.isPublic;
@@ -306,17 +373,13 @@ export class ItemOperationController {
     if (this.core.displayCoordinator) {
       this.core.displayCoordinator.replenish();
     }
-
-    // 异步执行清理（不阻塞UI，即使用户看不到）
-    this.cleanupAfterCancel(item);
   }
 
   /**
-   * 取消后的清理工作
-   * @param {Object} item - 上传任务项
+   * 中止上传请求资源（abortController / abortToken）
+   * @private
    */
-  async cleanupAfterCancel(item) {
-    // 中止上传请求
+  _abortItemResources(item) {
     if (item.abortController) {
       try {
         item.abortController.abort('用户取消');
@@ -329,15 +392,6 @@ export class ItemOperationController {
         item.abortToken.cancel('用户取消');
       } catch (e) {
         // 忽略错误
-      }
-    }
-
-    // 取消后端传输记录
-    if (item.transferId) {
-      try {
-        await this.core.transferStore.cancelTransfer(item.transferId);
-      } catch (error) {
-        // 即使后端取消失败也忽略
       }
     }
   }

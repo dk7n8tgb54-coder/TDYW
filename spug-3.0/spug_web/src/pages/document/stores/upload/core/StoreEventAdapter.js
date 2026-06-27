@@ -260,13 +260,33 @@ export class StoreEventAdapter {
 
   /**
    * 处理传输状态更新
+   *
+   * 【P0修复 2026-06-27】此方法已降级为备用同步路径。
+   * 状态机 entry 钩子（onPausedEntry/onCompletedEntry/onCancelledEntry）不再调用
+   * actions.updateTransferStatus()，因此 TRANSFER_STATUS_UPDATE 事件不再被状态机触发。
+   *
+   * 权威同步链路：
+   *   StateChangeHandler.handle() → StatusSynchronizer.syncStateToBackend()
+   *
+   * 本方法保留仅为向后兼容（如有新代码通过 actions.updateTransferStatus() 触发事件），
+   * 但必须与 StatusSynchronizer 共用去重逻辑，避免同一状态重复请求后端。
+   *
+   * 去重策略：委托给 statusSynchronizer.markSynced / shouldSync，与权威链路共享同一个 _lastSyncStatusMap。
    */
   async handleTransferStatusUpdate({ uploadId, status }) {
-    const { queueStore, transferStore } = this.stores;
+    const { queueStore, transferStore, statusSynchronizer } = this.stores;
     if (!queueStore || !transferStore) return;
 
     const item = queueStore.findUploadItemInCurrentTenant(uploadId);
     if (!item?.transferId) return;
+
+    // 与 StatusSynchronizer 共用去重逻辑
+    if (statusSynchronizer && typeof statusSynchronizer.shouldSync === 'function') {
+      if (!statusSynchronizer.shouldSync(item.transferId, status)) {
+        return;
+      }
+      statusSynchronizer.markSynced(item.transferId, status);
+    }
 
     try {
       await transferStore.updateTransferStatus(item.transferId, status);

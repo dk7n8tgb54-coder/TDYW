@@ -161,7 +161,7 @@ export default observer(function () {
           <Col span={12}>
             <div style={{ marginBottom: 16, fontWeight: 500, color: '#1890ff' }}>负责人/状态栏</div>
             <Form.Item
-              name="responsible_user_id"
+              name="responsible_user_name"
               label="设备负责人"
               rules={[{ required: true, message: '请选择设备负责人' }]}
             >

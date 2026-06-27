@@ -23,16 +23,23 @@ function EventFormComponent() {
         ...values,
         event_time: values.event_time ? values.event_time.format('YYYY-MM-DD HH:mm') : '',
         repair_time: values.repair_time ? values.repair_time.format('YYYY-MM-DD HH:mm') : undefined,
-        related_user_id: values.related_user_id
+        related_user_name: values.related_user_name
       };
+      let action;
       if (isEdit) {
         data.id = store.eventFormRecord.id;
-        store.handleUpdateEvent(data).then(() => message.success('保存成功'));
+        action = store.handleUpdateEvent(data);
       } else {
         data.device_resume_id = store.eventFormDeviceResume?.id;
-        store.handleAddEvent(data).then(() => message.success('保存成功'));
+        action = store.handleAddEvent(data);
       }
-      store.eventFormVisible = false;
+      // 只在请求成功后关闭弹窗并提示，失败时保持弹窗打开以保留用户输入便于重试
+      action.then(() => {
+        message.success('保存成功');
+        store.eventFormVisible = false;
+      }).catch(() => {
+        // 错误信息已在 store 中通过 message.error 提示，此处保持弹窗打开
+      });
     });
   };
 

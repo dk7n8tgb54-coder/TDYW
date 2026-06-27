@@ -12,6 +12,23 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 
+def _parse_int(value, name, min_value=None, max_value=None):
+    """通用整数参数解析与校验，返回 (result, error)。
+
+    非法输入返回 (None, 'xxx 必须是整数')，通过校验返回 (int, None)。
+    与 checksheet 模块保持一致，防止 page=abc / page=0 / page_size 过大触发 500。
+    """
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        return None, f'{name} 必须是整数'
+    if min_value is not None and result < min_value:
+        return None, f'{name} 不能小于 {min_value}'
+    if max_value is not None and result > max_value:
+        return None, f'{name} 不能大于 {max_value}'
+    return result, None
+
+
 class InterferenceView(View):
     @auth('interference.interference.view')
     def get(self, request):
@@ -46,8 +63,13 @@ class InterferenceView(View):
             records = records.filter(datetime__lte=end_date + ' 23:59:59')
 
         # 先统计过滤后总数，再分页
-        page = int(request.GET.get('page', 1))
-        page_size = int(request.GET.get('page_size', 100))
+        # P1 修复：分页参数类型与范围校验，非法输入返回友好错误而非 500
+        page, error = _parse_int(request.GET.get('page', 1), 'page', min_value=1)
+        if error:
+            return json_response(error=error)
+        page_size, error = _parse_int(request.GET.get('page_size', 100), 'page_size', min_value=1, max_value=200)
+        if error:
+            return json_response(error=error)
         total_count = records.count()
         records = records.select_related('created_by', 'updated_by')
         offset = (page - 1) * page_size

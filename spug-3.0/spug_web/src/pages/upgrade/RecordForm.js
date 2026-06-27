@@ -178,8 +178,8 @@ export default observer(function () {
         width={900}
         title="升级表单详情"
         footer={[
-          <Button key="sync" icon={<DeploymentUnitOutlined />} onClick={() => message.success('已模拟同步到设备履历模块')}>
-            同步到设备履历
+          <Button key="sync" icon={<DeploymentUnitOutlined />} disabled title="该功能正在开发中，暂不可用">
+            同步功能开发中
           </Button>,
           <Button key="close" onClick={() => store.formVisible = false}>关闭</Button>
         ]}

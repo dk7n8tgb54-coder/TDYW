@@ -20,17 +20,16 @@ import {
   PlayCircleOutlined,
 } from '@ant-design/icons';
 import TransferItem from './TransferItem';
-import { UPLOAD_STATUS, ACTIVE_STATUSES, PENDING_STATUSES } from '../stores/upload/core/upload-core-constants';
+import { UPLOAD_STATUS, DISPLAY_UPLOADING_STATUSES } from '../stores/upload/core/upload-core-constants';
 
 const { TabPane } = Tabs;
 
 /**
  * 上传中状态的判定（包含 paused）
+ * 【P0修复 2026-06-27】使用 DISPLAY_UPLOADING_STATUSES 常量替代手工拼接
  */
 const isUploadingStatus = (status) =>
-  ACTIVE_STATUSES.includes(status) ||
-  status === UPLOAD_STATUS.PAUSED ||
-  PENDING_STATUSES.includes(status);
+  DISPLAY_UPLOADING_STATUSES.includes(status);
 
 /**
  * 失败状态的判定（error + cancelled 归到"失败"Tab）

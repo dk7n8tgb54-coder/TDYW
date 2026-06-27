@@ -11,6 +11,7 @@
  */
 
 import { UploadStateMachine } from './UploadStateMachine';
+import { PAUSEABLE_STATUSES, SLOT_OCCUPYING_STATUSES } from './upload-core-constants';
 
 export class StateMachineManager {
   // 【任务3.3】全局监听器数量上限
@@ -228,15 +229,16 @@ export class StateMachineManager {
    * @returns {Array} 转换结果数组
    */
   batchPause() {
-    // 【关键修复】扩展不可暂停的状态列表，包括终态和合并中
-    const NON_PAUSEABLE_STATES = ['completed', 'error', 'cancelled', 'merging'];
+    // 【P0修复 2026-06-27】使用 PAUSEABLE_STATUSES 常量替代硬编码
+    // PAUSEABLE_STATUSES = [waiting, calculating, uploading]
+    // merging/paused/终态 均不在可暂停集合中，会被跳过
     const results = [];
 
     this.machines.forEach((machine, uploadId) => {
       const state = machine.getState();
 
-      // 跳过不可暂停的状态
-      if (NON_PAUSEABLE_STATES.includes(state)) {
+      // 跳过不可暂停的状态（不在 PAUSEABLE_STATUSES 中）
+      if (!PAUSEABLE_STATUSES.includes(state)) {
         return;
       }
 
@@ -244,15 +246,9 @@ export class StateMachineManager {
       const context = machine.context;
       if (context?.queueStore) {
         const item = context.queueStore.findUploadItemInCurrentTenant(uploadId);
-        if (item) {
-          // 如果前端状态已经是终态，跳过
-          if (['completed', 'error', 'cancelled'].includes(item.status)) {
-            return;
-          }
-          // 如果前端在合并中，也跳过
-          if (item.status === 'merging') {
-            return;
-          }
+        // 仅当 item.status 明确设置时才检查（undefined 时不拦截，兼容测试 mock）
+        if (item && item.status && !PAUSEABLE_STATUSES.includes(item.status)) {
+          return;
         }
       }
 
@@ -282,10 +278,11 @@ export class StateMachineManager {
     const results = [];
     let resumedCount = 0;
 
-    // 【P2修复】计算占用并发槽位的数量
+    // 【P0修复 2026-06-27】使用 SLOT_OCCUPYING_STATUSES 常量替代硬编码
+    // SLOT_OCCUPYING_STATUSES = [calculating, uploading]
     let activeCount = 0;
     this.machines.forEach(m => {
-      if (m.isInState('uploading') || m.isInState('merging') || m.isInState('calculating')) {
+      if (SLOT_OCCUPYING_STATUSES.includes(m.getState())) {
         activeCount++;
       }
     });

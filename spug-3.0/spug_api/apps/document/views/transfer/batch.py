@@ -54,22 +54,23 @@ class TransferBatchPauseView(View):
                 )
 
             updated_count = 0
-            success_ids = []
+            updated_ids = []
+            already_ids = []
             skipped_ids = []
             skipped_reasons = {}
 
             for transfer in permitted_transfers:
+                # 【P1修复 2026-06-27】区分"原本已暂停"和"新暂停"，避免误计
                 if transfer.status == TransferStatus.PAUSED.value:
-                    success_ids.append(transfer.id)
-                    updated_count += 1
+                    already_ids.append(transfer.id)
                     continue
-                
+
                 current_status_enum = next((s for s in TransferStatus if s.value == transfer.status), None)
                 target_status_enum = TransferStatus.PAUSED
                 if current_status_enum and is_valid_status_transition(current_status_enum, target_status_enum):
                     transfer.status = TransferStatus.PAUSED.value
                     transfer.save()
-                    success_ids.append(transfer.id)
+                    updated_ids.append(transfer.id)
                     updated_count += 1
                 else:
                     skipped_ids.append(transfer.id)
@@ -77,7 +78,8 @@ class TransferBatchPauseView(View):
 
             return json_response(data={
                 'updated': updated_count,
-                'success_ids': success_ids,
+                'updated_ids': updated_ids,
+                'already_ids': already_ids,
                 'skipped_ids': skipped_ids,
                 'skipped_reasons': skipped_reasons
             })
@@ -121,15 +123,15 @@ class TransferBatchResumeView(View):
                 )
 
             updated_count = 0
-            success_ids = []
+            updated_ids = []
+            already_ids = []
             skipped_ids = []
             skipped_reasons = {}
 
             for transfer in permitted_transfers:
-                # 幂等处理：已是UPLOADING/DOWNLOADING视为成功
+                # 【P1修复 2026-06-27】区分"原本已恢复(UPLOADING/DOWNLOADING)"和"新恢复"，避免误计
                 if transfer.status in [TransferStatus.UPLOADING.value, TransferStatus.DOWNLOADING.value]:
-                    success_ids.append(transfer.id)
-                    updated_count += 1
+                    already_ids.append(transfer.id)
                     continue
 
                 # 【P0修复】跳过终态任务（COMPLETED/CANCELED），避免无效状态转换
@@ -147,7 +149,7 @@ class TransferBatchResumeView(View):
                     if not transfer.started_at:
                         transfer.started_at = timezone.now()
                     transfer.save()
-                    success_ids.append(transfer.id)
+                    updated_ids.append(transfer.id)
                     updated_count += 1
                 else:
                     skipped_ids.append(transfer.id)
@@ -155,7 +157,8 @@ class TransferBatchResumeView(View):
 
             return json_response(data={
                 'updated': updated_count,
-                'success_ids': success_ids,
+                'updated_ids': updated_ids,
+                'already_ids': already_ids,
                 'skipped_ids': skipped_ids,
                 'skipped_reasons': skipped_reasons
             })

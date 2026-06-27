@@ -194,7 +194,12 @@ class FolderSearchView(View):
             (Q(folder_id__in=folder_ids_to_search) | Q(folder_id=None)),
         ).select_related('created_by').order_by('-created_at')
         files_query = _apply_fallback_filter(files_query, keyword, ['name', 'display_name'])
-        
+
+        # 私有空间：添加租户过滤（严格模式）—— 与 folders_query 保持一致
+        # 注意：folder_id=None 的根目录文件也必须做租户隔离，防止跨租户泄露
+        if not form.is_public:
+            files_query = apply_tenant_filter(files_query, request.user, strict_mode=True)
+
         # 【优化】限制总数并分页
         total_files = min(files_query.count(), self.MAX_SEARCH_RESULTS)
         files = files_query[offset:offset + page_size]

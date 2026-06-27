@@ -41,8 +41,7 @@ class Store {
   @observable isSubmittingEvent = false;     // 事件表单提交中状态（防止重复提交）
 
   // ========== 筛选条件状态 ==========
-  @observable f_device_sn = null;      // 筛选：设备编号
-  @observable f_device_name = null;    // 筛选：设备名称
+  @observable f_device_sn = null;      // 筛选：设备编号/名称关键字（后端 keyword 参数同时匹配编号和名称）
   @observable f_device_model = null;   // 筛选：设备型号
   @observable f_current_status = [];   // 筛选：当前状态（数组）
   @observable f_use_unit = null;       // 筛选：使用单位
@@ -54,8 +53,8 @@ class Store {
       page: this.page,
       page_size: this.pageSize
     };
-    if (this.f_device_sn) params.device_sn = this.f_device_sn;
-    if (this.f_device_name) params.device_name = this.f_device_name;
+    // 统一用 keyword 同时匹配设备编号和名称（后端 Q 查询）
+    if (this.f_device_sn) params.keyword = this.f_device_sn;
     if (this.f_device_model) params.device_model = this.f_device_model;
     if (this.f_current_status && this.f_current_status.length > 0) params.current_status = this.f_current_status;
     if (this.f_use_unit) params.use_unit = this.f_use_unit;
@@ -224,7 +223,6 @@ class Store {
   // ========== 筛选操作 ==========
   resetFilter = () => {
     this.f_device_sn = null;
-    this.f_device_name = null;
     this.f_device_model = null;
     this.f_current_status = [];
     this.f_use_unit = null;
@@ -234,8 +232,7 @@ class Store {
 
   getExportParams = () => {
     const params = {};
-    if (this.f_device_sn) params.device_sn = this.f_device_sn;
-    if (this.f_device_name) params.device_name = this.f_device_name;
+    if (this.f_device_sn) params.keyword = this.f_device_sn;
     if (this.f_device_model) params.device_model = this.f_device_model;
     if (this.f_current_status && this.f_current_status.length > 0) params.current_status = this.f_current_status;
     if (this.f_use_unit) params.use_unit = this.f_use_unit;

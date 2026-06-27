@@ -40,7 +40,7 @@ export function MaintenanceFields({ isUpdate }) {
       </Col>
       <Col span={12}>
         <Form.Item
-          name="related_user_id"
+          name="related_user_name"
           label="记录人"
           rules={[{ required: true, message: '请输入记录人' }]}
         >
@@ -100,7 +100,7 @@ export function InspectionFields() {
       </Col>
       <Col span={12}>
         <Form.Item
-          name="related_user_id"
+          name="related_user_name"
           label="检修人"
           rules={[{ required: true, message: '请输入检修人' }]}
         >

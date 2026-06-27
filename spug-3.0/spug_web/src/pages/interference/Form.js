@@ -101,23 +101,31 @@ export default observer(function () {
       confirmLoading={loading}
       onOk={handleSubmit}>
       <Form form={form} initialValues={initialValues} labelCol={{span: 6}} wrapperCol={{span: 14}}>
-        <Form.Item required name="frequency" label="频率"
-                   rules={[{ pattern: /^\d+(\.\d+)?$/, message: '频率请输入数字' }]}>
+        <Form.Item name="frequency" label="频率"
+                   rules={[
+                     { required: true, message: '请输入频率' },
+                     { pattern: /^\d+(\.\d+)?$/, message: '频率请输入数字' }
+                   ]}>
           <Input placeholder="请输入频率"/>
         </Form.Item>
-        <Form.Item required name="report_dept" label="汇报科室">
+        <Form.Item name="report_dept" label="汇报科室"
+                   rules={[{ required: true, message: '请输入汇报科室' }]}>
           <Input placeholder="请输入汇报科室"/>
         </Form.Item>
-        <Form.Item required name="datetime" label="日期时间">
+        <Form.Item name="datetime" label="日期时间"
+                   rules={[{ required: true, message: '请选择日期时间' }]}>
           <DatePicker showTime style={{width: '100%'}} placeholder="请选择日期时间"/>
         </Form.Item>
-        <Form.Item required name="coordinates" label="坐标">
+        <Form.Item name="coordinates" label="坐标"
+                   rules={[{ required: true, message: '请输入坐标' }]}>
           <Input placeholder="请输入坐标"/>
         </Form.Item>
-        <Form.Item required name="interference_type" label="干扰类型">
+        <Form.Item name="interference_type" label="干扰类型"
+                   rules={[{ required: true, message: '请输入干扰类型' }]}>
           <Input placeholder="请输入干扰类型"/>
         </Form.Item>
-        <Form.Item required name="phenomenon" label="现象">
+        <Form.Item name="phenomenon" label="现象"
+                   rules={[{ required: true, message: '请输入现象' }]}>
           <Input.TextArea rows={4} placeholder="请输入现象"/>
         </Form.Item>
         <Form.Item name="flight_number" label="航班号">
@@ -126,7 +134,8 @@ export default observer(function () {
         <Form.Item name="aircraft_type" label="机型">
           <Input placeholder="请输入机型（非必填）"/>
         </Form.Item>
-        <Form.Item required name="is_reported" label="是否上报">
+        <Form.Item name="is_reported" label="是否上报"
+                   rules={[{ required: true, message: '请选择是否上报' }]}>
           <Select placeholder="请选择是否上报">
             <Select.Option value="是">是</Select.Option>
             <Select.Option value="否">否</Select.Option>

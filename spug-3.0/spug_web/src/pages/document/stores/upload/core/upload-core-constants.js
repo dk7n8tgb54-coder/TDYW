@@ -84,6 +84,7 @@ export const TERMINAL_STATUSES = Object.freeze([
 ]);
 
 // 活跃状态集合（占用并发槽位）
+// 注意：merging 仍在活跃列表中用于统计展示，但不再占用上传并发槽位
 export const ACTIVE_STATUSES = Object.freeze([
   UPLOAD_STATUS.CALCULATING,
   UPLOAD_STATUS.UPLOADING,
@@ -93,6 +94,43 @@ export const ACTIVE_STATUSES = Object.freeze([
 // 等待/处理中状态集合（不占用并发槽位但仍在进行）
 export const PENDING_STATUSES = Object.freeze([
   UPLOAD_STATUS.WAITING,
+]);
+
+// 【P0修复 2026-06-27】语义更精准的状态集合，替代各处硬编码数组
+
+/**
+ * 占用上传并发槽位的状态（仅 calculating + uploading）
+ * 用于：UploadCoordinator.startWaiting / DebounceController.resumeAll / RecoveryCoordinator 的 countByStates
+ * merging 不占槽位（后端合并、前端只轮询，不占前端网络/CPU 资源）
+ */
+export const SLOT_OCCUPYING_STATUSES = Object.freeze([
+  UPLOAD_STATUS.CALCULATING,
+  UPLOAD_STATUS.UPLOADING,
+]);
+
+/**
+ * 可暂停的状态（waiting + calculating + uploading）
+ * 用于：TransferItem canPause / VirtualTransferList pauseableCount / StateMachineManager.batchPause
+ * merging 不可暂停（状态机无 PAUSE 转换，会让按钮失效）
+ * paused 不可暂停（已暂停）
+ */
+export const PAUSEABLE_STATUSES = Object.freeze([
+  UPLOAD_STATUS.WAITING,
+  UPLOAD_STATUS.CALCULATING,
+  UPLOAD_STATUS.UPLOADING,
+]);
+
+/**
+ * 传输列表"进行中"页签应展示的状态
+ * 用于：UploadCoreStore.uploadingItems / activeCount / TransferList isUploadingStatus / MiniBar 计数
+ * 包含 paused（暂停只是临时态，仍在进行中列表展示）
+ */
+export const DISPLAY_UPLOADING_STATUSES = Object.freeze([
+  UPLOAD_STATUS.WAITING,
+  UPLOAD_STATUS.CALCULATING,
+  UPLOAD_STATUS.UPLOADING,
+  UPLOAD_STATUS.PAUSED,
+  UPLOAD_STATUS.MERGING,
 ]);
 
 // 状态映射：后端状态 -> 前端状态
@@ -183,11 +221,11 @@ export const ERROR_CODE_MESSAGES = Object.freeze({
   [ERROR_CODES.UNKNOWN]: '上传失败，请重试',
 });
 
-// 活跃状态集合（占用并发槽位）
+// 【已废弃】请使用 ACTIVE_STATUSES（frozen 版本），保留仅为向后兼容
 export const ACTIVE_STATES = ['calculating', 'uploading', 'merging'];
 
 // 可上传的来源状态
 export const UPLOADABLE_FROM_STATES = ['paused', 'waiting', 'calculating'];
 
-// 需要显示在活跃列表中的状态
+// 【已废弃】请使用 DISPLAY_UPLOADING_STATUSES（frozen 版本），保留仅为向后兼容
 export const DISPLAY_ACTIVE_STATUSES = ['uploading', 'calculating', 'merging', 'paused', 'waiting'];

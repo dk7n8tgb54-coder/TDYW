@@ -32,8 +32,9 @@ class Store {
   // ========== 设备选择与信息获取 ==========
   fetchDevices = () => {
     this.isFetchingDevices = true;
-    // 获取所有设备（不分页），用于下拉框选择
-    http.get('/api/device/device-resume/', { params: { page_size: 9999 } })
+    // 设备下拉数据：后端已限制 page_size 上限 200，避免一次性加载过多导致接口变慢
+    // 若设备数量超过 200，应改为远程搜索（onSearch + 关键字请求），当前规模下 200 足够
+    http.get('/api/device/device-resume/', { params: { page_size: 200 } })
       .then(data => {
         this.devices = data.data || [];
       })
@@ -95,23 +96,29 @@ class Store {
 
   // ========== PDF导出 ==========
   exportPDF = async () => {
-    if (!this.deviceInfo) {
+    if (!this.selectedDeviceId) {
       const { message } = require('antd');
       message.warning('请先选择设备');
       return;
     }
 
     this.isExporting = true;
-    const deviceSn = this.deviceInfo.device_sn || 'unknown';
-    const deviceName = this.deviceInfo.device_name || '';
+    const deviceSn = (this.deviceInfo && this.deviceInfo.device_sn) || 'unknown';
+    const deviceName = (this.deviceInfo && this.deviceInfo.device_name) || '';
     const exportTime = new Date();
     const pad = (n) => String(n).padStart(2, '0');
     const ts = `${exportTime.getFullYear()}${pad(exportTime.getMonth() + 1)}${pad(exportTime.getDate())}_${pad(exportTime.getHours())}${pad(exportTime.getMinutes())}${pad(exportTime.getSeconds())}`;
     try {
+      // 安全：前端只传 device_id，设备和事件数据由后端按租户重新查询，避免请求体被篡改
+      const data = { device_id: this.selectedDeviceId };
+      // 保留当前事件类型筛选（如选择了具体类型，PDF 也只导出该类型；否则全量导出）
+      if (this.eventTypeFilter && this.eventTypeFilter !== 'all') {
+        data.event_type = this.eventTypeFilter;
+      }
       await exportFile({
         url: '/api/device/device-resume/export/pdf/',
         method: 'post',
-        data: { device_info: this.deviceInfo, events: this.events },
+        data: data,
         defaultFilename: `设备履历_${deviceSn}_${deviceName}_${ts}.pdf`,
         timeout: 60000,
         loadingText: '正在生成PDF...',

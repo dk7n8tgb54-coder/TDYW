@@ -222,13 +222,19 @@ export class TransferStore {
       const result = await http.post(API_ENDPOINTS.TRANSFERS_BATCH_PAUSE, { transfer_ids: ids });
       hideLoading();
 
-      if (result && result.updated > 0) {
-        message.success(`已暂停 ${result.updated} 个传输任务`);
-        return { success: true, updated: result.updated, ...result };
+      // 【P1修复 2026-06-27】使用更准确的统计文案，区分"新暂停"和"原本已暂停"
+      const updated = result?.updated || 0;
+      const already = (result?.already_ids || []).length;
+      if (updated > 0 && already > 0) {
+        message.success(`已暂停 ${updated} 个任务（其中 ${already} 个原本已暂停）`);
+      } else if (updated > 0) {
+        message.success(`已暂停 ${updated} 个传输任务`);
+      } else if (already > 0) {
+        message.info(`${already} 个任务已是暂停状态`);
       } else {
         message.info('没有可暂停的传输任务');
-        return { success: true, updated: 0, ...result };
       }
+      return { success: true, updated, ...result };
     } catch (error) {
       hideLoading();
 
@@ -261,13 +267,19 @@ export class TransferStore {
       const result = await http.post(API_ENDPOINTS.TRANSFERS_BATCH_RESUME, { transfer_ids: ids });
       hideLoading();
 
-      if (result && result.updated > 0) {
-        message.success(`已恢复 ${result.updated} 个传输任务`);
-        return { success: true, updated: result.updated, ...result };
+      // 【P1修复 2026-06-27】使用更准确的统计文案，区分"新恢复"和"原本已恢复"
+      const updated = result?.updated || 0;
+      const already = (result?.already_ids || []).length;
+      if (updated > 0 && already > 0) {
+        message.success(`已恢复 ${updated} 个任务（其中 ${already} 个原本已在上传中）`);
+      } else if (updated > 0) {
+        message.success(`已恢复 ${updated} 个传输任务`);
+      } else if (already > 0) {
+        message.info(`${already} 个任务已在上传中`);
       } else {
         message.info('没有可恢复的传输任务');
-        return { success: true, updated: 0, ...result };
       }
+      return { success: true, updated, ...result };
     } catch (error) {
       hideLoading();
 
@@ -346,15 +358,15 @@ export class TransferStore {
 
   /**
    * 清理已完成的传输记录
+   *
+   * 注意：后端目前没有专门的"清理已完成传输记录"接口。
+   * 旧实现误用 TRANSFERS_BATCH_CANCEL（且不传 transfer_ids），语义上会取消所有传输任务，
+   * 与函数名"清理已完成"不符，存在误删进行中任务的风险，故改为安全 no-op。
+   * 如需清理，应先获取已完成传输的 ID 列表，再调用 batchDeleteTransfers(ids)。
    */
   async clearCompletedTransfers() {
-    try {
-      const { http } = await import('libs');
-      await http.post(API_ENDPOINTS.TRANSFERS_BATCH_CANCEL);
-      return true;
-    } catch (error) {
-      return false;
-    }
+    console.warn('[TransferStore] clearCompletedTransfers: 后端暂无"清理已完成传输记录"专用接口，当前为 no-op。如需清理请使用 batchDeleteTransfers(已完成ID列表)。');
+    return false;
   }
 
   /**

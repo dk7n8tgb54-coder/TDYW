@@ -12,8 +12,7 @@ import { observable, action, computed } from 'mobx';
 import {
   UPLOAD_CONSTANTS,
   UPLOAD_STATUS,
-  PENDING_STATUSES,
-  ACTIVE_STATUSES,
+  DISPLAY_UPLOADING_STATUSES,
 } from './upload-core-constants';
 
 // 子Store
@@ -177,7 +176,9 @@ class UploadCoreStore {
     this.storeEventAdapter = new StoreEventAdapter({
       queueStore: this.queueStore,
       transferStore: this.transferStore,
-      md5Store: this.md5Store
+      md5Store: this.md5Store,
+      // 【P0修复 2026-06-27】传入 statusSynchronizer，共用去重逻辑避免重复同步
+      statusSynchronizer: this.statusSynchronizer,
     });
     this.storeEventAdapter.init();
   }
@@ -211,13 +212,12 @@ class UploadCoreStore {
 
   /**
    * 上传中的项目（包括等待、计算、上传、暂停、合并中）
-   * 【P2优化】使用 computed 缓存，避免每次 render 重复 filter
-   * 【重构 2026-06-06】使用 UPLOAD_STATUS 常量替代硬编码字符串
+   * 【P0修复 2026-06-27】使用 DISPLAY_UPLOADING_STATUSES 常量替代手工拼接
    */
   @computed
   get uploadingItems() {
     return this.currentUploadQueue.filter(
-      item => [...PENDING_STATUSES, ...ACTIVE_STATUSES, UPLOAD_STATUS.PAUSED].includes(item.status)
+      item => DISPLAY_UPLOADING_STATUSES.includes(item.status)
     );
   }
 
@@ -257,12 +257,17 @@ class UploadCoreStore {
   }
 
   /**
-   * 活跃上传中的任务数（计算、上传、合并中）
+   * 活跃上传中的任务数（进行中页签中非暂停的任务数）
+   * 【P0修复 2026-06-27】修复之前遗漏 waiting 状态的 bug
+   * 之前 activeCount = ACTIVE_STATUSES = [calculating, uploading, merging]
+   * 但 uploadingItems 包含 waiting，导致 uploadingTotal ≠ uploadingItems.length
+   * 现在使用 DISPLAY_UPLOADING_STATUSES 减去 PAUSED，与 uploadingItems 对齐
    */
   @computed
   get activeCount() {
     return this.currentUploadQueue.filter(
-      item => ACTIVE_STATUSES.includes(item.status)
+      item => DISPLAY_UPLOADING_STATUSES.includes(item.status) &&
+              item.status !== UPLOAD_STATUS.PAUSED
     ).length;
   }
 

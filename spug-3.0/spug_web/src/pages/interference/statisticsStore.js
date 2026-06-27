@@ -5,7 +5,6 @@
  */
 import { observable } from "mobx";
 import { http } from 'libs';
-import moment from 'moment';
 
 class Store {
   @observable totalCount = 0;
