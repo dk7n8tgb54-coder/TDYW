@@ -185,7 +185,7 @@ python -Wa manage.py check
 用户、角色、租户
 设备管理
 干扰记录导入/导出
-资料库上传、分片合并、预览、回收站
+资料库上传、分片合并、预览
 运行日志
 日检查单
 系统升级管理
@@ -193,6 +193,67 @@ python -Wa manage.py check
 无线电执照、附件、提醒、定时扫描
 WebSocket 连接
 Celery worker、beat、专用队列
+```
+
+#### 实际执行记录（2026-06-27）
+
+执行环境：
+
+```text
+容器：tdyw-test（镜像 tdyw:0601，状态 healthy）
+数据库：tdyw-db-test（mariadb 10.8.2）
+预览：tdyw-kkfileview-test（kkfileview 4.1.0）
+Python：3.10
+manage.py 路径：/data/spug/spug_api/manage.py
+```
+
+三个预检命令结果：
+
+```text
+1. python manage.py makemigrations --check --dry-run
+   -> No changes detected (exit 0)
+
+2. python manage.py migrate --plan
+   -> Planned operations:
+      No planned migration operations. (exit 0)
+
+3. python -Wa manage.py check
+   -> System check identified no issues (0 silenced). (exit 0)
+```
+
+`-Wa` 产生的警告（均为旧依赖栈兼容信号，非业务代码问题）：
+
+```text
+- DeprecationWarning: The distutils package is deprecated ...
+  来源 django/utils/version.py 使用 distutils.version.LooseVersion
+- ImportWarning: _SixMetaPathImporter.find_spec() not found ...
+  来源 six 库在 Python 3.10 下的兼容警告（多次重复）
+- bash: setlocale: LC_ALL: cannot change locale (en_US.utf8)
+  容器 locale 配置问题，与 Django 无关
+```
+
+基线结论：
+
+```text
+Django 2.2.28 基线干净：
+- 模型与 migration 一致（No changes detected）
+- 数据库已应用全部 migration（No planned migration operations）
+- 系统检查无错误（System check identified no issues）
+- 仅有旧依赖栈（distutils / six）的兼容警告，升级依赖后应消失
+```
+
+工作区注意事项：
+
+```text
+当前 git 工作区有未提交内容：
+- 新增 logs app（audit/middleware/models/views/urls/migrations）已 staged
+- interference 模块 views.py / exporters.py 修改未 staged
+- 前端 document / interference / device 等页面修改未 staged
+- spug_api/check_tenant.py 已删除
+
+进入阶段 1 前，建议先提交 logs app 的 migration 文件，
+确保 2.2 基线的 migration 历史在版本库中完整可回归。
+其它未提交的业务改动应按独立分支评审，避免与升级混在一起。
 ```
 
 ### 阶段 1：Django 2.2 -> 3.2
@@ -305,7 +366,6 @@ gevent/gunicorn 下连接关闭行为
 ```text
 分片上传
 后台合并
-回收站
 kkFileView 预览
 本地 storage 路径
 Celery 清理任务

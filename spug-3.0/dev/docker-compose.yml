@@ -71,7 +71,8 @@ services:
   # 主应用服务（Spug）
   spug:
     # 使用本地镜像（含 Celery）
-    image: tdyw:0601
+    # 阶段1升级：Django 2.2.28 -> 3.2.25
+    image: tdyw:django32-stage1
     # 容器名称
     container_name: tdyw-test
     # 特权模式：容器可以访问宿主机所有设备

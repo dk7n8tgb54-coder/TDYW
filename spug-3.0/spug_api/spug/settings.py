@@ -90,6 +90,10 @@ ROOT_URLCONF = 'spug.urls'
 WSGI_APPLICATION = 'spug.wsgi.application'
 ASGI_APPLICATION = 'spug.routing.application'
 
+# Default primary key field type
+# Django 3.2+ defaults to BigAutoField; keep AutoField to avoid mass migration noise
+DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
+
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 

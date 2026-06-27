@@ -1,14 +1,14 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-from django.conf.urls import url
+from django.urls import re_path
 
 from apps.device.views import DeviceResumeView, DeviceEventView, DeviceResumeExportView
 from apps.device.exporters import DeviceListExportView
 
 urlpatterns = [
-    url(r'device-resume/export/$', DeviceListExportView.as_view()),
-    url(r'device-resume/$', DeviceResumeView.as_view()),
-    url(r'device-event/$', DeviceEventView.as_view()),
-    url(r'device-resume/export/pdf/$', DeviceResumeExportView.as_view()),
+    re_path(r'device-resume/export/$', DeviceListExportView.as_view()),
+    re_path(r'device-resume/$', DeviceResumeView.as_view()),
+    re_path(r'device-event/$', DeviceEventView.as_view()),
+    re_path(r'device-resume/export/pdf/$', DeviceResumeExportView.as_view()),
 ]
