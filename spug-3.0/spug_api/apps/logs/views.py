@@ -5,6 +5,7 @@
 from django.db.models import Q
 from libs.mixins import AdminView
 from libs import json_response, Argument, JsonParser
+from libs.utils import get_request_real_ip
 from apps.logs.models import AuditLog
 
 
@@ -137,8 +138,48 @@ class AuditLogExportView(AdminView):
 
         # 限制最大导出数量
         records = queryset[:5000]
+        result = [r.to_dict() for r in records]
 
-        return json_response([r.to_dict() for r in records])
+        # 证据闭环：导出审计日志本身也要被审计
+        # 记录导出条件、导出数量、导出人，便于追溯"谁导出了哪些审计数据"
+        self._record_export_audit(request, form, len(result))
+
+        return json_response(result)
+
+    def _record_export_audit(self, request, form, export_count):
+        """记录审计日志导出动作本身（action=export, target_type=audit）"""
+        try:
+            from apps.logs.audit import save_audit_log, _extract_user_agent
+            # 构造导出条件摘要（仅记录筛选条件，不含数据）
+            conditions = {}
+            for field in ('username', 'action', 'target_type',
+                          'is_success', 'start_time', 'end_time', 'keyword'):
+                value = getattr(form, field, None)
+                if value not in (None, ''):
+                    conditions[field] = value
+            save_audit_log(
+                user_id=request.user.id,
+                username=request.user.username,
+                action='export',
+                target_type='audit',
+                target_name='操作审计日志',
+                detail={
+                    '操作': '导出审计日志',
+                    '筛选条件': conditions,
+                    '导出数量': export_count,
+                },
+                ip=get_request_real_ip(request.headers) if hasattr(request, 'headers') else '',
+                is_success=True,
+                tenant_id=getattr(request.user, 'tenant_id', 'default'),
+                request_id=getattr(request, '_audit_request_id', None),
+                user_agent=_extract_user_agent(request),
+            )
+        except Exception:
+            # 导出审计记录失败不应阻断导出主流程
+            import logging
+            logging.getLogger(__name__).warning(
+                '[AUDIT] 记录审计日志导出动作失败', exc_info=True
+            )
 
 
 class AuditLogTargetTypesView(AdminView):

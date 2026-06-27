@@ -9,12 +9,14 @@
 """
 
 import json
+import uuid
 import logging
 from django.utils.deprecation import MiddlewareMixin
 from apps.logs.audit import (
     resolve_target, resolve_action, save_audit_log,
-    set_audit_user, clear_audit_user, AUDIT_EXCLUDES
+    set_audit_user, clear_audit_user, _extract_user_agent, AUDIT_EXCLUDES
 )
+from apps.logs.hash_chain import compute_response_hash
 from libs.utils import get_request_real_ip
 
 logger = logging.getLogger(__name__)
@@ -43,7 +45,10 @@ class AuditLogMiddleware(MiddlewareMixin):
     """
 
     def process_request(self, request):
-        """设置线程本地用户信息"""
+        """设置线程本地用户信息，并生成请求唯一标识"""
+        # 为每个请求生成唯一 request_id，供审计日志关联同请求多条记录
+        # 存于 request 对象，中间件与装饰器共用
+        request._audit_request_id = uuid.uuid4().hex
         if hasattr(request, 'user') and request.user:
             set_audit_user(request.user)
 
@@ -111,6 +116,14 @@ class AuditLogMiddleware(MiddlewareMixin):
         # 获取IP
         ip = get_request_real_ip(request.headers) if hasattr(request, 'headers') else ''
 
+        # 采集证据闭环字段
+        user_agent = _extract_user_agent(request)
+        request_id = getattr(request, '_audit_request_id', None)
+        # 响应哈希：流式响应/文件下载无 content 属性时留空
+        response_hash = ''
+        if hasattr(response, 'content'):
+            response_hash = compute_response_hash(response.content)
+
         # 保存审计日志
         save_audit_log(
             user_id=user.id,
@@ -123,6 +136,9 @@ class AuditLogMiddleware(MiddlewareMixin):
             ip=ip,
             is_success=is_success,
             tenant_id=getattr(user, 'tenant_id', 'default'),
+            response_hash=response_hash,
+            request_id=request_id,
+            user_agent=user_agent,
         )
 
     def _parse_body(self, request):

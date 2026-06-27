@@ -120,24 +120,91 @@ def resolve_action(method, body_data=None):
 
 def save_audit_log(user_id, username, action, target_type, target_id=None,
                    target_name=None, detail=None, ip='', is_success=True,
-                   tenant_id='default'):
-    """保存审计日志记录"""
+                   tenant_id='default', request_hash=None, response_hash=None,
+                   request_id=None, user_agent=None):
+    """保存审计日志记录
+
+    证据闭环第一阶段增强：
+    - 规范化 detail（dict → JSON 字符串）
+    - 计算 request_hash（基于存库 detail，未传入时自动计算）
+    - 查询同租户上一条日志的 log_hash 作为 prev_hash，构建哈希链
+    - 计算并写入 log_hash（覆盖全部关键字段 + prev_hash）
+
+    新增参数均有默认值，向后兼容现有调用方（middleware / audit 装饰器）。
+    任何异常都不影响主请求流程，仅记录错误日志。
+    """
     try:
         from apps.logs.models import AuditLog
+        from apps.logs.hash_chain import (
+            compute_request_hash, compute_log_hash_from_values,
+        )
+        from django.db import transaction
+        from libs.utils import human_datetime
+
+        # 1. 规范化 detail：dict → JSON 字符串（与历史行为一致）
         if isinstance(detail, dict):
             detail = json.dumps(detail, ensure_ascii=False)
-        AuditLog.objects.create(
-            user_id=user_id,
-            username=username,
-            action=action,
-            target_type=target_type,
-            target_id=str(target_id) if target_id else None,
-            target_name=target_name,
-            detail=detail,
-            ip=ip,
-            is_success=is_success,
-            tenant_id=tenant_id,
-        )
+
+        # 2. 计算 request_hash：基于存库 detail 内容，证明详情未被篡改
+        #    调用方未显式传入时自动计算，保证写入与校验口径一致
+        if request_hash is None:
+            request_hash = compute_request_hash(detail)
+        response_hash = response_hash or ''
+
+        # 3. 在事务内查询同租户上一条日志的 log_hash 作为 prev_hash
+        #    内网环境并发量有限，采用乐观查询；偶发并发分叉可通过每日摘要校验发现
+        with transaction.atomic():
+            last_log = (
+                AuditLog.objects
+                .filter(tenant_id=tenant_id)
+                .order_by('-id')
+                .first()
+            )
+            prev_hash = last_log.log_hash if last_log else ''
+
+            # 4. 显式生成 created_at，保证 log_hash 输入与落库值一致
+            created_at = human_datetime()
+
+            # 5. 计算 log_hash（覆盖全部关键字段 + prev_hash）
+            log_hash = compute_log_hash_from_values(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                username=username,
+                action=action,
+                target_type=target_type,
+                target_id=target_id,
+                target_name=target_name,
+                detail=detail,
+                ip=ip,
+                is_success=is_success,
+                created_at=created_at,
+                request_hash=request_hash,
+                response_hash=response_hash,
+                request_id=request_id,
+                user_agent=user_agent,
+                prev_hash=prev_hash,
+            )
+
+            # 6. 落库
+            AuditLog.objects.create(
+                user_id=user_id,
+                username=username,
+                action=action,
+                target_type=target_type,
+                target_id=str(target_id) if target_id else None,
+                target_name=target_name,
+                detail=detail,
+                ip=ip,
+                is_success=is_success,
+                tenant_id=tenant_id,
+                created_at=created_at,
+                request_hash=request_hash,
+                response_hash=response_hash,
+                prev_hash=prev_hash,
+                log_hash=log_hash,
+                request_id=request_id,
+                user_agent=user_agent,
+            )
     except Exception as e:
         logger.error(f'[AUDIT] 保存审计日志失败: {e}')
 
@@ -188,6 +255,14 @@ def audit(action, target_type=None, target_name=None):
                         _target_type = target_type or 'other'
                         _target_name = target_name or action
 
+                        # 采集证据闭环字段：user_agent / request_id / response_hash
+                        from apps.logs.hash_chain import compute_response_hash
+                        user_agent = _extract_user_agent(request)
+                        request_id = getattr(request, '_audit_request_id', None)
+                        response_hash = ''
+                        if hasattr(response, 'content'):
+                            response_hash = compute_response_hash(response.content)
+
                         save_audit_log(
                             user_id=user.id,
                             username=user.username,
@@ -197,6 +272,9 @@ def audit(action, target_type=None, target_name=None):
                             ip=ip,
                             is_success=is_success,
                             tenant_id=getattr(user, 'tenant_id', 'default'),
+                            response_hash=response_hash,
+                            request_id=request_id,
+                            user_agent=user_agent,
                         )
                 except Exception as e:
                     logger.error(f'[AUDIT] 装饰器记录审计日志失败: {e}')
@@ -228,3 +306,19 @@ def _map_action(action_desc):
         if key in action_desc:
             return value
     return 'other'
+
+
+def _extract_user_agent(request):
+    """从请求中提取 User-Agent，截断至 500 字符以适配字段长度。
+
+    兼容 request.headers（Django 请求）与 request.META 两种取值方式。
+    """
+    ua = ''
+    headers = getattr(request, 'headers', None)
+    if headers:
+        ua = headers.get('User-Agent') or headers.get('user-agent') or ''
+    if not ua:
+        meta = getattr(request, 'META', None)
+        if meta:
+            ua = meta.get('HTTP_USER_AGENT', '')
+    return ua[:500] if ua else ''
