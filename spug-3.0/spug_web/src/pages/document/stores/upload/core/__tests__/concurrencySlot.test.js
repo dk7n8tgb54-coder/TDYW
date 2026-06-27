@@ -9,7 +9,7 @@
  *   5. 暂停/取消/失败/完成后都能继续调度后续 waiting 任务
  *
  * 测试策略：
- *   - 使用真实的 StateMachineManager + StoreEventAdapter（同步 item.status）
+ *   - 使用真实的 StateMachineManager（entry/exit 直接调 queueStore.updateUploadItem 同步 item.status）
  *   - 不导入 UploadCoordinator（它使用 @action 装饰器，CRA jest 未启用 decorators），
  *     而是提取 startWaiting 的核心调度逻辑为下面的 startWaitingTasks 辅助函数。
  *     该函数与 UploadCoordinator.startWaiting() 逻辑完全一致：
@@ -25,8 +25,6 @@
  */
 
 import { StateMachineManager } from '../StateMachineManager';
-import { StoreEventAdapter } from '../StoreEventAdapter';
-import { globalEventBus } from '../EventBus';
 
 // 刷新微任务队列（notifyListeners / onRetryAction 等异步 scheduleStart 用）
 const flushMicrotasks = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -113,15 +111,10 @@ function setupConcurrencyEnv(maxConcurrent = 3) {
 
   const stateMachineManager = new StateMachineManager();
 
-  // 使用 StoreEventAdapter 连接 EventBus → queueStore（同步 item.status）
-  // 不注入 md5Store/transferStore，MD5_START / TRANSFER_STATUS_UPDATE 事件安全忽略
-  const adapter = new StoreEventAdapter({
-    queueStore: mockQueueStore,
-  });
-  adapter.init();
-
+  // 【方向B 2026-06-27】不再使用 StoreEventAdapter
+  // 状态机 entry/exit 直接调 mockQueueStore.updateUploadItem 同步 item.status
   // 不注入 stateChangeHandler 作为 globalListener
-  // → 状态机 transition 只改变状态 + 通过 EventBus 同步 item.status
+  // → 状态机 transition 只改变状态 + 通过 entry/exit 同步 item.status
   // → 不触发真实 MD5 计算 / 上传 / 合并业务
 
   const coreStore = {
@@ -182,7 +175,6 @@ function setupConcurrencyEnv(maxConcurrent = 3) {
     coreStore,
     stateMachineManager,
     mockQueueStore,
-    adapter,
     items,
     tenantId,
     addWaitingTask,
@@ -196,9 +188,7 @@ function setupConcurrencyEnv(maxConcurrent = 3) {
 }
 
 function teardownConcurrencyEnv(env) {
-  env.adapter.destroy();
   env.stateMachineManager.clear();
-  globalEventBus.clear();
 }
 
 describe('7.2 统一并发槽位口径', () => {

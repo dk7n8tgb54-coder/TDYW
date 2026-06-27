@@ -23,15 +23,14 @@ import FolderUploadStore from './folderUpload';
 import MD5Store from './md5';
 import TransferStore from './transfer';
 
-// 状态机（【任务4.1】已替换为解耦版）
+// 状态机
 import { StateMachineManager } from './StateMachineManager';
 import { UploadStateMachine } from './UploadStateMachine';
 
-// 【任务4.1】解耦相关导入
-import { globalEventBus } from './EventBus';
-import { StoreEventAdapter } from './StoreEventAdapter';
+// 【方向B 2026-06-27】已移除 EventBus/StoreEventAdapter/actions 解耦设施
+// 原因：useDecoupledStateMachine 从未启用，adapter 半死不活，
+// 状态机 entry/exit 现直接通过 context.queueStore 更新 item，不再经事件总线绕路
 import * as guards from './guards';
-import { createActions, UploadEvents } from './actions';
 
 // 协调器
 import {
@@ -89,15 +88,13 @@ class UploadCoreStore {
   // ===== 同步器 =====
   statusSynchronizer = null;
 
-  // 【任务4.1】事件总线适配器
-  storeEventAdapter = null;
-
   // ===== 全局状态 =====
   @observable isPaused = false;
   @observable isCancelled = false;
   @observable maxConcurrentUploads = UPLOAD_CONSTANTS.MAX_CONCURRENT_UPLOADS;
 
-  // 【任务4.1】是否使用解耦版状态机（可通过配置切换）
+  // 【P0修复 2026-06-27】是否使用解耦版状态机
+  // 【方向B 2026-06-27】解耦设施已移除，此字段保留仅为向后兼容，值固定 false
   useDecoupledStateMachine = false;
 
   // ===== 非observable =====
@@ -166,25 +163,17 @@ class UploadCoreStore {
   }
 
   /**
-   * 【任务4.1】初始化事件总线适配器
-   * 连接事件总线与Store，实现状态机与Store的解耦
+   * 【方向B 2026-06-27】已移除事件总线适配器初始化
+   * 状态机 entry/exit 直接通过 context.queueStore 更新 item
    */
   _initEventAdapter() {
-    this.storeEventAdapter = new StoreEventAdapter({
-      queueStore: this.queueStore,
-      transferStore: this.transferStore,
-      md5Store: this.md5Store,
-      // 【P0修复 2026-06-27】传入 statusSynchronizer，共用去重逻辑避免重复同步
-      statusSynchronizer: this.statusSynchronizer,
-    });
-    this.storeEventAdapter.init();
+    // no-op：解耦设施已移除
   }
 
   _initGlobalListeners() {
     this.initUploadQueueCleanup();
     this.networkLifecycle.init();
-    // 【任务4.1】初始化事件适配器
-    this._initEventAdapter();
+    // 【方向B 2026-06-27】不再初始化事件适配器
   }
 
   // ===== 代理属性 =====
@@ -418,11 +407,7 @@ class UploadCoreStore {
     if (this.statusSynchronizer) {
       this.statusSynchronizer.cleanup();
     }
-    // 【任务4.1】销毁事件适配器
-    if (this.storeEventAdapter) {
-      this.storeEventAdapter.destroy();
-      this.storeEventAdapter = null;
-    }
+    // 【方向B 2026-06-27】已移除 storeEventAdapter 销毁逻辑
     // 【P1 修复】销毁文件夹上传Store，清理 beforeunload 事件监听器，防止内存泄漏
     if (this.folderUploadStore) {
       this.folderUploadStore.destroy();
@@ -492,21 +477,14 @@ export function getUploadCoreStore(rootStore) {
   return uploadCoreStoreInstance;
 }
 
-// 【任务4.1】导出解耦相关组件
+// 【方向B 2026-06-27】导出（已移除解耦设施 EventBus/StoreEventAdapter/actions）
 export {
-  // 事件总线
-  globalEventBus,
-  // 事件适配器
-  StoreEventAdapter,
   // 状态机类
   UploadStateMachine,
   // 状态机管理器类
   StateMachineManager,
   // guards
   guards,
-  // actions
-  createActions,
-  UploadEvents
 };
 
 export default UploadCoreStore;

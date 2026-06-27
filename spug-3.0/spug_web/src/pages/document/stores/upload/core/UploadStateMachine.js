@@ -22,7 +22,10 @@ import {
   isChunkedUpload
 } from './guards';
 
-import { createActions } from './actions';
+// 【方向B 2026-06-27】移除解耦设施（EventBus/StoreEventAdapter/actions）
+// 状态机通过 context.queueStore 直接更新 item，不再经过事件总线绕路
+// 原因：useDecoupledStateMachine 从未启用，adapter 半死不活，
+// 同一 item.status 被两条路径同时写（StateChangeHandler + StoreEventAdapter）
 
 export class UploadStateMachine {
   // 静态常量定义
@@ -41,7 +44,8 @@ export class UploadStateMachine {
     this._listenerWarningEmitted = false;  // 【任务3.3】防止重复警告
 
     // 创建 actions（通过事件总线与外部通信）
-    this.actions = createActions(uploadId);
+    // 【方向B 2026-06-27】已移除，entry/exit 直接调 context.queueStore
+    this.actions = null;
 
     // 状态定义
     this.states = {
@@ -51,7 +55,8 @@ export class UploadStateMachine {
         transitions: {
           START: { target: 'calculating', guard: this.canStart.bind(this) },
           PAUSE: { target: 'paused' },
-          CANCEL: { target: 'cancelled', action: this.actions.onCancel },
+          // 【方向B 2026-06-27】移除 action: this.actions.onCancel，onCancelledEntry 已处理副作用
+          CANCEL: { target: 'cancelled' },
           // 【P1修复 2026-06-27】合并失败重试快捷路径：waiting → merging
           // 场景：状态机因终态被释放后由 ensureStateMachine 重建为 waiting，
           // 但分片已全部上传完成，只需重新触发合并，无需重走 calculating → uploading
@@ -65,7 +70,7 @@ export class UploadStateMachine {
           MD5_COMPLETE: { target: 'uploading' },
           PAUSE: { target: 'paused' },
           ERROR: { target: 'error' },
-          CANCEL: { target: 'cancelled', action: this.actions.onCancel }
+          CANCEL: { target: 'cancelled' }
         }
       },
       uploading: {
@@ -75,8 +80,8 @@ export class UploadStateMachine {
           {
             event: 'UPLOAD_COMPLETE',
             target: 'completed',
-            guard: this.isNormalUpload.bind(this),
-            action: this.actions.onNormalUploadComplete
+            guard: this.isNormalUpload.bind(this)
+            // 【方向B】移除 action: this.actions.onNormalUploadComplete，onCompletedEntry 已处理
           },
           {
             event: 'UPLOAD_COMPLETE',
@@ -85,7 +90,7 @@ export class UploadStateMachine {
           },
           { event: 'PAUSE', target: 'paused' },
           { event: 'ERROR', target: 'error' },
-          { event: 'CANCEL', target: 'cancelled', action: this.actions.onCancel }
+          { event: 'CANCEL', target: 'cancelled' }
         ]
       },
       paused: {
@@ -101,18 +106,18 @@ export class UploadStateMachine {
           {
             event: 'RESUME',
             target: 'calculating',
-            guard: this.shouldRecalculateMD5.bind(this),
-            action: this.actions.onResumeToCalculating
+            guard: this.shouldRecalculateMD5.bind(this)
+            // 【方向B】移除 action: this.actions.onResumeToCalculating（adapter 中是空实现）
           },
           {
             event: 'RESUME',
             target: 'uploading',
-            guard: this.shouldResumeUpload.bind(this),
-            action: this.actions.onResumeToUploading
+            guard: this.shouldResumeUpload.bind(this)
+            // 【方向B】移除 action: this.actions.onResumeToUploading（adapter 中是空实现）
           },
           // 【修复 2026-06-06】暂停期间允许接收 ERROR 事件（如后端推送合并失败）
           { event: 'ERROR', target: 'error' },
-          { event: 'CANCEL', target: 'cancelled', action: this.actions.onCancel }
+          { event: 'CANCEL', target: 'cancelled' }
         ]
       },
       merging: {
@@ -122,7 +127,7 @@ export class UploadStateMachine {
           MERGE_SUCCESS: { target: 'completed' },
           ERROR: { target: 'error' },
           // 【修复 2026-06-06】合并中允许取消（之前已有，但已确认无 PAUSE）
-          CANCEL: { target: 'cancelled', action: this.actions.onCancel }
+          CANCEL: { target: 'cancelled' }
         }
       },
       completed: {
@@ -134,7 +139,7 @@ export class UploadStateMachine {
         transitions: {
           RESUME: { target: 'waiting', action: this.onRetryAction.bind(this) },
           // 【修复 2026-06-06】失败状态下允许取消（之前缺失，导致非法转换被静默吞下）
-          CANCEL: { target: 'cancelled', action: this.actions.onCancel },
+          CANCEL: { target: 'cancelled' },
           // 【P1修复 2026-06-27】合并失败重试快捷路径：error → merging
           // 场景：分片已全部上传完成，合并失败后直接重试合并，无需重传
           RETRY_MERGE: { target: 'merging' }
@@ -274,9 +279,12 @@ export class UploadStateMachine {
         this.context.metrics.hookErrors++;
       }
 
-      // 标记为错误状态
-      this.currentState = 'error';
-      this.actions.reportError(`状态转换异常: ${error.message}`);
+      // 【方向B】actions 已移除，直接通过 transition 进 error（避免递归，直接写状态）
+      this.updateItem({
+        status: 'error',
+        error: `状态转换异常: ${error.message}`,
+        canAbort: false
+      });
 
       // 通知错误监听器
       this.notifyListeners(fromState, 'error', 'ERROR', { error, originalEvent: event });
@@ -387,7 +395,7 @@ export class UploadStateMachine {
   // ============ 状态钩子 ============
 
   onWaitingEntry() {
-    this.actions.updateItem({
+    this.updateItem({
       status: 'waiting',
       error: null,
       canAbort: false
@@ -419,7 +427,7 @@ export class UploadStateMachine {
     // 【P0修复】检查File对象是否存在
     if (!item.file) {
       console.warn(`[UploadStateMachine] ${this.uploadId}: file object not found`);
-      this.actions.updateItem({
+      this.updateItem({
         status: 'error',
         error: '请重新选择文件',
         canAbort: false
@@ -437,26 +445,25 @@ export class UploadStateMachine {
       return;
     }
 
-    this.actions.updateItem({
+    this.updateItem({
       status: 'calculating',
       percent: 0,
       canAbort: true
     });
 
-    // 启动MD5计算
-    this.actions.startMD5Calculation();
+    // 【方向B】移除 this.actions.startMD5Calculation()（死代码：md5Store 无此方法，
+    // 实际 MD5 计算由 StateChangeHandler → UploadLifecycle.onCalculating 触发）
   }
 
   onCalculatingExit() {
-    // 中断MD5计算
-    this.actions.cancelMD5Calculation();
+    // 【方向B】移除 this.actions.cancelMD5Calculation()（死代码：md5Store 无此方法）
   }
 
   onUploadingEntry() {
     // 【7.1 状态机唯一入口】生命周期字段全部由状态机 entry 管理
     // isPausedByUser / isCancelledByUser 原先在 StateChangeHandler.handleUploadingState
     // 中重置，现收敛到状态机内部，避免业务模块直接写生命周期字段。
-    this.actions.updateItem({
+    this.updateItem({
       status: 'uploading',
       canAbort: true,
       isPausedByUser: false,
@@ -465,16 +472,13 @@ export class UploadStateMachine {
   }
 
   onUploadingExit() {
-    // 清理上传资源
-    const item = this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId);
-    if (item) {
-      this.actions.abortUpload(item.abortController, item.abortToken);
-    }
-    this.actions.cleanupUploadResources();
+    // 【方向B】清理上传资源（中止请求 + 清空 abortController/abortToken）
+    // 原 this.actions.abortUpload + cleanupUploadResources 已合并到 this.cleanupUploadResources
+    this.cleanupUploadResources();
   }
 
   onPausedEntry() {
-    this.actions.updateItem({
+    this.updateItem({
       status: 'paused',
       error: '已暂停',
       canAbort: false
@@ -485,7 +489,7 @@ export class UploadStateMachine {
   }
 
   onPausedExit() {
-    this.actions.updateItem({
+    this.updateItem({
       error: null
     });
   }
@@ -508,7 +512,7 @@ export class UploadStateMachine {
       return;
     }
 
-    this.actions.updateItem({
+    this.updateItem({
       status: 'merging',
       canAbort: false
     });
@@ -519,20 +523,21 @@ export class UploadStateMachine {
   }
 
   onCompletedEntry() {
-    this.actions.updateItem({
+    this.updateItem({
       status: 'completed',
       percent: 100,
-      canAbort: false
+      canAbort: false,
+      completedAt: Date.now()
     });
 
     // 清理资源
-    this.actions.cleanupAllResources();
+    this.cleanupAllResources();
 
     // 【P0修复 2026-06-27】后端同步由 StateChangeHandler → StatusSynchronizer 统一处理
   }
 
   onErrorEntry() {
-    this.actions.updateItem({
+    this.updateItem({
       status: 'error',
       canAbort: false
     });
@@ -542,13 +547,13 @@ export class UploadStateMachine {
       ? queueMicrotask
       : (fn) => Promise.resolve().then(fn);
     scheduleCleanup(() => {
-      this.actions.cleanupUploadResources();
+      this.cleanupUploadResources();
     });
   }
 
   onCancelledEntry() {
     try {
-      this.actions.updateItem({
+      this.updateItem({
         status: 'cancelled',
         error: '已取消',
         canAbort: false,
@@ -556,7 +561,7 @@ export class UploadStateMachine {
       });
 
       // 清理资源
-      this.actions.cleanupAllResources();
+      this.cleanupAllResources();
 
       // 【P0修复 2026-06-27】后端同步由 StateChangeHandler → StatusSynchronizer 统一处理
       // 不再在 entry 钩子中直接调 updateTransferStatus('CANCELED')
@@ -621,13 +626,29 @@ export class UploadStateMachine {
   // ============ 动作包装器 ============
 
   onResumeToWaitingAction() {
+    // 【方向B】原 this.actions.onResumeToWaiting(needsReSelect) 通过 EventBus 通知 adapter
+    // adapter handleResumeToWaiting 调 updateItem({status:'waiting', canAbort:false, error: needsReSelect?'请重新选择文件后继续':null})
+    // 但 RESUME→waiting 转换后 onWaitingEntry 已写 status:'waiting'/error:null/canAbort:false
+    // 这里仅补充 needsReSelect 的 error 提示（onWaitingEntry 会覆盖 error:null，需在 entry 后执行）
     const item = this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId);
     const needsReSelect = !item?.file;
-    this.actions.onResumeToWaiting(needsReSelect);
+    if (needsReSelect) {
+      // 延迟执行，避免被 onWaitingEntry 的 error:null 覆盖
+      const scheduleError = typeof queueMicrotask !== 'undefined'
+        ? queueMicrotask
+        : (fn) => Promise.resolve().then(fn);
+      scheduleError(() => {
+        this.updateItem({ error: '请重新选择文件后继续' });
+      });
+    }
   }
 
   onRetryAction() {
-    this.actions.onRetry();
+    // 【方向B】原 this.actions.onRetry() 通过 EventBus 通知 adapter
+    // adapter handleRetry 调 updateItem({error:null, percent:0})
+    // 但 RESUME→waiting 转换后 onWaitingEntry 已写 error:null/canAbort:false
+    // 这里仅重置 percent（onWaitingEntry 不写 percent）
+    this.updateItem({ percent: 0 });
 
     // 重试后自动开始上传
     const scheduleStart = typeof queueMicrotask !== 'undefined'
@@ -641,6 +662,42 @@ export class UploadStateMachine {
   }
 
   // ============ 辅助方法 ============
+
+  /**
+   * 【方向B 2026-06-27】更新队列项（替代原 this.actions.updateItem）
+   * 直接通过 context.queueStore 更新，不经过 EventBus 绕路
+   */
+  updateItem(updates) {
+    if (this.context.queueStore?.updateUploadItem) {
+      this.context.queueStore.updateUploadItem(this.uploadId, updates);
+    }
+  }
+
+  /**
+   * 【方向B 2026-06-27】清理上传资源（替代原 this.actions.cleanupUploadResources）
+   * 中止请求 + 清空 abortController/abortToken
+   */
+  cleanupUploadResources() {
+    const item = this.context.queueStore?.findUploadItemInCurrentTenant?.(this.uploadId);
+    if (item) {
+      if (item.abortController) {
+        try { item.abortController.abort('状态转换'); } catch (e) { /* 忽略 */ }
+      }
+      if (item.canAbort && item.abortToken) {
+        try { item.abortToken.cancel('状态转换'); } catch (e) { /* 忽略 */ }
+      }
+    }
+    this.updateItem({ abortController: null, abortToken: null });
+  }
+
+  /**
+   * 【方向B 2026-06-27】清理所有资源（替代原 this.actions.cleanupAllResources）
+   * 在 cleanupUploadResources 基础上额外清空 file 对象
+   */
+  cleanupAllResources() {
+    this.cleanupUploadResources();
+    this.updateItem({ file: null });
+  }
 
   updateContext(updates) {
     this.context = { ...this.context, ...updates };
