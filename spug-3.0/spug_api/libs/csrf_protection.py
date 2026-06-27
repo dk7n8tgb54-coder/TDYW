@@ -24,6 +24,12 @@ class OriginCheckMiddleware(MiddlewareMixin):
     Prevents cross-origin request forgery when using token auth.
     """
 
+    def _normalize_origin_values(self, value):
+        parsed = urlparse(value)
+        netloc = parsed.netloc or parsed.path
+        host_without_port = netloc.split(':')[0]
+        return {value, netloc, host_without_port}
+
     def _is_safe_origin(self, origin, host, allowed_origins):
         """Check if origin/host is in allowed list."""
         parsed = urlparse(origin)
@@ -31,7 +37,16 @@ class OriginCheckMiddleware(MiddlewareMixin):
         # 去掉端口进行比较，解决非默认端口访问时 Origin 带端口但 Host 不带端口的问题
         check_host_without_port = check_host.split(':')[0]
         host_without_port = host.split(':')[0]
-        return check_host == host or check_host_without_port == host_without_port or check_host in allowed_origins
+        allowed_values = set()
+        for allowed_origin in allowed_origins:
+            allowed_values.update(self._normalize_origin_values(allowed_origin))
+        return (
+            check_host == host
+            or check_host_without_port == host_without_port
+            or check_host in allowed_values
+            or check_host_without_port in allowed_values
+            or origin in allowed_values
+        )
 
     def _validate_request_origin(self, request):
         """Validate Origin or Referer header. Returns True if allowed."""

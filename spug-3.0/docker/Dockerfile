@@ -60,9 +60,11 @@ RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && 
 FROM ubuntu:22.04
 
 # 设置时区和字符集
+# DEBIAN_FRONTEND=noninteractive: 抑制 tzdata 等包安装时的交互式 debconf 提示
 ENV TZ=Asia/Shanghai \
     LANG=en_US.utf8 \
-    LC_ALL=en_US.utf8
+    LC_ALL=en_US.utf8 \
+    DEBIAN_FRONTEND=noninteractive
 
 # 安装运行时依赖
 RUN apt-get update && \
@@ -80,6 +82,7 @@ RUN apt-get update && \
     libffi8 \
     libssl3 \
     default-libmysqlclient-dev \
+    pkg-config \
     gcc \
     g++ \
     && rm -rf /var/lib/apt/lists/*

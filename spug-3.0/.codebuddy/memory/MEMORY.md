@@ -1,5 +1,12 @@
 # 项目记忆
 
+## Django 升级路线（2026-06-27 进行中）
+- 总路线：2.2.28 → 3.2.25（阶段1已完成）→ 4.2.30（阶段2已完成验收）→ 5.2 LTS（阶段3待做）
+- 容器 `tdyw-test`（镜像 `tdyw:django42-stage2`），项目路径 `/data/spug/spug_api`，Python 3.10
+- 阶段2验收中把 Channels 从 3.x 升到 4.x（3.x 与 asgiref 3.11 有兼容 bug），需重建镜像固化
+- **Channels 4.x 升级三要素**：consumer `__init__` 不能访问 `self.scope`（改用 `init()` 钩子）；routing 用 `Consumer.as_asgi()` 注册；asgi.py 用 `from spug.routing import application` 替代 `get_default_application()`
+- 遗留：settings.py 的 CELERY_TASK_ROUTES 任务名与资料库 cleanup 模块重构后路径不一致（非升级阻断项）
+
 ## 项目规范
 
 ### 上传状态机 operationVersion（7.3 异步并发安全）

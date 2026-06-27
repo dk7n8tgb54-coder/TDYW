@@ -112,6 +112,9 @@ class AuditLogMiddleware(MiddlewareMixin):
 
     def _parse_body(self, request):
         """解析请求体 JSON，返回 dict；非 JSON 或解析失败返回 None"""
+        content_type = request.META.get('CONTENT_TYPE', '')
+        if content_type and 'application/json' not in content_type.lower():
+            return None
         try:
             body = request.body
             if not body:
@@ -181,6 +184,9 @@ class AuditLogMiddleware(MiddlewareMixin):
         """从请求体中提取详情、名称和ID"""
         detail = None
         if request.method not in ('POST', 'PUT', 'PATCH'):
+            return target_id, target_name, detail
+        content_type = request.META.get('CONTENT_TYPE', '')
+        if body_data is None and content_type and 'application/json' not in content_type.lower():
             return target_id, target_name, detail
         try:
             if body_data is None:

@@ -12,8 +12,9 @@ import json
 
 
 class ComConsumer(BaseConsumer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    # Channels 3.x 不再在 __init__ 时设置 self.scope，
+    # 改用 BaseConsumer.connect() 中的 init() 钩子（验证用户后调用）
+    def init(self):
         token = self.scope['url_route']['kwargs']['token']
         module = self.scope['url_route']['kwargs']['module']
         if module == 'build':
@@ -25,7 +26,8 @@ class ComConsumer(BaseConsumer):
         self.rds = get_redis_connection()
 
     def disconnect(self, code):
-        self.rds.close()
+        if hasattr(self, 'rds') and self.rds:
+            self.rds.close()
 
     def get_response(self, index):
         counter = 0
@@ -48,16 +50,19 @@ class ComConsumer(BaseConsumer):
 
 
 class PubSubConsumer(BaseConsumer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    # Channels 3.x 不再在 __init__ 时设置 self.scope，
+    # 改用 BaseConsumer.connect() 中的 init() 钩子（验证用户后调用）
+    def init(self):
         self.token = self.scope['url_route']['kwargs']['token']
         self.rds = get_redis_connection()
         self.p = self.rds.pubsub(ignore_subscribe_messages=True)
         self.p.subscribe(self.token)
 
     def disconnect(self, code):
-        self.p.close()
-        self.rds.close()
+        if hasattr(self, 'p') and self.p:
+            self.p.close()
+        if hasattr(self, 'rds') and self.rds:
+            self.rds.close()
 
     def receive(self, **kwargs):
         response = self.p.get_message(timeout=10)
