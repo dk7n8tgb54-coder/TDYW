@@ -5,6 +5,7 @@
  */
 import StatisticsCard from './StatisticsCard';
 import SearchForm from './SearchForm';
+import FilterBar from './FilterBar';
 import LinkButton from './LinkButton';
 import AuthButton from './AuthButton';
 import AuthFragment from './AuthFragment';
@@ -22,6 +23,7 @@ export {
   StatisticsCard,
   AuthFragment,
   SearchForm,
+  FilterBar,
   LinkButton,
   AuthButton,
   AuthCard,

@@ -39,22 +39,22 @@ SHEET_NAME = '干扰信息统计'
 def get_export_queryset(request):
     """按当前筛选条件查询数据，与前端 store 的过滤规则保持一致。"""
     qs = apply_tenant_filter(Interference.objects.all(), request.user)
+    frequency = request.GET.get('frequency')
+    if frequency:
+        qs = qs.filter(frequency__icontains=frequency)
     report_dept = request.GET.get('report_dept')
     if report_dept:
         qs = qs.filter(report_dept__icontains=report_dept)
     interference_type = request.GET.get('interference_type')
     if interference_type:
         qs = qs.filter(interference_type__icontains=interference_type)
-    phenomenon = request.GET.get('phenomenon')
-    if phenomenon:
-        qs = qs.filter(phenomenon__icontains=phenomenon)
-    # 日期范围（前端按 datetime 前10位字符串比较，后端用 gte/lte）
+    # 日期范围（datetime 为 CharField 存 "YYYY-MM-DD HH:MM:SS"，end_date 补 23:59:59 包含整天）
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
     if start_date:
         qs = qs.filter(datetime__gte=start_date)
     if end_date:
-        qs = qs.filter(datetime__lte=end_date)
+        qs = qs.filter(datetime__lte=end_date + ' 23:59:59')
     return qs
 
 

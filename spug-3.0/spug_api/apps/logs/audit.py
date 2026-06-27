@@ -1,0 +1,223 @@
+# Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
+# Copyright: (c) <spug.dev@gmail.com>
+# Released under the AGPL-3.0 License.
+
+"""
+审计日志核心工具模块
+提供：
+1. 线程本地存储（用于Django信号获取当前用户）
+2. URL路径 → 操作对象类型映射
+3. HTTP方法 → 操作类型映射
+4. @audit 装饰器（用于登录/登出/导出等特殊操作）
+5. save_audit_log() 辅助函数
+"""
+
+import json
+import threading
+import logging
+from functools import wraps
+
+logger = logging.getLogger(__name__)
+
+# ==================== 线程本地存储 ====================
+_audit_local = threading.local()
+
+
+def set_audit_user(user):
+    """设置当前线程的审计用户（从中间件调用）"""
+    _audit_local.user = user
+
+
+def get_audit_user():
+    """获取当前线程的审计用户（信号处理器中使用）"""
+    return getattr(_audit_local, 'user', None)
+
+
+def clear_audit_user():
+    """清除当前线程的审计用户"""
+    if hasattr(_audit_local, 'user'):
+        delattr(_audit_local, 'user')
+
+
+# ==================== URL → 操作对象映射 ====================
+# 键：URL路径前缀，值：{'type': 对象类型标识, 'name': 中文名称}
+TARGET_MAP = {
+    '/account/user': {'type': 'user', 'name': '用户'},
+    '/account/role': {'type': 'role', 'name': '角色'},
+    '/account/self': {'type': 'self', 'name': '个人信息'},
+    '/account/login': {'type': 'auth', 'name': '认证'},
+    '/account/logout': {'type': 'auth', 'name': '认证'},
+    '/device/': {'type': 'device', 'name': '设备'},
+    '/document/': {'type': 'document', 'name': '文档'},
+    '/schedule/': {'type': 'schedule', 'name': '排班'},
+    '/fault/': {'type': 'fault', 'name': '故障'},
+    '/duty/': {'type': 'duty', 'name': '值班'},
+    '/interference/': {'type': 'interference', 'name': '干扰'},
+    '/runlog/': {'type': 'runlog', 'name': '运行日志'},
+    '/setting/': {'type': 'setting', 'name': '系统设置'},
+    '/upgrade/': {'type': 'upgrade', 'name': '升级'},
+    '/checksheet/': {'type': 'checksheet', 'name': '检查表'},
+    '/home/': {'type': 'home', 'name': '首页'},
+    '/exec/': {'type': 'exec', 'name': '执行'},
+    '/apis/': {'type': 'api', 'name': 'API'},
+}
+
+
+# ==================== HTTP方法 → 操作类型映射 ====================
+METHOD_ACTION_MAP = {
+    'POST': 'create',
+    'PUT': 'update',
+    'PATCH': 'update',
+    'DELETE': 'delete',
+}
+
+# 请求体 action 字段 → 审计动作映射
+# 用于 POST 携带 action 字段表达真实业务动作的场景（如值班日志 POST {action: 'delete'}）
+BODY_ACTION_MAP = {
+    'delete': 'delete',
+    'export': 'export',
+    'import': 'import',
+    'approve': 'approve',
+}
+
+
+# ==================== 中间件排除路径 ====================
+# 这些路径不记录审计日志
+AUDIT_EXCLUDES = [
+    '/account/login/',     # 登录由装饰器单独记录
+    '/account/login/history/',
+    '/logs/audit/',        # 审计日志查询本身不记录
+]
+
+
+def resolve_target(path):
+    """根据URL路径解析操作对象类型"""
+    for prefix, info in TARGET_MAP.items():
+        if prefix in path:
+            return info
+    return {'type': 'unknown', 'name': '未知'}
+
+
+def resolve_action(method, body_data=None):
+    """根据HTTP方法和请求体解析操作类型
+
+    优先根据请求体中的 action 字段判断业务动作（如 POST + action=delete），
+    否则按 HTTP 方法映射。普通 POST 新增仍记录为 create。
+    """
+    if isinstance(body_data, dict):
+        action = str(body_data.get('action') or '').strip().lower()
+        if action in BODY_ACTION_MAP:
+            return BODY_ACTION_MAP[action]
+    return METHOD_ACTION_MAP.get(method, 'other')
+
+
+def save_audit_log(user_id, username, action, target_type, target_id=None,
+                   target_name=None, detail=None, ip='', is_success=True,
+                   tenant_id='default'):
+    """保存审计日志记录"""
+    try:
+        from apps.logs.models import AuditLog
+        if isinstance(detail, dict):
+            detail = json.dumps(detail, ensure_ascii=False)
+        AuditLog.objects.create(
+            user_id=user_id,
+            username=username,
+            action=action,
+            target_type=target_type,
+            target_id=str(target_id) if target_id else None,
+            target_name=target_name,
+            detail=detail,
+            ip=ip,
+            is_success=is_success,
+            tenant_id=tenant_id,
+        )
+    except Exception as e:
+        logger.error(f'[AUDIT] 保存审计日志失败: {e}')
+
+
+# ==================== 审计装饰器 ====================
+def audit(action, target_type=None, target_name=None):
+    """
+    审计日志装饰器，用于需要细粒度记录的操作（如登录/登出/导出等）
+
+    用法：
+        @audit('登录系统', target_type='auth')
+        def login(request):
+            ...
+
+        @audit('导出PDF', target_type='device', target_name='设备')
+        def export_pdf(request):
+            ...
+    """
+    def decorate(view_func):
+        @wraps(view_func)
+        def wrapper(*args, **kwargs):
+            # 提取request对象
+            request = None
+            for item in args[:2]:
+                if hasattr(item, 'user') or hasattr(item, 'method'):
+                    request = item
+                    break
+
+            # 执行视图函数
+            response = view_func(*args, **kwargs)
+
+            # 记录审计日志
+            if request:
+                try:
+                    user = getattr(request, 'user', None)
+                    if user and hasattr(user, 'id'):
+                        ip = ''
+                        if hasattr(request, 'headers'):
+                            from libs.utils import get_request_real_ip
+                            ip = get_request_real_ip(request.headers)
+
+                        # 判断操作是否成功（基于响应状态码）
+                        is_success = True
+                        if hasattr(response, 'status_code') and response.status_code >= 400:
+                            is_success = False
+
+                        # 解析target_type
+                        _target_type = target_type or 'other'
+                        _target_name = target_name or action
+
+                        save_audit_log(
+                            user_id=user.id,
+                            username=user.username,
+                            action=_map_action(action),
+                            target_type=_target_type,
+                            target_name=_target_name,
+                            ip=ip,
+                            is_success=is_success,
+                            tenant_id=getattr(user, 'tenant_id', 'default'),
+                        )
+                except Exception as e:
+                    logger.error(f'[AUDIT] 装饰器记录审计日志失败: {e}')
+
+            return response
+        return wrapper
+    return decorate
+
+
+def _map_action(action_desc):
+    """将中文操作描述映射为action字段值"""
+    action_lower = action_desc.lower() if isinstance(action_desc, str) else ''
+    mapping = {
+        '登录': 'login',
+        '登出': 'logout',
+        '退出': 'logout',
+        '创建': 'create',
+        '新增': 'create',
+            '添加': 'create',
+        '修改': 'update',
+        '更新': 'update',
+        '编辑': 'update',
+        '删除': 'delete',
+        '导出': 'export',
+        '导入': 'import',
+        '审批': 'approve',
+    }
+    for key, value in mapping.items():
+        if key in action_desc:
+            return value
+    return 'other'

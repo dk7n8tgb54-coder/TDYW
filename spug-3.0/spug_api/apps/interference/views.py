@@ -15,24 +15,41 @@ logger = logging.getLogger(__name__)
 class InterferenceView(View):
     @auth('interference.interference.view')
     def get(self, request):
-        # 优化：先获取过滤后的QuerySet，避免重复过滤
-        records = apply_tenant_filter(Interference.objects.all(), request.user)
+        # 基础 QuerySet（租户隔离）
+        base_qs = apply_tenant_filter(Interference.objects.all(), request.user)
 
-        # 优化：使用values()获取干扰类型和汇报科室，减少数据传输
-        interference_types = list(records.order_by('interference_type')
+        # 下拉选项基于租户全部数据，避免筛选后选项变少
+        interference_types = list(base_qs.order_by('interference_type')
                                   .values_list('interference_type', flat=True)
                                   .distinct())
-        report_depts = list(records.order_by('report_dept')
+        report_depts = list(base_qs.order_by('report_dept')
                                .values_list('report_dept', flat=True)
                                .distinct())
 
-        # 优化：限制返回记录数量，添加分页参数
+        # 应用筛选条件
+        records = base_qs
+        frequency = request.GET.get('frequency')
+        if frequency:
+            records = records.filter(frequency__icontains=frequency)
+        report_dept = request.GET.get('report_dept')
+        if report_dept:
+            records = records.filter(report_dept__icontains=report_dept)
+        interference_type = request.GET.get('interference_type')
+        if interference_type:
+            records = records.filter(interference_type__icontains=interference_type)
+        # datetime 为 CharField 存 "YYYY-MM-DD HH:MM:SS"，end_date 补 23:59:59 包含整天
+        start_date = request.GET.get('start_date')
+        if start_date:
+            records = records.filter(datetime__gte=start_date)
+        end_date = request.GET.get('end_date')
+        if end_date:
+            records = records.filter(datetime__lte=end_date + ' 23:59:59')
+
+        # 先统计过滤后总数，再分页
         page = int(request.GET.get('page', 1))
         page_size = int(request.GET.get('page_size', 100))
-
-        # 优化：使用select_related减少外键查询
-        records = records.select_related('created_by', 'updated_by')
         total_count = records.count()
+        records = records.select_related('created_by', 'updated_by')
         offset = (page - 1) * page_size
         records = records[offset:offset + page_size]
 
@@ -60,6 +77,12 @@ class InterferenceView(View):
             Argument('is_reported', help='请选择是否上报')
         ).parse(request.body)
         if error is None:
+            # 校验 datetime 格式必须为 YYYY-MM-DD HH:MM:SS（CharField 存储依赖格式一致性）
+            if form.datetime:
+                try:
+                    datetime.strptime(form.datetime, '%Y-%m-%d %H:%M:%S')
+                except (ValueError, TypeError):
+                    return json_response(error='日期时间格式必须为 YYYY-MM-DD HH:MM:SS')
             if form.id:
                 if not request.user.has_perms({'interference.interference.edit'}):
                     return json_response(error='权限拒绝')
@@ -118,29 +141,32 @@ class InterferenceStatisticsView(View):
 
             logger.info(f'[InterferenceStatistics] 过滤后记录数: {filtered_records.count()}')
 
-            # 优化：使用数据库聚合统计，避免Python循环
+            # 按日期前缀聚合：datetime 为 CharField 存 "YYYY-MM-DD HH:MM:SS"，
+            # 用 Substr 截取前 10 位作为日期，避免同一天不同时间产生重复日期行
             from django.db.models import Count
+            from django.db.models.functions import Substr
+
+            annotated = filtered_records.annotate(date=Substr('datetime', 1, 10))
 
             # 按日期、频率统计
-            freq_stats = filtered_records.values('datetime', 'frequency').annotate(
+            freq_stats = annotated.values('date', 'frequency').annotate(
                 count=Count('id')
-            ).order_by('datetime', 'frequency')
+            ).order_by('date', 'frequency')
 
             # 按日期、类型统计
-            type_stats = filtered_records.values('datetime', 'interference_type').annotate(
+            type_stats = annotated.values('date', 'interference_type').annotate(
                 count=Count('id')
-            ).order_by('datetime', 'interference_type')
+            ).order_by('date', 'interference_type')
 
             total_count = filtered_records.count()
 
-            # 提取日期前缀（前10位）
             freq_trend = []
             type_trend = []
             seen_freq = set()
             seen_type = set()
 
             for stat in freq_stats:
-                date_str = stat['datetime'][:10] if stat['datetime'] and len(stat['datetime']) >= 10 else stat['datetime']
+                date_str = stat['date'] or ''
                 freq_trend.append({
                     'date': date_str,
                     'frequency': stat['frequency'],
@@ -149,7 +175,7 @@ class InterferenceStatisticsView(View):
                 seen_freq.add(stat['frequency'])
 
             for stat in type_stats:
-                date_str = stat['datetime'][:10] if stat['datetime'] and len(stat['datetime']) >= 10 else stat['datetime']
+                date_str = stat['date'] or ''
                 type_trend.append({
                     'date': date_str,
                     'type': stat['interference_type'],

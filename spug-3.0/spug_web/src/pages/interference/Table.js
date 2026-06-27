@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Table, Modal, message, DatePicker } from 'antd';
+import { Table, Modal, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
 import { Action, TableCard, AuthButton, ExportButton } from "components";
@@ -53,14 +53,6 @@ class ComTable extends React.Component {
             type="primary"
             icon={<PlusOutlined/>}
             onClick={() => store.showForm({}, false)}>新建</AuthButton>,
-          <span key="date-range-picker" style={{ marginRight: 8 }}>
-            <DatePicker.RangePicker
-              placeholder={['开始日期', '结束日期']}
-              value={store.f_export_date_range}
-              onChange={(dates) => store.f_export_date_range = dates}
-              style={{ width: 280 }}
-            />
-          </span>,
           <ExportButton
             auth="interference.interference.view"
             url="/api/interference/export/"
@@ -86,11 +78,8 @@ class ComTable extends React.Component {
           align="center"
           width={80}
           render={(text, record, index) => {
-            // 动态生成序号：基于当前页码和每页大小计算
-            const pagination = store.pagination || {};
-            const currentPage = pagination.current || 1;
-            const pageSize = pagination.pageSize || 10;
-            return (currentPage - 1) * pageSize + index + 1;
+            // 序号基于当前页码和每页大小计算，翻页后连续递增
+            return (store.pageNum - 1) * store.pageSize + index + 1;
           }}
         />
         <Table.Column title="频率" dataIndex="frequency"/>

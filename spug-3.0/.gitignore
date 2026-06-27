@@ -44,7 +44,7 @@ storage/
 backups/
 # 日志文件
 *.log
-logs/
+spug_api/logs/
 data/backend/logs/
 
 # 临时文件
