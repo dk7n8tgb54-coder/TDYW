@@ -98,7 +98,7 @@ class UploadCoreStore {
   useDecoupledStateMachine = false;
 
   // ===== 非observable =====
-  cancelTokenSources = new Map();
+  // 【方向B 2026-06-27】已删除 cancelTokenSources 字段（从未被写入，死代码）
   cleanupTimer = null;
   stateMachineCleanupTimer = null;
   failedSyncTransfers = [];
@@ -312,41 +312,25 @@ class UploadCoreStore {
     return this.fileUploadCoordinator?.handleFileSelect(files);
   }
 
-  processUploadQueue(files, folderId) {
-    return this.fileUploadCoordinator?.processUploadQueue(files, folderId);
-  }
-
-  uploadSingleFile(file, folderId, existingUploadId, isPublic) {
-    return this.fileUploadCoordinator?.uploadSingleFile(file, folderId, existingUploadId, isPublic);
-  }
+  // 【方向B 2026-06-27】已删除 processUploadQueue/uploadSingleFile 代理（0 调用方）
 
   handleFolderSelect(files) {
     return this.folderUploadStore.handleFolderSelect(files);
   }
 
-  // ===== 队列控制（代理到协调器）=====
-
-  startWaitingTasks() {
-    return this.uploadCoordinator?.startWaiting();
-  }
-
-  processPendingUploads() {
-    return this.uploadCoordinator?.processPending();
-  }
+  // ===== 队列控制 =====
 
   replenishDisplayQueue() {
     return this.uploadCoordinator?.startWaiting();
   }
 
-  schedulePendingUploadsRecovery() {
-    return this.recoveryCoordinator?.schedule();
-  }
+  // 【方向B 2026-06-27】已删除 startWaitingTasks/processPendingUploads/schedulePendingUploadsRecovery
+  // 原因：0 外部调用方，内部子模块已直接通过 this.core.uploadCoordinator.xxx 调用
 
   // ===== 批量操作（代理到控制器）=====
 
   pauseAll = async () => this.debounceController?.pauseAll();
   resumeAll = async () => this.debounceController?.resumeAll();
-  cancelAll = async () => this.queueOperationController?.cancelAll();
   removeAll = async () => this.queueOperationController?.removeAll();
 
   // ===== 单文件控制（代理到控制器，带防抖）=====
@@ -416,55 +400,21 @@ class UploadCoreStore {
     if (this.queueStore) {
       this.queueStore.destroy();
     }
-    this.cancelAll();
+    // 【方向B 2026-06-27】已删除 this.cancelAll() 调用
+    // destroy 只应清理资源（定时器/监听器/Worker），不应取消用户正在进行的上传任务
+    // 如未来 destroy 被实际调用且需要中止请求，应单独实现"中止所有请求"的资源清理逻辑
     this.md5Store.terminateAll();
   }
 
-  cancelAllUploads() {
-    this.cancelTokenSources.forEach((source, uploadId) => {
-      source.cancel(`全局取消：${uploadId}`);
-    });
-    this.cancelTokenSources.clear();
-  }
+  // 【方向B 2026-06-27】已删除 cancelAllUploads/createCancelToken/cancelUpload/cancelTokenSources
+  // 原因：cancelTokenSources 从未被写入（createCancelToken 0 调用方），
+  // cancelAllUploads/cancelUpload 0 调用方，全部是死代码
+  // 实际请求中止通过 item.abortToken.cancel() / item.abortController.abort() 实现
 
-  async createCancelToken(uploadId) {
-    const axios = await import('axios');
-    const source = axios.default.CancelToken.source();
-    this.cancelTokenSources.set(uploadId, source);
-    return source.token;
-  }
-
-  cancelUpload(uploadId) {
-    const source = this.cancelTokenSources.get(uploadId);
-    if (source) {
-      source.cancel(`上传取消：${uploadId}`);
-      this.cancelTokenSources.delete(uploadId);
-    }
-  }
-
-  // ===== 代理 transferStore 的方法 =====
-
-  fetchTransfers(isPublic) { return this.transferStore.fetchTransfers(isPublic); }
-  createTransfer(data) { return this.transferStore.createTransfer(data); }
-  updateTransferStatus(transferId, status) { return this.transferStore.updateTransferStatus(transferId, status); }
-  cancelTransfer(transferId) { return this.transferStore.cancelTransfer(transferId); }
-  deleteTransfer(transferId) { return this.transferStore.deleteTransfer(transferId); }
-
-  // ===== 状态同步（代理到同步器）=====
-
-  syncTransferStatus(isPublic) {
-    return this.statusSynchronizer?.syncTransferStatus(isPublic);
-  }
-
-  mapBackendStatus(backendStatus) {
-    return this.statusSynchronizer?.mapBackendStatus(backendStatus);
-  }
-
-  // ===== 其他工具方法 =====
-
-  cleanupMD5WorkerPool() {
-    this.md5Store.terminateAll();
-  }
+  // 【方向B 2026-06-27】已删除 transferStore/sync/md5 的 8 个纯转发代理方法
+  // 原因：0 外部调用方 + 0 内部 this.core.xxx 调用，纯死代码
+  // 内部子模块已直接通过 this.core.transferStore.xxx / this.core.statusSynchronizer.xxx 调用
+  // 如需外部访问，可直接用 uploadCoreStore.transferStore.xxx
 }
 
 // 创建实例（用于兼容旧代码）

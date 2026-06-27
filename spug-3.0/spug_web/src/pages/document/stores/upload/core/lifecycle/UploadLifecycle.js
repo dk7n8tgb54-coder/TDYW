@@ -121,23 +121,8 @@ export class UploadLifecycle {
     }
   }
 
-  /**
-   * 上传完成后清理资源
-   * @param {string} uploadId - 上传任务ID
-   */
-  @action
-  cleanupAfterUpload(uploadId) {
-    // 清理AbortController
-    const item = this.core.queueStore.findUploadItemInCurrentTenant(uploadId);
-    if (item?.abortController) {
-      item.abortController = null;
-    }
-    
-    // 清理cancelToken
-    if (this.core.cancelTokenSources.has(uploadId)) {
-      this.core.cancelTokenSources.delete(uploadId);
-    }
-  }
+  // 【方向B 2026-06-27】已删除 cleanupAfterUpload 方法（0 调用方 + 引用已删除的 cancelTokenSources）
+  // 资源清理已由 UploadStateMachine.onCompletedEntry/onCancelledEntry 的 cleanupAllResources 统一处理
 }
 
 export default UploadLifecycle;
