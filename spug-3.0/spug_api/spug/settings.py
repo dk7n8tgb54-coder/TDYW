@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     'apps.checksheet',
     'apps.logs',
     'apps.radio_license',
+    'apps.evidence',
     'channels',
     'django_celery_results',  # Celery results backend
     'django_celery_beat',     # Celery Beat定时任务调度
