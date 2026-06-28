@@ -26,7 +26,6 @@ const TARGET_TYPE_MAP = {
   auth: '认证',
   device: '设备',
   document: '文档',
-  schedule: '排班',
   fault: '故障',
   duty: '值班',
   interference: '干扰',
@@ -63,8 +62,8 @@ const FIELD_LABEL_MAP = {
   // 文档
   parent_id: '父目录ID', file_type: '文件类型', file_size: '文件大小',
   file_hash: '文件哈希', mime_type: 'MIME类型',
-  // 排班/值班
-  schedule_type: '排班类型', shift: '班次', date: '日期',
+  // 值班
+  shift: '班次', date: '日期',
   start_time: '开始时间', end_time: '结束时间', user_id: '用户ID',
   // 故障
   fault_type: '故障类型', fault_level: '故障等级', severity: '严重程度',

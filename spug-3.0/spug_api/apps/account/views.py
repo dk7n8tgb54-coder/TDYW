@@ -258,16 +258,6 @@ class UserView(AdminView):
             migrate_existing_data({user.username: new_tenant_id})
         except Exception as e:
             logger.error(f'Account: Failed to migrate user {user.username} tenant data: {e}', exc_info=True)
-        # 清理排班缓存：同时清理新旧租户
-        try:
-            from apps.schedule.cache_utils import invalidate_schedule_cache
-            if old_tenant_id:
-                invalidate_schedule_cache(tenant_id=old_tenant_id)
-            invalidate_schedule_cache(tenant_id=new_tenant_id)
-        except ImportError:
-            logger.warning(f'Account: Cannot import invalidate_schedule_cache')
-        except Exception as e:
-            logger.error(f'Account: Failed to invalidate schedule cache: {e}')
 
 
 class RoleView(AdminView):

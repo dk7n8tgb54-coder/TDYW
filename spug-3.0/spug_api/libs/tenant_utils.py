@@ -241,10 +241,6 @@ def migrate_existing_data(tenant_id_map):
     from apps.duty.models import DutyRecord
     from apps.interference.models import Interference
     from apps.runlog.models import RunLog
-    from apps.schedule.models import (
-        ScheduleStaff, ScheduleShift, ScheduleShiftTime,
-        Schedule, ScheduleSwap, ScheduleSubstitute
-    )
     from apps.upgrade.models import UpgradeRecord
 
     # 为用户分配租户
@@ -255,8 +251,7 @@ def migrate_existing_data(tenant_id_map):
     # 为现有数据分配租户(根据created_by的用户租户)
     models_to_migrate = [
         RunLog, FaultRecord, FaultPart, Interference, UpgradeRecord,
-        DutyRecord, ScheduleStaff, ScheduleShift,
-        ScheduleShiftTime, Schedule, ScheduleSwap, ScheduleSubstitute
+        DutyRecord
     ]
 
     for model in models_to_migrate:

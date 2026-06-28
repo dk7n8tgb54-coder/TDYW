@@ -29,7 +29,7 @@ def tenant_operation_check(request, model, record_id, operation='操作'):
 
     租户过滤规则（30人内网团队核心场景）：
     1. 通过PK直接操作记录 → 必须加租户过滤（无上下文，易跨租户）
-    2. 基于已过滤的record查关联表（如ScheduleSwap→Schedule）→ 不加（record已限定租户）
+    2. 基于已过滤的record查关联表 → 不加（record已限定租户）
     3. 批量操作ID列表 → 验证"过滤后数量=原数量"（避免混有跨租户ID）
     4. 所有过滤失败场景 → 统一返回"记录不存在或无权操作"
     """
@@ -44,50 +44,22 @@ def tenant_operation_check(request, model, record_id, operation='操作'):
 
 
 class DutyImportView(View):
-    """值班日志引入数据 - 聚合运行日志、干扰记录"""
+    """值班日志引入数据 - 聚合运行日志、干扰记录
+
+    按《模块间调用规范方案.md》：跨模块数据统一通过各模块 services.py 获取，
+    视图层不直接 import 其他业务模块的 models。运行日志已迁移至
+    ``apps.runlog.services.get_duty_import_items``，由本模块的
+    ``apps.duty.import_services.get_import_records`` 负责聚合。
+    """
     @auth('duty.duty.view')
     def get(self, request):
         from datetime import datetime
-        from apps.runlog.models import RunLog, RunLogUpdate
-        from apps.interference.models import Interference
+        from apps.duty.import_services import get_import_records
 
         date_str = request.GET.get('date')
         target_date = date_str if date_str else datetime.now().strftime('%Y-%m-%d')
 
-        result = {'date': target_date}
-
-        # 1. 运行日志动态
-        runlog_updates = apply_tenant_filter(
-            RunLogUpdate.objects.filter(update_date=target_date), request.user
-        ).order_by('update_date', 'sequence', 'id')
-        runlog_ids = [u.runlog_id for u in runlog_updates]
-        runlog_events = {
-            e.id: e for e in apply_tenant_filter(
-                RunLog.objects.filter(pk__in=runlog_ids), request.user
-            )
-        }
-        result['runlog'] = [{
-            'id': f'runlog_{u.id}',
-            'source': 'runlog',
-            'title': getattr(runlog_events.get(u.runlog_id), 'event_title', u.event_title),
-            'sequence': u.sequence,
-            'recorder': u.recorder,
-            'content': u.detail_content,
-        } for u in runlog_updates]
-
-        # 2. 干扰记录（datetime字段是"YYYY-MM-DD HH:mm"格式，取前10位匹配日期）
-        interferences = apply_tenant_filter(
-            Interference.objects.all(), request.user
-        ).filter(datetime__startswith=target_date).order_by('-id')
-        result['interference'] = [{
-            'id': f'interference_{r.id}',
-            'source': 'interference',
-            'title': f'{r.interference_type} - {r.frequency}',
-            'sub_title': r.report_dept,
-            'content': r.phenomenon,
-        } for r in interferences]
-
-        return json_response(result)
+        return json_response(get_import_records(target_date, request.user))
 
 
 class DutyRecordView(View):

@@ -65,7 +65,6 @@ INSTALLED_APPS = [
     'apps.home',
     'apps.runlog',
     'apps.document',
-    'apps.schedule',
     'apps.upgrade',
     'apps.checksheet',
     'apps.logs',

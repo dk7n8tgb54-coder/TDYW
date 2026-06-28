@@ -127,58 +127,6 @@ export default [{
     ]
   }]
 }, {
-  key: 'schedule',
-  label: '排班管理',
-  pages: [{
-    key: 'schedule',
-    label: '排班日历',
-    perms: [
-      {key: 'view', label: '查看排班'},
-      {key: 'add', label: '新建排班'},
-      {key: 'edit', label: '编辑排班'},
-      {key: 'del', label: '删除排班'},
-      {key: 'auto_schedule', label: '自动排班'},
-    ]
-  }, {
-    key: 'staff',
-    label: '值班人员管理',
-    perms: [
-      {key: 'view', label: '查看值班人员'},
-      {key: 'add', label: '新建值班人员'},
-      {key: 'edit', label: '编辑值班人员'},
-      {key: 'del', label: '删除值班人员'},
-    ]
-  }, {
-    key: 'shift',
-    label: '班次管理',
-    perms: [
-      {key: 'view', label: '查看班次'},
-      {key: 'add', label: '新建班次'},
-      {key: 'edit', label: '编辑班次'},
-      {key: 'del', label: '删除班次'},
-    ]
-  }, {
-    key: 'swap',
-    label: '换班管理',
-    perms: [
-      {key: 'view', label: '查看换班记录'},
-      {key: 'add', label: '申请换班'},
-      {key: 'edit', label: '编辑换班'},
-      {key: 'del', label: '删除换班'},
-      {key: 'cancel', label: '撤销换班'},
-    ]
-  }, {
-    key: 'substitute',
-    label: '替班管理',
-    perms: [
-      {key: 'view', label: '查看替班记录'},
-      {key: 'add', label: '申请替班'},
-      {key: 'edit', label: '编辑替班'},
-      {key: 'del', label: '删除替班'},
-      {key: 'cancel', label: '撤销替班'},
-    ]
-  }]
-}, {
   key: 'checksheet',
   label: '部门值班日检查单',
   pages: [{

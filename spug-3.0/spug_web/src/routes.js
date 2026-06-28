@@ -13,7 +13,6 @@ import {
   ExceptionOutlined,
   CloudUploadOutlined,
   ClockCircleOutlined,
-  CalendarOutlined,
   ApartmentOutlined,
   CheckSquareOutlined,
   DeleteOutlined,
@@ -42,8 +41,6 @@ import ExecUpgradeStatistics from './pages/upgrade/Statistics';
 import ExecUpgradeTemplates from './pages/upgrade/TemplateManager';
 import ExecUpgradeChecklists from './pages/upgrade/ChecklistManager';
 import ExecDutyRecord from './pages/duty';
-import ScheduleIndex from './pages/schedule';
-import ScheduleBasis from './pages/schedule/BasisView';
 import CheckSheetIndex from './pages/checksheet';
 import RadioLicenseIndex from './pages/radioLicense';
 
@@ -70,10 +67,6 @@ export default [
     {title: '步骤清单', auth: 'upgrade.upgrade.view', path: '/upgrade/checklists', component: ExecUpgradeChecklists},
   ]},
   {icon: <ClockCircleOutlined/>, title: '值班日志', auth: 'duty.duty.view', path: '/duty', component: ExecDutyRecord},
-  {icon: <CalendarOutlined/>, title: '排班管理', auth: 'schedule.schedule.view|schedule.staff.view|schedule.shift.view', child: [
-    {title: '排班日历', auth: 'schedule.schedule.view', path: '/schedule', component: ScheduleIndex},
-    {title: '基础数据', auth: 'schedule.staff.view', path: '/schedule/basis', component: ScheduleBasis},
-  ]},
   {icon: <BugOutlined/>, title: '故障管理', auth: 'fault.faultrecord.view|fault.faultpart.view', child: [
     {title: '故障处置记录', auth: 'fault.faultrecord.view', path: '/exec/fault/record', component: ExecFaultRecord},
     {title: '故障件管理', auth: 'fault.faultpart.view', path: '/exec/fault/part', component: ExecFaultPart},

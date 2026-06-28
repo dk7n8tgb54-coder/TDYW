@@ -9,7 +9,6 @@ from apps.home.navigation import NavView
 
 urlpatterns = [
     path('statistic/', get_statistic),
-    path('duty/today/', DutyTodayView.as_view()),
     path('notice/', NoticeView.as_view()),
     path('navigation/', NavView.as_view()),
 ]

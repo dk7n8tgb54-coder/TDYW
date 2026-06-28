@@ -53,7 +53,6 @@ TARGET_MAP = {
     # 业务模块
     '/device/': {'type': 'device', 'name': '设备'},
     '/document/': {'type': 'document', 'name': '文档'},
-    '/schedule/': {'type': 'schedule', 'name': '排班'},
     '/fault/': {'type': 'fault', 'name': '故障'},
     '/duty/': {'type': 'duty', 'name': '值班'},
     '/interference/': {'type': 'interference', 'name': '干扰'},

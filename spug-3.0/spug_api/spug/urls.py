@@ -31,7 +31,6 @@ urlpatterns = [
     path('apis/', include('apps.apis.urls')),
     path('document/', include('apps.document.urls')),
     path('runlog/', include('apps.runlog.urls')),
-    path('schedule/', include('apps.schedule.urls')),
     path('upgrade/', include('apps.upgrade.urls')),
     path('checksheet/', include('apps.checksheet.urls')),
     path('logs/', include('apps.logs.urls')),

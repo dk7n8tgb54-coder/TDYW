@@ -4,7 +4,6 @@ from django.test import TestCase
 from apps.fault.models import FaultRecord
 from apps.upgrade.models import UpgradeRecord
 from apps.duty.models import DutyRecord
-from apps.schedule.models import ScheduleSwap
 from apps.runlog.models import RunLog
 from apps.account.models import User
 from libs.tenant_utils import apply_tenant_filter
@@ -184,47 +183,4 @@ class TenantFilterTest(TestCase):
         
         filtered = apply_tenant_filter(queryset, self.global_admin)
         self.assertEqual(filtered.count(), 2)
-    
-    def test_schedule_swap_tenant_filter(self):
-        """测试换班记录的租户过滤"""
-        ScheduleSwap.objects.create(
-            tenant_id='tenant1',
-            from_staff_id=1,
-            from_staff_name='张三',
-            to_staff_id=2,
-            to_staff_name='李四',
-            from_date='2024-01-15',
-            to_date='2024-01-16',
-            from_shift_id=1,
-            from_shift_name='白班',
-            to_shift_id=1,
-            to_shift_name='白班',
-            created_by=self.user1
-        )
-        
-        ScheduleSwap.objects.create(
-            tenant_id='tenant2',
-            from_staff_id=3,
-            from_staff_name='王五',
-            to_staff_id=4,
-            to_staff_name='赵六',
-            from_date='2024-01-17',
-            to_date='2024-01-18',
-            from_shift_id=1,
-            from_shift_name='夜班',
-            to_shift_id=1,
-            to_shift_name='夜班',
-            created_by=self.user2
-        )
-        
-        queryset = ScheduleSwap.objects.all()
-        
-        # 用户1只能看到tenant1的数据
-        filtered = apply_tenant_filter(queryset, self.user1)
-        self.assertEqual(filtered.count(), 1)
-        self.assertEqual(filtered.first().from_staff_name, '张三')
-        
-        # 用户2只能看到tenant2的数据
-        filtered = apply_tenant_filter(queryset, self.user2)
-        self.assertEqual(filtered.count(), 1)
-        self.assertEqual(filtered.first().from_staff_name, '王五')
+
