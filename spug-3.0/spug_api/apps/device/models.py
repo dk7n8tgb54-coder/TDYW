@@ -43,8 +43,13 @@ class DeviceResume(models.Model, TenantModelMixin):
     responsible_user_id = models.IntegerField(null=True, blank=True, help_text='设备负责人ID（已废弃，保留以兼容旧数据，新建/编辑请使用 responsible_user_name）')
     responsible_user_name = models.CharField(max_length=100, help_text='设备负责人姓名')
     remark = models.TextField(null=True, blank=True, max_length=1000, help_text='备注')
-    # 软删除标记：当前业务采用硬删除，该字段仅保留以兼容历史数据，未来若启用软删除需统一在查询中过滤 is_deleted=False
-    is_deleted = models.BooleanField(default=False, help_text='是否已删除（当前为硬删除，字段预留）')
+    # 软删除标记：证据闭环第三阶段启用软删除，避免硬删除断链
+    is_deleted = models.BooleanField(default=False, help_text='是否已删除（软删除）')
+    deleted_at = models.CharField(max_length=20, null=True, blank=True, help_text='删除时间')
+    deleted_by_id = models.IntegerField(null=True, blank=True, help_text='删除人账号ID')
+    delete_reason = models.CharField(max_length=500, default='', blank=True, help_text='删除原因')
+    # 证据闭环：归档快照哈希
+    snapshot_hash = models.CharField(max_length=64, default='', help_text='设备快照哈希(SHA256)')
     created_at = models.CharField(max_length=20, default=human_datetime)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
     updated_at = models.CharField(max_length=20, null=True)
@@ -112,6 +117,11 @@ class DeviceEvent(models.Model, TenantModelMixin):
     remark = models.TextField(null=True, blank=True, max_length=500, help_text='备注')
     # 软删除标记：当前业务采用硬删除，该字段仅保留以兼容历史数据
     is_deleted = models.BooleanField(default=False, help_text='是否已删除（当前为硬删除，字段预留）')
+    # ==== 证据闭环：更正机制 ====
+    correction_event_id = models.IntegerField(null=True, blank=True, help_text='更正指向的原事件ID')
+    correction_reason = models.CharField(max_length=500, default='', blank=True, help_text='更正原因')
+    corrected_by_id = models.IntegerField(null=True, blank=True, help_text='更正人账号ID')
+    corrected_at = models.CharField(max_length=20, null=True, blank=True, help_text='更正时间')
     created_at = models.CharField(max_length=20, default=human_datetime)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
 

@@ -269,4 +269,5 @@ urlpatterns = [
     path('attachment/preview_url/', RunLogAttachmentPreviewUrlView.as_view()),
     path('attachment/download/', RunLogAttachmentDownloadView.as_view()),
     path('repair/', RunLogRepairView.as_view()),
+    path('evidence/package/', RunLogEvidencePackageView.as_view()),
 ]

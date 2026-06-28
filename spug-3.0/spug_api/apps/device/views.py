@@ -222,6 +222,13 @@ class DeviceResumeView(View):
             # 负责人姓名：优先新字段，兼容旧字段
             responsible_user_name = form.responsible_user_name or form.responsible_user_id or ''
 
+            # 证据闭环第三阶段：记录状态变更前的旧状态，用于状态变更事件化
+            old_status = record.current_status
+            old_status_text = DeviceResume.STATUS_TEXT_MAP.get(old_status, old_status)
+            new_status = form.current_status
+            new_status_text = DeviceResume.STATUS_TEXT_MAP.get(new_status, new_status)
+            status_changed = (old_status != new_status)
+
             # Update device resume
             from libs import human_datetime
             record.device_name = form.device_name
@@ -244,6 +251,35 @@ class DeviceResumeView(View):
             record.updated_at = human_datetime()
             record.save()
             logging.info(f'编辑设备成功｜租户：{record.tenant_id}｜用户：{request.user.username}｜设备编号：{record.device_sn}')
+
+            # 证据闭环第三阶段：设备状态变更必须生成证据事件
+            # 方案 8.3.1：current_status 变化时写入证据事件（before/after 快照）
+            if status_changed:
+                try:
+                    from apps.evidence.services import record_evidence_event
+                    record_evidence_event(
+                        tenant_id=record.tenant_id,
+                        module='device',
+                        object_type='device',
+                        object_id=record.id,
+                        event_type='other',
+                        actor_user_id=getattr(request.user, 'id', None),
+                        actor_username=getattr(request.user, 'username', ''),
+                        actor_name=getattr(request.user, 'nickname', '') or getattr(request.user, 'username', ''),
+                        before_snapshot={'current_status': old_status, 'current_status_text': old_status_text},
+                        after_snapshot={'current_status': new_status, 'current_status_text': new_status_text},
+                        object_snapshot={
+                            'device_sn': record.device_sn,
+                            'device_name': record.device_name,
+                            'current_status': record.current_status,
+                            'current_status_text': new_status_text,
+                        },
+                        event_title=f'设备状态变更 {record.device_sn}: {old_status_text} → {new_status_text}',
+                        remark=f'状态由 {old_status_text} 变更为 {new_status_text}',
+                    )
+                except Exception as ev_err:
+                    logger.error(f'设备状态变更证据事件写入失败｜设备ID：{record.id}｜错误：{ev_err}')
+
             return json_response(record.to_view())
         except (IntegrityError, DatabaseError) as e:
             logging.error(f'编辑设备数据库错误｜设备ID：{form.id}｜用户：{request.user.username}｜错误：{e}', exc_info=True)
@@ -254,9 +290,10 @@ class DeviceResumeView(View):
 
     @auth('device.device_resume.delete')
     def delete(self, request):
-        """Delete device resume (hard delete)"""
+        """Delete device resume (soft delete - 证据闭环第三阶段)"""
         form, error = JsonParser(
-            Argument('id', type=int, help='Parameter error')
+            Argument('id', type=int, help='Parameter error'),
+            Argument('delete_reason', type=str, required=False),
         ).parse(request.GET)
         if error:
             return json_response(error=error)
@@ -266,22 +303,17 @@ class DeviceResumeView(View):
             return json_response(error='设备ID格式错误')
 
         from django.db import transaction
-
-        # 登录状态校验
-        if not request.user.is_authenticated:
-            logging.warning(f'删除设备未登录｜设备ID：{form.id}｜IP：{request.META.get("REMOTE_ADDR")}')
-            return json_response(error='无权限执行该操作')
+        from libs import human_datetime
+        from apps.evidence.services import record_evidence_event
 
         delete_success = False
         error_msg = ''
-        event_delete_count = 0
 
         try:
             with transaction.atomic():
                 # 1. 查询设备
                 record = apply_tenant_filter(DeviceResume.objects.all(), request.user).filter(pk=form.id).first()
                 if not record:
-                    logging.info(f'删除设备不存在｜设备ID：{form.id}｜用户：{request.user.username}')
                     raise ValueError('设备不存在或无权限删除')
 
                 device_sn = record.device_sn
@@ -289,20 +321,27 @@ class DeviceResumeView(View):
 
                 # 2. 权限校验：普通用户不能删除超级管理员的全局设备
                 if record.tenant_id == '' and not request.user.is_supper:
-                    logging.warning(f'删除设备权限不足：尝试删除全局设备｜设备ID：{form.id}｜设备编号：{device_sn}｜用户：{request.user.username}')
                     raise PermissionError('无权限删除全局设备')
 
-                # 3. 级联删除事件
-                event_qs = apply_tenant_filter(DeviceEvent.objects.all(), request.user).filter(
-                    device_resume_id=form.id
+                # 3. 软删除：标记 is_deleted，保留数据和事件
+                record.is_deleted = True
+                record.deleted_at = human_datetime()
+                record.deleted_by_id = getattr(request.user, 'id', None)
+                record.delete_reason = form.delete_reason or ''
+                record.save(update_fields=['is_deleted', 'deleted_at', 'deleted_by_id', 'delete_reason'])
+
+                # 4. 写入证据事件
+                record_evidence_event(
+                    tenant_id=tenant_id, module='device', object_type='device',
+                    object_id=record.id, event_type='delete',
+                    actor_user_id=getattr(request.user, 'id', None),
+                    actor_username=getattr(request.user, 'username', ''),
+                    actor_name=getattr(request.user, 'nickname', '') or getattr(request.user, 'username', ''),
+                    object_snapshot={'device_sn': device_sn, 'delete_reason': form.delete_reason or ''},
+                    event_title=f'删除设备 {device_sn}',
                 )
-                event_delete_count, _ = event_qs.delete()
-
-                # 4. 删除设备
-                record.delete()
                 delete_success = True
-
-                logging.info(f'删除设备成功｜租户：{tenant_id}｜用户：{request.user.username}｜设备编号：{device_sn}｜删除事件数：{event_delete_count}')
+                logging.info(f'软删除设备成功｜租户：{tenant_id}｜用户：{request.user.username}｜设备编号：{device_sn}')
 
         except ValueError as e:
             error_msg = str(e)
@@ -310,10 +349,8 @@ class DeviceResumeView(View):
             error_msg = str(e)
         except (IntegrityError, DatabaseError) as e:
             error_msg = '删除设备失败，数据关联冲突，请联系管理员'
-            logging.error(f'删除设备数据库错误｜设备ID：{form.id}｜用户：{request.user.username}｜错误：{e}', exc_info=True)
         except Exception as e:
             error_msg = '删除设备失败，请重试'
-            logging.error(f'删除设备系统异常｜设备ID：{form.id}｜用户：{request.user.username}｜错误：{e}', exc_info=True)
 
         if delete_success:
             return json_response()
@@ -570,3 +607,132 @@ class DeviceResumeExportView(View):
         except Exception as e:
             logger.error(f'导出设备履历PDF失败｜设备ID：{device_id}｜错误：{e}', exc_info=True)
             return json_response(error='导出PDF失败，请重试')
+
+
+# ==================== 证据闭环第三阶段：证据包导出 ====================
+
+def _build_device_snapshot(device):
+    """构建设备业务快照（用于证据事件 + 证据包）"""
+    events = DeviceEvent.objects.filter(device_resume_id=device.id).order_by('-event_time', '-id')
+    return {
+        'device': {
+            'id': device.id,
+            'device_sn': device.device_sn,
+            'device_name': device.device_name,
+            'device_model': device.device_model,
+            'frequency': device.frequency,
+            'call_sign': device.call_sign,
+            'install_location': device.install_location,
+            'geo_coordinate': device.geo_coordinate,
+            'device_purpose': device.device_purpose,
+            'manufacturer': device.manufacturer,
+            'install_unit': device.install_unit,
+            'use_unit': device.use_unit,
+            'install_time': device.install_time,
+            'enable_time': device.enable_time,
+            'current_status': device.current_status,
+            'current_status_text': DeviceResume.STATUS_TEXT_MAP.get(device.current_status, device.current_status),
+            'responsible_user_name': device.responsible_user_name,
+            'is_deleted': device.is_deleted,
+            'deleted_at': device.deleted_at,
+            'delete_reason': device.delete_reason,
+            'snapshot_hash': device.snapshot_hash,
+            'created_at': device.created_at,
+            'created_by_id': device.created_by_id,
+            'updated_at': device.updated_at,
+            'updated_by_id': device.updated_by_id,
+        },
+        'events': [
+            {
+                'id': e.id, 'event_type': e.event_type,
+                'event_type_text': DeviceEvent.EVENT_TYPE_TEXT_MAP.get(e.event_type, str(e.event_type)),
+                'event_time': e.event_time, 'event_title': e.event_title,
+                'fault_part': e.fault_part,
+                'fault_phenomenon_cause': e.fault_phenomenon_cause,
+                'maintenance_measures': e.maintenance_measures,
+                'related_user_name': e.related_user_name,
+                'repair_time': e.repair_time, 'remark': e.remark,
+                'correction_event_id': e.correction_event_id,
+                'correction_reason': e.correction_reason,
+                'corrected_by_id': e.corrected_by_id,
+                'corrected_at': e.corrected_at,
+                'created_at': e.created_at, 'created_by_id': e.created_by_id,
+            }
+            for e in events
+        ],
+    }
+
+
+class DeviceEvidencePackageView(View):
+    """设备证据包导出 - 包含业务快照/证据事件/审计日志/附件哈希清单"""
+
+    @auth('device.device_resume.view')
+    def get(self, request):
+        import json as _json
+        import zipfile
+        from io import BytesIO
+        from apps.evidence.models import EvidenceEvent, EvidenceAttachment
+        from apps.logs.models import AuditLog
+        from libs import human_datetime
+
+        device_id = request.GET.get('id')
+        if not device_id:
+            return json_response(error='缺少 id 参数')
+
+        device = apply_tenant_filter(DeviceResume.objects.all(), request.user).filter(pk=device_id).first()
+        if not device:
+            return json_response(error='设备不存在或无权限')
+
+        tenant_id = getattr(request.user, 'tenant_id', 'default')
+        snapshot = _build_device_snapshot(device)
+
+        events = list(EvidenceEvent.objects.filter(
+            tenant_id=tenant_id, module='device',
+            object_type='device', object_id=str(device.id),
+        ).order_by('id'))
+        events_data = [e.to_dict() for e in events]
+
+        audit_logs = list(AuditLog.objects.filter(
+            tenant_id=tenant_id, target_type='device',
+            target_id=str(device.id),
+        ).order_by('id'))
+        # 兼容：target_id 未记录时回退全量 device 类型审计
+        if not audit_logs:
+            audit_logs = list(AuditLog.objects.filter(
+                tenant_id=tenant_id, target_type='device',
+            ).order_by('id'))
+        audit_data = [l.to_dict() for l in audit_logs]
+
+        atts = EvidenceAttachment.objects.filter(
+            tenant_id=tenant_id, module='device',
+            object_type='device', object_id=str(device.id), is_deleted=False,
+        )
+        att_hashes = [
+            {'file_name': a.file_name, 'sha256': a.file_hash_sha256, 'size': a.file_size}
+            for a in atts
+        ]
+
+        buf = BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr('object_snapshot.json', _json.dumps(snapshot, ensure_ascii=False, indent=2))
+            zf.writestr('evidence_events.json', _json.dumps(events_data, ensure_ascii=False, indent=2))
+            zf.writestr('audit_logs.json', _json.dumps(audit_data, ensure_ascii=False, indent=2))
+            zf.writestr('hashes.json', _json.dumps({
+                'module': 'device', 'object_id': device.id,
+                'device_sn': device.device_sn,
+                'current_status': device.current_status,
+                'is_deleted': device.is_deleted,
+                'snapshot_hash': device.snapshot_hash,
+                'attachments': att_hashes,
+                'events_count': len(events_data),
+                'generated_at': human_datetime(),
+            }, ensure_ascii=False, indent=2))
+            zf.writestr('verify.txt',
+                        '本证据包包含设备业务快照JSON、证据事件JSON、审计日志JSON、附件哈希清单。\n'
+                        '校验方式：重新计算 object_snapshot.json 的 SHA256，与 hashes.json 中 snapshot_hash 比对。\n'
+                        '证据事件哈希链可通过 evidence_events.json 中的 prev_hash/event_hash 校验连续性。\n')
+
+        buf.seek(0)
+        resp = HttpResponse(buf.getvalue(), content_type='application/zip')
+        resp['Content-Disposition'] = f'attachment; filename="evidence_device_{device.id}.zip"'
+        return resp

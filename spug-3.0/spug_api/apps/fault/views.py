@@ -32,12 +32,18 @@ class FaultRecordView(View):
         ).parse(request.body)
         if error is None:
             if form.id:
+                # 统一接口二次校验：编辑分支必须单独拥有 edit 权限
+                if not request.user.has_perms({'fault.faultrecord.edit'}):
+                    return json_response(error='权限拒绝：缺少编辑故障记录权限')
                 form.updated_at = human_datetime()
                 form.updated_by = request.user
                 if not apply_tenant_filter(FaultRecord.objects.filter(pk=form.id), request.user).exists():
                     return json_response(error='记录不存在或无权操作')
                 FaultRecord.objects.filter(pk=form.pop('id')).update(**form)
             else:
+                # 统一接口二次校验：新增分支必须单独拥有 add 权限
+                if not request.user.has_perms({'fault.faultrecord.add'}):
+                    return json_response(error='权限拒绝：缺少新增故障记录权限')
                 form.created_by = request.user
                 assign_tenant_id(form, request.user)
                 FaultRecord.objects.create(**form)
@@ -85,12 +91,18 @@ class FaultPartView(View):
                 form.archive_date = human_datetime()
 
             if form.id:
+                # 统一接口二次校验：编辑分支必须单独拥有 edit 权限
+                if not request.user.has_perms({'fault.faultpart.edit'}):
+                    return json_response(error='权限拒绝：缺少编辑故障件权限')
                 form.updated_at = human_datetime()
                 form.updated_by = request.user
                 if not apply_tenant_filter(FaultPart.objects.filter(pk=form.id), request.user).exists():
                     return json_response(error='记录不存在或无权操作')
                 FaultPart.objects.filter(pk=form.pop('id')).update(**form)
             else:
+                # 统一接口二次校验：新增分支必须单独拥有 add 权限
+                if not request.user.has_perms({'fault.faultpart.add'}):
+                    return json_response(error='权限拒绝：缺少新增故障件权限')
                 form.created_by = request.user
                 assign_tenant_id(form, request.user)
                 FaultPart.objects.create(**form)

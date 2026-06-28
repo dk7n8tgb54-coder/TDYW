@@ -221,11 +221,16 @@ class RunLogView(View):
             if form.status and form.status != event.status:
                 status_rules = {
                     'in_progress': ['resolved'],
-                    'resolved': ['in_progress'],  # 允许回退
+                    'resolved': ['in_progress', 'verified', 'closed'],  # 允许回退 + 验证/归档
+                    'verified': ['closed', 'in_progress'],
+                    'closed': ['voided'],
+                    'voided': [],
                 }
                 
                 if form.status not in status_rules.get(event.status, []):
                     return json_response(error='不允许的状态流转')
+
+                old_status = event.status
 
                 # 如果填写了处理措施，更新相关信息
                 if form.resolution:
@@ -236,6 +241,10 @@ class RunLogView(View):
                     event.closed_at = human_datetime()
 
                 event.status = form.status
+
+                # 证据闭环：resolved/verified/closed/voided 时写证据事件 + 快照哈希
+                if form.status in ('resolved', 'verified', 'closed', 'voided'):
+                    _record_runlog_evidence(event, form.status, request.user)
             
             event.updated_by = request.user
             event.updated_at = human_datetime()
@@ -817,3 +826,131 @@ class RunLogExportView(View):
             import traceback
             logger.error(f'导出运行日志PDF失败｜用户：{request.user.username}｜错误：{e}\n{traceback.format_exc()}')
             return json_response(error=f'导出PDF失败：{type(e).__name__}: {str(e)[:80]}')
+
+
+# ==================== 证据闭环第三阶段：证据事件 + 证据包 ====================
+
+def _build_runlog_snapshot(event):
+    """构建运行日志事件快照（用于证据事件 + 证据包）"""
+    from .models import RunLogUpdate
+    updates = RunLogUpdate.objects.filter(runlog_id=event.id).order_by('update_date', 'sequence', 'id')
+    return {
+        'event': {
+            'id': event.id, 'event_title': event.event_title,
+            'event_type': event.event_type, 'system_name': event.system_name,
+            'severity': event.severity, 'status': event.status,
+            'responsible_user_id': event.responsible_user_id,
+            'responsible_user_name': event.responsible_user_name,
+            'resolution': event.resolution,
+            'verifier_id': event.verifier_id, 'verifier_name': event.verifier_name,
+            'verified_at': event.verified_at, 'closed_at': event.closed_at,
+            'snapshot_hash': event.snapshot_hash,
+            'created_at': event.created_at, 'created_by_id': event.created_by_id,
+        },
+        'updates': [
+            {
+                'id': u.id, 'update_date': u.update_date, 'sequence': u.sequence,
+                'recorder': u.recorder, 'detail_content': u.detail_content,
+                'duty_person': u.duty_person, 'update_type': u.update_type,
+                'is_voided': u.is_voided, 'void_reason': u.void_reason,
+                'corrected_update_id': u.corrected_update_id,
+                'created_at': u.created_at, 'created_by_id': u.created_by_id,
+            }
+            for u in updates
+        ],
+    }
+
+
+def _record_runlog_evidence(event, event_type, user):
+    """写入运行日志证据事件"""
+    from apps.evidence.services import record_evidence_event
+    from libs.utils import get_request_real_ip
+    snapshot = _build_runlog_snapshot(event)
+
+    # closed 时计算快照哈希
+    if event_type == 'closed':
+        import hashlib
+        import json as _json
+        payload = _json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
+        event.snapshot_hash = hashlib.sha256(payload.encode('utf-8')).hexdigest()
+        event.save(update_fields=['snapshot_hash'])
+
+    ev_type_map = {
+        'resolved': 'submit', 'verified': 'approve',
+        'closed': 'close', 'voided': 'void',
+    }
+    record_evidence_event(
+        tenant_id=getattr(user, 'tenant_id', 'default'),
+        module='runlog',
+        object_type='runlog',
+        object_id=event.id,
+        event_type=ev_type_map.get(event_type, 'other'),
+        actor_user_id=getattr(user, 'id', None),
+        actor_username=getattr(user, 'username', ''),
+        actor_name=getattr(user, 'nickname', '') or getattr(user, 'username', ''),
+        object_snapshot=snapshot,
+        event_title=f'{event.event_title} {event_type}',
+    )
+
+
+class RunLogEvidencePackageView(View):
+    """运行日志证据包导出 - 包含业务快照/证据事件/审计日志/附件哈希清单"""
+
+    @auth('runlog.runlog.view')
+    def get(self, request):
+        import json as _json
+        import zipfile
+        from io import BytesIO
+        from .models import RunLog, RunLogUpdate
+        from apps.evidence.models import EvidenceEvent, EvidenceAttachment
+        from apps.logs.models import AuditLog
+
+        log_id = request.GET.get('id')
+        if not log_id:
+            return json_response(error='缺少 id 参数')
+
+        event = apply_tenant_filter(RunLog.objects.filter(pk=log_id), request.user).first()
+        if not event:
+            return json_response(error='事件不存在或无权限')
+
+        tenant_id = getattr(request.user, 'tenant_id', 'default')
+        snapshot = _build_runlog_snapshot(event)
+
+        events = list(EvidenceEvent.objects.filter(
+            tenant_id=tenant_id, module='runlog',
+            object_type='runlog', object_id=str(event.id),
+        ).order_by('id'))
+        events_data = [e.to_dict() for e in events]
+
+        audit_logs = list(AuditLog.objects.filter(
+            tenant_id=tenant_id, target_type='runlog',
+        ).order_by('id'))
+        audit_data = [l.to_dict() for l in audit_logs]
+
+        atts = EvidenceAttachment.objects.filter(
+            tenant_id=tenant_id, module='runlog',
+            object_type='runlog', object_id=str(event.id), is_deleted=False,
+        )
+        att_hashes = [
+            {'file_name': a.file_name, 'sha256': a.file_hash_sha256, 'size': a.file_size}
+            for a in atts
+        ]
+
+        buf = BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr('object_snapshot.json', _json.dumps(snapshot, ensure_ascii=False, indent=2))
+            zf.writestr('evidence_events.json', _json.dumps(events_data, ensure_ascii=False, indent=2))
+            zf.writestr('audit_logs.json', _json.dumps(audit_data, ensure_ascii=False, indent=2))
+            zf.writestr('hashes.json', _json.dumps({
+                'module': 'runlog', 'object_id': event.id,
+                'event_status': event.status,
+                'snapshot_hash': event.snapshot_hash,
+                'attachments': att_hashes,
+                'events_count': len(events_data),
+                'generated_at': human_datetime(),
+            }, ensure_ascii=False, indent=2))
+
+        buf.seek(0)
+        resp = HttpResponse(buf.getvalue(), content_type='application/zip')
+        resp['Content-Disposition'] = f'attachment; filename="evidence_runlog_{event.id}.zip"'
+        return resp

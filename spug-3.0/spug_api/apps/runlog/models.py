@@ -23,7 +23,7 @@ class RunLog(models.Model, TenantModelMixin):
     severity = models.CharField(max_length=10, default='P2',
                                  help_text='事件级别：P0紧急/P1重要/P2一般')
     status = models.CharField(max_length=20, default='in_progress',
-                             help_text='事件状态：in_progress处理中/resolved已解决')
+                             help_text='事件状态：in_progress处理中/resolved已解决/verified已验证/closed已归档/voided已作废')
     
     # === 责任与时效 ===
     responsible_user_id = models.IntegerField(null=True, blank=True)
@@ -35,6 +35,11 @@ class RunLog(models.Model, TenantModelMixin):
     verifier_name = models.CharField(max_length=100, null=True, blank=True)
     verified_at = models.CharField(max_length=20, null=True, blank=True)
     closed_at = models.CharField(max_length=20, null=True, blank=True)
+
+    # ==== 证据闭环：快照哈希 + 验证人身份快照 ====
+    # 关闭/验证时计算快照哈希，证明归档时内容未被篡改
+    snapshot_hash = models.CharField(max_length=64, default='', help_text='归档快照哈希(SHA256)')
+    verified_by_id = models.IntegerField(null=True, blank=True, help_text='验证人账号ID（已废弃 verifier_id 仍保留）')
     
     # === 统计字段 ===
     update_count = models.IntegerField(default=0, help_text='动态数量')
@@ -56,6 +61,9 @@ class RunLog(models.Model, TenantModelMixin):
         status_map = {
             'in_progress': '处理中',
             'resolved': '已解决',
+            'verified': '已验证',
+            'closed': '已归档',
+            'voided': '已作废',
         }
         severity_map = {
             'P0': '紧急',
@@ -99,6 +107,19 @@ class RunLogUpdate(models.Model, TenantModelMixin):
 
     # 修改权限控制
     editable_until = models.CharField(max_length=20, help_text='可修改截止时间（创建后24小时内）')
+
+    # ==== 证据闭环：动态类型 + 更正 + 作废 ====
+    UPDATE_TYPE_CHOICES = (
+        ('normal', '普通动态'),
+        ('correction', '更正说明'),
+        ('supplement', '补充说明'),
+        ('system', '系统记录'),
+    )
+    update_type = models.CharField(max_length=20, default='normal', choices=UPDATE_TYPE_CHOICES,
+                                   help_text='动态类型：normal/correction/supplement/system')
+    corrected_update_id = models.IntegerField(null=True, blank=True, help_text='更正指向的原动态ID')
+    is_voided = models.BooleanField(default=False, help_text='是否已作废')
+    void_reason = models.CharField(max_length=500, default='', blank=True, help_text='作废原因')
     
     created_at = models.CharField(max_length=20, default=human_datetime)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')

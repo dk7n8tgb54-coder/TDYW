@@ -6,7 +6,14 @@ from django.db import transaction, IntegrityError
 from django.views import View
 from libs import json_response, JsonParser, Argument
 from libs.decorators import auth
-from .models import CheckSheetTemplate, CheckSheetRecord, CheckSheetDailySummary
+from libs.utils import human_datetime, get_request_real_ip
+from .models import (
+    CheckSheetTemplate, CheckSheetRecord, CheckSheetDailySummary,
+    CheckSheetSubmission, SUBMISSION_TRANSITIONS, SUBMISSION_STATUS_CHOICES,
+)
+from apps.evidence.services import record_evidence_event
+from apps.evidence.models import EvidenceEvent, EvidenceAttachment
+from apps.logs.models import AuditLog
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
 from reportlab.lib.units import cm
@@ -181,13 +188,32 @@ class RecordListView(View):
                     defaults={'check_items': '[]'}
                 )
 
-                # 保存检查记录
+                # 证据闭环：获取或创建提交批次（状态流转功能已暂停，不再阻止保存）
+                tenant_id = getattr(request.user, 'tenant_id', 'default')
+                submission = CheckSheetSubmission.objects.filter(
+                    tenant_id=tenant_id, project=project, year=year, month=month,
+                    status__in=['draft', 'submitted', 'reviewed', 'closed'],
+                ).order_by('-id').first()
+
+                # 无批次则自动创建 draft 批次
+                if not submission:
+                    submission = CheckSheetSubmission.objects.create(
+                        tenant_id=tenant_id, project=project, year=year, month=month,
+                        status='draft',
+                    )
+
+                # 操作人身份快照
+                user = request.user
+                operator_user_id = getattr(user, 'id', None)
+                operator_name = getattr(user, 'nickname', '') or getattr(user, 'username', '')
+
+                # 保存检查记录（绑定 user_id）
                 for record_data in records:
                     item_index = record_data.get('item_index')
                     day = record_data.get('day')
                     status = record_data.get('status', 'UNCHECKED')
 
-                    # P1-2 修复：保存时保留原有 remark/rectification（原代码强制清空导致数据丢失）
+                    # P1-2 修复：保存时保留原有 remark/rectification
                     existing = CheckSheetRecord.objects.filter(
                         template=template, year=year, month=month,
                         item_index=item_index, day=day
@@ -205,7 +231,9 @@ class RecordListView(View):
                             'status': status,
                             'remark': existing_remark,
                             'rectification': existing_rectification,
-                            'operator': signatures.get('operator', '')
+                            'operator': signatures.get('operator', ''),
+                            'operator_user_id': operator_user_id,
+                            'operator_name_snapshot': operator_name,
                         }
                     )
 
@@ -218,9 +246,14 @@ class RecordListView(View):
                         defaults={
                             'operator': signatures.get('operator', ''),
                             'remark': daily_summary.get('remark', ''),
-                            'rectification': daily_summary.get('rectification', '')
+                            'rectification': daily_summary.get('rectification', ''),
+                            'operator_user_id': operator_user_id,
+                            'operator_name_snapshot': operator_name,
                         }
                     )
+
+                submission.updated_at = human_datetime()
+                submission.save(update_fields=['updated_at'])
 
             logger.info(f'CheckSheet saved: year={year}, month={month}, day={day}, project={project}, records_count={len(records)}')
             return json_response({'msg': '保存成功'})
@@ -586,3 +619,295 @@ def _fetch_daily_summaries(year, month):
         }
         for summary in CheckSheetDailySummary.objects.filter(year=year, month=month)
     }
+
+
+# ==================== 证据闭环第三阶段：提交批次 + 证据包 ====================
+
+def _build_submission_snapshot(submission):
+    """构建提交批次业务快照（用于证据事件 + 证据包）"""
+    template = CheckSheetTemplate.objects.filter(project=submission.project).first()
+    records = CheckSheetRecord.objects.filter(
+        template=template, year=submission.year, month=submission.month
+    ).order_by('day', 'item_index') if template else []
+    summaries = CheckSheetDailySummary.objects.filter(
+        year=submission.year, month=submission.month
+    ).order_by('day')
+    return {
+        'submission': {
+            'id': submission.id,
+            'project': submission.project,
+            'year': submission.year,
+            'month': submission.month,
+            'status': submission.status,
+            'submitted_by_id': submission.submitted_by_id,
+            'submitted_by_name': submission.submitted_by_name,
+            'submitted_at': submission.submitted_at,
+            'reviewed_by_id': submission.reviewed_by_id,
+            'reviewed_by_name': submission.reviewed_by_name,
+            'reviewed_at': submission.reviewed_at,
+            'snapshot_hash': submission.snapshot_hash,
+        },
+        'check_items': template.get_check_items() if template else [],
+        'records': [
+            {
+                'item_index': r.item_index, 'day': r.day, 'status': r.status,
+                'remark': r.remark or '', 'rectification': r.rectification or '',
+                'operator_user_id': r.operator_user_id,
+                'operator_name_snapshot': r.operator_name_snapshot,
+            }
+            for r in records
+        ],
+        'daily_summaries': [
+            {
+                'day': s.day, 'operator': s.operator or '',
+                'remark': s.remark or '', 'rectification': s.rectification or '',
+                'operator_user_id': s.operator_user_id,
+                'operator_name_snapshot': s.operator_name_snapshot,
+            }
+            for s in summaries
+        ],
+    }
+
+
+def _compute_snapshot_hash(snapshot):
+    """计算提交批次快照哈希"""
+    import hashlib
+    import json as _json
+    payload = _json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+
+def _get_attachment_hashes(tenant_id, submission_id):
+    """获取提交批次关联附件哈希清单"""
+    atts = EvidenceAttachment.objects.filter(
+        tenant_id=tenant_id, module='checksheet',
+        object_type='submission', object_id=str(submission_id),
+        is_deleted=False,
+    )
+    return [
+        {
+            'file_name': a.file_name, 'file_path': a.file_path,
+            'sha256': a.file_hash_sha256, 'size': a.file_size,
+            'uploaded_by_id': a.uploaded_by_id,
+            'uploaded_by_name': a.uploaded_by_name,
+            'uploaded_at': a.uploaded_at,
+        }
+        for a in atts
+    ]
+
+
+def _record_checksheet_evidence(submission, event_type, user, remark=''):
+    """写入检查单证据事件（封装 record_evidence_event 调用）"""
+    tenant_id = getattr(user, 'tenant_id', 'default')
+    snapshot = _build_submission_snapshot(submission)
+    att_hashes = _get_attachment_hashes(tenant_id, submission.id)
+    actor_name = getattr(user, 'nickname', '') or getattr(user, 'username', '')
+    record_evidence_event(
+        tenant_id=tenant_id,
+        module='checksheet',
+        object_type='submission',
+        object_id=submission.id,
+        event_type=event_type,
+        actor_user_id=getattr(user, 'id', None),
+        actor_username=getattr(user, 'username', ''),
+        actor_name=actor_name,
+        actor_ip=get_request_real_ip(user) if hasattr(user, 'headers') else '',
+        object_snapshot=snapshot,
+        attachment_hashes=att_hashes,
+        event_title=f'{submission.project} {submission.year}-{submission.month} {event_type}',
+        remark=remark,
+    )
+
+
+# action → 新状态映射（供 SubmissionView.post 使用）
+_SUBMISSION_ACTION_STATUS = {
+    'submit': 'submitted', 'review': 'reviewed',
+    'reject': 'draft', 'close': 'closed', 'void': 'voided',
+}
+# action → 证据事件类型映射
+_SUBMISSION_EVENT_TYPE = {
+    'submit': 'submit', 'review': 'approve',
+    'reject': 'reject', 'close': 'close', 'void': 'void',
+}
+
+
+def _apply_submission_action(sub, action, new_status, user, form):
+    """根据 action 更新提交批次的专属字段并完成状态流转
+
+    从 SubmissionView.post 抽取，降低主函数圈复杂度。
+    """
+    actor_name = getattr(user, 'nickname', '') or getattr(user, 'username', '')
+    now = human_datetime()
+
+    if action == 'submit':
+        sub.submitted_by_id = getattr(user, 'id', None)
+        sub.submitted_by_name = actor_name
+        sub.submitted_at = now
+        snapshot = _build_submission_snapshot(sub)
+        sub.snapshot_hash = _compute_snapshot_hash(snapshot)
+    elif action == 'review':
+        sub.reviewed_by_id = getattr(user, 'id', None)
+        sub.reviewed_by_name = actor_name
+        sub.reviewed_at = now
+        sub.review_comment = form.review_comment or ''
+    elif action == 'reject':
+        sub.review_comment = form.review_comment or ''
+    elif action == 'void':
+        sub.voided_by_id = getattr(user, 'id', None)
+        sub.voided_by_name = actor_name
+        sub.voided_at = now
+        sub.void_reason = form.void_reason or ''
+    # close 无专属字段，仅状态流转
+
+    sub.status = new_status
+    sub.updated_at = now
+    sub.save()
+
+
+class SubmissionView(View):
+    """检查单提交批次视图 - 查询/提交/复核/驳回/关闭/作废"""
+
+    @auth('checksheet.checksheet.view')
+    def get(self, request):
+        """查询提交批次状态"""
+        project = request.GET.get('project')
+        year = request.GET.get('year')
+        month = request.GET.get('month')
+        if not all([project, year, month]):
+            return json_response(error='缺少 project/year/month 参数')
+        tenant_id = getattr(request.user, 'tenant_id', 'default')
+        sub = CheckSheetSubmission.objects.filter(
+            tenant_id=tenant_id, project=project, year=year, month=month,
+        ).order_by('-id').first()
+        if not sub:
+            return json_response({'exists': False, 'status': 'draft'})
+        return json_response({
+            'exists': True, 'id': sub.id, 'status': sub.status,
+            'submitted_by_id': sub.submitted_by_id,
+            'submitted_by_name': sub.submitted_by_name,
+            'submitted_at': sub.submitted_at,
+            'reviewed_by_id': sub.reviewed_by_id,
+            'reviewed_by_name': sub.reviewed_by_name,
+            'reviewed_at': sub.reviewed_at,
+            'review_comment': sub.review_comment,
+            'snapshot_hash': sub.snapshot_hash,
+            'can_edit': sub.can_edit(),
+        })
+
+    @auth('checksheet.checksheet.edit')
+    def post(self, request):
+        """提交/复核/驳回/关闭/作废（通过 action 参数区分）"""
+        form, error = JsonParser(
+            Argument('project', help='请输入项目名称'),
+            Argument('year', help='请输入年份'),
+            Argument('month', help='请输入月份'),
+            Argument('action', help='请输入操作类型'),
+            Argument('review_comment', required=False),
+            Argument('void_reason', required=False),
+        ).parse(request.body)
+        if error:
+            return json_response(error=error)
+
+        tenant_id = getattr(request.user, 'tenant_id', 'default')
+        action = form.action
+        user = request.user
+
+        new_status = _SUBMISSION_ACTION_STATUS.get(action)
+        if not new_status:
+            return json_response(error=f'非法操作类型: {action}')
+
+        try:
+            with transaction.atomic():
+                sub = CheckSheetSubmission.objects.filter(
+                    tenant_id=tenant_id, project=form.project,
+                    year=form.year, month=form.month,
+                ).order_by('-id').first()
+
+                if not sub:
+                    return json_response(error='提交批次不存在，请先保存检查记录')
+
+                if not sub.can_transition_to(new_status):
+                    status_label = dict(SUBMISSION_STATUS_CHOICES).get(new_status, new_status)
+                    return json_response(
+                        error=f'当前状态[{sub.get_status_display()}]不能转为[{status_label}]')
+
+                # 执行 action 专属字段更新 + 状态流转
+                _apply_submission_action(sub, action, new_status, user, form)
+
+                # 写入证据事件
+                _record_checksheet_evidence(
+                    sub, _SUBMISSION_EVENT_TYPE[action], user,
+                    remark=form.review_comment or form.void_reason or ''
+                )
+
+            return json_response({'id': sub.id, 'status': sub.status})
+
+        except Exception as e:
+            logger.error(f'CheckSheet SubmissionView.post error: {e}', exc_info=True)
+            return json_response(error=str(e))
+
+
+class EvidencePackageView(View):
+    """检查单证据包导出 - 包含业务快照/证据事件/审计日志/附件哈希清单"""
+
+    @auth('checksheet.checksheet.view')
+    def get(self, request):
+        import json as _json
+        import zipfile
+        from io import BytesIO
+
+        project = request.GET.get('project')
+        year = request.GET.get('year')
+        month = request.GET.get('month')
+        if not all([project, year, month]):
+            return json_response(error='缺少 project/year/month 参数')
+
+        tenant_id = getattr(request.user, 'tenant_id', 'default')
+        sub = CheckSheetSubmission.objects.filter(
+            tenant_id=tenant_id, project=project, year=year, month=month,
+        ).order_by('-id').first()
+        if not sub:
+            return json_response(error='提交批次不存在')
+
+        # 1. 业务快照
+        snapshot = _build_submission_snapshot(sub)
+
+        # 2. 证据事件
+        events = list(EvidenceEvent.objects.filter(
+            tenant_id=tenant_id, module='checksheet',
+            object_type='submission', object_id=str(sub.id),
+        ).order_by('id'))
+        events_data = [e.to_dict() for e in events]
+
+        # 3. 审计日志（与该提交批次相关的审计记录）
+        audit_logs = list(AuditLog.objects.filter(
+            tenant_id=tenant_id, target_type='checksheet',
+        ).order_by('id'))
+        audit_data = [l.to_dict() for l in audit_logs]
+
+        # 4. 附件哈希清单
+        att_hashes = _get_attachment_hashes(tenant_id, sub.id)
+
+        # 打包 ZIP
+        buf = BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr('object_snapshot.json', _json.dumps(snapshot, ensure_ascii=False, indent=2))
+            zf.writestr('evidence_events.json', _json.dumps(events_data, ensure_ascii=False, indent=2))
+            zf.writestr('audit_logs.json', _json.dumps(audit_data, ensure_ascii=False, indent=2))
+            zf.writestr('hashes.json', _json.dumps({
+                'module': 'checksheet', 'object_id': sub.id,
+                'submission_status': sub.status,
+                'snapshot_hash': sub.snapshot_hash,
+                'attachments': att_hashes,
+                'events_count': len(events_data),
+                'generated_at': human_datetime(),
+            }, ensure_ascii=False, indent=2))
+            zf.writestr('verify.txt', '本证据包包含业务快照JSON、证据事件JSON、审计日志JSON、附件哈希清单。\n'
+                        '校验方式：重新计算 object_snapshot.json 的 SHA256，与 hashes.json 中 snapshot_hash 比对。\n'
+                        '证据事件哈希链可通过 evidence_events.json 中的 prev_hash/event_hash 校验连续性。\n')
+
+        buf.seek(0)
+        resp = HttpResponse(buf.getvalue(), content_type='application/zip')
+        resp['Content-Disposition'] = (
+            f'attachment; filename="evidence_checksheet_{project}_{year}{month}.zip"')
+        return resp

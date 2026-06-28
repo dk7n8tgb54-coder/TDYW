@@ -10,4 +10,6 @@ urlpatterns = [
     path('template/<int:pk>/', views.TemplateDetailView.as_view()),
     path('record/', views.RecordListView.as_view()),
     path('export/pdf/', views.export_pdf),
+    path('submission/', views.SubmissionView.as_view()),
+    path('evidence/package/', views.EvidencePackageView.as_view()),
 ]

@@ -241,6 +241,16 @@ class RadioLicenseAttachment(models.Model, TenantModelMixin):
     file_size = models.BigIntegerField(default=0, help_text='文件大小(字节)')
     file_ext = models.CharField(max_length=20, default='', help_text='文件扩展名')
 
+    # ==== 证据闭环第三阶段：附件哈希 + 软删除 ====
+    file_hash_sha256 = models.CharField(max_length=64, default='', db_index=True, help_text='文件 SHA256')
+    file_hash_md5 = models.CharField(max_length=32, default='', help_text='文件 MD5（兼容旧系统）')
+    uploaded_by_name = models.CharField(max_length=100, default='', help_text='上传人姓名快照')
+    is_deleted = models.BooleanField(default=False, help_text='是否已删除（软删除）')
+    deleted_by_id = models.IntegerField(null=True, blank=True, help_text='删除人账号 ID')
+    deleted_by_name = models.CharField(max_length=100, default='', help_text='删除人姓名快照')
+    deleted_at = models.CharField(max_length=20, null=True, blank=True, help_text='删除时间')
+    delete_reason = models.CharField(max_length=500, default='', blank=True, help_text='删除原因')
+
     # ---- 通用字段 ----
     created_at = models.CharField(max_length=20, default=human_datetime)
     uploaded_by = models.ForeignKey(User, models.PROTECT, related_name='+', help_text='上传人')
@@ -249,7 +259,8 @@ class RadioLicenseAttachment(models.Model, TenantModelMixin):
         return '<RadioLicenseAttachment %s>' % self.file_name
 
     def to_view(self):
-        return self.to_dict()
+        tmp = self.to_dict(excludes=('is_deleted',))
+        return tmp
 
     class Meta:
         db_table = 'tdyw_radio_license_attachment'
@@ -258,4 +269,50 @@ class RadioLicenseAttachment(models.Model, TenantModelMixin):
         ordering = ('-created_at',)
         indexes = [
             models.Index(fields=['tenant_id', 'license']),
+            models.Index(fields=['file_hash_sha256'], name='rl_att_sha256_idx'),
+        ]
+
+
+# ==================== 证据闭环第三阶段：执照版本历史 ====================
+
+class RadioLicenseVersion(models.Model, TenantModelMixin):
+    """无线电台执照版本历史表（每次修改核心字段前保存修改前快照）
+
+    设计原则：
+    - 修改执照核心字段前先保存修改前版本
+    - 版本号按执照递增
+    - snapshot_json 包含修改前完整字段
+    - snapshot_hash 用于证明快照未被篡改
+    """
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    # ---- 业务字段 ----
+    license = models.ForeignKey(RadioLicense, models.CASCADE, related_name='versions', help_text='执照')
+    version_no = models.IntegerField(help_text='版本号（按执照递增）')
+    snapshot_json = models.TextField(help_text='修改前完整字段快照 JSON')
+    changed_fields = models.TextField(default='', help_text='本次变更字段列表（逗号分隔）')
+    change_reason = models.CharField(max_length=500, default='', blank=True, help_text='变更原因')
+
+    # ---- 修改人身份快照 ----
+    changed_by_id = models.IntegerField(null=True, blank=True, help_text='修改人账号 ID')
+    changed_by_name = models.CharField(max_length=100, default='', help_text='修改人姓名快照')
+    changed_at = models.CharField(max_length=20, help_text='修改时间')
+
+    # ---- 快照哈希 ----
+    snapshot_hash = models.CharField(max_length=64, default='', help_text='快照哈希(SHA256)')
+
+    def __repr__(self):
+        return '<RadioLicenseVersion license=%s v=%s>' % (self.license_id, self.version_no)
+
+    def to_view(self):
+        return self.to_dict()
+
+    class Meta:
+        db_table = 'tdyw_radio_license_version'
+        verbose_name = '执照版本'
+        verbose_name_plural = '执照版本'
+        ordering = ('-version_no', '-id')
+        indexes = [
+            models.Index(fields=['tenant_id', 'license'], name='rl_ver_license_idx'),
         ]

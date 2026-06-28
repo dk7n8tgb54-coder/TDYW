@@ -17,4 +17,5 @@ urlpatterns = [
     re_path(r'reminders/ack/$', ReminderAckView.as_view()),
     re_path(r'badge/$', RadioLicenseBadgeView.as_view()),
     re_path(r'responsible-users/$', ResponsibleUserListView.as_view()),
+    re_path(r'evidence/package/$', RadioLicenseEvidencePackageView.as_view()),
 ]
