@@ -119,9 +119,14 @@ services:
       - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
       # 开发环境：DEBUG模式开启
       - DEBUG=True
+      # ALLOWED_HOSTS: 允许的 Host 头
+      # 必须包含容器名 tdyw-test，否则 kkFileView 回访 spug 时
+      # Host: tdyw-test 会被 Django 拒绝（DisallowedHost → 400）
+      - ALLOWED_HOSTS=127.0.0.1,localhost,tdyw-test
       # kkFileView 配置 - Office文档在线预览
       # KKFILEVIEW_API_URL: 前端浏览器访问kkFileView的地址（通过Nginx代理）
-      # KKFILEVIEW_SERVER_URL: kkFileView访问spug API下载文件的地址
+      # KKFILEVIEW_SERVER_URL: kkFileView容器回访spug API下载文件的地址
+      #   开发环境默认用容器名 tdyw-test（docker-compose 网络 DNS 可解析）
       - KKFILEVIEW_API_URL=${KKFILEVIEW_API_URL:-/kkfileview}
       - KKFILEVIEW_SERVER_URL=${KKFILEVIEW_SERVER_URL:-http://tdyw-test}
     # 依赖关系：spug 服务依赖 db 服务，确保数据库健康后才启动
