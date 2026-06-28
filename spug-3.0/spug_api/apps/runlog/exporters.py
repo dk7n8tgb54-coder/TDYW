@@ -72,9 +72,9 @@ def _apply_filters(qs, request):
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
     if start_date:
-        qs = qs.filter(created_at__gte='%s 00:00:00' % start_date)
+        qs = qs.filter(created_at__date__gte=start_date)
     if end_date:
-        qs = qs.filter(created_at__lte='%s 23:59:59' % end_date)
+        qs = qs.filter(created_at__date__lte=end_date)
     return qs
 
 

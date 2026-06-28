@@ -59,7 +59,7 @@ export default observer(function () {
   ];
 
   return (
-    <AuthDiv auth="upgrade.upgrade.view">
+    <AuthDiv auth="upgrade.statistics.view">
       <Breadcrumb style={{ marginBottom: 16 }}>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
         <Breadcrumb.Item>系统升级管理</Breadcrumb.Item>

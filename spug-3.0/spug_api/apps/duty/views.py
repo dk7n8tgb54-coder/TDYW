@@ -83,6 +83,9 @@ class DutyRecordView(View):
 
         # 先判断是否是删除操作
         if req_data.get('action') == 'delete':
+            # 统一接口二次校验：删除分支必须单独拥有 del 权限
+            if not request.user.has_perms({'duty.duty.del'}):
+                return json_response(error='权限拒绝：缺少删除值班记录权限')
             form, error = JsonParser(
                 Argument('id', type=int, help='请提供记录ID')
             ).parse(request.body)
@@ -103,6 +106,9 @@ class DutyRecordView(View):
         ).parse(request.body)
         if error is None:
             if form.id:
+                # 统一接口二次校验：编辑分支必须单独拥有 edit 权限
+                if not request.user.has_perms({'duty.duty.edit'}):
+                    return json_response(error='权限拒绝：缺少编辑值班记录权限')
                 queryset = apply_tenant_filter(DutyRecord.objects.filter(pk=form.id), request.user)
                 if not queryset.exists():
                     return json_response(error='记录不存在或无权操作')
@@ -114,6 +120,9 @@ class DutyRecordView(View):
                     updated_at=human_datetime()
                 )
             else:
+                # 统一接口二次校验：新增分支必须单独拥有 add 权限
+                if not request.user.has_perms({'duty.duty.add'}):
+                    return json_response(error='权限拒绝：缺少新增值班记录权限')
                 form.reporter = request.user.nickname
                 form.created_by = request.user
                 assign_tenant_id(form, request.user)

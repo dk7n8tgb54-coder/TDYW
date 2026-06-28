@@ -58,11 +58,11 @@ export default [
   ]},
   {icon: <ExceptionOutlined/>, title: '干扰管理', auth: 'interference.interference.view', child: [
     {title: '干扰记录', auth: 'interference.interference.view', path: '/interference', component: Interference},
-    {title: '干扰统计', auth: 'interference.interference.view', path: '/interference/statistics', component: InterferenceStatistics},
+    {title: '干扰统计', auth: 'interference.statistics.view', path: '/interference/statistics', component: InterferenceStatistics},
   ]},
   {icon: <CloudUploadOutlined/>, title: '系统升级管理', auth: 'upgrade.upgrade.view', child: [
     {title: '升级表单', auth: 'upgrade.upgrade.view', path: '/upgrade', component: ExecUpgradeRecord},
-    {title: '统计报表', auth: 'upgrade.upgrade.view', path: '/upgrade/statistics', component: ExecUpgradeStatistics},
+    {title: '统计报表', auth: 'upgrade.statistics.view', path: '/upgrade/statistics', component: ExecUpgradeStatistics},
     {title: '升级模板', auth: 'upgrade.upgrade.view', path: '/upgrade/templates', component: ExecUpgradeTemplates},
     {title: '步骤清单', auth: 'upgrade.upgrade.view', path: '/upgrade/checklists', component: ExecUpgradeChecklists},
   ]},

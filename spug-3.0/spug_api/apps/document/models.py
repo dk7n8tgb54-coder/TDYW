@@ -274,6 +274,16 @@ class DocumentFolderPrivate(SoftDeleteFolderMixin, FolderPathMixin, UniqueKeyMix
         db_table = 'tdyw_document_folder_private'
         verbose_name = '文档文件夹(私有)'
         verbose_name_plural = '文档文件夹(私有)'
+        # 列表查询路径：filter(tenant_id=?, parent_id=?, is_deleted=False).order_by('-created_at')
+        # 组合索引覆盖 过滤 + 排序，避免数据量增长后 Using filesort。
+        # 字段顺序说明：parent_id 放最前，左前缀 [parent_id] 可服务 CASCADE
+        # 删除父记录时的 WHERE parent_id=? 查询，避免额外维护单列外键索引。
+        indexes = [
+            models.Index(
+                fields=['parent_id', 'tenant_id', 'is_deleted', '-created_at', '-id'],
+                name='doc_pri_folder_list_idx',
+            ),
+        ]
 
     def __str__(self):
         return self.name
@@ -395,6 +405,16 @@ class DocumentFilePrivate(SoftDeleteFileMixin, DocumentFileDeleteMixin):
         db_table = 'tdyw_document_file_private'
         verbose_name = '文档文件(私有)'
         verbose_name_plural = '文档文件(私有)'
+        # 列表查询路径：filter(tenant_id=?, folder_id=?, is_deleted=False).order_by('-created_at')
+        # （is_deleted=False 由 SoftDeletedManager 自动添加）
+        # 字段顺序说明：folder_id 放最前，左前缀 [folder_id] 可服务 CASCADE
+        # 删除父文件夹时的 WHERE folder_id=? 查询。
+        indexes = [
+            models.Index(
+                fields=['folder_id', 'tenant_id', 'is_deleted', '-created_at', '-id'],
+                name='doc_pri_file_list_idx',
+            ),
+        ]
 
     def __str__(self):
         return self.display_name or self.name
@@ -448,6 +468,15 @@ class DocumentFolderPublic(SoftDeleteFolderMixin, FolderPathMixin, UniqueKeyMixi
         db_table = 'tdyw_document_folder_public'
         verbose_name = '文档文件夹(公共)'
         verbose_name_plural = '文档文件夹(公共)'
+        # 公共空间无租户隔离，列表查询路径：
+        # filter(parent_id=?, is_deleted=False).order_by('-created_at')
+        # parent_id 放最前，左前缀可服务 CASCADE 删除。
+        indexes = [
+            models.Index(
+                fields=['parent_id', 'is_deleted', '-created_at', '-id'],
+                name='doc_pub_folder_list_idx',
+            ),
+        ]
 
     def __str__(self):
         return self.name
@@ -575,6 +604,15 @@ class DocumentFilePublic(SoftDeleteFileMixin, DocumentFileDeleteMixin):
                 name='unique_file_name_folder_public'
             )
         ]
+        # 列表查询路径：filter(folder_id=?, is_deleted=False).order_by('-created_at')
+        # （is_deleted=False 由 SoftDeletedManager 自动添加）
+        # folder_id 放最前，左前缀可服务 CASCADE 删除。
+        indexes = [
+            models.Index(
+                fields=['folder_id', 'is_deleted', '-created_at', '-id'],
+                name='doc_pub_file_list_idx',
+            ),
+        ]
 
     def __str__(self):
         return self.display_name or self.name
@@ -652,6 +690,7 @@ class DocumentTransfer(models.Model):
             models.Index(fields=['tenant_id', 'file_hash'], name='idx_transfer_tenant_hash'),
             models.Index(fields=['user', 'status'], name='idx_transfer_user_status'),
             models.Index(fields=['created_at'], name='idx_transfer_created'),
+            models.Index(fields=['status', 'updated_at'], name='transfer_status_updated_idx'),
         ]
 
     def __str__(self):

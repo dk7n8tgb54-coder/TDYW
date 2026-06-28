@@ -17,15 +17,30 @@
 - 异步回调携带 `operationVersion`，过期则丢弃（调用点检查 + 状态机 payload 兜底）
 - 向后兼容：无版本号的 transition 正常执行（旧测试/mock 不受影响）
 
-### 数据库迁移 ⚠️ 重要
+### 数据库迁移纪律 ⚠️ 重要（2026-06-28 约定）
+
 **修改 Django 模型后必须执行迁移**：
 ```bash
-# 1. 生成迁移文件
-docker exec tdyw python /data/spug/spug_api/manage.py makemigrations document --name xxx
+# 1. 生成迁移文件（指定 app + 手动命名，避免 0006_auto_xxx）
+docker exec tdyw python /data/spug/spug_api/manage.py makemigrations <app> --name <语义化名称>
 
 # 2. 执行迁移
-docker exec tdyw python /data/spug/spug_api/manage.py migrate document
+docker exec tdyw python /data/spug/spug_api/manage.py migrate <app>
 ```
+
+**迁移纪律约定**：
+1. **一个功能 PR 尽量只产生一个 migration**：同一 PR 内的多个模型改动合并到同一个迁移文件，避免迁移历史碎片化。
+2. **migration 文件手动命名**：`makemigrations --name xxx` 给语义化名称，少用 Django 自动生成的 `0006_auto_20260628_1234` 这类无意义名。
+3. **schema migration 和 data migration 尽量分开**：结构变更（加字段/改约束）与数据回填/清洗分成独立迁移文件，便于回滚和审计。
+4. **CI 检查项**（必须通过）：
+   - `python manage.py makemigrations --check --dry-run` — 检测是否有未提交的模型变更（有则 CI 失败，强制先 makemigrations）
+   - `python manage.py migrate --plan` — 打印迁移执行计划，人工/脚本核对顺序与依赖是否合理
+
+**已踩过的坑**：
+- `makemigrations` 不指定 app 名会扫描全部 app，对其他模块 Meta 选项变更（verbose_name_plural/ordering）也会生成意外迁移文件，污染迁移历史。误生成应立即删除。
+- 加唯一约束必须拆步：先加非唯一字段 → 回填 → 检查重复 → 再 AlterField 加 unique（见 0005 迁移）。
+- **字段 `db_index=True` 与 `Meta.indexes` 同字段单列索引会生成两套索引**（Django 不去重）。`Meta.indexes` 只用于复合索引或需自定义命名的场景；声明前先检查字段是否已 `db_index=True`。logs app 0004 迁移即清理此类重复（`audit_req_hash_idx` 等三条与自动索引重复）。
+- **CharField→DateTimeField/DateField 迁移必须先清洗空字符串**：可空时间字段历史数据可能有空串 `''`（非 NULL），直接 `ALTER` 到 `DATETIME` 会失败或产生 `0000-00-00` 垃圾值。迁移文件中在 `AlterField` 前加 `RunPython` 把 `filter(col='').update(col=None)`。`NULL` 在 ALTER 时安全保持，无需处理。迁移前用 `STR_TO_DATE(col, fmt) IS NULL` 统计 NULL/空串/合法/非法分布。logs+runlog 已完成此迁移（0006/0009）。
 
 ### Docker 路径
 - 容器内项目路径: `/data/spug/spug_api/`

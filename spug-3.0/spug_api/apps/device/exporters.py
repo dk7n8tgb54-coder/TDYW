@@ -10,6 +10,7 @@
 import logging
 from datetime import datetime
 
+from django.db.models import Q
 from django.views.generic import View
 from libs import auth
 from libs.export_utils import build_excel_response, check_export_limit, build_export_error_response
@@ -38,6 +39,13 @@ SHEET_NAME = '设备列表'
 def get_export_queryset(request):
     """按当前筛选条件查询数据，与 DeviceResumeView 列表筛选规则一致。"""
     qs = apply_tenant_filter(DeviceResume.objects.all(), request.user)
+    # 统一关键字搜索：同时匹配设备编号或设备名称（与列表接口 DeviceResumeView 一致）
+    keyword = request.GET.get('keyword')
+    if keyword:
+        qs = qs.filter(
+            Q(device_sn__icontains=keyword) | Q(device_name__icontains=keyword)
+        )
+    # 兼容旧参数：单独传 device_sn / device_name 时仍按精确字段模糊匹配
     device_sn = request.GET.get('device_sn')
     if device_sn:
         qs = qs.filter(device_sn__icontains=device_sn)

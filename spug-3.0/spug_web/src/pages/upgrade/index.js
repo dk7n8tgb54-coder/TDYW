@@ -12,6 +12,7 @@ import ComTable from './Table';
 import CalendarView from './CalendarView';
 import RecordForm from './RecordForm';
 import store from './store';
+import moment from 'moment';
 
 const { Option } = Select;
 
@@ -51,7 +52,7 @@ export default observer(function () {
         </SearchForm.Item>
         <SearchForm.Item span={6} title="时间范围">
           <DatePicker.RangePicker
-            value={store.f_start_date && store.f_end_date ? [store.f_start_date, store.f_end_date] : null}
+            value={store.f_start_date && store.f_end_date ? [moment(store.f_start_date), moment(store.f_end_date)] : null}
             onChange={(dates) => {
               store.f_start_date = dates ? dates[0].format('YYYY-MM-DD') : null;
               store.f_end_date = dates ? dates[1].format('YYYY-MM-DD') : null;

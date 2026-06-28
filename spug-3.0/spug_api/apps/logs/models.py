@@ -3,8 +3,8 @@
 # Released under the AGPL-3.0 License.
 
 from django.db import models
+from django.utils import timezone
 from libs.mixins import ModelMixin
-from libs.utils import human_datetime
 
 
 class AuditLog(models.Model, ModelMixin):
@@ -31,7 +31,7 @@ class AuditLog(models.Model, ModelMixin):
     ip = models.CharField(max_length=50)
     is_success = models.BooleanField(default=True)
     tenant_id = models.CharField(max_length=50, null=True, default='default')
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='创建时间')
 
     # ==== 证据闭环：哈希链相关字段（第一阶段） ====
     # request_hash：基于 detail（脱敏后存库内容）的 SHA256，证明详情未被静默篡改
@@ -64,16 +64,17 @@ class AuditLog(models.Model, ModelMixin):
         ordering = ('-id',)
         # 审计日志会持续增长，按常用筛选字段建立索引避免列表查询随数据量线性变慢。
         # - tenant_id + (-id)：租户隔离下的分页主路径（默认按 -id 排序）
-        # - tenant_id + created_at：按时间范围筛选
+        # - tenant_id + (-created_at) + (-id)：时间范围筛选 + 时间倒序分页
+        #   （views.py 中 start_time/end_time 筛选 + 长期时间倒序展示的主路径）
+        # - tenant_id + created_at：兼容已有时间范围筛选（保留，避免破坏旧迁移）
         # - action / target_type / username：单项精确筛选
-        # - request_hash / log_hash：哈希链校验与防篡改核验
+        # 注意：request_hash / log_hash / request_id 已在字段上设 db_index=True，
+        #       Django 会自动建索引，此处不再重复声明，避免重复索引（写入/磁盘成本）。
         indexes = [
             models.Index(fields=['tenant_id', '-id'], name='audit_tenant_id_idx'),
             models.Index(fields=['tenant_id', 'created_at'], name='audit_tenant_time_idx'),
+            models.Index(fields=['tenant_id', '-created_at', '-id'], name='audit_tenant_ctime_id_idx'),
             models.Index(fields=['action'], name='audit_action_idx'),
             models.Index(fields=['target_type'], name='audit_target_type_idx'),
             models.Index(fields=['username'], name='audit_username_idx'),
-            models.Index(fields=['request_hash'], name='audit_req_hash_idx'),
-            models.Index(fields=['log_hash'], name='audit_log_hash_idx'),
-            models.Index(fields=['request_id'], name='audit_req_id_idx'),
         ]

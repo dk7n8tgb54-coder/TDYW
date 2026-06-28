@@ -10,7 +10,7 @@ from apps.upgrade.services.statistics_service import StatisticsService
 class StatisticsView(View):
     """获取统计数据"""
 
-    @auth('upgrade.upgrade.view')
+    @auth('upgrade.statistics.view')
     def get(self, request):
         filters = {}
         if request.GET.get('system'):

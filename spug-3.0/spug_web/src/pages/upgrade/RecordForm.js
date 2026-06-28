@@ -349,7 +349,7 @@ export default observer(function () {
 
             {/* 操作栏 */}
             <div style={{ marginBottom: 16, display: 'flex', gap: 8 }}>
-              {store.checklists.length > 0 && (
+              {hasPermission('upgrade.upgrade.add') && store.checklists.length > 0 && (
                 <Select
                   style={{ width: 240 }}
                   placeholder="选择清单应用到本次升级"
@@ -363,9 +363,11 @@ export default observer(function () {
                   ))}
                 </Select>
               )}
-              <Button icon={<PlusOutlined/>} onClick={() => setAddStepVisible(true)}>
-                手动添加步骤
-              </Button>
+              {hasPermission('upgrade.upgrade.add') && (
+                <Button icon={<PlusOutlined/>} onClick={() => setAddStepVisible(true)}>
+                  手动添加步骤
+                </Button>
+              )}
               {recordSteps.length > 0 && hasPermission('upgrade.upgrade.step_del') && (
                 <Popconfirm title="确定清空所有步骤？" onConfirm={handleClearSteps}>
                   <Button danger>清空步骤</Button>

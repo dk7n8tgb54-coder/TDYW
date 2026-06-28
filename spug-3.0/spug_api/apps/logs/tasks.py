@@ -6,11 +6,12 @@
 审计日志定时任务
 - cleanup_old_audit_logs：归档清理超过保留期的审计日志
   审计日志会持续增长，为避免 audit_logs 表过大拖慢查询和占用磁盘，
-  定时删除超过保留期的记录。默认保留 180 天。
+  定时删除超过保留期的记录。默认保留 30 天。
 """
 
 import logging
 from datetime import datetime, timedelta
+from django.utils import timezone
 from celery import shared_task
 
 logger = logging.getLogger(__name__)
@@ -28,31 +29,30 @@ DELETE_BATCH_SIZE = 5000
     queue='default',
     name='apps.logs.tasks.cleanup_old_audit_logs',
 )
-def cleanup_old_audit_logs(self, days=180, dry_run=False):
+def cleanup_old_audit_logs(self, days=30, dry_run=False):
     """清理超过保留期的审计日志
 
-    AuditLog.created_at 是 CharField(max_length=20)，存 "YYYY-MM-DD HH:MM:SS" 格式
-    （human_datetime 生成）。该格式字典序与时间序一致，可直接用字符串比较。
+    AuditLog.created_at 已迁移为 DateTimeField，直接用 datetime 比较即可。
 
     Args:
-        days: 保留天数，默认 180 天。小于 MIN_RETENTION_DAYS 会被钳制，避免误删近期数据。
+        days: 保留天数，默认 30 天。小于 MIN_RETENTION_DAYS 会被钳制，避免误删近期数据。
         dry_run: 仅统计待删除数量，不实际删除（用于预演和验证）。
 
     Returns:
         dict: 清理结果 {status, deleted_count, cutoff_date, dry_run, total_before}
     """
     from apps.logs.models import AuditLog
-    from libs.utils import human_datetime
 
     # 钳制保留期，防止误传过小参数导致批量误删近期审计数据
     days = max(int(days), MIN_RETENTION_DAYS)
 
-    cutoff_dt = datetime.now() - timedelta(days=days)
-    cutoff_str = human_datetime(cutoff_dt)  # "YYYY-MM-DD HH:MM:SS"
+    cutoff_dt = timezone.now() - timedelta(days=days)
+    # 用于日志展示的截止时间字符串
+    cutoff_str = cutoff_dt.strftime('%Y-%m-%d %H:%M:%S')
 
     try:
         total_before = AuditLog.objects.count()
-        stale_qs = AuditLog.objects.filter(created_at__lt=cutoff_str).order_by()
+        stale_qs = AuditLog.objects.filter(created_at__lt=cutoff_dt).order_by()
 
         if dry_run:
             stale_count = stale_qs.count()

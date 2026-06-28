@@ -3,7 +3,7 @@
 # Released under the AGPL-3.0 License.
 import json
 from django.db import models
-from libs import human_datetime
+from django.utils import timezone
 from libs.mixins import ModelMixin
 from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 from apps.account.models import User
@@ -33,8 +33,8 @@ class RunLog(models.Model, TenantModelMixin):
     resolution = models.TextField(null=True, blank=True, help_text='处理措施总结（事件解决后的最终方案总结，与动态记录不同，此处填写结案报告）')
     verifier_id = models.IntegerField(null=True, blank=True)
     verifier_name = models.CharField(max_length=100, null=True, blank=True)
-    verified_at = models.CharField(max_length=20, null=True, blank=True)
-    closed_at = models.CharField(max_length=20, null=True, blank=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
 
     # ==== 证据闭环：快照哈希 + 验证人身份快照 ====
     # 关闭/验证时计算快照哈希，证明归档时内容未被篡改
@@ -43,13 +43,13 @@ class RunLog(models.Model, TenantModelMixin):
     
     # === 统计字段 ===
     update_count = models.IntegerField(default=0, help_text='动态数量')
-    first_update_date = models.CharField(max_length=20, null=True, blank=True, help_text='首次动态日期')
-    last_update_date = models.CharField(max_length=20, null=True, blank=True, help_text='最后动态日期')
+    first_update_date = models.DateField(null=True, blank=True, help_text='首次动态日期')
+    last_update_date = models.DateField(null=True, blank=True, help_text='最后动态日期')
     
     # === 时间戳 ===
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(default=timezone.now)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
-    updated_at = models.CharField(max_length=20, null=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
 
     def __repr__(self):
@@ -96,7 +96,7 @@ class RunLogUpdate(models.Model, TenantModelMixin):
     event_title = models.CharField(max_length=200, help_text='事件标题（冗余）')
     
     # 动态内容
-    update_date = models.CharField(max_length=20, help_text='动态日期（精确到日）')
+    update_date = models.DateField(help_text='动态日期（精确到日）')
     sequence = models.IntegerField(default=0, help_text='同一天内的序号')
     recorder = models.CharField(max_length=100, help_text='记录人')
     detail_content = models.TextField(help_text='详细记录')
@@ -106,7 +106,7 @@ class RunLogUpdate(models.Model, TenantModelMixin):
     attachments = models.TextField(null=True, blank=True, help_text='附件JSON，存储图片路径列表')
 
     # 修改权限控制
-    editable_until = models.CharField(max_length=20, help_text='可修改截止时间（创建后24小时内）')
+    editable_until = models.DateTimeField(help_text='可修改截止时间（创建后24小时内）')
 
     # ==== 证据闭环：动态类型 + 更正 + 作废 ====
     UPDATE_TYPE_CHOICES = (
@@ -121,7 +121,7 @@ class RunLogUpdate(models.Model, TenantModelMixin):
     is_voided = models.BooleanField(default=False, help_text='是否已作废')
     void_reason = models.CharField(max_length=500, default='', blank=True, help_text='作废原因')
     
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(default=timezone.now)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
 
     def can_edit(self, user):
@@ -131,9 +131,8 @@ class RunLogUpdate(models.Model, TenantModelMixin):
         """
         # 创建者或超级管理员可修改（需在 24 小时内）
         if self.created_by_id == user.id or user.is_supper:
-            from datetime import datetime
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            return now < self.editable_until
+            from django.utils import timezone
+            return timezone.now() < self.editable_until
         return False
 
     def to_view(self, user=None):
@@ -153,9 +152,8 @@ class RunLogUpdate(models.Model, TenantModelMixin):
             tmp['can_edit'] = self.can_edit(user)
         else:
             # 兜底：仅按时间判断（向后兼容无 user 参数的调用方，如 PDF 导出）
-            from datetime import datetime
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            tmp['can_edit'] = now < self.editable_until
+            from django.utils import timezone
+            tmp['can_edit'] = timezone.now() < self.editable_until
         return tmp
 
     class Meta:
@@ -175,7 +173,7 @@ class EventTypeConfig(models.Model, ModelMixin):
 
     name = models.CharField(max_length=50, unique=True, help_text='类型名称')
     is_active = models.BooleanField(default=True, help_text='是否启用')
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(default=timezone.now)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
 
     def __repr__(self):

@@ -7,6 +7,16 @@ from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_te
 from apps.account.models import User
 
 
+class SoftDeleteTenantManager(TenantModelManager):
+    """默认管理器：业务查询自动排除软删除记录（is_deleted=False），保留租户感知能力。
+
+    与 document 模块的 SoftDeletedManager 模式一致。
+    审计/证据场景如需查看已删除记录，请使用 all_objects。
+    """
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False)
+
+
 class DeviceResume(models.Model, TenantModelMixin):
     """设备档案主表"""
     # 设备状态枚举
@@ -24,7 +34,8 @@ class DeviceResume(models.Model, TenantModelMixin):
     )
     STATUS_TEXT_MAP = dict(STATUS_CHOICES)
 
-    objects = TenantModelManager()
+    objects = SoftDeleteTenantManager()       # 默认：业务查询自动排除软删除
+    all_objects = TenantModelManager()        # 全量：审计/证据场景使用（含已删除）
     tenant_id = make_tenant_id()
     device_sn = models.CharField(max_length=50, help_text='设备资产编号，租户内唯一')
     device_name = models.CharField(max_length=50, help_text='设备名称')

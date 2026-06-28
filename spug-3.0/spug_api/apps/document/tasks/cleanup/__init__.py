@@ -27,6 +27,7 @@ from .base import (
 from .pending_files import retry_clean_pending_files
 from .chunks import cleanup_old_chunks
 from .transfers import cleanup_expired_transfers
+from .orphan_transfers import cleanup_orphan_transfers
 
 __all__ = [
     # 基础工具
@@ -37,4 +38,5 @@ __all__ = [
     'retry_clean_pending_files',
     'cleanup_old_chunks',
     'cleanup_expired_transfers',
+    'cleanup_orphan_transfers',
 ]

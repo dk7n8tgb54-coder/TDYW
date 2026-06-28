@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Table, Modal, message, DatePicker, Select, Tag, Statistic, Card, Row, Col, Image, Spin, Button, Dropdown, Menu } from 'antd';
+import { Table, Modal, message, DatePicker, Select, Tag, Statistic, Card, Row, Col, Image, Button, Dropdown, Menu } from 'antd';
 import { PlusOutlined, DeleteOutlined, CheckCircleOutlined, FilePdfOutlined, FileExcelOutlined, FileOutlined, SettingOutlined, DownOutlined } from '@ant-design/icons';
 import { http, hasPermission, Permission, exportFile } from 'libs';
 import { Action, TableCard, AuthButton } from "components";
@@ -21,34 +21,7 @@ class ComTable extends React.Component {
 
   state = {
     expandedRowsData: {},  // 存储展开行的动态数据
-    // 附件预览状态
-    previewVisible: false,
-    previewUrl: '',
-    previewLoading: false,
-    previewError: '',
-    previewFileName: '',
   }
-
-  // 获取附件预览URL
-  fetchPreviewUrl = (attachmentPath) => {
-    const fileName = attachmentPath.split('/').pop() || '附件';
-    this.setState({ previewFileName: fileName, previewLoading: true, previewError: '' });
-
-    http.get('/api/runlog/attachment/preview_url/', { params: { path: attachmentPath } })
-      .then(data => {
-        this.setState({ previewUrl: data.preview_url, previewVisible: true, previewLoading: false });
-      })
-      .catch(err => {
-        const errorMsg = err?.error || err?.message || '获取预览失败，请下载后查看';
-        this.setState({ previewError: errorMsg, previewLoading: false });
-        message.error(errorMsg);
-      });
-  };
-
-  // 关闭预览弹窗
-  handleClosePreview = () => {
-    this.setState({ previewVisible: false, previewUrl: '', previewError: '' });
-  };
 
   componentDidMount() {
     this._isMounted = true;
@@ -292,18 +265,15 @@ class ComTable extends React.Component {
                         />
                       );
                     } else {
-                      // 非图片文件显示文件名链接，点击预览
+                      // 非图片文件显示文件名链接，点击下载
                       return (
                         <a
                           key={idx}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            this.fetchPreviewUrl(url);
-                          }}
                           href={url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          title="点击预览"
+                          download
+                          title="点击下载"
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
@@ -428,7 +398,7 @@ class ComTable extends React.Component {
             expandedRowRender: record => this.renderExpandedRow(record),
             onExpand: this.handleRowExpand,
             expandedRowKeys: this.state.expandedRowKeys || [],
-            rowExpandable: record => record.update_count > 0
+            rowExpandable: record => record.update_count > 0 && hasPermission('runlog.runlog.update_view')
           }}>
           <Table.Column title="事件标题" dataIndex="event_title" ellipsis width={200}/>
           <Table.Column title="事件类型" dataIndex="event_type" width={100}/>
@@ -451,37 +421,6 @@ class ComTable extends React.Component {
           )}/>
         )}
       </TableCard>
-
-        {/* 附件预览弹窗 */}
-        <Modal
-          title={this.state.previewFileName || '文件预览'}
-          visible={this.state.previewVisible}
-          onCancel={this.handleClosePreview}
-          footer={null}
-          width="90%"
-          style={{ top: 20 }}
-          bodyStyle={{ padding: 0, height: 'calc(100vh - 150px)' }}
-          destroyOnClose
-        >
-          {this.state.previewLoading ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-              <Spin tip="正在加载预览..." />
-            </div>
-          ) : this.state.previewError ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-              <div style={{ color: '#ff4d4f', marginBottom: 16 }}>{this.state.previewError}</div>
-              <Button type="primary" onClick={() => window.open(this.state.previewUrl, '_blank')}>
-                下载文件
-              </Button>
-            </div>
-          ) : (
-            <iframe
-              src={this.state.previewUrl}
-              style={{ width: '100%', height: '100%', border: 'none' }}
-              title={`Preview: ${this.state.previewFileName}`}
-            />
-          )}
-        </Modal>
     </div>
     )
   }

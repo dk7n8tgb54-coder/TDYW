@@ -248,6 +248,11 @@ RECYCLE_BIN_LARGE_FILE_THRESHOLD = 104857600  # 大文件阈值：100MB
 
 # ==================== 文件预览配置 ====================
 # 文本预览最大文件大小（默认2MB）
+# Document transfer cleanup. Terminal transfer rows are retained briefly and
+# removed by the scheduled cleanup task.
+DOCUMENT_TRANSFER_RETENTION_DAYS = int(os.environ.get('DOCUMENT_TRANSFER_RETENTION_DAYS', '30'))
+DOCUMENT_TRANSFER_CLEANUP_BATCH_SIZE = int(os.environ.get('DOCUMENT_TRANSFER_CLEANUP_BATCH_SIZE', '1000'))
+
 TEXT_PREVIEW_MAX_SIZE = 2 * 1024 * 1024
 
 # kkFileView 配置（Office文档在线预览）

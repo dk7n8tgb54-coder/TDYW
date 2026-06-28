@@ -22,6 +22,7 @@
 
 import hashlib
 import json
+from datetime import datetime
 
 
 def _to_text(value):
@@ -34,6 +35,10 @@ def _to_text(value):
         return ''
     if isinstance(value, bool):
         return 'true' if value else 'false'
+    if isinstance(value, datetime):
+        # DateTimeField 值格式化为 'YYYY-MM-DD HH:MM:SS'，
+        # 保证迁移前后哈希计算结果一致（旧数据 created_at 是该格式字符串）
+        return value.strftime('%Y-%m-%d %H:%M:%S')
     return str(value)
 
 

@@ -3,6 +3,8 @@
 # Released under the AGPL-3.0 License.
 
 from django.db.models import Q
+from django.utils import timezone
+from datetime import datetime
 from libs.mixins import AdminView
 from libs import json_response, Argument, JsonParser
 from libs.utils import get_request_real_ip
@@ -55,11 +57,20 @@ class AuditLogView(AdminView):
         if form.is_success is not None:
             queryset = queryset.filter(is_success=form.is_success)
 
-        # 按时间范围筛选
+        # 按时间范围筛选（created_at 已迁移为 DateTimeField，参数转为 datetime）
         if form.start_time:
-            queryset = queryset.filter(created_at__gte=form.start_time)
+            # 兼容 'YYYY-MM-DD' 和 'YYYY-MM-DD HH:MM:SS' 两种格式
+            try:
+                start_dt = datetime.strptime(form.start_time, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                start_dt = datetime.strptime(form.start_time, '%Y-%m-%d')
+            queryset = queryset.filter(created_at__gte=timezone.make_aware(start_dt))
         if form.end_time:
-            queryset = queryset.filter(created_at__lte=form.end_time)
+            try:
+                end_dt = datetime.strptime(form.end_time, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                end_dt = datetime.strptime(form.end_time, '%Y-%m-%d')
+            queryset = queryset.filter(created_at__lte=timezone.make_aware(end_dt))
 
         # 关键词搜索（搜索用户名、对象名称、详情）
         if form.keyword:
@@ -121,9 +132,17 @@ class AuditLogExportView(AdminView):
         if form.is_success is not None:
             queryset = queryset.filter(is_success=form.is_success)
         if form.start_time:
-            queryset = queryset.filter(created_at__gte=form.start_time)
+            try:
+                start_dt = datetime.strptime(form.start_time, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                start_dt = datetime.strptime(form.start_time, '%Y-%m-%d')
+            queryset = queryset.filter(created_at__gte=timezone.make_aware(start_dt))
         if form.end_time:
-            queryset = queryset.filter(created_at__lte=form.end_time)
+            try:
+                end_dt = datetime.strptime(form.end_time, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                end_dt = datetime.strptime(form.end_time, '%Y-%m-%d')
+            queryset = queryset.filter(created_at__lte=timezone.make_aware(end_dt))
         if form.keyword:
             queryset = queryset.filter(
                 Q(username__icontains=form.keyword) |

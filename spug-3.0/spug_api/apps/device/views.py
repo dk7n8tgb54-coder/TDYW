@@ -133,40 +133,74 @@ class DeviceResumeView(View):
         responsible_user_name = form.responsible_user_name or form.responsible_user_id or ''
         tenant_id = request.user.tenant_id
 
-        # Create device resume using get_or_create for thread safety
+        # Create device resume
         # 注意：按 (tenant_id, device_sn) 唯一约束查询，不同租户可创建相同编号
+        # 软删除策略（证据闭环第三阶段）：
+        #   - objects 管理器自动过滤 is_deleted=False，故查重只看未删除记录；
+        #   - 若同编号仅有已软删除记录，则"恢复重建"（复用原 ID，证据事件/审计日志不脱链），
+        #     既允许编号复用，又保持证据链连续。
         from libs import human_datetime
 
         try:
-            defaults_data = {
-                'device_name': form.device_name,
-                'device_model': form.device_model,
-                'frequency': form.frequency,
-                'call_sign': form.call_sign,
-                'install_location': form.install_location,
-                'geo_coordinate': form.geo_coordinate,
-                'device_purpose': form.device_purpose,
-                'manufacturer': form.manufacturer,
-                'install_unit': form.install_unit,
-                'use_unit': form.use_unit,
-                'install_time': form.install_time,
-                'enable_time': form.enable_time,
-                'current_status': form.current_status,
-                'responsible_user_id': None,
-                'responsible_user_name': responsible_user_name,
-                'tenant_id': tenant_id,
-                'remark': form.remark,
-                'created_by': request.user,
-                'is_deleted': False
-            }
-            record, created = DeviceResume.objects.get_or_create(
-                tenant_id=tenant_id,
-                device_sn=form.device_sn,
-                defaults=defaults_data
-            )
-            if not created:
+            # 1. 查重：未删除记录中是否已存在该编号（objects 自动过滤 is_deleted=False）
+            if DeviceResume.objects.filter(tenant_id=tenant_id, device_sn=form.device_sn).exists():
                 logging.warning(f'创建设备失败：设备编号已存在｜设备编号：{form.device_sn}｜租户：{tenant_id}｜用户：{request.user.username}')
                 return json_response(error='设备资产编号已存在')
+
+            # 2. 检查是否存在已软删除的同编号记录：复用编号时恢复历史记录，保持证据链连续
+            deleted_record = DeviceResume.all_objects.filter(
+                tenant_id=tenant_id, device_sn=form.device_sn, is_deleted=True
+            ).first()
+            if deleted_record:
+                deleted_record.device_name = form.device_name
+                deleted_record.device_model = form.device_model
+                deleted_record.frequency = form.frequency
+                deleted_record.call_sign = form.call_sign
+                deleted_record.install_location = form.install_location
+                deleted_record.geo_coordinate = form.geo_coordinate
+                deleted_record.device_purpose = form.device_purpose
+                deleted_record.manufacturer = form.manufacturer
+                deleted_record.install_unit = form.install_unit
+                deleted_record.use_unit = form.use_unit
+                deleted_record.install_time = form.install_time
+                deleted_record.enable_time = form.enable_time
+                deleted_record.current_status = form.current_status
+                deleted_record.responsible_user_id = None
+                deleted_record.responsible_user_name = responsible_user_name
+                deleted_record.remark = form.remark
+                deleted_record.is_deleted = False
+                deleted_record.deleted_at = None
+                deleted_record.deleted_by_id = None
+                deleted_record.delete_reason = ''
+                deleted_record.updated_by = request.user
+                deleted_record.updated_at = human_datetime()
+                deleted_record.save()
+                logging.info(f'恢复并重建设备成功（复用历史编号，保留证据链）｜租户：{tenant_id}｜用户：{request.user.username}｜设备编号：{form.device_sn}｜设备ID：{deleted_record.id}')
+                return json_response(deleted_record.to_view())
+
+            # 3. 全新创建
+            record = DeviceResume(
+                tenant_id=tenant_id,
+                device_sn=form.device_sn,
+                device_name=form.device_name,
+                device_model=form.device_model,
+                frequency=form.frequency,
+                call_sign=form.call_sign,
+                install_location=form.install_location,
+                geo_coordinate=form.geo_coordinate,
+                device_purpose=form.device_purpose,
+                manufacturer=form.manufacturer,
+                install_unit=form.install_unit,
+                use_unit=form.use_unit,
+                install_time=form.install_time,
+                enable_time=form.enable_time,
+                current_status=form.current_status,
+                responsible_user_id=None,
+                responsible_user_name=responsible_user_name,
+                remark=form.remark,
+                created_by=request.user,
+            )
+            record.save()
             logging.info(f'创建设备成功｜租户：{tenant_id}｜用户：{request.user.username}｜设备编号：{form.device_sn}')
             return json_response(record.to_view())
 
@@ -568,7 +602,8 @@ class DeviceResumeExportView(View):
         event_type = data.get('event_type')
 
         # 按租户过滤查询设备，确保用户只能导出本租户设备
-        device = apply_tenant_filter(DeviceResume.objects.all(), request.user).filter(pk=device_id).first()
+        # 证据包属审计场景：使用 all_objects 以便对已软删除设备仍可导出（证据链完整性）
+        device = apply_tenant_filter(DeviceResume.all_objects.all(), request.user).filter(pk=device_id).first()
         if not device:
             return json_response(error='设备不存在或无权限操作')
 

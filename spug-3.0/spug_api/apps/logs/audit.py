@@ -138,7 +138,7 @@ def save_audit_log(user_id, username, action, target_type, target_id=None,
             compute_request_hash, compute_log_hash_from_values,
         )
         from django.db import transaction
-        from libs.utils import human_datetime
+        from django.utils import timezone
 
         # 1. 规范化 detail：dict → JSON 字符串（与历史行为一致）
         if isinstance(detail, dict):
@@ -162,7 +162,7 @@ def save_audit_log(user_id, username, action, target_type, target_id=None,
             prev_hash = last_log.log_hash if last_log else ''
 
             # 4. 显式生成 created_at，保证 log_hash 输入与落库值一致
-            created_at = human_datetime()
+            created_at = timezone.now()
 
             # 5. 计算 log_hash（覆盖全部关键字段 + prev_hash）
             log_hash = compute_log_hash_from_values(

@@ -140,123 +140,6 @@ class RunLogUploadAttachmentView(View):
             logger.warning(f'[RunLog] 图片压缩失败，已保存原始图片: {filepath}, 错误: {e}')
 
 
-class RunLogAttachmentPreviewUrlView(View):
-    """运行日志附件预览URL视图 - 生成kkFileView预览链接"""
-    @auth('runlog.runlog.update_view')
-    def get(self, request):
-        """获取运行日志附件的kkFileView预览URL"""
-        from django.conf import settings
-        from urllib.parse import quote, urlencode
-        import base64
-
-        # 获取附件路径（相对路径，如 /media/runlog/documents/xxx.pdf）
-        attachment_path = request.GET.get('path', '')
-        if not attachment_path:
-            return json_response(error='缺少附件路径')
-
-        # 校验路径安全：必须位于 MEDIA_ROOT/runlog 目录下
-        try:
-            full_path = media_url_to_path(attachment_path)
-        except ValueError:
-            return json_response(error='无效的附件路径')
-
-        if not os.path.exists(full_path):
-            return json_response(error='附件文件不存在')
-
-        # 检查kkFileView是否已配置
-        kkfileview_api_url = getattr(settings, 'KKFILEVIEW_API_URL', '')
-        if not kkfileview_api_url:
-            return json_response(error='Office文档预览服务未配置，请联系管理员配置KKFILEVIEW_API_URL')
-
-        kkfileview_server_url = getattr(settings, 'KKFILEVIEW_SERVER_URL', '')
-        if not kkfileview_server_url:
-            return json_response(error='Office文档预览服务未配置，请联系管理员配置KKFILEVIEW_SERVER_URL')
-
-        # 构建源文件URL（kkFileView通过此URL下载文件）
-        # 需要带上 x-token 用于认证
-        params = {
-            'path': attachment_path,
-            'x-token': request.META.get('HTTP_X_TOKEN', ''),
-        }
-        file_url = f"{kkfileview_server_url}/api/runlog/attachment/download/?{urlencode(params)}"
-
-        # 获取文件名
-        file_name = os.path.basename(attachment_path)
-        if file_name:
-            file_url = f"{file_url}&fullfilename={quote(file_name)}"
-
-        # kkFileView 要求 url 参数使用 base64 编码
-        encoded_url = base64.b64encode(file_url.encode('utf-8')).decode('utf-8')
-        preview_url = f"{kkfileview_api_url}/onlinePreview?url={encoded_url}"
-
-        return json_response(data={
-            'preview_url': preview_url,
-            'file_name': file_name,
-        })
-
-
-class RunLogAttachmentDownloadView(View):
-    """运行日志附件下载视图 - 供kkFileView下载文件
-
-    该接口会被 kkFileView 作为后端回调访问，回调时会在 URL 中携带用户的
-    x-token，认证中间件会据此完成用户认证并设置 request.user，因此可
-    直接使用 @auth 装饰器进行权限校验。
-    """
-    @auth('runlog.runlog.view|runlog.runlog.update_view')
-    def get(self, request):
-        from django.http import StreamingHttpResponse
-
-        # 获取附件路径
-        attachment_path = request.GET.get('path', '')
-        if not attachment_path:
-            return HttpResponse('Missing path parameter', status=400)
-
-        # 校验路径安全：必须位于 MEDIA_ROOT/runlog 目录下
-        try:
-            full_path = media_url_to_path(attachment_path)
-        except ValueError:
-            return HttpResponse('Invalid path', status=400)
-
-        if not os.path.exists(full_path):
-            return HttpResponse('File not found', status=404)
-
-        # 获取文件名
-        file_name = os.path.basename(attachment_path)
-
-        # 流式响应
-        def file_iterator(file_path, chunk_size=1024*1024):
-            with open(file_path, 'rb') as f:
-                while True:
-                    chunk = f.read(chunk_size)
-                    if not chunk:
-                        break
-                    yield chunk
-
-        file_size = os.path.getsize(full_path)
-        content_type = 'application/octet-stream'
-        # 根据扩展名推断 content-type
-        ext = os.path.splitext(file_name.lower())[1]
-        mime_types = {
-            '.pdf': 'application/pdf',
-            '.doc': 'application/msword',
-            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            '.xls': 'application/vnd.ms-excel',
-            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            '.ppt': 'application/vnd.ms-powerpoint',
-            '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        }
-        if ext in mime_types:
-            content_type = mime_types[ext]
-
-        response = StreamingHttpResponse(
-            file_iterator(full_path),
-            content_type=content_type
-        )
-        response['Content-Length'] = str(file_size)
-        response['Content-Disposition'] = f"inline; filename*=UTF-8''{quote(file_name)}"
-        return response
-
-
 urlpatterns = [
     path('', RunLogView.as_view()),
     path('detail/', RunLogDetailView.as_view()),
@@ -266,8 +149,6 @@ urlpatterns = [
     path('upload/', RunLogUploadAttachmentView.as_view()),
     path('export/pdf/', RunLogExportView.as_view()),
     path('export/excel/', RunLogExcelExportView.as_view()),
-    path('attachment/preview_url/', RunLogAttachmentPreviewUrlView.as_view()),
-    path('attachment/download/', RunLogAttachmentDownloadView.as_view()),
     path('repair/', RunLogRepairView.as_view()),
     path('evidence/package/', RunLogEvidencePackageView.as_view()),
 ]

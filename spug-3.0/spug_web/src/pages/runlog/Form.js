@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { observer } from 'mobx-react';
-import { Modal, Form, Input, Select, DatePicker, Button, message, Descriptions, Tabs, Image, Card, Spin } from 'antd';
+import { Modal, Form, Input, Select, DatePicker, Button, message, Descriptions, Tabs, Image, Card } from 'antd';
 import { PlusOutlined, CloseOutlined, EditOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
 import moment from 'moment';
@@ -24,44 +24,8 @@ export default observer(function () {
   const [addUpdateVisible, setAddUpdateVisible] = useState(false);
   const [editUpdateVisible, setEditUpdateVisible] = useState(false);
   const [editingUpdate, setEditingUpdate] = useState(null);
-  // 附件预览状态（仅用于历史附件展示，不再支持新增附件）
-  const [previewVisible, setPreviewVisible] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState('');
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState('');
-  const [previewFileName, setPreviewFileName] = useState('');
-
   const notifyRunLogListChanged = () => {
     window.dispatchEvent(new CustomEvent('runlog:changed'));
-  };
-
-  // 获取附件预览URL
-  const fetchPreviewUrl = (attachmentPath) => {
-    const fileName = attachmentPath.split('/').pop() || '附件';
-    setPreviewFileName(fileName);
-    setPreviewLoading(true);
-    setPreviewError('');
-
-    http.get('/api/runlog/attachment/preview_url/', { params: { path: attachmentPath } })
-      .then(data => {
-        setPreviewUrl(data.preview_url);
-        setPreviewVisible(true);
-      })
-      .catch(err => {
-        const errorMsg = err?.error || err?.message || '获取预览失败，请下载后查看';
-        setPreviewError(errorMsg);
-        message.error(errorMsg);
-      })
-      .finally(() => {
-        setPreviewLoading(false);
-      });
-  };
-
-  // 关闭预览弹窗
-  const handleClosePreview = () => {
-    setPreviewVisible(false);
-    setPreviewUrl('');
-    setPreviewError('');
   };
 
   function handleSubmit() {
@@ -282,18 +246,15 @@ export default observer(function () {
                               />
                             );
                           } else {
-                            // 非图片文件点击使用kkfileview预览
+                            // 非图片文件点击下载
                             return (
                               <a
                                 key={idx}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  fetchPreviewUrl(url);
-                                }}
                                 href={url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                title="点击预览"
+                                download
+                                title="点击下载"
                                 style={{
                                   display: 'inline-flex',
                                   alignItems: 'center',
@@ -533,18 +494,15 @@ export default observer(function () {
                             />
                           );
                         } else {
-                          // 非图片文件点击使用kkfileview预览
+                          // 非图片文件点击下载
                           return (
                             <a
                               key={idx}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                fetchPreviewUrl(url);
-                              }}
                               href={url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              title="点击预览"
+                              download
+                              title="点击下载"
                               style={{
                                 display: 'inline-flex',
                                 alignItems: 'center',
@@ -576,37 +534,6 @@ export default observer(function () {
           </TabPane>
         )}
       </Tabs>
-
-      {/* 附件预览弹窗 */}
-      <Modal
-        title={previewFileName || '文件预览'}
-        visible={previewVisible}
-        onCancel={handleClosePreview}
-        footer={null}
-        width="90%"
-        style={{ top: 20 }}
-        bodyStyle={{ padding: 0, height: 'calc(100vh - 150px)' }}
-        destroyOnClose
-      >
-        {previewLoading ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-            <Spin tip="正在加载预览..." />
-          </div>
-        ) : previewError ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-            <div style={{ color: '#ff4d4f', marginBottom: 16 }}>{previewError}</div>
-            <Button type="primary" onClick={() => window.open(previewUrl, '_blank')}>
-              下载文件
-            </Button>
-          </div>
-        ) : (
-          <iframe
-            src={previewUrl}
-            style={{ width: '100%', height: '100%', border: 'none' }}
-            title={`Preview: ${previewFileName}`}
-          />
-        )}
-      </Modal>
     </Modal>
   )
 })

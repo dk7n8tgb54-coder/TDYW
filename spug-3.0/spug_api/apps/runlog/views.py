@@ -7,7 +7,8 @@ from django.conf import settings
 from django.db.models import Max, Count, Q
 from django.db import DatabaseError
 from django.utils.encoding import escape_uri_path
-from libs import json_response, auth, human_datetime
+from django.utils import timezone
+from libs import json_response, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from libs import Argument, JsonParser
 from datetime import datetime, timedelta
@@ -84,14 +85,14 @@ class RunLogView(View):
         if filters.get('system_name'):
             logs = logs.filter(system_name__icontains=filters['system_name'])
         if filters.get('date'):
-            logs = logs.filter(created_at__startswith=filters['date'])
+            logs = logs.filter(created_at__date=filters['date'])
         # 日期范围筛选：使用明确的 start_date/end_date 字段，与 PDF 导出接口保持一致
         start_date = request.GET.get('start_date')
         end_date = request.GET.get('end_date')
         if start_date:
-            logs = logs.filter(created_at__gte=f'{start_date} 00:00:00')
+            logs = logs.filter(created_at__date__gte=start_date)
         if end_date:
-            logs = logs.filter(created_at__lte=f'{end_date} 23:59:59')
+            logs = logs.filter(created_at__date__lte=end_date)
 
         # 分页参数
         page = int(request.GET.get('page', 1))
@@ -156,7 +157,7 @@ class RunLogView(View):
             event = RunLog.objects.create(**log_data)
             
             # 创建首次动态
-            editable_until = (datetime.now() + timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+            editable_until = timezone.now() + timedelta(hours=24)
             
             # 计算序号
             max_seq = RunLogUpdate.objects.filter(
@@ -237,8 +238,8 @@ class RunLogView(View):
                     event.resolution = form.resolution
                     event.verifier_id = request.user.id
                     event.verifier_name = request.user.username
-                    event.verified_at = human_datetime()
-                    event.closed_at = human_datetime()
+                    event.verified_at = timezone.now()
+                    event.closed_at = timezone.now()
 
                 event.status = form.status
 
@@ -247,7 +248,7 @@ class RunLogView(View):
                     _record_runlog_evidence(event, form.status, request.user)
             
             event.updated_by = request.user
-            event.updated_at = human_datetime()
+            event.updated_at = timezone.now()
             event.save()
         
         return json_response(error=error)
@@ -320,7 +321,7 @@ class RunLogUpdateView(View):
             ).aggregate(Max('sequence'))['sequence__max'] or 0
 
             # 设置可修改截止时间（24小时）
-            editable_until = (datetime.now() + timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+            editable_until = timezone.now() + timedelta(hours=24)
 
             # 创建动态（不再保存 attachments，历史数据保留不动）
             # duty_person 空字符串按 None 处理
@@ -406,7 +407,7 @@ class RunLogUpdateView(View):
                     request.user
                 ).count()
                 event.last_update_date = latest_update.update_date if latest_update else None
-                event.updated_at = human_datetime()
+                event.updated_at = timezone.now()
                 event.updated_by = request.user
                 event.save()
 
@@ -701,15 +702,17 @@ class RunLogStatisticsView(View):
             severity_stats['P1']['count'] = agg_stats['p1_count'] or 0
             severity_stats['P2']['count'] = agg_stats['p2_count'] or 0
 
-            # 查询2：日期分组统计（使用range查询优化，避免startswith的低效匹配）
-            start_date = (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = now.replace(hour=23, minute=59, second=59, microsecond=999999)
-            logs_by_date = logs.filter(created_at__range=(start_date, end_date)).extra(
-                select={'day': 'DATE(created_at)'}
-            ).values('day').annotate(count=Count('id'))
+            # 查询2：日期分组统计（created_at 已迁移为 DateTimeField，用 __date 查找）
+            start_date = (now - timedelta(days=6)).date()
+            end_date = now.date()
+            logs_by_date = logs.filter(
+                created_at__date__gte=start_date,
+                created_at__date__lte=end_date,
+            ).values('created_at__date').annotate(count=Count('id'))
 
             for item in logs_by_date:
-                date_str = item['day'].strftime('%Y-%m-%d')
+                day = item['created_at__date']
+                date_str = day.strftime('%Y-%m-%d') if hasattr(day, 'strftime') else str(day)
                 date_stats[date_str] = item['count']
 
             logger.info(f"[统计查询成功] tenant_id={tenant_id}, "
@@ -773,13 +776,13 @@ class RunLogExportView(View):
             end_date = data.get('end_date')
             date_range_text = ''
             if start_date and end_date:
-                logs = logs.filter(created_at__gte=start_date, created_at__lte=end_date)
+                logs = logs.filter(created_at__date__gte=start_date, created_at__date__lte=end_date)
                 date_range_text = f'{start_date}-{end_date}'
             elif start_date:
-                logs = logs.filter(created_at__gte=start_date)
+                logs = logs.filter(created_at__date__gte=start_date)
                 date_range_text = f'{start_date}起'
             elif end_date:
-                logs = logs.filter(created_at__lte=end_date)
+                logs = logs.filter(created_at__date__lte=end_date)
                 date_range_text = f'至{end_date}'
 
             logs = logs.order_by('-created_at', '-id')
@@ -947,7 +950,7 @@ class RunLogEvidencePackageView(View):
                 'snapshot_hash': event.snapshot_hash,
                 'attachments': att_hashes,
                 'events_count': len(events_data),
-                'generated_at': human_datetime(),
+                'generated_at': timezone.now().strftime('%Y-%m-%d %H:%M:%S'),
             }, ensure_ascii=False, indent=2))
 
         buf.seek(0)

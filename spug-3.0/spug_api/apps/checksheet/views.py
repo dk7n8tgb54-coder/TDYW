@@ -285,23 +285,15 @@ class TemplateView(View):
 
     @auth('checksheet.checksheet.template_view')
     def get(self, request):
-        """获取检查表模板列表（分页）"""
-        # P2-4 修复：添加分页支持，避免大量模板时返回过多数据
-        # P1-2 修复：分页参数类型与范围校验，非法输入返回友好错误而非 500
-        page, error = _parse_int(request.GET.get('page', 1), 'page', min_value=1)
-        if error:
-            return json_response(error=error)
-        page_size, error = _parse_int(request.GET.get('page_size', 50), 'page_size', min_value=1, max_value=200)
-        if error:
-            return json_response(error=error)
-
-        templates = CheckSheetTemplate.objects.all()
-        total = templates.count()
-        start_index = (page - 1) * page_size
-        paginated_templates = templates[start_index:start_index + page_size]
+        """获取检查表模板列表（全量）"""
+        # P2 修复：模板数量可控，移除分页返回全量数据。
+        # 原分页（默认 page_size=50）导致前端只能拿到前 50 条，
+        # 而前端 fetchTemplates 未做服务端分页，表格只能在这 50 条内翻页，
+        # 第 51 条及以后的模板完全不可见。与 ProjectListView 保持一致，返回全量。
+        templates = CheckSheetTemplate.objects.all().order_by('created_at')
 
         data = []
-        for t in paginated_templates:
+        for t in templates:
             data.append({
                 'id': t.id,
                 'project': t.project,
@@ -309,13 +301,8 @@ class TemplateView(View):
                 'created_at': t.created_at.strftime('%Y-%m-%d %H:%M:%S'),
                 'updated_at': t.updated_at.strftime('%Y-%m-%d %H:%M:%S')
             })
-        logger.info(f'[CheckSheet] TemplateView.get returning {len(data)}/{total} templates (page {page})')
-        return json_response({
-            'templates': data,
-            'total': total,
-            'page': page,
-            'page_size': page_size
-        })
+        logger.info(f'[CheckSheet] TemplateView.get returning {len(data)} templates')
+        return json_response({'templates': data})
 
     @auth('checksheet.checksheet.template_add')
     def post(self, request):

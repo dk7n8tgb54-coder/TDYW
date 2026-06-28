@@ -35,7 +35,7 @@ DOCUMENT_BEAT_SCHEDULE = {
     'document-cleanup-expired-transfers': {
         'task': 'apps.document.tasks.cleanup.cleanup_expired_transfers',
         'schedule': crontab(hour=3, minute=0),
-        'kwargs': {'days': 30},
+        'kwargs': {},
         'options': {'queue': 'document.cleanup'},
     },
     
