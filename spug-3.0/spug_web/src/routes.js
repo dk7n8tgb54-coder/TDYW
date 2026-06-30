@@ -38,8 +38,7 @@ import Interference from './pages/interference';
 import InterferenceStatistics from './pages/interference/Statistics';
 import ExecUpgradeRecord from './pages/upgrade';
 import ExecUpgradeStatistics from './pages/upgrade/Statistics';
-import ExecUpgradeTemplates from './pages/upgrade/TemplateManager';
-import ExecUpgradeChecklists from './pages/upgrade/ChecklistManager';
+import ExecUpgradePlan from './pages/upgrade/plan/PlanManager';
 import ExecDutyRecord from './pages/duty';
 import CheckSheetIndex from './pages/checksheet';
 import RadioLicenseIndex from './pages/radioLicense';
@@ -63,8 +62,7 @@ export default [
   {icon: <CloudUploadOutlined/>, title: '系统升级管理', auth: 'upgrade.upgrade.view', child: [
     {title: '升级表单', auth: 'upgrade.upgrade.view', path: '/upgrade', component: ExecUpgradeRecord},
     {title: '统计报表', auth: 'upgrade.statistics.view', path: '/upgrade/statistics', component: ExecUpgradeStatistics},
-    {title: '升级模板', auth: 'upgrade.upgrade.view', path: '/upgrade/templates', component: ExecUpgradeTemplates},
-    {title: '步骤清单', auth: 'upgrade.upgrade.view', path: '/upgrade/checklists', component: ExecUpgradeChecklists},
+    {title: '升级方案', auth: 'upgrade.upgrade.view', path: '/upgrade/plans', component: ExecUpgradePlan},
   ]},
   {icon: <ClockCircleOutlined/>, title: '值班日志', auth: 'duty.duty.view', path: '/duty', component: ExecDutyRecord},
   {icon: <BugOutlined/>, title: '故障管理', auth: 'fault.faultrecord.view|fault.faultpart.view', child: [

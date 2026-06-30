@@ -5,6 +5,8 @@
 系统升级模块 URL 配置
 
 新 RESTful 接口 + 兼容旧接口
+
+注意：原 templates/ 与 checklists/ 路由已合并为 plans/。
 """
 from django.urls import path
 
@@ -18,21 +20,17 @@ from .views.record.delete import RecordDeleteView
 # === 新接口 - 辅助 ===
 from .views.filter_options import FilterOptionsView
 from .views.statistics import StatisticsView
-from .views.upload import AttachmentUploadView
+from .views.upload import (
+    AttachmentUploadView, AttachmentListView,
+    AttachmentDownloadView, AttachmentDeleteView,
+)
 from .views.next_no import NextUpgradeNoView
 
-# === 新接口 - 升级模板 ===
-from .views.template import (
-    TemplateListView, TemplateCreateView,
-    TemplateUpdateView, TemplateDeleteView,
-)
-
-# === 新接口 - 步骤清单 ===
-from .views.checklist import (
-    ChecklistListView, ChecklistDetailView,
-    ChecklistCreateView, ChecklistUpdateView, ChecklistDeleteView,
-    ChecklistStepAddView, ChecklistStepUpdateView, ChecklistStepDeleteView,
-    ChecklistApplyView, ChecklistReorderStepsView,
+# === 新接口 - 升级方案（合并原模板+步骤清单）===
+from .views.plan import (
+    PlanListView, PlanDetailView,
+    PlanCreateView, PlanUpdateView, PlanDeleteView,
+    PlanApplyView, PlanReorderStepsView,
 )
 
 # === 新接口 - 升级记录步骤 ===
@@ -41,6 +39,9 @@ from .views.step import (
     RecordStepUpdateView, RecordStepDeleteView,
     RecordStepBatchUpdateView, RecordStepClearView,
 )
+
+# === 新接口 - 升级状态日志 ===
+from .views.status_log import StatusLogListView, StatusLogDeleteView
 
 # === 兼容旧接口 ===
 from .views.legacy import LegacyUpgradeView
@@ -60,26 +61,22 @@ urlpatterns = [
     # === 辅助接口 ===
     path('filter-options/', FilterOptionsView.as_view()),          # GET 筛选选项
     path('statistics/', StatisticsView.as_view()),                  # GET 统计数据
-    path('upload/', AttachmentUploadView.as_view()),                # POST 附件上传
+    path('upload/', AttachmentUploadView.as_view()),                # POST 附件上传（旧版，仅返回 URL）
     path('next-no/', NextUpgradeNoView.as_view()),                 # GET 获取下一个升级单号
 
-    # === 升级模板 ===
-    path('templates/', TemplateListView.as_view()),                # GET 模板列表
-    path('templates/create/', TemplateCreateView.as_view()),       # POST 创建模板
-    path('templates/<int:pk>/update/', TemplateUpdateView.as_view()),  # PUT 更新模板
-    path('templates/<int:pk>/delete/', TemplateDeleteView.as_view()),  # DELETE 删除模板
+    # === 附件接口（新版，写表 + 哈希 + 软删除）===
+    path('records/<int:record_id>/attachments/', AttachmentListView.as_view()),                    # GET 列表 / POST 上传
+    path('attachments/<int:pk>/download/', AttachmentDownloadView.as_view()),                      # GET 下载
+    path('attachments/', AttachmentDeleteView.as_view()),                                          # DELETE 删除（?id=）
 
-    # === 步骤清单 ===
-    path('checklists/', ChecklistListView.as_view()),                              # GET 清单列表
-    path('checklists/<int:pk>/', ChecklistDetailView.as_view()),                  # GET 清单详情（含步骤）
-    path('checklists/create/', ChecklistCreateView.as_view()),                    # POST 创建清单
-    path('checklists/<int:pk>/update/', ChecklistUpdateView.as_view()),           # PUT 更新清单
-    path('checklists/<int:pk>/delete/', ChecklistDeleteView.as_view()),           # DELETE 删除清单
-    path('checklists/<int:pk>/steps/add/', ChecklistStepAddView.as_view()),       # POST 添加步骤
-    path('checklists/steps/<int:pk>/update/', ChecklistStepUpdateView.as_view()), # PUT 更新步骤
-    path('checklists/steps/<int:pk>/delete/', ChecklistStepDeleteView.as_view()), # DELETE 删除步骤
-    path('checklists/<int:pk>/apply/', ChecklistApplyView.as_view()),             # POST 应用清单到升级表单
-    path('checklists/<int:pk>/reorder/', ChecklistReorderStepsView.as_view()),    # PUT 重排步骤顺序
+    # === 升级方案（原模板 + 步骤清单合并）===
+    path('plans/', PlanListView.as_view()),                              # GET 方案列表
+    path('plans/<int:pk>/', PlanDetailView.as_view()),                   # GET 方案详情（含预设步骤）
+    path('plans/create/', PlanCreateView.as_view()),                     # POST 创建方案
+    path('plans/<int:pk>/update/', PlanUpdateView.as_view()),            # PUT 更新方案（含步骤整体替换）
+    path('plans/<int:pk>/delete/', PlanDeleteView.as_view()),            # DELETE 删除方案
+    path('plans/<int:pk>/apply/', PlanApplyView.as_view()),              # POST 应用方案步骤到升级记录
+    path('plans/<int:pk>/reorder/', PlanReorderStepsView.as_view()),     # PUT 重排预设步骤
 
     # === 升级记录步骤 ===
     path('records/<int:record_id>/steps/', RecordStepListView.as_view()),                 # GET 步骤列表+统计
@@ -88,6 +85,10 @@ urlpatterns = [
     path('record-steps/<int:pk>/delete/', RecordStepDeleteView.as_view()),                # DELETE 删除步骤
     path('records/<int:record_id>/steps/batch/', RecordStepBatchUpdateView.as_view()),    # PUT 批量更新
     path('records/<int:record_id>/steps/clear/', RecordStepClearView.as_view()),          # DELETE 清空步骤
+
+    # === 升级状态日志（时间线）===
+    path('records/<int:record_id>/status-logs/', StatusLogListView.as_view()),            # GET 列表 / POST 记录 / GET ?action=options 动作选项
+    path('status-logs/<int:pk>/delete/', StatusLogDeleteView.as_view()),                  # DELETE 删除日志
 
     # === 兼容旧接口（前端迁移完成后移除）===
     path('upgrade/', LegacyUpgradeView.as_view()),

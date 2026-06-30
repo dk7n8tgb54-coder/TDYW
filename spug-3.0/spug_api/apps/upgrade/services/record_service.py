@@ -157,6 +157,9 @@ class RecordService:
     def delete_record(record_id, user):
         """删除升级表单
 
+        联动处理：软删除该表单下的所有附件（附件存于 evidence 通用表）。
+        主表记录使用物理删除（与现有行为保持一致）。
+
         Args:
             record_id: 升级表单ID
             user: 当前请求用户
@@ -165,6 +168,7 @@ class RecordService:
             str: 错误消息，None 表示成功
         """
         from ..models import UpgradeRecord
+        from apps.evidence.attachment_service import AttachmentService
 
         record = apply_tenant_filter(
             UpgradeRecord.objects.filter(pk=record_id), user
@@ -173,7 +177,17 @@ class RecordService:
             return '升级表单不存在或无权限'
 
         try:
-            record.delete()
+            with transaction.atomic():
+                # 软删除关联附件（evidence 通用表，通过 module/object_type/object_id 关联）
+                AttachmentService.soft_delete_by_object(
+                    user=user,
+                    module='upgrade',
+                    object_type='record',
+                    object_id=record_id,
+                    reason='升级表单已删除',
+                )
+
+                record.delete()
             return None
         except Exception as e:
             logger.error(f'[Upgrade] 删除升级表单失败: {e}', exc_info=True)
@@ -203,7 +217,7 @@ class RecordService:
 
     @staticmethod
     def get_list(user, filters=None, page=1, page_size=20):
-        """获取分页列表（含统计注解）
+        """获取分页列表（含统计注解 + 附件计数）
 
         Args:
             user: 当前请求用户
@@ -215,6 +229,8 @@ class RecordService:
             dict: {records, total, page, page_size}
         """
         from ..models import UpgradeRecord
+        from apps.evidence.models import EvidenceAttachment
+        from django.db.models import Count
 
         queryset = apply_tenant_filter(UpgradeRecord.objects.all(), user)
 
@@ -231,10 +247,26 @@ class RecordService:
         end = start + page_size
         records = queryset[start:end]
 
+        # 批量查询当前页各记录的附件数（避免 N+1），附件存于 evidence 通用表
+        record_ids = [r.id for r in records]
+        att_counts = {}
+        if record_ids:
+            att_qs = apply_tenant_filter(
+                EvidenceAttachment.objects.filter(
+                    module='upgrade', object_type='record',
+                    object_id__in=[str(rid) for rid in record_ids],
+                    is_deleted=False,
+                ),
+                user,
+            ).values_list('object_id').annotate(c=Count('id'))
+            att_counts = {oid: cnt for oid, cnt in att_qs}
+
+        items = [UpgradeRecordSerializer.to_list_view(r) for r in records]
+        for item in items:
+            item['attachment_count'] = att_counts.get(str(item['id']), 0)
+
         return {
-            'records': [
-                UpgradeRecordSerializer.to_list_view(r) for r in records
-            ],
+            'records': items,
             'total': total,
             'page': page,
             'page_size': page_size,

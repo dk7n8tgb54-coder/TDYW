@@ -10,10 +10,11 @@ class UpgradeStatus:
     """升级状态枚举"""
     IN_PROGRESS = '处理中'
     COMPLETED = '已完成'
+    ROLLED_BACK = '已回退'
 
     @classmethod
     def values(cls):
-        return [cls.IN_PROGRESS, cls.COMPLETED]
+        return [cls.IN_PROGRESS, cls.COMPLETED, cls.ROLLED_BACK]
 
     @classmethod
     def choices(cls):
@@ -40,17 +41,34 @@ class UpgradeType:
 STATUS_COLOR_MAP = {
     UpgradeStatus.IN_PROGRESS: 'processing',
     UpgradeStatus.COMPLETED: 'success',
+    UpgradeStatus.ROLLED_BACK: 'error',
 }
 
 # 附件配置
-ATTACHMENT_MAX_SIZE_MB = 10
-ATTACHMENT_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+# 升级场景：升级包/补丁/资料文档，体积可能较大，类型以压缩包/镜像/文档为主
+ATTACHMENT_MAX_SIZE_MB = 500
+ATTACHMENT_ALLOWED_EXTENSIONS = [
+    # 压缩包
+    '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2',
+    # 安装包/镜像
+    '.exe', '.msi', '.deb', '.rpm', '.iso', '.img',
+    # 脚本/代码
+    '.sh', '.py', '.sql', '.json', '.yaml', '.yml', '.conf',
+    # 文档
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.md',
+    # 图片
+    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
+]
 ATTACHMENT_UPLOAD_DIR = 'upgrade/attachments'
 
-# 合法状态流转路径
+# 合法状态流转路径（支持回退后再推进的场景）
+# - 处理中 → 已完成 / 已回退
+# - 已回退 → 处理中（重新测试/继续）/ 已完成
+# - 已完成 → 处理中（发现问题重新处理）/ 已回退
 VALID_STATUS_TRANSITIONS = {
-    UpgradeStatus.IN_PROGRESS: [UpgradeStatus.COMPLETED],
-    UpgradeStatus.COMPLETED: [],
+    UpgradeStatus.IN_PROGRESS: [UpgradeStatus.COMPLETED, UpgradeStatus.ROLLED_BACK],
+    UpgradeStatus.ROLLED_BACK: [UpgradeStatus.IN_PROGRESS, UpgradeStatus.COMPLETED],
+    UpgradeStatus.COMPLETED: [UpgradeStatus.IN_PROGRESS, UpgradeStatus.ROLLED_BACK],
 }
 
 # 升级单号前缀

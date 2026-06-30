@@ -2,15 +2,17 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 """
-升级步骤清单模型
+升级记录步骤模型
 
-用于预设升级步骤，每次升级时直接调用，生成步骤执行跟踪记录。
+注意：
+- 原 UpgradeChecklist / UpgradeChecklistStep 已于迁移 0004 合并至 UpgradeTemplate / UpgradePlanStep 并移除。
+- 本文件仅保留 UpgradeRecordStep（升级记录实际执行步骤，方案明确不变）。
+- checklist_id 字段保留，合并后语义为「来源方案ID（template_id）」，0 表示手动添加；
+  历史数据可能指向已删除的旧 checklist，不影响功能读取。
 """
 from django.db import models
 from django.utils import timezone
 from libs import ModelMixin
-from apps.account.models import User
-import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -27,67 +29,12 @@ STEP_STATUS_CHOICES = [
 ]
 
 
-class UpgradeChecklist(models.Model, ModelMixin):
-    """升级步骤清单模板 - 预设升级步骤集合"""
-    tenant_id = models.CharField(max_length=50, default='', db_index=True, help_text='租户标识')
-    name = models.CharField(max_length=100, verbose_name='清单名称')
-    description = models.TextField(default='', blank=True, verbose_name='清单描述')
-    is_default = models.BooleanField(default=False, verbose_name='是否为默认清单')
-
-    created_at = models.CharField(max_length=20, verbose_name='创建时间')
-    created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
-    updated_at = models.CharField(max_length=20, null=True, blank=True, verbose_name='更新时间')
-
-    def __repr__(self):
-        return f'<UpgradeChecklist {self.name}>'
-
-    class Meta:
-        db_table = 'tdyw_upgrade_checklists'
-        verbose_name = '升级步骤清单'
-        verbose_name_plural = '升级步骤清单'
-        ordering = ('-is_default', 'name', '-id')
-        indexes = [
-            models.Index(fields=['tenant_id']),
-        ]
-
-
-class UpgradeChecklistStep(models.Model, ModelMixin):
-    """清单步骤项 - 预设的单个步骤"""
-    tenant_id = models.CharField(max_length=50, default='', db_index=True, help_text='租户标识')
-    checklist_id = models.IntegerField(verbose_name='关联清单ID')
-    title = models.CharField(max_length=200, verbose_name='步骤标题')
-    description = models.TextField(default='', blank=True, verbose_name='步骤描述')
-    sequence = models.IntegerField(default=0, verbose_name='排序序号')
-    is_required = models.BooleanField(default=True, verbose_name='是否必执行')
-
-    created_at = models.CharField(max_length=20, verbose_name='创建时间')
-
-    @property
-    def checklist(self):
-        """获取关联的清单（延迟查询）"""
-        if not hasattr(self, '_checklist_cache'):
-            self._checklist_cache = UpgradeChecklist.objects.filter(pk=self.checklist_id).first()
-        return self._checklist_cache
-
-    def __repr__(self):
-        return f'<UpgradeChecklistStep {self.title}>'
-
-    class Meta:
-        db_table = 'tdyw_upgrade_checklist_steps'
-        verbose_name = '清单步骤项'
-        verbose_name_plural = '清单步骤项'
-        ordering = ('checklist_id', 'sequence', 'id')
-        indexes = [
-            models.Index(fields=['checklist_id']),
-            models.Index(fields=['tenant_id', 'checklist_id']),
-        ]
-
-
 class UpgradeRecordStep(models.Model, ModelMixin):
     """升级记录步骤执行状态 - 实例化到具体升级表单"""
     tenant_id = models.CharField(max_length=50, default='', db_index=True, help_text='租户标识')
     upgrade_id = models.IntegerField(verbose_name='关联升级表单ID')
-    checklist_id = models.IntegerField(default=0, verbose_name='来源清单ID（0为手动添加）')
+    # 合并后语义：来源方案ID（template_id），0 为手动添加；历史数据可能指向已删除的旧 checklist
+    checklist_id = models.IntegerField(default=0, verbose_name='来源方案ID（0为手动添加）')
 
     title = models.CharField(max_length=200, verbose_name='步骤标题')
     description = models.TextField(default='', blank=True, verbose_name='步骤描述')

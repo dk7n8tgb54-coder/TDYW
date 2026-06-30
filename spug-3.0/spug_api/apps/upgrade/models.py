@@ -54,7 +54,9 @@ class UpgradeRecord(models.Model, TenantModelMixin):
 
 
 
-# 导入模板模型，确保 Django 发现
-from .models_template import UpgradeTemplate  # noqa: E402, F401
-# 导入步骤清单模型，确保 Django 发现
-from .models_checklist import UpgradeChecklist, UpgradeChecklistStep, UpgradeRecordStep  # noqa: E402, F401
+# 导入升级方案模型（原升级模板+步骤清单合并），确保 Django 发现
+from .models_template import UpgradeTemplate, UpgradePlanStep  # noqa: E402, F401
+# 导入升级记录步骤模型，确保 Django 发现
+from .models_checklist import UpgradeRecordStep  # noqa: E402, F401
+# 导入升级状态日志模型，确保 Django 发现
+from .models_status_log import UpgradeStatusLog  # noqa: E402, F401

@@ -32,13 +32,8 @@ class Store {
   // === 视图模式 ===
   @observable viewMode = 'list'; // 'list' | 'calendar'
 
-  // === 升级模板 ===
-  @observable templates = [];
-  @observable templateFormVisible = false;
-  @observable editingTemplate = null;
-
-  // === 步骤清单 ===
-  @observable checklists = [];
+  // === 升级方案（合并原模板+步骤清单）===
+  @observable plans = [];
 
   // === 自动生成的升级单号 ===
   @observable nextUpgradeNo = '';
@@ -116,58 +111,40 @@ class Store {
     return http.get('/api/upgrade/statistics/', {params});
   };
 
-  // === 升级模板接口 ===
-  fetchTemplates = () => {
-    return http.get('/api/upgrade/templates/')
+  // === 升级方案接口（合并原模板+步骤清单）===
+  fetchPlans = () => {
+    return http.get('/api/upgrade/plans/')
       .then((data) => {
-        this.templates = data || [];
+        this.plans = data || [];
       })
       .catch((error) => {
-        console.error('[Upgrade Store] Templates error:', error);
+        console.error('[Upgrade Store] Plans error:', error);
       });
   };
 
-  createTemplate = (data) => {
-    return http.post('/api/upgrade/templates/create/', data);
-  };
-
-  updateTemplate = (id, data) => {
-    return http.put(`/api/upgrade/templates/${id}/update/`, data);
-  };
-
-  deleteTemplate = (id) => {
-    return http.delete(`/api/upgrade/templates/${id}/delete/`);
-  };
-
-  // === 步骤清单接口 ===
-  fetchChecklists = () => {
-    return http.get('/api/upgrade/checklists/')
-      .then((data) => {
-        this.checklists = data || [];
-      })
+  fetchPlanDetail = (id) => {
+    return http.get(`/api/upgrade/plans/${id}/`)
       .catch((error) => {
-        console.error('[Upgrade Store] Checklists error:', error);
-      });
-  };
-
-  fetchChecklistDetail = (id) => {
-    return http.get(`/api/upgrade/checklists/${id}/`)
-      .catch((error) => {
-        console.error('[Upgrade Store] Checklist detail error:', error);
+        console.error('[Upgrade Store] Plan detail error:', error);
         return null;
       });
   };
 
-  createChecklist = (data) => {
-    return http.post('/api/upgrade/checklists/create/', data);
+  createPlan = (data) => {
+    return http.post('/api/upgrade/plans/create/', data);
   };
 
-  updateChecklist = (id, data) => {
-    return http.put(`/api/upgrade/checklists/${id}/update/`, data);
+  updatePlan = (id, data) => {
+    return http.put(`/api/upgrade/plans/${id}/update/`, data);
   };
 
-  deleteChecklist = (id) => {
-    return http.delete(`/api/upgrade/checklists/${id}/delete/`);
+  deletePlan = (id) => {
+    return http.delete(`/api/upgrade/plans/${id}/delete/`);
+  };
+
+  // 应用方案预设步骤到升级记录（实例化为记录步骤）
+  applyPlan = (planId, upgradeId) => {
+    return http.post(`/api/upgrade/plans/${planId}/apply/`, { upgrade_id: upgradeId });
   };
 
   getExportParams = () => {

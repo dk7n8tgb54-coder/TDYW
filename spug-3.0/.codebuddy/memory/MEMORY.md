@@ -1,5 +1,34 @@
 # 项目记忆
 
+## 附件功能架构（2026-06-30 确立）
+
+**架构**：后端 evidence 通用底座 + 前端公共组件
+
+**后端**：
+- `apps/evidence/models.py` 的 `EvidenceAttachment`：通用表（module+object_type+object_id 多态关联）
+- `apps/evidence/attachment_service.py`：通用 AttachmentService（upload/list/download/soft_delete/soft_delete_by_object）+ AttachmentConfig 配置类
+- 各模块写桥接视图（参考 `apps/upgrade/views/upload.py`），负责：校验业务对象存在 + 校验模块权限码 + 转调 evidence.AttachmentService
+- evidence 不提供 views/urls（因为无法感知各模块权限码）
+- radio_license 保持独立实现（向后兼容，有 attachment_type 业务字段）
+
+**前端**：
+- `components/AttachmentManager.js`：公共组件，路径/权限全参数化
+- 各模块 `import { AttachmentManager } from 'components'`，传 URL + 权限码
+
+**后续模块加附件标准流程**：
+1. 后端：复制 `apps/upgrade/views/upload.py` 作为模板，改 MODULE/OBJECT_TYPE/权限码/Config
+2. 后端：业务对象删除时调用 `AttachmentService.soft_delete_by_object(module=..., object_type=..., object_id=...)`
+3. 前端：`import { AttachmentManager } from 'components'`，传 URL + 权限码
+4. 无需新建附件表、无需新建 service
+
+**技术要点**：
+- migration 里 `human_datetime` 引用路径是 `libs.utils.human_datetime`（mixins.py 没有 re-export）
+- `AlterModelOptions` 在 Django 2.2 下第一个参数是 `name`（不是 `model_name`）
+- 文件名清洗防路径穿越：`os.path.basename` + 替换 `..` `/` `\` `\x00`
+- 下载鉴权用 `x-token` GET 参数
+- 软删除保留物理文件和 DB 记录作为证据痕迹
+- upgrade 附件数据存 evidence 表，通过 `module='upgrade'/object_type='record'/object_id=<record_id>` 关联
+
 ## Django 升级路线（2026-06-27 进行中）
 - 总路线：2.2.28 → 3.2.25（阶段1已完成）→ 4.2.30（阶段2已完成验收）→ 5.2 LTS（阶段3待做）
 - 容器 `tdyw-test`（镜像 `tdyw:django42-stage2`），项目路径 `/data/spug/spug_api`，Python 3.10

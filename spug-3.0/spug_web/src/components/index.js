@@ -18,6 +18,7 @@ import Breadcrumb from './Breadcrumb';
 import NotFound from './NotFound';
 import Link from './Link';
 import ExportButton from './ExportButton';
+import AttachmentManager from './AttachmentManager';
 
 export {
   StatisticsCard,
@@ -35,4 +36,5 @@ export {
   NotFound,
   Link,
   ExportButton,
+  AttachmentManager,
 }

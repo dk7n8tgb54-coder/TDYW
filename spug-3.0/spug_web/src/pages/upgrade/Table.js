@@ -5,8 +5,8 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Table, Modal, message, DatePicker } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { Table, Modal, message, DatePicker, Badge } from 'antd';
+import { PlusOutlined, PaperClipOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
 import { Action, TableCard, AuthButton, ExportButton } from "components";
 import store from './store';
@@ -32,6 +32,13 @@ class ComTable extends React.Component {
           });
       }
     });
+  };
+
+  renderAttachmentCount = (text, record) => {
+    const count = record.attachment_count || 0;
+    return count > 0
+      ? <Badge count={count} size="small"><PaperClipOutlined /></Badge>
+      : <span>-</span>;
   };
 
   render() {
@@ -88,11 +95,11 @@ class ComTable extends React.Component {
         <Table.Column title="升级时间" dataIndex="upgrade_time" width={180}/>
         <Table.Column title="状态" dataIndex="status" width={100} render={(text) => <StatusTag status={text}/>}/>
         <Table.Column title="负责人" dataIndex="owner" width={100}/>
+        <Table.Column title="附件" width={60} render={this.renderAttachmentCount}/>
         {hasPermission('upgrade.upgrade.edit|upgrade.upgrade.del') && (
           <Table.Column title="操作" render={info => (
             <Action>
-              <Action.Button onClick={() => store.showDetail(info)}>查看</Action.Button>
-              <Action.Button auth="upgrade.upgrade.edit" onClick={() => store.showForm(info, false)}>编辑</Action.Button>
+              <Action.Button onClick={() => store.showForm(info)}>详情/编辑</Action.Button>
               <Action.Button danger auth="upgrade.upgrade.del" onClick={() => this.handleDelete(info)}>删除</Action.Button>
             </Action>
           )}/>

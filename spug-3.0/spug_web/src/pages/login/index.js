@@ -88,7 +88,7 @@ export default function () {
     <div className={styles.container}>
       <div className={styles.titleContainer}>
         <div className={styles.logo}><img src={logo} alt="logo"/></div>
-        <div className={styles.title}>通导运维平台</div>
+        <div className={styles.title}>空管综合运维管理平台</div>
       </div>
       <div className={styles.formContainer}>
         <Form form={form}>
@@ -137,7 +137,7 @@ export default function () {
       </div>
 
       <div className={styles.footerZone}>
-        <div style={{color: 'rgba(0, 0, 0, .45)'}}>Copyright <CopyrightOutlined/> {new Date().getFullYear()} By YTTD</div>
+        <div style={{color: 'rgba(0, 0, 0, .45)'}}>© 2026 YTTD</div>
       </div>
     </div>
   )

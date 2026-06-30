@@ -4,8 +4,8 @@
 """
 系统升级模块序列化器
 
-当前模型使用 CharField 存储日期时间、IntegerField 存储关联ID。
-迁移 0004 执行后需同步更新。
+合并后包含：升级记录、升级方案（含预设步骤）、升级记录步骤。
+当前服务层自行构造字典返回，序列化器作为统一输出规范保留。
 """
 import logging
 
@@ -48,41 +48,47 @@ class UpgradeRecordSerializer:
         return UpgradeRecordSerializer.to_list_view(record)
 
 
-class UpgradeChecklistSerializer:
-    """升级步骤清单序列化器"""
+class UpgradePlanSerializer:
+    """升级方案序列化器（合并原模板+清单）"""
 
     @staticmethod
-    def to_list_view(checklist, step_count=0):
-        """清单列表序列化"""
+    def to_list_view(template, step_count=0):
+        """方案列表序列化"""
         return {
-            'id': checklist.id,
-            'name': checklist.name,
-            'description': checklist.description,
-            'is_default': checklist.is_default,
+            'id': template.id,
+            'name': template.name,
+            'description': template.description,
+            'system': template.system,
+            'upgrade_type': template.upgrade_type,
+            'version': template.version,
+            'owner': template.owner,
+            'status': template.status,
+            'detail_content': template.detail_content,
+            'is_default': template.is_default,
             'step_count': step_count,
-            'created_at': checklist.created_at or '',
-            'updated_at': checklist.updated_at or '',
+            'created_at': template.created_at or '',
+            'updated_at': template.updated_at or '',
         }
 
     @staticmethod
-    def to_detail_view(checklist, steps=None):
-        """清单详情序列化（含步骤）"""
-        data = UpgradeChecklistSerializer.to_list_view(checklist, len(steps or []))
+    def to_detail_view(template, steps=None):
+        """方案详情序列化（含预设步骤）"""
+        data = UpgradePlanSerializer.to_list_view(template, len(steps or []))
         data['steps'] = [
-            UpgradeChecklistStepSerializer.to_view(s) for s in (steps or [])
+            UpgradePlanStepSerializer.to_view(s) for s in (steps or [])
         ]
         return data
 
 
-class UpgradeChecklistStepSerializer:
-    """清单步骤序列化器"""
+class UpgradePlanStepSerializer:
+    """方案预设步骤序列化器"""
 
     @staticmethod
     def to_view(step):
         """步骤序列化"""
         return {
             'id': step.id,
-            'checklist_id': step.checklist_id,
+            'template_id': step.template_id,
             'title': step.title,
             'description': step.description,
             'sequence': step.sequence,
