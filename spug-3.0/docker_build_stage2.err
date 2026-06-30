@@ -782,3 +782,10 @@
 
 #18 [stage-2  2/12] RUN apt-get update &&     apt-get install -y --no-install-recommends     python3.10     python3-pip     python3.10-dev     nginx     supervisor     redis-server     curl     netcat-openbsd     tzdata     libmysqlclient21     libffi8     libssl3     default-libmysqlclient-dev     pkg-config     gcc     g++     && rm -rf /var/lib/apt/lists/*
 #18 57.58 Geographic area: 
+#18 ...
+
+#11 [frontend-builder 4/6] RUN npm config set registry https://registry.npmmirror.com &&     npm install
+#11 CACHED
+
+#18 [stage-2  2/12] RUN apt-get update &&     apt-get install -y --no-install-recommends     python3.10     python3-pip     python3.10-dev     nginx     supervisor     redis-server     curl     netcat-openbsd     tzdata     libmysqlclient21     libffi8     libssl3     default-libmysqlclient-dev     pkg-config     gcc     g++     && rm -rf /var/lib/apt/lists/*
+#18 57.58 Geographic area: ERROR: failed to build: failed to receive status: rpc error: code = Unavailable desc = error reading from server: EOF

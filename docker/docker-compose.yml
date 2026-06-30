@@ -19,7 +19,7 @@ services:
     container_name: tdyw
     restart: unless-stopped
     ports:
-      - "8080:80"   # HTTP 端口
+      - "80:80"   # HTTP 端口
       - "443:443"  # HTTPS 端口
     environment:
       # 数据库连接配置（固定值）
@@ -62,10 +62,10 @@ services:
       resources:
         limits:
           cpus: '4'           # 主应用服务 CPU 限制（MD5计算、文件处理需较多CPU）
-          memory: 2G          # 8G 服务器：2G（Django+Gunicorn+Celery+Nginx）
+          memory: 4G          # 主应用服务内存限制（资料库、运行日志、Celery需较大内存）
         reservations:
           cpus: '1'           # 保证至少 1 个 CPU 核心
-          memory: 512M        # 保证至少 512MB 内存
+          memory: 1G          # 保证至少 1GB 内存
     networks:
       - tdyw-network
 
@@ -99,10 +99,10 @@ services:
       resources:
         limits:
           cpus: '2'           # 数据库 CPU 限制（主要是IO操作，CPU需求相对较低）
-          memory: 3G          # 8G 服务器：3G（buffer_pool 2G + 连接/日志/OS）
+          memory: 8G          # 根据数据量调整（资料库、运行日志数据量大需更多内存）
         reservations:
           cpus: '0.5'         # 保证至少 0.5 个 CPU 核心
-          memory: 1G          # 保证至少 1GB 内存
+          memory: 2G          # 保证至少 2GB 内存
     networks:
       - tdyw-network
 
@@ -132,10 +132,10 @@ services:
       resources:
         limits:
           cpus: '2'           # LibreOffice转换需要较多CPU
-          memory: 1500M       # 8G 服务器：1.5G（Office转换峰值内存高，但并发低）
+          memory: 4G          # Office转换需要较大内存（大docx含图片需4G+）
         reservations:
           cpus: '0.5'
-          memory: 512M
+          memory: 1G
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8012/kkfileview/"]
       interval: 30s

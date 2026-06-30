@@ -1,0 +1,21 @@
+# MySQL/MariaDB 镜像 - 包含自定义配置
+# 镜像名称: mysql-custom
+# 基于官方 MariaDB 镜像，添加自定义配置文件
+# 使用方法：docker run -d --name mysql-custom -p 3306:3306 -e MYSQL_ROOT_PASSWORD=<PASSWORD> mysql-custom:latest
+# 注意：请替换 <PASSWORD> 为实际的 MySQL root 密码
+# 构建命令：docker build -t mariadb:0601 -f docker/Dockerfile.mysql .
+
+# 基于 MariaDB 官方镜像
+FROM registry.cn-hangzhou.aliyuncs.com/openspug/mariadb:10.8.2
+
+# 复制自定义配置文件到镜像中
+COPY docker/config/mysqlnew.cnf /etc/mysql/conf.d/custom.cnf
+
+# 设置正确的权限（644：所有者可读写，其他人只读）
+RUN chmod 644 /etc/mysql/conf.d/custom.cnf && \
+    chown root:root /etc/mysql/conf.d/custom.cnf
+
+# 暴露 MySQL 端口
+EXPOSE 3306
+
+

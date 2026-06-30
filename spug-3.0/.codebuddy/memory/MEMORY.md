@@ -46,6 +46,16 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate <app>
 - 容器内项目路径: `/data/spug/spug_api/`
 - manage.py 位置: `/data/spug/spug_api/manage.py`
 
+### 生产环境内存分配（8G 服务器，2026-06-29 调整）
+8G 物理服务器下三个容器的内存分配（扣除系统 ~1G，剩 7G 分给容器）：
+| 容器 | memory limit | memory reservation | 关键内存项 |
+|---|---|---|---|
+| tdyw（主应用） | 2G | 512M | Django+Gunicorn(4×16)+Celery+Nginx |
+| tdyw-db（数据库） | 3G | 1G | innodb_buffer_pool_size=2G |
+| kkfileview | 1.5G | 512M | LibreOffice 转换（峰值高但并发低） |
+- MySQL `max_connections` 从 800 下调到 300（Gunicorn 64 连接 + Celery + kkFileView 最多 ~150）
+- 16G 服务器可恢复原配置（tdyw 4G / db 8G buffer_pool 4G / kkfileview 4G / max_connections 800）
+
 ### 代码验证流程（post-write-verification skill）
 1. Lint 检查: `read_lints(paths=[...])`
 2. 语法检查:
