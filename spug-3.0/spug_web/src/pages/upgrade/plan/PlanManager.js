@@ -81,6 +81,7 @@ export default observer(function () {
 
   useEffect(() => {
     store.fetchPlans();
+    store.fetchFilterOptions();
   }, []);
 
   function handleCreate() {

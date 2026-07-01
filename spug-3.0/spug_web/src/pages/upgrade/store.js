@@ -15,7 +15,7 @@ class Store {
   @observable isFetching = false;
 
   // === 筛选选项（从后端获取，预设系统+历史系统合并）===
-  @observable filterOptions = { systems: [], upgradeTypes: [], statuses: [] };
+  @observable filterOptions = { systems: [], upgradeTypes: [], statuses: [], phases: [], milestones: [], standard_flow: [] };
 
   // === 筛选条件 ===
   @observable f_system;
@@ -70,6 +70,9 @@ class Store {
           systems: data.systems || [],
           upgradeTypes: data.upgrade_types || [],
           statuses: data.statuses || [],
+          phases: data.phases || [],
+          milestones: data.milestones || [],
+          standard_flow: data.standard_flow || [],
         };
       })
       .catch((error) => {

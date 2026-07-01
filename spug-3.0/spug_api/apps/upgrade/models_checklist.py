@@ -36,6 +36,10 @@ class UpgradeRecordStep(models.Model, ModelMixin):
     # 合并后语义：来源方案ID（template_id），0 为手动添加；历史数据可能指向已删除的旧 checklist
     checklist_id = models.IntegerField(default=0, verbose_name='来源方案ID（0为手动添加）')
 
+    # 所属阶段（对应标准升级流程：start/backup/gray_release/test/test_pass/full_release/observe/complete）
+    # 空字符串表示未分组（兼容历史数据），前端归入"未分组"
+    phase = models.CharField(max_length=20, default='', blank=True, verbose_name='所属阶段')
+
     title = models.CharField(max_length=200, verbose_name='步骤标题')
     description = models.TextField(default='', blank=True, verbose_name='步骤描述')
     sequence = models.IntegerField(default=0, verbose_name='排序序号')

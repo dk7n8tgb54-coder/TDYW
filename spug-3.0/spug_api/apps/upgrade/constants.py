@@ -74,6 +74,42 @@ VALID_STATUS_TRANSITIONS = {
 # 升级单号前缀
 UPGRADE_NO_PREFIX = 'UPG'
 
+# 升级执行阶段（有步骤的阶段，用于步骤分组）
+# 不含"测试通过/测试失败/回退/暂停/继续/完成"——这些是结果里程碑，无步骤
+UPGRADE_PHASES = [
+    {'value': 'start', 'label': '开始升级', 'order': 1},
+    {'value': 'backup', 'label': '备份', 'order': 2},
+    {'value': 'gray_release', 'label': '灰度发布', 'order': 3},
+    {'value': 'test', 'label': '升级测试', 'order': 4},
+    {'value': 'full_release', 'label': '全量发布', 'order': 5},
+    {'value': 'observe', 'label': '上线观察期', 'order': 6},
+]
+
+# 结果里程碑（无步骤，只记时间线）
+# 与执行阶段共同构成标准流程参考条的完整 8+6 节点
+RESULT_MILESTONES = [
+    {'value': 'test_pass', 'label': '测试通过'},
+    {'value': 'test_fail', 'label': '测试失败'},
+    {'value': 'rollback', 'label': '回退'},
+    {'value': 'pause', 'label': '暂停'},
+    {'value': 'resume', 'label': '继续'},
+    {'value': 'complete', 'label': '完成'},
+]
+
+# 标准流程完整顺序（执行阶段 + 结果里程碑，用于时间线参考条展示）
+# 顺序：开始→备份→灰度→测试→(测试通过/失败分叉)→全量→观察→完成
+STANDARD_FLOW_ORDER = [
+    'start', 'backup', 'gray_release', 'test',
+    'test_pass', 'full_release', 'observe', 'complete',
+]
+
+# phase → label 快查（含执行阶段和结果里程碑）
+PHASE_LABEL_MAP = {p['value']: p['label'] for p in UPGRADE_PHASES}
+PHASE_LABEL_MAP.update({p['value']: p['label'] for p in RESULT_MILESTONES})
+
+# 执行阶段有序列表（用于步骤排序）
+PHASE_ORDER = [p['value'] for p in UPGRADE_PHASES]
+
 # 预设系统列表（下拉选择用，历史数据也会动态合并）
 PRESET_SYSTEMS = [
     '运维管理平台',

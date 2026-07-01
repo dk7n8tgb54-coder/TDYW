@@ -49,6 +49,7 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
         });
         setSteps((initialValues.steps || []).map(s => ({
           id: s.id,
+          phase: s.phase || '',
           title: s.title || '',
           description: s.description || '',
           is_required: s.is_required !== false,
@@ -64,7 +65,7 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
 
   function handleAddStep() {
     setSteps([...steps, {
-      title: '', description: '', is_required: true, sequence: steps.length + 1
+      phase: '', title: '', description: '', is_required: true, sequence: steps.length + 1
     }]);
   }
 
@@ -107,6 +108,7 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
       onSubmit({
         ...values,
         steps: validSteps.map((s, i) => ({
+          phase: s.phase || '',
           title: s.title.trim(),
           description: s.description || '',
           is_required: s.is_required,
@@ -208,6 +210,18 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
                 <HolderOutlined style={{ cursor: 'grab', lineHeight: '32px', color: '#999' }} />
               </Tooltip>
               <span style={{ lineHeight: '32px', color: '#999', minWidth: 24 }}>{index + 1}.</span>
+              <Select
+                placeholder="阶段"
+                value={step.phase || undefined}
+                onChange={v => handleStepChange(index, { ...step, phase: v || '' })}
+                allowClear
+                style={{ width: 120 }}
+                size="small"
+              >
+                {store.filterOptions.phases.map(p => (
+                  <Option key={p.value} value={p.value}>{p.label}</Option>
+                ))}
+              </Select>
               <Input
                 placeholder="步骤标题"
                 value={step.title}

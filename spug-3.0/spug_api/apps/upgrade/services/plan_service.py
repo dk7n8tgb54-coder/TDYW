@@ -84,6 +84,7 @@ class PlanService:
                 {
                     'id': s.id,
                     'template_id': s.template_id,
+                    'phase': s.phase,
                     'title': s.title,
                     'description': s.description,
                     'sequence': s.sequence,
@@ -111,6 +112,7 @@ class PlanService:
             UpgradePlanStep.objects.create(
                 tenant_id=tenant_id,
                 template_id=template_id,
+                phase=step_item.get('phase', '') or '',
                 title=title,
                 description=step_item.get('description', '') or '',
                 sequence=idx + 1,
@@ -315,6 +317,7 @@ class PlanService:
                         tenant_id=user.tenant_id,
                         upgrade_id=upgrade_id,
                         checklist_id=plan_id,
+                        phase=step.phase,
                         title=step.title,
                         description=step.description,
                         sequence=idx,

@@ -52,6 +52,10 @@ class UpgradePlanStep(models.Model, ModelMixin):
     """方案预设步骤项 - 关联到某个升级方案（UpgradeTemplate）"""
     tenant_id = models.CharField(max_length=50, default='', db_index=True, help_text='租户标识')
     template_id = models.IntegerField(verbose_name='关联方案ID')
+
+    # 所属阶段（对应标准升级流程），空字符串为未分组
+    phase = models.CharField(max_length=20, default='', blank=True, verbose_name='所属阶段')
+
     title = models.CharField(max_length=200, verbose_name='步骤标题')
     description = models.TextField(default='', blank=True, verbose_name='步骤描述')
     sequence = models.IntegerField(default=0, verbose_name='排序序号')

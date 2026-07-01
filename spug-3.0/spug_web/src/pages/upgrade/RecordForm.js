@@ -5,8 +5,8 @@
  */
 import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react';
-import { Modal, Form, Input, Select, DatePicker, Button, message, Progress, Tag, Popconfirm, Switch, Tooltip, Space, Timeline, Empty, Row, Col, Collapse, Divider } from 'antd';
-import { PlusOutlined, CheckCircleOutlined, CloseCircleOutlined, CopyOutlined, DeploymentUnitOutlined, PrinterOutlined, HistoryOutlined, DeleteOutlined, PaperClipOutlined } from '@ant-design/icons';
+import { Modal, Form, Input, Select, DatePicker, Button, message, Progress, Tag, Popconfirm, Switch, Tooltip, Space, Timeline, Empty, Row, Col, Collapse, Divider, Dropdown, Menu } from 'antd';
+import { PlusOutlined, CheckCircleOutlined, CloseCircleOutlined, CopyOutlined, DeploymentUnitOutlined, PrinterOutlined, HistoryOutlined, DeleteOutlined, PaperClipOutlined, DownOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
 import { AttachmentManager } from 'components';
 import moment from 'moment';
@@ -205,7 +205,8 @@ export default observer(function () {
   }
 
   // 打印步骤清单（A4 竖向，执行作业单格式）
-  function handlePrintSteps() {
+  // phase 为空：打印全量（按阶段分段）；phase 指定值：只打印该阶段
+  function handlePrintSteps(phase) {
     const win = window.open('', '_blank', 'width=900,height=700');
     if (!win) {
       message.warning('请允许浏览器弹窗以打印步骤清单');
@@ -216,22 +217,83 @@ export default observer(function () {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
 
-    const rowsHtml = recordSteps.map((s, i) => {
-      const desc = s.description || s.remark || '';
+    // 阶段定义 + 步骤分组
+    const phases = store.filterOptions.phases || [];
+    const phaseLabel = {};
+    phases.forEach(p => { phaseLabel[p.value] = p.label; });
+
+    // 按 phase 过滤 + 分组
+    let printSteps;
+    if (phase) {
+      printSteps = recordSteps.filter(s => s.phase === phase);
+    } else {
+      printSteps = recordSteps;
+    }
+
+    // 按阶段分组（有 phase 的按定义顺序，无 phase 的归"未分组"）
+    const phaseOrder = phases.map(p => p.value);
+    const grouped = {};
+    const ungrouped = [];
+    printSteps.forEach(s => {
+      if (s.phase && phaseOrder.includes(s.phase)) {
+        if (!grouped[s.phase]) grouped[s.phase] = [];
+        grouped[s.phase].push(s);
+      } else {
+        ungrouped.push(s);
+      }
+    });
+
+    // 生成每个阶段的表格段
+    const buildSection = (title, steps) => {
+      const rows = steps.map((s, i) => {
+        const desc = s.description || s.remark || '';
+        return `
+        <tr>
+          <td style="text-align:center">${s.sequence || i + 1}</td>
+          <td>
+            <div class="step-title">${escapeHtml(s.title)}</div>
+            ${desc ? `<div class="step-desc">${escapeHtml(desc)}</div>` : ''}
+          </td>
+          <td style="text-align:center">${s.is_required ? '是' : ''}</td>
+          <td style="text-align:center">${'\u25A1'}</td>
+          <td></td>
+          <td></td>
+          <td></td>
+        </tr>`;
+      }).join('');
       return `
-      <tr>
-        <td style="text-align:center">${s.sequence || i + 1}</td>
-        <td>
-          <div class="step-title">${escapeHtml(s.title)}</div>
-          ${desc ? `<div class="step-desc">${escapeHtml(desc)}</div>` : ''}
-        </td>
-        <td style="text-align:center">${s.is_required ? '是' : ''}</td>
-        <td style="text-align:center">${'\u25A1'}</td>
-        <td></td>
-        <td></td>
-        <td></td>
-      </tr>`;
-    }).join('');
+      <div class="phase-section">
+        <div class="phase-header">【${escapeHtml(title)}】 <span class="phase-check">阶段完成：${'\u25A1'}</span></div>
+        <table>
+          <thead><tr>
+            <th style="width:40px">序号</th>
+            <th>步骤说明</th>
+            <th style="width:50px">必选</th>
+            <th style="width:70px">执行情况</th>
+            <th style="width:90px">执行人</th>
+            <th style="width:130px">执行时间</th>
+            <th style="width:120px">备注</th>
+          </tr></thead>
+          <tbody>${rows || '<tr><td colspan="7" style="text-align:center">暂无步骤</td></tr>'}</tbody>
+        </table>
+      </div>`;
+    };
+
+    let sectionsHtml = '';
+    if (phase) {
+      // 单阶段打印
+      sectionsHtml = buildSection(phaseLabel[phase] || phase, grouped[phase] || []);
+    } else {
+      // 全量打印：按阶段分段
+      phaseOrder.forEach(ph => {
+        if (grouped[ph] && grouped[ph].length > 0) {
+          sectionsHtml += buildSection(phaseLabel[ph], grouped[ph]);
+        }
+      });
+      if (ungrouped.length > 0) {
+        sectionsHtml += buildSection('未分组', ungrouped);
+      }
+    }
 
     win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>升级步骤执行清单 - ${escapeHtml(info.upgrade_no)}</title>
@@ -248,6 +310,9 @@ export default observer(function () {
   td { line-height: 28px; }
   .step-title { font-weight: bold; }
   .step-desc { font-size: 11px; color: #444; margin-top: 4px; line-height: 1.5; }
+  .phase-section { margin-bottom: 16px; page-break-inside: avoid; }
+  .phase-header { font-weight: bold; font-size: 13px; padding: 6px 8px; background: #f0f0f0; border: 1px solid #000; border-bottom: none; display: flex; justify-content: space-between; }
+  .phase-check { font-weight: normal; font-size: 11px; }
   .sign { margin-top: 24px; font-size: 12px; }
   .sign div { display: inline-block; margin-right: 60px; }
   .footer { margin-top: 16px; font-size: 11px; color: #666; text-align: right; border-top: 1px dashed #999; padding-top: 6px; }
@@ -265,18 +330,7 @@ export default observer(function () {
     <div><b>负责人：</b>${escapeHtml(info.owner)}</div>
     <div><b>状态：</b>${escapeHtml(info.status)}</div>
   </div>
-  <table>
-    <thead><tr>
-      <th style="width:40px">序号</th>
-      <th>步骤说明</th>
-      <th style="width:50px">必选</th>
-      <th style="width:70px">执行情况</th>
-      <th style="width:90px">执行人</th>
-      <th style="width:130px">执行时间</th>
-      <th style="width:120px">备注</th>
-    </tr></thead>
-    <tbody>${rowsHtml || '<tr><td colspan="7" style="text-align:center">暂无步骤</td></tr>'}</tbody>
-  </table>
+  ${sectionsHtml || '<div style="text-align:center;padding:20px;">暂无步骤</div>'}
   <div class="sign">
     <div>执行人签字：________________</div>
     <div>审核人签字：________________</div>
@@ -361,7 +415,21 @@ export default observer(function () {
           <span><strong>负责人：</strong>{info.owner}</span>
           <span><strong>状态：</strong><Tag color={STATUS_TAG_COLOR[info.status] || 'default'}>{info.status}</Tag></span>
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <Button size="small" icon={<PrinterOutlined />} onClick={handlePrintSteps} disabled={recordSteps.length === 0}>打印步骤</Button>
+            <Dropdown overlay={(
+              <Menu>
+                <Menu.Item key="all" onClick={() => handlePrintSteps()} disabled={recordSteps.length === 0}>打印全部阶段</Menu.Item>
+                <Menu.Divider />
+                {(store.filterOptions.phases || []).map(p => (
+                  <Menu.Item key={p.value} onClick={() => handlePrintSteps(p.value)}>
+                    只打印【{p.label}】
+                  </Menu.Item>
+                ))}
+              </Menu>
+            )}>
+              <Button size="small" icon={<PrinterOutlined />} disabled={recordSteps.length === 0}>
+                打印步骤 <DownOutlined />
+              </Button>
+            </Dropdown>
             {canEdit && (
               <Button size="small" type="primary" icon={<HistoryOutlined />} onClick={() => setStatusLogVisible(true)}>记录状态</Button>
             )}
@@ -413,8 +481,73 @@ export default observer(function () {
     );
   }
 
-  // 左栏：步骤清单
+  // 单个步骤行渲染
+  function renderStepRow(step, canEdit) {
+    return (
+      <div key={step.id} style={{
+        display: 'flex', alignItems: 'center', padding: '8px 12px',
+        borderBottom: '1px solid #f0f0f0', gap: 8,
+        backgroundColor: step.status === 'completed' ? '#f6ffed' :
+          step.status === 'skipped' ? '#fff7e6' : 'transparent'
+      }}>
+        <span style={{ color: '#999', minWidth: 20, fontWeight: 'bold' }}>{step.sequence}.</span>
+        <StepStatusTag status={step.status} />
+        <span style={{
+          flex: 1,
+          textDecoration: step.status === 'completed' ? 'line-through' : 'none',
+          color: step.status !== 'pending' ? '#999' : '#333',
+          fontSize: 13
+        }}>
+          {step.title}
+        </span>
+        {step.is_required && <Tag color="blue" style={{ margin: 0 }}>必选</Tag>}
+        {step.description && (
+          <Tooltip title={step.description}>
+            <span style={{ color: '#1890ff', cursor: 'help', fontSize: 12 }}>详情</span>
+          </Tooltip>
+        )}
+        {step.completed_by && (
+          <span style={{ color: '#bbb', fontSize: 11, whiteSpace: 'nowrap' }}>{step.completed_by} {step.completed_at}</span>
+        )}
+        {canEdit && (
+          <Space size={0}>
+            {step.status === 'pending' && (
+              <>
+                <Button size="small" type="link" icon={<CheckCircleOutlined />} onClick={() => handleStepAction(step, 'complete')}>完成</Button>
+                <Button size="small" type="link" onClick={() => handleStepAction(step, 'skip')}>跳过</Button>
+              </>
+            )}
+            {step.status !== 'pending' && hasPermission('upgrade.upgrade.step_reset') && (
+              <Button size="small" type="link" onClick={() => handleStepAction(step, 'reset')}>重置</Button>
+            )}
+            {hasPermission('upgrade.upgrade.step_del') && (
+              <Button size="small" type="link" danger onClick={() => handleDeleteStep(step)}>删除</Button>
+            )}
+          </Space>
+        )}
+      </div>
+    );
+  }
+
+  // 左栏：步骤清单（按阶段分组）
   function renderStepsPanel(canEdit) {
+    // 按阶段分组步骤：有 phase 的按 PHASE_ORDER 分组，无 phase 的归入"未分组"
+    const phases = store.filterOptions.phases || [];
+    const phaseOrder = phases.map(p => p.value);
+    const phaseLabel = {};
+    phases.forEach(p => { phaseLabel[p.value] = p.label; });
+
+    const grouped = {};
+    const ungrouped = [];
+    recordSteps.forEach(step => {
+      if (step.phase && phaseOrder.includes(step.phase)) {
+        if (!grouped[step.phase]) grouped[step.phase] = [];
+        grouped[step.phase].push(step);
+      } else {
+        ungrouped.push(step);
+      }
+    });
+
     return (
       <Col span={15}>
         <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -455,50 +588,35 @@ export default observer(function () {
         )}
 
         <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 4 }}>
-          {recordSteps.map(step => (
-            <div key={step.id} style={{
-              display: 'flex', alignItems: 'center', padding: '8px 12px',
-              borderBottom: '1px solid #f0f0f0', gap: 8,
-              backgroundColor: step.status === 'completed' ? '#f6ffed' :
-                step.status === 'skipped' ? '#fff7e6' : 'transparent'
-            }}>
-              <span style={{ color: '#999', minWidth: 20, fontWeight: 'bold' }}>{step.sequence}.</span>
-              <StepStatusTag status={step.status} />
-              <span style={{
-                flex: 1,
-                textDecoration: step.status === 'completed' ? 'line-through' : 'none',
-                color: step.status !== 'pending' ? '#999' : '#333',
-                fontSize: 13
+          {phaseOrder.map(phase => {
+            const steps = grouped[phase];
+            if (!steps || steps.length === 0) return null;
+            const doneCount = steps.filter(s => s.status === 'completed').length;
+            return (
+              <div key={phase}>
+                <div style={{
+                  background: '#fafafa', padding: '4px 12px', fontSize: 12,
+                  fontWeight: 'bold', color: '#555', borderBottom: '1px solid #f0f0f0',
+                  display: 'flex', justifyContent: 'space-between'
+                }}>
+                  <span>【{phaseLabel[phase]}】</span>
+                  <span style={{ color: '#999' }}>{doneCount}/{steps.length}</span>
+                </div>
+                {steps.map(step => renderStepRow(step, canEdit))}
+              </div>
+            );
+          })}
+          {ungrouped.length > 0 && (
+            <div>
+              <div style={{
+                background: '#fafafa', padding: '4px 12px', fontSize: 12,
+                fontWeight: 'bold', color: '#555', borderBottom: '1px solid #f0f0f0'
               }}>
-                {step.title}
-              </span>
-              {step.is_required && <Tag color="blue" style={{ margin: 0 }}>必选</Tag>}
-              {step.description && (
-                <Tooltip title={step.description}>
-                  <span style={{ color: '#1890ff', cursor: 'help', fontSize: 12 }}>详情</span>
-                </Tooltip>
-              )}
-              {step.completed_by && (
-                <span style={{ color: '#bbb', fontSize: 11, whiteSpace: 'nowrap' }}>{step.completed_by} {step.completed_at}</span>
-              )}
-              {canEdit && (
-                <Space size={0}>
-                  {step.status === 'pending' && (
-                    <>
-                      <Button size="small" type="link" icon={<CheckCircleOutlined />} onClick={() => handleStepAction(step, 'complete')}>完成</Button>
-                      <Button size="small" type="link" onClick={() => handleStepAction(step, 'skip')}>跳过</Button>
-                    </>
-                  )}
-                  {step.status !== 'pending' && hasPermission('upgrade.upgrade.step_reset') && (
-                    <Button size="small" type="link" onClick={() => handleStepAction(step, 'reset')}>重置</Button>
-                  )}
-                  {hasPermission('upgrade.upgrade.step_del') && (
-                    <Button size="small" type="link" danger onClick={() => handleDeleteStep(step)}>删除</Button>
-                  )}
-                </Space>
-              )}
+                【未分组】
+              </div>
+              {ungrouped.map(step => renderStepRow(step, canEdit))}
             </div>
-          ))}
+          )}
           {recordSteps.length === 0 && (
             <div style={{ textAlign: 'center', color: '#999', padding: 32, fontSize: 13 }}>
               暂无步骤{canEdit ? '，可通过上方应用方案或手动添加' : ''}
@@ -665,6 +783,13 @@ export default observer(function () {
           width={500}
         >
           <Form form={addStepForm} labelCol={{ span: 5 }} wrapperCol={{ span: 17 }}>
+            <Form.Item name="phase" label="所属阶段">
+              <Select allowClear placeholder="选择步骤所属阶段（选填）">
+                {store.filterOptions.phases.map(p => (
+                  <Option key={p.value} value={p.value}>{p.label}</Option>
+                ))}
+              </Select>
+            </Form.Item>
             <Form.Item name="title" label="步骤标题" rules={[{ required: true, message: '请输入步骤标题' }]}>
               <Input placeholder="请输入步骤标题" />
             </Form.Item>

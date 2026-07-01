@@ -89,6 +89,7 @@ class UpgradePlanStepSerializer:
         return {
             'id': step.id,
             'template_id': step.template_id,
+            'phase': step.phase,
             'title': step.title,
             'description': step.description,
             'sequence': step.sequence,

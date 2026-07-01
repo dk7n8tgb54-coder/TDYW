@@ -26,6 +26,7 @@ class RecordStepAddView(View):
         form, error = JsonParser(
             Argument('title', help='请输入步骤标题'),
             Argument('description', required=False, default=''),
+            Argument('phase', required=False, default=''),
             Argument('sequence', type=int, required=False),
             Argument('is_required', type=bool, required=False, default=True),
         ).parse(request.body)

@@ -73,6 +73,7 @@ class RecordStepService:
                 'id': s.id,
                 'upgrade_id': s.upgrade_id,
                 'checklist_id': s.checklist_id,
+                'phase': s.phase,
                 'title': s.title,
                 'description': s.description,
                 'sequence': s.sequence,
@@ -135,6 +136,7 @@ class RecordStepService:
             tenant_id=user.tenant_id,
             upgrade_id=upgrade_id,
             checklist_id=0,  # 手动添加
+            phase=getattr(data, 'phase', '') or '',
             title=title,
             description=getattr(data, 'description', '') or '',
             sequence=getattr(data, 'sequence', None) or (max_seq + 1),

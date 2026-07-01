@@ -13,7 +13,7 @@ from django.utils import timezone
 from libs.tenant_utils import apply_tenant_filter
 from ..validators import RecordValidator
 from ..serializers import UpgradeRecordSerializer
-from ..constants import UPGRADE_NO_PREFIX, PRESET_SYSTEMS
+from ..constants import UPGRADE_NO_PREFIX, PRESET_SYSTEMS, UPGRADE_PHASES, RESULT_MILESTONES, STANDARD_FLOW_ORDER
 
 logger = logging.getLogger(__name__)
 
@@ -314,6 +314,9 @@ class RecordService:
             'systems': all_systems,
             'statuses': statuses,
             'upgrade_types': upgrade_types,
+            'phases': UPGRADE_PHASES,
+            'milestones': RESULT_MILESTONES,
+            'standard_flow': STANDARD_FLOW_ORDER,
         }
 
     @staticmethod
