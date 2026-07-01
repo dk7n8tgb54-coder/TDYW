@@ -73,4 +73,7 @@ backup_*.sql
 spug_api/media/
 # Docker
 .docker/
-.env  
+.env
+
+# 大文件（Docker 镜像 tar 超过 GitHub 100MB 限制）
+images/
