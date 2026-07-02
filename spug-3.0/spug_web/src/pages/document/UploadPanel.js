@@ -25,7 +25,14 @@ import { uploadCoreStore } from './stores';
 import navigationStore from './stores/navigation';
 import uploadUIStore from './stores/upload/ui';
 import TransferListContainer from './components/TransferListContainer';
-import { PAUSEABLE_STATUSES, DISPLAY_UPLOADING_STATUSES, UPLOAD_STATUS, TERMINAL_STATUSES } from './stores/upload/core/upload-core-constants';
+import { PAUSEABLE_STATUSES, DISPLAY_UPLOADING_STATUSES, UPLOAD_STATUS, TERMINAL_STATUSES, PRESSURE_LEVELS } from './stores/upload/core/upload-core-constants';
+
+// 【2026-07-02 动态降级】压力等级 -> 标签展示配置（三态均展示，满足需求第7点）
+const PRESSURE_TAG_CONFIG = {
+  [PRESSURE_LEVELS.NORMAL]: { color: 'green', text: '正常上传' },
+  [PRESSURE_LEVELS.BUSY]: { color: 'orange', text: '服务器繁忙' },
+  [PRESSURE_LEVELS.CRITICAL]: { color: 'red', text: '低速上传模式' },
+};
 
 @observer
 class UploadPanel extends React.Component {
@@ -188,11 +195,16 @@ class UploadPanel extends React.Component {
       cancelledItems,
       activeCount,
       pausedCount,
-      currentUploadQueue
+      currentUploadQueue,
+      pressureLevel,
+      pressureMessage,
     } = uploadCoreStore;
 
     void uploadCoreStore.uploadRefreshTrigger;
     void uploadCoreStore.folderUploadProgress;
+
+    // 【2026-07-02】压力标签（仅 busy/critical 显示）
+    const pressureTag = PRESSURE_TAG_CONFIG[pressureLevel];
 
     const spaceType = navigationStore.isPublic ? '公共共享库' : '我的文件';
     const spaceColor = navigationStore.isPublic ? 'gold' : 'blue';
@@ -226,6 +238,15 @@ class UploadPanel extends React.Component {
               >
                 {spaceType}
               </Tag>
+              {pressureTag && (
+                <Tag
+                  color={pressureTag.color}
+                  style={{ margin: 0, fontSize: 12, borderRadius: 4 }}
+                  title={pressureMessage || pressureTag.text}
+                >
+                  {pressureTag.text}
+                </Tag>
+              )}
               <span style={{ fontSize: 12, color: '#8c8c8c' }}>
                 共 {totalTaskCount} 个 | 上传中: {uploadingTotal} | 已完成: {completedTotal} | 失败: {failedCount}
               </span>
@@ -302,7 +323,7 @@ class MiniBar extends React.Component {
   }
 
   render() {
-    const { currentUploadQueue } = uploadCoreStore;
+    const { currentUploadQueue, pressureLevel, pressureMessage } = uploadCoreStore;
     const total = currentUploadQueue.length;
 
     // 计算各状态数量
@@ -422,6 +443,29 @@ class MiniBar extends React.Component {
 
           {/* 状态徽章组 */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {/* 【2026-07-02】服务器压力提示（三态均展示，满足需求第7点） */}
+            {(() => {
+              const tagCfg = PRESSURE_TAG_CONFIG[pressureLevel];
+              if (!tagCfg) return null;
+              const tipMsg = pressureMessage || tagCfg.text;
+              const colorMap = {
+                [PRESSURE_LEVELS.NORMAL]: '#d9f7be',
+                [PRESSURE_LEVELS.BUSY]: '#ffe7ba',
+                [PRESSURE_LEVELS.CRITICAL]: '#ffccc7',
+              };
+              return (
+                <Tooltip title={tipMsg}>
+                  <span style={{
+                    fontSize: 12,
+                    color: colorMap[pressureLevel] || '#fff',
+                    fontWeight: pressureLevel === PRESSURE_LEVELS.NORMAL ? 400 : 500,
+                    opacity: pressureLevel === PRESSURE_LEVELS.NORMAL ? 0.85 : 1,
+                  }}>
+                    {tagCfg.text}
+                  </span>
+                </Tooltip>
+              );
+            })()}
             {active > 0 && (
               <Badge
                 count={active}

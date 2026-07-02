@@ -11,6 +11,7 @@
 #   - /document/check_uploaded_chunks/  断点续传检查
 #   - /document/merge_chunks/      分片合并请求
 #   - /document/merge_status/      合并状态轮询
+#   - /document/direct_merge/      直接触发合并（合并失败重试）
 #
 # 端口: 9003 (9001=普通API, 9002=WebSocket, 9003=上传API)
 #

@@ -34,6 +34,16 @@ const DocumentIndex = observer(function () {
     results: []
   });
 
+  // 【2026-07-02 动态降级】资料库页面挂载时首次拉取服务器压力 + 启动轮询；
+  //   卸载时停止轮询，避免离开页面后继续请求
+  React.useEffect(() => {
+    uploadCoreStore.initUploadPressure();
+    uploadCoreStore.startPressurePolling();
+    return () => {
+      uploadCoreStore.stopPressurePolling();
+    };
+  }, []);
+
   const currentPath = navigationStore.getCurrentPath();
   const spacePrefix = navigationStore.isPublic ? '公共共享库' : '我的文件';
 
@@ -124,6 +134,8 @@ const DocumentIndex = observer(function () {
       if (navigationStore.isPublic) {
         message.info('文件将上传到公共共享库，所有用户均可查看下载');
       }
+      // 【2026-07-02】开始上传前刷新一次服务器压力，确保按最新等级调度
+      uploadCoreStore.refreshPressure();
       uploadCoreStore.handleFileSelect(files);
     }
     e.target.value = '';
@@ -135,6 +147,8 @@ const DocumentIndex = observer(function () {
       if (navigationStore.isPublic) {
         message.info('文件夹将上传到公共共享库，所有用户均可查看下载');
       }
+      // 【2026-07-02】开始上传前刷新一次服务器压力
+      uploadCoreStore.refreshPressure();
       uploadCoreStore.handleFolderSelect(files);
     }
     e.target.value = '';

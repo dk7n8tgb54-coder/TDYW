@@ -175,8 +175,7 @@ export class FileUploadStore {
       // 之前缺失此转换，导致状态机永远卡在 uploading，countByStates 不释放，后续任务无法启动
       const stateMachine = this.rootStore.stateMachineManager?.get(uploadId);
       if (stateMachine) {
-        const transitionResult = stateMachine.transition('UPLOAD_COMPLETE', { operationVersion });
-        console.log(`[FileUpload] ${uploadId}: 小文件上传完成，触发 UPLOAD_COMPLETE, result=${transitionResult}, newState=${stateMachine.getState()}`);
+        stateMachine.transition('UPLOAD_COMPLETE', { operationVersion });
       } else {
         console.warn(`[FileUpload] ${uploadId}: 上传完成但未找到状态机!`);
       }

@@ -49,6 +49,9 @@ from .views.upload import (
 # 磁盘使用 - 独立模块
 from .views.disk import DiskUsageView
 
+# 上传压力 - 独立模块
+from .views.pressure import UploadPressureView
+
 # 传输管理 - 从子目录导入
 from .views.transfer import (
     TransferListView,
@@ -110,6 +113,9 @@ urlpatterns = [
     
     # 磁盘使用
     path('disk_usage/', DiskUsageView.as_view()),
+
+    # 上传压力（前端据此动态调整上传并发）
+    path('upload_pressure/', UploadPressureView.as_view()),
     
     # 传输记录相关接口
     path('transfers/', TransferListView.as_view()),

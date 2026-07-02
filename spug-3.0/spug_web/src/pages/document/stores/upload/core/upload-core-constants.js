@@ -229,3 +229,55 @@ export const UPLOADABLE_FROM_STATES = ['paused', 'waiting', 'calculating'];
 
 // 【已废弃】请使用 DISPLAY_UPLOADING_STATUSES（frozen 版本），保留仅为向后兼容
 export const DISPLAY_ACTIVE_STATUSES = ['uploading', 'calculating', 'merging', 'paused', 'waiting'];
+
+// ============================================================
+// 上传压力等级配置（2026-07-02 新增）
+// 前端根据后端 /api/document/upload_pressure/ 返回的 level
+// 动态调整上传并发，避免多账号同时上传大文件时压垮后端
+// ============================================================
+
+/**
+ * 压力等级枚举
+ * normal   : 服务器正常，使用默认高并发
+ * busy     : 服务器繁忙，降低并发
+ * critical : 服务器压力高，最低速上传模式
+ */
+export const PRESSURE_LEVELS = Object.freeze({
+  NORMAL: 'normal',
+  BUSY: 'busy',
+  CRITICAL: 'critical',
+});
+
+/**
+ * 等级 -> 建议并发配置
+ * 与后端 views/pressure.py 的 LEVEL_CONFIG 保持一致
+ */
+export const PRESSURE_LEVEL_CONFIG = Object.freeze({
+  [PRESSURE_LEVELS.NORMAL]: {
+    maxConcurrentUploads: UPLOAD_CONSTANTS.MAX_CONCURRENT_UPLOADS, // 3
+    maxConcurrentChunks: UPLOAD_CONSTANTS.MAX_CONCURRENT_CHUNKS,   // 3
+    message: '',
+  },
+  [PRESSURE_LEVELS.BUSY]: {
+    maxConcurrentUploads: 2,
+    maxConcurrentChunks: 2,
+    message: '服务器繁忙，已降低上传并发',
+  },
+  [PRESSURE_LEVELS.CRITICAL]: {
+    maxConcurrentUploads: 1,
+    maxConcurrentChunks: 1,
+    message: '服务器压力较高，已进入低速上传模式',
+  },
+});
+
+/**
+ * 压力恢复保守阈值
+ * 连续 N 次轮询都为 normal 后才恢复高并发，避免并发频繁抖动
+ */
+export const PRESSURE_RECOVERY_THRESHOLD = 3;
+
+/**
+ * 压力轮询间隔（毫秒）
+ * 上传过程中每 15 秒拉取一次服务器压力
+ */
+export const PRESSURE_POLL_INTERVAL = 15000;
