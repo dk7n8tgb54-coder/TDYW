@@ -16,7 +16,7 @@ export default observer(function () {
   const [dateRange, setDateRange] = useState(null);
   const [selectedSystem, setSelectedSystem] = useState(null);
   const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
 
   function fetchStats() {
     setLoading(true);
@@ -35,10 +35,13 @@ export default observer(function () {
   useEffect(() => {
     store.fetchFilterOptions();
     fetchStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     fetchStats();
+    // fetchStats 为组件内函数，依赖 selectedSystem/dateRange 已足够
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSystem, dateRange]);
 
   const typeColumns = [

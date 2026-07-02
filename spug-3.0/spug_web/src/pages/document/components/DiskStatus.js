@@ -14,13 +14,12 @@ import { useDiskSpace } from '../hooks/useDiskSpace';
  * @param {boolean} props.isPublic - 是否为公共空间
  */
 export function DiskStatus({ isPublic }) {
-  const { 
-    available_gb, 
-    total_gb, 
-    used_gb, 
-    usage_percent, 
-    warning, 
-    loading 
+  const {
+    available_gb,
+    total_gb,
+    used_gb,
+    warning,
+    loading
   } = useDiskSpace(isPublic);
 
   if (loading) return null;

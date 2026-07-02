@@ -15,7 +15,6 @@ import {
   ClockCircleOutlined,
   ApartmentOutlined,
   CheckSquareOutlined,
-  DeleteOutlined,
   SafetyCertificateOutlined
 } from '@ant-design/icons';
 

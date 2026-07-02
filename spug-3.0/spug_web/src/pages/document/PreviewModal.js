@@ -251,7 +251,7 @@ class PreviewModal extends React.Component {
     if (textError) {
       return (
         <div className={styles.noPreview}>
-          <div className={styles.icon} role="img" aria-label="错误" title="错误">⚠️</div>
+          <div className={styles.icon} title="错误"><span role="img" aria-label="错误">⚠️</span></div>
           <div>{textError}</div>
           <div className={styles.hint}>请下载文件后使用对应软件打开</div>
         </div>
@@ -335,7 +335,7 @@ class PreviewModal extends React.Component {
     if (officeError) {
       return (
         <div className={styles.noPreview}>
-          <div className={styles.icon} role="img" aria-label="错误" title="错误">⚠️</div>
+          <div className={styles.icon} title="错误"><span role="img" aria-label="错误">⚠️</span></div>
           <div>{officeError}</div>
           <div className={styles.hint}>
             请下载文件后使用对应软件打开，或联系管理员配置kkFileView服务

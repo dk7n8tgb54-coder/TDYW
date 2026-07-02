@@ -9,7 +9,6 @@ import { Modal, Form, Input, Select, DatePicker, Button, message, Row, Col, Divi
 import { CopyOutlined } from '@ant-design/icons';
 import { http } from 'libs';
 import history from 'libs/history';
-import moment from 'moment';
 import store from './store';
 import SystemSelect from './components/SystemSelect';
 

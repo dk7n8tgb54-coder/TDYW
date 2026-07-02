@@ -18,22 +18,6 @@ export const ICON_SIZES = {
 const TEXT_THRESHOLD = 14;
 
 /**
- * 文件底板 SVG（折角纸 + 角标色块）
- * @param {string} color - 角标颜色
- * @param {number} size - 图标尺寸
- */
-const FileBase = ({ color, size = 20 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    {/* 纸张主体 */}
-    <path d="M4 2C4 1.44772 4.44772 1 5 1H15L20 6V22C20 22.5523 19.5523 23 19 23H5C4.44772 23 4 22.5523 4 22V2Z" fill="#F5F5F5" stroke="#D9D9D9" strokeWidth="0.5"/>
-    {/* 折角 */}
-    <path d="M15 1L20 6H16C15.4477 6 15 5.55228 15 5V1Z" fill="#E8E8E8" stroke="#D9D9D9" strokeWidth="0.5"/>
-    {/* 角标色块 */}
-    <path d="M4 16H20V22C20 22.5523 19.5523 23 19 23H5C4.44772 23 4 22.5523 4 22V16Z" fill={color}/>
-  </svg>
-);
-
-/**
  * 文件夹 SVG
  * @param {number} size - 图标尺寸
  * @param {boolean} open - 是否为打开的文件夹

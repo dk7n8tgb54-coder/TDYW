@@ -58,13 +58,6 @@ function FilterBar(props) {
     style,
   } = props;
 
-  // 复用现有页面 open={isMounted ? undefined : false} 的处理方式，
-  // 在组件卸载阶段强制关闭下拉，避免遗留浮层。
-  const [mounted, setMounted] = React.useState(true);
-  React.useEffect(() => {
-    return () => setMounted(false);
-  }, []);
-
   function getValue(field) {
     const value = store[field.key];
     if (field.type === 'dateRange') {
@@ -134,7 +127,6 @@ function FilterBar(props) {
           value={getValue(field)}
           onChange={v => setValue(field, v)}
           placeholder={placeholder || '请选择'}
-          open={mounted ? undefined : false}
           {...extraProps}
         >
           {options.map(opt => (
@@ -160,7 +152,6 @@ function FilterBar(props) {
           format={format}
           placeholder={placeholder || ['开始日期', '结束日期']}
           style={{ width: '100%' }}
-          open={mounted ? undefined : false}
           {...extraProps}
         />
       );

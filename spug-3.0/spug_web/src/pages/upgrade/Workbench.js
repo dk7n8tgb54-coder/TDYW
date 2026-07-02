@@ -9,7 +9,6 @@ import { Layout, Button, Space, message } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined } from '@ant-design/icons';
 import { Breadcrumb } from 'components';
 import history from 'libs/history';
-import http from 'libs/http';
 import { hasPermission } from 'libs/functools';
 import store from './store';
 import WorkbenchForm from './WorkbenchForm';
@@ -63,6 +62,8 @@ export default observer(function Workbench(props) {
       store.statusLogs = [];
       store.actionOptions = [];
     };
+    // isNew 由 recordId 派生，仅依赖 recordId 等价且避免重复执行
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordId]);
 
   const formRef = useRef(null);
@@ -134,7 +135,7 @@ export default observer(function Workbench(props) {
             <Breadcrumb.Item>首页</Breadcrumb.Item>
             <Breadcrumb.Item>系统升级管理</Breadcrumb.Item>
             <Breadcrumb.Item>
-              <a onClick={() => history.push('/upgrade')}>升级表单</a>
+              <Button type="link" style={{padding: 0}} onClick={() => history.push('/upgrade')}>升级表单</Button>
             </Breadcrumb.Item>
             <Breadcrumb.Item>{isNew ? '新建' : store.record.upgrade_no}</Breadcrumb.Item>
           </Breadcrumb>

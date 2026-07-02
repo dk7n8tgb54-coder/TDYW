@@ -8,7 +8,6 @@ import { observer } from 'mobx-react';
 import { Upload, Button, Table, Tag, message, Popconfirm, Space, Select } from 'antd';
 import { UploadOutlined, DownloadOutlined, DeleteOutlined, PaperClipOutlined } from '@ant-design/icons';
 import { http, hasPermission, X_TOKEN } from 'libs';
-import store from './store';
 
 const ATTACHMENT_TYPE_MAP = {
   license: {color: 'blue', text: '执照'},
@@ -34,6 +33,8 @@ export default observer(function AttachmentList({ licenseId }) {
     if (licenseId) {
       fetchAttachments();
     }
+    // 仅在 licenseId 变化时拉取，fetchAttributes 为组件内函数声明无需纳入依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [licenseId]);
 
   function fetchAttachments() {
@@ -100,7 +101,7 @@ export default observer(function AttachmentList({ licenseId }) {
       render: (text, record) => (
         <Space>
           <PaperClipOutlined />
-          <a onClick={() => handleDownload(record)}>{text}</a>
+          <Button type="link" style={{padding: 0}} onClick={() => handleDownload(record)}>{text}</Button>
         </Space>
       ),
     },

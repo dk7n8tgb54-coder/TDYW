@@ -150,7 +150,7 @@ export default function AttachmentManager(props) {
       render: (text, record) => (
         <Space>
           <PaperClipOutlined />
-          <a onClick={() => handleDownload(record)}>{text}</a>
+          <Button type="link" style={{padding: 0}} onClick={() => handleDownload(record)}>{text}</Button>
         </Space>
       ),
     },
