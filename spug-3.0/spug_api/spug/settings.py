@@ -205,6 +205,10 @@ CELERY_TASK_ROUTES = {
     'apps.document.tasks.cleanup.retry_clean_pending_files': {'queue': 'document.cleanup'},
     # 【优化10】孤儿传输记录清理
     'apps.document.tasks.cleanup.orphan_transfers.cleanup_orphan_transfers': {'queue': 'document.cleanup'},
+    # 【缩略图异步化】缩略图生成任务使用专用队列，避免 Pillow 吃 CPU 拖慢上传/合并
+    # 由独立 thumbnail worker（start-celery-thumbnail.sh）消费
+    # 若未部署独立 worker，需让 cleanup/default worker 兼听 document.thumbnail 队列
+    'apps.document.tasks.thumbnail.generate_document_thumbnail': {'queue': 'document.thumbnail'},
     # 【新增】无线电台执照到期扫描任务
     'apps.radio_license.tasks.scan_radio_license_expiration': {'queue': 'radio_license'},
     # 【新增】审计日志归档清理任务（使用 default 队列）

@@ -380,27 +380,25 @@ class FileRecordCreator:
             created_by=user
         )
 
-        # 生成缩略图
-        self._generate_thumbnail(new_file)
+        # 【缩略图异步化】不再在 merge worker 中同步生成缩略图，
+        # 改为投递 Celery 异步任务到 document.thumbnail 队列。
+        # 使用 transaction.on_commit 保证：记录提交后才投递，
+        # 避免任务查不到文件记录（_create_file_instance 处于
+        # create_file_record 的 transaction.atomic() 块内）。
+        # 缩略图生成耗时长（大图 Pillow 解码），剥离后合并任务可快速完成。
+        file_id = new_file.id
+        is_public = self.task_manager.is_public
+        try:
+            transaction.on_commit(
+                lambda: _dispatch_thumbnail_task(file_id, is_public)
+            )
+        except Exception as e:
+            logger.warning(
+                f'[Celery] Failed to dispatch thumbnail task: file_id={file_id}, '
+                f'is_public={is_public}, error={e}'
+            )
 
         return new_file
-
-    def _generate_thumbnail(self, new_file):
-        """为新创建的文件生成缩略图"""
-        try:
-            from apps.document.services.thumbnail_service import generate_thumbnail_for_file
-
-            thumbnail_path = generate_thumbnail_for_file(
-                new_file.file_path,
-                new_file.physical_name
-            )
-            if thumbnail_path:
-                new_file.thumbnail_path = thumbnail_path
-                new_file.save(update_fields=['thumbnail_path'])
-                logger.info(f'[Celery] Thumbnail generated for file {new_file.id}: {thumbnail_path}')
-        except Exception as e:
-            # 缩略图生成失败不影响文件记录创建
-            logger.warning(f'[Celery] Failed to generate thumbnail for {new_file.file_path}: {e}')
 
 
 class TransferStatusUpdater:
@@ -619,6 +617,28 @@ def _cleanup_on_error(file_path, chunk_dir):
             logger.info(f'[Celery] Cleaned up file on error: {file_path}')
     except Exception as e:
         logger.warning(f'[Celery] Failed to cleanup file: {e}')
+
+
+def _dispatch_thumbnail_task(file_id, is_public):
+    """
+    投递缩略图异步生成任务（merge worker 用）
+
+    独立成函数的原因：
+    1. 避免在 transaction.on_commit 的 lambda 闭包中直接 import 任务模块
+    2. 集中处理投递异常，任何情况下都不影响合并任务成功
+    """
+    try:
+        from apps.document.tasks.thumbnail import generate_document_thumbnail
+        generate_document_thumbnail.delay(file_id, is_public)
+        logger.info(
+            f'[Celery] Thumbnail task dispatched from merge: file_id={file_id}, '
+            f'is_public={is_public}'
+        )
+    except Exception as e:
+        logger.warning(
+            f'[Celery] Failed to dispatch thumbnail task from merge: '
+            f'file_id={file_id}, is_public={is_public}, error={e}'
+        )
 
 
 @shared_task(

@@ -33,6 +33,8 @@ def import_document_tasks():
             cleanup_old_chunks,
             cleanup_expired_transfers,
             retry_clean_pending_files,
+            # 【缩略图异步化】新增缩略图异步生成任务
+            generate_document_thumbnail,
         )
         # 任务已通过 @shared_task 装饰器注册
         print('[Celery] Document tasks imported successfully')

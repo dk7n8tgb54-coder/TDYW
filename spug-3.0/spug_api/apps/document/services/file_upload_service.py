@@ -8,12 +8,36 @@
 import os
 import logging
 from django.conf import settings
+from django.db import transaction
 from apps.document.libs.document_utils import get_document_absolute_path, is_safe_path
 from apps.document.libs.naming_utils import generate_file_names
 from apps.document.views.base import get_mime_type, create_model_instance
-from apps.document.services.thumbnail_service import generate_thumbnail_for_file
 
 logger = logging.getLogger(__name__)
+
+
+def _dispatch_thumbnail_task(file_id, is_public):
+    """
+    投递缩略图异步生成任务
+
+    独立成函数的原因：
+    1. 避免在 transaction.on_commit 的 lambda 闭包中直接 import 任务模块
+       （任务模块 import 链较重，延迟到 on_commit 触发时再加载）
+    2. 集中处理投递异常，任何情况下都不影响文件上传成功
+    """
+    try:
+        from apps.document.tasks.thumbnail import generate_document_thumbnail
+        generate_document_thumbnail.delay(file_id, is_public)
+        logger.info(
+            f'[Document] Thumbnail task dispatched: file_id={file_id}, '
+            f'is_public={is_public}'
+        )
+    except Exception as e:
+        # 投递失败仅记录日志，不影响文件上传成功
+        logger.warning(
+            f'[Document] Failed to dispatch thumbnail task: '
+            f'file_id={file_id}, is_public={is_public}, error={e}'
+        )
 
 
 class FileStorageService:
@@ -53,7 +77,7 @@ class FileRecordService:
     """文件记录服务"""
 
     @staticmethod
-    def create_file_record(FileModel, file_info, folder, user):
+    def create_file_record(FileModel, file_info, folder, user, is_public):
         """
         创建文件记录
 
@@ -62,6 +86,7 @@ class FileRecordService:
             file_info: 包含 physical_name, logical_name, display_name, file_path 的字典
             folder: 文件夹对象
             user: 用户对象
+            is_public: 是否公共资料库（用于投递缩略图异步任务时选择正确的 FileModel）
 
         Returns:
             新创建的文件对象
@@ -79,20 +104,24 @@ class FileRecordService:
             created_by=user
         )
 
-        # 生成缩略图
+        # 【缩略图异步化】不再在请求线程中同步生成缩略图，
+        # 改为投递 Celery 异步任务到 document.thumbnail 队列。
+        # 使用 transaction.on_commit 保证：
+        #   - 显式事务中：记录提交后才投递，避免任务查不到记录
+        #   - auto-commit 模式（当前默认）：on_commit 回调会立即同步执行，
+        #     等价于直接 .delay()，行为无变化
+        # 缩略图任务失败不影响文件上传成功（任务内部已做异常隔离）。
+        file_id = new_file.id
         try:
-            thumbnail_path = generate_thumbnail_for_file(
-                file_info['file_path'],
-                file_info['physical_name']
+            transaction.on_commit(
+                lambda: _dispatch_thumbnail_task(file_id, is_public)
             )
-            if thumbnail_path:
-                new_file.thumbnail_path = thumbnail_path
-                new_file.save(update_fields=['thumbnail_path'])
-                logger.info(f'[Document] Thumbnail generated for file {new_file.id}: {thumbnail_path}')
         except Exception as e:
-            # 缩略图生成失败不影响文件上传
-            file_path = file_info.get('file_path', 'unknown')
-            logger.warning(f'[Document] Failed to generate thumbnail for {file_path}: {e}')
+            # on_commit 注册本身极少失败，兜底记录日志，不影响上传
+            logger.warning(
+                f'[Document] Failed to dispatch thumbnail task: file_id={file_id}, '
+                f'is_public={is_public}, error={e}'
+            )
 
         return new_file
 
@@ -231,7 +260,7 @@ class FileUploadService:
             }
 
             new_file = FileRecordService.create_file_record(
-                self.FileModel, file_info, folder, self.user
+                self.FileModel, file_info, folder, self.user, self.is_public
             )
 
             logger.info(
