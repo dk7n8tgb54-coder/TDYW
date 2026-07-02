@@ -26,6 +26,20 @@ class RecordValidator:
         """
         errors = []
 
+        # 必填字段非空校验（新建表单只收集建单必需信息）
+        required_fields = {
+            'title': '标题',
+            'system': '升级系统',
+            'upgrade_type': '升级类型',
+            'owner': '负责人',
+            'upgrade_time': '计划升级时间',
+            'upgrade_content': '升级内容',
+        }
+        for field, label in required_fields.items():
+            val = getattr(data, field, None)
+            if not val or not str(val).strip():
+                errors.append(f'请填写{label}')
+
         if getattr(data, 'status', None) not in UpgradeStatus.values():
             errors.append(f'状态值无效，仅支持：{"/".join(UpgradeStatus.values())}')
 

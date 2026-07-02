@@ -28,6 +28,7 @@ class Store {
   // === 表单 ===
   @observable record = {};
   @observable formVisible = false;
+  @observable createVisible = false;
 
   // === 视图模式 ===
   @observable viewMode = 'list'; // 'list' | 'calendar'
@@ -35,8 +36,83 @@ class Store {
   // === 升级方案（合并原模板+步骤清单）===
   @observable plans = [];
 
+  // === 升级系统候选项（仅 active 字典项，用于新建/编辑表单的 SystemSelect）===
+  // 注意：与 filterOptions.systems 不同——后者含历史兜底，用于列表筛选；
+  //       本字段仅含字典表 active 项，停用后立即从下拉消失。
+  @observable systems = [];
+
   // === 自动生成的升级单号 ===
   @observable nextUpgradeNo = '';
+
+  // === 工作台相关状态 ===
+  @observable recordSteps = [];
+  @observable recordStepStats = {};
+  @observable statusLogs = [];
+  @observable actionOptions = [];
+  @observable attachmentCount = 0;
+
+  // === 工作台数据加载 ===
+  fetchRecord = (id) => {
+    return http.get(`/api/upgrade/records/${id}/`)
+      .then(data => {
+        this.record = data || {};
+        return data;
+      })
+      .catch((error) => {
+        console.error('[Upgrade Store] Record error:', error);
+        throw error;
+      });
+  };
+
+  fetchAttachmentCount = (id) => {
+    if (!id) return Promise.resolve();
+    return http.get(`/api/upgrade/records/${id}/attachments/`)
+      .then(data => {
+        this.attachmentCount = (data || []).length;
+      })
+      .catch(() => {
+        this.attachmentCount = 0;
+      });
+  };
+
+  setAttachmentCount = (count) => {
+    this.attachmentCount = count;
+  };
+
+  fetchRecordSteps = (id) => {
+    if (!id) return Promise.resolve();
+    return http.get(`/api/upgrade/records/${id}/steps/`)
+      .then(res => {
+        this.recordSteps = res.steps || [];
+        this.recordStepStats = res.stats || { total: 0, completed: 0, skipped: 0, pending: 0, progress: 0 };
+      })
+      .catch(() => {
+        this.recordSteps = [];
+        this.recordStepStats = { total: 0, completed: 0, skipped: 0, pending: 0, progress: 0 };
+      });
+  };
+
+  fetchStatusLogs = (id) => {
+    if (!id) return Promise.resolve();
+    return http.get(`/api/upgrade/records/${id}/status-logs/`)
+      .then(data => {
+        this.statusLogs = data || [];
+      })
+      .catch(() => {
+        this.statusLogs = [];
+      });
+  };
+
+  fetchActionOptions = (id) => {
+    if (!id) return Promise.resolve();
+    return http.get(`/api/upgrade/records/${id || 0}/status-logs/?action=options`)
+      .then(data => {
+        this.actionOptions = data || [];
+      })
+      .catch(() => {
+        this.actionOptions = [];
+      });
+  };
 
   // === 列表接口（分页）===
   fetchRecords = () => {
@@ -103,6 +179,15 @@ class Store {
     this.record = {...info, isViewMode: true};
   };
 
+  // === 新建升级弹窗 ===
+  showCreateForm = () => {
+    this.createVisible = true;
+  };
+
+  hideCreateForm = () => {
+    this.createVisible = false;
+  };
+
   // === 统计接口 ===
   fetchStatistics = (filters = {}) => {
     const params = {};
@@ -123,6 +208,29 @@ class Store {
       .catch((error) => {
         console.error('[Upgrade Store] Plans error:', error);
       });
+  };
+
+  // === 升级系统候选项接口（仅 active 字典项）===
+  fetchSystems = () => {
+    return http.get('/api/upgrade/systems/')
+      .then((data) => {
+        this.systems = data || [];
+      })
+      .catch((error) => {
+        console.error('[Upgrade Store] Systems error:', error);
+      });
+  };
+
+  // 乐观移除：立即从本地 systems 过滤掉指定 name，UI 即时更新
+  removeSystem = (name) => {
+    this.systems = this.systems.filter(s => s.name !== name);
+  };
+
+  // 乐观新增：立即把新项追加到本地 systems
+  addSystem = (system) => {
+    if (system && !this.systems.some(s => s.name === system.name)) {
+      this.systems = [...this.systems, system];
+    }
   };
 
   fetchPlanDetail = (id) => {

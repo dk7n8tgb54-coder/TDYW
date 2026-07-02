@@ -13,12 +13,17 @@ class RecordUpdateView(View):
     @auth('upgrade.upgrade.edit')
     def put(self, request, pk):
         form, error = JsonParser(
+            Argument('title', required=False),
             Argument('system', required=False),
             Argument('upgrade_type', required=False),
             Argument('version', required=False),
             Argument('upgrade_time', required=False),
             Argument('status', required=False),
             Argument('owner', required=False),
+            Argument('upgrade_content', required=False),
+            Argument('impact_scope', required=False),
+            Argument('risk_desc', required=False),
+            Argument('rollback_plan', required=False),
         ).parse(request.body)
 
         if error:

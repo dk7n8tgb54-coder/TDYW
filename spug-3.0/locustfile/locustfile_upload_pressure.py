@@ -10,7 +10,7 @@
 6. 轮询合并状态
 
 使用方法：
-  locust -f locustfile_upload_pressure.py --host=https://your-server \
+  locust -f locustfile_upload_pressure.py --host=http://localhost:3000/ \
     -u 3 -r 1 -t 5m --headless --csv=upload_pressure_3terminals
 
 参数说明：

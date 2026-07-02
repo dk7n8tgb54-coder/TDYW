@@ -11,6 +11,7 @@ import { http, hasPermission } from 'libs';
 import { Action, TableCard, AuthButton, ExportButton } from "components";
 import store from './store';
 import StatusTag from './components/StatusTag';
+import history from 'libs/history';
 
 @observer
 class ComTable extends React.Component {
@@ -51,7 +52,9 @@ class ComTable extends React.Component {
         dataSource={store.records}
         onReload={store.fetchRecords}
         onRow={record => ({
-          onDoubleClick: () => { store.showDetail(record); },
+          onDoubleClick: () => {
+            history.push(`/upgrade/workbench/${record.id}`);
+          },
           style: { cursor: 'pointer' }
         })}
         actions={[
@@ -59,7 +62,7 @@ class ComTable extends React.Component {
             auth="upgrade.upgrade.add"
             type="primary"
             icon={<PlusOutlined/>}
-            onClick={() => store.showForm({}, false)}>新建</AuthButton>,
+            onClick={() => store.showCreateForm()}>新建</AuthButton>,
           <span key="date-range-picker" style={{ marginRight: 8 }}>
             <DatePicker.RangePicker
               placeholder={['开始日期', '结束日期']}
@@ -99,7 +102,7 @@ class ComTable extends React.Component {
         {hasPermission('upgrade.upgrade.edit|upgrade.upgrade.del') && (
           <Table.Column title="操作" render={info => (
             <Action>
-              <Action.Button onClick={() => store.showForm(info)}>详情/编辑</Action.Button>
+              <Action.Button onClick={() => history.push(`/upgrade/workbench/${info.id}`)}>详情/编辑</Action.Button>
               <Action.Button danger auth="upgrade.upgrade.del" onClick={() => this.handleDelete(info)}>删除</Action.Button>
             </Action>
           )}/>

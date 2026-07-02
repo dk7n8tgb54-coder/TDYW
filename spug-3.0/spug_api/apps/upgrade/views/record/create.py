@@ -14,12 +14,17 @@ class RecordCreateView(View):
     def post(self, request):
         form, error = JsonParser(
             Argument('upgrade_no', required=False, help='升级单号（不传则自动生成）'),
+            Argument('title', help='请输入标题'),
             Argument('system', help='请输入系统'),
             Argument('upgrade_type', help='请选择升级类型'),
-            Argument('version', help='请输入版本'),
-            Argument('upgrade_time', help='请选择升级时间'),
-            Argument('status', help='请选择状态'),
+            Argument('version', required=False, default=''),
+            Argument('upgrade_time', help='请选择计划升级时间'),
+            Argument('status', required=False, default='处理中'),
             Argument('owner', help='请输入负责人'),
+            Argument('upgrade_content', help='请输入升级内容'),
+            Argument('impact_scope', required=False, default=''),
+            Argument('risk_desc', required=False, default=''),
+            Argument('rollback_plan', required=False, default=''),
         ).parse(request.body)
 
         if error:

@@ -8,6 +8,7 @@ import { observer } from 'mobx-react';
 import { Calendar, Badge, Card, Modal, Tag, Select, DatePicker, Button, Tooltip, Row, Col } from 'antd';
 import { LeftOutlined, RightOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
+import history from 'libs/history';
 import moment from 'moment';
 import store from './store';
 import StatusTag from './components/StatusTag';
@@ -221,7 +222,7 @@ export default observer(function () {
             style={{ marginBottom: 8, cursor: 'pointer' }}
             onClick={() => {
               setDetailVisible(false);
-              store.showDetail(record);
+              history.push(`/upgrade/workbench/${record.id}`);
             }}
           >
             <Row gutter={16}>

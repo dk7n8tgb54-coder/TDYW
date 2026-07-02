@@ -45,6 +45,8 @@ class UpgradeTemplate(models.Model, ModelMixin):
         ordering = ('-is_default', 'name', '-id')
         indexes = [
             models.Index(fields=['tenant_id']),
+            # 模板列表默认排序：tenant_id + is_default + name + id
+            models.Index(fields=['tenant_id', 'is_default', 'name', 'id'], name='upg_tpl_default_idx'),
         ]
 
 
@@ -81,4 +83,6 @@ class UpgradePlanStep(models.Model, ModelMixin):
         indexes = [
             models.Index(fields=['template_id']),
             models.Index(fields=['tenant_id', 'template_id']),
+            # 方案步骤展示顺序：tenant_id + template_id + sequence + id
+            models.Index(fields=['tenant_id', 'template_id', 'sequence', 'id'], name='upg_plan_tenant_seq_idx'),
         ]

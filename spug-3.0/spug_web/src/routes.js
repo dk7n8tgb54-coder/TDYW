@@ -39,6 +39,7 @@ import InterferenceStatistics from './pages/interference/Statistics';
 import ExecUpgradeRecord from './pages/upgrade';
 import ExecUpgradeStatistics from './pages/upgrade/Statistics';
 import ExecUpgradePlan from './pages/upgrade/plan/PlanManager';
+import UpgradeWorkbench from './pages/upgrade/Workbench';
 import ExecDutyRecord from './pages/duty';
 import CheckSheetIndex from './pages/checksheet';
 import RadioLicenseIndex from './pages/radioLicense';
@@ -81,4 +82,6 @@ export default [
   },
   {path: '/welcome/index', component: WelcomeIndex},
   {path: '/welcome/info', component: WelcomeInfo},
+  // 升级工作台全屏页面（新建走列表页弹窗，此处仅保留编辑/查看入口）
+  {path: '/upgrade/workbench/:id', component: UpgradeWorkbench},
 ]

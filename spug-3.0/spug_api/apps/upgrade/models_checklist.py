@@ -100,4 +100,6 @@ class UpgradeRecordStep(models.Model, ModelMixin):
         indexes = [
             models.Index(fields=['upgrade_id']),
             models.Index(fields=['tenant_id', 'upgrade_id']),
+            # 步骤清单展示顺序：tenant_id + upgrade_id + sequence + id（左前缀同时覆盖状态统计）
+            models.Index(fields=['tenant_id', 'upgrade_id', 'sequence', 'id'], name='upg_step_tenant_seq_idx'),
         ]

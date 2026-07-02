@@ -3,7 +3,7 @@
  * Copyright (c) <spug.dev@gmail.com>
  * Released under the AGPL-3.0 License.
  */
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { observer } from 'mobx-react';
 import { Card, Button, Divider, Space } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
@@ -13,10 +13,12 @@ import CheckSheetTable from './components/CheckSheetTable';
 import StatsPanel from './components/StatsPanel';
 import ConfirmModal from './components/ConfirmModal';
 import LegendPanel from './components/LegendPanel';
+import store from './store';
 import './CheckSheet.css';
 
 export default observer(function CheckSheet() {
   const currentUser = sessionStorage.getItem('nickname') || '';
+  const hasAutoLoaded = useRef(false);
 
   const {
     allProjectsData,
@@ -43,6 +45,14 @@ export default observer(function CheckSheet() {
     handleRightClick,
     handleConfirmSignature
   } = useCheckSheetUI(loaded, updateCellStatus);
+
+  // 自动加载数据
+  useEffect(() => {
+    if (!hasAutoLoaded.current && !loaded && store.projects.length > 0) {
+      hasAutoLoaded.current = true;
+      handleLoadAllData();
+    }
+  }, [loaded, store.projects.length]);
 
   const stats = calculateStats();
 

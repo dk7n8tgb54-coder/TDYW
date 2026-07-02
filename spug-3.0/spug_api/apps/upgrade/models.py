@@ -22,13 +22,17 @@ class UpgradeRecord(models.Model, TenantModelMixin):
     objects = TenantModelManager()
     tenant_id = make_tenant_id()
     upgrade_no = models.CharField(max_length=50)
-    upgrade_no = models.CharField(max_length=50)
+    title = models.CharField(max_length=200, default='', verbose_name='标题')
     system = models.CharField(max_length=100)
     upgrade_type = models.CharField(max_length=50)
-    version = models.CharField(max_length=100)
-    upgrade_time = models.CharField(max_length=20, verbose_name='升级时间')
+    version = models.CharField(max_length=100, blank=True, default='')
+    upgrade_time = models.CharField(max_length=20, verbose_name='计划升级时间')
     status = models.CharField(max_length=20, default='处理中')
     owner = models.CharField(max_length=100)
+    upgrade_content = models.TextField(default='', blank=True, verbose_name='升级内容')
+    impact_scope = models.TextField(default='', blank=True, verbose_name='影响范围')
+    risk_desc = models.TextField(default='', blank=True, verbose_name='风险说明')
+    rollback_plan = models.TextField(default='', blank=True, verbose_name='回退方案摘要')
 
     created_at = models.CharField(max_length=20, verbose_name='创建时间')
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
@@ -46,12 +50,50 @@ class UpgradeRecord(models.Model, TenantModelMixin):
         unique_together = [['tenant_id', 'upgrade_no']]
         indexes = [
             models.Index(fields=['tenant_id', 'status']),
+            # 默认列表分页：tenant_id + 计划升级时间倒序 + id
+            models.Index(fields=['tenant_id', 'upgrade_time', 'id'], name='upg_rec_time_idx'),
+            # 状态精确筛选 + 时间排序（status 为列表高频筛选字段）
+            models.Index(fields=['tenant_id', 'status', 'upgrade_time', 'id'], name='upg_rec_status_time_idx'),
+            # 升级类型精确筛选 + 时间排序（upgrade_type 为列表高频筛选字段）
+            models.Index(fields=['tenant_id', 'upgrade_type', 'upgrade_time', 'id'], name='upg_rec_type_time_idx'),
         ]
 
 
 
 
 
+
+
+class UpgradeSystem(models.Model, TenantModelMixin):
+    """升级系统候选项字典
+
+    用于"升级系统"字段的候选列表维护。新建升级申请时可搜索/选择/新增。
+    历史升级记录的 system 字段是纯文本，不受本表删除/停用影响。
+    """
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+    name = models.CharField(max_length=100, verbose_name='系统名称')
+    is_active = models.BooleanField(default=True, verbose_name='是否启用')
+    sort_order = models.IntegerField(default=0, verbose_name='排序')
+
+    created_at = models.CharField(max_length=20, verbose_name='创建时间')
+    created_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True)
+    updated_at = models.CharField(max_length=20, null=True, blank=True, verbose_name='更新时间')
+    updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True)
+
+    def __repr__(self):
+        return '<UpgradeSystem %r>' % self.name
+
+    class Meta:
+        db_table = 'tdyw_upgrade_systems'
+        verbose_name = '升级系统候选项'
+        verbose_name_plural = '升级系统候选项'
+        ordering = ('sort_order', 'name',)
+        unique_together = [['tenant_id', 'name']]
+        indexes = [
+            # 启用系统下拉/系统管理列表：tenant_id + is_active + sort_order + name
+            models.Index(fields=['tenant_id', 'is_active', 'sort_order', 'name'], name='upg_sys_active_idx'),
+        ]
 
 
 # 导入升级方案模型（原升级模板+步骤清单合并），确保 Django 发现

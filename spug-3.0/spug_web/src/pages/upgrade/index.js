@@ -10,7 +10,7 @@ import { SearchForm, AuthDiv } from 'components';
 import { CalendarOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import ComTable from './Table';
 import CalendarView from './CalendarView';
-import RecordForm from './RecordForm';
+import CreateUpgradeModal from './CreateUpgradeModal';
 import store from './store';
 import moment from 'moment';
 
@@ -79,7 +79,7 @@ export default observer(function () {
         </Radio.Group>
       </div>
       {store.viewMode === 'calendar' ? <CalendarView /> : <ComTable />}
-      {store.formVisible && <RecordForm />}
+      {store.createVisible && <CreateUpgradeModal />}
     </AuthDiv>
   );
 })

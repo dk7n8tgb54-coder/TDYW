@@ -91,12 +91,17 @@ class RecordService:
                 record = UpgradeRecord.objects.create(
                     tenant_id=user.tenant_id,
                     upgrade_no=upgrade_no,
+                    title=getattr(record_data, 'title', '') or '',
                     system=record_data.system,
                     upgrade_type=record_data.upgrade_type,
-                    version=record_data.version,
+                    version=getattr(record_data, 'version', '') or '',
                     upgrade_time=upgrade_time_val,
-                    status=record_data.status,
+                    status=getattr(record_data, 'status', '处理中') or '处理中',
                     owner=record_data.owner,
+                    upgrade_content=getattr(record_data, 'upgrade_content', '') or '',
+                    impact_scope=getattr(record_data, 'impact_scope', '') or '',
+                    risk_desc=getattr(record_data, 'risk_desc', '') or '',
+                    rollback_plan=getattr(record_data, 'rollback_plan', '') or '',
                     created_at=now_str,
                     created_by=user,
                 )
@@ -133,7 +138,8 @@ class RecordService:
             return None, error
 
         # 更新可编辑字段
-        editable_fields = ['system', 'upgrade_type', 'version', 'status', 'owner']
+        editable_fields = ['title', 'system', 'upgrade_type', 'version', 'status', 'owner',
+                           'upgrade_content', 'impact_scope', 'risk_desc', 'rollback_plan']
         for field in editable_fields:
             value = getattr(data, field, None)
             if value is not None:
@@ -185,6 +191,7 @@ class RecordService:
                     object_type='record',
                     object_id=record_id,
                     reason='升级表单已删除',
+                    delete_file=True,
                 )
 
                 record.delete()
@@ -274,7 +281,11 @@ class RecordService:
 
     @staticmethod
     def get_filter_options(user):
-        """获取筛选选项（去重值列表 + 预设系统合并）
+        """获取筛选选项（去重值列表 + 系统字典合并）
+
+        系统候选项来源：
+        1. 升级系统字典表（UpgradeSystem，is_active=True）— 主源，全局共享
+        2. 历史升级记录中出现过的系统 — 兜底，保证旧记录的系统仍可筛选/选择
 
         Args:
             user: 当前请求用户
@@ -282,22 +293,31 @@ class RecordService:
         Returns:
             dict: {systems, statuses, upgrade_types}
         """
-        from ..models import UpgradeRecord
+        from ..models import UpgradeRecord, UpgradeSystem
 
         queryset = apply_tenant_filter(UpgradeRecord.objects.all(), user)
 
-        # 历史系统列表
+        # 字典表 active 项（全局共享，不按租户过滤）
+        dict_systems = list(
+            UpgradeSystem.objects.filter(is_active=True)
+            .order_by('sort_order', 'name')
+            .values_list('name', flat=True)
+        )
+
+        # 历史系统列表（兜底，保证旧记录系统仍可见）
         history_systems = list(
             queryset.values_list('system', flat=True)
             .distinct()
             .order_by('system')
         )
 
-        # 合并预设系统 + 历史系统（去重，预设在前）
-        all_systems = list(PRESET_SYSTEMS)
+        # 合并：字典表在前，历史系统中不在字典表的追加在后
+        all_systems = list(dict_systems)
+        dict_set_lower = {s.lower() for s in dict_systems}
         for sys in history_systems:
-            if sys not in all_systems:
+            if sys and sys.lower() not in dict_set_lower:
                 all_systems.append(sys)
+                dict_set_lower.add(sys.lower())
 
         statuses = list(
             queryset.values_list('status', flat=True)

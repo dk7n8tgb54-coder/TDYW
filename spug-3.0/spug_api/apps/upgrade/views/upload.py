@@ -15,6 +15,7 @@
 import logging
 
 from django.views import View
+from django.utils import timezone
 
 from libs import json_response, auth, JsonParser, Argument
 from libs.tenant_utils import apply_tenant_filter
@@ -46,6 +47,17 @@ def _get_record(record_id, user):
     ).first()
 
 
+def _build_attachment_path_parts(user, record_id):
+    """构造升级附件多租户目录段：[tenant_{tenant_id}, YYYYMM, record_{record_id}]
+
+    tenant_id 经路径段清洗（只允许字母/数字/下划线/中划线），为空时使用 tenant_default。
+    最终相对路径形如：upgrade/attachments/tenant_default/202607/record_123/文件名
+    """
+    tenant_seg = AttachmentService._sanitize_path_segment(getattr(user, 'tenant_id', ''))
+    date_path = timezone.now().strftime('%Y%m')
+    return [f'tenant_{tenant_seg}', date_path, f'record_{record_id}']
+
+
 class AttachmentListView(View):
     """附件列表 / 上传"""
 
@@ -75,6 +87,7 @@ class AttachmentListView(View):
             object_type=OBJECT_TYPE,
             object_id=record_id,
             config=UpgradeAttachmentConfig,
+            extra_path_parts=_build_attachment_path_parts(request.user, record_id),
         )
         if error:
             return json_response(error=error)
@@ -109,7 +122,7 @@ class AttachmentDeleteView(View):
             return json_response(error=error)
 
         error = AttachmentService.soft_delete(
-            request.user, form.id, form.delete_reason)
+            request.user, form.id, form.delete_reason, delete_file=True)
         if error:
             return json_response(error=error)
         return json_response()
@@ -134,6 +147,7 @@ class AttachmentUploadView(View):
             object_type='legacy_upload',
             object_id='0',
             config=UpgradeAttachmentConfig,
+            extra_path_parts=_build_attachment_path_parts(request.user, 'legacy'),
         )
         if error:
             return json_response(error=error)

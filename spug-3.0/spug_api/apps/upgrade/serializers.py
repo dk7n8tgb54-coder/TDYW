@@ -28,12 +28,17 @@ class UpgradeRecordSerializer:
         return {
             'id': record.id,
             'upgrade_no': record.upgrade_no,
+            'title': record.title or '',
             'system': record.system,
             'upgrade_type': record.upgrade_type,
             'version': record.version,
             'upgrade_time': upgrade_time,
             'status': record.status,
             'owner': record.owner,
+            'upgrade_content': record.upgrade_content or '',
+            'impact_scope': record.impact_scope or '',
+            'risk_desc': record.risk_desc or '',
+            'rollback_plan': record.rollback_plan or '',
             'created_at': created_at,
             'created_by': record.created_by_id,
         }

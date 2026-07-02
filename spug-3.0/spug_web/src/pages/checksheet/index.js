@@ -24,7 +24,13 @@ export default observer(function CheckSheetIndex() {
 
   return (
     <div>
-      <Tabs defaultActiveKey="template">
+      <Tabs defaultActiveKey="checksheet">
+        <Tabs.TabPane tab="日检查表录入" key="checksheet">
+          <CheckSheet />
+        </Tabs.TabPane>
+        <Tabs.TabPane tab="数据查看与导出" key="dataView">
+          <DataView />
+        </Tabs.TabPane>
         <Tabs.TabPane tab="检查表模板管理" key="template">
           <div style={{ marginBottom: 16 }}>
             <Select
@@ -40,12 +46,6 @@ export default observer(function CheckSheetIndex() {
           </div>
           <TemplateTable />
           <TemplateForm />
-        </Tabs.TabPane>
-        <Tabs.TabPane tab="日检查表录入" key="checksheet">
-          <CheckSheet />
-        </Tabs.TabPane>
-        <Tabs.TabPane tab="数据查看与导出" key="dataView">
-          <DataView />
         </Tabs.TabPane>
       </Tabs>
     </div>

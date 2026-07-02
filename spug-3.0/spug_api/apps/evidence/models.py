@@ -169,6 +169,12 @@ class EvidenceAttachment(models.Model, TenantModelMixin):
             # 业务对象主索引：按业务对象查附件
             models.Index(fields=['tenant_id', 'module', 'object_type', 'object_id'],
                          name='ev_att_obj_idx'),
+            # 业务对象附件列表完整路径：tenant_id + 业务对象定位 + is_deleted + uploaded_at + id
+            # 覆盖软删除筛选与时间倒序分页（AttachmentService.list / soft_delete_by_object）
+            models.Index(
+                fields=['tenant_id', 'module', 'object_type', 'object_id', 'is_deleted', 'uploaded_at', 'id'],
+                name='ev_att_obj_del_time_idx',
+            ),
             # SHA256 校验
             models.Index(fields=['file_hash_sha256'], name='ev_att_sha256_idx'),
             # 软删除筛选

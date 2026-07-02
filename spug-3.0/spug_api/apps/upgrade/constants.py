@@ -97,11 +97,52 @@ RESULT_MILESTONES = [
 ]
 
 # 标准流程完整顺序（执行阶段 + 结果里程碑，用于时间线参考条展示）
-# 顺序：开始→备份→灰度→测试→(测试通过/失败分叉)→全量→观察→完成
+# 顺序：开始→备份→灰度→测试通过→全量→观察→完成
+# 注：主线参考条仍显示"升级测试"阶段，但由 test_pass 这个结果动作驱动完成。
 STANDARD_FLOW_ORDER = [
-    'start', 'backup', 'gray_release', 'test',
-    'test_pass', 'full_release', 'observe', 'complete',
+    'start', 'backup', 'gray_release', 'test_pass',
+    'full_release', 'observe', 'complete',
 ]
+
+# 主线流程动作集合（用于校验普通推进顺序，与 STANDARD_FLOW_ORDER 一致）
+MAIN_FLOW_ACTIONS = STANDARD_FLOW_ORDER
+
+# 主线动作 → 序号快查（用于顺序校验）
+MAIN_FLOW_INDEX = {action: idx for idx, action in enumerate(MAIN_FLOW_ACTIONS)}
+
+# 可作为回退目标的主线节点（不含 complete，回退到"完成"无意义）
+ROLLBACK_TARGET_ACTIONS = [a for a in STANDARD_FLOW_ORDER if a != 'complete']
+
+# 非主线动作（不影响流程进度，仅记时间线：测试失败/暂停/继续）
+NON_MAIN_ACTIONS = ['test_fail', 'pause', 'resume']
+
+# 标准流程节点 → 状态动作 label（完成/达成语义，与 models_status_log.ACTION_CHOICES 一致）
+# 用于状态时间线展示、记录状态下拉、错误提示文案
+FLOW_NODE_LABELS = {
+    'start': '升级启动',
+    'backup': '备份完成',
+    'gray_release': '灰度发布完成',
+    'test': '升级测试完成',
+    'test_pass': '升级测试通过',
+    'test_fail': '升级测试失败',
+    'full_release': '全量发布完成',
+    'observe': '观察完成',
+    'complete': '升级完成',
+}
+
+# 标准流程节点 → 阶段 label
+# 用于标准流程参考条、回退目标展示。完成/当前/未开始由图标和颜色表达。
+FLOW_STAGE_LABELS = {
+    'start': '升级启动',
+    'backup': '备份',
+    'gray_release': '灰度发布',
+    'test': '升级测试',
+    'test_pass': '升级测试',
+    'test_fail': '升级测试',
+    'full_release': '全量发布',
+    'observe': '观察',
+    'complete': '升级完成',
+}
 
 # phase → label 快查（含执行阶段和结果里程碑）
 PHASE_LABEL_MAP = {p['value']: p['label'] for p in UPGRADE_PHASES}

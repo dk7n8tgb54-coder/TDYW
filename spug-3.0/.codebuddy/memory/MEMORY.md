@@ -70,6 +70,7 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate <app>
 - 加唯一约束必须拆步：先加非唯一字段 → 回填 → 检查重复 → 再 AlterField 加 unique（见 0005 迁移）。
 - **字段 `db_index=True` 与 `Meta.indexes` 同字段单列索引会生成两套索引**（Django 不去重）。`Meta.indexes` 只用于复合索引或需自定义命名的场景；声明前先检查字段是否已 `db_index=True`。logs app 0004 迁移即清理此类重复（`audit_req_hash_idx` 等三条与自动索引重复）。
 - **CharField→DateTimeField/DateField 迁移必须先清洗空字符串**：可空时间字段历史数据可能有空串 `''`（非 NULL），直接 `ALTER` 到 `DATETIME` 会失败或产生 `0000-00-00` 垃圾值。迁移文件中在 `AlterField` 前加 `RunPython` 把 `filter(col='').update(col=None)`。`NULL` 在 ALTER 时安全保持，无需处理。迁移前用 `STR_TO_DATE(col, fmt) IS NULL` 统计 NULL/空串/合法/非法分布。logs+runlog 已完成此迁移（0006/0009）。
+- **手写 migration 的 Index name 必须与 model Meta.indexes 的 name 一致**：如果 model 的 `Meta.indexes` 里 Index 没有指定 `name`，Django 会自动生成哈希名（如 `tdyw_upgrad_upgrade_d8a2d4_idx`）；手写 migration 里如果用了不同的 name，Django 会生成一个 rename index 迁移。解决：在 model 和 migration 都显式指定相同的 `name='xxx'`。upgrade 0008 迁移即踩此坑。
 
 ### Docker 路径
 - 容器内项目路径: `/data/spug/spug_api/`

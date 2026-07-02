@@ -1,5 +1,4 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
-# Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 """升级状态日志视图 - 时间线记录/查询/删除"""
 import logging
@@ -23,13 +22,16 @@ def _get_record(record_id, user):
 
 
 class StatusLogListView(View):
-    """状态日志列表 / 动作选项"""
+    """状态日志列表 / 动作选项 / 回退目标选项"""
 
     @auth('upgrade.upgrade.view')
     def get(self, request, record_id):
         # action=options 时返回动作选项列表
         if request.GET.get('action') == 'options':
             return json_response(StatusLogService.get_action_options())
+        # action=rollback_targets 时返回可回退的主线节点列表
+        if request.GET.get('action') == 'rollback_targets':
+            return json_response(StatusLogService.get_rollback_targets())
 
         record = _get_record(record_id, request.user)
         if record is None:
@@ -46,6 +48,8 @@ class StatusLogListView(View):
         form, error = JsonParser(
             Argument('action', help='请选择动作类型'),
             Argument('remark', required=False, default=''),
+            Argument('target_action', required=False, default=''),
+            Argument('is_override', required=False, default=False, type=bool),
         ).parse(request.body)
         if error:
             return json_response(error=error)
@@ -55,19 +59,18 @@ class StatusLogListView(View):
             user=request.user,
             action=form.action,
             remark=form.remark,
+            target_action=form.target_action,
+            is_override=form.is_override,
         )
         if error:
             return json_response(error=error)
 
-        return json_response({
-            'id': log.id,
-            'action': log.action,
-            'created_at': log.created_at,
-        })
+        # 返回完整日志数据，前端可立即更新时间线无需二次请求
+        return json_response(StatusLogService.to_view(log))
 
 
 class StatusLogDeleteView(View):
-    """删除状态日志"""
+    """删除状态日志（删除后自动重算主表 status）"""
 
     @auth('upgrade.upgrade.edit')
     def delete(self, request, pk):
