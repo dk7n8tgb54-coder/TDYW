@@ -4,6 +4,7 @@
 tdyw部署包V2.0/
 tdywV3.0/
 tdyw 服务器版本/
+tdyw-server/
 # Node.js
 node_modules/
 *.log

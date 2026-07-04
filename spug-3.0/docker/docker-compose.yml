@@ -3,7 +3,7 @@
 # - 版本 3.8 是目前推荐的稳定版本，支持最新的 Docker 功能
 # - 版本 3.3 也可以使用，但可能缺少一些新和优化
 # 使用方法：docker-compose -f docker/docker-compose.yml up -d
-version: '3.8'
+
 
 services:
   # ==================== 主应用服务 ====================
@@ -19,7 +19,7 @@ services:
     container_name: tdyw
     restart: unless-stopped
     ports:
-      - "8080:80"   # HTTP 端口
+      - "80:80"   # HTTP 端口
       - "443:443"  # HTTPS 端口
     environment:
       # 数据库连接配置（固定值）
@@ -85,7 +85,7 @@ services:
       - ./config/mysql-entrypoint.sh:/usr/local/bin/mysql-custom-entrypoint.sh:ro
       - tdyw-mysql-data:/var/lib/mysql  # 数据持久化
     ports:
-      - "127.0.0.1:3308:3306"  # 使用高位端口避免 Hyper-V 端口保留冲突
+      - "127.0.0.1:3306:3306"  # 使用高位端口避免 Hyper-V 端口保留冲突
     # 使用自定义 entrypoint 处理权限问题
     entrypoint: ["/bin/bash", "/usr/local/bin/mysql-custom-entrypoint.sh"]
     command: ["mysqld"]
