@@ -361,6 +361,9 @@ class FolderView(View):
         files_count = files.count()
         logger.info(f'[Document] Deleting {files_count} files in folder {folder.name}')
 
+        # 收集所有文件的父目录，用于删除后兜底清理物理残留目录
+        parent_dirs_to_clean = set()
+
         total_deleted = 0
         for batch_start in range(0, files_count, BATCH_SIZE):
             batch_end = min(batch_start + BATCH_SIZE, files_count)
@@ -371,6 +374,12 @@ class FolderView(View):
                 with transaction.atomic():
                     for file in batch_files_list:
                         try:
+                            # 删除前收集父目录（兜底清理用）
+                            file_path = getattr(file, 'file_path', None)
+                            if file_path:
+                                parent_dir = os.path.dirname(file_path)
+                                if parent_dir:
+                                    parent_dirs_to_clean.add(parent_dir)
                             file.delete(hard=True)
                             logger.info(f'[Document] File deleted: {file.name} (id={file.id})')
                         except Exception as e:
@@ -386,12 +395,21 @@ class FolderView(View):
 
         # 第三步：删除物理目录 + 文件夹数据库记录
         try:
-            from apps.document.services.cleanup_service import PhysicalFolderCleaner
-            PhysicalFolderCleaner.delete(folder)
+            from apps.document.services.cleanup_service import (
+                PhysicalFolderCleaner, cleanup_parent_dirs_safe
+            )
+            PhysicalFolderCleaner.delete(
+                folder,
+                is_public=is_public,
+                user_id=getattr(folder, 'created_by_id', None)
+            )
             folder.delete(hard=True)
             logger.info(f'[Document] Folder deleted: {folder.name} (id={folder.id})')
         except Exception as e:
             logger.error(f'[Document] Error deleting folder record: {e}')
+
+        # 兜底清理：基于真实 file_path 的父目录清理（即使目录规则变化也能清理残留）
+        cleanup_parent_dirs_safe(parent_dirs_to_clean)
 
         cost = time.time() - start_time
         if cost > 240:

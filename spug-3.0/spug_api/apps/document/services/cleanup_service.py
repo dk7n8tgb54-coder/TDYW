@@ -11,9 +11,48 @@ import logging
 from django.conf import settings
 from django.db import DatabaseError
 from apps.document.exceptions import DocumentPhysicalDeleteError
-from apps.document.libs.document_utils import is_safe_path
+from apps.document.libs.document_utils import (
+    is_safe_path, get_document_absolute_path
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _get_storage_documents_base():
+    """统一获取 storage/documents 根目录（与上传路径规则保持一致）"""
+    return os.path.join(settings.BASE_DIR, 'storage', 'documents')
+
+
+def cleanup_parent_dirs_safe(parent_dirs) -> None:
+    """安全清理文件的父目录（兜底清理，供所有删除流程复用）
+
+    安全要求：
+    - 所有路径必须通过 is_safe_path(storage/documents, target) 校验
+    - 跳过空路径、根存储目录、不存在的路径
+    - 不使用用户输入直接拼接删除路径
+
+    用途：即使未来目录规则变化，也能按数据库中真实 file_path 清掉残留目录。
+    """
+    storage_base = _get_storage_documents_base()
+    norm_storage_base = os.path.normpath(storage_base)
+
+    for dir_path in parent_dirs:
+        if not dir_path:
+            continue
+        if not os.path.exists(dir_path):
+            continue
+        if os.path.normpath(dir_path) == norm_storage_base:
+            logger.warning(
+                f'[AsyncFolderDelete] 拒绝清理根存储目录: {dir_path}'
+            )
+            continue
+        if not is_safe_path(storage_base, dir_path):
+            logger.error(
+                f'[AsyncFolderDelete] 拒绝清理 storage/documents 外的目录: {dir_path}'
+            )
+            continue
+        shutil.rmtree(dir_path, ignore_errors=True)
+        logger.info(f'[AsyncFolderDelete] 兜底清理物理目录: {dir_path}')
 
 
 class PermissionChecker:
@@ -85,42 +124,88 @@ class PhysicalFolderCleaner:
     """物理文件夹清理器"""
 
     @staticmethod
-    def delete(folder) -> bool:
+    def delete(folder, is_public=None, user_id=None) -> bool:
         """
         安全删除文件夹的物理存储目录
 
+        优先复用上传时的 get_document_absolute_path() 规则生成目标路径
+        （folder-{id} 短横线格式），同时保留对旧格式 folder_{id}（下划线）
+        的兼容清理，用于清理历史残留目录。
+
         Args:
             folder: 文件夹对象
+            is_public: 是否公共空间（None 时从 folder.TENANT_TYPE 推断）
+            user_id: 私有空间用户ID（None 时用 folder.created_by_id）
 
         Returns:
-            是否成功删除
+            是否成功删除至少一个目录
         """
         try:
-            base_path = getattr(
-                settings, 'DOCUMENT_STORAGE_PATH', '/data/spug/documents'
-            )
+            storage_base = _get_storage_documents_base()
+            norm_storage_base = os.path.normpath(storage_base)
 
-            # 尝试不同的路径格式
-            possible_paths = [
-                os.path.join(base_path, f'folder_{folder.id}'),
-                os.path.join(
-                    base_path,
-                    str(getattr(folder, 'tenant_id', '')),
-                    f'folder_{folder.id}'
-                ),
-            ]
+            # 推断 is_public
+            if is_public is None:
+                is_public = getattr(folder, 'TENANT_TYPE', '') == 'PUBLIC'
 
+            # 私有空间需要 user_id
+            if not is_public and user_id is None:
+                user_id = getattr(folder, 'created_by_id', None)
+
+            possible_paths = []
+
+            # 1. 优先：上传时实际使用的路径规则（folder-{id} 短横线）
+            try:
+                primary_path = get_document_absolute_path(
+                    is_public=is_public,
+                    user_id=user_id,
+                    folder_id=folder.id
+                )
+                possible_paths.append(primary_path)
+            except (ValueError, TypeError) as e:
+                logger.warning(
+                    f'[AsyncFolderDelete] 生成主路径失败: folder_id={folder.id}, error={e}'
+                )
+
+            # 2. 兼容：旧格式 folder_{id}（下划线）历史残留目录清理
+            #    统一放在 storage/documents 下做安全校验，绝不删除根目录外路径
+            possible_paths.append(os.path.join(storage_base, f'folder_{folder.id}'))
+            tenant_id_str = str(getattr(folder, 'tenant_id', '') or '')
+            if tenant_id_str:
+                possible_paths.append(
+                    os.path.join(storage_base, tenant_id_str, f'folder_{folder.id}')
+                )
+
+            deleted_any = False
+            seen = set()
             for path in possible_paths:
-                if os.path.exists(path):
-                    # 【路径安全校验】确保删除路径在 storage/documents 下
-                    if not is_safe_path(base_path, path):
-                        logger.error(f'[AsyncFolderDelete] Refused to delete folder outside storage/documents: {path}')
-                        return False
-                    shutil.rmtree(path, ignore_errors=True)
-                    logger.info(f'[AsyncFolderDelete] 物理目录已删除: {path}')
-                    return True
+                if not path or path in seen:
+                    continue
+                seen.add(path)
 
-            return False
+                # 跳过不存在的路径
+                if not os.path.exists(path):
+                    continue
+
+                # 跳过空路径与根存储目录（禁止删除 storage/documents 本身）
+                if os.path.normpath(path) == norm_storage_base:
+                    logger.warning(
+                        f'[AsyncFolderDelete] 拒绝删除根存储目录: {path}'
+                    )
+                    continue
+
+                # 安全校验：必须在 storage/documents 内
+                if not is_safe_path(storage_base, path):
+                    logger.error(
+                        f'[AsyncFolderDelete] Refused to delete folder outside storage/documents: {path}'
+                    )
+                    continue
+
+                shutil.rmtree(path, ignore_errors=True)
+                logger.info(f'[AsyncFolderDelete] 物理目录已删除: {path}')
+                deleted_any = True
+
+            return deleted_any
 
         except (OSError, IOError) as e:
             logger.error(
@@ -132,21 +217,36 @@ class PhysicalFolderCleaner:
 class ContentDeleter:
     """内容删除器 - 处理文件和文件夹的删除"""
 
-    def __init__(self, permission_checker: PermissionChecker):
+    def __init__(self, permission_checker: PermissionChecker, is_public: bool = False):
         self.permission_checker = permission_checker
+        self.is_public = is_public
         self.freed_size = 0
         self.deleted_count = 0
         self.errors = []
 
     def delete_files_in_folder(self, folder, FileModel) -> None:
-        """删除文件夹内的所有文件"""
+        """删除文件夹内的所有文件，并兜底清理物理父目录
+
+        兜底策略：即使未来目录规则变化，也按数据库中真实 file_path
+        的父目录做安全清理，避免物理目录残留。
+        """
         files = FileModel.all_objects.filter(folder=folder, is_deleted=True).order_by()
+
+        # 收集所有文件的父目录，用于删除后兜底清理
+        parent_dirs_to_clean = set()
 
         for file_obj in files:
             if not self.permission_checker.can_delete_file(file_obj):
                 continue
 
             file_size = file_obj.file_size
+            # 删除前收集父目录（删除后 file_path 仍可读，但提前收集更稳妥）
+            file_path = getattr(file_obj, 'file_path', None)
+            if file_path:
+                parent_dir = os.path.dirname(file_path)
+                if parent_dir:
+                    parent_dirs_to_clean.add(parent_dir)
+
             try:
                 file_obj.delete(hard=True)
                 self.freed_size += file_size
@@ -161,6 +261,9 @@ class ContentDeleter:
                 )
                 self.errors.append(f'删除文件失败: {file_obj.id}')
 
+        # 兜底清理：删除文件父目录（即使物理目录规则变化也能清理残留）
+        cleanup_parent_dirs_safe(parent_dirs_to_clean)
+
     def delete_folder(self, folder, FolderModel, is_root: bool = False) -> None:
         """
         删除文件夹
@@ -173,8 +276,12 @@ class ContentDeleter:
         if not self.permission_checker.can_delete_folder(folder):
             return
 
-        # 删除物理目录
-        PhysicalFolderCleaner.delete(folder)
+        # 删除物理目录（复用上传路径规则 + 旧格式兼容）
+        PhysicalFolderCleaner.delete(
+            folder,
+            is_public=self.is_public,
+            user_id=getattr(folder, 'created_by_id', None)
+        )
 
         # 删除数据库记录（非根文件夹）
         if not is_root:
@@ -207,6 +314,7 @@ class FolderCleanupService:
         self.FolderModel = FolderModel
         self.FileModel = FileModel
         self.is_private = FolderModel.__name__ == 'DocumentFolderPrivate'
+        self.is_public = not self.is_private
         self.permission_checker = PermissionChecker(user, self.is_private)
 
     def cleanup(self, folder) -> dict:
@@ -222,8 +330,8 @@ class FolderCleanupService:
         # 收集所有文件夹
         all_folders = FolderCollector.collect_all_subfolders(folder, self.FolderModel)
 
-        # 创建删除器
-        deleter = ContentDeleter(self.permission_checker)
+        # 创建删除器（传入 is_public 以便正确生成物理路径）
+        deleter = ContentDeleter(self.permission_checker, is_public=self.is_public)
 
         # 从最深层开始删除（逆序处理）
         for current_folder in reversed(all_folders):

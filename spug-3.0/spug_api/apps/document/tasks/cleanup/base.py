@@ -12,13 +12,18 @@ from apps.document.services.cleanup_service import (
 logger = logging.getLogger(__name__)
 
 
-def _delete_physical_folder_safe(folder):
+def _delete_physical_folder_safe(folder, is_public=None, user_id=None):
     """
     安全删除文件夹的物理存储目录
     
     【兼容性函数】保留原有API，内部调用PhysicalFolderCleaner
+
+    Args:
+        folder: 文件夹对象
+        is_public: 是否公共空间（None 时从 folder.TENANT_TYPE 推断）
+        user_id: 私有空间用户ID（None 时用 folder.created_by_id）
     """
-    PhysicalFolderCleaner.delete(folder)
+    PhysicalFolderCleaner.delete(folder, is_public=is_public, user_id=user_id)
 
 
 def _delete_folder_contents_iterative(folder, FolderModel, FileModel, user):

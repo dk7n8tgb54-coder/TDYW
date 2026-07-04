@@ -76,6 +76,14 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate <app>
 - 容器内项目路径: `/data/spug/spug_api/`
 - manage.py 位置: `/data/spug/spug_api/manage.py`
 
+### 资料库备份/还原脚本（2026-07-04 修复一致性缺陷）
+- 脚本：`backups/documents_incremental_backup.sh`、`backups/documents_restore.sh`
+- **增量发现 = mtime + ctime**：用 `find -newermt "@${epoch}" -o -newerct "@${epoch}"`。**不用 `-cnewer marker`**——标记文件经 `docker cp` 进容器后 ctime 被重置为当前时间，`-cnewer` 会失效。epoch 取宿主机 marker 的 mtime，时区无关。
+- 每次备份产物 3 件：`.tar.gz` + `.manifest`(TSV: 相对路径/大小/mtime/ctime) + `.meta`(key=value)。0 文件增量只生成 meta。
+- 还原流程：`tar tzf` 校验全量+所有增量 → 清空目标(`CLEAR_TARGET=YES`默认) → 全量+按文件名时间戳顺序应用增量 → manifest 校验(`comm -23` 求缺失) → 恢复报告。
+- **核心教训**：数据库备份和 documents 备份必须同周期；只恢复数据库不恢复文件卷 → 前端可见但预览/下载报"文件不存在"。恢复顺序：停业务→恢复DB→清空documents→full→incrementals→启动→一致性检查。
+- Windows 验证：用 `wsl -e bash`（路径 `/mnt/e/...`），`C:\Windows\System32\bash.exe` 是 WSL；`/e/` 路径在此 WSL 也有效但 PowerShell 直传 `bash /e/...` 会找不到文件。
+
 ### 生产环境内存分配（8G 服务器，2026-06-29 调整）
 8G 物理服务器下三个容器的内存分配（扣除系统 ~1G，剩 7G 分给容器）：
 | 容器 | memory limit | memory reservation | 关键内存项 |
