@@ -1,13 +1,14 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""升级系统候选项字典视图
+"""升级系统候选项字典视图（按租户隔离）
 
-GET    /api/upgrade/systems/             获取启用中的系统候选列表
-POST   /api/upgrade/systems/create/       新增系统候选项（trim + 大小写不敏感去重）
+GET    /api/upgrade/systems/             获取当前租户启用中的系统候选列表
+POST   /api/upgrade/systems/create/       新增系统候选项（同租户内 trim + 大小写不敏感去重）
 DELETE /api/upgrade/systems/<id>/delete/  移除系统候选项（有历史记录则停用，无则物理删除）
 
-字典表为全局共享（tenant_id=''），所有租户共用同一套系统候选列表。
+租户隔离：每个租户维护独立的系统候选列表，互不可见。
+不同租户允许存在相同系统名，同一租户内不可重复。
 历史升级记录的 system 字段是纯文本，不受本表停用/删除影响。
 """
 from django.views import View
@@ -21,7 +22,10 @@ class UpgradeSystemListView(View):
 
     @auth('upgrade.upgrade.view')
     def get(self, request):
-        qs = UpgradeSystem.objects.filter(is_active=True).order_by('sort_order', 'name')
+        tenant_id = request.user.tenant_id
+        qs = UpgradeSystem.objects.filter(
+            tenant_id=tenant_id, is_active=True
+        ).order_by('sort_order', 'name')
         data = [{'id': s.id, 'name': s.name, 'sort_order': s.sort_order} for s in qs]
         return json_response(data)
 
@@ -49,8 +53,12 @@ class UpgradeSystemCreateView(View):
         if len(name) > 100:
             return json_response(error='系统名称过长（最多 100 字符）')
 
-        # 大小写不敏感查重
-        existing = UpgradeSystem.objects.filter(name__iexact=name).first()
+        tenant_id = request.user.tenant_id
+
+        # 同租户内大小写不敏感查重（不同租户允许同名）
+        existing = UpgradeSystem.objects.filter(
+            tenant_id=tenant_id, name__iexact=name
+        ).first()
         if existing:
             # 已存在：若已停用则恢复启用，确保立即可选
             if not existing.is_active:
@@ -64,12 +72,14 @@ class UpgradeSystemCreateView(View):
             })
 
         now = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
-        # 新增项 sort_order 取当前最大 +1（排在末尾）
-        max_order = UpgradeSystem.objects.order_by('-sort_order').first()
+        # 新增项 sort_order 取当前租户内最大 +1（排在末尾）
+        max_order = UpgradeSystem.objects.filter(
+            tenant_id=tenant_id
+        ).order_by('-sort_order').first()
         next_order = (max_order.sort_order + 1) if max_order else 1
 
         obj = UpgradeSystem.objects.create(
-            tenant_id='',
+            tenant_id=tenant_id,
             name=name,
             is_active=True,
             sort_order=next_order,
@@ -93,15 +103,18 @@ class UpgradeSystemDeleteView(View):
 
     @auth('upgrade.system.manage')
     def delete(self, request, pk):
+        tenant_id = request.user.tenant_id
         try:
-            obj = UpgradeSystem.objects.get(pk=pk)
+            obj = UpgradeSystem.objects.get(pk=pk, tenant_id=tenant_id)
         except UpgradeSystem.DoesNotExist:
-            return json_response(error='系统候选项不存在')
+            return json_response(error='系统候选项不存在或无权限')
 
         name = obj.name
 
-        # 检查是否有关联升级记录（跨租户查，system 是纯文本字段）
-        has_records = UpgradeRecord.objects.filter(system=name).exists()
+        # 检查当前租户是否有关联升级记录（system 是纯文本字段）
+        has_records = UpgradeRecord.objects.filter(
+            tenant_id=tenant_id, system=name
+        ).exists()
 
         if has_records:
             # 有关联记录：只能停用，不能物理删除

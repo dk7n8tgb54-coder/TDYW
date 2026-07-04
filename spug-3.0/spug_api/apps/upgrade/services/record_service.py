@@ -283,8 +283,8 @@ class RecordService:
     def get_filter_options(user):
         """获取筛选选项（去重值列表 + 系统字典合并）
 
-        系统候选项来源：
-        1. 升级系统字典表（UpgradeSystem，is_active=True）— 主源，全局共享
+        系统候选项来源（均按当前租户过滤）：
+        1. 升级系统字典表（UpgradeSystem，is_active=True）— 主源，租户隔离
         2. 历史升级记录中出现过的系统 — 兜底，保证旧记录的系统仍可筛选/选择
 
         Args:
@@ -297,9 +297,10 @@ class RecordService:
 
         queryset = apply_tenant_filter(UpgradeRecord.objects.all(), user)
 
-        # 字典表 active 项（全局共享，不按租户过滤）
+        # 字典表 active 项（按当前租户过滤，租户隔离）
+        tenant_id = getattr(user, 'tenant_id', '')
         dict_systems = list(
-            UpgradeSystem.objects.filter(is_active=True)
+            UpgradeSystem.objects.filter(tenant_id=tenant_id, is_active=True)
             .order_by('sort_order', 'name')
             .values_list('name', flat=True)
         )

@@ -13,6 +13,7 @@ import {
   PlusOutlined, MinusCircleOutlined, HolderOutlined
 } from '@ant-design/icons';
 import store from '../store';
+import SystemSelect from '../components/SystemSelect';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -140,15 +141,7 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
           <TextArea rows={2} placeholder="方案用途描述（选填）" />
         </Form.Item>
         <Form.Item name="system" label="系统">
-          <Select allowClear showSearch placeholder="请选择系统（可选）"
-            filterOption={(input, option) =>
-              option.children?.toLowerCase().indexOf(input.toLowerCase()) >= 0
-            }
-          >
-            {store.filterOptions.systems.map(item => (
-              <Option value={item} key={item}>{item}</Option>
-            ))}
-          </Select>
+          <SystemSelect placeholder="请选择或输入系统" />
         </Form.Item>
         <Form.Item name="upgrade_type" label="升级类型">
           <Select allowClear placeholder="请选择升级类型（可选）">
