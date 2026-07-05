@@ -17,6 +17,7 @@ from apps.setting.utils import AppSetting
 from apps.account.utils import verify_password
 from apps.account.role_permissions import (
     get_assignable_roles,
+    get_assignable_roles_for_target,
     get_manageable_role,
     validate_assignable_role_ids,
     validate_page_perms_subset,
@@ -471,6 +472,22 @@ class RoleView(AdminView):
             return json_response(error='已有用户使用了该角色，请解除关联后再尝试删除')
         role.delete()
         return json_response()
+
+
+class AssignableRoleView(AdminView):
+    """账号表单可分配角色下拉专用接口。
+
+    仅服务于账号创建/编辑表单的角色下拉展示，不替代 validate_assignable_role_ids
+    的安全校验。安全边界仍以用户创建/编辑提交时的后端强校验为准。
+    """
+    PERM_MAP = {
+        'GET': 'system.account.view',
+    }
+
+    def get(self, request):
+        target_tenant_id = request.GET.get('tenant_id')
+        roles = get_assignable_roles_for_target(request.user, target_tenant_id)
+        return json_response(roles)
 
 
 class TenantView(AdminView):

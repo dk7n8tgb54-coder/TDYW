@@ -13,6 +13,7 @@ urlpatterns = [
     re_path(r'^user/tenant_choices/$', UserView.get_tenant_choices),
     re_path(r'^user/restore/$', UserView.restore_user),
     re_path(r'^role/$', RoleView.as_view()),
+    re_path(r'^role/assignable/$', AssignableRoleView.as_view()),
     re_path(r'^tenant/$', TenantView.as_view()),
     re_path(r'^self/$', SelfView.as_view()),
     re_path(r'^login/history/$', HistoryView.as_view())

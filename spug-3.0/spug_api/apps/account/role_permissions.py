@@ -33,6 +33,38 @@ def get_assignable_roles(operator):
     )
 
 
+def get_assignable_roles_for_target(operator, target_tenant_id=None):
+    """返回操作者可分配给目标租户用户的角色 queryset（账号表单下拉专用）。
+
+    与 get_assignable_roles 的区别：
+    - get_assignable_roles 用于"角色管理列表"，超管返回全部角色。
+    - 本函数用于"账号表单角色下拉"，超管按目标租户收敛，避免误选其他租户角色。
+
+    规则：
+    - 普通管理员：忽略 target_tenant_id，只返回本租户、非系统、非全局管理员角色。
+    - 超级管理员：
+        * 始终返回平台级角色（tenant_id is null）和全局管理员角色；
+        * 若 target_tenant_id 有值，追加该租户的租户角色；
+        * 若 target_tenant_id 为空，不返回任何租户角色，避免误选其他租户角色。
+    """
+    from django.db.models import Q
+    from apps.account.models import Role
+
+    if not operator.is_supper:
+        return Role.objects.filter(
+            tenant_id=operator.tenant_id,
+            is_system=False,
+            is_global_admin=False,
+        )
+
+    queryset = Role.objects.filter(
+        Q(tenant_id__isnull=True) | Q(is_global_admin=True)
+    )
+    if target_tenant_id:
+        queryset = queryset | Role.objects.filter(tenant_id=target_tenant_id)
+    return queryset.distinct()
+
+
 def validate_assignable_role_ids(operator, role_ids, target_tenant_id=None):
     """校验操作者是否有权将给定的 role_ids 分配给目标租户用户。
 

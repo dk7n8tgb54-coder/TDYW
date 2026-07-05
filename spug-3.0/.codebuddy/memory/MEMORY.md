@@ -98,6 +98,7 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate <app>
 1. Lint 检查: `read_lints(paths=[...])`
 2. 语法检查:
    - Python: `docker exec tdyw python -m py_compile <path>`
+   - **WSL docker 调用**（本机 docker 在 WSL 中）：`wsl docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw-test python manage.py check`；Django check 输出会被 PowerShell CLIXML 包装吞掉，改用 `wsl bash -c 'docker exec ... python manage.py check'`（单引号避免内层双引号 EOF）；`-w` 指定工作目录避免 `bash -c "cd ..."`
    - JavaScript (项目用 ES Module + 装饰器 + classProperties):
      ```
      cd e:/TDYW/spug-3.0/spug_web && node -e "const parser = require('@babel/parser'); const code = require('fs').readFileSync('FILE', 'utf8'); parser.parse(code, { sourceType: 'module', plugins: ['classProperties', 'decorators-legacy', 'dynamicImport'] });"
@@ -130,6 +131,13 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate <app>
   - 普通管理员不能编辑超管账号
 - **前端**：RoleView.get 已过滤；角色 Form.js 超管专用表单项（角色归属 platform/tenant + 租户下拉 + is_system Switch + is_global_admin Switch）；普通管理员不显示且不提交；租户下拉复用 /api/account/user/tenant_choices/
 - **测试**：`tests/test_role_delegation.py` 27 个用例全通过（含超管租户一致性 5 个 + to_dict 1 个）
+- **第四轮：账号表单可分配角色下拉专用接口**（2026-07-05，体验优化）
+  - 新增 `GET /api/account/role/assignable/?tenant_id=<可选>`，受 `AssignableRoleView(AdminView)` 保护，`PERM_MAP={'GET':'system.account.view'}`
+  - `role_permissions.py` 新增 `get_assignable_roles_for_target(operator, target_tenant_id=None)`：普通管理员忽略 target_tenant_id 只返回本租户普通角色；超管返回平台级+全局管理员，target_tenant_id 有值时追加该租户角色，未选租户不返回任何租户角色
+  - 与 `get_assignable_roles`（角色管理列表用，超管返回全部）并存，**不要合并**——方案明确区分"角色管理列表"与"账号可分配角色下拉"两个概念
+  - 前端 `Form.js` 改用 `assignableRoles` state 拉取渲染下拉；超管切换 tenant_id 时重新拉取并清空 role_ids；extra 文案"仅显示当前账号可分配给该用户的角色"
+  - `Table.js` 仍用 `rStore.idMap` 显示账号列表角色名称，**不能动**
+  - `validate_assignable_role_ids` 强校验保留，新接口仅体验优化不替代安全边界
 
 ### 技术细节
 - spug_web 使用 antd 4.21.5

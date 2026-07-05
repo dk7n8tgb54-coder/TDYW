@@ -1,6 +1,6 @@
 /**
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
- * Copyright (c) <spug.dev@gmail.com>
+ * Copyright: (c) <spug.dev@gmail.com>
  * Released under the AGPL-3.0 License.
  */
 import React, {useState, useEffect, useRef} from 'react';
@@ -9,15 +9,29 @@ import {observer} from 'mobx-react';
 import {Modal, Form, Select, Input, message} from 'antd';
 import {http} from 'libs';
 import store from './store';
-import rStore from '../role/store';
 
 
 export default observer(function () {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [tenantChoices, setTenantChoices] = useState([]);
+  // 账号表单角色下拉专用数据源：只展示当前操作者可分配给目标账号的角色，
+  // 不再直接复用角色管理页的 rStore.records，避免普通管理员看到平台级/系统/全局/其他租户角色。
+  const [assignableRoles, setAssignableRoles] = useState([]);
+  // 跟踪当前表单 tenant_id，用于 extra 文案动态判断（超管未选租户时额外提示）
+  const [tenantId, setTenantId] = useState(store.record.tenant_id || undefined);
   const isSupper = store.isSupper;
   const mountedRef = useRef(true);
+
+  const fetchAssignableRoles = (tid) => {
+    const params = {};
+    if (isSupper && tid) {
+      params.tenant_id = tid;
+    }
+    return http.get('/api/account/role/assignable/', {params})
+      .then(res => { if (mountedRef.current) setAssignableRoles(res) })
+      .catch(() => {})
+  };
 
   useEffect(() => {
     // 超管才加载租户选项
@@ -26,8 +40,20 @@ export default observer(function () {
         .then(res => { if (mountedRef.current) setTenantChoices(res) })
         .catch(() => {});
     }
+    // 打开表单时拉取可分配角色：
+    // 普通管理员后端忽略 tenant_id，只返回本租户普通角色；
+    // 超管编辑已有 tenant_id 时按该租户返回，新建无 tenant_id 时只返回平台级+全局管理员角色。
+    fetchAssignableRoles(tenantId);
     return () => { mountedRef.current = false }
   }, [isSupper]);
+
+  function handleTenantChange(value) {
+    setTenantId(value);
+    // 超管切换目标租户：重新拉取可分配角色，并清空已选 role_ids，
+    // 避免保留上一个租户的角色选择（后端强校验也会拦截，这里做体验优化）。
+    fetchAssignableRoles(value);
+    form.setFieldsValue({role_ids: []});
+  }
 
   function handleSubmit() {
     setLoading(true);
@@ -40,6 +66,11 @@ export default observer(function () {
         store.fetchRecords()
       }, () => { if (mountedRef.current) setLoading(false) })
   }
+
+  // 超管且未选择租户时，角色下拉额外提示选择租户
+  const roleExtra = isSupper && !tenantId
+    ? '仅显示当前账号可分配给该用户的角色；选择所属租户后可分配该租户角色'
+    : '仅显示当前账号可分配给该用户的角色';
 
   return (
     <Modal
@@ -66,6 +97,7 @@ export default observer(function () {
           <Form.Item name="tenant_id" label="所属租户"
                      extra="选择租户后该用户将与同租户共享数据">
             <Select allowClear placeholder="请选择租户" showSearch
+                    onChange={handleTenantChange}
                     filterOption={(input, option) =>
                       option.children?.toLowerCase().includes(input.toLowerCase())
                     }>
@@ -85,9 +117,9 @@ export default observer(function () {
         )}
         <Form.Item hidden={store.record.is_supper} label="角色" style={{marginBottom: 0}}>
           <Form.Item name="role_ids" style={{display: 'inline-block', width: '80%'}}
-                     extra="权限最大化原则，组合多个角色权限。">
+                     extra={roleExtra}>
             <Select mode="multiple" placeholder="请选择">
-              {rStore.records.map(item => (
+              {assignableRoles.map(item => (
                 <Select.Option value={item.id} key={item.id}>{item.name}</Select.Option>
               ))}
             </Select>
