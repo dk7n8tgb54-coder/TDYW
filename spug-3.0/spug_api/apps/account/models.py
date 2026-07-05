@@ -107,6 +107,11 @@ class Role(models.Model, ModelMixin):
     deploy_perms = models.TextField(null=True)
     group_perms = models.TextField(null=True)
     is_global_admin = models.BooleanField(default=False, help_text='全局管理员角色')
+    # 角色归属与系统标识（用户角色委派权限边界）
+    # tenant_id 为 null 表示平台级角色，仅超级管理员可管理和分配
+    # is_system=True 表示系统内置角色，普通管理员不可编辑/删除/分配
+    tenant_id = models.CharField(max_length=50, null=True, blank=True, db_index=True)
+    is_system = models.BooleanField(default=False, db_index=True)
     created_at = models.CharField(max_length=20, default=human_datetime)
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='+')
 
@@ -116,6 +121,8 @@ class Role(models.Model, ModelMixin):
         tmp['deploy_perms'] = json.loads(self.deploy_perms) if self.deploy_perms else {}
         tmp['group_perms'] = json.loads(self.group_perms) if self.group_perms else []
         tmp['is_global_admin'] = self.is_global_admin
+        tmp['is_system'] = self.is_system
+        tmp['tenant_id'] = self.tenant_id
         tmp['used'] = self.user_set.filter(deleted_by_id__isnull=True).count()
         return tmp
 

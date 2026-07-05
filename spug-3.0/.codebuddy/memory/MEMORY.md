@@ -112,6 +112,25 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate <app>
 - Windows 本地环境存在编码、缺少依赖等问题，不适合直接运行 Python 测试
 - **antd 版本差异**：antd 4.x 使用 `visible` 属性控制 Modal 显示，antd 5.x 使用 `open` 属性。本项目使用 antd 4.21.5，必须用 `visible`
 
+### 角色委派权限边界（2026-07-05 实施，两轮完成）
+- **问题**：拥有"用户管理/创建账号"权限的普通管理员可看到并分配超管创建的高权限角色 → 越权授权
+- **修复**：后端为准，前端只做体验优化
+- **数据模型**：`Role` 增加 `tenant_id`（null=平台级角色）和 `is_system`（系统内置角色）；`Role.to_dict()` 显式输出这两个字段供前端回显
+- **统一授权方法**（`apps/account/role_permissions.py`）：
+  - `get_assignable_roles(operator)` — 超管全部；普通管理员本租户非系统非全局管理员
+  - `validate_assignable_role_ids(operator, role_ids, target_tenant_id=None)` — **超管校验租户角色与目标租户一致性**（平台级角色和全局管理员角色不限；租户角色必须 tenant_id == target_tenant_id）；target_tenant_id=None 时超管宽松放行（向后兼容）；普通管理员仍只能分配本租户普通角色
+  - `get_manageable_role(operator, role_id)` — 角色 CRUD 可管理范围
+  - `flatten_page_perms` / `validate_page_perms_subset` / `validate_group_perms_subset` / `validate_deploy_perms_subset` — 普通管理员新角色权限必须是自身权限子集
+- **Migration 0006 历史回填**（保守策略）：超管创建→平台级系统角色；普通用户创建→归属其 tenant_id；is_global_admin=True→强制平台级系统；无 created_by/脏数据→默认平台级系统
+- **调用点**：
+  - RoleView.get/post/patch/delete 全部经统一方法
+  - RoleView.post() 解析 tenant_id/is_system，超管可设置，普通管理员强制覆盖；编辑时若 is_global_admin/tenant_id/is_system 变更则 clear_perms_cache + token_expired=0
+  - UserView._handle_user_create：先 _resolve_tenant_id 再用 target_tenant_id 校验 role_ids
+  - UserView._handle_user_edit：用编辑后目标 tenant_id 校验（超管同时改 tenant_id 和 role_ids 时按新 tenant_id 校验）
+  - 普通管理员不能编辑超管账号
+- **前端**：RoleView.get 已过滤；角色 Form.js 超管专用表单项（角色归属 platform/tenant + 租户下拉 + is_system Switch + is_global_admin Switch）；普通管理员不显示且不提交；租户下拉复用 /api/account/user/tenant_choices/
+- **测试**：`tests/test_role_delegation.py` 27 个用例全通过（含超管租户一致性 5 个 + to_dict 1 个）
+
 ### 技术细节
 - spug_web 使用 antd 4.21.5
 - spug_api 使用 Django + MySQL

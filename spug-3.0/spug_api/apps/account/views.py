@@ -5,6 +5,7 @@ import re
 
 from django.core.cache import cache
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Count
 from libs.mixins import AdminView, View
 from libs import JsonParser, Argument, human_datetime, json_response
@@ -14,6 +15,14 @@ import logging
 from apps.account.models import User, Role, History, Tenant
 from apps.setting.utils import AppSetting
 from apps.account.utils import verify_password
+from apps.account.role_permissions import (
+    get_assignable_roles,
+    get_manageable_role,
+    validate_assignable_role_ids,
+    validate_page_perms_subset,
+    validate_group_perms_subset,
+    validate_deploy_perms_subset,
+)
 
 from functools import partial
 import user_agents
@@ -103,23 +112,52 @@ class UserView(AdminView):
         if not request.user.is_supper and user.tenant_id != request.user.tenant_id:
             logger.warning(f'Account: User {request.user.username} denied to edit user {user.username} (cross-tenant)')
             return json_response(error='无权编辑其他租户的用户')
+        # 普通管理员不能编辑超级管理员账号
+        if not request.user.is_supper and user.is_supper:
+            logger.warning(f'Account: User {request.user.username} denied to edit super user {user.username}')
+            return json_response(error='无权编辑超级管理员账号')
         if not request.user.is_supper and 'tenant_id' in form:
             del form['tenant_id']
-        if (request.user.is_supper and form.get('tenant_id')
-                and form['tenant_id'] != user.tenant_id):
-            self._migrate_user_tenant(user, form['tenant_id'])
-        user.update_by_dict(form)
-        user.roles.set(role_ids)
-        user.set_perms_cache()
+        # 计算编辑后的目标 tenant_id，用于校验 role_ids 与目标租户一致性
+        # 超管可同时修改 tenant_id 和 role_ids，必须按新 tenant_id 校验
+        if request.user.is_supper and form.get('tenant_id'):
+            target_tenant_id = form['tenant_id']
+        else:
+            target_tenant_id = user.tenant_id
+        # 先校验 role_ids（含存在性 + 越权 + 租户一致性），
+        # 校验通过后再执行迁移租户、更新用户、设置角色，避免中途失败造成状态不一致
+        error = validate_assignable_role_ids(request.user, role_ids, target_tenant_id)
+        if error:
+            logger.warning(
+                f'Account: User {request.user.username} denied to assign roles {role_ids} '
+                f'to user {user.username} (target_tenant={target_tenant_id}): {error}'
+            )
+            return json_response(error=error)
+        with transaction.atomic():
+            if (request.user.is_supper and form.get('tenant_id')
+                    and form['tenant_id'] != user.tenant_id):
+                self._migrate_user_tenant(user, form['tenant_id'])
+            user.update_by_dict(form)
+            user.roles.set(role_ids)
+            user.set_perms_cache()
         return json_response()
 
     def _handle_user_create(self, request, form, role_ids, password):
         if not verify_password(password):
             logger.warning(f'Account: Password validation failed for new user creation by {request.user.username}')
             return json_response(error='请设置至少8位包含数字、小写和大写字母、特殊字符的新密码')
+        # 先解析目标租户，用于校验 role_ids 与目标租户一致性
         tenant_value, err = self._resolve_tenant_id(request, form)
         if err:
             return json_response(error=err)
+        # 在创建用户前校验 role_ids，避免先创建用户再失败
+        error = validate_assignable_role_ids(request.user, role_ids, tenant_value)
+        if error:
+            logger.warning(
+                f'Account: User {request.user.username} denied to assign roles {role_ids} '
+                f'on new user creation (target_tenant={tenant_value}): {error}'
+            )
+            return json_response(error=error)
         create_fields = {k: v for k, v in form.items()
                          if k not in ('tenant_id', 'password', 'role_ids')}
         user = User.objects.create(
@@ -158,6 +196,10 @@ class UserView(AdminView):
             if not request.user.is_supper and user.tenant_id != request.user.tenant_id:
                 logger.warning(f'Account: User {request.user.username} denied to patch user {user.username} (cross-tenant)')
                 return json_response(error='无权操作其他租户的用户')
+            # 普通管理员不能操作超级管理员账号（重置密码、禁用等）
+            if not request.user.is_supper and user.is_supper:
+                logger.warning(f'Account: User {request.user.username} denied to patch super user {user.username}')
+                return json_response(error='无权操作超级管理员账号')
             # 非超管禁止修改 tenant_id
             if not request.user.is_supper and form.tenant_id:
                 logger.warning(f'Account: User {request.user.username} denied to modify tenant_id')
@@ -190,6 +232,10 @@ class UserView(AdminView):
                 if not request.user.is_supper and user.tenant_id != request.user.tenant_id:
                     logger.warning(f'Account: User {request.user.username} denied to delete user {user.username} (cross-tenant)')
                     return json_response(error='无权操作其他租户的用户')
+                # 普通管理员不能删除超级管理员账号
+                if not request.user.is_supper and user.is_supper:
+                    logger.warning(f'Account: User {request.user.username} denied to delete super user {user.username}')
+                    return json_response(error='无权删除超级管理员账号')
                 if user.id == request.user.id:
                     logger.warning(f'Account: User {request.user.username} tried to delete themselves')
                     return json_response(error='无法删除当前登录账户')
@@ -269,22 +315,100 @@ class RoleView(AdminView):
     }
 
     def get(self, request):
-        roles = Role.objects.all()
+        roles = get_assignable_roles(request.user)
         return json_response(roles)
 
     def post(self, request):
+        raw_body = self._parse_raw_body(request)
         form, error = JsonParser(
             Argument('id', type=int, required=False),
             Argument('name', help='请输入角色名称'),
             Argument('desc', required=False),
-            Argument('is_global_admin', type=bool, default=False)
+            # 边界字段：required=False 无 default，未提交时为 None
+            # 创建场景：None 由 _normalize_role_fields 补默认值
+            # 编辑场景：None 用 role 现值补齐，避免覆盖现有边界字段
+            Argument('is_global_admin', type=bool, required=False),
+            Argument('is_system', type=bool, required=False),
+            Argument('tenant_id', required=False),
         ).parse(request.body)
-        if error is None:
-            if form.id:
-                Role.objects.filter(pk=form.id).update(**form)
-            else:
-                Role.objects.create(created_by=request.user, **form)
-        return json_response(error=error)
+        if error:
+            return json_response(error=error)
+
+        # 普通管理员不能创建或设置全局管理员角色
+        if not request.user.is_supper and form.is_global_admin:
+            logger.warning(f'Account: User {request.user.username} denied to create global admin role')
+            return json_response(error='无权创建全局管理员角色')
+
+        fields = dict(form)
+        role_id = fields.pop('id', None)
+
+        if role_id:
+            role = get_manageable_role(request.user, role_id)
+            if not role:
+                logger.warning(f'Account: Role {role_id} not manageable by user {request.user.username}')
+                return json_response(error='角色不存在或无权操作')
+            self._normalize_role_fields(fields, request.user, role=role, raw_body=raw_body)
+            boundary_changed = any(
+                getattr(role, f) != fields.get(f)
+                for f in ('is_global_admin', 'tenant_id', 'is_system')
+            )
+            Role.objects.filter(pk=role_id).update(**fields)
+            # 修改了影响授权边界的字段时，刷新关联用户权限缓存和 token
+            # 与 patch() 修改权限后的处理保持一致
+            if boundary_changed:
+                role.clear_perms_cache()
+                role.user_set.update(token_expired=0)
+        else:
+            self._normalize_role_fields(fields, request.user)
+            Role.objects.create(created_by=request.user, **fields)
+        return json_response()
+
+    @staticmethod
+    def _parse_raw_body(request):
+        """解析原始请求体，用于区分"未提交 tenant_id"和"显式提交 null"。
+
+        JsonParser 对两种情况都返回 None，无法区分；这里单独解析一次原始 JSON。
+        """
+        try:
+            return json.loads(request.body) if request.body else {}
+        except (ValueError, TypeError):
+            return {}
+
+    @staticmethod
+    def _normalize_role_fields(fields, operator, role=None, raw_body=None):
+        """统一处理角色边界字段：补齐未提交值、普通管理员强制覆盖、全局管理员不变量。
+
+        - role 非空（编辑场景）：未提交的边界字段用 role 现值补齐，
+          避免旧前端只提交 name/desc 时清空边界字段。
+        - role 为空（创建场景）：未提交的边界字段补默认值。
+        - 普通管理员：强制 tenant_id=自身租户、is_system=False、is_global_admin=False。
+        - 全局管理员不变量：is_global_admin=True 时强制 tenant_id=None、is_system=True，
+          与 migration 0006 回填策略一致。
+        原地修改 fields 并返回。
+        """
+        # 补齐未提交的布尔边界字段
+        if fields.get('is_global_admin') is None:
+            fields['is_global_admin'] = role.is_global_admin if role else False
+        if fields.get('is_system') is None:
+            fields['is_system'] = role.is_system if role else False
+        # tenant_id：编辑场景未提交 key 时保持原值；创建场景未提交为 None（平台级）
+        if role is not None and raw_body is not None and 'tenant_id' not in raw_body:
+            fields['tenant_id'] = role.tenant_id
+        elif role is None and fields.get('tenant_id') is None:
+            fields['tenant_id'] = None
+
+        # 普通管理员强制覆盖边界字段
+        if not operator.is_supper:
+            fields['tenant_id'] = operator.tenant_id
+            fields['is_system'] = False
+            fields['is_global_admin'] = False
+
+        # 全局管理员角色不变量
+        if fields.get('is_global_admin'):
+            fields['tenant_id'] = None
+            fields['is_system'] = True
+
+        return fields
 
     def patch(self, request):
         form, error = JsonParser(
@@ -293,37 +417,60 @@ class RoleView(AdminView):
             Argument('deploy_perms', type=dict, required=False),
             Argument('group_perms', type=list, required=False)
         ).parse(request.body)
-        if error is None:
-            role = Role.objects.filter(pk=form.pop('id')).first()
-            if not role:
-                logger.warning(f'Account: Role not found for patch by user {request.user}')
-                return json_response(error='未找到指定角色')
-            if form.page_perms is not None:
-                role.page_perms = json.dumps(form.page_perms)
-                role.clear_perms_cache()
-            if form.deploy_perms is not None:
-                role.deploy_perms = json.dumps(form.deploy_perms)
-            if form.group_perms is not None:
-                role.group_perms = json.dumps(form.group_perms)
-            role.user_set.update(token_expired=0)
-            role.save()
-        return json_response(error=error)
+        if error:
+            return json_response(error=error)
+
+        # 取可管理角色，普通管理员不能修改系统/平台/其他租户角色
+        role = get_manageable_role(request.user, form.id)
+        if not role:
+            logger.warning(f'Account: Role {form.id} not manageable for patch by user {request.user.username}')
+            return json_response(error='角色不存在或无权操作')
+
+        # 权限子集校验：普通管理员新权限不能超过自身已有权限
+        if form.page_perms is not None:
+            err = validate_page_perms_subset(request.user, form.page_perms)
+            if err:
+                logger.warning(f'Account: User {request.user.username} denied to set page_perms exceeding own scope on role {form.id}')
+                return json_response(error=err)
+        if form.group_perms is not None:
+            err = validate_group_perms_subset(request.user, form.group_perms)
+            if err:
+                logger.warning(f'Account: User {request.user.username} denied to set group_perms exceeding own scope on role {form.id}')
+                return json_response(error=err)
+        if form.deploy_perms is not None:
+            err = validate_deploy_perms_subset(request.user, form.deploy_perms)
+            if err:
+                logger.warning(f'Account: User {request.user.username} denied to set deploy_perms exceeding own scope on role {form.id}')
+                return json_response(error=err)
+
+        if form.page_perms is not None:
+            role.page_perms = json.dumps(form.page_perms)
+            role.clear_perms_cache()
+        if form.deploy_perms is not None:
+            role.deploy_perms = json.dumps(form.deploy_perms)
+        if form.group_perms is not None:
+            role.group_perms = json.dumps(form.group_perms)
+        role.user_set.update(token_expired=0)
+        role.save()
+        return json_response()
 
     def delete(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误')
         ).parse(request.GET)
-        if error is None:
-            try:
-                role = Role.objects.get(pk=form.id)
-            except Role.DoesNotExist:
-                logger.warning(f'Account: Role {form.id} not found for delete by user {request.user}')
-                return json_response(error='角色不存在')
-            if role.user_set.exists():
-                logger.warning(f'Account: Role {role.name} has associated users, cannot delete')
-                return json_response(error='已有用户使用了该角色，请解除关联后再尝试删除')
-            role.delete()
-        return json_response(error=error)
+        if error:
+            return json_response(error=error)
+
+        # 取可管理角色，普通管理员不能删除系统/平台/其他租户角色
+        role = get_manageable_role(request.user, form.id)
+        if not role:
+            logger.warning(f'Account: Role {form.id} not manageable for delete by user {request.user.username}')
+            return json_response(error='角色不存在或无权操作')
+        if role.user_set.exists():
+            logger.warning(f'Account: Role {role.name} has associated users, cannot delete')
+            return json_response(error='已有用户使用了该角色，请解除关联后再尝试删除')
+        role.delete()
+        return json_response()
 
 
 class TenantView(AdminView):
