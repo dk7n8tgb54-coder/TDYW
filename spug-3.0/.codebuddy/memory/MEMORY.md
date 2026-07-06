@@ -133,11 +133,12 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate <app>
 - **测试**：`tests/test_role_delegation.py` 27 个用例全通过（含超管租户一致性 5 个 + to_dict 1 个）
 - **第四轮：账号表单可分配角色下拉专用接口**（2026-07-05，体验优化）
   - 新增 `GET /api/account/role/assignable/?tenant_id=<可选>`，受 `AssignableRoleView(AdminView)` 保护，`PERM_MAP={'GET':'system.account.view'}`
-  - `role_permissions.py` 新增 `get_assignable_roles_for_target(operator, target_tenant_id=None)`：普通管理员忽略 target_tenant_id 只返回本租户普通角色；超管返回平台级+全局管理员，target_tenant_id 有值时追加该租户角色，未选租户不返回任何租户角色
+  - `role_permissions.py` 新增 `get_assignable_roles_for_target(operator, target_tenant_id=None)`：普通管理员忽略 target_tenant_id 只返回本租户普通角色；超管返回全局管理员角色 + 目标租户角色（target_tenant_id 有值时追加），**不返回平台级普通角色**（收紧，见下方"平台级角色概念修正"）
   - 与 `get_assignable_roles`（角色管理列表用，超管返回全部）并存，**不要合并**——方案明确区分"角色管理列表"与"账号可分配角色下拉"两个概念
   - 前端 `Form.js` 改用 `assignableRoles` state 拉取渲染下拉；超管切换 tenant_id 时重新拉取并清空 role_ids；extra 文案"仅显示当前账号可分配给该用户的角色"
   - `Table.js` 仍用 `rStore.idMap` 显示账号列表角色名称，**不能动**
   - `validate_assignable_role_ids` 强校验保留，新接口仅体验优化不替代安全边界
+- **平台级角色概念修正（2026-07-05）**：平台级角色 `tenant_id=null` 只表示归属平台层，**不等于"可分配给任意租户用户"**。`get_assignable_roles_for_target` 收紧为不返回平台级普通角色（只返回全局管理员角色 + 目标租户角色）；`validate_assignable_role_ids` 逻辑不变（超管提交平台级角色后端仍放行，属超管权限），只改注释表述。未来如需跨租户分配平台级普通角色，应新增 `is_cross_tenant_assignable` 字段显式开启。
 
 ### 技术细节
 - spug_web 使用 antd 4.21.5

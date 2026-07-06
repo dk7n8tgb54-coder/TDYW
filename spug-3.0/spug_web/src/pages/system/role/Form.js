@@ -107,7 +107,7 @@ export default observer(function () {
               ) : (
                 <>
                   <Form.Item name="belong" label="角色归属"
-                             extra="平台级角色可分配给任意租户用户；租户角色仅可分配给该租户用户">
+                             extra="平台级角色不属于具体租户，仅超级管理员可管理，默认不参与普通租户子账号分配；租户角色仅可分配给该租户用户">
                     <Select placeholder="请选择角色归属">
                       <Select.Option value="platform">平台级角色</Select.Option>
                       <Select.Option value="tenant">指定租户角色</Select.Option>

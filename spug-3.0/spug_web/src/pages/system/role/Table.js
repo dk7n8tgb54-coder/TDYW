@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Modal, Popover, Button, message } from 'antd';
+import { Modal, Popover, Button, message, Tag, Tooltip } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { TableCard, AuthButton, Action } from 'components';
 import RoleUsers from './RoleUsers';
@@ -26,6 +26,31 @@ class ComTable extends React.Component {
   columns = [{
     title: '角色名称',
     dataIndex: 'name',
+  }, {
+    title: '类型',
+    width: 200,
+    render: info => {
+      const tags = [];
+      // 归属：平台级（tenant_id 为空）或租户（tenant_id 非空）
+      if (info.tenant_id) {
+        tags.push(
+          <Tooltip key="tenant" title={`租户：${info.tenant_id}`}>
+            <Tag color="green">租户</Tag>
+          </Tooltip>
+        );
+      } else {
+        tags.push(<Tag color="blue" key="platform">平台级</Tag>);
+      }
+      // 系统内置角色
+      if (info.is_system) {
+        tags.push(<Tag color="orange" key="system">系统</Tag>);
+      }
+      // 全局管理员角色
+      if (info.is_global_admin) {
+        tags.push(<Tag color="red" key="global">全局管理员</Tag>);
+      }
+      return <span>{tags}</span>;
+    }
   }, {
     title: '关联账户',
     render: info => info.used ? (
