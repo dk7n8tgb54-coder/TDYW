@@ -145,6 +145,7 @@ urlpatterns = [
     path('detail/', RunLogDetailView.as_view()),
     path('update/', RunLogUpdateView.as_view()),
     path('statistics/', RunLogStatisticsView.as_view()),
+    path('overview/', RunLogOverviewView.as_view()),
     path('event_types/', EventTypeConfigView.as_view()),
     path('upload/', RunLogUploadAttachmentView.as_view()),
     path('export/pdf/', RunLogExportView.as_view()),

@@ -957,3 +957,34 @@ class RunLogEvidencePackageView(View):
         resp = HttpResponse(buf.getvalue(), content_type='application/zip')
         resp['Content-Disposition'] = f'attachment; filename="evidence_runlog_{event.id}.zip"'
         return resp
+
+
+class RunLogOverviewView(View):
+    """运行日志统计概览视图（第一阶段轻量统计）。
+
+    只读接口，复用 runlog.runlog.view 权限与租户隔离，不修改任何业务数据。
+    返回 KPI / 分布 / 趋势 / 未闭环列表，全部数据库聚合查询。
+    """
+
+    @auth('runlog.runlog.view')
+    def get(self, request):
+        from .statistics_service import RunLogStatisticsService
+
+        # 收集筛选参数
+        filters = {
+            'start_date': request.GET.get('start_date'),
+            'end_date': request.GET.get('end_date'),
+            'event_type': request.GET.get('event_type'),
+            'system_name': request.GET.get('system_name'),
+            'severity': request.GET.get('severity'),
+            'status': request.GET.get('status'),
+        }
+        # 去除空值
+        filters = {k: v for k, v in filters.items() if v}
+
+        try:
+            data = RunLogStatisticsService.get_overview(request.user, filters)
+            return json_response(data)
+        except Exception as e:
+            logger.error(f'[RunLog统计概览] 查询失败: {e}', exc_info=True)
+            return json_response(error='统计查询失败')

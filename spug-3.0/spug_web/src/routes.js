@@ -20,6 +20,7 @@ import {
 
 import HomeIndex from './pages/home';
 import RunLogIndex from './pages/runlog';
+import RunLogStatistics from './pages/runlog/Statistics';
 import DeviceResume from './pages/device';
 import DeviceHistory from './pages/device/History';
 import ExecFaultRecord from './pages/exec/fault/record';
@@ -50,7 +51,10 @@ export default [
   {icon: <FolderOpenOutlined/>, title: '资料库', auth: 'document.document.view', child: [
     {title: '资料管理', auth: 'document.document.view', path: '/document', component: DocumentIndex},
   ]},
-  {icon: <FileTextOutlined/>, title: '运行日志', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},
+  {icon: <FileTextOutlined/>, title: '运行日志', auth: 'runlog.runlog.view', child: [
+    {title: '事件列表', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},
+    {title: '统计概览', auth: 'runlog.runlog.view', path: '/runlog/statistics', component: RunLogStatistics},
+  ]},
   {icon: <ApartmentOutlined/>, title: '设备管理', auth: 'device.device_resume.view|device.device_history.view', child: [
     {title: '设备履历', auth: 'device.device_resume.view', path: '/device/device_resume', component: DeviceResume},
     {title: '查看履历', auth: 'device.device_history.view', path: '/device/device_history', component: DeviceHistory},
