@@ -11,6 +11,7 @@ from django.utils import timezone
 from libs import json_response, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from libs import Argument, JsonParser
+from apps.logs.audit import record_audit_event
 from datetime import datetime, timedelta
 from collections import defaultdict
 import os
@@ -756,6 +757,14 @@ class RunLogExportView(View):
             data = json.loads(request.body) if request.body else {}
         except (json.JSONDecodeError, ValueError):
             data = {}
+        filters = {
+            'status': data.get('status'),
+            'severity': data.get('severity'),
+            'event_type': data.get('event_type'),
+            'system_name': data.get('system_name'),
+            'start_date': data.get('start_date'),
+            'end_date': data.get('end_date'),
+        }
 
         try:
             # 租户过滤
@@ -788,6 +797,14 @@ class RunLogExportView(View):
             logs = logs.order_by('-created_at', '-id')
 
             if not logs.exists():
+                record_audit_event(
+                    request=request,
+                    action='export',
+                    target_type='runlog',
+                    target_name='RunLog PDF export',
+                    detail={'format': 'pdf', 'filters': filters, 'count': 0},
+                    error='no exportable data',
+                )
                 return json_response(error='没有可导出的数据')
 
             # 限制最大导出条数，防止超时
@@ -823,10 +840,25 @@ class RunLogExportView(View):
                 content_type='application/pdf'
             )
             response['Content-Disposition'] = f"attachment; filename*=UTF-8''{safe_filename}"
+            record_audit_event(
+                request=request,
+                action='export',
+                target_type='runlog',
+                target_name='RunLog PDF export',
+                detail={'format': 'pdf', 'filters': filters, 'count': len(events_data)},
+            )
             return response
 
         except Exception as e:
             import traceback
+            record_audit_event(
+                request=request,
+                action='export',
+                target_type='runlog',
+                target_name='RunLog PDF export',
+                detail={'format': 'pdf', 'filters': filters},
+                error=f'{type(e).__name__}: {str(e)[:80]}',
+            )
             logger.error(f'导出运行日志PDF失败｜用户：{request.user.username}｜错误：{e}\n{traceback.format_exc()}')
             return json_response(error=f'导出PDF失败：{type(e).__name__}: {str(e)[:80]}')
 

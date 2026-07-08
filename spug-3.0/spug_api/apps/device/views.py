@@ -5,6 +5,7 @@ from django.views.generic import View
 from libs import JsonParser, Argument, json_response, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from apps.device.models import DeviceResume, DeviceEvent
+from apps.logs.audit import record_audit_event
 from django.db import IntegrityError, DatabaseError
 from django.db.models import Q
 from django.http import HttpResponse
@@ -592,19 +593,48 @@ class DeviceResumeExportView(View):
         try:
             data = json.loads(request.body)
         except (json.JSONDecodeError, ValueError):
+            record_audit_event(
+                request=request,
+                action='export',
+                target_type='device',
+                target_name='Device resume PDF export',
+                detail={'format': 'pdf', 'filters': {}},
+                error='invalid request body',
+            )
             return json_response(error='请求数据格式错误')
 
         device_id = data.get('device_id')
+        event_type = data.get('event_type')
+        filters = {
+            'device_id': device_id,
+            'event_type': event_type,
+        }
         if not device_id:
+            record_audit_event(
+                request=request,
+                action='export',
+                target_type='device',
+                target_name='Device resume PDF export',
+                detail={'format': 'pdf', 'filters': filters},
+                error='missing device_id',
+            )
             return json_response(error='缺少设备ID')
 
         # 可选：事件类型筛选（默认导出全部事件，不受前端分页限制）
-        event_type = data.get('event_type')
 
         # 按租户过滤查询设备，确保用户只能导出本租户设备
         # 证据包属审计场景：使用 all_objects 以便对已软删除设备仍可导出（证据链完整性）
         device = apply_tenant_filter(DeviceResume.all_objects.all(), request.user).filter(pk=device_id).first()
         if not device:
+            record_audit_event(
+                request=request,
+                action='export',
+                target_type='device',
+                target_id=device_id,
+                target_name='Device resume PDF export',
+                detail={'format': 'pdf', 'filters': filters},
+                error='device not found or denied',
+            )
             return json_response(error='设备不存在或无权限操作')
 
         # 后端查询事件列表（全量导出，避免前端只传当前分页导致履历不完整）
@@ -637,9 +667,30 @@ class DeviceResumeExportView(View):
                 content_type='application/pdf'
             )
             response['Content-Disposition'] = f"attachment; filename*=UTF-8''{safe_filename}"
+            record_audit_event(
+                request=request,
+                action='export',
+                target_type='device',
+                target_id=device_id,
+                target_name=device_info.get('device_sn') or 'Device resume PDF export',
+                detail={
+                    'format': 'pdf',
+                    'filters': filters,
+                    'count': len(events),
+                },
+            )
             return response
 
         except Exception as e:
+            record_audit_event(
+                request=request,
+                action='export',
+                target_type='device',
+                target_id=device_id,
+                target_name=device_info.get('device_sn') if 'device_info' in locals() else 'Device resume PDF export',
+                detail={'format': 'pdf', 'filters': filters},
+                error=f'{type(e).__name__}: {str(e)[:80]}',
+            )
             logger.error(f'导出设备履历PDF失败｜设备ID：{device_id}｜错误：{e}', exc_info=True)
             return json_response(error='导出PDF失败，请重试')
 

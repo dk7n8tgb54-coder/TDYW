@@ -5,6 +5,7 @@ from django.views.generic import View
 from django.http import HttpResponse
 from libs import json_response, JsonParser, Argument, human_datetime, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
+from apps.logs.audit import record_audit_event
 from apps.duty.models import DutyRecord
 import json
 import logging
@@ -160,6 +161,10 @@ def export_pdf(request):
             end_date = request.GET.get('end_date')
 
         date_range_text = ''
+        filters = {
+            'start_date': start_date,
+            'end_date': end_date,
+        }
 
         if start_date and end_date:
             records = records.filter(duty_date__gte=start_date, duty_date__lte=end_date)
@@ -175,6 +180,15 @@ def export_pdf(request):
         data = [r.to_view() for r in records]
 
         if not data:
+            if request.method == 'POST':
+                record_audit_event(
+                    request=request,
+                    action='export',
+                    target_type='duty',
+                    target_name='Duty PDF export',
+                    detail={'format': 'pdf', 'filters': filters, 'count': 0},
+                    error='no exportable data',
+                )
             return json_response(error='没有可导出的数据')
 
         # 生成PDF
@@ -191,8 +205,25 @@ def export_pdf(request):
 
         response = HttpResponse(pdf_output.read(), content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        if request.method == 'POST':
+            record_audit_event(
+                request=request,
+                action='export',
+                target_type='duty',
+                target_name='Duty PDF export',
+                detail={'format': 'pdf', 'filters': filters, 'count': len(data)},
+            )
         return response
 
     except Exception as e:
+        if request.method == 'POST':
+            record_audit_event(
+                request=request,
+                action='export',
+                target_type='duty',
+                target_name='Duty PDF export',
+                detail={'format': 'pdf', 'filters': locals().get('filters', {})},
+                error=f'{type(e).__name__}: {str(e)[:80]}',
+            )
         logger.error(f'导出值班日志PDF失败：{e}', exc_info=True)
         return json_response(error='导出PDF失败，请重试')

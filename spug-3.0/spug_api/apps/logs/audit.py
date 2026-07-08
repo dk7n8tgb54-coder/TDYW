@@ -19,6 +19,11 @@ from functools import wraps
 
 logger = logging.getLogger(__name__)
 
+SENSITIVE_KEYWORDS = (
+    'password', 'token', 'secret', 'key', 'private', 'credential',
+    'captcha', 'cookie', 'session',
+)
+
 # ==================== 线程本地存储 ====================
 _audit_local = threading.local()
 
@@ -115,6 +120,102 @@ def resolve_action(method, body_data=None):
         if action in BODY_ACTION_MAP:
             return BODY_ACTION_MAP[action]
     return METHOD_ACTION_MAP.get(method, 'other')
+
+
+def _is_sensitive_field(name):
+    if not isinstance(name, str):
+        return False
+    lower = name.lower()
+    return any(keyword in lower for keyword in SENSITIVE_KEYWORDS)
+
+
+def _truncate_text(value, max_string_length):
+    if len(value) <= max_string_length:
+        return value
+    return value[:max_string_length] + '...'
+
+
+def sanitize_audit_detail(value, max_string_length=500, max_list_items=20):
+    """Recursively redact sensitive fields and keep audit detail compact."""
+    if isinstance(value, dict):
+        result = {}
+        for key, item in value.items():
+            if _is_sensitive_field(key):
+                result[key] = '***'
+            else:
+                result[key] = sanitize_audit_detail(
+                    item, max_string_length=max_string_length,
+                    max_list_items=max_list_items
+                )
+        return result
+    if isinstance(value, (list, tuple)):
+        items = [
+            sanitize_audit_detail(
+                item, max_string_length=max_string_length,
+                max_list_items=max_list_items
+            )
+            for item in list(value)[:max_list_items]
+        ]
+        if len(value) > max_list_items:
+            items.append({
+                '_truncated': len(value) - max_list_items,
+                '_total': len(value),
+            })
+        return items
+    if isinstance(value, str):
+        return _truncate_text(value, max_string_length)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return _truncate_text(str(value), max_string_length)
+
+
+def _merge_audit_error(detail, error):
+    error_text = _truncate_text(str(error), 500)
+    if isinstance(detail, dict):
+        result = dict(detail)
+        result['error'] = error_text
+        return result
+    if detail in (None, ''):
+        return {'error': error_text}
+    return {'summary': detail, 'error': error_text}
+
+
+def record_audit_event(request, action, target_type, target_id=None,
+                       target_name=None, detail=None, is_success=True,
+                       error=None):
+    """Save one concise business audit record and mark request as handled."""
+    try:
+        from libs.utils import get_request_real_ip
+
+        if error is not None:
+            detail = _merge_audit_error(detail, error)
+            is_success = False
+
+        sanitized_detail = sanitize_audit_detail(detail)
+        if sanitized_detail is not None and not isinstance(sanitized_detail, dict):
+            sanitized_detail = {'summary': sanitized_detail}
+        user = getattr(request, 'user', None) if request is not None else None
+        headers = getattr(request, 'headers', None) if request is not None else None
+        ip = get_request_real_ip(headers) if headers else ''
+
+        save_audit_log(
+            user_id=getattr(user, 'id', 0) or 0,
+            username=getattr(user, 'username', '') or '',
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            target_name=target_name,
+            detail=sanitized_detail,
+            ip=ip,
+            is_success=is_success,
+            tenant_id=getattr(user, 'tenant_id', 'default') or 'default',
+            request_id=getattr(request, '_audit_request_id', None) if request is not None else None,
+            user_agent=_extract_user_agent(request) if request is not None else '',
+        )
+        if request is not None:
+            request._audit_handled = True
+    except Exception as e:
+        logger.error(f'[AUDIT] record audit event failed: {e}', exc_info=True)
 
 
 def save_audit_log(user_id, username, action, target_type, target_id=None,

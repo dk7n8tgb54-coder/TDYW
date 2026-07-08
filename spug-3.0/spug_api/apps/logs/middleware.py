@@ -14,7 +14,8 @@ import logging
 from django.utils.deprecation import MiddlewareMixin
 from apps.logs.audit import (
     resolve_target, resolve_action, save_audit_log,
-    set_audit_user, clear_audit_user, _extract_user_agent, AUDIT_EXCLUDES
+    set_audit_user, clear_audit_user, _extract_user_agent, AUDIT_EXCLUDES,
+    sanitize_audit_detail,
 )
 from apps.logs.hash_chain import compute_response_hash
 from libs.utils import get_request_real_ip
@@ -65,6 +66,9 @@ class AuditLogMiddleware(MiddlewareMixin):
 
     def _record_audit(self, request, response):
         """核心记录逻辑"""
+        if getattr(request, '_audit_handled', False):
+            return
+
         method = request.method
         path = request.path
 
@@ -234,8 +238,9 @@ class AuditLogMiddleware(MiddlewareMixin):
             # api_key/spug_push_key/wx_token 等所有衍生命名，避免敏感信息泄露到审计日志。
             detail = {
                 k: v for k, v in body_data.items()
-                if k not in exclude_fields and not _is_sensitive_field(k)
+                if k not in exclude_fields
             }
+            detail = sanitize_audit_detail(detail)
             if not detail:
                 detail = None
             if not target_name:

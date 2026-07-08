@@ -14,6 +14,7 @@ from .models import (
 from apps.evidence.services import record_evidence_event
 from apps.evidence.models import EvidenceEvent, EvidenceAttachment
 from apps.logs.models import AuditLog
+from apps.logs.audit import record_audit_event
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
 from reportlab.lib.units import cm
@@ -395,53 +396,106 @@ class TemplateDetailView(View):
             return JsonResponse({'error': '模板不存在'}, status=404)
 
 
+def _checksheet_export_filters(params, include_projects=False):
+    params = params if isinstance(params, dict) else {}
+    filters = {
+        'year': params.get('year'),
+        'month': params.get('month'),
+    }
+    if include_projects:
+        filters['project_list'] = params.get('project_list', [])
+    return filters
+
+
+def _record_checksheet_export_audit(request, params=None, count=None, error=None,
+                                    filters=None):
+    if request.method != 'POST':
+        return
+    detail = {
+        'format': 'pdf',
+        'filters': filters if filters is not None else _checksheet_export_filters(params),
+    }
+    if count is not None:
+        detail['count'] = count
+    record_audit_event(
+        request=request,
+        action='export',
+        target_type='checksheet',
+        target_name='CheckSheet PDF export',
+        detail=detail,
+        error=error,
+    )
+
+
+def _validate_pdf_table_data(table_data):
+    if not isinstance(table_data, list) or len(table_data) > 500:
+        count = len(table_data) if isinstance(table_data, list) else 0
+        return '表格数据行数必须在1-500之间', 'invalid table row count', count
+    for row_idx, row in enumerate(table_data):
+        if not isinstance(row, list):
+            return f'第 {row_idx + 1} 行数据格式错误', 'invalid table row format', len(table_data)
+        for col_idx, cell in enumerate(row):
+            cell_str = str(cell) if cell is not None else ''
+            if len(cell_str) > 500:
+                message = f'单元格数据过长（行{row_idx + 1}，列{col_idx + 1}）'
+                return message, 'table cell too long', len(table_data)
+    return None
+
+
 @auth('checksheet.checksheet.edit')  # P0-2 修复：导出操作使用 edit 权限（而非 view）
 def export_pdf(request):
     """导出PDF - 使用前端发送的表格数据，保证PDF与前端显示一致"""
     logger.info(f'CheckSheet export_pdf: method={request.method}, user={request.user}')
 
     try:
-        # 解析请求参数
         params = _parse_pdf_request(request)
         if 'error' in params:
+            _record_checksheet_export_audit(
+                request, filters={}, error=params['error']
+            )
             return JsonResponse({'error': params['error']}, status=400)
 
-        # P0-2 修复：验证 table_data 内容，防止恶意构造假PDF
         if params.get('use_table_data'):
-            table_data = params.get('table_data', [])
-            if not isinstance(table_data, list) or len(table_data) > 500:
-                return JsonResponse({'error': '表格数据行数必须在1-500之间'}, status=400)
-            if len(table_data) > 0:
-                for row_idx, row in enumerate(table_data):
-                    if not isinstance(row, list):
-                        return JsonResponse({'error': f'第 {row_idx + 1} 行数据格式错误'}, status=400)
-                    for col_idx, cell in enumerate(row):
-                        cell_str = str(cell) if cell is not None else ''
-                        if len(cell_str) > 500:
-                            return JsonResponse(
-                                {'error': f'单元格数据过长（行{row_idx + 1}，列{col_idx + 1}）'},
-                                status=400
-                            )
+            validation_error = _validate_pdf_table_data(params.get('table_data', []))
+            if validation_error:
+                message, audit_error, count = validation_error
+                _record_checksheet_export_audit(
+                    request, params=params, count=count, error=audit_error
+                )
+                return JsonResponse({'error': message}, status=400)
 
-        # 注册中文字体
         from .font_manager import FontManager
         font_registered = FontManager.register_chinese_font()
 
-        # 根据请求类型生成PDF
         if params.get('use_table_data'):
             logger.info(f'CheckSheet export_pdf: generating PDF with table_data, {len(params["table_data"])} rows')
-            return _generate_pdf_from_table_data(
+            response = _generate_pdf_from_table_data(
                 params['year'], params['month'], params['title'],
                 params['table_data'], params['daily_summaries'], font_registered
             )
+            _record_checksheet_export_audit(
+                request, params=params, count=len(params.get('table_data', []))
+            )
+            return response
 
-        # 否则使用旧逻辑（从数据库读取）
         logger.info(f'CheckSheet export_pdf: generating PDF from database, projects={params.get("project_list")}')
-        return _generate_pdf_from_database(
+        response = _generate_pdf_from_database(
             params['year'], params['month'], params['project_list'], font_registered
         )
+        _record_checksheet_export_audit(
+            request,
+            params=params,
+            count=len(params.get('project_list', [])),
+            filters=_checksheet_export_filters(params, include_projects=True),
+        )
+        return response
 
     except Exception as e:
+        _record_checksheet_export_audit(
+            request,
+            params=locals().get('params', {}),
+            error=f'{type(e).__name__}: {str(e)[:80]}',
+        )
         logger.error(f'CheckSheet export_pdf error: {e}', exc_info=True)
         return JsonResponse({'error': str(e)}, status=500)
 
