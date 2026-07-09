@@ -11,7 +11,7 @@ import React, { useEffect, useCallback, useState, useMemo, forwardRef, useImpera
 import { observer } from 'mobx-react';
 import { autorun } from 'mobx';
 import { message } from 'antd';
-import { http } from 'libs';
+import { http, hasPermission } from 'libs';
 
 // Stores
 import navigationStore from '../stores/navigation';
@@ -44,6 +44,8 @@ const Explorer = observer(forwardRef(({
   onFolderChange,
   searchState,
   viewMode = 'list',
+  isIndustryRules = false,
+  permPrefix = 'document.document',
 }, ref) => {
   // ===== 基础状态 =====
   const isPublic = propIsPublic || false;
@@ -51,6 +53,19 @@ const Explorer = observer(forwardRef(({
   const isAdmin = checkIsAdmin();
   const currentUserId = getCurrentUserId();
   const isSearching = searchState?.isSearching || false;
+
+  // ===== 行业规章操作权限（按钮/右键菜单可见性） =====
+  const opPerms = {
+    download: hasPermission(`${permPrefix}.download`),
+    copy: hasPermission(`${permPrefix}.copy`),
+    move: hasPermission(`${permPrefix}.move`),
+    rename: hasPermission(`${permPrefix}.rename`),
+    delete: hasPermission(`${permPrefix}.delete`),
+  };
+  // 行业规章受保护根目录：禁止重命名/移动/删除
+  const isProtectedRoot = (record) => isIndustryRules
+    && navigationStore.lockedRootFolderId
+    && record?.id === navigationStore.lockedRootFolderId;
 
   // ===== Explorer状态管理 =====
   const {
@@ -310,7 +325,7 @@ const Explorer = observer(forwardRef(({
 
   // ===== 行菜单项生成 =====
   const getRowMenuItems = useCallback((record) => {
-    const canEdit = canEditItem(record, isPublic, isAdmin, currentUserId);
+    const canEdit = canEditItem(record, isPublic, isAdmin, currentUserId) && !isProtectedRoot(record);
     const isMultiSelect = selectedRowKeys.length > 1;
     const selectedCount = selectedRowKeys.length;
 
@@ -318,6 +333,7 @@ const Explorer = observer(forwardRef(({
     if (isMultiSelect) {
       return createMultiSelectMenu(selectedCount, {
         canEdit,
+        perms: opPerms,
         onBatchDownload: () => handleDownloadSelected(selectedRowKeys, items),
         onBatchCopy: () => handleCopyToClipboard(record),
         onBatchCut: () => handleCutToClipboard(record),
@@ -328,6 +344,7 @@ const Explorer = observer(forwardRef(({
     // 单选状态
     return createSingleSelectMenu(record, {
       canEdit,
+      perms: opPerms,
       onOpen: record.isFolder
         ? () => navigationStore.enterFolder(record.id, record.name)
         : () => uploadUIStore.handlePreview(record),

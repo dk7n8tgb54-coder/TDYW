@@ -15,7 +15,7 @@ const { TabPane } = Tabs;
 
 // 各模块配置
 const SOURCE_CONFIG = {
-  runlog: { label: '运行日志', color: '#1890ff', tag: '运行日志' },
+  runlog: { label: '跨日事项跟踪', color: '#1890ff', tag: '跨日事项跟踪' },
   interference: { label: '干扰记录', color: '#fa8c16', tag: '干扰记录' },
 };
 
@@ -238,7 +238,7 @@ export default observer(function () {
             引入当日记录
           </Button>
           <span style={{marginLeft: 8, color: '#999', fontSize: 12}}>
-            运行日志 / 干扰记录
+            跨日事项跟踪 / 干扰记录
           </span>
         </Form.Item>
       </Form>
@@ -264,7 +264,7 @@ export default observer(function () {
             <Empty description="当日暂无任何可引入的记录" style={{padding: 40}}/>
           ) : (
             <Tabs activeKey={activeTab} onChange={setActiveTab} size="small">
-              <TabPane tab={`运行日志 (${tabCounts.runlog})`} key="runlog">
+              <TabPane tab={`跨日事项跟踪 (${tabCounts.runlog})`} key="runlog">
                 {renderTabList(importData.runlog)}
               </TabPane>
               <TabPane tab={`干扰记录 (${tabCounts.interference})`} key="interference">

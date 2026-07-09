@@ -43,7 +43,7 @@ class Store {
         return res;
       })
       .catch(e => {
-        console.error('[运行日志统计概览] 获取数据失败:', e);
+        console.error('[跨日事项跟踪统计概览] 获取数据失败:', e);
         throw e;
       })
       .finally(() => { this.isFetching = false; });
@@ -53,14 +53,14 @@ class Store {
   @action fetchEventTypes = () => {
     return http.get('/api/runlog/event_types/')
       .then(res => { this.eventTypes = res || []; })
-      .catch(e => { console.error('[运行日志统计概览] 获取事件类型失败:', e); });
+      .catch(e => { console.error('[跨日事项跟踪统计概览] 获取事件类型失败:', e); });
   };
 
   // 获取系统名称下拉（复用列表接口返回的 system_names）
   @action fetchSystemNames = () => {
     return http.get('/api/runlog/', { params: { page: 1, page_size: 1, _t: Date.now() } })
       .then(res => { this.systemNames = res.system_names || []; })
-      .catch(e => { console.error('[运行日志统计概览] 获取系统名称失败:', e); });
+      .catch(e => { console.error('[跨日事项跟踪统计概览] 获取系统名称失败:', e); });
   };
 
   @action setFilter = (key, value) => {

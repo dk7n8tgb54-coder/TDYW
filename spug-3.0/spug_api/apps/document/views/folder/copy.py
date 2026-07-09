@@ -14,6 +14,12 @@ from libs import json_response, auth
 from libs.tenant_utils import apply_tenant_filter
 from apps.document.libs.document_utils import get_folder_model, get_file_model
 from apps.document.libs.view_utils import permission_denied_response
+from apps.document.libs.document_auth import document_auth
+from apps.document.services.system_folder_service import (
+    INDUSTRY_RULES_CODE, is_protected_system_root,
+    is_folder_in_scope, ensure_folder_in_scope_or_error,
+    validate_system_folder_context, SCOPE_ERROR_MSG, PROTECTED_ROOT_MSG,
+)
 from apps.document.views.base import check_public_space_permission, log_operation
 from apps.document.services.folder_copy_service import FolderCopyService
 
@@ -23,19 +29,35 @@ logger = logging.getLogger(__name__)
 class FolderCopyView(View):
     """文件夹复制视图 - 递归复制"""
 
-    @auth('document.document.copy')
+    @document_auth('copy')
     def post(self, request):
         # 解析参数
         try:
-            data = json.loads(request.body)
+            data = request._document_cached_json_body if hasattr(request, '_document_cached_json_body') else json.loads(request.body)
             folder_id = data.get('id')
             target_id = data.get('target_id')
             is_public = data.get('is_public', False)
+            system_folder = data.get('system_folder')
         except:
             return json_response(error='参数错误')
 
         if not folder_id:
             return json_response(error='参数错误')
+
+        # 行业规章上下文、根目录保护与范围校验
+        ok, ctx_err = validate_system_folder_context(system_folder, is_public)
+        if not ok:
+            return json_response(error=ctx_err)
+        if system_folder == INDUSTRY_RULES_CODE:
+            if is_protected_system_root(folder_id):
+                return json_response(error=PROTECTED_ROOT_MSG)
+            scope_ok, scope_err = ensure_folder_in_scope_or_error(
+                folder_id, INDUSTRY_RULES_CODE, include_root=False
+            )
+            if not scope_ok:
+                return json_response(error=scope_err)
+            if target_id and not is_folder_in_scope(target_id, INDUSTRY_RULES_CODE, include_root=True):
+                return json_response(error=SCOPE_ERROR_MSG)
 
         # 获取模型
         FolderModel = get_folder_model(is_public=is_public)

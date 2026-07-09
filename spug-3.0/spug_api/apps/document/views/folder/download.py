@@ -18,6 +18,11 @@ from urllib.parse import quote
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_folder_model, get_file_model, is_safe_path
+from ...libs.document_auth import document_auth
+from ...services.system_folder_service import (
+    INDUSTRY_RULES_CODE, ensure_folder_in_scope_or_error,
+    validate_system_folder_context,
+)
 from ..base import log_operation
 
 logger = logging.getLogger(__name__)
@@ -29,7 +34,7 @@ class FolderDownloadView(View):
     # 【P0-6修复】大文件夹阈值：超过此文件数则使用异步模式
     ASYNC_FILE_COUNT_THRESHOLD = 100
 
-    @auth('document.document.view')
+    @document_auth('view')
     def get(self, request):
         """【P0-6修复】支持异步打包模式
 
@@ -40,12 +45,18 @@ class FolderDownloadView(View):
         logger.info(f'[Document] FolderDownloadView.get called, user: {request.user.username}')
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误'),
-            Argument('is_public', type=bool, required=False, default=False)
+            Argument('is_public', type=bool, required=False, default=False),
+            Argument('system_folder', type=str, required=False, default=None),
         ).parse(request.GET)
 
         if error is not None:
             logger.error(f'[Document] Download parse error: {error}')
             return json_response(error=error)
+
+        # 行业规章上下文校验
+        ok, ctx_err = validate_system_folder_context(form.system_folder, form.is_public)
+        if not ok:
+            return json_response(error=ctx_err)
 
         FolderModel = get_folder_model(is_public=form.is_public)
         FileModel = get_file_model(is_public=form.is_public)
@@ -59,6 +70,14 @@ class FolderDownloadView(View):
         if not folder:
             logger.error(f'[Document] Folder not found with id: {form.id}')
             return json_response(error='文件夹不存在')
+
+        # 行业规章范围校验
+        if form.system_folder == INDUSTRY_RULES_CODE:
+            scope_ok, scope_err = ensure_folder_in_scope_or_error(
+                form.id, INDUSTRY_RULES_CODE, include_root=True
+            )
+            if not scope_ok:
+                return json_response(error=scope_err)
 
         # 【P0-6修复】检查是否需要异步模式
         # 统计文件数量（使用 count 而非加载全部到内存）

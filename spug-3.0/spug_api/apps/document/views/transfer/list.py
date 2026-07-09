@@ -9,7 +9,8 @@
 import logging
 from django.views.generic import View
 
-from libs import json_response, JsonParser, Argument, auth
+from libs import json_response, JsonParser, Argument
+from ...libs.document_auth import document_auth
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 class TransferListView(View):
     """获取用户的传输记录列表"""
 
-    @auth('document.document.view')
+    @document_auth('view')
     def get(self, request):
         from ...models import DocumentTransfer
         from ...constants import TransferStatus

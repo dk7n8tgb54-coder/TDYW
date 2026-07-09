@@ -19,9 +19,11 @@ from django.views.generic import View
 from django.db import transaction
 from django.conf import settings
 
-from libs import json_response, auth, JsonParser, Argument
-from apps.document.libs.document_utils import get_chunk_dir_path
+from libs import json_response, JsonParser, Argument
+from apps.document.libs.document_utils import get_merge_task_file_path
 from apps.document.constants import TransferStatus
+from apps.document.libs.document_auth import document_auth
+from apps.document.services.system_scope_validators import validate_upload_target_scope
 from apps.document.views.base import validate_file_name
 from apps.document.views.upload.validators import HashValidator, FolderValidator, TransferOwnershipValidator
 
@@ -39,7 +41,7 @@ class DirectMergeView(View):
     无需重新上传所有分片
     """
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     def post(self, request):
         """处理直接合并请求
         
@@ -57,10 +59,19 @@ class DirectMergeView(View):
             Argument('total_chunks', type=int, required=True, help='总分片数'),
             Argument('is_public', type=bool, default=False, help='是否公共空间'),
             Argument('file_size', type=int, required=False, help='文件大小'),
+            Argument('system_folder', type=str, required=False, default=None),
         ).parse(request.body)
         
         if error:
             return json_response(error=error)
+
+        ok, scope_err = validate_upload_target_scope(
+            form.system_folder,
+            form.is_public,
+            form.folder_id,
+        )
+        if not ok:
+            return json_response(error=scope_err)
 
         # 2. 验证文件名
         if not validate_file_name(form.file_name):
@@ -118,7 +129,8 @@ class DirectMergeView(View):
                 # 3.2 验证分片目录和分片完整性
                 chunk_dir, error = self._validate_chunks(
                     form.file_hash, form.is_public, request.user, form.total_chunks,
-                    transfer_id=form.transfer_id
+                    transfer_id=form.transfer_id,
+                    system_folder=form.system_folder,
                 )
                 if error:
                     return json_response(error=error)
@@ -137,7 +149,8 @@ class DirectMergeView(View):
                 upload_dir = get_document_absolute_path(
                     is_public=form.is_public,
                     user_id=request.user.id,
-                    folder_id=form.folder_id
+                    folder_id=form.folder_id,
+                    system_folder=form.system_folder,
                 )
                 os.makedirs(upload_dir, exist_ok=True)
                 file_path = os.path.join(upload_dir, names['physical_name'])
@@ -150,9 +163,9 @@ class DirectMergeView(View):
                 # 3.6 提交Celery合并任务
                 timestamp = int(time.time())
                 merge_task_id = f"{form.file_hash}_{timestamp}"
-                merge_task_file = os.path.join(
-                    settings.BASE_DIR, *MERGE_TASKS_BASE_PATH_PARTS,
-                    f"{merge_task_id}.task"
+                merge_task_file = get_merge_task_file_path(
+                    merge_task_id,
+                    system_folder=form.system_folder,
                 )
                 os.makedirs(os.path.dirname(merge_task_file), exist_ok=True)
 
@@ -172,6 +185,7 @@ class DirectMergeView(View):
                     'username': request.user.username,
                     'tenant_id': getattr(request.user, 'tenant_id', None),
                     'transfer_id': form.transfer_id,
+                    'system_folder': form.system_folder,
                     'timestamp': timestamp,
                     'start_time': time.time()
                 }
@@ -192,6 +206,7 @@ class DirectMergeView(View):
                             'file_hash': form.file_hash,
                             'user': request.user.username,
                             'is_public': form.is_public,
+                            'system_folder': form.system_folder,
                             'start_time': time.time(),
                             'task_id': task.id
                         }))
@@ -213,7 +228,15 @@ class DirectMergeView(View):
             logger.error(f'[DirectMerge] 直接合并失败: {e}', exc_info=True)
             return json_response(error='提交合并任务失败，请稍后重试')
 
-    def _validate_chunks(self, file_hash, is_public, user, total_chunks, transfer_id=None):
+    def _validate_chunks(
+        self,
+        file_hash,
+        is_public,
+        user,
+        total_chunks,
+        transfer_id=None,
+        system_folder=None,
+    ):
         """验证分片目录和分片完整性
 
         【分片路径策略 — 有意设计的不一致】
@@ -232,6 +255,7 @@ class DirectMergeView(View):
             file_hash, is_public, user,
             transfer_id=transfer_id,
             allow_legacy_fallback=True,
+            system_folder=system_folder,
         )
         if error:
             return None, error

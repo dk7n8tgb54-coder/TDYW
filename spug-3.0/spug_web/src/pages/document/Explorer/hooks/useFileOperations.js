@@ -5,6 +5,7 @@
 import { useCallback } from 'react';
 import { Modal, message } from 'antd';
 import http from 'libs/http';
+import { appendSystemFolderParam } from 'libs/systemFolderContext';
 import { CONSTANTS, getDeleteTimeout } from '../utils';
 
 export const useFileOperations = ({
@@ -125,7 +126,7 @@ export const useFileOperations = ({
   // 下载文件
   const handleDownload = useCallback((file) => {
     const token = sessionStorage.getItem('token');
-    const url = `/api/document/download/?id=${file.id}&is_public=${isPublic}&x-token=${token}`;
+    const url = appendSystemFolderParam(`/api/document/download/?id=${file.id}&is_public=${isPublic}&x-token=${token}`);
     window.open(url);
   }, [isPublic]);
 
@@ -137,7 +138,7 @@ export const useFileOperations = ({
     ).filter(item => item && !item.isFolder);
 
     selectedItems.forEach(item => {
-      const url = `/api/document/download/?id=${item.id}&is_public=${isPublic}&x-token=${token}`;
+      const url = appendSystemFolderParam(`/api/document/download/?id=${item.id}&is_public=${isPublic}&x-token=${token}`);
       window.open(url);
     });
     message.success(`已开始下载 ${selectedItems.length} 个文件`);
@@ -146,7 +147,7 @@ export const useFileOperations = ({
   // 下载文件夹
   const handleFolderDownload = useCallback((folder) => {
     const token = sessionStorage.getItem('token');
-    const url = `/api/document/folder/download/?id=${folder.id}&is_public=${isPublic}&x-token=${token}`;
+    const url = appendSystemFolderParam(`/api/document/folder/download/?id=${folder.id}&is_public=${isPublic}&x-token=${token}`);
     window.open(url);
   }, [isPublic]);
 

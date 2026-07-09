@@ -12,8 +12,10 @@ import logging
 from django.views.generic import View
 from django.conf import settings
 
-from libs import json_response, auth
+from libs import json_response
 from apps.document.constants import DEFAULT_MAX_FILE_SIZE
+from apps.document.libs.document_auth import document_auth
+from apps.document.services.system_scope_validators import validate_upload_target_scope
 from .validators import (
     ChunkUploadValidator, FolderValidator,
     TransferRecordValidator, TransferOwnershipValidator, ChunkStorageManager
@@ -81,7 +83,7 @@ def _validate_chunk_size(request, chunk_path, chunk_index):
 class FileChunkUploadView(View):
     """文件分片上传"""
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     def post(self, request):
         """处理文件分片上传"""
 
@@ -89,6 +91,14 @@ class FileChunkUploadView(View):
         params, error = ChunkUploadValidator.validate_request_params(request)
         if error:
             return json_response(error=error)
+
+        ok, scope_err = validate_upload_target_scope(
+            request.POST.get('system_folder'),
+            params['is_public'],
+            params['folder_id'],
+        )
+        if not ok:
+            return json_response(error=scope_err)
 
         # 2. 验证文件哈希
         is_valid, error = ChunkUploadValidator.validate_file_hash(params['file_hash'])
@@ -136,7 +146,11 @@ class FileChunkUploadView(View):
             return json_response(error=error)
 
         chunk_dir, error = ChunkStorageManager.get_and_validate_chunk_dir(
-            params['file_hash'], params['is_public'], request.user, transfer_id=transfer_id
+            params['file_hash'],
+            params['is_public'],
+            request.user,
+            transfer_id=transfer_id,
+            system_folder=params.get('system_folder'),
         )
         if error:
             return json_response(error=error)

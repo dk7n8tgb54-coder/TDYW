@@ -7,6 +7,7 @@ import http from 'axios'
 import history from './history'
 import { X_TOKEN } from './functools';
 import { message } from 'antd';
+import { getSystemFolder, shouldUseSystemFolder } from './systemFolderContext';
 
 // response处理
 function handleResponse(response) {
@@ -64,6 +65,32 @@ http.interceptors.request.use(request => {
     request.headers['X-Token'] = X_TOKEN
   }
   request.timeout = request.timeout || 120000;
+
+  // 【行业规章】激活 system_folder 上下文时，自动为 /api/document/* 请求注入参数
+  const activeCode = getSystemFolder();
+  const shouldInjectSystemFolder = shouldUseSystemFolder(history.location.pathname);
+  if (activeCode && shouldInjectSystemFolder && request.isInternal && request.url.indexOf('/api/document/') === 0) {
+    // GET / DELETE：注入到 query params
+    if (['get', 'delete', 'head'].includes(request.method)) {
+      request.params = request.params || {};
+      if (request.params.system_folder === undefined) {
+        request.params.system_folder = activeCode;
+      }
+    } else {
+      // POST / PUT：multipart 注入 FormData，JSON 注入 body
+      const contentType = (request.headers && (request.headers['Content-Type'] || request.headers['content-type'])) || '';
+      if (contentType.indexOf('multipart/form-data') >= 0 && request.data instanceof FormData) {
+        if (!request.data.has('system_folder')) {
+          request.data.append('system_folder', activeCode);
+        }
+      } else if (request.data && typeof request.data === 'object' && !(request.data instanceof FormData)) {
+        if (request.data.system_folder === undefined) {
+          request.data = { ...request.data, system_folder: activeCode };
+        }
+      }
+    }
+  }
+
   return request;
 });
 

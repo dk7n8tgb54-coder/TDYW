@@ -29,7 +29,7 @@ const TARGET_TYPE_MAP = {
   fault: '故障',
   duty: '值班',
   interference: '干扰',
-  runlog: '运行日志',
+  runlog: '跨日事项跟踪',
   radio_license: '无线电台执照',
   setting: '系统设置',
   upgrade: '升级',

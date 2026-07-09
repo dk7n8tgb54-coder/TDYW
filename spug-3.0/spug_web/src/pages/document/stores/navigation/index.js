@@ -51,6 +51,23 @@ class NavigationStore {
    */
   @observable isPublic = true;
 
+  /**
+   * 【行业规章】模式相关状态
+   * - mode: 'normal' | 'industryRules'
+   * - systemFolderCode: 系统目录编码（如 'industry_rules'），为 null 表示普通模式
+   * - lockedRootFolderId: 锁定的系统根目录 ID（行业规章根目录），导航不能超出此根
+   * - lockedRootFolderName: 锁定根目录的显示名（如 '行业规章'）
+   */
+  @observable mode = 'normal';
+  @observable systemFolderCode = null;
+  @observable lockedRootFolderId = null;
+  @observable lockedRootFolderName = null;
+
+  /**
+   * 是否已初始化系统目录（用于页面挂载时判断是否完成定位）
+   */
+  @observable systemFolderReady = false;
+
   // ============================================================
   // 代理属性（兼容原API）
   // ============================================================
@@ -65,6 +82,7 @@ class NavigationStore {
   get spaceName() { return this.computed.spaceName; }
   get uploadTargetId() { return this.computed.uploadTargetId; }
   get hasUploadTarget() { return this.computed.hasUploadTarget; }
+  get isLockedRoot() { return this.computed.isLockedRoot; }
 
   // ============================================================
   // 代理方法（兼容原API）
@@ -99,6 +117,15 @@ class NavigationStore {
 
   @action.bound reset() {
     return this.actions.reset();
+  }
+
+  // ----- 系统目录（行业规章） -----
+  @action.bound initSystemFolder({ code, folderId, name }) {
+    return this.actions.initSystemFolder({ code, folderId, name });
+  }
+
+  @action.bound clearSystemFolder() {
+    return this.actions.clearSystemFolder();
   }
 
   // ----- 获取当前路径（保持兼容） -----

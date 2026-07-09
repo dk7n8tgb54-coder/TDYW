@@ -72,7 +72,11 @@ class CheckUploadedChunksView(View):
         logger.debug(f'[Resume] Strategy hit: {strategy_name}')
 
         # 5. 检查合并状态
-        merge_info = MergeStatusChecker.check_merge_status(chunk_dir, form.file_hash)
+        merge_info = MergeStatusChecker.check_merge_status(
+            chunk_dir,
+            form.file_hash,
+            system_folder=form.system_folder,
+        )
         can_merge = self._check_can_merge(form, request.user, all_ready)
         error_code = self._extract_error_code(form, request.user)
 
@@ -90,6 +94,7 @@ class CheckUploadedChunksView(View):
             Argument('total_chunks', type=int, required=False, help='总分片数'),
             Argument('is_public', type=bool, required=False, default=False),
             Argument('transfer_id', type=int, required=False, help='传输记录ID'),
+            Argument('system_folder', type=str, required=False, default=None),
         ).parse(request.body)
 
     def _validate_transfer(self, form, user):
@@ -123,7 +128,13 @@ class CheckUploadedChunksView(View):
                 if not is_valid:
                     logger.warning(f'[Document][Resume] transfer_id ownership check failed: {error_msg}')
                     return None
-                chunk_dir = get_chunk_dir_path(form.file_hash, form.is_public, user, transfer_id=transfer_id)
+                chunk_dir = get_chunk_dir_path(
+                    form.file_hash,
+                    form.is_public,
+                    user,
+                    transfer_id=transfer_id,
+                    system_folder=form.system_folder,
+                )
                 if os.path.exists(chunk_dir):
                     return chunk_dir
                 # 【P1修复-三轮】新目录不存在时**不**回退 legacy。
@@ -134,7 +145,12 @@ class CheckUploadedChunksView(View):
                 )
                 return None
             # 没传 transfer_id → 走老逻辑（兼容老客户端）
-            chunk_dir = get_chunk_dir_path(form.file_hash, form.is_public, user)
+            chunk_dir = get_chunk_dir_path(
+                form.file_hash,
+                form.is_public,
+                user,
+                system_folder=form.system_folder,
+            )
             return chunk_dir if os.path.exists(chunk_dir) else None
         except Exception as e:
             logger.error(f'[Document][Resume] Get chunk dir failed: {e}')

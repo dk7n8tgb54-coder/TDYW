@@ -18,6 +18,11 @@ from libs.tenant_utils import apply_tenant_filter
 from apps.document.libs.document_utils import get_folder_model, get_file_model, get_document_absolute_path, is_safe_path
 from apps.document.libs.naming_utils import generate_physical_name, generate_unique_logical_name, get_file_ext
 from apps.document.libs.view_utils import permission_denied_response
+from apps.document.libs.document_auth import document_auth
+from apps.document.services.system_folder_service import (
+    INDUSTRY_RULES_CODE, is_folder_in_scope, ensure_file_in_scope_or_error,
+    validate_system_folder_context, SCOPE_ERROR_MSG,
+)
 from apps.document.views.base import create_model_instance, check_public_space_permission, log_operation
 
 logger = logging.getLogger(__name__)
@@ -34,7 +39,8 @@ class FileCopyParamsParser:
             file_id = data.get('id')
             folder_id = data.get('folder_id')
             is_public = data.get('is_public', False)
-            return {'file_id': file_id, 'folder_id': folder_id, 'is_public': is_public}, None
+            system_folder = data.get('system_folder')
+            return {'file_id': file_id, 'folder_id': folder_id, 'is_public': is_public, 'system_folder': system_folder}, None
         except Exception:
             return None, '参数错误'
 
@@ -209,7 +215,7 @@ class FileCopyLogger:
 class FileCopyView(View):
     """文件复制视图"""
 
-    @auth('document.document.copy')
+    @document_auth('copy')
     def post(self, request):
         logger.info(f'[Document] FileCopyView.post called, user: {request.user.username}')
 
@@ -221,9 +227,15 @@ class FileCopyView(View):
         file_id = params['file_id']
         folder_id = params['folder_id']
         is_public = params['is_public']
+        system_folder = params.get('system_folder')
 
         if not file_id:
             return json_response(error='参数错误')
+
+        # 行业规章上下文校验
+        ok, ctx_err = validate_system_folder_context(system_folder, is_public)
+        if not ok:
+            return json_response(error=ctx_err)
 
         # 验证源文件
         file, error = FileCopyValidator.validate_source_file(
@@ -236,12 +248,23 @@ class FileCopyView(View):
         if is_public and not check_public_space_permission(request.user, file, 'file', '复制'):
             return permission_denied_response('公共空间中只能复制自己创建的文件', 'not_owner')
 
+        # 行业规章范围校验：源文件必须在范围内
+        if system_folder == INDUSTRY_RULES_CODE:
+            scope_ok, scope_err = ensure_file_in_scope_or_error(file, INDUSTRY_RULES_CODE)
+            if not scope_ok:
+                return json_response(error=scope_err)
+
         # 验证目标文件夹
         folder, error = FileCopyValidator.validate_target_folder(
             folder_id, is_public, request.user
         )
         if error:
             return json_response(error=error)
+
+        # 行业规章范围校验：目标文件夹必须在范围内
+        if system_folder == INDUSTRY_RULES_CODE:
+            if not folder or not is_folder_in_scope(folder.id, INDUSTRY_RULES_CODE, include_root=True):
+                return json_response(error=SCOPE_ERROR_MSG)
 
         logger.info(f'[Document] Copying file id: {file_id} to folder_id: {folder_id}, is_public={is_public}')
 

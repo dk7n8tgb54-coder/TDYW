@@ -9,6 +9,7 @@ import os
 import json
 import logging
 from django.conf import settings
+from apps.document.libs.document_utils import get_merge_task_file_path
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ class TaskIdResolver:
         self.task_id = None
         self.merge_task_id = None
         self.task_data = None
+        self.system_folder = None
 
     def resolve(self, request) -> tuple:
         """
@@ -34,6 +36,7 @@ class TaskIdResolver:
         """
         self.task_id = request.GET.get('task_id')
         self.merge_task_id = request.GET.get('merge_task_id')
+        self.system_folder = request.GET.get('system_folder')
 
         # 如果提供了task_id，直接返回
         if self.task_id:
@@ -60,9 +63,9 @@ class TaskIdResolver:
         Returns:
             任务数据字典或None
         """
-        merge_task_file = os.path.join(
-            settings.BASE_DIR, 'storage', 'document_merge_tasks',
-            f"{merge_task_id}.task"
+        merge_task_file = get_merge_task_file_path(
+            merge_task_id,
+            system_folder=self.system_folder,
         )
 
         if not os.path.exists(merge_task_file):

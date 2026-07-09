@@ -13,6 +13,8 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+INDUSTRY_RULES_SYSTEM_FOLDER = 'industry_rules'
+
 # 【性能优化】模块级模型缓存，避免每次调用都解包元组
 _MODEL_CACHE = None
 
@@ -144,7 +146,39 @@ def is_child_folder(child_id, parent_id, FolderModel, request_user=None, is_publ
 
 
 # ==================== 路径生成工具函数 ====================
-def get_document_relative_path(is_public=False, user_id=None, folder_id=None):
+def is_industry_rules_context(system_folder=None):
+    return system_folder == INDUSTRY_RULES_SYSTEM_FOLDER
+
+
+def get_document_storage_base_path():
+    return os.path.join(settings.BASE_DIR, 'storage', 'documents')
+
+
+def get_industry_rules_storage_base_path():
+    return os.path.join(get_document_storage_base_path(), INDUSTRY_RULES_SYSTEM_FOLDER)
+
+
+def get_chunk_storage_base_path(system_folder=None):
+    if is_industry_rules_context(system_folder):
+        return os.path.join(get_industry_rules_storage_base_path(), 'chunks')
+    return os.path.join(settings.BASE_DIR, 'storage', 'document_chunks')
+
+
+def get_merge_task_storage_base_path(system_folder=None):
+    if is_industry_rules_context(system_folder):
+        return os.path.join(get_industry_rules_storage_base_path(), 'merge_tasks')
+    return os.path.join(settings.BASE_DIR, 'storage', 'document_merge_tasks')
+
+
+def get_merge_task_file_path(merge_task_id, system_folder=None):
+    validate_path_segment(str(merge_task_id), 'merge_task_id')
+    return os.path.join(
+        get_merge_task_storage_base_path(system_folder),
+        f'{merge_task_id}.task'
+    )
+
+
+def get_document_relative_path(is_public=False, user_id=None, folder_id=None, system_folder=None):
     """
     生成文档相对路径（相对于 storage/documents 目录）
 
@@ -156,6 +190,11 @@ def get_document_relative_path(is_public=False, user_id=None, folder_id=None):
     Returns:
         str: 相对路径，如 'private/user-1/' 或 'public/' 或 'public/folder-123/'
     """
+    if is_industry_rules_context(system_folder):
+        if folder_id:
+            return f'{INDUSTRY_RULES_SYSTEM_FOLDER}/files/folder-{folder_id}'
+        return f'{INDUSTRY_RULES_SYSTEM_FOLDER}/files'
+
     if is_public:
         # 公共空间路径：public/ 或 public/folder-{id}/
         if folder_id:
@@ -170,7 +209,7 @@ def get_document_relative_path(is_public=False, user_id=None, folder_id=None):
         return f'private/user-{user_id}'
 
 
-def get_document_absolute_path(is_public=False, user_id=None, folder_id=None):
+def get_document_absolute_path(is_public=False, user_id=None, folder_id=None, system_folder=None):
     """
     生成文档绝对路径
 
@@ -182,8 +221,8 @@ def get_document_absolute_path(is_public=False, user_id=None, folder_id=None):
     Returns:
         str: 绝对路径，如 '/path/to/storage/documents/private/user-1/'
     """
-    base_dir = os.path.join(settings.BASE_DIR, 'storage', 'documents')
-    relative_path = get_document_relative_path(is_public, user_id, folder_id)
+    base_dir = get_document_storage_base_path()
+    relative_path = get_document_relative_path(is_public, user_id, folder_id, system_folder)
     return os.path.join(base_dir, relative_path)
 
 
@@ -440,7 +479,47 @@ def validate_path_segment(value, field_name='path segment'):
     return value
 
 
-def get_chunk_dir_path(file_hash, is_public, request_user, transfer_id=None):
+def _validate_file_hash_format(file_hash):
+    """
+    【内部】验证 file_hash 格式（支持全量MD5和抽样MD5）
+
+    Raises:
+        ValueError: 如果 file_hash 格式不正确
+    """
+    is_valid_full_md5 = (
+        file_hash and isinstance(file_hash, str)
+        and len(file_hash) == 32
+        and _SAFE_PATH_SEGMENT_RE.match(file_hash)
+    )
+    is_valid_sampling_md5 = (
+        file_hash and isinstance(file_hash, str)
+        and file_hash.startswith('sv1_')
+        and _SAFE_PATH_SEGMENT_RE.match(file_hash)
+    )
+    if not (is_valid_full_md5 or is_valid_sampling_md5):
+        raise ValueError(f'Invalid file_hash format: {file_hash}')
+
+
+def _resolve_tenant_path(request_user):
+    """
+    【内部】从请求用户解析租户路径段
+
+    Returns:
+        str: 验证通过的 tenant_path
+
+    Raises:
+        ValueError: 如果 tenant_id 非法
+    """
+    # 【安全修复】非法 tenant_id 直接报错，不再 fallback 到 default（避免隔离混淆）
+    raw_tenant_id = getattr(request_user, 'tenant_id', 'default') or 'default'
+    try:
+        return validate_path_segment(str(raw_tenant_id), 'tenant_id')
+    except ValueError:
+        logger.error(f'[Document] Invalid tenant_id for path: {raw_tenant_id!r}, rejecting request')
+        raise ValueError(f'Invalid tenant_id: {raw_tenant_id!r}')
+
+
+def get_chunk_dir_path(file_hash, is_public, request_user, transfer_id=None, system_folder=None):
     """
     【P0修复】统一的分片目录路径生成函数
     确保所有视图的路径生成逻辑完全一致
@@ -459,29 +538,19 @@ def get_chunk_dir_path(file_hash, is_public, request_user, transfer_id=None):
     Raises:
         ValueError: 如果file_hash格式不正确
     """
-    # 【任务3.2修复】验证MD5哈希格式（支持全量MD5和抽样MD5）
-    is_valid_full_md5 = file_hash and isinstance(file_hash, str) and len(file_hash) == 32 and _SAFE_PATH_SEGMENT_RE.match(file_hash)
-    is_valid_sampling_md5 = file_hash and isinstance(file_hash, str) and file_hash.startswith('sv1_') and _SAFE_PATH_SEGMENT_RE.match(file_hash)
-    if not (is_valid_full_md5 or is_valid_sampling_md5):
-        raise ValueError(f'Invalid file_hash format: {file_hash}')
-    
-    chunk_base_dir = os.path.join(settings.BASE_DIR, 'storage', 'document_chunks')
-    
-    if is_public:
+    _validate_file_hash_format(file_hash)
+
+    chunk_base_dir = get_chunk_storage_base_path(system_folder)
+
+    if is_industry_rules_context(system_folder):
+        base_chunk_dir = os.path.join(chunk_base_dir, file_hash)
+    elif is_public:
         # 公共空间：简化路径，只使用 public
-        tenant_path = "public"
+        base_chunk_dir = os.path.join(chunk_base_dir, "public", file_hash)
     else:
-        # 私有空间：租户ID隔离
-        # 【路径安全校验】白名单校验 tenant_id，只允许安全字符
-        # 【安全修复】非法 tenant_id 直接报错，不再 fallback 到 default（避免隔离混淆）
-        raw_tenant_id = getattr(request_user, 'tenant_id', 'default') or 'default'
-        try:
-            tenant_path = validate_path_segment(str(raw_tenant_id), 'tenant_id')
-        except ValueError:
-            logger.error(f'[Document] Invalid tenant_id for path: {raw_tenant_id!r}, rejecting request')
-            raise ValueError(f'Invalid tenant_id: {raw_tenant_id!r}')
-    
-    base_chunk_dir = os.path.join(chunk_base_dir, tenant_path, file_hash)
+        # 私有空间：租户ID隔离（白名单校验 tenant_id）
+        tenant_path = _resolve_tenant_path(request_user)
+        base_chunk_dir = os.path.join(chunk_base_dir, tenant_path, file_hash)
 
     # 【路径隔离】有 transfer_id 时在 file_hash 下再加一层，避免同 hash 并发互踩
     if transfer_id is not None:

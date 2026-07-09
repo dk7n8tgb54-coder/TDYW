@@ -16,6 +16,12 @@ from django.conf import settings
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_file_model, is_safe_path
+from ...libs.document_auth import document_auth
+from ...services.system_folder_service import (
+    INDUSTRY_RULES_CODE, ensure_file_in_scope_or_error,
+    validate_system_folder_context,
+)
+from ...services.system_scope_validators import validate_file_operation_scope
 
 logger = logging.getLogger(__name__)
 
@@ -50,16 +56,22 @@ OFFICE_EXTENSIONS = {
 class FilePreviewView(View):
     """文件预览视图 - 支持图片、PDF、视频流、音频、文本"""
 
-    @auth('document.document.view')
+    @document_auth('view')
     def get(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误'),
             Argument('is_public', type=bool, required=False, default=False),
+            Argument('system_folder', type=str, required=False, default=None),
             Argument('thumbnail', type=bool, required=False, default=False)
         ).parse(request.GET)
 
         if error is not None:
             return json_response(error=error)
+
+        # 行业规章上下文校验
+        ok, ctx_err = validate_system_folder_context(form.system_folder, form.is_public)
+        if not ok:
+            return json_response(error=ctx_err)
 
         # 【H-2修复】preview_token 作用域校验：令牌绑定的文件必须与请求文件一致
         if hasattr(request, 'preview_token_data'):
@@ -73,6 +85,12 @@ class FilePreviewView(View):
         file = self._get_file(form, request.user)
         if file is None:
             return json_response(error='文件不存在')
+
+        # 行业规章范围校验
+        if form.system_folder == INDUSTRY_RULES_CODE:
+            scope_ok, scope_err = ensure_file_in_scope_or_error(file, INDUSTRY_RULES_CODE)
+            if not scope_ok:
+                return json_response(error=scope_err)
 
         # 【路径安全校验】验证 file_path 在 storage/documents 下
         document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
@@ -264,15 +282,21 @@ class FilePreviewView(View):
 class FileTextContentView(View):
     """文件文本内容视图 - 返回文本/代码文件内容（用于代码高亮渲染）"""
 
-    @auth('document.document.view')
+    @document_auth('view')
     def get(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误'),
-            Argument('is_public', type=bool, required=False, default=False)
+            Argument('is_public', type=bool, required=False, default=False),
+            Argument('system_folder', type=str, required=False, default=None),
         ).parse(request.GET)
         
         if error is not None:
             return json_response(error=error)
+
+        # 行业规章上下文校验
+        ok, ctx_err = validate_system_folder_context(form.system_folder, form.is_public)
+        if not ok:
+            return json_response(error=ctx_err)
 
         # 【H-2修复】preview_token 作用域校验
         if hasattr(request, 'preview_token_data'):
@@ -291,6 +315,12 @@ class FileTextContentView(View):
         
         if not file:
             return json_response(error='文件不存在')
+
+        # 行业规章范围校验
+        if form.system_folder == INDUSTRY_RULES_CODE:
+            scope_ok, scope_err = ensure_file_in_scope_or_error(file, INDUSTRY_RULES_CODE)
+            if not scope_ok:
+                return json_response(error=scope_err)
 
         # 【路径安全校验】验证 file_path 在 storage/documents 下
         document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
@@ -380,45 +410,38 @@ class FileTextContentView(View):
 class OfficePreviewUrlView(View):
     """Office文档预览URL视图 - 生成kkFileView预览链接"""
 
-    @auth('document.document.view')
+    @document_auth('view')
     def get(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误'),
-            Argument('is_public', type=bool, required=False, default=False)
+            Argument('is_public', type=bool, required=False, default=False),
+            Argument('system_folder', type=str, required=False, default=None),
         ).parse(request.GET)
         
         if error is not None:
             return json_response(error=error)
 
-        # 检查kkFileView是否已配置
-        kkfileview_api_url = getattr(settings, 'KKFILEVIEW_API_URL', '')
-        if not kkfileview_api_url:
-            return json_response(error='Office文档预览服务未配置，请联系管理员配置KKFILEVIEW_API_URL')
+        error = self._validate_context(form)
+        if error:
+            return json_response(error=error)
 
-        kkfileview_server_url = getattr(settings, 'KKFILEVIEW_SERVER_URL', '')
-        if not kkfileview_server_url:
-            return json_response(error='Office文档预览服务未配置，请联系管理员配置KKFILEVIEW_SERVER_URL')
-            
-        FileModel = get_file_model(is_public=form.is_public)
+        kkfileview_api_url, kkfileview_server_url, error = self._get_service_urls()
+        if error:
+            return json_response(error=error)
 
-        file_query = FileModel.objects.filter(pk=form.id)
-        if not form.is_public:
-            file_query = apply_tenant_filter(file_query, request.user, strict_mode=True)
-        file = file_query.select_related('created_by').first()
+        file = self._get_file(form, request.user)
         
         if not file:
             logger.warning(f'[OfficePreviewUrl] File not found: id={form.id}, is_public={form.is_public}')
             return json_response(error='文件不存在')
 
-        # 【路径安全校验】验证 file_path 在 storage/documents 下
-        document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
-        if not is_safe_path(document_storage_base, file.file_path):
-            logger.error(f'[OfficePreviewUrl] Unsafe file path detected: {file.file_path}')
-            return json_response(error='文件不存在')
+        error = self._validate_file_scope(form, file)
+        if error:
+            return json_response(error=error)
 
-        if not os.path.exists(file.file_path):
-            logger.warning(f'[OfficePreviewUrl] File path not exists: id={form.id}, path={file.file_path}')
-            return json_response(error='文件不存在')
+        error = self._validate_file_path(file)
+        if error:
+            return json_response(error=error)
 
         # [DEBUG] 诊断日志
         logger.info(f'[OfficePreviewUrl] id={form.id}, name={file.name}, file_type={file.file_type}, '
@@ -448,6 +471,8 @@ class OfficePreviewUrlView(View):
             'preview_token': preview_token,
             'is_public': str(form.is_public).lower(),
         }
+        if form.system_folder:
+            params['system_folder'] = form.system_folder
         file_url = f"{kkfileview_server_url}/api/document/preview/?{urlencode(params)}"
         
         # kkFileView 官方文档要求：当下载URL不含文件扩展名时，
@@ -468,6 +493,55 @@ class OfficePreviewUrlView(View):
             'file_name': file_name,
         })
 
+    @staticmethod
+    def _validate_context(form):
+        ok, error = validate_system_folder_context(form.system_folder, form.is_public)
+        if not ok:
+            return error
+        return None
+
+    @staticmethod
+    def _get_service_urls():
+        kkfileview_api_url = getattr(settings, 'KKFILEVIEW_API_URL', '')
+        if not kkfileview_api_url:
+            return None, None, 'Office文档预览服务未配置，请联系管理员配置KKFILEVIEW_API_URL'
+
+        kkfileview_server_url = getattr(settings, 'KKFILEVIEW_SERVER_URL', '')
+        if not kkfileview_server_url:
+            return None, None, 'Office文档预览服务未配置，请联系管理员配置KKFILEVIEW_SERVER_URL'
+
+        return kkfileview_api_url, kkfileview_server_url, None
+
+    @staticmethod
+    def _get_file(form, user):
+        FileModel = get_file_model(is_public=form.is_public)
+        file_query = FileModel.objects.filter(pk=form.id)
+        if not form.is_public:
+            file_query = apply_tenant_filter(file_query, user, strict_mode=True)
+        return file_query.select_related('created_by').first()
+
+    @staticmethod
+    def _validate_file_scope(form, file):
+        ok, error = validate_file_operation_scope(
+            form.system_folder,
+            form.is_public,
+            file_obj=file,
+        )
+        if not ok:
+            return error
+        return None
+
+    @staticmethod
+    def _validate_file_path(file):
+        document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
+        if is_safe_path(document_storage_base, file.file_path):
+            if os.path.exists(file.file_path):
+                return None
+            logger.warning(f'[OfficePreviewUrl] File path not exists: id={file.id}, path={file.file_path}')
+        else:
+            logger.error(f'[OfficePreviewUrl] Unsafe file path detected: {file.file_path}')
+        return '文件不存在'
+
 
 class PreviewTokenView(View):
     """【H-2修复】生成短时效预览令牌
@@ -476,15 +550,31 @@ class PreviewTokenView(View):
     避免将长期 x-token 暴露在 URL 中。
     """
 
-    @auth('document.document.view')
+    @document_auth('view')
     def get(self, request):
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误'),
-            Argument('is_public', type=bool, required=False, default=False)
+            Argument('is_public', type=bool, required=False, default=False),
+            Argument('system_folder', type=str, required=False, default=None),
         ).parse(request.GET)
 
         if error is not None:
             return json_response(error=error)
+
+        # 行业规章上下文校验
+        ok, ctx_err = validate_system_folder_context(form.system_folder, form.is_public)
+        if not ok:
+            return json_response(error=ctx_err)
+
+        # 行业规章范围校验：文件必须属于行业规章
+        if form.system_folder == INDUSTRY_RULES_CODE:
+            FileModel = get_file_model(is_public=form.is_public)
+            file = FileModel.objects.filter(pk=form.id).first()
+            if not file:
+                return json_response(error='文件不存在')
+            scope_ok, scope_err = ensure_file_in_scope_or_error(file, INDUSTRY_RULES_CODE)
+            if not scope_ok:
+                return json_response(error=scope_err)
 
         from ...libs.preview_token import generate_preview_token
 

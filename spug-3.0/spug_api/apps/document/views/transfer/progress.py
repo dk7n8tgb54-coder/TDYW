@@ -9,8 +9,9 @@
 import logging
 from django.views.generic import View
 
-from libs import json_response, JsonParser, Argument, auth
+from libs import json_response, JsonParser, Argument
 from apps.document.libs.view_utils import permission_denied_response
+from apps.document.libs.document_auth import document_auth
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 class TransferProgressUpdateView(View):
     """更新传输进度"""
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     def post(self, request, transfer_id):
         from ...models import DocumentTransfer
         

@@ -9,7 +9,8 @@
 import logging
 from django.views.generic import View
 
-from libs import json_response, JsonParser, Argument, auth
+from libs import json_response, JsonParser, Argument
+from ...libs.document_auth import document_auth
 from .transfer_manager import TransferRecordManager
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 class TransferDeleteView(View):
     """删除传输记录"""
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     def delete(self, request, transfer_id):
         # 获取传输记录
         transfer, error = TransferRecordManager.get_transfer_by_id(transfer_id)
@@ -36,7 +37,7 @@ class TransferDeleteView(View):
 class TransferHashUpdateView(View):
     """更新传输记录的 file_hash"""
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     def post(self, request, transfer_id):
         # 获取传输记录
         transfer, error = TransferRecordManager.get_transfer_by_id(transfer_id)

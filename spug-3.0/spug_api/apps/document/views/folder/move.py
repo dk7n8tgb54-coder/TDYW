@@ -1,99 +1,119 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""
-文件夹移动视图
-提供文件夹移动功能（循环引用检测）
-"""
+"""Folder move view."""
 
 import json
 import logging
+
 from django.views.generic import View
 
-from libs import json_response, auth
+from libs import json_response
 from libs.tenant_utils import apply_tenant_filter, check_tenant_unique_name
+
+from ...libs.document_auth import document_auth
 from ...libs.document_utils import get_folder_model, is_child_folder
 from ...libs.view_utils import permission_denied_response
+from ...services.system_scope_validators import validate_folder_move_scope
 from ..base import check_public_space_permission, log_operation
 
 logger = logging.getLogger(__name__)
 
 
 class FolderMoveView(View):
-    """文件夹移动视图 - 循环引用检测"""
+    """Move a folder within the current document space."""
 
-    @auth('document.document.move')
+    @document_auth('move')
     def post(self, request):
-        try:
-            data = json.loads(request.body)
-            folder_id = data.get('id')
-            target_id = data.get('target_id')
-            is_public = data.get('is_public', False)
-        except:
-            return json_response(error='参数错误')
+        params, error = self._parse_request(request)
+        if error:
+            return json_response(error=error)
 
-        if not folder_id:
-            return json_response(error='参数错误')
+        ok, scope_error = validate_folder_move_scope(
+            params['system_folder'], params['is_public'], params['folder_id'], params['target_id']
+        )
+        if not ok:
+            return json_response(error=scope_error)
 
-        FolderModel = get_folder_model(is_public=is_public)
-
-        folder_query = FolderModel.objects.filter(pk=folder_id).order_by()
-        if not is_public:
-            folder_query = apply_tenant_filter(folder_query, request.user, strict_mode=True)
-        folder = folder_query.select_related('created_by').first()
-        
+        FolderModel = get_folder_model(is_public=params['is_public'])
+        folder = self._get_folder(FolderModel, params['folder_id'], params, request.user)
         if not folder:
             return json_response(error='文件夹不存在')
 
-        # 公共空间权限校验
-        if is_public and not check_public_space_permission(request.user, folder, 'folder', '移动'):
-            return permission_denied_response('公共空间中只能移动自己创建的文件夹', 'not_owner')
+        permission_error = self._check_public_permission(request.user, folder, params['is_public'])
+        if permission_error:
+            return permission_error
 
-        if target_id:
-            target_query = FolderModel.objects.filter(pk=target_id).order_by()
-            if not is_public:
-                target_query = apply_tenant_filter(target_query, request.user, strict_mode=True)
-            target = target_query.first()
-            if not target:
-                return json_response(error='目标文件夹不存在')
-                
-            # 防止循环引用
-            if folder.id == target_id or is_child_folder(target.id, folder.id, FolderModel, request.user, is_public):
-                return json_response(error='无法移动到自身或子文件夹下')
+        target, error = self._resolve_target(FolderModel, folder, params, request.user)
+        if error:
+            return json_response(error=error)
 
-            # 检查目标位置是否已存在同名文件夹
-            is_unique, _ = check_tenant_unique_name(
-                FolderModel,
-                {'parent_id': target_id, 'name': folder.name},
-                request.user,
-                is_public
-            )
-            if not is_unique:
-                return json_response(error='目标位置已存在同名文件夹')
-
-            folder.parent = target
-        else:
-            # 检查根目录下是否已存在同名文件夹
-            is_unique, _ = check_tenant_unique_name(
-                FolderModel,
-                {'parent__isnull': True, 'name': folder.name},
-                request.user,
-                is_public
-            )
-            if not is_unique:
-                return json_response(error='根目录已存在同名文件夹')
-
-            folder.parent = None
-            
+        folder.parent = target
         folder.save()
-        
+
         log_operation(
-            action="FOLDER_MOVE",
+            action='FOLDER_MOVE',
             user=request.user,
-            resource_type="FOLDER",
+            resource_type='FOLDER',
             resource_id=folder.id,
-            is_public=is_public,
-            target_folder_id=target_id
+            is_public=params['is_public'],
+            target_folder_id=params['target_id'],
         )
-        logger.info(f'[Document] Folder moved successfully, is_public={is_public}')
+        logger.info('[Document] folder moved successfully, is_public=%s', params['is_public'])
         return json_response()
+
+    def _parse_request(self, request):
+        try:
+            data = getattr(request, '_document_cached_json_body', None) or json.loads(request.body)
+        except Exception:
+            return None, '参数错误'
+        folder_id = data.get('id')
+        if not folder_id:
+            return None, '参数错误'
+        return {
+            'folder_id': folder_id,
+            'target_id': data.get('target_id'),
+            'is_public': data.get('is_public', False),
+            'system_folder': data.get('system_folder'),
+        }, None
+
+    def _get_folder(self, FolderModel, folder_id, params, user):
+        query = FolderModel.objects.filter(pk=folder_id).order_by()
+        if not params['is_public']:
+            query = apply_tenant_filter(query, user, strict_mode=True)
+        return query.select_related('created_by').first()
+
+    def _check_public_permission(self, user, folder, is_public):
+        if not is_public:
+            return None
+        if check_public_space_permission(user, folder, 'folder', '移动'):
+            return None
+        return permission_denied_response('公共空间中只能移动自己创建的文件夹', 'not_owner')
+
+    def _resolve_target(self, FolderModel, folder, params, user):
+        target_id = params['target_id']
+        if not target_id:
+            return self._resolve_root_target(FolderModel, folder, params, user)
+
+        target = self._get_folder(FolderModel, target_id, params, user)
+        if not target:
+            return None, '目标文件夹不存在'
+        if folder.id == target_id or is_child_folder(target.id, folder.id, FolderModel, user, params['is_public']):
+            return None, '无法移动到自身或子文件夹中'
+        if self._name_exists(FolderModel, folder.name, target_id, params, user):
+            return None, '目标位置已存在同名文件夹'
+        return target, None
+
+    def _resolve_root_target(self, FolderModel, folder, params, user):
+        if self._name_exists(FolderModel, folder.name, None, params, user):
+            return None, '根目录已存在同名文件夹'
+        return None, None
+
+    def _name_exists(self, FolderModel, name, parent_id, params, user):
+        filters = {'name': name}
+        if parent_id is None:
+            filters['parent__isnull'] = True
+        else:
+            filters['parent_id'] = parent_id
+        is_unique, _ = check_tenant_unique_name(FolderModel, filters, user, params['is_public'])
+        return not is_unique

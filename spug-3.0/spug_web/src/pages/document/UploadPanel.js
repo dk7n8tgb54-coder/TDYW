@@ -206,7 +206,7 @@ class UploadPanel extends React.Component {
     // 【2026-07-02】压力标签（仅 busy/critical 显示）
     const pressureTag = PRESSURE_TAG_CONFIG[pressureLevel];
 
-    const spaceType = navigationStore.isPublic ? '公共共享库' : '我的文件';
+    const spaceType = navigationStore.lockedRootFolderName || (navigationStore.isPublic ? '公共共享库' : '我的文件');
     const spaceColor = navigationStore.isPublic ? 'gold' : 'blue';
     const spaceIcon = navigationStore.isPublic ? <CloudOutlined /> : <CloudUploadOutlined />;
 

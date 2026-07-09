@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 # 导入分布式锁
 from apps.document.libs.celery_lock import RedisLock
+from apps.document.libs.document_utils import (
+    get_chunk_storage_base_path,
+    get_merge_task_file_path,
+)
 
 # ============================================================================
 # 常量定义（修复P2-1魔法数字）
@@ -83,15 +87,16 @@ class MergeTaskManager:
         self.username = job_data.get('username', 'unknown')
         self.tenant_id = job_data.get('tenant_id', '')
         self.transfer_id = job_data.get('transfer_id')
+        self.system_folder = job_data.get('system_folder')
         self.physical_name = job_data.get('physical_name', os.path.basename(self.file_path))
         self.logical_name = job_data.get('logical_name', self.physical_name)
         self.display_name = job_data.get('display_name', self.file_name)
 
     def _get_task_file_path(self):
         """获取任务文件路径"""
-        return os.path.join(
-            settings.BASE_DIR, 'storage', 'document_merge_tasks',
-            f"{self.merge_task_id}.task"
+        return get_merge_task_file_path(
+            self.merge_task_id,
+            system_folder=self.job_data.get('system_folder'),
         )
 
     def update_task_file(self, status, progress=0, message='', result=None):
@@ -103,6 +108,7 @@ class MergeTaskManager:
                 'file_hash': self.file_hash,
                 'user': self.username,
                 'is_public': self.is_public,
+                'system_folder': self.system_folder,
                 'start_time': self.start_time,
                 'task_id': self.task_id,
                 'progress': progress,
@@ -143,7 +149,7 @@ class ChunkValidator:
 
         # 【优化8】路径安全校验：确保文件路径和分片目录在安全区域内
         document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
-        chunk_base_dir = os.path.join(settings.BASE_DIR, 'storage', 'document_chunks')
+        chunk_base_dir = get_chunk_storage_base_path(self.task_manager.system_folder)
         
         from apps.document.libs.document_utils import is_safe_path
         

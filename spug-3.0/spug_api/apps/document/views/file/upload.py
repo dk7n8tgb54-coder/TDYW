@@ -11,6 +11,11 @@ from django.views.generic import View
 
 from libs import json_response, auth
 from apps.document.libs.document_utils import get_folder_model, get_file_model
+from apps.document.libs.document_auth import document_auth
+from apps.document.services.system_folder_service import (
+    INDUSTRY_RULES_CODE, ensure_folder_in_scope_or_error,
+    validate_system_folder_context, UPLOAD_TARGET_MSG,
+)
 from apps.document.views.base import validate_file_name, validate_file_upload, log_operation, handle_view_errors
 from apps.document.services.file_upload_service import FileUploadService
 from apps.document.views.upload.validators import FolderValidator
@@ -21,17 +26,31 @@ logger = logging.getLogger(__name__)
 class FileUploadView(View):
     """文件上传视图"""
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     @handle_view_errors
     def post(self, request):
         """处理文件上传"""
         # 解析参数
-        folder_id, is_public, transfer_id = self._parse_params(request)
+        folder_id, is_public, transfer_id, system_folder = self._parse_params(request)
 
         logger.info(
             f'[Document] FileUploadView.post called, user: {request.user.username}, '
-            f'is_public: {is_public}, folder_id: {folder_id}, transfer_id={transfer_id}'
+            f'is_public: {is_public}, folder_id: {folder_id}, transfer_id={transfer_id}, '
+            f'system_folder={system_folder}'
         )
+
+        # 行业规章上下文与上传目标校验
+        ok, ctx_err = validate_system_folder_context(system_folder, is_public)
+        if not ok:
+            return json_response(error=ctx_err)
+        if system_folder == INDUSTRY_RULES_CODE:
+            if not folder_id:
+                return json_response(error=UPLOAD_TARGET_MSG)
+            scope_ok, scope_err = ensure_folder_in_scope_or_error(
+                folder_id, INDUSTRY_RULES_CODE, include_root=True
+            )
+            if not scope_ok:
+                return json_response(error=scope_err)
 
         # 获取模型
         FolderModel = get_folder_model(is_public=is_public)
@@ -80,6 +99,7 @@ class FileUploadView(View):
         folder_id = request.POST.get('folder_id')
         is_public = request.POST.get('is_public', 'false').lower() == 'true'
         transfer_id = request.POST.get('transfer_id')
+        system_folder = request.POST.get('system_folder')
 
         # 转换folder_id为整数
         if folder_id:
@@ -88,7 +108,7 @@ class FileUploadView(View):
             except (ValueError, TypeError):
                 folder_id = None
 
-        return folder_id, is_public, transfer_id
+        return folder_id, is_public, transfer_id, system_folder
 
     def _validate_file(self, file):
         """验证上传文件"""

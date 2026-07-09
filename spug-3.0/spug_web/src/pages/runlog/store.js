@@ -62,7 +62,7 @@ class Store {
         return res;
       })
       .catch(e => {
-        console.error('[运行日志] 获取记录失败:', e);
+        console.error('[跨日事项跟踪] 获取记录失败:', e);
         throw e;
       })
       .finally(() => this.isFetching = false);
@@ -74,7 +74,7 @@ class Store {
         this.statistics = res;
       })
       .catch(e => {
-        console.error('[运行日志] 获取统计失败:', e);
+        console.error('[跨日事项跟踪] 获取统计失败:', e);
       });
   };
 
@@ -84,7 +84,7 @@ class Store {
         this.eventTypes = res || [];
       })
       .catch(e => {
-        console.error('[运行日志] 获取事件类型失败:', e);
+        console.error('[跨日事项跟踪] 获取事件类型失败:', e);
       });
   };
 
@@ -104,7 +104,7 @@ class Store {
         return res;
       })
       .catch(e => {
-        console.error('[运行日志] 添加事件类型失败:', e);
+        console.error('[跨日事项跟踪] 添加事件类型失败:', e);
         throw e;
       });
   };
@@ -116,7 +116,7 @@ class Store {
         return res;
       })
       .catch(e => {
-        console.error('[运行日志] 更新事件类型失败:', e);
+        console.error('[跨日事项跟踪] 更新事件类型失败:', e);
         throw e;
       });
   };
@@ -128,7 +128,7 @@ class Store {
         return res;
       })
       .catch(e => {
-        console.error('[运行日志] 删除事件类型失败:', e);
+        console.error('[跨日事项跟踪] 删除事件类型失败:', e);
         throw e;
       });
   };

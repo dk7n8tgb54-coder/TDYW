@@ -18,7 +18,7 @@ export default [{
   label: '资料库',
   pages: [{
     key: 'document',
-    label: '资料管理',
+    label: '文档管理',
     perms: [
       {key: 'view', label: '查看资料'},
       {key: 'upload', label: '上传文件'},
@@ -29,18 +29,31 @@ export default [{
       {key: 'move', label: '移动文件'},
       {key: 'rename', label: '重命名文件'},
     ]
+  }, {
+    key: 'industry_rule',
+    label: '行业规章',
+    perms: [
+      {key: 'view', label: '查看行业规章'},
+      {key: 'upload', label: '上传规章文件'},
+      {key: 'download', label: '下载规章文件'},
+      {key: 'delete', label: '删除规章文件'},
+      {key: 'create_folder', label: '新建规章目录'},
+      {key: 'copy', label: '复制规章文件'},
+      {key: 'move', label: '移动规章文件'},
+      {key: 'rename', label: '重命名规章文件'},
+    ]
   }]
 }, {
   key: 'runlog',
-  label: '运行日志',
+  label: '跨日事项跟踪',
   pages: [{
     key: 'runlog',
-    label: '运行日志',
+    label: '跨日事项跟踪',
     perms: [
-      {key: 'view', label: '查看运行日志'},
-      {key: 'add', label: '新建运行日志'},
-      {key: 'edit', label: '编辑运行日志'},
-      {key: 'del', label: '删除运行日志'},
+      {key: 'view', label: '查看跨日事项跟踪'},
+      {key: 'add', label: '新建跨日事项'},
+      {key: 'edit', label: '编辑跨日事项'},
+      {key: 'del', label: '删除跨日事项'},
       {key: 'update_view', label: '查看动态'},
       {key: 'update_add', label: '添加动态'},
       {key: 'update_edit', label: '编辑动态'},

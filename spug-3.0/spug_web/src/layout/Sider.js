@@ -9,15 +9,19 @@ import logo from './logo-spug-white.png';
 
 let selectedKey = window.location.pathname;
 const OpenKeysMap = {};
-for (let item of routes) {
-  if (item.child) {
-    for (let sub of item.child) {
-      if (sub.title) OpenKeysMap[sub.path] = item.title
+
+function buildOpenKeysMap(items, parents = []) {
+  for (let item of items) {
+    if (!item.title) continue;
+    if (item.child) {
+      buildOpenKeysMap(item.child, [...parents, item.title]);
+    } else if (item.path) {
+      OpenKeysMap[item.path] = parents.length ? parents : 1;
     }
-  } else if (item.title) {
-    OpenKeysMap[item.path] = 1
   }
 }
+
+buildOpenKeysMap(routes);
 
 // 需要显示红点的菜单项 path 集合
 const BADGE_MENU_PATHS = new Set(['/radio-license']);
@@ -25,7 +29,7 @@ const BADGE_MENU_PATHS = new Set(['/radio-license']);
 function handleRoute(item) {
   if (item.auth && !hasPermission(item.auth)) return
   if (!item.title) return;
-  const menu = {label: item.title, key: item.path, icon: item.icon}
+  const menu = {label: item.title, key: item.path || item.title, icon: item.icon}
   if (item.child) {
     menu.children = []
     for (let sub of item.child) {
@@ -57,9 +61,9 @@ const Sider = observer(function Sider(props) {
     const unlisten = history.listen(location => {
       if (!mountedRef.current) return;
       setActiveKey(location.pathname);
-      const openKey = OpenKeysMap[location.pathname];
-      if (openKey && openKey !== 1 && !collapsedRef.current) {
-        setOpenKeys(prev => prev.includes(openKey) ? prev : [...prev, openKey])
+      const openKeysForPath = OpenKeysMap[location.pathname];
+      if (openKeysForPath && openKeysForPath !== 1 && !collapsedRef.current) {
+        setOpenKeys(prev => Array.from(new Set([...prev, ...openKeysForPath])))
       }
     });
     return unlisten;
@@ -68,11 +72,11 @@ const Sider = observer(function Sider(props) {
   // Initial menu expansion — 只执行一次
   useEffect(() => {
     const tmp = window.location.pathname;
-    const openKey = OpenKeysMap[tmp];
-    if (openKey) {
+    const openKeysForPath = OpenKeysMap[tmp];
+    if (openKeysForPath) {
       selectedKey = tmp;
-      if (openKey !== 1) {
-        setOpenKeys(prev => prev.includes(openKey) ? prev : [...prev, openKey])
+      if (openKeysForPath !== 1) {
+        setOpenKeys(prev => Array.from(new Set([...prev, ...openKeysForPath])))
       }
     }
   }, []);

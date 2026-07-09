@@ -18,7 +18,7 @@ function PreviousDayEvents(props) {
 
   function fetchEvents() {
     setFetching(true);
-    // 获取运行日志中"处理中"状态的事件，设置足够大的分页大小以获取所有记录
+    // 获取跨日事项跟踪中"处理中"状态的事件，设置足够大的分页大小以获取所有记录
     http.get('/api/runlog/', { params: { status: 'in_progress', page_size: 1000 } })
       .then(res => {
         setEvents(res.logs || []);
@@ -64,7 +64,7 @@ function PreviousDayEvents(props) {
                 cursor: 'pointer'
               }}
               onClick={() => {
-                // 点击跳转到运行日志详情，带上事件ID
+                // 点击跳转到跨日事项跟踪详情，带上事件ID
                 history.push(`/runlog?view=${item.id}`);
               }}
             >

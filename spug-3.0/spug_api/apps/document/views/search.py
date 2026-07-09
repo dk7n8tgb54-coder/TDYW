@@ -25,6 +25,13 @@ from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter
 from ..libs.document_utils import get_folder_model, get_file_model
 from ..libs.view_utils import format_file_size
+from ..libs.document_auth import document_auth
+from ..services.system_folder_service import (
+    INDUSTRY_RULES_CODE, get_system_root_folder_id,
+    is_folder_in_scope, validate_system_folder_context, SCOPE_ERROR_MSG,
+    exclude_system_file_scope, exclude_system_folder_scope,
+    is_folder_in_any_system_scope, NORMAL_DOCUMENT_SCOPE_ERROR_MSG,
+)
 from ..constants import DEFAULT_MAX_FOLDER_DEPTH
 
 logger = logging.getLogger(__name__)
@@ -122,7 +129,55 @@ class FolderSearchView(View):
     MAX_SEARCH_RESULTS = 200  # 最大搜索结果数量
     MAX_FOLDER_IDS = 1000     # 最大搜索文件夹范围
 
-    @auth('document.document.view')
+    def _validate_search_scope(self, form):
+        """
+        【内部】校验搜索范围（行业规章/公共空间系统目录）
+
+        Returns:
+            str or None: 错误消息，None 表示校验通过
+        """
+        ok, ctx_err = validate_system_folder_context(form.system_folder, form.is_public)
+        if not ok:
+            return ctx_err
+
+        # 行业规章模式：folder_id 为空时自动定位到根目录；非空时校验在范围内
+        if form.system_folder == INDUSTRY_RULES_CODE:
+            root_id = get_system_root_folder_id(INDUSTRY_RULES_CODE)
+            if root_id is None:
+                return '行业规章系统目录尚未初始化'
+            if form.folder_id is None:
+                form.folder_id = root_id
+            elif form.folder_id != root_id and not is_folder_in_scope(
+                form.folder_id, INDUSTRY_RULES_CODE, include_root=False
+            ):
+                return SCOPE_ERROR_MSG
+        elif form.is_public and form.folder_id and is_folder_in_any_system_scope(
+            form.folder_id, include_root=True
+        ):
+            return NORMAL_DOCUMENT_SCOPE_ERROR_MSG
+
+        return None
+
+    def _apply_search_scope_filter(self, query, is_public, system_folder, request_user, is_file=False):
+        """
+        【内部】对搜索 queryset 应用租户隔离或系统目录排除
+
+        Args:
+            query: Django QuerySet
+            is_public: 是否公共空间
+            system_folder: 系统目录标识
+            request_user: 请求用户
+            is_file: True 对文件模型，False 对文件夹模型
+        """
+        if not is_public:
+            return apply_tenant_filter(query, request_user, strict_mode=True)
+        if system_folder != INDUSTRY_RULES_CODE:
+            if is_file:
+                return exclude_system_file_scope(query)
+            return exclude_system_folder_scope(query)
+        return query
+
+    @document_auth('view')
     def get(self, request):
         """
         递归搜索文件夹和文件（支持分页优化）
@@ -137,6 +192,7 @@ class FolderSearchView(View):
             Argument('folder_id', type=int, required=False, default=None),
             Argument('keyword', type=str, required=False),
             Argument('is_public', type=bool, required=False, default=False),
+            Argument('system_folder', type=str, required=False, default=None),
             Argument('page', type=int, required=False, default=1),           # 【优化】分页参数
             Argument('page_size', type=int, required=False, default=50),     # 【优化】分页大小
         ).parse(request.GET)
@@ -144,7 +200,12 @@ class FolderSearchView(View):
         if error is not None:
             logger.error(f'[Document] Parse error: {error}')
             return json_response(error=error)
-        
+
+        # 搜索范围校验（行业规章/公共空间系统目录）
+        scope_error = self._validate_search_scope(form)
+        if scope_error:
+            return json_response(error=scope_error)
+
         if not form.keyword or form.keyword.strip() == '':
             return json_response({'folders': [], 'files': []})
 
@@ -178,10 +239,9 @@ class FolderSearchView(View):
             id__in=folder_ids_to_search,
         ).select_related('created_by').order_by('-created_at')
         folders_query = _apply_fallback_filter(folders_query, keyword, ['name'])
-
-        # 私有空间：添加租户过滤（严格模式）
-        if not form.is_public:
-            folders_query = apply_tenant_filter(folders_query, request.user, strict_mode=True)
+        folders_query = self._apply_search_scope_filter(
+            folders_query, form.is_public, form.system_folder, request.user
+        )
 
         # 【优化】限制总数并分页
         total_folders = min(folders_query.count(), self.MAX_SEARCH_RESULTS)
@@ -194,11 +254,9 @@ class FolderSearchView(View):
             (Q(folder_id__in=folder_ids_to_search) | Q(folder_id=None)),
         ).select_related('created_by').order_by('-created_at')
         files_query = _apply_fallback_filter(files_query, keyword, ['name', 'display_name'])
-
-        # 私有空间：添加租户过滤（严格模式）—— 与 folders_query 保持一致
-        # 注意：folder_id=None 的根目录文件也必须做租户隔离，防止跨租户泄露
-        if not form.is_public:
-            files_query = apply_tenant_filter(files_query, request.user, strict_mode=True)
+        files_query = self._apply_search_scope_filter(
+            files_query, form.is_public, form.system_folder, request.user, is_file=True
+        )
 
         # 【优化】限制总数并分页
         total_files = min(files_query.count(), self.MAX_SEARCH_RESULTS)
@@ -265,6 +323,8 @@ class FolderSearchView(View):
             query = FolderModel.objects.all().order_by()
             if not is_public:
                 query = apply_tenant_filter(query, request_user, strict_mode=True)
+            else:
+                query = exclude_system_folder_scope(query)
             return set(f.id for f in query)
 
         # 从指定文件夹开始搜索，获取该文件夹及其所有后代
@@ -286,6 +346,8 @@ class FolderSearchView(View):
             child_folders_query = FolderModel.objects.filter(parent_id__in=parent_ids).order_by()
             if not is_public:
                 child_folders_query = apply_tenant_filter(child_folders_query, request_user, strict_mode=True)
+            else:
+                child_folders_query = exclude_system_folder_scope(child_folders_query)
 
             for child in child_folders_query:
                 if child.id not in visited_ids:

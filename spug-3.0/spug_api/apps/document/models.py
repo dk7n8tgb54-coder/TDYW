@@ -695,3 +695,42 @@ class DocumentTransfer(models.Model):
 
     def __str__(self):
         return f"{self.transfer_type} - {self.file_name} - {self.status}"
+
+
+# ==================== 系统目录绑定模型 ====================
+
+class DocumentSystemFolder(models.Model):
+    """系统目录绑定模型
+
+    用于绑定公共空间中的受保护业务根目录（如"行业规章"），
+    使前端可以按业务入口呈现独立模块，后端可据此做范围校验和根目录保护。
+
+    - 不靠目录名称判断，避免用户改名或重名歧义
+    - folder 外键 on_delete=PROTECT，防止系统目录被数据库级误删
+    - 初始化命令可幂等执行，便于部署和修复
+    """
+    code = models.CharField(
+        max_length=64, unique=True, db_index=True,
+        help_text='系统目录编码，行业规章固定为 industry_rules',
+        verbose_name='系统目录编码'
+    )
+    name = models.CharField(max_length=100, verbose_name='显示名称')
+    folder = models.ForeignKey(
+        DocumentFolderPublic, on_delete=models.PROTECT,
+        related_name='system_bindings',
+        verbose_name='绑定的公共目录',
+        help_text='绑定的 DocumentFolderPublic 根目录'
+    )
+    is_public = models.BooleanField(default=True, verbose_name='是否公共空间')
+    protected = models.BooleanField(default=True, verbose_name='是否保护根目录')
+    description = models.CharField(max_length=255, blank=True, default='', verbose_name='说明')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'tdyw_document_system_folder'
+        verbose_name = '文档系统目录绑定'
+        verbose_name_plural = '文档系统目录绑定'
+
+    def __str__(self):
+        return f'{self.code} -> folder({self.folder_id})'

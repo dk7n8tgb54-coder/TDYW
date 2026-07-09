@@ -7,6 +7,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import http from 'libs/http';
+import { appendSystemFolderParam } from 'libs/systemFolderContext';
 
 const PreviewImage = React.memo(({ fileId, isPublic, thumbnail, alt, style, className, imgLoading, onError }) => {
   const [previewToken, setPreviewToken] = useState('');
@@ -26,7 +27,7 @@ const PreviewImage = React.memo(({ fileId, isPublic, thumbnail, alt, style, clas
     return <div style={{ ...style, background: '#f0f0f0', flexShrink: 0 }} />;
   }
 
-  const src = `/api/document/preview/?id=${fileId}&is_public=${isPublic}&preview_token=${previewToken}${thumbnail ? '&thumbnail=true' : ''}`;
+  const src = appendSystemFolderParam(`/api/document/preview/?id=${fileId}&is_public=${isPublic}&preview_token=${previewToken}${thumbnail ? '&thumbnail=true' : ''}`);
 
   return (
     <img

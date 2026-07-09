@@ -204,7 +204,7 @@ function Statistics() {
     <AuthDiv auth="runlog.runlog.view">
       <Breadcrumb style={{ marginBottom: 16 }}>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>运行日志</Breadcrumb.Item>
+        <Breadcrumb.Item>跨日事项跟踪</Breadcrumb.Item>
         <Breadcrumb.Item>统计概览</Breadcrumb.Item>
       </Breadcrumb>
 
@@ -292,12 +292,12 @@ function Statistics() {
           </Col>
         </Row>
 
-        {/* 未闭环事件列表 */}
+        {/* 未闭环事项列表 */}
         <Card
           title={
             <span>
               <AlertOutlined style={{ color: '#faad14', marginRight: 8 }} />
-              未闭环事件列表（最近 {unclosedList.length} 条）
+              未闭环事项列表（最近 {unclosedList.length} 条）
             </span>
           }
         >

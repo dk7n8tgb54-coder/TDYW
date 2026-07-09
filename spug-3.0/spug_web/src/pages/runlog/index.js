@@ -28,7 +28,7 @@ export default observer(function () {
           store.showForm(res.data || res, true); // true表示查看模式
         })
         .catch(e => {
-          console.error('[运行日志] 获取事件详情失败:', e);
+          console.error('[跨日事项跟踪] 获取事件详情失败:', e);
         });
     }
   }, [location.search]);
@@ -37,7 +37,7 @@ export default observer(function () {
     <AuthDiv auth="runlog.runlog.view">
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>运行日志</Breadcrumb.Item>
+        <Breadcrumb.Item>跨日事项跟踪</Breadcrumb.Item>
       </Breadcrumb>
       <ComTable/>
       {store.formVisible && <ComForm/>}

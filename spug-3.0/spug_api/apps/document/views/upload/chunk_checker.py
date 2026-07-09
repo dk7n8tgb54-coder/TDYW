@@ -10,6 +10,7 @@ import logging
 from django.conf import settings
 
 from apps.document.constants import TransferStatus
+from apps.document.libs.document_utils import get_merge_task_storage_base_path
 from .validators import HashValidator
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ class MergeStatusChecker:
     """
 
     @staticmethod
-    def check_merge_status(chunk_dir, file_hash):
+    def check_merge_status(chunk_dir, file_hash, system_folder=None):
         """检查文件合并状态。
 
         读取分片目录中的合并状态文件，获取当前合并任务的进度信息。
@@ -94,7 +95,10 @@ class MergeStatusChecker:
                 result['merge_status'] = f.read().strip()
 
             if result['merge_status'].upper() == TransferStatus.MERGING.value:
-                task_info = MergeStatusChecker._get_task_info(file_hash)
+                task_info = MergeStatusChecker._get_task_info(
+                    file_hash,
+                    system_folder=system_folder,
+                )
                 result.update(task_info)
 
         except (IOError, OSError) as e:
@@ -103,7 +107,7 @@ class MergeStatusChecker:
         return result
 
     @staticmethod
-    def _get_task_info(file_hash):
+    def _get_task_info(file_hash, system_folder=None):
         """获取合并任务信息。
 
         根据文件哈希查找对应的任务文件，提取Celery任务ID。
@@ -116,7 +120,7 @@ class MergeStatusChecker:
         """
         result = {'merge_task_id': None, 'task_id': None}
 
-        merge_task_dir = os.path.join(settings.BASE_DIR, *MERGE_TASKS_BASE_PATH_PARTS)
+        merge_task_dir = get_merge_task_storage_base_path(system_folder)
         if not os.path.exists(merge_task_dir):
             return result
 

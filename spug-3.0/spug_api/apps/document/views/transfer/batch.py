@@ -12,7 +12,8 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from libs import json_response, JsonParser, Argument, auth
+from libs import json_response, JsonParser, Argument
+from ...libs.document_auth import document_auth
 from ...libs.idempotency_utils import IdempotencyChecker
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 class TransferBatchPauseView(View):
     """批量暂停传输"""
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     @transaction.atomic
     def post(self, request):
         from ...models import DocumentTransfer
@@ -93,7 +94,7 @@ class TransferBatchPauseView(View):
 class TransferBatchResumeView(View):
     """批量恢复传输"""
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     @transaction.atomic
     def post(self, request):
         from ...models import DocumentTransfer
@@ -172,7 +173,7 @@ class TransferBatchResumeView(View):
 class TransferBatchCancelView(View):
     """批量取消传输（Celery异步版本，支持幂等性校验）"""
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     def post(self, request):
         try:
             form, error = JsonParser(
@@ -222,7 +223,7 @@ class TransferBatchCancelView(View):
 class TransferBatchDeleteView(View):
     """批量删除传输记录（Celery异步版本，支持幂等性校验）"""
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     def post(self, request):
         try:
             form, error = JsonParser(

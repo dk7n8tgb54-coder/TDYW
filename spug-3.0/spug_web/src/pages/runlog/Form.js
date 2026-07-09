@@ -190,7 +190,7 @@ export default observer(function () {
       <Modal
         visible
         width={900}
-        title="运行日志详情"
+        title="跨日事项跟踪详情"
         footer={[
           <Button key="close" onClick={() => S.formVisible = false}>关闭</Button>
         ]}
@@ -307,7 +307,7 @@ export default observer(function () {
       visible
       width={900}
       maskClosable={false}
-      title={S.record.id ? '编辑运行日志' : '新建运行日志'}
+      title={S.record.id ? '编辑跨日事项' : '新建跨日事项'}
       onCancel={() => S.formVisible = false}
       confirmLoading={loading}
       onOk={handleSubmit}>

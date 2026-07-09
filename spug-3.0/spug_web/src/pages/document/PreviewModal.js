@@ -8,6 +8,7 @@ import { observer } from 'mobx-react';
 import { Modal, Spin } from 'antd';
 import { AudioIcon, FileIcon as FileTypeIcon } from './components/FileTypeIcon';
 import http from 'libs/http';
+import { appendSystemFolderParam } from 'libs/systemFolderContext';
 import uploadUIStore from './stores/upload/ui';
 import navigationStore from './stores/navigation';
 import ReactPlayer from 'react-player';
@@ -307,7 +308,7 @@ class PreviewModal extends React.Component {
         {previewToken ? (
           <audio
             controls
-            src={`/api/document/preview/?id=${file.id}&preview_token=${previewToken}&is_public=${isPublic}`}
+            src={appendSystemFolderParam(`/api/document/preview/?id=${file.id}&preview_token=${previewToken}&is_public=${isPublic}`)}
             style={{ width: '80%', maxWidth: '500px' }}
           >
             您的浏览器不支持音频播放
@@ -387,7 +388,7 @@ class PreviewModal extends React.Component {
 
     // 【H-2修复】需要 preview_token 的 URL 构造
     const previewUrl = previewToken
-      ? `/api/document/preview/?id=${file.id}&preview_token=${previewToken}&is_public=${isPublic}`
+      ? appendSystemFolderParam(`/api/document/preview/?id=${file.id}&preview_token=${previewToken}&is_public=${isPublic}`)
       : '';
 
     return (

@@ -21,6 +21,7 @@ import { parseRawId, generateKey } from './utils/keyUtils';
 import styles from './FolderTree.module.less';
 import { createLogger } from '@/pages/document/utils/logger';
 import { FolderIcon } from './components/FileTypeIcon';
+import { INDUSTRY_RULES_CODE } from 'libs/systemFolderContext';
 const log = createLogger("FolderTree");
 @observer
 class FolderTree extends React.Component {
@@ -42,6 +43,11 @@ class FolderTree extends React.Component {
     if (prevProps.isPublic !== this.props.isPublic) {
       this.fetchFolders();
     }
+    // 行业规章锁定模式：根目录 ID 变化（初始化后）时刷新
+    if (prevProps.lockedRoot !== this.props.lockedRoot
+        || prevProps.rootFolderId !== this.props.rootFolderId) {
+      this.fetchFolders();
+    }
   }
 
   /**
@@ -50,12 +56,16 @@ class FolderTree extends React.Component {
    * parentId !== null → 加载指定文件夹的子文件夹
    */
   fetchChildFolders = async (parentId) => {
-    const { isPublic } = this.props;
+    if (!this._isMounted) return [];
+    const { isPublic, lockedRoot } = this.props;
     const url = '/api/document/folder/';
     const params = {
       id: parentId,
       is_public: isPublic
     };
+    if (lockedRoot) {
+      params.system_folder = INDUSTRY_RULES_CODE;
+    }
     const res = await http.get(url, { params });
     // 后端返回 { folders: [...], files: [...], pagination: ... } 或 [...]（all=true 时）
     const folders = Array.isArray(res) ? res : (res.folders || []);
@@ -67,7 +77,21 @@ class FolderTree extends React.Component {
       this.setState({
         loading: true
       });
-      const { isPublic } = this.props;
+      const { isPublic, lockedRoot, autoExpandAll } = this.props;
+      // 行业规章锁定模式：构建单根节点树
+      if (lockedRoot) {
+        const treeData = this.buildSingleRootTree();
+        if (this._isMounted) {
+          this.setState({ data: treeData, expandedKeys: ['system-root'] }, () => {
+            if (autoExpandAll) {
+              this._loadExpandedSystemRootTree();
+            } else {
+              this._loadSystemRootChildren();
+            }
+          });
+        }
+        return;
+      }
       // 【M6 重构】用 antd loadData + children undefined 实现按需加载
       // 根节点本身不需要查后端（"我的文件"/"公共共享库"是 UI 概念）
       // 当前 isPublic 对应的根节点 children 设为 undefined（触发 loadData），
@@ -76,7 +100,8 @@ class FolderTree extends React.Component {
 
       if (this._isMounted) {
         this.setState({
-          data: treeData
+          data: treeData,
+          expandedKeys: [isPublic ? 'public-root' : 'private-root']
         }, () => {
           // setState 回调里预加载当前激活根节点的一级 children
           // 关键：只预加载一个根节点（另一个保持空），避免 antd key 冲突
@@ -90,7 +115,7 @@ class FolderTree extends React.Component {
       // 显示空的树形结构
       if (this._isMounted) {
         this.setState({
-          data: this.buildDualRootTree(this.props.isPublic)
+          data: this.props.lockedRoot ? this.buildSingleRootTree() : this.buildDualRootTree(this.props.isPublic)
         });
       }
     } finally {
@@ -100,6 +125,98 @@ class FolderTree extends React.Component {
         });
       }
     }
+  };
+
+  /**
+   * 行业规章锁定模式：构建单根节点树
+   * 根节点代表行业规章根目录（真实文件夹），children 预加载
+   */
+  buildSingleRootTree = () => {
+    const { rootFolderId, rootFolderName } = this.props;
+    return [{
+      key: 'system-root',
+      rawId: rootFolderId,
+      folderName: rootFolderName || '行业规章',
+      title: <div className={styles.publicRoot}>
+          <span className={styles.rootEmoji}><FolderIcon size={18} open /></span>
+          <span className={styles.rootLabel}>{rootFolderName || '行业规章'}</span>
+        </div>,
+      selectable: true,
+      children: undefined,
+      isLeaf: false
+    }];
+  };
+
+  /**
+   * 行业规章锁定模式：预加载根目录的一级子文件夹
+   */
+  _loadSystemRootChildren = async () => {
+    try {
+      const { rootFolderId } = this.props;
+      if (!rootFolderId) return;
+      const folders = await this.fetchChildFolders(rootFolderId);
+      this._setRootChildren('system-root', folders);
+    } catch (error) {
+      log.warn(`[FolderTree] 预加载系统根节点失败:`, error);
+    }
+  };
+
+  _loadExpandedSystemRootTree = async () => {
+    try {
+      const { rootFolderId } = this.props;
+      if (!rootFolderId || !this._isMounted) return;
+
+      const { nodes, expandedKeys } = await this._buildExpandedFolderChildren(rootFolderId);
+      if (!this._isMounted) return;
+
+      this.setState((prevState) => ({
+        data: prevState.data.map(node => {
+          if (node.key === 'system-root') {
+            return { ...node, children: nodes };
+          }
+          return node;
+        }),
+        expandedKeys: ['system-root', ...expandedKeys]
+      }));
+    } catch (error) {
+      log.warn(`[FolderTree] 自动展开系统目录树失败:`, error);
+      this._loadSystemRootChildren();
+    }
+  };
+
+  _buildExpandedFolderChildren = async (parentId, depth = 0, visited = new Set()) => {
+    const MAX_AUTO_EXPAND_DEPTH = 20;
+    if (!this._isMounted || !parentId || depth >= MAX_AUTO_EXPAND_DEPTH || visited.has(parentId)) {
+      return { nodes: [], expandedKeys: [] };
+    }
+
+    visited.add(parentId);
+    const folders = await this.fetchChildFolders(parentId);
+    if (!this._isMounted) {
+      return { nodes: [], expandedKeys: [] };
+    }
+    const baseNodes = this._buildFolderChildren(folders);
+    const expandedKeys = [];
+    const nodes = [];
+
+    for (const node of baseNodes) {
+      if (!this._isMounted) {
+        return { nodes, expandedKeys };
+      }
+      const { nodes: childNodes, expandedKeys: childExpandedKeys } =
+        await this._buildExpandedFolderChildren(node.rawId, depth + 1, visited);
+      const hasChildren = childNodes.length > 0;
+      if (hasChildren) {
+        expandedKeys.push(node.key, ...childExpandedKeys);
+      }
+      nodes.push({
+        ...node,
+        children: hasChildren ? childNodes : [],
+        isLeaf: !hasChildren
+      });
+    }
+
+    return { nodes, expandedKeys };
   };
 
   /**
@@ -179,6 +296,18 @@ class FolderTree extends React.Component {
    */
   onLoadData = async (treeNode) => {
     const key = treeNode.key;
+
+    // 行业规章系统根节点：展开时加载其一级子文件夹
+    if (key === 'system-root') {
+      const nodeData = this.state.data.find(n => n.key === key);
+      if (nodeData && nodeData.children && nodeData.children.length > 0) {
+        return;
+      }
+      const { rootFolderId } = this.props;
+      const folders = await this.fetchChildFolders(rootFolderId);
+      this._setRootChildren(key, folders);
+      return;
+    }
 
     // 双根节点：展开时加载一级子文件夹
     // 注意：loadData 触发时 this.props.isPublic 可能还是旧的（点击根节点 → selectRootFolder
@@ -287,6 +416,14 @@ class FolderTree extends React.Component {
   handleSelect = (_, {
     node
   }) => {
+    // 行业规章系统根节点选择
+    if (node.key === 'system-root') {
+      const { rootFolderId, rootFolderName } = this.props;
+      if (rootFolderId) {
+        navigationStore.selectFolder(rootFolderId, rootFolderName || '行业规章');
+      }
+      return;
+    }
     // 处理根节点选择
     if (node.key === 'private-root' || node.key === 'public-root') {
       navigationStore.selectRootFolder(node.key === 'public-root');
@@ -335,8 +472,12 @@ class FolderTree extends React.Component {
   };
   render() {
     const {
-      isPublic
+      isPublic,
+      lockedRoot
     } = this.props;
+    const defaultExpandedKey = lockedRoot
+      ? 'system-root'
+      : (isPublic ? 'public-root' : 'private-root');
     return <div className={styles.container}>
         <div className={styles.header}>
           <span className={styles.title}>文件夹</span>
@@ -347,7 +488,7 @@ class FolderTree extends React.Component {
             treeData={this.state.data}
             onSelect={this.handleSelect}
             loading={this.state.loading}
-            defaultExpandedKeys={[isPublic ? 'public-root' : 'private-root']}
+            defaultExpandedKeys={[defaultExpandedKey]}
             expandedKeys={this.state.expandedKeys}
             onExpand={expandedKeys => this.setState({ expandedKeys })}
             // 【M6 关键】loadData API + children undefined → 按需加载

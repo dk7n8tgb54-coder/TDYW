@@ -63,6 +63,7 @@ TARGET_MAP = {
     '/interference/': {'type': 'interference', 'name': '干扰'},
     '/runlog/': {'type': 'runlog', 'name': '运行日志'},
     '/radio-license/': {'type': 'radio_license', 'name': '无线电台执照'},
+    '/industry-rule/': {'type': 'industry_rule', 'name': '行业规章'},
     '/setting/': {'type': 'setting', 'name': '系统设置'},
     '/upgrade/': {'type': 'upgrade', 'name': '升级'},
     '/checksheet/': {'type': 'checksheet', 'name': '检查表'},

@@ -24,7 +24,19 @@ if TYPE_CHECKING:
     from apps.document.models import DocumentTransfer
     from apps.account.models import User
 from apps.document.constants import TransferStatus, DEFAULT_MAX_FILE_SIZE
-from apps.document.libs.document_utils import get_folder_model, get_file_model, get_chunk_dir_path, is_safe_path, get_document_absolute_path
+from apps.document.libs.document_utils import (
+    get_folder_model,
+    get_file_model,
+    get_chunk_dir_path,
+    get_merge_task_file_path,
+    is_safe_path,
+    get_document_absolute_path,
+)
+from apps.document.libs.document_auth import document_auth
+from apps.document.services.system_folder_service import (
+    INDUSTRY_RULES_CODE, ensure_folder_in_scope_or_error,
+    validate_system_folder_context, UPLOAD_TARGET_MSG,
+)
 from apps.document.views.base import validate_file_name, validate_file_upload, handle_view_errors
 from apps.document.views.upload.lock import get_merge_lock, MERGE_LOCK_TIMEOUT
 from apps.document.views.upload.validators import HashValidator, FolderValidator, ChunkStorageManager
@@ -102,6 +114,7 @@ def validate_merge_params(data: dict) -> tuple[Optional[dict], Optional[str]]:
         'folder_id': data.get('folder_id'),
         'is_public': data.get('is_public', False),
         'transfer_id': data.get('transfer_id'),
+        'system_folder': data.get('system_folder'),
     }, None
 
 
@@ -125,7 +138,8 @@ def build_file_path(params: dict, folder: Any, user: 'User') -> dict[str, str]:
     upload_dir = get_document_absolute_path(
         is_public=is_public,
         user_id=user.id,
-        folder_id=folder_id
+        folder_id=folder_id,
+        system_folder=params.get('system_folder'),
     )
     os.makedirs(upload_dir, exist_ok=True)
 
@@ -167,7 +181,13 @@ def check_all_chunks_present(chunk_dir: str, total_chunks: int) -> list[int]:
     return missing_chunks
 
 
-def validate_chunk_directory(file_hash: str, is_public: bool, user: 'User', transfer_id: Optional[int] = None) -> tuple[Optional[str], Optional[str]]:
+def validate_chunk_directory(
+    file_hash: str,
+    is_public: bool,
+    user: 'User',
+    transfer_id: Optional[int] = None,
+    system_folder: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
     """
     验证并获取分片目录
 
@@ -188,6 +208,7 @@ def validate_chunk_directory(file_hash: str, is_public: bool, user: 'User', tran
         file_hash, is_public, user,
         transfer_id=transfer_id,
         allow_legacy_fallback=True,
+        system_folder=system_folder,
     )
 
 
@@ -369,9 +390,9 @@ def submit_merge_task(
     """
     timestamp = int(time.time())
     merge_task_id = f"{params['file_hash']}_{timestamp}"
-    merge_task_file = os.path.join(
-        settings.BASE_DIR, *MERGE_TASKS_BASE_PATH_PARTS,
-        f"{merge_task_id}.task"
+    merge_task_file = get_merge_task_file_path(
+        merge_task_id,
+        system_folder=params.get('system_folder'),
     )
     os.makedirs(os.path.dirname(merge_task_file), exist_ok=True)
 
@@ -391,6 +412,7 @@ def submit_merge_task(
         'username': request.user.username,
         'tenant_id': tenant_id,
         'transfer_id': params['transfer_id'],
+        'system_folder': params.get('system_folder'),
         'timestamp': int(time.time()),
         'start_time': time.time()
     }
@@ -450,6 +472,7 @@ def write_merge_task_file(
                 'file_hash': params['file_hash'],
                 'user': user.username,
                 'is_public': is_public,
+                'system_folder': params.get('system_folder'),
                 'start_time': time.time(),
                 'task_id': task_id
             }))
@@ -468,7 +491,7 @@ class FileMergeChunksView(View):
     使用分布式锁防止并发合并冲突，支持幂等性检查避免重复合并。
     """
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     @handle_view_errors
     def post(self, request):
         """处理文件分片合并POST请求。
@@ -491,6 +514,20 @@ class FileMergeChunksView(View):
         if error:
             logger.error(f'[Document][Merge] Param validation failed: {error}')
             return json_response(error=error)
+
+        # 行业规章上下文与上传目标校验
+        system_folder = params.get('system_folder')
+        ok, ctx_err = validate_system_folder_context(system_folder, params['is_public'])
+        if not ok:
+            return json_response(error=ctx_err)
+        if system_folder == INDUSTRY_RULES_CODE:
+            if not params['folder_id']:
+                return json_response(error=UPLOAD_TARGET_MSG)
+            scope_ok, scope_err = ensure_folder_in_scope_or_error(
+                params['folder_id'], INDUSTRY_RULES_CODE, include_root=True
+            )
+            if not scope_ok:
+                return json_response(error=scope_err)
 
         # 步骤2: 验证文件夹和文件
         folder, chunk_dir, error = self._validate_folder_and_chunk(params, request)
@@ -587,7 +624,8 @@ class FileMergeChunksView(View):
         # 验证分片目录
         chunk_dir, error = validate_chunk_directory(
             params['file_hash'], params['is_public'], request.user,
-            transfer_id=params.get('transfer_id')
+            transfer_id=params.get('transfer_id'),
+            system_folder=params.get('system_folder'),
         )
         if error:
             return None, None, error

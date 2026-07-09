@@ -44,7 +44,7 @@ class FileStorageService:
     """文件存储服务"""
 
     @staticmethod
-    def ensure_upload_directory(is_public, user_id, folder_id):
+    def ensure_upload_directory(is_public, user_id, folder_id, system_folder=None):
         """
         确保上传目录存在
 
@@ -54,7 +54,8 @@ class FileStorageService:
         upload_dir = get_document_absolute_path(
             is_public=is_public,
             user_id=user_id,
-            folder_id=folder_id
+            folder_id=folder_id,
+            system_folder=system_folder
         )
         os.makedirs(upload_dir, exist_ok=True)
         return upload_dir
@@ -204,6 +205,10 @@ class FileUploadService:
         self.FileModel = FileModel
         self.is_public = is_public
         self.user = request.user
+        self.system_folder = (
+            request.POST.get('system_folder') or
+            request.GET.get('system_folder')
+        )
 
     def upload(self, file, folder, transfer_id=None):
         """
@@ -226,7 +231,8 @@ class FileUploadService:
             # 确保上传目录
             folder_id = folder.id if folder else None
             upload_dir = FileStorageService.ensure_upload_directory(
-                self.is_public, self.user.id, folder_id
+                self.is_public, self.user.id, folder_id,
+                system_folder=self.system_folder
             )
 
             # 构建文件路径

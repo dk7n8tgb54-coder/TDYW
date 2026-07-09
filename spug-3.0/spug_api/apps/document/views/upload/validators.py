@@ -7,7 +7,11 @@ import os
 import logging
 from django.conf import settings
 
-from apps.document.libs.document_utils import get_chunk_dir_path, is_safe_path
+from apps.document.libs.document_utils import (
+    get_chunk_dir_path,
+    get_chunk_storage_base_path,
+    is_safe_path,
+)
 from apps.document.views.base import validate_file_name
 
 logger = logging.getLogger(__name__)
@@ -212,7 +216,8 @@ class ChunkUploadValidator:
                 'total_chunks': int(total_chunks),
                 'file_hash': file_hash,
                 'folder_id': request.POST.get('folder_id'),
-                'is_public': request.POST.get('is_public', 'false').lower() == 'true'
+                'is_public': request.POST.get('is_public', 'false').lower() == 'true',
+                'system_folder': request.POST.get('system_folder')
             }, None
         except (ValueError, TypeError):
             return None, '参数类型错误'
@@ -298,7 +303,14 @@ class ChunkStorageManager:
     """分片存储管理器"""
 
     @staticmethod
-    def get_and_validate_chunk_dir(file_hash, is_public, user, transfer_id=None, allow_legacy_fallback=False):
+    def get_and_validate_chunk_dir(
+        file_hash,
+        is_public,
+        user,
+        transfer_id=None,
+        allow_legacy_fallback=False,
+        system_folder=None,
+    ):
         """
         获取并验证分片目录
 
@@ -315,12 +327,18 @@ class ChunkStorageManager:
             tuple: (chunk_dir, error_message)
         """
         try:
-            chunk_dir = get_chunk_dir_path(file_hash, is_public, user, transfer_id=transfer_id)
+            chunk_dir = get_chunk_dir_path(
+                file_hash,
+                is_public,
+                user,
+                transfer_id=transfer_id,
+                system_folder=system_folder,
+            )
         except ValueError as e:
             logger.error(f'[Document] get_chunk_dir_path rejected: {e}')
             return None, '参数异常，请检查文件哈希或租户信息'
 
-        chunk_base_dir = os.path.join(settings.BASE_DIR, 'storage', 'document_chunks')
+        chunk_base_dir = get_chunk_storage_base_path(system_folder)
         if not is_safe_path(chunk_base_dir, chunk_dir):
             return None, '非法的文件哈希值'
 
@@ -331,7 +349,13 @@ class ChunkStorageManager:
 
         # 【兼容】仅 resume / merge / direct_merge 等读取历史分片的入口允许回退
         if transfer_id is not None and not os.path.exists(chunk_dir):
-            legacy_dir = get_chunk_dir_path(file_hash, is_public, user, transfer_id=None)
+            legacy_dir = get_chunk_dir_path(
+                file_hash,
+                is_public,
+                user,
+                transfer_id=None,
+                system_folder=system_folder,
+            )
             if os.path.exists(legacy_dir):
                 logger.info(
                     f'[Document] Falling back to legacy chunk dir for hash={file_hash} '

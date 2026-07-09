@@ -9,7 +9,9 @@
 import logging
 from django.views.generic import View
 
-from libs import json_response, JsonParser, Argument, auth
+from libs import json_response, JsonParser, Argument
+from ...libs.document_auth import document_auth
+from ...services.system_scope_validators import validate_upload_target_scope
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +19,7 @@ logger = logging.getLogger(__name__)
 class TransferCreateView(View):
     """创建传输记录"""
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     def post(self, request):
         from ...models import DocumentTransfer
         from ...constants import TransferStatus
@@ -32,11 +34,21 @@ class TransferCreateView(View):
             Argument('folder_id', type=int, required=False, default=None),
             Argument('is_public', type=bool, required=False, default=False, help='是否公共空间'),
             Argument('total_chunks', type=int, required=False, default=None, help='总分片数'),
+            Argument('system_folder', type=str, required=False, default=None),
         ).parse(request.body)
 
         if error:
             logger.error(f'[Document] Transfer create parse error: {error}')
             return json_response(error=error)
+
+        ok, scope_err = validate_upload_target_scope(
+            form.system_folder,
+            form.is_public or False,
+            form.folder_id,
+            require_folder=form.transfer_type == 'upload',
+        )
+        if not ok:
+            return json_response(error=scope_err)
 
         request_user = request.user
         tenant_id = getattr(request_user, 'tenant_id', '')

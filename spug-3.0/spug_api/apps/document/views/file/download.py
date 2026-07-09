@@ -16,6 +16,11 @@ from urllib.parse import quote
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_file_model, is_safe_path
+from ...libs.document_auth import document_auth
+from ...services.system_folder_service import (
+    INDUSTRY_RULES_CODE, ensure_file_in_scope_or_error,
+    validate_system_folder_context,
+)
 from ..base import log_operation
 
 logger = logging.getLogger(__name__)
@@ -24,17 +29,23 @@ logger = logging.getLogger(__name__)
 class FileDownloadView(View):
     """文件下载视图 - 使用流式响应避免内存溢出"""
 
-    @auth('document.document.view')
+    @document_auth('download')
     def get(self, request):
         logger.info(f'[Document] FileDownloadView.get called, user: {request.user.username}')
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误'),
-            Argument('is_public', type=bool, required=False, default=False)
+            Argument('is_public', type=bool, required=False, default=False),
+            Argument('system_folder', type=str, required=False, default=None),
         ).parse(request.GET)
 
         if error is not None:
             logger.error(f'[Document] Download parse error: {error}')
             return json_response(error=error)
+
+        # 行业规章上下文校验
+        ok, ctx_err = validate_system_folder_context(form.system_folder, form.is_public)
+        if not ok:
+            return json_response(error=ctx_err)
 
         FileModel = get_file_model(is_public=form.is_public)
 
@@ -47,6 +58,12 @@ class FileDownloadView(View):
         if not file:
             logger.error(f'[Document] File not found with id: {form.id}')
             return json_response(error='文件不存在')
+
+        # 行业规章范围校验
+        if form.system_folder == INDUSTRY_RULES_CODE:
+            scope_ok, scope_err = ensure_file_in_scope_or_error(file, INDUSTRY_RULES_CODE)
+            if not scope_ok:
+                return json_response(error=scope_err)
 
         # 【P2-2修复】路径安全检查，防止路径遍历攻击
         document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')

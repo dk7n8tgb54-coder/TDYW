@@ -100,6 +100,7 @@ export const useContextMenu = () => {
   const createSingleSelectMenu = useCallback((record, options) => {
     const {
       canEdit,
+      perms = {},
       onOpen,
       onDownload,
       onCopy,
@@ -109,24 +110,28 @@ export const useContextMenu = () => {
       onProperties,
     } = options;
 
+    // 下载按 perms.download 控制（未传则默认允许，兼容普通模式）
+    const allowDownload = perms.download !== false;
+    const allowCopy = canEdit && perms.copy !== false;
+    const allowMove = canEdit && perms.move !== false;
+    const allowRename = canEdit && perms.rename !== false;
+    const allowDelete = canEdit && perms.delete !== false;
+
     const baseItems = record.isFolder
       ? [
           { key: 'open', label: '打开', icon: getMenuIcon('open'), onClick: onOpen },
-          { key: 'download', label: '下载', icon: getMenuIcon('download'), onClick: onDownload },
+          ...(allowDownload ? [{ key: 'download', label: '下载', icon: getMenuIcon('download'), onClick: onDownload }] : []),
         ]
       : [
           { key: 'open', label: '打开', icon: getMenuIcon('open'), onClick: onOpen },
-          { key: 'download', label: '下载', icon: getMenuIcon('download'), onClick: onDownload },
+          ...(allowDownload ? [{ key: 'download', label: '下载', icon: getMenuIcon('download'), onClick: onDownload }] : []),
         ];
 
-    const editItems = canEdit
-      ? [
-          { key: 'copy', label: '复制', icon: getMenuIcon('copy'), onClick: onCopy },
-          { key: 'cut', label: '移动', icon: getMenuIcon('cut'), onClick: onCut },
-          { key: 'rename', label: '重命名', icon: getMenuIcon('rename'), onClick: onRename },
-          { key: 'delete', label: '删除', icon: getMenuIcon('delete'), onClick: onDelete },
-        ]
-      : [];
+    const editItems = [];
+    if (allowCopy) editItems.push({ key: 'copy', label: '复制', icon: getMenuIcon('copy'), onClick: onCopy });
+    if (allowMove) editItems.push({ key: 'cut', label: '移动', icon: getMenuIcon('cut'), onClick: onCut });
+    if (allowRename) editItems.push({ key: 'rename', label: '重命名', icon: getMenuIcon('rename'), onClick: onRename });
+    if (allowDelete) editItems.push({ key: 'delete', label: '删除', icon: getMenuIcon('delete'), onClick: onDelete });
 
     const propertyItem = [
       { key: 'properties', label: '属性', icon: getMenuIcon('properties'), onClick: onProperties },
@@ -142,23 +147,24 @@ export const useContextMenu = () => {
    * @returns {Array} 菜单项
    */
   const createMultiSelectMenu = useCallback((selectedCount, options) => {
-    const { canEdit, onBatchDownload, onBatchCopy, onBatchCut, onBatchDelete } = options;
+    const { canEdit, perms = {}, onBatchDownload, onBatchCopy, onBatchCut, onBatchDelete } = options;
 
-    const items = [
-      {
+    const allowDownload = perms.download !== false;
+    const items = [];
+
+    if (allowDownload) {
+      items.push({
         key: 'download',
         label: `批量下载 (${selectedCount}项)`,
         icon: getMenuIcon('download'),
         onClick: onBatchDownload,
-      },
-    ];
+      });
+    }
 
     if (canEdit) {
-      items.push(
-        { key: 'copy', label: `批量复制 (${selectedCount}项)`, icon: getMenuIcon('copy'), onClick: onBatchCopy },
-        { key: 'cut', label: `批量移动 (${selectedCount}项)`, icon: getMenuIcon('cut'), onClick: onBatchCut },
-        { key: 'delete', label: `批量删除 (${selectedCount}项)`, icon: getMenuIcon('delete'), onClick: onBatchDelete }
-      );
+      if (perms.copy !== false) items.push({ key: 'copy', label: `批量复制 (${selectedCount}项)`, icon: getMenuIcon('copy'), onClick: onBatchCopy });
+      if (perms.move !== false) items.push({ key: 'cut', label: `批量移动 (${selectedCount}项)`, icon: getMenuIcon('cut'), onClick: onBatchCut });
+      if (perms.delete !== false) items.push({ key: 'delete', label: `批量删除 (${selectedCount}项)`, icon: getMenuIcon('delete'), onClick: onBatchDelete });
     }
 
     return items;

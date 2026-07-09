@@ -20,7 +20,7 @@ function HomeIndex() {
         <Breadcrumb.Item>工作台</Breadcrumb.Item>
       </Breadcrumb>
 
-      {/* 第1行：运行日志概览 */}
+      {/* 第1行：跨日事项跟踪概览 */}
       <RunlogOverview />
 
       {/* 第2行：资料库新增 + 故障处置 + 升级动态 + 干扰统计 */}

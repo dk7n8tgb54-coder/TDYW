@@ -5,6 +5,7 @@
 import { observable, action } from 'mobx';
 import { message } from 'antd';
 import { UPLOAD_CONSTANTS, API_ENDPOINTS } from './upload-core-constants';
+import { getSystemFolder, shouldUseSystemFolder } from 'libs/systemFolderContext';
 
 export class ChunkUploadStore {
   @observable chunkProgress = new Map();  // 分片进度
@@ -347,6 +348,12 @@ export class ChunkUploadStore {
     const uploadItem = this.queueStore.findUploadItemInCurrentTenant(uploadId);
     if (uploadItem?.transferId) {
       formData.append('transfer_id', uploadItem.transferId);
+    }
+
+    // 【行业规章】注入 system_folder 上下文（XHR 不走 axios 拦截器，需手动注入）
+    const activeSystemFolder = getSystemFolder();
+    if (activeSystemFolder && shouldUseSystemFolder()) {
+      formData.append('system_folder', activeSystemFolder);
     }
 
     // 再次检查暂停状态

@@ -34,14 +34,19 @@ class NavigationActions {
    * @param {number} index - 路径索引，-1表示返回根目录
    */
   navigateTo(index) {
+    // 行业规章锁定模式：index < 0（返回根）定位到锁定根目录，不能回到公共库根目录
     if (index < 0) {
-      this.goToRoot();
-    } else {
-      this.store.path = this.store.path.slice(0, index + 1);
-      this.store.currentFolderId = this.store.path[this.store.path.length - 1]?.id || null;
-      this.store.selectedFolderId = this.store.currentFolderId;
+      if (this.store.lockedRootFolderId) {
+        this.goToLockedRoot();
+      } else {
+        this.goToRoot();
+      }
+      return;
     }
-    
+    this.store.path = this.store.path.slice(0, index + 1);
+    this.store.currentFolderId = this.store.path[this.store.path.length - 1]?.id || null;
+    this.store.selectedFolderId = this.store.currentFolderId;
+
     if (this.store.sync) {
       this.store.sync.syncToUrl();
     }
@@ -51,14 +56,23 @@ class NavigationActions {
    * 返回上一级目录
    */
   goUp() {
+    // 行业规章锁定模式：已在锁定根目录时不再向上
+    if (this.store.lockedRootFolderId && this.store.currentFolderId === this.store.lockedRootFolderId) {
+      return;
+    }
     if (this.store.path.length > 0) {
       this.store.path.pop();
-      this.store.currentFolderId = this.store.path.length > 0 
-        ? this.store.path[this.store.path.length - 1].id 
+      // 防止回到锁定根目录之上（公共库根目录）
+      if (this.store.lockedRootFolderId && this.store.path.length === 0) {
+        this.goToLockedRoot();
+        return;
+      }
+      this.store.currentFolderId = this.store.path.length > 0
+        ? this.store.path[this.store.path.length - 1].id
         : null;
       this.store.selectedFolderId = this.store.currentFolderId;
     }
-    
+
     if (this.store.sync) {
       this.store.sync.syncToUrl();
     }
@@ -68,10 +82,30 @@ class NavigationActions {
    * 跳转到根目录
    */
   goToRoot() {
+    // 行业规章锁定模式：根目录即锁定根目录
+    if (this.store.lockedRootFolderId) {
+      this.goToLockedRoot();
+      return;
+    }
     this.store.path = [];
     this.store.currentFolderId = null;
     this.store.selectedFolderId = null;
-    
+
+    if (this.store.sync) {
+      this.store.sync.syncToUrl();
+    }
+  }
+
+  /**
+   * 跳转到行业规章锁定根目录
+   */
+  goToLockedRoot() {
+    const rootId = this.store.lockedRootFolderId;
+    const rootName = this.store.lockedRootFolderName || '行业规章';
+    this.store.path = [{ id: rootId, name: rootName }];
+    this.store.currentFolderId = rootId;
+    this.store.selectedFolderId = rootId;
+
     if (this.store.sync) {
       this.store.sync.syncToUrl();
     }
@@ -101,11 +135,16 @@ class NavigationActions {
    * @param {boolean} isPublicRoot - 是否为公共根节点
    */
   selectRootFolder(isPublicRoot) {
+    // 行业规章锁定模式：不允许切换空间，固定为公共且定位到锁定根目录
+    if (this.store.lockedRootFolderId) {
+      this.goToLockedRoot();
+      return;
+    }
     this.store.selectedFolderId = null;
     this.store.isPublic = isPublicRoot;
     this.store.path = [];
     this.store.currentFolderId = null;
-    
+
     if (this.store.sync) {
       this.store.sync.syncToUrl();
     }
@@ -159,11 +198,62 @@ class NavigationActions {
    * 重置所有导航状态
    */
   reset() {
+    // 行业规章锁定模式：重置到锁定根目录，保持公共空间
+    if (this.store.lockedRootFolderId) {
+      this.goToLockedRoot();
+      return;
+    }
     this.store.path = [];
     this.store.currentFolderId = null;
     this.store.selectedFolderId = null;
     this.store.isPublic = false;
-    
+
+    if (this.store.sync) {
+      this.store.sync.syncToUrl();
+    }
+  }
+
+  // ============================================================
+  // 系统目录（行业规章）
+  // ============================================================
+
+  /**
+   * 初始化系统目录锁定模式（行业规章）
+   * @param {Object} param
+   * @param {string} param.code - 系统目录编码
+   * @param {number} param.folderId - 根目录 ID
+   * @param {string} param.name - 根目录显示名
+   */
+  initSystemFolder({ code, folderId, name }) {
+    this.store.isPublic = true;
+    this.store.mode = 'industryRules';
+    this.store.systemFolderCode = code;
+    this.store.lockedRootFolderId = folderId;
+    this.store.lockedRootFolderName = name;
+    this.store.path = [{ id: folderId, name }];
+    this.store.currentFolderId = folderId;
+    this.store.selectedFolderId = folderId;
+    this.store.systemFolderReady = true;
+
+    if (this.store.sync) {
+      this.store.sync.syncToUrl();
+    }
+  }
+
+  /**
+   * 清除系统目录锁定模式（离开行业规章页面时调用）
+   */
+  clearSystemFolder() {
+    this.store.mode = 'normal';
+    this.store.systemFolderCode = null;
+    this.store.lockedRootFolderId = null;
+    this.store.lockedRootFolderName = null;
+    this.store.systemFolderReady = false;
+    this.store.path = [];
+    this.store.currentFolderId = null;
+    this.store.selectedFolderId = null;
+    this.store.isPublic = true;
+
     if (this.store.sync) {
       this.store.sync.syncToUrl();
     }

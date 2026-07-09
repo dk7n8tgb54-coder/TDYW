@@ -18,6 +18,16 @@ from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_folder_model, get_file_model, get_document_absolute_path
 from ...libs.view_utils import permission_denied_response
+from ...libs.document_auth import document_auth
+from ...services.system_folder_service import (
+    INDUSTRY_RULES_CODE, get_system_root_folder_id,
+    is_folder_in_scope, is_protected_system_root,
+    ensure_folder_in_scope_or_error, validate_system_folder_context,
+    exclude_system_file_scope, exclude_system_folder_scope,
+    is_folder_in_any_system_scope,
+    NORMAL_DOCUMENT_SCOPE_ERROR_MSG, SCOPE_ERROR_MSG, PROTECTED_ROOT_MSG,
+)
+from ...services.system_scope_validators import validate_upload_target_scope
 from ..base import create_model_instance, validate_file_name, check_public_space_permission, log_operation
 
 logger = logging.getLogger(__name__)
@@ -29,7 +39,7 @@ class FolderView(View):
     DEFAULT_PAGE_SIZE = 100
     MAX_PAGE_SIZE = 500
 
-    @auth('document.document.view')
+    @document_auth('view')
     def get(self, request):
         """
         获取文件夹列表和文件列表（支持分页优化）
@@ -39,6 +49,7 @@ class FolderView(View):
             Argument('id', type=int, required=False, default=None),
             Argument('all', type=bool, required=False, default=False),
             Argument('is_public', type=bool, required=False, default=False),
+            Argument('system_folder', type=str, required=False, default=None),
             Argument('page', type=int, required=False, default=1),
             Argument('page_size', type=int, required=False, default=None),
         ).parse(request.GET)
@@ -46,27 +57,53 @@ class FolderView(View):
         if error is not None:
             logger.error(f'[Document] Parse error: {error}')
             return json_response(error=error)
-        
+
+        # 行业规章上下文校验
+        system_folder = form.system_folder
+        ok, ctx_err = validate_system_folder_context(system_folder, form.is_public)
+        if not ok:
+            return json_response(error=ctx_err)
+
+        # 行业规章模式：id 为空时自动定位到根目录，id 非空时校验在范围内
+        if system_folder == INDUSTRY_RULES_CODE:
+            root_id = get_system_root_folder_id(INDUSTRY_RULES_CODE)
+            if root_id is None:
+                return json_response(error='行业规章系统目录尚未初始化')
+            if not form.id:
+                form.id = root_id
+            elif form.id != root_id and not is_folder_in_scope(form.id, INDUSTRY_RULES_CODE, include_root=False):
+                return json_response(error=SCOPE_ERROR_MSG)
+        elif form.is_public and form.id and is_folder_in_any_system_scope(form.id, include_root=True):
+            return json_response(error=NORMAL_DOCUMENT_SCOPE_ERROR_MSG)
+
         page = max(1, form.page)
         page_size = form.page_size or self.DEFAULT_PAGE_SIZE
         page_size = min(page_size, self.MAX_PAGE_SIZE)
-        
+
         FolderModel = get_folder_model(is_public=form.is_public)
         FileModel = get_file_model(is_public=form.is_public)
 
-        if form.id is None:
+        if not form.id:
             if form.all:
-                return self._get_all_folders(request, FolderModel, form.is_public)
+                return self._get_all_folders(request, FolderModel, form.is_public, system_folder)
             else:
-                return self._get_root_contents(request, FolderModel, FileModel, form.is_public, page, page_size)
+                return self._get_root_contents(request, FolderModel, FileModel, form.is_public, page, page_size, system_folder)
         else:
-            return self._get_folder_contents(request, FolderModel, FileModel, form.id, form.is_public, page, page_size)
+            return self._get_folder_contents(request, FolderModel, FileModel, form.id, form.is_public, page, page_size, system_folder)
     
-    def _get_all_folders(self, request, FolderModel, is_public):
+    def _get_all_folders(self, request, FolderModel, is_public, system_folder=None):
         """获取所有文件夹（树形结构）"""
         query = FolderModel.objects.filter(is_deleted=False).select_related('created_by').order_by('-created_at')
         if not is_public:
             query = apply_tenant_filter(query, request.user, strict_mode=True)
+
+        # 行业规章模式：只返回根目录及其子孙
+        if system_folder == INDUSTRY_RULES_CODE:
+            from ...services.system_folder_service import get_descendant_folder_ids
+            scope_ids = get_descendant_folder_ids(INDUSTRY_RULES_CODE, include_root=True)
+            query = query.filter(id__in=scope_ids)
+        elif is_public:
+            query = exclude_system_folder_scope(query)
 
         max_folders = 1000
         folders = query[:max_folders]
@@ -85,15 +122,19 @@ class FolderView(View):
         ]
         return json_response(result)
     
-    def _get_root_contents(self, request, FolderModel, FileModel, is_public, page, page_size):
+    def _get_root_contents(self, request, FolderModel, FileModel, is_public, page, page_size, system_folder=None):
         """获取根目录内容（分页优化）"""
         folders_query = FolderModel.objects.filter(parent__isnull=True, is_deleted=False).select_related('created_by').order_by('-created_at')
         if not is_public:
             folders_query = apply_tenant_filter(folders_query, request.user, strict_mode=True)
+        elif system_folder != INDUSTRY_RULES_CODE:
+            folders_query = exclude_system_folder_scope(folders_query)
 
         files_query = FileModel.objects.filter(folder__isnull=True).select_related('created_by').order_by('-created_at')
         if not is_public:
             files_query = apply_tenant_filter(files_query, request.user, strict_mode=True)
+        elif system_folder != INDUSTRY_RULES_CODE:
+            files_query = exclude_system_file_scope(files_query)
 
         # 统一分页：文件夹在前，文件在后
         offset = (page - 1) * page_size
@@ -145,15 +186,19 @@ class FolderView(View):
         }
         return json_response(result)
 
-    def _get_folder_contents(self, request, FolderModel, FileModel, folder_id, is_public, page, page_size):
+    def _get_folder_contents(self, request, FolderModel, FileModel, folder_id, is_public, page, page_size, system_folder=None):
         """获取指定文件夹内容（分页优化）"""
         folders_query = FolderModel.objects.filter(parent_id=folder_id, is_deleted=False).select_related('created_by').order_by('-created_at')
         if not is_public:
             folders_query = apply_tenant_filter(folders_query, request.user, strict_mode=True)
+        elif system_folder != INDUSTRY_RULES_CODE:
+            folders_query = exclude_system_folder_scope(folders_query)
 
         files_query = FileModel.objects.filter(folder_id=folder_id).select_related('created_by').order_by('-created_at')
         if not is_public:
             files_query = apply_tenant_filter(files_query, request.user, strict_mode=True)
+        elif system_folder != INDUSTRY_RULES_CODE:
+            files_query = exclude_system_file_scope(files_query)
 
         # 统一分页：文件夹在前，文件在后
         offset = (page - 1) * page_size
@@ -221,14 +266,15 @@ class FolderView(View):
             'thumbnail_path': f.thumbnail_path if hasattr(f, 'thumbnail_path') else None,  # 缩略图路径
         }
 
-    @auth('document.document.create_folder')
+    @document_auth('create_folder')
     def post(self, request):
         """创建文件夹（幂等：同名同父目录已存在则返回已有 ID）"""
         try:
-            data = json.loads(request.body)
+            data = request._document_cached_json_body if hasattr(request, '_document_cached_json_body') else json.loads(request.body)
             name = data.get('name')
             parent_id = data.get('parent_id')
             is_public = data.get('is_public', False)
+            system_folder = data.get('system_folder')
         except Exception as e:
             logger.error(f'解析请求参数失败: {e}')
             return json_response(error='参数错误')
@@ -238,6 +284,10 @@ class FolderView(View):
 
         if not validate_file_name(name):
             return json_response(error='文件夹名称包含非法字符')
+
+        ok, scope_err = validate_upload_target_scope(system_folder, is_public, parent_id)
+        if not ok:
+            return json_response(error=scope_err)
 
         FolderModel = get_folder_model(is_public=is_public)
         parent = None
@@ -295,16 +345,30 @@ class FolderView(View):
 
         return qs.first()
 
-    @auth('document.document.delete')
+    @document_auth('delete')
     def delete(self, request):
         """删除文件夹"""
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误'),
-            Argument('is_public', type=bool, required=False, default=False)
+            Argument('is_public', type=bool, required=False, default=False),
+            Argument('system_folder', type=str, required=False, default=None),
         ).parse(request.GET)
         
         if error is not None:
             return json_response(error=error)
+
+        # 行业规章上下文与根目录保护
+        ok, ctx_err = validate_system_folder_context(form.system_folder, form.is_public)
+        if not ok:
+            return json_response(error=ctx_err)
+        if form.system_folder == INDUSTRY_RULES_CODE:
+            if is_protected_system_root(form.id):
+                return json_response(error=PROTECTED_ROOT_MSG)
+            scope_ok, scope_err = ensure_folder_in_scope_or_error(
+                form.id, INDUSTRY_RULES_CODE, include_root=False
+            )
+            if not scope_ok:
+                return json_response(error=scope_err)
             
         FolderModel = get_folder_model(is_public=form.is_public)
         FileModel = get_file_model(is_public=form.is_public)

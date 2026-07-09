@@ -74,7 +74,7 @@ class ComTable extends React.Component {
           }));
         })
         .catch(e => {
-          console.error('[运行日志] 获取动态列表失败:', e);
+          console.error('[跨日事项跟踪] 获取动态列表失败:', e);
           this.setState({ [`loading_${id}`]: false });
         });
     });
@@ -100,7 +100,7 @@ class ComTable extends React.Component {
       url: '/api/runlog/export/pdf/',
       method: 'post',
       data: store.getExportParams(),
-      defaultFilename: '运行日志报告.pdf',
+      defaultFilename: '跨日事项跟踪报告.pdf',
       timeout: 60000,
       loadingText: '正在生成PDF...',
     });
@@ -112,7 +112,7 @@ class ComTable extends React.Component {
       url: '/api/runlog/export/excel/',
       method: 'get',
       params: store.getExportParams(),
-      defaultFilename: '运行日志明细.xlsx',
+      defaultFilename: '跨日事项跟踪明细.xlsx',
       timeout: 60000,
       loadingText: '正在生成Excel...',
     });
@@ -203,7 +203,7 @@ class ComTable extends React.Component {
           }));
         })
         .catch(e => {
-          console.error('[运行日志] 获取动态列表失败:', e);
+          console.error('[跨日事项跟踪] 获取动态列表失败:', e);
           this.setState({ [`loading_${record.id}`]: false });
         });
     } else {
@@ -372,7 +372,7 @@ class ComTable extends React.Component {
 
         <TableCard
           tKey="rl"
-          title="运行日志列表"
+          title="跨日事项跟踪列表"
           rowKey="id"
           loading={store.isFetching}
           dataSource={store.dataSource}

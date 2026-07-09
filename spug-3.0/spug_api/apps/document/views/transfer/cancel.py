@@ -11,8 +11,9 @@ import logging
 from django.views.generic import View
 from django.conf import settings
 
-from libs import json_response, auth
+from libs import json_response
 from apps.document.libs.document_utils import get_chunk_dir_path, is_safe_path
+from apps.document.libs.document_auth import document_auth
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +160,7 @@ class TransferCanceler:
 class TransferCancelView(View):
     """取消传输"""
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     def post(self, request, transfer_id):
         from ...models import DocumentTransfer
 

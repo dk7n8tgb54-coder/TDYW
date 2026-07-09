@@ -10,8 +10,9 @@ import logging
 from django.views.generic import View
 from django.utils import timezone
 
-from libs import json_response, JsonParser, Argument, auth
+from libs import json_response, JsonParser, Argument
 from apps.document.libs.view_utils import permission_denied_response
+from apps.document.libs.document_auth import document_auth
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 class TransferCompleteView(View):
     """完成传输"""
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     def post(self, request, transfer_id):
         from ...models import DocumentTransfer
         from ...constants import TransferStatus, is_valid_status_transition
@@ -65,7 +66,7 @@ class TransferCompleteView(View):
 class TransferFailView(View):
     """标记传输失败"""
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     def post(self, request, transfer_id):
         from ...models import DocumentTransfer
         from ...constants import TransferStatus, is_valid_status_transition
@@ -130,7 +131,7 @@ class TransferFailView(View):
 class TransferStatusUpdateView(View):
     """更新传输状态"""
 
-    @auth('document.document.upload')
+    @document_auth('upload')
     def post(self, request, transfer_id):
         from ...models import DocumentTransfer
         from ...constants import TransferStatus, is_valid_status_transition

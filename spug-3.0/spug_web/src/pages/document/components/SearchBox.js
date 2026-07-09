@@ -13,6 +13,8 @@ import http from 'libs/http';
  */
 const SearchBox = ({ 
   isPublic, 
+  folderId,
+  placeholder = '搜索整个资料库',
   onSearchStart, 
   onSearchResult, 
   onSearchError,
@@ -32,10 +34,11 @@ const SearchBox = ({
 
     try {
       const tenantId = isPublic ? null : sessionStorage.getItem('tenant_id');
-      // 全库搜索：folder_id 为 null
+      // 搜索范围：传入 folderId 时限定到该目录子树，否则全库搜索
+      const searchFolderId = folderId || null;
       const res = await http.get('/api/document/folder/search/', {
         params: {
-          folder_id: null, // 全库搜索
+          folder_id: searchFolderId,
           keyword: searchKeyword.trim(),
           is_public: isPublic,
           tenant_id: tenantId
@@ -88,7 +91,7 @@ const SearchBox = ({
       console.error('[SearchBox] 搜索失败:', error);
       if (onSearchError) onSearchError(error.message || '搜索失败');
     }
-  }, [isPublic, onSearchStart, onSearchResult, onSearchError, onClearSearch]);
+  }, [isPublic, folderId, onSearchStart, onSearchResult, onSearchError, onClearSearch]);
 
   // 防抖搜索
   const debouncedSearch = useCallback((value) => {
@@ -117,7 +120,7 @@ const SearchBox = ({
 
   return (
     <Input
-      placeholder="搜索整个资料库"
+      placeholder={placeholder}
       value={keyword}
       onChange={handleInputChange}
       onPressEnter={handleSearchClick}
