@@ -19,6 +19,7 @@ import NotFound from './NotFound';
 import Link from './Link';
 import ExportButton from './ExportButton';
 import AttachmentManager from './AttachmentManager';
+import AttachmentCountBadge from './AttachmentCountBadge';
 
 export {
   StatisticsCard,
@@ -37,4 +38,5 @@ export {
   Link,
   ExportButton,
   AttachmentManager,
+  AttachmentCountBadge,
 }

@@ -59,7 +59,6 @@ ATTACHMENT_ALLOWED_EXTENSIONS = [
     # 图片
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
 ]
-ATTACHMENT_UPLOAD_DIR = 'upgrade/attachments'
 
 # 合法状态流转路径（支持回退后再推进的场景）
 # - 处理中 → 已完成 / 已回退

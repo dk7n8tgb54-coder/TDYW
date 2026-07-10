@@ -1,33 +1,43 @@
 # 项目记忆
 
-## 附件功能架构（2026-06-30 确立）
+## 附件功能架构（2026-07-10 公共化改造完成）
 
-**架构**：后端 evidence 通用底座 + 前端公共组件
+**架构**：后端 evidence 通用底座 + 前端公共组件 + kkFileView 在线预览
 
 **后端**：
 - `apps/evidence/models.py` 的 `EvidenceAttachment`：通用表（module+object_type+object_id 多态关联）
-- `apps/evidence/attachment_service.py`：通用 AttachmentService（upload/list/download/soft_delete/soft_delete_by_object）+ AttachmentConfig 配置类
-- 各模块写桥接视图（参考 `apps/upgrade/views/upload.py`），负责：校验业务对象存在 + 校验模块权限码 + 转调 evidence.AttachmentService
+- `apps/evidence/attachment_service.py`：通用 AttachmentService（upload/list/download/soft_delete/soft_delete_by_object/get_preview_url/preview_file_response/count）+ AttachmentConfig + PREVIEWABLE_EXTENSIONS
+- `apps/evidence/attachment_preview_token.py`：附件预览令牌（绑定 attachment_id/user_id/tenant_id/module/object_type/object_id，5分钟时效）
+- 各模块写薄接口（参考 `apps/upgrade/views/upload.py`），负责：校验业务对象存在 + 校验模块权限码 + 转调 AttachmentService
 - evidence 不提供 views/urls（因为无法感知各模块权限码）
-- radio_license 保持独立实现（向后兼容，有 attachment_type 业务字段）
+- radio_license 已迁移到公共方案（旧 RadioLicenseAttachment 表已删除）
+
+**物理路径规范**：
+`{MEDIA_ROOT}/{module}/{tenant_id}/{yyyyMM}/{object_type}_{object_id}/{file_name}`
+例：`/data/spug/spug_api/media/upgrade/1/202607/record_123/升级说明.docx`
 
 **前端**：
-- `components/AttachmentManager.js`：公共组件，路径/权限全参数化
-- 各模块 `import { AttachmentManager } from 'components'`，传 URL + 权限码
+- `components/AttachmentManager.js`：公共组件（上传/列表/下载/删除/预览），路径/权限全参数化
+- `components/AttachmentCountBadge.js`：列表页附件数量徽标
+- 各模块 `import { AttachmentManager, AttachmentCountBadge } from 'components'`，传 URL + 权限码
 
 **后续模块加附件标准流程**：
 1. 后端：复制 `apps/upgrade/views/upload.py` 作为模板，改 MODULE/OBJECT_TYPE/权限码/Config
-2. 后端：业务对象删除时调用 `AttachmentService.soft_delete_by_object(module=..., object_type=..., object_id=...)`
-3. 前端：`import { AttachmentManager } from 'components'`，传 URL + 权限码
-4. 无需新建附件表、无需新建 service
+2. 后端：新增 preview-url 和 preview-file 两个视图
+3. 后端：业务对象删除时调用 `AttachmentService.soft_delete_by_object(module=..., object_type=..., object_id=...)`
+4. 前端：`import { AttachmentManager } from 'components'`，传 URL + 权限码 + previewUrlPrefix
+5. 无需新建附件表、无需新建 service
 
 **技术要点**：
-- migration 里 `human_datetime` 引用路径是 `libs.utils.human_datetime`（mixins.py 没有 re-export）
-- `AlterModelOptions` 在 Django 2.2 下第一个参数是 `name`（不是 `model_name`）
-- 文件名清洗防路径穿越：`os.path.basename` + 替换 `..` `/` `\` `\x00`
-- 下载鉴权用 `x-token` GET 参数
+- preview_token 双轨：document 令牌（file_id:user_id:tenant_id:is_public）和 attachment 令牌（attachment_id:user_id:tenant_id:module:object_type:object_id）按请求路径自动选择验证器
+- preview-file 端点无 @auth 装饰器，纯靠 preview_token 鉴权（kkFileView 不携带 x-token）
+- middleware 的 PREVIEW_ENDPOINT_PATTERNS 和 IP_CHECK_EXCLUDES 使用 fnmatch 模式匹配
+- kkFileView URL：fullfilename 拼在源 URL 上一起 base64 编码（遵循 kkFileView 3.x 规范）
+- MEDIA_ROOT 支持环境变量覆盖：`os.environ.get('MEDIA_ROOT', os.path.join(BASE_DIR, 'media'))`
+- 下载鉴权用 `x-token` GET 参数；预览鉴权用 `preview_token` GET 参数
 - 软删除保留物理文件和 DB 记录作为证据痕迹
 - upgrade 附件数据存 evidence 表，通过 `module='upgrade'/object_type='record'/object_id=<record_id>` 关联
+- radio_license 附件数据存 evidence 表，通过 `module='radio_license'/object_type='license'/object_id=<license_id>` 关联
 
 ## Django 升级路线（2026-06-27 进行中）
 - 总路线：2.2.28 → 3.2.25（阶段1已完成）→ 4.2.30（阶段2已完成验收）→ 5.2 LTS（阶段3待做）
@@ -77,12 +87,13 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate <app>
 - manage.py 位置: `/data/spug/spug_api/manage.py`
 
 ### 资料库备份/还原脚本（2026-07-04 修复一致性缺陷）
-- 脚本：`backups/documents_incremental_backup.sh`、`backups/documents_restore.sh`
+- 脚本目录 `backups/`，共 8 个 .sh：backup_set_create/restore、mariadump_backup/restore、mariabackup_backup/prepare_restore、documents_incremental_backup/restore
 - **增量发现 = mtime + ctime**：用 `find -newermt "@${epoch}" -o -newerct "@${epoch}"`。**不用 `-cnewer marker`**——标记文件经 `docker cp` 进容器后 ctime 被重置为当前时间，`-cnewer` 会失效。epoch 取宿主机 marker 的 mtime，时区无关。
 - 每次备份产物 3 件：`.tar.gz` + `.manifest`(TSV: 相对路径/大小/mtime/ctime) + `.meta`(key=value)。0 文件增量只生成 meta。
 - 还原流程：`tar tzf` 校验全量+所有增量 → 清空目标(`CLEAR_TARGET=YES`默认) → 全量+按文件名时间戳顺序应用增量 → manifest 校验(`comm -23` 求缺失) → 恢复报告。
 - **核心教训**：数据库备份和 documents 备份必须同周期；只恢复数据库不恢复文件卷 → 前端可见但预览/下载报"文件不存在"。恢复顺序：停业务→恢复DB→清空documents→full→incrementals→启动→一致性检查。
 - Windows 验证：用 `wsl -e bash`（路径 `/mnt/e/...`），`C:\Windows\System32\bash.exe` 是 WSL；`/e/` 路径在此 WSL 也有效但 PowerShell 直传 `bash /e/...` 会找不到文件。
+- **`/mnt/d` 路径兼容性（2026-07-10 核查）**：8 个脚本中**无任何 `/mnt/d` 痕迹**，默认路径全为 `/data/backups/tdyw`、`/var/log/tdyw-backup`、`/tmp/...`。所有关键路径（TDYW_BACKUP_ROOT/BACKUP_DIR/LOG_FILE/DOCUMENTS_PATH/RESTORE_TMP_DIR/RESTORE_WORK_DIR/BACKUP_SETS_DIR/APP_CONTAINER/DB_CONTAINER）均支持环境变量覆盖，故可通过 `TDYW_BACKUP_ROOT=/mnt/d/...` 等方式使用 `/mnt/d`，但脚本无自动适配/回退逻辑。注意：`DOCUMENTS_PATH` 是容器内路径不应改；`RESTORE_TMP_DIR`/`RESTORE_WORK_DIR` 在 WSL `/mnt/d`(NTFS)上 I/O 慢，不建议改默认。`backup_set_restore.sh` 的 `rebase_backup_set_path`(L187-229) 按文件名后缀 rebase meta 路径到当前 BACKUP_SET_DIR，路径无关，备份集跨机拷贝可正常恢复。
 
 ### 生产环境内存分配（8G 服务器，2026-06-29 调整）
 8G 物理服务器下三个容器的内存分配（扣除系统 ~1G，剩 7G 分给容器）：

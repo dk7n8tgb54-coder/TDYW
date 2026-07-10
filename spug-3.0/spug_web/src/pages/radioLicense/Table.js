@@ -5,10 +5,10 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Table, Modal, Tag, message, Badge } from 'antd';
-import { PlusOutlined, PaperClipOutlined } from '@ant-design/icons';
+import { Table, Modal, Tag, message } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
-import { Action, TableCard, AuthButton } from "components";
+import { Action, TableCard, AuthButton, AttachmentCountBadge } from "components";
 import store from './store';
 
 const STATUS_TAG_MAP = {
@@ -65,8 +65,7 @@ class ComTable extends React.Component {
   };
 
   renderAttachmentCount = (text, record) => {
-    const count = record.attachment_count || 0;
-    return count > 0 ? <Badge count={count} size="small" style={{marginLeft: 4}}><PaperClipOutlined /></Badge> : <span>-</span>;
+    return <AttachmentCountBadge count={record.attachment_count} onClick={() => store.showDetail(record)} />;
   };
 
   render() {
@@ -120,7 +119,7 @@ class ComTable extends React.Component {
             <Action>
               <Action.Button auth="radio_license.license.view" onClick={() => store.showDetail(info)}>查看</Action.Button>
               <Action.Button auth="radio_license.license.edit" onClick={() => store.showForm(info)}>编辑</Action.Button>
-              <Action.Button auth="radio_license.attachment.upload|radio_license.attachment.download" onClick={() => store.showDetail(info)}>附件</Action.Button>
+              <Action.Button auth="radio_license.attachment.upload|radio_license.attachment.download|radio_license.attachment.delete" onClick={() => store.showDetail(info)}>附件</Action.Button>
               <Action.Button danger auth="radio_license.license.del" onClick={() => this.handleDelete(info)}>删除</Action.Button>
             </Action>
           )}/>

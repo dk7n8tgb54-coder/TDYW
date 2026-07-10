@@ -717,13 +717,15 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
       <Collapse>
         <Panel header={<span><PaperClipOutlined /> 附件 ({store.attachmentCount})</span>} key="att">
           <AttachmentManager
-            module="upgrade" recordId={info.id}
+            module="upgrade" objectType="record" recordId={info.id}
             listUrl={`/api/upgrade/records/${info.id}/attachments/`}
             uploadUrl={`/api/upgrade/records/${info.id}/attachments/`}
             deleteUrl="/api/upgrade/attachments/"
             downloadUrlPrefix="/api/upgrade/attachments/"
+            previewUrlPrefix="/api/upgrade/attachments/"
             readOnly={!canEdit}
             uploadPerm="upgrade.upgrade.edit" deletePerm="upgrade.upgrade.edit"
+            previewPerm="upgrade.upgrade.view"
             maxFileSize={500} onCountChange={store.setAttachmentCount}
           />
         </Panel>

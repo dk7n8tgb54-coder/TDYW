@@ -21,8 +21,11 @@ from .views.record.delete import RecordDeleteView
 from .views.filter_options import FilterOptionsView
 from .views.statistics import StatisticsView
 from .views.upload import (
-    AttachmentUploadView, AttachmentListView,
-    AttachmentDownloadView, AttachmentDeleteView,
+    AttachmentListView,
+    AttachmentDownloadView,
+    AttachmentDeleteView,
+    AttachmentPreviewUrlView,
+    AttachmentPreviewFileView,
 )
 from .views.next_no import NextUpgradeNoView
 
@@ -64,12 +67,13 @@ urlpatterns = [
     # === 辅助接口 ===
     path('filter-options/', FilterOptionsView.as_view()),          # GET 筛选选项
     path('statistics/', StatisticsView.as_view()),                  # GET 统计数据
-    path('upload/', AttachmentUploadView.as_view()),                # POST 附件上传（旧版，仅返回 URL）
     path('next-no/', NextUpgradeNoView.as_view()),                 # GET 获取下一个升级单号
 
-    # === 附件接口（新版，写表 + 哈希 + 软删除）===
+    # === 附件接口（写通用附件表 + 哈希 + 软删除 + kkFileView预览）===
     path('records/<int:record_id>/attachments/', AttachmentListView.as_view()),                    # GET 列表 / POST 上传
     path('attachments/<int:pk>/download/', AttachmentDownloadView.as_view()),                      # GET 下载
+    path('attachments/<int:pk>/preview-url/', AttachmentPreviewUrlView.as_view()),                 # GET 获取预览地址
+    path('attachments/<int:pk>/preview-file/', AttachmentPreviewFileView.as_view()),               # GET kkFileView回调读取文件流
     path('attachments/', AttachmentDeleteView.as_view()),                                          # DELETE 删除（?id=）
 
     # === 升级方案（原模板 + 步骤清单合并）===

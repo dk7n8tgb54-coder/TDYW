@@ -1,22 +1,20 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-import os
 import logging
 from django.views.generic import View
 from django.utils import timezone
-from django.conf import settings
 from django.http import FileResponse
-from urllib.parse import quote
 from libs import json_response, JsonParser, Argument, human_datetime, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from apps.radio_license.models import (
-    RadioLicense, RadioLicenseFrequency, RadioLicenseAttachment,
-    RadioLicenseReminder, LicenseReminderAck, REMIND_TYPE_MAP,
-    ALLOWED_FILE_EXTENSIONS, MAX_FILE_SIZE_MB,
+    RadioLicense, RadioLicenseFrequency,
+    LicenseReminderAck,
     EXPIRING_DAYS_THRESHOLD,
 )
 from apps.radio_license.tasks import scan_single_license
+from apps.evidence.attachment_service import AttachmentService, AttachmentConfig, PREVIEWABLE_EXTENSIONS
+from apps.evidence.models import EvidenceAttachment
 import json
 
 logger = logging.getLogger(__name__)
@@ -150,8 +148,9 @@ class RadioLicenseView(View):
             # 附加频率列表
             freqs = RadioLicenseFrequency.objects.filter(license=record).order_by('sort_order', 'id')
             item['frequencies'] = [f.to_view() for f in freqs]
-            # 附件数量
-            item['attachment_count'] = RadioLicenseAttachment.objects.filter(license=record).count()
+            # 附件数量（从通用附件表统计）
+            item['attachment_count'] = AttachmentService.count(
+                request.user, 'radio_license', 'license', record.id)
             # 计算剩余天数和状态（与 BadgeView 的 60 天规则保持一致）
             today = timezone.now().date()
             days_left = (record.valid_to - today).days
@@ -266,16 +265,12 @@ class RadioLicenseView(View):
             if not license_obj:
                 error = '删除失败：记录不存在或无权限删除'
             else:
-                # 先删除关联附件的物理文件（CASCADE 会自动删 DB 记录，但磁盘文件需手动清理）
-                attachments = RadioLicenseAttachment.objects.filter(license_id=form.id)
-                for att in attachments:
-                    full_path = os.path.join(settings.MEDIA_ROOT, att.file_path)
-                    try:
-                        if os.path.exists(full_path):
-                            os.remove(full_path)
-                    except OSError as e:
-                        logger.warning(f'[RadioLicense] 删除附件文件失败: {e}')
-                # 物理删除执照（CASCADE 自动级联删除频率/附件/提醒记录）
+                # 联动软删除通用附件表中的附件记录
+                AttachmentService.soft_delete_by_object(
+                    request.user, 'radio_license', 'license', form.id,
+                    reason=f'执照删除 ID={form.id}', delete_file=True,
+                )
+                # 物理删除执照（CASCADE 自动级联删除频率/提醒确认记录）
                 license_obj.delete()
         return json_response(error=error)
 
@@ -306,11 +301,9 @@ class RadioLicenseDetailView(View):
             computed_status = 'normal'
         item['days_left'] = days_left
         item['computed_status'] = computed_status
-        # 附件数量
-        item['attachment_count'] = RadioLicenseAttachment.objects.filter(license=record).count()
-        # 提醒数量
-        item['reminder_count'] = RadioLicenseReminder.objects.filter(license=record).count()
-
+        # 附件数量（从通用附件表统计）
+        item['attachment_count'] = AttachmentService.count(
+            request.user, 'radio_license', 'license', record.id)
         return json_response(item)
 
 
@@ -388,9 +381,11 @@ def _build_license_snapshot(license_obj):
     from apps.radio_license.models import RadioLicenseVersion
     freqs = RadioLicenseFrequency.objects.filter(license=license_obj).order_by('sort_order', 'id')
     versions = RadioLicenseVersion.objects.filter(license=license_obj).order_by('-version_no', '-id')
-    # 附件列表（含软删除的，便于审计）
-    attachments = RadioLicenseAttachment.objects.filter(license=license_obj).order_by('-created_at')
-    reminders = RadioLicenseReminder.objects.filter(license=license_obj).order_by('-created_at')
+    # 附件列表（含软删除的，便于审计）从通用附件表查询
+    attachments = EvidenceAttachment.objects.filter(
+        tenant_id=license_obj.tenant_id,
+        module='radio_license', object_type='license', object_id=str(license_obj.id),
+    ).order_by('-uploaded_at')
     acks = LicenseReminderAck.objects.filter(license=license_obj).order_by('-created_at')
     return {
         'license': {
@@ -433,27 +428,14 @@ def _build_license_snapshot(license_obj):
                 'id': a.id, 'file_name': a.file_name, 'file_path': a.file_path,
                 'file_size': a.file_size, 'file_ext': a.file_ext,
                 'file_hash_sha256': a.file_hash_sha256,
-                'attachment_type': a.attachment_type,
                 'is_deleted': a.is_deleted,
                 'uploaded_by_id': a.uploaded_by_id,
                 'uploaded_by_name': a.uploaded_by_name,
-                'created_at': a.created_at,
+                'uploaded_at': a.uploaded_at,
                 'deleted_at': a.deleted_at,
                 'delete_reason': a.delete_reason,
             }
             for a in attachments
-        ],
-        'reminders': [
-            {
-                'id': r.id, 'remind_type': r.remind_type,
-                'remind_date': str(r.remind_date), 'days_left': r.days_left,
-                'title': r.title, 'content': r.content,
-                'receiver_user_id': r.receiver_user_id,
-                'receiver_user_name': r.receiver_user_name,
-                'is_read': r.is_read, 'is_handled': r.is_handled,
-                'created_at': r.created_at,
-            }
-            for r in reminders
         ],
         'reminder_acks': [
             {
@@ -539,9 +521,19 @@ class RadioLicenseEvidencePackageView(View):
         return resp
 
 
-# ==================== 附件接口 ====================
+# ==================== 附件接口（转调 evidence.AttachmentService）====================
 
-ATTACHMENT_UPLOAD_DIR = 'radio_license/attachments'
+# radio_license 模块附件配置
+RadioLicenseAttachmentConfig = AttachmentConfig(
+    allowed_extensions=('.pdf', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
+                         '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+                         '.zip', '.rar', '.7z'),
+    max_size_mb=50,
+)
+
+# 业务对象标识
+ATTACHMENT_MODULE = 'radio_license'
+ATTACHMENT_OBJECT_TYPE = 'license'
 
 
 class AttachmentListView(View):
@@ -550,27 +542,16 @@ class AttachmentListView(View):
     @auth('radio_license.license.view')
     def get(self, request, pk):
         """获取指定执照的附件列表"""
-        # 校验执照存在且有权限
         qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
         if not qs.filter(pk=pk).exists():
             return json_response(error='执照不存在或无权限访问')
-
-        # 证据闭环第三阶段：过滤软删除附件
-        attachments = RadioLicenseAttachment.objects.filter(license_id=pk, is_deleted=False)
-        # 租户过滤：确保只返回当前租户的附件
-        attachments = apply_tenant_filter(attachments, request.user).order_by('-created_at')
-        data = []
-        for att in attachments:
-            item = att.to_view()
-            item['uploaded_by_name'] = att.uploaded_by_name or (
-                att.uploaded_by.nickname if att.uploaded_by else '-')
-            data.append(item)
+        data = AttachmentService.list(
+            request.user, ATTACHMENT_MODULE, ATTACHMENT_OBJECT_TYPE, pk)
         return json_response(data)
 
     @auth('radio_license.attachment.upload')
     def post(self, request, pk):
         """上传附件"""
-        # 校验执照存在且有权限
         qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
         license_obj = qs.filter(pk=pk).first()
         if not license_obj:
@@ -580,76 +561,21 @@ class AttachmentListView(View):
         if not file:
             return json_response(error='请选择要上传的文件')
 
-        # 文件类型校验
-        _, ext = os.path.splitext(file.name)
-        ext = ext.lower()
-        if ext not in ALLOWED_FILE_EXTENSIONS:
-            return json_response(error=f'不支持的文件类型，允许：{", ".join(ALLOWED_FILE_EXTENSIONS)}')
-
-        # 文件大小校验
-        if file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
-            return json_response(error=f'文件大小不能超过 {MAX_FILE_SIZE_MB}MB')
-
-        # 文件名清洗（防路径穿越）
-        safe_name = os.path.basename(file.name)
-        # 移除潜在危险字符
-        safe_name = safe_name.replace('..', '').replace('/', '').replace('\\', '').replace('\x00', '')
-        if not safe_name:
-            safe_name = f'attachment{ext}'
-
-        # 生成存储路径
-        date_path = timezone.now().strftime('%Y%m')
-        save_dir = os.path.join(settings.MEDIA_ROOT, ATTACHMENT_UPLOAD_DIR, date_path)
-        os.makedirs(save_dir, exist_ok=True)
-
-        # 保留原始文件名，遇重名自动加序号（如 xxx.pdf → xxx_1.pdf）
-        disk_name = safe_name
-        file_path = os.path.join(save_dir, disk_name)
-        counter = 1
-        name_base, name_ext = os.path.splitext(safe_name)
-        while os.path.exists(file_path):
-            disk_name = f'{name_base}_{counter}{name_ext}'
-            file_path = os.path.join(save_dir, disk_name)
-            counter += 1
-
-        # 保存文件
-        try:
-            with open(file_path, 'wb+') as destination:
-                for chunk in file.chunks():
-                    destination.write(chunk)
-        except OSError as e:
-            logger.error(f'[RadioLicense] 附件保存失败: {e}')
-            return json_response(error='附件保存失败')
-
-        # 证据闭环第三阶段：计算文件 SHA256（流式读取后重置指针）
-        from apps.evidence.services import compute_attachment_hash
-        try:
-            with open(file_path, 'rb') as f:
-                file_hash_sha256 = compute_attachment_hash(f)
-        except Exception as hash_err:
-            logger.warning(f'[RadioLicense] 附件 SHA256 计算失败: {hash_err}')
-            file_hash_sha256 = ''
-
-        # 创建数据库记录
-        relative_path = f'{ATTACHMENT_UPLOAD_DIR}/{date_path}/{disk_name}'
-        attachment_type = request.POST.get('attachment_type', 'other')
-        if attachment_type not in ['license', 'permit', 'approval', 'other']:
-            attachment_type = 'other'
-
-        att = RadioLicenseAttachment.objects.create(
-            tenant_id=license_obj.tenant_id,
-            license=license_obj,
-            attachment_type=attachment_type,
-            file_name=safe_name,
-            file_path=relative_path,
-            file_size=file.size,
-            file_ext=ext,
-            file_hash_sha256=file_hash_sha256,
-            uploaded_by_name=request.user.nickname or request.user.username,
-            uploaded_by=request.user,
+        att, error = AttachmentService.upload(
+            file=file,
+            user=request.user,
+            module=ATTACHMENT_MODULE,
+            object_type=ATTACHMENT_OBJECT_TYPE,
+            object_id=pk,
+            config=RadioLicenseAttachmentConfig,
         )
+        if error:
+            return json_response(error=error)
+
         result = att.to_view()
         result['uploaded_by_name'] = request.user.nickname
+        result['created_at'] = att.uploaded_at
+        result['previewable'] = att.file_ext in PREVIEWABLE_EXTENSIONS
         return json_response(result)
 
 
@@ -658,87 +584,65 @@ class AttachmentDownloadView(View):
 
     @auth('radio_license.attachment.download')
     def get(self, request, pk):
-        """下载附件"""
-        # 校验附件存在且属于当前租户
-        qs = apply_tenant_filter(RadioLicenseAttachment.objects.all(), request.user)
-        try:
-            att = qs.get(pk=pk)
-        except RadioLicenseAttachment.DoesNotExist:
-            return json_response(error='附件不存在或无权限访问')
+        response, error = AttachmentService.download_response(request.user, pk)
+        if error:
+            return json_response(error=error)
+        return response
 
-        # 校验关联执照存在且有权限
-        license_qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
-        if not license_qs.filter(pk=att.license_id).exists():
-            return json_response(error='执照不存在或无权限访问')
 
-        # 路径安全检查
-        full_path = os.path.join(settings.MEDIA_ROOT, att.file_path)
-        # 防止路径穿越
-        media_real = os.path.realpath(settings.MEDIA_ROOT)
-        file_real = os.path.realpath(full_path)
-        if not file_real.startswith(media_real):
-            logger.error(f'[RadioLicense] 路径穿越攻击: {att.file_path}')
-            return json_response(error='文件不存在')
+class AttachmentPreviewUrlView(View):
+    """获取 kkFileView 在线预览地址"""
 
-        if not os.path.exists(full_path):
-            return json_response(error='文件不存在')
+    @auth('radio_license.license.view')
+    def get(self, request, pk):
+        preview_file_api_path = f'/api/radio-license/attachments/{pk}/preview-file/'
+        data, error = AttachmentService.get_preview_url(
+            request.user, pk, preview_file_api_path)
+        if error:
+            return json_response(error=error)
+        return json_response(data)
 
-        # 流式下载
-        encoded_filename = quote(att.file_name)
-        response = FileResponse(
-            open(full_path, 'rb'),
-            content_type='application/octet-stream',
-        )
-        response['Content-Disposition'] = (
-            f'attachment; filename="{encoded_filename}"; '
-            f'filename*=UTF-8\'\'{encoded_filename}'
-        )
-        response['Content-Length'] = os.path.getsize(full_path)
+
+class AttachmentPreviewFileView(View):
+    """kkFileView 回调读取文件流（preview_token 鉴权）"""
+
+    def get(self, request, pk):
+        preview_token = request.GET.get('preview_token')
+        if not preview_token:
+            return json_response(error='缺少 preview_token 参数')
+        response, error = AttachmentService.preview_file_response(preview_token, pk)
+        if error:
+            return json_response(error=error)
         return response
 
 
 class AttachmentDeleteView(View):
-    """附件删除"""
+    """附件删除（软删除）"""
 
-    @auth('radio_license.attachment.upload')
+    @auth('radio_license.attachment.delete')
     def delete(self, request):
-        """删除附件（证据闭环第三阶段：改为软删除，保留证据链）"""
         form, error = JsonParser(
             Argument('id', type=int, help='请指定附件ID'),
             Argument('delete_reason', required=False),
         ).parse(request.GET)
-        if error is None:
-            # 校验附件存在且属于当前租户
-            qs = apply_tenant_filter(RadioLicenseAttachment.objects.all(), request.user)
-            att = qs.filter(pk=form.id).first()
-            if not att:
-                return json_response(error='附件不存在或无权限删除')
+        if error:
+            return json_response(error=error)
 
-            # 校验关联执照存在且有权限
-            license_qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
-            if not license_qs.filter(pk=att.license_id).exists():
-                return json_response(error='执照不存在或无权限操作')
+        error = AttachmentService.soft_delete(
+            request.user, form.id, form.delete_reason, delete_file=True)
+        if error:
+            return json_response(error=error)
 
-            # 软删除：保留物理文件和 DB 记录，仅标记 is_deleted
-            att.is_deleted = True
-            att.deleted_at = human_datetime()
-            att.deleted_by_id = getattr(request.user, 'id', None)
-            att.deleted_by_name = request.user.nickname or request.user.username
-            att.delete_reason = form.delete_reason or ''
-            att.save(update_fields=[
-                'is_deleted', 'deleted_at', 'deleted_by_id',
-                'deleted_by_name', 'delete_reason',
-            ])
-            logger.info(f'[RadioLicense] 附件软删除 ID={att.id} 文件={att.file_name} 用户={request.user.username}')
-
-            # 写入证据事件
-            try:
-                from apps.evidence.services import record_evidence_event
+        # 写入证据事件
+        try:
+            from apps.evidence.services import record_evidence_event
+            att = EvidenceAttachment.objects.filter(pk=form.id).first()
+            if att:
                 record_evidence_event(
                     tenant_id=att.tenant_id,
                     module='radio_license',
                     object_type='license',
-                    object_id=att.license_id,
+                    object_id=att.object_id,
                     event_type='delete',
                     actor_user_id=getattr(request.user, 'id', None),
                     actor_username=getattr(request.user, 'username', ''),
@@ -751,68 +655,13 @@ class AttachmentDeleteView(View):
                     },
                     event_title=f'删除附件 {att.file_name}',
                 )
-            except Exception as ev_err:
-                logger.error(f'附件删除证据事件写入失败: {ev_err}')
-        return json_response(error=error)
+        except Exception as ev_err:
+            logger.error(f'附件删除证据事件写入失败: {ev_err}')
+
+        return json_response()
 
 
-# ==================== 提醒接口 ====================
-
-class ReminderListView(View):
-    """提醒列表"""
-
-    @auth('radio_license.license.view')
-    def get(self, request):
-        """获取当前用户的提醒列表（历史日志，只读）
-
-        执照中心模型重构后，此接口返回 RadioLicenseReminder 历史记录供查阅。
-        days_left 为生成时快照，前端展示时如需实时值应由弹窗接口提供。
-        """
-        # 只返回当前用户的提醒
-        reminders = RadioLicenseReminder.objects.filter(
-            receiver_user_id=request.user.id,
-        )
-        # 租户过滤
-        reminders = apply_tenant_filter(reminders, request.user)
-
-        # 筛选参数
-        is_read = request.GET.get('is_read', '')
-        is_handled = request.GET.get('is_handled', '')
-        remind_type = request.GET.get('remind_type', '')
-
-        if is_read == 'false':
-            reminders = reminders.filter(is_read=False)
-        elif is_read == 'true':
-            reminders = reminders.filter(is_read=True)
-        if is_handled == 'false':
-            reminders = reminders.filter(is_handled=False)
-        elif is_handled == 'true':
-            reminders = reminders.filter(is_handled=True)
-        if remind_type:
-            reminders = reminders.filter(remind_type=remind_type)
-
-        reminders = reminders.select_related('license').order_by('-created_at')
-
-        # 分页
-        page = int(request.GET.get('page', 1))
-        page_size = int(request.GET.get('page_size', 20))
-
-        total_count = reminders.count()
-        offset = (page - 1) * page_size
-        reminders = reminders[offset:offset + page_size]
-
-        data = []
-        for r in reminders:
-            item = r.to_view()
-            item['station_name'] = r.license.station_name if r.license else '-'
-            item['valid_to'] = str(r.license.valid_to) if r.license else '-'
-            data.append(item)
-        return json_response({
-            'records': data,
-            'total': total_count,
-            'page': page,
-            'page_size': page_size,
-        })
+# ==================== 到期提醒接口 ====================
 
 
 class ReminderPopupView(View):
@@ -902,66 +751,6 @@ class ReminderAckView(View):
             logger.debug(f'[RadioLicense] 执照 {form.license_id} 本周期已确认，跳过')
 
         return json_response(data={'license_id': form.license_id, 'acked': True})
-
-
-class ReminderHandleView(View):
-    """提醒处理（已读/已处理）- 兼容旧接口
-
-    执照中心模型重构后，"已处理"功能由 ReminderAckView 承担。
-    此接口保留"已读"功能供提醒记录页使用，"handle" action 转发到 ack 逻辑。
-    """
-
-    @auth('radio_license.reminder.handle')
-    def post(self, request):
-        form, error = JsonParser(
-            Argument('id', type=int, required=False, help='提醒ID'),
-            Argument('action', help='操作类型: read / handle / unread'),
-            Argument('ids', type=list, required=False, help='批量操作ID列表'),
-        ).parse(request.body)
-
-        if error is not None:
-            return json_response(error=error)
-
-        ids = []
-        if form.ids:
-            ids = form.ids
-        elif form.id:
-            ids = [form.id]
-        else:
-            return json_response(error='请指定提醒ID')
-
-        qs = RadioLicenseReminder.objects.filter(
-            pk__in=ids,
-            receiver_user_id=request.user.id,
-        )
-        qs = apply_tenant_filter(qs, request.user)
-
-        if form.action == 'read':
-            count = qs.update(is_read=True)
-        elif form.action == 'unread':
-            count = qs.update(is_read=False)
-        elif form.action == 'handle':
-            # handle：标记提醒已处理 + 同步写 ack（兼容旧前端）
-            count = qs.update(is_handled=True, is_read=True)
-            # 为这些提醒对应的执照写 ack（取第一条反推 valid_to）
-            for r in qs.select_related('license'):
-                if r.license:
-                    from django.db import IntegrityError
-                    try:
-                        LicenseReminderAck.objects.create(
-                            tenant_id=r.tenant_id,
-                            license=r.license,
-                            user_id=request.user.id,
-                            user_name=request.user.nickname or request.user.username,
-                            ack_valid_to=r.license.valid_to,
-                        )
-                    except IntegrityError:
-                        pass
-                    break  # 同一执照只写一次 ack
-        else:
-            return json_response(error='不支持的操作类型，请使用 read / handle / unread')
-
-        return json_response(data={'count': count})
 
 
 # ==================== 菜单红点接口 ====================

@@ -10,8 +10,7 @@ import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
 import moment from 'moment';
 import S from './store';
-import AttachmentList from './AttachmentList';
-import ReminderList from './ReminderList';
+import { AttachmentManager } from 'components';
 
 const STATUS_TAG_MAP = {
   normal: {color: 'green', text: '正常'},
@@ -160,10 +159,24 @@ export default observer(function () {
         )}
 
         <Divider orientation="left">附件</Divider>
-        {info.id && <AttachmentList licenseId={info.id} />}
-
-        <Divider orientation="left">提醒记录</Divider>
-        {info.id && <ReminderList licenseId={info.id} />}
+        {info.id && (
+          <AttachmentManager
+            module="radio_license"
+            objectType="license"
+            recordId={info.id}
+            listUrl={`/api/radio-license/${info.id}/attachments/`}
+            uploadUrl={`/api/radio-license/${info.id}/attachments/`}
+            deleteUrl="/api/radio-license/attachments/"
+            downloadUrlPrefix="/api/radio-license/attachments/"
+            previewUrlPrefix="/api/radio-license/attachments/"
+            readOnly={false}
+            uploadPerm="radio_license.attachment.upload"
+            deletePerm="radio_license.attachment.delete"
+            previewPerm="radio_license.license.view"
+            maxFileSize={50}
+            accept=".pdf,.jpg,.jpeg,.png,.gif,.bmp,.webp,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z"
+          />
+        )}
 
         <Descriptions bordered column={2} style={{marginTop: 16}}>
           <Descriptions.Item label="创建人">{info.created_by_name || '-'}</Descriptions.Item>

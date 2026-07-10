@@ -201,12 +201,7 @@ export default [{
     perms: [
       {key: 'upload', label: '上传附件'},
       {key: 'download', label: '下载附件'},
-    ]
-  }, {
-    key: 'reminder',
-    label: '到期提醒',
-    perms: [
-      {key: 'handle', label: '处理提醒'},
+      {key: 'delete', label: '删除附件'},
     ]
   }]
 }, {

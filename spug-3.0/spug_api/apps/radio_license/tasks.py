@@ -4,26 +4,21 @@
 无线电台执照到期扫描任务（执照中心模型）
 
 重构说明（2026-06-23）：
-- scan_single_license 只更新 license.status，不再预生成 RadioLicenseReminder
+- scan_single_license 只更新 license.status，不生成提醒历史日志
 - 弹窗判断由 ReminderPopupView 实时查询，"已处理"由 LicenseReminderAck 管理
-- RadioLicenseReminder 表降级为历史日志，仅在编辑执照时按需写入（可选）
 
 扫描逻辑：
 1. 遍历所有执照
 2. 计算 days_left，判定 normal / expiring / expired
 3. 更新 license.status 字段（供列表页筛选/排序）
-4. 不再生成 reminder 记录（弹窗实时查询，无需预生成）
+4. 不生成提醒历史记录（弹窗实时查询，无需预生成）
 """
 import logging
 from datetime import date
 from celery import shared_task
 from django.utils import timezone
 
-from apps.radio_license.models import (
-    RadioLicense, RadioLicenseReminder,
-    EXPIRING_DAILY_REMIND_TYPE, EXPIRED_REMIND_TYPE,
-    EXPIRING_DAYS_THRESHOLD,
-)
+from apps.radio_license.models import RadioLicense, EXPIRING_DAYS_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +60,7 @@ def scan_single_license(license_obj, today=None):
     重构后职责：
     - 计算 days_left，判定状态
     - 更新 license.status 字段（若变化）
-    - 不再生成 RadioLicenseReminder（弹窗由 ReminderPopupView 实时查询）
+    - 不生成提醒历史日志（弹窗由 ReminderPopupView 实时查询）
     - 不再调用 _get_receiver / _has_handled_in_current_cycle（这些逻辑已迁移到 ack 模型）
 
     Args:
@@ -101,7 +96,7 @@ def scan_radio_license_expiration(self):
 
     重构后职责：
     - 遍历所有执照，更新 license.status
-    - 不再预生成 RadioLicenseReminder
+    - 不生成提醒历史日志
     - 弹窗判断由前端查询 ReminderPopupView 实时完成
     """
     today = timezone.now().date()

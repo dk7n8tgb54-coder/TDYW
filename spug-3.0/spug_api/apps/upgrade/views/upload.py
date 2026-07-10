@@ -5,34 +5,32 @@
 
 设计：upgrade 模块只负责
 1. 校验业务对象（UpgradeRecord）存在且有权限
-2. 校验模块权限码（upgrade.upgrade.view / .add）
+2. 校验模块权限码（upgrade.upgrade.view / .edit）
 3. 转调 evidence.AttachmentService 完成实际文件操作
 
 附件数据统一存 tdyw_evidence_attachments 表，通过
   module='upgrade' / object_type='record' / object_id=<record_id>
 关联到升级表单。
+
+物理路径：{MEDIA_ROOT}/upgrade/{tenant_id}/{yyyyMM}/record_{record_id}/{file_name}
 """
 import logging
 
 from django.views import View
-from django.utils import timezone
 
 from libs import json_response, auth, JsonParser, Argument
 from libs.tenant_utils import apply_tenant_filter
 
 from ..models import UpgradeRecord
-from ..constants import (
-    ATTACHMENT_MAX_SIZE_MB, ATTACHMENT_ALLOWED_EXTENSIONS, ATTACHMENT_UPLOAD_DIR,
-)
-from apps.evidence.attachment_service import AttachmentService, AttachmentConfig
+from ..constants import ATTACHMENT_MAX_SIZE_MB, ATTACHMENT_ALLOWED_EXTENSIONS
+from apps.evidence.attachment_service import AttachmentService, AttachmentConfig, PREVIEWABLE_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
-# upgrade 模块附件配置（复用 constants.py 的配置）
+# upgrade 模块附件配置
 UpgradeAttachmentConfig = AttachmentConfig(
     allowed_extensions=tuple(ATTACHMENT_ALLOWED_EXTENSIONS),
     max_size_mb=ATTACHMENT_MAX_SIZE_MB,
-    upload_dir=ATTACHMENT_UPLOAD_DIR,
 )
 
 # 业务对象标识
@@ -45,17 +43,6 @@ def _get_record(record_id, user):
     return apply_tenant_filter(
         UpgradeRecord.objects.filter(pk=record_id), user
     ).first()
-
-
-def _build_attachment_path_parts(user, record_id):
-    """构造升级附件多租户目录段：[tenant_{tenant_id}, YYYYMM, record_{record_id}]
-
-    tenant_id 经路径段清洗（只允许字母/数字/下划线/中划线），为空时使用 tenant_default。
-    最终相对路径形如：upgrade/attachments/tenant_default/202607/record_123/文件名
-    """
-    tenant_seg = AttachmentService._sanitize_path_segment(getattr(user, 'tenant_id', ''))
-    date_path = timezone.now().strftime('%Y%m')
-    return [f'tenant_{tenant_seg}', date_path, f'record_{record_id}']
 
 
 class AttachmentListView(View):
@@ -87,7 +74,6 @@ class AttachmentListView(View):
             object_type=OBJECT_TYPE,
             object_id=record_id,
             config=UpgradeAttachmentConfig,
-            extra_path_parts=_build_attachment_path_parts(request.user, record_id),
         )
         if error:
             return json_response(error=error)
@@ -95,6 +81,7 @@ class AttachmentListView(View):
         result = att.to_view()
         result['uploaded_by_name'] = request.user.nickname
         result['created_at'] = att.uploaded_at
+        result['previewable'] = att.file_ext in PREVIEWABLE_EXTENSIONS
         return json_response(result)
 
 
@@ -104,6 +91,32 @@ class AttachmentDownloadView(View):
     @auth('upgrade.upgrade.view')
     def get(self, request, pk):
         response, error = AttachmentService.download_response(request.user, pk)
+        if error:
+            return json_response(error=error)
+        return response
+
+
+class AttachmentPreviewUrlView(View):
+    """获取 kkFileView 在线预览地址"""
+
+    @auth('upgrade.upgrade.view')
+    def get(self, request, pk):
+        preview_file_api_path = f'/api/upgrade/attachments/{pk}/preview-file/'
+        data, error = AttachmentService.get_preview_url(
+            request.user, pk, preview_file_api_path)
+        if error:
+            return json_response(error=error)
+        return json_response(data)
+
+
+class AttachmentPreviewFileView(View):
+    """kkFileView 回调读取文件流（preview_token 鉴权）"""
+
+    def get(self, request, pk):
+        preview_token = request.GET.get('preview_token')
+        if not preview_token:
+            return json_response(error='缺少 preview_token 参数')
+        response, error = AttachmentService.preview_file_response(preview_token, pk)
         if error:
             return json_response(error=error)
         return response
@@ -126,29 +139,3 @@ class AttachmentDeleteView(View):
         if error:
             return json_response(error=error)
         return json_response()
-
-
-# 兼容旧导入路径（apps.upgrade.views.upload.AttachmentUploadView）
-# 旧接口仅返回 URL，保留以免破坏未迁移的前端代码
-class AttachmentUploadView(View):
-    """[已废弃] 旧版附件上传接口，仅返回 URL"""
-
-    @auth('upgrade.upgrade.add')
-    def post(self, request):
-        file = request.FILES.get('file')
-        if not file:
-            return json_response(error='请选择要上传的文件')
-
-        # 旧接口不关联具体记录，用临时 object_id，仅返回 URL
-        att, error = AttachmentService.upload(
-            file=file,
-            user=request.user,
-            module=MODULE,
-            object_type='legacy_upload',
-            object_id='0',
-            config=UpgradeAttachmentConfig,
-            extra_path_parts=_build_attachment_path_parts(request.user, 'legacy'),
-        )
-        if error:
-            return json_response(error=error)
-        return json_response({'url': f'/{att.file_path}'})

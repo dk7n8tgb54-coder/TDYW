@@ -284,7 +284,9 @@ EXEC_WORKER_KEY = 'spug:exec:worker'
 TRANSFER_DIR = os.path.join(BASE_DIR, 'storage', 'transfer')
 
 # Media files settings
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+# 生产环境默认 /data/spug/spug_api/media（Docker 容器内 BASE_DIR 即为 /data/spug/spug_api）
+# 可通过环境变量 MEDIA_ROOT 覆盖
+MEDIA_ROOT = os.environ.get('MEDIA_ROOT', os.path.join(BASE_DIR, 'media'))
 MEDIA_URL = '/media/'
 
 # Static files settings
@@ -316,8 +318,12 @@ AUTHENTICATION_EXCLUDES = (
 
 # IP绑定检查排除列表：这些端点仍需token认证，但跳过IP校验
 # kkFileView从Docker内网发起文件下载请求，其IP与用户浏览器IP不同
+# 使用 fnmatch 模式匹配（* 匹配任意字符包括 /）
 IP_CHECK_EXCLUDES = (
-    '/document/preview/',  # 文件预览下载端点（kkFileView通过此端点下载文件）
+    '/document/preview/*',
+    '/api/document/preview/*',
+    # 附件预览回调端点（kkFileView 通过此端点下载附件文件流）
+    '*/attachments/*/preview-file/*',
 )
 
 SPUG_VERSION = 'v3.3.3'

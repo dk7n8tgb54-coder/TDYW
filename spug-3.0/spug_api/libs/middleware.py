@@ -6,18 +6,35 @@ from django.conf import settings
 from .utils import json_response, get_request_real_ip
 from apps.account.models import User
 from apps.setting.utils import AppSetting
+import fnmatch
 import logging
 import traceback
 import time
 
 logger = logging.getLogger(__name__)
 
-# 预览端点路径前缀（支持 preview_token 认证）
-PREVIEW_ENDPOINT_PREFIXES = (
-    '/document/preview/',
-    '/api/document/preview/',
-    '/document/text_content/',
-    '/api/document/text_content/',
+# 预览端点路径模式（支持 preview_token 认证）
+# 使用 fnmatch 模式匹配（* 匹配任意字符包括 /）
+PREVIEW_ENDPOINT_PATTERNS = (
+    '/document/preview/*',
+    '/api/document/preview/*',
+    '/document/text_content/*',
+    '/api/document/text_content/*',
+    # 通用附件预览回调端点（kkFileView 通过此端点下载附件文件流）
+    '*/attachments/*/preview-file/*',
+)
+
+# 文档预览端点模式（使用 document 模块的 preview_token）
+DOCUMENT_PREVIEW_PATTERNS = (
+    '/document/preview/*',
+    '/api/document/preview/*',
+    '/document/text_content/*',
+    '/api/document/text_content/*',
+)
+
+# 附件预览端点模式（使用 evidence 模块的 attachment_preview_token）
+ATTACHMENT_PREVIEW_PATTERNS = (
+    '*/attachments/*/preview-file/*',
 )
 
 
@@ -92,11 +109,11 @@ class AuthenticationMiddleware(MiddlewareMixin):
                 logger.debug(f'[AUTH] Token expired for user {user.username}')
             return None
 
-        # IP 绑定校验
+        # IP 绑定校验（支持 fnmatch 模式匹配）
         ip_check_excludes = getattr(settings, 'IP_CHECK_EXCLUDES', ())
         if (x_real_ip == user.last_ip
                 or AppSetting.get_default('bind_ip') is False
-                or request.path in ip_check_excludes):
+                or any(fnmatch.fnmatch(request.path, pat) for pat in ip_check_excludes)):
             request.user = user
             user.token_expired = time.time() + settings.TOKEN_TTL
             user.save()
@@ -140,26 +157,51 @@ class AuthenticationMiddleware(MiddlewareMixin):
     @staticmethod
     def _is_preview_endpoint(path):
         """判断是否为预览端点（preview_token 适用路径）"""
-        return any(path.startswith(prefix) for prefix in PREVIEW_ENDPOINT_PREFIXES)
+        return any(fnmatch.fnmatch(path, pat) for pat in PREVIEW_ENDPOINT_PATTERNS)
+
+    @staticmethod
+    def _is_document_preview_endpoint(path):
+        """判断是否为文档预览端点（使用 document 模块的 preview_token）"""
+        return any(fnmatch.fnmatch(path, pat) for pat in DOCUMENT_PREVIEW_PATTERNS)
+
+    @staticmethod
+    def _is_attachment_preview_endpoint(path):
+        """判断是否为附件预览端点（使用 evidence 模块的 attachment_preview_token）"""
+        return any(fnmatch.fnmatch(path, pat) for pat in ATTACHMENT_PREVIEW_PATTERNS)
 
     @staticmethod
     def _authenticate_preview_token(token, request):
-        """
-        通过 preview_token 认证用户
+        """通过 preview_token 认证用户
 
-        验证流程：
-        1. 解析并验证 preview_token 签名和时效
-        2. 根据 token 中的 user_id 查找用户
-        3. 设置 request.user 和 request.preview_token_data
+        根据请求路径自动选择对应的令牌验证器：
+        - 文档预览端点 → document 模块的 preview_token（绑定 file_id/user_id/tenant_id/is_public）
+        - 附件预览端点 → evidence 模块的 attachment_preview_token（绑定 attachment_id/user_id/tenant_id/module/object_type/object_id）
 
         Returns:
             User | None: 认证成功返回用户对象，失败返回 None
         """
-        from apps.document.libs.preview_token import validate_preview_token
+        path = request.path
 
+        if AuthenticationMiddleware._is_attachment_preview_endpoint(path):
+            from apps.evidence.attachment_preview_token import validate_attachment_preview_token
+            token_data = validate_attachment_preview_token(token)
+            if not token_data:
+                logger.warning(f'[AUTH] Invalid attachment preview_token for {path}')
+                return None
+            user = User.objects.filter(id=token_data['user_id'], is_active=True).first()
+            if not user:
+                logger.warning(f'[AUTH] Attachment preview token user not found: user_id={token_data["user_id"]}')
+                return None
+            request.user = user
+            request.preview_token_data = token_data
+            logger.debug(f'[AUTH] Attachment preview token auth success: user={user.username}, attachment_id={token_data["attachment_id"]}')
+            return user
+
+        # 默认：文档预览令牌
+        from apps.document.libs.preview_token import validate_preview_token
         token_data = validate_preview_token(token)
         if not token_data:
-            logger.warning(f'[AUTH] Invalid preview_token for {request.path}')
+            logger.warning(f'[AUTH] Invalid preview_token for {path}')
             return None
 
         user = User.objects.filter(id=token_data['user_id'], is_active=True).first()
