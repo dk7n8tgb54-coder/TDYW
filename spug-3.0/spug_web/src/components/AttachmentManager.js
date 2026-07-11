@@ -29,7 +29,7 @@
  * - 接口路径由调用方传入，组件不硬编码任何模块
  * - 权限码由调用方传入，复用项目 hasPermission 体系
  * - 下载走 x-token GET 参数鉴权（项目中间件支持）
- * - 预览走 kkFileView，通过 preview-url 接口获取地址
+ * - 预览：图片/PDF 走下载接口 inline 模式浏览器原生预览；Office 等走 kkFileView
  * - 上传用 antd Upload customRequest，支持大文件长超时
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -43,6 +43,10 @@ const DEFAULT_PREVIEWABLE_EXTENSIONS = [
   '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
 ];
 
+// 浏览器原生可预览的文件类型（不走 kkFileView）
+const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'];
+const PDF_EXTENSIONS = ['.pdf'];
+
 const DEFAULT_ACCEPT = '.zip,.rar,.7z,.tar,.gz,.bz2,.exe,.msi,.deb,.rpm,.iso,.img,.sh,.py,.sql,.json,.yaml,.yml,.conf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.jpg,.jpeg,.png,.gif,.bmp,.webp';
 
 function formatFileSize(bytes) {
@@ -52,12 +56,24 @@ function formatFileSize(bytes) {
   return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
 }
 
+function getFileExt(fileName) {
+  if (!fileName) return '';
+  const dotIdx = fileName.lastIndexOf('.');
+  if (dotIdx < 0) return '';
+  return fileName.substring(dotIdx).toLowerCase();
+}
+
+function isImageFile(fileName) {
+  return IMAGE_EXTENSIONS.includes(getFileExt(fileName));
+}
+
+function isPdfFile(fileName) {
+  return PDF_EXTENSIONS.includes(getFileExt(fileName));
+}
+
 function isPreviewable(fileName, previewableExtensions) {
   if (!fileName) return false;
-  const dotIdx = fileName.lastIndexOf('.');
-  if (dotIdx < 0) return false;
-  const ext = fileName.substring(dotIdx).toLowerCase();
-  return previewableExtensions.includes(ext);
+  return previewableExtensions.includes(getFileExt(fileName));
 }
 
 function getPreviewable(record, previewableExtensions) {
@@ -83,7 +99,7 @@ function AttachmentToolbar({ canUpload, accept, uploading, maxFileSize, onUpload
   );
 }
 
-function AttachmentPreviewModal({ visible, fileName, previewUrl, onClose }) {
+function AttachmentPreviewModal({ visible, fileName, previewUrl, previewType, onClose }) {
   return (
     <Modal
       title={`预览：${fileName}`}
@@ -95,7 +111,12 @@ function AttachmentPreviewModal({ visible, fileName, previewUrl, onClose }) {
       bodyStyle={{ height: '80vh' }}
       destroyOnClose
     >
-      {previewUrl && (
+      {previewUrl && previewType === 'image' && (
+        <div style={{ height: '100%', textAlign: 'center', overflow: 'auto' }}>
+          <img src={previewUrl} alt={fileName} style={{ maxWidth: '100%', maxHeight: '80vh' }} />
+        </div>
+      )}
+      {previewUrl && previewType !== 'image' && (
         <iframe
           src={previewUrl}
           style={{ width: '100%', height: '100%', border: 'none' }}
@@ -111,6 +132,7 @@ function buildAttachmentColumns(options) {
     canDelete,
     canPreview,
     previewUrlPrefix,
+    downloadUrlPrefix,
     previewableExtensions,
     onDelete,
     onDownload,
@@ -159,7 +181,7 @@ function buildAttachmentColumns(options) {
         const previewable = getPreviewable(record, previewableExtensions);
         return (
           <Space>
-            {previewable && canPreview && previewUrlPrefix && (
+            {previewable && canPreview && (previewUrlPrefix || downloadUrlPrefix) && (
               <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => onPreview(record)}>
                 预览
               </Button>
@@ -179,6 +201,53 @@ function buildAttachmentColumns(options) {
       },
     },
   ];
+}
+
+function useAttachmentPreview(module, downloadUrlPrefix, previewUrlPrefix) {
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [previewFileName, setPreviewFileName] = useState('');
+  const [previewType, setPreviewType] = useState('kkfileview');
+
+  const handlePreview = useCallback((att) => {
+    // 图片/PDF 直接走下载接口 inline 模式，浏览器原生预览
+    if (isImageFile(att.file_name) || isPdfFile(att.file_name)) {
+      if (!downloadUrlPrefix) {
+        message.warning('下载地址未配置，无法预览');
+        return;
+      }
+      const inlineUrl = `${downloadUrlPrefix}${att.id}/download/?x-token=${X_TOKEN}&inline=1`;
+      setPreviewUrl(inlineUrl);
+      setPreviewFileName(att.file_name);
+      setPreviewType(isImageFile(att.file_name) ? 'image' : 'pdf');
+      setPreviewVisible(true);
+      return;
+    }
+    // 其他类型走 kkFileView
+    if (!previewUrlPrefix) {
+      message.warning('预览功能未配置');
+      return;
+    }
+    http.get(`${previewUrlPrefix}${att.id}/preview-url/`)
+      .then(data => {
+        setPreviewUrl(data.preview_url);
+        setPreviewFileName(data.file_name || att.file_name);
+        setPreviewType('kkfileview');
+        setPreviewVisible(true);
+      })
+      .catch(e => {
+        console.error(`[AttachmentManager:${module}] 获取预览地址失败:`, e);
+        message.error(e?.message || '获取预览地址失败');
+      });
+  }, [module, previewUrlPrefix, downloadUrlPrefix]);
+
+  const closePreview = useCallback(() => {
+    setPreviewVisible(false);
+    setPreviewUrl('');
+    setPreviewType('kkfileview');
+  }, []);
+
+  return { previewVisible, previewUrl, previewFileName, previewType, handlePreview, closePreview };
 }
 
 export default function AttachmentManager(props) {
@@ -204,9 +273,15 @@ export default function AttachmentManager(props) {
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [previewVisible, setPreviewVisible] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState('');
-  const [previewFileName, setPreviewFileName] = useState('');
+
+  const {
+    previewVisible,
+    previewUrl,
+    previewFileName,
+    previewType,
+    handlePreview,
+    closePreview,
+  } = useAttachmentPreview(module, downloadUrlPrefix, previewUrlPrefix);
 
   const canUpload = !readOnly && (!uploadPerm || hasPermission(uploadPerm));
   const canDelete = !readOnly && (!deletePerm || hasPermission(deletePerm));
@@ -275,23 +350,6 @@ export default function AttachmentManager(props) {
     document.body.removeChild(link);
   }, [downloadUrlPrefix]);
 
-  const handlePreview = useCallback((att) => {
-    if (!previewUrlPrefix) {
-      message.warning('预览功能未配置');
-      return;
-    }
-    http.get(`${previewUrlPrefix}${att.id}/preview-url/`)
-      .then(data => {
-        setPreviewUrl(data.preview_url);
-        setPreviewFileName(data.file_name || att.file_name);
-        setPreviewVisible(true);
-      })
-      .catch(e => {
-        console.error(`[AttachmentManager:${module}] 获取预览地址失败:`, e);
-        message.error(e?.message || '获取预览地址失败');
-      });
-  }, [module, previewUrlPrefix]);
-
   const handleDelete = useCallback((att) => {
     http.delete(`${deleteUrl}?id=${att.id}`)
       .then(() => {
@@ -306,17 +364,18 @@ export default function AttachmentManager(props) {
 
   const handleFileNameClick = useCallback((att) => {
     const previewable = getPreviewable(att, previewableExtensions);
-    if (previewable && canPreview && previewUrlPrefix) {
+    if (previewable && canPreview && (previewUrlPrefix || downloadUrlPrefix)) {
       handlePreview(att);
     } else {
       handleDownload(att);
     }
-  }, [canPreview, handleDownload, handlePreview, previewUrlPrefix, previewableExtensions]);
+  }, [canPreview, handleDownload, handlePreview, previewUrlPrefix, downloadUrlPrefix, previewableExtensions]);
 
   const columns = useMemo(() => buildAttachmentColumns({
     canDelete,
     canPreview,
     previewUrlPrefix,
+    downloadUrlPrefix,
     previewableExtensions,
     onDelete: handleDelete,
     onDownload: handleDownload,
@@ -326,17 +385,13 @@ export default function AttachmentManager(props) {
     canDelete,
     canPreview,
     previewUrlPrefix,
+    downloadUrlPrefix,
     previewableExtensions,
     handleDelete,
     handleDownload,
     handlePreview,
     handleFileNameClick,
   ]);
-
-  const closePreview = useCallback(() => {
-    setPreviewVisible(false);
-    setPreviewUrl('');
-  }, []);
 
   return (
     <div>
@@ -360,6 +415,7 @@ export default function AttachmentManager(props) {
         visible={previewVisible}
         fileName={previewFileName}
         previewUrl={previewUrl}
+        previewType={previewType}
         onClose={closePreview}
       />
     </div>

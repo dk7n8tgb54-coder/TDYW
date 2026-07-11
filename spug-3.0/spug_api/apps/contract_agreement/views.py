@@ -321,9 +321,12 @@ class AttachmentListView(View):
 
 
 class AttachmentDownloadView(View):
+    """附件下载（鉴权），支持 ?inline=1 内联预览图片/PDF"""
+
     @auth('contract_agreement.attachment.download')
     def get(self, request, pk):
-        response, error = AttachmentService.download_response(request.user, pk)
+        inline = request.GET.get('inline') in ('1', 'true', 'True')
+        response, error = AttachmentService.download_response(request.user, pk, inline=inline)
         if error:
             return json_response(error=error)
         return response

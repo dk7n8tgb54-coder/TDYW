@@ -257,8 +257,12 @@ class AttachmentService:
         return qs.count()
 
     @staticmethod
-    def download_response(user, attachment_id) -> Tuple[Optional[FileResponse], Optional[str]]:
-        """获取下载响应，返回 (response, error)"""
+    def download_response(user, attachment_id, inline=False) -> Tuple[Optional[FileResponse], Optional[str]]:
+        """获取下载响应，返回 (response, error)
+
+        inline=True 时返回 Content-Disposition: inline 并按文件扩展名推断
+        正确的 Content-Type，用于浏览器直接内联预览图片/PDF。
+        """
         qs = apply_tenant_filter(EvidenceAttachment.objects.all(), user)
         att = qs.filter(pk=attachment_id).first()
         if not att:
@@ -271,12 +275,22 @@ class AttachmentService:
             return None, '文件不存在'
 
         encoded_filename = quote(att.file_name)
+        if inline:
+            import mimetypes
+            content_type, _ = mimetypes.guess_type(att.file_name)
+            if not content_type:
+                content_type = 'application/octet-stream'
+            disposition = 'inline'
+        else:
+            content_type = 'application/octet-stream'
+            disposition = 'attachment'
+
         response = FileResponse(
             open(safe_path, 'rb'),
-            content_type='application/octet-stream',
+            content_type=content_type,
         )
         response['Content-Disposition'] = (
-            f'attachment; filename="{encoded_filename}"; '
+            f'{disposition}; filename="{encoded_filename}"; '
             f"filename*=UTF-8''{encoded_filename}"
         )
         response['Content-Length'] = os.path.getsize(safe_path)
