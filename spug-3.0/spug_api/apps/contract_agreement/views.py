@@ -56,20 +56,30 @@ def _fmt_decimal(value):
     return str(value)
 
 
-def _status_text(status):
-    return dict(ContractAgreement.STATUS_CHOICES).get(status, status)
+def _validate_and_fill_responsible_user(form):
+    """校验责任人账号存在性并回填真实姓名
+
+    Returns: 错误消息字符串；None 表示通过
+    """
+    from apps.account.models import User as UserModel
+    user = UserModel.objects.filter(
+        pk=form.responsible_user_id, is_active=True
+    ).first()
+    if not user:
+        return '责任人不存在或已禁用，请重新选择'
+    form.responsible_user_name = user.nickname or user.username
+    return None
 
 
-def _remind_text(remind_status):
-    return {
-        'normal': '正常',
-        'expiring': '即将到期',
-        'expired': '已过期',
-    }.get(remind_status, remind_status)
+STATUS_DISPLAY_MAP = {
+    'normal': '正常',
+    'expiring': '即将到期',
+    'expired': '已过期',
+}
 
 
 def _serialize_agreement(agreement, user=None, include_attachment_count=True):
-    business_status, remind_status, days_left = calculate_agreement_status(agreement.valid_end_date)
+    status, days_left = calculate_agreement_status(agreement.valid_end_date)
     data = agreement.to_view()
     data.update({
         'contract_type_display': agreement.contract_type_display,
@@ -77,13 +87,11 @@ def _serialize_agreement(agreement, user=None, include_attachment_count=True):
         'valid_end_date': _fmt_date(agreement.valid_end_date),
         'fee_amount': _fmt_decimal(agreement.fee_amount),
         'fee_currency': agreement.fee_currency or '人民币',
-        'status': business_status,
-        'status_display': _status_text(business_status),
-        'computed_status': business_status,
-        'computed_status_display': _status_text(business_status),
-        'remind_status': remind_status,
-        'remind_status_display': _remind_text(remind_status),
+        'status': status,
+        'status_display': STATUS_DISPLAY_MAP.get(status, status),
+        'computed_status': status,
         'days_left': days_left,
+        'responsible_user_name': agreement.responsible_user_name,
         'created_by_name': agreement.created_by.nickname or agreement.created_by.username if agreement.created_by else '',
         'updated_by_name': agreement.updated_by.nickname or agreement.updated_by.username if agreement.updated_by else '',
     })
@@ -121,7 +129,11 @@ def _validate_form(form):
     else:
         fee_detail = ''
 
-    business_status, _, _ = calculate_agreement_status(valid_end_date)
+    # 责任人校验（存在性 + 回填姓名），status 由扫描任务实时计算，此处不设置
+    responsible_user_err = _validate_and_fill_responsible_user(form)
+    if responsible_user_err:
+        return None, responsible_user_err
+
     return {
         'contract_name': form.contract_name.strip(),
         'contract_type': form.contract_type,
@@ -132,7 +144,8 @@ def _validate_form(form):
         'fee_currency': '人民币',
         'fee_detail': fee_detail,
         'signing_party': form.signing_party.strip(),
-        'status': business_status,
+        'responsible_user_id': form.responsible_user_id,
+        'responsible_user_name': getattr(form, 'responsible_user_name', '') or '',
         'remark': form.remark or '',
     }, None
 
@@ -200,6 +213,8 @@ class ContractAgreementView(View):
             Argument('fee_amount', required=False),
             Argument('fee_detail', required=False, default=''),
             Argument('signing_party', help='请输入签约方'),
+            Argument('responsible_user_id', type=int, help='请选择责任人'),
+            Argument('responsible_user_name', help='请选择责任人'),
             Argument('remark', required=False, default=''),
         ).parse(request.body)
         if error:
@@ -377,33 +392,35 @@ class AttachmentDeleteView(View):
         return json_response()
 
 
-def _unacked_reminder_queryset(user):
-    today = datetime.today().date()
-    qs = apply_tenant_filter(ContractAgreement.objects.all(), user).filter(
-        valid_end_date__lte=today + timedelta(days=EXPIRING_DAYS_THRESHOLD),
-    ).select_related('created_by')
-    acks = ContractAgreementReminderAck.objects.filter(
-        user_id=user.id,
-    ).values_list('agreement_id', 'ack_valid_end_date')
-    ack_set = {(aid, valid_end) for aid, valid_end in acks}
-    records = []
-    for agreement in qs:
-        _, remind_status, days_left = calculate_agreement_status(agreement.valid_end_date, today)
-        if remind_status == 'normal':
-            continue
-        if (agreement.id, agreement.valid_end_date) in ack_set:
-            continue
-        records.append((agreement, remind_status, days_left))
-    return records
-
-
 class ReminderPopupView(View):
-    """合同协议到期提醒弹窗。"""
+    """合同协议到期提醒弹窗（按责任人过滤）
+
+    实时查询当前用户负责的 expiring/expired 合同，排除已 ack 的。
+    days_left 实时计算，content 前端拼装。
+    """
 
     @auth('contract_agreement.agreement.view')
     def get(self, request):
+        from datetime import date, timedelta
+        today = date.today()
+        qs = apply_tenant_filter(ContractAgreement.objects.all(), request.user)
+        agreements = qs.filter(
+            responsible_user_id=request.user.id,
+            valid_end_date__lte=today + timedelta(days=EXPIRING_DAYS_THRESHOLD),
+        ).select_related('created_by')
+
+        acks = ContractAgreementReminderAck.objects.filter(
+            user_id=request.user.id,
+        ).values_list('agreement_id', 'ack_valid_to')
+        ack_set = {(aid, vid) for aid, vid in acks}
+
         records = []
-        for agreement, remind_status, days_left in _unacked_reminder_queryset(request.user):
+        for agreement in agreements:
+            days_left = (agreement.valid_end_date - today).days
+            # 续期后旧 ack 自动失效：当前 valid_end_date 不匹配 ack_valid_to 才重新提醒
+            if (agreement.id, agreement.valid_end_date) in ack_set:
+                continue
+            status, _ = calculate_agreement_status(agreement.valid_end_date, today)
             records.append({
                 'agreement_id': agreement.id,
                 'contract_name': agreement.contract_name,
@@ -413,11 +430,11 @@ class ReminderPopupView(View):
                 'valid_end_date': _fmt_date(agreement.valid_end_date),
                 'days_left': days_left,
                 'status': agreement.status,
-                'remind_status': remind_status,
-                'remind_type': 'expired' if remind_status == 'expired' else 'expiring_daily',
+                'remind_type': 'expired' if days_left < 0 else 'expiring_daily',
                 'signing_party': agreement.signing_party,
                 'has_fee': agreement.has_fee,
                 'fee_amount': _fmt_decimal(agreement.fee_amount),
+                'responsible_user_name': agreement.responsible_user_name,
             })
         return json_response({'records': records})
 
@@ -438,8 +455,8 @@ class ReminderAckView(View):
         if not agreement:
             return json_response(error='合同协议不存在或无权限访问')
 
-        _, remind_status, _ = calculate_agreement_status(agreement.valid_end_date)
-        if remind_status == 'normal':
+        status, _ = calculate_agreement_status(agreement.valid_end_date)
+        if status == 'normal':
             return json_response(data={'agreement_id': form.agreement_id, 'acked': False, 'message': '当前合同无需提醒'})
 
         try:
@@ -448,7 +465,7 @@ class ReminderAckView(View):
                 agreement=agreement,
                 user_id=request.user.id,
                 user_name=request.user.nickname or request.user.username,
-                ack_valid_end_date=agreement.valid_end_date,
+                ack_valid_to=agreement.valid_end_date,
             )
             record_audit_event(
                 request, 'other', AUDIT_TARGET_TYPE,
@@ -462,21 +479,43 @@ class ReminderAckView(View):
 
 
 class ContractAgreementBadgeView(View):
-    """菜单角标数量。"""
+    """菜单角标数量（按 valid_end_date 实时统计，不排除 ack）"""
 
     @auth('contract_agreement.agreement.view')
     def get(self, request):
-        count = 0
-        expiring_count = 0
-        expired_count = 0
-        for _, remind_status, _ in _unacked_reminder_queryset(request.user):
-            count += 1
-            if remind_status == 'expired':
-                expired_count += 1
-            elif remind_status == 'expiring':
-                expiring_count += 1
+        from datetime import date, timedelta
+        qs = apply_tenant_filter(ContractAgreement.objects.all(), request.user)
+        today = date.today()
+        expiring_count = qs.filter(
+            valid_end_date__gte=today,
+            valid_end_date__lte=today + timedelta(days=EXPIRING_DAYS_THRESHOLD),
+        ).count()
+        expired_count = qs.filter(valid_end_date__lt=today).count()
         return json_response(data={
-            'count': count,
+            'count': expiring_count + expired_count,
             'expiring_count': expiring_count,
             'expired_count': expired_count,
         })
+
+
+class ResponsibleUserListView(View):
+    """可选责任人列表（轻量接口）
+
+    为前端合同协议表单提供可选用户下拉。复用 contract_agreement.agreement.view 权限。
+
+    租户隔离：非超管只返回本租户激活用户；超管返回全量激活用户。
+    Returns:
+        list: [{id, nickname, username}, ...]
+    """
+
+    @auth('contract_agreement.agreement.view')
+    def get(self, request):
+        from apps.account.models import User as UserModel
+        qs = UserModel.objects.filter(is_active=True, deleted_by_id__isnull=True)
+        if not getattr(request.user, 'is_supper', False):
+            qs = qs.filter(tenant_id=request.user.tenant_id)
+        data = [
+            {'id': u.id, 'nickname': u.nickname or u.username, 'username': u.username}
+            for u in qs.order_by('nickname', 'username')
+        ]
+        return json_response(data)

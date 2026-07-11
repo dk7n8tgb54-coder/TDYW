@@ -12,11 +12,6 @@ import S from './store';
 import { AttachmentManager } from 'components';
 
 const STATUS_TAG_MAP = {
-  active: {color: 'green', text: '在用'},
-  expired: {color: 'red', text: '过期'},
-};
-
-const REMIND_TAG_MAP = {
   normal: {color: 'green', text: '正常'},
   expiring: {color: 'orange', text: '即将到期'},
   expired: {color: 'red', text: '已过期'},
@@ -27,6 +22,10 @@ export default observer(function () {
   const [loading, setLoading] = useState(false);
   const viewMode = !!S.detailVisible;
   const info = S.record || {};
+
+  React.useEffect(() => {
+    S.fetchResponsibleUsers();
+  }, []);
 
   const initialValues = {
     ...info,
@@ -82,8 +81,7 @@ export default observer(function () {
   }
 
   if (viewMode) {
-    const statusTag = STATUS_TAG_MAP[info.computed_status || info.status] || STATUS_TAG_MAP.active;
-    const remindTag = REMIND_TAG_MAP[info.remind_status] || REMIND_TAG_MAP.normal;
+    const statusTag = STATUS_TAG_MAP[info.computed_status || info.status] || STATUS_TAG_MAP.normal;
     return (
       <Modal
         visible
@@ -105,7 +103,7 @@ export default observer(function () {
           <Descriptions.Item label="起始日期">{info.valid_start_date || '-'}</Descriptions.Item>
           <Descriptions.Item label="截止日期">{info.valid_end_date || '-'}</Descriptions.Item>
           <Descriptions.Item label="剩余天数">{renderDaysLeft(info)}</Descriptions.Item>
-          <Descriptions.Item label="提醒状态"><Tag color={remindTag.color}>{remindTag.text}</Tag></Descriptions.Item>
+          <Descriptions.Item label="责任人">{info.responsible_user_name || '-'}</Descriptions.Item>
           <Descriptions.Item label="费用">{info.has_fee ? `人民币 ${info.fee_amount || '0.00'}` : '无'}</Descriptions.Item>
           <Descriptions.Item label="状态"><Tag color={statusTag.color}>{statusTag.text}</Tag></Descriptions.Item>
           <Descriptions.Item label="签约方" span={2}>{info.signing_party || '-'}</Descriptions.Item>
@@ -186,6 +184,32 @@ export default observer(function () {
             })
           ]}>
           <DatePicker style={{width: '100%'}} placeholder="请选择截止日期"/>
+        </Form.Item>
+        <Form.Item
+          required
+          name="responsible_user_id"
+          label="责任人"
+          rules={[{required: true, message: '请选择责任人'}]}>
+          <Select
+            showSearch
+            allowClear
+            placeholder="请选择责任人（必填，按姓名/账号搜索）"
+            optionFilterProp="label"
+            loading={!S.responsibleUsersLoaded}
+            notFoundContent={S.responsibleUsersLoaded ? '暂无可选用户' : '加载中...'}
+            onChange={(value) => {
+              const u = S.responsibleUsers.find(x => x.id === value);
+              if (u) form.setFieldsValue({responsible_user_name: u.nickname || u.username});
+            }}>
+            {S.responsibleUsers.map(u => (
+              <Select.Option key={u.id} value={u.id} label={`${u.nickname} ${u.username}`}>
+                {u.nickname}（{u.username}）
+              </Select.Option>
+            ))}
+          </Select>
+        </Form.Item>
+        <Form.Item name="responsible_user_name" hidden noStyle>
+          <Input/>
         </Form.Item>
         <Form.Item name="has_fee" label="费用" rules={[{required: true}]}>
           <Radio.Group>

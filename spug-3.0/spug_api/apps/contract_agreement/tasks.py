@@ -25,50 +25,47 @@ def _as_date(value):
 
 
 def calculate_agreement_status(valid_end_date, today=None):
-    """计算合同协议业务状态、提醒状态和剩余天数。"""
+    """计算合同协议状态（三态）和剩余天数。
+
+    Returns:
+        tuple: (status, days_left)
+            status: 'normal' / 'expiring' / 'expired'
+            days_left: 剩余天数（负数=已过期）
+    """
     if today is None:
         today = date.today()
     valid_end_date = _as_date(valid_end_date)
     days_left = (valid_end_date - today).days
 
-    business_status = (
-        ContractAgreement.STATUS_EXPIRED
-        if days_left < 0
-        else ContractAgreement.STATUS_ACTIVE
-    )
     if days_left < 0:
-        remind_status = 'expired'
+        return 'expired', days_left
     elif days_left <= EXPIRING_DAYS_THRESHOLD:
-        remind_status = 'expiring'
-    else:
-        remind_status = 'normal'
-    return business_status, remind_status, days_left
+        return 'expiring', days_left
+    return 'normal', days_left
 
 
 def scan_single_contract_agreement(agreement, today=None):
-    """扫描单条合同协议，更新业务状态和扫描时间。"""
+    """扫描单条合同协议，更新三态 status 和扫描时间。"""
     if today is None:
         today = timezone.now().date()
-    business_status, remind_status, days_left = calculate_agreement_status(
-        agreement.valid_end_date, today)
+    status, days_left = calculate_agreement_status(agreement.valid_end_date, today)
 
     update_data = {'last_remind_at': human_datetime()}
     updated = False
-    if agreement.status != business_status:
-        update_data['status'] = business_status
-        agreement.status = business_status
+    if agreement.status != status:
+        update_data['status'] = status
+        agreement.status = status
         updated = True
 
     ContractAgreement.objects.filter(pk=agreement.id).update(**update_data)
     agreement.last_remind_at = update_data['last_remind_at']
 
     logger.info(
-        '[ContractAgreement] scan one: agreement=%s, status=%s, remind_status=%s, days_left=%s, updated=%s',
-        agreement.id, business_status, remind_status, days_left, updated,
+        '[ContractAgreement] scan one: agreement=%s, status=%s, days_left=%s, updated=%s',
+        agreement.id, status, days_left, updated,
     )
     return {
-        'status': business_status,
-        'remind_status': remind_status,
+        'status': status,
         'days_left': days_left,
         'updated': updated,
     }

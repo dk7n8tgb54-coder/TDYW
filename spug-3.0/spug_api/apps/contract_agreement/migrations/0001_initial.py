@@ -43,9 +43,6 @@ class Migration(migrations.Migration):
                 'db_table': 'tdyw_contract_agreement',
                 'ordering': ('-created_at', '-id'),
             },
-            managers=[
-                ('objects', libs.tenant_base_model.TenantModelManager()),
-            ],
         ),
         migrations.CreateModel(
             name='ContractAgreementReminderAck',
@@ -64,9 +61,6 @@ class Migration(migrations.Migration):
                 'db_table': 'tdyw_contract_agreement_reminder_ack',
                 'ordering': ('-created_at',),
             },
-            managers=[
-                ('objects', libs.tenant_base_model.TenantModelManager()),
-            ],
         ),
         migrations.AddIndex(
             model_name='contractagreement',

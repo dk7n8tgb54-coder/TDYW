@@ -17,6 +17,7 @@ import React, { useEffect, useRef } from 'react';
 import { notification, Tag, Button } from 'antd';
 import { WarningOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { http, history } from 'libs';
+import radioLicenseBadge from '../layout/RadioLicenseBadgeStore';
 
 const POLL_INTERVAL = 5 * 60 * 1000; // 5 分钟
 const MUTE_KEY_PREFIX = 'spug_reminder_muted';
@@ -116,6 +117,18 @@ function showReminderNotification(record) {
             }}
           >
             今日不再提醒
+          </Button>
+          <Button
+            size="small"
+            type="primary"
+            onClick={(e) => {
+              e.stopPropagation();
+              http.post('/api/radio-license/reminders/ack/', {license_id: record.license_id})
+                .then(() => radioLicenseBadge.fetch())
+                .finally(() => notification.close(notifKey));
+            }}
+          >
+            已处理
           </Button>
         </div>
       </div>

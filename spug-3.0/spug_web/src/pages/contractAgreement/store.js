@@ -31,9 +31,14 @@ class Store {
   ];
 
   statusOptions = [
-    {value: 'active', label: '在用'},
-    {value: 'expired', label: '过期'},
+    {value: 'normal', label: '正常'},
+    {value: 'expiring', label: '即将到期'},
+    {value: 'expired', label: '已过期'},
   ];
+
+  // ========== 可选责任人列表 ==========
+  @observable responsibleUsers = [];
+  @observable responsibleUsersLoaded = false;
 
   fetchRecords = () => {
     this.isFetching = true;
@@ -87,6 +92,21 @@ class Store {
     this.detailVisible = true;
     this.formVisible = false;
     this.record = {...info};
+  };
+
+  // 拉取可选责任人列表（懒加载，首次进入表单时调用）
+  fetchResponsibleUsers = () => {
+    if (this.responsibleUsersLoaded) return Promise.resolve(this.responsibleUsers);
+    return http.get('/api/contract-agreement/responsible-users/')
+      .then(res => {
+        this.responsibleUsers = res || [];
+        this.responsibleUsersLoaded = true;
+        return this.responsibleUsers;
+      })
+      .catch(e => {
+        console.error('[合同协议] 获取责任人列表失败:', e);
+        return [];
+      });
   };
 }
 

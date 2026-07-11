@@ -12,11 +12,6 @@ import { Action, TableCard, AuthButton, AttachmentCountBadge } from 'components'
 import store from './store';
 
 const STATUS_TAG_MAP = {
-  active: {color: 'green', text: '在用'},
-  expired: {color: 'red', text: '过期'},
-};
-
-const REMIND_TAG_MAP = {
   normal: {color: 'green', text: '正常'},
   expiring: {color: 'orange', text: '即将到期'},
   expired: {color: 'red', text: '已过期'},
@@ -43,7 +38,7 @@ class ComTable extends React.Component {
   };
 
   renderStatus = (text, record) => {
-    const tagInfo = STATUS_TAG_MAP[record.computed_status || record.status] || STATUS_TAG_MAP.active;
+    const tagInfo = STATUS_TAG_MAP[record.computed_status || record.status] || STATUS_TAG_MAP.normal;
     return <Tag color={tagInfo.color}>{tagInfo.text}</Tag>;
   };
 
@@ -55,11 +50,6 @@ class ComTable extends React.Component {
       return <span style={{color: '#fa8c16'}}>{record.days_left} 天</span>;
     }
     return <span>{record.days_left} 天</span>;
-  };
-
-  renderRemindStatus = (text, record) => {
-    const tagInfo = REMIND_TAG_MAP[record.remind_status] || REMIND_TAG_MAP.normal;
-    return <Tag color={tagInfo.color}>{tagInfo.text}</Tag>;
   };
 
   renderFee = (text, record) => {
@@ -110,8 +100,8 @@ class ComTable extends React.Component {
         <Table.Column title="起始日期" dataIndex="valid_start_date" width={110}/>
         <Table.Column title="截止日期" dataIndex="valid_end_date" width={110}/>
         <Table.Column title="剩余天数" width={120} render={this.renderDaysLeft}/>
-        <Table.Column title="提醒状态" width={100} render={this.renderRemindStatus}/>
         <Table.Column title="费用" width={130} render={this.renderFee}/>
+        <Table.Column title="责任人" dataIndex="responsible_user_name" width={100} ellipsis/>
         <Table.Column title="签约方" dataIndex="signing_party" width={160} ellipsis/>
         <Table.Column title="附件" width={70} render={this.renderAttachmentCount}/>
         <Table.Column title="状态" width={80} render={this.renderStatus}/>

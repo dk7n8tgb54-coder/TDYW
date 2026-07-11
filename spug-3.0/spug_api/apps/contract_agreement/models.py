@@ -23,14 +23,6 @@ class ContractAgreement(models.Model, TenantModelMixin):
         (TYPE_SERVICE_GUARANTEE, '服务保障协议'),
     )
 
-    STATUS_ACTIVE = 'active'
-    STATUS_EXPIRED = 'expired'
-
-    STATUS_CHOICES = (
-        (STATUS_ACTIVE, '在用'),
-        (STATUS_EXPIRED, '过期'),
-    )
-
     # ---- 业务字段 ----
     contract_name = models.CharField(max_length=200, help_text='合同名称')
     contract_type = models.CharField(max_length=30, choices=CONTRACT_TYPE_CHOICES, help_text='类型')
@@ -41,7 +33,9 @@ class ContractAgreement(models.Model, TenantModelMixin):
     fee_currency = models.CharField(max_length=10, default='人民币', help_text='币种')
     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
     signing_party = models.CharField(max_length=500, help_text='签约方')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_ACTIVE, help_text='状态')
+    responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
+    responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
+    status = models.CharField(max_length=20, default='normal', help_text='状态: normal/expiring/expired')
     remark = models.TextField(default='', blank=True, help_text='备注')
     last_remind_at = models.CharField(max_length=20, null=True, blank=True, help_text='最近提醒扫描时间')
 
@@ -67,11 +61,11 @@ class ContractAgreement(models.Model, TenantModelMixin):
         verbose_name_plural = '合同协议'
         ordering = ('-created_at', '-id')
         indexes = [
-            models.Index(fields=['tenant_id', '-created_at', '-id']),
-            models.Index(fields=['tenant_id', 'contract_type']),
-            models.Index(fields=['tenant_id', 'status']),
-            models.Index(fields=['tenant_id', 'valid_end_date']),
-            models.Index(fields=['tenant_id', 'has_fee']),
+            models.Index(fields=['tenant_id', '-created_at', '-id'], name='tdyw_contra_tenant_8811a0_idx'),
+            models.Index(fields=['tenant_id', 'contract_type'], name='tdyw_contra_tenant_f8adba_idx'),
+            models.Index(fields=['tenant_id', 'status'], name='tdyw_contra_tenant_1880dc_idx'),
+            models.Index(fields=['tenant_id', 'valid_end_date'], name='tdyw_contra_tenant_f97a10_idx'),
+            models.Index(fields=['tenant_id', 'has_fee'], name='tdyw_contra_tenant_a34e30_idx'),
         ]
 
 
@@ -87,12 +81,12 @@ class ContractAgreementReminderAck(models.Model, TenantModelMixin):
         ContractAgreement, models.CASCADE, related_name='reminder_acks', help_text='合同协议')
     user_id = models.IntegerField(help_text='确认处理的用户ID')
     user_name = models.CharField(max_length=100, default='', help_text='确认处理的用户名称')
-    ack_valid_end_date = models.DateField(help_text='确认时合同的截止日期')
+    ack_valid_to = models.DateField(help_text='确认时合同的截止日期（用于续期后自动失效）')
     created_at = models.CharField(max_length=20, default=human_datetime)
 
     def __repr__(self):
-        return '<ContractAgreementReminderAck agreement=%s user=%s valid_end=%s>' % (
-            self.agreement_id, self.user_id, self.ack_valid_end_date)
+        return '<ContractAgreementReminderAck agreement=%s user=%s valid_to=%s>' % (
+            self.agreement_id, self.user_id, self.ack_valid_to)
 
     def to_view(self):
         return self.to_dict()
@@ -107,7 +101,7 @@ class ContractAgreementReminderAck(models.Model, TenantModelMixin):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=['tenant_id', 'agreement_id', 'user_id', 'ack_valid_end_date'],
+                fields=['tenant_id', 'agreement_id', 'user_id', 'ack_valid_to'],
                 name='uniq_contract_user_valid_end',
             ),
         ]
