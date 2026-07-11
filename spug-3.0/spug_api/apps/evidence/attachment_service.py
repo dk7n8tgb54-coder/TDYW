@@ -226,15 +226,18 @@ class AttachmentService:
         return att, None
 
     @staticmethod
-    def list(user, module: str, object_type: str, object_id):
-        """获取附件列表（已过滤软删除），返回 list"""
-        qs = apply_tenant_filter(
-            EvidenceAttachment.objects.filter(
-                module=module, object_type=object_type,
-                object_id=str(object_id), is_deleted=False,
-            ),
-            user,
-        ).order_by('-uploaded_at', '-id')
+    def list(user, module: str, object_type: str, object_id, skip_tenant_filter: bool = False):
+        """获取附件列表（已过滤软删除），返回 list
+
+        skip_tenant_filter=True 时跳过租户过滤（由调用方自行完成可见性校验），
+        用于全平台公告等跨租户可见场景。
+        """
+        base_qs = EvidenceAttachment.objects.filter(
+            module=module, object_type=object_type,
+            object_id=str(object_id), is_deleted=False,
+        )
+        qs = base_qs if skip_tenant_filter else apply_tenant_filter(base_qs, user)
+        qs = qs.order_by('-uploaded_at', '-id')
         data = []
         for att in qs:
             item = att.to_view()
@@ -245,25 +248,27 @@ class AttachmentService:
         return data
 
     @staticmethod
-    def count(user, module: str, object_type: str, object_id) -> int:
+    def count(user, module: str, object_type: str, object_id, skip_tenant_filter: bool = False) -> int:
         """统计业务对象下的未删除附件数量"""
-        qs = apply_tenant_filter(
-            EvidenceAttachment.objects.filter(
-                module=module, object_type=object_type,
-                object_id=str(object_id), is_deleted=False,
-            ),
-            user,
+        base_qs = EvidenceAttachment.objects.filter(
+            module=module, object_type=object_type,
+            object_id=str(object_id), is_deleted=False,
         )
+        qs = base_qs if skip_tenant_filter else apply_tenant_filter(base_qs, user)
         return qs.count()
 
     @staticmethod
-    def download_response(user, attachment_id, inline=False) -> Tuple[Optional[FileResponse], Optional[str]]:
+    def download_response(user, attachment_id, inline=False, skip_tenant_filter: bool = False) -> Tuple[Optional[FileResponse], Optional[str]]:
         """获取下载响应，返回 (response, error)
 
         inline=True 时返回 Content-Disposition: inline 并按文件扩展名推断
         正确的 Content-Type，用于浏览器直接内联预览图片/PDF。
+
+        skip_tenant_filter=True 时跳过租户过滤（由调用方完成可见性校验），
+        用于全平台公告等跨租户可见场景。
         """
-        qs = apply_tenant_filter(EvidenceAttachment.objects.all(), user)
+        base_qs = EvidenceAttachment.objects.all()
+        qs = base_qs if skip_tenant_filter else apply_tenant_filter(base_qs, user)
         att = qs.filter(pk=attachment_id).first()
         if not att:
             return None, '附件不存在或无权限访问'
@@ -297,7 +302,9 @@ class AttachmentService:
         return response, None
 
     @staticmethod
-    def get_preview_url(user, attachment_id, preview_file_api_path: str) -> Tuple[Optional[dict], Optional[str]]:
+    def get_preview_url(user, attachment_id, preview_file_api_path: str,
+                        skip_tenant_filter: bool = False,
+                        token_tenant_id: str = None) -> Tuple[Optional[dict], Optional[str]]:
         """生成 kkFileView 在线预览 URL
 
         Args:
@@ -305,6 +312,9 @@ class AttachmentService:
             attachment_id: 附件 ID
             preview_file_api_path: kkFileView 回调下载文件的 API 路径（不含 server URL）
                 例："/api/upgrade/attachments/123/preview-file/"
+            skip_tenant_filter: True 时跳过租户过滤（由调用方完成可见性校验），用于跨租户可见场景
+            token_tenant_id: 覆盖 preview_token 绑定的 tenant_id（默认取 user.tenant_id）。
+                跨租户场景需传附件真实 tenant_id，使 kkFileView 回调的令牌绑定校验通过。
 
         Returns:
             (data, error)
@@ -318,7 +328,8 @@ class AttachmentService:
         if not kkfileview_server_url:
             return None, 'Office文档预览服务未配置，请联系管理员配置KKFILEVIEW_SERVER_URL'
 
-        qs = apply_tenant_filter(EvidenceAttachment.objects.all(), user)
+        base_qs = EvidenceAttachment.objects.all()
+        qs = base_qs if skip_tenant_filter else apply_tenant_filter(base_qs, user)
         att = qs.filter(pk=attachment_id, is_deleted=False).first()
         if not att:
             return None, '附件不存在或无权限访问'
@@ -326,11 +337,12 @@ class AttachmentService:
         if att.file_ext not in PREVIEWABLE_EXTENSIONS:
             return None, '该文件类型不支持在线预览'
 
-        # 生成短时效 preview_token
+        # 生成短时效 preview_token（跨租户场景用附件真实 tenant_id 绑定，回调校验才能通过）
+        token_tenant = token_tenant_id if token_tenant_id is not None else getattr(user, 'tenant_id', '')
         preview_token = generate_attachment_preview_token(
             attachment_id=att.id,
             user_id=getattr(user, 'id', 0),
-            tenant_id=getattr(user, 'tenant_id', ''),
+            tenant_id=token_tenant,
             module=att.module,
             object_type=att.object_type,
             object_id=att.object_id,

@@ -253,5 +253,20 @@ export default [{
       {key: 'del', label: '删除故障件'},
     ]
   }]
+}, {
+  key: 'home',
+  label: '首页与公告',
+  pages: [{
+    key: 'announcement',
+    label: '公告管理',
+    perms: [
+      {key: 'view', label: '查看公告'},
+      {key: 'add', label: '新建公告'},
+      {key: 'edit', label: '编辑公告'},
+      {key: 'delete', label: '删除公告'},
+      {key: 'publish', label: '发布公告'},
+      {key: 'withdraw', label: '撤回公告'},
+    ]
+  }]
 }]
 

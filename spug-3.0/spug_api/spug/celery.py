@@ -57,6 +57,18 @@ def import_radio_license_tasks():
 import_radio_license_tasks()
 
 
+def import_home_tasks():
+    """显式导入 home 模块的 Celery 任务"""
+    try:
+        from apps.home.tasks import sync_announcement_status
+        print('[Celery] Home tasks imported successfully')
+    except Exception as e:
+        print(f'[Celery] Warning: Failed to import home tasks: {e}')
+
+
+import_home_tasks()
+
+
 @app.task(bind=True)
 def debug_task(self):
     """调试任务"""

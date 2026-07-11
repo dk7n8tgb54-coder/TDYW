@@ -11,6 +11,7 @@ import DocumentOverview from './DocumentOverview';
 import FaultOverview from './FaultOverview';
 import UpgradeOverview from './UpgradeOverview';
 import InterferenceOverview from './InterferenceOverview';
+import AnnouncementPanel from './AnnouncementPanel';
 
 function HomeIndex() {
   return (
@@ -19,6 +20,9 @@ function HomeIndex() {
         <Breadcrumb.Item>首页</Breadcrumb.Item>
         <Breadcrumb.Item>工作台</Breadcrumb.Item>
       </Breadcrumb>
+
+      {/* 公告面板：首页第一屏靠上位置 */}
+      <AnnouncementPanel />
 
       {/* 第1行：跨日事项跟踪概览 */}
       <RunlogOverview />

@@ -14,7 +14,8 @@ import {
   ClockCircleOutlined,
   ApartmentOutlined,
   CheckSquareOutlined,
-  SafetyCertificateOutlined
+  SafetyCertificateOutlined,
+  NotificationOutlined
 } from '@ant-design/icons';
 
 import HomeIndex from './pages/home';
@@ -46,6 +47,8 @@ import CheckSheetIndex from './pages/checksheet';
 import RadioLicenseIndex from './pages/radioLicense';
 import StationFrequencyApproval from './pages/stationFrequencyApproval';
 import ContractAgreementIndex from './pages/contractAgreement';
+import AnnouncementList from './pages/home/AnnouncementList';
+import AnnouncementAdmin from './pages/system/announcement';
 
 export default [
   {icon: <DesktopOutlined/>, title: '工作台', path: '/home', component: HomeIndex},
@@ -85,6 +88,7 @@ export default [
     {title: '干扰统计', auth: 'interference.statistics.view', path: '/interference/statistics', component: InterferenceStatistics},
   ]},
   {icon: <ClockCircleOutlined/>, title: '值班日志', auth: 'duty.duty.view', path: '/duty', component: ExecDutyRecord},
+  {icon: <NotificationOutlined/>, title: '公告管理', auth: 'home.announcement.view', path: '/system/announcement', component: AnnouncementAdmin},
   {
     icon: <SettingOutlined/>, title: '系统管理', auth: 'system.account.view|system.role.view|system.setting.view|system.audit.view|system.tenant.view', child: [
       {title: '登录日志', auth: 'system.login.view', path: '/system/login', component: SystemLogin},
@@ -99,4 +103,6 @@ export default [
   {path: '/welcome/info', component: WelcomeInfo},
   // 升级工作台全屏页面（新建走列表页弹窗，此处仅保留编辑/查看入口）
   {path: '/upgrade/workbench/:id', component: UpgradeWorkbench},
+  // 公告查询页（用户端，从首页“更多”进入，不在菜单展示）
+  {path: '/announcement', component: AnnouncementList},
 ]

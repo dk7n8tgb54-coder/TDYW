@@ -111,3 +111,4 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate <app>
 - **上传并发**：状态机懒创建 + 并发槽位用 `countByStates` 读状态机 currentState（唯一可靠真相源），不依赖 item.status；保护阈值只做异常兜底
 - **资料库备份/还原一致性**：DB 与 documents 同周期；恢复顺序：停业务→恢复DB→清空documents→full→incrementals→启动→一致性检查
 - **PowerShell 环境**：`npx`/`head` 不可用；`node --check` 不支持 ESM `import`；C:\temp 写入受限改工作区根目录
+- **权限码配置走 UI 而非 SQL**：新功能只需在 `pages/system/role/codes.js` 加权限码组，`角色管理-功能权限`弹窗(`PagePerm.js` 遍历 codes 渲染勾选树)即出现该组,超级管理员勾选保存经 `http.patch('/api/account/role/', {page_perms})` 写回角色。**不要**为角色预置权限写 `*.sql`(如误建的 `home/permissions.sql` 已删)。`document/radio_license` 的 `permissions.sql` 只是后期补权限的手动 convenience 脚本,不被部署引用,非新功能范本。超级管理员(`is_supper`)在所有 `hasPermission` 判断直接放行,无需配置即见菜单。
