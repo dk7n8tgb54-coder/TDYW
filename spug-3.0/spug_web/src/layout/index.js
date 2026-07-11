@@ -8,11 +8,13 @@ import { Switch, Route } from 'react-router-dom';
 import { Layout, message } from 'antd';
 import { NotFound } from 'components';
 import ReminderNotification from 'components/ReminderNotification';
+import ContractAgreementReminderNotification from 'components/ContractAgreementReminderNotification';
 import Sider from './Sider';
 import Header from './Header';
 import Footer from './Footer'
 import routes from '../routes';
 import radioLicenseBadge from './RadioLicenseBadgeStore';
+import contractAgreementBadge from './ContractAgreementBadgeStore';
 import { hasPermission, isMobile } from 'libs';
 import styles from './layout.module.less';
 
@@ -42,7 +44,11 @@ export default function () {
     setRoutes(Routes)
     // 启动无线电台执照菜单红点轮询
     radioLicenseBadge.start();
-    return () => radioLicenseBadge.stop();
+    contractAgreementBadge.start();
+    return () => {
+      radioLicenseBadge.stop();
+      contractAgreementBadge.stop();
+    };
   }, [])
 
   return (
@@ -59,6 +65,7 @@ export default function () {
         <Footer/>
       </Layout>
       <ReminderNotification/>
+      <ContractAgreementReminderNotification/>
     </Layout>
   )
 }

@@ -44,12 +44,14 @@ import UpgradeWorkbench from './pages/upgrade/Workbench';
 import ExecDutyRecord from './pages/duty';
 import CheckSheetIndex from './pages/checksheet';
 import RadioLicenseIndex from './pages/radioLicense';
+import ContractAgreementIndex from './pages/contractAgreement';
 
 export default [
   {icon: <DesktopOutlined/>, title: '工作台', path: '/home', component: HomeIndex},
   {icon: <BarChartOutlined/>, title: '数据分析', path: '/data-analysis', component: DataAnalysisIndex},
   {icon: <CheckSquareOutlined/>, title: '部门值班日检查单', auth: 'checksheet.checksheet.view', path: '/checksheet', component: CheckSheetIndex},
   {icon: <SafetyCertificateOutlined/>, title: '无线电台执照', auth: 'radio_license.license.view', path: '/radio-license', component: RadioLicenseIndex},
+  {icon: <FileTextOutlined/>, title: '合同协议', auth: 'contract_agreement.agreement.view', path: '/contract-agreement', component: ContractAgreementIndex},
   {icon: <FolderOpenOutlined/>, title: '资料库', auth: 'document.document.view|document.industry_rule.view', child: [
     {title: '文档管理', auth: 'document.document.view', path: '/document', component: DocumentIndex},
     {title: '行业规章', auth: 'document.industry_rule.view', path: '/document/industry-rules', component: IndustryRulesIndex},

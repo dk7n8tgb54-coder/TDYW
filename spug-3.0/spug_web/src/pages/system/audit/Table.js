@@ -31,6 +31,7 @@ const TARGET_TYPE_MAP = {
   interference: '干扰',
   runlog: '跨日事项跟踪',
   radio_license: '无线电台执照',
+  contract_agreement: '合同协议',
   setting: '系统设置',
   upgrade: '升级',
   checksheet: '检查表',

@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     'apps.checksheet',
     'apps.logs',
     'apps.radio_license',
+    'apps.contract_agreement',
     'apps.evidence',
     'channels',
     'django_celery_results',  # Celery results backend
@@ -211,6 +212,7 @@ CELERY_TASK_ROUTES = {
     'apps.document.tasks.thumbnail.generate_document_thumbnail': {'queue': 'document.thumbnail'},
     # 【新增】无线电台执照到期扫描任务
     'apps.radio_license.tasks.scan_radio_license_expiration': {'queue': 'radio_license'},
+    'apps.contract_agreement.tasks.scan_contract_agreement_expiration': {'queue': 'contract_agreement'},
     # 【新增】审计日志归档清理任务（使用 default 队列）
     'apps.logs.tasks.cleanup_old_audit_logs': {'queue': 'default'},
 }
@@ -219,6 +221,7 @@ CELERY_TASK_ROUTES = {
 from celery.schedules import crontab
 from apps.document.celery_beat_schedule import DOCUMENT_BEAT_SCHEDULE
 from apps.radio_license.celery_beat_schedule import RADIO_LICENSE_BEAT_SCHEDULE
+from apps.contract_agreement.celery_beat_schedule import CONTRACT_AGREEMENT_BEAT_SCHEDULE
 from apps.logs.celery_beat_schedule import LOGS_BEAT_SCHEDULE
 
 CELERY_BEAT_SCHEDULE = {
@@ -235,6 +238,8 @@ CELERY_BEAT_SCHEDULE.update(DOCUMENT_BEAT_SCHEDULE)
 
 # 合并 RadioLicense 模块的定时任务配置
 CELERY_BEAT_SCHEDULE.update(RADIO_LICENSE_BEAT_SCHEDULE)
+
+CELERY_BEAT_SCHEDULE.update(CONTRACT_AGREEMENT_BEAT_SCHEDULE)
 
 # 合并 Logs 模块的定时任务配置（审计日志归档清理）
 CELERY_BEAT_SCHEDULE.update(LOGS_BEAT_SCHEDULE)

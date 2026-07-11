@@ -205,6 +205,33 @@ export default [{
     ]
   }]
 }, {
+  key: 'contract_agreement',
+  label: '合同协议',
+  pages: [{
+    key: 'agreement',
+    label: '合同管理',
+    perms: [
+      {key: 'view', label: '查看合同协议'},
+      {key: 'add', label: '新增合同协议'},
+      {key: 'edit', label: '编辑合同协议'},
+      {key: 'del', label: '删除合同协议'},
+    ]
+  }, {
+    key: 'attachment',
+    label: '附件管理',
+    perms: [
+      {key: 'upload', label: '上传附件'},
+      {key: 'download', label: '下载附件'},
+      {key: 'delete', label: '删除附件'},
+    ]
+  }, {
+    key: 'reminder',
+    label: '到期提醒',
+    perms: [
+      {key: 'handle', label: '确认处理提醒'},
+    ]
+  }]
+}, {
   key: 'fault',
   label: '故障管理',
   pages: [{

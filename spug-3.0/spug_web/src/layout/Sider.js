@@ -5,6 +5,7 @@ import { hasPermission, history } from 'libs';
 import styles from './layout.module.less';
 import routes from '../routes';
 import radioLicenseBadge from './RadioLicenseBadgeStore';
+import contractAgreementBadge from './ContractAgreementBadgeStore';
 import logo from './logo-spug-white.png';
 
 let selectedKey = window.location.pathname;
@@ -24,7 +25,7 @@ function buildOpenKeysMap(items, parents = []) {
 buildOpenKeysMap(routes);
 
 // 需要显示红点的菜单项 path 集合
-const BADGE_MENU_PATHS = new Set(['/radio-license']);
+const BADGE_MENU_PATHS = new Set(['/radio-license', '/contract-agreement']);
 
 function handleRoute(item) {
   if (item.auth && !hasPermission(item.auth)) return
@@ -94,17 +95,27 @@ const Sider = observer(function Sider(props) {
   // 给指定菜单项注入红点（读取 store count 触发 observer 重渲染）
   const badgeCount = radioLicenseBadge.count;
   const badgeLoaded = radioLicenseBadge.loaded;
+  const contractBadgeCount = contractAgreementBadge.count;
+  const contractBadgeLoaded = contractAgreementBadge.loaded;
   const renderedMenus = useMemo(() => {
-    if (!badgeLoaded || badgeCount <= 0) return menus;
     return menus.map(m => {
-      if (BADGE_MENU_PATHS.has(m.key)) {
+      let count = 0;
+      let loaded = false;
+      if (m.key === '/radio-license') {
+        count = badgeCount;
+        loaded = badgeLoaded;
+      } else if (m.key === '/contract-agreement') {
+        count = contractBadgeCount;
+        loaded = contractBadgeLoaded;
+      }
+      if (BADGE_MENU_PATHS.has(m.key) && loaded && count > 0) {
         return {
           ...m,
           label: (
             <span>
               {m.label}
               <Badge
-                count={badgeCount}
+                count={count}
                 offset={[6, -2]}
                 size="small"
                 style={{ backgroundColor: '#ff4d4f' }}
@@ -115,7 +126,7 @@ const Sider = observer(function Sider(props) {
       }
       return m;
     });
-  }, [menus, badgeCount, badgeLoaded]);
+  }, [menus, badgeCount, badgeLoaded, contractBadgeCount, contractBadgeLoaded]);
 
   const handleMenuSelect = useCallback(menu => {
     history.push(menu.key);

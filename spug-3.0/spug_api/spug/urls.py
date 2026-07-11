@@ -35,6 +35,7 @@ urlpatterns = [
     path('checksheet/', include('apps.checksheet.urls')),
     path('logs/', include('apps.logs.urls')),
     path('radio-license/', include('apps.radio_license.urls')),
+    path('contract-agreement/', include('apps.contract_agreement.urls')),
 ]
 
 # 在开发环境下提供media文件服务
