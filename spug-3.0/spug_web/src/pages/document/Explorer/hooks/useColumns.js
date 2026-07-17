@@ -136,7 +136,9 @@ export default function useColumns({
         title: '文件名',
         dataIndex: 'name',
         key: 'name',
-        width: 400,
+        // 【2026-07-17 布局优化】文件名列弹性宽度：
+        //   不设 width，配合 FileTable 的 tableLayout="fixed"，自动获得剩余空间；
+        //   长名称单行省略，悬停 title 显示完整名称。
         ellipsis: true,
         sorter: true,
         showSorterTooltip: false,
@@ -257,7 +259,7 @@ export default function useColumns({
           }
 
           return (
-            <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
               {record.isFolder ? (
                 <span style={{ width: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}><FolderIcon size={24} open /></span>
               ) : isImage(record.file_type) ? (
@@ -280,9 +282,9 @@ export default function useColumns({
               ) : (
                 <span style={{ width: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>{getFileTypeIcon(record.display_name || record.name, record.file_type, 24)}</span>
               )}
-              <span title={record.display_name || text} style={{ marginLeft: 8 }}>{record.display_name || text}</span>
+              <span title={record.display_name || text} style={{ marginLeft: 8, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.display_name || text}</span>
               {isPublic && isCreatedByAdmin(record) && (
-                <Tag color="gold" style={{ marginLeft: 8, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>官方</Tag>
+                <Tag color="gold" style={{ marginLeft: 8, flexShrink: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>官方</Tag>
               )}
             </div>
           );
@@ -292,7 +294,7 @@ export default function useColumns({
         title: '路径',
         dataIndex: 'path',
         key: 'path',
-        width: 200,
+        width: 180,
         ellipsis: true,
         render: (text) => (
           <span style={{ color: '#666', fontSize: 12 }}>
@@ -304,7 +306,8 @@ export default function useColumns({
         title: '类型',
         dataIndex: 'file_type',
         key: 'file_type',
-        width: 120,
+        // 【2026-07-17 列宽修复】140px 保证 "Word 文档" 等完整显示，避免过早截断
+        width: 140,
         ellipsis: true,
         sorter: true,
         showSorterTooltip: false,
@@ -315,7 +318,8 @@ export default function useColumns({
         title: '大小',
         dataIndex: 'size',
         key: 'size',
-        width: 100,
+        // 【2026-07-17 列宽修复】110px 保证数字与单位单行，文件夹 "-" 位置稳定
+        width: 110,
         sorter: true,
         showSorterTooltip: false,
         sortOrder: sortOrder.columnKey === 'size' ? sortOrder.order : null,
@@ -325,7 +329,10 @@ export default function useColumns({
         title: '修改时间',
         dataIndex: 'created_at',
         key: 'created_at',
+        // 【2026-07-17 列宽修复】180px 容纳 "2026-07-17 12:33:40" 单行完整显示；
+        //   ellipsis:true 强制 white-space:nowrap，杜绝日期时间拆两行撑高行高。
         width: 180,
+        ellipsis: true,
         sorter: true,
         showSorterTooltip: false,
         sortOrder: sortOrder.columnKey === 'created_at' ? sortOrder.order : null
@@ -337,7 +344,9 @@ export default function useColumns({
         title: '创建人',
         dataIndex: 'created_by',
         key: 'created_by',
-        width: 120,
+        // 【2026-07-17 列宽修复】130px 容纳常见昵称 + "我"标签同行
+        width: 130,
+        ellipsis: true,
         sorter: true,
         showSorterTooltip: false,
         sortOrder: sortOrder.columnKey === 'created_by' ? sortOrder.order : null,
@@ -345,9 +354,9 @@ export default function useColumns({
           const name = text || '-';
           const isMine = record.created_by_id === currentUserId;
           return (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              {name}
-              {isMine && <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>我</Tag>}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', overflow: 'hidden' }} title={name}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{name}</span>
+              {isMine && <Tag color="blue" style={{ flexShrink: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>我</Tag>}
             </span>
           );
         }

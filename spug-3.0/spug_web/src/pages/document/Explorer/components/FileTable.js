@@ -87,12 +87,19 @@ const FileTable = ({
       dataSource={dataSource}
       loading={loading}
       rowKey="key"
-      scroll={{ x: 'max-content' }}
-      virtual
+      // 【2026-07-17 布局优化】
+      //   - tableLayout="fixed"：列宽按 width 分配，文件名列未设 width 自动获得剩余空间（弹性）
+      //   - sticky：文件较多时表头粘性固定，内容滚动，表头保持可见
+      //   - 移除 virtual：fixed 布局下未设 width 的列才能弹性伸缩，virtual 要求所有列设 width
+      //   - 不设 scroll.x：避免横向滚动，列宽之和 = 容器宽度，文件名列自适应
+      tableLayout="fixed"
+      sticky={!isSearching}
       rowSelection={{
         selectedRowKeys: safeSelectedRowKeys,
         onChange: onSelectChange,
         type: 'checkbox',
+        // 【2026-07-17 列宽修复】固定选择列宽度 48px，避免 antd 默认值漂移
+        columnWidth: 48,
         getCheckboxProps: (record) => ({ name: record.name }),
       }}
       onRow={onRow}

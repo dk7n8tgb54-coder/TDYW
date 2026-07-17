@@ -95,6 +95,14 @@ function FolderDetail({ folderContents, selectedItem }) {
         <div className={styles.metaValue}>{formatDate(selectedItem.created_at)}</div>
       </div>
 
+      {/* 【2026-07-17 布局优化】文件夹创建人从树节点转移到详情面板展示 */}
+      {selectedItem.created_by && (
+        <div className={styles.metaSection}>
+          <div className={styles.metaLabel}>创建人</div>
+          <div className={styles.metaValue}>{selectedItem.created_by}</div>
+        </div>
+      )}
+
       <div className={styles.metaSection}>
         <div className={styles.metaLabel}>修改时间</div>
         <div className={styles.metaValue}>{formatDate(selectedItem.updated_at)}</div>

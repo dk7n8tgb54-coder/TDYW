@@ -10,7 +10,9 @@
 
 .treeWrapper {
   flex: 1;
-  overflow-x: auto;
+  // 【2026-07-17 布局优化】取消横向滚动，树只允许纵向滚动；
+  //   长名称通过 nodeLabel 省略号 + Tooltip 解决，不依赖横向滚动。
+  overflow-x: hidden;
   overflow-y: auto;
   min-height: 0;
   padding-bottom: 4px;
@@ -37,6 +39,100 @@
   &::-webkit-scrollbar-corner {
     background: transparent;
   }
+
+  // Ant Tree 样式覆盖（作用域限定在 treeWrapper 内，不影响全站其它 Ant Tree）
+  :global {
+    .ant-tree {
+      background: transparent !important;
+      font-size: 13px;
+      // 关键：树宽度限定为容器宽度，节点不撑宽树
+      width: 100%;
+
+      .ant-tree-list-holder {
+        overflow: hidden;
+      }
+
+      .ant-tree-treenode {
+        display: flex;
+        align-items: center;
+        min-height: 30px;
+        padding: 1px 0;
+        border-radius: 6px;
+        transition: background 0.15s ease;
+        width: 100%;
+
+        &:hover {
+          background: #f2f7ff !important;
+        }
+
+        &.ant-tree-treenode-selected {
+          background: #e6f4ff !important;
+          position: relative;
+
+          &::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 2px;
+            bottom: 2px;
+            width: 3px;
+            background: #1677ff;
+            border-radius: 0 2px 2px 0;
+          }
+
+          .ant-tree-node-content-wrapper {
+            color: #1677ff;
+            font-weight: 600;
+          }
+        }
+      }
+
+      // switcher 固定尺寸 + flex 居中；叶子 noop 保留宽度不显示图形
+      .ant-tree-switcher {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 24px;
+        height: 30px;
+        line-height: 30px;
+
+        .ant-tree-switcher-icon,
+        .ant-tree-switcher-leaf-line {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 12px;
+        }
+      }
+
+      .ant-tree-indent-unit {
+        width: 16px;
+        flex-shrink: 0;
+      }
+
+      .ant-tree-node-content-wrapper {
+        display: flex;
+        align-items: center;
+        min-height: 30px;
+        line-height: 30px;
+        padding: 0 4px;
+        border-radius: 4px;
+        flex: 1;
+        min-width: 0;
+        // 关键：内容超出时由内部 nodeLabel 省略号处理，不让 wrapper 撑宽
+        overflow: hidden;
+
+        &:hover {
+          background: transparent !important;
+        }
+
+        &.ant-tree-node-content-wrapper-normal:hover {
+          background: transparent !important;
+        }
+      }
+    }
+  }
 }
 
 .header {
@@ -61,132 +157,61 @@
   align-items: center;
 }
 
-// 根节点样式
-.rootNode {
+// 统一节点内容骨架（根节点与普通节点共用同一套间距/对齐）
+.nodeContent {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  font-weight: 500;
-  font-size: 14px;
-  transition: all 0.2s ease;
-
-  min-width: 0;
-}
-
-.privateRoot {
-  composes: rootNode;
-  color: #595959;
-}
-
-.publicRoot {
-  composes: rootNode;
-  color: #1890ff;
-}
-
-.rootEmoji {
-  line-height: 1;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-}
-
-.rootLabel {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-// 子文件夹节点样式
-.folderNode {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 3px 6px;
   border-radius: 4px;
   font-size: 13px;
   color: #595959;
   min-width: 0;
+  // 关键：限定节点内容最大宽度为父 wrapper，避免长名称撑宽树
+  max-width: 100%;
+  letter-spacing: 0;
+  overflow: hidden;
 }
 
-.folderEmoji {
+// 节点 Tooltip：确保不换行截断时 Tooltip 跟随
+.nodeTooltip {
+  max-width: 320px;
+}
+
+// 根节点仅追加颜色/字重修饰，图标尺寸与水平间距与普通节点一致
+.privateRoot {
+  composes: nodeContent;
+  color: #595959;
+  font-weight: 500;
+}
+
+.publicRoot {
+  composes: nodeContent;
+  color: #1890ff;
+  font-weight: 600;
+}
+
+.folderIcon {
   line-height: 1;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
 }
 
-.folderName {
+.nodeLabel {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.folderCreator {
+.nodeMeta {
+  flex-shrink: 0;
+  margin-left: auto;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   color: #bfbfbf;
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
-// Ant Design Tree 覆盖样式
-:global {
-  .ant-tree {
-    background: transparent !important;
-    font-size: 13px;
-
-    .ant-tree-treenode {
-      padding: 1px 0;
-      border-radius: 6px;
-      transition: all 0.15s ease;
-      width: 100%;
-
-      &:hover {
-        background: #f2f7ff !important;
-      }
-
-      &.ant-tree-treenode-selected {
-        background: #e6f4ff !important;
-        position: relative;
-
-        &::before {
-          content: '';
-          position: absolute;
-          left: 0;
-          top: 2px;
-          bottom: 2px;
-          width: 3px;
-          background: #1677ff;
-          border-radius: 0 2px 2px 0;
-        }
-
-        .ant-tree-node-content-wrapper {
-          color: #1677ff;
-          font-weight: 600;
-        }
-      }
-    }
-
-    .ant-tree-node-content-wrapper {
-      padding: 0 4px;
-      border-radius: 4px;
-      min-height: 30px;
-      line-height: 30px;
-      flex: 1;
-      min-width: 0;
-
-      &:hover {
-        background: transparent !important;
-      }
-
-      &.ant-tree-node-content-wrapper-normal:hover {
-        background: transparent !important;
-      }
-    }
-
-    .ant-tree-indent-unit {
-      width: 16px;
-    }
-  }
 }

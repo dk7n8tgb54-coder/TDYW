@@ -8,6 +8,50 @@
   min-height: 100%;
 }
 
+/* ===== 顶部信息栏：站点面包屑 + 磁盘状态 + 搜索框 ===== */
+/* 【2026-07-17 布局优化】替换原 SpugBreadcrumb（带 16px padding + 8px margin）， */
+/*   改为单行紧凑信息栏，压缩垂直留白。 */
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid #f0f0f0;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.topBarLeft {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+}
+
+.topBarRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.siteBreadcrumb {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+
+  :global(.ant-breadcrumb-link) {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: bottom;
+  }
+}
+
 /* ===== 整体容器 ===== */
 .documentPage {
   display: flex;
@@ -19,31 +63,60 @@
   box-sizing: border-box;
 }
 
-/* ===== 统一工具栏（路径+操作+视图切换） ===== */
+/* ===== 统一工具栏：左路径区 + 右固定操作区 ===== */
+/* 【2026-07-17 布局优化】路径长短不改变右侧按钮横坐标，右侧始终固定靠右。
+   右侧分两组：文件操作(上传/新建/刷新) + 视图操作(传输/列表网格/详情)，
+   两组之间一条克制竖向分隔线。不使用绝对定位，不增加第二行。 */
 .toolBar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   width: 100%;
-  padding: 8px 0;
+  padding: 6px 0;
   border-bottom: 1px solid #f0f0f0;
-  margin-bottom: 0;
-  gap: 8px;
+  gap: 12px;
   flex-shrink: 0;
 }
 
-.toolBarLeft {
+/* 左侧路径区域：自动占据剩余空间，超出省略，不挤动右侧按钮 */
+.pathArea {
   display: flex;
   align-items: center;
   gap: 8px;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
-.toolBarRight {
+/* 右侧固定操作区：禁止换行，始终靠右，路径长短不影响其横坐标 */
+.rightActions {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+}
+
+/* 文件操作组：上传 / 新建文件夹 / 刷新 */
+.fileActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 视图操作组：传输 / 列表网格 / 详情 */
+.viewActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 两组之间克制的竖向分隔线 */
+.actionDivider {
+  width: 1px;
+  height: 20px;
+  background: #e8e8e8;
   flex-shrink: 0;
 }
 
@@ -62,17 +135,37 @@
   }
 }
 
-.toolbarDivider {
-  width: 1px;
-  height: 20px;
-  background: #e8e8e8;
-  margin: 0 4px;
-  flex-shrink: 0;
-}
-
 .backButton {
   color: #1890ff !important;
   padding: 0 4px !important;
+  flex-shrink: 0;
+}
+
+/* 刷新按钮：宽屏图标+文字，1366px 以下仅图标（文字隐藏，Tooltip 兜底） */
+.refreshBtn {
+  flex-shrink: 0;
+}
+
+.refreshText {
+  display: inline;
+}
+
+/* 详情按钮：收起态普通色，展开态高亮选中 */
+.detailBtn {
+  color: #595959;
+  flex-shrink: 0;
+}
+
+.detailBtnActive {
+  color: #1890ff !important;
+  background: #e6f4ff !important;
+  flex-shrink: 0;
+}
+
+@media (max-width: 1366px) {
+  .refreshText {
+    display: none;
+  }
 }
 
 /* ===== 主内容区三栏布局 ===== */
@@ -87,12 +180,26 @@
 }
 
 .sidebarTree {
-  width: 240px;
+  // 【2026-07-17 布局优化】文件夹树宽度响应式规则：
+  //   默认 280px；≥1600px 宽屏 300px；≤1366px 窄屏 260px。
+  width: 280px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   margin-bottom: 0;
+}
+
+@media (min-width: 1600px) {
+  .sidebarTree {
+    width: 300px;
+  }
+}
+
+@media (max-width: 1366px) {
+  .sidebarTree {
+    width: 260px;
+  }
 }
 
 .explorerArea {

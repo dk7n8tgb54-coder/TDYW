@@ -14,7 +14,7 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Tree } from 'antd';
+import { Tree, Tooltip } from 'antd';
 import { http } from 'libs';
 import navigationStore from './stores/navigation';
 import { parseRawId, generateKey } from './utils/keyUtils';
@@ -22,7 +22,12 @@ import styles from './FolderTree.module.less';
 import { createLogger } from '@/pages/document/utils/logger';
 import { FolderIcon } from './components/FileTypeIcon';
 import { PARTY_BUILDING_DOCUMENTS_CODE } from 'libs/systemFolderContext';
+import { computeLeafState, resolveCreatorName } from './utils/folderTreeNode';
 const log = createLogger("FolderTree");
+
+// 纯函数从 utils/folderTreeNode 导入，便于单测（避免装饰器语法在 jest 中报错）
+export { computeLeafState, resolveCreatorName };
+
 @observer
 class FolderTree extends React.Component {
   _pendingLoadTokens = new Set();
@@ -165,14 +170,12 @@ class FolderTree extends React.Component {
    */
   buildSingleRootTree = () => {
     const { rootFolderId, rootFolderName } = this.props;
+    const name = rootFolderName || '党建文档';
     return [{
       key: 'system-root',
       rawId: rootFolderId,
-      folderName: rootFolderName || '党建文档',
-      title: <div className={styles.publicRoot}>
-          <span className={styles.rootEmoji}><FolderIcon size={18} open /></span>
-          <span className={styles.rootLabel}>{rootFolderName || '党建文档'}</span>
-        </div>,
+      folderName: name,
+      title: this.renderNodeWithTooltip(name, { isRoot: true, rootVariant: 'public', open: true }),
       selectable: true,
       children: undefined,
       isLeaf: false
@@ -235,6 +238,11 @@ class FolderTree extends React.Component {
       if (!this._isMounted) {
         return { nodes, expandedKeys };
       }
+      // 后端明确标记为叶子（has_children=false）时无需递归加载，避免无谓请求
+      if (node.isLeaf) {
+        nodes.push({ ...node, children: [], isLeaf: true });
+        continue;
+      }
       const { nodes: childNodes, expandedKeys: childExpandedKeys } =
         await this._buildExpandedFolderChildren(node.rawId, depth + 1, visited);
       const hasChildren = childNodes.length > 0;
@@ -274,10 +282,13 @@ class FolderTree extends React.Component {
    */
   _setRootChildren = (rootKey, folders) => {
     if (!this._isMounted) return;
+    const builtChildren = this._buildFolderChildren(folders);
+    // 根节点加载完成后根据实际一级子目录更新叶子状态（folders.length>0 → 可展开）
+    const isLeaf = builtChildren.length === 0;
     this.setState((prevState) => {
       const newData = prevState.data.map(node => {
         if (node.key === rootKey) {
-          return { ...node, children: this._buildFolderChildren(folders) };
+          return { ...node, children: builtChildren, isLeaf };
         }
         return node;
       });
@@ -298,10 +309,7 @@ class FolderTree extends React.Component {
   buildDualRootTree = (isPublic) => {
     const privateRoot = {
       key: 'private-root',
-      title: <div className={styles.privateRoot}>
-          <span className={styles.rootEmoji}><FolderIcon size={18} /></span>
-          <span className={styles.rootLabel}>我的文件</span>
-        </div>,
+      title: this.renderNodeWithTooltip('我的文件', { isRoot: true, rootVariant: 'private' }),
       selectable: true,
       // isPublic === true 时，private-root 暂不预加载
       children: isPublic ? [] : undefined,
@@ -309,10 +317,7 @@ class FolderTree extends React.Component {
     };
     const publicRoot = {
       key: 'public-root',
-      title: <div className={styles.publicRoot}>
-          <span className={styles.rootEmoji}><FolderIcon size={18} open /></span>
-          <span className={styles.rootLabel}>公共共享库</span>
-        </div>,
+      title: this.renderNodeWithTooltip('公共共享库', { isRoot: true, rootVariant: 'public', open: true }),
       selectable: true,
       // isPublic === false 时，public-root 暂不预加载
       children: isPublic ? undefined : [],
@@ -385,10 +390,13 @@ class FolderTree extends React.Component {
    */
   _setNodeChildren = (key, folders) => {
     if (!this._isMounted) return;
+    const builtChildren = this._buildFolderChildren(folders);
+    // 加载完成后同步叶子状态：返回空数组 → 叶子；返回子目录 → 可展开
+    const isLeaf = builtChildren.length === 0;
     this.setState((prevState) => {
       const updateNode = (node) => {
         if (node.key === key) {
-          return { ...node, children: this._buildFolderChildren(folders) };
+          return { ...node, children: builtChildren, isLeaf };
         }
         if (node.children && Array.isArray(node.children)) {
           return { ...node, children: node.children.map(updateNode) };
@@ -400,8 +408,51 @@ class FolderTree extends React.Component {
   };
 
   /**
-   * 【M6 重构】把后端返回的 folder 列表转为 antd tree node 格式
-   * 每个节点: { key, rawId, folderName, title, isLeaf: true (待 onLoadData 更新) }
+   * 统一节点标题渲染（根节点与普通节点共用同一骨架）。
+   * 根节点仅追加颜色/字重修饰类，图标尺寸与水平间距全树一致（16px）。
+   * 【2026-07-17 布局优化】创建人不再常驻显示，仅保留图标 + 名称；
+   *   完整名称与创建人通过 Tooltip 悬停展示（见 renderNodeWithTooltip）。
+   */
+  renderNodeTitle = (name, { isRoot = false, rootVariant = null, open = false } = {}) => {
+    const rootClass = isRoot
+      ? (rootVariant === 'public' ? styles.publicRoot : styles.privateRoot)
+      : '';
+    const className = rootClass ? `${styles.nodeContent} ${rootClass}` : styles.nodeContent;
+    return (
+      <div className={className}>
+        <span className={styles.folderIcon}><FolderIcon size={16} open={open} /></span>
+        <span className={styles.nodeLabel}>{name}</span>
+      </div>
+    );
+  };
+
+  /**
+   * 用 Tooltip 包裹节点标题，悬停展示完整文件夹名称 + 创建人。
+   * 创建人为空时 Tooltip 只显示名称。根节点（无 creator）同样适用。
+   */
+  renderNodeWithTooltip = (name, opts = {}) => {
+    const { creator = null } = opts;
+    const titleNode = creator
+      ? (
+        <div>
+          <div>{name}</div>
+          <div style={{ fontSize: 11, color: '#bfbfbf', marginTop: 2 }}>创建人：{creator}</div>
+        </div>
+      )
+      : <span>{name}</span>;
+    return (
+      <Tooltip title={titleNode} placement="right" mouseEnterDelay={0.3} overlayClassName={styles.nodeTooltip}>
+        {this.renderNodeTitle(name, opts)}
+      </Tooltip>
+    );
+  };
+
+  /**
+   * 【M6 重构】把后端返回的 folder 列表转为 antd tree node 格式。
+   * 根据 has_children 字段映射 isLeaf / children：
+   *   - has_children === true  → 可展开（isLeaf:false, children:undefined）
+   *   - has_children === false → 叶子（isLeaf:true, children:[]，不显示三角但保留槽位）
+   *   - has_children 缺失（旧后端）→ 保守允许展开
    */
   _buildFolderChildren = (folders) => {
     if (!Array.isArray(folders)) {
@@ -410,6 +461,7 @@ class FolderTree extends React.Component {
     }
     // 累积到 folderMap，用于 buildFolderPath
     if (!this.folderMap) this.folderMap = new Map();
+    const { isPublic } = this.props;
 
     return folders.map(f => {
       if (!f || !f.id) return null;
@@ -427,20 +479,15 @@ class FolderTree extends React.Component {
       if (hasLoopRef) {
         log.warn("\u68C0\u6D4B\u5230\u5FAA\u73AF\u5F15\u7528: \u6587\u4EF6\u5939", f.name, 'parent_id 指向自身');
       }
+      const { isLeaf, children } = computeLeafState(f.has_children);
+      const creatorName = isPublic ? resolveCreatorName(f.created_by) : null;
       return {
         key: generateKey(f.id, 'folder'),
         rawId: f.id,
         folderName: f.name,
-        title: <div className={styles.folderNode}>
-            <span className={styles.folderEmoji}><FolderIcon size={16} /></span>
-            <span className={styles.folderName}>{f.name}</span>
-            {this.props.isPublic && f.created_by && (f.created_by.nickname || f.created_by.username) && <span className={styles.folderCreator}>
-                {f.created_by.nickname || f.created_by.username}
-              </span>}
-          </div>,
-        // 【M6 关键】isLeaf: false 让 antd 知道该节点可展开（即使还没有 children）
-        isLeaf: false,
-        children: undefined
+        title: this.renderNodeWithTooltip(f.name, { creator: creatorName }),
+        isLeaf,
+        children
       };
     }).filter(Boolean);
   };
@@ -463,28 +510,54 @@ class FolderTree extends React.Component {
       // 解析文件夹ID（使用工具函数）
       const folderId = parseRawId(node.key);
       if (folderId) {
-        // 获取文件夹名称
         const folderName = node.folderName || '未命名文件夹';
-
-        // 【修复】使用 selectFolder 方法，确保 selectedFolderId 被正确设置
-        navigationStore.selectFolder(folderId, folderName);
+        // 【2026-07-17 完整路径修复】通过 parent_id 向上构造完整祖先链，
+        //   使用 setPath 保存完整路径，不再用 selectFolder 把路径重置为单节点。
+        //   树按需加载流程下，点击节点及其所有祖先均已在 folderMap 中累积，
+        //   可安全构造；祖先缺失时 buildFolderPath 安全停止并记录日志，
+        //   此时退回 selectFolder 单节点兜底，保证可用性。
+        const fullPath = this.buildFolderPath(folderId);
+        if (fullPath.length > 0) {
+          navigationStore.setPath(fullPath, folderId);
+        } else {
+          navigationStore.selectFolder(folderId, folderName);
+        }
       }
     }
   };
 
   /**
-   * 构建文件夹路径（从根目录到指定文件夹的完整路径）
+   * 构建文件夹路径（从根目录到指定文件夹的完整祖先链）
+   * 【2026-07-17 完整路径修复】
+   * - 普通模式：向上追溯至 parent_id === null（根目录）停止
+   * - 党建文档锁定模式：向上追溯至锁定根目录（rootFolderId）停止，
+   *   锁定根作为路径起点，不越界到公共资料库
+   * - 循环引用保护（visited set）
+   * - 最大深度保护（MAX_PATH_DEPTH）
+   * - 祖先数据异常缺失时安全停止并记录日志，不构造错误路径
    * @param {number} folderId - 目标文件夹ID
-   * @returns {Array} 路径数组 [{id, name}, ...]
+   * @returns {Array} 路径数组 [{id, name}, ...] 从根到目标
    */
   buildFolderPath = folderId => {
     const path = [];
+    const visited = new Set();
     let currentId = folderId;
-    let maxIterations = 100; // 防止死循环
+    const MAX_PATH_DEPTH = 100;
+    const { lockedRoot, rootFolderId, rootFolderName } = this.props;
 
-    // 使用 folderMap 而不是树结构，因为 folderMap 包含所有文件夹的完整信息
-    while (currentId !== null && maxIterations > 0) {
-      maxIterations--;
+    while (currentId !== null && currentId !== undefined && path.length < MAX_PATH_DEPTH) {
+      // 循环引用保护
+      if (visited.has(currentId)) {
+        log.warn('检测到循环引用，停止构建路径。已构建层级:', path.length, '循环节点:', currentId);
+        break;
+      }
+      visited.add(currentId);
+
+      // 党建文档锁定模式：到达锁定根目录，加入路径并停止（不越界到公共库）
+      if (lockedRoot && currentId === rootFolderId) {
+        path.unshift({ id: currentId, name: rootFolderName || '党建文档' });
+        break;
+      }
 
       // 从 folderMap 中查找文件夹
       const folder = this.folderMap ? this.folderMap.get(currentId) : null;
@@ -495,8 +568,8 @@ class FolderTree extends React.Component {
         });
         currentId = folder.parent_id;
       } else {
-        // 找不到文件夹，停止查找
-        log.warn("Folder not found in folderMap:", currentId);
+        // 祖先数据异常缺失：安全停止并记录日志，不构造错误路径
+        log.warn('祖先文件夹数据缺失，无法构建完整路径。已构建层级:', path.length, '缺失节点:', currentId);
         break;
       }
     }

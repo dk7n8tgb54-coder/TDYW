@@ -128,6 +128,11 @@ class NavigationStore {
     return this.actions.clearSystemFolder();
   }
 
+  // ----- 状态恢复 -----
+  @action.bound restoreFromUrl() {
+    return this.actions.restoreFromUrl();
+  }
+
   // ----- 获取当前路径（保持兼容） -----
   @action.bound getCurrentPath() {
     return this.path;

@@ -1,0 +1,14 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - img "logo" [ref=e6]
+    - generic [ref=e7]: 空管综合运维管理平台
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e14]:
+        - img "user" [ref=e16]
+        - textbox "请输入账户" [ref=e19]: admin
+      - generic [ref=e24]:
+        - img "lock" [ref=e26]
+        - textbox "请输入密码" [ref=e29]: admin
+    - button "登 录" [active] [ref=e30] [cursor=pointer]
+  - generic [ref=e32]: © 2026 YTTD

@@ -4,9 +4,8 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Button, Breadcrumb as AntdBreadcrumb, Badge, Radio, Dropdown, Menu, message } from 'antd';
-import { UploadOutlined, CloudUploadOutlined, FolderAddOutlined, AppstoreOutlined, UnorderedListOutlined, DownOutlined, ReloadOutlined, ArrowLeftOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
-import { Breadcrumb as SpugBreadcrumb } from 'components';
+import { Button, Breadcrumb as AntdBreadcrumb, Badge, Radio, Dropdown, Menu, message, Tooltip } from 'antd';
+import { UploadOutlined, CloudUploadOutlined, FolderAddOutlined, AppstoreOutlined, UnorderedListOutlined, DownOutlined, ReloadOutlined, ArrowLeftOutlined, ProfileOutlined } from '@ant-design/icons';
 import Explorer from './Explorer';
 import UploadPanel, { MiniBar } from './UploadPanel';
 import FolderTree from './FolderTree';
@@ -48,6 +47,14 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
     return () => {
       uploadCoreStore.stopPressurePolling();
     };
+  }, []);
+
+  // 【2026-07-17 URL 一致性】普通模式挂载时从 URL 恢复完整导航路径，
+  //   党建模式走 initSystemFolder 初始化锁定根，不调用 restoreFromUrl 以免越界到公共库。
+  React.useEffect(() => {
+    if (isPartyBuildingDocuments) return;
+    navigationStore.restoreFromUrl();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 【党建文档】进入页面时初始化系统目录上下文，离开时清理
@@ -316,9 +323,15 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
 
   return (
     <div className={styles.pageWrapper}>
-      {/* 面包屑 + 磁盘状态 + 搜索 */}
-      <SpugBreadcrumb extra={
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+      {/* 【2026-07-17 布局优化】紧凑顶部信息栏：站点面包屑 + 磁盘状态 + 搜索框 */}
+      <div className={styles.topBar}>
+        <div className={styles.topBarLeft}>
+          <AntdBreadcrumb className={styles.siteBreadcrumb}>
+            <AntdBreadcrumb.Item>首页</AntdBreadcrumb.Item>
+            <AntdBreadcrumb.Item>{title}</AntdBreadcrumb.Item>
+          </AntdBreadcrumb>
+        </div>
+        <div className={styles.topBarRight}>
           <DiskStatus isPublic={navigationStore.isPublic} />
           <SearchBox
             isPublic={navigationStore.isPublic}
@@ -331,10 +344,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
             onClearSearch={handleClearSearch}
           />
         </div>
-      }>
-        <SpugBreadcrumb.Item>首页</SpugBreadcrumb.Item>
-        <SpugBreadcrumb.Item>{title}</SpugBreadcrumb.Item>
-      </SpugBreadcrumb>
+      </div>
 
       {initError && (
         <div style={{ padding: '12px 16px', color: '#ff4d4f' }}>{initError}</div>
@@ -345,9 +355,11 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
       )}
 
       {!initError && isPartyBuildingDocumentsReady && <div className={styles.documentPage}>
-        {/* 统一工具栏：左侧路径+操作，右侧视图切换+详情+上传 */}
+        {/* 【2026-07-17 工具栏布局】左路径区(flex:1) + 右固定操作区(flex-shrink:0)。
+            路径长短不改变右侧按钮横坐标；右侧分两组：文件操作(上传/新建/刷新) +
+            视图操作(传输/列表网格/详情)，两组间克制竖向分隔线。 */}
         <div className={styles.toolBar}>
-          <div className={styles.toolBarLeft}>
+          <div className={styles.pathArea}>
             {canGoBack && (
               <Button
                 type="text"
@@ -360,63 +372,77 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
             <AntdBreadcrumb separator=">" className={styles.breadcrumb}>
               {renderBreadcrumbItems()}
             </AntdBreadcrumb>
-            <span className={styles.toolbarDivider} />
+          </div>
+          <div className={styles.rightActions}>
             <input type="file" multiple style={{ display: 'none' }} ref={fileInputRef} onChange={handleFileSelect} />
             <input type="file" webkitdirectory="true" directory="true" multiple style={{ display: 'none' }} ref={folderInputRef} onChange={handleFolderSelect} />
-            {canUpload && (
-              <Dropdown overlay={uploadMenu} placement="bottomLeft">
-                <Button type="primary" icon={<CloudUploadOutlined />} size="small">
-                  上传 <DownOutlined style={{ fontSize: 10, marginLeft: 2 }} />
+            <div className={styles.fileActions}>
+              {canUpload && (
+                <Dropdown overlay={uploadMenu} placement="bottomRight">
+                  <Button type="primary" icon={<CloudUploadOutlined />} size="small">
+                    上传 <DownOutlined style={{ fontSize: 10, marginLeft: 2 }} />
+                  </Button>
+                </Dropdown>
+              )}
+              {canCreateFolder && (
+                <Button icon={<FolderAddOutlined />} onClick={() => {
+                  if (explorerRef.current && explorerRef.current.handleAddFolder) {
+                    explorerRef.current.handleAddFolder();
+                  }
+                }} size="small">
+                  新建文件夹
                 </Button>
-              </Dropdown>
-            )}
-            {canCreateFolder && (
-              <Button icon={<FolderAddOutlined />} onClick={() => {
-                if (explorerRef.current && explorerRef.current.handleAddFolder) {
-                  explorerRef.current.handleAddFolder();
-                }
-              }} size="small">
-                新建文件夹
-              </Button>
-            )}
-            <Button icon={<ReloadOutlined />} onClick={handleRefresh} size="small">
-              刷新
-            </Button>
-          </div>
-          <div className={styles.toolBarRight}>
-            <Badge count={uploadCoreStore.currentUploadQueue.length} offset={[-5, 5]}>
-              <Button
-                icon={<CloudUploadOutlined />}
-                onClick={() => uploadUIStore.panel.toggle()}
-                title="查看传输任务"
+              )}
+              <Tooltip title="刷新当前目录">
+                <Button
+                  icon={<ReloadOutlined />}
+                  onClick={handleRefresh}
+                  size="small"
+                  className={styles.refreshBtn}
+                >
+                  <span className={styles.refreshText}>刷新</span>
+                </Button>
+              </Tooltip>
+            </div>
+            <div className={styles.actionDivider} />
+            <div className={styles.viewActions}>
+              <Badge count={uploadCoreStore.currentUploadQueue.length} offset={[-5, 5]}>
+                <Button
+                  type="text"
+                  icon={<CloudUploadOutlined />}
+                  onClick={() => uploadUIStore.panel.toggle()}
+                  title="查看传输任务"
+                  size="small"
+                />
+              </Badge>
+              <Radio.Group
+                value={viewMode}
+                onChange={(e) => setViewMode(e.target.value)}
                 size="small"
-              />
-            </Badge>
-            <Radio.Group
-              value={viewMode}
-              onChange={(e) => setViewMode(e.target.value)}
-              size="small"
-            >
-              <Radio.Button value="list" title="列表视图">
-                <UnorderedListOutlined />
-              </Radio.Button>
-              <Radio.Button value="grid" title="缩略图视图">
-                <AppstoreOutlined />
-              </Radio.Button>
-            </Radio.Group>
-            <Button
-              type="text"
-              icon={detailPanelExpanded ? <RightOutlined /> : <LeftOutlined />}
-              onClick={() => {
-                if (explorerRef.current && explorerRef.current.toggleDetailPanel) {
-                  explorerRef.current.toggleDetailPanel((newState) => {
-                    setDetailPanelExpanded(newState);
-                  });
-                }
-              }}
-              size="small"
-              title={detailPanelExpanded ? '收起详情' : '展开详情'}
-            />
+              >
+                <Radio.Button value="list" title="列表视图">
+                  <UnorderedListOutlined />
+                </Radio.Button>
+                <Radio.Button value="grid" title="缩略图视图">
+                  <AppstoreOutlined />
+                </Radio.Button>
+              </Radio.Group>
+              <Tooltip title={detailPanelExpanded ? '收起详情面板' : '展开详情面板'}>
+                <Button
+                  type="text"
+                  icon={<ProfileOutlined />}
+                  onClick={() => {
+                    if (explorerRef.current && explorerRef.current.toggleDetailPanel) {
+                      explorerRef.current.toggleDetailPanel((newState) => {
+                        setDetailPanelExpanded(newState);
+                      });
+                    }
+                  }}
+                  size="small"
+                  className={detailPanelExpanded ? styles.detailBtnActive : styles.detailBtn}
+                />
+              </Tooltip>
+            </div>
           </div>
         </div>
 

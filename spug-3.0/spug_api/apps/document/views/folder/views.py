@@ -13,6 +13,7 @@ import shutil
 import logging
 from django.views.generic import View
 from django.db import transaction, IntegrityError
+from django.db.models import Exists, OuterRef
 
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter
@@ -24,7 +25,7 @@ from ...services.system_folder_service import (
     is_folder_in_scope, is_protected_system_root,
     ensure_folder_in_scope_or_error, validate_system_folder_context,
     exclude_system_file_scope, exclude_system_folder_scope,
-    is_folder_in_any_system_scope,
+    is_folder_in_any_system_scope, get_descendant_folder_ids,
     NORMAL_DOCUMENT_SCOPE_ERROR_MSG, SCOPE_ERROR_MSG, PROTECTED_ROOT_MSG,
 )
 from ...services.system_scope_validators import (
@@ -101,27 +102,18 @@ class FolderView(View):
 
         # 党建文档模式：只返回根目录及其子孙
         if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
-            from ...services.system_folder_service import get_descendant_folder_ids
             scope_ids = get_descendant_folder_ids(PARTY_BUILDING_DOCUMENTS_CODE, include_root=True)
             query = query.filter(id__in=scope_ids)
         elif is_public:
             query = exclude_system_folder_scope(query)
 
+        # 标注 has_children（Exists 子查询，避免 N+1）
+        query = self._annotate_has_children(query, FolderModel, request, is_public, system_folder)
+
         max_folders = 1000
         folders = query[:max_folders]
         
-        result = [
-            {
-                'id': f.id, 
-                'name': f.name, 
-                'parent_id': f.parent_id, 
-                'created_at': f.created_at.strftime('%Y-%m-%d %H:%M:%S'), 
-                'updated_at': f.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
-                'created_by': f.created_by.nickname if f.created_by else None, 
-                'created_by_id': f.created_by_id
-            }
-            for f in folders
-        ]
+        result = [self._format_folder(f) for f in folders]
         return json_response(result)
     
     def _get_root_contents(self, request, FolderModel, FileModel, is_public, page, page_size, system_folder=None):
@@ -131,6 +123,9 @@ class FolderView(View):
             folders_query = apply_tenant_filter(folders_query, request.user, strict_mode=True)
         elif system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             folders_query = exclude_system_folder_scope(folders_query)
+
+        # 标注 has_children（Exists 子查询，避免 N+1）
+        folders_query = self._annotate_has_children(folders_query, FolderModel, request, is_public, system_folder)
 
         files_query = FileModel.objects.filter(folder__isnull=True).select_related('created_by').order_by('-created_at')
         if not is_public:
@@ -165,18 +160,7 @@ class FolderView(View):
         total_items = total_folders + total_files
 
         result = {
-            'folders': [
-                {
-                    'id': f.id,
-                    'name': f.name,
-                    'parent_id': f.parent_id,
-                    'created_at': f.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                    'updated_at': f.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
-                    'created_by': f.created_by.nickname if f.created_by else None,
-                    'created_by_id': f.created_by_id
-                }
-                for f in folders
-            ],
+            'folders': [self._format_folder(f) for f in folders],
             'files': [self._format_file(f) for f in files],
             'pagination': {
                 'page': page,
@@ -195,6 +179,9 @@ class FolderView(View):
             folders_query = apply_tenant_filter(folders_query, request.user, strict_mode=True)
         elif system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             folders_query = exclude_system_folder_scope(folders_query)
+
+        # 标注 has_children（Exists 子查询，避免 N+1）
+        folders_query = self._annotate_has_children(folders_query, FolderModel, request, is_public, system_folder)
 
         files_query = FileModel.objects.filter(folder_id=folder_id).select_related('created_by').order_by('-created_at')
         if not is_public:
@@ -229,18 +216,7 @@ class FolderView(View):
         total_items = total_folders + total_files
 
         result = {
-            'folders': [
-                {
-                    'id': f.id,
-                    'name': f.name,
-                    'parent_id': f.parent_id,
-                    'created_at': f.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                    'updated_at': f.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
-                    'created_by': f.created_by.nickname if f.created_by else None,
-                    'created_by_id': f.created_by_id
-                }
-                for f in folders
-            ],
+            'folders': [self._format_folder(f) for f in folders],
             'files': [self._format_file(f) for f in files],
             'pagination': {
                 'page': page,
@@ -251,6 +227,47 @@ class FolderView(View):
             }
         }
         return json_response(result)
+
+    def _annotate_has_children(self, folders_query, FolderModel, request, is_public, system_folder):
+        """为文件夹查询标注 has_children（Exists 子查询，避免 N+1）。
+
+        子目录存在性严格遵守目录接口的可见范围（fail-closed）：
+        - 私有空间：仅当前租户可见的未删除直接子目录
+        - 普通公共空间：排除系统目录作用域的子目录
+        - 党建文档：仅党建根目录子树内的子目录
+        - 软删除子目录不计入；文件不计入，仅直接子文件夹决定 has_children
+        """
+        children_qs = FolderModel.objects.filter(
+            parent_id=OuterRef('pk'),
+            is_deleted=False,
+        )
+        if not is_public:
+            # 私有空间严格租户过滤（与 apply_tenant_filter strict_mode=True 一致）
+            tenant_id = getattr(request.user, 'tenant_id', 'admin')
+            children_qs = children_qs.filter(tenant_id=tenant_id)
+        elif system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
+            scope_ids = get_descendant_folder_ids(PARTY_BUILDING_DOCUMENTS_CODE, include_root=True)
+            if scope_ids:
+                children_qs = children_qs.filter(id__in=scope_ids)
+            else:
+                children_qs = children_qs.none()
+        else:
+            # 普通公共空间：排除系统目录作用域
+            children_qs = exclude_system_folder_scope(children_qs)
+        return folders_query.annotate(has_children=Exists(children_qs))
+
+    def _format_folder(self, f):
+        """格式化文件夹信息（含 has_children，向后兼容）"""
+        return {
+            'id': f.id,
+            'name': f.name,
+            'parent_id': f.parent_id,
+            'created_at': f.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'updated_at': f.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'created_by': f.created_by.nickname if f.created_by else None,
+            'created_by_id': f.created_by_id,
+            'has_children': bool(getattr(f, 'has_children', False)),
+        }
 
     def _format_file(self, f):
         """格式化文件信息"""

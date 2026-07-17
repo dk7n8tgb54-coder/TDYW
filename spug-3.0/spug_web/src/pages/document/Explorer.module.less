@@ -63,6 +63,36 @@
       margin-right: 0 !important;
     }
   }
+
+  // 【2026-07-17 布局优化】紧凑行高：cell padding 8px 16px，配合 24px 图标行高约 48px
+  // 限定在 file-list-container 内，避免影响全站其它表格
+  .ant-table-cell {
+    padding: 8px 16px;
+  }
+
+  // 表头 padding 与内容一致，保持紧凑且清晰
+  .ant-table-thead > tr > th {
+    padding: 8px 16px;
+    background: #fafafa;
+    font-weight: 500;
+  }
+
+  // sticky 表头背景（避免滚动时表头透明穿透）
+  .ant-table-sticky-header {
+    background: #fff;
+  }
+}
+
+// 紧凑模式下小屏进一步收紧（1366 及以下）
+@media (max-width: 1366px) {
+  .file-list-container {
+    .ant-table-cell {
+      padding: 6px 12px;
+    }
+    .ant-table-thead > tr > th {
+      padding: 6px 12px;
+    }
+  }
 }
 
 // 右侧详情面板
@@ -113,15 +143,8 @@
   }
 }
 
-// 复选框列
-.ant-table-selection-column {
-  width: 50px !important;
-}
-
-// 表格单元格
-.ant-table-cell {
-  padding: 12px 16px;
-}
+// 复选框列宽度由 FileTable 的 rowSelection.columnWidth 统一控制（48px），
+// 不再用全局 !important 覆盖，避免影响其它表格。
 
 // 搜索框
 .ant-input-search {
