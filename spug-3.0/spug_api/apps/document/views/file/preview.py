@@ -18,7 +18,7 @@ from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_file_model, is_safe_path
 from ...libs.document_auth import document_auth
 from ...services.system_folder_service import (
-    INDUSTRY_RULES_CODE, ensure_file_in_scope_or_error,
+    PARTY_BUILDING_DOCUMENTS_CODE, ensure_file_in_scope_or_error,
     validate_system_folder_context,
 )
 from ...services.system_scope_validators import validate_file_operation_scope
@@ -68,7 +68,7 @@ class FilePreviewView(View):
         if error is not None:
             return json_response(error=error)
 
-        # 行业规章上下文校验
+        # 党建文档上下文校验
         ok, ctx_err = validate_system_folder_context(form.system_folder, form.is_public)
         if not ok:
             return json_response(error=ctx_err)
@@ -86,9 +86,9 @@ class FilePreviewView(View):
         if file is None:
             return json_response(error='文件不存在')
 
-        # 行业规章范围校验
-        if form.system_folder == INDUSTRY_RULES_CODE:
-            scope_ok, scope_err = ensure_file_in_scope_or_error(file, INDUSTRY_RULES_CODE)
+        # 党建文档范围校验
+        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
+            scope_ok, scope_err = ensure_file_in_scope_or_error(file, PARTY_BUILDING_DOCUMENTS_CODE)
             if not scope_ok:
                 return json_response(error=scope_err)
 
@@ -293,7 +293,7 @@ class FileTextContentView(View):
         if error is not None:
             return json_response(error=error)
 
-        # 行业规章上下文校验
+        # 党建文档上下文校验
         ok, ctx_err = validate_system_folder_context(form.system_folder, form.is_public)
         if not ok:
             return json_response(error=ctx_err)
@@ -316,9 +316,9 @@ class FileTextContentView(View):
         if not file:
             return json_response(error='文件不存在')
 
-        # 行业规章范围校验
-        if form.system_folder == INDUSTRY_RULES_CODE:
-            scope_ok, scope_err = ensure_file_in_scope_or_error(file, INDUSTRY_RULES_CODE)
+        # 党建文档范围校验
+        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
+            scope_ok, scope_err = ensure_file_in_scope_or_error(file, PARTY_BUILDING_DOCUMENTS_CODE)
             if not scope_ok:
                 return json_response(error=scope_err)
 
@@ -561,18 +561,18 @@ class PreviewTokenView(View):
         if error is not None:
             return json_response(error=error)
 
-        # 行业规章上下文校验
+        # 党建文档上下文校验
         ok, ctx_err = validate_system_folder_context(form.system_folder, form.is_public)
         if not ok:
             return json_response(error=ctx_err)
 
-        # 行业规章范围校验：文件必须属于行业规章
-        if form.system_folder == INDUSTRY_RULES_CODE:
+        # 党建文档范围校验：文件必须属于党建文档
+        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
             FileModel = get_file_model(is_public=form.is_public)
             file = FileModel.objects.filter(pk=form.id).first()
             if not file:
                 return json_response(error='文件不存在')
-            scope_ok, scope_err = ensure_file_in_scope_or_error(file, INDUSTRY_RULES_CODE)
+            scope_ok, scope_err = ensure_file_in_scope_or_error(file, PARTY_BUILDING_DOCUMENTS_CODE)
             if not scope_ok:
                 return json_response(error=scope_err)
 

@@ -50,10 +50,22 @@ class ChunkCleanupManager:
             temp_user = ChunkCleanupManager._create_temp_user(transfer)
             # 【路径隔离】优先清理带 transfer_id 的新路径
             transfer_id = transfer.id
-            chunk_dir = get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user, transfer_id=transfer_id)
+            system_folder = getattr(transfer, 'system_folder', None) or None
+            chunk_dir = get_chunk_dir_path(
+                transfer.file_hash,
+                transfer.is_public,
+                temp_user,
+                transfer_id=transfer_id,
+                system_folder=system_folder,
+            )
 
             # 也清理旧路径（兼容历史数据）
-            legacy_chunk_dir = get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user)
+            legacy_chunk_dir = get_chunk_dir_path(
+                transfer.file_hash,
+                transfer.is_public,
+                temp_user,
+                system_folder=system_folder,
+            )
 
             for dir_to_clean in [chunk_dir, legacy_chunk_dir]:
                 if ChunkCleanupManager._is_safe_chunk_dir(dir_to_clean):

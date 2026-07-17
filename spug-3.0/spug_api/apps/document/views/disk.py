@@ -15,9 +15,10 @@ from django.views.generic import View
 from django.conf import settings
 from django.db.models import Sum
 
-from libs import json_response, JsonParser, Argument, auth
+from libs import json_response, JsonParser, Argument
 from libs.tenant_utils import apply_tenant_filter
 from ..libs.document_utils import get_file_model
+from ..libs.document_auth import document_auth
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ class DiskUsageView(View):
     磁盘使用率查询接口
     返回上传目录的磁盘使用情况，区分公共/私有空间
     """
-    @auth('document.document.view')
+    @document_auth('view')
     def get(self, request):
         """获取磁盘使用率"""
         logger.info(f'[Document] DiskUsageView called, user: {request.user.username}')

@@ -25,7 +25,8 @@ import logging
 from django.views.generic import View
 from django.conf import settings
 
-from libs import json_response, auth
+from libs import json_response
+from ..libs.document_auth import document_auth
 from ..monitoring import check_celery_health
 from ..models import DocumentTransfer
 
@@ -75,7 +76,7 @@ class UploadPressureView(View):
       }
     """
 
-    @auth('document.document.view')
+    @document_auth('view')
     def get(self, request):
         # 1. 磁盘使用率
         disk_usage_percent = self._get_disk_usage_percent()

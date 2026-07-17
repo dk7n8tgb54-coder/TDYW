@@ -9,7 +9,8 @@
 import logging
 from django.views.generic import View
 from django.db import connection
-from libs import json_response, auth
+from libs import json_response
+from apps.document.libs.document_auth import document_auth
 from apps.document.monitoring import check_celery_health
 
 logger = logging.getLogger(__name__)
@@ -78,7 +79,7 @@ class DatabasePoolStatusView(View):
     需要登录验证
     """
 
-    @auth('document.document.view')
+    @document_auth('view')
     def get(self, request):
         """
         获取数据库连接池详细状态
@@ -222,7 +223,7 @@ class DatabasePoolMetricsView(View):
     需要登录验证
     """
 
-    @auth('document.document.view')
+    @document_auth('view')
     def get(self, request):
         """
         获取连接池指标（简化版，便于监控）

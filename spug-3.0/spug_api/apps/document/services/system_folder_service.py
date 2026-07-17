@@ -1,7 +1,7 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""系统目录服务：行业规章范围判断与根目录保护
+"""系统目录服务：党建文档范围判断与根目录保护
 
 核心能力：
 - get_system_root_folder_id(code)：取系统目录绑定的公共根目录 ID
@@ -18,29 +18,53 @@ from ..constants import DEFAULT_MAX_FOLDER_DEPTH
 
 logger = logging.getLogger(__name__)
 
-# 行业规章系统目录编码
-INDUSTRY_RULES_CODE = 'industry_rules'
+# 党建文档系统目录编码
+PARTY_BUILDING_DOCUMENTS_CODE = 'party_building_documents'
+LEGACY_PARTY_BUILDING_DOCUMENTS_CODE = 'industry_rules'
 
 # 系统目录编码白名单（避免任意 code 被查询）
-SYSTEM_FOLDER_CODES = {INDUSTRY_RULES_CODE}
+SYSTEM_FOLDER_CODES = {PARTY_BUILDING_DOCUMENTS_CODE}
+
+
+def normalize_system_folder_code(code):
+    """Normalize legacy system-folder codes to the current canonical code."""
+    if code == LEGACY_PARTY_BUILDING_DOCUMENTS_CODE:
+        return PARTY_BUILDING_DOCUMENTS_CODE
+    return code
+
+
+def is_party_building_documents_code(code):
+    """Return whether code refers to the党建文档 system folder."""
+    return normalize_system_folder_code(code) == PARTY_BUILDING_DOCUMENTS_CODE
 
 
 def is_valid_system_folder_code(code):
     """判断 code 是否为受支持的系统目录编码"""
-    return code in SYSTEM_FOLDER_CODES
+    return normalize_system_folder_code(code) in SYSTEM_FOLDER_CODES
 
 
 def get_system_folder(code):
     """获取系统目录绑定记录（含关联的 folder）"""
-    if not code or code not in SYSTEM_FOLDER_CODES:
+    normalized = normalize_system_folder_code(code)
+    if not normalized or normalized not in SYSTEM_FOLDER_CODES:
         return None
     from ..models import DocumentSystemFolder
-    return (
+    current = (
         DocumentSystemFolder.objects
         .select_related('folder')
-        .filter(code=code)
+        .filter(code=normalized)
         .first()
     )
+    if current:
+        return current
+    if normalized == PARTY_BUILDING_DOCUMENTS_CODE:
+        return (
+            DocumentSystemFolder.objects
+            .select_related('folder')
+            .filter(code=LEGACY_PARTY_BUILDING_DOCUMENTS_CODE)
+            .first()
+        )
+    return None
 
 
 def get_system_root_folder_id(code):
@@ -109,7 +133,7 @@ def _is_descendant_of(folder_id, root_id):
 def is_file_in_scope(file_obj, code):
     """判断文件是否属于系统根目录范围
 
-    行业规章不允许 folder_id 为 null 的文件（不属于公共库根目录）。
+    党建文档不允许 folder_id 为 null 的文件（不属于公共库根目录）。
     """
     if file_obj is None:
         return False
@@ -207,13 +231,13 @@ def exclude_system_file_scope(queryset):
 
 # ==================== 校验辅助（返回错误消息，供视图使用） ====================
 
-SCOPE_ERROR_MSG = '无权访问行业规章目录外的资料'
-PROTECTED_ROOT_MSG = '行业规章根目录不允许删除、重命名或移动'
-UPLOAD_TARGET_MSG = '行业规章文件必须上传到行业规章目录内'
-SCOPE_MUST_PUBLIC_MSG = '行业规章模式仅支持公共空间'
+SCOPE_ERROR_MSG = '无权访问党建文档目录外的资料'
+PROTECTED_ROOT_MSG = '党建文档根目录不允许删除、重命名或移动'
+UPLOAD_TARGET_MSG = '党建文档文件必须上传到党建文档目录内'
+SCOPE_MUST_PUBLIC_MSG = '党建文档模式仅支持公共空间'
 
 
-NORMAL_DOCUMENT_SCOPE_ERROR_MSG = '请从行业规章模块访问该目录'
+NORMAL_DOCUMENT_SCOPE_ERROR_MSG = '请从党建文档模块访问该目录'
 
 
 def validate_system_folder_context(system_folder, is_public):
@@ -222,9 +246,10 @@ def validate_system_folder_context(system_folder, is_public):
     Returns:
         (ok: bool, error_msg: str|None)
     """
-    if system_folder and system_folder not in SYSTEM_FOLDER_CODES:
+    normalized = normalize_system_folder_code(system_folder)
+    if system_folder and normalized not in SYSTEM_FOLDER_CODES:
         return False, '未知的系统目录编码'
-    if system_folder == INDUSTRY_RULES_CODE and not is_public:
+    if normalized == PARTY_BUILDING_DOCUMENTS_CODE and not is_public:
         return False, SCOPE_MUST_PUBLIC_MSG
     return True, None
 

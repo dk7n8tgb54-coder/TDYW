@@ -12,7 +12,7 @@ from apps.document.models import (
     DocumentFolderPrivate, DocumentFilePrivate,
     DocumentFolderPublic, DocumentFilePublic
 )
-from apps.libs.tenant_utils import apply_tenant_filter
+from libs.tenant_utils import apply_tenant_filter
 from apps.document.libs.document_utils import (
     get_folder_model, get_file_model, get_document_relative_path,
     get_document_absolute_path, is_safe_path, is_global_admin

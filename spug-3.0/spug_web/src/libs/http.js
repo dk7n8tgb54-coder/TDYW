@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
  * Copyright (c) <spug.dev@gmail.com>
  * Released under the AGPL-3.0 License.
@@ -66,7 +66,7 @@ http.interceptors.request.use(request => {
   }
   request.timeout = request.timeout || 120000;
 
-  // 【行业规章】激活 system_folder 上下文时，自动为 /api/document/* 请求注入参数
+  // 【党建文档】激活 system_folder 上下文时，自动为 /api/document/* 请求注入参数
   const activeCode = getSystemFolder();
   const shouldInjectSystemFolder = shouldUseSystemFolder(history.location.pathname);
   if (activeCode && shouldInjectSystemFolder && request.isInternal && request.url.indexOf('/api/document/') === 0) {
@@ -87,6 +87,8 @@ http.interceptors.request.use(request => {
         if (request.data.system_folder === undefined) {
           request.data = { ...request.data, system_folder: activeCode };
         }
+      } else if (request.data === undefined || request.data === null) {
+        request.data = { system_folder: activeCode };
       }
     }
   }

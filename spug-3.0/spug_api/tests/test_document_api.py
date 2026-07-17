@@ -2,7 +2,7 @@
 # Released under the AGPL-3.0 License.
 from django.test import TestCase, Client
 from apps.account.models import User
-from apps.document.models import DocumentFolder, DocumentFile
+from apps.document.models import DocumentFolderPrivate as DocumentFolder, DocumentFilePrivate as DocumentFile
 from apps.setting.utils import AppSetting
 import json
 import time
@@ -19,7 +19,7 @@ class DocumentAPITest(TestCase):
             username='testuser',
             nickname='测试用户',
             password_hash=User.make_password('password123'),
-            tenant_id='test_tenant',
+            tenant_id='',
             is_supper=True,
             is_active=True,
             access_token=token,
@@ -198,6 +198,8 @@ class DocumentAPITest(TestCase):
             created_by=self.user,
             folder=folder,
             name='文件1.txt',
+            display_name='文件1.txt',
+            file_path='/uploads/file1.txt',
             file_size=1024,
             file_type='text/plain'
         )

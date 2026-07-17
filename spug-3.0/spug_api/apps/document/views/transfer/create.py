@@ -11,6 +11,7 @@ from django.views.generic import View
 
 from libs import json_response, JsonParser, Argument
 from ...libs.document_auth import document_auth
+from ...services.system_folder_service import normalize_system_folder_code
 from ...services.system_scope_validators import validate_upload_target_scope
 
 logger = logging.getLogger(__name__)
@@ -41,8 +42,9 @@ class TransferCreateView(View):
             logger.error(f'[Document] Transfer create parse error: {error}')
             return json_response(error=error)
 
+        system_folder = normalize_system_folder_code(form.system_folder) if form.system_folder else None
         ok, scope_err = validate_upload_target_scope(
-            form.system_folder,
+            system_folder,
             form.is_public or False,
             form.folder_id,
             require_folder=form.transfer_type == 'upload',
@@ -66,6 +68,7 @@ class TransferCreateView(View):
                 file_hash=form.file_hash or '',
                 folder_id=form.folder_id,
                 is_public=form.is_public or False,
+                system_folder=system_folder or '',
                 total_chunks=form.total_chunks or 0,
                 uploaded_chunks=0,
                 progress=0,

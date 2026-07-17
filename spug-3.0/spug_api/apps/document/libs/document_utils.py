@@ -13,7 +13,8 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-INDUSTRY_RULES_SYSTEM_FOLDER = 'industry_rules'
+PARTY_BUILDING_DOCUMENTS_SYSTEM_FOLDER = 'party_building_documents'
+LEGACY_PARTY_BUILDING_DOCUMENTS_SYSTEM_FOLDER = 'industry_rules'
 
 # 【性能优化】模块级模型缓存，避免每次调用都解包元组
 _MODEL_CACHE = None
@@ -146,27 +147,30 @@ def is_child_folder(child_id, parent_id, FolderModel, request_user=None, is_publ
 
 
 # ==================== 路径生成工具函数 ====================
-def is_industry_rules_context(system_folder=None):
-    return system_folder == INDUSTRY_RULES_SYSTEM_FOLDER
+def is_party_building_documents_context(system_folder=None):
+    return system_folder in {
+        PARTY_BUILDING_DOCUMENTS_SYSTEM_FOLDER,
+        LEGACY_PARTY_BUILDING_DOCUMENTS_SYSTEM_FOLDER,
+    }
 
 
 def get_document_storage_base_path():
     return os.path.join(settings.BASE_DIR, 'storage', 'documents')
 
 
-def get_industry_rules_storage_base_path():
-    return os.path.join(get_document_storage_base_path(), INDUSTRY_RULES_SYSTEM_FOLDER)
+def get_party_building_documents_storage_base_path():
+    return os.path.join(get_document_storage_base_path(), PARTY_BUILDING_DOCUMENTS_SYSTEM_FOLDER)
 
 
 def get_chunk_storage_base_path(system_folder=None):
-    if is_industry_rules_context(system_folder):
-        return os.path.join(get_industry_rules_storage_base_path(), 'chunks')
+    if is_party_building_documents_context(system_folder):
+        return os.path.join(get_party_building_documents_storage_base_path(), 'chunks')
     return os.path.join(settings.BASE_DIR, 'storage', 'document_chunks')
 
 
 def get_merge_task_storage_base_path(system_folder=None):
-    if is_industry_rules_context(system_folder):
-        return os.path.join(get_industry_rules_storage_base_path(), 'merge_tasks')
+    if is_party_building_documents_context(system_folder):
+        return os.path.join(get_party_building_documents_storage_base_path(), 'merge_tasks')
     return os.path.join(settings.BASE_DIR, 'storage', 'document_merge_tasks')
 
 
@@ -190,10 +194,10 @@ def get_document_relative_path(is_public=False, user_id=None, folder_id=None, sy
     Returns:
         str: 相对路径，如 'private/user-1/' 或 'public/' 或 'public/folder-123/'
     """
-    if is_industry_rules_context(system_folder):
+    if is_party_building_documents_context(system_folder):
         if folder_id:
-            return f'{INDUSTRY_RULES_SYSTEM_FOLDER}/files/folder-{folder_id}'
-        return f'{INDUSTRY_RULES_SYSTEM_FOLDER}/files'
+            return f'{PARTY_BUILDING_DOCUMENTS_SYSTEM_FOLDER}/files/folder-{folder_id}'
+        return f'{PARTY_BUILDING_DOCUMENTS_SYSTEM_FOLDER}/files'
 
     if is_public:
         # 公共空间路径：public/ 或 public/folder-{id}/
@@ -542,7 +546,7 @@ def get_chunk_dir_path(file_hash, is_public, request_user, transfer_id=None, sys
 
     chunk_base_dir = get_chunk_storage_base_path(system_folder)
 
-    if is_industry_rules_context(system_folder):
+    if is_party_building_documents_context(system_folder):
         base_chunk_dir = os.path.join(chunk_base_dir, file_hash)
     elif is_public:
         # 公共空间：简化路径，只使用 public

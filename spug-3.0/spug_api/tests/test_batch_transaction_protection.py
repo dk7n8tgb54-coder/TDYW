@@ -11,20 +11,9 @@ Released under the AGPL-3.0 License.
 """
 import os
 import sys
-import django
-
-# 添加项目路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'spug.settings')
-
-django.setup()
-
 import threading
 import time
 from django.db import transaction
-from apps.document.models import DocumentTransfer
-from apps.document.tasks.batch import batch_delete_transfers, batch_cancel_transfers
-from apps.account.models import User
 
 def print_header(title):
     """打印测试标题"""
@@ -446,6 +435,15 @@ class BatchAPIFrontendTest:
 # ==================== 主程序 ====================
 
 if __name__ == '__main__':
+    # ── Django 初始化（仅独立运行时执行，避免被 manage.py test 收集时二次 setup） ──
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'spug.settings')
+    import django
+    django.setup()
+    from apps.document.models import DocumentTransfer
+    from apps.document.tasks.batch import batch_delete_transfers, batch_cancel_transfers
+    from apps.account.models import User
+
     print("\n" + "=" * 70)
     print("  事务保护与批量操作功能测试")
     print("  测试内容: Celery任务事务保护 + 批量API接口")

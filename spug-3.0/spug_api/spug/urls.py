@@ -36,6 +36,7 @@ urlpatterns = [
     path('logs/', include('apps.logs.urls')),
     path('radio-license/', include('apps.radio_license.urls')),
     path('contract-agreement/', include('apps.contract_agreement.urls')),
+    path('regulation/', include('apps.regulation.urls')),
 ]
 
 # 在开发环境下提供media文件服务

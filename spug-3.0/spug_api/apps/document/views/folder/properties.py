@@ -17,7 +17,7 @@ from ...libs.document_utils import get_folder_model, get_file_model
 from ...libs.view_utils import permission_denied_response
 from ...libs.document_auth import document_auth
 from ...services.system_folder_service import (
-    INDUSTRY_RULES_CODE, ensure_folder_in_scope_or_error,
+    PARTY_BUILDING_DOCUMENTS_CODE, ensure_folder_in_scope_or_error,
     ensure_file_in_scope_or_error, validate_system_folder_context,
 )
 
@@ -80,7 +80,7 @@ class FolderPropertiesView(View):
         if error is not None:
             return json_response(error=error)
 
-        # 行业规章上下文校验
+        # 党建文档上下文校验
         ok, ctx_err = validate_system_folder_context(form.system_folder, form.is_public)
         if not ok:
             return json_response(error=ctx_err)
@@ -104,10 +104,10 @@ class FolderPropertiesView(View):
         if folder is None:
             return json_response(error='文件夹不存在或无权访问')
 
-        # 行业规章范围校验（文件夹）
-        if form.system_folder == INDUSTRY_RULES_CODE:
+        # 党建文档范围校验（文件夹）
+        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
             scope_ok, scope_err = ensure_folder_in_scope_or_error(
-                form.id, INDUSTRY_RULES_CODE, include_root=True
+                form.id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=True
             )
             if not scope_ok:
                 return json_response(error=scope_err)
@@ -162,9 +162,9 @@ class FolderPropertiesView(View):
         if file_obj is None:
             return json_response(error='文件不存在或无权访问')
 
-        # 行业规章范围校验（文件）
-        if form.system_folder == INDUSTRY_RULES_CODE:
-            scope_ok, scope_err = ensure_file_in_scope_or_error(file_obj, INDUSTRY_RULES_CODE)
+        # 党建文档范围校验（文件）
+        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
+            scope_ok, scope_err = ensure_file_in_scope_or_error(file_obj, PARTY_BUILDING_DOCUMENTS_CODE)
             if not scope_ok:
                 return json_response(error=scope_err)
 

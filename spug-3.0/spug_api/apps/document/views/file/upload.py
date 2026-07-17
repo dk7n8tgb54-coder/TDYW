@@ -13,7 +13,7 @@ from libs import json_response, auth
 from apps.document.libs.document_utils import get_folder_model, get_file_model
 from apps.document.libs.document_auth import document_auth
 from apps.document.services.system_folder_service import (
-    INDUSTRY_RULES_CODE, ensure_folder_in_scope_or_error,
+    PARTY_BUILDING_DOCUMENTS_CODE, ensure_folder_in_scope_or_error,
     validate_system_folder_context, UPLOAD_TARGET_MSG,
 )
 from apps.document.views.base import validate_file_name, validate_file_upload, log_operation, handle_view_errors
@@ -39,15 +39,15 @@ class FileUploadView(View):
             f'system_folder={system_folder}'
         )
 
-        # 行业规章上下文与上传目标校验
+        # 党建文档上下文与上传目标校验
         ok, ctx_err = validate_system_folder_context(system_folder, is_public)
         if not ok:
             return json_response(error=ctx_err)
-        if system_folder == INDUSTRY_RULES_CODE:
+        if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
             if not folder_id:
                 return json_response(error=UPLOAD_TARGET_MSG)
             scope_ok, scope_err = ensure_folder_in_scope_or_error(
-                folder_id, INDUSTRY_RULES_CODE, include_root=True
+                folder_id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=True
             )
             if not scope_ok:
                 return json_response(error=scope_err)

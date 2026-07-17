@@ -5,7 +5,7 @@ from apps.fault.models import FaultRecord
 from apps.upgrade.models import UpgradeRecord
 from apps.duty.models import DutyRecord
 from apps.runlog.models import RunLog
-from apps.account.models import User
+from apps.account.models import User, Role
 from libs.tenant_utils import apply_tenant_filter
 import json
 
@@ -44,24 +44,24 @@ class TenantFilterTest(TestCase):
         RunLog.objects.create(
             tenant_id='tenant1',
             system_name='系统A',
-            log_date='2024-01-15',
-            detail_record='日志1',
+            event_title='日志1',
+            event_type='运行异常',
             created_by=self.user1
         )
         
         RunLog.objects.create(
             tenant_id='tenant2',
             system_name='系统B',
-            log_date='2024-01-16',
-            detail_record='日志2',
+            event_title='日志2',
+            event_type='运行异常',
             created_by=self.user2
         )
         
         RunLog.objects.create(
             tenant_id='tenant1',
             system_name='系统C',
-            log_date='2024-01-17',
-            detail_record='日志3',
+            event_title='日志3',
+            event_type='运行异常',
             created_by=self.user1
         )
         
@@ -124,7 +124,8 @@ class TenantFilterTest(TestCase):
                 system=f'系统{i}',
                 upgrade_type='升级',
                 version='1.0.0',
-                plan_time='2024-01-15',
+                upgrade_time='2024-01-15',
+                created_at='2024-01-15',
                 owner='张三',
                 created_by=self.user1
             )
@@ -136,7 +137,8 @@ class TenantFilterTest(TestCase):
                 system=f'系统{i+3}',
                 upgrade_type='升级',
                 version='1.0.0',
-                plan_time='2024-01-15',
+                upgrade_time='2024-01-15',
+                created_at='2024-01-15',
                 owner='李四',
                 created_by=self.user2
             )
@@ -157,23 +159,22 @@ class TenantFilterTest(TestCase):
         RunLog.objects.create(
             tenant_id='tenant1',
             system_name='系统A',
-            log_date='2024-01-15',
-            detail_record='日志1',
+            event_title='日志1',
+            event_type='运行异常',
             created_by=self.user1
         )
         
         RunLog.objects.create(
             tenant_id='tenant2',
             system_name='系统B',
-            log_date='2024-01-16',
-            detail_record='日志2',
+            event_title='日志2',
+            event_type='运行异常',
             created_by=self.user2
         )
         
         queryset = RunLog.objects.all()
         
         # 全局管理员应该能看到所有数据
-        from apps.account.models import Role
         global_role = Role.objects.create(
             name='全局管理员',
             is_global_admin=True,
@@ -183,4 +184,3 @@ class TenantFilterTest(TestCase):
         
         filtered = apply_tenant_filter(queryset, self.global_admin)
         self.assertEqual(filtered.count(), 2)
-

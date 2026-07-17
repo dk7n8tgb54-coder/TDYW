@@ -34,7 +34,7 @@ from apps.document.libs.document_utils import (
 )
 from apps.document.libs.document_auth import document_auth
 from apps.document.services.system_folder_service import (
-    INDUSTRY_RULES_CODE, ensure_folder_in_scope_or_error,
+    PARTY_BUILDING_DOCUMENTS_CODE, ensure_folder_in_scope_or_error,
     validate_system_folder_context, UPLOAD_TARGET_MSG,
 )
 from apps.document.views.base import validate_file_name, validate_file_upload, handle_view_errors
@@ -515,16 +515,16 @@ class FileMergeChunksView(View):
             logger.error(f'[Document][Merge] Param validation failed: {error}')
             return json_response(error=error)
 
-        # 行业规章上下文与上传目标校验
+        # 党建文档上下文与上传目标校验
         system_folder = params.get('system_folder')
         ok, ctx_err = validate_system_folder_context(system_folder, params['is_public'])
         if not ok:
             return json_response(error=ctx_err)
-        if system_folder == INDUSTRY_RULES_CODE:
+        if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
             if not params['folder_id']:
                 return json_response(error=UPLOAD_TARGET_MSG)
             scope_ok, scope_err = ensure_folder_in_scope_or_error(
-                params['folder_id'], INDUSTRY_RULES_CODE, include_root=True
+                params['folder_id'], PARTY_BUILDING_DOCUMENTS_CODE, include_root=True
             )
             if not scope_ok:
                 return json_response(error=scope_err)

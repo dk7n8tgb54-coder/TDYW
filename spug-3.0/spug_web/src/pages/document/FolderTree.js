@@ -21,10 +21,12 @@ import { parseRawId, generateKey } from './utils/keyUtils';
 import styles from './FolderTree.module.less';
 import { createLogger } from '@/pages/document/utils/logger';
 import { FolderIcon } from './components/FileTypeIcon';
-import { INDUSTRY_RULES_CODE } from 'libs/systemFolderContext';
+import { PARTY_BUILDING_DOCUMENTS_CODE } from 'libs/systemFolderContext';
 const log = createLogger("FolderTree");
 @observer
 class FolderTree extends React.Component {
+  _pendingLoadTokens = new Set();
+
   state = {
     data: [],
     loading: false,
@@ -37,13 +39,17 @@ class FolderTree extends React.Component {
   }
   componentWillUnmount() {
     this._isMounted = false;
+    this._pendingLoadTokens.forEach(token => {
+      token.active = false;
+    });
+    this._pendingLoadTokens.clear();
   }
   componentDidUpdate(prevProps) {
     // 监听isPublic变化，刷新文件夹树
     if (prevProps.isPublic !== this.props.isPublic) {
       this.fetchFolders();
     }
-    // 行业规章锁定模式：根目录 ID 变化（初始化后）时刷新
+    // 党建文档锁定模式：根目录 ID 变化（初始化后）时刷新
     if (prevProps.lockedRoot !== this.props.lockedRoot
         || prevProps.rootFolderId !== this.props.rootFolderId) {
       this.fetchFolders();
@@ -64,12 +70,38 @@ class FolderTree extends React.Component {
       is_public: isPublic
     };
     if (lockedRoot) {
-      params.system_folder = INDUSTRY_RULES_CODE;
+      params.system_folder = PARTY_BUILDING_DOCUMENTS_CODE;
     }
     const res = await http.get(url, { params });
     // 后端返回 { folders: [...], files: [...], pagination: ... } 或 [...]（all=true 时）
     const folders = Array.isArray(res) ? res : (res.folders || []);
     return folders;
+  };
+
+  _runTreeLoad = (loader) => {
+    if (!this._isMounted) {
+      return new Promise(() => undefined);
+    }
+
+    const token = { active: true };
+    this._pendingLoadTokens.add(token);
+
+    return new Promise((resolve, reject) => {
+      Promise.resolve()
+        .then(loader)
+        .then(() => {
+          this._pendingLoadTokens.delete(token);
+          if (this._isMounted && token.active) {
+            resolve();
+          }
+        })
+        .catch((error) => {
+          this._pendingLoadTokens.delete(token);
+          if (this._isMounted && token.active) {
+            reject(error);
+          }
+        });
+    });
   };
 
   fetchFolders = async () => {
@@ -78,7 +110,7 @@ class FolderTree extends React.Component {
         loading: true
       });
       const { isPublic, lockedRoot, autoExpandAll } = this.props;
-      // 行业规章锁定模式：构建单根节点树
+      // 党建文档锁定模式：构建单根节点树
       if (lockedRoot) {
         const treeData = this.buildSingleRootTree();
         if (this._isMounted) {
@@ -128,18 +160,18 @@ class FolderTree extends React.Component {
   };
 
   /**
-   * 行业规章锁定模式：构建单根节点树
-   * 根节点代表行业规章根目录（真实文件夹），children 预加载
+   * 党建文档锁定模式：构建单根节点树
+   * 根节点代表党建文档根目录（真实文件夹），children 预加载
    */
   buildSingleRootTree = () => {
     const { rootFolderId, rootFolderName } = this.props;
     return [{
       key: 'system-root',
       rawId: rootFolderId,
-      folderName: rootFolderName || '行业规章',
+      folderName: rootFolderName || '党建文档',
       title: <div className={styles.publicRoot}>
           <span className={styles.rootEmoji}><FolderIcon size={18} open /></span>
-          <span className={styles.rootLabel}>{rootFolderName || '行业规章'}</span>
+          <span className={styles.rootLabel}>{rootFolderName || '党建文档'}</span>
         </div>,
       selectable: true,
       children: undefined,
@@ -148,7 +180,7 @@ class FolderTree extends React.Component {
   };
 
   /**
-   * 行业规章锁定模式：预加载根目录的一级子文件夹
+   * 党建文档锁定模式：预加载根目录的一级子文件夹
    */
   _loadSystemRootChildren = async () => {
     try {
@@ -294,10 +326,10 @@ class FolderTree extends React.Component {
    * @param {Object} treeNode - antd TreeNode
    * @returns {Promise<void>}
    */
-  onLoadData = async (treeNode) => {
+  onLoadData = (treeNode) => this._runTreeLoad(async () => {
     const key = treeNode.key;
 
-    // 行业规章系统根节点：展开时加载其一级子文件夹
+    // 党建文档系统根节点：展开时加载其一级子文件夹
     if (key === 'system-root') {
       const nodeData = this.state.data.find(n => n.key === key);
       if (nodeData && nodeData.children && nodeData.children.length > 0) {
@@ -331,7 +363,7 @@ class FolderTree extends React.Component {
 
     const folders = await this.fetchChildFolders(folderId);
     this._setNodeChildren(key, folders);
-  };
+  });
 
   /**
    * 【M6 重构】根据空间类型加载根目录子文件夹（绕过 props.isPublic）
@@ -416,11 +448,11 @@ class FolderTree extends React.Component {
   handleSelect = (_, {
     node
   }) => {
-    // 行业规章系统根节点选择
+    // 党建文档系统根节点选择
     if (node.key === 'system-root') {
       const { rootFolderId, rootFolderName } = this.props;
       if (rootFolderId) {
-        navigationStore.selectFolder(rootFolderId, rootFolderName || '行业规章');
+        navigationStore.selectFolder(rootFolderId, rootFolderName || '党建文档');
       }
       return;
     }
@@ -490,7 +522,11 @@ class FolderTree extends React.Component {
             loading={this.state.loading}
             defaultExpandedKeys={[defaultExpandedKey]}
             expandedKeys={this.state.expandedKeys}
-            onExpand={expandedKeys => this.setState({ expandedKeys })}
+            onExpand={expandedKeys => {
+              if (this._isMounted) {
+                this.setState({ expandedKeys });
+              }
+            }}
             // 【M6 关键】loadData API + children undefined → 按需加载
             loadData={this.onLoadData}
             motion={false}

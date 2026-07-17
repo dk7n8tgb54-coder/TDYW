@@ -1,4 +1,4 @@
-/**
+﻿/**
  * NavigationActions - 导航动作集合
  * 
  * 职责：封装所有导航相关的状态变更操作
@@ -34,7 +34,7 @@ class NavigationActions {
    * @param {number} index - 路径索引，-1表示返回根目录
    */
   navigateTo(index) {
-    // 行业规章锁定模式：index < 0（返回根）定位到锁定根目录，不能回到公共库根目录
+    // 党建文档锁定模式：index < 0（返回根）定位到锁定根目录，不能回到公共库根目录
     if (index < 0) {
       if (this.store.lockedRootFolderId) {
         this.goToLockedRoot();
@@ -56,7 +56,7 @@ class NavigationActions {
    * 返回上一级目录
    */
   goUp() {
-    // 行业规章锁定模式：已在锁定根目录时不再向上
+    // 党建文档锁定模式：已在锁定根目录时不再向上
     if (this.store.lockedRootFolderId && this.store.currentFolderId === this.store.lockedRootFolderId) {
       return;
     }
@@ -82,7 +82,7 @@ class NavigationActions {
    * 跳转到根目录
    */
   goToRoot() {
-    // 行业规章锁定模式：根目录即锁定根目录
+    // 党建文档锁定模式：根目录即锁定根目录
     if (this.store.lockedRootFolderId) {
       this.goToLockedRoot();
       return;
@@ -97,11 +97,11 @@ class NavigationActions {
   }
 
   /**
-   * 跳转到行业规章锁定根目录
+   * 跳转到党建文档锁定根目录
    */
   goToLockedRoot() {
     const rootId = this.store.lockedRootFolderId;
-    const rootName = this.store.lockedRootFolderName || '行业规章';
+    const rootName = this.store.lockedRootFolderName || '党建文档';
     this.store.path = [{ id: rootId, name: rootName }];
     this.store.currentFolderId = rootId;
     this.store.selectedFolderId = rootId;
@@ -135,7 +135,7 @@ class NavigationActions {
    * @param {boolean} isPublicRoot - 是否为公共根节点
    */
   selectRootFolder(isPublicRoot) {
-    // 行业规章锁定模式：不允许切换空间，固定为公共且定位到锁定根目录
+    // 党建文档锁定模式：不允许切换空间，固定为公共且定位到锁定根目录
     if (this.store.lockedRootFolderId) {
       this.goToLockedRoot();
       return;
@@ -198,7 +198,7 @@ class NavigationActions {
    * 重置所有导航状态
    */
   reset() {
-    // 行业规章锁定模式：重置到锁定根目录，保持公共空间
+    // 党建文档锁定模式：重置到锁定根目录，保持公共空间
     if (this.store.lockedRootFolderId) {
       this.goToLockedRoot();
       return;
@@ -214,11 +214,11 @@ class NavigationActions {
   }
 
   // ============================================================
-  // 系统目录（行业规章）
+  // 系统目录（党建文档）
   // ============================================================
 
   /**
-   * 初始化系统目录锁定模式（行业规章）
+   * 初始化系统目录锁定模式（党建文档）
    * @param {Object} param
    * @param {string} param.code - 系统目录编码
    * @param {number} param.folderId - 根目录 ID
@@ -226,7 +226,7 @@ class NavigationActions {
    */
   initSystemFolder({ code, folderId, name }) {
     this.store.isPublic = true;
-    this.store.mode = 'industryRules';
+    this.store.mode = 'partyBuildingDocuments';
     this.store.systemFolderCode = code;
     this.store.lockedRootFolderId = folderId;
     this.store.lockedRootFolderName = name;
@@ -241,7 +241,7 @@ class NavigationActions {
   }
 
   /**
-   * 清除系统目录锁定模式（离开行业规章页面时调用）
+   * 清除系统目录锁定模式（离开党建文档页面时调用）
    */
   clearSystemFolder() {
     this.store.mode = 'normal';

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Lightweight context for document system folders.
  *
  * The active code is intentionally kept outside MobX to avoid coupling low-level
@@ -9,8 +9,8 @@
 
 let _activeCode = null;
 
-export const INDUSTRY_RULES_CODE = 'industry_rules';
-export const INDUSTRY_RULES_PATH = '/document/industry-rules';
+export const PARTY_BUILDING_DOCUMENTS_CODE = 'party_building_documents';
+export const PARTY_BUILDING_DOCUMENTS_PATH = '/document/party-building-documents';
 
 function getCurrentPathname() {
   if (typeof window === 'undefined') return '';
@@ -25,16 +25,16 @@ export function getSystemFolder() {
   return _activeCode;
 }
 
-export function isIndustryRulesMode() {
-  return _activeCode === INDUSTRY_RULES_CODE;
+export function isPartyBuildingDocumentsMode() {
+  return _activeCode === PARTY_BUILDING_DOCUMENTS_CODE;
 }
 
-export function isIndustryRulesPath(pathname = getCurrentPathname()) {
-  return pathname === INDUSTRY_RULES_PATH || pathname.startsWith(`${INDUSTRY_RULES_PATH}/`);
+export function isPartyBuildingDocumentsPath(pathname = getCurrentPathname()) {
+  return pathname === PARTY_BUILDING_DOCUMENTS_PATH || pathname.startsWith(`${PARTY_BUILDING_DOCUMENTS_PATH}/`);
 }
 
 export function shouldUseSystemFolder(pathname = getCurrentPathname()) {
-  return _activeCode === INDUSTRY_RULES_CODE && isIndustryRulesPath(pathname);
+  return _activeCode === PARTY_BUILDING_DOCUMENTS_CODE && isPartyBuildingDocumentsPath(pathname);
 }
 
 /**
@@ -55,12 +55,12 @@ export function withSystemFolderParams(params = {}, pathname = getCurrentPathnam
 }
 
 export default {
-  INDUSTRY_RULES_CODE,
-  INDUSTRY_RULES_PATH,
+  PARTY_BUILDING_DOCUMENTS_CODE,
+  PARTY_BUILDING_DOCUMENTS_PATH,
   setSystemFolder,
   getSystemFolder,
-  isIndustryRulesMode,
-  isIndustryRulesPath,
+  isPartyBuildingDocumentsMode,
+  isPartyBuildingDocumentsPath,
   shouldUseSystemFolder,
   appendSystemFolderParam,
   withSystemFolderParams,

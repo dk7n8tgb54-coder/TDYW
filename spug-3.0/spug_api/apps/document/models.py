@@ -654,6 +654,14 @@ class DocumentTransfer(models.Model):
     # 目标文件夹（上传时使用）
     folder_id = models.IntegerField(null=True, blank=True, verbose_name='目标文件夹ID')
     is_public = models.BooleanField(default=False, verbose_name='是否公共空间')
+    system_folder = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='系统目录编码；普通文档为空，党建文档为 party_building_documents',
+        verbose_name='系统目录编码'
+    )
     # 分片信息（上传时使用）
     total_chunks = models.IntegerField(default=0, verbose_name='总分片数')
     uploaded_chunks = models.IntegerField(default=0, verbose_name='已上传分片数')
@@ -689,6 +697,7 @@ class DocumentTransfer(models.Model):
             models.Index(fields=['tenant_id', 'status'], name='idx_transfer_tenant_status'),
             models.Index(fields=['tenant_id', 'file_hash'], name='idx_transfer_tenant_hash'),
             models.Index(fields=['user', 'status'], name='idx_transfer_user_status'),
+            models.Index(fields=['user', 'is_public', 'system_folder'], name='idx_transfer_user_scope'),
             models.Index(fields=['created_at'], name='idx_transfer_created'),
             models.Index(fields=['status', 'updated_at'], name='transfer_status_updated_idx'),
         ]
@@ -702,7 +711,7 @@ class DocumentTransfer(models.Model):
 class DocumentSystemFolder(models.Model):
     """系统目录绑定模型
 
-    用于绑定公共空间中的受保护业务根目录（如"行业规章"），
+    用于绑定公共空间中的受保护业务根目录（如"党建文档"），
     使前端可以按业务入口呈现独立模块，后端可据此做范围校验和根目录保护。
 
     - 不靠目录名称判断，避免用户改名或重名歧义
@@ -711,7 +720,7 @@ class DocumentSystemFolder(models.Model):
     """
     code = models.CharField(
         max_length=64, unique=True, db_index=True,
-        help_text='系统目录编码，行业规章固定为 industry_rules',
+        help_text='系统目录编码，党建文档固定为 party_building_documents',
         verbose_name='系统目录编码'
     )
     name = models.CharField(max_length=100, verbose_name='显示名称')

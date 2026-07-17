@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     'apps.radio_license',
     'apps.contract_agreement',
     'apps.evidence',
+    'apps.regulation',
     'channels',
     'django_celery_results',  # Celery results backend
     'django_celery_beat',     # Celery Beat定时任务调度

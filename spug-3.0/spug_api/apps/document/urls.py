@@ -77,11 +77,11 @@ from .views.health import (
     DatabasePoolMetricsView,
 )
 
-# 系统目录绑定（行业规章）
+# 系统目录绑定（党建文档）
 from .views.system_folder import SystemFolderView
 
 urlpatterns = [
-    # 系统目录绑定（行业规章）
+    # 系统目录绑定（党建文档）
     path('system-folder/', SystemFolderView.as_view()),
 
     # 文件夹管理

@@ -20,7 +20,7 @@ from ...libs.document_utils import get_folder_model, get_file_model, get_documen
 from ...libs.view_utils import permission_denied_response
 from ...libs.document_auth import document_auth
 from ...services.system_folder_service import (
-    INDUSTRY_RULES_CODE, get_system_root_folder_id,
+    PARTY_BUILDING_DOCUMENTS_CODE, get_system_root_folder_id,
     is_folder_in_scope, is_protected_system_root,
     ensure_folder_in_scope_or_error, validate_system_folder_context,
     exclude_system_file_scope, exclude_system_folder_scope,
@@ -58,20 +58,20 @@ class FolderView(View):
             logger.error(f'[Document] Parse error: {error}')
             return json_response(error=error)
 
-        # 行业规章上下文校验
+        # 党建文档上下文校验
         system_folder = form.system_folder
         ok, ctx_err = validate_system_folder_context(system_folder, form.is_public)
         if not ok:
             return json_response(error=ctx_err)
 
-        # 行业规章模式：id 为空时自动定位到根目录，id 非空时校验在范围内
-        if system_folder == INDUSTRY_RULES_CODE:
-            root_id = get_system_root_folder_id(INDUSTRY_RULES_CODE)
+        # 党建文档模式：id 为空时自动定位到根目录，id 非空时校验在范围内
+        if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
+            root_id = get_system_root_folder_id(PARTY_BUILDING_DOCUMENTS_CODE)
             if root_id is None:
-                return json_response(error='行业规章系统目录尚未初始化')
+                return json_response(error='党建文档系统目录尚未初始化')
             if not form.id:
                 form.id = root_id
-            elif form.id != root_id and not is_folder_in_scope(form.id, INDUSTRY_RULES_CODE, include_root=False):
+            elif form.id != root_id and not is_folder_in_scope(form.id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=False):
                 return json_response(error=SCOPE_ERROR_MSG)
         elif form.is_public and form.id and is_folder_in_any_system_scope(form.id, include_root=True):
             return json_response(error=NORMAL_DOCUMENT_SCOPE_ERROR_MSG)
@@ -97,10 +97,10 @@ class FolderView(View):
         if not is_public:
             query = apply_tenant_filter(query, request.user, strict_mode=True)
 
-        # 行业规章模式：只返回根目录及其子孙
-        if system_folder == INDUSTRY_RULES_CODE:
+        # 党建文档模式：只返回根目录及其子孙
+        if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
             from ...services.system_folder_service import get_descendant_folder_ids
-            scope_ids = get_descendant_folder_ids(INDUSTRY_RULES_CODE, include_root=True)
+            scope_ids = get_descendant_folder_ids(PARTY_BUILDING_DOCUMENTS_CODE, include_root=True)
             query = query.filter(id__in=scope_ids)
         elif is_public:
             query = exclude_system_folder_scope(query)
@@ -127,13 +127,13 @@ class FolderView(View):
         folders_query = FolderModel.objects.filter(parent__isnull=True, is_deleted=False).select_related('created_by').order_by('-created_at')
         if not is_public:
             folders_query = apply_tenant_filter(folders_query, request.user, strict_mode=True)
-        elif system_folder != INDUSTRY_RULES_CODE:
+        elif system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             folders_query = exclude_system_folder_scope(folders_query)
 
         files_query = FileModel.objects.filter(folder__isnull=True).select_related('created_by').order_by('-created_at')
         if not is_public:
             files_query = apply_tenant_filter(files_query, request.user, strict_mode=True)
-        elif system_folder != INDUSTRY_RULES_CODE:
+        elif system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             files_query = exclude_system_file_scope(files_query)
 
         # 统一分页：文件夹在前，文件在后
@@ -191,13 +191,13 @@ class FolderView(View):
         folders_query = FolderModel.objects.filter(parent_id=folder_id, is_deleted=False).select_related('created_by').order_by('-created_at')
         if not is_public:
             folders_query = apply_tenant_filter(folders_query, request.user, strict_mode=True)
-        elif system_folder != INDUSTRY_RULES_CODE:
+        elif system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             folders_query = exclude_system_folder_scope(folders_query)
 
         files_query = FileModel.objects.filter(folder_id=folder_id).select_related('created_by').order_by('-created_at')
         if not is_public:
             files_query = apply_tenant_filter(files_query, request.user, strict_mode=True)
-        elif system_folder != INDUSTRY_RULES_CODE:
+        elif system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             files_query = exclude_system_file_scope(files_query)
 
         # 统一分页：文件夹在前，文件在后
@@ -357,15 +357,15 @@ class FolderView(View):
         if error is not None:
             return json_response(error=error)
 
-        # 行业规章上下文与根目录保护
+        # 党建文档上下文与根目录保护
         ok, ctx_err = validate_system_folder_context(form.system_folder, form.is_public)
         if not ok:
             return json_response(error=ctx_err)
-        if form.system_folder == INDUSTRY_RULES_CODE:
+        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
             if is_protected_system_root(form.id):
                 return json_response(error=PROTECTED_ROOT_MSG)
             scope_ok, scope_err = ensure_folder_in_scope_or_error(
-                form.id, INDUSTRY_RULES_CODE, include_root=False
+                form.id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=False
             )
             if not scope_ok:
                 return json_response(error=scope_err)

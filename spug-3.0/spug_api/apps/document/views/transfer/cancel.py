@@ -88,7 +88,13 @@ class ChunkCleaner:
         """获取分片目录路径（优先新路径，兼容旧路径）"""
         temp_user = ChunkCleaner.build_temp_user(transfer)
         # 优先使用带 transfer_id 的新路径
-        return get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user, transfer_id=transfer.id)
+        return get_chunk_dir_path(
+            transfer.file_hash,
+            transfer.is_public,
+            temp_user,
+            transfer_id=transfer.id,
+            system_folder=getattr(transfer, 'system_folder', None) or None,
+        )
 
     @staticmethod
     def validate_chunk_dir(chunk_dir):
@@ -131,7 +137,12 @@ class ChunkCleaner:
 
             # 也清理旧路径（兼容历史数据）
             temp_user = cls.build_temp_user(transfer)
-            legacy_chunk_dir = get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user)
+            legacy_chunk_dir = get_chunk_dir_path(
+                transfer.file_hash,
+                transfer.is_public,
+                temp_user,
+                system_folder=getattr(transfer, 'system_folder', None) or None,
+            )
             if cls.validate_chunk_dir(legacy_chunk_dir):
                 cls.remove_files(legacy_chunk_dir)
                 cls.remove_directory(legacy_chunk_dir)

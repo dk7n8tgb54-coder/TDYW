@@ -68,10 +68,22 @@ class ChunkCleanupService:
 
         # 清理新路径（带 transfer_id 隔离）和旧路径（兼容历史数据）
         chunk_base_dir = os.path.join(settings.BASE_DIR, 'storage', 'document_chunks')
+        system_folder = getattr(transfer, 'system_folder', None) or None
         try:
             dir_paths = [
-                get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user, transfer_id=transfer.id),
-                get_chunk_dir_path(transfer.file_hash, transfer.is_public, temp_user),
+                get_chunk_dir_path(
+                    transfer.file_hash,
+                    transfer.is_public,
+                    temp_user,
+                    transfer_id=transfer.id,
+                    system_folder=system_folder,
+                ),
+                get_chunk_dir_path(
+                    transfer.file_hash,
+                    transfer.is_public,
+                    temp_user,
+                    system_folder=system_folder,
+                ),
             ]
         except ValueError as e:
             logger.error(f'[Celery] Invalid path segment for transfer {transfer.id}: {e}')

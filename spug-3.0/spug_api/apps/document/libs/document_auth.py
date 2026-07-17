@@ -14,10 +14,10 @@
     @document_auth('rename')         # 重命名
 
 权限规则：
-- 请求带 system_folder=industry_rules 时，要求 document.industry_rule.<op>
+- 请求带 system_folder=party_building_documents 时，要求 document.party_building_document.<op>
 - 普通模式（无 system_folder）时，要求 document.document.<op>
 
-这样行业规章用户无需授予 document.document.* 基础权限即可访问资料库接口，
+这样党建文档用户无需授予 document.document.* 基础权限即可访问资料库接口，
 同时普通资料管理用户的行为不受影响（仍走 document.document.*）。
 """
 import json
@@ -25,7 +25,11 @@ import logging
 from functools import wraps
 
 from libs import json_response
-from ..services.system_folder_service import INDUSTRY_RULES_CODE, is_valid_system_folder_code
+from ..services.system_folder_service import (
+    PARTY_BUILDING_DOCUMENTS_CODE,
+    is_valid_system_folder_code,
+    normalize_system_folder_code,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +70,7 @@ def get_request_system_folder(request):
     """供视图层使用的公共方法：取当前请求的 system_folder（规范化后）"""
     sf = _extract_system_folder(request)
     if sf and is_valid_system_folder_code(sf):
-        return sf
+        return normalize_system_folder_code(sf)
     return None
 
 
@@ -90,8 +94,10 @@ def document_auth(operation):
                 return json_response(error='权限拒绝')
 
             system_folder = _extract_system_folder(request) if request else None
-            if system_folder == INDUSTRY_RULES_CODE:
-                required = f'document.industry_rule.{operation}'
+            if system_folder and is_valid_system_folder_code(system_folder):
+                system_folder = normalize_system_folder_code(system_folder)
+            if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
+                required = f'document.party_building_document.{operation}'
             else:
                 required = f'document.document.{operation}'
 

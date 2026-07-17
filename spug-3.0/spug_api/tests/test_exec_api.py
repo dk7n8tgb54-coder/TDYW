@@ -38,8 +38,8 @@ class ExecAPITest(TestCase):
         RunLog.objects.create(
             tenant_id=self.user.tenant_id,
             system_name='System1',
-            log_date='2026-01-01',
-            detail_record='Normal operation',
+            event_title='Test Log',
+            event_type='运行异常',
             created_by=self.user
         )
 
@@ -55,12 +55,12 @@ class ExecAPITest(TestCase):
             upgrade_no='UPG001',
             system='System1',
             version='v2.0.0',
-            plan_time='2026-01-01',
+            upgrade_time='2026-01-01',
             owner='User1',
             created_by=self.user
         )
 
-        response = self.client.get('/exec/upgrade/')
+        response = self.client.get('/upgrade/upgrade/')
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIn('data', data)
@@ -84,8 +84,8 @@ class ExecAPITest(TestCase):
         RunLog.objects.create(
             tenant_id=self.user.tenant_id,
             system_name='System1',
-            log_date='2026-01-01',
-            detail_record='User 1 log',
+            event_title='User 1 log',
+            event_type='运行异常',
             created_by=self.user
         )
 

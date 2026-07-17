@@ -186,10 +186,12 @@ def _cleanup_transfer_chunk_dir(transfer):
         chunk_base_dir = os.path.join(django_settings.BASE_DIR, 'storage', 'document_chunks')
 
         # 尝试带 transfer_id 的路径
+        system_folder = getattr(transfer, 'system_folder', None) or None
         if transfer.id:
             chunk_dir = get_chunk_dir_path(
                 transfer.file_hash, transfer.is_public, user,
-                transfer_id=transfer.id
+                transfer_id=transfer.id,
+                system_folder=system_folder,
             )
             if is_safe_path(chunk_base_dir, chunk_dir) and os.path.exists(chunk_dir):
                 shutil.rmtree(chunk_dir, ignore_errors=True)
@@ -197,7 +199,10 @@ def _cleanup_transfer_chunk_dir(transfer):
 
         # 回退到旧路径
         chunk_dir = get_chunk_dir_path(
-            transfer.file_hash, transfer.is_public, user
+            transfer.file_hash,
+            transfer.is_public,
+            user,
+            system_folder=system_folder,
         )
         if is_safe_path(chunk_base_dir, chunk_dir) and os.path.exists(chunk_dir):
             shutil.rmtree(chunk_dir, ignore_errors=True)

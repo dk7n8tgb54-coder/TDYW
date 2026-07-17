@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
  * Copyright (c) <spug.dev@gmail.com>
  * Released under the AGPL-3.0 License.
@@ -44,7 +44,7 @@ const Explorer = observer(forwardRef(({
   onFolderChange,
   searchState,
   viewMode = 'list',
-  isIndustryRules = false,
+  isPartyBuildingDocuments = false,
   permPrefix = 'document.document',
 }, ref) => {
   // ===== 基础状态 =====
@@ -54,7 +54,7 @@ const Explorer = observer(forwardRef(({
   const currentUserId = getCurrentUserId();
   const isSearching = searchState?.isSearching || false;
 
-  // ===== 行业规章操作权限（按钮/右键菜单可见性） =====
+  // ===== 党建文档操作权限（按钮/右键菜单可见性） =====
   const opPerms = {
     download: hasPermission(`${permPrefix}.download`),
     copy: hasPermission(`${permPrefix}.copy`),
@@ -62,8 +62,8 @@ const Explorer = observer(forwardRef(({
     rename: hasPermission(`${permPrefix}.rename`),
     delete: hasPermission(`${permPrefix}.delete`),
   };
-  // 行业规章受保护根目录：禁止重命名/移动/删除
-  const isProtectedRoot = (record) => isIndustryRules
+  // 党建文档受保护根目录：禁止重命名/移动/删除
+  const isProtectedRoot = (record) => isPartyBuildingDocuments
     && navigationStore.lockedRootFolderId
     && record?.id === navigationStore.lockedRootFolderId;
 

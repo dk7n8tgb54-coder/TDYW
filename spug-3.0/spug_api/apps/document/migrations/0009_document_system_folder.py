@@ -1,7 +1,7 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""新增 DocumentSystemFolder 模型：系统目录绑定（行业规章）"""
+"""Add DocumentSystemFolder for protected document business roots."""
 from django.db import migrations, models
 import django.db.models.deletion
 
@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
             name='DocumentSystemFolder',
             fields=[
                 ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('code', models.CharField(db_index=True, help_text='系统目录编码，行业规章固定为 industry_rules', max_length=64, unique=True, verbose_name='系统目录编码')),
+                ('code', models.CharField(db_index=True, help_text='系统目录编码，党建文档固定为 party_building_documents', max_length=64, unique=True, verbose_name='系统目录编码')),
                 ('name', models.CharField(max_length=100, verbose_name='显示名称')),
                 ('is_public', models.BooleanField(default=True, verbose_name='是否公共空间')),
                 ('protected', models.BooleanField(default=True, verbose_name='是否保护根目录')),

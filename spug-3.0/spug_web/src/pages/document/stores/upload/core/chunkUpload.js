@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ChunkUploadStore - 分片上传
  * 职责：处理大文件分片上传（>32MB）
  */
@@ -350,7 +350,7 @@ export class ChunkUploadStore {
       formData.append('transfer_id', uploadItem.transferId);
     }
 
-    // 【行业规章】注入 system_folder 上下文（XHR 不走 axios 拦截器，需手动注入）
+    // 【党建文档】注入 system_folder 上下文（XHR 不走 axios 拦截器，需手动注入）
     const activeSystemFolder = getSystemFolder();
     if (activeSystemFolder && shouldUseSystemFolder()) {
       formData.append('system_folder', activeSystemFolder);

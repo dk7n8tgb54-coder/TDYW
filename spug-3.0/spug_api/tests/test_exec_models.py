@@ -28,11 +28,11 @@ class RunLogModelTest(TestCase):
         """测试创建运行日志"""
         run_log = RunLog.objects.create(
             tenant_id='test_tenant',
+            event_title='测试运行日志',
+            event_type='运行异常',
             system_name='系统A',
-            log_date='2024-01-15',
-            detail_record='日志详情',
-            handler='张三',
-            recorder='李四',
+            severity='P2',
+            status='in_progress',
             created_by=self.user
         )
         self.assertEqual(run_log.system_name, '系统A')
@@ -145,12 +145,9 @@ class UpgradeRecordModelTest(TestCase):
             system='系统A',
             upgrade_type='主版本升级',
             version='2.0.0',
-            plan_time='2024-01-20',
+            upgrade_time='2024-01-20',
             status='待处理',
             owner='张三',
-            checklist='[]',
-            dependencies='[]',
-            issues='[]',
             created_by=self.user
         )
         self.assertEqual(upgrade.upgrade_no, 'UPG001')
@@ -164,7 +161,7 @@ class UpgradeRecordModelTest(TestCase):
             system='系统A',
             upgrade_type='主版本升级',
             version='2.0.0',
-            plan_time='2024-01-20',
+            upgrade_time='2024-01-20',
             owner='张三',
             created_by=self.user
         )
@@ -176,7 +173,7 @@ class UpgradeRecordModelTest(TestCase):
                 system='系统B',
                 upgrade_type='主版本升级',
                 version='3.0.0',
-                plan_time='2024-01-21',
+                upgrade_time='2024-01-21',
                 owner='李四',
                 created_by=self.user
             )

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * NavigationStore - 文件夹导航管理（重构版）
  * 
  * 【重构说明】采用组合模式，将原有功能拆分为：
@@ -52,11 +52,11 @@ class NavigationStore {
   @observable isPublic = true;
 
   /**
-   * 【行业规章】模式相关状态
-   * - mode: 'normal' | 'industryRules'
-   * - systemFolderCode: 系统目录编码（如 'industry_rules'），为 null 表示普通模式
-   * - lockedRootFolderId: 锁定的系统根目录 ID（行业规章根目录），导航不能超出此根
-   * - lockedRootFolderName: 锁定根目录的显示名（如 '行业规章'）
+   * 【党建文档】模式相关状态
+   * - mode: 'normal' | 'partyBuildingDocuments'
+   * - systemFolderCode: 系统目录编码（如 'party_building_documents'），为 null 表示普通模式
+   * - lockedRootFolderId: 锁定的系统根目录 ID（党建文档根目录），导航不能超出此根
+   * - lockedRootFolderName: 锁定根目录的显示名（如 '党建文档'）
    */
   @observable mode = 'normal';
   @observable systemFolderCode = null;
@@ -119,7 +119,7 @@ class NavigationStore {
     return this.actions.reset();
   }
 
-  // ----- 系统目录（行业规章） -----
+  // ----- 系统目录（党建文档） -----
   @action.bound initSystemFolder({ code, folderId, name }) {
     return this.actions.initSystemFolder({ code, folderId, name });
   }

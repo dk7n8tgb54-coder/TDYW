@@ -1,4 +1,4 @@
-/**
+﻿/**
  * NavigationComputed - 导航计算属性
  * 
  * 职责：提供基于导航状态的派生数据
@@ -66,7 +66,7 @@ class NavigationComputed {
    */
   @computed
   get isRoot() {
-    // 行业规章锁定模式：currentFolderId 即锁定根目录时视为"根"
+    // 党建文档锁定模式：currentFolderId 即锁定根目录时视为"根"
     if (this.store.lockedRootFolderId) {
       return this.store.currentFolderId === this.store.lockedRootFolderId;
     }
@@ -79,7 +79,7 @@ class NavigationComputed {
    */
   @computed
   get canGoUp() {
-    // 行业规章锁定模式：在锁定根目录时不能向上
+    // 党建文档锁定模式：在锁定根目录时不能向上
     if (this.store.lockedRootFolderId) {
       return this.store.currentFolderId !== this.store.lockedRootFolderId
         && this.store.path.length > 0;
@@ -100,7 +100,7 @@ class NavigationComputed {
   }
 
   /**
-   * 是否处于行业规章锁定根目录（用于 UI 隐藏重命名/移动/删除等操作）
+   * 是否处于党建文档锁定根目录（用于 UI 隐藏重命名/移动/删除等操作）
    * @returns {boolean}
    */
   @computed

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
  * Copyright (c) <spug.dev@gmail.com>
  * Released under the AGPL-3.0 License.
@@ -35,7 +35,7 @@ import SystemTenant from './pages/system/tenant';
 import WelcomeIndex from './pages/welcome/index';
 import WelcomeInfo from './pages/welcome/info';
 import DocumentIndex from './pages/document';
-import IndustryRulesIndex from './pages/document/IndustryRulesIndex';
+import PartyBuildingDocumentsIndex from './pages/document/PartyBuildingDocumentsIndex';
 import Interference from './pages/interference';
 import InterferenceStatistics from './pages/interference/Statistics';
 import ExecUpgradeRecord from './pages/upgrade';
@@ -47,6 +47,7 @@ import CheckSheetIndex from './pages/checksheet';
 import RadioLicenseIndex from './pages/radioLicense';
 import StationFrequencyApproval from './pages/stationFrequencyApproval';
 import ContractAgreementIndex from './pages/contractAgreement';
+import RegulationIndex from './pages/regulation';
 import AnnouncementList from './pages/home/AnnouncementList';
 import AnnouncementAdmin from './pages/system/announcement';
 
@@ -60,9 +61,10 @@ export default [
     {title: '台站频率批复', auth: 'radio_license.license.view', path: '/station-frequency-approval', component: StationFrequencyApproval},
   ]},
   {icon: <FileTextOutlined/>, title: '合同协议', auth: 'contract_agreement.agreement.view', path: '/contract-agreement', component: ContractAgreementIndex},
-  {icon: <FolderOpenOutlined/>, title: '资料库', auth: 'document.document.view|document.industry_rule.view', child: [
+  {icon: <FolderOpenOutlined/>, title: '资料库', auth: 'document.document.view|document.party_building_document.view|document.regulation.view', child: [
     {title: '文档管理', auth: 'document.document.view', path: '/document', component: DocumentIndex},
-    {title: '行业规章', auth: 'document.industry_rule.view', path: '/document/industry-rules', component: IndustryRulesIndex},
+    {title: '党建文档', auth: 'document.party_building_document.view', path: '/document/party-building-documents', component: PartyBuildingDocumentsIndex},
+    {title: '规章管理', auth: 'document.regulation.view', path: '/regulation', component: RegulationIndex},
   ]},
   {icon: <FileTextOutlined/>, title: '跨日事项跟踪', auth: 'runlog.runlog.view', child: [
     {title: '事项列表', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},

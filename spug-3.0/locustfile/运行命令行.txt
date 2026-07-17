@@ -1,8 +1,0 @@
-# 方式1：交互式模式
-python -m locust -f locustfile/locustfile_runlog.py -H http://localhost:80
-
-# 方式2：命令行模式
-python -m locust -f locustfile/locustfile_runlog.py -H http://localhost:80 --users 50 --spawn-rate 10 --run-time 5m --headless --csv runlog_test
-
-# 方式3：使用封装脚本
-.\test-runlog-load.ps1

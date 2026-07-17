@@ -27,7 +27,7 @@ from ..libs.document_utils import get_folder_model, get_file_model
 from ..libs.view_utils import format_file_size
 from ..libs.document_auth import document_auth
 from ..services.system_folder_service import (
-    INDUSTRY_RULES_CODE, get_system_root_folder_id,
+    PARTY_BUILDING_DOCUMENTS_CODE, get_system_root_folder_id,
     is_folder_in_scope, validate_system_folder_context, SCOPE_ERROR_MSG,
     exclude_system_file_scope, exclude_system_folder_scope,
     is_folder_in_any_system_scope, NORMAL_DOCUMENT_SCOPE_ERROR_MSG,
@@ -131,7 +131,7 @@ class FolderSearchView(View):
 
     def _validate_search_scope(self, form):
         """
-        【内部】校验搜索范围（行业规章/公共空间系统目录）
+        【内部】校验搜索范围（党建文档/公共空间系统目录）
 
         Returns:
             str or None: 错误消息，None 表示校验通过
@@ -140,15 +140,15 @@ class FolderSearchView(View):
         if not ok:
             return ctx_err
 
-        # 行业规章模式：folder_id 为空时自动定位到根目录；非空时校验在范围内
-        if form.system_folder == INDUSTRY_RULES_CODE:
-            root_id = get_system_root_folder_id(INDUSTRY_RULES_CODE)
+        # 党建文档模式：folder_id 为空时自动定位到根目录；非空时校验在范围内
+        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
+            root_id = get_system_root_folder_id(PARTY_BUILDING_DOCUMENTS_CODE)
             if root_id is None:
-                return '行业规章系统目录尚未初始化'
+                return '党建文档系统目录尚未初始化'
             if form.folder_id is None:
                 form.folder_id = root_id
             elif form.folder_id != root_id and not is_folder_in_scope(
-                form.folder_id, INDUSTRY_RULES_CODE, include_root=False
+                form.folder_id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=False
             ):
                 return SCOPE_ERROR_MSG
         elif form.is_public and form.folder_id and is_folder_in_any_system_scope(
@@ -171,7 +171,7 @@ class FolderSearchView(View):
         """
         if not is_public:
             return apply_tenant_filter(query, request_user, strict_mode=True)
-        if system_folder != INDUSTRY_RULES_CODE:
+        if system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             if is_file:
                 return exclude_system_file_scope(query)
             return exclude_system_folder_scope(query)
@@ -201,7 +201,7 @@ class FolderSearchView(View):
             logger.error(f'[Document] Parse error: {error}')
             return json_response(error=error)
 
-        # 搜索范围校验（行业规章/公共空间系统目录）
+        # 搜索范围校验（党建文档/公共空间系统目录）
         scope_error = self._validate_search_scope(form)
         if scope_error:
             return json_response(error=scope_error)

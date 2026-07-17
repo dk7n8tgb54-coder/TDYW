@@ -15,12 +15,12 @@ from django.views.generic import View
 from django.http import StreamingHttpResponse
 from urllib.parse import quote
 
-from libs import json_response, JsonParser, Argument, auth
+from libs import json_response, JsonParser, Argument
 from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_folder_model, get_file_model, is_safe_path
 from ...libs.document_auth import document_auth
 from ...services.system_folder_service import (
-    INDUSTRY_RULES_CODE, ensure_folder_in_scope_or_error,
+    PARTY_BUILDING_DOCUMENTS_CODE, ensure_folder_in_scope_or_error,
     validate_system_folder_context,
 )
 from ..base import log_operation
@@ -53,7 +53,7 @@ class FolderDownloadView(View):
             logger.error(f'[Document] Download parse error: {error}')
             return json_response(error=error)
 
-        # 行业规章上下文校验
+        # 党建文档上下文校验
         ok, ctx_err = validate_system_folder_context(form.system_folder, form.is_public)
         if not ok:
             return json_response(error=ctx_err)
@@ -71,10 +71,10 @@ class FolderDownloadView(View):
             logger.error(f'[Document] Folder not found with id: {form.id}')
             return json_response(error='文件夹不存在')
 
-        # 行业规章范围校验
-        if form.system_folder == INDUSTRY_RULES_CODE:
+        # 党建文档范围校验
+        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
             scope_ok, scope_err = ensure_folder_in_scope_or_error(
-                form.id, INDUSTRY_RULES_CODE, include_root=True
+                form.id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=True
             )
             if not scope_ok:
                 return json_response(error=scope_err)
@@ -327,7 +327,7 @@ class FolderDownloadView(View):
 class FolderDownloadStatusView(View):
     """【P0-6新增】查询异步打包任务状态"""
 
-    @auth('document.document.view')
+    @document_auth('view')
     def get(self, request):
         """查询打包任务状态
 
@@ -423,7 +423,7 @@ class FolderDownloadStatusView(View):
 class FolderDownloadReadyView(View):
     """【P0-6新增】下载已打包完成的 ZIP 文件"""
 
-    @auth('document.document.view')
+    @document_auth('view')
     def get(self, request):
         """下载已完成的打包任务结果
 

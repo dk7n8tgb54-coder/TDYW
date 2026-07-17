@@ -10,7 +10,8 @@ import os
 import logging
 from django.views.generic import View
 
-from libs import json_response, auth, JsonParser, Argument
+from libs import json_response, JsonParser, Argument
+from apps.document.libs.document_auth import document_auth
 from apps.document.libs.document_utils import get_chunk_dir_path
 from apps.document.constants import TransferStatus
 from apps.document.views.upload.chunk_checker import (
@@ -47,7 +48,7 @@ class CheckUploadedChunksView(View):
         'task_id': None,
     }
 
-    @auth('document.document.view')
+    @document_auth('view')
     def post(self, request):
         """检查已上传分片 - 优化版"""
         # 1. 参数解析

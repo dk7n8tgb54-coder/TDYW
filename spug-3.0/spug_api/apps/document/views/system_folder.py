@@ -3,16 +3,18 @@
 # Released under the AGPL-3.0 License.
 """系统目录接口
 
-GET /api/document/system-folder/?code=industry_rules
+GET /api/document/system-folder/?code=party_building_documents
 
-返回行业规章系统目录绑定信息，供前端初始化导航到行业规章根目录。
+返回党建文档系统目录绑定信息，供前端初始化导航到党建文档根目录。
 """
 import logging
 from django.views.generic import View
 
 from libs import json_response, JsonParser, Argument, auth
 from ..services.system_folder_service import (
-    get_system_folder, is_valid_system_folder_code, INDUSTRY_RULES_CODE,
+    get_system_folder,
+    is_valid_system_folder_code,
+    normalize_system_folder_code,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,7 +23,7 @@ logger = logging.getLogger(__name__)
 class SystemFolderView(View):
     """系统目录查询接口"""
 
-    @auth('document.document.view|document.industry_rule.view')
+    @auth('document.document.view|document.party_building_document.view')
     def get(self, request):
         form, error = JsonParser(
             Argument('code', type=str, help='请提供 code 参数'),
@@ -30,7 +32,7 @@ class SystemFolderView(View):
         if error is not None:
             return json_response(error=error)
 
-        code = form.code
+        code = normalize_system_folder_code(form.code)
         if not is_valid_system_folder_code(code):
             return json_response(error='未知的系统目录编码')
 
@@ -41,11 +43,11 @@ class SystemFolderView(View):
             )
 
         folder = sf.folder
-        # 构建根目录路径（行业规章根目录 parent 为 null）
+        # 构建根目录路径（党建文档根目录 parent 为 null）
         path = [{'id': folder.id, 'name': folder.name}]
 
         return json_response({
-            'code': sf.code,
+            'code': code,
             'name': sf.name,
             'is_public': sf.is_public,
             'folder_id': folder.id,

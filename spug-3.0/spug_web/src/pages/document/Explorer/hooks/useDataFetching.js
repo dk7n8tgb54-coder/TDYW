@@ -3,7 +3,7 @@
  * 【修复】从 useExplorerState 拆分出来的独立 Hook
  * 职责：处理文件列表和文件夹内容的数据获取
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import http from 'libs/http';
 import { generateKey } from '../utils';
 
@@ -11,10 +11,34 @@ export const useDataFetching = (isPublic, folderId, onError) => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [folderContents, setFolderContents] = useState(null);
+  const isMountedRef = useRef(true);
+  const fetchItemsRequestRef = useRef(0);
+  const fetchFolderContentsRequestRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      fetchItemsRequestRef.current += 1;
+      fetchFolderContentsRequestRef.current += 1;
+    };
+  }, []);
+
+  const safeSetFolderContents = useCallback((contents) => {
+    if (isMountedRef.current) {
+      setFolderContents(contents);
+    }
+  }, []);
 
   // 获取文件列表
   const fetchItems = useCallback(async (currentPage, pageSize, resetSelected = false) => {
-    setLoading(true);
+    const requestId = ++fetchItemsRequestRef.current;
+    const isActiveRequest = () => (
+      isMountedRef.current && requestId === fetchItemsRequestRef.current
+    );
+
+    if (isMountedRef.current) {
+      setLoading(true);
+    }
     try {
       const tenantId = isPublic ? null : sessionStorage.getItem('tenant_id');
       const res = await http.get('/api/document/folder/', {
@@ -53,15 +77,26 @@ export const useDataFetching = (isPublic, folderId, onError) => {
         return true;
       });
 
+      if (!isActiveRequest()) {
+        return {
+          items: mergedItems,
+          pagination: res.pagination || {},
+          cancelled: true,
+        };
+      }
+
       setItems(mergedItems);
       setLoading(false);
-      
+
       return {
         items: mergedItems,
         pagination: res.pagination || {},
       };
     } catch (error) {
       console.error('[Explorer] fetchItems error:', error);
+      if (!isActiveRequest()) {
+        return { items: [], pagination: {}, cancelled: true };
+      }
       setItems([]);
       setLoading(false);
       if (onError) onError(error);
@@ -71,6 +106,11 @@ export const useDataFetching = (isPublic, folderId, onError) => {
 
   // 获取文件夹内容
   const fetchFolderContents = useCallback(async (targetFolderId) => {
+    const requestId = ++fetchFolderContentsRequestRef.current;
+    const isActiveRequest = () => (
+      isMountedRef.current && requestId === fetchFolderContentsRequestRef.current
+    );
+
     try {
       const res = await http.get('/api/document/folder/', {
         params: { id: targetFolderId, is_public: isPublic }
@@ -79,11 +119,15 @@ export const useDataFetching = (isPublic, folderId, onError) => {
         folders: res.folders || [],
         files: res.files || []
       };
-      setFolderContents(contents);
+      if (isActiveRequest()) {
+        setFolderContents(contents);
+      }
       return contents;
     } catch (e) {
       const empty = { folders: [], files: [] };
-      setFolderContents(empty);
+      if (isActiveRequest()) {
+        setFolderContents(empty);
+      }
       return empty;
     }
   }, [isPublic]);
@@ -92,7 +136,7 @@ export const useDataFetching = (isPublic, folderId, onError) => {
     items,
     loading,
     folderContents,
-    setFolderContents,
+    setFolderContents: safeSetFolderContents,
     fetchItems,
     fetchFolderContents,
   };

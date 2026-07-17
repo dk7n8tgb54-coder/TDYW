@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
  * Released under the AGPL-3.0 License.
  */
@@ -18,12 +18,12 @@ import navigationStore from './stores/navigation';
 import uploadUIStore from './stores/upload/ui';
 import { uploadCoreStore } from './stores';
 import { hasPermission, http } from 'libs';
-import { setSystemFolder, INDUSTRY_RULES_CODE } from 'libs/systemFolderContext';
+import { setSystemFolder, PARTY_BUILDING_DOCUMENTS_CODE } from 'libs/systemFolderContext';
 import styles from './DocumentLayout.module.less';
 import './Explorer.module.less';
 
 const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = null, title = '资料库' }) {
-  const isIndustryRules = mode === 'industryRules' && systemFolderCode === INDUSTRY_RULES_CODE;
+  const isPartyBuildingDocuments = mode === 'partyBuildingDocuments' && systemFolderCode === PARTY_BUILDING_DOCUMENTS_CODE;
   const fileInputRef = React.useRef(null);
   const folderInputRef = React.useRef(null);
   const explorerRef = React.useRef(null);
@@ -48,12 +48,12 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
     };
   }, []);
 
-  // 【行业规章】进入页面时初始化系统目录上下文，离开时清理
+  // 【党建文档】进入页面时初始化系统目录上下文，离开时清理
   React.useLayoutEffect(() => {
     let cancelled = false;
-    if (isIndustryRules) {
+    if (isPartyBuildingDocuments) {
       setSystemFolder(systemFolderCode);
-      // 拉取系统目录绑定，初始化导航到行业规章根目录
+      // 拉取系统目录绑定，初始化导航到党建文档根目录
       (async () => {
         try {
           const res = await http.get('/api/document/system-folder/', {
@@ -67,7 +67,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
           });
         } catch (e) {
           if (!cancelled) {
-            setInitError(e?.message || '行业规章初始化失败');
+            setInitError(e?.message || '党建文档初始化失败');
           }
         }
       })();
@@ -79,33 +79,33 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
     }
     return () => {
       cancelled = true;
-      if (isIndustryRules) {
+      if (isPartyBuildingDocuments) {
         setSystemFolder(null);
         navigationStore.clearSystemFolder();
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isIndustryRules, systemFolderCode, title]);
+  }, [isPartyBuildingDocuments, systemFolderCode, title]);
 
   const currentPath = navigationStore.getCurrentPath();
   const rootFolderId = navigationStore.lockedRootFolderId;
   const rootFolderName = navigationStore.lockedRootFolderName || title;
-  const breadcrumbPath = isIndustryRules && rootFolderId && currentPath[0]?.id === rootFolderId
+  const breadcrumbPath = isPartyBuildingDocuments && rootFolderId && currentPath[0]?.id === rootFolderId
     ? currentPath.slice(1)
     : currentPath;
   const breadcrumbPathIndexOffset = breadcrumbPath.length === currentPath.length ? 0 : 1;
-  const canGoBack = isIndustryRules ? breadcrumbPath.length > 0 : currentPath.length > 0;
-  // 行业规章锁定模式：面包屑根节点显示锁定根名称，否则显示空间前缀
-  const spacePrefix = isIndustryRules
+  const canGoBack = isPartyBuildingDocuments ? breadcrumbPath.length > 0 : currentPath.length > 0;
+  // 党建文档锁定模式：面包屑根节点显示锁定根名称，否则显示空间前缀
+  const spacePrefix = isPartyBuildingDocuments
     ? rootFolderName
     : (navigationStore.isPublic ? '公共共享库' : '我的文件');
 
-  // 行业规章模式下的权限前缀
-  const permPrefix = isIndustryRules ? 'document.industry_rule' : 'document.document';
+  // 党建文档模式下的权限前缀
+  const permPrefix = isPartyBuildingDocuments ? 'document.party_building_document' : 'document.document';
   const canUpload = hasPermission(`${permPrefix}.upload`);
   const canCreateFolder = hasPermission(`${permPrefix}.create_folder`);
-  const isIndustryRulesReady = !isIndustryRules || !!navigationStore.lockedRootFolderId;
-  const hasStaleSystemFolderState = !isIndustryRules
+  const isPartyBuildingDocumentsReady = !isPartyBuildingDocuments || !!navigationStore.lockedRootFolderId;
+  const hasStaleSystemFolderState = !isPartyBuildingDocuments
     && (navigationStore.lockedRootFolderId || navigationStore.systemFolderCode);
   const effectiveCurrentFolderId = hasStaleSystemFolderState ? null : navigationStore.currentFolderId;
 
@@ -193,8 +193,8 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
   const handleFileSelect = (e) => {
     const files = Array.from(e.target.files);
     if (files.length > 0) {
-      if (isIndustryRules) {
-        message.info('文件将上传到行业规章，所有用户均可查看下载');
+      if (isPartyBuildingDocuments) {
+        message.info('文件将上传到党建文档，所有用户均可查看下载');
       } else if (navigationStore.isPublic) {
         message.info('文件将上传到公共共享库，所有用户均可查看下载');
       }
@@ -208,8 +208,8 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
   const handleFolderSelect = (e) => {
     const files = Array.from(e.target.files);
     if (files.length > 0) {
-      if (isIndustryRules) {
-        message.info('文件夹将上传到行业规章，所有用户均可查看下载');
+      if (isPartyBuildingDocuments) {
+        message.info('文件夹将上传到党建文档，所有用户均可查看下载');
       } else if (navigationStore.isPublic) {
         message.info('文件夹将上传到公共共享库，所有用户均可查看下载');
       }
@@ -259,8 +259,8 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
           <DiskStatus isPublic={navigationStore.isPublic} />
           <SearchBox
             isPublic={navigationStore.isPublic}
-            placeholder={isIndustryRules ? '搜索行业规章' : undefined}
-            folderId={isIndustryRules ? navigationStore.lockedRootFolderId : undefined}
+            placeholder={isPartyBuildingDocuments ? '搜索党建文档' : undefined}
+            folderId={isPartyBuildingDocuments ? navigationStore.lockedRootFolderId : undefined}
             onSearchStart={handleSearchStart}
             onSearchResult={handleSearchResult}
             onSearchError={handleSearchError}
@@ -276,11 +276,11 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
         <div style={{ padding: '12px 16px', color: '#ff4d4f' }}>{initError}</div>
       )}
 
-      {!initError && !isIndustryRulesReady && (
-        <div style={{ padding: '24px 16px', color: '#666' }}>行业规章初始化中...</div>
+      {!initError && !isPartyBuildingDocumentsReady && (
+        <div style={{ padding: '24px 16px', color: '#666' }}>党建文档初始化中...</div>
       )}
 
-      {!initError && isIndustryRulesReady && <div className={styles.documentPage}>
+      {!initError && isPartyBuildingDocumentsReady && <div className={styles.documentPage}>
         {/* 统一工具栏：左侧路径+操作，右侧视图切换+详情+上传 */}
         <div className={styles.toolBar}>
           <div className={styles.toolBarLeft}>
@@ -363,10 +363,10 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
               ref={folderTreeRef}
               isPublic={navigationStore.isPublic}
               onFolderChange={() => {}}
-              lockedRoot={isIndustryRules}
-              rootFolderId={isIndustryRules ? navigationStore.lockedRootFolderId : null}
-              rootFolderName={isIndustryRules ? rootFolderName : undefined}
-              autoExpandAll={isIndustryRules}
+              lockedRoot={isPartyBuildingDocuments}
+              rootFolderId={isPartyBuildingDocuments ? navigationStore.lockedRootFolderId : null}
+              rootFolderName={isPartyBuildingDocuments ? rootFolderName : undefined}
+              autoExpandAll={isPartyBuildingDocuments}
             />
           </div>
           <div className={styles.explorerArea}>
@@ -377,18 +377,18 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
               viewMode={viewMode}
               isPublic={navigationStore.isPublic}
               searchState={searchState}
-              isIndustryRules={isIndustryRules}
+              isPartyBuildingDocuments={isPartyBuildingDocuments}
               permPrefix={permPrefix}
             />
           </div>
         </div>
       </div>}
 
-      {isIndustryRulesReady && uploadCoreStore.currentUploadQueue.length > 0 && !uploadUIStore.panel.expanded && (
+      {isPartyBuildingDocumentsReady && uploadCoreStore.currentUploadQueue.length > 0 && !uploadUIStore.panel.expanded && (
         <MiniBar />
       )}
-      {isIndustryRulesReady && <UploadPanel />}
-      {isIndustryRulesReady && <KeyboardShortcuts />}
+      {isPartyBuildingDocumentsReady && <UploadPanel />}
+      {isPartyBuildingDocumentsReady && <KeyboardShortcuts />}
     </div>
   );
 });

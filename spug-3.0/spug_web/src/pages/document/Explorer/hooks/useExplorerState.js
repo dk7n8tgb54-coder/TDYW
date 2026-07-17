@@ -51,16 +51,32 @@ export const useExplorerState = (isPublic, folderId, onError) => {
   const isInitialMount = useRef(true);
   const prevFolderId = useRef(folderId);
   const prevIsPublic = useRef(isPublic);
+  const isMountedRef = useRef(true);
+  const clickTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
+        clickTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // ===== 包装数据获取函数 =====
   const fetchItems = useCallback(async (resetSelected = false) => {
     const result = await fetchItemsBase(currentPage, pageSize, resetSelected);
+    if (!isMountedRef.current || result?.cancelled) {
+      return result;
+    }
     if (result.pagination) {
       setPaginationData(result.pagination);
     }
     if (resetSelected) {
       setSelectedRowKeys([]);
     }
+    return result;
   }, [fetchItemsBase, currentPage, pageSize, setPaginationData]);
 
   // ===== 表格排序处理 =====
@@ -73,20 +89,28 @@ export const useExplorerState = (isPublic, folderId, onError) => {
 
   // ===== 选中行管理 =====
   const handleSetSelectedRowKeys = useCallback((keys) => {
-    setSelectedRowKeys(Array.isArray(keys) ? keys : []);
+    if (isMountedRef.current) {
+      setSelectedRowKeys(Array.isArray(keys) ? keys : []);
+    }
   }, []);
 
   // ===== 点击超时管理 =====
   const handleSetClickTimeout = useCallback((timeout) => {
-    setClickTimeout(timeout);
+    clickTimeoutRef.current = timeout;
+    if (isMountedRef.current) {
+      setClickTimeout(timeout);
+    }
   }, []);
 
   const clearClickTimeout = useCallback(() => {
-    if (clickTimeout) {
-      clearTimeout(clickTimeout);
-      setClickTimeout(null);
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+      clickTimeoutRef.current = null;
+      if (isMountedRef.current) {
+        setClickTimeout(null);
+      }
     }
-  }, [clickTimeout]);
+  }, []);
 
   // ===== 获取当前选中项 =====
   const getSelectedItem = useCallback(() => {

@@ -9,7 +9,8 @@
 import logging
 from django.views.generic import View
 
-from libs import json_response, auth
+from libs import json_response
+from apps.document.libs.document_auth import document_auth
 from apps.document.services.merge_status_handlers import StatusHandlerFactory
 from apps.document.services.task_resolver import TaskIdResolver
 
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 class FileMergeStatusView(View):
     """合并状态查询接口（Celery版本）"""
 
-    @auth('document.document.view')
+    @document_auth('view')
     def get(self, request):
         """查询文件合并状态"""
         logger.info(f'[Document] FileMergeStatusView called')

@@ -30,17 +30,29 @@ export default [{
       {key: 'rename', label: '重命名文件'},
     ]
   }, {
-    key: 'industry_rule',
-    label: '行业规章',
+    key: 'party_building_document',
+    label: '党建文档',
     perms: [
-      {key: 'view', label: '查看行业规章'},
-      {key: 'upload', label: '上传规章文件'},
-      {key: 'download', label: '下载规章文件'},
-      {key: 'delete', label: '删除规章文件'},
-      {key: 'create_folder', label: '新建规章目录'},
-      {key: 'copy', label: '复制规章文件'},
-      {key: 'move', label: '移动规章文件'},
-      {key: 'rename', label: '重命名规章文件'},
+      {key: 'view', label: '查看党建文档'},
+      {key: 'upload', label: '上传党建文档文件'},
+      {key: 'download', label: '下载党建文档文件'},
+      {key: 'delete', label: '删除党建文档文件'},
+      {key: 'create_folder', label: '新建党建文档目录'},
+      {key: 'copy', label: '复制党建文档文件'},
+      {key: 'move', label: '移动党建文档文件'},
+      {key: 'rename', label: '重命名党建文档文件'},
+    ]
+  }, {
+    key: 'regulation',
+    label: '规章管理',
+    perms: [
+      {key: 'view',            label: '查看规章'},
+      {key: 'add',             label: '新建规章'},
+      {key: 'edit',            label: '编辑规章'},
+      {key: 'delete',          label: '删除规章'},
+      {key: 'upload',          label: '上传附件'},
+      {key: 'download',        label: '下载规章文件'},
+      {key: 'category_manage', label: '管理分类树'},
     ]
   }]
 }, {
