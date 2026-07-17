@@ -1,6 +1,9 @@
 /**
  * 文件网格视图组件
  * 缩略图/网格模式展示文件列表
+ *
+ * 【修复 2026-07-17】取消全区域白色 loadingOverlay 遮罩，改由 Explorer 顶部轻量进度条提示；
+ *   interactionDisabled 时网格项降低透明度但保留内容可见。
  */
 import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { Empty, Checkbox, Tag, Pagination } from 'antd';
@@ -58,7 +61,7 @@ const GridThumbnail = React.memo(({ record, isPublic }) => {
  */
 const FileGrid = ({
   dataSource,
-  loading,
+  interactionDisabled = false,
   selectedRowKeys,
   onSelectChange,
   onRow,
@@ -105,7 +108,15 @@ const FileGrid = ({
     if (rowHandlers && rowHandlers.onContextMenu) rowHandlers.onContextMenu(e);
   }, [isSelected, onSelectChange, onRow]);
 
-  if (!loading && (!dataSource || dataSource.length === 0)) {
+  if (!dataSource || dataSource.length === 0) {
+    // 目录切换未命中缓存时保留空网格，由顶部进度条提示加载，避免显示"暂无文件"误判
+    if (interactionDisabled) {
+      return (
+        <div className={styles.gridContainer}>
+          <div className={styles.grid} />
+        </div>
+      );
+    }
     return (
       <div className={styles.emptyState}>
         <Empty
@@ -121,16 +132,11 @@ const FileGrid = ({
 
   return (
     <div className={styles.gridContainer}>
-      {loading && (
-        <div className={styles.loadingOverlay}>
-          <span role="img" aria-label="加载中" style={{ fontSize: 32 }}>⏳</span>
-        </div>
-      )}
       <div className={styles.grid}>
         {dataSource?.map((record) => (
           <div
             key={record.key}
-            className={`${styles.gridItem} ${isSelected(record.key) ? styles.gridItemSelected : ''}`}
+            className={`${styles.gridItem} ${isSelected(record.key) ? styles.gridItemSelected : ''} ${interactionDisabled ? styles.gridItemDisabled : ''}`}
             onClick={() => handleClick(record)}
             onDoubleClick={() => handleDoubleClick(record)}
             onContextMenu={(e) => handleContextMenu(e, record)}

@@ -9,7 +9,7 @@
  */
 import React, { useEffect, useCallback, useState, useMemo, forwardRef, useImperativeHandle, useRef } from 'react';
 import { observer } from 'mobx-react';
-import { autorun } from 'mobx';
+import { reaction } from 'mobx';
 import { message } from 'antd';
 import { http, hasPermission } from 'libs';
 
@@ -71,6 +71,7 @@ const Explorer = observer(forwardRef(({
   const {
     items,
     loading,
+    interactionDisabled,
     selectedRowKeys,
     sortOrder,
     clickTimeout,
@@ -105,6 +106,12 @@ const Explorer = observer(forwardRef(({
   useEffect(() => {
     selectedRowKeysRef.current = selectedRowKeys;
   }, [selectedRowKeys]);
+
+  // 【修复 2026-07-17】interactionDisabled ref：目录切换未命中缓存时禁用旧行交互
+  const interactionDisabledRef = useRef(interactionDisabled);
+  useEffect(() => {
+    interactionDisabledRef.current = interactionDisabled;
+  }, [interactionDisabled]);
 
   // ===== 文件操作 =====
   const {
@@ -211,27 +218,32 @@ const Explorer = observer(forwardRef(({
   // ===== 属性弹窗状态 =====
   const [propertiesModal, setPropertiesModal] = useState({ visible: false, record: null });
 
-  // ===== 副作用：监听上传刷新（带防抖） =====
+  // 【修复 2026-07-17】上传完成刷新监听
+  // 改用 reaction 替代 autorun：
+  //   - autorun 订阅时立即执行，folderId 变化导致 fetchItems 重建 → 重新订阅 → 再次立即执行 → 500ms 二次刷新
+  //   - reaction 不立即执行，只在 refreshTrigger 数值真正变化时触发；首次订阅不刷新
+  // fetchItemsRef 保证 effect 只挂载一次，避免 fetchItems 重建导致重新订阅
+  const fetchItemsRef = useRef(fetchItems);
   useEffect(() => {
-    let timeoutId = null;
-    const disposer = autorun(() => {
-      const trigger = uploadCoreStore.refreshTrigger;
-      if (trigger > 0) {
-        clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => fetchItems(true), 500);
-      }
-    });
-    return () => {
-      disposer();
-      clearTimeout(timeoutId);
-    };
+    fetchItemsRef.current = fetchItems;
   }, [fetchItems]);
 
-  // ===== 副作用：初始加载 =====
   useEffect(() => {
-    fetchItems(true);
+    const disposer = reaction(
+      () => uploadCoreStore.refreshTrigger,
+      (trigger) => {
+        if (trigger > 0) {
+          // 静默刷新：不显示 loading、不清空列表、不失效缓存（仅更新当前目录缓存）
+          fetchItemsRef.current({ loadType: 'silent', resetSelected: false, useCache: false });
+        }
+      }
+    );
+    return () => disposer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 注意：初始加载由 useExplorerState 内部 effect 统一负责，此处不再重复 fetchItems
+  // （原 useEffect(() => { fetchItems(true); }, []) 已删除，避免首次进入发送两次请求）
 
   // ===== 行操作处理 =====
   const handleDoubleClick = useCallback((record) => {
@@ -367,16 +379,24 @@ const Explorer = observer(forwardRef(({
   // ===== 表格行事件 =====
   // 【性能优化】createRowHandlers 不再依赖 selectedRowKeys，使用 ref 获取最新值
   const createRowHandlers = useCallback((record) => ({
-    onClick: () => handleRowClick(record),
-    onDoubleClick: () => handleRowDoubleClick(record),
+    onClick: () => {
+      // 目录切换未命中缓存时禁用旧行交互（操作安全：防止对旧目录数据执行删除/移动/预览）
+      if (interactionDisabledRef.current) return;
+      handleRowClick(record);
+    },
+    onDoubleClick: () => {
+      if (interactionDisabledRef.current) return;
+      handleRowDoubleClick(record);
+    },
     onContextMenu: (e) => {
+      if (interactionDisabledRef.current) return;
       // 使用 ref 获取最新选中状态
       const currentSelection = Array.isArray(selectedRowKeysRef.current) ? selectedRowKeysRef.current : [];
       const isAlreadySelected = currentSelection.includes(record.key);
       if (!isAlreadySelected) setSelectedRowKeys([record.key]);
       showContextMenu(e, getRowMenuItems(record));
     },
-    style: { cursor: 'pointer' },
+    style: { cursor: interactionDisabledRef.current ? 'not-allowed' : 'pointer' },
   }), [handleRowClick, handleRowDoubleClick, setSelectedRowKeys, showContextMenu, getRowMenuItems]);
 
   // ===== 空白区域右键菜单 =====
@@ -409,7 +429,20 @@ const Explorer = observer(forwardRef(({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', minWidth: 0 }}>
+      {/* 轻量加载进度条：仅 loading（150ms 后仍未完成）时显示，替代整表灰色遮罩 */}
+      <style>{'@keyframes explorerBarSlide { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }'}</style>
       <div style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+        {loading && (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+            overflow: 'hidden', zIndex: 11, pointerEvents: 'none',
+          }}>
+            <div style={{
+              width: '40%', height: '100%', background: '#1890ff',
+              animation: 'explorerBarSlide 1s ease-in-out infinite',
+            }} />
+          </div>
+        )}
         <div
           className="file-list-container"
           style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', transition: 'flex 0.3s ease' }}
@@ -427,7 +460,7 @@ const Explorer = observer(forwardRef(({
           ) : viewMode === 'grid' ? (
             <FileGrid
               dataSource={sortedData}
-              loading={loading}
+              interactionDisabled={interactionDisabled}
               selectedRowKeys={safeSelectedRowKeys}
               onSelectChange={setSelectedRowKeys}
               onRow={createRowHandlers}
@@ -446,7 +479,7 @@ const Explorer = observer(forwardRef(({
             <FileTable
               columns={columns}
               dataSource={sortedData}
-              loading={loading}
+              interactionDisabled={interactionDisabled}
               selectedRowKeys={safeSelectedRowKeys}
               onSelectChange={setSelectedRowKeys}
               isSearching={isSearching}

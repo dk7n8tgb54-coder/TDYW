@@ -7,19 +7,6 @@
   background: #fff;
 }
 
-.loadingOverlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.6);
-  z-index: 10;
-}
-
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, 148px);
@@ -55,6 +42,13 @@
   &:hover {
     border-color: #1890ff;
   }
+}
+
+/* 【修复 2026-07-17】目录切换未命中缓存时禁用行交互，降低透明度但保留内容可见 */
+.gridItemDisabled {
+  opacity: 0.55;
+  pointer-events: none;
+  cursor: not-allowed;
 }
 
 .checkWrapper {

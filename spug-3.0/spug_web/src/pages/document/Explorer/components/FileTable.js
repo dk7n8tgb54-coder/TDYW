@@ -2,6 +2,9 @@
  * 文件表格组件
  * 【任务4.2】从Explorer组件拆分出来的子组件
  * 职责：封装Table的渲染逻辑
+ *
+ * 【修复 2026-07-17】取消整表 loading 灰色遮罩（antd Table loading 固定 false），
+ *   改由 Explorer 顶部轻量进度条提示加载；interactionDisabled 时行降低透明度但保留内容可见。
  */
 import React, { useMemo } from 'react';
 import { Table, Empty } from 'antd';
@@ -11,7 +14,7 @@ import { Table, Empty } from 'antd';
  * @param {Object} props - 组件属性
  * @param {Array} props.columns - 列配置
  * @param {Array} props.dataSource - 数据源
- * @param {boolean} props.loading - 加载状态
+ * @param {boolean} props.interactionDisabled - 是否禁用行交互（目录切换未命中缓存时）
  * @param {Array} props.selectedRowKeys - 选中的行keys
  * @param {Function} props.onSelectChange - 选中变化回调
  * @param {boolean} props.isSearching - 是否搜索模式
@@ -24,7 +27,7 @@ import { Table, Empty } from 'antd';
 const FileTable = ({
   columns,
   dataSource,
-  loading,
+  interactionDisabled = false,
   selectedRowKeys,
   onSelectChange,
   isSearching,
@@ -85,7 +88,9 @@ const FileTable = ({
     <Table
       columns={columns}
       dataSource={dataSource}
-      loading={loading}
+      // 【修复 2026-07-17】取消整表 loading 灰色遮罩
+      // 加载提示改由 Explorer 顶部轻量进度条承担，避免整张表变灰闪烁
+      loading={false}
       rowKey="key"
       // 【2026-07-17 布局优化】
       //   - tableLayout="fixed"：列宽按 width 分配，文件名列未设 width 自动获得剩余空间（弹性）
@@ -94,13 +99,15 @@ const FileTable = ({
       //   - 不设 scroll.x：避免横向滚动，列宽之和 = 容器宽度，文件名列自适应
       tableLayout="fixed"
       sticky={!isSearching}
+      rowClassName={() => interactionDisabled ? 'explorer-row-disabled' : ''}
       rowSelection={{
         selectedRowKeys: safeSelectedRowKeys,
         onChange: onSelectChange,
         type: 'checkbox',
+        // 目录切换未命中缓存时禁用选择框，防止对旧目录数据执行批量操作
+        getCheckboxProps: () => interactionDisabled ? { disabled: true } : {},
         // 【2026-07-17 列宽修复】固定选择列宽度 48px，避免 antd 默认值漂移
         columnWidth: 48,
-        getCheckboxProps: (record) => ({ name: record.name }),
       }}
       onRow={onRow}
       pagination={tablePagination}

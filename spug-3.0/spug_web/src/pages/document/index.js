@@ -38,6 +38,8 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
     results: []
   });
   const [initError, setInitError] = React.useState(null);
+  // 【修复 2026-07-17】手动刷新只让刷新按钮显示 loading，列表不显示整表遮罩
+  const [refreshing, setRefreshing] = React.useState(false);
 
   // 【2026-07-02 动态降级】资料库页面挂载时首次拉取服务器压力 + 启动轮询；
   //   卸载时停止轮询，避免离开页面后继续请求
@@ -229,12 +231,19 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
     e.target.value = '';
   };
 
-  const handleRefresh = () => {
-    if (folderTreeRef.current && folderTreeRef.current.refresh) {
-      folderTreeRef.current.refresh();
-    }
-    if (explorerRef.current && explorerRef.current.fetchItems) {
-      explorerRef.current.fetchItems();
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      if (folderTreeRef.current && folderTreeRef.current.refresh) {
+        folderTreeRef.current.refresh();
+      }
+      // fetchItems() 默认 refresh 模式：失效全部缓存 + 重新请求当前目录，不显示整表 loading
+      if (explorerRef.current && explorerRef.current.fetchItems) {
+        await explorerRef.current.fetchItems();
+      }
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -397,6 +406,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
                 <Button
                   icon={<ReloadOutlined />}
                   onClick={handleRefresh}
+                  loading={refreshing}
                   size="small"
                   className={styles.refreshBtn}
                 >
