@@ -94,7 +94,17 @@ def document_auth(operation):
                 return json_response(error='权限拒绝')
 
             system_folder = _extract_system_folder(request) if request else None
-            if system_folder and is_valid_system_folder_code(system_folder):
+            # Fail-closed: a non-empty but invalid system_folder MUST NOT fall back
+            # to the normal-document permission code. Otherwise an attacker could
+            # spoof an unsupported code to bypass the party-building permission gate
+            # or reach protected objects via the normal permission path.
+            if system_folder:
+                if not is_valid_system_folder_code(system_folder):
+                    logger.warning(
+                        '[AUTH] 拒绝非法 system_folder: user=%s, system_folder=%s',
+                        getattr(user, 'username', ''), system_folder,
+                    )
+                    return json_response(error='权限拒绝')
                 system_folder = normalize_system_folder_code(system_folder)
             if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
                 required = f'document.party_building_document.{operation}'

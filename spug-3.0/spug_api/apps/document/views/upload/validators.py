@@ -42,7 +42,7 @@ class TransferRecordValidator:
     """传输记录验证器"""
 
     @staticmethod
-    def validate_transfer_record(file_hash, file_size, total_chunks, user, is_public):
+    def validate_transfer_record(file_hash, file_size, total_chunks, user, is_public, system_folder=None):
         """【P0-1修复】校验传输记录的文件大小和总分片数。
 
         用于断点续传时验证客户端提供的文件元数据是否与服务器记录一致，
@@ -51,6 +51,7 @@ class TransferRecordValidator:
         修复点：
         1. 添加排序和状态过滤，确保匹配到最新的未完成记录
         2. 异常时返回False而非True，避免掩盖问题
+        3. 按 system_folder 过滤，防止跨作用域串用
 
         Args:
             file_hash: 文件哈希值
@@ -58,6 +59,7 @@ class TransferRecordValidator:
             total_chunks: 总分片数
             user: 当前用户对象
             is_public: 是否为公共空间
+            system_folder: 系统目录编码（规范化后过滤）
 
         Returns:
             tuple: (bool是否有效, str错误消息或None)
@@ -65,12 +67,16 @@ class TransferRecordValidator:
         try:
             from apps.document.models import DocumentTransfer
             from apps.document.constants import TransferStatus
+            from apps.document.services.system_folder_service import normalize_system_folder_code
 
-            # 【P0-1修复】按创建时间倒序，只匹配未完成的记录
+            normalized_sf = normalize_system_folder_code(system_folder) if system_folder else ''
+
+            # 【P0-1修复】按创建时间倒序，只匹配未完成记录，且作用域一致
             transfer = DocumentTransfer.objects.filter(
                 file_hash=file_hash,
                 user=user,
                 is_public=is_public,
+                system_folder=normalized_sf,
                 status__in=[
                     TransferStatus.PENDING.value,
                     TransferStatus.UPLOADING.value,
@@ -111,10 +117,11 @@ class TransferOwnershipValidator:
     - 公共空间：要求 transfer.user == request.user
     - 私有空间：要求 transfer.user == request.user 且 transfer.tenant_id == request.user.tenant_id
     - 额外校验 transfer.file_hash == request.file_hash, transfer.is_public == request.is_public
+    - 作用域一致性：transfer.system_folder 必须与请求 system_folder 一致（防跨作用域串用）
     """
 
     @staticmethod
-    def validate(transfer_id, file_hash, is_public, user):
+    def validate(transfer_id, file_hash, is_public, user, system_folder=None):
         """校验 transfer_id 归属。
 
         Args:
@@ -122,6 +129,7 @@ class TransferOwnershipValidator:
             file_hash: 客户端传入的文件哈希
             is_public: 客户端传入的是否公共空间
             user: 当前用户对象
+            system_folder: 客户端传入的系统目录编码（可选，规范化后比较）
 
         Returns:
             tuple: (bool, str|None) - 是否归属合法；失败时的错误消息
@@ -176,6 +184,20 @@ class TransferOwnershipValidator:
                     f'transfer.file_hash={transfer.file_hash}, request.file_hash={file_hash}'
                 )
                 return False, '传输记录哈希不匹配'
+
+            # 5. 作用域一致性（防跨作用域串用：普通上传不得操作党建 transfer，反之亦然）
+            from apps.document.services.system_folder_service import normalize_system_folder_code
+            request_sf = normalize_system_folder_code(system_folder) if system_folder else ''
+            record_sf = (
+                normalize_system_folder_code(transfer.system_folder)
+                if getattr(transfer, 'system_folder', '') else ''
+            )
+            if request_sf != record_sf:
+                logger.warning(
+                    f'[Document][TransferOwnership] transfer_id={transfer_id} 作用域不符: '
+                    f'transfer.system_folder={record_sf!r}, request.system_folder={request_sf!r}'
+                )
+                return False, '传输记录作用域不匹配'
 
             return True, None
 

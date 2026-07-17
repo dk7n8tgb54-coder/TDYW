@@ -102,7 +102,7 @@ class CheckUploadedChunksView(View):
         """校验传输记录"""
         return ResumeUploadValidator.validate_against_transfer(
             form.file_hash, form.file_size, form.total_chunks,
-            user, form.is_public
+            user, form.is_public, system_folder=form.system_folder
         )
 
     def _get_chunk_dir(self, form, user):
@@ -124,7 +124,8 @@ class CheckUploadedChunksView(View):
                 # 【H-3修复】使用 transfer_id 前必须先校验归属，防止 IDOR
                 from apps.document.views.upload.validators import TransferOwnershipValidator
                 is_valid, error_msg = TransferOwnershipValidator.validate(
-                    transfer_id, form.file_hash, form.is_public, user
+                    transfer_id, form.file_hash, form.is_public, user,
+                    system_folder=form.system_folder,
                 )
                 if not is_valid:
                     logger.warning(f'[Document][Resume] transfer_id ownership check failed: {error_msg}')
@@ -197,7 +198,8 @@ class CheckUploadedChunksView(View):
             from apps.document.models import DocumentTransfer
             from apps.document.views.upload.validators import TransferOwnershipValidator
             is_valid, _ = TransferOwnershipValidator.validate(
-                form.transfer_id, form.file_hash, form.is_public, user
+                form.transfer_id, form.file_hash, form.is_public, user,
+                system_folder=form.system_folder,
             )
             if not is_valid:
                 return False
@@ -223,7 +225,8 @@ class CheckUploadedChunksView(View):
             from apps.document.models import DocumentTransfer
             from apps.document.views.upload.validators import TransferOwnershipValidator
             is_valid, _ = TransferOwnershipValidator.validate(
-                form.transfer_id, form.file_hash, form.is_public, user
+                form.transfer_id, form.file_hash, form.is_public, user,
+                system_folder=form.system_folder,
             )
             if not is_valid:
                 return None

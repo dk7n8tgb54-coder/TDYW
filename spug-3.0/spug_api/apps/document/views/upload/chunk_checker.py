@@ -182,7 +182,7 @@ class ResumeUploadValidator:
         }, None
 
     @staticmethod
-    def validate_against_transfer(file_hash, file_size, total_chunks, user, is_public):
+    def validate_against_transfer(file_hash, file_size, total_chunks, user, is_public, system_folder=None):
         """【P0-1修复】校验传输记录的文件大小和总分片数。
 
         用于断点续传时验证客户端提供的文件元数据是否与服务器记录一致。
@@ -207,12 +207,16 @@ class ResumeUploadValidator:
         try:
             from apps.document.models import DocumentTransfer
             from apps.document.constants import TransferStatus
+            from apps.document.services.system_folder_service import normalize_system_folder_code
+
+            normalized_sf = normalize_system_folder_code(system_folder) if system_folder else ''
 
             # 【P0-1修复】按创建时间倒序，只匹配未完成的记录
             transfer = DocumentTransfer.objects.filter(
                 file_hash=file_hash,
                 user=user,
                 is_public=is_public,
+                system_folder=normalized_sf,
                 status__in=[
                     TransferStatus.PENDING.value,
                     TransferStatus.UPLOADING.value,

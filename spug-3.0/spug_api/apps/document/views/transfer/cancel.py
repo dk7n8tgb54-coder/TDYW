@@ -14,6 +14,7 @@ from django.conf import settings
 from libs import json_response
 from apps.document.libs.document_utils import get_chunk_dir_path, is_safe_path
 from apps.document.libs.document_auth import document_auth
+from .transfer_manager import validate_transfer_request_scope
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,11 @@ class TransferCancelView(View):
         has_permission, error = PermissionChecker.check(transfer, request.user)
         if not has_permission:
             return json_response(error=error)
+
+        # 作用域一致性校（普通请求不得操作党建记录，反之亦然）
+        scope_ok, scope_err = validate_transfer_request_scope(request, transfer)
+        if not scope_ok:
+            return json_response(error=scope_err)
 
         # 幂等性校验
         result, is_already_canceled = StatusValidator.validate_idempotency(transfer)

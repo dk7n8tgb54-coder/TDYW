@@ -20,6 +20,9 @@ from ...services.system_folder_service import (
     PARTY_BUILDING_DOCUMENTS_CODE, ensure_folder_in_scope_or_error,
     ensure_file_in_scope_or_error, validate_system_folder_context,
 )
+from ...services.system_scope_validators import (
+    validate_file_source_scope, validate_folder_source_scope,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,13 +107,13 @@ class FolderPropertiesView(View):
         if folder is None:
             return json_response(error='文件夹不存在或无权访问')
 
-        # 党建文档范围校验（文件夹）
-        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
-            scope_ok, scope_err = ensure_folder_in_scope_or_error(
-                form.id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=True
-            )
-            if not scope_ok:
-                return json_response(error=scope_err)
+        # 统一对象作用域校验（党建正向 + 普通反向隔离）
+        scope_ok, scope_err = validate_folder_source_scope(
+            form.system_folder, form.is_public, folder_id=form.id,
+            include_root=True, protect_root=False,
+        )
+        if not scope_ok:
+            return json_response(error=scope_err)
 
         # 权限检查：公共空间普通用户只能查看自己创建的
         if form.is_public and not request.user.is_supper:
@@ -162,11 +165,12 @@ class FolderPropertiesView(View):
         if file_obj is None:
             return json_response(error='文件不存在或无权访问')
 
-        # 党建文档范围校验（文件）
-        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
-            scope_ok, scope_err = ensure_file_in_scope_or_error(file_obj, PARTY_BUILDING_DOCUMENTS_CODE)
-            if not scope_ok:
-                return json_response(error=scope_err)
+        # 统一对象作用域校验（党建正向 + 普通反向隔离）
+        scope_ok, scope_err = validate_file_source_scope(
+            form.system_folder, form.is_public, file_obj
+        )
+        if not scope_ok:
+            return json_response(error=scope_err)
 
         # 权限检查：公共空间普通用户只能查看自己创建的
         if form.is_public and not request.user.is_supper:

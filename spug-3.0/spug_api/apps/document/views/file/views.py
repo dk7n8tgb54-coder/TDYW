@@ -15,9 +15,9 @@ from ...libs.document_utils import get_file_model
 from ...libs.view_utils import permission_denied_response
 from ...libs.document_auth import document_auth
 from ...services.system_folder_service import (
-    PARTY_BUILDING_DOCUMENTS_CODE, ensure_file_in_scope_or_error,
-    validate_system_folder_context, SCOPE_ERROR_MSG,
+    PARTY_BUILDING_DOCUMENTS_CODE, validate_system_folder_context, SCOPE_ERROR_MSG,
 )
+from ...services.system_scope_validators import validate_file_source_scope
 from ...exceptions import DocumentPhysicalDeleteError
 from ..base import check_public_space_permission, log_operation
 
@@ -60,11 +60,12 @@ class FileView(View):
         if not file:
             return json_response(error='文件不存在')
 
-        # 党建文档范围校验
-        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
-            scope_ok, scope_err = ensure_file_in_scope_or_error(file, PARTY_BUILDING_DOCUMENTS_CODE)
-            if not scope_ok:
-                return json_response(error=scope_err)
+        # 党建文档范围校验（统一：党建正向 + 普通反向隔离）
+        scope_ok, scope_err = validate_file_source_scope(
+            form.system_folder, form.is_public, file
+        )
+        if not scope_ok:
+            return json_response(error=scope_err)
 
         # 公共空间权限校验：仅创建人可删除
         if form.is_public and not check_public_space_permission(request.user, file, 'file', '删除'):

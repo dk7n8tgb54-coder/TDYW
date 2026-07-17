@@ -17,10 +17,8 @@ from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_file_model, is_safe_path
 from ...libs.document_auth import document_auth
-from ...services.system_folder_service import (
-    PARTY_BUILDING_DOCUMENTS_CODE, ensure_file_in_scope_or_error,
-    validate_system_folder_context,
-)
+from ...services.system_folder_service import validate_system_folder_context
+from ...services.system_scope_validators import validate_file_source_scope
 from ..base import log_operation
 
 logger = logging.getLogger(__name__)
@@ -59,11 +57,12 @@ class FileDownloadView(View):
             logger.error(f'[Document] File not found with id: {form.id}')
             return json_response(error='文件不存在')
 
-        # 党建文档范围校验
-        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
-            scope_ok, scope_err = ensure_file_in_scope_or_error(file, PARTY_BUILDING_DOCUMENTS_CODE)
-            if not scope_ok:
-                return json_response(error=scope_err)
+        # 统一对象作用域校验（党建正向 + 普通反向隔离，兼容 legacy code 规范化）
+        scope_ok, scope_err = validate_file_source_scope(
+            form.system_folder, form.is_public, file
+        )
+        if not scope_ok:
+            return json_response(error=scope_err)
 
         # 【P2-2修复】路径安全检查，防止路径遍历攻击
         document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')

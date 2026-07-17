@@ -127,7 +127,7 @@ class FileChunkUploadView(View):
         # 6. 【P1-1修复】校验传输记录
         is_valid, error = TransferRecordValidator.validate_transfer_record(
             params['file_hash'], params['file_size'], params['total_chunks'],
-            request.user, params['is_public']
+            request.user, params['is_public'], system_folder=params.get('system_folder')
         )
         if not is_valid:
             return json_response(error=error)
@@ -140,7 +140,8 @@ class FileChunkUploadView(View):
 
         # 【H-3修复】使用 transfer_id 前必须先校验归属，防止 IDOR
         is_valid, error = TransferOwnershipValidator.validate(
-            transfer_id, params['file_hash'], params['is_public'], request.user
+            transfer_id, params['file_hash'], params['is_public'], request.user,
+            system_folder=params.get('system_folder'),
         )
         if not is_valid:
             return json_response(error=error)

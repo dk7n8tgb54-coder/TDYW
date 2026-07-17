@@ -20,8 +20,11 @@ from apps.document.libs.naming_utils import generate_physical_name, generate_uni
 from apps.document.libs.view_utils import permission_denied_response
 from apps.document.libs.document_auth import document_auth
 from apps.document.services.system_folder_service import (
-    PARTY_BUILDING_DOCUMENTS_CODE, is_folder_in_scope, ensure_file_in_scope_or_error,
+    PARTY_BUILDING_DOCUMENTS_CODE, is_folder_in_scope,
     validate_system_folder_context, SCOPE_ERROR_MSG,
+)
+from apps.document.services.system_scope_validators import (
+    validate_file_source_scope, validate_target_folder_scope,
 )
 from apps.document.views.base import create_model_instance, check_public_space_permission, log_operation
 
@@ -248,11 +251,10 @@ class FileCopyView(View):
         if is_public and not check_public_space_permission(request.user, file, 'file', '复制'):
             return permission_denied_response('公共空间中只能复制自己创建的文件', 'not_owner')
 
-        # 党建文档范围校验：源文件必须在范围内
-        if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
-            scope_ok, scope_err = ensure_file_in_scope_or_error(file, PARTY_BUILDING_DOCUMENTS_CODE)
-            if not scope_ok:
-                return json_response(error=scope_err)
+        # 统一源对象作用域校验（党建正向 + 普通反向隔离）
+        scope_ok, scope_err = validate_file_source_scope(system_folder, is_public, file)
+        if not scope_ok:
+            return json_response(error=scope_err)
 
         # 验证目标文件夹
         folder, error = FileCopyValidator.validate_target_folder(
@@ -261,10 +263,13 @@ class FileCopyView(View):
         if error:
             return json_response(error=error)
 
-        # 党建文档范围校验：目标文件夹必须在范围内
-        if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
-            if not folder or not is_folder_in_scope(folder.id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=True):
-                return json_response(error=SCOPE_ERROR_MSG)
+        # 统一目标目录作用域校验（对称：党建目标必须在范围内，普通目标不能是系统目录）
+        if folder_id:
+            target_ok, target_err = validate_target_folder_scope(
+                system_folder, is_public, folder_id, allow_root=True
+            )
+            if not target_ok:
+                return json_response(error=target_err)
 
         logger.info(f'[Document] Copying file id: {file_id} to folder_id: {folder_id}, is_public={is_public}')
 

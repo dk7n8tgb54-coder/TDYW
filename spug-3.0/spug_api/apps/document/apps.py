@@ -24,6 +24,9 @@ class DocumentConfig(AppConfig):
         【最佳工程实践】在ready()中安全导入celery配置
         此时所有App已注册完成，不会触发AppRegistryNotReady错误
         """
+        # 注册系统目录绑定完整性检查
+        from . import checks  # noqa: F401
+
         logger.info('[DocumentConfig] Document app ready')
         
         # 【最佳工程实践】延迟导入Celery Beat配置

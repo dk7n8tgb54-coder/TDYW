@@ -201,6 +201,10 @@ class FolderSearchView(View):
             logger.error(f'[Document] Parse error: {error}')
             return json_response(error=error)
 
+        # 保存原始 folder_id（_validate_search_scope 在党建模式空 folder_id 时
+        # 会将其规范化为党建根目录 ID，后续判断根层文件需要原始值）
+        original_folder_id = form.folder_id
+
         # 搜索范围校验（党建文档/公共空间系统目录）
         scope_error = self._validate_search_scope(form)
         if scope_error:
@@ -222,7 +226,7 @@ class FolderSearchView(View):
 
         # 获取所有需要搜索的文件夹ID（递归获取子树）
         folder_ids_to_search = self._get_descendant_folder_ids(
-            form.folder_id, FolderModel, request.user, form.is_public
+            form.folder_id, FolderModel, request.user, form.is_public, form.system_folder
         )
         
         # 【优化】限制搜索范围
@@ -248,11 +252,23 @@ class FolderSearchView(View):
         folders = folders_query[offset:offset + page_size]
 
         # 搜索匹配的文件（限制数量）
-        # 【修复】支持搜索文件夹内和根目录的文件（folder_id=None）
-        # 【M4 优化 2026-06-08】name + display_name 任一命中即可
-        files_query = FileModel.objects.filter(
-            (Q(folder_id__in=folder_ids_to_search) | Q(folder_id=None)),
-        ).select_related('created_by').order_by('-created_at')
+        # 【搜索隔离修复】只有真正执行全库搜索（原始 folder_id 为空）且不是党建模式时，
+        # 才允许加入根层文件（folder_id=None）。
+        # - 党建模式：folder_ids_to_search 已是党建根目录后代集合，根层文件不属于党建范围
+        # - 指定目录搜索（普通/党建）：不应混入根层文件
+        # - 私有模式全库搜索：保留根层文件，由 apply_tenant_filter 过滤
+        include_root_files = (
+            original_folder_id is None
+            and form.system_folder != PARTY_BUILDING_DOCUMENTS_CODE
+        )
+        if include_root_files:
+            files_query = FileModel.objects.filter(
+                Q(folder_id__in=folder_ids_to_search) | Q(folder_id=None),
+            ).select_related('created_by').order_by('-created_at')
+        else:
+            files_query = FileModel.objects.filter(
+                folder_id__in=folder_ids_to_search,
+            ).select_related('created_by').order_by('-created_at')
         files_query = _apply_fallback_filter(files_query, keyword, ['name', 'display_name'])
         files_query = self._apply_search_scope_filter(
             files_query, form.is_public, form.system_folder, request.user, is_file=True
@@ -314,17 +330,33 @@ class FolderSearchView(View):
         logger.info(f'[Document] 搜索结果: folders={len(folders)}, files={len(files)}, total_folders={total_folders}, total_files={total_files}')
         return json_response(result)
 
-    def _get_descendant_folder_ids(self, start_folder_id, FolderModel, request_user, is_public):
+    def _get_descendant_folder_ids(self, start_folder_id, FolderModel, request_user,
+                                   is_public, system_folder=None):
         """
         获取起始文件夹及其所有后代文件夹的ID列表（广度优先搜索）
+
+        Args:
+            system_folder: 规范化后的系统目录标识。
+                - 党建模式（party_building_documents）：不排除系统目录后代，
+                  因为搜索范围本就是党建根目录及其后代。
+                - 普通公共模式（空）：排除所有系统目录（含党建根目录及后代），
+                  防止普通搜索漏出党建内容。
+                - 私有模式：按租户过滤，不受公共系统目录影响。
         """
+        is_party_scope = system_folder == PARTY_BUILDING_DOCUMENTS_CODE
+
         if start_folder_id is None:
             # 从根目录搜索，获取所有文件夹
             query = FolderModel.objects.all().order_by()
             if not is_public:
                 query = apply_tenant_filter(query, request_user, strict_mode=True)
-            else:
+            elif not is_party_scope:
+                # 普通公共模式全库搜索：排除所有系统目录（含党建根目录及后代）
                 query = exclude_system_folder_scope(query)
+            # 党建模式全库搜索：folder_id 已在 _validate_search_scope 中规范化为
+            # 党建根目录 ID，正常不会走到此分支；此处保留兜底返回空集避免越权
+            else:
+                return set()
             return set(f.id for f in query)
 
         # 从指定文件夹开始搜索，获取该文件夹及其所有后代
@@ -346,8 +378,10 @@ class FolderSearchView(View):
             child_folders_query = FolderModel.objects.filter(parent_id__in=parent_ids).order_by()
             if not is_public:
                 child_folders_query = apply_tenant_filter(child_folders_query, request_user, strict_mode=True)
-            else:
+            elif not is_party_scope:
+                # 普通公共模式：排除系统目录后代，防止搜索结果漏出党建目录
                 child_folders_query = exclude_system_folder_scope(child_folders_query)
+            # 党建模式：不排除系统目录，因为党建根目录的后代就是我们要搜索的范围
 
             for child in child_folders_query:
                 if child.id not in visited_ids:

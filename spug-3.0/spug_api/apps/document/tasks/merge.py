@@ -519,12 +519,67 @@ class MergePipeline:
 
     def _create_record(self, get_models, create_instance, get_mime_type):
         """创建文件记录"""
+        # 【作用域重校验】创建最终文件记录前，重新读取传输记录作用域，
+        # 验证目标目录仍在该作用域内（防目录移动 TOCTOU）。
+        scope_ok, scope_err = self._revalidate_target_scope()
+        if not scope_ok:
+            return None, {'status': 'FAILED', 'error': scope_err, 'retryable': False}
+
         new_file, error_msg = self.record_creator.create_file_record(
             get_models, create_instance, get_mime_type
         )
         if error_msg:
             return None, {'status': 'FAILED', 'error': error_msg, 'retryable': False}
         return new_file, None
+
+    def _revalidate_target_scope(self):
+        """重新校验目标目录在传输记录所属作用域内。
+
+        Celery 任务从传输记录读取持久化作用域（不接受调用参数覆盖），
+        再次验证 folder_id 仍在该作用域内，防止上传期间目录被移动跨作用域。
+        """
+        tm = self.task_manager
+        if not tm.transfer_id:
+            return True, None
+        try:
+            from apps.document.models import DocumentTransfer
+            from apps.document.services.system_folder_service import (
+                normalize_system_folder_code, is_valid_system_folder_code,
+            )
+            from apps.document.services.system_scope_validators import (
+                validate_target_folder_scope,
+            )
+            transfer = DocumentTransfer.objects.filter(id=tm.transfer_id).first()
+            if not transfer:
+                return False, '传输记录不存在，无法校验目标作用域'
+            record_sf = (
+                normalize_system_folder_code(transfer.system_folder)
+                if transfer.system_folder else ''
+            )
+            # job_data 中的作用域必须与持久化记录一致
+            job_sf = (
+                normalize_system_folder_code(tm.system_folder)
+                if tm.system_folder else ''
+            )
+            if record_sf != job_sf:
+                logger.error(
+                    f'[Celery] scope mismatch on merge: transfer={tm.transfer_id} '
+                    f'record_sf={record_sf!r} job_sf={job_sf!r}'
+                )
+                return False, '传输记录作用域与任务不一致'
+            ok, error = validate_target_folder_scope(
+                record_sf, transfer.is_public, tm.folder_id, allow_root=True
+            )
+            if not ok:
+                logger.warning(
+                    f'[Celery] target scope re-validation failed: transfer={tm.transfer_id} '
+                    f'folder_id={tm.folder_id} scope={record_sf!r} error={error}'
+                )
+                return False, error
+            return True, None
+        except Exception as e:
+            logger.error(f'[Celery] target scope re-validation error: {e}', exc_info=True)
+            return False, '目标作用域校验失败'
 
     def _handle_error(self, error_msg, progress, cleanup=None):
         """处理错误"""

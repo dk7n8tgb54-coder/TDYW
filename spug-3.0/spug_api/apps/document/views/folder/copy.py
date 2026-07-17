@@ -20,6 +20,9 @@ from apps.document.services.system_folder_service import (
     is_folder_in_scope, ensure_folder_in_scope_or_error,
     validate_system_folder_context, SCOPE_ERROR_MSG, PROTECTED_ROOT_MSG,
 )
+from apps.document.services.system_scope_validators import (
+    validate_folder_source_scope, validate_target_folder_scope,
+)
 from apps.document.views.base import check_public_space_permission, log_operation
 from apps.document.services.folder_copy_service import FolderCopyService
 
@@ -44,20 +47,23 @@ class FolderCopyView(View):
         if not folder_id:
             return json_response(error='参数错误')
 
-        # 党建文档上下文、根目录保护与范围校验
+        # 统一上下文、源对象作用域校验（党建正向 + 普通反向隔离 + 根目录保护）
         ok, ctx_err = validate_system_folder_context(system_folder, is_public)
         if not ok:
             return json_response(error=ctx_err)
-        if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
-            if is_protected_system_root(folder_id):
-                return json_response(error=PROTECTED_ROOT_MSG)
-            scope_ok, scope_err = ensure_folder_in_scope_or_error(
-                folder_id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=False
+        scope_ok, scope_err = validate_folder_source_scope(
+            system_folder, is_public, folder_id=folder_id,
+            include_root=False, protect_root=True,
+        )
+        if not scope_ok:
+            return json_response(error=scope_err)
+        # 目标目录作用域校验（对称：党建目标必须在范围内，普通目标不能是系统目录）
+        if target_id:
+            target_ok, target_err = validate_target_folder_scope(
+                system_folder, is_public, target_id, allow_root=True
             )
-            if not scope_ok:
-                return json_response(error=scope_err)
-            if target_id and not is_folder_in_scope(target_id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=True):
-                return json_response(error=SCOPE_ERROR_MSG)
+            if not target_ok:
+                return json_response(error=target_err)
 
         # 获取模型
         FolderModel = get_folder_model(is_public=is_public)

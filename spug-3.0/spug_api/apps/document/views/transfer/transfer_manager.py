@@ -12,6 +12,21 @@ from apps.document.libs.document_utils import get_chunk_dir_path, is_safe_path
 logger = logging.getLogger(__name__)
 
 
+def validate_transfer_request_scope(request, transfer):
+    """校验请求上下文与传输记录持久化作用域一致（fail-closed）。
+
+    owner + tenant 校验不能替代作用域校验：同一用户可能同时拥有普通和党建
+    传输记录，普通请求不得操作党建记录，反之亦然。
+
+    Returns:
+        tuple: (ok, error_message)
+    """
+    from apps.document.libs.document_auth import get_request_system_folder
+    from apps.document.services.system_scope_validators import validate_transfer_scope
+    system_folder = get_request_system_folder(request) or ''
+    return validate_transfer_scope(system_folder, transfer.is_public, transfer)
+
+
 class TransferPermissionChecker:
     """传输记录权限检查器"""
 

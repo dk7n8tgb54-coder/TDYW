@@ -7,6 +7,7 @@ import json
 import logging
 
 from django.views.generic import View
+from django.db import transaction
 
 from libs import json_response
 from libs.tenant_utils import apply_tenant_filter
@@ -15,7 +16,9 @@ from ...libs.document_auth import document_auth
 from ...libs.document_utils import get_file_model, get_folder_model
 from ...libs.naming_utils import generate_unique_logical_name
 from ...libs.view_utils import permission_denied_response
-from ...services.system_scope_validators import validate_file_move_scope
+from ...services.system_scope_validators import (
+    validate_file_move_scope, validate_target_folder_scope,
+)
 from ..base import check_public_space_permission, log_operation
 
 logger = logging.getLogger(__name__)
@@ -104,14 +107,23 @@ class FileMoveView(View):
 
     def _move_file(self, FileModel, file_obj, target, params, request):
         try:
-            file_obj.folder = target
-            file_obj.name = generate_unique_logical_name(
-                FileModel,
-                file_obj.display_name or file_obj.name,
-                target,
-                request.user,
-            )
-            file_obj.save(update_fields=['folder', 'name', 'updated_at'])
+            with transaction.atomic():
+                # 【作用域重校验】写入前在事务内重新校验目标目录作用域，防 TOCTOU
+                if params['target_id']:
+                    ok, err = validate_target_folder_scope(
+                        params['system_folder'], params['is_public'],
+                        params['target_id'], allow_root=True,
+                    )
+                    if not ok:
+                        return json_response(error=err)
+                file_obj.folder = target
+                file_obj.name = generate_unique_logical_name(
+                    FileModel,
+                    file_obj.display_name or file_obj.name,
+                    target,
+                    request.user,
+                )
+                file_obj.save(update_fields=['folder', 'name', 'updated_at'])
         except Exception as exc:
             logger.error('[Document] file move failed: %s', exc)
             return json_response(error=f'文件移动失败：{exc}')

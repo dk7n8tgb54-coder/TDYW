@@ -27,7 +27,9 @@ from ...services.system_folder_service import (
     is_folder_in_any_system_scope,
     NORMAL_DOCUMENT_SCOPE_ERROR_MSG, SCOPE_ERROR_MSG, PROTECTED_ROOT_MSG,
 )
-from ...services.system_scope_validators import validate_upload_target_scope
+from ...services.system_scope_validators import (
+    validate_upload_target_scope, validate_folder_source_scope,
+)
 from ..base import create_model_instance, validate_file_name, check_public_space_permission, log_operation
 
 logger = logging.getLogger(__name__)
@@ -357,18 +359,16 @@ class FolderView(View):
         if error is not None:
             return json_response(error=error)
 
-        # 党建文档上下文与根目录保护
+        # 党建文档上下文与根目录保护（统一：党建正向 + 普通反向隔离）
         ok, ctx_err = validate_system_folder_context(form.system_folder, form.is_public)
         if not ok:
             return json_response(error=ctx_err)
-        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
-            if is_protected_system_root(form.id):
-                return json_response(error=PROTECTED_ROOT_MSG)
-            scope_ok, scope_err = ensure_folder_in_scope_or_error(
-                form.id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=False
-            )
-            if not scope_ok:
-                return json_response(error=scope_err)
+        scope_ok, scope_err = validate_folder_source_scope(
+            form.system_folder, form.is_public, folder_id=form.id,
+            include_root=False, protect_root=True,
+        )
+        if not scope_ok:
+            return json_response(error=scope_err)
             
         FolderModel = get_folder_model(is_public=form.is_public)
         FileModel = get_file_model(is_public=form.is_public)

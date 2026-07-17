@@ -11,7 +11,7 @@ from django.views.generic import View
 
 from libs import json_response, JsonParser, Argument
 from ...libs.document_auth import document_auth
-from .transfer_manager import TransferRecordManager
+from .transfer_manager import TransferRecordManager, validate_transfer_request_scope
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,11 @@ class TransferDeleteView(View):
         transfer, error = TransferRecordManager.get_transfer_by_id(transfer_id)
         if error:
             return json_response(error=error)
+
+        # 作用域一致性校验
+        scope_ok, scope_err = validate_transfer_request_scope(request, transfer)
+        if not scope_ok:
+            return json_response(error=scope_err)
 
         # 删除传输记录
         success, error = TransferRecordManager.delete_transfer(transfer, request.user)
@@ -43,6 +48,11 @@ class TransferHashUpdateView(View):
         transfer, error = TransferRecordManager.get_transfer_by_id(transfer_id)
         if error:
             return json_response(error=error)
+
+        # 作用域一致性校验
+        scope_ok, scope_err = validate_transfer_request_scope(request, transfer)
+        if not scope_ok:
+            return json_response(error=scope_err)
 
         # 解析请求参数
         form, error = JsonParser(

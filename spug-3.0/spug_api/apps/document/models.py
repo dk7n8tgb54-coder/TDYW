@@ -727,8 +727,9 @@ class DocumentSystemFolder(models.Model):
     folder = models.ForeignKey(
         DocumentFolderPublic, on_delete=models.PROTECT,
         related_name='system_bindings',
+        unique=True,
         verbose_name='绑定的公共目录',
-        help_text='绑定的 DocumentFolderPublic 根目录'
+        help_text='绑定的 DocumentFolderPublic 根目录（唯一，同一目录不可绑定多个系统模块）'
     )
     is_public = models.BooleanField(default=True, verbose_name='是否公共空间')
     protected = models.BooleanField(default=True, verbose_name='是否保护根目录')

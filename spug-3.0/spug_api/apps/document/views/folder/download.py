@@ -23,6 +23,7 @@ from ...services.system_folder_service import (
     PARTY_BUILDING_DOCUMENTS_CODE, ensure_folder_in_scope_or_error,
     validate_system_folder_context,
 )
+from ...services.system_scope_validators import validate_folder_source_scope
 from ..base import log_operation
 
 logger = logging.getLogger(__name__)
@@ -71,13 +72,13 @@ class FolderDownloadView(View):
             logger.error(f'[Document] Folder not found with id: {form.id}')
             return json_response(error='文件夹不存在')
 
-        # 党建文档范围校验
-        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
-            scope_ok, scope_err = ensure_folder_in_scope_or_error(
-                form.id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=True
-            )
-            if not scope_ok:
-                return json_response(error=scope_err)
+        # 统一对象作用域校验（党建正向 + 普通反向隔离）
+        scope_ok, scope_err = validate_folder_source_scope(
+            form.system_folder, form.is_public, folder_id=form.id,
+            include_root=True, protect_root=False,
+        )
+        if not scope_ok:
+            return json_response(error=scope_err)
 
         # 【P0-6修复】检查是否需要异步模式
         # 统计文件数量（使用 count 而非加载全部到内存）

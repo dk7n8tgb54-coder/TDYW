@@ -34,9 +34,9 @@ from apps.document.libs.document_utils import (
 )
 from apps.document.libs.document_auth import document_auth
 from apps.document.services.system_folder_service import (
-    PARTY_BUILDING_DOCUMENTS_CODE, ensure_folder_in_scope_or_error,
-    validate_system_folder_context, UPLOAD_TARGET_MSG,
+    PARTY_BUILDING_DOCUMENTS_CODE, validate_system_folder_context, UPLOAD_TARGET_MSG,
 )
+from apps.document.services.system_scope_validators import validate_upload_target_scope
 from apps.document.views.base import validate_file_name, validate_file_upload, handle_view_errors
 from apps.document.views.upload.lock import get_merge_lock, MERGE_LOCK_TIMEOUT
 from apps.document.views.upload.validators import HashValidator, FolderValidator, ChunkStorageManager
@@ -515,19 +515,16 @@ class FileMergeChunksView(View):
             logger.error(f'[Document][Merge] Param validation failed: {error}')
             return json_response(error=error)
 
-        # 党建文档上下文与上传目标校验
+        # 党建文档上下文与上传目标校验（统一：党建正向 + 普通反向隔离）
         system_folder = params.get('system_folder')
         ok, ctx_err = validate_system_folder_context(system_folder, params['is_public'])
         if not ok:
             return json_response(error=ctx_err)
-        if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
-            if not params['folder_id']:
-                return json_response(error=UPLOAD_TARGET_MSG)
-            scope_ok, scope_err = ensure_folder_in_scope_or_error(
-                params['folder_id'], PARTY_BUILDING_DOCUMENTS_CODE, include_root=True
-            )
-            if not scope_ok:
-                return json_response(error=scope_err)
+        ok, scope_err = validate_upload_target_scope(
+            system_folder, params['is_public'], params['folder_id']
+        )
+        if not ok:
+            return json_response(error=scope_err)
 
         # 步骤2: 验证文件夹和文件
         folder, chunk_dir, error = self._validate_folder_and_chunk(params, request)

@@ -14,6 +14,7 @@ import http from 'libs/http';
 const SearchBox = ({ 
   isPublic, 
   folderId,
+  systemFolderCode = null,
   placeholder = '搜索整个资料库',
   onSearchStart, 
   onSearchResult, 
@@ -41,6 +42,9 @@ const SearchBox = ({
           folder_id: searchFolderId,
           keyword: searchKeyword.trim(),
           is_public: isPublic,
+          // 显式传递 system_folder，作为请求作用域上下文（后端据此隔离普通/党建搜索）
+          // Axios 自动注入可保留，但不能作为唯一作用域来源
+          system_folder: systemFolderCode || '',
           tenant_id: tenantId
         },
         paramsSerializer: params => {
@@ -91,7 +95,7 @@ const SearchBox = ({
       console.error('[SearchBox] 搜索失败:', error);
       if (onSearchError) onSearchError(error.message || '搜索失败');
     }
-  }, [isPublic, folderId, onSearchStart, onSearchResult, onSearchError, onClearSearch]);
+  }, [isPublic, folderId, systemFolderCode, onSearchStart, onSearchResult, onSearchError, onClearSearch]);
 
   // 防抖搜索
   const debouncedSearch = useCallback((value) => {

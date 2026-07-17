@@ -324,6 +324,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
             isPublic={navigationStore.isPublic}
             placeholder={isPartyBuildingDocuments ? '搜索党建文档' : undefined}
             folderId={isPartyBuildingDocuments ? navigationStore.lockedRootFolderId : undefined}
+            systemFolderCode={isPartyBuildingDocuments ? PARTY_BUILDING_DOCUMENTS_CODE : null}
             onSearchStart={handleSearchStart}
             onSearchResult={handleSearchResult}
             onSearchError={handleSearchError}

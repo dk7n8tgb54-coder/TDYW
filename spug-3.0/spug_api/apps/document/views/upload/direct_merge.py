@@ -93,7 +93,8 @@ class DirectMergeView(View):
                 # 单一校验源：业务规则变更只改 TransferOwnershipValidator 一处
                 # TOCTOU 防御：4 维校验与加锁在同一个事务内,毫秒级窗口被覆盖
                 is_valid, error = TransferOwnershipValidator.validate(
-                    form.transfer_id, form.file_hash, form.is_public, request.user
+                    form.transfer_id, form.file_hash, form.is_public, request.user,
+                    system_folder=form.system_folder,
                 )
                 if not is_valid:
                     return json_response(error=error)

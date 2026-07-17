@@ -18,10 +18,10 @@ from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_file_model, is_safe_path
 from ...libs.document_auth import document_auth
 from ...services.system_folder_service import (
-    PARTY_BUILDING_DOCUMENTS_CODE, ensure_file_in_scope_or_error,
-    validate_system_folder_context,
+    PARTY_BUILDING_DOCUMENTS_CODE, validate_system_folder_context,
+    normalize_system_folder_code,
 )
-from ...services.system_scope_validators import validate_file_operation_scope
+from ...services.system_scope_validators import validate_file_source_scope
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ class FilePreviewView(View):
         if not ok:
             return json_response(error=ctx_err)
 
-        # 【H-2修复】preview_token 作用域校验：令牌绑定的文件必须与请求文件一致
+        # 【H-2修复】preview_token 作用域校验：令牌绑定的文件/system_folder/空间必须与请求一致
         if hasattr(request, 'preview_token_data'):
             token_data = request.preview_token_data
             if token_data['file_id'] != form.id:
@@ -81,16 +81,25 @@ class FilePreviewView(View):
                 return json_response(error='预览令牌与请求文件不匹配')
             if token_data['is_public'] != form.is_public:
                 return json_response(error='预览令牌与请求空间不匹配')
+            # 校验令牌绑定的 system_folder 与请求上下文一致
+            request_sf = normalize_system_folder_code(form.system_folder) if form.system_folder else ''
+            if token_data.get('system_folder', '') != request_sf:
+                logger.warning(
+                    f'[Preview] preview_token system_folder mismatch: token={token_data.get("system_folder")}, '
+                    f'request={request_sf}'
+                )
+                return json_response(error='预览令牌与请求作用域不匹配')
 
         file = self._get_file(form, request.user)
         if file is None:
             return json_response(error='文件不存在')
 
-        # 党建文档范围校验
-        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
-            scope_ok, scope_err = ensure_file_in_scope_or_error(file, PARTY_BUILDING_DOCUMENTS_CODE)
-            if not scope_ok:
-                return json_response(error=scope_err)
+        # 统一对象作用域校验（党建正向 + 普通反向隔离）
+        scope_ok, scope_err = validate_file_source_scope(
+            form.system_folder, form.is_public, file
+        )
+        if not scope_ok:
+            return json_response(error=scope_err)
 
         # 【路径安全校验】验证 file_path 在 storage/documents 下
         document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
@@ -305,6 +314,9 @@ class FileTextContentView(View):
                 return json_response(error='预览令牌与请求文件不匹配')
             if token_data['is_public'] != form.is_public:
                 return json_response(error='预览令牌与请求空间不匹配')
+            request_sf = normalize_system_folder_code(form.system_folder) if form.system_folder else ''
+            if token_data.get('system_folder', '') != request_sf:
+                return json_response(error='预览令牌与请求作用域不匹配')
             
         FileModel = get_file_model(is_public=form.is_public)
 
@@ -316,11 +328,12 @@ class FileTextContentView(View):
         if not file:
             return json_response(error='文件不存在')
 
-        # 党建文档范围校验
-        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
-            scope_ok, scope_err = ensure_file_in_scope_or_error(file, PARTY_BUILDING_DOCUMENTS_CODE)
-            if not scope_ok:
-                return json_response(error=scope_err)
+        # 统一对象作用域校验（党建正向 + 普通反向隔离）
+        scope_ok, scope_err = validate_file_source_scope(
+            form.system_folder, form.is_public, file
+        )
+        if not scope_ok:
+            return json_response(error=scope_err)
 
         # 【路径安全校验】验证 file_path 在 storage/documents 下
         document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
@@ -459,12 +472,15 @@ class OfficePreviewUrlView(View):
         
         # 【H-2修复】使用短时效 preview_token 替代长期 x-token
         # kkFileView 通过此 URL 回调下载文件，preview_token 有效期 5 分钟
+        # 令牌绑定 system_folder，防止跨作用域重放
         tenant_id = getattr(request.user, 'tenant_id', None)
+        normalized_sf = normalize_system_folder_code(form.system_folder) if form.system_folder else ''
         preview_token = generate_preview_token(
             file_id=file.id,
             user_id=request.user.id,
             tenant_id=tenant_id,
-            is_public=form.is_public
+            is_public=form.is_public,
+            system_folder=normalized_sf,
         )
         params = {
             'id': file.id,
@@ -522,7 +538,7 @@ class OfficePreviewUrlView(View):
 
     @staticmethod
     def _validate_file_scope(form, file):
-        ok, error = validate_file_operation_scope(
+        ok, error = validate_file_source_scope(
             form.system_folder,
             form.is_public,
             file_obj=file,
@@ -566,24 +582,28 @@ class PreviewTokenView(View):
         if not ok:
             return json_response(error=ctx_err)
 
-        # 党建文档范围校验：文件必须属于党建文档
-        if form.system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
-            FileModel = get_file_model(is_public=form.is_public)
-            file = FileModel.objects.filter(pk=form.id).first()
-            if not file:
-                return json_response(error='文件不存在')
-            scope_ok, scope_err = ensure_file_in_scope_or_error(file, PARTY_BUILDING_DOCUMENTS_CODE)
-            if not scope_ok:
-                return json_response(error=scope_err)
+        FileModel = get_file_model(is_public=form.is_public)
+        file = FileModel.objects.filter(pk=form.id).first()
+        if not file:
+            return json_response(error='文件不存在')
+
+        # 统一对象作用域校验（党建正向 + 普通反向隔离）
+        scope_ok, scope_err = validate_file_source_scope(
+            form.system_folder, form.is_public, file
+        )
+        if not scope_ok:
+            return json_response(error=scope_err)
 
         from ...libs.preview_token import generate_preview_token
 
         tenant_id = getattr(request.user, 'tenant_id', None)
+        normalized_sf = normalize_system_folder_code(form.system_folder) if form.system_folder else ''
         token = generate_preview_token(
             file_id=form.id,
             user_id=request.user.id,
             tenant_id=tenant_id,
-            is_public=form.is_public
+            is_public=form.is_public,
+            system_folder=normalized_sf,
         )
 
         return json_response(data={'preview_token': token})

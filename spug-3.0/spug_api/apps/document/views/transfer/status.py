@@ -13,6 +13,7 @@ from django.utils import timezone
 from libs import json_response, JsonParser, Argument
 from apps.document.libs.view_utils import permission_denied_response
 from apps.document.libs.document_auth import document_auth
+from .transfer_manager import validate_transfer_request_scope
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,11 @@ class TransferCompleteView(View):
             if (transfer.user != request.user and not is_supper) or \
                (transfer.tenant_id != request_tenant_id and not is_supper):
                 return permission_denied_response('无权操作此传输记录', 'not_owner')
+
+            # 作用域一致性校验
+            scope_ok, scope_err = validate_transfer_request_scope(request, transfer)
+            if not scope_ok:
+                return json_response(error=scope_err)
 
             # 幂等性校验
             if transfer.status == TransferStatus.COMPLETED.value:
@@ -88,6 +94,11 @@ class TransferFailView(View):
             if (transfer.user != request.user and not is_supper) or \
                (transfer.tenant_id != request_tenant_id and not is_supper):
                 return permission_denied_response('无权操作此传输记录', 'not_owner')
+
+            # 作用域一致性校验
+            scope_ok, scope_err = validate_transfer_request_scope(request, transfer)
+            if not scope_ok:
+                return json_response(error=scope_err)
 
             # 幂等性校验
             if transfer.status == TransferStatus.FAILED.value:
@@ -153,6 +164,11 @@ class TransferStatusUpdateView(View):
             if (transfer.user != request.user and not is_supper) or \
                (transfer.tenant_id != request_tenant_id and not is_supper):
                 return permission_denied_response('无权更新此传输记录', 'not_owner')
+
+            # 作用域一致性校验
+            scope_ok, scope_err = validate_transfer_request_scope(request, transfer)
+            if not scope_ok:
+                return json_response(error=scope_err)
 
             # 状态流转验证
             current_status = transfer.status

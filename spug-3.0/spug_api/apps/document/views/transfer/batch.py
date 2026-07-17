@@ -13,10 +13,17 @@ from django.db.models import Q
 from django.utils import timezone
 
 from libs import json_response, JsonParser, Argument
-from ...libs.document_auth import document_auth
+from ...libs.document_auth import document_auth, get_request_system_folder
+from ...services.system_folder_service import normalize_system_folder_code
 from ...libs.idempotency_utils import IdempotencyChecker
 
 logger = logging.getLogger(__name__)
+
+
+def _request_system_folder(request):
+    """提取请求的规范化 system_folder（普通模式为空串）"""
+    sf = get_request_system_folder(request) or ''
+    return normalize_system_folder_code(sf) if sf else ''
 
 
 class TransferBatchPauseView(View):
@@ -40,9 +47,12 @@ class TransferBatchPauseView(View):
             request_tenant_id = getattr(request.user, 'tenant_id', '')
             is_supper = getattr(request.user, 'is_supper', False)
 
-            # 批量查询
-            all_transfers = DocumentTransfer.objects.filter(id__in=transfer_ids).order_by()
-            
+            # 批量查询（按请求作用域过滤，防止跨作用域操作）
+            request_sf = _request_system_folder(request)
+            all_transfers = DocumentTransfer.objects.filter(
+                id__in=transfer_ids, system_folder=request_sf
+            ).order_by()
+
             # 【P2-5修复】简化权限校验逻辑，提高可读性
             if is_supper:
                 # 超级管理员可以操作所有记录
@@ -195,9 +205,18 @@ class TransferBatchCancelView(View):
                     logger.info(f'[Transfer] 批量取消幂等性命中: user={request.user.username}')
                     return json_response(data=cached_result)
 
+            # 按请求作用域过滤 transfer_ids，防止跨作用域操作
+            request_sf = _request_system_folder(request)
+            from ...models import DocumentTransfer
+            scoped_ids = list(
+                DocumentTransfer.objects.filter(
+                    id__in=transfer_ids, system_folder=request_sf
+                ).values_list('id', flat=True)
+            )
+
             from ...tasks import batch_cancel_transfers
             task = batch_cancel_transfers.delay(
-                transfer_ids=transfer_ids,
+                transfer_ids=scoped_ids,
                 request_user_id=request.user.id,
                 request_tenant_id=request_tenant_id
             )
@@ -245,9 +264,18 @@ class TransferBatchDeleteView(View):
                     logger.info(f'[Transfer] 批量删除传输记录幂等性命中: user={request.user.username}')
                     return json_response(data=cached_result)
 
+            # 按请求作用域过滤 transfer_ids，防止跨作用域操作
+            request_sf = _request_system_folder(request)
+            from ...models import DocumentTransfer
+            scoped_ids = list(
+                DocumentTransfer.objects.filter(
+                    id__in=transfer_ids, system_folder=request_sf
+                ).values_list('id', flat=True)
+            )
+
             from ...tasks import batch_delete_transfers
             task = batch_delete_transfers.delay(
-                transfer_ids=transfer_ids,
+                transfer_ids=scoped_ids,
                 request_user_id=request.user.id,
                 request_tenant_id=request_tenant_id
             )
