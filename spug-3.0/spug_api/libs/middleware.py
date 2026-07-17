@@ -22,6 +22,10 @@ PREVIEW_ENDPOINT_PATTERNS = (
     '/api/document/text_content/*',
     # 通用附件预览回调端点（kkFileView 通过此端点下载附件文件流）
     '*/attachments/*/preview-file/*',
+    # 账号签名图片预览端点（短时效 attachment_preview_token 认证）
+    # 同时匹配带 /api/ 前缀（直连）和不含前缀（nginx 重写后）两种路径
+    '/signature/preview/*',
+    '/api/signature/preview/*',
 )
 
 # 文档预览端点模式（使用 document 模块的 preview_token）
@@ -35,6 +39,13 @@ DOCUMENT_PREVIEW_PATTERNS = (
 # 附件预览端点模式（使用 evidence 模块的 attachment_preview_token）
 ATTACHMENT_PREVIEW_PATTERNS = (
     '*/attachments/*/preview-file/*',
+)
+
+# 签名图片预览端点模式（复用 evidence 模块的 attachment_preview_token，
+# 签名附件即为 EvidenceAttachment，token 绑定 attachment_id/user_id/tenant_id/module/object_type/object_id）
+SIGNATURE_PREVIEW_PATTERNS = (
+    '/signature/preview/*',
+    '/api/signature/preview/*',
 )
 
 
@@ -170,6 +181,11 @@ class AuthenticationMiddleware(MiddlewareMixin):
         return any(fnmatch.fnmatch(path, pat) for pat in ATTACHMENT_PREVIEW_PATTERNS)
 
     @staticmethod
+    def _is_signature_preview_endpoint(path):
+        """判断是否为签名图片预览端点（复用 evidence 模块的 attachment_preview_token）"""
+        return any(fnmatch.fnmatch(path, pat) for pat in SIGNATURE_PREVIEW_PATTERNS)
+
+    @staticmethod
     def _authenticate_preview_token(token, request):
         """通过 preview_token 认证用户
 
@@ -181,6 +197,22 @@ class AuthenticationMiddleware(MiddlewareMixin):
             User | None: 认证成功返回用户对象，失败返回 None
         """
         path = request.path
+
+        if AuthenticationMiddleware._is_signature_preview_endpoint(path):
+            # 签名图片预览：复用 evidence 模块的 attachment_preview_token
+            from apps.evidence.attachment_preview_token import validate_attachment_preview_token
+            token_data = validate_attachment_preview_token(token)
+            if not token_data:
+                logger.warning(f'[AUTH] Invalid signature preview_token for {path}')
+                return None
+            user = User.objects.filter(id=token_data['user_id'], is_active=True).first()
+            if not user:
+                logger.warning(f'[AUTH] Signature preview token user not found: user_id={token_data["user_id"]}')
+                return None
+            request.user = user
+            request.preview_token_data = token_data
+            logger.debug(f'[AUTH] Signature preview token auth success: user={user.username}, attachment_id={token_data["attachment_id"]}')
+            return user
 
         if AuthenticationMiddleware._is_attachment_preview_endpoint(path):
             from apps.evidence.attachment_preview_token import validate_attachment_preview_token

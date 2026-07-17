@@ -9,6 +9,7 @@ import { Input } from 'antd';
 import { SearchForm, AuthDiv, Breadcrumb } from 'components';
 import ComTable from './Table';
 import ComForm from './Form';
+import SignatureModal from './SignatureModal';
 import store from './store';
 
 export default observer(function () {
@@ -26,6 +27,7 @@ export default observer(function () {
       </SearchForm>
       <ComTable/>
       {store.formVisible && <ComForm/>}
+      {store.signatureVisible && store.isSupper && <SignatureModal/>}
     </AuthDiv>
   )
 })

@@ -5,6 +5,7 @@ from django.urls import re_path
 
 from apps.account.views import *
 from apps.account.history import *
+from apps.signature.urls import admin_urlpatterns as signature_admin_urls
 
 urlpatterns = [
     re_path(r'^login/$', login),
@@ -17,4 +18,4 @@ urlpatterns = [
     re_path(r'^tenant/$', TenantView.as_view()),
     re_path(r'^self/$', SelfView.as_view()),
     re_path(r'^login/history/$', HistoryView.as_view())
-]
+] + signature_admin_urls

@@ -167,6 +167,21 @@ export default [{
     ]
   }]
 }, {
+  key: 'department_duty_log',
+  label: '部门值班日志',
+  pages: [{
+    key: 'department_duty_log',
+    label: '部门值班日志',
+    perms: [
+      {key: 'view', label: '查看部门值班日志'},
+      {key: 'add', label: '新建本人值班草稿'},
+      {key: 'edit', label: '编辑本人值班草稿'},
+      {key: 'del', label: '删除本人值班草稿'},
+      {key: 'sign', label: '签署本人值班草稿'},
+      {key: 'void', label: '作废已签部门值班日志'},
+    ]
+  }]
+}, {
   key: 'system',
   label: '系统设置',
   pages: [{

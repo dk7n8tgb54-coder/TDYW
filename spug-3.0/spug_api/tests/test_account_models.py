@@ -115,10 +115,49 @@ class RoleModelTest(TestCase):
     def test_clear_perms_cache(self):
         """测试清除权限缓存"""
         self.user.roles.add(self.role)
-        cache.set(f'perms_{self.user.id}', {'test_perm'})
+        cache.set(f'perms_{self.user.id}', (1, {'test_perm'}))
         self.role.clear_perms_cache()
-        cached_perms = cache.get(f'perms_{self.user.id}')
-        self.assertEqual(cached_perms, set())
+        self.assertIsNone(cache.get(f'perms_{self.user.id}'))
+
+    def test_page_perms_cache_invalidated_on_role_save(self):
+        """Role.page_perms 变更并 save 后，残缺权限缓存应被版本校验自动失效。
+
+        这是修复"普通账号突然权限拒绝"bug 的核心保证：即便某条路径漏调
+        clear_perms_cache，只要走 ORM save，perms_version 自增会使旧缓存
+        失效，下次读取重算出正确权限。
+        """
+        role = Role.objects.create(
+            name='权限角色',
+            page_perms=json.dumps({'dashboard': {'view': ['dashboard']}}),
+            created_by=self.user,
+        )
+        self.user.roles.add(role)
+        # 首次读取，建立缓存
+        self.assertIn('dashboard.view.dashboard', self.user.page_perms)
+        # 模拟漏失效路径：直接写入残缺缓存（如迁移/竞态产生的旧集合）
+        stale_version = role.perms_version
+        cache.set(f'perms_{self.user.id}', (stale_version, set()), 300)
+        self.assertEqual(self.user.page_perms, set())  # 命中残缺缓存
+        # 修改 role.page_perms 并 save（不走 clear_perms_cache）
+        role.page_perms = json.dumps({'exec': {'view': ['exec']}})
+        role.save(update_fields=['page_perms'])
+        self.assertGreater(role.perms_version, stale_version)
+        # 残缺缓存应被版本校验自动失效，重算出新权限
+        self.assertIn('exec.view.exec', self.user.page_perms)
+        self.assertNotIn('dashboard.view.dashboard', self.user.page_perms)
+
+    def test_legacy_set_cache_format_invalidated(self):
+        """旧格式缓存（set 实例）应被识别为失效并重算。"""
+        role = Role.objects.create(
+            name='旧格式角色',
+            page_perms=json.dumps({'dashboard': {'view': ['dashboard']}}),
+            created_by=self.user,
+        )
+        self.user.roles.add(role)
+        # 模拟升级前写入的旧格式缓存
+        cache.set(f'perms_{self.user.id}', {'stale.legacy.perm'})
+        self.assertIn('dashboard.view.dashboard', self.user.page_perms)
+        self.assertNotIn('stale.legacy.perm', self.user.page_perms)
 
 
 class HistoryModelTest(TestCase):

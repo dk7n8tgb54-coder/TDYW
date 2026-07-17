@@ -64,13 +64,27 @@ class UserView(AdminView):
         # 非超管只能查看本租户用户
         if not request.user.is_supper:
             queryset = queryset.filter(tenant_id=request.user.tenant_id)
-        users = []
-        for u in queryset:
+        users = list(queryset)
+        # 超管批量附加账号签名状态（避免列表逐行查询 N+1）
+        sig_status_map = {}
+        if request.user.is_supper:
+            from apps.signature.services import get_account_signature_status_map
+            sig_status_map = get_account_signature_status_map([u.id for u in users])
+        data = []
+        for u in users:
             tmp = u.to_dict(excludes=('access_token', 'password_hash'))
             tmp['role_ids'] = [x.id for x in u.roles.all()]
             tmp['password'] = '******'
-            users.append(tmp)
-        return json_response(users)
+            if request.user.is_supper:
+                sig = sig_status_map.get(u.id)
+                if sig:
+                    tmp['signature_status'] = sig['status']
+                    tmp['signature_version'] = sig['version']
+                else:
+                    tmp['signature_status'] = 'none'
+                    tmp['signature_version'] = None
+            data.append(tmp)
+        return json_response(data)
 
     def post(self, request):
         form, error = JsonParser(
@@ -446,13 +460,18 @@ class RoleView(AdminView):
 
         if form.page_perms is not None:
             role.page_perms = json.dumps(form.page_perms)
-            role.clear_perms_cache()
         if form.deploy_perms is not None:
             role.deploy_perms = json.dumps(form.deploy_perms)
         if form.group_perms is not None:
             role.group_perms = json.dumps(form.group_perms)
         role.user_set.update(token_expired=0)
+        # 先持久化再清缓存：save() 会自增 perms_version，
+        # 此时并发登录的用户即便在 clear_perms_cache 之后重算，
+        # 读到的也是已持久化的新 page_perms，不会把残缺集合写回缓存。
+        # clear_perms_cache 作为立即失效优化（避免等下次读取才重算）。
         role.save()
+        if form.page_perms is not None:
+            role.clear_perms_cache()
         return json_response()
 
     def delete(self, request):

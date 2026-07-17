@@ -11,6 +11,9 @@ class Store {
   @observable record = {};
   @observable isFetching = true;
   @observable formVisible = false;
+  // 签名管理弹窗（仅超管）
+  @observable signatureVisible = false;
+  @observable signatureRecord = {};
 
   @observable f_name;
   @observable f_status = '';
@@ -44,6 +47,11 @@ class Store {
   showForm = (info = {}) => {
     this.formVisible = true;
     this.record = info
+  }
+
+  showSignature = (info = {}) => {
+    this.signatureVisible = true;
+    this.signatureRecord = info;
   }
 }
 

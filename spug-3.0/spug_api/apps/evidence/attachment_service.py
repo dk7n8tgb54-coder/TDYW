@@ -170,12 +170,20 @@ class AttachmentService:
         return ext, None
 
     @staticmethod
-    def save_file(file, module: str, tenant_id, object_type: str, object_id) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+    def save_file(file, module: str, tenant_id, object_type: str, object_id,
+                  disk_name: Optional[str] = None) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
         """保存文件到磁盘，返回 (disk_name, file_path, relative_path, error)
 
         物理路径：{MEDIA_ROOT}/{module}/{tenant_id}/{yyyyMM}/{object_type}_{object_id}/{file_name}
+
+        Args:
+            disk_name: 可选，指定磁盘文件名（如 UUID 文件名）。
+                       为空时使用 file.name 经清洗后的名字（向后兼容）。
         """
-        safe_name = AttachmentService._sanitize_filename(file.name)
+        if disk_name:
+            safe_name = AttachmentService._sanitize_filename(disk_name)
+        else:
+            safe_name = AttachmentService._sanitize_filename(file.name)
         rel_dir = AttachmentService._build_relative_path(module, tenant_id, object_type, object_id)
         save_dir = os.path.join(settings.MEDIA_ROOT, rel_dir)
         os.makedirs(save_dir, exist_ok=True)
@@ -194,24 +202,38 @@ class AttachmentService:
 
     @staticmethod
     def upload(file, user, module: str, object_type: str, object_id,
-               config: AttachmentConfig = DefaultAttachmentConfig) -> Tuple[Optional[EvidenceAttachment], Optional[str]]:
+               config: AttachmentConfig = DefaultAttachmentConfig,
+               owner_tenant_id: Optional[str] = None,
+               disk_name: Optional[str] = None) -> Tuple[Optional[EvidenceAttachment], Optional[str]]:
         """上传附件并入库，返回 (attachment, error)
 
         业务对象存在性校验应由调用方在调用前完成。
         物理路径：{MEDIA_ROOT}/{module}/{tenant_id}/{yyyyMM}/{object_type}_{object_id}/{file_name}
+
+        Args:
+            owner_tenant_id: 可选，附件归属租户。
+                为空时使用上传人 (user) 的租户（向后兼容，旧调用方行为完全不变）。
+                由内部可信服务层传入（如超级管理员给其他租户账号配置签名时，
+                附件应归属目标账号租户）。HTTP 请求参数不得直接映射到本参数。
+            disk_name: 可选，指定磁盘文件名（如 UUID 文件名），为空时用 file.name。
+
+        附件 uploaded_by_id/name 始终记录真实上传人 (user)，与 owner_tenant_id 解耦。
         """
         ext, error = AttachmentService.validate(file, config)
         if error:
             return None, error
 
-        disk_name, file_path, relative_path, error = AttachmentService.save_file(
-            file, module, getattr(user, 'tenant_id', ''), object_type, object_id)
+        # 附件归属租户：显式传入时用传入值，否则用上传人租户（向后兼容）
+        tenant_for_attachment = owner_tenant_id if owner_tenant_id is not None else getattr(user, 'tenant_id', '')
+
+        disk_name_used, file_path, relative_path, error = AttachmentService.save_file(
+            file, module, tenant_for_attachment, object_type, object_id, disk_name=disk_name)
         if error:
             return None, error
 
         file_hash = AttachmentService._compute_sha256(file_path)
         att = EvidenceAttachment.objects.create(
-            tenant_id=getattr(user, 'tenant_id', ''),
+            tenant_id=tenant_for_attachment,
             module=module,
             object_type=object_type,
             object_id=str(object_id),

@@ -52,6 +52,18 @@ class ComTable extends React.Component {
       return text['is_active'] ? <Badge status="success" text="正常"/> : <Badge status="default" text="禁用"/>
     }
   }, {
+    title: '签名',
+    key: 'signature',
+    width: 110,
+    render: info => {
+      // 仅超管显示签名状态列
+      if (!store.isSupper) return null;
+      const s = info['signature_status'];
+      if (s === 'active') return <Badge status="processing" text={`v${info['signature_version'] || ''}`}/>;
+      if (s === 'disabled') return <Badge status="warning" text="已停用"/>;
+      return <Badge status="default" text="未配置"/>;
+    }
+  }, {
     title: '最近登录',
     dataIndex: 'last_login'
   }, {
@@ -73,6 +85,9 @@ class ComTable extends React.Component {
           <Action.Button onClick={() => store.showForm(info)}>编辑</Action.Button>
           <Action.Button onClick={() => this.handleReset(info)}>重置密码</Action.Button>
           <Action.Button danger onClick={() => this.handleDelete(info)}>删除</Action.Button>
+          {store.isSupper && (
+            <Action.Button onClick={() => store.showSignature(info)}>签名</Action.Button>
+          )}
         </Action>
       )
     }
@@ -139,6 +154,10 @@ class ComTable extends React.Component {
   };
 
   render() {
+    // 非超管不显示签名列
+    const cols = store.isSupper
+      ? this.columns
+      : this.columns.filter(c => c.key !== 'signature');
     return (
       <TableCard
         tKey="sa"
@@ -167,7 +186,7 @@ class ComTable extends React.Component {
           showTotal: total => `共 ${total} 条`,
           pageSizeOptions: ['10', '20', '50', '100']
         }}
-        columns={this.columns}/>
+        columns={cols}/>
     )
   }
 }

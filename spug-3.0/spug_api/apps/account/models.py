@@ -7,6 +7,10 @@ from libs import ModelMixin, human_datetime
 from django.contrib.auth.hashers import make_password, check_password
 import json
 
+# 权限缓存兜底 TTL（秒）。与 Django CACHES 默认 TIMEOUT 一致。
+# 正常情况下靠 Role.perms_version 版本校验决定是否重算，TTL 仅作最终兜底。
+PERMS_CACHE_TTL = 300
+
 
 class User(models.Model, ModelMixin):
     username = models.CharField(max_length=100)
@@ -36,23 +40,51 @@ class User(models.Model, ModelMixin):
         return check_password(plain_password, self.password_hash)
 
     def get_perms_cache(self):
-        return cache.get(f'perms_{self.id}', set())
+        """读取权限缓存。返回 (version, perms) tuple 或 None。
 
-    def set_perms_cache(self, value=None):
-        cache.set(f'perms_{self.id}', value or set())
+        旧格式缓存（set 实例）会被 page_perms 识别为失效并重算。
+        """
+        return cache.get(f'perms_{self.id}')
+
+    def set_perms_cache(self, value=None, version=None):
+        """写入/清除权限缓存。
+
+        - 不传 value：删除缓存（失效信号，向后兼容旧调用 user.set_perms_cache()）
+        - 传 value + version：写入 (version, value)，TTL=PERMS_CACHE_TTL
+        """
+        key = f'perms_{self.id}'
+        if value is None:
+            cache.delete(key)
+        else:
+            cache.set(key, (version, value), PERMS_CACHE_TTL)
+
+    def _get_roles_perms_version(self):
+        """获取用户所有角色 perms_version 的最大值，作为缓存新鲜度指纹。
+
+        只查询整数字段，避免读取 page_perms 大文本，保持轻量。
+        """
+        versions = list(self.roles.values_list('perms_version', flat=True))
+        return max(versions) if versions else 0
 
     @property
     def page_perms(self):
-        data = self.get_perms_cache()
-        if data:
-            return data
+        cached = self.get_perms_cache()
+        current_version = self._get_roles_perms_version()
+        # 命中条件：缓存为 (version, perms) tuple 且 version 与当前一致。
+        # 旧格式缓存（set 实例）或 version 不匹配 → 视为失效，重算。
+        # 这样可根治迁移/SQL/竞态等任何漏失效路径写入的残缺缓存：
+        # 只要 Role.page_perms 被修改并 save，perms_version 自增，
+        # 用户下次读取时 version 不匹配即自动重算。
+        if cached and isinstance(cached, tuple) and cached[0] == current_version:
+            return cached[1]
+        data = set()
         for item in self.roles.all():
             if item.page_perms:
                 perms = json.loads(item.page_perms)
                 for m, v in perms.items():
                     for p, d in v.items():
                         data.update(f'{m}.{p}.{x}' for x in d)
-        self.set_perms_cache(data)
+        self.set_perms_cache(data, current_version)
         return data
 
     @property
@@ -112,6 +144,11 @@ class Role(models.Model, ModelMixin):
     # is_system=True 表示系统内置角色，普通管理员不可编辑/删除/分配
     tenant_id = models.CharField(max_length=50, null=True, blank=True, db_index=True)
     is_system = models.BooleanField(default=False, db_index=True)
+    # 权限版本号：每次 page_perms 变更并 save 时自增。
+    # User.page_perms 缓存以用户所有角色的 max(perms_version) 作为新鲜度指纹，
+    # 版本不一致即重算，从而无需依赖各变更路径主动调用 clear_perms_cache。
+    # migration 0007 将历史角色初始化为 1，0 仅表示尚未 save 的新实例。
+    perms_version = models.PositiveIntegerField(default=0, db_index=True)
     created_at = models.CharField(max_length=20, default=human_datetime)
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='+')
 
@@ -134,7 +171,46 @@ class Role(models.Model, ModelMixin):
         self.deploy_perms = json.dumps(perms)
         self.save()
 
+    # 触发 perms_version 自增的权限相关字段。
+    # 仅 page_perms 参与 User.page_perms 缓存，故只在 page_perms 变化时 bump。
+    # deploy_perms/group_perms 不被 User 缓存（group_perms property 每次现算），无需 bump。
+    PERM_CACHE_RELEVANT_FIELDS = ('page_perms',)
+
+    def save(self, *args, **kwargs):
+        """重写 save：检测 page_perms 变化时自增 perms_version。
+
+        覆盖所有通过 ORM 修改 page_perms 的路径（API patch、迁移 RunPython
+        里的 role.save(update_fields=['page_perms'])、add_deploy_perm 等），
+        无需各调用方显式 bump。Role.objects.filter().update() 批量更新不走
+        save，但当前代码中 .update() 不修改 page_perms，故无需处理。
+        """
+        update_fields = kwargs.get('update_fields')
+        if self.pk is None:
+            if not self.perms_version:
+                self.perms_version = 1
+        else:
+            relevant = self.PERM_CACHE_RELEVANT_FIELDS
+            if update_fields is None:
+                check_fields = relevant
+            else:
+                check_fields = tuple(f for f in relevant if f in update_fields)
+            if check_fields:
+                old = Role.objects.filter(pk=self.pk).only(*check_fields).first()
+                if old is None or any(
+                    getattr(self, f) != getattr(old, f) for f in check_fields
+                ):
+                    self.perms_version = (self.perms_version or 0) + 1
+                    if update_fields is not None and 'perms_version' not in update_fields:
+                        kwargs['update_fields'] = list(update_fields) + ['perms_version']
+        super().save(*args, **kwargs)
+
     def clear_perms_cache(self):
+        """立即清除该角色所有关联用户的权限缓存。
+
+        新机制下 User.page_perms 靠 perms_version 版本校验自动失效，
+        此方法作为"立即失效"优化保留（不必等下次读取才发现版本不匹配），
+        并向后兼容现有调用点。
+        """
         for item in self.user_set.all():
             item.set_perms_cache()
 

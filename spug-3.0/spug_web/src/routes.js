@@ -15,7 +15,8 @@ import {
   ApartmentOutlined,
   CheckSquareOutlined,
   SafetyCertificateOutlined,
-  NotificationOutlined
+  NotificationOutlined,
+  ScheduleOutlined
 } from '@ant-design/icons';
 
 import HomeIndex from './pages/home';
@@ -44,6 +45,7 @@ import ExecUpgradePlan from './pages/upgrade/plan/PlanManager';
 import UpgradeWorkbench from './pages/upgrade/Workbench';
 import ExecDutyRecord from './pages/duty';
 import CheckSheetIndex from './pages/checksheet';
+import DepartmentDutyLogIndex from './pages/departmentDutyLog';
 import RadioLicenseIndex from './pages/radioLicense';
 import StationFrequencyApproval from './pages/stationFrequencyApproval';
 import ContractAgreementIndex from './pages/contractAgreement';
@@ -55,6 +57,7 @@ export default [
   {icon: <DesktopOutlined/>, title: '工作台', path: '/home', component: HomeIndex},
   {icon: <BarChartOutlined/>, title: '数据分析', path: '/data-analysis', component: DataAnalysisIndex},
   {icon: <CheckSquareOutlined/>, title: '部门值班日检查单', auth: 'checksheet.checksheet.view', path: '/checksheet', component: CheckSheetIndex},
+  {icon: <ScheduleOutlined/>, title: '部门值班日志', auth: 'department_duty_log.department_duty_log.view', path: '/department-duty-log', component: DepartmentDutyLogIndex},
   {icon: <SafetyCertificateOutlined/>, title: '执照管理', auth: 'radio_license.license.view', child: [
     {title: '无线电台执照', auth: 'radio_license.license.view', path: '/radio-license', component: RadioLicenseIndex},
     // 台站频率批复功能暂未开发，先挂占位页；权限暂复用执照查看权限以便可访问，后续开发时替换
