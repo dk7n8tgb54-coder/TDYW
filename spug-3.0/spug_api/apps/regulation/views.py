@@ -107,12 +107,27 @@ def _get_attachment(regulation, att_id):
 
 
 def _serialize_attachment(att):
-    """序列化附件记录"""
+    """序列化附件记录
+
+    返回字段（加法式兼容，不改数据库，不生成 migration）：
+      - id / file_name / previewable：原有字段，保持不变
+      - file_size：文件大小（字节）
+      - uploaded_by_name：上传人昵称（无上传人返回空字符串）
+      - created_at：上传时间（映射模型 uploaded_at）
+    """
     ext = storage.extract_extension(att.original_name)
+    uploaded_by_name = ''
+    if att.uploaded_by_id:
+        uploaded_by = att.uploaded_by
+        if uploaded_by is not None:
+            uploaded_by_name = getattr(uploaded_by, 'nickname', '') or getattr(uploaded_by, 'username', '') or ''
     return {
         'id': att.id,
         'file_name': att.original_name,
         'previewable': ext in storage.PREVIEWABLE_EXTENSIONS,
+        'file_size': att.file_size or 0,
+        'uploaded_by_name': uploaded_by_name,
+        'created_at': att.uploaded_at or '',
     }
 
 

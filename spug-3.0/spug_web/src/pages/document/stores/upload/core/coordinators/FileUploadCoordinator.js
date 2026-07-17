@@ -15,10 +15,17 @@ export class FileUploadCoordinator {
   /**
    * 处理文件选择
    * @param {FileList} files - 选择的文件列表
+   * @param {Object|null} [targetContext=null] - 由 uploadCoreStore.captureUploadTargetContext 生成的不可变上下文快照
+   *   包含 {folderId, isPublic, tenantId, systemFolderCode}。null 时由调用方负责捕获。
    */
   @action
-  async handleFileSelect(files) {
-    const targetFolderId = this.core.getUploadTargetFolderId();
+  async handleFileSelect(files, targetContext = null) {
+    // 党建文档系统目录上下文优先从 targetContext 读取，避免离开党建路由后丢失
+    const ctx = targetContext || this.core.captureUploadTargetContext();
+    const targetFolderId = ctx.folderId;
+    const targetIsPublic = ctx.isPublic;
+    const targetTenantId = ctx.tenantId;
+    const targetSystemFolderCode = ctx.systemFolderCode;
 
     // 批量提示
     if (files.length > UPLOAD_CONSTANTS.BATCH_WARNING_THRESHOLD) {
@@ -28,10 +35,9 @@ export class FileUploadCoordinator {
     // 防重复提交
     const duplicateFiles = [];
     const uniqueFiles = [];
-    const isPublic = this.core.rootStore.navigationStore?.isPublic;
 
     for (const file of files) {
-      const uniqueKey = this.core.queueStore.generateUniqueKey(file, targetFolderId, isPublic);
+      const uniqueKey = this.core.queueStore.generateUniqueKey(file, targetFolderId, targetIsPublic);
       
       if (this.core.queueStore.uploadingUniqueKeys.has(uniqueKey)) {
         duplicateFiles.push(file.name);
@@ -57,7 +63,7 @@ export class FileUploadCoordinator {
     this.core.isCancelled = false;
     this.core.pendingFiles = [...uniqueFiles];
 
-    await this.processUploadQueue(uniqueFiles, targetFolderId);
+    await this.processUploadQueue(uniqueFiles, targetFolderId, ctx);
 
     this.core.queueStore.triggerRefresh();
   }
@@ -71,29 +77,42 @@ export class FileUploadCoordinator {
    *   2. 新格式：processUploadQueue(items: Array<{file, folderId, folderPath?}>, null)
    *      - 文件夹上传：每个文件有自己的目标文件夹
    *
+   * 【拖拽上传扩展】第三参数 targetContext（可选）：
+   *   - 拖拽 drop 时由 captureUploadTargetContext 捕获的不可变快照
+   *   - null 时由调用方负责捕获（按钮上传已在 handleFileSelect 捕获）
+   *   - 包含 systemFolderCode/tenantId/isPublic，写入每个队列项，
+   *     使后续 transfer/chunk/merge 请求不依赖当前路由的全局 system_folder 上下文
+   *
    * @param {Array} filesOrItems - 文件列表 或 items 数组
    * @param {number|null} folderId - 目标文件夹ID（老格式必填，新格式传 null）
+   * @param {Object|null} [targetContext=null] - 不可变上传目标上下文
    */
   @action
-  async processUploadQueue(filesOrItems, folderId) {
+  async processUploadQueue(filesOrItems, folderId, targetContext = null) {
     // 【重构】检测输入格式：items 数组 vs 纯文件数组
     const isBatchFormat = Array.isArray(filesOrItems) && filesOrItems.length > 0 && filesOrItems[0] && filesOrItems[0].file;
 
     if (isBatchFormat) {
-      return this._processBatch(filesOrItems);
+      return this._processBatch(filesOrItems, targetContext);
     }
-    return this._processUniform(filesOrItems, folderId);
+    return this._processUniform(filesOrItems, folderId, targetContext);
   }
 
   /**
    * 【新格式】处理 items 批次（每个文件有自己的 folderId）
    * 用于文件夹上传：每个文件的目标文件夹不同
    * @private
+   * @param {Array} items - [{file, folderId, folderPath}]
+   * @param {Object|null} [targetContext=null] - 不可变上传目标上下文（systemFolderCode/tenantId/isPublic）
    */
   @action
-  async _processBatch(items) {
-    const tenantId = this.core.getCurrentTenantId();
-    const isPublic = this.core.rootStore.navigationStore?.isPublic;
+  async _processBatch(items, targetContext = null) {
+    // 文件夹上传时 isPublic/tenantId/systemFolderCode 来自 targetContext；
+    // 兼容老调用方（未传 ctx）时回退到 navigationStore
+    const ctx = targetContext || this.core.captureUploadTargetContext();
+    const tenantId = ctx.tenantId;
+    const isPublic = ctx.isPublic;
+    const systemFolderCode = ctx.systemFolderCode;
 
     if (!this.core.uploadQueue[tenantId]) {
       this.core.uploadQueue[tenantId] = [];
@@ -157,6 +176,9 @@ export class FileUploadCoordinator {
         fileHash: null,
         isPublic: isPublic,
         totalChunks: estimatedChunks,
+        // 【拖拽上传】固化系统目录上下文，后续 transfer/chunk/merge 请求从此读取，
+        // 不依赖 systemFolderContext 全局变量（党建任务离开页面后仍携带正确上下文）
+        systemFolderCode: systemFolderCode,
       };
       Object.defineProperty(queueItem, 'file', {
         value: file,
@@ -184,11 +206,18 @@ export class FileUploadCoordinator {
   /**
    * 【老格式】处理统一 folderId 的文件列表（普通上传）
    * @private
+   * @param {File[]} files - 文件数组
+   * @param {number|null} folderId - 目标文件夹ID
+   * @param {Object|null} [targetContext=null] - 不可变上传目标上下文
    */
   @action
-  async _processUniform(files, folderId) {
-    const tenantId = this.core.getCurrentTenantId();
-    const isPublic = this.core.rootStore.navigationStore?.isPublic;
+  async _processUniform(files, folderId, targetContext = null) {
+    // 普通上传时 isPublic/tenantId/systemFolderCode 来自 targetContext；
+    // 兼容老调用方（未传 ctx）时回退到 navigationStore
+    const ctx = targetContext || this.core.captureUploadTargetContext();
+    const tenantId = ctx.tenantId;
+    const isPublic = ctx.isPublic;
+    const systemFolderCode = ctx.systemFolderCode;
 
     if (!this.core.uploadQueue[tenantId]) {
       this.core.uploadQueue[tenantId] = [];
@@ -249,6 +278,9 @@ export class FileUploadCoordinator {
         fileHash: null,
         isPublic: isPublic,
         totalChunks: estimatedChunks,
+        // 【拖拽上传】固化系统目录上下文，后续 transfer/chunk/merge 请求从此读取，
+        // 不依赖 systemFolderContext 全局变量（党建任务离开页面后仍携带正确上下文）
+        systemFolderCode: systemFolderCode,
       };
       Object.defineProperty(item, 'file', {
         value: file,

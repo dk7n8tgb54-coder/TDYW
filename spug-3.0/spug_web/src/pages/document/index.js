@@ -14,6 +14,8 @@ import SearchBox from './components/SearchBox';
 import DiskStatus from './components/DiskStatus';
 import KeyboardShortcuts from './components/KeyboardShortcuts';
 import DocumentErrorBoundary from './components/DocumentErrorBoundary';
+import DocumentDropUploadLayer from './components/DocumentDropUploadLayer';
+import { isEmptyFolderBatch, isPlainFilesOnly, MAX_DROP_ENTRIES, MAX_DROP_DEPTH } from './utils/dropUpload';
 import navigationStore from './stores/navigation';
 import uploadUIStore from './stores/upload/ui';
 import { uploadCoreStore } from './stores';
@@ -251,6 +253,67 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
     setSearchState({ isSearching: false, keyword: '', scope: 'current', results: [] });
   };
 
+  // 【拖拽上传】目标目录显示文本（用于遮罩提示 + captureTargetContext）
+  // 普通模式：'我的文件 / 子目录' 或 '公共共享库 / 子目录'
+  // 党建模式：'党建文档 / 子目录'
+  const targetPathLabel = [
+    spacePrefix,
+    ...breadcrumbPath.map(p => p.name),
+  ].filter(Boolean).join(' / ');
+
+  // 【拖拽上传】捕获不可变目标上下文（drop 时立即调用，固化为快照）
+  // 党建模式显式传 systemFolderCode，避免离开党建路由后丢失
+  const captureDropTargetContext = () => {
+    return uploadCoreStore.captureUploadTargetContext({
+      systemFolderCode: isPartyBuildingDocuments ? PARTY_BUILDING_DOCUMENTS_CODE : null,
+      targetPathLabel,
+    });
+  };
+
+  // 【拖拽上传】drop 回调：收集结果 → 区分普通文件/文件夹 → 进入现有 uploadCoreStore
+  const handleDropUpload = (collected, targetContext) => {
+    // 空文件夹
+    if (isEmptyFolderBatch(collected)) {
+      message.info('空文件夹无需上传');
+      return;
+    }
+    // 截断/深度超限警告
+    if (collected.truncated) {
+      message.warning(`文件数量超过上限（${MAX_DROP_ENTRIES}），已截断，请分批上传`);
+    }
+    if (collected.depthExceeded) {
+      message.warning(`目录深度超过上限（${MAX_DROP_DEPTH}层），部分文件未上传`);
+    }
+    // 解析错误提示
+    if (collected.errors && collected.errors.length > 0) {
+      message.warning(collected.errors[0]);
+    }
+    if (collected.files.length === 0) return;
+
+    // 刷新服务器压力，确保按最新等级调度
+    uploadCoreStore.refreshPressure();
+
+    // 区分普通文件 vs 文件夹：
+    //   - 全是普通文件（无文件夹）→ handleFileSelect（走普通/分片上传）
+    //   - 包含文件夹 → handleFolderEntries（走 FolderStructureBuilder + 普通上传）
+    // 两条路径都进入同一套 uploadCoreStore，不新增队列
+    if (isPlainFilesOnly(collected)) {
+      if (isPartyBuildingDocuments) {
+        message.info('文件将上传到党建文档，所有用户均可查看下载');
+      } else if (navigationStore.isPublic) {
+        message.info('文件将上传到公共共享库，所有用户均可查看下载');
+      }
+      uploadCoreStore.handleFileSelect(collected.files, targetContext);
+    } else {
+      if (isPartyBuildingDocuments) {
+        message.info('文件夹将上传到党建文档，所有用户均可查看下载');
+      } else if (navigationStore.isPublic) {
+        message.info('文件夹将上传到公共共享库，所有用户均可查看下载');
+      }
+      uploadCoreStore.handleFolderEntries(collected.entries, targetContext);
+    }
+  };
+
   return (
     <div className={styles.pageWrapper}>
       {/* 面包屑 + 磁盘状态 + 搜索 */}
@@ -370,16 +433,26 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
             />
           </div>
           <div className={styles.explorerArea}>
-            <Explorer
-              folderId={effectiveCurrentFolderId}
-              onFolderChange={() => {}}
-              ref={explorerRef}
-              viewMode={viewMode}
-              isPublic={navigationStore.isPublic}
-              searchState={searchState}
+            <DocumentDropUploadLayer
+              canUpload={canUpload}
               isPartyBuildingDocuments={isPartyBuildingDocuments}
-              permPrefix={permPrefix}
-            />
+              isPartyBuildingDocumentsReady={isPartyBuildingDocumentsReady}
+              isSearching={searchState.isSearching}
+              targetPathLabel={targetPathLabel}
+              captureTargetContext={captureDropTargetContext}
+              onDrop={handleDropUpload}
+            >
+              <Explorer
+                folderId={effectiveCurrentFolderId}
+                onFolderChange={() => {}}
+                ref={explorerRef}
+                viewMode={viewMode}
+                isPublic={navigationStore.isPublic}
+                searchState={searchState}
+                isPartyBuildingDocuments={isPartyBuildingDocuments}
+                permPrefix={permPrefix}
+              />
+            </DocumentDropUploadLayer>
           </div>
         </div>
       </div>}

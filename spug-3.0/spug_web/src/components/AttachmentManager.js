@@ -4,38 +4,35 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 通用附件管理组件
+ * 通用附件管理组件 AttachmentManager
  *
- * 用法：
- *   <AttachmentManager
- *     module="upgrade"          // 业务模块标识
- *     objectType="record"       // 业务对象类型
- *     recordId={store.record.id} // 业务对象 ID（未创建时传空，组件自动隐藏）
- *     listUrl={`/api/upgrade/records/${id}/attachments/`}
- *     uploadUrl={`/api/upgrade/records/${id}/attachments/`}
- *     deleteUrl={`/api/upgrade/attachments/`}
- *     downloadUrlPrefix={`/api/upgrade/attachments/`}  // 下载会拼 `${prefix}${id}/download/?x-token=...`
- *     previewUrlPrefix={`/api/upgrade/attachments/`}   // 预览会拼 `${prefix}${id}/preview-url/`
- *     readOnly={viewMode}       // 只读模式隐藏上传/删除
- *     uploadPerm="upgrade.upgrade.edit"
- *     deletePerm="upgrade.upgrade.edit"
- *     previewPerm="upgrade.upgrade.view"
- *     maxFileSize={500}         // MB，前端预校验
- *     accept=".zip,.exe,..."
- *     onCountChange={setAttachmentCount}
- *   />
+ * 旧调用方完全向后兼容（未传新增 Props 时按钮式单文件上传、旧 URL 拼装规则不变）。
  *
- * 设计原则：
- * - 接口路径由调用方传入，组件不硬编码任何模块
- * - 权限码由调用方传入，复用项目 hasPermission 体系
- * - 下载走 x-token GET 参数鉴权（项目中间件支持）
- * - 预览：图片/PDF 走下载接口 inline 模式浏览器原生预览；Office 等走 kkFileView
- * - 上传用 antd Upload customRequest，支持大文件长超时
+ * 适配器优先级：请求适配器 > 旧 URL Props 默认实现。
+ *   传了 deleteRequest 就不再读取 deleteUrl；未传则继续使用旧 DELETE ${deleteUrl}?id=${id}。
+ *
+ * 权限计算：
+ *   canUpload   = !readOnly && (!uploadPerm   || hasPermission(uploadPerm))
+ *   canDelete   = !readOnly && (!deletePerm   || hasPermission(deletePerm))
+ *   canPreview  = !previewPerm  || hasPermission(previewPerm)
+ *   canDownload = !downloadPerm || hasPermission(downloadPerm)
+ *
+ * 预览优先级：
+ *   - 传入 previewRequest 时，所有可预览文件（含图片/PDF）都走 previewRequest，
+ *     不再绕到下载接口；支持后端返回 preview_type: native | image | pdf | kkfileview。
+ *   - 未传 previewRequest 时，保持旧逻辑：图片/PDF 走下载接口 inline 模式，
+ *     其他类型走 previewUrlPrefix 的 preview-url。
  */
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Upload, Button, Table, Tag, message, Popconfirm, Space, Modal } from 'antd';
-import { UploadOutlined, DownloadOutlined, DeleteOutlined, PaperClipOutlined, EyeOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Button, Table, Tag, message, Popconfirm, Space, Modal } from 'antd';
+import {
+  DownloadOutlined,
+  DeleteOutlined,
+  PaperClipOutlined,
+  EyeOutlined,
+} from '@ant-design/icons';
 import { http, hasPermission, X_TOKEN } from 'libs';
+import AttachmentUploadArea from './AttachmentUploadArea';
 
 const DEFAULT_PREVIEWABLE_EXTENSIONS = [
   '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
@@ -43,7 +40,7 @@ const DEFAULT_PREVIEWABLE_EXTENSIONS = [
   '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
 ];
 
-// 浏览器原生可预览的文件类型（不走 kkFileView）
+// 浏览器原生可预览的文件类型（未传 previewRequest 时走下载接口 inline 模式）
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'];
 const PDF_EXTENSIONS = ['.pdf'];
 
@@ -82,24 +79,16 @@ function getPreviewable(record, previewableExtensions) {
     : isPreviewable(record.file_name, previewableExtensions);
 }
 
-function AttachmentToolbar({ canUpload, accept, uploading, maxFileSize, onUpload }) {
-  if (!canUpload) return null;
-
-  return (
-    <Space style={{ marginBottom: 12 }}>
-      <Upload customRequest={onUpload} showUploadList={false} accept={accept}>
-        <Button icon={<UploadOutlined />} loading={uploading}>
-          上传附件
-        </Button>
-      </Upload>
-      <Tag color="blue" style={{ marginLeft: 8 }}>
-        单文件最大 {maxFileSize}MB
-      </Tag>
-    </Space>
-  );
+function toErrorMessage(err) {
+  if (!err) return '操作失败';
+  if (typeof err === 'string') return err;
+  if (err.message) return err.message;
+  return '操作失败';
 }
 
 function AttachmentPreviewModal({ visible, fileName, previewUrl, previewType, onClose }) {
+  // previewType: image | native | pdf | kkfileview | 其他
+  const isImage = previewType === 'image';
   return (
     <Modal
       title={`预览：${fileName}`}
@@ -111,12 +100,12 @@ function AttachmentPreviewModal({ visible, fileName, previewUrl, previewType, on
       bodyStyle={{ height: '80vh' }}
       destroyOnClose
     >
-      {previewUrl && previewType === 'image' && (
+      {previewUrl && isImage && (
         <div style={{ height: '100%', textAlign: 'center', overflow: 'auto' }}>
           <img src={previewUrl} alt={fileName} style={{ maxWidth: '100%', maxHeight: '80vh' }} />
         </div>
       )}
-      {previewUrl && previewType !== 'image' && (
+      {previewUrl && !isImage && (
         <iframe
           src={previewUrl}
           style={{ width: '100%', height: '100%', border: 'none' }}
@@ -129,15 +118,9 @@ function AttachmentPreviewModal({ visible, fileName, previewUrl, previewType, on
 
 function buildAttachmentColumns(options) {
   const {
-    canDelete,
-    canPreview,
-    previewUrlPrefix,
-    downloadUrlPrefix,
-    previewableExtensions,
-    onDelete,
-    onDownload,
-    onPreview,
-    onFileNameClick,
+    canDelete, canPreview, canDownload, hasPreviewCapability,
+    previewableExtensions, onDelete, onDownload, onPreview,
+    onFileNameClick, renderExtraActions, extraActionsContext,
   } = options;
 
   return [
@@ -145,34 +128,29 @@ function buildAttachmentColumns(options) {
       title: '文件名',
       dataIndex: 'file_name',
       key: 'file_name',
-      render: (text, record) => (
-        <Space>
-          <PaperClipOutlined />
-          <Button type="link" style={{ padding: 0 }} onClick={() => onFileNameClick(record)}>
-            {text}
-          </Button>
-        </Space>
-      ),
+      render: (text, record) => {
+        const previewable = getPreviewable(record, previewableExtensions);
+        // 可预览且可预览权限 → 点击预览；否则可下载 → 点击下载；都无 → 纯文本
+        const clickPreview = previewable && canPreview && hasPreviewCapability;
+        const clickDownload = !clickPreview && canDownload;
+        const clickable = clickPreview || clickDownload;
+        return (
+          <Space>
+            <PaperClipOutlined />
+            {clickable ? (
+              <Button type="link" style={{ padding: 0 }} onClick={() => onFileNameClick(record)}>
+                {text}
+              </Button>
+            ) : (
+              <span>{text}</span>
+            )}
+          </Space>
+        );
+      },
     },
-    {
-      title: '大小',
-      dataIndex: 'file_size',
-      key: 'file_size',
-      width: 100,
-      render: size => formatFileSize(size),
-    },
-    {
-      title: '上传人',
-      dataIndex: 'uploaded_by_name',
-      key: 'uploaded_by_name',
-      width: 100,
-    },
-    {
-      title: '上传时间',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      width: 160,
-    },
+    { title: '大小', dataIndex: 'file_size', key: 'file_size', width: 100, render: size => formatFileSize(size) },
+    { title: '上传人', dataIndex: 'uploaded_by_name', key: 'uploaded_by_name', width: 100 },
+    { title: '上传时间', dataIndex: 'created_at', key: 'created_at', width: 160 },
     {
       title: '操作',
       key: 'action',
@@ -181,14 +159,16 @@ function buildAttachmentColumns(options) {
         const previewable = getPreviewable(record, previewableExtensions);
         return (
           <Space>
-            {previewable && canPreview && (previewUrlPrefix || downloadUrlPrefix) && (
+            {previewable && canPreview && hasPreviewCapability && (
               <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => onPreview(record)}>
                 预览
               </Button>
             )}
-            <Button type="link" size="small" icon={<DownloadOutlined />} onClick={() => onDownload(record)}>
-              下载
-            </Button>
+            {canDownload && (
+              <Button type="link" size="small" icon={<DownloadOutlined />} onClick={() => onDownload(record)}>
+                下载
+              </Button>
+            )}
             {canDelete && (
               <Popconfirm title="确定删除此附件？" onConfirm={() => onDelete(record)}>
                 <Button type="link" size="small" danger icon={<DeleteOutlined />}>
@@ -196,6 +176,7 @@ function buildAttachmentColumns(options) {
                 </Button>
               </Popconfirm>
             )}
+            {renderExtraActions && renderExtraActions(record, extraActionsContext)}
           </Space>
         );
       },
@@ -203,89 +184,20 @@ function buildAttachmentColumns(options) {
   ];
 }
 
-function useAttachmentPreview(module, downloadUrlPrefix, previewUrlPrefix) {
-  const [previewVisible, setPreviewVisible] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState('');
-  const [previewFileName, setPreviewFileName] = useState('');
-  const [previewType, setPreviewType] = useState('kkfileview');
-
-  const handlePreview = useCallback((att) => {
-    // 图片/PDF 直接走下载接口 inline 模式，浏览器原生预览
-    if (isImageFile(att.file_name) || isPdfFile(att.file_name)) {
-      if (!downloadUrlPrefix) {
-        message.warning('下载地址未配置，无法预览');
-        return;
-      }
-      const inlineUrl = `${downloadUrlPrefix}${att.id}/download/?x-token=${X_TOKEN}&inline=1`;
-      setPreviewUrl(inlineUrl);
-      setPreviewFileName(att.file_name);
-      setPreviewType(isImageFile(att.file_name) ? 'image' : 'pdf');
-      setPreviewVisible(true);
-      return;
-    }
-    // 其他类型走 kkFileView
-    if (!previewUrlPrefix) {
-      message.warning('预览功能未配置');
-      return;
-    }
-    http.get(`${previewUrlPrefix}${att.id}/preview-url/`)
-      .then(data => {
-        setPreviewUrl(data.preview_url);
-        setPreviewFileName(data.file_name || att.file_name);
-        setPreviewType('kkfileview');
-        setPreviewVisible(true);
-      })
-      .catch(e => {
-        console.error(`[AttachmentManager:${module}] 获取预览地址失败:`, e);
-        message.error(e?.message || '获取预览地址失败');
-      });
-  }, [module, previewUrlPrefix, downloadUrlPrefix]);
-
-  const closePreview = useCallback(() => {
-    setPreviewVisible(false);
-    setPreviewUrl('');
-    setPreviewType('kkfileview');
-  }, []);
-
-  return { previewVisible, previewUrl, previewFileName, previewType, handlePreview, closePreview };
-}
-
-export default function AttachmentManager(props) {
-  const {
-    module = '',
-    recordId,
-    listUrl,
-    uploadUrl,
-    deleteUrl,
-    downloadUrlPrefix,
-    previewUrlPrefix,
-    readOnly = false,
-    uploadPerm = '',
-    deletePerm = '',
-    previewPerm = '',
-    maxFileSize = 500,
-    accept = DEFAULT_ACCEPT,
-    previewableExtensions = DEFAULT_PREVIEWABLE_EXTENSIONS,
-    emptyText = '暂无附件',
-    onCountChange,
-  } = props;
-
+/**
+ * 附件列表状态与加载 hook
+ */
+function useAttachmentList({ module, recordId, listUrl, listRequest, normalizeAttachment, onCountChange }) {
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const attachmentsRef = useRef([]);
 
-  const {
-    previewVisible,
-    previewUrl,
-    previewFileName,
-    previewType,
-    handlePreview,
-    closePreview,
-  } = useAttachmentPreview(module, downloadUrlPrefix, previewUrlPrefix);
+  useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
 
-  const canUpload = !readOnly && (!uploadPerm || hasPermission(uploadPerm));
-  const canDelete = !readOnly && (!deletePerm || hasPermission(deletePerm));
-  const canPreview = !previewPerm || hasPermission(previewPerm);
+  const normalize = useCallback((raw) => {
+    if (!normalizeAttachment) return raw;
+    return normalizeAttachment(raw);
+  }, [normalizeAttachment]);
 
   const updateAttachments = useCallback((updater) => {
     setAttachments(prev => {
@@ -296,112 +208,257 @@ export default function AttachmentManager(props) {
   }, [onCountChange]);
 
   const fetchAttachments = useCallback(() => {
-    if (!recordId || !listUrl) {
-      updateAttachments([]);
+    if (!recordId) { updateAttachments([]); return; }
+    if (listRequest) {
+      setLoading(true);
+      listRequest()
+        .then(data => updateAttachments((data || []).map(normalize)))
+        .catch(e => console.error(`[AttachmentManager:${module}] 获取附件列表失败:`, e))
+        .finally(() => setLoading(false));
       return;
     }
+    if (!listUrl) { updateAttachments([]); return; }
     setLoading(true);
     http.get(listUrl)
-      .then(data => updateAttachments(data || []))
-      .catch(e => {
-        console.error(`[AttachmentManager:${module}] 获取附件列表失败:`, e);
-      })
+      .then(data => updateAttachments((data || []).map(normalize)))
+      .catch(e => console.error(`[AttachmentManager:${module}] 获取附件列表失败:`, e))
       .finally(() => setLoading(false));
-  }, [recordId, listUrl, module, updateAttachments]);
+  }, [recordId, listUrl, listRequest, module, updateAttachments, normalize]);
 
-  useEffect(() => {
-    fetchAttachments();
-  }, [fetchAttachments]);
+  useEffect(() => { fetchAttachments(); }, [fetchAttachments]);
 
-  const handleUpload = useCallback((options) => {
-    const { file, onSuccess, onError } = options;
-    if (file.size > maxFileSize * 1024 * 1024) {
-      message.error(`文件大小不能超过 ${maxFileSize}MB`);
+  return { attachments, loading, normalize, updateAttachments };
+}
+
+/**
+ * 附件预览 hook：适配器优先，未传适配器时保持旧 inline / kkFileView 逻辑
+ */
+function useAttachmentPreview({ module, previewRequest, previewUrlPrefix, downloadUrlPrefix }) {
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [previewFileName, setPreviewFileName] = useState('');
+  const [previewType, setPreviewType] = useState('kkfileview');
+
+  const handlePreview = useCallback((att) => {
+    // 适配器优先：所有可预览文件都走 previewRequest，不绕下载接口
+    if (previewRequest) {
+      previewRequest(att)
+        .then(data => {
+          setPreviewUrl(data.preview_url || '');
+          setPreviewFileName(data.file_name || att.file_name);
+          setPreviewType(data.preview_type || 'kkfileview');
+          setPreviewVisible(true);
+        })
+        .catch(() => { /* http.js 已弹错误 */ });
       return;
     }
+    // 旧逻辑：图片/PDF 走下载接口 inline 模式
+    if (isImageFile(att.file_name) || isPdfFile(att.file_name)) {
+      if (!downloadUrlPrefix) { message.warning('下载地址未配置，无法预览'); return; }
+      const inlineUrl = `${downloadUrlPrefix}${att.id}/download/?x-token=${X_TOKEN}&inline=1`;
+      setPreviewUrl(inlineUrl);
+      setPreviewFileName(att.file_name);
+      setPreviewType(isImageFile(att.file_name) ? 'image' : 'pdf');
+      setPreviewVisible(true);
+      return;
+    }
+    // 其他类型走 kkFileView
+    if (!previewUrlPrefix) { message.warning('预览功能未配置'); return; }
+    http.get(`${previewUrlPrefix}${att.id}/preview-url/`)
+      .then(data => {
+        setPreviewUrl(data.preview_url);
+        setPreviewFileName(data.file_name || att.file_name);
+        setPreviewType('kkfileview');
+        setPreviewVisible(true);
+      })
+      .catch(e => console.error(`[AttachmentManager:${module}] 获取预览地址失败:`, e));
+  }, [previewRequest, previewUrlPrefix, downloadUrlPrefix, module]);
 
-    setUploading(true);
+  const closePreview = useCallback(() => {
+    // 仅释放组件自己创建的 Blob URL，外部/后端 token URL 不 revoke
+    if (previewUrl && previewUrl.indexOf('blob:') === 0) {
+      try { URL.revokeObjectURL(previewUrl); } catch (e) { /* ignore */ }
+    }
+    setPreviewVisible(false);
+    setPreviewUrl('');
+    setPreviewType('kkfileview');
+  }, [previewUrl]);
+
+  return { previewVisible, previewUrl, previewFileName, previewType, handlePreview, closePreview };
+}
+
+/**
+ * 上传 / 下载 / 删除动作 hook
+ */
+function useAttachmentActions({
+  module, multiple, uploadRequest, uploadUrl,
+  downloadRequest, downloadUrlPrefix,
+  deleteRequest, deleteUrl, normalize, updateAttachments,
+}) {
+  // 上传：AttachmentUploadArea 的 request 适配器
+  const handleUploadRequest = useCallback((file) => {
+    if (uploadRequest) return uploadRequest(file);
     const formData = new FormData();
     formData.append('file', file);
-
-    http.post(uploadUrl, formData, {
+    return http.post(uploadUrl, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 600000,
-    })
-      .then(data => {
-        message.success('上传成功');
-        updateAttachments(prev => [data, ...prev]);
-        if (onSuccess) onSuccess(data, file);
-      })
-      .catch(e => {
-        console.error(`[AttachmentManager:${module}] 上传附件失败:`, e);
-        message.error(e?.message || '上传失败');
-        if (onError) onError(e);
-      })
-      .finally(() => setUploading(false));
-  }, [maxFileSize, module, uploadUrl, updateAttachments]);
+    });
+  }, [uploadRequest, uploadUrl]);
 
+  const handleFileSuccess = useCallback((result, file) => {
+    const normalized = normalize(result);
+    updateAttachments(prev => [normalized, ...prev]);
+    if (!multiple) message.success('上传成功');
+  }, [normalize, updateAttachments, multiple]);
+
+  const handleFileError = useCallback((err, file) => {
+    if (!multiple) message.error(toErrorMessage(err));
+  }, [multiple]);
+
+  const handleBatchSettled = useCallback((summary) => {
+    if (!multiple) return; // 单文件模式已由 onFileSuccess/onFileError 弹单条
+    if (!summary) return;
+    const { successCount, failedCount } = summary;
+    if (failedCount === 0) {
+      message.success(`${successCount} 个附件上传成功`);
+    } else if (successCount === 0) {
+      message.error(`${failedCount} 个附件上传失败`);
+    } else {
+      message.warning(`${successCount} 个附件上传成功，${failedCount} 个失败`);
+    }
+  }, [multiple]);
+
+  // 下载
   const handleDownload = useCallback((att) => {
+    if (downloadRequest) {
+      // 适配器自行处理下载（创建 a 标签、revoke），组件不重复弹错误
+      downloadRequest(att).catch(() => { /* http.js 已弹错误 */ });
+      return;
+    }
+    if (!downloadUrlPrefix) { message.warning('下载地址未配置'); return; }
     const url = `${downloadUrlPrefix}${att.id}/download/?x-token=${X_TOKEN}`;
     const link = document.createElement('a');
     link.href = url;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [downloadUrlPrefix]);
+  }, [downloadRequest, downloadUrlPrefix]);
 
+  // 删除
   const handleDelete = useCallback((att) => {
-    http.delete(`${deleteUrl}?id=${att.id}`)
+    const doDelete = deleteRequest
+      ? () => deleteRequest(att)
+      : () => http.delete(`${deleteUrl}?id=${att.id}`);
+    doDelete()
       .then(() => {
         message.success('删除成功');
         updateAttachments(prev => prev.filter(item => item.id !== att.id));
       })
       .catch(e => {
         console.error(`[AttachmentManager:${module}] 删除附件失败:`, e);
-        message.error(e?.message || '删除失败');
+        // http.js 已弹错误，避免重复
       });
-  }, [deleteUrl, module, updateAttachments]);
+  }, [deleteRequest, deleteUrl, module, updateAttachments]);
 
+  return {
+    handleUploadRequest, handleFileSuccess, handleFileError, handleBatchSettled,
+    handleDownload, handleDelete,
+  };
+}
+
+export default function AttachmentManager(props) {
+  const {
+    module = '', recordId, listUrl, uploadUrl, deleteUrl,
+    downloadUrlPrefix, previewUrlPrefix, readOnly = false,
+    uploadPerm = '', deletePerm = '', previewPerm = '', downloadPerm = '',
+    maxFileSize = 500, accept = DEFAULT_ACCEPT,
+    previewableExtensions = DEFAULT_PREVIEWABLE_EXTENSIONS,
+    emptyText = '暂无附件', onCountChange,
+    uploadMode = 'button', multiple = false, maxFilesPerBatch = 20, uploadHint,
+    listRequest, uploadRequest, deleteRequest, downloadRequest, previewRequest,
+    normalizeAttachment, renderExtraActions, hiddenColumns,
+  } = props;
+
+  const canUpload = !readOnly && (!uploadPerm || hasPermission(uploadPerm));
+  const canDelete = !readOnly && (!deletePerm || hasPermission(deletePerm));
+  const canPreview = !previewPerm || hasPermission(previewPerm);
+  const canDownload = !downloadPerm || hasPermission(downloadPerm);
+  // 预览能力：传入 previewRequest 即具备；否则需要旧 URL prefix
+  const hasPreviewCapability = !!(previewRequest || previewUrlPrefix || downloadUrlPrefix);
+
+  const { attachments, loading, normalize, updateAttachments } = useAttachmentList({
+    module, recordId, listUrl, listRequest, normalizeAttachment, onCountChange,
+  });
+
+  const {
+    previewVisible, previewUrl, previewFileName, previewType, handlePreview, closePreview,
+  } = useAttachmentPreview({ module, previewRequest, previewUrlPrefix, downloadUrlPrefix });
+
+  const {
+    handleUploadRequest, handleFileSuccess, handleFileError, handleBatchSettled,
+    handleDownload, handleDelete,
+  } = useAttachmentActions({
+    module, multiple, uploadRequest, uploadUrl,
+    downloadRequest, downloadUrlPrefix,
+    deleteRequest, deleteUrl, normalize, updateAttachments,
+  });
+
+  // 文件名点击：可预览+canPreview→预览；否则 canDownload→下载；都无→纯文本
   const handleFileNameClick = useCallback((att) => {
     const previewable = getPreviewable(att, previewableExtensions);
-    if (previewable && canPreview && (previewUrlPrefix || downloadUrlPrefix)) {
+    if (previewable && canPreview && hasPreviewCapability) {
       handlePreview(att);
-    } else {
-      handleDownload(att);
+      return;
     }
-  }, [canPreview, handleDownload, handlePreview, previewUrlPrefix, downloadUrlPrefix, previewableExtensions]);
+    if (canDownload) handleDownload(att);
+  }, [previewableExtensions, canPreview, canDownload, hasPreviewCapability, handlePreview, handleDownload]);
 
-  const columns = useMemo(() => buildAttachmentColumns({
-    canDelete,
-    canPreview,
-    previewUrlPrefix,
-    downloadUrlPrefix,
-    previewableExtensions,
-    onDelete: handleDelete,
-    onDownload: handleDownload,
-    onPreview: handlePreview,
-    onFileNameClick: handleFileNameClick,
-  }), [
-    canDelete,
-    canPreview,
-    previewUrlPrefix,
-    downloadUrlPrefix,
-    previewableExtensions,
-    handleDelete,
-    handleDownload,
-    handlePreview,
-    handleFileNameClick,
+  const columns = useMemo(() => {
+    const all = buildAttachmentColumns({
+      canDelete, canPreview, canDownload, hasPreviewCapability, previewableExtensions,
+      onDelete: handleDelete, onDownload: handleDownload, onPreview: handlePreview,
+      onFileNameClick: handleFileNameClick, renderExtraActions,
+      extraActionsContext: { attachments },
+    });
+    if (!hiddenColumns || hiddenColumns.length === 0) return all;
+    return all.filter(col => !(col.dataIndex && hiddenColumns.includes(col.dataIndex)));
+  }, [
+    canDelete, canPreview, canDownload, hasPreviewCapability, previewableExtensions,
+    handleDelete, handleDownload, handlePreview, handleFileNameClick,
+    renderExtraActions, attachments, hiddenColumns,
   ]);
+
+  // 上传区 hint：button 模式由外层 Tag 提示（保持旧视觉），dragger 模式由 AttachmentUploadArea 生成
+  const uploadAreaHint = uploadMode === 'dragger'
+    ? (uploadHint !== undefined ? uploadHint : undefined)
+    : null;
 
   return (
     <div>
-      <AttachmentToolbar
-        canUpload={canUpload}
-        accept={accept}
-        uploading={uploading}
-        maxFileSize={maxFileSize}
-        onUpload={handleUpload}
-      />
+      {canUpload && (
+        <div style={{ marginBottom: uploadMode === 'dragger' ? 12 : 0 }}>
+          <AttachmentUploadArea
+            mode={uploadMode}
+            multiple={multiple}
+            accept={accept}
+            maxFileSizeMB={maxFileSize}
+            maxFilesPerBatch={maxFilesPerBatch}
+            disabled={false}
+            request={handleUploadRequest}
+            onFileSuccess={handleFileSuccess}
+            onFileError={handleFileError}
+            onBatchSettled={handleBatchSettled}
+            buttonText="上传附件"
+            hint={uploadAreaHint}
+          />
+          {uploadMode === 'button' && (
+            <Tag color="blue" style={{ marginLeft: 8 }}>
+              单文件最大 {maxFileSize}MB
+            </Tag>
+          )}
+        </div>
+      )}
       <Table
         columns={columns}
         dataSource={attachments}

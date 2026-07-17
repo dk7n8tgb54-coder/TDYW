@@ -19,6 +19,7 @@ import NotFound from './NotFound';
 import Link from './Link';
 import ExportButton from './ExportButton';
 import AttachmentManager from './AttachmentManager';
+import AttachmentUploadArea from './AttachmentUploadArea';
 import AttachmentCountBadge from './AttachmentCountBadge';
 
 export {
@@ -38,5 +39,6 @@ export {
   Link,
   ExportButton,
   AttachmentManager,
+  AttachmentUploadArea,
   AttachmentCountBadge,
 }

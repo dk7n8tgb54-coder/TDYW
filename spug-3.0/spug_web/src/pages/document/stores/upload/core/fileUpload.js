@@ -31,7 +31,9 @@ export class FileUploadStore {
     // 队列项可能在入队时未创建 transfer（优化1），或已有 transferId（恢复上传）
     const existingItem = this.queueStore.findUploadItemInCurrentTenant(uploadId);
     let transferId = existingItem?.transferId || null;
-    const targetIsPublic = isPublic !== null ? isPublic : this.rootStore.navigationStore?.isPublic;
+    // 【拖拽上传 - 5.4】优先使用队列项固化的 isPublic/systemFolderCode，避免离开党建路由后丢失
+    const targetIsPublic = isPublic !== null ? isPublic : (existingItem?.isPublic ?? this.rootStore.navigationStore?.isPublic);
+    const targetSystemFolderCode = existingItem?.systemFolderCode || null;
 
     if (!transferId) {
       // 没有已有 transfer，按需创建
@@ -43,7 +45,7 @@ export class FileUploadStore {
           is_public: targetIsPublic,
           total_chunks: 1, // 普通上传只有1个"分片"
           folder_id: folderId,
-        });
+        }, targetSystemFolderCode);
 
         // 更新队列项，关联传输记录
         this.queueStore.updateUploadItem(uploadId, {
@@ -96,6 +98,13 @@ export class FileUploadStore {
       const tenantIdForRequest = targetIsPublic ? null : sessionStorage.getItem('tenant_id');
       if (tenantIdForRequest != null && tenantIdForRequest !== '') {
         formData.append('tenant_id', tenantIdForRequest);
+      }
+
+      // 【拖拽上传 - 5.4】显式传 system_folder：
+      //   党建任务离开党建路由后 http.js 拦截器不再注入，
+      //   必须从队列项读取 systemFolderCode 显式追加，后端才能正确归属党建目录
+      if (targetSystemFolderCode) {
+        formData.append('system_folder', targetSystemFolderCode);
       }
 
       const { http } = await import('libs');

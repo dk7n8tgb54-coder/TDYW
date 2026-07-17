@@ -1,0 +1,93 @@
+/* DocumentDropUploadLayer - 拖拽上传投放层样式 */
+
+.dropLayerWrapper {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  /* 不改变 Explorer 尺寸，遮罩绝对定位覆盖 */
+}
+
+.dropMask {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(24, 144, 255, 0.08);
+  border: 2px dashed #1890ff;
+  border-radius: 4px;
+  pointer-events: none; /* 不阻断 drop 事件 */
+  box-sizing: border-box;
+  animation: dropMaskFadeIn 0.15s ease-out;
+}
+
+.dropMaskDisabled {
+  background: rgba(255, 77, 79, 0.08);
+  border-color: #ff4d4f;
+}
+
+.maskContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 32px;
+  text-align: center;
+  max-width: 80%;
+  pointer-events: none;
+}
+
+.maskIcon {
+  font-size: 48px;
+  color: #1890ff;
+  margin-bottom: 12px;
+}
+
+.dropMaskDisabled .maskIcon {
+  color: #ff4d4f;
+}
+
+.maskTitle {
+  font-size: 16px;
+  font-weight: 500;
+  color: #262626;
+  margin-bottom: 4px;
+  /* 窄屏换行不溢出 */
+  word-break: break-word;
+}
+
+.maskPath {
+  font-size: 13px;
+  color: #1890ff;
+  margin-bottom: 8px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: break-all;
+}
+
+.dropMaskDisabled .maskPath {
+  color: #ff4d4f;
+}
+
+.maskHint {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+@keyframes dropMaskFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

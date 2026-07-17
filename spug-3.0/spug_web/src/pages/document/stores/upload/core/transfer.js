@@ -30,11 +30,23 @@ export class TransferStore {
 
   /**
    * 创建传输记录
+   *
+   * 【拖拽上传 - 5.4】显式传 system_folder：
+   *   - 党建任务离开党建路由后，http.js 拦截器不再注入 system_folder
+   *   - 调用方（fileUpload/chunkUpload）从队列项读 systemFolderCode 传入此参数
+   *   - 后端 TransferCreateView 会校验 system_folder 与目标目录 scope 一致
+   *
+   * @param {Object} transferData - 传输记录数据
+   * @param {string|null} [systemFolderCode=null] - 系统目录 code（党建文档场景必传）
    */
-  async createTransfer(transferData) {
+  async createTransfer(transferData, systemFolderCode = null) {
     try {
       const { http } = await import('libs');
-      const result = await http.post(API_ENDPOINTS.TRANSFER_CREATE, transferData);
+      // 显式合并 system_folder，不依赖 http.js 拦截器
+      const payload = systemFolderCode
+        ? { ...transferData, system_folder: systemFolderCode }
+        : transferData;
+      const result = await http.post(API_ENDPOINTS.TRANSFER_CREATE, payload);
       if (result && result.id) {
         return result.id;
       }
@@ -375,9 +387,12 @@ export class TransferStore {
    * @param {number} fileSize - 文件大小
    * @param {number} totalChunks - 总分片数
    * @param {boolean} isPublic - 是否公共空间
+   * @param {number|null} [transferId=null] - 传输记录ID
+   * @param {string|null} [systemFolderCode=null] - 系统目录 code（党建文档场景必传，
+   *   显式传入后不依赖 http.js 拦截器，党建任务离开党建路由后仍能正确查询分片）
    * @returns {Promise<{exists: boolean, uploaded_chunks: number[], count: number}>}
    */
-  async checkUploadedChunks(fileHash, fileSize, totalChunks, isPublic = false, transferId = null) {
+  async checkUploadedChunks(fileHash, fileSize, totalChunks, isPublic = false, transferId = null, systemFolderCode = null) {
     try {
       const { http } = await import('libs');
       const payload = {
@@ -388,6 +403,10 @@ export class TransferStore {
       };
       if (transferId) {
         payload.transfer_id = transferId;
+      }
+      // 【拖拽上传 - 5.4】显式传 system_folder，不依赖 http.js 拦截器
+      if (systemFolderCode) {
+        payload.system_folder = systemFolderCode;
       }
       const result = await http.post(API_ENDPOINTS.CHECK_UPLOADED_CHUNKS, payload);
       

@@ -35,15 +35,24 @@ export class FolderStructureBuilder {
 
   /**
    * 构建文件夹结构
-   * @param {File[]} files - 带 webkitRelativePath 的文件列表
+   *
+   * 支持两种输入格式（按钮上传 / 拖拽上传 共用）：
+   *   1. File[]：每个 File 带 webkitRelativePath（按钮 webkitdirectory 选择）
+   *   2. Array<{file, relativePath, rootName}>：拖拽 webkitGetAsEntry 规范化后的条目
+   *
+   * @param {File[]|Array<{file, relativePath}>} filesOrEntries - 文件列表或规范化条目
    * @param {number|null} rootTargetId - 根目标文件夹 ID（null 表示根目录）
    * @param {boolean} isPublic - 是否公共空间
+   * @param {string|null} [systemFolderCode=null] - 系统目录 code（党建文档场景必传）
+   *   显式传入后，创建文件夹的 POST 请求会显式带 system_folder 参数，
+   *   不依赖 http.js 拦截器（党建任务离开党建路由后仍能正确创建子目录）
    * @returns {Promise<Map<string, number>>} folderMap (path → folderId)
    */
   @action
-  async build(files, rootTargetId, isPublic) {
+  async build(filesOrEntries, rootTargetId, isPublic, systemFolderCode = null) {
     this._reset();
-    const depthGroups = this._extractDepthGroups(files);
+    this._systemFolderCode = systemFolderCode || null;
+    const depthGroups = this._extractDepthGroups(filesOrEntries);
     await this._createByDepth(depthGroups, rootTargetId, isPublic);
     return this._folderMap;
   }
@@ -83,10 +92,15 @@ export class FolderStructureBuilder {
     this._createdByThisInstance.clear();
     this._reusedFolderIds.clear();
     this._folderMap.clear();
+    this._systemFolderCode = null;
   }
 
   /**
    * 从文件列表提取所有祖先路径，去重后按深度分组
+   *
+   * 支持两种输入：
+   *   - File：使用 file.webkitRelativePath（按钮上传）
+   *   - {file, relativePath}：使用 entry.relativePath（拖拽上传）
    *
    * 例如文件 A/B/C/file.txt 会产生 3 条路径：
    *   A          (depth=1)
@@ -96,14 +110,15 @@ export class FolderStructureBuilder {
    * 这样创建 A/B/C 时只需创建 C，父 ID 从 folderMap.get('A/B') 拿。
    * 不再让每条叶子路径都从 A 开始递归创建，避免并发重复。
    *
-   * @param {File[]} files
+   * @param {File[]|Array<{file, relativePath}>} filesOrEntries
    * @returns {Map<number, string[]>} depth → paths
    */
-  _extractDepthGroups(files) {
+  _extractDepthGroups(filesOrEntries) {
     const allPaths = new Set();
 
-    files.forEach(file => {
-      const relativePath = file.webkitRelativePath || file.name;
+    filesOrEntries.forEach(entry => {
+      // 兼容 File（按钮上传）和 {file, relativePath}（拖拽上传）两种格式
+      const relativePath = (entry && entry.relativePath) || entry.webkitRelativePath || entry.name;
       const parts = relativePath.split('/').slice(0, -1); // 去掉文件名
 
       // 展开所有祖先路径：A, A/B, A/B/C
@@ -170,6 +185,11 @@ export class FolderStructureBuilder {
 
   /**
    * 创建单个文件夹（后端幂等：同名同父返回已有 ID）
+   *
+   * 【拖拽上传】显式传 system_folder 到 folder create API：
+   *   - 党建任务离开党建路由后，http.js 拦截器不再注入 system_folder（路由已变）
+   *   - 但队列项保存的 systemFolderCode 仍指向党建文档
+   *   - 因此这里必须显式传 system_folder，后端才能把子目录创建到党建根下
    */
   async _createOne(name, parentId, isPublic) {
     const { http } = await import('libs');
@@ -178,6 +198,11 @@ export class FolderStructureBuilder {
       parent_id: parentId,
       is_public: isPublic,
     };
+
+    // 显式传 system_folder，不依赖 http.js 拦截器
+    if (this._systemFolderCode) {
+      params.system_folder = this._systemFolderCode;
+    }
 
     const tenantId = isPublic ? null : sessionStorage.getItem('tenant_id');
     if (tenantId) {

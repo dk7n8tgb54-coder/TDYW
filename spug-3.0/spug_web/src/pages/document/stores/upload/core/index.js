@@ -15,6 +15,7 @@ import {
   DISPLAY_UPLOADING_STATUSES,
   PRESSURE_LEVELS,
 } from './upload-core-constants';
+import { captureUploadTargetContext as captureUploadTargetContextFn } from './captureUploadTargetContext';
 
 // 子Store
 import UploadQueueStore from './queue';
@@ -309,6 +310,28 @@ class UploadCoreStore {
     return this.rootStore.navigationStore?.isPublic ?? false;
   }
 
+  /**
+   * 【拖拽上传 - 5.2】捕获不可变上传目标上下文
+   *
+   * 在 drop 事件发生时（或按钮上传未显式传 targetContext 时）立即调用，
+   * 把当前导航/租户/系统目录状态固化为快照，后续无论用户切换目录、
+   * 切换空间、离开党建文档页面，本批任务都使用此快照。
+   *
+   * 返回对象经 Object.freeze 保护，所有上传相关请求（transfer create /
+   * file upload / chunk upload / merge / merge_status / folder create）
+   * 都从此快照读取 systemFolderCode/tenantId/isPublic/folderId，
+   * 不再依赖可能变化的 systemFolderContext 全局变量或 navigationStore。
+   *
+   * @param {Object} [options]
+   * @param {string|null} [options.systemFolderCode] - 显式系统目录 code（拖拽层会传）
+   * @param {string} [options.targetPathLabel] - 用于 UI 提示的目标路径文本
+   * @returns {Readonly<{folderId: number|null, isPublic: boolean, tenantId: string, systemFolderCode: string|null, targetPathLabel: string}>}
+   */
+  captureUploadTargetContext(options = {}) {
+    // 委托给独立纯函数模块（便于单元测试，避免装饰器 babel 配置问题）
+    return captureUploadTargetContextFn(this.rootStore, options);
+  }
+
   // ===== 初始化方法 =====
 
   @action
@@ -331,14 +354,45 @@ class UploadCoreStore {
 
   // ===== 文件上传入口（代理到协调器）=====
 
-  handleFileSelect(files) {
-    return this.fileUploadCoordinator?.handleFileSelect(files);
+  /**
+   * 处理文件选择（按钮上传 / 拖拽上传 共用入口）
+   * @param {File[]} files - 文件数组
+   * @param {Object|null} [targetContext=null] - 拖拽上传时由 captureUploadTargetContext 生成的不可变快照；
+   *   按钮上传不传时，由 coordinator 在入口立即捕获当前上下文（向后兼容）。
+   */
+  handleFileSelect(files, targetContext = null) {
+    const ctx = targetContext || this.captureUploadTargetContext();
+    return this.fileUploadCoordinator?.handleFileSelect(files, ctx);
   }
 
   // 【方向B 2026-06-27】已删除 processUploadQueue/uploadSingleFile 代理（0 调用方）
 
-  handleFolderSelect(files) {
-    return this.folderUploadStore.handleFolderSelect(files);
+  /**
+   * 处理文件夹选择（按钮上传 webkitdirectory / 拖拽文件夹 共用入口）
+   * @param {File[]} files - 带 webkitRelativePath 的文件数组
+   * @param {Object|null} [targetContext=null] - 拖拽上传时显式传入的不可变上下文快照
+   */
+  handleFolderSelect(files, targetContext = null) {
+    const ctx = targetContext || this.captureUploadTargetContext();
+    return this.folderUploadStore.handleFolderSelect(files, ctx);
+  }
+
+  /**
+   * 【拖拽上传专用】处理规范化后的文件夹条目
+   *
+   * 与 handleFolderSelect 的区别：
+   *   - handleFolderSelect 接收带 webkitRelativePath 的 File[]（按钮上传 webkitdirectory 路径）
+   *   - handleFolderEntries 接收 {file, relativePath, rootName}[]（拖拽 webkitGetAsEntry 路径）
+   *
+   * 两条路径最终都走 FolderStructureBuilder + FileUploadCoordinator._processBatch，
+   * 不创建第二套队列或协调器。
+   *
+   * @param {Array<{file: File, relativePath: string, rootName: string}>} entries
+   * @param {Object|null} [targetContext=null] - drop 时捕获的不可变上下文快照
+   */
+  handleFolderEntries(entries, targetContext = null) {
+    const ctx = targetContext || this.captureUploadTargetContext();
+    return this.folderUploadStore.handleFolderEntries(entries, ctx);
   }
 
   // ===== 队列控制 =====

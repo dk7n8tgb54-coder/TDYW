@@ -36,6 +36,9 @@ export class ChunkUploadStore {
     
     // 【修复】使用传入的isPublic，如果没有则回退到队列项保存的值
     const targetIsPublic = isPublic !== null ? isPublic : uploadItem.isPublic;
+    // 【拖拽上传 - 5.4】从队列项读取固化的 systemFolderCode，
+    // 党建任务离开党建路由后仍能正确携带 system_folder 到 transfer/chunk/merge 请求
+    const targetSystemFolderCode = uploadItem.systemFolderCode || null;
 
     // 【断点续传】检查是否已有fileHash（恢复上传时）
     let fileHash = uploadItem.fileHash;
@@ -76,7 +79,7 @@ export class ChunkUploadStore {
           total_chunks: chunkCount,
           file_hash: '',
           folder_id: folderId,
-        });
+        }, targetSystemFolderCode);
         this.queueStore.updateUploadItem(uploadId, {
           transferId: newTransferId,
         });
@@ -119,7 +122,7 @@ export class ChunkUploadStore {
     if (item?.transferId && fileHash) {
       try {
         const checkResult = await this.rootStore.transferStore.checkUploadedChunks(
-          fileHash, fileSize, chunkCount, targetIsPublic, item.transferId
+          fileHash, fileSize, chunkCount, targetIsPublic, item.transferId, targetSystemFolderCode
         );
         
         if (checkResult.uploaded_chunks?.length > 0) {
@@ -350,10 +353,17 @@ export class ChunkUploadStore {
       formData.append('transfer_id', uploadItem.transferId);
     }
 
-    // 【党建文档】注入 system_folder 上下文（XHR 不走 axios 拦截器，需手动注入）
-    const activeSystemFolder = getSystemFolder();
-    if (activeSystemFolder && shouldUseSystemFolder()) {
-      formData.append('system_folder', activeSystemFolder);
+    // 【拖拽上传 - 5.4 + 党建 system_folder 固化】注入 system_folder 上下文
+    // 优先从队列项读取固化的 systemFolderCode（党建任务离开党建路由后仍正确），
+    // 队列项无 systemFolderCode 时回退到全局上下文（按钮上传老逻辑，用户仍在党建路由）
+    const itemSystemFolderCode = uploadItem?.systemFolderCode || null;
+    if (itemSystemFolderCode) {
+      formData.append('system_folder', itemSystemFolderCode);
+    } else {
+      const activeSystemFolder = getSystemFolder();
+      if (activeSystemFolder && shouldUseSystemFolder()) {
+        formData.append('system_folder', activeSystemFolder);
+      }
     }
 
     // 再次检查暂停状态
@@ -496,13 +506,16 @@ export class ChunkUploadStore {
     // 【修复】使用传入的isPublic，如果没有则回退到队列项保存的值
     const uploadItem = this.queueStore.findUploadItemInCurrentTenant(uploadId);
     const targetIsPublic = isPublic !== null ? isPublic : uploadItem?.isPublic;
+    // 【拖拽上传 - 5.4】从队列项读取固化的 systemFolderCode，
+    // 党建任务离开党建路由后仍能正确合并到党建目录
+    const targetSystemFolderCode = uploadItem?.systemFolderCode || null;
 
     const { http } = await import('libs');
     
     // 【关键修复】添加try-catch处理"文件正在合并中"错误
     let mergeResult;
     try {
-      mergeResult = await http.post(API_ENDPOINTS.MERGE_CHUNKS, {
+      const mergePayload = {
         file_name: file.name,
         file_size: file.size,
         total_chunks: chunkCount,
@@ -511,7 +524,12 @@ export class ChunkUploadStore {
         is_public: targetIsPublic,
         tenant_id: targetIsPublic ? null : sessionStorage.getItem('tenant_id'),
         transfer_id: uploadItem?.transferId,
-      });
+      };
+      // 【拖拽上传 - 5.4】显式传 system_folder，不依赖 http.js 拦截器
+      if (targetSystemFolderCode) {
+        mergePayload.system_folder = targetSystemFolderCode;
+      }
+      mergeResult = await http.post(API_ENDPOINTS.MERGE_CHUNKS, mergePayload);
     } catch (error) {
       // 如果后端返回"文件正在合并中"，说明合并已在进行，直接进入轮询
       const errorMessage = error.message || error.response?.data?.error || '';
@@ -596,12 +614,16 @@ export class ChunkUploadStore {
       }
 
       // 【7.3】检查 celeryTaskId 是否仍匹配当前 item，不匹配则停止（新轮询已由新 task 启动）
-      if (uploadId && celeryTaskId) {
+      // 同时读取队列项固化的 systemFolderCode，用于 merge_status GET 请求定位任务文件
+      let pollSystemFolderCode = null;
+      if (uploadId) {
         const currentItem = this.queueStore.findUploadItemInCurrentTenant(uploadId);
-        if (currentItem && currentItem.celeryTaskId && currentItem.celeryTaskId !== celeryTaskId) {
+        if (currentItem && celeryTaskId && currentItem.celeryTaskId && currentItem.celeryTaskId !== celeryTaskId) {
           console.debug(`[ChunkUpload] ${uploadId}: task_id 不匹配，停止旧轮询 old=${celeryTaskId} current=${currentItem.celeryTaskId}`);
           return;
         }
+        // 【拖拽上传 - 5.4】从队列项读 systemFolderCode，党建任务离开页面后仍能定位任务文件
+        pollSystemFolderCode = currentItem?.systemFolderCode || null;
       }
 
       const elapsed = (Date.now() - startTime) / 1000;
@@ -613,6 +635,10 @@ export class ChunkUploadStore {
         const params = celeryTaskId
           ? { task_id: celeryTaskId }
           : { merge_task_id: mergeTaskId };
+        // 【拖拽上传 - 5.4】显式传 system_folder，后端 TaskIdResolver 据此定位党建目录下的任务文件
+        if (pollSystemFolderCode) {
+          params.system_folder = pollSystemFolderCode;
+        }
 
         const status = await http.get(API_ENDPOINTS.MERGE_STATUS, { params });
 

@@ -15,6 +15,14 @@
 
 **前端**：`components/AttachmentManager.js`（上传/列表/下载/删除/预览，路径/权限全参数化）+ `components/AttachmentCountBadge.js`（列表页附件数量徽标）
 
+**AttachmentManager 增强（2026-07-17）**：
+- 新增公共上传区 `components/AttachmentUploadArea.js`（按钮/拖拽、FIFO 串行队列、临时状态列表、失败重试/移除、卸载保护）
+- AttachmentManager 新增 Props: uploadMode(button默认)/multiple(false默认)/maxFilesPerBatch(20)/uploadHint/downloadPerm/五类请求适配器(listRequest/uploadRequest/deleteRequest/downloadRequest/previewRequest)/normalizeAttachment/renderExtraActions
+- 适配器优先级 > 旧 URL Props；未传适配器走旧 URL 逻辑，旧调用方完全兼容
+- 预览优先级：传入 previewRequest 时图片/PDF 也走 previewRequest（不绕下载接口）；支持 preview_type: native/image/pdf/kkfileview
+- 文件名点击权限：可预览+canPreview→预览；否则 canDownload→下载；都无→纯文本
+- 规章管理已迁移到增强后的 AttachmentManager（uploadMode="dragger" multiple），删除了 Form.js 重复附件实现；规章后端 _serialize_attachment 追加 file_size/uploaded_by_name/created_at（加法式无 migration）
+
 **后续模块加附件标准流程**：① 复制 `apps/upgrade/views/upload.py` 改 MODULE/OBJECT_TYPE/权限码/Config；② 新增 preview-url 和 preview-file 视图；③ 业务对象删除时调用 `AttachmentService.soft_delete_by_object(module=..., object_type=..., object_id=...)`；④ 前端 `import { AttachmentManager } from 'components'`。无需新建附件表/service。
 
 **技术要点**：preview_token 双轨（document 令牌 / attachment 令牌按请求路径自动选验证器）；preview-file 端点无 @auth 纯靠 preview_token 鉴权；middleware 用 fnmatch 模式匹配；kkFileView URL 全源 URL base64 编码；MEDIA_ROOT 支持环境变量覆盖；下载鉴权 `x-token`、预览鉴权 `preview_token`；软删除保留物理文件和 DB 记录。
@@ -103,6 +111,32 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate <app>
 12. **Skill 流程 > 个人直觉**：遇问题第一反应回查 skill 文档；依赖 Django 的测试必须在 Docker 容器内执行
 13. **ESLint `no-unused-expressions` 陷阱**：`obj?.method()` 视为表达式语句报错 → 改 `if (obj) obj.method();`
 14. **Django `Model.save()` 签名必须 `def save(self, *args, **kwargs)` 不丢 `*args`**；ErrorBoundary 不暴露 error.message
+15. **jest 测试含装饰器的模块**：import 含 `@observable` 的 Store 会触发 `decorators` 语法错误（jest babel 不含装饰器插件）→ 提取纯函数到独立模块测试
+16. **jsdom sessionStorage mock**：直接赋值 `sessionStorage.getItem = jest.fn()` 可能不生效 → 用 `setItem`/`clear` 替代
+
+## 资料库拖拽上传架构（2026-07-17 实现完成）
+
+**功能**：资料库（普通文档 + 党建文档）支持拖拽上传多文件/文件夹/混合，复用现有上传队列，状态只展示在现有 MiniBar/UploadPanel。
+
+**核心机制 — 目标上下文固化（targetContext）**：
+- drop 时 `uploadCoreStore.captureUploadTargetContext()` 捕获不可变快照（folderId/isPublic/tenantId/systemFolderCode），Object.freeze 保护
+- 快照写入每个队列项 `queueItem.systemFolderCode`
+- 后续 transfer create / file upload / chunk upload / merge / merge_status / folder create 请求**优先从队列项读 systemFolderCode**，不依赖全局 `systemFolderContext`（党建任务离开党建路由后仍携带正确上下文）
+- 纯函数提取：`stores/upload/core/captureUploadTargetContext.js`（便于测试，避免装饰器 babel 问题）
+
+**入口扩展（向后兼容）**：
+- `handleFileSelect(files, targetContext=null)` / `handleFolderSelect(files, targetContext=null)` / `handleFolderEntries(entries, targetContext=null)`
+- 按钮上传不传 targetContext → 入口兜底捕获；拖拽上传显式传入
+- `handleFolderEntries` 接受 `{file, relativePath, rootName}[]`（拖拽 webkitGetAsEntry 路径），与 `handleFolderSelect`（File[] 带 webkitRelativePath）共用 `_processFolderUpload`
+
+**systemFolderCode 双轨**：队列项有值用队列项（拖拽固化），无值回退全局 systemFolderContext（按钮上传老逻辑）
+
+**关键文件**：
+- `components/DocumentDropUploadLayer.js` — 投放层（深度计数、遮罩、禁用提示）
+- `utils/dropUpload.js` — DataTransfer 递归解析（webkitGetAsEntry，循环 readEntries，MAX_DEPTH=20，MAX_ENTRIES=5000）
+- `FolderStructureBuilder.build(filesOrEntries, rootTargetId, isPublic, systemFolderCode)` — 支持两种格式 + 显式 system_folder
+
+**踩坑**：traverseEntry 顶层目录 initialPath 必须为空（isDirectory 分支会拼 entry.name，非空会导致 'root/root' 重复）
 
 ## 关键教训（来自具体修复）
 - **迁移加唯一约束必须拆步**（先非唯一→回填→查重→加 unique）

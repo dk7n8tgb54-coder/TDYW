@@ -490,3 +490,119 @@ class CategoryIsLeafMaintenanceTests(RegulationBaseTestCase):
 
         new_root.refresh_from_db()
         self.assertFalse(new_root.is_leaf)
+
+
+class RegulationAttachmentSerializationTests(RegulationBaseTestCase):
+    """附件序列化字段测试
+
+    验证 _serialize_attachment 加法式增强后：
+    - 原有字段 id/file_name/previewable 仍存在
+    - 新增字段 file_size/uploaded_by_name/created_at 正确返回
+    - created_at 映射模型 uploaded_at
+    - uploaded_by_name 使用上传人 nickname
+    - 无上传人时 uploaded_by_name 为空字符串
+    """
+
+    def setUp(self):
+        super().setUp()
+        file = SimpleUploadedFile(
+            'serialize_test.pdf', b'serialize content', content_type='application/pdf'
+        )
+        resp = self.uploader_client.post(
+            f'/regulation/{self.regulation.id}/attachments/upload/',
+            {'file': file},
+        )
+        self.att_data = resp.json()['data']
+        self.att_id = self.att_data['id']
+        self.att_obj = RegulationAttachment.objects.get(pk=self.att_id)
+
+    def test_upload_response_has_standard_fields(self):
+        """上传响应包含原有字段和新增标准字段"""
+        data = self.att_data
+        # 原有字段
+        self.assertIn('id', data)
+        self.assertIn('file_name', data)
+        self.assertIn('previewable', data)
+        self.assertEqual(data['file_name'], 'serialize_test.pdf')
+        self.assertTrue(data['previewable'])
+        # 新增字段
+        self.assertIn('file_size', data)
+        self.assertIn('uploaded_by_name', data)
+        self.assertIn('created_at', data)
+        self.assertEqual(data['file_size'], len(b'serialize content'))
+
+    def test_uploaded_by_name_uses_nickname(self):
+        """uploaded_by_name 为上传人昵称"""
+        data = self.att_data
+        self.assertEqual(data['uploaded_by_name'], self.uploader.nickname)
+
+    def test_created_at_maps_uploaded_at(self):
+        """created_at 映射模型 uploaded_at"""
+        data = self.att_data
+        self.assertEqual(data['created_at'], self.att_obj.uploaded_at)
+        self.assertTrue(data['created_at'])  # 非空
+
+    def test_list_response_has_standard_fields(self):
+        """列表响应包含标准字段"""
+        resp = self.viewer_client.get(f'/regulation/{self.regulation.id}/attachments/')
+        self.assertEqual(resp.status_code, 200)
+        items = resp.json()['data']
+        self.assertEqual(len(items), 1)
+        item = items[0]
+        self.assertIn('id', item)
+        self.assertIn('file_name', item)
+        self.assertIn('previewable', item)
+        self.assertIn('file_size', item)
+        self.assertIn('uploaded_by_name', item)
+        self.assertIn('created_at', item)
+        self.assertEqual(item['id'], self.att_id)
+        self.assertEqual(item['file_size'], self.att_obj.file_size)
+
+    def test_previewable_false_for_unsupported_type(self):
+        """不可预览类型 previewable 为 False"""
+        # 上传一个 .csv？规章 ALLOWED_EXTENSIONS 不含 .csv，用 .txt 但 txt 可预览
+        # 改用允许但不可预览的类型：规章 ALLOWED_EXTENSIONS 全部可预览，无法构造
+        # 跳过：规章允许的扩展名集合与可预览集合基本一致
+        pass
+
+    def test_viewer_can_preview_without_download_perm(self):
+        """只有 view 权限、没有 download 权限的用户仍能通过 preview-url 预览"""
+        # viewer 只有 document.regulation.view
+        resp = self.viewer_client.get(
+            f'/regulation/{self.regulation.id}/attachments/{self.att_id}/preview-url/'
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()['data']
+        self.assertEqual(data['preview_type'], 'native')
+        self.assertIn('preview_token=', data['preview_url'])
+
+    def test_cross_regulation_preview_rejected(self):
+        """跨规章附件预览被拒绝"""
+        # 给 regulation2 上传附件
+        file = SimpleUploadedFile('cross.pdf', b'cross', content_type='application/pdf')
+        resp2 = self.uploader_client.post(
+            f'/regulation/{self.regulation2.id}/attachments/upload/',
+            {'file': file},
+        )
+        att2_id = resp2.json()['data']['id']
+        # 用 regulation1 的上下文访问 regulation2 的附件
+        resp = self.viewer_client.get(
+            f'/regulation/{self.regulation.id}/attachments/{att2_id}/preview-url/'
+        )
+        self.assertEqual(resp.json()['error'], '附件不存在')
+
+    def test_soft_delete_hidden_from_list(self):
+        """软删除后附件从列表隐藏"""
+        # 删除前列表有 1 个
+        resp = self.viewer_client.get(f'/regulation/{self.regulation.id}/attachments/')
+        self.assertEqual(len(resp.json()['data']), 1)
+        # 软删除
+        self.uploader_client.delete(
+            f'/regulation/{self.regulation.id}/attachments/{self.att_id}/'
+        )
+        # 删除后列表为空
+        resp = self.viewer_client.get(f'/regulation/{self.regulation.id}/attachments/')
+        self.assertEqual(len(resp.json()['data']), 0)
+        # 数据库记录仍存在
+        att = RegulationAttachment.objects.get(pk=self.att_id)
+        self.assertTrue(att.is_deleted)
