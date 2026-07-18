@@ -198,9 +198,11 @@ export const getFileTypeIcon = (fileName, fileType, size = 20) => {
   const mimeType = fileType ? fileType.toLowerCase() : '';
 
   if (ext === 'pdf' || mimeType.includes('pdf')) return <PdfIcon size={size} />;
-  if (ext === 'doc' || ext === 'docx' || mimeType.includes('word') || mimeType.includes('document')) return <WordIcon size={size} />;
-  if (ext === 'xls' || ext === 'xlsx' || mimeType.includes('excel') || mimeType.includes('spreadsheet')) return <ExcelIcon size={size} />;
+  // PPTX/XLSX MIME values contain "officedocument", so match the specific
+  // Office types before Word and avoid treating every "document" as Word.
   if (ext === 'ppt' || ext === 'pptx' || mimeType.includes('powerpoint') || mimeType.includes('presentation')) return <PptIcon size={size} />;
+  if (ext === 'xls' || ext === 'xlsx' || mimeType.includes('excel') || mimeType.includes('spreadsheet')) return <ExcelIcon size={size} />;
+  if (ext === 'doc' || ext === 'docx' || mimeType.includes('msword') || mimeType.includes('wordprocessing')) return <WordIcon size={size} />;
   if (ext === 'jpg' || ext === 'jpeg' || ext === 'png' || ext === 'gif' || ext === 'bmp' || ext === 'svg' || ext === 'webp' || mimeType.includes('image')) return <ImageIcon size={size} />;
   if (mimeType.includes('video') || ['mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'webm'].includes(ext)) return <VideoIcon size={size} />;
   if (mimeType.includes('audio') || ['mp3', 'wav', 'ogg', 'flac', 'aac'].includes(ext)) return <AudioIcon size={size} />;

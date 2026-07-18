@@ -165,7 +165,7 @@ class DepartmentDutyLogSignModal extends React.Component {
                   overflow: 'auto',
                   fontSize: 13,
                 }}>
-                  {record.duty_record || '--'}
+                  {record.duty_record_summary || '--'}
                 </div>
               </Descriptions.Item>
             </Descriptions>

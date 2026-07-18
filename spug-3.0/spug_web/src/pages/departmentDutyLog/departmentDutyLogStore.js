@@ -15,6 +15,7 @@ class DepartmentDutyLogStore {
 
   @observable formVisible = false;
   @observable detailVisible = false;
+  @observable detailLoading = false;
   @observable signVisible = false;
   @observable voidVisible = false;
   @observable record = {};
@@ -80,8 +81,20 @@ class DepartmentDutyLogStore {
 
   @action.bound
   showDetail(record) {
+    // 先用列表 record 占位立即可见，再异步拉详情接口补全长文本字段
+    // （列表仅返回 duty_record_summary，详情接口才返回 duty_record / remark 全文）
     this.record = record;
     this.detailVisible = true;
+    this.detailLoading = true;
+    http.get(`/api/department-duty-log/records/${record.id}/`)
+      .then(data => {
+        this.record = data;
+      })
+      .catch(() => {
+        // 详情接口失败：http 拦截器已提示错误，关闭抽屉避免占位 record 误导用户
+        this.detailVisible = false;
+      })
+      .finally(() => this.detailLoading = false);
   }
 
   @action.bound

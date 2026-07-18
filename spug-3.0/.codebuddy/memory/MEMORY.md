@@ -107,3 +107,4 @@ docker exec tdyw python /data/spug/spug_api/manage.py migrate <app>
 10. 嵌套 `transaction.atomic()` 只是 savepoint，外层回滚标记丢失
 11. 上传并发：状态机懒创建 + 并发槽位用 `countByStates` 读 currentState
 12. 资料库备份/还原：DB 与 documents 同周期；恢复顺序：停业务→恢复DB→清空documents→full→incrementals→启动→检查
+13. **测试隔离纪律（血泪教训）**：测试必须 `@override_settings(MEDIA_ROOT=tempfile.mkdtemp())` 隔离文件系统，`@override_settings(CACHES=...)` 或 setUp/tearDown `cache.clear()` 隔离 Redis。dev bind mount 下容器内 `shutil.rmtree` = 删宿主机文件；Redis 不在 Django 事务内，测试写的 `perms_{id}` 缓存永久残留且 version 可能与生产碰撞（test Role perms_version 0→1 == 生产 Role version 1）导致生产用户读到残缺权限。**跑测试前先检查 tearDown 是否动生产文件/缓存**

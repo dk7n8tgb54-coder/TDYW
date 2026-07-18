@@ -793,6 +793,51 @@ class DepartmentDutyLogSignatureTests(TestCase):
         self.assertEqual(body['data']['id'], record.id)
         self.assertEqual(body['data']['status'], STATUS_SIGNED)
 
+    def test_detail_returns_full_duty_record_remark_and_signature(self):
+        """详情接口返回完整 duty_record、remark 全文及签署信息。
+
+        列表接口仅返回 duty_record_summary（前 100 字摘要），详情接口必须返回
+        duty_record / remark 全文，否则前端详情页会显示 '--'。
+        """
+        long_record = '值班记录全文：\n1. 设备巡检正常\n2. 环境参数达标\n' * 3
+        remark_text = '备注：无异常\n第二行'
+        record = _make_record(
+            self.signer, duty_record=long_record, remark=remark_text)
+
+        # 草稿态详情：本人可读，返回全文 + 无签署信息
+        resp = self.signer_client.get(f'/department-duty-log/records/{record.id}/')
+        body = self._parse(resp)
+        self.assertFalse(body.get('error'), body.get('error'))
+        data = body['data']
+        self.assertEqual(data['duty_record'], long_record)
+        self.assertEqual(data['remark'], remark_text)
+        self.assertEqual(data['status'], STATUS_DRAFT)
+        self.assertIsNone(data['signature_usage_id'])
+        self.assertEqual(data['signed_by_name'], '')
+
+        # 签署
+        resp = self.signer_client.post(
+            f'/department-duty-log/records/{record.id}/sign/',
+            data=json.dumps({'version': 1, 'confirm': True, 'request_id': 'detail-001'}),
+            content_type='application/json')
+        body = self._parse(resp)
+        self.assertFalse(body.get('error'), body.get('error'))
+
+        record.refresh_from_db()
+        # 已签态详情：跨租户 viewer 可读，返回全文 + 完整签署信息
+        resp = self.viewer_client.get(f'/department-duty-log/records/{record.id}/')
+        body = self._parse(resp)
+        self.assertFalse(body.get('error'), body.get('error'))
+        data = body['data']
+        self.assertEqual(data['duty_record'], long_record)
+        self.assertEqual(data['remark'], remark_text)
+        self.assertEqual(data['status'], STATUS_SIGNED)
+        self.assertEqual(data['signature_usage_id'], record.signature_usage_id)
+        self.assertEqual(data['signed_by_name'], record.signed_by_name)
+        self.assertTrue(data['signed_at'])
+        self.assertIsNotNone(data['signature_version'])
+        self.assertTrue(data['business_snapshot_hash'])
+
     def test_signature_image_cross_tenant_view(self):
         """跨租户用户有 view 权限可读取签名图片"""
         record = self._create_draft()

@@ -92,6 +92,7 @@ class DepartmentDutyLogDetail extends React.Component {
         width={640}
         destroyOnClose
       >
+        <Spin spinning={store.detailLoading}>
         {record.status === 'void' && record.void_reason && (
           <Alert
             type="error"
@@ -150,6 +151,7 @@ class DepartmentDutyLogDetail extends React.Component {
             )}
           </>
         )}
+        </Spin>
       </Drawer>
     );
   }
