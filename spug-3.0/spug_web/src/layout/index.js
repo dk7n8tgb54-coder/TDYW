@@ -7,7 +7,8 @@ import React, { useState, useEffect } from 'react';
 import { Switch, Route } from 'react-router-dom';
 import { Layout, message } from 'antd';
 import { NotFound } from 'components';
-import ReminderNotification from 'components/ReminderNotification';
+import ExpirationReminderNotification from 'components/ExpirationReminderNotification';
+import { licenseReminderConfig } from 'components/expirationReminderConfigs';
 import ContractAgreementReminderNotification from 'components/ContractAgreementReminderNotification';
 import Sider from './Sider';
 import Header from './Header';
@@ -64,7 +65,7 @@ export default function () {
         </Layout.Content>
         <Footer/>
       </Layout>
-      <ReminderNotification/>
+      <ExpirationReminderNotification config={licenseReminderConfig}/>
       <ContractAgreementReminderNotification/>
     </Layout>
   )

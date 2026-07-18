@@ -21,6 +21,7 @@ import ExportButton from './ExportButton';
 import AttachmentManager from './AttachmentManager';
 import AttachmentUploadArea from './AttachmentUploadArea';
 import AttachmentCountBadge from './AttachmentCountBadge';
+import ExpirationReminderNotification from './ExpirationReminderNotification';
 
 export {
   StatisticsCard,
@@ -41,4 +42,5 @@ export {
   AttachmentManager,
   AttachmentUploadArea,
   AttachmentCountBadge,
-}
+  ExpirationReminderNotification,
+};
