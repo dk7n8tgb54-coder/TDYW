@@ -13,7 +13,6 @@ import {
   UPLOAD_CONSTANTS,
   UPLOAD_STATUS,
   DISPLAY_UPLOADING_STATUSES,
-  PRESSURE_LEVELS,
 } from './upload-core-constants';
 import { captureUploadTargetContext as captureUploadTargetContextFn } from './captureUploadTargetContext';
 
@@ -59,9 +58,6 @@ import {
 // 同步器
 import { StatusSynchronizer } from './sync';
 
-// 压力管理器（2026-07-02 新增：按服务器压力动态降级上传并发）
-import UploadPressureManager from './UploadPressureManager';
-
 class UploadCoreStore {
   // ===== 子Store实例 =====
   queueStore = null;
@@ -93,9 +89,6 @@ class UploadCoreStore {
   // ===== 同步器 =====
   statusSynchronizer = null;
 
-  // ===== 压力管理器 =====
-  pressureManager = null;
-
   // ===== 全局状态 =====
   @observable isPaused = false;
   @observable isCancelled = false;
@@ -103,10 +96,6 @@ class UploadCoreStore {
 
   // 【2026-07-02 动态降级】分片并发上限（当前分片串行，字段为预留/契约用，随压力更新）
   @observable maxConcurrentChunks = UPLOAD_CONSTANTS.MAX_CONCURRENT_CHUNKS;
-
-  // 【2026-07-02 动态降级】当前服务器压力等级与提示文案（供 UI 展示）
-  @observable pressureLevel = PRESSURE_LEVELS.NORMAL;
-  @observable pressureMessage = '';
 
   // 【P0修复 2026-06-27】是否使用解耦版状态机
   // 【方向B 2026-06-27】解耦设施已移除，此字段保留仅为向后兼容，值固定 false
@@ -126,7 +115,6 @@ class UploadCoreStore {
     this._initLifecycleHandlers();
     this._initControllers();
     this._initSynchronizers();
-    this._initPressureManager();
     this._initGlobalListeners();
   }
 
@@ -176,14 +164,6 @@ class UploadCoreStore {
 
   _initSynchronizers() {
     this.statusSynchronizer = new StatusSynchronizer(this);
-  }
-
-  /**
-   * 【2026-07-02】初始化上传压力管理器
-   * 仅创建实例；首次拉取与轮询启停由资料库页面组件控制生命周期
-   */
-  _initPressureManager() {
-    this.pressureManager = new UploadPressureManager(this);
   }
 
   /**
@@ -401,26 +381,6 @@ class UploadCoreStore {
     return this.uploadCoordinator?.startWaiting();
   }
 
-  // ===== 上传压力（代理到压力管理器）=====
-  // 【2026-07-02】资料库页面挂载时调 init 首次拉取；上传前调 refreshPressure；
-  //   有任务时 startPressurePolling，无任务/卸载时 stopPressurePolling
-
-  initUploadPressure() {
-    return this.pressureManager?.init();
-  }
-
-  refreshPressure() {
-    return this.pressureManager?.refreshNow();
-  }
-
-  startPressurePolling() {
-    if (this.pressureManager) this.pressureManager.startPolling();
-  }
-
-  stopPressurePolling() {
-    if (this.pressureManager) this.pressureManager.stopPolling();
-  }
-
   // 【方向B 2026-06-27】已删除 startWaitingTasks/processPendingUploads/schedulePendingUploadsRecovery
   // 原因：0 外部调用方，内部子模块已直接通过 this.core.uploadCoordinator.xxx 调用
 
@@ -487,10 +447,6 @@ class UploadCoreStore {
     }
     if (this.statusSynchronizer) {
       this.statusSynchronizer.cleanup();
-    }
-    // 【2026-07-02】清理压力管理器轮询定时器
-    if (this.pressureManager) {
-      this.pressureManager.destroy();
     }
     // 【方向B 2026-06-27】已移除 storeEventAdapter 销毁逻辑
     // 【P1 修复】销毁文件夹上传Store，清理 beforeunload 事件监听器，防止内存泄漏

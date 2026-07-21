@@ -5,8 +5,6 @@
 
 import { message } from 'antd';
 import {
-  DISK_USAGE_THRESHOLD,
-  DISK_USAGE_WARNING_TEMPLATE,
   PROGRESS_THROTTLE_DELAY,
   RETRY_DELAY_BASE,
   BATCH_UPLOAD_THRESHOLD,
@@ -41,25 +39,6 @@ export function validateFileName(fileName) {
     return { valid: false, message: '文件名不能包含路径遍历符(..)' };
   }
   return { valid: true };
-}
-
-// ============================================================
-// 磁盘使用率检查函数
-// 消除原代码中4处重复的磁盘检查逻辑
-// ============================================================
-export async function checkDiskUsage() {
-  try {
-    const { http } = await import('libs');
-    const diskInfo = await http.get('/api/document/disk_usage/');
-    if (diskInfo.usage_percent >= DISK_USAGE_THRESHOLD) {
-      message.warning(DISK_USAGE_WARNING_TEMPLATE.replace('{percent}', diskInfo.usage_percent));
-      return false;  // 磁盘使用率过高，不允许上传
-    }
-    return true;  // 磁盘空间充足，可以上传
-  } catch (e) {
-    console.warn('[传输] 无法获取磁盘使用率，继续上传');
-    return true;  // 无法获取磁盘信息，允许上传
-  }
 }
 
 // ============================================================

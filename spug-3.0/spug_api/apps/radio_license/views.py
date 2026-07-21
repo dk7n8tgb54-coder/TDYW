@@ -2,6 +2,7 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 import logging
+from datetime import timedelta
 from django.views.generic import View
 from django.utils import timezone
 from django.http import FileResponse
@@ -175,12 +176,12 @@ class RadioLicenseView(View):
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
-            Argument('station_name', help='请输入台站名称'),
-            Argument('purpose', help='请输入用途'),
-            Argument('valid_from', help='请选择起始日期'),
-            Argument('valid_to', help='请选择截止日期'),
-            Argument('responsible_user_id', type=int, help='请选择责任人'),
-            Argument('responsible_user_name', help='请选择责任人'),
+            Argument('station_name', required=False),
+            Argument('purpose', required=False),
+            Argument('valid_from', required=False),
+            Argument('valid_to', required=False),
+            Argument('responsible_user_id', type=int, required=False),
+            Argument('responsible_user_name', required=False),
             Argument('remark', required=False),
             Argument('frequencies', type=list, required=False, help='频率列表'),
         ).parse(request.body)
@@ -198,14 +199,22 @@ class RadioLicenseView(View):
             frequencies = form.pop('frequencies', []) if hasattr(form, 'frequencies') else []
 
             if form.id:
-                # 统一接口二次校验：编辑分支必须单独拥有 edit 权限
+                # 编辑：只更新传入的非 None 字段
                 if not request.user.has_perms({'radio_license.license.edit'}):
                     return json_response(error='权限拒绝：缺少编辑执照权限')
                 error = self._handle_edit(form, frequencies, request.user)
             else:
-                # 统一接口二次校验：新增分支必须单独拥有 add 权限
+                # 创建：校验必填字段
                 if not request.user.has_perms({'radio_license.license.add'}):
                     return json_response(error='权限拒绝：缺少新增执照权限')
+                required = {
+                    'station_name': '台站名称', 'purpose': '用途',
+                    'valid_from': '起始日期', 'valid_to': '截止日期',
+                    'responsible_user_id': '责任人',
+                }
+                for field, label in required.items():
+                    if not form.get(field):
+                        return json_response(error=f'请输入{label}')
                 error = self._handle_create(form, frequencies, request.user)
         return json_response(error=error)
 
@@ -214,7 +223,8 @@ class RadioLicenseView(View):
         form.created_by = user
         form.pop('remark', None)
         assign_tenant_id(form, user)
-        license_obj = RadioLicense.objects.create(**form)
+        create_data = {k: v for k, v in form.items() if v is not None}
+        license_obj = RadioLicense.objects.create(**create_data)
         _create_frequencies(license_obj, frequencies, user)
         scan_single_license(license_obj)
         return None
@@ -240,7 +250,8 @@ class RadioLicenseView(View):
         form.updated_by = user
         record_id = form.pop('id')
         form.pop('remark', None)
-        updated_count = qs.filter(pk=record_id).update(**form)
+        update_data = {k: v for k, v in form.items() if v is not None}
+        updated_count = qs.filter(pk=record_id).update(**update_data)
         if updated_count == 0:
             return '编辑失败：记录不存在或无权限编辑'
 

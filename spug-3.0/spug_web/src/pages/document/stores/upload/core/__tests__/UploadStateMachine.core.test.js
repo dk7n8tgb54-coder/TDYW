@@ -1,6 +1,15 @@
 /**
  * UploadStateMachine 核心功能测试（纯状态机，无外部依赖）
  * 只测试状态转换、守卫条件、事件机制等核心功能
+ *
+ * 更新 2026-07-19：同步业务代码变更
+ * - 状态 7→8（新增 cancelled）
+ * - 事件 8→9（新增 RETRY_MERGE）
+ * - uploading + UPLOAD_COMPLETE：小文件(totalChunks<=1)→completed，大文件(totalChunks>1)→merging
+ * - waiting 允许 PAUSE→paused
+ * - CANCEL→cancelled（不再→error）
+ * - RESUME 守卫优先级：shouldResumeWaiting > shouldRecalculateMD5 > shouldResumeUpload
+ * - updateContext 简化为直接合并（无白名单过滤/类型验证）
  */
 
 import { UploadStateMachine } from '../UploadStateMachine';
@@ -25,13 +34,13 @@ describe('UploadStateMachine - 核心功能', () => {
   // ============ 基础状态定义测试 ============
 
   describe('状态定义', () => {
-    it('应有7个预定义状态', () => {
-      const expectedStates = ['waiting', 'calculating', 'uploading', 'paused', 'merging', 'completed', 'error'];
+    it('应有8个预定义状态', () => {
+      const expectedStates = ['waiting', 'calculating', 'uploading', 'paused', 'merging', 'completed', 'error', 'cancelled'];
       expect(UploadStateMachine.STATES).toEqual(expectedStates);
     });
 
     it('应有预定义事件', () => {
-      const expectedEvents = ['START', 'MD5_COMPLETE', 'UPLOAD_COMPLETE', 'MERGE_SUCCESS', 'PAUSE', 'RESUME', 'ERROR', 'CANCEL'];
+      const expectedEvents = ['START', 'MD5_COMPLETE', 'UPLOAD_COMPLETE', 'MERGE_SUCCESS', 'PAUSE', 'RESUME', 'ERROR', 'CANCEL', 'RETRY_MERGE'];
       expect(UploadStateMachine.EVENTS).toEqual(expectedEvents);
     });
 
@@ -51,57 +60,65 @@ describe('UploadStateMachine - 核心功能', () => {
       expect(machine.transition('START')).toBe(true);
       expect(machine.getState()).toBe('calculating');
     });
-    
+
     it('calculating -> uploading (MD5_COMPLETE)', () => {
       machine.transition('START');
-      
+
       expect(machine.transition('MD5_COMPLETE')).toBe(true);
       expect(machine.getState()).toBe('uploading');
     });
-    
+
     it('calculating -> paused (PAUSE)', () => {
       machine.transition('START');
-      
+
       expect(machine.transition('PAUSE')).toBe(true);
       expect(machine.getState()).toBe('paused');
     });
-    
+
     it('uploading -> paused (PAUSE)', () => {
       machine.transition('START');
       machine.transition('MD5_COMPLETE');
-      
+
       expect(machine.transition('PAUSE')).toBe(true);
       expect(machine.getState()).toBe('paused');
     });
-    
-    it('uploading -> merging (UPLOAD_COMPLETE)', () => {
+
+    it('uploading -> completed (UPLOAD_COMPLETE, 小文件直接完成)', () => {
+      // 默认 mock item 无 totalChunks → isNormalUpload=true → completed
       machine.transition('START');
       machine.transition('MD5_COMPLETE');
-      
+
+      expect(machine.transition('UPLOAD_COMPLETE')).toBe(true);
+      expect(machine.getState()).toBe('completed');
+    });
+
+    it('uploading -> merging -> completed (分片上传)', () => {
+      // 分片上传：totalChunks>1 → isChunkedUpload=true → merging → MERGE_SUCCESS → completed
+      machine.context.queueStore.findUploadItemInCurrentTenant = () => ({
+        file: {},
+        totalChunks: 2
+      });
+      machine.transition('START');
+      machine.transition('MD5_COMPLETE');
+
       expect(machine.transition('UPLOAD_COMPLETE')).toBe(true);
       expect(machine.getState()).toBe('merging');
-    });
-    
-    it('merging -> completed (MERGE_SUCCESS)', () => {
-      machine.transition('START');
-      machine.transition('MD5_COMPLETE');
-      machine.transition('UPLOAD_COMPLETE');
-      
+
       expect(machine.transition('MERGE_SUCCESS')).toBe(true);
       expect(machine.getState()).toBe('completed');
     });
-    
+
     it('任何状态 -> error (ERROR)', () => {
       machine.transition('START');
-      
+
       expect(machine.transition('ERROR', { error: 'test' })).toBe(true);
       expect(machine.getState()).toBe('error');
     });
-    
+
     it('error -> waiting (RESUME重试)', () => {
       machine.transition('START');
       machine.transition('ERROR', { error: 'test' });
-      
+
       expect(machine.transition('RESUME')).toBe(true);
       expect(machine.getState()).toBe('waiting');
     });
@@ -110,31 +127,31 @@ describe('UploadStateMachine - 核心功能', () => {
   // ============ 无效状态转换测试 ============
 
   describe('无效转换', () => {
-    it('waiting不能直接PAUSE', () => {
-      expect(machine.transition('PAUSE')).toBe(false);
-      expect(machine.getState()).toBe('waiting');
+    it('waiting可以直接PAUSE到paused', () => {
+      // 业务代码允许 waiting → PAUSE → paused
+      expect(machine.transition('PAUSE')).toBe(true);
+      expect(machine.getState()).toBe('paused');
     });
-    
+
     it('waiting不能ERROR', () => {
       expect(machine.transition('ERROR')).toBe(false);
       expect(machine.getState()).toBe('waiting');
     });
-    
+
     it('completed状态不能进行任何转换', () => {
       machine.transition('START');
       machine.transition('MD5_COMPLETE');
-      machine.transition('UPLOAD_COMPLETE');
-      machine.transition('MERGE_SUCCESS');
-      
+      machine.transition('UPLOAD_COMPLETE');  // 小文件直接 completed
+
       expect(machine.getState()).toBe('completed');
       expect(machine.transition('PAUSE')).toBe(false);
       expect(machine.transition('ERROR')).toBe(false);
       expect(machine.transition('RESUME')).toBe(false);
     });
-    
+
     it('重复START无效', () => {
       machine.transition('START');
-      
+
       expect(machine.transition('START')).toBe(false);
       expect(machine.getState()).toBe('calculating');
     });
@@ -151,40 +168,48 @@ describe('UploadStateMachine - 核心功能', () => {
           updateUploadItem: jest.fn()
         }
       });
-      
+
       expect(machineWithFailedGuard.transition('START')).toBe(false);
       expect(machineWithFailedGuard.getState()).toBe('waiting');
     });
-    
-    it('RESUME根据context决定目标状态 - 无fileHash到calculating', () => {
+
+    it('RESUME无fileHash回到waiting', () => {
+      // item 无 fileHash → shouldResumeWaiting 返回 true → waiting
       machine.transition('START');
       machine.transition('PAUSE');
-      
+
       machine.context.fileHash = null;
       expect(machine.transition('RESUME')).toBe(true);
-      expect(machine.getState()).toBe('calculating');
+      expect(machine.getState()).toBe('waiting');
     });
-    
+
     it('RESUME根据context决定目标状态 - 有fileHash到uploading', () => {
       // 先修改mock返回值，让它返回有fileHash的item
-      machine.context.queueStore.findUploadItemInCurrentTenant = () => ({ 
+      machine.context.queueStore.findUploadItemInCurrentTenant = () => ({
         file: {},
-        fileHash: 'abc123' 
+        fileHash: 'abc123'
       });
-      
+
       machine.transition('START');
       machine.transition('PAUSE');
-      
+
       expect(machine.transition('RESUME')).toBe(true);
       expect(machine.getState()).toBe('uploading');
     });
-    
+
     it('RESUME强制重新计算 - forceRecalculateMD5为true到calculating', () => {
+      // 修改 mock 让 item 有 fileHash 和 forceRecalculateMD5
+      // fileSize 必须大于 32MB 阈值，否则 shouldRecalculateMD5 跳过
+      machine.context.queueStore.findUploadItemInCurrentTenant = () => ({
+        file: {},
+        fileHash: 'abc123',
+        forceRecalculateMD5: true,
+        fileSize: 100 * 1024 * 1024  // 100MB > 32MB
+      });
+
       machine.transition('START');
       machine.transition('PAUSE');
-      
-      machine.context.fileHash = 'abc123';
-      machine.context.forceRecalculateMD5 = true;
+
       expect(machine.transition('RESUME')).toBe(true);
       expect(machine.getState()).toBe('calculating');
     });
@@ -279,8 +304,8 @@ describe('UploadStateMachine - 核心功能', () => {
   describe('工具方法', () => {
     it('canTransition正确判断可转换性', () => {
       expect(machine.canTransition('START')).toBe(true);
-      expect(machine.canTransition('PAUSE')).toBe(false);
-      
+      expect(machine.canTransition('PAUSE')).toBe(true);  // waiting 允许 PAUSE
+
       machine.transition('START');
       expect(machine.canTransition('PAUSE')).toBe(true);
     });
@@ -315,18 +340,19 @@ describe('UploadStateMachine - 核心功能', () => {
   // ============ Context更新测试 ============
 
   describe('Context更新', () => {
-    it('updateContext更新白名单字段', () => {
+    it('updateContext更新字段', () => {
       machine.updateContext({ fileHash: 'abc123', percent: 50 });
 
       expect(machine.context.fileHash).toBe('abc123');
       expect(machine.context.percent).toBe(50);
     });
 
-    it('updateContext不更新非白名单字段', () => {
+    it('updateContext直接合并所有字段（无白名单过滤）', () => {
+      // 业务代码简化：updateContext 直接 { ...context, ...updates }，不做字段过滤
       machine.updateContext({ fileHash: 'abc123', invalidField: 'bad' });
 
       expect(machine.context.fileHash).toBe('abc123');
-      expect(machine.context.invalidField).toBeUndefined();
+      expect(machine.context.invalidField).toBe('bad');
     });
   });
 });

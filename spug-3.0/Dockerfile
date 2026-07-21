@@ -50,7 +50,7 @@ COPY spug_api/requirements.txt .
 
 # 创建虚拟环境并安装依赖（隔离系统 Python，避免路径硬编码和 bin 覆盖问题）
 RUN python3 -m venv /opt/venv && \
-    /opt/venv/bin/pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+    /opt/venv/bin/pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
     /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # 最后拷贝全部源码

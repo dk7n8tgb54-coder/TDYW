@@ -52,8 +52,8 @@ WORKDIR /app
 # 复制后端代码
 COPY spug_api/ ./
 
-# 安装 Python 依赖（使用清华镜像加速）
-RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+# 安装 Python 依赖（使用阿里云镜像加速）
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
     pip install --no-cache-dir -r requirements.txt
 
 # ==================== Stage 3: 生产镜像 ====================
@@ -104,7 +104,7 @@ COPY --from=frontend-builder /app/build ./spug_web/build
 COPY --from=backend-builder /app ./spug_api
 
 # 在生产镜像阶段安装 Python 依赖
-RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
     pip install --no-cache-dir -r spug_api/requirements.txt
 
 # 复制配置文件

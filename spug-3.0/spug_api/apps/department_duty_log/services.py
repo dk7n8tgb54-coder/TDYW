@@ -275,12 +275,18 @@ def compute_record_capabilities(record, user):
     is_owner = record.duty_person_id == getattr(user, 'id', None)
     is_draft = record.status == STATUS_DRAFT
     is_signed = record.status == STATUS_SIGNED
+    is_void = record.status == STATUS_VOID
 
     return {
         'can_edit': bool(is_draft and is_owner and user.has_perms(['department_duty_log.department_duty_log.edit'])),
         'can_delete': bool(is_draft and is_owner and user.has_perms(['department_duty_log.department_duty_log.del'])),
         'can_sign': bool(is_draft and is_owner and user.has_perms(['department_duty_log.department_duty_log.sign'])),
         'can_void': bool(is_signed and user.has_perms(['department_duty_log.department_duty_log.void'])),
+        # 已签/已作废记录可被导出；草稿永不进入导出
+        'can_export': bool(
+            (is_signed or is_void)
+            and user.has_perms(['department_duty_log.department_duty_log.export'])
+        ),
     }
 
 
@@ -824,6 +830,308 @@ def get_options(user):
     return {
         'current_user': current_user,
     }
+
+
+# ============================================================
+# PDF 导出
+# ============================================================
+
+# 单次导出上限（提示词第 824 条：单次最多 500 条）
+PDF_EXPORT_LIMIT = 500
+
+
+def _parse_export_filters(raw_data):
+    """解析 PDF 导出请求体筛选参数。
+
+    与列表筛选保持一致：start_date / end_date / duty_person_name / keyword。
+    额外接受 include_void 布尔值。
+
+    Returns:
+        (filters_dict, error_str)
+    """
+    if not isinstance(raw_data, dict):
+        return None, '请求体格式不正确'
+
+    filters = {}
+
+    # 日期范围（导出允许更宽范围，不强制 31 天默认）
+    start_date_str = str(raw_data.get('start_date', '')).strip()
+    end_date_str = str(raw_data.get('end_date', '')).strip()
+    try:
+        if start_date_str:
+            filters['start_date'] = _parse_date(start_date_str, '开始日期')
+        if end_date_str:
+            filters['end_date'] = _parse_date(end_date_str, '结束日期')
+    except ValueError as e:
+        return None, str(e)
+    if filters.get('start_date') and filters.get('end_date') \
+            and filters['end_date'] < filters['start_date']:
+        return None, '结束日期不能早于开始日期'
+
+    # 值班员姓名
+    duty_person_name = str(raw_data.get('duty_person_name', '')).strip()
+    if duty_person_name:
+        if len(duty_person_name) > MAX_DUTY_PERSON_NAME_LEN:
+            return None, '值班员姓名过长'
+        filters['duty_person_name'] = duty_person_name
+
+    # 关键字
+    keyword = str(raw_data.get('keyword', '')).strip()
+    if keyword:
+        if len(keyword) > MAX_KEYWORD_LEN:
+            return None, '关键字过长'
+        filters['keyword'] = keyword
+
+    # include_void
+    include_void = raw_data.get('include_void', False)
+    if not isinstance(include_void, bool):
+        # 容忍字符串 'true'/'false'
+        if isinstance(include_void, str):
+            include_void = include_void.strip().lower() in ('true', '1', 'yes')
+        else:
+            include_void = bool(include_void)
+    filters['include_void'] = include_void
+
+    return filters, None
+
+
+def _get_export_queryset(user, filters):
+    """构建 PDF 导出 QuerySet。
+
+    只导出 view 可见的已签/已作废记录，永不导出草稿。
+    默认只导出 signed，include_void=True 时追加 void。
+    """
+    include_void = filters.get('include_void', False)
+
+    qs = DepartmentDutyLog.objects.filter(deleted_at__isnull=True)
+
+    # 状态过滤：草稿永不导出
+    if include_void:
+        qs = qs.filter(status__in=(STATUS_SIGNED, STATUS_VOID))
+    else:
+        qs = qs.filter(status=STATUS_SIGNED)
+
+    # 日期范围
+    start_date = filters.get('start_date')
+    end_date = filters.get('end_date')
+    if start_date:
+        qs = qs.filter(duty_date__gte=start_date)
+    if end_date:
+        qs = qs.filter(duty_date__lte=end_date)
+
+    # 值班员姓名（跨租户可见，无需额外过滤）
+    duty_person_name = filters.get('duty_person_name')
+    if duty_person_name:
+        qs = qs.filter(duty_person_name__icontains=duty_person_name)
+
+    # 关键字
+    keyword = filters.get('keyword')
+    if keyword:
+        qs = qs.filter(Q(duty_record__icontains=keyword) | Q(remark__icontains=keyword))
+
+    return qs
+
+
+def _build_filters_text(filters):
+    """构建筛选条件的人类可读描述（用于 PDF 副标题）。"""
+    parts = []
+    start_date = filters.get('start_date')
+    end_date = filters.get('end_date')
+    if start_date and end_date:
+        parts.append(f'{start_date}~{end_date}')
+    elif start_date:
+        parts.append(f'{start_date}起')
+    elif end_date:
+        parts.append(f'至{end_date}')
+    if filters.get('duty_person_name'):
+        parts.append(f'值班员={filters["duty_person_name"]}')
+    if filters.get('keyword'):
+        parts.append(f'关键字={filters["keyword"]}')
+    if filters.get('include_void'):
+        parts.append('含已作废')
+    return '，'.join(parts) if parts else '全部已签'
+
+
+def _serialize_for_pdf(record):
+    """序列化为 PDF 渲染所需的 dict（含完整长文本和签署/作废字段）。"""
+    return {
+        'id': record.id,
+        'duty_date': _format_date(record.duty_date),
+        'duty_person_name': record.duty_person_name or '',
+        'department_name': '',
+        'mains_voltage': record.mains_voltage or '',
+        'ups_voltage': record.ups_voltage or '',
+        'weather': record.weather or '',
+        'duty_record': record.duty_record or '',
+        'remark': record.remark or '',
+        'status': record.status,
+        'signature_usage_id': record.signature_usage_id,
+        'signed_by_name': record.signed_by_name or '',
+        'signed_at': record.signed_at or '',
+        'signature_version': record.signature_version,
+        'signature_sha256': record.signature_sha256 or '',
+        'business_snapshot_hash': record.business_snapshot_hash or '',
+        'voided_at': record.voided_at or '',
+        'voided_by_name': _user_display_name(record.voided_by_id) if record.voided_by_id else '',
+        'void_reason': record.void_reason or '',
+    }
+
+
+def _user_display_name(user_id):
+    """根据 user_id 查询显示名（避免 N+1，调用方应批量预取）。"""
+    if not user_id:
+        return ''
+    from apps.account.models import User
+    u = User.objects.filter(pk=user_id).only('nickname', 'username').first()
+    if not u:
+        return f'用户#{user_id}'
+    return u.nickname or u.username
+
+
+def _preload_voided_by_names(records):
+    """批量预加载 voided_by 姓名映射，避免 N+1 查询。"""
+    voided_by_ids = {r.voided_by_id for r in records if r.voided_by_id}
+    if not voided_by_ids:
+        return {}
+    from apps.account.models import User
+    users = User.objects.filter(pk__in=voided_by_ids).only('id', 'nickname', 'username')
+    return {u.id: (u.nickname or u.username) for u in users}
+
+
+def export_pdf(user, raw_data, request=None):
+    """生成部门值班日志 PDF。
+
+    流程：
+    1. 解析筛选参数；
+    2. 构建 QuerySet（已签/已作废，不含草稿）；
+    3. 检查导出上限（500）；
+    4. 批量预加载作废人姓名；
+    5. 逐条通过 signature_usage_id 调用签名公共服务读取固定版本签名图片
+       （完整校验 SHA256 + 业务坐标匹配），任一校验失败则拒绝生成不完整 PDF；
+    6. 调用 pdf_export 生成 PDF；
+    7. 计算 PDF SHA256；
+    8. 写审计（含 filters / record_ids / record_count / include_void / pdf_sha256）。
+
+    Returns:
+        (pdf_bytes, filename, error_str)
+        - 成功：pdf_bytes 为 bytes，filename 为建议文件名
+        - 失败：pdf_bytes 为 None，error_str 非空
+    """
+    from . import pdf_export
+    from apps.signature import services as signature_services
+
+    filters, error = _parse_export_filters(raw_data)
+    if error:
+        return None, None, error
+
+    qs = _get_export_queryset(user, filters)
+
+    # 上限检查
+    total = qs.count()
+    if total == 0:
+        return None, None, '当前筛选条件下没有可导出的已签记录'
+    if total > PDF_EXPORT_LIMIT:
+        return None, None, f'导出数据超过 {PDF_EXPORT_LIMIT} 条，请缩小筛选范围后重试'
+
+    # 拉取全部记录（已按 Meta.ordering = ('-duty_date', '-id') 排序）
+    records = list(qs.select_related('duty_person', 'signed_by').order_by('-duty_date', '-id'))
+
+    # 批量预加载作废人姓名
+    voided_by_names = _preload_voided_by_names(records)
+
+    # 序列化 + 收集每条记录对应的签名图片（已校验 SHA256）
+    serialized = []
+    signature_images = {}  # record_id -> reportlab Image 或 None
+
+    for record in records:
+        item = _serialize_for_pdf(record)
+        # 补充预加载的 voided_by_name
+        if record.voided_by_id:
+            item['voided_by_name'] = voided_by_names.get(record.voided_by_id, f'用户#{record.voided_by_id}')
+        serialized.append(item)
+
+        # 已签/已作废记录必须有 signature_usage_id
+        if not record.signature_usage_id:
+            return None, None, f'记录 {record.id} 缺少签署记录 ID，无法生成完整 PDF'
+
+        info, sig_err = signature_services.get_signature_image_for_global_business(
+            usage_id=record.signature_usage_id,
+            module=MODULE,
+            object_type=OBJECT_TYPE,
+            object_id=str(record.id),
+            scene_code=SCENE_CODE,
+        )
+        if sig_err:
+            logger.warning(
+                '[DepartmentDutyLog PDF] signature verify failed: record_id=%s usage_id=%s err=%s',
+                record.id, record.signature_usage_id, sig_err,
+            )
+            return None, None, f'记录 {record.id} 签名校验失败：{sig_err}'
+
+        # 构建等比例缩放的 Image（可能返回 None，比如 PIL 不可用）
+        sig_img = pdf_export._build_signature_image(info['file_path'])
+        if sig_img is None:
+            return None, None, f'记录 {record.id} 签名图片读取失败'
+        signature_images[record.id] = sig_img
+
+    # 生成 PDF
+    filters_text = _build_filters_text(filters)
+    exporter_name = user.nickname or user.username
+
+    try:
+        pdf_output = pdf_export.generate_department_duty_log_pdf(
+            serialized,
+            exporter_name=exporter_name,
+            filters_text=filters_text,
+            include_void=filters.get('include_void', False),
+            signature_images=signature_images,
+        )
+        pdf_bytes = pdf_output.getvalue()
+    except Exception as e:
+        logger.error('[DepartmentDutyLog PDF] generate failed', exc_info=True)
+        return None, None, f'PDF 生成失败：{e}'
+
+    # 计算 PDF SHA256
+    pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+
+    # 文件名：部门值班日志_YYYYMMDD_HHmmss.pdf
+    from datetime import datetime
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f'部门值班日志_{timestamp}.pdf'
+
+    # 审计
+    try:
+        record_audit_event(
+            request=request,
+            action='export',
+            target_type='department_duty_log',
+            target_id=None,
+            target_name='导出部门值班日志 PDF',
+            detail={
+                'format': 'pdf',
+                'filters': {
+                    'start_date': _format_date(filters.get('start_date')) if filters.get('start_date') else '',
+                    'end_date': _format_date(filters.get('end_date')) if filters.get('end_date') else '',
+                    'duty_person_name': filters.get('duty_person_name', ''),
+                    'keyword': filters.get('keyword', ''),
+                    'include_void': filters.get('include_void', False),
+                },
+                'record_ids': [r.id for r in records],
+                'record_count': len(records),
+                'include_void': filters.get('include_void', False),
+                'pdf_sha256': pdf_sha256,
+            },
+            is_success=True,
+        )
+    except Exception:
+        logger.error('[DepartmentDutyLog PDF] audit failed', exc_info=True)
+
+    logger.info(
+        '[DepartmentDutyLog PDF] export success: user=%s records=%d sha256=%s',
+        user.id, len(records), pdf_sha256,
+    )
+
+    return pdf_bytes, filename, None
 
 
 # ============================================================

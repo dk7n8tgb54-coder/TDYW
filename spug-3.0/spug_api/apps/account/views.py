@@ -152,7 +152,9 @@ class UserView(AdminView):
             if (request.user.is_supper and form.get('tenant_id')
                     and form['tenant_id'] != user.tenant_id):
                 self._migrate_user_tenant(user, form['tenant_id'])
-            user.update_by_dict(form)
+            # 过滤 None：JsonParser 对未传字段填 None，update_by_dict 会覆盖 NOT NULL 字段
+            update_data = {k: v for k, v in form.items() if v is not None}
+            user.update_by_dict(update_data)
             user.roles.set(role_ids)
             user.set_perms_cache()
         return json_response()
@@ -556,7 +558,9 @@ class TenantView(AdminView):
             if not tenant:
                 logger.warning(f'Account: Tenant not found for patch by user {request.user}')
                 return json_response(error='租户不存在')
-            tenant.update_by_dict(form)
+            # 过滤 None：JsonParser 对未传字段填 None，update_by_dict 会覆盖 NOT NULL 字段
+            update_data = {k: v for k, v in form.items() if v is not None}
+            tenant.update_by_dict(update_data)
         return json_response(error=error)
 
     def delete(self, request):

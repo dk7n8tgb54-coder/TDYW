@@ -46,13 +46,14 @@ backups/
 *.log
 spug_api/logs/
 data/backend/logs/
+docx/
 
 # 临时文件
 *.tmp
 *.temp
 .DS_Store
 Thumbs.db
-
+历史/
 # 环境配置
 .env
 .env.local

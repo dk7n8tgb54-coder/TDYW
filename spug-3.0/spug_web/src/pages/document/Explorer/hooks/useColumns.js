@@ -136,9 +136,10 @@ export default function useColumns({
         title: '文件名',
         dataIndex: 'name',
         key: 'name',
-        // 【2026-07-17 布局优化】文件名列弹性宽度：
-        //   不设 width，配合 FileTable 的 tableLayout="fixed"，自动获得剩余空间；
-        //   长名称单行省略，悬停 title 显示完整名称。
+        // 【2026-07-21 列宽调整】文件名列固定 400px 不伸缩，保证文件名清晰可见；
+        //   超长名称单行省略，悬停 title 显示完整名称。
+        //   类型/大小/修改时间/创建人 列不设 width，在 tableLayout="fixed" 下弹性伸缩。
+        width: 400,
         ellipsis: true,
         sorter: true,
         showSorterTooltip: false,
@@ -306,8 +307,7 @@ export default function useColumns({
         title: '类型',
         dataIndex: 'file_type',
         key: 'file_type',
-        // 【2026-07-17 列宽修复】140px 保证 "Word 文档" 等完整显示，避免过早截断
-        width: 140,
+        // 【2026-07-21 列宽调整】去掉固定 width，弹性伸缩（文件名列固定 400px）
         ellipsis: true,
         sorter: true,
         showSorterTooltip: false,
@@ -318,8 +318,7 @@ export default function useColumns({
         title: '大小',
         dataIndex: 'size',
         key: 'size',
-        // 【2026-07-17 列宽修复】110px 保证数字与单位单行，文件夹 "-" 位置稳定
-        width: 110,
+        // 【2026-07-21 列宽调整】去掉固定 width，弹性伸缩（文件名列固定 400px）
         sorter: true,
         showSorterTooltip: false,
         sortOrder: sortOrder.columnKey === 'size' ? sortOrder.order : null,
@@ -329,9 +328,8 @@ export default function useColumns({
         title: '修改时间',
         dataIndex: 'created_at',
         key: 'created_at',
-        // 【2026-07-17 列宽修复】180px 容纳 "2026-07-17 12:33:40" 单行完整显示；
+        // 【2026-07-21 列宽调整】去掉固定 width，弹性伸缩（文件名列固定 400px）
         //   ellipsis:true 强制 white-space:nowrap，杜绝日期时间拆两行撑高行高。
-        width: 180,
         ellipsis: true,
         sorter: true,
         showSorterTooltip: false,
@@ -344,8 +342,7 @@ export default function useColumns({
         title: '创建人',
         dataIndex: 'created_by',
         key: 'created_by',
-        // 【2026-07-17 列宽修复】130px 容纳常见昵称 + "我"标签同行
-        width: 130,
+        // 【2026-07-21 列宽调整】去掉固定 width，弹性伸缩（文件名列固定 400px）
         ellipsis: true,
         sorter: true,
         showSorterTooltip: false,

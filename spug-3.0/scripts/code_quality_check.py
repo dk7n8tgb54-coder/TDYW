@@ -258,8 +258,8 @@ class CodeQualityChecker:
             # 统计代码行数（排除注释和空行）
             total_lines, code_lines = self._count_code_lines(content, is_python=True)
 
-            # 检查有效代码行数
-            if code_lines > self.MAX_FILE_LINES:
+            # 检查有效代码行数（测试文件放行行数限制，仅业务代码受约束）
+            if not self._is_test_file(file_path) and code_lines > self.MAX_FILE_LINES:
                 self.issues.append({
                     'type': 'error',
                     'file': str(rel_path),
@@ -308,6 +308,18 @@ class CodeQualityChecker:
 
         except Exception as e:
             print(f"  检查失败 {file_path}: {e}")
+
+    def _is_test_file(self, file_path: Path) -> bool:
+        """判断是否为测试文件（行数检查对其放行，复杂度仍检查）。
+
+        命中规则（与门禁文档约定一致）：
+        - 文件名以 test 开头（tests.py / test_*.py / testxxx.py）
+        - 路径含 tests/ 或 test/ 目录组件
+        """
+        if file_path.name.startswith('test'):
+            return True
+        parts = file_path.parts
+        return 'tests' in parts or 'test' in parts
 
     def _calculate_complexity(self, node: ast.AST) -> int:
         """计算函数复杂度（简单的圈复杂度估算）"""

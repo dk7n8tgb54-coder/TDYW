@@ -21,16 +21,15 @@ const STATUS_TAG_MAP = {
 export default observer(function () {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const [viewMode, setViewMode] = useState(false);
+
+  // 直接根据 store 状态计算是否详情模式，避免 state 与 useEffect 时序问题
+  // （原来的 setViewMode + useEffect([form]) 组合会导致模式切换时
+  //  form 实例未连接到 Form 元素，触发 "useForm is not connected" 警告）
+  const viewMode = S.detailVisible;
 
   React.useEffect(() => {
-    const isView = !!S.record.id && !hasPermission('radio_license.license.edit');
-    // 双击查看时为详情模式
-    if (S.detailVisible) {
-      setViewMode(true);
-      return;
-    }
-    setViewMode(false);
+    // 详情模式不需要填充表单
+    if (viewMode) return;
     const initialValues = {...S.record};
 
     // 处理频率初始值
@@ -55,7 +54,7 @@ export default observer(function () {
     form.setFieldsValue(initialValues);
     // 加载可选责任人列表（必填项需要）
     S.fetchResponsibleUsers();
-  }, [form]);
+  }, [form, viewMode, S.record]);
 
   function handleSubmit() {
     form.validateFields().then(() => {
@@ -277,8 +276,7 @@ export default observer(function () {
                   </Form.Item>
                   <Form.Item
                     {...restField}
-                    name={[name, 'frequency_unit']}
-                    initialValue="MHz">
+                    name={[name, 'frequency_unit']}>
                     <Select style={{width: 90}}>
                       {S.frequencyUnitOptions.map(item => (
                         <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>

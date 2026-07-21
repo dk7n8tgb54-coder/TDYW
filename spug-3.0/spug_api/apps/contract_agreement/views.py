@@ -205,47 +205,80 @@ class ContractAgreementView(View):
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
-            Argument('contract_name', help='请输入合同名称'),
-            Argument('contract_type', help='请选择类型'),
-            Argument('valid_start_date', help='请选择起始日期'),
-            Argument('valid_end_date', help='请选择截止日期'),
+            Argument('contract_name', required=False),
+            Argument('contract_type', required=False),
+            Argument('valid_start_date', required=False),
+            Argument('valid_end_date', required=False),
             Argument('has_fee', type=bool, required=False, default=False),
             Argument('fee_amount', required=False),
             Argument('fee_detail', required=False, default=''),
-            Argument('signing_party', help='请输入签约方'),
-            Argument('responsible_user_id', type=int, help='请选择责任人'),
-            Argument('responsible_user_name', help='请选择责任人'),
+            Argument('signing_party', required=False),
+            Argument('responsible_user_id', type=int, required=False),
+            Argument('responsible_user_name', required=False),
             Argument('remark', required=False, default=''),
         ).parse(request.body)
         if error:
             return json_response(error=error)
+        if form.id:
+            return self._post_edit(request, form)
+        return self._post_create(request, form)
 
+    def _validate_edit_form(self, form):
+        """编辑模式下的字段校验，返回错误消息或 None"""
+        if form.valid_start_date:
+            _, err = _parse_date(form.valid_start_date, '起始日期')
+            if err:
+                return err
+        if form.valid_end_date:
+            _, err = _parse_date(form.valid_end_date, '截止日期')
+            if err:
+                return err
+        if form.contract_type is not None and form.contract_type not in dict(ContractAgreement.CONTRACT_TYPE_CHOICES):
+            return '未知的合同类型'
+        return None
+
+    def _post_edit(self, request, form):
+        """编辑合同协议：权限 → 存在性 → 字段校验 → 落库 → 扫描 → 审计"""
+        if not request.user.has_perms({'contract_agreement.agreement.edit'}):
+            return json_response(error='权限拒绝：缺少编辑合同协议权限')
+        qs = apply_tenant_filter(ContractAgreement.objects.all(), request.user)
+        agreement = qs.filter(pk=form.id).first()
+        if not agreement:
+            return json_response(error='合同协议不存在或无权限编辑')
+        err = self._validate_edit_form(form)
+        if err:
+            return json_response(error=err)
+        # 只更新传入的非 None 字段
+        update_data = {k: v for k, v in form.items() if v is not None and k != 'id'}
+        for key, value in update_data.items():
+            setattr(agreement, key, value)
+        agreement.updated_at = human_datetime()
+        agreement.updated_by = request.user
+        agreement.save()
+        scan_single_contract_agreement(agreement)
+        record_audit_event(
+            request, 'update', AUDIT_TARGET_TYPE,
+            target_id=agreement.id, target_name=agreement.contract_name,
+            detail={'contract_type': agreement.contract_type, 'valid_end_date': _fmt_date(agreement.valid_end_date)},
+        )
+        return json_response(data=_serialize_agreement(agreement, request.user))
+
+    def _post_create(self, request, form):
+        """新建合同协议：权限 → 必填 → 校验 → 落库 → 扫描 → 审计"""
+        if not request.user.has_perms({'contract_agreement.agreement.add'}):
+            return json_response(error='权限拒绝：缺少新增合同协议权限')
+        required = {
+            'contract_name': '合同名称', 'contract_type': '类型',
+            'valid_start_date': '起始日期', 'valid_end_date': '截止日期',
+            'signing_party': '签约方', 'responsible_user_id': '责任人',
+            'responsible_user_name': '责任人',
+        }
+        for field, label in required.items():
+            if not form.get(field):
+                return json_response(error=f'请输入{label}')
         data, error = _validate_form(form)
         if error:
             return json_response(error=error)
-
-        if form.id:
-            if not request.user.has_perms({'contract_agreement.agreement.edit'}):
-                return json_response(error='权限拒绝：缺少编辑合同协议权限')
-            qs = apply_tenant_filter(ContractAgreement.objects.all(), request.user)
-            agreement = qs.filter(pk=form.id).first()
-            if not agreement:
-                return json_response(error='合同协议不存在或无权限编辑')
-            for key, value in data.items():
-                setattr(agreement, key, value)
-            agreement.updated_at = human_datetime()
-            agreement.updated_by = request.user
-            agreement.save()
-            scan_single_contract_agreement(agreement)
-            record_audit_event(
-                request, 'update', AUDIT_TARGET_TYPE,
-                target_id=agreement.id, target_name=agreement.contract_name,
-                detail={'contract_type': agreement.contract_type, 'valid_end_date': _fmt_date(agreement.valid_end_date)},
-            )
-            return json_response(data=_serialize_agreement(agreement, request.user))
-
-        if not request.user.has_perms({'contract_agreement.agreement.add'}):
-            return json_response(error='权限拒绝：缺少新增合同协议权限')
         assign_tenant_id(data, request.user)
         agreement = ContractAgreement.objects.create(
             **data,

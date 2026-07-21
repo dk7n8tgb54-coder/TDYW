@@ -18,7 +18,9 @@ from datetime import date
 from celery import shared_task
 from django.utils import timezone
 
-from apps.radio_license.models import RadioLicense, EXPIRING_DAYS_THRESHOLD
+from apps.radio_license.models import (
+    RadioLicense, StationFrequencyApproval, EXPIRING_DAYS_THRESHOLD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +115,74 @@ def scan_radio_license_expiration(self):
             updated_count += 1
 
     logger.info(f'[RadioLicense] 全量扫描完成: total={total}, updated={updated_count}')
+    return {
+        'total': total,
+        'updated': updated_count,
+    }
+
+
+# ==================== 台站频率批复到期扫描 ====================
+
+
+def scan_single_approval(approval, today=None):
+    """扫描单条批复的到期状态并更新 approval.status。
+
+    与 scan_single_license 对称：复用 calculate_license_status 计算，
+    只在状态变化时写库（避免无意义写放大）。新增/编辑后由 views 立即调用，
+    保证列表 status 缓存与最新 valid_to 一致，不等待每日 Celery。
+
+    Args:
+        approval: StationFrequencyApproval 实例
+        today: 可选，指定"今天"日期（用于测试）
+
+    Returns:
+        dict: {'status': str, 'days_left': int, 'updated': bool}
+    """
+    if today is None:
+        today = timezone.now().date()
+    status, days_left = calculate_license_status(approval.valid_to, today)
+
+    updated = False
+    if approval.status != status:
+        StationFrequencyApproval.objects.filter(pk=approval.pk).update(status=status)
+        approval.status = status
+        updated = True
+
+    logger.info(
+        f'[StationFrequencyApproval] 单条扫描: approval=%s, '
+        f'status=%s, days_left=%s, updated=%s',
+        approval.id, status, days_left, updated,
+    )
+    return {
+        'status': status,
+        'days_left': days_left,
+        'updated': updated,
+    }
+
+
+@shared_task(bind=True, soft_time_limit=300, time_limit=600, queue='radio_license')
+def scan_approval_expiration(self):
+    """扫描所有批复到期状态并更新 approval.status（定时兜底）。
+
+    全量任务不使用请求租户过滤，负责维护所有租户；
+    TenantModelManager.objects.all() 默认不会自动按租户过滤。
+    数据量增长后使用 iterator(chunk_size=500)，避免一次加载全部对象。
+    """
+    today = timezone.now().date()
+    logger.info(f'[StationFrequencyApproval] 开始全量扫描批复到期状态: today={today}')
+
+    approvals_qs = StationFrequencyApproval.objects.all()
+    total = approvals_qs.count()
+    updated_count = 0
+
+    for approval in approvals_qs.iterator(chunk_size=500):
+        result = scan_single_approval(approval, today)
+        if result['updated']:
+            updated_count += 1
+
+    logger.info(
+        f'[StationFrequencyApproval] 全量扫描完成: total={total}, updated={updated_count}'
+    )
     return {
         'total': total,
         'updated': updated_count,

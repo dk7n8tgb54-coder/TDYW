@@ -5,7 +5,7 @@
 
 对齐 2026-06 后的真实接口（回收站已移除，分片上传走 file_hash 隔离目录）。
 覆盖场景：文件夹 CRUD、普通上传、分片上传+合并（含断点续传）、传输列表、
-磁盘使用、上传压力探针、DB 连接池健康。
+磁盘使用、DB 连接池健康。
 
 【关键修正 vs 旧脚本】
 1. 移除全部 /recycle-bin/* 任务（接口已于 2026-06-23 删除，旧脚本一跑全 404）。
@@ -15,10 +15,10 @@
 5. 数据清理：每个虚拟用户只建一个“根文件夹”，所有操作都在其下进行；
    on_stop 直接删除根文件夹（递归硬删子文件夹+文件+DB 记录），可覆盖合并产物。
 
-运行方式（必须用 -f 指定本文件，且打 tdyw-test 的 8080 端口）：
-    python -m locust -f locustfile/document_stress.py -H http://localhost:8080
+运行方式（必须用 -f 指定本文件，且打生产容器 tdyw 的 80 端口）：
+    python -m locust -f locustfile/document_stress.py -H http://localhost
     # 命令行模式
-    python -m locust -f locustfile/document_stress.py -H http://localhost:8080 \
+    python -m locust -f locustfile/document_stress.py -H http://localhost \
         --headless -u 50 -r 10 -t 10m --csv=document_stress
 
 账号：见 README，使用专用压测账号（create_stress_accounts.py 创建）。
@@ -36,7 +36,7 @@ from locust import HttpUser, task, between, events
 from locust.runners import MasterRunner
 
 # ===================== 配置 =====================
-# 专用压测账号（tenant=stress）。密码要与 create_stress_accounts.py 保持一致。
+# 5 个专用压测账号(与 _common.py / create_stress_accounts.py 一致)
 STRESS_ACCOUNTS = [
     {"username": "st_press_01", "password": "Stress@2026"},
     {"username": "st_press_02", "password": "Stress@2026"},
@@ -53,6 +53,10 @@ LARGE_FILE = 3 * CHUNK_SIZE       # 3MB -> 3 个分片
 _account_lock = threading.Lock()
 _account_index = 0
 
+# Token 池:每个账号只登录一次,后续用户复用(避免 token 互相覆盖)
+_token_pool = {}
+_token_pool_lock = threading.Lock()
+
 
 def _next_account():
     global _account_index
@@ -60,6 +64,49 @@ def _next_account():
         acc = STRESS_ACCOUNTS[_account_index % len(STRESS_ACCOUNTS)]
         _account_index += 1
         return acc
+
+
+def _pool_login(client):
+    """Token 池登录:已有 token 直接复用,没有才登录"""
+    acc = _next_account()
+    username = acc["username"]
+    with _token_pool_lock:
+        if username in _token_pool:
+            return username, _token_pool[username]
+    resp = client.post(
+        "/api/account/login/",
+        json={"username": username, "password": acc["password"], "type": "default"},
+        name="[准备] 登录",
+    )
+    if resp.status_code != 200:
+        raise Exception(f"登录失败 {username}: {resp.status_code} {resp.text[:120]}")
+    token = (resp.json().get("data") or {}).get("access_token")
+    if not token:
+        raise Exception(f"登录响应缺少 access_token: {resp.text[:120]}")
+    with _token_pool_lock:
+        _token_pool[username] = token
+    return username, token
+
+
+def _pool_refresh(client, username):
+    """401 时刷新指定账号的 token"""
+    acc = next((a for a in STRESS_ACCOUNTS if a["username"] == username), None)
+    if not acc:
+        return None
+    with _token_pool_lock:
+        _token_pool.pop(username, None)
+    resp = client.post(
+        "/api/account/login/",
+        json={"username": username, "password": acc["password"], "type": "default"},
+        name="[刷新] 重新登录",
+    )
+    if resp.status_code == 200:
+        token = (resp.json().get("data") or {}).get("access_token")
+        if token:
+            with _token_pool_lock:
+                _token_pool[username] = token
+            return token
+    return None
 
 
 # ===================== 基础用户类 =====================
@@ -75,6 +122,7 @@ class BaseDocumentUser(HttpUser):
         self.ensure_root_folder()
 
     def on_stop(self):
+        return  # 保留压测数据(用户要求全部保留)
         # 收尾清理：删除根文件夹（递归硬删其下所有文件/子文件夹）
         if getattr(self, "root_folder_id", None):
             try:
@@ -84,28 +132,22 @@ class BaseDocumentUser(HttpUser):
                 )
             except Exception:
                 pass
-        try:
-            self.client.delete("/api/account/logout/")
-        except Exception:
-            pass
+        # 不做登出(避免覆盖 token 池里的 token)
 
     # ---------- 登录 ----------
     def login(self):
-        acc = _next_account()
-        self.username = acc["username"]
-        self.password = acc["password"]
-        resp = self.client.post(
-            "/api/account/login/",
-            json={"username": self.username, "password": self.password, "type": "default"},
-            name="[准备] 登录",
-        )
-        if resp.status_code != 200:
-            raise Exception(f"登录失败 {self.username}: {resp.status_code} {resp.text[:120]}")
-        data = resp.json().get("data") or {}
-        token = data.get("access_token")
-        if not token:
-            raise Exception(f"登录响应缺少 access_token: {resp.text[:120]}")
-        self.client.headers.update({"x-token": token})
+        self.username, self.token = _pool_login(self.client)
+        self.client.headers.update({"x-token": self.token})
+
+    def _refresh_if_401(self, resp):
+        """401 时刷新 token 并重试(返回新 response)"""
+        if resp.status_code != 401:
+            return resp
+        new_token = _pool_refresh(self.client, self.username)
+        if new_token:
+            self.token = new_token
+            self.client.headers.update({"x-token": self.token})
+        return resp
 
     # ---------- 根文件夹 ----------
     def ensure_root_folder(self):
@@ -274,10 +316,6 @@ class PrivateSpaceUser(BaseDocumentUser):
         self.client.get("/api/document/disk_usage/?is_public=False", name="[私有] 磁盘使用")
 
     @task(2)
-    def get_upload_pressure(self):
-        self.client.get("/api/document/upload_pressure/", name="[私有] 上传压力探针")
-
-    @task(2)
     def health_db_pool(self):
         self.client.get("/api/document/health/db-pool/", name="[私有] DB连接池")
 
@@ -333,10 +371,6 @@ class PublicSpaceUser(BaseDocumentUser):
         self.client.get("/api/document/disk_usage/?is_public=True", name="[公共] 磁盘使用")
 
     @task(2)
-    def get_upload_pressure(self):
-        self.client.get("/api/document/upload_pressure/", name="[公共] 上传压力探针")
-
-    @task(2)
     def health_db_pool(self):
         self.client.get("/api/document/health/db-pool/", name="[公共] DB连接池")
 
@@ -346,8 +380,8 @@ class PublicSpaceUser(BaseDocumentUser):
 def on_test_start(environment, **kwargs):
     print("=" * 60)
     print("资料库压力测试开始")
-    print("目标: 私有/公共空间 CRUD + 分片上传 + 传输/磁盘/压力探针")
-    print("注意: 必须打 tdyw-test(8080)，并使用专用压测账号")
+    print("目标: 私有/公共空间 CRUD + 分片上传 + 传输/磁盘")
+    print("注意: 必须打生产容器 tdyw(80 端口)，并使用专用压测账号")
     print("=" * 60)
     if isinstance(environment.runner, MasterRunner):
         print("[主节点] 分布式模式")

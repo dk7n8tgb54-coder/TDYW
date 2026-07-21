@@ -1,0 +1,112 @@
+INFO [DocumentConfig] Document app ready
+INFO [DocumentConfig] Registered 2 Celery Beat tasks
+[Celery] Document tasks imported successfully
+[Celery] RadioLicense tasks imported successfully
+[Celery] Home tasks imported successfully
+
+========================================================================
+  Spug 跨模块集成测试报告 (阶段 5)
+========================================================================
+
+【1. 登录认证】
+  [PASS]   admin HTTP 登录  ->  token=5d89b5b4... (nginx→django 全链路)
+
+【2. API 连通性】
+  [PASS]   /account/user/  ->  1 条
+  [PASS]   /account/user/tenant_choices/  ->  0 条
+  [WARN]   /account/user/restore/  ->  error: 请指定操作对象
+  [PASS]   /account/role/  ->  0 条
+  [PASS]   /account/role/assignable/  ->  0 条
+  [PASS]   /account/tenant/  ->  0 条
+  [PASS]   /account/self/  ->  2 条
+  [PASS]   /device/device-resume/  ->  0 条
+  [PASS]   /device/device-event/  ->  0 条
+  [PASS]   /setting/  ->  6 条
+  [PASS]   /setting/user/  ->  0 条
+  [WARN]   /setting/email_test/  ->  error: 请输入邮件服务地址
+  [WARN]   /setting/mfa/  ->  error: 检测到当前账户未配置推送标识（账户管理/编辑），请配置后再尝试启用MFA认证，否
+  [PASS]   /setting/about/  ->  4 条
+  [PASS]   /interference/  ->  0 条
+  [PASS]   /interference/statistics/  ->  4 条
+  [WARN]   /interference/state/  ->  error: 缺少 id 参数
+  [PASS]   /logs/audit/  ->  57 条
+  [PASS]   /logs/audit/target_types/  ->  22 条
+  [PASS]   /logs/audit/actions/  ->  9 条
+  [PASS]   /radio-license/approvals/  ->  0 条
+  [PASS]   /radio-license/approvals/responsible-users/  ->  1 条
+  [PASS]   /radio-license/approvals/reminders/popup/  ->  1 条
+  [INFO]   /radio-license/approvals/reminders/ack/  ->  HTTP 405 (非GET方法)
+  [PASS]   /radio-license/approvals/badge/  ->  3 条
+  [INFO]   /radio-license/approvals/attachments/  ->  HTTP 405 (非GET方法)
+  [PASS]   /radio-license/  ->  0 条
+  [INFO]   /radio-license/attachments/  ->  HTTP 405 (非GET方法)
+  [PASS]   /radio-license/reminders/popup/  ->  1 条
+  [INFO]   /radio-license/reminders/ack/  ->  HTTP 405 (非GET方法)
+  [PASS]   /radio-license/badge/  ->  3 条
+  [PASS]   /radio-license/responsible-users/  ->  1 条
+  [PASS]   /contract-agreement/  ->  0 条
+  [INFO]   /contract-agreement/attachments/  ->  HTTP 405 (非GET方法)
+  [PASS]   /contract-agreement/reminders/popup/  ->  1 条
+  [INFO]   /contract-agreement/reminders/ack/  ->  HTTP 405 (非GET方法)
+  [PASS]   /contract-agreement/badge/  ->  3 条
+  [PASS]   /contract-agreement/responsible-users/  ->  1 条
+  [PASS]   /regulation/categories/tree/  ->  0 条
+  [PASS]   /regulation/categories/  ->  0 条
+  [PASS]   /regulation/  ->  0 条
+  [INFO]   /regulation/create/  ->  HTTP 405 (非GET方法)
+  [PASS]   /signature/mine/  ->  2 条
+  [INFO]   测试覆盖  ->  共测试 43 个 GET API 路径
+
+【3. Celery 任务队列】
+  [PASS]   Worker ping  ->  6 个 worker 响应
+  [INFO]     worker  ->  batch-worker@be4255df8091
+  [INFO]     worker  ->  cleanup-worker@be4255df8091
+  [INFO]     worker  ->  default-worker@be4255df8091
+  [INFO]     worker  ->  merge-worker@be4255df8091
+  [INFO]     worker  ->  radio-license-worker@be4255df8091
+  [INFO]     worker  ->  thumbnail-worker@be4255df8091
+  [INFO]   Beat schedule  ->  13 个定时任务
+
+【4. kkFileView】
+  [PASS]   连通性  ->  HTTP 302
+
+【5. 数据库统计】
+  [INFO]   用户  ->  1 条
+  [INFO]   角色  ->  0 条
+  [INFO]   租户  ->  0 条
+  [INFO]   文件夹-普通  ->  0 条
+  [INFO]   文件夹-党建  ->  1 条
+  [INFO]   文件-普通  ->  0 条
+  [INFO]   文件-党建  ->  5 条
+  [INFO]   系统目录绑定  ->  1 条
+  [INFO]   附件  ->  0 条
+  [INFO]   签名  ->  0 条
+  [INFO]   签名使用记录  ->  0 条
+  [INFO]   审计日志  ->  57 条
+  [INFO]   频率批复  ->  0 条
+  [INFO]   部门值班日志  ->  0 条
+
+【6. Redis 缓存】
+  [PASS]   DB0 (channels)  ->  PONG
+  [PASS]   DB1 (cache)  ->  PONG
+  [PASS]   DB2 (broker)  ->  PONG
+  [PASS]   DB3 (result)  ->  PONG
+  [INFO]   权限缓存  ->  0 个 perms_* 键
+
+【7. 文件系统】
+  [PASS]   MEDIA_ROOT  ->  可写, 0 个文件
+  [PASS]   TRANSFER_DIR  ->  可写, 0 个文件
+  [PASS]   storage/documents  ->  可写, 10 个文件
+  [PASS]   storage/document_chunks  ->  可写, 0 个文件
+  [PASS]   logs  ->  可写, 24 个文件
+
+========================================================================
+  合计: [PASS]  44   [WARN]   4   [FAIL]   0   [INFO]  30
+========================================================================
+
+[需要处理的问题清单]
+  ? [2. API 连通性] /account/user/restore/: error: 请指定操作对象
+  ? [2. API 连通性] /setting/email_test/: error: 请输入邮件服务地址
+  ? [2. API 连通性] /setting/mfa/: error: 检测到当前账户未配置推送标识（账户管理/编辑），请配置后再尝试启用MFA认证，否
+  ? [2. API 连通性] /interference/state/: error: 缺少 id 参数
+

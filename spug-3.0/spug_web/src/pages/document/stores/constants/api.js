@@ -58,7 +58,4 @@ export const API_ENDPOINTS = {
 
   // 磁盘
   DISK_INFO: `${BASE_URL}/disk_usage/`,
-
-  // 上传压力（前端据此动态调整上传并发）
-  UPLOAD_PRESSURE: `${BASE_URL}/upload_pressure/`,
 };

@@ -6,7 +6,7 @@
 const {override, addDecoratorsLegacy, addLessLoader, addWebpackAlias} = require('customize-cra');
 const path = require('path');
 
-module.exports = override(
+const webpackConfig = override(
   addDecoratorsLegacy(),
   addLessLoader({
     lessOptions: {
@@ -21,3 +21,17 @@ module.exports = override(
     ['@']: path.resolve(__dirname, 'src')
   }),
 );
+
+// jest 配置：忽略 __tests__/ 下的辅助模块（非测试文件）被 jest 当成测试文件跑
+const jestConfig = config => {
+  config.testPathIgnorePatterns = [
+    ...(config.testPathIgnorePatterns || ['/node_modules/']),
+    '_gatewayEnv'
+  ];
+  return config;
+};
+
+module.exports = {
+  webpack: webpackConfig,
+  jest: jestConfig,
+};

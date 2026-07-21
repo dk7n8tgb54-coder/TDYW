@@ -196,40 +196,53 @@ class InterferenceView(View):
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
-            Argument('frequency', help='请输入频率'),
-            Argument('report_dept', help='请输入汇报科室'),
-            Argument('datetime', help='请选择日期时间'),
-            Argument('coordinates', help='请输入坐标'),
-            Argument('interference_type', help='请选择干扰类型'),
-            Argument('phenomenon', help='请输入现象'),
+            Argument('frequency', required=False),
+            Argument('report_dept', required=False),
+            Argument('datetime', required=False),
+            Argument('coordinates', required=False),
+            Argument('interference_type', required=False),
+            Argument('phenomenon', required=False),
             Argument('flight_number', required=False),
             Argument('aircraft_type', required=False),
-            Argument('is_reported', help='请选择是否上报')
+            Argument('is_reported', required=False)
         ).parse(request.body)
         if error is None:
-            # 校验 datetime 格式必须为 YYYY-MM-DD HH:MM:SS（CharField 存储依赖格式一致性）
+            # datetime 格式校验（创建和编辑共用）
             if form.datetime:
                 try:
                     datetime.strptime(form.datetime, '%Y-%m-%d %H:%M:%S')
                 except (ValueError, TypeError):
                     return json_response(error='日期时间格式必须为 YYYY-MM-DD HH:MM:SS')
             if form.id:
+                # 编辑：只更新传入的非 None 字段（允许部分字段更新）
                 if not request.user.has_perms({'interference.interference.edit'}):
                     return json_response(error='权限拒绝')
-                # 状态流转功能已暂停：普通 CRUD 不再受 status 限制
                 form.updated_at = human_datetime()
                 form.updated_by = request.user
                 record_id = form.pop('id')
+                update_data = {k: v for k, v in form.items() if v is not None}
                 qs = apply_tenant_filter(Interference.objects.all(), request.user)
-                updated_count = qs.filter(pk=record_id).update(**form)
+                updated_count = qs.filter(pk=record_id).update(**update_data)
                 if updated_count == 0:
                     error = '编辑失败：记录不存在或无权限编辑'
             else:
+                # 创建：校验必填字段
                 if not request.user.has_perms({'interference.interference.add'}):
                     return json_response(error='权限拒绝')
+                required = {
+                    'frequency': '频率', 'report_dept': '汇报科室',
+                    'datetime': '日期时间', 'coordinates': '坐标',
+                    'interference_type': '干扰类型', 'phenomenon': '现象',
+                    'is_reported': '是否上报'
+                }
+                for field, label in required.items():
+                    if not form.get(field):
+                        return json_response(error=f'请输入{label}')
+                form.pop('id', None)
                 form.created_by = request.user
                 assign_tenant_id(form, request.user)
-                Interference.objects.create(**form)
+                create_data = {k: v for k, v in form.items() if v is not None}
+                Interference.objects.create(**create_data)
         return json_response(error=error)
 
     @auth('interference.interference.del')

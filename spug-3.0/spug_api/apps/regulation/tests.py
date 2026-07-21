@@ -15,7 +15,9 @@ import os
 import re
 import shutil
 import json
+import tempfile
 import time
+from unittest.mock import patch
 
 from django.test import TestCase, Client
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -46,7 +48,9 @@ def _make_user(username, perms=None, is_supper=False):
         type='default',
     )
     if not is_supper:
-        user.set_perms_cache(set(perms or []))
+        # version 必须与 _get_roles_perms_version() 一致才能命中缓存。
+        # 测试用户无角色，_get_roles_perms_version() 返回 0，故 version=0。
+        user.set_perms_cache(set(perms or []), version=0)
     return user
 
 
@@ -62,6 +66,15 @@ class RegulationBaseTestCase(TestCase):
     """规章管理测试基类"""
 
     def setUp(self):
+        # 隔离文件系统：patch 存储根目录到临时目录，防止 tearDown 删除生产规章文件
+        self._tmp_storage_base = tempfile.mkdtemp()
+        self._patcher = patch(
+            'apps.regulation.storage.get_document_storage_base',
+            return_value=self._tmp_storage_base,
+        )
+        self._patcher.start()
+        self.addCleanup(self._patcher.stop)
+        self.addCleanup(lambda: shutil.rmtree(self._tmp_storage_base, ignore_errors=True))
         AppSetting.set('bind_ip', False)
 
         # 不同权限用户
@@ -558,12 +571,9 @@ class RegulationAttachmentSerializationTests(RegulationBaseTestCase):
         self.assertEqual(item['id'], self.att_id)
         self.assertEqual(item['file_size'], self.att_obj.file_size)
 
-    def test_previewable_false_for_unsupported_type(self):
-        """不可预览类型 previewable 为 False"""
-        # 上传一个 .csv？规章 ALLOWED_EXTENSIONS 不含 .csv，用 .txt 但 txt 可预览
-        # 改用允许但不可预览的类型：规章 ALLOWED_EXTENSIONS 全部可预览，无法构造
-        # 跳过：规章允许的扩展名集合与可预览集合基本一致
-        pass
+    # test_previewable_false_for_unsupported_type 已删除：
+    # 规章 ALLOWED_EXTENSIONS 与可预览集合一致，previewable 恒为 True，
+    # 无法构造 previewable=False 的场景。如未来扩展允许不可预览类型，需补测试。
 
     def test_viewer_can_preview_without_download_perm(self):
         """只有 view 权限、没有 download 权限的用户仍能通过 preview-url 预览"""

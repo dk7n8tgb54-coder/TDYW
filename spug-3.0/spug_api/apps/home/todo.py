@@ -15,7 +15,7 @@ class TodoView(View):
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
-            Argument('title', help='请输入待办事项标题'),
+            Argument('title', required=False),
             Argument('description', required=False),
             Argument('status', required=False, default='pending'),
             Argument('priority', required=False, default='medium'),
@@ -23,17 +23,22 @@ class TodoView(View):
         ).parse(request.body)
         if error is None:
             if form.id:
+                # 编辑：只更新传入的非 None 字段
                 todo_id = form.pop('id')
-                update_data = dict(form)
+                update_data = {k: v for k, v in form.items() if v is not None}
                 update_data['updated_at'] = human_datetime()
                 update_data['updated_by'] = request.user.username
                 Todo.objects.filter(pk=todo_id).update(**update_data)
             else:
+                # 创建：校验必填字段
+                if not form.get('title'):
+                    return json_response(error='请输入待办事项标题')
                 form.user_id = request.user.id
                 form.user_name = request.user.username
                 form.created_by = request.user.username
                 form.updated_by = request.user.username
-                Todo.objects.create(**form)
+                create_data = {k: v for k, v in form.items() if v is not None}
+                Todo.objects.create(**create_data)
         return json_response(error=error)
 
     def delete(self, request):

@@ -41,16 +41,6 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
   // 【修复 2026-07-17】手动刷新只让刷新按钮显示 loading，列表不显示整表遮罩
   const [refreshing, setRefreshing] = React.useState(false);
 
-  // 【2026-07-02 动态降级】资料库页面挂载时首次拉取服务器压力 + 启动轮询；
-  //   卸载时停止轮询，避免离开页面后继续请求
-  React.useEffect(() => {
-    uploadCoreStore.initUploadPressure();
-    uploadCoreStore.startPressurePolling();
-    return () => {
-      uploadCoreStore.stopPressurePolling();
-    };
-  }, []);
-
   // 【2026-07-17 URL 一致性】普通模式挂载时从 URL 恢复完整导航路径，
   //   党建模式走 initSystemFolder 初始化锁定根，不调用 restoreFromUrl 以免越界到公共库。
   React.useEffect(() => {
@@ -209,8 +199,6 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
       } else if (navigationStore.isPublic) {
         message.info('文件将上传到公共共享库，所有用户均可查看下载');
       }
-      // 【2026-07-02】开始上传前刷新一次服务器压力，确保按最新等级调度
-      uploadCoreStore.refreshPressure();
       uploadCoreStore.handleFileSelect(files);
     }
     e.target.value = '';
@@ -224,8 +212,6 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
       } else if (navigationStore.isPublic) {
         message.info('文件夹将上传到公共共享库，所有用户均可查看下载');
       }
-      // 【2026-07-02】开始上传前刷新一次服务器压力
-      uploadCoreStore.refreshPressure();
       uploadCoreStore.handleFolderSelect(files);
     }
     e.target.value = '';
@@ -305,9 +291,6 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
       message.warning(collected.errors[0]);
     }
     if (collected.files.length === 0) return;
-
-    // 刷新服务器压力，确保按最新等级调度
-    uploadCoreStore.refreshPressure();
 
     // 区分普通文件 vs 文件夹：
     //   - 全是普通文件（无文件夹）→ handleFileSelect（走普通/分片上传）

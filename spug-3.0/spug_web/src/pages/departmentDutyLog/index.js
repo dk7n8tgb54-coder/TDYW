@@ -11,6 +11,7 @@ import ComTable from './DepartmentDutyLogTable';
 import ComForm from './DepartmentDutyLogForm';
 import ComDetail from './DepartmentDutyLogDetail';
 import ComSignModal from './DepartmentDutyLogSignModal';
+import ComExportButton from './DepartmentDutyLogExportButton';
 import {PlusOutlined} from '@ant-design/icons';
 import store from './departmentDutyLogStore';
 
@@ -84,6 +85,9 @@ function DepartmentDutyLogIndex() {
         <Button type="primary" icon={<PlusOutlined/>}
           onClick={() => store.showForm(null)}
         >新建值班日志</Button>
+        <span style={{marginLeft: 8}}>
+          <ComExportButton/>
+        </span>
       </div>
 
       <ComTable/>

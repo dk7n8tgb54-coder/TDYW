@@ -64,13 +64,13 @@ class AuditLogView(AdminView):
                 start_dt = datetime.strptime(form.start_time, '%Y-%m-%d %H:%M:%S')
             except ValueError:
                 start_dt = datetime.strptime(form.start_time, '%Y-%m-%d')
-            queryset = queryset.filter(created_at__gte=timezone.make_aware(start_dt))
+            queryset = queryset.filter(created_at__gte=start_dt)
         if form.end_time:
             try:
                 end_dt = datetime.strptime(form.end_time, '%Y-%m-%d %H:%M:%S')
             except ValueError:
                 end_dt = datetime.strptime(form.end_time, '%Y-%m-%d')
-            queryset = queryset.filter(created_at__lte=timezone.make_aware(end_dt))
+            queryset = queryset.filter(created_at__lte=end_dt)
 
         # 关键词搜索（搜索用户名、对象名称、详情）
         if form.keyword:
@@ -136,13 +136,13 @@ class AuditLogExportView(AdminView):
                 start_dt = datetime.strptime(form.start_time, '%Y-%m-%d %H:%M:%S')
             except ValueError:
                 start_dt = datetime.strptime(form.start_time, '%Y-%m-%d')
-            queryset = queryset.filter(created_at__gte=timezone.make_aware(start_dt))
+            queryset = queryset.filter(created_at__gte=start_dt)
         if form.end_time:
             try:
                 end_dt = datetime.strptime(form.end_time, '%Y-%m-%d %H:%M:%S')
             except ValueError:
                 end_dt = datetime.strptime(form.end_time, '%Y-%m-%d')
-            queryset = queryset.filter(created_at__lte=timezone.make_aware(end_dt))
+            queryset = queryset.filter(created_at__lte=end_dt)
         if form.keyword:
             queryset = queryset.filter(
                 Q(username__icontains=form.keyword) |

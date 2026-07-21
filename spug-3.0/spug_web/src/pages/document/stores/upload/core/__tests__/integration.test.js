@@ -44,7 +44,7 @@ describe('状态机与 Store 协作集成测试', () => {
   // ============ 完整上传流程测试 ============
 
   describe('完整上传流程', () => {
-    it('应该完成 waiting -> calculating -> uploading -> merging -> completed 全流程', () => {
+    it('应该完成 waiting -> calculating -> uploading -> completed 全流程（小文件直接完成）', () => {
       const uploadId = 'test-flow-1';
 
       // 创建状态机
@@ -61,19 +61,15 @@ describe('状态机与 Store 协作集成测试', () => {
       expect(machine.transition('MD5_COMPLETE', { fileHash: 'abc123' })).toBe(true);
       expect(machine.getState()).toBe('uploading');
 
-      // 3. uploading -> merging
+      // 3. uploading -> completed（小文件无 totalChunks，isNormalUpload=true，直接完成）
       expect(machine.transition('UPLOAD_COMPLETE')).toBe(true);
-      expect(machine.getState()).toBe('merging');
-
-      // 4. merging -> completed
-      expect(machine.transition('MERGE_SUCCESS')).toBe(true);
       expect(machine.getState()).toBe('completed');
 
       // 验证历史记录
       const history = machine.getHistory();
-      expect(history).toHaveLength(4);
+      expect(history).toHaveLength(3);
       expect(history[0]).toMatchObject({ from: 'waiting', to: 'calculating' });
-      expect(history[3]).toMatchObject({ from: 'merging', to: 'completed' });
+      expect(history[2]).toMatchObject({ from: 'uploading', to: 'completed' });
     });
 
     it('应该处理 waiting -> calculating -> paused -> calculating -> uploading 流程', () => {
@@ -91,11 +87,15 @@ describe('状态机与 Store 协作集成测试', () => {
       machine.transition('PAUSE');
       expect(machine.getState()).toBe('paused');
 
-      // 3. 恢复计算（无 fileHash，回到 calculating）
+      // 3. 恢复计算（无 fileHash，shouldResumeWaiting 返回 true → waiting）
       machine.transition('RESUME');
+      expect(machine.getState()).toBe('waiting');
+
+      // 4. 重新开始计算
+      machine.transition('START');
       expect(machine.getState()).toBe('calculating');
 
-      // 4. 完成计算
+      // 5. 完成计算
       machine.transition('MD5_COMPLETE', { fileHash: 'abc123' });
       expect(machine.getState()).toBe('uploading');
     });
@@ -151,9 +151,9 @@ describe('状态机与 Store 协作集成测试', () => {
         expect.objectContaining({ status: 'paused' })
       );
 
-      // 恢复
+      // 恢复（无 fileHash → waiting）
       machine.transition('RESUME');
-      expect(machine.getState()).toBe('calculating');
+      expect(machine.getState()).toBe('waiting');
     });
 
     it('应该在 uploading 状态正确暂停和恢复', () => {
@@ -239,7 +239,7 @@ describe('状态机与 Store 协作集成测试', () => {
       // 验证结果
       expect(manager.get('resume-1').getState()).toBe('uploading');
       expect(manager.get('resume-2').getState()).toBe('uploading');
-      expect(manager.get('resume-3').getState()).toBe('calculating');
+      expect(manager.get('resume-3').getState()).toBe('waiting');
     });
   });
 
@@ -298,6 +298,13 @@ describe('状态机与 Store 协作集成测试', () => {
 
     it('merging 状态遇到错误应该转到 error', () => {
       const uploadId = 'test-error-3';
+      // 分片上传：totalChunks>1 → isChunkedUpload → merging
+      mockQueueStore.findUploadItemInCurrentTenant = jest.fn(() => ({
+        file: { name: 'test.txt', size: 1024 },
+        fileHash: null,
+        status: 'waiting',
+        totalChunks: 2,
+      }));
       const machine = manager.create(uploadId, {
         queueStore: mockQueueStore,
       });
@@ -331,9 +338,9 @@ describe('状态机与 Store 协作集成测试', () => {
       machine.transition('PAUSE');
       expect(machine.getState()).toBe('paused');
 
-      // 取消
+      // 取消（CANCEL → cancelled）
       machine.transition('CANCEL');
-      expect(machine.getState()).toBe('error');
+      expect(machine.getState()).toBe('cancelled');
     });
 
     it('批量取消应该取消所有 paused 状态的任务', () => {
@@ -350,7 +357,7 @@ describe('状态机与 Store 协作集成测试', () => {
 
       expect(results.filter((r) => r.success).length).toBe(3);
       ids.forEach((id) => {
-        expect(manager.get(id).getState()).toBe('error');
+        expect(manager.get(id).getState()).toBe('cancelled');
       });
     });
   });
@@ -428,7 +435,7 @@ describe('状态机与 Store 协作集成测试', () => {
 
       // 触发无效转换
       machine.transition('INVALID_EVENT');
-      machine.transition('PAUSE'); // 在 waiting 状态无效
+      machine.transition('ERROR'); // 在 waiting 状态无效
 
       const metrics = manager.getMetrics();
 

@@ -52,7 +52,26 @@ function handleResponse(response) {
       result = '无效的数据格式'
     }
   } else {
-    result = `请求失败: ${response.status} ${response.statusText}`
+    // 非 200 状态码：二进制响应（arraybuffer/blob）可能包含后端返回的 JSON 错误
+    // 例如导出接口返回 400 + JsonResponse，需要解析出具体错误信息
+    if (response.config.responseType === 'arraybuffer' || response.config.responseType === 'blob') {
+      const contentType = (response.headers['content-type'] || response.headers['Content-Type'] || '').toLowerCase();
+      if (contentType.includes('application/json')) {
+        try {
+          const text = typeof response.data === 'string'
+            ? response.data
+            : new TextDecoder().decode(response.data);
+          const errorData = JSON.parse(text);
+          result = errorData.error || `请求失败: ${response.status} ${response.statusText}`;
+        } catch (e) {
+          result = `请求失败: ${response.status} ${response.statusText}`;
+        }
+      } else {
+        result = `请求失败: ${response.status} ${response.statusText}`;
+      }
+    } else {
+      result = `请求失败: ${response.status} ${response.statusText}`;
+    }
   }
   message.error(result);
   return Promise.reject(result)

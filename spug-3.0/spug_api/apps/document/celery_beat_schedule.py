@@ -62,7 +62,7 @@ DOCUMENT_BEAT_SCHEDULE = {
     },
 
     # ========================================
-    # 【优化10】孤儿传输记录清理 - 每6小时执行
+    # 孤儿传输记录清理 - 每6小时执行
     # 清理 PENDING/UPLOADING/MERGING 超时 + 终态超龄的 transfer 记录
     # ========================================
     'document-cleanup-orphan-transfers': {
@@ -70,6 +70,19 @@ DOCUMENT_BEAT_SCHEDULE = {
         'schedule': crontab(minute=0, hour='*/6'),
         'kwargs': {'dry_run': False},
         'options': {'queue': 'document.cleanup'},
+    },
+
+    # ========================================
+    # 打包任务文件清理 - 每天凌晨6点执行
+    # 清理超过 24 小时的打包 ZIP 文件
+    # 【修复】原 cleanup_expired_pack_tasks 已定义但无 Beat 调度也无 delay 调用，
+    # 导致 storage/document_pack_tasks/ 下的 zip 永久堆积
+    # ========================================
+    'document-cleanup-expired-pack-tasks': {
+        'task': 'apps.document.tasks.pack.cleanup_expired_pack_tasks',
+        'schedule': crontab(hour=6, minute=0),
+        'kwargs': {'max_age_hours': 24},
+        'options': {'queue': 'document.pack'},
     },
 }
 

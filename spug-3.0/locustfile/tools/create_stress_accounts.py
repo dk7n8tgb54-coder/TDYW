@@ -13,7 +13,7 @@
   幂等：重复执行不会建重。
 
 【注意】生产 tdyw 压测采用“复用现有账号”策略，通常不需要跑本脚本。
-本脚本仅用于 tdyw-test 等需要新建独立测试账号的环境。
+本脚本用于在生产容器 tdyw 等需要新建独立测试账号的环境。
 
 权限码格式（与 User.page_perms 解析一致）：
   {"document": {"document": [<action>, ...]}}  ->  code = "document.document.<action>"
@@ -28,10 +28,17 @@ STRESS_TENANT = "stress"
 STRESS_PASSWORD = "Stress@2026"
 STRESS_USERNAMES = [f"st_press_0{i}" for i in range(1, 6)]
 
-# document_auth 用到的操作，对应 code: document.document.<op>
-DOC_ACTIONS = ["view", "create_folder", "upload", "delete",
-               "download", "move", "copy", "rename"]
-DOC_PERMS = {"document": {"document": DOC_ACTIONS}}
+# 压测涉及的所有模块权限(不只是 document)
+# 权限码格式: <module>.<submodule>.<action>
+ALL_PERMS = {
+    "document": {"document": ["view", "create_folder", "upload", "delete",
+                              "download", "move", "copy", "rename"]},
+    "logs": {"audit": ["view", "export"]},
+    "device": {"device_resume": ["view"]},
+    "interference": {"interference": ["view"]},
+    "home": {"statistic": ["view"]},
+    "department_duty_log": {"department_duty_log": ["view", "export"]},
+}
 
 
 def main():
@@ -43,13 +50,13 @@ def main():
         name="压测专用角色",
         tenant_id=STRESS_TENANT,
         defaults={
-            "page_perms": json.dumps(DOC_PERMS),
+            "page_perms": json.dumps(ALL_PERMS),
             "created_by": superuser,
-            "desc": "压测专用，仅授予资料库基础权限",
+            "desc": "压测专用，授予所有压测涉及模块的查看权限",
         },
     )
     if not role.page_perms:
-        role.page_perms = json.dumps(DOC_PERMS)
+        role.page_perms = json.dumps(ALL_PERMS)
         role.created_by = superuser
         role.save()
         print("更新角色权限: 压测专用角色")

@@ -67,7 +67,7 @@ def _process_pending_files(FileModel, space_name):
 
 
 @shared_task(bind=True, soft_time_limit=1800, time_limit=3600, queue='document.cleanup')
-def retry_clean_pending_files():
+def retry_clean_pending_files(self):
     """
     【P0修复】重试清理标记为待清理的文件
     当物理文件删除失败时，会标记为待清理状态，由本任务定时重试

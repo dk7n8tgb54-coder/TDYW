@@ -99,35 +99,36 @@ class DutyRecordView(View):
 
         form, error = JsonParser(
             Argument('id', type=int, required=False),
-            Argument('duty_person', help='请输入值班人员'),
+            Argument('duty_person', required=False),
             Argument('reporter', required=False),
-            Argument('department', help='请输入所属科室'),
-            Argument('duty_date', help='请选择值班日期'),
+            Argument('department', required=False),
+            Argument('duty_date', required=False),
             Argument('duty_situation', required=False),
         ).parse(request.body)
         if error is None:
             if form.id:
-                # 统一接口二次校验：编辑分支必须单独拥有 edit 权限
+                # 编辑：只更新传入的非 None 字段
                 if not request.user.has_perms({'duty.duty.edit'}):
                     return json_response(error='权限拒绝：缺少编辑值班记录权限')
                 queryset = apply_tenant_filter(DutyRecord.objects.filter(pk=form.id), request.user)
                 if not queryset.exists():
                     return json_response(error='记录不存在或无权操作')
-                queryset.update(
-                    duty_person=form.duty_person,
-                    department=form.department,
-                    duty_date=form.duty_date,
-                    duty_situation=form.duty_situation,
-                    updated_at=human_datetime()
-                )
+                update_data = {k: v for k, v in form.items() if v is not None and k != 'id'}
+                update_data['updated_at'] = human_datetime()
+                queryset.update(**update_data)
             else:
-                # 统一接口二次校验：新增分支必须单独拥有 add 权限
+                # 创建：校验必填字段
                 if not request.user.has_perms({'duty.duty.add'}):
                     return json_response(error='权限拒绝：缺少新增值班记录权限')
+                required = {'duty_person': '值班人员', 'department': '所属科室', 'duty_date': '值班日期'}
+                for field, label in required.items():
+                    if not form.get(field):
+                        return json_response(error=f'请输入{label}')
                 form.reporter = request.user.nickname
                 form.created_by = request.user
                 assign_tenant_id(form, request.user)
-                DutyRecord.objects.create(**form)
+                create_data = {k: v for k, v in form.items() if v is not None}
+                DutyRecord.objects.create(**create_data)
         return json_response(error=error)
 
     @auth('duty.duty.del')

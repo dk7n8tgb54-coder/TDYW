@@ -1,0 +1,531 @@
+INFO [DocumentConfig] Document app ready
+INFO [DocumentConfig] Registered 2 Celery Beat tasks
+System check identified some issues:
+
+WARNINGS:
+document.DocumentSystemFolder.folder: (fields.W342) Setting unique=True on a ForeignKey has the same effect as using a OneToOneField.
+	HINT: ForeignKey(unique=True) is usually better served by a OneToOneField.
+[Celery] Document tasks imported successfully
+[Celery] RadioLicense tasks imported successfully
+[Celery] Home tasks imported successfully
+Operations to perform:
+  Apply all migrations: account, auth, checksheet, contenttypes, contract_agreement, department_duty_log, device, django_celery_beat, django_celery_results, document, duty, evidence, fault, home, interference, logs, radio_license, regulation, runlog, sessions, setting, signature, upgrade
+Running pre-migrate handlers for application auth
+Running pre-migrate handlers for application contenttypes
+Running pre-migrate handlers for application sessions
+Running pre-migrate handlers for application account
+Running pre-migrate handlers for application setting
+Running pre-migrate handlers for application exec
+Running pre-migrate handlers for application fault
+Running pre-migrate handlers for application duty
+Running pre-migrate handlers for application device
+Running pre-migrate handlers for application interference
+Running pre-migrate handlers for application home
+Running pre-migrate handlers for application runlog
+Running pre-migrate handlers for application document
+Running pre-migrate handlers for application upgrade
+Running pre-migrate handlers for application checksheet
+Running pre-migrate handlers for application logs
+Running pre-migrate handlers for application radio_license
+Running pre-migrate handlers for application contract_agreement
+Running pre-migrate handlers for application evidence
+Running pre-migrate handlers for application regulation
+Running pre-migrate handlers for application signature
+Running pre-migrate handlers for application department_duty_log
+Running pre-migrate handlers for application django_celery_results
+Running pre-migrate handlers for application django_celery_beat
+Running migrations:
+  Applying account.0001_initial... OK (0.224s)
+  Applying account.0002_alter_role_is_global_admin_default... OK (0.018s)
+  Applying account.0003_add_tenant_id_index... OK (0.131s)
+  Applying account.0004_tenant_model... OK (0.042s)
+  Applying account.0005_populate_tenants... OK (0.008s)
+  Applying account.0006_role_tenant_system... OK (0.067s)
+  Applying account.0007_role_perms_version... OK (0.040s)
+  Applying contenttypes.0001_initial... OK (0.024s)
+  Applying contenttypes.0002_remove_content_type_name... OK (0.041s)
+  Applying auth.0001_initial... OK (0.273s)
+  Applying auth.0002_alter_permission_name_max_length... OK (0.029s)
+  Applying auth.0003_alter_user_email_max_length... OK (0.014s)
+  Applying auth.0004_alter_user_username_opts... OK (0.005s)
+  Applying auth.0005_alter_user_last_login_null... OK (0.023s)
+  Applying auth.0006_require_contenttypes_0002... OK (0.001s)
+  Applying auth.0007_alter_validators_add_error_messages... OK (0.005s)
+  Applying auth.0008_alter_user_username_max_length... OK (0.016s)
+  Applying auth.0009_alter_user_last_name_max_length... OK (0.014s)
+  Applying auth.0010_alter_group_name_max_length... OK (0.014s)
+  Applying auth.0011_update_proxy_permissions... OK (0.007s)
+  Applying auth.0012_alter_user_first_name_max_length... OK (0.016s)
+  Applying checksheet.0001_initial... OK (0.084s)
+  Applying checksheet.0002_auto_20260625_2355... OK (0.017s)
+  Applying checksheet.0003_evidence_submission... OK (0.126s)
+  Applying contract_agreement.0001_initial... OK (0.233s)
+  Applying contract_agreement.0002_three_state_and_responsible_user... OK (0.096s)
+  Applying department_duty_log.0001_init_department_duty_log... OK (0.266s)
+  Applying department_duty_log.0002_remove_department_name... OK (0.033s)
+  Applying device.0001_initial... OK (0.212s)
+  Applying device.0002_fix_responsible_user_id_null... OK (0.050s)
+  Applying device.0003_fix_related_user_id_null... OK (0.030s)
+  Applying device.0004_device_sn_tenant_unique_and_choices... OK (0.150s)
+  Applying device.0005_evidence_fields... OK (0.154s)
+  Applying device.0006_alter_deviceresume_is_deleted... OK (0.009s)
+  Applying django_celery_beat.0001_initial... OK (0.102s)
+  Applying django_celery_beat.0002_auto_20161118_0346... OK (0.043s)
+  Applying django_celery_beat.0003_auto_20161209_0049... OK (0.020s)
+  Applying django_celery_beat.0004_auto_20170221_0000... OK (0.004s)
+  Applying django_celery_beat.0005_add_solarschedule_events_choices... OK (0.004s)
+  Applying django_celery_beat.0006_auto_20180322_0932... OK (0.060s)
+  Applying django_celery_beat.0007_auto_20180521_0826... OK (0.038s)
+  Applying django_celery_beat.0008_auto_20180914_1922... OK (0.013s)
+  Applying django_celery_beat.0006_auto_20180210_1226... OK (0.010s)
+  Applying django_celery_beat.0006_periodictask_priority... OK (0.015s)
+  Applying django_celery_beat.0009_periodictask_headers... OK (0.023s)
+  Applying django_celery_beat.0010_auto_20190429_0326... OK (0.084s)
+  Applying django_celery_beat.0011_auto_20190508_0153... OK (0.051s)
+  Applying django_celery_beat.0012_periodictask_expire_seconds... OK (0.018s)
+  Applying django_celery_beat.0013_auto_20200609_0727... OK (0.005s)
+  Applying django_celery_beat.0014_remove_clockedschedule_enabled... OK (0.013s)
+  Applying django_celery_beat.0015_edit_solarschedule_events_choices... OK (0.005s)
+  Applying django_celery_beat.0016_alter_crontabschedule_timezone... OK (0.005s)
+  Applying django_celery_beat.0017_alter_crontabschedule_month_of_year... OK (0.005s)
+  Applying django_celery_beat.0018_improve_crontab_helptext... OK (0.005s)
+  Applying django_celery_beat.0019_alter_periodictasks_options... OK (0.003s)
+  Applying django_celery_results.0001_initial... OK (0.029s)
+  Applying django_celery_results.0002_add_task_name_args_kwargs... OK (0.035s)
+  Applying django_celery_results.0003_auto_20181106_1101... OK (0.004s)
+  Applying django_celery_results.0004_auto_20190516_0412... OK (0.060s)
+  Applying django_celery_results.0005_taskresult_worker... OK (0.026s)
+  Applying django_celery_results.0006_taskresult_date_created... OK (0.052s)
+  Applying django_celery_results.0007_remove_taskresult_hidden... OK (0.015s)
+  Applying django_celery_results.0008_chordcounter... OK (0.016s)
+  Applying django_celery_results.0009_groupresult... OK (0.266s)
+  Applying django_celery_results.0010_remove_duplicate_indices... OK (0.008s)
+  Applying django_celery_results.0011_taskresult_periodic_task_name... OK (0.015s)
+  Applying document.0001_initial... OK (0.689s)
+  Applying document.0002_add_thumbnail_path... OK (0.043s)
+  Applying document.0003_transfer_add_merging_choice... OK (0.013s)
+  Applying document.0004_folder_unique_constraints... OK (0.062s)
+  Applying document.0005_folder_unique_key...  [Private] backfill: 0 rows updated
+  [Public] backfill: 0 rows updated
+ OK (0.232s)
+  Applying document.0006_auto_20260627_0807... OK (0.053s)
+  Applying document.0007_document_list_indexes... OK (0.166s)
+  Applying document.0008_transfer_cleanup_index... OK (0.024s)
+  Applying document.0009_document_system_folder... OK (0.051s)
+  Applying document.0010_transfer_system_folder... OK (0.095s)
+  Applying document.0011_rename_party_building_documents... OK (0.029s)
+  Applying document.0012_system_folder_unique_folder... OK (0.121s)
+  Applying duty.0001_initial... OK (0.067s)
+  Applying duty.0002_auto_20260627_0807... OK (0.012s)
+  Applying evidence.0001_initial... OK (0.156s)
+  Applying evidence.0002_evidenceattachment_ev_att_obj_del_time_idx... OK (0.017s)
+  Applying fault.0001_initial... OK (0.135s)
+  Applying fault.0002_auto_20260627_0807... OK (0.027s)
+  Applying home.0001_initial... OK (0.050s)
+  Applying home.0002_announcement_models... OK (0.250s)
+  Applying interference.0001_initial... OK (0.069s)
+  Applying interference.0002_auto_20260627_0807... OK (0.016s)
+  Applying interference.0003_evidence_status_flow... OK (0.898s)
+  Applying logs.0001_initial... OK (0.016s)
+  Applying logs.0002_add_audit_indexes... OK (0.075s)
+  Applying logs.0003_audit_hash_fields... OK (0.184s)
+  Applying logs.0004_remove_dup_indexes... OK (0.039s)
+  Applying logs.0005_audit_tenant_ctime_id_idx... OK (0.016s)
+  Applying logs.0006_time_field_to_datetime... OK (0.043s)
+  Applying radio_license.0001_initial... OK (0.248s)
+  Applying radio_license.0002_add_attachment_model... OK (0.112s)
+  Applying radio_license.0003_add_reminder_model... OK (0.121s)
+  Applying radio_license.0004_remove_is_deleted... OK (0.063s)
+  Applying radio_license.0005_add_reminder_ack... OK (0.218s)
+  Applying radio_license.0006_auto_20260627_0807... OK (0.028s)
+  Applying radio_license.0007_evidence_attachment_version... OK (0.378s)
+  Applying radio_license.0008_remove_radiolicenseattachment... OK (0.010s)
+  Applying radio_license.0009_remove_radiolicensereminder... OK (0.010s)
+  Applying radio_license.0010_station_frequency_approval... OK (0.381s)
+  Applying regulation.0001_initial... OK (0.557s)
+  Applying regulation.0002_remove_attachment_is_primary... OK (0.035s)
+  Applying runlog.0001_initial... OK (0.402s)
+  Applying runlog.0003_add_event_type_config... OK (0.094s)
+  Applying runlog.0004_remove_event_type_tenant_id... OK (0.134s)
+  Applying runlog.0005_auto_20260604_1609... OK (0.185s)
+  Applying runlog.0006_add_duty_person_to_runlogupdate... OK (0.033s)
+  Applying runlog.0007_evidence_fields... OK (0.206s)
+  Applying runlog.0008_alter_runlog_status... OK (0.022s)
+  Applying runlog.0009_time_field_to_datetime... OK (0.630s)
+  Applying sessions.0001_initial... OK (0.026s)
+  Applying setting.0001_initial... OK (0.089s)
+  Applying signature.0001_initial... OK (0.047s)
+  Applying signature.0002_signatureusage... OK (0.090s)
+  Applying upgrade.0001_initial... OK (0.604s)
+  Applying upgrade.0002_auto_20260627_0807... OK (0.121s)
+  Applying upgrade.0003_upgrade_attachment... OK (0.225s)
+  Applying upgrade.0004_merge_plan... OK (0.320s)
+  Applying upgrade.0005_drop_upgrade_attachment... OK (0.010s)
+  Applying upgrade.0006_status_log... OK (0.054s)
+  Applying upgrade.0007_step_phase... OK (0.042s)
+  Applying upgrade.0008_status_log_flow... OK (0.117s)
+  Applying upgrade.0009_status_log_action_labels... OK (0.006s)
+  Applying upgrade.0010_alter_upgradestatuslog_action... OK (0.005s)
+  Applying upgrade.0011_record_create_fields... OK (0.228s)
+  Applying upgrade.0012_upgrade_system... OK (0.259s)
+  Applying upgrade.0013_upgradeplanstep_upg_plan_tenant_seq_idx_and_more... OK (0.221s)
+  Applying upgrade.0014_tenant_isolate_upgrade_systems... OK (0.045s)
+Running post-migrate handlers for application auth
+Adding content type 'auth | permission'
+Adding content type 'auth | group'
+Adding content type 'auth | user'
+Adding permission 'Permission object (1)'
+Adding permission 'Permission object (2)'
+Adding permission 'Permission object (3)'
+Adding permission 'Permission object (4)'
+Adding permission 'Permission object (5)'
+Adding permission 'Permission object (6)'
+Adding permission 'Permission object (7)'
+Adding permission 'Permission object (8)'
+Adding permission 'Permission object (9)'
+Adding permission 'Permission object (10)'
+Adding permission 'Permission object (11)'
+Adding permission 'Permission object (12)'
+Running post-migrate handlers for application contenttypes
+Adding content type 'contenttypes | contenttype'
+Adding permission 'Permission object (13)'
+Adding permission 'Permission object (14)'
+Adding permission 'Permission object (15)'
+Adding permission 'Permission object (16)'
+Running post-migrate handlers for application sessions
+Adding content type 'sessions | session'
+Adding permission 'Permission object (17)'
+Adding permission 'Permission object (18)'
+Adding permission 'Permission object (19)'
+Adding permission 'Permission object (20)'
+Running post-migrate handlers for application account
+Adding content type 'account | history'
+Adding content type 'account | role'
+Adding content type 'account | user'
+Adding content type 'account | tenant'
+Adding permission 'Permission object (21)'
+Adding permission 'Permission object (22)'
+Adding permission 'Permission object (23)'
+Adding permission 'Permission object (24)'
+Adding permission 'Permission object (25)'
+Adding permission 'Permission object (26)'
+Adding permission 'Permission object (27)'
+Adding permission 'Permission object (28)'
+Adding permission 'Permission object (29)'
+Adding permission 'Permission object (30)'
+Adding permission 'Permission object (31)'
+Adding permission 'Permission object (32)'
+Adding permission 'Permission object (33)'
+Adding permission 'Permission object (34)'
+Adding permission 'Permission object (35)'
+Adding permission 'Permission object (36)'
+Running post-migrate handlers for application setting
+Adding content type 'setting | setting'
+Adding content type 'setting | usersetting'
+Adding permission 'Permission object (37)'
+Adding permission 'Permission object (38)'
+Adding permission 'Permission object (39)'
+Adding permission 'Permission object (40)'
+Adding permission 'Permission object (41)'
+Adding permission 'Permission object (42)'
+Adding permission 'Permission object (43)'
+Adding permission 'Permission object (44)'
+Running post-migrate handlers for application exec
+Running post-migrate handlers for application fault
+Adding content type 'fault | faultrecord'
+Adding content type 'fault | faultpart'
+Adding permission 'Permission object (45)'
+Adding permission 'Permission object (46)'
+Adding permission 'Permission object (47)'
+Adding permission 'Permission object (48)'
+Adding permission 'Permission object (49)'
+Adding permission 'Permission object (50)'
+Adding permission 'Permission object (51)'
+Adding permission 'Permission object (52)'
+Running post-migrate handlers for application duty
+Adding content type 'duty | dutyrecord'
+Adding permission 'Permission object (53)'
+Adding permission 'Permission object (54)'
+Adding permission 'Permission object (55)'
+Adding permission 'Permission object (56)'
+Running post-migrate handlers for application device
+Adding content type 'device | deviceresume'
+Adding content type 'device | deviceevent'
+Adding permission 'Permission object (57)'
+Adding permission 'Permission object (58)'
+Adding permission 'Permission object (59)'
+Adding permission 'Permission object (60)'
+Adding permission 'Permission object (61)'
+Adding permission 'Permission object (62)'
+Adding permission 'Permission object (63)'
+Adding permission 'Permission object (64)'
+Running post-migrate handlers for application interference
+Adding content type 'interference | interference'
+Adding permission 'Permission object (65)'
+Adding permission 'Permission object (66)'
+Adding permission 'Permission object (67)'
+Adding permission 'Permission object (68)'
+Running post-migrate handlers for application home
+Adding content type 'home | navigation'
+Adding content type 'home | notice'
+Adding content type 'home | announcement'
+Adding content type 'home | announcementscope'
+Adding content type 'home | announcementread'
+Adding permission 'Permission object (69)'
+Adding permission 'Permission object (70)'
+Adding permission 'Permission object (71)'
+Adding permission 'Permission object (72)'
+Adding permission 'Permission object (73)'
+Adding permission 'Permission object (74)'
+Adding permission 'Permission object (75)'
+Adding permission 'Permission object (76)'
+Adding permission 'Permission object (77)'
+Adding permission 'Permission object (78)'
+Adding permission 'Permission object (79)'
+Adding permission 'Permission object (80)'
+Adding permission 'Permission object (81)'
+Adding permission 'Permission object (82)'
+Adding permission 'Permission object (83)'
+Adding permission 'Permission object (84)'
+Adding permission 'Permission object (85)'
+Adding permission 'Permission object (86)'
+Adding permission 'Permission object (87)'
+Adding permission 'Permission object (88)'
+Running post-migrate handlers for application runlog
+Adding content type 'runlog | runlogupdate'
+Adding content type 'runlog | runlog'
+Adding content type 'runlog | eventtypeconfig'
+Adding permission 'Permission object (89)'
+Adding permission 'Permission object (90)'
+Adding permission 'Permission object (91)'
+Adding permission 'Permission object (92)'
+Adding permission 'Permission object (93)'
+Adding permission 'Permission object (94)'
+Adding permission 'Permission object (95)'
+Adding permission 'Permission object (96)'
+Adding permission 'Permission object (97)'
+Adding permission 'Permission object (98)'
+Adding permission 'Permission object (99)'
+Adding permission 'Permission object (100)'
+Running post-migrate handlers for application document
+Adding content type 'document | documenttransfer'
+Adding content type 'document | documentfolderpublic'
+Adding content type 'document | documentfolderprivate'
+Adding content type 'document | documentfilepublic'
+Adding content type 'document | documentfileprivate'
+Adding content type 'document | documentsystemfolder'
+Adding permission 'Permission object (101)'
+Adding permission 'Permission object (102)'
+Adding permission 'Permission object (103)'
+Adding permission 'Permission object (104)'
+Adding permission 'Permission object (105)'
+Adding permission 'Permission object (106)'
+Adding permission 'Permission object (107)'
+Adding permission 'Permission object (108)'
+Adding permission 'Permission object (109)'
+Adding permission 'Permission object (110)'
+Adding permission 'Permission object (111)'
+Adding permission 'Permission object (112)'
+Adding permission 'Permission object (113)'
+Adding permission 'Permission object (114)'
+Adding permission 'Permission object (115)'
+Adding permission 'Permission object (116)'
+Adding permission 'Permission object (117)'
+Adding permission 'Permission object (118)'
+Adding permission 'Permission object (119)'
+Adding permission 'Permission object (120)'
+Adding permission 'Permission object (121)'
+Adding permission 'Permission object (122)'
+Adding permission 'Permission object (123)'
+Adding permission 'Permission object (124)'
+Running post-migrate handlers for application upgrade
+Adding content type 'upgrade | upgraderecord'
+Adding content type 'upgrade | upgraderecordstep'
+Adding content type 'upgrade | upgradetemplate'
+Adding content type 'upgrade | upgradeplanstep'
+Adding content type 'upgrade | upgradestatuslog'
+Adding content type 'upgrade | upgradesystem'
+Adding permission 'Permission object (125)'
+Adding permission 'Permission object (126)'
+Adding permission 'Permission object (127)'
+Adding permission 'Permission object (128)'
+Adding permission 'Permission object (129)'
+Adding permission 'Permission object (130)'
+Adding permission 'Permission object (131)'
+Adding permission 'Permission object (132)'
+Adding permission 'Permission object (133)'
+Adding permission 'Permission object (134)'
+Adding permission 'Permission object (135)'
+Adding permission 'Permission object (136)'
+Adding permission 'Permission object (137)'
+Adding permission 'Permission object (138)'
+Adding permission 'Permission object (139)'
+Adding permission 'Permission object (140)'
+Adding permission 'Permission object (141)'
+Adding permission 'Permission object (142)'
+Adding permission 'Permission object (143)'
+Adding permission 'Permission object (144)'
+Adding permission 'Permission object (145)'
+Adding permission 'Permission object (146)'
+Adding permission 'Permission object (147)'
+Adding permission 'Permission object (148)'
+Running post-migrate handlers for application checksheet
+Adding content type 'checksheet | checksheettemplate'
+Adding content type 'checksheet | checksheetdailysummary'
+Adding content type 'checksheet | checksheetrecord'
+Adding content type 'checksheet | checksheetsubmission'
+Adding permission 'Permission object (149)'
+Adding permission 'Permission object (150)'
+Adding permission 'Permission object (151)'
+Adding permission 'Permission object (152)'
+Adding permission 'Permission object (153)'
+Adding permission 'Permission object (154)'
+Adding permission 'Permission object (155)'
+Adding permission 'Permission object (156)'
+Adding permission 'Permission object (157)'
+Adding permission 'Permission object (158)'
+Adding permission 'Permission object (159)'
+Adding permission 'Permission object (160)'
+Adding permission 'Permission object (161)'
+Adding permission 'Permission object (162)'
+Adding permission 'Permission object (163)'
+Adding permission 'Permission object (164)'
+Running post-migrate handlers for application logs
+Adding content type 'logs | auditlog'
+Adding permission 'Permission object (165)'
+Adding permission 'Permission object (166)'
+Adding permission 'Permission object (167)'
+Adding permission 'Permission object (168)'
+Running post-migrate handlers for application radio_license
+Adding content type 'radio_license | radiolicense'
+Adding content type 'radio_license | radiolicensefrequency'
+Adding content type 'radio_license | licensereminderack'
+Adding content type 'radio_license | radiolicenseversion'
+Adding content type 'radio_license | stationfrequencyapproval'
+Adding content type 'radio_license | stationfrequencyapprovalreminderack'
+Adding permission 'Permission object (169)'
+Adding permission 'Permission object (170)'
+Adding permission 'Permission object (171)'
+Adding permission 'Permission object (172)'
+Adding permission 'Permission object (173)'
+Adding permission 'Permission object (174)'
+Adding permission 'Permission object (175)'
+Adding permission 'Permission object (176)'
+Adding permission 'Permission object (177)'
+Adding permission 'Permission object (178)'
+Adding permission 'Permission object (179)'
+Adding permission 'Permission object (180)'
+Adding permission 'Permission object (181)'
+Adding permission 'Permission object (182)'
+Adding permission 'Permission object (183)'
+Adding permission 'Permission object (184)'
+Adding permission 'Permission object (185)'
+Adding permission 'Permission object (186)'
+Adding permission 'Permission object (187)'
+Adding permission 'Permission object (188)'
+Adding permission 'Permission object (189)'
+Adding permission 'Permission object (190)'
+Adding permission 'Permission object (191)'
+Adding permission 'Permission object (192)'
+Running post-migrate handlers for application contract_agreement
+Adding content type 'contract_agreement | contractagreement'
+Adding content type 'contract_agreement | contractagreementreminderack'
+Adding permission 'Permission object (193)'
+Adding permission 'Permission object (194)'
+Adding permission 'Permission object (195)'
+Adding permission 'Permission object (196)'
+Adding permission 'Permission object (197)'
+Adding permission 'Permission object (198)'
+Adding permission 'Permission object (199)'
+Adding permission 'Permission object (200)'
+Running post-migrate handlers for application evidence
+Adding content type 'evidence | evidenceevent'
+Adding content type 'evidence | evidenceattachment'
+Adding permission 'Permission object (201)'
+Adding permission 'Permission object (202)'
+Adding permission 'Permission object (203)'
+Adding permission 'Permission object (204)'
+Adding permission 'Permission object (205)'
+Adding permission 'Permission object (206)'
+Adding permission 'Permission object (207)'
+Adding permission 'Permission object (208)'
+Running post-migrate handlers for application regulation
+Adding content type 'regulation | regulation'
+Adding content type 'regulation | regulationcategory'
+Adding content type 'regulation | regulationattachment'
+Adding permission 'Permission object (209)'
+Adding permission 'Permission object (210)'
+Adding permission 'Permission object (211)'
+Adding permission 'Permission object (212)'
+Adding permission 'Permission object (213)'
+Adding permission 'Permission object (214)'
+Adding permission 'Permission object (215)'
+Adding permission 'Permission object (216)'
+Adding permission 'Permission object (217)'
+Adding permission 'Permission object (218)'
+Adding permission 'Permission object (219)'
+Adding permission 'Permission object (220)'
+Running post-migrate handlers for application signature
+Adding content type 'signature | accountsignature'
+Adding content type 'signature | signatureusage'
+Adding permission 'Permission object (221)'
+Adding permission 'Permission object (222)'
+Adding permission 'Permission object (223)'
+Adding permission 'Permission object (224)'
+Adding permission 'Permission object (225)'
+Adding permission 'Permission object (226)'
+Adding permission 'Permission object (227)'
+Adding permission 'Permission object (228)'
+Running post-migrate handlers for application department_duty_log
+Adding content type 'department_duty_log | departmentdutylog'
+Adding permission 'Permission object (229)'
+Adding permission 'Permission object (230)'
+Adding permission 'Permission object (231)'
+Adding permission 'Permission object (232)'
+Running post-migrate handlers for application django_celery_results
+Adding content type 'django_celery_results | taskresult'
+Adding content type 'django_celery_results | chordcounter'
+Adding content type 'django_celery_results | groupresult'
+Adding permission 'Permission object (233)'
+Adding permission 'Permission object (234)'
+Adding permission 'Permission object (235)'
+Adding permission 'Permission object (236)'
+Adding permission 'Permission object (237)'
+Adding permission 'Permission object (238)'
+Adding permission 'Permission object (239)'
+Adding permission 'Permission object (240)'
+Adding permission 'Permission object (241)'
+Adding permission 'Permission object (242)'
+Adding permission 'Permission object (243)'
+Adding permission 'Permission object (244)'
+Running post-migrate handlers for application django_celery_beat
+Adding content type 'django_celery_beat | crontabschedule'
+Adding content type 'django_celery_beat | intervalschedule'
+Adding content type 'django_celery_beat | periodictask'
+Adding content type 'django_celery_beat | periodictasks'
+Adding content type 'django_celery_beat | solarschedule'
+Adding content type 'django_celery_beat | clockedschedule'
+Adding permission 'Permission object (245)'
+Adding permission 'Permission object (246)'
+Adding permission 'Permission object (247)'
+Adding permission 'Permission object (248)'
+Adding permission 'Permission object (249)'
+Adding permission 'Permission object (250)'
+Adding permission 'Permission object (251)'
+Adding permission 'Permission object (252)'
+Adding permission 'Permission object (253)'
+Adding permission 'Permission object (254)'
+Adding permission 'Permission object (255)'
+Adding permission 'Permission object (256)'
+Adding permission 'Permission object (257)'
+Adding permission 'Permission object (258)'
+Adding permission 'Permission object (259)'
+Adding permission 'Permission object (260)'
+Adding permission 'Permission object (261)'
+Adding permission 'Permission object (262)'
+Adding permission 'Permission object (263)'
+Adding permission 'Permission object (264)'
+Adding permission 'Permission object (265)'
+Adding permission 'Permission object (266)'
+Adding permission 'Permission object (267)'
+Adding permission 'Permission object (268)'

@@ -21,32 +21,43 @@ class FaultRecordView(View):
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
-            Argument('system_name', help='请输入系统名称'),
-            Argument('device_code', help='请输入设备编号'),
-            Argument('fault_date', help='请选择日期'),
-            Argument('handler', help='请输入处置人员'),
-            Argument('recorder', help='请输入记录人员'),
-            Argument('fault_level', help='请选择故障评级'),
-            Argument('fault_phenomenon', help='请输入故障现象'),
-            Argument('handling_process', help='请输入处置过程')
+            Argument('system_name', required=False),
+            Argument('device_code', required=False),
+            Argument('fault_date', required=False),
+            Argument('handler', required=False),
+            Argument('recorder', required=False),
+            Argument('fault_level', required=False),
+            Argument('fault_phenomenon', required=False),
+            Argument('handling_process', required=False)
         ).parse(request.body)
         if error is None:
             if form.id:
-                # 统一接口二次校验：编辑分支必须单独拥有 edit 权限
+                # 编辑：只更新传入的非 None 字段
                 if not request.user.has_perms({'fault.faultrecord.edit'}):
                     return json_response(error='权限拒绝：缺少编辑故障记录权限')
-                form.updated_at = human_datetime()
-                form.updated_by = request.user
                 if not apply_tenant_filter(FaultRecord.objects.filter(pk=form.id), request.user).exists():
                     return json_response(error='记录不存在或无权操作')
-                FaultRecord.objects.filter(pk=form.pop('id')).update(**form)
+                form.updated_at = human_datetime()
+                form.updated_by = request.user
+                update_data = {k: v for k, v in form.items() if v is not None and k != 'id'}
+                FaultRecord.objects.filter(pk=form.pop('id')).update(**update_data)
             else:
-                # 统一接口二次校验：新增分支必须单独拥有 add 权限
+                # 创建：校验必填字段
                 if not request.user.has_perms({'fault.faultrecord.add'}):
                     return json_response(error='权限拒绝：缺少新增故障记录权限')
+                required = {
+                    'system_name': '系统名称', 'device_code': '设备编号',
+                    'fault_date': '日期', 'handler': '处置人员',
+                    'recorder': '记录人员', 'fault_level': '故障评级',
+                    'fault_phenomenon': '故障现象', 'handling_process': '处置过程'
+                }
+                for field, label in required.items():
+                    if not form.get(field):
+                        return json_response(error=f'请输入{label}')
                 form.created_by = request.user
                 assign_tenant_id(form, request.user)
-                FaultRecord.objects.create(**form)
+                create_data = {k: v for k, v in form.items() if v is not None}
+                FaultRecord.objects.create(**create_data)
         return json_response(error=error)
 
     @auth('fault.faultrecord.del')
@@ -72,11 +83,11 @@ class FaultPartView(View):
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
-            Argument('name', help='请输入故障件名称'),
-            Argument('system_name', help='请输入所属系统'),
-            Argument('date', help='请选择日期'),
-            Argument('fault_date', help='请选择故障日期'),
-            Argument('status', help='请选择状态'),
+            Argument('name', required=False),
+            Argument('system_name', required=False),
+            Argument('date', required=False),
+            Argument('fault_date', required=False),
+            Argument('status', required=False),
             Argument('fault_sent_date', required=False),
             Argument('test_return_date', required=False),
             Argument('archive_date', required=False)
@@ -91,21 +102,30 @@ class FaultPartView(View):
                 form.archive_date = human_datetime()
 
             if form.id:
-                # 统一接口二次校验：编辑分支必须单独拥有 edit 权限
+                # 编辑：只更新传入的非 None 字段
                 if not request.user.has_perms({'fault.faultpart.edit'}):
                     return json_response(error='权限拒绝：缺少编辑故障件权限')
-                form.updated_at = human_datetime()
-                form.updated_by = request.user
                 if not apply_tenant_filter(FaultPart.objects.filter(pk=form.id), request.user).exists():
                     return json_response(error='记录不存在或无权操作')
-                FaultPart.objects.filter(pk=form.pop('id')).update(**form)
+                form.updated_at = human_datetime()
+                form.updated_by = request.user
+                update_data = {k: v for k, v in form.items() if v is not None and k != 'id'}
+                FaultPart.objects.filter(pk=form.pop('id')).update(**update_data)
             else:
-                # 统一接口二次校验：新增分支必须单独拥有 add 权限
+                # 创建：校验必填字段
                 if not request.user.has_perms({'fault.faultpart.add'}):
                     return json_response(error='权限拒绝：缺少新增故障件权限')
+                required = {
+                    'name': '故障件名称', 'system_name': '所属系统',
+                    'date': '日期', 'fault_date': '故障日期', 'status': '状态'
+                }
+                for field, label in required.items():
+                    if not form.get(field):
+                        return json_response(error=f'请输入{label}')
                 form.created_by = request.user
                 assign_tenant_id(form, request.user)
-                FaultPart.objects.create(**form)
+                create_data = {k: v for k, v in form.items() if v is not None}
+                FaultPart.objects.create(**create_data)
         return json_response(error=error)
 
     @auth('fault.faultpart.del')

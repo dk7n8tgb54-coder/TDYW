@@ -18,6 +18,7 @@
 import io
 import os
 import shutil
+import tempfile
 import time
 import hashlib
 
@@ -69,6 +70,7 @@ def _make_client(user):
     return client
 
 
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
 class SignatureTestCaseBase(TestCase):
     """签名测试基类：创建超管 / 普通管理员 / 目标账号，清理物理文件"""
 
@@ -542,21 +544,20 @@ class SignaturePreviewTests(SignatureTestCaseBase):
         resp = Client().get(f'/signature/preview/{att_b_id}/?preview_token={token}')
         self.assertEqual(resp.status_code, 403)
 
-    def test_preview_cross_tenant_rejected(self):
-        """跨租户：超管为 tenant_b 配置签名，tenant_a 用户无法用自己 token 预览"""
-        # 先给 target_user (tenant_b) 配置签名
+    def test_preview_with_valid_token_works_regardless_of_tenant(self):
+        """preview_token 无认证：有效 token 即使跨租户也能预览（安全性依赖 token 保密）
+
+        原 test_preview_cross_tenant_rejected 断言 assertIn(status_code, (200,401,403))
+        允许任意状态码通过，等于没测。preview_token 是无状态令牌，不绑定请求者身份，
+        只要 token 有效就能预览——这是 spug 预览机制的设计（document 模块也如此）。
+        """
         self._assign(self.supper_client, self.target_user.id)
         client_b = _make_client(self.target_user)
         body = self._parse(client_b.get('/signature/mine/'))
         self.assertTrue(body['data']['available'], 'target_user 应有签名')
         token = body['data']['preview_url'].split('preview_token=')[1]
-        # target_user2 (tenant_a) 尝试用 B 的 token 预览 B 的附件
-        # token 绑定的是 target_user.id 和 tenant_b
         resp = Client().get(f'/signature/preview/{self.target_user_sig_att_id()}/?preview_token={token}')
-        # token 里 user_id 是 target_user，中间件会加载 target_user，但视图校验租户一致性
-        # token 绑定 tenant_b，但请求的附件属于 target_user(tenant_b)，所以 token 本身有效；
-        # 然而该 token 的 user_id 是 target_user，不是当前操作者——这里验证的是跨用户/跨租户场景
-        self.assertIn(resp.status_code, (200, 401, 403))
+        self.assertEqual(resp.status_code, 200)
 
     def target_user_sig_att_id(self):
         sig = AccountSignature.objects.get(user_id=self.target_user.id)
@@ -753,21 +754,23 @@ class SignatureOrphanCleanupTests(SignatureTestCaseBase):
     """数据库失败后孤立文件补偿清理"""
 
     def test_orphan_file_cleaned_on_db_failure(self):
-        """模拟数据库失败时清理孤立文件"""
+        """模拟数据库失败时清理孤立文件（验证物理文件确实被删除）"""
         from unittest.mock import patch
+        import os
+        from django.conf import settings
+        sig_dir = os.path.join(settings.MEDIA_ROOT, 'signature')
+        files_before = set(os.listdir(sig_dir)) if os.path.exists(sig_dir) else set()
         file = _make_png_file()
-        # 先记录上传会产生的文件路径
         with patch('apps.signature.services.AccountSignature.objects') as mock_mgr:
-            # 让 select_for_update().get() 抛异常模拟 DB 失败
             mock_mgr.select_for_update.side_effect = Exception('DB down')
             detail, err = services.set_signature(
                 self.supper, self.target_user2.id, file)
         self.assertIsNotNone(err)
-        # 附件记录因事务回滚不应存在
-        # 物理文件应被清理（本次产生的孤立文件）
-        # 检查 signature 目录下没有残留新文件（可能旧测试有文件，但本次不应新增）
-        # 由于 mock 破坏了整个 objects manager，直接验证返回错误即可
         self.assertIn('失败', err)
+        # 验证没有新增孤立文件（DB 失败后物理文件应被清理）
+        files_after = set(os.listdir(sig_dir)) if os.path.exists(sig_dir) else set()
+        new_files = files_after - files_before
+        self.assertEqual(len(new_files), 0, f'孤立文件未清理: {new_files}')
 
 
 def MEDIA_ROOT_ABS():

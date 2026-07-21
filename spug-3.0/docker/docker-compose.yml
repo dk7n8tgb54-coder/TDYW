@@ -2,7 +2,7 @@
 # 版本说明：
 # - 版本 3.8 是目前推荐的稳定版本，支持最新的 Docker 功能
 # - 版本 3.3 也可以使用，但可能缺少一些新和优化
-# 使用方法：docker-compose -f docker/docker-compose.yml up -d
+# 使用方法：docker compose -f docker/docker-compose.yml up -d
 
 
 services:
@@ -10,7 +10,7 @@ services:
   tdyw:
     # 使用预构建的镜像，先执行: docker build -t spug:latest -f docker/Dockerfile .
     #image: tdyw:20260329
-    image: tdyw:0704
+    image: tdyw:latest
     # spug:20260320
     # 如需重新构建镜像，取消以下 build 配置
     # build:
@@ -31,11 +31,11 @@ services:
       - MYSQL_DATABASE=${MYSQL_DATABASE}
       - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
       - DEBUG=${DEBUG}
-      # 允许访问的IP或域名（安全设置）
-      # "*" 表示允许任何IP访问（适合开发/内网环境）
-      # 生产环境建议写具体值，例如："192.168.1.100" 或 "api.example.com"
-      # 多个地址用逗号分隔，例如："192.168.1.100,api.example.com"
-      - ALLOWED_HOSTS=*
+      # 允许访问的IP或域名（从 .env 读取，默认 * 仅用于开发）
+      # 生产环境在 .env 中设置为具体值，如: 192.168.40.118,localhost,127.0.0.1
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+      # 允许的 Origin（用于 Origin/Referer 校验，防止跨站请求）
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
       - TZ=Asia/Shanghai
       - KKFILEVIEW_API_URL=${KKFILEVIEW_API_URL:-/kkfileview}
       - KKFILEVIEW_SERVER_URL=${KKFILEVIEW_SERVER_URL:-http://tdyw}

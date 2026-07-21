@@ -31,8 +31,8 @@ describe('边界情况测试', () => {
       machine.transition('PAUSE');
       machine.transition('RESUME');
       
-      // 最终状态应该是 calculating 或 uploading
-      expect(['calculating', 'uploading', 'paused']).toContain(machine.getState());
+      // 最终状态可能是 calculating/uploading/paused/waiting
+      expect(['calculating', 'uploading', 'paused', 'waiting']).toContain(machine.getState());
     });
     
     it('快速连续相同事件', () => {
@@ -214,8 +214,8 @@ describe('边界情况测试', () => {
       // 批量暂停
       const pauseResults = manager.batchPause();
       
-      // 只有 calculating 状态的才会被暂停
-      expect(pauseResults.filter(r => r.success).length).toBe(10);
+      // waiting 和 calculating 都允许 PAUSE，所以 20 个都能暂停
+      expect(pauseResults.filter(r => r.success).length).toBe(20);
     });
   });
 
@@ -239,8 +239,8 @@ describe('边界情况测试', () => {
         }
       });
       
-      // 尝试非法转换
-      machine.transition('PAUSE'); // 在 waiting 状态无效
+      // 尝试非法转换（waiting 不允许 ERROR）
+      machine.transition('ERROR'); // 在 waiting 状态无效
       expect(machine.getState()).toBe('waiting');
       
       // 应该仍然可以进行有效转换

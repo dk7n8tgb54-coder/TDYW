@@ -29,12 +29,13 @@ import threading
 from locust import HttpUser, task, between, events
 from locust.runners import MasterRunner
 
-# 默认复用现有生产账号（与 document_stress_test 系列一致），不新建测试账号
+# 5 个专用压测账号(与 _common.py / create_stress_accounts.py 一致)
 DEFAULT_ACCOUNTS = [
-    {"username": "tongxinke", "password": "Dt@6299093"},
-    {"username": "zidonghuake", "password": "Aa@123456"},
-    {"username": "daohangke", "password": "Aa@123456"},
-    {"username": "dianhuake", "password": "Aa@123456"},
+    {"username": "st_press_01", "password": "Stress@2026"},
+    {"username": "st_press_02", "password": "Stress@2026"},
+    {"username": "st_press_03", "password": "Stress@2026"},
+    {"username": "st_press_04", "password": "Stress@2026"},
+    {"username": "st_press_05", "password": "Stress@2026"},
 ]
 
 

@@ -58,10 +58,9 @@ export default [
   {icon: <BarChartOutlined/>, title: '数据分析', path: '/data-analysis', component: DataAnalysisIndex},
   {icon: <CheckSquareOutlined/>, title: '部门值班日检查单', auth: 'checksheet.checksheet.view', path: '/checksheet', component: CheckSheetIndex},
   {icon: <ScheduleOutlined/>, title: '部门值班日志', auth: 'department_duty_log.department_duty_log.view', path: '/department-duty-log', component: DepartmentDutyLogIndex},
-  {icon: <SafetyCertificateOutlined/>, title: '执照管理', auth: 'radio_license.license.view', child: [
+  {icon: <SafetyCertificateOutlined/>, title: '执照管理', auth: 'radio_license.license.view|radio_license.approval.view', child: [
     {title: '无线电台执照', auth: 'radio_license.license.view', path: '/radio-license', component: RadioLicenseIndex},
-    // 台站频率批复功能暂未开发，先挂占位页；权限暂复用执照查看权限以便可访问，后续开发时替换
-    {title: '台站频率批复', auth: 'radio_license.license.view', path: '/station-frequency-approval', component: StationFrequencyApproval},
+    {title: '台站频率批复', auth: 'radio_license.approval.view', path: '/station-frequency-approval', component: StationFrequencyApproval},
   ]},
   {icon: <FileTextOutlined/>, title: '合同协议', auth: 'contract_agreement.agreement.view', path: '/contract-agreement', component: ContractAgreementIndex},
   {icon: <FolderOpenOutlined/>, title: '资料库', auth: 'document.document.view|document.party_building_document.view|document.regulation.view', child: [

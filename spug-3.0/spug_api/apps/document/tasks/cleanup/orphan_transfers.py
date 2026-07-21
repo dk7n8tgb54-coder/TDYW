@@ -74,7 +74,17 @@ def _cleanup_uploading_orphans(now, dry_run, stats):
 
 
 def _cleanup_merging_orphans(now, dry_run, stats):
-    """MERGING 超时且 Celery task 不存在 -> FAILED"""
+    """MERGING 超时 -> FAILED
+
+    2 小时已远超 merge 任务 15 分钟硬超时（CELERY_TASK_TIME_LIMIT=900），
+    Celery 任务理论上不可能存活；即使异常存活也是僵尸，直接标记失败。
+
+    历史背景：原实现尝试用 `redis_client.exists('celery-task-meta-<id>')`
+    判断 Celery 任务是否还在，但 `celery_lock.py` 从未导出 `redis_client`
+    顶层变量（只有 `RedisLock` 类），导致 ImportError 被 except Exception
+    吞掉，该分支完全失效。已移除 redis 检查，与 cleanup_stale_merging_tasks
+    （>24h 直接标记 FAILED，不检查 Celery）保持一致语义。
+    """
     from apps.document.models import DocumentTransfer
     from apps.document.constants import TransferStatus
 
@@ -84,18 +94,11 @@ def _cleanup_merging_orphans(now, dry_run, stats):
         updated_at__lte=cutoff,
     ):
         try:
-            # 检查 Celery 任务是否还存在
-            if transfer.celery_task_id:
-                from apps.document.libs.celery_lock import redis_client
-                task_exists = redis_client.exists(f'celery-task-meta-{transfer.celery_task_id}')
-                if task_exists:
-                    continue  # 任务还在，跳过
-
             if dry_run:
                 logger.info(f'[Cleanup][DryRun] 将标记 MERGING->FAILED: id={transfer.id}, name={transfer.file_name}')
             else:
                 transfer.status = TransferStatus.FAILED.value
-                transfer.error_message = '合并任务超时或丢失，自动标记失败'
+                transfer.error_message = '合并任务超时（>2小时），自动标记失败'
                 transfer.save()
             stats['merging_failed'] += 1
         except Exception as e:

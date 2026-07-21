@@ -12,6 +12,7 @@ from .views import (
     DepartmentDutyLogCorrectionView,
     DepartmentDutyLogSignatureImageView,
     DepartmentDutyLogOptionsView,
+    DepartmentDutyLogPdfExportView,
 )
 
 urlpatterns = [
@@ -21,5 +22,6 @@ urlpatterns = [
     path('records/<int:pk>/void/', DepartmentDutyLogVoidView.as_view()),
     path('records/<int:pk>/corrections/', DepartmentDutyLogCorrectionView.as_view()),
     path('records/<int:pk>/signature-image/', DepartmentDutyLogSignatureImageView.as_view()),
+    path('export/pdf/', DepartmentDutyLogPdfExportView.as_view()),
     path('options/', DepartmentDutyLogOptionsView.as_view()),
 ]

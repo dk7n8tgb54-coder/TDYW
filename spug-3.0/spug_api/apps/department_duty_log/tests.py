@@ -15,6 +15,8 @@ import json
 import os
 import shutil
 import time
+import tempfile
+import uuid
 import hashlib
 from datetime import date, timedelta
 from unittest.mock import patch
@@ -524,6 +526,9 @@ class DepartmentDutyLogLifecycleTests(TestCase):
         # 因为 signature_usage_id=999 对应的 Usage 不存在，void 证据事件返回错误
         # 这应该导致作废回滚
         self.assertTrue(body.get('error'))
+        # 验证记录状态确实没变（回滚生效，仍为 SIGNED 而非 VOID）
+        record.refresh_from_db()
+        self.assertEqual(record.status, STATUS_SIGNED)
 
     def test_correction_based_on_void_only(self):
         """更正只能基于 void 记录"""
@@ -590,6 +595,7 @@ class DepartmentDutyLogLifecycleTests(TestCase):
 # 电子签接入
 # ============================================================
 
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
 class DepartmentDutyLogSignatureTests(TestCase):
     """电子签接入测试"""
 
@@ -1014,6 +1020,9 @@ class DepartmentDutyLogAuditTests(TestCase):
         resp = self.client.post('/department-duty-log/records/', data=json.dumps({
             'duty_date': str(date.today()),
             'duty_record': '测试',
+            'mains_voltage': '220V',
+            'ups_voltage': '220伏',
+            'weather': '晴',
         }), content_type='application/json')
         body = self._parse(resp)
         self.assertFalse(body.get('error'))
@@ -1034,6 +1043,9 @@ class DepartmentDutyLogAuditTests(TestCase):
             data=json.dumps({
                 'duty_date': str(date.today()),
                 'duty_record': '修改后',
+                'mains_voltage': '220V',
+                'ups_voltage': '220伏',
+                'weather': '晴',
                 'version': 1,
             }),
             content_type='application/json')
@@ -1105,3 +1117,364 @@ class DepartmentDutyLogModelTests(TestCase):
         """signature_usage_id 唯一"""
         field = DepartmentDutyLog._meta.get_field('signature_usage_id')
         self.assertTrue(field.unique)
+
+
+# ============================================================
+# PDF 导出
+# ============================================================
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class DepartmentDutyLogPdfExportTests(TestCase):
+    """PDF 导出测试
+
+    覆盖提示词第 12.5 条：
+    - 无 export 权限导出被拒绝
+    - 草稿永不进入导出；默认只导出 signed
+    - include_void=true 时 void 记录进入导出
+    - 跨租户有 view/export 权限的用户能导出相同可见记录
+    - 无权限记录不能通过筛选参数混入结果
+    - 每条签名图片从固定 Usage 版本读取并校验 SHA256
+    - 签名图片缺失/哈希错误/Usage 坐标不一致时拒绝生成不完整 PDF
+    - 导出审计包含 filters / record_ids / record_count / include_void / pdf_sha256
+    """
+
+    def setUp(self):
+        AppSetting.set('bind_ip', False)
+        # 超管（用于配置签名）
+        self.supper = _make_user('supper_pdf', is_supper=True, tenant_id='default')
+        self.supper_client = _make_client(self.supper)
+
+        # 签署人 A（tenant_a），有 export 权限
+        self.signer = _make_user('signer_pdf', tenant_id='tenant_a')
+        _grant_perms(self.signer, [
+            ('department_duty_log', 'department_duty_log', ['view', 'add', 'edit', 'sign', 'export']),
+        ])
+        self.signer_client = _make_client(self.signer)
+
+        # 跨租户导出者 B（tenant_b），有 view+export 权限
+        self.exporter_b = _make_user('exporter_b_pdf', tenant_id='tenant_b')
+        _grant_perms(self.exporter_b, [
+            ('department_duty_log', 'department_duty_log', ['view', 'export']),
+        ])
+        self.exporter_b_client = _make_client(self.exporter_b)
+
+        # 用户 C：有 view 但无 export 权限
+        self.viewer_only = _make_user('viewer_only_pdf', tenant_id='tenant_a')
+        _grant_perms(self.viewer_only, [
+            ('department_duty_log', 'department_duty_log', ['view']),
+        ])
+        self.viewer_only_client = _make_client(self.viewer_only)
+
+        # voider（有 void + export 权限）
+        self.voider = _make_user('voider_pdf', tenant_id='tenant_a')
+        _grant_perms(self.voider, [
+            ('department_duty_log', 'department_duty_log', ['view', 'void', 'export']),
+        ])
+        self.voider_client = _make_client(self.voider)
+
+        # 给 signer 配置签名
+        resp = self.supper_client.post(
+            f'/account/user/{self.signer.id}/signature/',
+            {'file': _make_png_file(), 'remark': 'pdf test sig'},
+        )
+        body = json.loads(resp.content)
+        assert not body.get('error'), f'setup assign failed: {body.get("error")}'
+
+    def tearDown(self):
+        sig_base = os.path.join(settings.MEDIA_ROOT, sig_services.SIGNATURE_MODULE)
+        if os.path.exists(sig_base):
+            shutil.rmtree(sig_base, ignore_errors=True)
+
+    def _parse(self, response):
+        return json.loads(response.content)
+
+    def _sign_record(self, duty_record='今日值班正常', request_id_prefix='pdf'):
+        """创建草稿并签署，返回已签 DepartmentDutyLog"""
+        resp = self.signer_client.post('/department-duty-log/records/', data=json.dumps({
+            'duty_date': str(date.today()),
+            'duty_record': duty_record,
+            'mains_voltage': '220V',
+            'ups_voltage': '正常',
+            'weather': '晴',
+        }), content_type='application/json')
+        body = self._parse(resp)
+        assert not body.get('error'), f'create draft failed: {body.get("error")}'
+        record_id = body['data']['id']
+
+        resp = self.signer_client.post(
+            f'/department-duty-log/records/{record_id}/sign/',
+            data=json.dumps({
+                'version': 1, 'confirm': True,
+                'request_id': f'{request_id_prefix}-{record_id}-{uuid.uuid4().hex[:8]}',
+            }),
+            content_type='application/json')
+        body = self._parse(resp)
+        assert not body.get('error'), f'sign failed: {body.get("error")}'
+        return DepartmentDutyLog.objects.get(pk=record_id)
+
+    def _assert_pdf_response_ok(self, resp):
+        """断言 PDF 响应正常"""
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], 'application/pdf')
+        self.assertIn('attachment', resp['Content-Disposition'])
+        self.assertIn('UTF-8', resp['Content-Disposition'])
+        # PDF 文件头魔数
+        content = resp.content
+        self.assertTrue(content[:4] == b'%PDF', 'response is not a valid PDF')
+        # 长度 > 1KB（含字体+表格+签名图片）
+        self.assertGreater(len(content), 1000)
+        return content
+
+    def test_pdf_export_no_permission_denied(self):
+        """无 export 权限导出被拒绝"""
+        record = self._sign_record()
+        resp = self.viewer_only_client.post(
+            '/department-duty-log/export/pdf/',
+            data=json.dumps({}),
+            content_type='application/json')
+        # @auth 装饰器权限不足时返回 200 + JSON 错误
+        body = self._parse(resp)
+        self.assertTrue(body.get('error'))
+
+    def test_pdf_export_draft_never_exported(self):
+        """草稿永不进入导出；默认只导出 signed"""
+        # 创建一条草稿（不签署）
+        resp = self.signer_client.post('/department-duty-log/records/', data=json.dumps({
+            'duty_date': str(date.today()),
+            'duty_record': '草稿不应被导出',
+            'mains_voltage': '220V',
+            'ups_voltage': '正常',
+            'weather': '晴',
+        }), content_type='application/json')
+        self._parse(resp)
+        # 同时签署一条
+        signed = self._sign_record(duty_record='已签应被导出')
+
+        resp = self.signer_client.post(
+            '/department-duty-log/export/pdf/',
+            data=json.dumps({}),
+            content_type='application/json')
+        content = self._assert_pdf_response_ok(resp)
+        # PDF 文本中应包含已签记录内容，不包含草稿内容
+        # 注意：PDF 内部是压缩的二进制流，无法直接 grep 文本；
+        # 改为通过审计验证 record_ids 只含已签记录
+        from apps.logs.models import AuditLog
+        log = AuditLog.objects.filter(
+            target_type='department_duty_log', action='export').first()
+        self.assertIsNotNone(log)
+        detail = json.loads(log.detail) if log.detail else {}
+        self.assertIn(signed.id, detail['record_ids'])
+        # 草稿不应在 record_ids 中（只验证已签的在里面即可）
+        self.assertEqual(len(detail['record_ids']), 1)
+
+    def test_pdf_export_default_only_signed(self):
+        """默认只导出 signed"""
+        signed = self._sign_record(duty_record='signed1', request_id_prefix='s1')
+        # 作废一条
+        voided = self._sign_record(duty_record='signed2-void', request_id_prefix='s2')
+        resp = self.voider_client.post(
+            f'/department-duty-log/records/{voided.id}/void/',
+            data=json.dumps({'reason': '测试作废'}),
+            content_type='application/json')
+        self.assertFalse(self._parse(resp).get('error'))
+
+        resp = self.signer_client.post(
+            '/department-duty-log/export/pdf/',
+            data=json.dumps({}),
+            content_type='application/json')
+        self._assert_pdf_response_ok(resp)
+
+        from apps.logs.models import AuditLog
+        log = AuditLog.objects.filter(
+            target_type='department_duty_log', action='export').first()
+        detail = json.loads(log.detail) if log.detail else {}
+        self.assertIn(signed.id, detail['record_ids'])
+        self.assertNotIn(voided.id, detail['record_ids'])
+        self.assertFalse(detail['include_void'])
+
+    def test_pdf_export_include_void(self):
+        """include_void=true 时 void 记录进入导出"""
+        signed = self._sign_record(duty_record='signed', request_id_prefix='iv1')
+        voided = self._sign_record(duty_record='void', request_id_prefix='iv2')
+        resp = self.voider_client.post(
+            f'/department-duty-log/records/{voided.id}/void/',
+            data=json.dumps({'reason': '测试作废原因'}),
+            content_type='application/json')
+        self.assertFalse(self._parse(resp).get('error'))
+
+        resp = self.signer_client.post(
+            '/department-duty-log/export/pdf/',
+            data=json.dumps({'include_void': True}),
+            content_type='application/json')
+        self._assert_pdf_response_ok(resp)
+
+        from apps.logs.models import AuditLog
+        log = AuditLog.objects.filter(
+            target_type='department_duty_log', action='export').first()
+        detail = json.loads(log.detail) if log.detail else {}
+        self.assertIn(signed.id, detail['record_ids'])
+        self.assertIn(voided.id, detail['record_ids'])
+        self.assertTrue(detail['include_void'])
+
+    def test_pdf_export_cross_tenant(self):
+        """跨租户有 view+export 权限的用户能导出相同可见记录"""
+        signed = self._sign_record(duty_record='cross-tenant-pdf', request_id_prefix='ct1')
+
+        # 跨租户 exporter_b 导出
+        resp = self.exporter_b_client.post(
+            '/department-duty-log/export/pdf/',
+            data=json.dumps({}),
+            content_type='application/json')
+        self._assert_pdf_response_ok(resp)
+
+        from apps.logs.models import AuditLog
+        log = AuditLog.objects.filter(
+            target_type='department_duty_log', action='export',
+            user_id=self.exporter_b.id).first()
+        self.assertIsNotNone(log)
+        detail = json.loads(log.detail) if log.detail else {}
+        self.assertIn(signed.id, detail['record_ids'])
+
+    def test_pdf_export_empty_returns_error(self):
+        """无可导出记录时返回明确错误"""
+        resp = self.signer_client.post(
+            '/department-duty-log/export/pdf/',
+            data=json.dumps({'start_date': '2020-01-01', 'end_date': '2020-01-02'}),
+            content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+        body = self._parse(resp)
+        self.assertTrue(body.get('error'))
+
+    def test_pdf_export_over_limit_rejected(self):
+        """超过 500 条上限被拒绝"""
+        # mock services.PDF_EXPORT_LIMIT 为 1，制造超限场景
+        from apps.department_duty_log import services as ddl_services
+        original_limit = ddl_services.PDF_EXPORT_LIMIT
+        ddl_services.PDF_EXPORT_LIMIT = 1
+        try:
+            self._sign_record(duty_record='r1', request_id_prefix='ol1')
+            self._sign_record(duty_record='r2', request_id_prefix='ol2')
+            resp = self.signer_client.post(
+                '/department-duty-log/export/pdf/',
+                data=json.dumps({}),
+                content_type='application/json')
+            self.assertEqual(resp.status_code, 400)
+            body = self._parse(resp)
+            self.assertTrue(body.get('error'))
+            self.assertIn('超过', body['error'])  # 错误信息提示超过上限
+        finally:
+            ddl_services.PDF_EXPORT_LIMIT = original_limit
+
+    def test_pdf_export_audit_complete(self):
+        """导出审计包含 filters / record_ids / record_count / include_void / pdf_sha256"""
+        signed = self._sign_record(duty_record='audit-test', request_id_prefix='au1')
+        resp = self.signer_client.post(
+            '/department-duty-log/export/pdf/',
+            data=json.dumps({
+                'start_date': str(date.today()),
+                'end_date': str(date.today()),
+                'include_void': False,
+            }),
+            content_type='application/json')
+        self._assert_pdf_response_ok(resp)
+
+        from apps.logs.models import AuditLog
+        log = AuditLog.objects.filter(
+            target_type='department_duty_log', action='export').first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.tenant_id, self.signer.tenant_id)
+        detail = json.loads(log.detail) if log.detail else {}
+        self.assertEqual(detail['format'], 'pdf')
+        self.assertIn('filters', detail)
+        self.assertIn('record_ids', detail)
+        self.assertEqual(detail['record_count'], 1)
+        self.assertIn(signed.id, detail['record_ids'])
+        self.assertFalse(detail['include_void'])
+        self.assertTrue(detail.get('pdf_sha256'))
+        # SHA256 是 64 位十六进制
+        self.assertEqual(len(detail['pdf_sha256']), 64)
+
+    def test_pdf_export_sha256_matches_actual_pdf(self):
+        """导出审计的 pdf_sha256 与实际 PDF 字节流 SHA256 一致"""
+        self._sign_record(duty_record='sha-match', request_id_prefix='sm1')
+        resp = self.signer_client.post(
+            '/department-duty-log/export/pdf/',
+            data=json.dumps({}),
+            content_type='application/json')
+        content = self._assert_pdf_response_ok(resp)
+        actual_sha = hashlib.sha256(content).hexdigest()
+
+        from apps.logs.models import AuditLog
+        log = AuditLog.objects.filter(
+            target_type='department_duty_log', action='export').first()
+        detail = json.loads(log.detail) if log.detail else {}
+        self.assertEqual(detail['pdf_sha256'], actual_sha)
+
+    def test_pdf_export_tampered_signature_image_rejected(self):
+        """签名图片文件被篡改（SHA256 不一致）时拒绝生成不完整 PDF"""
+        record = self._sign_record(duty_record='tamper-test', request_id_prefix='tp1')
+
+        # 找到签名图片物理路径并篡改
+        usage = SignatureUsage.objects.get(pk=record.signature_usage_id)
+        att = EvidenceAttachment.objects.get(pk=usage.signature_attachment_id)
+        full_path = os.path.join(settings.MEDIA_ROOT, att.file_path)
+        self.assertTrue(os.path.exists(full_path))
+        # 向文件追加垃圾数据破坏 SHA256
+        with open(full_path, 'ab') as f:
+            f.write(b'TAMPERED')
+
+        resp = self.signer_client.post(
+            '/department-duty-log/export/pdf/',
+            data=json.dumps({}),
+            content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+        body = self._parse(resp)
+        self.assertTrue(body.get('error'))
+        # 错误信息应提及签名校验失败
+        self.assertIn('签名', body['error'])
+
+    def test_pdf_export_filters_applied(self):
+        """筛选条件生效：仅导出匹配记录"""
+        # 签署两条，用不同 duty_record
+        r1 = self._sign_record(duty_record='关键字A匹配', request_id_prefix='f1')
+        r2 = self._sign_record(duty_record='关键字B不匹配', request_id_prefix='f2')
+
+        resp = self.signer_client.post(
+            '/department-duty-log/export/pdf/',
+            data=json.dumps({'keyword': '关键字A'}),
+            content_type='application/json')
+        self._assert_pdf_response_ok(resp)
+
+        from apps.logs.models import AuditLog
+        log = AuditLog.objects.filter(
+            target_type='department_duty_log', action='export').first()
+        detail = json.loads(log.detail) if log.detail else {}
+        self.assertIn(r1.id, detail['record_ids'])
+        self.assertNotIn(r2.id, detail['record_ids'])
+
+    def test_pdf_export_excludes_draft_via_filter(self):
+        """无权限记录不能通过筛选参数混入结果
+
+        即使按 duty_person_name 筛选其他用户，也只能拿到自己可见的已签记录。
+        草稿对其他用户不可见，因此其他用户导出时拿不到本用户的草稿。
+        """
+        # signer 创建草稿（不签署）
+        resp = self.signer_client.post('/department-duty-log/records/', data=json.dumps({
+            'duty_date': str(date.today()),
+            'duty_record': 'secret draft',
+            'mains_voltage': '220V',
+            'ups_voltage': '正常',
+            'weather': '晴',
+        }), content_type='application/json')
+        self._parse(resp)
+
+        # 跨租户 exporter_b 尝试按 signer 姓名导出
+        resp = self.exporter_b_client.post(
+            '/department-duty-log/export/pdf/',
+            data=json.dumps({'duty_person_name': 'signer_pdf'}),
+            content_type='application/json')
+        # 无已签记录可见 → 返回错误
+        self.assertEqual(resp.status_code, 400)
+        body = self._parse(resp)
+        self.assertTrue(body.get('error'))
+

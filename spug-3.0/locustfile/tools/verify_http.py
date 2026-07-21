@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""HTTP 冒烟测试：真实打到目标环境（默认 localhost:8080，可用 BASE 环境变量覆盖）。
+"""HTTP 冒烟测试：真实打到目标环境（默认 localhost，即生产容器 tdyw 的 80 端口，可用 BASE 环境变量覆盖）。
 
 生产 tdyw：
     set BASE=http://<tdyw-host>:<port>  (PowerShell)
@@ -11,7 +11,7 @@ import json
 import urllib.request
 import urllib.error
 
-BASE = os.environ.get("BASE", "http://localhost:8080")
+BASE = os.environ.get("BASE", "http://localhost")
 STRESS_USER = os.environ.get("STRESS_USER", "tongxinke")
 STRESS_PASS = os.environ.get("STRESS_PASS", "Dt@6299093")
 
@@ -95,7 +95,6 @@ print("MERGE", st, body[:160])
 # 6. 只读探针
 for p in ["/api/document/transfers/?is_public=false",
           "/api/document/disk_usage/?is_public=false",
-          "/api/document/upload_pressure/",
           "/api/document/health/db-pool/"]:
     st, body = call("GET", p, token=tok)
     print("GET", p, st)

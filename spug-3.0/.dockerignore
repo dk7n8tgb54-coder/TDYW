@@ -57,6 +57,7 @@ htmlcov
 docs
 README.md
 CHANGELOG.md
+docx/
 
 # 数据库
 *.sql

@@ -6,67 +6,85 @@
 
 ## 0. 当前环境状态（重要，先读）
 
-执行 `docker ps` 当前只看到：
+压测目标：**生产容器 `tdyw`**（镜像 `tdyw:0719`），映射到宿主机 80（HTTP）/ 443（HTTPS）端口。
 
 ```
-tdyw-test / tdyw-kkfileview-test / tdyw-db-test
+docker ps  →  tdyw / tdyw-db / kkfileview
 ```
 
-- **生产容器 `tdyw` 当前未运行**，`localhost:80` 不可达。
-- **`tdyw-test` 容器在跑，但它不提供 HTTP 服务**（supervisord 未拉起 nginx/gunicorn，`supervisorctl` 连不上 socket；容器内 `127.0.0.1:80` 也拒绝连接）。它目前只用于 `manage.py` 命令（迁移/测试），这正是我们能在里面建账号、跑 Django 测试客户端的原因。
-- 因此**现在还不能直接 `python -m locust` 打到任何地址**。必须先让一个 Web 容器对外提供服务（见第 2 节）。
+- `tdyw` 容器提供完整的 HTTP 服务（nginx + gunicorn + celery），`http://localhost` 可达。
+- **`tdyw-test` 容器已不存在**（2026-07-20 确认），之前的"方案 B 打 tdyw-test 8080"已废弃。
+- 压测直接打 `http://localhost`（即 `-H http://localhost`）。
+- 生产服务器远程压测用 `-H https://192.168.40.118`。
 
 ---
 
 ## 1. 文件清单
 
+### 主脚本（上线前必补 🔴）
 | 文件 | 作用 |
 |---|---|
-| `document_stress.py` | **主脚本**：资料库 CRUD + 普通上传 + 分片上传/合并（含断点续传）+ 传输列表 + 磁盘使用 + 上传压力探针 + DB 连接池健康 |
 | `account_login_stress.py` | **登录并发脚本**：高并发打 `/api/account/login/`，测登录吞吐与延迟 |
-| `tools/create_stress_accounts.py` | 创建专用压测账号 + 角色（幂等，可重复执行） |
-| `tools/verify_http.py` | 冒烟测试：真实 HTTP 走一遍 login→建文件夹→上传→分片→合并→清理，验证脚本参数是否正确 |
+| `document_stress.py` | **主脚本**：资料库 CRUD + 普通上传 + 分片上传/合并（含断点续传）+ 传输列表 + 磁盘使用 + DB 连接池健康 |
+| `locustfile_document.py` | 高并发锁竞争：同名合并/分片锁/公共空间专项 |
+| `locustfile_folder_depth.py` | 文件夹深度嵌套：极限深度/递归查询/深层移动复制 |
+| `locustfile_pdf_export.py` | PDF 导出并发：部门值班日志（**8G 最易 OOM**） |
+| `locustfile_download.py` | 大文件下载：小/中/大文件 + 文件夹打包 |
+| `locustfile_kkfileview_preview.py` | kkFileView 预览：预览令牌/office URL/普通预览（**LibreOffice OOM**） |
+| `locustfile_audit_log.py` | 审计日志：深页/时间筛选/action 筛选/导出（哈希链 O(n)） |
+| `locustfile_mixed_workload.py` | 混合负载：登录+查列表+上传+下载+审计日志+首页统计（模拟早高峰） |
+
+### 上线后可补脚本（🟡 选跑）
+| 文件 | 作用 |
+|---|---|
+| `locustfile_multi_tenant.py` | 多租户并发：验证 tenant_id 索引效率/数据隔离 |
+| `locustfile_permission_cache.py` | 权限缓存击穿：超管改角色触发缓存失效风暴 |
+| `locustfile_celery_queue.py` | Celery 队列积压：merge + pack 任务堆积 |
+| `locustfile_bulk_upload.py` | 小文件批量上传高峰：几千个 10KB 文件持续上传（Gunicorn/DB/磁盘） |
+| `locustfile_websocket.py` | WebSocket 推送：Channels 连接上限（需 websockets 库） |
+| `locustfile_soak_test.py` | 8h+ 长时间稳定性：内存/连接/磁盘泄漏 |
+
+### 辅助文件
+| 文件 | 作用 |
+|---|---|
+| `_common.py` | 共用工具：登录/请求头/账号轮询 |
+| `SLA_THRESHOLDS.md` | SLA 阈值定义 + 监控命令 + 报告模板 |
+| `run_all_locust.sh` | 统一 runner：`--all` / `--only` / `--list` |
+| `tools/create_stress_accounts.py` | 创建专用压测账号 + 角色（幂等） |
+| `tools/verify_api.py` | 冒烟测试：真实 HTTP 走一遍 login→建文件夹→上传→分片→合并→清理 |
 | `README.md` | 本文件 |
 
-已删除的死脚本：`locustfile.py`（回收站）、`locustfile_recycle_bin.py`（回收站）、`运行命令行.txt`（端口/接口已过期）。
+### 旧脚本（保留备用，未列入 runner）
+| 文件 | 作用 |
+|---|---|
+| `locustfile_device.py` | 设备 CRUD（与 mixed_workload 重叠） |
+| `locustfile_interference.py` | 干扰记录 CRUD |
+| `locustfile_runlog.py` | 运行日志 CRUD |
+| `locustfile_pagination.py` | 通用分页 |
+
+### 已删除的旧脚本（2026-07-20）
+- `document_stress_test.py`（v1，含已删除的回收站接口）
+- `document_stress_test_v2.py`（v2，含回收站）
+- `document_stress_test_v3.py`（v3，字段 bug，场景已被 document_stress.py 覆盖）
+- `locustfile.py`（回收站）、`locustfile_recycle_bin.py`（回收站）、`运行命令行.txt`（端口/接口已过期）
 
 ---
 
-## 2. 压测环境：两种方案（二选一，需你拍板）
+## 2. 压测环境
 
-### 方案 A：打生产 `tdyw`（localhost:80）
-- 启动 `tdyw` 容器栈（`docker compose up -d tdyw`，或你平时的启动方式）。
-- 优点：开箱即用，端口 `localhost:80`。
-- 缺点：**压测会写真实数据库、占真实业务资源**。虽然专用账号在独立租户 `stress` 下数据隔离，但 DB 负载是共享的。
-- 运行：`-H http://localhost:80`。
-- 账号需在**生产库**建（见第 3 节，目标环境确定后我帮你建到对应库）。
-
-### 方案 B：让 `tdyw-test` 对外提供 HTTP（推荐，完全隔离）
-- `tdyw-test` 有**独立数据库** `tdyw-db-test`，与生产零耦合，是最理想的压测环境。
-- 当前它没起 Web，需要手动拉起（gunicorn + redis + celery-merge）：
-  ```bash
-  # 在 tdyw-test 内启动 redis（合并任务依赖）
-  docker exec -d tdyw-test redis-server --bind 127.0.0.1 --port 6379
-
-  # 启动 gunicorn（容器 80 端口，对应宿主机 8080）
-  docker exec -d tdyw-test gunicorn -c /data/spug/spug_api/gunicorn.conf.py \
-      --chdir /data/spug/spug_api -b 0.0.0.0:80 spug.wsgi:application
-
-  # 启动合并 worker（让分片合并真正落地成文件；不启则合并接口仍返回 task_id，只是文件不生成）
-  docker exec -d tdyw-test celery -A spug worker -l info -Q document.merge \
-      -n merge-worker@%h --concurrency=2 --prefetch-multiplier=1
-  ```
-  > 注意：`-c` 必须用**绝对路径**（`gunicorn.conf.py` 相对路径在 `docker exec` 下解析不到）。
-- 启动后用 `tools/verify_http.py`（把 `BASE` 改成 `http://localhost:8080`）确认连通。
-- 运行：`-H http://localhost:8080`。
-
-> 无论选哪个，`tdyw-test` 里已经建好的 `st_press_01..05` 账号只在它的库里；若选方案 A，账号要建到生产库。
+### 打生产容器 `tdyw`（localhost:80）
+- 启动 `tdyw` 容器栈（`docker compose up -d`，或你平时的启动方式）。
+- 端口：`localhost:80`（HTTP）/ `localhost:443`（HTTPS）。
+- 运行：`-H http://localhost`。
+- 账号需在 `tdyw` 库建（见第 3 节）。
+- **注意**：压测会写真实数据库、占真实业务资源。虽然专用账号在独立租户 `stress` 下数据隔离，但 DB 负载是共享的。建议在低峰期跑，或停掉业务后跑全量压测。
+- 生产服务器远程压测：`-H https://192.168.40.118`。
 
 ---
 
 ## 3. 专用压测账号
 
-已在 `tdyw-test` 库创建（方案 B 直接用；方案 A 需重建到生产库）：
+需在 `tdyw` 库创建（用 `tools/create_stress_accounts.py`）：
 
 ```
 租户隔离标识: stress
@@ -76,11 +94,10 @@ tdyw-test / tdyw-kkfileview-test / tdyw-db-test
       view / create_folder / upload / delete / download / move / copy / rename）
 ```
 
-重建/同步到其他环境（在目标容器内执行）：
+创建/同步到目标环境（在目标容器内执行）：
 ```bash
-docker cp locustfile/tools/create_stress_accounts.py <目标容器>:/tmp/csa.py
-docker exec <目标容器> cat /tmp/csa.py | docker exec -i <目标容器> \
-    python /data/spug/spug_api/manage.py shell
+docker cp locustfile/tools/create_stress_accounts.py tdyw:/tmp/csa.py
+docker exec -i tdyw python /data/spug/spug_api/manage.py shell < /tmp/csa.py
 ```
 
 > **账号锁定提醒**：`apps/account/views.py` 的 `login` 有防暴破限流——
@@ -89,21 +106,43 @@ docker exec <目标容器> cat /tmp/csa.py | docker exec -i <目标容器> \
 
 ---
 
-## 4. 如何运行（Windows，已装 locust 2.43.3，用 `python -m locust`）
+## 4. 如何运行
 
-```powershell
-# 资料库主压测（Web 模式，手动调并发）
-python -m locust -f locustfile/document_stress.py -H http://localhost:8080
+### 4.1 环境准备(推荐 Docker,零安装)
 
-# 登录并发压测
-python -m locust -f locustfile/account_login_stress.py -H http://localhost:8080
+```bash
+# Docker 模式:无需装任何依赖,直接用 locust 官方镜像
+# 首次运行自动拉取镜像(~50MB),之后有缓存
+./run_all_locust.sh --list          # 先看看有哪些脚本
+./run_all_locust.sh                 # 跑上线前必补(推荐)
+```
+
+如果不想用 Docker,也可以本地装(WSL 需用虚拟环境避免 zope namespace 冲突):
+```bash
+python3 -m venv ~/locust-venv
+source ~/locust-venv/bin/activate
+pip install locust websockets
+./run_all_locust.sh --local         # --local 标志用本地 Python 跑
+```
+
+### 4.2 运行方式
+
+```bash
+# 统一 runner(批量跑所有脚本,推荐)
+./run_all_locust.sh --list          # 列出所有脚本
+./run_all_locust.sh                 # 跑上线前必补(9 个)
+./run_all_locust.sh --all           # 跑全部(14 个)
+./run_all_locust.sh --only pdf_export  # 只跑指定脚本
+
+# 单脚本运行(Web 模式,手动调并发)
+python -m locust -f locustfile/document_stress.py -H http://localhost
 
 # 命令行无人值守模式
-python -m locust -f locustfile/document_stress.py -H http://localhost:8080 `
+python -m locust -f locustfile/document_stress.py -H http://localhost \
     --headless -u 50 -r 10 -t 10m --csv=document_stress
 ```
 
-- 不要直接敲 `locust`（命令没进 Windows PATH），用 `python -m locust`。
+- 不要直接敲 `locust`（命令可能没进 PATH），用 `python -m locust`。
 - 并发用户默认在 5 个专用账号间轮询复用（各自拿到独立 token）。
 
 ---
@@ -124,9 +163,9 @@ python -m locust -f locustfile/document_stress.py -H http://localhost:8080 `
 
 - **每次运行**：每个虚拟用户 `on_start` 建一个 `stress_root_<uuid>` 根文件夹，所有子文件夹/文件都建在它下面；`on_stop` 调 `DELETE /api/document/folder/?id=<root>` 递归硬删其下全部内容（含合并生成的文件）。
 - **运行中**：`delete_one_file` 任务会真实列目录→删文件，避免只增不减。
-- **遗留分片目录**：若 celery-merge 没跑（方案 B 未启 worker），分片目录（`storage/document_chunks`）可能残留。手动清理：
+- **遗留分片目录**：若 celery-merge worker 未运行，分片目录（`storage/document_chunks`）可能残留。手动清理：
   ```bash
-  docker exec <容器> sh -c 'rm -rf /data/spug/spug_api/storage/document_chunks/*'
+  docker exec tdyw sh -c 'rm -rf /data/spug/spug_api/storage/document_chunks/*'
   ```
 - **紧急全清**：直接删 `stress` 租户下的根文件夹即可，不影响其他租户数据。
 
@@ -150,20 +189,20 @@ python -m locust -f locustfile/document_stress.py -H http://localhost:8080 `
 
 ```bash
 # 1. 容器资源（CPU/内存）
-docker stats tdyw-test tdyw-db-test
+docker stats tdyw tdyw-db kkfileview
 
 # 2. DB 连接池（项目自带，无需密码，最直接）
-curl -s http://localhost:8080/api/document/health/db-pool/ | python -m json.tool
-curl -s http://localhost:8080/api/document/health/db-pool/metrics/ | python -m json.tool
+curl -s http://localhost/api/document/health/db-pool/ | python -m json.tool
+curl -s http://localhost/api/document/health/db-pool/metrics/ | python -m json.tool
 
 # 3. MySQL 进程/连接（用容器自身环境变量，避免硬编码密码）
-docker exec tdyw-db-test sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "SHOW PROCESSLIST; SHOW STATUS LIKE \"Threads_connected\";"'
+docker exec tdyw-db sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "SHOW PROCESSLIST; SHOW STATUS LIKE \"Threads_connected\";"'
 
 # 4. 慢查询（进 db 容器开 general/slow log 或事后查）
-docker exec tdyw-db-test sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "SHOW GLOBAL STATUS LIKE \"Slow_queries\";"'
+docker exec tdyw-db sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "SHOW GLOBAL STATUS LIKE \"Slow_queries\";"'
 
 # 5. Gunicorn/Celery 日志
-docker exec tdyw-test sh -c 'tail -f /data/spug/spug_api/logs/*.log'
+docker exec tdyw sh -c 'tail -f /data/spug/spug_api/logs/*.log'
 ```
 
 > 瓶颈通常在服务端：MariaDB 连接打满、慢查询、Gunicorn worker 饱和、CPU/内存。
@@ -176,5 +215,5 @@ docker exec tdyw-test sh -c 'tail -f /data/spug/spug_api/logs/*.log'
 1. **回收站相关接口全部不存在**，不要在任何脚本里再出现 `/recycle-bin/*`。
 2. **账号锁定**：只用正确密码；错密码 5 次/15 分钟锁账号。
 3. **合并是异步**：`merge_chunks` 返回 `task_id`，文件由 celery-merge worker 落地；压测前确认该 worker 在跑，否则“上传成功”的文件不会出现。
-4. **`tdyw-test` 默认不提供 HTTP**，需按第 2 节方案 B 手动拉起（或改用方案 A 生产容器）。
+4. **`tdyw` 容器必须运行**：压测前确认 `docker ps` 能看到 `tdyw / tdyw-db / kkfileview` 三个容器，且 `curl http://localhost/api/account/login/` 返回非 502。
 5. 分片上传为单线程顺序上传（避免多线程共用 `self.client` session 的线程安全问题）；如需测“单文件并发分片”，后续可加。

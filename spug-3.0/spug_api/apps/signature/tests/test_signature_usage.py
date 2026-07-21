@@ -26,6 +26,7 @@
 import io
 import os
 import shutil
+import tempfile
 import time
 import json
 import hashlib
@@ -80,6 +81,7 @@ def _make_client(user):
     return client
 
 
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
 class SignatureUsageStage2Base(TestCase):
     """第二阶段测试基类：超管 + 签署人 + 已配置签名"""
 

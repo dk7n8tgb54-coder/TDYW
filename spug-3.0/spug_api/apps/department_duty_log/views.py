@@ -10,6 +10,7 @@ import logging
 import os
 import json
 import uuid
+from urllib.parse import quote
 
 from django.conf import settings
 from django.http import FileResponse, HttpResponse
@@ -17,6 +18,7 @@ from django.views.generic import View
 
 from libs import JsonParser, Argument, json_response, auth, human_datetime
 from apps.signature import services as signature_services
+from libs.export_utils import build_export_error_response
 
 from . import services
 from .models import DepartmentDutyLog, STATUS_DRAFT, STATUS_SIGNED, STATUS_VOID
@@ -246,3 +248,29 @@ class DepartmentDutyLogOptionsView(View):
     def get(self, request):
         data = services.get_options(request.user)
         return json_response(data)
+
+
+class DepartmentDutyLogPdfExportView(View):
+    """POST 导出已签/已作废部门值班日志 PDF
+
+    请求体只接受筛选条件，不接受记录内容、签名内容、文件路径或客户端生成的 PDF 数据。
+    只导出 view 可见的已签/已作废记录，永不导出草稿。
+    """
+
+    @auth('department_duty_log.department_duty_log.export')
+    def post(self, request):
+        try:
+            raw = json.loads(request.body) if request.body else {}
+        except (ValueError, TypeError):
+            return build_export_error_response('请求体格式不正确')
+
+        pdf_bytes, filename, error = services.export_pdf(request.user, raw, request=request)
+        if error:
+            return build_export_error_response(error)
+
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        # 中文文件名使用 RFC 5987 编码，兼容主流浏览器
+        response['Content-Disposition'] = "attachment; filename*=UTF-8''%s" % quote(filename)
+        response['Content-Length'] = len(pdf_bytes)
+        response['X-Content-Type-Options'] = 'nosniff'
+        return response

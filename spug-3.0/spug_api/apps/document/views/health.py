@@ -11,7 +11,6 @@ from django.views.generic import View
 from django.db import connection
 from libs import json_response
 from apps.document.libs.document_auth import document_auth
-from apps.document.monitoring import check_celery_health
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,6 @@ logger = logging.getLogger(__name__)
 class HealthCheckView(View):
     """
     系统健康检查 API
-    【修正4】Celery ping为None时返回503错误
     【注意】健康检查不需要登录验证
     【M-2修复】未认证端点不暴露组件错误细节，仅返回 ok/error 状态
     """
@@ -34,7 +32,6 @@ class HealthCheckView(View):
         """
         checks = {
             'database': self._check_database(),
-            'celery': check_celery_health(),
         }
 
         # 判断整体状态
@@ -259,29 +256,3 @@ class DatabasePoolMetricsView(View):
                 'error': '获取指标失败',
                 'db_pool_status': 'unknown'
             })
-
-
-class CeleryHealthView(View):
-    """
-    Celery 单独健康检查 API
-    【修正4】ping为None时返回503错误
-    【M-2修复】未认证端点仅返回状态，不暴露错误细节
-    """
-
-    def get(self, request):
-        """
-        检查 Celery 健康状态
-
-        Returns:
-            200: Celery正常
-            503: Celery不可达或无Worker
-        """
-        result = check_celery_health()
-
-        # 【M-2修复】未认证端点不暴露 Celery 内部状态细节
-        if result['status'] == 'error':
-            response = json_response({'status': 'error'})
-            response.status_code = 503
-            return response
-
-        return json_response({'status': 'ok'})

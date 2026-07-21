@@ -15,16 +15,25 @@ class NavView(View):
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
-            Argument('title', help='请输入导航标题'),
-            Argument('desc', help='请输入导航描述'),
-            Argument('logo', help='请上传导航logo'),
-            Argument('links', type=list, filter=lambda x: len(x), help='请设置导航链接'),
+            Argument('title', required=False),
+            Argument('desc', required=False),
+            Argument('logo', required=False),
+            Argument('links', type=list, required=False, filter=lambda x: len(x)),
         ).parse(request.body)
         if error is None:
-            form.links = json.dumps(form.links)
+            if form.links is not None:
+                form.links = json.dumps(form.links)
             if form.id:
-                Navigation.objects.filter(pk=form.id).update(**form)
+                # 编辑：只更新传入的非 None 字段，pop id 避免覆盖主键
+                record_id = form.pop('id')
+                update_data = {k: v for k, v in form.items() if v is not None}
+                Navigation.objects.filter(pk=record_id).update(**update_data)
             else:
+                # 创建：校验必填字段
+                required = {'title': '导航标题', 'desc': '导航描述', 'logo': '导航logo', 'links': '导航链接'}
+                for field, label in required.items():
+                    if not form.get(field):
+                        return json_response(error=f'请输入{label}')
                 nav = Navigation.objects.create(**form)
                 nav.sort_id = nav.id
                 nav.save()

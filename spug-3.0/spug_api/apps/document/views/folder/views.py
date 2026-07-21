@@ -438,19 +438,40 @@ class FolderView(View):
 
         # 第二步：分批物理删除当前文件夹下的文件
         delete_errors = []
-        files = folder.files.filter(is_deleted=False).select_related('created_by')
-        files_count = files.count()
+        base_files_qs = folder.files.filter(is_deleted=False).select_related('created_by')
+        files_count = base_files_qs.count()
         logger.info(f'[Document] Deleting {files_count} files in folder {folder.name}')
 
         # 收集所有文件的父目录，用于删除后兜底清理物理残留目录
         parent_dirs_to_clean = set()
 
         total_deleted = 0
-        for batch_start in range(0, files_count, BATCH_SIZE):
-            batch_end = min(batch_start + BATCH_SIZE, files_count)
-            batch_files = files[batch_start:batch_end]
-            batch_files_list = list(batch_files)
+        # 【BUG 修复】原实现用 range(files_count) + files[batch_start:batch_end] 切片，
+        #   但 files 是 QuerySet，每次切片都重新查库。第一批删除 50 条后，第二批
+        #   files[50:100] 执行 LIMIT 50 OFFSET 50，而库中只剩 N-50 条（≤50），
+        #   OFFSET 50 跳过所有 → 超过 50 个的文件残留 → 第三步删文件夹触发
+        #   on_delete=SET_NULL → 残留文件 folder_id 被置 NULL → 散落到根目录。
+        #   改为 while 循环始终取前 BATCH_SIZE 条（已删的不会再出现），并用
+        #   failed_file_ids 排除删除失败的文件，避免死循环。
+        failed_file_ids = set()
+        max_iterations = (files_count // BATCH_SIZE) + 10  # 安全阀，防异常死循环
+        iteration = 0
+        while True:
+            iteration += 1
+            if iteration > max_iterations:
+                logger.warning(
+                    f'[Document] Folder delete exceeded safety iteration limit '
+                    f'(folder={folder.id}, iter={iteration}), breaking.'
+                )
+                break
 
+            batch_files_list = list(
+                base_files_qs.exclude(id__in=failed_file_ids)[:BATCH_SIZE]
+            )
+            if not batch_files_list:
+                break
+
+            batch_success_count = 0
             try:
                 with transaction.atomic():
                     for file in batch_files_list:
@@ -462,17 +483,20 @@ class FolderView(View):
                                 if parent_dir:
                                     parent_dirs_to_clean.add(parent_dir)
                             file.delete(hard=True)
+                            batch_success_count += 1
                             logger.info(f'[Document] File deleted: {file.name} (id={file.id})')
                         except Exception as e:
+                            failed_file_ids.add(file.id)
                             delete_errors.append(f"文件{file.name}删除失败: {str(e)}")
                             logger.error(f'[Document] Failed to delete file {file.name}: {e}')
 
-                    total_deleted += len(batch_files_list)
+                    total_deleted += batch_success_count
                     logger.info(f'[Document] Batch delete progress: {total_deleted}/{files_count} files deleted')
 
             except Exception as batch_error:
-                logger.error(f'[Document] Batch delete failed at batch {batch_start//BATCH_SIZE}: {batch_error}')
+                logger.error(f'[Document] Batch delete failed (iter={iteration}): {batch_error}')
                 delete_errors.append(f"批次删除失败: {str(batch_error)}")
+                break
 
         # 第三步：删除物理目录 + 文件夹数据库记录
         try:

@@ -179,6 +179,7 @@ export default [{
       {key: 'del', label: '删除本人值班草稿'},
       {key: 'sign', label: '签署本人值班草稿'},
       {key: 'void', label: '作废已签部门值班日志'},
+      {key: 'export', label: '导出部门值班日志 PDF'},
     ]
   }]
 }, {
@@ -221,6 +222,15 @@ export default [{
       {key: 'edit', label: '编辑执照'},
       {key: 'del', label: '删除执照'},
       {key: 'export', label: '导出清单'},
+    ]
+  }, {
+    key: 'approval',
+    label: '批复管理',
+    perms: [
+      {key: 'view', label: '查看批复'},
+      {key: 'add', label: '新增批复'},
+      {key: 'edit', label: '编辑批复'},
+      {key: 'del', label: '删除批复'},
     ]
   }, {
     key: 'attachment',

@@ -15,16 +15,24 @@ class NoticeView(View):
     def post(self, request):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
-            Argument('title', help='请输入标题'),
-            Argument('content', help='请输入内容'),
-            Argument('is_stress', type=bool, default=False),
+            Argument('title', required=False),
+            Argument('content', required=False),
+            Argument('is_stress', type=bool, required=False, default=False),
         ).parse(request.body)
         if error is None:
             if form.is_stress:
                 Notice.objects.update(is_stress=False)
             if form.id:
-                Notice.objects.filter(pk=form.id).update(**form)
+                # 编辑：只更新传入的非 None 字段，pop id 避免覆盖主键
+                record_id = form.pop('id')
+                update_data = {k: v for k, v in form.items() if v is not None}
+                Notice.objects.filter(pk=record_id).update(**update_data)
             else:
+                # 创建：校验必填字段
+                if not form.get('title'):
+                    return json_response(error='请输入标题')
+                if not form.get('content'):
+                    return json_response(error='请输入内容')
                 notice = Notice.objects.create(**form)
                 notice.sort_id = notice.id
                 notice.save()

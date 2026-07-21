@@ -191,3 +191,131 @@ class RadioLicenseVersion(models.Model, TenantModelMixin):
         indexes = [
             models.Index(fields=['tenant_id', 'license'], name='rl_ver_license_idx'),
         ]
+
+
+# ==================== 台站频率批复 ====================
+
+
+class StationFrequencyApproval(models.Model, TenantModelMixin):
+    """台站频率批复台账。
+
+    设计原则：
+    - 独立台账，不与 RadioLicense 建立业务外键。
+    - responsible_user_name 由服务端根据 responsible_user_id 回填，不接受客户端传入值。
+    - status 是缓存字段，由 scan_single_approval / scan_approval_expiration 维护；
+      列表、详情、popup、badge 一律按 valid_to 实时计算，不依赖该字段。
+    - 不保留 last_remind_at（前端轮询，不存在准确的"服务端已提醒时间"）。
+    - attachment_count / days_left / computed_status 均为接口计算字段，不落库。
+    """
+
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    STATUS_NORMAL = 'normal'
+    STATUS_EXPIRING = 'expiring'
+    STATUS_EXPIRED = 'expired'
+    STATUS_CHOICES = (
+        (STATUS_NORMAL, '正常'),
+        (STATUS_EXPIRING, '即将到期'),
+        (STATUS_EXPIRED, '已过期'),
+    )
+
+    name = models.CharField(max_length=200, help_text='文件名称')
+    doc_no = models.CharField(max_length=100, help_text='文件编号')
+    frequency_text = models.CharField(max_length=200, help_text='批复频率')
+    valid_from = models.DateField(help_text='起始日期')
+    valid_to = models.DateField(help_text='截止日期')
+
+    responsible_user_id = models.IntegerField(help_text='责任人ID')
+    responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名快照（服务端回填）')
+
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
+        help_text='缓存状态，由定时任务维护；接口一律实时计算',
+    )
+    remark = models.TextField(default='', blank=True, help_text='备注')
+
+    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
+    updated_at = models.CharField(max_length=20, null=True)
+    updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
+
+    def __repr__(self):
+        return '<StationFrequencyApproval %r>' % self.name
+
+    def to_view(self):
+        return self.to_dict()
+
+    class Meta:
+        db_table = 'tdyw_station_frequency_approval'
+        verbose_name = '台站频率批复'
+        verbose_name_plural = '台站频率批复'
+        ordering = ('-created_at', '-id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['tenant_id', 'doc_no'],
+                name='uniq_sfa_tenant_doc_no',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['tenant_id', '-created_at', '-id'],
+                name='sfa_tenant_created_idx',
+            ),
+            models.Index(
+                fields=['tenant_id', 'responsible_user_id', 'valid_to'],
+                name='sfa_owner_expiry_idx',
+            ),
+            models.Index(
+                fields=['tenant_id', 'valid_to'],
+                name='sfa_tenant_expiry_idx',
+            ),
+        ]
+
+
+class StationFrequencyApprovalReminderAck(models.Model, TenantModelMixin):
+    """用户对某一批复有效期周期的"已处理"确认记录。
+
+    有效期周期由 (approval_id, user_id, valid_to) 标识：
+    - 用户确认时保存当前 valid_to；
+    - 批复续期后 valid_to 变化，旧 ack 不再匹配，新周期重新提醒；
+    - 更换责任人后，新责任人没有对应 ack，也会收到提醒；
+    - 删除批复时外键级联删除 ack。
+    """
+
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    approval = models.ForeignKey(
+        StationFrequencyApproval, models.CASCADE,
+        related_name='reminder_acks', help_text='批复',
+    )
+    user_id = models.IntegerField(help_text='确认用户ID')
+    user_name = models.CharField(max_length=100, default='', help_text='确认用户姓名快照')
+    ack_valid_to = models.DateField(help_text='确认时的截止日期（用于续期后自动失效）')
+    created_at = models.CharField(max_length=20, default=human_datetime)
+
+    def __repr__(self):
+        return '<StationFrequencyApprovalReminderAck approval=%s user=%s valid_to=%s>' % (
+            self.approval_id, self.user_id, self.ack_valid_to)
+
+    def to_view(self):
+        return self.to_dict()
+
+    class Meta:
+        db_table = 'tdyw_station_frequency_approval_reminder_ack'
+        verbose_name = '频率批复提醒确认'
+        verbose_name_plural = '频率批复提醒确认'
+        ordering = ('-created_at', '-id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['tenant_id', 'approval', 'user_id', 'ack_valid_to'],
+                name='uniq_sfa_ack_cycle',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['tenant_id', 'user_id', 'approval'],
+                name='sfa_ack_user_approval_idx',
+            ),
+        ]

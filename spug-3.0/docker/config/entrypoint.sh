@@ -18,6 +18,10 @@ echo "执行数据库迁移..."
 cd /data/spug/spug_api
 python manage.py migrate --noinput || echo "迁移失败或已跳过"
 
+# 初始化文档系统目录（党建文档等，幂等，每次启动自动确保绑定存在）
+echo "初始化文档系统目录..."
+python manage.py init_document_system_folders || echo "文档系统目录初始化失败或已跳过"
+
 # 收集静态文件
 echo "收集静态文件..."
 python manage.py collectstatic --noinput || echo "收集静态文件失败或已跳过"

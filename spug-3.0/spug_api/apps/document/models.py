@@ -409,10 +409,19 @@ class DocumentFilePrivate(SoftDeleteFileMixin, DocumentFileDeleteMixin):
         # （is_deleted=False 由 SoftDeletedManager 自动添加）
         # 字段顺序说明：folder_id 放最前，左前缀 [folder_id] 可服务 CASCADE
         # 删除父文件夹时的 WHERE folder_id=? 查询。
+        #
+        # 磁盘用量聚合查询路径：filter(tenant_id=?, is_deleted=False)
+        #   .aggregate(total_size=Sum('file_size'))，不带 folder_id，走不上
+        #   doc_pri_file_list_idx 的左前缀。专用覆盖索引 (tenant_id, is_deleted,
+        #   file_size) 让 SUM(file_size) 纯索引扫描不回表。
         indexes = [
             models.Index(
                 fields=['folder_id', 'tenant_id', 'is_deleted', '-created_at', '-id'],
                 name='doc_pri_file_list_idx',
+            ),
+            models.Index(
+                fields=['tenant_id', 'is_deleted', 'file_size'],
+                name='doc_pri_file_diskusage_idx',
             ),
         ]
 

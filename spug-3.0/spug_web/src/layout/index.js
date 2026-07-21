@@ -8,13 +8,14 @@ import { Switch, Route } from 'react-router-dom';
 import { Layout, message } from 'antd';
 import { NotFound } from 'components';
 import ExpirationReminderNotification from 'components/ExpirationReminderNotification';
-import { licenseReminderConfig } from 'components/expirationReminderConfigs';
+import { licenseReminderConfig, approvalReminderConfig } from 'components/expirationReminderConfigs';
 import ContractAgreementReminderNotification from 'components/ContractAgreementReminderNotification';
 import Sider from './Sider';
 import Header from './Header';
 import Footer from './Footer'
 import routes from '../routes';
 import radioLicenseBadge from './RadioLicenseBadgeStore';
+import approvalBadge from './ApprovalBadgeStore';
 import contractAgreementBadge from './ContractAgreementBadgeStore';
 import { hasPermission, isMobile } from 'libs';
 import styles from './layout.module.less';
@@ -45,9 +46,11 @@ export default function () {
     setRoutes(Routes)
     // 启动无线电台执照菜单红点轮询
     radioLicenseBadge.start();
+    approvalBadge.start();
     contractAgreementBadge.start();
     return () => {
       radioLicenseBadge.stop();
+      approvalBadge.stop();
       contractAgreementBadge.stop();
     };
   }, [])
@@ -66,6 +69,7 @@ export default function () {
         <Footer/>
       </Layout>
       <ExpirationReminderNotification config={licenseReminderConfig}/>
+      <ExpirationReminderNotification config={approvalReminderConfig}/>
       <ContractAgreementReminderNotification/>
     </Layout>
   )

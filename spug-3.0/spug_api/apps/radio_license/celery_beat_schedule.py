@@ -28,4 +28,16 @@ RADIO_LICENSE_BEAT_SCHEDULE = {
             'time_limit': 600,  # 10分钟超时
         },
     },
+    # ========================================
+    # 台站频率批复到期扫描 - 每天早上 08:05 执行
+    # 扫描全部租户的批复，仅更新状态发生变化的记录
+    # ========================================
+    'radio-license-scan-approval-expiration': {
+        'task': 'apps.radio_license.tasks.scan_approval_expiration',
+        'schedule': crontab(hour=8, minute=5),  # 每天 08:05
+        'options': {
+            'queue': 'radio_license',
+            'time_limit': 600,
+        },
+    },
 }
