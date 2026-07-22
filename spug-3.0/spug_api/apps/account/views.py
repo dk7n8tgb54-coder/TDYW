@@ -7,8 +7,9 @@ from django.core.cache import cache
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Count
+from django.utils import timezone
 from libs.mixins import AdminView, View
-from libs import JsonParser, Argument, human_datetime, json_response
+from libs import JsonParser, Argument, json_response
 from libs.utils import get_request_real_ip, generate_random_str
 from libs.tenant_utils import migrate_existing_data
 import logging
@@ -258,7 +259,7 @@ class UserView(AdminView):
                     return json_response(error='无法删除当前登录账户')
                 # 执行软删除
                 user.is_active = False
-                user.deleted_at = human_datetime()
+                user.deleted_at = timezone.now()
                 user.deleted_by = request.user
                 user.roles.clear()
                 user.save()
@@ -725,7 +726,7 @@ def handle_user_info(handle_response, request, user, captcha):
     # SECURITY: Always generate new token on login to prevent session fixation
     user.access_token = uuid.uuid4().hex
     user.token_expired = time.time() + settings.TOKEN_TTL
-    user.last_login = human_datetime()
+    user.last_login = timezone.now()
     user.last_ip = x_real_ip
     user.save()
     # 记录登录审计日志

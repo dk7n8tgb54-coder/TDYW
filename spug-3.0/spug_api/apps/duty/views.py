@@ -3,7 +3,8 @@
 # Released under AGPL-3.0 License.
 from django.views.generic import View
 from django.http import HttpResponse
-from libs import json_response, JsonParser, Argument, human_datetime, auth
+from django.utils import timezone
+from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from apps.logs.audit import record_audit_event
 from apps.duty.models import DutyRecord
@@ -38,7 +39,7 @@ def tenant_operation_check(request, model, record_id, operation='操作'):
     if not queryset.exists():
         logger.warning(
             f'用户{request.user.username}尝试{operation}跨租户/不存在的{model.__name__}记录{record_id} | '
-            f'IP：{request.META.get("REMOTE_ADDR")} | 时间：{human_datetime()}'
+            f'IP：{request.META.get("REMOTE_ADDR")} | 时间：{timezone.now()}'
         )
         return None, json_response(error='记录不存在或无权操作')
     return queryset, None
@@ -114,7 +115,7 @@ class DutyRecordView(View):
                 if not queryset.exists():
                     return json_response(error='记录不存在或无权操作')
                 update_data = {k: v for k, v in form.items() if v is not None and k != 'id'}
-                update_data['updated_at'] = human_datetime()
+                update_data['updated_at'] = timezone.now()
                 queryset.update(**update_data)
             else:
                 # 创建：校验必填字段

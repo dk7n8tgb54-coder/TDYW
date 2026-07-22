@@ -22,7 +22,7 @@ import json
 import logging
 
 from django.db import transaction
-from libs.utils import human_datetime
+from django.utils import timezone
 
 from apps.evidence.models import EvidenceEvent
 from apps.evidence.hash import compute_event_hash_from_values
@@ -113,7 +113,7 @@ def record_evidence_event(
             prev_hash = last_event.event_hash if last_event else ''
 
             # 显式生成 created_at，保证 event_hash 输入与落库值一致
-            created_at = human_datetime()
+            created_at = timezone.now()
 
             # 计算 event_hash（覆盖关键字段 + prev_hash）
             event_hash = compute_event_hash_from_values(

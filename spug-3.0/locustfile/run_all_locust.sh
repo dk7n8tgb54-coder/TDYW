@@ -16,6 +16,10 @@
 # 环境变量:
 #   LOCUST_HOST    目标地址(默认 http://localhost,即生产容器 tdyw 的 80 端口)
 #   LOCUST_IMAGE   locust Docker 镜像(默认 locustio/locust)
+#   LOCUST_U       覆盖 -u(并发用户数),仅 --only 生效,用于尖峰测试
+#   LOCUST_R       覆盖 -r(ramp 速率),仅 --only 生效
+#   LOCUST_T       覆盖 -t(运行时长),仅 --only 生效
+#   例: LOCUST_U=100 LOCUST_R=20 LOCUST_T=3m ./run_all_locust.sh --only document_stress --local
 # =============================================================================
 set -euo pipefail
 
@@ -79,26 +83,33 @@ mkdir -p "$REPORT_DIR"
 # =========================================================================
 # 脚本清单
 # =========================================================================
+# 并发基准: 对照 SLA_THRESHOLDS.md「部署规模与并发标定」
+#   目标负载 = 40 并发 (≈38 账号全活跃 + 突发余量), 尖峰 = 80 并发。
+#   常规功能场景统一按目标负载 40 并发跑; 尖峰 80 如需验证请临时改 -u 或 --only。
+# token 池模式: 5 账号登录一次, N 用户复用 token, 不触发登录限流。
+# 注意: account_login_stress.py (真实登录压测) 有意不纳入 runner ——
+#       单账号高频登录会触发限流/封号; 如需测登录请单独小并发手动跑。
+
 # 上线前必补脚本(🔴 必跑)
 PRE_RELEASE_SCRIPTS=(
-    # -u 对照 SLA_THRESHOLDS.md 阈值: pdf 10/download 30/kkfileview 15/mixed 50
-    # token 池模式: 5 账号登录一次, N 用户复用 token, 不触发登录限流
-    "document_stress:资料CRUD+分片上传:10:2:5m"
-    "locustfile_pdf_export:PDF导出:10:2:3m"
-    "locustfile_download:大文件下载:30:5:3m"
-    "locustfile_kkfileview_preview:kkFileView预览:15:3:3m"
-    "locustfile_audit_log:审计日志:10:2:5m"
-    "locustfile_mixed_workload:混合负载:50:10:5m"
-    "locustfile_department_duty_log:值班日志全功能:10:2:5m"
+    "document_stress:资料CRUD+分片上传:40:8:5m"
+    "locustfile_pdf_export:PDF导出:40:8:3m"
+    "locustfile_download:大文件下载:40:8:3m"
+    "locustfile_kkfileview_preview:kkFileView预览:40:8:3m"
+    "locustfile_audit_log:审计日志:40:8:5m"
+    "locustfile_mixed_workload:混合负载:40:8:5m"
+    "locustfile_department_duty_log:值班日志全功能:40:8:5m"
 )
 
 # 上线后可补脚本(🟡 选跑)
 POST_RELEASE_SCRIPTS=(
-    "locustfile_multi_tenant:多租户并发:40:5:5m"
-    "locustfile_permission_cache:权限缓存击穿:30:5:5m"
-    "locustfile_celery_queue:Celery队列积压:20:5:10m"
+    "locustfile_multi_tenant:多租户并发:40:8:5m"
+    "locustfile_permission_cache:权限缓存击穿:40:8:5m"
+    "locustfile_celery_queue:Celery队列积压:40:8:10m"
+    # 保留低并发: 每虚拟用户持续循环上传多个小文件, 9 并发的写入压力已远超单请求场景
     "locustfile_bulk_upload:小文件批量上传:9:3:5m"
-    "locustfile_websocket:WebSocket推送:50:10:5m"
+    "locustfile_websocket:WebSocket推送:40:8:5m"
+    # 保留低并发: 8h 长稳测试用常态负载, 不宜用峰值并发长跑
     "locustfile_soak_test:长时间稳定性:20:2:8h"
 )
 
@@ -200,7 +211,9 @@ case "${1:-}" in
             echo "用法: $0 --only <script_name>"
             exit 1
         fi
-        run_script "${2}:手动指定:20:5:5m"
+        # 尖峰/自定义并发覆盖(仅 --only 生效): LOCUST_U / LOCUST_R / LOCUST_T
+        # 未设置时回退默认 40:8:5m,与你平时三行跑法行为一致
+        run_script "${2}:手动指定:${LOCUST_U:-40}:${LOCUST_R:-8}:${LOCUST_T:-5m}"
         ;;
     "")
         echo -e "${RED}=== 上线前必补 ===${NC}"

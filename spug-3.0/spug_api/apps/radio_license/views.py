@@ -6,7 +6,8 @@ from datetime import timedelta
 from django.views.generic import View
 from django.utils import timezone
 from django.http import FileResponse
-from libs import json_response, JsonParser, Argument, human_datetime, auth
+from django.utils import timezone
+from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from apps.radio_license.models import (
     RadioLicense, RadioLicenseFrequency,
@@ -246,7 +247,7 @@ class RadioLicenseView(View):
         # 检测本次变更的字段
         changed_fields = _detect_license_changed_fields(old_license, form)
 
-        form.updated_at = human_datetime()
+        form.updated_at = timezone.now()
         form.updated_by = user
         record_id = form.pop('id')
         form.pop('remark', None)
@@ -380,7 +381,7 @@ def _save_license_version_snapshot(license_obj, user):
         changed_fields='',
         changed_by_id=getattr(user, 'id', None),
         changed_by_name=user.nickname or user.username,
-        changed_at=human_datetime(),
+        changed_at=timezone.now(),
         snapshot_hash=snapshot_hash,
     )
 
@@ -519,7 +520,7 @@ class RadioLicenseEvidencePackageView(View):
                 'attachments': att_hashes,
                 'events_count': len(events_data),
                 'versions_count': len(snapshot['versions']),
-                'generated_at': human_datetime(),
+                'generated_at': timezone.now(),
             }, ensure_ascii=False, indent=2))
             zf.writestr('verify.txt',
                         '本证据包包含执照业务快照JSON、证据事件JSON、审计日志JSON、版本历史、附件哈希清单。\n'

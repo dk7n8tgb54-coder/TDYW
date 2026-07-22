@@ -29,7 +29,8 @@ import logging
 from django.db.models import Q
 from django.views import View
 
-from libs import json_response, JsonParser, Argument, human_datetime, parse_time
+from django.utils import timezone
+from libs import json_response, JsonParser, Argument, parse_time
 from libs.audit_logger import audit_log
 from apps.account.models import Tenant
 from apps.evidence.models import EvidenceAttachment
@@ -116,7 +117,7 @@ def _mark_read(ann, user):
             'tenant_id': getattr(user, 'tenant_id', ''),
             'username': user.username,
             'nickname': user.nickname or user.username,
-            'read_at': human_datetime(),
+            'read_at': timezone.now(),
         },
     )
 
@@ -186,7 +187,7 @@ def _update_announcement(form, title, content, start_str, end_str, tids, tenants
     ann = Announcement.objects.filter(pk=form.id, is_deleted=False).first()
     if not ann:
         return None, '公告不存在'
-    now = human_datetime()
+    now = timezone.now()
     user = request.user
     ann.title = title
     ann.content = content
@@ -315,13 +316,13 @@ class AnnouncementAdminDetailView(View):
         # 已发布先自动撤回，保证用户端不可见
         if ann.status == STATUS_PUBLISHED:
             ann.status = STATUS_UNPUBLISHED
-            ann.withdrawn_at = human_datetime()
+            ann.withdrawn_at = timezone.now()
             ann.withdrawn_by_id = request.user.id
             ann.withdrawn_by_name = request.user.nickname or request.user.username
             ann.save()
         # 软删除
         ann.is_deleted = True
-        ann.deleted_at = human_datetime()
+        ann.deleted_at = timezone.now()
         ann.deleted_by_id = request.user.id
         ann.deleted_by_name = request.user.nickname or request.user.username
         ann.save()
@@ -351,7 +352,7 @@ class AnnouncementPublishView(View):
         ann = Announcement.objects.filter(pk=pk, is_deleted=False).first()
         if not ann:
             return json_response(error='公告不存在')
-        now = human_datetime()
+        now = timezone.now()
         ann.status = STATUS_PUBLISHED
         ann.published_at = now
         ann.published_by_id = request.user.id
@@ -378,7 +379,7 @@ class AnnouncementWithdrawView(View):
         if ann.status != STATUS_PUBLISHED:
             return json_response(error='仅已发布公告可撤回')
         ann.status = STATUS_UNPUBLISHED
-        ann.withdrawn_at = human_datetime()
+        ann.withdrawn_at = timezone.now()
         ann.withdrawn_by_id = request.user.id
         ann.withdrawn_by_name = request.user.nickname or request.user.username
         ann.save()

@@ -13,7 +13,6 @@
 """
 from django.db import models
 
-from libs import human_datetime
 from apps.account.models import User
 
 
@@ -27,7 +26,7 @@ class RegulationCategory(models.Model):
     sort_order = models.IntegerField(default=0, verbose_name='排序')
     code = models.CharField(max_length=50, blank=True, default='', verbose_name='分类编码')
     is_leaf = models.BooleanField(default=True, verbose_name='是否叶子节点')
-    created_at = models.CharField(max_length=20, default=human_datetime, verbose_name='创建时间')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     created_by = models.ForeignKey(
         User, null=True, on_delete=models.SET_NULL,
         related_name='+', verbose_name='创建人',
@@ -71,7 +70,7 @@ class Regulation(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_ACTIVE, db_index=True, verbose_name='状态')
 
     updated_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name='+', verbose_name='更新人')
-    updated_at = models.CharField(max_length=20, null=True, blank=True, verbose_name='更新时间')
+    updated_at = models.DateTimeField(null=True, blank=True, verbose_name='更新时间')
 
     class Meta:
         db_table = 'tdyw_regulation'
@@ -113,14 +112,14 @@ class RegulationAttachment(models.Model):
         User, null=True, on_delete=models.SET_NULL,
         related_name='+', verbose_name='上传人',
     )
-    uploaded_at = models.CharField(max_length=20, default=human_datetime, verbose_name='上传时间')
+    uploaded_at = models.DateTimeField(auto_now_add=True, verbose_name='上传时间')
 
     is_deleted = models.BooleanField(default=False, db_index=True, verbose_name='是否删除')
     deleted_by = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL,
         related_name='+', verbose_name='删除人',
     )
-    deleted_at = models.CharField(max_length=20, null=True, blank=True, verbose_name='删除时间')
+    deleted_at = models.DateTimeField(null=True, blank=True, verbose_name='删除时间')
 
     class Meta:
         db_table = 'tdyw_regulation_attachment'

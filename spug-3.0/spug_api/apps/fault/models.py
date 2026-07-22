@@ -2,7 +2,6 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.db import models
-from libs import human_datetime
 from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 from apps.account.models import User
 import logging
@@ -16,15 +15,15 @@ class FaultRecord(models.Model, TenantModelMixin):
     tenant_id = make_tenant_id()
     system_name = models.CharField(max_length=100)
     device_code = models.CharField(max_length=100)
-    fault_date = models.CharField(max_length=20)
+    fault_date = models.DateTimeField(null=True, blank=True)
     handler = models.CharField(max_length=100)
     recorder = models.CharField(max_length=100)
     fault_level = models.CharField(max_length=50)
     fault_phenomenon = models.TextField()
     handling_process = models.TextField()
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
-    updated_at = models.CharField(max_length=20, null=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
 
     def __repr__(self):
@@ -46,15 +45,15 @@ class FaultPart(models.Model, TenantModelMixin):
     tenant_id = make_tenant_id()
     name = models.CharField(max_length=100)
     system_name = models.CharField(max_length=100)
-    date = models.CharField(max_length=20)
-    fault_date = models.CharField(max_length=20)
+    date = models.DateTimeField(null=True, blank=True)
+    fault_date = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=50)
-    fault_sent_date = models.CharField(max_length=20, null=True, blank=True)
-    test_return_date = models.CharField(max_length=20, null=True, blank=True)
-    archive_date = models.CharField(max_length=20, null=True, blank=True)
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    fault_sent_date = models.DateTimeField(null=True, blank=True)
+    test_return_date = models.DateTimeField(null=True, blank=True)
+    archive_date = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
-    updated_at = models.CharField(max_length=20, null=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
 
     def __repr__(self):

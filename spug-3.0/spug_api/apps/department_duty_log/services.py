@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from django.db import transaction, IntegrityError
 from django.db.models import F, Q
 
-from libs import human_datetime
+from django.utils import timezone
 from apps.logs.audit import record_audit_event
 from apps.signature import services as signature_services
 from apps.signature.services import apply_signature
@@ -502,7 +502,7 @@ def update_draft(record_id, user, form, request=None):
         duty_record=form['duty_record'],
         remark=form['remark'],
         version=F('version') + 1,
-        updated_at=human_datetime(),
+        updated_at=timezone.now(),
         updated_by_id=user.id,
     )
 
@@ -569,7 +569,7 @@ def soft_delete_draft(record_id, user, request=None):
         deleted_at__isnull=True,
         duty_person_id=user.id,
     ).update(
-        deleted_at=human_datetime(),
+        deleted_at=timezone.now(),
         deleted_by_id=user.id,
     )
 
@@ -712,7 +712,7 @@ def void_signed_record(record_id, user, reason, request=None):
                 deleted_at__isnull=True,
             ).update(
                 status=STATUS_VOID,
-                voided_at=human_datetime(),
+                voided_at=timezone.now(),
                 voided_by_id=user.id,
                 void_reason=reason,
             )

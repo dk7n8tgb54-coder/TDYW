@@ -6,7 +6,7 @@ from django.apps import AppConfig
 
 
 class ContractAgreementConfig(AppConfig):
-    default_auto_field = 'django.db.models.AutoField'
+    default_auto_field = 'django.db.models.BigAutoField'
     name = 'apps.contract_agreement'
     verbose_name = '合同协议'
 

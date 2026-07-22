@@ -16,7 +16,8 @@ from django.conf import settings
 from django.http import FileResponse, HttpResponse
 from django.views.generic import View
 
-from libs import JsonParser, Argument, json_response, auth, human_datetime
+from django.utils import timezone
+from libs import JsonParser, Argument, json_response, auth
 from apps.signature import services as signature_services
 from libs.export_utils import build_export_error_response
 

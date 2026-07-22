@@ -5,7 +5,8 @@ from django.views.generic import View
 from django.utils import timezone
 from django.http import HttpResponse
 from django.db import transaction
-from libs import json_response, JsonParser, Argument, human_datetime, auth
+from django.utils import timezone
+from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from apps.interference.models import (
     Interference, INTERFERENCE_STATUS_CHOICES, INTERFERENCE_TRANSITIONS,
@@ -217,7 +218,7 @@ class InterferenceView(View):
                 # 编辑：只更新传入的非 None 字段（允许部分字段更新）
                 if not request.user.has_perms({'interference.interference.edit'}):
                     return json_response(error='权限拒绝')
-                form.updated_at = human_datetime()
+                form.updated_at = timezone.now()
                 form.updated_by = request.user
                 record_id = form.pop('id')
                 update_data = {k: v for k, v in form.items() if v is not None}
@@ -417,7 +418,7 @@ class InterferenceStateView(View):
             return json_response(error=f'非法操作类型: {form.action}')
 
         user = request.user
-        now = human_datetime()
+        now = timezone.now()
 
         try:
             with transaction.atomic():
@@ -499,7 +500,7 @@ class InterferenceEvidencePackageView(View):
                 'snapshot_hash': record.snapshot_hash,
                 'attachments': att_hashes,
                 'events_count': len(events_data),
-                'generated_at': human_datetime(),
+                'generated_at': timezone.now(),
             }, ensure_ascii=False, indent=2))
             zf.writestr('verify.txt',
                         '本证据包包含干扰记录业务快照JSON、证据事件JSON、审计日志JSON、附件哈希清单。\n'

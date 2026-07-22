@@ -646,7 +646,7 @@ class DocumentTransfer(models.Model):
         ('CANCELED', '已取消'),
     )
 
-    id = models.AutoField(primary_key=True)
+    id = models.BigAutoField(primary_key=True)
     # 租户隔离字段
     tenant_id = models.CharField(max_length=50, default='', help_text='租户标识', db_index=True)
     # 用户关联

@@ -57,6 +57,9 @@ _account_index = 0
 _token_pool = {}
 _token_pool_lock = threading.Lock()
 
+# per-account 锁，防止并发 on_start 同时登录同一账号导致 token 互相覆盖
+_account_login_locks = {acc["username"]: threading.Lock() for acc in STRESS_ACCOUNTS}
+
 
 def _next_account():
     global _account_index
@@ -67,24 +70,31 @@ def _next_account():
 
 
 def _pool_login(client):
-    """Token 池登录:已有 token 直接复用,没有才登录"""
+    """Token 池登录:已有 token 直接复用,没有才登录（per-account 锁防并发覆盖）"""
     acc = _next_account()
     username = acc["username"]
+    # fast path: 已有 token 直接复用
     with _token_pool_lock:
         if username in _token_pool:
             return username, _token_pool[username]
-    resp = client.post(
-        "/api/account/login/",
-        json={"username": username, "password": acc["password"], "type": "default"},
-        name="[准备] 登录",
-    )
-    if resp.status_code != 200:
-        raise Exception(f"登录失败 {username}: {resp.status_code} {resp.text[:120]}")
-    token = (resp.json().get("data") or {}).get("access_token")
-    if not token:
-        raise Exception(f"登录响应缺少 access_token: {resp.text[:120]}")
-    with _token_pool_lock:
-        _token_pool[username] = token
+    # per-account 锁，防止并发 on_start 同时登录同一账号导致 token 互相覆盖
+    with _account_login_locks[username]:
+        # double-check: 拿锁后可能已有其他线程完成了登录
+        with _token_pool_lock:
+            if username in _token_pool:
+                return username, _token_pool[username]
+        resp = client.post(
+            "/api/account/login/",
+            json={"username": username, "password": acc["password"], "type": "default"},
+            name="[准备] 登录",
+        )
+        if resp.status_code != 200:
+            raise Exception(f"登录失败 {username}: {resp.status_code} {resp.text[:120]}")
+        token = (resp.json().get("data") or {}).get("access_token")
+        if not token:
+            raise Exception(f"登录响应缺少 access_token: {resp.text[:120]}")
+        with _token_pool_lock:
+            _token_pool[username] = token
     return username, token
 
 
@@ -119,6 +129,7 @@ class BaseDocumentUser(HttpUser):
     def on_start(self):
         self.root_folder_id = None
         self.login()
+        self._wrap_request_for_401()
         self.ensure_root_folder()
 
     def on_stop(self):
@@ -148,6 +159,23 @@ class BaseDocumentUser(HttpUser):
             self.token = new_token
             self.client.headers.update({"x-token": self.token})
         return resp
+
+    def _wrap_request_for_401(self):
+        """包装 client.request，401 时自动刷新 token 并重试一次（覆盖所有 task 方法，无需逐个改）"""
+        _orig_request = self.client.request
+        _self = self
+
+        def _wrapped(method, url, **kwargs):
+            resp = _orig_request(method, url, **kwargs)
+            if resp.status_code == 401:
+                new_token = _pool_refresh(_self.client, _self.username)
+                if new_token:
+                    _self.token = new_token
+                    _self.client.headers.update({"x-token": _self.token})
+                    resp = _orig_request(method, url, **kwargs)
+            return resp
+
+        self.client.request = _wrapped
 
     # ---------- 根文件夹 ----------
     def ensure_root_folder(self):

@@ -95,7 +95,7 @@ class UpgradeStatusLog(models.Model, ModelMixin):
     # 是否为补录/跳步（允许跳过前置节点直接记录后置节点，需配合 remark 说明原因）
     is_override = models.BooleanField(default=False, verbose_name='是否补录/跳步')
 
-    created_at = models.CharField(max_length=20, verbose_name='操作时间')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='操作时间')
 
     class Meta:
         db_table = 'tdyw_upgrade_status_logs'

@@ -21,7 +21,6 @@
 - 便于单条业务记录导出完整证据包
 """
 from django.db import models
-from libs import human_datetime
 from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 
 
@@ -84,7 +83,7 @@ class EvidenceEvent(models.Model, TenantModelMixin):
     external_ts_token = models.CharField(max_length=255, default='', help_text='外部时间戳凭证，内网环境留空')
 
     # ---- 时间 ----
-    created_at = models.CharField(max_length=20, default=human_datetime, help_text='服务器时间')
+    created_at = models.DateTimeField(auto_now_add=True, help_text='服务器时间')
 
     def __repr__(self):
         return '<EvidenceEvent %s/%s/%s %s>' % (
@@ -148,11 +147,11 @@ class EvidenceAttachment(models.Model, TenantModelMixin):
     is_deleted = models.BooleanField(default=False, help_text='是否已删除（软删除）')
     deleted_by_id = models.IntegerField(null=True, blank=True, help_text='删除人账号 ID')
     deleted_by_name = models.CharField(max_length=100, default='', help_text='删除人姓名快照')
-    deleted_at = models.CharField(max_length=20, null=True, blank=True, help_text='删除时间')
+    deleted_at = models.DateTimeField(null=True, blank=True, help_text='删除时间')
     delete_reason = models.CharField(max_length=500, default='', help_text='删除原因')
 
     # ---- 时间 ----
-    uploaded_at = models.CharField(max_length=20, default=human_datetime, help_text='上传时间')
+    uploaded_at = models.DateTimeField(auto_now_add=True, help_text='上传时间')
 
     def __repr__(self):
         return '<EvidenceAttachment %s>' % self.file_name

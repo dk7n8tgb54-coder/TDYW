@@ -2,7 +2,8 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.views import View
-from libs import json_response, auth, human_datetime
+from django.utils import timezone
+from libs import json_response, auth
 from libs.tenant_utils import apply_tenant_filter
 from libs import Argument, JsonParser
 import logging
@@ -132,7 +133,7 @@ class UpgradeRecordView(View):
                     return json_response(error='状态值无效')
 
             record.updated_by = request.user
-            record.updated_at = human_datetime()
+            record.updated_at = timezone.now()
             record.save()
 
         return json_response(error=error)

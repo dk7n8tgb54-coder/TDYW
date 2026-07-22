@@ -2,7 +2,6 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.db import models
-from libs import human_datetime
 from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 from apps.account.models import User
 
@@ -20,12 +19,12 @@ class RadioLicense(models.Model, TenantModelMixin):
     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
     responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
     status = models.CharField(max_length=20, default='normal', help_text='状态: normal/expiring/expired')
-    last_remind_at = models.CharField(max_length=20, null=True, help_text='最近提醒时间')
+    last_remind_at = models.DateTimeField(null=True, blank=True, help_text='最近提醒时间')
 
     # ---- 通用字段 ----
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
-    updated_at = models.CharField(max_length=20, null=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
 
     def __repr__(self):
@@ -59,7 +58,7 @@ class RadioLicenseFrequency(models.Model, TenantModelMixin):
     sort_order = models.IntegerField(default=0, help_text='排序')
 
     # ---- 通用字段 ----
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
 
     def __repr__(self):
@@ -114,7 +113,7 @@ class LicenseReminderAck(models.Model, TenantModelMixin):
     ack_valid_to = models.DateField(help_text='确认时执照的截止日期（用于续期后自动失效）')
 
     # ---- 通用字段 ----
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __repr__(self):
         return '<LicenseReminderAck license=%s user=%s valid_to=%s>' % (self.license_id, self.user_id, self.ack_valid_to)
@@ -172,7 +171,7 @@ class RadioLicenseVersion(models.Model, TenantModelMixin):
     # ---- 修改人身份快照 ----
     changed_by_id = models.IntegerField(null=True, blank=True, help_text='修改人账号 ID')
     changed_by_name = models.CharField(max_length=100, default='', help_text='修改人姓名快照')
-    changed_at = models.CharField(max_length=20, help_text='修改时间')
+    changed_at = models.DateTimeField(null=True, blank=True, help_text='修改时间')
 
     # ---- 快照哈希 ----
     snapshot_hash = models.CharField(max_length=64, default='', help_text='快照哈希(SHA256)')
@@ -235,9 +234,9 @@ class StationFrequencyApproval(models.Model, TenantModelMixin):
     )
     remark = models.TextField(default='', blank=True, help_text='备注')
 
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
-    updated_at = models.CharField(max_length=20, null=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
 
     def __repr__(self):
@@ -293,7 +292,7 @@ class StationFrequencyApprovalReminderAck(models.Model, TenantModelMixin):
     user_id = models.IntegerField(help_text='确认用户ID')
     user_name = models.CharField(max_length=100, default='', help_text='确认用户姓名快照')
     ack_valid_to = models.DateField(help_text='确认时的截止日期（用于续期后自动失效）')
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __repr__(self):
         return '<StationFrequencyApprovalReminderAck approval=%s user=%s valid_to=%s>' % (

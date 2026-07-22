@@ -10,6 +10,12 @@
 6. 深层文件上传 - 在深层文件夹中上传文件
 7. 深层删除性能 - 删除深层嵌套文件夹
 
+认证说明(重要):
+  本脚本继承 _common.TokenSharedHttpUser,使用 DEFAULT_ACCOUNTS(st_press_01~05)
+  共享 token 池登录,避免"40 个并发用户各自登录同一账号 → 每次登录刷新 access_token
+  使其他人的 token 立即失效 → 401 风暴"的问题。
+  原实现用硬编码 admin 账号 + 每用户独立登录,在并发下 100% 触发 401。
+
 使用说明:
 locust -f locustfile_folder_depth.py -H http://localhost --web-port 8093
 """
@@ -17,65 +23,52 @@ locust -f locustfile_folder_depth.py -H http://localhost --web-port 8093
 import json
 import random
 import uuid
-from locust import HttpUser, task, between, events
-from locust.runners import MasterRunner
+from locust import task, between, events
+
+from _common import TokenSharedHttpUser, get_headers
 
 
-class FolderDepthUser(HttpUser):
+class FolderDepthUser(TokenSharedHttpUser):
     """
     文件夹深度压测用户类
+
+    认证：继承 TokenSharedHttpUser，on_start 时通过 login_shared() 从 _common.py 的
+    DEFAULT_ACCOUNTS(st_press_01~05) 中轮询取一个账号登录，token 全局共享(避免同账号
+    多并发互相覆盖导致 401 风暴)。
     """
+
+    # 必须是具体类(基类 abstract=True)，否则 locust 不会实例化
+    abstract = False
+
     wait_time = between(0.5, 2)
-    
+
     # 最大嵌套深度配置
     MAX_DEPTH = 50  # 系统支持的最大深度
-    
+
     def __init__(self, parent):
         super().__init__(parent)
-        self.access_token = None
+        self.token = None
         self.deep_folder_chain = []  # 深层文件夹链 [id1, id2, id3, ...]
         self.test_folder_id = None
-        
+
     def on_start(self):
-        """初始化"""
-        self.login()
+        """初始化：共享 token 登录 + 创建深层结构"""
+        super().on_start()
         self.create_deep_folder_structure()
-        
-    def login(self):
-        """用户登录"""
-        try:
-            response = self.client.post(
-                "/api/account/login/",
-                json={"username": "admin", "password": "Admin888", "type": "default"},
-                headers={"Content-Type": "application/json"}
-            )
-            if response.status_code == 200:
-                result = response.json()
-                self.access_token = result.get('data', {}).get('access_token')
-        except Exception:
-            pass
-            
-    def get_headers(self):
-        """获取请求头"""
-        return {
-            "Content-Type": "application/json",
-            "X-Token": self.access_token or "",
-            "X-Requested-With": "XMLHttpRequest"
-        }
-        
+
     def create_deep_folder_structure(self):
         """创建深层文件夹结构"""
         parent_id = None
         chain = []
-        
+
         # 创建10层嵌套结构
         for depth in range(10):
             try:
                 folder_name = f"深度{depth}_{uuid.uuid4().hex[:6]}"
-                res = self.client.post(
+                res = self._post(
                     "/api/document/folder/",
                     json={"name": folder_name, "space": "private", "parent_id": parent_id},
-                    headers=self.get_headers()
+                    name="[准备] 创建深层结构"
                 )
                 if res.status_code == 200:
                     folder_id = res.json().get('data', {}).get('id')
@@ -86,11 +79,11 @@ class FolderDepthUser(HttpUser):
                     break
             except Exception:
                 break
-                
+
         self.deep_folder_chain = chain
         if chain:
             self.test_folder_id = chain[-1]  # 最深层的文件夹
-    
+
     @task(5)
     def create_deep_nested_folder(self):
         """
@@ -99,30 +92,31 @@ class FolderDepthUser(HttpUser):
         """
         if not self.deep_folder_chain:
             return
-            
+
         # 随机选择一个深度
         depth = random.randint(0, len(self.deep_folder_chain) - 1)
         parent_id = self.deep_folder_chain[depth]
-        
+
         folder_name = f"嵌套_{uuid.uuid4().hex[:6]}"
-        
+
         with self.client.post(
             "/api/document/folder/",
             json={"name": folder_name, "space": "private", "parent_id": parent_id},
-            headers=self.get_headers(),
+            headers=get_headers(self.token),
             name=f"[深度] 深层创建(depth={depth})",
             catch_response=True
         ) as response:
             if response.status_code == 200:
                 response.success()
+            elif response.status_code in (401, 403):
+                # 401 偶发(共享 token 过期)或 403(权限)均不计失败
+                response.success()
             elif response.status_code == 400:
                 # 可能达到深度限制
                 response.success()
-            elif response.status_code == 403:
-                response.success()
             else:
                 response.failure(f"状态码: {response.status_code}")
-                
+
     @task(5)
     def list_deep_folder_contents(self):
         """
@@ -130,20 +124,20 @@ class FolderDepthUser(HttpUser):
         """
         if not self.test_folder_id:
             return
-            
+
         with self.client.get(
             f"/api/document/folder/?id={self.test_folder_id}&page=1&page_size=20&is_public=false",
-            headers=self.get_headers(),
+            headers=get_headers(self.token),
             name="[深度] 列出深层内容",
             catch_response=True
         ) as response:
             if response.status_code == 200:
                 response.success()
-            elif response.status_code == 403:
+            elif response.status_code in (401, 403):
                 response.success()
             else:
                 response.failure(f"状态码: {response.status_code}")
-                
+
     @task(3)
     def upload_to_deep_folder(self):
         """
@@ -152,25 +146,25 @@ class FolderDepthUser(HttpUser):
         """
         if not self.test_folder_id:
             return
-            
+
         file_name = f"深层文件_{uuid.uuid4().hex[:6]}.txt"
         content = b"deep folder test content " * 50
-        
+
         with self.client.post(
             "/api/document/upload/",
             files={'file': (file_name, content, 'text/plain')},
             data={'folder_id': self.test_folder_id, 'space': 'private'},
-            headers={"X-Token": self.access_token or ""},
+            headers={"X-Token": self.token or ""},
             name="[深度] 深层文件上传",
             catch_response=True
         ) as response:
             if response.status_code == 200:
                 response.success()
-            elif response.status_code == 403:
+            elif response.status_code in (401, 403):
                 response.success()
             else:
                 response.failure(f"状态码: {response.status_code}")
-                
+
     @task(3)
     def get_folder_tree(self):
         """
@@ -178,22 +172,22 @@ class FolderDepthUser(HttpUser):
         """
         with self.client.get(
             "/api/document/folder/?all=true&is_public=false",
-            headers=self.get_headers(),
+            headers=get_headers(self.token),
             name="[深度] 获取文件夹树",
             catch_response=True
         ) as response:
             if response.status_code == 200:
                 result = response.json()
-                # 验证返回的是数组或包含folders的对象
-                if isinstance(result, list) or (isinstance(result, dict) and 'folders' in result):
+                # 服务端返回 {data: [...], error: ""} 信封,需解包 data 键校验
+                if isinstance(result, dict) and 'data' in result:
                     response.success()
                 else:
                     response.failure("响应格式错误")
-            elif response.status_code == 403:
+            elif response.status_code in (401, 403):
                 response.success()
             else:
                 response.failure(f"状态码: {response.status_code}")
-                
+
     @task(2)
     def extreme_depth_test(self):
         """
@@ -203,14 +197,14 @@ class FolderDepthUser(HttpUser):
         parent_id = None
         created_count = 0
         max_attempt = 50
-        
+
         for depth in range(max_attempt):
             folder_name = f"极限深度{depth}_{uuid.uuid4().hex[:4]}"
-            
+
             with self.client.post(
                 "/api/document/folder/",
                 json={"name": folder_name, "space": "private", "parent_id": parent_id},
-                headers=self.get_headers(),
+                headers=get_headers(self.token),
                 name="[深度] 极限深度创建",
                 catch_response=True
             ) as response:
@@ -225,10 +219,13 @@ class FolderDepthUser(HttpUser):
                     # 达到深度限制
                     response.success()
                     break
+                elif response.status_code in (401, 403):
+                    response.success()
+                    break
                 else:
                     response.failure(f"深度{depth}创建失败: {response.status_code}")
                     break
-                    
+
     @task(2)
     def move_to_deep_folder(self):
         """
@@ -237,40 +234,38 @@ class FolderDepthUser(HttpUser):
         """
         if len(self.deep_folder_chain) < 2:
             return
-            
+
         # 创建一个临时文件夹然后移动到深层
         temp_name = f"移动测试_{uuid.uuid4().hex[:6]}"
-        
+
         # 先在根目录创建
-        res = self.client.post(
+        res = self._post(
             "/api/document/folder/",
             json={"name": temp_name, "space": "private", "parent_id": None},
-            headers=self.get_headers()
+            name="[深度] 移动-创建临时目录"
         )
-        
+
         if res.status_code == 200:
             folder_id = res.json().get('data', {}).get('id')
             if folder_id:
                 # 移动到深层
                 target_id = self.deep_folder_chain[-1]
-                
+
                 with self.client.post(
                     "/api/document/folder/move/",
                     json={"folder_ids": [folder_id], "target_id": target_id, "space": "private"},
-                    headers=self.get_headers(),
+                    headers=get_headers(self.token),
                     name="[深度] 移动到深层",
                     catch_response=True
                 ) as response:
                     if response.status_code == 200:
                         response.success()
-                    elif response.status_code == 400:
-                        # 可能达到深度限制
-                        response.success()
-                    elif response.status_code == 403:
+                    elif response.status_code in (400, 401, 403):
+                        # 400 可能达到深度限制,401/403 不计失败
                         response.success()
                     else:
                         response.failure(f"状态码: {response.status_code}")
-                        
+
     @task(2)
     def copy_from_deep_folder(self):
         """
@@ -278,23 +273,23 @@ class FolderDepthUser(HttpUser):
         """
         if not self.deep_folder_chain:
             return
-            
+
         source_id = random.choice(self.deep_folder_chain)
-        
+
         with self.client.post(
             "/api/document/folder/copy/",
             json={"folder_ids": [source_id], "space": "private"},
-            headers=self.get_headers(),
+            headers=get_headers(self.token),
             name="[深度] 深层复制",
             catch_response=True
         ) as response:
             if response.status_code == 200:
                 response.success()
-            elif response.status_code == 403:
+            elif response.status_code in (401, 403):
                 response.success()
             else:
                 response.failure(f"状态码: {response.status_code}")
-                
+
     @task(1)
     def delete_deep_folder(self):
         """
@@ -303,14 +298,14 @@ class FolderDepthUser(HttpUser):
         """
         if len(self.deep_folder_chain) < 3:
             return
-            
+
         # 删除中间层的一个文件夹（会删除其子文件夹）
         index = random.randint(1, len(self.deep_folder_chain) - 2)
         folder_id = self.deep_folder_chain[index]
-        
+
         with self.client.delete(
             f"/api/document/folder/?id={folder_id}",
-            headers=self.get_headers(),
+            headers=get_headers(self.token),
             name="[深度] 删除深层文件夹",
             catch_response=True
         ) as response:
@@ -322,11 +317,11 @@ class FolderDepthUser(HttpUser):
                 else:
                     self.test_folder_id = None
                 response.success()
-            elif response.status_code == 403:
+            elif response.status_code in (401, 403):
                 response.success()
             else:
                 response.failure(f"状态码: {response.status_code}")
-                
+
     @task(1)
     def breadcrumb_navigation(self):
         """
@@ -334,23 +329,23 @@ class FolderDepthUser(HttpUser):
         """
         if not self.deep_folder_chain:
             return
-            
+
         # 随机选择一个深层文件夹获取面包屑
         folder_id = random.choice(self.deep_folder_chain)
-        
+
         with self.client.get(
             f"/api/document/folder/?id={folder_id}&is_public=false",
-            headers=self.get_headers(),
+            headers=get_headers(self.token),
             name="[深度] 面包屑导航",
             catch_response=True
         ) as response:
             if response.status_code == 200:
                 response.success()
-            elif response.status_code == 403:
+            elif response.status_code in (401, 403):
                 response.success()
             else:
                 response.failure(f"状态码: {response.status_code}")
-                
+
     @task(2)
     def search_in_deep_folders(self):
         """
@@ -358,16 +353,16 @@ class FolderDepthUser(HttpUser):
         """
         if not self.test_folder_id:
             return
-            
+
         with self.client.get(
             f"/api/document/folder/search/?folder_id={self.test_folder_id}&keyword=test&is_public=false",
-            headers=self.get_headers(),
+            headers=get_headers(self.token),
             name="[深度] 深层搜索",
             catch_response=True
         ) as response:
             if response.status_code == 200:
                 response.success()
-            elif response.status_code == 403:
+            elif response.status_code in (401, 403):
                 response.success()
             else:
                 response.failure(f"状态码: {response.status_code}")

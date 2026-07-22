@@ -18,15 +18,21 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta
-from locust import HttpUser, task, between, events
+from locust import task, between, events
+
+from _common import TokenSharedHttpUser
 
 logger = logging.getLogger(__name__)
 
 
-class RunLogUser(HttpUser):
+class RunLogUser(TokenSharedHttpUser):
     """
     运行日志功能压测用户类
     模拟真实用户操作：查看日志列表、创建事件、添加动态、上传附件、统计查询等
+
+    认证：继承 TokenSharedHttpUser，on_start 时通过 login_shared() 从 _common.py 的
+    DEFAULT_ACCOUNTS(st_press_01~05) 中轮询取一个账号登录，token 全局共享(避免同账号
+    多并发互相覆盖导致 401 风暴/账号锁定)。
     """
 
     # 请求间隔：0.5-1秒（平衡压力与性能测试）
@@ -39,76 +45,15 @@ class RunLogUser(HttpUser):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.access_token = None
-        self.tenant_id = None
-        self.user_id = None
         self.test_event_ids = []  # 当前用户创建的事件ID列表
         self.test_update_ids = []  # 当前用户的动态ID列表
 
-    def save_auth_token(self, response):
-        """从登录响应中提取 access_token"""
-        if response.status_code == 200:
-            try:
-                result = response.json()
-                data = result.get('data', {})
-                self.access_token = data.get('access_token')
-                if self.access_token:
-                    print(f"[User] 提取到 access_token: {self.access_token[:10]}...")
-                else:
-                    print(f"[User] 登录响应中没有 access_token: {result}")
-            except Exception as e:
-                print(f"[User] 解析登录响应失败: {e}")
-
     def on_start(self):
         """
-        用户启动时执行：登录并准备测试数据
+        用户启动时执行：登录(基类 login_shared→self.token)并准备测试数据
         """
-        self.login()
+        super().on_start()
         self.prepare_test_data()
-
-    def login(self):
-        """模拟用户登录"""
-        try:
-            login_data = {
-                "username": "tongxinke",
-                "password": "Dt@6299093",
-                "type": "default"
-            }
-
-            headers = {
-                "Content-Type": "application/json",
-                "X-Requested-With": "XMLHttpRequest"
-            }
-
-            response = self.client.post(
-                "/api/account/login/",
-                json=login_data,
-                headers=headers,
-                name="[准备] 登录"
-            )
-
-            self.save_auth_token(response)
-
-            if response.status_code == 200 and self.access_token:
-                print(f"[User] 登录成功, access_token: {self.access_token[:10]}...")
-            else:
-                print(f"[User] 登录失败: {response.status_code} - {response.text[:200]}")
-
-        except Exception as e:
-            print(f"[User] 登录异常: {e}")
-
-    def get_headers(self):
-        """获取请求头"""
-        headers = {
-            "Content-Type": "application/json",
-            "X-Requested-With": "XMLHttpRequest",
-            "Accept": "application/json"
-        }
-
-        if self.access_token:
-            headers["X-Token"] = self.access_token
-
-        return headers
 
     def prepare_test_data(self):
         """
@@ -145,11 +90,11 @@ class RunLogUser(HttpUser):
     def load_existing_events(self):
         """加载现有的事件列表"""
         try:
-            with self.client.get(
+            with self._get(
                 "/api/runlog/",
-                headers=self.get_headers(),
+                
                 name="[准备] 获取事件列表",
-                catch_response=True
+                
             ) as response:
                 if response.status_code == 200:
                     result = response.json()
@@ -188,29 +133,28 @@ class RunLogUser(HttpUser):
                 }
             }
 
-            response = self.client.post(
+            with self._post(
                 "/api/runlog/",
                 json=event_data,
-                headers=self.get_headers(),
                 name="[准备] 创建测试事件"
-            )
-
-            if response.status_code == 200:
-                try:
-                    result = response.json()
-                    event_id = result.get('id')
-                    if event_id:
-                        self.test_event_ids.append(event_id)
-                        print(f"[User] 测试事件创建成功，ID: {event_id}")
-                    else:
-                        print(f"[User] 测试事件创建成功，但响应中没有ID: {result}")
-                except:
-                    # 如果响应格式不符合预期，通过列表查询
-                    print(f"[User] 测试事件创建成功，需要通过列表查询ID")
-                return True
-            else:
-                print(f"[User] 创建测试事件失败: {response.status_code} - {response.text[:200]}")
-                return False
+            ) as response:
+                if response.status_code == 200:
+                    try:
+                        result = response.json()
+                        event_id = result.get('id')
+                        if event_id:
+                            self.test_event_ids.append(event_id)
+                            print(f"[User] 测试事件创建成功，ID: {event_id}")
+                        else:
+                            print(f"[User] 测试事件创建成功，但响应中没有ID: {result}")
+                    except:
+                        # 如果响应格式不符合预期，通过列表查询
+                        print(f"[User] 测试事件创建成功，需要通过列表查询ID")
+                    response.success()
+                else:
+                    print(f"[User] 创建测试事件失败: {response.status_code} - {response.text[:200]}")
+                    response.failure(f"HTTP {response.status_code}")
+                return response.status_code == 200
 
         except Exception as e:
             print(f"[User] 创建测试事件异常: {e}")
@@ -239,12 +183,12 @@ class RunLogUser(HttpUser):
             date_str = (datetime.now() - timedelta(days=days_ago)).strftime('%Y-%m-%d')
             params['date'] = date_str
 
-        with self.client.get(
+        with self._get(
             "/api/runlog/",
             params=params,
-            headers=self.get_headers(),
+            
             name="GET /api/runlog/ (列表)",
-            catch_response=True
+            
         ) as response:
             if response.status_code == 200:
                 response.success()
@@ -261,12 +205,12 @@ class RunLogUser(HttpUser):
 
         event_id = random.choice(self.test_event_ids)
 
-        with self.client.get(
+        with self._get(
             "/api/runlog/detail/",
             params={"id": event_id},
-            headers=self.get_headers(),
+            
             name="GET /api/runlog/detail/ (详情)",
-            catch_response=True
+            
         ) as response:
             if response.status_code == 200:
                 response.success()
@@ -283,11 +227,11 @@ class RunLogUser(HttpUser):
         """
         【中频】获取统计数据
         """
-        with self.client.get(
+        with self._get(
             "/api/runlog/statistics/",
-            headers=self.get_headers(),
+            
             name="GET /api/runlog/statistics/ (统计)",
-            catch_response=True
+            
         ) as response:
             if response.status_code == 200:
                 response.success()
@@ -322,12 +266,12 @@ class RunLogUser(HttpUser):
                 }
             }
 
-            with self.client.post(
+            with self._post(
                 "/api/runlog/",
                 json=event_data,
-                headers=self.get_headers(),
+                
                 name="POST /api/runlog/ (创建事件)",
-                catch_response=True
+                
             ) as response:
                 if response.status_code == 200:
                     response.success()
@@ -365,12 +309,12 @@ class RunLogUser(HttpUser):
                 "attachments": []
             }
 
-            with self.client.post(
+            with self._post(
                 "/api/runlog/update/",
                 json=update_data,
-                headers=self.get_headers(),
+                
                 name="POST /api/runlog/update/ (添加动态)",
-                catch_response=True
+                
             ) as response:
                 if response.status_code == 200:
                     response.success()
@@ -402,12 +346,12 @@ class RunLogUser(HttpUser):
             "status": random.choice(["open", "in_progress", "resolved"])
         }
 
-        with self.client.put(
+        with self._put(
             "/api/runlog/",
             json=update_data,
-            headers=self.get_headers(),
+            
             name="PUT /api/runlog/ (更新事件)",
-            catch_response=True
+            
         ) as response:
             if response.status_code in [200, 404]:
                 response.success()
@@ -429,10 +373,10 @@ class RunLogUser(HttpUser):
         event_id = random.choice(self.test_event_ids)
 
         try:
-            with self.client.get(
+            with self._get(
                 "/api/runlog/detail/",
                 params={"id": event_id},
-                headers=self.get_headers(),
+                
                 name="[辅助] 获取详情查找动态"
             ) as response:
                 if response.status_code != 200:
@@ -455,12 +399,12 @@ class RunLogUser(HttpUser):
                     "update_time_detail": f"{random.randint(0, 23):02d}:{random.randint(0, 59):02d}"
                 }
 
-                with self.client.put(
+                with self._put(
                     "/api/runlog/update/",
                     json=update_data,
-                    headers=self.get_headers(),
+                    
                     name="PUT /api/runlog/update/ (编辑动态)",
-                    catch_response=True
+                    
                 ) as response:
                     if response.status_code in [200, 403, 404]:
                         response.success()
@@ -484,11 +428,11 @@ class RunLogUser(HttpUser):
 
             # 由于locust的client.post对文件上传支持有限
             # 这里只测试API端点，不实际上传文件
-            with self.client.post(
+            with self._post(
                 "/api/runlog/upload/",
-                headers=self.get_headers(),
+                
                 name="POST /api/runlog/upload/ (图片上传)",
-                catch_response=True
+                
             ) as response:
                 # 预期失败（没有文件），但端点可用
                 if response.status_code in [400, 200]:
@@ -515,12 +459,12 @@ class RunLogUser(HttpUser):
 
         event_id = random.choice(self.test_event_ids)
 
-        with self.client.delete(
+        with self._delete(
             "/api/runlog/",
             params={"id": event_id},
-            headers=self.get_headers(),
+            
             name="DELETE /api/runlog/ (删除事件)",
-            catch_response=True
+            
         ) as response:
             if response.status_code in [200, 204, 404]:
                 response.success()
@@ -545,10 +489,10 @@ class RunLogUser(HttpUser):
         event_id = random.choice(self.test_event_ids)
 
         try:
-            with self.client.get(
+            with self._get(
                 "/api/runlog/detail/",
                 params={"id": event_id},
-                headers=self.get_headers(),
+                
                 name="[辅助] 获取详情查找动态ID"
             ) as response:
                 if response.status_code != 200:
@@ -563,12 +507,12 @@ class RunLogUser(HttpUser):
                 update = random.choice(updates)
                 update_id = update.get('id')
 
-                with self.client.delete(
+                with self._delete(
                     "/api/runlog/update/",
                     params={"id": update_id},
-                    headers=self.get_headers(),
+                    
                     name="DELETE /api/runlog/update/ (删除动态)",
-                    catch_response=True
+                    
                 ) as response:
                     if response.status_code in [200, 204, 404]:
                         response.success()
@@ -611,12 +555,12 @@ class RunLogUser(HttpUser):
                 "attachments": []
             }
 
-            with self.client.post(
+            with self._post(
                 "/api/runlog/update/",
                 json=update_data,
-                headers=self.get_headers(),
+                
                 name="[并发] 同时添加动态",
-                catch_response=True
+                
             ) as response:
                 if response.status_code == 200:
                     response.success()

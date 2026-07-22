@@ -95,8 +95,10 @@ WSGI_APPLICATION = 'spug.wsgi.application'
 ASGI_APPLICATION = 'spug.routing.application'
 
 # Default primary key field type
-# Django 3.2+ defaults to BigAutoField; keep AutoField to avoid mass migration noise
-DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
+# 使用 BigAutoField（BIGINT，上限 922 亿亿）防主键溢出。
+# 项目尚未进生产（2026-07-22），此时升级主键类型为零风险窗口：
+# 空表/小数据 ALTER 秒级完成，进生产后永远不用再碰主键类型。
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
@@ -118,7 +120,8 @@ DATABASES = {
         # - 后续可安装 django-db-geventpool 实现协程安全的连接池
         'OPTIONS': {
             'charset': 'utf8mb4',
-            'sql_mode': 'STRICT_TRANS_TABLES',
+            # sql_mode 与 mysqlnew.cnf 保持一致，避免 Django 连接覆盖全局配置导致保护失效
+            'sql_mode': 'STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION',
             'connect_timeout': 10,              # 连接超时10秒
             'read_timeout': 30,                 # 读超时30秒
             'write_timeout': 30,                # 写超时30秒

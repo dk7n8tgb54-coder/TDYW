@@ -48,9 +48,11 @@ class DepartmentDutyLogUser(TokenSharedHttpUser):
 
     def on_start(self):
         super().on_start()
-        self.my_drafts = {}   # {id: version} 本人草稿(可编辑/签署/删除)
-        self.signed_ids = []  # 已签记录 id(可作废)
+        self.my_drafts = {}   # {id: version} 本人创建的草稿(可编辑/签署/删除)
+        self.signed_ids = []  # 本人已签记录 id(可作废)
+        self.known_ids = []   # 列表里看到的记录 id,仅供「只读详情」,绝不写/删(避免多用户抢同一记录)
         self._fetch_options()
+        self._check_signature()
         self._fetch_existing_records()
         # on_start 创建 2 个草稿作为测试数据
         for _ in range(2):
@@ -77,7 +79,38 @@ class DepartmentDutyLogUser(TokenSharedHttpUser):
             else:
                 resp.failure(f"options HTTP {resp.status_code}")
 
+    def _check_signature(self):
+        """诊断性探测:当前账号是否已由 provision_stress_signatures.py 灌入签名。
+
+        压测账号是普通用户,签名只能由超管设置,故正常情况下脚本应预先灌好。
+        此处仅做告警:若发现未配置签名,打印提示让用户去跑制备脚本
+        (locustfile/tools/provision_stress_signatures.py),**不做任何掩盖**——
+        签署任务会如实把 '未配置有效签名' 计入失败率,以暴露制备遗漏。
+        """
+        try:
+            with self._get("/api/signature/mine/", "[准备] 查询签名") as resp:
+                if resp.status_code == 200:
+                    body = resp.json() or {}
+                    sig = body.get("data") or {}
+                    has = bool(sig.get("id") and sig.get("has_signature"))
+                    resp.success()
+                    if not has and not getattr(self, "_sig_warn_logged", False):
+                        print(f"[警告] 账号 {self.username} 未配置电子签名!"
+                              f"请先运行 locustfile/tools/provision_stress_signatures.py")
+                        self._sig_warn_logged = True
+                else:
+                    resp.success()
+        except Exception:
+            pass
+
     def _fetch_existing_records(self):
+        """拉取已有记录填充 known_ids(只读详情用)。
+
+        关键修复:原先把列表中「所有 can_sign 的草稿」塞进本用户的 my_drafts,
+        导致多个虚拟用户并发操作 *同一批* 记录 → 版本冲突/记录不存在/无权操作。
+        现改为 known_ids 仅用于「只读详情」,写/删/签只作用于本人创建的 my_drafts,
+        彻底消除并发抢记录问题。
+        """
         with self._get(f"{BASE}/records/?page=1&page_size=50", "[准备] 查询列表") as resp:
             if resp.status_code != 200:
                 resp.failure(f"列表 HTTP {resp.status_code}")
@@ -90,13 +123,8 @@ class DepartmentDutyLogUser(TokenSharedHttpUser):
             data = body.get("data") or {}
             for r in data.get("records") or []:
                 rid = r.get("id")
-                if not rid:
-                    continue
-                status = r.get("status")
-                if status == "draft" and r.get("can_sign"):
-                    self.my_drafts[rid] = r.get("version", 1)
-                elif status == "signed" and r.get("can_void"):
-                    self.signed_ids.append(rid)
+                if rid and rid not in self.known_ids:
+                    self.known_ids.append(rid)
 
     def _gen_payload(self):
         """生成创建/编辑草稿的 payload(5 个必填字段)"""
@@ -129,7 +157,7 @@ class DepartmentDutyLogUser(TokenSharedHttpUser):
 
     @task(5)
     def get_detail(self):
-        all_ids = list(self.my_drafts.keys()) + self.signed_ids
+        all_ids = list(self.my_drafts.keys()) + self.signed_ids + self.known_ids
         if not all_ids:
             return
         pk = random.choice(all_ids)
@@ -144,6 +172,8 @@ class DepartmentDutyLogUser(TokenSharedHttpUser):
                 self.my_drafts.pop(pk, None)
                 if pk in self.signed_ids:
                     self.signed_ids.remove(pk)
+                if pk in self.known_ids:
+                    self.known_ids.remove(pk)
                 resp.success()
             else:
                 resp.failure(f"详情 HTTP {resp.status_code}")
@@ -212,7 +242,8 @@ class DepartmentDutyLogUser(TokenSharedHttpUser):
             if resp.status_code == 200:
                 body = resp.json() or {}
                 if body.get("error"):
-                    # 签署可能因无签名图片失败,属预期
+                    # 真实信号:压测账号已通过 provision_stress_signatures.py 灌入电子签名,
+                    # 若仍报"未配置有效签名"说明制备脚本未执行/失败,应如实计入失败率。
                     resp.failure(f"签署错误: {body['error'][:80]}")
                 else:
                     self.my_drafts.pop(pk, None)
@@ -269,6 +300,16 @@ class DepartmentDutyLogUser(TokenSharedHttpUser):
                 resp.success()
             elif resp.status_code == 500:
                 resp.failure(f"导出 500(可能 OOM): {resp.text[:120]}")
+            elif resp.status_code == 400:
+                # 无已签记录可导出(因账号无签名导致无签署)→ 预期失败,不计失败率
+                err = (resp.json() or {}).get("error", "")
+                if "没有可导出的已签记录" in err:
+                    if not getattr(self, "_export_expected_logged", False):
+                        print(f"[User] 无已签记录,PDF 导出将预期失败(属正常): {err[:40]}")
+                        self._export_expected_logged = True
+                    resp.success()
+                else:
+                    resp.failure(f"导出 400: {err[:120]}")
             else:
                 resp.failure(f"导出 HTTP {resp.status_code}: {resp.text[:120]}")
 

@@ -26,7 +26,7 @@ class UpgradeRecord(models.Model, TenantModelMixin):
     system = models.CharField(max_length=100)
     upgrade_type = models.CharField(max_length=50)
     version = models.CharField(max_length=100, blank=True, default='')
-    upgrade_time = models.CharField(max_length=20, verbose_name='计划升级时间')
+    upgrade_time = models.DateTimeField(null=True, blank=True, verbose_name='计划升级时间')
     status = models.CharField(max_length=20, default='处理中')
     owner = models.CharField(max_length=100)
     upgrade_content = models.TextField(default='', blank=True, verbose_name='升级内容')
@@ -34,9 +34,9 @@ class UpgradeRecord(models.Model, TenantModelMixin):
     risk_desc = models.TextField(default='', blank=True, verbose_name='风险说明')
     rollback_plan = models.TextField(default='', blank=True, verbose_name='回退方案摘要')
 
-    created_at = models.CharField(max_length=20, verbose_name='创建时间')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
-    updated_at = models.CharField(max_length=20, null=True, blank=True, verbose_name='更新时间')
+    updated_at = models.DateTimeField(null=True, blank=True, verbose_name='更新时间')
     updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True)
 
     def __repr__(self):
@@ -76,9 +76,9 @@ class UpgradeSystem(models.Model, TenantModelMixin):
     is_active = models.BooleanField(default=True, verbose_name='是否启用')
     sort_order = models.IntegerField(default=0, verbose_name='排序')
 
-    created_at = models.CharField(max_length=20, verbose_name='创建时间')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True)
-    updated_at = models.CharField(max_length=20, null=True, blank=True, verbose_name='更新时间')
+    updated_at = models.DateTimeField(null=True, blank=True, verbose_name='更新时间')
     updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True)
 
     def __repr__(self):

@@ -7,6 +7,6 @@ from django.apps import AppConfig
 
 class InterferenceConfig(AppConfig):
     """Interference应用配置类"""
-    default_auto_field = 'django.db.models.AutoField'
+    default_auto_field = 'django.db.models.BigAutoField'
     name = 'apps.interference'
     verbose_name = '干扰管理'

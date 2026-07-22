@@ -2,6 +2,7 @@
 
 ## 运行环境
 - Docker 在 WSL；`tdyw` 容器（镜像 tdyw:0720）路径 `/data/spug/spug_api`，Python 3.10；**无 bind mount**，改代码需 `docker cp`
+- `tdyw-test` 容器（镜像 tdyw:django42-stage2）**有 bind mount** `/mnt/e/TDYW/spug-3.0/spug_api -> /data/spug/spug_api`，改代码即时可见；连 dev 库（MYSQL_HOST=db, MYSQL_DATABASE=spug）；makemigrations/migrate 验证用此容器
 - WSL 调用：`wsl bash -c 'docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw python manage.py check'`（单引号护内层双引号）
 - spug_web：antd 4.21.5（Modal 用 `visible`）+ legacy 装饰器 + class properties（mobx `@observable`/`@action`）
 - ⚠️ named volume 遮盖 bind mount 子目录陷阱：media/storage/logs 走 bind mount
@@ -21,7 +22,7 @@
 1. access_token 必须 32 字符（中间件 `len!=32` 拒）；2. Role.created_by NOT NULL 必传；3. User.tenant_id 默认 'admin'/AuditLog 'default'；4. make_user 设 version=0；5. json_response 错误时 data=''；6. update_by_dict 过滤 None（`{k:v for...if v is not None}`，已修 9 视图），测试模拟真实部分字段；7. POST 创建+编辑共用 JsonParser 用 required=False+创建手校+编辑过滤 None；8. 中文文件名 RFC2047 编码→`email.header.decode_header`；9. USE_TZ=False 禁 `make_aware` 用 naive；10. 隔离 `@override_settings(MEDIA_ROOT=tempfile.mkdtemp())`+`cache.clear()`；11. test client 路径无 `/api/` 前缀；12. makemigrations 指定 app；13. 不为绿绕过 bug；14. 上传 post 不返回 id，前端 list 按名匹配；15. locust `with...as resp` 块外调 `resp.success()` 必抛 `LocustError`
 
 ## 迁移纪律 ⚠️
-1. makemigrations 指定 app；2. 一功能一 migration，schema/data 分；3. 唯一约束拆步(加字段→回填→查重→AlterField unique)；4. CharField→Date/DateTime 先洗空串 `filter(col='').update(col=None)`；5. MariaDB10.8.2 不支持部分唯一索引，is_deleted=True 设 NULL；6. db_index 与 Meta.indexes 同字段生成两套索引；7. 租户 TenantModelMixin/Manager/make_tenant_id；8. fresh 库 133 迁移全通过(54 表)
+1. makemigrations 指定 app；2. 一功能一 migration，schema/data 分；3. 唯一约束拆步(加字段→回填→查重→AlterField unique)；4. CharField→Date/DateTime 先洗空串 `filter(col='').update(col=None)`；5. MariaDB10.8.2 不支持部分唯一索引，is_deleted=True 设 NULL；6. db_index 与 Meta.indexes 同字段生成两套索引；7. 租户 TenantModelMixin/Manager/make_tenant_id；8. fresh 库 133 迁移全通过(54 表)；9. **改 default_auto_field 触发所有老表 alter id 迁移**（不止新表）；MariaDB alter 被外键引用的主键列报错 1833，解法 migrate 前 Django 连接 `SET FOREIGN_KEY_CHECKS=0`（会话级，migrate 全程同一连接，**勿写脚本批量改迁移文件**）；进生产前是改主键类型唯一无痛窗口（2026-07-22 BigAutoField 升级 57 表）
 
 ## 批量删除陷阱 ⚠️
 - QuerySet 切片惰性重查，删循环绝不用 `range(count)+qs[start:end]`（OFFSET 跳过→残留→on_delete=SET_NULL 散落根目录）；用 `while True: batch=list(qs.exclude(id__in=failed_ids)[:BATCH]); if not batch: break` + max_iterations 安全阀。血案：`_delete_folder` BATCH_SIZE=50 致 >50 文件散落根目录（2026-07-21 修）
@@ -38,6 +39,7 @@
 - 权限缓存 `User.page_perms` Redis `perms_{id}`=(version,perms)，`Role.perms_version` 变更自增
 - kkFileView `OfficePreviewUrlView` 生成 preview_url；`KKFILEVIEW_API_URL`(浏览器)/`KKFILEVIEW_SERVER_URL`(回源)
 - 磁盘用量 `DiskUsageView`(disk.py) Redis 缓存 60s（按 is_public+租户分键：`private:all`/`private:{tenant_id}`/`public`，复用 `libs/cache_utils`）；私有文件表覆盖索引 `doc_pri_file_diskusage_idx=(tenant_id,is_deleted,file_size)` 服务聚合 SUM；公共表无索引靠缓存（is_deleted 选择性差）；前端 `useDiskSpace` 30s 轮询
+- 边界遗漏收口要点（2026-07-21 审查 hy3扫描边界/13份清单）：preview_token **两套独立实现**（`document/libs/preview_token.py` `validate_preview_token` 资料库用；`evidence/attachment_preview_token.py` `validate_attachment_preview_token` 规章/证据附件用，`regulation/views.py:41-43` import）→ 收口前必须先合并再补 user_id/is_active 校验；`_parse_date` 三份口径不一（regulation 返回元组/department_duty_log 抛异常带 allow_future/contract_agreement 返回元组必填语义）；EvidencePackage 5 模块逐字复制（interference/radio_license/device/checksheet/runlog，干扰#9 与设备 BC-EXP-04 审计回退越界是同一段复制代码）；`check_export_limit`(libs/export_utils.py) 存在但 department_duty_log/logs 未调用；落地优先级按"日常影响"非"安全"排：先堵高频 500/白屏（工作台 WS-01/WS-16 已修）
 
 ## Celery（2026-07-20）
 - 17 `@shared_task` / 5 队列；11 Beat + 6 事件触发

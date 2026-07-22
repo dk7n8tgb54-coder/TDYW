@@ -2,7 +2,6 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.db import models
-from libs import human_datetime
 from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 from apps.account.models import User
 import logging
@@ -51,7 +50,7 @@ class Interference(models.Model, TenantModelMixin):
     serial_number = models.IntegerField(default=0)
     frequency = models.CharField(max_length=100)
     report_dept = models.CharField(max_length=100)
-    datetime = models.CharField(max_length=20)
+    datetime = models.DateTimeField(null=True, blank=True)
     coordinates = models.CharField(max_length=200)
     interference_type = models.CharField(max_length=100)
     phenomenon = models.TextField()
@@ -66,14 +65,14 @@ class Interference(models.Model, TenantModelMixin):
     # 提交人身份快照
     submitted_by_id = models.IntegerField(null=True, blank=True, help_text='提交人账号ID')
     submitted_by_name = models.CharField(max_length=100, default='', help_text='提交人姓名快照')
-    submitted_at = models.CharField(max_length=20, null=True, blank=True, help_text='提交时间')
+    submitted_at = models.DateTimeField(null=True, blank=True, help_text='提交时间')
     # 复核
     reviewed_by_id = models.IntegerField(null=True, blank=True, help_text='复核人账号ID')
     reviewed_by_name = models.CharField(max_length=100, default='', help_text='复核人姓名快照')
-    reviewed_at = models.CharField(max_length=20, null=True, blank=True, help_text='复核时间')
+    reviewed_at = models.DateTimeField(null=True, blank=True, help_text='复核时间')
     review_comment = models.TextField(null=True, blank=True, help_text='复核意见')
     # 上报（替代 is_reported 的结构化字段，保留 is_reported 兼容旧数据）
-    reported_at = models.CharField(max_length=20, null=True, blank=True, help_text='上报时间')
+    reported_at = models.DateTimeField(null=True, blank=True, help_text='上报时间')
     reported_by_id = models.IntegerField(null=True, blank=True, help_text='上报人账号ID')
     reported_by_name = models.CharField(max_length=100, default='', help_text='上报人姓名快照')
     report_channel = models.CharField(max_length=100, default='', blank=True, help_text='上报渠道')
@@ -81,23 +80,23 @@ class Interference(models.Model, TenantModelMixin):
     # 处置
     handled_by_id = models.IntegerField(null=True, blank=True, help_text='处置人账号ID')
     handled_by_name = models.CharField(max_length=100, default='', help_text='处置人姓名快照')
-    handled_at = models.CharField(max_length=20, null=True, blank=True, help_text='处置时间')
+    handled_at = models.DateTimeField(null=True, blank=True, help_text='处置时间')
     # 关闭
     closed_by_id = models.IntegerField(null=True, blank=True, help_text='关闭人账号ID')
     closed_by_name = models.CharField(max_length=100, default='', help_text='关闭人姓名快照')
-    closed_at = models.CharField(max_length=20, null=True, blank=True, help_text='关闭时间')
+    closed_at = models.DateTimeField(null=True, blank=True, help_text='关闭时间')
     close_summary = models.TextField(null=True, blank=True, help_text='关闭总结')
     # 作废
     voided_by_id = models.IntegerField(null=True, blank=True, help_text='作废人账号ID')
     voided_by_name = models.CharField(max_length=100, default='', help_text='作废人姓名快照')
-    voided_at = models.CharField(max_length=20, null=True, blank=True, help_text='作废时间')
+    voided_at = models.DateTimeField(null=True, blank=True, help_text='作废时间')
     void_reason = models.CharField(max_length=500, default='', blank=True, help_text='作废原因')
     # 快照哈希（提交时计算，证明提交后未被篡改）
     snapshot_hash = models.CharField(max_length=64, default='', help_text='提交快照哈希(SHA256)')
 
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
-    updated_at = models.CharField(max_length=20, null=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
 
     def __repr__(self):

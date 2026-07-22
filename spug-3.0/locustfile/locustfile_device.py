@@ -12,22 +12,27 @@
 locust -f locustfile_device.py -H http://localhost:80 --users 100 --spawn-rate 20 --run-time 5m --headless
 """
 
-import json
 import random
 import uuid
 import logging
 import threading
 import time
 from datetime import datetime, timedelta
-from locust import HttpUser, task, between, events
+from locust import task, between
+
+from _common import TokenSharedHttpUser
 
 logger = logging.getLogger(__name__)
 
 
-class DeviceUser(HttpUser):
+class DeviceUser(TokenSharedHttpUser):
     """
     设备履历功能压测用户类
     模拟真实用户操作：查看设备列表、创建设备、编辑设备、查看履历事件、添加履历事件等
+
+    认证：继承 TokenSharedHttpUser，on_start 时通过 login_shared() 从 _common.py 的
+    DEFAULT_ACCOUNTS(st_press_01~05) 中轮询取一个账号登录，token 全局共享(避免同账号
+    多并发互相覆盖导致 401 风暴/账号锁定)。401 时基类自动 refresh_token()。
     """
 
     # 请求间隔：0.5-1秒（平衡压力与性能测试）
@@ -40,76 +45,15 @@ class DeviceUser(HttpUser):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.access_token = None
-        self.tenant_id = None
-        self.user_id = None
         self.test_device_ids = []  # 当前用户创建的设备ID列表
         self.test_event_ids = []  # 当前用户的履历事件ID列表
 
-    def save_auth_token(self, response):
-        """从登录响应中提取 access_token"""
-        if response.status_code == 200:
-            try:
-                result = response.json()
-                data = result.get('data', {})
-                self.access_token = data.get('access_token')
-                if self.access_token:
-                    print(f"[User] 提取到 access_token: {self.access_token[:10]}...")
-                else:
-                    print(f"[User] 登录响应中没有 access_token: {result}")
-            except Exception as e:
-                print(f"[User] 解析登录响应失败: {e}")
-
     def on_start(self):
         """
-        用户启动时执行：登录并准备测试数据
+        用户启动时执行：登录(基类 login_shared→self.token)并准备测试数据
         """
-        self.login()
+        super().on_start()
         self.prepare_test_data()
-
-    def login(self):
-        """模拟用户登录"""
-        try:
-            login_data = {
-                "username": "tongxinke",
-                "password": "Dt@6299093",
-                "type": "default"
-            }
-
-            headers = {
-                "Content-Type": "application/json",
-                "X-Requested-With": "XMLHttpRequest"
-            }
-
-            response = self.client.post(
-                "/api/account/login/",
-                json=login_data,
-                headers=headers,
-                name="[准备] 登录"
-            )
-
-            self.save_auth_token(response)
-
-            if response.status_code == 200 and self.access_token:
-                print(f"[User] 登录成功, access_token: {self.access_token[:10]}...")
-            else:
-                print(f"[User] 登录失败: {response.status_code} - {response.text[:200]}")
-
-        except Exception as e:
-            print(f"[User] 登录异常: {e}")
-
-    def get_headers(self):
-        """获取请求头"""
-        headers = {
-            "Content-Type": "application/json",
-            "X-Requested-With": "XMLHttpRequest",
-            "Accept": "application/json"
-        }
-
-        if self.access_token:
-            headers["X-Token"] = self.access_token
-
-        return headers
 
     def prepare_test_data(self):
         """
@@ -136,9 +80,9 @@ class DeviceUser(HttpUser):
             with DeviceUser._lock:
                 DeviceUser.shared_test_device_ids.extend(self.test_device_ids)
 
-            # 为所有设备添加履历事件（每个设备3-8个随机事件）
+            # 为所有设备添加履历事件（每个设备20-40个随机事件）
             for device_id in self.test_device_ids:
-                num_events = random.randint(3, 8)  # 每个设备3-8个事件
+                num_events = random.randint(20, 40)  # 每个设备20-40个事件
                 for j in range(num_events):
                     self._create_test_event(device_id)
                     time.sleep(0.05)  # 减少延迟
@@ -155,19 +99,25 @@ class DeviceUser(HttpUser):
         try:
             # 添加分页参数，确保返回格式一致
             params = {'page': 1, 'page_size': 100}
-            with self.client.get(
+            with self._get(
                 "/api/device/device-resume/",
                 params=params,
-                headers=self.get_headers(),
                 name="[准备] 获取设备列表",
-                catch_response=True
             ) as response:
                 if response.status_code == 200:
                     result = response.json()
-                    # API返回格式: {"data": {"data": [...], "total": 275, "page": 1, "page_size": 100}}
-                    inner_data = result.get('data', {})
-                    devices = inner_data.get('data', [])
-                    for device in devices:
+                    # 后端返回结构兼容:
+                    #   {"data": [...设备dict...], "total": N, ...}
+                    #   {"data": {"records": [...], "total": N}}  (部分部署版本)
+                    #   {"data": {"data": [...], ...}}            (双重包裹)
+                    data = result.get('data') if isinstance(result, dict) else result
+                    if isinstance(data, dict):
+                        data = data.get('data') or data.get('records') or []
+                    if not isinstance(data, list):
+                        data = []
+                    for device in data:
+                        if not isinstance(device, dict):
+                            continue
                         device_id = device.get('id')
                         if device_id and device_id not in self.test_device_ids:
                             self.test_device_ids.append(device_id)
@@ -205,28 +155,27 @@ class DeviceUser(HttpUser):
                 "remark": "压力测试自动生成"
             }
 
-            response = self.client.post(
+            with self._post(
                 "/api/device/device-resume/",
                 json=device_data,
-                headers=self.get_headers(),
                 name="[准备] 创建测试设备"
-            )
-
-            if response.status_code == 200:
-                try:
-                    result = response.json()
-                    device_id = result.get('id')
-                    if device_id:
-                        self.test_device_ids.append(device_id)
-                        print(f"[User] 测试设备创建成功，ID: {device_id}")
-                    else:
-                        print(f"[User] 测试设备创建成功，但响应中没有ID: {result}")
-                except:
-                    print(f"[User] 测试设备创建成功，需要通过列表查询ID")
-                return True
-            else:
-                print(f"[User] 创建测试设备失败: {response.status_code} - {response.text[:200]}")
-                return False
+            ) as response:
+                if response.status_code == 200:
+                    try:
+                        result = response.json()
+                        device_id = (result.get('data') or {}).get('id')
+                        if device_id:
+                            self.test_device_ids.append(device_id)
+                            print(f"[User] 测试设备创建成功，ID: {device_id}")
+                        else:
+                            print(f"[User] 测试设备创建成功，但响应中没有ID: {result}")
+                    except:
+                        print(f"[User] 测试设备创建成功，需要通过列表查询ID")
+                    response.success()
+                else:
+                    print(f"[User] 创建测试设备失败: {response.status_code} - {response.text[:200]}")
+                    response.failure(f"HTTP {response.status_code}")
+                return response.status_code == 200
 
         except Exception as e:
             print(f"[User] 创建测试设备异常: {e}")
@@ -263,28 +212,27 @@ class DeviceUser(HttpUser):
                     "repair_time": (datetime.now() - timedelta(days=random.randint(0, 30))).strftime('%Y-%m-%d %H:%M')
                 })
 
-            response = self.client.post(
+            with self._post(
                 "/api/device/device-event/",
                 json=event_data,
-                headers=self.get_headers(),
                 name="[准备] 创建测试事件"
-            )
-
-            if response.status_code == 200:
-                try:
-                    result = response.json()
-                    event_id = result.get('id')
-                    if event_id:
-                        self.test_event_ids.append(event_id)
-                        print(f"[User] 测试事件创建成功，ID: {event_id}")
-                    else:
-                        print(f"[User] 测试事件创建成功，但响应中没有ID: {result}")
-                except:
-                    print(f"[User] 测试事件创建成功，需要通过列表查询ID")
-                return True
-            else:
-                print(f"[User] 创建测试事件失败: {response.status_code} - {response.text[:200]}")
-                return False
+            ) as response:
+                if response.status_code == 200:
+                    try:
+                        result = response.json()
+                        event_id = (result.get('data') or {}).get('id')
+                        if event_id:
+                            self.test_event_ids.append(event_id)
+                            print(f"[User] 测试事件创建成功，ID: {event_id}")
+                        else:
+                            print(f"[User] 测试事件创建成功，但响应中没有ID: {result}")
+                    except:
+                        print(f"[User] 测试事件创建成功，需要通过列表查询ID")
+                    response.success()
+                else:
+                    print(f"[User] 创建测试事件失败: {response.status_code} - {response.text[:200]}")
+                    response.failure(f"HTTP {response.status_code}")
+                return response.status_code == 200
 
         except Exception as e:
             print(f"[User] 创建测试事件异常: {e}")
@@ -310,12 +258,10 @@ class DeviceUser(HttpUser):
         if random.random() < 0.3:
             params['manufacturer'] = random.choice(["华为", "中兴", "诺基亚"])
 
-        with self.client.get(
+        with self._get(
             "/api/device/device-resume/",
             params=params,
-            headers=self.get_headers(),
             name="GET /api/device/device-resume/ (设备列表)",
-            catch_response=True
         ) as response:
             if response.status_code == 200:
                 response.success()
@@ -332,12 +278,10 @@ class DeviceUser(HttpUser):
 
         device_id = random.choice(self.test_device_ids)
 
-        with self.client.get(
+        with self._get(
             "/api/device/device-resume/",
             params={"id": device_id},
-            headers=self.get_headers(),
             name="GET /api/device/device-resume/ (设备详情)",
-            catch_response=True
         ) as response:
             if response.status_code == 200:
                 response.success()
@@ -369,12 +313,10 @@ class DeviceUser(HttpUser):
         if random.random() < 0.3:
             params['event_type'] = random.choice([1, 2, 3])  # 1=重大故障维修,2=设备更新,3=设备检修
 
-        with self.client.get(
+        with self._get(
             "/api/device/device-event/",
             params=params,
-            headers=self.get_headers(),
             name="GET /api/device/device-event/ (履历事件列表)",
-            catch_response=True
         ) as response:
             if response.status_code == 200:
                 response.success()
@@ -386,12 +328,10 @@ class DeviceUser(HttpUser):
         """
         【低频】获取使用单位列表（用于筛选）
         """
-        with self.client.get(
+        with self._get(
             "/api/device/device-resume/",
             params={"use_units": "true"},
-            headers=self.get_headers(),
             name="GET /api/device/device-resume/ (使用单位列表)",
-            catch_response=True
         ) as response:
             if response.status_code == 200:
                 response.success()
@@ -403,12 +343,10 @@ class DeviceUser(HttpUser):
         """
         【低频】获取设备型号列表（用于筛选）
         """
-        with self.client.get(
+        with self._get(
             "/api/device/device-resume/",
             params={"device_models": "true"},
-            headers=self.get_headers(),
             name="GET /api/device/device-resume/ (设备型号列表)",
-            catch_response=True
         ) as response:
             if response.status_code == 200:
                 response.success()
@@ -444,17 +382,15 @@ class DeviceUser(HttpUser):
             "remark": "压测自动生成"
         }
 
-        with self.client.post(
+        with self._post(
             "/api/device/device-resume/",
             json=device_data,
-            headers=self.get_headers(),
             name="POST /api/device/device-resume/ (创建设备)",
-            catch_response=True
         ) as response:
             if response.status_code == 200:
                 try:
                     result = response.json()
-                    device_id = result.get('id')
+                    device_id = (result.get('data') or {}).get('id')
                     if device_id:
                         self.test_device_ids.append(device_id)
                 except:
@@ -500,17 +436,15 @@ class DeviceUser(HttpUser):
                 "repair_time": (datetime.now() - timedelta(days=random.randint(0, 30))).strftime('%Y-%m-%d %H:%M')
             })
 
-        with self.client.post(
+        with self._post(
             "/api/device/device-event/",
             json=event_data,
-            headers=self.get_headers(),
             name="POST /api/device/device-event/ (创建履历事件)",
-            catch_response=True
         ) as response:
             if response.status_code == 200:
                 try:
                     result = response.json()
-                    event_id = result.get('id')
+                    event_id = (result.get('data') or {}).get('id')
                     if event_id:
                         self.test_event_ids.append(event_id)
                 except:
@@ -547,12 +481,10 @@ class DeviceUser(HttpUser):
             "responsible_user_id": f"更新责任人{random.randint(1, 10)}"
         }
 
-        with self.client.put(
+        with self._put(
             "/api/device/device-resume/",
             json=device_data,
-            headers=self.get_headers(),
             name="PUT /api/device/device-resume/ (更新设备)",
-            catch_response=True
         ) as response:
             if response.status_code in [200, 404]:
                 # 404表示设备可能已被删除，也算成功
@@ -572,12 +504,10 @@ class DeviceUser(HttpUser):
         # 随机选择一个设备ID删除
         device_id = random.choice(self.test_device_ids[:10])  # 优先删除旧的设备
 
-        with self.client.delete(
+        with self._delete(
             "/api/device/device-resume/",
             params={"id": device_id},
-            headers=self.get_headers(),
             name="DELETE /api/device/device-resume/ (删除设备)",
-            catch_response=True
         ) as response:
             if response.status_code in [200, 404]:
                 # 成功或设备不存在（可能已被其他用户删除）

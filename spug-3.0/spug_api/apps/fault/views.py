@@ -2,7 +2,8 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under AGPL-3.0 License.
 from django.views.generic import View
-from libs import json_response, JsonParser, Argument, human_datetime, auth
+from django.utils import timezone
+from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from apps.fault.models import FaultRecord, FaultPart
 import logging
@@ -37,7 +38,7 @@ class FaultRecordView(View):
                     return json_response(error='权限拒绝：缺少编辑故障记录权限')
                 if not apply_tenant_filter(FaultRecord.objects.filter(pk=form.id), request.user).exists():
                     return json_response(error='记录不存在或无权操作')
-                form.updated_at = human_datetime()
+                form.updated_at = timezone.now()
                 form.updated_by = request.user
                 update_data = {k: v for k, v in form.items() if v is not None and k != 'id'}
                 FaultRecord.objects.filter(pk=form.pop('id')).update(**update_data)
@@ -95,11 +96,11 @@ class FaultPartView(View):
         if error is None:
             # 根据状态自动记录日期
             if form.status == '送修' and not form.fault_sent_date:
-                form.fault_sent_date = human_datetime()
+                form.fault_sent_date = timezone.now()
             elif form.status == '运回测试' and not form.test_return_date:
-                form.test_return_date = human_datetime()
+                form.test_return_date = timezone.now()
             elif form.status == '正常归档' and not form.archive_date:
-                form.archive_date = human_datetime()
+                form.archive_date = timezone.now()
 
             if form.id:
                 # 编辑：只更新传入的非 None 字段
@@ -107,7 +108,7 @@ class FaultPartView(View):
                     return json_response(error='权限拒绝：缺少编辑故障件权限')
                 if not apply_tenant_filter(FaultPart.objects.filter(pk=form.id), request.user).exists():
                     return json_response(error='记录不存在或无权操作')
-                form.updated_at = human_datetime()
+                form.updated_at = timezone.now()
                 form.updated_by = request.user
                 update_data = {k: v for k, v in form.items() if v is not None and k != 'id'}
                 FaultPart.objects.filter(pk=form.pop('id')).update(**update_data)

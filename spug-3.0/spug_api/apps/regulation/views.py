@@ -36,7 +36,8 @@ from django.views.generic import View
 from django.conf import settings
 from urllib.parse import quote
 
-from libs import json_response, JsonParser, Argument, auth, human_datetime
+from django.utils import timezone
+from libs import json_response, JsonParser, Argument, auth
 from apps.logs.audit import record_audit_event
 from apps.evidence.attachment_preview_token import (
     generate_attachment_preview_token,
@@ -550,7 +551,7 @@ class RegulationDetailView(View):
                 changed.update(partial)
 
         regulation.updated_by = request.user
-        regulation.updated_at = human_datetime()
+        regulation.updated_at = timezone.now()
         regulation.save()
 
         record_audit_event(
@@ -572,7 +573,7 @@ class RegulationDetailView(View):
         for att in regulation.attachments.filter(is_deleted=False):
             att.is_deleted = True
             att.deleted_by = request.user
-            att.deleted_at = human_datetime()
+            att.deleted_at = timezone.now()
             att.save(update_fields=['is_deleted', 'deleted_by', 'deleted_at'])
             try:
                 abs_path = storage.resolve_absolute_path(att.file_path)
@@ -606,7 +607,7 @@ class RegulationRetireView(View):
 
         regulation.status = Regulation.STATUS_RETIRED
         regulation.updated_by = request.user
-        regulation.updated_at = human_datetime()
+        regulation.updated_at = timezone.now()
         regulation.save()
 
         record_audit_event(
@@ -930,7 +931,7 @@ class RegulationAttachmentDetailView(View):
 
         att.is_deleted = True
         att.deleted_by = request.user
-        att.deleted_at = human_datetime()
+        att.deleted_at = timezone.now()
         att.save(update_fields=['is_deleted', 'deleted_by', 'deleted_at'])
 
         # 尝试清理物理文件，失败不影响数据库状态

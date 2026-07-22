@@ -7,7 +7,7 @@ from datetime import date, datetime
 from celery import shared_task
 from django.utils import timezone
 
-from libs import human_datetime
+from django.utils import timezone
 from apps.contract_agreement.models import (
     ContractAgreement,
     EXPIRING_DAYS_THRESHOLD,
@@ -50,7 +50,7 @@ def scan_single_contract_agreement(agreement, today=None):
         today = timezone.now().date()
     status, days_left = calculate_agreement_status(agreement.valid_end_date, today)
 
-    update_data = {'last_remind_at': human_datetime()}
+    update_data = {'last_remind_at': timezone.now()}
     updated = False
     if agreement.status != status:
         update_data['status'] = status

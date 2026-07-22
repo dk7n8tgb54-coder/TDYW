@@ -8,7 +8,8 @@ from datetime import datetime, timedelta
 from django.db import IntegrityError
 from django.views.generic import View
 
-from libs import json_response, JsonParser, Argument, human_datetime, auth
+from django.utils import timezone
+from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from apps.logs.audit import record_audit_event
 from apps.evidence.attachment_service import AttachmentService, AttachmentConfig, PREVIEWABLE_EXTENSIONS
@@ -252,7 +253,7 @@ class ContractAgreementView(View):
         update_data = {k: v for k, v in form.items() if v is not None and k != 'id'}
         for key, value in update_data.items():
             setattr(agreement, key, value)
-        agreement.updated_at = human_datetime()
+        agreement.updated_at = timezone.now()
         agreement.updated_by = request.user
         agreement.save()
         scan_single_contract_agreement(agreement)

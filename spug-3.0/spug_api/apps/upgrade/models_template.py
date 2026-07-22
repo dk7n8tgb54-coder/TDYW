@@ -31,9 +31,9 @@ class UpgradeTemplate(models.Model, ModelMixin):
     detail_content = models.TextField(default='', blank=True, verbose_name='默认记录内容')
     is_default = models.BooleanField(default=False, verbose_name='是否为默认方案')
 
-    created_at = models.CharField(max_length=20, verbose_name='创建时间')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
-    updated_at = models.CharField(max_length=20, null=True, blank=True, verbose_name='更新时间')
+    updated_at = models.DateTimeField(null=True, blank=True, verbose_name='更新时间')
 
     def __repr__(self):
         return f'<UpgradeTemplate {self.name}>'
@@ -63,7 +63,7 @@ class UpgradePlanStep(models.Model, ModelMixin):
     sequence = models.IntegerField(default=0, verbose_name='排序序号')
     is_required = models.BooleanField(default=True, verbose_name='是否必执行')
 
-    created_at = models.CharField(max_length=20, verbose_name='创建时间')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
 
     @property
     def template(self):

@@ -140,7 +140,7 @@ class DeviceResumeView(View):
         #   - objects 管理器自动过滤 is_deleted=False，故查重只看未删除记录；
         #   - 若同编号仅有已软删除记录，则"恢复重建"（复用原 ID，证据事件/审计日志不脱链），
         #     既允许编号复用，又保持证据链连续。
-        from libs import human_datetime
+        from django.utils import timezone
 
         try:
             # 1. 查重：未删除记录中是否已存在该编号（objects 自动过滤 is_deleted=False）
@@ -174,7 +174,7 @@ class DeviceResumeView(View):
                 deleted_record.deleted_by_id = None
                 deleted_record.delete_reason = ''
                 deleted_record.updated_by = request.user
-                deleted_record.updated_at = human_datetime()
+                deleted_record.updated_at = timezone.now()
                 deleted_record.save()
                 logging.info(f'恢复并重建设备成功（复用历史编号，保留证据链）｜租户：{tenant_id}｜用户：{request.user.username}｜设备编号：{form.device_sn}｜设备ID：{deleted_record.id}')
                 return json_response(deleted_record.to_view())
@@ -265,7 +265,7 @@ class DeviceResumeView(View):
             status_changed = (old_status != new_status)
 
             # Update device resume
-            from libs import human_datetime
+            from django.utils import timezone
             record.device_name = form.device_name
             record.device_model = form.device_model
             record.frequency = form.frequency
@@ -283,7 +283,7 @@ class DeviceResumeView(View):
             record.responsible_user_name = responsible_user_name
             record.remark = form.remark
             record.updated_by = request.user
-            record.updated_at = human_datetime()
+            record.updated_at = timezone.now()
             record.save()
             logging.info(f'编辑设备成功｜租户：{record.tenant_id}｜用户：{request.user.username}｜设备编号：{record.device_sn}')
 
@@ -338,7 +338,7 @@ class DeviceResumeView(View):
             return json_response(error='设备ID格式错误')
 
         from django.db import transaction
-        from libs import human_datetime
+        from django.utils import timezone
         from apps.evidence.services import record_evidence_event
 
         delete_success = False
@@ -360,7 +360,7 @@ class DeviceResumeView(View):
 
                 # 3. 软删除：标记 is_deleted，保留数据和事件
                 record.is_deleted = True
-                record.deleted_at = human_datetime()
+                record.deleted_at = timezone.now()
                 record.deleted_by_id = getattr(request.user, 'id', None)
                 record.delete_reason = form.delete_reason or ''
                 record.save(update_fields=['is_deleted', 'deleted_at', 'deleted_by_id', 'delete_reason'])
@@ -759,7 +759,7 @@ class DeviceEvidencePackageView(View):
         from io import BytesIO
         from apps.evidence.models import EvidenceEvent, EvidenceAttachment
         from apps.logs.models import AuditLog
-        from libs import human_datetime
+        from django.utils import timezone
 
         device_id = request.GET.get('id')
         if not device_id:
@@ -811,7 +811,7 @@ class DeviceEvidencePackageView(View):
                 'snapshot_hash': device.snapshot_hash,
                 'attachments': att_hashes,
                 'events_count': len(events_data),
-                'generated_at': human_datetime(),
+                'generated_at': timezone.now(),
             }, ensure_ascii=False, indent=2))
             zf.writestr('verify.txt',
                         '本证据包包含设备业务快照JSON、证据事件JSON、审计日志JSON、附件哈希清单。\n'

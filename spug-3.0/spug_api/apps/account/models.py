@@ -3,7 +3,7 @@
 # Released under the AGPL-3.0 License.
 from django.db import models
 from django.core.cache import cache
-from libs import ModelMixin, human_datetime
+from libs import ModelMixin
 from django.contrib.auth.hashers import make_password, check_password
 import json
 
@@ -21,15 +21,15 @@ class User(models.Model, ModelMixin):
     is_active = models.BooleanField(default=True)
     access_token = models.CharField(max_length=32)
     token_expired = models.IntegerField(null=True)
-    last_login = models.CharField(max_length=20)
+    last_login = models.DateTimeField(null=True, blank=True)
     last_ip = models.CharField(max_length=50)
     wx_token = models.CharField(max_length=50, null=True)
     tenant_id = models.CharField(max_length=50, default='admin', db_index=True)
     roles = models.ManyToManyField('Role', db_table='user_role_rel')
 
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey('User', models.PROTECT, related_name='+', null=True)
-    deleted_at = models.CharField(max_length=20, null=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
     deleted_by = models.ForeignKey('User', models.PROTECT, related_name='+', null=True)
 
     @staticmethod
@@ -149,7 +149,7 @@ class Role(models.Model, ModelMixin):
     # 版本不一致即重算，从而无需依赖各变更路径主动调用 clear_perms_cache。
     # migration 0007 将历史角色初始化为 1，0 仅表示尚未 save 的新实例。
     perms_version = models.PositiveIntegerField(default=0, db_index=True)
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='+')
 
     def to_dict(self, *args, **kwargs):
@@ -229,7 +229,7 @@ class History(models.Model, ModelMixin):
     agent = models.CharField(max_length=255, null=True)
     message = models.CharField(max_length=255, null=True)
     is_success = models.BooleanField(default=True)
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'login_histories'
@@ -242,7 +242,7 @@ class Tenant(models.Model, ModelMixin):
     name = models.CharField(max_length=100, help_text='租户名称')
     description = models.TextField(default='', blank=True, help_text='租户描述')
     is_active = models.BooleanField(default=True, help_text='是否启用')
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
 
     def __repr__(self):

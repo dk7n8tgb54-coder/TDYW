@@ -38,11 +38,12 @@ import uuid
 import threading
 import time
 from datetime import datetime
-from locust import HttpUser, task, between, events
+from locust import task, between, events
 from locust.runners import MasterRunner
+from _common import TokenSharedHttpUser
 
 
-class DocumentUser(HttpUser):
+class DocumentUser(TokenSharedHttpUser):
     """
     资料管理压测用户类
     模拟真实用户操作：浏览、创建、上传、移动、复制等
@@ -56,54 +57,19 @@ class DocumentUser(HttpUser):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.access_token = None
         self.test_folder_ids = []  # 用户自己创建的测试文件夹
         self.test_file_ids = []    # 用户上传的测试文件
         self.parent_folder_id = None  # 当前操作的父文件夹ID
 
     def on_start(self):
-        """用户启动时执行：登录并准备测试环境"""
-        self.login()
+        """用户启动时执行：登录（TokenSharedHttpUser token 池共享）并准备测试环境"""
+        super().on_start()  # login_shared → token 池共享，杜绝 401 风暴
         self.prepare_test_folder()
 
-    def login(self):
-        """模拟用户登录"""
-        try:
-            login_data = {
-                "username": "admin",
-                "password": "Admin888",
-                "type": "default"
-            }
-
-            headers = {
-                "Content-Type": "application/json",
-                "X-Requested-With": "XMLHttpRequest"
-            }
-
-            response = self.client.post(
-                "/api/account/login/",
-                json=login_data,
-                headers=headers,
-                name="[准备] 登录"
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                data = result.get('data', {})
-                self.access_token = data.get('access_token')
-                print(f"[User-{id(self)}] 登录成功")
-
-        except Exception as e:
-            print(f"[User] 登录异常: {e}")
-
     def get_headers(self):
-        """获取请求头"""
-        return {
-            "Content-Type": "application/json",
-            "X-Requested-With": "XMLHttpRequest",
-            "Accept": "application/json",
-            "X-Token": self.access_token or ""
-        }
+        """获取请求头（使用 token 池共享的 token）"""
+        from _common import get_headers as _get_headers
+        return _get_headers(self.token)
 
     def prepare_test_folder(self):
         """准备测试文件夹"""
@@ -367,7 +333,7 @@ class DocumentUser(HttpUser):
         }
 
         headers = {
-            "X-Token": self.access_token or "",
+            "X-Token": self.token,
             "X-Requested-With": "XMLHttpRequest"
         }
 
@@ -850,7 +816,7 @@ class DocumentUser(HttpUser):
         }
 
         headers = {
-            "X-Token": self.access_token or "",
+            "X-Token": self.token,
             "X-Requested-With": "XMLHttpRequest"
         }
 

@@ -34,7 +34,7 @@ from django.conf import settings
 from django.http import FileResponse
 from django.utils import timezone
 
-from libs import human_datetime
+from django.utils import timezone
 from libs.tenant_utils import apply_tenant_filter
 
 from .models import EvidenceAttachment
@@ -490,7 +490,7 @@ class AttachmentService:
                 return error
 
         att.is_deleted = True
-        att.deleted_at = human_datetime()
+        att.deleted_at = timezone.now()
         att.deleted_by_id = getattr(user, 'id', None)
         att.deleted_by_name = user.nickname or user.username
         att.delete_reason = reason or ''
@@ -518,7 +518,7 @@ class AttachmentService:
             ),
             user,
         )
-        now = human_datetime()
+        now = timezone.now()
         uid = getattr(user, 'id', None)
         uname = user.nickname or user.username
         for att in qs:

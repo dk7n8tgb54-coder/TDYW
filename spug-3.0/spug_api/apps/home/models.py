@@ -4,10 +4,13 @@
 from django.db import models
 from django.db.models import Q
 from libs.mixins import ModelMixin
-from libs import human_datetime, parse_time
+from django.utils import timezone
 from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
-from datetime import datetime, timedelta
+from datetime import timedelta
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ==================== 公告发布模块 ====================
@@ -86,15 +89,15 @@ class Announcement(models.Model, TenantModelMixin):
     publish_department_id = models.CharField(max_length=50, default='', help_text='发布部门ID（首期对应 Tenant.id）')
     publish_department_name = models.CharField(max_length=100, default='', help_text='发布部门名称快照')
 
-    effective_start_at = models.CharField(max_length=20, default=human_datetime, help_text='生效开始时间')
-    effective_end_at = models.CharField(max_length=20, default='', help_text='生效结束时间，空表示长期有效')
+    effective_start_at = models.DateTimeField(default=timezone.now, help_text='生效开始时间')
+    effective_end_at = models.DateTimeField(null=True, blank=True, help_text='生效结束时间，空表示长期有效')
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_UNPUBLISHED, help_text='存储状态')
-    published_at = models.CharField(max_length=20, default='', help_text='实际发布时间')
+    published_at = models.DateTimeField(null=True, blank=True, help_text='实际发布时间')
     published_by_id = models.IntegerField(null=True, blank=True, help_text='发布人ID')
     published_by_name = models.CharField(max_length=100, default='', help_text='发布人姓名快照')
 
-    withdrawn_at = models.CharField(max_length=20, default='', help_text='撤回时间')
+    withdrawn_at = models.DateTimeField(null=True, blank=True, help_text='撤回时间')
     withdrawn_by_id = models.IntegerField(null=True, blank=True, help_text='撤回人ID')
     withdrawn_by_name = models.CharField(max_length=100, default='', help_text='撤回人姓名快照')
 
@@ -102,25 +105,25 @@ class Announcement(models.Model, TenantModelMixin):
     is_deleted = models.BooleanField(default=False, help_text='软删除标识')
 
     # 操作人快照（姓名只展示，身份以账号ID为准；不使用FK避免跨库删除约束）
-    created_at = models.CharField(max_length=20, default=human_datetime, help_text='创建时间')
+    created_at = models.DateTimeField(auto_now_add=True, help_text='创建时间')
     created_by_id = models.IntegerField(null=True, blank=True, help_text='创建人ID')
     created_by_name = models.CharField(max_length=100, default='', help_text='创建人姓名快照')
-    updated_at = models.CharField(max_length=20, default='', help_text='更新时间')
+    updated_at = models.DateTimeField(null=True, blank=True, help_text='更新时间')
     updated_by_id = models.IntegerField(null=True, blank=True, help_text='更新人ID')
     updated_by_name = models.CharField(max_length=100, default='', help_text='更新人姓名快照')
-    deleted_at = models.CharField(max_length=20, default='', help_text='删除时间')
+    deleted_at = models.DateTimeField(null=True, blank=True, help_text='删除时间')
     deleted_by_id = models.IntegerField(null=True, blank=True, help_text='删除人ID')
     deleted_by_name = models.CharField(max_length=100, default='', help_text='删除人姓名快照')
 
     def compute_status(self, now=None):
         """实时计算展示状态（兜底定时任务延迟）"""
-        now = now or datetime.now()
+        now = now or timezone.now()
         if self.is_deleted:
             return STATUS_UNPUBLISHED
         if self.status == STATUS_UNPUBLISHED:
             return STATUS_UNPUBLISHED
-        start = parse_time(self.effective_start_at) if self.effective_start_at else None
-        end = parse_time(self.effective_end_at) if self.effective_end_at else None
+        start = self.effective_start_at
+        end = self.effective_end_at
         if start and now < start:
             return STATUS_UNPUBLISHED
         if end and now > end:
@@ -129,7 +132,7 @@ class Announcement(models.Model, TenantModelMixin):
 
     def is_visible_to(self, user, now=None):
         """当前用户是否可见（严格按方案 6.1 规则）"""
-        now = now or datetime.now()
+        now = now or timezone.now()
         if self.is_deleted:
             return False
         if self.compute_status(now) != STATUS_PUBLISHED:
@@ -142,11 +145,7 @@ class Announcement(models.Model, TenantModelMixin):
     def _is_new(self, now):
         if not self.published_at:
             return False
-        try:
-            pub = parse_time(self.published_at)
-        except (TypeError, ValueError):
-            return False
-        return (now - pub) <= timedelta(days=3)
+        return (now - self.published_at) <= timedelta(days=3)
 
     def _attachment_count(self):
         from apps.evidence.models import EvidenceAttachment
@@ -155,7 +154,7 @@ class Announcement(models.Model, TenantModelMixin):
         ).count()
 
     def to_view(self, user=None, include_content=False):
-        now = datetime.now()
+        now = timezone.now()
         data = {
             'id': self.id,
             'title': self.title,
@@ -218,7 +217,7 @@ class AnnouncementScope(models.Model, TenantModelMixin):
 
     announcement = models.ForeignKey(Announcement, models.CASCADE, related_name='scopes', help_text='公告')
     tenant_name = models.CharField(max_length=100, default='', help_text='目标部门/租户名称快照')
-    created_at = models.CharField(max_length=20, default=human_datetime, help_text='创建时间')
+    created_at = models.DateTimeField(auto_now_add=True, help_text='创建时间')
 
     def __repr__(self):
         return '<AnnouncementScope %s->%s>' % (self.announcement_id, self.tenant_id)
@@ -252,7 +251,7 @@ class AnnouncementRead(models.Model, TenantModelMixin):
     user_id = models.IntegerField(help_text='用户ID')
     username = models.CharField(max_length=100, default='', help_text='登录账号快照')
     nickname = models.CharField(max_length=100, default='', help_text='姓名快照')
-    read_at = models.CharField(max_length=20, default=human_datetime, help_text='阅读时间')
+    read_at = models.DateTimeField(auto_now_add=True, help_text='阅读时间')
 
     def __repr__(self):
         return '<AnnouncementRead %s/%s>' % (self.announcement_id, self.user_id)
@@ -280,15 +279,14 @@ def visible_announcements_for_user(user, now=None):
     可见条件：未删除 + 已发布 + 生效开始 <= now + (无结束 或 结束 >= now)
               + (全平台 或 用户租户在范围表)
     """
-    now = now or datetime.now()
-    start_str = now.strftime('%Y-%m-%d %H:%M:%S')
+    now = now or timezone.now()
     tenant_id = getattr(user, 'tenant_id', '')
     qs = Announcement.objects.filter(
         is_deleted=False,
         status=STATUS_PUBLISHED,
-        effective_start_at__lte=start_str,
+        effective_start_at__lte=now,
     ).filter(
-        Q(effective_end_at='') | Q(effective_end_at__gte=start_str)
+        Q(effective_end_at__isnull=True) | Q(effective_end_at__gte=now)
     ).filter(
         Q(scope_type=SCOPE_ALL) | Q(scopes__tenant_id=tenant_id)
     ).distinct()

@@ -51,10 +51,10 @@ class UpgradeRecordStep(models.Model, ModelMixin):
         verbose_name='执行状态'
     )
     completed_by = models.CharField(max_length=100, default='', blank=True, verbose_name='完成人')
-    completed_at = models.CharField(max_length=20, default='', blank=True, verbose_name='完成时间')
+    completed_at = models.DateTimeField(null=True, blank=True, verbose_name='完成时间')
     remark = models.TextField(default='', blank=True, verbose_name='备注')
 
-    created_at = models.CharField(max_length=20, verbose_name='创建时间')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
 
     @property
     def upgrade(self):
@@ -66,20 +66,18 @@ class UpgradeRecordStep(models.Model, ModelMixin):
 
     def mark_completed(self, user, remark=''):
         """标记步骤为已完成"""
-        now_str = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
         self.status = STEP_STATUS_COMPLETED
         self.completed_by = user.nickname or user.username
-        self.completed_at = now_str
+        self.completed_at = timezone.now()
         if remark:
             self.remark = remark
         self.save(update_fields=['status', 'completed_by', 'completed_at', 'remark'])
 
     def mark_skipped(self, user, remark=''):
         """标记步骤为已跳过"""
-        now_str = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
         self.status = STEP_STATUS_SKIPPED
         self.completed_by = user.nickname or user.username
-        self.completed_at = now_str
+        self.completed_at = timezone.now()
         if remark:
             self.remark = remark
         self.save(update_fields=['status', 'completed_by', 'completed_at', 'remark'])
@@ -88,7 +86,7 @@ class UpgradeRecordStep(models.Model, ModelMixin):
         """重置步骤为待执行"""
         self.status = STEP_STATUS_PENDING
         self.completed_by = ''
-        self.completed_at = ''
+        self.completed_at = None
         self.remark = ''
         self.save(update_fields=['status', 'completed_by', 'completed_at', 'remark'])
 

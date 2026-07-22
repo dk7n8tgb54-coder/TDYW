@@ -2,7 +2,8 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.views.generic import View
-from libs import json_response, JsonParser, Argument, human_datetime
+from django.utils import timezone
+from libs import json_response, JsonParser, Argument
 from apps.home.models import Todo
 
 
@@ -26,7 +27,7 @@ class TodoView(View):
                 # 编辑：只更新传入的非 None 字段
                 todo_id = form.pop('id')
                 update_data = {k: v for k, v in form.items() if v is not None}
-                update_data['updated_at'] = human_datetime()
+                update_data['updated_at'] = timezone.now()
                 update_data['updated_by'] = request.user.username
                 Todo.objects.filter(pk=todo_id).update(**update_data)
             else:

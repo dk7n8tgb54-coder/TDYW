@@ -9,7 +9,8 @@
 """
 from django.db import models
 
-from libs import ModelMixin, human_datetime
+from django.utils import timezone
+from libs import ModelMixin
 
 
 # ==================== 状态常量 ====================
@@ -47,19 +48,19 @@ class AccountSignature(models.Model, ModelMixin):
     # ---- 赋予/替换 快照 ----
     assigned_by_id = models.BigIntegerField(null=True, blank=True, help_text='最近一次赋予/替换的超级管理员 ID')
     assigned_by_name = models.CharField(max_length=100, default='', help_text='管理员姓名快照')
-    assigned_at = models.CharField(max_length=20, default=human_datetime, help_text='最近一次赋予/替换时间')
+    assigned_at = models.DateTimeField(default=timezone.now, help_text='最近一次赋予/替换时间')
 
     # ---- 停用 快照 ----
     disabled_by_id = models.BigIntegerField(null=True, blank=True, help_text='停用操作人 ID')
     disabled_by_name = models.CharField(max_length=100, null=True, blank=True, help_text='停用操作人姓名快照')
-    disabled_at = models.CharField(max_length=20, null=True, blank=True, help_text='停用时间')
+    disabled_at = models.DateTimeField(null=True, blank=True, help_text='停用时间')
 
     # ---- 备注 ----
     remark = models.CharField(max_length=255, default='', blank=True, help_text='管理备注，不返回给普通业务页面')
 
     # ---- 时间 ----
-    created_at = models.CharField(max_length=20, default=human_datetime, help_text='创建时间')
-    updated_at = models.CharField(max_length=20, default=human_datetime, help_text='更新时间')
+    created_at = models.DateTimeField(auto_now_add=True, help_text='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, help_text='更新时间')
 
     def __repr__(self):
         return '<AccountSignature user_id=%r version=%r status=%r>' % (
@@ -122,7 +123,7 @@ class SignatureUsage(models.Model, ModelMixin):
     business_snapshot_hash = models.CharField(max_length=64, default='', help_text='业务快照规范化 SHA256')
 
     # ---- 签署时间和来源 ----
-    signed_at = models.CharField(max_length=20, help_text='服务器签署时间')
+    signed_at = models.DateTimeField(help_text='服务器签署时间')
     signer_ip = models.CharField(max_length=50, default='', help_text='请求来源 IP')
 
     # ---- 请求幂等 ----

@@ -9,7 +9,8 @@
 """
 from django.db import models
 
-from libs import ModelMixin, human_datetime
+from libs import ModelMixin
+from django.utils import timezone
 
 
 # ==================== 状态常量 ====================
@@ -54,7 +55,7 @@ class DepartmentDutyLog(models.Model, ModelMixin):
         'account.User', on_delete=models.PROTECT, related_name='+',
         null=True, blank=True, help_text='签署人，必须与值班员一致')
     signed_by_name = models.CharField(max_length=100, null=True, blank=True, help_text='签署人姓名快照')
-    signed_at = models.CharField(max_length=20, null=True, blank=True, help_text='服务器签署时间')
+    signed_at = models.DateTimeField(null=True, blank=True, help_text='服务器签署时间')
     signature_version = models.PositiveIntegerField(null=True, blank=True, help_text='签署时签名版本')
     signature_sha256 = models.CharField(max_length=64, null=True, blank=True, help_text='签名图片 SHA256 快照')
     business_snapshot_hash = models.CharField(max_length=64, null=True, blank=True, help_text='业务快照哈希')
@@ -65,20 +66,20 @@ class DepartmentDutyLog(models.Model, ModelMixin):
         null=True, blank=True, help_text='更正时指向被更正的已作废记录')
 
     # ---- 审计字段 ----
-    created_at = models.CharField(max_length=20, default=human_datetime)
+    created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(
         'account.User', on_delete=models.PROTECT, related_name='+', help_text='创建人')
-    updated_at = models.CharField(max_length=20, null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(
         'account.User', on_delete=models.PROTECT, related_name='+',
         null=True, blank=True)
-    deleted_at = models.CharField(max_length=20, null=True, blank=True, help_text='非空表示已软删除')
+    deleted_at = models.DateTimeField(null=True, blank=True, help_text='非空表示已软删除')
     deleted_by = models.ForeignKey(
         'account.User', on_delete=models.PROTECT, related_name='+',
         null=True, blank=True)
 
     # ---- 作废字段 ----
-    voided_at = models.CharField(max_length=20, null=True, blank=True)
+    voided_at = models.DateTimeField(null=True, blank=True)
     voided_by = models.ForeignKey(
         'account.User', on_delete=models.PROTECT, related_name='+',
         null=True, blank=True)

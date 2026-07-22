@@ -11,7 +11,8 @@ from datetime import timedelta
 from django.db.models import Count
 from django.views.generic import View
 from django.utils import timezone
-from libs import json_response, JsonParser, Argument, human_datetime, auth
+from django.utils import timezone
+from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from apps.radio_license.models import (
     StationFrequencyApproval,
@@ -298,7 +299,7 @@ class StationFrequencyApprovalView(View):
             if dup_exists:
                 return '文件编号已存在，请更换'
 
-        form.updated_at = human_datetime()
+        form.updated_at = timezone.now()
         form.updated_by = user
         record_id = form.pop('id')
         form.pop('remark', None)

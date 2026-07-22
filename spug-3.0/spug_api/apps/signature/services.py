@@ -26,7 +26,7 @@ import uuid
 from django.conf import settings
 from django.db import transaction, IntegrityError
 
-from libs import human_datetime
+from django.utils import timezone
 from libs.utils import get_request_real_ip
 from apps.account.models import User
 from apps.evidence.models import EvidenceAttachment
@@ -157,7 +157,7 @@ def _upsert_signature_in_tx(target_user, operator, att, remark):
                 status=STATUS_ACTIVE,
                 assigned_by_id=operator.id,
                 assigned_by_name=operator.nickname or operator.username,
-                assigned_at=human_datetime(),
+                assigned_at=timezone.now(),
                 remark=remark or '',
             )
         except IntegrityError:
@@ -183,13 +183,13 @@ def _upsert_signature_in_tx(target_user, operator, att, remark):
     sig.status = STATUS_ACTIVE
     sig.assigned_by_id = operator.id
     sig.assigned_by_name = operator.nickname or operator.username
-    sig.assigned_at = human_datetime()
+    sig.assigned_at = timezone.now()
     sig.remark = remark or ''
     # 重新启用语义：替换后清除停用快照
     sig.disabled_by_id = None
     sig.disabled_by_name = None
     sig.disabled_at = None
-    sig.updated_at = human_datetime()
+    sig.updated_at = timezone.now()
     sig.save(update_fields=[
         'current_attachment_id', 'version', 'status',
         'assigned_by_id', 'assigned_by_name', 'assigned_at',
@@ -328,8 +328,8 @@ def disable_signature(operator, target_user_id, reason='', request=None):
         sig.status = STATUS_DISABLED
         sig.disabled_by_id = operator.id
         sig.disabled_by_name = operator.nickname or operator.username
-        sig.disabled_at = human_datetime()
-        sig.updated_at = human_datetime()
+        sig.disabled_at = timezone.now()
+        sig.updated_at = timezone.now()
         sig.save(update_fields=[
             'status', 'disabled_by_id', 'disabled_by_name', 'disabled_at', 'updated_at',
         ])
@@ -387,7 +387,7 @@ def enable_signature(operator, target_user_id, request=None):
         sig.disabled_by_id = None
         sig.disabled_by_name = None
         sig.disabled_at = None
-        sig.updated_at = human_datetime()
+        sig.updated_at = timezone.now()
         sig.save(update_fields=[
             'status', 'disabled_by_id', 'disabled_by_name', 'disabled_at', 'updated_at',
         ])
@@ -1015,7 +1015,7 @@ def _create_signed_usage_in_tx(actor, module, object_type, object_id_str, scene_
             sig, att = _lock_and_validate_actor_signature(actor)
             db_sha256, _file_real = _verify_signature_file(att)
             db_version = sig.version
-            signed_at = human_datetime()
+            signed_at = timezone.now()
             signer_ip = _get_request_ip(request)
 
             # 创建不可变 SignatureUsage
