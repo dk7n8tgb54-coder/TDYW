@@ -1,0 +1,29 @@
+# ================================================================================
+# tdyw_dba 客户端配置模板（日常 DBA 操作专用，替代 root 日常登录）
+# --------------------------------------------------------------------------------
+# 用途：供 DBA 手动登录数据库执行日常管理操作（建表、查数据、改数据、FLUSH 等）。
+#       替代 root 用于日常 DBA 操作，root 仅保留给初始化和灾难恢复。
+#
+# 与 root 的区别：
+#   - tdyw_dba 有目标库 DDL + DML 权限，但无 FILE/SUPER/CREATE USER/GRANT OPTION
+#   - tdyw_dba 不能创建/删除数据库账号，不能给其他账号授权
+#   - tdyw_dba 不能读写文件系统（FILE），不能关闭数据库（SHUTDOWN）
+#   - 避免误操作导致账号体系损坏或数据外泄
+#
+# 部署步骤：
+#   1. 复制本模板到 DBA 工作站（如 ~/.my.cnf 或 /etc/tdyw-dba/dba.cnf）
+#   2. 填入真实密码（与 init_db_accounts.sh 的 tdyw_dba secret 一致）
+#   3. chmod 0600
+#   4. 使用：mysql --defaults-extra-file=~/.my.cnf
+#
+# 安全要求：
+#   - 权限 0600，不得提交 Git
+#   - 不通过 -pPASSWORD 传密码
+#   - 不与其他账号混用同一 cnf 文件
+#   - DBA 离职或轮岗时及时轮换密码
+# ================================================================================
+[client]
+host=tdyw-db
+port=3306
+user=tdyw_dba
+password=REPLACE_WITH_TDYW_DBA_PASSWORD

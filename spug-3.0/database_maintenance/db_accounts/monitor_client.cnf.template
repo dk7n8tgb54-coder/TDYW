@@ -1,0 +1,22 @@
+# ================================================================================
+# tdyw_monitor 客户端配置模板（健康检查专用）
+# --------------------------------------------------------------------------------
+# 用途：供 tdyw-db 容器 healthcheck 使用，替代 root + 明文密码。
+#
+# 部署步骤：
+#   1. 复制本模板到 docker/config/secrets/tdyw_monitor.cnf
+#   2. 填入真实密码（与 init_db_accounts.sh 的 tdyw_monitor secret 一致）
+#   3. chmod 0600 docker/config/secrets/tdyw_monitor.cnf
+#   4. docker-compose.yml 将其挂载为 tdyw-db 的 /etc/mysql/monitor.cnf:ro
+#   5. 健康检查命令：mysql --defaults-extra-file=/etc/mysql/monitor.cnf -e "SELECT 1"
+#
+# 安全要求：
+#   - 文件权限必须 0600
+#   - 不得提交 Git（已在 .gitignore 排除 secrets/）
+#   - 密码不得出现在 docker inspect / ps / 日志
+# ================================================================================
+[client]
+host=127.0.0.1
+port=3306
+user=tdyw_monitor
+password=REPLACE_WITH_TDYW_MONITOR_PASSWORD

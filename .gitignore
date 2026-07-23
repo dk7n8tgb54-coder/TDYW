@@ -35,7 +35,7 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 backup_*.sql
-backups/
+
 
 # SSL & 密钥
 *.crt

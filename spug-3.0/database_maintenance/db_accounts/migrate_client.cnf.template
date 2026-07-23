@@ -1,0 +1,23 @@
+# ================================================================================
+# tdyw_migrate 客户端配置模板（发布迁移专用，一次性使用）
+# --------------------------------------------------------------------------------
+# 用途：供独立 migration service 使用，执行 manage.py migrate。
+#       不注入长期运行的应用容器（tdyw_app 才是运行时账号）。
+#
+# 部署步骤：
+#   1. 复制本模板到 docker/config/secrets/tdyw_migrate.cnf
+#   2. 填入真实密码（与 init_db_accounts.sh 的 tdyw_migrate secret 一致）
+#   3. chmod 0600
+#   4. migration service 通过环境变量 TDYW_MIGRATE_PASSWORD_FILE 指向密码文件
+#      （Django settings 读取 _FILE），或通过此 cnf 文件供管理命令使用
+#
+# 安全要求：
+#   - 权限 0600，不得提交 Git
+#   - migration 完成后不应保留在应用容器环境
+#   - migration 失败时应用不得用 tdyw_app 尝试 DDL（tdyw_app 无 DDL 权限会失败）
+# ================================================================================
+[client]
+host=tdyw-db
+port=3306
+user=tdyw_migrate
+password=REPLACE_WITH_TDYW_MIGRATE_PASSWORD
