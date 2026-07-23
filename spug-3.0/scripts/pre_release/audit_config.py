@@ -162,8 +162,71 @@ try:
         if sq:
             check('PASS' if sq[1] == 'ON' else 'WARN',
                   cat, 'slow_query_log', sq[1])
+
+        # ==================================================================
+        # 2b. 数据库持久性参数（发布阻断项）
+        # 保证断电/崩溃时已提交事务不丢失，任一不达标直接阻断发布
+        # ==================================================================
+        durability_required = {
+            'innodb_flush_log_at_trx_commit': '1',
+            'sync_binlog': '1',
+            'log_bin': 'ON',
+            'binlog_format': 'ROW',
+            'innodb_doublewrite': 'ON',
+        }
+        cursor.execute(
+            "SHOW VARIABLES WHERE Variable_name IN "
+            "('innodb_flush_log_at_trx_commit','sync_binlog','log_bin',"
+            "'binlog_format','innodb_doublewrite')")
+        actual_vars = {r[0]: str(r[1]).strip() for r in cursor.fetchall()}
+        for name, expected in durability_required.items():
+            actual = actual_vars.get(name, '(未返回)')
+            if actual.upper() == expected.upper():
+                check('PASS', cat, '持久性: ' + name,
+                      '%s (符合发布要求)' % actual)
+            else:
+                check('FAIL', cat, '持久性: ' + name,
+                      '当前 %s，要求 %s（发布阻断）' % (actual, expected))
+
+        # binlog 保留期（非阻断，仅告警）
+        cursor.execute("SHOW VARIABLES LIKE 'binlog_expire_logs_seconds'")
+        bl_exp = cursor.fetchone()
+        if bl_exp:
+            v = int(bl_exp[1])
+            check('WARN' if v < 604800 else 'PASS', cat,
+                  'binlog_expire_logs_seconds',
+                  '%d (建议 >= 604800 即 7 天)' % v)
 except Exception as e:
     check('WARN', cat, 'MySQL 参数查询', str(e))
+
+# ====================================================================
+# 2c. 所有业务表必须使用 InnoDB（发布阻断项）
+# ====================================================================
+try:
+    with connection.cursor() as cursor:
+        db_name = db['NAME']
+        cursor.execute(
+            "SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES "
+            "WHERE TABLE_SCHEMA = %s AND TABLE_TYPE = 'BASE TABLE'",
+            [db_name])
+        non_innodb = []
+        total = 0
+        for table_name, engine in cursor.fetchall():
+            total += 1
+            if (engine or '').upper() != 'INNODB':
+                non_innodb.append((table_name, engine))
+        if non_innodb:
+            detail = '; '.join(
+                '%s=%s' % (t, e or 'NULL') for t, e in non_innodb[:20])
+            check('FAIL', cat, '业务表引擎',
+                  '%d/%d 张非 InnoDB: %s（发布阻断）'
+                  % (len(non_innodb), total, detail))
+        else:
+            check('PASS', cat, '业务表引擎',
+                  '%d 张表全部为 InnoDB' % total)
+except Exception as e:
+    check('FAIL', cat, '业务表引擎',
+          '无法检查表引擎: %s（发布阻断）' % e)
 
 # ====================================================================
 # 3. Redis（4 个 DB）
