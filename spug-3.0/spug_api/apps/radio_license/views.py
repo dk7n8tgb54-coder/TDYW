@@ -2,6 +2,7 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 import logging
+from decimal import Decimal, InvalidOperation
 from datetime import timedelta
 from django.views.generic import View
 from django.utils import timezone
@@ -29,6 +30,23 @@ _LICENSE_EDITABLE_FIELDS = (
     'station_name', 'purpose', 'valid_from', 'valid_to',
     'responsible_user_id', 'responsible_user_name',
 )
+
+
+def _validate_frequencies(frequencies):
+    """校验完整频率列表，避免先删旧明细后才由数据库约束报错。"""
+    for index, item in enumerate(frequencies, start=1):
+        if not isinstance(item, dict):
+            return f'第 {index} 条频率格式不正确'
+        try:
+            value = Decimal(str(item.get('frequency_value', '')))
+        except (InvalidOperation, ValueError):
+            return f'第 {index} 条频率数值格式不正确'
+        if value <= 0:
+            return f'第 {index} 条频率必须大于 0'
+        sort_order = item.get('sort_order', index - 1)
+        if isinstance(sort_order, bool) or not isinstance(sort_order, int) or sort_order < 0:
+            return f'第 {index} 条频率排序必须是非负整数'
+    return None
 
 
 def _validate_and_fill_responsible_user(form):
@@ -198,6 +216,9 @@ class RadioLicenseView(View):
                 return json_response(error='起始日期不能晚于截止日期')
 
             frequencies = form.pop('frequencies', []) if hasattr(form, 'frequencies') else []
+            frequency_err = _validate_frequencies(frequencies)
+            if frequency_err:
+                return json_response(error=frequency_err)
 
             if form.id:
                 # 编辑：只更新传入的非 None 字段
@@ -237,12 +258,16 @@ class RadioLicenseView(View):
         if not old_license:
             return '编辑失败：记录不存在或无权限编辑'
 
+        # 编辑只传单个日期时，也要按合并后的完整日期范围校验。
+        new_valid_from = form.valid_from or str(old_license.valid_from)
+        new_valid_to = form.valid_to or str(old_license.valid_to)
+        if new_valid_from > new_valid_to:
+            return '起始日期不能晚于截止日期'
+
         old_valid_to = old_license.valid_to
         # 证据闭环第三阶段：保存版本历史（修改前快照）
-        try:
-            _save_license_version_snapshot(old_license, user)
-        except Exception as ver_err:
-            logger.warning(f'[RadioLicense] 版本历史保存失败: {ver_err}')
+        # 版本快照属于证据链；失败时必须中止编辑并由请求事务整体回滚。
+        _save_license_version_snapshot(old_license, user)
 
         # 检测本次变更的字段
         changed_fields = _detect_license_changed_fields(old_license, form)

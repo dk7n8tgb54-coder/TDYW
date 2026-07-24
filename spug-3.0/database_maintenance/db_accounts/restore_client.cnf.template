@@ -1,0 +1,10 @@
+# Usage:
+#   sudo install -m 600 restore_client.cnf.template /etc/tdyw-backup/tdyw_restore.cnf
+#   sudoedit /etc/tdyw-backup/tdyw_restore.cnf
+# Keep the real file outside Git. The restore account must be authorized to create,
+# drop, and import the selected restore database; backup credentials remain read-only.
+[client]
+host=127.0.0.1
+port=3306
+user=root
+password=REPLACE_WITH_RESTORE_PASSWORD

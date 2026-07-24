@@ -21,6 +21,7 @@ correct/delete/export/void 等证据事件。
 import json
 import logging
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.utils import timezone
 
@@ -42,13 +43,15 @@ def _serialize_snapshot(value):
 
     - None → None（保留为空，表示无快照）
     - str  → 原样返回（调用方已序列化）
-    - dict/list → json.dumps(ensure_ascii=False, sort_keys=True)
+    - dict/list → DjangoJSONEncoder 规范序列化（支持日期、时间和 Decimal）
     """
     if value is None:
         return None
     if isinstance(value, str):
         return value
-    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, cls=DjangoJSONEncoder,
+    )
 
 
 def record_evidence_event(

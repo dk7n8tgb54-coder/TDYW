@@ -1,0 +1,4 @@
+# Shell scripts execute inside Linux/WSL containers and must keep an LF shebang.
+*.sh text eol=lf
+# Backup Python workers are mounted into Linux containers and must keep LF endings.
+backups/*.py text eol=lf

@@ -710,6 +710,40 @@ class DocumentTransfer(models.Model):
             models.Index(fields=['created_at'], name='idx_transfer_created'),
             models.Index(fields=['status', 'updated_at'], name='transfer_status_updated_idx'),
         ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(transfer_type__in=['UPLOAD', 'DOWNLOAD']),
+                name='doc_transfer_type_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(status__in=[
+                    'PENDING', 'UPLOADING', 'DOWNLOADING', 'PAUSED',
+                    'MERGING', 'COMPLETED', 'FAILED', 'CANCELED',
+                ]),
+                name='doc_transfer_status_valid',
+            ),
+            models.CheckConstraint(
+                check=(
+                    models.Q(file_size__gte=0) &
+                    models.Q(total_chunks__gte=0) &
+                    models.Q(uploaded_chunks__gte=0) &
+                    models.Q(transferred_size__gte=0) &
+                    models.Q(speed__gte=0)
+                ),
+                name='doc_transfer_counts_nonnegative',
+            ),
+            models.CheckConstraint(
+                check=models.Q(progress__gte=0, progress__lte=100),
+                name='doc_transfer_progress_range',
+            ),
+            models.CheckConstraint(
+                check=(
+                    models.Q(total_chunks=0) |
+                    models.Q(uploaded_chunks__lte=models.F('total_chunks'))
+                ),
+                name='doc_transfer_chunks_order',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.transfer_type} - {self.file_name} - {self.status}"

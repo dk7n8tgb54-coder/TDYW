@@ -1,0 +1,19 @@
+{
+  "archive": "documents.tar.gz",
+  "archive_sha256": "f849a34b4ab742d8b1f5c57a34b95ba84c558dd2ad880574bd7176c8e2b19541",
+  "archive_size": 72,
+  "backup_mode": "incremental",
+  "backup_set_id": "backup_set_20260724_023021",
+  "base_backup_set_id": "backup_set_20260724_020501",
+  "created_at": "2026-07-24T02:30:51.652458+00:00",
+  "delta_manifest": "documents.delta.json",
+  "directories": [],
+  "directory_count": 0,
+  "file_count": 0,
+  "files": [],
+  "fileset": "documents",
+  "parent_backup_set_id": "backup_set_20260724_020501",
+  "schema_version": 2,
+  "source_path": "/data/spug/spug_api/storage/documents",
+  "total_bytes": 0
+}

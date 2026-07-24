@@ -41,7 +41,17 @@ data/backend/storage/transfer/
 repos/
 data/
 storage/
-backups/
+# backups 中脚本/文档由 Git 跟踪，仅忽略误落入源码目录的运行时产物。
+backups/backup_sets/
+backups/backup_set_*/
+backups/*.sql.gz
+backups/*.tar.gz
+backups/*.manifest
+backups/*.manifest.json
+backups/*.delta.json
+backups/*.meta
+backups/SHA256SUMS
+backups/*.log
 # 日志文件
 *.log
 spug_api/logs/

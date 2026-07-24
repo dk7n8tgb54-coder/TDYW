@@ -15,6 +15,7 @@ import os
 import time
 import json
 import logging
+from uuid import uuid4
 from django.views.generic import View
 from django.db import transaction
 from django.conf import settings
@@ -41,16 +42,8 @@ class DirectMergeView(View):
     无需重新上传所有分片
     """
 
-    @document_auth('upload')
-    def post(self, request):
-        """处理直接合并请求
-        
-        【P0-Day1关键修复】
-        1. 使用select_for_update防止并发重复提交
-        2. 幂等性检查：已合并/合并中的任务直接返回
-        3. 事务包裹确保状态一致性
-        """
-        # 1. 解析并验证参数
+    @staticmethod
+    def _parse_form(request):
         form, error = JsonParser(
             Argument('transfer_id', type=int, required=True, help='传输记录ID'),
             Argument('folder_id', type=int, required=True, help='文件夹ID'),
@@ -61,25 +54,34 @@ class DirectMergeView(View):
             Argument('file_size', type=int, required=False, help='文件大小'),
             Argument('system_folder', type=str, required=False, default=None),
         ).parse(request.body)
-        
         if error:
-            return json_response(error=error)
+            return None, json_response(error=error)
 
-        ok, scope_err = validate_upload_target_scope(
+        ok, scope_error = validate_upload_target_scope(
             form.system_folder,
             form.is_public,
             form.folder_id,
         )
         if not ok:
-            return json_response(error=scope_err)
-
-        # 2. 验证文件名
+            return None, json_response(error=scope_error)
         if not validate_file_name(form.file_name):
-            return json_response(error='文件名包含非法字符')
-
-        # 3. 验证哈希
+            return None, json_response(error='文件名包含非法字符')
         if not HashValidator.validate(form.file_hash):
-            return json_response(error='非法的文件哈希值')
+            return None, json_response(error='非法的文件哈希值')
+        return form, None
+
+    @document_auth('upload')
+    def post(self, request):
+        """处理直接合并请求
+
+        【P0-Day1关键修复】
+        1. 使用select_for_update防止并发重复提交
+        2. 幂等性检查：已合并/合并中的任务直接返回
+        3. 事务包裹确保状态一致性
+        """
+        form, error_response = self._parse_form(request)
+        if error_response is not None:
+            return error_response
 
         try:
             from apps.document.models import DocumentTransfer
@@ -191,11 +193,11 @@ class DirectMergeView(View):
                     'start_time': time.time()
                 }
 
-                task = merge_file_chunks.delay(job_data)
+                task_id = str(uuid4())
 
                 # 3.7 更新传输记录状态
                 transfer.status = TransferStatus.MERGING.value
-                transfer.celery_task_id = task.id
+                transfer.celery_task_id = task_id
                 transfer.save()
 
                 # 3.8 写入任务文件
@@ -209,16 +211,34 @@ class DirectMergeView(View):
                             'is_public': form.is_public,
                             'system_folder': form.system_folder,
                             'start_time': time.time(),
-                            'task_id': task.id
+                            'task_id': task_id
                         }))
                 except Exception as file_error:
                     logger.error(f'[DirectMerge] Write task file failed: {file_error}')
 
+                # ATOMIC_REQUESTS/atomic 提交成功后再投递，避免 worker 读取未提交状态。
+                def dispatch_after_commit():
+                    try:
+                        merge_file_chunks.apply_async(args=[job_data], task_id=task_id)
+                    except Exception as dispatch_error:
+                        DocumentTransfer.objects.filter(
+                            pk=transfer.pk, celery_task_id=task_id,
+                        ).update(
+                            status=TransferStatus.FAILED.value,
+                            error_message=f'合并任务投递失败: {dispatch_error}',
+                        )
+                        logger.error(
+                            f'[DirectMerge] Dispatch after commit failed: transfer={transfer.pk}, '
+                            f'task={task_id}, error={dispatch_error}', exc_info=True,
+                        )
+
+                transaction.on_commit(dispatch_after_commit)
+
             # 事务结束，返回成功
-            logger.info(f'[DirectMerge] 合并任务已提交: transfer={form.transfer_id}, task={task.id}')
+            logger.info(f'[DirectMerge] 合并任务已登记: transfer={form.transfer_id}, task={task_id}')
             
             return json_response(data={
-                'task_id': task.id,
+                'task_id': task_id,
                 'merge_task_id': merge_task_id,
                 'status': 'merging',
                 'message': '合并任务已提交',

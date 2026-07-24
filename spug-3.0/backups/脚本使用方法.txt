@@ -1,0 +1,9 @@
+APP_CONTAINER=tdyw-test DB_CONTAINER=tdyw-db-test \
+RESTORE_CLIENT_CNF=/etc/tdyw-backup/restore-test-admin.cnf \
+DRILL_ROOT=/tmp/tdyw-restore-drill \
+./backup_set_restore.sh --mode drill backup_set_20260710_232452
+
+RESTORE_CLIENT_CNF=/etc/tdyw-backup/tdyw_restore.cnf \
+./backup_set_restore.sh --mode production backup_set_20260710_232452
+
+第一条只允许隔离测试容器；第二条会覆盖生产数据库、documents 和 media，执行前必须先做新的完整备份。

@@ -1,0 +1,5 @@
+# Install manually only after dry-run and one supervised real backup pass.
+# Daily logical full backup plus auto fileset snapshots: Sunday full baseline,
+# Monday-Saturday incremental. Theoretical worst-case RPO is about 24 hours.
+# Add WEEKLY_PHYSICAL_BACKUP=YES only after mariabackup and physical restore drills pass.
+0 2 * * * cd /mnt/e/TDYW/spug-3.0 && BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf BACKUP_ROOT=/data/backups/tdyw/backup_sets FILESET_BACKUP_MODE=auto FILESET_FULL_WEEKDAY=7 DRY_RUN=NO RETENTION_DAYS=30 RETENTION_DELETE=NO ./backups/backup_set_create.sh >> /var/log/tdyw-backup/backup_set.log 2>&1

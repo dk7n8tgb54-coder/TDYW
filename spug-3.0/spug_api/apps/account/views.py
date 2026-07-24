@@ -5,7 +5,7 @@ import re
 
 from django.core.cache import cache
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count
 from django.utils import timezone
 from libs.mixins import AdminView, View
@@ -149,15 +149,18 @@ class UserView(AdminView):
                 f'to user {user.username} (target_tenant={target_tenant_id}): {error}'
             )
             return json_response(error=error)
-        with transaction.atomic():
-            if (request.user.is_supper and form.get('tenant_id')
-                    and form['tenant_id'] != user.tenant_id):
-                self._migrate_user_tenant(user, form['tenant_id'])
-            # 过滤 None：JsonParser 对未传字段填 None，update_by_dict 会覆盖 NOT NULL 字段
-            update_data = {k: v for k, v in form.items() if v is not None}
-            user.update_by_dict(update_data)
-            user.roles.set(role_ids)
-            user.set_perms_cache()
+        try:
+            with transaction.atomic():
+                if (request.user.is_supper and form.get('tenant_id')
+                        and form['tenant_id'] != user.tenant_id):
+                    self._migrate_user_tenant(user, form['tenant_id'])
+                # 过滤 None：JsonParser 对未传字段填 None，update_by_dict 会覆盖 NOT NULL 字段
+                update_data = {k: v for k, v in form.items() if v is not None}
+                user.update_by_dict(update_data)
+                user.roles.set(role_ids)
+                user.set_perms_cache()
+        except IntegrityError:
+            return json_response(error=f'已存在登录名为【{form.username}】的用户，无法重复创建')
         return json_response()
 
     def _handle_user_create(self, request, form, role_ids, password):
@@ -178,14 +181,19 @@ class UserView(AdminView):
             return json_response(error=error)
         create_fields = {k: v for k, v in form.items()
                          if k not in ('tenant_id', 'password', 'role_ids')}
-        user = User.objects.create(
-            password_hash=User.make_password(password),
-            created_by=request.user,
-            tenant_id=tenant_value,
-            **create_fields
-        )
-        user.roles.set(role_ids)
-        user.set_perms_cache()
+        try:
+            # 独立保存点让唯一键竞争失败可被转换为明确业务错误，且不破坏请求事务。
+            with transaction.atomic():
+                user = User.objects.create(
+                    password_hash=User.make_password(password),
+                    created_by=request.user,
+                    tenant_id=tenant_value,
+                    **create_fields
+                )
+                user.roles.set(role_ids)
+                user.set_perms_cache()
+        except IntegrityError:
+            return json_response(error=f'已存在登录名为【{form.username}】的用户，无法重复创建')
         return json_response()
 
     def _resolve_tenant_id(self, request, form):
@@ -322,6 +330,8 @@ class UserView(AdminView):
             migrate_existing_data({user.username: new_tenant_id})
         except Exception as e:
             logger.error(f'Account: Failed to migrate user {user.username} tenant data: {e}', exc_info=True)
+            # 必须让异常越过 transaction.atomic()/ATOMIC_REQUESTS 边界，避免部分租户数据提交。
+            raise
 
 
 class RoleView(AdminView):

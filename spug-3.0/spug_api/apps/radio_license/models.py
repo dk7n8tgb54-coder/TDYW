@@ -11,6 +11,12 @@ class RadioLicense(models.Model, TenantModelMixin):
     objects = TenantModelManager()
     tenant_id = make_tenant_id()
 
+    STATUS_CHOICES = (
+        ('normal', '正常'),
+        ('expiring', '即将到期'),
+        ('expired', '已过期'),
+    )
+
     # ---- 业务字段 ----
     station_name = models.CharField(max_length=100, help_text='台站名称')
     purpose = models.CharField(max_length=500, default='', help_text='用途')
@@ -18,7 +24,10 @@ class RadioLicense(models.Model, TenantModelMixin):
     valid_to = models.DateField(help_text='截止日期')
     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
     responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
-    status = models.CharField(max_length=20, default='normal', help_text='状态: normal/expiring/expired')
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default='normal',
+        help_text='状态: normal/expiring/expired',
+    )
     last_remind_at = models.DateTimeField(null=True, blank=True, help_text='最近提醒时间')
 
     # ---- 通用字段 ----
@@ -41,6 +50,16 @@ class RadioLicense(models.Model, TenantModelMixin):
         indexes = [
             models.Index(fields=['tenant_id', '-created_at', '-id']),
             models.Index(fields=['tenant_id', 'valid_to']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(status__in=['normal', 'expiring', 'expired']),
+                name='radio_license_status_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(valid_to__gte=models.F('valid_from')),
+                name='radio_license_date_order',
+            ),
         ]
 
 
@@ -74,6 +93,16 @@ class RadioLicenseFrequency(models.Model, TenantModelMixin):
         ordering = ('license', 'sort_order', 'id')
         indexes = [
             models.Index(fields=['tenant_id', 'license']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(frequency_value__gt=0),
+                name='radio_frequency_positive',
+            ),
+            models.CheckConstraint(
+                check=models.Q(sort_order__gte=0),
+                name='radio_frequency_sort_valid',
+            ),
         ]
 
 
@@ -254,6 +283,14 @@ class StationFrequencyApproval(models.Model, TenantModelMixin):
             models.UniqueConstraint(
                 fields=['tenant_id', 'doc_no'],
                 name='uniq_sfa_tenant_doc_no',
+            ),
+            models.CheckConstraint(
+                check=models.Q(status__in=['normal', 'expiring', 'expired']),
+                name='sfa_status_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(valid_to__gte=models.F('valid_from')),
+                name='sfa_date_order_valid',
             ),
         ]
         indexes = [

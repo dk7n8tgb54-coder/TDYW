@@ -89,7 +89,7 @@ def _grant_perms(user, perms):
 
 
 def _make_record(user, **kwargs):
-    """直接创建一条草稿记录。"""
+    """直接创建记录；非草稿状态同时生成满足数据库约束的证据快照。"""
     defaults = {
         'duty_date': date.today(),
         'duty_person': user,
@@ -104,6 +104,22 @@ def _make_record(user, **kwargs):
         'created_by': user,
     }
     defaults.update(kwargs)
+    if defaults['status'] in (STATUS_SIGNED, STATUS_VOID):
+        signed_defaults = {
+            'signature_usage_id': uuid.uuid4().int & ((1 << 63) - 1),
+            'signed_by': user,
+            'signed_by_name': user.nickname or user.username,
+            'signed_at': '2026-01-01 00:00:00',
+            'signature_version': 1,
+            'signature_sha256': 'a' * 64,
+            'business_snapshot_hash': 'b' * 64,
+        }
+        for field, value in signed_defaults.items():
+            defaults.setdefault(field, value)
+    if defaults['status'] == STATUS_VOID:
+        defaults.setdefault('voided_at', '2026-01-02 00:00:00')
+        defaults.setdefault('voided_by', user)
+        defaults.setdefault('void_reason', '测试作废')
     return DepartmentDutyLog.objects.create(**defaults)
 
 
@@ -168,6 +184,13 @@ class DepartmentDutyLogPermissionTests(TestCase):
 
         # 将 A 的记录标记为 signed（模拟）
         record_a.status = STATUS_SIGNED
+        record_a.signature_usage_id = uuid.uuid4().int & ((1 << 63) - 1)
+        record_a.signed_by = self.user_a
+        record_a.signed_by_name = self.user_a.nickname
+        record_a.signed_at = '2026-01-01 00:00:00'
+        record_a.signature_version = 1
+        record_a.signature_sha256 = 'a' * 64
+        record_a.business_snapshot_hash = 'b' * 64
         record_a.save()
         # B 现在能看到 A 的已签记录
         resp = self.client_b.get('/department-duty-log/records/')
@@ -544,7 +567,6 @@ class DepartmentDutyLogLifecycleTests(TestCase):
         record = _make_record(
             self.user, status=STATUS_VOID, version=2,
             duty_record='原记录',
-            signature_usage_id=None,  # void 记录但没有签署
         )
         resp = self.client.post(
             f'/department-duty-log/records/{record.id}/corrections/',

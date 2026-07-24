@@ -82,6 +82,21 @@ class DeviceResume(models.Model, TenantModelMixin):
         constraints = [
             # 设备编号租户内唯一（不同租户可创建相同编号）
             models.UniqueConstraint(fields=['tenant_id', 'device_sn'], name='uniq_device_resume_tenant_sn'),
+            models.CheckConstraint(
+                check=models.Q(current_status__in=['1', '2', '3', '4', '5']),
+                name='device_current_status_valid',
+            ),
+            models.CheckConstraint(
+                check=(
+                    models.Q(is_deleted=False) |
+                    (
+                        models.Q(deleted_at__isnull=False) &
+                        models.Q(deleted_by_id__isnull=False) &
+                        ~models.Q(delete_reason='')
+                    )
+                ),
+                name='device_delete_fields_valid',
+            ),
         ]
         indexes = [
             models.Index(fields=['tenant_id', 'current_status']),
@@ -152,4 +167,10 @@ class DeviceEvent(models.Model, TenantModelMixin):
         indexes = [
             models.Index(fields=['tenant_id', 'device_resume_id']),
             models.Index(fields=['tenant_id', '-event_time', '-id']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(event_type__in=[1, 2, 3]),
+                name='device_event_type_valid',
+            ),
         ]

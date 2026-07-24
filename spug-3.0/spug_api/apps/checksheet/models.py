@@ -113,6 +113,56 @@ class CheckSheetSubmission(models.Model, TenantModelMixin):
             models.Index(fields=['tenant_id', 'project', 'year', 'month'], name='cs_sub_obj_idx'),
             models.Index(fields=['tenant_id', 'status'], name='cs_sub_status_idx'),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['tenant_id', 'project', 'year', 'month'],
+                name='uniq_cs_submission_period',
+            ),
+            models.CheckConstraint(
+                check=models.Q(status__in=[item[0] for item in SUBMISSION_STATUS_CHOICES]),
+                name='cs_submission_status_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(month__in=[f'{month:02d}' for month in range(1, 13)]),
+                name='cs_submission_month_valid',
+            ),
+            # 一旦进入提交后的状态，提交身份、时间和快照必须同时存在。
+            models.CheckConstraint(
+                check=(
+                    models.Q(status__in=['draft', 'voided']) |
+                    (
+                        models.Q(submitted_by_id__isnull=False) &
+                        models.Q(submitted_at__isnull=False) &
+                        ~models.Q(submitted_by_name='') &
+                        ~models.Q(snapshot_hash='')
+                    )
+                ),
+                name='cs_submission_submit_fields',
+            ),
+            models.CheckConstraint(
+                check=(
+                    ~models.Q(status__in=['reviewed', 'closed']) |
+                    (
+                        models.Q(reviewed_by_id__isnull=False) &
+                        models.Q(reviewed_at__isnull=False) &
+                        ~models.Q(reviewed_by_name='')
+                    )
+                ),
+                name='cs_submission_review_fields',
+            ),
+            models.CheckConstraint(
+                check=(
+                    ~models.Q(status='voided') |
+                    (
+                        models.Q(voided_by_id__isnull=False) &
+                        models.Q(voided_at__isnull=False) &
+                        ~models.Q(voided_by_name='') &
+                        ~models.Q(void_reason='')
+                    )
+                ),
+                name='cs_submission_void_fields',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.project} {self.year}-{self.month} [{self.status}]'
@@ -154,6 +204,24 @@ class CheckSheetRecord(models.Model):
         verbose_name_plural = verbose_name
         ordering = ['year', 'month', 'day', 'item_index']
         unique_together = ['template', 'year', 'month', 'day', 'item_index']
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(month__in=[f'{month:02d}' for month in range(1, 13)]),
+                name='cs_record_month_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(day__gte=1, day__lte=31),
+                name='cs_record_day_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(item_index__gte=0),
+                name='cs_record_item_index_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(status__in=['NORMAL', 'ABNORMAL', 'UNCHECKED']),
+                name='cs_record_status_valid',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.template.project} {self.year}-{self.month}-{self.day} 第{self.item_index + 1}项'
@@ -179,6 +247,16 @@ class CheckSheetDailySummary(models.Model):
         verbose_name = '每日检查汇总'
         verbose_name_plural = verbose_name
         unique_together = ['year', 'month', 'day']
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(month__in=[f'{month:02d}' for month in range(1, 13)]),
+                name='cs_summary_month_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(day__gte=1, day__lte=31),
+                name='cs_summary_day_valid',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.year}-{self.month}-{self.day} 汇总'

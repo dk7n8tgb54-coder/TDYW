@@ -368,6 +368,17 @@ def _apply_interference_action(record, action, new_status, user, form, now):
     record.save()
 
 
+def _validate_interference_action(form):
+    new_status = _INTERFERENCE_ACTION_STATUS.get(form.action)
+    if not new_status:
+        return None, f'非法操作类型: {form.action}'
+    if form.action == 'close' and not (form.close_summary or '').strip():
+        return None, '关闭记录时必须填写关闭总结'
+    if form.action == 'void' and not (form.void_reason or '').strip():
+        return None, '作废记录时必须填写作废原因'
+    return new_status, None
+
+
 class InterferenceStateView(View):
     """干扰记录状态流转 - 提交/复核/上报/处置/关闭/作废"""
 
@@ -413,9 +424,9 @@ class InterferenceStateView(View):
         if error:
             return json_response(error=error)
 
-        new_status = _INTERFERENCE_ACTION_STATUS.get(form.action)
-        if not new_status:
-            return json_response(error=f'非法操作类型: {form.action}')
+        new_status, error = _validate_interference_action(form)
+        if error:
+            return json_response(error=error)
 
         user = request.user
         now = timezone.now()

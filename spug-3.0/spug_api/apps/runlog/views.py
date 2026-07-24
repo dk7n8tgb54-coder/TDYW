@@ -5,7 +5,7 @@ from django.views import View
 from django.http import HttpResponse
 from django.conf import settings
 from django.db.models import Max, Count, Q
-from django.db import DatabaseError
+from django.db import DatabaseError, transaction
 from django.utils.encoding import escape_uri_path
 from django.utils import timezone
 from libs import json_response, auth
@@ -42,10 +42,10 @@ def media_url_to_path(url):
 
 
 def clean_update_attachments(update):
-    """删除单条动态关联的附件文件。
+    """数据库提交后删除单条动态关联的附件文件。
 
-    供删除事件（级联）和删除单条动态共用。失败仅记录日志，不抛异常，
-    以确保数据库清理不被文件清理失败阻塞。
+    供删除事件（级联）和删除单条动态共用。事务回滚时回调不会执行，避免记录仍在但
+    文件已删除。提交后的清理失败仅记录日志，保留文件供后续人工或任务重试。
     """
     if not update.attachments:
         return
@@ -57,8 +57,14 @@ def clean_update_attachments(update):
             except ValueError:
                 logger.warning(f'[RunLog] 跳过非法附件路径: {attachment_path}')
                 continue
-            if os.path.exists(full_path):
-                os.remove(full_path)
+            def remove_after_commit(path=full_path):
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                except OSError as e:
+                    logger.warning(f'[RunLog] 提交后清理附件失败: path={path} error={e}')
+
+            transaction.on_commit(remove_after_commit, robust=True)
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f'[RunLog] 清理附件失败: {e}')
 
@@ -138,6 +144,8 @@ class RunLogView(View):
         ).parse(request.body)
         
         if error is None:
+            if form.severity not in RunLog.SEVERITY_CHOICES:
+                return json_response(error='事件级别必须为 P0、P1 或 P2')
             # 验证首次动态必填
             first_update = form.first_update
             if not first_update.get('update_date'):
@@ -211,6 +219,8 @@ class RunLogView(View):
             event = apply_tenant_filter(RunLog.objects.filter(pk=form.id), request.user).first()
             if not event:
                 return json_response(error='无权限操作')
+            if form.severity is not None and form.severity not in RunLog.SEVERITY_CHOICES:
+                return json_response(error='事件级别必须为 P0、P1 或 P2')
             
             # 可编辑字段
             editable_fields = ['event_type', 'system_name', 'severity',

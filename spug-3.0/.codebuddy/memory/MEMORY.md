@@ -57,3 +57,9 @@
 
 ## 反思清单（跨会话必遵）
 1. 反问质疑立即认错不掩盖；2. 增量>大爆炸+YAGNI+向后兼容；3. 配置化(枚举+集合)>硬编码(同串≥3处抽出)；4. 参考成熟产品+行业惯例；5. 每次修复后全局扫描同类；6. error 字段一致性(正常态无 error)；7. `obj?.method()` 触发 no-unused-expressions→`if(obj)obj.method()`；8. Model.save 签名 `def save(self,*args,**kwargs)`；9. jest 测装饰器模块报错→提取纯函数；10. 嵌套 atomic 仅 savepoint；11. 备份恢复同周期(DB→documents)；12. `from X import Y` 确认 Y 从 X 导出
+
+## 备份恢复脚本（2026-07-24）
+- 入口 `backups/backup_set_create.sh`（一致性备份）/ `backup_set_restore.sh`（恢复）；配套 Python 工具**全部位于 `backups/` 目录**（与 .sh 同目录），不在 `scripts/`
+- 脚本内引用 Python 工具用 `${SCRIPT_DIR}/xxx.py`（宿主机直接调用）或挂载 `${SCRIPT_DIR}:/backup-code:ro` + 容器内 `/backup-code/xxx.py`；**禁用 `${PROJECT_ROOT}/scripts/`**
+- `PROJECT_ROOT`（spug-3.0 仓库根）仅用于 `git -C`、`docker/.env` 等仓库结构路径
+- DB→documents/media 必须同一停写窗口；dry-run 也会跑 preflight（含 select_fileset_parent.py 调用），所以脚本路径错在 dry-run 阶段就暴露

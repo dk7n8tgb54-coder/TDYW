@@ -13,6 +13,9 @@ class RunLog(models.Model, TenantModelMixin):
     """运行日志事件表（闭环管理）"""
     objects = TenantModelManager()
     tenant_id = make_tenant_id()
+
+    SEVERITY_CHOICES = ('P0', 'P1', 'P2')
+    STATUS_CHOICES = ('in_progress', 'resolved', 'verified', 'closed', 'voided')
     
     # === 事件基本信息 ===
     event_title = models.CharField(max_length=200, help_text='事件标题')
@@ -83,6 +86,26 @@ class RunLog(models.Model, TenantModelMixin):
         indexes = [
             models.Index(fields=['tenant_id', 'status']),
             models.Index(fields=['tenant_id', 'severity']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(severity__in=['P0', 'P1', 'P2']),
+                name='runlog_severity_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(status__in=['in_progress', 'resolved', 'verified', 'closed', 'voided']),
+                name='runlog_status_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(update_count__gte=0),
+                name='runlog_update_count_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(last_update_date__isnull=True) |
+                      models.Q(first_update_date__isnull=True) |
+                      models.Q(last_update_date__gte=models.F('first_update_date')),
+                name='runlog_update_date_order',
+            ),
         ]
 
 
@@ -165,6 +188,20 @@ class RunLogUpdate(models.Model, TenantModelMixin):
             models.Index(fields=['runlog_id']),
             models.Index(fields=['tenant_id', 'runlog_id']),
             models.Index(fields=['update_date']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(sequence__gte=0),
+                name='runlog_update_sequence_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(update_type__in=['normal', 'correction', 'supplement', 'system']),
+                name='runlog_update_type_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(is_voided=False) | ~models.Q(void_reason=''),
+                name='runlog_update_void_reason',
+            ),
         ]
 
 

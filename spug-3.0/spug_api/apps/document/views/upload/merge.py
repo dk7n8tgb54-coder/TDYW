@@ -14,6 +14,8 @@ import os
 import json
 import time
 import logging
+from uuid import uuid4
+from django.db import transaction
 from django.views.generic import View
 from django.conf import settings
 from django.http import HttpRequest
@@ -417,7 +419,27 @@ def submit_merge_task(
         'start_time': time.time()
     }
 
-    task = merge_file_chunks.delay(job_data)
+    task_id = str(uuid4())
+
+    def dispatch_after_commit():
+        try:
+            merge_file_chunks.apply_async(args=[job_data], task_id=task_id)
+        except Exception as dispatch_error:
+            from apps.document.models import DocumentTransfer
+            DocumentTransfer.objects.filter(
+                pk=params.get('transfer_id'), celery_task_id=task_id,
+            ).update(
+                status=TransferStatus.FAILED.value,
+                error_message=f'合并任务投递失败: {dispatch_error}',
+            )
+            logger.error(
+                f'[Document][Merge] Dispatch after commit failed: '
+                f'transfer={params.get("transfer_id")}, task={task_id}, error={dispatch_error}',
+                exc_info=True,
+            )
+
+    transaction.on_commit(dispatch_after_commit)
+    task = merge_file_chunks.AsyncResult(task_id)
 
     return task, merge_task_id, merge_task_file
 
@@ -697,19 +719,25 @@ class FileMergeChunksView(View):
                 f.write(TransferStatus.FAILED.value.lower())
             return json_response(error=f'缺少分片: {missing_chunks}')
 
-        # 【修复竞态条件】先提交Celery任务获取task_id，再一次性更新传输记录
-        task, merge_task_id, merge_task_file = submit_merge_task(
-            params, names, chunk_dir, tenant_id, request
-        )
-        logger.info(f'[Document][Merge] Celery task submitted: task_id={task.id}, file={params["file_name"]}')
+        # 显式事务保证即使脱离 ATOMIC_REQUESTS 调用，也会先登记任务再在提交后投递。
+        with transaction.atomic():
+            task, merge_task_id, merge_task_file = submit_merge_task(
+                params, names, chunk_dir, tenant_id, request
+            )
+            logger.info(
+                f'[Document][Merge] Celery task registered: '
+                f'task_id={task.id}, file={params["file_name"]}'
+            )
 
-        # 一次性更新状态和task_id，避免并发查询看到不一致的状态
-        save_task_id_to_transfer(params['transfer_id'], task.id, user=request.user)  # 【M-1修复】传入用户
+            # 一次性更新状态和task_id，避免并发查询看到不一致的状态
+            save_task_id_to_transfer(
+                params['transfer_id'], task.id, user=request.user
+            )  # 【M-1修复】传入用户
 
-        # 写入任务文件
-        write_merge_task_file(
-            merge_task_file, params, params['is_public'], task.id, request.user
-        )
+            # 任务文件与数据库登记完成后，on_commit 回调才会投递 Celery。
+            write_merge_task_file(
+                merge_task_file, params, params['is_public'], task.id, request.user
+            )
 
         return json_response({
             'task_id': task.id,

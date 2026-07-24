@@ -1,17 +1,17 @@
 # ================================================================================
-# tdyw_backup 客户端配置模板（mariadb-dump / mariabackup 专用）
+# MariaDB 备份客户端配置模板（mariadb-dump 专用）
 # --------------------------------------------------------------------------------
-# 用途：供 backups/mariadump_backup.sh 与 mariabackup_backup.sh 使用，
-#       替代 root + 从 docker/.env 读取 MYSQL_ROOT_PASSWORD + 命令行 -p 传密码。
+# 用途：统一备份入口通过此文件读取数据库账号和密码，避免从 docker/.env 取密码，
+#       也避免在命令行使用 -u 或 -p 覆盖凭据。
 #
 # 部署步骤：
 #   1. 复制本模板到 /etc/tdyw-backup/tdyw_backup.cnf（或 docker/config/secrets/）
-#   2. 填入真实密码（与 init_db_accounts.sh 的 tdyw_backup secret 一致）
+#   2. 填入当前实际使用的数据库账号和密码
 #   3. chmod 0600 该文件，属主为执行备份的系统用户
 #   4. 备份脚本通过 --defaults-extra-file=<此文件> 读取凭据
 #
-# 备份脚本会在容器内执行 mariadb-dump/mariabackup，host 固定为 tdyw-db（容器名）。
-# 若在宿主机直连，将 host 改为 127.0.0.1。
+# 统一 backup_set 脚本会把本文件复制到数据库容器内。user/password 仅以本文件为准；
+# host/port 会覆盖为数据库容器内的 127.0.0.1:3306。
 #
 # 安全要求：
 #   - 权限 0600，不得提交 Git
@@ -20,5 +20,5 @@
 [client]
 host=tdyw-db
 port=3306
-user=tdyw_backup
-password=REPLACE_WITH_TDYW_BACKUP_PASSWORD
+user=root
+password=REPLACE_WITH_DATABASE_PASSWORD

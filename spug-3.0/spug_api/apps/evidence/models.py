@@ -21,6 +21,7 @@
 - 便于单条业务记录导出完整证据包
 """
 from django.db import models
+from django.utils import timezone
 from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 
 
@@ -83,7 +84,8 @@ class EvidenceEvent(models.Model, TenantModelMixin):
     external_ts_token = models.CharField(max_length=255, default='', help_text='外部时间戳凭证，内网环境留空')
 
     # ---- 时间 ----
-    created_at = models.DateTimeField(auto_now_add=True, help_text='服务器时间')
+    # 服务层会先生成该时间并纳入 event_hash；default 允许同一精确值原样落库。
+    created_at = models.DateTimeField(default=timezone.now, help_text='服务器时间')
 
     def __repr__(self):
         return '<EvidenceEvent %s/%s/%s %s>' % (

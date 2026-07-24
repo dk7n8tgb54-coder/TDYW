@@ -224,18 +224,33 @@ class ContractAgreementView(View):
             return self._post_edit(request, form)
         return self._post_create(request, form)
 
-    def _validate_edit_form(self, form):
-        """编辑模式下的字段校验，返回错误消息或 None"""
+    def _validate_edit_form(self, agreement, form):
+        """按编辑后的完整状态校验，避免局部更新绕过跨字段规则。"""
+        valid_start_date = agreement.valid_start_date
         if form.valid_start_date:
-            _, err = _parse_date(form.valid_start_date, '起始日期')
+            valid_start_date, err = _parse_date(form.valid_start_date, '起始日期')
             if err:
                 return err
+        valid_end_date = agreement.valid_end_date
         if form.valid_end_date:
-            _, err = _parse_date(form.valid_end_date, '截止日期')
+            valid_end_date, err = _parse_date(form.valid_end_date, '截止日期')
             if err:
                 return err
+        if valid_start_date > valid_end_date:
+            return '起始日期不能晚于截止日期'
         if form.contract_type is not None and form.contract_type not in dict(ContractAgreement.CONTRACT_TYPE_CHOICES):
             return '未知的合同类型'
+
+        has_fee = agreement.has_fee if form.has_fee is None else bool(form.has_fee)
+        fee_amount = agreement.fee_amount if form.fee_amount is None else form.fee_amount
+        if has_fee:
+            if fee_amount in (None, ''):
+                return '有费用时请填写费用金额'
+            try:
+                if Decimal(str(fee_amount)) < 0:
+                    return '费用金额不能小于 0'
+            except (InvalidOperation, ValueError):
+                return '费用金额格式不正确'
         return None
 
     def _post_edit(self, request, form):
@@ -246,7 +261,7 @@ class ContractAgreementView(View):
         agreement = qs.filter(pk=form.id).first()
         if not agreement:
             return json_response(error='合同协议不存在或无权限编辑')
-        err = self._validate_edit_form(form)
+        err = self._validate_edit_form(agreement, form)
         if err:
             return json_response(error=err)
         # 只更新传入的非 None 字段

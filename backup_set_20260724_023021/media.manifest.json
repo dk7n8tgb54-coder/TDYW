@@ -1,0 +1,109 @@
+{
+  "archive": "media.tar.gz",
+  "archive_sha256": "f9426bf3359fe82ed4222d04af95157fe1c19c88c789123146bb80b2550dcddf",
+  "archive_size": 68,
+  "backup_mode": "incremental",
+  "backup_set_id": "backup_set_20260724_023021",
+  "base_backup_set_id": "backup_set_20260724_020501",
+  "created_at": "2026-07-24T02:30:52.114569+00:00",
+  "delta_manifest": "media.delta.json",
+  "directories": [
+    "account_signature",
+    "account_signature/admin",
+    "account_signature/admin/202607",
+    "account_signature/admin/202607/user_signature_1",
+    "account_signature/stress",
+    "account_signature/stress/202607",
+    "account_signature/stress/202607/user_signature_2",
+    "account_signature/stress/202607/user_signature_3",
+    "account_signature/stress/202607/user_signature_4",
+    "account_signature/stress/202607/user_signature_5",
+    "account_signature/stress/202607/user_signature_6"
+  ],
+  "directory_count": 11,
+  "file_count": 11,
+  "files": [
+    {
+      "ctime_ns": 1784854750394346675,
+      "mtime_ns": 1784854750394346675,
+      "relative_path": "account_signature/admin/202607/user_signature_1/c18fd5a06a1d46b0b48423597bb5b7f4.png",
+      "sha256": "209294548643a37bb214da19f739654983068116e02954d06a6bb994a109b73b",
+      "size": 24424
+    },
+    {
+      "ctime_ns": 1784641441924360641,
+      "mtime_ns": 1784641441924360641,
+      "relative_path": "account_signature/stress/202607/user_signature_2/0b9a9620c8b041139075fbd57c9febdf.png",
+      "sha256": "546aeb62ad7fae71d0fc496a431f1243ed4dcf10c879df73b575112aaf6da05c",
+      "size": 5618
+    },
+    {
+      "ctime_ns": 1784731315701221002,
+      "mtime_ns": 1784731315701221002,
+      "relative_path": "account_signature/stress/202607/user_signature_2/679019a3007b4402a94753b33564efd1.png",
+      "sha256": "ab4a381e68bb0e51fa9ca4e0c6b79501681e67c4ff9d3cff2b0b28c259142107",
+      "size": 39224
+    },
+    {
+      "ctime_ns": 1784641441952085198,
+      "mtime_ns": 1784641441952085198,
+      "relative_path": "account_signature/stress/202607/user_signature_3/aa99a4a36c2d419f820240720f0c7a89.png",
+      "sha256": "7df6cbf9616c0abb01f65a63b11a77f267c1513676ef7dc689a6d3099a3251aa",
+      "size": 6301
+    },
+    {
+      "ctime_ns": 1784731292123690850,
+      "mtime_ns": 1784731292123690850,
+      "relative_path": "account_signature/stress/202607/user_signature_3/b2de67724eb14584b5c70e5093fa6aa5.png",
+      "sha256": "5c15fc08dc76b44cc2a9313d96687f6e6aecafabe427ec26f1d7f7fc2a1a0790",
+      "size": 52717
+    },
+    {
+      "ctime_ns": 1784731286095643888,
+      "mtime_ns": 1784731286095643888,
+      "relative_path": "account_signature/stress/202607/user_signature_4/8ea9706858c24458b04d877738c112c2.png",
+      "sha256": "ab4a381e68bb0e51fa9ca4e0c6b79501681e67c4ff9d3cff2b0b28c259142107",
+      "size": 39224
+    },
+    {
+      "ctime_ns": 1784641441971888455,
+      "mtime_ns": 1784641441971888455,
+      "relative_path": "account_signature/stress/202607/user_signature_4/c3f154469efd45afa797d502862ab47b.png",
+      "sha256": "847b58eaf2699940b0a21c26c65ad12fc6dfceea88027bc34e046da185bc7aee",
+      "size": 6513
+    },
+    {
+      "ctime_ns": 1784731279020298095,
+      "mtime_ns": 1784731279020298095,
+      "relative_path": "account_signature/stress/202607/user_signature_5/633de31559844b818f4c8da627071b55.png",
+      "sha256": "209294548643a37bb214da19f739654983068116e02954d06a6bb994a109b73b",
+      "size": 24424
+    },
+    {
+      "ctime_ns": 1784641441995652361,
+      "mtime_ns": 1784641441995652361,
+      "relative_path": "account_signature/stress/202607/user_signature_5/e5bc0458731642c0816cc98146b672ed.png",
+      "sha256": "6edbdaf48db4e681f08f21133fb308d4a778affe73fce85fe2e83aa02b01b55f",
+      "size": 5943
+    },
+    {
+      "ctime_ns": 1784731271634164410,
+      "mtime_ns": 1784731271634164410,
+      "relative_path": "account_signature/stress/202607/user_signature_6/4d347149db824e3780d0c5198e9c42dc.png",
+      "sha256": "7019e3086336846d2af7591020fa24c45c6114a0bc44d6ec5a177f135467874c",
+      "size": 75628
+    },
+    {
+      "ctime_ns": 1784641442015453932,
+      "mtime_ns": 1784641442015453932,
+      "relative_path": "account_signature/stress/202607/user_signature_6/e17f23ab12cb493795fc2700b868956c.png",
+      "sha256": "ee921853ae7a30e274208f35cd433d2384010a97bba64715201c866093f8699a",
+      "size": 6301
+    }
+  ],
+  "fileset": "media",
+  "parent_backup_set_id": "backup_set_20260724_020501",
+  "schema_version": 2,
+  "source_path": "/data/spug/spug_api/media",
+  "total_bytes": 286317
+}

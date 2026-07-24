@@ -22,6 +22,15 @@ class ContractAgreement(models.Model, TenantModelMixin):
         (TYPE_SERVICE_GUARANTEE, '服务保障协议'),
     )
 
+    STATUS_NORMAL = 'normal'
+    STATUS_EXPIRING = 'expiring'
+    STATUS_EXPIRED = 'expired'
+    STATUS_CHOICES = (
+        (STATUS_NORMAL, '正常'),
+        (STATUS_EXPIRING, '即将到期'),
+        (STATUS_EXPIRED, '已过期'),
+    )
+
     # ---- 业务字段 ----
     contract_name = models.CharField(max_length=200, help_text='合同名称')
     contract_type = models.CharField(max_length=30, choices=CONTRACT_TYPE_CHOICES, help_text='类型')
@@ -34,7 +43,10 @@ class ContractAgreement(models.Model, TenantModelMixin):
     signing_party = models.CharField(max_length=500, help_text='签约方')
     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
     responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
-    status = models.CharField(max_length=20, default='normal', help_text='状态: normal/expiring/expired')
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
+        help_text='状态: normal/expiring/expired',
+    )
     remark = models.TextField(default='', blank=True, help_text='备注')
     last_remind_at = models.DateTimeField(null=True, blank=True, help_text='最近提醒扫描时间')
 
@@ -65,6 +77,27 @@ class ContractAgreement(models.Model, TenantModelMixin):
             models.Index(fields=['tenant_id', 'status'], name='tdyw_contra_tenant_1880dc_idx'),
             models.Index(fields=['tenant_id', 'valid_end_date'], name='tdyw_contra_tenant_f97a10_idx'),
             models.Index(fields=['tenant_id', 'has_fee'], name='tdyw_contra_tenant_a34e30_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(contract_type__in=['device_purchase', 'info_access', 'service_guarantee']),
+                name='contract_type_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(status__in=['normal', 'expiring', 'expired']),
+                name='contract_status_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(valid_end_date__gte=models.F('valid_start_date')),
+                name='contract_date_order_valid',
+            ),
+            models.CheckConstraint(
+                check=(
+                    models.Q(has_fee=False) |
+                    models.Q(fee_amount__isnull=False, fee_amount__gte=0)
+                ),
+                name='contract_fee_valid',
+            ),
         ]
 
 

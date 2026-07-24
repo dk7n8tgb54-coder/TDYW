@@ -23,6 +23,7 @@
     )
 """
 import os
+from django.db import transaction
 import re
 import base64
 import logging
@@ -473,21 +474,32 @@ class AttachmentService:
         return None
 
     @staticmethod
+    def _remove_physical_file_on_commit(att: EvidenceAttachment) -> None:
+        """数据库提交后删除物理文件；失败时保留文件并记录，避免数据库回滚后文件丢失。"""
+        attachment_id = att.id
+        file_path = att.file_path
+
+        def remove_after_commit():
+            error = AttachmentService._remove_physical_file(att)
+            if error:
+                logger.error(
+                    f'[Evidence] 数据库已提交但物理文件清理失败，需重试: '
+                    f'ID={attachment_id} path={file_path} error={error}'
+                )
+
+        transaction.on_commit(remove_after_commit, robust=True)
+
+    @staticmethod
     def soft_delete(user, attachment_id, reason='', delete_file: bool = False) -> Optional[str]:
         """软删除附件，返回 error 或 None
 
-        delete_file=True 时先删除物理文件，删除成功后再软删除数据库记录；
-        物理文件不存在则记 warning 并继续软删除；物理删除失败则返回错误且不软删除。
+        delete_file=True 时先软删除数据库记录，事务提交后再删除物理文件。
+        物理删除失败仅保留孤儿文件并记录错误，不会破坏已提交的数据库一致性。
         """
         qs = apply_tenant_filter(EvidenceAttachment.objects.all(), user)
         att = qs.filter(pk=attachment_id, is_deleted=False).first()
         if not att:
             return '附件不存在或无权限删除'
-
-        if delete_file:
-            error = AttachmentService._remove_physical_file(att)
-            if error:
-                return error
 
         att.is_deleted = True
         att.deleted_at = timezone.now()
@@ -498,6 +510,8 @@ class AttachmentService:
             'is_deleted', 'deleted_at', 'deleted_by_id',
             'deleted_by_name', 'delete_reason',
         ])
+        if delete_file:
+            AttachmentService._remove_physical_file_on_commit(att)
         logger.info(
             f'[Evidence] 附件软删除 ID={att.id} 文件={att.file_name} '
             f'module={att.module} 用户={user.username}'
@@ -508,8 +522,8 @@ class AttachmentService:
     def soft_delete_by_object(user, module: str, object_type: str, object_id, reason='', delete_file: bool = False):
         """批量软删除某业务对象下的所有附件（用于业务对象删除时联动）
 
-        delete_file=True 时尽力删除物理文件：单个文件删除失败只记 warning 不中断，
-        仍软删除数据库记录（避免阻断业务对象删除主流程）。
+        delete_file=True 时在数据库事务提交后尽力删除物理文件。失败只记错误并保留文件，
+        避免数据库回滚后物理文件已经丢失。
         """
         qs = apply_tenant_filter(
             EvidenceAttachment.objects.filter(
@@ -522,10 +536,6 @@ class AttachmentService:
         uid = getattr(user, 'id', None)
         uname = user.nickname or user.username
         for att in qs:
-            if delete_file:
-                error = AttachmentService._remove_physical_file(att)
-                if error:
-                    logger.warning(f'[Evidence] 批量删除时物理文件清理失败，仍软删除记录: ID={att.id} {error}')
             att.is_deleted = True
             att.deleted_at = now
             att.deleted_by_id = uid
@@ -535,3 +545,5 @@ class AttachmentService:
                 'is_deleted', 'deleted_at', 'deleted_by_id',
                 'deleted_by_name', 'delete_reason',
             ])
+            if delete_file:
+                AttachmentService._remove_physical_file_on_commit(att)

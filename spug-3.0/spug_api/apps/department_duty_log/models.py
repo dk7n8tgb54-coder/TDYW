@@ -103,3 +103,44 @@ class DepartmentDutyLog(models.Model, ModelMixin):
                 name='department_duty_person_date_ix',
             ),
         ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(status__in=[item[0] for item in STATUS_CHOICES]),
+                name='duty_log_status_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(version__gte=1),
+                name='duty_log_version_valid',
+            ),
+            # 签署记录及其后续作废记录必须保留完整、可核验的签署快照。
+            models.CheckConstraint(
+                check=(
+                    models.Q(status=STATUS_DRAFT) |
+                    (
+                        models.Q(signature_usage_id__isnull=False) &
+                        models.Q(signed_by_id__isnull=False) &
+                        models.Q(signed_at__isnull=False) &
+                        models.Q(signature_version__isnull=False) &
+                        ~models.Q(signed_by_name__isnull=True) &
+                        ~models.Q(signed_by_name='') &
+                        ~models.Q(signature_sha256__isnull=True) &
+                        ~models.Q(signature_sha256='') &
+                        ~models.Q(business_snapshot_hash__isnull=True) &
+                        ~models.Q(business_snapshot_hash='')
+                    )
+                ),
+                name='duty_log_signature_fields',
+            ),
+            models.CheckConstraint(
+                check=(
+                    ~models.Q(status=STATUS_VOID) |
+                    (
+                        models.Q(voided_at__isnull=False) &
+                        models.Q(voided_by_id__isnull=False) &
+                        ~models.Q(void_reason__isnull=True) &
+                        ~models.Q(void_reason='')
+                    )
+                ),
+                name='duty_log_void_fields',
+            ),
+        ]

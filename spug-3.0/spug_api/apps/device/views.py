@@ -6,7 +6,7 @@ from libs import JsonParser, Argument, json_response, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from apps.device.models import DeviceResume, DeviceEvent
 from apps.logs.audit import record_audit_event
-from django.db import IntegrityError, DatabaseError
+from django.db import IntegrityError, DatabaseError, transaction
 from django.db.models import Q
 from django.http import HttpResponse
 import logging
@@ -284,13 +284,13 @@ class DeviceResumeView(View):
             record.remark = form.remark
             record.updated_by = request.user
             record.updated_at = timezone.now()
-            record.save()
-            logging.info(f'编辑设备成功｜租户：{record.tenant_id}｜用户：{request.user.username}｜设备编号：{record.device_sn}')
+            # 设备状态和证据事件是同一个业务操作，任一失败都必须整体回滚。
+            with transaction.atomic():
+                record.save()
 
-            # 证据闭环第三阶段：设备状态变更必须生成证据事件
-            # 方案 8.3.1：current_status 变化时写入证据事件（before/after 快照）
-            if status_changed:
-                try:
+                # 证据闭环第三阶段：设备状态变更必须生成证据事件
+                # 方案 8.3.1：current_status 变化时写入证据事件（before/after 快照）
+                if status_changed:
                     from apps.evidence.services import record_evidence_event
                     record_evidence_event(
                         tenant_id=record.tenant_id,
@@ -312,8 +312,8 @@ class DeviceResumeView(View):
                         event_title=f'设备状态变更 {record.device_sn}: {old_status_text} → {new_status_text}',
                         remark=f'状态由 {old_status_text} 变更为 {new_status_text}',
                     )
-                except Exception as ev_err:
-                    logger.error(f'设备状态变更证据事件写入失败｜设备ID：{record.id}｜错误：{ev_err}')
+
+            logging.info(f'编辑设备成功｜租户：{record.tenant_id}｜用户：{request.user.username}｜设备编号：{record.device_sn}')
 
             return json_response(record.to_view())
         except (IntegrityError, DatabaseError) as e:

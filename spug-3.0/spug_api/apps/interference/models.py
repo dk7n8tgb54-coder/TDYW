@@ -126,3 +126,80 @@ class Interference(models.Model, TenantModelMixin):
             models.Index(fields=['tenant_id', 'status'], name='inter_status_idx'),
             models.Index(fields=['tenant_id', '-datetime', '-id'], name='inter_time_idx'),
         ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(status__in=[item[0] for item in INTERFERENCE_STATUS_CHOICES]),
+                name='interference_status_valid',
+            ),
+            models.CheckConstraint(
+                check=(
+                    models.Q(status='draft') |
+                    models.Q(status='voided') |
+                    (
+                        models.Q(submitted_by_id__isnull=False) &
+                        models.Q(submitted_at__isnull=False) &
+                        ~models.Q(submitted_by_name='') &
+                        ~models.Q(snapshot_hash='')
+                    )
+                ),
+                name='interference_submit_fields',
+            ),
+            models.CheckConstraint(
+                check=(
+                    ~models.Q(status__in=['reviewed', 'reported', 'handled', 'closed']) |
+                    (
+                        models.Q(reviewed_by_id__isnull=False) &
+                        models.Q(reviewed_at__isnull=False) &
+                        ~models.Q(reviewed_by_name='')
+                    )
+                ),
+                name='interference_review_fields',
+            ),
+            models.CheckConstraint(
+                check=(
+                    ~models.Q(status__in=['reported', 'handled', 'closed']) |
+                    (
+                        models.Q(reported_by_id__isnull=False) &
+                        models.Q(reported_at__isnull=False) &
+                        ~models.Q(reported_by_name='')
+                    )
+                ),
+                name='interference_report_fields',
+            ),
+            models.CheckConstraint(
+                check=(
+                    ~models.Q(status__in=['handled', 'closed']) |
+                    (
+                        models.Q(handled_by_id__isnull=False) &
+                        models.Q(handled_at__isnull=False) &
+                        ~models.Q(handled_by_name='')
+                    )
+                ),
+                name='interference_handle_fields',
+            ),
+            models.CheckConstraint(
+                check=(
+                    ~models.Q(status='closed') |
+                    (
+                        models.Q(closed_by_id__isnull=False) &
+                        models.Q(closed_at__isnull=False) &
+                        ~models.Q(closed_by_name='') &
+                        ~models.Q(close_summary__isnull=True) &
+                        ~models.Q(close_summary='')
+                    )
+                ),
+                name='interference_close_fields',
+            ),
+            models.CheckConstraint(
+                check=(
+                    ~models.Q(status='voided') |
+                    (
+                        models.Q(voided_by_id__isnull=False) &
+                        models.Q(voided_at__isnull=False) &
+                        ~models.Q(voided_by_name='') &
+                        ~models.Q(void_reason='')
+                    )
+                ),
+                name='interference_void_fields',
+            ),
+        ]
