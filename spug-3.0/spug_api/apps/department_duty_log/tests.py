@@ -296,6 +296,32 @@ class DepartmentDutyLogPermissionTests(TestCase):
         body = self._parse(resp)
         self.assertTrue(body.get('error'))
 
+    def test_api09b_supper_can_view_others_draft(self):
+        """超级管理员可见他人草稿（列表 + 详情），但不授予编辑/删除/签署能力"""
+        record_a = _make_record(self.user_a)  # 草稿
+        record_b = _make_record(self.user_b, status=STATUS_SIGNED)  # 已签
+        supper = _make_user('supper_ddl_vis', is_supper=True, tenant_id='default')
+        client_s = _make_client(supper)
+
+        # 详情：他人草稿可访问
+        resp = client_s.get(f'/department-duty-log/records/{record_a.id}/')
+        body = self._parse(resp)
+        self.assertFalse(body.get('error'), body.get('error'))
+        self.assertEqual(body['data']['status'], STATUS_DRAFT)
+        # 能力字段：超管对他人草稿只读，不能编辑/删除/签署
+        caps = body['data']
+        self.assertFalse(caps['can_edit'])
+        self.assertFalse(caps['can_delete'])
+        self.assertFalse(caps['can_sign'])
+
+        # 列表：他人草稿也出现在列表中
+        resp = client_s.get('/department-duty-log/records/')
+        body = self._parse(resp)
+        self.assertFalse(body.get('error'), body.get('error'))
+        ids = [item['id'] for item in body['data']['records']]
+        self.assertIn(record_a.id, ids)
+        self.assertIn(record_b.id, ids)
+
     def test_create_duty_person_fixed_to_current_user(self):
         """创建时值班员和 created_by 固定为当前用户"""
         resp = self.client_a.post('/department-duty-log/records/', data=json.dumps({

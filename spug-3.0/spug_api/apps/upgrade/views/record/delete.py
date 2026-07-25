@@ -12,7 +12,7 @@ class RecordDeleteView(View):
 
     @auth('upgrade.upgrade.del')
     def delete(self, request, pk):
-        error = RecordService.delete_record(pk, request.user)
+        error = RecordService.delete_record(pk, request)
         if error:
             return json_response(error=error)
         return json_response()

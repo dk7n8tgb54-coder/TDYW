@@ -70,11 +70,10 @@ def apply_tenant_filter(queryset, request_user, strict_mode=False):
     # 【修改】严格模式下，超级管理员也按租户过滤
     if is_supper:
         if strict_mode:
-            # 严格模式：超级管理员也按租户过滤
-            tenant_id = getattr(request_user, 'tenant_id', 'admin')
-            filtered_queryset = queryset.filter(tenant_id=tenant_id)
-            logger.debug(f'[TENANT FILTER] 超级管理员 {username} (租户:{tenant_id}) - 严格模式，应用租户过滤')
-            return filtered_queryset
+            # 严格模式：超级管理员可查看所有账号（租户）的私密空间文件
+            # 需求：资料库"我的文件"私密空间，超级管理员可见所有账号的文件，其他账号保持隔离
+            logger.debug(f'[TENANT FILTER] 超级管理员 {username} - 严格模式，不应用租户过滤（可查看所有账号）')
+            return queryset
         else:
             # 非严格模式：超级管理员不过滤
             logger.debug(f'[TENANT FILTER] 超级管理员 {username} - 不应用租户过滤')

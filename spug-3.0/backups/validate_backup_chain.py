@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a schema-v4 backup chain and write a machine-readable restore plan."""
+"""Validate one schema-v4 full backup set and write its restore plan."""
 
 import argparse
 import json
@@ -7,7 +7,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from backup_chain import resolve_chain
+from backup_chain import validate_member
 
 
 def write_atomic(path, payload):
@@ -34,8 +34,8 @@ def main():
     parser.add_argument("--backup-set-dir", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
-    chain = resolve_chain(args.backup_set_dir)
-    target_path, target_manifest = chain[-1]
+    target_path = Path(args.backup_set_dir).resolve()
+    target_manifest = validate_member(target_path)
     artifacts = target_manifest["database"]["artifacts"]
     logical = next(item for item in artifacts if item["type"] == "logical")
     physical = next((item for item in artifacts if item["type"] == "physical"), None)
@@ -43,17 +43,13 @@ def main():
         "schema_version": 1,
         "target_backup_set_id": target_path.name,
         "backup_root": str(target_path.parent),
-        "chain": [path.name for path, _ in chain],
         "source_database_name": target_manifest["database"]["name"],
         "database_image": target_manifest["database"]["image"],
         "logical_database_artifact": str(target_path / logical["artifact"]),
         "physical_database_artifact": (
             str(target_path / physical["artifact"]) if physical else None
         ),
-        "fileset_mode": target_manifest["fileset_chain"]["mode"],
-        "fileset_base_backup_set_id": target_manifest["fileset_chain"][
-            "base_backup_set_id"
-        ],
+        "fileset_mode": target_manifest["fileset_mode"],
     }
     write_atomic(args.output, payload)
 

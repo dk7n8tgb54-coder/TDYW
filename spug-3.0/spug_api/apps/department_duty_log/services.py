@@ -297,15 +297,36 @@ def compute_record_capabilities(record, user):
 def get_visible_department_duty_logs(user):
     """返回当前用户可见的基础 QuerySet（未删除 + 可见性过滤）。
 
-    已签/已作废全局可见，草稿仅本人可见。
+    - 超级管理员：可见全部未删除记录（含他人草稿），仅查看，不授予编辑/删除/签署他人草稿的能力（由 compute_record_capabilities 的 is_owner 限制保证）。
+    - 普通用户：已签/已作废全局可见，草稿仅本人可见。
     不加任何租户条件。
     """
-    return DepartmentDutyLog.objects.filter(
-        deleted_at__isnull=True,
-    ).filter(
+    qs = DepartmentDutyLog.objects.filter(deleted_at__isnull=True)
+    if getattr(user, 'is_supper', False):
+        return qs
+    return qs.filter(
         Q(status__in=(STATUS_SIGNED, STATUS_VOID)) |
         Q(status=STATUS_DRAFT, duty_person_id=user.id)
     )
+
+
+def list_duty_dates(user, year, month):
+    """返回当前用户可见的某月内已有值班日志的 duty_date 列表（去重，升序）。
+
+    供前端日期选择器在面板上标记已有值班日志的日期。
+    仅返回日期字符串（YYYY-MM-DD），不暴露任何业务字段。
+    """
+    qs = get_visible_department_duty_logs(user)
+    qs = qs.filter(
+        duty_date__year=year,
+        duty_date__month=month,
+    )
+    values = (
+        qs.values_list('duty_date', flat=True)
+        .order_by('duty_date')
+        .distinct()
+    )
+    return [d.isoformat() for d in values]
 
 
 def get_list_queryset(user, params):

@@ -251,6 +251,36 @@ class DepartmentDutyLogOptionsView(View):
         return json_response(data)
 
 
+class DepartmentDutyLogDutyDatesView(View):
+    """GET 已有值班日志日期列表
+
+    返回当前用户可见的某月内已有值班日志的 duty_date 列表（YYYY-MM-DD）。
+    供前端日期选择器在面板上标记"已有值班日志"的日期，避免重复登记。
+
+    查询参数：
+        year:  必填，4 位整数，如 2026
+        month: 必填，1-12 整数，如 7
+    """
+
+    @auth('department_duty_log.department_duty_log.view')
+    def get(self, request):
+        form, error = JsonParser(
+            Argument('year', type=int, help='请提供 year'),
+            Argument('month', type=int, help='请提供 month'),
+        ).parse(request.GET)
+        if error:
+            return json_response(error=error)
+
+        if not (1 <= form.month <= 12):
+            return json_response(error='month 必须在 1-12 之间')
+
+        if not (1900 <= form.year <= 9999):
+            return json_response(error='year 取值范围 1900-9999')
+
+        dates = services.list_duty_dates(request.user, form.year, form.month)
+        return json_response({'dates': dates})
+
+
 class DepartmentDutyLogPdfExportView(View):
     """POST 导出已签/已作废部门值班日志 PDF
 

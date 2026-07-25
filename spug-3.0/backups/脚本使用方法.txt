@@ -1,9 +1,19 @@
+# 每日独立全量备份
+BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf \
+BACKUP_ROOT=/data/backups/tdyw/backup_sets \
+DB_BACKUP_MODE=logical DRY_RUN=NO \
+./backups/backup_set_create.sh
+
+# 只校验备份集，不写数据
+./backups/backup_set_restore.sh backup_set_YYYYmmdd_HHMMSS
+
+# 隔离恢复演练
 APP_CONTAINER=tdyw-test DB_CONTAINER=tdyw-db-test \
 RESTORE_CLIENT_CNF=/etc/tdyw-backup/restore-test-admin.cnf \
 DRILL_ROOT=/tmp/tdyw-restore-drill \
-./backup_set_restore.sh --mode drill backup_set_20260710_232452
+./backups/backup_set_restore.sh --mode drill backup_set_YYYYmmdd_HHMMSS
 
+# 生产逻辑恢复（会覆盖数据库、documents、media）
 RESTORE_CLIENT_CNF=/etc/tdyw-backup/tdyw_restore.cnf \
-./backup_set_restore.sh --mode production backup_set_20260710_232452
-
-第一条只允许隔离测试容器；第二条会覆盖生产数据库、documents 和 media，执行前必须先做新的完整备份。
+DATABASE_RESTORE_MODE=logical \
+./backups/backup_set_restore.sh --mode production backup_set_YYYYmmdd_HHMMSS

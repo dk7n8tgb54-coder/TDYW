@@ -95,6 +95,14 @@ class DutyRecordView(View):
                 queryset, error_resp = tenant_operation_check(request, DutyRecord, form.id, '删除')
                 if error_resp:
                     return error_resp
+                record = apply_tenant_filter(
+                    DutyRecord.objects.filter(pk=form.id), request.user).first()
+                if record:
+                    record_audit_event(
+                        request, 'delete', 'duty',
+                        target_id=record.id, target_name=record.duty_person,
+                        detail={'department': record.department},
+                    )
                 queryset.delete()
             return json_response(error=error)
 
@@ -139,6 +147,14 @@ class DutyRecordView(View):
             queryset, error_resp = tenant_operation_check(request, DutyRecord, form.id, '删除')
             if error_resp:
                 return error_resp
+            record = apply_tenant_filter(
+                DutyRecord.objects.filter(pk=form.id), request.user).first()
+            if record:
+                record_audit_event(
+                    request, 'delete', 'duty',
+                    target_id=record.id, target_name=record.duty_person,
+                    detail={'department': record.department},
+                )
             queryset.delete()
         return json_response(error=error)
 

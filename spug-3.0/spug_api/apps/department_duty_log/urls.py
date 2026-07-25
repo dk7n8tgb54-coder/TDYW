@@ -13,10 +13,12 @@ from .views import (
     DepartmentDutyLogSignatureImageView,
     DepartmentDutyLogOptionsView,
     DepartmentDutyLogPdfExportView,
+    DepartmentDutyLogDutyDatesView,
 )
 
 urlpatterns = [
     path('records/', DepartmentDutyLogListCreateView.as_view()),
+    path('records/duty_dates/', DepartmentDutyLogDutyDatesView.as_view()),
     path('records/<int:pk>/', DepartmentDutyLogDetailView.as_view()),
     path('records/<int:pk>/sign/', DepartmentDutyLogSignView.as_view()),
     path('records/<int:pk>/void/', DepartmentDutyLogVoidView.as_view()),

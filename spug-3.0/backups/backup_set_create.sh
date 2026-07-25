@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ================================================================================
-# TDYW 统一一致性备份入口：MariaDB 每日逻辑全量 + documents/media 文件集快照
+# TDYW 统一一致性全量备份入口：MariaDB 逻辑全量 + documents/media 文件全量
 # --------------------------------------------------------------------------------
 # 适用环境：单机 Docker Compose，应用容器 tdyw，数据库容器 tdyw-db。
 #
@@ -15,8 +15,8 @@
 #     -> 停止 API 入口和 Celery beat
 #     -> graceful stop 全部 Celery worker
 #     -> 停止 tdyw 应用容器（tdyw-db 不停止）
-#     -> 每日生成数据库逻辑全量；每周可选附加 mariabackup 物理全量
-#     -> 每周生成 documents/media 全量基线，其余日期生成带删除清单的增量
+#     -> 生成数据库逻辑全量；可选附加 mariabackup 物理全量
+#     -> 生成 documents/media 独立文件全量
 #     -> 生成 manifest.json 与 SHA256SUMS
 #     -> 校验 gzip/tar/dump 结构/SHA-256
 #     -> 启动 tdyw 并等待健康检查
@@ -28,10 +28,8 @@
 #     database.mariabackup.tar.gz      # physical/both 模式
 #     documents.tar.gz
 #     documents.manifest.json
-#     documents.delta.json
 #     media.tar.gz
 #     media.manifest.json
-#     media.delta.json
 #     manifest.json
 #     SHA256SUMS
 #
@@ -48,42 +46,31 @@
 #      BACKUP_ROOT=/data/backups/tdyw/backup_sets \
 #      ./backups/backup_set_create.sh
 #
-#   2. 正式一致性备份（推荐的每日调度方式）：数据库始终逻辑全量；文件集默认 auto，
-#      每周日生成 documents/media 全量基线，其他日期在有效父链上生成增量。
-#      首次运行或找不到有效父链时，auto 会自动改为全量基线。
+#   2. 正式一致性全量备份（推荐的每日调度方式）：数据库、documents 和 media
+#      每次都生成可独立恢复的全量产物，不依赖任何父备份。
 #      BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf \
 #      BACKUP_ROOT=/data/backups/tdyw/backup_sets \
 #      DRY_RUN=NO ./backups/backup_set_create.sh
 #
-#   3. 强制文件集增量（仅限已有完整、成功的 schema 4 父链；否则任务失败）故障排查或特殊操作，一般不用
+#   3. 同时生成数据库逻辑全量和 mariabackup 物理全量
 #      BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf \
 #      BACKUP_ROOT=/data/backups/tdyw/backup_sets \
-#      FILESET_BACKUP_MODE=incremental DRY_RUN=NO \
+#      DB_BACKUP_MODE=both DRY_RUN=NO \
 #      ./backups/backup_set_create.sh
 #
-#   4. 强制新建 documents/media 全量基线   需要提前重建文件基线时使用
-#      BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf \
-#      BACKUP_ROOT=/data/backups/tdyw/backup_sets \
-#      FILESET_BACKUP_MODE=full DRY_RUN=NO ./backups/backup_set_create.sh
-#
-#   5. 每周全量文件基线日同时生成逻辑和物理数据库备份   可选，启用后改善恢复时间
-#      BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf \
-#      BACKUP_ROOT=/data/backups/tdyw/backup_sets \
-#      WEEKLY_PHYSICAL_BACKUP=YES DRY_RUN=NO ./backups/backup_set_create.sh
-#
-#   6. 正式备份并清理超过 30 天的“已验证成功”完整备份链   可选，确认备份链稳定后再启用
+#   4. 正式备份并清理超过 30 天的已验证成功全量备份   可选，确认恢复演练后再启用
 #      BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf \
 #      BACKUP_ROOT=/data/backups/tdyw/backup_sets \
 #      DRY_RUN=NO RETENTION_DAYS=30 RETENTION_DELETE=YES \
 #      ./backups/backup_set_create.sh
 #
-#   7. 隔离测试：容器名必须包含 test，输出目录必须位于 /tmp   仅测试环境使用
+#   5. 隔离测试：容器名必须包含 test，输出目录必须位于 /tmp   仅测试环境使用
 #      APP_CONTAINER=tdyw-test DB_CONTAINER=tdyw-db-test \
 #      BACKUP_CLIENT_CNF=/tmp/tdyw-backup-test.cnf \
 #      BACKUP_ROOT=/tmp/tdyw-backup-test/backup_sets \
 #      TEST_MODE=YES DRY_RUN=NO ./backups/backup_set_create.sh
 #
-#   8. 查看帮助
+#   6. 查看帮助
 #      ./backups/backup_set_create.sh --help
 #
 # 主要环境变量：
@@ -91,9 +78,7 @@
 #   DB_CONTAINER        数据库容器，默认 tdyw-db
 #   DB_NAME             数据库名；未设置时从 DB 容器 MYSQL_DATABASE 读取
 #   DB_BACKUP_MODE      logical|both，默认 logical；始终保留每日逻辑全量
-#   FILESET_BACKUP_MODE auto|full|incremental，默认 auto
-#   FILESET_FULL_WEEKDAY 每周全量基线日，1=周一、7=周日，默认 7
-#   WEEKLY_PHYSICAL_BACKUP YES 时在每周全量基线日附加 mariabackup，默认 NO
+#   FILESET_BACKUP_MODE 仅允许 full，默认 full；保留该变量用于显式拒绝旧增量配置
 #   BACKUP_CLIENT_CNF   MariaDB client cnf；账号和密码仅从此文件读取
 #   BACKUP_ROOT         backup_set 根目录，默认 /data/backups/tdyw/backup_sets
 #   MIN_FREE_PERCENT    备份盘最低空闲百分比，默认 20
@@ -114,9 +99,7 @@ APP_CONTAINER="${APP_CONTAINER:-tdyw}"
 DB_CONTAINER="${DB_CONTAINER:-tdyw-db}"
 DB_NAME="${DB_NAME:-}"
 DB_BACKUP_MODE="${DB_BACKUP_MODE:-logical}"
-FILESET_BACKUP_MODE="${FILESET_BACKUP_MODE:-auto}"
-FILESET_FULL_WEEKDAY="${FILESET_FULL_WEEKDAY:-7}"
-WEEKLY_PHYSICAL_BACKUP="${WEEKLY_PHYSICAL_BACKUP:-NO}"
+FILESET_BACKUP_MODE="${FILESET_BACKUP_MODE:-full}"
 BACKUP_CLIENT_CNF="${BACKUP_CLIENT_CNF:-/etc/tdyw-backup/tdyw_backup.cnf}"
 BACKUP_ROOT="${BACKUP_ROOT:-/data/backups/tdyw/backup_sets}"
 DOCUMENTS_PATH="${DOCUMENTS_PATH:-/data/spug/spug_api/storage/documents}"
@@ -146,10 +129,6 @@ CURRENT_STAGE="preflight"
 STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 FREEZE_STARTED_EPOCH=0
 FREEZE_SECONDS=0
-EFFECTIVE_FILESET_MODE=""
-BASE_BACKUP_SET_ID=""
-PARENT_BACKUP_SET_ID=""
-PARENT_BACKUP_SET_DIR=""
 
 # ============================================
 # 通用日志、布尔值和参数校验
@@ -162,36 +141,24 @@ usage() {
 Usage: backup_set_create.sh [--help]
 
 The script defaults to DRY_RUN=YES. Set DRY_RUN=NO explicitly for a real backup.
-Every successful set contains a full logical database dump. FILESET_BACKUP_MODE=auto
-creates a full documents/media baseline on FILESET_FULL_WEEKDAY (Sunday by default)
-and an incremental fileset on other days. If no valid parent exists, auto creates a
-new full baseline instead.
+Every successful set contains a full logical database dump and independent full
+documents/media archives. New incremental fileset backups are intentionally disabled.
 
 Dry-run:
   BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf \
   BACKUP_ROOT=/data/backups/tdyw/backup_sets \
   ./backups/backup_set_create.sh
 
-Recommended daily schedule (automatic weekly full / daily incremental fileset):
+Recommended daily full backup:
   BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf \
   BACKUP_ROOT=/data/backups/tdyw/backup_sets \
   DRY_RUN=NO ./backups/backup_set_create.sh
 
-Force an incremental fileset (requires a complete successful schema-v4 parent chain):
+Full backup with an additional physical MariaDB artifact:
   BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf \
   BACKUP_ROOT=/data/backups/tdyw/backup_sets \
-  FILESET_BACKUP_MODE=incremental DRY_RUN=NO \
+  DB_BACKUP_MODE=both DRY_RUN=NO \
   ./backups/backup_set_create.sh
-
-Force a new full fileset baseline:
-  BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf \
-  BACKUP_ROOT=/data/backups/tdyw/backup_sets \
-  FILESET_BACKUP_MODE=full DRY_RUN=NO ./backups/backup_set_create.sh
-
-Weekly full fileset baseline with an additional physical database artifact:
-  BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf \
-  BACKUP_ROOT=/data/backups/tdyw/backup_sets \
-  WEEKLY_PHYSICAL_BACKUP=YES DRY_RUN=NO ./backups/backup_set_create.sh
 
 Isolated test:
   APP_CONTAINER=tdyw-test DB_CONTAINER=tdyw-db-test \
@@ -308,59 +275,12 @@ trap 'exit 143' TERM
 # 脚本不会使用环境变量或命令行参数覆盖。TEST_MODE 额外限制测试容器名和输出目录。
 # ============================================
 resolve_backup_modes() {
-    local today_weekday parent_info=""
     case "${DB_BACKUP_MODE}" in
         logical|both) ;;
         *) fail "DB_BACKUP_MODE must be logical or both; daily logical backup is mandatory" ;;
     esac
-    case "${FILESET_BACKUP_MODE}" in
-        auto|full|incremental) ;;
-        *) fail "FILESET_BACKUP_MODE must be auto, full, or incremental" ;;
-    esac
-    validate_number FILESET_FULL_WEEKDAY "${FILESET_FULL_WEEKDAY}"
-    [ "${FILESET_FULL_WEEKDAY}" -ge 1 ] && [ "${FILESET_FULL_WEEKDAY}" -le 7 ] || \
-        fail "FILESET_FULL_WEEKDAY must be between 1 and 7"
-    today_weekday="$(date '+%u')"
-
-    if [ "${FILESET_BACKUP_MODE}" = "incremental" ] || \
-       { [ "${FILESET_BACKUP_MODE}" = "auto" ] && [ "${today_weekday}" != "${FILESET_FULL_WEEKDAY}" ]; }; then
-        parent_info="$(python3 "${SCRIPT_DIR}/select_fileset_parent.py" \
-            --backup-root "${BACKUP_ROOT}")"
-        if [ -n "${parent_info}" ]; then
-            IFS=$'\t' read -r PARENT_BACKUP_SET_ID BASE_BACKUP_SET_ID PARENT_BACKUP_SET_DIR <<< "${parent_info}"
-        fi
-    fi
-
-    case "${FILESET_BACKUP_MODE}" in
-        full)
-            EFFECTIVE_FILESET_MODE="full"
-            ;;
-        incremental)
-            [ -n "${PARENT_BACKUP_SET_ID}" ] || fail "incremental fileset backup requires a complete successful schema-v4 parent chain"
-            EFFECTIVE_FILESET_MODE="incremental"
-            ;;
-        auto)
-            if [ "${today_weekday}" = "${FILESET_FULL_WEEKDAY}" ]; then
-                EFFECTIVE_FILESET_MODE="full"
-            elif [ -n "${PARENT_BACKUP_SET_ID}" ]; then
-                EFFECTIVE_FILESET_MODE="incremental"
-            else
-                EFFECTIVE_FILESET_MODE="full"
-                log "No valid incremental parent found; creating a new full fileset baseline"
-            fi
-            ;;
-    esac
-
-    if [ "${EFFECTIVE_FILESET_MODE}" = "full" ]; then
-        BASE_BACKUP_SET_ID="${BACKUP_SET_ID}"
-        PARENT_BACKUP_SET_ID=""
-        PARENT_BACKUP_SET_DIR=""
-    fi
-    if is_yes "${WEEKLY_PHYSICAL_BACKUP}" && \
-       [ "${today_weekday}" = "${FILESET_FULL_WEEKDAY}" ] && \
-       [ "${EFFECTIVE_FILESET_MODE}" = "full" ]; then
-        DB_BACKUP_MODE="both"
-    fi
+    [ "${FILESET_BACKUP_MODE}" = "full" ] || \
+        fail "FILESET_BACKUP_MODE only supports full; incremental backup generation is disabled"
 }
 
 preflight() {
@@ -453,9 +373,7 @@ database_container=${DB_CONTAINER}
 database_name=${DB_NAME}
 database_account=${DB_ACCOUNT}
 database_backup_mode=${DB_BACKUP_MODE}
-fileset_backup_mode=${EFFECTIVE_FILESET_MODE}
-fileset_base_backup_set_id=${BASE_BACKUP_SET_ID}
-fileset_parent_backup_set_id=${PARENT_BACKUP_SET_ID:-NONE}
+fileset_backup_mode=full
 documents_path=${DOCUMENTS_PATH}
 media_path=${MEDIA_PATH}
 document_chunks=EXCLUDED_TRANSIENT_UPLOAD_STATE
@@ -465,17 +383,21 @@ PLAN
 }
 
 # ============================================
-# 全局锁和 .inprogress 工作目录
+# 全局维护锁和 .inprogress 工作目录
 #
 # 锁文件与 backup_set 位于同一备份根目录。正式目录、失败目录和临时目录重名时立即失败，
 # 防止 mv 把新目录嵌套进已有目录。
 # ============================================
-acquire_lock_and_initialize() {
+acquire_maintenance_lock() {
     CURRENT_STAGE="lock"
+    command -v flock >/dev/null || fail "flock is required"
     mkdir -p -- "${BACKUP_ROOT}"
     chmod 700 "${BACKUP_ROOT}"
     exec 9>"${LOCK_FILE}"
-    flock -n 9 || fail "another backup is already running"
+    flock -n 9 || fail "another backup or restore operation is already running"
+}
+
+initialize_backup_workdir() {
     TEMP_DIR="${BACKUP_ROOT}/${BACKUP_SET_ID}.inprogress"
     [ ! -e "${TEMP_DIR}" ] && [ ! -e "${FINAL_DIR}" ] && [ ! -e "${FAILED_DIR}" ] || \
         fail "backup set id already exists: ${BACKUP_SET_ID}"
@@ -632,42 +554,28 @@ backup_database_physical() {
 }
 
 # ============================================
-# documents/media 全量/增量快照
+# documents/media 独立全量快照
 #
 # 应用容器已经停止，但 volume 仍可通过 --volumes-from 以只读方式挂载到短生命周期 helper。
 # Python 快照工具支持特殊文件名，拒绝符号链接/特殊文件，并检测归档期间的状态变化。
-# 增量模式比较上一个成功快照，归档新增/修改文件并记录删除项；不依赖单一 mtime marker。
+# 每个归档都包含目标文件集的全部目录和文件，不引用其他备份集。
 # ============================================
 backup_fileset() {
     local name="$1" source="$2"
-    local -a parent_mount=() parent_args=()
     CURRENT_STAGE="${name}_archive"
-    log "Creating ${EFFECTIVE_FILESET_MODE} ${name} snapshot from the stopped application volume"
-    if [ "${EFFECTIVE_FILESET_MODE}" = "incremental" ]; then
-        parent_mount=(-v "${PARENT_BACKUP_SET_DIR}:/backup-parent:ro")
-        parent_args=(
-            --parent-backup-set-id "${PARENT_BACKUP_SET_ID}"
-            --previous-manifest "/backup-parent/${name}.manifest.json"
-        )
-    fi
+    log "Creating independent full ${name} snapshot from the stopped application volume"
     docker run --rm --network none \
         --volumes-from "${APP_CONTAINER}:ro" \
         -v "${SCRIPT_DIR}:/backup-code:ro" \
         -v "${TEMP_DIR}:/backup-output" \
-        "${parent_mount[@]}" \
         --entrypoint python3 "${APP_IMAGE}" \
         /backup-code/create_fileset_snapshot.py \
         --name "${name}" --source "${source}" \
         --archive "/backup-output/${name}.tar.gz" \
         --manifest "/backup-output/${name}.manifest.json" \
-        --delta-manifest "/backup-output/${name}.delta.json" \
-        --mode "${EFFECTIVE_FILESET_MODE}" \
-        --backup-set-id "${BACKUP_SET_ID}" \
-        --base-backup-set-id "${BASE_BACKUP_SET_ID}" \
-        "${parent_args[@]}"
+        --backup-set-id "${BACKUP_SET_ID}"
     tar -tzf "${TEMP_DIR}/${name}.tar.gz" >/dev/null || fail "${name} tar validation failed"
     [ -s "${TEMP_DIR}/${name}.manifest.json" ] || fail "${name} snapshot manifest is empty"
-    [ -s "${TEMP_DIR}/${name}.delta.json" ] || fail "${name} delta manifest is empty"
 }
 
 # ============================================
@@ -707,9 +615,6 @@ build_manifest() {
         --freeze-seconds "${FREEZE_SECONDS}" \
         --database-mode "${DB_BACKUP_MODE}" \
         "${database_artifact_args[@]}" \
-        --fileset-mode "${EFFECTIVE_FILESET_MODE}" \
-        --base-backup-set-id "${BASE_BACKUP_SET_ID}" \
-        --parent-backup-set-id "${PARENT_BACKUP_SET_ID}" \
         --documents-manifest /backup-output/documents.manifest.json \
         --media-manifest /backup-output/media.manifest.json
 }
@@ -723,8 +628,7 @@ build_manifest() {
 generate_and_verify_checksums() {
     CURRENT_STAGE="sha256"
     local -a artifacts=(database.sql.gz documents.tar.gz media.tar.gz \
-        documents.manifest.json documents.delta.json \
-        media.manifest.json media.delta.json manifest.json)
+        documents.manifest.json media.manifest.json manifest.json)
     if [ "${DB_BACKUP_MODE}" = "both" ]; then
         artifacts=(database.mariabackup.tar.gz "${artifacts[@]}")
     fi
@@ -755,8 +659,7 @@ verify_all_artifacts() {
 # ============================================
 # 保留策略
 #
-# 默认不删除。显式启用后按完整文件集链清理：只有基线及全部增量均验证成功，并且
-# 整条链最后一个恢复点也超过保留期，才删除整条链；绝不留下引用已删除基线的增量。
+# 默认不删除。显式启用后，每个通过完整校验且超过保留期的独立全量备份可单独删除。
 # ============================================
 cleanup_retention() {
     if ! is_yes "${RETENTION_DELETE}"; then
@@ -771,7 +674,7 @@ cleanup_retention() {
         [[ "$(basename "${candidate}")" =~ ^backup_set_[0-9]{8}_[0-9]{6}$ ]] || continue
         [ "$(dirname "${candidate}")" = "${resolved_root}" ] || fail "retention candidate escaped backup root"
         rm -rf -- "${candidate}"
-        log "Removed verified member of an expired backup chain: ${candidate}"
+        log "Removed expired verified full backup set: ${candidate}"
     done < <(python3 "${SCRIPT_DIR}/select_retention_chains.py" \
         --backup-root "${resolved_root}" --retention-days "${RETENTION_DAYS}")
 }
@@ -785,6 +688,10 @@ main() {
         return 0
     fi
     [ "$#" -eq 0 ] || fail "unknown argument: $1 (use --help)"
+    if ! is_yes "${DRY_RUN}"; then
+        # Retention must not race a backup or restore operation.
+        acquire_maintenance_lock
+    fi
     preflight
     check_disk_space
     print_plan
@@ -793,7 +700,7 @@ main() {
         return 0
     fi
 
-    acquire_lock_and_initialize
+    initialize_backup_workdir
     freeze_application
     # 每个成功备份集都包含目标日期的独立逻辑全量，避免数据库增量链依赖。
     backup_database_logical

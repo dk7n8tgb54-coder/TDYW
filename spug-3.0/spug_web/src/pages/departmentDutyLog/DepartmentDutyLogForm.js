@@ -31,11 +31,36 @@ class DepartmentDutyLogForm extends React.Component {
         version: record.version,
       });
     }
+    // 进入表单时预拉取当月已有值班日志日期，用于 DatePicker 面板标记
+    this._loadDutyDatesForMoment(moment(record && record.duty_date ? record.duty_date : undefined));
   }
 
   componentWillUnmount() {
     this._mounted = false;
   }
+
+  /**
+   * 根据一个 moment 拉取其所属月份的已有值班日志日期到 store 缓存。
+   * m 为空时使用今天。
+   */
+  _loadDutyDatesForMoment(m) {
+    const target = m ? moment(m) : moment();
+    store.fetchDutyDatesByMonth(target.year(), target.month() + 1);
+  }
+
+  handlePanelChange = (value) => {
+    if (!value) return;
+    this._loadDutyDatesForMoment(value);
+  };
+
+  renderDutyDateCell = (current) => {
+    if (!current) return null;
+    const dateStr = current.format('YYYY-MM-DD');
+    const hasLog = store.hasDutyDate(dateStr);
+    // 命中"已有值班日志"的日期填充浅绿底纹，其余保持原样（仅显示日期数字）
+    if (!hasLog) return <div className="duty-date-cell">{current.date()}</div>;
+    return <div className="duty-date-has-log">{current.date()}</div>;
+  };
 
   handleSubmit = () => {
     this.formRef.current.validateFields().then(values => {
@@ -94,16 +119,36 @@ class DepartmentDutyLogForm extends React.Component {
         destroyOnClose
         maskClosable={false}
       >
+        <style>{`
+          .duty-date-cell {
+            display: inline-block;
+          }
+          .duty-date-has-log {
+            display: inline-block;
+            min-width: 24px;
+            height: 24px;
+            line-height: 24px;
+            border-radius: 2px;
+            background-color: #d9f7be;
+          }
+          /* 选中态交给 antd 蓝色块，避免色块叠加 */
+          .ant-picker-cell-selected .duty-date-has-log {
+            background-color: transparent;
+          }
+        `}</style>
         <Form ref={this.formRef} layout="vertical">
           <Form.Item
             label="值班日期"
             name="duty_date"
             rules={[{required: true, message: '请选择值班日期'}]}
+            extra="浅绿色底纹的日期表示当天已有值班日志记录"
           >
             <DatePicker
               style={{width: '100%'}}
               disabledDate={(current) => current && current > moment().endOf('day')}
               placeholder="选择值班日期"
+              onPanelChange={this.handlePanelChange}
+              dateRender={this.renderDutyDateCell}
             />
           </Form.Item>
 

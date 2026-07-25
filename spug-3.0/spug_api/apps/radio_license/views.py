@@ -10,6 +10,7 @@ from django.http import FileResponse
 from django.utils import timezone
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
+from apps.logs.audit import record_audit_event
 from apps.radio_license.models import (
     RadioLicense, RadioLicenseFrequency,
     LicenseReminderAck,
@@ -306,6 +307,14 @@ class RadioLicenseView(View):
                 AttachmentService.soft_delete_by_object(
                     request.user, 'radio_license', 'license', form.id,
                     reason=f'执照删除 ID={form.id}', delete_file=True,
+                )
+                # 写入删除审计日志（在物理删除前调用，license_obj 字段仍可读取）
+                record_audit_event(
+                    request, 'delete', 'radio_license',
+                    target_id=license_obj.id, target_name=license_obj.station_name,
+                    detail={'purpose': license_obj.purpose,
+                            'valid_from': str(license_obj.valid_from),
+                            'valid_to': str(license_obj.valid_to)},
                 )
                 # 物理删除执照（CASCADE 自动级联删除频率/提醒确认记录）
                 license_obj.delete()

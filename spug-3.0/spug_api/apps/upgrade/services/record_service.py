@@ -160,22 +160,31 @@ class RecordService:
         return record, None
 
     @staticmethod
-    def delete_record(record_id, user):
+    def delete_record(record_id, request):
         """删除升级表单
 
-        联动处理：软删除该表单下的所有附件（附件存于 evidence 通用表）。
-        主表记录使用物理删除（与现有行为保持一致）。
+        联动处理：
+        1. 软删除该表单下的所有附件（附件存于 evidence 通用表）
+        2. 级联清理子表（UpgradeRecordStep / UpgradeStatusLog，二者用 IntegerField
+           upgrade_id 关联主表，DB 不会自动级联，必须手动清理避免孤儿数据）
+        3. 物理删除主表记录
+        4. 写入删除审计日志（record_audit_event 标记 request._audit_handled，
+           避免中间件重复记录）
 
         Args:
             record_id: 升级表单ID
-            user: 当前请求用户
+            request: 当前请求对象（用于权限过滤与审计日志）
 
         Returns:
             str: 错误消息，None 表示成功
         """
         from ..models import UpgradeRecord
+        from ..models_checklist import UpgradeRecordStep
+        from ..models_status_log import UpgradeStatusLog
         from apps.evidence.attachment_service import AttachmentService
+        from apps.logs.audit import record_audit_event
 
+        user = request.user
         record = apply_tenant_filter(
             UpgradeRecord.objects.filter(pk=record_id), user
         ).first()
@@ -192,6 +201,20 @@ class RecordService:
                     object_id=record_id,
                     reason='升级表单已删除',
                     delete_file=True,
+                )
+
+                # 级联清理子表：UpgradeRecordStep / UpgradeStatusLog 用 IntegerField
+                # upgrade_id 关联主表，数据库不会自动级联删除，必须手动清理，
+                # 否则主表删除后留下指向不存在 id 的孤儿数据
+                UpgradeRecordStep.objects.filter(upgrade_id=record_id).delete()
+                UpgradeStatusLog.objects.filter(upgrade_id=record_id).delete()
+
+                # 写入删除审计日志（在主表删除前调用，record 字段仍可读取）
+                record_audit_event(
+                    request, 'delete', 'upgrade',
+                    target_id=record.id, target_name=record.upgrade_no,
+                    detail={'title': record.title, 'system': record.system,
+                            'upgrade_type': record.upgrade_type},
                 )
 
                 record.delete()

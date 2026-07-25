@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -13,8 +14,9 @@ BACKUPS_DIR = Path(__file__).resolve().parents[2] / "backups"
 sys.path.insert(0, str(BACKUPS_DIR))
 
 import create_fileset_archive as archive_tool
+import restore_fileset_chain as restore_tool
 from create_fileset_snapshot import create_snapshot
-from restore_fileset_chain import apply_deletions, clear_target, extract_delta, verify_target
+from restore_fileset_chain import restore_full, verify_target
 
 
 class FilesetArchiveTests(unittest.TestCase):
@@ -93,73 +95,99 @@ class FilesetArchiveTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "file changed while being archived"):
                 self.create_archive()
 
-    def test_incremental_snapshot_tracks_changes_and_deletions(self):
-        unchanged = self.source / "unchanged.txt"
-        changed = self.source / "changed.txt"
-        removed = self.source / "removed.txt"
-        unchanged.write_text("same", encoding="utf-8")
-        changed.write_text("before", encoding="utf-8")
-        removed.write_text("remove", encoding="utf-8")
+    def test_full_snapshot_is_self_contained_and_restorable(self):
+        (self.source / "unchanged.txt").write_text("same", encoding="utf-8")
+        (self.source / "changed.txt").write_text("current", encoding="utf-8")
+        (self.source / "empty-dir").mkdir()
 
-        full_archive = self.output / "full.tar.gz"
-        full_manifest = self.output / "full.manifest.json"
+        full_archive = self.output / "documents.tar.gz"
+        full_manifest = self.output / "documents.manifest.json"
         create_snapshot(
             str(self.source),
             str(full_archive),
             str(full_manifest),
-            str(self.output / "full.delta.json"),
             "documents",
-            "full",
-            "backup_set_full",
             "backup_set_full",
         )
-
-        changed.write_text("after", encoding="utf-8")
-        removed.unlink()
-        (self.source / "added.txt").write_text("add", encoding="utf-8")
-        (self.source / "empty-dir").mkdir()
-
-        incremental_archive = self.output / "incremental.tar.gz"
-        incremental_manifest = self.output / "incremental.manifest.json"
-        incremental_delta = self.output / "incremental.delta.json"
-        create_snapshot(
-            str(self.source),
-            str(incremental_archive),
-            str(incremental_manifest),
-            str(incremental_delta),
-            "documents",
-            "incremental",
-            "backup_set_incremental",
-            "backup_set_full",
-            "backup_set_full",
-            str(full_manifest),
+        final_manifest = json.loads(full_manifest.read_text(encoding="utf-8"))
+        self.assertEqual(
+            [item["relative_path"] for item in final_manifest["files"]],
+            ["changed.txt", "unchanged.txt"],
         )
-
-        delta = json.loads(incremental_delta.read_text(encoding="utf-8"))
-        self.assertEqual(delta["added_or_changed_files"], ["added.txt", "changed.txt"])
-        self.assertEqual(delta["deleted_files"], ["removed.txt"])
-        self.assertEqual(delta["added_directories"], ["empty-dir"])
-        with tarfile.open(incremental_archive, "r:gz") as handle:
+        self.assertEqual(final_manifest["directories"], ["empty-dir"])
+        with tarfile.open(full_archive, "r:gz") as handle:
             self.assertEqual(
                 {item.name for item in handle.getmembers()},
-                {"added.txt", "changed.txt", "empty-dir"},
+                {"changed.txt", "unchanged.txt", "empty-dir"},
             )
 
         restore_target = self.root / "restore-target"
         restore_target.mkdir()
         (restore_target / "stray.txt").write_text("remove me", encoding="utf-8")
-        clear_target(restore_target)
-        for archive, delta_path in (
-            (full_archive, self.output / "full.delta.json"),
-            (incremental_archive, incremental_delta),
-        ):
-            delta_payload = json.loads(delta_path.read_text(encoding="utf-8"))
-            apply_deletions(restore_target, delta_payload)
-            extract_delta(restore_target, archive, delta_payload)
-        final_manifest = json.loads(incremental_manifest.read_text(encoding="utf-8"))
+        restore_full(restore_target, full_archive, final_manifest)
         verify_target(restore_target, final_manifest)
-        self.assertEqual((restore_target / "changed.txt").read_text(), "after")
-        self.assertFalse((restore_target / "removed.txt").exists())
+        self.assertEqual((restore_target / "changed.txt").read_text(), "current")
+        self.assertFalse((restore_target / "stray.txt").exists())
+
+    def test_incremental_snapshot_request_is_rejected(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(BACKUPS_DIR / "create_fileset_snapshot.py"),
+                "--name", "documents",
+                "--source", str(self.source),
+                "--archive", str(self.output / "incremental.tar.gz"),
+                "--manifest", str(self.output / "incremental.manifest.json"),
+                "--backup-set-id", "backup_set_incremental",
+                "--mode", "incremental",
+            ],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("unrecognized arguments", result.stderr)
+
+    def test_partial_old_file_move_is_rolled_back_without_data_loss(self):
+        (self.source / "a.txt").write_text("new-a", encoding="utf-8")
+        (self.source / "c.txt").write_text("new-c", encoding="utf-8")
+        archive = self.output / "documents.tar.gz"
+        manifest_path = self.output / "documents.manifest.json"
+        create_snapshot(
+            str(self.source),
+            str(archive),
+            str(manifest_path),
+            "documents",
+            "backup_set_full",
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        target = self.root / "rollback-target"
+        target.mkdir()
+        (target / "a.txt").write_text("old-a", encoding="utf-8")
+        (target / "b.txt").write_text("old-b", encoding="utf-8")
+        original_replace = restore_tool.os.replace
+
+        def fail_on_second_old_file(source, destination):
+            source_path = Path(source)
+            destination_path = Path(destination)
+            if source_path == target / "b.txt" and destination_path.parent.name.startswith(
+                ".tdyw-restore-rollback-"
+            ):
+                raise OSError("simulated move failure")
+            return original_replace(source, destination)
+
+        with mock.patch.object(
+            restore_tool.os, "replace", side_effect=fail_on_second_old_file
+        ):
+            with self.assertRaisesRegex(OSError, "simulated move failure"):
+                restore_tool.restore_full(target, archive, manifest)
+
+        self.assertEqual((target / "a.txt").read_text(encoding="utf-8"), "old-a")
+        self.assertEqual((target / "b.txt").read_text(encoding="utf-8"), "old-b")
+        self.assertFalse((target / "c.txt").exists())
+        self.assertFalse(
+            any(path.name.startswith(".tdyw-restore-") for path in target.iterdir())
+        )
 
 
 if __name__ == "__main__":

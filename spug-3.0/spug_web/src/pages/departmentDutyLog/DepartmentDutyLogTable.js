@@ -81,8 +81,6 @@ class DepartmentDutyLogTable extends React.Component {
         render: this.renderSummary},
       {title: '状态', dataIndex: 'status', key: 'status', width: 90,
         render: this.renderStatus},
-      {title: '签署时间', dataIndex: 'signed_at', key: 'signed_at', width: 160,
-        render: v => v || '--'},
       {title: '操作', key: 'action', width: 180, fixed: 'right',
         render: (_, record) => {
           return (
@@ -117,7 +115,7 @@ class DepartmentDutyLogTable extends React.Component {
           columns={columns}
           dataSource={store.records}
           loading={store.isFetching}
-          scroll={{x: 1200}}
+          scroll={{x: 1040}}
           pagination={{
             current: store.pageNum,
             pageSize: store.pageSize,

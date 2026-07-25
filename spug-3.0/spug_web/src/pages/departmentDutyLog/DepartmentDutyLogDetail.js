@@ -127,9 +127,8 @@ class DepartmentDutyLogDetail extends React.Component {
             <div style={{marginTop: 24, marginBottom: 8, fontWeight: 500, fontSize: 15}}>签署信息</div>
             <Descriptions column={2} bordered size="small">
               <Descriptions.Item label="签署人">{record.signed_by_name || '--'}</Descriptions.Item>
-              <Descriptions.Item label="签署时间">{record.signed_at || '--'}</Descriptions.Item>
               <Descriptions.Item label="签名版本">{record.signature_version || '--'}</Descriptions.Item>
-              <Descriptions.Item label="业务快照哈希">
+              <Descriptions.Item label="业务快照哈希" span={2}>
                 <span style={{wordBreak: 'break-all', fontSize: 12}}>
                   {record.business_snapshot_hash || '--'}
                 </span>

@@ -243,8 +243,10 @@ class FolderView(View):
         )
         if not is_public:
             # 私有空间严格租户过滤（与 apply_tenant_filter strict_mode=True 一致）
-            tenant_id = getattr(request.user, 'tenant_id', 'admin')
-            children_qs = children_qs.filter(tenant_id=tenant_id)
+            # 超级管理员可查看所有账号，不按租户过滤
+            if not getattr(request.user, 'is_supper', False):
+                tenant_id = getattr(request.user, 'tenant_id', 'admin')
+                children_qs = children_qs.filter(tenant_id=tenant_id)
         elif system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
             scope_ids = get_descendant_folder_ids(PARTY_BUILDING_DOCUMENTS_CODE, include_root=True)
             if scope_ids:

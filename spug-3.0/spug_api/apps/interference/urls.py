@@ -10,6 +10,5 @@ urlpatterns = [
     re_path(r'^$', InterferenceView.as_view()),
     re_path(r'export/$', InterferenceExportView.as_view()),
     re_path(r'statistics/$', InterferenceStatisticsView.as_view()),
-    re_path(r'state/$', InterferenceStateView.as_view()),
     re_path(r'evidence/package/$', InterferenceEvidencePackageView.as_view()),
 ]

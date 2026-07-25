@@ -31,6 +31,11 @@ class DepartmentDutyLogStore {
   // 选项
   @observable currentUser = null;
 
+  // 日期选择器面板上"已有值班日志"的日期集合，按 "YYYY-MM" 缓存
+  // 结构：{ 'YYYY-MM': Set(['YYYY-MM-DD', ...]) }
+  @observable dutyDatesByMonth = {};
+  @observable dutyDatesLoading = false;
+
   // 常量
   statusOptions = [
     {value: 'draft', label: '草稿'},
@@ -107,6 +112,37 @@ class DepartmentDutyLogStore {
   showVoid(record) {
     this.record = record;
     this.voidVisible = true;
+  }
+
+  /**
+   * 拉取指定月份的已有值班日志日期，结果缓存到 dutyDatesByMonth。
+   * 已缓存的月份不会重复请求。year/month 为整数。
+   */
+  @action.bound
+  fetchDutyDatesByMonth(year, month) {
+    const key = `${year}-${String(month).padStart(2, '0')}`;
+    if (this.dutyDatesByMonth[key]) return Promise.resolve(this.dutyDatesByMonth[key]);
+
+    this.dutyDatesLoading = true;
+    return http
+      .get('/api/department-duty-log/records/duty_dates/', {params: {year, month}})
+      .then(data => {
+        const set = new Set(data.dates || []);
+        this.dutyDatesByMonth = {...this.dutyDatesByMonth, [key]: set};
+        return set;
+      })
+      .finally(() => this.dutyDatesLoading = false);
+  }
+
+  /**
+   * 判断某日期是否已有值班日志。无缓存时返回 false（同步），
+   * 调用方应先 fetchDutyDatesByMonth 把当前面板月份数据拉到。
+   */
+  hasDutyDate(dateStr) {
+    const [y, m] = dateStr.split('-');
+    const key = `${y}-${m}`;
+    const set = this.dutyDatesByMonth[key];
+    return !!(set && set.has(dateStr));
   }
 }
 

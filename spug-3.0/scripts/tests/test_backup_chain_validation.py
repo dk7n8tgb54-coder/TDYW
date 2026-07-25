@@ -13,7 +13,7 @@ from pathlib import Path
 BACKUPS_DIR = Path(__file__).resolve().parents[2] / "backups"
 sys.path.insert(0, str(BACKUPS_DIR))
 
-from backup_chain import resolve_chain
+from backup_chain import validate_member
 from create_fileset_snapshot import create_snapshot
 
 
@@ -39,7 +39,7 @@ class BackupChainValidationTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def create_set(self, backup_set_id, mode, base_id, parent_id=""):
+    def create_set(self, backup_set_id):
         output = self.backups / backup_set_id
         output.mkdir()
         database = output / "database.sql.gz"
@@ -47,20 +47,12 @@ class BackupChainValidationTests(unittest.TestCase):
             handle.write("CREATE TABLE `test_record` (`id` bigint NOT NULL);\n")
 
         for name, source in (("documents", self.documents), ("media", self.media)):
-            previous = (
-                self.backups / parent_id / f"{name}.manifest.json" if parent_id else ""
-            )
             create_snapshot(
                 str(source),
                 str(output / f"{name}.tar.gz"),
                 str(output / f"{name}.manifest.json"),
-                str(output / f"{name}.delta.json"),
                 name,
-                mode,
                 backup_set_id,
-                base_id,
-                parent_id,
-                str(previous) if previous else "",
             )
 
         command = [
@@ -80,23 +72,17 @@ class BackupChainValidationTests(unittest.TestCase):
             "--freeze-seconds", "5",
             "--database-mode", "logical",
             "--logical-database-artifact", str(database),
-            "--fileset-mode", mode,
-            "--base-backup-set-id", base_id,
             "--documents-manifest", str(output / "documents.manifest.json"),
             "--media-manifest", str(output / "media.manifest.json"),
         ]
-        if parent_id:
-            command.extend(("--parent-backup-set-id", parent_id))
         subprocess.run(command, check=True)
 
         names = (
             "database.sql.gz",
             "documents.tar.gz",
             "documents.manifest.json",
-            "documents.delta.json",
             "media.tar.gz",
             "media.manifest.json",
-            "media.delta.json",
             "manifest.json",
         )
         with open(output / "SHA256SUMS", "w", encoding="ascii", newline="\n") as handle:
@@ -104,49 +90,49 @@ class BackupChainValidationTests(unittest.TestCase):
                 handle.write(f"{sha256_file(output / name)}  {name}\n")
         return output
 
-    def test_full_and_incremental_chain_is_selected_and_validated(self):
-        full_id = "backup_set_20260720_020000"
-        incremental_id = "backup_set_20260721_020000"
+    def rewrite_checksums(self, output):
+        names = (
+            "database.sql.gz",
+            "documents.tar.gz",
+            "documents.manifest.json",
+            "media.tar.gz",
+            "media.manifest.json",
+            "manifest.json",
+        )
+        with open(output / "SHA256SUMS", "w", encoding="ascii", newline="\n") as handle:
+            for name in names:
+                handle.write(f"{sha256_file(output / name)}  {name}\n")
+
+    def test_full_backup_sets_are_independent_and_retained_individually(self):
+        first_id = "backup_set_20260720_020000"
+        second_id = "backup_set_20260721_020000"
         (self.documents / "document.txt").write_text("before", encoding="utf-8")
         (self.media / "old.bin").write_bytes(b"old")
-        full = self.create_set(full_id, "full", full_id)
+        first = self.create_set(first_id)
 
         (self.documents / "document.txt").write_text("after", encoding="utf-8")
         (self.media / "old.bin").unlink()
         (self.media / "new.bin").write_bytes(b"new")
-        incremental = self.create_set(incremental_id, "incremental", full_id, full_id)
+        second = self.create_set(second_id)
 
-        chain = resolve_chain(incremental)
-        self.assertEqual([path.name for path, _ in chain], [full_id, incremental_id])
-
-        selected = subprocess.run(
-            [
-                sys.executable,
-                str(BACKUPS_DIR / "select_fileset_parent.py"),
-                "--backup-root", str(self.backups),
-            ],
-            check=True,
-            text=True,
-            capture_output=True,
-        ).stdout.strip()
-        self.assertEqual(selected.split("\t")[:2], [incremental_id, full_id])
+        self.assertEqual(validate_member(second)["backup_set_id"], second_id)
 
         plan_path = self.root / "restore-plan.json"
         subprocess.run(
             [
                 sys.executable,
                 str(BACKUPS_DIR / "validate_backup_chain.py"),
-                "--backup-set-dir", str(incremental),
+                "--backup-set-dir", str(second),
                 "--output", str(plan_path),
             ],
             check=True,
         )
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        self.assertEqual(plan["chain"], [full_id, incremental_id])
+        self.assertEqual(plan["target_backup_set_id"], second_id)
 
         old_time = time.time() - 40 * 86400
-        os.utime(full, (old_time, old_time))
-        os.utime(incremental, (old_time, old_time))
+        os.utime(first, (old_time, old_time))
+        os.utime(second, (old_time, old_time))
         retention = subprocess.run(
             [
                 sys.executable,
@@ -160,9 +146,9 @@ class BackupChainValidationTests(unittest.TestCase):
         selected_paths = {
             Path(os.fsdecode(item)).name for item in retention.split(b"\0") if item
         }
-        self.assertEqual(selected_paths, {full_id, incremental_id})
+        self.assertEqual(selected_paths, {first_id, second_id})
 
-        os.utime(incremental, None)
+        os.utime(second, None)
         retained = subprocess.run(
             [
                 sys.executable,
@@ -173,12 +159,45 @@ class BackupChainValidationTests(unittest.TestCase):
             check=True,
             capture_output=True,
         ).stdout
-        self.assertEqual(retained, b"")
+        retained_paths = {
+            Path(os.fsdecode(item)).name for item in retained.split(b"\0") if item
+        }
+        self.assertEqual(retained_paths, {first_id})
 
-        with open(full / "documents.tar.gz", "ab") as handle:
+        with open(first / "documents.tar.gz", "ab") as handle:
             handle.write(b"tampered")
+        self.assertEqual(validate_member(second)["backup_set_id"], second_id)
         with self.assertRaisesRegex(RuntimeError, "SHA-256 mismatch"):
-            resolve_chain(incremental)
+            validate_member(first)
+
+    def test_incremental_metadata_is_rejected(self):
+        backup_id = "backup_set_20260722_020000"
+        backup = self.create_set(backup_id)
+        manifest_path = backup / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["fileset_mode"] = "incremental"
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        self.rewrite_checksums(backup)
+        with self.assertRaisesRegex(RuntimeError, "only independent full"):
+            validate_member(backup)
+
+    def test_unified_restore_entry_can_verify_without_docker_or_credentials(self):
+        backup_id = "backup_set_20260723_020000"
+        (self.documents / "document.txt").write_text("content", encoding="utf-8")
+        (self.media / "media.bin").write_bytes(b"media")
+        backup = self.create_set(backup_id)
+        environment = os.environ.copy()
+        environment.pop("BACKUP_SET_DIR", None)
+        result = subprocess.run(
+            ["bash", str(BACKUPS_DIR / "backup_set_restore.sh"), str(backup)],
+            check=True,
+            env=environment,
+            text=True,
+            capture_output=True,
+        )
+        self.assertIn("Verification completed; no data was changed", result.stdout)
 
 
 if __name__ == "__main__":

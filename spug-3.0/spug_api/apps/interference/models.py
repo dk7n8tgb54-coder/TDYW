@@ -9,9 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# ==================== 证据闭环第三阶段：干扰记录状态流转 ====================
-# 状态机：draft → submitted → reviewed → reported → handled → closed
-#                                              ↘ voided（任何非 closed 终态可作废）
+# 干扰记录状态（保留 choices 供 to_view/约束使用；状态流转功能已移除）
 INTERFERENCE_STATUS_CHOICES = (
     ('draft', '草稿'),
     ('submitted', '已提交'),
@@ -20,26 +18,6 @@ INTERFERENCE_STATUS_CHOICES = (
     ('handled', '已处置'),
     ('closed', '已关闭'),
     ('voided', '已作废'),
-)
-
-# 合法状态流转路径
-INTERFERENCE_TRANSITIONS = {
-    'draft': {'submitted', 'voided'},
-    'submitted': {'reviewed', 'draft', 'voided'},   # 驳回回 draft
-    'reviewed': {'reported', 'submitted', 'voided'},
-    'reported': {'handled', 'reviewed', 'voided'},
-    'handled': {'closed', 'reported', 'voided'},
-    'closed': {'voided'},                            # 关闭后只能作废
-    'voided': set(),                                 # 终态
-}
-
-# 草稿状态可编辑核心字段；submitted 后核心字段不可直接覆盖，需走更正流程
-INTERFERENCE_EDITABLE_STATUSES = {'draft'}
-
-# 提交后锁定的核心字段（方案 9.3.3）
-INTERFERENCE_LOCKED_FIELDS = (
-    'frequency', 'datetime', 'coordinates', 'interference_type',
-    'phenomenon', 'flight_number', 'aircraft_type',
 )
 
 
@@ -108,14 +86,6 @@ class Interference(models.Model, TenantModelMixin):
         status_map = dict(INTERFERENCE_STATUS_CHOICES)
         tmp['status_text'] = status_map.get(self.status, self.status)
         return tmp
-
-    def can_edit(self):
-        """是否可编辑核心字段（仅 draft 状态可编辑）"""
-        return self.status in INTERFERENCE_EDITABLE_STATUSES
-
-    def can_transition_to(self, new_status):
-        """状态流转是否合法"""
-        return new_status in INTERFERENCE_TRANSITIONS.get(self.status, set())
 
     class Meta:
         db_table = 'tdyw_interferences'

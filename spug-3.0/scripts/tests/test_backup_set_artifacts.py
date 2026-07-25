@@ -49,20 +49,14 @@ class BackupSetArtifactTests(unittest.TestCase):
                 str(documents),
                 str(output / "documents.tar.gz"),
                 str(output / "documents.manifest.json"),
-                str(output / "documents.delta.json"),
                 "documents",
-                "full",
-                "backup_set_test",
                 "backup_set_test",
             )
             create_snapshot(
                 str(media),
                 str(output / "media.tar.gz"),
                 str(output / "media.manifest.json"),
-                str(output / "media.delta.json"),
                 "media",
-                "full",
-                "backup_set_test",
                 "backup_set_test",
             )
 
@@ -84,8 +78,6 @@ class BackupSetArtifactTests(unittest.TestCase):
                 "--database-mode", "both",
                 "--logical-database-artifact", str(database),
                 "--physical-database-artifact", str(physical_database),
-                "--fileset-mode", "full",
-                "--base-backup-set-id", "backup_set_test",
                 "--documents-manifest", str(output / "documents.manifest.json"),
                 "--media-manifest", str(output / "media.manifest.json"),
             ]
@@ -97,9 +89,7 @@ class BackupSetArtifactTests(unittest.TestCase):
                 "documents.tar.gz",
                 "media.tar.gz",
                 "documents.manifest.json",
-                "documents.delta.json",
                 "media.manifest.json",
-                "media.delta.json",
                 "manifest.json",
             ]
             checksums = {
@@ -118,7 +108,7 @@ class BackupSetArtifactTests(unittest.TestCase):
 
             manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["status"], "SUCCESS")
-            self.assertEqual(manifest["schema_version"], 4)
+            self.assertEqual(manifest["schema_version"], 5)
             self.assertEqual(manifest["database"]["account"], "root@localhost")
             self.assertEqual(manifest["database"]["backup_mode"], "both")
             self.assertEqual(
@@ -128,7 +118,7 @@ class BackupSetArtifactTests(unittest.TestCase):
             self.assertEqual(
                 manifest["database"]["artifacts"][1]["scope"], "server-instance"
             )
-            self.assertEqual(manifest["fileset_chain"]["mode"], "full")
+            self.assertEqual(manifest["fileset_mode"], "full")
             self.assertEqual(manifest["filesets"]["documents"]["file_count"], 1)
             self.assertEqual(manifest["filesets"]["media"]["file_count"], 1)
             for name, expected in checksums.items():

@@ -4,14 +4,10 @@
 from django.views.generic import View
 from django.utils import timezone
 from django.http import HttpResponse
-from django.db import transaction
 from django.utils import timezone
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
-from apps.interference.models import (
-    Interference, INTERFERENCE_STATUS_CHOICES, INTERFERENCE_TRANSITIONS,
-    INTERFERENCE_LOCKED_FIELDS,
-)
+from apps.interference.models import Interference, INTERFERENCE_STATUS_CHOICES
 from apps.evidence.services import record_evidence_event
 from apps.evidence.models import EvidenceEvent, EvidenceAttachment
 from apps.logs.models import AuditLog
@@ -248,7 +244,7 @@ class InterferenceView(View):
 
     @auth('interference.interference.del')
     def delete(self, request):
-        """删除干扰记录（证据闭环第三阶段：仅 draft/voided 可删除；其他状态需先作废）"""
+        """删除干扰记录"""
         form, error = JsonParser(
             Argument('id', type=int, help='请指定操作对象')
         ).parse(request.GET)
@@ -258,7 +254,6 @@ class InterferenceView(View):
             record = qs.filter(pk=form.id).first()
             if not record:
                 return json_response(error='删除失败：记录不存在或无权限删除')
-            # 状态流转功能已暂停：删除不再受 status 限制
             # 保留删除留痕（证据事件后台写入，不影响业务）
             try:
                 _record_interference_evidence(record, 'delete', request.user, remark='删除干扰记录')
@@ -270,198 +265,7 @@ class InterferenceView(View):
         return json_response(error=error)
 
 
-# ==================== 证据闭环第三阶段：状态流转接口 ====================
-
-# action → 新状态映射（供 InterferenceStateView.post 使用）
-_INTERFERENCE_ACTION_STATUS = {
-    'submit': 'submitted',
-    'review': 'reviewed',
-    'reject': 'submitted',  # 复核驳回回到 submitted（再驳回到 draft 由 edit 触发）
-    'report': 'reported',
-    'handle': 'handled',
-    'close': 'closed',
-    'void': 'voided',
-}
-# action → 证据事件类型映射
-_INTERFERENCE_EVENT_TYPE = {
-    'submit': 'submit', 'review': 'approve', 'reject': 'reject',
-    'report': 'other', 'handle': 'other',
-    'close': 'close', 'void': 'void',
-}
-
-
-def _set_audit_fields(record, user, now, id_field, name_field, at_field):
-    """统一填充「操作人 + 时间」三元组字段"""
-    actor_name = getattr(user, 'nickname', '') or getattr(user, 'username', '')
-    setattr(record, id_field, getattr(user, 'id', None))
-    setattr(record, name_field, actor_name)
-    setattr(record, at_field, now)
-
-
-def _interference_submit(record, user, form, now):
-    _set_audit_fields(record, user, now, 'submitted_by_id', 'submitted_by_name', 'submitted_at')
-
-
-def _interference_review(record, user, form, now):
-    _set_audit_fields(record, user, now, 'reviewed_by_id', 'reviewed_by_name', 'reviewed_at')
-    record.review_comment = form.review_comment or ''
-
-
-def _interference_reject(record, user, form, now):
-    record.review_comment = form.review_comment or ''
-
-
-def _interference_report(record, user, form, now):
-    _set_audit_fields(record, user, now, 'reported_by_id', 'reported_by_name', 'reported_at')
-    record.report_channel = form.report_channel or ''
-    record.report_no = form.report_no or ''
-    # 兼容旧字段 is_reported
-    record.is_reported = '是'
-
-
-def _interference_handle(record, user, form, now):
-    _set_audit_fields(record, user, now, 'handled_by_id', 'handled_by_name', 'handled_at')
-
-
-def _interference_close(record, user, form, now):
-    _set_audit_fields(record, user, now, 'closed_by_id', 'closed_by_name', 'closed_at')
-    record.close_summary = form.close_summary or ''
-
-
-def _interference_void(record, user, form, now):
-    _set_audit_fields(record, user, now, 'voided_by_id', 'voided_by_name', 'voided_at')
-    record.void_reason = form.void_reason or ''
-
-
-# action → 专属字段更新处理器（submit 单独处理快照）
-_INTERFERENCE_ACTION_APPLIER = {
-    'submit': _interference_submit,
-    'review': _interference_review,
-    'reject': _interference_reject,
-    'report': _interference_report,
-    'handle': _interference_handle,
-    'close': _interference_close,
-    'void': _interference_void,
-}
-
-
-def _apply_interference_action(record, action, new_status, user, form, now):
-    """根据 action 更新干扰记录的专属字段并完成状态流转
-
-    从 InterferenceStateView.post 抽取，降低主函数圈复杂度。
-    submit 动作需在状态流转后重新构建快照以与落库值一致。
-    """
-    applier = _INTERFERENCE_ACTION_APPLIER.get(action)
-    if applier is not None:
-        applier(record, user, form, now)
-
-    # submit 需先设置 status 再算快照，保证快照与落库一致
-    if action == 'submit':
-        record.status = new_status
-        snapshot = _build_interference_snapshot(record)
-        record.snapshot_hash = _compute_interference_snapshot_hash(snapshot)
-    else:
-        record.status = new_status
-
-    record.updated_at = now
-    record.updated_by = user
-    record.save()
-
-
-def _validate_interference_action(form):
-    new_status = _INTERFERENCE_ACTION_STATUS.get(form.action)
-    if not new_status:
-        return None, f'非法操作类型: {form.action}'
-    if form.action == 'close' and not (form.close_summary or '').strip():
-        return None, '关闭记录时必须填写关闭总结'
-    if form.action == 'void' and not (form.void_reason or '').strip():
-        return None, '作废记录时必须填写作废原因'
-    return new_status, None
-
-
-class InterferenceStateView(View):
-    """干扰记录状态流转 - 提交/复核/上报/处置/关闭/作废"""
-
-    @auth('interference.interference.view')
-    def get(self, request):
-        """查询状态流转可选动作"""
-        record_id = request.GET.get('id')
-        if not record_id:
-            return json_response(error='缺少 id 参数')
-        record = apply_tenant_filter(
-            Interference.objects.all(), request.user
-        ).filter(pk=record_id).first()
-        if not record:
-            return json_response(error='记录不存在或无权限')
-        allowed = INTERFERENCE_TRANSITIONS.get(record.status, set())
-        status_map = dict(INTERFERENCE_STATUS_CHOICES)
-        return json_response({
-            'id': record.id,
-            'status': record.status,
-            'status_text': status_map.get(record.status, record.status),
-            'can_edit': record.can_edit(),
-            'next_statuses': [
-                {'value': s, 'label': status_map.get(s, s)}
-                for s in sorted(allowed)
-            ],
-        })
-
-    @auth('interference.interference.edit')
-    def post(self, request):
-        """执行状态流转（通过 action 参数区分）
-
-        action: submit/review/reject/report/handle/close/void
-        """
-        form, error = JsonParser(
-            Argument('id', type=int, help='请指定操作对象'),
-            Argument('action', help='请输入操作类型'),
-            Argument('review_comment', required=False),
-            Argument('report_channel', required=False),
-            Argument('report_no', required=False),
-            Argument('close_summary', required=False),
-            Argument('void_reason', required=False),
-        ).parse(request.body)
-        if error:
-            return json_response(error=error)
-
-        new_status, error = _validate_interference_action(form)
-        if error:
-            return json_response(error=error)
-
-        user = request.user
-        now = timezone.now()
-
-        try:
-            with transaction.atomic():
-                record = apply_tenant_filter(
-                    Interference.objects.all(), request.user
-                ).select_for_update().filter(pk=form.id).first()
-                if not record:
-                    return json_response(error='记录不存在或无权限')
-
-                if not record.can_transition_to(new_status):
-                    status_map = dict(INTERFERENCE_STATUS_CHOICES)
-                    return json_response(
-                        error=f'当前状态[{status_map.get(record.status, record.status)}]'
-                              f'不能转为[{status_map.get(new_status, new_status)}]')
-
-                # 执行 action 专属字段更新 + 状态流转
-                _apply_interference_action(record, form.action, new_status, user, form, now)
-
-                # 写入证据事件
-                remark = (form.review_comment or form.close_summary
-                         or form.void_reason or form.report_no or '')
-                _record_interference_evidence(
-                    record, _INTERFERENCE_EVENT_TYPE[form.action], user, remark=remark)
-
-            return json_response({'id': record.id, 'status': record.status})
-
-        except Exception as e:
-            logger.error(f'干扰记录状态流转失败: {e}', exc_info=True)
-            return json_response(error=str(e))
-
-
-# ==================== 证据闭环第三阶段：证据包导出 ====================
+# ==================== 证据包导出 ====================
 
 class InterferenceEvidencePackageView(View):
     """干扰记录证据包导出 - 包含业务快照/证据事件/审计日志/附件哈希清单"""

@@ -6,6 +6,7 @@ from django.utils import timezone
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from apps.fault.models import FaultRecord, FaultPart
+from apps.logs.audit import record_audit_event
 import logging
 
 logger = logging.getLogger(__name__)
@@ -67,9 +68,17 @@ class FaultRecordView(View):
             Argument('id', type=int, help='请指定操作对象')
         ).parse(request.GET)
         if error is None:
-            if not apply_tenant_filter(FaultRecord.objects.filter(pk=form.id), request.user).exists():
+            record = apply_tenant_filter(
+                FaultRecord.objects.all(), request.user
+            ).filter(pk=form.id).first()
+            if not record:
                 return json_response(error='记录不存在或无权操作')
-            FaultRecord.objects.filter(pk=form.id).delete()
+            record_audit_event(
+                request, 'delete', 'fault',
+                target_id=record.id, target_name=record.system_name,
+                detail={'device_code': record.device_code, 'fault_level': record.fault_level},
+            )
+            record.delete()
         return json_response(error=error)
 
 
@@ -135,7 +144,15 @@ class FaultPartView(View):
             Argument('id', type=int, help='请指定操作对象')
         ).parse(request.GET)
         if error is None:
-            if not apply_tenant_filter(FaultPart.objects.filter(pk=form.id), request.user).exists():
+            record = apply_tenant_filter(
+                FaultPart.objects.all(), request.user
+            ).filter(pk=form.id).first()
+            if not record:
                 return json_response(error='记录不存在或无权操作')
-            FaultPart.objects.filter(pk=form.id).delete()
+            record_audit_event(
+                request, 'delete', 'fault',
+                target_id=record.id, target_name=record.name,
+                detail={'system_name': record.system_name, 'status': record.status},
+            )
+            record.delete()
         return json_response(error=error)

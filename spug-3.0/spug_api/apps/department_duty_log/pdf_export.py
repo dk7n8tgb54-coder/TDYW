@@ -243,22 +243,24 @@ def _build_record_block(record, signature_image, index):
     ]
 
     # 签署信息行（仅已签/已作废有）
+    sign_id_row = None
     if is_signed or is_void:
         detail_rows.append([
             _label('签署人'), _value(record.get('signed_by_name')),
-            _label('签署时间'), _value(record.get('signed_at')),
-        ])
-        detail_rows.append([
             _label('签名版本'), _value(record.get('signature_version')),
-            _label('签名SHA256'), _value(_short(record.get('signature_sha256'), 32)),
         ])
         detail_rows.append([
+            _label('签名SHA256'), _value(_short(record.get('signature_sha256'), 32)),
             _label('业务快照哈希'), _value(_short(record.get('business_snapshot_hash'), 32)),
+        ])
+        sign_id_row = len(detail_rows)
+        detail_rows.append([
             _label('签署记录ID'), _value(record.get('signature_usage_id')),
+            '', '',
         ])
 
     detail_table = Table(detail_rows, colWidths=[3.0 * cm, 5.5 * cm, 3.0 * cm, 5.5 * cm])
-    detail_table.setStyle(TableStyle([
+    table_style_cmds = [
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
@@ -270,7 +272,11 @@ def _build_record_block(record, signature_image, index):
         ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
         ('GRID', (0, 0), (-1, -1), 0.3, THEME_LIGHT_GRAY),
         ('FONTNAME', (0, 0), (-1, -1), FONT_NAME),
-    ]))
+    ]
+    # 签署记录ID 行的 value 跨第1-3列，避免右侧出现灰色空 label 块
+    if sign_id_row is not None:
+        table_style_cmds.append(('SPAN', (1, sign_id_row), (3, sign_id_row)))
+    detail_table.setStyle(TableStyle(table_style_cmds))
     elements.append(Spacer(1, 4))
     elements.append(detail_table)
 

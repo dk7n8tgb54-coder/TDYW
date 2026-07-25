@@ -62,9 +62,6 @@ def main():
     )
     parser.add_argument("--logical-database-artifact", default="")
     parser.add_argument("--physical-database-artifact", default="")
-    parser.add_argument("--fileset-mode", choices=("full", "incremental"), required=True)
-    parser.add_argument("--base-backup-set-id", required=True)
-    parser.add_argument("--parent-backup-set-id", default="")
     parser.add_argument("--documents-manifest", required=True)
     parser.add_argument("--media-manifest", required=True)
     args = parser.parse_args()
@@ -73,6 +70,8 @@ def main():
         parser.error("logical database artifact is required for this database mode")
     if args.database_mode == "both" and not args.physical_database_artifact:
         parser.error("physical database artifact is required for this database mode")
+    if args.database_mode == "logical" and args.physical_database_artifact:
+        parser.error("logical database mode cannot include a physical artifact")
 
     database_artifacts = []
     if args.logical_database_artifact:
@@ -106,18 +105,14 @@ def main():
     documents = load_json(args.documents_manifest)
     media = load_json(args.media_manifest)
     for fileset in (documents, media):
-        if fileset.get("schema_version") != 2:
-            parser.error("fileset manifest must use schema_version 2")
+        if fileset.get("schema_version") != 3:
+            parser.error("fileset manifest must use schema_version 3")
         if fileset.get("backup_set_id") != args.backup_set_id:
             parser.error("fileset manifest backup_set_id does not match")
-        if fileset.get("backup_mode") != args.fileset_mode:
-            parser.error("fileset manifest backup mode does not match")
-        if fileset.get("base_backup_set_id") != args.base_backup_set_id:
-            parser.error("fileset manifest base backup set does not match")
-        if (fileset.get("parent_backup_set_id") or "") != args.parent_backup_set_id:
-            parser.error("fileset manifest parent backup set does not match")
+        if fileset.get("backup_mode") != "full":
+            parser.error("fileset manifest must be a full snapshot")
     payload = {
-        "schema_version": 4,
+        "schema_version": 5,
         "backup_set_id": args.backup_set_id,
         "status": args.status,
         "started_at": args.started_at,
@@ -126,11 +121,7 @@ def main():
         "git_commit": args.git_commit,
         "freeze_seconds": args.freeze_seconds,
         "consistency_method": "application stopped; database and file volumes captured in one freeze window",
-        "fileset_chain": {
-            "mode": args.fileset_mode,
-            "base_backup_set_id": args.base_backup_set_id,
-            "parent_backup_set_id": args.parent_backup_set_id or None,
-        },
+        "fileset_mode": "full",
         "database": {
             "name": args.database_name,
             "backup_mode": args.database_mode,
