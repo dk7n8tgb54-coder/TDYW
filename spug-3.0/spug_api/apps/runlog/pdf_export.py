@@ -12,7 +12,6 @@
 - 无大面积彩色背景、无卡片化设计、无装饰符号
 """
 
-import os
 import logging
 from io import BytesIO
 from datetime import datetime
@@ -26,80 +25,9 @@ from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer,
     HRFlowable
 )
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
+from libs.font_manager import FontManager, FONT_NAME
 
 logger = logging.getLogger(__name__)
-
-# ============ 字体管理 ============
-
-_FONT_REGISTERED = False
-FONT_NAME = 'SimHei'
-
-
-def _register_chinese_font():
-    """注册中文字体，复用checksheets模块的FontManager逻辑"""
-    global _FONT_REGISTERED, FONT_NAME
-
-    if _FONT_REGISTERED:
-        return True
-
-    # 优先尝试复用checksheet的FontManager
-    try:
-        from apps.checksheet.font_manager import FontManager
-        if FontManager.register_chinese_font(debug_logger=logger.debug):
-            _FONT_REGISTERED = True
-            FONT_NAME = 'SimHei'
-            return True
-    except Exception:
-        pass
-
-    # 回退：手动搜索字体
-    font_paths = []
-
-    # 1. 项目内嵌字体
-    checksheet_fonts = os.path.join(os.path.dirname(__file__), '..', 'checksheet', 'fonts')
-    if os.path.exists(checksheet_fonts):
-        for f in ['simhei.ttf', 'simhei.otf']:
-            fp = os.path.join(checksheet_fonts, f)
-            if os.path.exists(fp):
-                font_paths.append(fp)
-
-    # 2. 容器字体
-    container_dir = '/data/spug/spug_api/apps/checksheet/fonts'
-    if os.path.exists(container_dir):
-        for f in ['simhei.ttf', 'simhei.otf']:
-            fp = os.path.join(container_dir, f)
-            if os.path.exists(fp):
-                font_paths.append(fp)
-
-    # 3. 系统字体
-    if os.name == 'nt':
-        font_paths.extend([
-            r'C:\Windows\Fonts\simhei.ttf',
-            r'C:\Windows\Fonts\simsun.ttc',
-            r'C:\Windows\Fonts\msyh.ttc',
-        ])
-    else:
-        font_paths.extend([
-            '/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf',
-            '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
-            '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
-        ])
-
-    for fp in font_paths:
-        if os.path.exists(fp):
-            try:
-                pdfmetrics.registerFont(TTFont('SimHei', fp))
-                _FONT_REGISTERED = True
-                FONT_NAME = 'SimHei'
-                logger.info(f'RunLog PDF: Registered font {fp}')
-                return True
-            except Exception as e:
-                logger.warning(f'RunLog PDF: Failed to register font {fp}: {e}')
-
-    logger.warning('RunLog PDF: No Chinese font found, text may display incorrectly')
-    return False
 
 
 # ============ 颜色（简洁正式：黑/深灰/浅灰为主） ============
@@ -288,7 +216,7 @@ def generate_runlog_pdf(events_data, date_range_text=''):
     Returns:
         BytesIO: PDF文件流
     """
-    _register_chinese_font()
+    FontManager.register_chinese_font(debug_logger=logger.debug)
 
     output = BytesIO()
     doc = SimpleDocTemplate(

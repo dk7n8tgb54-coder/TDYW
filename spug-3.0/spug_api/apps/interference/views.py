@@ -29,7 +29,7 @@ def _parse_int(value, name, min_value=None, max_value=None):
     """通用整数参数解析与校验，返回 (result, error)。
 
     非法输入返回 (None, 'xxx 必须是整数')，通过校验返回 (int, None)。
-    与 checksheet 模块保持一致，防止 page=abc / page=0 / page_size 过大触发 500。
+    防止 page=abc / page=0 / page_size 过大触发 500。
     """
     try:
         result = int(value)

@@ -24,73 +24,13 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm, mm
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     HRFlowable, Image, KeepTogether, PageBreak, Paragraph,
     SimpleDocTemplate, Spacer, Table, TableStyle,
 )
+from libs.font_manager import FontManager, FONT_NAME
 
 logger = logging.getLogger(__name__)
-
-# ============ 字体管理（复用 checksheet.FontManager 逻辑） ============
-
-_FONT_REGISTERED = False
-FONT_NAME = 'SimHei'
-
-
-def _register_chinese_font():
-    """注册中文字体。复用 checksheet 的 FontManager；不可用时回退到常见系统字体。"""
-    global _FONT_REGISTERED, FONT_NAME
-    if _FONT_REGISTERED:
-        return True
-
-    # 优先复用 checksheet 的 FontManager
-    try:
-        from apps.checksheet.font_manager import FontManager
-        if FontManager.register_chinese_font(debug_logger=logger.debug):
-            _FONT_REGISTERED = True
-            FONT_NAME = 'SimHei'
-            return True
-    except Exception:
-        logger.warning('[DepartmentDutyLog PDF] FontManager unavailable, fallback to system fonts', exc_info=True)
-
-    # 回退：手动搜索字体
-    font_paths = []
-
-    container_dir = '/data/spug/spug_api/apps/checksheet/fonts'
-    if os.path.exists(container_dir):
-        for f in ['simhei.ttf', 'simhei.otf']:
-            fp = os.path.join(container_dir, f)
-            if os.path.exists(fp):
-                font_paths.append(fp)
-
-    if os.name == 'nt':
-        font_paths.extend([
-            r'C:\Windows\Fonts\simhei.ttf',
-            r'C:\Windows\Fonts\simsun.ttc',
-            r'C:\Windows\Fonts\msyh.ttc',
-        ])
-    else:
-        font_paths.extend([
-            '/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf',
-            '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
-            '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
-        ])
-
-    for fp in font_paths:
-        if os.path.exists(fp):
-            try:
-                pdfmetrics.registerFont(TTFont('SimHei', fp))
-                _FONT_REGISTERED = True
-                FONT_NAME = 'SimHei'
-                logger.info('[DepartmentDutyLog PDF] Registered font %s', fp)
-                return True
-            except Exception as e:
-                logger.warning('[DepartmentDutyLog PDF] Failed to register font %s: %s', fp, e)
-
-    logger.warning('[DepartmentDutyLog PDF] No Chinese font found, text may display incorrectly')
-    return False
 
 
 # ============ 颜色主题（黑白） ============
@@ -395,7 +335,7 @@ def generate_department_duty_log_pdf(records, *, exporter_name, filters_text,
     Returns:
         BytesIO: PDF 文件流（指针已 seek(0)）
     """
-    _register_chinese_font()
+    FontManager.register_chinese_font(debug_logger=logger.debug)
 
     output = BytesIO()
     doc = SimpleDocTemplate(

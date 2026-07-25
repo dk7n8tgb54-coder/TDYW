@@ -1,0 +1,158 @@
+{
+  "application": {
+    "image": "tdyw:0723"
+  },
+  "backup_set_id": "backup_set_20260724_053408",
+  "consistency_method": "application stopped; database and file volumes captured in one freeze window",
+  "database": {
+    "account": "root@%",
+    "artifacts": [
+      {
+        "artifact": "database.sql.gz",
+        "format": "mariadb-dump-gzip",
+        "method": "mariadb-dump --single-transaction --routines --triggers --events --quick --hex-blob",
+        "prepared": true,
+        "scope": "database",
+        "sha256": "aeb492daef9bdd7e9cc4182e94aa05b41fe6e088196f4db17f415fceb7ba4b8c",
+        "size": 32057,
+        "type": "logical"
+      }
+    ],
+    "backup_mode": "logical",
+    "image": "mysql:0601",
+    "image_digest": "",
+    "image_id": "sha256:306551b051535209ad91eaae055ce6ffcd175de9bc25134907790d27970816a8",
+    "name": "tdyw",
+    "version": "10.8.2-MariaDB-1:10.8.2+maria~focal-log"
+  },
+  "excluded_data": {
+    "cache": "Redis and preview caches are rebuildable",
+    "document_chunks": "temporary/resumable upload chunks; not authoritative after application writes are frozen",
+    "logs": "operational logs are not authoritative business data",
+    "temporary_files": "rebuildable and may be incomplete"
+  },
+  "fileset_chain": {
+    "base_backup_set_id": "backup_set_20260724_053408",
+    "mode": "full",
+    "parent_backup_set_id": null
+  },
+  "filesets": {
+    "documents": {
+      "archive": "documents.tar.gz",
+      "archive_sha256": "7e7442b45fe894c300d1a789ad204bb1b867d8bcfa9041c0f6d9995fd9821fd5",
+      "archive_size": 90566408,
+      "backup_mode": "full",
+      "backup_set_id": "backup_set_20260724_053408",
+      "base_backup_set_id": "backup_set_20260724_053408",
+      "created_at": "2026-07-24T05:34:48.910981+00:00",
+      "delta_manifest": "documents.delta.json",
+      "directories": [
+        "party_building_documents",
+        "party_building_documents/files",
+        "party_building_documents/files/folder-1",
+        "public",
+        "regulation",
+        "regulation/1",
+        "regulation/1/2026",
+        "regulation/1/2026/07"
+      ],
+      "directory_count": 8,
+      "file_count": 5,
+      "files": [
+        {
+          "ctime_ns": 1784864414473753288,
+          "mtime_ns": 1784864414473753288,
+          "relative_path": "party_building_documents/files/folder-1/资料_1784864414430_d75ae9.pdf",
+          "sha256": "68897c0d792e2509696604b1c4cf67740302271acec1cfbee4f18a44459ea36c",
+          "size": 20269690
+        },
+        {
+          "ctime_ns": 1784864386293845181,
+          "mtime_ns": 1784864386293845181,
+          "relative_path": "public/崔林杰不动产登记电子证明_1784864386288_63e2bb.pdf",
+          "sha256": "cf8310b5b3dfb4aba5ab1c5c314727f68c6d429da34486376dc8e5c858affb89",
+          "size": 3645704
+        },
+        {
+          "ctime_ns": 1784864384628449019,
+          "mtime_ns": 1784864384628449019,
+          "relative_path": "public/新建_PPTX_演示文稿_1784864384627_e33fc6.pptx",
+          "sha256": "fe6fd90642c9cc2e2290243619a5ef6ccbf371228ea98317d0713bd032d84163",
+          "size": 400841
+        },
+        {
+          "ctime_ns": 1784864477493793403,
+          "mtime_ns": 1784864477493793403,
+          "relative_path": "public/此时此地玛格南街头摄影经典_(斯蒂芬·麦_1784864477299_2add17.pdf",
+          "sha256": "2fb2aab3d040bf62101d5b171e1145cbb48cac48f01d2bc8ac85f5e58e14a303",
+          "size": 49361831
+        },
+        {
+          "ctime_ns": 1784864531550797125,
+          "mtime_ns": 1784864531550797125,
+          "relative_path": "regulation/1/2026/07/资料_bef116303abc.pdf",
+          "sha256": "68897c0d792e2509696604b1c4cf67740302271acec1cfbee4f18a44459ea36c",
+          "size": 20269690
+        }
+      ],
+      "fileset": "documents",
+      "parent_backup_set_id": null,
+      "schema_version": 2,
+      "source_path": "/data/spug/spug_api/storage/documents",
+      "total_bytes": 93947756
+    },
+    "media": {
+      "archive": "media.tar.gz",
+      "archive_sha256": "977a57fce95163e472fc3e362d33d64626541d1d503f0023970b0e82d9ff7b83",
+      "archive_size": 822892,
+      "backup_mode": "full",
+      "backup_set_id": "backup_set_20260724_053408",
+      "base_backup_set_id": "backup_set_20260724_053408",
+      "created_at": "2026-07-24T05:34:50.011329+00:00",
+      "delta_manifest": "media.delta.json",
+      "directories": [
+        "radio_license",
+        "radio_license/admin",
+        "radio_license/admin/202607",
+        "radio_license/admin/202607/approval_1",
+        "radio_license/admin/202607/license_1"
+      ],
+      "directory_count": 5,
+      "file_count": 2,
+      "files": [
+        {
+          "ctime_ns": 1784864317167002263,
+          "mtime_ns": 1784864317167002263,
+          "relative_path": "radio_license/admin/202607/approval_1/3.SITA Type B Service Reference Manual.pdf",
+          "sha256": "831432fa7b3c443a6c6e894186852ca4010b4b186ec8d19f8b86718bb0f1e1e4",
+          "size": 1258325
+        },
+        {
+          "ctime_ns": 1784864309261327170,
+          "mtime_ns": 1784864309261327170,
+          "relative_path": "radio_license/admin/202607/license_1/1ce8d93b8b3c7be094d68f7ce5127cd5.doc.pdf",
+          "sha256": "0ee4f09ab5d16309ba41a0b648f16b25b2ee46de2edb9fb64db2c4d6994cfe82",
+          "size": 254795
+        }
+      ],
+      "fileset": "media",
+      "parent_backup_set_id": null,
+      "schema_version": 2,
+      "source_path": "/data/spug/spug_api/media",
+      "total_bytes": 1513120
+    }
+  },
+  "finished_at": "2026-07-24T05:35:23Z",
+  "freeze_seconds": 74,
+  "git_commit": "5490db81ed15911db959dfbaa07c48823d848a4f",
+  "hostname": "LAPTOP-VKNVF9F3",
+  "included_data": [
+    "MariaDB logical dump",
+    "documents",
+    "media"
+  ],
+  "remote_copy_status": "MANUAL_NOT_VERIFIED",
+  "schema_version": 4,
+  "started_at": "2026-07-24T05:34:08Z",
+  "status": "SUCCESS"
+}

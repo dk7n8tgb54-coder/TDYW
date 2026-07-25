@@ -13,7 +13,6 @@ import {
   ExceptionOutlined,
   ClockCircleOutlined,
   ApartmentOutlined,
-  CheckSquareOutlined,
   SafetyCertificateOutlined,
   NotificationOutlined,
   ScheduleOutlined
@@ -44,7 +43,6 @@ import ExecUpgradeStatistics from './pages/upgrade/Statistics';
 import ExecUpgradePlan from './pages/upgrade/plan/PlanManager';
 import UpgradeWorkbench from './pages/upgrade/Workbench';
 import ExecDutyRecord from './pages/duty';
-import CheckSheetIndex from './pages/checksheet';
 import DepartmentDutyLogIndex from './pages/departmentDutyLog';
 import RadioLicenseIndex from './pages/radioLicense';
 import StationFrequencyApproval from './pages/stationFrequencyApproval';
@@ -56,7 +54,6 @@ import AnnouncementAdmin from './pages/system/announcement';
 export default [
   {icon: <DesktopOutlined/>, title: '工作台', path: '/home', component: HomeIndex},
   {icon: <BarChartOutlined/>, title: '数据分析', path: '/data-analysis', component: DataAnalysisIndex},
-  {icon: <CheckSquareOutlined/>, title: '部门值班日检查单', auth: 'checksheet.checksheet.view', path: '/checksheet', component: CheckSheetIndex},
   {icon: <ScheduleOutlined/>, title: '部门值班日志', auth: 'department_duty_log.department_duty_log.view', path: '/department-duty-log', component: DepartmentDutyLogIndex},
   {icon: <SafetyCertificateOutlined/>, title: '执照管理', auth: 'radio_license.license.view|radio_license.approval.view', child: [
     {title: '无线电台执照', auth: 'radio_license.license.view', path: '/radio-license', component: RadioLicenseIndex},
@@ -65,7 +62,7 @@ export default [
   {icon: <FileTextOutlined/>, title: '合同协议', auth: 'contract_agreement.agreement.view', path: '/contract-agreement', component: ContractAgreementIndex},
   {icon: <FolderOpenOutlined/>, title: '资料库', auth: 'document.document.view|document.party_building_document.view|document.regulation.view', child: [
     {title: '文档管理', auth: 'document.document.view', path: '/document', component: DocumentIndex},
-    {title: '党建文档', auth: 'document.party_building_document.view', path: '/document/party-building-documents', component: PartyBuildingDocumentsIndex},
+    {title: '党建工作', auth: 'document.party_building_document.view', path: '/document/party-building-documents', component: PartyBuildingDocumentsIndex},
     {title: '规章管理', auth: 'document.regulation.view', path: '/regulation', component: RegulationIndex},
   ]},
   {icon: <FileTextOutlined/>, title: '跨日事项跟踪', auth: 'runlog.runlog.view', child: [

@@ -152,21 +152,6 @@ export default [{
     ]
   }]
 }, {
-  key: 'checksheet',
-  label: '部门值班日检查单',
-  pages: [{
-    key: 'checksheet',
-    label: '部门值班日检查单',
-    perms: [
-      {key: 'view', label: '查看部门值班日检查单'},
-      {key: 'edit', label: '编辑部门值班日检查单'},
-      {key: 'template_view', label: '查看检查表模板'},
-      {key: 'template_add', label: '新增检查表模板'},
-      {key: 'template_edit', label: '编辑检查表模板'},
-      {key: 'template_del', label: '删除检查表模板'},
-    ]
-  }]
-}, {
   key: 'department_duty_log',
   label: '部门值班日志',
   pages: [{

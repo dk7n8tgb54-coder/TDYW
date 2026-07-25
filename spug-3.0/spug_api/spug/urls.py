@@ -32,7 +32,6 @@ urlpatterns = [
     path('document/', include('apps.document.urls')),
     path('runlog/', include('apps.runlog.urls')),
     path('upgrade/', include('apps.upgrade.urls')),
-    path('checksheet/', include('apps.checksheet.urls')),
     path('logs/', include('apps.logs.urls')),
     path('radio-license/', include('apps.radio_license.urls')),
     path('contract-agreement/', include('apps.contract_agreement.urls')),

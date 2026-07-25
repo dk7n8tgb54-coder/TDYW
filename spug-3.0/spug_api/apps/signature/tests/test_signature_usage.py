@@ -820,21 +820,6 @@ class MySignatureAvailabilityTests(SignatureUsageStage2Base):
 class NoBusinessModuleModificationTests(TestCase):
     """验证本阶段没有修改任何业务模块"""
 
-    def test_checksheet_not_touched(self):
-        """部门日检查单没有任何改动"""
-        # 检查 checksheet 模块没有 signature 相关字段
-        try:
-            from apps.checksheet import models as cs_models
-            import inspect
-            for name, cls in inspect.getmembers(cs_models, inspect.isclass):
-                if hasattr(cls, '_meta') and issubclass(cls, __import__('django.db.models', fromlist=['Model']).Model):
-                    for f in cls._meta.get_fields():
-                        self.assertFalse(
-                            'signature' in f.name.lower(),
-                            f'checksheet 模型 {cls.__name__} 不应包含 signature 字段: {f.name}')
-        except ImportError:
-            self.skipTest('checksheet 模块不存在，跳过')
-
     def test_no_business_endpoint_registered(self):
         """没有为业务模块注册签署 HTTP 接口"""
         # apply_signature 是服务函数，不是 HTTP 视图

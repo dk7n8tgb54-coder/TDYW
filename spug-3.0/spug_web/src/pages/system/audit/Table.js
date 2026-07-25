@@ -34,7 +34,6 @@ const TARGET_TYPE_MAP = {
   contract_agreement: '合同协议',
   setting: '系统设置',
   upgrade: '升级',
-  checksheet: '检查表',
   self: '个人信息',
   home: '首页',
   exec: '执行',

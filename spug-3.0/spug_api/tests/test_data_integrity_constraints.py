@@ -8,7 +8,6 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.account.models import User
-from apps.checksheet.models import CheckSheetSubmission
 from apps.contract_agreement.models import ContractAgreement
 from apps.document.models import DocumentTransfer
 from apps.utils.test_helpers import make_user
@@ -36,23 +35,6 @@ class DataIntegrityConstraintTest(TestCase):
 
         replacement = make_user('reusablename', is_supper=True)
         self.assertEqual(replacement.username, 'reusablename')
-
-    def test_checksheet_period_is_unique_per_tenant(self):
-        fields = {
-            'tenant_id': 'tenant-a',
-            'project': '机房巡检',
-            'year': '2026',
-            'month': '07',
-        }
-        CheckSheetSubmission.objects.create(**fields)
-        self.assert_integrity_error(
-            lambda: CheckSheetSubmission.objects.create(**fields)
-        )
-
-    def test_checksheet_month_range_is_enforced(self):
-        self.assert_integrity_error(lambda: CheckSheetSubmission.objects.create(
-            tenant_id='tenant-a', project='机房巡检', year='2026', month='13'
-        ))
 
     def test_contract_date_and_conditional_fee_are_enforced(self):
         common = {

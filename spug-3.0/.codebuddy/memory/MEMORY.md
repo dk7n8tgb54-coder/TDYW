@@ -33,13 +33,13 @@
 ## 模块架构速查
 - 附件 `apps/evidence`（EvidenceAttachment 多态 + AttachmentService + preview_token；路径 `{MEDIA_ROOT}/{module}/{tenant}/{yyyyMM}/{type}_{id}/{name}`）
 - 账号签名 `apps/signature`（apply_signature 事务锁→SHA256→Usage+EvidenceEvent；场景 `SIGNATURE_SCENES`）
-- 拖拽上传 `captureUploadTargetContext()` Object.freeze；角色委派 `role_permissions.py`；导出 `libs/export_utils.py`
+- 拖拽上传 `captureUploadTargetContext()` Object.freeze；角色委派 `role_permissions.py`；导出 `libs/export_utils.py`；PDF 中文字体 `libs/font_manager.py` + `libs/fonts/simhei.ttf`（FontManager 类 + FONT_NAME 常量，runlog/duty/device/department_duty_log 4 个 pdf_export 统一调用；注册优先级：容器 libs/fonts → 项目 libs/fonts → 系统字体；2026-07-24 从已删 checksheet 模块迁出）
 - 党建隔离 `DocumentSystemFolder` + `system_scope_validators`（fail-closed）
 - 台站频率批复 `apps/radio_license` 复用 `calculate_license_status` 60 天阈值
 - 权限缓存 `User.page_perms` Redis `perms_{id}`=(version,perms)，`Role.perms_version` 变更自增
 - kkFileView `OfficePreviewUrlView` 生成 preview_url；`KKFILEVIEW_API_URL`(浏览器)/`KKFILEVIEW_SERVER_URL`(回源)
 - 磁盘用量 `DiskUsageView`(disk.py) Redis 缓存 60s（按 is_public+租户分键：`private:all`/`private:{tenant_id}`/`public`，复用 `libs/cache_utils`）；私有文件表覆盖索引 `doc_pri_file_diskusage_idx=(tenant_id,is_deleted,file_size)` 服务聚合 SUM；公共表无索引靠缓存（is_deleted 选择性差）；前端 `useDiskSpace` 30s 轮询
-- 边界遗漏收口要点（2026-07-21 审查 hy3扫描边界/13份清单）：preview_token **两套独立实现**（`document/libs/preview_token.py` `validate_preview_token` 资料库用；`evidence/attachment_preview_token.py` `validate_attachment_preview_token` 规章/证据附件用，`regulation/views.py:41-43` import）→ 收口前必须先合并再补 user_id/is_active 校验；`_parse_date` 三份口径不一（regulation 返回元组/department_duty_log 抛异常带 allow_future/contract_agreement 返回元组必填语义）；EvidencePackage 5 模块逐字复制（interference/radio_license/device/checksheet/runlog，干扰#9 与设备 BC-EXP-04 审计回退越界是同一段复制代码）；`check_export_limit`(libs/export_utils.py) 存在但 department_duty_log/logs 未调用；落地优先级按"日常影响"非"安全"排：先堵高频 500/白屏（工作台 WS-01/WS-16 已修）
+- 边界遗漏收口要点（2026-07-21 审查 hy3扫描边界/13份清单）：preview_token **两套独立实现**（`document/libs/preview_token.py` `validate_preview_token` 资料库用；`evidence/attachment_preview_token.py` `validate_attachment_preview_token` 规章/证据附件用，`regulation/views.py:41-43` import）→ 收口前必须先合并再补 user_id/is_active 校验；`_parse_date` 三份口径不一（regulation 返回元组/department_duty_log 抛异常带 allow_future/contract_agreement 返回元组必填语义）；EvidencePackage 4 模块逐字复制（interference/radio_license/device/runlog，干扰#9 与设备 BC-EXP-04 审计回退越界是同一段复制代码；原 5 模块含 checksheet，2026-07-24 移除）；`check_export_limit`(libs/export_utils.py) 存在但 department_duty_log/logs 未调用；落地优先级按"日常影响"非"安全"排：先堵高频 500/白屏（工作台 WS-01/WS-16 已修）
 
 ## Celery（2026-07-20）
 - 17 `@shared_task` / 5 队列；11 Beat + 6 事件触发

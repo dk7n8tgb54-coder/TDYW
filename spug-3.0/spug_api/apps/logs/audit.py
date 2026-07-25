@@ -67,7 +67,6 @@ TARGET_MAP = {
     '/regulation/': {'type': 'regulation', 'name': '规章管理'},
     '/setting/': {'type': 'setting', 'name': '系统设置'},
     '/upgrade/': {'type': 'upgrade', 'name': '升级'},
-    '/checksheet/': {'type': 'checksheet', 'name': '检查表'},
     '/department-duty-log/': {'type': 'department_duty_log', 'name': '部门值班日志'},
     '/home/': {'type': 'home', 'name': '首页'},
     '/exec/': {'type': 'exec', 'name': '执行'},

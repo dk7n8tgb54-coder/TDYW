@@ -15,7 +15,7 @@ export default function PartyBuildingDocumentsIndex() {
     <DocumentIndex
       mode="partyBuildingDocuments"
       systemFolderCode={PARTY_BUILDING_DOCUMENTS_CODE}
-      title="党建文档"
+      title="党建工作"
     />
   );
 }

@@ -66,7 +66,6 @@ INSTALLED_APPS = [
     'apps.runlog',
     'apps.document',
     'apps.upgrade',
-    'apps.checksheet',
     'apps.logs',
     'apps.radio_license',
     'apps.contract_agreement',
