@@ -8,8 +8,26 @@ import { Form, Input, Button, Modal, message } from 'antd';
 import { UserOutlined, LockOutlined, CopyrightOutlined, MailOutlined } from '@ant-design/icons';
 import styles from './login.module.css';
 import history from 'libs/history';
-import { http, updatePermissions } from 'libs';
+import { http, updatePermissions, hasPermission } from 'libs';
+import routes from '../../routes';
 import logo from 'layout/logo-spug-txt.png';
+
+// 登录后默认跳转：优先工作台；没权限则递归找第一个有权限的菜单；都没有则回个人中心
+function getDefaultRoute() {
+  if (hasPermission('dashboard.dashboard.view')) return '/home';
+  function findFirst(items) {
+    for (let item of items) {
+      if (!item.title) continue;
+      if (item.path && (!item.auth || hasPermission(item.auth))) return item.path;
+      if (item.child) {
+        const found = findFirst(item.child);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+  return findFirst(routes) || '/welcome/info';
+}
 
 export default function () {
   const [form] = Form.useForm();
@@ -71,7 +89,7 @@ export default function () {
     if (history.location.state && history.location.state['from']) {
       history.push(history.location.state['from'])
     } else {
-      history.push('/home')
+      history.push(getDefaultRoute())
     }
   }
 

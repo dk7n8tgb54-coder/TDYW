@@ -52,7 +52,7 @@ import AnnouncementList from './pages/home/AnnouncementList';
 import AnnouncementAdmin from './pages/system/announcement';
 
 export default [
-  {icon: <DesktopOutlined/>, title: '工作台', path: '/home', component: HomeIndex},
+  {icon: <DesktopOutlined/>, title: '工作台', auth: 'dashboard.dashboard.view', path: '/home', component: HomeIndex},
   {icon: <BarChartOutlined/>, title: '数据分析', path: '/data-analysis', component: DataAnalysisIndex},
   {icon: <ScheduleOutlined/>, title: '部门值班日志', auth: 'department_duty_log.department_duty_log.view', path: '/department-duty-log', component: DepartmentDutyLogIndex},
   {icon: <SafetyCertificateOutlined/>, title: '执照管理', auth: 'radio_license.license.view|radio_license.approval.view', child: [

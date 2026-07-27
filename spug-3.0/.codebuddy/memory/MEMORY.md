@@ -7,6 +7,7 @@
 - spug_web：antd 4.21.5（Modal 用 `visible`）+ legacy 装饰器 + class properties（mobx `@observable`/`@action`）
 - ⚠️ named volume 遮盖 bind mount 子目录陷阱：media/storage/logs 走 bind mount
 - ⚠️ Docker 内网回调：kkFileView 经 `http://tdyw` 回源，容器名须进 ALLOWED_HOSTS；`.env` 已配 `ALLOWED_HOSTS=...,tdyw` + `ALLOWED_ORIGINS=...,http://tdyw`
+- ⚠️ 生产单块机械盘：`chunks`/`documents`/`media` 同处 `/dev/sdd`（ext4，IO 调度器 `none`，ionice 无效）。多用户并发上传时随机写与合并顺序读写抢磁头 → IO 打满。合并 worker 并发已降至 1 + 缓冲 16MB + fallocate 预分配（详见 2026-07-26 daily）
 
 ## 后端测试（2026-07-20）
 - 10 app 有测试(465 全绿)：department_duty_log/radio_license/regulation/signature/logs/setting/account/checksheet(废弃)/interference
@@ -31,7 +32,7 @@
 1. `read_lints`；2. py: `docker exec tdyw python -m py_compile <path>`；3. js: `node -e "@babel/parser" (classProperties/decorators-legacy/dynamicImport/jsx)`；4. `git diff`；5. Django 测试必在容器内；6. 遇问题先查 skill 文档而非凭直觉
 
 ## 模块架构速查
-- 附件 `apps/evidence`（EvidenceAttachment 多态 + AttachmentService + preview_token；路径 `{MEDIA_ROOT}/{module}/{tenant}/{yyyyMM}/{type}_{id}/{name}`）
+- 附件 `apps/evidence`（EvidenceAttachment 多态 + AttachmentService + preview_token；路径 `{MEDIA_ROOT}/{module}/{tenant}/{yyyyMM}/{type}_{id}/{name}`）；radio_license(执照license/批复approval)/contract_agreement(agreement)/device/upgrade/fault/interference/department_duty_log 均走此机制存 MEDIA_ROOT；**例外：regulation 走独立 `storage.py`**（RegulationAttachment 模型，存储在 `{BASE_DIR}/storage/documents/regulation/{id}/{yyyy}/{mm}/{uuid.ext}`，复用资料库 volume 而非 MEDIA_ROOT，路径校验用 `resolve_absolute_path` 限定 regulation/ 子目录）
 - 账号签名 `apps/signature`（apply_signature 事务锁→SHA256→Usage+EvidenceEvent；场景 `SIGNATURE_SCENES`）
 - 拖拽上传 `captureUploadTargetContext()` Object.freeze；角色委派 `role_permissions.py`；导出 `libs/export_utils.py`；PDF 中文字体 `libs/font_manager.py` + `libs/fonts/simhei.ttf`（FontManager 类 + FONT_NAME 常量，runlog/duty/device/department_duty_log 4 个 pdf_export 统一调用；注册优先级：容器 libs/fonts → 项目 libs/fonts → 系统字体；2026-07-24 从已删 checksheet 模块迁出）
 - 党建隔离 `DocumentSystemFolder` + `system_scope_validators`（fail-closed）

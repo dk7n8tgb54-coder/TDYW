@@ -8,6 +8,7 @@
 """
 import logging
 import os
+import errno
 import hashlib
 import shutil
 import traceback
@@ -35,12 +36,12 @@ from apps.document.libs.document_utils import (
 # 进度更新间隔（每N个分片更新一次进度）
 PROGRESS_UPDATE_INTERVAL = 10
 
-# 文件复制缓冲区大小（8MB）
-# 1MB 缓冲对大文件合并偏小，会增加 Python 层循环次数和系统调用压力；
-# 调整为 8MB 可显著降低合并阶段 CPU 与系统调用开销。
-# 如服务器内存稳定且压测收益明显，可进一步调整至 16MB。
-# 注意：多个 merge worker 同时合并时会按倍数放大内存占用。
-FILE_COPY_BUFFER_SIZE = 8 * 1024 * 1024
+# 文件复制缓冲区大小（16MB）
+# 单机械盘环境下，合并的顺序读写与上传的随机写抢同一磁头是 IO 打满的根因。
+# 加大缓冲可减少 write 系统调用次数，让顺序写更平滑，降低与上传随机写的争用。
+# 内存占用：并发已降至 1（见 supervisord.conf / start-celery-merge.sh），
+# 单 worker 16MB 完全可接受；若恢复并发 2，需注意按倍数放大。
+FILE_COPY_BUFFER_SIZE = 16 * 1024 * 1024
 
 # Celery任务配置
 CELERY_MAX_RETRIES = 3
@@ -214,6 +215,7 @@ class ChunkMerger:
         try:
             with open(self.task_manager.file_path, 'wb+') as merged_file:
                 logger.info(f'[Celery] Created target file: {self.task_manager.file_path}')
+                self._preallocate_target_file(merged_file)
                 for i in range(self.task_manager.total_chunks):
                     self._copy_chunk(merged_file, i, md5_hash)
                     self._update_merge_progress(i)
@@ -230,6 +232,29 @@ class ChunkMerger:
             error_msg = f'文件合并IO错误: {str(e)}'
             logger.error(f'[Celery] {error_msg}')
             return False, error_msg
+
+    def _preallocate_target_file(self, merged_file):
+        """预分配目标文件空间，减少 ext4 写入时的元数据 IO 和碎片。
+
+        单机械盘上，未预分配的合并目标文件会随写入不断扩展 extent 树，
+        产生元数据 IO 并增加碎片，进一步恶化与上传随机写的磁头争用。
+        posix_fallocate 物理预分配磁盘块；若文件系统不支持则回退到 ftruncate。
+        """
+        try:
+            fd = merged_file.fileno()
+            os.posix_fallocate(fd, 0, self.task_manager.file_size)
+            logger.info(f'[Celery] Preallocated target file: {self.task_manager.file_size} bytes')
+        except OSError as e:
+            if e.errno == errno.ENOSPC:
+                # 磁盘空间不足，合并必然失败，向上抛出由调用方处理
+                raise
+            # ENOSYS/EINVAL 等：文件系统不支持 fallocate，回退到 ftruncate（稀疏分配）
+            logger.warning(f'[Celery] posix_fallocate unsupported (errno={e.errno}), fallback to ftruncate: {e}')
+            try:
+                merged_file.truncate(self.task_manager.file_size)
+            except OSError as e2:
+                # 最终回退：不预分配，让 write 自然扩展（丢失防碎片收益但不阻断流程）
+                logger.warning(f'[Celery] ftruncate also failed, skip preallocation: {e2}')
 
     def _copy_chunk(self, merged_file, chunk_index, md5_hash=None):
         """复制单个分片到合并文件，顺带更新 MD5（若提供）
