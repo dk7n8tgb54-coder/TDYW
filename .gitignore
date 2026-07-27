@@ -35,8 +35,8 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 backup_*.sql
-
-
+backup/
+borgbackup_deb/
 # SSL & 密钥
 *.crt
 *.csr

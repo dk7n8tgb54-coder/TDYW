@@ -1,0 +1,30 @@
+# 先加载 borg.env（拿到 BORG_REPO + BORG_PASSPHRASE）
+set -a; . /opt/docker/borgbackup/borg.env; set +a
+
+# 1. 列出所有 archive（看有哪些备份）—— 这是"找备份文件"的正确方式
+borg list
+# 预期输出类似：
+# tdyw-20260727-211900  Sun, 2026-07-27 21:19:00 [...]
+
+# 2. 看某个 archive 里有什么文件
+borg list ::tdyw-20260727-211900
+# 会列出：
+# /tmp/tdyw-borg.XXXXXX/database.sql.gz
+# /tmp/tdyw-borg.XXXXXX/manifest.json
+# /var/lib/docker/volumes/docker_tdyw-documents/_data/...
+# /var/lib/docker/volumes/docker_tdyw-media/_data/...
+
+# 3. 看 archive 详情（去重前后大小、文件数、耗时）
+borg info ::tdyw-20260727-211900
+# 关键看：
+# Number of files: XX
+# Deduplicated size: XXX MB   ← 实际占用（去重后）
+# Original size: XXX MB       ← 原始大小
+
+先到要导出的目录下，然后borg extract /data/borg_repo::tdyw-20260727-131850，输入密码即导出到当前文件
+
+# 只提取 database.sql.gz（流式输出到 stdout，再重定向到文件）
+set -a; . /opt/docker/borgbackup/borg.env; set +a
+borg list ::tdyw-20260727-211900 | grep database.sql.gz   # 先找到 dump 成员路径
+borg extract --stdout ::tdyw-20260727-211900 /tmp/tdyw-borg.XXXXXX/database.sql.gz > /tmp/database.sql.gz
+ls -lh /tmp/database.sql.gz

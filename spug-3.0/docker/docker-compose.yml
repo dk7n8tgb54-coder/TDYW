@@ -10,7 +10,7 @@ services:
   tdyw:
     # 使用预构建的镜像，先执行: docker build -t spug:latest -f docker/Dockerfile .
     #image: tdyw:20260329
-    image: tdyw:20260726
+    image: tdyw:07272
     # spug:20260320
     # 如需重新构建镜像，取消以下 build 配置
     # build:

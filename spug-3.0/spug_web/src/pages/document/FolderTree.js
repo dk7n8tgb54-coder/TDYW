@@ -54,7 +54,7 @@ class FolderTree extends React.Component {
     if (prevProps.isPublic !== this.props.isPublic) {
       this.fetchFolders();
     }
-    // 党建文档锁定模式：根目录 ID 变化（初始化后）时刷新
+    // 党建工作锁定模式：根目录 ID 变化（初始化后）时刷新
     if (prevProps.lockedRoot !== this.props.lockedRoot
         || prevProps.rootFolderId !== this.props.rootFolderId) {
       this.fetchFolders();
@@ -114,17 +114,14 @@ class FolderTree extends React.Component {
       this.setState({
         loading: true
       });
-      const { isPublic, lockedRoot, autoExpandAll } = this.props;
-      // 党建文档锁定模式：构建单根节点树
+      const { isPublic, lockedRoot } = this.props;
+      // 党建工作锁定模式：构建单根节点树
       if (lockedRoot) {
         const treeData = this.buildSingleRootTree();
         if (this._isMounted) {
           this.setState({ data: treeData, expandedKeys: ['system-root'] }, () => {
-            if (autoExpandAll) {
-              this._loadExpandedSystemRootTree();
-            } else {
-              this._loadSystemRootChildren();
-            }
+            // 仅预加载根节点的一级子目录；下级目录由用户单击展开三角触发 onLoadData 按需加载
+            this._loadSystemRootChildren();
           });
         }
         return;
@@ -165,12 +162,12 @@ class FolderTree extends React.Component {
   };
 
   /**
-   * 党建文档锁定模式：构建单根节点树
-   * 根节点代表党建文档根目录（真实文件夹），children 预加载
+   * 党建工作锁定模式：构建单根节点树
+   * 根节点代表党建工作根目录（真实文件夹），children 预加载
    */
   buildSingleRootTree = () => {
     const { rootFolderId, rootFolderName } = this.props;
-    const name = rootFolderName || '党建文档';
+    const name = rootFolderName || '党建工作';
     return [{
       key: 'system-root',
       rawId: rootFolderId,
@@ -183,7 +180,7 @@ class FolderTree extends React.Component {
   };
 
   /**
-   * 党建文档锁定模式：预加载根目录的一级子文件夹
+   * 党建工作锁定模式：预加载根目录的一级子文件夹
    */
   _loadSystemRootChildren = async () => {
     try {
@@ -194,69 +191,6 @@ class FolderTree extends React.Component {
     } catch (error) {
       log.warn(`[FolderTree] 预加载系统根节点失败:`, error);
     }
-  };
-
-  _loadExpandedSystemRootTree = async () => {
-    try {
-      const { rootFolderId } = this.props;
-      if (!rootFolderId || !this._isMounted) return;
-
-      const { nodes, expandedKeys } = await this._buildExpandedFolderChildren(rootFolderId);
-      if (!this._isMounted) return;
-
-      this.setState((prevState) => ({
-        data: prevState.data.map(node => {
-          if (node.key === 'system-root') {
-            return { ...node, children: nodes };
-          }
-          return node;
-        }),
-        expandedKeys: ['system-root', ...expandedKeys]
-      }));
-    } catch (error) {
-      log.warn(`[FolderTree] 自动展开系统目录树失败:`, error);
-      this._loadSystemRootChildren();
-    }
-  };
-
-  _buildExpandedFolderChildren = async (parentId, depth = 0, visited = new Set()) => {
-    const MAX_AUTO_EXPAND_DEPTH = 20;
-    if (!this._isMounted || !parentId || depth >= MAX_AUTO_EXPAND_DEPTH || visited.has(parentId)) {
-      return { nodes: [], expandedKeys: [] };
-    }
-
-    visited.add(parentId);
-    const folders = await this.fetchChildFolders(parentId);
-    if (!this._isMounted) {
-      return { nodes: [], expandedKeys: [] };
-    }
-    const baseNodes = this._buildFolderChildren(folders);
-    const expandedKeys = [];
-    const nodes = [];
-
-    for (const node of baseNodes) {
-      if (!this._isMounted) {
-        return { nodes, expandedKeys };
-      }
-      // 后端明确标记为叶子（has_children=false）时无需递归加载，避免无谓请求
-      if (node.isLeaf) {
-        nodes.push({ ...node, children: [], isLeaf: true });
-        continue;
-      }
-      const { nodes: childNodes, expandedKeys: childExpandedKeys } =
-        await this._buildExpandedFolderChildren(node.rawId, depth + 1, visited);
-      const hasChildren = childNodes.length > 0;
-      if (hasChildren) {
-        expandedKeys.push(node.key, ...childExpandedKeys);
-      }
-      nodes.push({
-        ...node,
-        children: hasChildren ? childNodes : [],
-        isLeaf: !hasChildren
-      });
-    }
-
-    return { nodes, expandedKeys };
   };
 
   /**
@@ -334,7 +268,7 @@ class FolderTree extends React.Component {
   onLoadData = (treeNode) => this._runTreeLoad(async () => {
     const key = treeNode.key;
 
-    // 党建文档系统根节点：展开时加载其一级子文件夹
+    // 党建工作系统根节点：展开时加载其一级子文件夹
     if (key === 'system-root') {
       const nodeData = this.state.data.find(n => n.key === key);
       if (nodeData && nodeData.children && nodeData.children.length > 0) {
@@ -495,17 +429,19 @@ class FolderTree extends React.Component {
   handleSelect = (_, {
     node
   }) => {
-    // 党建文档系统根节点选择
+    // 党建工作系统根节点选择
     if (node.key === 'system-root') {
       const { rootFolderId, rootFolderName } = this.props;
       if (rootFolderId) {
-        navigationStore.selectFolder(rootFolderId, rootFolderName || '党建文档');
+        navigationStore.selectFolder(rootFolderId, rootFolderName || '党建工作');
       }
+      this._expandNodeOnSelect(node.key);
       return;
     }
     // 处理根节点选择
     if (node.key === 'private-root' || node.key === 'public-root') {
       navigationStore.selectRootFolder(node.key === 'public-root');
+      this._expandNodeOnSelect(node.key);
     } else {
       // 解析文件夹ID（使用工具函数）
       const folderId = parseRawId(node.key);
@@ -522,15 +458,52 @@ class FolderTree extends React.Component {
         } else {
           navigationStore.selectFolder(folderId, folderName);
         }
+        this._expandNodeOnSelect(node.key);
       }
     }
   };
 
   /**
+   * 单击文件夹节点时同时展开其子文件夹（合并展开行为到单击）
+   * - 已展开则保持现状（不实现 toggle，避免误折叠丢失视野；折叠仍由展开三角负责）
+   * - 叶子节点（isLeaf=true）不展开
+   * - children=undefined 时 antd Tree 检测到 expandedKeys 变化会自动触发 onLoadData 按需加载
+   */
+  _expandNodeOnSelect = (key) => {
+    if (!this._isMounted || !key) return;
+    this.setState((prevState) => {
+      if (prevState.expandedKeys.includes(key)) {
+        return null; // 已展开，无变化
+      }
+      const node = this._findNodeInData(prevState.data, key);
+      if (node && node.isLeaf === true) {
+        return null; // 叶子节点，无子文件夹
+      }
+      return { expandedKeys: [...prevState.expandedKeys, key] };
+    });
+  };
+
+  /**
+   * 在 state.data 中递归查找节点
+   */
+  _findNodeInData = (nodes, key) => {
+    if (!Array.isArray(nodes)) return null;
+    for (const n of nodes) {
+      if (n.key === key) return n;
+      if (Array.isArray(n.children)) {
+        const found = this._findNodeInData(n.children, key);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+
+  /**
    * 构建文件夹路径（从根目录到指定文件夹的完整祖先链）
    * 【2026-07-17 完整路径修复】
    * - 普通模式：向上追溯至 parent_id === null（根目录）停止
-   * - 党建文档锁定模式：向上追溯至锁定根目录（rootFolderId）停止，
+   * - 党建工作锁定模式：向上追溯至锁定根目录（rootFolderId）停止，
    *   锁定根作为路径起点，不越界到公共资料库
    * - 循环引用保护（visited set）
    * - 最大深度保护（MAX_PATH_DEPTH）
@@ -553,9 +526,9 @@ class FolderTree extends React.Component {
       }
       visited.add(currentId);
 
-      // 党建文档锁定模式：到达锁定根目录，加入路径并停止（不越界到公共库）
+      // 党建工作锁定模式：到达锁定根目录，加入路径并停止（不越界到公共库）
       if (lockedRoot && currentId === rootFolderId) {
-        path.unshift({ id: currentId, name: rootFolderName || '党建文档' });
+        path.unshift({ id: currentId, name: rootFolderName || '党建工作' });
         break;
       }
 

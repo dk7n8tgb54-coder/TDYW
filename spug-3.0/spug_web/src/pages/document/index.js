@@ -49,12 +49,12 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 【党建文档】进入页面时初始化系统目录上下文，离开时清理
+  // 【党建工作】进入页面时初始化系统目录上下文，离开时清理
   React.useLayoutEffect(() => {
     let cancelled = false;
     if (isPartyBuildingDocuments) {
       setSystemFolder(systemFolderCode);
-      // 拉取系统目录绑定，初始化导航到党建文档根目录
+      // 拉取系统目录绑定，初始化导航到党建工作根目录
       (async () => {
         try {
           const res = await http.get('/api/document/system-folder/', {
@@ -68,7 +68,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
           });
         } catch (e) {
           if (!cancelled) {
-            setInitError(e?.message || '党建文档初始化失败');
+            setInitError(e?.message || '党建工作初始化失败');
           }
         }
       })();
@@ -96,12 +96,12 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
     : currentPath;
   const breadcrumbPathIndexOffset = breadcrumbPath.length === currentPath.length ? 0 : 1;
   const canGoBack = isPartyBuildingDocuments ? breadcrumbPath.length > 0 : currentPath.length > 0;
-  // 党建文档锁定模式：面包屑根节点显示锁定根名称，否则显示空间前缀
+  // 党建工作锁定模式：面包屑根节点显示锁定根名称，否则显示空间前缀
   const spacePrefix = isPartyBuildingDocuments
     ? rootFolderName
     : (navigationStore.isPublic ? '公共共享库' : '我的文件');
 
-  // 党建文档模式下的权限前缀
+  // 党建工作模式下的权限前缀
   const permPrefix = isPartyBuildingDocuments ? 'document.party_building_document' : 'document.document';
   const canUpload = hasPermission(`${permPrefix}.upload`);
   const canCreateFolder = hasPermission(`${permPrefix}.create_folder`);
@@ -195,7 +195,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
     const files = Array.from(e.target.files);
     if (files.length > 0) {
       if (isPartyBuildingDocuments) {
-        message.info('文件将上传到党建文档，所有用户均可查看下载');
+        message.info('文件将上传到党建工作，所有用户均可查看下载');
       } else if (navigationStore.isPublic) {
         message.info('文件将上传到公共共享库，所有用户均可查看下载');
       }
@@ -208,7 +208,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
     const files = Array.from(e.target.files);
     if (files.length > 0) {
       if (isPartyBuildingDocuments) {
-        message.info('文件夹将上传到党建文档，所有用户均可查看下载');
+        message.info('文件夹将上传到党建工作，所有用户均可查看下载');
       } else if (navigationStore.isPublic) {
         message.info('文件夹将上传到公共共享库，所有用户均可查看下载');
       }
@@ -257,7 +257,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
 
   // 【拖拽上传】目标目录显示文本（用于遮罩提示 + captureTargetContext）
   // 普通模式：'我的文件 / 子目录' 或 '公共共享库 / 子目录'
-  // 党建模式：'党建文档 / 子目录'
+  // 党建模式：'党建工作 / 子目录'
   const targetPathLabel = [
     spacePrefix,
     ...breadcrumbPath.map(p => p.name),
@@ -298,14 +298,14 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
     // 两条路径都进入同一套 uploadCoreStore，不新增队列
     if (isPlainFilesOnly(collected)) {
       if (isPartyBuildingDocuments) {
-        message.info('文件将上传到党建文档，所有用户均可查看下载');
+        message.info('文件将上传到党建工作，所有用户均可查看下载');
       } else if (navigationStore.isPublic) {
         message.info('文件将上传到公共共享库，所有用户均可查看下载');
       }
       uploadCoreStore.handleFileSelect(collected.files, targetContext);
     } else {
       if (isPartyBuildingDocuments) {
-        message.info('文件夹将上传到党建文档，所有用户均可查看下载');
+        message.info('文件夹将上传到党建工作，所有用户均可查看下载');
       } else if (navigationStore.isPublic) {
         message.info('文件夹将上传到公共共享库，所有用户均可查看下载');
       }
@@ -327,7 +327,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
           <DiskStatus isPublic={navigationStore.isPublic} />
           <SearchBox
             isPublic={navigationStore.isPublic}
-            placeholder={isPartyBuildingDocuments ? '搜索党建文档' : undefined}
+            placeholder={isPartyBuildingDocuments ? '搜索党建工作' : undefined}
             folderId={isPartyBuildingDocuments ? navigationStore.lockedRootFolderId : undefined}
             systemFolderCode={isPartyBuildingDocuments ? PARTY_BUILDING_DOCUMENTS_CODE : null}
             onSearchStart={handleSearchStart}
@@ -343,7 +343,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
       )}
 
       {!initError && !isPartyBuildingDocumentsReady && (
-        <div style={{ padding: '24px 16px', color: '#666' }}>党建文档初始化中...</div>
+        <div style={{ padding: '24px 16px', color: '#666' }}>党建工作初始化中...</div>
       )}
 
       {!initError && isPartyBuildingDocumentsReady && <div className={styles.documentPage}>
@@ -449,7 +449,6 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
               lockedRoot={isPartyBuildingDocuments}
               rootFolderId={isPartyBuildingDocuments ? navigationStore.lockedRootFolderId : null}
               rootFolderName={isPartyBuildingDocuments ? rootFolderName : undefined}
-              autoExpandAll={isPartyBuildingDocuments}
             />
           </div>
           <div className={styles.explorerArea}>
