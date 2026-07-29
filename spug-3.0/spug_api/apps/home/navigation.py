@@ -3,6 +3,7 @@
 # Released under the AGPL-3.0 License.
 from django.views.generic import View
 from libs import json_response, JsonParser, Argument
+from libs.idempotency import check_recent_duplicate
 from apps.home.models import Navigation
 import json
 
@@ -34,6 +35,11 @@ class NavView(View):
                 for field, label in required.items():
                     if not form.get(field):
                         return json_response(error=f'请输入{label}')
+                if check_recent_duplicate(Navigation, {
+                    'title': form.get('title'),
+                    'desc': form.get('desc'),
+                }):
+                    return json_response(error='检测到重复提交，请勿重复操作')
                 nav = Navigation.objects.create(**form)
                 nav.sort_id = nav.id
                 nav.save()

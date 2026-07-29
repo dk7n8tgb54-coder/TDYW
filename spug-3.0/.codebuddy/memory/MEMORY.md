@@ -60,9 +60,24 @@
 ## 数据库性能优化（2026-07-29）
 - `__date` 绕过索引（翻译成 `DATE(col)=...`），改用 `__gte`/`__lt` + datetime 范围
 - `__startswith` 在 DateTimeField 上绕过索引；CharField 不受影响
+- `__year`/`__month` 绕过索引（翻译成 `YEAR(col)=N AND MONTH(col)=N`），改用 `__gte`/`__lt`
+- `.extra({'date': 'DATE(col)'})` 绕过索引 + 产生 `Using temporary; Using filesort`
+- `__icontains` 在 DateTimeField 上生成 `CAST(col AS CHAR) LIKE '%xxx%'`，绕过列索引（tenant_id 索引仍可用）
+- `__icontains` 在无索引 CharField/TextField 上：`LIKE '%xxx%'` 前缀通配符无法用 B-Tree 索引
+- **复合索引最左前缀违反**：`DepartmentDutyLog` 的 `(status, deleted_at, duty_date)` 索引，大多数查询直接按 `duty_date` 过滤，索引完全不可用（EXPLAIN 确认 type=ALL）
 - Dashboard `home/views.py:get_statistic` 已加 Redis 缓存 60s
 - audit_logs 关键词搜索默认限制最近 90 天
 - migration: `fault/0005` + `runlog/0013`
+- 待修复（P0）: DepartmentDutyLog 新增 duty_date 独立索引
+- 完整排查报告：`INDEX_RISK_AUDIT_REPORT.md`
+
+## 幂等性设计（2026-07-29）
+- 新增 `libs/idempotency.py`：`check_recent_duplicate(model, filters, window_seconds=30)` 时间窗口去重工具
+- 8 个 view 的 POST 分支已加 dedup：duty/fault(×2)/interference/runlog/regulation(×2)/home(×2)
+- `document/tasks/merge.py` `_create_file_instance` 加了 `FileModel.objects.filter` 存在性检查（Celery 重试幂等）
+- 测试：`apps/idempotency_risk_tests.py`（10 TestCase，`docker exec tdyw-test python manage.py test apps.idempotency_risk_tests`）
+- `signature` 模块有完整 request_id 幂等机制，是项目最佳实践标杆
+- 未修复（低优先级）：前端表单 loading / DepartmentDutyLog / UpgradeRecordStep / RadioLicense
 
 ## 公共组件
 - `libs/pagination.py`: `paginate(request)` + `paginate_response(qs, page, page_size, serialize_fn, items_key)`

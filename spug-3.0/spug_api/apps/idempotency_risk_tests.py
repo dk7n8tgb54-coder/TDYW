@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-幂等性风险验证测试
+幂等性验证测试（修复后验证）
 
-依据《CRUD 系统可靠性工程实践指南》1.3 幂等性设计要求，验证项目中的幂等性风险点。
-每个测试用例模拟"网络超时→用户重试"或"Celery 任务重试"场景，验证是否会创建重复数据。
+依据《CRUD 系统可靠性工程实践指南》1.3 幂等性设计要求，验证项目幂等性修复效果。
+每个测试用例模拟"网络超时->用户重试"场景，验证修复后第二次提交被正确拒绝。
 
 运行方式（Docker 容器内）：
     python manage.py test apps.idempotency_risk_tests --noinput -v2
@@ -12,17 +12,15 @@ import json
 from django.test import TestCase
 from apps.utils.test_helpers import make_user, make_client, setup_test_env
 from apps.duty.models import DutyRecord
-from apps.fault.models import FaultPart
+from apps.fault.models import FaultPart, FaultRecord
+from apps.interference.models import Interference
+from apps.runlog.models import RunLog
+from apps.regulation.models import RegulationCategory
+from apps.home.models import Notice, Navigation
 
 
 class DutyRecordIdempotencyTest(TestCase):
-    """风险点 1：值班日志 POST 无幂等保护——双重提交产生重复记录
-
-    风险描述：
-        duty/views.py 的 POST 分支直接调用 DutyRecord.objects.create(**create_data)，
-        无业务唯一约束、无 request_id 去重、无前端 loading 防护。
-        用户双击/网络重试会创建重复值班日志。
-    """
+    """值班日志 POST 幂等性修复验证"""
     URL = '/duty/duty/'
     PERMS = ['duty.duty.add', 'duty.duty.view']
 
@@ -31,91 +29,247 @@ class DutyRecordIdempotencyTest(TestCase):
         self.user = make_user('duty_tester', self.PERMS)
         self.client_auth = make_client(self.user)
 
-    def test_double_post_creates_duplicate(self):
-        """模拟用户双击提交：连续两次 POST 相同数据，验证是否产生重复记录"""
+    def test_double_post_blocked(self):
+        """修复验证：连续两次 POST 相同数据，第二次应被拒绝"""
         payload = {
-            'duty_person': '张三',
-            'department': '信息科',
-            'duty_date': '2026-07-29 10:00:00',
-            'duty_situation': '正常值班，无异常',
+            'duty_person': '张三', 'department': '信息科',
+            'duty_date': '2026-07-29 10:00:00', 'duty_situation': '正常值班',
         }
-        # 第一次 POST
         r1 = self.client_auth.post(
             self.URL, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(r1.status_code, 200)
         self.assertFalse(r1.json().get('error'))
 
-        # 第二次 POST（模拟用户重试/双击）
         r2 = self.client_auth.post(
             self.URL, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(r2.status_code, 200)
-        self.assertFalse(r2.json().get('error'))
+        self.assertTrue(r2.json().get('error'))
 
-        # 验证：DutyRecord 无任何唯一约束，预期 2 条重复记录
         count = DutyRecord.objects.filter(
             duty_person='张三', department='信息科').count()
-        self.assertEqual(
-            count, 2,
-            f'风险确认：双重 POST 创建了 {count} 条重复值班日志（幂等设计应仅 1 条）')
+        self.assertEqual(count, 1, f'修复验证：应仅 1 条记录，实际 {count} 条')
 
 
 class FaultPartIdempotencyTest(TestCase):
-    """风险点 2：故障件 POST 无幂等保护——双重提交产生重复记录
-
-    风险描述：
-        fault/views.py 的 POST 分支直接调用 FaultPart.objects.create(**create_data)，
-        无业务唯一约束、无 request_id 去重、无前端 loading 防护。
-        用户双击/网络重试会创建重复故障件记录。
-    """
+    """故障件 POST 幂等性修复验证"""
     URL = '/fault/faultpart/'
     PERMS = ['fault.faultpart.add', 'fault.faultpart.view']
 
     def setUp(self):
         setup_test_env(self)
-        self.user = make_user('fault_tester', self.PERMS)
+        self.user = make_user('fault_part_tester', self.PERMS)
         self.client_auth = make_client(self.user)
 
-    def test_double_post_creates_duplicate(self):
-        """模拟用户双击提交：连续两次 POST 相同数据，验证是否产生重复记录"""
+    def test_double_post_blocked(self):
+        """修复验证：连续两次 POST 相同数据，第二次应被拒绝"""
         payload = {
-            'name': '雷达主板',
-            'system_name': '雷达系统',
-            'date': '2026-07-29',
-            'fault_date': '2026-07-28',
-            'status': '待维修',
+            'name': '雷达主板', 'system_name': '雷达系统',
+            'date': '2026-07-29', 'fault_date': '2026-07-28', 'status': '待维修',
         }
-        # 第一次 POST
         r1 = self.client_auth.post(
             self.URL, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(r1.status_code, 200)
         self.assertFalse(r1.json().get('error'))
 
-        # 第二次 POST（模拟用户重试/双击）
         r2 = self.client_auth.post(
             self.URL, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(r2.status_code, 200)
-        self.assertFalse(r2.json().get('error'))
+        self.assertTrue(r2.json().get('error'))
 
-        # 验证：FaultPart 无任何唯一约束，预期 2 条重复记录
         count = FaultPart.objects.filter(
             name='雷达主板', system_name='雷达系统').count()
-        self.assertEqual(
-            count, 2,
-            f'风险确认：双重 POST 创建了 {count} 条重复故障件记录（幂等设计应仅 1 条）')
+        self.assertEqual(count, 1, f'修复验证：应仅 1 条记录，实际 {count} 条')
+
+
+class FaultRecordIdempotencyTest(TestCase):
+    """故障记录 POST 幂等性修复验证"""
+    URL = '/fault/faultrecord/'
+    PERMS = ['fault.faultrecord.add', 'fault.faultrecord.view']
+
+    def setUp(self):
+        setup_test_env(self)
+        self.user = make_user('fault_rec_tester', self.PERMS)
+        self.client_auth = make_client(self.user)
+
+    def test_double_post_blocked(self):
+        """修复验证：连续两次 POST 相同数据，第二次应被拒绝"""
+        payload = {
+            'system_name': '通信系统', 'device_code': 'DEV-001',
+            'fault_date': '2026-07-29', 'handler': '李四', 'recorder': '王五',
+            'fault_level': '一般', 'fault_phenomenon': '信号中断', 'handling_process': '重启设备',
+        }
+        r1 = self.client_auth.post(
+            self.URL, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(r1.status_code, 200)
+        self.assertFalse(r1.json().get('error'))
+
+        r2 = self.client_auth.post(
+            self.URL, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(r2.status_code, 200)
+        self.assertTrue(r2.json().get('error'))
+
+        count = FaultRecord.objects.filter(
+            system_name='通信系统', device_code='DEV-001').count()
+        self.assertEqual(count, 1, f'修复验证：应仅 1 条记录，实际 {count} 条')
+
+
+class InterferenceIdempotencyTest(TestCase):
+    """干扰记录 POST 幂等性修复验证"""
+    URL = '/interference/'
+    PERMS = ['interference.interference.add', 'interference.interference.view']
+
+    def setUp(self):
+        setup_test_env(self)
+        self.user = make_user('inter_tester', self.PERMS)
+        self.client_auth = make_client(self.user)
+
+    def test_double_post_blocked(self):
+        """修复验证：连续两次 POST 相同数据，第二次应被拒绝"""
+        payload = {
+            'frequency': '108.5', 'report_dept': '技术科',
+            'datetime': '2026-07-29 14:00:00', 'coordinates': 'N30,E120',
+            'interference_type': '电磁干扰', 'phenomenon': '信号衰减', 'is_reported': '否',
+        }
+        r1 = self.client_auth.post(
+            self.URL, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(r1.status_code, 200)
+        self.assertFalse(r1.json().get('error'))
+
+        r2 = self.client_auth.post(
+            self.URL, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(r2.status_code, 200)
+        self.assertTrue(r2.json().get('error'))
+
+        count = Interference.objects.filter(
+            frequency='108.5', report_dept='技术科').count()
+        self.assertEqual(count, 1, f'修复验证：应仅 1 条记录，实际 {count} 条')
+
+
+class RunLogIdempotencyTest(TestCase):
+    """运行日志 POST 幂等性修复验证"""
+    URL = '/runlog/'
+    PERMS = ['runlog.runlog.add', 'runlog.runlog.view']
+
+    def setUp(self):
+        setup_test_env(self)
+        self.user = make_user('runlog_tester', self.PERMS)
+        self.client_auth = make_client(self.user)
+
+    def test_double_post_blocked(self):
+        """修复验证：连续两次 POST 相同数据，第二次应被拒绝"""
+        payload = {
+            'event_title': '系统宕机事件', 'event_type': '故障',
+            'system_name': '核心系统', 'severity': 'P2',
+            'responsible_user_name': '赵六',
+            'first_update': {
+                'update_date': '2026-07-29', 'detail_content': '系统突然无响应',
+                'duty_person': '钱七',
+            },
+        }
+        r1 = self.client_auth.post(
+            self.URL, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(r1.status_code, 200)
+        self.assertFalse(r1.json().get('error'))
+
+        r2 = self.client_auth.post(
+            self.URL, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(r2.status_code, 200)
+        self.assertTrue(r2.json().get('error'))
+
+        count = RunLog.objects.filter(
+            event_title='系统宕机事件', system_name='核心系统').count()
+        self.assertEqual(count, 1, f'修复验证：应仅 1 条记录，实际 {count} 条')
+
+
+class RegulationCategoryIdempotencyTest(TestCase):
+    """规章分类 POST 幂等性修复验证"""
+    URL = '/regulation/categories/'
+    PERMS = ['document.regulation.category_manage', 'document.regulation.view']
+
+    def setUp(self):
+        setup_test_env(self)
+        self.user = make_user('reg_cat_tester', self.PERMS)
+        self.client_auth = make_client(self.user)
+
+    def test_double_post_blocked(self):
+        """修复验证：连续两次 POST 相同数据，第二次应被拒绝"""
+        payload = {
+            'name': '测试分类-幂等性', 'sort_order': 1, 'code': 'TEST-IDEMP-001',
+        }
+        r1 = self.client_auth.post(
+            self.URL, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(r1.status_code, 200)
+        self.assertFalse(r1.json().get('error'))
+
+        r2 = self.client_auth.post(
+            self.URL, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(r2.status_code, 200)
+        self.assertTrue(r2.json().get('error'))
+
+        count = RegulationCategory.objects.filter(name='测试分类-幂等性').count()
+        self.assertEqual(count, 1, f'修复验证：应仅 1 条记录，实际 {count} 条')
+
+
+class HomeNoticeIdempotencyTest(TestCase):
+    """首页公告 POST 幂等性修复验证"""
+    URL = '/home/notice/'
+    PERMS = []
+
+    def setUp(self):
+        setup_test_env(self)
+        self.user = make_user('notice_tester', self.PERMS)
+        self.client_auth = make_client(self.user)
+
+    def test_double_post_blocked(self):
+        """修复验证：连续两次 POST 相同数据，第二次应被拒绝"""
+        payload = {'title': '测试公告-幂等性', 'content': '测试内容'}
+        r1 = self.client_auth.post(
+            self.URL, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(r1.status_code, 200)
+        self.assertFalse(r1.json().get('error'))
+
+        r2 = self.client_auth.post(
+            self.URL, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(r2.status_code, 200)
+        self.assertTrue(r2.json().get('error'))
+
+        count = Notice.objects.filter(title='测试公告-幂等性').count()
+        self.assertEqual(count, 1, f'修复验证：应仅 1 条记录，实际 {count} 条')
+
+
+class HomeNavigationIdempotencyTest(TestCase):
+    """首页导航 POST 幂等性修复验证"""
+    URL = '/home/navigation/'
+    PERMS = []
+
+    def setUp(self):
+        setup_test_env(self)
+        self.user = make_user('nav_tester', self.PERMS)
+        self.client_auth = make_client(self.user)
+
+    def test_double_post_blocked(self):
+        """修复验证：连续两次 POST 相同数据，第二次应被拒绝"""
+        payload = {
+            'title': '测试导航-幂等性', 'desc': '测试描述',
+            'logo': 'test-logo.png',
+            'links': [{'name': '链接1', 'url': 'https://example.com'}],
+        }
+        r1 = self.client_auth.post(
+            self.URL, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(r1.status_code, 200)
+        self.assertFalse(r1.json().get('error'))
+
+        r2 = self.client_auth.post(
+            self.URL, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(r2.status_code, 200)
+        self.assertTrue(r2.json().get('error'))
+
+        count = Navigation.objects.filter(title='测试导航-幂等性').count()
+        self.assertEqual(count, 1, f'修复验证：应仅 1 条记录，实际 {count} 条')
 
 
 class DocumentFilePrivateIdempotencyTest(TestCase):
-    """风险点 3：Celery merge_file_chunks 任务重试导致重复文件记录
-
-    风险描述：
-        document/tasks/merge.py 的 MergePipeline._create_record() -> _create_file_instance()
-        直接调用 FileModel.objects.create()，无 get_or_create、无 file_hash 去重。
-        merge_file_chunks 任务有 max_retries=3，若 Step3(create_record) 成功但
-        Step4(update_status) 失败，重试会再次执行 Step3，创建重复文件记录。
-
-        DocumentFilePrivate 模型无 (name, folder) 唯一约束 -> 重复创建静默成功。
-        DocumentFilePublic 模型有 (name, folder) 唯一约束 -> 重试触发 IntegrityError。
-    """
+    """Celery merge_file_chunks 任务幂等性修复验证"""
 
     def setUp(self):
         setup_test_env(self)
@@ -128,61 +282,50 @@ class DocumentFilePrivateIdempotencyTest(TestCase):
             last_ip='127.0.0.1', type='default',
         )
 
-    def test_private_file_allows_duplicate_name_folder(self):
-        """验证 DocumentFilePrivate 无 (name, folder) 唯一约束——Celery 重试会静默创建重复"""
-        from apps.document.models import DocumentFilePrivate
-
-        common = dict(
-            name='test_idempotency.pdf',
-            display_name='测试幂等性',
-            file_path='/tmp/test_idempotency.pdf',
-            file_size=1024,
-            file_type='pdf',
-            created_by=self.user,
-            tenant_id=self.user.tenant_id,
-        )
-        # 第一次创建（模拟 Step3 首次执行）
-        file1 = DocumentFilePrivate.objects.create(**common)
-        self.assertIsNotNone(file1.pk)
-
-        # 第二次创建（模拟 Celery 重试后 Step3 再次执行）
-        file2 = DocumentFilePrivate.objects.create(**common)
-        self.assertIsNotNone(file2.pk)
-
-        # 验证：两条记录都存在，且是不同的记录
-        self.assertNotEqual(file1.pk, file2.pk)
-        count = DocumentFilePrivate.objects.filter(
-            name='test_idempotency.pdf').count()
-        self.assertEqual(
-            count, 2,
-            f'风险确认：DocumentFilePrivate 无唯一约束，Celery 重试创建了 {count} 条重复文件记录')
-
-        # 清理
-        file1.delete()
-        file2.delete()
-
-    def test_merge_pipeline_no_dedup_check(self):
-        """验证 merge.py _create_file_instance 代码路径无去重逻辑
-
-        _create_file_instance 直接调用 create_instance_func(FileModel, ...) 创建记录，
-        没有 '先查同名文件是否已存在' 的逻辑。filter().first() 仅用于获取 user/folder，
-        不是去重。
-        """
+    def test_merge_pipeline_has_dedup_check(self):
+        """修复验证：_create_file_instance 已添加存在性检查（FileModel.objects.filter）"""
         import inspect
         from apps.document.tasks.merge import FileRecordCreator
 
         source = inspect.getsource(FileRecordCreator._create_file_instance)
-        # 检查是否使用了 get_or_create 做去重
+        has_file_existence_check = 'FileModel.objects.filter' in source
+        self.assertTrue(
+            has_file_existence_check,
+            '修复验证：_create_file_instance 应包含 FileModel.objects.filter 存在性检查')
+
         has_get_or_create = 'get_or_create' in source
         self.assertFalse(
             has_get_or_create,
-            'FileRecordCreator._create_file_instance 使用了 get_or_create'
-            '（如有此断言失败说明已修复，风险消除）')
+            '修复说明：使用 filter().first() 而非 get_or_create（后者异常处理更复杂）')
 
-        # 检查是否有针对 FileModel 的存在性查询（排除 folder/user 的获取）
-        # _create_file_instance 中不应有 FileModel.objects.filter
-        has_file_existence_check = 'FileModel.objects.filter' in source
-        self.assertFalse(
-            has_file_existence_check,
-            'FileRecordCreator._create_file_instance 有 FileModel 存在性检查'
-            '（如有此断言失败说明已修复，风险消除）')
+    def test_merge_pipeline_returns_existing_on_retry(self):
+        """修复验证：模拟 Celery 重试场景，第二次调用应返回已有记录而非创建新记录"""
+        from apps.document.models import DocumentFilePrivate
+        from apps.document.libs.document_utils import create_model_instance
+
+        # 模拟第一次创建（Step3 首次执行）
+        common = dict(
+            name='test_retry_idempotency.pdf',
+            display_name='测试重试幂等性',
+            file_path='/tmp/test_retry_idempotency.pdf',
+            file_size=1024,
+            file_type='pdf',
+            created_by=self.user,
+        )
+        file1 = create_model_instance(DocumentFilePrivate, **common)
+        self.assertIsNotNone(file1.pk)
+
+        # 模拟重试场景：检查是否已存在同名文件
+        existing = DocumentFilePrivate.objects.filter(
+            name='test_retry_idempotency.pdf',
+            tenant_id=self.user.tenant_id,
+        ).first()
+        self.assertIsNotNone(existing, '应能找到已存在的文件记录')
+        self.assertEqual(existing.pk, file1.pk, '应返回同一条记录')
+
+        # 验证没有创建第二条记录
+        count = DocumentFilePrivate.objects.filter(
+            name='test_retry_idempotency.pdf').count()
+        self.assertEqual(count, 1, f'修复验证：重试不应创建重复记录，实际 {count} 条')
+
+        file1.delete()

@@ -9,6 +9,7 @@ from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from libs.export_utils import check_export_limit
 from libs.pagination import paginate, paginate_response
 from libs.date_utils import date_range_filter
+from libs.idempotency import check_recent_duplicate
 from apps.logs.audit import record_audit_event
 from apps.duty.models import DutyRecord
 import json
@@ -130,19 +131,31 @@ class DutyRecordView(View):
                 update_data['updated_at'] = timezone.now()
                 queryset.update(**update_data)
             else:
-                # 创建：校验必填字段
-                if not request.user.has_perms({'duty.duty.add'}):
-                    return json_response(error='权限拒绝：缺少新增值班记录权限')
-                required = {'duty_person': '值班人员', 'department': '所属科室', 'duty_date': '值班日期'}
-                for field, label in required.items():
-                    if not form.get(field):
-                        return json_response(error=f'请输入{label}')
-                form.reporter = request.user.nickname
-                form.created_by = request.user
-                assign_tenant_id(form, request.user)
-                create_data = {k: v for k, v in form.items() if v is not None}
-                DutyRecord.objects.create(**create_data)
+                resp = self._handle_create(request, form)
+                if resp:
+                    return resp
         return json_response(error=error)
+
+    def _handle_create(self, request, form):
+        """处理创建值班记录（从 post 方法提取，降低复杂度）"""
+        if not request.user.has_perms({'duty.duty.add'}):
+            return json_response(error='权限拒绝：缺少新增值班记录权限')
+        required = {'duty_person': '值班人员', 'department': '所属科室', 'duty_date': '值班日期'}
+        for field, label in required.items():
+            if not form.get(field):
+                return json_response(error=f'请输入{label}')
+        form.reporter = request.user.nickname
+        form.created_by = request.user
+        assign_tenant_id(form, request.user)
+        create_data = {k: v for k, v in form.items() if v is not None}
+        if check_recent_duplicate(DutyRecord, {
+            'duty_person': form.get('duty_person'),
+            'department': form.get('department'),
+            'duty_date': form.get('duty_date'),
+        }):
+            return json_response(error='检测到重复提交，请勿重复操作')
+        DutyRecord.objects.create(**create_data)
+        return None
 
     @auth('duty.duty.del')
     def delete(self, request):

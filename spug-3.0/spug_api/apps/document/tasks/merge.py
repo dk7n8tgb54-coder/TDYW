@@ -396,8 +396,22 @@ class FileRecordCreator:
         return folder_query.first()
 
     def _create_file_instance(self, FileModel, folder, user, create_instance_func, get_mime_type_func):
-        """创建文件实例"""
+        """创建文件实例（幂等：Celery 重试时若已存在同名文件则返回已有记录）"""
         logger.info(f'[Celery] Creating file instance: physical_name={self.task_manager.physical_name}, logical_name={self.task_manager.logical_name}, display_name={self.task_manager.display_name}')
+
+        # 幂等保护：检查是否已存在同名文件（Celery 重试场景）
+        # 若 Step3 已成功创建文件记录但 Step4 更新状态失败，重试时会再次进入此方法
+        existing_filter = {'name': self.task_manager.logical_name, 'folder': folder}
+        if hasattr(FileModel, 'tenant_id'):
+            existing_filter['tenant_id'] = self.task_manager.tenant_id
+        existing_file = FileModel.objects.filter(**existing_filter).first()
+        if existing_file:
+            logger.warning(
+                f'[Celery] Idempotent skip: file already exists '
+                f'(name={self.task_manager.logical_name}, folder={folder}, '
+                f'pk={existing_file.pk}). Celery retry detected, returning existing record.'
+            )
+            return existing_file
 
         new_file = create_instance_func(
             FileModel,

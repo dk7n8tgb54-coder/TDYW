@@ -13,6 +13,7 @@ from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from libs import Argument, JsonParser
 from libs.export_utils import check_export_limit
 from libs.date_utils import date_range_filter
+from libs.idempotency import check_recent_duplicate
 from apps.logs.audit import record_audit_event
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -163,6 +164,11 @@ class RunLogView(View):
                 'created_by': request.user,
             }
             assign_tenant_id(log_data, request.user)
+            if check_recent_duplicate(RunLog, {
+                'event_title': form.event_title,
+                'system_name': form.system_name,
+            }):
+                return json_response(error='检测到重复提交，请勿重复操作')
             with transaction.atomic():
                 event = RunLog.objects.create(**log_data)
 

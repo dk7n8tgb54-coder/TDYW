@@ -38,6 +38,7 @@ from urllib.parse import quote
 
 from django.utils import timezone
 from libs import json_response, JsonParser, Argument, auth
+from libs.idempotency import check_recent_duplicate
 from apps.logs.audit import record_audit_event
 from apps.evidence.attachment_preview_token import (
     generate_attachment_preview_token,
@@ -226,6 +227,12 @@ class CategoryListCreateView(View):
             if parent.is_leaf:
                 parent.is_leaf = False
                 parent.save(update_fields=['is_leaf'])
+
+        if check_recent_duplicate(RegulationCategory, {
+            'name': form.name,
+            'parent_id': form.parent_id,
+        }):
+            return json_response(error='检测到重复提交，请勿重复操作')
 
         cat = RegulationCategory.objects.create(
             name=form.name,
@@ -424,6 +431,12 @@ class RegulationCreateView(View):
             if date_err:
                 return json_response(error=date_err)
             parsed_dates[field] = parsed
+
+        if check_recent_duplicate(Regulation, {
+            'title': form.title,
+            'rule_no': form.rule_no,
+        }):
+            return json_response(error='检测到重复提交，请勿重复操作')
 
         regulation = Regulation.objects.create(
             title=form.title,

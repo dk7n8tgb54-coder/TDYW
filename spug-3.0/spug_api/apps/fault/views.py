@@ -6,6 +6,7 @@ from django.utils import timezone
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from libs.pagination import paginate, paginate_response
+from libs.idempotency import check_recent_duplicate
 from apps.fault.models import FaultRecord, FaultPart
 from apps.logs.audit import record_audit_event
 import logging
@@ -64,6 +65,12 @@ class FaultRecordView(View):
                 form.created_by = request.user
                 assign_tenant_id(form, request.user)
                 create_data = {k: v for k, v in form.items() if v is not None}
+                if check_recent_duplicate(FaultRecord, {
+                    'system_name': form.get('system_name'),
+                    'device_code': form.get('device_code'),
+                    'fault_date': form.get('fault_date'),
+                }):
+                    return json_response(error='检测到重复提交，请勿重复操作')
                 FaultRecord.objects.create(**create_data)
         return json_response(error=error)
 
@@ -131,21 +138,33 @@ class FaultPartView(View):
                 update_data = {k: v for k, v in form.items() if v is not None and k != 'id'}
                 FaultPart.objects.filter(pk=form.pop('id')).update(**update_data)
             else:
-                # 创建：校验必填字段
-                if not request.user.has_perms({'fault.faultpart.add'}):
-                    return json_response(error='权限拒绝：缺少新增故障件权限')
-                required = {
-                    'name': '故障件名称', 'system_name': '所属系统',
-                    'date': '日期', 'fault_date': '故障日期', 'status': '状态'
-                }
-                for field, label in required.items():
-                    if not form.get(field):
-                        return json_response(error=f'请输入{label}')
-                form.created_by = request.user
-                assign_tenant_id(form, request.user)
-                create_data = {k: v for k, v in form.items() if v is not None}
-                FaultPart.objects.create(**create_data)
+                resp = self._handle_create(request, form)
+                if resp:
+                    return resp
         return json_response(error=error)
+
+    def _handle_create(self, request, form):
+        """处理创建故障件（从 post 方法提取，降低复杂度）"""
+        if not request.user.has_perms({'fault.faultpart.add'}):
+            return json_response(error='权限拒绝：缺少新增故障件权限')
+        required = {
+            'name': '故障件名称', 'system_name': '所属系统',
+            'date': '日期', 'fault_date': '故障日期', 'status': '状态'
+        }
+        for field, label in required.items():
+            if not form.get(field):
+                return json_response(error=f'请输入{label}')
+        form.created_by = request.user
+        assign_tenant_id(form, request.user)
+        create_data = {k: v for k, v in form.items() if v is not None}
+        if check_recent_duplicate(FaultPart, {
+            'name': form.get('name'),
+            'system_name': form.get('system_name'),
+            'fault_date': form.get('fault_date'),
+        }):
+            return json_response(error='检测到重复提交，请勿重复操作')
+        FaultPart.objects.create(**create_data)
+        return None
 
     @auth('fault.faultpart.del')
     def delete(self, request):

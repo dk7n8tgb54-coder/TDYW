@@ -7,6 +7,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
+from libs.idempotency import check_recent_duplicate
 from apps.interference.models import Interference, INTERFERENCE_STATUS_CHOICES
 from apps.evidence.services import record_evidence_event
 from apps.evidence.models import EvidenceEvent, EvidenceAttachment
@@ -217,6 +218,12 @@ class InterferenceView(View):
                 form.created_by = request.user
                 assign_tenant_id(form, request.user)
                 create_data = {k: v for k, v in form.items() if v is not None}
+                if check_recent_duplicate(Interference, {
+                    'frequency': form.get('frequency'),
+                    'datetime': form.get('datetime'),
+                    'report_dept': form.get('report_dept'),
+                }):
+                    return json_response(error='检测到重复提交，请勿重复操作')
                 Interference.objects.create(**create_data)
         return json_response(error=error)
 

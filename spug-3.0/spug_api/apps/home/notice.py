@@ -3,6 +3,7 @@
 # Released under the AGPL-3.0 License.
 from django.views.generic import View
 from libs import json_response, JsonParser, Argument
+from libs.idempotency import check_recent_duplicate
 from apps.home.models import Notice
 import json
 
@@ -33,6 +34,11 @@ class NoticeView(View):
                     return json_response(error='请输入标题')
                 if not form.get('content'):
                     return json_response(error='请输入内容')
+                if check_recent_duplicate(Notice, {
+                    'title': form.get('title'),
+                    'content': form.get('content'),
+                }):
+                    return json_response(error='检测到重复提交，请勿重复操作')
                 notice = Notice.objects.create(**form)
                 notice.sort_id = notice.id
                 notice.save()
