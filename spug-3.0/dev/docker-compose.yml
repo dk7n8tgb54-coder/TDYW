@@ -11,35 +11,15 @@ services:
     container_name: tdyw-db-test
     # 容器退出时自动重启
     restart: always
-    # MySQL 启动参数配置
-    # 由于 Windows Docker 权限问题，使用 command 参数而非配置文件挂载
-    command: >
-      --character-set-server=utf8mb4
-      --collation-server=utf8mb4_unicode_ci
-      --log-bin=mysql-bin
-      --binlog-format=ROW
-      --server-id=1
-      --binlog_expire_logs_seconds=604800
-      --max_connections=500
-      --innodb-buffer-pool-size=4G
-      --innodb-log-file-size=128M
-      --innodb-lock-wait-timeout=120
-      --innodb-flush-log-at-trx-commit=2
-      --innodb-log-buffer-size=64M
-      --innodb-file-per-table=1
-      --innodb-adaptive-flushing=1
-      --innodb-read-io-threads=8
-      --innodb-write-io-threads=8
-      --slow-query-log=1
-      --long-query-time=2
-      --max-connect-errors=1000
-      --wait-timeout=300
-      --interactive-timeout=300
-      --table-open-cache=4000
-      --thread-cache-size=32
-      --max-allowed-packet=256M
+    # MySQL 配置文件挂载（与生产环境 docker/docker-compose.yml 一致）
+    # 由于 Windows Docker 权限问题，挂载到临时位置再由 entrypoint 脚本复制
     volumes:
       - mysql-data:/var/lib/mysql
+      - ../docker/config/mysqlnew.cnf:/tmp/mysql-config/custom.cnf:ro
+      - ../docker/config/mysql-entrypoint.sh:/usr/local/bin/mysql-custom-entrypoint.sh:ro
+    # 使用自定义 entrypoint 处理 Windows 权限问题（与生产一致）
+    entrypoint: ["/bin/bash", "/usr/local/bin/mysql-custom-entrypoint.sh"]
+    command: ["mysqld"]
     # 端口映射：宿主机 3307 -> 容器 3306
     # 避免与宿主机已有的 MySQL（默认3306端口）冲突
     ports:

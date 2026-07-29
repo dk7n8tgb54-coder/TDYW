@@ -27,8 +27,10 @@ class SettingView(AdminView):
             Argument('data', type=list, help='缺少必要的参数')
         ).parse(request.body)
         if error is None:
-            for item in form.data:
-                AppSetting.set(**item)
+            from django.db import transaction
+            with transaction.atomic():
+                for item in form.data:
+                    AppSetting.set(**item)
         return json_response(error=error)
 
 

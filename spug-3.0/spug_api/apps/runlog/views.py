@@ -151,7 +151,7 @@ class RunLogView(View):
             if not first_update.get('update_date'):
                 return json_response(error='首次动态内容不能为空')
             
-            # 创建事件
+            # 创建事件 + 首次动态 + 更新统计（多步写需原子性）
             log_data = {
                 'event_title': form.event_title,
                 'event_type': form.event_type,
@@ -163,39 +163,40 @@ class RunLogView(View):
                 'created_by': request.user,
             }
             assign_tenant_id(log_data, request.user)
-            event = RunLog.objects.create(**log_data)
-            
-            # 创建首次动态
-            editable_until = timezone.now() + timedelta(hours=24)
-            
-            # 计算序号
-            max_seq = RunLogUpdate.objects.filter(
-                runlog_id=event.id,
-                update_date=first_update['update_date']
-            ).aggregate(Max('sequence'))['sequence__max'] or 0
-            
-            # duty_person 空字符串按 None 处理
-            first_duty_person = first_update.get('duty_person')
-            if first_duty_person:
-                first_duty_person = first_duty_person.strip()
-            RunLogUpdate.objects.create(
-                runlog_id=event.id,
-                event_title=event.event_title,
-                update_date=first_update['update_date'],
-                sequence=1,
-                recorder=request.user.nickname,
-                detail_content=first_update.get('detail_content', ''),
-                duty_person=first_duty_person or None,
-                editable_until=editable_until,
-                created_by=request.user,
-                tenant_id=request.user.tenant_id,
-            )
-            
-            # 更新统计信息
-            event.update_count = 1
-            event.first_update_date = first_update['update_date']
-            event.last_update_date = first_update['update_date']
-            event.save()
+            with transaction.atomic():
+                event = RunLog.objects.create(**log_data)
+
+                # 创建首次动态
+                editable_until = timezone.now() + timedelta(hours=24)
+
+                # 计算序号
+                max_seq = RunLogUpdate.objects.filter(
+                    runlog_id=event.id,
+                    update_date=first_update['update_date']
+                ).aggregate(Max('sequence'))['sequence__max'] or 0
+
+                # duty_person 空字符串按 None 处理
+                first_duty_person = first_update.get('duty_person')
+                if first_duty_person:
+                    first_duty_person = first_duty_person.strip()
+                RunLogUpdate.objects.create(
+                    runlog_id=event.id,
+                    event_title=event.event_title,
+                    update_date=first_update['update_date'],
+                    sequence=1,
+                    recorder=request.user.nickname,
+                    detail_content=first_update.get('detail_content', ''),
+                    duty_person=first_duty_person or None,
+                    editable_until=editable_until,
+                    created_by=request.user,
+                    tenant_id=request.user.tenant_id,
+                )
+
+                # 更新统计信息
+                event.update_count = 1
+                event.first_update_date = first_update['update_date']
+                event.last_update_date = first_update['update_date']
+                event.save()
         
         return json_response(error=error)
     
@@ -499,44 +500,41 @@ class RunLogRepairView(View):
 
             for event in events:
                 try:
-                    # 1. 先修正 tenant_id 不一致的动态记录
-                    mismatched_updates = RunLogUpdate.objects.filter(
-                        runlog_id=event.id,
-                    ).exclude(tenant_id=event.tenant_id)
+                    with transaction.atomic():
+                        # 1. 先修正 tenant_id 不一致的动态记录
+                        mismatched_updates = RunLogUpdate.objects.filter(
+                            runlog_id=event.id,
+                        ).exclude(tenant_id=event.tenant_id)
 
-                    for update in mismatched_updates:
-                        old_tenant = update.tenant_id
-                        update.tenant_id = event.tenant_id
-                        update.save()
-                        fixed_tenant_count += 1
-                        logger.info(f'[RunLog修复] 动态ID={update.id}, tenant_id: {old_tenant} -> {event.tenant_id} (关联事件ID={event.id})')
+                        for update in mismatched_updates:
+                            old_tenant = update.tenant_id
+                            update.tenant_id = event.tenant_id
+                            update.save()
+                            fixed_tenant_count += 1
+                            logger.info(f'[RunLog修复] 动态ID={update.id}, tenant_id: {old_tenant} -> {event.tenant_id} (关联事件ID={event.id})')
 
-                    # 2. 重新计算 update_count
-                    actual_count = RunLogUpdate.objects.filter(runlog_id=event.id).count()
+                        # 2. 重新计算 update_count
+                        actual_count = RunLogUpdate.objects.filter(runlog_id=event.id).count()
 
-                    # 如果不一致，则修复
-                    if event.update_count != actual_count:
-                        old_count = event.update_count
-                        event.update_count = actual_count
+                        if event.update_count != actual_count:
+                            old_count = event.update_count
+                            event.update_count = actual_count
 
-                        # 同时更新首尾日期
-                        if actual_count > 0:
-                            updates = RunLogUpdate.objects.filter(runlog_id=event.id).order_by('update_date', 'sequence', 'id')
+                            if actual_count > 0:
+                                updates = RunLogUpdate.objects.filter(runlog_id=event.id).order_by('update_date', 'sequence', 'id')
+                                first_update = updates.first()
+                                last_update = updates.last()
+                                if first_update:
+                                    event.first_update_date = first_update.update_date
+                                if last_update:
+                                    event.last_update_date = last_update.update_date
+                            else:
+                                event.first_update_date = None
+                                event.last_update_date = None
 
-                            first_update = updates.first()
-                            last_update = updates.last()
-
-                            if first_update:
-                                event.first_update_date = first_update.update_date
-                            if last_update:
-                                event.last_update_date = last_update.update_date
-                        else:
-                            event.first_update_date = None
-                            event.last_update_date = None
-
-                        event.save()
-                        fixed_count += 1
-                        logger.info(f'[RunLog修复] 事件ID={event.id}, update_count: {old_count} -> {actual_count}')
+                            event.save()
+                            fixed_count += 1
+                            logger.info(f'[RunLog修复] 事件ID={event.id}, update_count: {old_count} -> {actual_count}')
 
                 except Exception as e:
                     error_count += 1

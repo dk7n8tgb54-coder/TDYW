@@ -243,17 +243,20 @@ class RadioLicenseView(View):
 
     def _handle_create(self, form, frequencies, user):
         """新增模式：创建执照 + 频率明细 + 即时扫描"""
+        from django.db import transaction
         form.created_by = user
         form.pop('remark', None)
         assign_tenant_id(form, user)
         create_data = {k: v for k, v in form.items() if v is not None}
-        license_obj = RadioLicense.objects.create(**create_data)
-        _create_frequencies(license_obj, frequencies, user)
-        scan_single_license(license_obj)
+        with transaction.atomic():
+            license_obj = RadioLicense.objects.create(**create_data)
+            _create_frequencies(license_obj, frequencies, user)
+            scan_single_license(license_obj)
         return None
 
     def _handle_edit(self, form, frequencies, user):
         """编辑模式：版本快照 + 状态流转 + 续期/更新证据事件"""
+        from django.db import transaction
         qs = apply_tenant_filter(RadioLicense.objects.all(), user)
         old_license = qs.filter(pk=form.id).first()
         if not old_license:
@@ -266,30 +269,22 @@ class RadioLicenseView(View):
             return '起始日期不能晚于截止日期'
 
         old_valid_to = old_license.valid_to
-        # 证据闭环第三阶段：保存版本历史（修改前快照）
-        # 版本快照属于证据链；失败时必须中止编辑并由请求事务整体回滚。
-        _save_license_version_snapshot(old_license, user)
-
-        # 检测本次变更的字段
-        changed_fields = _detect_license_changed_fields(old_license, form)
-
         form.updated_at = timezone.now()
         form.updated_by = user
         record_id = form.pop('id')
         form.pop('remark', None)
         update_data = {k: v for k, v in form.items() if v is not None}
-        updated_count = qs.filter(pk=record_id).update(**update_data)
-        if updated_count == 0:
-            return '编辑失败：记录不存在或无权限编辑'
 
-        # 更新频率明细
-        _update_frequencies(record_id, frequencies, user)
-        license_obj = RadioLicense.objects.get(pk=record_id)
-        # 即时扫描：更新 license.status
-        scan_single_license(license_obj)
-
-        # 证据闭环第三阶段：续期（valid_to 变化）或字段变更写证据事件
-        _record_license_edit_evidence(license_obj, old_valid_to, changed_fields, user)
+        with transaction.atomic():
+            # 证据闭环第三阶段：保存版本历史（修改前快照）
+            _save_license_version_snapshot(old_license, user)
+            updated_count = qs.filter(pk=record_id).update(**update_data)
+            if updated_count == 0:
+                return '编辑失败：记录不存在或无权限编辑'
+            _update_frequencies(record_id, frequencies, user)
+            license_obj = RadioLicense.objects.get(pk=record_id)
+            scan_single_license(license_obj)
+            _record_license_edit_evidence(license_obj, old_valid_to, _detect_license_changed_fields(old_license, form), user)
         return None
 
     @auth('radio_license.license.del')
@@ -782,7 +777,7 @@ class ReminderAckView(View):
             return json_response(error='执照不存在或无权限')
 
         # 写入 ack（唯一约束会自动去重同周期重复确认）
-        from django.db import IntegrityError
+        from django.db import IntegrityError, transaction
         try:
             LicenseReminderAck.objects.create(
                 tenant_id=license_obj.tenant_id,

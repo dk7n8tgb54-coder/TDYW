@@ -5,7 +5,7 @@ import logging
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.views.generic import View
 
 from django.utils import timezone
@@ -270,13 +270,14 @@ class ContractAgreementView(View):
             setattr(agreement, key, value)
         agreement.updated_at = timezone.now()
         agreement.updated_by = request.user
-        agreement.save()
-        scan_single_contract_agreement(agreement)
-        record_audit_event(
-            request, 'update', AUDIT_TARGET_TYPE,
-            target_id=agreement.id, target_name=agreement.contract_name,
-            detail={'contract_type': agreement.contract_type, 'valid_end_date': _fmt_date(agreement.valid_end_date)},
-        )
+        with transaction.atomic():
+            agreement.save()
+            scan_single_contract_agreement(agreement)
+            record_audit_event(
+                request, 'update', AUDIT_TARGET_TYPE,
+                target_id=agreement.id, target_name=agreement.contract_name,
+                detail={'contract_type': agreement.contract_type, 'valid_end_date': _fmt_date(agreement.valid_end_date)},
+            )
         return json_response(data=_serialize_agreement(agreement, request.user))
 
     def _post_create(self, request, form):
@@ -296,16 +297,17 @@ class ContractAgreementView(View):
         if error:
             return json_response(error=error)
         assign_tenant_id(data, request.user)
-        agreement = ContractAgreement.objects.create(
-            **data,
-            created_by=request.user,
-        )
-        scan_single_contract_agreement(agreement)
-        record_audit_event(
-            request, 'create', AUDIT_TARGET_TYPE,
-            target_id=agreement.id, target_name=agreement.contract_name,
-            detail={'contract_type': agreement.contract_type, 'valid_end_date': _fmt_date(agreement.valid_end_date)},
-        )
+        with transaction.atomic():
+            agreement = ContractAgreement.objects.create(
+                **data,
+                created_by=request.user,
+            )
+            scan_single_contract_agreement(agreement)
+            record_audit_event(
+                request, 'create', AUDIT_TARGET_TYPE,
+                target_id=agreement.id, target_name=agreement.contract_name,
+                detail={'contract_type': agreement.contract_type, 'valid_end_date': _fmt_date(agreement.valid_end_date)},
+            )
         return json_response(data=_serialize_agreement(agreement, request.user))
 
     @auth('contract_agreement.agreement.del')
@@ -321,16 +323,17 @@ class ContractAgreementView(View):
         if not agreement:
             return json_response(error='合同协议不存在或无权限删除')
 
-        AttachmentService.soft_delete_by_object(
-            request.user, ATTACHMENT_MODULE, ATTACHMENT_OBJECT_TYPE, form.id,
-            reason=f'合同协议删除 ID={form.id}', delete_file=True,
-        )
-        record_audit_event(
-            request, 'delete', AUDIT_TARGET_TYPE,
-            target_id=agreement.id, target_name=agreement.contract_name,
-            detail={'contract_type': agreement.contract_type},
-        )
-        agreement.delete()
+        with transaction.atomic():
+            AttachmentService.soft_delete_by_object(
+                request.user, ATTACHMENT_MODULE, ATTACHMENT_OBJECT_TYPE, form.id,
+                reason=f'合同协议删除 ID={form.id}', delete_file=True,
+            )
+            record_audit_event(
+                request, 'delete', AUDIT_TARGET_TYPE,
+                target_id=agreement.id, target_name=agreement.contract_name,
+                detail={'contract_type': agreement.contract_type},
+            )
+            agreement.delete()
         return json_response()
 
 
