@@ -4,7 +4,7 @@
 
 from django.db.models import Q
 from django.utils import timezone
-from datetime import datetime
+from datetime import datetime, timedelta
 from libs.mixins import AdminView
 from libs import json_response, Argument, JsonParser
 from libs.utils import get_request_real_ip
@@ -73,7 +73,11 @@ class AuditLogView(AdminView):
             queryset = queryset.filter(created_at__lte=end_dt)
 
         # 关键词搜索（搜索用户名、对象名称、详情）
+        # LIKE '%keyword%' 无法走索引，无时间范围时限制最近 90 天减少扫描量
         if form.keyword:
+            if not form.start_time and not form.end_time:
+                ninety_days_ago = timezone.now() - timedelta(days=90)
+                queryset = queryset.filter(created_at__gte=ninety_days_ago)
             queryset = queryset.filter(
                 Q(username__icontains=form.keyword) |
                 Q(target_name__icontains=form.keyword) |
@@ -144,6 +148,9 @@ class AuditLogExportView(AdminView):
                 end_dt = datetime.strptime(form.end_time, '%Y-%m-%d')
             queryset = queryset.filter(created_at__lte=end_dt)
         if form.keyword:
+            if not form.start_time and not form.end_time:
+                ninety_days_ago = timezone.now() - timedelta(days=90)
+                queryset = queryset.filter(created_at__gte=ninety_days_ago)
             queryset = queryset.filter(
                 Q(username__icontains=form.keyword) |
                 Q(target_name__icontains=form.keyword) |

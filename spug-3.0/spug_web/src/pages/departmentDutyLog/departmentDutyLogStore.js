@@ -17,7 +17,7 @@ class DepartmentDutyLogStore {
   @observable detailVisible = false;
   @observable detailLoading = false;
   @observable signVisible = false;
-  @observable voidVisible = false;
+  @observable returnVisible = false;
   @observable record = {};
   @observable formRecord = {};
 
@@ -40,13 +40,11 @@ class DepartmentDutyLogStore {
   statusOptions = [
     {value: 'draft', label: '草稿'},
     {value: 'signed', label: '已签署'},
-    {value: 'void', label: '已作废'},
   ];
 
   statusTagMap = {
     draft: {color: 'default', text: '草稿'},
     signed: {color: 'green', text: '已签署'},
-    void: {color: 'red', text: '已作废'},
   };
 
   @action.bound
@@ -109,9 +107,9 @@ class DepartmentDutyLogStore {
   }
 
   @action.bound
-  showVoid(record) {
+  showReturn(record) {
     this.record = record;
-    this.voidVisible = true;
+    this.returnVisible = true;
   }
 
   /**

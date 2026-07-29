@@ -29,9 +29,9 @@ class StatusLogListView(View):
         # action=options 时返回动作选项列表
         if request.GET.get('action') == 'options':
             return json_response(StatusLogService.get_action_options())
-        # action=rollback_targets 时返回可回退的主线节点列表
+        # action=rollback_targets 时返回可回退的阶段列表（从步骤动态生成）
         if request.GET.get('action') == 'rollback_targets':
-            return json_response(StatusLogService.get_rollback_targets())
+            return json_response(StatusLogService.get_rollback_targets(record_id, request.user))
 
         record = _get_record(record_id, request.user)
         if record is None:
@@ -50,6 +50,7 @@ class StatusLogListView(View):
             Argument('remark', required=False, default=''),
             Argument('target_action', required=False, default=''),
             Argument('is_override', required=False, default=False, type=bool),
+            Argument('phase', required=False, default=''),
         ).parse(request.body)
         if error:
             return json_response(error=error)
@@ -61,6 +62,7 @@ class StatusLogListView(View):
             remark=form.remark,
             target_action=form.target_action,
             is_override=form.is_override,
+            phase=form.phase,
         )
         if error:
             return json_response(error=error)

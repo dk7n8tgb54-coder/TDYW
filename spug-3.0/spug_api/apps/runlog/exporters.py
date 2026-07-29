@@ -13,7 +13,7 @@
 """
 import io
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import quote
 
 from django.http import HttpResponse, JsonResponse
@@ -72,9 +72,11 @@ def _apply_filters(qs, request):
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
     if start_date:
-        qs = qs.filter(created_at__date__gte=start_date)
+        _sd = datetime.strptime(start_date, '%Y-%m-%d')
+        qs = qs.filter(created_at__gte=_sd)
     if end_date:
-        qs = qs.filter(created_at__date__lte=end_date)
+        _ed = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
+        qs = qs.filter(created_at__lt=_ed)
     return qs
 
 

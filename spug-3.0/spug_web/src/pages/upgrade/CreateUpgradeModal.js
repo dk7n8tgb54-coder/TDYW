@@ -134,7 +134,7 @@ function InitConfigFields({ selectedPlan, onApplyPlan, onClearPlan }) {
         >
           {store.plans.map(p => (
             <Option key={p.id} value={p.id}>
-              {p.is_default ? '⭐ ' : ''}{p.name}{p.step_count ? ` (${p.step_count}步)` : ''}
+              {p.name}{p.step_count ? ` (${p.step_count}步)` : ''}
             </Option>
           ))}
         </Select>
@@ -156,6 +156,11 @@ export default observer(function CreateUpgradeModal() {
     store.fetchPlans();
     store.fetchSystems();
     store.fetchFilterOptions();
+
+    // 如果从升级方案页面跳转而来，自动应用预设方案
+    if (store.presetPlanId) {
+      handleApplyPlan(store.presetPlanId);
+    }
   }, []);
 
   // 标题自动生成
@@ -194,8 +199,6 @@ export default observer(function CreateUpgradeModal() {
       const values = {};
       if (plan.system) values.system = plan.system;
       if (plan.upgrade_type) values.upgrade_type = plan.upgrade_type;
-      if (plan.version) values.version = plan.version;
-      if (plan.owner) values.owner = plan.owner;
       form.setFieldsValue(values);
       // 方案预填后重新生成标题（若用户未手动编辑过标题）
       if (!titleTouched) {

@@ -10,7 +10,7 @@
 4. PUT    /api/department-duty-log/records/<pk>/      编辑草稿
 5. DELETE /api/department-duty-log/records/<pk>/      删除草稿
 6. POST   /api/department-duty-log/records/<pk>/sign/  签署
-7. POST   /api/department-duty-log/records/<pk>/void/  作废
+7. POST   /api/department-duty-log/records/<pk>/return/  退回
 8. POST   /api/department-duty-log/export/pdf/        PDF 导出
 9. GET    /api/department-duty-log/options/            选项
 
@@ -20,7 +20,7 @@
         --headless -u 10 -r 2 -t 5m --csv=department_duty_log
 
 前置条件:
-- 压测账号需有 department_duty_log.department_duty_log.{view,add,edit,del,sign,void,export} 权限
+- 压测账号需有 department_duty_log.department_duty_log.{view,add,edit,del,sign,return,export} 权限
 - 签署需要账号已设置个人签名图片(无签名时签署返回错误,属预期)
 
 数据保留:
@@ -127,12 +127,10 @@ class DepartmentDutyLogUser(TokenSharedHttpUser):
                     self.known_ids.append(rid)
 
     def _gen_payload(self):
-        """生成创建/编辑草稿的 payload(5 个必填字段)"""
+        """生成创建/编辑草稿的 payload(必填字段)"""
         d = date.today() - timedelta(days=random.randint(0, 30))
         return {
             "duty_date": d.strftime("%Y-%m-%d"),
-            "mains_voltage": f"{random.randint(218, 222)}V",
-            "ups_voltage": f"{random.randint(218, 222)}V",
             "weather": random.choice(["晴", "阴", "小雨", "多云", "雷阵雨"]),
             "duty_record": f"压测值班记录_{uuid.uuid4().hex[:8]}。设备运行正常,无异常情况。",
             "remark": "",
@@ -253,16 +251,16 @@ class DepartmentDutyLogUser(TokenSharedHttpUser):
                 resp.failure(f"签署 HTTP {resp.status_code}: {resp.text[:80]}")
 
     @task(1)
-    def void_record(self):
+    def return_record(self):
         if not self.signed_ids:
             return
         pk = random.choice(self.signed_ids)
-        with self._post(f"{BASE}/records/{pk}/void/", "POST /void/ (作废)",
-                        json={"reason": f"压测作废_{uuid.uuid4().hex[:8]}"}) as resp:
+        with self._post(f"{BASE}/records/{pk}/return/", "POST /return/ (退回)",
+                        json={}) as resp:
             if resp.status_code == 200:
                 body = resp.json() or {}
                 if body.get("error"):
-                    resp.failure(f"作废错误: {body['error'][:80]}")
+                    resp.failure(f"退回错误: {body['error'][:80]}")
                 else:
                     self.signed_ids.remove(pk)
                     resp.success()

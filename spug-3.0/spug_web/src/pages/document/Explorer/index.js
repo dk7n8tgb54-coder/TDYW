@@ -46,6 +46,7 @@ const Explorer = observer(forwardRef(({
   viewMode = 'list',
   isPartyBuildingDocuments = false,
   permPrefix = 'document.document',
+  multiSelectMode = false,
 }, ref) => {
   // ===== 基础状态 =====
   const isPublic = propIsPublic || false;
@@ -54,7 +55,7 @@ const Explorer = observer(forwardRef(({
   const currentUserId = getCurrentUserId();
   const isSearching = searchState?.isSearching || false;
 
-  // ===== 党建文档操作权限（按钮/右键菜单可见性） =====
+  // ===== 党建工作操作权限（按钮/右键菜单可见性） =====
   const opPerms = {
     download: hasPermission(`${permPrefix}.download`),
     copy: hasPermission(`${permPrefix}.copy`),
@@ -62,7 +63,7 @@ const Explorer = observer(forwardRef(({
     rename: hasPermission(`${permPrefix}.rename`),
     delete: hasPermission(`${permPrefix}.delete`),
   };
-  // 党建文档受保护根目录：禁止重命名/移动/删除
+  // 党建工作受保护根目录：禁止重命名/移动/删除
   const isProtectedRoot = (record) => isPartyBuildingDocuments
     && navigationStore.lockedRootFolderId
     && record?.id === navigationStore.lockedRootFolderId;
@@ -83,10 +84,8 @@ const Explorer = observer(forwardRef(({
     handleTableChange: originalHandleTableChange,
     setSelectedRowKeys,
     setClickTimeout,
-    setFolderContents,
     setPage,
     setSortOrder,
-    fetchFolderContents,
     getSelectedItem,
     // 行内编辑
     creatingFolder,
@@ -106,6 +105,13 @@ const Explorer = observer(forwardRef(({
   useEffect(() => {
     selectedRowKeysRef.current = selectedRowKeys;
   }, [selectedRowKeys]);
+
+  // 多选模式关闭时清空选中（避免遗留不可见的选中状态）
+  useEffect(() => {
+    if (!multiSelectMode) {
+      setSelectedRowKeys([]);
+    }
+  }, [multiSelectMode, setSelectedRowKeys]);
 
   // 【修复 2026-07-17】interactionDisabled ref：目录切换未命中缓存时禁用旧行交互
   const interactionDisabledRef = useRef(interactionDisabled);
@@ -246,46 +252,23 @@ const Explorer = observer(forwardRef(({
   // （原 useEffect(() => { fetchItems(true); }, []) 已删除，避免首次进入发送两次请求）
 
   // ===== 行操作处理 =====
-  const handleDoubleClick = useCallback((record) => {
+  // 非多选模式：文件夹单击进入、文件单击预览（打开）；多选模式单击不触发（选中由勾选框负责）
+  const handleRowClick = useCallback((record) => {
+    if (multiSelectMode) return;
     if (record.isFolder) {
       navigationStore.enterFolder(record.id, record.name);
     } else {
       uploadUIStore.handlePreview(record);
     }
-  }, []);
+  }, [multiSelectMode]);
 
-  const handleRowClick = useCallback((record) => {
-    if (clickTimeout) clearTimeout(clickTimeout);
-
-    const timeoutId = setTimeout(() => {
-      const key = record.key;
-      // 【性能优化】使用 ref 获取最新值，避免 selectedRowKeys 在依赖项中导致的重渲染
-      const currentSelection = Array.isArray(selectedRowKeysRef.current) ? selectedRowKeysRef.current : [];
-      const newSelectedKeys = currentSelection.includes(key)
-        ? currentSelection.filter(k => k !== key)
-        : [...currentSelection, key];
-
-      setSelectedRowKeys(newSelectedKeys);
-      setClickTimeout(null);
-
-      // 加载文件夹内容到详情面板
-      if (newSelectedKeys.length > 0 && record.isFolder) {
-        fetchFolderContents(record.id).then(contents => setFolderContents(contents));
-      } else if (newSelectedKeys.length === 0) {
-        setFolderContents(null);
-      }
-    }, 250);
-
-    setClickTimeout(timeoutId);
-  }, [clickTimeout, setSelectedRowKeys, setClickTimeout, fetchFolderContents, setFolderContents]);
-
-  const handleRowDoubleClick = useCallback((record) => {
+  // 单击已负责打开（文件夹进入/文件预览），双击仅清理可能的残留计时器，不重复处理
+  const handleRowDoubleClick = useCallback(() => {
     if (clickTimeout) {
       clearTimeout(clickTimeout);
       setClickTimeout(null);
     }
-    handleDoubleClick(record);
-  }, [clickTimeout, handleDoubleClick, setClickTimeout]);
+  }, [clickTimeout, setClickTimeout]);
 
   // ===== 右键菜单处理 =====
   const fetchAllFolders = useCallback(async () => {
@@ -456,6 +439,7 @@ const Explorer = observer(forwardRef(({
               selectedRowKeys={safeSelectedRowKeys}
               onSelectChange={setSelectedRowKeys}
               onRow={createRowHandlers}
+              showSelection={multiSelectMode}
             />
           ) : viewMode === 'grid' ? (
             <FileGrid
@@ -464,6 +448,7 @@ const Explorer = observer(forwardRef(({
               selectedRowKeys={safeSelectedRowKeys}
               onSelectChange={setSelectedRowKeys}
               onRow={createRowHandlers}
+              showSelection={multiSelectMode}
               isPublic={isPublic}
               currentUserId={currentUserId}
               pagination={{
@@ -493,6 +478,7 @@ const Explorer = observer(forwardRef(({
               }}
               onTableChange={handleTableChange}
               onRow={createRowHandlers}
+              showSelection={multiSelectMode}
               showPagination={!isSearching}
               isPublic={isPublic}
             />

@@ -815,10 +815,12 @@ class RegulationAttachmentPreviewUrlView(View):
         if not kkfileview_api_url or not kkfileview_server_url:
             return json_response(error='Office文档预览服务未配置，请联系管理员')
 
+        # fullfilename 用物理文件名（stored_name，含 UUID）而非原始名，
+        # 确保同名文件重传后 kkFileView 缓存键随之变化，避免命中旧缓存。
         file_url = (
             f'{kkfileview_server_url}{preview_file_api_path}'
             f'?preview_token={quote(preview_token)}'
-            f'&fullfilename={quote(att.original_name)}'
+            f'&fullfilename={quote(att.stored_name or att.original_name)}'
         )
         encoded_url = base64.b64encode(file_url.encode('utf-8')).decode('utf-8')
         preview_url = f'{kkfileview_api_url}/onlinePreview?url={encoded_url}'

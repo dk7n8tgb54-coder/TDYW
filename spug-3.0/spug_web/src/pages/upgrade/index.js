@@ -19,6 +19,15 @@ const { Option } = Select;
 export default observer(function () {
   useEffect(() => {
     store.fetchFilterOptions();
+
+    // 检查 URL 是否带 planId 参数（从升级方案页面跳转而来）
+    const params = new URLSearchParams(window.location.search);
+    const planId = params.get('planId');
+    if (planId) {
+      store.showCreateForm(planId);
+      // 清除 URL 参数，避免刷新时重复打开
+      window.history.replaceState({}, '', '/upgrade');
+    }
   }, []);
 
   return (

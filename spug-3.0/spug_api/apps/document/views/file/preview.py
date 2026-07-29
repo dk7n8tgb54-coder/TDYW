@@ -496,9 +496,12 @@ class OfficePreviewUrlView(View):
         # 参考：http://www.kkview.cn/zh-cn/docs/usage.html （第2节：HTTP/HTTPS下载流URL预览）
         # 错误写法：onlinePreview?url=<base64>&fullfilename=xxx  （fullfilename 作为独立参数会崩溃）
         # 正确写法：onlinePreview?url=<base64 of "源URL&fullfilename=xxx">
+        # fullfilename 用物理名（UUID 文件名）而非展示名，确保同名文件重传后
+        # kkFileView 缓存键随之变化，避免命中旧缓存。扩展名仍正确用于文件类型识别。
         file_name = file.display_name or file.name or ''
-        if file_name:
-            file_url = f"{file_url}&fullfilename={quote(file_name)}"
+        physical_name = file.physical_name or file_name
+        if physical_name:
+            file_url = f"{file_url}&fullfilename={quote(physical_name)}"
         
         # kkFileView 3.x+ 要求 url 参数使用 base64 编码
         encoded_url = base64.b64encode(file_url.encode('utf-8')).decode('utf-8')

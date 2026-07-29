@@ -20,7 +20,7 @@ def backfill_role_tenant_system(apps, schema_editor):
     for role in Role.objects.all():
         # 规则3：全局管理员角色强制作为平台级系统角色
         if role.is_global_admin:
-            role.tenant_id = None
+            role.tenant_id = ''
             role.is_system = True
             role.save(update_fields=['tenant_id', 'is_system'])
             continue
@@ -30,11 +30,11 @@ def backfill_role_tenant_system(apps, schema_editor):
 
         if creator is None:
             # 规则4：没有 created_by 或历史脏数据，保守按平台级系统角色处理
-            role.tenant_id = None
+            role.tenant_id = ''
             role.is_system = True
         elif creator.is_supper:
             # 规则1：超管创建的角色设为平台级系统角色
-            role.tenant_id = None
+            role.tenant_id = ''
             role.is_system = True
         else:
             # 规则2：普通用户创建的角色归属其 tenant_id
@@ -47,7 +47,7 @@ def backfill_role_tenant_system(apps, schema_editor):
 def reverse_backfill(apps, schema_editor):
     """反向迁移：将 tenant_id 和 is_system 恢复为字段默认值"""
     Role = apps.get_model('account', 'Role')
-    Role.objects.all().update(tenant_id=None, is_system=False)
+    Role.objects.all().update(tenant_id='', is_system=False)
 
 
 class Migration(migrations.Migration):

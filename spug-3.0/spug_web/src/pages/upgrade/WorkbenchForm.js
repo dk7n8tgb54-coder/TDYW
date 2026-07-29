@@ -6,19 +6,19 @@
 import React, { useEffect, useState, forwardRef, useImperativeHandle } from 'react';
 import { observer } from 'mobx-react';
 import {
-  Form, Input, Select, DatePicker, Button, message, Progress, Tag, Popconfirm,
+  Form, Input, Select, AutoComplete, DatePicker, Button, message, Progress, Tag, Popconfirm,
   Switch, Tooltip, Space, Timeline, Empty, Row, Col, Collapse, Divider, Dropdown,
   Menu, Modal, Card
 } from 'antd';
 import { 
   PlusOutlined, CheckCircleOutlined, CopyOutlined, 
-  PrinterOutlined, HistoryOutlined, DeleteOutlined, PaperClipOutlined, DownOutlined 
+  PrinterOutlined, DeleteOutlined, PaperClipOutlined, DownOutlined 
 } from '@ant-design/icons';
 import { AttachmentManager } from 'components';
 import { http, hasPermission } from 'libs';
 import moment from 'moment';
 import store from './store';
-import { getActionColor, computeFlowState, renderFlowNode, ROLLBACK_TARGETS, STATUS_TAG_COLOR, StepStatusTag } from './shared';
+import { getActionColor, computeStepFlowState, renderFlowNode, STATUS_TAG_COLOR, StepStatusTag, groupStepsByPhase } from './shared';
 import SystemSelect from './components/SystemSelect';
 
 const { Option } = Select;
@@ -30,9 +30,7 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [upgradeNo, setUpgradeNo] = useState('');
   
-  // 状态时间线
-  const [statusLogVisible, setStatusLogVisible] = useState(false);
-  const [statusLogForm] = Form.useForm();
+  // 状态时间线 - 异常事件记录
   
   // 添加步骤
   const [addStepVisible, setAddStepVisible] = useState(false);
@@ -40,6 +38,9 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
 
   // 标题是否已被用户手动编辑（一旦手动修改，不再自动覆盖）
   const [titleTouched, setTitleTouched] = useState(false);
+
+  // 编辑模式下方案下拉框受控值（操作后重置）
+  const [planSelectValue, setPlanSelectValue] = useState(undefined);
 
   // 根据升级系统/类型/计划日期自动生成标题
   function recomputeTitle(allValues) {
@@ -140,9 +141,10 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
   function handleStepAction(step, action) {
     http.put(`/api/upgrade/record-steps/${step.id}/update/`, { action })
       .then(() => {
-        const actionText = action === 'complete' ? '完成' : action === 'skip' ? '跳过' : '重置';
+        const actionText = action === 'complete' ? '完成' : '重置';
         message.success(`步骤已标记为${actionText}`);
         store.fetchRecordSteps(recordId);
+        store.fetchStatusLogs(recordId);
         store.fetchRecords();
       });
   }
@@ -174,27 +176,29 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
       });
   }
 
-  // 状态日志
-  function handleAddStatusLog(values) {
+  // 流程节点操作（暂停/继续/失败/回退；完成靠逐个打勾步骤）
+  function handleNodeAction(action, node) {
     const payload = {
-      ...values,
-      is_override: !!values.is_override,
-      target_action: values.action === 'rollback' ? (values.target_action || '') : '',
+      action,
+      remark: '',
+      target_action: action === 'rollback' ? node.label : '',
+      phase: ['pause', 'resume', 'test_fail'].includes(action) ? node.label : '',
     };
     http.post(`/api/upgrade/records/${recordId}/status-logs/`, payload)
       .then((res) => {
-        message.success('状态已记录');
-        setStatusLogVisible(false);
-        statusLogForm.resetFields();
-        // 后端已返回完整日志数据，直接 prepend 到时间线，无需二次请求
+        const actionText = { pause: '已暂停', resume: '已继续', test_fail: '已标记失败', rollback: '已回退' }[action];
+        message.success(actionText);
         if (res && res.id) {
           store.statusLogs = [res, ...store.statusLogs];
-          // 状态联动后同步主表记录状态（mobx 属性赋值，observer 自动感知）
           if (res.to_status && res.to_status !== res.from_status) {
             store.record.status = res.to_status;
           }
         } else {
           store.fetchStatusLogs(recordId);
+        }
+        // rollback 会重置步骤，需刷新步骤清单
+        if (action === 'rollback') {
+          store.fetchRecordSteps(recordId);
         }
         store.fetchRecords();
       });
@@ -216,14 +220,48 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
     if (isEditMode) {
       if (!recordId) return;
       const plan = store.plans.find(p => p.id === planId);
-      store.applyPlan(planId, recordId)
-        .then(res => {
-          message.success(`已应用方案${plan ? `「${plan.name}」` : ''}，添加 ${res.created_count} 个步骤`);
-          store.fetchRecordSteps(recordId);
-        })
-        .catch(() => {
-          message.error('应用方案失败');
+      const existingSteps = store.recordSteps;
+      const hasExisting = existingSteps.length > 0;
+
+      function doApply(replace) {
+        store.applyPlan(planId, recordId, replace)
+          .then(res => {
+            const parts = [`已应用方案${plan ? `「${plan.name}」` : ''}`];
+            if (res.deleted_count > 0) {
+              parts.push(`替换 ${res.deleted_count} 个旧步骤`);
+            }
+            parts.push(`新增 ${res.created_count} 个步骤`);
+            message.success(parts.join('，'));
+            store.fetchRecordSteps(recordId);
+          })
+          .catch(() => {
+            message.error('应用方案失败');
+          })
+          .finally(() => {
+            setPlanSelectValue(undefined);
+          });
+      }
+
+      if (hasExisting) {
+        const executedCount = existingSteps.filter(
+          s => s.status === 'completed' || s.status === 'skipped'
+        ).length;
+        const title = '应用方案将替换现有步骤';
+        const content = executedCount > 0
+          ? `当前已有 ${existingSteps.length} 个步骤（其中 ${executedCount} 个已执行），应用方案将替换所有现有步骤，是否继续？`
+          : `当前已有 ${existingSteps.length} 个步骤，应用方案将替换所有现有步骤，是否继续？`;
+        Modal.confirm({
+          title,
+          content,
+          okText: '替换',
+          cancelText: '取消',
+          okButtonProps: { danger: executedCount > 0 },
+          onOk: () => doApply(true),
+          onCancel: () => setPlanSelectValue(undefined),
         });
+      } else {
+        doApply(false);
+      }
     } else {
       store.fetchPlanDetail(planId).then(plan => {
         if (!plan) { message.error('获取方案失败'); return; }
@@ -231,8 +269,6 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
         const values = {};
         if (plan.system) values.system = plan.system;
         if (plan.upgrade_type) values.upgrade_type = plan.upgrade_type;
-        if (plan.version) values.version = plan.version;
-        if (plan.owner) values.owner = plan.owner;
         form.setFieldsValue(values);
         // 方案预填后重新生成标题（若用户未手动编辑过标题）
         recomputeTitle(form.getFieldsValue());
@@ -240,6 +276,44 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
         message.info(`已应用方案「${plan.name}」基本信息${stepCount ? `，保存后将自动生成 ${stepCount} 个步骤` : ''}`);
       });
     }
+  }
+
+  // 打印基本信息（存档封面）
+  function handlePrintBasicInfo() {
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) { message.warning('请允许浏览器弹窗以打印基本信息'); return; }
+
+    const escapeHtml = (s) => String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+    const info = store.record;
+    const fields = [
+      ['升级单号', info.upgrade_no],
+      ['标题', info.title],
+      ['系统', info.system],
+      ['升级类型', info.upgrade_type],
+      ['负责人', info.owner],
+      ['计划升级时间', info.upgrade_time],
+      ['状态', info.status],
+    ];
+    const blocks = [
+      ['升级内容', info.upgrade_content],
+      ['影响范围', info.impact_scope],
+      ['风险说明', info.risk_desc],
+      ['回退方案摘要', info.rollback_plan],
+    ];
+    const rowsHtml = fields.map(([k, v]) =>
+      `<tr><th>${k}</th><td>${escapeHtml(v || '-')}</td></tr>`
+    ).join('');
+    const blocksHtml = blocks.map(([k, v]) =>
+      `<div style="margin-top:14px"><div style="font-weight:bold;border-bottom:1px solid #000;padding-bottom:4px">${k}</div><div style="padding:8px 4px;min-height:40px;white-space:pre-wrap;line-height:1.8">${escapeHtml(v || '（无）')}</div></div>`
+    ).join('');
+
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>升级存档 - ${escapeHtml(info.upgrade_no)}</title><style>@page { size: A4 portrait; margin: 15mm; } body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 13px; color: #000; margin: 0; } h1 { font-size: 22px; text-align: center; margin: 0 0 6px; } .subtitle { text-align: center; color: #666; font-size: 12px; margin-bottom: 20px; } table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid #000; padding: 8px 10px; text-align: left; } th { background: #f0f0f0; font-weight: bold; width: 130px; } .footer { margin-top: 28px; font-size: 11px; color: #666; text-align: right; border-top: 1px dashed #999; padding-top: 6px; } .no-print { text-align: center; margin-top: 20px; } .no-print button { padding: 6px 18px; margin: 0 6px; font-size: 13px; cursor: pointer; } @media print { .no-print { display: none; } }</style></head><body><h1>升级存档</h1><div class="subtitle">升级基本信息</div><table>${rowsHtml}</table>${blocksHtml}<div class="footer">打印时间：${new Date().toLocaleString()}</div><div class="no-print"><button onclick="window.print()">打印</button><button onclick="window.close()">关闭</button></div></body></html>`);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { try { win.print(); } catch (e) {} }, 300);
   }
 
   // 打印步骤清单
@@ -251,10 +325,6 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
 
-    const phases = store.filterOptions.phases || [];
-    const phaseLabel = {};
-    phases.forEach(p => { phaseLabel[p.value] = p.label; });
-
     let printSteps;
     if (phase) {
       printSteps = store.recordSteps.filter(s => s.phase === phase);
@@ -262,42 +332,30 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
       printSteps = store.recordSteps;
     }
 
-    const phaseOrder = phases.map(p => p.value);
-    const grouped = {};
-    const ungrouped = [];
-    printSteps.forEach(s => {
-      if (s.phase && phaseOrder.includes(s.phase)) {
-        if (!grouped[s.phase]) grouped[s.phase] = [];
-        grouped[s.phase].push(s);
-      } else {
-        ungrouped.push(s);
-      }
-    });
+    const phases = store.filterOptions.phases || [];
+    const { groups, ungrouped } = groupStepsByPhase(printSteps, phases);
 
     const buildSection = (title, steps) => {
       const rows = steps.map((s, i) => {
         const desc = s.description || s.remark || '';
-        return `<tr><td style="text-align:center">${s.sequence || i + 1}</td><td><div class="step-title">${escapeHtml(s.title)}</div>${desc ? `<div class="step-desc">${escapeHtml(desc)}</div>` : ''}</td><td style="text-align:center">${s.is_required ? '是' : ''}</td><td style="text-align:center">☐</td><td></td><td></td><td></td></tr>`;
+        return `<tr><td style="text-align:center">${s.sequence || i + 1}</td><td><div class="step-title">${escapeHtml(s.title)}</div>${desc ? `<div class="step-desc">${escapeHtml(desc)}</div>` : ''}</td><td style="text-align:center">☐</td><td></td></tr>`;
       }).join('');
-      return `<div class="phase-section"><div class="phase-header">【${escapeHtml(title)}】 <span class="phase-check">阶段完成：☐</span></div><table><thead><tr><th style="width:40px">序号</th><th>步骤说明</th><th style="width:50px">必选</th><th style="width:70px">执行情况</th><th style="width:90px">执行人</th><th style="width:130px">执行时间</th><th style="width:120px">备注</th></tr></thead><tbody>${rows || '<tr><td colspan="7" style="text-align:center">暂无步骤</td></tr>'}</tbody></table></div>`;
+      return `<div class="phase-section"><div class="phase-header">【${escapeHtml(title)}】 <span class="phase-check">阶段完成：☐</span></div><table><thead><tr><th style="width:40px">序号</th><th>步骤说明</th><th style="width:70px">执行情况</th><th style="width:120px">备注</th></tr></thead><tbody>${rows || '<tr><td colspan="4" style="text-align:center">暂无步骤</td></tr>'}</tbody></table></div>`;
     };
 
     let sectionsHtml = '';
     if (phase) {
-      sectionsHtml = buildSection(phaseLabel[phase] || phase, grouped[phase] || []);
+      const target = groups.find(g => g.name === phase);
+      sectionsHtml = buildSection(phase, target ? target.steps : []);
     } else {
-      phaseOrder.forEach(ph => {
-        if (grouped[ph] && grouped[ph].length > 0) {
-          sectionsHtml += buildSection(phaseLabel[ph], grouped[ph]);
-        }
-      });
+      sectionsHtml = groups.map(g => buildSection(g.name, g.steps)).join('');
       if (ungrouped.length > 0) {
         sectionsHtml += buildSection('未分组', ungrouped);
       }
     }
 
     const info = store.record;
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>升级步骤执行清单 - ${escapeHtml(info.upgrade_no)}</title><style>@page { size: A4 portrait; margin: 15mm; } body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 12px; color: #000; margin: 0; } h1 { font-size: 18px; text-align: center; margin: 0 0 8px; } .meta { margin: 8px 0 12px; border-bottom: 2px solid #000; padding-bottom: 8px; } .meta div { display: inline-block; margin-right: 28px; line-height: 1.9; } .meta b { font-weight: bold; } table { width: 100%; border-collapse: collapse; margin-top: 4px; } th, td { border: 1px solid #000; padding: 8px; text-align: left; vertical-align: top; } th { background: #f0f0f0; font-weight: bold; text-align: center; font-size: 12px; } td { line-height: 28px; } .step-title { font-weight: bold; } .step-desc { font-size: 11px; color: #444; margin-top: 4px; line-height: 1.5; } .phase-section { margin-bottom: 16px; page-break-inside: avoid; } .phase-header { font-weight: bold; font-size: 13px; padding: 6px 8px; background: #f0f0f0; border: 1px solid #000; border-bottom: none; display: flex; justify-content: space-between; } .phase-check { font-weight: normal; font-size: 11px; } .sign { margin-top: 24px; font-size: 12px; } .sign div { display: inline-block; margin-right: 60px; } .footer { margin-top: 16px; font-size: 11px; color: #666; text-align: right; border-top: 1px dashed #999; padding-top: 6px; } .no-print { text-align: center; margin-top: 20px; } .no-print button { padding: 6px 18px; margin: 0 6px; font-size: 13px; cursor: pointer; } @media print { .no-print { display: none; } }</style></head><body><h1>升级步骤执行清单</h1><div class="meta"><div><b>升级单号：</b>${escapeHtml(info.upgrade_no)}</div><div><b>系统：</b>${escapeHtml(info.system)}</div><div><b>版本：</b>${escapeHtml(info.version)}</div><div><b>升级类型：</b>${escapeHtml(info.upgrade_type)}</div><div><b>升级时间：</b>${escapeHtml(info.upgrade_time)}</div><div><b>负责人：</b>${escapeHtml(info.owner)}</div><div><b>状态：</b>${escapeHtml(info.status)}</div></div>${sectionsHtml || '<div style="text-align:center;padding:20px;">暂无步骤</div>'}<div class="sign"><div>执行人签字：________________</div><div>审核人签字：________________</div></div><div class="footer">打印时间：${new Date().toLocaleString()}</div><div class="no-print"><button onclick="window.print()">打印</button><button onclick="window.close()">关闭</button></div></body></html>`);
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>升级步骤执行清单 - ${escapeHtml(info.upgrade_no)}</title><style>@page { size: A4 portrait; margin: 15mm; } body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 12px; color: #000; margin: 0; } h1 { font-size: 18px; text-align: center; margin: 0 0 8px; } .meta { margin: 8px 0 12px; border-bottom: 2px solid #000; padding-bottom: 8px; } .meta div { display: inline-block; margin-right: 28px; line-height: 1.9; } .meta b { font-weight: bold; } table { width: 100%; border-collapse: collapse; margin-top: 4px; } th, td { border: 1px solid #000; padding: 8px; text-align: left; vertical-align: top; } th { background: #f0f0f0; font-weight: bold; text-align: center; font-size: 12px; } td { line-height: 28px; } .step-title { font-weight: bold; } .step-desc { font-size: 11px; color: #444; margin-top: 4px; line-height: 1.5; } .phase-section { margin-bottom: 16px; page-break-inside: avoid; } .phase-header { font-weight: bold; font-size: 13px; padding: 6px 8px; background: #f0f0f0; border: 1px solid #000; border-bottom: none; display: flex; justify-content: space-between; } .phase-check { font-weight: normal; font-size: 11px; } .sign { margin-top: 24px; font-size: 12px; } .sign div { display: inline-block; margin-right: 60px; } .footer { margin-top: 16px; font-size: 11px; color: #666; text-align: right; border-top: 1px dashed #999; padding-top: 6px; } .no-print { text-align: center; margin-top: 20px; } .no-print button { padding: 6px 18px; margin: 0 6px; font-size: 13px; cursor: pointer; } @media print { .no-print { display: none; } }</style></head><body><h1>升级步骤执行清单</h1><div class="meta"><div><b>升级单号：</b>${escapeHtml(info.upgrade_no)}</div><div><b>系统：</b>${escapeHtml(info.system)}</div><div><b>升级类型：</b>${escapeHtml(info.upgrade_type)}</div><div><b>升级时间：</b>${escapeHtml(info.upgrade_time)}</div><div><b>负责人：</b>${escapeHtml(info.owner)}</div><div><b>状态：</b>${escapeHtml(info.status)}</div></div>${sectionsHtml || '<div style="text-align:center;padding:20px;">暂无步骤</div>'}<div class="sign"><div>执行人签字：________________</div><div>使用部门确认：________________</div></div><div class="footer">打印时间：${new Date().toLocaleString()}</div><div class="no-print"><button onclick="window.print()">打印</button><button onclick="window.close()">关闭</button></div></body></html>`);
     win.document.close();
     win.focus();
     setTimeout(() => { try { win.print(); } catch (e) {} }, 300);
@@ -312,18 +370,18 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
           <span><strong>标题：</strong>{info.title || '-'}</span>
           <span><strong>单号：</strong>{info.upgrade_no}</span>
           <span><strong>系统：</strong>{info.system}</span>
-          <span><strong>版本：</strong>{info.version}</span>
           <span><strong>类型：</strong>{info.upgrade_type}</span>
           <span><strong>时间：</strong>{info.upgrade_time}</span>
           <span><strong>负责人：</strong>{info.owner}</span>
           <span><strong>状态：</strong><Tag color={STATUS_TAG_COLOR[info.status] || 'default'}>{info.status}</Tag></span>
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <Button size="small" icon={<PrinterOutlined />} onClick={handlePrintBasicInfo}>打印基本信息</Button>
             <Dropdown overlay={(
               <Menu>
                 <Menu.Item key="all" onClick={() => handlePrintSteps()} disabled={store.recordSteps.length === 0}>打印全部阶段</Menu.Item>
                 <Menu.Divider />
                 {(store.filterOptions.phases || []).map(p => (
-                  <Menu.Item key={p.value} onClick={() => handlePrintSteps(p.value)}>只打印【{p.label}】</Menu.Item>
+                  <Menu.Item key={p} onClick={() => handlePrintSteps(p)}>只打印【{p}】</Menu.Item>
                 ))}
               </Menu>
             )}>
@@ -331,9 +389,6 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
                 打印步骤 <DownOutlined />
               </Button>
             </Dropdown>
-            {canEdit && (
-              <Button size="small" type="primary" icon={<HistoryOutlined />} onClick={() => setStatusLogVisible(true)}>记录状态</Button>
-            )}
           </span>
         </div>
         {canEdit && (
@@ -359,11 +414,6 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
                         <Option value="安全补丁">安全补丁</Option>
                         <Option value="性能优化">性能优化</Option>
                       </Select>
-                    </Form.Item>
-                  </Col>
-                  <Col span={6}>
-                    <Form.Item name="version" label="版本">
-                      <Input placeholder="版本" />
                     </Form.Item>
                   </Col>
                   <Col span={6}>
@@ -426,7 +476,7 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
         <span style={{ color: '#999', minWidth: 20, fontWeight: 'bold' }}>{step.sequence}.</span>
         <StepStatusTag status={step.status} />
         <span style={{
-          flex: 1, textDecoration: step.status === 'completed' ? 'line-through' : 'none',
+          flex: 1, textDecoration: 'none',
           color: step.status !== 'pending' ? '#999' : '#333', fontSize: 13
         }}>{step.title}</span>
         {step.is_required && <Tag color="blue" style={{ margin: 0 }}>必选</Tag>}
@@ -441,10 +491,7 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
         {canEdit && (
           <Space size={0}>
             {step.status === 'pending' && (
-              <>
                 <Button size="small" type="link" icon={<CheckCircleOutlined />} onClick={() => handleStepAction(step, 'complete')}>完成</Button>
-                <Button size="small" type="link" onClick={() => handleStepAction(step, 'skip')}>跳过</Button>
-              </>
             )}
             {step.status !== 'pending' && hasPermission('upgrade.upgrade.step_reset') && (
               <Button size="small" type="link" onClick={() => handleStepAction(step, 'reset')}>重置</Button>
@@ -461,20 +508,7 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
   // 渲染步骤清单面板
   function renderStepsPanel(canEdit) {
     const phases = store.filterOptions.phases || [];
-    const phaseOrder = phases.map(p => p.value);
-    const phaseLabel = {};
-    phases.forEach(p => { phaseLabel[p.value] = p.label; });
-
-    const grouped = {};
-    const ungrouped = [];
-    store.recordSteps.forEach(step => {
-      if (step.phase && phaseOrder.includes(step.phase)) {
-        if (!grouped[step.phase]) grouped[step.phase] = [];
-        grouped[step.phase].push(step);
-      } else {
-        ungrouped.push(step);
-      }
-    });
+    const { groups, ungrouped } = groupStepsByPhase(store.recordSteps, phases);
 
     const stepStats = store.recordStepStats || {};
     const total = stepStats.total || store.recordSteps.length;
@@ -492,10 +526,11 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
               {store.plans.length > 0 && (
                 <Select
                   size="small" style={{ width: 200 }} placeholder="应用方案" allowClear
+                  value={planSelectValue}
                   onChange={(v) => v && handleApplyPlan(v, true)}
                 >
                   {store.plans.map(p => (
-                    <Option key={p.id} value={p.id}>{p.is_default ? '⭐ ' : ''}{p.name} ({p.step_count}步)</Option>
+                    <Option key={p.id} value={p.id}>{p.name} ({p.step_count}步)</Option>
                   ))}
                 </Select>
               )}
@@ -516,21 +551,19 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
         )}
 
         <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 4 }}>
-          {phaseOrder.map(phase => {
-            const steps = grouped[phase];
-            if (!steps || steps.length === 0) return null;
-            const doneCount = steps.filter(s => s.status === 'completed').length;
+          {groups.map(g => {
+            const doneCount = g.steps.filter(s => s.status === 'completed').length;
             return (
-              <div key={phase}>
+              <div key={g.name}>
                 <div style={{
                   background: '#fafafa', padding: '4px 12px', fontSize: 12,
                   fontWeight: 'bold', color: '#555', borderBottom: '1px solid #f0f0f0',
                   display: 'flex', justifyContent: 'space-between'
                 }}>
-                  <span>【{phaseLabel[phase]}】</span>
-                  <span style={{ color: '#999' }}>{doneCount}/{steps.length}</span>
+                  <span>【{g.name}】</span>
+                  <span style={{ color: '#999' }}>{doneCount}/{g.steps.length}</span>
                 </div>
-                {steps.map(step => renderStepRow(step, canEdit))}
+                {g.steps.map(step => renderStepRow(step, canEdit))}
               </div>
             );
           })}
@@ -550,8 +583,45 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
     );
   }
 
+  // 渲染流程节点（带交互：current→暂停/失败菜单，paused→继续，completed→回退，failed→提示）
+  function renderFlowNodeWithAction(node, idx, canEdit) {
+    const el = renderFlowNode(node, idx);
+    if (!canEdit) return <span key={node.action}>{el}</span>;
+    if (node.state === 'current') {
+      return (
+        <Dropdown key={node.action} overlay={(
+          <Menu onClick={({ key }) => handleNodeAction(key, node)}>
+            <Menu.Item key="pause">暂停该阶段</Menu.Item>
+            <Menu.Item key="test_fail">标记失败</Menu.Item>
+          </Menu>
+        )}>
+          <span style={{ cursor: 'pointer' }}>{el}</span>
+        </Dropdown>
+      );
+    }
+    if (node.state === 'paused') {
+      return (
+        <Popconfirm key={node.action} title="继续该阶段？" onConfirm={() => handleNodeAction('resume', node)}>
+          <span style={{ cursor: 'pointer' }}>{el}</span>
+        </Popconfirm>
+      );
+    }
+    if (node.state === 'completed') {
+      return (
+        <Popconfirm key={node.action} title={`回退到【${node.label}】？该阶段及之后的步骤将重置为待执行`} onConfirm={() => handleNodeAction('rollback', node)}>
+          <span style={{ cursor: 'pointer' }}>{el}</span>
+        </Popconfirm>
+      );
+    }
+    if (node.state === 'failed') {
+      return <Tooltip key={node.action} title="该阶段失败，请回退到之前的阶段重做">{el}</Tooltip>;
+    }
+    return <span key={node.action}>{el}</span>;
+  }
+
   // 渲染时间线面板
   function renderTimelinePanel(canEdit) {
+    const flowNodes = computeStepFlowState(store.recordSteps, store.filterOptions.phases, store.statusLogs).nodes;
     return (
       <Col span={9}>
         <div style={{ marginBottom: 8, fontWeight: 'bold' }}>
@@ -559,26 +629,41 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
         </div>
 
         <div style={{ background: '#f6f8fa', border: '1px solid #e8e8e8', borderRadius: 4, padding: '8px 10px', marginBottom: 8 }}>
-          <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>标准升级流程参考</div>
+          <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>升级流程</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {computeFlowState(store.statusLogs).nodes.map((node, idx) => renderFlowNode(node, idx + 1))}
+            {flowNodes.length > 0
+              ? flowNodes.map((node, idx) => renderFlowNodeWithAction(node, idx + 1, canEdit))
+              : <span style={{ color: '#bbb', fontSize: 11 }}>暂无阶段（请为步骤设置阶段）</span>}
           </div>
         </div>
 
         <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 12 }}>
           {store.statusLogs.length > 0 ? (
             <Timeline>
-              {store.statusLogs.map(log => (
-                <Timeline.Item key={log.id} color={getActionColor(log.action)}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              {store.statusLogs.map(log => {
+                const isPhaseDone = log.action === 'phase_done';
+                const logColor = isPhaseDone
+                  ? (log.outcome === 'failed' ? 'red' : log.outcome === 'revoked' ? 'default' : 'green')
+                  : getActionColor(log.action);
+                const tagText = isPhaseDone ? `✓ ${log.phase || '阶段'}` : log.action_text;
+                const dimmed = isPhaseDone && log.outcome === 'revoked';
+                return (
+                <Timeline.Item key={log.id} color={logColor}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', opacity: dimmed ? 0.5 : 1 }}>
                     <div style={{ flex: 1 }}>
                       <div>
-                        <Tag color={getActionColor(log.action)} style={{ marginRight: 4 }}>{log.action_text}</Tag>
+                        <Tag color={logColor} style={{ marginRight: 4 }}>{tagText}</Tag>
+                        {isPhaseDone && log.outcome === 'failed' && (
+                          <Tag color="red" style={{ marginLeft: 4, fontSize: 10, lineHeight: '16px' }}>已失败</Tag>
+                        )}
+                        {isPhaseDone && log.outcome === 'revoked' && (
+                          <Tag color="default" style={{ marginLeft: 4, fontSize: 10, lineHeight: '16px' }}>已撤销</Tag>
+                        )}
                         {log.action === 'rollback' && log.target_action_text && (
                           <span style={{ color: '#ff4d4f', fontSize: 11, marginLeft: 2 }}>回退到：{log.target_action_text}</span>
                         )}
-                        {log.is_override && (
-                          <Tag color="orange" style={{ marginLeft: 4, fontSize: 10, lineHeight: '16px' }}>补录</Tag>
+                        {log.action === 'test_fail' && log.phase && (
+                          <span style={{ color: '#ff4d4f', fontSize: 11, marginLeft: 2 }}>失败阶段：{log.phase}</span>
                         )}
                         {log.to_status && log.to_status !== log.from_status && (
                           <span style={{ color: '#999', fontSize: 11 }}>{log.from_status}→{log.to_status}</span>
@@ -594,7 +679,8 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
                     )}
                   </div>
                 </Timeline.Item>
-              ))}
+                );
+              })}
             </Timeline>
           ) : (
             <Empty description="暂无状态记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
@@ -692,7 +778,7 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
               onClear={() => setSelectedPlan(null)}>
               {store.plans.map(p => (
                 <Option key={p.id} value={p.id}>
-                  {p.is_default ? '⭐ ' : ''}{p.name}{p.step_count ? ` (${p.step_count}步)` : ''}
+                  {p.name}{p.step_count ? ` (${p.step_count}步)` : ''}
                 </Option>
               ))}
             </Select>
@@ -731,43 +817,6 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
         </Panel>
       </Collapse>
 
-      {/* 状态日志弹窗 */}
-      <Modal title="记录状态" visible={statusLogVisible}
-        onCancel={() => { setStatusLogVisible(false); statusLogForm.resetFields(); }}
-        onOk={() => statusLogForm.validateFields().then(handleAddStatusLog)} width={500}>
-        <Form form={statusLogForm} labelCol={{ span: 5 }} wrapperCol={{ span: 17 }}>
-          <Form.Item name="action" label="动作类型" rules={[{ required: true, message: '请选择动作类型' }]}>
-            <Select placeholder="请选择动作类型">
-              {store.actionOptions.map(opt => (
-                <Option key={opt.value} value={opt.value}><Tag color={opt.color} style={{ marginRight: 4 }}>{opt.label}</Tag></Option>
-              ))}
-            </Select>
-          </Form.Item>
-          {/* 回退到：仅 rollback 时显示 */}
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.action !== cur.action}>
-            {({ getFieldValue }) => getFieldValue('action') === 'rollback' ? (
-              <Form.Item name="target_action" label="回退到" rules={[{ required: true, message: '请选择回退目标节点' }]}>
-                <Select placeholder="选择回退到哪个节点">
-                  {ROLLBACK_TARGETS.map(n => (
-                    <Option key={n.action} value={n.action}>{n.label}</Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            ) : null}
-          </Form.Item>
-          <Form.Item name="is_override" label="补录/跳步" valuePropName="checked" initialValue={false} tooltip="勾选后允许跳过前置节点直接记录此状态，必须在备注中说明原因">
-            <Switch checkedChildren="是" unCheckedChildren="否" />
-          </Form.Item>
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.is_override !== cur.is_override}>
-            {({ getFieldValue }) => (
-              <Form.Item name="remark" label="备注"
-                rules={getFieldValue('is_override') ? [{ required: true, message: '补录/跳步必须填写备注说明原因' }] : []}>
-                <TextArea rows={3} placeholder={getFieldValue('is_override') ? '请说明补录/跳步原因（必填）' : '说明本次状态变更的情况（选填）'} />
-              </Form.Item>
-            )}
-          </Form.Item>
-        </Form>
-      </Modal>
 
       {/* 添加步骤弹窗 */}
       <Modal title="添加步骤" visible={addStepVisible}
@@ -775,11 +824,14 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
         onOk={() => addStepForm.validateFields().then(handleAddStep)} width={500}>
         <Form form={addStepForm} labelCol={{ span: 5 }} wrapperCol={{ span: 17 }}>
           <Form.Item name="phase" label="所属阶段">
-            <Select allowClear placeholder="选择步骤所属阶段（选填）">
-              {store.filterOptions.phases.map(p => (
-                <Option key={p.value} value={p.value}>{p.label}</Option>
-              ))}
-            </Select>
+            <AutoComplete
+              options={(store.filterOptions.phases || []).map(p => ({ value: p }))}
+              allowClear
+              placeholder="输入或选择步骤所属阶段（选填）"
+              filterOption={(input, option) =>
+                (option.value || '').toLowerCase().includes((input || '').toLowerCase())
+              }
+            />
           </Form.Item>
           <Form.Item name="title" label="步骤标题" rules={[{ required: true, message: '请输入步骤标题' }]}>
             <Input placeholder="请输入步骤标题" />

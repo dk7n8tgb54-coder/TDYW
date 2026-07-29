@@ -1,30 +1,131 @@
-# 先加载 borg.env（拿到 BORG_REPO + BORG_PASSPHRASE）
-set -a; . /opt/docker/borgbackup/borg.env; set +a
+BorgBackup 常用命令速查
+Borg 是一款支持增量去重、加密、压缩、远程 SSH 备份的工具，以下按高频使用场景分类整理。
 
-# 1. 列出所有 archive（看有哪些备份）—— 这是"找备份文件"的正确方式
-borg list
-# 预期输出类似：
-# tdyw-20260727-211900  Sun, 2026-07-27 21:19:00 [...]
+一、仓库初始化（borg init）
 
-# 2. 看某个 archive 里有什么文件
-borg list ::tdyw-20260727-211900
-# 会列出：
-# /tmp/tdyw-borg.XXXXXX/database.sql.gz
-# /tmp/tdyw-borg.XXXXXX/manifest.json
-# /var/lib/docker/volumes/docker_tdyw-documents/_data/...
-# /var/lib/docker/volumes/docker_tdyw-media/_data/...
+首次使用创建备份仓库，支持多种加密模式。
 
-# 3. 看 archive 详情（去重前后大小、文件数、耗时）
-borg info ::tdyw-20260727-211900
-# 关键看：
-# Number of files: XX
-# Deduplicated size: XXX MB   ← 实际占用（去重后）
-# Original size: XXX MB       ← 原始大小
+# 本地仓库 + repokey 加密（推荐，密码存仓库内，性能好） Dt6299093
+borg init --encryption repokey-blake2 /mnt/backup/borg-repo
 
-先到要导出的目录下，然后borg extract /data/borg_repo::tdyw-20260727-131850，输入密码即导出到当前文件
+# 无加密（仅本地完全可信环境使用）
+borg init --encryption none /path/to/repo
 
-# 只提取 database.sql.gz（流式输出到 stdout，再重定向到文件）
-set -a; . /opt/docker/borgbackup/borg.env; set +a
-borg list ::tdyw-20260727-211900 | grep database.sql.gz   # 先找到 dump 成员路径
-borg extract --stdout ::tdyw-20260727-211900 /tmp/tdyw-borg.XXXXXX/database.sql.gz > /tmp/database.sql.gz
-ls -lh /tmp/database.sql.gz
+# 远程 SSH 仓库
+borg init --encryption repokey-blake2 user@192.168.1.100:/data/borg-repo
+--encryption 常用选项：repokey-blake2（速度快）、keyfile-blake2（密钥存本地，安全性更高）、none（无加密）
+
+二、创建备份（borg create）
+
+核心命令，将指定目录增量备份为仓库内的一个归档。
+基础语法
+
+borg create [参数] 仓库路径::归档名 待备份路径
+常用示例
+
+# 备份 /home，归档名带时间戳，显示进度+统计，zstd 压缩
+borg create --progress --stats --compression zstd \
+  /mnt/backup/borg-repo::home-$(date +%Y%m%d-%H%M) \
+  /home
+
+# 系统全盘备份，排除系统临时目录与挂载点
+borg create --progress --one-file-system \
+  /mnt/backup/borg-repo::system-$(date +%Y%m%d) \
+  / \
+  --exclude /proc --exclude /sys --exclude /dev \
+  --exclude /tmp --exclude /mnt --exclude /media
+
+# 远程 SSH 备份
+borg create --progress --compression lz4 \
+  user@backup-server:/data/repo::data-$(date +%Y%m%d) \
+  /data
+高频参数
+--progress：实时显示备份进度
+--stats：备份结束输出去重率、压缩率等统计信息
+--compression zstd：压缩算法，平衡速度与压缩率；可选 lz4（最快）、gzip、xz（压缩率最高）
+--exclude 路径：排除指定文件 / 目录，支持通配符
+--exclude-caches：自动排除含 CACHEDIR.TAG 的缓存目录
+--one-file-system：不跨文件系统，不备份挂载的其他分区
+三、查看备份
+1. 列出归档与文件
+
+# 列出仓库中所有备份归档
+borg list /mnt/backup/borg-repo
+
+# 查看单个归档内的文件列表
+borg list /mnt/backup/borg-repo::home-20260727-1000
+2. 查看详细统计
+
+# 仓库整体信息（总大小、去重率、归档数量等）
+borg info /mnt/backup/borg-repo
+
+# 单个归档的详细数据
+borg info /mnt/backup/borg-repo::home-20260727-1000
+四、恢复备份
+1. 直接提取恢复（borg extract）
+
+# 恢复整个归档到**当前目录**
+borg extract /mnt/backup/borg-repo::home-20260727-1000
+
+# 只恢复指定文件/目录
+borg extract /mnt/backup/borg-repo::home-20260727-1000 home/user/docs
+
+# 恢复到指定目录（先进入目标目录再执行）
+cd /restore/target && borg extract /mnt/backup/borg-repo::home-20260727-1000
+
+# 显示恢复进度
+borg extract --progress /mnt/backup/borg-repo::home-20260727-1000
+2. 挂载浏览（borg mount）
+将归档挂载为文件系统，方便按需浏览、复制文件
+
+# 挂载整个仓库（可浏览所有归档）
+borg mount /mnt/backup/borg-repo /mnt/borg
+
+# 仅挂载单个归档
+borg mount /mnt/backup/borg-repo::home-20260727-1000 /mnt/borg
+
+# 卸载
+borg umount /mnt/borg
+五、清理与删除
+1. 删除单个归档
+
+borg delete /mnt/backup/borg-repo::home-20260727-1000
+2. 按策略自动清理（borg prune）
+配合定时任务使用，按保留规则自动删除旧备份
+
+# 保留策略：7天日备、4周周备、6个月月备
+borg prune --keep-daily 7 --keep-weekly 4 --keep-monthly 6 \
+  --progress --stats /mnt/backup/borg-repo
+
+# 预览清理效果（不实际删除）
+borg prune --dry-run --keep-daily 7 /mnt/backup/borg-repo
+3. 回收磁盘空间（borg compact）
+执行 prune/delete 后运行，真正释放仓库占用的磁盘空间
+
+borg compact /mnt/backup/borg-repo
+六、校验与排错
+1. 完整性校验
+
+# 快速检查仓库结构
+borg check /mnt/backup/borg-repo
+
+# 深度校验所有数据块
+borg check --verify-data /mnt/backup/borg-repo
+
+# 修复损坏的仓库
+borg check --repair /mnt/backup/borg-repo
+2. 解除异常锁
+备份异常中断后仓库可能被锁定，解锁命令：
+
+borg break-lock /mnt/backup/borg-repo
+七、实用环境变量（脚本自动化必备）
+
+# 预设仓库路径，后续命令可省略仓库参数
+export BORG_REPO=/mnt/backup/borg-repo
+
+# 自动输入密码，无需交互（脚本中使用）
+export BORG_PASSPHRASE="你的备份密码"
+
+# 指定 SSH 端口/密钥
+export BORG_RSH="ssh -p 2222 -i /path/to/ssh_key"
+设置后命令可大幅简化，例如直接执行 borg list 即可列出所有归档。

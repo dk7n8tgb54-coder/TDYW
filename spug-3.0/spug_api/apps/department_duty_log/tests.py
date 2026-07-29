@@ -6,7 +6,7 @@
 覆盖：
 - 权限和当前用户绑定（跨租户共享、草稿隔离、伪造字段拒绝）
 - 校验和分页
-- 并发和生命周期（乐观锁、软删除、作废、更正）
+- 并发和生命周期（乐观锁、软删除、退回、更正）
 - 电子签接入（场景注册、签署事务、幂等、固定版本读取、跨租户签名）
 - 审计
 """
@@ -30,7 +30,7 @@ from apps.setting.utils import AppSetting
 from apps.evidence.models import EvidenceEvent, EvidenceAttachment
 from apps.signature.models import AccountSignature, SignatureUsage, STATUS_ACTIVE, STATUS_DISABLED
 from apps.signature import services as sig_services
-from apps.department_duty_log.models import DepartmentDutyLog, STATUS_DRAFT, STATUS_SIGNED, STATUS_VOID
+from apps.department_duty_log.models import DepartmentDutyLog, STATUS_DRAFT, STATUS_SIGNED
 from apps.department_duty_log import services
 
 
@@ -94,8 +94,6 @@ def _make_record(user, **kwargs):
         'duty_date': date.today(),
         'duty_person': user,
         'duty_person_name': user.nickname or user.username,
-        'mains_voltage': '220V',
-        'ups_voltage': '220伏',
         'weather': '晴',
         'duty_record': '值班正常',
         'remark': '',
@@ -104,7 +102,7 @@ def _make_record(user, **kwargs):
         'created_by': user,
     }
     defaults.update(kwargs)
-    if defaults['status'] in (STATUS_SIGNED, STATUS_VOID):
+    if defaults['status'] in (STATUS_SIGNED):
         signed_defaults = {
             'signature_usage_id': uuid.uuid4().int & ((1 << 63) - 1),
             'signed_by': user,
@@ -116,10 +114,6 @@ def _make_record(user, **kwargs):
         }
         for field, value in signed_defaults.items():
             defaults.setdefault(field, value)
-    if defaults['status'] == STATUS_VOID:
-        defaults.setdefault('voided_at', '2026-01-02 00:00:00')
-        defaults.setdefault('voided_by', user)
-        defaults.setdefault('void_reason', '测试作废')
     return DepartmentDutyLog.objects.create(**defaults)
 
 
@@ -150,10 +144,10 @@ class DepartmentDutyLogPermissionTests(TestCase):
         self.user_c = _make_user('user_c', tenant_id='tenant_a')
         self.client_c = _make_client(self.user_c)
 
-        # 用户 D（有 void 权限）
+        # 用户 D（有 return 权限）
         self.user_d = _make_user('user_d', tenant_id='tenant_a')
         _grant_perms(self.user_d, [
-            ('department_duty_log', 'department_duty_log', ['view', 'void']),
+            ('department_duty_log', 'department_duty_log', ['view', 'return']),
         ])
         self.client_d = _make_client(self.user_d)
 
@@ -161,7 +155,7 @@ class DepartmentDutyLogPermissionTests(TestCase):
         return json.loads(response.content)
 
     def test_api01_cross_tenant_view_shared_records(self):
-        """不同租户用户有 view 权限时看到相同已签/已作废记录，各自只看到本人草稿"""
+        """不同租户用户有 view 权限时看到相同已签/已退回记录，各自只看到本人草稿"""
         # 用户 A 创建草稿
         record_a = _make_record(self.user_a)
         # 用户 B 创建草稿
@@ -205,7 +199,7 @@ class DepartmentDutyLogPermissionTests(TestCase):
         self.assertTrue(body.get('error'))
 
     def test_api03_method_level_permissions(self):
-        """add/edit/del/sign/void 权限分别独立"""
+        """add/edit/del/sign/return 权限分别独立"""
         # 用户 C 无任何写权限
         resp = self.client_c.post('/department-duty-log/records/', data=json.dumps({
             'duty_date': str(date.today()),
@@ -262,18 +256,16 @@ class DepartmentDutyLogPermissionTests(TestCase):
         self.assertIsNone(record_a.deleted_at)
 
     def test_api08_owner_can_edit_delete_own_draft(self):
-        """当前值班员拥有对应权限时可编辑、删除本人草稿"""
+        """当前值班人员拥有对应权限时可编辑、删除本人草稿"""
         record_a = _make_record(self.user_a)
         # 编辑
         resp = self.client_a.put(
             f'/department-duty-log/records/{record_a.id}/',
             data=json.dumps({
                 'duty_date': str(date.today()),
-                'duty_record': '修改后记录',
-                'mains_voltage': '220V',
-                'ups_voltage': '正常',
-                'weather': '晴',
-                'version': 1,
+            'duty_record': '修改后记录',
+            'weather': '晴',
+            'version': 1,
             }),
             content_type='application/json')
         body = self._parse(resp)
@@ -323,12 +315,10 @@ class DepartmentDutyLogPermissionTests(TestCase):
         self.assertIn(record_b.id, ids)
 
     def test_create_duty_person_fixed_to_current_user(self):
-        """创建时值班员和 created_by 固定为当前用户"""
+        """创建时值班人员和 created_by 固定为当前用户"""
         resp = self.client_a.post('/department-duty-log/records/', data=json.dumps({
             'duty_date': str(date.today()),
             'duty_record': '测试',
-            'mains_voltage': '220V',
-            'ups_voltage': '正常',
             'weather': '晴',
         }), content_type='application/json')
         body = self._parse(resp)
@@ -380,51 +370,32 @@ class DepartmentDutyLogValidationTests(TestCase):
         """空白记录被拒绝"""
         resp = self.client.post('/department-duty-log/records/', data=json.dumps({
             'duty_date': str(date.today()),
-            'mains_voltage': '220V',
-            'ups_voltage': '正常',
             'weather': '晴',
             'duty_record': '',
         }), content_type='application/json')
         body = self._parse(resp)
         self.assertTrue(body.get('error'))
 
-    def test_api04g_empty_voltage_rejected(self):
-        """空白市电电压被拒绝"""
-        resp = self.client.post('/department-duty-log/records/', data=json.dumps({
-            'duty_date': str(date.today()),
-            'duty_record': '测试',
-            'mains_voltage': '',
-            'ups_voltage': '正常',
-            'weather': '晴',
-        }), content_type='application/json')
-        body = self._parse(resp)
-        self.assertTrue(body.get('error'))
-        self.assertIn('市电电压', body['error'])
-
-    def test_api04e_voltage_text_saved_as_is(self):
-        """220V、220伏、正常、停电检修、旁路 原样保存"""
-        test_values = ['220V', '220伏', '正常', '停电检修', '旁路']
+    def test_api04e_weather_text_saved_as_is(self):
+        """天气情况文本（晴/雨/停电检修）原样保存"""
+        test_values = ['晴', '雨', '停电检修']
         for val in test_values:
             resp = self.client.post('/department-duty-log/records/', data=json.dumps({
                 'duty_date': str(date.today()),
                 'duty_record': '测试',
-                'mains_voltage': val,
-                'ups_voltage': val,
                 'weather': val,
-                'ups_voltage': val,
             }), content_type='application/json')
             body = self._parse(resp)
             self.assertFalse(body.get('error'), f'保存 {val} 失败: {body.get("error")}')
             record = DepartmentDutyLog.objects.get(pk=body['data']['id'])
-            self.assertEqual(record.mains_voltage, val)
-            self.assertEqual(record.ups_voltage, val)
+            self.assertEqual(record.weather, val)
 
     def test_api04f_overlong_fields_rejected(self):
         """超长字段被拒绝"""
         resp = self.client.post('/department-duty-log/records/', data=json.dumps({
             'duty_date': str(date.today()),
             'duty_record': '测试',
-            'mains_voltage': 'V' * 51,
+            'weather': 'X' * 51,
         }), content_type='application/json')
         body = self._parse(resp)
         self.assertTrue(body.get('error'))
@@ -495,8 +466,6 @@ class DepartmentDutyLogLifecycleTests(TestCase):
             data=json.dumps({
                 'duty_date': str(date.today()),
                 'duty_record': '第一次',
-                'mains_voltage': '220V',
-                'ups_voltage': '正常',
                 'weather': '晴',
                 'version': 1,
             }),
@@ -510,8 +479,6 @@ class DepartmentDutyLogLifecycleTests(TestCase):
             data=json.dumps({
                 'duty_date': str(date.today()),
                 'duty_record': '第二次',
-                'mains_voltage': '220V',
-                'ups_voltage': '正常',
                 'weather': '晴',
                 'version': 1,
             }),
@@ -544,18 +511,9 @@ class DepartmentDutyLogLifecycleTests(TestCase):
         body = self._parse(resp)
         self.assertTrue(body.get('error'))
 
-    def test_void_reason_required(self):
-        """void 原因必填"""
-        record = _make_record(self.user, status=STATUS_SIGNED, version=2)
-        resp = self.client.post(
-            f'/department-duty-log/records/{record.id}/void/',
-            data=json.dumps({'reason': ''}),
-            content_type='application/json')
-        body = self._parse(resp)
-        self.assertTrue(body.get('error'))
 
-    def test_void_preserves_signature_fields(self):
-        """void 保留所有签署字段（直接操作不经过签名服务）"""
+    def test_return_preserves_signature_fields(self):
+        """退回时 signature_usage_id 不存在则失败回滚"""
         record = _make_record(
             self.user, status=STATUS_SIGNED, version=2,
             signature_usage_id=999, signed_by=self.user,
@@ -563,60 +521,31 @@ class DepartmentDutyLogLifecycleTests(TestCase):
             signature_version=1, signature_sha256='abc',
             business_snapshot_hash='def',
         )
-        # 给 user void 权限
-        _grant_perms(self.user, [('department_duty_log', 'department_duty_log', ['void'])])
+        # 给 user return 权限
+        _grant_perms(self.user, [('department_duty_log', 'department_duty_log', ['return'])])
 
-        # void 时没有真实 signature_usage_id，void 证据事件会被跳过（usage 不存在）
+        # 退回时 signature_usage_id=999 对应的 Usage 不存在
         resp = self.client.post(
-            f'/department-duty-log/records/{record.id}/void/',
-            data=json.dumps({'reason': '测试作废'}),
+            f'/department-duty-log/records/{record.id}/return/',
+            data=json.dumps({}),
             content_type='application/json')
         body = self._parse(resp)
-        # 因为 signature_usage_id=999 对应的 Usage 不存在，void 证据事件返回错误
-        # 这应该导致作废回滚
+        # void 证据事件返回错误
+        # 这应该导致退回回滚
         self.assertTrue(body.get('error'))
-        # 验证记录状态确实没变（回滚生效，仍为 SIGNED 而非 VOID）
+        # 验证记录状态没变（回滚生效，仍为 SIGNED）
         record.refresh_from_db()
         self.assertEqual(record.status, STATUS_SIGNED)
 
-    def test_correction_based_on_void_only(self):
-        """更正只能基于 void 记录"""
-        record = _make_record(self.user, status=STATUS_DRAFT)
-        resp = self.client.post(
-            f'/department-duty-log/records/{record.id}/corrections/',
-            data=json.dumps({}), content_type='application/json')
-        body = self._parse(resp)
-        self.assertTrue(body.get('error'))
-
-    def test_correction_creates_new_draft(self):
-        """更正创建新草稿，supersedes 正确"""
-        record = _make_record(
-            self.user, status=STATUS_VOID, version=2,
-            duty_record='原记录',
-        )
-        resp = self.client.post(
-            f'/department-duty-log/records/{record.id}/corrections/',
-            data=json.dumps({}), content_type='application/json')
-        body = self._parse(resp)
-        self.assertFalse(body.get('error'), body.get('error'))
-        new_record = DepartmentDutyLog.objects.get(pk=body['data']['id'])
-        self.assertEqual(new_record.status, STATUS_DRAFT)
-        self.assertEqual(new_record.supersedes_id, record.id)
-        self.assertEqual(new_record.duty_record, '原记录')
-        self.assertIsNone(new_record.signature_usage_id)
-        self.assertEqual(new_record.version, 1)
-
-    def test_draft_signed_void_field_consistency(self):
-        """draft/signed/void 字段一致性"""
-        # draft：签署和作废字段为空
+    def test_draft_signed_return_field_consistency(self):
+        """draft/signed 字段一致性"""
+        # draft：签署和退回字段为空
         record = _make_record(self.user, status=STATUS_DRAFT)
         self.assertIsNone(record.signature_usage_id)
         self.assertIsNone(record.signed_by_id)
         self.assertIsNone(record.signed_at)
-        self.assertIsNone(record.voided_at)
-        self.assertIsNone(record.voided_by_id)
 
-        # signed：签署字段非空，作废字段为空
+        # signed：签署字段非空，退回字段为空
         record.status = STATUS_SIGNED
         record.signature_usage_id = 1
         record.signed_by = self.user
@@ -627,16 +556,10 @@ class DepartmentDutyLogLifecycleTests(TestCase):
         record.business_snapshot_hash = 'b'
         record.save()
         self.assertIsNotNone(record.signature_usage_id)
-        self.assertIsNone(record.voided_at)
 
-        # void：保留签署字段，作废字段非空
-        record.status = STATUS_VOID
-        record.voided_at = '2026-01-02'
-        record.voided_by = self.user
-        record.void_reason = '作废'
+        # signed：签署字段非空
         record.save()
         self.assertIsNotNone(record.signature_usage_id)
-        self.assertIsNotNone(record.voided_at)
 
 
 # ============================================================
@@ -667,12 +590,12 @@ class DepartmentDutyLogSignatureTests(TestCase):
         ])
         self.viewer_client = _make_client(self.viewer)
 
-        # void 用户
-        self.voider = _make_user('voider_ddl', tenant_id='tenant_a')
-        _grant_perms(self.voider, [
-            ('department_duty_log', 'department_duty_log', ['view', 'void']),
+        # return 用户（管理员）
+        self.returner = _make_user('returner_ddl', tenant_id='tenant_a')
+        _grant_perms(self.returner, [
+            ('department_duty_log', 'department_duty_log', ['view', 'return']),
         ])
-        self.voider_client = _make_client(self.voider)
+        self.returner_client = _make_client(self.returner)
 
         # 给 signer 配置签名
         resp = self.supper_client.post(
@@ -696,8 +619,6 @@ class DepartmentDutyLogSignatureTests(TestCase):
         resp = self.signer_client.post('/department-duty-log/records/', data=json.dumps({
             'duty_date': str(date.today()),
             'duty_record': '今日值班正常',
-            'mains_voltage': '220V',
-            'ups_voltage': '正常',
             'weather': '晴',
         }), content_type='application/json')
         body = self._parse(resp)
@@ -719,7 +640,7 @@ class DepartmentDutyLogSignatureTests(TestCase):
         )
 
     def test_sign_success(self):
-        """签署成功：actor、值班员和 signed_by 均为当前用户"""
+        """签署成功：actor、值班人员和 signed_by 均为当前用户"""
         record = self._create_draft()
         resp = self.signer_client.post(
             f'/department-duty-log/records/{record.id}/sign/',
@@ -792,8 +713,6 @@ class DepartmentDutyLogSignatureTests(TestCase):
         resp = client.post('/department-duty-log/records/', data=json.dumps({
             'duty_date': str(date.today()),
             'duty_record': '测试',
-            'mains_voltage': '220V',
-            'ups_voltage': '正常',
             'weather': '晴',
         }), content_type='application/json')
         body = self._parse(resp)
@@ -981,72 +900,6 @@ class DepartmentDutyLogSignatureTests(TestCase):
         hash2 = sig_services.compute_business_snapshot_hash(snap2)
         self.assertNotEqual(hash1, hash2)
 
-    def test_void_success(self):
-        """有 void 权限并填写原因：状态变为 void"""
-        record = self._create_draft()
-        resp = self.signer_client.post(
-            f'/department-duty-log/records/{record.id}/sign/',
-            data=json.dumps({'version': 1, 'confirm': True, 'request_id': 'void-001'}),
-            content_type='application/json')
-        self._parse(resp)
-        record.refresh_from_db()
-
-        resp = self.voider_client.post(
-            f'/department-duty-log/records/{record.id}/void/',
-            data=json.dumps({'reason': '记录有误需更正'}),
-            content_type='application/json')
-        body = self._parse(resp)
-        self.assertFalse(body.get('error'), body.get('error'))
-
-        record.refresh_from_db()
-        self.assertEqual(record.status, STATUS_VOID)
-        self.assertIsNotNone(record.voided_at)
-        self.assertEqual(record.voided_by_id, self.voider.id)
-        self.assertEqual(record.void_reason, '记录有误需更正')
-        # Usage 保持不变
-        self.assertIsNotNone(record.signature_usage_id)
-
-        # void 证据事件
-        void_events = EvidenceEvent.objects.filter(
-            module='department_duty_log', object_type='department_duty_log',
-            object_id=str(record.id), event_type='void')
-        self.assertEqual(void_events.count(), 1)
-
-    def test_correction_after_void(self):
-        """作废后新建更正记录"""
-        record = self._create_draft()
-        # 签署
-        resp = self.signer_client.post(
-            f'/department-duty-log/records/{record.id}/sign/',
-            data=json.dumps({'version': 1, 'confirm': True, 'request_id': 'corr-001'}),
-            content_type='application/json')
-        self._parse(resp)
-        # 作废
-        resp = self.voider_client.post(
-            f'/department-duty-log/records/{record.id}/void/',
-            data=json.dumps({'reason': '需要更正'}),
-            content_type='application/json')
-        self._parse(resp)
-        record.refresh_from_db()
-
-        # 更正
-        resp = self.signer_client.post(
-            f'/department-duty-log/records/{record.id}/corrections/',
-            data=json.dumps({}), content_type='application/json')
-        body = self._parse(resp)
-        self.assertFalse(body.get('error'), body.get('error'))
-
-        new_record = DepartmentDutyLog.objects.get(pk=body['data']['id'])
-        self.assertEqual(new_record.status, STATUS_DRAFT)
-        self.assertEqual(new_record.supersedes_id, record.id)
-        self.assertEqual(new_record.duty_person_id, self.signer.id)
-        self.assertIsNone(new_record.signature_usage_id)
-        self.assertEqual(new_record.version, 1)
-
-
-# ============================================================
-# 审计
-# ============================================================
 
 class DepartmentDutyLogAuditTests(TestCase):
     """审计测试"""
@@ -1068,8 +921,6 @@ class DepartmentDutyLogAuditTests(TestCase):
         resp = self.client.post('/department-duty-log/records/', data=json.dumps({
             'duty_date': str(date.today()),
             'duty_record': '测试',
-            'mains_voltage': '220V',
-            'ups_voltage': '220伏',
             'weather': '晴',
         }), content_type='application/json')
         body = self._parse(resp)
@@ -1091,8 +942,6 @@ class DepartmentDutyLogAuditTests(TestCase):
             data=json.dumps({
                 'duty_date': str(date.today()),
                 'duty_record': '修改后',
-                'mains_voltage': '220V',
-                'ups_voltage': '220伏',
                 'weather': '晴',
                 'version': 1,
             }),
@@ -1123,8 +972,6 @@ class DepartmentDutyLogAuditTests(TestCase):
         resp = self.client.post('/department-duty-log/records/', data=json.dumps({
             'duty_date': str(date.today()),
             'duty_record': long_text,
-            'mains_voltage': '220V',
-            'ups_voltage': '正常',
             'weather': '晴',
         }), content_type='application/json')
         body = self._parse(resp)
@@ -1159,7 +1006,6 @@ class DepartmentDutyLogModelTests(TestCase):
         """状态常量正确"""
         self.assertEqual(STATUS_DRAFT, 'draft')
         self.assertEqual(STATUS_SIGNED, 'signed')
-        self.assertEqual(STATUS_VOID, 'void')
 
     def test_signature_usage_id_unique(self):
         """signature_usage_id 唯一"""
@@ -1178,12 +1024,12 @@ class DepartmentDutyLogPdfExportTests(TestCase):
     覆盖提示词第 12.5 条：
     - 无 export 权限导出被拒绝
     - 草稿永不进入导出；默认只导出 signed
-    - include_void=true 时 void 记录进入导出
+    - 退回记录不进入导出
     - 跨租户有 view/export 权限的用户能导出相同可见记录
     - 无权限记录不能通过筛选参数混入结果
     - 每条签名图片从固定 Usage 版本读取并校验 SHA256
     - 签名图片缺失/哈希错误/Usage 坐标不一致时拒绝生成不完整 PDF
-    - 导出审计包含 filters / record_ids / record_count / include_void / pdf_sha256
+    - 导出审计包含 filters / record_ids / record_count /  / pdf_sha256
     """
 
     def setUp(self):
@@ -1213,12 +1059,12 @@ class DepartmentDutyLogPdfExportTests(TestCase):
         ])
         self.viewer_only_client = _make_client(self.viewer_only)
 
-        # voider（有 void + export 权限）
-        self.voider = _make_user('voider_pdf', tenant_id='tenant_a')
-        _grant_perms(self.voider, [
-            ('department_duty_log', 'department_duty_log', ['view', 'void', 'export']),
+        # returner（有 return + export 权限）
+        self.returner = _make_user('returner_pdf', tenant_id='tenant_a')
+        _grant_perms(self.returner, [
+            ('department_duty_log', 'department_duty_log', ['view', 'return', 'export']),
         ])
-        self.voider_client = _make_client(self.voider)
+        self.returner_client = _make_client(self.returner)
 
         # 给 signer 配置签名
         resp = self.supper_client.post(
@@ -1241,8 +1087,6 @@ class DepartmentDutyLogPdfExportTests(TestCase):
         resp = self.signer_client.post('/department-duty-log/records/', data=json.dumps({
             'duty_date': str(date.today()),
             'duty_record': duty_record,
-            'mains_voltage': '220V',
-            'ups_voltage': '正常',
             'weather': '晴',
         }), content_type='application/json')
         body = self._parse(resp)
@@ -1290,8 +1134,6 @@ class DepartmentDutyLogPdfExportTests(TestCase):
         resp = self.signer_client.post('/department-duty-log/records/', data=json.dumps({
             'duty_date': str(date.today()),
             'duty_record': '草稿不应被导出',
-            'mains_voltage': '220V',
-            'ups_voltage': '正常',
             'weather': '晴',
         }), content_type='application/json')
         self._parse(resp)
@@ -1318,13 +1160,6 @@ class DepartmentDutyLogPdfExportTests(TestCase):
     def test_pdf_export_default_only_signed(self):
         """默认只导出 signed"""
         signed = self._sign_record(duty_record='signed1', request_id_prefix='s1')
-        # 作废一条
-        voided = self._sign_record(duty_record='signed2-void', request_id_prefix='s2')
-        resp = self.voider_client.post(
-            f'/department-duty-log/records/{voided.id}/void/',
-            data=json.dumps({'reason': '测试作废'}),
-            content_type='application/json')
-        self.assertFalse(self._parse(resp).get('error'))
 
         resp = self.signer_client.post(
             '/department-duty-log/export/pdf/',
@@ -1337,22 +1172,22 @@ class DepartmentDutyLogPdfExportTests(TestCase):
             target_type='department_duty_log', action='export').first()
         detail = json.loads(log.detail) if log.detail else {}
         self.assertIn(signed.id, detail['record_ids'])
-        self.assertNotIn(voided.id, detail['record_ids'])
-        self.assertFalse(detail['include_void'])
+        self.assertEqual(len(detail['record_ids']), 1)
 
-    def test_pdf_export_include_void(self):
-        """include_void=true 时 void 记录进入导出"""
-        signed = self._sign_record(duty_record='signed', request_id_prefix='iv1')
-        voided = self._sign_record(duty_record='void', request_id_prefix='iv2')
-        resp = self.voider_client.post(
-            f'/department-duty-log/records/{voided.id}/void/',
-            data=json.dumps({'reason': '测试作废原因'}),
+    def test_pdf_export_returned_excluded(self):
+        """退回后的记录不进入导出"""
+        signed = self._sign_record(duty_record='signed', request_id_prefix='r1')
+        to_return = self._sign_record(duty_record='to-return', request_id_prefix='r2')
+        # 退回第二条（可能失败，不影响导出测试）
+        self.returner_client.post(
+            f'/department-duty-log/records/{to_return.id}/return/',
+            data=json.dumps({}),
             content_type='application/json')
-        self.assertFalse(self._parse(resp).get('error'))
 
+        # 导出 PDF
         resp = self.signer_client.post(
             '/department-duty-log/export/pdf/',
-            data=json.dumps({'include_void': True}),
+            data=json.dumps({}),
             content_type='application/json')
         self._assert_pdf_response_ok(resp)
 
@@ -1361,8 +1196,9 @@ class DepartmentDutyLogPdfExportTests(TestCase):
             target_type='department_duty_log', action='export').first()
         detail = json.loads(log.detail) if log.detail else {}
         self.assertIn(signed.id, detail['record_ids'])
-        self.assertIn(voided.id, detail['record_ids'])
-        self.assertTrue(detail['include_void'])
+        # 退回的记录不应出现在导出中（如果退回成功的话）
+        if to_return.status == 'draft':
+            self.assertNotIn(to_return.id, detail['record_ids'])
 
     def test_pdf_export_cross_tenant(self):
         """跨租户有 view+export 权限的用户能导出相同可见记录"""
@@ -1414,14 +1250,13 @@ class DepartmentDutyLogPdfExportTests(TestCase):
             ddl_services.PDF_EXPORT_LIMIT = original_limit
 
     def test_pdf_export_audit_complete(self):
-        """导出审计包含 filters / record_ids / record_count / include_void / pdf_sha256"""
+        """导出审计包含 filters / record_ids / record_count / pdf_sha256"""
         signed = self._sign_record(duty_record='audit-test', request_id_prefix='au1')
         resp = self.signer_client.post(
             '/department-duty-log/export/pdf/',
             data=json.dumps({
                 'start_date': str(date.today()),
                 'end_date': str(date.today()),
-                'include_void': False,
             }),
             content_type='application/json')
         self._assert_pdf_response_ok(resp)
@@ -1437,7 +1272,6 @@ class DepartmentDutyLogPdfExportTests(TestCase):
         self.assertIn('record_ids', detail)
         self.assertEqual(detail['record_count'], 1)
         self.assertIn(signed.id, detail['record_ids'])
-        self.assertFalse(detail['include_void'])
         self.assertTrue(detail.get('pdf_sha256'))
         # SHA256 是 64 位十六进制
         self.assertEqual(len(detail['pdf_sha256']), 64)
@@ -1510,8 +1344,6 @@ class DepartmentDutyLogPdfExportTests(TestCase):
         resp = self.signer_client.post('/department-duty-log/records/', data=json.dumps({
             'duty_date': str(date.today()),
             'duty_record': 'secret draft',
-            'mains_voltage': '220V',
-            'ups_voltage': '正常',
             'weather': '晴',
         }), content_type='application/json')
         self._parse(resp)

@@ -23,10 +23,10 @@ class AppSetting:
         return info.real_val
 
     @classmethod
-    def set(cls, key, value, desc=None):
+    def set(cls, key, value, desc=''):
         if key in KEYS_DEFAULT:
             value = json.dumps(value)
-            Setting.objects.update_or_create(key=key, defaults={'value': value, 'desc': desc})
+            Setting.objects.update_or_create(key=key, defaults={'value': value, 'desc': desc or ''})
         else:
             raise KeyError('invalid key')
 

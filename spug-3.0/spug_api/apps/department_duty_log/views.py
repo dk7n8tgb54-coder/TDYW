@@ -22,7 +22,7 @@ from apps.signature import services as signature_services
 from libs.export_utils import build_export_error_response
 
 from . import services
-from .models import DepartmentDutyLog, STATUS_DRAFT, STATUS_SIGNED, STATUS_VOID
+from .models import DepartmentDutyLog, STATUS_DRAFT, STATUS_SIGNED
 
 logger = logging.getLogger(__name__)
 
@@ -153,36 +153,13 @@ class DepartmentDutyLogSignView(View):
         return json_response(services.serialize_department_duty_log(record, request.user))
 
 
-class DepartmentDutyLogVoidView(View):
-    """POST 作废已签记录"""
+class DepartmentDutyLogReturnView(View):
+    """POST 退回已签记录到草稿"""
 
-    @auth('department_duty_log.department_duty_log.void')
+    @auth('department_duty_log.department_duty_log.return')
     def post(self, request, pk):
-        form, error = JsonParser(
-            Argument('reason', help='请填写作废原因'),
-        ).parse(request.body)
-        if error:
-            return json_response(error=error)
-
-        record, error = services.void_signed_record(
+        record, error = services.return_signed_record(
             record_id=pk,
-            user=request.user,
-            reason=form.reason,
-            request=request,
-        )
-        if error:
-            return json_response(error=error)
-
-        return json_response(services.serialize_department_duty_log(record, request.user))
-
-
-class DepartmentDutyLogCorrectionView(View):
-    """POST 基于已作废记录创建更正草稿"""
-
-    @auth('department_duty_log.department_duty_log.add')
-    def post(self, request, pk):
-        record, error = services.create_correction_draft(
-            voided_record_id=pk,
             user=request.user,
             request=request,
         )
@@ -210,7 +187,7 @@ class DepartmentDutyLogSignatureImageView(View):
         if not record.signature_usage_id:
             return self._reject('该记录未签署')
 
-        if record.status not in (STATUS_SIGNED, STATUS_VOID):
+        if record.status != STATUS_SIGNED:
             return self._reject('该记录未签署')
 
         # 调用受控全局业务签名读取
@@ -282,10 +259,10 @@ class DepartmentDutyLogDutyDatesView(View):
 
 
 class DepartmentDutyLogPdfExportView(View):
-    """POST 导出已签/已作废部门值班日志 PDF
+    """POST 导出已签部门值班日志 PDF
 
     请求体只接受筛选条件，不接受记录内容、签名内容、文件路径或客户端生成的 PDF 数据。
-    只导出 view 可见的已签/已作废记录，永不导出草稿。
+    只导出 view 可见的已签记录，永不导出草稿。
     """
 
     @auth('department_duty_log.department_duty_log.export')

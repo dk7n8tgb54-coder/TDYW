@@ -23,8 +23,6 @@ class DepartmentDutyLogForm extends React.Component {
       // 编辑模式
       this.formRef.current.setFieldsValue({
         duty_date: moment(record.duty_date),
-        mains_voltage: record.mains_voltage,
-        ups_voltage: record.ups_voltage,
         weather: record.weather,
         duty_record: record.duty_record,
         remark: record.remark,
@@ -67,8 +65,6 @@ class DepartmentDutyLogForm extends React.Component {
       this.setState({submitting: true});
       const payload = {
         duty_date: values.duty_date.format('YYYY-MM-DD'),
-        mains_voltage: values.mains_voltage || '',
-        ups_voltage: values.ups_voltage || '',
         weather: values.weather || '',
         duty_record: values.duty_record,
         remark: values.remark || '',
@@ -154,35 +150,8 @@ class DepartmentDutyLogForm extends React.Component {
 
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item label="值班员">
+              <Form.Item label="值班人员">
                 <Input value={currentUser.name || ''} disabled/>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                label="市电电压"
-                name="mains_voltage"
-                rules={[
-                  {required: true, message: '请输入市电电压'},
-                  {max: 50, message: '最长50字符'},
-                ]}
-              >
-                <Input placeholder="如：220V" maxLength={50}/>
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                label="UPS电压"
-                name="ups_voltage"
-                rules={[
-                  {required: true, message: '请输入UPS电压'},
-                  {max: 50, message: '最长50字符'},
-                ]}
-              >
-                <Input placeholder="如：正常" maxLength={50}/>
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -216,7 +185,7 @@ class DepartmentDutyLogForm extends React.Component {
           </Form.Item>
 
           <Form.Item
-            label="备注"
+            label="上级工作要求"
             name="remark"
             rules={[{max: 2000, message: '最长2000字符'}]}
           >

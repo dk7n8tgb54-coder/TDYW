@@ -43,7 +43,7 @@ def get_assignable_roles_for_target(operator, target_tenant_id=None):
     规则：
     - 普通管理员：忽略 target_tenant_id，只返回本租户、非系统、非全局管理员角色。
     - 超级管理员：
-        * 始终返回平台级角色（tenant_id is null）和全局管理员角色；
+        * 始终返回平台级角色（tenant_id 为空串）和全局管理员角色；
         * 若 target_tenant_id 有值，追加该租户的租户角色；
         * 若 target_tenant_id 为空，不返回任何租户角色，避免误选其他租户角色。
     """
@@ -58,7 +58,7 @@ def get_assignable_roles_for_target(operator, target_tenant_id=None):
         )
 
     queryset = Role.objects.filter(
-        Q(tenant_id__isnull=True) | Q(is_global_admin=True)
+        Q(tenant_id='') | Q(is_global_admin=True)
     )
     if target_tenant_id:
         queryset = queryset | Role.objects.filter(tenant_id=target_tenant_id)
@@ -73,7 +73,7 @@ def validate_assignable_role_ids(operator, role_ids, target_tenant_id=None):
     - 普通管理员：只能分配本租户、非系统、非全局管理员角色。
       target_tenant_id 必须等于操作者自身 tenant_id（由调用方保证）。
     - 超级管理员：默认不再无差别放行，需校验角色与目标租户的一致性：
-        * 平台级角色（tenant_id is null）：可分配给任意租户用户
+        * 平台级角色（tenant_id 为空串）：可分配给任意租户用户
         * 全局管理员角色：可分配给任意租户用户
         * 租户角色（tenant_id 非空）：仅当 tenant_id == target_tenant_id 才可分配
       target_tenant_id 为 None 时（无法确定目标租户）超管按宽松策略放行，
@@ -99,8 +99,7 @@ def validate_assignable_role_ids(operator, role_ids, target_tenant_id=None):
         conflict_roles = Role.objects.filter(
             id__in=requested_ids,
             is_global_admin=False,
-            tenant_id__isnull=False,
-        ).exclude(tenant_id=target_tenant_id)
+        ).exclude(tenant_id='').exclude(tenant_id=target_tenant_id)
         if conflict_roles.exists():
             return '不能将其他租户的角色分配给该租户用户'
         return None

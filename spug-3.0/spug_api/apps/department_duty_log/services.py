@@ -22,7 +22,7 @@ from apps.signature.services import apply_signature
 
 from .models import (
     DepartmentDutyLog,
-    STATUS_DRAFT, STATUS_SIGNED, STATUS_VOID,
+    STATUS_DRAFT, STATUS_SIGNED,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,13 +33,11 @@ OBJECT_TYPE = 'department_duty_log'
 SCENE_CODE = 'duty_person'
 
 # ---- 输入长度限制 ----
-MAX_VOLTAGE_LEN = 50
 MAX_WEATHER_LEN = 50
 MAX_DUTY_RECORD_LEN = 10000
 MAX_REMARK_LEN = 2000
 MAX_KEYWORD_LEN = 100
 MAX_DUTY_PERSON_NAME_LEN = 100
-MAX_VOID_REASON_LEN = 500
 
 # ---- 受保护字段：客户端提交时必须拒绝 ----
 PROTECTED_FIELDS = frozenset({
@@ -48,8 +46,7 @@ PROTECTED_FIELDS = frozenset({
     'deleted_by', 'deleted_by_id', 'signed_by', 'signed_by_id',
     'signed_by_name', 'signed_at', 'signature_usage_id',
     'signature_version', 'signature_sha256', 'business_snapshot_hash',
-    'status', 'voided_by', 'voided_by_id', 'voided_at', 'void_reason',
-    'supersedes', 'supersedes_id', 'created_at', 'updated_at', 'deleted_at',
+    'status', 'supersedes', 'supersedes_id', 'created_at', 'updated_at', 'deleted_at',
     'id',
 })
 
@@ -102,14 +99,14 @@ def _clean_str(value, max_len, field_name, required=False):
 
 
 def _clean_optional_str(value, max_len, field_name):
-    """可选字符串：None/空串返回 None，非空去空格+校验长度。"""
+    """可选字符串：None/空串返回空串，非空去空格+校验长度。"""
     if value is None or value == '':
-        return None
+        return ''
     if not isinstance(value, str):
         raise ValueError(f'{field_name} 格式不正确')
     value = value.strip()
     if not value:
-        return None
+        return ''
     if len(value) > max_len:
         raise ValueError(f'{field_name} 超过最大长度 {max_len}')
     return value
@@ -132,8 +129,6 @@ def validate_payload(raw_data, *, is_create=True):
 
     try:
         duty_date = _parse_date(raw_data.get('duty_date'), '值班日期')
-        mains_voltage = _clean_str(raw_data.get('mains_voltage'), MAX_VOLTAGE_LEN, '市电电压', required=True)
-        ups_voltage = _clean_str(raw_data.get('ups_voltage'), MAX_VOLTAGE_LEN, 'UPS电压', required=True)
         weather = _clean_str(raw_data.get('weather'), MAX_WEATHER_LEN, '天气情况', required=True)
         duty_record = _clean_str(raw_data.get('duty_record'), MAX_DUTY_RECORD_LEN, '值班记录', required=True)
         remark = _clean_optional_str(raw_data.get('remark'), MAX_REMARK_LEN, '备注')
@@ -142,8 +137,6 @@ def validate_payload(raw_data, *, is_create=True):
 
     form = {
         'duty_date': duty_date,
-        'mains_voltage': mains_voltage,
-        'ups_voltage': ups_voltage,
         'weather': weather,
         'duty_record': duty_record,
         'remark': remark,
@@ -181,8 +174,6 @@ def build_business_snapshot(record):
         'duty_date': record.duty_date.strftime('%Y-%m-%d'),
         'duty_person_id': record.duty_person_id,
         'duty_person_name': record.duty_person_name,
-        'mains_voltage': record.mains_voltage or '',
-        'ups_voltage': record.ups_voltage or '',
         'weather': record.weather or '',
         'duty_record_sha256': _sha256_text(record.duty_record),
         'duty_record_length': len(record.duty_record or ''),
@@ -213,8 +204,6 @@ def serialize_department_duty_log(record, user):
         'duty_date': _format_date(record.duty_date),
         'duty_person_id': record.duty_person_id,
         'duty_person_name': record.duty_person_name,
-        'mains_voltage': record.mains_voltage or '',
-        'ups_voltage': record.ups_voltage or '',
         'weather': record.weather or '',
         'duty_record': record.duty_record or '',
         'remark': record.remark or '',
@@ -232,9 +221,6 @@ def serialize_department_duty_log(record, user):
         'created_by_id': record.created_by_id,
         'updated_at': record.updated_at or '',
         'updated_by_id': record.updated_by_id,
-        'voided_at': record.voided_at or '',
-        'voided_by_id': record.voided_by_id,
-        'void_reason': record.void_reason or '',
     }
     data.update(compute_record_capabilities(record, user))
     return data
@@ -248,10 +234,9 @@ def serialize_list_item(record, user):
         'id': record.id,
         'duty_date': _format_date(record.duty_date),
         'duty_person_name': record.duty_person_name,
-        'mains_voltage': record.mains_voltage or '',
-        'ups_voltage': record.ups_voltage or '',
         'weather': record.weather or '',
         'duty_record_summary': summary,
+        'remark': record.remark or '',
         'status': record.status,
         'version': record.version,
         'signature_usage_id': record.signature_usage_id,
@@ -259,8 +244,6 @@ def serialize_list_item(record, user):
         'signed_at': record.signed_at or '',
         'signature_version': record.signature_version,
         'business_snapshot_hash': record.business_snapshot_hash or '',
-        'voided_at': record.voided_at or '',
-        'void_reason': record.void_reason or '',
         'supersedes_id': record.supersedes_id,
     }
     data.update(compute_record_capabilities(record, user))
@@ -275,16 +258,15 @@ def compute_record_capabilities(record, user):
     is_owner = record.duty_person_id == getattr(user, 'id', None)
     is_draft = record.status == STATUS_DRAFT
     is_signed = record.status == STATUS_SIGNED
-    is_void = record.status == STATUS_VOID
 
     return {
         'can_edit': bool(is_draft and is_owner and user.has_perms(['department_duty_log.department_duty_log.edit'])),
         'can_delete': bool(is_draft and is_owner and user.has_perms(['department_duty_log.department_duty_log.del'])),
         'can_sign': bool(is_draft and is_owner and user.has_perms(['department_duty_log.department_duty_log.sign'])),
-        'can_void': bool(is_signed and user.has_perms(['department_duty_log.department_duty_log.void'])),
-        # 已签/已作废记录可被导出；草稿永不进入导出
+        'can_return': bool(is_signed and user.has_perms(['department_duty_log.department_duty_log.return'])),
+        # 已签记录可被导出；草稿永不进入导出
         'can_export': bool(
-            (is_signed or is_void)
+            is_signed
             and user.has_perms(['department_duty_log.department_duty_log.export'])
         ),
     }
@@ -298,14 +280,14 @@ def get_visible_department_duty_logs(user):
     """返回当前用户可见的基础 QuerySet（未删除 + 可见性过滤）。
 
     - 超级管理员：可见全部未删除记录（含他人草稿），仅查看，不授予编辑/删除/签署他人草稿的能力（由 compute_record_capabilities 的 is_owner 限制保证）。
-    - 普通用户：已签/已作废全局可见，草稿仅本人可见。
+    - 普通用户：已签全局可见，草稿仅本人可见。
     不加任何租户条件。
     """
     qs = DepartmentDutyLog.objects.filter(deleted_at__isnull=True)
     if getattr(user, 'is_supper', False):
         return qs
     return qs.filter(
-        Q(status__in=(STATUS_SIGNED, STATUS_VOID)) |
+        Q(status=STATUS_SIGNED) |
         Q(status=STATUS_DRAFT, duty_person_id=user.id)
     )
 
@@ -383,12 +365,12 @@ def _parse_list_filters(query_params):
     duty_person_name = query_params.get('duty_person_name', '').strip()
     if duty_person_name:
         if len(duty_person_name) > MAX_DUTY_PERSON_NAME_LEN:
-            return None, '值班员姓名过长'
+            return None, '值班人员姓名过长'
         filters['duty_person_name'] = duty_person_name
 
     status = query_params.get('status', '').strip()
     if status:
-        if status not in (STATUS_DRAFT, STATUS_SIGNED, STATUS_VOID):
+        if status not in (STATUS_DRAFT, STATUS_SIGNED):
             return None, '状态值不正确'
         filters['status'] = status
 
@@ -444,14 +426,12 @@ def parse_list_params(request):
 # ============================================================
 
 def create_draft(user, form, request=None):
-    """新建草稿。值班员和 created_by 固定为当前用户。"""
+    """新建草稿。值班人员和 created_by 固定为当前用户。"""
     duty_person_name = user.nickname or user.username
     record = DepartmentDutyLog.objects.create(
         duty_date=form['duty_date'],
         duty_person=user,
         duty_person_name=duty_person_name,
-        mains_voltage=form['mains_voltage'],
-        ups_voltage=form['ups_voltage'],
         weather=form['weather'],
         duty_record=form['duty_record'],
         remark=form['remark'],
@@ -472,8 +452,6 @@ def create_draft(user, form, request=None):
                 'record_id': record.id,
                 'duty_date': _format_date(record.duty_date),
                 'duty_person_name': record.duty_person_name,
-                'mains_voltage': record.mains_voltage or '',
-                'ups_voltage': record.ups_voltage or '',
                 'version': record.version,
             },
             is_success=True,
@@ -500,8 +478,6 @@ def update_draft(record_id, user, form, request=None):
     # 收集变更字段
     old_snapshot = {
         'duty_date': _format_date(record.duty_date),
-        'mains_voltage': record.mains_voltage or '',
-        'ups_voltage': record.ups_voltage or '',
         'weather': record.weather or '',
         'duty_record_sha256': _sha256_text(record.duty_record),
         'remark_sha256': _sha256_text(record.remark or ''),
@@ -517,8 +493,6 @@ def update_draft(record_id, user, form, request=None):
         version=form['version'],
     ).update(
         duty_date=form['duty_date'],
-        mains_voltage=form['mains_voltage'],
-        ups_voltage=form['ups_voltage'],
         weather=form['weather'],
         duty_record=form['duty_record'],
         remark=form['remark'],
@@ -534,8 +508,6 @@ def update_draft(record_id, user, form, request=None):
     record = DepartmentDutyLog.objects.get(pk=record_id)
     new_snapshot = {
         'duty_date': _format_date(record.duty_date),
-        'mains_voltage': record.mains_voltage or '',
-        'ups_voltage': record.ups_voltage or '',
         'weather': record.weather or '',
         'duty_record_sha256': _sha256_text(record.duty_record),
         'remark_sha256': _sha256_text(record.remark or ''),
@@ -707,14 +679,12 @@ def sign_draft(record_id, user, client_version, request_id, confirm, request=Non
         return None, str(e)
 
 
-def void_signed_record(record_id, user, reason, request=None):
-    """作废已签记录。原因必填。"""
-    reason = (reason or '').strip()
-    if not reason:
-        return None, '作废原因不能为空'
-    if len(reason) > MAX_VOID_REASON_LEN:
-        return None, '作废原因过长'
+def return_signed_record(record_id, user, request=None):
+    """退回已签记录到草稿状态。
 
+    清除所有签署字段，状态改回 draft，记录退回到值班人员。
+    保留审计日志记录原签署信息以供追溯。
+    """
     try:
         with transaction.atomic():
             record = DepartmentDutyLog.objects.select_for_update().filter(
@@ -723,38 +693,46 @@ def void_signed_record(record_id, user, reason, request=None):
             if not record:
                 return None, '记录不存在'
             if record.status != STATUS_SIGNED:
-                return None, '只能作废已签署记录'
+                return None, '只能退回已签署记录'
 
-            usage_id = record.signature_usage_id
+            # 保存原签署信息用于审计
+            original_signer_id = record.signed_by_id
+            original_signer_name = record.signed_by_name
+            original_signed_at = record.signed_at
+            original_usage_id = record.signature_usage_id
 
             updated = DepartmentDutyLog.objects.filter(
                 pk=record_id,
                 status=STATUS_SIGNED,
                 deleted_at__isnull=True,
             ).update(
-                status=STATUS_VOID,
-                voided_at=timezone.now(),
-                voided_by_id=user.id,
-                void_reason=reason,
+                status=STATUS_DRAFT,
+                signed_by=None,
+                signed_by_name='',
+                signed_at=None,
+                signature_usage_id=None,
+                signature_version=None,
+                signature_sha256='',
+                business_snapshot_hash='',
+                version=F('version') + 1,
             )
 
             if updated == 0:
-                return None, '作废失败：记录状态已变更'
+                return None, '退回失败：记录状态已变更'
 
             # 写 void 证据事件（使用原 Usage tenant 链）
-            if usage_id:
+            if original_usage_id:
                 void_err = signature_services.record_signature_void_event(
-                    usage_id=usage_id,
+                    usage_id=original_usage_id,
                     actor=user,
                     module=MODULE,
                     object_type=OBJECT_TYPE,
                     object_id=str(record.id),
                     scene_code=SCENE_CODE,
-                    reason=reason,
+                    reason='管理员退回',
                     request=request,
                 )
                 if void_err:
-                    # 证据事件失败 → 回滚作废
                     raise _DutyLogError(void_err)
 
             # 业务审计
@@ -764,18 +742,20 @@ def void_signed_record(record_id, user, reason, request=None):
                     action='update',
                     target_type='department_duty_log',
                     target_id=str(record.id),
-                    target_name='作废部门值班日志',
+                    target_name='退回部门值班日志',
                     detail={
                         'record_id': record.id,
-                        'signature_usage_id': usage_id,
-                        'voided_by_id': user.id,
-                        'voided_by_name': user.nickname or user.username,
-                        'void_reason': reason,
+                        'returned_by_id': user.id,
+                        'returned_by_name': user.nickname or user.username,
+                        'original_signer_id': original_signer_id,
+                        'original_signer_name': original_signer_name,
+                        'original_signed_at': str(original_signed_at) if original_signed_at else '',
+                        'original_usage_id': original_usage_id,
                     },
                     is_success=True,
                 )
             except Exception:
-                logger.error('[DepartmentDutyLog] void audit failed', exc_info=True)
+                logger.error('[DepartmentDutyLog] return audit failed', exc_info=True)
 
             record = DepartmentDutyLog.objects.get(pk=record_id)
             return record, None
@@ -783,58 +763,6 @@ def void_signed_record(record_id, user, reason, request=None):
     except _DutyLogError as e:
         return None, str(e)
 
-
-def create_correction_draft(voided_record_id, user, request=None):
-    """基于已作废记录创建更正草稿。
-
-    - 目标必须是未删除 void 记录
-    - 新草稿值班员和 created_by 固定为当前用户
-    - supersedes_id 指向原 void 记录
-    - 复制业务字段，不复制签署/作废/删除/审计/版本字段
-    """
-    voided = DepartmentDutyLog.objects.filter(
-        pk=voided_record_id, deleted_at__isnull=True,
-    ).first()
-    if not voided:
-        return None, '原记录不存在'
-    if voided.status != STATUS_VOID:
-        return None, '只能基于已作废记录创建更正'
-
-    duty_person_name = user.nickname or user.username
-    record = DepartmentDutyLog.objects.create(
-        duty_date=voided.duty_date,
-        duty_person=user,
-        duty_person_name=duty_person_name,
-        mains_voltage=voided.mains_voltage,
-        ups_voltage=voided.ups_voltage,
-        weather=voided.weather,
-        duty_record=voided.duty_record,
-        remark=voided.remark,
-        status=STATUS_DRAFT,
-        version=1,
-        supersedes=voided,
-        created_by=user,
-    )
-
-    # 审计
-    try:
-        record_audit_event(
-            request=request,
-            action='create',
-            target_type='department_duty_log',
-            target_id=str(record.id),
-            target_name='更正部门值班日志',
-            detail={
-                'new_record_id': record.id,
-                'voided_record_id': voided.id,
-                'supersedes_id': voided.id,
-            },
-            is_success=True,
-        )
-    except Exception:
-        logger.error('[DepartmentDutyLog] correction audit failed', exc_info=True)
-
-    return record, None
 
 
 # ============================================================
@@ -865,7 +793,7 @@ def _parse_export_filters(raw_data):
     """解析 PDF 导出请求体筛选参数。
 
     与列表筛选保持一致：start_date / end_date / duty_person_name / keyword。
-    额外接受 include_void 布尔值。
+    额外支持导出筛选。
 
     Returns:
         (filters_dict, error_str)
@@ -889,11 +817,11 @@ def _parse_export_filters(raw_data):
             and filters['end_date'] < filters['start_date']:
         return None, '结束日期不能早于开始日期'
 
-    # 值班员姓名
+    # 值班人员姓名
     duty_person_name = str(raw_data.get('duty_person_name', '')).strip()
     if duty_person_name:
         if len(duty_person_name) > MAX_DUTY_PERSON_NAME_LEN:
-            return None, '值班员姓名过长'
+            return None, '值班人员姓名过长'
         filters['duty_person_name'] = duty_person_name
 
     # 关键字
@@ -903,34 +831,18 @@ def _parse_export_filters(raw_data):
             return None, '关键字过长'
         filters['keyword'] = keyword
 
-    # include_void
-    include_void = raw_data.get('include_void', False)
-    if not isinstance(include_void, bool):
-        # 容忍字符串 'true'/'false'
-        if isinstance(include_void, str):
-            include_void = include_void.strip().lower() in ('true', '1', 'yes')
-        else:
-            include_void = bool(include_void)
-    filters['include_void'] = include_void
-
     return filters, None
 
 
 def _get_export_queryset(user, filters):
     """构建 PDF 导出 QuerySet。
 
-    只导出 view 可见的已签/已作废记录，永不导出草稿。
-    默认只导出 signed，include_void=True 时追加 void。
+    只导出 view 可见的已签记录，永不导出草稿。
     """
-    include_void = filters.get('include_void', False)
-
     qs = DepartmentDutyLog.objects.filter(deleted_at__isnull=True)
 
     # 状态过滤：草稿永不导出
-    if include_void:
-        qs = qs.filter(status__in=(STATUS_SIGNED, STATUS_VOID))
-    else:
-        qs = qs.filter(status=STATUS_SIGNED)
+    qs = qs.filter(status=STATUS_SIGNED)
 
     # 日期范围
     start_date = filters.get('start_date')
@@ -940,7 +852,7 @@ def _get_export_queryset(user, filters):
     if end_date:
         qs = qs.filter(duty_date__lte=end_date)
 
-    # 值班员姓名（跨租户可见，无需额外过滤）
+    # 值班人员姓名（跨租户可见，无需额外过滤）
     duty_person_name = filters.get('duty_person_name')
     if duty_person_name:
         qs = qs.filter(duty_person_name__icontains=duty_person_name)
@@ -950,7 +862,8 @@ def _get_export_queryset(user, filters):
     if keyword:
         qs = qs.filter(Q(duty_record__icontains=keyword) | Q(remark__icontains=keyword))
 
-    return qs
+    # PDF 导出按日期从早到晚排列（覆盖模型默认的倒序）
+    return qs.order_by('duty_date', 'id')
 
 
 def _build_filters_text(filters):
@@ -965,23 +878,19 @@ def _build_filters_text(filters):
     elif end_date:
         parts.append(f'至{end_date}')
     if filters.get('duty_person_name'):
-        parts.append(f'值班员={filters["duty_person_name"]}')
+        parts.append(f'值班人员={filters["duty_person_name"]}')
     if filters.get('keyword'):
         parts.append(f'关键字={filters["keyword"]}')
-    if filters.get('include_void'):
-        parts.append('含已作废')
     return '，'.join(parts) if parts else '全部已签'
 
 
 def _serialize_for_pdf(record):
-    """序列化为 PDF 渲染所需的 dict（含完整长文本和签署/作废字段）。"""
+    """序列化为 PDF 渲染所需的 dict（含完整长文本和签署字段）。"""
     return {
         'id': record.id,
         'duty_date': _format_date(record.duty_date),
         'duty_person_name': record.duty_person_name or '',
         'department_name': '',
-        'mains_voltage': record.mains_voltage or '',
-        'ups_voltage': record.ups_voltage or '',
         'weather': record.weather or '',
         'duty_record': record.duty_record or '',
         'remark': record.remark or '',
@@ -992,9 +901,6 @@ def _serialize_for_pdf(record):
         'signature_version': record.signature_version,
         'signature_sha256': record.signature_sha256 or '',
         'business_snapshot_hash': record.business_snapshot_hash or '',
-        'voided_at': record.voided_at or '',
-        'voided_by_name': _user_display_name(record.voided_by_id) if record.voided_by_id else '',
-        'void_reason': record.void_reason or '',
     }
 
 
@@ -1009,29 +915,18 @@ def _user_display_name(user_id):
     return u.nickname or u.username
 
 
-def _preload_voided_by_names(records):
-    """批量预加载 voided_by 姓名映射，避免 N+1 查询。"""
-    voided_by_ids = {r.voided_by_id for r in records if r.voided_by_id}
-    if not voided_by_ids:
-        return {}
-    from apps.account.models import User
-    users = User.objects.filter(pk__in=voided_by_ids).only('id', 'nickname', 'username')
-    return {u.id: (u.nickname or u.username) for u in users}
-
-
 def export_pdf(user, raw_data, request=None):
     """生成部门值班日志 PDF。
 
     流程：
     1. 解析筛选参数；
-    2. 构建 QuerySet（已签/已作废，不含草稿）；
+    2. 构建 QuerySet（已签，不含草稿）；
     3. 检查导出上限（500）；
-    4. 批量预加载作废人姓名；
-    5. 逐条通过 signature_usage_id 调用签名公共服务读取固定版本签名图片
+    4. 逐条通过 signature_usage_id 调用签名公共服务读取固定版本签名图片
        （完整校验 SHA256 + 业务坐标匹配），任一校验失败则拒绝生成不完整 PDF；
-    6. 调用 pdf_export 生成 PDF；
-    7. 计算 PDF SHA256；
-    8. 写审计（含 filters / record_ids / record_count / include_void / pdf_sha256）。
+    5. 调用 pdf_export 生成 PDF；
+    6. 计算 PDF SHA256；
+    7. 写审计（含 filters / record_ids / record_count / pdf_sha256）。
 
     Returns:
         (pdf_bytes, filename, error_str)
@@ -1054,11 +949,8 @@ def export_pdf(user, raw_data, request=None):
     if total > PDF_EXPORT_LIMIT:
         return None, None, f'导出数据超过 {PDF_EXPORT_LIMIT} 条，请缩小筛选范围后重试'
 
-    # 拉取全部记录（已按 Meta.ordering = ('-duty_date', '-id') 排序）
-    records = list(qs.select_related('duty_person', 'signed_by').order_by('-duty_date', '-id'))
-
-    # 批量预加载作废人姓名
-    voided_by_names = _preload_voided_by_names(records)
+    # 拉取全部记录（按 duty_date 升序排列：从早到晚）
+    records = list(qs.select_related('duty_person', 'signed_by').order_by('duty_date', 'id'))
 
     # 序列化 + 收集每条记录对应的签名图片（已校验 SHA256）
     serialized = []
@@ -1066,12 +958,9 @@ def export_pdf(user, raw_data, request=None):
 
     for record in records:
         item = _serialize_for_pdf(record)
-        # 补充预加载的 voided_by_name
-        if record.voided_by_id:
-            item['voided_by_name'] = voided_by_names.get(record.voided_by_id, f'用户#{record.voided_by_id}')
         serialized.append(item)
 
-        # 已签/已作废记录必须有 signature_usage_id
+        # 已签记录必须有 signature_usage_id
         if not record.signature_usage_id:
             return None, None, f'记录 {record.id} 缺少签署记录 ID，无法生成完整 PDF'
 
@@ -1104,7 +993,6 @@ def export_pdf(user, raw_data, request=None):
             serialized,
             exporter_name=exporter_name,
             filters_text=filters_text,
-            include_void=filters.get('include_void', False),
             signature_images=signature_images,
         )
         pdf_bytes = pdf_output.getvalue()
@@ -1135,11 +1023,9 @@ def export_pdf(user, raw_data, request=None):
                     'end_date': _format_date(filters.get('end_date')) if filters.get('end_date') else '',
                     'duty_person_name': filters.get('duty_person_name', ''),
                     'keyword': filters.get('keyword', ''),
-                    'include_void': filters.get('include_void', False),
                 },
                 'record_ids': [r.id for r in records],
                 'record_count': len(records),
-                'include_void': filters.get('include_void', False),
                 'pdf_sha256': pdf_sha256,
             },
             is_success=True,

@@ -31,16 +31,16 @@ export default [{
     ]
   }, {
     key: 'party_building_document',
-    label: '党建文档',
+    label: '党建工作',
     perms: [
-      {key: 'view', label: '查看党建文档'},
-      {key: 'upload', label: '上传党建文档文件'},
-      {key: 'download', label: '下载党建文档文件'},
-      {key: 'delete', label: '删除党建文档文件'},
-      {key: 'create_folder', label: '新建党建文档目录'},
-      {key: 'copy', label: '复制党建文档文件'},
-      {key: 'move', label: '移动党建文档文件'},
-      {key: 'rename', label: '重命名党建文档文件'},
+      {key: 'view', label: '查看党建工作'},
+      {key: 'upload', label: '上传党建工作文件'},
+      {key: 'download', label: '下载党建工作文件'},
+      {key: 'delete', label: '删除党建工作文件'},
+      {key: 'create_folder', label: '新建党建工作目录'},
+      {key: 'copy', label: '复制党建工作文件'},
+      {key: 'move', label: '移动党建工作文件'},
+      {key: 'rename', label: '重命名党建工作文件'},
     ]
   }, {
     key: 'regulation',
@@ -163,7 +163,7 @@ export default [{
       {key: 'edit', label: '编辑本人值班草稿'},
       {key: 'del', label: '删除本人值班草稿'},
       {key: 'sign', label: '签署本人值班草稿'},
-      {key: 'void', label: '作废已签部门值班日志'},
+      {key: 'return', label: '退回已签部门值班日志'},
       {key: 'export', label: '导出部门值班日志 PDF'},
     ]
   }]

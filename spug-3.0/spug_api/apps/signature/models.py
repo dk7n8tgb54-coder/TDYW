@@ -52,7 +52,7 @@ class AccountSignature(models.Model, ModelMixin):
 
     # ---- 停用 快照 ----
     disabled_by_id = models.BigIntegerField(null=True, blank=True, help_text='停用操作人 ID')
-    disabled_by_name = models.CharField(max_length=100, null=True, blank=True, help_text='停用操作人姓名快照')
+    disabled_by_name = models.CharField(max_length=100, blank=True, help_text='停用操作人姓名快照', default='')
     disabled_at = models.DateTimeField(null=True, blank=True, help_text='停用时间')
 
     # ---- 备注 ----
@@ -119,7 +119,7 @@ class SignatureUsage(models.Model, ModelMixin):
     signature_sha256 = models.CharField(max_length=64, default='', help_text='签名文件 SHA256 快照')
 
     # ---- 业务数据摘要 ----
-    business_snapshot = models.TextField(null=True, blank=True, help_text='业务快照 JSON 字符串（最小必要摘要）')
+    business_snapshot = models.TextField(blank=True, help_text='业务快照 JSON 字符串（最小必要摘要）', default='')
     business_snapshot_hash = models.CharField(max_length=64, default='', help_text='业务快照规范化 SHA256')
 
     # ---- 签署时间和来源 ----

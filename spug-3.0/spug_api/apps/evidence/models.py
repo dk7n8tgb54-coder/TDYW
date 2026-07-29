@@ -63,13 +63,13 @@ class EvidenceEvent(models.Model, TenantModelMixin):
     actor_name = models.CharField(max_length=100, default='', help_text='姓名快照')
     actor_department = models.CharField(max_length=100, default='', help_text='部门快照')
     actor_ip = models.CharField(max_length=50, default='', help_text='操作 IP')
-    actor_device = models.CharField(max_length=255, default='', null=True, blank=True, help_text='设备信息，可为空')
+    actor_device = models.CharField(max_length=255, default='', blank=True, help_text='设备信息，可为空')
 
     # ---- 业务对象快照 ----
-    object_snapshot = models.TextField(null=True, blank=True, help_text='业务对象快照 JSON')
-    before_snapshot = models.TextField(null=True, blank=True, help_text='修改前快照 JSON，可为空')
-    after_snapshot = models.TextField(null=True, blank=True, help_text='修改后快照 JSON，可为空')
-    attachment_hashes = models.TextField(null=True, blank=True, help_text='附件哈希清单 JSON')
+    object_snapshot = models.TextField(blank=True, help_text='业务对象快照 JSON', default='')
+    before_snapshot = models.TextField(blank=True, help_text='修改前快照 JSON，可为空', default='')
+    after_snapshot = models.TextField(blank=True, help_text='修改后快照 JSON，可为空', default='')
+    attachment_hashes = models.TextField(blank=True, help_text='附件哈希清单 JSON', default='')
     remark = models.CharField(max_length=500, default='', help_text='说明')
 
     # ---- 哈希链 ----

@@ -16,7 +16,6 @@ class RecordUpdateView(View):
             Argument('title', required=False),
             Argument('system', required=False),
             Argument('upgrade_type', required=False),
-            Argument('version', required=False),
             Argument('upgrade_time', required=False),
             Argument('status', required=False),
             Argument('owner', required=False),

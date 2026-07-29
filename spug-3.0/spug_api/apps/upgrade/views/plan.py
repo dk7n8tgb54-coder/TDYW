@@ -37,11 +37,6 @@ class PlanCreateView(View):
             Argument('description', required=False, default=''),
             Argument('system', required=False, default=''),
             Argument('upgrade_type', required=False, default=''),
-            Argument('version', required=False, default=''),
-            Argument('owner', required=False, default=''),
-            Argument('status', required=False, default='处理中'),
-            Argument('detail_content', required=False, default=''),
-            Argument('is_default', type=bool, required=False, default=False),
             Argument('steps', type=list, required=False, default=[]),
         ).parse(request.body)
 
@@ -65,11 +60,6 @@ class PlanUpdateView(View):
             Argument('description', required=False),
             Argument('system', required=False),
             Argument('upgrade_type', required=False),
-            Argument('version', required=False),
-            Argument('owner', required=False),
-            Argument('status', required=False),
-            Argument('detail_content', required=False),
-            Argument('is_default', type=bool, required=False),
             Argument('steps', type=list, required=False),
         ).parse(request.body)
 
@@ -103,20 +93,22 @@ class PlanApplyView(View):
     def post(self, request, pk):
         form, error = JsonParser(
             Argument('upgrade_id', type=int, help='请指定升级表单ID'),
+            Argument('replace', type=bool, default=False),
         ).parse(request.body)
 
         if error:
             return json_response(error=error)
 
-        created_count, error = PlanService.apply_to_record(
+        result, error = PlanService.apply_to_record(
             plan_id=pk,
             upgrade_id=form.upgrade_id,
             user=request.user,
+            replace=form.replace,
         )
         if error:
             return json_response(error=error)
 
-        return json_response({'created_count': created_count})
+        return json_response(result)
 
 
 class PlanReorderStepsView(View):

@@ -659,7 +659,7 @@ class DocumentTransfer(models.Model):
     file_name = models.CharField(max_length=255, verbose_name='文件名')
     file_size = models.BigIntegerField(default=0, validators=[MinValueValidator(0)], verbose_name='文件大小(字节)')
     file_path = models.CharField(max_length=500, verbose_name='文件存储路径')
-    file_hash = models.CharField(max_length=100, blank=True, null=True, verbose_name='文件哈希(MD5)', db_index=True)
+    file_hash = models.CharField(max_length=100, blank=True, default='', verbose_name='文件哈希(MD5)', db_index=True)
     # 目标文件夹（上传时使用）
     folder_id = models.IntegerField(null=True, blank=True, verbose_name='目标文件夹ID')
     is_public = models.BooleanField(default=False, verbose_name='是否公共空间')
@@ -685,7 +685,7 @@ class DocumentTransfer(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True, verbose_name='完成时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
     # 错误信息
-    error_message = models.TextField(blank=True, null=True, verbose_name='错误信息')
+    error_message = models.TextField(blank=True, default='', verbose_name='错误信息')
     # Celery任务ID（用于追踪分片合并任务）
     celery_task_id = models.CharField(
         max_length=100,

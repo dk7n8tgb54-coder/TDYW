@@ -372,10 +372,13 @@ class AttachmentService:
         )
 
         # 构造 kkFileView 回调下载 URL（fullfilename 拼在 URL 上，一起 base64 编码）
+        # fullfilename 用物理文件名（file_path basename，含 UUID）而非用户上传名，
+        # 确保同名文件重传后 kkFileView 缓存键随之变化，避免命中旧缓存。
+        physical_name = os.path.basename(att.file_path) if att.file_path else att.file_name
         file_url = (
             f'{kkfileview_server_url}{preview_file_api_path}'
             f'?preview_token={preview_token}'
-            f'&fullfilename={quote(att.file_name)}'
+            f'&fullfilename={quote(physical_name)}'
         )
         encoded_url = base64.b64encode(file_url.encode('utf-8')).decode('utf-8')
         preview_url = f'{kkfileview_api_url}/onlinePreview?url={encoded_url}'

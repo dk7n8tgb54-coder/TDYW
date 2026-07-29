@@ -23,7 +23,7 @@ class User(models.Model, ModelMixin):
     token_expired = models.IntegerField(null=True)
     last_login = models.DateTimeField(null=True, blank=True)
     last_ip = models.CharField(max_length=50)
-    wx_token = models.CharField(max_length=50, null=True)
+    wx_token = models.CharField(max_length=50, default='', blank=True)
     tenant_id = models.CharField(max_length=50, default='admin', db_index=True)
     roles = models.ManyToManyField('Role', db_table='user_role_rel')
 
@@ -134,15 +134,15 @@ class User(models.Model, ModelMixin):
 
 class Role(models.Model, ModelMixin):
     name = models.CharField(max_length=50)
-    desc = models.CharField(max_length=255, null=True)
-    page_perms = models.TextField(null=True)
-    deploy_perms = models.TextField(null=True)
-    group_perms = models.TextField(null=True)
+    desc = models.CharField(max_length=255, default='')
+    page_perms = models.TextField(default='')
+    deploy_perms = models.TextField(default='')
+    group_perms = models.TextField(default='')
     is_global_admin = models.BooleanField(default=False, help_text='全局管理员角色')
     # 角色归属与系统标识（用户角色委派权限边界）
     # tenant_id 为 null 表示平台级角色，仅超级管理员可管理和分配
     # is_system=True 表示系统内置角色，普通管理员不可编辑/删除/分配
-    tenant_id = models.CharField(max_length=50, null=True, blank=True, db_index=True)
+    tenant_id = models.CharField(max_length=50, blank=True, db_index=True, default='')
     is_system = models.BooleanField(default=False, db_index=True)
     # 权限版本号：每次 page_perms 变更并 save 时自增。
     # User.page_perms 缓存以用户所有角色的 max(perms_version) 作为新鲜度指纹，
@@ -223,11 +223,11 @@ class Role(models.Model, ModelMixin):
 
 
 class History(models.Model, ModelMixin):
-    username = models.CharField(max_length=100, null=True)
+    username = models.CharField(max_length=100, default='')
     type = models.CharField(max_length=20, default='default')
     ip = models.CharField(max_length=50)
-    agent = models.CharField(max_length=255, null=True)
-    message = models.CharField(max_length=255, null=True)
+    agent = models.CharField(max_length=255, default='', blank=True)
+    message = models.CharField(max_length=255, default='')
     is_success = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

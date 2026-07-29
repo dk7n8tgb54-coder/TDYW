@@ -22,6 +22,7 @@ import { Table, Empty } from 'antd';
  * @param {Function} props.onTableChange - 表格变化回调
  * @param {Function} props.onRow - 行事件处理
  * @param {boolean} props.showPagination - 是否显示分页
+ * @param {boolean} props.showSelection - 是否显示选择列（多选模式）
  * @param {boolean} props.isPublic - 是否公共空间
  */
 const FileTable = ({
@@ -35,6 +36,7 @@ const FileTable = ({
   onTableChange,
   onRow,
   showPagination = true,
+  showSelection = true,
   isPublic = false,
 }) => {
   // 安全的选中keys
@@ -100,7 +102,7 @@ const FileTable = ({
       tableLayout="fixed"
       sticky={!isSearching}
       rowClassName={() => interactionDisabled ? 'explorer-row-disabled' : ''}
-      rowSelection={{
+      rowSelection={showSelection ? {
         selectedRowKeys: safeSelectedRowKeys,
         onChange: onSelectChange,
         type: 'checkbox',
@@ -108,7 +110,7 @@ const FileTable = ({
         getCheckboxProps: () => interactionDisabled ? { disabled: true } : {},
         // 【2026-07-17 列宽修复】固定选择列宽度 48px，避免 antd 默认值漂移
         columnWidth: 48,
-      }}
+      } : null}
       onRow={onRow}
       pagination={tablePagination}
       onChange={onTableChange}

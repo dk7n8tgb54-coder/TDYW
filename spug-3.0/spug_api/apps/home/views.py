@@ -14,24 +14,37 @@ logger = logging.getLogger(__name__)
 
 @auth('dashboard.dashboard.view')
 def get_statistic(request):
-    from datetime import date, datetime
+    from datetime import timedelta
     from django.db.models import Count
     from django.utils import timezone
-    today = date.today().strftime('%Y-%m-%d')
-    today_date = timezone.now().date()
-    this_month = date.today().strftime('%Y-%m')
+    from django.core.cache import cache
+
+    # Redis 缓存：60 秒，按租户分键，避免并发用户重复查询
+    tenant_id = getattr(request.user, 'tenant_id', 'default')
+    cache_key = f'dashboard:{tenant_id}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return json_response(cached)
+
+    # 用 datetime 范围替代 __startswith/__date，确保走 B-tree 索引
+    now = timezone.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    next_month_start = (month_start + timedelta(days=32)).replace(day=1)
     data = {}
 
     # 1. 运行日志统计
     try:
         from apps.runlog.models import RunLog
         runlog_qs = apply_tenant_filter(RunLog.objects, request.user)
-        today_events = runlog_qs.filter(created_at__startswith=today)
+        today_events = runlog_qs.filter(created_at__gte=today_start, created_at__lt=today_end)
         data['runlog'] = {
             'today_total': today_events.count(),
             'today_resolved': runlog_qs.filter(
                 status='resolved',
-                updated_at__startswith=today
+                updated_at__gte=today_start,
+                updated_at__lt=today_end,
             ).count(),
             'in_progress_total': runlog_qs.filter(status='in_progress').count(),
             'severity_stats': list(
@@ -53,7 +66,7 @@ def get_statistic(request):
     try:
         from apps.fault.models import FaultRecord
         fault_qs = apply_tenant_filter(FaultRecord.objects, request.user)
-        today_faults = fault_qs.filter(fault_date__startswith=today)
+        today_faults = fault_qs.filter(fault_date__gte=today_start, fault_date__lt=today_end)
         data['fault'] = {
             'today_total': today_faults.count(),
             'level_stats': list(
@@ -73,7 +86,10 @@ def get_statistic(request):
         upgrade_statuses = list(
             upgrade_qs.values('status').annotate(count=Count('id'))
         )
-        monthly_upgrades = upgrade_qs.filter(upgrade_time__startswith=this_month)
+        monthly_upgrades = upgrade_qs.filter(
+            upgrade_time__gte=month_start,
+            upgrade_time__lt=next_month_start,
+        )
         data['upgrade'] = {
             'total': upgrade_qs.count(),
             'status_stats': upgrade_statuses,
@@ -92,7 +108,10 @@ def get_statistic(request):
     try:
         from apps.interference.models import Interference
         interference_qs = apply_tenant_filter(Interference.objects, request.user)
-        today_interference = interference_qs.filter(datetime__startswith=today)
+        today_interference = interference_qs.filter(
+            datetime__gte=today_start,
+            datetime__lt=today_end,
+        )
         data['interference'] = {
             'today_total': today_interference.count(),
             'type_stats': list(
@@ -111,14 +130,20 @@ def get_statistic(request):
         from apps.document.models import DocumentFilePrivate, DocumentFilePublic
         private_files = apply_tenant_filter(DocumentFilePrivate.objects, request.user)
         public_files = DocumentFilePublic.objects.all()
+        today_private = private_files.filter(
+            created_at__gte=today_start, created_at__lt=today_end
+        ).count()
+        today_public = public_files.filter(
+            created_at__gte=today_start, created_at__lt=today_end
+        ).count()
         data['document'] = {
-            'today_private': private_files.filter(created_at__date=today_date).count(),
-            'today_public': public_files.filter(created_at__date=today_date).count(),
-            'today_total': private_files.filter(created_at__date=today_date).count()
-                          + public_files.filter(created_at__date=today_date).count(),
+            'today_private': today_private,
+            'today_public': today_public,
+            'today_total': today_private + today_public,
         }
     except Exception:
         logger.exception('[dashboard] document 统计失败')
         data['document'] = {}
 
+    cache.set(cache_key, data, 60)
     return json_response(data)

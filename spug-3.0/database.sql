@@ -1657,8 +1657,6 @@ CREATE TABLE `tdyw_department_duty_log` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `duty_date` date NOT NULL,
   `duty_person_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `mains_voltage` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `ups_voltage` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `weather` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `duty_record` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
   `remark` longtext COLLATE utf8mb4_unicode_ci DEFAULT NULL,

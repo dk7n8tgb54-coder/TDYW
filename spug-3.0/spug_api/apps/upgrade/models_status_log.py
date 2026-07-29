@@ -29,6 +29,7 @@ ACTION_PAUSE = 'pause'                # 暂停
 ACTION_RESUME = 'resume'              # 继续
 ACTION_OBSERVE = 'observe'            # 观察完成
 ACTION_COMPLETE = 'complete'          # 升级完成
+ACTION_PHASE_DONE = 'phase_done'      # 阶段完成（由步骤完成自动触发，非人工记录）
 
 ACTION_CHOICES = [
     (ACTION_START, '升级启动'),
@@ -43,6 +44,20 @@ ACTION_CHOICES = [
     (ACTION_RESUME, '继续'),
     (ACTION_OBSERVE, '观察完成'),
     (ACTION_COMPLETE, '升级完成'),
+    (ACTION_PHASE_DONE, '阶段完成'),
+]
+
+# 阶段完成记录的结果状态（仅 action=phase_done 时使用）
+# - done: 正常完成
+# - failed: 被后续失败/回退事件定性，保留作历史（失败重做场景）
+# - revoked: 误操作撤销（步骤改回待执行，且无失败事件介入）
+OUTCOME_DONE = 'done'
+OUTCOME_FAILED = 'failed'
+OUTCOME_REVOKED = 'revoked'
+OUTCOME_CHOICES = [
+    (OUTCOME_DONE, '正常完成'),
+    (OUTCOME_FAILED, '已失败'),
+    (OUTCOME_REVOKED, '已撤销'),
 ]
 
 # 动作 → 图标颜色（前端时间线展示用）
@@ -59,6 +74,7 @@ ACTION_COLOR_MAP = {
     ACTION_RESUME: 'blue',
     ACTION_OBSERVE: 'purple',
     ACTION_COMPLETE: 'green',
+    ACTION_PHASE_DONE: 'green',
 }
 
 # 会联动主表 status 的动作
@@ -86,9 +102,16 @@ class UpgradeStatusLog(models.Model, ModelMixin):
     operator_name = models.CharField(max_length=100, default='', blank=True, verbose_name='操作人姓名')
     remark = models.TextField(default='', blank=True, verbose_name='备注')
 
-    # 回退目标动作（仅 action=rollback 时使用，记录回退到哪个主线节点）
+    # 回退目标阶段名（仅 action=rollback 时使用，阶段名由步骤自定义）
     target_action = models.CharField(
-        max_length=20, default='', blank=True, verbose_name='回退目标动作'
+        max_length=50, default='', blank=True, verbose_name='回退目标阶段'
+    )
+    # 关联阶段名（仅 action=phase_done 时使用，记录哪个阶段完成）
+    phase = models.CharField(max_length=50, default='', blank=True, verbose_name='关联阶段')
+    # 阶段完成结果（仅 phase_done 有意义）：done/failed/revoked
+    outcome = models.CharField(
+        max_length=20, default=OUTCOME_DONE, choices=OUTCOME_CHOICES,
+        verbose_name='阶段完成结果'
     )
     # 同一 upgrade_id 内递增的稳定序号（用于排序，不依赖 created_at 字符串比较）
     event_seq = models.IntegerField(default=0, verbose_name='事件序号')

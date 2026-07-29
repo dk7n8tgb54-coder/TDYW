@@ -29,6 +29,7 @@ class Store {
   @observable record = {};
   @observable formVisible = false;
   @observable createVisible = false;
+  @observable presetPlanId = null;
 
   // === 视图模式 ===
   @observable viewMode = 'list'; // 'list' | 'calendar'
@@ -180,12 +181,14 @@ class Store {
   };
 
   // === 新建升级弹窗 ===
-  showCreateForm = () => {
+  showCreateForm = (planId = null) => {
+    this.presetPlanId = planId;
     this.createVisible = true;
   };
 
   hideCreateForm = () => {
     this.createVisible = false;
+    this.presetPlanId = null;
   };
 
   // === 统计接口 ===
@@ -254,8 +257,8 @@ class Store {
   };
 
   // 应用方案预设步骤到升级记录（实例化为记录步骤）
-  applyPlan = (planId, upgradeId) => {
-    return http.post(`/api/upgrade/plans/${planId}/apply/`, { upgrade_id: upgradeId });
+  applyPlan = (planId, upgradeId, replace = false) => {
+    return http.post(`/api/upgrade/plans/${planId}/apply/`, { upgrade_id: upgradeId, replace });
   };
 
   getExportParams = () => {

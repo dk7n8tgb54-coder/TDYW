@@ -37,12 +37,12 @@ function DepartmentDutyLogIndex() {
             style={{width: '100%'}}
           />
         </SearchForm.Item>
-        <SearchForm.Item span={5} title="值班员">
+        <SearchForm.Item span={5} title="值班人员">
           <Input
             allowClear
             value={store.f_duty_person_name}
             onChange={e => store.f_duty_person_name = e.target.value}
-            placeholder="值班员姓名"
+            placeholder="值班人员姓名"
             onPressEnter={() => {store.pageNum = 1; store.fetchRecords();}}
           />
         </SearchForm.Item>
@@ -63,7 +63,7 @@ function DepartmentDutyLogIndex() {
             allowClear
             value={store.f_keyword}
             onChange={e => store.f_keyword = e.target.value}
-            placeholder="值班记录/备注"
+            placeholder="值班记录/上级工作要求"
             onPressEnter={() => {store.pageNum = 1; store.fetchRecords();}}
           />
         </SearchForm.Item>

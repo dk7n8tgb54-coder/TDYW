@@ -46,7 +46,7 @@ def _serialize_snapshot(value):
     - dict/list → DjangoJSONEncoder 规范序列化（支持日期、时间和 Decimal）
     """
     if value is None:
-        return None
+        return ''
     if isinstance(value, str):
         return value
     return json.dumps(

@@ -3,7 +3,7 @@
 # Released under the AGPL-3.0 License.
 """部门值班日志 - PDF 导出
 
-使用 ReportLab 生成包含值班记录、签署信息、固定版本签名图片和作废信息的 PDF。
+使用 ReportLab 生成包含值班记录、签署信息、固定版本签名图片的 PDF。
 仅用于对系统签署证据的可读归档输出，不是法定可靠电子签名凭证。
 
 设计原则（用户反馈 2026-07-19）：
@@ -53,6 +53,15 @@ def _title_style():
     )
 
 
+def _page_title_style():
+    """每页顶部的文档标题样式。"""
+    return ParagraphStyle(
+        'PageTitle', fontName=FONT_NAME, fontSize=16,
+        alignment=1, spaceAfter=10, spaceBefore=0,
+        textColor=THEME_BLACK, leading=24,
+    )
+
+
 def _subtitle_style():
     return ParagraphStyle(
         'DocSubtitle', fontName=FONT_NAME, fontSize=10,
@@ -69,11 +78,11 @@ def _section_title_style():
     )
 
 
-def _cell_style(alignment=0, font_size=9):
+def _cell_style(alignment=0, font_size=12):
     return ParagraphStyle(
         f'Cell_{alignment}_{font_size}',
         fontName=FONT_NAME, fontSize=font_size,
-        alignment=alignment, leading=14,
+        alignment=alignment, leading=18,
         wordWrap='CJK',
         textColor=THEME_DARK,
     )
@@ -81,8 +90,16 @@ def _cell_style(alignment=0, font_size=9):
 
 def _label_cell_style():
     return ParagraphStyle(
-        'LabelCell', fontName=FONT_NAME, fontSize=9,
-        alignment=2, leading=14, wordWrap='CJK',
+        'LabelCell', fontName=FONT_NAME, fontSize=12,
+        alignment=2, leading=18, wordWrap='CJK',
+        textColor=THEME_GRAY,
+    )
+
+
+def _left_label_style():
+    return ParagraphStyle(
+        'LeftLabel', fontName=FONT_NAME, fontSize=12,
+        alignment=0, leading=18, wordWrap='CJK',
         textColor=THEME_GRAY,
     )
 
@@ -97,22 +114,12 @@ def _empty_style():
 
 def _content_style():
     return ParagraphStyle(
-        'Content', fontName=FONT_NAME, fontSize=10,
+        'Content', fontName=FONT_NAME, fontSize=12,
         alignment=0, leading=18,
         wordWrap='CJK',
         textColor=THEME_DARK,
         spaceBefore=4,
         spaceAfter=4,
-    )
-
-
-def _void_style():
-    """作废信息样式：黑色加粗，不加彩色"""
-    return ParagraphStyle(
-        'VoidInfo', fontName=FONT_NAME, fontSize=10,
-        alignment=0, leading=16,
-        wordWrap='CJK',
-        textColor=THEME_BLACK,
     )
 
 
@@ -194,70 +201,40 @@ def _build_record_block(record, signature_image, index):
     每条记录独占一整页（由调用方在 block 之间插入 PageBreak 实现）。
 
     Args:
-        record: dict，由 services 层序列化的记录（含签署信息、作废信息）
+        record: dict，由 services 层序列化的记录（含签署信息）
         signature_image: reportlab.platypus.Image 或 None（已校验 SHA256 的固定版本签名）
-        index: 序号（从 1 开始）
+        index: 序号（从 1 开始，预留）
     """
-    is_void = record.get('status') == 'void'
     is_signed = record.get('status') == 'signed'
 
-    # 卡片头部：序号 + 值班员 + 日期 + 状态文字
-    status_text = '已作废' if is_void else ('已签署' if is_signed else '草稿')
-    header_left = Paragraph(
-        f'<b>记录 {index}</b>　'
-        f'【{_escape(record.get("duty_person_name"))}】'
-        f'　{_escape(record.get("duty_date"))}',
-        ParagraphStyle(
-            'RecordHeader', fontName=FONT_NAME, fontSize=11,
-            alignment=0, leading=18, textColor=THEME_DARK,
-        ),
-    )
-    header_right = Paragraph(
-        f'<b>{_escape(status_text)}</b>',
-        ParagraphStyle(
-            'RecordStatus', fontName=FONT_NAME, fontSize=10,
-            alignment=2, leading=18, textColor=THEME_BLACK,
-        ),
-    )
+    elements = []
 
-    header_table = Table(
-        [[header_left, header_right]],
-        colWidths=[12 * cm, 5 * cm],
-    )
-    header_table.setStyle(TableStyle([
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 0),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-    ]))
-
-    elements = [header_table]
+    # 页面标题
+    elements.append(Paragraph('部门值班日志', _page_title_style()))
 
     # 详情表格
-    detail_rows = [
-        [_label('值班员'), _value(record.get('duty_person_name')),
-         _label('值班日期'), _value(record.get('duty_date'))],
-        [_label('市电电压'), _value(record.get('mains_voltage')),
-         _label('UPS电压'), _value(record.get('ups_voltage'))],
-        [_label('天气情况'), _value(record.get('weather')),
-         _label('部门'), _value(record.get('department_name'))],
-    ]
-
-    # 签署信息行（仅已签/已作废有）
-    sign_id_row = None
-    if is_signed or is_void:
-        detail_rows.append([
-            _label('签署人'), _value(record.get('signed_by_name')),
-            _label('签名版本'), _value(record.get('signature_version')),
-        ])
-        detail_rows.append([
-            _label('签名SHA256'), _value(_short(record.get('signature_sha256'), 32)),
-            _label('业务快照哈希'), _value(_short(record.get('business_snapshot_hash'), 32)),
-        ])
-        sign_id_row = len(detail_rows)
-        detail_rows.append([
-            _label('签署记录ID'), _value(record.get('signature_usage_id')),
-            '', '',
-        ])
+    if is_signed:
+        sig_cell = _value('-')
+        if signature_image is not None:
+            file_path = getattr(signature_image, 'filename', None)
+            if file_path:
+                small_img = _build_signature_image(file_path, max_width_cm=4.0, max_height_cm=1.5)
+                if small_img:
+                    sig_cell = small_img
+            else:
+                sig_cell = signature_image
+        detail_rows = [
+            [_label('值班人员'), _value(record.get('duty_person_name')),
+             _label('值班日期'), _value(record.get('duty_date'))],
+            [_label('天气情况'), _value(record.get('weather')),
+             _label('电子签名'), sig_cell],
+        ]
+    else:
+        detail_rows = [
+            [_label('值班人员'), _value(record.get('duty_person_name')),
+             _label('值班日期'), _value(record.get('duty_date'))],
+            [_label('天气情况'), _value(record.get('weather')), '', ''],
+        ]
 
     detail_table = Table(detail_rows, colWidths=[3.0 * cm, 5.5 * cm, 3.0 * cm, 5.5 * cm])
     table_style_cmds = [
@@ -270,12 +247,13 @@ def _build_record_block(record, signature_image, index):
         ('BACKGROUND', (2, 0), (2, -1), THEME_BG_GRAY),
         ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
         ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
-        ('GRID', (0, 0), (-1, -1), 0.3, THEME_LIGHT_GRAY),
-        ('FONTNAME', (0, 0), (-1, -1), FONT_NAME),
     ]
-    # 签署记录ID 行的 value 跨第1-3列，避免右侧出现灰色空 label 块
-    if sign_id_row is not None:
-        table_style_cmds.append(('SPAN', (1, sign_id_row), (3, sign_id_row)))
+    # 未签时天气值跨第1-3列
+    if not is_signed:
+        table_style_cmds.append(('SPAN', (1, 1), (3, 1)))
+        table_style_cmds.append(('BACKGROUND', (2, 1), (3, 1), colors.white))
+    table_style_cmds.append(('GRID', (0, 0), (-1, -1), 0.3, THEME_LIGHT_GRAY))
+    table_style_cmds.append(('FONTNAME', (0, 0), (-1, -1), FONT_NAME))
     detail_table.setStyle(TableStyle(table_style_cmds))
     elements.append(Spacer(1, 4))
     elements.append(detail_table)
@@ -284,36 +262,14 @@ def _build_record_block(record, signature_image, index):
     duty_record = record.get('duty_record') or ''
     if duty_record:
         elements.append(Spacer(1, 6))
-        elements.append(Paragraph('值班记录：', _label_cell_style()))
+        elements.append(Paragraph('值班记录：', _left_label_style()))
         elements.append(Paragraph(_escape(duty_record), _content_style()))
 
-    # 备注
+    # 上级工作要求（始终显示标签，左对齐，空值显示"无"）
     remark = record.get('remark') or ''
-    if remark:
-        elements.append(Spacer(1, 4))
-        elements.append(Paragraph('备注：', _label_cell_style()))
-        elements.append(Paragraph(_escape(remark), _content_style()))
-
-    # 作废信息（仅 void 记录，黑色文字标记）
-    if is_void:
-        elements.append(Spacer(1, 6))
-        elements.append(Paragraph(
-            f'<b>【已作废】</b>　作废人：{_escape(record.get("voided_by_name"))}'
-            f'　作废时间：{_escape(record.get("voided_at"))}',
-            _void_style(),
-        ))
-        if record.get('void_reason'):
-            elements.append(Paragraph(
-                f'作废原因：{_escape(record.get("void_reason"))}',
-                _void_style(),
-            ))
-
-    # 签名图片（仅已签/已作废且有固定版本图片）
-    if (is_signed or is_void) and signature_image is not None:
-        elements.append(Spacer(1, 8))
-        elements.append(Paragraph('签名图片（签署时固定版本）：', _label_cell_style()))
-        elements.append(Spacer(1, 2))
-        elements.append(signature_image)
+    elements.append(Spacer(1, 4))
+    elements.append(Paragraph('上级工作要求：', _left_label_style()))
+    elements.append(Paragraph(_escape(remark) if remark else '无', _content_style()))
 
     return elements
 
@@ -321,19 +277,18 @@ def _build_record_block(record, signature_image, index):
 # ============ 主入口：generate_department_duty_log_pdf ============
 
 def generate_department_duty_log_pdf(records, *, exporter_name, filters_text,
-                                      include_void, signature_images):
+                                      signature_images):
     """生成部门值班日志 PDF。
 
     布局：
-    - 第 1 页：标题 + 导出信息 + 汇总表；
-    - 从第 2 页起，每条值班日志独占一整页。
+    - 每页一条值班记录，页面顶部为"部门值班日志"标题；
+    - 详情表格含值班人员、日期、天气、电子签名等信息。
 
     Args:
-        records: list[dict]，每条包含完整业务字段+签署字段+作废字段。
-                 已按 duty_date 倒序排列。
+        records: list[dict]，每条包含完整业务字段+签署字段。
+                 已按 duty_date 升序排列（从早到晚）。
         exporter_name: 导出人姓名
         filters_text: 筛选条件描述（用于副标题）
-        include_void: 是否包含作废记录
         signature_images: dict[int, reportlab.Image 或 None]，
                           key=record id，value=已校验的固定版本签名图片；
                           缺失 key 视为该记录无可用签名图片。
@@ -355,52 +310,20 @@ def generate_department_duty_log_pdf(records, *, exporter_name, filters_text,
 
     story = []
 
-    # ---- 文档标题 ----
-    story.append(Paragraph('部门值班日志', _title_style()))
-
-    # 导出信息
-    from datetime import datetime
-    export_time = datetime.now().strftime('%Y-%m-%d %H:%M')
-    subtitle_parts = [f'导出时间：{export_time}', f'导出人：{exporter_name}']
-    if filters_text:
-        subtitle_parts.append(f'筛选条件：{filters_text}')
-    subtitle_parts.append(f'共 {len(records)} 条记录')
-    if include_void:
-        subtitle_parts.append('含已作废')
-    story.append(Paragraph('　|　'.join(subtitle_parts), _subtitle_style()))
-
-    # 分隔线
-    story.append(HRFlowable(
-        width='100%', thickness=1.0, color=THEME_BLACK,
-        spaceAfter=12, spaceBefore=4,
-    ))
-
     if not records:
         story.append(Paragraph('暂无值班记录', _empty_style()))
     else:
         # ---- 各条值班情况详情：每条独占一整页 ----
-        # 每条记录前都插入 PageBreak，让记录直接从新页顶部开始，
-        # 不附加"值班记录汇总"总标题（用户要求去掉汇总表）。
         for idx, record in enumerate(records):
             sig_img = signature_images.get(record.get('id'))
             block_elements = _build_record_block(record, sig_img, idx + 1)
 
-            # 每条记录前都插入 PageBreak，确保从新页顶部开始独占一整页
-            story.append(PageBreak())
+            # 第一条记录前不加 PageBreak（首页已删除），后续记录前加 PageBreak
+            if idx > 0:
+                story.append(PageBreak())
 
             for elem in block_elements:
                 story.append(elem)
-
-    # ---- 页脚（免责声明） ----
-    story.append(Spacer(1, 20))
-    story.append(HRFlowable(
-        width='100%', thickness=0.5, color=THEME_LIGHT_GRAY,
-        spaceAfter=6, spaceBefore=6,
-    ))
-    story.append(Paragraph(
-        '本报告由系统自动生成，签名图片为签署时固定版本的归档输出，仅供查阅留存，不代表法定可靠电子签名凭证。',
-        _footer_style(),
-    ))
 
     doc.build(story)
     output.seek(0)

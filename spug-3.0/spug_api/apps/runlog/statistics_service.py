@@ -157,9 +157,13 @@ class RunLogStatisticsService:
         elif end_date and not start_date:
             start_date = end_date - timedelta(days=DEFAULT_RANGE_DAYS - 1)
 
+        # 用 datetime 范围替代 __date，确保走 B-tree 索引
+        from datetime import datetime as _dt
+        range_start = _dt.combine(start_date, _dt.min.time())
+        range_end = _dt.combine(end_date + timedelta(days=1), _dt.min.time())
         queryset = queryset.filter(
-            created_at__date__gte=start_date,
-            created_at__date__lte=end_date,
+            created_at__gte=range_start,
+            created_at__lt=range_end,
         )
         return queryset, start_date, end_date
 
@@ -172,11 +176,19 @@ class RunLogStatisticsService:
 
         一次 aggregate 完成，减少数据库往返。
         """
+        # 用 datetime 范围替代 __date/__year/__month，确保走 B-tree 索引
+        from datetime import datetime as _dt
+        today_start = _dt.combine(today, _dt.min.time())
+        tomorrow_start = today_start + timedelta(days=1)
+        month_start = _dt.combine(today.replace(day=1), _dt.min.time())
+        next_month_start = (month_start + timedelta(days=32)).replace(day=1)
+
         agg = queryset.aggregate(
             total=Count('id'),
-            today_new=Count('id', filter=Q(created_at__date=today)),
-            month_new=Count('id', filter=Q(created_at__year=today.year,
-                                           created_at__month=today.month)),
+            today_new=Count('id', filter=Q(created_at__gte=today_start,
+                                           created_at__lt=tomorrow_start)),
+            month_new=Count('id', filter=Q(created_at__gte=month_start,
+                                           created_at__lt=next_month_start)),
             unclosed=Count('id', filter=Q(status__in=UNCLOSED_STATUSES)),
             archived=Count('id', filter=Q(status=ARCHIVED_STATUS)),
             p0=Count('id', filter=Q(severity='P0')),
@@ -227,7 +239,8 @@ class RunLogStatisticsService:
     @staticmethod
     def _get_trend(queryset, start_date, end_date):
         """最近 N 天事件趋势，按日期正序，补齐空日期。"""
-        # 数据库按 created_at__date 分组聚合
+        # GROUP BY DATE() 在此可接受：queryset 已由 created_at__gte/__lt 过滤，
+        # DATE() 仅作用于小结果集，不影响 WHERE 走索引
         rows = list(
             queryset.values('created_at__date').annotate(count=Count('id'))
         )

@@ -24,6 +24,7 @@ const SearchResults = ({
   selectedRowKeys,
   onSelectChange,
   onRow,
+  showSelection = true,
 }) => {
   if (!groups || groups.length === 0) {
     return <Empty description="未找到匹配的文件" />;
@@ -63,6 +64,7 @@ const SearchResults = ({
             onSelectChange={onSelectChange}
             onRow={onRow}
             showPagination={false}
+            showSelection={showSelection}
             isSearching={true}
           />
         </div>

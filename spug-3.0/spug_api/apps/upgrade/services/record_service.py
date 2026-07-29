@@ -94,7 +94,6 @@ class RecordService:
                     title=getattr(record_data, 'title', '') or '',
                     system=record_data.system,
                     upgrade_type=record_data.upgrade_type,
-                    version=getattr(record_data, 'version', '') or '',
                     upgrade_time=upgrade_time_val,
                     status=getattr(record_data, 'status', '处理中') or '处理中',
                     owner=record_data.owner,
@@ -138,7 +137,7 @@ class RecordService:
             return None, error
 
         # 更新可编辑字段
-        editable_fields = ['title', 'system', 'upgrade_type', 'version', 'status', 'owner',
+        editable_fields = ['title', 'system', 'upgrade_type', 'status', 'owner',
                            'upgrade_content', 'impact_scope', 'risk_desc', 'rollback_plan']
         for field in editable_fields:
             value = getattr(data, field, None)
@@ -354,11 +353,30 @@ class RecordService:
             .order_by('upgrade_type')
         )
 
+        # 阶段候选：预设阶段显示名 + 历史步骤中出现的自定义阶段名（去重合并）
+        # phase 字段已改为存显示名，故候选直接为字符串列表
+        from ..models_template import UpgradePlanStep
+        from ..models_checklist import UpgradeRecordStep
+
+        preset_phase_labels = [p['label'] for p in UPGRADE_PHASES]
+        history_phase_qs = (
+            list(UpgradePlanStep.objects.filter(tenant_id=tenant_id)
+                 .exclude(phase='').values_list('phase', flat=True).distinct())
+            + list(UpgradeRecordStep.objects.filter(tenant_id=tenant_id)
+                   .exclude(phase='').values_list('phase', flat=True).distinct())
+        )
+        all_phases = list(preset_phase_labels)
+        phase_seen = {p.lower() for p in preset_phase_labels}
+        for ph in history_phase_qs:
+            if ph and ph.lower() not in phase_seen:
+                all_phases.append(ph)
+                phase_seen.add(ph.lower())
+
         return {
             'systems': all_systems,
             'statuses': statuses,
             'upgrade_types': upgrade_types,
-            'phases': UPGRADE_PHASES,
+            'phases': all_phases,
             'milestones': RESULT_MILESTONES,
             'standard_flow': STANDARD_FLOW_ORDER,
         }

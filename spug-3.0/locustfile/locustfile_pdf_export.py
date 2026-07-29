@@ -9,7 +9,7 @@ PDF 导出并发压测脚本(上线前必补 🔴)
 覆盖模块:
 1. department_duty_log(部门值班日志)PDF 导出 - POST /api/department-duty-log/export/pdf/
 
-前置条件:目标环境需已有已签/已作废的 department_duty_log 记录(只导出已签,不导出草稿)。
+前置条件:目标环境需已有已签的 department_duty_log 记录(只导出已签,不导出草稿)。
 
 运行:
     python -m locust -f locustfile/locustfile_pdf_export.py -H http://localhost

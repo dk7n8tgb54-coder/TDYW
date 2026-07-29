@@ -25,11 +25,6 @@ class UpgradeTemplate(models.Model, ModelMixin):
     description = models.TextField(default='', blank=True, verbose_name='方案描述')
     system = models.CharField(max_length=100, default='', blank=True, verbose_name='系统')
     upgrade_type = models.CharField(max_length=50, default='', blank=True, verbose_name='升级类型')
-    version = models.CharField(max_length=100, default='', blank=True, verbose_name='默认版本')
-    owner = models.CharField(max_length=100, default='', blank=True, verbose_name='负责人')
-    status = models.CharField(max_length=20, default='处理中', verbose_name='默认状态')
-    detail_content = models.TextField(default='', blank=True, verbose_name='默认记录内容')
-    is_default = models.BooleanField(default=False, verbose_name='是否为默认方案')
 
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
@@ -42,11 +37,11 @@ class UpgradeTemplate(models.Model, ModelMixin):
         db_table = 'tdyw_upgrade_templates'
         verbose_name = '升级方案'
         verbose_name_plural = '升级方案'
-        ordering = ('-is_default', 'name', '-id')
+        ordering = ('name', '-id')
         indexes = [
             models.Index(fields=['tenant_id']),
-            # 模板列表默认排序：tenant_id + is_default + name + id
-            models.Index(fields=['tenant_id', 'is_default', 'name', 'id'], name='upg_tpl_default_idx'),
+            # 模板列表默认排序：tenant_id + name + id
+            models.Index(fields=['tenant_id', 'name', 'id'], name='upg_tpl_name_idx'),
         ]
 
 
@@ -55,8 +50,8 @@ class UpgradePlanStep(models.Model, ModelMixin):
     tenant_id = models.CharField(max_length=50, default='', db_index=True, help_text='租户标识')
     template_id = models.IntegerField(verbose_name='关联方案ID')
 
-    # 所属阶段（对应标准升级流程），空字符串为未分组
-    phase = models.CharField(max_length=20, default='', blank=True, verbose_name='所属阶段')
+    # 所属阶段（显示名，可使用预设或自定义），空字符串为未分组
+    phase = models.CharField(max_length=50, default='', blank=True, verbose_name='所属阶段')
 
     title = models.CharField(max_length=200, verbose_name='步骤标题')
     description = models.TextField(default='', blank=True, verbose_name='步骤描述')

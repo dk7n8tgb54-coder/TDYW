@@ -51,7 +51,7 @@ class DepartmentDutyLogDetail extends React.Component {
       this.setState({sigImageUrl: '', sigLoading: false, sigError: ''});
       return;
     }
-    if (record.status !== 'signed' && record.status !== 'void') {
+    if (record.status !== 'signed') {
       this.setState({sigImageUrl: '', sigLoading: false, sigError: ''});
       return;
     }
@@ -93,61 +93,45 @@ class DepartmentDutyLogDetail extends React.Component {
         destroyOnClose
       >
         <Spin spinning={store.detailLoading}>
-        {record.status === 'void' && record.void_reason && (
-          <Alert
-            type="error"
-            message={`已作废：${record.void_reason}`}
-            description={`作废时间：${record.voided_at || '--'}`}
-            showIcon
-            style={{marginBottom: 16}}
-          />
-        )}
-
         <Descriptions column={2} bordered size="small">
           <Descriptions.Item label="日期">{record.duty_date}</Descriptions.Item>
           <Descriptions.Item label="状态">{this.renderStatus(record.status)}</Descriptions.Item>
-          <Descriptions.Item label="值班员">{record.duty_person_name}</Descriptions.Item>
-          <Descriptions.Item label="市电电压">{record.mains_voltage || '--'}</Descriptions.Item>
-          <Descriptions.Item label="UPS电压">{record.ups_voltage || '--'}</Descriptions.Item>
+          <Descriptions.Item label="值班人员">{record.duty_person_name}</Descriptions.Item>
           <Descriptions.Item label="天气情况">{record.weather || '--'}</Descriptions.Item>
           <Descriptions.Item label="值班记录" span={2}>
             <div style={{whiteSpace: 'pre-wrap', maxHeight: 300, overflow: 'auto'}}>
               {record.duty_record || '--'}
             </div>
           </Descriptions.Item>
-          <Descriptions.Item label="备注" span={2}>
+          <Descriptions.Item label="上级工作要求" span={2}>
             <div style={{whiteSpace: 'pre-wrap'}}>
-              {record.remark || '--'}
+              {record.remark || '无'}
             </div>
           </Descriptions.Item>
         </Descriptions>
 
-        {(record.status === 'signed' || record.status === 'void') && (
+        {record.status === 'signed' && (
           <>
             <div style={{marginTop: 24, marginBottom: 8, fontWeight: 500, fontSize: 15}}>签署信息</div>
             <Descriptions column={2} bordered size="small">
-              <Descriptions.Item label="签署人">{record.signed_by_name || '--'}</Descriptions.Item>
-              <Descriptions.Item label="签名版本">{record.signature_version || '--'}</Descriptions.Item>
-              <Descriptions.Item label="业务快照哈希" span={2}>
-                <span style={{wordBreak: 'break-all', fontSize: 12}}>
-                  {record.business_snapshot_hash || '--'}
-                </span>
+              <Descriptions.Item label="签署人" span={2}>
+                {record.signed_by_name || '--'}
+              </Descriptions.Item>
+              <Descriptions.Item label="电子签名" span={2}>
+                {this.state.sigLoading ? (
+                  <div style={{textAlign: 'center', padding: 16}}><Spin tip="加载中..."/></div>
+                ) : this.state.sigError ? (
+                  <Alert type="error" message={this.state.sigError} showIcon style={{margin: 0}}/>
+                ) : this.state.sigImageUrl ? (
+                  <div style={{textAlign: 'center'}}>
+                    <img src={this.state.sigImageUrl} alt="签名"
+                      style={{maxWidth: '100%', maxHeight: 120, objectFit: 'contain'}}/>
+                  </div>
+                ) : (
+                  <Empty description="无签名图片" image={Empty.PRESENTED_IMAGE_SIMPLE}/>
+                )}
               </Descriptions.Item>
             </Descriptions>
-
-            <div style={{marginTop: 16, marginBottom: 8, fontWeight: 500, fontSize: 15}}>签名图片</div>
-            {this.state.sigLoading ? (
-              <div style={{textAlign: 'center', padding: 40}}><Spin tip="加载中..."/></div>
-            ) : this.state.sigError ? (
-              <Alert type="error" message={this.state.sigError} showIcon/>
-            ) : this.state.sigImageUrl ? (
-              <div style={{textAlign: 'center', padding: 16, border: '1px solid #f0f0f0', borderRadius: 4}}>
-                <img src={this.state.sigImageUrl} alt="签名"
-                  style={{maxWidth: '100%', maxHeight: 200, objectFit: 'contain'}}/>
-              </div>
-            ) : (
-              <Empty description="无签名图片"/>
-            )}
           </>
         )}
         </Spin>

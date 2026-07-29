@@ -5,8 +5,8 @@
  */
 import React from 'react';
 import {observer} from 'mobx-react';
-import {Tag, Modal, Tooltip, message, Input} from 'antd';
-import {EditOutlined, DeleteOutlined, EyeOutlined, CheckCircleOutlined, StopOutlined} from '@ant-design/icons';
+import {Tag, Modal, Tooltip, message} from 'antd';
+import {EditOutlined, DeleteOutlined, EyeOutlined, CheckCircleOutlined, RollbackOutlined} from '@ant-design/icons';
 import {http, X_TOKEN} from 'libs';
 import {TableCard, Action} from 'components';
 import store from './departmentDutyLogStore';
@@ -32,22 +32,16 @@ class DepartmentDutyLogTable extends React.Component {
     });
   };
 
-  handleVoid = () => {
+  handleReturn = () => {
     const record = store.record;
-    const reason = store._voidReason;
-    if (!reason || !reason.trim()) {
-      message.error('请填写作废原因');
-      return;
-    }
-    store._voidSubmitting = true;
-    http.post(`/api/department-duty-log/records/${record.id}/void/`, {reason: reason.trim()})
+    store._returnSubmitting = true;
+    http.post(`/api/department-duty-log/records/${record.id}/return/`)
       .then(() => {
-        message.success('作废成功');
-        store.voidVisible = false;
-        store._voidReason = '';
+        message.success('退回成功，记录已恢复为草稿');
+        store.returnVisible = false;
         store.fetchRecords();
       })
-      .finally(() => store._voidSubmitting = false);
+      .finally(() => store._returnSubmitting = false);
   };
 
   renderStatus = (status) => {
@@ -70,15 +64,20 @@ class DepartmentDutyLogTable extends React.Component {
   render() {
     const columns = [
       {title: '日期', dataIndex: 'duty_date', key: 'duty_date', width: 110},
-      {title: '值班员', dataIndex: 'duty_person_name', key: 'duty_person_name', width: 100},
-      {title: '市电电压', dataIndex: 'mains_voltage', key: 'mains_voltage', width: 90,
-        render: v => v || '--'},
-      {title: 'UPS电压', dataIndex: 'ups_voltage', key: 'ups_voltage', width: 90,
-        render: v => v || '--'},
+      {title: '值班人员', dataIndex: 'duty_person_name', key: 'duty_person_name', width: 100},
       {title: '天气情况', dataIndex: 'weather', key: 'weather', width: 80,
         render: v => v || '--'},
       {title: '值班记录', dataIndex: 'duty_record_summary', key: 'duty_record_summary',
         render: this.renderSummary},
+      {title: '上级工作要求', dataIndex: 'remark', key: 'remark', width: 150,
+        render: v => v ? (
+          <Tooltip title={v.length > 50 ? v : ''}>
+            <span style={{whiteSpace: 'pre-wrap', display: '-webkit-box',
+              WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden'}}>
+              {v}
+            </span>
+          </Tooltip>
+        ) : '无'},
       {title: '状态', dataIndex: 'status', key: 'status', width: 90,
         render: this.renderStatus},
       {title: '操作', key: 'action', width: 180, fixed: 'right',
@@ -99,9 +98,9 @@ class DepartmentDutyLogTable extends React.Component {
                 <Action.Button auth="department_duty_log.department_duty_log.del"
                   icon={<DeleteOutlined/>} danger onClick={() => this.handleDelete(record)}>删除</Action.Button>
               )}
-              {record.can_void && (
-                <Action.Button auth="department_duty_log.department_duty_log.void"
-                  icon={<StopOutlined/>} danger onClick={() => {store.record = record; store.voidVisible = true;}}>作废</Action.Button>
+              {record.can_return && (
+                <Action.Button auth="department_duty_log.department_duty_log.return"
+                  icon={<RollbackOutlined/>} danger onClick={() => {store.record = record; store.returnVisible = true;}}>退回</Action.Button>
               )}
             </Action>
           );
@@ -115,7 +114,7 @@ class DepartmentDutyLogTable extends React.Component {
           columns={columns}
           dataSource={store.records}
           loading={store.isFetching}
-          scroll={{x: 1040}}
+          scroll={{x: 860}}
           pagination={{
             current: store.pageNum,
             pageSize: store.pageSize,
@@ -131,25 +130,17 @@ class DepartmentDutyLogTable extends React.Component {
           onReload={() => store.fetchRecords()}
         />
 
-        {store.voidVisible && (
+        {store.returnVisible && (
           <Modal
-            title="作废已签记录"
-            visible={store.voidVisible}
-            onCancel={() => {store.voidVisible = false; store._voidReason = '';}}
-            onOk={this.handleVoid}
-            confirmLoading={store._voidSubmitting}
-            okText="确认作废"
+            title="退回已签记录"
+            visible={store.returnVisible}
+            onCancel={() => {store.returnVisible = false;}}
+            onOk={this.handleReturn}
+            confirmLoading={store._returnSubmitting}
+            okText="确认退回"
             okButtonProps={{danger: true}}
           >
-            <p>作废后记录将标记为"已作废"，原签署证据保留不可变。</p>
-            <Input.TextArea
-              rows={3}
-              placeholder="请填写作废原因（必填）"
-              maxLength={500}
-              showCount
-              value={store._voidReason}
-              onChange={e => store._voidReason = e.target.value}
-            />
+            <p>退回后记录将恢复为草稿状态，原签署信息将被清除。值班人员可重新编辑并签署。</p>
           </Modal>
         )}
       </>

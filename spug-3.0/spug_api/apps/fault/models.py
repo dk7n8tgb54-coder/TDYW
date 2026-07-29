@@ -37,6 +37,9 @@ class FaultRecord(models.Model, TenantModelMixin):
         verbose_name = '故障处置记录'
         verbose_name_plural = '故障处置记录'
         ordering = ('-fault_date', '-id',)
+        indexes = [
+            models.Index(fields=['tenant_id', '-fault_date', '-id'], name='fault_rec_t_date_idx'),
+        ]
 
 
 class FaultPart(models.Model, TenantModelMixin):
@@ -67,3 +70,6 @@ class FaultPart(models.Model, TenantModelMixin):
         verbose_name = '故障件'
         verbose_name_plural = '故障件'
         ordering = ('-date', '-id',)
+        indexes = [
+            models.Index(fields=['tenant_id', '-date', '-id'], name='fault_part_t_date_idx'),
+        ]

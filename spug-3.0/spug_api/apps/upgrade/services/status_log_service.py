@@ -17,6 +17,14 @@ from ..models_status_log import (
     ACTION_CHOICES,
     ACTION_TEST,
     ACTION_TEST_FAIL,
+    ACTION_PHASE_DONE,
+    ACTION_PAUSE,
+    ACTION_RESUME,
+    ACTION_ROLLBACK,
+    ACTION_COMPLETE,
+    OUTCOME_DONE,
+    OUTCOME_FAILED,
+    OUTCOME_REVOKED,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,9 +57,11 @@ class StatusLogService:
             'remark': log.remark or '',
             'created_at': log.created_at,
             'target_action': target,
-            'target_action_text': FLOW_STAGE_LABELS.get(target, target) if target else '',
+            'target_action_text': target,
             'event_seq': log.event_seq,
             'is_override': log.is_override,
+            'phase': log.phase or '',
+            'outcome': log.outcome or OUTCOME_DONE,
         }
 
     @staticmethod
@@ -164,7 +174,7 @@ class StatusLogService:
     @staticmethod
     def _persist_log(*, upgrade_id, user, action, remark, target_action,
                      is_override, from_status, to_status, target_main_status,
-                     needs_update, record):
+                     needs_update, record, phase=''):
         """事务内写入状态日志并按需联动主表 status。
 
         Returns:
@@ -188,6 +198,7 @@ class StatusLogService:
                     target_action=target_action or '',
                     event_seq=event_seq,
                     is_override=is_override,
+                    phase=phase or '',
                     created_at=now_str,
                 )
                 # 3. 联动主表 status（如需要）
@@ -207,60 +218,193 @@ class StatusLogService:
             return None, f'记录状态日志失败: {str(e)}'
 
     @staticmethod
-    def add_log(upgrade_id, user, action, remark='', target_action='', is_override=False):
-        """记录一条状态日志，并联动主表 status
+    def add_log(upgrade_id, user, action, remark='', target_action='', is_override=False, phase=''):
+        """记录一条异常事件状态日志，并联动主表 status 与 phase_done outcome。
+
+        正常的阶段完成（phase_done）由 check_phase_completion 自动写入，不走此方法。
+        此方法仅处理异常事件：pause/resume/test_fail/rollback/complete。
 
         Args:
             upgrade_id: 升级表单ID
             user: 当前请求用户
-            action: 动作类型（必须为 ACTION_CHOICES 中的合法值）
+            action: 异常事件动作（pause/resume/test_fail/rollback/complete）
             remark: 备注
-            target_action: 回退目标动作（仅 action=rollback 时必填）
-            is_override: 是否补录/跳步（允许跳过前置节点，需配合 remark）
+            target_action: 回退目标阶段名（仅 rollback 时必填）
+            is_override: 兼容旧参数，新逻辑不再使用顺序校验
+            phase: 失败阶段名（仅 test_fail 时必填）
 
         Returns:
             tuple: (log, error)
         """
         from ..models import UpgradeRecord
-        is_override = _as_bool(is_override)
 
-        # 校验动作类型
-        valid_actions = [code for code, _ in ACTION_CHOICES if code != ACTION_TEST]
-        if action not in valid_actions:
-            return None, f'无效的动作类型，支持：{", ".join(valid_actions)}'
+        exception_actions = {
+            ACTION_PAUSE, ACTION_RESUME, ACTION_TEST_FAIL, ACTION_ROLLBACK, ACTION_COMPLETE
+        }
+        if action not in exception_actions:
+            return None, f'无效的动作类型，支持：{", ".join(sorted(exception_actions))}'
 
-        # 校验业务对象存在
         record = apply_tenant_filter(
             UpgradeRecord.objects.filter(pk=upgrade_id), user
         ).first()
         if record is None:
             return None, '升级表单不存在或无权限访问'
 
-        # === 流程顺序校验（rollback / 主线推进 / test_fail） ===
-        is_jump, flow_error = StatusLogService._validate_flow(
-            action, upgrade_id, target_action, is_override
-        )
-        if flow_error:
-            return None, flow_error
+        if action == ACTION_ROLLBACK and not target_action:
+            return None, '回退操作必须指定"回退到"哪个阶段'
+        if action == ACTION_TEST_FAIL and not phase:
+            return None, '测试失败必须指定失败的阶段'
 
-        # is_override 时 remark 必填
-        if is_jump and is_override and not remark.strip():
-            return None, '补录/跳步操作必须在备注中说明原因'
-
-        if not is_jump:
-            is_override = False
-
-        # 联动主表 status（回退→已回退，完成→已完成）
         to_status, target_main_status, needs_update = StatusLogService._resolve_to_status(
             action, record.status
         )
-        return StatusLogService._persist_log(
+        log, err = StatusLogService._persist_log(
             upgrade_id=upgrade_id, user=user, action=action, remark=remark,
-            target_action=target_action, is_override=is_override,
+            target_action=target_action, is_override=False,
             from_status=record.status, to_status=to_status,
             target_main_status=target_main_status, needs_update=needs_update,
-            record=record,
+            record=record, phase=phase,
         )
+        if err:
+            return None, err
+
+        # 联动 phase_done outcome
+        if action == ACTION_TEST_FAIL:
+            StatusLogService._mark_phase_done_outcome(upgrade_id, phase, OUTCOME_FAILED)
+        elif action == ACTION_ROLLBACK:
+            StatusLogService._mark_rollback_phases_failed(upgrade_id, target_action, user)
+            StatusLogService._reset_steps_for_rollback(upgrade_id, target_action, user)
+
+        return log, None
+
+    @staticmethod
+    def check_phase_completion(upgrade_id, user, phase):
+        """检查指定阶段是否全部完成，若是则自动写 phase_done 时间线。
+
+        由步骤 mark_completed/mark_skipped 后调用。
+        - phase 为空跳过（无阶段不触发）
+        - 该阶段所有步骤 completed/skipped → 写 phase_done（幂等：已有 done 则不重复）
+        """
+        if not phase:
+            return
+        from ..models_checklist import UpgradeRecordStep
+        steps = apply_tenant_filter(
+            UpgradeRecordStep.objects.filter(upgrade_id=upgrade_id, phase=phase), user
+        )
+        if not steps.exists():
+            return
+        if steps.exclude(status__in=['completed', 'skipped']).exists():
+            return
+        # 幂等：已有 outcome=done 的 phase_done 则不重复写
+        if UpgradeStatusLog.objects.filter(
+            upgrade_id=upgrade_id, action=ACTION_PHASE_DONE,
+            phase=phase, outcome=OUTCOME_DONE
+        ).exists():
+            return
+        event_seq = StatusLogService._next_event_seq(upgrade_id)
+        now_str = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+        UpgradeStatusLog.objects.create(
+            tenant_id=getattr(user, 'tenant_id', ''),
+            upgrade_id=upgrade_id,
+            action=ACTION_PHASE_DONE,
+            from_status='', to_status='',
+            operator_id=getattr(user, 'id', 0),
+            operator_name=user.nickname or user.username,
+            remark='',
+            target_action='',
+            event_seq=event_seq,
+            is_override=False,
+            phase=phase,
+            outcome=OUTCOME_DONE,
+            created_at=now_str,
+        )
+        logger.info(f'[Upgrade] 阶段完成自动记录 upgrade_id={upgrade_id} phase={phase}')
+
+    @staticmethod
+    def on_step_reset(upgrade_id, user, phase):
+        """步骤被重置为待执行时联动：撤销该阶段最近一条 done 的 phase_done。
+
+        - phase 为空跳过
+        - 该阶段最近 phase_done 若 outcome=done → 改 revoked（误操作撤销）
+        - 若 outcome=failed → 不动（失败重做场景，保留历史）
+        """
+        if not phase:
+            return
+        log = UpgradeStatusLog.objects.filter(
+            upgrade_id=upgrade_id, action=ACTION_PHASE_DONE, phase=phase
+        ).order_by('-event_seq', '-id').first()
+        if log and log.outcome == OUTCOME_DONE:
+            log.outcome = OUTCOME_REVOKED
+            log.save(update_fields=['outcome'])
+            logger.info(f'[Upgrade] 阶段完成撤销 upgrade_id={upgrade_id} phase={phase}')
+
+    @staticmethod
+    def _mark_phase_done_outcome(upgrade_id, phase, outcome):
+        """把指定阶段最近一条 outcome=done 的 phase_done 改为指定 outcome。"""
+        log = UpgradeStatusLog.objects.filter(
+            upgrade_id=upgrade_id, action=ACTION_PHASE_DONE,
+            phase=phase, outcome=OUTCOME_DONE
+        ).order_by('-event_seq', '-id').first()
+        if log:
+            log.outcome = outcome
+            log.save(update_fields=['outcome'])
+
+    @staticmethod
+    def _mark_rollback_phases_failed(upgrade_id, target_phase, user):
+        """回退到 target_phase：把 target_phase 及其后所有阶段的 done phase_done 改 failed。
+
+        阶段顺序由该升级的步骤阶段顺序决定（保序去重）。
+        """
+        from ..models_checklist import UpgradeRecordStep
+        steps = apply_tenant_filter(
+            UpgradeRecordStep.objects.filter(upgrade_id=upgrade_id), user
+        ).order_by('sequence', 'id')
+        order = []
+        for s in steps:
+            ph = (s.phase or '').strip()
+            if ph and ph not in order:
+                order.append(ph)
+        try:
+            idx = order.index(target_phase)
+        except ValueError:
+            idx = 0
+        affected = order[idx:]
+        if affected:
+            UpgradeStatusLog.objects.filter(
+                upgrade_id=upgrade_id, action=ACTION_PHASE_DONE,
+                phase__in=affected, outcome=OUTCOME_DONE
+            ).update(outcome=OUTCOME_FAILED)
+
+    @staticmethod
+    def _reset_steps_for_rollback(upgrade_id, target_phase, user):
+        """回退到 target_phase：把 target_phase 及其后所有阶段的步骤重置为 pending。
+
+        与 _mark_rollback_phases_failed 配合：phase_done 标 failed + 步骤重置，
+        使该阶段重新变为 current 待执行。
+        """
+        from ..models_checklist import UpgradeRecordStep
+        steps = apply_tenant_filter(
+            UpgradeRecordStep.objects.filter(upgrade_id=upgrade_id), user
+        ).order_by('sequence', 'id')
+        order = []
+        for s in steps:
+            ph = (s.phase or '').strip()
+            if ph and ph not in order:
+                order.append(ph)
+        try:
+            idx = order.index(target_phase)
+        except ValueError:
+            idx = 0
+        affected = order[idx:]
+        if affected:
+            apply_tenant_filter(
+                UpgradeRecordStep.objects.filter(
+                    upgrade_id=upgrade_id, phase__in=affected
+                ), user
+            ).update(
+                status='pending', completed_by='', completed_at=None, remark=''
+            )
+            logger.info(f'[Upgrade] 回退重置步骤 upgrade_id={upgrade_id} phases={affected}')
 
     @staticmethod
     def _recompute_main_status(upgrade_id, user):
@@ -345,31 +489,39 @@ class StatusLogService:
 
     @staticmethod
     def get_action_options():
-        """获取动作类型选项（供前端下拉选择）
+        """获取异常事件动作选项（供前端 Dropdown，phase_done 由步骤自动触发不在此列）。
 
         Returns:
-            list: [{value, label, color, is_main_flow}, ...]
+            list: [{value, label, color}, ...]
         """
         from ..models_status_log import ACTION_COLOR_MAP
+        exception_actions = [
+            ACTION_PAUSE, ACTION_RESUME, ACTION_TEST_FAIL, ACTION_ROLLBACK, ACTION_COMPLETE
+        ]
+        action_text = {code: text for code, text in ACTION_CHOICES}
         return [
             {
                 'value': code,
-                'label': text,
+                'label': action_text.get(code, code),
                 'color': ACTION_COLOR_MAP.get(code, 'default'),
-                'is_main_flow': code in MAIN_FLOW_INDEX,
             }
-            for code, text in ACTION_CHOICES
-            if code != ACTION_TEST
+            for code in exception_actions
         ]
 
     @staticmethod
-    def get_rollback_targets():
-        """获取可作为回退目标的主线节点列表（供前端下拉选择）
+    def get_rollback_targets(upgrade_id, user):
+        """获取可回退的阶段列表（从该升级的步骤阶段动态生成，保序去重）。
 
         Returns:
             list: [{value, label}, ...]
         """
-        return [
-            {'value': action, 'label': FLOW_STAGE_LABELS.get(action, action)}
-            for action in ROLLBACK_TARGET_ACTIONS
-        ]
+        from ..models_checklist import UpgradeRecordStep
+        steps = apply_tenant_filter(
+            UpgradeRecordStep.objects.filter(upgrade_id=upgrade_id), user
+        ).order_by('sequence', 'id')
+        order = []
+        for s in steps:
+            ph = (s.phase or '').strip()
+            if ph and ph not in order:
+                order.append(ph)
+        return [{'value': ph, 'label': ph} for ph in order]

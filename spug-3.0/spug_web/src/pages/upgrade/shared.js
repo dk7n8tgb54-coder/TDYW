@@ -6,7 +6,7 @@
 // 升级模块共享常量与组件（WorkbenchForm / CreateUpgradeModal 复用，消除重复定义）
 import React from 'react';
 import { Tag, Tooltip } from 'antd';
-import { CheckCircleOutlined, CloseCircleOutlined, UndoOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, CloseCircleOutlined, UndoOutlined, PauseCircleOutlined } from '@ant-design/icons';
 
 // 动作类型 → 时间线颜色（与后端 ACTION_COLOR_MAP 对齐）
 export const ACTION_COLOR = {
@@ -187,6 +187,10 @@ export function renderFlowNode(node, displayIdx) {
       bg: '#fff1f0', color: '#cf1322', border: '#ffa39e', fontWeight: 'bold',
       icon: <CloseCircleOutlined />, prefix: '',
     },
+    paused: {
+      bg: '#fff7e6', color: '#fa8c16', border: '#ffd591', fontWeight: 'bold',
+      icon: <PauseCircleOutlined />, prefix: '',
+    },
     pending: {
       bg: '#fafafa', color: '#bbb', border: '#e8e8e8', fontWeight: 'normal',
       icon: null, prefix: '',
@@ -232,4 +236,89 @@ export function StepStatusTag({ status }) {
   };
   const cfg = map[status] || map.pending;
   return <Tag color={cfg.color} icon={cfg.icon}>{cfg.text}</Tag>;
+}
+
+/**
+ * 按阶段文本分组步骤（保序去重）。
+ * 预设阶段按给定顺序在前，自定义阶段按首次出现顺序追加，空 phase 归"未分组"。
+ *
+ * @param {Array} steps - 步骤数组，每项含 phase 字段（显示名）
+ * @param {Array} presetPhases - 预设阶段名列表（字符串），控制前置分组顺序
+ * @returns {{groups: Array<{name:string, steps:Array}>, ungrouped: Array}}
+ *   groups: 有阶段名的分组（按预设顺序 + 自定义首次出现顺序），ungrouped: phase 为空的步骤
+ */
+export function groupStepsByPhase(steps, presetPhases = []) {
+  // 组顺序按步骤首次出现顺序（即 sequence 顺序），尊重用户拖拽顺序，保证序号连续。
+  // 不再用 presetPhases 强制排序（旧 UPGRADE_PHASES 固定顺序会与 sequence 冲突）。
+  // presetPhases 参数保留兼容（前端 AutoComplete 候选用），此处不影响排序。
+  const grouped = {};
+  const orderedNames = [];
+  const ungrouped = [];
+
+  (steps || []).forEach(step => {
+    const name = (step && step.phase || '').trim();
+    if (!name) { ungrouped.push(step); return; }
+    if (!grouped[name]) {
+      grouped[name] = [];
+      orderedNames.push(name);
+    }
+    grouped[name].push(step);
+  });
+
+  const groups = orderedNames.map(name => ({ name, steps: grouped[name] }));
+  return { groups, ungrouped };
+}
+
+/**
+ * 根据步骤清单的阶段分组推算"升级流程"参考条节点状态。
+ *
+ * 节点 = 步骤的阶段（去重保序，预设在前），状态由该阶段步骤完成度决定：
+ *   - 该阶段所有步骤 completed → completed
+ *   - 第一个未全部完成的阶段 → current（再结合 statusLogs 推断 paused/failed）
+ *   - 其后阶段 → pending
+ * 全部完成时 currentIndex = -1，所有节点 completed。
+ *
+ * paused/failed 推断：查 statusLogs 中该阶段最近一条 pause/resume/test_fail 事件：
+ *   - 最近 pause → paused（流程挂起）
+ *   - 最近 test_fail → failed（需回退重做）
+ *   - 最近 resume 或无 → current
+ *
+ * @param {Array} steps - 步骤数组，每项含 phase / status 字段
+ * @param {Array} presetPhases - 预设阶段名列表（控制前置顺序）
+ * @param {Array} statusLogs - 状态日志（用于推断 paused/failed）
+ * @returns {{currentIndex: number, nodes: Array}} nodes 项含 {action, label, state, index}
+ */
+export function computeStepFlowState(steps, presetPhases = [], statusLogs = []) {
+  const { groups } = groupStepsByPhase(steps, presetPhases);
+  const currentIndex = groups.findIndex(g => g.steps.some(s => s.status !== 'completed'));
+
+  // 按阶段查最近的 pause/resume/test_fail 事件（正序遍历，后覆盖前 = 最近生效）
+  const phaseEvent = {};
+  const sortedLogs = [...(statusLogs || [])].sort((a, b) => {
+    const sa = a.event_seq ?? 0, sb = b.event_seq ?? 0;
+    if (sa !== sb) return sa - sb;
+    return (a.id ?? 0) - (b.id ?? 0);
+  });
+  for (const log of sortedLogs) {
+    if (['pause', 'resume', 'test_fail'].includes(log.action) && log.phase) {
+      phaseEvent[log.phase] = log.action;
+    }
+  }
+
+  const nodes = groups.map((g, idx) => {
+    const allDone = g.steps.every(s => s.status === 'completed');
+    let state;
+    if (allDone) {
+      state = 'completed';
+    } else if (idx === currentIndex) {
+      const evt = phaseEvent[g.name];
+      if (evt === 'pause') state = 'paused';
+      else if (evt === 'test_fail') state = 'failed';
+      else state = 'current';
+    } else {
+      state = 'pending';
+    }
+    return { action: g.name, label: g.name, state, index: idx };
+  });
+  return { currentIndex, nodes };
 }

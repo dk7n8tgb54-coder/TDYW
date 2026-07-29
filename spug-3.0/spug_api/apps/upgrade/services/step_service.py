@@ -159,14 +159,16 @@ class RecordStepService:
         action = getattr(data, 'action', None)
         remark = getattr(data, 'remark', '') or ''
 
+        from ..services.status_log_service import StatusLogService
+        phase = step.phase or ''
         if action == 'complete':
             step.mark_completed(user, remark)
-        elif action == 'skip':
-            step.mark_skipped(user, remark)
+            StatusLogService.check_phase_completion(step.upgrade_id, user, phase)
         elif action == 'reset':
             step.reset_status()
+            StatusLogService.on_step_reset(step.upgrade_id, user, phase)
         else:
-            return None, '无效操作，支持: complete/skip/reset'
+            return None, '无效操作，支持: complete/reset'
 
         # 检查是否所有步骤已完成，自动更新升级记录状态
         RecordStepService._check_and_update_record_status(step.upgrade_id, user)
@@ -202,7 +204,8 @@ class RecordStepService:
             steps_data: list of {step_id, action, remark}
         """
         from ..models_checklist import UpgradeRecordStep
-
+        from ..services.status_log_service import StatusLogService
+        affected = []  # [(phase, is_reset), ...]
         try:
             with transaction.atomic():
                 for item in steps_data:
@@ -218,12 +221,21 @@ class RecordStepService:
                     if not step:
                         continue
 
+                    phase = step.phase or ''
                     if action == 'complete':
                         step.mark_completed(user, remark)
-                    elif action == 'skip':
-                        step.mark_skipped(user, remark)
+                        affected.append((phase, False))
                     elif action == 'reset':
                         step.reset_status()
+                        affected.append((phase, True))
+
+            # 事务后联动时间线：先撤销再检测完成（同阶段混合操作时顺序正确）
+            reset_phases = {ph for ph, is_reset in affected if is_reset}
+            done_phases = {ph for ph, is_reset in affected if not is_reset}
+            for ph in reset_phases:
+                StatusLogService.on_step_reset(upgrade_id, user, ph)
+            for ph in done_phases:
+                StatusLogService.check_phase_completion(upgrade_id, user, ph)
 
             return None
         except Exception as e:

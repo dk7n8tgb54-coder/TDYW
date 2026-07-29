@@ -12,6 +12,7 @@ import {
 import {
   PlusOutlined, EditOutlined, DeleteOutlined
 } from '@ant-design/icons';
+import history from 'libs/history';
 import store from '../store';
 import PlanForm from './PlanForm';
 
@@ -54,12 +55,10 @@ function StepDetailModal({ visible, plan, onCancel }) {
       {plan.description && (
         <div style={{ marginBottom: 12, color: '#666' }}>{plan.description}</div>
       )}
-      {plan.system || plan.upgrade_type || plan.version ? (
+      {plan.system || plan.upgrade_type ? (
         <div style={{ marginBottom: 12 }}>
           {plan.system && <Tag>{plan.system}</Tag>}
           {plan.upgrade_type && <Tag color="cyan">{plan.upgrade_type}</Tag>}
-          {plan.version && <Tag color="purple">{plan.version}</Tag>}
-          {plan.owner && <Tag color="geekblue">{plan.owner}</Tag>}
         </div>
       ) : null}
       <Table
@@ -121,15 +120,30 @@ export default observer(function () {
   }
 
   function handleSubmit(values) {
-    const action = editingPlan
+    const isEdit = !!editingPlan;
+    const action = isEdit
       ? store.updatePlan(editingPlan.id, values)
       : store.createPlan(values);
 
-    action.then(() => {
-      message.success(editingPlan ? '更新成功' : '创建成功');
+    action.then((res) => {
       setFormVisible(false);
       setEditingPlan(null);
       store.fetchPlans();
+
+      if (isEdit) {
+        message.success('更新成功');
+      } else {
+        const newPlanId = res?.id;
+        Modal.confirm({
+          title: '方案创建成功',
+          content: `方案「${values.name}」已创建成功，是否立即创建升级表单？`,
+          okText: '创建升级表单',
+          cancelText: '稍后',
+          onOk: () => {
+            history.push(`/upgrade?planId=${newPlanId}`);
+          },
+        });
+      }
     }).catch(() => {
       message.error('操作失败');
     });
@@ -142,7 +156,6 @@ export default observer(function () {
       key: 'name',
       render: (text, record) => (
         <a onClick={() => handleViewDetail(record)}>
-          {record.is_default && <Tag color="blue" style={{ marginRight: 4 }}>默认</Tag>}
           {text}
         </a>
       ),
@@ -185,11 +198,14 @@ export default observer(function () {
     {
       title: '操作',
       key: 'action',
-      width: 160,
+      width: 220,
       render: (_, record) => (
         <Space>
           <Button type="link" size="small" onClick={() => handleViewDetail(record)}>
             详情
+          </Button>
+          <Button type="link" size="small" onClick={() => history.push(`/upgrade?planId=${record.id}`)}>
+            创建表单
           </Button>
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑

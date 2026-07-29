@@ -32,8 +32,8 @@ class Interference(models.Model, TenantModelMixin):
     coordinates = models.CharField(max_length=200)
     interference_type = models.CharField(max_length=100)
     phenomenon = models.TextField()
-    flight_number = models.CharField(max_length=100, null=True, blank=True)
-    aircraft_type = models.CharField(max_length=100, null=True, blank=True)
+    flight_number = models.CharField(max_length=100, blank=True, default='')
+    aircraft_type = models.CharField(max_length=100, blank=True, default='')
     is_reported = models.CharField(max_length=10, default='否')
 
     # ==== 证据闭环第三阶段：状态流转 ====
@@ -48,7 +48,7 @@ class Interference(models.Model, TenantModelMixin):
     reviewed_by_id = models.IntegerField(null=True, blank=True, help_text='复核人账号ID')
     reviewed_by_name = models.CharField(max_length=100, default='', help_text='复核人姓名快照')
     reviewed_at = models.DateTimeField(null=True, blank=True, help_text='复核时间')
-    review_comment = models.TextField(null=True, blank=True, help_text='复核意见')
+    review_comment = models.TextField(blank=True, help_text='复核意见', default='')
     # 上报（替代 is_reported 的结构化字段，保留 is_reported 兼容旧数据）
     reported_at = models.DateTimeField(null=True, blank=True, help_text='上报时间')
     reported_by_id = models.IntegerField(null=True, blank=True, help_text='上报人账号ID')
@@ -63,7 +63,7 @@ class Interference(models.Model, TenantModelMixin):
     closed_by_id = models.IntegerField(null=True, blank=True, help_text='关闭人账号ID')
     closed_by_name = models.CharField(max_length=100, default='', help_text='关闭人姓名快照')
     closed_at = models.DateTimeField(null=True, blank=True, help_text='关闭时间')
-    close_summary = models.TextField(null=True, blank=True, help_text='关闭总结')
+    close_summary = models.TextField(blank=True, help_text='关闭总结', default='')
     # 作废
     voided_by_id = models.IntegerField(null=True, blank=True, help_text='作废人账号ID')
     voided_by_name = models.CharField(max_length=100, default='', help_text='作废人姓名快照')

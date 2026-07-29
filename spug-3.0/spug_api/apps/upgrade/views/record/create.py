@@ -17,7 +17,6 @@ class RecordCreateView(View):
             Argument('title', help='请输入标题'),
             Argument('system', help='请输入系统'),
             Argument('upgrade_type', help='请选择升级类型'),
-            Argument('version', required=False, default=''),
             Argument('upgrade_time', help='请选择计划升级时间'),
             Argument('status', required=False, default='处理中'),
             Argument('owner', help='请输入负责人'),

@@ -187,7 +187,7 @@ def _upsert_signature_in_tx(target_user, operator, att, remark):
     sig.remark = remark or ''
     # 重新启用语义：替换后清除停用快照
     sig.disabled_by_id = None
-    sig.disabled_by_name = None
+    sig.disabled_by_name = ''
     sig.disabled_at = None
     sig.updated_at = timezone.now()
     sig.save(update_fields=[
@@ -385,7 +385,7 @@ def enable_signature(operator, target_user_id, request=None):
         old_status = sig.status
         sig.status = STATUS_ACTIVE
         sig.disabled_by_id = None
-        sig.disabled_by_name = None
+        sig.disabled_by_name = ''
         sig.disabled_at = None
         sig.updated_at = timezone.now()
         sig.save(update_fields=[

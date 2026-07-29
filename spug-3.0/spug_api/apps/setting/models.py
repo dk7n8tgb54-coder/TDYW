@@ -19,7 +19,7 @@ KEYS_DEFAULT = {
 class Setting(models.Model, ModelMixin):
     key = models.CharField(max_length=50, unique=True)
     value = models.TextField()
-    desc = models.CharField(max_length=255, null=True)
+    desc = models.CharField(max_length=255, default='')
 
     def to_view(self):
         tmp = self.to_dict(selects=('key',))

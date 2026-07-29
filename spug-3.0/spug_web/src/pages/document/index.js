@@ -5,7 +5,7 @@
 import React from 'react';
 import { observer } from 'mobx-react';
 import { Button, Breadcrumb as AntdBreadcrumb, Badge, Radio, Dropdown, Menu, message, Tooltip } from 'antd';
-import { UploadOutlined, CloudUploadOutlined, FolderAddOutlined, AppstoreOutlined, UnorderedListOutlined, DownOutlined, ReloadOutlined, ArrowLeftOutlined, ProfileOutlined } from '@ant-design/icons';
+import { UploadOutlined, CloudUploadOutlined, FolderAddOutlined, AppstoreOutlined, UnorderedListOutlined, DownOutlined, ReloadOutlined, ArrowLeftOutlined, ProfileOutlined, CheckSquareOutlined } from '@ant-design/icons';
 import Explorer from './Explorer';
 import UploadPanel, { MiniBar } from './UploadPanel';
 import FolderTree from './FolderTree';
@@ -40,6 +40,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
   const [initError, setInitError] = React.useState(null);
   // 【修复 2026-07-17】手动刷新只让刷新按钮显示 loading，列表不显示整表遮罩
   const [refreshing, setRefreshing] = React.useState(false);
+  const [multiSelectMode, setMultiSelectMode] = React.useState(false);
 
   // 【2026-07-17 URL 一致性】普通模式挂载时从 URL 恢复完整导航路径，
   //   党建模式走 initSystemFolder 初始化锁定根，不调用 restoreFromUrl 以免越界到公共库。
@@ -396,6 +397,16 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
                   <span className={styles.refreshText}>刷新</span>
                 </Button>
               </Tooltip>
+              <Tooltip title={multiSelectMode ? '退出多选' : '进入多选模式'}>
+                <Button
+                  icon={<CheckSquareOutlined />}
+                  onClick={() => setMultiSelectMode(m => !m)}
+                  size="small"
+                  type={multiSelectMode ? 'primary' : 'default'}
+                >
+                  {multiSelectMode ? '退出多选' : '多选'}
+                </Button>
+              </Tooltip>
             </div>
             <div className={styles.actionDivider} />
             <div className={styles.viewActions}>
@@ -470,6 +481,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
                 searchState={searchState}
                 isPartyBuildingDocuments={isPartyBuildingDocuments}
                 permPrefix={permPrefix}
+                multiSelectMode={multiSelectMode}
               />
             </DocumentDropUploadLayer>
           </div>

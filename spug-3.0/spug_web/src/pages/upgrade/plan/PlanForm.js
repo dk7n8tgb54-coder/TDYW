@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react';
 import {
-  Modal, Form, Input, Select, Button, message, Switch,
+  Modal, Form, Input, Select, AutoComplete, Button, message, Switch,
   Empty, Tooltip
 } from 'antd';
 import {
@@ -19,7 +19,6 @@ const { Option } = Select;
 const { TextArea } = Input;
 
 const UPGRADE_TYPES = ['功能升级', 'Bug修复', '安全补丁', '性能优化'];
-const STATUSES = ['处理中', '已完成'];
 
 /**
  * 方案编辑弹窗 - 基本信息 + 预设步骤（支持原生 HTML5 拖拽排序）
@@ -42,11 +41,6 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
           description: initialValues.description || '',
           system: initialValues.system || undefined,
           upgrade_type: initialValues.upgrade_type || undefined,
-          version: initialValues.version || '',
-          owner: initialValues.owner || '',
-          status: initialValues.status || '处理中',
-          detail_content: initialValues.detail_content || '',
-          is_default: initialValues.is_default || false,
         });
         setSteps((initialValues.steps || []).map(s => ({
           id: s.id,
@@ -150,25 +144,6 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
             ))}
           </Select>
         </Form.Item>
-        <Form.Item name="version" label="默认版本">
-          <Input placeholder="请输入默认版本（可选）" />
-        </Form.Item>
-        <Form.Item name="owner" label="负责人">
-          <Input placeholder="请输入负责人（可选）" />
-        </Form.Item>
-        <Form.Item name="status" label="默认状态">
-          <Select placeholder="请选择默认状态">
-            {STATUSES.map(s => (
-              <Option value={s} key={s}>{s}</Option>
-            ))}
-          </Select>
-        </Form.Item>
-        <Form.Item name="detail_content" label="记录内容">
-          <TextArea rows={2} placeholder="默认记录内容（选填）" />
-        </Form.Item>
-        <Form.Item name="is_default" label="设为默认" valuePropName="checked">
-          <Switch checkedChildren="默认" unCheckedChildren="普通" />
-        </Form.Item>
       </Form>
 
       <div style={{ marginTop: 16, borderTop: '1px solid #f0f0f0', paddingTop: 16 }}>
@@ -203,18 +178,18 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
                 <HolderOutlined style={{ cursor: 'grab', lineHeight: '32px', color: '#999' }} />
               </Tooltip>
               <span style={{ lineHeight: '32px', color: '#999', minWidth: 24 }}>{index + 1}.</span>
-              <Select
-                placeholder="阶段"
+              <AutoComplete
                 value={step.phase || undefined}
                 onChange={v => handleStepChange(index, { ...step, phase: v || '' })}
+                options={(store.filterOptions.phases || []).map(p => ({ value: p }))}
+                placeholder="阶段"
                 allowClear
-                style={{ width: 120 }}
+                style={{ width: 140 }}
                 size="small"
-              >
-                {store.filterOptions.phases.map(p => (
-                  <Option key={p.value} value={p.value}>{p.label}</Option>
-                ))}
-              </Select>
+                filterOption={(input, option) =>
+                  (option.value || '').toLowerCase().includes((input || '').toLowerCase())
+                }
+              />
               <Input
                 placeholder="步骤标题"
                 value={step.title}

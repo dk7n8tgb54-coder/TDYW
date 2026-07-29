@@ -464,16 +464,18 @@ class FolderTree extends React.Component {
   };
 
   /**
-   * 单击文件夹节点时同时展开其子文件夹（合并展开行为到单击）
-   * - 已展开则保持现状（不实现 toggle，避免误折叠丢失视野；折叠仍由展开三角负责）
-   * - 叶子节点（isLeaf=true）不展开
+   * 单击文件夹节点时切换展开/收起（toggle 行为）
+   * - 已展开则收起（移除该 key）
+   * - 未展开且非叶子节点则展开
+   * - 叶子节点（isLeaf=true）不操作
    * - children=undefined 时 antd Tree 检测到 expandedKeys 变化会自动触发 onLoadData 按需加载
    */
   _expandNodeOnSelect = (key) => {
     if (!this._isMounted || !key) return;
     this.setState((prevState) => {
       if (prevState.expandedKeys.includes(key)) {
-        return null; // 已展开，无变化
+        // 已展开 → 收起
+        return { expandedKeys: prevState.expandedKeys.filter(k => k !== key) };
       }
       const node = this._findNodeInData(prevState.data, key);
       if (node && node.isLeaf === true) {

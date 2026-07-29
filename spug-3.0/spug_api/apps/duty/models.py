@@ -17,7 +17,7 @@ class DutyRecord(models.Model, TenantModelMixin):
     reporter = models.CharField(max_length=100, help_text='填报人')
     department = models.CharField(max_length=100, help_text='所属科室')
     duty_date = models.DateTimeField(null=True, blank=True, help_text='值班日期')
-    duty_situation = models.TextField(null=True, blank=True, help_text='值班情况')
+    duty_situation = models.TextField(blank=True, help_text='值班情况', default='')
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
     updated_at = models.DateTimeField(null=True, blank=True)

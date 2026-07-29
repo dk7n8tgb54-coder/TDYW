@@ -180,7 +180,7 @@ class UserView(AdminView):
             )
             return json_response(error=error)
         create_fields = {k: v for k, v in form.items()
-                         if k not in ('tenant_id', 'password', 'role_ids')}
+                         if k not in ('tenant_id', 'password', 'role_ids') and v is not None}
         try:
             # 独立保存点让唯一键竞争失败可被转换为明确业务错误，且不破坏请求事务。
             with transaction.atomic():
@@ -410,7 +410,7 @@ class RoleView(AdminView):
           避免旧前端只提交 name/desc 时清空边界字段。
         - role 为空（创建场景）：未提交的边界字段补默认值。
         - 普通管理员：强制 tenant_id=自身租户、is_system=False、is_global_admin=False。
-        - 全局管理员不变量：is_global_admin=True 时强制 tenant_id=None、is_system=True，
+        - 全局管理员不变量：is_global_admin=True 时强制 tenant_id=''、is_system=True，
           与 migration 0006 回填策略一致。
         原地修改 fields 并返回。
         """
@@ -419,11 +419,14 @@ class RoleView(AdminView):
             fields['is_global_admin'] = role.is_global_admin if role else False
         if fields.get('is_system') is None:
             fields['is_system'] = role.is_system if role else False
-        # tenant_id：编辑场景未提交 key 时保持原值；创建场景未提交为 None（平台级）
+        # desc：未提交时为 None，转为空串（字段不再允许 NULL）
+        if fields.get('desc') is None:
+            fields['desc'] = role.desc if role else ''
+        # tenant_id：编辑场景未提交 key 时保持原值；创建场景未提交为 ''（平台级）
         if role is not None and raw_body is not None and 'tenant_id' not in raw_body:
             fields['tenant_id'] = role.tenant_id
         elif role is None and fields.get('tenant_id') is None:
-            fields['tenant_id'] = None
+            fields['tenant_id'] = ''
 
         # 普通管理员强制覆盖边界字段
         if not operator.is_supper:
@@ -433,7 +436,7 @@ class RoleView(AdminView):
 
         # 全局管理员角色不变量
         if fields.get('is_global_admin'):
-            fields['tenant_id'] = None
+            fields['tenant_id'] = ''
             fields['is_system'] = True
 
         return fields
@@ -687,7 +690,7 @@ def handle_login_record(request, username, login_type, error=None):
         ip=x_real_ip,
         agent=user_agent,
         is_success=False if error else True,
-        message=error
+        message=error or ''
     )
     # 记录登录失败审计日志
     if error:

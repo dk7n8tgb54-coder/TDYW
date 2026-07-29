@@ -30,12 +30,12 @@ class RunLog(models.Model, TenantModelMixin):
     
     # === 责任与时效 ===
     responsible_user_id = models.IntegerField(null=True, blank=True)
-    responsible_user_name = models.CharField(max_length=100, null=True, blank=True)
+    responsible_user_name = models.CharField(max_length=100, blank=True, default='')
     
     # === 处理结果 ===
-    resolution = models.TextField(null=True, blank=True, help_text='处理措施总结（事件解决后的最终方案总结，与动态记录不同，此处填写结案报告）')
+    resolution = models.TextField(blank=True, help_text='处理措施总结（事件解决后的最终方案总结，与动态记录不同，此处填写结案报告）', default='')
     verifier_id = models.IntegerField(null=True, blank=True)
-    verifier_name = models.CharField(max_length=100, null=True, blank=True)
+    verifier_name = models.CharField(max_length=100, blank=True, default='')
     verified_at = models.DateTimeField(null=True, blank=True)
     closed_at = models.DateTimeField(null=True, blank=True)
 
@@ -86,6 +86,7 @@ class RunLog(models.Model, TenantModelMixin):
         indexes = [
             models.Index(fields=['tenant_id', 'status']),
             models.Index(fields=['tenant_id', 'severity']),
+            models.Index(fields=['tenant_id', '-created_at', '-id'], name='runlog_t_ctime_idx'),
         ]
         constraints = [
             models.CheckConstraint(
@@ -123,10 +124,10 @@ class RunLogUpdate(models.Model, TenantModelMixin):
     sequence = models.IntegerField(default=0, help_text='同一天内的序号')
     recorder = models.CharField(max_length=100, help_text='记录人')
     detail_content = models.TextField(help_text='详细记录')
-    duty_person = models.CharField(max_length=128, null=True, blank=True, help_text='值班人')
+    duty_person = models.CharField(max_length=128, blank=True, help_text='值班人', default='')
 
     # 附件（图片）
-    attachments = models.TextField(null=True, blank=True, help_text='附件JSON，存储图片路径列表')
+    attachments = models.TextField(blank=True, help_text='附件JSON，存储图片路径列表', default='')
 
     # 修改权限控制
     editable_until = models.DateTimeField(help_text='可修改截止时间（创建后24小时内）')
@@ -185,7 +186,6 @@ class RunLogUpdate(models.Model, TenantModelMixin):
         verbose_name_plural = '运行日志动态'
         ordering = ('update_date', 'sequence', 'id')
         indexes = [
-            models.Index(fields=['runlog_id']),
             models.Index(fields=['tenant_id', 'runlog_id']),
             models.Index(fields=['update_date']),
         ]

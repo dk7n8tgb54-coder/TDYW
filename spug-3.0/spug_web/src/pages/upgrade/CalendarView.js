@@ -235,10 +235,6 @@ export default observer(function () {
                 <div>{record.system}</div>
               </Col>
               <Col span={4}>
-                <div><strong>版本</strong></div>
-                <div>{record.version}</div>
-              </Col>
-              <Col span={4}>
                 <div><strong>负责人</strong></div>
                 <div>{record.owner}</div>
               </Col>

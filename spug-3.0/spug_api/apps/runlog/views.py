@@ -92,14 +92,21 @@ class RunLogView(View):
         if filters.get('system_name'):
             logs = logs.filter(system_name__icontains=filters['system_name'])
         if filters.get('date'):
-            logs = logs.filter(created_at__date=filters['date'])
+            # 用 datetime 范围替代 __date，确保走 B-tree 索引
+            _d = datetime.strptime(filters['date'], '%Y-%m-%d')
+            logs = logs.filter(
+                created_at__gte=_d,
+                created_at__lt=_d + timedelta(days=1),
+            )
         # 日期范围筛选：使用明确的 start_date/end_date 字段，与 PDF 导出接口保持一致
         start_date = request.GET.get('start_date')
         end_date = request.GET.get('end_date')
         if start_date:
-            logs = logs.filter(created_at__date__gte=start_date)
+            _sd = datetime.strptime(start_date, '%Y-%m-%d')
+            logs = logs.filter(created_at__gte=_sd)
         if end_date:
-            logs = logs.filter(created_at__date__lte=end_date)
+            _ed = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
+            logs = logs.filter(created_at__lt=_ed)
 
         # 分页参数
         page = int(request.GET.get('page', 1))
@@ -713,12 +720,12 @@ class RunLogStatisticsView(View):
             severity_stats['P1']['count'] = agg_stats['p1_count'] or 0
             severity_stats['P2']['count'] = agg_stats['p2_count'] or 0
 
-            # 查询2：日期分组统计（created_at 已迁移为 DateTimeField，用 __date 查找）
-            start_date = (now - timedelta(days=6)).date()
-            end_date = now.date()
+            # 查询2：日期分组统计（用 __gte/__lt 走索引，GROUP BY DATE() 作用于小结果集）
+            start_date = (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
             logs_by_date = logs.filter(
-                created_at__date__gte=start_date,
-                created_at__date__lte=end_date,
+                created_at__gte=start_date,
+                created_at__lt=end_date,
             ).values('created_at__date').annotate(count=Count('id'))
 
             for item in logs_by_date:
@@ -790,18 +797,22 @@ class RunLogExportView(View):
             if data.get('system_name'):
                 logs = logs.filter(system_name__icontains=data['system_name'])
 
-            # 日期范围
+            # 日期范围（用 __gte/__lt 走索引）
             start_date = data.get('start_date')
             end_date = data.get('end_date')
             date_range_text = ''
             if start_date and end_date:
-                logs = logs.filter(created_at__date__gte=start_date, created_at__date__lte=end_date)
+                _sd = datetime.strptime(start_date, '%Y-%m-%d')
+                _ed = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
+                logs = logs.filter(created_at__gte=_sd, created_at__lt=_ed)
                 date_range_text = f'{start_date}-{end_date}'
             elif start_date:
-                logs = logs.filter(created_at__date__gte=start_date)
+                _sd = datetime.strptime(start_date, '%Y-%m-%d')
+                logs = logs.filter(created_at__gte=_sd)
                 date_range_text = f'{start_date}起'
             elif end_date:
-                logs = logs.filter(created_at__date__lte=end_date)
+                _ed = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
+                logs = logs.filter(created_at__lt=_ed)
                 date_range_text = f'至{end_date}'
 
             logs = logs.order_by('-created_at', '-id')

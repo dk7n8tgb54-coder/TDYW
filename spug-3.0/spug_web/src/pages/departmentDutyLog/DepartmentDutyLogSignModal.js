@@ -155,8 +155,6 @@ class DepartmentDutyLogSignModal extends React.Component {
                 {signatureInfo ? (store.currentUser ? store.currentUser.name : '--') : '--'}
               </Descriptions.Item>
               <Descriptions.Item label="值班日期">{record.duty_date}</Descriptions.Item>
-              <Descriptions.Item label="市电电压">{record.mains_voltage || '--'}</Descriptions.Item>
-              <Descriptions.Item label="UPS电压">{record.ups_voltage || '--'}</Descriptions.Item>
               <Descriptions.Item label="天气情况">{record.weather || '--'}</Descriptions.Item>
               <Descriptions.Item label="值班记录摘要">
                 <div style={{
@@ -198,7 +196,7 @@ class DepartmentDutyLogSignModal extends React.Component {
 
             <Alert
               type="info"
-              message="签署后记录将锁定，不可再编辑或删除。如需更正，请通过作废后新建更正记录。"
+              message="签署后记录将锁定，不可再编辑或删除。如需修改，请联系管理员退回。"
               showIcon
               style={{marginTop: 16}}
             />

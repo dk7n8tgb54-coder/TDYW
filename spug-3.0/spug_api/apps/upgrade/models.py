@@ -25,7 +25,6 @@ class UpgradeRecord(models.Model, TenantModelMixin):
     title = models.CharField(max_length=200, default='', verbose_name='标题')
     system = models.CharField(max_length=100)
     upgrade_type = models.CharField(max_length=50)
-    version = models.CharField(max_length=100, blank=True, default='')
     upgrade_time = models.DateTimeField(null=True, blank=True, verbose_name='计划升级时间')
     status = models.CharField(max_length=20, default='处理中')
     owner = models.CharField(max_length=100)

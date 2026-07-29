@@ -76,8 +76,8 @@ export default [
     ]},
     {title: '系统升级管理', auth: 'upgrade.upgrade.view|upgrade.statistics.view', child: [
       {title: '升级表单', auth: 'upgrade.upgrade.view', path: '/upgrade', component: ExecUpgradeRecord},
-      {title: '统计报表', auth: 'upgrade.statistics.view', path: '/upgrade/statistics', component: ExecUpgradeStatistics},
       {title: '升级方案', auth: 'upgrade.upgrade.view', path: '/upgrade/plans', component: ExecUpgradePlan},
+      {title: '统计报表', auth: 'upgrade.statistics.view', path: '/upgrade/statistics', component: ExecUpgradeStatistics},
     ]},
     {title: '故障管理', auth: 'fault.faultrecord.view|fault.faultpart.view', child: [
       {title: '故障处置记录', auth: 'fault.faultrecord.view', path: '/exec/fault/record', component: ExecFaultRecord},

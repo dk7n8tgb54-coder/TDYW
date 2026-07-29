@@ -47,10 +47,16 @@ def _get_interference_items(date, user):
     """
     from apps.interference.models import Interference
     from libs.tenant_utils import apply_tenant_filter
+    from datetime import datetime as _dt, timedelta as _td
 
+    # 用 datetime 范围替代 __startswith，确保走 B-tree 索引
+    if isinstance(date, str):
+        _d = _dt.strptime(date, '%Y-%m-%d')
+    else:
+        _d = _dt.combine(date, _dt.min.time())
     interferences = apply_tenant_filter(
         Interference.objects.all(), user
-    ).filter(datetime__startswith=date).order_by('-id')
+    ).filter(datetime__gte=_d, datetime__lt=_d + _td(days=1)).order_by('-id')
 
     return [
         {

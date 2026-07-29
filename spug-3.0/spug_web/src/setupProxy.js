@@ -7,8 +7,10 @@ const proxy = require('http-proxy-middleware');
 
 module.exports = function (app) {
   // 代理所有 /api 请求到后端服务
-  // Docker 部署: 80 (Nginx) | 本地开发: 8000 (Django runserver) 或 9001 (Gunicorn)
-  const target = 'http://127.0.0.1:8080';
+  // 默认: 80 (Django runserver)
+  // 覆盖方式: 设置环境变量 PROXY_TARGET，例如
+  //   PROXY_TARGET=http://127.0.0.1:9001 npm start
+  const target = process.env.PROXY_TARGET || 'http://127.0.0.1:8080';
   
   app.use(
     '/api',

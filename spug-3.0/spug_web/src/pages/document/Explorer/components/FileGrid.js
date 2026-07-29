@@ -68,6 +68,7 @@ const FileGrid = ({
   isPublic,
   currentUserId,
   pagination,
+  showSelection = true,
 }) => {
   // 【性能优化】使用 ref 存储 selectedRowKeys，避免闭包导致的重复计算
   const selectedRowKeysRef = useRef(Array.isArray(selectedRowKeys) ? selectedRowKeys : []);
@@ -141,9 +142,15 @@ const FileGrid = ({
             onDoubleClick={() => handleDoubleClick(record)}
             onContextMenu={(e) => handleContextMenu(e, record)}
           >
-            <div className={styles.checkWrapper} onClick={(e) => handleSelect(record.key, e)}>
-              <Checkbox checked={isSelected(record.key)} />
-            </div>
+            {showSelection && (
+              <div
+                className={styles.checkWrapper}
+                style={{ opacity: 1 }}
+                onClick={(e) => handleSelect(record.key, e)}
+              >
+                <Checkbox checked={isSelected(record.key)} />
+              </div>
+            )}
             <div className={styles.thumbnailArea}>
               <GridThumbnail record={record} isPublic={isPublic} />
             </div>

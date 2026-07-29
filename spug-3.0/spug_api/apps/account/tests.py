@@ -425,7 +425,7 @@ class RoleViewTest(TestCase):
     def test_list_roles_as_admin_only_own_tenant(self):
         """普通管理员只看到本租户、非系统、非全局管理员角色"""
         Role.objects.create(
-            name='平台角色', tenant_id=None, is_system=True,
+            name='平台角色', tenant_id='', is_system=True,
             created_by=self.supper
         )
         r = self.admin_client.get('/account/role/')
@@ -541,7 +541,7 @@ class AssignableRoleViewTest(TestCase):
         self.admin = make_user('admin', ['system.account.view'])
         # 平台级角色
         self.platform_role = Role.objects.create(
-            name='平台角色', tenant_id=None, is_system=True, created_by=self.supper
+            name='平台角色', tenant_id='', is_system=True, created_by=self.supper
         )
         # 全局管理员角色
         self.global_role = Role.objects.create(
@@ -752,7 +752,7 @@ class RolePermissionsUtilTest(TestCase):
         self.supper = make_user('supper', is_supper=True)
         self.admin = make_user('admin', [])
         self.platform_role = Role.objects.create(
-            name='平台', tenant_id=None, is_system=True, created_by=self.supper
+            name='平台', tenant_id='', is_system=True, created_by=self.supper
         )
         self.global_role = Role.objects.create(
             name='全局', is_global_admin=True, is_system=True, created_by=self.supper

@@ -64,3 +64,12 @@
 - 脚本内引用 Python 工具用 `${SCRIPT_DIR}/xxx.py`（宿主机直接调用）或挂载 `${SCRIPT_DIR}:/backup-code:ro` + 容器内 `/backup-code/xxx.py`；**禁用 `${PROJECT_ROOT}/scripts/`**
 - `PROJECT_ROOT`（spug-3.0 仓库根）仅用于 `git -C`、`docker/.env` 等仓库结构路径
 - DB→documents/media 必须同一停写窗口；dry-run 也会跑 preflight（含 select_fileset_parent.py 调用），所以脚本路径错在 dry-run 阶段就暴露
+
+## 数据库性能优化（2026-07-29）
+- **分区决策基于数据生命周期+查询模式，不是行数阈值**：InnoDB B+树 1000 万行无压力，100 万"必须分区"是误导
+- **Django `__date` 绕过索引**：翻译成 `DATE(col)=...`，B-tree 索引失效，强制全表扫描。改用 `__gte`/`__lt` + datetime 范围
+- **`__startswith` 在 DateTimeField 上绕过索引**：`LIKE '2026-07-29%'` 对 DATETIME 列需隐式类型转换，大概率不走索引。CharField 上的 `__startswith` 不受影响
+- **Dashboard `home/views.py:get_statistic` 已加 Redis 缓存**：60s TTL，按租户分键 `dashboard:{tenant_id}`
+- **audit_logs 关键词搜索默认限制最近 90 天**：无时间范围时 `created_at__gte=now-90d`
+- **新增索引**：FaultRecord/FaultPart/RunLog 默认分页索引；移除 RunLogUpdate 冗余 `[runlog_id]`
+- migration: `fault/0005` + `runlog/0013`

@@ -42,7 +42,9 @@ class UpgradeRecordView(View):
         if filters.get('owner'):
             records = records.filter(owner__icontains=filters['owner'])
         if filters.get('date'):
-            records = records.filter(created_at__startswith=filters['date'])
+            from datetime import datetime as _dt, timedelta as _td
+            _d = _dt.strptime(filters['date'], '%Y-%m-%d')
+            records = records.filter(created_at__gte=_d, created_at__lt=_d + _td(days=1))
         if filters.get('start_date') and filters.get('end_date'):
             records = records.filter(upgrade_time__gte=filters['start_date'], upgrade_time__lte=filters['end_date'])
 
