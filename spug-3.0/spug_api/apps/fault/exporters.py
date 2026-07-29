@@ -8,7 +8,9 @@
 导出基于当前筛选条件下的全部数据，而非当前页。
 """
 import logging
+import re
 from datetime import datetime
+from calendar import monthrange
 
 from django.views.generic import View
 from libs import auth
@@ -34,6 +36,42 @@ EXCEL_COLUMNS = [
 SHEET_NAME = '故障处置记录'
 
 
+def _parse_fault_date_filter(fault_date_str):
+    """将前端传入的 fault_date 搜索串转为日期范围 (start, end)。
+    
+    支持 YYYY / YYYY-MM / YYYY-MM-DD 三种前缀格式，
+    返回 (start_str, end_str) 用于 __gte/__lt 查询。
+    无法识别时返回 None。
+    """
+    s = fault_date_str.strip()
+    # YYYY-MM-DD
+    m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', s)
+    if m:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        try:
+            start = datetime(y, mo, d).date()
+            end = start.replace(day=start.day + 1) if start.day < monthrange(y, mo)[1] else (
+                datetime(y, mo + 1, 1).date() if mo < 12 else datetime(y + 1, 1, 1).date()
+            )
+            return start.isoformat(), end.isoformat()
+        except (ValueError, OverflowError):
+            return None
+    # YYYY-MM
+    m = re.match(r'^(\d{4})-(\d{1,2})$', s)
+    if m:
+        y, mo = int(m.group(1)), int(m.group(2))
+        if 1 <= mo <= 12:
+            start = datetime(y, mo, 1).date()
+            end = datetime(y + 1, 1, 1).date() if mo == 12 else datetime(y, mo + 1, 1).date()
+            return start.isoformat(), end.isoformat()
+    # YYYY
+    m = re.match(r'^(\d{4})$', s)
+    if m:
+        y = int(m.group(1))
+        return f'{y}-01-01', f'{y + 1}-01-01'
+    return None
+
+
 def get_export_queryset(request):
     """按当前筛选条件查询数据，与前端 store 的过滤规则保持一致。"""
     qs = apply_tenant_filter(FaultRecord.objects.all(), request.user)
@@ -43,7 +81,13 @@ def get_export_queryset(request):
         qs = qs.filter(system_name__icontains=system_name)
     fault_date = request.GET.get('fault_date')
     if fault_date:
-        qs = qs.filter(fault_date__icontains=fault_date)
+        # P1(R1): 优先将日期搜索串解析为范围查询以走索引；
+        # 无法解析时回退 icontains（兼容用户输入部分文本）
+        date_range = _parse_fault_date_filter(fault_date)
+        if date_range:
+            qs = qs.filter(fault_date__gte=date_range[0], fault_date__lt=date_range[1])
+        else:
+            qs = qs.filter(fault_date__icontains=fault_date)
     handler = request.GET.get('handler')
     if handler:
         qs = qs.filter(handler__icontains=handler)

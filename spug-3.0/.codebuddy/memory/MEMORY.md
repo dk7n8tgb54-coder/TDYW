@@ -67,8 +67,12 @@
 - **复合索引最左前缀违反**：`DepartmentDutyLog` 的 `(status, deleted_at, duty_date)` 索引，大多数查询直接按 `duty_date` 过滤，索引完全不可用（EXPLAIN 确认 type=ALL）
 - Dashboard `home/views.py:get_statistic` 已加 Redis 缓存 60s
 - audit_logs 关键词搜索默认限制最近 90 天
-- migration: `fault/0005` + `runlog/0013`
-- 待修复（P0）: DepartmentDutyLog 新增 duty_date 独立索引
+- migration: `fault/0005` + `runlog/0013` + `department_duty_log/0009_add_duty_date_index`
+- **已修复（P0-P3，2026-07-30）**：
+  - P0: DepartmentDutyLog 新增 `duty_log_date_idx(-duty_date, -id)` 索引 + 改 `__year/__month` 为 `__gte/__lt`
+  - P1: `fault/exporters.py` `fault_date__icontains` -> 智能日期解析 `_parse_fault_date_filter()`；`upgrade/statistics_service.py` `.extra(DATE())` -> 逐日范围查询(≤365天)/TruncDate(>365天)
+  - P2: `fault/views.py` system_names 加 Redis 缓存(5min)；runlog/device 证据包审计日志加 90天+1000条限制
+  - P3: device 导出加 10000 条限制；department_duty_log 加 `MAX_QUERY_DAYS=365` 查询范围限制
 - 完整排查报告：`INDEX_RISK_AUDIT_REPORT.md`
 
 ## 幂等性设计（2026-07-29）

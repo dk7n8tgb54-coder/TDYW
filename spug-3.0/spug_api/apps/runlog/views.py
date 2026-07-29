@@ -990,7 +990,15 @@ class RunLogEvidencePackageView(View):
 
         audit_logs = list(AuditLog.objects.filter(
             tenant_id=tenant_id, target_type='runlog',
+            target_id=str(event.id),
         ).order_by('id'))
+        # P2(R6): 兼容 target_id 未记录时回退，但限制最近 90 天 + 1000 条
+        if not audit_logs:
+            cutoff = timezone.now() - timedelta(days=90)
+            audit_logs = list(AuditLog.objects.filter(
+                tenant_id=tenant_id, target_type='runlog',
+                created_at__gte=cutoff,
+            ).order_by('-id')[:1000])
         audit_data = [l.to_dict() for l in audit_logs]
 
         atts = EvidenceAttachment.objects.filter(

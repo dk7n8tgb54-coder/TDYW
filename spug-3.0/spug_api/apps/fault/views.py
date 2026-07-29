@@ -3,6 +3,7 @@
 # Released under AGPL-3.0 License.
 from django.views.generic import View
 from django.utils import timezone
+from django.core.cache import cache
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from libs.pagination import paginate, paginate_response
@@ -13,12 +14,20 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+_SYSTEM_NAMES_TTL = 300  # 5 分钟
+_FAULT_PART_SYSTEM_NAMES_TTL = 300
+
 
 class FaultRecordView(View):
     @auth('fault.faultrecord.view')
     def get(self, request):
         records = apply_tenant_filter(FaultRecord.objects.all(), request.user).select_related('created_by', 'updated_by')
-        system_names = [x['system_name'] for x in records.order_by('system_name').values('system_name').distinct()]
+        # P2(R5): 系统名称下拉选项缓存 5 分钟，避免每次列表请求都做全量 DISTINCT
+        cache_key = f'fault_system_names_{request.user.tenant_id}'
+        system_names = cache.get(cache_key)
+        if system_names is None:
+            system_names = [x['system_name'] for x in records.order_by('system_name').values('system_name').distinct()]
+            cache.set(cache_key, system_names, _SYSTEM_NAMES_TTL)
 
         page, page_size = paginate(request)
         data = paginate_response(records, page, page_size, serialize_fn=lambda x: x.to_view(), items_key='records')
@@ -49,6 +58,7 @@ class FaultRecordView(View):
                 form.updated_by = request.user
                 update_data = {k: v for k, v in form.items() if v is not None and k != 'id'}
                 FaultRecord.objects.filter(pk=form.pop('id')).update(**update_data)
+                cache.delete(f'fault_system_names_{request.user.tenant_id}')
             else:
                 # 创建：校验必填字段
                 if not request.user.has_perms({'fault.faultrecord.add'}):
@@ -72,6 +82,7 @@ class FaultRecordView(View):
                 }):
                     return json_response(error='检测到重复提交，请勿重复操作')
                 FaultRecord.objects.create(**create_data)
+                cache.delete(f'fault_system_names_{request.user.tenant_id}')
         return json_response(error=error)
 
     @auth('fault.faultrecord.del')
@@ -91,6 +102,7 @@ class FaultRecordView(View):
                 detail={'device_code': record.device_code, 'fault_level': record.fault_level},
             )
             record.delete()
+            cache.delete(f'fault_system_names_{request.user.tenant_id}')
         return json_response(error=error)
 
 
@@ -98,7 +110,11 @@ class FaultPartView(View):
     @auth('fault.faultpart.view')
     def get(self, request):
         records = apply_tenant_filter(FaultPart.objects.all(), request.user).select_related('created_by', 'updated_by')
-        system_names = [x['system_name'] for x in records.order_by('system_name').values('system_name').distinct()]
+        cache_key = f'fault_part_system_names_{request.user.tenant_id}'
+        system_names = cache.get(cache_key)
+        if system_names is None:
+            system_names = [x['system_name'] for x in records.order_by('system_name').values('system_name').distinct()]
+            cache.set(cache_key, system_names, _FAULT_PART_SYSTEM_NAMES_TTL)
 
         page, page_size = paginate(request)
         data = paginate_response(records, page, page_size, serialize_fn=lambda x: x.to_view(), items_key='records')
@@ -137,6 +153,7 @@ class FaultPartView(View):
                 form.updated_by = request.user
                 update_data = {k: v for k, v in form.items() if v is not None and k != 'id'}
                 FaultPart.objects.filter(pk=form.pop('id')).update(**update_data)
+                cache.delete(f'fault_part_system_names_{request.user.tenant_id}')
             else:
                 resp = self._handle_create(request, form)
                 if resp:
@@ -164,6 +181,7 @@ class FaultPartView(View):
         }):
             return json_response(error='检测到重复提交，请勿重复操作')
         FaultPart.objects.create(**create_data)
+        cache.delete(f'fault_part_system_names_{request.user.tenant_id}')
         return None
 
     @auth('fault.faultpart.del')
@@ -183,4 +201,5 @@ class FaultPartView(View):
                 detail={'system_name': record.system_name, 'status': record.status},
             )
             record.delete()
+            cache.delete(f'fault_part_system_names_{request.user.tenant_id}')
         return json_response(error=error)

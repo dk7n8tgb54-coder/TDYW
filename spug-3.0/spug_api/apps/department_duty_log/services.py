@@ -52,6 +52,8 @@ PROTECTED_FIELDS = frozenset({
 
 # 默认查询天数
 DEFAULT_QUERY_DAYS = 31
+# P3(R9): 最大查询天数，防止无界查询导致 TextField LIKE 全表扫描
+MAX_QUERY_DAYS = 365
 
 
 # ============================================================
@@ -299,9 +301,16 @@ def list_duty_dates(user, year, month):
     仅返回日期字符串（YYYY-MM-DD），不暴露任何业务字段。
     """
     qs = get_visible_department_duty_logs(user)
+    # P0(R2): 改用 __gte/__lt 半开区间范围查询。
+    # Django 4.2 已将 __year 优化为 BETWEEN（走索引），但 __month 仍生成
+    # EXTRACT(MONTH FROM duty_date)=N 函数调用，绕过索引。
+    # 半开区间 __gte/__lt 同时消除 EXTRACT 函数和 BETWEEN 闭区间，最稳妥。
+    # 已通过 EXPLAIN 验证：含 OR 可见性条件时仍走 duty_log_date_idx 索引。
+    start_date = date(year, month, 1)
+    end_date = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
     qs = qs.filter(
-        duty_date__year=year,
-        duty_date__month=month,
+        duty_date__gte=start_date,
+        duty_date__lt=end_date,
     )
     values = (
         qs.values_list('duty_date', flat=True)
@@ -356,6 +365,9 @@ def _parse_list_date_range(query_params):
         return None, None, str(e)
     if end_date < start_date:
         return None, None, '结束日期不能早于开始日期'
+    # P3(R9): 限制最大查询范围，防止无界 TextField LIKE 扫描
+    if (end_date - start_date).days > MAX_QUERY_DAYS:
+        return None, None, f'查询范围不能超过 {MAX_QUERY_DAYS} 天'
     return start_date, end_date, None
 
 

@@ -91,6 +91,12 @@ class DepartmentDutyLog(models.Model, ModelMixin):
                 fields=['duty_person', 'duty_date'],
                 name='department_duty_person_date_ix',
             ),
+            # P0(R11): 独立 duty_date 索引，解决复合索引最左前缀违反
+            # 大多数查询直接按 duty_date 过滤（不按 status），需独立索引
+            models.Index(
+                fields=['-duty_date', '-id'],
+                name='duty_log_date_idx',
+            ),
         ]
         constraints = [
             models.CheckConstraint(

@@ -4,11 +4,11 @@
 """
 统计服务 - 后端计算，前端只负责展示
 
-当前模型 upgrade_time 为 CharField，使用 extra/date() 函数提取日期。
+upgrade_time 为 DateTimeField，趋势统计使用逐日范围查询以走索引。
 """
 import logging
+from datetime import timedelta
 from django.db.models import Count
-from django.db import connection
 
 from libs.tenant_utils import apply_tenant_filter
 
@@ -57,7 +57,7 @@ class StatisticsService:
         for item in by_system:
             item['percent'] = round(item['count'] / total * 100) if total > 0 else 0
 
-        # 趋势统计（按日期）- upgrade_time 是 CharField，用 extra 提取日期部分
+        # 趋势统计（按日期）- upgrade_time 是 DateTimeField，用范围查询走索引
         trend = StatisticsService._get_trend(queryset)
 
         return {
@@ -69,21 +69,48 @@ class StatisticsService:
 
     @staticmethod
     def _get_trend(queryset):
-        """获取趋势统计数据（upgrade_time 是 CharField 格式 'YYYY-MM-DD HH:MM:SS'）"""
-        try:
-            # MySQL: DATE() 函数提取日期部分
-            # SQLite: date() 函数提取日期部分
-            if connection.vendor == 'sqlite':
-                date_expr = "date(upgrade_time)"
-            else:
-                date_expr = "DATE(upgrade_time)"
+        """获取趋势统计数据（使用逐日范围查询避免 DATE() 函数绕过索引）。
 
-            trend = list(
-                queryset.extra({'date': date_expr})
-                .values('date')
-                .annotate(count=Count('id'))
-                .order_by('date')
-            )
+        策略：
+        - 日期跨度 <= 365 天：逐日 __gte/__lt 范围查询，每次走索引
+        - 日期跨度 > 365 天：回退 TruncDate（单次查询但需临时表）
+        """
+        try:
+            from datetime import datetime as dt
+            from django.db.models.functions import TruncDate
+
+            # 获取日期范围
+            first = queryset.order_by('upgrade_time').first()
+            last = queryset.order_by('-upgrade_time').first()
+            if not first or not last or not first.upgrade_time or not last.upgrade_time:
+                return []
+
+            start_date = first.upgrade_time.date()
+            end_date = last.upgrade_time.date()
+
+            # 跨度超过 365 天时回退 TruncDate（避免 N 次查询）
+            delta = (end_date - start_date).days
+            if delta > 365:
+                return list(
+                    queryset.annotate(date=TruncDate('upgrade_time'))
+                    .values('date')
+                    .annotate(count=Count('id'))
+                    .order_by('date')
+                )
+
+            # 小范围：逐日范围查询（走索引，无 Using temporary）
+            trend = []
+            current = start_date
+            while current <= end_date:
+                next_date = current + timedelta(days=1)
+                count = queryset.filter(
+                    upgrade_time__gte=current,
+                    upgrade_time__lt=next_date,
+                ).count()
+                if count > 0:
+                    trend.append({'date': current.isoformat(), 'count': count})
+                current = next_date
+
             return trend
         except Exception as e:
             logger.warning(f'[Upgrade] 趋势统计失败: {e}')

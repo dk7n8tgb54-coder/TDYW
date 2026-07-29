@@ -11,7 +11,8 @@ from django.db.models import Q
 from django.http import HttpResponse
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -637,11 +638,11 @@ class DeviceResumeExportView(View):
             )
             return json_response(error='设备不存在或无权限操作')
 
-        # 后端查询事件列表（全量导出，避免前端只传当前分页导致履历不完整）
+        # 后端查询事件列表（P3(R7): 限制最多 10000 条，防止超大设备履历 OOM）
         events_qs = apply_tenant_filter(DeviceEvent.objects.all(), request.user).filter(device_resume_id=device_id)
         if event_type:
             events_qs = events_qs.filter(event_type=event_type)
-        events_qs = events_qs.order_by('-event_time', '-id')
+        events_qs = events_qs.order_by('-event_time', '-id')[:10000]
 
         # 转换为字典列表（pdf_export 期望 dict 结构）
         device_info = device.to_view()
@@ -782,11 +783,13 @@ class DeviceEvidencePackageView(View):
             tenant_id=tenant_id, target_type='device',
             target_id=str(device.id),
         ).order_by('id'))
-        # 兼容：target_id 未记录时回退全量 device 类型审计
+        # 兼容：target_id 未记录时回退，P2(R10): 限制最近 90 天 + 1000 条
         if not audit_logs:
+            cutoff = timezone.now() - timedelta(days=90)
             audit_logs = list(AuditLog.objects.filter(
                 tenant_id=tenant_id, target_type='device',
-            ).order_by('id'))
+                created_at__gte=cutoff,
+            ).order_by('-id')[:1000])
         audit_data = [l.to_dict() for l in audit_logs]
 
         atts = EvidenceAttachment.objects.filter(
