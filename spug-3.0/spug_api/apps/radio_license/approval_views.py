@@ -272,7 +272,7 @@ class StationFrequencyApprovalView(View):
         scan_single_approval(approval)
 
         _record_approval_audit(
-            user, '新建批复', approval,
+            user, 'create', approval,
             detail={
                 'name': approval.name, 'doc_no': approval.doc_no,
                 'frequency_text': approval.frequency_text,
@@ -319,7 +319,7 @@ class StationFrequencyApprovalView(View):
         scan_single_approval(approval)
 
         _record_approval_audit(
-            user, '编辑批复', approval,
+            user, 'update', approval,
             detail={
                 'name': approval.name, 'doc_no': approval.doc_no,
                 'valid_from': str(approval.valid_from),
@@ -359,7 +359,7 @@ class StationFrequencyApprovalView(View):
                     # 物理删除批复（CASCADE 自动级联删除 ack）
                     approval.delete()
                 _record_approval_audit(
-                    request.user, '删除批复', None,
+                    request.user, 'delete', None,
                     detail=snapshot, target_id=form.id,
                 )
         return json_response(error=error)
@@ -687,7 +687,7 @@ class ApprovalReminderAckView(View):
         )
 
         _record_approval_audit(
-            request.user, '确认批复提醒', approval,
+            request.user, 'update', approval,
             detail={
                 'approval_id': approval.id,
                 'ack_valid_to': str(approval.valid_to),

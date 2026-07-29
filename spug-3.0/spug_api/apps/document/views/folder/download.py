@@ -85,10 +85,10 @@ class FolderDownloadView(View):
         total_files = self._count_folder_files(folder, FolderModel, FileModel, request.user, form.is_public)
 
         if total_files >= self.ASYNC_FILE_COUNT_THRESHOLD:
-            return self._submit_async_pack_task(folder, request.user, form.is_public)
+            return self._submit_async_pack_task(folder, request.user, form.is_public, request)
 
         # 小文件夹：同步打包（保持原有逻辑）
-        return self._sync_download(folder, request.user, form.is_public)
+        return self._sync_download(folder, request.user, form.is_public, request)
 
     def _count_folder_files(self, folder, FolderModel, FileModel, user, is_public):
         """统计文件夹内的文件总数（BFS 批量计数）"""
@@ -111,7 +111,7 @@ class FolderDownloadView(View):
 
         return total
 
-    def _submit_async_pack_task(self, folder, user, is_public):
+    def _submit_async_pack_task(self, folder, user, is_public, request=None):
         """【P0-6修复】提交异步打包任务"""
         try:
             from ...tasks import pack_folder_to_zip
@@ -122,7 +122,7 @@ class FolderDownloadView(View):
             inspector = celery_app.control.inspect()
             if inspector.active_queues() is None:
                 logger.warning('[Document] Celery not available, falling back to sync mode')
-                return self._sync_download(folder, user, is_public)
+                return self._sync_download(folder, user, is_public, request)
 
             # 提交异步任务
             tenant_id = getattr(user, 'tenant_id', None)
@@ -156,7 +156,7 @@ class FolderDownloadView(View):
             logger.info(f'[Document] Falling back to sync mode for folder id={folder.id}')
             return self._sync_download(folder, user, is_public)
 
-    def _sync_download(self, folder, user, is_public):
+    def _sync_download(self, folder, user, is_public, request=None):
         """同步打包下载（原有逻辑）"""
         FolderModel = get_folder_model(is_public=is_public)
         FileModel = get_file_model(is_public=is_public)
@@ -194,6 +194,7 @@ class FolderDownloadView(View):
             log_operation(
                 action="FOLDER_DOWNLOAD",
                 user=user,
+                request=request,
                 resource_type="FOLDER",
                 resource_id=folder.id,
                 is_public=is_public,

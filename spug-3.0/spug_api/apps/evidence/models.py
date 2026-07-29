@@ -110,6 +110,15 @@ class EvidenceEvent(models.Model, TenantModelMixin):
             # event_hash 校验
             models.Index(fields=['event_hash'], name='ev_event_hash_idx'),
         ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(event_type__in=[
+                    'submit', 'approve', 'reject', 'close',
+                    'correct', 'delete', 'export', 'void', 'other',
+                ]),
+                name='ev_event_type_valid',
+            ),
+        ]
 
 
 class EvidenceAttachment(models.Model, TenantModelMixin):

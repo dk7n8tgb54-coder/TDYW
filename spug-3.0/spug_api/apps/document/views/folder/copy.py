@@ -105,6 +105,7 @@ class FolderCopyView(View):
         log_operation(
             action="FOLDER_COPY",
             user=request.user,
+            request=request,
             resource_type="FOLDER",
             resource_id=source_folder.id,
             is_public=is_public,

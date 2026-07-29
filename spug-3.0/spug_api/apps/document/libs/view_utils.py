@@ -80,35 +80,48 @@ def check_public_space_permission(request_user, resource_obj, resource_type='fil
     return True
 
 
+AUDIT_ACTION_MAP = {
+    'FILE_UPLOAD': 'create',     'FILE_COPY': 'create',
+    'FILE_DELETE': 'delete',
+    'FILE_RENAME': 'update',     'FILE_MOVE': 'update',
+    'FILE_DOWNLOAD': 'export',
+    'FOLDER_DELETE': 'delete',
+    'FOLDER_RENAME': 'update',   'FOLDER_MOVE': 'update',
+    'FOLDER_DOWNLOAD': 'export', 'FOLDER_COPY': 'create',
+}
+
+
 def log_operation(action, user, resource_type, resource_id, **kwargs):
+    """记录文档操作审计日志（写入数据库 audit_logs 表）
+
+    当传入 request 时使用 record_audit_event，自动设置 _audit_handled 标记，
+    中间件检测到该标记后跳过，避免重复记录。
     """
-    【M12 升级 2026-06-08】统一的审计日志函数
+    try:
+        from apps.logs.audit import record_audit_event, save_audit_log
+        request = kwargs.pop('request', None)
+        target_name = kwargs.get('file_name') or kwargs.get('folder_name') or ''
+        mapped_action = AUDIT_ACTION_MAP.get(action, 'other')
 
-    升级要点：
-    1. 之前：logger.debug 输出字符串，几乎不打印（DEBUG 默认禁用）
-    2. 现在：内部调 audit_log，输出结构化 JSON 到独立 'audit' logger
-    3. 19 个调用点完全保持兼容 — 内部自动从 user 推 user_id/tenant_id
-
-    Args:
-        action: 操作名（如 'FILE_PERMANENT_DELETE'）
-        user: User 对象（必传，从其 .id/.username/.tenant_id 提取）
-        resource_type: 资源类型字符串（如 'FILE' / 'FOLDER'）
-        resource_id: 资源 ID
-        **kwargs: 额外字段（is_public / file_size / folder_name / task_id / space 等）
-
-    Returns:
-        str: 序列化后的 JSON 字符串（同时通过 'audit' logger 输出）
-    """
-    # 延迟 import 避免循环引用
-    from libs.audit_logger import audit_log
-    return audit_log(
-        action=action,
-        target_id=resource_id,
-        status=kwargs.pop('status', 'success'),
-        target_type=resource_type,
-        user=user,
-        **kwargs,
-    )
+        if request is not None:
+            record_audit_event(
+                request, mapped_action,
+                target_type='document',
+                target_id=str(resource_id) if resource_id else '',
+                target_name=target_name,
+            )
+        else:
+            save_audit_log(
+                user_id=getattr(user, 'id', 0),
+                username=getattr(user, 'username', ''),
+                action=mapped_action,
+                target_type='document',
+                target_id=str(resource_id) if resource_id else '',
+                target_name=target_name,
+                tenant_id=getattr(user, 'tenant_id', 'default'),
+            )
+    except Exception:
+        logger.warning('log_operation failed: action=%s resource_id=%s', action, resource_id, exc_info=True)
 
 
 def create_model_instance(Model, **kwargs):

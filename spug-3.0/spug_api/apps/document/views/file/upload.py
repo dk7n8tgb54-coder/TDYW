@@ -77,6 +77,7 @@ class FileUploadView(View):
         log_operation(
             action="FILE_UPLOAD",
             user=request.user,
+            request=request,
             resource_type="FILE",
             resource_id=new_file.id,
             is_public=is_public,

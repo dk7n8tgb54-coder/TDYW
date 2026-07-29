@@ -31,7 +31,7 @@ from django.views import View
 
 from django.utils import timezone
 from libs import json_response, JsonParser, Argument, parse_time
-from libs.audit_logger import audit_log
+from apps.logs.audit import record_audit_event
 from apps.account.models import Tenant
 from apps.evidence.models import EvidenceAttachment
 from apps.evidence.attachment_service import (
@@ -201,8 +201,7 @@ def _update_announcement(form, title, content, start_str, end_str, tids, tenants
     _set_publish_department(ann, form, request)
     ann.save()
     _sync_scopes(ann, form.scope_type, tids, tenants)
-    audit_log(request=request, action='announcement.update',
-              target_id=ann.id, target_type='Announcement', message=ann.title)
+    record_audit_event(request, 'update', target_type='home', target_id=ann.id, target_name=ann.title)
     return ann, None
 
 
@@ -224,8 +223,7 @@ def _create_announcement(form, title, content, start_str, end_str, tids, tenants
     _set_publish_department(ann, form, request)
     ann.save()
     _sync_scopes(ann, form.scope_type, tids, tenants)
-    audit_log(request=request, action='announcement.create',
-              target_id=ann.id, target_type='Announcement', message=ann.title)
+    record_audit_event(request, 'create', target_type='home', target_id=ann.id, target_name=ann.title)
     return ann
 
 
@@ -328,8 +326,7 @@ class AnnouncementAdminDetailView(View):
         ann.save()
         # 联动软删除附件
         AttachmentService.soft_delete_by_object(request.user, MODULE, OBJECT_TYPE, ann.id)
-        audit_log(request=request, action='announcement.delete',
-                  target_id=ann.id, target_type='Announcement', message=ann.title)
+        record_audit_event(request, 'delete', target_type='home', target_id=ann.id, target_name=ann.title)
         return json_response()
 
 
@@ -362,8 +359,7 @@ class AnnouncementPublishView(View):
         ann.withdrawn_by_name = ''
         # 保留用户填写的生效时间，compute_status 会按时间区间自然判定可见性
         ann.save()
-        audit_log(request=request, action='announcement.publish',
-                  target_id=ann.id, target_type='Announcement', message=ann.title)
+        record_audit_event(request, 'update', target_type='home', target_id=ann.id, target_name=ann.title)
         return json_response({'id': ann.id, 'status': ann.status, 'published_at': ann.published_at})
 
 
@@ -383,8 +379,7 @@ class AnnouncementWithdrawView(View):
         ann.withdrawn_by_id = request.user.id
         ann.withdrawn_by_name = request.user.nickname or request.user.username
         ann.save()
-        audit_log(request=request, action='announcement.withdraw',
-                  target_id=ann.id, target_type='Announcement', message=ann.title)
+        record_audit_event(request, 'update', target_type='home', target_id=ann.id, target_name=ann.title)
         return json_response({'id': ann.id, 'status': ann.status})
 
 
@@ -422,8 +417,7 @@ class AnnouncementAttachmentListView(View):
         result['uploaded_by_name'] = request.user.nickname
         result['created_at'] = att.uploaded_at
         result['previewable'] = att.file_ext in PREVIEWABLE_EXTENSIONS
-        audit_log(request=request, action='announcement.attachment.upload',
-                  target_id=ann.id, target_type='Announcement', message=att.file_name)
+        record_audit_event(request, 'create', target_type='home', target_id=ann.id, target_name=att.file_name)
         return json_response(result)
 
 
@@ -441,8 +435,7 @@ class AnnouncementAttachmentDeleteView(View):
         error = AttachmentService.soft_delete(request.user, form.id, delete_file=True)
         if error:
             return json_response(error=error)
-        audit_log(request=request, action='announcement.attachment.delete',
-                  target_id=None, target_type='Announcement', message='删除附件 ID=%s' % form.id)
+        record_audit_event(request, 'delete', target_type='home', target_name='删除附件 ID=%s' % form.id)
         return json_response()
 
 

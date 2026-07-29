@@ -411,6 +411,7 @@ class FolderView(View):
             log_operation(
                 action="FOLDER_DELETE",
                 user=request.user,
+                request=request,
                 resource_type="FOLDER",
                 resource_id=folder_id,
                 is_public=form.is_public,

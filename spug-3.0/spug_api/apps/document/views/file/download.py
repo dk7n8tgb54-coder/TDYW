@@ -91,6 +91,7 @@ class FileDownloadView(View):
         log_operation(
             action="FILE_DOWNLOAD",
             user=request.user,
+            request=request,
             resource_type="FILE",
             resource_id=file.id,
             is_public=form.is_public,

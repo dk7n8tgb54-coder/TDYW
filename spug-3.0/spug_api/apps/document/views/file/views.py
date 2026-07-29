@@ -81,6 +81,7 @@ class FileView(View):
             log_operation(
                 action="FILE_DELETE",
                 user=request.user,
+                request=request,
                 resource_type="FILE",
                 resource_id=file_id,
                 is_public=form.is_public,

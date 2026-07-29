@@ -19,7 +19,7 @@ class User(models.Model, ModelMixin):
     type = models.CharField(max_length=20, default='default')
     is_supper = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
-    access_token = models.CharField(max_length=32)
+    access_token = models.CharField(max_length=32, unique=True)
     token_expired = models.IntegerField(null=True)
     last_login = models.DateTimeField(null=True, blank=True)
     last_ip = models.CharField(max_length=50)
@@ -220,6 +220,7 @@ class Role(models.Model, ModelMixin):
     class Meta:
         db_table = 'roles'
         ordering = ('-id',)
+        unique_together = (('tenant_id', 'name'),)
 
 
 class History(models.Model, ModelMixin):

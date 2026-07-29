@@ -2,80 +2,69 @@
 
 ## 运行环境
 - Docker 在 WSL；`tdyw` 容器（镜像 tdyw:0720）路径 `/data/spug/spug_api`，Python 3.10；**无 bind mount**，改代码需 `docker cp`
-- `tdyw-test` 容器（镜像 tdyw:django42-stage2）**有 bind mount** `/mnt/e/TDYW/spug-3.0/spug_api -> /data/spug/spug_api`，改代码即时可见；连 dev 库（MYSQL_HOST=db, MYSQL_DATABASE=spug）；makemigrations/migrate 验证用此容器
-- WSL 调用：`wsl bash -c 'docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw python manage.py check'`（单引号护内层双引号）
-- spug_web：antd 4.21.5（Modal 用 `visible`）+ legacy 装饰器 + class properties（mobx `@observable`/`@action`）
-- ⚠️ named volume 遮盖 bind mount 子目录陷阱：media/storage/logs 走 bind mount
-- ⚠️ Docker 内网回调：kkFileView 经 `http://tdyw` 回源，容器名须进 ALLOWED_HOSTS；`.env` 已配 `ALLOWED_HOSTS=...,tdyw` + `ALLOWED_ORIGINS=...,http://tdyw`
-- ⚠️ 生产单块机械盘：`chunks`/`documents`/`media` 同处 `/dev/sdd`（ext4，IO 调度器 `none`，ionice 无效）。多用户并发上传时随机写与合并顺序读写抢磁头 → IO 打满。合并 worker 并发已降至 1 + 缓冲 16MB + fallocate 预分配（详见 2026-07-26 daily）
+- `tdyw-test` 容器（镜像 tdyw:django42-stage2）**有 bind mount** `/mnt/e/TDYW/spug-3.0/spug_api -> /data/spug/spug_api`，改代码即时可见；连 dev 库；makemigrations/migrate 验证用此容器
+- WSL 调用：`wsl bash -c 'docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw python manage.py check'`
+- spug_web：antd 4.21.5（Modal 用 `visible`）+ legacy 装饰器 + class properties（mobx）
+- ⚠️ Docker 内网回调：kkFileView 经 `http://tdyw` 回源，容器名须进 ALLOWED_HOSTS
+- ⚠️ 生产单块机械盘：`chunks`/`documents`/`media` 同处 `/dev/sdd`。合并 worker 并发已降至 1 + 缓冲 16MB + fallocate 预分配
 
-## 后端测试（2026-07-20）
-- 10 app 有测试(465 全绿)：department_duty_log/radio_license/regulation/signature/logs/setting/account/checksheet(废弃)/interference
-- 7 app 冒烟模板(2 each)：contract_agreement/device/duty/home/runlog/upgrade/fault
-- 6 app 无测试：document(极复杂待补)/evidence(无 HTTP 入口)/exec/schedule/safety_question_bank
-- 辅助 `apps/utils/test_helpers.py`；运行 `docker exec ... tdyw python manage.py test apps.xxx.tests --noinput`
+## 数据库配置
+- `ATOMIC_REQUESTS=True`（每个请求自动事务）；`CONN_MAX_AGE=0`（gevent 兼容，禁连接池）
+- 未显式配置 `isolation_level`（MySQL 默认 RR）
+- MariaDB 10.8.2；`sql_mode=STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,...`
 
-## 压测 locust（2026-07-20/21）
-- runner `./locustfile/run_all_locust.sh [--all|--only <name>|--list]`；SLA `locustfile/SLA_THRESHOLDS.md`；共用 `_common.py`（`TokenSharedHttpUser` token 池 + `_get/_post/_patch/_delete` catch_response 块）
-- 镜像：`locustio/locust:latest` 本地需存在（Docker Hub 直连超时→`docker save/load` 或 `LOCUST_IMAGE=` 覆盖）；Docker 守护进程仅 WSL 可访问
-
-## 测试编写要点（血泪）
-1. access_token 必须 32 字符（中间件 `len!=32` 拒）；2. Role.created_by NOT NULL 必传；3. User.tenant_id 默认 'admin'/AuditLog 'default'；4. make_user 设 version=0；5. json_response 错误时 data=''；6. update_by_dict 过滤 None（`{k:v for...if v is not None}`，已修 9 视图），测试模拟真实部分字段；7. POST 创建+编辑共用 JsonParser 用 required=False+创建手校+编辑过滤 None；8. 中文文件名 RFC2047 编码→`email.header.decode_header`；9. USE_TZ=False 禁 `make_aware` 用 naive；10. 隔离 `@override_settings(MEDIA_ROOT=tempfile.mkdtemp())`+`cache.clear()`；11. test client 路径无 `/api/` 前缀；12. makemigrations 指定 app；13. 不为绿绕过 bug；14. 上传 post 不返回 id，前端 list 按名匹配；15. locust `with...as resp` 块外调 `resp.success()` 必抛 `LocustError`
+## 测试与压测
+- 10 app 有测试(465 全绿)；7 app 冒烟模板；6 app 无测试（document极复杂/evidence无HTTP入口/exec/schedule/safety_question_bank）
+- 运行：`docker exec ... tdyw python manage.py test apps.xxx.tests --noinput`
+- locust runner `./locustfile/run_all_locust.sh`；SLA `locustfile/SLA_THRESHOLDS.md`
+- 测试要点：access_token 32 字符；Role.created_by NOT NULL；User.tenant_id 默认 'admin'；make_user 设 version=0；json_response 错误时 data=''；update_by_dict 过滤 None；USE_TZ=False 禁 make_aware；test client 路径无 `/api/` 前缀；makemigrations 指定 app；上传 post 不返回 id 前端按名匹配
 
 ## 迁移纪律 ⚠️
-1. makemigrations 指定 app；2. 一功能一 migration，schema/data 分；3. 唯一约束拆步(加字段→回填→查重→AlterField unique)；4. CharField→Date/DateTime 先洗空串 `filter(col='').update(col=None)`；5. MariaDB10.8.2 不支持部分唯一索引，is_deleted=True 设 NULL；6. db_index 与 Meta.indexes 同字段生成两套索引；7. 租户 TenantModelMixin/Manager/make_tenant_id；8. fresh 库 133 迁移全通过(54 表)；9. **改 default_auto_field 触发所有老表 alter id 迁移**（不止新表）；MariaDB alter 被外键引用的主键列报错 1833，解法 migrate 前 Django 连接 `SET FOREIGN_KEY_CHECKS=0`（会话级，migrate 全程同一连接，**勿写脚本批量改迁移文件**）；进生产前是改主键类型唯一无痛窗口（2026-07-22 BigAutoField 升级 57 表）
+1. makemigrations 指定 app；2. 一功能一 migration；3. 唯一约束拆步(加字段->回填->查重->AlterField)；4. CharField->Date 先洗空串；5. MariaDB 不支持部分唯一索引，is_deleted=True 设 NULL；6. 改 default_auto_field 触发所有老表 alter id；7. MariaDB alter 被外键引用主键列报错 1833 -> `SET FOREIGN_KEY_CHECKS=0`
 
 ## 批量删除陷阱 ⚠️
-- QuerySet 切片惰性重查，删循环绝不用 `range(count)+qs[start:end]`（OFFSET 跳过→残留→on_delete=SET_NULL 散落根目录）；用 `while True: batch=list(qs.exclude(id__in=failed_ids)[:BATCH]); if not batch: break` + max_iterations 安全阀。血案：`_delete_folder` BATCH_SIZE=50 致 >50 文件散落根目录（2026-07-21 修）
+- QuerySet 切片惰性重查，删循环用 `while True: batch=list(qs.exclude(id__in=failed_ids)[:BATCH])` + max_iterations 安全阀，绝不用 `range(count)+qs[start:end]`
 
-## 代码验证流程（post-write-verification skill）
-1. `read_lints`；2. py: `docker exec tdyw python -m py_compile <path>`；3. js: `node -e "@babel/parser" (classProperties/decorators-legacy/dynamicImport/jsx)`；4. `git diff`；5. Django 测试必在容器内；6. 遇问题先查 skill 文档而非凭直觉
+## 代码验证流程
+1. `read_lints`；2. py: `docker exec tdyw python -m py_compile <path>`；3. js: `node -e "@babel/parser"`；4. `git diff`；5. Django 测试必在容器内
 
 ## 模块架构速查
-- 附件 `apps/evidence`（EvidenceAttachment 多态 + AttachmentService + preview_token；路径 `{MEDIA_ROOT}/{module}/{tenant}/{yyyyMM}/{type}_{id}/{name}`）；radio_license(执照license/批复approval)/contract_agreement(agreement)/device/upgrade/fault/interference/department_duty_log 均走此机制存 MEDIA_ROOT；**例外：regulation 走独立 `storage.py`**（RegulationAttachment 模型，存储在 `{BASE_DIR}/storage/documents/regulation/{id}/{yyyy}/{mm}/{uuid.ext}`，复用资料库 volume 而非 MEDIA_ROOT，路径校验用 `resolve_absolute_path` 限定 regulation/ 子目录）
-- 账号签名 `apps/signature`（apply_signature 事务锁→SHA256→Usage+EvidenceEvent；场景 `SIGNATURE_SCENES`）
-- 拖拽上传 `captureUploadTargetContext()` Object.freeze；角色委派 `role_permissions.py`；导出 `libs/export_utils.py`；PDF 中文字体 `libs/font_manager.py` + `libs/fonts/simhei.ttf`（FontManager 类 + FONT_NAME 常量，runlog/duty/device/department_duty_log 4 个 pdf_export 统一调用；注册优先级：容器 libs/fonts → 项目 libs/fonts → 系统字体；2026-07-24 从已删 checksheet 模块迁出）
+- 附件 `apps/evidence`（EvidenceAttachment 多态 + AttachmentService + preview_token）；radio_license/contract_agreement/device/upgrade/fault/interference/department_duty_log 均走此机制存 MEDIA_ROOT；**例外：regulation 走独立 `storage.py`**
+- 账号签名 `apps/signature`（apply_signature 事务锁->SHA256->Usage+EvidenceEvent）
 - 党建隔离 `DocumentSystemFolder` + `system_scope_validators`（fail-closed）
-- 台站频率批复 `apps/radio_license` 复用 `calculate_license_status` 60 天阈值
-- 权限缓存 `User.page_perms` Redis `perms_{id}`=(version,perms)，`Role.perms_version` 变更自增
-- kkFileView `OfficePreviewUrlView` 生成 preview_url；`KKFILEVIEW_API_URL`(浏览器)/`KKFILEVIEW_SERVER_URL`(回源)
-- 磁盘用量 `DiskUsageView`(disk.py) Redis 缓存 60s（按 is_public+租户分键：`private:all`/`private:{tenant_id}`/`public`，复用 `libs/cache_utils`）；私有文件表覆盖索引 `doc_pri_file_diskusage_idx=(tenant_id,is_deleted,file_size)` 服务聚合 SUM；公共表无索引靠缓存（is_deleted 选择性差）；前端 `useDiskSpace` 30s 轮询
-- 边界遗漏收口要点（2026-07-21 审查 hy3扫描边界/13份清单）：preview_token **两套独立实现**（`document/libs/preview_token.py` `validate_preview_token` 资料库用；`evidence/attachment_preview_token.py` `validate_attachment_preview_token` 规章/证据附件用，`regulation/views.py:41-43` import）→ 收口前必须先合并再补 user_id/is_active 校验；`_parse_date` 三份口径不一（regulation 返回元组/department_duty_log 抛异常带 allow_future/contract_agreement 返回元组必填语义）；EvidencePackage 4 模块逐字复制（interference/radio_license/device/runlog，干扰#9 与设备 BC-EXP-04 审计回退越界是同一段复制代码；原 5 模块含 checksheet，2026-07-24 移除）；`check_export_limit`(libs/export_utils.py) 存在但 department_duty_log/logs 未调用；落地优先级按"日常影响"非"安全"排：先堵高频 500/白屏（工作台 WS-01/WS-16 已修）
+- 权限缓存 `User.page_perms` Redis `perms_{id}`=(version,perms)
+- kkFileView `KKFILEVIEW_API_URL`(浏览器)/`KKFILEVIEW_SERVER_URL`(回源)
+- 磁盘用量 `DiskUsageView` Redis 缓存 60s
+- preview_token **两套独立实现**（document/libs vs evidence/attachment_preview_token）待收口
 
-## Celery（2026-07-20）
+## Celery
 - 17 `@shared_task` / 5 队列；11 Beat + 6 事件触发
-- `retry_clean_pending_files` 是 `is_pending_clean` 唯一消费者（仅 Beat 调度，无 `.delay()`），不可删
-- 已修 3 bug：bind self / redis_client ImportError / cleanup_expired_pack_tasks 孤儿任务
+- `retry_clean_pending_files` 是 `is_pending_clean` 唯一消费者，不可删
 
 ## Django 升级路线
-- 2.2.28→3.2.25→4.2.30(完成)→5.2 LTS(待做)；Channels4 consumer `__init__` 禁访问 `self.scope`（用 `init()` 钩子）
+- 2.2->3.2->4.2.30(完成)->5.2 LTS(待做)；Channels4 consumer `__init__` 禁访问 `self.scope`
 
 ## 生产内存(8G)
-- tdyw 2G/512M（Django+Gunicorn4×16+Celery+Nginx）；tdyw-db 3G/1G(innodb_buffer_pool 2G)；kkfileview 1.5G/512M(LibreOffice)；MySQL max_connections 300
+- tdyw 2G/tdyw-db 3G(innodb_buffer_pool 2G)/kkfileview 1.5G；MySQL max_connections 300
 
 ## 权限码
-- 新功能走 UI `pages/system/role/codes.js`→角色勾选→`PATCH /api/account/role/`；不写 `.sql` 预置；`is_supper` 放行
+- 新功能走 UI `pages/system/role/codes.js`->角色勾选->`PATCH /api/account/role/`；不写 `.sql` 预置；`is_supper` 放行
 
 ## 反思清单（跨会话必遵）
-1. 反问质疑立即认错不掩盖；2. 增量>大爆炸+YAGNI+向后兼容；3. 配置化(枚举+集合)>硬编码(同串≥3处抽出)；4. 参考成熟产品+行业惯例；5. 每次修复后全局扫描同类；6. error 字段一致性(正常态无 error)；7. `obj?.method()` 触发 no-unused-expressions→`if(obj)obj.method()`；8. Model.save 签名 `def save(self,*args,**kwargs)`；9. jest 测装饰器模块报错→提取纯函数；10. 嵌套 atomic 仅 savepoint；11. 备份恢复同周期(DB→documents)；12. `from X import Y` 确认 Y 从 X 导出
+1. 反问质疑立即认错不掩盖；2. 增量>大爆炸+YAGNI+向后兼容；3. 配置化>硬编码(同串≥3处抽出)；4. 参考成熟产品+行业惯例；5. 每次修复后全局扫描同类；6. error 字段一致性(正常态无 error)；7. `obj?.method()` 触发 no-unused-expressions->`if(obj)obj.method()`；8. Model.save 签名 `def save(self,*args,**kwargs)`；9. 嵌套 atomic 仅 savepoint；10. 备份恢复同周期(DB->documents)
 
-## 备份恢复脚本（2026-07-24）
-- 入口 `backups/backup_set_create.sh`（一致性备份）/ `backup_set_restore.sh`（恢复）；配套 Python 工具**全部位于 `backups/` 目录**（与 .sh 同目录），不在 `scripts/`
-- 脚本内引用 Python 工具用 `${SCRIPT_DIR}/xxx.py`（宿主机直接调用）或挂载 `${SCRIPT_DIR}:/backup-code:ro` + 容器内 `/backup-code/xxx.py`；**禁用 `${PROJECT_ROOT}/scripts/`**
-- `PROJECT_ROOT`（spug-3.0 仓库根）仅用于 `git -C`、`docker/.env` 等仓库结构路径
-- DB→documents/media 必须同一停写窗口；dry-run 也会跑 preflight（含 select_fileset_parent.py 调用），所以脚本路径错在 dry-run 阶段就暴露
+## 备份恢复脚本
+- 入口 `backups/backup_set_create.sh` / `backup_set_restore.sh`；Python 工具全部在 `backups/` 目录（不在 `scripts/`）
+- DB->documents/media 必须同一停写窗口
 
 ## 数据库性能优化（2026-07-29）
-- **分区决策基于数据生命周期+查询模式，不是行数阈值**：InnoDB B+树 1000 万行无压力，100 万"必须分区"是误导
-- **Django `__date` 绕过索引**：翻译成 `DATE(col)=...`，B-tree 索引失效，强制全表扫描。改用 `__gte`/`__lt` + datetime 范围
-- **`__startswith` 在 DateTimeField 上绕过索引**：`LIKE '2026-07-29%'` 对 DATETIME 列需隐式类型转换，大概率不走索引。CharField 上的 `__startswith` 不受影响
-- **Dashboard `home/views.py:get_statistic` 已加 Redis 缓存**：60s TTL，按租户分键 `dashboard:{tenant_id}`
-- **audit_logs 关键词搜索默认限制最近 90 天**：无时间范围时 `created_at__gte=now-90d`
-- **新增索引**：FaultRecord/FaultPart/RunLog 默认分页索引；移除 RunLogUpdate 冗余 `[runlog_id]`
+- `__date` 绕过索引（翻译成 `DATE(col)=...`），改用 `__gte`/`__lt` + datetime 范围
+- `__startswith` 在 DateTimeField 上绕过索引；CharField 不受影响
+- Dashboard `home/views.py:get_statistic` 已加 Redis 缓存 60s
+- audit_logs 关键词搜索默认限制最近 90 天
 - migration: `fault/0005` + `runlog/0013`
 
-## 公共组件（2026-07-29 新增）
-- **`libs/pagination.py`**: `paginate(request)` + `paginate_response(qs, page, page_size, serialize_fn, items_key)`。11 个列表视图已改用
-- **`libs/date_utils.py`**: `date_range_filter(qs, field, start, end)` + `today_range()` + `month_range()` + `parse_date()` + `date_to_datetime()`。8 个模块已改用
-- **date_range_filter 格式规则**: 纯日期 'YYYY-MM-DD' -> `__lt: dt+1day`（含当天）；含时间 'YYYY-MM-DD HH:MM:SS' -> `__lte: dt`（精确到秒）
-- **新列表视图写法**: `page, page_size = paginate(request)` + `data = paginate_response(qs, page, page_size, serialize_fn=lambda x: x.to_view(), items_key='records')`
+## 公共组件
+- `libs/pagination.py`: `paginate(request)` + `paginate_response(qs, page, page_size, serialize_fn, items_key)`
+- `libs/date_utils.py`: `date_range_filter` + `today_range()` + `month_range()` + `parse_date()`
+- date_range_filter 格式：纯日期 'YYYY-MM-DD' -> `__lt: dt+1day`；含时间 -> `__lte: dt`

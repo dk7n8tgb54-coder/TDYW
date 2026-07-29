@@ -199,11 +199,12 @@ class FileCopyLogger:
 
     @staticmethod
     def log_copy_operation(user, new_file, source_file, original_name,
-                          new_name, folder, is_public):
+                          new_name, folder, is_public, request=None):
         """记录复制操作日志"""
         log_operation(
             action="FILE_COPY",
             user=user,
+            request=request,
             resource_type="FILE",
             resource_id=new_file.id,
             is_public=is_public,
@@ -319,7 +320,7 @@ class FileCopyView(View):
         FileCopyLogger.log_copy_operation(
             request.user, new_file, file,
             names['original_display_name'], final_display_name,
-            folder, is_public
+            folder, is_public, request=request
         )
 
         return json_response()

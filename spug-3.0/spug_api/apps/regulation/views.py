@@ -569,23 +569,27 @@ class RegulationDetailView(View):
             return json_response(error='规章不存在')
         title = regulation.title
         rid = regulation.id
-        # 软删除所有附件记录并尽量清理物理文件
-        for att in regulation.attachments.filter(is_deleted=False):
-            att.is_deleted = True
-            att.deleted_by = request.user
-            att.deleted_at = timezone.now()
-            att.save(update_fields=['is_deleted', 'deleted_by', 'deleted_at'])
-            try:
-                abs_path = storage.resolve_absolute_path(att.file_path)
-                storage.safe_delete_attachment_file(abs_path)
-            except ValueError as e:
-                logger.warning(f'[Regulation] 跳过附件物理文件清理: att_id={att.id}, error={e}')
+        # 收集需要清理的附件路径（在批量更新前读取）
+        attachments_to_clean = list(regulation.attachments.filter(is_deleted=False).values('id', 'file_path'))
+        # 批量软删除附件（替代循环 save）
+        regulation.attachments.filter(is_deleted=False).update(
+            is_deleted=True, deleted_by=request.user, deleted_at=timezone.now()
+        )
         regulation.delete()
         record_audit_event(
             request, 'delete', AUDIT_TARGET_TYPE,
             target_id=rid, target_name=title,
             detail={'summary': '删除规章及附件'},
         )
+        # 事务提交后再清理物理文件（避免回滚后文件丢失）
+        def _cleanup_files():
+            for att in attachments_to_clean:
+                try:
+                    abs_path = storage.resolve_absolute_path(att['file_path'])
+                    storage.safe_delete_attachment_file(abs_path)
+                except (ValueError, OSError) as e:
+                    logger.warning(f'[Regulation] 跳过附件物理文件清理: att_id={att["id"]}, error={e}')
+        transaction.on_commit(_cleanup_files)
         return json_response(data={'status': 'deleted'})
 
 
@@ -651,7 +655,6 @@ class RegulationAttachmentUploadView(View):
     """
 
     @auth('document.regulation.upload')
-    @transaction.atomic
     def post(self, request, pk):
         regulation = _get_regulation(pk)
         if regulation is None:
@@ -684,28 +687,35 @@ class RegulationAttachmentUploadView(View):
         except ValueError as e:
             return json_response(error=str(e))
 
-        # 写入文件并计算 MD5
+        # 文件写入在事务外，避免 DB 失败时孤儿文件
         file_hash = storage.save_upload_file(file, abs_path)
 
-        # 创建附件记录
-        att = RegulationAttachment.objects.create(
-            regulation=regulation,
-            original_name=file.name,
-            stored_name=stored_name,
-            file_path=relative_path,
-            file_size=file.size,
-            file_type=ext.lstrip('.'),
-            file_hash=file_hash,
-            sort_order=sort_order,
-            uploaded_by=request.user,
-        )
-
-        record_audit_event(
-            request, 'upload_attachment', AUDIT_TARGET_TYPE,
-            target_id=regulation.id, target_name=regulation.title,
-            detail={'attachment_id': att.id, 'file_name': att.original_name,
-                    'file_size': att.file_size},
-        )
+        # DB 写入在事务内，失败时清理已写入的物理文件
+        try:
+            with transaction.atomic():
+                att = RegulationAttachment.objects.create(
+                    regulation=regulation,
+                    original_name=file.name,
+                    stored_name=stored_name,
+                    file_path=relative_path,
+                    file_size=file.size,
+                    file_type=ext.lstrip('.'),
+                    file_hash=file_hash,
+                    sort_order=sort_order,
+                    uploaded_by=request.user,
+                )
+                record_audit_event(
+                    request, 'upload_attachment', AUDIT_TARGET_TYPE,
+                    target_id=regulation.id, target_name=regulation.title,
+                    detail={'attachment_id': att.id, 'file_name': att.original_name,
+                            'file_size': att.file_size},
+                )
+        except Exception:
+            try:
+                storage.safe_delete_attachment_file(abs_path)
+            except (ValueError, OSError) as e:
+                logger.warning(f'[Regulation] 孤儿文件清理失败: {abs_path}, error={e}')
+            raise
         return json_response(data=_serialize_attachment(att))
 
 
@@ -936,12 +946,16 @@ class RegulationAttachmentDetailView(View):
         att.deleted_at = timezone.now()
         att.save(update_fields=['is_deleted', 'deleted_by', 'deleted_at'])
 
-        # 尝试清理物理文件，失败不影响数据库状态
-        try:
-            abs_path = storage.resolve_absolute_path(att.file_path)
-            storage.safe_delete_attachment_file(abs_path)
-        except ValueError as e:
-            logger.warning(f'[Regulation] 跳过附件物理文件清理: att_id={att.id}, error={e}')
+        # 事务提交后再清理物理文件（避免回滚后文件丢失）
+        _att_file_path = att.file_path
+        _att_id = att.id
+        def _cleanup_file():
+            try:
+                abs_path = storage.resolve_absolute_path(_att_file_path)
+                storage.safe_delete_attachment_file(abs_path)
+            except (ValueError, OSError) as e:
+                logger.warning(f'[Regulation] 跳过附件物理文件清理: att_id={_att_id}, error={e}')
+        transaction.on_commit(_cleanup_file)
 
         record_audit_event(
             request, 'delete_attachment', AUDIT_TARGET_TYPE,

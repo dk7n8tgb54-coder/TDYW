@@ -83,6 +83,18 @@ class Regulation(models.Model):
             models.Index(fields=['biz_type'], name='reg_biz_type_idx'),
             models.Index(fields=['status'], name='reg_status_idx'),
         ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(status__in=['active', 'retired']),
+                name='reg_status_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(effective_date__gte=models.F('publish_date'))
+                      | models.Q(effective_date__isnull=True)
+                      | models.Q(publish_date__isnull=True),
+                name='reg_effective_after_publish',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.rule_no or ""} {self.title}'.strip()

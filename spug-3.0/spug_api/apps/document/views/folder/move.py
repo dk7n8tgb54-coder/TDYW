@@ -67,6 +67,7 @@ class FolderMoveView(View):
         log_operation(
             action='FOLDER_MOVE',
             user=request.user,
+            request=request,
             resource_type='FOLDER',
             resource_id=folder.id,
             is_public=params['is_public'],

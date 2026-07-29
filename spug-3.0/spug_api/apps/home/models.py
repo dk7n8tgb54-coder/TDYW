@@ -203,6 +203,21 @@ class Announcement(models.Model, TenantModelMixin):
             models.Index(fields=['effective_start_at', 'effective_end_at'], name='ann_effective_idx'),
             models.Index(fields=['is_deleted', 'status'], name='ann_deleted_idx'),
         ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(status__in=['unpublished', 'published', 'expired']),
+                name='ann_status_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(scope_type__in=['all', 'tenant']),
+                name='ann_scope_type_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(effective_end_at__gte=models.F('effective_start_at'))
+                      | models.Q(effective_end_at__isnull=True),
+                name='ann_end_after_start',
+            ),
+        ]
 
 
 class AnnouncementScope(models.Model, TenantModelMixin):

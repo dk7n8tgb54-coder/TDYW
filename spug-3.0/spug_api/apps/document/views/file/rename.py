@@ -64,6 +64,7 @@ class FileRenameView(View):
         log_operation(
             action='FILE_RENAME',
             user=request.user,
+            request=request,
             resource_type='FILE',
             resource_id=file_obj.id,
             is_public=params['is_public'],

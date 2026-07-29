@@ -233,19 +233,28 @@ class AttachmentService:
             return None, error
 
         file_hash = AttachmentService._compute_sha256(file_path)
-        att = EvidenceAttachment.objects.create(
-            tenant_id=tenant_for_attachment,
-            module=module,
-            object_type=object_type,
-            object_id=str(object_id),
-            file_name=os.path.basename(file.name),
-            file_path=relative_path,
-            file_size=file.size,
-            file_ext=ext,
-            file_hash_sha256=file_hash,
-            uploaded_by_id=getattr(user, 'id', None),
-            uploaded_by_name=user.nickname or user.username,
-        )
+        # DB 写入在事务内，失败时清理已写入的物理文件（避免孤儿文件）
+        try:
+            with transaction.atomic():
+                att = EvidenceAttachment.objects.create(
+                    tenant_id=tenant_for_attachment,
+                    module=module,
+                    object_type=object_type,
+                    object_id=str(object_id),
+                    file_name=os.path.basename(file.name),
+                    file_path=relative_path,
+                    file_size=file.size,
+                    file_ext=ext,
+                    file_hash_sha256=file_hash,
+                    uploaded_by_id=getattr(user, 'id', None),
+                    uploaded_by_name=user.nickname or user.username,
+                )
+        except Exception:
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+            raise
         return att, None
 
     @staticmethod

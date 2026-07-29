@@ -78,3 +78,12 @@ class AuditLog(models.Model, ModelMixin):
             models.Index(fields=['target_type'], name='audit_target_type_idx'),
             models.Index(fields=['username'], name='audit_username_idx'),
         ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(action__in=[
+                    'create', 'update', 'delete', 'login', 'logout',
+                    'export', 'import', 'approve', 'other',
+                ]),
+                name='audit_action_valid',
+            ),
+        ]
