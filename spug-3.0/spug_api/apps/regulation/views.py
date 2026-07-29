@@ -365,9 +365,9 @@ class RegulationListView(View):
             qs = qs.filter(effective_date__lte=form.effective_end)
 
         qs = qs.order_by('-effective_date', '-id')
+        from libs.pagination import paginate
+        page, page_size = paginate(request, default_page_size=20, max_page_size=100)
         total = qs.count()
-        page = max(1, form.page)
-        page_size = min(max(1, form.page_size), 100)
         items = qs.select_related('category').prefetch_related(
             'attachments'
         )[(page - 1) * page_size: page * page_size]

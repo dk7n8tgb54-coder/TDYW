@@ -73,3 +73,9 @@
 - **audit_logs 关键词搜索默认限制最近 90 天**：无时间范围时 `created_at__gte=now-90d`
 - **新增索引**：FaultRecord/FaultPart/RunLog 默认分页索引；移除 RunLogUpdate 冗余 `[runlog_id]`
 - migration: `fault/0005` + `runlog/0013`
+
+## 公共组件（2026-07-29 新增）
+- **`libs/pagination.py`**: `paginate(request)` + `paginate_response(qs, page, page_size, serialize_fn, items_key)`。11 个列表视图已改用
+- **`libs/date_utils.py`**: `date_range_filter(qs, field, start, end)` + `today_range()` + `month_range()` + `parse_date()` + `date_to_datetime()`。8 个模块已改用
+- **date_range_filter 格式规则**: 纯日期 'YYYY-MM-DD' -> `__lt: dt+1day`（含当天）；含时间 'YYYY-MM-DD HH:MM:SS' -> `__lte: dt`（精确到秒）
+- **新列表视图写法**: `page, page_size = paginate(request)` + `data = paginate_response(qs, page, page_size, serialize_fn=lambda x: x.to_view(), items_key='records')`

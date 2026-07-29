@@ -86,11 +86,11 @@ class DeviceResumeView(View):
             query = query.filter(manufacturer__icontains=form.manufacturer)
 
         # Pagination（边界限制：page>=1, page_size<=200，避免恶意超大请求）
-        page = max(1, form.page)
-        page_size = min(max(1, form.page_size), 200)
+        from libs.pagination import paginate
+        page, page_size = paginate(request)
         total = query.count()
         start = (page - 1) * page_size
-        records = query[start:start + page_size]
+        records = query[start:start + page_size].select_related('created_by', 'updated_by')
 
         return json_response({
             'data': [r.to_view() for r in records],
@@ -422,11 +422,11 @@ class DeviceEventView(View):
         query = query.order_by('-event_time', '-id')
 
         # Pagination（边界限制：page>=1, page_size<=200）
-        page = max(1, form.page)
-        page_size = min(max(1, form.page_size), 200)
+        from libs.pagination import paginate
+        page, page_size = paginate(request)
         total = query.count()
         start = (page - 1) * page_size
-        records = query[start:start + page_size]
+        records = query[start:start + page_size].select_related('created_by', 'updated_by')
 
         return json_response({
             'data': [r.to_view() for r in records],

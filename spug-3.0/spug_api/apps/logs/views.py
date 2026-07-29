@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 from libs.mixins import AdminView
 from libs import json_response, Argument, JsonParser
 from libs.utils import get_request_real_ip
+from libs.export_utils import check_export_limit
+from libs.date_utils import date_range_filter
 from apps.logs.models import AuditLog
 
 
@@ -57,20 +59,8 @@ class AuditLogView(AdminView):
         if form.is_success is not None:
             queryset = queryset.filter(is_success=form.is_success)
 
-        # 按时间范围筛选（created_at 已迁移为 DateTimeField，参数转为 datetime）
-        if form.start_time:
-            # 兼容 'YYYY-MM-DD' 和 'YYYY-MM-DD HH:MM:SS' 两种格式
-            try:
-                start_dt = datetime.strptime(form.start_time, '%Y-%m-%d %H:%M:%S')
-            except ValueError:
-                start_dt = datetime.strptime(form.start_time, '%Y-%m-%d')
-            queryset = queryset.filter(created_at__gte=start_dt)
-        if form.end_time:
-            try:
-                end_dt = datetime.strptime(form.end_time, '%Y-%m-%d %H:%M:%S')
-            except ValueError:
-                end_dt = datetime.strptime(form.end_time, '%Y-%m-%d')
-            queryset = queryset.filter(created_at__lte=end_dt)
+        # 按时间范围筛选（索引友好的 __gte/__lt）
+        queryset = date_range_filter(queryset, 'created_at', form.start_time, form.end_time)
 
         # 关键词搜索（搜索用户名、对象名称、详情）
         # LIKE '%keyword%' 无法走索引，无时间范围时限制最近 90 天减少扫描量
@@ -135,18 +125,7 @@ class AuditLogExportView(AdminView):
             queryset = queryset.filter(target_type=form.target_type)
         if form.is_success is not None:
             queryset = queryset.filter(is_success=form.is_success)
-        if form.start_time:
-            try:
-                start_dt = datetime.strptime(form.start_time, '%Y-%m-%d %H:%M:%S')
-            except ValueError:
-                start_dt = datetime.strptime(form.start_time, '%Y-%m-%d')
-            queryset = queryset.filter(created_at__gte=start_dt)
-        if form.end_time:
-            try:
-                end_dt = datetime.strptime(form.end_time, '%Y-%m-%d %H:%M:%S')
-            except ValueError:
-                end_dt = datetime.strptime(form.end_time, '%Y-%m-%d')
-            queryset = queryset.filter(created_at__lte=end_dt)
+        queryset = date_range_filter(queryset, 'created_at', form.start_time, form.end_time)
         if form.keyword:
             if not form.start_time and not form.end_time:
                 ninety_days_ago = timezone.now() - timedelta(days=90)
@@ -163,8 +142,13 @@ class AuditLogExportView(AdminView):
             queryset = queryset.filter(tenant_id=tenant_id)
 
         # 限制最大导出数量
-        records = queryset[:5000]
-        result = [r.to_dict() for r in records]
+        # 导出上限检查
+        count, error_resp = check_export_limit(queryset)
+        if error_resp:
+            return error_resp
+
+        # 逐行生成，避免大结果集占满内存
+        result = [r.to_dict() for r in queryset.iterator()]
 
         # 证据闭环：导出审计日志本身也要被审计
         # 记录导出条件、导出数量、导出人，便于追溯"谁导出了哪些审计数据"

@@ -14,6 +14,7 @@
 import io
 import logging
 from datetime import datetime, timedelta
+from libs.date_utils import date_range_filter
 from urllib.parse import quote
 
 from django.http import HttpResponse, JsonResponse
@@ -71,12 +72,7 @@ def _apply_filters(qs, request):
         qs = qs.filter(system_name__icontains=system_name)
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
-    if start_date:
-        _sd = datetime.strptime(start_date, '%Y-%m-%d')
-        qs = qs.filter(created_at__gte=_sd)
-    if end_date:
-        _ed = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
-        qs = qs.filter(created_at__lt=_ed)
+    qs = date_range_filter(qs, 'created_at', start_date, end_date)
     return qs
 
 

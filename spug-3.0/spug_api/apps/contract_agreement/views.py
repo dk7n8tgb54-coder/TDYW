@@ -187,8 +187,8 @@ class ContractAgreementView(View):
         if valid_end_to:
             qs = qs.filter(valid_end_date__lte=valid_end_to)
 
-        page = max(1, int(request.GET.get('page', 1)))
-        page_size = min(max(1, int(request.GET.get('page_size', 20))), 100)
+        from libs.pagination import paginate
+        page, page_size = paginate(request, default_page_size=20, max_page_size=100)
 
         qs = qs.select_related('created_by', 'updated_by').order_by('-created_at', '-id')
         total_count = qs.count()

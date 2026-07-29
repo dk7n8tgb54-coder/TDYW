@@ -87,6 +87,6 @@ class DeviceListExportView(View):
 
         records = qs.select_related('created_by', 'updated_by')
         # to_view() 包含 current_status_text 中文状态
-        rows = [obj.to_view() for obj in records]
+        rows = [obj.to_view() for obj in records.iterator()]
         filename = _build_filename()
         return build_excel_response(filename, SHEET_NAME, EXCEL_COLUMNS, rows)

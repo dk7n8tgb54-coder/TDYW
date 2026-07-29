@@ -158,9 +158,9 @@ class RunLogStatisticsService:
             start_date = end_date - timedelta(days=DEFAULT_RANGE_DAYS - 1)
 
         # 用 datetime 范围替代 __date，确保走 B-tree 索引
-        from datetime import datetime as _dt
-        range_start = _dt.combine(start_date, _dt.min.time())
-        range_end = _dt.combine(end_date + timedelta(days=1), _dt.min.time())
+        from libs.date_utils import date_to_datetime
+        range_start = date_to_datetime(start_date)
+        range_end = date_to_datetime(end_date + timedelta(days=1))
         queryset = queryset.filter(
             created_at__gte=range_start,
             created_at__lt=range_end,
@@ -177,10 +177,10 @@ class RunLogStatisticsService:
         一次 aggregate 完成，减少数据库往返。
         """
         # 用 datetime 范围替代 __date/__year/__month，确保走 B-tree 索引
-        from datetime import datetime as _dt
-        today_start = _dt.combine(today, _dt.min.time())
+        from libs.date_utils import date_to_datetime, date_range
+        today_start = date_to_datetime(today)
         tomorrow_start = today_start + timedelta(days=1)
-        month_start = _dt.combine(today.replace(day=1), _dt.min.time())
+        month_start = date_to_datetime(today.replace(day=1))
         next_month_start = (month_start + timedelta(days=32)).replace(day=1)
 
         agg = queryset.aggregate(

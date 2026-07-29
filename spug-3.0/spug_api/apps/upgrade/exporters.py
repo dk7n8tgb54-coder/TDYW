@@ -80,4 +80,4 @@ class RecordExportView(View):
 
         records = qs.select_related('created_by', 'updated_by')
         filename = _build_filename(request)
-        return build_excel_response(filename, SHEET_NAME, EXCEL_COLUMNS, list(records))
+        return build_excel_response(filename, SHEET_NAME, EXCEL_COLUMNS, list(records.iterator()))

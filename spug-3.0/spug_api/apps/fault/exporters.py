@@ -86,6 +86,6 @@ class FaultRecordExportView(View):
 
         # 使用 to_dict 获取字段值，配合 created_by 等外键避免 N+1
         records = qs.select_related('created_by', 'updated_by')
-        rows = [obj.to_dict() for obj in records]
+        rows = [obj.to_dict() for obj in records.iterator()]
         filename = _build_filename(request)
         return build_excel_response(filename, SHEET_NAME, EXCEL_COLUMNS, rows)

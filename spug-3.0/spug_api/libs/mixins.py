@@ -21,7 +21,8 @@ class ModelMixin(object):
 
     def update_by_dict(self, data):
         for key, value in data.items():
-            setattr(self, key, value)
+            if value is not None:
+                setattr(self, key, value)
         self.save()
 
 

@@ -5,6 +5,7 @@ from django.views.generic import View
 from django.utils import timezone
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
+from libs.pagination import paginate, paginate_response
 from apps.fault.models import FaultRecord, FaultPart
 from apps.logs.audit import record_audit_event
 import logging
@@ -15,9 +16,13 @@ logger = logging.getLogger(__name__)
 class FaultRecordView(View):
     @auth('fault.faultrecord.view')
     def get(self, request):
-        records = apply_tenant_filter(FaultRecord.objects.all(), request.user)
+        records = apply_tenant_filter(FaultRecord.objects.all(), request.user).select_related('created_by', 'updated_by')
         system_names = [x['system_name'] for x in records.order_by('system_name').values('system_name').distinct()]
-        return json_response({'system_names': system_names, 'records': [x.to_view() for x in records]})
+
+        page, page_size = paginate(request)
+        data = paginate_response(records, page, page_size, serialize_fn=lambda x: x.to_view(), items_key='records')
+        data['system_names'] = system_names
+        return json_response(data)
 
     @auth('fault.faultrecord.add|fault.faultrecord.edit')
     def post(self, request):
@@ -85,9 +90,13 @@ class FaultRecordView(View):
 class FaultPartView(View):
     @auth('fault.faultpart.view')
     def get(self, request):
-        records = apply_tenant_filter(FaultPart.objects.all(), request.user)
+        records = apply_tenant_filter(FaultPart.objects.all(), request.user).select_related('created_by', 'updated_by')
         system_names = [x['system_name'] for x in records.order_by('system_name').values('system_name').distinct()]
-        return json_response({'system_names': system_names, 'records': [x.to_view() for x in records]})
+
+        page, page_size = paginate(request)
+        data = paginate_response(records, page, page_size, serialize_fn=lambda x: x.to_view(), items_key='records')
+        data['system_names'] = system_names
+        return json_response(data)
 
     @auth('fault.faultpart.add|fault.faultpart.edit')
     def post(self, request):

@@ -11,6 +11,8 @@ from django.utils import timezone
 from libs import json_response, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from libs import Argument, JsonParser
+from libs.export_utils import check_export_limit
+from libs.date_utils import date_range_filter
 from apps.logs.audit import record_audit_event
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -92,25 +94,16 @@ class RunLogView(View):
         if filters.get('system_name'):
             logs = logs.filter(system_name__icontains=filters['system_name'])
         if filters.get('date'):
-            # 用 datetime 范围替代 __date，确保走 B-tree 索引
-            _d = datetime.strptime(filters['date'], '%Y-%m-%d')
-            logs = logs.filter(
-                created_at__gte=_d,
-                created_at__lt=_d + timedelta(days=1),
-            )
-        # 日期范围筛选：使用明确的 start_date/end_date 字段，与 PDF 导出接口保持一致
-        start_date = request.GET.get('start_date')
-        end_date = request.GET.get('end_date')
-        if start_date:
-            _sd = datetime.strptime(start_date, '%Y-%m-%d')
-            logs = logs.filter(created_at__gte=_sd)
-        if end_date:
-            _ed = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
-            logs = logs.filter(created_at__lt=_ed)
+            # 单日筛选：用 datetime 范围替代 __date，确保走 B-tree 索引
+            from libs.date_utils import date_range as _dr
+            _start, _end = _dr(datetime.strptime(filters['date'], '%Y-%m-%d').date())
+            logs = logs.filter(created_at__gte=_start, created_at__lt=_end)
+        # 日期范围筛选
+        logs = date_range_filter(logs, 'created_at', request.GET.get('start_date'), request.GET.get('end_date'))
 
         # 分页参数
-        page = int(request.GET.get('page', 1))
-        page_size = int(request.GET.get('page_size', 50))
+        from libs.pagination import paginate
+        page, page_size = paginate(request, default_page_size=50)
 
         # 排序和分页
         logs = logs.order_by('-created_at', '-id')
@@ -762,14 +755,9 @@ class RunLogStatisticsView(View):
 class RunLogExportView(View):
     """运行日志PDF导出视图"""
 
-    @auth('runlog.runlog.view')
-    def post(self, request):
-        """导出运行日志PDF
-
-        前端传入筛选条件，后端查询数据并生成PDF返回
-        """
-        from .models import RunLog, RunLogUpdate
-
+    @staticmethod
+    def _parse_export_filters(request):
+        """解析请求体并构建筛选条件。"""
         try:
             data = json.loads(request.body) if request.body else {}
         except (json.JSONDecodeError, ValueError):
@@ -782,40 +770,66 @@ class RunLogExportView(View):
             'start_date': data.get('start_date'),
             'end_date': data.get('end_date'),
         }
+        return data, filters
+
+    @staticmethod
+    def _apply_export_filters(data, request):
+        """应用筛选条件，返回 (logs_qs, date_range_text)。"""
+        logs = apply_tenant_filter(RunLog.objects.all(), request.user)
+
+        if data.get('status'):
+            logs = logs.filter(status=data['status'])
+        if data.get('severity'):
+            logs = logs.filter(severity=data['severity'])
+        if data.get('event_type'):
+            logs = logs.filter(event_type=data['event_type'])
+        if data.get('system_name'):
+            logs = logs.filter(system_name__icontains=data['system_name'])
+
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        date_range_text = ''
+        if start_date and end_date:
+            date_range_text = f'{start_date}-{end_date}'
+        elif start_date:
+            date_range_text = f'{start_date}起'
+        elif end_date:
+            date_range_text = f'至{end_date}'
+        logs = date_range_filter(logs, 'created_at', start_date, end_date)
+        logs = logs.order_by('-created_at', '-id')
+        return logs, date_range_text
+
+    @staticmethod
+    def _serialize_events(logs, request):
+        """批量查询关联动态并序列化，消除 N+1 查询。"""
+        from .models import RunLogUpdate
+        log_list = list(logs)
+        log_ids = [l.id for l in log_list]
+        all_updates = apply_tenant_filter(
+            RunLogUpdate.objects.filter(runlog_id__in=log_ids),
+            request.user
+        ).order_by('update_date', 'sequence', 'id')
+        updates_by_log = defaultdict(list)
+        for u in all_updates:
+            updates_by_log[u.runlog_id].append(u)
+
+        events_data = []
+        for log in log_list:
+            event_dict = log.to_view()
+            event_dict['updates'] = [u.to_view() for u in updates_by_log.get(log.id, [])]
+            events_data.append(event_dict)
+        return events_data
+
+    @auth('runlog.runlog.view')
+    def post(self, request):
+        """导出运行日志PDF
+
+        前端传入筛选条件，后端查询数据并生成PDF返回
+        """
+        data, filters = self._parse_export_filters(request)
 
         try:
-            # 租户过滤
-            logs = apply_tenant_filter(RunLog.objects.all(), request.user)
-
-            # 筛选条件
-            if data.get('status'):
-                logs = logs.filter(status=data['status'])
-            if data.get('severity'):
-                logs = logs.filter(severity=data['severity'])
-            if data.get('event_type'):
-                logs = logs.filter(event_type=data['event_type'])
-            if data.get('system_name'):
-                logs = logs.filter(system_name__icontains=data['system_name'])
-
-            # 日期范围（用 __gte/__lt 走索引）
-            start_date = data.get('start_date')
-            end_date = data.get('end_date')
-            date_range_text = ''
-            if start_date and end_date:
-                _sd = datetime.strptime(start_date, '%Y-%m-%d')
-                _ed = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
-                logs = logs.filter(created_at__gte=_sd, created_at__lt=_ed)
-                date_range_text = f'{start_date}-{end_date}'
-            elif start_date:
-                _sd = datetime.strptime(start_date, '%Y-%m-%d')
-                logs = logs.filter(created_at__gte=_sd)
-                date_range_text = f'{start_date}起'
-            elif end_date:
-                _ed = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
-                logs = logs.filter(created_at__lt=_ed)
-                date_range_text = f'至{end_date}'
-
-            logs = logs.order_by('-created_at', '-id')
+            logs, date_range_text = self._apply_export_filters(data, request)
 
             if not logs.exists():
                 record_audit_event(
@@ -828,21 +842,13 @@ class RunLogExportView(View):
                 )
                 return json_response(error='没有可导出的数据')
 
-            # 限制最大导出条数，防止超时
-            MAX_EXPORT_COUNT = 500
-            logs = logs[:MAX_EXPORT_COUNT]
+            # 导出上限检查（PDF 限制 500 条）
+            count, error_resp = check_export_limit(logs, limit=500)
+            if error_resp:
+                return error_resp
 
             # 序列化事件数据
-            events_data = []
-            for log in logs:
-                event_dict = log.to_view()
-                # 批量查询关联动态
-                updates = apply_tenant_filter(
-                    RunLogUpdate.objects.filter(runlog_id=log.id),
-                    request.user
-                ).order_by('update_date', 'sequence', 'id')
-                event_dict['updates'] = [u.to_view() for u in updates]
-                events_data.append(event_dict)
+            events_data = self._serialize_events(logs, request)
 
             # 生成PDF
             from .pdf_export import generate_runlog_pdf

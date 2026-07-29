@@ -6,6 +6,9 @@ from django.http import HttpResponse
 from django.utils import timezone
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
+from libs.export_utils import check_export_limit
+from libs.pagination import paginate, paginate_response
+from libs.date_utils import date_range_filter
 from apps.logs.audit import record_audit_event
 from apps.duty.models import DutyRecord
 import json
@@ -67,14 +70,15 @@ class DutyImportView(View):
 class DutyRecordView(View):
     @auth('duty.duty.view')
     def get(self, request):
-        records = apply_tenant_filter(DutyRecord.objects.all(), request.user)
+        records = apply_tenant_filter(DutyRecord.objects.all(), request.user).select_related('created_by', 'updated_by')
         duty_persons = [x['duty_person'] for x in records.order_by('duty_person').values('duty_person').distinct()]
         departments = [x['department'] for x in records.order_by('department').values('department').distinct()]
-        return json_response({
-            'duty_persons': duty_persons,
-            'departments': departments,
-            'records': [x.to_view() for x in records]
-        })
+
+        page, page_size = paginate(request)
+        data = paginate_response(records, page, page_size, serialize_fn=lambda x: x.to_view(), items_key='records')
+        data['duty_persons'] = duty_persons
+        data['departments'] = departments
+        return json_response(data)
 
     @auth('duty.duty.add|duty.duty.edit|duty.duty.del')
     def post(self, request):
@@ -195,7 +199,15 @@ def export_pdf(request):
             date_range_text = f'至{end_date}'
 
         records = records.order_by('-duty_date', '-id')
-        data = [r.to_view() for r in records]
+
+        # 导出上限检查
+        count, error_resp = check_export_limit(records)
+        if error_resp:
+            return error_resp
+        if count == 0:
+            return json_response(error='没有可导出的数据')
+
+        data = [r.to_view() for r in records.iterator()]
 
         if not data:
             if request.method == 'POST':

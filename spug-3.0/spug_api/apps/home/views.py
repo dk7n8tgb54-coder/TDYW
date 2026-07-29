@@ -27,11 +27,10 @@ def get_statistic(request):
         return json_response(cached)
 
     # 用 datetime 范围替代 __startswith/__date，确保走 B-tree 索引
+    from libs.date_utils import today_range, month_range
     now = timezone.now()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    today_end = today_start + timedelta(days=1)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    next_month_start = (month_start + timedelta(days=32)).replace(day=1)
+    today_start, today_end = today_range(now)
+    month_start, next_month_start = month_range(now)
     data = {}
 
     # 1. 运行日志统计

@@ -83,7 +83,7 @@ class InterferenceExportView(View):
 
         records = qs.select_related('created_by', 'updated_by')
         rows = []
-        for idx, obj in enumerate(records, start=1):
+        for idx, obj in enumerate(records.iterator(), start=1):
             row = obj.to_dict()
             row['export_serial'] = idx
             rows.append(row)
