@@ -96,10 +96,9 @@ class DiskUsageView(View):
             })
 
         # 【P0-2修复】计算当前空间的文件大小
-        # 添加 is_deleted=False 过滤，只统计未删除文件
         used_gb = 0
         try:
-            query = FileModel.objects.filter(is_deleted=False)
+            query = FileModel.objects.all()
             if not form.is_public:
                 query = apply_tenant_filter(query, request.user)
 

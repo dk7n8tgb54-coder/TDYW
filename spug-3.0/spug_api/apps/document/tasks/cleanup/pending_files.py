@@ -42,7 +42,7 @@ def _process_pending_files(FileModel, space_name):
                 if not deleted:
                     logger.error(f'[Cleanup] 安全删除失败，文件路径异常: id={file.id}, path={file.file_path}, error={error}')
 
-            file.delete(hard=True)
+            file.delete()
             success += 1
             logger.info(f'[Cleanup] 待清理{space_name}文件删除成功: id={file.id}')
 

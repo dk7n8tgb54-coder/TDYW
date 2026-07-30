@@ -1,5 +1,5 @@
 /**
- * 操作审计日志Store
+ * 操作日志Store
  */
 import { observable, computed } from 'mobx';
 import { http } from 'libs';

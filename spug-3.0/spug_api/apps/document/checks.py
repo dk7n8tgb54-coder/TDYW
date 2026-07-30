@@ -49,12 +49,7 @@ def check_system_folder_bindings(app_configs, **kwargs):
                     id='document.W002',
                 ))
                 continue
-            if getattr(sf.folder, 'is_deleted', False):
-                errors.append(DjangoWarning(
-                    f'DocumentSystemFolder({sf.code}) bound folder '
-                    f'{sf.folder_id} is soft-deleted.',
-                    id='document.W003',
-                ))
+            # 软删除已移除，不再检查 is_deleted
             if not sf.protected:
                 errors.append(DjangoWarning(
                     f'DocumentSystemFolder({sf.code}) protected=False; '

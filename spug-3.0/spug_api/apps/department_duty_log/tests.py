@@ -996,9 +996,9 @@ class DepartmentDutyLogAuditTests(TestCase):
             target_type='department_duty_log', action='create')
         log = logs.first()
         detail = json.loads(log.detail) if log.detail else {}
-        # 审计详情不应包含完整 5000 字符的长文本
+        # 审计详情不应包含完整 5000 字符的长文本（sanitize_audit_detail 截断到 500 字）
         detail_str = json.dumps(detail)
-        self.assertNotIn('A' * 100, detail_str)
+        self.assertNotIn('A' * 501, detail_str)
 
 
 # ============================================================

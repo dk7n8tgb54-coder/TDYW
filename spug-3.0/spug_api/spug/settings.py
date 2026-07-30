@@ -46,6 +46,11 @@ ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts.split(',') if h.strip()]
 _allowed_origins = os.environ.get('ALLOWED_ORIGINS', '')
 ALLOWED_ORIGINS = [h.strip() for h in _allowed_origins.split(',') if h.strip()] if _allowed_origins else []
 
+# Cookie 安全设置（生产环境 HTTPS 下启用 Secure 标志）
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -365,20 +370,21 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'simple'
         },
+        # 按天轮转，保留 90 天错误日志
         'file': {
-            'class': 'logging.handlers.RotatingFileHandler',
+            'class': 'logging.handlers.TimedRotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'django.log'),
             'formatter': 'verbose',
-            'maxBytes': 50 * 1024 * 1024,  # 50MB
-            'backupCount': 10,
+            'when': 'midnight',
+            'backupCount': 90,
             'encoding': 'utf-8',
         },
         'document_file': {
-            'class': 'logging.handlers.RotatingFileHandler',
+            'class': 'logging.handlers.TimedRotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'document.log'),
             'formatter': 'verbose',
-            'maxBytes': 50 * 1024 * 1024,  # 50MB
-            'backupCount': 5,
+            'when': 'midnight',
+            'backupCount': 90,
             'encoding': 'utf-8',
         },
     },

@@ -7,11 +7,47 @@ from .utils import json_response, get_request_real_ip
 from apps.account.models import User
 from apps.setting.utils import AppSetting
 import fnmatch
+import json as _json
 import logging
 import traceback
 import time
+import uuid
 
 logger = logging.getLogger(__name__)
+
+# 请求体最大记录长度（防止超大 body 撑爆日志）
+_MAX_BODY_LOG_LEN = 2000
+
+# 敏感字段脱敏关键词
+_SENSITIVE_KEYS = ('password', 'token', 'secret', 'key', 'private', 'credential', 'captcha')
+
+
+def _sanitize_request_body(body):
+    """脱敏请求体中的敏感字段，截断至 _MAX_BODY_LOG_LEN"""
+    if not body:
+        return ''
+    try:
+        if isinstance(body, bytes):
+            body = body.decode('utf-8', errors='replace')
+        parsed = _json.loads(body) if isinstance(body, str) else body
+        if isinstance(parsed, dict):
+            for k in list(parsed.keys()):
+                if any(s in k.lower() for s in _SENSITIVE_KEYS):
+                    parsed[k] = '***'
+        result = _json.dumps(parsed, ensure_ascii=False, default=str)
+    except Exception:
+        result = str(body)
+    return result[:_MAX_BODY_LOG_LEN]
+
+
+def _get_request_id(request):
+    """获取或生成 request_id，用于链路追踪"""
+    rid = getattr(request, '_audit_request_id', None)
+    if rid:
+        return rid
+    rid = uuid.uuid4().hex[:16]
+    request._audit_request_id = rid
+    return rid
 
 # 预览端点路径模式（支持 preview_token 认证）
 # 使用 fnmatch 模式匹配（* 匹配任意字符包括 /）
@@ -55,15 +91,33 @@ class HandleExceptionMiddleware(MiddlewareMixin):
     """
 
     def process_exception(self, request, exception):
+        # 生成/获取 request_id 用于链路追踪（关联审计日志与错误日志）
+        request_id = _get_request_id(request)
+        # 提取请求参数（脱敏 + 截断）
+        body = ''
+        try:
+            if request.body:
+                body = _sanitize_request_body(request.body)
+        except Exception:
+            body = '<unreadable>'
+        user_info = ''
+        user = getattr(request, 'user', None)
+        if user and hasattr(user, 'id'):
+            user_info = f' user={user.username}(id={user.id})'
         logger.error(
-            f'Unhandled exception on {request.method} {request.path}',
+            f'[request_id={request_id}] Unhandled exception on '
+            f'{request.method} {request.path}{user_info} body={body}',
             exc_info=True
         )
         try:
             from libs.alert import send_alert
             send_alert(
                 title=f'API 异常: {request.method} {request.path}',
-                message=f'路径: {request.method} {request.path}\n异常: {exception}',
+                message=f'路径: {request.method} {request.path}\n'
+                       f'request_id: {request_id}\n'
+                       f'用户: {user_info.strip() if user_info else "未知"}\n'
+                       f'参数: {body}\n'
+                       f'异常: {exception}',
                 level='error',
                 source='middleware',
                 alert_key=f'500:{request.path}',

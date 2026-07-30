@@ -8,11 +8,12 @@
 
 import logging
 from django.views.generic import View
+from django.db import transaction
 
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_file_model
-from ...libs.view_utils import permission_denied_response
+from ...libs.view_utils import permission_denied_response, rate_limit
 from ...libs.document_auth import document_auth
 from ...services.system_folder_service import (
     PARTY_BUILDING_DOCUMENTS_CODE, validate_system_folder_context, SCOPE_ERROR_MSG,
@@ -28,6 +29,7 @@ class FileView(View):
     """文件视图 - 删除和列表查询"""
 
     @document_auth('delete')
+    @rate_limit(max_requests=200, window=60, key_prefix='file_del')
     def delete(self, request):
         """
         文件删除操作 - 直接物理删除
@@ -74,19 +76,22 @@ class FileView(View):
         file_name = file.name
         file_id = file.id
         try:
-            # 直接物理删除（模型层负责物理文件 + 缩略图清理 + 待清理兜底）
-            file.delete(hard=True)
-            logger.info(f'[Document] 文件已删除：id={file_id}, name={file_name}')
+            # R2 修复：DB 删除包裹事务，保证数据一致性
+            with transaction.atomic():
+                # 直接物理删除（模型层负责物理文件 + 缩略图清理 + 待清理兜底）
+                file.delete()
+                logger.info(f'[Document] 文件已删除：id={file_id}, name={file_name}')
 
-            log_operation(
+            # R3 修复：audit log 移到 on_commit，确保事务提交后才记录
+            transaction.on_commit(lambda: log_operation(
                 action="FILE_DELETE",
                 user=request.user,
                 request=request,
                 resource_type="FILE",
                 resource_id=file_id,
                 is_public=form.is_public,
-                file_name=file_name
-            )
+                file_name=file_name,
+            ))
 
             return json_response()
 

@@ -95,7 +95,7 @@ export default [
   {icon: <NotificationOutlined/>, title: '公告管理', auth: 'home.announcement.view', path: '/system/announcement', component: AnnouncementAdmin},
   {
     icon: <ToolOutlined/>, title: '运维管理', auth: 'system.audit.view|system.alert.view', child: [
-      {title: '操作审计', auth: 'system.audit.view', path: '/maintenance/audit', component: SystemAudit},
+      {title: '操作日志', auth: 'system.audit.view', path: '/maintenance/audit', component: SystemAudit},
       {title: '系统告警', auth: 'system.alert.view', path: '/maintenance/alert', component: SystemAlert},
       {title: '数据质量巡检', auth: 'system.alert.view', path: '/maintenance/data-quality', component: SystemDataQuality},
     ]
@@ -104,9 +104,9 @@ export default [
     icon: <SettingOutlined/>, title: '系统管理', auth: 'system.account.view|system.role.view|system.setting.view|system.login.view|system.tenant.view', child: [
       {title: '登录日志', auth: 'system.login.view', path: '/system/login', component: SystemLogin},
       {title: '账户管理', auth: 'system.account.view', path: '/system/account', component: SystemAccount},
+      {title: '租户管理', auth: 'system.tenant.view', path: '/system/tenant', component: SystemTenant},
       {title: '角色管理', auth: 'system.role.view', path: '/system/role', component: SystemRole},
       {title: '系统设置', auth: 'system.setting.view', path: '/system/setting', component: SystemSetting},
-      {title: '租户管理', auth: 'system.tenant.view', path: '/system/tenant', component: SystemTenant},
     ]
   },
   {path: '/welcome/index', component: WelcomeIndex},

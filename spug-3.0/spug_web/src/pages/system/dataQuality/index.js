@@ -27,8 +27,8 @@ class DataQualityIndex extends React.Component {
         icon={allPass ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
         message={
           allPass
-            ? `全部通过（${r.passed}/${r.total_checks} 项检查）`
-            : `发现 ${r.total_problems} 个问题（通过 ${r.passed}/${r.total_checks} 项，失败 ${r.failed} 项）`
+            ? `全部通过（${r.passed}/${r.total_checks} 项检查正常）`
+            : `发现 ${r.total_problems} 个问题（通过 ${r.passed}/${r.total_checks} 项，异常 ${r.failed} 项）`
         }
         description={`检查时间：${r.checked_at}`}
         style={{ marginBottom: 16 }}
@@ -40,7 +40,7 @@ class DataQualityIndex extends React.Component {
     const isPass = check.status === 'pass';
     const details = check.details || [];
     const columns = [
-      { title: '模型', dataIndex: 'model', key: 'model', width: 180 },
+      { title: '类型', dataIndex: 'model', key: 'model', width: 140 },
       { title: 'ID', dataIndex: 'id', key: 'id', width: 80 },
       { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
       { title: '问题描述', dataIndex: 'issue', key: 'issue' },
@@ -53,7 +53,7 @@ class DataQualityIndex extends React.Component {
         title={
           <Space>
             <Tag color={isPass ? 'success' : 'error'} style={{ margin: 0 }}>
-              {isPass ? 'PASS' : 'FAIL'}
+              {isPass ? '通过' : '异常'}
             </Tag>
             <Text strong>{check.check}</Text>
           </Space>
@@ -61,7 +61,7 @@ class DataQualityIndex extends React.Component {
         extra={
           <Text type="secondary">
             {check.description || ''}
-            {check.count > 0 && ` (${check.count})`}
+            {check.count > 0 && `（共 ${check.count} 条）`}
             {check.checked != null && ` · 采样 ${check.checked} 条`}
           </Text>
         }

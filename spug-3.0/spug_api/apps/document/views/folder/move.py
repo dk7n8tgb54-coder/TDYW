@@ -64,15 +64,21 @@ class FolderMoveView(View):
             folder.parent = target
             folder.save()
 
-        log_operation(
+        # R3 修复：audit log 移到 on_commit，确保事务提交后才记录
+        _folder_id = folder.id
+        _is_public = params['is_public']
+        _target_id = params['target_id']
+        _user = request.user
+        _req = request
+        transaction.on_commit(lambda: log_operation(
             action='FOLDER_MOVE',
-            user=request.user,
-            request=request,
+            user=_user,
+            request=_req,
             resource_type='FOLDER',
-            resource_id=folder.id,
-            is_public=params['is_public'],
-            target_folder_id=params['target_id'],
-        )
+            resource_id=_folder_id,
+            is_public=_is_public,
+            target_folder_id=_target_id,
+        ))
         logger.info('[Document] folder moved successfully, is_public=%s', params['is_public'])
         return json_response()
 

@@ -44,7 +44,7 @@ def get_active_descendant_folder_ids(folder_obj, FolderModel):
     while queue:
         current = queue.pop(0)
         folder_ids.append(current.id)
-        children = FolderModel.objects.filter(parent=current, is_deleted=False)
+        children = FolderModel.objects.filter(parent=current)
         queue.extend(children)
 
     return folder_ids
@@ -95,7 +95,7 @@ class FolderPropertiesView(View):
             return self._get_file_properties(request, FileModel, FolderModel, form)
 
         # ===== 文件夹属性 =====
-        query = FolderModel.objects.filter(id=form.id, is_deleted=False)
+        query = FolderModel.objects.filter(id=form.id)
         if not form.is_public:
             query = apply_tenant_filter(query, request.user, strict_mode=True)
 
@@ -129,7 +129,6 @@ class FolderPropertiesView(View):
         # 聚合查询：所有层级文件的数量和大小
         file_stats = FileModel.objects.filter(
             folder_id__in=all_folder_ids,
-            is_deleted=False,
         ).aggregate(
             total_files=Count('id'),
             total_size=Sum('file_size'),
@@ -153,7 +152,7 @@ class FolderPropertiesView(View):
 
     def _get_file_properties(self, request, FileModel, FolderModel, form):
         """文件属性统计"""
-        query = FileModel.objects.filter(id=form.id, is_deleted=False)
+        query = FileModel.objects.filter(id=form.id)
         if not form.is_public:
             query = apply_tenant_filter(query, request.user, strict_mode=True)
 

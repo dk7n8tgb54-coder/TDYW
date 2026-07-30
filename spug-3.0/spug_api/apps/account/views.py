@@ -56,6 +56,10 @@ class UserView(AdminView):
         'DELETE': 'system.account.del',
     }
 
+    # NOTE: POST 同时处理创建（无 id）和编辑（带 id），system.account.add
+    # 有意覆盖"创建+编辑"两个操作，便于租户管理员用一个权限管理本租户账号。
+    # PATCH 仅用于重置密码/启用禁用/迁移租户，需单独授权 system.account.edit。
+
     def get(self, request):
         show_deleted = request.GET.get('show_deleted') == 'true'
         if show_deleted:
@@ -119,19 +123,25 @@ class UserView(AdminView):
             return f'已存在登录名为【{form.username}】的用户，无法重复创建'
         return None
 
+    def _check_edit_permission(self, request, user):
+        """校验当前用户是否有权编辑目标用户，返回 error 字符串或 None"""
+        if not request.user.is_supper and user.tenant_id != request.user.tenant_id:
+            logger.warning(f'Account: User {request.user.username} denied to edit user {user.username} (cross-tenant)')
+            return '无权编辑其他租户的用户'
+        if not request.user.is_supper and user.is_supper:
+            logger.warning(f'Account: User {request.user.username} denied to edit super user {user.username}')
+            return '无权编辑超级管理员账号'
+        return None
+
     def _handle_user_edit(self, request, form, role_ids, password):
         try:
             user = User.objects.get(pk=form.id)
         except User.DoesNotExist:
             logger.error(f'Account: User {form.id} not found for edit')
             return json_response(error='用户不存在')
-        if not request.user.is_supper and user.tenant_id != request.user.tenant_id:
-            logger.warning(f'Account: User {request.user.username} denied to edit user {user.username} (cross-tenant)')
-            return json_response(error='无权编辑其他租户的用户')
-        # 普通管理员不能编辑超级管理员账号
-        if not request.user.is_supper and user.is_supper:
-            logger.warning(f'Account: User {request.user.username} denied to edit super user {user.username}')
-            return json_response(error='无权编辑超级管理员账号')
+        error = self._check_edit_permission(request, user)
+        if error:
+            return json_response(error=error)
         if not request.user.is_supper and 'tenant_id' in form:
             del form['tenant_id']
         # 计算编辑后的目标 tenant_id，用于校验 role_ids 与目标租户一致性
@@ -151,16 +161,20 @@ class UserView(AdminView):
             return json_response(error=error)
         try:
             with transaction.atomic():
-                if (request.user.is_supper and form.get('tenant_id')
-                        and form['tenant_id'] != user.tenant_id):
-                    self._migrate_user_tenant(user, form['tenant_id'])
-                # 过滤 None：JsonParser 对未传字段填 None，update_by_dict 会覆盖 NOT NULL 字段
-                update_data = {k: v for k, v in form.items() if v is not None}
+                # tenant_id 单独处理：空字符串不应清空租户归属
+                if request.user.is_supper and form.get('tenant_id'):
+                    if form['tenant_id'] != user.tenant_id:
+                        self._migrate_user_tenant(user, form['tenant_id'])
+                    user.tenant_id = form['tenant_id']
+                # 过滤 None 和 tenant_id：tenant_id 已在上面单独处理
+                update_data = {k: v for k, v in form.items()
+                               if v is not None and k != 'tenant_id'}
                 user.update_by_dict(update_data)
                 user.roles.set(role_ids)
                 user.set_perms_cache()
         except IntegrityError:
-            return json_response(error=f'已存在登录名为【{form.username}】的用户，无法重复创建')
+            logger.warning(f'Account: IntegrityError on editing user {form.username}', exc_info=True)
+            return json_response(error=f'保存失败，可能登录名【{form.username}】与其他用户冲突')
         return json_response()
 
     def _handle_user_create(self, request, form, role_ids, password):
@@ -186,6 +200,7 @@ class UserView(AdminView):
             with transaction.atomic():
                 user = User.objects.create(
                     password_hash=User.make_password(password),
+                    access_token=uuid.uuid4().hex,
                     created_by=request.user,
                     tenant_id=tenant_value,
                     **create_fields
@@ -193,7 +208,8 @@ class UserView(AdminView):
                 user.roles.set(role_ids)
                 user.set_perms_cache()
         except IntegrityError:
-            return json_response(error=f'已存在登录名为【{form.username}】的用户，无法重复创建')
+            logger.warning(f'Account: IntegrityError on creating user {form.username}', exc_info=True)
+            return json_response(error=f'创建用户失败，可能登录名【{form.username}】已存在')
         return json_response()
 
     def _resolve_tenant_id(self, request, form):
@@ -279,7 +295,7 @@ class UserView(AdminView):
         if not request.user.is_supper:
             return json_response(error='权限拒绝')
         from django.db.models import Count
-        tenants = Tenant.objects.filter(is_active=True).order_by('id')
+        tenants = Tenant.objects.all().order_by('id')
         result = []
         for t in tenants:
             user_count = User.objects.filter(
@@ -526,13 +542,18 @@ class AssignableRoleView(AdminView):
 
 
 class TenantView(AdminView):
-    """租户管理"""
+    """租户管理（仅超管可访问）"""
     PERM_MAP = {
         'GET': 'system.tenant.view',
         'POST': 'system.tenant.add',
         'PATCH': 'system.tenant.edit',
         'DELETE': 'system.tenant.del',
     }
+
+    def dispatch(self, request, *args, **kwargs):
+        if not getattr(request.user, 'is_supper', False):
+            return json_response(error='仅超级管理员可管理租户')
+        return super().dispatch(request, *args, **kwargs)
 
     def get(self, request):
         tenants = Tenant.objects.all().order_by('id')
@@ -565,7 +586,6 @@ class TenantView(AdminView):
             Argument('id', help='请指定操作对象'),
             Argument('name', required=False),
             Argument('description', required=False),
-            Argument('is_active', type=bool, required=False),
         ).parse(request.body)
         if error is None:
             tenant = Tenant.objects.filter(pk=form.pop('id')).first()
@@ -586,7 +606,7 @@ class TenantView(AdminView):
             if not tenant:
                 logger.warning(f'Account: Tenant not found for delete by user {request.user}')
                 return json_response(error='租户不存在')
-            if User.objects.filter(tenant_id=form.id).exists():
+            if User.objects.filter(tenant_id=form.id, deleted_by_id__isnull=True).exists():
                 logger.warning(f'Account: Cannot delete tenant {form.id}: has associated users')
                 return json_response(error='该租户下存在用户，无法删除')
             tenant.delete()

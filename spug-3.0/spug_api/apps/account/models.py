@@ -98,7 +98,7 @@ class User(models.Model, ModelMixin):
     def has_perms(self, codes):
         if self.is_supper:
             return True
-        return self.page_perms.intersection(codes)
+        return bool(self.page_perms.intersection(codes))
 
     @property
     def is_global_admin(self):
@@ -242,7 +242,6 @@ class Tenant(models.Model, ModelMixin):
     id = models.CharField(max_length=50, primary_key=True, help_text='租户标识')
     name = models.CharField(max_length=100, help_text='租户名称')
     description = models.TextField(default='', blank=True, help_text='租户描述')
-    is_active = models.BooleanField(default=True, help_text='是否启用')
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
 

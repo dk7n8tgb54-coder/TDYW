@@ -22,15 +22,17 @@ services:
       - "80:80"   # HTTP 端口
       - "443:443"  # HTTPS 端口
     environment:
-      # 数据库连接配置（固定值）
+      # 数据库连接配置
       - MYSQL_HOST=tdyw-db
       - MYSQL_PORT=3306
-      - MYSQL_USER=root
+      - MYSQL_USER=${MYSQL_USER:-tdyw}
       # 敏感信息从 .env 文件读取
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
       - MYSQL_DATABASE=${MYSQL_DATABASE}
       - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
       - DEBUG=${DEBUG}
+      # Redis 密码（Redis 仅监听 127.0.0.1，密码防容器内未授权访问）
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
       # 允许访问的IP或域名（从 .env 读取，默认 * 仅用于开发）
       # 生产环境在 .env 中设置为具体值，如: 192.168.40.118,localhost,127.0.0.1
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
@@ -78,6 +80,10 @@ services:
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
       - MYSQL_DATABASE=${MYSQL_DATABASE}
+      # MySQL 镜像内置支持：首次初始化时自动创建此用户并授予 MYSQL_DATABASE 的全部权限
+      # 已有数据库需手动执行一次 docker/scripts/init_tdyw_account.sql
+      - MYSQL_USER=${MYSQL_USER:-tdyw}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
       - TZ=Asia/Shanghai
     volumes:
       # 挂载到临时位置（不是直接挂载到 /etc/mysql/conf.d/）

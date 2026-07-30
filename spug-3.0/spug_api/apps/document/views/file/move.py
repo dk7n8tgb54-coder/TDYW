@@ -128,14 +128,20 @@ class FileMoveView(View):
             logger.error('[Document] file move failed: %s', exc)
             return json_response(error=f'文件移动失败：{exc}')
 
-        log_operation(
+        # R3 修复：audit log 移到 on_commit，确保事务提交后才记录
+        _file_id = file_obj.id
+        _is_public = params['is_public']
+        _target_id = params['target_id']
+        _user = request.user
+        _req = request
+        transaction.on_commit(lambda: log_operation(
             action='FILE_MOVE',
-            user=request.user,
-            request=request,
+            user=_user,
+            request=_req,
             resource_type='FILE',
-            resource_id=file_obj.id,
-            is_public=params['is_public'],
-            target_folder_id=params['target_id'],
-        )
+            resource_id=_file_id,
+            is_public=_is_public,
+            target_folder_id=_target_id,
+        ))
         logger.info('[Document] file moved successfully, id=%s', file_obj.id)
         return json_response()

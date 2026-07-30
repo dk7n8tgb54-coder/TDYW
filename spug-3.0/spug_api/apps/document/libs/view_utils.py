@@ -9,6 +9,7 @@
 
 import os
 import re
+import time
 import logging
 from functools import wraps
 
@@ -16,6 +17,42 @@ from functools import wraps
 from ..libs.document_utils import is_safe_path
 
 logger = logging.getLogger(__name__)
+
+
+def rate_limit(max_requests=60, window=60, key_prefix='doc'):
+    """R5 修复：基于 Redis 的 API 限流装饰器
+
+    使用滑动窗口算法，按用户 ID + 请求路径维度限流。
+    超限时返回 429 错误，避免暴力枚举和资源滥用。
+
+    Args:
+        max_requests: 窗口内最大请求数
+        window: 窗口大小（秒）
+        key_prefix: Redis key 前缀
+    """
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapper(request, *args, **kwargs):
+            try:
+                from django.core.cache import cache
+                user_id = getattr(request.user, 'id', 0) or 'anon'
+                # 按用户 + URL 路径维度限流
+                cache_key = f'rate_limit:{key_prefix}:{user_id}:{request.path}'
+                count = cache.get(cache_key, 0)
+                if count >= max_requests:
+                    logger.warning(
+                        '[RateLimit] %s 超过限制: %s/%ss (path=%s)',
+                        user_id, max_requests, window, request.path,
+                    )
+                    from libs import json_response
+                    return json_response(error='请求过于频繁，请稍后重试')
+                cache.set(cache_key, count + 1, window)
+            except Exception:
+                # Redis 不可用时不阻断请求（fail-open）
+                logger.warning('[RateLimit] cache unavailable, skipping rate limit', exc_info=True)
+            return view_func(request, *args, **kwargs)
+        return wrapper
+    return decorator
 
 
 def format_file_size(size_bytes):
@@ -96,10 +133,13 @@ def log_operation(action, user, resource_type, resource_id, **kwargs):
 
     当传入 request 时使用 record_audit_event，自动设置 _audit_handled 标记，
     中间件检测到该标记后跳过，避免重复记录。
+
+    支持通过 request_id 关联请求链路，便于跨日志追踪。
     """
     try:
         from apps.logs.audit import record_audit_event, save_audit_log
         request = kwargs.pop('request', None)
+        request_id = kwargs.pop('request_id', None)
         target_name = kwargs.get('file_name') or kwargs.get('folder_name') or ''
         mapped_action = AUDIT_ACTION_MAP.get(action, 'other')
 
@@ -119,6 +159,7 @@ def log_operation(action, user, resource_type, resource_id, **kwargs):
                 target_id=str(resource_id) if resource_id else '',
                 target_name=target_name,
                 tenant_id=getattr(user, 'tenant_id', 'default'),
+                request_id=request_id,
             )
     except Exception:
         logger.warning('log_operation failed: action=%s resource_id=%s', action, resource_id, exc_info=True)

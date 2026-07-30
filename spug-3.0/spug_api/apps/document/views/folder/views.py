@@ -96,7 +96,7 @@ class FolderView(View):
     
     def _get_all_folders(self, request, FolderModel, is_public, system_folder=None):
         """获取所有文件夹（树形结构）"""
-        query = FolderModel.objects.filter(is_deleted=False).select_related('created_by').order_by('-created_at')
+        query = FolderModel.objects.all().select_related('created_by').order_by('-created_at')
         if not is_public:
             query = apply_tenant_filter(query, request.user, strict_mode=True)
 
@@ -118,7 +118,7 @@ class FolderView(View):
     
     def _get_root_contents(self, request, FolderModel, FileModel, is_public, page, page_size, system_folder=None):
         """获取根目录内容（分页优化）"""
-        folders_query = FolderModel.objects.filter(parent__isnull=True, is_deleted=False).select_related('created_by').order_by('-created_at')
+        folders_query = FolderModel.objects.filter(parent__isnull=True).select_related('created_by').order_by('-created_at')
         if not is_public:
             folders_query = apply_tenant_filter(folders_query, request.user, strict_mode=True)
         elif system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
@@ -174,7 +174,7 @@ class FolderView(View):
 
     def _get_folder_contents(self, request, FolderModel, FileModel, folder_id, is_public, page, page_size, system_folder=None):
         """获取指定文件夹内容（分页优化）"""
-        folders_query = FolderModel.objects.filter(parent_id=folder_id, is_deleted=False).select_related('created_by').order_by('-created_at')
+        folders_query = FolderModel.objects.filter(parent_id=folder_id).select_related('created_by').order_by('-created_at')
         if not is_public:
             folders_query = apply_tenant_filter(folders_query, request.user, strict_mode=True)
         elif system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
@@ -239,7 +239,6 @@ class FolderView(View):
         """
         children_qs = FolderModel.objects.filter(
             parent_id=OuterRef('pk'),
-            is_deleted=False,
         )
         if not is_public:
             # 私有空间严格租户过滤（与 apply_tenant_filter strict_mode=True 一致）
@@ -322,7 +321,7 @@ class FolderView(View):
             if parent_id <= 0:
                 return json_response(error='父文件夹ID无效')
 
-            parent_query = FolderModel.objects.filter(pk=parent_id, is_deleted=False).order_by()
+            parent_query = FolderModel.objects.filter(pk=parent_id).order_by()
             if not is_public:
                 parent_query = apply_tenant_filter(parent_query, request.user, strict_mode=True)
             parent = parent_query.first()
@@ -353,7 +352,7 @@ class FolderView(View):
     @staticmethod
     def _find_existing_folder(FolderModel, name, parent_id, is_public, user):
         """查找同名同父目录的已有文件夹（幂等创建辅助方法）"""
-        qs = FolderModel.objects.filter(name=name, is_deleted=False).order_by()
+        qs = FolderModel.objects.filter(name=name).order_by()
 
         if parent_id:
             qs = qs.filter(parent_id=parent_id)
@@ -392,7 +391,7 @@ class FolderView(View):
         FolderModel = get_folder_model(is_public=form.is_public)
         FileModel = get_file_model(is_public=form.is_public)
 
-        folder_query = FolderModel.objects.filter(pk=form.id, is_deleted=False).order_by()
+        folder_query = FolderModel.objects.filter(pk=form.id).order_by()
         if not form.is_public:
             folder_query = apply_tenant_filter(folder_query, request.user, strict_mode=True)
         folder = folder_query.first()
@@ -408,28 +407,43 @@ class FolderView(View):
         folder_id = folder.id
         try:
             self._delete_folder(folder, FolderModel, FileModel, form.is_public, request.user, request.user)
-            log_operation(
+            # R3 修复：audit log 移到 on_commit，确保事务提交后才记录
+            _is_public = form.is_public
+            _user = request.user
+            _req = request
+            transaction.on_commit(lambda: log_operation(
                 action="FOLDER_DELETE",
-                user=request.user,
-                request=request,
+                user=_user,
+                request=_req,
                 resource_type="FOLDER",
                 resource_id=folder_id,
-                is_public=form.is_public,
-                folder_name=folder_name
-            )
+                is_public=_is_public,
+                folder_name=folder_name,
+            ))
             return json_response()
         except Exception as e:
             logger.error(f'[Document] Error deleting folder {folder_name}: {e}')
             # 【P2-6修复】返回通用错误消息，避免信息泄露
             return json_response(error='文件夹删除失败，请稍后重试')
 
-    def _delete_folder(self, folder, FolderModel, FileModel, is_public, request_user=None, deleted_by=None):
-        """递归物理删除文件夹及其内容"""
+    # R6 修复：递归删除深度限制，防极深嵌套触发 RecursionError
+    MAX_FOLDER_DEPTH = 50
+
+    def _delete_folder(self, folder, FolderModel, FileModel, is_public, request_user=None, deleted_by=None, _depth=0):
+        """递归物理删除文件夹及其内容
+
+        R6 修复：添加 _depth 参数，超过 MAX_FOLDER_DEPTH 时抛异常防止栈溢出。
+        """
+        if _depth > self.MAX_FOLDER_DEPTH:
+            raise RuntimeError(
+                f'文件夹嵌套深度超过上限 {self.MAX_FOLDER_DEPTH}，'
+                f'可能存在循环引用（folder_id={folder.id}）'
+            )
         start_time = time.time()
         BATCH_SIZE = 50
 
         # 第一步：递归物理删除子文件夹
-        sub_folders_query = FolderModel.objects.filter(parent=folder, is_deleted=False).order_by()
+        sub_folders_query = FolderModel.objects.filter(parent=folder).order_by()
         if request_user and not is_public:
             sub_folders_query = apply_tenant_filter(sub_folders_query, request_user, strict_mode=True)
         sub_folders_count = sub_folders_query.count()
@@ -437,69 +451,18 @@ class FolderView(View):
         
         if sub_folders_count > 0:
             for sub_folder in list(sub_folders_query):
-                self._delete_folder(sub_folder, FolderModel, FileModel, is_public, request_user, deleted_by)
+                self._delete_folder(sub_folder, FolderModel, FileModel, is_public, request_user, deleted_by, _depth=_depth + 1)
 
         # 第二步：分批物理删除当前文件夹下的文件
-        delete_errors = []
-        base_files_qs = folder.files.filter(is_deleted=False).select_related('created_by')
+        base_files_qs = folder.files.all().select_related('created_by')
         files_count = base_files_qs.count()
         logger.info(f'[Document] Deleting {files_count} files in folder {folder.name}')
 
-        # 收集所有文件的父目录，用于删除后兜底清理物理残留目录
         parent_dirs_to_clean = set()
-
-        total_deleted = 0
-        # 【BUG 修复】原实现用 range(files_count) + files[batch_start:batch_end] 切片，
-        #   但 files 是 QuerySet，每次切片都重新查库。第一批删除 50 条后，第二批
-        #   files[50:100] 执行 LIMIT 50 OFFSET 50，而库中只剩 N-50 条（≤50），
-        #   OFFSET 50 跳过所有 → 超过 50 个的文件残留 → 第三步删文件夹触发
-        #   on_delete=SET_NULL → 残留文件 folder_id 被置 NULL → 散落到根目录。
-        #   改为 while 循环始终取前 BATCH_SIZE 条（已删的不会再出现），并用
-        #   failed_file_ids 排除删除失败的文件，避免死循环。
-        failed_file_ids = set()
-        max_iterations = (files_count // BATCH_SIZE) + 10  # 安全阀，防异常死循环
-        iteration = 0
-        while True:
-            iteration += 1
-            if iteration > max_iterations:
-                logger.warning(
-                    f'[Document] Folder delete exceeded safety iteration limit '
-                    f'(folder={folder.id}, iter={iteration}), breaking.'
-                )
-                break
-
-            batch_files_list = list(
-                base_files_qs.exclude(id__in=failed_file_ids)[:BATCH_SIZE]
-            )
-            if not batch_files_list:
-                break
-
-            batch_success_count = 0
-            try:
-                with transaction.atomic():
-                    for file in batch_files_list:
-                        try:
-                            # 删除前收集父目录（兜底清理用）
-                            file_path = getattr(file, 'file_path', None)
-                            if file_path:
-                                parent_dir = os.path.dirname(file_path)
-                                if parent_dir:
-                                    parent_dirs_to_clean.add(parent_dir)
-                            file.delete(hard=True)
-                            batch_success_count += 1
-                            logger.info(f'[Document] File deleted: {file.name} (id={file.id})')
-                        except Exception as e:
-                            failed_file_ids.add(file.id)
-                            delete_errors.append(f"文件{file.name}删除失败: {str(e)}")
-                            logger.error(f'[Document] Failed to delete file {file.name}: {e}')
-
-                    total_deleted += batch_success_count
-                    logger.info(f'[Document] Batch delete progress: {total_deleted}/{files_count} files deleted')
-
-            except Exception as batch_error:
-                logger.error(f'[Document] Batch delete failed (iter={iteration}): {batch_error}')
-                delete_errors.append(f"批次删除失败: {str(batch_error)}")
-                break
+        delete_errors = self._batch_delete_files(
+            base_files_qs, files_count, BATCH_SIZE, is_public,
+            request_user, parent_dirs_to_clean
+        )
 
         # 第三步：删除物理目录 + 文件夹数据库记录
         try:
@@ -511,7 +474,7 @@ class FolderView(View):
                 is_public=is_public,
                 user_id=getattr(folder, 'created_by_id', None)
             )
-            folder.delete(hard=True)
+            folder.delete()
             logger.info(f'[Document] Folder deleted: {folder.name} (id={folder.id})')
         except Exception as e:
             logger.error(f'[Document] Error deleting folder record: {e}')
@@ -523,3 +486,55 @@ class FolderView(View):
         if cost > 240:
             logger.warning(f'[Document] FolderDelete 耗时过长: folder_id={folder.id}, name={folder.name}, cost={cost:.2f}秒')
         logger.info(f'[Document] Folder {folder.name} (id={folder.id}) deleted successfully, cost={cost:.2f}秒')
+
+    def _batch_delete_files(self, base_files_qs, files_count, batch_size, is_public, request_user, parent_dirs_to_clean):
+        """分批物理删除文件，返回错误列表"""
+        delete_errors = []
+        failed_file_ids = set()
+        max_iterations = (files_count // batch_size) + 10
+        iteration = 0
+        total_deleted = 0
+
+        while True:
+            iteration += 1
+            if iteration > max_iterations:
+                logger.warning(f'[Document] Folder delete exceeded safety iteration limit (iter={iteration})')
+                break
+
+            batch_files_list = list(base_files_qs.exclude(id__in=failed_file_ids)[:batch_size])
+            if not batch_files_list:
+                break
+
+            batch_success_count = 0
+            try:
+                with transaction.atomic():
+                    for file in batch_files_list:
+                        try:
+                            file_path = getattr(file, 'file_path', None)
+                            if file_path:
+                                parent_dir = os.path.dirname(file_path)
+                                if parent_dir:
+                                    parent_dirs_to_clean.add(parent_dir)
+                            file.delete()
+                            batch_success_count += 1
+                            logger.info(f'[Document] File deleted: {file.name} (id={file.id})')
+                            _file_id = file.id
+                            _file_name = file.name
+                            _is_public = is_public
+                            _user = request_user
+                            transaction.on_commit(lambda _fid=_file_id, _fn=_file_name, _ip=_is_public, _u=_user: log_operation(
+                                action="FILE_DELETE", user=_u, resource_type="FILE",
+                                resource_id=_fid, is_public=_ip, file_name=_fn,
+                            ))
+                        except Exception as e:
+                            failed_file_ids.add(file.id)
+                            delete_errors.append(f"文件{file.name}删除失败: {str(e)}")
+                            logger.error(f'[Document] Failed to delete file {file.name}: {e}')
+                    total_deleted += batch_success_count
+                    logger.info(f'[Document] Batch delete progress: {total_deleted}/{files_count} files deleted')
+            except Exception as batch_error:
+                logger.error(f'[Document] Batch delete failed (iter={iteration}): {batch_error}')
+                delete_errors.append(f"批次删除失败: {str(batch_error)}")
+                break
+
+        return delete_errors

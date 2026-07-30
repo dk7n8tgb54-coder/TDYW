@@ -1,5 +1,5 @@
 /**
- * 操作审计日志表格
+ * 操作日志表格
  */
 import React from 'react';
 import { observer } from 'mobx-react';
@@ -38,7 +38,7 @@ const TARGET_TYPE_MAP = {
   home: '首页',
   exec: '执行',
   api: 'API',
-  audit: '操作审计',
+  audit: '操作日志',
   unknown: '未知',
 };
 
@@ -237,7 +237,7 @@ class ComTable extends React.Component {
       <TableCard
         tKey="audit"
         rowKey="id"
-        title="操作审计日志"
+        title="操作日志"
         loading={store.isFetching}
         dataSource={store.dataSource}
         onReload={store.fetchRecords}

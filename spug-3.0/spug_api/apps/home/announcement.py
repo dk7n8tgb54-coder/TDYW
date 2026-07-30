@@ -161,7 +161,7 @@ def _validate_scope(form):
     if form.scope_type == SCOPE_TENANT:
         if not tids:
             return None, None, '请选择发布部门'
-        tenants = {t.id: t.name for t in Tenant.objects.filter(id__in=tids, is_active=True)}
+        tenants = {t.id: t.name for t in Tenant.objects.filter(id__in=tids)}
         missing = [t for t in tids if t not in tenants]
         if missing:
             return None, None, '存在无效的发布部门'
@@ -336,7 +336,7 @@ class AnnouncementDepartmentsView(View):
     def get(self, request):
         if not ensure_announcement_admin(request.user):
             return json_response(error='权限拒绝')
-        tenants = Tenant.objects.filter(is_active=True).order_by('id')
+        tenants = Tenant.objects.all().order_by('id')
         return json_response([{'id': t.id, 'name': t.name} for t in tenants])
 
 

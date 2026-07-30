@@ -103,8 +103,8 @@ class FolderCollector:
         # BFS 批量查询：每次批量获取一层子文件夹
         while parent_ids:
             # 【优化】使用 parent_id__in 一次性查询所有直接子文件夹
-            children = list(FolderModel.all_objects.filter(
-                parent_id__in=parent_ids, is_deleted=True
+            children = list(FolderModel.objects.filter(
+                parent_id__in=parent_ids
             ).order_by())
 
             if not children:
@@ -230,7 +230,7 @@ class ContentDeleter:
         兜底策略：即使未来目录规则变化，也按数据库中真实 file_path
         的父目录做安全清理，避免物理目录残留。
         """
-        files = FileModel.all_objects.filter(folder=folder, is_deleted=True).order_by()
+        files = FileModel.objects.filter(folder=folder).order_by()
 
         # 收集所有文件的父目录，用于删除后兜底清理
         parent_dirs_to_clean = set()
@@ -248,7 +248,7 @@ class ContentDeleter:
                     parent_dirs_to_clean.add(parent_dir)
 
             try:
-                file_obj.delete(hard=True)
+                file_obj.delete()
                 self.freed_size += file_size
                 self.deleted_count += 1
             except DocumentPhysicalDeleteError as e:
@@ -286,7 +286,7 @@ class ContentDeleter:
         # 删除数据库记录（非根文件夹）
         if not is_root:
             try:
-                folder.delete(hard=True)
+                folder.delete()
             except DocumentPhysicalDeleteError as e:
                 logger.warning(
                     f'[AsyncFolderDelete] 文件夹物理删除失败，已标记待清理: folder_id={folder.id}'

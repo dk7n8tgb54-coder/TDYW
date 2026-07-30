@@ -1,5 +1,5 @@
 /**
- * 操作审计日志页面
+ * 操作日志页面
  */
 import React from 'react';
 import { observer } from 'mobx-react';
@@ -21,7 +21,7 @@ export default observer(function () {
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
         <Breadcrumb.Item>系统管理</Breadcrumb.Item>
-        <Breadcrumb.Item>操作审计</Breadcrumb.Item>
+        <Breadcrumb.Item>操作日志</Breadcrumb.Item>
       </Breadcrumb>
       <SearchForm>
         <SearchForm.Item span={6} title="操作人">

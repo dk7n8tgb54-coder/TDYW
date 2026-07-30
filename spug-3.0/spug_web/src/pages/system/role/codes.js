@@ -181,9 +181,9 @@ export default [{
     ]
   }, {
     key: 'audit',
-    label: '操作审计',
+    label: '操作日志',
     perms: [
-      {key: 'view', label: '查看操作审计'},
+      {key: 'view', label: '查看操作日志'},
     ]
   }, {
     key: 'alert',

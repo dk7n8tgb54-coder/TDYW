@@ -42,6 +42,7 @@ from apps.document.services.system_scope_validators import validate_upload_targe
 from apps.document.views.base import validate_file_name, validate_file_upload, handle_view_errors
 from apps.document.views.upload.lock import get_merge_lock, MERGE_LOCK_TIMEOUT
 from apps.document.views.upload.validators import HashValidator, FolderValidator, ChunkStorageManager
+from apps.document.libs.view_utils import rate_limit
 
 # 【P1-4修复】模块级导入（无循环依赖，提升性能）
 from apps.document.models import DocumentTransfer
@@ -54,9 +55,65 @@ logger = logging.getLogger(__name__)
 MERGE_TASKS_DIR_NAME = 'document_merge_tasks'
 MERGE_TASKS_BASE_PATH_PARTS = ('storage', MERGE_TASKS_DIR_NAME)
 
+# R7 修复：request_id 幂等缓存时长（秒），覆盖前端重试窗口
+REQUEST_ID_CACHE_TTL = 3600
+
 
 def _get_max_file_size() -> int:
     return getattr(settings, 'MAX_DOCUMENT_FILE_SIZE', DEFAULT_MAX_FILE_SIZE)
+
+
+# ============================================================================
+# R7 修复：request_id 幂等去重
+# ============================================================================
+
+def _check_request_id_dedup(request_id: Optional[str], user) -> Optional[dict]:
+    """基于 request_id 的幂等去重检查。
+
+    使用 Redis 缓存 request_id -> transfer_id 映射，
+    防止前端网络重试导致重复提交 Celery 合并任务。
+
+    Args:
+        request_id: 前端生成的唯一请求标识
+        user: 当前用户
+
+    Returns:
+        已有结果字典或 None
+    """
+    if not request_id:
+        return None
+    from django.core.cache import cache
+    cache_key = f'merge_request_id:{request_id}'
+    transfer_id = cache.get(cache_key)
+    if not transfer_id:
+        return None
+    transfer = DocumentTransfer.objects.filter(id=transfer_id).first()
+    if not transfer:
+        return None
+    # 归属校验：防止跨用户 IDOR
+    if user and not getattr(user, 'is_supper', False) and transfer.user_id != user.id:
+        logger.warning(
+            '[Document][Merge] request_id dedup user mismatch: '
+            'request_id=%s, transfer_id=%s', request_id, transfer_id
+        )
+        return None
+    if transfer.status in [TransferStatus.MERGING.value, TransferStatus.COMPLETED.value]:
+        logger.info(
+            '[Document][Merge] request_id dedup hit: '
+            'request_id=%s, transfer_id=%s, status=%s',
+            request_id, transfer_id, transfer.status
+        )
+        return _build_result_from_transfer(transfer)
+    return None
+
+
+def _store_request_id_mapping(request_id: Optional[str], transfer_id: int):
+    """存储 request_id -> transfer_id 映射。"""
+    if not request_id:
+        return
+    from django.core.cache import cache
+    cache_key = f'merge_request_id:{request_id}'
+    cache.set(cache_key, transfer_id, REQUEST_ID_CACHE_TTL)
 
 
 # ============================================================================
@@ -117,6 +174,8 @@ def validate_merge_params(data: dict) -> tuple[Optional[dict], Optional[str]]:
         'is_public': data.get('is_public', False),
         'transfer_id': data.get('transfer_id'),
         'system_folder': data.get('system_folder'),
+        # R7 修复：解析 request_id 用于幂等去重
+        'request_id': data.get('request_id'),
     }, None
 
 
@@ -514,6 +573,7 @@ class FileMergeChunksView(View):
     """
 
     @document_auth('upload')
+    @rate_limit(max_requests=60, window=60, key_prefix='merge')
     @handle_view_errors
     def post(self, request):
         """处理文件分片合并POST请求。
@@ -547,6 +607,14 @@ class FileMergeChunksView(View):
         )
         if not ok:
             return json_response(error=scope_err)
+
+        # R7 修复：在获取锁之前检查 request_id 幂等性
+        # 前端网络重试时，相同 request_id 直接返回已有结果，避免重复提交 Celery 任务
+        request_id = params.get('request_id')
+        if request_id:
+            existing = _check_request_id_dedup(request_id, request.user)
+            if existing:
+                return json_response(existing)
 
         # 步骤2: 验证文件夹和文件
         folder, chunk_dir, error = self._validate_folder_and_chunk(params, request)
@@ -738,6 +806,9 @@ class FileMergeChunksView(View):
             write_merge_task_file(
                 merge_task_file, params, params['is_public'], task.id, request.user
             )
+
+            # R7 修复：存储 request_id -> transfer_id 映射，供后续重试请求幂等
+            _store_request_id_mapping(params.get('request_id'), params['transfer_id'])
 
         return json_response({
             'task_id': task.id,

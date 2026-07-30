@@ -40,6 +40,7 @@ class Command(BaseCommand):
         'unique_key_consistency',
         'pending_clean_files',
         'tenant_isolation',
+        'record_tenant_consistency',
     ]
 
     def add_arguments(self, parser):
@@ -72,6 +73,7 @@ class Command(BaseCommand):
             self.check_unique_key_consistency,
             self.check_pending_clean_files,
             self.check_tenant_isolation,
+            self.check_record_tenant_consistency,
         ]
 
         results = []
@@ -131,41 +133,11 @@ class Command(BaseCommand):
     # 子记录 is_deleted=False，但父记录 is_deleted=True
     # ============================================
     def check_soft_delete_orphans(self):
-        """软删除孤儿：子记录指向已软删除的父记录"""
+        """删除残留检查：检查已删除记录下是否仍有子记录"""
         problems = []
 
-        # DocumentFilePrivate -> DocumentFolderPrivate (FK, on_delete=SET_NULL)
-        # 软删除文件夹时，文件的 folder_id 不会变 NULL（SET_NULL 只在物理删除时触发）
-        rows = self._query("""
-            SELECT f.id, f.name, f.folder_id, f.tenant_id
-            FROM tdyw_document_file_private f
-            INNER JOIN tdyw_document_folder_private d ON f.folder_id = d.id
-            WHERE f.is_deleted = 0 AND d.is_deleted = 1
-        """)
-        for row in rows:
-            problems.append({
-                'model': 'DocumentFilePrivate',
-                'id': row['id'],
-                'name': row['name'],
-                'issue': f"folder({row['folder_id']}) is soft-deleted but file is not",
-                'tenant_id': row['tenant_id'],
-            })
-
-        # DocumentFilePublic -> DocumentFolderPublic
-        # 注意：公共空间无 tenant_id 字段
-        rows = self._query("""
-            SELECT f.id, f.name, f.folder_id
-            FROM tdyw_document_file_public f
-            INNER JOIN tdyw_document_folder_public d ON f.folder_id = d.id
-            WHERE f.is_deleted = 0 AND d.is_deleted = 1
-        """)
-        for row in rows:
-            problems.append({
-                'model': 'DocumentFilePublic',
-                'id': row['id'],
-                'name': row['name'],
-                'issue': f"folder({row['folder_id']}) is soft-deleted but file is not",
-            })
+        # DocumentFilePrivate / DocumentFilePublic 已移除 is_deleted 字段（回收站废弃）
+        # 不再检查软删除孤儿
 
         # UpgradeRecordStep -> UpgradeRecord (IntegerField, 非 FK)
         # upgrade_id 指向已软删除的 UpgradeRecord
@@ -177,17 +149,14 @@ class Command(BaseCommand):
         """)
         for row in rows:
             problems.append({
-                'model': 'UpgradeRecordStep',
+                'model': '升级记录步骤',
                 'id': row['id'],
                 'name': row['title'],
-                'issue': f"upgrade_record({row['upgrade_id']}) is soft-deleted but step is not",
+                'issue': f"所属升级记录(ID:{row['upgrade_id']})已被删除，但此步骤仍存在",
                 'tenant_id': row['tenant_id'],
             })
 
-        # RegulationAttachment -> Regulation: Regulation 无 is_deleted（用 status='retired'），
-        # FK CASCADE 已在 DB 层处理，不需要软删除孤儿检查
-
-        return self._format_result('soft_delete_orphans', problems, '软删除孤儿：子记录指向已软删除的父记录')
+        return self._format_result('删除残留检查', problems, '检查已删除记录下是否仍有子记录')
 
     # ============================================
     # 检查 2：文件-数据库一致性
@@ -205,19 +174,20 @@ class Command(BaseCommand):
         doc_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
 
         file_sources = [
-            # (table, model_name, base_path, name_column)
-            # base_path=None 表示 file_path 是绝对路径，直接用
-            ('tdyw_document_file_private', 'DocumentFilePrivate', None, 'name'),
-            ('tdyw_document_file_public', 'DocumentFilePublic', None, 'name'),
-            ('tdyw_evidence_attachments', 'EvidenceAttachment', media_root, 'file_name'),
-            ('tdyw_regulation_attachment', 'RegulationAttachment', doc_base, 'original_name'),
+            # (table, model_name, base_path, name_column, has_soft_delete)
+            # has_soft_delete=True 表示表有 is_deleted 字段，需过滤
+            ('tdyw_document_file_private', '资料库文件', None, 'name', False),
+            ('tdyw_document_file_public', '公共资料文件', None, 'name', False),
+            ('tdyw_evidence_attachments', '证据附件', media_root, 'file_name', True),
+            ('tdyw_regulation_attachment', '法规附件', doc_base, 'original_name', True),
         ]
 
-        for table, model_name, base_path, name_col in file_sources:
+        for table, model_name, base_path, name_col, has_soft_delete in file_sources:
+            where = "WHERE is_deleted = 0 AND file_path != ''" if has_soft_delete else "WHERE file_path != ''"
             rows = self._query(f"""
                 SELECT id, file_path, {name_col} AS display_name
                 FROM {table}
-                WHERE is_deleted = 0 AND file_path != ''
+                {where}
                 ORDER BY id DESC
                 LIMIT %s
             """, [self.file_sample])
@@ -232,12 +202,12 @@ class Command(BaseCommand):
                         'id': row['id'],
                         'name': row['display_name'],
                         'file_path': abs_path,
-                        'issue': 'file not found on disk',
+                        'issue': '磁盘上文件不存在',
                     })
 
         return {
-            'check': 'file_db_consistency',
-            'description': f'文件-数据库一致性（采样 {checked} 条，缺失 {missing} 条）',
+            'check': '文件完整性检查',
+            'description': f'数据库有记录但磁盘上文件缺失（采样 {checked} 条，缺失 {missing} 条）',
             'status': 'pass' if missing == 0 else 'fail',
             'count': missing,
             'checked': checked,
@@ -251,61 +221,45 @@ class Command(BaseCommand):
     # 注意：DocumentFile 模型没有 unique_key 字段，不检查
     # ============================================
     def check_unique_key_consistency(self):
-        """unique_key 一致性：DocumentFolder 的 unique_key 与 is_deleted 状态不匹配"""
+        """文件夹标识检查：文件夹唯一标识不完整（不应为空）"""
         problems = []
 
+        # DocumentFolder 已移除 is_deleted 字段（回收站废弃）
+        # unique_key 由 UniqueKeyMixin.save() 自动计算，不应为 NULL
         for table, model_name, has_tenant in [
-            ('tdyw_document_folder_private', 'DocumentFolderPrivate', True),
-            ('tdyw_document_folder_public', 'DocumentFolderPublic', False),
+            ('tdyw_document_folder_private', '资料库文件夹', True),
+            ('tdyw_document_folder_public', '公共资料文件夹', False),
         ]:
             tenant_col = ', tenant_id' if has_tenant else ''
-            # 未删除但 unique_key 为 NULL
             rows = self._query(f"""
                 SELECT id, name{tenant_col}
                 FROM {table}
-                WHERE is_deleted = 0 AND unique_key IS NULL
+                WHERE unique_key IS NULL
             """)
             for row in rows:
                 entry = {
                     'model': model_name,
                     'id': row['id'],
                     'name': row['name'],
-                    'issue': 'is_deleted=False but unique_key is NULL',
+                    'issue': '唯一标识为空（应由系统自动生成）',
                 }
                 if has_tenant:
                     entry['tenant_id'] = row['tenant_id']
                 problems.append(entry)
 
-            # 已删除但 unique_key 不为 NULL
-            rows = self._query(f"""
-                SELECT id, name, unique_key{tenant_col}
-                FROM {table}
-                WHERE is_deleted = 1 AND unique_key IS NOT NULL
-            """)
-            for row in rows:
-                entry = {
-                    'model': model_name,
-                    'id': row['id'],
-                    'name': row['name'],
-                    'issue': f"is_deleted=True but unique_key is not NULL ({row['unique_key']})",
-                }
-                if has_tenant:
-                    entry['tenant_id'] = row['tenant_id']
-                problems.append(entry)
-
-        return self._format_result('unique_key_consistency', problems, 'unique_key 与 is_deleted 状态不匹配')
+        return self._format_result('文件夹标识检查', problems, '文件夹唯一标识不完整（不应为空）')
 
     # ============================================
     # 检查 4：待清理文件
     # is_pending_clean=True 的记录（物理文件删除失败）
     # ============================================
     def check_pending_clean_files(self):
-        """待清理文件：is_pending_clean=True（物理文件删除失败）"""
+        """待清理文件检查：删除失败的文件卡住未清理"""
         problems = []
 
         for table, model_name, has_tenant in [
-            ('tdyw_document_file_private', 'DocumentFilePrivate', True),
-            ('tdyw_document_file_public', 'DocumentFilePublic', False),
+            ('tdyw_document_file_private', '资料库文件', True),
+            ('tdyw_document_file_public', '公共资料文件', False),
         ]:
             tenant_col = ', tenant_id' if has_tenant else ''
             rows = self._query(f"""
@@ -315,26 +269,27 @@ class Command(BaseCommand):
                 ORDER BY last_clean_attempt DESC
             """)
             for row in rows:
+                retry = row['clean_retry_count']
                 entry = {
                     'model': model_name,
                     'id': row['id'],
                     'name': row['name'],
-                    'retry_count': row['clean_retry_count'],
+                    'retry_count': retry,
                     'last_clean_attempt': row['last_clean_attempt'].isoformat() if row['last_clean_attempt'] else None,
-                    'issue': 'is_pending_clean=True (physical file deletion failed)',
+                    'issue': f'文件删除失败，已重试 {retry} 次',
                 }
                 if has_tenant:
                     entry['tenant_id'] = row['tenant_id']
                 problems.append(entry)
 
-        return self._format_result('pending_clean_files', problems, 'is_pending_clean=True（物理文件删除失败）')
+        return self._format_result('待清理文件检查', problems, '删除失败的文件卡住未清理')
 
     # ============================================
     # 检查 6：租户隔离
     # DocumentFilePrivate.tenant_id != folder.tenant_id
     # ============================================
     def check_tenant_isolation(self):
-        """租户隔离：DocumentFile 与 Folder 的 tenant_id 不一致"""
+        """科室隔离检查：文件与所属文件夹的科室不一致"""
         problems = []
 
         rows = self._query("""
@@ -342,21 +297,61 @@ class Command(BaseCommand):
                    f.folder_id, d.tenant_id AS folder_tenant
             FROM tdyw_document_file_private f
             INNER JOIN tdyw_document_folder_private d ON f.folder_id = d.id
-            WHERE f.is_deleted = 0
-              AND f.tenant_id != d.tenant_id
+            WHERE f.tenant_id != d.tenant_id
         """)
         for row in rows:
             problems.append({
-                'model': 'DocumentFilePrivate',
+                'model': '资料库文件',
                 'id': row['id'],
                 'name': row['name'],
-                'issue': f"tenant mismatch: file({row['file_tenant']}) vs folder({row['folder_tenant']})",
+                'issue': f"文件科室({row['file_tenant']})与文件夹科室({row['folder_tenant']})不一致",
                 'file_tenant_id': row['file_tenant'],
                 'folder_id': row['folder_id'],
                 'folder_tenant_id': row['folder_tenant'],
             })
 
-        return self._format_result('tenant_isolation', problems, 'DocumentFile 与 Folder 的 tenant_id 不一致')
+        return self._format_result('科室隔离检查', problems, '文件与所属文件夹的科室不一致')
+
+    # ============================================
+    # 检查 7：业务记录科室归属一致性
+    # 记录的 tenant_id 与创建人的 tenant_id 不一致
+    # ============================================
+    def check_record_tenant_consistency(self):
+        """科室归属检查：业务记录的科室与创建人所属科室不一致"""
+        problems = []
+
+        # (表名, 显示名, 记录名列)
+        modules = [
+            ('tdyw_fault_records', '故障记录', 'system_name'),
+            ('tdyw_run_logs', '运行日志', 'event_title'),
+            ('tdyw_interferences', '干扰记录', 'frequency'),
+            ('tdyw_upgrade_records', '升级记录', 'title'),
+            ('tdyw_duty_records', '值班日志', 'duty_person'),
+        ]
+
+        for table, model_name, name_col in modules:
+            rows = self._query(f"""
+                SELECT r.id, r.{name_col} AS display_name,
+                       r.tenant_id AS record_tenant,
+                       u.tenant_id AS user_tenant,
+                       u.username AS created_by_name
+                FROM {table} r
+                INNER JOIN users u ON r.created_by_id = u.id
+                WHERE r.is_deleted = 0
+                  AND r.tenant_id != u.tenant_id
+            """)
+            for row in rows:
+                problems.append({
+                    'model': model_name,
+                    'id': row['id'],
+                    'name': row['display_name'] or f'(ID:{row["id"]})',
+                    'issue': (f"记录科室({row['record_tenant']})与创建人"
+                              f"({row['created_by_name']})科室({row['user_tenant']})不一致"),
+                    'record_tenant_id': row['record_tenant'],
+                    'user_tenant_id': row['user_tenant'],
+                })
+
+        return self._format_result('科室归属检查', problems, '业务记录的科室与创建人所属科室不一致')
 
     # ============================================
     # 辅助方法

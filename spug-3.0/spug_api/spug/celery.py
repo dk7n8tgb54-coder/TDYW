@@ -95,14 +95,49 @@ celery_logger = logging.getLogger(__name__)
 
 @task_failure.connect
 def on_task_failure(sender, task_id, exception, *args, **kwargs):
-    """Celery 任务失败时发送告警"""
+    """Celery 任务失败时记录完整上下文并发送告警
+
+    指南 3.2 要求：错误日志必须带完整上下文（请求参数、链路 ID、异常栈）
+    Celery 任务无 HTTP 请求，使用 task_id 作为链路 ID，记录任务参数（脱敏）。
+    """
+    import traceback as _tb
+    import json as _json
+
+    # 敏感字段脱敏
+    _SENSITIVE = ('password', 'token', 'secret', 'key', 'private', 'credential')
+
+    def _sanitize(obj, depth=0):
+        if depth > 3:
+            return '...'
+        if isinstance(obj, dict):
+            return {k: ('***' if any(s in k.lower() for s in _SENSITIVE) else _sanitize(v, depth+1))
+                    for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_sanitize(v, depth+1) for v in obj[:20]]
+        if isinstance(obj, str) and len(obj) > 500:
+            return obj[:500] + '...'
+        return obj
+
+    task_name = getattr(sender, 'name', str(sender))
+    # 提取任务参数（Celery signal 提供 einfo、args、kwargs）
+    task_args = kwargs.get('args', ())
+    task_kwargs = kwargs.get('kwargs', {})
+    sanitized_args = _sanitize(task_args)
+    sanitized_kwargs = _sanitize(task_kwargs)
+    exc_traceback = _tb.format_exc()
+
     try:
+        celery_logger.error(
+            f'[request_id={task_id}] Celery task failed: {task_name}\n'
+            f'  args={sanitized_args}\n  kwargs={sanitized_kwargs}\n'
+            f'  exception={exception}\n  traceback:\n{exc_traceback}'
+        )
         from libs.alert import send_alert
-        task_name = getattr(sender, 'name', str(sender))
-        celery_logger.error(f'[Celery] Task failed: {task_name}({task_id}): {exception}')
         send_alert(
             title=f'Celery 任务失败: {task_name}',
-            message=f'任务: {task_name}\nID: {task_id}\n异常: {exception}',
+            message=f'任务: {task_name}\nID(request_id): {task_id}\n'
+                   f'参数: args={sanitized_args} kwargs={sanitized_kwargs}\n'
+                   f'异常: {exception}',
             level='error',
             source='celery',
             alert_key=f'celery:{task_name}',
