@@ -6,7 +6,6 @@
 import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react';
 import { Modal, Form, Input, Select, DatePicker, Button, message, Row, Col, Divider } from 'antd';
-import { CopyOutlined } from '@ant-design/icons';
 import { http } from 'libs';
 import history from 'libs/history';
 import store from './store';
@@ -31,7 +30,7 @@ const { TextArea } = Input;
  *   用户手动修改后锁定；清空标题后恢复自动生成。
  */
 
-function BasicInfoFields({ upgradeNo }) {
+function BasicInfoFields() {
   return (
     <>
       <div style={{ fontWeight: 600, marginBottom: 12, color: '#262626' }}>基本信息</div>
@@ -64,26 +63,6 @@ function BasicInfoFields({ upgradeNo }) {
         <Col span={12}>
           <Form.Item name="upgrade_time" label="计划升级时间" rules={[{ required: true, message: '请选择计划升级时间' }]}>
             <DatePicker showTime style={{ width: '100%' }} placeholder="请选择计划升级时间" />
-          </Form.Item>
-        </Col>
-        <Col span={24}>
-          <Form.Item name="upgrade_no" label="升级单号">
-            <Input
-              placeholder="保存后自动生成"
-              disabled
-              addonAfter={upgradeNo ? (
-                <CopyOutlined
-                  onClick={() => {
-                    if (navigator.clipboard) {
-                      navigator.clipboard.writeText(upgradeNo);
-                      message.success('已复制单号');
-                    }
-                  }}
-                  style={{ cursor: 'pointer' }}
-                  title="复制单号"
-                />
-              ) : null}
-            />
           </Form.Item>
         </Col>
       </Row>
@@ -147,12 +126,10 @@ export default observer(function CreateUpgradeModal() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
-  const [upgradeNo, setUpgradeNo] = useState('');
   const [titleTouched, setTitleTouched] = useState(false);
 
   useEffect(() => {
     // 打开时加载建单所需数据
-    store.fetchNextUpgradeNo().then(no => { if (no) setUpgradeNo(no); });
     store.fetchPlans();
     store.fetchSystems();
     store.fetchFilterOptions();
@@ -216,8 +193,7 @@ export default observer(function CreateUpgradeModal() {
       if (formData.upgrade_time) {
         formData.upgrade_time = formData.upgrade_time.format('YYYY-MM-DD HH:mm:ss');
       }
-      // 新建：升级单号由后端自动生成，状态由后端默认"处理中"，前端不传
-      delete formData.upgrade_no;
+      // 新建：状态由后端默认"处理中"，前端不传
       delete formData.status;
 
       http.post('/api/upgrade/records/create/', formData)
@@ -269,7 +245,7 @@ export default observer(function CreateUpgradeModal() {
       ]}
     >
       <Form form={form} layout="vertical" onValuesChange={onValuesChange}>
-        <BasicInfoFields upgradeNo={upgradeNo} />
+        <BasicInfoFields />
         <Divider style={{ margin: '8px 0 16px' }} />
         <UpgradeDescFields />
         <Divider style={{ margin: '8px 0 16px' }} />

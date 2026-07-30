@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # 导出列定义：(字段, 表头)
 EXCEL_COLUMNS = [
-    ('upgrade_no', '升级单号'),
+    ('title', '标题'),
     ('system', '系统'),
     ('upgrade_type', '升级类型'),
     ('version', '版本'),

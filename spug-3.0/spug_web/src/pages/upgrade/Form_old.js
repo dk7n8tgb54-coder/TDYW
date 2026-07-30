@@ -233,7 +233,6 @@ export default observer(function () {
         <Tabs defaultActiveKey="basic">
           <TabPane tab="基本信息" key="basic">
             <div style={{ padding: '0 0 16px 0' }}>
-              <div><strong>升级单号：</strong>{info.upgrade_no}</div>
               <div><strong>系统：</strong>{info.system}</div>
               <div><strong>升级类型：</strong>{info.upgrade_type}</div>
               <div><strong>版本：</strong>{info.version}</div>
@@ -306,9 +305,6 @@ export default observer(function () {
       <Tabs defaultActiveKey="basic">
         <TabPane tab="基本信息" key="basic">
           <Form form={form} initialValues={initialValues} labelCol={{span: 5}} wrapperCol={{span: 14}}>
-            <Form.Item required name="upgrade_no" label="升级单号" rules={[{required: true, message: '请输入升级单号'}]}>
-              <Input placeholder="请输入升级单号"/>
-            </Form.Item>
             <Form.Item required name="system" label="系统" rules={[{required: true, message: '请输入系统'}]}>
               <Input placeholder="请输入系统"/>
             </Form.Item>

@@ -46,16 +46,6 @@ class RecordValidator:
         if getattr(data, 'upgrade_type', None) not in UpgradeType.values():
             errors.append(f'升级类型无效，仅支持：{"/".join(UpgradeType.values())}')
 
-        # 同租户内单号唯一性
-        upgrade_no = getattr(data, 'upgrade_no', None)
-        if upgrade_no:
-            from .models import UpgradeRecord
-            if UpgradeRecord.objects.filter(
-                tenant_id=user.tenant_id,
-                upgrade_no=upgrade_no
-            ).exists():
-                errors.append(f'升级单号 [{upgrade_no}] 已存在')
-
         return None if not errors else '; '.join(errors)
 
     @staticmethod

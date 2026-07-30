@@ -52,7 +52,6 @@ class ExecAPITest(TestCase):
         """Test getting upgrade records"""
         UpgradeRecord.objects.create(
             tenant_id=self.user.tenant_id,
-            upgrade_no='UPG001',
             system='System1',
             version='v2.0.0',
             upgrade_time='2026-01-01',

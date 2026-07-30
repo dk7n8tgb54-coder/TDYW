@@ -13,7 +13,6 @@ class RecordCreateView(View):
     @auth('upgrade.upgrade.add')
     def post(self, request):
         form, error = JsonParser(
-            Argument('upgrade_no', required=False, help='升级单号（不传则自动生成）'),
             Argument('title', help='请输入标题'),
             Argument('system', help='请输入系统'),
             Argument('upgrade_type', help='请选择升级类型'),

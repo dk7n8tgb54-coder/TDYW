@@ -11,7 +11,7 @@ import {
   Menu, Modal, Card
 } from 'antd';
 import { 
-  PlusOutlined, CheckCircleOutlined, CopyOutlined, 
+  PlusOutlined, CheckCircleOutlined, 
   PrinterOutlined, DeleteOutlined, PaperClipOutlined, DownOutlined 
 } from '@ant-design/icons';
 import { AttachmentManager } from 'components';
@@ -28,7 +28,6 @@ const { Panel } = Collapse;
 const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSaveStart, onSaveEnd, onSaveSuccess, onSaveError }, ref) {
   const [form] = Form.useForm();
   const [selectedPlan, setSelectedPlan] = useState(null);
-  const [upgradeNo, setUpgradeNo] = useState('');
   
   // 状态时间线 - 异常事件记录
   
@@ -81,15 +80,6 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
     }
   }, [store.record, isNew]);
 
-  // 新建模式：获取升级单号
-  useEffect(() => {
-    if (isNew) {
-      store.fetchNextUpgradeNo().then(no => {
-        if (no) setUpgradeNo(no);
-      });
-    }
-  }, [isNew]);
-
   function handleSubmit(redirectMode) {
     form.validateFields().then(values => {
       if (onSaveStart) onSaveStart();
@@ -99,9 +89,8 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
         formData.upgrade_time = formData.upgrade_time.format('YYYY-MM-DD HH:mm:ss');
       }
 
-      // 新建模式：升级单号由后端自动生成，状态由后端默认"处理中"，前端不传
+      // 新建模式：状态由后端默认"处理中"，前端不传
       if (isNew) {
-        delete formData.upgrade_no;
         delete formData.status;
       }
 
@@ -289,7 +278,6 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
 
     const info = store.record;
     const fields = [
-      ['升级单号', info.upgrade_no],
       ['标题', info.title],
       ['系统', info.system],
       ['升级类型', info.upgrade_type],
@@ -310,7 +298,7 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
       `<div style="margin-top:14px"><div style="font-weight:bold;border-bottom:1px solid #000;padding-bottom:4px">${k}</div><div style="padding:8px 4px;min-height:40px;white-space:pre-wrap;line-height:1.8">${escapeHtml(v || '（无）')}</div></div>`
     ).join('');
 
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>升级存档 - ${escapeHtml(info.upgrade_no)}</title><style>@page { size: A4 portrait; margin: 15mm; } body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 13px; color: #000; margin: 0; } h1 { font-size: 22px; text-align: center; margin: 0 0 6px; } .subtitle { text-align: center; color: #666; font-size: 12px; margin-bottom: 20px; } table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid #000; padding: 8px 10px; text-align: left; } th { background: #f0f0f0; font-weight: bold; width: 130px; } .footer { margin-top: 28px; font-size: 11px; color: #666; text-align: right; border-top: 1px dashed #999; padding-top: 6px; } .no-print { text-align: center; margin-top: 20px; } .no-print button { padding: 6px 18px; margin: 0 6px; font-size: 13px; cursor: pointer; } @media print { .no-print { display: none; } }</style></head><body><h1>升级存档</h1><div class="subtitle">升级基本信息</div><table>${rowsHtml}</table>${blocksHtml}<div class="footer">打印时间：${new Date().toLocaleString()}</div><div class="no-print"><button onclick="window.print()">打印</button><button onclick="window.close()">关闭</button></div></body></html>`);
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>升级存档 - ${escapeHtml(info.title)}</title><style>@page { size: A4 portrait; margin: 15mm; } body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 13px; color: #000; margin: 0; } h1 { font-size: 22px; text-align: center; margin: 0 0 6px; } .subtitle { text-align: center; color: #666; font-size: 12px; margin-bottom: 20px; } table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid #000; padding: 8px 10px; text-align: left; } th { background: #f0f0f0; font-weight: bold; width: 130px; } .footer { margin-top: 28px; font-size: 11px; color: #666; text-align: right; border-top: 1px dashed #999; padding-top: 6px; } .no-print { text-align: center; margin-top: 20px; } .no-print button { padding: 6px 18px; margin: 0 6px; font-size: 13px; cursor: pointer; } @media print { .no-print { display: none; } }</style></head><body><h1>升级存档</h1><div class="subtitle">升级基本信息</div><table>${rowsHtml}</table>${blocksHtml}<div class="footer">打印时间：${new Date().toLocaleString()}</div><div class="no-print"><button onclick="window.print()">打印</button><button onclick="window.close()">关闭</button></div></body></html>`);
     win.document.close();
     win.focus();
     setTimeout(() => { try { win.print(); } catch (e) {} }, 300);
@@ -355,7 +343,7 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
     }
 
     const info = store.record;
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>升级步骤执行清单 - ${escapeHtml(info.upgrade_no)}</title><style>@page { size: A4 portrait; margin: 15mm; } body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 12px; color: #000; margin: 0; } h1 { font-size: 18px; text-align: center; margin: 0 0 8px; } .meta { margin: 8px 0 12px; border-bottom: 2px solid #000; padding-bottom: 8px; } .meta div { display: inline-block; margin-right: 28px; line-height: 1.9; } .meta b { font-weight: bold; } table { width: 100%; border-collapse: collapse; margin-top: 4px; } th, td { border: 1px solid #000; padding: 8px; text-align: left; vertical-align: top; } th { background: #f0f0f0; font-weight: bold; text-align: center; font-size: 12px; } td { line-height: 28px; } .step-title { font-weight: bold; } .step-desc { font-size: 11px; color: #444; margin-top: 4px; line-height: 1.5; } .phase-section { margin-bottom: 16px; page-break-inside: avoid; } .phase-header { font-weight: bold; font-size: 13px; padding: 6px 8px; background: #f0f0f0; border: 1px solid #000; border-bottom: none; display: flex; justify-content: space-between; } .phase-check { font-weight: normal; font-size: 11px; } .sign { margin-top: 24px; font-size: 12px; } .sign div { display: inline-block; margin-right: 60px; } .footer { margin-top: 16px; font-size: 11px; color: #666; text-align: right; border-top: 1px dashed #999; padding-top: 6px; } .no-print { text-align: center; margin-top: 20px; } .no-print button { padding: 6px 18px; margin: 0 6px; font-size: 13px; cursor: pointer; } @media print { .no-print { display: none; } }</style></head><body><h1>升级步骤执行清单</h1><div class="meta"><div><b>升级单号：</b>${escapeHtml(info.upgrade_no)}</div><div><b>系统：</b>${escapeHtml(info.system)}</div><div><b>升级类型：</b>${escapeHtml(info.upgrade_type)}</div><div><b>升级时间：</b>${escapeHtml(info.upgrade_time)}</div><div><b>负责人：</b>${escapeHtml(info.owner)}</div><div><b>状态：</b>${escapeHtml(info.status)}</div></div>${sectionsHtml || '<div style="text-align:center;padding:20px;">暂无步骤</div>'}<div class="sign"><div>执行人签字：________________</div><div>使用部门确认：________________</div></div><div class="footer">打印时间：${new Date().toLocaleString()}</div><div class="no-print"><button onclick="window.print()">打印</button><button onclick="window.close()">关闭</button></div></body></html>`);
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>升级步骤执行清单 - ${escapeHtml(info.title)}</title><style>@page { size: A4 portrait; margin: 15mm; } body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 12px; color: #000; margin: 0; } h1 { font-size: 18px; text-align: center; margin: 0 0 8px; } .meta { margin: 8px 0 12px; border-bottom: 2px solid #000; padding-bottom: 8px; } .meta div { display: inline-block; margin-right: 28px; line-height: 1.9; } .meta b { font-weight: bold; } table { width: 100%; border-collapse: collapse; margin-top: 4px; } th, td { border: 1px solid #000; padding: 8px; text-align: left; vertical-align: top; } th { background: #f0f0f0; font-weight: bold; text-align: center; font-size: 12px; } td { line-height: 28px; } .step-title { font-weight: bold; } .step-desc { font-size: 11px; color: #444; margin-top: 4px; line-height: 1.5; } .phase-section { margin-bottom: 16px; page-break-inside: avoid; } .phase-header { font-weight: bold; font-size: 13px; padding: 6px 8px; background: #f0f0f0; border: 1px solid #000; border-bottom: none; display: flex; justify-content: space-between; } .phase-check { font-weight: normal; font-size: 11px; } .sign { margin-top: 24px; font-size: 12px; } .sign div { display: inline-block; margin-right: 60px; } .footer { margin-top: 16px; font-size: 11px; color: #666; text-align: right; border-top: 1px dashed #999; padding-top: 6px; } .no-print { text-align: center; margin-top: 20px; } .no-print button { padding: 6px 18px; margin: 0 6px; font-size: 13px; cursor: pointer; } @media print { .no-print { display: none; } }</style></head><body><h1>升级步骤执行清单</h1><div class="meta"><div><b>标题：</b>${escapeHtml(info.title)}</div><div><b>系统：</b>${escapeHtml(info.system)}</div><div><b>升级类型：</b>${escapeHtml(info.upgrade_type)}</div><div><b>升级时间：</b>${escapeHtml(info.upgrade_time)}</div><div><b>负责人：</b>${escapeHtml(info.owner)}</div><div><b>状态：</b>${escapeHtml(info.status)}</div></div>${sectionsHtml || '<div style="text-align:center;padding:20px;">暂无步骤</div>'}<div class="sign"><div>执行人签字：________________</div><div>使用部门确认：________________</div></div><div class="footer">打印时间：${new Date().toLocaleString()}</div><div class="no-print"><button onclick="window.print()">打印</button><button onclick="window.close()">关闭</button></div></body></html>`);
     win.document.close();
     win.focus();
     setTimeout(() => { try { win.print(); } catch (e) {} }, 300);
@@ -368,7 +356,6 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
       <div style={{ background: '#fafafa', padding: '12px 16px', borderRadius: 4, marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 24px' }}>
           <span><strong>标题：</strong>{info.title || '-'}</span>
-          <span><strong>单号：</strong>{info.upgrade_no}</span>
           <span><strong>系统：</strong>{info.system}</span>
           <span><strong>类型：</strong>{info.upgrade_type}</span>
           <span><strong>时间：</strong>{info.upgrade_time}</span>
@@ -696,9 +683,6 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
     if (initialValues.upgrade_time) {
       initialValues.upgrade_time = moment(initialValues.upgrade_time);
     }
-    if (upgradeNo) {
-      initialValues.upgrade_no = upgradeNo;
-    }
 
     return (
       <Form form={form} initialValues={initialValues} onValuesChange={onValuesChange} layout="vertical">
@@ -733,20 +717,6 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
             <Col span={12}>
               <Form.Item name="upgrade_time" label="计划升级时间" rules={[{ required: true, message: '请选择计划升级时间' }]}>
                 <DatePicker showTime style={{ width: '100%' }} placeholder="请选择计划升级时间" />
-              </Form.Item>
-            </Col>
-            <Col span={24}>
-              <Form.Item name="upgrade_no" label="升级单号">
-                <Input placeholder="保存后自动生成" disabled
-                  addonAfter={upgradeNo ? (
-                    <CopyOutlined onClick={() => {
-                      if (navigator.clipboard) {
-                        navigator.clipboard.writeText(upgradeNo);
-                        message.success('已复制单号');
-                      }
-                    }} style={{ cursor: 'pointer' }} title="复制单号" />
-                  ) : null}
-                />
               </Form.Item>
             </Col>
           </Row>

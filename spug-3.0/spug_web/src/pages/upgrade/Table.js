@@ -21,7 +21,7 @@ class ComTable extends React.Component {
   }
 
   handleDelete = (text) => {
-    const logInfo = `${text['upgrade_no']} - ${text['system']}`;
+    const logInfo = `${text['title']} - ${text['system']}`;
     Modal.confirm({
       title: '删除确认',
       content: `确定要删除【${logInfo}】的升级表单?`,

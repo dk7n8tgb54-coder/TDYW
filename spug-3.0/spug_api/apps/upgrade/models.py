@@ -21,7 +21,6 @@ class UpgradeRecord(models.Model, TenantModelMixin):
     """升级表单主表"""
     objects = TenantModelManager()
     tenant_id = make_tenant_id()
-    upgrade_no = models.CharField(max_length=50)
     title = models.CharField(max_length=200, default='', verbose_name='标题')
     system = models.CharField(max_length=100)
     upgrade_type = models.CharField(max_length=50)
@@ -41,14 +40,13 @@ class UpgradeRecord(models.Model, TenantModelMixin):
     deleted_at = models.DateTimeField(null=True, blank=True, help_text='删除时间')
 
     def __repr__(self):
-        return '<UpgradeRecord %r>' % self.upgrade_no
+        return '<UpgradeRecord %r>' % self.title
 
     class Meta:
         db_table = 'tdyw_upgrade_records'
         verbose_name = '升级记录'
         verbose_name_plural = '升级记录'
         ordering = ('-upgrade_time', '-id',)
-        unique_together = [['tenant_id', 'upgrade_no']]
         indexes = [
             models.Index(fields=['tenant_id', 'status']),
             # 默认列表分页：tenant_id + 计划升级时间倒序 + id

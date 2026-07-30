@@ -13,47 +13,13 @@ from django.utils import timezone
 from libs.tenant_utils import apply_tenant_filter
 from ..validators import RecordValidator
 from ..serializers import UpgradeRecordSerializer
-from ..constants import UPGRADE_NO_PREFIX, PRESET_SYSTEMS, UPGRADE_PHASES, RESULT_MILESTONES, STANDARD_FLOW_ORDER
+from ..constants import PRESET_SYSTEMS, UPGRADE_PHASES, RESULT_MILESTONES, STANDARD_FLOW_ORDER
 
 logger = logging.getLogger(__name__)
 
 
 class RecordService:
     """升级表单服务 - 对外统一门面"""
-
-    @staticmethod
-    def generate_upgrade_no(user):
-        """自动生成升级单号：UPG-YYYYMMDD-XXXX
-
-        格式说明：
-        - UPG: 固定前缀
-        - YYYYMMDD: 当前日期
-        - XXXX: 当日序号（4位，不足补零）
-
-        Returns:
-            str: 自动生成的升级单号
-        """
-        from ..models import UpgradeRecord
-
-        today_str = timezone.now().strftime('%Y%m%d')
-        prefix = f'{UPGRADE_NO_PREFIX}-{today_str}-'
-
-        # 查询当日已有的最大序号
-        existing = apply_tenant_filter(
-            UpgradeRecord.objects.filter(is_deleted=False, upgrade_no__startswith=prefix), user
-        ).values_list('upgrade_no', flat=True)
-
-        max_seq = 0
-        for no in existing:
-            try:
-                seq = int(no[len(prefix):])
-                if seq > max_seq:
-                    max_seq = seq
-            except (ValueError, IndexError):
-                continue
-
-        next_seq = max_seq + 1
-        return f'{prefix}{next_seq:04d}'
 
     @staticmethod
     def create_record(user, record_data):
@@ -83,14 +49,8 @@ class RecordService:
                 if hasattr(upgrade_time_val, 'strftime'):
                     upgrade_time_val = upgrade_time_val.strftime('%Y-%m-%d %H:%M:%S')
 
-                # 自动生成升级单号（如果未提供）
-                upgrade_no = getattr(record_data, 'upgrade_no', None)
-                if not upgrade_no:
-                    upgrade_no = RecordService.generate_upgrade_no(user)
-
                 record = UpgradeRecord.objects.create(
                     tenant_id=user.tenant_id,
-                    upgrade_no=upgrade_no,
                     title=getattr(record_data, 'title', '') or '',
                     system=record_data.system,
                     upgrade_type=record_data.upgrade_type,
@@ -212,13 +172,12 @@ class RecordService:
                 # 写入删除审计日志（在主表删除前调用，record 字段仍可读取）
                 record_audit_event(
                     request, 'delete', 'upgrade',
-                    target_id=record.id, target_name=record.upgrade_no,
+                    target_id=record.id, target_name=record.title,
                     detail={'title': record.title, 'system': record.system,
                             'upgrade_type': record.upgrade_type},
                 )
 
-                # 逻辑删除主表，修改 upgrade_no 避免唯一约束冲突
-                record.upgrade_no = f'{record.upgrade_no}__deleted_{record.id}'
+                # 逻辑删除主表
                 record.is_deleted = True
                 record.deleted_at = now
                 record.save()

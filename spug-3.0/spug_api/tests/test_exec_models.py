@@ -141,7 +141,6 @@ class UpgradeRecordModelTest(TestCase):
         """测试创建升级记录"""
         upgrade = UpgradeRecord.objects.create(
             tenant_id='test_tenant',
-            upgrade_no='UPG001',
             system='系统A',
             upgrade_type='主版本升级',
             version='2.0.0',
@@ -150,33 +149,7 @@ class UpgradeRecordModelTest(TestCase):
             owner='张三',
             created_by=self.user
         )
-        self.assertEqual(upgrade.upgrade_no, 'UPG001')
         self.assertEqual(upgrade.status, '待处理')
-    
-    def test_upgrade_unique_constraint(self):
-        """测试升级单号唯一约束"""
-        UpgradeRecord.objects.create(
-            tenant_id='test_tenant',
-            upgrade_no='UPG001',
-            system='系统A',
-            upgrade_type='主版本升级',
-            version='2.0.0',
-            upgrade_time='2024-01-20',
-            owner='张三',
-            created_by=self.user
-        )
-        # 同一租户内不能重复
-        with self.assertRaises(Exception):
-            UpgradeRecord.objects.create(
-                tenant_id='test_tenant',
-                upgrade_no='UPG001',
-                system='系统B',
-                upgrade_type='主版本升级',
-                version='3.0.0',
-                upgrade_time='2024-01-21',
-                owner='李四',
-                created_by=self.user
-            )
 
 
 class DutyRecordModelTest(TestCase):

@@ -92,7 +92,7 @@ def get_statistic(request):
             'this_month': monthly_upgrades.count(),
             'recent': list(
                 upgrade_qs.order_by('-created_at')[:5].values(
-                    'id', 'upgrade_no', 'system', 'status', 'upgrade_time'
+                    'id', 'system', 'status', 'upgrade_time'
                 )
             ),
         }

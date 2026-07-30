@@ -205,7 +205,7 @@ class R8UpgradeLegacyParamFixedTest(TestCase):
         from apps.upgrade.services.record_service import RecordService
 
         record = UpgradeRecord.objects.create(
-            upgrade_no='TEST-LEGACY-F8', title='测试legacy修复',
+            title='测试legacy修复',
             system='测试系统', upgrade_type='常规升级', owner='测试人',
             created_by=self.admin_user, tenant_id='admin',
         )
@@ -237,7 +237,7 @@ class R9UpgradeSubOpsAuditFixedTest(TestCase):
         from apps.upgrade.models_status_log import UpgradeStatusLog
 
         self.record = UpgradeRecord.objects.create(
-            upgrade_no='TEST-SUB-F9', title='测试子操作审计修复',
+            title='测试子操作审计修复',
             system='测试系统', upgrade_type='常规升级', owner='测试人',
             created_by=self.admin_user, tenant_id='admin',
         )

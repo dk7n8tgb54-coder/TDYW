@@ -120,7 +120,6 @@ class TenantFilterTest(TestCase):
         for i in range(3):
             UpgradeRecord.objects.create(
                 tenant_id='tenant1',
-                upgrade_no=f'UPG{i}',
                 system=f'系统{i}',
                 upgrade_type='升级',
                 version='1.0.0',
@@ -133,7 +132,6 @@ class TenantFilterTest(TestCase):
         for i in range(2):
             UpgradeRecord.objects.create(
                 tenant_id='tenant2',
-                upgrade_no=f'UPG{i+3}',
                 system=f'系统{i+3}',
                 upgrade_type='升级',
                 version='1.0.0',

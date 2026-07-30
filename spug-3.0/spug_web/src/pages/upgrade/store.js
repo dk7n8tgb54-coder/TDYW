@@ -42,9 +42,6 @@ class Store {
   //       本字段仅含字典表 active 项，停用后立即从下拉消失。
   @observable systems = [];
 
-  // === 自动生成的升级单号 ===
-  @observable nextUpgradeNo = '';
-
   // === 工作台相关状态 ===
   @observable recordSteps = [];
   @observable recordStepStats = {};
@@ -154,18 +151,6 @@ class Store {
       })
       .catch((error) => {
         console.error('[Upgrade Store] Filter options error:', error);
-      });
-  };
-
-  // === 获取自动生成的升级单号 ===
-  fetchNextUpgradeNo = () => {
-    return http.get('/api/upgrade/next-no/')
-      .then((data) => {
-        this.nextUpgradeNo = data.upgrade_no || '';
-        return data.upgrade_no;
-      })
-      .catch((error) => {
-        console.error('[Upgrade Store] Next no error:', error);
       });
   };
 

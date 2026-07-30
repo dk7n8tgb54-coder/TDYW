@@ -76,7 +76,7 @@ const FIELD_LABEL_MAP = {
   occur_time: '发生时间', resolve_time: '解决时间', handler: '处理人',
   solution: '解决方案', cause: '原因',
   // 升级
-  upgrade_no: '升级编号', upgrade_type: '升级类型', ver: '版本号',
+  upgrade_type: '升级类型', ver: '版本号',
   upgrade_time: '升级时间', upgrade_content: '升级内容',
   // 检查表
   check_item: '检查项', check_result: '检查结果', checker: '检查人',

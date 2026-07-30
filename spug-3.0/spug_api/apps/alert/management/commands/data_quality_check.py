@@ -7,9 +7,8 @@
 1. 软删除孤儿：子记录指向已软删除的父记录
 2. 文件-数据库一致性：DB 有记录但磁盘文件不存在
 3. unique_key 一致性：DocumentFolder 的 unique_key 与 is_deleted 状态不匹配
-4. 软删除后缀：UpgradeRecord 软删除后 upgrade_no 缺少 __deleted_ 后缀
-5. 待清理文件：is_pending_clean=True 的记录卡住
-6. 租户隔离：跨租户引用
+4. 待清理文件：is_pending_clean=True 的记录卡住
+5. 租户隔离：跨租户引用
 
 用法：
     python manage.py data_quality_check
@@ -39,7 +38,6 @@ class Command(BaseCommand):
         'soft_delete_orphans',
         'file_db_consistency',
         'unique_key_consistency',
-        'deleted_suffix',
         'pending_clean_files',
         'tenant_isolation',
     ]
@@ -72,7 +70,6 @@ class Command(BaseCommand):
             self.check_soft_delete_orphans,
             self.check_file_db_consistency,
             self.check_unique_key_consistency,
-            self.check_deleted_suffix,
             self.check_pending_clean_files,
             self.check_tenant_isolation,
         ]
@@ -299,32 +296,7 @@ class Command(BaseCommand):
         return self._format_result('unique_key_consistency', problems, 'unique_key 与 is_deleted 状态不匹配')
 
     # ============================================
-    # 检查 4：软删除后缀
-    # UpgradeRecord 软删除后 upgrade_no 应有 __deleted_ 后缀
-    # ============================================
-    def check_deleted_suffix(self):
-        """软删除后缀：UpgradeRecord 软删除后 upgrade_no 缺少 __deleted_ 后缀"""
-        problems = []
-
-        rows = self._query("""
-            SELECT id, upgrade_no, tenant_id
-            FROM tdyw_upgrade_records
-            WHERE is_deleted = 1
-              AND upgrade_no NOT LIKE '%%__deleted_%%'
-        """)
-        for row in rows:
-            problems.append({
-                'model': 'UpgradeRecord',
-                'id': row['id'],
-                'upgrade_no': row['upgrade_no'],
-                'issue': 'is_deleted=True but upgrade_no lacks __deleted_ suffix',
-                'tenant_id': row['tenant_id'],
-            })
-
-        return self._format_result('deleted_suffix', problems, 'UpgradeRecord 软删除后 upgrade_no 缺少 __deleted_ 后缀')
-
-    # ============================================
-    # 检查 5：待清理文件
+    # 检查 4：待清理文件
     # is_pending_clean=True 的记录（物理文件删除失败）
     # ============================================
     def check_pending_clean_files(self):

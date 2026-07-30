@@ -70,9 +70,6 @@ VALID_STATUS_TRANSITIONS = {
     UpgradeStatus.COMPLETED: [UpgradeStatus.IN_PROGRESS, UpgradeStatus.ROLLED_BACK],
 }
 
-# 升级单号前缀
-UPGRADE_NO_PREFIX = 'UPG'
-
 # 升级执行阶段（有步骤的阶段，用于步骤分组）
 # 不含"测试通过/测试失败/回退/暂停/继续/完成"——这些是结果里程碑，无步骤
 UPGRADE_PHASES = [

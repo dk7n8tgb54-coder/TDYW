@@ -94,7 +94,7 @@ export default observer(function () {
             }}
           >
             <Badge status={STATUS_COLOR_MAP[record.status] || 'default'} />
-            {record.upgrade_no?.slice(-5)} {record.system}
+            {record.title} {record.system}
           </div>
         ))}
         {records.length > 3 && (
@@ -227,8 +227,8 @@ export default observer(function () {
           >
             <Row gutter={16}>
               <Col span={8}>
-                <div><strong>升级单号</strong></div>
-                <div>{record.upgrade_no}</div>
+                <div><strong>标题</strong></div>
+                <div>{record.title}</div>
               </Col>
               <Col span={4}>
                 <div><strong>系统</strong></div>

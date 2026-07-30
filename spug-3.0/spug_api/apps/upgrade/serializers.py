@@ -27,7 +27,6 @@ class UpgradeRecordSerializer:
 
         return {
             'id': record.id,
-            'upgrade_no': record.upgrade_no,
             'title': record.title or '',
             'system': record.system,
             'upgrade_type': record.upgrade_type,

@@ -29,8 +29,7 @@ export default observer(function Workbench(props) {
     store.formVisible = false;
     
     if (isNew) {
-      // 新建模式：获取下一个升级单号
-      store.fetchNextUpgradeNo();
+      // 新建模式
       store.fetchPlans();
       store.fetchFilterOptions();
       store.fetchSystems();
@@ -103,7 +102,7 @@ export default observer(function Workbench(props) {
           <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>返回列表</Button>
         </div>
         <div className={styles.headerTitle}>
-          {isNew ? '新建升级申请' : `升级工作台 - ${store.record.upgrade_no || ''}`}
+          {isNew ? '新建升级申请' : `升级工作台 - ${store.record.title || ''}`}
         </div>
         <div className={styles.headerRight}>
           <Space>
@@ -137,7 +136,7 @@ export default observer(function Workbench(props) {
             <Breadcrumb.Item>
               <Button type="link" style={{padding: 0}} onClick={() => history.push('/upgrade')}>升级表单</Button>
             </Breadcrumb.Item>
-            <Breadcrumb.Item>{isNew ? '新建' : store.record.upgrade_no}</Breadcrumb.Item>
+            <Breadcrumb.Item>{isNew ? '新建' : (store.record.title || '')}</Breadcrumb.Item>
           </Breadcrumb>
         </div>
         <WorkbenchForm

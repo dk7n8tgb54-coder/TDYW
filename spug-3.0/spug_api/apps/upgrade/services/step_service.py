@@ -50,14 +50,14 @@ class RecordStepService:
             record.updated_at = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
             record.updated_by = user
             record.save(update_fields=['status', 'updated_at', 'updated_by'])
-            logger.info(f'[Upgrade] 升级表单 {record.upgrade_no} 所有步骤已完成，自动更新状态为已完成')
+            logger.info(f'[Upgrade] 升级表单 {record.title} 所有步骤已完成，自动更新状态为已完成')
         elif pending_count > 0 and record.status == UpgradeStatus.COMPLETED:
             # 有步骤被重置为待执行，回退状态为处理中
             record.status = UpgradeStatus.IN_PROGRESS
             record.updated_at = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
             record.updated_by = user
             record.save(update_fields=['status', 'updated_at', 'updated_by'])
-            logger.info(f'[Upgrade] 升级表单 {record.upgrade_no} 存在待执行步骤，回退状态为处理中')
+            logger.info(f'[Upgrade] 升级表单 {record.title} 存在待执行步骤，回退状态为处理中')
 
     @staticmethod
     def get_record_steps(upgrade_id, user):

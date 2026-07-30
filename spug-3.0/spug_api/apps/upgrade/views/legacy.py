@@ -78,7 +78,6 @@ class LegacyUpgradeView(View):
         from apps.upgrade.services.record_service import RecordService
 
         form, error = JsonParser(
-            Argument('upgrade_no', help='请输入升级单号'),
             Argument('system', help='请输入系统'),
             Argument('upgrade_type', help='请选择升级类型'),
             Argument('version', help='请输入版本'),

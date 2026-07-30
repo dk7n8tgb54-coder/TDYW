@@ -27,7 +27,6 @@ from .views.upload import (
     AttachmentPreviewUrlView,
     AttachmentPreviewFileView,
 )
-from .views.next_no import NextUpgradeNoView
 
 # === 新接口 - 升级方案（合并原模板+步骤清单）===
 from .views.plan import (
@@ -67,7 +66,6 @@ urlpatterns = [
     # === 辅助接口 ===
     path('filter-options/', FilterOptionsView.as_view()),          # GET 筛选选项
     path('statistics/', StatisticsView.as_view()),                  # GET 统计数据
-    path('next-no/', NextUpgradeNoView.as_view()),                 # GET 获取下一个升级单号
 
     # === 附件接口（写通用附件表 + 哈希 + 软删除 + kkFileView预览）===
     path('records/<int:record_id>/attachments/', AttachmentListView.as_view()),                    # GET 列表 / POST 上传
