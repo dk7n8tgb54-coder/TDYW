@@ -69,6 +69,7 @@ class UserView(AdminView):
         # 非超管只能查看本租户用户
         if not request.user.is_supper:
             queryset = queryset.filter(tenant_id=request.user.tenant_id)
+        queryset = queryset.order_by('-id')[:500]
         users = list(queryset)
         # 超管批量附加账号签名状态（避免列表逐行查询 N+1）
         sig_status_map = {}
@@ -359,7 +360,7 @@ class RoleView(AdminView):
     }
 
     def get(self, request):
-        roles = get_assignable_roles(request.user)
+        roles = get_assignable_roles(request.user)[:200]
         return json_response(roles)
 
     def post(self, request):

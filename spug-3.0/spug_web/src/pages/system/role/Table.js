@@ -67,9 +67,9 @@ class ComTable extends React.Component {
     width: 300,
     render: info => (
       <Action>
-        <Action.Button onClick={() => store.showForm(info)}>编辑</Action.Button>
-        <Action.Button onClick={() => store.showPagePerm(info)}>功能权限</Action.Button>
-        <Action.Button danger onClick={() => this.handleDelete(info)}>删除</Action.Button>
+        <Action.Button auth="system.account.edit" onClick={() => store.showForm(info)}>编辑</Action.Button>
+        <Action.Button auth="system.account.edit" onClick={() => store.showPagePerm(info)}>功能权限</Action.Button>
+        <Action.Button auth="system.account.del" danger onClick={() => this.handleDelete(info)}>删除</Action.Button>
       </Action>
     )
   }];

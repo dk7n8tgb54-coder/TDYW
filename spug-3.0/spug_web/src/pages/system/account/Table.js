@@ -7,7 +7,7 @@ import React from 'react';
 import { observer } from 'mobx-react';
 import { ExclamationCircleOutlined, PlusOutlined, UndoOutlined } from '@ant-design/icons';
 import { Form, Radio, Modal, Button, Badge, message, Input } from 'antd';
-import { TableCard, Action } from 'components';
+import { TableCard, Action, AuthButton } from 'components';
 import http from 'libs/http';
 import store from './store';
 import rStore from '../role/store';
@@ -73,20 +73,20 @@ class ComTable extends React.Component {
       if (isDeleted) {
         return (
           <Action>
-            <Action.Button onClick={() => this.handleRestore(info)}>恢复</Action.Button>
+            <Action.Button auth="system.account.add" onClick={() => this.handleRestore(info)}>恢复</Action.Button>
           </Action>
         )
       }
       return (
         <Action>
-          <Action.Button onClick={() => this.handleActive(info)}>
+          <Action.Button auth="system.account.edit" onClick={() => this.handleActive(info)}>
             {info['is_active'] ? '禁用' : '启用'}
           </Action.Button>
-          <Action.Button onClick={() => store.showForm(info)}>编辑</Action.Button>
-          <Action.Button onClick={() => this.handleReset(info)}>重置密码</Action.Button>
-          <Action.Button danger onClick={() => this.handleDelete(info)}>删除</Action.Button>
+          <Action.Button auth="system.account.add" onClick={() => store.showForm(info)}>编辑</Action.Button>
+          <Action.Button auth="system.account.edit" onClick={() => this.handleReset(info)}>重置密码</Action.Button>
+          <Action.Button auth="system.account.del" danger onClick={() => this.handleDelete(info)}>删除</Action.Button>
           {store.isSupper && (
-            <Action.Button onClick={() => store.showSignature(info)}>签名</Action.Button>
+            <Action.Button auth="system.account.edit" onClick={() => store.showSignature(info)}>签名</Action.Button>
           )}
         </Action>
       )
@@ -167,7 +167,7 @@ class ComTable extends React.Component {
         dataSource={store.dataSource}
         onReload={store.fetchRecords}
         actions={[
-          <Button type="primary" icon={<PlusOutlined/>} onClick={() => store.showForm()}>新建</Button>,
+          <AuthButton type="primary" icon={<PlusOutlined/>} auth="system.account.add" onClick={() => store.showForm()}>新建</AuthButton>,
           <Radio.Group value={store.f_status} onChange={e => { store.f_status = e.target.value; store.fetchRecords(); }}>
             <Radio.Button value="">全部</Radio.Button>
             <Radio.Button value="true">正常</Radio.Button>

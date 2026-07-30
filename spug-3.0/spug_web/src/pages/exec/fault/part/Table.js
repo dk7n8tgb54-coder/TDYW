@@ -1,7 +1,7 @@
 import React from 'react';
 import { Table, Tag, Modal, message, Button, DatePicker } from 'antd';
 import { observer } from 'mobx-react';
-import { Action, TableCard } from 'components';
+import { Action, TableCard, AuthButton } from 'components';
 import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
 import store from './store';
 import * as XLSX from 'xlsx';
@@ -98,14 +98,15 @@ class ComTable extends React.Component {
         dataSource={store.dataSource}
         onReload={store.fetchRecords}
         actions={[
-          <Button 
+          <AuthButton 
             key="add"
             type="primary" 
             icon={<PlusOutlined />}
+            auth="fault.faultpart.add"
             onClick={() => store.showForm()}
           >
             新建
-          </Button>,
+          </AuthButton>,
           <span key="date-range-picker" style={{ marginRight: 8 }}>
             <DatePicker.RangePicker
               placeholder={['开始日期', '结束日期']}
@@ -137,8 +138,8 @@ class ComTable extends React.Component {
         <Table.Column title="归档日期" dataIndex="archive_date" />
         <Table.Column title="操作" render={(info) => (
           <Action>
-            <Action.Button onClick={() => store.showForm(info)}>编辑</Action.Button>
-            <Action.Button danger onClick={() => this.handleDelete(info)}>删除</Action.Button>
+            <Action.Button auth="fault.faultpart.edit" onClick={() => store.showForm(info)}>编辑</Action.Button>
+            <Action.Button auth="fault.faultpart.del" danger onClick={() => this.handleDelete(info)}>删除</Action.Button>
           </Action>
         )} />
       </TableCard>
