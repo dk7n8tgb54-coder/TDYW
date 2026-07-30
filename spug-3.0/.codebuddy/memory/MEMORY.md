@@ -53,6 +53,59 @@
 ## 反思清单（跨会话必遵）
 1. 反问质疑立即认错不掩盖；2. 增量>大爆炸+YAGNI+向后兼容；3. 配置化>硬编码(同串≥3处抽出)；4. 参考成熟产品+行业惯例；5. 每次修复后全局扫描同类；6. error 字段一致性(正常态无 error)；7. `obj?.method()` 触发 no-unused-expressions->`if(obj)obj.method()`；8. Model.save 签名 `def save(self,*args,**kwargs)`；9. 嵌套 atomic 仅 savepoint；10. 备份恢复同周期(DB->documents)
 
+## CRUD 可靠性编码规范（新增/修改代码必遵）
+> 来源：`CRUD系统可靠性指南.md`，以下为各章节的编码落地要求
+
+### 数据库约束（1.1）
+- NOT NULL / UNIQUE / CHECK / FK 必须在数据库层强制，不能仅靠应用层校验
+- 外键 `ON DELETE` 按业务语义选：CASCADE(级联) / SET_NULL(置空) / PROTECT(禁止删)
+- 唯一约束是幂等性的数据库层保障，核心业务表必须建唯一约束防重复
+- **CharField/TextField 禁止 null=True**（Django 官方：两种"空"状态导致查询歧义）
+
+### 事务边界（1.2）
+- 所有涉及多步写操作的业务逻辑必须 `transaction.atomic()` 包裹
+- 事务粒度尽量小，禁止事务内做长阻塞外部调用（HTTP 长重试等）
+- 禁止事务内循环写入大批量数据，应分批提交
+- 嵌套 atomic 仅创建 savepoint，不开启新事务
+- 项目隔离级别 RR（MariaDB 默认），低并发内部系统无需改 RC
+
+### 幂等性设计（1.3）
+- 核心写操作设计幂等键（业务唯一约束 + `INSERT ... ON DUPLICATE KEY UPDATE`）或 request_id 去重
+- 异步任务用状态机控制：只有特定状态才允许执行，执行后原子更新状态
+- DELETE 天然幂等；UPDATE 用绝对值而非增量（`SET count = 5` 而非 `count + 1`）
+- 已有工具：`libs/idempotency.py` 的 `check_recent_duplicate(model, filters, window_seconds=30)`
+
+### 防误操作与可追溯（1.5）
+- 核心业务表用逻辑删除替代物理删除（is_deleted + deleted_at）
+- 关键数据变更留痕：操作人、变更前后值、时间戳（审计日志 `apps/logs`）
+- 高风险操作（批量删除、全表更新）增加二次校验 + 权限管控
+- 数据库账号最小权限：应用账号无 DROP/TRUNCATE 权限
+
+### 索引与慢查询（2.1）
+- 所有业务查询上线前必须核对执行计划（EXPLAIN）
+- 禁止无边界查询（不带时间范围、不带筛选条件的全表列表/导出）
+- **DateTimeField 禁用 `__date`/`__year`/`__month`/`__startswith`/`__icontains`**，改用 `__gte`/`__lt` 范围查询
+- `LIKE '%xxx'` 前缀通配无法走索引
+- 复合索引遵循最左前缀原则
+- 导出操作加上限行数 + 异步生成
+
+### 可追溯日志体系（3.2）
+- 错误日志必须带完整上下文：请求参数、链路 ID（request_id）、异常栈
+- 数据操作日志可定位到具体人、具体时间、具体变更内容（变更前后值）
+- 日志分级：ERROR 触发告警，WARN 记录观察，INFO 用于审计追溯
+- 保留周期：操作审计日志 ≥ 180 天，错误日志 ≥ 30 天
+- 告警通过 `libs/alert.py` 的 `send_alert()` 统一发送
+
+### 数据库变更规范（4.1）
+- 大表 DDL 用在线工具（pt-online-schema-change / gh-ost），避免锁表
+- MariaDB 不支持部分唯一索引，加唯一约束前先清洗重复数据
+- 改字段类型先洗空串/非法值再迁移
+- 禁止无 WHERE 条件的 UPDATE/DELETE
+- 变更前必须先备份对应表
+- 加字段优先 nullable + default，避免锁表和 NOT NULL 失败
+- 拆步操作：加字段 -> 回填 -> 查重 -> 加约束，每步可独立回退
+- **makemigrations 必须指定 app 名**，避免扫描全项目生成意外迁移
+
 ## 备份恢复脚本
 - 入口 `backups/backup_set_create.sh` / `backup_set_restore.sh`；Python 工具全部在 `backups/` 目录（不在 `scripts/`）
 - DB->documents/media 必须同一停写窗口

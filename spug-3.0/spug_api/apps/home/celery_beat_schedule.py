@@ -18,4 +18,14 @@ HOME_BEAT_SCHEDULE = {
         'kwargs': {},
         'options': {'queue': 'home.announcement'},
     },
+    # 每 10 分钟检查磁盘空间
+    'check-disk-space': {
+        'task': 'apps.home.tasks.check_disk_space',
+        'schedule': 600.0,
+    },
+    # 每 5 分钟采集数据库指标
+    'collect-db-metrics': {
+        'task': 'apps.home.tasks.collect_db_metrics',
+        'schedule': 300.0,
+    },
 }

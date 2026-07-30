@@ -59,6 +59,17 @@ class HandleExceptionMiddleware(MiddlewareMixin):
             f'Unhandled exception on {request.method} {request.path}',
             exc_info=True
         )
+        try:
+            from libs.alert import send_alert
+            send_alert(
+                title=f'API 异常: {request.method} {request.path}',
+                message=f'路径: {request.method} {request.path}\n异常: {exception}',
+                level='error',
+                source='middleware',
+                alert_key=f'500:{request.path}',
+            )
+        except Exception as e:
+            logger.error(f'[ALERT] 告警发送失败: {e}')
         if settings.DEBUG:
             return json_response(error='Exception: %s' % exception)
         else:

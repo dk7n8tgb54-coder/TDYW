@@ -2,11 +2,16 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 import logging
+from django.db import transaction
+from django.db.models import Count, Exists, OuterRef, Q
+from django.utils import timezone
 from django.views.generic import View
 from libs.utils import json_response
 from libs.parser import JsonParser, Argument
 from libs.decorators import auth
+from libs.mixins import AdminView
 from libs.tenant_utils import apply_tenant_filter
+from apps.home.models import Alert, AlertRead
 import json
 
 logger = logging.getLogger(__name__)
@@ -146,3 +151,135 @@ def get_statistic(request):
 
     cache.set(cache_key, data, 60)
     return json_response(data)
+
+
+def _alert_to_view(alert):
+    if alert.status == alert.STATUS_RESOLVED:
+        display_status = 'resolved'
+    else:
+        display_status = 'read' if alert.is_read else 'unread'
+    resolver = alert.resolved_by
+    return {
+        'id': alert.id,
+        'title': alert.title,
+        'message': alert.message,
+        'level': alert.level,
+        'status': display_status,
+        'source': alert.source,
+        'alert_key': alert.alert_key,
+        'created_at': alert.created_at,
+        'resolved_at': alert.resolved_at,
+        'resolved_by': resolver.nickname or resolver.username if resolver else '',
+    }
+
+
+class AlertListView(AdminView):
+    PERM_MAP = {'GET': 'system.alert.view'}
+
+    def get(self, request):
+        form, error = JsonParser(
+            Argument('page', type=int, default=1, required=False),
+            Argument('page_size', type=int, default=20, required=False),
+            Argument('level', required=False),
+            Argument('status', required=False),
+            Argument('source', required=False),
+            Argument('keyword', required=False),
+        ).parse(request.GET)
+        if error:
+            return json_response(error=error)
+
+        page = max(form.page, 1)
+        page_size = min(max(form.page_size, 10), 100)
+        read_query = AlertRead.objects.filter(alert_id=OuterRef('pk'), user_id=request.user.id)
+        queryset = Alert.objects.select_related('resolved_by').annotate(
+            is_read=Exists(read_query)
+        )
+
+        if form.level:
+            if form.level not in dict(Alert.LEVEL_CHOICES):
+                return json_response(error='无效的告警级别')
+            queryset = queryset.filter(level=form.level)
+        if form.source:
+            queryset = queryset.filter(source=form.source)
+        if form.keyword:
+            queryset = queryset.filter(
+                Q(title__icontains=form.keyword)
+                | Q(message__icontains=form.keyword)
+                | Q(alert_key__icontains=form.keyword)
+            )
+        if form.status:
+            if form.status == 'resolved':
+                queryset = queryset.filter(status=Alert.STATUS_RESOLVED)
+            elif form.status == 'read':
+                queryset = queryset.filter(status=Alert.STATUS_ACTIVE, is_read=True)
+            elif form.status == 'unread':
+                queryset = queryset.filter(status=Alert.STATUS_ACTIVE, is_read=False)
+            else:
+                return json_response(error='无效的告警状态')
+
+        unread = Alert.objects.filter(status=Alert.STATUS_ACTIVE).annotate(
+            is_read=Exists(read_query)
+        ).filter(is_read=False)
+        summary = unread.aggregate(
+            unread_count=Count('id'),
+            error_count=Count('id', filter=Q(level=Alert.LEVEL_ERROR)),
+            warning_count=Count('id', filter=Q(level=Alert.LEVEL_WARNING)),
+            info_count=Count('id', filter=Q(level=Alert.LEVEL_INFO)),
+        )
+
+        total = queryset.count()
+        start = (page - 1) * page_size
+        items = [_alert_to_view(item) for item in queryset[start:start + page_size]]
+        return json_response({
+            'items': items,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'summary': summary,
+        })
+
+
+class AlertMarkReadView(AdminView):
+    PERM_MAP = {'POST': 'system.alert.view'}
+
+    def post(self, request):
+        form, error = JsonParser(
+            Argument('ids', type=list, default=[], required=False),
+            Argument('all', type=bool, default=False, required=False),
+        ).parse(request.body)
+        if error:
+            return json_response(error=error)
+        if not form.all and not form.ids:
+            return json_response(error='请选择需要标记的告警')
+
+        if form.all:
+            alert_ids = Alert.objects.filter(status=Alert.STATUS_ACTIVE).values_list('id', flat=True)
+        else:
+            try:
+                ids = {int(item) for item in form.ids if int(item) > 0}
+            except (TypeError, ValueError):
+                return json_response(error='告警 ID 格式错误')
+            alert_ids = Alert.objects.filter(
+                id__in=ids, status=Alert.STATUS_ACTIVE
+            ).values_list('id', flat=True)
+
+        records = [AlertRead(alert_id=alert_id, user_id=request.user.id) for alert_id in alert_ids]
+        AlertRead.objects.bulk_create(records, ignore_conflicts=True, batch_size=500)
+        return json_response({'marked_count': len(records)})
+
+
+class AlertResolveView(AdminView):
+    PERM_MAP = {'POST': 'system.alert.resolve'}
+
+    def post(self, request, pk):
+        with transaction.atomic():
+            alert = Alert.objects.select_for_update().filter(pk=pk).first()
+            if not alert:
+                return json_response(error='告警不存在')
+            if alert.status != Alert.STATUS_RESOLVED:
+                alert.status = Alert.STATUS_RESOLVED
+                alert.resolved_at = timezone.now()
+                alert.resolved_by = request.user
+                alert.save(update_fields=['status', 'resolved_at', 'resolved_by'])
+        AlertRead.objects.get_or_create(alert_id=pk, user_id=request.user.id)
+        return json_response()

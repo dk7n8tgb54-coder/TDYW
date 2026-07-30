@@ -27,6 +27,9 @@ from apps.home.announcement import (
 
 urlpatterns = [
     path('statistic/', get_statistic),
+    path('alert/', AlertListView.as_view()),
+    path('alert/mark-read/', AlertMarkReadView.as_view()),
+    path('alert/<int:pk>/resolve/', AlertResolveView.as_view()),
     path('notice/', NoticeView.as_view()),
     path('navigation/', NavView.as_view()),
 

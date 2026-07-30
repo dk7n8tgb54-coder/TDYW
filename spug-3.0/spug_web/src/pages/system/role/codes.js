@@ -186,6 +186,13 @@ export default [{
       {key: 'view', label: '查看操作审计'},
     ]
   }, {
+    key: 'alert',
+    label: '系统告警',
+    perms: [
+      {key: 'view', label: '查看系统告警'},
+      {key: 'resolve', label: '处理系统告警'},
+    ]
+  }, {
     key: 'tenant',
     label: '租户管理',
     perms: [

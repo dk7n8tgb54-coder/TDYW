@@ -399,6 +399,17 @@ LOGGING = {
 # 确保日志目录存在
 os.makedirs(os.path.join(BASE_DIR, 'logs'), exist_ok=True)
 
+# ==================== 告警配置 ====================
+# 内网 SMTP 邮件告警（未配置 host 时跳过邮件，仅写 DB + 日志）
+ALERT_SMTP = {
+    'host': os.environ.get('SMTP_HOST', ''),
+    'port': int(os.environ.get('SMTP_PORT', '25')),
+    'username': os.environ.get('SMTP_USER', ''),
+    'password': os.environ.get('SMTP_PASSWORD', ''),
+    'from': os.environ.get('SMTP_FROM', 'spug-alert@internal'),
+    'to': os.environ.get('SMTP_TO', '').split(',') if os.environ.get('SMTP_TO') else [],
+}
+
 # override default config
 try:
     from spug.overrides import *

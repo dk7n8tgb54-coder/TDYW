@@ -84,3 +84,28 @@ def debug_task(self):
 # CELERY_TIMEZONE = 'Asia/Shanghai'
 # CELERY_TASK_TRACK_STARTED = True
 # CELERY_TASK_TIME_LIMIT = 3600  # 1小时超时
+
+
+# ==================== 告警信号 ====================
+import logging
+from celery.signals import task_failure
+
+celery_logger = logging.getLogger(__name__)
+
+
+@task_failure.connect
+def on_task_failure(sender, task_id, exception, *args, **kwargs):
+    """Celery 任务失败时发送告警"""
+    try:
+        from libs.alert import send_alert
+        task_name = getattr(sender, 'name', str(sender))
+        celery_logger.error(f'[Celery] Task failed: {task_name}({task_id}): {exception}')
+        send_alert(
+            title=f'Celery 任务失败: {task_name}',
+            message=f'任务: {task_name}\nID: {task_id}\n异常: {exception}',
+            level='error',
+            source='celery',
+            alert_key=f'celery:{task_name}',
+        )
+    except Exception as e:
+        celery_logger.error(f'[Celery] 告警发送失败: {e}')
