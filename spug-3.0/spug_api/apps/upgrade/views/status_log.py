@@ -7,6 +7,7 @@ from django.views import View
 
 from libs import json_response, auth, Argument, JsonParser
 from libs.tenant_utils import apply_tenant_filter
+from apps.logs.audit import record_audit_event
 
 from ..models import UpgradeRecord
 from ..services.status_log_service import StatusLogService
@@ -76,7 +77,16 @@ class StatusLogDeleteView(View):
 
     @auth('upgrade.upgrade.edit')
     def delete(self, request, pk):
+        from apps.upgrade.models_status_log import UpgradeStatusLog
+        log = UpgradeStatusLog.objects.filter(pk=pk).first()
         error = StatusLogService.delete_log(pk, request.user)
         if error:
             return json_response(error=error)
+        if log:
+            record_audit_event(
+                request, 'delete', 'upgrade_status_log',
+                target_id=str(log.id),
+                target_name=f'状态日志-{log.action}',
+                detail={'id': log.id, 'action': log.action, 'upgrade_id': log.upgrade_id}
+            )
         return json_response()

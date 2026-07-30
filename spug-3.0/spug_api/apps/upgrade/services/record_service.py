@@ -40,7 +40,7 @@ class RecordService:
 
         # 查询当日已有的最大序号
         existing = apply_tenant_filter(
-            UpgradeRecord.objects.filter(upgrade_no__startswith=prefix), user
+            UpgradeRecord.objects.filter(is_deleted=False, upgrade_no__startswith=prefix), user
         ).values_list('upgrade_no', flat=True)
 
         max_seq = 0
@@ -126,7 +126,7 @@ class RecordService:
         from ..models import UpgradeRecord
 
         record = apply_tenant_filter(
-            UpgradeRecord.objects.filter(pk=record_id), user
+            UpgradeRecord.objects.filter(is_deleted=False, pk=record_id), user
         ).first()
         if not record:
             return None, '升级表单不存在或无权限'
@@ -185,7 +185,7 @@ class RecordService:
 
         user = request.user
         record = apply_tenant_filter(
-            UpgradeRecord.objects.filter(pk=record_id), user
+            UpgradeRecord.objects.filter(is_deleted=False, pk=record_id), user
         ).first()
         if not record:
             return '升级表单不存在或无权限'
@@ -202,10 +202,11 @@ class RecordService:
                     delete_file=True,
                 )
 
-                # 级联清理子表：UpgradeRecordStep / UpgradeStatusLog 用 IntegerField
-                # upgrade_id 关联主表，数据库不会自动级联删除，必须手动清理，
-                # 否则主表删除后留下指向不存在 id 的孤儿数据
-                UpgradeRecordStep.objects.filter(upgrade_id=record_id).delete()
+                # 级联清理子表：UpgradeRecordStep 逻辑删除
+                from django.utils import timezone
+                now = timezone.now()
+                UpgradeRecordStep.objects.filter(upgrade_id=record_id).update(is_deleted=True, deleted_at=now)
+                # UpgradeStatusLog 无 is_deleted 字段，保持物理删除
                 UpgradeStatusLog.objects.filter(upgrade_id=record_id).delete()
 
                 # 写入删除审计日志（在主表删除前调用，record 字段仍可读取）
@@ -216,7 +217,11 @@ class RecordService:
                             'upgrade_type': record.upgrade_type},
                 )
 
-                record.delete()
+                # 逻辑删除主表，修改 upgrade_no 避免唯一约束冲突
+                record.upgrade_no = f'{record.upgrade_no}__deleted_{record.id}'
+                record.is_deleted = True
+                record.deleted_at = now
+                record.save()
             return None
         except Exception as e:
             logger.error(f'[Upgrade] 删除升级表单失败: {e}', exc_info=True)
@@ -236,7 +241,7 @@ class RecordService:
         from ..models import UpgradeRecord
 
         record = apply_tenant_filter(
-            UpgradeRecord.objects.filter(pk=record_id), user
+            UpgradeRecord.objects.filter(is_deleted=False, pk=record_id), user
         ).first()
         if not record:
             return None, '升级表单不存在'
@@ -261,7 +266,7 @@ class RecordService:
         from apps.evidence.models import EvidenceAttachment
         from django.db.models import Count
 
-        queryset = apply_tenant_filter(UpgradeRecord.objects.all(), user)
+        queryset = apply_tenant_filter(UpgradeRecord.objects.filter(is_deleted=False), user)
 
         # 应用筛选
         if filters:
@@ -317,12 +322,12 @@ class RecordService:
         """
         from ..models import UpgradeRecord, UpgradeSystem
 
-        queryset = apply_tenant_filter(UpgradeRecord.objects.all(), user)
+        queryset = apply_tenant_filter(UpgradeRecord.objects.filter(is_deleted=False), user)
 
         # 字典表 active 项（按当前租户过滤，租户隔离）
         tenant_id = getattr(user, 'tenant_id', '')
         dict_systems = list(
-            UpgradeSystem.objects.filter(tenant_id=tenant_id, is_active=True)
+            UpgradeSystem.objects.filter(tenant_id=tenant_id, is_active=True, is_deleted=False)
             .order_by('sort_order', 'name')
             .values_list('name', flat=True)
         )

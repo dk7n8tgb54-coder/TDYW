@@ -12,6 +12,7 @@ from apps.interference.models import Interference, INTERFERENCE_STATUS_CHOICES
 from apps.evidence.services import record_evidence_event
 from apps.evidence.models import EvidenceEvent, EvidenceAttachment
 from apps.logs.models import AuditLog
+from apps.logs.audit import record_audit_event
 import logging
 from datetime import datetime, timedelta
 import json
@@ -117,7 +118,7 @@ class InterferenceView(View):
     @auth('interference.interference.view')
     def get(self, request):
         # 基础 QuerySet（租户隔离）
-        base_qs = apply_tenant_filter(Interference.objects.all(), request.user)
+        base_qs = apply_tenant_filter(Interference.objects.filter(is_deleted=False), request.user)
 
         # 下拉选项基于租户全部数据，避免筛选后选项变少
         interference_types = list(base_qs.order_by('interference_type')
@@ -197,7 +198,7 @@ class InterferenceView(View):
                 form.updated_by = request.user
                 record_id = form.pop('id')
                 update_data = {k: v for k, v in form.items() if v is not None}
-                qs = apply_tenant_filter(Interference.objects.all(), request.user)
+                qs = apply_tenant_filter(Interference.objects.filter(is_deleted=False), request.user)
                 updated_count = qs.filter(pk=record_id).update(**update_data)
                 if updated_count == 0:
                     error = '编辑失败：记录不存在或无权限编辑'
@@ -235,7 +236,7 @@ class InterferenceView(View):
         ).parse(request.GET)
         if error is None:
             # 使用 apply_tenant_filter 防止跨租户删除，超管可删除所有租户记录
-            qs = apply_tenant_filter(Interference.objects.all(), request.user)
+            qs = apply_tenant_filter(Interference.objects.filter(is_deleted=False), request.user)
             record = qs.filter(pk=form.id).first()
             if not record:
                 return json_response(error='删除失败：记录不存在或无权限删除')
@@ -244,9 +245,17 @@ class InterferenceView(View):
                 _record_interference_evidence(record, 'delete', request.user, remark='删除干扰记录')
             except Exception as e:
                 logger.error(f'干扰记录删除证据事件写入失败: {e}')
-            deleted_count, _ = record.delete()
-            if deleted_count == 0:
-                error = '删除失败：记录不存在或无权限删除'
+            # 业务级审计日志
+            record_audit_event(
+                request, 'delete', 'interference',
+                target_id=str(record.id),
+                target_name=f'干扰记录-{record.frequency}-{record.report_dept}',
+                detail={'id': record.id, 'frequency': record.frequency, 'report_dept': record.report_dept}
+            )
+            from django.utils import timezone
+            record.is_deleted = True
+            record.deleted_at = timezone.now()
+            record.save()
         return json_response(error=error)
 
 
@@ -262,7 +271,7 @@ class InterferenceEvidencePackageView(View):
             return json_response(error='缺少 id 参数')
 
         record = apply_tenant_filter(
-            Interference.objects.all(), request.user
+            Interference.objects.filter(is_deleted=False), request.user
         ).filter(pk=record_id).first()
         if not record:
             return json_response(error='记录不存在或无权限')
@@ -318,7 +327,7 @@ class InterferenceStatisticsView(View):
     def get(self, request):
         logger.info('[InterferenceStatistics] 开始获取统计数据')
         try:
-            records = apply_tenant_filter(Interference.objects.all(), request.user)
+            records = apply_tenant_filter(Interference.objects.filter(is_deleted=False), request.user)
 
             # 获取时间范围参数
             start_date_str = request.GET.get('start_date')

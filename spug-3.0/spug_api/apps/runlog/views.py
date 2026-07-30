@@ -80,7 +80,7 @@ class RunLogView(View):
         """获取事件列表"""
         from .models import RunLog
 
-        logs = apply_tenant_filter(RunLog.objects.all(), request.user)
+        logs = apply_tenant_filter(RunLog.objects.filter(is_deleted=False), request.user)
 
         # 筛选参数 - 从 request.GET 获取
         filters = request.GET.dict()
@@ -223,7 +223,7 @@ class RunLogView(View):
         ).parse(request.body)
         
         if error is None:
-            event = apply_tenant_filter(RunLog.objects.filter(pk=form.id), request.user).first()
+            event = apply_tenant_filter(RunLog.objects.filter(is_deleted=False, pk=form.id), request.user).first()
             if not event:
                 return json_response(error='无权限操作')
             if form.severity is not None and form.severity not in RunLog.SEVERITY_CHOICES:
@@ -281,7 +281,7 @@ class RunLogView(View):
         ).parse(request.GET)
 
         if error is None:
-            event = apply_tenant_filter(RunLog.objects.filter(pk=form.id), request.user).first()
+            event = apply_tenant_filter(RunLog.objects.filter(is_deleted=False, pk=form.id), request.user).first()
             if not event:
                 return json_response(error='无权限操作')
 
@@ -293,6 +293,14 @@ class RunLogView(View):
 
             logger.info(f'[RunLog] 删除事件 ID={event.id}, 关联动态数={updates.count()}')
 
+            # 业务级审计日志
+            record_audit_event(
+                request, 'delete', 'runlog',
+                target_id=str(event.id),
+                target_name=f'运行日志-{event.event_title}',
+                detail={'id': event.id, 'event_title': event.event_title, 'system_name': event.system_name}
+            )
+
             # 清理附件文件（复用共享函数）
             for update in updates:
                 clean_update_attachments(update)
@@ -300,8 +308,11 @@ class RunLogView(View):
             # 级联删除动态记录
             updates.delete()
 
-            # 删除主表单
-            event.delete()
+            # 逻辑删除主表单
+            from django.utils import timezone
+            event.is_deleted = True
+            event.deleted_at = timezone.now()
+            event.save()
 
         return json_response(error=error)
 
@@ -325,7 +336,7 @@ class RunLogUpdateView(View):
 
         if error is None:
             # 验证事件存在且有权限
-            event = apply_tenant_filter(RunLog.objects.filter(pk=form.runlog_id), request.user).first()
+            event = apply_tenant_filter(RunLog.objects.filter(is_deleted=False, pk=form.runlog_id), request.user).first()
             if not event:
                 return json_response(error='无权限操作')
 
@@ -414,7 +425,7 @@ class RunLogUpdateView(View):
                 update.duty_person = duty_person or None
             update.save()
 
-            event = apply_tenant_filter(RunLog.objects.filter(pk=update.runlog_id), request.user).first()
+            event = apply_tenant_filter(RunLog.objects.filter(is_deleted=False, pk=update.runlog_id), request.user).first()
             if event:
                 latest_update = apply_tenant_filter(
                     RunLogUpdate.objects.filter(runlog_id=update.runlog_id),
@@ -460,7 +471,7 @@ class RunLogUpdateView(View):
             update.delete()
 
             # 更新事件统计信息
-            event = apply_tenant_filter(RunLog.objects.filter(pk=runlog_id), request.user).first()
+            event = apply_tenant_filter(RunLog.objects.filter(is_deleted=False, pk=runlog_id), request.user).first()
             if not event:
                 return json_response(error='事件不存在', code=404)
 
@@ -499,7 +510,7 @@ class RunLogRepairView(View):
 
         try:
             # 获取所有事件
-            events = apply_tenant_filter(RunLog.objects.all(), request.user)
+            events = apply_tenant_filter(RunLog.objects.filter(is_deleted=False), request.user)
             fixed_count = 0
             fixed_tenant_count = 0
             error_count = 0
@@ -675,7 +686,7 @@ class RunLogStatisticsView(View):
         tenant_id = request.user.tenant_id
 
         try:
-            logs = apply_tenant_filter(RunLog.objects.all(), request.user)
+            logs = apply_tenant_filter(RunLog.objects.filter(is_deleted=False), request.user)
 
             # 边界条件1：校验租户ID有效性
             if not tenant_id:
@@ -779,7 +790,7 @@ class RunLogExportView(View):
     @staticmethod
     def _apply_export_filters(data, request):
         """应用筛选条件，返回 (logs_qs, date_range_text)。"""
-        logs = apply_tenant_filter(RunLog.objects.all(), request.user)
+        logs = apply_tenant_filter(RunLog.objects.filter(is_deleted=False), request.user)
 
         if data.get('status'):
             logs = logs.filter(status=data['status'])
@@ -975,7 +986,7 @@ class RunLogEvidencePackageView(View):
         if not log_id:
             return json_response(error='缺少 id 参数')
 
-        event = apply_tenant_filter(RunLog.objects.filter(pk=log_id), request.user).first()
+        event = apply_tenant_filter(RunLog.objects.filter(is_deleted=False, pk=log_id), request.user).first()
         if not event:
             return json_response(error='事件不存在或无权限')
 

@@ -24,7 +24,7 @@ class UpgradeSystemListView(View):
     def get(self, request):
         tenant_id = request.user.tenant_id
         qs = UpgradeSystem.objects.filter(
-            tenant_id=tenant_id, is_active=True
+            tenant_id=tenant_id, is_active=True, is_deleted=False
         ).order_by('sort_order', 'name')
         data = [{'id': s.id, 'name': s.name, 'sort_order': s.sort_order} for s in qs]
         return json_response(data)
@@ -57,7 +57,7 @@ class UpgradeSystemCreateView(View):
 
         # 同租户内大小写不敏感查重（不同租户允许同名）
         existing = UpgradeSystem.objects.filter(
-            tenant_id=tenant_id, name__iexact=name
+            tenant_id=tenant_id, name__iexact=name, is_deleted=False
         ).first()
         if existing:
             # 已存在：若已停用则恢复启用，确保立即可选
@@ -74,7 +74,7 @@ class UpgradeSystemCreateView(View):
         now = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
         # 新增项 sort_order 取当前租户内最大 +1（排在末尾）
         max_order = UpgradeSystem.objects.filter(
-            tenant_id=tenant_id
+            tenant_id=tenant_id, is_deleted=False
         ).order_by('-sort_order').first()
         next_order = (max_order.sort_order + 1) if max_order else 1
 
@@ -105,7 +105,7 @@ class UpgradeSystemDeleteView(View):
     def delete(self, request, pk):
         tenant_id = request.user.tenant_id
         try:
-            obj = UpgradeSystem.objects.get(pk=pk, tenant_id=tenant_id)
+            obj = UpgradeSystem.objects.get(pk=pk, tenant_id=tenant_id, is_deleted=False)
         except UpgradeSystem.DoesNotExist:
             return json_response(error='系统候选项不存在或无权限')
 
@@ -113,7 +113,7 @@ class UpgradeSystemDeleteView(View):
 
         # 检查当前租户是否有关联升级记录（system 是纯文本字段）
         has_records = UpgradeRecord.objects.filter(
-            tenant_id=tenant_id, system=name
+            tenant_id=tenant_id, system=name, is_deleted=False
         ).exists()
 
         if has_records:
@@ -133,8 +133,11 @@ class UpgradeSystemDeleteView(View):
                     'msg': f'系统「{name}」已处于停用状态',
                 })
 
-        # 无关联记录：物理删除
-        obj.delete()
+        # 无关联记录：逻辑删除
+        from django.utils import timezone as tz
+        obj.is_deleted = True
+        obj.deleted_at = tz.now()
+        obj.save()
         return json_response({
             'deleted': True,
             'msg': f'系统「{name}」已从候选列表移除',

@@ -141,7 +141,7 @@ class LegacyUpgradeView(View):
         if error:
             return json_response(error=error)
 
-        error = RecordService.delete_record(form.id, request.user)
+        error = RecordService.delete_record(form.id, request)
         if error:
             return json_response(error=error)
 

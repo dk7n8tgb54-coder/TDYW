@@ -3,6 +3,7 @@
 # Released under the AGPL-3.0 License.
 from functools import lru_cache
 from apps.setting.models import Setting, KEYS_DEFAULT
+from apps.logs.audit import save_audit_log
 import json
 
 
@@ -31,5 +32,22 @@ class AppSetting:
             raise KeyError('invalid key')
 
     @classmethod
-    def delete(cls, key):
+    def delete(cls, key, request=None):
+        """删除系统配置项
+
+        Args:
+            key: 配置键名
+            request: 可选，传入则记录审计日志
+        """
+        info = Setting.objects.filter(key=key).first()
         Setting.objects.filter(key=key).delete()
+        if request and info:
+            save_audit_log(
+                user_id=request.user.id,
+                username=request.user.username,
+                action='delete',
+                target_type='setting',
+                target_id=key,
+                target_name=f'配置项-{key}',
+                detail=json.dumps({'key': key, 'desc': info.desc}, ensure_ascii=False),
+            )

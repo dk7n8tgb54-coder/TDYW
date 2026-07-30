@@ -6,6 +6,7 @@ import json
 from django.views import View
 from libs import json_response, auth, Argument, JsonParser
 from apps.upgrade.services.step_service import RecordStepService
+from apps.logs.audit import record_audit_event
 
 
 class RecordStepListView(View):
@@ -81,9 +82,18 @@ class RecordStepDeleteView(View):
 
     @auth('upgrade.upgrade.step_del')
     def delete(self, request, pk):
+        from apps.upgrade.models_checklist import UpgradeRecordStep
+        step = UpgradeRecordStep.objects.filter(pk=pk).first()
         error = RecordStepService.delete_step(pk, request.user)
         if error:
             return json_response(error=error)
+        if step:
+            record_audit_event(
+                request, 'delete', 'upgrade_step',
+                target_id=str(step.id),
+                target_name=f'步骤-{step.title}',
+                detail={'id': step.id, 'title': step.title, 'upgrade_id': step.upgrade_id}
+            )
         return json_response()
 
 

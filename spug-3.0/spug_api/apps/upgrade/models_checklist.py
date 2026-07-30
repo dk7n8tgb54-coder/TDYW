@@ -54,6 +54,8 @@ class UpgradeRecordStep(models.Model, ModelMixin):
     remark = models.TextField(default='', blank=True, verbose_name='备注')
 
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    is_deleted = models.BooleanField(default=False, help_text='软删除标识')
+    deleted_at = models.DateTimeField(null=True, blank=True, help_text='删除时间')
 
     @property
     def upgrade(self):

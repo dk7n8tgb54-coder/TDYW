@@ -20,7 +20,7 @@
 - 测试要点：access_token 32 字符；Role.created_by NOT NULL；User.tenant_id 默认 'admin'；make_user 设 version=0；json_response 错误时 data=''；update_by_dict 过滤 None；USE_TZ=False 禁 make_aware；test client 路径无 `/api/` 前缀；makemigrations 指定 app；上传 post 不返回 id 前端按名匹配
 
 ## 迁移纪律 ⚠️
-1. makemigrations 指定 app；2. 一功能一 migration；3. 唯一约束拆步(加字段->回填->查重->AlterField)；4. CharField->Date 先洗空串；5. MariaDB 不支持部分唯一索引，is_deleted=True 设 NULL；6. 改 default_auto_field 触发所有老表 alter id；7. MariaDB alter 被外键引用主键列报错 1833 -> `SET FOREIGN_KEY_CHECKS=0`
+1. makemigrations 指定 app；2. 一功能一 migration；3. 唯一约束拆步(加字段->回填->查重->AlterField)；4. CharField->Date 先洗空串；5. MariaDB 不支持部分唯一索引；逻辑删除时唯一约束冲突解法：CharField 追加 `__deleted_{id}` 后缀（不设 NULL，Django 官方反对 CharField null=True）；6. 改 default_auto_field 触发所有老表 alter id；7. MariaDB alter 被外键引用主键列报错 1833 -> `SET FOREIGN_KEY_CHECKS=0`；8. **CharField/TextField 禁止 null=True**（Django 官方：两种"空"状态 NULL 和 '' 导致查询歧义）
 
 ## 批量删除陷阱 ⚠️
 - QuerySet 切片惰性重查，删循环用 `while True: batch=list(qs.exclude(id__in=failed_ids)[:BATCH])` + max_iterations 安全阀，绝不用 `range(count)+qs[start:end]`

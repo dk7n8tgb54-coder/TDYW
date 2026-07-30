@@ -36,12 +36,16 @@ ANN_CONTENT_MAX_LEN = 20000
 TITLE_MAX_LEN = 200
 
 
-class Notice(models.Model, ModelMixin):
+class Notice(models.Model, TenantModelMixin):
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
     title = models.CharField(max_length=100)
     content = models.TextField()
     is_stress = models.BooleanField(default=False)
     read_ids = models.TextField(default='[]')
     sort_id = models.IntegerField(default=0, db_index=True)
+    is_deleted = models.BooleanField(default=False, help_text='软删除标识')
+    deleted_at = models.DateTimeField(null=True, blank=True, help_text='删除时间')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def to_view(self):
@@ -54,12 +58,16 @@ class Notice(models.Model, ModelMixin):
         ordering = ('-sort_id',)
 
 
-class Navigation(models.Model, ModelMixin):
+class Navigation(models.Model, TenantModelMixin):
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
     title = models.CharField(max_length=64)
     desc = models.CharField(max_length=128)
     logo = models.TextField()
     links = models.TextField()
     sort_id = models.IntegerField(default=0, db_index=True)
+    is_deleted = models.BooleanField(default=False, help_text='软删除标识')
+    deleted_at = models.DateTimeField(null=True, blank=True, help_text='删除时间')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def to_view(self):

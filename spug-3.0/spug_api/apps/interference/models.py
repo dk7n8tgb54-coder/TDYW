@@ -76,6 +76,8 @@ class Interference(models.Model, TenantModelMixin):
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
     updated_at = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
+    is_deleted = models.BooleanField(default=False, help_text='软删除标识')
+    deleted_at = models.DateTimeField(null=True, blank=True, help_text='删除时间')
 
     def __repr__(self):
         return '<Interference %r>' % self.frequency

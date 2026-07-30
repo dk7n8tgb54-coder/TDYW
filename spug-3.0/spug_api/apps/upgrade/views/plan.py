@@ -5,6 +5,7 @@
 from django.views import View
 from libs import json_response, auth, Argument, JsonParser
 from apps.upgrade.services.plan_service import PlanService
+from apps.logs.audit import record_audit_event
 
 
 class PlanListView(View):
@@ -80,9 +81,18 @@ class PlanDeleteView(View):
 
     @auth('upgrade.upgrade.del')
     def delete(self, request, pk):
+        from apps.upgrade.models_template import UpgradeTemplate
+        plan = UpgradeTemplate.objects.filter(pk=pk).first()
         error = PlanService.delete_plan(pk, request.user)
         if error:
             return json_response(error=error)
+        if plan:
+            record_audit_event(
+                request, 'delete', 'upgrade_plan',
+                target_id=str(plan.id),
+                target_name=f'方案-{plan.name}',
+                detail={'id': plan.id, 'name': plan.name}
+            )
         return json_response()
 
 

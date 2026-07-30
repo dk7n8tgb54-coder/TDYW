@@ -36,7 +36,7 @@ class RecordStepService:
             return
 
         steps = apply_tenant_filter(
-            UpgradeRecordStep.objects.filter(upgrade_id=upgrade_id), user
+            UpgradeRecordStep.objects.filter(is_deleted=False, upgrade_id=upgrade_id), user
         )
         total = steps.count()
         if total == 0:
@@ -65,7 +65,7 @@ class RecordStepService:
         from ..models_checklist import UpgradeRecordStep
 
         steps = apply_tenant_filter(
-            UpgradeRecordStep.objects.filter(upgrade_id=upgrade_id), user
+            UpgradeRecordStep.objects.filter(is_deleted=False, upgrade_id=upgrade_id), user
         ).order_by('sequence', 'id')
 
         return [
@@ -94,7 +94,7 @@ class RecordStepService:
         from ..models_checklist import UpgradeRecordStep
 
         steps = apply_tenant_filter(
-            UpgradeRecordStep.objects.filter(upgrade_id=upgrade_id), user
+            UpgradeRecordStep.objects.filter(is_deleted=False, upgrade_id=upgrade_id), user
         )
 
         total = steps.count()
@@ -130,7 +130,7 @@ class RecordStepService:
         now_str = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
 
         # 自动计算序号
-        max_seq = UpgradeRecordStep.objects.filter(upgrade_id=upgrade_id).count()
+        max_seq = UpgradeRecordStep.objects.filter(is_deleted=False, upgrade_id=upgrade_id).count()
 
         step = UpgradeRecordStep.objects.create(
             tenant_id=user.tenant_id,
@@ -151,7 +151,7 @@ class RecordStepService:
         from ..models_checklist import UpgradeRecordStep
 
         step = apply_tenant_filter(
-            UpgradeRecordStep.objects.filter(pk=step_id), user
+            UpgradeRecordStep.objects.filter(is_deleted=False, pk=step_id), user
         ).first()
         if not step:
             return None, '步骤不存在或无权限'
@@ -181,13 +181,16 @@ class RecordStepService:
         from ..models_checklist import UpgradeRecordStep
 
         step = apply_tenant_filter(
-            UpgradeRecordStep.objects.filter(pk=step_id), user
+            UpgradeRecordStep.objects.filter(is_deleted=False, pk=step_id), user
         ).first()
         if not step:
             return '步骤不存在或无权限'
 
         upgrade_id = step.upgrade_id
-        step.delete()
+        from django.utils import timezone
+        step.is_deleted = True
+        step.deleted_at = timezone.now()
+        step.save()
 
         # 删除步骤后检查剩余步骤完成情况
         RecordStepService._check_and_update_record_status(upgrade_id, user)
@@ -252,12 +255,14 @@ class RecordStepService:
         from ..models import UpgradeRecord
 
         record = apply_tenant_filter(
-            UpgradeRecord.objects.filter(pk=upgrade_id), user
+            UpgradeRecord.objects.filter(is_deleted=False, pk=upgrade_id), user
         ).first()
         if not record:
             return '升级表单不存在或无权限'
 
+        from django.utils import timezone
+        now = timezone.now()
         apply_tenant_filter(
-            UpgradeRecordStep.objects.filter(upgrade_id=upgrade_id), user
-        ).delete()
+            UpgradeRecordStep.objects.filter(is_deleted=False, upgrade_id=upgrade_id), user
+        ).update(is_deleted=True, deleted_at=now)
         return None
