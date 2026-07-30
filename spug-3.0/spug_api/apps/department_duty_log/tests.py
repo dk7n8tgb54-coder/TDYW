@@ -689,7 +689,7 @@ class DepartmentDutyLogSignatureTests(TestCase):
         self.assertEqual(events.count(), 1)
 
     def test_sign_idempotent(self):
-        """相同 request_id 重试返回同一签署结果"""
+        """相同 request_id 重试返回同一签署结果（幂等）"""
         record = self._create_draft()
         req_id = 'test-req-idem-001'
         # 第一次签署
@@ -701,19 +701,18 @@ class DepartmentDutyLogSignatureTests(TestCase):
         self.assertFalse(body1.get('error'), body1.get('error'))
         usage_id_1 = body1['data']['signature_usage_id']
 
-        # 第二次相同 request_id：record 已是 signed，应拒绝（状态检查在前）
-        # 但如果版本还是 1，则进入 apply_signature 的幂等逻辑
-        # 由于第一次签署后 version 变为 2，第二次 version=1 不匹配会先报版本冲突
-        # 这是正确行为
+        # 第二次相同 request_id：record 已是 signed，但 request_id 匹配已有签署
+        # 修复后：sign_draft 识别为幂等重试，返回已有结果（而非拒绝）
         resp = self.signer_client.post(
             f'/department-duty-log/records/{record.id}/sign/',
             data=json.dumps({'version': 2, 'confirm': True, 'request_id': req_id}),
             content_type='application/json')
         body2 = self._parse(resp)
-        # record 已 signed，应拒绝
-        self.assertTrue(body2.get('error'))
+        # 修复后：应返回成功（幂等重试）
+        self.assertFalse(body2.get('error'),
+                         f'相同 request_id 重试应返回已有结果: {body2.get("error")}')
 
-        # 只创建了一条 Usage
+        # 只创建了一条 Usage（幂等，没有重复签署）
         self.assertEqual(SignatureUsage.objects.filter(request_id=req_id).count(), 1)
 
     def test_sign_no_signature_fails(self):

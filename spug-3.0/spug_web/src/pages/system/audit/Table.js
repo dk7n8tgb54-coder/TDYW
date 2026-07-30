@@ -3,7 +3,7 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Tag, Popover, Descriptions } from 'antd';
+import { Tag, Popover, Descriptions, Space } from 'antd';
 import { TableCard } from 'components';
 import store from './store';
 
@@ -107,14 +107,33 @@ function formatDetail(detail) {
 }
 
 /**
- * 生成简短摘要（取前2个字段）
+ * 生成操作摘要：action 标签 + 可读句子
+ * 如: [删除] 文档「测试报告.pdf」
+ *     [登录] 系统（失败）
  */
-function getDetailSummary(detail) {
-  const items = formatDetail(detail);
-  if (!items) return '-';
-  const preview = items.slice(0, 2);
-  return preview.map(({ label, value }) => `${label}: ${value}`).join('；')
-    + (items.length > 2 ? ` ...等${items.length}项` : '');
+function getSummary(record) {
+  const actionInfo = ACTION_MAP[record.action] || ACTION_MAP.other;
+  const targetType = TARGET_TYPE_MAP[record.target_type] || record.target_type || '';
+  const targetName = record.target_name || '';
+  const failed = record.is_success === 0 || record.is_success === false;
+
+  // 登录/登出：不显示对象类型
+  if (record.action === 'login' || record.action === 'logout') {
+    return { tag: <Tag color={actionInfo.color}>{actionInfo.text}</Tag>, text: '系统' + (failed ? '（失败）' : '') };
+  }
+
+  // 其他操作：对象类型「对象名称」
+  let text = '';
+  if (targetType && targetName) {
+    text = `${targetType}「${targetName}」`;
+  } else if (targetName) {
+    text = targetName;
+  } else if (targetType) {
+    text = targetType;
+  }
+  if (failed) text += '（失败）';
+
+  return { tag: <Tag color={actionInfo.color}>{actionInfo.text}</Tag>, text };
 }
 
 @observer
@@ -133,29 +152,20 @@ class ComTable extends React.Component {
     width: 100,
     dataIndex: 'username',
   }, {
-    title: '操作类型',
-    width: 80,
-    dataIndex: 'action',
-    render: text => {
-      const info = ACTION_MAP[text] || ACTION_MAP.other;
-      return <Tag color={info.color}>{info.text}</Tag>;
+    title: '操作摘要',
+    width: 320,
+    render: (_, record) => {
+      const { tag, text } = getSummary(record);
+      return <Space>{tag}<span>{text}</span></Space>;
     }
-  }, {
-    title: '对象类型',
-    width: 90,
-    dataIndex: 'target_type',
-    render: text => TARGET_TYPE_MAP[text] || text,
-  }, {
-    title: '对象名称',
-    width: 150,
-    ellipsis: true,
-    dataIndex: 'target_name',
   }, {
     title: '操作结果',
     width: 80,
-    render: text => text['is_success']
-      ? <Tag color="success">成功</Tag>
-      : <Tag color="error">失败</Tag>,
+    render: text => (
+      text['is_success']
+        ? <Tag color="success">成功</Tag>
+        : <Tag color="error">失败</Tag>
+    ),
   }, {
     title: '来源IP',
     width: 140,
@@ -168,7 +178,8 @@ class ComTable extends React.Component {
       if (!text) return '-';
       const items = formatDetail(text);
       if (!items || items.length === 0) return '-';
-      const summary = getDetailSummary(text);
+      const preview = items.slice(0, 2).map(({ label, value }) => `${label}: ${value}`).join('；')
+        + (items.length > 2 ? ` ...等${items.length}项` : '');
       const content = (
         <Descriptions column={1} size="small" bordered
           contentStyle={{ maxWidth: 350, wordBreak: 'break-all', fontSize: 12 }}
@@ -181,7 +192,7 @@ class ComTable extends React.Component {
       );
       return (
         <Popover content={content} title="操作详情" trigger="click" placement="left">
-          <span style={{ cursor: 'pointer', color: '#1890ff' }}>{summary}</span>
+          <span style={{ cursor: 'pointer', color: '#1890ff' }}>{preview}</span>
         </Popover>
       );
     }

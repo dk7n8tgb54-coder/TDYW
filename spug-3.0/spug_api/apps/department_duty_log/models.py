@@ -108,7 +108,7 @@ class DepartmentDutyLog(models.Model, ModelMixin):
                 name='duty_log_version_valid',
             ),
             # 签署状态不变量：
-            # DRAFT -> 签署字段全部为 NULL（草稿不应有残留签署信息）
+            # DRAFT -> 签署字段全部为空（可空字段 NULL + CharField 空串）
             # SIGNED -> 签署字段全部完整 且 signed_by_id == duty_person_id
             models.CheckConstraint(
                 check=(
@@ -117,7 +117,10 @@ class DepartmentDutyLog(models.Model, ModelMixin):
                         models.Q(signature_usage_id__isnull=True) &
                         models.Q(signed_by_id__isnull=True) &
                         models.Q(signed_at__isnull=True) &
-                        models.Q(signature_version__isnull=True)
+                        models.Q(signature_version__isnull=True) &
+                        (models.Q(signed_by_name='') | models.Q(signed_by_name__isnull=True)) &
+                        (models.Q(signature_sha256='') | models.Q(signature_sha256__isnull=True)) &
+                        (models.Q(business_snapshot_hash='') | models.Q(business_snapshot_hash__isnull=True))
                     ) | (
                         models.Q(status=STATUS_SIGNED) &
                         models.Q(signature_usage_id__isnull=False) &

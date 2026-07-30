@@ -19,6 +19,7 @@ from django.utils import timezone
 from apps.logs.audit import record_audit_event
 from apps.signature import services as signature_services
 from apps.signature.services import apply_signature
+from apps.signature.models import SignatureUsage
 
 from .models import (
     DepartmentDutyLog,
@@ -229,7 +230,7 @@ def serialize_department_duty_log(record, user):
 
 
 def serialize_list_item(record, user):
-    """序列化列表项，包含完整正文供编辑回填。"""
+    """序列化列表项（不含长文本全文，只含摘要）。"""
     record_text = record.duty_record or ''
     summary = record_text[:100] + '...' if len(record_text) > 100 else record_text
     data = {
@@ -237,7 +238,6 @@ def serialize_list_item(record, user):
         'duty_date': _format_date(record.duty_date),
         'duty_person_name': record.duty_person_name,
         'weather': record.weather or '',
-        'duty_record': record_text,
         'duty_record_summary': summary,
         'remark': record.remark or '',
         'status': record.status,
@@ -348,26 +348,21 @@ def get_list_queryset(user, params):
 
 
 def _parse_list_date_range(query_params):
-    """解析列表日期范围参数。返回 (start_date, end_date, error_str)。"""
-    today = date.today()
-    default_start = today - timedelta(days=DEFAULT_QUERY_DAYS - 1)
+    """解析列表日期范围参数。返回 (start_date, end_date, error_str)。
+
+    无日期参数时不加默认限制，返回 (None, None, None) 表示查全部。
+    """
     start_date_str = query_params.get('start_date', '').strip()
     end_date_str = query_params.get('end_date', '').strip()
     try:
-        if start_date_str:
-            start_date = _parse_date(start_date_str, '开始日期')
-        else:
-            start_date = default_start
-        if end_date_str:
-            end_date = _parse_date(end_date_str, '结束日期')
-        else:
-            end_date = today
+        start_date = _parse_date(start_date_str, '开始日期') if start_date_str else None
+        end_date = _parse_date(end_date_str, '结束日期') if end_date_str else None
     except ValueError as e:
         return None, None, str(e)
-    if end_date < start_date:
+    if start_date and end_date and end_date < start_date:
         return None, None, '结束日期不能早于开始日期'
     # P3(R9): 限制最大查询范围，防止无界 TextField LIKE 扫描
-    if (end_date - start_date).days > MAX_QUERY_DAYS:
+    if start_date and end_date and (end_date - start_date).days > MAX_QUERY_DAYS:
         return None, None, f'查询范围不能超过 {MAX_QUERY_DAYS} 天'
     return start_date, end_date, None
 
@@ -619,6 +614,19 @@ def sign_draft(record_id, user, client_version, request_id, confirm, request=Non
             if not record:
                 raise _DutyLogError('记录不存在')
             if record.status != STATUS_DRAFT:
+                # 幂等重试：如果记录已签署且 request_id 匹配已有签署，返回成功
+                if request_id and record.status == STATUS_SIGNED:
+                    existing = SignatureUsage.objects.filter(
+                        request_id=request_id,
+                        signer_user_id=user.id,
+                    ).first()
+                    if existing:
+                        logger.info(
+                            '[DepartmentDutyLog] idempotent retry: record %s already signed '
+                            'with request_id %s, returning existing result',
+                            record_id, request_id,
+                        )
+                        return record, None
                 raise _DutyLogError('当前记录状态不可签署')
             if record.duty_person_id != user.id:
                 raise _DutyLogError('只能签署本人草稿')

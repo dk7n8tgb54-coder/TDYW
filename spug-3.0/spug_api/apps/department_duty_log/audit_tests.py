@@ -126,11 +126,11 @@ def _make_png_file(width=200, height=100, name='sig.png'):
 
 
 # ============================================================
-# 审查问题 1 & 2（已修复）：列表返回完整正文，编辑/签署可回填
+# 审查问题 1 & 2（已修复）：列表只返回摘要，编辑/签署通过详情接口回填
 # ============================================================
 
-class AuditIssue1_2_ListReturnsFullTextTests(TestCase):
-    """验证修复：列表返回完整 duty_record，编辑/签署可回填。"""
+class AuditIssue1_2_ListSummaryWithDetailFetchTests(TestCase):
+    """验证修复：列表只返回摘要，编辑/签署通过详情接口获取完整正文。"""
 
     def setUp(self):
         AppSetting.set('bind_ip', False)
@@ -140,9 +140,9 @@ class AuditIssue1_2_ListReturnsFullTextTests(TestCase):
         ])
         self.client_obj = _make_client(self.user)
 
-    def test_list_item_contains_full_duty_record(self):
-        """列表项包含完整 duty_record 字段"""
-        long_text = 'A' * 200  # 超过 100 字
+    def test_list_item_only_has_summary(self):
+        """列表项只有 duty_record_summary，不含 duty_record 全文"""
+        long_text = 'A' * 200
         _make_record(self.user, duty_record=long_text, remark='上级要求内容')
 
         resp = self.client_obj.get('/department-duty-log/records/')
@@ -153,13 +153,12 @@ class AuditIssue1_2_ListReturnsFullTextTests(TestCase):
         self.assertEqual(len(items), 1)
         item = items[0]
 
-        # 核心断言：列表项包含完整 duty_record
-        self.assertIn('duty_record', item)
-        self.assertEqual(item['duty_record'], long_text)
-        # 同时保留 summary 供列表展示截断
+        # 列表不含全文
+        self.assertNotIn('duty_record', item)
+        # 列表有摘要
         self.assertIn('duty_record_summary', item)
         self.assertLessEqual(len(item['duty_record_summary']), 103)
-        # 列表也返回 remark（上级工作要求）
+        # 列表返回 remark
         self.assertEqual(item['remark'], '上级要求内容')
 
     def test_detail_returns_full_duty_record(self):
@@ -175,19 +174,22 @@ class AuditIssue1_2_ListReturnsFullTextTests(TestCase):
         self.assertEqual(data['duty_record'], long_text)
         self.assertNotIn('duty_record_summary', data)
 
-    def test_edit_form_can_get_full_record_from_list(self):
-        """模拟前端 showForm(record)：列表记录已包含完整 duty_record"""
+    def test_edit_form_fetches_detail_for_full_text(self):
+        """模拟前端 showForm：先调详情接口获取完整 duty_record"""
         long_text = 'C' * 200
-        _make_record(self.user, duty_record=long_text)
+        record = _make_record(self.user, duty_record=long_text)
 
+        # 列表只有摘要
         resp = self.client_obj.get('/department-duty-log/records/')
         body = json.loads(resp.content)
         list_record = body['data']['records'][0]
+        self.assertNotIn('duty_record', list_record)
 
-        # 模拟 DepartmentDutyLogForm.js:27 的读取
-        form_duty_record = list_record.get('duty_record')
-        self.assertEqual(form_duty_record, long_text,
-                         '编辑表单从列表记录读取 duty_record 得到完整正文')
+        # 详情接口返回完整正文
+        resp = self.client_obj.get(f'/department-duty-log/records/{record.id}/')
+        body = json.loads(resp.content)
+        detail_record = body['data']
+        self.assertEqual(detail_record['duty_record'], long_text)
 
 
 # ============================================================
@@ -205,8 +207,8 @@ class AuditIssue3_DateDefaultInconsistencyTests(TestCase):
         ])
         self.client_obj = _make_client(self.user)
 
-    def test_list_defaults_to_31_days(self):
-        """列表无日期参数时，默认查询最近 31 天"""
+    def test_list_no_date_returns_all(self):
+        """列表无日期参数时返回全部记录（不再默认 31 天）"""
         # 创建 60 天前的已签记录
         old_date = date.today() - timedelta(days=60)
         _make_record(
@@ -229,10 +231,10 @@ class AuditIssue3_DateDefaultInconsistencyTests(TestCase):
         self.assertFalse(body.get('error'))
 
         items = body['data']['records']
-        # 60 天前的记录不应出现
+        # 60 天前的记录也应出现
         old_items = [i for i in items if '60天前' in i.get('duty_record_summary', '')]
-        self.assertEqual(len(old_items), 0,
-                         '列表默认 31 天，60 天前的记录不应出现')
+        self.assertEqual(len(old_items), 1,
+                         '列表无日期时应返回全部记录，包括 60 天前的')
 
     def test_export_filters_no_date_default(self):
         """导出解析器无日期参数时不加默认限制"""
@@ -243,13 +245,12 @@ class AuditIssue3_DateDefaultInconsistencyTests(TestCase):
         self.assertNotIn('start_date', filters)
         self.assertNotIn('end_date', filters)
 
-    def test_list_date_parser_has_default(self):
-        """列表日期解析器有 31 天默认"""
+    def test_list_date_parser_no_default(self):
+        """列表日期解析器无日期时不加默认"""
         start, end, error = services._parse_list_date_range({})
         self.assertIsNone(error)
-        expected_start = date.today() - timedelta(days=31 - 1)
-        self.assertEqual(start, expected_start)
-        self.assertEqual(end, date.today())
+        self.assertIsNone(start)
+        self.assertIsNone(end)
 
     def test_export_queryset_includes_old_records_without_date(self):
         """导出 queryset 无日期时包含全部已签记录"""

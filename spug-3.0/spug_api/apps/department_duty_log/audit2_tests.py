@@ -188,11 +188,11 @@ class Audit2Issue1_AsyncDetailRaceConditionTests(TestCase):
 
 
 # ============================================================
-# 问题 2：清空日期后列表与导出范围不一致
+# 问题 2（已修复）：列表和导出无日期时都返回全部记录
 # ============================================================
 
-class Audit2Issue2_DateDefaultStillInconsistentTests(TestCase):
-    """验证问题 2：前端初始化了日期，但用户清空后后端行为仍不一致。"""
+class Audit2Issue2_DateDefaultFixedTests(TestCase):
+    """验证修复：列表无日期时返回全部记录，与导出行为一致。"""
 
     def setUp(self):
         AppSetting.set('bind_ip', False)
@@ -202,21 +202,21 @@ class Audit2Issue2_DateDefaultStillInconsistentTests(TestCase):
         ])
         self.client_obj = _make_client(self.user)
 
-    def test_list_with_empty_dates_defaults_to_31_days(self):
-        """列表无日期参数时默认 31 天"""
+    def test_list_with_empty_dates_returns_all(self):
+        """列表无日期参数时返回全部记录（不再默认 31 天）"""
         old_date = date.today() - timedelta(days=60)
         _make_record(self.user, duty_date=old_date, status=STATUS_SIGNED,
                      duty_record='60天前已签')
         _make_record(self.user, duty_date=date.today(), status=STATUS_SIGNED,
                      duty_record='今天的')
 
-        # 不传日期参数（模拟用户清空日期）
+        # 不传日期参数
         resp = self.client_obj.get('/department-duty-log/records/')
         body = json.loads(resp.content)
         items = body['data']['records']
-        old_items = [i for i in items if '60天前' in i.get('duty_record', '')]
-        self.assertEqual(len(old_items), 0,
-                         '列表默认 31 天，60 天前的记录不应出现')
+        old_items = [i for i in items if '60天前' in i.get('duty_record_summary', '')]
+        self.assertEqual(len(old_items), 1,
+                         '列表无日期时应返回全部记录，包括 60 天前的')
 
     def test_export_with_empty_dates_returns_all_history(self):
         """导出无日期参数时返回全部历史"""
@@ -234,38 +234,32 @@ class Audit2Issue2_DateDefaultStillInconsistentTests(TestCase):
         self.assertTrue(qs.filter(duty_record='60天前已签导出').exists(),
                         '导出无日期默认，60 天前的记录被包含')
 
-    def test_list_and_export_date_parsers_diverge(self):
-        """列表和导出的日期解析器行为不同"""
-        # 列表解析器：无日期 -> 默认 31 天
+    def test_list_and_export_date_parsers_consistent(self):
+        """列表和导出的日期解析器行为一致：无日期都返回 None"""
         list_start, list_end, list_err = services._parse_list_date_range({})
         self.assertIsNone(list_err)
-        self.assertIsNotNone(list_start)
-        self.assertEqual(list_end, date.today())
+        self.assertIsNone(list_start)
+        self.assertIsNone(list_end)
 
-        # 导出解析器：无日期 -> 无默认
         export_filters, export_err = services._parse_export_filters({})
         self.assertIsNone(export_err)
         self.assertNotIn('start_date', export_filters)
         self.assertNotIn('end_date', export_filters)
 
-        # 核心断言：两者的默认行为不一致
-        self.assertTrue(list_start is not None and 'start_date' not in export_filters,
-                        '列表有默认日期，导出没有 -> 行为不一致')
+        # 核心断言：两者无日期时行为一致（都不加日期过滤）
+        self.assertTrue(
+            list_start is None and 'start_date' not in export_filters,
+            '列表和导出无日期时行为一致：都不加日期过滤',
+        )
 
 
 # ============================================================
-# 问题 3：签署接口没有实现真正的幂等重试
+# 问题 3（已修复）：签署接口现在支持真正的幂等重试
 # ============================================================
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
-class Audit2Issue3_SignNotTrulyIdempotentTests(TestCase):
-    """验证问题 3：sign_draft 在状态检查阶段拒绝已签记录，
-    无法利用 apply_signature 的幂等能力。
-
-    场景：首次签署成功但响应丢失，客户端用相同 request_id 重试。
-    预期（正确）：返回已有签署结果。
-    实际（当前）：返回 "当前记录状态不可签署"。
-    """
+class Audit2Issue3_SignIdempotentRetryTests(TestCase):
+    """验证修复：sign_draft 对相同 request_id 的重试返回已有签署结果。"""
 
     def setUp(self):
         AppSetting.set('bind_ip', False)
@@ -303,8 +297,8 @@ class Audit2Issue3_SignNotTrulyIdempotentTests(TestCase):
         assert not body.get('error'), f'create failed: {body.get("error")}'
         return body['data']
 
-    def test_retry_with_same_request_id_fails(self):
-        """首次签署成功后，用相同 request_id 重试应返回已有结果，但实际返回失败"""
+    def test_retry_with_same_request_id_returns_existing_result(self):
+        """修复后：首次签署成功后，用相同 request_id 重试返回已有结果"""
         draft_data = self._create_draft()
         record_id = draft_data['id']
         req_id = f'a2-idem-{uuid.uuid4().hex[:8]}'
@@ -317,9 +311,8 @@ class Audit2Issue3_SignNotTrulyIdempotentTests(TestCase):
         )
         body1 = json.loads(resp.content)
         self.assertFalse(body1.get('error'), f'第一次签署应成功: {body1.get("error")}')
-        usage_id_1 = body1['data']['signature_usage_id']
 
-        # 模拟响应丢失，客户端用相同 request_id 和 version=2（当前版本）重试
+        # 模拟响应丢失，用相同 request_id 重试（version=2 已是当前版本）
         resp = self.signer_client.post(
             f'/department-duty-log/records/{record_id}/sign/',
             data=json.dumps({'version': 2, 'confirm': True, 'request_id': req_id}),
@@ -327,93 +320,56 @@ class Audit2Issue3_SignNotTrulyIdempotentTests(TestCase):
         )
         body2 = json.loads(resp.content)
 
-        # 核心断言：当前行为是返回错误（非幂等）
-        self.assertTrue(body2.get('error'),
-                        '当前 sign_draft 在状态检查阶段拒绝已签记录，未利用 apply_signature 的幂等能力')
-        self.assertIn('状态', body2['error'])
+        # 修复后：应返回已有结果（无错误）
+        self.assertFalse(body2.get('error'),
+                         f'相同 request_id 重试应返回已有结果: {body2.get("error")}')
+        self.assertEqual(body2['data']['status'], STATUS_SIGNED)
 
-        # 只创建了一条 Usage（apply_signature 没有被第二次调用）
+        # 只创建了一条 Usage（幂等，没有重复签署）
         self.assertEqual(
             SignatureUsage.objects.filter(request_id=req_id).count(), 1,
-            'apply_signature 的幂等逻辑未被触达',
+            '幂等重试不应创建新 Usage',
         )
 
-    def test_apply_signature_itself_is_idempotent(self):
-        """apply_signature 本身有幂等检查，但 sign_draft 的前置状态检查阻止了重试触达它。
-
-        直接调用 apply_signature 两次（相同 request_id、相同上下文）应返回同一结果。
-        但通过 sign_draft 重试时，状态检查在 apply_signature 之前就拒绝了。
-        """
+    def test_different_request_id_on_signed_record_still_fails(self):
+        """不同 request_id 签署已签记录仍然失败"""
         draft_data = self._create_draft()
         record_id = draft_data['id']
-        req_id = f'a2-idem-sig-{uuid.uuid4().hex[:8]}'
 
         # 第一次签署
         resp = self.signer_client.post(
             f'/department-duty-log/records/{record_id}/sign/',
-            data=json.dumps({'version': 1, 'confirm': True, 'request_id': req_id}),
+            data=json.dumps({'version': 1, 'confirm': True, 'request_id': f'first-{uuid.uuid4().hex[:8]}'}),
             content_type='application/json',
         )
-        body1 = json.loads(resp.content)
-        usage_id_1 = body1['data']['signature_usage_id']
+        self.assertFalse(json.loads(resp.content).get('error'))
 
-        # 签署后 record 状态变了，快照也变了
-        # 直接调用 apply_signature（绕过 sign_draft 的状态检查）
-        # 此时快照与第一次不同 -> apply_signature 报幂等冲突（正确行为）
-        record = DepartmentDutyLog.objects.get(pk=record_id)
-        snapshot = services.build_business_snapshot(record)
-
-        usage2, error2 = sig_services.apply_signature(
-            actor=self.signer,
-            module=services.MODULE,
-            object_type=services.OBJECT_TYPE,
-            object_id=str(record.id),
-            scene_code=services.SCENE_CODE,
-            business_snapshot=snapshot,
-            request_id=req_id,
-            request=None,
+        # 用不同的 request_id 签署 -> 应失败
+        resp = self.signer_client.post(
+            f'/department-duty-log/records/{record_id}/sign/',
+            data=json.dumps({'version': 2, 'confirm': True, 'request_id': f'other-{uuid.uuid4().hex[:8]}'}),
+            content_type='application/json',
         )
-
-        # apply_signature 检测到上下文不一致 -> 冲突（正确）
-        self.assertIsNotNone(error2,
-                             '上下文不一致时 apply_signature 报幂等冲突是正确行为')
-        self.assertIn('幂等冲突', error2)
-
-        # 核心断言：sign_draft 的前置状态检查阻止了重试触达 apply_signature
-        # 即使 apply_signature 有幂等逻辑，sign_draft 也无法利用它
-        self.assertEqual(
-            SignatureUsage.objects.filter(request_id=req_id).count(), 1,
-            'apply_signature 幂等，未创建新 Usage',
-        )
+        body = json.loads(resp.content)
+        self.assertTrue(body.get('error'), '不同 request_id 签署已签记录应失败')
 
 
 # ============================================================
-# 问题 4：数据库约束仍未完整覆盖草稿签署残留（CharField）
+# 问题 4（已修复）：数据库约束现已覆盖草稿 CharField 残留
 # ============================================================
 
-class Audit2Issue4_DraftCharFieldResidualTests(TestCase):
-    """验证问题 4：草稿分支只检查 4 个可空字段，未限制 3 个 CharField 残留。
-
-    当前约束的 DRAFT 分支检查：
-      signature_usage_id IS NULL ✓
-      signed_by_id IS NULL ✓
-      signed_at IS NULL ✓
-      signature_version IS NULL ✓
-    但未检查：
-      signed_by_name = '' ✗
-      signature_sha256 = '' ✗
-      business_snapshot_hash = '' ✗
-    """
+class Audit2Issue4_DraftCharFieldBlockedTests(TestCase):
+    """验证修复：草稿携带 CharField 签署残留现在被约束拦截。"""
 
     def setUp(self):
         AppSetting.set('bind_ip', False)
         self.user = _make_user('a2user4', tenant_id='tenant_a')
 
-    def test_draft_with_residual_signed_by_name(self):
-        """草稿携带残留 signed_by_name 能保存（约束漏洞）"""
+    def test_draft_with_residual_signed_by_name_blocked(self):
+        """修复后：草稿携带残留 signed_by_name 被约束拦截"""
         from django.db import IntegrityError
-        try:
-            record = DepartmentDutyLog.objects.create(
+        with self.assertRaises(IntegrityError):
+            DepartmentDutyLog.objects.create(
                 duty_date=date.today(),
                 duty_person=self.user,
                 duty_person_name=self.user.username,
@@ -422,27 +378,14 @@ class Audit2Issue4_DraftCharFieldResidualTests(TestCase):
                 status=STATUS_DRAFT,
                 version=1,
                 created_by=self.user,
-                # 4 个可空字段为 NULL（通过约束）
-                # 但 CharField 有残留
                 signed_by_name='张三',
             )
-            # 如果没有抛异常，说明约束没有覆盖这个字段
-            record.refresh_from_db()
-            self.assertEqual(record.status, STATUS_DRAFT)
-            self.assertEqual(record.signed_by_name, '张三')
-            constraint_covers = False
-        except IntegrityError:
-            constraint_covers = True
 
-        # 核心断言：约束未覆盖 signed_by_name
-        self.assertFalse(constraint_covers,
-                         '草稿携带残留 signed_by_name 未被约束拦截')
-
-    def test_draft_with_residual_signature_sha256(self):
-        """草稿携带残留 signature_sha256 能保存（约束漏洞）"""
+    def test_draft_with_residual_signature_sha256_blocked(self):
+        """修复后：草稿携带残留 signature_sha256 被约束拦截"""
         from django.db import IntegrityError
-        try:
-            record = DepartmentDutyLog.objects.create(
+        with self.assertRaises(IntegrityError):
+            DepartmentDutyLog.objects.create(
                 duty_date=date.today(),
                 duty_person=self.user,
                 duty_person_name=self.user.username,
@@ -453,21 +396,12 @@ class Audit2Issue4_DraftCharFieldResidualTests(TestCase):
                 created_by=self.user,
                 signature_sha256='c' * 64,
             )
-            record.refresh_from_db()
-            self.assertEqual(record.status, STATUS_DRAFT)
-            self.assertEqual(record.signature_sha256, 'c' * 64)
-            constraint_covers = False
-        except IntegrityError:
-            constraint_covers = True
 
-        self.assertFalse(constraint_covers,
-                         '草稿携带残留 signature_sha256 未被约束拦截')
-
-    def test_draft_with_residual_business_snapshot_hash(self):
-        """草稿携带残留 business_snapshot_hash 能保存（约束漏洞）"""
+    def test_draft_with_residual_business_snapshot_hash_blocked(self):
+        """修复后：草稿携带残留 business_snapshot_hash 被约束拦截"""
         from django.db import IntegrityError
-        try:
-            record = DepartmentDutyLog.objects.create(
+        with self.assertRaises(IntegrityError):
+            DepartmentDutyLog.objects.create(
                 duty_date=date.today(),
                 duty_person=self.user,
                 duty_person_name=self.user.username,
@@ -478,21 +412,12 @@ class Audit2Issue4_DraftCharFieldResidualTests(TestCase):
                 created_by=self.user,
                 business_snapshot_hash='d' * 64,
             )
-            record.refresh_from_db()
-            self.assertEqual(record.status, STATUS_DRAFT)
-            self.assertEqual(record.business_snapshot_hash, 'd' * 64)
-            constraint_covers = False
-        except IntegrityError:
-            constraint_covers = True
 
-        self.assertFalse(constraint_covers,
-                         '草稿携带残留 business_snapshot_hash 未被约束拦截')
-
-    def test_draft_all_nullable_null_but_all_char_filled(self):
-        """草稿 4 个可空字段为 NULL 但 3 个 CharField 全有值能保存（最隐蔽的残留）"""
+    def test_draft_all_char_filled_blocked(self):
+        """修复后：草稿 3 个 CharField 全有值被约束拦截"""
         from django.db import IntegrityError
-        try:
-            record = DepartmentDutyLog.objects.create(
+        with self.assertRaises(IntegrityError):
+            DepartmentDutyLog.objects.create(
                 duty_date=date.today(),
                 duty_person=self.user,
                 duty_person_name=self.user.username,
@@ -501,30 +426,33 @@ class Audit2Issue4_DraftCharFieldResidualTests(TestCase):
                 status=STATUS_DRAFT,
                 version=1,
                 created_by=self.user,
-                # 可空字段全 NULL（通过约束）
-                # CharField 全有值
                 signed_by_name='李四',
                 signature_sha256='e' * 64,
                 business_snapshot_hash='f' * 64,
             )
-            record.refresh_from_db()
-            constraint_covers = False
-        except IntegrityError:
-            constraint_covers = True
 
-        self.assertFalse(constraint_covers,
-                         '草稿 4 可空字段为 NULL 但 3 CharField 有值未被约束拦截')
+    def test_clean_draft_still_ok(self):
+        """正常草稿（无任何签署字段）能正常保存"""
+        record = DepartmentDutyLog.objects.create(
+            duty_date=date.today(),
+            duty_person=self.user,
+            duty_person_name=self.user.username,
+            weather='晴',
+            duty_record='正常草稿',
+            status=STATUS_DRAFT,
+            version=1,
+            created_by=self.user,
+        )
+        record.refresh_from_db()
+        self.assertEqual(record.status, STATUS_DRAFT)
 
 
 # ============================================================
-# 问题 5：列表返回全文放大响应体
+# 问题 5（已修复）：列表恢复只返回摘要，响应体不再放大
 # ============================================================
 
-class Audit2Issue5_ListResponseSizeTests(TestCase):
-    """验证问题 5：列表返回完整 duty_record 放大响应体。
-
-    这是性能问题而非正确性问题，测试验证 duty_record 全文确实在列表响应中。
-    """
+class Audit2Issue5_ListResponseOptimizedTests(TestCase):
+    """验证修复：列表不再返回完整 duty_record，响应体保持紧凑。"""
 
     def setUp(self):
         AppSetting.set('bind_ip', False)
@@ -534,29 +462,24 @@ class Audit2Issue5_ListResponseSizeTests(TestCase):
         ])
         self.client_obj = _make_client(self.user)
 
-    def test_list_returns_full_duty_record_not_just_summary(self):
-        """列表返回完整 duty_record（可用于编辑回填，但放大响应）"""
-        long_text = 'X' * 5000  # 5000 字正文
+    def test_list_does_not_return_full_duty_record(self):
+        """列表不返回完整 duty_record，只返回摘要"""
+        long_text = 'X' * 5000
         _make_record(self.user, duty_record=long_text)
 
         resp = self.client_obj.get('/department-duty-log/records/')
         body = json.loads(resp.content)
         item = body['data']['records'][0]
 
-        # 列表返回了完整正文
-        self.assertEqual(item['duty_record'], long_text)
-        # 同时也返回了摘要（冗余）
+        # 列表不含全文
+        self.assertNotIn('duty_record', item,
+                         '列表不应包含 duty_record 全文')
+        # 列表有摘要（最多 103 字符）
         self.assertIn('duty_record_summary', item)
+        self.assertLessEqual(len(item['duty_record_summary']), 103)
 
-        # 响应体大小
-        resp_size = len(resp.content)
-        # 5000 字正文 + 摘要 + 其他字段，至少 5000 字节
-        self.assertGreater(resp_size, 5000,
-                           '列表响应体包含完整正文，显著增大')
-
-    def test_list_with_many_records_amplifies_response(self):
-        """多条记录时响应体放大效果明显"""
-        # 创建 10 条长正文记录
+    def test_list_response_size_compact(self):
+        """多条长正文记录的列表响应体保持紧凑"""
         for i in range(10):
             _make_record(
                 self.user,
@@ -567,6 +490,7 @@ class Audit2Issue5_ListResponseSizeTests(TestCase):
         resp = self.client_obj.get('/department-duty-log/records/')
         resp_size = len(resp.content)
 
-        # 10 条 * 3000 字正文 = 30000+ 字节
-        self.assertGreater(resp_size, 30000,
-                          '10 条记录的列表响应体因包含完整正文而显著增大')
+        # 10 条记录，每条摘要最多 103 字，正文不在响应中
+        # 响应体应远小于 30000 字节（之前包含全文时 >30000）
+        self.assertLess(resp_size, 15000,
+                        '列表响应体应保持紧凑（不含全文正文）')

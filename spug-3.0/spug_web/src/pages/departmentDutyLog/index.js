@@ -6,7 +6,6 @@
 import React from 'react';
 import {observer} from 'mobx-react';
 import {Input, Select, DatePicker, Button} from 'antd';
-import moment from 'moment';
 import {AuthDiv, Breadcrumb, SearchForm} from 'components';
 import ComTable from './DepartmentDutyLogTable';
 import ComForm from './DepartmentDutyLogForm';
@@ -71,8 +70,8 @@ function DepartmentDutyLogIndex() {
         <SearchForm.Item span={24}>
           <Button type="primary" onClick={() => {store.pageNum = 1; store.fetchRecords();}}>查询</Button>
           <Button style={{marginLeft: 8}} onClick={() => {
-            store.f_start_date = moment().subtract(30, 'days');
-            store.f_end_date = moment();
+            store.f_start_date = undefined;
+            store.f_end_date = undefined;
             store.f_duty_person_name = undefined;
             store.f_status = undefined;
             store.f_keyword = undefined;

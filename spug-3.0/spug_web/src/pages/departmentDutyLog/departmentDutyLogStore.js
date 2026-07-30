@@ -4,7 +4,6 @@
  * Released under the AGPL-3.0 License.
  */
 import {observable, action} from 'mobx';
-import moment from 'moment';
 import {http} from 'libs';
 
 class DepartmentDutyLogStore {
@@ -15,6 +14,7 @@ class DepartmentDutyLogStore {
   @observable pageSize = 20;
 
   @observable formVisible = false;
+  @observable formLoading = false;
   @observable detailVisible = false;
   @observable detailLoading = false;
   @observable signVisible = false;
@@ -23,9 +23,13 @@ class DepartmentDutyLogStore {
   @observable record = {};
   @observable formRecord = {};
 
-  // 筛选 - 默认最近 31 天，列表和导出使用统一默认值
-  @observable f_start_date = moment().subtract(30, 'days');
-  @observable f_end_date = moment();
+  // 请求序号：丢弃过期异步响应，防止快速切换时竞态覆盖
+  _formRequestId = 0;
+  _signRequestId = 0;
+
+  // 筛选 - 默认不限制日期，显示全部记录
+  @observable f_start_date = undefined;
+  @observable f_end_date = undefined;
   @observable f_duty_person_name = undefined;
   @observable f_status = undefined;
   @observable f_keyword = undefined;
@@ -81,19 +85,26 @@ class DepartmentDutyLogStore {
   @action.bound
   showForm(record) {
     if (record && record.id) {
-      // 编辑模式：先调详情接口获取完整 duty_record（列表只有 summary）
-      this.formRecord = record; // 先用列表记录占位
+      // 编辑模式：详情加载完成后再填表单，防止竞态覆盖
+      this.formRecord = {};
       this.formVisible = true;
+      this.formLoading = true;
+      const reqId = ++this._formRequestId;
       http.get(`/api/department-duty-log/records/${record.id}/`)
         .then(data => {
+          if (reqId !== this._formRequestId) return; // 丢弃过期响应
           this.formRecord = data;
+          this.formLoading = false;
         })
         .catch(() => {
+          if (reqId !== this._formRequestId) return;
           this.formVisible = false;
+          this.formLoading = false;
         });
     } else {
       this.formRecord = {};
       this.formVisible = true;
+      this.formLoading = false;
     }
   }
 
@@ -117,15 +128,18 @@ class DepartmentDutyLogStore {
 
   @action.bound
   showSign(record) {
-    this.record = record; // 先用列表记录占位
+    this.record = {};
     this.signVisible = true;
     this.signLoading = true;
+    const reqId = ++this._signRequestId;
     http.get(`/api/department-duty-log/records/${record.id}/`)
       .then(data => {
-        this.record = data; // 详情包含完整 duty_record
+        if (reqId !== this._signRequestId) return; // 丢弃过期响应
+        this.record = data;
         this.signLoading = false;
       })
       .catch(() => {
+        if (reqId !== this._signRequestId) return;
         this.signVisible = false;
         this.signLoading = false;
       });

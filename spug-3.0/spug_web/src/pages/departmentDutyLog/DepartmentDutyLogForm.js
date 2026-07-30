@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import {observer} from 'mobx-react';
-import {Modal, Form, Input, DatePicker, Row, Col, message} from 'antd';
+import {Modal, Form, Input, DatePicker, Row, Col, message, Spin} from 'antd';
 import {http} from 'libs';
 import store from './departmentDutyLogStore';
 import moment from 'moment';
@@ -15,26 +15,45 @@ class DepartmentDutyLogForm extends React.Component {
   formRef = React.createRef();
   state = {submitting: false};
   _mounted = false;
+  _formFilled = false;
+  _editId = null;    // 编辑时固定的记录 ID，防止异步覆盖
+  _editVersion = null; // 编辑时固定的版本号
 
   componentDidMount() {
     this._mounted = true;
-    const record = store.formRecord;
-    if (record && record.id) {
-      // 编辑模式
+    this._tryFillForm();
+  }
+
+  componentDidUpdate() {
+    this._tryFillForm();
+  }
+
+  componentWillUnmount() {
+    this._mounted = false;
+  }
+
+  _tryFillForm() {
+    // 新建模式直接返回
+    if (!store.formLoading && !store.formRecord.id && !this._formFilled) {
+      this._formFilled = true;
+      this._loadDutyDatesForMoment(moment());
+      return;
+    }
+    // 编辑模式：等详情加载完再填表单
+    if (!store.formLoading && store.formRecord && store.formRecord.id && !this._formFilled) {
+      this._formFilled = true;
+      const record = store.formRecord;
+      // 固定 id 和 version，防止异步响应覆盖 store.formRecord 后提交到错误记录
+      this._editId = record.id;
+      this._editVersion = record.version;
       this.formRef.current.setFieldsValue({
         duty_date: moment(record.duty_date),
         weather: record.weather,
         duty_record: record.duty_record,
         remark: record.remark,
-        version: record.version,
       });
+      this._loadDutyDatesForMoment(moment(record.duty_date));
     }
-    // 进入表单时预拉取当月已有值班日志日期，用于 DatePicker 面板标记
-    this._loadDutyDatesForMoment(moment(record && record.duty_date ? record.duty_date : undefined));
-  }
-
-  componentWillUnmount() {
-    this._mounted = false;
   }
 
   /**
@@ -70,11 +89,10 @@ class DepartmentDutyLogForm extends React.Component {
         remark: values.remark || '',
       };
 
-      const record = store.formRecord;
       let request;
-      if (record && record.id) {
-        payload.version = record.version;
-        request = http.put(`/api/department-duty-log/records/${record.id}/`, payload);
+      if (this._editId) {
+        payload.version = this._editVersion;
+        request = http.put(`/api/department-duty-log/records/${this._editId}/`, payload);
       } else {
         request = http.post('/api/department-duty-log/records/', payload);
       }
@@ -82,12 +100,12 @@ class DepartmentDutyLogForm extends React.Component {
       request
         .then(() => {
           if (!this._mounted) return;
-          message.success(record && record.id ? '编辑成功' : '新建成功');
+          message.success(this._editId ? '编辑成功' : '新建成功');
           store.formVisible = false;
           // 失效受影响月份的日期缓存
           const dutyMonth = payload.duty_date.slice(0, 7);
-          const oldMonth = record && record.id && record.duty_date
-            ? String(record.duty_date).slice(0, 7) : null;
+          const oldMonth = this._editId && store.formRecord.duty_date
+            ? String(store.formRecord.duty_date).slice(0, 7) : null;
           const months = oldMonth && oldMonth !== dutyMonth
             ? [dutyMonth, oldMonth] : [dutyMonth];
           store.invalidateDutyDatesCache(months);
@@ -106,22 +124,32 @@ class DepartmentDutyLogForm extends React.Component {
     });
   };
 
+  handleCancel = () => {
+    store.formVisible = false;
+  };
+
   render() {
-    const record = store.formRecord;
-    const isEdit = record && record.id;
+    const isEdit = !!(this._editId || (store.formRecord && store.formRecord.id));
     const currentUser = store.currentUser || {};
 
     return (
       <Modal
         title={isEdit ? '编辑值班日志' : '新建值班日志'}
         visible={store.formVisible}
-        onCancel={() => store.formVisible = false}
+        onCancel={this.handleCancel}
         onOk={this.handleSubmit}
         confirmLoading={this.state.submitting}
+        okButtonProps={{disabled: store.formLoading}}
         width={640}
         destroyOnClose
         maskClosable={false}
       >
+        {store.formLoading ? (
+          <div style={{textAlign: 'center', padding: 40}}>
+            <Spin tip="加载中..."/>
+          </div>
+        ) : (
+        <>
         <style>{`
           .duty-date-cell {
             display: inline-block;
@@ -199,6 +227,8 @@ class DepartmentDutyLogForm extends React.Component {
             <Input.TextArea rows={3} maxLength={2000} placeholder="补充说明（可选）"/>
           </Form.Item>
         </Form>
+        </>
+        )}
       </Modal>
     );
   }
