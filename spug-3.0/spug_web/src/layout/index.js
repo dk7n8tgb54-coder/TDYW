@@ -17,6 +17,7 @@ import routes from '../routes';
 import radioLicenseBadge from './RadioLicenseBadgeStore';
 import approvalBadge from './ApprovalBadgeStore';
 import contractAgreementBadge from './ContractAgreementBadgeStore';
+import alertStore from './AlertStore';
 import { hasPermission, isMobile } from 'libs';
 import styles from './layout.module.less';
 
@@ -48,10 +49,12 @@ export default function () {
     radioLicenseBadge.start();
     approvalBadge.start();
     contractAgreementBadge.start();
+    alertStore.start();
     return () => {
       radioLicenseBadge.stop();
       approvalBadge.stop();
       contractAgreementBadge.stop();
+      alertStore.stop();
     };
   }, [])
 

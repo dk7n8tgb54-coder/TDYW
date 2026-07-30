@@ -100,7 +100,7 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
         return;
       }
       setLoading(true);
-      onSubmit({
+      const result = onSubmit({
         ...values,
         steps: validSteps.map((s, i) => ({
           phase: s.phase || '',
@@ -110,6 +110,9 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
           sequence: i + 1,
         })),
       });
+      if (result && typeof result.then === 'function') {
+        result.finally(() => setLoading(false));
+      }
     });
   }
 

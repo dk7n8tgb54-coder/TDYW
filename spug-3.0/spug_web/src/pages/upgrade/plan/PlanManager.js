@@ -125,7 +125,7 @@ export default observer(function () {
       ? store.updatePlan(editingPlan.id, values)
       : store.createPlan(values);
 
-    action.then((res) => {
+    return action.then((res) => {
       setFormVisible(false);
       setEditingPlan(null);
       store.fetchPlans();
