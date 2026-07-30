@@ -74,7 +74,7 @@ def _parse_fault_date_filter(fault_date_str):
 
 def get_export_queryset(request):
     """按当前筛选条件查询数据，与前端 store 的过滤规则保持一致。"""
-    qs = apply_tenant_filter(FaultRecord.objects.all(), request.user)
+    qs = apply_tenant_filter(FaultRecord.objects.filter(is_deleted=False), request.user)
     # 前端 store 用字符串 includes 模糊匹配，后端用 contains 等价
     system_name = request.GET.get('system_name')
     if system_name:

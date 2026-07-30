@@ -21,7 +21,7 @@ _FAULT_PART_SYSTEM_NAMES_TTL = 300
 class FaultRecordView(View):
     @auth('fault.faultrecord.view')
     def get(self, request):
-        records = apply_tenant_filter(FaultRecord.objects.all(), request.user).select_related('created_by', 'updated_by')
+        records = apply_tenant_filter(FaultRecord.objects.filter(is_deleted=False), request.user).select_related('created_by', 'updated_by')
         # P2(R5): 系统名称下拉选项缓存 5 分钟，避免每次列表请求都做全量 DISTINCT
         cache_key = f'fault_system_names_{request.user.tenant_id}'
         system_names = cache.get(cache_key)
@@ -92,7 +92,7 @@ class FaultRecordView(View):
         ).parse(request.GET)
         if error is None:
             record = apply_tenant_filter(
-                FaultRecord.objects.all(), request.user
+                FaultRecord.objects.filter(is_deleted=False), request.user
             ).filter(pk=form.id).first()
             if not record:
                 return json_response(error='记录不存在或无权操作')
@@ -101,7 +101,10 @@ class FaultRecordView(View):
                 target_id=record.id, target_name=record.system_name,
                 detail={'device_code': record.device_code, 'fault_level': record.fault_level},
             )
-            record.delete()
+            from django.utils import timezone
+            record.is_deleted = True
+            record.deleted_at = timezone.now()
+            record.save()
             cache.delete(f'fault_system_names_{request.user.tenant_id}')
         return json_response(error=error)
 
@@ -109,7 +112,7 @@ class FaultRecordView(View):
 class FaultPartView(View):
     @auth('fault.faultpart.view')
     def get(self, request):
-        records = apply_tenant_filter(FaultPart.objects.all(), request.user).select_related('created_by', 'updated_by')
+        records = apply_tenant_filter(FaultPart.objects.filter(is_deleted=False), request.user).select_related('created_by', 'updated_by')
         cache_key = f'fault_part_system_names_{request.user.tenant_id}'
         system_names = cache.get(cache_key)
         if system_names is None:
@@ -191,7 +194,7 @@ class FaultPartView(View):
         ).parse(request.GET)
         if error is None:
             record = apply_tenant_filter(
-                FaultPart.objects.all(), request.user
+                FaultPart.objects.filter(is_deleted=False), request.user
             ).filter(pk=form.id).first()
             if not record:
                 return json_response(error='记录不存在或无权操作')
@@ -200,6 +203,9 @@ class FaultPartView(View):
                 target_id=record.id, target_name=record.name,
                 detail={'system_name': record.system_name, 'status': record.status},
             )
-            record.delete()
+            from django.utils import timezone
+            record.is_deleted = True
+            record.deleted_at = timezone.now()
+            record.save()
             cache.delete(f'fault_part_system_names_{request.user.tenant_id}')
         return json_response(error=error)

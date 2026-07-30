@@ -71,7 +71,7 @@ class DutyImportView(View):
 class DutyRecordView(View):
     @auth('duty.duty.view')
     def get(self, request):
-        records = apply_tenant_filter(DutyRecord.objects.all(), request.user).select_related('created_by', 'updated_by')
+        records = apply_tenant_filter(DutyRecord.objects.filter(is_deleted=False), request.user).select_related('created_by', 'updated_by')
         duty_persons = [x['duty_person'] for x in records.order_by('duty_person').values('duty_person').distinct()]
         departments = [x['department'] for x in records.order_by('department').values('department').distinct()]
 
@@ -108,7 +108,10 @@ class DutyRecordView(View):
                         target_id=record.id, target_name=record.duty_person,
                         detail={'department': record.department},
                     )
-                queryset.delete()
+                    from django.utils import timezone
+                    record.is_deleted = True
+                    record.deleted_at = timezone.now()
+                    record.save()
             return json_response(error=error)
 
         form, error = JsonParser(
@@ -172,7 +175,10 @@ class DutyRecordView(View):
                     target_id=record.id, target_name=record.duty_person,
                     detail={'department': record.department},
                 )
-            queryset.delete()
+                from django.utils import timezone
+                record.is_deleted = True
+                record.deleted_at = timezone.now()
+                record.save()
         return json_response(error=error)
 
 
@@ -181,7 +187,7 @@ def export_pdf(request):
     """导出值班日志PDF - 支持GET和POST"""
     try:
         # 获取租户过滤后的记录
-        records = apply_tenant_filter(DutyRecord.objects.all(), request.user)
+        records = apply_tenant_filter(DutyRecord.objects.filter(is_deleted=False), request.user)
 
         # 日期范围过滤 - 兼容GET和POST
         if request.method == 'POST':

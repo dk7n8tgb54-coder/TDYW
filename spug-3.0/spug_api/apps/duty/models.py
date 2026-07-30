@@ -22,6 +22,8 @@ class DutyRecord(models.Model, TenantModelMixin):
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
     updated_at = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     def __repr__(self):
         return '<DutyRecord %r>' % self.duty_person
