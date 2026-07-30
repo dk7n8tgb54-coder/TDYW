@@ -32,7 +32,7 @@ class AlertStore {
     if (this.f_source) params.source = this.f_source;
     if (this.f_keyword) params.keyword = this.f_keyword.trim();
 
-    return http.get('/api/home/alert/', {params})
+    return http.get('/api/alert/', {params})
       .then(res => {
         this.records = res.items || [];
         this.total = res.total || 0;
@@ -65,7 +65,7 @@ class AlertStore {
 
   markRead = id => {
     this.actionId = id;
-    return http.post('/api/home/alert/mark-read/', {ids: [id]})
+    return http.post('/api/alert/mark-read/', {ids: [id]})
       .then(() => {
         message.success('已标记为已读');
         return this.fetchRecords();
@@ -77,7 +77,7 @@ class AlertStore {
 
   resolve = id => {
     this.actionId = id;
-    return http.post(`/api/home/alert/${id}/resolve/`)
+    return http.post(`/api/alert/${id}/resolve/`)
       .then(() => {
         message.success('告警已处理');
         return this.fetchRecords();

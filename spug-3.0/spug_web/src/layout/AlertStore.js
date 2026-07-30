@@ -1,7 +1,7 @@
 /**
  * 全局告警 Store
  *
- * - 30 秒轮询 /api/home/alert/?page=1&page_size=5 拉取未读数 + 最近告警
+ * - 30 秒轮询 /api/alert/?page=1&page_size=5 拉取未读数 + 最近告警
  * - 仅管理员（is_supper）启动轮询
  * - 铃铛组件读取 unreadCount 显示红点
  */
@@ -30,7 +30,7 @@ class AlertStore {
   };
 
   fetch = () => {
-    http.get('/api/home/alert/', { params: { page: 1, page_size: 5 } })
+    http.get('/api/alert/', { params: { page: 1, page_size: 5 } })
       .then(res => {
         const data = res && (res.data || res);
         runInAction(() => {
@@ -45,7 +45,7 @@ class AlertStore {
 
   fetchRecent = () => {
     this.loading = true;
-    return http.get('/api/home/alert/', { params: { page: 1, page_size: 20 } })
+    return http.get('/api/alert/', { params: { page: 1, page_size: 20 } })
       .then(res => {
         const data = res && (res.data || res);
         runInAction(() => {
@@ -62,7 +62,7 @@ class AlertStore {
   };
 
   markAllRead = () => {
-    return http.post('/api/home/alert/mark-read/', { all: true })
+    return http.post('/api/alert/mark-read/', { all: true })
       .then(() => {
         runInAction(() => {
           this.unreadCount = 0;

@@ -62,7 +62,7 @@ def send_alert(title, message, level='warning', source='system', alert_key=None)
 def _persist_alert(title, message, level, source, alert_key):
     """写入数据库持久化"""
     try:
-        from apps.home.models import Alert
+        from apps.alert.models import Alert
         return Alert.objects.create(
             title=title[:200],
             message=message,

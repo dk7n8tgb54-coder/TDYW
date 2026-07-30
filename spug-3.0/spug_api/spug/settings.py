@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'apps.device',
     'apps.interference',
     'apps.home',
+    'apps.alert',
     'apps.runlog',
     'apps.document',
     'apps.upgrade',
@@ -228,6 +229,7 @@ from apps.radio_license.celery_beat_schedule import RADIO_LICENSE_BEAT_SCHEDULE
 from apps.contract_agreement.celery_beat_schedule import CONTRACT_AGREEMENT_BEAT_SCHEDULE
 from apps.logs.celery_beat_schedule import LOGS_BEAT_SCHEDULE
 from apps.home.celery_beat_schedule import HOME_BEAT_SCHEDULE
+from apps.alert.celery_beat_schedule import ALERT_BEAT_SCHEDULE
 
 CELERY_BEAT_SCHEDULE = {
     # 每小时重试清理标记为待清理的物理文件（上传链路，非回收站）
@@ -251,6 +253,9 @@ CELERY_BEAT_SCHEDULE.update(LOGS_BEAT_SCHEDULE)
 
 # 合并公告模块的定时任务配置（过期状态同步）
 CELERY_BEAT_SCHEDULE.update(HOME_BEAT_SCHEDULE)
+
+# 合并 Alert 模块的定时任务配置（磁盘/数据库监控 + 数据质量巡检）
+CELERY_BEAT_SCHEDULE.update(ALERT_BEAT_SCHEDULE)
 
 # 【新增】默认租户ID配置
 DEFAULT_TENANT_ID = os.environ.get('DEFAULT_TENANT_ID', 'default')

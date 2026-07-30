@@ -8,6 +8,7 @@ import {
   DesktopOutlined,
   BarChartOutlined,
   SettingOutlined,
+  ToolOutlined,
   FolderOpenOutlined,
   FileTextOutlined,
   ExceptionOutlined,
@@ -32,6 +33,7 @@ import SystemSetting from './pages/system/setting';
 import SystemLogin from './pages/system/login';
 import SystemAudit from './pages/system/audit';
 import SystemAlert from './pages/system/alert';
+import SystemDataQuality from './pages/system/dataQuality';
 import SystemTenant from './pages/system/tenant';
 import WelcomeIndex from './pages/welcome/index';
 import WelcomeInfo from './pages/welcome/info';
@@ -92,10 +94,15 @@ export default [
   {icon: <ClockCircleOutlined/>, title: '值班日志', auth: 'duty.duty.view', path: '/duty', component: ExecDutyRecord},
   {icon: <NotificationOutlined/>, title: '公告管理', auth: 'home.announcement.view', path: '/system/announcement', component: AnnouncementAdmin},
   {
-    icon: <SettingOutlined/>, title: '系统管理', auth: 'system.account.view|system.role.view|system.setting.view|system.audit.view|system.alert.view|system.tenant.view', child: [
+    icon: <ToolOutlined/>, title: '运维管理', auth: 'system.audit.view|system.alert.view', child: [
+      {title: '操作审计', auth: 'system.audit.view', path: '/maintenance/audit', component: SystemAudit},
+      {title: '系统告警', auth: 'system.alert.view', path: '/maintenance/alert', component: SystemAlert},
+      {title: '数据质量巡检', auth: 'system.alert.view', path: '/maintenance/data-quality', component: SystemDataQuality},
+    ]
+  },
+  {
+    icon: <SettingOutlined/>, title: '系统管理', auth: 'system.account.view|system.role.view|system.setting.view|system.login.view|system.tenant.view', child: [
       {title: '登录日志', auth: 'system.login.view', path: '/system/login', component: SystemLogin},
-      {title: '操作审计', auth: 'system.audit.view', path: '/system/audit', component: SystemAudit},
-      {title: '系统告警', auth: 'system.alert.view', path: '/system/alert', component: SystemAlert},
       {title: '账户管理', auth: 'system.account.view', path: '/system/account', component: SystemAccount},
       {title: '角色管理', auth: 'system.role.view', path: '/system/role', component: SystemRole},
       {title: '系统设置', auth: 'system.setting.view', path: '/system/setting', component: SystemSetting},

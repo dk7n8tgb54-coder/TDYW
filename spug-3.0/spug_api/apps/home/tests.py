@@ -4,7 +4,7 @@ import tempfile
 import json
 from django.test import TestCase, override_settings
 from apps.utils.test_helpers import make_user, make_client, setup_test_env
-from apps.home.models import Alert, AlertRead
+from apps.alert.models import Alert, AlertRead
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())

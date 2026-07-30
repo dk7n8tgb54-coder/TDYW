@@ -88,7 +88,7 @@ export default function (props) {
         )}
       </Spin>
       <div style={{ textAlign: 'center', marginTop: 8, borderTop: '1px solid #f0f0f0', paddingTop: 8 }}>
-        <Link to="/system/alert" onClick={() => setBellOpen(false)}>查看全部告警</Link>
+        <Link to="/maintenance/alert" onClick={() => setBellOpen(false)}>查看全部告警</Link>
       </div>
     </div>
   );
