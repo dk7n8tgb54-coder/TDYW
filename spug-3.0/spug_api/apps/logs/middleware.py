@@ -15,7 +15,7 @@ from django.utils.deprecation import MiddlewareMixin
 from apps.logs.audit import (
     resolve_target, resolve_action, save_audit_log,
     set_audit_user, clear_audit_user, _extract_user_agent, AUDIT_EXCLUDES,
-    sanitize_audit_detail,
+    sanitize_audit_detail, TARGET_TABLE_MAP,
 )
 from apps.logs.hash_chain import compute_response_hash
 from libs.utils import get_request_real_ip
@@ -47,11 +47,12 @@ class AuditLogMiddleware(MiddlewareMixin):
 
     def process_request(self, request):
         """设置线程本地用户信息，并生成请求唯一标识"""
-        # 为每个请求生成唯一 request_id，供审计日志关联同请求多条记录
-        # 存于 request 对象，中间件与装饰器共用
         request._audit_request_id = uuid.uuid4().hex
         if hasattr(request, 'user') and request.user:
             set_audit_user(request.user)
+        # PUT/PATCH 时提前查询旧值，用于审计 before/after 对比
+        if request.method in ('PUT', 'PATCH'):
+            self._capture_before_values(request)
 
     def process_response(self, request, response):
         """处理完成后记录审计日志"""
@@ -75,25 +76,79 @@ class AuditLogMiddleware(MiddlewareMixin):
             clear_audit_user()
         return response
 
-    def _record_audit(self, request, response):
-        """核心记录逻辑"""
-        if getattr(request, '_audit_handled', False):
-            return
-
-        method = request.method
-        path = request.path
-
-        # 只记录写操作（POST/PUT/PATCH/DELETE）
-        if method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
-            return
-
-        # 跳过排除路径
-        for exclude_path in AUDIT_EXCLUDES:
-            if exclude_path in path:
+    def _capture_before_values(self, request):
+        """PUT/PATCH 时提前查询旧值，存入 request._audit_before 供审计 before/after 对比"""
+        try:
+            target_info = resolve_target(request.path)
+            table_name = TARGET_TABLE_MAP.get(target_info['type'])
+            if not table_name:
                 return
 
-        # 跳过静态文件和健康检查
+            # 从 URL 提取记录 ID（如 /api/device/5/ -> 5）
+            path_parts = request.path.strip('/').split('/')
+            record_id = None
+            for part in reversed(path_parts):
+                if part.isdigit():
+                    record_id = part
+                    break
+            if not record_id:
+                return
+
+            # raw SQL 查询旧值（避免 ORM 模型导入问题）
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute(f"SELECT * FROM {table_name} WHERE id = %s", [record_id])
+                if not cursor.description:
+                    return
+                cols = [desc[0] for desc in cursor.description]
+                row = cursor.fetchone()
+            if not row:
+                return
+
+            old_values = dict(zip(cols, row))
+            # 排除内部字段和敏感字段
+            exclude = {'created_at', 'updated_at', 'tenant_id', 'deleted_at',
+                       'created_by_id', 'updated_by_id', 'deleted_by_id',
+                       'request_hash', 'log_hash', 'prev_hash', 'response_hash'}
+            cleaned = {}
+            for key, val in old_values.items():
+                if key in exclude or _is_sensitive_field(key):
+                    continue
+                cleaned[key] = val
+            request._audit_before = cleaned
+        except Exception as e:
+            logger.debug(f'[AUDIT] _capture_before_values skipped: {e}')
+
+    def _should_skip_audit(self, request):
+        """前置检查：是否跳过审计记录"""
+        if getattr(request, '_audit_handled', False):
+            return True
+        if request.method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
+            return True
+        path = request.path
+        for exclude_path in AUDIT_EXCLUDES:
+            if exclude_path in path:
+                return True
         if path.startswith('/api/document/health') or path.startswith('/document/health'):
+            return True
+        return False
+
+    def _merge_before_values(self, request, detail):
+        """将 PUT/PATCH 时捕获的旧值合并到 detail，只保留实际变更的字段"""
+        before_values = getattr(request, '_audit_before', None)
+        if not before_values or not isinstance(detail, dict):
+            return
+        changed = {}
+        for key, old_val in before_values.items():
+            new_val = detail.get(key)
+            if new_val is not None and str(old_val) != str(new_val):
+                changed[key] = old_val
+        if changed:
+            detail['before'] = changed
+
+    def _record_audit(self, request, response):
+        """核心记录逻辑"""
+        if self._should_skip_audit(request):
             return
 
         # 获取用户信息
@@ -102,11 +157,11 @@ class AuditLogMiddleware(MiddlewareMixin):
             return
 
         # 解析操作对象
-        target_info = resolve_target(path)
+        target_info = resolve_target(request.path)
 
         # 解析请求体（用于判断业务 action 和提取详情），解析失败不影响主流程
         body_data = self._parse_body(request)
-        action = resolve_action(method, body_data)
+        action = resolve_action(request.method, body_data)
 
         # 解析操作结果：项目通用 json_response(error=...) 默认返回 HTTP 200，
         # 仅靠状态码无法识别业务失败，需解析响应体中的 error 字段
@@ -123,6 +178,9 @@ class AuditLogMiddleware(MiddlewareMixin):
             )
         except Exception:
             pass  # 提取失败不影响主流程
+
+        # 合并 before 值（PUT/PATCH 时 process_request 已捕获旧值）
+        self._merge_before_values(request, detail)
 
         # 业务失败时，将错误信息补充到 detail，便于审计页面查看失败原因
         if error_msg and not is_success:

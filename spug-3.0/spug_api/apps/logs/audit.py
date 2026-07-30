@@ -102,6 +102,20 @@ AUDIT_EXCLUDES = [
     '/logs/audit/',        # 审计日志查询本身不记录
 ]
 
+# target_type -> 数据库表名映射（用于 PUT/PATCH 时查询旧值）
+# 只列有单记录更新场景的表；未列出的 target_type 不捕获 before
+TARGET_TABLE_MAP = {
+    'device': 'tdyw_device',
+    'fault': 'tdyw_fault_records',
+    'upgrade': 'tdyw_upgrade_records',
+    'regulation': 'tdyw_regulation',
+    'interference': 'tdyw_interferences',
+    'runlog': 'tdyw_run_logs',
+    'department_duty_log': 'tdyw_department_duty_log',
+    'radio_license': 'tdyw_radio_license',
+    'contract_agreement': 'tdyw_contract_agreement',
+}
+
 
 def resolve_target(path):
     """根据URL路径解析操作对象类型"""

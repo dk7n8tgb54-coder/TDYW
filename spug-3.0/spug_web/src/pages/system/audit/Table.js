@@ -47,6 +47,12 @@ const FIELD_LABEL_MAP = {
   // 通用字段
   id: 'ID', name: '名称', title: '标题', username: '用户名', nickname: '昵称',
   desc: '描述', description: '描述', remark: '备注', comment: '备注',
+  duty_record: '值班记录', duty_date: '值班日期', weather: '天气',
+  duty_person_name: '值班人', record_id: '记录ID', changed_fields: '变更字段',
+  signature_usage_id: '签署记录ID', signature_version: '签署版本',
+  signature_sha256: '签署哈希', business_snapshot_hash: '业务快照哈希',
+  returned_by_name: '退回人', original_signer_name: '原签署人',
+  original_signed_at: '原签署时间', original_usage_id: '原签署记录ID',
   type: '类型', status: '状态', state: '状态', enabled: '是否启用',
   sort: '排序', order: '排序', priority: '优先级',
   created_at: '创建时间', updated_at: '更新时间', created_by: '创建人',
@@ -85,22 +91,50 @@ const FIELD_LABEL_MAP = {
 };
 
 /**
+ * 格式化单个值
+ */
+function formatVal(value) {
+  if (value === null || value === undefined) return '-';
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (Array.isArray(value)) return value.join(', ') || '-';
+  if (typeof value === 'object') return JSON.stringify(value, null, 2);
+  return String(value);
+}
+
+/**
  * 格式化 detail JSON 为易读的键值对
+ * 支持 before/after 变更对比：detail.before 存在时，变更字段显示 "旧值 -> 新值"
  */
 function formatDetail(detail) {
   if (!detail) return null;
   try {
     const obj = typeof detail === 'string' ? JSON.parse(detail) : detail;
-    if (typeof obj !== 'object' || obj === null) return String(obj);
-    return Object.entries(obj).map(([key, value]) => {
+    if (typeof obj !== 'object' || obj === null) return [{ label: '详情', value: String(obj) }];
+
+    const items = [];
+    const before = obj.before;
+    const hasBefore = before && typeof before === 'object';
+
+    // 1. 变更对比：before 中有记录的字段，显示 "旧值 -> 新值"
+    //    新值优先从顶层取，找不到则从 after 嵌套对象取
+    if (hasBefore) {
+      const afterObj = (obj.after && typeof obj.after === 'object') ? obj.after : obj;
+      for (const [key, oldVal] of Object.entries(before)) {
+        const label = FIELD_LABEL_MAP[key] || key;
+        const newVal = obj[key] !== undefined ? obj[key] : afterObj[key];
+        items.push({ label, value: `${formatVal(oldVal)} -> ${formatVal(newVal)}` });
+      }
+    }
+
+    // 2. 其他字段（跳过 before/after key 本身和已在 diff 中显示的字段）
+    for (const [key, value] of Object.entries(obj)) {
+      if (key === 'before' || key === 'after') continue;
+      if (hasBefore && before.hasOwnProperty(key)) continue;
       const label = FIELD_LABEL_MAP[key] || key;
-      let displayValue = value;
-      if (value === null || value === undefined) displayValue = '-';
-      else if (typeof value === 'boolean') displayValue = value ? '是' : '否';
-      else if (Array.isArray(value)) displayValue = value.join(', ') || '-';
-      else if (typeof value === 'object') displayValue = JSON.stringify(value, null, 2);
-      return { label, value: String(displayValue) };
-    });
+      items.push({ label, value: formatVal(value) });
+    }
+
+    return items.length > 0 ? items : null;
   } catch {
     return [{ label: '详情', value: String(detail) }];
   }

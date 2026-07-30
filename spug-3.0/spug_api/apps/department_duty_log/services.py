@@ -197,6 +197,16 @@ def _format_date(d):
     return d.strftime('%Y-%m-%d')
 
 
+def _truncate_text(value, max_len=200):
+    """截断长文本用于审计日志展示"""
+    if not value:
+        return ''
+    value = str(value)
+    if len(value) <= max_len:
+        return value
+    return value[:max_len] + f'...（共{len(value)}字）'
+
+
 def serialize_department_duty_log(record, user):
     """序列化单条记录为 dict，包含能力字段。
 
@@ -460,6 +470,9 @@ def create_draft(user, form, request=None):
                 'record_id': record.id,
                 'duty_date': _format_date(record.duty_date),
                 'duty_person_name': record.duty_person_name,
+                'weather': record.weather or '',
+                'duty_record': _truncate_text(record.duty_record),
+                'remark': _truncate_text(record.remark or ''),
                 'version': record.version,
             },
             is_success=True,
@@ -487,6 +500,8 @@ def update_draft(record_id, user, form, request=None):
     old_snapshot = {
         'duty_date': _format_date(record.duty_date),
         'weather': record.weather or '',
+        'duty_record': _truncate_text(record.duty_record),
+        'remark': _truncate_text(record.remark or ''),
         'duty_record_sha256': _sha256_text(record.duty_record),
         'remark_sha256': _sha256_text(record.remark or ''),
         'version': record.version,
@@ -517,6 +532,8 @@ def update_draft(record_id, user, form, request=None):
     new_snapshot = {
         'duty_date': _format_date(record.duty_date),
         'weather': record.weather or '',
+        'duty_record': _truncate_text(record.duty_record),
+        'remark': _truncate_text(record.remark or ''),
         'duty_record_sha256': _sha256_text(record.duty_record),
         'remark_sha256': _sha256_text(record.remark or ''),
         'version': record.version,
@@ -561,6 +578,9 @@ def soft_delete_draft(record_id, user, request=None):
         'record_id': record.id,
         'duty_date': _format_date(record.duty_date),
         'duty_person_name': record.duty_person_name,
+        'weather': record.weather or '',
+        'duty_record': _truncate_text(record.duty_record),
+        'remark': _truncate_text(record.remark or ''),
         'version': record.version,
     }
 
@@ -684,6 +704,11 @@ def sign_draft(record_id, user, client_version, request_id, confirm, request=Non
                     target_name='签署部门值班日志',
                     detail={
                         'record_id': record.id,
+                        'duty_date': _format_date(record.duty_date),
+                        'duty_person_name': record.duty_person_name,
+                        'duty_record': _truncate_text(record.duty_record),
+                        'before': {'status': '草稿', 'version': record.version - 1},
+                        'after': {'status': '已签署', 'version': record.version},
                         'signature_usage_id': record.signature_usage_id,
                         'signature_version': record.signature_version,
                         'signature_sha256': record.signature_sha256,
@@ -766,9 +791,12 @@ def return_signed_record(record_id, user, request=None):
                     target_name='退回部门值班日志',
                     detail={
                         'record_id': record.id,
-                        'returned_by_id': user.id,
+                        'duty_date': _format_date(record.duty_date),
+                        'duty_person_name': record.duty_person_name,
+                        'duty_record': _truncate_text(record.duty_record),
+                        'before': {'status': '已签署'},
+                        'after': {'status': '草稿'},
                         'returned_by_name': user.nickname or user.username,
-                        'original_signer_id': original_signer_id,
                         'original_signer_name': original_signer_name,
                         'original_signed_at': str(original_signed_at) if original_signed_at else '',
                         'original_usage_id': original_usage_id,
