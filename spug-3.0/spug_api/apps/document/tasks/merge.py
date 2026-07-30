@@ -28,6 +28,7 @@ from apps.document.libs.document_utils import (
     get_chunk_storage_base_path,
     get_merge_task_file_path,
 )
+from apps.logs.audit import log_celery_audit
 
 # ============================================================================
 # 常量定义（修复P2-1魔法数字）
@@ -461,10 +462,19 @@ class TransferStatusUpdater:
             from apps.document.models import DocumentTransfer
             transfer = DocumentTransfer.objects.filter(id=self.task_manager.transfer_id).order_by().first()
             if transfer:
+                old_status = transfer.status
                 transfer.status = status.value if hasattr(status, 'value') else status
                 for key, value in kwargs.items():
                     setattr(transfer, key, value)
                 transfer.save()
+                # 记录审计日志（仅在状态变化时）
+                if old_status != transfer.status:
+                    log_celery_audit('update', 'document',
+                                     target_id=str(transfer.id),
+                                     target_name=f'传输记录状态变更: {old_status} -> {transfer.status}',
+                                     detail={'transfer_id': transfer.id,
+                                             'before': {'status': old_status},
+                                             'after': {'status': transfer.status}})
         except Exception as e:
             logger.error(f'[Celery] Failed to update transfer status: {e}')
 

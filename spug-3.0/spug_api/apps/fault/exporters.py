@@ -17,6 +17,7 @@ from libs import auth
 from libs.export_utils import build_excel_response, check_export_limit, build_export_error_response
 from libs.tenant_utils import apply_tenant_filter
 from apps.fault.models import FaultRecord
+from apps.logs.audit import record_audit_event
 
 logger = logging.getLogger(__name__)
 
@@ -132,4 +133,7 @@ class FaultRecordExportView(View):
         records = qs.select_related('created_by', 'updated_by')
         rows = [obj.to_dict() for obj in records.iterator()]
         filename = _build_filename(request)
+        record_audit_event(request, 'export', 'fault',
+                           target_name=filename,
+                           detail={'count': len(rows), 'format': 'xlsx'})
         return build_excel_response(filename, SHEET_NAME, EXCEL_COLUMNS, rows)

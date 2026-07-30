@@ -23,6 +23,7 @@ from libs import auth
 from libs.export_utils import check_export_limit, build_export_error_response
 from libs.tenant_utils import apply_tenant_filter
 from apps.runlog.models import RunLog, RunLogUpdate
+from apps.logs.audit import record_audit_event
 
 logger = logging.getLogger(__name__)
 
@@ -241,4 +242,7 @@ class RunLogExcelExportView(View):
 
         rows = _build_rows(events)
         filename = _build_filename()
+        record_audit_event(request, 'export', 'runlog',
+                           target_name=filename,
+                           detail={'count': len(events), 'format': 'xlsx'})
         return _build_excel_response(filename, rows)

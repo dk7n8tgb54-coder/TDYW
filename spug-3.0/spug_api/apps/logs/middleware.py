@@ -5,7 +5,7 @@
 """
 审计日志中间件
 自动拦截所有非GET的写操作请求并记录审计日志
-与 @audit 装饰器互补：中间件覆盖所有CRUD操作，装饰器覆盖特殊操作（登录/登出/导出等）
+与 record_audit_event() 互补：中间件覆盖所有CRUD操作，显式调用覆盖特殊操作（登录/登出/导出等）
 """
 
 import json
@@ -59,6 +59,17 @@ class AuditLogMiddleware(MiddlewareMixin):
             self._record_audit(request, response)
         except Exception as e:
             logger.error(f'[AUDIT] 中间件记录审计日志异常: {e}')
+            # 指南 3.2 要求 ERROR 触发告警
+            try:
+                from libs.alert import send_alert
+                send_alert(
+                    title='审计日志中间件异常',
+                    message=f'中间件记录审计日志失败: {e}',
+                    level='error',
+                    source='middleware',
+                )
+            except Exception:
+                logger.error('[AUDIT] send_alert 也失败了', exc_info=True)
         finally:
             # 清除线程本地用户
             clear_audit_user()

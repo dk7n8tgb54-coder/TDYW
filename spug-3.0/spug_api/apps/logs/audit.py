@@ -6,16 +6,16 @@
 审计日志核心工具模块
 提供：
 1. 线程本地存储（用于Django信号获取当前用户）
-2. URL路径 → 操作对象类型映射
-3. HTTP方法 → 操作类型映射
-4. @audit 装饰器（用于登录/登出/导出等特殊操作）
-5. save_audit_log() 辅助函数
+2. URL路径 -> 操作对象类型映射
+3. HTTP方法 -> 操作类型映射
+4. save_audit_log() 辅助函数（含哈希链 + select_for_update 行锁防并发分叉）
+5. record_audit_event() 业务审计函数（支持 before/after 变更前后值）
+6. log_celery_audit() Celery任务审计函数
 """
 
 import json
 import threading
 import logging
-from functools import wraps
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def clear_audit_user():
         delattr(_audit_local, 'user')
 
 
-# ==================== URL → 操作对象映射 ====================
+# ==================== URL -> 操作对象映射 ====================
 # 键：URL路径前缀，值：{'type': 对象类型标识, 'name': 中文名称}
 TARGET_MAP = {
     # 账号体系（租户 / 角色 / 用户 / 个人信息 / 认证）
@@ -76,7 +76,7 @@ TARGET_MAP = {
 }
 
 
-# ==================== HTTP方法 → 操作类型映射 ====================
+# ==================== HTTP方法 -> 操作类型映射 ====================
 METHOD_ACTION_MAP = {
     'POST': 'create',
     'PUT': 'update',
@@ -84,7 +84,7 @@ METHOD_ACTION_MAP = {
     'DELETE': 'delete',
 }
 
-# 请求体 action 字段 → 审计动作映射
+# 请求体 action 字段 -> 审计动作映射
 # 用于 POST 携带 action 字段表达真实业务动作的场景（如值班日志 POST {action: 'delete'}）
 BODY_ACTION_MAP = {
     'delete': 'delete',
@@ -97,7 +97,7 @@ BODY_ACTION_MAP = {
 # ==================== 中间件排除路径 ====================
 # 这些路径不记录审计日志
 AUDIT_EXCLUDES = [
-    '/account/login/',     # 登录由装饰器单独记录
+    '/account/login/',     # 登录由 record_audit_event 单独记录
     '/account/login/history/',
     '/logs/audit/',        # 审计日志查询本身不记录
 ]
@@ -182,16 +182,47 @@ def _merge_audit_error(detail, error):
     return {'summary': detail, 'error': error_text}
 
 
+def _send_audit_alert(error_msg):
+    """审计日志写入失败时发送告警（指南 3.2 要求 ERROR 触发告警）"""
+    try:
+        from libs.alert import send_alert
+        send_alert(
+            title='审计日志写入失败',
+            message=f'审计日志写入异常: {error_msg}',
+            level='error',
+            source='middleware',
+        )
+    except Exception:
+        logger.error('[AUDIT] send_alert 也失败了，无法通知管理员', exc_info=True)
+
+
 def record_audit_event(request, action, target_type, target_id=None,
                        target_name=None, detail=None, is_success=True,
-                       error=None):
-    """Save one concise business audit record and mark request as handled."""
+                       error=None, before_value=None, after_value=None):
+    """Save one concise business audit record and mark request as handled.
+
+    Parameters
+    ----------
+    before_value : dict, optional
+        变更前的值（指南 1.5 要求"变更前后值"），将合并到 detail 中。
+    after_value : dict, optional
+        变更后的值，将合并到 detail 中。
+    """
     try:
         from libs.utils import get_request_real_ip
 
         if error is not None:
             detail = _merge_audit_error(detail, error)
             is_success = False
+
+        # 将 before/after 合并到 detail 中（指南 1.5 要求变更前后值）
+        if before_value is not None or after_value is not None:
+            if not isinstance(detail, dict):
+                detail = {'summary': detail} if detail else {}
+            if before_value is not None:
+                detail['before'] = before_value
+            if after_value is not None:
+                detail['after'] = after_value
 
         sanitized_detail = sanitize_audit_detail(detail)
         if sanitized_detail is not None and not isinstance(sanitized_detail, dict):
@@ -218,6 +249,7 @@ def record_audit_event(request, action, target_type, target_id=None,
             request._audit_handled = True
     except Exception as e:
         logger.error(f'[AUDIT] record audit event failed: {e}', exc_info=True)
+        _send_audit_alert(str(e))
 
 
 def save_audit_log(user_id, username, action, target_type, target_id=None,
@@ -227,13 +259,13 @@ def save_audit_log(user_id, username, action, target_type, target_id=None,
     """保存审计日志记录
 
     证据闭环第一阶段增强：
-    - 规范化 detail（dict → JSON 字符串）
+    - 规范化 detail（dict -> JSON 字符串）
     - 计算 request_hash（基于存库 detail，未传入时自动计算）
     - 查询同租户上一条日志的 log_hash 作为 prev_hash，构建哈希链
+    - 使用 select_for_update() 行锁防止并发分叉
     - 计算并写入 log_hash（覆盖全部关键字段 + prev_hash）
 
-    新增参数均有默认值，向后兼容现有调用方（middleware / audit 装饰器）。
-    任何异常都不影响主请求流程，仅记录错误日志。
+    任何异常都不影响主请求流程，仅记录错误日志 + 发送告警。
     """
     try:
         from apps.logs.models import AuditLog
@@ -243,7 +275,7 @@ def save_audit_log(user_id, username, action, target_type, target_id=None,
         from django.db import transaction
         from django.utils import timezone
 
-        # 1. 规范化 detail：dict → JSON 字符串（与历史行为一致）
+        # 1. 规范化 detail：dict -> JSON 字符串（与历史行为一致）
         if isinstance(detail, dict):
             detail = json.dumps(detail, ensure_ascii=False)
 
@@ -254,10 +286,11 @@ def save_audit_log(user_id, username, action, target_type, target_id=None,
         response_hash = response_hash or ''
 
         # 3. 在事务内查询同租户上一条日志的 log_hash 作为 prev_hash
-        #    内网环境并发量有限，采用乐观查询；偶发并发分叉可通过每日摘要校验发现
+        #    使用 select_for_update() 加行锁，防止并发请求读到相同 prev_hash 导致链分叉
         with transaction.atomic():
             last_log = (
                 AuditLog.objects
+                .select_for_update()
                 .filter(tenant_id=tenant_id)
                 .order_by('-id')
                 .first()
@@ -304,110 +337,50 @@ def save_audit_log(user_id, username, action, target_type, target_id=None,
                 response_hash=response_hash,
                 prev_hash=prev_hash,
                 log_hash=log_hash,
-                request_id=request_id or '',
-                user_agent=user_agent or '',
+                request_id=request_id,
+                user_agent=user_agent,
             )
     except Exception as e:
         logger.error(f'[AUDIT] 保存审计日志失败: {e}')
+        _send_audit_alert(str(e))
 
 
-# ==================== 审计装饰器 ====================
-def audit(action, target_type=None, target_name=None):
+def log_celery_audit(action, target_type, target_id=None, target_name=None,
+                     detail=None, tenant_id='default', is_success=True):
+    """Celery 任务审计日志辅助函数
+
+    Celery 任务不经过 HTTP 中间件，需显式调用此函数记录审计日志。
+    使用 system 用户身份，ip 为空串。
+
+    Parameters
+    ----------
+    action : str
+        操作类型（create/update/delete/export/import/approve/other）
+    target_type : str
+        操作对象类型标识（如 radio_license/contract_agreement/home/document）
+    target_id : str, optional
+        操作对象 ID
+    target_name : str, optional
+        操作对象名称/描述
+    detail : dict, optional
+        审计详情（如 {'changed_count': 3, 'reason': '自动过期'}）
+    tenant_id : str
+        租户 ID，默认 'default'
+    is_success : bool
+        操作是否成功
     """
-    审计日志装饰器，用于需要细粒度记录的操作（如登录/登出/导出等）
-
-    用法：
-        @audit('登录系统', target_type='auth')
-        def login(request):
-            ...
-
-        @audit('导出PDF', target_type='device', target_name='设备')
-        def export_pdf(request):
-            ...
-    """
-    def decorate(view_func):
-        @wraps(view_func)
-        def wrapper(*args, **kwargs):
-            # 提取request对象
-            request = None
-            for item in args[:2]:
-                if hasattr(item, 'user') or hasattr(item, 'method'):
-                    request = item
-                    break
-
-            # 执行视图函数
-            response = view_func(*args, **kwargs)
-
-            # 记录审计日志
-            if request:
-                try:
-                    user = getattr(request, 'user', None)
-                    if user and hasattr(user, 'id'):
-                        ip = ''
-                        if hasattr(request, 'headers'):
-                            from libs.utils import get_request_real_ip
-                            ip = get_request_real_ip(request.headers)
-
-                        # 判断操作是否成功（基于响应状态码）
-                        is_success = True
-                        if hasattr(response, 'status_code') and response.status_code >= 400:
-                            is_success = False
-
-                        # 解析target_type
-                        _target_type = target_type or 'other'
-                        _target_name = target_name or action
-
-                        # 采集证据闭环字段：user_agent / request_id / response_hash
-                        from apps.logs.hash_chain import compute_response_hash
-                        user_agent = _extract_user_agent(request)
-                        request_id = getattr(request, '_audit_request_id', None)
-                        response_hash = ''
-                        if hasattr(response, 'content'):
-                            response_hash = compute_response_hash(response.content)
-
-                        save_audit_log(
-                            user_id=user.id,
-                            username=user.username,
-                            action=_map_action(action),
-                            target_type=_target_type,
-                            target_name=_target_name,
-                            ip=ip,
-                            is_success=is_success,
-                            tenant_id=getattr(user, 'tenant_id', 'default'),
-                            response_hash=response_hash,
-                            request_id=request_id,
-                            user_agent=user_agent,
-                        )
-                except Exception as e:
-                    logger.error(f'[AUDIT] 装饰器记录审计日志失败: {e}')
-
-            return response
-        return wrapper
-    return decorate
-
-
-def _map_action(action_desc):
-    """将中文操作描述映射为action字段值"""
-    action_lower = action_desc.lower() if isinstance(action_desc, str) else ''
-    mapping = {
-        '登录': 'login',
-        '登出': 'logout',
-        '退出': 'logout',
-        '创建': 'create',
-        '新增': 'create',
-            '添加': 'create',
-        '修改': 'update',
-        '更新': 'update',
-        '编辑': 'update',
-        '删除': 'delete',
-        '导出': 'export',
-        '导入': 'import',
-        '审批': 'approve',
-    }
-    for key, value in mapping.items():
-        if key in action_desc:
-            return value
-    return 'other'
+    save_audit_log(
+        user_id=0,
+        username='system',
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        target_name=target_name,
+        detail=detail,
+        ip='',
+        is_success=is_success,
+        tenant_id=tenant_id,
+    )
 
 
 def _extract_user_agent(request):

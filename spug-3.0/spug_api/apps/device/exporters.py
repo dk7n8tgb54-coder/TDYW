@@ -16,6 +16,7 @@ from libs import auth
 from libs.export_utils import build_excel_response, check_export_limit, build_export_error_response
 from libs.tenant_utils import apply_tenant_filter
 from apps.device.models import DeviceResume
+from apps.logs.audit import record_audit_event
 
 logger = logging.getLogger(__name__)
 
@@ -89,4 +90,7 @@ class DeviceListExportView(View):
         # to_view() 包含 current_status_text 中文状态
         rows = [obj.to_view() for obj in records.iterator()]
         filename = _build_filename()
+        record_audit_event(request, 'export', 'device',
+                           target_name=filename,
+                           detail={'count': len(rows), 'format': 'xlsx'})
         return build_excel_response(filename, SHEET_NAME, EXCEL_COLUMNS, rows)

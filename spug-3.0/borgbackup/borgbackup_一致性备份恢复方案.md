@@ -50,8 +50,9 @@ acquire .backup.lock
   → graceful stop 全部 celery worker（排空当前任务）
   → 停 tdyw 应用容器（DB 容器保持运行）
   → mariadb-dump --single-transaction（一致性视图导出 DB）
+  → archive_binlog（SHOW MASTER STATUS 记录位点 → FLUSH BINARY LOGS 轮转 → 复制已完成 binlog 文件）
   → 从宿主机只读访问 documents/media volume mountpoint（应用已停，无写入）
-  → borg create（dump 文件 + documents 卷 + media 卷 + manifest）→ 一个 archive
+  → borg create（dump 文件 + documents 卷 + media 卷 + binlog 文件 + manifest）→ 一个 archive
   → borg check --repository-only（快速校验）
   → 启动 tdyw + 等待健康检查
   → borg prune（GFS 保留策略）
@@ -125,7 +126,8 @@ borg_backup_set_create.sh
   ├─ DRY_RUN=YES：只 preflight + 打印计划，不冻结不创建 archive
   ├─ freeze_application：停入口→beat→worker→tdyw 容器（DB 保持运行）
   ├─ backup_database_logical：mariadb-dump --single-transaction → database.sql.gz
-  ├─ build_manifest：archive 元数据（DB 版本/git commit/冻结时长/volume 路径）
+  ├─ archive_binlog：SHOW MASTER STATUS → FLUSH BINARY LOGS → cp binlog 文件到临时目录
+  ├─ build_manifest：archive 元数据（DB 版本/git commit/冻结时长/volume 路径/binlog 位点）
   ├─ borg_create_local：
   │     borg create --stats --compression zstd,3 \
   │       --exclude '*/__pycache__' --exclude '*/.cache' --exclude '*/document_chunks' \
@@ -179,7 +181,7 @@ borg_create_local() {
         --exclude '*/__pycache__' --exclude '*/.cache' --exclude '*/logs' \
         --exclude '*/document_chunks' \
         "${BORG_REPO}::${ARCHIVE_NAME}" \
-        "${DUMP_FILE}" "${DOCS_MP}" "${MED_MP}" "${MANIFEST_FILE}"
+        "${DUMP_FILE}" "${DOCS_MP}" "${MED_MP}" "${MANIFEST_FILE}" ${BINLOG_DIR:+"${BINLOG_DIR}"}
     LOCAL_ARCHIVE_CREATED=1
     borg check --repository-only "${BORG_REPO}"
     borg list "${BORG_REPO}::${ARCHIVE_NAME}" >/dev/null
@@ -193,7 +195,7 @@ borg_push_remote() {
         --exclude '*/__pycache__' --exclude '*/.cache' --exclude '*/logs' \
         --exclude '*/document_chunks' \
         "${BORG_REMOTE_REPO}::${ARCHIVE_NAME}" \
-        "${DUMP_FILE}" "${DOCS_MP}" "${MED_MP}" "${MANIFEST_FILE}"
+        "${DUMP_FILE}" "${DOCS_MP}" "${MED_MP}" "${MANIFEST_FILE}" ${BINLOG_DIR:+"${BINLOG_DIR}"}
     REMOTE_ARCHIVE_CREATED=1
     BORG_PASSPHRASE="${BORG_REMOTE_PASSPHRASE}" BORG_RSH="ssh -i ..." \
         borg prune --list "${BORG_REMOTE_REPO}" --prefix 'tdyw-' \
@@ -312,6 +314,53 @@ RESTORE_CLIENT_CNF=/opt/docker/borgbackup/tdyw_restore.cnf \
 BORG_ENV_FILE=/opt/docker/borgbackup/borg.env \
 ./borgbackup/borg_backup_set_restore.sh --mode production tdyw-20260727-030000
 ```
+
+---
+
+### 5.6 PITR：利用 binlog 按时间点恢复（手动）
+
+每个 borg archive 现在包含 binlog 文件和 dump 时的 binlog 位点（记录在 `manifest.json` 的 `binlog_file` / `binlog_pos` 字段）。恢复 dump 后可手动重放 binlog 到任意时间点。
+
+**适用场景**：误删表/误删数据后，知道出事时间，想恢复到出事前一秒。
+
+**前提条件**：
+- Docker volume 完好（binlog 文件在 volume 中），或 borg archive 中的 binlog 文件覆盖了目标时间段
+- 出事时间在 binlog 保留期内（7 天）
+
+**操作步骤**：
+
+```bash
+# 1. 正常恢复 dump（回到备份时刻的状态）
+#    见 5.5 节
+
+# 2. 从 manifest.json 读取 binlog 位点
+BORG_REPO=... borg extract ::tdyw-20260730-020000 manifest.json
+BINLOG_FILE=$(python3 -c "import json;print(json.load(open('manifest.json'))['binlog_file'])")
+BINLOG_POS=$(python3 -c "import json;print(json.load(open('manifest.json'))['binlog_pos'])")
+echo "Replay from: ${BINLOG_FILE}:${BINLOG_POS}"
+
+# 3. 从 borg archive 提取 binlog 文件（或直接从 Docker volume 读取）
+BORG_REPO=... borg extract ::tdyw-20260730-020000 binlog/
+
+# 4. 重放 binlog 到指定时间（例如出事前 14:55）
+#    --start-position 来自 manifest 的 binlog_pos
+#    --stop-datetime 是北京时间（MariaDB 使用系统时区）
+docker exec -i tdyw-db-test mariadb-binlog --no-defaults \
+    --start-position="${BINLOG_POS}" \
+    --stop-datetime='2026-07-30 14:55:00' \
+    binlog/mysql-bin.* | \
+    docker exec -i tdyw-db-test mariadb --defaults-extra-file=/tmp/restore.cnf
+
+# 5. 验证数据完整性
+docker exec tdyw-db-test mariadb --defaults-extra-file=/tmp/restore.cnf \
+    -e "SELECT COUNT(*) FROM spug.tdyw_document_system_folder;"
+```
+
+**注意事项**：
+- `--start-position` 必须用 manifest 中记录的位点，不能自己猜
+- `--stop-datetime` 必须在出事时间之前（留几分钟余量）
+- binlog 文件从 borg archive 提取，或直接从 Docker volume `/var/lib/mysql/` 读取
+- 重放前建议先备份当前数据库状态（`mariadb-dump`），重放出错可回退
 
 ---
 

@@ -12,6 +12,7 @@ from apps.contract_agreement.models import (
     ContractAgreement,
     EXPIRING_DAYS_THRESHOLD,
 )
+from apps.logs.audit import log_celery_audit
 
 logger = logging.getLogger(__name__)
 
@@ -85,4 +86,8 @@ def scan_contract_agreement_expiration(self):
             updated_count += 1
 
     logger.info('[ContractAgreement] scan all finished: total=%s, updated=%s', total, updated_count)
+    if updated_count > 0:
+        log_celery_audit('update', 'contract_agreement',
+                         target_name='合同协议到期状态扫描',
+                         detail={'total': total, 'updated': updated_count})
     return {'total': total, 'updated': updated_count}

@@ -11,6 +11,7 @@ from django.conf import settings
 from .queries import TransferQueryService
 from .classifiers import TransferClassifier
 from .cleanup import ChunkCleanupService
+from apps.logs.audit import log_celery_audit
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,12 @@ class BatchDeleteService:
             batch_deleted, batch_chunks = self._delete_batch_with_fallback(batch)
             deleted_count += batch_deleted
             chunk_results.extend(batch_chunks)
+
+        if deleted_count > 0:
+            log_celery_audit('delete', 'document',
+                             target_name='批量删除传输记录(服务层)',
+                             detail={'total': len(transfers), 'deleted': deleted_count},
+                             tenant_id=self.tenant_id or 'default')
 
         return deleted_count, chunk_results
 

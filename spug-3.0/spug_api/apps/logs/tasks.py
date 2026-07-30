@@ -6,7 +6,7 @@
 审计日志定时任务
 - cleanup_old_audit_logs：归档清理超过保留期的审计日志
   审计日志会持续增长，为避免 audit_logs 表过大拖慢查询和占用磁盘，
-  定时删除超过保留期的记录。默认保留 60 天（合规要求 2 个月）。
+  定时删除超过保留期的记录。默认保留 90 天。
 """
 
 import logging
@@ -17,7 +17,7 @@ from celery import shared_task
 logger = logging.getLogger(__name__)
 
 # 保留期下限（天），防止误传过小的 days 导致批量误删近期审计数据
-MIN_RETENTION_DAYS = 30
+MIN_RETENTION_DAYS = 90
 # 单次删除上限，避免一次性删除过多导致长事务和主从延迟
 DELETE_BATCH_SIZE = 5000
 
@@ -29,14 +29,14 @@ DELETE_BATCH_SIZE = 5000
     queue='default',
     name='apps.logs.tasks.cleanup_old_audit_logs',
 )
-def cleanup_old_audit_logs(self, days=60, dry_run=False):
+def cleanup_old_audit_logs(self, days=90, dry_run=False):
     """清理超过保留期的审计日志
 
     AuditLog.created_at 已迁移为 DateTimeField，直接用 datetime 比较即可。
-    默认保留 60 天（合规要求 2 个月）。
+    默认保留 90 天。
 
     Args:
-        days: 保留天数，默认 60 天。小于 MIN_RETENTION_DAYS 会被钳制，避免误删近期数据。
+        days: 保留天数，默认 90 天。小于 MIN_RETENTION_DAYS 会被钳制，避免误删近期数据。
         dry_run: 仅统计待删除数量，不实际删除（用于预演和验证）。
 
     Returns:

@@ -2,8 +2,8 @@
 # ================================================================================
 # TDYW BorgBackup 一致性备份入口
 # --------------------------------------------------------------------------------
-# 思路：冻结应用写入 → mariadb-dump 导出 DB → 与 documents/media 卷一起 borg create
-#       打进同一个 archive。三者来自同一停写窗口，即一致性备份。
+# 思路：冻结应用写入 → mariadb-dump 导出 DB → 归档 binlog → 与 documents/media 卷一起 borg create
+#       打进同一个 archive。四者来自同一停写窗口，即一致性备份。
 #
 # 仓库：本地 borg repo（加密 repokey-blake2），路径从 borg.env 的 BORG_REPO 读取。
 #       BORG_PASSPHRASE 必需，用于访问加密 repo。
@@ -14,7 +14,8 @@
 #
 # 一致性流程：
 #   获取全局锁 → 前置检查 → 停入口/beat/worker → 停 tdyw 容器（DB 保持运行）
-#   → mariadb-dump --single-transaction → borg create（dump + documents卷 + media卷 + manifest）
+#   → mariadb-dump --single-transaction → archive_binlog（FLUSH BINARY LOGS + 复制 binlog）
+#   → borg create（dump + documents卷 + media卷 + binlog + manifest）
 #   → borg check --repository-only → 启动 tdyw + 健康检查 → borg prune（GFS）
 #   → 可选 borg create ssh:oldpc:（PUSH_REMOTE=YES 时，推老 PC）
 #
@@ -22,7 +23,8 @@
 #   - database.sql.gz（mariadb-dump 逻辑全量）
 #   - documents 卷原始目录树（块级去重）
 #   - media 卷原始目录树（块级去重）
-#   - manifest.json（DB 版本/git commit/volume 路径/时间戳）
+#   - manifest.json（DB 版本/git commit/volume 路径/时间戳/binlog 位点）
+#   - binlog/（已完成 binlog 文件 + 索引；用于 PITR 按时间点恢复）
 #
 # 禁止：直接 borg 备份运行中的 /var/lib/mysql（InnoDB 不一致）。DB 必须逻辑 dump。
 #
@@ -50,6 +52,7 @@
 #   BACKUP_CLIENT_CNF   MariaDB client cnf（0600/0400），复用 backup_set 的
 #   DOCUMENTS_VOLUME    documents docker volume 名
 #   MEDIA_VOLUME        media docker volume 名
+#   MYSQL_DATA_VOLUME   MySQL 数据卷名（存 binlog），默认 docker_tdyw-mysql-data
 #   BORG_ENV_FILE       borg 配置文件（0600），含 BORG_REPO / BORG_PASSPHRASE
 #                       （+ 可选 BORG_REMOTE_REPO / BORG_REMOTE_PASSPHRASE / PUSH_REMOTE）
 #   BORG_COMPRESSION    默认 zstd,3
@@ -74,6 +77,7 @@ DOCUMENTS_VOLUME="${DOCUMENTS_VOLUME:-docker_tdyw-documents}"
 MEDIA_VOLUME="${MEDIA_VOLUME:-docker_tdyw-media}"
 DOCUMENTS_PATH="${DOCUMENTS_PATH:-/data/spug/spug_api/storage/documents}"
 MEDIA_PATH="${MEDIA_PATH:-/data/spug/spug_api/media}"
+MYSQL_DATA_VOLUME="${MYSQL_DATA_VOLUME:-docker_tdyw-mysql-data}"
 
 BORG_ENV_FILE="${BORG_ENV_FILE:-/opt/docker/borgbackup/borg.env}"
 BORG_REPO="${BORG_REPO:-}"
@@ -108,6 +112,9 @@ LOCAL_ARCHIVE_CREATED=0
 REMOTE_ARCHIVE_CREATED=0
 CURRENT_STAGE="preflight"
 STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+BINLOG_DIR=""
+BINLOG_FILE=""
+BINLOG_POS=""
 
 # ============================================
 # 通用工具
@@ -301,6 +308,7 @@ database_container=${DB_CONTAINER}
 database_name=${DB_NAME}
 documents_volume=${DOCUMENTS_VOLUME} -> ${DOCS_MP}
 media_volume=${MEDIA_VOLUME} -> ${MED_MP}
+mysql_data_volume=${MYSQL_DATA_VOLUME}
 borg_repo=${BORG_REPO} (encrypted, repokey-blake2)
 push_remote=${PUSH_REMOTE}
 remote_borg_repo=${BORG_REMOTE_REPO:-<none>}
@@ -442,22 +450,84 @@ backup_database_logical() {
 }
 
 # ============================================
+# binlog 归档
+# 在 dump 之后执行：记录 binlog 位点 -> FLUSH BINARY LOGS 轮转 -> 复制已完成文件
+# 应用已冻结（无新写入），位点在 dump 前后一致
+# ============================================
+archive_binlog() {
+    CURRENT_STAGE="archive_binlog"
+    local client_bin mysql_data_mp master_status
+    [ -n "${CONTAINER_CNF}" ] || prepare_database_credentials
+    client_bin="$(docker exec "${DB_CONTAINER}" sh -c 'command -v mariadb || command -v mysql')"
+
+    # 1. 记录当前 binlog 位点（应用已冻结，此位点 = dump 一致性快照的位点）
+    master_status="$(docker exec "${DB_CONTAINER}" "${client_bin}" \
+        --defaults-extra-file="${CONTAINER_CNF}" \
+        --host=127.0.0.1 --port=3306 --batch --skip-column-names \
+        -e "SHOW MASTER STATUS" "${DB_NAME}")"
+    BINLOG_FILE="$(echo "${master_status}" | head -1 | awk '{print $1}')"
+    BINLOG_POS="$(echo "${master_status}" | head -1 | awk '{print $2}')"
+    [ -n "${BINLOG_FILE}" ] || fail "could not determine current binlog file (is binary log enabled?)"
+    log "Binlog position: ${BINLOG_FILE}:${BINLOG_POS}"
+
+    # 2. FLUSH BINARY LOGS - 关闭当前 binlog 文件（可安全复制），打开新文件
+    docker exec "${DB_CONTAINER}" "${client_bin}" \
+        --defaults-extra-file="${CONTAINER_CNF}" \
+        --host=127.0.0.1 --port=3306 \
+        -e "FLUSH BINARY LOGS" 2>/dev/null
+    log "Binary logs flushed; active file rotated"
+
+    # 3. 定位 MySQL 数据卷在宿主机的挂载点
+    mysql_data_mp="$(docker volume inspect -f '{{.Mountpoint}}' "${MYSQL_DATA_VOLUME}" 2>/dev/null || true)"
+    [ -n "${mysql_data_mp}" ] && [ -d "${mysql_data_mp}" ] || \
+        fail "MySQL data volume mountpoint not found: ${MYSQL_DATA_VOLUME}"
+
+    # 4. 复制所有 binlog 文件（FLUSH 后当前活跃文件已变为已完成文件）
+    BINLOG_DIR="${RUNTIME_DIR}/binlog"
+    mkdir -p "${BINLOG_DIR}"
+    local count=0
+    for f in "${mysql_data_mp}"/mysql-bin.[0-9]*; do
+        [ -f "$f" ] || continue
+        local fname; fname="$(basename "$f")"
+        cp -a "$f" "${BINLOG_DIR}/"
+        log "  archived: ${fname} ($(du -h "$f" | cut -f1))"
+        count=$((count + 1))
+    done
+    # binlog 索引文件
+    [ -f "${mysql_data_mp}/mysql-bin.index" ] && \
+        cp -a "${mysql_data_mp}/mysql-bin.index" "${BINLOG_DIR}/"
+
+    if [ "${count}" -eq 0 ]; then
+        log "No binlog files found to archive"
+    else
+        log "Archived ${count} binlog file(s) to staging"
+    fi
+
+    # 5. 清理容器内 cnf
+    docker exec "${DB_CONTAINER}" rm -f -- "${CONTAINER_CNF}" >/dev/null
+    CONTAINER_CNF=""
+}
+
+# ============================================
 # 根 manifest
 # ============================================
 build_manifest() {
     CURRENT_STAGE="manifest"
-    local git_commit
+    local git_commit binlog_count
     git_commit="$(git -C "${PROJECT_ROOT}" rev-parse HEAD 2>/dev/null || true)"
+    binlog_count="$(ls "${BINLOG_DIR}" 2>/dev/null | grep -c '^mysql-bin\.' || echo 0)"
     MANIFEST_FILE="${RUNTIME_DIR}/manifest.json"
     python3 - "${MANIFEST_FILE}" "${BACKUP_SET_ID}" "${DB_NAME}" "${DB_VERSION}" \
-        "${DB_ACCOUNT}" "${DOCS_MP}" "${MED_MP}" "${git_commit}" "${STARTED_AT}" <<'PY'
+        "${DB_ACCOUNT}" "${DOCS_MP}" "${MED_MP}" "${git_commit}" "${STARTED_AT}" \
+        "${BINLOG_FILE}" "${BINLOG_POS}" "${binlog_count}" <<'PY'
 import json, sys
-out, bid, dbn, ver, acct, docs, med, commit, started = sys.argv[1:10]
+out, bid, dbn, ver, acct, docs, med, commit, started, bf, bp, bc = sys.argv[1:13]
 json.dump({
     "backup_set_id": bid, "schema": "borg-1",
     "database_name": dbn, "database_version": ver, "database_account": acct,
     "git_commit": commit, "started_at": started,
     "documents_mountpoint": docs, "media_mountpoint": med,
+    "binlog_file": bf, "binlog_pos": bp, "binlog_files_archived": int(bc),
 }, open(out, "w"), ensure_ascii=False, indent=2)
 PY
 }
@@ -479,7 +549,8 @@ borg_create_local() {
         "${DUMP_FILE}" \
         "${DOCS_MP}" \
         "${MED_MP}" \
-        "${MANIFEST_FILE}"
+        "${MANIFEST_FILE}" \
+        ${BINLOG_DIR:+"${BINLOG_DIR}"}
     LOCAL_ARCHIVE_CREATED=1
 
     CURRENT_STAGE="borg_check_local"
@@ -521,7 +592,8 @@ borg_push_remote() {
         "${DUMP_FILE}" \
         "${DOCS_MP}" \
         "${MED_MP}" \
-        "${MANIFEST_FILE}"
+        "${MANIFEST_FILE}" \
+        ${BINLOG_DIR:+"${BINLOG_DIR}"}
     REMOTE_ARCHIVE_CREATED=1
 
     CURRENT_STAGE="prune_remote"
@@ -562,6 +634,7 @@ main() {
     initialize_workdir
     freeze_application
     backup_database_logical
+    archive_binlog
     build_manifest
     borg_create_local
 

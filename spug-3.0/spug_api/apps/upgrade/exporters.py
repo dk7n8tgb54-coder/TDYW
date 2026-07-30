@@ -16,6 +16,7 @@ from libs.export_utils import build_excel_response, check_export_limit, build_ex
 from libs.tenant_utils import apply_tenant_filter
 from apps.upgrade.models import UpgradeRecord
 from apps.upgrade.services.record_service import RecordService
+from apps.logs.audit import record_audit_event
 
 logger = logging.getLogger(__name__)
 
@@ -80,4 +81,7 @@ class RecordExportView(View):
 
         records = qs.select_related('created_by', 'updated_by')
         filename = _build_filename(request)
+        record_audit_event(request, 'export', 'upgrade',
+                           target_name=filename,
+                           detail={'count': count, 'format': 'xlsx'})
         return build_excel_response(filename, SHEET_NAME, EXCEL_COLUMNS, list(records.iterator()))

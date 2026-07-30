@@ -11,6 +11,7 @@ from .queries import TransferQueryService
 from .classifiers import TransferClassifier
 from .deleters import BatchDeleteService
 from .cleanup import ChunkCleanupService
+from apps.logs.audit import log_celery_audit
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,12 @@ def batch_delete_transfers(self, transfer_ids, request_user_id, request_tenant_i
     }
 
     logger.info(f'[Celery] Batch delete completed: {result}')
+    if deleted_count > 0:
+        log_celery_audit('delete', 'document',
+                         target_name='批量删除传输记录',
+                         detail={'total': len(transfer_ids), 'deleted': deleted_count,
+                                 'skipped': len(skipped_ids)},
+                         tenant_id=request_tenant_id or 'default')
     return result
 
 

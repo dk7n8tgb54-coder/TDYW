@@ -10,6 +10,8 @@ from celery import shared_task
 from django.utils import timezone
 from django.db import transaction
 
+from apps.logs.audit import log_celery_audit
+
 logger = logging.getLogger(__name__)
 
 
@@ -98,6 +100,10 @@ def check_merge_timeout(self, timeout_minutes=30):
         }
         
         logger.info(f'[TimeoutChecker] 检测完成: {result["message"]}')
+        if reset_count > 0:
+            log_celery_audit('update', 'document',
+                             target_name='合并超时任务重置',
+                             detail={'timeout_count': timeout_count, 'reset_count': reset_count})
         return result
         
     except Exception as e:
@@ -150,7 +156,10 @@ def cleanup_stale_merging_tasks(self, older_than_hours=24):
         )
         
         logger.warning(f'[TimeoutChecker] 已清理 {updated} 个僵尸任务')
-        
+        if updated > 0:
+            log_celery_audit('update', 'document',
+                             target_name='僵尸合并任务清理',
+                             detail={'stale_count': stale_count, 'cleaned': updated})
         return {
             'status': 'success',
             'stale_count': stale_count,

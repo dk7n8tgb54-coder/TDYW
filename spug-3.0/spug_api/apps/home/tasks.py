@@ -7,6 +7,7 @@ from celery import shared_task
 
 from django.utils import timezone
 from apps.home.models import Announcement, STATUS_PUBLISHED, STATUS_EXPIRED
+from apps.logs.audit import log_celery_audit
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,10 @@ def sync_announcement_status():
         effective_end_at__gt='',          # 排除长期有效（空）
         effective_end_at__lt=now,         # 已到失效时间
     ).update(status=STATUS_EXPIRED)
+    if updated > 0:
+        log_celery_audit('update', 'home',
+                         target_name='公告自动过期',
+                         detail={'expired_count': updated})
     return updated
 
 

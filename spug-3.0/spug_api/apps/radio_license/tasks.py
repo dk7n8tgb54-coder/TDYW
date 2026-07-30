@@ -21,6 +21,7 @@ from django.utils import timezone
 from apps.radio_license.models import (
     RadioLicense, StationFrequencyApproval, EXPIRING_DAYS_THRESHOLD,
 )
+from apps.logs.audit import log_celery_audit
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,10 @@ def scan_radio_license_expiration(self):
             updated_count += 1
 
     logger.info(f'[RadioLicense] 全量扫描完成: total={total}, updated={updated_count}')
+    if updated_count > 0:
+        log_celery_audit('update', 'radio_license',
+                         target_name='执照到期状态扫描',
+                         detail={'total': total, 'updated': updated_count})
     return {
         'total': total,
         'updated': updated_count,
@@ -183,6 +188,10 @@ def scan_approval_expiration(self):
     logger.info(
         f'[StationFrequencyApproval] 全量扫描完成: total={total}, updated={updated_count}'
     )
+    if updated_count > 0:
+        log_celery_audit('update', 'radio_license',
+                         target_name='批复到期状态扫描',
+                         detail={'total': total, 'updated': updated_count})
     return {
         'total': total,
         'updated': updated_count,

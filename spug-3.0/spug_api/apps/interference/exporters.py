@@ -15,6 +15,7 @@ from libs import auth
 from libs.export_utils import build_excel_response, check_export_limit, build_export_error_response
 from libs.tenant_utils import apply_tenant_filter
 from apps.interference.models import Interference
+from apps.logs.audit import record_audit_event
 
 logger = logging.getLogger(__name__)
 
@@ -88,4 +89,7 @@ class InterferenceExportView(View):
             row['export_serial'] = idx
             rows.append(row)
         filename = _build_filename(request)
+        record_audit_event(request, 'export', 'interference',
+                           target_name=filename,
+                           detail={'count': len(rows), 'format': 'xlsx'})
         return build_excel_response(filename, SHEET_NAME, EXCEL_COLUMNS, rows)
