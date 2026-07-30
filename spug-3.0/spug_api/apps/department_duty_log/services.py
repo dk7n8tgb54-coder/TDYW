@@ -229,7 +229,7 @@ def serialize_department_duty_log(record, user):
 
 
 def serialize_list_item(record, user):
-    """序列化列表项（不含长文本全文，只含摘要）。"""
+    """序列化列表项，包含完整正文供编辑回填。"""
     record_text = record.duty_record or ''
     summary = record_text[:100] + '...' if len(record_text) > 100 else record_text
     data = {
@@ -237,6 +237,7 @@ def serialize_list_item(record, user):
         'duty_date': _format_date(record.duty_date),
         'duty_person_name': record.duty_person_name,
         'weather': record.weather or '',
+        'duty_record': record_text,
         'duty_record_summary': summary,
         'remark': record.remark or '',
         'status': record.status,

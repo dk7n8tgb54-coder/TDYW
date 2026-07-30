@@ -126,16 +126,11 @@ def _make_png_file(width=200, height=100, name='sig.png'):
 
 
 # ============================================================
-# 审查问题 1 & 2：列表不返回正文全文，编辑/签署弹窗无法回填
+# 审查问题 1 & 2（已修复）：列表返回完整正文，编辑/签署可回填
 # ============================================================
 
-class AuditIssue1_2_ListSummaryNotFullTextTests(TestCase):
-    """验证：列表只返回 duty_record_summary（前 100 字），不返回 duty_record。
-
-    影响：
-    - 问题 1：编辑表单读取 record.duty_record -> undefined，正文不回填
-    - 问题 2：签署弹窗读取 record.duty_record_summary -> 只展示前 100 字
-    """
+class AuditIssue1_2_ListReturnsFullTextTests(TestCase):
+    """验证修复：列表返回完整 duty_record，编辑/签署可回填。"""
 
     def setUp(self):
         AppSetting.set('bind_ip', False)
@@ -145,10 +140,10 @@ class AuditIssue1_2_ListSummaryNotFullTextTests(TestCase):
         ])
         self.client_obj = _make_client(self.user)
 
-    def test_list_item_missing_duty_record(self):
-        """列表项不含 duty_record 字段，只有 duty_record_summary"""
+    def test_list_item_contains_full_duty_record(self):
+        """列表项包含完整 duty_record 字段"""
         long_text = 'A' * 200  # 超过 100 字
-        _make_record(self.user, duty_record=long_text)
+        _make_record(self.user, duty_record=long_text, remark='上级要求内容')
 
         resp = self.client_obj.get('/department-duty-log/records/')
         body = json.loads(resp.content)
@@ -158,13 +153,14 @@ class AuditIssue1_2_ListSummaryNotFullTextTests(TestCase):
         self.assertEqual(len(items), 1)
         item = items[0]
 
-        # 核心断言：列表项中没有 duty_record 字段
-        self.assertNotIn('duty_record', item,
-                         '列表项不应包含 duty_record 全文')
-        # 列表项有 duty_record_summary（截断）
+        # 核心断言：列表项包含完整 duty_record
+        self.assertIn('duty_record', item)
+        self.assertEqual(item['duty_record'], long_text)
+        # 同时保留 summary 供列表展示截断
         self.assertIn('duty_record_summary', item)
-        self.assertTrue(item['duty_record_summary'].startswith('A'))
-        self.assertLessEqual(len(item['duty_record_summary']), 103)  # 100 + '...'
+        self.assertLessEqual(len(item['duty_record_summary']), 103)
+        # 列表也返回 remark（上级工作要求）
+        self.assertEqual(item['remark'], '上级要求内容')
 
     def test_detail_returns_full_duty_record(self):
         """详情接口返回完整 duty_record"""
@@ -179,21 +175,19 @@ class AuditIssue1_2_ListSummaryNotFullTextTests(TestCase):
         self.assertEqual(data['duty_record'], long_text)
         self.assertNotIn('duty_record_summary', data)
 
-    def test_edit_form_would_get_empty_record(self):
-        """模拟前端 showForm(record) 的行为：传入列表记录，duty_record 为 undefined"""
+    def test_edit_form_can_get_full_record_from_list(self):
+        """模拟前端 showForm(record)：列表记录已包含完整 duty_record"""
         long_text = 'C' * 200
         _make_record(self.user, duty_record=long_text)
 
-        # 前端 store.showForm(record) 直接使用列表记录
         resp = self.client_obj.get('/department-duty-log/records/')
         body = json.loads(resp.content)
         list_record = body['data']['records'][0]
 
         # 模拟 DepartmentDutyLogForm.js:27 的读取
-        form_duty_record = list_record.get('duty_record')  # 前端: record.duty_record
-        # 核心断言：前端拿不到正文
-        self.assertIsNone(form_duty_record,
-                          '编辑表单从列表记录读取 duty_record 得到 undefined')
+        form_duty_record = list_record.get('duty_record')
+        self.assertEqual(form_duty_record, long_text,
+                         '编辑表单从列表记录读取 duty_record 得到完整正文')
 
 
 # ============================================================

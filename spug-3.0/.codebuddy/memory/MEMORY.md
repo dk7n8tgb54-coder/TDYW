@@ -2,7 +2,8 @@
 
 ## 运行环境
 - Docker 在 WSL；`tdyw` 容器（镜像 tdyw:0720）路径 `/data/spug/spug_api`，Python 3.10；**无 bind mount**，改代码需 `docker cp`
-- `tdyw-test` 容器（镜像 tdyw:django42-stage2）**有 bind mount** `/mnt/e/TDYW/spug-3.0/spug_api -> /data/spug/spug_api`，改代码即时可见；连 dev 库；makemigrations/migrate 验证用此容器
+- `tdyw-test` 容器（镜像 tdyw:django42-stage2）**有 bind mount** `/mnt/e/TDYW/spug-3.0/spug_api -> /data/spug/spug_api`；连 dev 库；makemigrations/migrate 验证用此容器
+- ⚠️ **改完代码后必须重启 `tdyw-test` 容器才能让容器内看到最新代码**（用户实测反馈，不要假设 bind mount 即时可见）。重启命令：`wsl bash -c 'docker restart tdyw-test'`。`docker exec` 跑 `manage.py test` 前务必确认容器已重启
 - WSL 调用：`wsl bash -c 'docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw python manage.py check'`
 - spug_web：antd 4.21.5（Modal 用 `visible`）+ legacy 装饰器 + class properties（mobx）
 - ⚠️ Docker 内网回调：kkFileView 经 `http://tdyw` 回源，容器名须进 ALLOWED_HOSTS

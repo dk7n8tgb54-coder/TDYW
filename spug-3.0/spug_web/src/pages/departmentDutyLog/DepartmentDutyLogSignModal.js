@@ -166,6 +166,16 @@ class DepartmentDutyLogSignModal extends React.Component {
                   {record.duty_record || record.duty_record_summary || '--'}
                 </div>
               </Descriptions.Item>
+              <Descriptions.Item label="上级工作要求">
+                <div style={{
+                  whiteSpace: 'pre-wrap',
+                  maxHeight: 200,
+                  overflow: 'auto',
+                  fontSize: 13,
+                }}>
+                  {record.remark || '--'}
+                </div>
+              </Descriptions.Item>
             </Descriptions>
 
             {signatureInfo && signatureInfo.available && (
