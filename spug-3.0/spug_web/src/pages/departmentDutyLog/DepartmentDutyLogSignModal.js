@@ -111,7 +111,7 @@ class DepartmentDutyLogSignModal extends React.Component {
     if (!record) return null;
 
     const {signatureInfo, sigLoading, sigImageUrl, sigImageError, submitting} = this.state;
-    const canSign = signatureInfo && signatureInfo.available && sigImageUrl && !sigImageError;
+    const canSign = signatureInfo && signatureInfo.available && sigImageUrl && !sigImageError && !store.signLoading;
 
     return (
       <Modal
@@ -126,8 +126,8 @@ class DepartmentDutyLogSignModal extends React.Component {
         destroyOnClose
         maskClosable={false}
       >
-        {sigLoading ? (
-          <div style={{textAlign: 'center', padding: 40}}><Spin tip="加载签名信息..."/></div>
+        {sigLoading || store.signLoading ? (
+          <div style={{textAlign: 'center', padding: 40}}><Spin tip="加载中..."/></div>
         ) : (
           <>
             {(!signatureInfo || !signatureInfo.available) && (
@@ -156,14 +156,14 @@ class DepartmentDutyLogSignModal extends React.Component {
               </Descriptions.Item>
               <Descriptions.Item label="值班日期">{record.duty_date}</Descriptions.Item>
               <Descriptions.Item label="天气情况">{record.weather || '--'}</Descriptions.Item>
-              <Descriptions.Item label="值班记录摘要">
+              <Descriptions.Item label="值班记录">
                 <div style={{
                   whiteSpace: 'pre-wrap',
-                  maxHeight: 100,
+                  maxHeight: 200,
                   overflow: 'auto',
                   fontSize: 13,
                 }}>
-                  {record.duty_record_summary || '--'}
+                  {record.duty_record || record.duty_record_summary || '--'}
                 </div>
               </Descriptions.Item>
             </Descriptions>

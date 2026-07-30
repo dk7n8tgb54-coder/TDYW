@@ -107,18 +107,27 @@ class DepartmentDutyLog(models.Model, ModelMixin):
                 check=models.Q(version__gte=1),
                 name='duty_log_version_valid',
             ),
-            # 签署记录及其后续作废记录必须保留完整、可核验的签署快照。
+            # 签署状态不变量：
+            # DRAFT -> 签署字段全部为 NULL（草稿不应有残留签署信息）
+            # SIGNED -> 签署字段全部完整 且 signed_by_id == duty_person_id
             models.CheckConstraint(
                 check=(
-                    models.Q(status=STATUS_DRAFT) |
                     (
+                        models.Q(status=STATUS_DRAFT) &
+                        models.Q(signature_usage_id__isnull=True) &
+                        models.Q(signed_by_id__isnull=True) &
+                        models.Q(signed_at__isnull=True) &
+                        models.Q(signature_version__isnull=True)
+                    ) | (
+                        models.Q(status=STATUS_SIGNED) &
                         models.Q(signature_usage_id__isnull=False) &
                         models.Q(signed_by_id__isnull=False) &
                         models.Q(signed_at__isnull=False) &
                         models.Q(signature_version__isnull=False) &
                         ~models.Q(signed_by_name='') &
                         ~models.Q(signature_sha256='') &
-                        ~models.Q(business_snapshot_hash='')
+                        ~models.Q(business_snapshot_hash='') &
+                        models.Q(signed_by_id=models.F('duty_person_id'))
                     )
                 ),
                 name='duty_log_signature_fields',

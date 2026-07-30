@@ -4,6 +4,7 @@
  * Released under the AGPL-3.0 License.
  */
 import {observable, action} from 'mobx';
+import moment from 'moment';
 import {http} from 'libs';
 
 class DepartmentDutyLogStore {
@@ -17,13 +18,14 @@ class DepartmentDutyLogStore {
   @observable detailVisible = false;
   @observable detailLoading = false;
   @observable signVisible = false;
+  @observable signLoading = false;
   @observable returnVisible = false;
   @observable record = {};
   @observable formRecord = {};
 
-  // 筛选
-  @observable f_start_date = undefined;
-  @observable f_end_date = undefined;
+  // 筛选 - 默认最近 31 天，列表和导出使用统一默认值
+  @observable f_start_date = moment().subtract(30, 'days');
+  @observable f_end_date = moment();
   @observable f_duty_person_name = undefined;
   @observable f_status = undefined;
   @observable f_keyword = undefined;
@@ -78,8 +80,21 @@ class DepartmentDutyLogStore {
 
   @action.bound
   showForm(record) {
-    this.formRecord = record || {};
-    this.formVisible = true;
+    if (record && record.id) {
+      // 编辑模式：先调详情接口获取完整 duty_record（列表只有 summary）
+      this.formRecord = record; // 先用列表记录占位
+      this.formVisible = true;
+      http.get(`/api/department-duty-log/records/${record.id}/`)
+        .then(data => {
+          this.formRecord = data;
+        })
+        .catch(() => {
+          this.formVisible = false;
+        });
+    } else {
+      this.formRecord = {};
+      this.formVisible = true;
+    }
   }
 
   @action.bound
@@ -102,8 +117,18 @@ class DepartmentDutyLogStore {
 
   @action.bound
   showSign(record) {
-    this.record = record;
+    this.record = record; // 先用列表记录占位
     this.signVisible = true;
+    this.signLoading = true;
+    http.get(`/api/department-duty-log/records/${record.id}/`)
+      .then(data => {
+        this.record = data; // 详情包含完整 duty_record
+        this.signLoading = false;
+      })
+      .catch(() => {
+        this.signVisible = false;
+        this.signLoading = false;
+      });
   }
 
   @action.bound
@@ -141,6 +166,21 @@ class DepartmentDutyLogStore {
     const key = `${y}-${m}`;
     const set = this.dutyDatesByMonth[key];
     return !!(set && set.has(dateStr));
+  }
+
+  /**
+   * 失效指定月份的日期缓存。不传参数时清空全部缓存。
+   * 用于 CRUD 成功后刷新日历底纹。
+   */
+  @action.bound
+  invalidateDutyDatesCache(months) {
+    if (!months || months.length === 0) {
+      this.dutyDatesByMonth = {};
+      return;
+    }
+    const next = {...this.dutyDatesByMonth};
+    for (const m of months) delete next[m];
+    this.dutyDatesByMonth = next;
   }
 }
 

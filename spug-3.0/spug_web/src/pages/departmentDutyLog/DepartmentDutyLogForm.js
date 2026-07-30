@@ -84,6 +84,13 @@ class DepartmentDutyLogForm extends React.Component {
           if (!this._mounted) return;
           message.success(record && record.id ? '编辑成功' : '新建成功');
           store.formVisible = false;
+          // 失效受影响月份的日期缓存
+          const dutyMonth = payload.duty_date.slice(0, 7);
+          const oldMonth = record && record.id && record.duty_date
+            ? String(record.duty_date).slice(0, 7) : null;
+          const months = oldMonth && oldMonth !== dutyMonth
+            ? [dutyMonth, oldMonth] : [dutyMonth];
+          store.invalidateDutyDatesCache(months);
           store.fetchRecords();
         })
         .catch(err => {

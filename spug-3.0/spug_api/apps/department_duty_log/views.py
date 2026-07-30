@@ -127,7 +127,7 @@ class DepartmentDutyLogSignView(View):
             return json_response(error=f'请求包含不允许提交的字段: {", ".join(sorted(violations))}')
 
         form, error = JsonParser(
-            Argument('version', type=int, required=False, help='版本号'),
+            Argument('version', type=int, required=True, help='版本号'),
             Argument('confirm', type=bool, required=False, default=False, help='请确认签署'),
             Argument('request_id', required=False, help='请求 ID'),
         ).parse(request.body)
@@ -267,6 +267,10 @@ class DepartmentDutyLogPdfExportView(View):
 
     @auth('department_duty_log.department_duty_log.export')
     def post(self, request):
+        # export 是 view 的附加能力，必须同时持有 view 权限
+        if not request.user.has_perms(['department_duty_log.department_duty_log.view']):
+            return json_response(error='权限拒绝：需要查看权限')
+
         try:
             raw = json.loads(request.body) if request.body else {}
         except (ValueError, TypeError):

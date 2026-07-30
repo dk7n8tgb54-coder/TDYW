@@ -26,6 +26,9 @@ class DepartmentDutyLogTable extends React.Component {
         return http.delete(`/api/department-duty-log/records/${record.id}/`)
           .then(() => {
             message.success('删除成功');
+            // 失效受影响月份的日期缓存
+            const dutyMonth = String(record.duty_date).slice(0, 7);
+            store.invalidateDutyDatesCache([dutyMonth]);
             store.fetchRecords();
           });
       },

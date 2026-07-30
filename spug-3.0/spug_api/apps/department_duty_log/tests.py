@@ -73,17 +73,33 @@ def _grant_perms(user, perms):
 
     perms: list of (module, page, [perm_keys])
     例如 [('department_duty_log', 'department_duty_log', ['view', 'add'])]
+
+    修复：先查已有同名角色，合并权限而非重复创建，避免 unique_together 冲突。
     """
     perm_dict = {}
     for module, page, keys in perms:
         perm_dict.setdefault(module, {}).setdefault(page, []).extend(keys)
 
-    role = Role.objects.create(
-        name=f'role_{user.username}',
-        page_perms=json.dumps(perm_dict),
-        created_by=user,
-    )
-    user.roles.add(role)
+    role_name = f'role_{user.username}'
+    role = Role.objects.filter(name=role_name).first()
+    if role:
+        existing = json.loads(role.page_perms) if role.page_perms else {}
+        for m, pages in perm_dict.items():
+            if m not in existing:
+                existing[m] = {}
+            for p, keys in pages.items():
+                if p not in existing[m]:
+                    existing[m][p] = []
+                existing[m][p].extend(keys)
+        role.page_perms = json.dumps(existing)
+        role.save()
+    else:
+        role = Role.objects.create(
+            name=role_name,
+            page_perms=json.dumps(perm_dict),
+            created_by=user,
+        )
+        user.roles.add(role)
     user.set_perms_cache()  # 清空缓存，下次访问重新计算
     return role
 
