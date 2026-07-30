@@ -46,7 +46,7 @@ def make_ali_request(ak, ac, endpoint, params):
         Version='2014-05-26'
     )
     params['Signature'] = _make_ali_signature(ac + '&', params)
-    return requests.get(endpoint, params).json()
+    return requests.get(endpoint, params, timeout=15).json()
 
 
 def make_tencent_request(ak, ac, endpoint, params):
@@ -57,4 +57,4 @@ def make_tencent_request(ak, ac, endpoint, params):
         Version='2017-03-12'
     )
     params['Signature'] = _make_tencent_signature(endpoint, ac, params)
-    return requests.post(f'https://{endpoint}', data=params).json()
+    return requests.post(f'https://{endpoint}', data=params, timeout=15).json()

@@ -12,7 +12,7 @@ import json
 class NoticeView(View):
     @auth('home.notice.view')
     def get(self, request):
-        notices = Notice.objects.filter(is_deleted=False)
+        notices = Notice.objects.filter(is_deleted=False)[:100]
         return json_response([x.to_view() for x in notices])
 
     @auth('home.notice.add|home.notice.edit')

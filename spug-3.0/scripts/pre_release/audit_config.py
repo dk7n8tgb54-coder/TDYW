@@ -360,7 +360,7 @@ except Exception as e:
 # ====================================================================
 cat = '7. 业务模块'
 expected_apps = [
-    'apps.account', 'apps.setting', 'apps.exec', 'apps.fault', 'apps.duty',
+    'apps.account', 'apps.setting', 'apps.fault', 'apps.duty',
     'apps.device', 'apps.interference', 'apps.home', 'apps.runlog',
     'apps.document', 'apps.upgrade', 'apps.checksheet', 'apps.logs',
     'apps.radio_license', 'apps.contract_agreement', 'apps.evidence',
@@ -412,7 +412,7 @@ except Exception as e:
 cat = '9. Supervisor 进程'
 expected_programs = [
     'nginx', 'redis', 'spug-api', 'spug-api-upload', 'spug-ws',
-    'spug-worker', 'spug-celery', 'spug-celery-beat',
+    'spug-celery', 'spug-celery-beat',
     'spug-celery-cleanup', 'spug-celery-merge', 'spug-celery-batch',
     'spug-celery-thumbnail', 'spug-celery-radio-license',
 ]

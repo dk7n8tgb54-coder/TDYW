@@ -354,7 +354,7 @@ stop_supervisor_programs() {
         [ -n "${program}" ] || continue
         log "Gracefully draining ${program}"
         docker exec "${APP_CONTAINER}" supervisorctl stop "${program}" >/dev/null
-    done < <(awk '$2 == "RUNNING" && $1 !~ /celery.*beat/ && ($1 ~ /celery/ || $1 == "spug-worker") {print $1}' "${status_file}")
+    done < <(awk '$2 == "RUNNING" && $1 !~ /celery.*beat/ && $1 ~ /celery/ {print $1}' "${status_file}")
 
     # 4. Verify no celery worker process remains.
     if ! docker exec "${APP_CONTAINER}" sh -c \

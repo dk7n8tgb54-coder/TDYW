@@ -8,7 +8,7 @@ push_server = 'https://push.spug.cc'
 
 
 def get_balance(token):
-    res = requests.get(f'{push_server}/spug/balance/', json={'token': token})
+    res = requests.get(f'{push_server}/spug/balance/', json={'token': token}, timeout=15)
     if res.status_code != 200:
         raise Exception(f'status code: {res.status_code}')
     res = res.json()
@@ -19,7 +19,7 @@ def get_balance(token):
 
 def get_contacts(token):
     try:
-        res = requests.post(f'{push_server}/spug/contacts/', json={'token': token})
+        res = requests.post(f'{push_server}/spug/contacts/', json={'token': token}, timeout=15)
         res = res.json()
         if res['data']:
             return res['data']

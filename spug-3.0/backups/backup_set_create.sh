@@ -410,7 +410,7 @@ initialize_backup_workdir() {
 # 停止入口、beat 和写 worker
 #
 # 顺序很重要：先关入口，阻止用户产生新任务；再关 beat，阻止定时任务；最后让全部
-# Celery worker 和 runworker 完成当前任务并退出。无法证明只读的 worker 一律按写处理。
+# Celery worker 完成当前任务并退出。无法证明只读的 worker 一律按写处理。
 # Supervisor 的 stopwaitsecs 决定 graceful stop 上限，超时必须失败，不能继续备份。
 # ============================================
 stop_supervisor_programs() {
@@ -439,7 +439,7 @@ stop_supervisor_programs() {
         [ -n "${program}" ] || continue
         log "Gracefully draining ${program}"
         docker exec "${APP_CONTAINER}" supervisorctl stop "${program}" >/dev/null
-    done < <(awk '$2 == "RUNNING" && $1 !~ /celery.*beat/ && ($1 ~ /celery/ || $1 == "spug-worker") {print $1}' "${status_file}")
+    done < <(awk '$2 == "RUNNING" && $1 !~ /celery.*beat/ && $1 ~ /celery/ {print $1}' "${status_file}")
 
     if ! docker exec "${APP_CONTAINER}" sh -c \
         "if command -v pgrep >/dev/null 2>&1; then ! pgrep -f '[c]elery.*worker' >/dev/null; else ! ps ax | grep -E '[c]elery.*worker' >/dev/null; fi"; then

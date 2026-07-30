@@ -13,7 +13,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         version, is_repair = settings.SPUG_VERSION, False
-        res = requests.get(f'https://api.spug.cc/apis/release/latest/?version={version}').json()
+        res = requests.get(f'https://api.spug.cc/apis/release/latest/?version={version}', timeout=15).json()
         if res['error']:
             return self.stderr.write(self.style.ERROR(f'获取新版本失败：{res["error"]}'))
         if not res['data']['has_new']:

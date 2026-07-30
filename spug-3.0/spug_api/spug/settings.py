@@ -57,7 +57,6 @@ INSTALLED_APPS = [
     'libs',
     'apps.account',
     'apps.setting',
-    'apps.exec',
     'apps.fault',
     'apps.duty',
     'apps.device',
@@ -294,7 +293,7 @@ TEMPLATES = [
 ]
 
 TOKEN_TTL = 8 * 3600
-EXEC_WORKER_KEY = 'spug:exec:worker'
+
 TRANSFER_DIR = os.path.join(BASE_DIR, 'storage', 'transfer')
 
 # Media files settings

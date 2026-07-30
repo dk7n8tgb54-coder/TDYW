@@ -12,7 +12,7 @@ class BackupSupervisorConfigTests(unittest.TestCase):
         parser = configparser.ConfigParser(interpolation=None)
         parser.read(SUPERVISOR_CONFIG, encoding="utf-8")
 
-        api_programs = ("spug-api", "spug-api-upload", "spug-ws", "spug-worker")
+        api_programs = ("spug-api", "spug-api-upload", "spug-ws")
         celery_programs = (
             "spug-celery",
             "spug-celery-cleanup",

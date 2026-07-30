@@ -12,7 +12,7 @@ import json
 class NavView(View):
     @auth('home.navigation.view')
     def get(self, request):
-        navs = Navigation.objects.filter(is_deleted=False)
+        navs = Navigation.objects.filter(is_deleted=False)[:100]
         return json_response([x.to_view() for x in navs])
 
     @auth('home.navigation.add|home.navigation.edit')
