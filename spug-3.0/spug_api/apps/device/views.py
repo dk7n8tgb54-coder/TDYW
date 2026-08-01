@@ -536,16 +536,22 @@ class DeviceEventView(View):
         related_user_name = form.related_user_name or form.related_user_id or ''
 
         # Update event record
-        event.event_title = form.event_title
-        event.event_time = form.event_time
-        event.related_user_id = None
-        event.related_user_name = related_user_name
-        event.fault_part = form.fault_part
-        event.fault_phenomenon_cause = form.fault_phenomenon_cause
-        event.maintenance_measures = form.maintenance_measures
-        event.repair_time = form.repair_time
-        event.remark = form.remark
-        event.save()
+        with transaction.atomic():
+            event.event_title = form.event_title
+            event.event_time = form.event_time
+            event.related_user_id = None
+            event.related_user_name = related_user_name
+            event.fault_part = form.fault_part
+            event.fault_phenomenon_cause = form.fault_phenomenon_cause
+            event.maintenance_measures = form.maintenance_measures
+            event.repair_time = form.repair_time
+            event.remark = form.remark
+            event.save()
+            record_audit_event(
+                request, 'edit', 'device_event',
+                target_id=event.id, target_name=event.event_title,
+                detail={'device_sn': event.device_sn, 'event_type': event.event_type},
+            )
         logging.info(f'编辑设备事件成功｜租户：{event.tenant_id}｜用户：{request.user.username}｜事件ID：{event.id}')
         return json_response(event.to_view())
 
@@ -568,10 +574,18 @@ class DeviceEventView(View):
                 logging.info(f'删除设备事件不存在｜事件ID：{form.id}｜用户：{request.user.username}')
                 return json_response(error='事件记录不存在')
 
-            # Hard delete
+            # Hard delete with audit log
             device_sn = event.device_sn
-            event.delete()
-            logging.info(f'删除设备事件成功｜租户：{event.tenant_id}｜用户：{request.user.username}｜设备编号：{device_sn}｜事件ID：{form.id}')
+            event_title = event.event_title
+            event_type = event.event_type
+            with transaction.atomic():
+                record_audit_event(
+                    request, 'delete', 'device_event',
+                    target_id=event.id, target_name=event_title,
+                    detail={'device_sn': device_sn, 'event_type': event_type},
+                )
+                event.delete()
+            logging.info(f'删除设备事件成功｜租户：{request.user.tenant_id}｜用户：{request.user.username}｜设备编号：{device_sn}｜事件ID：{form.id}')
             return json_response()
         except (IntegrityError, DatabaseError) as e:
             logging.error(f'删除设备事件数据库错误｜事件ID：{form.id}｜用户：{request.user.username}｜错误：{e}', exc_info=True)

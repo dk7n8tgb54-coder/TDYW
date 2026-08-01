@@ -21,6 +21,11 @@ class AlertStore {
   @observable f_source = '';
   @observable f_keyword = '';
 
+  // 趋势图状态
+  @observable trendData = [];
+  @observable trendLoading = false;
+  @observable trendHours = 24;
+
   fetchRecords = () => {
     this.isFetching = true;
     const params = {
@@ -85,6 +90,22 @@ class AlertStore {
       .finally(() => {
         this.actionId = null;
       });
+  };
+
+  fetchTrend = () => {
+    this.trendLoading = true;
+    return http.get('/api/alert/trend/', {params: {hours: this.trendHours}})
+      .then(res => {
+        this.trendData = res.series || [];
+      })
+      .finally(() => {
+        this.trendLoading = false;
+      });
+  };
+
+  setTrendHours = (hours) => {
+    this.trendHours = hours;
+    this.fetchTrend();
   };
 }
 

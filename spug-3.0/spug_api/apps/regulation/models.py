@@ -71,6 +71,7 @@ class Regulation(models.Model):
 
     updated_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name='+', verbose_name='更新人')
     updated_at = models.DateTimeField(null=True, blank=True, verbose_name='更新时间')
+    created_at = models.DateTimeField(auto_now_add=True, null=True, verbose_name='创建时间')
 
     class Meta:
         db_table = 'tdyw_regulation'

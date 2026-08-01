@@ -10,10 +10,15 @@ logger = logging.getLogger(__name__)
 
 @shared_task(bind=True, max_retries=1, default_retry_delay=60)
 def check_disk_space(self):
-    """每 10 分钟检查磁盘空间，超阈值告警"""
+    """每 10 分钟检查磁盘空间，超阈值告警 + 趋势预警"""
     import os
     import shutil
     from django.conf import settings
+
+    # 趋势预警阈值：预测 72 小时内满盘则发预警
+    TREND_WARN_HOURS = 72
+    # 至少 12 个数据点（10min/次 * 12 = 2 小时）才做预测
+    MIN_POINTS_FOR_PREDICTION = 12
 
     paths = [
         ('documents', os.path.join(settings.BASE_DIR, 'storage', 'documents')),
@@ -36,6 +41,31 @@ def check_disk_space(self):
                     source='disk',
                     alert_key=f'disk:{name}',
                 )
+
+            # 趋势预测：记录指标 + 预测满盘时间
+            from libs.trend import record_metric, get_trend, linear_slope, predict_time_to_threshold
+            record_metric(f'disk:{name}', usage.used)
+
+            trend = get_trend(f'disk:{name}', 24)
+            if len(trend) >= MIN_POINTS_FOR_PREDICTION:
+                slope = linear_slope(trend)
+                hours = predict_time_to_threshold(usage.used, usage.total, slope)
+                # 快照未触发(<90%)但趋势预测 72h 内会满
+                if hours is not None and hours < TREND_WARN_HOURS and percent < 90:
+                    from libs.alert import send_alert
+                    free_gb = usage.free / (1024 ** 3)
+                    send_alert(
+                        title=f'磁盘空间趋势预警: {name}',
+                        message=(
+                            f'路径: {path}\n'
+                            f'当前使用率: {percent:.1f}%（可用 {free_gb:.1f}GB）\n'
+                            f'按近 24h 增长速率，预计 {hours:.0f} 小时后满盘\n'
+                            f'建议提前清理或扩容'
+                        ),
+                        level='warning',
+                        source='disk',
+                        alert_key=f'disk:{name}:trend',  # 与快照告警分开去重
+                    )
         except Exception as e:
             logger.error(f'[DISK] 检查 {name} 失败: {e}')
 
@@ -121,3 +151,65 @@ def run_data_quality_check(self):
             level='error',
             source='data_quality_check',
         )
+
+
+@shared_task(bind=True, max_retries=0)
+def cleanup_old_alerts(self):
+    """每天 03:00 清理旧告警，防止 alerts 表无限增长
+
+    清理策略：
+    - 已处理告警（resolved）超过 90 天 -> 物理删除
+    - 活跃告警（active）超过 180 天 -> 物理删除（可能是遗留未处理）
+    - AlertRead 记录随 Alert CASCADE 自动删除
+    """
+    from datetime import timedelta
+    from django.utils import timezone
+    from apps.alert.models import Alert
+
+    RESOLVED_RETENTION_DAYS = 90
+    ACTIVE_RETENTION_DAYS = 180
+    BATCH_SIZE = 1000
+    MAX_ITERATIONS = 50  # 安全阀：最多删 5 万条
+
+    try:
+        now = timezone.now()
+        resolved_cutoff = now - timedelta(days=RESOLVED_RETENTION_DAYS)
+        active_cutoff = now - timedelta(days=ACTIVE_RETENTION_DAYS)
+
+        total_deleted = 0
+        iterations = 0
+
+        # 先删已处理的旧告警
+        while iterations < MAX_ITERATIONS:
+            batch_ids = list(
+                Alert.objects.filter(
+                    status=Alert.STATUS_RESOLVED,
+                    resolved_at__lt=resolved_cutoff,
+                ).values_list('id', flat=True)[:BATCH_SIZE]
+            )
+            if not batch_ids:
+                break
+            # AlertRead FK CASCADE 自动删除
+            Alert.objects.filter(id__in=batch_ids).delete()
+            total_deleted += len(batch_ids)
+            iterations += 1
+
+        # 再删遗留的活跃旧告警
+        while iterations < MAX_ITERATIONS * 2:
+            batch_ids = list(
+                Alert.objects.filter(
+                    status=Alert.STATUS_ACTIVE,
+                    created_at__lt=active_cutoff,
+                ).values_list('id', flat=True)[:BATCH_SIZE]
+            )
+            if not batch_ids:
+                break
+            Alert.objects.filter(id__in=batch_ids).delete()
+            total_deleted += len(batch_ids)
+            iterations += 1
+
+        if total_deleted > 0:
+            logger.info(f'[CLEANUP] 清理旧告警 {total_deleted} 条')
+
+    except Exception as e:
+        logger.error(f'[CLEANUP] 清理旧告警失败: {e}', exc_info=True)

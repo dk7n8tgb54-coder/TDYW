@@ -299,7 +299,7 @@ class AttachmentService:
         skip_tenant_filter=True 时跳过租户过滤（由调用方完成可见性校验），
         用于全平台公告等跨租户可见场景。
         """
-        base_qs = EvidenceAttachment.objects.all()
+        base_qs = EvidenceAttachment.objects.filter(is_deleted=False)
         qs = base_qs if skip_tenant_filter else apply_tenant_filter(base_qs, user)
         att = qs.filter(pk=attachment_id).first()
         if not att:
@@ -547,15 +547,21 @@ class AttachmentService:
         now = timezone.now()
         uid = getattr(user, 'id', None)
         uname = user.nickname or user.username
-        for att in qs:
-            att.is_deleted = True
-            att.deleted_at = now
-            att.deleted_by_id = uid
-            att.deleted_by_name = uname
-            att.delete_reason = reason
-            att.save(update_fields=[
-                'is_deleted', 'deleted_at', 'deleted_by_id',
-                'deleted_by_name', 'delete_reason',
-            ])
-            if delete_file:
+        # R5 修复：事务包裹循环，中途失败回滚避免部分删除
+        # 先 list(qs) 缓存，因为 atomic 内会修改 is_deleted，之后 qs 变空
+        att_list = list(qs)
+        with transaction.atomic():
+            for att in att_list:
+                att.is_deleted = True
+                att.deleted_at = now
+                att.deleted_by_id = uid
+                att.deleted_by_name = uname
+                att.delete_reason = reason
+                att.save(update_fields=[
+                    'is_deleted', 'deleted_at', 'deleted_by_id',
+                    'deleted_by_name', 'delete_reason',
+                ])
+        # 物理文件删除在事务提交后执行（失败仅记日志，不回滚数据库）
+        if delete_file:
+            for att in att_list:
                 AttachmentService._remove_physical_file_on_commit(att)

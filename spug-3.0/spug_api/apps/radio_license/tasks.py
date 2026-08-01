@@ -110,10 +110,13 @@ def scan_radio_license_expiration(self):
     updated_count = 0
 
     for license_obj in licenses:
-        old_status = license_obj.status
-        result = scan_single_license(license_obj, today)
-        if result['updated']:
-            updated_count += 1
+        try:
+            old_status = license_obj.status
+            result = scan_single_license(license_obj, today)
+            if result['updated']:
+                updated_count += 1
+        except Exception as e:
+            logger.error(f'[RadioLicense] 扫描单条执照失败 ID={license_obj.id}: {e}', exc_info=True)
 
     logger.info(f'[RadioLicense] 全量扫描完成: total={total}, updated={updated_count}')
     if updated_count > 0:

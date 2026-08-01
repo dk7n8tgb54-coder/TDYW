@@ -80,16 +80,21 @@ def _push_to_cache(alert):
     import json
     if not alert:
         return
-    data = json.dumps({
-        'id': alert.id,
-        'title': alert.title,
-        'message': alert.message,
-        'level': alert.level,
-        'source': alert.source,
-        'created_at': alert.created_at.isoformat() if alert.created_at else None,
-    })
-    cache.lpush('alerts:recent', data)
-    cache.ltrim('alerts:recent', 0, 49)  # 只保留最近 50 条
+    try:
+        from django_redis import get_redis_connection
+        r = get_redis_connection()
+        data = json.dumps({
+            'id': alert.id,
+            'title': alert.title,
+            'message': alert.message,
+            'level': alert.level,
+            'source': alert.source,
+            'created_at': alert.created_at.isoformat() if alert.created_at else None,
+        })
+        r.lpush('alerts:recent', data)
+        r.ltrim('alerts:recent', 0, 49)  # 只保留最近 50 条
+    except Exception as e:
+        logger.error(f'[ALERT] 写入 Redis List 失败: {e}')
 
 
 def _send_email(title, message, level):

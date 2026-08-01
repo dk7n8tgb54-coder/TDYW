@@ -64,10 +64,13 @@ class AlertListView(AdminView):
         if form.source:
             queryset = queryset.filter(source=form.source)
         if form.keyword:
+            from datetime import timedelta
+            # keyword 搜索限制最近 180 天，避免全表扫描
+            keyword_cutoff = timezone.now() - timedelta(days=180)
             queryset = queryset.filter(
                 Q(title__icontains=form.keyword)
-                | Q(message__icontains=form.keyword)
-                | Q(alert_key__icontains=form.keyword)
+                | Q(alert_key__icontains=form.keyword),
+                created_at__gte=keyword_cutoff,
             )
         if form.status:
             if form.status == 'resolved':
@@ -104,6 +107,8 @@ class AlertListView(AdminView):
 class AlertMarkReadView(AdminView):
     PERM_MAP = {'POST': 'system.alert.view'}
 
+    BATCH_SIZE = 500
+
     def post(self, request):
         form, error = JsonParser(
             Argument('ids', type=list, default=[], required=False),
@@ -115,19 +120,29 @@ class AlertMarkReadView(AdminView):
             return json_response(error='请选择需要标记的告警')
 
         if form.all:
-            alert_ids = Alert.objects.filter(status=Alert.STATUS_ACTIVE).values_list('id', flat=True)
+            alert_ids_qs = Alert.objects.filter(status=Alert.STATUS_ACTIVE).values_list('id', flat=True)
         else:
             try:
                 ids = {int(item) for item in form.ids if int(item) > 0}
             except (TypeError, ValueError):
                 return json_response(error='告警 ID 格式错误')
-            alert_ids = Alert.objects.filter(
+            alert_ids_qs = Alert.objects.filter(
                 id__in=ids, status=Alert.STATUS_ACTIVE
             ).values_list('id', flat=True)
 
-        records = [AlertRead(alert_id=alert_id, user_id=request.user.id) for alert_id in alert_ids]
-        AlertRead.objects.bulk_create(records, ignore_conflicts=True, batch_size=500)
-        return json_response({'marked_count': len(records)})
+        # 使用 iterator() 流式处理，避免全量加载到内存
+        total_marked = 0
+        batch = []
+        for alert_id in alert_ids_qs.iterator(self.BATCH_SIZE):
+            batch.append(AlertRead(alert_id=alert_id, user_id=request.user.id))
+            if len(batch) >= self.BATCH_SIZE:
+                AlertRead.objects.bulk_create(batch, ignore_conflicts=True, batch_size=self.BATCH_SIZE)
+                total_marked += len(batch)
+                batch = []
+        if batch:
+            AlertRead.objects.bulk_create(batch, ignore_conflicts=True, batch_size=self.BATCH_SIZE)
+            total_marked += len(batch)
+        return json_response({'marked_count': total_marked})
 
 
 class AlertResolveView(AdminView):
@@ -159,3 +174,41 @@ class DataQualityCheckView(AdminView):
         except (json.JSONDecodeError, TypeError):
             return json_response(error='巡检结果解析失败')
         return json_response(result)
+
+
+class AlertTrendView(AdminView):
+    """磁盘趋势数据 API，从 Redis ZSet 读取历史指标返回给前端图表"""
+    PERM_MAP = {'GET': 'system.alert.view'}
+
+    # 支持查询的指标白名单
+    METRIC_NAMES = {
+        'disk:documents': '文档存储',
+        'disk:chunks': '分片存储',
+        'disk:media': '媒体存储',
+    }
+
+    def get(self, request):
+        form, error = JsonParser(
+            Argument('hours', type=int, default=24, required=False),
+        ).parse(request.GET)
+        if error:
+            return json_response(error=error)
+
+        hours = min(max(form.hours, 1), 168)  # 限制 1-168h（7天）
+        from libs.trend import get_trend
+
+        series = []
+        for name, label in self.METRIC_NAMES.items():
+            trend = get_trend(name, hours)
+            if not trend:
+                continue
+            series.append({
+                'name': name,
+                'label': label,
+                'points': [
+                    {'time': ts, 'value': val}
+                    for ts, val in trend
+                ],
+            })
+
+        return json_response({'series': series, 'hours': hours})

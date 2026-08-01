@@ -40,7 +40,7 @@ class AlertStore {
           this.errorCount = summary.error_count ?? 0;
         });
       })
-      .catch(() => {});
+      .catch(err => { console.error('[AlertStore] 轮询失败:', err); });
   };
 
   fetchRecent = () => {
@@ -66,6 +66,8 @@ class AlertStore {
       .then(() => {
         runInAction(() => {
           this.unreadCount = 0;
+          this.errorCount = 0;
+          this.recentAlerts.forEach(a => { a.status = 'read'; });
         });
       });
   };

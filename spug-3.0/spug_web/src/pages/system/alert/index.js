@@ -1,6 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { observer } from 'mobx-react';
-import { Button, Input, Popconfirm, Select, Space, Tag, Tooltip, Typography } from 'antd';
+import { Button, Card, Col, Empty, Input, Popconfirm, Radio, Row, Select, Space, Spin, Tag, Tooltip, Typography } from 'antd';
+import { Chart, Geom, Axis, Tooltip as ChartTooltip, Legend } from 'bizcharts';
 import { CheckCircleOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons';
 import { AuthDiv, AuthFragment, Breadcrumb, SearchForm, TableCard } from 'components';
 import store from './store';
@@ -26,6 +27,71 @@ const SOURCE_LABELS = {
   disk: '磁盘',
   db: '数据库',
 };
+
+const DiskTrendChart = observer(function DiskTrendChart() {
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    store.fetchTrend();
+  }, []);
+
+  // 将 store.trendData 展平为 bizcharts 数据格式
+  const chartData = [];
+  let hasData = false;
+  store.trendData.forEach(series => {
+    series.points.forEach(p => {
+      chartData.push({
+        time: new Date(p.time * 1000).toLocaleString('zh-CN', {hour12: false}),
+        value: +(p.value / 1024 / 1024 / 1024).toFixed(2),  // bytes -> GB
+        type: series.label,
+      });
+      hasData = true;
+    });
+  });
+
+  return (
+    <Card
+      size="small"
+      title="磁盘使用趋势"
+      extra={
+        <Space>
+          <Radio.Group
+            size="small"
+            value={store.trendHours}
+            onChange={e => store.setTrendHours(e.target.value)}>
+            <Radio.Button value={6}>6h</Radio.Button>
+            <Radio.Button value={24}>24h</Radio.Button>
+            <Radio.Button value={72}>3天</Radio.Button>
+            <Radio.Button value={168}>7天</Radio.Button>
+          </Radio.Group>
+          <Button size="small" type="text" onClick={() => setCollapsed(!collapsed)}>
+            {collapsed ? '展开' : '收起'}
+          </Button>
+        </Space>
+      }
+      bodyStyle={{display: collapsed ? 'none' : 'block'}}>
+      <Spin spinning={store.trendLoading}>
+        {hasData ? (
+          <Chart
+            data={chartData}
+            autoFit
+            height={280}
+            padding={[30, 20, 60, 60]}
+            scale={{value: {min: 0, alias: '已用(GB)'}}}>
+            <Axis name="time" label={{autoRotate: true, style: {fontSize: 10}}} />
+            <Axis name="value" title={{text: '已用空间(GB)'}} />
+            <Legend name="type" position="top" />
+            <ChartTooltip showCrosshairs />
+            <Geom type="line" position="time*value" color="type" shape="smooth" size={2} />
+            <Geom type="point" position="time*value" color="type" size={3} shape="circle" />
+          </Chart>
+        ) : (
+          <Empty description="暂无趋势数据（数据采集需运行至少 2 小时）" style={{margin: '40px 0'}} />
+        )}
+      </Spin>
+    </Card>
+  );
+});
 
 function AlertTable() {
   const columns = [{
@@ -207,6 +273,9 @@ export default observer(function AlertIndex() {
           <Button style={{marginLeft: 8}} onClick={store.resetFilters}>重置</Button>
         </SearchForm.Item>
       </SearchForm>
+      <div style={{marginBottom: 16}}>
+        <DiskTrendChart/>
+      </div>
       <AlertTable/>
     </AuthDiv>
   );

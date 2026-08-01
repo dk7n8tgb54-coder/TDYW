@@ -26,6 +26,7 @@
 """
 import logging
 
+from django.db import transaction
 from django.db.models import Q
 from django.views import View
 
@@ -63,16 +64,16 @@ def ensure_announcement_admin(user):
 
 
 def _normalize_datetime(value, required=True, field='时间'):
-    """校验并规范化时间字符串，返回 (str, error)"""
+    """校验并规范化时间，返回 (datetime|None, error)"""
     if not value:
         if required:
             return None, '请填写%s' % field
-        return '', None
+        return None, None
     try:
         dt = parse_time(value)
     except (TypeError, ValueError):
         return None, '%s格式错误' % field
-    return dt.strftime('%Y-%m-%d %H:%M:%S'), None
+    return dt, None
 
 
 def _range_bound(value, is_end):
@@ -97,15 +98,16 @@ def _set_publish_department(ann, form, request):
 
 
 def _sync_scopes(ann, scope_type, tids, tenants):
-    """重建发布范围（先清空再写入）"""
-    ann.scopes.all().delete()
-    if scope_type == SCOPE_TENANT and tids:
-        for tid in tids:
-            AnnouncementScope.objects.create(
-                announcement=ann,
-                tenant_id=tid,
-                tenant_name=tenants.get(tid, tid),
-            )
+    """重建发布范围（先清空再写入，事务保证原子性）"""
+    with transaction.atomic():
+        ann.scopes.all().delete()
+        if scope_type == SCOPE_TENANT and tids:
+            for tid in tids:
+                AnnouncementScope.objects.create(
+                    announcement=ann,
+                    tenant_id=tid,
+                    tenant_name=tenants.get(tid, tid),
+                )
 
 
 def _mark_read(ann, user):
@@ -140,18 +142,18 @@ def _validate_title_content(form):
 
 
 def _validate_effective_times(form):
-    """校验生效时间区间，返回 (start_str, end_str, error)"""
-    start_str, err = _normalize_datetime(form.effective_start_at, required=True, field='生效开始时间')
+    """校验生效时间区间，返回 (start_dt, end_dt|None, error)"""
+    start_dt, err = _normalize_datetime(form.effective_start_at, required=True, field='生效开始时间')
     if err:
         return None, None, err
-    end_str = ''
+    end_dt = None
     if form.effective_end_at:
-        end_str, err = _normalize_datetime(form.effective_end_at, required=False, field='生效结束时间')
+        end_dt, err = _normalize_datetime(form.effective_end_at, required=False, field='生效结束时间')
         if err:
             return None, None, err
-        if end_str and end_str < start_str:
+        if end_dt and end_dt < start_dt:
             return None, None, '生效结束时间不能早于开始时间'
-    return start_str, end_str, None
+    return start_dt, end_dt, None
 
 
 def _validate_scope(form):
@@ -169,43 +171,46 @@ def _validate_scope(form):
 
 
 def _validate_announcement_form(form):
-    """校验公告表单，返回 (title, content, start_str, end_str, tids, tenants, error)"""
+    """校验公告表单，返回 (title, content, start_dt, end_dt, tids, tenants, error)"""
     title, content, err = _validate_title_content(form)
     if err:
         return None, None, None, None, None, None, err
-    start_str, end_str, err = _validate_effective_times(form)
+    start_dt, end_dt, err = _validate_effective_times(form)
     if err:
         return None, None, None, None, None, None, err
     tids, tenants, err = _validate_scope(form)
     if err:
         return None, None, None, None, None, None, err
-    return title, content, start_str, end_str, tids, tenants, None
+    return title, content, start_dt, end_dt, tids, tenants, None
 
 
-def _update_announcement(form, title, content, start_str, end_str, tids, tenants, request):
+def _update_announcement(form, title, content, start_dt, end_dt, tids, tenants, request):
     """更新已有公告，返回 (ann, error)"""
     ann = Announcement.objects.filter(pk=form.id, is_deleted=False).first()
     if not ann:
         return None, '公告不存在'
+    if ann.status == STATUS_PUBLISHED:
+        return None, '已发布公告请先撤回再编辑'
     now = timezone.now()
     user = request.user
     ann.title = title
     ann.content = content
     ann.scope_type = form.scope_type
-    ann.effective_start_at = start_str
-    ann.effective_end_at = end_str
+    ann.effective_start_at = start_dt
+    ann.effective_end_at = end_dt
     ann.is_important = form.is_important
     ann.updated_at = now
     ann.updated_by_id = user.id
     ann.updated_by_name = user.nickname or user.username
     _set_publish_department(ann, form, request)
-    ann.save()
-    _sync_scopes(ann, form.scope_type, tids, tenants)
+    with transaction.atomic():
+        ann.save()
+        _sync_scopes(ann, form.scope_type, tids, tenants)
     record_audit_event(request, 'update', target_type='home', target_id=ann.id, target_name=ann.title)
     return ann, None
 
 
-def _create_announcement(form, title, content, start_str, end_str, tids, tenants, request):
+def _create_announcement(form, title, content, start_dt, end_dt, tids, tenants, request):
     """创建新公告，返回 ann"""
     user = request.user
     ann = Announcement(
@@ -213,16 +218,17 @@ def _create_announcement(form, title, content, start_str, end_str, tids, tenants
         title=title,
         content=content,
         scope_type=form.scope_type,
-        effective_start_at=start_str,
-        effective_end_at=end_str,
+        effective_start_at=start_dt,
+        effective_end_at=end_dt,
         is_important=form.is_important,
         status=STATUS_UNPUBLISHED,
         created_by_id=user.id,
         created_by_name=user.nickname or user.username,
     )
     _set_publish_department(ann, form, request)
-    ann.save()
-    _sync_scopes(ann, form.scope_type, tids, tenants)
+    with transaction.atomic():
+        ann.save()
+        _sync_scopes(ann, form.scope_type, tids, tenants)
     record_audit_event(request, 'create', target_type='home', target_id=ann.id, target_name=ann.title)
     return ann
 
@@ -308,22 +314,23 @@ class AnnouncementAdminDetailView(View):
     def delete(self, request, pk):
         if not ensure_announcement_admin(request.user):
             return json_response(error='权限拒绝')
-        ann = Announcement.objects.filter(pk=pk, is_deleted=False).first()
-        if not ann:
-            return json_response(error='公告不存在')
-        # 已发布先自动撤回，保证用户端不可见
-        if ann.status == STATUS_PUBLISHED:
-            ann.status = STATUS_UNPUBLISHED
-            ann.withdrawn_at = timezone.now()
-            ann.withdrawn_by_id = request.user.id
-            ann.withdrawn_by_name = request.user.nickname or request.user.username
+        with transaction.atomic():
+            ann = Announcement.objects.select_for_update().filter(
+                pk=pk, is_deleted=False).first()
+            if not ann:
+                return json_response(error='公告不存在')
+            # 已发布先自动撤回，保证用户端不可见
+            if ann.status == STATUS_PUBLISHED:
+                ann.status = STATUS_UNPUBLISHED
+                ann.withdrawn_at = timezone.now()
+                ann.withdrawn_by_id = request.user.id
+                ann.withdrawn_by_name = request.user.nickname or request.user.username
+            # 软删除
+            ann.is_deleted = True
+            ann.deleted_at = timezone.now()
+            ann.deleted_by_id = request.user.id
+            ann.deleted_by_name = request.user.nickname or request.user.username
             ann.save()
-        # 软删除
-        ann.is_deleted = True
-        ann.deleted_at = timezone.now()
-        ann.deleted_by_id = request.user.id
-        ann.deleted_by_name = request.user.nickname or request.user.username
-        ann.save()
         # 联动软删除附件
         AttachmentService.soft_delete_by_object(request.user, MODULE, OBJECT_TYPE, ann.id)
         record_audit_event(request, 'delete', target_type='home', target_id=ann.id, target_name=ann.title)
@@ -349,12 +356,14 @@ class AnnouncementPublishView(View):
         ann = Announcement.objects.filter(pk=pk, is_deleted=False).first()
         if not ann:
             return json_response(error='公告不存在')
+        if ann.status == STATUS_PUBLISHED:
+            return json_response(error='公告已发布，请勿重复发布')
         now = timezone.now()
         ann.status = STATUS_PUBLISHED
         ann.published_at = now
         ann.published_by_id = request.user.id
         ann.published_by_name = request.user.nickname or request.user.username
-        ann.withdrawn_at = ''
+        ann.withdrawn_at = None
         ann.withdrawn_by_id = None
         ann.withdrawn_by_name = ''
         # 保留用户填写的生效时间，compute_status 会按时间区间自然判定可见性
@@ -531,12 +540,14 @@ class AnnouncementRemindersView(View):
     def get(self, request):
         qs = visible_announcements_for_user(request.user).order_by('-published_at', '-id')
         results = []
-        for ann in qs:
-            if not AnnouncementRead.objects.filter(
-                    announcement_id=ann.id, user_id=request.user.id).exists():
-                results.append(ann.to_view(request.user))
-            if len(results) >= 5:
-                break
+        visible_ids = list(qs.values_list('id', flat=True))
+        if visible_ids:
+            read_ids = set(AnnouncementRead.objects.filter(
+                announcement_id__in=visible_ids, user_id=request.user.id
+            ).values_list('announcement_id', flat=True))
+            unread_ids = [i for i in visible_ids if i not in read_ids][:5]
+            if unread_ids:
+                results = [ann.to_view(request.user) for ann in qs.filter(id__in=unread_ids)]
         return json_response(results)
 
 

@@ -1,0 +1,786 @@
+﻿INFO [DocumentConfig] Document app ready
+INFO [DocumentConfig] Registered 2 Celery Beat tasks
+Using existing test database for alias 'default' ('test_spug')...
+[Celery] Document tasks imported successfully
+[Celery] RadioLicense tasks imported successfully
+[Celery] Home tasks imported successfully
+Found 90 test(s).
+Operations to perform:
+  Synchronize unmigrated apps: channels, libs, messages, staticfiles
+  Apply all migrations: account, alert, auth, contenttypes, contract_agreement, department_duty_log, device, django_celery_beat, django_celery_results, document, duty, evidence, fault, home, interference, logs, radio_license, regulation, runlog, sessions, setting, signature, upgrade
+Synchronizing apps without migrations:
+  Creating tables...
+    Running deferred SQL...
+Running migrations:
+  Applying runlog.0009_time_field_to_datetime... OK
+  Applying runlog.0010_alter_eventtypeconfig_id_alter_runlog_id_and_more... OK
+  Applying runlog.0011_runlog_runlog_severity_valid_and_more... OK
+  Applying runlog.0012_remove_null_from_string_fields... OK
+  Applying runlog.0013_remove_runlogupdate_tdyw_run_lo_runlog__f96268_idx_and_more... OK
+  Applying runlog.0014_runlog_deleted_at_runlog_is_deleted... OK
+  Applying sessions.0001_initial... OK
+  Applying setting.0001_initial... OK
+  Applying setting.0002_alter_setting_id_alter_usersetting_id... OK
+  Applying setting.0003_simplify_check_constraint... OK
+  Applying signature.0001_initial... OK
+  Applying signature.0002_signatureusage... OK
+  Applying signature.0003_alter_accountsignature_id_alter_signatureusage_id... OK
+  Applying signature.0004_alter_accountsignature_assigned_at_and_more... OK
+  Applying signature.0005_remove_null_from_string_fields... OK
+  Applying upgrade.0001_initial... OK
+  Applying upgrade.0002_auto_20260627_0807... OK
+  Applying upgrade.0003_upgrade_attachment... OK
+  Applying upgrade.0004_merge_plan... OK
+  Applying upgrade.0005_drop_upgrade_attachment... OK
+  Applying upgrade.0006_status_log... OK
+  Applying upgrade.0007_step_phase... OK
+  Applying upgrade.0008_status_log_flow... OK
+  Applying upgrade.0009_status_log_action_labels... OK
+  Applying upgrade.0010_alter_upgradestatuslog_action... OK
+  Applying upgrade.0011_record_create_fields... OK
+  Applying upgrade.0012_upgrade_system... OK
+  Applying upgrade.0013_upgradeplanstep_upg_plan_tenant_seq_idx_and_more... OK
+  Applying upgrade.0014_tenant_isolate_upgrade_systems... OK
+  Applying upgrade.0015_alter_upgradeplanstep_id_alter_upgraderecord_id_and_more... OK
+  Applying upgrade.0016_alter_upgradeplanstep_created_at_and_more... OK
+  Applying upgrade.0017_phase_to_display_name... OK
+  Applying upgrade.0018_status_log_phase_outcome... OK
+  Applying upgrade.0019_alter_upgradetemplate_options_and_more... OK
+  Applying upgrade.0020_upgraderecord_deleted_at_upgraderecord_is_deleted_and_more... OK
+  Applying upgrade.0021_alter_upgraderecord_unique_together_and_more... OK
+System check identified some issues:
+
+WARNINGS:
+document.DocumentSystemFolder.folder: (fields.W342) Setting unique=True on a ForeignKey has the same effect as using a OneToOneField.
+	HINT: ForeignKey(unique=True) is usually better served by a OneToOneField.
+
+System check identified 1 issue (0 silenced).
+test_p10a_has_audit (apps.radio_license.crud_audit_tests.P10_ApprovalHasAudit) ... ok
+test_p11a_views_clean (apps.radio_license.crud_audit_tests.P11_NoBadDatetimeQueries) ... ok
+test_p11b_approval_views_clean (apps.radio_license.crud_audit_tests.P11_NoBadDatetimeQueries) ... ok
+test_p12a_no_fstring_sql (apps.radio_license.crud_audit_tests.P12_NoRawSQL) ... ok
+test_p12b_no_raw (apps.radio_license.crud_audit_tests.P12_NoRawSQL) ... ok
+test_p12c_no_extra (apps.radio_license.crud_audit_tests.P12_NoRawSQL) ... ok
+test_p13a_has_max (apps.radio_license.crud_audit_tests.P13_ApprovalListPageSizeLimit) ... ok
+test_p14a_no_requests (apps.radio_license.crud_audit_tests.P14_NoExternalCalls) ... ok
+test_p14b_no_subprocess (apps.radio_license.crud_audit_tests.P14_NoExternalCalls) ... ok
+test_p15a_license_views (apps.radio_license.crud_audit_tests.P15_AllViewsUseTenantFilter) ... ok
+test_p15b_approval_views (apps.radio_license.crud_audit_tests.P15_AllViewsUseTenantFilter) ... ok
+test_p16a_license_clean (apps.radio_license.crud_audit_tests.P16_NoCharFieldNullTrue) ... ok
+test_p16b_approval_clean (apps.radio_license.crud_audit_tests.P16_NoCharFieldNullTrue) ... ok
+test_p17a_license_list_has_pagination (apps.radio_license.crud_audit_tests.P17_NoUnboundedQueries) ... ok
+test_p17b_approval_list_has_pagination (apps.radio_license.crud_audit_tests.P17_NoUnboundedQueries) ... ok
+test_p1a_constraint_exists (apps.radio_license.crud_audit_tests.P1_ApprovalUniqueDocNo) ... ok
+test_p1b_duplicate_rejected (apps.radio_license.crud_audit_tests.P1_ApprovalUniqueDocNo) ... ERROR
+test_p2a_status_check (apps.radio_license.crud_audit_tests.P2_LicenseCheckConstraints) ... ok
+test_p2b_invalid_status_rejected (apps.radio_license.crud_audit_tests.P2_LicenseCheckConstraints) ... ERROR
+test_p2c_invalid_date_order_rejected (apps.radio_license.crud_audit_tests.P2_LicenseCheckConstraints) ... ERROR
+test_p3a_duplicate_rejected (apps.radio_license.crud_audit_tests.P3_ReminderAckUnique) ... ERROR
+test_p4a_check_exists (apps.radio_license.crud_audit_tests.P4_FrequencyCheckConstraints) ... ok
+test_p4b_zero_frequency_rejected (apps.radio_license.crud_audit_tests.P4_FrequencyCheckConstraints) ... ERROR
+test_p5a_created_by_protect (apps.radio_license.crud_audit_tests.P5_FKOnDelete) ... ok
+test_p5b_frequency_cascade (apps.radio_license.crud_audit_tests.P5_FKOnDelete) ... ok
+test_p6a_has_transaction (apps.radio_license.crud_audit_tests.P6_ApprovalDeleteInTransaction) ... ok
+test_p7a_has_transaction (apps.radio_license.crud_audit_tests.P7_LicenseCreateInTransaction) ... ok
+test_p8a_has_doc_no_check (apps.radio_license.crud_audit_tests.P8_ApprovalHasDedup) ... ok
+test_p8b_has_integrity_error_catch (apps.radio_license.crud_audit_tests.P8_ApprovalHasDedup) ... ok
+test_p9a_uses_get_or_create (apps.radio_license.crud_audit_tests.P9_ApprovalAckIdempotent) ... ok
+test_r10a_no_limit (apps.radio_license.crud_audit_tests.R10_EvidencePackageNoLimit) ... ok
+test_r11a_no_iterator (apps.radio_license.crud_audit_tests.R11_LicenseScanNoIterator) ... ok
+test_r11b_approval_has_iterator (apps.radio_license.crud_audit_tests.R11_LicenseScanNoIterator) ... ok
+test_r12a_no_try (apps.radio_license.crud_audit_tests.R12_ScanNoErrorIsolation) ... ok
+test_r13a_no_auth_decorator (apps.radio_license.crud_audit_tests.R13_PreviewFileNoAuth) ... ok
+test_r14a_no_auth_decorator (apps.radio_license.crud_audit_tests.R14_ApprovalPreviewFileNoAuth) ... ok
+test_r1a_no_unique_constraint (apps.radio_license.crud_audit_tests.R1_LicenseNoUniqueConstraint) ... ok
+test_r1b_duplicate_allowed (apps.radio_license.crud_audit_tests.R1_LicenseNoUniqueConstraint) ... ERROR
+test_r2a_no_is_deleted_field (apps.radio_license.crud_audit_tests.R2_LicenseNoSoftDelete) ... ok
+test_r2b_no_soft_delete_manager (apps.radio_license.crud_audit_tests.R2_LicenseNoSoftDelete) ... ok
+test_r3a_no_is_deleted_field (apps.radio_license.crud_audit_tests.R3_ApprovalNoSoftDelete) ... ok
+test_r4a_integer_field (apps.radio_license.crud_audit_tests.R4_ResponsibleUserIdNotFK) ... ok
+test_r5a_no_transaction (apps.radio_license.crud_audit_tests.R5_LicenseDeleteNotInTransaction) ... ok
+test_r6a_no_check_recent_duplicate (apps.radio_license.crud_audit_tests.R6_LicenseCreateNoDedup) ... ok
+test_r7a_uses_hard_delete (apps.radio_license.crud_audit_tests.R7_LicenseHardDelete) ... ok
+test_r8a_create_no_audit (apps.radio_license.crud_audit_tests.R8_LicenseNoAuditOnCreate)
+确认 _handle_create / _handle_edit 无 record_audit_event ... ok
+test_r9a_no_max (apps.radio_license.crud_audit_tests.R9_LicenseListNoPageSizeLimit) ... ok
+test_p10a_has_audit (apps.device.crud_audit_tests.P10_DeviceResumePutHasAudit) ... ok
+test_p11a_has_audit (apps.device.crud_audit_tests.P11_ExportHasAudit) ... ok
+test_p12a_views_clean (apps.device.crud_audit_tests.P12_NoBadDatetimeQueries) ... ok
+test_p12b_exporters_clean (apps.device.crud_audit_tests.P12_NoBadDatetimeQueries) ... ok
+test_p13a_no_fstring_sql (apps.device.crud_audit_tests.P13_NoRawSQL) ... ok
+test_p13b_no_raw (apps.device.crud_audit_tests.P13_NoRawSQL) ... ok
+test_p13c_no_extra (apps.device.crud_audit_tests.P13_NoRawSQL) ... ok
+test_p14a_has_limit (apps.device.crud_audit_tests.P14_ExportHasRowLimit) ... ok
+test_p15a_no_requests (apps.device.crud_audit_tests.P15_NoExternalCalls) ... ok
+test_p15b_no_subprocess (apps.device.crud_audit_tests.P15_NoExternalCalls) ... ok
+test_p16a_resume_list (apps.device.crud_audit_tests.P16_ListHasPagination) ... ok
+test_p16b_event_list (apps.device.crud_audit_tests.P16_ListHasPagination) ... ok
+test_p17a_views (apps.device.crud_audit_tests.P17_AllViewsUseTenantFilter) ... ok
+test_p17b_exporters (apps.device.crud_audit_tests.P17_AllViewsUseTenantFilter) ... ok
+test_p18a_uses_soft_delete (apps.device.crud_audit_tests.P18_DeviceResumeDeleteSoftDelete) ... ok
+test_p19a_has_evidence_event (apps.device.crud_audit_tests.P19_DeviceResumeDeleteHasEvidenceEvent) ... ok
+test_p1a_constraint_exists (apps.device.crud_audit_tests.P1_DeviceResumeUniqueSN) ... ok
+test_p1b_duplicate_rejected (apps.device.crud_audit_tests.P1_DeviceResumeUniqueSN) ... ERROR
+test_p20a_has_limit (apps.device.crud_audit_tests.P20_DeviceResumeExportMaxRows) ... ok
+test_p2a_status_check (apps.device.crud_audit_tests.P2_DeviceResumeCheckConstraints) ... ok
+test_p2b_invalid_status_rejected (apps.device.crud_audit_tests.P2_DeviceResumeCheckConstraints) ... ERROR
+test_p3a_has_is_deleted (apps.device.crud_audit_tests.P3_DeviceResumeSoftDelete) ... ok
+test_p3b_soft_delete_manager (apps.device.crud_audit_tests.P3_DeviceResumeSoftDelete) ... ok
+test_p4a_check_exists (apps.device.crud_audit_tests.P4_DeviceEventCheckConstraint) ... ok
+test_p4b_invalid_event_type_rejected (apps.device.crud_audit_tests.P4_DeviceEventCheckConstraint) ... ERROR
+test_p5a_clean (apps.device.crud_audit_tests.P5_DeviceResumeNoCharFieldNull) ... ok
+test_p6a_has_transaction (apps.device.crud_audit_tests.P6_DeviceResumeDeleteInTransaction) ... ok
+test_p7a_has_transaction (apps.device.crud_audit_tests.P7_DeviceResumePutInTransaction) ... ok
+test_p8a_has_dedup (apps.device.crud_audit_tests.P8_DeviceResumeCreateDedup) ... ok
+test_p9a_has_audit (apps.device.crud_audit_tests.P9_DeviceResumeDeleteHasAudit) ... ok
+test_r10a_check_tenant_filter (apps.device.crud_audit_tests.R10_DeviceEventDeleteNoTenantFilter) ... ok
+test_r1a_no_unique (apps.device.crud_audit_tests.R1_DeviceEventNoUniqueConstraint) ... ok
+test_r1b_duplicate_allowed (apps.device.crud_audit_tests.R1_DeviceEventNoUniqueConstraint) ... ERROR
+test_r2a_integer_field (apps.device.crud_audit_tests.R2_DeviceEventResumeIdNotFK) ... ok
+test_r3a_is_deleted_field_exists (apps.device.crud_audit_tests.R3_DeviceEventHasIsDeletedButHardDeletes)
+确认 is_deleted 字段存在（有但不使用） ... ok
+test_r3b_delete_uses_hard_delete (apps.device.crud_audit_tests.R3_DeviceEventHasIsDeletedButHardDeletes)
+确认 DELETE 使用 .delete() 而非 is_deleted=True ... ok
+test_r4a_no_updated_at (apps.device.crud_audit_tests.R4_DeviceEventNoUpdatedFields) ... ok
+test_r5a_no_transaction (apps.device.crud_audit_tests.R5_DeviceEventPutNoTransaction) ... ok
+test_r6a_no_check_recent_duplicate (apps.device.crud_audit_tests.R6_DeviceEventCreateNoDedup) ... ok
+test_r7a_uses_hard_delete (apps.device.crud_audit_tests.R7_DeviceEventHardDelete) ... ok
+test_r7b_no_audit_on_delete (apps.device.crud_audit_tests.R7_DeviceEventHardDelete) ... ok
+test_r8a_fallback_query_exists (apps.device.crud_audit_tests.R8_EvidencePackageAuditLogFallback) ... ok
+test_r9a_no_timeout (apps.device.crud_audit_tests.R9_PdfExportNoTimeout) ... ok
+
+======================================================================
+ERROR: test_p1b_duplicate_rejected (apps.radio_license.crud_audit_tests.P1_ApprovalUniqueDocNo)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+pymysql.err.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/radio_license/crud_audit_tests.py", line 112, in test_p1b_duplicate_rejected
+    u = _make_user('p1b')
+  File "/data/spug/spug_api/apps/radio_license/crud_audit_tests.py", line 25, in _make_user
+    cur.execute(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+  File "/usr/local/lib/python3.10/dist-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+django.db.utils.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+======================================================================
+ERROR: test_p2b_invalid_status_rejected (apps.radio_license.crud_audit_tests.P2_LicenseCheckConstraints)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+pymysql.err.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/radio_license/crud_audit_tests.py", line 131, in test_p2b_invalid_status_rejected
+    u = _make_user('p2b')
+  File "/data/spug/spug_api/apps/radio_license/crud_audit_tests.py", line 25, in _make_user
+    cur.execute(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+  File "/usr/local/lib/python3.10/dist-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+django.db.utils.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+======================================================================
+ERROR: test_p2c_invalid_date_order_rejected (apps.radio_license.crud_audit_tests.P2_LicenseCheckConstraints)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+pymysql.err.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/radio_license/crud_audit_tests.py", line 142, in test_p2c_invalid_date_order_rejected
+    u = _make_user('p2c')
+  File "/data/spug/spug_api/apps/radio_license/crud_audit_tests.py", line 25, in _make_user
+    cur.execute(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+  File "/usr/local/lib/python3.10/dist-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+django.db.utils.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+======================================================================
+ERROR: test_p3a_duplicate_rejected (apps.radio_license.crud_audit_tests.P3_ReminderAckUnique)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+pymysql.err.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/radio_license/crud_audit_tests.py", line 156, in test_p3a_duplicate_rejected
+    u = _make_user('p3a')
+  File "/data/spug/spug_api/apps/radio_license/crud_audit_tests.py", line 25, in _make_user
+    cur.execute(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+  File "/usr/local/lib/python3.10/dist-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+django.db.utils.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+======================================================================
+ERROR: test_p4b_zero_frequency_rejected (apps.radio_license.crud_audit_tests.P4_FrequencyCheckConstraints)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+pymysql.err.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/radio_license/crud_audit_tests.py", line 180, in test_p4b_zero_frequency_rejected
+    u = _make_user('p4b')
+  File "/data/spug/spug_api/apps/radio_license/crud_audit_tests.py", line 25, in _make_user
+    cur.execute(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+  File "/usr/local/lib/python3.10/dist-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+django.db.utils.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+======================================================================
+ERROR: test_r1b_duplicate_allowed (apps.radio_license.crud_audit_tests.R1_LicenseNoUniqueConstraint)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+pymysql.err.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/radio_license/crud_audit_tests.py", line 71, in test_r1b_duplicate_allowed
+    u = _make_user('r1b')
+  File "/data/spug/spug_api/apps/radio_license/crud_audit_tests.py", line 25, in _make_user
+    cur.execute(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+  File "/usr/local/lib/python3.10/dist-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+django.db.utils.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+======================================================================
+ERROR: test_p1b_duplicate_rejected (apps.device.crud_audit_tests.P1_DeviceResumeUniqueSN)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+pymysql.err.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/device/crud_audit_tests.py", line 126, in test_p1b_duplicate_rejected
+    u = _make_user('p1b')
+  File "/data/spug/spug_api/apps/device/crud_audit_tests.py", line 21, in _make_user
+    cur.execute(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+  File "/usr/local/lib/python3.10/dist-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+django.db.utils.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+======================================================================
+ERROR: test_p2b_invalid_status_rejected (apps.device.crud_audit_tests.P2_DeviceResumeCheckConstraints)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+pymysql.err.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/device/crud_audit_tests.py", line 144, in test_p2b_invalid_status_rejected
+    u = _make_user('p2b')
+  File "/data/spug/spug_api/apps/device/crud_audit_tests.py", line 21, in _make_user
+    cur.execute(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+  File "/usr/local/lib/python3.10/dist-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+django.db.utils.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+======================================================================
+ERROR: test_p4b_invalid_event_type_rejected (apps.device.crud_audit_tests.P4_DeviceEventCheckConstraint)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+pymysql.err.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/device/crud_audit_tests.py", line 174, in test_p4b_invalid_event_type_rejected
+    u = _make_user('p4b')
+  File "/data/spug/spug_api/apps/device/crud_audit_tests.py", line 21, in _make_user
+    cur.execute(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+  File "/usr/local/lib/python3.10/dist-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+django.db.utils.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+======================================================================
+ERROR: test_r1b_duplicate_allowed (apps.device.crud_audit_tests.R1_DeviceEventNoUniqueConstraint)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+pymysql.err.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/device/crud_audit_tests.py", line 68, in test_r1b_duplicate_allowed
+    u = _make_user('r1b')
+  File "/data/spug/spug_api/apps/device/crud_audit_tests.py", line 21, in _make_user
+    cur.execute(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+  File "/usr/local/lib/python3.10/dist-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 89, in _execute
+    return self.cursor.execute(sql, params)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+django.db.utils.IntegrityError: (1452, 'Cannot add or update a child row: a foreign key constraint fails (`test_spug`.`users`, CONSTRAINT `users_deleted_by_id_d342c553_fk` FOREIGN KEY (`deleted_by_id`) REFERENCES `users` (`id`))')
+
+----------------------------------------------------------------------
+Ran 90 tests in 0.659s
+
+FAILED (errors=10)
+Preserving test database for alias 'default' ('test_spug')...

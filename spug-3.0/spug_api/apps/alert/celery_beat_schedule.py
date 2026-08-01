@@ -24,4 +24,9 @@ ALERT_BEAT_SCHEDULE = {
         'task': 'apps.alert.tasks.run_data_quality_check',
         'schedule': crontab(hour=6, minute=0, day_of_week=1),
     },
+    # 每天 03:00 清理旧告警（resolved>90天 / active>180天）
+    'cleanup-old-alerts': {
+        'task': 'apps.alert.tasks.cleanup_old_alerts',
+        'schedule': crontab(hour=3, minute=0),
+    },
 }

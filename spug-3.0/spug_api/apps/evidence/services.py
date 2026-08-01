@@ -60,7 +60,7 @@ def record_evidence_event(
     actor_department='', actor_ip='', actor_device='',
     object_snapshot=None, before_snapshot=None, after_snapshot=None,
     attachment_hashes=None, event_title='', remark='',
-    audit_log_id=None,
+    audit_log_id=None, idempotency_key=None,
 ):
     """记录一条证据事件，自动构建按业务对象的哈希链。
 
@@ -83,6 +83,8 @@ def record_evidence_event(
         event_title: 事件标题
         remark: 说明
         audit_log_id: 对应全局审计日志 ID
+        idempotency_key: 幂等键（可选）。传入后在 30s 窗口内相同 key 的事件不会重复写入，
+                         用于 Celery 任务重试场景。键存储在 remark 字段前缀 [idem:xxx]。
 
     Returns:
         EvidenceEvent 实例；失败返回 None（不抛异常，不阻断业务主流程）
@@ -94,6 +96,21 @@ def record_evidence_event(
         return None
 
     try:
+        # R7 修复：幂等键去重，防止 Celery 重试重复写入
+        if idempotency_key:
+            from datetime import timedelta
+            from django.utils import timezone as _tz
+            threshold = _tz.now() - timedelta(seconds=30)
+            idem_remark = f'[idem:{idempotency_key}]'
+            if EvidenceEvent.objects.filter(
+                tenant_id=tenant_id, module=module, object_type=object_type,
+                object_id=str(object_id), event_type=event_type,
+                remark__startswith=idem_remark, created_at__gte=threshold,
+            ).exists():
+                logger.info('[EVIDENCE] 幂等键重复，跳过事件写入: %s', idempotency_key)
+                return None
+            remark = f'{idem_remark} {remark}' if remark else idem_remark
+
         # 规范化快照字段为 JSON 字符串
         object_snapshot_s = _serialize_snapshot(object_snapshot)
         before_snapshot_s = _serialize_snapshot(before_snapshot)
@@ -101,9 +118,10 @@ def record_evidence_event(
         attachment_hashes_s = _serialize_snapshot(attachment_hashes)
 
         with transaction.atomic():
-            # 查询同一业务对象链上一条的 event_hash 作为 prev_hash
+            # R4 修复：select_for_update 锁定行，防止并发读取相同 prev_hash 导致链断裂
             last_event = (
                 EvidenceEvent.objects
+                .select_for_update()
                 .filter(
                     tenant_id=tenant_id,
                     module=module,

@@ -155,7 +155,7 @@ class RadioLicenseView(View):
 
         # 分页
         page = int(request.GET.get('page', 1))
-        page_size = int(request.GET.get('page_size', 20))
+        page_size = min(int(request.GET.get('page_size', 20)), 100)
 
         records = records.select_related('created_by', 'updated_by')
         total_count = records.count()
@@ -225,7 +225,7 @@ class RadioLicenseView(View):
                 # 编辑：只更新传入的非 None 字段
                 if not request.user.has_perms({'radio_license.license.edit'}):
                     return json_response(error='权限拒绝：缺少编辑执照权限')
-                error = self._handle_edit(form, frequencies, request.user)
+                error = self._handle_edit(form, frequencies, request)
             else:
                 # 创建：校验必填字段
                 if not request.user.has_perms({'radio_license.license.add'}):
@@ -238,12 +238,13 @@ class RadioLicenseView(View):
                 for field, label in required.items():
                     if not form.get(field):
                         return json_response(error=f'请输入{label}')
-                error = self._handle_create(form, frequencies, request.user)
+                error = self._handle_create(form, frequencies, request)
         return json_response(error=error)
 
-    def _handle_create(self, form, frequencies, user):
+    def _handle_create(self, form, frequencies, request):
         """新增模式：创建执照 + 频率明细 + 即时扫描"""
         from django.db import transaction
+        user = request.user
         form.created_by = user
         form.pop('remark', None)
         assign_tenant_id(form, user)
@@ -252,11 +253,19 @@ class RadioLicenseView(View):
             license_obj = RadioLicense.objects.create(**create_data)
             _create_frequencies(license_obj, frequencies, user)
             scan_single_license(license_obj)
+            record_audit_event(
+                request, 'create', 'radio_license',
+                target_id=license_obj.id, target_name=license_obj.station_name,
+                detail={'purpose': license_obj.purpose,
+                        'valid_from': str(license_obj.valid_from),
+                        'valid_to': str(license_obj.valid_to)},
+            )
         return None
 
-    def _handle_edit(self, form, frequencies, user):
+    def _handle_edit(self, form, frequencies, request):
         """编辑模式：版本快照 + 状态流转 + 续期/更新证据事件"""
         from django.db import transaction
+        user = request.user
         qs = apply_tenant_filter(RadioLicense.objects.all(), user)
         old_license = qs.filter(pk=form.id).first()
         if not old_license:
@@ -285,6 +294,13 @@ class RadioLicenseView(View):
             license_obj = RadioLicense.objects.get(pk=record_id)
             scan_single_license(license_obj)
             _record_license_edit_evidence(license_obj, old_valid_to, _detect_license_changed_fields(old_license, form), user)
+            record_audit_event(
+                request, 'edit', 'radio_license',
+                target_id=license_obj.id, target_name=license_obj.station_name,
+                detail={'purpose': license_obj.purpose,
+                        'valid_from': str(license_obj.valid_from),
+                        'valid_to': str(license_obj.valid_to)},
+            )
         return None
 
     @auth('radio_license.license.del')
@@ -298,21 +314,23 @@ class RadioLicenseView(View):
             if not license_obj:
                 error = '删除失败：记录不存在或无权限删除'
             else:
-                # 联动软删除通用附件表中的附件记录
-                AttachmentService.soft_delete_by_object(
-                    request.user, 'radio_license', 'license', form.id,
-                    reason=f'执照删除 ID={form.id}', delete_file=True,
-                )
-                # 写入删除审计日志（在物理删除前调用，license_obj 字段仍可读取）
-                record_audit_event(
-                    request, 'delete', 'radio_license',
-                    target_id=license_obj.id, target_name=license_obj.station_name,
-                    detail={'purpose': license_obj.purpose,
-                            'valid_from': str(license_obj.valid_from),
-                            'valid_to': str(license_obj.valid_to)},
-                )
-                # 物理删除执照（CASCADE 自动级联删除频率/提醒确认记录）
-                license_obj.delete()
+                from django.db import transaction
+                with transaction.atomic():
+                    # 联动软删除通用附件表中的附件记录
+                    AttachmentService.soft_delete_by_object(
+                        request.user, 'radio_license', 'license', form.id,
+                        reason=f'执照删除 ID={form.id}', delete_file=True,
+                    )
+                    # 写入删除审计日志（在物理删除前调用，license_obj 字段仍可读取）
+                    record_audit_event(
+                        request, 'delete', 'radio_license',
+                        target_id=license_obj.id, target_name=license_obj.station_name,
+                        detail={'purpose': license_obj.purpose,
+                                'valid_from': str(license_obj.valid_from),
+                                'valid_to': str(license_obj.valid_to)},
+                    )
+                    # 物理删除执照（CASCADE 自动级联删除频率/提醒确认记录）
+                    license_obj.delete()
         return json_response(error=error)
 
 

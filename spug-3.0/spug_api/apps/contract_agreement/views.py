@@ -11,6 +11,7 @@ from django.views.generic import View
 from django.utils import timezone
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
+from libs.idempotency import check_recent_duplicate
 from apps.logs.audit import record_audit_event
 from apps.evidence.attachment_service import AttachmentService, AttachmentConfig, PREVIEWABLE_EXTENSIONS
 from apps.evidence.models import EvidenceAttachment
@@ -297,6 +298,12 @@ class ContractAgreementView(View):
         if error:
             return json_response(error=error)
         assign_tenant_id(data, request.user)
+        # 幂等性：30 秒内相同租户+合同名视为重复提交
+        if check_recent_duplicate(ContractAgreement, {
+            'contract_name': data['contract_name'],
+            'tenant_id': data['tenant_id'],
+        }):
+            return json_response(error='操作过于频繁，请勿重复提交相同合同')
         with transaction.atomic():
             agreement = ContractAgreement.objects.create(
                 **data,
@@ -396,6 +403,13 @@ class AttachmentDownloadView(View):
         response, error = AttachmentService.download_response(request.user, pk, inline=inline)
         if error:
             return json_response(error=error)
+        att = EvidenceAttachment.objects.filter(pk=pk).first()
+        if att:
+            record_audit_event(
+                request, 'other', 'contract_agreement_attachment',
+                target_id=att.object_id, target_name=att.file_name,
+                detail={'action': 'download', 'attachment_id': att.id, 'file_name': att.file_name, 'inline': inline},
+            )
         return response
 
 
@@ -431,16 +445,17 @@ class AttachmentDeleteView(View):
             return json_response(error=error)
 
         att = EvidenceAttachment.objects.filter(pk=form.id).first()
-        error = AttachmentService.soft_delete(
-            request.user, form.id, form.delete_reason, delete_file=True)
-        if error:
-            return json_response(error=error)
-        if att:
-            record_audit_event(
-                request, 'delete', 'contract_agreement_attachment',
-                target_id=att.object_id, target_name=att.file_name,
-                detail={'attachment_id': att.id, 'file_name': att.file_name, 'delete_reason': form.delete_reason or ''},
-            )
+        with transaction.atomic():
+            error = AttachmentService.soft_delete(
+                request.user, form.id, form.delete_reason, delete_file=True)
+            if error:
+                return json_response(error=error)
+            if att:
+                record_audit_event(
+                    request, 'delete', 'contract_agreement_attachment',
+                    target_id=att.object_id, target_name=att.file_name,
+                    detail={'attachment_id': att.id, 'file_name': att.file_name, 'delete_reason': form.delete_reason or ''},
+                )
         return json_response()
 
 

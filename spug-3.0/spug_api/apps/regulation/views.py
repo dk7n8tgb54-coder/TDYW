@@ -283,7 +283,10 @@ class CategoryDetailView(View):
                 setattr(cat, field, val)
                 changed[field] = val
 
-        cat.save()
+        if changed:
+            cat.save(update_fields=list(changed.keys()))
+        else:
+            cat.save()
         record_audit_event(
             request, 'update', AUDIT_TARGET_TYPE,
             target_id=cat.id, target_name=cat.name,
@@ -345,8 +348,6 @@ class RegulationListView(View):
             Argument('issuing_authority', type=str, required=False, default=''),
             Argument('effective_start', type=str, required=False, default=''),
             Argument('effective_end', type=str, required=False, default=''),
-            Argument('page', type=int, required=False, default=1),
-            Argument('page_size', type=int, required=False, default=20),
         ).parse(request.GET)
 
         if error:
@@ -356,16 +357,16 @@ class RegulationListView(View):
 
         if form.keyword:
             qs = qs.filter(
-                Q(title__icontains=form.keyword) | Q(rule_no__icontains=form.keyword)
+                Q(title__icontains=form.keyword) | Q(rule_no__startswith=form.keyword)
             )
         if form.category_id:
             qs = qs.filter(category_id=form.category_id)
         if form.biz_type:
-            qs = qs.filter(biz_type__icontains=form.biz_type)
+            qs = qs.filter(biz_type__startswith=form.biz_type)
         if form.status:
             qs = qs.filter(status=form.status)
         if form.issuing_authority:
-            qs = qs.filter(issuing_authority__icontains=form.issuing_authority)
+            qs = qs.filter(issuing_authority__startswith=form.issuing_authority)
         if form.effective_start:
             qs = qs.filter(effective_date__gte=form.effective_start)
         if form.effective_end:
@@ -565,7 +566,10 @@ class RegulationDetailView(View):
 
         regulation.updated_by = request.user
         regulation.updated_at = timezone.now()
-        regulation.save()
+        if changed:
+            regulation.save(update_fields=list(changed.keys()) + ['updated_by', 'updated_at'])
+        else:
+            regulation.save()
 
         record_audit_event(
             request, 'update', AUDIT_TARGET_TYPE,
@@ -582,12 +586,9 @@ class RegulationDetailView(View):
             return json_response(error='规章不存在')
         title = regulation.title
         rid = regulation.id
-        # 收集需要清理的附件路径（在批量更新前读取）
+        # 收集需要清理的附件路径（CASCADE 硬删除前读取）
         attachments_to_clean = list(regulation.attachments.filter(is_deleted=False).values('id', 'file_path'))
-        # 批量软删除附件（替代循环 save）
-        regulation.attachments.filter(is_deleted=False).update(
-            is_deleted=True, deleted_by=request.user, deleted_at=timezone.now()
-        )
+        # CASCADE 会硬删除所有附件记录，无需先软删除
         regulation.delete()
         record_audit_event(
             request, 'delete', AUDIT_TARGET_TYPE,
@@ -625,7 +626,7 @@ class RegulationRetireView(View):
         regulation.status = Regulation.STATUS_RETIRED
         regulation.updated_by = request.user
         regulation.updated_at = timezone.now()
-        regulation.save()
+        regulation.save(update_fields=['status', 'updated_by', 'updated_at'])
 
         record_audit_event(
             request, 'retire', AUDIT_TARGET_TYPE,
@@ -890,13 +891,9 @@ class RegulationAttachmentPreviewFileView(View):
         if regulation is None:
             return json_response(error='规章不存在')
 
-        try:
-            att = regulation.attachments.get(pk=att_id)
-        except (RegulationAttachment.DoesNotExist, ValueError, TypeError):
+        att = _get_attachment(regulation, att_id)
+        if att is None:
             return json_response(error='附件不存在')
-
-        if att.is_deleted:
-            return json_response(error='附件已删除')
 
         # 校验 token 绑定信息
         if (token_data['module'] != storage.PREVIEW_MODULE

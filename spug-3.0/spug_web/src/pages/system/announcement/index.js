@@ -72,7 +72,11 @@ function AnnouncementAdmin() {
   };
 
   const openCreate = () => { setEditing(null); setFormVisible(true); };
-  const openEdit = (record) => { setEditing(record); setFormVisible(true); };
+  const openEdit = (record) => {
+    http.get(`/api/home/announcement/admin/${record.id}/`)
+      .then(detail => { setEditing(detail); setFormVisible(true); })
+      .catch(e => notification.error({ message: '加载失败', description: e.message || String(e) }));
+  };
   const openDetail = (record) => { setDetailId(record.id); setDetailVisible(true); };
 
   const renderActions = (record) => {
@@ -83,7 +87,7 @@ function AnnouncementAdmin() {
     return (
       <Space>
         <a onClick={() => openDetail(record)}>详情</a>
-        {canEdit && <a onClick={() => openEdit(record)}>编辑</a>}
+        {canEdit && record.computed_status === 'unpublished' && <a onClick={() => openEdit(record)}>编辑</a>}
         {record.computed_status !== 'published' && canPublish && (
           <a onClick={() => doPublish(record)}>{record.computed_status === 'expired' ? '重新发布' : '发布'}</a>
         )}
