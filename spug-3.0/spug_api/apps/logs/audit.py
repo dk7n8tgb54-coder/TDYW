@@ -256,7 +256,7 @@ def record_audit_event(request, action, target_type, target_id=None,
             ip=ip,
             is_success=is_success,
             tenant_id=getattr(user, 'tenant_id', 'default') or 'default',
-            request_id=getattr(request, '_audit_request_id', None) if request is not None else None,
+            request_id=getattr(request, '_audit_request_id', '') if request is not None else '',
             user_agent=_extract_user_agent(request) if request is not None else '',
         )
         if request is not None:
@@ -268,8 +268,8 @@ def record_audit_event(request, action, target_type, target_id=None,
 
 def save_audit_log(user_id, username, action, target_type, target_id=None,
                    target_name=None, detail=None, ip='', is_success=True,
-                   tenant_id='default', request_hash=None, response_hash=None,
-                   request_id=None, user_agent=None):
+                   tenant_id='default', request_hash='', response_hash='',
+                   request_id='', user_agent=''):
     """保存审计日志记录
 
     证据闭环第一阶段增强：
@@ -295,7 +295,7 @@ def save_audit_log(user_id, username, action, target_type, target_id=None,
 
         # 2. 计算 request_hash：基于存库 detail 内容，证明详情未被篡改
         #    调用方未显式传入时自动计算，保证写入与校验口径一致
-        if request_hash is None:
+        if not request_hash:
             request_hash = compute_request_hash(detail)
         response_hash = response_hash or ''
 

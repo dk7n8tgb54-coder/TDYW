@@ -8,5 +8,5 @@ from apps.account.models import History
 
 class HistoryView(AdminView):
     def get(self, request):
-        histories = History.objects.all()
+        histories = History.objects.all().order_by('-id')[:500]
         return json_response(histories)

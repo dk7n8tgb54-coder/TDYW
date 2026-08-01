@@ -9,6 +9,7 @@ import os
 import shutil
 import logging
 from django.conf import settings
+from django.db import transaction
 from libs.tenant_utils import apply_tenant_filter
 from apps.document.libs.document_utils import get_document_absolute_path, is_child_folder, is_safe_path
 from apps.document.libs.naming_utils import generate_physical_name, generate_unique_logical_name, get_file_ext
@@ -46,12 +47,18 @@ class FolderNameGenerator:
         # 检查是否已存在
         new_name = base_name
         counter = 1
+        max_iter = 100  # R10 修复：安全阀，防止极端情况下无限循环
 
         while FolderNameGenerator._folder_exists(
             new_name, target_parent, FolderModel, user, is_public
         ):
             new_name = f'{source_folder.name}_{counter}'
             counter += 1
+            if counter > max_iter:
+                raise ValueError(
+                    f'无法生成唯一文件夹名称，已尝试 {max_iter} 次。'
+                    f'请检查是否存在过多同名文件夹。'
+                )
 
         return new_name
 
@@ -132,7 +139,12 @@ class FileCopier:
             logger.error(f'[Document] Unsafe target file path detected: {new_file_path}')
             return False
 
-        shutil.copy2(source_file.file_path, new_file_path)
+        # R2 修复：添加 try/except 包裹 shutil.copy2，失败时抛出异常让外层事务回滚
+        try:
+            shutil.copy2(source_file.file_path, new_file_path)
+        except (OSError, IOError) as e:
+            logger.error(f'[Document] Failed to copy file {source_file.file_path} -> {new_file_path}: {e}')
+            raise
 
         # 创建文件记录
         create_model_instance(
@@ -163,6 +175,9 @@ class FolderCopier:
         """
         复制文件夹及其所有内容
 
+        R2 修复：整个复制操作包裹在 transaction.atomic() 中，
+        确保中途失败（磁盘满、权限错误等）时回滚所有已创建的文件夹和文件记录。
+
         Args:
             source_folder: 源文件夹
             target_parent: 目标父文件夹
@@ -170,32 +185,33 @@ class FolderCopier:
         Returns:
             新创建的文件夹
         """
-        # 生成唯一名称
-        new_name = FolderNameGenerator.generate_unique_name(
-            source_folder, target_parent, self.FolderModel, self.user, self.is_public
-        )
+        with transaction.atomic():
+            # 生成唯一名称
+            new_name = FolderNameGenerator.generate_unique_name(
+                source_folder, target_parent, self.FolderModel, self.user, self.is_public
+            )
 
-        # 创建新文件夹
-        new_folder = create_model_instance(
-            self.FolderModel,
-            name=new_name,
-            parent=target_parent,
-            created_by=self.user
-        )
+            # 创建新文件夹
+            new_folder = create_model_instance(
+                self.FolderModel,
+                name=new_name,
+                parent=target_parent,
+                created_by=self.user
+            )
 
-        logger.info(
-            f'[Document] Created new folder: {new_name} (id={new_folder.id}) '
-            f'with parent_id={target_parent.id if target_parent else None}, '
-            f'is_public={self.is_public}'
-        )
+            logger.info(
+                f'[Document] Created new folder: {new_name} (id={new_folder.id}) '
+                f'with parent_id={target_parent.id if target_parent else None}, '
+                f'is_public={self.is_public}'
+            )
 
-        # 复制子文件夹
-        self._copy_child_folders(source_folder, new_folder)
+            # 复制子文件夹
+            self._copy_child_folders(source_folder, new_folder)
 
-        # 复制文件
-        self.file_copier.copy_files_from_folder(source_folder, new_folder)
+            # 复制文件
+            self.file_copier.copy_files_from_folder(source_folder, new_folder)
 
-        return new_folder
+            return new_folder
 
     def _copy_child_folders(self, source_folder, target_folder):
         """

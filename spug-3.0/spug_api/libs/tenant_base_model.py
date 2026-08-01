@@ -44,9 +44,26 @@ class TenantQuerySet(models.QuerySet):
 
 
 class TenantModelManager(models.Manager):
-    """租户感知的 Manager"""
+    """租户感知的 Manager
+
+    当模型含 is_deleted 字段时，默认查询自动过滤 is_deleted=False。
+    需要访问已删除记录时使用 all_with_deleted()。
+    """
 
     def get_queryset(self):
+        qs = TenantQuerySet(self.model, using=self._db)
+        # 自动过滤软删除记录（仅当模型有 is_deleted 字段时生效）
+        if hasattr(self.model, 'is_deleted'):
+            # 检查 _meta 中是否确实有 is_deleted 字段（排除属性/方法）
+            try:
+                self.model._meta.get_field('is_deleted')
+                qs = qs.filter(is_deleted=False)
+            except Exception:
+                pass
+        return qs
+
+    def all_with_deleted(self):
+        """返回包含软删除记录的完整 QuerySet"""
         return TenantQuerySet(self.model, using=self._db)
 
     def for_user(self, user, strict_mode=False):

@@ -2,9 +2,9 @@
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
 from django.views.generic import View
+from django.db import transaction
 from django.utils import timezone
 from django.http import HttpResponse
-from django.utils import timezone
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from libs.idempotency import check_recent_duplicate
@@ -219,13 +219,14 @@ class InterferenceView(View):
                 form.created_by = request.user
                 assign_tenant_id(form, request.user)
                 create_data = {k: v for k, v in form.items() if v is not None}
-                if check_recent_duplicate(Interference, {
-                    'frequency': form.get('frequency'),
-                    'datetime': form.get('datetime'),
-                    'report_dept': form.get('report_dept'),
-                }):
-                    return json_response(error='检测到重复提交，请勿重复操作')
-                Interference.objects.create(**create_data)
+                with transaction.atomic():
+                    if check_recent_duplicate(Interference, {
+                        'frequency': form.get('frequency'),
+                        'datetime': form.get('datetime'),
+                        'report_dept': form.get('report_dept'),
+                    }):
+                        return json_response(error='检测到重复提交，请勿重复操作')
+                    Interference.objects.create(**create_data)
         return json_response(error=error)
 
     @auth('interference.interference.del')
@@ -237,25 +238,25 @@ class InterferenceView(View):
         if error is None:
             # 使用 apply_tenant_filter 防止跨租户删除，超管可删除所有租户记录
             qs = apply_tenant_filter(Interference.objects.filter(is_deleted=False), request.user)
-            record = qs.filter(pk=form.id).first()
-            if not record:
-                return json_response(error='删除失败：记录不存在或无权限删除')
-            # 保留删除留痕（证据事件后台写入，不影响业务）
-            try:
-                _record_interference_evidence(record, 'delete', request.user, remark='删除干扰记录')
-            except Exception as e:
-                logger.error(f'干扰记录删除证据事件写入失败: {e}')
-            # 业务级审计日志
-            record_audit_event(
-                request, 'delete', 'interference',
-                target_id=str(record.id),
-                target_name=f'干扰记录-{record.frequency}-{record.report_dept}',
-                detail={'id': record.id, 'frequency': record.frequency, 'report_dept': record.report_dept}
-            )
-            from django.utils import timezone
-            record.is_deleted = True
-            record.deleted_at = timezone.now()
-            record.save()
+            with transaction.atomic():
+                record = qs.select_for_update().filter(pk=form.id).first()
+                if not record:
+                    return json_response(error='删除失败：记录不存在或无权限删除')
+                # 保留删除留痕（证据事件后台写入，不影响业务）
+                try:
+                    _record_interference_evidence(record, 'delete', request.user, remark='删除干扰记录')
+                except Exception as e:
+                    logger.error(f'干扰记录删除证据事件写入失败: {e}')
+                # 业务级审计日志
+                record_audit_event(
+                    request, 'delete', 'interference',
+                    target_id=str(record.id),
+                    target_name=f'干扰记录-{record.frequency}-{record.report_dept}',
+                    detail={'id': record.id, 'frequency': record.frequency, 'report_dept': record.report_dept}
+                )
+                record.is_deleted = True
+                record.deleted_at = timezone.now()
+                record.save(update_fields=['is_deleted', 'deleted_at'])
         return json_response(error=error)
 
 
@@ -290,9 +291,11 @@ class InterferenceEvidencePackageView(View):
             target_id=str(record.id),
         ).order_by('id'))
         if not audit_logs:
+            cutoff = timezone.now() - timedelta(days=90)
             audit_logs = list(AuditLog.objects.filter(
                 tenant_id=tenant_id, target_type='interference',
-            ).order_by('id'))
+                created_at__gte=cutoff,
+            ).order_by('-id')[:1000])
         audit_data = [l.to_dict() for l in audit_logs]
 
         att_hashes = _get_interference_attachment_hashes(tenant_id, record.id)
@@ -343,14 +346,14 @@ class InterferenceStatisticsView(View):
                 year_end = now.strftime('%Y-12-31 23:59:59')
                 filtered_records = records.filter(datetime__gte=year_start, datetime__lte=year_end)
 
-            logger.info(f'[InterferenceStatistics] 过滤后记录数: {filtered_records.count()}')
+            total_count = filtered_records.count()
+            logger.info(f'[InterferenceStatistics] 过滤后记录数: {total_count}')
 
-            # 按日期前缀聚合：datetime 为 CharField 存 "YYYY-MM-DD HH:MM:SS"，
-            # 用 Substr 截取前 10 位作为日期，避免同一天不同时间产生重复日期行
+            # 按日期聚合：使用 TruncDate 截取 DateTimeField 的日期部分
             from django.db.models import Count
-            from django.db.models.functions import Substr
+            from django.db.models.functions import TruncDate
 
-            annotated = filtered_records.annotate(date=Substr('datetime', 1, 10))
+            annotated = filtered_records.annotate(date=TruncDate('datetime'))
 
             # 按日期、频率统计
             freq_stats = annotated.values('date', 'frequency').annotate(
@@ -361,8 +364,6 @@ class InterferenceStatisticsView(View):
             type_stats = annotated.values('date', 'interference_type').annotate(
                 count=Count('id')
             ).order_by('date', 'interference_type')
-
-            total_count = filtered_records.count()
 
             freq_trend = []
             type_trend = []
@@ -398,4 +399,4 @@ class InterferenceStatisticsView(View):
             logger.error(f'[InterferenceStatistics] 错误: {e}')
             import traceback
             logger.error(traceback.format_exc())
-            return json_response(error=str(e))
+            return json_response(error='获取统计数据失败，请稍后重试')

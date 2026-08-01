@@ -43,9 +43,9 @@ class AuditLogView(AdminView):
 
         queryset = AuditLog.objects.all()
 
-        # 按用户名筛选
+        # 按用户名筛选（startswith 走索引，icontains 前缀通配无法走 B-Tree 索引）
         if form.username:
-            queryset = queryset.filter(username__icontains=form.username)
+            queryset = queryset.filter(username__startswith=form.username)
 
         # 按操作类型筛选
         if form.action:
@@ -62,16 +62,17 @@ class AuditLogView(AdminView):
         # 按时间范围筛选（索引友好的 __gte/__lt）
         queryset = date_range_filter(queryset, 'created_at', form.start_time, form.end_time)
 
-        # 关键词搜索（搜索用户名、对象名称、详情）
-        # LIKE '%keyword%' 无法走索引，无时间范围时限制最近 90 天减少扫描量
+        # 无时间范围时默认限制最近 90 天，避免 count() 全表扫描
+        if not form.start_time and not form.end_time:
+            ninety_days_ago = timezone.now() - timedelta(days=90)
+            queryset = queryset.filter(created_at__gte=ninety_days_ago)
+
+        # 关键词搜索（搜索用户名、对象名称）
+        # detail 是 TextField 无索引，icontains 生成 LIKE '%keyword%' 全表扫描，已移除
         if form.keyword:
-            if not form.start_time and not form.end_time:
-                ninety_days_ago = timezone.now() - timedelta(days=90)
-                queryset = queryset.filter(created_at__gte=ninety_days_ago)
             queryset = queryset.filter(
                 Q(username__icontains=form.keyword) |
-                Q(target_name__icontains=form.keyword) |
-                Q(detail__icontains=form.keyword)
+                Q(target_name__icontains=form.keyword)
             )
 
         # 非超管只能看自己租户的日志
@@ -118,7 +119,7 @@ class AuditLogExportView(AdminView):
 
         # 与查询视图相同的筛选逻辑
         if form.username:
-            queryset = queryset.filter(username__icontains=form.username)
+            queryset = queryset.filter(username__startswith=form.username)
         if form.action:
             queryset = queryset.filter(action=form.action)
         if form.target_type:
@@ -126,14 +127,17 @@ class AuditLogExportView(AdminView):
         if form.is_success is not None:
             queryset = queryset.filter(is_success=form.is_success)
         queryset = date_range_filter(queryset, 'created_at', form.start_time, form.end_time)
+
+        # 无时间范围时默认限制最近 90 天，避免 count() 全表扫描
+        if not form.start_time and not form.end_time:
+            ninety_days_ago = timezone.now() - timedelta(days=90)
+            queryset = queryset.filter(created_at__gte=ninety_days_ago)
+
+        # 关键词搜索（detail TextField 无索引，已移除搜索）
         if form.keyword:
-            if not form.start_time and not form.end_time:
-                ninety_days_ago = timezone.now() - timedelta(days=90)
-                queryset = queryset.filter(created_at__gte=ninety_days_ago)
             queryset = queryset.filter(
                 Q(username__icontains=form.keyword) |
-                Q(target_name__icontains=form.keyword) |
-                Q(detail__icontains=form.keyword)
+                Q(target_name__icontains=form.keyword)
             )
 
         # 非超管只能看自己租户的日志
@@ -181,7 +185,7 @@ class AuditLogExportView(AdminView):
                 ip=get_request_real_ip(request.headers) if hasattr(request, 'headers') else '',
                 is_success=True,
                 tenant_id=getattr(request.user, 'tenant_id', 'default'),
-                request_id=getattr(request, '_audit_request_id', None),
+                request_id=getattr(request, '_audit_request_id', ''),
                 user_agent=_extract_user_agent(request),
             )
         except Exception:

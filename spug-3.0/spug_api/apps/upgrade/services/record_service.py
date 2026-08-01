@@ -61,7 +61,6 @@ class RecordService:
                     impact_scope=getattr(record_data, 'impact_scope', '') or '',
                     risk_desc=getattr(record_data, 'risk_desc', '') or '',
                     rollback_plan=getattr(record_data, 'rollback_plan', '') or '',
-                    created_at=now_str,
                     created_by=user,
                 )
 
@@ -114,7 +113,11 @@ class RecordService:
 
         record.updated_at = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
         record.updated_by = user
-        record.save()
+        record.save(update_fields=[
+            'title', 'system', 'upgrade_type', 'upgrade_time', 'status', 'owner',
+            'upgrade_content', 'impact_scope', 'risk_desc', 'rollback_plan',
+            'updated_at', 'updated_by',
+        ])
 
         return record, None
 
@@ -180,7 +183,7 @@ class RecordService:
                 # 逻辑删除主表
                 record.is_deleted = True
                 record.deleted_at = now
-                record.save()
+                record.save(update_fields=['is_deleted', 'deleted_at'])
             return None
         except Exception as e:
             logger.error(f'[Upgrade] 删除升级表单失败: {e}', exc_info=True)
@@ -351,14 +354,17 @@ class RecordService:
         if filters.get('status'):
             queryset = queryset.filter(status=filters['status'])
         if filters.get('system'):
-            queryset = queryset.filter(system__icontains=filters['system'])
+            queryset = queryset.filter(system__startswith=filters['system'])
         if filters.get('upgrade_type'):
             queryset = queryset.filter(upgrade_type=filters['upgrade_type'])
         if filters.get('owner'):
-            queryset = queryset.filter(owner__icontains=filters['owner'])
+            queryset = queryset.filter(owner__startswith=filters['owner'])
         if filters.get('start_date') and filters.get('end_date'):
+            # 日期范围：__gte 当天起始，__lt 次日起始（避免 __lte 只匹配午夜）
+            from datetime import datetime, timedelta
+            end_date = datetime.strptime(filters['end_date'], '%Y-%m-%d') + timedelta(days=1)
             queryset = queryset.filter(
                 upgrade_time__gte=filters['start_date'],
-                upgrade_time__lte=filters['end_date'],
+                upgrade_time__lt=end_date.strftime('%Y-%m-%d'),
             )
         return queryset

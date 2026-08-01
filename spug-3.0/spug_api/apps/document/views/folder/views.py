@@ -339,6 +339,21 @@ class FolderView(View):
                     new_folder = create_model_instance(FolderModel, name=name, parent=parent, created_by=request.user)
                 else:
                     new_folder = create_model_instance(FolderModel, name=name, created_by=request.user)
+            # R3 修复：添加文件夹创建审计日志
+            _folder_id = new_folder.id
+            _is_public = is_public
+            _user = request.user
+            _req = request
+            _name = name
+            transaction.on_commit(lambda: log_operation(
+                action='FOLDER_CREATE',
+                user=_user,
+                request=_req,
+                resource_type='FOLDER',
+                resource_id=_folder_id,
+                is_public=_is_public,
+                folder_name=_name,
+            ))
             return json_response({'id': new_folder.id, 'created': True})
         except IntegrityError as e:
             # 撞 unique_key：并发创建时另一个请求已插入，再查一次拿已有 ID
@@ -406,7 +421,9 @@ class FolderView(View):
         folder_name = folder.name
         folder_id = folder.id
         try:
-            self._delete_folder(folder, FolderModel, FileModel, form.is_public, request.user, request.user)
+            # R9 修复：外层事务保护，确保递归删除中途失败时回滚所有 DB 变更
+            with transaction.atomic():
+                self._delete_folder(folder, FolderModel, FileModel, form.is_public, request.user, request.user)
             # R3 修复：audit log 移到 on_commit，确保事务提交后才记录
             _is_public = form.is_public
             _user = request.user

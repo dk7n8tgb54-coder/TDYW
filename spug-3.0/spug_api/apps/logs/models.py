@@ -30,7 +30,7 @@ class AuditLog(models.Model, ModelMixin):
     detail = models.TextField(default='')
     ip = models.CharField(max_length=50)
     is_success = models.BooleanField(default=True)
-    tenant_id = models.CharField(max_length=50, null=True, default='default')
+    tenant_id = models.CharField(max_length=50, default='default')
     created_at = models.DateTimeField(default=timezone.now, verbose_name='创建时间')
 
     # ==== 证据闭环：哈希链相关字段（第一阶段） ====
@@ -52,11 +52,11 @@ class AuditLog(models.Model, ModelMixin):
         help_text='日志哈希(SHA256)，覆盖全部关键字段+prev_hash；旧数据为空')
     # request_id：单次请求唯一标识(uuid4)，便于关联同一请求产生的多条记录
     request_id = models.CharField(
-        max_length=64, null=True, blank=True, db_index=True,
+        max_length=64, default='', blank=True, db_index=True,
         help_text='请求唯一标识(uuid4)，关联同请求多条记录')
     # user_agent：客户端 User-Agent，用于辅助识别操作终端
     user_agent = models.CharField(
-        max_length=500, null=True, blank=True,
+        max_length=500, default='', blank=True,
         help_text='客户端 User-Agent')
 
     class Meta:

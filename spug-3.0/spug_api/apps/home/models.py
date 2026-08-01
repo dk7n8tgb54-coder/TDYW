@@ -46,11 +46,19 @@ class Notice(models.Model, TenantModelMixin):
     sort_id = models.IntegerField(default=0, db_index=True)
     is_deleted = models.BooleanField(default=False, help_text='软删除标识')
     deleted_at = models.DateTimeField(null=True, blank=True, help_text='删除时间')
+    deleted_by_id = models.IntegerField(null=True, blank=True, help_text='删除人ID')
+    deleted_by_name = models.CharField(max_length=100, default='', help_text='删除人姓名快照')
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(null=True, blank=True, help_text='更新时间')
+    updated_by_id = models.IntegerField(null=True, blank=True, help_text='更新人ID')
+    updated_by_name = models.CharField(max_length=100, default='', help_text='更新人姓名快照')
 
     def to_view(self):
         tmp = self.to_dict()
-        tmp['read_ids'] = json.loads(self.read_ids)
+        try:
+            tmp['read_ids'] = json.loads(self.read_ids)
+        except (json.JSONDecodeError, TypeError):
+            tmp['read_ids'] = []
         return tmp
 
     class Meta:
@@ -68,11 +76,19 @@ class Navigation(models.Model, TenantModelMixin):
     sort_id = models.IntegerField(default=0, db_index=True)
     is_deleted = models.BooleanField(default=False, help_text='软删除标识')
     deleted_at = models.DateTimeField(null=True, blank=True, help_text='删除时间')
+    deleted_by_id = models.IntegerField(null=True, blank=True, help_text='删除人ID')
+    deleted_by_name = models.CharField(max_length=100, default='', help_text='删除人姓名快照')
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(null=True, blank=True, help_text='更新时间')
+    updated_by_id = models.IntegerField(null=True, blank=True, help_text='更新人ID')
+    updated_by_name = models.CharField(max_length=100, default='', help_text='更新人姓名快照')
 
     def to_view(self):
         tmp = self.to_dict()
-        tmp['links'] = json.loads(self.links)
+        try:
+            tmp['links'] = json.loads(self.links)
+        except (json.JSONDecodeError, TypeError):
+            tmp['links'] = []
         return tmp
 
     class Meta:

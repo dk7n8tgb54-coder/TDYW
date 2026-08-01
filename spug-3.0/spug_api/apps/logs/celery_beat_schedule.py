@@ -29,4 +29,15 @@ LOGS_BEAT_SCHEDULE = {
         'kwargs': {'days': 90},
         'options': {'queue': 'default'},
     },
+    # ========================================
+    # 审计日志哈希链完整性验证 - 每天凌晨6点执行
+    # 对每个租户最近 5000 条审计日志进行哈希链校验
+    # verify_hash_chain 跳过首条 prev_hash 检查，cleanup 删链首不误报
+    # 中间删除（篡改）能被正确检测，发现断裂时发送告警
+    # ========================================
+    'logs-verify-audit-hash-chain': {
+        'task': 'apps.logs.tasks.verify_audit_hash_chain',
+        'schedule': crontab(hour=6, minute=0),
+        'options': {'queue': 'default'},
+    },
 }

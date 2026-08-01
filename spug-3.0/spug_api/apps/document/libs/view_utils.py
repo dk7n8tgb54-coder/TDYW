@@ -122,6 +122,7 @@ AUDIT_ACTION_MAP = {
     'FILE_DELETE': 'delete',
     'FILE_RENAME': 'update',     'FILE_MOVE': 'update',
     'FILE_DOWNLOAD': 'export',
+    'FOLDER_CREATE': 'create',
     'FOLDER_DELETE': 'delete',
     'FOLDER_RENAME': 'update',   'FOLDER_MOVE': 'update',
     'FOLDER_DOWNLOAD': 'export', 'FOLDER_COPY': 'create',

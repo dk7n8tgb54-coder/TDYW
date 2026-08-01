@@ -39,7 +39,7 @@ SHEET_NAME = '干扰信息统计'
 
 def get_export_queryset(request):
     """按当前筛选条件查询数据，与前端 store 的过滤规则保持一致。"""
-    qs = apply_tenant_filter(Interference.objects.all(), request.user)
+    qs = apply_tenant_filter(Interference.objects.filter(is_deleted=False), request.user)
     frequency = request.GET.get('frequency')
     if frequency:
         qs = qs.filter(frequency__icontains=frequency)

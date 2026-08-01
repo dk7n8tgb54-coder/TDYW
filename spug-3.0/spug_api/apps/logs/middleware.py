@@ -95,9 +95,24 @@ class AuditLogMiddleware(MiddlewareMixin):
                 return
 
             # raw SQL 查询旧值（避免 ORM 模型导入问题）
+            # 只查询非 TEXT 类型列，避免拉取大文本字段（description/content/remark 等）
             from django.db import connection
             with connection.cursor() as cursor:
-                cursor.execute(f"SELECT * FROM {table_name} WHERE id = %s", [record_id])
+                cursor.execute(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_NAME = %s AND DATA_TYPE NOT IN "
+                    "('text', 'mediumtext', 'longtext', 'json', 'blob') "
+                    "ORDER BY ORDINAL_POSITION",
+                    [table_name]
+                )
+                column_names = [row[0] for row in cursor.fetchall()]
+                if not column_names:
+                    return
+                col_list = ', '.join(f'`{c}`' for c in column_names)
+                cursor.execute(
+                    f"SELECT {col_list} FROM {table_name} WHERE id = %s",
+                    [record_id]
+                )
                 if not cursor.description:
                     return
                 cols = [desc[0] for desc in cursor.description]
@@ -191,7 +206,7 @@ class AuditLogMiddleware(MiddlewareMixin):
 
         # 采集证据闭环字段
         user_agent = _extract_user_agent(request)
-        request_id = getattr(request, '_audit_request_id', None)
+        request_id = getattr(request, '_audit_request_id', '')
         # 响应哈希：流式响应/文件下载无 content 属性时留空
         response_hash = ''
         if hasattr(response, 'content'):

@@ -51,18 +51,18 @@ class FolderMoveView(View):
         if error:
             return json_response(error=error)
 
-        # 【作用域重校验】写入前在事务内重新校验目标目录作用域，防 TOCTOU
-        if params['target_id']:
-            ok, err = validate_target_folder_scope(
-                params['system_folder'], params['is_public'],
-                params['target_id'], allow_root=True,
-            )
-            if not ok:
-                return json_response(error=err)
-
+        # R5 修复：作用域重校验移入事务内，消除 TOCTOU 时间窗口
         with transaction.atomic():
+            if params['target_id']:
+                ok, err = validate_target_folder_scope(
+                    params['system_folder'], params['is_public'],
+                    params['target_id'], allow_root=True,
+                )
+                if not ok:
+                    return json_response(error=err)
+            # R4 修复：指定 update_fields，避免并发覆盖其他字段
             folder.parent = target
-            folder.save()
+            folder.save(update_fields=['parent', 'updated_at'])
 
         # R3 修复：audit log 移到 on_commit，确保事务提交后才记录
         _folder_id = folder.id

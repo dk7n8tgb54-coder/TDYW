@@ -141,7 +141,6 @@ class RecordStepService:
             description=getattr(data, 'description', '') or '',
             sequence=getattr(data, 'sequence', None) or (max_seq + 1),
             is_required=getattr(data, 'is_required', True) if getattr(data, 'is_required', None) is not None else True,
-            created_at=now_str,
         )
         return step, None
 
@@ -190,7 +189,7 @@ class RecordStepService:
         from django.utils import timezone
         step.is_deleted = True
         step.deleted_at = timezone.now()
-        step.save()
+        step.save(update_fields=['is_deleted', 'deleted_at'])
 
         # 删除步骤后检查剩余步骤完成情况
         RecordStepService._check_and_update_record_status(upgrade_id, user)
@@ -232,21 +231,20 @@ class RecordStepService:
                         step.reset_status()
                         affected.append((phase, True))
 
-            # 事务后联动时间线：先撤销再检测完成（同阶段混合操作时顺序正确）
-            reset_phases = {ph for ph, is_reset in affected if is_reset}
-            done_phases = {ph for ph, is_reset in affected if not is_reset}
-            for ph in reset_phases:
-                StatusLogService.on_step_reset(upgrade_id, user, ph)
-            for ph in done_phases:
-                StatusLogService.check_phase_completion(upgrade_id, user, ph)
+                # 状态日志写入在事务内，确保步骤状态与日志一致
+                reset_phases = {ph for ph, is_reset in affected if is_reset}
+                done_phases = {ph for ph, is_reset in affected if not is_reset}
+                for ph in reset_phases:
+                    StatusLogService.on_step_reset(upgrade_id, user, ph)
+                for ph in done_phases:
+                    StatusLogService.check_phase_completion(upgrade_id, user, ph)
 
+            # 事务成功后检查是否所有步骤已完成，自动更新升级记录状态
+            RecordStepService._check_and_update_record_status(upgrade_id, user)
             return None
         except Exception as e:
             logger.error(f'[Upgrade] 批量更新步骤状态失败: {e}', exc_info=True)
             return f'批量更新失败: {str(e)}'
-        finally:
-            # 检查是否所有步骤已完成，自动更新升级记录状态
-            RecordStepService._check_and_update_record_status(upgrade_id, user)
 
     @staticmethod
     def clear_record_steps(upgrade_id, user):

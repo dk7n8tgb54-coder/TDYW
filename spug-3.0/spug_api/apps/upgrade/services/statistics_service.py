@@ -122,8 +122,10 @@ class StatisticsService:
         if filters.get('system'):
             queryset = queryset.filter(system=filters['system'])
         if filters.get('start_date') and filters.get('end_date'):
+            from datetime import datetime, timedelta
+            end_date = datetime.strptime(filters['end_date'], '%Y-%m-%d') + timedelta(days=1)
             queryset = queryset.filter(
                 upgrade_time__gte=filters['start_date'],
-                upgrade_time__lte=filters['end_date'],
+                upgrade_time__lt=end_date.strftime('%Y-%m-%d'),
             )
         return queryset

@@ -13,6 +13,7 @@
 from django.db import models
 from django.utils import timezone
 from libs import ModelMixin
+from libs.tenant_base_model import TenantModelManager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ STEP_STATUS_CHOICES = [
 
 class UpgradeRecordStep(models.Model, ModelMixin):
     """升级记录步骤执行状态 - 实例化到具体升级表单"""
+    objects = TenantModelManager()
     tenant_id = models.CharField(max_length=50, default='', db_index=True, help_text='租户标识')
     upgrade_id = models.IntegerField(verbose_name='关联升级表单ID')
     # 合并后语义：来源方案ID（template_id），0 为手动添加；历史数据可能指向已删除的旧 checklist

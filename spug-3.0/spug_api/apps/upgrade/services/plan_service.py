@@ -107,7 +107,6 @@ class PlanService:
                 description=step_item.get('description', '') or '',
                 sequence=idx + 1,
                 is_required=step_item.get('is_required', True),
-                created_at=now_str,
             )
             created += 1
         return created
@@ -138,7 +137,6 @@ class PlanService:
                     description=getattr(data, 'description', '') or '',
                     system=getattr(data, 'system', '') or '',
                     upgrade_type=getattr(data, 'upgrade_type', '') or '',
-                    created_at=now_str,
                     created_by=user,
                 )
                 steps_data = getattr(data, 'steps', None) or []
@@ -183,7 +181,7 @@ class PlanService:
                         setattr(template, field, value)
 
                 template.updated_at = now_str
-                template.save()
+                template.save(update_fields=['name', 'description', 'system', 'upgrade_type', 'updated_at'])
 
                 # 若提交了 steps，则整体替换
                 if steps_data is not None:
@@ -293,12 +291,14 @@ class PlanService:
                 deleted_count = 0
 
                 if replace:
-                    # 替换模式：先删除所有已有步骤
+                    # 替换模式：软删除所有已有步骤（Manager 已自动过滤 is_deleted=False）
+                    from django.utils import timezone as _tz
+                    _now = _tz.now()
                     existing = UpgradeRecordStep.objects.filter(
                         upgrade_id=upgrade_id
                     )
                     deleted_count = existing.count()
-                    existing.delete()
+                    existing.update(is_deleted=True, deleted_at=_now)
                     start_seq = 1
                 else:
                     # 追加模式：接在已有步骤之后
@@ -318,7 +318,6 @@ class PlanService:
                         description=step.description,
                         sequence=idx,
                         is_required=step.is_required,
-                        created_at=now_str,
                     )
                     created.append(record_step)
 

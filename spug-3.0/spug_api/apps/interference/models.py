@@ -28,7 +28,7 @@ class Interference(models.Model, TenantModelMixin):
     serial_number = models.IntegerField(default=0)
     frequency = models.CharField(max_length=100)
     report_dept = models.CharField(max_length=100)
-    datetime = models.DateTimeField(null=True, blank=True)
+    datetime = models.DateTimeField(null=False, blank=False)
     coordinates = models.CharField(max_length=200)
     interference_type = models.CharField(max_length=100)
     phenomenon = models.TextField()

@@ -7,6 +7,8 @@
 - cleanup_old_audit_logs：归档清理超过保留期的审计日志
   审计日志会持续增长，为避免 audit_logs 表过大拖慢查询和占用磁盘，
   定时删除超过保留期的记录。默认保留 90 天。
+- verify_audit_hash_chain：定时验证审计日志哈希链完整性
+  对每个租户最近的审计日志进行哈希链校验，发现篡改时发送告警。
 """
 
 import logging
@@ -90,6 +92,28 @@ def cleanup_old_audit_logs(self, days=90, dry_run=False):
             f'[AUDIT] cleanup completed: days={days} cutoff={cutoff_str} '
             f'deleted={deleted_total} total_before={total_before}'
         )
+
+        # R11 修复：记录清理操作的审计日志，使删除操作可追溯
+        if deleted_total > 0:
+            try:
+                from apps.logs.audit import log_celery_audit
+                log_celery_audit(
+                    action='delete',
+                    target_type='audit',
+                    target_name='审计日志定期清理',
+                    detail={
+                        '操作': '清理过期审计日志',
+                        '删除数量': deleted_total,
+                        '截止时间': cutoff_str,
+                        '保留天数': days,
+                        '清理前总量': total_before,
+                    },
+                    tenant_id='default',
+                    is_success=True,
+                )
+            except Exception:
+                logger.warning('[AUDIT] 记录清理审计日志失败', exc_info=True)
+
         return {
             'status': 'success',
             'deleted_count': deleted_total,
@@ -100,4 +124,85 @@ def cleanup_old_audit_logs(self, days=90, dry_run=False):
 
     except Exception as e:
         logger.error(f'[AUDIT] cleanup failed: {e}')
+        return {'status': 'error', 'message': str(e)}
+
+
+# 每个租户哈希链验证的最近记录数
+HASH_CHAIN_VERIFY_LIMIT = 5000
+
+
+@shared_task(
+    bind=True,
+    soft_time_limit=600,
+    time_limit=900,
+    queue='default',
+    name='apps.logs.tasks.verify_audit_hash_chain',
+)
+def verify_audit_hash_chain(self):
+    """定时验证审计日志哈希链完整性
+
+    对每个租户最近的审计日志进行哈希链校验。
+    verify_hash_chain 的 has_prev 设计会跳过首条记录的 prev_hash 检查，
+    因此 cleanup 删除链首不会误报，但中间删除（篡改）能被正确检测。
+
+    Returns:
+        dict: 验证结果 {status, tenants_checked, total_errors, details}
+    """
+    from apps.logs.models import AuditLog
+    from apps.logs.hash_chain import verify_hash_chain
+
+    try:
+        tenant_ids = AuditLog.objects.exclude(
+            tenant_id=''
+        ).values_list('tenant_id', flat=True).distinct()
+
+        total_errors = 0
+        details = []
+
+        for tenant_id in tenant_ids:
+            logs = AuditLog.objects.filter(
+                tenant_id=tenant_id
+            ).order_by('id')[:HASH_CHAIN_VERIFY_LIMIT]
+
+            result = verify_hash_chain(logs)
+            if not result['valid']:
+                total_errors += len(result['errors'])
+                details.append({
+                    'tenant_id': tenant_id,
+                    'checked': result['checked'],
+                    'errors': result['errors'][:5],
+                    'broken_at': result.get('broken_at'),
+                })
+                logger.error(
+                    f'[AUDIT] hash chain broken: tenant={tenant_id} '
+                    f'checked={result["checked"]} errors={len(result["errors"])}'
+                )
+
+        if total_errors > 0:
+            # 发送告警
+            try:
+                from libs.alert import send_alert
+                send_alert(
+                    title='审计日志哈希链验证异常',
+                    message=f'发现 {total_errors} 处哈希链断裂，涉及 '
+                            f'{len(details)} 个租户。详情: {details[:3]}',
+                    level='critical',
+                )
+            except Exception:
+                logger.warning('[AUDIT] 哈希链告警发送失败', exc_info=True)
+
+        logger.info(
+            f'[AUDIT] hash chain verify completed: '
+            f'tenants_checked={len(list(tenant_ids))} total_errors={total_errors}'
+        )
+
+        return {
+            'status': 'success',
+            'tenants_checked': len(details) if total_errors else 0,
+            'total_errors': total_errors,
+            'details': details,
+        }
+
+    except Exception as e:
+        logger.error(f'[AUDIT] hash chain verify failed: {e}')
         return {'status': 'error', 'message': str(e)}

@@ -27,25 +27,38 @@ from ...services.system_scope_validators import (
 logger = logging.getLogger(__name__)
 
 
-def get_active_descendant_folder_ids(folder_obj, FolderModel):
+def get_active_descendant_folder_ids(folder_obj, FolderModel, max_depth=50):
     """
     BFS 获取文件夹及其所有子孙文件夹ID（仅未删除的）
+
+    R1 修复：添加 visited_ids 防循环引用 + max_depth 深度限制。
 
     Args:
         folder_obj: 起始文件夹对象
         FolderModel: 文件夹模型类
+        max_depth: 最大递归深度（防极深嵌套）
 
     Returns:
         list: 文件夹ID列表（包含起始文件夹自身）
     """
     folder_ids = []
-    queue = [folder_obj]
+    visited_ids = set()
+    queue = [(folder_obj, 0)]  # (folder, depth)
 
     while queue:
-        current = queue.pop(0)
+        current, depth = queue.pop(0)
+        if current.id in visited_ids:
+            continue
+        visited_ids.add(current.id)
         folder_ids.append(current.id)
+
+        if depth >= max_depth:
+            continue
+
         children = FolderModel.objects.filter(parent=current)
-        queue.extend(children)
+        for child in children:
+            if child.id not in visited_ids:
+                queue.append((child, depth + 1))
 
     return folder_ids
 

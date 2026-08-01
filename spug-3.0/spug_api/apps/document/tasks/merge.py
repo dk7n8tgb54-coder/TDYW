@@ -464,9 +464,13 @@ class TransferStatusUpdater:
             if transfer:
                 old_status = transfer.status
                 transfer.status = status.value if hasattr(status, 'value') else status
+                # R6 修复：收集实际变更的字段，避免并发覆盖其他字段
+                update_fields = ['status']
                 for key, value in kwargs.items():
                     setattr(transfer, key, value)
-                transfer.save()
+                    if key not in update_fields:
+                        update_fields.append(key)
+                transfer.save(update_fields=update_fields)
                 # 记录审计日志（仅在状态变化时）
                 if old_status != transfer.status:
                     log_celery_audit('update', 'document',
@@ -705,9 +709,13 @@ def _update_transfer_status(transfer_id, status, **kwargs):
         transfer = DocumentTransfer.objects.filter(id=transfer_id).order_by().first()
         if transfer:
             transfer.status = status.value if hasattr(status, 'value') else status
+            # R7 修复：收集实际变更的字段，避免并发覆盖其他字段
+            update_fields = ['status']
             for key, value in kwargs.items():
                 setattr(transfer, key, value)
-            transfer.save()
+                if key not in update_fields:
+                    update_fields.append(key)
+            transfer.save(update_fields=update_fields)
     except Exception as e:
         logger.error(f'[Celery] Failed to update transfer status: {e}')
 

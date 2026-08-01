@@ -36,7 +36,7 @@ def _make_log(**kwargs):
         detail='{"name":"x"}', ip='10.0.0.1', is_success=True,
         tenant_id='t1', created_at='2026-06-27 10:00:00',
         request_hash='', response_hash='', prev_hash='',
-        request_id=None, user_agent='Mozilla/5.0',
+        request_id='', user_agent='Mozilla/5.0',
     )
     defaults.update(kwargs)
     log = AuditLog(**defaults)

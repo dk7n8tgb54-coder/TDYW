@@ -36,6 +36,8 @@ def check_recent_duplicate(model_class, filters, window_seconds=30):
         bool: True 表示存在重复（应拒绝创建），False 表示无重复
     """
     threshold = timezone.now() - timedelta(seconds=window_seconds)
-    return model_class.objects.filter(
-        **filters, created_at__gte=threshold
-    ).exists()
+    qs = model_class.objects.filter(**filters, created_at__gte=threshold)
+    # 过滤掉已软删除的记录，避免误判
+    if hasattr(model_class, 'is_deleted'):
+        qs = qs.filter(is_deleted=False)
+    return qs.exists()

@@ -32,7 +32,7 @@ import ipaddress
 import time
 import uuid
 import json
-from apps.logs.audit import save_audit_log
+from apps.logs.audit import save_audit_log, record_audit_event
 
 logger = logging.getLogger(__name__)
 
@@ -247,21 +247,22 @@ class UserView(AdminView):
             if not request.user.is_supper and form.tenant_id:
                 logger.warning(f'Account: User {request.user.username} denied to modify tenant_id')
                 return json_response(error='无权修改用户租户')
-            # 超管修改 tenant_id 时，同步迁移历史数据+清理缓存
-            if (request.user.is_supper and form.tenant_id
-                    and form.tenant_id != user.tenant_id):
-                self._migrate_user_tenant(user, form.tenant_id)
-                user.tenant_id = form.tenant_id
-            if form.password:
-                if not verify_password(form.password):
-                    logger.warning(f'Account: Password validation failed for user {user.username}')
-                    return json_response(error='请设置至少8位包含数字、小写和大写字母、特殊字符的新密码')
-                user.token_expired = 0
-                user.password_hash = User.make_password(form.pop('password'))
-            if form.is_active is not None:
-                user.is_active = form.is_active
-                cache.delete(user.username)
-            user.save()
+            with transaction.atomic():
+                # 超管修改 tenant_id 时，同步迁移历史数据+清理缓存
+                if (request.user.is_supper and form.tenant_id
+                        and form.tenant_id != user.tenant_id):
+                    self._migrate_user_tenant(user, form.tenant_id)
+                    user.tenant_id = form.tenant_id
+                if form.password:
+                    if not verify_password(form.password):
+                        logger.warning(f'Account: Password validation failed for user {user.username}')
+                        return json_response(error='请设置至少8位包含数字、小写和大写字母、特殊字符的新密码')
+                    user.token_expired = 0
+                    user.password_hash = User.make_password(form.pop('password'))
+                if form.is_active is not None:
+                    user.is_active = form.is_active
+                    cache.delete(user.username)
+                user.save()
         return json_response(error=error)
 
     def delete(self, request):
@@ -283,11 +284,19 @@ class UserView(AdminView):
                     logger.warning(f'Account: User {request.user.username} tried to delete themselves')
                     return json_response(error='无法删除当前登录账户')
                 # 执行软删除
-                user.is_active = False
-                user.deleted_at = timezone.now()
-                user.deleted_by = request.user
-                user.roles.clear()
-                user.save()
+                with transaction.atomic():
+                    user.is_active = False
+                    user.deleted_at = timezone.now()
+                    user.deleted_by = request.user
+                    user.token_expired = 0
+                    user.roles.clear()
+                    user.save()
+                    record_audit_event(
+                        request, 'delete', 'user',
+                        target_name=user.username,
+                        before_value={'is_active': True, 'username': user.username},
+                        after_value={'is_active': False, 'deleted_by': request.user.username}
+                    )
         return json_response(error=error)
 
     @staticmethod
@@ -295,18 +304,18 @@ class UserView(AdminView):
         """获取所有已启用的租户列表（供前端下拉选择，仅超管可用）"""
         if not request.user.is_supper:
             return json_response(error='权限拒绝')
-        from django.db.models import Count
-        tenants = Tenant.objects.all().order_by('id')
+        tenants = Tenant.objects.extra(
+            select={'user_count':
+                    'SELECT COUNT(*) FROM users '
+                    'WHERE users.tenant_id = tenants.id '
+                    'AND users.deleted_by_id IS NULL'}
+        ).order_by('id')[:100]
         result = []
         for t in tenants:
-            user_count = User.objects.filter(
-                tenant_id=t.id,
-                deleted_by_id__isnull=True
-            ).count()
             result.append({
                 'id': t.id,
                 'name': t.name,
-                'user_count': user_count,
+                'user_count': t.user_count,
             })
         return json_response(result)
 
@@ -405,7 +414,11 @@ class RoleView(AdminView):
                 role.user_set.update(token_expired=0)
         else:
             self._normalize_role_fields(fields, request.user)
-            Role.objects.create(created_by=request.user, **fields)
+            try:
+                Role.objects.create(created_by=request.user, **fields)
+            except IntegrityError:
+                logger.warning(f'Account: Duplicate role name "{fields.get("name")}" in tenant "{fields.get("tenant_id")}"')
+                return json_response(error='角色名称已存在')
         return json_response()
 
     @staticmethod
@@ -519,10 +532,15 @@ class RoleView(AdminView):
         if not role:
             logger.warning(f'Account: Role {form.id} not manageable for delete by user {request.user.username}')
             return json_response(error='角色不存在或无权操作')
-        if role.user_set.exists():
-            logger.warning(f'Account: Role {role.name} has associated users, cannot delete')
+        if role.user_set.filter(deleted_by_id__isnull=True).exists():
+            logger.warning(f'Account: Role {role.name} has associated active users, cannot delete')
             return json_response(error='已有用户使用了该角色，请解除关联后再尝试删除')
+        role_name = role.name
         role.delete()
+        record_audit_event(
+            request, 'delete', 'role',
+            target_name=role_name,
+        )
         return json_response()
 
 
@@ -557,7 +575,7 @@ class TenantView(AdminView):
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request):
-        tenants = Tenant.objects.all().order_by('id')
+        tenants = Tenant.objects.all().order_by('id')[:100]
         return json_response(tenants)
 
     def post(self, request):
@@ -574,12 +592,16 @@ class TenantView(AdminView):
             if Tenant.objects.filter(pk=form.id).exists():
                 logger.warning(f'Account: Tenant id already exists: {form.id}')
                 return json_response(error='租户标识已存在')
-            Tenant.objects.create(
-                id=form.id,
-                name=form.name,
-                description=form.description or '',
-                created_by=request.user,
-            )
+            try:
+                Tenant.objects.create(
+                    id=form.id,
+                    name=form.name,
+                    description=form.description or '',
+                    created_by=request.user,
+                )
+            except IntegrityError:
+                logger.warning(f'Account: Tenant id already exists (race): {form.id}')
+                return json_response(error='租户标识已存在')
         return json_response(error=error)
 
     def patch(self, request):
@@ -610,7 +632,12 @@ class TenantView(AdminView):
             if User.objects.filter(tenant_id=form.id, deleted_by_id__isnull=True).exists():
                 logger.warning(f'Account: Cannot delete tenant {form.id}: has associated users')
                 return json_response(error='该租户下存在用户，无法删除')
+            tenant_name = tenant.name
             tenant.delete()
+            record_audit_event(
+                request, 'delete', 'tenant',
+                target_name=tenant_name,
+            )
         return json_response(error=error)
 
 
