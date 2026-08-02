@@ -14,6 +14,10 @@ def fix_nonstandard_actions(apps, schema_editor):
     AuditLog.objects.filter(action='删除批复').update(action='delete')
     # '确认批复提醒' -> 'update'
     AuditLog.objects.filter(action='确认批复提醒').update(action='update')
+    # 附件相关操作 -> 'other'
+    AuditLog.objects.filter(action='upload_attachment').update(action='other')
+    AuditLog.objects.filter(action='delete_attachment').update(action='other')
+    AuditLog.objects.filter(action='download_attachment').update(action='other')
 
 
 class Migration(migrations.Migration):

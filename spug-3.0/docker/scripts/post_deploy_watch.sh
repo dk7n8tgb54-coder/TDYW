@@ -52,7 +52,7 @@ echo "  发布后监控"
 echo "=========================================="
 echo "  镜像:   ${CURRENT_IMAGE}"
 echo "  时长:   ${WATCH_SECONDS}s (${CHECK_INTERVAL}s 间隔)"
-echo "  阈值:   5xx>${THRESHOLD_5XX} / celery_fail>${THRESHOLD_CELERY_FAIL} / disk>${THRESHOLD_DISK_PCT}%"
+echo "  阈值:   5xx>${THRESHOLD_5XX} / celery_fail>${THRESHOLD_CELERY_FAIL} / migrate_err>0 / disk>${THRESHOLD_DISK_PCT}%"
 echo "=========================================="
 echo ""
 
@@ -81,6 +81,9 @@ while [ $SECONDS -lt $END_TIME ]; do
     # 3. Celery 失败计数（最近 30 秒）
     CELERY_FAIL=$(docker logs --since 30s "$CONTAINER_NAME" 2>&1 | grep -c "Task.*failed\|celery.*error\|WorkerLostError" || true)
 
+    # 3.5 迁移错误检查（entrypoint.sh 吞掉的迁移失败 + DB schema 不匹配）
+    MIGRATE_ERR=$(docker logs --since 30s "$CONTAINER_NAME" 2>&1 | grep -c "迁移失败\|Migration failed\|OperationalError\|ProgrammingError\|IntegrityError\|column.*does not exist\|no such column\|table.*already exists" || true)
+
     # 4. 磁盘使用率
     DISK_PCT=$(df -h /var/lib/docker 2>/dev/null | awk 'NR==2{gsub("%",""); print $5}')
     # 如果上面取不到（WSL 路径不同），尝试 /mnt/e
@@ -93,7 +96,7 @@ while [ $SECONDS -lt $END_TIME ]; do
     MEM_USAGE=$(docker stats --no-stream --format "{{.MemUsage}}" "$CONTAINER_NAME" 2>/dev/null || echo "N/A")
 
     # ---------- 输出状态行 ----------
-    STATUS_LINE="${NOW} | health=${HEALTH} | 5xx=${ERR_5XX} | celery_fail=${CELERY_FAIL} | disk=${DISK_PCT}% | mem=${MEM_USAGE}"
+    STATUS_LINE="${NOW} | health=${HEALTH} | 5xx=${ERR_5XX} | celery_fail=${CELERY_FAIL} | migrate_err=${MIGRATE_ERR} | disk=${DISK_PCT}% | mem=${MEM_USAGE}"
 
     # ---------- 告警判断 ----------
     ALERT_MSG=""
@@ -104,6 +107,8 @@ while [ $SECONDS -lt $END_TIME ]; do
         ALERT_MSG="健康检查未通过: ${HEALTH}"
     elif [ "$ERR_5XX" -gt "$THRESHOLD_5XX" ]; then
         ALERT_MSG="5xx/错误数过高: ${ERR_5XX} > ${THRESHOLD_5XX}"
+    elif [ "$MIGRATE_ERR" -gt 0 ]; then
+        ALERT_MSG="迁移/DB schema 错误: ${MIGRATE_ERR} 条（迁移失败或新代码与 DB 结构不匹配）"
     elif [ "$CELERY_FAIL" -gt "$THRESHOLD_CELERY_FAIL" ]; then
         ALERT_MSG="Celery 失败过多: ${CELERY_FAIL} > ${THRESHOLD_CELERY_FAIL}"
     elif [ "$DISK_PCT" -gt "$THRESHOLD_DISK_PCT" ]; then
