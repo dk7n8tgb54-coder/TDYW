@@ -76,17 +76,18 @@ while [ $SECONDS -lt $END_TIME ]; do
     CONT_STATUS=$(docker inspect --format='{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo "none")
 
     # 2. 5xx 错误计数（最近 30 秒）
-    ERR_5XX=$(docker logs --since 30s "$CONTAINER_NAME" 2>&1 | grep -c "500 Internal\|Traceback\|ERROR" || echo 0)
+    ERR_5XX=$(docker logs --since 30s "$CONTAINER_NAME" 2>&1 | grep -c "500 Internal\|Traceback\|ERROR" || true)
 
     # 3. Celery 失败计数（最近 30 秒）
-    CELERY_FAIL=$(docker logs --since 30s "$CONTAINER_NAME" 2>&1 | grep -c "Task.*failed\|celery.*error\|WorkerLostError" || echo 0)
+    CELERY_FAIL=$(docker logs --since 30s "$CONTAINER_NAME" 2>&1 | grep -c "Task.*failed\|celery.*error\|WorkerLostError" || true)
 
     # 4. 磁盘使用率
-    DISK_PCT=$(df -h /var/lib/docker 2>/dev/null | awk 'NR==2{gsub("%",""); print $5}' || echo 0)
+    DISK_PCT=$(df -h /var/lib/docker 2>/dev/null | awk 'NR==2{gsub("%",""); print $5}')
     # 如果上面取不到（WSL 路径不同），尝试 /mnt/e
-    if [ "$DISK_PCT" = "0" ]; then
-        DISK_PCT=$(df -h /mnt/e 2>/dev/null | awk 'NR==2{gsub("%",""); print $5}' || echo 0)
+    if [ -z "$DISK_PCT" ] || [ "$DISK_PCT" = "0" ]; then
+        DISK_PCT=$(df -h /mnt/e 2>/dev/null | awk 'NR==2{gsub("%",""); print $5}')
     fi
+    DISK_PCT=${DISK_PCT:-0}
 
     # 5. 容器内存使用
     MEM_USAGE=$(docker stats --no-stream --format "{{.MemUsage}}" "$CONTAINER_NAME" 2>/dev/null || echo "N/A")

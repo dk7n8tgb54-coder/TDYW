@@ -20,11 +20,17 @@ class HealthCheckView(View):
     系统健康检查 API
     【注意】健康检查不需要登录验证
     【M-2修复】未认证端点不暴露组件错误细节，仅返回 ok/error 状态
+    【增强】检查 DB + Redis + 存储目录，覆盖 L3 依赖连通层
     """
 
     def get(self, request):
         """
         执行健康检查
+
+        检查项：
+        - database: 数据库连通性（SELECT 1）
+        - redis: Redis 缓存连通性（ping）
+        - storage: 存储目录可写性（MEDIA_ROOT）
 
         Returns:
             200: 所有组件正常
@@ -32,6 +38,8 @@ class HealthCheckView(View):
         """
         checks = {
             'database': self._check_database(),
+            'redis': self._check_redis(),
+            'storage': self._check_storage(),
         }
 
         # 判断整体状态
@@ -46,13 +54,14 @@ class HealthCheckView(View):
         }
 
         if has_error:
+            # 记录完整详情到日志（运维可查），不返回给前端
             logger.error(f'[HealthCheck] 健康检查失败: {checks}')
             response = json_response(response_data)
             response.status_code = 503
             return response
 
         return json_response(response_data)
-    
+
     def _check_database(self):
         """检查数据库连接"""
         try:
@@ -61,12 +70,37 @@ class HealthCheckView(View):
                 cursor.fetchone()
             return {'status': 'ok'}
         except Exception as e:
-            # 【M-2修复】不向未认证用户暴露数据库错误细节
             logger.error(f'[HealthCheck] 数据库检查失败: {e}')
-            return {
-                'status': 'error',
-                'error': 'database_error'  # 仅返回通用错误类型
-            }
+            return {'status': 'error'}
+
+    def _check_redis(self):
+        """检查 Redis 缓存连通性"""
+        try:
+            from django.core.cache import cache
+            cache.set('_health_check_ping', '1', timeout=5)
+            cache.get('_health_check_ping')
+            cache.delete('_health_check_ping')
+            return {'status': 'ok'}
+        except Exception as e:
+            logger.error(f'[HealthCheck] Redis 检查失败: {e}')
+            return {'status': 'error'}
+
+    def _check_storage(self):
+        """检查存储目录可写性"""
+        import os
+        from django.conf import settings
+        media_root = getattr(settings, 'MEDIA_ROOT', '/data/spug/spug_api/media')
+        try:
+            if not os.path.isdir(media_root):
+                logger.error(f'[HealthCheck] 存储目录不存在: {media_root}')
+                return {'status': 'error'}
+            if not os.access(media_root, os.W_OK):
+                logger.error(f'[HealthCheck] 存储目录不可写: {media_root}')
+                return {'status': 'error'}
+            return {'status': 'ok'}
+        except Exception as e:
+            logger.error(f'[HealthCheck] 存储检查失败: {e}')
+            return {'status': 'error'}
 
 
 class DatabasePoolStatusView(View):

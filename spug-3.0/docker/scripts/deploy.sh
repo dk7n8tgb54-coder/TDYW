@@ -105,6 +105,37 @@ else
     warn "tdyw-test 容器不存在，跳过 Django check"
 fi
 
+# ---------- 迁移待执行检查（Expand-Contract 规范）----------
+if docker inspect tdyw-test &>/dev/null; then
+    info "检查待执行迁移..."
+    PENDING=$(docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw-test \
+        python manage.py showmigrations --list 2>&1 | grep -c '\[ \]' || true)
+
+    if [ "$PENDING" -gt 0 ]; then
+        warn "有 ${PENDING} 个待执行迁移，请确认属于 EXPAND 阶段（只加不改不删）"
+        warn "待执行迁移列表："
+        docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw-test \
+            python manage.py showmigrations --list 2>&1 | grep "\[ \]" | head -20 || true
+
+        # 检查迁移文件是否含破坏性操作（CONTRACT 阶段标志）
+        info "扫描迁移文件中的破坏性操作..."
+        DESTRUCTIVE=$(docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw-test \
+            bash -c "grep -rl 'RemoveField\|AlterField\|DeleteModel\|RemoveIndex\|AlterUniqueTogether' apps/*/migrations/*.py 2>/dev/null | tail -5" || echo "")
+
+        if [ -n "$DESTRUCTIVE" ]; then
+            warn "发现含破坏性操作的迁移文件（可能属于 CONTRACT 阶段）："
+            echo "$DESTRUCTIVE" | while read -r f; do
+                warn "  $f"
+            done
+            warn "如果是 CONTRACT 阶段迁移，应在 EXPAND+DEPLOY 观察期后单独执行"
+            warn "确认继续发布？(Ctrl+C 取消，回车继续)"
+            read -r < /dev/tty || true
+        fi
+    else
+        ok "无待执行迁移"
+    fi
+fi
+
 # ---------- 构建新镜像 ----------
 info "构建新镜像 ${IMAGE_TAG}..."
 cd "$PROJECT_DIR"

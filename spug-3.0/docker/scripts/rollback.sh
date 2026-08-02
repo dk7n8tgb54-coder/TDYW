@@ -80,7 +80,7 @@ fi
 
 # ---------- 验证镜像存在 ----------
 if ! docker image inspect "$TARGET_IMAGE" &>/dev/null; then
-    fatal "镜像不存在: ${TARGET_IMAGE}"
+    echo -e "${RED}[FATAL]${NC} 镜像不存在: ${TARGET_IMAGE}"
     if [ "$AUTO_MODE" = "false" ]; then
         info "可用镜像："
         docker images tdyw --format "{{.Tag}}" | head -10
@@ -147,9 +147,9 @@ fi
 # ---------- 记录回滚日志 ----------
 echo "$(date '+%Y-%m-%d %H:%M:%S') | ROLLBACK to ${TARGET_IMAGE} | from:${CURRENT_IMAGE}" >> "$DEPLOY_LOG"
 
-# ---------- 更新回滚状态文件 ----------
-# 回滚后，当前运行的镜像就是新的"上次部署"镜像
-echo "$CURRENT_IMAGE" > "$STATE_FILE"
+# ---------- 不更新回滚状态文件 ----------
+# 回滚后 .last_deployed_image 保持不变（仍指向回滚目标）
+# 防止二次回滚时滚到刚回滚出的坏镜像
 
 # ---------- 完成 ----------
 echo ""
