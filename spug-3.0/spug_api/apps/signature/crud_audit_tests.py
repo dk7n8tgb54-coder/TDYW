@@ -479,7 +479,7 @@ class SecurityAuditTests(SignatureAuditBase):
         self.assertIn('realpath', source, '应有 os.path.realpath 路径穿越防护')
 
     def test_63_preview_token_binds_user(self):
-        """预览 token 绑定 user_id + tenant_id"""
+        """预览 token 绑定 user_id"""
         resp = self.signer_c.get('/signature/mine/')
         body = self._parse(resp)
         if not body.get('error') and body.get('data'):

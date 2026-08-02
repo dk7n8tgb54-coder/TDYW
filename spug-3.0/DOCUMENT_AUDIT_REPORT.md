@@ -179,3 +179,112 @@ docker exec -e PYTHONIOENCODING=utf-8 -e PYTHONPATH=/data/spug/spug_api \
 ```
 
 测试结果：3 PASS, 10 FAIL（10 个风险点已验证为真）
+
+---
+
+## 第二轮审计（2026-08-01）
+
+**审查维度**: IDOR/路径穿越/资源泄漏/软删除一致性/文件名安全/并发竞态  
+**测试脚本**: `apps/document/tests/test_document_audit2.py`
+
+### 第二轮审计结果总览
+
+| 级别 | 确认数 | 说明 |
+|------|--------|------|
+| P1   | 1      | 冷却期计算错误致待清理文件永远无法清理 |
+| P2   | 8      | 死代码崩溃/文件名安全/静默吞错/物理删除顺序/非分布式锁/无租户过滤 |
+| 总计 | **9 个风险点已验证为真** |
+
+### N1 (P2): permission_utils.py 死代码引用已移除字段
+
+**文件**: `libs/permission_utils.py:123, 153-155`
+
+**问题**: `get_folder_and_descendants_iter` 和 `get_folder_stats_optimized` 引用 `FolderModel.all_objects` 和 `is_deleted=True`，但:
+1. `is_deleted` 字段已于 2026-07-30 从模型移除
+2. `all_objects` manager 不存在
+3. `is_deleted=True` 逻辑也反了（应查 `False`=未删除）
+
+**验证**: ✅ 代码检查确认。函数为死代码（无外部调用），但调用即崩溃 `AttributeError`/`FieldError`。
+
+**修复建议**: 删除这两个死代码函数。
+
+### N2 (P1): pending_files.py `.seconds` 冷却期计算错误
+
+**文件**: `tasks/cleanup/pending_files.py:36`
+
+**问题**: `(timezone.now() - file.last_clean_attempt).seconds` 使用 `.seconds` 而非 `.total_seconds()`。`timedelta.seconds` 只返回秒分量（0-86399），忽略天数。
+
+**验证**: ✅ 运行时测试确认。
+- 场景: `timedelta(days=1, minutes=30)` → `.seconds` = 1800 < 3600 → **错误跳过**
+- 正确: `.total_seconds()` = 88200 > 3600 → 不跳过
+
+**影响**: 超过 1 天的待清理文件可能永远无法被清理（冷却期永远"未过"）。
+
+**修复建议**: `.seconds` → `.total_seconds()`。
+
+### N3 (P2): validate_file_name 未过滤 null 字节和控制字符
+
+**文件**: `libs/view_utils.py:180-190`
+
+**问题**: `forbidden_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']` 缺少:
+- `\x00` (null 字节) — 可导致路径截断攻击
+- `\n` `\r` `\t` — 可破坏日志和显示
+- `\x01-\x1f` `\x7f` — 其他控制字符
+
+**验证**: ✅ 运行时测试确认。6 种危险字符全部通过验证。
+
+**修复建议**: 添加 `if any(ord(c) < 32 or ord(c) == 127 for c in file_name): return False`。
+
+### N4 (P2): cleanup_service.py shutil.rmtree(ignore_errors=True) 静默吞错
+
+**文件**: `services/cleanup_service.py:54, 204`
+
+**问题**: 2 处 `shutil.rmtree(dir_path, ignore_errors=True)` 静默忽略删除失败。
+
+**验证**: ✅ 代码检查确认 2 处。
+
+**修复建议**: 改为 `ignore_errors=False` + `try/except` + `logger.error`。
+
+### N5 (P2): models.py 物理文件先删、DB 记录后删
+
+**文件**: `models.py` `DocumentFileDeleteMixin.delete()`
+
+**问题**: 注释明确"先删除物理文件，成功后再删除数据库记录"。物理文件删除成功但 `super().delete()` 失败（DB 错误）时，物理文件丢失但 DB 记录残留。有 `is_pending_clean` 兜底，但需异步清理任务配合。
+
+**验证**: ✅ 代码检查确认。
+
+### N6 (P2): cleanup_service.py 异常被捕获不重抛
+
+**文件**: `services/cleanup_service.py:165, 210, 254, 258, 290, 294`
+
+**问题**: 6 处 `except` 块无 `raise`，部分删除失败被静默接受。
+
+**验证**: ✅ 代码检查确认 6 处。
+
+### N7 (P2): upload/lock.py 合并锁 threading.Lock 非分布式
+
+**文件**: `views/upload/lock.py:58`
+
+**问题**: 视图层合并锁使用 `threading.Lock()`（进程内），多 gunicorn Worker 并发请求无法互斥。Celery 任务层有 `RedisLock()` 分布式锁保护，但视图层存在竞态窗口。
+
+**验证**: ✅ 代码检查确认。`upload/lock.py`: `threading.Lock=True, RedisLock=False`；`tasks/merge.py`: `RedisLock=True`。
+
+### N8 (P2): properties.py BFS 遍历无租户过滤
+
+**文件**: `views/folder/properties.py` `get_active_descendant_folder_ids`
+
+**问题**: BFS 查询后代文件夹时不按 `tenant_id` 过滤。对比 `search.py` 的 `_get_descendant_folder_ids` 有租户过滤。正常情况下 parent-child 在同一租户，但缺乏防御纵深。
+
+**验证**: ✅ 代码检查确认。`properties.py`: 有租户过滤=False；`search.py`: 有租户过滤=True。
+
+### 第二轮修复优先级
+
+| 优先级 | 风险点 | 修复难度 |
+|--------|--------|----------|
+| 紧急   | N2 .seconds→.total_seconds() | 极低（改 1 个词） |
+| 高     | N1 删除死代码 | 低（删 2 个函数） |
+| 高     | N3 文件名控制字符过滤 | 低（加 1 行检查） |
+| 中     | N4 rmtree 不静默吞错 | 低（加 try/except） |
+| 中     | N7 视图锁改 RedisLock | 中（需引入 Redis 依赖） |
+| 低     | N5/N6 物理删除顺序/异常不重抛 | 中（需架构调整） |
+| 低     | N8 BFS 租户过滤 | 低（加 filter） |

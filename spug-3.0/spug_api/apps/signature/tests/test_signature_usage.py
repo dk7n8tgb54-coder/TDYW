@@ -292,17 +292,16 @@ class ApplySignatureAttachmentTests(SignatureUsageStage2Base):
         self.assertIsNotNone(err)
         self.assertIn('归属', err)
 
-    def test_attachment_tenant_mismatch_rejected(self):
-        """附件租户与 actor 租户不一致时拒绝"""
-        # 直接改附件租户模拟异常状态（正常流程不会出现）
+    def test_attachment_tenant_mismatch_allowed(self):
+        """签名跟随人而非租户：附件 tenant_id 与 actor 不一致时仍可签署"""
+        # 模拟用户换租户后签名附件 tenant_id 未同步的场景
         self.att.tenant_id = 'tenant_other'
         self.att.save(update_fields=['tenant_id'])
         result, err = services.apply_signature(
             actor=self.signer, module='test_module', object_type='test_object',
             object_id='obj1', scene_code='operator',
             business_snapshot={'k': 'v'}, request_id='req-att-2')
-        self.assertIsNotNone(err)
-        self.assertIn('租户', err)
+        self.assertIsNone(err, '签名应跟随人，租户不一致不应拒绝')
 
     def test_file_missing_rejected(self):
         """物理文件丢失时拒绝签署"""

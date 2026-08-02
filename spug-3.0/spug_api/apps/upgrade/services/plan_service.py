@@ -14,6 +14,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from libs.tenant_utils import apply_tenant_filter
+from libs.idempotency import check_recent_duplicate
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,12 @@ class PlanService:
             tenant_id=user.tenant_id, name=name
         ).exists():
             return None, f'方案名称 [{name}] 已存在'
+
+        # 幂等性检查：防止双击重复提交
+        if check_recent_duplicate(UpgradeTemplate, {
+            'tenant_id': user.tenant_id, 'name': name,
+        }):
+            return None, '提交过于频繁，请勿重复提交'
 
         try:
             now_str = timezone.now().strftime('%Y-%m-%d %H:%M:%S')

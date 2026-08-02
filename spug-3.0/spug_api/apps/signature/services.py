@@ -932,11 +932,6 @@ def _lock_and_validate_actor_signature(actor):
             '[Signature] attachment owner mismatch: att_id=%s att.object_id=%s actor.id=%s',
             att.id, att.object_id, actor.id)
         raise _SignatureError('签名附件归属不正确')
-    if str(att.tenant_id or '') != str(actor.tenant_id or ''):
-        logger.error(
-            '[Signature] attachment tenant mismatch: att_id=%s att.tenant=%s actor.tenant=%s',
-            att.id, att.tenant_id, actor.tenant_id)
-        raise _SignatureError('签名附件租户不一致')
     return sig, att
 
 

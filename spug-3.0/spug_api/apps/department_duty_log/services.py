@@ -445,6 +445,15 @@ def parse_list_params(request):
 
 def create_draft(user, form, request=None):
     """新建草稿。值班人员和 created_by 固定为当前用户。"""
+    # 幂等性检查：30 秒内相同用户+日期+正文视为重复提交
+    from libs.idempotency import check_recent_duplicate
+    if check_recent_duplicate(
+        DepartmentDutyLog,
+        {'duty_person': user, 'duty_date': form['duty_date'], 'duty_record': form['duty_record']},
+        window_seconds=30,
+    ):
+        return None, '提交过于频繁，请勿重复提交'
+
     duty_person_name = user.nickname or user.username
     record = DepartmentDutyLog.objects.create(
         duty_date=form['duty_date'],

@@ -10,6 +10,7 @@ from django.http import FileResponse
 from django.utils import timezone
 from libs import json_response, JsonParser, Argument, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
+from libs.idempotency import check_recent_duplicate
 from apps.logs.audit import record_audit_event
 from apps.radio_license.models import (
     RadioLicense, RadioLicenseFrequency,
@@ -249,6 +250,15 @@ class RadioLicenseView(View):
         form.pop('remark', None)
         assign_tenant_id(form, user)
         create_data = {k: v for k, v in form.items() if v is not None}
+
+        # 幂等性检查：防止双击重复提交
+        if check_recent_duplicate(RadioLicense, {
+            'tenant_id': user.tenant_id,
+            'station_name': form.get('station_name'),
+            'purpose': form.get('purpose'),
+        }):
+            return '提交过于频繁，请勿重复提交'
+
         with transaction.atomic():
             license_obj = RadioLicense.objects.create(**create_data)
             _create_frequencies(license_obj, frequencies, user)

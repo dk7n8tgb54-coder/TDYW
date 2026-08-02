@@ -265,23 +265,22 @@ class StationFrequencyApprovalView(View):
             with transaction.atomic():
                 create_data = {k: v for k, v in form.items() if v is not None}
                 approval = StationFrequencyApproval.objects.create(**create_data)
+                # 即时扫描更新缓存状态（不等待每日 Celery）
+                scan_single_approval(approval)
+                _record_approval_audit(
+                    user, 'create', approval,
+                    detail={
+                        'name': approval.name, 'doc_no': approval.doc_no,
+                        'frequency_text': approval.frequency_text,
+                        'valid_from': str(approval.valid_from),
+                        'valid_to': str(approval.valid_to),
+                        'responsible_user_id': approval.responsible_user_id,
+                        'responsible_user_name': approval.responsible_user_name,
+                    },
+                )
         except IntegrityError:
             return '文件编号已存在，请更换'
 
-        # 即时扫描更新缓存状态（不等待每日 Celery）
-        scan_single_approval(approval)
-
-        _record_approval_audit(
-            user, 'create', approval,
-            detail={
-                'name': approval.name, 'doc_no': approval.doc_no,
-                'frequency_text': approval.frequency_text,
-                'valid_from': str(approval.valid_from),
-                'valid_to': str(approval.valid_to),
-                'responsible_user_id': approval.responsible_user_id,
-                'responsible_user_name': approval.responsible_user_name,
-            },
-        )
         return None
 
     def _handle_edit(self, form, user):
@@ -308,26 +307,24 @@ class StationFrequencyApprovalView(View):
             with transaction.atomic():
                 update_data = {k: v for k, v in form.items() if v is not None}
                 updated_count = qs.filter(pk=record_id).update(**update_data)
+                if updated_count == 0:
+                    return '编辑失败：记录不存在或无权限编辑'
+                approval = StationFrequencyApproval.objects.get(pk=record_id)
+                # 即时扫描更新缓存状态
+                scan_single_approval(approval)
+                _record_approval_audit(
+                    user, 'update', approval,
+                    detail={
+                        'name': approval.name, 'doc_no': approval.doc_no,
+                        'valid_from': str(approval.valid_from),
+                        'valid_to': str(approval.valid_to),
+                        'responsible_user_id': approval.responsible_user_id,
+                        'responsible_user_name': approval.responsible_user_name,
+                    },
+                )
         except IntegrityError:
             return '文件编号已存在，请更换'
 
-        if updated_count == 0:
-            return '编辑失败：记录不存在或无权限编辑'
-
-        approval = StationFrequencyApproval.objects.get(pk=record_id)
-        # 即时扫描更新缓存状态
-        scan_single_approval(approval)
-
-        _record_approval_audit(
-            user, 'update', approval,
-            detail={
-                'name': approval.name, 'doc_no': approval.doc_no,
-                'valid_from': str(approval.valid_from),
-                'valid_to': str(approval.valid_to),
-                'responsible_user_id': approval.responsible_user_id,
-                'responsible_user_name': approval.responsible_user_name,
-            },
-        )
         return None
 
     @auth('radio_license.approval.del')
@@ -358,10 +355,10 @@ class StationFrequencyApprovalView(View):
                     )
                     # 物理删除批复（CASCADE 自动级联删除 ack）
                     approval.delete()
-                _record_approval_audit(
-                    request.user, 'delete', None,
-                    detail=snapshot, target_id=form.id,
-                )
+                    _record_approval_audit(
+                        request.user, 'delete', None,
+                        detail=snapshot, target_id=form.id,
+                    )
         return json_response(error=error)
 
 
@@ -677,6 +674,15 @@ class ApprovalReminderAckView(View):
                         'user_name': request.user.nickname or request.user.username,
                     },
                 )
+                _record_approval_audit(
+                    request.user, 'update', approval,
+                    detail={
+                        'approval_id': approval.id,
+                        'ack_valid_to': str(approval.valid_to),
+                        'user_id': request.user.id,
+                        'user_name': request.user.nickname or request.user.username,
+                    },
+                )
         except Exception as e:
             logger.error(f'[StationFrequencyApproval] ack 写入失败: {e}')
             return json_response(error='确认处理失败，请稍后重试')
@@ -684,16 +690,6 @@ class ApprovalReminderAckView(View):
         logger.info(
             f'[StationFrequencyApproval] 用户 {request.user.id} 确认处理批复 '
             f'{form.approval_id} (valid_to={approval.valid_to}, new_ack={created})'
-        )
-
-        _record_approval_audit(
-            request.user, 'update', approval,
-            detail={
-                'approval_id': approval.id,
-                'ack_valid_to': str(approval.valid_to),
-                'user_id': request.user.id,
-                'user_name': request.user.nickname or request.user.username,
-            },
         )
         return json_response(data={'approval_id': form.approval_id, 'acked': True})
 

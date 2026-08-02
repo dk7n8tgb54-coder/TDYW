@@ -271,8 +271,10 @@ class ContractAgreementView(View):
             setattr(agreement, key, value)
         agreement.updated_at = timezone.now()
         agreement.updated_by = request.user
+        # update_fields 只保存变更字段，避免覆盖并发修改（如 Celery 扫描的 status/last_remind_at）
+        save_fields = list(update_data.keys()) + ['updated_at', 'updated_by']
         with transaction.atomic():
-            agreement.save()
+            agreement.save(update_fields=save_fields)
             scan_single_contract_agreement(agreement)
             record_audit_event(
                 request, 'update', AUDIT_TARGET_TYPE,

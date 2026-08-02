@@ -11,6 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from libs.tenant_utils import apply_tenant_filter
+from libs.idempotency import check_recent_duplicate
 from ..validators import RecordValidator
 from ..serializers import UpgradeRecordSerializer
 from ..constants import PRESET_SYSTEMS, UPGRADE_PHASES, RESULT_MILESTONES, STANDARD_FLOW_ORDER
@@ -38,6 +39,15 @@ class RecordService:
         error = RecordValidator.validate_create(record_data, user)
         if error:
             return None, error
+
+        # 幂等性检查：防止双击重复提交
+        if check_recent_duplicate(UpgradeRecord, {
+            'tenant_id': user.tenant_id,
+            'title': getattr(record_data, 'title', '') or '',
+            'system': record_data.system,
+            'upgrade_type': record_data.upgrade_type,
+        }):
+            return None, '提交过于频繁，请勿重复提交'
 
         try:
             with transaction.atomic():

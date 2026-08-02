@@ -4,6 +4,7 @@
 from django.views.generic import View
 from libs import JsonParser, Argument, json_response, auth
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
+from libs.idempotency import check_recent_duplicate
 from apps.device.models import DeviceResume, DeviceEvent
 from apps.logs.audit import record_audit_event
 from django.db import IntegrityError, DatabaseError, transaction
@@ -144,6 +145,10 @@ class DeviceResumeView(View):
         from django.utils import timezone
 
         try:
+            # 0. 幂等性检查：防止双击重复提交
+            if check_recent_duplicate(DeviceResume, {'tenant_id': tenant_id, 'device_sn': form.device_sn}):
+                return json_response(error='提交过于频繁，请勿重复提交')
+
             # 1. 查重：未删除记录中是否已存在该编号（objects 自动过滤 is_deleted=False）
             if DeviceResume.objects.filter(tenant_id=tenant_id, device_sn=form.device_sn).exists():
                 logging.warning(f'创建设备失败：设备编号已存在｜设备编号：{form.device_sn}｜租户：{tenant_id}｜用户：{request.user.username}')
@@ -464,6 +469,10 @@ class DeviceEventView(View):
         is_valid, error = DeviceEventValidator.validate_time_logic(form)
         if not is_valid:
             return json_response(error=error)
+
+        # 幂等性检查：防止双击重复提交
+        if check_recent_duplicate(DeviceEvent, {'device_resume_id': form.device_resume_id, 'event_type': form.event_type}):
+            return json_response(error='提交过于频繁，请勿重复提交')
 
         # Create event record
         try:

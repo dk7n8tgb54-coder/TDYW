@@ -398,7 +398,7 @@ class DepartmentDutyLogValidationTests(TestCase):
         for val in test_values:
             resp = self.client.post('/department-duty-log/records/', data=json.dumps({
                 'duty_date': str(date.today()),
-                'duty_record': '测试',
+                'duty_record': f'天气测试_{val}',
                 'weather': val,
             }), content_type='application/json')
             body = self._parse(resp)

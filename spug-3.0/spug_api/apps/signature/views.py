@@ -219,12 +219,6 @@ class SignaturePreviewView(View):
                 url_attachment_id,
             )
             return None, '预览令牌无效'
-        if str(att.tenant_id or '') != str(token_data.get('tenant_id') or ''):
-            logger.warning(
-                '[Signature] preview token tenant mismatch: token=%s, db=%s',
-                token_data.get('tenant_id'), att.tenant_id,
-            )
-            return None, '预览令牌无效'
         if str(att.object_id) != str(token_data.get('object_id') or ''):
             logger.warning(
                 '[Signature] preview token object_id mismatch: token=%s, db=%s',

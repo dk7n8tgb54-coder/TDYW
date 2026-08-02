@@ -350,7 +350,7 @@ class UserView(AdminView):
 
     @staticmethod
     def _migrate_user_tenant(user, new_tenant_id):
-        """超管修改用户租户时，迁移历史数据+清理缓存"""
+        """超管修改用户租户时，迁移历史数据+同步签名+清理缓存"""
         old_tenant_id = user.tenant_id
         try:
             migrate_existing_data({user.username: new_tenant_id})
@@ -358,6 +358,19 @@ class UserView(AdminView):
             logger.error(f'Account: Failed to migrate user {user.username} tenant data: {e}', exc_info=True)
             # 必须让异常越过 transaction.atomic()/ATOMIC_REQUESTS 边界，避免部分租户数据提交。
             raise
+
+        # 签名跟随人而非租户：同步 AccountSignature + EvidenceAttachment 的 tenant_id
+        from apps.signature.models import AccountSignature
+        from apps.evidence.models import EvidenceAttachment
+        sig = AccountSignature.objects.filter(user_id=user.id).first()
+        if sig and sig.tenant_id != new_tenant_id:
+            sig.tenant_id = new_tenant_id
+            sig.save(update_fields=['tenant_id', 'updated_at'])
+        if sig and sig.current_attachment_id:
+            att = EvidenceAttachment.objects.filter(pk=sig.current_attachment_id).first()
+            if att and att.tenant_id != new_tenant_id:
+                att.tenant_id = new_tenant_id
+                att.save(update_fields=['tenant_id'])
 
 
 class RoleView(AdminView):
