@@ -181,7 +181,7 @@ class UserView(AdminView):
     def _handle_user_create(self, request, form, role_ids, password):
         if not verify_password(password):
             logger.warning(f'Account: Password validation failed for new user creation by {request.user.username}')
-            return json_response(error='请设置至少8位包含数字、小写和大写字母、特殊字符的新密码')
+            return json_response(error='密码至少8位，须含数字、小写和大写字母及特殊字符，仅限英文、数字、符号（不可含中文）')
         # 先解析目标租户，用于校验 role_ids 与目标租户一致性
         tenant_value, err = self._resolve_tenant_id(request, form)
         if err:
@@ -256,7 +256,7 @@ class UserView(AdminView):
                 if form.password:
                     if not verify_password(form.password):
                         logger.warning(f'Account: Password validation failed for user {user.username}')
-                        return json_response(error='请设置至少8位包含数字、小写和大写字母、特殊字符的新密码')
+                        return json_response(error='密码至少8位，须含数字、小写和大写字母及特殊字符，仅限英文、数字、符号（不可含中文）')
                     user.token_expired = 0
                     user.password_hash = User.make_password(form.pop('password'))
                 if form.is_active is not None:
@@ -670,7 +670,7 @@ class SelfView(View):
             if form.old_password and form.new_password:
                 if not verify_password(form.new_password):
                     logger.warning(f'Account: Password validation failed for user {request.user.username}')
-                    return json_response(error='请设置至少8位包含数字、小写和大写字母、特殊字符的新密码')
+                    return json_response(error='密码至少8位，须含数字、小写和大写字母及特殊字符，仅限英文、数字、符号（不可含中文）')
 
                 if request.user.verify_password(form.old_password):
                     request.user.password_hash = User.make_password(form.new_password)

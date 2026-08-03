@@ -28,6 +28,7 @@ urlpatterns = [
     path('setting/', include('apps.setting.urls')),
     path('interference/', include('apps.interference.urls')),
     path('home/', include('apps.home.urls')),
+    path('reminder/', include('apps.reminder.urls')),
     path('alert/', include('apps.alert.urls')),
     path('apis/', include('apps.apis.urls')),
     path('document/', include('apps.document.urls')),

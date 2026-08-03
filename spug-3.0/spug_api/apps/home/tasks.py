@@ -30,4 +30,3 @@ def sync_announcement_status():
                          target_name='公告自动过期',
                          detail={'expired_count': updated})
     return updated
-

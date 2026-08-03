@@ -33,8 +33,9 @@
 - preview_token **两套独立实现**（document/libs vs evidence/attachment_preview_token）待收口
 
 ## Celery
-- 17 `@shared_task` / 5 队列；11 Beat + 6 事件触发
+- 18 `@shared_task` / 5 队列；12 Beat + 6 事件触发
 - `retry_clean_pending_files` 是 `is_pending_clean` 唯一消费者，不可删
+- `check_weekly_report_reminders` 每 5 分钟轮询，10 分钟时间窗口 + get_or_create 幂等
 
 ## Django 升级路线
 - 2.2->3.2->4.2.30(完成)->5.2 LTS(待做)；Channels4 consumer `__init__` 禁访问 `self.scope`

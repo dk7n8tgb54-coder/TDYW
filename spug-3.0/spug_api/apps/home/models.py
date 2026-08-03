@@ -331,3 +331,5 @@ def visible_announcements_for_user(user, now=None):
     ).distinct()
     return qs
 
+
+

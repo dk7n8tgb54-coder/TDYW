@@ -12,6 +12,7 @@ import FaultOverview from './FaultOverview';
 import UpgradeOverview from './UpgradeOverview';
 import InterferenceOverview from './InterferenceOverview';
 import AnnouncementPanel from './AnnouncementPanel';
+import ReminderPanel from './ReminderPanel';
 
 function HomeIndex() {
   return (
@@ -23,6 +24,9 @@ function HomeIndex() {
 
       {/* 公告面板：首页第一屏靠上位置 */}
       <AnnouncementPanel />
+
+      {/* 提醒事项面板 */}
+      <ReminderPanel />
 
       {/* 第1行：跨日事项跟踪概览 */}
       <RunlogOverview />

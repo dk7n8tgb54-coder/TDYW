@@ -93,7 +93,7 @@ const DiskTrendChart = observer(function DiskTrendChart() {
   );
 });
 
-function AlertTable() {
+const AlertTable = observer(function AlertTable() {
   const columns = [{
     title: '发生时间',
     dataIndex: 'created_at',
@@ -207,7 +207,7 @@ function AlertTable() {
         onShowSizeChange: store.changePage,
       }}/>
   );
-}
+});
 
 export default observer(function AlertIndex() {
   useEffect(() => {

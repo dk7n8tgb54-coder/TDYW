@@ -33,7 +33,7 @@ info()  { echo -e "${CYAN}[INFO]${NC} $*"; }
 ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 fatal() { echo -e "${RED}[FATAL]${NC} $*"; exit 1; }
-
+"""
 # ---------- 前置检查 ----------
 info "前置检查..."
 
@@ -62,35 +62,35 @@ fi
 
 # 3. 输出目录存在
 mkdir -p "$OUTPUT_DIR"
-
-# ---------- Django check（用 tdyw-test 容器）----------
-if docker inspect tdyw-test &>/dev/null; then
-    info "运行 Django check（tdyw-test 容器）..."
-    if docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw-test \
+"""
+# ---------- Django check（用 tdyw 容器）----------
+if docker inspect tdyw &>/dev/null; then
+    info "运行 Django check（tdyw 容器）..."
+    if docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw \
         python manage.py check --tag compatibility 2>&1; then
         ok "Django check 通过"
     else
         warn "Django check 有警告，继续构建（不阻塞）"
     fi
 else
-    warn "tdyw-test 容器不存在，跳过 Django check"
+    warn "tdyw 容器不存在，跳过 Django check"
 fi
 
 # ---------- 迁移检查 ----------
-if docker inspect tdyw-test &>/dev/null; then
+if docker inspect tdyw &>/dev/null; then
     info "检查待执行迁移..."
-    PENDING=$(docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw-test \
+    PENDING=$(docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw \
         python manage.py showmigrations --list 2>&1 | grep -c '\[ \]' || true)
 
     if [ "$PENDING" -gt 0 ]; then
         warn "有 ${PENDING} 个待执行迁移"
         warn "待执行迁移列表："
-        docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw-test \
+        docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw \
             python manage.py showmigrations --list 2>&1 | grep "\[ \]" | head -20 || true
 
         # 扫描破坏性操作
         info "扫描迁移文件中的破坏性操作..."
-        DESTRUCTIVE=$(docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw-test \
+        DESTRUCTIVE=$(docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw \
             bash -c "grep -rl 'RemoveField\|AlterField\|DeleteModel\|RemoveIndex\|AlterUniqueTogether' apps/*/migrations/*.py 2>/dev/null | tail -5" || echo "")
 
         if [ -n "$DESTRUCTIVE" ]; then

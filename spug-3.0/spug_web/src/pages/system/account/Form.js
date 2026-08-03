@@ -90,7 +90,7 @@ export default observer(function () {
           <Input placeholder="请输入姓名"/>
         </Form.Item>
         <Form.Item required hidden={store.record.id} name="password" label="密码"
-                   extra="至少8位，包含数字、小写和大写字母、特殊字符。">
+                   extra="至少8位，须含数字、小写和大写字母及特殊字符，仅限英文、数字、符号（不可含中文）。">
           <Input.Password placeholder="请输入密码"/>
         </Form.Item>
         {isSupper && (

@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     'apps.device',
     'apps.interference',
     'apps.home',
+    'apps.reminder',
     'apps.alert',
     'apps.runlog',
     'apps.document',
@@ -234,6 +235,7 @@ from apps.radio_license.celery_beat_schedule import RADIO_LICENSE_BEAT_SCHEDULE
 from apps.contract_agreement.celery_beat_schedule import CONTRACT_AGREEMENT_BEAT_SCHEDULE
 from apps.logs.celery_beat_schedule import LOGS_BEAT_SCHEDULE
 from apps.home.celery_beat_schedule import HOME_BEAT_SCHEDULE
+from apps.reminder.celery_beat_schedule import REMINDER_BEAT_SCHEDULE
 from apps.alert.celery_beat_schedule import ALERT_BEAT_SCHEDULE
 
 CELERY_BEAT_SCHEDULE = {
@@ -258,6 +260,9 @@ CELERY_BEAT_SCHEDULE.update(LOGS_BEAT_SCHEDULE)
 
 # 合并公告模块的定时任务配置（过期状态同步）
 CELERY_BEAT_SCHEDULE.update(HOME_BEAT_SCHEDULE)
+
+# 合并提醒事项模块的定时任务配置
+CELERY_BEAT_SCHEDULE.update(REMINDER_BEAT_SCHEDULE)
 
 # 合并 Alert 模块的定时任务配置（磁盘/数据库监控 + 数据质量巡检）
 CELERY_BEAT_SCHEDULE.update(ALERT_BEAT_SCHEDULE)

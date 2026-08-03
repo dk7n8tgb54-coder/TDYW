@@ -53,6 +53,7 @@ import ContractAgreementIndex from './pages/contractAgreement';
 import RegulationIndex from './pages/regulation';
 import AnnouncementList from './pages/home/AnnouncementList';
 import AnnouncementAdmin from './pages/system/announcement';
+import ReminderAdmin from './pages/reminder';
 
 export default [
   {icon: <DesktopOutlined/>, title: '工作台', auth: 'dashboard.dashboard.view', path: '/home', component: HomeIndex},
@@ -92,7 +93,10 @@ export default [
     {title: '干扰统计', auth: 'interference.statistics.view', path: '/interference/statistics', component: InterferenceStatistics},
   ]},
   {icon: <ClockCircleOutlined/>, title: '值班日志', auth: 'duty.duty.view', path: '/duty', component: ExecDutyRecord},
-  {icon: <NotificationOutlined/>, title: '公告管理', auth: 'home.announcement.view', path: '/system/announcement', component: AnnouncementAdmin},
+  {icon: <NotificationOutlined/>, title: '公告与提醒', auth: 'home.announcement.view|home.reminder.view', child: [
+    {title: '发布公告', auth: 'home.announcement.view', path: '/system/announcement', component: AnnouncementAdmin},
+    {title: '提醒事项', auth: 'home.reminder.view', path: '/reminder', component: ReminderAdmin},
+  ]},
   {
     icon: <ToolOutlined/>, title: '运维管理', auth: 'system.audit.view|system.alert.view', child: [
       {title: '操作日志', auth: 'system.audit.view', path: '/maintenance/audit', component: SystemAudit},

@@ -5,6 +5,7 @@
  */
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { observer } from 'mobx-react';
 import { Layout, Dropdown, Menu, Avatar, Badge, Popover, List, Tag, Button, Empty, Spin } from 'antd';
 import { MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, LogoutOutlined, BellOutlined } from '@ant-design/icons';
 import styles from './layout.module.less';
@@ -19,7 +20,7 @@ const LEVEL_CONFIG = {
   info: { color: 'blue', text: '提示' },
 };
 
-export default function (props) {
+export default observer(function (props) {
   const [bellOpen, setBellOpen] = useState(false);
   const isSupper = sessionStorage.getItem('is_supper') === 'true';
 
@@ -125,4 +126,4 @@ export default function (props) {
       </div>
     </Layout.Header>
   )
-}
+})

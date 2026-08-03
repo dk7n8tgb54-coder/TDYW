@@ -1,5 +1,5 @@
 /**
- * 公告管理（系统管理 / 公告管理）
+ * 发布公告（系统管理 / 发布公告）
  * 列表 + 筛选 + 新建/编辑/发布/撤回/删除。仅全局管理员/超级管理员可访问。
  */
 import React, { useState, useEffect, useCallback } from 'react';
@@ -131,7 +131,7 @@ function AnnouncementAdmin() {
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
         <Breadcrumb.Item>系统管理</Breadcrumb.Item>
-        <Breadcrumb.Item>公告管理</Breadcrumb.Item>
+        <Breadcrumb.Item>发布公告</Breadcrumb.Item>
       </Breadcrumb>
       <div style={{ marginBottom: 12 }}>
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建公告</Button>

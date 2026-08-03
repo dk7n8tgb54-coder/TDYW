@@ -112,7 +112,7 @@ class ComTable extends React.Component {
       icon: <ExclamationCircleOutlined/>,
       title: '重置登录密码',
       content: <Form layout="vertical" style={{marginTop: 24}}>
-        <Form.Item required label="重置后的新密码" extra="至少8位，包含数字、小写和大写字母、特殊字符。">
+        <Form.Item required label="重置后的新密码" extra="至少8位，须含数字、小写和大写字母及特殊字符，仅限英文、数字、符号（不可含中文）。">
           <Input.Password onChange={val => this.setState({password: val.target.value})}/>
         </Form.Item>
       </Form>,

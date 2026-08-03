@@ -287,7 +287,7 @@ export default [{
   label: '首页与公告',
   pages: [{
     key: 'announcement',
-    label: '公告管理',
+    label: '发布公告',
     perms: [
       {key: 'view', label: '查看公告'},
       {key: 'add', label: '新建公告'},
@@ -295,6 +295,15 @@ export default [{
       {key: 'delete', label: '删除公告'},
       {key: 'publish', label: '发布公告'},
       {key: 'withdraw', label: '撤回公告'},
+    ]
+  }, {
+    key: 'reminder',
+    label: '提醒事项',
+    perms: [
+      {key: 'view', label: '查看提醒规则'},
+      {key: 'add', label: '新建提醒规则'},
+      {key: 'edit', label: '编辑提醒规则'},
+      {key: 'delete', label: '删除提醒规则'},
     ]
   }]
 }]
