@@ -57,7 +57,7 @@ import ReminderAdmin from './pages/reminder';
 
 export default [
   {icon: <DesktopOutlined/>, title: '工作台', auth: 'dashboard.dashboard.view', path: '/home', component: HomeIndex},
-  {icon: <BarChartOutlined/>, title: '数据分析', path: '/data-analysis', component: DataAnalysisIndex},
+  {icon: <BarChartOutlined/>, title: '数据分析', auth: 'data_analysis.overview.view|data_analysis.fault.view|data_analysis.interference.view|data_analysis.device.view|data_analysis.upgrade.view', path: '/data-analysis', component: DataAnalysisIndex},
   {icon: <ScheduleOutlined/>, title: '部门值班日志', auth: 'department_duty_log.department_duty_log.view', path: '/department-duty-log', component: DepartmentDutyLogIndex},
   {icon: <SafetyCertificateOutlined/>, title: '执照管理', auth: 'radio_license.license.view|radio_license.approval.view', child: [
     {title: '无线电台执照', auth: 'radio_license.license.view', path: '/radio-license', component: RadioLicenseIndex},

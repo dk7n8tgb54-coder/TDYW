@@ -40,6 +40,7 @@ urlpatterns = [
     path('regulation/', include('apps.regulation.urls')),
     path('signature/', include('apps.signature.urls')),
     path('department-duty-log/', include('apps.department_duty_log.urls')),
+    path('data-analysis/', include('apps.data_analysis.urls')),
 ]
 
 # 在开发环境下提供media文件服务

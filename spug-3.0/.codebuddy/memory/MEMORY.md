@@ -24,6 +24,7 @@
 1. `read_lints`；2. py: `docker exec tdyw python -m py_compile <path>`；3. js: `node -e "@babel/parser"`；4. `git diff`；5. Django 测试必在容器内
 
 ## 模块架构速查
+- 数据分析 `apps/data_analysis`（纯只读聚合，无 model/migration，跨 app 查询，5 个 API + BizCharts 前端 + Redis 60s 缓存 + 5 个独立权限码）
 - 附件 `apps/evidence`（EvidenceAttachment 多态 + AttachmentService + preview_token）；radio_license/contract_agreement/device/upgrade/fault/interference/department_duty_log 均走此机制；**例外：regulation 走独立 `storage.py`**
 - 账号签名 `apps/signature`（apply_signature 事务锁->SHA256->Usage+EvidenceEvent）
 - 党建隔离 `DocumentSystemFolder` + `system_scope_validators`（fail-closed）

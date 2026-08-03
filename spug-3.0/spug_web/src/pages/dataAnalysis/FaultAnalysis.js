@@ -1,0 +1,117 @@
+/**
+ * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
+ * Copyright (c) <spug.dev@gmail.com>
+ * Released under the AGPL-3.0 License.
+ */
+import React from 'react';
+import { Row, Col, Alert, Button, Empty } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
+import { observer } from 'mobx-react';
+import store from './store';
+import StatCard from './components/StatCard';
+import TrendChart from './components/TrendChart';
+import DistributionChart from './components/DistributionChart';
+
+export default observer(function FaultAnalysis() {
+  const data = store.getData('fault');
+  const loading = store.isFetching('fault');
+  const error = store.getError('fault');
+
+  if (error) {
+    return (
+      <Alert
+        message="数据加载失败"
+        description={error}
+        type="error"
+        showIcon
+        action={
+          <Button size="small" icon={<ReloadOutlined />} onClick={() => store.fetchTab('fault')}>
+            重试
+          </Button>
+        }
+      />
+    );
+  }
+
+  if (!loading && !data) {
+    return <Empty description="暂无数据" />;
+  }
+
+  const summary = data?.summary || {};
+  const trends = data?.trends || {};
+  const dist = data?.distributions || {};
+
+  return (
+    <div>
+      <Row gutter={[16, 16]}>
+        <Col xs={24} sm={12} lg={8} xl={4}>
+          <StatCard title="故障记录数" value={summary.record_count || 0} loading={loading} />
+        </Col>
+        <Col xs={24} sm={12} lg={8} xl={4}>
+          <StatCard title="故障件总数" value={summary.part_count || 0} loading={loading} />
+        </Col>
+        <Col xs={24} sm={12} lg={8} xl={4}>
+          <StatCard title="已归档数" value={summary.archived_part_count || 0} loading={loading} />
+        </Col>
+        <Col xs={24} sm={12} lg={8} xl={4}>
+          <StatCard title="未归档数" value={summary.unarchived_part_count || 0} loading={loading} />
+        </Col>
+        <Col xs={24} sm={12} lg={8} xl={4}>
+          <StatCard title="归档率" value={summary.archive_rate || '0.0%'} loading={loading} />
+        </Col>
+      </Row>
+
+      <div style={{ marginTop: 16 }}>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={12}>
+            <TrendChart
+              title="故障记录月度趋势"
+              data={trends.record_monthly}
+              loading={loading}
+            />
+          </Col>
+          <Col xs={24} lg={12}>
+            <TrendChart
+              title="故障件月度趋势"
+              data={trends.part_monthly}
+              loading={loading}
+            />
+          </Col>
+        </Row>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={12}>
+            <DistributionChart
+              title="故障级别分布"
+              data={dist.record_by_level}
+              loading={loading}
+            />
+          </Col>
+          <Col xs={24} lg={12}>
+            <DistributionChart
+              title="故障系统分布"
+              data={dist.record_by_system}
+              loading={loading}
+            />
+          </Col>
+          <Col xs={24} lg={12}>
+            <DistributionChart
+              title="故障件状态分布"
+              data={dist.part_by_status}
+              loading={loading}
+            />
+          </Col>
+          <Col xs={24} lg={12}>
+            <DistributionChart
+              title="故障件系统分布"
+              data={dist.part_by_system}
+              loading={loading}
+            />
+          </Col>
+        </Row>
+      </div>
+    </div>
+  );
+});

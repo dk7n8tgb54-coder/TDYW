@@ -306,5 +306,39 @@ export default [{
       {key: 'delete', label: '删除提醒规则'},
     ]
   }]
+}, {
+  key: 'data_analysis',
+  label: '数据分析',
+  pages: [{
+    key: 'overview',
+    label: '总览分析',
+    perms: [
+      {key: 'view', label: '查看总览分析'},
+    ]
+  }, {
+    key: 'fault',
+    label: '故障分析',
+    perms: [
+      {key: 'view', label: '查看故障分析'},
+    ]
+  }, {
+    key: 'interference',
+    label: '干扰分析',
+    perms: [
+      {key: 'view', label: '查看干扰分析'},
+    ]
+  }, {
+    key: 'device',
+    label: '设备分析',
+    perms: [
+      {key: 'view', label: '查看设备分析'},
+    ]
+  }, {
+    key: 'upgrade',
+    label: '升级分析',
+    perms: [
+      {key: 'view', label: '查看升级分析'},
+    ]
+  }]
 }]
 
