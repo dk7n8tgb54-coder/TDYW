@@ -441,7 +441,22 @@ export class ChunkUploadStore {
 
         xhr.addEventListener('load', () => {
           abortController.signal.removeEventListener('abort', abortHandler);
+          // 【P0-3修复】检查 operationVersion，旧操作的响应不再处理
+          if (operationVersion && !this.queueStore.isCurrentOperation(uploadId, operationVersion)) {
+            return; // 旧操作响应，Promise 已被上层放弃
+          }
           if (xhr.status === 200) {
+            // 【P1修复】HTTP 200 不代表成功，json_response 对业务错误也返回 200
+            // 必须解析响应体中的 error 字段
+            try {
+              const resp = JSON.parse(xhr.responseText);
+              if (resp.error) {
+                reject(new Error(`分片${chunkIndex}保存失败: ${resp.error}`));
+                return;
+              }
+            } catch (e) {
+              // 响应体非 JSON，按原逻辑处理
+            }
             resolve();
           } else if (xhr.status === 401) {
             reject(new Error('登录已过期，请重新登录'));
@@ -451,16 +466,22 @@ export class ChunkUploadStore {
         });
 
         xhr.addEventListener('error', () => {
+          // 【P0-3修复】旧操作的错误不再 reject
+          if (operationVersion && !this.queueStore.isCurrentOperation(uploadId, operationVersion)) return;
           abortController.signal.removeEventListener('abort', abortHandler);
           reject(new Error(`网络错误(分片${chunkIndex})`));
         });
 
         xhr.addEventListener('abort', () => {
+          // 【P0-3修复】旧操作的 abort 不再 reject
+          if (operationVersion && !this.queueStore.isCurrentOperation(uploadId, operationVersion)) return;
           abortController.signal.removeEventListener('abort', abortHandler);
           reject(new Error('上传取消'));
         });
 
         xhr.addEventListener('timeout', () => {
+          // 【P0-3修复】旧操作的超时不再 reject
+          if (operationVersion && !this.queueStore.isCurrentOperation(uploadId, operationVersion)) return;
           abortController.signal.removeEventListener('abort', abortHandler);
           reject(new Error(`上传超时(分片${chunkIndex})`));
         });
@@ -500,7 +521,7 @@ export class ChunkUploadStore {
    * @param {boolean} isPublic - 是否公共空间
    * @param {number} operationVersion - 【7.3】当前操作版本号
    */
-  async mergeChunks(file, uploadId, chunkCount, fileHash, folderId, isPublic = null, operationVersion = 0) {
+  async mergeChunks(file, uploadId, chunkCount, fileHash, folderId, isPublic = null, operationVersion = 0, retryCount = 0) {
     const tenantId = this.rootStore.getCurrentTenantId?.() || 'default';
     
     // 【修复】使用传入的isPublic，如果没有则回退到队列项保存的值
@@ -542,10 +563,14 @@ export class ChunkUploadStore {
           return { success: true, celeryTaskId: existingTaskId };
         }
         // 如果没有task_id，等待一段时间后重试
-        console.warn(`[ChunkUploadStore] ${uploadId}: 无法获取合并任务ID，等待后重试`);
+        // 【P1-1修复】递归重试加深度限制，避免无限递归
+        if (retryCount >= 3) {
+          throw new Error('合并重试次数超限(无法获取任务ID)，请手动重试');
+        }
+        console.warn(`[ChunkUploadStore] ${uploadId}: 无法获取合并任务ID，等待后重试(${retryCount + 1}/3)`);
         await new Promise(resolve => setTimeout(resolve, 2000));
         // 递归重试
-        return this.mergeChunks(file, uploadId, chunkCount, fileHash, folderId, isPublic, operationVersion);
+        return this.mergeChunks(file, uploadId, chunkCount, fileHash, folderId, isPublic, operationVersion, retryCount + 1);
       }
       throw error;
     }
@@ -559,9 +584,19 @@ export class ChunkUploadStore {
         return { success: true, celeryTaskId: existingTaskId };
       }
       // 如果没有task_id，等待后重试
-      console.warn(`[ChunkUploadStore] ${uploadId}: 无法获取合并任务ID，等待后重试`);
+      // 【P1-1修复】递归重试加深度限制，避免无限递归
+      if (retryCount >= 3) {
+        throw new Error('合并重试次数超限(merging状态无task_id)，请手动重试');
+      }
+      console.warn(`[ChunkUploadStore] ${uploadId}: 无法获取合并任务ID，等待后重试(${retryCount + 1}/3)`);
       await new Promise(resolve => setTimeout(resolve, 2000));
-      return this.mergeChunks(file, uploadId, chunkCount, fileHash, folderId, isPublic, operationVersion);
+      return this.mergeChunks(file, uploadId, chunkCount, fileHash, folderId, isPublic, operationVersion, retryCount + 1);
+    }
+
+    // 【修复】幂等检查返回 completed 时，文件已合并过，直接返回成功
+    if (mergeResult.status === 'completed') {
+      console.log(`[ChunkUploadStore] ${uploadId}: 文件已合并完成(幂等)，跳过轮询`);
+      return { success: true, mergeTaskId: null, celeryTaskId: null };
     }
 
     // 轮询合并状态
@@ -653,13 +688,22 @@ export class ChunkUploadStore {
         if (status.status === 'completed' || status.status === 'success') {
           return;
         } else if (status.status === 'failed') {
-          throw new Error(status.error || '合并失败');
+          // 【P2修复】确定错误不应当作网络抖动重试，标记后直接抛出
+          const e = new Error(status.error || '合并失败');
+          e.isDefinite = true;
+          throw e;
         } else if (status.status === 'timeout') {
-          throw new Error('合并超时');
+          const e = new Error('合并超时');
+          e.isDefinite = true;
+          throw e;
         } else if (status.status === 'not_found') {
-          throw new Error('合并任务不存在');
+          const e = new Error('合并任务不存在');
+          e.isDefinite = true;
+          throw e;
         } else if (status.status === 'error') {
-          throw new Error(status.error || '合并任务错误');
+          const e = new Error(status.error || '合并任务错误');
+          e.isDefinite = true;
+          throw e;
         } else if (status.status === 'progress' || status.status === 'pending' || status.status === 'merging') {
           // 合并进行中，继续轮询
         } else {
@@ -678,6 +722,12 @@ export class ChunkUploadStore {
 
         await new Promise(resolve => setTimeout(resolve, interval));
       } catch (error) {
+        // 【P2修复】区分确定错误 vs 网络错误
+        // 确定错误（合并失败/超时/任务不存在）直接抛出，不重试
+        if (error.isDefinite) {
+          throw error;
+        }
+
         consecutiveErrors++;
         if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
           throw new Error(`合并状态查询连续失败${MAX_CONSECUTIVE_ERRORS}次，请检查网络`);

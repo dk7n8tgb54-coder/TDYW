@@ -280,6 +280,8 @@ export class UploadStateMachine {
       }
 
       // 【方向B】actions 已移除，直接通过 transition 进 error（避免递归，直接写状态）
+      // 【P1-4修复】同步恢复 currentState，避免 currentState=toState 与 item.status='error' 不一致
+      this.currentState = 'error';
       this.updateItem({
         status: 'error',
         error: `状态转换异常: ${error.message}`,
@@ -536,9 +538,16 @@ export class UploadStateMachine {
     // 【P0修复 2026-06-27】后端同步由 StateChangeHandler → StatusSynchronizer 统一处理
   }
 
-  onErrorEntry() {
+  onErrorEntry(payload = {}) {
+    // 【P1-3深度修复】payload.error 可能是 Error 对象，需提取 message 转为字符串，
+    // 否则 UI 调用 item.error.includes('xxx') 会抛 TypeError
+    const rawError = payload.error instanceof Error
+      ? payload.error.message
+      : payload.error;
     this.updateItem({
       status: 'error',
+      error: String(rawError || payload.message || '上传失败'),
+      errorCode: payload.errorCode || null,
       canAbort: false
     });
 
@@ -693,8 +702,17 @@ export class UploadStateMachine {
   /**
    * 【方向B 2026-06-27】清理所有资源（替代原 this.actions.cleanupAllResources）
    * 在 cleanupUploadResources 基础上额外清空 file 对象
+   * 【bug修复】释放 uniqueKey，避免完成后无法重新上传同一文件
    */
   cleanupAllResources() {
+    // 释放 uniqueKey（在 file=null 之前，因为 removeUniqueKey 需要 file）
+    try {
+      const item = this.context.queueStore?.findUploadItemInCurrentTenant(this.uploadId);
+      if (item?.uniqueKey) {
+        this.context.queueStore.uploadingUniqueKeys.delete(item.uniqueKey);
+      }
+    } catch (e) { /* 忽略 */ }
+
     this.cleanupUploadResources();
     this.updateItem({ file: null });
   }

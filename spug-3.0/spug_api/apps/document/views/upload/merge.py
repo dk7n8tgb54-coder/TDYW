@@ -16,6 +16,7 @@ import time
 import logging
 from uuid import uuid4
 from django.db import transaction
+from django.db.models import Q
 from django.views.generic import View
 from django.conf import settings
 from django.http import HttpRequest
@@ -300,8 +301,21 @@ def _lookup_by_transfer_id(transfer_id: int, user: Optional['User']) -> Optional
         return _build_result_from_transfer(transfer)
 
 
-def _lookup_by_file_hash(file_hash: str, is_public: Optional[bool], user: 'User') -> Optional[dict]:
+def _lookup_by_file_hash(file_hash: str, is_public: Optional[bool], user: 'User',
+                         folder_id: Optional[int] = None, system_folder: Optional[str] = None,
+                         file_name: str = None) -> Optional[dict]:
     """通过 file_hash 查询 MERGING/COMPLETED 记录
+
+    【P0修复】必须按 folder_id、system_folder 过滤，防止跨目录/跨空间误命中。
+    【去重修复】同时按 file_name 过滤，不同文件名的同内容文件不算重复。
+
+    Args:
+        file_hash: 文件哈希
+        is_public: 是否公共空间
+        user: 当前用户
+        folder_id: 目标目录ID（None 表示根目录）
+        system_folder: 系统目录标识（如党建空间）
+        file_name: 文件名（不同文件名的同内容文件不算重复）
 
     Returns:
         结果字典或 None
@@ -311,13 +325,33 @@ def _lookup_by_file_hash(file_hash: str, is_public: Optional[bool], user: 'User'
         status__in=[TransferStatus.MERGING.value, TransferStatus.COMPLETED.value]
     )
 
-    # 租户过滤：公共空间不过滤，私有空间按租户过滤
+    # 【修复】同时按 file_name 匹配：不同文件名的同内容文件不算重复
+    if file_name:
+        query = query.filter(file_name=file_name)
+
+    # 【P0修复】必须按目标目录和系统空间过滤，防止跨目录误命中
+    if folder_id is not None:
+        query = query.filter(folder_id=folder_id)
+    else:
+        # folder_id 为 None 表示根目录，排除有 folder_id 的记录
+        query = query.filter(folder_id__isnull=True)
+
+    # 【P0修复】按系统空间过滤（党建 vs 普通）
+    if system_folder:
+        query = query.filter(system_folder=system_folder)
+    else:
+        query = query.filter(Q(system_folder='') | Q(system_folder__isnull=True))
+
+    # 租户过滤：私有空间按租户过滤，公共空间按用户过滤
     if not is_public:
         tenant_id = getattr(user, 'tenant_id', None)
         if tenant_id:
             query = query.filter(tenant_id=tenant_id)
         else:
             query = query.filter(user=user)
+    else:
+        # 【P0修复】公共空间也必须按用户过滤，防止跨用户误命中
+        query = query.filter(user=user)
 
     # 【P0-3修复】合并为一个查询：优先返回有task_id的MERGING或COMPLETED
     transfer = query.filter(
@@ -341,16 +375,24 @@ def check_idempotency(
     transfer_id: Optional[int],
     file_hash: Optional[str] = None,
     is_public: Optional[bool] = None,
-    user: Optional['User'] = None
+    user: Optional['User'] = None,
+    folder_id: Optional[int] = None,
+    system_folder: Optional[str] = None,
+    file_name: Optional[str] = None
 ) -> tuple[Optional[dict], Optional[str]]:
     """
     【P0-3修复】幂等性检查 - 简化版
+
+    【P0修复】增加 folder_id、system_folder 参数，防止跨目录/跨空间误命中。
+    【去重修复】增加 file_name 参数，不同文件名的同内容文件不算重复。
 
     Args:
         transfer_id: 传输记录ID（优先使用）
         file_hash: 文件哈希（当transfer_id为null时使用）
         is_public: 是否公共空间
         user: 当前用户
+        folder_id: 目标目录ID
+        system_folder: 系统目录标识
 
     Returns:
         tuple: (结果字典或None, 错误消息或None)
@@ -364,7 +406,9 @@ def check_idempotency(
 
         # 步骤2: 通过file_hash查询MERGING/COMPLETED记录
         if file_hash and user:
-            result = _lookup_by_file_hash(file_hash, is_public, user)
+            result = _lookup_by_file_hash(file_hash, is_public, user,
+                                          folder_id=folder_id, system_folder=system_folder,
+                                          file_name=file_name)
             if result:
                 return result, None
 
@@ -378,14 +422,41 @@ def check_idempotency(
 def _build_result_from_transfer(transfer: 'DocumentTransfer') -> Optional[dict[str, Any]]:
     """
     从传输记录构建返回结果
-    
+
+    【2026-08-05 修复】返回 COMPLETED 前验证文件记录真实存在，
+    防止 Celery 任务异常导致状态已完成但文件记录未创建。
+
     Args:
         transfer: 传输记录对象
-        
+
     Returns:
         dict或None: 结果字典，如果状态不匹配则返回None
     """
+    # 【修正】file_path 为空但状态 COMPLETED -> 显式记日志并返回 None
+    if transfer.status == TransferStatus.COMPLETED.value and not transfer.file_path:
+        logger.warning(
+            f'[Document][Merge] 状态异常: transfer={transfer.id} '
+            f'status=COMPLETED 但 file_path 为空'
+        )
+        return None
+
     if transfer.status == TransferStatus.COMPLETED.value and transfer.file_path:
+        # 验证文件记录真实存在
+        try:
+            FileModel = get_file_model(is_public=transfer.is_public)
+            file_exists = FileModel.objects.filter(
+                physical_name=os.path.basename(transfer.file_path),
+                folder_id=transfer.folder_id,
+            ).exists()
+            if not file_exists:
+                logger.warning(
+                    f'[Document][Merge] 状态异常: transfer={transfer.id} '
+                    f'status=COMPLETED但文件记录不存在'
+                )
+                return None
+        except Exception as e:
+            logger.error(f'[Document][Merge] 文件记录验证失败: {e}')
+            return None
         return {
             'status': 'completed',
             'file_path': transfer.file_path,
@@ -572,44 +643,63 @@ class FileMergeChunksView(View):
     使用分布式锁防止并发合并冲突，支持幂等性检查避免重复合并。
     """
 
+    @staticmethod
+    def _validate_context_and_scope(params):
+        """党建上下文 + 上传目标作用域校验，返回 error_str 或 None"""
+        system_folder = params.get('system_folder')
+        ok, ctx_err = validate_system_folder_context(system_folder, params['is_public'])
+        if not ok:
+            return ctx_err
+        ok, scope_err = validate_upload_target_scope(
+            system_folder, params['is_public'], params['folder_id']
+        )
+        if not ok:
+            return scope_err
+        return None
+
+    @staticmethod
+    def _sync_transfer_on_idempotent_hit(params, result):
+        """幂等命中时同步当前传输记录状态"""
+        if not params.get('transfer_id'):
+            return
+        current_transfer = DocumentTransfer.objects.filter(
+            id=params['transfer_id']
+        ).first()
+        if not current_transfer:
+            return
+        # 幂等命中 completed -> 同步 file_path + 设 COMPLETED
+        if result.get('status') == 'completed' and \
+           current_transfer.status != TransferStatus.COMPLETED.value:
+            from apps.document.services.transfer_completion import TransferCompletionService
+            TransferCompletionService.complete(
+                current_transfer,
+                file_path=result.get('file_path'),
+                source='idempotent_file_hash'
+            )
+        # 幂等命中 merging -> 同步 celery_task_id
+        elif result.get('status') == 'merging' and result.get('task_id') and \
+             not current_transfer.celery_task_id:
+            current_transfer.celery_task_id = result['task_id']
+            current_transfer.status = TransferStatus.MERGING.value
+            current_transfer.save(update_fields=['celery_task_id', 'status'])
+
     @document_auth('upload')
     @rate_limit(max_requests=60, window=60, key_prefix='merge')
     @handle_view_errors
     def post(self, request):
-        """处理文件分片合并POST请求。
-
-        执行以下步骤：
-        1. 解析并验证请求参数
-        2. 验证文件夹和分片目录
-        3. 获取合并锁
-        4. 检查幂等性（是否已在合并或已完成）
-        5. 提交Celery合并任务
-
-        Args:
-            request: HTTP请求对象，包含合并参数
-
-        Returns:
-            JsonResponse: 包含任务ID或错误信息
-        """
+        """处理文件分片合并POST请求。"""
         # 步骤1: 解析并验证基础参数
         params, error = self._parse_and_validate_params(request)
         if error:
             logger.error(f'[Document][Merge] Param validation failed: {error}')
             return json_response(error=error)
 
-        # 党建文档上下文与上传目标校验（统一：党建正向 + 普通反向隔离）
-        system_folder = params.get('system_folder')
-        ok, ctx_err = validate_system_folder_context(system_folder, params['is_public'])
-        if not ok:
-            return json_response(error=ctx_err)
-        ok, scope_err = validate_upload_target_scope(
-            system_folder, params['is_public'], params['folder_id']
-        )
-        if not ok:
-            return json_response(error=scope_err)
+        # 党建上下文与作用域校验
+        scope_error = self._validate_context_and_scope(params)
+        if scope_error:
+            return json_response(error=scope_error)
 
-        # R7 修复：在获取锁之前检查 request_id 幂等性
-        # 前端网络重试时，相同 request_id 直接返回已有结果，避免重复提交 Celery 任务
+        # R7 修复：request_id 幂等性检查
         request_id = params.get('request_id')
         if request_id:
             existing = _check_request_id_dedup(request_id, request.user)
@@ -622,7 +712,7 @@ class FileMergeChunksView(View):
             logger.error(f'[Document][Merge] Folder/chunk validation failed: {error}')
             return json_response(error=error)
 
-        # 【修复】步骤3: 先获取合并锁，再检查幂等性，确保状态一致性
+        # 步骤3: 获取合并锁
         tenant_id = getattr(request.user, 'tenant_id', None)
         lock_key = f"{params['file_hash']}_{'public' if params['is_public'] else 'private'}_{tenant_id or 'default'}"
         merge_lock = get_merge_lock(params['file_hash'], params['is_public'], tenant_id)
@@ -642,6 +732,7 @@ class FileMergeChunksView(View):
                 logger.error(f'[Document][Merge] Idempotent check error: {error}')
                 return json_response(error=error)
             if result:
+                self._sync_transfer_on_idempotent_hit(params, result)
                 return json_response(result)
 
             # 步骤5: 执行实际的合并操作
@@ -738,11 +829,15 @@ class FileMergeChunksView(View):
             return None, None, '文件路径异常'
 
         # 幂等性检查（支持通过transfer_id或file_hash查询）
+        # 【P0修复】传入 folder_id 和 system_folder，防止跨目录/跨空间误命中
         result, error = check_idempotency(
             transfer_id=params['transfer_id'],
             file_hash=params['file_hash'],
             is_public=params['is_public'],
-            user=request.user
+            user=request.user,
+            folder_id=params.get('folder_id'),
+            system_folder=params.get('system_folder'),
+            file_name=params.get('file_name')
         )
         if error:
             return None, None, error
@@ -789,11 +884,13 @@ class FileMergeChunksView(View):
 
         # 显式事务保证即使脱离 ATOMIC_REQUESTS 调用，也会先登记任务再在提交后投递。
         with transaction.atomic():
+            logger.info(f'[Document][Merge] _do_merge start: transfer={params["transfer_id"]}, file={params["file_name"]}')
+
             task, merge_task_id, merge_task_file = submit_merge_task(
                 params, names, chunk_dir, tenant_id, request
             )
             logger.info(
-                f'[Document][Merge] Celery task registered: '
+                f'[Document][Merge] submit_merge_task OK: '
                 f'task_id={task.id}, file={params["file_name"]}'
             )
 
@@ -801,14 +898,17 @@ class FileMergeChunksView(View):
             save_task_id_to_transfer(
                 params['transfer_id'], task.id, user=request.user
             )  # 【M-1修复】传入用户
+            logger.info(f'[Document][Merge] save_task_id_to_transfer OK: transfer={params["transfer_id"]}, task_id={task.id}')
 
             # 任务文件与数据库登记完成后，on_commit 回调才会投递 Celery。
             write_merge_task_file(
                 merge_task_file, params, params['is_public'], task.id, request.user
             )
+            logger.info(f'[Document][Merge] write_merge_task_file OK: transfer={params["transfer_id"]}')
 
             # R7 修复：存储 request_id -> transfer_id 映射，供后续重试请求幂等
             _store_request_id_mapping(params.get('request_id'), params['transfer_id'])
+            logger.info(f'[Document][Merge] _do_merge all steps OK: transfer={params["transfer_id"]}')
 
         return json_response({
             'task_id': task.id,

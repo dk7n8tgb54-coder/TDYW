@@ -7,7 +7,7 @@ import React from 'react';
 import { Row, Col } from 'antd';
 import { Breadcrumb } from 'components';
 import RunlogOverview from './RunlogOverview';
-import DocumentOverview from './DocumentOverview';
+import ExpiryOverview from './ExpiryOverview';
 import FaultOverview from './FaultOverview';
 import UpgradeOverview from './UpgradeOverview';
 import InterferenceOverview from './InterferenceOverview';
@@ -31,10 +31,10 @@ function HomeIndex() {
       {/* 第1行：跨日事项跟踪概览 */}
       <RunlogOverview />
 
-      {/* 第2行：资料库新增 + 故障处置 + 升级动态 + 干扰统计 */}
+      {/* 第2行：到期提醒 + 最近故障 + 进行中升级 + 干扰统计 */}
       <Row gutter={12} style={{ marginBottom: 12 }}>
         <Col span={6}>
-          <DocumentOverview />
+          <ExpiryOverview />
         </Col>
         <Col span={6}>
           <FaultOverview />

@@ -194,7 +194,7 @@ export default function useColumns({
           // 行内重命名模式
           if (renamingRecord && renamingRecord.key === record.key) {
             return (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={e => e.stopPropagation()}>
                 {record.isFolder ? (
                   <span style={{ width: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}><FolderIcon size={24} /></span>
                 ) : isImage(record.file_type) ? (

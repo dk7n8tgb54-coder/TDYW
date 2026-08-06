@@ -12,6 +12,7 @@ import FolderTree from './FolderTree';
 import SearchBox from './components/SearchBox';
 import DiskStatus from './components/DiskStatus';
 import KeyboardShortcuts from './components/KeyboardShortcuts';
+import UploadConflictModal from './components/UploadConflictModal';
 import DocumentErrorBoundary from './components/DocumentErrorBoundary';
 import DocumentDropUploadLayer from './components/DocumentDropUploadLayer';
 import { isEmptyFolderBatch, isPlainFilesOnly, MAX_DROP_ENTRIES, MAX_DROP_DEPTH } from './utils/dropUpload';
@@ -493,6 +494,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
       )}
       {isPartyBuildingDocumentsReady && <UploadPanel />}
       {isPartyBuildingDocumentsReady && <KeyboardShortcuts />}
+      {isPartyBuildingDocumentsReady && <UploadConflictModal />}
     </div>
   );
 });

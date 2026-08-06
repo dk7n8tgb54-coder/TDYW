@@ -120,7 +120,7 @@ export class FileUploadStore {
       let lastProgressTime = Date.now();
       let lastProgressLoaded = 0;
       
-      await http.post(API_ENDPOINTS.FILE_UPLOAD, formData, {
+      const response = await http.post(API_ENDPOINTS.FILE_UPLOAD, formData, {
         timeout: UPLOAD_CONSTANTS.UPLOAD_TIMEOUT,
         cancelToken: cancelTokenSource.token,
         onUploadProgress: (e) => {
@@ -152,6 +152,12 @@ export class FileUploadStore {
         return;
       }
 
+      // 【根因修复】检查 FileUploadView 响应的 error 字段
+      // json_response(error=...) 返回 HTTP 200，http.post 不 throw，需手动检查
+      if (response && response.error) {
+        throw new Error(`文件上传失败: ${response.error}`);
+      }
+
       // 上传成功
       // 【7.1 状态机唯一入口】不写 status:'completed'/canAbort/completedAt
       // 这些核心字段由状态机 onCompletedEntry 在 transition('UPLOAD_COMPLETE') 后统一写入
@@ -161,15 +167,9 @@ export class FileUploadStore {
         abortController: null,
       });
 
-      // 【新增】完成传输记录
-      if (transferId && this.rootStore.transferStore) {
-        try {
-          await this.rootStore.transferStore.completeTransfer(transferId);
-        } catch (error) {
-          // 【M9 修复】不再完全静默，至少记录
-          console.warn('[FileUpload] completeTransfer 失败:', { transferId, error });
-        }
-      }
+      // 【统一入口】不再调用 completeTransfer
+      // FileUploadService 已通过 TransferCompletionService 设 COMPLETED + file_path
+      // StatusSynchronizer 会自动同步前端状态到后端（幂等）
 
       // 【新增】清理文件引用，防止内存泄漏
       setTimeout(() => {

@@ -51,10 +51,7 @@ PROTECTED_FIELDS = frozenset({
     'id',
 })
 
-# 默认查询天数
-DEFAULT_QUERY_DAYS = 31
-# P3(R9): 最大查询天数，防止无界查询导致 TextField LIKE 全表扫描
-MAX_QUERY_DAYS = 365
+
 
 
 # ============================================================
@@ -371,9 +368,6 @@ def _parse_list_date_range(query_params):
         return None, None, str(e)
     if start_date and end_date and end_date < start_date:
         return None, None, '结束日期不能早于开始日期'
-    # P3(R9): 限制最大查询范围，防止无界 TextField LIKE 扫描
-    if start_date and end_date and (end_date - start_date).days > MAX_QUERY_DAYS:
-        return None, None, f'查询范围不能超过 {MAX_QUERY_DAYS} 天'
     return start_date, end_date, None
 
 

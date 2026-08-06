@@ -14,6 +14,7 @@
  */
 import { action } from 'mobx';
 import { message } from 'antd';
+import http from 'libs/http';
 import { FolderStructureBuilder } from './folder/FolderStructureBuilder';
 
 const FOLDER_UPLOAD_BATCH_SIZE = 20;
@@ -109,7 +110,7 @@ export class FolderUploadStore {
    */
   @action
   async _processFolderUpload(filesOrEntries, targetContext, isEntriesFormat) {
-    // 党建文档系统目录上下文优先从 targetContext 读取
+    // 党建工作系统目录上下文优先从 targetContext 读取
     const ctx = targetContext || this.rootStore.captureUploadTargetContext();
     const targetFolderId = ctx.folderId;
     const isPublic = ctx.isPublic;
@@ -146,26 +147,30 @@ export class FolderUploadStore {
       return;
     }
 
-    // 7. 分批构造上传项并入队，第一批准备好后队列即可开始消费
-    let enqueuedCount = 0;
+    // 6.5. 文件冲突检测（复用单文件冲突逻辑）
+    const { normalItems, skipNames, conflictFiles, conflictMeta } = await this._detectFolderConflicts(
+      validFiles, folderMap, targetFolderId, isPublic, isEntriesFormat, systemFolderCode
+    );
+
+    if (skipNames.length > 0) {
+      message.info(`以下文件已存在且大小相同，已跳过：${skipNames.length} 个文件`);
+    }
+
+    // 7. 正常文件分批入队上传
     try {
       const coordinator = this.rootStore.fileUploadCoordinator;
       if (!coordinator) {
         throw new Error('上传协调器未初始化');
       }
 
-      for (let i = 0; i < validFiles.length; i += FOLDER_UPLOAD_BATCH_SIZE) {
+      let enqueuedCount = 0;
+      for (let i = 0; i < normalItems.length; i += FOLDER_UPLOAD_BATCH_SIZE) {
         if (this.rootStore.isCancelled) break;
 
-        const batchSlice = validFiles.slice(i, i + FOLDER_UPLOAD_BATCH_SIZE);
-        const batchItems = batchSlice.map(item => (
-          this._buildUploadItem(item, folderMap, targetFolderId, isPublic, isEntriesFormat)
-        ));
-
-        // 透传 targetContext，让 _processBatch 把 systemFolderCode 写入每个队列项
+        const batchItems = normalItems.slice(i, i + FOLDER_UPLOAD_BATCH_SIZE);
         const uploadItems = await coordinator.processUploadQueue(batchItems, null, ctx);
         enqueuedCount += Array.isArray(uploadItems) ? uploadItems.length : batchItems.length;
-        this.queueStore.setFolderUploadProgress(enqueuedCount, validFiles.length);
+        this.queueStore.setFolderUploadProgress(enqueuedCount + skipNames.length, validFiles.length);
 
         await this._yieldToBrowser();
       }
@@ -175,6 +180,103 @@ export class FolderUploadStore {
     } finally {
       this._clearFolderKey(folderUniqueKey);
     }
+
+    // 8. 冲突文件弹窗（复用 UploadConflictModal）
+    if (conflictFiles.length > 0) {
+      this.rootStore.showConflictDialog(conflictMeta, conflictFiles, ctx);
+    }
+  }
+
+  // ============================================================
+  // 冲突检测
+  // ============================================================
+
+  /**
+   * 获取多个目标文件夹的已有文件列表
+   * @param {Map} folderMap - 路径 -> folderId 映射
+   * @param {number|null} targetFolderId - 根目标文件夹
+   * @param {boolean} isPublic
+   * @param {string|null} systemFolderCode
+   * @returns {Map<number, Array>} folderId -> existingFiles[]
+   */
+  async _fetchExistingFilesForFolders(folderMap, targetFolderId, isPublic, systemFolderCode) {
+    const folderIds = new Set([targetFolderId]);
+    for (const id of folderMap.values()) {
+      if (id != null) folderIds.add(id);
+    }
+
+    const result = new Map();
+    const baseParams = { is_public: isPublic };
+    if (systemFolderCode) {
+      baseParams.system_folder = systemFolderCode;
+    }
+
+    await Promise.all([...folderIds].map(async (folderId) => {
+      try {
+        const res = await http.get('/api/document/folder/', {
+          params: { ...baseParams, id: folderId, page_size: 999 }
+        });
+        // API 返回 { folders: [...], files: [...], pagination: {...} }
+        const files = (res && Array.isArray(res.files)) ? res.files : [];
+        result.set(folderId, files);
+      } catch {
+        result.set(folderId, []);
+      }
+    }));
+
+    return result;
+  }
+
+  /**
+   * 文件夹上传冲突检测（复用单文件冲突逻辑）
+   * @returns {{ normalItems, skipNames, conflictFiles, conflictMeta }}
+   */
+  async _detectFolderConflicts(validFiles, folderMap, targetFolderId, isPublic, isEntriesFormat, systemFolderCode) {
+    const existingFilesMap = await this._fetchExistingFilesForFolders(
+      folderMap, targetFolderId, isPublic, systemFolderCode
+    );
+
+    const normalItems = [];
+    const skipNames = [];
+    const conflictFiles = [];
+    const conflictMeta = [];
+
+    for (const item of validFiles) {
+      const file = isEntriesFormat ? item.file : item;
+      const relativePath = isEntriesFormat
+        ? (item.relativePath || file.name)
+        : (file.webkitRelativePath || file.name);
+      const folderPath = relativePath.split('/').slice(0, -1).join('/');
+      const itemFolderId = folderPath ? folderMap.get(folderPath) : targetFolderId;
+
+      const existingFiles = existingFilesMap.get(itemFolderId) || [];
+      const existing = existingFiles.find(f =>
+        f.name === file.name ||
+        (f.display_name && f.display_name === file.name)
+      );
+
+      if (existing) {
+        const existingSize = Number(existing.size || existing.file_size || 0);
+        if (existingSize === file.size) {
+          skipNames.push(file.name);
+        } else {
+          conflictFiles.push(file);
+          conflictMeta.push({
+            fileName: file.name,
+            fileSize: file.size,
+            existingId: existing.id,
+            existingSize: existingSize,
+            action: 'replace',
+            folderId: itemFolderId,
+            folderPath: folderPath || '',
+          });
+        }
+      } else {
+        normalItems.push(this._buildUploadItem(item, folderMap, targetFolderId, isPublic, isEntriesFormat));
+      }
+    }
+
+    return { normalItems, skipNames, conflictFiles, conflictMeta };
   }
 
   // ============================================================

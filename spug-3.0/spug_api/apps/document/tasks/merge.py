@@ -454,23 +454,61 @@ class TransferStatusUpdater:
         self.task_manager = task_manager
 
     def update_status(self, status, **kwargs):
-        """更新传输记录状态"""
+        """更新传输记录状态
+
+        【P1修复】增加旧状态守卫：CANCELED 是终态，不允许被覆盖。
+        【P1修复】异常不再吞掉，re-raise 让调用方感知失败。
+        """
         if not self.task_manager.transfer_id:
-            return
+            return True
+
+        from apps.document.models import DocumentTransfer
+        from apps.document.constants import TransferStatus
+
+        # 将 status 转换为字符串值
+        new_status_str = status.value if hasattr(status, 'value') else status
 
         try:
-            from apps.document.models import DocumentTransfer
-            transfer = DocumentTransfer.objects.filter(id=self.task_manager.transfer_id).order_by().first()
-            if transfer:
+            with transaction.atomic():
+                transfer = DocumentTransfer.objects.select_for_update().filter(
+                    id=self.task_manager.transfer_id
+                ).order_by().first()
+
+                if not transfer:
+                    logger.error(f'[Celery] Transfer not found: {self.task_manager.transfer_id}')
+                    return False
+
                 old_status = transfer.status
-                transfer.status = status.value if hasattr(status, 'value') else status
-                # R6 修复：收集实际变更的字段，避免并发覆盖其他字段
-                update_fields = ['status']
-                for key, value in kwargs.items():
-                    setattr(transfer, key, value)
-                    if key not in update_fields:
-                        update_fields.append(key)
-                transfer.save(update_fields=update_fields)
+
+                # 【P1修复】CANCELED 是终态，不允许被合并任务覆盖
+                if old_status == TransferStatus.CANCELED.value:
+                    logger.warning(
+                        f'[Celery] Reject status update: transfer={transfer.id} '
+                        f'is CANCELED (terminal), refusing {new_status_str}'
+                    )
+                    return False
+
+                # 【统一入口】COMPLETED 走 TransferCompletionService
+                if new_status_str == TransferStatus.COMPLETED.value:
+                    from apps.document.services.transfer_completion import TransferCompletionService
+                    file_path = kwargs.get('file_path')
+                    file_size = kwargs.get('transferred_size')
+                    success, error = TransferCompletionService.complete(
+                        transfer, file_path=file_path, file_size=file_size, source='celery'
+                    )
+                    if not success:
+                        logger.warning(f'[Celery] Transfer completion failed: {error}')
+                        return False
+                else:
+                    transfer.status = new_status_str
+                    # R6 修复：收集实际变更的字段，避免并发覆盖其他字段
+                    update_fields = ['status']
+                    for key, value in kwargs.items():
+                        setattr(transfer, key, value)
+                        if key not in update_fields:
+                            update_fields.append(key)
+                    transfer.save(update_fields=update_fields)
+
                 # 记录审计日志（仅在状态变化时）
                 if old_status != transfer.status:
                     log_celery_audit('update', 'document',
@@ -479,8 +517,12 @@ class TransferStatusUpdater:
                                      detail={'transfer_id': transfer.id,
                                              'before': {'status': old_status},
                                              'after': {'status': transfer.status}})
+                return True
+
         except Exception as e:
-            logger.error(f'[Celery] Failed to update transfer status: {e}')
+            logger.error(f'[Celery] Failed to update transfer status: {e}', exc_info=True)
+            # 【P1修复】不再吞掉异常，re-raise 让调用方感知
+            raise
 
     def mark_failed(self, error_message):
         """标记传输失败"""
@@ -644,6 +686,23 @@ class MergePipeline:
         self.status_updater.mark_failed(error_msg)
         return False, {'status': 'FAILED', 'error': error_msg, 'retryable': False}
 
+    def _is_cancelled(self):
+        """【P0-1深度修复】检查传输是否已被用户取消，用于在关键步骤间阻断副作用"""
+        if not self.task_manager.transfer_id:
+            return False
+        try:
+            from apps.document.models import DocumentTransfer
+            from apps.document.constants import TransferStatus
+            transfer = DocumentTransfer.objects.filter(
+                id=self.task_manager.transfer_id
+            ).only('status').first()
+            if transfer and transfer.status == TransferStatus.CANCELED.value:
+                logger.info(f'[Celery] Transfer {self.task_manager.transfer_id} 已取消，中止合并')
+                return True
+        except Exception as e:
+            logger.warning(f'[Celery] 检查取消状态失败: {e}')
+        return False
+
     def _finalize_success(self, new_file):
         """成功完成处理"""
         self.task_manager.update_celery_state('PROGRESS', PROGRESS_CLEANUP, '清理临时文件')
@@ -675,26 +734,54 @@ class MergePipeline:
         if not success:
             return result
 
+        # 【P0-1深度修复】取消检查点1: 验证后、合并前
+        if self._is_cancelled():
+            return {'status': 'CANCELLED', 'error': '用户已取消'}
+
         # 步骤2: 合并和验证
         success, result = self._merge_and_verify(calculate_file_md5)
         if not success:
             return result
+
+        # 【P0-1深度修复】取消检查点2: 合并后、建记录前（最关键）
+        # 合并文件已写入但文件记录未创建，此时取消需清理合并文件
+        if self._is_cancelled():
+            logger.info(f'[Celery] 合并完成但传输 {self.task_manager.transfer_id} 已取消，清理合并文件')
+            self.cleanup_manager.cleanup_on_error()
+            return {'status': 'CANCELLED', 'error': '用户已取消'}
 
         # 步骤3: 创建记录
         new_file, result = self._create_record(get_models, create_instance, get_mime_type)
         if result:
             return result
 
+        # 【P0-1深度修复】取消检查点3: 建记录后、更新状态前
+        # 文件记录已创建，但传输状态仍为 MERGING。update_status 的 CANCELED 守卫会拒绝写入 COMPLETED
+        if self._is_cancelled():
+            logger.warning(f'[Celery] 文件记录已创建但传输 {self.task_manager.transfer_id} 已取消，'
+                          f'file_id={new_file.id} 可能需要人工清理')
+            return {'status': 'CANCELLED', 'error': '用户已取消', 'file_id': new_file.id}
+
         # 步骤4: 更新传输状态
+        # 【P1修复】检查 update_status 返回值，失败时中止
         if self.task_manager.transfer_id and new_file:
             from django.utils import timezone as tz
-            self.status_updater.update_status(
+            update_ok = self.status_updater.update_status(
                 self._get_transfer_status('COMPLETED'),
                 file_path=new_file.file_path,
                 progress=100,
                 transferred_size=new_file.file_size,
                 completed_at=tz.now()
             )
+            if not update_ok:
+                logger.error(f'[Celery] Status update failed for transfer={self.task_manager.transfer_id}, '
+                             f'file already created but transfer record may be stale')
+                return {
+                    'status': 'FAILED',
+                    'error': '文件已创建但传输记录状态更新失败，请刷新页面',
+                    'file_id': new_file.id if new_file else None,
+                    'file_name': self.task_manager.file_name,
+                }
 
         # 步骤5: 完成
         return self._finalize_success(new_file)

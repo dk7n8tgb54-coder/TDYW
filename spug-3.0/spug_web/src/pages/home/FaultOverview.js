@@ -4,56 +4,78 @@
  * Released under the AGPL-3.0 License.
  */
 import React, { useState, useEffect } from 'react';
-import { Card, Statistic, Tag } from 'antd';
+import { Card, Tag } from 'antd';
 import { BugOutlined } from '@ant-design/icons';
+import moment from 'moment';
 import { http, history } from 'libs';
+
+const LEVEL_COLORS = { A: 'red', B: 'orange', C: 'blue' };
 
 function FaultOverview() {
   const [fetching, setFetching] = useState(true);
-  const [stats, setStats] = useState(null);
+  const [faultData, setFaultData] = useState(null);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     http.get('/api/home/statistic/')
-      .then(res => setStats(res.fault || {}))
-      .finally(() => setFetching(false));
+      .then(res => { if (!cancelled) setFaultData(res.fault || {}); })
+      .catch(() => { if (!cancelled) setError(true); })
+      .finally(() => { if (!cancelled) setFetching(false); });
+    return () => { cancelled = true; };
   }, []);
+
+  const renderContent = () => {
+    if (error) {
+      return <div style={{ color: '#999', fontSize: 13, textAlign: 'center', padding: '24px 0' }}>故障数据暂时无法获取</div>;
+    }
+    const recent = faultData?.recent || [];
+    if (recent.length === 0) {
+      return <div style={{ color: '#999', fontSize: 13, textAlign: 'center', padding: '24px 0' }}>暂无故障记录</div>;
+    }
+    return (
+      <div>
+        {recent.slice(0, 3).map(item => {
+          const level = item.fault_level || '';
+          const levelColor = LEVEL_COLORS[level] || 'default';
+          const dateStr = item.fault_date ? moment(item.fault_date).format('MM-DD') : '--';
+          const phenomenon = item.fault_phenomenon || '无';
+          return (
+            <div
+              key={item.id}
+              style={{ padding: '6px 0', borderBottom: '1px solid #f0f0f0' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>
+                  {item.system_name || '未知系统'}
+                </span>
+                <Tag color={levelColor} style={{ marginRight: 0 }}>{level || '未知'}</Tag>
+              </div>
+              <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>
+                {item.device_code || '无编号'} · {dateStr}
+              </div>
+              <div
+                title={phenomenon}
+                style={{ fontSize: 12, color: '#666', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              >
+                {phenomenon}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <Card
-      title={
-        <span>
-          <BugOutlined style={{ marginRight: 8 }} />
-          故障处置概览
-        </span>
-      }
+      title={<span><BugOutlined style={{ marginRight: 8 }} />最近故障</span>}
       loading={fetching}
       hoverable
       style={{ cursor: 'pointer', height: '100%' }}
       onClick={() => history.push('/exec/fault/record')}
     >
-      {stats && (
-        <div>
-          <Statistic title="今日故障" value={stats.today_total} suffix="条" valueStyle={{ color: stats.today_total > 0 ? '#ff4d4f' : '#52c41a' }} />
-          {stats.level_stats && stats.level_stats.length > 0 && (
-            <div style={{ marginTop: 12 }}>
-              <span style={{ color: '#999', fontSize: 13 }}>等级分布：</span>
-              <div style={{ marginTop: 4 }}>
-                {stats.level_stats.map(s => (
-                  <Tag key={s.fault_level} style={{ marginBottom: 4 }}>
-                    {s.fault_level}: {s.count}
-                  </Tag>
-                ))}
-              </div>
-            </div>
-          )}
-          <div style={{ marginTop: 12, color: '#999', fontSize: 13 }}>
-            累计记录: <strong>{stats.total_all}</strong> 条
-          </div>
-        </div>
-      )}
-      {!fetching && stats && stats.today_total === 0 && (
-        <div style={{ marginTop: 8, color: '#52c41a', fontSize: 13 }}>今日无故障记录</div>
-      )}
+      {renderContent()}
     </Card>
   );
 }

@@ -54,8 +54,22 @@ class SuccessMarkerStrategy(ChunkSourceStrategy):
             marker_data = marker_manager.read()
 
             if marker_data:
-                logger.debug(f'[Resume] _SUCCESS_标记文件存在')
-                return list(range(total_chunks)), True
+                # 【P2修复】看到标记后验证实际分片文件存在，防止乱序上传导致虚假完整
+                actual_chunks = []
+                for i in range(total_chunks):
+                    chunk_file = os.path.join(chunk_dir, f'chunk_{i}')
+                    if os.path.exists(chunk_file):
+                        actual_chunks.append(i)
+
+                if len(actual_chunks) >= total_chunks:
+                    logger.debug(f'[Resume] _SUCCESS_标记存在且全部{total_chunks}个分片已验证')
+                    return list(range(total_chunks)), True
+                else:
+                    logger.warning(
+                        f'[Resume] _SUCCESS_标记存在但仅{len(actual_chunks)}/{total_chunks}个分片在磁盘, '
+                        f'降级为部分就绪'
+                    )
+                    return actual_chunks, False
         except Exception as e:
             logger.warning(f'[Resume] 读取标记文件失败: {e}')
 

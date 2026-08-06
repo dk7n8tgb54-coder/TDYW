@@ -7,7 +7,7 @@ import json
 import logging
 
 from django.views.generic import View
-from django.db import transaction
+from django.db import transaction, IntegrityError
 
 from libs import json_response
 from libs.tenant_utils import apply_tenant_filter, check_tenant_unique_name
@@ -52,17 +52,21 @@ class FolderMoveView(View):
             return json_response(error=error)
 
         # R5 修复：作用域重校验移入事务内，消除 TOCTOU 时间窗口
-        with transaction.atomic():
-            if params['target_id']:
-                ok, err = validate_target_folder_scope(
-                    params['system_folder'], params['is_public'],
-                    params['target_id'], allow_root=True,
-                )
-                if not ok:
-                    return json_response(error=err)
-            # R4 修复：指定 update_fields，避免并发覆盖其他字段
-            folder.parent = target
-            folder.save(update_fields=['parent', 'updated_at'])
+        try:
+            with transaction.atomic():
+                if params['target_id']:
+                    ok, err = validate_target_folder_scope(
+                        params['system_folder'], params['is_public'],
+                        params['target_id'], allow_root=True,
+                    )
+                    if not ok:
+                        return json_response(error=err)
+                # R4 修复：指定 update_fields，避免并发覆盖其他字段
+                folder.parent = target
+                folder.save(update_fields=['parent', 'updated_at'])
+        except IntegrityError:
+            logger.warning('[Document] folder move failed due to duplicate name, id=%s', folder.id)
+            return json_response(error='目标位置已存在同名文件夹，移动失败')
 
         # R3 修复：audit log 移到 on_commit，确保事务提交后才记录
         _folder_id = folder.id

@@ -162,6 +162,16 @@ class TransferCanceler:
         """执行传输取消操作"""
         from ...constants import TransferStatus
 
+        # 【P0-1修复】如果有关联的 Celery 合并任务，先 revoke 终止它
+        celery_task_id = getattr(transfer, 'celery_task_id', None)
+        if celery_task_id:
+            try:
+                from spug.celery import app as celery_app
+                celery_app.control.revoke(celery_task_id, terminate=True)
+                logger.info(f'[Document] Revoked Celery task {celery_task_id} for transfer {transfer.id}')
+            except Exception as e:
+                logger.warning(f'[Document] Failed to revoke Celery task {celery_task_id}: {e}')
+
         transfer.status = TransferStatus.CANCELED.value
         transfer.error_message = '用户主动取消'
         transfer.save()

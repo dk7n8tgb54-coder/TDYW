@@ -285,8 +285,6 @@ class CategoryDetailView(View):
 
         if changed:
             cat.save(update_fields=list(changed.keys()))
-        else:
-            cat.save()
         record_audit_event(
             request, 'update', AUDIT_TARGET_TYPE,
             target_id=cat.id, target_name=cat.name,
@@ -568,8 +566,6 @@ class RegulationDetailView(View):
         regulation.updated_at = timezone.now()
         if changed:
             regulation.save(update_fields=list(changed.keys()) + ['updated_by', 'updated_at'])
-        else:
-            regulation.save()
 
         record_audit_event(
             request, 'update', AUDIT_TARGET_TYPE,

@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import {observer} from 'mobx-react';
-import {Drawer, Descriptions, Tag, Alert, Spin, Empty} from 'antd';
+import {Modal, Descriptions, Tag, Alert, Spin, Empty} from 'antd';
 import {http} from 'libs';
 import store from './departmentDutyLogStore';
 
@@ -82,14 +82,15 @@ class DepartmentDutyLogDetail extends React.Component {
     if (!record) return null;
 
     return (
-      <Drawer
+      <Modal
         title="值班日志详情"
         visible={store.detailVisible}
-        onClose={() => {
+        onCancel={() => {
           this.revokeUrl();
           store.detailVisible = false;
         }}
-        width={640}
+        width={700}
+        footer={null}
         destroyOnClose
       >
         <Spin spinning={store.detailLoading}>
@@ -135,7 +136,7 @@ class DepartmentDutyLogDetail extends React.Component {
           </>
         )}
         </Spin>
-      </Drawer>
+      </Modal>
     );
   }
 }

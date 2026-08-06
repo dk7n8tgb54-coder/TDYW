@@ -1,0 +1,16 @@
+﻿wsl : INFO [DocumentConfig] Document app ready
+所在位置 行:1 字符: 205
++ ... UTF8 = '1'; wsl docker exec -w /data/spug/spug_api tdyw-test python m ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (INFO [DocumentConfig] Document app ready:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+INFO [DocumentConfig] Registered 2 Celery Beat tasks
+[Celery] Document tasks imported successfully
+[Celery] RadioLicense tasks imported successfully
+[Celery] Home tasks imported successfully
+8 测试1.mp4 4 2026-08-05 23:03:32
+7 6-【教学】第1周，周四，前推模式教学，胸肩动作基础.mp4 4 2026-08-05 23:03:24
+6 7-【教学】第1周，周五，后拉模式教学，背部动作基础.mp4 4 2026-08-05 23:03:23
+2 《民用航空通信导航监视工作规则》（CCAR-115TM-R1）.pdf None 2026-08-05 11:35:29
+1 《民用航空通信导航监视运行保障与维护维修规程》（AP-115-TM-2016-01）.pdf None 2026-08-05 11:23:25

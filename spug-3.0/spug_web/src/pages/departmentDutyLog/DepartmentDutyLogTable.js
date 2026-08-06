@@ -131,6 +131,12 @@ class DepartmentDutyLogTable extends React.Component {
             },
           }}
           onReload={() => store.fetchRecords()}
+          onRow={record => ({
+            onDoubleClick: () => {
+              store.showDetail(record);
+            },
+            style: {cursor: 'pointer'}
+          })}
         />
 
         {store.returnVisible && (

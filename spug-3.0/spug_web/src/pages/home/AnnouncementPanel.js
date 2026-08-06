@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, List, Tag, Badge, Empty, Button, Spin } from 'antd';
-import { PaperClipOutlined } from '@ant-design/icons';
+import { PaperClipOutlined, SoundOutlined } from '@ant-design/icons';
 import { http, history } from 'libs';
 import AnnouncementDetail from './AnnouncementDetail';
 
@@ -40,7 +40,7 @@ export default function AnnouncementPanel() {
   return (
     <Card
       size="small"
-      title="系统公告"
+      title={<><SoundOutlined style={{ marginRight: 6, color: '#000' }} />公告</>}
       extra={[
         unread > 0
           ? <Badge key="b" count={unread} size="small" offset={[-4, 2]} style={{ marginRight: 12 }}>

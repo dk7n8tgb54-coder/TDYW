@@ -70,10 +70,12 @@ export class StateChangeHandler {
       }
     }
 
-    // 【Loop-200修复】终态释放状态机：completed/error/cancelled 后懒释放
-    // 避免状态机数量随总任务数增长；onCompleted/onError 不引用本任务状态机，释放安全
+    // 【Loop-200修复】终态释放状态机：completed/cancelled 后懒释放
+    // 避免状态机数量随总任务数增长；onCompleted/onCancelled 不引用本任务状态机，释放安全
     // setTimeout(0) 确保当前 handle 回调链执行完毕后再移除
     // 【Loop-1003修复】释放后立即触发 processPending，让 waiting 任务顶上来
+    // 【P1-5修复】error 不再在 FINAL_STATES 中（保留状态机用于原地重试），
+    // 但仍需触发 processPending 释放并发槽位
     if (FINAL_STATES.includes(toState)) {
       const idToRemove = uploadId;
       setTimeout(() => {
@@ -85,6 +87,11 @@ export class StateChangeHandler {
           this.core.uploadCoordinator.processPending();
         }
       }, 0);
+    } else if (toState === 'error') {
+      // error 状态不释放状态机（保留用于重试），但需释放并发槽位
+      if (this.core.uploadCoordinator) {
+        this.core.uploadCoordinator.processPending();
+      }
     }
   }
 
@@ -246,16 +253,11 @@ export class StateChangeHandler {
           error: null,
           completedAt: Date.now(),
         });
-        
-        // 同步后端传输记录
-        if (item.transferId && this.core.transferStore) {
-          try {
-            await this.core.transferStore.completeTransfer(item.transferId);
-          } catch (error) {
-            console.warn(`[StateChangeHandler] ${uploadId}: 传输记录同步失败`, error);
-          }
-        }
-        
+
+        // 【统一入口】不再调用 completeTransfer
+        // Celery 合并任务已通过 TransferCompletionService 设 COMPLETED + file_path
+        // StatusSynchronizer 会自动同步前端状态到后端（幂等）
+
         // 触发刷新
         this.core.queueStore.triggerRefresh();
         

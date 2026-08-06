@@ -101,6 +101,14 @@ class UploadCoreStore {
   // 【方向B 2026-06-27】解耦设施已移除，此字段保留仅为向后兼容，值固定 false
   useDecoupledStateMachine = false;
 
+  // ===== 上传冲突处理（参照阿里云盘/百度网盘）=====
+  // 同名+不同大小 -> 弹窗让用户选：替换/保留两者/跳过
+  @observable conflictDialogVisible = false;
+  @observable pendingConflicts = [];
+  // File 对象不可序列化，放非 observable 字段
+  pendingConflictFiles = [];
+  pendingConflictCtx = null;
+
   // ===== 非observable =====
   // 【方向B 2026-06-27】已删除 cancelTokenSources 字段（从未被写入，死代码）
   cleanupTimer = null;
@@ -295,7 +303,7 @@ class UploadCoreStore {
    *
    * 在 drop 事件发生时（或按钮上传未显式传 targetContext 时）立即调用，
    * 把当前导航/租户/系统目录状态固化为快照，后续无论用户切换目录、
-   * 切换空间、离开党建文档页面，本批任务都使用此快照。
+   * 切换空间、离开党建工作页面，本批任务都使用此快照。
    *
    * 返回对象经 Object.freeze 保护，所有上传相关请求（transfer create /
    * file upload / chunk upload / merge / merge_status / folder create）
@@ -346,6 +354,53 @@ class UploadCoreStore {
   }
 
   // 【方向B 2026-06-27】已删除 processUploadQueue/uploadSingleFile 代理（0 调用方）
+
+  // ===== 上传冲突处理方法 =====
+
+  @action
+  showConflictDialog(conflicts, files, ctx) {
+    this.pendingConflicts = conflicts;
+    this.pendingConflictFiles = files;
+    this.pendingConflictCtx = ctx;
+    this.conflictDialogVisible = true;
+  }
+
+  @action
+  closeConflictDialog() {
+    this.conflictDialogVisible = false;
+    this.pendingConflicts = [];
+    this.pendingConflictFiles = [];
+    this.pendingConflictCtx = null;
+  }
+
+  @action
+  updateConflictAction(index, action) {
+    if (this.pendingConflicts[index]) {
+      // 必须创建新对象引用，否则 antd Table 行级 memo 跳过重渲染
+      this.pendingConflicts[index] = { ...this.pendingConflicts[index], action };
+    }
+  }
+
+  @action
+  setAllConflictActions(action) {
+    // 同理：map 产生全新对象数组，触发 Table 行重渲染
+    this.pendingConflicts = this.pendingConflicts.map(c => ({ ...c, action }));
+  }
+
+  /**
+   * 用户确认冲突处理后，执行上传
+   * 由 UploadConflictModal 的"确定"按钮调用
+   */
+  async resolveConflicts() {
+    const ctx = this.pendingConflictCtx;
+    const files = this.pendingConflictFiles;
+    // 浅拷贝 conflicts（closeConflictDialog 会清空 pendingConflicts）
+    const conflicts = this.pendingConflicts.map(c => ({ ...c }));
+    this.closeConflictDialog();
+    if (this.fileUploadCoordinator) {
+      await this.fileUploadCoordinator.executeConflictResolution(conflicts, files, ctx);
+    }
+  }
 
   /**
    * 处理文件夹选择（按钮上传 webkitdirectory / 拖拽文件夹 共用入口）

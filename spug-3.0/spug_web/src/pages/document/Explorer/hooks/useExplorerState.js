@@ -14,6 +14,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { usePagination } from './usePagination';
 import { useFolderEditing } from './useFolderEditing';
 import { useDataFetching } from './useDataFetching';
+import { uploadCoreStore } from '../../stores';
 
 /**
  * 点击超时管理 Hook（提取自 useExplorerState 以控制函数行数）。
@@ -113,6 +114,11 @@ export const useExplorerState = (isPublic, folderId, onError) => {
     fetchItems: fetchItemsBase,
     fetchFolderContents,
   } = useDataFetching(isPublic, folderId, onError);
+
+  // ===== 同步文件列表到 queueStore.existingFileItems（供上传重名检查使用）=====
+  useEffect(() => {
+    uploadCoreStore.queueStore.existingFileItems = items || [];
+  }, [items]);
 
   // ===== 本地状态 =====
   const [selectedRowKeys, setSelectedRowKeys] = useState([]);

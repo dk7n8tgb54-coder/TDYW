@@ -120,14 +120,31 @@ class DirectMergeView(View):
                         'is_idempotent': True  # 标记为幂等响应
                     })
 
-                # 【P0-Day1核心修复】如果已完成，返回完成状态
+                # 【P0-Day1核心修复】如果已完成，验证文件记录存在后再返回完成状态
+                # 【2026-08-05 修复】检查文件记录是否真实存在，防止状态已COMPLETED
+                # 但文件记录未创建的情况（Celery任务异常/数据库错误/竞态条件）
                 if transfer.status == TransferStatus.COMPLETED.value:
-                    return json_response(data={
-                        'status': 'completed',
-                        'message': '文件已合并完成',
-                        'file_path': transfer.file_path,
-                        'is_idempotent': True
-                    })
+                    FileModel = get_file_model(is_public=form.is_public)
+                    file_record_exists = FileModel.objects.filter(
+                        physical_name=os.path.basename(transfer.file_path) if transfer.file_path else '',
+                        folder_id=transfer.folder_id,
+                    ).exists()
+                    if file_record_exists:
+                        return json_response(data={
+                            'status': 'completed',
+                            'message': '文件已合并完成',
+                            'file_path': transfer.file_path,
+                            'is_idempotent': True
+                        })
+                    # 状态COMPLETED但文件记录不存在 → 重置状态重新合并
+                    logger.warning(
+                        f'[DirectMerge] 状态异常修复: transfer={form.transfer_id} '
+                        f'status=COMPLETED但文件记录不存在，重置为UPLOADING重新合并'
+                    )
+                    transfer.status = TransferStatus.UPLOADING.value
+                    transfer.celery_task_id = None
+                    transfer.file_path = None
+                    transfer.save(update_fields=['status', 'celery_task_id', 'file_path'])
 
                 # 3.2 验证分片目录和分片完整性
                 chunk_dir, error = self._validate_chunks(

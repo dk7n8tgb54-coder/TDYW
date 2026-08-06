@@ -6,6 +6,7 @@
 import json
 import logging
 
+from django.db import transaction
 from django.views.generic import View
 
 from libs import json_response
@@ -54,12 +55,14 @@ class FileRenameView(View):
         if permission_error:
             return permission_error
 
-        if self._name_exists(FileModel, params, file_obj, request.user):
-            return json_response(error='该文件名称已存在')
-
-        original_name = file_obj.display_name or file_obj.name
-        file_obj.display_name = params['name']
-        file_obj.save()
+        # 事务内完成 _name_exists 检查 + save，防止 TOCTOU 并发竞态
+        with transaction.atomic():
+            if self._name_exists(FileModel, params, file_obj, request.user):
+                return json_response(error='该文件名称已存在')
+            file_obj = FileModel.objects.select_for_update().get(pk=file_obj.pk)
+            original_name = file_obj.display_name or file_obj.name
+            file_obj.display_name = params['name']
+            file_obj.save(update_fields=['display_name'])
 
         log_operation(
             action='FILE_RENAME',

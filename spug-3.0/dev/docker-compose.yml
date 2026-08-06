@@ -11,6 +11,7 @@ services:
     container_name: tdyw-db-test
     # 容器退出时自动重启
     restart: always
+    stop_grace_period: 60s  # InnoDB buffer pool 需要足够时间刷盘，默认 10 秒不够
     # MySQL 配置文件挂载（与生产环境 docker/docker-compose.yml 一致）
     # 由于 Windows Docker 权限问题，挂载到临时位置再由 entrypoint 脚本复制
     volumes:

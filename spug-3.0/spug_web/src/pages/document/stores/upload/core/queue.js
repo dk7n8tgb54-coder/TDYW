@@ -27,6 +27,7 @@ export class UploadQueueStore {
   uploadingUniqueKeys = new Set();  // 正在上传的文件唯一标识集合（防重复提交）
   pendingFiles = [];  // 待上传文件列表（用于暂停后继续）
   pendingFolderFiles = null;  // 文件夹上传的待处理文件
+  existingFileItems = [];  // 当前文件夹的文件列表（由 useDataFetching 同步写入，用于重名检查）
 
   // ============ Computed ============
   @computed

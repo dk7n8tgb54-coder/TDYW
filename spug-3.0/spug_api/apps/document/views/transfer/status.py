@@ -46,19 +46,11 @@ class TransferCompleteView(View):
             if transfer.status == TransferStatus.COMPLETED.value:
                 return json_response(data={'status': TransferStatus.COMPLETED.value.lower()})
 
-            # 状态转换验证（统一走常量规则）
-            current_status_enum = next((s for s in TransferStatus if s.value == transfer.status), None)
-            target_status_enum = TransferStatus.COMPLETED
-            if not current_status_enum or not is_valid_status_transition(current_status_enum, target_status_enum):
-                return json_response(error=f'无效的状态转换：{transfer.status} -> COMPLETED')
-
-            # 更新状态为完成
-            transfer.status = TransferStatus.COMPLETED.value
-            transfer.progress = 100
-            transfer.transferred_size = transfer.file_size
-            transfer.uploaded_chunks = transfer.total_chunks
-            transfer.completed_at = timezone.now()
-            transfer.save()
+            # 【统一入口】通过 TransferCompletionService 设 COMPLETED
+            from ...services.transfer_completion import TransferCompletionService
+            success, error = TransferCompletionService.complete(transfer, source='complete_view')
+            if not success:
+                return json_response(error=error)
 
             return json_response(data={'status': TransferStatus.COMPLETED.value.lower()})
 
@@ -142,11 +134,41 @@ class TransferFailView(View):
 class TransferStatusUpdateView(View):
     """更新传输状态"""
 
+    @staticmethod
+    def _check_permission(request, transfer):
+        """权限检查，返回 error_response 或 None"""
+        request_tenant_id = getattr(request.user, 'tenant_id', '')
+        is_supper = getattr(request.user, 'is_supper', False)
+        if (transfer.user != request.user and not is_supper) or \
+           (transfer.tenant_id != request_tenant_id and not is_supper):
+            return permission_denied_response('无权更新此传输记录', 'not_owner')
+        return None
+
+    @staticmethod
+    def _validate_status_transition(current_status, new_status):
+        """验证状态转换，返回 (current_enum, new_enum, error_str)
+        error_str 为 None 表示通过，'IDEMPOTENT' 表示幂等无需操作"""
+        from ...constants import TransferStatus, is_valid_status_transition
+
+        if current_status == new_status:
+            return None, None, 'IDEMPOTENT'
+
+        current_enum = next((s for s in TransferStatus if s.value == current_status), None)
+        new_enum = next((s for s in TransferStatus if s.value == new_status), None)
+
+        if not current_enum or not new_enum:
+            return None, None, '无效的状态值'
+
+        if not is_valid_status_transition(current_enum, new_enum):
+            return None, None, f'无效的状态转换：{current_status} -> {new_status}'
+
+        return current_enum, new_enum, None
+
     @document_auth('upload')
     def post(self, request, transfer_id):
         from ...models import DocumentTransfer
-        from ...constants import TransferStatus, is_valid_status_transition
-        
+        from ...constants import TransferStatus
+
         try:
             form, error = JsonParser(
                 Argument('status', type=str, required=True, help='新状态'),
@@ -158,12 +180,9 @@ class TransferStatusUpdateView(View):
             transfer = DocumentTransfer.objects.get(id=transfer_id)
 
             # 权限检查
-            request_tenant_id = getattr(request.user, 'tenant_id', '')
-            is_supper = getattr(request.user, 'is_supper', False)
-
-            if (transfer.user != request.user and not is_supper) or \
-               (transfer.tenant_id != request_tenant_id and not is_supper):
-                return permission_denied_response('无权更新此传输记录', 'not_owner')
+            perm_error = self._check_permission(request, transfer)
+            if perm_error:
+                return perm_error
 
             # 作用域一致性校验
             scope_ok, scope_err = validate_transfer_request_scope(request, transfer)
@@ -171,21 +190,20 @@ class TransferStatusUpdateView(View):
                 return json_response(error=scope_err)
 
             # 状态流转验证
-            current_status = transfer.status
             new_status = form.status
-
-            # 【幂等性校验】如果当前状态已经是目标状态，直接返回成功
-            if current_status == new_status:
+            _, _, trans_error = self._validate_status_transition(transfer.status, new_status)
+            if trans_error == 'IDEMPOTENT':
                 return json_response(data={'status': new_status})
+            if trans_error:
+                return json_response(error=trans_error)
 
-            current_status_enum = next((s for s in TransferStatus if s.value == current_status), None)
-            new_status_enum = next((s for s in TransferStatus if s.value == new_status), None)
-
-            if current_status_enum and new_status_enum:
-                if not is_valid_status_transition(current_status_enum, new_status_enum):
-                    return json_response(error=f'无效的状态转换：{current_status} -> {new_status}')
-            else:
-                return json_response(error='无效的状态值')
+            # 【统一入口】目标为 COMPLETED 时走 TransferCompletionService
+            if new_status == TransferStatus.COMPLETED.value:
+                from ...services.transfer_completion import TransferCompletionService
+                success, error = TransferCompletionService.complete(transfer, source='status_sync')
+                if not success:
+                    return json_response(error=error)
+                return json_response(data={'status': new_status})
 
             transfer.status = new_status
             if new_status == TransferStatus.UPLOADING.value:

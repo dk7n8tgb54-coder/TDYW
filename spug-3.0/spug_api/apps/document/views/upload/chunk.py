@@ -192,10 +192,23 @@ class FileChunkUploadView(View):
         except Exception as e:
             logger.warning(f'[ChunkUpload] 更新缓存失败: {e}')
 
-        # 【P2优化】如果是最后一个分片，生成_SUCCESS_标记文件
+        # 【P2修复】如果是最后一个编号分片，验证全部分片存在后再生成_SUCCESS_标记
         if params['chunk_index'] == params['total_chunks'] - 1:
             try:
-                marker_manager = get_success_marker_manager(chunk_dir)
-                marker_manager.create(params['total_chunks'], params['file_hash'])
+                # 【P2修复】验证所有分片文件确实存在，防止乱序上传时标记提前创建
+                missing_chunks = []
+                for i in range(params['total_chunks']):
+                    chunk_file = os.path.join(chunk_dir, f'chunk_{i}')
+                    if not os.path.exists(chunk_file):
+                        missing_chunks.append(i)
+
+                if missing_chunks:
+                    logger.warning(
+                        f'[ChunkUpload] Last chunk arrived but {len(missing_chunks)} chunks missing: '
+                        f'{missing_chunks[:10]}..., deferring _SUCCESS_ marker creation'
+                    )
+                else:
+                    marker_manager = get_success_marker_manager(chunk_dir)
+                    marker_manager.create(params['total_chunks'], params['file_hash'])
             except Exception as e:
                 logger.warning(f'[ChunkUpload] 创建标记文件失败: {e}')

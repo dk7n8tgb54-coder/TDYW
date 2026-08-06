@@ -103,13 +103,18 @@ class StatusSynchronizer {
     if (!this.shouldSync(item.transferId, backendStatus)) {
       return;
     }
-    this.markSynced(item.transferId, backendStatus);
-
+    // 【P1-2修复】markSynced 移到请求成功后，失败时允许后续重试
+    // 【P1-2深度修复】updateTransferStatus 返回 {success:false} 时不抛异常，需检查返回值
     try {
-      await coreStore.transferStore.updateTransferStatus(item.transferId, backendStatus);
+      const result = await coreStore.transferStore.updateTransferStatus(item.transferId, backendStatus);
+      if (result && result.success === false) {
+        console.error(`[StatusSynchronizer] ${uploadId}: 同步业务失败(非异常)`, result);
+        return; // 不标记 markSynced，允许下次重试
+      }
+      this.markSynced(item.transferId, backendStatus);
     } catch (error) {
-      console.error(`[StatusSynchronizer] ${uploadId}: 同步失败`, error);
-      // 静默处理，不阻塞状态流转
+      console.error(`[StatusSynchronizer] ${uploadId}: 同步异常`, error);
+      // 不标记 markSynced，允许下次重试
     }
   }
 

@@ -4,8 +4,15 @@
  */
 import { action } from 'mobx';
 import { message } from 'antd';
+import http from 'libs/http';
 import { UPLOAD_CONSTANTS, generateUploadId } from '../upload-core-constants';
 import { validateFileName } from '../../../../utils/upload-utils';
+
+function formatFileNames(names) {
+  return names.length <= 3
+    ? names.map(n => `"${n}"`).join('、')
+    : `${names.slice(0, 3).map(n => `"${n}"`).join('、')} 等 ${names.length} 个文件`;
+}
 
 export class FileUploadCoordinator {
   constructor(coreStore) {
@@ -20,52 +27,142 @@ export class FileUploadCoordinator {
    */
   @action
   async handleFileSelect(files, targetContext = null) {
-    // 党建文档系统目录上下文优先从 targetContext 读取，避免离开党建路由后丢失
     const ctx = targetContext || this.core.captureUploadTargetContext();
     const targetFolderId = ctx.folderId;
     const targetIsPublic = ctx.isPublic;
-    const targetTenantId = ctx.tenantId;
-    const targetSystemFolderCode = ctx.systemFolderCode;
 
-    // 批量提示
     if (files.length > UPLOAD_CONSTANTS.BATCH_WARNING_THRESHOLD) {
       message.info(`正在批量上传 ${files.length} 个文件，请稍候...`);
     }
 
-    // 防重复提交
-    const duplicateFiles = [];
-    const uniqueFiles = [];
+    const existingItems = this.core.queueStore?.existingFileItems || [];
+
+    const duplicateFiles = [];     // 已在上传队列中
+    const sameContentFiles = [];   // 同名+同大小 -> 跳过（类似秒传）
+    const conflictFiles = [];      // 同名+不同大小 -> 弹窗让用户选
+    const conflictMeta = [];       // 冲突元数据（与 conflictFiles 一一对应）
+    const normalFiles = [];        // 无冲突
 
     for (const file of files) {
       const uniqueKey = this.core.queueStore.generateUniqueKey(file, targetFolderId, targetIsPublic);
-      
+
       if (this.core.queueStore.uploadingUniqueKeys.has(uniqueKey)) {
         duplicateFiles.push(file.name);
       } else {
-        uniqueFiles.push(file);
+        const existingItem = existingItems.find(
+          item => item.name === file.name && !item.isFolder
+        );
+        if (existingItem) {
+          const existingSize = Number(existingItem.file_size || existingItem.size || 0);
+          if (existingSize === file.size) {
+            sameContentFiles.push(file.name);
+          } else {
+            conflictFiles.push(file);
+            conflictMeta.push({
+              fileName: file.name,
+              fileSize: file.size,
+              existingId: existingItem.id,
+              existingSize: existingSize,
+              action: 'replace',
+            });
+          }
+        } else {
+          normalFiles.push(file);
+        }
       }
     }
 
     if (duplicateFiles.length > 0) {
-      const tip = duplicateFiles.length <= 3
-        ? duplicateFiles.map(name => `"${name}"`).join('、')
-        : `${duplicateFiles.slice(0, 3).map(name => `"${name}"`).join('、')} 等 ${duplicateFiles.length} 个文件`;
-      message.warning(`以下文件已在上传队列中，跳过重复提交：${tip}`);
+      message.warning(`以下文件已在上传队列中，跳过重复提交：${formatFileNames(duplicateFiles)}`);
     }
 
-    if (uniqueFiles.length === 0) {
-      return;
+    if (sameContentFiles.length > 0) {
+      message.info(`以下文件已存在且大小相同，已跳过：${formatFileNames(sameContentFiles)}`);
     }
 
-    // 【2026-06-06】不自动展开传输列表抽屉，与文件夹上传保持一致
-    // 新任务进队列时只显示底部小条，用户主动点击/快捷键 (Ctrl+Shift+U) 才展开
-    this.core.isPaused = false;
-    this.core.isCancelled = false;
-    this.core.pendingFiles = [...uniqueFiles];
+    // 正常文件立即上传
+    if (normalFiles.length > 0) {
+      this.core.isPaused = false;
+      this.core.isCancelled = false;
+      this.core.pendingFiles = [...normalFiles];
+      await this.processUploadQueue(normalFiles, targetFolderId, ctx);
+      this.core.queueStore.triggerRefresh();
+    }
 
-    await this.processUploadQueue(uniqueFiles, targetFolderId, ctx);
+    // 冲突文件弹窗
+    if (conflictFiles.length > 0) {
+      this.core.showConflictDialog(conflictMeta, conflictFiles, ctx);
+    }
+  }
 
-    this.core.queueStore.triggerRefresh();
+  /**
+   * 执行冲突处理结果（由 UploadConflictModal "确定"按钮 -> uploadCoreStore.resolveConflicts 调用）
+   * @param {Array} conflicts - 冲突元数据数组 [{fileName, fileSize, existingId, existingSize, action, folderId?, folderPath?}]
+   * @param {File[]} files - 与 conflicts 一一对应的 File 对象
+   * @param {Object} ctx - 上传上下文
+   */
+  async executeConflictResolution(conflicts, files, ctx) {
+    const targetFolderId = ctx.folderId;
+    const targetIsPublic = ctx.isPublic;
+
+    const replaceIndices = [];
+    const keepItems = [];   // {file, folderId, folderPath}
+    const skipNames = [];
+
+    conflicts.forEach((c, i) => {
+      if (c.action === 'replace') {
+        replaceIndices.push(i);
+      } else if (c.action === 'keep') {
+        const folderId = c.folderId !== undefined ? c.folderId : targetFolderId;
+        const folderPath = c.folderPath || '';
+        keepItems.push({ file: files[i], folderId, folderPath });
+      } else {
+        skipNames.push(files[i].name);
+      }
+    });
+
+    if (skipNames.length > 0) {
+      message.info(`已跳过：${formatFileNames(skipNames)}`);
+    }
+
+    // 替换：先删除旧文件，再上传新文件
+    let replaceItems = [];
+    if (replaceIndices.length > 0) {
+      const deleteParams = replaceIndices.map(i => ({
+        id: conflicts[i].existingId,
+        is_public: targetIsPublic,
+      }));
+      try {
+        await Promise.all(deleteParams.map(p =>
+          http.delete('/api/document/file/', { params: p, timeout: 30000 })
+        ));
+        replaceItems = replaceIndices.map(i => ({
+          file: files[i],
+          folderId: conflicts[i].folderId !== undefined ? conflicts[i].folderId : targetFolderId,
+          folderPath: conflicts[i].folderPath || '',
+        }));
+      } catch (e) {
+        message.error(`删除旧文件失败：${e.message || '未知错误'}，替换操作未完成`);
+        return;
+      }
+    }
+
+    // 上传替换 + 保留两者的文件
+    const itemsToUpload = [...replaceItems, ...keepItems];
+    if (itemsToUpload.length > 0) {
+      this.core.isPaused = false;
+      this.core.isCancelled = false;
+      this.core.pendingFiles = itemsToUpload.map(item => item.file);
+
+      // 文件夹上传模式（conflict 含 folderId）用 batch 格式，单文件上传用 uniform 格式
+      const hasPerFileFolderId = conflicts.some(c => c.folderId !== undefined);
+      if (hasPerFileFolderId) {
+        await this.processUploadQueue(itemsToUpload, null, ctx);
+      } else {
+        await this.processUploadQueue(itemsToUpload.map(item => item.file), targetFolderId, ctx);
+      }
+      this.core.queueStore.triggerRefresh();
+    }
   }
 
   /**

@@ -3,7 +3,7 @@
 # Released under the AGPL-3.0 License.
 """公告发布模块接口
 
-管理端（需全局管理员 / 超级管理员）：
+管理端（需 home.announcement.* 权限码，超管自动放行）：
   /api/home/announcement/admin/                      GET 列表 / POST 新增编辑
   /api/home/announcement/admin/                      DELETE 删除（自动先撤回）
   /api/home/announcement/admin/departments/          GET 可选发布部门（Tenant 列表）
@@ -58,9 +58,9 @@ OBJECT_TYPE = 'announcement'
 
 # ==================== 公共工具 ====================
 
-def ensure_announcement_admin(user):
-    """全局管理员或超级管理员才可管理公告"""
-    return bool(getattr(user, 'is_supper', False) or getattr(user, 'is_global_admin', False))
+def ensure_announcement_perm(user, code):
+    """校验公告管理权限码 home.announcement.<code>，超管自动放行，其余按角色权限码判定"""
+    return user.has_perms(['home.announcement.%s' % code])
 
 
 def _normalize_datetime(value, required=True, field='时间'):
@@ -237,7 +237,7 @@ class AnnouncementAdminListView(View):
     """管理端公告列表 / 新增编辑"""
 
     def get(self, request):
-        if not ensure_announcement_admin(request.user):
+        if not ensure_announcement_perm(request.user, 'view'):
             return json_response(error='权限拒绝')
         form, error = JsonParser(
             Argument('status', required=False),
@@ -272,8 +272,6 @@ class AnnouncementAdminListView(View):
         return json_response({'results': [x.to_view() for x in items], 'total': total})
 
     def post(self, request):
-        if not ensure_announcement_admin(request.user):
-            return json_response(error='权限拒绝')
         form, error = JsonParser(
             Argument('id', type=int, required=False),
             Argument('title', help='请输入标题'),
@@ -288,6 +286,9 @@ class AnnouncementAdminListView(View):
         ).parse(request.body)
         if error:
             return json_response(error=error)
+        needed_perm = 'edit' if form.id else 'add'
+        if not ensure_announcement_perm(request.user, needed_perm):
+            return json_response(error='权限拒绝')
         title, content, start_str, end_str, tids, tenants, err = _validate_announcement_form(form)
         if err:
             return json_response(error=err)
@@ -304,7 +305,7 @@ class AnnouncementAdminDetailView(View):
     """管理端详情 / 删除"""
 
     def get(self, request, pk):
-        if not ensure_announcement_admin(request.user):
+        if not ensure_announcement_perm(request.user, 'view'):
             return json_response(error='权限拒绝')
         ann = Announcement.objects.filter(pk=pk, is_deleted=False).first()
         if not ann:
@@ -312,7 +313,7 @@ class AnnouncementAdminDetailView(View):
         return json_response(ann.to_view(include_content=True))
 
     def delete(self, request, pk):
-        if not ensure_announcement_admin(request.user):
+        if not ensure_announcement_perm(request.user, 'delete'):
             return json_response(error='权限拒绝')
         with transaction.atomic():
             ann = Announcement.objects.select_for_update().filter(
@@ -341,7 +342,7 @@ class AnnouncementDepartmentsView(View):
     """可选发布部门（Tenant 列表）"""
 
     def get(self, request):
-        if not ensure_announcement_admin(request.user):
+        if not ensure_announcement_perm(request.user, 'view'):
             return json_response(error='权限拒绝')
         tenants = Tenant.objects.all().order_by('id')
         return json_response([{'id': t.id, 'name': t.name} for t in tenants])
@@ -351,7 +352,7 @@ class AnnouncementPublishView(View):
     """发布公告"""
 
     def post(self, request, pk):
-        if not ensure_announcement_admin(request.user):
+        if not ensure_announcement_perm(request.user, 'publish'):
             return json_response(error='权限拒绝')
         ann = Announcement.objects.filter(pk=pk, is_deleted=False).first()
         if not ann:
@@ -376,7 +377,7 @@ class AnnouncementWithdrawView(View):
     """撤回公告"""
 
     def post(self, request, pk):
-        if not ensure_announcement_admin(request.user):
+        if not ensure_announcement_perm(request.user, 'withdraw'):
             return json_response(error='权限拒绝')
         ann = Announcement.objects.filter(pk=pk, is_deleted=False).first()
         if not ann:
@@ -398,7 +399,7 @@ class AnnouncementAttachmentListView(View):
     """管理端附件列表 / 上传"""
 
     def get(self, request, pk):
-        if not ensure_announcement_admin(request.user):
+        if not ensure_announcement_perm(request.user, 'view'):
             return json_response(error='权限拒绝')
         ann = Announcement.objects.filter(pk=pk, is_deleted=False).first()
         if not ann:
@@ -407,7 +408,7 @@ class AnnouncementAttachmentListView(View):
         return json_response(data)
 
     def post(self, request, pk):
-        if not ensure_announcement_admin(request.user):
+        if not ensure_announcement_perm(request.user, 'edit'):
             return json_response(error='权限拒绝')
         ann = Announcement.objects.filter(pk=pk, is_deleted=False).first()
         if not ann:
@@ -434,7 +435,7 @@ class AnnouncementAttachmentDeleteView(View):
     """管理端删除附件（软删除，附件ID通过query参数id传递，对齐公共组件）"""
 
     def delete(self, request):
-        if not ensure_announcement_admin(request.user):
+        if not ensure_announcement_perm(request.user, 'delete'):
             return json_response(error='权限拒绝')
         form, error = JsonParser(
             Argument('id', type=int, help='请指定附件ID'),
@@ -562,7 +563,7 @@ class AnnouncementAttachmentDownloadView(View):
         if not att:
             return json_response(error='附件不存在')
         ann = Announcement.objects.filter(pk=att.object_id, is_deleted=False).first()
-        if not (ensure_announcement_admin(request.user) or (ann and ann.is_visible_to(request.user))):
+        if not (ensure_announcement_perm(request.user, 'view') or (ann and ann.is_visible_to(request.user))):
             return json_response(error='无权限访问该附件')
         inline = request.GET.get('inline') in ('1', 'true', 'True')
         response, error = AttachmentService.download_response(
@@ -581,7 +582,7 @@ class AnnouncementAttachmentPreviewUrlView(View):
         if not att:
             return json_response(error='附件不存在')
         ann = Announcement.objects.filter(pk=att.object_id, is_deleted=False).first()
-        if not (ensure_announcement_admin(request.user) or (ann and ann.is_visible_to(request.user))):
+        if not (ensure_announcement_perm(request.user, 'view') or (ann and ann.is_visible_to(request.user))):
             return json_response(error='无权限访问该附件')
         preview_file_api_path = '/api/home/announcement/attachments/%s/preview-file/' % pk
         data, error = AttachmentService.get_preview_url(

@@ -7,7 +7,7 @@ import json
 import logging
 
 from django.views.generic import View
-from django.db import transaction
+from django.db import transaction, IntegrityError
 
 from libs import json_response
 from libs.tenant_utils import apply_tenant_filter
@@ -124,6 +124,9 @@ class FileMoveView(View):
                     request.user,
                 )
                 file_obj.save(update_fields=['folder', 'name', 'updated_at'])
+        except IntegrityError:
+            logger.warning('[Document] file move failed due to duplicate name, id=%s', file_obj.id)
+            return json_response(error='目标位置已存在同名文件，移动失败')
         except Exception as exc:
             logger.error('[Document] file move failed: %s', exc)
             return json_response(error=f'文件移动失败：{exc}')

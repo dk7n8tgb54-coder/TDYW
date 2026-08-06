@@ -85,9 +85,10 @@ export class StateMachineManager {
    * @returns {number} 清理的数量
    */
   _aggressiveCleanup() {
-    const FINAL_STATES = ['completed', 'error', 'cancelled'];
+    const FINAL_STATES = ['completed', 'cancelled'];
     // waiting 状态机没有运行中资源（无网络请求/MD5计算），可安全回收
     // 下次 startWaiting 会通过 ensureStateMachine 重新创建
+    // 【P1-5修复】error 保留状态机用于重试，但 SAFE_TO_REMOVE 仍含 error（超限时可清理）
     const SAFE_TO_REMOVE = ['completed', 'error', 'cancelled', 'waiting'];
     const toRemove = [];
     this.machines.forEach((machine, uploadId) => {
@@ -205,7 +206,9 @@ export class StateMachineManager {
   batchTransition(event, filterFn = null) {
     const results = [];
     // 【P2修复】终态列表
-    const FINAL_STATES = ['completed', 'error', 'cancelled'];
+    // 【P1-5修复】移除 error，允许 error 任务参与批量操作（如 batchResume 重试）
+    // batchCancel/batchPause 各自有 filterFn 检查，不受影响
+    const FINAL_STATES = ['completed', 'cancelled'];
 
     this.machines.forEach((machine, uploadId) => {
       // 【P2修复】跳过终态任务，不计入统计
@@ -351,12 +354,13 @@ export class StateMachineManager {
   /**
    * 批量取消
    * 取消所有可以取消的任务
-   * 【P1修复】排除 merging 状态，避免合并中断导致文件损坏
+   * 【P0-2修复】移除 merging 排除，与单任务取消行为保持一致
+   * （后端 merge.py 已有 CANCELED 旧状态守卫，不会覆盖终态）
    *
    * @returns {Array} 转换结果数组
    */
   batchCancel() {
-    const NON_CANCELLABLE_STATES = ['completed', 'error', 'cancelled', 'merging'];
+    const NON_CANCELLABLE_STATES = ['completed', 'error', 'cancelled'];
     return this.batchTransition('CANCEL', (machine) => {
       // 跳过不可取消的状态
       if (NON_CANCELLABLE_STATES.some(state => machine.isInState(state))) {

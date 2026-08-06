@@ -42,7 +42,7 @@ borgbackup_deb/
 *.csr
 *.key
 *.pem
-
+backup_set_*/
 # 临时文件
 *.tmp
 *.temp

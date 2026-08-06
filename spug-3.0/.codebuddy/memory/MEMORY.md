@@ -44,8 +44,26 @@
 ## 生产内存(8G)
 - tdyw 2G/tdyw-db 3G(innodb_buffer_pool 2G)/kkfileview 1.5G；MySQL max_connections 300
 
+## 上传链审计结论（2026-08-05）
+- 审查 30+ 文件，编写测试脚本验证 7 个风险点
+- **P0 真实风险（2 个）**：
+  1. `ALLOWED_STATUS_TRANSITIONS` 缺失 `UPLOADING→COMPLETED`：小文件上传完成后后端记录卡在 UPLOADING（前端静默吞错误，`throwOnError` 为 false）
+  2. `chunkUpload.js` 中 XHR `load/error/abort/timeout` 4 个回调均未检查 `operationVersion`：过期回调可覆盖新状态
+- **P1 真实风险**：`mergeChunks` 递归重试无深度限制（`retryCount`/`retryDepth` 缺失）
+- **低级风险（2 个）**：`TERMINAL_STATUSES` 语义矛盾（注释说明故意设计）、`queueMicrotask` 竞态（有额外检查缓释）
+- **非风险（2 个）**：分片检查逻辑已复用公共函数、error_code_mapper 使用精确匹配
+- 测试文件：`upload_chain_audit_verify.py`（后端静态分析）+ `upload_chain_audit_verify.test.js`（前端 Jest）
+
+## 上传 Bug 修复：DirectMergeView COMPLETED 分支缺少文件记录验证（2026-08-05）
+- **问题现象**：上传文件夹 5 个大文件，3 个显示、2 个显示"上传成功"但不在列表
+- **数据库证明**：`DocumentFilePrivate` 仅 3 条记录，`DocumentTransfer` 有 5 条 COMPLETED（测试 2.mp4 和测试 3.mp4 无对应文件记录）
+- **根因**：`DirectMergeView` 中 `transfer.status == COMPLETED` 时直接返回 `{'status': 'completed'}`，不验证文件记录是否存在
+- **路径**：Celery 任务异常 → 文件记录未创建但传输状态停在 COMPLETED → 重试时 `DirectMergeView` 直接返回成功
+- **修复方案**：`direct_merge.py` COMPLETED 分支增加 `FileModel.objects.filter(...).exists()` 验证，文件不存在时重置状态为 `UPLOADING` 重新合并
+- **同缺陷修复**：`merge.py` `_build_result_from_transfer` 同样修复
+- **涉及文件**：`direct_merge.py` L123-149 + `merge.py` L422-442
+
 ## 权限码
-- 新功能走 UI `pages/system/role/codes.js`->角色勾选->`PATCH /api/account/role/`；不写 `.sql` 预置；`is_supper` 放行
 
 ## 反思清单（跨会话必遵）
 1. 反问质疑立即认错不掩盖；2. 增量>大爆炸+YAGNI+向后兼容；3. 配置化>硬编码(同串≥3处抽出)；4. 参考成熟产品+行业惯例；5. 每次修复后全局扫描同类；6. error 字段一致性(正常态无 error)；7. `obj?.method()` 触发 no-unused-expressions->`if(obj)obj.method()`；8. Model.save 签名 `def save(self,*args,**kwargs)`；9. 嵌套 atomic 仅 savepoint；10. 备份恢复同周期(DB->documents)

@@ -128,11 +128,6 @@ class FolderPropertiesView(View):
         if not scope_ok:
             return json_response(error=scope_err)
 
-        # 权限检查：公共空间普通用户只能查看自己创建的
-        if form.is_public and not request.user.is_supper:
-            if folder.created_by_id != request.user.id:
-                return permission_denied_response('无权查看该文件夹属性')
-
         # BFS 获取所有子孙文件夹ID
         all_folder_ids = get_active_descendant_folder_ids(folder, FolderModel)
 
@@ -183,11 +178,6 @@ class FolderPropertiesView(View):
         )
         if not scope_ok:
             return json_response(error=scope_err)
-
-        # 权限检查：公共空间普通用户只能查看自己创建的
-        if form.is_public and not request.user.is_supper:
-            if file_obj.created_by_id != request.user.id:
-                return permission_denied_response('无权查看该文件属性')
 
         # 计算所在位置
         if file_obj.folder_id is None:

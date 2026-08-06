@@ -76,9 +76,9 @@ export class UploadLifecycle {
     // 【7.3 异步操作加版本号】捕获当前操作版本号
     const operationVersion = this.core.queueStore.getOperationVersion(uploadId);
 
-    // 【优化】小于32MB的文件跳过MD5计算
+    // 【优化】小于等于32MB的文件跳过MD5计算（与分片上传阈值一致：>32MB才分片+算MD5）
     const SKIP_MD5_THRESHOLD = 32 * 1024 * 1024; // 32MB
-    if (item.fileSize < SKIP_MD5_THRESHOLD) {
+    if (item.fileSize <= SKIP_MD5_THRESHOLD) {
       // 小文件使用空hash，直接触发状态转换：calculating -> waiting
       const stateMachine = this.core.stateMachineManager?.get(uploadId);
       if (stateMachine) {

@@ -107,11 +107,12 @@ ALLOWED_STATUS_TRANSITIONS = {
         TransferStatus.COMPLETED,
         TransferStatus.FAILED,
     ],
-    # 上传中允许用户主动取消
-    TransferStatus.UPLOADING: [TransferStatus.PAUSED, TransferStatus.MERGING, TransferStatus.FAILED, TransferStatus.CANCELED],
+    # 上传中允许用户主动取消；普通上传(无分片)可直接到 COMPLETED
+    # 【P0-1修复】补齐 UPLOADING -> COMPLETED，前端 ensureTransferUploading 后 completeTransfer 不再被矩阵拒绝
+    TransferStatus.UPLOADING: [TransferStatus.PAUSED, TransferStatus.MERGING, TransferStatus.COMPLETED, TransferStatus.FAILED, TransferStatus.CANCELED],
     # 下载中允许暂停、失败、取消和完成
     TransferStatus.DOWNLOADING: [TransferStatus.PAUSED, TransferStatus.COMPLETED, TransferStatus.FAILED, TransferStatus.CANCELED],
-    TransferStatus.PAUSED: [TransferStatus.UPLOADING, TransferStatus.DOWNLOADING, TransferStatus.CANCELED],
+    TransferStatus.PAUSED: [TransferStatus.UPLOADING, TransferStatus.DOWNLOADING, TransferStatus.FAILED, TransferStatus.CANCELED],
     # 合并中保留取消能力（与现有取消接口行为保持一致）
     TransferStatus.MERGING: [TransferStatus.COMPLETED, TransferStatus.FAILED, TransferStatus.CANCELED],
     TransferStatus.COMPLETED: [],  # 终态

@@ -183,13 +183,16 @@ class TransferRecordService:
 
             transfer = query.order_by().first()
             if transfer:
-                transfer.status = TransferStatus.COMPLETED.value
-                transfer.file_path = file_path
-                transfer.progress = 100
-                transfer.transferred_size = file_size
-                transfer.save()
-                logger.info(f'[Document] Transfer record updated to completed: id={transfer_id}')
-                return True
+                from apps.document.services.transfer_completion import TransferCompletionService
+                success, error = TransferCompletionService.complete(
+                    transfer, file_path=file_path, file_size=file_size, source='file_upload'
+                )
+                if success:
+                    logger.info(f'[Document] Transfer record updated to completed: id={transfer_id}')
+                    return True
+                else:
+                    logger.warning(f'[Document] Transfer completion failed: id={transfer_id}, error={error}')
+                    return False
         except Exception as e:
             logger.warning(f'[Document] Failed to update transfer record: {e}')
 

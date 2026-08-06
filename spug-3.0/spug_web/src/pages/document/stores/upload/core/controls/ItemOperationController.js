@@ -261,6 +261,16 @@ export class ItemOperationController {
 
       console.log('[ItemOperationController] 直接合并任务已提交:', response);
 
+      // 【P1-1深度修复】幂等响应 + 已完成 -> 直接进入 completed，不进入 merging 轮询
+      if (response.is_idempotent && response.status === 'completed') {
+        console.log('[ItemOperationController] 合并任务已完成(幂等)，直接进入 completed');
+        item.error = null;
+        item.errorCode = null;
+        item.progress = 100;
+        stateMachine.transition('MERGE_SUCCESS');
+        return true;
+      }
+
       if (response.is_idempotent) {
         console.log('[ItemOperationController] 任务已在进行中，继续轮询');
       }
@@ -273,12 +283,31 @@ export class ItemOperationController {
       stateMachine.transition('RETRY_MERGE');
 
       // 设置进度和任务ID（onMergingEntry 不写这两个字段）
+      // 【P1-1修复】使用 celeryTaskId 字段，与 pollMergeStatus 内部检查一致
       item.progress = 99;
-      item.taskId = response.task_id;
+      item.celeryTaskId = response.task_id;
 
       // 开始轮询合并状态
-      if (this.core.chunkUploadStore?.startMergePolling) {
-        this.core.chunkUploadStore.startMergePolling(item);
+      // 【P1-1修复】传正确的 4 个参数，而非整个 item 对象
+      // 【P1-1深度修复】加 .catch() 避免 fire-and-forget Promise reject 被静默吞掉
+      if (this.core.chunkUploadStore?.pollMergeStatus) {
+        const operationVersion = this.core.queueStore?.getOperationVersion(item.id) || 0;
+        this.core.chunkUploadStore.pollMergeStatus(
+          item.transferId,
+          item.celeryTaskId,
+          item.id,
+          operationVersion
+        ).catch(err => {
+          console.error('[ItemOperationController] pollMergeStatus 异常:', err);
+          // 将轮询异常反馈到状态机，进入 error 状态
+          const sm = this.core.stateMachineManager?.get(item.id);
+          if (sm && sm.isInState('merging')) {
+            sm.transition('ERROR', {
+              error: err instanceof Error ? err : String(err),
+              errorCode: 'MERGE_POLL_FAILED'
+            });
+          }
+        });
       }
 
       return true;

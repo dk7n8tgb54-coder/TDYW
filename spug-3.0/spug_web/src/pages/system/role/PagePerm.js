@@ -77,7 +77,7 @@ class PagePerm extends React.Component {
         visible
         width={1000}
         maskClosable={false}
-        title="功能权限设置"
+        title={store.record.name ? `功能权限设置 - ${store.record.name}` : '功能权限设置'}
         className={styles.container}
         onCancel={() => store.pagePermVisible = false}
         confirmLoading={this.state.loading}

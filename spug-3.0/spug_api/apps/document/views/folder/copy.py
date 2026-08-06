@@ -9,6 +9,7 @@
 import json
 import logging
 from django.views.generic import View
+from django.db import IntegrityError
 
 from libs import json_response, auth
 from libs.tenant_utils import apply_tenant_filter
@@ -99,7 +100,11 @@ class FolderCopyView(View):
             return json_response(error=error_msg)
 
         # 执行复制
-        copy_service.copy(source_folder, target_folder)
+        try:
+            copy_service.copy(source_folder, target_folder)
+        except IntegrityError:
+            logger.warning('[Document] folder copy failed due to duplicate name, source_id=%s', source_folder.id)
+            return json_response(error='目标位置已存在同名文件夹，复制失败')
 
         # 记录操作日志
         log_operation(

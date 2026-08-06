@@ -6,6 +6,7 @@
 import json
 import logging
 
+from django.db import transaction
 from django.views.generic import View
 
 from libs import json_response
@@ -52,12 +53,14 @@ class FolderRenameView(View):
         if permission_error:
             return permission_error
 
-        if self._name_exists(FolderModel, params, folder, request.user):
-            return json_response(error='该文件夹名称已存在')
-
-        original_name = folder.name
-        folder.name = params['name']
-        folder.save()
+        # 事务内完成 _name_exists 检查 + save，防止 TOCTOU 并发竞态
+        with transaction.atomic():
+            if self._name_exists(FolderModel, params, folder, request.user):
+                return json_response(error='该文件夹名称已存在')
+            folder = FolderModel.objects.select_for_update().get(pk=folder.pk)
+            original_name = folder.name
+            folder.name = params['name']
+            folder.save(update_fields=['name'])
 
         log_operation(
             action='FOLDER_RENAME',

@@ -287,6 +287,11 @@ def save_audit_log(user_id, username, action, target_type, target_id=None,
             compute_request_hash, compute_log_hash_from_values,
         )
         from django.db import transaction
+
+        # 【防御性修复】确保 request_id 不为 None（Column 'request_id' cannot be null）
+        request_id = request_id or ''
+        user_agent = user_agent or ''
+        tenant_id = tenant_id or 'default'
         from django.utils import timezone
 
         # 1. 规范化 detail：dict -> JSON 字符串（与历史行为一致）

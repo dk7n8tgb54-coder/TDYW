@@ -175,7 +175,7 @@
         </div>
 
         <div class="download-section">
-            <a href="ca.crt" download="tdyw-ca.crt" class="download-btn">
+            <a href="ca.crt" download="tdyw-ca.crt" type="application/x-x509-ca-cert" class="download-btn">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="7 10 12 15 17 10"/>
@@ -188,11 +188,10 @@
             </p>
         </div>
 
-        <!-- Windows 自动安装选项 -->
+        <!-- Windows 快速安装说明 -->
         <div class="auto-install">
-            <h4>🚀 Windows 一键安装（推荐）</h4>
-            <p>如果您是 Windows 用户，可以下载以下脚本，右键以管理员身份运行：</p>
-            <a href="install-ca.bat" download class="auto-install-btn">下载安装脚本</a>
+            <h4>🚀 Windows 快速安装</h4>
+            <p>下载证书后，<strong>双击 ca.crt 文件</strong>，按向导安装到「受信任的根证书颁发机构」</p>
         </div>
 
         <div class="platform-tabs">
@@ -222,7 +221,7 @@
                 <div class="step-number">3</div>
                 <div class="step-content">
                     <h3>重启浏览器</h3>
-                    <p>完全关闭并重新打开浏览器，访问 https://192.168.1.49:8443</p>
+                    <p>完全关闭并重新打开浏览器，访问 https://192.168.1.49</p>
                 </div>
             </div>
         </div>

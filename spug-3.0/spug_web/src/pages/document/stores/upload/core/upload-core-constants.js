@@ -157,8 +157,8 @@ export const FRONTEND_STATUS_MAP = {
   'cancelled': 'CANCELED',
 };
 
-// 终态集合
-export const FINAL_STATES = ['completed', 'error', 'cancelled'];
+// 终态集合（error 保留状态机以支持原地重试，不在此处释放）
+export const FINAL_STATES = ['completed', 'cancelled'];
 
 // ============================================================
 // 错误分类枚举（2026-06-06 新增）

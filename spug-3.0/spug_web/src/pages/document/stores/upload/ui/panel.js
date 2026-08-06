@@ -28,12 +28,6 @@ class UploadPanelStore {
    */
   @observable expanded = false;
 
-  /**
-   * 抽屉高度（像素），允许用户拖拽调整
-   * @type {number}
-   */
-  @observable drawerHeight = 480;
-
   // ============================================================
   // Computed
   // ============================================================
@@ -88,15 +82,6 @@ class UploadPanelStore {
     this.expanded = false;
   }
 
-  /**
-   * 调整抽屉高度（拖拽把手时调用）
-   * @param {number} height
-   */
-  @action.bound
-  setDrawerHeight(height) {
-    // 限制在 240~720px 之间
-    this.drawerHeight = Math.max(240, Math.min(720, height));
-  }
 }
 
 export default UploadPanelStore;

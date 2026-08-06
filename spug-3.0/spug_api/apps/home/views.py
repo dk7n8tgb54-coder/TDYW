@@ -58,43 +58,39 @@ def get_statistic(request):
         logger.exception('[dashboard] runlog 统计失败')
         data['runlog'] = {}
 
-    # 2. 故障处置概览
+    # 2. 最近故障
     try:
         from apps.fault.models import FaultRecord
-        fault_qs = apply_tenant_filter(FaultRecord.objects, request.user)
-        today_faults = fault_qs.filter(fault_date__gte=today_start, fault_date__lt=today_end)
+        fault_qs = apply_tenant_filter(FaultRecord.objects, request.user).filter(is_deleted=False)
+        recent_faults = list(
+            fault_qs.order_by('-fault_date', '-id').values(
+                'id', 'system_name', 'device_code', 'fault_date',
+                'fault_level', 'fault_phenomenon', 'handler'
+            )[:5]
+        )
         data['fault'] = {
-            'today_total': today_faults.count(),
-            'level_stats': list(
-                today_faults.values('fault_level')
-                .annotate(count=Count('id'))
-            ),
             'total_all': fault_qs.count(),
+            'recent': recent_faults,
         }
     except Exception:
         logger.exception('[dashboard] fault 统计失败')
         data['fault'] = {}
 
-    # 3. 系统升级动态
+    # 3. 进行中的系统升级
     try:
         from apps.upgrade.models import UpgradeRecord
-        upgrade_qs = apply_tenant_filter(UpgradeRecord.objects, request.user)
-        upgrade_statuses = list(
-            upgrade_qs.values('status').annotate(count=Count('id'))
-        )
-        monthly_upgrades = upgrade_qs.filter(
-            upgrade_time__gte=month_start,
-            upgrade_time__lt=next_month_start,
+        from apps.upgrade.constants import UpgradeStatus
+        upgrade_qs = apply_tenant_filter(UpgradeRecord.objects, request.user).filter(is_deleted=False)
+        in_progress_qs = upgrade_qs.filter(status=UpgradeStatus.IN_PROGRESS)
+        in_progress_list = list(
+            in_progress_qs.order_by('-updated_at', '-created_at', '-id').values(
+                'id', 'title', 'system', 'upgrade_type', 'upgrade_time',
+                'status', 'owner', 'updated_at', 'created_at'
+            )[:5]
         )
         data['upgrade'] = {
-            'total': upgrade_qs.count(),
-            'status_stats': upgrade_statuses,
-            'this_month': monthly_upgrades.count(),
-            'recent': list(
-                upgrade_qs.order_by('-created_at')[:5].values(
-                    'id', 'system', 'status', 'upgrade_time'
-                )
-            ),
+            'in_progress_total': in_progress_qs.count(),
+            'in_progress': in_progress_list,
         }
     except Exception:
         logger.exception('[dashboard] upgrade 统计失败')

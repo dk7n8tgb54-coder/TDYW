@@ -171,7 +171,14 @@ def generate_unique_logical_name(FileModel, original_name, folder, user, max_ori
     has_tenant_id = hasattr(FileModel, 'tenant_id')
     
     with transaction.atomic():
-        # 【P2-3修复】合并为一次查询：使用 name__startswith 查出所有可能匹配的文件
+        # 【P1修复】锁住父文件夹记录，序列化同文件夹下的并发命名
+        # select_for_update 只能锁已存在的行，不能防止新行插入
+        # 通过锁父文件夹实现粗粒度互斥：同文件夹的并发命名请求必须串行执行
+        if folder:
+            FolderModel = type(folder)
+            FolderModel.objects.select_for_update().filter(id=folder.id).first()
+
+        # 【P1修复】查询该文件夹下的同名文件
         prefix_pattern = f"{clean_original}_"
         
         base_filter = {
@@ -180,7 +187,7 @@ def generate_unique_logical_name(FileModel, original_name, folder, user, max_ori
         if has_tenant_id:
             base_filter['tenant_id'] = tenant_id
         
-        # 使用 name__startswith 一次性查出所有带前缀的同名文件
+        # 查询所有带前缀的同名文件（父文件夹已锁，无需再锁文件行）
         all_matching_files = list(
             FileModel.objects.filter(
                 name__startswith=prefix_pattern,

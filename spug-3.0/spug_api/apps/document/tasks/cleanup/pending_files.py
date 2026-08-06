@@ -33,7 +33,7 @@ def _process_pending_files(FileModel, space_name):
     pending_files = FileModel.objects.filter(is_pending_clean=True).order_by()
     for file in pending_files:
         # 跳过冷却期内的文件
-        if file.last_clean_attempt and (timezone.now() - file.last_clean_attempt).seconds < RETRY_COOLDOWN_SECONDS:
+        if file.last_clean_attempt and (timezone.now() - file.last_clean_attempt).total_seconds() < RETRY_COOLDOWN_SECONDS:
             continue
 
         try:

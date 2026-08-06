@@ -31,15 +31,18 @@ function DataAnalysisIndex() {
   // 过滤出有权限的 Tab
   const visibleTabs = TABS.filter(tab => hasPermission(tab.perm));
 
-  // 如果当前 Tab 无权限，切到第一个有权限的
+  // 挂载时确保当前 Tab 有数据
   useEffect(() => {
-    if (visibleTabs.length > 0) {
-      const currentTab = TABS.find(t => t.key === store.activeTab);
-      if (!currentTab || !hasPermission(currentTab.perm)) {
-        const firstTab = visibleTabs[0];
-        store.setActiveTab(firstTab.key);
-        store.fetchTab(firstTab.key);
-      }
+    if (visibleTabs.length === 0) return;
+    const currentTab = TABS.find(t => t.key === store.activeTab);
+    if (!currentTab || !hasPermission(currentTab.perm)) {
+      // 当前 Tab 无权限，切到第一个有权限的
+      const firstTab = visibleTabs[0];
+      store.setActiveTab(firstTab.key);
+      store.fetchTab(firstTab.key);
+    } else if (!store.getData(store.activeTab)) {
+      // 有权限但还没加载过数据
+      store.fetchTab(store.activeTab);
     }
   }, []);
 

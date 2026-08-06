@@ -13,18 +13,32 @@ const FolderTreeSelector = ({
   allFolders,
   onConfirm,
   onCancel,
-  confirmText = '确认'
+  confirmText = '确认',
+  rootFolderId = null
 }) => {
-  const [currentFolderId, setCurrentFolderId] = React.useState(null);
+  const [currentFolderId, setCurrentFolderId] = React.useState(rootFolderId);
   const [viewFolder, setViewFolder] = React.useState(null);
+  const [confirmLoading, setConfirmLoading] = React.useState(false);
 
   // 重置状态
   React.useEffect(() => {
     if (visible) {
-      setCurrentFolderId(null);
+      setCurrentFolderId(rootFolderId);
       setViewFolder(null);
+      setConfirmLoading(false);
     }
-  }, [visible]);
+  }, [visible, rootFolderId]);
+
+  // 包装 onConfirm，防止重复提交并显示 loading
+  const handleConfirm = React.useCallback(async (targetFolderId) => {
+    if (confirmLoading) return;
+    setConfirmLoading(true);
+    try {
+      await onConfirm(targetFolderId);
+    } finally {
+      setConfirmLoading(false);
+    }
+  }, [confirmLoading, onConfirm]);
 
   // 查找文件夹
   const findFolder = (id) => allFolders.find(f => f.id === id);
@@ -45,14 +59,25 @@ const FolderTreeSelector = ({
     return path;
   };
 
+  // 根目录信息
+  const rootFolder = findFolder(rootFolderId);
+  const breadcrumbRootName = rootFolder ? rootFolder.name : '全部文件';
+  const emptyStateRootName = rootFolder ? rootFolder.name : '根目录';
+
   // 渲染路径导航
   const renderPath = (folderId) => {
     const path = getFolderPath(folderId);
     const currentFolder = findFolder(folderId);
 
+    // rootFolderId 之上的层级截断不显示
+    const displayPath = rootFolderId
+      ? path.filter(f => f.id !== rootFolderId)
+      : path;
+    const atRoot = rootFolderId ? (folderId === rootFolderId) : (path.length === 0);
+
     return (
       <div style={{ display: 'flex', alignItems: 'center' }}>
-        {path.length > 0 && (
+        {!atRoot && (
           <>
             <span
               style={{
@@ -62,14 +87,10 @@ const FolderTreeSelector = ({
                 marginRight: 8
               }}
               onClick={() => {
-                const parentFolder = findFolder(currentFolder?.parent_id);
-                if (parentFolder) {
-                  setCurrentFolderId(parentFolder.id);
-                  setViewFolder(null);
-                } else {
-                  setCurrentFolderId(null);
-                  setViewFolder(null);
-                }
+                const parentId = currentFolder?.parent_id;
+                // 党建模式：父级为 rootFolderId 时回到根；非党建模式 parentId 为 null 时回到 null
+                setCurrentFolderId(parentId || rootFolderId);
+                setViewFolder(null);
               }}
             >
               返回上一级
@@ -83,16 +104,16 @@ const FolderTreeSelector = ({
             cursor: 'pointer'
           }}
           onClick={() => {
-            setCurrentFolderId(null);
+            setCurrentFolderId(rootFolderId);
             setViewFolder(null);
           }}
         >
-          全部文件
+          {breadcrumbRootName}
         </span>
-        {path.map((folder, index) => (
+        {displayPath.map((folder, index) => (
           <React.Fragment key={folder.id}>
             <span style={{ margin: '0 8px', color: '#999' }}>{'>'}</span>
-            {index === path.length - 1 ? (
+            {index === displayPath.length - 1 ? (
               <span style={{ color: '#999' }}>{folder.name}</span>
             ) : (
               <span
@@ -156,7 +177,7 @@ const FolderTreeSelector = ({
           flexShrink: 0
         }}>
           <Button onClick={onCancel}>取消</Button>
-          <Button type="primary" onClick={() => onConfirm(viewFolder.id)}>
+          <Button type="primary" loading={confirmLoading} onClick={() => handleConfirm(viewFolder.id)}>
             {confirmText}
           </Button>
         </div>
@@ -194,7 +215,7 @@ const FolderTreeSelector = ({
             }}>
               <span style={{ fontSize: 80, marginBottom: 16, display: 'inline-flex', lineHeight: 1 }}><FolderIcon size={80} open /></span>
               <div style={{ fontSize: 16, color: '#666' }}>
-                {title} {currentFolder ? currentFolder.name : '根目录'} 文件夹
+                {title} {currentFolder ? currentFolder.name : emptyStateRootName} 文件夹
               </div>
             </div>
           ) : (
@@ -237,8 +258,9 @@ const FolderTreeSelector = ({
       onCancel={onCancel}
       onOk={() => {
         const targetFolderId = viewFolder ? viewFolder.id : currentFolderId;
-        onConfirm(targetFolderId);
+        handleConfirm(targetFolderId);
       }}
+      confirmLoading={confirmLoading}
       okText={confirmText}
       cancelText="取消"
       width={600}

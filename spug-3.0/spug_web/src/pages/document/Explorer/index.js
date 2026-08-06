@@ -12,6 +12,7 @@ import { observer } from 'mobx-react';
 import { reaction } from 'mobx';
 import { message } from 'antd';
 import { http, hasPermission } from 'libs';
+import { PARTY_BUILDING_DOCUMENTS_CODE } from 'libs/systemFolderContext';
 
 // Stores
 import navigationStore from '../stores/navigation';
@@ -252,15 +253,24 @@ const Explorer = observer(forwardRef(({
   // （原 useEffect(() => { fetchItems(true); }, []) 已删除，避免首次进入发送两次请求）
 
   // ===== 行操作处理 =====
-  // 非多选模式：文件夹单击进入、文件单击预览（打开）；多选模式单击不触发（选中由勾选框负责）
+  // 非多选模式：文件夹单击进入、文件单击预览（打开）
+  // 多选模式：单击切换选中状态
   const handleRowClick = useCallback((record) => {
-    if (multiSelectMode) return;
+    if (multiSelectMode) {
+      const current = Array.isArray(selectedRowKeysRef.current) ? selectedRowKeysRef.current : [];
+      if (current.includes(record.key)) {
+        setSelectedRowKeys(current.filter(k => k !== record.key));
+      } else {
+        setSelectedRowKeys([...current, record.key]);
+      }
+      return;
+    }
     if (record.isFolder) {
       navigationStore.enterFolder(record.id, record.name);
     } else {
       uploadUIStore.handlePreview(record);
     }
-  }, [multiSelectMode]);
+  }, [multiSelectMode, setSelectedRowKeys, navigationStore, uploadUIStore]);
 
   // 单击已负责打开（文件夹进入/文件预览），双击仅清理可能的残留计时器，不重复处理
   const handleRowDoubleClick = useCallback(() => {
@@ -273,9 +283,11 @@ const Explorer = observer(forwardRef(({
   // ===== 右键菜单处理 =====
   const fetchAllFolders = useCallback(async () => {
     try {
-      const res = await http.get('/api/document/folder/', {
-        params: { id: null, all: true, is_public: isPublic }
-      });
+      const params = { id: null, all: true, is_public: isPublic };
+      if (isPartyBuildingDocuments) {
+        params.system_folder = PARTY_BUILDING_DOCUMENTS_CODE;
+      }
+      const res = await http.get('/api/document/folder/', { params });
       if (Array.isArray(res)) return res;
       if (Array.isArray(res.data)) return res.data;
       if (Array.isArray(res.folders)) return res.folders;
@@ -284,7 +296,7 @@ const Explorer = observer(forwardRef(({
       message.error('获取文件夹列表失败');
       return [];
     }
-  }, [isPublic]);
+  }, [isPublic, isPartyBuildingDocuments]);
 
   const handleCopyToClipboard = useCallback(async (record) => {
     const allFolders = await fetchAllFolders();
@@ -508,6 +520,7 @@ const Explorer = observer(forwardRef(({
         visible={folderSelector.visible}
         title={folderSelector.title}
         allFolders={folderSelector.allFolders}
+        rootFolderId={isPartyBuildingDocuments ? navigationStore.lockedRootFolderId : null}
         onConfirm={async (targetFolderId) => {
           const { mode, items } = pendingOperation;
           try {

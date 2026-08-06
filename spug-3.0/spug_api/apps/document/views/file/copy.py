@@ -12,6 +12,7 @@ import shutil
 import logging
 from django.views.generic import View
 from django.conf import settings
+from django.db import IntegrityError
 
 from libs import json_response, auth
 from libs.tenant_utils import apply_tenant_filter
@@ -219,60 +220,65 @@ class FileCopyLogger:
 class FileCopyView(View):
     """文件复制视图"""
 
-    @document_auth('copy')
-    def post(self, request):
-        logger.info(f'[Document] FileCopyView.post called, user: {request.user.username}')
-
-        # 解析参数
+    @staticmethod
+    def _validate_and_prepare(request):
+        """验证复制请求参数、权限、作用域，返回 (ctx, None) 或 (None, error_response)"""
         params, error = FileCopyParamsParser.parse(request)
         if error:
-            return json_response(error=error)
+            return None, json_response(error=error)
 
         file_id = params['file_id']
-        folder_id = params['folder_id']
+        if not file_id:
+            return None, json_response(error='参数错误')
+
         is_public = params['is_public']
         system_folder = params.get('system_folder')
 
-        if not file_id:
-            return json_response(error='参数错误')
-
-        # 党建文档上下文校验
         ok, ctx_err = validate_system_folder_context(system_folder, is_public)
         if not ok:
-            return json_response(error=ctx_err)
+            return None, json_response(error=ctx_err)
 
-        # 验证源文件
-        file, error = FileCopyValidator.validate_source_file(
-            file_id, is_public, request.user
-        )
+        file, error = FileCopyValidator.validate_source_file(file_id, is_public, request.user)
         if error:
-            return json_response(error=error)
+            return None, json_response(error=error)
 
-        # 公共空间权限校验
         if is_public and not check_public_space_permission(request.user, file, 'file', '复制'):
-            return permission_denied_response('公共空间中只能复制自己创建的文件', 'not_owner')
+            return None, permission_denied_response('公共空间中只能复制自己创建的文件', 'not_owner')
 
-        # 统一源对象作用域校验（党建正向 + 普通反向隔离）
         scope_ok, scope_err = validate_file_source_scope(system_folder, is_public, file)
         if not scope_ok:
-            return json_response(error=scope_err)
+            return None, json_response(error=scope_err)
 
-        # 验证目标文件夹
-        folder, error = FileCopyValidator.validate_target_folder(
-            folder_id, is_public, request.user
-        )
+        folder_id = params['folder_id']
+        folder, error = FileCopyValidator.validate_target_folder(folder_id, is_public, request.user)
         if error:
-            return json_response(error=error)
+            return None, json_response(error=error)
 
-        # 统一目标目录作用域校验（对称：党建目标必须在范围内，普通目标不能是系统目录）
         if folder_id:
             target_ok, target_err = validate_target_folder_scope(
                 system_folder, is_public, folder_id, allow_root=True
             )
             if not target_ok:
-                return json_response(error=target_err)
+                return None, json_response(error=target_err)
 
-        logger.info(f'[Document] Copying file id: {file_id} to folder_id: {folder_id}, is_public={is_public}')
+        return {'file': file, 'folder': folder, 'is_public': is_public,
+                'system_folder': system_folder, 'folder_id': folder_id}, None
+
+    @document_auth('copy')
+    def post(self, request):
+        logger.info(f'[Document] FileCopyView.post called, user: {request.user.username}')
+
+        ctx, error = self._validate_and_prepare(request)
+        if error:
+            return error
+
+        file = ctx['file']
+        folder = ctx['folder']
+        is_public = ctx['is_public']
+        system_folder = ctx['system_folder']
+        folder_id = ctx['folder_id']
+
+        logger.info(f'[Document] Copying file id: {file.id} to folder_id: {folder_id}, is_public={is_public}')
 
         # 构建上传目录
         upload_dir = FileCopyExecutor.build_upload_dir(
@@ -305,16 +311,26 @@ class FileCopyView(View):
 
         # 创建文件记录
         FileModel = get_file_model(is_public=is_public)
-        new_file = FileCopyExecutor.create_file_record(
-            FileModel,
-            names['logical_name'],
-            final_display_name,
-            names['physical_name'],
-            folder,
-            new_file_path,
-            file,
-            request.user
-        )
+        try:
+            new_file = FileCopyExecutor.create_file_record(
+                FileModel,
+                names['logical_name'],
+                final_display_name,
+                names['physical_name'],
+                folder,
+                new_file_path,
+                file,
+                request.user
+            )
+        except IntegrityError:
+            logger.warning('[Document] file copy failed due to duplicate name, source_id=%s', file.id)
+            # 清理已复制的物理文件
+            try:
+                if os.path.exists(new_file_path):
+                    os.remove(new_file_path)
+            except OSError:
+                logger.warning('[Document] failed to cleanup physical file: %s', new_file_path)
+            return json_response(error='目标位置已存在同名文件，复制失败')
 
         # 记录日志
         FileCopyLogger.log_copy_operation(
