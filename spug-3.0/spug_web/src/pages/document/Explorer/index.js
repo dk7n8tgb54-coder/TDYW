@@ -23,6 +23,7 @@ import { uploadCoreStore } from '../stores';
 import PreviewModal from '../PreviewModal';
 import ContextMenu from '../components/ContextMenu';
 import FolderTreeSelector from '../components/FolderTreeSelector';
+import FileConflictModal from '../components/FileConflictModal';
 import { FileTable, FileGrid, SearchResults, DetailPanel, PropertiesModal } from './components';
 
 // Hooks（简化后的统一入口）
@@ -131,6 +132,9 @@ const Explorer = observer(forwardRef(({
     handleRename,
     handleCopyItems,
     handleMoveItems,
+    conflictState,
+    resolveConflicts,
+    closeConflictModal,
   } = useFileOperations({
     isPublic,
     folderId,
@@ -163,11 +167,22 @@ const Explorer = observer(forwardRef(({
         return;
       }
       try {
-        await handleCreateFolder(folderName.trim());
+        const result = await handleCreateFolder(folderName.trim());
         cancelCreateFolder();
-        message.success('文件夹创建成功');
+        if (result && result.created === true) {
+          message.success('文件夹创建成功');
+        } else if (result && result.created === false) {
+          message.warning('同名文件夹已存在');
+        } else {
+          // created 缺失或响应格式异常，不误报创建成功
+          message.warning('创建结果未知，请刷新查看');
+        }
       } catch (error) {
-        message.error('创建失败：' + (error?.message || '未知错误'));
+        // HTTP 拦截器已对后端 error 和网络错误弹窗提示，不再重复
+        // 仅对非拦截器抛出的 Error 对象补充提示
+        if (error instanceof Error) {
+          message.error('创建失败：' + error.message);
+        }
       }
     }, [handleCreateFolder, cancelCreateFolder]),
     cancelCreateFolder,
@@ -189,7 +204,12 @@ const Explorer = observer(forwardRef(({
         cancelRename();
         message.success('重命名成功');
       } catch (error) {
-        message.error('重命名失败：' + (error?.message || '未知错误'));
+        // HTTP 拦截器已对后端 error 弹窗（reject 值为 string），不再重复提示
+        // 仅对非 HTTP 错误（Error 对象）补充提示
+        if (error instanceof Error) {
+          message.error('重命名失败：' + error.message);
+        }
+        // 失败时保留编辑态，不调用 cancelRename，方便用户修改后重试
       }
     }, [handleRename, cancelRename]),
     cancelRename,
@@ -539,6 +559,13 @@ const Explorer = observer(forwardRef(({
         record={propertiesModal.record}
         isPublic={isPublic}
         onClose={() => setPropertiesModal({ visible: false, record: null })}
+      />
+      <FileConflictModal
+        visible={conflictState.visible}
+        conflicts={conflictState.conflicts}
+        onConfirm={resolveConflicts}
+        onCancel={closeConflictModal}
+        title={conflictState.operationType === 'move' ? '移动冲突' : '复制冲突'}
       />
     </div>
   );

@@ -17,7 +17,7 @@ import json
 from celery import shared_task
 from celery.exceptions import MaxRetriesExceededError, SoftTimeLimitExceeded, Retry
 from django.conf import settings
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,10 @@ from apps.document.libs.celery_lock import RedisLock
 from apps.document.libs.document_utils import (
     get_chunk_storage_base_path,
     get_merge_task_file_path,
+)
+from apps.document.libs.naming_utils import generate_file_names, generate_unique_logical_name
+from apps.document.services.conflict_service import (
+    check_display_name_conflict, generate_unique_display_name, CONFLICT_ACTIONS,
 )
 from apps.logs.audit import log_celery_audit
 
@@ -93,6 +97,7 @@ class MergeTaskManager:
         self.physical_name = job_data.get('physical_name', os.path.basename(self.file_path))
         self.logical_name = job_data.get('logical_name', self.physical_name)
         self.display_name = job_data.get('display_name', self.file_name)
+        self.conflict_action = job_data.get('conflict_action')
 
     def _get_task_file_path(self):
         """获取任务文件路径"""
@@ -397,7 +402,11 @@ class FileRecordCreator:
         return folder_query.first()
 
     def _create_file_instance(self, FileModel, folder, user, create_instance_func, get_mime_type_func):
-        """创建文件实例（幂等：Celery 重试时若已存在同名文件则返回已有记录）"""
+        """创建文件实例（幂等：Celery 重试时若已存在同名文件则返回已有记录）
+
+        含 IntegrityError 重试：并发上传同名文件时，generate_unique_logical_name
+        可能在事务结束后才真正 INSERT，导致 1062。此处重新生成名称并重试。
+        """
         logger.info(f'[Celery] Creating file instance: physical_name={self.task_manager.physical_name}, logical_name={self.task_manager.logical_name}, display_name={self.task_manager.display_name}')
 
         # 幂等保护：检查是否已存在同名文件（Celery 重试场景）
@@ -414,17 +423,75 @@ class FileRecordCreator:
             )
             return existing_file
 
-        new_file = create_instance_func(
-            FileModel,
-            name=self.task_manager.logical_name,
-            display_name=self.task_manager.display_name,
-            physical_name=self.task_manager.physical_name,
-            folder=folder,
-            file_path=self.task_manager.file_path,
-            file_size=self.task_manager.file_size,
-            file_type=get_mime_type_func(self.task_manager.file_name),
-            created_by=user
-        )
+        # 冲突重新校验（防 view 预检后的并发变化）
+        conflict_existing = check_display_name_conflict(
+            FileModel, self.task_manager.display_name, folder,
+            user, self.task_manager.is_public)
+        if conflict_existing:
+            ca = self.task_manager.conflict_action
+            if ca == 'replace':
+                _cp = conflict_existing.file_path
+                _ct = conflict_existing.thumbnail_path or ''
+                conflict_existing.delete()
+                for _p in [_cp, _ct]:
+                    if _p and os.path.exists(_p):
+                        try:
+                            os.remove(_p)
+                        except Exception:
+                            logger.warning('[Celery] cleanup replaced file: %s', _p)
+            elif ca == 'keep':
+                self.task_manager.display_name = generate_unique_display_name(
+                    FileModel, self.task_manager.display_name, folder,
+                    user, self.task_manager.is_public)
+                self.task_manager.logical_name = generate_unique_logical_name(
+                    FileModel, self.task_manager.display_name, folder, user)
+            elif ca == 'skip':
+                # skip 不应到达此处（view 已拦截），兜底清理
+                if os.path.exists(self.task_manager.file_path):
+                    try:
+                        os.remove(self.task_manager.file_path)
+                    except Exception:
+                        pass
+                return None
+            else:
+                # 无 conflict_action（向后兼容）：自动生成唯一名称
+                self.task_manager.display_name = generate_unique_display_name(
+                    FileModel, self.task_manager.display_name, folder,
+                    user, self.task_manager.is_public)
+                self.task_manager.logical_name = generate_unique_logical_name(
+                    FileModel, self.task_manager.display_name, folder, user)
+
+        MAX_NAME_RETRIES = 3
+        for attempt in range(MAX_NAME_RETRIES):
+            try:
+                new_file = create_instance_func(
+                    FileModel,
+                    name=self.task_manager.logical_name,
+                    display_name=self.task_manager.display_name,
+                    physical_name=self.task_manager.physical_name,
+                    folder=folder,
+                    file_path=self.task_manager.file_path,
+                    file_size=self.task_manager.file_size,
+                    file_type=get_mime_type_func(self.task_manager.file_name),
+                    created_by=user
+                )
+                break
+            except IntegrityError:
+                if attempt == MAX_NAME_RETRIES - 1:
+                    raise
+                # 并发冲突：重新生成 logical_name / display_name 后重试
+                logger.warning(
+                    f'[Celery] IntegrityError on attempt {attempt + 1}/{MAX_NAME_RETRIES}, '
+                    f'regenerating name for: {self.task_manager.file_name}'
+                )
+                names = generate_file_names(
+                    FileModel, self.task_manager.file_name, folder, user
+                )
+                self.task_manager.logical_name = names['logical_name']
+                self.task_manager.display_name = names['display_name']
+        else:
+            # 理论上不会到达此处（for-else 仅在未 break 时执行）
+            raise IntegrityError(f'Max retries ({MAX_NAME_RETRIES}) exceeded for file: {self.task_manager.file_name}')
 
         # 【缩略图异步化】不再在 merge worker 中同步生成缩略图，
         # 改为投递 Celery 异步任务到 document.thumbnail 队列。

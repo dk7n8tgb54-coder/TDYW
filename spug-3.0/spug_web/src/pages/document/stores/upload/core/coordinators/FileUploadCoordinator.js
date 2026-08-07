@@ -38,8 +38,7 @@ export class FileUploadCoordinator {
     const existingItems = this.core.queueStore?.existingFileItems || [];
 
     const duplicateFiles = [];     // 已在上传队列中
-    const sameContentFiles = [];   // 同名+同大小 -> 跳过（类似秒传）
-    const conflictFiles = [];      // 同名+不同大小 -> 弹窗让用户选
+    const conflictFiles = [];      // 同名 -> 弹窗让用户选（无论大小是否相同）
     const conflictMeta = [];       // 冲突元数据（与 conflictFiles 一一对应）
     const normalFiles = [];        // 无冲突
 
@@ -53,19 +52,17 @@ export class FileUploadCoordinator {
           item => item.name === file.name && !item.isFolder
         );
         if (existingItem) {
+          // 同名即冲突，无论大小是否相同
           const existingSize = Number(existingItem.file_size || existingItem.size || 0);
-          if (existingSize === file.size) {
-            sameContentFiles.push(file.name);
-          } else {
-            conflictFiles.push(file);
-            conflictMeta.push({
-              fileName: file.name,
-              fileSize: file.size,
-              existingId: existingItem.id,
-              existingSize: existingSize,
-              action: 'replace',
-            });
-          }
+          conflictFiles.push(file);
+          conflictMeta.push({
+            fileName: file.name,
+            fileSize: file.size,
+            existingId: existingItem.id,
+            existingSize: existingSize,
+            sameSize: existingSize === file.size,
+            action: 'replace',
+          });
         } else {
           normalFiles.push(file);
         }
@@ -74,10 +71,6 @@ export class FileUploadCoordinator {
 
     if (duplicateFiles.length > 0) {
       message.warning(`以下文件已在上传队列中，跳过重复提交：${formatFileNames(duplicateFiles)}`);
-    }
-
-    if (sameContentFiles.length > 0) {
-      message.info(`以下文件已存在且大小相同，已跳过：${formatFileNames(sameContentFiles)}`);
     }
 
     // 正常文件立即上传
@@ -115,6 +108,8 @@ export class FileUploadCoordinator {
       } else if (c.action === 'keep') {
         const folderId = c.folderId !== undefined ? c.folderId : targetFolderId;
         const folderPath = c.folderPath || '';
+        // 标记 conflict_action 供上传代码传给后端
+        files[i]._conflictAction = 'keep';
         keepItems.push({ file: files[i], folderId, folderPath });
       } else {
         skipNames.push(files[i].name);
@@ -132,19 +127,36 @@ export class FileUploadCoordinator {
         id: conflicts[i].existingId,
         is_public: targetIsPublic,
       }));
-      try {
-        await Promise.all(deleteParams.map(p =>
-          http.delete('/api/document/file/', { params: p, timeout: 30000 })
-        ));
-        replaceItems = replaceIndices.map(i => ({
-          file: files[i],
-          folderId: conflicts[i].folderId !== undefined ? conflicts[i].folderId : targetFolderId,
-          folderPath: conflicts[i].folderPath || '',
-        }));
-      } catch (e) {
-        message.error(`删除旧文件失败：${e.message || '未知错误'}，替换操作未完成`);
+      // 逐个删除并收集结果，避免 Promise.all 快速失败导致无法判断哪些成功
+      const deleteResults = await Promise.all(deleteParams.map(async p => {
+        try {
+          const result = await http.delete('/api/document/file/', { params: p, timeout: 30000 });
+          return { ok: true, result };
+        } catch (error) {
+          // HTTP 拦截器已经调用了 message.error，这里不再重复弹窗
+          return { ok: false, error };
+        }
+      }));
+
+      // 检查是否有失败的删除（包括 reject 和 resolve 但含 error 字段）
+      const failedDeletes = deleteResults.filter(r => !r.ok || (r.result && r.result.error));
+      if (failedDeletes.length > 0) {
+        // 仅对 resolve 但含 error 的情况补充提示（拦截器未处理的边缘情况）
+        const resolvedWithError = failedDeletes.find(r => r.ok && r.result && r.result.error);
+        if (resolvedWithError) {
+          message.error(typeof resolvedWithError.result.error === 'string'
+            ? resolvedWithError.result.error
+            : '删除旧文件失败，替换操作未完成');
+        }
+        // reject 的情况已由 HTTP 拦截器提示，不再重复
         return;
       }
+
+      replaceItems = replaceIndices.map(i => ({
+        file: files[i],
+        folderId: conflicts[i].folderId !== undefined ? conflicts[i].folderId : targetFolderId,
+        folderPath: conflicts[i].folderPath || '',
+      }));
     }
 
     // 上传替换 + 保留两者的文件

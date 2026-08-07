@@ -550,6 +550,10 @@ export class ChunkUploadStore {
       if (targetSystemFolderCode) {
         mergePayload.system_folder = targetSystemFolderCode;
       }
+      // 传递冲突处理动作（keep 时后端生成唯一 display_name）
+      if (file._conflictAction) {
+        mergePayload.conflict_action = file._conflictAction;
+      }
       mergeResult = await http.post(API_ENDPOINTS.MERGE_CHUNKS, mergePayload);
     } catch (error) {
       // 如果后端返回"文件正在合并中"，说明合并已在进行，直接进入轮询

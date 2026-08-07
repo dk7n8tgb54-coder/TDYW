@@ -2,7 +2,7 @@
  * 文件操作 Hook
  * 严格遵循原始 Explorer.js 的实现
  */
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { Modal, message } from 'antd';
 import http from 'libs/http';
 import { appendSystemFolderParam } from 'libs/systemFolderContext';
@@ -14,6 +14,28 @@ export const useFileOperations = ({
   refresh,
   onFolderChange,
 }) => {
+  // 冲突弹窗状态
+  const [conflictState, setConflictState] = useState({
+    visible: false,
+    conflicts: [],
+    pendingOps: [],
+    operationType: null,
+    summary: { success: 0, fail: 0, skip: 0 },
+  });
+
+  // 统一批量结果提示
+  const showBatchResult = useCallback((success, fail, skip = 0) => {
+    if (fail === 0 && skip === 0) {
+      message.success(`成功 ${success} 项`);
+    } else if (success === 0 && skip === 0) {
+      message.error(`失败 ${fail} 项`);
+    } else {
+      const parts = [`成功 ${success}`];
+      if (skip > 0) parts.push(`跳过 ${skip}`);
+      if (fail > 0) parts.push(`失败 ${fail}`);
+      message.warning(parts.join('，'));
+    }
+  }, []);
   // 删除文件/文件夹
   const handleDelete = useCallback(async (record) => {
     const isAdmin = sessionStorage.getItem('is_supper') === 'true';
@@ -154,140 +176,194 @@ export const useFileOperations = ({
   // 创建文件夹
   const handleCreateFolder = useCallback(async (name, parentId) => {
     if (!name) {
-      message.error('请输入文件夹名称');
       return Promise.reject('请输入文件夹名称');
     }
-    try {
-      await http.post('/api/document/folder/', {
-        name: name,
-        parent_id: parentId || folderId,
-        is_public: isPublic
-      });
-      message.success('创建成功');
+    const result = await http.post('/api/document/folder/', {
+      name: name,
+      parent_id: parentId || folderId,
+      is_public: isPublic
+    });
+    // 仅在真正创建时刷新列表和树；不在此处提示消息，由调用方统一负责
+    if (result && result.created) {
       if (refresh) refresh(true);
       if (onFolderChange) onFolderChange();
-    } catch (e) {
-      message.error(e.message || '创建失败');
-      return Promise.reject(e.message || '创建失败');
     }
+    return result;
   }, [isPublic, folderId, refresh, onFolderChange]);
 
   // 重命名
+  // 注意：不在此处调用 message.success / message.error，通知由调用方 confirmRename 统一负责。
+  // HTTP 拦截器已对后端 error 调用 message.error，此处再弹会导致重复提示。
   const handleRename = useCallback(async (record, newName) => {
-    try {
-      const url = record.isFolder ? '/api/document/folder/rename/' : '/api/document/file/rename/';
-      await http.post(url, {
-        id: record.id,
-        name: newName,
-        is_public: isPublic
-      });
-      message.success('重命名成功');
-      if (refresh) refresh(true);
-      if (record.isFolder && onFolderChange) {
-        onFolderChange();
-      }
-    } catch (e) {
-      message.error(e.message || '重命名失败');
-      return Promise.reject(e.message || '重命名失败');
+    const url = record.isFolder ? '/api/document/folder/rename/' : '/api/document/file/rename/';
+    await http.post(url, {
+      id: record.id,
+      name: newName,
+      is_public: isPublic
+    });
+    // 成功后刷新列表（通知由 confirmRename 负责）
+    if (refresh) refresh(true);
+    if (record.isFolder && onFolderChange) {
+      onFolderChange();
     }
   }, [isPublic, refresh, onFolderChange]);
 
-  // 执行复制操作
+  // 执行复制操作（带冲突检测）
   const handleCopyItems = useCallback(async (items, targetFolderId) => {
     let successCount = 0;
     let failCount = 0;
-    const failedItems = [];
+    const conflicts = [];
+    const pendingOps = [];
 
     try {
-      const BATCH_SIZE = 3;
-      for (let i = 0; i < items.length; i += BATCH_SIZE) {
-        const batch = items.slice(i, i + BATCH_SIZE);
-        const results = await Promise.allSettled(
-          batch.map(async (item) => {
-            if (item.isFolder) {
-              await http.post('/api/document/folder/copy/', {
-                id: item.id,
-                target_id: targetFolderId,
-                is_public: isPublic
-              }, { timeout: 300000 });
-            } else {
-              await http.post('/api/document/file/copy/', {
-                id: item.id,
-                folder_id: targetFolderId,
-                is_public: isPublic
-              }, { timeout: 300000 });
-            }
-          })
-        );
-
-        for (let j = 0; j < results.length; j++) {
-          const result = results[j];
-          if (result.status === 'fulfilled') {
+      for (const item of items) {
+        if (item.isFolder) {
+          // 文件夹复制：直接执行
+          try {
+            await http.post('/api/document/folder/copy/', {
+              id: item.id, target_id: targetFolderId, is_public: isPublic
+            }, { timeout: 300000 });
             successCount++;
-          } else {
+          } catch (e) {
             failCount++;
-            failedItems.push(items[i + j].name);
-            console.error('[文档] 复制失败:', items[i + j].name, result.reason);
+          }
+        } else {
+          // 文件复制：先检查冲突
+          try {
+            const result = await http.post('/api/document/file/copy/', {
+              id: item.id, folder_id: targetFolderId, is_public: isPublic
+            }, { timeout: 300000 });
+            if (result && result.status === 'conflict') {
+              conflicts.push(result.conflicts[0]);
+              pendingOps.push({ item, endpoint: '/api/document/file/copy/', targetFolderId, paramKey: 'folder_id' });
+            } else {
+              successCount++;
+            }
+          } catch (e) {
+            failCount++;
           }
         }
       }
 
-      if (failCount === 0) {
-        message.success(`已复制 ${items.length} 项`);
-      } else if (successCount === 0) {
-        message.error(`复制失败，所有 ${failCount} 项均复制失败`);
+      if (conflicts.length > 0) {
+        setConflictState({
+          visible: true, conflicts, pendingOps,
+          operationType: 'copy',
+          summary: { success: successCount, fail: failCount, skip: 0 },
+        });
       } else {
-        message.warning(`复制完成：成功 ${successCount} 项，失败 ${failCount} 项`);
-      }
-
-      if (refresh) refresh(true);
-      const hasCopiedFolders = items.some(item => item.isFolder);
-      if (hasCopiedFolders && onFolderChange) {
-        onFolderChange();
+        showBatchResult(successCount, failCount);
+        if (refresh) refresh(true);
+        if (items.some(i => i.isFolder) && onFolderChange) onFolderChange();
       }
     } catch (e) {
-      const errorMsg = e.message || '复制失败';
-      if (errorMsg.includes('timeout') || errorMsg.includes('30000')) {
-        message.error('文件较大，复制超时，请重试');
-      } else {
-        message.error(errorMsg);
-      }
+      message.error(e.message || '复制失败');
       throw e;
     }
-  }, [isPublic, refresh, onFolderChange]);
+  }, [isPublic, refresh, onFolderChange, showBatchResult]);
 
-  // 执行移动操作
+  // 执行移动操作（带冲突检测）
   const handleMoveItems = useCallback(async (items, targetFolderId) => {
+    let successCount = 0;
+    let failCount = 0;
+    const conflicts = [];
+    const pendingOps = [];
+
     try {
-      const movePromises = items.map(async (item) => {
+      for (const item of items) {
         if (item.isFolder) {
-          await http.post('/api/document/folder/move/', {
-            id: item.id,
-            target_id: targetFolderId,
-            is_public: isPublic
-          });
+          // 文件夹移动：直接执行
+          try {
+            await http.post('/api/document/folder/move/', {
+              id: item.id, target_id: targetFolderId, is_public: isPublic
+            });
+            successCount++;
+          } catch (e) {
+            failCount++;
+          }
         } else {
-          await http.post('/api/document/file/move/', {
-            id: item.id,
-            target_id: targetFolderId,
-            is_public: isPublic
-          });
+          // 文件移动：先检查冲突
+          try {
+            const result = await http.post('/api/document/file/move/', {
+              id: item.id, target_id: targetFolderId, is_public: isPublic
+            });
+            if (result && result.status === 'conflict') {
+              conflicts.push(result.conflicts[0]);
+              pendingOps.push({ item, endpoint: '/api/document/file/move/', targetFolderId, paramKey: 'target_id' });
+            } else {
+              successCount++;
+            }
+          } catch (e) {
+            failCount++;
+          }
         }
-      });
+      }
 
-      await Promise.all(movePromises);
-
-      message.success(`已移动 ${items.length} 项`);
-      if (refresh) refresh(true);
-      const hasMovedFolders = items.some(item => item.isFolder);
-      if (hasMovedFolders && onFolderChange) {
-        onFolderChange();
+      if (conflicts.length > 0) {
+        setConflictState({
+          visible: true, conflicts, pendingOps,
+          operationType: 'move',
+          summary: { success: successCount, fail: failCount, skip: 0 },
+        });
+      } else {
+        showBatchResult(successCount, failCount);
+        if (refresh) refresh(true);
+        if (items.some(i => i.isFolder) && onFolderChange) onFolderChange();
       }
     } catch (e) {
       message.error(e.message || '移动失败');
       throw e;
     }
-  }, [isPublic, refresh, onFolderChange]);
+  }, [isPublic, refresh, onFolderChange, showBatchResult]);
+
+  // 解决冲突（用户确认后执行）
+  const resolveConflicts = useCallback(async (actions) => {
+    const { pendingOps, summary } = conflictState;
+    setConflictState(prev => ({ ...prev, visible: false }));
+
+    let successCount = summary.success;
+    let failCount = summary.fail;
+    let skipCount = 0;
+
+    for (let i = 0; i < pendingOps.length; i++) {
+      const { item, endpoint, targetFolderId, paramKey } = pendingOps[i];
+      const action = actions[i];
+
+      if (action === 'skip') {
+        skipCount++;
+        continue;
+      }
+
+      try {
+        const result = await http.post(endpoint, {
+          id: item.id,
+          [paramKey]: targetFolderId,
+          is_public: isPublic,
+          conflict_action: action,
+        }, { timeout: 300000 });
+
+        if (result && result.status === 'conflict') {
+          // 仍然有冲突（并发变化）
+          failCount++;
+        } else if (result && result.status === 'skipped') {
+          skipCount++;
+        } else {
+          successCount++;
+        }
+      } catch (e) {
+        failCount++;
+      }
+    }
+
+    showBatchResult(successCount, failCount, skipCount);
+    if (refresh) refresh(true);
+    if (onFolderChange) onFolderChange();
+  }, [conflictState, isPublic, refresh, onFolderChange, showBatchResult]);
+
+  // 关闭冲突弹窗
+  const closeConflictModal = useCallback(() => {
+    setConflictState(prev => ({ ...prev, visible: false }));
+  }, []);
 
   return {
     handleDelete,
@@ -299,5 +375,8 @@ export const useFileOperations = ({
     handleRename,
     handleCopyItems,
     handleMoveItems,
+    conflictState,
+    resolveConflicts,
+    closeConflictModal,
   };
 };

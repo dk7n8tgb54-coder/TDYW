@@ -6,6 +6,7 @@
 提供普通文件上传功能
 """
 
+import os
 import logging
 from django.views.generic import View
 
@@ -16,6 +17,10 @@ from apps.document.services.system_folder_service import (
     PARTY_BUILDING_DOCUMENTS_CODE, validate_system_folder_context, UPLOAD_TARGET_MSG,
 )
 from apps.document.services.system_scope_validators import validate_upload_target_scope
+from apps.document.services.conflict_service import (
+    check_display_name_conflict, generate_unique_display_name,
+    build_conflict_info, conflict_response, CONFLICT_ACTIONS,
+)
 from apps.document.views.base import validate_file_name, validate_file_upload, log_operation, handle_view_errors
 from apps.document.services.file_upload_service import FileUploadService
 from apps.document.views.upload.validators import FolderValidator
@@ -31,7 +36,7 @@ class FileUploadView(View):
     def post(self, request):
         """处理文件上传"""
         # 解析参数
-        folder_id, is_public, transfer_id, system_folder = self._parse_params(request)
+        folder_id, is_public, transfer_id, system_folder, conflict_action = self._parse_params(request)
 
         logger.info(
             f'[Document] FileUploadView.post called, user: {request.user.username}, '
@@ -68,7 +73,36 @@ class FileUploadView(View):
 
         # 执行上传
         upload_service = FileUploadService(request, FolderModel, FileModel, is_public)
-        new_file, error = upload_service.upload(file, folder, transfer_id)
+
+        # 冲突检测：按 display_name 检查目标文件夹
+        display_name = file.name
+        resolved_display_name = None
+        existing = check_display_name_conflict(
+            FileModel, display_name, folder, request.user, is_public)
+
+        if existing:
+            if not conflict_action or conflict_action not in CONFLICT_ACTIONS:
+                ci = build_conflict_info(existing, display_name, file.size or 0)
+                return conflict_response([ci])
+            if conflict_action == 'skip':
+                return json_response(data={'status': 'skipped', 'action': 'skip'})
+            if conflict_action == 'replace':
+                _ep = existing.file_path
+                _et = existing.thumbnail_path or ''
+                existing.delete()
+                import os as _os
+                for _p in [_ep, _et]:
+                    if _p and _os.path.exists(_p):
+                        try:
+                            _os.remove(_p)
+                        except Exception:
+                            logger.warning('[Document] Failed to cleanup replaced file: %s', _p)
+            if conflict_action == 'keep':
+                resolved_display_name = generate_unique_display_name(
+                    FileModel, display_name, folder, request.user, is_public)
+
+        new_file, error = upload_service.upload(
+            file, folder, transfer_id, display_name=resolved_display_name)
 
         if error:
             return json_response(error=error)
@@ -88,7 +122,7 @@ class FileUploadView(View):
             folder_id=folder.id if folder else None
         )
 
-        return json_response()
+        return json_response(data={'status': 'success', 'action': conflict_action or 'upload'})
 
     def _parse_params(self, request):
         """解析请求参数"""
@@ -96,6 +130,7 @@ class FileUploadView(View):
         is_public = request.POST.get('is_public', 'false').lower() == 'true'
         transfer_id = request.POST.get('transfer_id')
         system_folder = request.POST.get('system_folder')
+        conflict_action = request.POST.get('conflict_action')
 
         # 转换folder_id为整数
         if folder_id:
@@ -104,7 +139,7 @@ class FileUploadView(View):
             except (ValueError, TypeError):
                 folder_id = None
 
-        return folder_id, is_public, transfer_id, system_folder
+        return folder_id, is_public, transfer_id, system_folder, conflict_action
 
     def _validate_file(self, file):
         """验证上传文件"""

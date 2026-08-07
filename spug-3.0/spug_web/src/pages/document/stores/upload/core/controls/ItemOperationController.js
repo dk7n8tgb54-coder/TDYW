@@ -255,7 +255,8 @@ export class ItemOperationController {
           total_chunks: item.chunkCount,
           is_public: item.isPublic !== undefined
             ? item.isPublic
-            : this.core.rootStore.navigationStore?.isPublic
+            : this.core.rootStore.navigationStore?.isPublic,
+          conflict_action: item.file?._conflictAction || null,
         }
       );
 

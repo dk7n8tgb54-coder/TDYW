@@ -179,6 +179,8 @@ def generate_unique_logical_name(FileModel, original_name, folder, user, max_ori
             FolderModel.objects.select_for_update().filter(id=folder.id).first()
 
         # 【P1修复】查询该文件夹下的同名文件
+        # 修复：原代码 name__startswith=f"{clean_original}_" 无法匹配精确名 foo.txt
+        # 需要同时查询精确名和带序号前缀的文件
         prefix_pattern = f"{clean_original}_"
         
         base_filter = {
@@ -187,19 +189,25 @@ def generate_unique_logical_name(FileModel, original_name, folder, user, max_ori
         if has_tenant_id:
             base_filter['tenant_id'] = tenant_id
         
-        # 查询所有带前缀的同名文件（父文件夹已锁，无需再锁文件行）
+        exact_pattern = f"{clean_original}{ext}"
+        
+        # 先检查精确名是否已存在（独立查询，避免 startswith 漏匹配）
+        exact_exists = FileModel.objects.filter(
+            name=exact_pattern,
+            **base_filter
+        ).exists()
+        
+        if not exact_exists:
+            # 无同名文件，直接用清理后的原始名
+            return exact_pattern
+        
+        # 有同名文件，查询所有带前缀的文件以提取最大序号
         all_matching_files = list(
             FileModel.objects.filter(
                 name__startswith=prefix_pattern,
                 **base_filter
             ).values_list('name', flat=True)
         )
-        
-        # 精确匹配（无序号）
-        exact_pattern = f"{clean_original}{ext}"
-        if exact_pattern not in all_matching_files:
-            # 无同名文件，直接用清理后的原始名
-            return exact_pattern
         
         # 有同名文件，提取最大序号
         regex_pattern = rf"^{re.escape(clean_original)}_(\d{{3}}){re.escape(ext)}$"
@@ -310,8 +318,10 @@ def generate_file_names(FileModel, original_name, folder, user):
         user
     )
     
-    # 步骤4：display_name使用原始文件名
-    display_name = original_name
+    # 步骤4：display_name 使用原始文件名；若逻辑名已加序号则同步带序号
+    # 这样"保留两者"后两个文件的 display_name 也可区分（如 foo.txt / foo_001.txt）
+    exact_pattern = f"{clean_illegal_chars(get_file_ext(original_name)[0])}{ext}"
+    display_name = logical_name if logical_name != exact_pattern else original_name
     
     return {
         'display_name': display_name,

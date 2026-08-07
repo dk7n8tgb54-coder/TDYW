@@ -25,6 +25,10 @@ from apps.document.libs.document_utils import get_merge_task_file_path
 from apps.document.constants import TransferStatus
 from apps.document.libs.document_auth import document_auth
 from apps.document.services.system_scope_validators import validate_upload_target_scope
+from apps.document.services.conflict_service import (
+    check_display_name_conflict, generate_unique_display_name,
+    build_conflict_info, conflict_response, CONFLICT_ACTIONS,
+)
 from apps.document.views.base import validate_file_name
 from apps.document.views.upload.validators import HashValidator, FolderValidator, TransferOwnershipValidator
 
@@ -53,6 +57,7 @@ class DirectMergeView(View):
             Argument('is_public', type=bool, default=False, help='是否公共空间'),
             Argument('file_size', type=int, required=False, help='文件大小'),
             Argument('system_folder', type=str, required=False, default=None),
+            Argument('conflict_action', type=str, required=False, default=None),
         ).parse(request.body)
         if error:
             return None, json_response(error=error)
@@ -165,6 +170,36 @@ class DirectMergeView(View):
                 # 3.4 构建文件存储路径
                 FileModel = get_file_model(is_public=form.is_public)
                 names = generate_file_names(FileModel, form.file_name, folder, request.user)
+
+                # 冲突检测：按 display_name 检查目标文件夹
+                display_name = names['display_name']
+                existing_file = check_display_name_conflict(
+                    FileModel, display_name, folder, request.user, form.is_public)
+
+                if existing_file:
+                    ca = form.conflict_action
+                    if not ca or ca not in CONFLICT_ACTIONS:
+                        ci = build_conflict_info(
+                            existing_file, display_name, form.file_size or 0)
+                        return conflict_response([ci])
+                    if ca == 'skip':
+                        return json_response(data={'status': 'skipped', 'action': 'skip'})
+                    if ca == 'replace':
+                        _ep = existing_file.file_path
+                        _et = existing_file.thumbnail_path or ''
+                        existing_file.delete()
+                        for _p in [_ep, _et]:
+                            if _p and os.path.exists(_p):
+                                try:
+                                    os.remove(_p)
+                                except Exception:
+                                    logger.warning('[DirectMerge] cleanup replaced: %s', _p)
+                    if ca == 'keep':
+                        from apps.document.libs.naming_utils import generate_unique_logical_name
+                        names['display_name'] = generate_unique_display_name(
+                            FileModel, display_name, folder, request.user, form.is_public)
+                        names['logical_name'] = generate_unique_logical_name(
+                            FileModel, names['display_name'], folder, request.user)
                 
                 upload_dir = get_document_absolute_path(
                     is_public=form.is_public,
@@ -206,6 +241,7 @@ class DirectMergeView(View):
                     'tenant_id': getattr(request.user, 'tenant_id', None),
                     'transfer_id': form.transfer_id,
                     'system_folder': form.system_folder,
+                    'conflict_action': form.conflict_action,
                     'timestamp': timestamp,
                     'start_time': time.time()
                 }

@@ -8,7 +8,7 @@
 import os
 import logging
 from django.conf import settings
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from apps.document.libs.document_utils import get_document_absolute_path, is_safe_path
 from apps.document.libs.naming_utils import generate_file_names
 from apps.document.views.base import get_mime_type, create_model_instance
@@ -213,7 +213,7 @@ class FileUploadService:
             request.GET.get('system_folder')
         )
 
-    def upload(self, file, folder, transfer_id=None):
+    def upload(self, file, folder, transfer_id=None, display_name=None):
         """
         执行文件上传
 
@@ -221,6 +221,7 @@ class FileUploadService:
             file: 上传的文件对象
             folder: 目标文件夹
             transfer_id: 传输记录ID（可选）
+            display_name: 冲突 keep 动作解析后的唯一 display_name（可选）
 
         Returns:
             (new_file, error_message) 元组
@@ -230,6 +231,13 @@ class FileUploadService:
             names = FileRecordService.generate_file_names(
                 self.FileModel, file.name, folder, self.user
             )
+
+            # 冲突 keep 动作：覆盖 display_name 和 logical_name
+            if display_name:
+                from apps.document.libs.naming_utils import generate_unique_logical_name
+                names['display_name'] = display_name
+                names['logical_name'] = generate_unique_logical_name(
+                    self.FileModel, display_name, folder, self.user)
 
             # 确保上传目录
             folder_id = folder.id if folder else None
@@ -252,25 +260,42 @@ class FileUploadService:
             FileStorageService.save_uploaded_file(file, file_path)
             logger.info(f'[Document] File saved successfully: {file_path}')
 
-            # 创建文件记录
+            # 创建文件记录（含 IntegrityError 重试，防止并发名冲突导致 1062）
             logger.info(
                 f'[Document] Creating file record: physical={names["physical_name"]}, '
                 f'logical={names["logical_name"]}, display={names["display_name"]}, '
                 f'is_public={self.is_public}'
             )
 
-            file_info = {
-                'physical_name': names['physical_name'],
-                'logical_name': names['logical_name'],
-                'display_name': names['display_name'],
-                'file_path': file_path,
-                'file_size': file.size,
-                'file_type': file.content_type or get_mime_type(file.name)
-            }
+            MAX_NAME_RETRIES = 3
+            new_file = None
+            for attempt in range(MAX_NAME_RETRIES):
+                try:
+                    with transaction.atomic():
+                        file_info = {
+                            'physical_name': names['physical_name'],
+                            'logical_name': names['logical_name'],
+                            'display_name': names['display_name'],
+                            'file_path': file_path,
+                            'file_size': file.size,
+                            'file_type': file.content_type or get_mime_type(file.name)
+                        }
 
-            new_file = FileRecordService.create_file_record(
-                self.FileModel, file_info, folder, self.user, self.is_public
-            )
+                        new_file = FileRecordService.create_file_record(
+                            self.FileModel, file_info, folder, self.user, self.is_public
+                        )
+                    break
+                except IntegrityError:
+                    if attempt == MAX_NAME_RETRIES - 1:
+                        raise
+                    # 并发冲突：重新生成 logical_name / display_name 后重试
+                    logger.warning(
+                        f'[Document] IntegrityError on attempt {attempt + 1}/{MAX_NAME_RETRIES}, '
+                        f'regenerating name for: {file.name}'
+                    )
+                    names = FileRecordService.generate_file_names(
+                        self.FileModel, file.name, folder, self.user
+                    )
 
             logger.info(
                 f'[Document] File record created successfully: id={new_file.id}, '
@@ -287,4 +312,11 @@ class FileUploadService:
 
         except Exception as e:
             logger.error(f'[Document] File upload failed: {e}', exc_info=True)
+            # 清理已写入的物理文件，避免产生孤儿文件
+            if 'file_path' in dir() and os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    logger.info(f'[Document] Cleaned up physical file after failure: {file_path}')
+                except Exception as cleanup_err:
+                    logger.error(f'[Document] Failed to clean up physical file: {cleanup_err}')
             return None, f'文件上传失败: {str(e)}'

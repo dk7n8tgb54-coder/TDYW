@@ -107,6 +107,11 @@ export class FileUploadStore {
         formData.append('system_folder', targetSystemFolderCode);
       }
 
+      // 传递冲突处理动作（keep 时后端生成唯一 display_name）
+      if (file._conflictAction) {
+        formData.append('conflict_action', file._conflictAction);
+      }
+
       const { http } = await import('libs');
       const axios = await import('axios');
 

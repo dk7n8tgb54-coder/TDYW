@@ -1,31 +1,35 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""File move view."""
+"""File move view - with conflict handling and physical file migration."""
 
-import json
-import logging
-
+import os, json, shutil, logging
 from django.views.generic import View
 from django.db import transaction, IntegrityError
-
+from django.conf import settings
 from libs import json_response
 from libs.tenant_utils import apply_tenant_filter
-
 from ...libs.document_auth import document_auth
-from ...libs.document_utils import get_file_model, get_folder_model
+from ...libs.document_utils import (
+    get_file_model, get_folder_model, get_document_absolute_path, is_safe_path,
+)
 from ...libs.naming_utils import generate_unique_logical_name
 from ...libs.view_utils import permission_denied_response
+from ...services.conflict_service import (
+    check_display_name_conflict, generate_unique_display_name,
+    build_conflict_info, conflict_response, CONFLICT_ACTIONS,
+)
 from ...services.system_scope_validators import (
     validate_file_move_scope, validate_target_folder_scope,
 )
 from ..base import check_public_space_permission, log_operation
 
 logger = logging.getLogger(__name__)
+DOC_STORAGE_BASE = os.path.join(settings.BASE_DIR, 'storage', 'documents')
 
 
 class FileMoveView(View):
-    """Move a file by updating its folder relation only."""
+    """Move file: update folder, migrate physical file, handle conflicts."""
 
     @document_auth('move')
     def post(self, request):
@@ -33,33 +37,26 @@ class FileMoveView(View):
         if error:
             return json_response(error=error)
 
-        is_valid, scope_error = validate_file_move_scope(
-            params['system_folder'],
-            params['is_public'],
-            target_id=params['target_id'],
-        )
-        if not is_valid:
-            return json_response(error=scope_error)
+        ok, se = validate_file_move_scope(
+            params['system_folder'], params['is_public'], target_id=params['target_id'])
+        if not ok:
+            return json_response(error=se)
 
         FileModel = get_file_model(is_public=params['is_public'])
         FolderModel = get_folder_model(is_public=params['is_public'])
-
         file_obj = self._get_file(FileModel, params, request.user)
         if not file_obj:
             return json_response(error='文件不存在')
 
-        permission_error = self._check_public_permission(request.user, file_obj, params['is_public'])
-        if permission_error:
-            return permission_error
+        pe = self._check_public_permission(request.user, file_obj, params['is_public'])
+        if pe:
+            return pe
 
-        is_valid, scope_error = validate_file_move_scope(
-            params['system_folder'],
-            params['is_public'],
-            file_obj=file_obj,
-            target_id=params['target_id'],
-        )
-        if not is_valid:
-            return json_response(error=scope_error)
+        ok, se = validate_file_move_scope(
+            params['system_folder'], params['is_public'],
+            file_obj=file_obj, target_id=params['target_id'])
+        if not ok:
+            return json_response(error=se)
 
         target = self._get_target_folder(FolderModel, params, request.user)
         if params['target_id'] and not target:
@@ -81,6 +78,7 @@ class FileMoveView(View):
             'target_id': data.get('target_id'),
             'is_public': data.get('is_public', False),
             'system_folder': data.get('system_folder'),
+            'conflict_action': data.get('conflict_action'),
         }, None
 
     def _get_file(self, FileModel, params, user):
@@ -106,45 +104,155 @@ class FileMoveView(View):
         return query.first()
 
     def _move_file(self, FileModel, file_obj, target, params, request):
+        """Execute move: conflict check -> physical migration -> DB update -> rollback."""
+        display_name = file_obj.display_name or file_obj.name
+        conflict_action = params.get('conflict_action')
+
+        # 1. 预检冲突
+        existing = check_display_name_conflict(
+            FileModel, display_name, target, request.user, params['is_public'])
+
+        if existing:
+            if not conflict_action or conflict_action not in CONFLICT_ACTIONS:
+                ci = build_conflict_info(existing, display_name, file_obj.file_size or 0)
+                return conflict_response([ci])
+            if conflict_action == 'skip':
+                return json_response(data={'status': 'skipped', 'action': 'skip'})
+
+        # 2. 物理文件迁移
+        old_path = file_obj.file_path
+        old_thumb = file_obj.thumbnail_path or ''
+        target_folder_id = target.id if target else None
+        target_dir = get_document_absolute_path(
+            is_public=params['is_public'], user_id=request.user.id,
+            folder_id=target_folder_id, system_folder=params.get('system_folder'))
+        new_path = os.path.join(target_dir, file_obj.physical_name)
+
+        if not is_safe_path(DOC_STORAGE_BASE, new_path):
+            return json_response(error='目标路径异常')
+
+        physical_moved = False
+        if os.path.normpath(old_path) != os.path.normpath(new_path):
+            os.makedirs(target_dir, exist_ok=True)
+            if os.path.exists(new_path) and conflict_action != 'replace':
+                return json_response(error='目标位置已存在同名物理文件')
+            try:
+                shutil.move(old_path, new_path)
+                physical_moved = True
+                logger.info('[Document] Physical file moved: %s -> %s', old_path, new_path)
+            except Exception as e:
+                logger.error('[Document] Physical file move failed: %s', e)
+                return json_response(error=f'物理文件迁移失败: {e}')
+
+        # 缩略图迁移
+        new_thumb = old_thumb
+        if old_thumb and physical_moved:
+            thumb_name = os.path.basename(old_thumb)
+            candidate = os.path.join(target_dir, thumb_name)
+            if os.path.normpath(old_thumb) != os.path.normpath(candidate):
+                try:
+                    if os.path.exists(old_thumb):
+                        shutil.move(old_thumb, candidate)
+                        new_thumb = candidate
+                except Exception as e:
+                    logger.warning('[Document] Thumbnail move failed: %s', e)
+                    new_thumb = ''
+
+        # 3. DB 更新（事务内重新校验）
         try:
             with transaction.atomic():
-                # 【作用域重校验】写入前在事务内重新校验目标目录作用域，防 TOCTOU
                 if params['target_id']:
                     ok, err = validate_target_folder_scope(
                         params['system_folder'], params['is_public'],
-                        params['target_id'], allow_root=True,
-                    )
+                        params['target_id'], allow_root=True)
                     if not ok:
-                        return json_response(error=err)
+                        raise ValueError(err)
+
+                # 事务内重新检查冲突（防并发插入）
+                recheck = check_display_name_conflict(
+                    FileModel, display_name, target, request.user, params['is_public'])
+                if recheck and recheck.id != (existing.id if existing else None):
+                    # 并发插入了同名文件
+                    if conflict_action != 'replace':
+                        raise ValueError('目标位置已存在同名文件')
+
+                # 处理冲突动作
+                if recheck:
+                    if conflict_action == 'replace':
+                        # 物理文件在事务提交后清理
+                        _old_existing_path = recheck.file_path
+                        _old_existing_thumb = recheck.thumbnail_path or ''
+                        _old_existing_id = recheck.id
+                        recheck.delete()
+                    elif conflict_action == 'keep':
+                        file_obj.display_name = generate_unique_display_name(
+                            FileModel, display_name, target,
+                            request.user, params['is_public'])
+
+                # 更新文件记录
                 file_obj.folder = target
                 file_obj.name = generate_unique_logical_name(
-                    FileModel,
-                    file_obj.display_name or file_obj.name,
-                    target,
-                    request.user,
-                )
-                file_obj.save(update_fields=['folder', 'name', 'updated_at'])
+                    FileModel, file_obj.display_name or file_obj.name,
+                    target, request.user)
+                file_obj.file_path = new_path
+                update_fields = ['folder', 'name', 'file_path', 'display_name', 'updated_at']
+                if new_thumb != old_thumb:
+                    file_obj.thumbnail_path = new_thumb
+                    update_fields.append('thumbnail_path')
+                file_obj.save(update_fields=update_fields)
+
         except IntegrityError:
-            logger.warning('[Document] file move failed due to duplicate name, id=%s', file_obj.id)
+            logger.warning('[Document] move IntegrityError, id=%s', file_obj.id)
+            self._rollback_physical(old_path, new_path, old_thumb, new_thumb, physical_moved)
             return json_response(error='目标位置已存在同名文件，移动失败')
+        except ValueError as e:
+            logger.warning('[Document] move scope/conflict error: %s', e)
+            self._rollback_physical(old_path, new_path, old_thumb, new_thumb, physical_moved)
+            return json_response(error=str(e))
         except Exception as exc:
             logger.error('[Document] file move failed: %s', exc)
+            self._rollback_physical(old_path, new_path, old_thumb, new_thumb, physical_moved)
             return json_response(error=f'文件移动失败：{exc}')
 
-        # R3 修复：audit log 移到 on_commit，确保事务提交后才记录
-        _file_id = file_obj.id
-        _is_public = params['is_public']
-        _target_id = params['target_id']
-        _user = request.user
-        _req = request
+        # 4. 清理 replace 被删文件的物理文件（事务提交后）
+        if existing and conflict_action == 'replace':
+            transaction.on_commit(lambda: self._cleanup_deleted_file(
+                existing.file_path, existing.thumbnail_path or ''))
+
+        # 5. 审计日志
+        _fid, _ip, _tid = file_obj.id, params['is_public'], params['target_id']
+        _u, _req, _act = request.user, request, conflict_action or 'move'
         transaction.on_commit(lambda: log_operation(
-            action='FILE_MOVE',
-            user=_user,
-            request=_req,
-            resource_type='FILE',
-            resource_id=_file_id,
-            is_public=_is_public,
-            target_folder_id=_target_id,
-        ))
-        logger.info('[Document] file moved successfully, id=%s', file_obj.id)
-        return json_response()
+            action='FILE_MOVE', user=_u, request=_req, resource_type='FILE',
+            resource_id=_fid, is_public=_ip, target_folder_id=_tid))
+        logger.info('[Document] file moved: id=%s, action=%s', file_obj.id, _act)
+        return json_response(data={'status': 'success', 'action': _act})
+
+    @staticmethod
+    def _rollback_physical(old_path, new_path, old_thumb, new_thumb, moved):
+        """DB 保存失败时把物理文件移回原位置。"""
+        if not moved:
+            return
+        try:
+            if os.path.exists(new_path):
+                shutil.move(new_path, old_path)
+                logger.info('[Document] Physical file rolled back: %s', old_path)
+        except Exception as e:
+            logger.error('[Document] Failed to rollback physical file: %s', e)
+        if new_thumb and old_thumb and new_thumb != old_thumb:
+            try:
+                if os.path.exists(new_thumb):
+                    shutil.move(new_thumb, old_thumb)
+            except Exception as e:
+                logger.warning('[Document] Failed to rollback thumbnail: %s', e)
+
+    @staticmethod
+    def _cleanup_deleted_file(file_path, thumbnail_path):
+        """事务提交后清理被 replace 删除的文件物理文件。"""
+        for p in [file_path, thumbnail_path]:
+            if p and os.path.exists(p):
+                try:
+                    os.remove(p)
+                    logger.info('[Document] Cleaned up deleted file: %s', p)
+                except Exception as e:
+                    logger.warning('[Document] Failed to cleanup deleted file %s: %s', p, e)
