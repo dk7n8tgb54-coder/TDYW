@@ -26,6 +26,7 @@
 ## 模块架构速查
 - 数据分析 `apps/data_analysis`（纯只读聚合，无 model/migration，跨 app 查询，5 个 API + BizCharts 前端 + Redis 60s 缓存 + 5 个独立权限码）
 - 附件 `apps/evidence`（EvidenceAttachment 多态 + AttachmentService + preview_token）；radio_license/contract_agreement/device/upgrade/fault/interference/department_duty_log 均走此机制；**例外：regulation 走独立 `storage.py`**
+- 附件新建阶段上传模式：前端生成临时 UUID 作为 `object_id`，后端 `pk.isdigit()` 判断跳过记录存在性校验；保存记录时传 `attachment_temp_id`，后端 `UPDATE object_id` 关联（interference 2026-08-06 实现）
 - 账号签名 `apps/signature`（apply_signature 事务锁->SHA256->Usage+EvidenceEvent）
 - 党建隔离 `DocumentSystemFolder` + `system_scope_validators`（fail-closed）
 - 权限缓存 `User.page_perms` Redis `perms_{id}`=(version,perms)

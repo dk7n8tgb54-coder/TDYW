@@ -11,6 +11,7 @@ from libs.idempotency import check_recent_duplicate
 from apps.interference.models import Interference, INTERFERENCE_STATUS_CHOICES
 from apps.evidence.services import record_evidence_event
 from apps.evidence.models import EvidenceEvent, EvidenceAttachment
+from apps.evidence.attachment_service import AttachmentService, AttachmentConfig, PREVIEWABLE_EXTENSIONS
 from apps.logs.models import AuditLog
 from apps.logs.audit import record_audit_event
 import logging
@@ -181,7 +182,8 @@ class InterferenceView(View):
             Argument('phenomenon', required=False),
             Argument('flight_number', required=False),
             Argument('aircraft_type', required=False),
-            Argument('is_reported', required=False)
+            Argument('is_reported', required=False),
+            Argument('attachment_temp_id', required=False),
         ).parse(request.body)
         if error is None:
             # datetime 格式校验（创建和编辑共用）
@@ -217,16 +219,27 @@ class InterferenceView(View):
                         return json_response(error=f'请输入{label}')
                 form.pop('id', None)
                 form.created_by = request.user
-                assign_tenant_id(form, request.user)
-                create_data = {k: v for k, v in form.items() if v is not None}
-                with transaction.atomic():
-                    if check_recent_duplicate(Interference, {
-                        'frequency': form.get('frequency'),
-                        'datetime': form.get('datetime'),
-                        'report_dept': form.get('report_dept'),
-                    }):
-                        return json_response(error='检测到重复提交，请勿重复操作')
-                    Interference.objects.create(**create_data)
+            assign_tenant_id(form, request.user)
+            create_data = {k: v for k, v in form.items() if v is not None}
+            attachment_temp_id = create_data.pop('attachment_temp_id', None)
+            with transaction.atomic():
+                if check_recent_duplicate(Interference, {
+                    'frequency': form.get('frequency'),
+                    'datetime': form.get('datetime'),
+                    'report_dept': form.get('report_dept'),
+                }):
+                    return json_response(error='检测到重复提交，请勿重复操作')
+                record = Interference.objects.create(**create_data)
+
+            # 新建阶段上传的临时附件关联到新记录
+            if attachment_temp_id and record:
+                EvidenceAttachment.objects.filter(
+                    tenant_id=getattr(request.user, 'tenant_id', 'default'),
+                    module='interference',
+                    object_type='interference',
+                    object_id=attachment_temp_id,
+                    is_deleted=False,
+                ).update(object_id=str(record.id))
         return json_response(error=error)
 
     @auth('interference.interference.del')
@@ -400,3 +413,148 @@ class InterferenceStatisticsView(View):
             import traceback
             logger.error(traceback.format_exc())
             return json_response(error='获取统计数据失败，请稍后重试')
+
+
+# ==================== 附件接口（转调 evidence.AttachmentService）====================
+
+# 干扰模块附件配置
+InterferenceAttachmentConfig = AttachmentConfig(
+    allowed_extensions=('.pdf', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
+                         '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+                         '.zip', '.rar', '.7z'),
+    max_size_mb=50,
+)
+
+ATTACHMENT_MODULE = 'interference'
+ATTACHMENT_OBJECT_TYPE = 'interference'
+
+
+class AttachmentListView(View):
+    """附件列表 / 上传
+
+    支持两种 pk 模式：
+    - 数字 ID：已保存的干扰记录，校验记录存在性
+    - 临时 UUID（如 temp-xxx）：新建阶段尚未保存的记录，跳过校验
+    """
+
+    @auth('interference.interference.view')
+    def get(self, request, pk):
+        """获取指定干扰记录的附件列表"""
+        if pk.isdigit():
+            qs = apply_tenant_filter(Interference.objects.filter(is_deleted=False), request.user)
+            if not qs.filter(pk=pk).exists():
+                return json_response(error='干扰记录不存在或无权限访问')
+        data = AttachmentService.list(
+            request.user, ATTACHMENT_MODULE, ATTACHMENT_OBJECT_TYPE, pk)
+        return json_response(data)
+
+    @auth('interference.interference.add|interference.interference.edit')
+    def post(self, request, pk):
+        """上传附件"""
+        if pk.isdigit():
+            qs = apply_tenant_filter(Interference.objects.filter(is_deleted=False), request.user)
+            if not qs.filter(pk=pk).exists():
+                return json_response(error='干扰记录不存在或无权限访问')
+
+        file = request.FILES.get('file')
+        if not file:
+            return json_response(error='请选择要上传的文件')
+
+        att, error = AttachmentService.upload(
+            file=file,
+            user=request.user,
+            module=ATTACHMENT_MODULE,
+            object_type=ATTACHMENT_OBJECT_TYPE,
+            object_id=pk,
+            config=InterferenceAttachmentConfig,
+        )
+        if error:
+            return json_response(error=error)
+
+        result = att.to_view()
+        result['uploaded_by_name'] = request.user.nickname
+        result['created_at'] = att.uploaded_at
+        result['previewable'] = att.file_ext in PREVIEWABLE_EXTENSIONS
+        return json_response(result)
+
+
+class AttachmentDownloadView(View):
+    """附件下载（鉴权），支持 ?inline=1 内联预览图片/PDF"""
+
+    @auth('interference.interference.view')
+    def get(self, request, pk):
+        inline = request.GET.get('inline') in ('1', 'true', 'True')
+        response, error = AttachmentService.download_response(request.user, pk, inline=inline)
+        if error:
+            return json_response(error=error)
+        return response
+
+
+class AttachmentPreviewUrlView(View):
+    """获取 kkFileView 在线预览地址"""
+
+    @auth('interference.interference.view')
+    def get(self, request, pk):
+        preview_file_api_path = f'/api/interference/attachments/{pk}/preview-file/'
+        data, error = AttachmentService.get_preview_url(
+            request.user, pk, preview_file_api_path)
+        if error:
+            return json_response(error=error)
+        return json_response(data)
+
+
+class AttachmentPreviewFileView(View):
+    """kkFileView 回调读取文件流（preview_token 鉴权）"""
+
+    def get(self, request, pk):
+        preview_token = request.GET.get('preview_token')
+        if not preview_token:
+            return json_response(error='缺少 preview_token 参数')
+        response, error = AttachmentService.preview_file_response(preview_token, pk)
+        if error:
+            return json_response(error=error)
+        return response
+
+
+class AttachmentDeleteView(View):
+    """附件删除（软删除）"""
+
+    @auth('interference.interference.edit|interference.interference.del')
+    def delete(self, request):
+        form, error = JsonParser(
+            Argument('id', type=int, help='请指定附件ID'),
+            Argument('delete_reason', required=False),
+        ).parse(request.GET)
+        if error:
+            return json_response(error=error)
+
+        error = AttachmentService.soft_delete(
+            request.user, form.id, form.delete_reason, delete_file=True)
+        if error:
+            return json_response(error=error)
+
+        # 写入证据事件
+        try:
+            att = EvidenceAttachment.objects.filter(pk=form.id).first()
+            if att:
+                record_evidence_event(
+                    tenant_id=att.tenant_id,
+                    module=ATTACHMENT_MODULE,
+                    object_type=ATTACHMENT_OBJECT_TYPE,
+                    object_id=att.object_id,
+                    event_type='delete',
+                    actor_user_id=getattr(request.user, 'id', None),
+                    actor_username=getattr(request.user, 'username', ''),
+                    actor_name=request.user.nickname or request.user.username,
+                    object_snapshot={
+                        'attachment_id': att.id,
+                        'file_name': att.file_name,
+                        'file_hash_sha256': att.file_hash_sha256,
+                        'delete_reason': form.delete_reason or '',
+                    },
+                    event_title=f'删除附件 {att.file_name}',
+                )
+        except Exception as ev_err:
+            logger.error(f'附件删除证据事件写入失败: {ev_err}')
+
+        return json_response()

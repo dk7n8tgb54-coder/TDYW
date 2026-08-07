@@ -1,19 +1,22 @@
 /**
- * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
+ * Copyright (c) OpenSpug Organization. https://github.com/openspug
  * Copyright (c) <spug.dev@gmail.com>
  * Released under the AGPL-3.0 License.
  */
 import React, { useState } from 'react';
 import { observer } from 'mobx-react';
-import { Modal, Form, Input, Select, DatePicker, Button, message, Descriptions } from 'antd';
+import { Modal, Form, Input, Select, DatePicker, Button, message, Descriptions, Divider } from 'antd';
 import { http, hasPermission } from 'libs';
 import moment from 'moment';
 import S from './store';
+import { AttachmentManager } from 'components';
 
 export default observer(function () {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState(false);
+  // 新建阶段生成临时 ID，用于关联尚未保存记录的附件
+  const [tempId] = useState(() => 'temp-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9));
 
   function handleSubmit() {
     form.validateFields().then(() => {
@@ -23,6 +26,10 @@ export default observer(function () {
       // 转换日期时间格式
       if (formData['datetime']) {
         formData['datetime'] = formData['datetime'].format('YYYY-MM-DD HH:mm:ss');
+      }
+      // 新建时传递临时附件 ID，后端将临时附件关联到新记录
+      if (!S.record.id) {
+        formData['attachment_temp_id'] = tempId;
       }
       http.post('/api/interference/', formData)
         .then(() => {
@@ -56,6 +63,24 @@ export default observer(function () {
   }, [form]);
 
   const info = S.record;
+  // 附件管理器所需的 recordId：新建时用临时 ID，编辑/查看时用真实 ID
+  const attachmentRecordId = info.id || tempId;
+  const attachmentProps = {
+    module: 'interference',
+    objectType: 'interference',
+    recordId: attachmentRecordId,
+    listUrl: `/api/interference/${attachmentRecordId}/attachments/`,
+    uploadUrl: `/api/interference/${attachmentRecordId}/attachments/`,
+    deleteUrl: '/api/interference/attachments/',
+    downloadUrlPrefix: '/api/interference/attachments/',
+    previewUrlPrefix: '/api/interference/attachments/',
+    readOnly: false,
+    maxFileSize: 50,
+    accept: '.pdf,.jpg,.jpeg,.png,.gif,.bmp,.webp,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z',
+    uploadMode: 'dragger',
+    multiple: true,
+    maxFilesPerBatch: 20,
+  };
 
   if (viewMode) {
     return (
@@ -64,7 +89,10 @@ export default observer(function () {
         width={800}
         title="干扰信息统计详情"
         footer={[
-          <Button key="close" onClick={() => S.formVisible = false}>关闭</Button>
+          <Button key="close" onClick={() => S.formVisible = false}>关闭</Button>,
+          hasPermission('interference.interference.edit') && (
+            <Button key="edit" type="primary" onClick={() => setViewMode(false)}>编辑</Button>
+          ),
         ]}
         onCancel={() => S.formVisible = false}>
         <Descriptions bordered column={2}>
@@ -82,6 +110,13 @@ export default observer(function () {
             </div>
           </Descriptions.Item>
         </Descriptions>
+
+        {info.id && (
+          <>
+            <Divider orientation="left">附件</Divider>
+            <AttachmentManager {...attachmentProps} />
+          </>
+        )}
       </Modal>
     )
   }
@@ -142,6 +177,11 @@ export default observer(function () {
           </Select>
         </Form.Item>
       </Form>
+
+      <Divider orientation="left">附件</Divider>
+      <div style={{ marginLeft: 0 }}>
+        <AttachmentManager {...attachmentProps} />
+      </div>
     </Modal>
   )
 })
