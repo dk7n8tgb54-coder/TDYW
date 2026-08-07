@@ -32,6 +32,8 @@ from apps.document.services.system_scope_validators import (
     validate_file_source_scope, validate_target_folder_scope,
 )
 from apps.document.views.base import create_model_instance, check_public_space_permission, log_operation
+from apps.document.models import DocumentTransfer
+from apps.document.constants import TransferStatus, TransferType
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +110,7 @@ class FileNameGenerator:
         _, file_ext = get_file_ext(original_display_name)
 
         # 生成三层文件名
-        physical_name = generate_physical_name(file_ext)
+        physical_name = generate_physical_name(file_ext, original_display_name)
         logical_name = generate_unique_logical_name(FileModel, original_display_name, folder, user)
 
         return {
@@ -318,6 +320,15 @@ class FileCopyView(View):
 
         logger.info(f'[Document] Generated names: physical={names["physical_name"]}, logical={names["logical_name"]}')
 
+        # 大文件异步复制检查
+        file_size = file.file_size or 0
+        async_threshold = getattr(settings, 'DOCUMENT_ASYNC_COPY_THRESHOLD', 50 * 1024 * 1024)
+        if file_size >= async_threshold:
+            return self._submit_async_copy(
+                FileModel, file, folder, is_public, request.user, final_display_name,
+                names, new_file_path, conflict_action, system_folder=ctx.get('system_folder')
+            )
+
         # 复制物理文件
         try:
             FileCopyExecutor.copy_physical_file(file.file_path, new_file_path)
@@ -456,3 +467,91 @@ class FileCopyView(View):
                     logger.info('[Document] Cleaned up deleted file: %s', p)
                 except Exception as e:
                     logger.warning('[Document] Failed to cleanup %s: %s', p, e)
+
+    def _submit_async_copy(self, FileModel, source_file, folder, is_public, user,
+                           final_display_name, names, new_file_path,
+                           conflict_action, system_folder=None):
+        """
+        提交异步复制任务（大文件）
+
+        1. 创建 DocumentTransfer 记录（PENDING）
+        2. 尝试提交 Celery 任务
+        3a. Celery 可用 -> 返回 pending 状态
+        3b. Celery 不可用 -> 同步降级执行复制
+        """
+        from apps.document.tasks.async_copy import copy_file_async
+
+        transfer = None
+        try:
+            transfer = DocumentTransfer.objects.create(
+                transfer_type=TransferType.COPY.value,
+                status=TransferStatus.PENDING.value,
+                file_name=final_display_name,
+                file_size=source_file.file_size or 0,
+                file_path=new_file_path,
+                file_hash=getattr(source_file, 'file_hash', '') or '',
+                folder_id=folder.id if folder else None,
+                is_public=is_public,
+                system_folder=system_folder or '',
+                progress=0,
+                transferred_size=0,
+                source_file_id=source_file.id,
+                source_file_path=source_file.file_path,
+                conflict_action=conflict_action or '',
+                user=user,
+                tenant_id=getattr(user, 'tenant_id', '') or '',
+            )
+
+            # 尝试提交 Celery 任务
+            result = copy_file_async.delay(transfer.id)
+            DocumentTransfer.objects.filter(pk=transfer.id).update(
+                celery_task_id=result.id
+            )
+
+            logger.info(
+                '[Document] Async copy submitted, transfer_id=%s, task_id=%s, file_size=%s',
+                transfer.id, result.id, source_file.file_size
+            )
+
+            return json_response(data={
+                'status': 'pending',
+                'transfer_id': transfer.id,
+                'task_id': result.id,
+                'file_name': final_display_name,
+                'file_size': source_file.file_size or 0,
+                'message': '大文件正在后台复制中',
+            })
+
+        except Exception as e:
+            logger.warning('[Document] Celery submit failed (%s), fallback to thread', e)
+
+            # Celery 不可用 -> 后台线程降级执行
+            if transfer:
+                transfer.status = TransferStatus.COPYING.value
+                transfer.save(update_fields=['status'])
+
+            import threading
+
+            def _run_copy_in_thread(tid=transfer.id, src_path=source_file.file_path,
+                                    dst_path=new_file_path, file_size=source_file.file_size):
+                try:
+                    from apps.document.tasks.async_copy import copy_file_async
+                    copy_file_async.apply((tid,))
+                except Exception as inner_e:
+                    logger.error('[Document] Thread fallback copy failed: %s', inner_e)
+                    DocumentTransfer.objects.filter(pk=tid).update(
+                        status=TransferStatus.FAILED.value,
+                        error_message=f'复制失败: {inner_e}'[:500],
+                    )
+
+            t = threading.Thread(target=_run_copy_in_thread, daemon=True)
+            t.start()
+
+            return json_response(data={
+                'status': 'pending',
+                'transfer_id': transfer.id,
+                'task_id': None,
+                'file_name': final_display_name,
+                'file_size': source_file.file_size or 0,
+                'message': '大文件正在后台复制中',
+            })

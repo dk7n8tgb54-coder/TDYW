@@ -222,6 +222,8 @@ CELERY_TASK_ROUTES = {
     # 由独立 thumbnail worker（start-celery-thumbnail.sh）消费
     # 若未部署独立 worker，需让 cleanup/default worker 兼听 document.thumbnail 队列
     'apps.document.tasks.thumbnail.generate_document_thumbnail': {'queue': 'document.thumbnail'},
+    # 异步复制大文件使用 document.batch 队列（复用已有 batch worker，无需新增 worker）
+    'apps.document.tasks.async_copy.copy_file_async': {'queue': 'document.batch'},
     # 【新增】无线电台执照到期扫描任务
     'apps.radio_license.tasks.scan_radio_license_expiration': {'queue': 'radio_license'},
     'apps.contract_agreement.tasks.scan_contract_agreement_expiration': {'queue': 'contract_agreement'},
@@ -285,6 +287,10 @@ RECYCLE_BIN_LARGE_FILE_THRESHOLD = 104857600  # 大文件阈值：100MB
 # removed by the scheduled cleanup task.
 DOCUMENT_TRANSFER_RETENTION_DAYS = int(os.environ.get('DOCUMENT_TRANSFER_RETENTION_DAYS', '30'))
 DOCUMENT_TRANSFER_CLEANUP_BATCH_SIZE = int(os.environ.get('DOCUMENT_TRANSFER_CLEANUP_BATCH_SIZE', '1000'))
+
+# 异步复制阈值（字节，默认50MB）
+# 文件大小 >= 此值时使用 Celery 后台复制，避免长时间占用 HTTP 请求线程
+DOCUMENT_ASYNC_COPY_THRESHOLD = int(os.environ.get('DOCUMENT_ASYNC_COPY_THRESHOLD', str(50 * 1024 * 1024)))
 
 TEXT_PREVIEW_MAX_SIZE = 2 * 1024 * 1024
 

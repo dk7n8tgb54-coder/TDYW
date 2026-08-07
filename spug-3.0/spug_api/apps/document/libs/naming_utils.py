@@ -7,7 +7,9 @@
 符合资料库文件命名优化方案 V2 规范
 """
 
+import os
 import re
+import unicodedata
 import time
 import uuid
 import logging
@@ -19,43 +21,53 @@ logger = logging.getLogger(__name__)
 def clean_illegal_chars(filename, replace_space=True):
     """
     清理文件名中的非法字符
-    
+
     规则：
-    1. 替换系统非法字符 / \\ : * ? " < > | 为下划线
-    2. 可选替换空格为下划线（避免路径空格问题）
-    3. 去除连续下划线（美观）
-    4. 去除首尾下划线
-    
+    1. Unicode NFC 规范化
+    2. 使用 os.path.basename 阻止路径穿越
+    3. 替换系统非法字符 / \\ : * ? " < > | 为下划线
+    4. 去除 NUL 和控制字符（\\x00-\\x1f, \\x7f）
+    5. 可选替换空格为下划线（避免路径空格问题）
+    6. 去除连续下划线（美观）
+    7. 去除首尾下划线
+
     Args:
         filename: 原始文件名
         replace_space: 是否替换空格为下划线（默认True）
-    
+
     Returns:
         清理后的文件名
     """
     if not filename:
         return "unnamed"
-    
-    # 系统非法字符
-    illegal_chars = r'[\/:*?"<>|]'
-    
-    # 第一步：替换非法字符
-    clean_name = re.sub(illegal_chars, "_", filename)
-    
-    # 第二步：替换空格（可选）
+
+    # 第一步：Unicode NFC 规范化（统一组合/分解字符）
+    clean_name = unicodedata.normalize('NFC', filename)
+
+    # 第二步：阻止路径穿越 — 只取 basename
+    clean_name = os.path.basename(clean_name)
+
+    # 第三步：去除 NUL 和控制字符（\x00-\x1f, \x7f）
+    clean_name = re.sub(r'[\x00-\x1f\x7f]', '', clean_name)
+
+    # 第四步：替换系统非法字符（含正反斜杠）
+    illegal_chars = r'[\\/:*?"<>|]'
+    clean_name = re.sub(illegal_chars, "_", clean_name)
+
+    # 第五步：替换空格（可选）
     if replace_space:
         clean_name = clean_name.replace(" ", "_")
-    
-    # 第三步：去除连续下划线
+
+    # 第六步：去除连续下划线
     clean_name = re.sub(r"_+", "_", clean_name)
-    
-    # 第四步：去除首尾下划线
+
+    # 第七步：去除首尾下划线
     clean_name = clean_name.strip("_")
-    
+
     # 兜底：如果清理后为空，返回unnamed
     if not clean_name:
         return "unnamed"
-    
+
     return clean_name
 
 
@@ -97,38 +109,91 @@ def get_file_ext(filename):
         return original_name, ext
 
 
+def _truncate_utf8_safe(text, max_bytes):
+    """
+    按 UTF-8 字节安全截断字符串，不截断半个汉字
+
+    Args:
+        text: 原始字符串
+        max_bytes: 最大 UTF-8 字节数
+
+    Returns:
+        截断后的字符串
+    """
+    if not text:
+        return ""
+    encoded = text.encode('utf-8')
+    if len(encoded) <= max_bytes:
+        return text
+    # 截断到 max_bytes，然后回退到最后一个完整字符边界
+    truncated = encoded[:max_bytes]
+    # 尝试解码，如果失败则逐字节回退
+    while truncated:
+        try:
+            return truncated.decode('utf-8')
+        except UnicodeDecodeError:
+            truncated = truncated[:-1]
+    return ""
+
+
 def generate_physical_name(ext="", original_name=""):
     """
     生成物理文件名（高并发安全 + 可识别性）
-    
+
     方案：清理后的原始文件名(截断) + 毫秒级时间戳(13位) + 6位随机串
     - 保留原始文件名便于备份识别
     - 时间戳精确到毫秒，避免秒级冲突
     - 6位随机串（16^6=1677万种组合）
-    - 总长度约50字符（含扩展名）
-    
+    - 长度按 UTF-8 字节安全截断，满足 model max_length=100 和 Linux 255 字节限制
+
+    格式：{clean_name}_{timestamp}_{random_suffix}{ext}
+    预留：timestamp(13) + underscore(1) + random(6) + underscore(1) + ext = 21 + len(ext)
+
     Args:
         ext: 扩展名（含点，如".mp4"）
         original_name: 原始文件名（用于生成可识别前缀）
-    
+
     Returns:
         物理文件名
     """
     timestamp = int(time.time() * 1000)  # 13位毫秒时间戳
     random_suffix = uuid.uuid4().hex[:6]  # 6位随机
-    
+
     # 如果有原始文件名，添加可识别前缀
     if original_name:
         # 提取原始文件名（不含扩展名）
         name_without_ext, _ = get_file_ext(original_name)
-        # 清理非法字符
-        clean_name = clean_illegal_chars(name_without_ext)
-        # 截断到20字符，避免文件名过长
-        if len(clean_name) > 20:
-            clean_name = clean_name[:20]
-        # 生成带原始文件名的物理文件名
+        # 清理非法字符（不替换空格，保留原始名可读性）
+        clean_name = clean_illegal_chars(name_without_ext, replace_space=False)
+
+        # 计算可用的最大字符长度
+        # 格式: {clean_name}_{timestamp}_{random_suffix}{ext}
+        # 预留部分: _{13}_{6}{ext} = 21 + len(ext) 字符
+        suffix_part = f"_{timestamp}_{random_suffix}{ext}"
+        suffix_len = len(suffix_part)
+
+        # 模型 physical_name max_length=100
+        max_total_chars = 100
+        max_name_chars = max_total_chars - suffix_len
+
+        # Linux 单文件名限制 255 字节（UTF-8）
+        # 计算后缀部分的 UTF-8 字节数
+        suffix_bytes = len(suffix_part.encode('utf-8'))
+        max_total_bytes = 255
+        max_name_bytes = max_total_bytes - suffix_bytes
+
+        # 先按字符数截断（保守），再按 UTF-8 字节数截断
+        if len(clean_name) > max_name_chars:
+            clean_name = clean_name[:max_name_chars]
+
+        clean_name = _truncate_utf8_safe(clean_name, max_name_bytes)
+
+        # 兜底：如果清理后为空
+        if not clean_name:
+            clean_name = "unnamed"
+
         return f"{clean_name}_{timestamp}_{random_suffix}{ext}"
-    
+
     # 无原始文件名，使用旧格式
     return f"{timestamp}_{random_suffix}{ext}"
 

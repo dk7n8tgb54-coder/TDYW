@@ -92,7 +92,7 @@ class FolderCopyView(View):
         )
 
         # 执行复制
-        copy_service = FolderCopyService(request.user, FolderModel, FileModel, is_public)
+        copy_service = FolderCopyService(request.user, FolderModel, FileModel, is_public, system_folder)
 
         # 验证复制操作
         is_valid, error_msg = copy_service.validate_copy_operation(source_folder, target_id)

@@ -139,6 +139,7 @@ export const BACKEND_STATUS_MAP = {
   'DOWNLOADING': 'downloading',
   'PAUSED': 'paused',
   'MERGING': 'merging',
+  'COPYING': 'uploading',
   'COMPLETED': 'completed',
   'FAILED': 'error',
   'CANCELED': 'cancelled',

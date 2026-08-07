@@ -2,7 +2,7 @@
  * 文件操作 Hook
  * 严格遵循原始 Explorer.js 的实现
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useRef } from 'react';
 import { Modal, message } from 'antd';
 import http from 'libs/http';
 import { appendSystemFolderParam, withSystemFolderParams } from 'libs/systemFolderContext';
@@ -23,9 +23,85 @@ export const useFileOperations = ({
     summary: { success: 0, fail: 0, skip: 0 },
   });
 
+  // 跟踪异步复制任务，避免重复轮询
+  const pollingCopyTransfersRef = useRef(new Set());
+
+  // 轮询异步复制任务状态，完成时提示
+  const pollAsyncCopyStatus = useCallback((transferIds) => {
+    const ids = transferIds.filter(id => id && !pollingCopyTransfersRef.current.has(id));
+    if (ids.length === 0) return;
+    ids.forEach(id => pollingCopyTransfersRef.current.add(id));
+
+    let pollCount = 0;
+    const MAX_POLLS = 120; // 最多轮询 10 分钟（5s * 120）
+    const POLL_INTERVAL = 5000;
+
+    const poll = async () => {
+      pollCount++;
+      try {
+        const resp = await http.get('/api/document/transfers/', {
+          params: { transfer_type: 'COPY' }
+        });
+        const transfers = Array.isArray(resp) ? resp : (resp?.data || []);
+        const completed = [];
+        const failed = [];
+        for (const id of ids) {
+          const t = transfers.find(x => x.id === id);
+          if (!t) continue;
+          if (t.status === 'COMPLETED') {
+            completed.push(t);
+            pollingCopyTransfersRef.current.delete(id);
+          } else if (t.status === 'FAILED') {
+            failed.push(t);
+            pollingCopyTransfersRef.current.delete(id);
+          } else if (t.status === 'CANCELED') {
+            pollingCopyTransfersRef.current.delete(id);
+          }
+        }
+        // 提示完成的任务
+        if (completed.length > 0) {
+          if (completed.length === 1) {
+            message.success(`"${completed[0].file_name}" 复制完成`);
+          } else {
+            message.success(`${completed.length} 项文件复制完成`);
+          }
+          if (refresh) refresh(true);
+        }
+        // 提示失败的任务
+        for (const t of failed) {
+          message.error(`"${t.file_name}" 复制失败: ${t.error_message || '未知错误'}`);
+        }
+        // 如果还有未完成的，继续轮询
+        const remaining = ids.filter(id => pollingCopyTransfersRef.current.has(id));
+        if (remaining.length > 0 && pollCount < MAX_POLLS) {
+          setTimeout(poll, POLL_INTERVAL);
+        } else {
+          remaining.forEach(id => pollingCopyTransfersRef.current.delete(id));
+        }
+      } catch (e) {
+        // 网络错误时继续轮询
+        if (pollCount < MAX_POLLS) {
+          setTimeout(poll, POLL_INTERVAL);
+        } else {
+          ids.forEach(id => pollingCopyTransfersRef.current.delete(id));
+        }
+      }
+    };
+
+    setTimeout(poll, POLL_INTERVAL);
+  }, [refresh]);
+
   // 统一批量结果提示
-  const showBatchResult = useCallback((success, fail, skip = 0) => {
-    if (fail === 0 && skip === 0) {
+  const showBatchResult = useCallback((success, fail, skip = 0, pending = 0) => {
+    if (pending > 0) {
+      // 有后台复制中的大文件
+      const parts = [];
+      if (success > 0) parts.push(`成功 ${success}`);
+      parts.push(`${pending} 项后台复制中`);
+      if (skip > 0) parts.push(`跳过 ${skip}`);
+      if (fail > 0) parts.push(`失败 ${fail}`);
+      message.info(parts.join('，'));
+    } else if (fail === 0 && skip === 0) {
       message.success(`成功 ${success} 项`);
     } else if (success === 0 && skip === 0) {
       message.error(`失败 ${fail} 项`);
@@ -214,6 +290,8 @@ export const useFileOperations = ({
   const handleCopyItems = useCallback(async (items, targetFolderId) => {
     let successCount = 0;
     let failCount = 0;
+    let pendingCount = 0;
+    const asyncTransferIds = [];
     const conflicts = [];
     const pendingOps = [];
 
@@ -222,10 +300,16 @@ export const useFileOperations = ({
         if (item.isFolder) {
           // 文件夹复制：直接执行
           try {
-            await http.post('/api/document/folder/copy/', {
+            const result = await http.post('/api/document/folder/copy/', {
               id: item.id, target_id: targetFolderId, is_public: isPublic
             }, { timeout: 300000 });
-            successCount++;
+            // 文件夹复制可能返回 pending（包含大文件）
+            if (result && result.status === 'pending') {
+              pendingCount++;
+              if (result.transfer_id) asyncTransferIds.push(result.transfer_id);
+            } else {
+              successCount++;
+            }
           } catch (e) {
             failCount++;
           }
@@ -238,6 +322,10 @@ export const useFileOperations = ({
             if (result && result.status === 'conflict') {
               conflicts.push(result.conflicts[0]);
               pendingOps.push({ item, endpoint: '/api/document/file/copy/', targetFolderId, paramKey: 'folder_id' });
+            } else if (result && result.status === 'pending') {
+              // 大文件异步复制
+              pendingCount++;
+              if (result.transfer_id) asyncTransferIds.push(result.transfer_id);
             } else {
               successCount++;
             }
@@ -251,18 +339,23 @@ export const useFileOperations = ({
         setConflictState({
           visible: true, conflicts, pendingOps,
           operationType: 'copy',
-          summary: { success: successCount, fail: failCount, skip: 0 },
+          summary: { success: successCount, fail: failCount, skip: 0, pending: pendingCount },
+          asyncTransferIds,
         });
       } else {
-        showBatchResult(successCount, failCount);
+        showBatchResult(successCount, failCount, 0, pendingCount);
         if (refresh) refresh(true);
         if (items.some(i => i.isFolder) && onFolderChange) onFolderChange();
+        // 有后台复制任务时，启动轮询
+        if (pendingCount > 0 && asyncTransferIds.length > 0) {
+          pollAsyncCopyStatus(asyncTransferIds);
+        }
       }
     } catch (e) {
       message.error(e.message || '复制失败');
       throw e;
     }
-  }, [isPublic, refresh, onFolderChange, showBatchResult]);
+  }, [isPublic, refresh, onFolderChange, showBatchResult, pollAsyncCopyStatus]);
 
   // 执行移动操作（带冲突检测）
   const handleMoveItems = useCallback(async (items, targetFolderId) => {
@@ -320,12 +413,14 @@ export const useFileOperations = ({
 
   // 解决冲突（用户确认后执行）
   const resolveConflicts = useCallback(async (actions) => {
-    const { pendingOps, summary } = conflictState;
+    const { pendingOps, summary, asyncTransferIds: prevAsyncIds } = conflictState;
     setConflictState(prev => ({ ...prev, visible: false }));
 
     let successCount = summary.success;
     let failCount = summary.fail;
     let skipCount = 0;
+    let pendingCount = summary.pending || 0;
+    const asyncTransferIds = [...(prevAsyncIds || [])];
 
     for (let i = 0; i < pendingOps.length; i++) {
       const { item, endpoint, targetFolderId, paramKey } = pendingOps[i];
@@ -349,6 +444,10 @@ export const useFileOperations = ({
           failCount++;
         } else if (result && result.status === 'skipped') {
           skipCount++;
+        } else if (result && result.status === 'pending') {
+          // 大文件异步复制
+          pendingCount++;
+          if (result.transfer_id) asyncTransferIds.push(result.transfer_id);
         } else {
           successCount++;
         }
@@ -357,10 +456,14 @@ export const useFileOperations = ({
       }
     }
 
-    showBatchResult(successCount, failCount, skipCount);
+    showBatchResult(successCount, failCount, skipCount, pendingCount);
     if (refresh) refresh(true);
     if (onFolderChange) onFolderChange();
-  }, [conflictState, isPublic, refresh, onFolderChange, showBatchResult]);
+    // 有后台复制任务时，启动轮询
+    if (pendingCount > 0 && asyncTransferIds.length > 0) {
+      pollAsyncCopyStatus(asyncTransferIds);
+    }
+  }, [conflictState, isPublic, refresh, onFolderChange, showBatchResult, pollAsyncCopyStatus]);
 
   // 关闭冲突弹窗
   const closeConflictModal = useCallback(() => {

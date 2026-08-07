@@ -478,6 +478,7 @@ class DocumentTransfer(models.Model):
     TRANSFER_TYPE_CHOICES = (
         ('UPLOAD', '上传'),
         ('DOWNLOAD', '下载'),
+        ('COPY', '复制'),
     )
 
     TRANSFER_STATUS_CHOICES = (
@@ -486,6 +487,7 @@ class DocumentTransfer(models.Model):
         ('DOWNLOADING', '下载中'),
         ('PAUSED', '已暂停'),
         ('MERGING', '合并中'),
+        ('COPYING', '复制中'),
         ('COMPLETED', '已完成'),
         ('FAILED', '失败'),
         ('CANCELED', '已取消'),
@@ -540,6 +542,20 @@ class DocumentTransfer(models.Model):
         help_text='分片合并任务的Celery任务ID',
         db_index=True
     )
+    # 复制任务专用字段
+    source_file_id = models.BigIntegerField(
+        null=True, blank=True, verbose_name='源文件记录ID',
+        help_text='异步复制任务中源文件的数据库记录ID'
+    )
+    source_file_path = models.CharField(
+        max_length=500, blank=True, default='', verbose_name='源文件物理路径',
+        help_text='异步复制任务中源文件的物理路径'
+    )
+    conflict_action = models.CharField(
+        max_length=10, blank=True, default='',
+        verbose_name='冲突处理动作',
+        help_text='复制冲突处理：keep/replace/skip'
+    )
 
     class Meta:
         db_table = 'tdyw_document_transfer'
@@ -557,13 +573,13 @@ class DocumentTransfer(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                check=models.Q(transfer_type__in=['UPLOAD', 'DOWNLOAD']),
+                check=models.Q(transfer_type__in=['UPLOAD', 'DOWNLOAD', 'COPY']),
                 name='doc_transfer_type_valid',
             ),
             models.CheckConstraint(
                 check=models.Q(status__in=[
                     'PENDING', 'UPLOADING', 'DOWNLOADING', 'PAUSED',
-                    'MERGING', 'COMPLETED', 'FAILED', 'CANCELED',
+                    'MERGING', 'COPYING', 'COMPLETED', 'FAILED', 'CANCELED',
                 ]),
                 name='doc_transfer_status_valid',
             ),

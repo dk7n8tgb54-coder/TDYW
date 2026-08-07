@@ -17,6 +17,8 @@ from .timeout_checker import (
 from .cleanup.orphan_transfers import cleanup_orphan_transfers
 # 【缩略图异步化】新增缩略图异步生成任务
 from .thumbnail import generate_document_thumbnail
+# 【大文件异步复制】新增异步复制任务
+from .async_copy import copy_file_async
 
 __all__ = [
     'merge_file_chunks',
@@ -31,4 +33,5 @@ __all__ = [
     'cleanup_stale_merging_tasks',
     'cleanup_orphan_transfers',
     'generate_document_thumbnail',
+    'copy_file_async',
 ]

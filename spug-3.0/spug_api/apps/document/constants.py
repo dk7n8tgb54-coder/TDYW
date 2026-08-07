@@ -17,9 +17,10 @@ class TransferStatus(Enum):
     DOWNLOADING = "DOWNLOADING"   # 下载中
     PAUSED = "PAUSED"             # 已暂停
     MERGING = "MERGING"           # 合并中
-    COMPLETED = "COMPLETED"       # 已完成
-    FAILED = "FAILED"             # 失败
-    CANCELED = "CANCELED"         # 已取消
+    COPYING = "COPYING"          # 复制中
+    COMPLETED = "COMPLETED"      # 已完成
+    FAILED = "FAILED"            # 失败
+    CANCELED = "CANCELED"        # 已取消
 
 
 # ==================== 传输类型 ====================
@@ -27,6 +28,7 @@ class TransferType(Enum):
     """传输类型"""
     UPLOAD = "UPLOAD"             # 上传
     DOWNLOAD = "DOWNLOAD"         # 下载
+    COPY = "COPY"                # 复制
 
 
 # ==================== 操作类型（用于审计） ====================
@@ -93,6 +95,9 @@ DEFAULT_MERGE_LOCK_TIMEOUT = 600
 # 合并状态查询超时时间（秒，默认5分钟）
 DEFAULT_MERGE_STATUS_TIMEOUT = 300
 
+# 异步复制阈值（字节，默认50MB）- 文件大小 >= 此值时使用 Celery 后台复制
+DEFAULT_ASYNC_COPY_THRESHOLD = 50 * 1024 * 1024
+
 
 # ==================== 传输状态转换规则 ====================
 # 允许的状态转换（用于状态机验证）
@@ -102,6 +107,7 @@ ALLOWED_STATUS_TRANSITIONS = {
     TransferStatus.PENDING: [
         TransferStatus.UPLOADING,
         TransferStatus.DOWNLOADING,
+        TransferStatus.COPYING,
         TransferStatus.PAUSED,
         TransferStatus.CANCELED,
         TransferStatus.COMPLETED,
@@ -112,11 +118,13 @@ ALLOWED_STATUS_TRANSITIONS = {
     TransferStatus.UPLOADING: [TransferStatus.PAUSED, TransferStatus.MERGING, TransferStatus.COMPLETED, TransferStatus.FAILED, TransferStatus.CANCELED],
     # 下载中允许暂停、失败、取消和完成
     TransferStatus.DOWNLOADING: [TransferStatus.PAUSED, TransferStatus.COMPLETED, TransferStatus.FAILED, TransferStatus.CANCELED],
-    TransferStatus.PAUSED: [TransferStatus.UPLOADING, TransferStatus.DOWNLOADING, TransferStatus.FAILED, TransferStatus.CANCELED],
+    TransferStatus.PAUSED: [TransferStatus.UPLOADING, TransferStatus.DOWNLOADING, TransferStatus.COPYING, TransferStatus.FAILED, TransferStatus.CANCELED],
     # 合并中保留取消能力（与现有取消接口行为保持一致）
     TransferStatus.MERGING: [TransferStatus.COMPLETED, TransferStatus.FAILED, TransferStatus.CANCELED],
+    # 复制中允许暂停、取消、失败和完成
+    TransferStatus.COPYING: [TransferStatus.PAUSED, TransferStatus.COMPLETED, TransferStatus.FAILED, TransferStatus.CANCELED],
     TransferStatus.COMPLETED: [],  # 终态
-    TransferStatus.FAILED: [TransferStatus.UPLOADING, TransferStatus.DOWNLOADING, TransferStatus.CANCELED],  # 允许重试（P1修复：FAILED可直接到UPLOADING/DOWNLOADING）
+    TransferStatus.FAILED: [TransferStatus.UPLOADING, TransferStatus.DOWNLOADING, TransferStatus.COPYING, TransferStatus.CANCELED],  # 允许重试
     TransferStatus.CANCELED: [],  # 终态
 }
 

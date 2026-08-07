@@ -14,8 +14,40 @@ from libs.tenant_utils import apply_tenant_filter
 from apps.document.libs.document_utils import get_document_absolute_path, is_child_folder, is_safe_path
 from apps.document.libs.naming_utils import generate_physical_name, generate_unique_logical_name, get_file_ext
 from apps.document.views.base import create_model_instance
+from apps.document.models import DocumentTransfer
+from apps.document.constants import TransferStatus, TransferType
 
 logger = logging.getLogger(__name__)
+
+
+def _submit_folder_async_copy(transfer_id):
+    """事务提交后提交 Celery 异步复制任务"""
+    try:
+        from apps.document.tasks.async_copy import copy_file_async
+        result = copy_file_async.delay(transfer_id)
+        DocumentTransfer.objects.filter(pk=transfer_id).update(
+            celery_task_id=result.id
+        )
+        logger.info('[Document] Folder async copy submitted, transfer_id=%s, task_id=%s',
+                     transfer_id, result.id)
+    except Exception as e:
+        logger.warning('[Document] Celery submit failed (%s), fallback to thread', e)
+        # Celery 不可用 -> 后台线程降级执行
+        import threading
+        from apps.document.tasks.async_copy import copy_file_async
+
+        def _run_in_thread(tid):
+            try:
+                copy_file_async.apply((tid,))
+            except Exception as inner_e:
+                logger.error('[Document] Thread fallback copy failed: %s', inner_e)
+                DocumentTransfer.objects.filter(pk=tid).update(
+                    status=TransferStatus.FAILED.value,
+                    error_message=f'复制失败: {inner_e}'[:500],
+                )
+
+        t = threading.Thread(target=_run_in_thread, args=(transfer_id,), daemon=True)
+        t.start()
 
 
 class FolderNameGenerator:
@@ -74,10 +106,11 @@ class FolderNameGenerator:
 class FileCopier:
     """文件复制器"""
 
-    def __init__(self, FileModel, is_public, user):
+    def __init__(self, FileModel, is_public, user, system_folder=''):
         self.FileModel = FileModel
         self.is_public = is_public
         self.user = user
+        self.system_folder = system_folder or ''
 
     def copy_files_from_folder(self, source_folder, target_folder):
         """
@@ -121,7 +154,7 @@ class FileCopier:
         _, file_ext = get_file_ext(original_display_name)
 
         # 生成三层文件名
-        physical_name = generate_physical_name(file_ext)
+        physical_name = generate_physical_name(file_ext, original_display_name)
         logical_name = generate_unique_logical_name(
             self.FileModel, original_display_name, target_folder, self.user
         )
@@ -138,6 +171,45 @@ class FileCopier:
         if not is_safe_path(document_storage_base, new_file_path):
             logger.error(f'[Document] Unsafe target file path detected: {new_file_path}')
             return False
+
+        # 大文件异步复制检查
+        file_size = source_file.file_size or 0
+        async_threshold = getattr(settings, 'DOCUMENT_ASYNC_COPY_THRESHOLD', 50 * 1024 * 1024)
+        if file_size >= async_threshold:
+            # 创建 DocumentTransfer 记录，事务提交后提交 Celery 任务
+            transfer = DocumentTransfer.objects.create(
+                transfer_type=TransferType.COPY.value,
+                status=TransferStatus.PENDING.value,
+                file_name=display_name,
+                file_size=file_size,
+                file_path=new_file_path,
+                file_hash=getattr(source_file, 'file_hash', '') or '',
+                folder_id=target_folder.id if target_folder else None,
+                is_public=self.is_public,
+                system_folder=getattr(self, 'system_folder', '') or '',
+                progress=0,
+                transferred_size=0,
+                source_file_id=source_file.id,
+                source_file_path=source_file.file_path,
+                conflict_action='',
+                user=self.user,
+                tenant_id=getattr(self.user, 'tenant_id', '') or '',
+            )
+            # 事务提交后才提交 Celery 任务（确保 transfer 记录对 worker 可见）
+            _transfer_id = transfer.id
+            _source_path = source_file.file_path
+            _target_path = new_file_path
+            transaction.on_commit(
+                lambda tid=_transfer_id: _submit_folder_async_copy(tid)
+            )
+            logger.info(
+                '[Document] Folder copy: large file submitted as async copy, '
+                'transfer_id=%s, file_size=%s, source=%s',
+                transfer.id, file_size, _source_path
+            )
+            return True
+
+        # 小文件：同步复制
 
         # R2 修复：添加 try/except 包裹 shutil.copy2，失败时抛出异常让外层事务回滚
         try:
@@ -164,12 +236,13 @@ class FileCopier:
 class FolderCopier:
     """文件夹复制器 - 处理递归复制逻辑"""
 
-    def __init__(self, FolderModel, FileModel, is_public, user):
+    def __init__(self, FolderModel, FileModel, is_public, user, system_folder=''):
         self.FolderModel = FolderModel
         self.FileModel = FileModel
         self.is_public = is_public
         self.user = user
-        self.file_copier = FileCopier(FileModel, is_public, user)
+        self.system_folder = system_folder or ''
+        self.file_copier = FileCopier(FileModel, is_public, user, self.system_folder)
 
     def copy_folder(self, source_folder, target_parent):
         """
@@ -232,12 +305,13 @@ class FolderCopier:
 class FolderCopyService:
     """文件夹复制服务 - 对外提供统一接口"""
 
-    def __init__(self, user, FolderModel, FileModel, is_public):
+    def __init__(self, user, FolderModel, FileModel, is_public, system_folder=''):
         self.user = user
         self.FolderModel = FolderModel
         self.FileModel = FileModel
         self.is_public = is_public
-        self.folder_copier = FolderCopier(FolderModel, FileModel, is_public, user)
+        self.system_folder = system_folder or ''
+        self.folder_copier = FolderCopier(FolderModel, FileModel, is_public, user, self.system_folder)
 
     def validate_copy_operation(self, source_folder, target_id):
         """

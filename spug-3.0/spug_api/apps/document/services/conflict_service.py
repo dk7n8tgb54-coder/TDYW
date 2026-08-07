@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 CONFLICT_ACTIONS = {'replace', 'keep', 'skip'}
 
 
-def check_display_name_conflict(FileModel, display_name, folder, user, is_public):
+def check_display_name_conflict(FileModel, display_name, folder, user, is_public, exclude_id=None):
     """
     检查目标文件夹内是否存在相同 display_name 的文件
 
@@ -30,6 +30,7 @@ def check_display_name_conflict(FileModel, display_name, folder, user, is_public
         folder: 目标文件夹对象（None 表示根目录）
         user: 当前用户
         is_public: 是否公共空间
+        exclude_id: 需要排除的文件 ID（如复制时的源文件自身）
 
     Returns:
         冲突的文件对象，无冲突返回 None
@@ -43,6 +44,8 @@ def check_display_name_conflict(FileModel, display_name, folder, user, is_public
         qs = qs.filter(folder__isnull=True)
     if not is_public:
         qs = apply_tenant_filter(qs, user, strict_mode=True)
+    if exclude_id:
+        qs = qs.exclude(id=exclude_id)
     return qs.first()
 
 
