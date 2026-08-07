@@ -129,7 +129,7 @@ account / checksheet / contract_agreement / device / document / duty / evidence 
 | 模块 | 必测路径 |
 |---|---|
 | account | 登录/登出/角色 CRUD/权限分配/可分配角色边界 |
-| document | 文件夹 CRUD/拖拽上传/分片上传/秒传/合并/预览/搜索/党建隔离 |
+| document | 文件夹 CRUD/拖拽上传/分片上传/断点续传/合并/预览/搜索/党建隔离 |
 | evidence | 附件上传/预览令牌/多态查询 |
 | upgrade | 升级计划 CRUD/状态流转/步骤/附件 |
 | checksheet | 检查单 CRUD/导出 |

@@ -195,7 +195,7 @@ const TransferItem = ({
           <div style={{ fontSize: 12, color: '#8c8c8c', display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden', whiteSpace: 'nowrap' }}>
             {/* 状态文字 - calculating 状态加 tooltip 解释（避免用户困惑） */}
             {status === 'calculating' ? (
-              <Tooltip title="计算文件指纹以加速上传（秒传/断点续传），大文件可能需要几秒">
+              <Tooltip title="计算文件指纹以支持断点续传，大文件可能需要几秒">
                 <span style={{ color: config.color, display: 'flex', alignItems: 'center', gap: 4, cursor: 'help' }}>
                   {config.icon}
                   {config.text}

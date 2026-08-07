@@ -108,6 +108,7 @@
 - 资料库回收站功能已于 2026-06-23 完全移除（模型层保留 is_deleted/deleted_at 字段避免 migration）
 - 资料库传输列表：3 Tab + 抽屉模式 + 拖拽把手 + 闪烁 + 快捷键 + ERROR_CODES 错误分类（参考阿里云盘/百度网盘）
 - Babel 验证脚本：`node --check` 不支持 ESM，需 `@babel/core` + decorators + class-properties 插件
+- **秒传/跨 transfer 哈希复用已于 2026-08-07 移除**：删除 merge.py `_lookup_by_file_hash()` 函数和 transfer_completion.py sibling 查找，check_idempotency 仅基于同一 transfer_id。保留断点续传（MD5 计算、分片上传、check_uploaded_chunks、direct_merge、合并幂等）。前端 TransferItem.js tooltip 从"秒传/断点续传"改为"断点续传"。
 
 ## ⚠️ 永久教训
 - `manage.py flush` 会清空所有数据，绝对禁止在 dev/prod 容器执行

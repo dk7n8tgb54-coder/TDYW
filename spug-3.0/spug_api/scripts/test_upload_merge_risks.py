@@ -15,7 +15,7 @@ from django.test import TestCase, RequestFactory
 from apps.account.models import User
 from apps.document.models import DocumentTransfer, DocumentFilePrivate, DocumentFolderPrivate
 from apps.document.constants import TransferStatus
-from apps.document.views.upload.merge import _lookup_by_file_hash, check_idempotency
+from apps.document.views.upload.merge import check_idempotency
 from apps.document.tasks.merge import TransferStatusUpdater, MergePipeline, FileRecordCreator
 from apps.document.libs.naming_utils import generate_unique_logical_name
 from apps.document.services.task_resolver import TaskIdResolver
@@ -53,64 +53,38 @@ def _src_after(text, marker, length=200):
 
 
 # ============================================================
-# [P0] 按文件哈希做幂等会把新上传误判为已完成
+# [P0] 跨 transfer 哈希复用已移除（原 _lookup_by_file_hash 已删除）
 # ============================================================
 class TestP0_HashIdempotency(TestCase):
-    """merge.py:303 _lookup_by_file_hash 不按 folder_id/system_folder 过滤"""
+    """_lookup_by_file_hash 已于 2026-08-07 移除，跨 transfer 哈希复用不再存在。
 
-    def setUp(self):
-        self.user = _make_user('p0_user', 't_p0')
-        _make_transfer(self.user, tenant_id='t_p0', status=TransferStatus.COMPLETED.value, file_hash='hash_001',
-                       folder_id=100, file_path='/data/dirA/test.pdf', celery_task_id='t1')
-        _make_transfer(self.user, tenant_id='t_p0', status=TransferStatus.COMPLETED.value, file_hash='hash_pb',
-                       folder_id=200, system_folder='party_building_documents',
-                       file_path='/data/pb/party.pdf', celery_task_id='t2')
-        _make_transfer(self.user, tenant_id='t_p0', status=TransferStatus.COMPLETED.value, file_hash='hash_pub',
-                       folder_id=300, is_public=True, file_path='/data/pub/pub.pdf',
-                       celery_task_id='t3')
+    原风险：_lookup_by_file_hash 不按 folder_id/system_folder 过滤，可跨目录/跨空间误命中。
+    当前：merge.py check_idempotency 仅基于同一 transfer_id 查询，不支持跨 transfer 秒传。
+    """
 
+    @unittest.skip('_lookup_by_file_hash 已删除，跨 transfer 哈希复用不再存在')
     def test_01_cross_folder_hit(self):
-        """同 hash 不同 folder_id 命中"""
-        r = _lookup_by_file_hash(file_hash='hash_001', is_public=False, user=self.user)
-        risk = r is not None
-        print(f'  [P0] 跨目录命中: {risk} (命中 folder_id={r.get("folder_id") if r else None})')
-        if risk: print('  [P0] 风险确认！目标目录 folder_id=200 但命中了 folder_id=100 的旧记录')
+        pass
 
+    @unittest.skip('_lookup_by_file_hash 已删除')
     def test_02_cross_system_folder_hit(self):
-        """同 hash 不同 system_folder 命中"""
-        r = _lookup_by_file_hash(file_hash='hash_pb', is_public=False, user=self.user)
-        risk = r is not None
-        print(f'  [P0] 跨 system_folder 命中: {risk}')
-        if risk: print('  [P0] 风险确认！党建空间记录被普通上传命中')
+        pass
 
+    @unittest.skip('_lookup_by_file_hash 已删除')
     def test_03_public_cross_user_hit(self):
-        """公共空间跨用户命中"""
-        other = _make_user('p0_other', 't_other')
-        r = _lookup_by_file_hash(file_hash='hash_pub', is_public=True, user=other)
-        risk = r is not None
-        print(f'  [P0] 公共空间跨用户命中: {risk}')
-        if risk: print('  [P0] 风险确认！用户 B 命中了用户 A 的公共空间记录')
+        pass
 
-    def test_04_check_idempotency_returns_completed(self):
-        """check_idempotency 返回 completed"""
-        r, err = check_idempotency(transfer_id=None, file_hash='hash_001',
-                                   is_public=False, user=self.user)
-        risk = r is not None and r.get('status') == 'completed'
-        print(f'  [P0] check_idempotency 返回 completed: {risk}')
-        if risk: print('  [P0] 风险确认！前端会直接视为成功，目标目录无文件')
+    def test_04_check_idempotency_no_cross_transfer(self):
+        """check_idempotency 不再支持 file_hash 参数，仅基于 transfer_id"""
+        # check_idempotency 现在只接受 transfer_id 和 user
+        r, err = check_idempotency(transfer_id=999999)
+        no_hit = r is None
+        print(f'  [P0] 不存在的 transfer_id 不命中: {no_hit}')
+        if no_hit: print('  [P0] 确认！check_idempotency 仅基于 transfer_id，无跨 transfer 哈希复用')
 
+    @unittest.skip('_lookup_by_file_hash 已删除，无需源码检查')
     def test_05_source_no_folder_filter(self):
-        """源码无 folder_id/system_folder 过滤"""
-        src = inspect.getsource(_lookup_by_file_hash)
-        # 查找 filter( 到第一个 ) 之间的内容
-        risk = 'folder_id' not in src or 'system_folder' not in src
-        # 更精确：检查 filter 调用
-        filter_part = src[src.find('filter('):src.find(')')+1] if 'filter(' in src else ''
-        has_folder = 'folder_id' in filter_part
-        has_sys = 'system_folder' in filter_part
-        risk = not has_folder and not has_sys
-        print(f'  [P0] filter 中无 folder_id: {not has_folder}, 无 system_folder: {not has_sys}')
-        if risk: print('  [P0] 风险确认！_lookup_by_file_hash filter() 不含 folder_id/system_folder')
+        pass
 
 
 # ============================================================

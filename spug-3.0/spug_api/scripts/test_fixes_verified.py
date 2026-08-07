@@ -15,7 +15,7 @@ from django.test import TestCase, RequestFactory
 from apps.account.models import User
 from apps.document.models import DocumentTransfer, DocumentFilePrivate, DocumentFolderPrivate
 from apps.document.constants import TransferStatus
-from apps.document.views.upload.merge import _lookup_by_file_hash, check_idempotency
+from apps.document.views.upload.merge import check_idempotency
 from apps.document.tasks.merge import TransferStatusUpdater, MergePipeline
 from apps.document.libs.naming_utils import generate_unique_logical_name
 from apps.document.services.task_resolver import TaskIdResolver
@@ -40,74 +40,50 @@ def _make_transfer(user, **kw):
 
 
 # ============================================================
-# [P0] 修复验证：_lookup_by_file_hash 现在按 folder_id/system_folder 过滤
+# [P0] 跨 transfer 哈希复用已移除（原 _lookup_by_file_hash 已删除）
 # ============================================================
 class VerifyP0_HashIdempotency(TestCase):
-    """验证修复后跨目录/跨空间不再误命中"""
+    """_lookup_by_file_hash 已于 2026-08-07 移除，跨 transfer 哈希复用不再存在。
 
-    def setUp(self):
-        self.user = _make_user('vp0_user', 't_p0')
-        _make_transfer(self.user, tenant_id='t_p0', status=TransferStatus.COMPLETED.value,
-                       file_hash='hash_001', folder_id=100,
-                       file_path='/data/dirA/test.pdf', celery_task_id='t1')
-        _make_transfer(self.user, tenant_id='t_p0', status=TransferStatus.COMPLETED.value,
-                       file_hash='hash_pb', folder_id=200,
-                       system_folder='party_building_documents',
-                       file_path='/data/pb/party.pdf', celery_task_id='t2')
-        _make_transfer(self.user, tenant_id='t_p0', status=TransferStatus.COMPLETED.value,
-                       file_hash='hash_pub', folder_id=300, is_public=True,
-                       file_path='/data/pub/pub.pdf', celery_task_id='t3')
+    原验证：_lookup_by_file_hash 已按 folder_id/system_folder/user 过滤。
+    当前：函数已删除，check_idempotency 仅基于同一 transfer_id 查询。
+    """
 
+    @unittest.skip('_lookup_by_file_hash 已删除，跨 transfer 哈希复用不再存在')
     def test_01_cross_folder_no_hit(self):
-        """修复后：同 hash 不同 folder_id 不命中"""
-        r = _lookup_by_file_hash(file_hash='hash_001', is_public=False, user=self.user,
-                                 folder_id=200)
-        fixed = r is None
-        print(f'  [P0] 跨目录不再命中: {fixed}')
-        self.assertTrue(fixed, '修复后应返回 None')
+        pass
 
+    @unittest.skip('_lookup_by_file_hash 已删除')
     def test_02_cross_system_folder_no_hit(self):
-        """修复后：同 hash 不同 system_folder 不命中"""
-        r = _lookup_by_file_hash(file_hash='hash_pb', is_public=False, user=self.user,
-                                 folder_id=100, system_folder='')
-        fixed = r is None
-        print(f'  [P0] 跨 system_folder 不再命中: {fixed}')
-        self.assertTrue(fixed)
+        pass
 
+    @unittest.skip('_lookup_by_file_hash 已删除')
     def test_03_public_cross_user_no_hit(self):
-        """修复后：公共空间跨用户不命中"""
-        other = _make_user('vp0_other', 't_other')
-        r = _lookup_by_file_hash(file_hash='hash_pub', is_public=True, user=other,
-                                 folder_id=300)
-        fixed = r is None
-        print(f'  [P0] 公共空间跨用户不再命中: {fixed}')
-        self.assertTrue(fixed)
+        pass
 
+    @unittest.skip('_lookup_by_file_hash 已删除')
     def test_04_same_folder_still_hits(self):
-        """修复后：同目录同 hash 仍能命中（正常幂等功能保留）"""
-        r = _lookup_by_file_hash(file_hash='hash_001', is_public=False, user=self.user,
-                                 folder_id=100)
-        still_works = r is not None
-        print(f'  [P0] 同目录幂等仍正常: {still_works}')
-        self.assertTrue(still_works, '同目录同 hash 应命中（正常幂等）')
+        pass
 
+    @unittest.skip('_lookup_by_file_hash 已删除')
     def test_05_check_idempotency_no_cross_folder(self):
-        """修复后：check_idempotency 跨目录不返回 completed"""
-        r, err = check_idempotency(transfer_id=None, file_hash='hash_001',
-                                   is_public=False, user=self.user,
-                                   folder_id=200, system_folder='')
-        fixed = r is None or r.get('status') != 'completed'
-        print(f'  [P0] check_idempotency 跨目录不返回 completed: {fixed}')
-        self.assertTrue(fixed)
+        pass
 
+    @unittest.skip('_lookup_by_file_hash 已删除')
     def test_06_source_has_folder_filter(self):
-        """源码验证：_lookup_by_file_hash 现在包含 folder_id 参数"""
-        src = inspect.getsource(_lookup_by_file_hash)
-        has_folder_param = 'folder_id' in src
-        has_system_param = 'system_folder' in src
-        fixed = has_folder_param and has_system_param
-        print(f'  [P0] 源码包含 folder_id/system_folder 参数: {fixed}')
-        self.assertTrue(fixed)
+        pass
+
+    def test_07_check_idempotency_signature(self):
+        """check_idempotency 不再接受 file_hash 参数"""
+        import inspect
+        sig = inspect.signature(check_idempotency)
+        params = set(sig.parameters.keys())
+        has_file_hash = 'file_hash' in params
+        has_transfer_id = 'transfer_id' in params
+        print(f'  [P0] check_idempotency 参数: {params}')
+        print(f'  [P0] 无 file_hash 参数: {not has_file_hash}, 有 transfer_id: {has_transfer_id}')
+        self.assertFalse(has_file_hash, 'check_idempotency 不应接受 file_hash 参数')
+        self.assertTrue(has_transfer_id, 'check_idempotency 应接受 transfer_id 参数')
 
 
 # ============================================================

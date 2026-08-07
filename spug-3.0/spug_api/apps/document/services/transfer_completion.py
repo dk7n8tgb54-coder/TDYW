@@ -51,31 +51,15 @@ class TransferCompletionService:
         # 3. file_path 必须有值（来自参数或已设置的 transfer.file_path）
         effective_file_path = file_path or transfer.file_path
         if not effective_file_path:
-            # 【兜底修复】竞态场景：同 file_hash 的另一个传输已完成但当前传输未同步 file_path
-            # 尝试从同 hash 的 COMPLETED 记录中获取 file_path
-            if transfer.file_hash:
-                from apps.document.models import DocumentTransfer
-                sibling = DocumentTransfer.objects.filter(
-                    file_hash=transfer.file_hash,
-                    status=TransferStatus.COMPLETED.value,
-                ).exclude(id=transfer.id).exclude(file_path='').exclude(file_path__isnull=True).first()
-                if sibling and sibling.file_path:
-                    effective_file_path = sibling.file_path
-                    logger.info(
-                        f'[TransferCompletion] transfer {transfer.id} file_path 为空，'
-                        f'从同 hash 记录 {sibling.id} 获取 file_path={effective_file_path[:50]}'
-                    )
-            if not effective_file_path:
-                logger.warning(
-                    f'[TransferCompletion] transfer {transfer.id} file_path 为空 '
-                    f'(source={source}, status={transfer.status})'
-                )
-                return False, '文件上传未成功（文件记录未创建）'
+            logger.warning(
+                f'[TransferCompletion] transfer {transfer.id} file_path 为空 '
+                f'(source={source}, status={transfer.status})'
+            )
+            return False, '文件上传未成功（文件记录未创建）'
 
         # 4. 统一设置所有完成字段
         transfer.status = TransferStatus.COMPLETED.value
-        # file_path 优先用参数，其次用 sibling 查到的 effective_file_path
-        transfer.file_path = file_path or effective_file_path
+        transfer.file_path = effective_file_path
         transfer.progress = 100
         transfer.transferred_size = file_size or transfer.file_size
         transfer.uploaded_chunks = transfer.total_chunks

@@ -16,7 +16,6 @@ import time
 import logging
 from uuid import uuid4
 from django.db import transaction
-from django.db.models import Q
 from django.views.generic import View
 from django.conf import settings
 from django.http import HttpRequest
@@ -301,114 +300,27 @@ def _lookup_by_transfer_id(transfer_id: int, user: Optional['User']) -> Optional
         return _build_result_from_transfer(transfer)
 
 
-def _lookup_by_file_hash(file_hash: str, is_public: Optional[bool], user: 'User',
-                         folder_id: Optional[int] = None, system_folder: Optional[str] = None,
-                         file_name: str = None) -> Optional[dict]:
-    """通过 file_hash 查询 MERGING/COMPLETED 记录
-
-    【P0修复】必须按 folder_id、system_folder 过滤，防止跨目录/跨空间误命中。
-    【去重修复】同时按 file_name 过滤，不同文件名的同内容文件不算重复。
-
-    Args:
-        file_hash: 文件哈希
-        is_public: 是否公共空间
-        user: 当前用户
-        folder_id: 目标目录ID（None 表示根目录）
-        system_folder: 系统目录标识（如党建空间）
-        file_name: 文件名（不同文件名的同内容文件不算重复）
-
-    Returns:
-        结果字典或 None
-    """
-    query = DocumentTransfer.objects.filter(
-        file_hash=file_hash,
-        status__in=[TransferStatus.MERGING.value, TransferStatus.COMPLETED.value]
-    )
-
-    # 【修复】同时按 file_name 匹配：不同文件名的同内容文件不算重复
-    if file_name:
-        query = query.filter(file_name=file_name)
-
-    # 【P0修复】必须按目标目录和系统空间过滤，防止跨目录误命中
-    if folder_id is not None:
-        query = query.filter(folder_id=folder_id)
-    else:
-        # folder_id 为 None 表示根目录，排除有 folder_id 的记录
-        query = query.filter(folder_id__isnull=True)
-
-    # 【P0修复】按系统空间过滤（党建 vs 普通）
-    if system_folder:
-        query = query.filter(system_folder=system_folder)
-    else:
-        query = query.filter(Q(system_folder='') | Q(system_folder__isnull=True))
-
-    # 租户过滤：私有空间按租户过滤，公共空间按用户过滤
-    if not is_public:
-        tenant_id = getattr(user, 'tenant_id', None)
-        if tenant_id:
-            query = query.filter(tenant_id=tenant_id)
-        else:
-            query = query.filter(user=user)
-    else:
-        # 【P0修复】公共空间也必须按用户过滤，防止跨用户误命中
-        query = query.filter(user=user)
-
-    # 【P0-3修复】合并为一个查询：优先返回有task_id的MERGING或COMPLETED
-    transfer = query.filter(
-        status=TransferStatus.MERGING.value,
-        celery_task_id__isnull=False
-    ).first() or query.filter(
-        status=TransferStatus.COMPLETED.value,
-        file_path__isnull=False
-    ).exclude(file_path='').first()
-
-    if not transfer:
-        return None
-
-    result = _build_result_from_transfer(transfer)
-    if result:
-        logger.info(f'[Document][Merge] Idempotent hit: id={transfer.id}, status={transfer.status}')
-    return result
-
-
 def check_idempotency(
     transfer_id: Optional[int],
-    file_hash: Optional[str] = None,
-    is_public: Optional[bool] = None,
     user: Optional['User'] = None,
-    folder_id: Optional[int] = None,
-    system_folder: Optional[str] = None,
-    file_name: Optional[str] = None
 ) -> tuple[Optional[dict], Optional[str]]:
-    """
-    【P0-3修复】幂等性检查 - 简化版
+    """幂等性检查 - 仅基于同一 transfer_id 查询。
 
-    【P0修复】增加 folder_id、system_folder 参数，防止跨目录/跨空间误命中。
-    【去重修复】增加 file_name 参数，不同文件名的同内容文件不算重复。
+    当前版本只支持断点续传，不支持跨 transfer 的秒传/哈希复用。
+    幂等命中仅发生在同一次上传操作内：
+    - 同一 transfer_id 重复 merge 请求
+    - 同一 transfer_id 已处于 MERGING（含 celery_task_id）
 
     Args:
-        transfer_id: 传输记录ID（优先使用）
-        file_hash: 文件哈希（当transfer_id为null时使用）
-        is_public: 是否公共空间
-        user: 当前用户
-        folder_id: 目标目录ID
-        system_folder: 系统目录标识
+        transfer_id: 传输记录ID
+        user: 当前用户（用于 IDOR 防护）
 
     Returns:
         tuple: (结果字典或None, 错误消息或None)
     """
     try:
-        # 步骤1: 优先通过transfer_id查询自己的记录
         if transfer_id:
             result = _lookup_by_transfer_id(transfer_id, user)
-            if result:
-                return result, None
-
-        # 步骤2: 通过file_hash查询MERGING/COMPLETED记录
-        if file_hash and user:
-            result = _lookup_by_file_hash(file_hash, is_public, user,
-                                          folder_id=folder_id, system_folder=system_folder,
-                                          file_name=file_name)
             if result:
                 return result, None
 
@@ -674,7 +586,7 @@ class FileMergeChunksView(View):
             TransferCompletionService.complete(
                 current_transfer,
                 file_path=result.get('file_path'),
-                source='idempotent_file_hash'
+                source='idempotent_transfer'
             )
         # 幂等命中 merging -> 同步 celery_task_id
         elif result.get('status') == 'merging' and result.get('task_id') and \
@@ -828,16 +740,10 @@ class FileMergeChunksView(View):
             logger.error(f'[Document][Merge] Unsafe file path: {e}')
             return None, None, '文件路径异常'
 
-        # 幂等性检查（支持通过transfer_id或file_hash查询）
-        # 【P0修复】传入 folder_id 和 system_folder，防止跨目录/跨空间误命中
+        # 幂等性检查：仅基于同一 transfer_id，不支持跨 transfer 哈希复用
         result, error = check_idempotency(
             transfer_id=params['transfer_id'],
-            file_hash=params['file_hash'],
-            is_public=params['is_public'],
             user=request.user,
-            folder_id=params.get('folder_id'),
-            system_folder=params.get('system_folder'),
-            file_name=params.get('file_name')
         )
         if error:
             return None, None, error
