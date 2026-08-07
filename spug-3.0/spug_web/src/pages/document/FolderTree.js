@@ -77,7 +77,7 @@ class FolderTree extends React.Component {
     if (lockedRoot) {
       params.system_folder = PARTY_BUILDING_DOCUMENTS_CODE;
     }
-    const res = await http.get(url, { params });
+    const res = await http.get(url, { params, skipErrorNotification: true });
     // 后端返回 { folders: [...], files: [...], pagination: ... } 或 [...]（all=true 时）
     const folders = Array.isArray(res) ? res : (res.folders || []);
     return folders;
@@ -314,7 +314,7 @@ class FolderTree extends React.Component {
       id: null,
       is_public: isPublic
     };
-    const res = await http.get(url, { params });
+    const res = await http.get(url, { params, skipErrorNotification: true });
     const folders = Array.isArray(res) ? res : (res.folders || []);
     return folders;
   };

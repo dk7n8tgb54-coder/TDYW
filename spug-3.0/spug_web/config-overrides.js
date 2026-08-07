@@ -24,6 +24,13 @@ const webpackConfig = override(
 
 // jest 配置：忽略 __tests__/ 下的辅助模块（非测试文件）被 jest 当成测试文件跑
 const jestConfig = config => {
+  config.moduleNameMapper = {
+    ...(config.moduleNameMapper || {}),
+    '^libs/(.*)$': '<rootDir>/src/libs/$1',
+    '^pages/(.*)$': '<rootDir>/src/pages/$1',
+    '^components/(.*)$': '<rootDir>/src/components/$1',
+    '^stores/(.*)$': '<rootDir>/src/stores/$1',
+  };
   config.testPathIgnorePatterns = [
     ...(config.testPathIgnorePatterns || ['/node_modules/']),
     '_gatewayEnv'

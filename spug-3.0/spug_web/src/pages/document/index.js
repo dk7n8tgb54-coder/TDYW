@@ -110,7 +110,13 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
   const isPartyBuildingDocumentsReady = !isPartyBuildingDocuments || !!navigationStore.lockedRootFolderId;
   const hasStaleSystemFolderState = !isPartyBuildingDocuments
     && (navigationStore.lockedRootFolderId || navigationStore.systemFolderCode);
-  const effectiveCurrentFolderId = hasStaleSystemFolderState ? null : navigationStore.currentFolderId;
+  // 党建模式下：currentFolderId 为空时回退到 lockedRootFolderId，
+  // 防止 useLayoutEffect 清理/重建间隙导致 parent_id=null
+  const effectiveCurrentFolderId = hasStaleSystemFolderState
+    ? null
+    : (isPartyBuildingDocuments
+        ? (navigationStore.currentFolderId || navigationStore.lockedRootFolderId)
+        : navigationStore.currentFolderId);
 
   // 【2026-06-11 优化】智能面包屑省略
   // 路径 ≤ 3 级：完整显示

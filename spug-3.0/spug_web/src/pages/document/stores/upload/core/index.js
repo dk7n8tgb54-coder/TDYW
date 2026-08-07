@@ -13,6 +13,8 @@ import {
   UPLOAD_CONSTANTS,
   UPLOAD_STATUS,
   DISPLAY_UPLOADING_STATUSES,
+  PAUSEABLE_STATUSES,
+  TERMINAL_STATUSES,
 } from './upload-core-constants';
 import { captureUploadTargetContext as captureUploadTargetContextFn } from './captureUploadTargetContext';
 
@@ -444,6 +446,81 @@ class UploadCoreStore {
   pauseAll = async () => this.debounceController?.pauseAll();
   resumeAll = async () => this.debounceController?.resumeAll();
   removeAll = async () => this.queueOperationController?.removeAll();
+
+  // ===== 页面离开暂停（不同于用户主动 pauseAll）=====
+  // 区别：
+  //   - pauseAll 经过 DebounceController 防抖（300ms），仅处理当前租户，有提示
+  //   - pauseForPageLeave 同步执行（无防抖），遍历所有租户队列，无提示，幂等
+  // 核心步骤：
+  //   1) 同步设置 isPaused = true（在任何 await 之前，阻止 startWaiting 补位）
+  //   2) 遍历所有租户队列，暂停 PAUSEABLE_STATUSES 中的任务
+  //   3) 有状态机的走 transition('PAUSE')（内部会 bumpOperationVersion + abort 请求）
+  //   4) 无状态机的（waiting 懒创建）直接写本地 paused 状态
+  //   5) fire-and-forget 后端同步（失败不影响本地暂停）
+
+  @action
+  pauseForPageLeave() {
+    // Step 1: 同步设置全局调度门闩（在任何异步操作之前）
+    this.isPaused = true;
+
+    // Step 2: 遍历所有租户队列（不仅限于当前租户）
+    const allQueues = this.queueStore.uploadQueue;
+    const allTenantIds = Object.keys(allQueues);
+
+    for (const tenantId of allTenantIds) {
+      const queue = allQueues[tenantId] || [];
+      for (const item of queue) {
+        // 跳过非可暂停状态（已包含对 paused/merging/终态的排除）
+        if (!PAUSEABLE_STATUSES.includes(item.status)) continue;
+
+        // 有状态机：走 transition('PAUSE')，内部会 bumpOperationVersion + abort 请求
+        const stateMachine = this.stateMachineManager?.get(item.id);
+        if (stateMachine) {
+          if (stateMachine.canTransition('PAUSE')) {
+            try {
+              stateMachine.transition('PAUSE');
+            } catch (e) {
+              // 状态转换失败时不阻塞剩余任务的暂停
+              console.warn('[pauseForPageLeave] transition PAUSE failed for', item.id, e?.message);
+            }
+          }
+          continue;
+        }
+
+        // 无状态机（waiting 懒创建）：直接写本地 paused 状态
+        // bumpOperationVersion 使任何待处理的异步回调失效
+        item.operationVersion = (item.operationVersion || 0) + 1;
+        item.status = UPLOAD_STATUS.PAUSED;
+        item.isPausedByUser = true;
+        item.error = '已暂停';
+        item.canAbort = false;
+      }
+    }
+
+    // Step 3: fire-and-forget 后端同步（不阻塞页面离开）
+    // 收集所有已暂停且有 transferId 的任务
+    const transferIds = [];
+    for (const tenantId of allTenantIds) {
+      const queue = allQueues[tenantId] || [];
+      for (const item of queue) {
+        if (item.status === UPLOAD_STATUS.PAUSED && item.transferId) {
+          transferIds.push(item.transferId);
+        }
+      }
+    }
+    if (transferIds.length > 0 && this.transferStore?.batchPauseTransfers) {
+      try {
+        const result = this.transferStore.batchPauseTransfers(transferIds);
+        if (result && typeof result.catch === 'function') {
+          result.catch(() => {
+            // 页面离开时后端同步失败不影响本地暂停状态
+          });
+        }
+      } catch (e) {
+        // 忽略后端同步异常
+      }
+    }
+  }
 
   // ===== 单文件控制（代理到控制器，带防抖）=====
 

@@ -25,7 +25,7 @@ import { uploadCoreStore } from './stores';
 import navigationStore from './stores/navigation';
 import uploadUIStore from './stores/upload/ui';
 import TransferListContainer from './components/TransferListContainer';
-import { PAUSEABLE_STATUSES, DISPLAY_UPLOADING_STATUSES, UPLOAD_STATUS, TERMINAL_STATUSES } from './stores/upload/core/upload-core-constants';
+import { DISPLAY_UPLOADING_STATUSES, UPLOAD_STATUS, TERMINAL_STATUSES } from './stores/upload/core/upload-core-constants';
 
 @observer
 class UploadPanel extends React.Component {
@@ -42,13 +42,16 @@ class UploadPanel extends React.Component {
     }
     this.pendingItemId = null;
 
-    const { currentUploadQueue } = uploadCoreStore;
-    // 【P0修复 2026-06-27】使用 PAUSEABLE_STATUSES 常量
-    // 之前包含 merging，但 merging 不可暂停（状态机无 PAUSE 转换），pauseItem 会静默失败
-    const activeItems = currentUploadQueue.filter(
-      item => PAUSEABLE_STATUSES.includes(item.status)
-    );
-    activeItems.forEach(item => uploadCoreStore.pauseItem(item.id));
+    // 【P0修复】离开页面时全局同步暂停所有上传任务
+    // 旧实现的问题：
+    //   1) 仅遍历 currentUploadQueue（当前租户），遗漏其他租户（如党建）的任务
+    //   2) 通过 debounceController.wrapItemOperation（200ms 防抖）调用，不是同步执行
+    //   3) ItemOperationController.pauseItem 对无状态机的 waiting 任务直接 return，不暂停
+    //   4) 未设置全局 isPaused 标志，startWaiting/processPending 继续启动新任务
+    //   5) 页面离开后导航上下文被清理，新启动的任务逐个失败
+    // 新实现：pauseForPageLeave() 同步设置 isPaused=true，遍历所有租户队列，
+    //   有状态机的走 transition('PAUSE')，无状态机的直接写本地 paused 状态
+    uploadCoreStore.pauseForPageLeave();
 
     if (uploadCoreStore.triggerFileReSelection === this.handleTriggerFileReSelection) {
       uploadCoreStore.triggerFileReSelection = null;

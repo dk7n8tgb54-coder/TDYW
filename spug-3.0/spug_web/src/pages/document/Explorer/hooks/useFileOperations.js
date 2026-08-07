@@ -5,7 +5,7 @@
 import { useCallback, useState } from 'react';
 import { Modal, message } from 'antd';
 import http from 'libs/http';
-import { appendSystemFolderParam } from 'libs/systemFolderContext';
+import { appendSystemFolderParam, withSystemFolderParams } from 'libs/systemFolderContext';
 import { CONSTANTS, getDeleteTimeout } from '../utils';
 
 export const useFileOperations = ({
@@ -178,11 +178,13 @@ export const useFileOperations = ({
     if (!name) {
       return Promise.reject('请输入文件夹名称');
     }
-    const result = await http.post('/api/document/folder/', {
+    // 显式注入 system_folder（不依赖 HTTP 拦截器），确保党建目录上下文始终正确
+    const body = withSystemFolderParams({
       name: name,
       parent_id: parentId || folderId,
       is_public: isPublic
     });
+    const result = await http.post('/api/document/folder/', body);
     // 仅在真正创建时刷新列表和树；不在此处提示消息，由调用方统一负责
     if (result && result.created) {
       if (refresh) refresh(true);

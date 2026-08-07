@@ -60,11 +60,21 @@ export class ItemOperationController {
 
     let stateMachine = this.core.stateMachineManager?.get(itemId);
     if (!stateMachine) {
-      // 状态机已被终态释放，重新懒创建（重建后状态为 waiting）
+      // 状态机已被终态释放或从未创建（pauseForPageLeave 暂停的 waiting 任务），重新懒创建
       stateMachine = this.core.uploadCoordinator?.ensureStateMachine?.(item) || null;
       if (!stateMachine) {
         console.warn(`[ItemOperationController] 状态机重建失败，无法重试: ${itemId}`);
         return;
+      }
+      // 重建后状态机为 waiting，但 item 可能处于 paused 状态（pauseForPageLeave 场景）
+      // 需同步更新 item 状态，否则 canStart() 检查 item.status === 'waiting' 会失败
+      if (item.status === 'paused' || item.isPausedByUser) {
+        this.core.queueStore.updateUploadItem(itemId, {
+          status: 'waiting',
+          error: null,
+          canAbort: false,
+          isPausedByUser: false,
+        });
       }
     }
 

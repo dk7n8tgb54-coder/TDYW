@@ -18,6 +18,7 @@ import {
   ClearOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
+  QuestionCircleOutlined,
 } from '@ant-design/icons';
 import TransferItem from './TransferItem';
 import { UPLOAD_STATUS, DISPLAY_UPLOADING_STATUSES } from '../stores/upload/core/upload-core-constants';
@@ -101,7 +102,7 @@ const TransferList = ({
 
   // 上传中 Tab 的头部 extra 按钮
   const uploadingTabExtra = uploadingCount > 0 && (
-    <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4 }}>
+    <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
       {pausedItems.length > 0 && (
         <Tooltip title="全部开始">
           <Button
@@ -124,6 +125,12 @@ const TransferList = ({
           />
         </Tooltip>
       )}
+      <Tooltip
+        title="切换到其他功能页面时，等待、计算及正在上传的任务会自动暂停；返回页面后可在传输面板中点击"继续"恢复。已进入文件合并阶段的任务会继续完成。刷新或关闭浏览器后任务不会自动恢复。"
+        placement="bottomRight"
+      >
+        <QuestionCircleOutlined style={{ color: '#bfbfbf', fontSize: 14, cursor: 'help' }} />
+      </Tooltip>
     </div>
   );
 

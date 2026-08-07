@@ -68,13 +68,14 @@ class FolderView(View):
             return json_response(error=ctx_err)
 
         # 党建文档模式：id 为空时自动定位到根目录，id 非空时校验在范围内
+        # 注意：all=true 时不需要自动设置 id（_get_all_folders 会自行处理范围过滤）
         if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
             root_id = get_system_root_folder_id(PARTY_BUILDING_DOCUMENTS_CODE)
             if root_id is None:
                 return json_response(error='党建文档系统目录尚未初始化')
-            if not form.id:
+            if not form.id and not form.all:
                 form.id = root_id
-            elif form.id != root_id and not is_folder_in_scope(form.id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=False):
+            elif form.id and form.id != root_id and not is_folder_in_scope(form.id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=False):
                 return json_response(error=SCOPE_ERROR_MSG)
         elif form.is_public and form.id and is_folder_in_any_system_scope(form.id, include_root=True):
             return json_response(error=NORMAL_DOCUMENT_SCOPE_ERROR_MSG)

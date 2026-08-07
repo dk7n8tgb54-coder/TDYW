@@ -13,6 +13,7 @@
  * 4. latest-request-wins：requestId 机制保证旧请求不覆盖新目录
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { message } from 'antd';
 import http from 'libs/http';
 import { generateKey } from '../utils';
 import navigationStore from '../../stores/navigation';
@@ -127,7 +128,10 @@ async function requestFolderList({ isPublic, folderId, page, pageSize }) {
       tenant_id: tenantId,
       page,
       page_size: pageSize,
-    }
+    },
+    // 空间切换可能产生过期请求，由 useDataFetching 的版本号机制保证 latest-wins；
+    // 错误提示交给业务层决定，避免 HTTP 层重复弹窗
+    skipErrorNotification: true,
   });
 }
 
@@ -286,6 +290,7 @@ export const useDataFetching = (isPublic, folderId, onError) => {
     } catch (error) {
       console.error('[Explorer] fetchItems error:', error);
       if (!isActiveRequest()) {
+        // 过期请求：HTTP 层已通过 skipErrorNotification 抑制弹窗，此处也不提示
         return { items: [], pagination: {}, cancelled: true };
       }
       // silent 模式失败不清空列表（保留现有内容，避免上传刷新把列表清空）
@@ -295,7 +300,19 @@ export const useDataFetching = (isPublic, folderId, onError) => {
       setInteractionDisabled(false);
       clearLoadingTimer();
       setLoading(false);
-      if (onError) onError(error);
+      if (onError) {
+        onError(error);
+      } else {
+        // HTTP 层已通过 skipErrorNotification 抑制，业务层负责唯一一次提示
+        // 使用 antd message.error（http.js 的 showErrorOnce 会去重，但此处是独立调用）
+        const msg = typeof error === 'string' ? error : '加载失败';
+        // 2 秒内相同消息只提示一次
+        if (!window._lastFetchError || window._lastFetchError !== msg || Date.now() - window._lastFetchErrorTime > 2000) {
+          window._lastFetchError = msg;
+          window._lastFetchErrorTime = Date.now();
+          message.error(msg);
+        }
+      }
       return { items: [], pagination: {} };
     }
   }, [isPublic, folderId, onError, clearLoadingTimer, getCacheContext]);

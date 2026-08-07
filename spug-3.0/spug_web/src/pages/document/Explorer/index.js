@@ -285,6 +285,8 @@ const Explorer = observer(forwardRef(({
       }
       return;
     }
+    // 跳过临时行（新建文件夹输入行），防止点击输入框时触发 enterFolder(null)
+    if (record.isTemp || record.id == null) return;
     if (record.isFolder) {
       navigationStore.enterFolder(record.id, record.name);
     } else {

@@ -9,6 +9,19 @@ import { X_TOKEN } from './functools';
 import { message } from 'antd';
 import { getSystemFolder, shouldUseSystemFolder } from './systemFolderContext';
 
+// 错误去重：2 秒内相同错误消息只显示一次，防止空间切换等场景重复弹窗
+let _lastErrorMsg = null;
+let _lastErrorTime = 0;
+function showErrorOnce(msg) {
+  const now = Date.now();
+  if (msg === _lastErrorMsg && now - _lastErrorTime < 2000) {
+    return; // 2 秒内相同消息已展示，跳过
+  }
+  _lastErrorMsg = msg;
+  _lastErrorTime = now;
+  message.error(msg);
+}
+
 // response处理
 function handleResponse(response) {
   let result;
@@ -34,7 +47,7 @@ function handleResponse(response) {
         } catch (e) {
           result = '操作失败';
         }
-        message.error(result);
+        showErrorOnce(result);
         return Promise.reject(result);
       }
       // PDF/文件等二进制响应，直接透传
@@ -73,7 +86,11 @@ function handleResponse(response) {
       result = `请求失败: ${response.status} ${response.statusText}`;
     }
   }
-  message.error(result);
+  // 允许调用方通过 config.skipErrorNotification=true 抑制错误弹窗
+  // 用于空间切换等可能产生过期请求的场景，避免重复提示
+  if (!response.config?.skipErrorNotification) {
+    showErrorOnce(result);
+  }
   return Promise.reject(result)
 }
 
@@ -130,7 +147,7 @@ http.interceptors.response.use(response => {
     errorMsg = '网络连接失败，请检查网络后重试';
   }
   const result = '请求异常: ' + errorMsg;
-  message.error(result);
+  showErrorOnce(result);
   return Promise.reject(result)
 });
 
