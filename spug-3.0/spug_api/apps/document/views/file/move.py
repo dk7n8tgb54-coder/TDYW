@@ -111,7 +111,6 @@ class FileMoveView(View):
         # 1. 预检冲突
         existing = check_display_name_conflict(
             FileModel, display_name, target, request.user, params['is_public'])
-
         if existing:
             if not conflict_action or conflict_action not in CONFLICT_ACTIONS:
                 ci = build_conflict_info(existing, display_name, file_obj.file_size or 0)
@@ -120,6 +119,27 @@ class FileMoveView(View):
                 return json_response(data={'status': 'skipped', 'action': 'skip'})
 
         # 2. 物理文件迁移
+        migrate_result = self._migrate_physical_files(
+            file_obj, target, params, request, conflict_action)
+        if isinstance(migrate_result, dict):
+            return migrate_result  # error response
+        old_path, old_thumb, new_path, new_thumb, physical_moved = migrate_result
+
+        # 3. DB 更新（事务内重新校验）
+        db_error = self._update_file_in_transaction(
+            file_obj, FileModel, target, params, request,
+            display_name, new_path, new_thumb, old_thumb, old_path,
+            existing, conflict_action, physical_moved)
+        if db_error:
+            return db_error
+
+        # 4. 清理 + 审计
+        return self._finalize_move(
+            file_obj, existing, conflict_action, params, request,
+            old_path, old_thumb, new_path, new_thumb)
+
+    def _migrate_physical_files(self, file_obj, target, params, request, conflict_action):
+        """物理文件 + 缩略图迁移，返回 (old_path, old_thumb, new_path, new_thumb, moved) 或 error dict"""
         old_path = file_obj.file_path
         old_thumb = file_obj.thumbnail_path or ''
         target_folder_id = target.id if target else None
@@ -144,21 +164,30 @@ class FileMoveView(View):
                 logger.error('[Document] Physical file move failed: %s', e)
                 return json_response(error=f'物理文件迁移失败: {e}')
 
-        # 缩略图迁移
-        new_thumb = old_thumb
-        if old_thumb and physical_moved:
-            thumb_name = os.path.basename(old_thumb)
-            candidate = os.path.join(target_dir, thumb_name)
-            if os.path.normpath(old_thumb) != os.path.normpath(candidate):
-                try:
-                    if os.path.exists(old_thumb):
-                        shutil.move(old_thumb, candidate)
-                        new_thumb = candidate
-                except Exception as e:
-                    logger.warning('[Document] Thumbnail move failed: %s', e)
-                    new_thumb = ''
+        new_thumb = self._migrate_thumbnail(old_thumb, target_dir, physical_moved)
+        return old_path, old_thumb, new_path, new_thumb, physical_moved
 
-        # 3. DB 更新（事务内重新校验）
+    @staticmethod
+    def _migrate_thumbnail(old_thumb, target_dir, physical_moved):
+        """迁移缩略图，返回新路径或空串"""
+        if not old_thumb or not physical_moved:
+            return old_thumb
+        thumb_name = os.path.basename(old_thumb)
+        candidate = os.path.join(target_dir, thumb_name)
+        if os.path.normpath(old_thumb) == os.path.normpath(candidate):
+            return old_thumb
+        try:
+            if os.path.exists(old_thumb):
+                shutil.move(old_thumb, candidate)
+                return candidate
+        except Exception as e:
+            logger.warning('[Document] Thumbnail move failed: %s', e)
+        return ''
+
+    def _update_file_in_transaction(self, file_obj, FileModel, target, params, request,
+                                    display_name, new_path, new_thumb, old_thumb,
+                                    old_path, existing, conflict_action, physical_moved):
+        """事务内更新文件记录，返回 error response 或 None"""
         try:
             with transaction.atomic():
                 if params['target_id']:
@@ -168,28 +197,20 @@ class FileMoveView(View):
                     if not ok:
                         raise ValueError(err)
 
-                # 事务内重新检查冲突（防并发插入）
                 recheck = check_display_name_conflict(
                     FileModel, display_name, target, request.user, params['is_public'])
                 if recheck and recheck.id != (existing.id if existing else None):
-                    # 并发插入了同名文件
                     if conflict_action != 'replace':
                         raise ValueError('目标位置已存在同名文件')
 
-                # 处理冲突动作
                 if recheck:
                     if conflict_action == 'replace':
-                        # 物理文件在事务提交后清理
-                        _old_existing_path = recheck.file_path
-                        _old_existing_thumb = recheck.thumbnail_path or ''
-                        _old_existing_id = recheck.id
                         recheck.delete()
                     elif conflict_action == 'keep':
                         file_obj.display_name = generate_unique_display_name(
                             FileModel, display_name, target,
                             request.user, params['is_public'])
 
-                # 更新文件记录
                 file_obj.folder = target
                 file_obj.name = generate_unique_logical_name(
                     FileModel, file_obj.display_name or file_obj.name,
@@ -200,7 +221,6 @@ class FileMoveView(View):
                     file_obj.thumbnail_path = new_thumb
                     update_fields.append('thumbnail_path')
                 file_obj.save(update_fields=update_fields)
-
         except IntegrityError:
             logger.warning('[Document] move IntegrityError, id=%s', file_obj.id)
             self._rollback_physical(old_path, new_path, old_thumb, new_thumb, physical_moved)
@@ -213,18 +233,22 @@ class FileMoveView(View):
             logger.error('[Document] file move failed: %s', exc)
             self._rollback_physical(old_path, new_path, old_thumb, new_thumb, physical_moved)
             return json_response(error=f'文件移动失败：{exc}')
+        return None
 
-        # 4. 清理 replace 被删文件的物理文件（事务提交后）
+    @staticmethod
+    def _finalize_move(file_obj, existing, conflict_action, params, request,
+                       old_path, old_thumb, new_path, new_thumb):
+        """事务提交后的清理和审计日志"""
         if existing and conflict_action == 'replace':
-            transaction.on_commit(lambda: self._cleanup_deleted_file(
+            transaction.on_commit(lambda: FileMoveView._cleanup_deleted_file(
                 existing.file_path, existing.thumbnail_path or ''))
 
-        # 5. 审计日志
+        _act = conflict_action or 'move'
         _fid, _ip, _tid = file_obj.id, params['is_public'], params['target_id']
-        _u, _req, _act = request.user, request, conflict_action or 'move'
         transaction.on_commit(lambda: log_operation(
-            action='FILE_MOVE', user=_u, request=_req, resource_type='FILE',
-            resource_id=_fid, is_public=_ip, target_folder_id=_tid))
+            action='FILE_MOVE', user=request.user, request=request,
+            resource_type='FILE', resource_id=_fid,
+            is_public=_ip, target_folder_id=_tid))
         logger.info('[Document] file moved: id=%s, action=%s', file_obj.id, _act)
         return json_response(data={'status': 'success', 'action': _act})
 

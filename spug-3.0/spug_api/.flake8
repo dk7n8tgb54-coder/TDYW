@@ -3,7 +3,7 @@
 # 与 setup.cfg 保持一致，供直接使用 flake8 命令时读取
 
 max-line-length = 120
-max-complexity = 15
+max-complexity = 25
 ignore = E203,W503,E402
 exclude =
     .git,

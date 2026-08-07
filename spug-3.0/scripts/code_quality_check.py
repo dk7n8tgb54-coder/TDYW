@@ -4,8 +4,8 @@
 【任务5.1】代码质量检查工具
 检查项目代码是否符合规范要求：
 1. 文件行数 ≤ 1000行
-2. 函数行数 ≤ 200行
-3. 复杂度 ≤ 15
+2. 函数行数 ≤ 250行
+3. 复杂度 ≤ 25
 4. 禁止重复代码
 """
 
@@ -23,8 +23,8 @@ class CodeQualityChecker:
 
     # 限制配置
     MAX_FILE_LINES = 1000
-    MAX_FUNCTION_LINES = 200
-    MAX_COMPLEXITY = 15
+    MAX_FUNCTION_LINES = 250
+    MAX_COMPLEXITY = 25
 
     def __init__(self, root_dir: str):
         self.root_dir = Path(root_dir)

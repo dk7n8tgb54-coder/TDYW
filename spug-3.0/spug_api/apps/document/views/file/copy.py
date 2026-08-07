@@ -284,7 +284,6 @@ class FileCopyView(View):
         file = ctx['file']
         folder = ctx['folder']
         is_public = ctx['is_public']
-        system_folder = ctx['system_folder']
         folder_id = ctx['folder_id']
         conflict_action = ctx.get('conflict_action')
 
@@ -297,47 +296,25 @@ class FileCopyView(View):
         existing = check_display_name_conflict(
             FileModel, original_display_name, folder, request.user, is_public)
 
-        if existing:
-            if not conflict_action or conflict_action not in CONFLICT_ACTIONS:
-                ci = build_conflict_info(existing, original_display_name, file.file_size or 0)
-                return conflict_response([ci])
-            if conflict_action == 'skip':
-                return json_response(data={'status': 'skipped', 'action': 'skip'})
+        conflict_result = self._handle_conflict(
+            existing, conflict_action, original_display_name, file.file_size or 0)
+        if conflict_result:
+            return conflict_result
 
         # 确定最终 display_name
-        is_same_folder = file.folder == folder
-        if conflict_action == 'keep' or (not existing and is_same_folder):
-            # keep 或同文件夹无冲突时生成唯一名称
-            if is_same_folder:
-                base_name = f'副本_{original_display_name}'
-            else:
-                base_name = original_display_name
-            final_display_name = generate_unique_display_name(
-                FileModel, base_name, folder, request.user, is_public)
-        elif conflict_action == 'replace' and existing:
-            final_display_name = original_display_name
-        elif not existing:
-            final_display_name = original_display_name
-        else:
-            final_display_name = original_display_name
+        final_display_name = self._resolve_display_name(
+            existing, conflict_action, original_display_name, file, folder,
+            FileModel, request.user, is_public)
 
-        # 构建上传目录
-        upload_dir = FileCopyExecutor.build_upload_dir(
-            is_public, request.user.id, folder
-        )
-
-        # 生成文件名
+        # 构建上传目录 & 生成文件名
+        upload_dir = FileCopyExecutor.build_upload_dir(is_public, request.user.id, folder)
         names = FileNameGenerator.generate(file, folder, is_public, request.user)
         new_file_path = os.path.join(upload_dir, names['physical_name'])
 
         # 路径安全校验
-        document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
-        if not is_safe_path(document_storage_base, file.file_path):
-            logger.error(f'[Document] Unsafe source file path in copy: {file.file_path}')
-            return json_response(error='文件路径异常')
-        if not is_safe_path(document_storage_base, new_file_path):
-            logger.error(f'[Document] Unsafe target file path in copy: {new_file_path}')
-            return json_response(error='文件路径异常')
+        path_error = self._validate_paths(file.file_path, new_file_path)
+        if path_error:
+            return path_error
 
         logger.info(f'[Document] Generated names: physical={names["physical_name"]}, logical={names["logical_name"]}')
 
@@ -349,58 +326,12 @@ class FileCopyView(View):
             return json_response(error=f'物理文件复制失败: {e}')
 
         # 创建文件记录（事务内重新校验冲突）
-        try:
-            with transaction.atomic():
-                # 事务内重新检查冲突
-                recheck = check_display_name_conflict(
-                    FileModel, final_display_name, folder, request.user, is_public)
-
-                if recheck and (not existing or recheck.id != existing.id):
-                    # 并发插入了同名文件
-                    if conflict_action == 'replace':
-                        # replace 模式：删除新出现的同名文件
-                        _recheck_path = recheck.file_path
-                        _recheck_thumb = recheck.thumbnail_path or ''
-                        _recheck_id = recheck.id
-                        recheck.delete()
-                        # 事务提交后清理物理文件
-                        transaction.on_commit(lambda: self._cleanup_deleted_file(
-                            _recheck_path, _recheck_thumb))
-                    elif conflict_action == 'keep':
-                        # keep 模式：重新生成唯一名称
-                        final_display_name = generate_unique_display_name(
-                            FileModel, final_display_name, folder, request.user, is_public)
-                    else:
-                        raise ValueError('目标位置已存在同名文件')
-
-                if existing and conflict_action == 'replace':
-                    # 删除原冲突文件
-                    _existing_path = existing.file_path
-                    _existing_thumb = existing.thumbnail_path or ''
-                    _existing_id = existing.id
-                    existing.delete()
-                    transaction.on_commit(lambda: self._cleanup_deleted_file(
-                        _existing_path, _existing_thumb))
-
-                new_file = FileCopyExecutor.create_file_record(
-                    FileModel,
-                    generate_unique_logical_name(
-                        FileModel, final_display_name, folder, request.user),
-                    final_display_name,
-                    names['physical_name'],
-                    folder,
-                    new_file_path,
-                    file,
-                    request.user
-                )
-        except ValueError as e:
-            logger.warning('[Document] copy conflict error: %s', e)
-            self._cleanup_physical(new_file_path)
-            return json_response(error=str(e))
-        except IntegrityError:
-            logger.warning('[Document] file copy failed due to duplicate name, source_id=%s', file.id)
-            self._cleanup_physical(new_file_path)
-            return json_response(error='目标位置已存在同名文件，复制失败')
+        new_file, db_error = self._create_record_with_retry(
+            FileModel, file, folder, request.user, is_public,
+            original_display_name, final_display_name,
+            names, new_file_path, existing, conflict_action)
+        if db_error:
+            return db_error
 
         # 记录日志
         FileCopyLogger.log_copy_operation(
@@ -410,6 +341,101 @@ class FileCopyView(View):
         )
 
         return json_response(data={'status': 'success', 'action': conflict_action or 'copy'})
+
+    @staticmethod
+    def _handle_conflict(existing, conflict_action, display_name, file_size):
+        """冲突预检：无 action 时返回冲突信息，skip 时返回跳过响应"""
+        if not existing:
+            return None
+        if not conflict_action or conflict_action not in CONFLICT_ACTIONS:
+            ci = build_conflict_info(existing, display_name, file_size)
+            return conflict_response([ci])
+        if conflict_action == 'skip':
+            return json_response(data={'status': 'skipped', 'action': 'skip'})
+        return None
+
+    @staticmethod
+    def _resolve_display_name(existing, conflict_action, original_display_name,
+                              file, folder, FileModel, user, is_public):
+        """根据冲突状态和 action 确定最终 display_name"""
+        is_same_folder = file.folder == folder
+        if conflict_action == 'keep' or (not existing and is_same_folder):
+            base_name = f'副本_{original_display_name}' if is_same_folder else original_display_name
+            return generate_unique_display_name(FileModel, base_name, folder, user, is_public)
+        return original_display_name
+
+    @staticmethod
+    def _validate_paths(source_path, target_path):
+        """路径安全校验"""
+        document_storage_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
+        if not is_safe_path(document_storage_base, source_path):
+            logger.error(f'[Document] Unsafe source file path in copy: {source_path}')
+            return json_response(error='文件路径异常')
+        if not is_safe_path(document_storage_base, target_path):
+            logger.error(f'[Document] Unsafe target file path in copy: {target_path}')
+            return json_response(error='文件路径异常')
+        return None
+
+    def _create_record_with_retry(self, FileModel, file, folder, user, is_public,
+                                  original_display_name, final_display_name,
+                                  names, new_file_path, existing, conflict_action):
+        """事务内创建文件记录，处理并发冲突"""
+        try:
+            with transaction.atomic():
+                recheck = check_display_name_conflict(
+                    FileModel, final_display_name, folder, user, is_public)
+
+                if recheck and (not existing or recheck.id != existing.id):
+                    self._handle_concurrent_conflict(
+                        recheck, conflict_action, FileModel, final_display_name,
+                        folder, user, is_public)
+
+                if existing and conflict_action == 'replace':
+                    self._delete_conflict_file(existing)
+
+                new_file = FileCopyExecutor.create_file_record(
+                    FileModel,
+                    generate_unique_logical_name(
+                        FileModel, final_display_name, folder, user),
+                    final_display_name,
+                    names['physical_name'],
+                    folder,
+                    new_file_path,
+                    file,
+                    user
+                )
+            return new_file, None
+        except ValueError as e:
+            logger.warning('[Document] copy conflict error: %s', e)
+            self._cleanup_physical(new_file_path)
+            return None, json_response(error=str(e))
+        except IntegrityError:
+            logger.warning('[Document] file copy failed due to duplicate name, source_id=%s', file.id)
+            self._cleanup_physical(new_file_path)
+            return None, json_response(error='目标位置已存在同名文件，复制失败')
+
+    @staticmethod
+    def _handle_concurrent_conflict(recheck, conflict_action, FileModel,
+                                     display_name, folder, user, is_public):
+        """事务内检测到并发插入同名文件时的处理"""
+        if conflict_action == 'replace':
+            _path = recheck.file_path
+            _thumb = recheck.thumbnail_path or ''
+            recheck.delete()
+            transaction.on_commit(lambda: FileCopyView._cleanup_deleted_file(_path, _thumb))
+        elif conflict_action == 'keep':
+            return generate_unique_display_name(
+                FileModel, display_name, folder, user, is_public)
+        else:
+            raise ValueError('目标位置已存在同名文件')
+
+    @staticmethod
+    def _delete_conflict_file(existing):
+        """删除冲突文件（事务提交后清理物理文件）"""
+        _path = existing.file_path
+        _thumb = existing.thumbnail_path or ''
+        existing.delete()
+        transaction.on_commit(lambda: FileCopyView._cleanup_deleted_file(_path, _thumb))
 
     @staticmethod
     def _cleanup_physical(file_path):

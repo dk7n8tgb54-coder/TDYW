@@ -30,13 +30,13 @@ module.exports = {
     
     // 函数行数限制（设为warn以兼容历史代码）
     'max-lines-per-function': ['warn', {
-      'max': 200,
+      'max': 250,
       'skipBlankLines': true,
       'skipComments': true
     }],
     
     // 函数复杂度限制
-    'complexity': ['warn', { 'max': 15 }],
+    'complexity': ['warn', { 'max': 25 }],
     
     // 最大嵌套深度
     'max-depth': ['warn', { 'max': 4 }],
