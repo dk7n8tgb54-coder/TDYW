@@ -62,15 +62,15 @@ class TestBackendParser(unittest.TestCase):
         fpath = os.path.join(FIXTURES_DIR, 'mock_views.py')
         parser._parse_python_file(fpath, 'test')
 
-        notice_view = None
+        post_view = None
         for v in parser.views:
-            if v.name == 'NoticeView':
-                notice_view = v
+            if v.name == 'PostView':
+                post_view = v
                 break
-        self.assertIsNotNone(notice_view, "NoticeView should be found")
-        self.assertTrue(notice_view.has_auth_on_any, "NoticeView should have @auth")
-        self.assertEqual(notice_view.methods['get']['perm'], 'home.notice.view')
-        self.assertEqual(notice_view.methods['post']['perm'], 'home.notice.add|home.notice.edit')
+        self.assertIsNotNone(post_view, "PostView should be found")
+        self.assertTrue(post_view.has_auth_on_any, "PostView should have @auth")
+        self.assertEqual(post_view.methods['get']['perm'], 'home.notice.view')
+        self.assertEqual(post_view.methods['post']['perm'], 'home.notice.add|home.notice.edit')
 
     def test_parse_unprotected_view(self):
         """测试无保护 View"""

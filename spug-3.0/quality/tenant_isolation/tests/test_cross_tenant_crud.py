@@ -1,6 +1,6 @@
 """跨租户 CRUD 测试
 
-覆盖模块: home/navigation, home/notice, reminder, runlog, fault, account
+覆盖模块: reminder, runlog, fault, account
 覆盖操作: 列表查询、详情、修改、删除、租户字段伪造
 """
 import json
@@ -40,8 +40,7 @@ def run(context):
     ub = users['ub']
 
     try:
-        _test_navigation(results, tk_ua, biz)
-        _test_notice(results, tk_ua, biz)
+        _test_navigation_removed(results, tk_ua)
         _test_reminder(results, tk_ua, tid_b, ua, biz)
         _test_runlog(results, tk_ua, biz)
         _test_fault(results, tk_ua, biz)
@@ -59,70 +58,16 @@ def _rec(results, module, test, passed, detail='', sev='info'):
                      'detail': detail, 'severity': sev})
 
 
-# ==================== Navigation ====================
+# ==================== Navigation (已删除) ====================
 
-def _test_navigation(results, tk_ua, biz):
-    """NavView 跨租户测试"""
+def _test_navigation_removed(results, tk_ua):
+    """NavView 已删除，接口不可达"""
     c = Client()
-
-    # 列表
     r = c.get('/home/navigation/', **{'HTTP_X_TOKEN': tk_ua})
-    items = get_items(get_body(r))
-    passed, msg = assert_no_cross_tenant(items, 'NB_', 'title')
-    _rec(results, 'home/navigation', 'Nav列表跨租户', passed, msg,
-         'critical' if not passed else 'info')
-
-    # 修改
-    bid = biz['nav_b'].id
-    c.post('/home/navigation/', data=json.dumps({'id': bid, 'title': 'HACKED'}),
-           content_type='application/json', **{'HTTP_X_TOKEN': tk_ua})
-    from apps.home.models import Navigation
-    nav_b = Navigation.objects.get(pk=bid)
-    passed, msg = assert_object_not_modified(nav_b, 'title', 'HACKED')
-    _rec(results, 'home/navigation', 'Nav修改跨租户', passed, msg,
-         'critical' if not passed else 'info')
-
-    # 删除
-    bid = biz['nav_b'].id
-    c.delete(f'/home/navigation/?id={bid}', **{'HTTP_X_TOKEN': tk_ua})
-    passed, msg = assert_object_exists(Navigation, bid)
-    _rec(results, 'home/navigation', 'Nav删除跨租户', passed, msg,
-         'critical' if not passed else 'info')
-    if not passed:
-        Navigation.objects.filter(pk=bid).update(is_deleted=False)
-
-
-# ==================== Notice ====================
-
-def _test_notice(results, tk_ua, biz):
-    """NoticeView 跨租户测试"""
-    c = Client()
-
-    # 列表
-    r = c.get('/home/notice/', **{'HTTP_X_TOKEN': tk_ua})
-    items = get_items(get_body(r))
-    passed, msg = assert_no_cross_tenant(items, 'PB_', 'title')
-    _rec(results, 'home/notice', 'Notice列表跨租户', passed, msg,
-         'critical' if not passed else 'info')
-
-    # 修改
-    bid = biz['notice_b'].id
-    c.post('/home/notice/', data=json.dumps({'id': bid, 'title': 'HACKED'}),
-           content_type='application/json', **{'HTTP_X_TOKEN': tk_ua})
-    from apps.home.models import Notice
-    notice_b = Notice.objects.get(pk=bid)
-    passed, msg = assert_object_not_modified(notice_b, 'title', 'HACKED')
-    _rec(results, 'home/notice', 'Notice修改跨租户', passed, msg,
-         'critical' if not passed else 'info')
-
-    # 删除
-    bid = biz['notice_b'].id
-    c.delete(f'/home/notice/?id={bid}', **{'HTTP_X_TOKEN': tk_ua})
-    passed, msg = assert_object_exists(Notice, bid)
-    _rec(results, 'home/notice', 'Notice删除跨租户', passed, msg,
-         'critical' if not passed else 'info')
-    if not passed:
-        Notice.objects.filter(pk=bid).update(is_deleted=False)
+    _rec(results, 'home/navigation', 'Nav接口已删除',
+         r.status_code == 404,
+         f'status={r.status_code}(应404)',
+         'critical' if r.status_code != 404 else 'info')
 
 
 # ==================== Reminder ====================

@@ -1,0 +1,16 @@
+id,severity,component,title,evidence,impact,recommended_action,current_status,recommended_owner
+DR-001,critical,system_config,Environment variables and secrets not in automated backup,"env vars managed manually; not in backup_set or borg","Loss of env vars prevents system recovery and encrypted backup access","Backup secrets to secure offline storage (password manager physical safe)",open,infra team
+DR-002,critical,system_config,BORG_PASSPHRASE has no offsite copy,"borg.env is local only; mode 0600","Loss of passphrase makes all Borg backups permanently unreadable","Store passphrase in password manager and physical safe",open,infra team
+DR-003,critical,database,Restore process never validated,"backup_set_restore.sh exists with --mode drill but never tested","Actual RTO unknown; restore may fail or take longer than expected","Execute database restore drill in isolated environment",open,infra team
+DR-004,high,database,Database restore not verified,"restore_verified=false","Database may not restore correctly","Execute database restore drill and run validators",open,DBA
+DR-005,high,file_storage,File restore not verified,"restore_verified=false","Files may not restore correctly","Execute file restore drill and run validators",open,infra team
+DR-006,high,audit_logs,Audit log restore not verified,"restore_verified=false","Audit data may be lost","Verify audit log integrity after DB restore",open,DBA
+DR-007,high,permissions,Permission and tenant restore not verified,"restore_verified=false","Permission system may not restore correctly","Verify permissions after DB restore",open,DBA
+DR-008,medium,all,No offsite backup copy,"All backups are local","Local disaster (fire flood theft) causes total data loss","Configure remote Borg repository",open,infra team
+DR-009,medium,all,RPO is 24 hours,"Daily backup frequency only","Up to 24 hours of data loss","Consider incremental backups or replication",open,infra team
+DR-010,medium,all,RTO not measured,"Restore never tested","Recovery time unknown","Execute end-to-end restore drill",open,infra team
+DR-011,medium,all,No automated failover,"Manual recovery required","Human error during recovery","Consider primary-replica replication",open,infra team
+DR-012,low,redis,Redis data not backed up,"Redis is ephemeral; no backup","Cache loss; permission cache rebuild","Acceptable - data is reconstructable",accepted,N/A
+DR-013,low,celery,Celery queue may be lost,"Redis broker; persistence not confirmed","Queued tasks may be lost on Redis failure","Verify Redis persistence; tasks are idempotent",open,infra team
+DR-014,low,kkfileview,kkFileView config only in git,"No persistent state to back up","Config recoverable from git","Acceptable",accepted,N/A
+DR-015,low,all,Recovery steps depend on manual process,"restore scripts exist but require human execution","Risk of operator error","Automate recovery process",open,infra team

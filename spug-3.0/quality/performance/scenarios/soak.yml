@@ -1,0 +1,93 @@
+# Soak / Stability Test Scenario
+# Long-running test to detect memory leaks and degradation.
+# 10-15 users, 30-60 minutes.
+
+# Locust configuration
+locust:
+  locustfile: locustfiles/read_workflows.py
+  headless: true
+  users: 10
+  spawn_rate: 1
+  run_time: 30m
+
+# Safety requirements
+safety:
+  level: read_only
+  requires_allow_performance_test: true
+  requires_allow_write_load: false
+  requires_test_database: false
+
+# Auto-stop conditions
+auto_stop:
+  error_rate_threshold_percent: 5
+  p99_threshold_ms: 5000
+  connection_failure_threshold: 20
+
+# Description
+description: >
+  Soak test runs for 30-60 minutes at moderate load to detect:
+  - Memory leaks (response time degradation over time)
+  - Connection pool exhaustion
+  - Database connection leaks
+  - Cache invalidation issues
+  - GC pressure patterns
+
+  Run with 10-15 users for 30-60 minutes.
+  Monitor server-side resource metrics during the test.
+  Compare P50 at start vs end to detect degradation.
+
+# Expected results
+expected:
+  p50_ms: 200
+  p95_ms: 800
+  error_rate_percent: 0
+  min_rps: 10
+  # P50 at end should not be more than 2x P50 at start
+  max_degradation_ratio: 2.0
+
+# Thresholds
+thresholds:
+  category: blocking
+  max_p95_ms: 1500
+  max_p99_ms: 3000
+  max_error_rate_percent: 2
+  # Response time should not degrade more than 50% from start to end
+  max_degradation_percent: 50
+
+# Monitoring (server-side, optional)
+monitoring:
+  # Check these metrics every 5 minutes
+  check_interval: 5m
+  metrics:
+    - cpu_percent
+    - memory_percent
+    - db_connections
+    - redis_memory_mb
+  thresholds:
+    cpu_max_percent: 80
+    memory_max_percent: 85
+    db_connection_pool_max: 20
+    redis_memory_max_mb: 256
+
+# Variants
+variants:
+  short:
+    users: 10
+    spawn_rate: 1
+    run_time: 15m
+  standard:
+    users: 10
+    spawn_rate: 1
+    run_time: 30m
+  extended:
+    users: 15
+    spawn_rate: 2
+    run_time: 60m
+
+# Tags
+tags:
+  - soak
+  - stability
+  - long-running
+  - read-only
+  - degradation-detection

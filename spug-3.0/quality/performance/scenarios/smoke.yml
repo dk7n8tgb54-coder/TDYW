@@ -1,0 +1,43 @@
+# Smoke Test Scenario
+# Quick verification that the system is responsive and auth works.
+# 1-3 users, 30-60 seconds.
+
+# Locust configuration
+locust:
+  locustfile: locustfiles/smoke_load.py
+  headless: true
+  users: 2
+  spawn_rate: 1
+  run_time: 30s
+
+# Safety requirements
+safety:
+  level: read_only
+  requires_allow_performance_test: true
+  requires_allow_write_load: false
+  requires_test_database: false
+
+# Description
+description: >
+  Smoke test verifies basic system responsiveness and authentication.
+  Uses 1-3 users for 30-60 seconds. Safe to run against any environment
+  with ALLOW_PERFORMANCE_TEST=true. No data is created or modified.
+
+# Expected results
+expected:
+  p50_ms: 100
+  p95_ms: 500
+  error_rate_percent: 0
+  min_rps: 5
+
+# Thresholds
+thresholds:
+  category: baseline
+  max_p95_ms: 1000
+  max_error_rate_percent: 5
+
+# Tags
+tags:
+  - smoke
+  - read-only
+  - quick

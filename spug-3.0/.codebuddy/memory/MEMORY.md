@@ -87,6 +87,17 @@
 - **DateTimeField 禁用 `__date`/`__year`/`__month`/`__startswith`/`__icontains`**，改用 `__gte`/`__lt`
 - `LIKE '%xxx'` 前缀通配无法走索引；复合索引遵循最左前缀
 
+## 租户隔离审计与修复（2026-08-08/09）
+- **TenantModelManager 只过滤 is_deleted，不自动过滤 tenant_id** -> Views 须手动调 apply_tenant_filter 或添加 Q(tenant_id=...)
+- **WP5 修复（2026-08-08/09）**: NavView 完全删除（死代码：前端未 import + DB 0 条数据）；NoticeView 已删除（NOT_APPLICABLE）；ReminderUsersView 跨租户返回所有科室用户是**刻意设计**（科室A可提醒科室B/C提交材料），不修改
+- **Navigation 功能已完全移除**: navigation.py 删除、Navigation 模型删除（migration 0011）、Nav.js/NavForm.js 删除、urls.py 移除路由
+- **CRITICAL 漏洞（已修复）**: NavView + NoticeView 完全无 apply_tenant_filter
+- **JsonParser 默认 type=str**: 列表传给无 type=list 的 Argument 会被 str() 转为单引号字符串，导致 json.loads() 失败
+- **_validate_reminder_form 预存在 bug**: 返回 (None, error_str) 时解包 TypeError（非本任务引入）
+- **Client() 测试**: 需设 ALLOWED_HOSTS += ['testserver']；Django test runner 可成功创建 test_spug
+- 超管(is_supper=True)绕过所有租户过滤(已知设计)
+- Test Client 需设 HTTP_X_REAL_IP header + ALLOWED_HOSTS=['*']
+
 ## 历史项目
 - 资料库回收站功能已于 2026-06-23 完全移除（模型层保留 is_deleted/deleted_at 字段避免 migration）
 - 资料库传输列表：3 Tab + 抽屉模式（参考阿里云盘/百度网盘）

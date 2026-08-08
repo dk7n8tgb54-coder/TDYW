@@ -1,0 +1,92 @@
+# kkFileView Unavailable Scenario
+scenario_name: kkfileview_unavailable
+description: >
+  Simulate kkFileView becoming unavailable. The application should
+  handle this gracefully: file preview should show a fallback message
+  or download link, while all other functionality remains unaffected.
+
+  This scenario uses TCP connect checks and HTTP health checks only.
+  No real kkFileView service is stopped.
+
+tier: 4
+priority: P3
+component: system_config
+
+# ---- Prerequisites ----
+prerequisites:
+  - "Environment guard must pass"
+  - "Target app must be running"
+  - "kkFileView URL must be configured (DR_KKFILEVIEW_URL)"
+
+# ---- Simulation Method ----
+simulation_method: "tcp_http_check"
+destructive: false
+description_of_method: >
+  Checks kkFileView TCP reachability and app HTTP health.
+  Does NOT stop or disrupt the real kkFileView service.
+
+# ---- Configuration ----
+config:
+  browser_url: "KKFILEVIEW_API_URL=/kkfileview"
+  server_url: "KKFILEVIEW_SERVER_URL=http://tdyw-test"
+  container_name: "tdyw-kkfileview-test"
+  version: "4.1.0"
+  port: 8012
+
+# ---- Steps ----
+steps:
+  - id: 1
+    name: environment_guard
+    description: "Run environment guard checks"
+    runner: "helpers.environment_guard.assert_safe_for_drill"
+    on_failure: "abort"
+
+  - id: 2
+    name: check_kkfileview_reachable
+    description: "Check if kkFileView port is reachable (informational)"
+    check: "TCP connect to kkFileView host:port"
+    expected: "reachable (normal state)"
+
+  - id: 3
+    name: check_app_health
+    description: "Verify app still works when kkFileView is unavailable"
+    check: "HTTP GET to app list endpoint"
+    expected: "200 or 401 (not 500)"
+
+  - id: 4
+    name: check_file_list_still_works
+    description: "File listing should not depend on kkFileView"
+    check: "HTTP GET to document file list"
+    expected: "200 (file list returned without preview)"
+
+  - id: 5
+    name: check_preview_fallback
+    description: "File preview should show fallback when kkFileView is down"
+    check: "HTTP GET to file preview endpoint"
+    expected: "Fallback message or download link (not 500)"
+
+# ---- Success Criteria ----
+success_criteria:
+  - "App does not return 500 when kkFileView is unavailable"
+  - "File listing works without kkFileView"
+  - "File download works without kkFileView"
+  - "Preview shows fallback or error message (not crash)"
+
+# ---- Expected Impact ----
+expected_impact:
+  file_preview: "Unavailable - should show fallback message or download link"
+  file_download: "Not affected (direct download, no kkFileView dependency)"
+  file_list: "Not affected"
+  all_other_features: "Not affected"
+
+# ---- RPO/RTO Targets ----
+rpo_target_seconds: 0  # No data (stateless service)
+rto_target_seconds: 300  # 5 minutes (restart container)
+
+# ---- Recovery Steps ----
+real_recovery_steps:
+  - "Restart kkFileView container: docker restart tdyw-kkfileview-test"
+  - "Check container logs: docker logs tdyw-kkfileview-test"
+  - "Verify kkFileView responds: curl http://tdyw-kkfileview-test:8012/"
+  - "Check ALLOWED_HOSTS includes container name"
+  - "Verify browser can access: navigate to /kkfileview in app"

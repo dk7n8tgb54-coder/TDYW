@@ -1,0 +1,14 @@
+package_id,allowed_paths,actual_changed_path,within_scope,change_type,evidence,notes
+WP1,outputs/system_inventory/,outputs/system_inventory/,yes,new,git ls-files outputs/system_inventory/,全部新增文件
+WP2,spug_api/apps/*/tests/characterization/ + quality/reports/daily_business/,对应目录,yes,new,git diff --cached --name-only,全部新增文件
+WP3,spug_api/apps/*/tests/characterization/ + quality/reports/document_admin/,对应目录,yes,new,git diff --cached --name-only,全部新增文件
+WP4,spug_api/apps/*/tests/stable_contract/ + legacy_characterization/ + quality/reports/technical_operations/,对应5个app双目录,yes,new,git diff --cached --name-only,全部新增文件
+WP5,quality/tenant_isolation/ + quality/reports/tenant_isolation/,对应目录,yes,new,git diff --cached --name-only,全部新增文件
+WP6,quality/permission_audit/ + quality/reports/permission_audit/,quality/permission_audit/,yes,new,git diff --cached --name-only,工具已建设但报告未生成
+WP7,quality/database_audit/ + quality/reports/database_audit/,对应目录,yes,new,git diff --cached --name-only,全部新增文件
+WP8,quality/e2e/ + quality/reports/e2e/,quality/e2e/ + quality/reports/e2e/,yes,new,git diff --cached --name-only,artifacts已从Git跟踪中移除
+WP9,quality/performance/ + quality/disaster_recovery/ + reports/,对应目录,yes,new,git diff --cached --name-only,全部新增文件
+ALL,quality/ outputs/ .codebuddy/ AGENTS.md,本次验收未修改业务代码；工作区存在其他任务修改,yes,N/A,git diff --cached --name-only过滤,本次验收过程未修改业务代码；当前工作区存在其他任务产生的业务代码及测试代码修改，本次验收不对其归属和正确性作结论
+REMEDIATION,quality/reports/e2e/.gitignore,quality/reports/e2e/.gitignore,yes,new,新增文件,凭据泄露处置：阻止artifacts再次提交
+REMEDIATION,quality/reports/e2e/artifacts/,quality/reports/e2e/artifacts/,yes,git rm --cached,git rm --cached -r,凭据泄露处置：从Git跟踪中移除627个artifact文件
+ACCEPTANCE,quality/reports/acceptance/,quality/reports/acceptance/,yes,new,本次验收授权新增,10个验收文件

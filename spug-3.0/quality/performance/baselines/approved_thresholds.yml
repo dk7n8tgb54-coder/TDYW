@@ -1,0 +1,57 @@
+# Approved Performance Baselines
+#
+# This file is EMPTY by design. Baselines should only be filled in after
+# running actual performance tests against a dedicated test environment.
+#
+# Process:
+# 1. Run performance tests in a controlled test environment
+# 2. Collect metrics using helpers/metrics.py
+# 3. Review results against thresholds.yml
+# 4. If results are acceptable, copy them here as approved baselines
+# 5. Future test runs compare against these baselines for regression detection
+#
+# DO NOT fill in values from dev/production environments.
+# DO NOT guess or estimate values.
+
+baselines: {}
+
+# Example structure (fill in after testing):
+#
+# baselines:
+#   smoke:
+#     date: "2026-08-10"
+#     environment: "test-server (8 core, 16GB RAM, MariaDB 10.8)"
+#     metrics:
+#       GET /api/account/self/:
+#         p50: 45
+#         p90: 80
+#         p95: 120
+#         p99: 250
+#         rps: 15.5
+#         error_rate: 0
+#       GET /api/home/navigation/:
+#         p50: 60
+#         p90: 120
+#         p95: 180
+#         p99: 350
+#         rps: 12.3
+#         error_rate: 0
+#
+#   normal_load:
+#     date: "2026-08-10"
+#     environment: "test-server (8 core, 16GB RAM, MariaDB 10.8)"
+#     users: 15
+#     duration: "5m"
+#     metrics:
+#       _summary:
+#         total_requests: 4500
+#         total_errors: 5
+#         overall_error_rate: 0.11
+#         overall_rps: 15.0
+#       GET /api/runlog/:
+#         p50: 180
+#         p90: 350
+#         p95: 500
+#         p99: 1200
+#         rps: 2.1
+#         error_rate: 0

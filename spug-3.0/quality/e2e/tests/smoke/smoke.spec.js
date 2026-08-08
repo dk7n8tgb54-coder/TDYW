@@ -125,9 +125,9 @@ test.describe('Smoke Tests - System Availability', () => {
     await injectAuth(page, session);
 
     const apiEndpoints = [
-      '/api/home/notice/',
       '/api/reminder/',
       '/api/home/navigation/',
+      '/api/home/announcement/',
       '/api/account/users/',
       '/api/account/roles/',
     ];

@@ -1,0 +1,84 @@
+# Peak Load Scenario
+# Simulates peak usage with high concurrency.
+# Includes auto-stop on error rate threshold.
+# 30-50 users, 3-5 minutes.
+
+# Locust configuration
+locust:
+  locustfile: locustfiles/read_workflows.py
+  headless: true
+  users: 40
+  spawn_rate: 5
+  run_time: 3m
+
+# Safety requirements
+safety:
+  level: read_only
+  requires_allow_performance_test: true
+  requires_allow_write_load: false
+  requires_test_database: false
+
+# Auto-stop conditions (safety limits)
+auto_stop:
+  # Stop if error rate exceeds threshold
+  error_rate_threshold_percent: 10
+  # Stop if P99 exceeds threshold
+  p99_threshold_ms: 10000
+  # Stop if connection failures exceed count
+  connection_failure_threshold: 10
+  # Stop if any endpoint returns 500 series errors
+  server_error_threshold: 5
+
+# Description
+description: >
+  Peak load test simulates high-concurrency usage (30-50 users).
+  Designed to find performance bottlenecks under stress.
+  Auto-stops if error rate exceeds 10% or P99 exceeds 10 seconds.
+  Read-only - no data is created or modified.
+
+# Expected results
+expected:
+  p50_ms: 500
+  p90_ms: 1500
+  p95_ms: 3000
+  p99_ms: 5000
+  error_rate_percent: 1
+  min_rps: 15
+
+# Thresholds
+thresholds:
+  category: blocking
+  max_p95_ms: 3000
+  max_p99_ms: 5000
+  max_error_rate_percent: 5
+
+# Max limits (safety)
+max_limits:
+  max_users: 50
+  max_spawn_rate: 10
+  max_run_time: 5m
+  # These limits CANNOT be exceeded even with manual overrides
+  hard_max_users: 100
+  hard_max_run_time: 10m
+
+# Variants
+variants:
+  moderate:
+    users: 30
+    spawn_rate: 3
+    run_time: 3m
+  peak:
+    users: 40
+    spawn_rate: 5
+    run_time: 3m
+  extreme:
+    users: 50
+    spawn_rate: 10
+    run_time: 2m
+
+# Tags
+tags:
+  - peak
+  - stress
+  - read-only
+  - auto-stop

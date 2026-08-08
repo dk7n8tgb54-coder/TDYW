@@ -1,0 +1,15 @@
+component,backup_method,frequency,retention,storage_type,encrypted,offsite,last_known_success,restore_documented,restore_verified,risk_level,notes
+MariaDB Database,mariadb-dump --single-transaction,daily,30d/GFS,local filesystem,yes,no,pending_confirmation,yes,no,critical,Logical full dump with app freeze
+Documents Volume,tar archive / borg create,daily,same as DB,local filesystem,yes,no,pending_confirmation,yes,no,critical,Docker volume docker_tdyw-documents
+Media Volume,tar archive / borg create,daily,same as DB,local filesystem,yes,no,pending_confirmation,yes,no,high,Docker volume docker_tdyw-media
+Evidence Attachments,included in media volume,daily,same as DB,embedded in volume,yes,no,pending_confirmation,yes,no,high,Multi-polymorphic via EvidenceAttachment
+Regulation Storage,included in documents volume,daily,same as DB,embedded in volume,yes,no,pending_confirmation,yes,no,high,Independent storage.py not evidence system
+Redis Cache,none,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A,medium,Ephemeral data; reconstructable from DB
+Django Config,git + borg archive,on every backup,same as borg,git repository,no,yes(git),pending_confirmation,yes,no,medium,settings.py docker-compose.yml nginx configs
+Environment Variables,manual (0600 files),on change,manual,filesystem,yes,no,pending_confirmation,no,no,critical,MYSQL_PASSWORD SECRET_KEY BORG_PASSPHRASE
+Celery Config,git tracked,on every backup,same as borg,git repository,no,yes(git),pending_confirmation,yes,no,low,18 tasks 5 queues 12 Beat tasks
+Audit Logs,included in DB dump,daily,same as DB,database,yes,no,pending_confirmation,yes,no,high,Hash-chain integrity via AuditLogSequence
+Permissions/Tenants,included in DB dump,daily,same as DB,database,yes,no,pending_confirmation,yes,no,critical,97 permission codes role-policy mapping
+Docker Volumes,volume mountpoint backup,daily,same as DB,local filesystem,yes,no,pending_confirmation,yes,no,critical,tdyw-documents + tdyw-media volumes
+kkFileView Config,docker-compose.yml (git),on change,git history,git repository,no,yes(git),pending_confirmation,no,no,low,kkFileView 4.1.0 no persistent state
+Encryption Keys,manual (borg.env 0600),on change,manual,filesystem,N/A,no,pending_confirmation,no,no,critical,BORG_PASSPHRASE without it backups unreadable

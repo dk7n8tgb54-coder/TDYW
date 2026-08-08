@@ -1,0 +1,201 @@
+# =============================================================================
+# Recovery Policy
+# =============================================================================
+# Defines recovery policies for each component: priority, acceptable data loss,
+# recovery time objectives, and escalation procedures.
+# =============================================================================
+
+policy_version: "1.0"
+last_updated: "2026-08-08"
+
+# ---- Recovery Tiers ----
+# Tier 1: Critical — must recover first, minimal data loss acceptable
+# Tier 2: High — recover within same business day
+# Tier 3: Medium — recover within 48 hours
+# Tier 4: Low — best effort, no SLA
+
+policies:
+
+  # ---- Database ----
+  - component: database
+    tier: 1
+    priority: P0
+    rpo_target: "24 hours (daily backup cycle)"
+    rto_target: "4 hours"
+    acceptable_data_loss: "up to 24 hours of business transactions"
+    recovery_strategy: >
+      1. Identify latest valid backup (borg archive or backup_set directory).
+      2. Verify backup integrity (borg check / SHA256SUMS).
+      3. Stop application container.
+      4. Restore database from logical dump (mariadb < database.sql.gz).
+      5. For PITR: apply binlog files up to desired timestamp.
+      6. Restart application container.
+      7. Run database_validator.py.
+      8. Run application_validator.py.
+    escalation:
+      - "If restore fails after 2 attempts, escalate to DBA."
+      - "If backup itself is corrupt, try previous day's backup."
+      - "If no valid backup exists, declare disaster and follow manual recovery."
+    dependencies: [env_vars, encryption_keys]
+
+  # ---- File Storage ----
+  - component: file_storage
+    tier: 1
+    priority: P0
+    rpo_target: "24 hours"
+    rto_target: "4 hours"
+    acceptable_data_loss: "up to 24 hours of file uploads"
+    recovery_strategy: >
+      1. Identify backup containing documents/media volumes.
+      2. Verify file manifest and checksums.
+      3. Stop application container.
+      4. Extract/restore file volumes to mountpoints (rsync --delete for atomicity).
+      5. Run file_validator.py to verify count, size, and checksums.
+      6. Run checksum_validator.py for sampled SHA256 verification.
+      7. Restart application.
+    escalation:
+      - "If file count mismatch > 1%, investigate before proceeding."
+      - "If checksum mismatch, try previous backup."
+      - "If physical storage is damaged, restore to new volume and remap."
+    dependencies: [database]
+
+  # ---- Evidence Attachments ----
+  - component: evidence_attachments
+    tier: 2
+    priority: P1
+    rpo_target: "24 hours"
+    rto_target: "8 hours"
+    acceptable_data_loss: "up to 24 hours"
+    recovery_strategy: >
+      Evidence attachments are stored within the documents volume.
+      Recovery follows file_storage recovery. After restore, verify:
+      1. EvidenceAttachment records match physical files.
+      2. preview_token still resolves correctly.
+      3. Sample download test for each attachment type.
+    dependencies: [database, file_storage]
+
+  # ---- Regulation Storage ----
+  - component: regulation_storage
+    tier: 2
+    priority: P1
+    rpo_target: "24 hours"
+    rto_target: "8 hours"
+    acceptable_data_loss: "up to 24 hours"
+    recovery_strategy: >
+      Regulation files use independent storage.py (not evidence system).
+      Recovery follows file_storage recovery. After restore, verify:
+      1. RegulationAttachment records match physical files.
+      2. Regulation file download works.
+    dependencies: [database, file_storage]
+
+  # ---- Redis ----
+  - component: redis
+    tier: 3
+    priority: P2
+    rpo_target: "0 (ephemeral, no backup needed)"
+    rto_target: "15 minutes"
+    acceptable_data_loss: "all Redis data (fully reconstructable from DB)"
+    recovery_strategy: >
+      Redis data is ephemeral and reconstructable:
+      1. Permission cache (perms_{id}): rebuilt on first user request.
+      2. Celery broker (db 2): in-flight tasks lost; Beat will re-schedule.
+      3. Data analysis cache (60s TTL): rebuilt on next request.
+      Recovery: simply restart Redis container. No restore needed.
+      If Redis is corrupted: flush and restart.
+    escalation:
+      - "If Redis won't start, check memory and config."
+      - "If permission cache stale, increment version numbers."
+    dependencies: []
+
+  # ---- Celery Queue ----
+  - component: celery_queue
+    tier: 3
+    priority: P2
+    rpo_target: "0 (in-flight tasks are disposable)"
+    rto_target: "15 minutes"
+    acceptable_data_loss: "in-flight tasks (will be re-scheduled by Beat)"
+    recovery_strategy: >
+      1. Restart Celery worker and beat containers.
+      2. Beat will re-schedule all periodic tasks automatically.
+      3. Non-periodic tasks that were in-flight: check if they have idempotency keys
+         (fault, interference, contract_agreement, etc. do; upgrade, device, radio_license do not).
+      4. For non-idempotent tasks, manually check if side effects occurred before crash.
+    escalation:
+      - "If worker won't start, check broker (Redis db 2) connectivity."
+      - "If beat won't start, check for duplicate beat processes."
+    dependencies: [redis, database]
+
+  # ---- System Configuration ----
+  - component: system_config
+    tier: 2
+    priority: P1
+    rpo_target: "on change (git commit)"
+    rto_target: "1 hour"
+    acceptable_data_loss: "uncommitted config changes"
+    recovery_strategy: >
+      1. Clone git repository from remote.
+      2. Checkout the commit hash recorded in backup manifest.json.
+      3. Restore environment variable files from secure storage.
+      4. Restore borg.env (BORG_PASSPHRASE) from secure storage.
+      5. Verify docker-compose.yml matches backup version.
+    escalation:
+      - "If git remote unavailable, use local clone or backup of .git directory."
+      - "If env files lost, regenerate from docker-compose.yml + manual reconstruction."
+    dependencies: [env_vars, encryption_keys]
+
+  # ---- Audit Logs ----
+  - component: audit_logs
+    tier: 2
+    priority: P1
+    rpo_target: "24 hours"
+    rto_target: "4 hours"
+    acceptable_data_loss: "up to 24 hours"
+    recovery_strategy: >
+      Audit logs are stored in the database (AuditLog + AuditLogSequence).
+      Recovery follows database recovery. After restore, verify:
+      1. Hash chain integrity (AuditLogSequence).
+      2. No gaps in sequence numbers.
+      3. LOGS_BEAT_SCHEDULE archival/cleanup tasks are functional.
+    dependencies: [database]
+
+# ---- Escalation Matrix ----
+escalation_matrix:
+  - level: L1
+    role: "On-call developer"
+    response_time: "15 minutes"
+    actions: "Initial assessment, run inspect_backups.py, attempt standard recovery"
+
+  - level: L2
+    role: "System administrator"
+    response_time: "1 hour"
+    actions: "If L1 cannot resolve, escalate. Manages Docker/infrastructure layer."
+
+  - level: L3
+    role: "DBA"
+    response_time: "2 hours"
+    actions: "Database-specific recovery, PITR, migration issues"
+
+  - level: L4
+    role: "Disaster recovery team"
+    response_time: "4 hours"
+    actions: "Full disaster declaration, coordinate across all teams"
+
+# ---- Post-Recovery Validation Checklist ----
+post_recovery_checklist:
+  - "Database validator: Django check passes"
+  - "Database validator: All expected tables present"
+  - "Database validator: Migration consistency (no missing migrations)"
+  - "Database validator: Tenant/user/permission integrity"
+  - "Database validator: No orphaned foreign keys"
+  - "Database validator: Audit log hash chain intact"
+  - "File validator: File count matches manifest"
+  - "File validator: Total size within tolerance"
+  - "File validator: DB-to-physical mapping verified"
+  - "File validator: Sample download test passes"
+  - "Checksum validator: SHA256 matches for sampled files"
+  - "Application validator: Login works"
+  - "Application validator: List/detail endpoints accessible"
+  - "Application validator: Key workflows functional (create/read/update/delete)"
+  - "Security validator: No plaintext passwords in restored data"
+  - "Security validator: Backup file permissions correct"
+  - "Security validator: No sensitive data in restore logs"

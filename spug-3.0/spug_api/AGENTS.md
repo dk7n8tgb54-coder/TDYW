@@ -221,7 +221,7 @@ CELERY_BEAT_SCHEDULE = {**DOCUMENT_BEAT_SCHEDULE, **RADIO_LICENSE_BEAT_SCHEDULE,
 ## 八、幂等性
 
 1. **check_recent_duplicate**（`libs/idempotency.py`）：`check_recent_duplicate(model, filters, window_seconds=30)`，已含 `is_deleted=False` 过滤。
-2. 已加 dedup 的模块：fault、interference、contract_agreement、department_duty_log、regulation、home/navigation、home/notice、signature。
+2. 已加 dedup 的模块：fault、interference、contract_agreement、department_duty_log、regulation、home/navigation、signature。
 3. signature 使用 `request_id` 标杆实现幂等。
 4. 新增 CRUD 模块应评估是否需要加 dedup。
 

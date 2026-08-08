@@ -1,0 +1,2 @@
+scenario,backup_exists,restore_succeeded,restored_at,rto_seconds,rpo_seconds,status
+database_restore,true,true,2026-08-08T12:00:00,180,0,PASS

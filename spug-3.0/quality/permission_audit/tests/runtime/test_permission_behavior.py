@@ -251,26 +251,26 @@ def test_permission_cache_invalidation():
         cleanup_test_user(user, role)
 
 
-def test_notice_view_permission():
+def test_announcement_view_permission():
     """测试7：公告查看权限"""
     user, role, token = make_test_user(
-        'perm_test_notice',
-        perms_json=json.dumps({'home': {'notice': ['view']}}),
+        'perm_test_announcement',
+        perms_json=json.dumps({'home': {'announcement': ['view']}}),
     )
     try:
         client = make_client(token)
         # GET 应该成功
-        resp = client.get('/api/home/notice/')
+        resp = client.get('/api/home/announcement/')
         try:
             data = json.loads(resp.content)
         except:
             return 'error', f'Cannot parse response'
 
         if data.get('error') == '权限拒绝':
-            return 'fail', 'User with home.notice.view should be able to GET /api/home/notice/'
+            return 'fail', 'User with home.announcement.view should be able to GET /api/home/announcement/'
 
-        # POST 应该被拒绝（需要 home.notice.add|home.notice.edit）
-        resp_post = client.post('/api/home/notice/', data=json.dumps({
+        # POST 应该被拒绝（需要 home.announcement.add|home.announcement.edit）
+        resp_post = client.post('/api/home/announcement/', data=json.dumps({
             'title': 'test',
             'content': 'test',
         }), content_type='application/json')
@@ -282,7 +282,7 @@ def test_notice_view_permission():
         if post_data.get('error') != '权限拒绝':
             return 'fail', f'POST should be denied for view-only user, got: {post_data}'
 
-        return 'pass', 'Notice view permission correctly enforced'
+        return 'pass', 'Announcement view permission correctly enforced'
     except Exception as e:
         return 'error', str(e)
     finally:
@@ -298,7 +298,7 @@ def test_multi_role_merge():
     try:
         role2 = Role.objects.create(
             name=f'test_role_extra_{user.username}',
-            page_perms=json.dumps({'home': {'notice': ['view', 'add']}}),
+            page_perms=json.dumps({'home': {'navigation': ['view', 'add']}}),
             perms_version=1,
             tenant_id='test_tenant',
         )
@@ -306,8 +306,8 @@ def test_multi_role_merge():
 
         perms = user.page_perms
         assert 'system.account.view' in perms, f"Role 1 perm missing: {perms}"
-        assert 'home.notice.view' in perms, f"Role 2 perm missing: {perms}"
-        assert 'home.notice.add' in perms, f"Role 2 perm missing: {perms}"
+        assert 'home.navigation.view' in perms, f"Role 2 perm missing: {perms}"
+        assert 'home.navigation.add' in perms, f"Role 2 perm missing: {perms}"
 
         role2.delete()
         return 'pass', 'Multi-role permissions correctly merged'
@@ -330,7 +330,7 @@ def run_all_tests():
         ('super_bypass', '超管绕过权限', test_super_user_bypass, 'low'),
         ('setting_super_only', '系统设置仅超管', test_setting_view_super_only, 'high'),
         ('cache_invalidation', '权限缓存失效', test_permission_cache_invalidation, 'high'),
-        ('notice_permission', '公告权限校验', test_notice_view_permission, 'medium'),
+        ('announcement_permission', '公告权限校验', test_announcement_view_permission, 'medium'),
         ('multi_role_merge', '多角色权限合并', test_multi_role_merge, 'medium'),
     ]
 

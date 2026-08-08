@@ -1,0 +1,11 @@
+id,severity,module,title,current_data_pattern,migration_risk,affected_records_evidence,recommended_preparation,needs_business_decision
+MR-001,高,device,DeviceEvent.device_resume_id为IntegerField非外键,"IntegerField存储DeviceResume.id,无数据库级约束","改为外键需验证所有id指向存在的DeviceResume,可能存在孤儿记录","DeviceEvent表中device_resume_id字段","1. 数据清洗:删除孤儿记录 2. 添加外键约束",N
+MR-002,高,fault,FaultRecord用文本字段引用设备和系统,"system_name和device_code为CharField,无外键关联","无法自动关联到DeviceResume,改名后断裂","FaultRecord表中system_name和device_code字段","1. 建立映射表 2. 人工确认关联关系",Y
+MR-003,高,upgrade,UpgradeRecord.system为文本不关联UpgradeSystem,"system为CharField,不引用UpgradeSystem.id","改名后记录中的system文本不变,无法追溯","UpgradeRecord表中system字段","1. 建立映射表 2. 人工确认关联关系",Y
+MR-004,高,device,DeviceEvent冗余存储device_name和device_sn,"device_name和device_sn为CharField副本","与DeviceResume可能不一致,改名后不同步","DeviceEvent表中device_name和device_sn字段","1. 数据清洗:同步冗余字段 2. 改为外键后移除冗余",N
+MR-005,中,fault,FaultPart无外键关联FaultRecord,"FaultPart独立存在,无fault_record_id字段","无法追溯部件属于哪个故障记录","FaultPart表中无fault_record_id字段","1. 增加外键字段 2. 人工确认关联关系",Y
+MR-006,中,upgrade,UpgradeRecordStep/StatusLog.upgrade_id为IntegerField,"IntegerField存储UpgradeRecord.id,无外键约束","改为外键需验证所有id指向存在的UpgradeRecord","UpgradeRecordStep和UpgradeStatusLog表中upgrade_id字段","1. 数据清洗 2. 添加外键约束",N
+MR-007,中,device,DeviceResume CHECK约束device_delete_fields_valid,"约束要求is_deleted与deleted_at/deleted_by一致","迁移时需确保约束不被违反","tdyw_device_resume表CHECK约束","1. 验证数据一致性 2. 迁移后重建约束",N
+MR-008,低,alert,AlertRead.user_id为IntegerField,"IntegerField存储User.id,无外键约束","改为外键需验证所有user_id指向存在的用户","AlertRead表中user_id字段","1. 数据清洗 2. 添加外键约束",N
+MR-009,低,alert,Alert无tenant_id全局数据,"Alert使用ModelMixin非TenantModelMixin","重构时需确认是否需要租户隔离","Alert表无tenant_id字段","1. 确认业务需求 2. 如需隔离则增加字段",Y
+MR-010,低,device,DeviceResume.responsible_user_name为文本,"CharField存储人名,无用户表关联","可改为外键但影响较小","DeviceResume表中responsible_user_name字段","1. 建立映射表 2. 改为外键",Y

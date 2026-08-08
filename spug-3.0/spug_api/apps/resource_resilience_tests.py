@@ -216,33 +216,6 @@ class R5ListNoPaginationTests(TestCase):
     导致内存激增和响应变慢。
     """
 
-    def test_notice_list_no_pagination(self):
-        """R5.2: home/notice.py NoticeView.get 返回全量数据无分页"""
-        import os
-        source_path = os.path.join(os.path.dirname(__file__), 'home', 'notice.py')
-        if not os.path.exists(source_path):
-            self.skipTest("home/notice.py 不存在")
-
-        with open(source_path, 'r', encoding='utf-8') as f:
-            source = f.read()
-
-        tree = ast.parse(source)
-        found_unbounded = False
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and node.name == 'NoticeView':
-                for item in node.body:
-                    if isinstance(item, ast.FunctionDef) and item.name == 'get':
-                        func_source = ast.get_source_segment(source, item)
-                        has_pagination = ('page' in func_source.lower() or
-                                          'paginate' in func_source.lower() or
-                                          '[:' in func_source)
-                        if not has_pagination:
-                            found_unbounded = True
-
-        self.assertFalse(found_unbounded,
-                         "NoticeView.get 返回全量数据无分页")
-
     def test_navigation_list_no_pagination(self):
         """R5.3: home/navigation.py NavView.get 返回全量数据无分页"""
         import os

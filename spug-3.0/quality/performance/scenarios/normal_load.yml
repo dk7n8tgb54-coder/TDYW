@@ -1,0 +1,61 @@
+# Normal Load Scenario
+# Simulates typical daily usage load.
+# 10-20 users, 5-10 minutes.
+
+# Locust configuration
+locust:
+  locustfile: locustfiles/read_workflows.py
+  headless: true
+  users: 15
+  spawn_rate: 2
+  run_time: 5m
+
+# Safety requirements
+safety:
+  level: read_only
+  requires_allow_performance_test: true
+  requires_allow_write_load: false
+  requires_test_database: false
+
+# Description
+description: >
+  Normal load test simulates typical daily usage with 10-20 concurrent users.
+  Covers all major read-only API endpoints. Run for 5-10 minutes to get
+  stable metrics. No data is created or modified.
+
+# Expected results
+expected:
+  p50_ms: 200
+  p90_ms: 500
+  p95_ms: 800
+  p99_ms: 2000
+  error_rate_percent: 0
+  min_rps: 10
+
+# Thresholds
+thresholds:
+  category: target
+  max_p95_ms: 800
+  max_p99_ms: 2000
+  max_error_rate_percent: 1
+
+# Variants (optional)
+variants:
+  light:
+    users: 5
+    spawn_rate: 1
+    run_time: 3m
+  standard:
+    users: 15
+    spawn_rate: 2
+    run_time: 5m
+  heavy:
+    users: 25
+    spawn_rate: 5
+    run_time: 10m
+
+# Tags
+tags:
+  - normal
+  - read-only
+  - standard

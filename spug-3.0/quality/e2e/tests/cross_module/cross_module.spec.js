@@ -26,14 +26,6 @@ test.describe('Cross-Module Integration Tests', () => {
     await result.context.dispose();
   });
 
-  test('X003 - Home page notice API works', async ({}) => {
-    const result = await loginAndCreateContext('admin');
-    const data = await apiGet(result.context, '/api/home/notice/');
-    expect(data).toBeDefined();
-    expect(data.error || '').toBe('');
-    await result.context.dispose();
-  });
-
   test('X004 - Navigation API returns menu structure', async ({}) => {
     const result = await loginAndCreateContext('admin');
     const data = await apiGet(result.context, '/api/home/navigation/');

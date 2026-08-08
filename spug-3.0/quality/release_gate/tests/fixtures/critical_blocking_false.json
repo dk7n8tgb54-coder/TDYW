@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-08-08T12:00:00",
+  "git_commit": "abc123",
+  "worktree_status": "test fixture: CRITICAL with blocking=false",
+  "packages": [
+    {"id": "WP1", "name": "盘点", "final_status": "PASS", "blocking_findings": 0, "notes": "", "tests_executed": true},
+    {"id": "WP2", "name": "日常业务", "final_status": "PASS", "blocking_findings": 0, "notes": "", "tests_executed": true},
+    {"id": "WP3", "name": "资料行政", "final_status": "PASS", "blocking_findings": 0, "notes": "", "tests_executed": true},
+    {"id": "WP4", "name": "技术运维", "final_status": "PASS", "blocking_findings": 0, "notes": "", "tests_executed": true},
+    {"id": "WP5", "name": "租户隔离", "final_status": "PASS", "blocking_findings": 0, "notes": "", "tests_executed": true},
+    {"id": "WP6", "name": "权限审计", "final_status": "PASS", "blocking_findings": 0, "notes": "", "artifacts_complete": true, "tests_executed": true},
+    {"id": "WP7", "name": "数据库审计", "final_status": "PASS", "blocking_findings": 0, "notes": "", "tests_executed": true},
+    {"id": "WP8", "name": "E2E", "final_status": "PASS", "blocking_findings": 0, "notes": "", "tests_executed": true},
+    {"id": "WP9", "name": "性能灾备", "final_status": "PASS", "blocking_findings": 0, "notes": "", "tests_executed": true}
+  ],
+  "confirmed_findings": [
+    {"id": "F-001", "severity": "CRITICAL", "title": "Critical with blocking=false", "package": "WP5", "blocking": false, "remediation_status": "pending"}
+  ],
+  "secret_findings": [],
+  "verified_test_results": {
+    "total_historical_claimed": "500",
+    "total_verified_executed": 500,
+    "verification_method": "structural"
+  },
+  "blocked_checks": [],
+  "missing_artifacts": [],
+  "evidence": {
+    "permission_audit": {"status": "PASS", "report_paths": ["quality/reports/permission_audit/permission_catalog.csv"]},
+    "performance_load": {"status": "PASS", "result_path": "quality/reports/performance/load_test_results.csv", "environment": "isolated_test_db"},
+    "disaster_recovery_restore": {"status": "PASS", "drill_report": "quality/reports/disaster_recovery/restore_drill_results.csv", "environment": "isolated_restore_env"}
+  }
+}

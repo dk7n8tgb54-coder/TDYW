@@ -2,7 +2,6 @@
 # Released under the AGPL-3.0 License.
 from django.test import TestCase, Client
 from apps.account.models import User
-from apps.home.models import Notice, Navigation
 from apps.setting.utils import AppSetting
 import json
 
@@ -12,7 +11,6 @@ class HomeAPITest(TestCase):
 
     def setUp(self):
         """测试前准备"""
-        # 创建32位token
         import time
         token = 'a' * 32
 
@@ -32,44 +30,15 @@ class HomeAPITest(TestCase):
         self.client = Client()
         self.client.defaults['HTTP_X_TOKEN'] = token
         self.client.defaults['HTTP_X_FORWARDED_FOR'] = '127.0.0.1'
-        # 禁用IP绑定
         AppSetting.set('bind_ip', False)
 
-    def test_get_notices(self):
-        """测试获取通知列表"""
-        Notice.objects.create(
-            title='测试通知',
-            content='测试内容',
-            is_stress=False,
-            read_ids='[]',
-            sort_id=1
-        )
-
-        response = self.client.get('/home/notice/')
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertIn('data', data)
-        self.assertIsInstance(data['data'], list)
-
-    def test_get_navigation(self):
-        """测试获取导航列表"""
-        Navigation.objects.create(
-            title='测试导航',
-            desc='描述',
-            logo='data:image/png;base64,iVBORw0KG...',
-            links='[{"name":"测试","url":"http://test.com"}]',
-            sort_id=1
-        )
-
+    def test_navigation_removed(self):
+        """Navigation 接口已删除，返回 404"""
         response = self.client.get('/home/navigation/')
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertIn('data', data)
+        self.assertEqual(response.status_code, 404)
 
     def test_unauthorized_access(self):
         """测试未授权访问"""
-        # 删除 token
         del self.client.defaults['HTTP_X_TOKEN']
-
-        response = self.client.get('/home/notice/')
+        response = self.client.get('/home/statistic/')
         self.assertEqual(response.status_code, 401)

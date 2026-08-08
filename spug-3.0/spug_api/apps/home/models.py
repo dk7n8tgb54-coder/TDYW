@@ -7,7 +7,6 @@ from libs.mixins import ModelMixin
 from django.utils import timezone
 from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 from datetime import timedelta
-import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -34,66 +33,6 @@ STATUS_CHOICES = (
 
 ANN_CONTENT_MAX_LEN = 20000
 TITLE_MAX_LEN = 200
-
-
-class Notice(models.Model, TenantModelMixin):
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-    title = models.CharField(max_length=100)
-    content = models.TextField()
-    is_stress = models.BooleanField(default=False)
-    read_ids = models.TextField(default='[]')
-    sort_id = models.IntegerField(default=0, db_index=True)
-    is_deleted = models.BooleanField(default=False, help_text='软删除标识')
-    deleted_at = models.DateTimeField(null=True, blank=True, help_text='删除时间')
-    deleted_by_id = models.IntegerField(null=True, blank=True, help_text='删除人ID')
-    deleted_by_name = models.CharField(max_length=100, default='', help_text='删除人姓名快照')
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(null=True, blank=True, help_text='更新时间')
-    updated_by_id = models.IntegerField(null=True, blank=True, help_text='更新人ID')
-    updated_by_name = models.CharField(max_length=100, default='', help_text='更新人姓名快照')
-
-    def to_view(self):
-        tmp = self.to_dict()
-        try:
-            tmp['read_ids'] = json.loads(self.read_ids)
-        except (json.JSONDecodeError, TypeError):
-            tmp['read_ids'] = []
-        return tmp
-
-    class Meta:
-        db_table = 'notices'
-        ordering = ('-sort_id',)
-
-
-class Navigation(models.Model, TenantModelMixin):
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-    title = models.CharField(max_length=64)
-    desc = models.CharField(max_length=128)
-    logo = models.TextField()
-    links = models.TextField()
-    sort_id = models.IntegerField(default=0, db_index=True)
-    is_deleted = models.BooleanField(default=False, help_text='软删除标识')
-    deleted_at = models.DateTimeField(null=True, blank=True, help_text='删除时间')
-    deleted_by_id = models.IntegerField(null=True, blank=True, help_text='删除人ID')
-    deleted_by_name = models.CharField(max_length=100, default='', help_text='删除人姓名快照')
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(null=True, blank=True, help_text='更新时间')
-    updated_by_id = models.IntegerField(null=True, blank=True, help_text='更新人ID')
-    updated_by_name = models.CharField(max_length=100, default='', help_text='更新人姓名快照')
-
-    def to_view(self):
-        tmp = self.to_dict()
-        try:
-            tmp['links'] = json.loads(self.links)
-        except (json.JSONDecodeError, TypeError):
-            tmp['links'] = []
-        return tmp
-
-    class Meta:
-        db_table = 'navigations'
-        ordering = ('-sort_id',)
 
 
 class Announcement(models.Model, TenantModelMixin):
@@ -280,7 +219,7 @@ class AnnouncementScope(models.Model, TenantModelMixin):
 class AnnouncementRead(models.Model, TenantModelMixin):
     """已读表（tdyw_announcement_reads）
 
-    替代旧 Notice.read_ids JSON，便于未读统计与并发标记。
+    替代旧 read_ids JSON 方案，便于未读统计与并发标记。
     tenant_id 表示读者所属租户，由调用方显式写入。
     """
     objects = TenantModelManager()

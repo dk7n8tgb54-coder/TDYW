@@ -1,0 +1,124 @@
+# Performance Threshold Definitions
+#
+# Categories:
+#   baseline    - Current measured values (from actual test runs)
+#   target      - Business-desired values (needs business confirmation)
+#   blocking    - Values that block release (decided in conversation 10)
+#   env_anomaly - Test environment issues, not application problems
+#
+# NOTE: All values below are SUGGESTED only.
+#       Actual thresholds must be based on measured baselines.
+#       Do not use these as release gates until validated.
+
+version: "1.0"
+last_updated: "2026-08-08"
+status: draft  # draft -> reviewed -> approved
+
+# === Endpoint-level thresholds (per-request) ===
+endpoints:
+  # Basic APIs should be fast
+  - pattern: "GET /api/home/statistic/"
+    baseline: null  # To be filled after measurement
+    target_p95_ms: 500
+    target_p99_ms: 1000
+    blocking_p95_ms: 2000
+    notes: "Dashboard aggregation, may involve multiple queries"
+
+  - pattern: "GET /api/home/navigation/"
+    baseline: null
+    target_p95_ms: 200
+    target_p99_ms: 500
+    blocking_p95_ms: 1000
+    notes: "Menu tree, should be cached"
+
+  - pattern: "GET /api/data_analysis/dashboard/"
+    baseline: null
+    target_p95_ms: 1000
+    target_p99_ms: 2000
+    blocking_p95_ms: 5000
+    notes: "Complex aggregation, 60s Redis cache"
+
+  # List endpoints
+  - pattern: "GET /api/*/records/"
+    baseline: null
+    target_p95_ms: 500
+    target_p99_ms: 1500
+    blocking_p95_ms: 3000
+    notes: "Paginated list queries"
+
+  - pattern: "GET /api/document/folder/"
+    baseline: null
+    target_p95_ms: 300
+    target_p99_ms: 800
+    blocking_p95_ms: 2000
+    notes: "Folder tree query"
+
+  - pattern: "GET /api/document/file/"
+    baseline: null
+    target_p95_ms: 500
+    target_p99_ms: 1500
+    blocking_p95_ms: 3000
+    notes: "File list with metadata"
+
+  - pattern: "GET /api/logs/audit/"
+    baseline: null
+    target_p95_ms: 800
+    target_p99_ms: 2000
+    blocking_p95_ms: 5000
+    notes: "Audit log with hash chain, potentially large table"
+
+  # Write endpoints
+  - pattern: "POST /api/*/records/"
+    baseline: null
+    target_p95_ms: 500
+    target_p99_ms: 1500
+    blocking_p95_ms: 3000
+    notes: "Create operations with audit logging"
+
+  - pattern: "POST /api/document/upload/"
+    baseline: null
+    target_p95_ms: 2000
+    target_p99_ms: 5000
+    blocking_p95_ms: 10000
+    notes: "File upload, depends on file size"
+
+# === Workflow-level thresholds (end-to-end) ===
+workflows:
+  - name: "login_and_dashboard"
+    target_p95_ms: 1500
+    blocking_p95_ms: 3000
+    notes: "Login + load dashboard"
+
+  - name: "list_and_detail"
+    target_p95_ms: 1000
+    blocking_p95_ms: 3000
+    notes: "List page + open detail"
+
+  - name: "upload_and_verify"
+    target_p95_ms: 3000
+    blocking_p95_ms: 8000
+    notes: "Upload file + verify in list"
+
+# === System-level thresholds ===
+system:
+  max_error_rate: 5.0  # percent
+  max_db_connections: 50
+  max_redis_connections: 20
+  max_celery_queue_depth: 100
+  max_container_memory_mb: 2048
+  max_container_cpu_percent: 80.0
+
+# === Environment anomaly thresholds ===
+# These indicate test environment problems, not application issues
+environment_anomalies:
+  - name: "high_network_latency"
+    condition: "avg_latency > 100ms for localhost"
+    action: "investigate network, not application"
+
+  - name: "low_db_connections_pool"
+    condition: "CONN_MAX_AGE=0 causing connection storms"
+    action: "known configuration, not a defect"
+
+  - name: "container_resource_limit"
+    condition: "CPU/memory limits hit during test"
+    action: "increase container resources or reduce load"

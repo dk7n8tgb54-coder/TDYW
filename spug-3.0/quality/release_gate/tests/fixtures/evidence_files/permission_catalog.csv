@@ -1,0 +1,3 @@
+permission_id,package,route_perm,api_perm,status
+1,home,/home/navigation,home.navigation.view,CONSISTENT
+2,home,/home/announcement,home.announcement.view,CONSISTENT

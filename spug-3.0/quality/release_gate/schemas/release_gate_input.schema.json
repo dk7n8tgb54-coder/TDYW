@@ -1,0 +1,175 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Release Gate Input",
+  "description": "WP10 统一发布门禁输入 JSON Schema（参考文档）。实际校验由 checks/input_validation.py 执行。门禁输出字段（schema_valid/input_valid/consumable_by_release_gate/can_release_now/gate_status）由门禁计算，不属于输入必需字段。",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at",
+    "git_commit",
+    "worktree_status",
+    "packages",
+    "confirmed_findings",
+    "secret_findings",
+    "verified_test_results"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "generated_at": { "type": "string" },
+    "git_commit": { "type": "string" },
+    "worktree_dirty": { "type": "boolean" },
+    "worktree_status": { "type": "string" },
+    "correction_note": { "type": "string" },
+    "packages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "final_status"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "final_status": {
+            "type": "string",
+            "enum": ["PASS", "FAIL", "PARTIAL", "NOT_REVERIFIED", "NOT_RUN", "BLOCKED", "NOT_APPLICABLE"]
+          },
+          "blocking_findings": { "type": "integer" },
+          "notes": { "type": "string" },
+          "warnings": { "type": "array" },
+          "historical_claim": { "type": "string" },
+          "fail_reason": { "type": "string" },
+          "artifacts_complete": { "type": "boolean" },
+          "tests_executed": { "type": "boolean" }
+        }
+      }
+    },
+    "confirmed_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "severity", "title"],
+        "properties": {
+          "id": { "type": "string" },
+          "severity": {
+            "type": "string",
+            "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+          },
+          "title": { "type": "string" },
+          "package": { "type": "string" },
+          "blocking": { "type": "boolean" },
+          "remediation_status": { "type": "string" }
+        }
+      }
+    },
+    "candidate_findings": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "finding_summary": {
+      "type": "object",
+      "properties": {
+        "critical": { "type": "integer" },
+        "high": { "type": "integer" },
+        "medium": { "type": "integer" },
+        "low": { "type": "integer" },
+        "total": { "type": "integer" },
+        "blocking": { "type": "integer" }
+      }
+    },
+    "secret_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "location"],
+        "properties": {
+          "id": { "type": "string" },
+          "severity": { "type": "string" },
+          "count": { "type": "integer" },
+          "type": { "type": "string" },
+          "tracked": {},
+          "location": { "type": "string" },
+          "git_commit": { "type": "string" },
+          "recommendation": { "type": "string" },
+          "rotation_status": {
+            "type": "string",
+            "enum": ["pending", "completed", "verified", "not_required", "unrotated", "needs_rotation"]
+          },
+          "rotation_verified_at": { "type": "string" }
+        }
+      }
+    },
+    "verified_test_results": {
+      "type": "object",
+      "required": ["total_verified_executed"],
+      "properties": {
+        "total_historical_claimed": { "type": "string" },
+        "total_verified_executed": { "type": "integer" },
+        "verification_method": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    },
+    "blocked_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "check": { "type": "string" },
+          "status": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "missing_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "package": { "type": "string" },
+          "path": { "type": "string" },
+          "type": { "type": "string" },
+          "severity": { "type": "string" }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "description": "Structured evidence for required checks. Each entry must have status='PASS' to satisfy the check.",
+      "properties": {
+        "permission_audit": {
+          "type": "object",
+          "properties": {
+            "status": { "type": "string", "enum": ["PASS", "NOT_RUN", "FAIL"] },
+            "report_paths": { "type": "array", "items": { "type": "string" } },
+            "generated_at": { "type": "string" },
+            "reason": { "type": "string" }
+          }
+        },
+        "performance_load": {
+          "type": "object",
+          "properties": {
+            "status": { "type": "string", "enum": ["PASS", "NOT_RUN", "FAIL"] },
+            "result_path": { "type": ["string", "null"] },
+            "executed_at": { "type": ["string", "null"] },
+            "environment": { "type": ["string", "null"] },
+            "reason": { "type": "string" }
+          }
+        },
+        "disaster_recovery_restore": {
+          "type": "object",
+          "properties": {
+            "status": { "type": "string", "enum": ["PASS", "NOT_RUN", "FAIL"] },
+            "drill_report": { "type": ["string", "null"] },
+            "restored_at": { "type": ["string", "null"] },
+            "environment": { "type": ["string", "null"] },
+            "reason": { "type": "string" }
+          }
+        }
+      }
+    },
+    "schema_valid": { "type": "boolean", "description": "Optional: self-assessment by acceptance report" },
+    "input_valid": { "type": "boolean", "description": "Optional: self-assessment by acceptance report" },
+    "consumable_by_release_gate": { "type": "boolean", "description": "Optional: self-assessment by acceptance report" },
+    "can_release_now": { "type": "boolean", "description": "Optional: self-assessment by acceptance report" },
+    "gate_status": { "type": "string", "description": "Optional: self-assessment by acceptance report" },
+    "can_release_reason": { "type": "string" }
+  }
+}

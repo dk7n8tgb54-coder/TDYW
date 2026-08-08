@@ -1,0 +1,4 @@
+finding_id,target,previous_severity,reproduction_status,remediation_status,test_status,evidence,remaining_risk
+TI-001,NavView (Navigation),CRITICAL,CONFIRMED,REMEDIATED_BY_REMOVAL,REMEDIATED_BY_REMOVAL,"Navigation 功能完全移除：navigation.py 已删除、NavView 路由已移除、Navigation 模型已删除（migration 0011_delete_navigation）、前端 Nav.js/NavForm.js 已删除；4 项验证测试全部通过（NAV-01 至 NAV-04，确认接口 404 + 模型/模块/路由已移除）",无
+TI-002,NoticeView (Notice),CRITICAL,NOT_APPLICABLE,REMEDIATED_BY_REMOVAL,REMEDIATED_BY_REMOVAL,"notice.py 已删除，Notice 模型已移除（migration 0010_delete_notice），路由不可达（404），Announcement 模型替代；4 项验证测试全部通过（NOTICE-01 至 NOTICE-04）",无
+TI-003,ReminderUsersView (User leak),HIGH,CONFIRMED,FIXED_AND_VERIFIED,FIXED_AND_VERIFIED,"ReminderUsersView 添加 tenant_id 过滤（非超管）；移除响应中 tenant_id 字段；7 项行为测试全部通过（REMUSERS-01 至 REMUSERS-07）",无

@@ -7,8 +7,6 @@ _uid = lambda: uuid.uuid4().hex[:12]
 
 ALL_PERMS = json.dumps({
     "home": {
-        "navigation": ["view", "add", "edit", "del"],
-        "notice": ["view", "add", "edit", "del"],
         "reminder": ["view", "add", "edit", "delete"],
     },
     "runlog": {

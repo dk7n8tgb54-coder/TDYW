@@ -1,0 +1,115 @@
+# Database Restore Scenario
+scenario_name: database_restore
+description: >
+  Full database restore from a backup archive to a temp database.
+  Validates that the database can be restored, migrations are consistent,
+  and core data (users, tenants, permissions, audit logs) is intact.
+
+tier: 1
+priority: P0
+component: database
+
+# ---- Prerequisites ----
+prerequisites:
+  - "Environment guard must pass (ALLOW_RESTORE_DRILL=true, temp DB, temp container)"
+  - "Backup archive must exist and be verifiable"
+  - "Target temp database must exist and be empty"
+  - "MariaDB restore credentials must be available (RESTORE_CLIENT_CNF)"
+
+# ---- Steps ----
+steps:
+  - id: 1
+    name: environment_guard
+    description: "Run environment guard checks (fail-closed)"
+    runner: "helpers.environment_guard.assert_safe_for_drill"
+    on_failure: "abort"
+
+  - id: 2
+    name: locate_backup
+    description: "Locate and verify the backup archive"
+    runner: "runners.run_restore_drill.locate_backup_archive"
+    on_failure: "abort"
+
+  - id: 3
+    name: verify_backup_integrity
+    description: "Verify backup integrity (SHA256SUMS or borg check)"
+    on_failure: "abort"
+    checks:
+      - "SHA256SUMS file exists and is valid"
+      - "manifest.json is parseable and valid"
+
+  - id: 4
+    name: stop_app
+    description: "Stop the target app container (if running)"
+    command: "docker stop ${DR_TARGET_CONTAINER}"
+    on_failure: "continue"
+
+  - id: 5
+    name: drop_and_recreate_db
+    description: "Drop and recreate the temp database to ensure clean state"
+    command: "docker exec ${DR_TARGET_DB_CONTAINER} mysql -u root -e 'DROP DATABASE IF EXISTS ${DR_TARGET_DB}; CREATE DATABASE ${DR_TARGET_DB};'"
+    on_failure: "abort"
+
+  - id: 6
+    name: restore_database
+    description: "Restore database from dump"
+    command: "gunzip -c database.sql.gz | docker exec -i ${DR_TARGET_DB_CONTAINER} mysql -u root ${DR_TARGET_DB}"
+    timeout: 600
+    on_failure: "abort"
+
+  - id: 7
+    name: start_app
+    description: "Start the target app container"
+    command: "docker start ${DR_TARGET_CONTAINER}"
+    on_failure: "abort"
+
+  - id: 8
+    name: wait_for_app
+    description: "Wait for app to be ready"
+    command: "curl -sf ${DR_APP_URL}/api/home/navigation/ || sleep 5"
+    timeout: 180
+    on_failure: "continue"
+
+  - id: 9
+    name: validate_database
+    description: "Run database validator"
+    runner: "validators.database_validator.run_all"
+    on_failure: "report"
+
+  - id: 10
+    name: validate_application
+    description: "Run application validator"
+    runner: "validators.application_validator.run_all"
+    on_failure: "report"
+
+  - id: 11
+    name: validate_security
+    description: "Run security validator"
+    runner: "validators.security_validator.run_all"
+    on_failure: "report"
+
+# ---- Success Criteria ----
+success_criteria:
+  - "Environment guard passed"
+  - "Database restore completed without errors"
+  - "Django check passes"
+  - "All expected tables present (>= 40)"
+  - "No unapplied migrations"
+  - "Users and roles exist in restored DB"
+  - "No orphaned foreign keys"
+  - "Audit log structure intact"
+  - "Login works"
+  - "List endpoints accessible"
+  - "No plaintext passwords in DB"
+  - "Debug mode is off"
+
+# ---- RPO/RTO Targets ----
+rpo_target_seconds: 86400  # 24 hours (daily backup)
+rto_target_seconds: 14400  # 4 hours
+
+# ---- Rollback ----
+rollback:
+  - "Stop target app container"
+  - "Drop temp database"
+  - "Remove temp file restore directory"
+  - "No rollback needed for production (this drill is isolated)"

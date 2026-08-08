@@ -1,0 +1,62 @@
+# Test Data Set Definitions
+#
+# Defines safe test data sets for performance testing.
+# All data uses PERF_ prefix for identification.
+# No real user data, no real files.
+
+version: "1.0"
+
+# === Test Accounts ===
+accounts:
+  description: "Dedicated stress test accounts (not production users)"
+  prefix: "st_press_"
+  count: 5
+  tenant: "stress"
+  source: "Created by locustfile/tools/create_stress_accounts.py"
+  note: "Passwords are test-only, stored in env vars not in repo"
+
+# === Test Data Sets ===
+datasets:
+  # Read-only test data (already in database)
+  read_only:
+    name: "existing_data_readonly"
+    description: "Use existing data for read-only tests. No data creation."
+    safe: true
+    notes: "Can run in any environment including dev"
+
+  # Write test data (created during test)
+  write_test:
+    name: "perf_prefixed_data"
+    description: "Test data with PERF_ prefix for identification and cleanup"
+    prefix: "PERF_"
+    max_records: 50
+    categories:
+      - duty_logs
+      - runlogs
+      - reminders
+      - faults
+      - interferences
+    cleanup: "Automatic via cleanup helper, matching PERF_ prefix"
+    notes: "Requires ALLOW_WRITE_LOAD=true and test database"
+
+  # File test data (generated, not real files)
+  file_test:
+    name: "generated_small_files"
+    description: "Small generated text files, not real user files"
+    max_file_size_kb: 1024  # 1MB
+    max_file_count: 10
+    file_types:
+      - extension: ".txt"
+        content_type: "text/plain"
+        size_range_kb: [1, 100]
+    cleanup: "Delete uploaded files via API after test"
+    notes: "No real files, no large files, no binary files"
+
+# === Forbidden Data ===
+forbidden:
+  - "Real user files"
+  - "Real attachment files"
+  - "Production database records"
+  - "Files larger than 1MB"
+  - "Binary files (images, PDFs, etc.)"
+  - "Files from production storage directories"

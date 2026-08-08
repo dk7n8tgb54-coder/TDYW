@@ -13,6 +13,7 @@
 | 部署 | Docker Compose | `docker/` | `tdyw`(后端) + `tdyw-db`(MariaDB) + `kkfileview`(预览) |
 | 脚本 | Python / PowerShell / Bash | `scripts/` | 运维、审计、数据修复脚本 |
 | 压测 | Locust | `locustfile/` | 性能压测脚本 |
+| 质量工程 | Django Test / Playwright / Locust / 审计工具 | `quality/` | 跨系统测试、审计、性能、灾备、发布门禁及报告 |
 
 ### 关键约束
 
@@ -58,6 +59,60 @@
 
 `backups/`、`scripts/`（运维脚本）、`locustfile/`（压测）、`hy3扫描边界/`、`loop engineering/`、`outputs/`、`Trae/`、`dev/` 以及根目录下的各种 `*_AUDIT_REPORT.md` 均为临时产物或实验目录，不是正式业务模块。
 
+### 全系统质量工程
+
+`quality/` 是正式的跨系统质量工程目录，但不是生产业务模块。业务模块自身的特征测试放在对应应用的 `tests/` 目录；跨模块测试、审计工具、性能与灾备工具和统一发布门禁放在 `quality/`。
+
+| 目录 | 职责 |
+|---|---|
+| `quality/api_contract/` | API 契约发现、兼容性检查和结构化快照 |
+| `quality/tenant_isolation/` | 全系统租户隔离与跨租户越权测试 |
+| `quality/permission_audit/` | 前端路由、后端 API 和角色权限一致性审计 |
+| `quality/database_audit/` | 数据库结构、迁移、索引和数据质量只读审计 |
+| `quality/e2e/` | Playwright 全系统端到端回归测试 |
+| `quality/performance/` | 性能场景、环境保护和性能基线 |
+| `quality/disaster_recovery/` | 备份盘点、恢复验证和灾备演练保护工具 |
+| `quality/release_gate/` | `quick`、`standard`、`full` 统一发布门禁 |
+| `quality/reports/` | 各专项生成的结构化结果、报告和运行证据 |
+
+#### 测试分类
+
+- `stable_contract`：长期稳定的业务不变量，可纳入发布门禁。
+- `legacy_characterization`：重构前的临时行为基线，默认不作为长期发布阻断条件。
+- `defect_reproduction`：已确认缺陷的最小复现测试，不得通过弱化断言掩盖问题。
+- `migration_validation`：架构或数据迁移前后的完整性、数量和关联校验。
+
+不得将临时旧架构行为误写为长期业务契约。业务规则有意改变时，应同步更新测试、行为清单和门禁策略；新增或删除模块时，应同步更新模块、API、权限、数据库和 E2E 覆盖关系。
+
+#### 业务模块测试落点
+
+后端业务测试必须跟随所属 Django app，不能因属于全系统质量计划就全部集中到 `quality/`：
+
+| 业务域 | 后端测试目录 |
+|---|---|
+| 日常业务 | `spug_api/apps/department_duty_log/tests/`、`spug_api/apps/duty/tests/`、`spug_api/apps/runlog/tests/`、`spug_api/apps/reminder/tests/`、`spug_api/apps/home/tests/` |
+| 资料与行政 | `spug_api/apps/radio_license/tests/`、`spug_api/apps/contract_agreement/tests/`、`spug_api/apps/document/tests/`、`spug_api/apps/regulation/tests/` |
+| 技术运维稳定契约 | `spug_api/apps/device/tests/stable_contract/`、`spug_api/apps/fault/tests/stable_contract/`、`spug_api/apps/upgrade/tests/stable_contract/`、`spug_api/apps/interference/tests/stable_contract/`、`spug_api/apps/alert/tests/stable_contract/` |
+| 技术运维旧架构基线 | `spug_api/apps/device/tests/legacy_characterization/`、`spug_api/apps/fault/tests/legacy_characterization/`、`spug_api/apps/upgrade/tests/legacy_characterization/`、`spug_api/apps/interference/tests/legacy_characterization/`、`spug_api/apps/alert/tests/legacy_characterization/` |
+| 共享与系统模块 | `spug_api/apps/account/tests/`、`spug_api/apps/data_analysis/tests/`、`spug_api/apps/evidence/tests/`、`spug_api/apps/signature/tests/`、`spug_api/apps/storage/tests/`、`spug_api/apps/logs/tests/`、`spug_api/apps/setting/tests/` |
+
+附件、签名、存储等共享能力通过具体业务入口测试时，测试应优先放在调用它的业务 app；只有验证共享能力自身的通用行为时才放在共享 app 的 `tests/`。跨 app 的租户、权限、数据库和端到端测试分别放在对应的 `quality/` 专项目录，避免复制同一用例。
+
+前端组件、hook 和 store 测试放在对应页面的 `spug_web/src/pages/<page>/__tests__/`；真实浏览器流程只放在 `quality/e2e/tests/`。不得将 Playwright 测试混入组件测试目录，也不得用 Playwright 代替组件和后端行为测试。
+
+#### 质量工程约束
+
+1. 测试和审计必须执行真实代码路径；静态审计工具可以解析源码，但不能用源码字符串匹配冒充业务行为测试。
+2. 后端行为测试必须在 Docker 容器和隔离测试数据库中执行；未确认数据库用途时禁止任何写入、清理或恢复操作。
+3. Playwright 只能使用开发或专用测试环境和测试账号，只能清理由本次测试创建的数据。
+4. 性能压测和恢复演练必须通过 fail-closed 环境保护，禁止指向生产环境、开发业务数据库或真实文件目录。
+5. 密码、Cookie、Token、`storageState`、数据库备份、真实业务文件和未脱敏数据不得写入 Git 或报告。
+6. 运行产物统一放在 `quality/reports/`，不得混入测试源码目录；经过人工确认且长期使用的基线可放在对应工具的 `baselines/`。
+7. `PASS` 只表示检查已经实际执行并通过；未执行、依赖缺失、环境不可用和报告过期必须标记为 `NOT_RUN`、`BLOCKED` 或等价状态。
+8. `stable_contract` 失败、确认的严重租户/权限问题和数据完整性问题可以阻断发布；`legacy_characterization` 默认只用于重构前后对照。
+9. 发布门禁不得自动降低阈值、自动接受视觉基线或自动创建风险例外。临时例外必须有明确原因、责任人、批准人和到期日期。
+10. `quick` 用于开发期快速检查，`standard` 用于常规发布前检查，`full` 用于重大版本；任何档位都不得自动执行生产压测或数据库恢复。
+
 ---
 
 ## 三、工作区保护与 Git 禁止事项
@@ -65,7 +120,7 @@
 1. **禁止创建 Git commit**，除非用户明确要求。
 2. **禁止 `git push --force`、`git reset --hard`、`git stash`** 等破坏性操作。
 3. **禁止覆盖或回滚工作区未提交修改**。修改前必须先 `git status` + `git diff` 检查。
-4. **本次任务只能新增或修改 `AGENTS.md` 文件**，不得修改业务代码、配置、依赖、测试、数据库或构建产物。
+4. **只能修改用户在当前任务中明确授权的文件和目录**，不得自行扩大范围；未获得生产业务代码修改授权时，只允许只读调查或修改当前任务明确允许的测试、工具和报告。
 5. 修改文件时使用 `replace_in_file` 做精准编辑，禁止用 `write_to_file` 覆盖大文件（除非新建文件）。
 
 ---

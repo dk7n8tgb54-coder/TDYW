@@ -1,0 +1,90 @@
+# File Restore Scenario
+scenario_name: file_restore
+description: >
+  Restore file volumes (documents + media) from a backup archive to a temp directory.
+  Validates that files can be restored, checksums match, and DB-to-physical
+  mapping is consistent.
+
+tier: 1
+priority: P0
+component: file_storage
+
+# ---- Prerequisites ----
+prerequisites:
+  - "Environment guard must pass"
+  - "Database restore must be completed first (for DB-to-file mapping check)"
+  - "Backup archive must contain documents and media volumes"
+  - "Temp file restore directory must be under /tmp/ or /dr/"
+
+# ---- Steps ----
+steps:
+  - id: 1
+    name: environment_guard
+    description: "Run environment guard checks"
+    runner: "helpers.environment_guard.assert_safe_for_drill"
+    on_failure: "abort"
+
+  - id: 2
+    name: verify_prerequisites
+    description: "Verify database restore is complete"
+    checks:
+      - "DR_TARGET_DB has restored data"
+      - "DR_FILE_RESTORE_ROOT is a temp directory"
+
+  - id: 3
+    name: create_restore_dir
+    description: "Create temp restore directory"
+    command: "mkdir -p ${DR_FILE_RESTORE_ROOT}"
+
+  - id: 4
+    name: restore_documents
+    description: "Restore documents volume from backup"
+    command: "tar xzf documents.tar.gz -C ${DR_FILE_RESTORE_ROOT}"
+    timeout: 900
+    on_failure: "abort"
+
+  - id: 5
+    name: restore_media
+    description: "Restore media volume from backup"
+    command: "tar xzf media.tar.gz -C ${DR_FILE_RESTORE_ROOT}"
+    timeout: 900
+    on_failure: "abort"
+
+  - id: 6
+    name: validate_files
+    description: "Run file validator"
+    runner: "validators.file_validator.run_all"
+    on_failure: "report"
+
+  - id: 7
+    name: validate_checksums
+    description: "Run checksum validator"
+    runner: "validators.checksum_validator.run_all"
+    on_failure: "report"
+
+  - id: 8
+    name: validate_db_mapping
+    description: "Verify DB records match physical files"
+    checks:
+      - "Document file records in DB match file count on disk"
+      - "Evidence attachment records match physical files"
+      - "Regulation attachment records match physical files"
+
+# ---- Success Criteria ----
+success_criteria:
+  - "All files extracted without errors"
+  - "File count > 0 (or matches expected from manifest)"
+  - "Total size within expected range"
+  - "SHA256 checksums match for sampled files"
+  - "DB-to-physical file mapping verified"
+  - "File permissions are correct (readable)"
+  - "Sample download test passes"
+
+# ---- RPO/RTO Targets ----
+rpo_target_seconds: 86400  # 24 hours
+rto_target_seconds: 14400  # 4 hours
+
+# ---- Rollback ----
+rollback:
+  - "Remove temp file restore directory: rm -rf ${DR_FILE_RESTORE_ROOT}"
+  - "No impact on production (isolated drill)"

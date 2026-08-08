@@ -1,0 +1,3 @@
+endpoint,method,p95_ms,p99_ms,rps,status
+/api/home/navigation/,GET,45,120,150,PASS
+/api/home/announcement/,GET,38,95,200,PASS

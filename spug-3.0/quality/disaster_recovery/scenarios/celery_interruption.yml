@@ -1,0 +1,114 @@
+# Celery Interruption Scenario
+scenario_name: celery_interruption
+description: >
+  Simulate Celery worker being unavailable. The application should still
+  accept web requests and serve responses. Periodic tasks (Beat) will be
+  re-scheduled automatically when the worker restarts.
+
+  This scenario checks process status and HTTP health only.
+  No real Celery worker is stopped.
+
+tier: 3
+priority: P2
+component: celery_queue
+
+# ---- Prerequisites ----
+prerequisites:
+  - "Environment guard must pass"
+  - "Target app must be running"
+  - "Celery broker (Redis db 2) must be configured"
+
+# ---- Simulation Method ----
+simulation_method: "process_check"
+destructive: false
+description_of_method: >
+  Checks if Celery worker process is running (informational) and
+  verifies app HTTP endpoints still respond. Does NOT stop any worker.
+
+# ---- Steps ----
+steps:
+  - id: 1
+    name: environment_guard
+    description: "Run environment guard checks"
+    runner: "helpers.environment_guard.assert_safe_for_drill"
+    on_failure: "abort"
+
+  - id: 2
+    name: check_celery_process
+    description: "Check if Celery worker process exists (informational)"
+    check: "docker exec ... ps aux | grep celery"
+    expected: "process found (normal state)"
+
+  - id: 3
+    name: check_app_responds
+    description: "Verify app still serves web requests without Celery"
+    check: "HTTP GET to list endpoint"
+    expected: "200 or 401 (not 500)"
+
+  - id: 4
+    name: check_async_task_queued
+    description: "Verify task can be queued (not executed, just queued)"
+    check: "Trigger an async operation and check it's in the queue"
+    expected: "Task accepted, will execute when worker restarts"
+
+# ---- Success Criteria ----
+success_criteria:
+  - "App does not return 500 when Celery is down"
+  - "Web requests still succeed (read operations)"
+  - "Write operations that trigger async tasks are accepted (queued)"
+  - "No data corruption from interrupted tasks"
+
+# ---- Tasks With Idempotency Keys ----
+# These tasks can be safely retried after Celery restart:
+idempotent_tasks:
+  - "fault tasks (check_recent_duplicate)"
+  - "interference tasks"
+  - "contract_agreement tasks"
+  - "department_duty_log tasks"
+  - "regulation tasks"
+  - "home/navigation tasks"
+  - "signature tasks"
+
+# ---- Tasks WITHOUT Idempotency Keys ----
+# These tasks may cause side effects if retried:
+non_idempotent_tasks:
+  - "upgrade tasks"
+  - "device tasks"
+  - "radio_license tasks"
+  note: "After Celery crash, manually verify if these tasks completed before the crash."
+
+# ---- Beat Schedule (12 tasks) ----
+beat_schedule:
+  - name: "document clean pending files"
+    frequency: "periodic"
+    idempotent: true
+  - name: "radio license expiry check"
+    frequency: "periodic"
+    idempotent: true
+  - name: "contract agreement expiry reminder"
+    frequency: "periodic"
+    idempotent: true
+  - name: "audit log archival/cleanup"
+    frequency: "periodic"
+    idempotent: true
+  - name: "announcement expiry sync"
+    frequency: "periodic"
+    idempotent: true
+  - name: "reminder check"
+    frequency: "every 5 minutes"
+    idempotent: true
+  - name: "alert disk/db monitor"
+    frequency: "periodic"
+    idempotent: true
+
+# ---- RPO/RTO Targets ----
+rpo_target_seconds: 0  # In-flight tasks are disposable
+rto_target_seconds: 900  # 15 minutes (restart worker)
+
+# ---- Recovery Steps ----
+real_recovery_steps:
+  - "Restart Celery worker: docker restart tdyw-celery-worker"
+  - "Restart Celery beat: docker restart tdyw-celery-beat"
+  - "Check for duplicate beat processes: docker exec ... ps aux | grep beat"
+  - "Verify worker connects to broker: docker logs tdyw-celery-worker"
+  - "For non-idempotent tasks, check if side effects occurred before crash"

@@ -173,7 +173,7 @@ def test_cache_role_change():
         import json as json_mod
         role2 = Role.objects.create(
             name=f'test_role_extra_{user.username}',
-            page_perms=json_mod.dumps({'home': {'notice': ['view']}}),
+            page_perms=json_mod.dumps({'home': {'navigation': ['view']}}),
             perms_version=1,
             tenant_id='test_tenant',
         )
@@ -182,14 +182,14 @@ def test_cache_role_change():
         # 重新读取 - 版本应该变化
         user2 = User.objects.get(pk=user.id)
         perms2 = user2.page_perms
-        assert 'home.notice.view' in perms2, f"New role permission should be visible: {perms2}"
+        assert 'home.navigation.view' in perms2, f"New role permission should be visible: {perms2}"
         assert 'system.account.view' in perms2, f"Original permission should still be present"
         
         # 删除角色
         user2.roles.remove(role2)
         user3 = User.objects.get(pk=user.id)
         perms3 = user3.page_perms
-        assert 'home.notice.view' not in perms3, f"Removed role permission should not be present: {perms3}"
+        assert 'home.navigation.view' not in perms3, f"Removed role permission should not be present: {perms3}"
         
         role2.delete()
         return 'pass', 'Cache correctly updated on role add/remove'

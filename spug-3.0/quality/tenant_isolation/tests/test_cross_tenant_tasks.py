@@ -28,13 +28,6 @@ TASK_ISOLATION_FINDINGS = [
         'detail': '任务遍历所有 enabled=True 的提醒，不按租户过滤。但接收者列表(recipient_users)按用户 ID 隔离',
     },
     {
-        'component': 'home/notice_expiry_sync',
-        'task': '公告过期同步',
-        'tenant_context': '无 (批量处理)',
-        'risk': '中',
-        'detail': 'Notice.objects.filter 批量处理无 tenant 过滤。但 Notice 已有 TI-002 漏洞(无 apply_tenant_filter)，此任务同样受影响',
-    },
-    {
         'component': 'document/retry_clean_pending_files',
         'task': '文件清理重试',
         'tenant_context': '无 (按文件 ID 清理)',

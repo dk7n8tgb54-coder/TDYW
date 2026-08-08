@@ -14,31 +14,13 @@ import logging
 
 from django.test import TestCase, RequestFactory
 from apps.account.models import User
-from apps.home.models import Notice, Navigation
+from apps.home.models import Navigation
 from apps.interference.models import Interference
 from apps.runlog.models import RunLog
 from apps.logs.models import AuditLog
 from apps.utils.test_helpers import make_user, make_client, setup_test_env
 
 logger = logging.getLogger(__name__)
-
-
-class R1NoticeViewAuthFixedTest(TestCase):
-    """R1 修复验证：无权限用户不能删除公告"""
-
-    def setUp(self):
-        setup_test_env(self)
-        self.no_perm_user = make_user('noperm_notice_f2', perms=[])
-        self.client_no_perm = make_client(self.no_perm_user)
-        self.notice = Notice.objects.create(
-            title='测试公告', content='内容', is_stress=False
-        )
-
-    def test_no_perm_user_cannot_delete_notice(self):
-        notice_id = self.notice.id
-        self.client_no_perm.delete(f'/home/notice/?id={notice_id}')
-        self.assertTrue(Notice.objects.filter(pk=notice_id).exists(),
-                        'R1 修复验证失败：无权限用户仍能删除公告')
 
 
 class R2NavViewAuthFixedTest(TestCase):
@@ -57,34 +39,6 @@ class R2NavViewAuthFixedTest(TestCase):
         self.client_no_perm.delete(f'/home/navigation/?id={nav_id}')
         self.assertTrue(Navigation.objects.filter(pk=nav_id).exists(),
                         'R2 修复验证失败：无权限用户仍能删除导航')
-
-
-class R3NoticeFilterUpdateFixedTest(TestCase):
-    """R3 修复验证：置顶公告只清除 is_stress=True 的记录"""
-
-    def setUp(self):
-        setup_test_env(self)
-        self.admin_user = make_user('admin_notice_f3', is_supper=True)
-        self.client_admin = make_client(self.admin_user)
-        self.notice1 = Notice.objects.create(
-            title='置顶公告1', content='c1', is_stress=True
-        )
-        self.notice2 = Notice.objects.create(
-            title='置顶公告2', content='c2', is_stress=True
-        )
-
-    def test_new_stress_notice_only_clears_stressed(self):
-        self.assertEqual(Notice.objects.filter(is_stress=True).count(), 2)
-        self.client_admin.post('/home/notice/', json.dumps({
-            'title': '新置顶公告', 'content': '新内容', 'is_stress': True,
-        }), content_type='application/json')
-        self.notice1.refresh_from_db()
-        self.notice2.refresh_from_db()
-        self.assertFalse(self.notice1.is_stress)
-        self.assertFalse(self.notice2.is_stress)
-        new_notice = Notice.objects.filter(title='新置顶公告').first()
-        self.assertIsNotNone(new_notice)
-        self.assertTrue(new_notice.is_stress)
 
 
 class R4InterferenceSoftDeleteFixedTest(TestCase):
@@ -303,25 +257,12 @@ class R10SettingAuditFixedTest(TestCase):
 
 
 class R11HomeModelsSoftDeleteFixedTest(TestCase):
-    """R11 修复验证：Notice/Navigation 有 is_deleted 字段"""
-
-    def test_notice_has_soft_delete_field(self):
-        field_names = [f.name for f in Notice._meta.get_fields()]
-        self.assertIn('is_deleted', field_names,
-                      'R11 修复验证失败：Notice 仍无 is_deleted 字段')
+    """R11 修复验证：Navigation 有 is_deleted 字段"""
 
     def test_navigation_has_soft_delete_field(self):
         field_names = [f.name for f in Navigation._meta.get_fields()]
         self.assertIn('is_deleted', field_names,
                       'R11 修复验证失败：Navigation 仍无 is_deleted 字段')
-
-    def test_notice_logical_delete(self):
-        setup_test_env(self)
-        notice = Notice.objects.create(title='测试', content='c', is_stress=False)
-        notice_id = notice.id
-        notice.is_deleted = True
-        notice.save()
-        self.assertTrue(Notice.objects.filter(pk=notice_id).exists())
 
     def test_navigation_logical_delete(self):
         setup_test_env(self)
@@ -355,12 +296,7 @@ class R12UpgradeModelsSoftDeleteFixedTest(TestCase):
 
 
 class R13HomeModelsTenantIsolationFixedTest(TestCase):
-    """R13 修复验证：Notice/Navigation 有 tenant_id 字段"""
-
-    def test_notice_has_tenant_id(self):
-        field_names = [f.name for f in Notice._meta.get_fields()]
-        self.assertIn('tenant_id', field_names,
-                      'R13 修复验证失败：Notice 仍无 tenant_id 字段')
+    """R13 修复验证：Navigation 有 tenant_id 字段"""
 
     def test_navigation_has_tenant_id(self):
         field_names = [f.name for f in Navigation._meta.get_fields()]

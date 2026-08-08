@@ -1,0 +1,9 @@
+component,current_rpo,current_rto,target_rpo,target_rto,status,evidence,needs_business_confirmation
+database,24h (daily backup),estimated 2-4h (untested),1h,1h,pending_confirmation,"Backup script exists; restore not tested",yes
+file_storage,24h (daily backup),estimated 1-2h (untested),1h,2h,pending_confirmation,"File backup in backup_set; restore not tested",yes
+evidence_attachments,24h (in media backup),estimated 1-2h,1h,2h,pending_confirmation,"Included in media.tar.gz",yes
+regulation_storage,24h (in documents backup),estimated 1h,1h,1h,pending_confirmation,"Included in documents.tar.gz",yes
+redis,0h (ephemeral),seconds (restart + cache rebuild),0h,5min,estimated,"All data reconstructable from DB",no
+celery_queue,0h (idempotent tasks),minutes (worker restart),0h,15min,estimated,"Tasks use get_or_create; idempotent",no
+system_config,0h (git version controlled),minutes (git checkout),0h,15min,estimated,"All config in git repository",no
+audit_logs,24h (in DB dump),estimated 2-4h,1h,4h,pending_confirmation,"Stored in DB; backed up with dump",yes

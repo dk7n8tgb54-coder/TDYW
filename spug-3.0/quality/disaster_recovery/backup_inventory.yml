@@ -1,0 +1,281 @@
+# =============================================================================
+# Backup Inventory
+# =============================================================================
+# Structured catalog of all backup objects in the Spug project.
+# This file contains NO real passwords, paths, or credentials.
+# Each object documents: what is backed up, how, how often, and restore status.
+# =============================================================================
+
+inventory_version: "1.0"
+last_updated: "2026-08-08"
+project: "spug-3.0"
+
+# ---- Backup Systems ----
+backup_systems:
+  - name: backup_set
+    type: tar-based-full
+    create_script: "backups/backup_set_create.sh"
+    restore_script: "backups/backup_set_restore.sh"
+    config_file: "backups/tdyw_backup.cnf"
+    description: "Full backup set with DB dump + file archives + manifests + SHA256SUMS"
+    schema_version: 5
+
+  - name: borgbackup
+    type: deduplicating-encrypted
+    create_script: "borgbackup/borg_backup_set_create.sh"
+    restore_script: "borgbackup/borg_backup_set_restore.sh"
+    config_file: "borgbackup/borg.env"
+    description: "BorgBackup with app freeze, logical DB dump, binlog archive, file volume dedup"
+    encryption: "repokey-blake2"
+    compression: "zstd,3"
+
+# ---- Backup Objects ----
+objects:
+
+  # ---- Database ----
+  - id: mariadb_database
+    name: "MariaDB Database (logical dump)"
+    component: database
+    backup_systems: [backup_set, borgbackup]
+    method: "mariadb-dump --single-transaction --routines --triggers --events --quick --hex-blob"
+    frequency: "daily (scheduled via cron)"
+    retention: "GFS: 2 daily, 7 daily, 4 weekly, 6 monthly (borg); 30 days (backup_set)"
+    storage_type: "local filesystem (borg repo / backup_set directory)"
+    encrypted: true
+    offsite: false
+    last_known_success: "pending_confirmation"
+    restore_documented: true
+    restore_verified: false
+    risk_level: critical
+    notes: "Logical full dump. Consistency guaranteed by app freeze + --single-transaction."
+
+  # ---- Business Files (documents) ----
+  - id: documents_volume
+    name: "Documents Volume"
+    component: file_storage
+    backup_systems: [backup_set, borgbackup]
+    method: "tar archive (backup_set) / borg create with dedup (borgbackup)"
+    frequency: "daily"
+    retention: "same as database"
+    storage_type: "local filesystem"
+    encrypted: true
+    offsite: false
+    last_known_success: "pending_confirmation"
+    restore_documented: true
+    restore_verified: false
+    risk_level: critical
+    notes: "Docker volume docker_tdyw-documents. Path in container: /data/spug/spug_api/storage/documents"
+    excludes: ["*/__pycache__", "*/.cache", "*/logs", "*/document_chunks"]
+
+  # ---- Media Files ----
+  - id: media_volume
+    name: "Media Volume"
+    component: file_storage
+    backup_systems: [backup_set, borgbackup]
+    method: "tar archive (backup_set) / borg create with dedup (borgbackup)"
+    frequency: "daily"
+    retention: "same as database"
+    storage_type: "local filesystem"
+    encrypted: true
+    offsite: false
+    last_known_success: "pending_confirmation"
+    restore_documented: true
+    restore_verified: false
+    risk_level: high
+    notes: "Docker volume docker_tdyw-media. Path in container: /data/spug/spug_api/media"
+    excludes: ["*/__pycache__", "*/.cache", "*/logs"]
+
+  # ---- Evidence Attachments ----
+  - id: evidence_attachments
+    name: "Evidence Attachments"
+    component: evidence_attachments
+    backup_systems: [backup_set, borgbackup]
+    method: "Included in documents/media volume backup"
+    frequency: "daily (with volume backup)"
+    retention: "same as file storage"
+    storage_type: "embedded in volume backup"
+    encrypted: true
+    offsite: false
+    last_known_success: "pending_confirmation"
+    restore_documented: true
+    restore_verified: false
+    risk_level: high
+    notes: "Stored in documents volume. Multi-polymorphic via EvidenceAttachment model."
+
+  # ---- Regulation Storage ----
+  - id: regulation_storage
+    name: "Regulation File Storage"
+    component: regulation_storage
+    backup_systems: [backup_set, borgbackup]
+    method: "Included in documents/media volume backup"
+    frequency: "daily"
+    retention: "same as file storage"
+    storage_type: "embedded in volume backup"
+    encrypted: true
+    offsite: false
+    last_known_success: "pending_confirmation"
+    restore_documented: true
+    restore_verified: false
+    risk_level: high
+    notes: "Regulation uses independent storage.py, not the evidence system."
+
+  # ---- Redis ----
+  - id: redis_data
+    name: "Redis Cache & Sessions"
+    component: redis
+    backup_systems: []
+    method: "none (ephemeral data)"
+    frequency: "not backed up"
+    retention: "N/A"
+    storage_type: "N/A"
+    encrypted: false
+    offsite: false
+    last_known_success: "N/A"
+    restore_documented: false
+    restore_verified: false
+    risk_level: medium
+    notes: >
+      Redis is used for: permission cache (perms_{id}), Celery broker (db 2),
+      data analysis cache (60s TTL). All data is reconstructable from DB.
+      DB 1 = cache, DB 2 = Celery broker. URL: redis://127.0.0.1:6379/1
+
+  # ---- Django Configuration ----
+  - id: django_config
+    name: "Django Settings & Configuration"
+    component: system_config
+    backup_systems: [borgbackup]
+    method: "git tracked + borg archive includes manifest with git commit"
+    frequency: "on every backup (via git commit in manifest)"
+    retention: "same as borgbackup"
+    storage_type: "git repository + borg archive"
+    encrypted: false
+    offsite: true
+    last_known_success: "pending_confirmation"
+    restore_documented: true
+    restore_verified: false
+    risk_level: medium
+    notes: "spug_api/spug/settings.py, docker-compose.yml, nginx configs. Git commit hash in manifest.json."
+
+  # ---- Environment Variables ----
+  - id: env_vars
+    name: "Environment Variables & Secrets"
+    component: system_config
+    backup_systems: []
+    method: "manual (env files not in backup; secrets managed separately)"
+    frequency: "on change"
+    retention: "manual"
+    storage_type: "filesystem (0600 cnf files, borg.env)"
+    encrypted: true
+    offsite: false
+    last_known_success: "pending_confirmation"
+    restore_documented: false
+    restore_verified: false
+    risk_level: critical
+    notes: >
+      Includes: MYSQL_ROOT_PASSWORD, MYSQL_PASSWORD, SECRET_KEY,
+      REDIS_URL, Celery broker URL, BORG_PASSPHRASE.
+      These are NOT in automated backups. Must be manually documented in a secure location.
+
+  # ---- Celery Configuration ----
+  - id: celery_config
+    name: "Celery Configuration & Beat Schedule"
+    component: celery_queue
+    backup_systems: [borgbackup]
+    method: "git tracked (code) + manifest includes git commit"
+    frequency: "on every backup"
+    retention: "same as borgbackup"
+    storage_type: "git repository"
+    encrypted: false
+    offsite: true
+    last_known_success: "pending_confirmation"
+    restore_documented: true
+    restore_verified: false
+    risk_level: low
+    notes: "18 @shared_task, 5 queues, 12 Beat tasks. Config in code, not runtime data."
+
+  # ---- Audit Logs ----
+  - id: audit_logs
+    name: "Audit Logs (AuditLog, AuditLogSequence)"
+    component: audit_logs
+    backup_systems: [backup_set, borgbackup]
+    method: "included in database dump"
+    frequency: "daily"
+    retention: "same as database"
+    storage_type: "database (in dump)"
+    encrypted: true
+    offsite: false
+    last_known_success: "pending_confirmation"
+    restore_documented: true
+    restore_verified: false
+    risk_level: high
+    notes: "Hash-chain integrity. LOGS_BEAT_SCHEDULE handles archival/cleanup/verification."
+
+  # ---- Permissions & Tenants ----
+  - id: permissions_tenants
+    name: "Permissions, Roles, Tenants"
+    component: database
+    backup_systems: [backup_set, borgbackup]
+    method: "included in database dump"
+    frequency: "daily"
+    retention: "same as database"
+    storage_type: "database (in dump)"
+    encrypted: true
+    offsite: false
+    last_known_success: "pending_confirmation"
+    restore_documented: true
+    restore_verified: false
+    risk_level: critical
+    notes: "97 permission codes, role-policy mapping, tenant data. Permission cache in Redis (rebuildable)."
+
+  # ---- Docker Volumes ----
+  - id: docker_volumes
+    name: "Docker Volumes (documents + media)"
+    component: file_storage
+    backup_systems: [backup_set, borgbackup]
+    method: "volume mountpoint backup (tar or borg create)"
+    frequency: "daily"
+    retention: "same as database"
+    storage_type: "local filesystem"
+    encrypted: true
+    offsite: false
+    last_known_success: "pending_confirmation"
+    restore_documented: true
+    restore_verified: false
+    risk_level: critical
+    notes: "docker_tdyw-documents, docker_tdyw-media. Mountpoints resolved at backup time."
+
+  # ---- kkFileView Configuration ----
+  - id: kkfileview_config
+    name: "kkFileView Configuration"
+    component: system_config
+    backup_systems: []
+    method: "docker-compose.yml (git tracked)"
+    frequency: "on change"
+    retention: "git history"
+    storage_type: "git repository"
+    encrypted: false
+    offsite: true
+    last_known_success: "pending_confirmation"
+    restore_documented: false
+    restore_verified: false
+    risk_level: low
+    notes: "kkFileView 4.1.0. Config in docker-compose.yml. No persistent state to back up."
+
+  # ---- Encryption Keys ----
+  - id: encryption_keys
+    name: "Encryption Keys (Borg passphrase)"
+    component: system_config
+    backup_systems: []
+    method: "manual (borg.env file, mode 0600)"
+    frequency: "on change"
+    retention: "manual"
+    storage_type: "filesystem (0600)"
+    encrypted: false
+    offsite: false
+    last_known_success: "pending_confirmation"
+    restore_documented: false
+    restore_verified: false
+    risk_level: critical
+    notes: >
+      BORG_PASSPHRASE in borg.env. Without this, encrypted backups cannot be restored.
+      Must be stored in a separate secure location (password manager, physical safe, etc.).

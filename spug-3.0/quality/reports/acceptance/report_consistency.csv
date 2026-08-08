@@ -1,0 +1,41 @@
+package_id,report_path,claimed_metric,claimed_value,verified_value,consistent,evidence,notes
+WP2,quality/reports/daily_business/日常业务模块特征测试报告.md,total_tests,279,279,yes,代码审查测试文件,历史报告数量一致但本次未重新执行
+WP2,quality/reports/daily_business/日常业务模块特征测试报告.md,passed,272,272,yes,代码审查测试文件,历史报告数量一致但本次未重新执行
+WP2,quality/reports/daily_business/日常业务模块特征测试报告.md,expected_failure,7,7,yes,3个缺陷ID对应7个测试,历史报告数量一致但本次未重新执行
+WP3,quality/reports/document_admin/资料与行政业务特征测试报告.md,total_tests,124,124,yes,代码审查测试文件,历史报告数量一致但本次未重新执行
+WP3,quality/reports/document_admin/资料与行政业务特征测试报告.md,passed,124,124,yes,代码审查测试文件,历史报告全通过但本次未重新执行
+WP4,quality/reports/technical_operations/技术运维模块重构前基线报告.md,total_tests,91,91,yes,48 stable+43 legacy,历史报告数量一致但本次未重新执行
+WP4,quality/reports/technical_operations/技术运维模块重构前基线报告.md,passed,87,87,yes,代码审查测试文件,历史报告数量一致但本次未重新执行
+WP4,quality/reports/technical_operations/技术运维模块重构前基线报告.md,skipped,4,4,yes,device CHECK约束等,历史报告数量一致但本次未重新执行
+WP4,quality/reports/technical_operations/技术运维模块重构前基线报告.md,stable_legacy_separation,yes,yes,yes,不同目录不同类名,正确分离
+WP5,quality/reports/tenant_isolation/全系统租户隔离与越权测试报告.md,critical_findings,2,2,yes,NavView+NoticeView,数量一致
+WP5,quality/reports/tenant_isolation/全系统租户隔离与越权测试报告.md,high_findings,1,1,yes,ReminderUsersView,数量一致
+WP5,quality/reports/tenant_isolation/全系统租户隔离与越权测试报告.md,modules_behavior_tested,8,8,yes,代码审查测试文件,数量一致
+WP5,quality/reports/tenant_isolation/全系统租户隔离与越权测试报告.md,modules_source_only,11,11,yes,coverage_gaps.md,数量一致
+WP6,quality/reports/permission_audit/,report_exists,yes,no,no,目录不存在,报告未生成
+WP7,quality/reports/database_audit/数据库结构与数据质量审计报告.md,tables_audited,72,72,yes,model_table_inventory.csv,历史报告数量一致但本次未重新执行
+WP7,quality/reports/database_audit/数据库结构与数据质量审计报告.md,high_findings,3,3,yes,tenant_id索引+icontains+软删,数量一致
+WP7,quality/reports/database_audit/数据库结构与数据质量审计报告.md,schedule_residual,0,0,yes,表/迁移/权限/CT均无,数量一致
+WP7,quality/reports/database_audit/数据库结构与数据质量审计报告.md,orphan_data,0,0,yes,孤儿数据检查,数量一致
+WP8,quality/reports/e2e/全系统端到端回归测试报告.md,total_tests,109,109,yes,test_case_inventory.csv,历史报告数量一致但本次未重新执行
+WP8,quality/reports/e2e/全系统端到端回归测试报告.md,passed,109,109,yes,execution_results.csv,历史报告全通过但本次未重新执行
+WP8,quality/reports/e2e/全系统端到端回归测试报告.md,browser,Chromium,Chromium,yes,playwright.config.js,仅Chromium
+WP8,quality/reports/e2e/全系统端到端回归测试报告.md,artifact_files,627,627,yes,git ls-files原数量,已从Git跟踪中移除
+WP8,quality/reports/e2e/全系统端到端回归测试报告.md,artifact_with_password,0,14,no,search_content扫描,报告未提及密码泄露已进入Git提交eb8ecf00
+WP8,N/A,artifact_tracked_status,tracked,removed_from_tracking,yes,git rm --cached -r,已从Git跟踪中移除
+WP9-perf,quality/reports/performance/全系统性能基线报告.md,tool_tests_passed,~71,~71,yes,47个函数部分参数化,历史报告数量大致一致但本次未重新执行
+WP9-perf,quality/reports/performance/全系统性能基线报告.md,probe_endpoints,25,25,yes,报告含25端点数据,数量一致
+WP9-perf,quality/reports/performance/全系统性能基线报告.md,probe_success,23,23,yes,2个路径错误,数量一致
+WP9-perf,quality/reports/performance/全系统性能基线报告.md,locust_installed,no,no,yes,报告标注未安装,一致
+WP9-perf,quality/reports/performance/全系统性能基线报告.md,load_test_executed,no,no,yes,报告标注未执行,一致
+WP9-dr,quality/reports/disaster_recovery/全系统灾备基线报告.md,tool_tests_passed,~78,~78,yes,79+函数部分参数化,历史报告数量大致一致但本次未重新执行
+WP9-dr,quality/reports/disaster_recovery/全系统灾备基线报告.md,tool_tests_skipped,1,1,yes,报告标注1skip,数量一致
+WP9-dr,quality/reports/disaster_recovery/全系统灾备基线报告.md,restore_drills_executed,0,0,yes,5场景全部未执行,一致
+WP9-dr,quality/reports/disaster_recovery/全系统灾备基线报告.md,rpo_estimated,yes,yes,yes,RPO 24h估算,一致
+WP9-dr,quality/reports/disaster_recovery/全系统灾备基线报告.md,rto_estimated,yes,yes,yes,RTO 2-4h估算未实测,一致
+WP9-dr,quality/reports/disaster_recovery/全系统灾备基线报告.md,severe_risks,3,3,yes,DR-001/002/003,数量一致
+ACCEPTANCE,quality/reports/acceptance/finding_register.csv,critical_count,3,3,yes,F-001/F-003/F-004,纠正后一致
+ACCEPTANCE,quality/reports/acceptance/finding_register.csv,high_count,5,5,yes,F-002/F-005/F-006/F-007/F-008,纠正后一致
+ACCEPTANCE,quality/reports/acceptance/finding_register.csv,medium_count,5,5,yes,F-009/F-010/F-011/F-012/F-013,纠正后一致
+ACCEPTANCE,quality/reports/acceptance/finding_register.csv,low_count,3,3,yes,F-014/F-015/F-016,纠正后一致
+ACCEPTANCE,quality/reports/acceptance/finding_register.csv,total,16,16,yes,纠正后一致,v1报告中错误地计为13

@@ -1,0 +1,168 @@
+# RPO/RTO Target Definitions
+# =============================================================================
+# Recovery Point Objective (RPO): Maximum acceptable data loss (time-based)
+# Recovery Time Objective (RTO): Maximum acceptable downtime for recovery
+#
+# Status values:
+#   measured:              Actually measured during a drill
+#   estimated:             Estimated from backup frequency + restore time
+#   pending_confirmation:  Not yet verified, needs a drill to confirm
+# =============================================================================
+
+baseline_version: "1.0"
+last_updated: "2026-08-08"
+project: "spug-3.0"
+
+# ---- Global Targets ----
+global_targets:
+  overall_rpo: "24 hours (daily backup cycle)"
+  overall_rto: "4 hours"
+  disaster_declaration_threshold: "4 hours (if not recovered by then, escalate to L4)"
+
+# ---- Component-Level Targets ----
+components:
+
+  - component: database
+    description: "MariaDB database (all business data)"
+    current_rpo: "24 hours"
+    current_rpo_seconds: 86400
+    current_rto: "4 hours (estimated)"
+    current_rto_seconds: 14400
+    target_rpo: "24 hours"
+    target_rpo_seconds: 86400
+    target_rto: "4 hours"
+    target_rto_seconds: 14400
+    status: estimated
+    evidence: >
+      Backup frequency: daily (cron). Restore time estimated from dump size
+      and typical mariadb import speed. Not yet measured in a drill.
+    backup_method: "mariadb-dump --single-transaction (logical full dump)"
+    pitr_available: true
+    pitr_method: "Binlog archive (borgbackup only)"
+
+  - component: file_storage
+    description: "Document and media file volumes"
+    current_rpo: "24 hours"
+    current_rpo_seconds: 86400
+    current_rto: "4 hours (estimated)"
+    current_rto_seconds: 14400
+    target_rpo: "24 hours"
+    target_rpo_seconds: 86400
+    target_rto: "4 hours"
+    target_rto_seconds: 14400
+    status: estimated
+    evidence: >
+      Backup frequency: daily (with database). Restore time depends on
+      file volume size. Not yet measured in a drill.
+    backup_method: "tar archive (backup_set) / borg create (borgbackup)"
+
+  - component: evidence_attachments
+    description: "Evidence attachment files (multi-polymorphic)"
+    current_rpo: "24 hours"
+    current_rpo_seconds: 86400
+    current_rto: "8 hours (estimated)"
+    current_rto_seconds: 28800
+    target_rpo: "24 hours"
+    target_rpo_seconds: 86400
+    target_rto: "8 hours"
+    target_rto_seconds: 28800
+    status: estimated
+    evidence: >
+      Stored within documents volume. Recovery follows file_storage recovery.
+      Additional time needed for DB-to-physical mapping verification.
+    backup_method: "embedded in documents volume backup"
+
+  - component: regulation_storage
+    description: "Regulation file storage (independent storage.py)"
+    current_rpo: "24 hours"
+    current_rpo_seconds: 86400
+    current_rto: "8 hours (estimated)"
+    current_rto_seconds: 28800
+    target_rpo: "24 hours"
+    target_rpo_seconds: 86400
+    target_rto: "8 hours"
+    target_rto_seconds: 28800
+    status: estimated
+    evidence: >
+      Uses independent storage.py, not the evidence system.
+      Recovery follows file_storage recovery.
+    backup_method: "embedded in documents/media volume backup"
+
+  - component: redis
+    description: "Redis cache and Celery broker"
+    current_rpo: "0 (ephemeral, no backup)"
+    current_rpo_seconds: 0
+    current_rto: "15 minutes"
+    current_rto_seconds: 900
+    target_rpo: "0"
+    target_rpo_seconds: 0
+    target_rto: "15 minutes"
+    target_rto_seconds: 900
+    status: estimated
+    evidence: >
+      All Redis data is reconstructable from DB. Permission cache rebuilds
+      on first request. Celery broker tasks are re-scheduled by Beat.
+    backup_method: "none (ephemeral data)"
+
+  - component: celery_queue
+    description: "Celery worker and beat scheduler"
+    current_rpo: "0 (in-flight tasks are disposable)"
+    current_rpo_seconds: 0
+    current_rto: "15 minutes"
+    current_rto_seconds: 900
+    target_rpo: "0"
+    target_rpo_seconds: 0
+    target_rto: "15 minutes"
+    target_rto_seconds: 900
+    status: estimated
+    evidence: >
+      Beat re-schedules all periodic tasks automatically on restart.
+      Non-periodic tasks with idempotency keys can be safely retried.
+      Non-idempotent tasks (upgrade, device, radio_license) need manual verification.
+    backup_method: "none (configuration is in code/git)"
+
+  - component: system_config
+    description: "Django settings, docker-compose, nginx configs"
+    current_rpo: "on change (git commit)"
+    current_rpo_seconds: 0
+    current_rto: "1 hour"
+    current_rto_seconds: 3600
+    target_rpo: "on change"
+    target_rpo_seconds: 0
+    target_rto: "1 hour"
+    target_rto_seconds: 3600
+    status: estimated
+    evidence: >
+      Configuration is tracked in git. Manifest.json records git commit hash.
+      Environment variable files (cnf, env) are NOT in automated backups.
+    backup_method: "git repository + manifest git commit"
+    risk_note: "Env files and BORG_PASSPHRASE must be manually stored in a secure location."
+
+  - component: audit_logs
+    description: "AuditLog and AuditLogSequence (hash chain)"
+    current_rpo: "24 hours"
+    current_rpo_seconds: 86400
+    current_rto: "4 hours"
+    current_rto_seconds: 14400
+    target_rpo: "24 hours"
+    target_rpo_seconds: 86400
+    target_rto: "4 hours"
+    target_rto_seconds: 14400
+    status: estimated
+    evidence: >
+      Audit logs are in the database, included in the daily dump.
+      Hash chain integrity is verified by LOGS_BEAT_SCHEDULE.
+    backup_method: "included in database dump"
+
+# ---- Measurement History ----
+# Records of actual RPO/RTO measurements from drills.
+# Updated when a restore drill is completed.
+measurement_history: []
+
+# ---- Notes ----
+notes:
+  - "All RPO/RTO values are currently 'estimated' - no drills have been run yet."
+  - "To update: run a restore drill, then update status to 'measured' with actual values."
+  - "RPO for database could be reduced with binlog-based PITR (borgbackup supports this)."
+  - "RTO estimates assume single-operator recovery. Multi-operator may be faster."
+  - "Env files and encryption keys are the biggest gap - they are not in automated backups."

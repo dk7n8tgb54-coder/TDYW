@@ -16,7 +16,7 @@ from apps.fault.models import FaultPart, FaultRecord
 from apps.interference.models import Interference
 from apps.runlog.models import RunLog
 from apps.regulation.models import RegulationCategory
-from apps.home.models import Notice, Navigation
+from apps.home.models import Navigation
 
 
 class DutyRecordIdempotencyTest(TestCase):
@@ -207,33 +207,6 @@ class RegulationCategoryIdempotencyTest(TestCase):
         self.assertTrue(r2.json().get('error'))
 
         count = RegulationCategory.objects.filter(name='测试分类-幂等性').count()
-        self.assertEqual(count, 1, f'修复验证：应仅 1 条记录，实际 {count} 条')
-
-
-class HomeNoticeIdempotencyTest(TestCase):
-    """首页公告 POST 幂等性修复验证"""
-    URL = '/home/notice/'
-    PERMS = []
-
-    def setUp(self):
-        setup_test_env(self)
-        self.user = make_user('notice_tester', self.PERMS)
-        self.client_auth = make_client(self.user)
-
-    def test_double_post_blocked(self):
-        """修复验证：连续两次 POST 相同数据，第二次应被拒绝"""
-        payload = {'title': '测试公告-幂等性', 'content': '测试内容'}
-        r1 = self.client_auth.post(
-            self.URL, data=json.dumps(payload), content_type='application/json')
-        self.assertEqual(r1.status_code, 200)
-        self.assertFalse(r1.json().get('error'))
-
-        r2 = self.client_auth.post(
-            self.URL, data=json.dumps(payload), content_type='application/json')
-        self.assertEqual(r2.status_code, 200)
-        self.assertTrue(r2.json().get('error'))
-
-        count = Notice.objects.filter(title='测试公告-幂等性').count()
         self.assertEqual(count, 1, f'修复验证：应仅 1 条记录，实际 {count} 条')
 
 

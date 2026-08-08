@@ -1,0 +1,2 @@
+run_id,workflow,steps,users,completed,failed,avg_duration_ms,p95_duration_ms,bottleneck,notes
+probe_1786193864,single_probe_read,25,1,23,2,27.35,33.32,"alerts (max 1107ms)","Single GET requests; no load; 5 iterations per endpoint"

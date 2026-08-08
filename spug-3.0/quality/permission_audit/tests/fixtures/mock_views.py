@@ -27,7 +27,7 @@ class UserView(AdminView):
 
 
 # View with @auth decorator
-class NoticeView(View):
+class PostView(View):
     @auth('home.notice.view')
     def get(self, request):
         return json_response([])

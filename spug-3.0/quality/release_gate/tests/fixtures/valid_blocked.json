@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-08-08T12:00:00",
+  "git_commit": "abc123",
+  "worktree_status": "test fixture: valid but blocked",
+  "packages": [
+    {"id": "WP1", "name": "盘点", "final_status": "PASS", "blocking_findings": 0, "notes": ""},
+    {"id": "WP2", "name": "日常业务", "final_status": "NOT_REVERIFIED", "blocking_findings": 0, "notes": "未重新执行"},
+    {"id": "WP3", "name": "资料行政", "final_status": "NOT_REVERIFIED", "blocking_findings": 0, "notes": "未重新执行"},
+    {"id": "WP4", "name": "技术运维", "final_status": "NOT_REVERIFIED", "blocking_findings": 0, "notes": "未重新执行"},
+    {"id": "WP5", "name": "租户隔离", "final_status": "FAIL", "blocking_findings": 3, "notes": "2 CRITICAL + 1 HIGH", "fail_reason": "NavView/NoticeView无租户隔离"},
+    {"id": "WP6", "name": "权限审计", "final_status": "PARTIAL", "blocking_findings": 1, "notes": "报告未生成", "artifacts_complete": false},
+    {"id": "WP7", "name": "数据库审计", "final_status": "NOT_REVERIFIED", "blocking_findings": 0, "notes": "未重新执行"},
+    {"id": "WP8", "name": "E2E", "final_status": "FAIL", "blocking_findings": 1, "notes": "明文密码已进入Git历史"},
+    {"id": "WP9", "name": "性能灾备", "final_status": "PARTIAL", "blocking_findings": 3, "notes": "负载和恢复未执行", "warnings": ["performance_load not executed", "disaster_recovery_restore not executed"]}
+  ],
+  "confirmed_findings": [
+    {"id": "F-001", "severity": "CRITICAL", "title": "NavView无租户隔离", "package": "WP5", "blocking": true, "remediation_status": "Unfixed"},
+    {"id": "F-002", "severity": "CRITICAL", "title": "NoticeView无租户隔离", "package": "WP5", "blocking": true, "remediation_status": "Unfixed"},
+    {"id": "F-003", "severity": "HIGH", "title": "ReminderUsersView泄露用户", "package": "WP5", "blocking": false, "remediation_status": "Unfixed"}
+  ],
+  "secret_findings": [
+    {"id": "SS-001", "type": "password", "location": "Git commit eb8ecf00", "git_commit": "eb8ecf00", "recommendation": "Rotate password immediately", "rotation_status": "pending"}
+  ],
+  "verified_test_results": {
+    "total_historical_claimed": "500",
+    "total_verified_executed": 0,
+    "verification_method": "structural"
+  },
+  "blocked_checks": [
+    {"check": "performance_load", "status": "BLOCKED", "reason": "Locust not installed, dev database not safe for load testing"},
+    {"check": "disaster_recovery_restore", "status": "BLOCKED", "reason": "No isolated DR environment available"}
+  ],
+  "missing_artifacts": [
+    {"package": "WP6", "path": "quality/reports/permission_audit/", "type": "report", "severity": "HIGH"}
+  ],
+  "evidence": {
+    "permission_audit": {"status": "NOT_RUN"},
+    "performance_load": {"status": "NOT_RUN"},
+    "disaster_recovery_restore": {"status": "NOT_RUN"}
+  }
+}

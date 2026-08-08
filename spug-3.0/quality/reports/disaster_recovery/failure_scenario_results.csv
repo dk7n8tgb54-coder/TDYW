@@ -1,0 +1,9 @@
+scenario,environment,method,expected_behavior,actual_behavior,recovery_time,result,risk_level,notes
+redis_loss,dev (not tested),observation,"Login works; cache rebuilds; Celery delays",not_tested,seconds (estimated),not_executed,medium,"Cannot safely disrupt Redis on dev environment"
+celery_interruption,dev (not tested),observation,"Sync ops work; async tasks delayed; Beat tasks skipped",not_tested,minutes (estimated),not_executed,low,"Cannot safely stop Celery on dev environment"
+kkfileview_unavailable,dev (not tested),observation,"Preview fails; download works; app stable",not_tested,seconds (estimated),not_executed,low,"Cannot safely stop kkFileView on dev environment"
+database_connection_failure,dev (not tested),observation,"All APIs return 500",not_tested,minutes (estimated),not_executed,high,"Cannot safely stop database on dev environment"
+file_not_found,dev (not tested),observation,"404 error; is_pending_clean marked; Celery retry",not_tested,1-2h (from backup),not_executed,medium,"Requires file restore drill"
+file_delete_failed,dev (not tested),observation,"is_pending_clean marked; Celery retry_clean_pending_files",not_tested,N/A,not_executed,medium,"Non-destructive; existing retry mechanism"
+external_preview_timeout,dev (not tested),observation,"Preview times out; graceful degradation",not_tested,seconds (timeout),not_executed,low,"kkFileView timeout handling"
+alert_metric_collection_failure,dev (not tested),observation,"Alert check fails; logged; next cycle catches up",not_tested,N/A,not_executed,low,"Beat task idempotent"

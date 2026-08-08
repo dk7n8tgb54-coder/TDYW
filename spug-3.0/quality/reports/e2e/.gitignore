@@ -1,0 +1,3 @@
+# Playwright 运行时产物 - 禁止提交到 Git
+# 包含截图、录像、Trace 和错误上下文，可能泄露敏感信息
+artifacts/

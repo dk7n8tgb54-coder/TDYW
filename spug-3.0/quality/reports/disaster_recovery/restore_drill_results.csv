@@ -1,0 +1,6 @@
+run_id,component,backup_source_type,restore_target,started_at,completed_at,duration_seconds,result,validation_result,rpo_observed,rto_observed,notes
+N/A,database,N/A,N/A,N/A,N/A,N/A,not_executed,N/A,N/A,N/A,"tdyw-test connects to dev database; no isolated test database"
+N/A,file_storage,N/A,N/A,N/A,N/A,N/A,not_executed,N/A,N/A,N/A,"No isolated test file directory"
+N/A,redis,N/A,N/A,N/A,N/A,N/A,not_executed,N/A,N/A,N/A,"Cannot safely disrupt Redis on dev environment"
+N/A,celery,N/A,N/A,N/A,N/A,N/A,not_executed,N/A,N/A,N/A,"Cannot safely stop Celery on dev environment"
+N/A,kkfileview,N/A,N/A,N/A,N/A,N/A,not_executed,N/A,N/A,N/A,"Cannot safely stop kkFileView on dev environment"

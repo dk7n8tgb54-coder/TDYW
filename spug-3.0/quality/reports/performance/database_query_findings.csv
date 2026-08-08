@@ -1,0 +1,5 @@
+id,severity,module,endpoint,query_summary,explain_summary,risk,evidence,recommended_owner
+DB-001,medium,account,GET /api/account/user/,Possible JOIN account_role + account_tenant + account_rolepolicy,Not executed (no EXPLAIN),3x slower than other list endpoints (61ms vs 10-25ms),Measured avg 61ms p95 76ms,account module owner
+DB-002,low,data_analysis,GET /api/data-analysis/overview/,Aggregation query with 60s Redis cache,Not executed,Cold 24ms -> Hot 13ms (48% improvement),Cache effective,data_analysis module owner
+DB-003,low,home,GET /api/home/statistic/,Multi-table COUNT aggregation,Not executed,Cold 27ms hot 20ms,Acceptable performance,home module owner
+DB-004,medium,alert,GET /api/alert/,Periodic slow request; possible Beat task contention,Not executed,P50=16ms but Max=1107ms,"May compete with check_disk_usage/check_db_status Beat tasks",alert module owner

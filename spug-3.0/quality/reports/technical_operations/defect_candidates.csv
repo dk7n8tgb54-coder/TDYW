@@ -1,0 +1,7 @@
+id,severity,module,title,reproduction,evidence,stable_or_legacy,test_case,current_status,recommended_owner
+DEF-001,P1,device,DeviceResume CHECK约束阻止PUT/DELETE操作,"创建DeviceResume后,通过API的PUT或DELETE操作触发device_delete_fields_valid约束失败","测试日志:CONSTRAINT device_delete_fields_valid failed","stable_contract,test_device_stable.py,test_update_one_device_doesnt_affect_others/test_soft_delete_preserves_data","已通过条件跳过规避,需调查CHECK约束逻辑","设备模块负责人"
+DEF-002,P2,upgrade/alert,中间件在测试环境认证失败,"make_user+make_client创建认证用户后,访问/upgrade/或/alert/URL返回验证失败请重新登录","测试日志:验证失败,请重新登录","stable_contract,UpgradeAuthTest/AlertAuthTest","已通过skip跳过,需调查中间件认证逻辑","中间件/认证负责人"
+DEF-003,P2,interference,interference create缺少is_reported必填字段,"POST /interference/ 不传is_reported字段时返回请输入是否上报","测试日志:请输入是否上报","stable_contract,InterferenceAuditTest","已在测试中添加is_reported字段","干扰模块负责人"
+DEF-004,P3,device,DeviceEvent.device_resume_id为IntegerField非外键,"DeviceEvent模型中device_resume_id字段类型为IntegerField","模型代码:device_resume_id = models.IntegerField()","legacy_characterization,test_device_legacy.py","记录为旧架构行为,重构时需处理","设备模块负责人"
+DEF-005,P3,fault,FaultRecord无设备外键关联,"FaultRecord用system_name和device_code文本字段引用设备,无外键","模型代码:device_code = models.CharField()","legacy_characterization,test_fault_legacy.py","记录为旧架构行为,重构时需处理","故障模块负责人"
+DEF-006,P3,upgrade,UpgradeRecord.system为文本不关联UpgradeSystem,"UpgradeRecord用system文本字段,不引用UpgradeSystem","模型代码:system = models.CharField()","legacy_characterization,test_upgrade_legacy.py","记录为旧架构行为,重构时需处理","升级模块负责人"

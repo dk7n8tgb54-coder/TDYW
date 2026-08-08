@@ -66,12 +66,11 @@ docker exec tdyw-test rm -rf /data/spug/spug_api/quality_tenant_isolation
 
 ## 测试覆盖
 
-### 已执行行为测试的模块 (8 个)
+### 已执行行为测试的模块 (7 个)
 
 | 模块 | 测试文件 | 覆盖操作 |
 |---|---|---|
 | home/navigation | test_cross_tenant_crud.py | 列表/修改/删除 |
-| home/notice | test_cross_tenant_crud.py | 列表/修改/删除 |
 | reminder | test_cross_tenant_crud.py | 列表/用户列表/修改/删除/租户伪造 |
 | runlog | test_cross_tenant_crud.py | 列表/详情/修改/删除 |
 | fault | test_cross_tenant_crud.py | 列表/修改/删除 |
@@ -89,7 +88,6 @@ department_duty_log, duty, document, evidence, logs, data_analysis
 | ID | 严重度 | 模块 | 漏洞 |
 |---|---|---|---|
 | TI-001 | CRITICAL | home/navigation | NavView 完全无 apply_tenant_filter |
-| TI-002 | CRITICAL | home/notice | NoticeView 完全无 apply_tenant_filter |
 | TI-003 | HIGH | reminder | ReminderUsersView 泄露全部租户用户 |
 
 ## 安全保证

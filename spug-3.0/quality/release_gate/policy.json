@@ -1,0 +1,66 @@
+{
+  "required_work_packages": [
+    {"id": "WP1", "name": "全系统盘点与测试规划", "required_status": "PASS", "blocking_on_fail": true},
+    {"id": "WP2", "name": "日常业务模块特征测试", "required_status": "PASS", "blocking_on_fail": false, "not_reverified_blocks_release": true},
+    {"id": "WP3", "name": "资料与行政业务特征测试", "required_status": "PASS", "blocking_on_fail": false, "not_reverified_blocks_release": true},
+    {"id": "WP4", "name": "技术运维模块重构前基线", "required_status": "PASS", "blocking_on_fail": false, "not_reverified_blocks_release": true},
+    {"id": "WP5", "name": "全系统租户隔离与越权测试", "required_status": "PASS", "blocking_on_fail": true},
+    {"id": "WP6", "name": "权限一致性审计工具", "required_status": "PASS", "blocking_on_fail": true},
+    {"id": "WP7", "name": "数据库结构与数据质量审计", "required_status": "PASS", "blocking_on_fail": false, "not_reverified_blocks_release": true},
+    {"id": "WP8", "name": "Playwright 全系统端到端回归", "required_status": "PASS", "blocking_on_fail": true},
+    {"id": "WP9", "name": "性能与灾备基线", "required_status": "PASS", "blocking_on_fail": true}
+  ],
+  "security": {
+    "blocking_severities": ["CRITICAL"],
+    "not_ready_severities": ["HIGH"],
+    "require_secret_rotation": true,
+    "rotated_statuses": ["completed", "verified", "not_required"],
+    "unrotated_statuses": ["pending", "unrotated", "needs_rotation"]
+  },
+  "required_evidence": [
+    {
+      "check_id": "EVID-WP6-REPORT",
+      "description": "验证：WP6 权限审计报告已生成",
+      "category": "required_report",
+      "wp_ref": "WP6",
+      "evidence_key": "permission_audit",
+      "required": true,
+      "blocking_if_missing": true
+    },
+    {
+      "check_id": "EVID-PERF-LOAD",
+      "description": "验证：性能负载测试已执行",
+      "category": "test_executed",
+      "blocked_check_key": "performance_load",
+      "evidence_key": "performance_load",
+      "required": true,
+      "blocking_if_missing": true
+    },
+    {
+      "check_id": "EVID-DR-RESTORE",
+      "description": "验证：灾备恢复演练已执行",
+      "category": "test_executed",
+      "blocked_check_key": "disaster_recovery_restore",
+      "evidence_key": "disaster_recovery_restore",
+      "required": true,
+      "blocking_if_missing": true
+    },
+    {
+      "check_id": "EVID-WP-REVERIFICATION",
+      "description": "验证：WP2/WP3/WP4/WP7 独立复验",
+      "category": "reverification",
+      "required": true,
+      "blocking_if_missing": true
+    }
+  ],
+  "non_pass_statuses": ["NOT_RUN", "NOT_REVERIFIED", "BLOCKED"],
+  "evidence_validation": {
+    "environment_whitelist": ["isolated_test_db", "isolated_restore_env"],
+    "required_fields": {
+      "permission_audit": ["report_paths", "generated_at"],
+      "performance_load": ["result_path", "executed_at", "environment"],
+      "disaster_recovery_restore": ["drill_report", "restored_at", "environment"]
+    }
+  },
+  "output_dir": "quality/reports/release_gate"
+}

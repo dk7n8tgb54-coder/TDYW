@@ -4,8 +4,6 @@
 from django.urls import path
 
 from .views import *
-from apps.home.notice import NoticeView
-from apps.home.navigation import NavView
 from apps.home.announcement import (
     AnnouncementAdminListView,
     AnnouncementAdminDetailView,
@@ -27,8 +25,6 @@ from apps.home.announcement import (
 
 urlpatterns = [
     path('statistic/', get_statistic),
-    path('notice/', NoticeView.as_view()),
-    path('navigation/', NavView.as_view()),
 
     # ===== 公告发布模块 =====
     # 管理端

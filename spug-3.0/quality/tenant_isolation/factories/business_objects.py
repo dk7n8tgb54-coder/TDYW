@@ -6,25 +6,6 @@ from datetime import date
 _uid = lambda: uuid.uuid4().hex[:12]
 
 
-def make_navigation(tenant_id, label='A'):
-    """创建导航记录"""
-    from apps.home.models import Navigation
-    return Navigation.objects.create(
-        title=f'N{label}_{_uid()}', desc='测试导航', logo='logo',
-        links=json.dumps([{'name': 'test', 'url': '/test'}]),
-        tenant_id=tenant_id, sort_id=1,
-    )
-
-
-def make_notice(tenant_id, label='A'):
-    """创建公告"""
-    from apps.home.models import Notice
-    return Notice.objects.create(
-        title=f'P{label}_{_uid()}', content='测试公告内容',
-        sort_id=1, tenant_id=tenant_id,
-    )
-
-
 def make_reminder(tenant_id, user, label='A'):
     """创建提醒"""
     from apps.reminder.models import Reminder
@@ -92,12 +73,6 @@ def make_all_business_objects(tenants, users):
     ub = users['ub']
 
     data = {}
-    # Navigation
-    data['nav_a'] = make_navigation(tid_a, 'A')
-    data['nav_b'] = make_navigation(tid_b, 'B')
-    # Notice
-    data['notice_a'] = make_notice(tid_a, 'A')
-    data['notice_b'] = make_notice(tid_b, 'B')
     # Reminder
     data['rem_a'] = make_reminder(tid_a, ua, 'A')
     data['rem_b'] = make_reminder(tid_b, ub, 'B')
@@ -112,13 +87,12 @@ def make_all_business_objects(tenants, users):
 
 def cleanup_business_objects(data, tid_a, tid_b):
     """清理所有业务对象"""
-    from apps.home.models import Navigation, Notice
     from apps.reminder.models import Reminder
     from apps.runlog.models import RunLog
     from apps.fault.models import FaultRecord
     from apps.regulation.models import Regulation, RegulationCategory
 
-    for model in [Navigation, Notice, Reminder, RunLog, FaultRecord]:
+    for model in [Reminder, RunLog, FaultRecord]:
         model.objects.filter(tenant_id__in=[tid_a, tid_b]).delete()
 
     if 'reg' in data:

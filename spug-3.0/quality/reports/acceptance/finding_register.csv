@@ -1,0 +1,17 @@
+id,severity,package_id,category,title,evidence,impact,current_status,blocking,recommended_owner
+F-001,CRITICAL,WP8,security,E2E artifacts包含明文密码,quality/reports/e2e/artifacts/run-*/error-context.md 14个文件包含测试环境管理员密码已进入Git提交eb8ecf00,测试环境管理员密码泄露至Git仓库历史,已从Git跟踪移除但历史中仍存在,yes,E2E团队
+F-002,HIGH,WP6,completeness,权限审计工具未生成报告,quality/reports/permission_audit/ 目录不存在,无法验证权限一致性和工具是否运行,yes,yes,权限审计团队
+F-003,CRITICAL,WP5,security,NavView完全无租户隔离,quality/tenant_isolation/ finding_register.csv,租户A可读取/修改/删除租户B的导航数据,yes,yes,后端团队
+F-004,CRITICAL,WP5,security,NoticeView完全无租户隔离,quality/tenant_isolation/ finding_register.csv,租户A可读取/修改/删除租户B的公告数据,yes,yes,后端团队
+F-005,HIGH,WP5,security,ReminderUsersView泄露租户用户列表,quality/tenant_isolation/ finding_register.csv,跨租户可获取全部用户信息,yes,yes,后端团队
+F-006,HIGH,WP9,completeness,性能负载测试未执行,quality/reports/performance/ coverage_gaps.md,无并发性能数据无法评估系统承载能力,yes,yes,性能团队
+F-007,HIGH,WP9,completeness,灾备恢复演练未执行,quality/reports/disaster_recovery/ restore_drill_results.csv,恢复流程未验证实际恢复可能失败,yes,yes,运维团队
+F-008,HIGH,WP9,security,灾备密钥未备份无异地副本,quality/reports/disaster_recovery/ DR-001/DR-002,加密备份密钥丢失后备份不可恢复,yes,yes,运维团队
+F-009,MEDIUM,WP2,defect,duty edit时区问题,quality/reports/daily_business/ DUTY-001 P0,值班日志编辑时时间处理错误,no,no,后端团队
+F-010,MEDIUM,WP2,defect,runlog closed datetime序列化问题,quality/reports/daily_business/ RUNLOG-001 P0,跨日事项关闭时间序列化错误,no,no,后端团队
+F-011,MEDIUM,WP2,defect,runlog update duty_person NOT NULL,quality/reports/daily_business/ RUNLOG-002 P1,更新跨日事项时值班人字段NOT NULL约束冲突,no,no,后端团队
+F-012,MEDIUM,WP5,coverage,11个模块仅源码审查无行为测试,quality/reports/tenant_isolation/ coverage_gaps.md,部分模块租户隔离未通过行为测试验证,no,no,租户隔离团队
+F-013,MEDIUM,WP9,defect,2个API路径错误,quality/reports/performance/ PERF-003/PERF-004,doc_files返回405和faults路径不存在,no,no,后端团队
+F-014,LOW,WP8,coverage,E2E仅测试Chromium,quality/reports/e2e/ coverage_gaps.md,未测试Firefox和WebKit兼容性,no,no,E2E团队
+F-015,LOW,WP9,performance,alerts端点慢请求,quality/reports/performance/ avg 235ms max 1106ms,告警列表响应时间异常需调查,no,no,后端团队
+F-016,LOW,WP4,coverage,4项测试跳过,quality/reports/technical_operations/ device legacy CHECK约束等,部分旧架构行为未测试,no,no,技术运维团队

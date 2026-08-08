@@ -22,7 +22,6 @@ def _uid(): return uuid.uuid4().hex[:12]
 
 def setup_data():
     from apps.account.models import User, Role, Tenant
-    from apps.home.models import Navigation, Notice
     from apps.reminder.models import Reminder
     from apps.runlog.models import RunLog
     from apps.fault.models import FaultRecord
@@ -34,16 +33,12 @@ def setup_data():
     d['tid_b'] = f'ti_b_{_uid()}'
     d['tenant_a'] = Tenant.objects.create(id=d['tid_a'], name='测试A', created_by=bootstrap_user)
     d['tenant_b'] = Tenant.objects.create(id=d['tid_b'], name='测试B', created_by=bootstrap_user)
-    perms = json.dumps({"home":{"navigation":["view","add","edit","del"],"notice":["view","add","edit","del"],"reminder":["view","add","edit","delete"]},"runlog":{"runlog":["view","add","edit","del","update_view","update_add","update_edit","update_del"]},"fault":{"faultrecord":["view","add","edit","del"]},"regulation":{"regulation":["view","add","edit","del"]},"dashboard":{"dashboard":["view"]},"system":{"account":["view","add","edit","del"],"role":["view","add","edit","del"]},"logs":{"audit":["view"]}})
+    perms = json.dumps({"home":{"reminder":["view","add","edit","delete"]},"runlog":{"runlog":["view","add","edit","del","update_view","update_add","update_edit","update_del"]},"fault":{"faultrecord":["view","add","edit","del"]},"regulation":{"regulation":["view","add","edit","del"]},"dashboard":{"dashboard":["view"]},"system":{"account":["view","add","edit","del"],"role":["view","add","edit","del"]},"logs":{"audit":["view"]}})
     for lbl, tid, uname in [('ua',d['tid_a'],f'ti_a_{_uid()}'),('ub',d['tid_b'],f'ti_b_{_uid()}')]:
         r = Role.objects.create(name=f'r{uname}',tenant_id=tid,page_perms=perms,created_by=bootstrap_user)
         u = User(username=uname,nickname=uname,password_hash=User.make_password('t'),tenant_id=tid,is_supper=False,is_active=True,access_token=uuid.uuid4().hex,last_ip='127.0.0.1',token_expired=time.time()+86400)
         u.save(); u.roles.add(r)
         d[lbl]=u; d[f'tk_{lbl}']=u.access_token
-    d['nav_a']=Navigation.objects.create(title=f'NA_{_uid()}',desc='d',logo='l',links='[]',tenant_id=d['tid_a'],sort_id=1)
-    d['nav_b']=Navigation.objects.create(title=f'NB_{_uid()}',desc='d',logo='l',links='[]',tenant_id=d['tid_b'],sort_id=1)
-    d['notice_a']=Notice.objects.create(title=f'PA_{_uid()}',content='c',sort_id=1,tenant_id=d['tid_a'])
-    d['notice_b']=Notice.objects.create(title=f'PB_{_uid()}',content='c',sort_id=1,tenant_id=d['tid_b'])
     d['rem_a']=Reminder.objects.create(name=f'RA_{_uid()}',target_date=date.today(),repeat_type='none',content='c',enabled=True,recipient_users='[]',tenant_id=d['tid_a'],created_by_id=d['ua'].id,created_by_name=d['ua'].nickname)
     d['rem_b']=Reminder.objects.create(name=f'RB_{_uid()}',target_date=date.today(),repeat_type='none',content='c',enabled=True,recipient_users='[]',tenant_id=d['tid_b'],created_by_id=d['ub'].id,created_by_name=d['ub'].nickname)
     d['rl_a']=RunLog.objects.create(event_title=f'LA_{_uid()}',event_type='运行异常',system_name='SA',severity='P2',status='in_progress',created_by=d['ua'],tenant_id=d['tid_a'])
@@ -56,12 +51,11 @@ def setup_data():
 
 def cleanup(d):
     from apps.account.models import User,Role,Tenant
-    from apps.home.models import Navigation,Notice
     from apps.reminder.models import Reminder
     from apps.runlog.models import RunLog
     from apps.fault.models import FaultRecord
     from apps.regulation.models import Regulation,RegulationCategory
-    for m in [Navigation,Notice,Reminder,RunLog,FaultRecord]:
+    for m in [Reminder,RunLog,FaultRecord]:
         m.objects.filter(tenant_id__in=[d['tid_a'],d['tid_b']]).delete()
     Regulation.objects.filter(pk=d['reg'].pk).delete()
     RegulationCategory.objects.filter(pk=d['reg_cat'].pk).delete()
@@ -82,47 +76,9 @@ def _items(body):
     return []
 
 # === 测试 ===
-def test_nav_list(d):
+def test_nav_removed(d):
     c=Client(); r=c.get('/home/navigation/',**{'HTTP_X_TOKEN':d['tk_ua']})
-    b=_body(r); items=_items(b)
-    titles=[str(i.get('title','')) for i in items]
-    has_b=any('NB_' in t for t in titles)
-    rec('home/navigation','Nav列表跨租户',not has_b,f'看到B:{has_b},共{len(items)}条',sev='critical' if has_b else 'info')
-
-def test_nav_edit(d):
-    c=Client(); bid=d['nav_b'].id
-    r=c.post('/home/navigation/',data=json.dumps({'id':bid,'title':'HACKED'}),content_type='application/json',**{'HTTP_X_TOKEN':d['tk_ua']})
-    from apps.home.models import Navigation
-    n=Navigation.objects.get(pk=bid)
-    rec('home/navigation','Nav修改跨租户',n.title!='HACKED',f'title={n.title},resp={_body(r)}',sev='critical' if n.title=='HACKED' else 'info')
-
-def test_nav_del(d):
-    c=Client(); bid=d['nav_b'].id
-    r=c.delete(f'/home/navigation/?id={bid}',**{'HTTP_X_TOKEN':d['tk_ua']})
-    from apps.home.models import Navigation
-    n=Navigation.objects.filter(pk=bid,is_deleted=False).first()
-    rec('home/navigation','Nav删除跨租户',n is not None,f'已删={n is None},resp={_body(r)}',sev='critical' if n is None else 'info')
-
-def test_notice_list(d):
-    c=Client(); r=c.get('/home/notice/',**{'HTTP_X_TOKEN':d['tk_ua']})
-    b=_body(r); items=_items(b)
-    titles=[str(i.get('title','')) for i in items]
-    has_b=any('PB_' in t for t in titles)
-    rec('home/notice','Notice列表跨租户',not has_b,f'看到B:{has_b},共{len(items)}条',sev='critical' if has_b else 'info')
-
-def test_notice_edit(d):
-    c=Client(); bid=d['notice_b'].id
-    r=c.post('/home/notice/',data=json.dumps({'id':bid,'title':'HACKED'}),content_type='application/json',**{'HTTP_X_TOKEN':d['tk_ua']})
-    from apps.home.models import Notice
-    n=Notice.objects.get(pk=bid)
-    rec('home/notice','Notice修改跨租户',n.title!='HACKED',f'title={n.title},resp={_body(r)}',sev='critical' if n.title=='HACKED' else 'info')
-
-def test_notice_del(d):
-    c=Client(); bid=d['notice_b'].id
-    r=c.delete(f'/home/notice/?id={bid}',**{'HTTP_X_TOKEN':d['tk_ua']})
-    from apps.home.models import Notice
-    n=Notice.objects.filter(pk=bid,is_deleted=False).first()
-    rec('home/notice','Notice删除跨租户',n is not None,f'已删={n is None},resp={_body(r)}',sev='critical' if n is None else 'info')
+    rec('home/navigation','Nav接口已删除',r.status_code==404,f'status={r.status_code}(应404)',sev='critical' if r.status_code!=404 else 'info')
 
 def test_rem_list(d):
     c=Client(); r=c.get('/reminder/',**{'HTTP_X_TOKEN':d['tk_ua']})
@@ -233,8 +189,7 @@ def test_regulation_global(d):
         f'Regulation有tenant_id字段:{has_tenant},无租户隔离',sev='info')
 
 ALL_TESTS = [
-    test_nav_list, test_nav_edit, test_nav_del,
-    test_notice_list, test_notice_edit, test_notice_del,
+    test_nav_removed,
     test_rem_list, test_rem_users, test_rem_edit, test_rem_del, test_rem_tenant_forgery,
     test_rl_list, test_rl_detail, test_rl_edit, test_rl_del,
     test_ft_list, test_ft_edit, test_ft_del,

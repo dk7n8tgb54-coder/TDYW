@@ -1,0 +1,10 @@
+package_id,package_name,expected_scope,actual_paths,artifact_status,test_status,report_consistency,security_status,scope_status,final_status,notes
+WP1,全系统盘点与测试规划,outputs/system_inventory/,outputs/system_inventory/,COMPLETE,N/A(文档类),CONSISTENT,CLEAN,IN_SCOPE,PASS,20模块全覆盖无schedule残留
+WP2,日常业务模块特征测试,spug_api/apps/*/tests/characterization/,5个app/tests/characterization/,COMPLETE,NOT_REVERIFIED,CONSISTENT,CLEAN,IN_SCOPE,NOT_REVERIFIED,代码审查无伪测试但未重新执行
+WP3,资料与行政业务特征测试,spug_api/apps/*/tests/characterization/,4个app/tests/characterization/,COMPLETE,NOT_REVERIFIED,CONSISTENT,CLEAN,IN_SCOPE,NOT_REVERIFIED,代码审查无伪测试但未重新执行
+WP4,技术运维模块重构前基线,spug_api/apps/*/tests/stable_contract+legacy_characterization/,5个app双目录,COMPLETE,NOT_REVERIFIED,CONSISTENT,CLEAN,IN_SCOPE,NOT_REVERIFIED,stable/legacy正确分离但未重新执行
+WP5,全系统租户隔离与越权测试,quality/tenant_isolation/,quality/tenant_isolation/ + reports/,COMPLETE,FAIL(2 CRITICAL+1 HIGH漏洞),CONSISTENT,CLEAN,IN_SCOPE,FAIL,严重跨租户漏洞未修复构成发布阻断
+WP6,权限一致性审计工具,quality/permission_audit/ + reports/permission_audit/,quality/permission_audit/(报告目录不存在),PARTIAL(工具已建设无报告),NOT_EXECUTED,N/A,CLEAN,IN_SCOPE,PARTIAL,工具和测试存在但未生成报告
+WP7,数据库结构与数据质量审计,quality/database_audit/ + reports/database_audit/,quality/database_audit/ + reports/,COMPLETE,NOT_REVERIFIED,CONSISTENT,CLEAN,IN_SCOPE,NOT_REVERIFIED,代码审查安全但未重新执行
+WP8,Playwright全系统端到端回归,quality/e2e/ + reports/e2e/,quality/e2e/ + reports/e2e/,COMPLETE,NOT_REVERIFIED,CONSISTENT,FAIL(密码已进入Git提交eb8ecf00),IN_SCOPE,FAIL,artifacts已从Git移除但密码仍在历史中
+WP9,性能与灾备基线,quality/performance/ + quality/disaster_recovery/,对应目录,PARTIAL(工具已测试负载/恢复未执行),PARTIAL,CONSISTENT,CLEAN,IN_SCOPE,PARTIAL,Locust未安装恢复演练未执行

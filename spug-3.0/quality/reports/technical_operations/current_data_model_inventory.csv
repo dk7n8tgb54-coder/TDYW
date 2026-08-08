@@ -1,0 +1,12 @@
+module,model,table,purpose,current_key_fields,tenant_field,soft_delete,history_value,migration_priority,notes
+device,DeviceResume,tdyw_device_resume,设备档案/台账,device_sn;device_name;device_model;current_status,Y,Y(check约束),N,高,CHECK约束device_delete_fields_valid影响迁移
+device,DeviceEvent,tdyw_device_event,设备事件/履历,device_resume_id(IntegerField);device_name;device_sn;event_type,Y,N(字段保留),Y,高,device_resume_id为IntegerField非外键
+fault,FaultRecord,tdyw_fault_record,故障记录,system_name;device_code;fault_date;fault_level,Y,Y,N,高,system_name/device_code为文本非外键
+fault,FaultPart,tdyw_fault_part,故障部件,name;system_name;date;status,Y,Y,N,中,无外键关联FaultRecord
+upgrade,UpgradeRecord,tdyw_upgrade_record,升级记录,title;system(text);upgrade_type;status,Y,Y,N,高,system为文本非外键
+upgrade,UpgradeSystem,tdyw_upgrade_system,系统候选项,name;is_active;sort_order,Y,Y,N,中,字典表非全局主数据
+upgrade,UpgradeRecordStep,tdyw_upgrade_record_step,升级步骤记录,upgrade_id(IntegerField);step_id,Y,N,N,中,upgrade_id为IntegerField
+upgrade,UpgradeStatusLog,tdyw_upgrade_status_log,升级状态日志,upgrade_id(IntegerField),Y,N,N,中,upgrade_id为IntegerField
+interference,Interference,tdyw_interference,干扰记录,serial_number;frequency;status;report_dept,Y,Y,N,中,无设备外键
+alert,Alert,tdyw_alert,告警记录,title;level;status;alert_key;source,N,N,N,低,全局数据无tenant_id
+alert,AlertRead,tdyw_alert_read,告警已读,alert_id(FK);user_id(IntegerField),N,N,N,低,user_id为IntegerField

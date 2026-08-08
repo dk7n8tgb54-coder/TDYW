@@ -67,7 +67,6 @@ async function fullCleanup() {
     await cleanupByPrefix(context, '/api/duty/duty/', '/api/duty/duty/', 'title');
     await cleanupByPrefix(context, '/api/runlog/runlogs/', '/api/runlog/runlogs/', 'title');
     await cleanupByPrefix(context, '/api/reminder/', '/api/reminder/', 'title');
-    await cleanupByPrefix(context, '/api/home/notice/', '/api/home/notice/', 'title');
     await cleanupByPrefix(context, '/api/radio-license/', '/api/radio-license/', 'license_no', 'id');
     await cleanupByPrefix(context, '/api/radio-license/approvals/', '/api/radio-license/approvals/', 'approval_no', 'id');
     await cleanupByPrefix(context, '/api/contract-agreement/', '/api/contract-agreement/', 'title');

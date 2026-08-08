@@ -1,0 +1,6 @@
+scenario,type,target_modules,read_or_write,users,spawn_rate,duration,safety_guard,status,notes
+smoke,validation,"home,document,device,logs,fault",read_only,2,1,30s,READ_ONLY,not_executed,"Locust not installed; dev database"
+normal_load,baseline,all,mixed,5,1,5m,WRITE_ALLOWED,not_executed,"Dev database - write not safe"
+peak_load,capacity,all,mixed,20,2,10m,WRITE_ALLOWED,not_executed,"Dev database - write not safe"
+soak,stability,all,mixed,10,1,30m,WRITE_ALLOWED,not_executed,"Dev database - write not safe"
+single_probe,read_only,all,read_only,1,n/a,n/a,READ_ONLY,executed,"5 iterations per endpoint; 25 endpoints; 125 total requests"

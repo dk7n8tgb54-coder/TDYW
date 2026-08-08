@@ -1,0 +1,15 @@
+package_id,suite,command,environment,started_at,duration_seconds,passed,failed,skipped,blocked,exit_code,result,evidence
+WP2,Django行为测试,docker exec tdyw python manage.py test apps.{dept_duty_log,duty,runlog,reminder,home}.tests.characterization --noinput,Docker/tdyw-test,2026-08-08,N/A,N/A,N/A,N/A,N/A,N/A,NOT_EXECUTED,历史报告声明279项272通过7expectedFailure但本次未重新执行
+WP3,Django行为测试,docker exec tdyw python manage.py test apps.{radio_license,contract_agreement,document,regulation}.tests.characterization --noinput,Docker/tdyw-test,2026-08-08,N/A,N/A,N/A,N/A,N/A,N/A,NOT_EXECUTED,历史报告声明124项全通过但本次未重新执行
+WP4-stable,Django stable_contract,docker exec tdyw python manage.py test apps.{device,fault,upgrade,interference,alert}.tests.stable_contract --noinput,Docker/tdyw-test,2026-08-08,N/A,N/A,N/A,N/A,N/A,N/A,NOT_EXECUTED,历史报告声明48项全通过但本次未重新执行
+WP4-legacy,Django legacy_characterization,docker exec tdyw python manage.py test apps.{device,fault,upgrade,interference,alert}.tests.legacy_characterization --noinput,Docker/tdyw-test,2026-08-08,N/A,N/A,N/A,N/A,N/A,N/A,NOT_EXECUTED,历史报告声明43项39通过4skip但本次未重新执行
+WP5,租户隔离HTTP测试,docker exec tdyw python manage.py test quality.tenant_isolation.tests --noinput,Docker/tdyw-test,2026-08-08,N/A,N/A,N/A,N/A,N/A,N/A,NOT_EXECUTED,历史报告发现2CRITICAL+1HIGH但本次未重新执行
+WP6-unit,权限审计单元测试,python -m pytest quality/permission_audit/tests/unit/,Local,2026-08-08,N/A,N/A,N/A,N/A,N/A,N/A,NOT_EXECUTED,测试代码存在但未执行
+WP6-runtime,权限审计运行时测试,docker exec tdyw python manage.py test quality.permission_audit.tests.runtime --noinput,Docker/tdyw-test,2026-08-08,N/A,N/A,N/A,N/A,N/A,N/A,NOT_EXECUTED,测试代码存在但未执行
+WP7,数据库只读审计,python quality/database_audit/audit_database.py,Docker/tdyw-test,2026-08-08,N/A,N/A,N/A,N/A,N/A,N/A,NOT_EXECUTED,历史报告已生成3HIGH+5MEDIUM但本次未重新执行
+WP8,Playwright E2E,npx playwright test --project=chromium,Local/Docker,2026-08-08,N/A,N/A,N/A,N/A,N/A,N/A,NOT_EXECUTED,历史报告声明109项全通过但本次未重新执行
+WP9-perf-tool,性能工具测试,python -m pytest quality/performance/tests/,Local,2026-08-08,N/A,N/A,N/A,N/A,N/A,N/A,NOT_EXECUTED,历史报告声明~71项通过但本次未重新执行
+WP9-perf-probe,只读性能探测,python quality/performance/probe_readonly.py,Docker/tdyw-test,2026-08-08,N/A,N/A,N/A,N/A,N/A,N/A,NOT_EXECUTED,历史报告25端点23成功2路径错误但本次未重新执行
+WP9-dr-tool,灾备工具测试,python -m pytest quality/disaster_recovery/tests/,Local,2026-08-08,N/A,N/A,N/A,N/A,N/A,N/A,NOT_EXECUTED,历史报告声明~78通过1skip但本次未重新执行
+WP9-dr-restore,恢复演练,N/A（未执行）,N/A,2026-08-08,N/A,0,0,0,5,N/A,BLOCKED,5个恢复场景全部未执行
+WP9-perf-load,Locust负载测试,N/A（Locust未安装）,N/A,2026-08-08,N/A,0,0,0,N/A,N/A,BLOCKED,Locust未安装负载测试未执行

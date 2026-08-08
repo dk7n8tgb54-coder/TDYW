@@ -13,15 +13,6 @@ modules:
         tested: true
         risk: CRITICAL
         notes: "NavView 完全无 apply_tenant_filter 调用"
-      - name: Notice
-        table: home_notice
-        tenant_field: tenant_id
-        classification: tenant_private
-        manager: TenantModelManager
-        soft_delete: true
-        tested: true
-        risk: CRITICAL
-        notes: "NoticeView 完全无 apply_tenant_filter 调用"
 
   reminder:
     models:

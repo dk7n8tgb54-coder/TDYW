@@ -1,0 +1,501 @@
+{
+  "schema_version": "1.1",
+  "generated_at": "2026-08-08T23:30:00+08:00",
+  "git_commit": "eb8ecf009ef5021382b83c04607dfce2a1c5abe9",
+  "worktree_dirty": true,
+  "worktree_status": "staged changes in quality/ outputs/ .codebuddy/ AGENTS.md; E2E artifacts removed from tracking; 本次验收过程未修改业务代码；当前工作区存在其他任务产生的业务代码及测试代码修改，本次验收不对其归属和正确性作结论",
+  "correction_note": "v4: 门禁输出字段（schema_valid/input_valid/consumable_by_release_gate/can_release_now/gate_status）改为门禁计算结果（保留为自评估）；secret_findings 新增显式 rotation_status 字段；门禁策略改用 policy.json（移除 PyYAML 依赖）；必需证据检查改为正面证据驱动",
+  "packages": [
+    {
+      "id": "WP1",
+      "name": "全系统盘点与测试规划",
+      "final_status": "PASS",
+      "artifacts_complete": true,
+      "tests_executed": false,
+      "tests_passed": null,
+      "tests_failed": null,
+      "tests_skipped": null,
+      "report_consistent": true,
+      "scope_compliant": true,
+      "security_clean": true,
+      "blocking_findings": 0,
+      "notes": "Document/inventory type, verified by reading"
+    },
+    {
+      "id": "WP2",
+      "name": "日常业务模块特征测试",
+      "final_status": "NOT_REVERIFIED",
+      "artifacts_complete": true,
+      "tests_executed": false,
+      "tests_passed": null,
+      "tests_failed": null,
+      "tests_skipped": null,
+      "report_consistent": true,
+      "scope_compliant": true,
+      "security_clean": true,
+      "blocking_findings": 0,
+      "historical_claim": "279 tests, 272 passed, 7 expectedFailure",
+      "warnings": ["Code review found no pseudo-tests but tests were not re-executed"]
+    },
+    {
+      "id": "WP3",
+      "name": "资料与行政业务特征测试",
+      "final_status": "NOT_REVERIFIED",
+      "artifacts_complete": true,
+      "tests_executed": false,
+      "tests_passed": null,
+      "tests_failed": null,
+      "tests_skipped": null,
+      "report_consistent": true,
+      "scope_compliant": true,
+      "security_clean": true,
+      "blocking_findings": 0,
+      "historical_claim": "124 tests, all passed",
+      "warnings": ["Code review found no pseudo-tests but tests were not re-executed"]
+    },
+    {
+      "id": "WP4",
+      "name": "技术运维模块重构前基线",
+      "final_status": "NOT_REVERIFIED",
+      "artifacts_complete": true,
+      "tests_executed": false,
+      "tests_passed": null,
+      "tests_failed": null,
+      "tests_skipped": null,
+      "report_consistent": true,
+      "scope_compliant": true,
+      "security_clean": true,
+      "blocking_findings": 0,
+      "historical_claim": "91 tests, 87 passed, 4 skipped",
+      "warnings": ["stable/legacy properly separated but tests were not re-executed"]
+    },
+    {
+      "id": "WP5",
+      "name": "全系统租户隔离与越权测试",
+      "final_status": "FAIL",
+      "artifacts_complete": true,
+      "tests_executed": false,
+      "report_consistent": true,
+      "scope_compliant": true,
+      "security_clean": true,
+      "blocking_findings": 3,
+      "fail_reason": "2 CRITICAL + 1 HIGH unmitigated tenant isolation vulnerabilities",
+      "warnings": [
+        "CRITICAL: NavView lacks tenant isolation - cross-tenant CRUD possible",
+        "CRITICAL: NoticeView lacks tenant isolation - cross-tenant CRUD possible",
+        "HIGH: ReminderUsersView leaks cross-tenant user list",
+        "11 modules only source-reviewed, no behavior tests"
+      ]
+    },
+    {
+      "id": "WP6",
+      "name": "权限一致性审计工具",
+      "final_status": "PARTIAL",
+      "artifacts_complete": false,
+      "tests_executed": false,
+      "report_consistent": false,
+      "scope_compliant": true,
+      "security_clean": true,
+      "blocking_findings": 1,
+      "warnings": [
+        "Tool built with parsers, unit tests, and runtime tests",
+        "No report generated - quality/reports/permission_audit/ does not exist"
+      ]
+    },
+    {
+      "id": "WP7",
+      "name": "数据库结构与数据质量审计",
+      "final_status": "NOT_REVERIFIED",
+      "artifacts_complete": true,
+      "tests_executed": false,
+      "report_consistent": true,
+      "scope_compliant": true,
+      "security_clean": true,
+      "blocking_findings": 0,
+      "historical_claim": "72 tables audited, 3 HIGH + 5 MEDIUM findings",
+      "warnings": ["Code review confirms tool safety but audit was not re-run"]
+    },
+    {
+      "id": "WP8",
+      "name": "Playwright全系统端到端回归",
+      "final_status": "FAIL",
+      "artifacts_complete": true,
+      "tests_executed": false,
+      "tests_passed": null,
+      "tests_failed": null,
+      "tests_skipped": null,
+      "report_consistent": true,
+      "scope_compliant": true,
+      "security_clean": false,
+      "blocking_findings": 1,
+      "fail_reason": "Plaintext password committed to Git in eb8ecf00",
+      "remediation_taken": [
+        "Removed artifacts from Git tracking (git rm --cached -r)",
+        "Added .gitignore to prevent future artifact commits"
+      ],
+      "remediation_pending": [
+        "Rotate the leaked test environment admin password immediately",
+        "Determine if commit eb8ecf00 has been pushed to remote",
+        "If pushed, coordinate Git history cleanup (do not rewrite without confirmation)"
+      ],
+      "warnings": ["Only Chromium tested, no Firefox/WebKit"]
+    },
+    {
+      "id": "WP9",
+      "name": "性能与灾备基线",
+      "final_status": "PARTIAL",
+      "artifacts_complete": true,
+      "tests_executed": false,
+      "report_consistent": true,
+      "scope_compliant": true,
+      "security_clean": true,
+      "blocking_findings": 3,
+      "warnings": [
+        "Performance: Locust not installed, load tests not executed",
+        "Disaster recovery: 5 restore scenarios not executed",
+        "RPO/RTO are estimates, not measured",
+        "BORG_PASSPHRASE has no offsite copy"
+      ]
+    }
+  ],
+  "verified_test_results": {
+    "total_historical_claimed": "690+ across WP2-WP5, WP8-WP9",
+    "total_verified_executed": 0,
+    "verification_method": "code_review_and_report_cross_check_only",
+    "note": "No tests were executed during this acceptance due to dev database safety constraints. All results are from historical reports cross-checked with code review."
+  },
+  "confirmed_findings": [
+    {
+      "id": "F-001",
+      "severity": "CRITICAL",
+      "package": "WP8",
+      "title": "E2E artifacts contain plaintext password in 14 Git-tracked files (committed in eb8ecf00)",
+      "blocking": true,
+      "remediation_status": "Removed from tracking, password rotation pending"
+    },
+    {
+      "id": "F-003",
+      "severity": "CRITICAL",
+      "package": "WP5",
+      "title": "NavView lacks tenant isolation - cross-tenant CRUD possible",
+      "blocking": true,
+      "remediation_status": "Unfixed"
+    },
+    {
+      "id": "F-004",
+      "severity": "CRITICAL",
+      "package": "WP5",
+      "title": "NoticeView lacks tenant isolation - cross-tenant CRUD possible",
+      "blocking": true,
+      "remediation_status": "Unfixed"
+    },
+    {
+      "id": "F-002",
+      "severity": "HIGH",
+      "package": "WP6",
+      "title": "Permission audit tool built but no report generated",
+      "blocking": true
+    },
+    {
+      "id": "F-005",
+      "severity": "HIGH",
+      "package": "WP5",
+      "title": "ReminderUsersView leaks cross-tenant user list",
+      "blocking": true,
+      "remediation_status": "Unfixed"
+    },
+    {
+      "id": "F-006",
+      "severity": "HIGH",
+      "package": "WP9",
+      "title": "Performance load tests not executed (Locust not installed)",
+      "blocking": true
+    },
+    {
+      "id": "F-007",
+      "severity": "HIGH",
+      "package": "WP9",
+      "title": "Disaster recovery restore drills not executed",
+      "blocking": true
+    },
+    {
+      "id": "F-008",
+      "severity": "HIGH",
+      "package": "WP9",
+      "title": "BORG_PASSPHRASE has no offsite backup copy",
+      "blocking": true
+    }
+  ],
+  "candidate_findings": [
+    {
+      "id": "CF-001",
+      "severity": "MEDIUM",
+      "title": "7 expectedFailure production defects unfixed (DUTY-001, RUNLOG-001, RUNLOG-002)"
+    },
+    {
+      "id": "CF-002",
+      "severity": "MEDIUM",
+      "title": "11 modules only source-reviewed for tenant isolation"
+    },
+    {
+      "id": "CF-003",
+      "severity": "MEDIUM",
+      "title": "2 API path errors in performance probes (doc_files 405, faults not found)"
+    },
+    {
+      "id": "CF-004",
+      "severity": "MEDIUM",
+      "title": "WP2/WP3/WP4/WP7 historical test results not independently verified"
+    },
+    {
+      "id": "CF-005",
+      "severity": "LOW",
+      "title": "E2E only tested Chromium, no Firefox/WebKit"
+    },
+    {
+      "id": "CF-006",
+      "severity": "LOW",
+      "title": "alerts endpoint slow response (avg 235ms, max 1106ms)"
+    },
+    {
+      "id": "CF-007",
+      "severity": "LOW",
+      "title": "4 skipped tests in technical operations legacy"
+    }
+  ],
+  "finding_summary": {
+    "critical": 3,
+    "high": 5,
+    "medium": 5,
+    "low": 3,
+    "total": 16,
+    "blocking": 8
+  },
+  "blocked_checks": [
+    {
+      "check": "performance_load",
+      "status": "BLOCKED",
+      "reason": "Locust not installed, dev database unsafe for load testing"
+    },
+    {
+      "check": "performance_peak",
+      "status": "BLOCKED",
+      "reason": "No independent test database"
+    },
+    {
+      "check": "performance_soak",
+      "status": "BLOCKED",
+      "reason": "No independent test database"
+    },
+    {
+      "check": "disaster_recovery_restore",
+      "status": "BLOCKED",
+      "reason": "tdyw-test connects to dev database, no drill environment"
+    },
+    {
+      "check": "permission_audit_report",
+      "status": "NOT_RUN",
+      "reason": "Tool built but report not generated"
+    },
+    {
+      "check": "backend_behavior_tests",
+      "status": "NOT_EXECUTED",
+      "reason": "Acceptance is read-only, tests not re-run"
+    },
+    {
+      "check": "e2e_browser_multibrowser",
+      "status": "NOT_RUN",
+      "reason": "Only Chromium tested"
+    },
+    {
+      "check": "tenant_isolation_fix",
+      "status": "BLOCKED",
+      "reason": "NavView/NoticeView/ReminderUsersView vulnerabilities unfixed"
+    }
+  ],
+  "missing_artifacts": [
+    {
+      "package": "WP6",
+      "path": "quality/reports/permission_audit/",
+      "type": "report_directory",
+      "severity": "HIGH"
+    },
+    {
+      "package": "WP6",
+      "path": "quality/reports/permission_audit/permission_catalog.csv",
+      "type": "csv",
+      "severity": "HIGH"
+    },
+    {
+      "package": "WP6",
+      "path": "quality/reports/permission_audit/permission_mismatch.csv",
+      "type": "csv",
+      "severity": "HIGH"
+    },
+    {
+      "package": "WP6",
+      "path": "quality/reports/permission_audit/role_permission_matrix.csv",
+      "type": "csv",
+      "severity": "HIGH"
+    },
+    {
+      "package": "ALL",
+      "path": "quality/release_gate/",
+      "type": "directory",
+      "severity": "INFO",
+      "note": "Not in scope of this acceptance"
+    }
+  ],
+  "evidence": {
+    "permission_audit": {
+      "status": "NOT_RUN",
+      "report_paths": [],
+      "reason": "Tool built but report not generated; blocked_check permission_audit_report exists"
+    },
+    "performance_load": {
+      "status": "NOT_RUN",
+      "result_path": null,
+      "executed_at": null,
+      "environment": null,
+      "reason": "Locust not installed, dev database unsafe for load testing"
+    },
+    "disaster_recovery_restore": {
+      "status": "NOT_RUN",
+      "drill_report": null,
+      "restored_at": null,
+      "environment": null,
+      "reason": "tdyw-test connects to dev database, no drill environment"
+    }
+  },
+  "secret_findings": [
+    {
+      "id": "SS-001",
+      "severity": "CRITICAL",
+      "count": 14,
+      "type": "password",
+      "tracked": "was_tracked_now_removed",
+      "location": "quality/reports/e2e/artifacts/run-*/error-context.md",
+      "git_commit": "eb8ecf00",
+      "recommendation": "Rotate password immediately; determine if commit pushed to remote; coordinate history cleanup if needed",
+      "rotation_status": "pending"
+    },
+    {
+      "id": "SS-002",
+      "severity": "LOW",
+      "count": 1,
+      "type": "test_password",
+      "tracked": true,
+      "location": "quality/tenant_isolation/factories/users.py:59",
+      "recommendation": "Acceptable for test factory",
+      "rotation_status": "not_required"
+    }
+  ],
+  "pseudo_test_scan": {
+    "assert_true_found": false,
+    "source_regex_pseudo_tests": false,
+    "mock_core_logic": false,
+    "fixed_primary_keys": false,
+    "order_dependent_tests": false,
+    "cleanup_non_test_data": false,
+    "auto_flush_migrate": false,
+    "hardcoded_secrets_in_source": false,
+    "note": "E2E source code was fixed to use env vars; artifacts removed from Git tracking but password remains in commit history"
+  },
+  "recommended_gate_policy": {
+    "quick": {
+      "allowed_checks": ["lint", "syntax_check", "test_discovery"],
+      "blocked_checks": ["performance_load", "disaster_recovery_restore"],
+      "min_passing_work_packages": ["WP1"]
+    },
+    "standard": {
+      "allowed_checks": ["lint", "syntax_check", "unit_tests", "integration_tests", "db_audit", "tenant_isolation_source"],
+      "blocked_checks": ["performance_load", "disaster_recovery_restore", "permission_audit_report", "tenant_isolation_behavior"],
+      "required_work_packages": ["WP1"],
+      "must_fix_first": [
+        "F-001: Rotate leaked password and clean Git history",
+        "F-002: Generate permission audit report",
+        "F-003/F-004/F-005: Fix tenant isolation vulnerabilities"
+      ]
+    },
+    "full": {
+      "allowed_checks": ["all_standard_plus_load_tests_if_available", "e2e_all_browsers", "restore_drill_if_available"],
+      "blocked_checks": ["performance_load", "disaster_recovery_restore", "permission_audit_report", "tenant_isolation_behavior"],
+      "must_not_output": ["RELEASE_READY"],
+      "note": "Full gate must not output RELEASE_READY until load tests, restore drills, and tenant isolation fixes are completed"
+    }
+  },
+  "release_gate_prerequisites": [
+    {
+      "id": "RG-001",
+      "priority": "P0",
+      "title": "Rotate leaked test environment admin password (committed in eb8ecf00)",
+      "blocking": true
+    },
+    {
+      "id": "RG-002",
+      "priority": "P0",
+      "title": "Fix NavView/NoticeView/ReminderUsersView tenant isolation vulnerabilities",
+      "blocking": true
+    },
+    {
+      "id": "RG-003",
+      "priority": "P0",
+      "title": "Generate permission audit report (run quality/permission_audit/audit_permissions.py)",
+      "blocking": true
+    },
+    {
+      "id": "RG-004",
+      "priority": "P0",
+      "title": "Determine if commit eb8ecf00 has been pushed; coordinate Git history cleanup if needed",
+      "blocking": true
+    },
+    {
+      "id": "RG-005",
+      "priority": "P1",
+      "title": "Re-run WP2/WP3/WP4/WP7 tests to independently verify historical results",
+      "blocking": false
+    },
+    {
+      "id": "RG-006",
+      "priority": "P1",
+      "title": "Establish independent test database for write tests and restore drills",
+      "blocking": false
+    },
+    {
+      "id": "RG-007",
+      "priority": "P1",
+      "title": "Install Locust and execute baseline load tests",
+      "blocking": false
+    },
+    {
+      "id": "RG-008",
+      "priority": "P1",
+      "title": "Execute at least database restore drill in isolated environment",
+      "blocking": false
+    },
+    {
+      "id": "RG-009",
+      "priority": "P1",
+      "title": "Store BORG_PASSPHRASE in offsite secure location",
+      "blocking": false
+    },
+    {
+      "id": "RG-010",
+      "priority": "P2",
+      "title": "Fix 7 expectedFailure production defects (DUTY-001, RUNLOG-001, RUNLOG-002)",
+      "blocking": false
+    },
+    {
+      "id": "RG-011",
+      "priority": "P2",
+      "title": "Add behavior tests for 11 source-only modules in tenant isolation",
+      "blocking": false
+    }
+  ],
+  "schema_valid": true,
+  "input_valid": true,
+  "consumable_by_release_gate": true,
+  "can_release_now": false,
+  "gate_status": "BLOCKED",
+  "can_release_reason": "CRITICAL tenant isolation vulnerabilities unfixed; plaintext credentials in Git history; performance load tests and disaster recovery restore drills not executed; WP2-WP4/WP7 results not independently verified"
+}

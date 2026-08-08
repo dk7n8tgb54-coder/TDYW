@@ -1,0 +1,78 @@
+# Redis Loss Scenario
+scenario_name: redis_loss
+description: >
+  Simulate Redis becoming unavailable. The application should degrade
+  gracefully: permission cache misses are rebuilt from DB, Celery broker
+  (db 2) in-flight tasks are lost but re-scheduled by Beat, and data
+  analysis cache (60s TTL) is rebuilt on next request.
+
+  This scenario uses TCP connect checks and HTTP health checks only.
+  No real Redis instance is stopped.
+
+tier: 3
+priority: P2
+component: redis
+
+# ---- Prerequisites ----
+prerequisites:
+  - "Environment guard must pass"
+  - "Target app must be running and accessible"
+  - "Redis URL must be configured (DR_REDIS_URL)"
+
+# ---- Simulation Method ----
+simulation_method: "mock_proxy"
+destructive: false
+description_of_method: >
+  Checks Redis TCP reachability and app HTTP health.
+  Does NOT stop or disrupt any real Redis instance.
+
+# ---- Steps ----
+steps:
+  - id: 1
+    name: environment_guard
+    description: "Run environment guard checks"
+    runner: "helpers.environment_guard.assert_safe_for_drill"
+    on_failure: "abort"
+
+  - id: 2
+    name: check_redis_reachable
+    description: "Check if Redis port is reachable (informational)"
+    check: "TCP connect to Redis host:port"
+    expected: "reachable (normal state)"
+
+  - id: 3
+    name: check_app_health
+    description: "Check if app still responds when Redis is slow/unavailable"
+    check: "HTTP GET to app health endpoint"
+    expected: "200 or structured error (not 500)"
+
+  - id: 4
+    name: check_cache_rebuild
+    description: "Verify permission cache rebuilds after Redis restart"
+    check: "Login + list navigation (triggers permission cache rebuild)"
+    expected: "Login succeeds, navigation list returns data"
+
+# ---- Success Criteria ----
+success_criteria:
+  - "App does not return 500 when Redis is unavailable"
+  - "App returns structured error or cached fallback"
+  - "After Redis recovery, permission cache rebuilds automatically"
+  - "Celery Beat re-schedules missed periodic tasks"
+
+# ---- Expected Impact ----
+expected_impact:
+  permission_cache: "Cache miss, rebuilt on first authenticated request"
+  celery_broker: "In-flight tasks in db 2 lost, Beat re-schedules"
+  data_analysis_cache: "60s TTL cache miss, rebuilt on next request"
+  user_sessions: "Session data may be lost if stored in Redis (check SESSION_ENGINE)"
+
+# ---- RPO/RTO Targets ----
+rpo_target_seconds: 0  # No data loss (ephemeral data)
+rto_target_seconds: 900  # 15 minutes (restart Redis)
+
+# ---- Recovery Steps (if real Redis failure occurs) ----
+real_recovery_steps:
+  - "Restart Redis container: docker restart tdyw-redis"
+  - "If Redis corrupted: docker exec tdyw-redis redis-cli FLUSHALL"
+  - "Verify app recovers: curl ${DR_APP_URL}/api/home/navigation/"
+  - "If permission cache stale: increment version numbers in account_user table"

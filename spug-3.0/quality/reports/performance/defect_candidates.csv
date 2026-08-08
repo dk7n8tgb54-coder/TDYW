@@ -1,0 +1,5 @@
+id,severity,module,endpoint,description,evidence,recommended_action,status,recommended_owner
+PERF-001,medium,alert,GET /api/alert/,P50=16ms but Max=1107ms; periodic slow requests,"5 iterations: 16ms 16ms 16ms 16ms 1107ms","Investigate Beat task contention; check if alert rule evaluation runs concurrently",open,alert module owner
+PERF-002,medium,account,GET /api/account/user/,Average 61ms (3x slower than other list endpoints),"5 iterations avg 61ms; other lists avg 10-25ms","Check for N+1 queries; add select_related/prefetch_related for role and tenant",open,account module owner
+PERF-003,low,document,GET /api/document/file/,Returns HTTP 405 Method Not Allowed,"5/5 requests returned 405","Verify correct endpoint path and HTTP method; may need POST or different params",open,document module owner
+PERF-004,low,fault,GET /api/fault/records/,Returns HTTP 404; correct path is /api/fault/faultrecord/,"5/5 requests returned 404","Update locustfile and probe with correct path /api/fault/faultrecord/",open,fault module owner

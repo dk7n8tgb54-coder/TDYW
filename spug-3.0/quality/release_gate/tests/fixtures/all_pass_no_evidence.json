@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-08-08T12:00:00",
+  "git_commit": "abc123",
+  "worktree_status": "test fixture: all WP PASS but no structured evidence",
+  "packages": [
+    {"id": "WP1", "name": "盘点", "final_status": "PASS", "blocking_findings": 0, "notes": ""},
+    {"id": "WP2", "name": "日常业务", "final_status": "PASS", "blocking_findings": 0, "notes": "", "tests_executed": true},
+    {"id": "WP3", "name": "资料行政", "final_status": "PASS", "blocking_findings": 0, "notes": "", "tests_executed": true},
+    {"id": "WP4", "name": "技术运维", "final_status": "PASS", "blocking_findings": 0, "notes": "", "tests_executed": true},
+    {"id": "WP5", "name": "租户隔离", "final_status": "PASS", "blocking_findings": 0, "notes": ""},
+    {"id": "WP6", "name": "权限审计", "final_status": "PASS", "blocking_findings": 0, "notes": "", "artifacts_complete": true},
+    {"id": "WP7", "name": "数据库审计", "final_status": "PASS", "blocking_findings": 0, "notes": "", "tests_executed": true},
+    {"id": "WP8", "name": "E2E", "final_status": "PASS", "blocking_findings": 0, "notes": ""},
+    {"id": "WP9", "name": "性能灾备", "final_status": "PASS", "blocking_findings": 0, "notes": ""}
+  ],
+  "confirmed_findings": [],
+  "secret_findings": [],
+  "verified_test_results": {
+    "total_historical_claimed": "500",
+    "total_verified_executed": 1,
+    "verification_method": "none"
+  },
+  "blocked_checks": [],
+  "missing_artifacts": []
+}
