@@ -9,6 +9,8 @@
 3. unique_key 一致性：DocumentFolder 的 unique_key 与 is_deleted 状态不匹配
 4. 待清理文件：is_pending_clean=True 的记录卡住
 5. 租户隔离：跨租户引用
+6. 科室归属一致性：业务记录与创建人科室不一致
+7. 孤儿文件：磁盘上有物理文件但数据库中无对应记录（反向扫描）
 
 用法：
     python manage.py data_quality_check
@@ -41,6 +43,7 @@ class Command(BaseCommand):
         'pending_clean_files',
         'tenant_isolation',
         'record_tenant_consistency',
+        'orphan_disk_files',
     ]
 
     def add_arguments(self, parser):
@@ -74,6 +77,7 @@ class Command(BaseCommand):
             self.check_pending_clean_files,
             self.check_tenant_isolation,
             self.check_record_tenant_consistency,
+            self.check_orphan_disk_files,
         ]
 
         results = []
@@ -354,8 +358,138 @@ class Command(BaseCommand):
         return self._format_result('科室归属检查', problems, '业务记录的科室与创建人所属科室不一致')
 
     # ============================================
+    # 检查 7：孤儿文件（磁盘 -> DB 反向扫描）
+    # 扫描存储目录，找出磁盘上有物理文件但数据库中无对应记录的孤儿文件
+    # ============================================
+    def check_orphan_disk_files(self):
+        """孤儿文件检查：磁盘上有物理文件但数据库中无对应记录"""
+        import time
+
+        problems = []
+        scanned = 0
+
+        doc_storage = os.path.join(settings.BASE_DIR, 'storage', 'documents')
+        media_root = getattr(settings, 'MEDIA_ROOT', '')
+
+        # 跳过最近 1 小时内修改的文件（可能是正在上传的文件）
+        cutoff_time = time.time() - 3600
+
+        # --- 1. 扫描 storage/documents/ 目录 ---
+        # 收集 DB 中所有已知的文件绝对路径
+        known_paths = set()
+
+        # DocumentFilePrivate / DocumentFilePublic：file_path 为绝对路径
+        for table in ('tdyw_document_file_private', 'tdyw_document_file_public'):
+            rows = self._query(f"SELECT file_path FROM {table} WHERE file_path != ''")
+            for row in rows:
+                known_paths.add(os.path.normpath(row['file_path']))
+
+        # RegulationAttachment：file_path 为相对 storage/documents/ 的相对路径
+        # 包含软删除记录（文件仍存在磁盘上，只是待清理，不算孤儿）
+        reg_rows = self._query(
+            "SELECT file_path FROM tdyw_regulation_attachment WHERE file_path != ''"
+        )
+        for row in reg_rows:
+            abs_path = os.path.normpath(os.path.join(doc_storage, row['file_path']))
+            known_paths.add(abs_path)
+
+        if os.path.isdir(doc_storage):
+            for root, dirs, files in os.walk(doc_storage):
+                for fname in files:
+                    # 跳过隐藏文件和临时文件
+                    if fname.startswith('.') or fname.endswith('.tmp'):
+                        continue
+                    abs_path = os.path.normpath(os.path.join(root, fname))
+                    scanned += 1
+                    if abs_path in known_paths:
+                        continue
+                    # 跳过最近修改的文件（可能正在上传）
+                    try:
+                        if os.path.getmtime(abs_path) > cutoff_time:
+                            continue
+                    except OSError:
+                        continue
+                    # 计算相对路径用于显示
+                    rel_path = os.path.relpath(abs_path, doc_storage)
+                    # 根据顶层目录区分业务模块
+                    top_dir = rel_path.split(os.sep)[0] if os.sep in rel_path else ''
+                    if top_dir == 'party_building_documents':
+                        model_label = '党建工作文件'
+                    else:
+                        model_label = '资料库/法规文件'
+                    problems.append({
+                        'model': model_label,
+                        'file_path': abs_path,
+                        'rel_path': rel_path,
+                        'issue': '磁盘文件在数据库中无对应记录',
+                    })
+
+        # --- 2. 扫描 MEDIA_ROOT 目录（证据附件）---
+        # 包含软删除记录（文件仍存在磁盘上，只是待清理，不算孤儿）
+        evidence_known = set()
+        evi_rows = self._query(
+            "SELECT file_path FROM tdyw_evidence_attachments WHERE file_path != ''"
+        )
+        for row in evi_rows:
+            abs_path = os.path.normpath(os.path.join(media_root, row['file_path']))
+            evidence_known.add(abs_path)
+
+        if media_root and os.path.isdir(media_root):
+            for root, dirs, files in os.walk(media_root):
+                for fname in files:
+                    if fname.startswith('.') or fname.endswith('.tmp'):
+                        continue
+                    abs_path = os.path.normpath(os.path.join(root, fname))
+                    scanned += 1
+                    if abs_path in evidence_known:
+                        continue
+                    try:
+                        if os.path.getmtime(abs_path) > cutoff_time:
+                            continue
+                    except OSError:
+                        continue
+                    rel_path = os.path.relpath(abs_path, media_root)
+                    # 根据顶层目录区分业务模块
+                    top_dir = rel_path.split(os.sep)[0] if os.sep in rel_path else ''
+                    model_label = self._media_dir_label(top_dir)
+                    problems.append({
+                        'model': model_label,
+                        'file_path': abs_path,
+                        'rel_path': rel_path,
+                        'issue': '磁盘文件在数据库中无对应记录',
+                    })
+
+        return {
+            'check': '孤儿文件检查',
+            'description': f'磁盘上有物理文件但数据库中无记录（扫描 {scanned} 个文件，发现 {len(problems)} 个孤儿）',
+            'status': 'pass' if not problems else 'fail',
+            'count': len(problems),
+            'scanned': scanned,
+            'details': problems[:50],
+            'truncated': len(problems) > 50,
+        }
+
+    # ============================================
     # 辅助方法
     # ============================================
+    # MEDIA_ROOT 子目录 -> 业务模块名称映射
+    _MEDIA_DIR_LABELS = {
+        'radio_license': '无线电台执照',
+        'contract_agreement': '合同协议',
+        'department_duty_log': '部门值班日志',
+        'fault': '故障管理',
+        'interference': '干扰管理',
+        'upgrade': '系统升级',
+        'device': '设备台账',
+        'account_signature': '电子签名',
+        'announcement': '公告附件',
+        'regulation': '规章管理',
+    }
+
+    def _media_dir_label(self, top_dir):
+        """将 MEDIA_ROOT 下的顶层目录名映射为业务模块名称"""
+        return self._MEDIA_DIR_LABELS.get(top_dir, '证据附件')
+
     def _format_result(self, check_name, problems, description=''):
         return {
             'check': check_name,
@@ -387,7 +521,10 @@ class Command(BaseCommand):
 
             if r['status'] == 'fail' and r.get('details'):
                 for d in r['details'][:5]:
-                    self.stdout.write(f'    - {d.get("model", "")} id={d.get("id", "")} {d.get("issue", "")}')
+                    if 'id' in d:
+                        self.stdout.write(f'    - {d.get("model", "")} id={d["id"]} {d.get("issue", "")}')
+                    else:
+                        self.stdout.write(f'    - {d.get("model", "")} {d.get("rel_path", d.get("file_path", ""))} {d.get("issue", "")}')
                 if r.get('truncated'):
                     remaining = r['count'] - len(r['details'])
                     self.stdout.write(f'    ... 还有 {remaining} 条')
