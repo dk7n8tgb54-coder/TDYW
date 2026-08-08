@@ -1,0 +1,4 @@
+table_name,column,ref_table,ref_column,orphan_count,risk_level,notes
+,,,,,,,,0 orphans found across all FK relationships
+,,,,,,,,All foreign key references are valid
+,,,,,,,,No orphan data detected

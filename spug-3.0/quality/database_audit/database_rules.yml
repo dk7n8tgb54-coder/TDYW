@@ -1,0 +1,126 @@
+# 数据库检查规则和阈值
+# 用于 audit_database.py 及各 check 脚本
+
+rules:
+  # === CharField/TextField 规范 ===
+  char_text_null:
+    description: "CharField/TextField 禁止 null=True (AGENTS.md §七)"
+    severity: medium
+    check: "COLUMN_TYPE contains 'char' or 'text' AND IS_NULLABLE = 'YES'"
+    exception_tables:
+      - django_*       # Django 内置表
+      - auth_*         # Django auth 表
+      - django_celery_*  # Celery 框架表
+
+  # === 租户字段 ===
+  tenant_id_null:
+    description: "tenant_id 不允许 NULL"
+    severity: high
+    check: "COUNT(*) WHERE tenant_id IS NULL"
+    threshold: 0
+
+  tenant_id_missing_index:
+    description: "有 tenant_id 字段但缺少索引"
+    severity: high
+    check: "TABLE has COLUMN tenant_id but no INDEX on tenant_id"
+    exception_tables:
+      - user_role_rel      # M2M 映射表
+
+  # === 软删除 ===
+  is_deleted_missing_index:
+    description: "有 is_deleted 字段但缺少索引"
+    severity: medium
+    check: "TABLE has COLUMN is_deleted but no INDEX on is_deleted"
+
+  soft_delete_residue:
+    description: "全部记录已软删除但未物理清除"
+    severity: low
+    check: "COUNT(deleted) = COUNT(total) AND COUNT(total) > 0"
+    threshold_ratio: 1.0
+
+  # === 索引 ===
+  duplicate_index:
+    description: "相同列集上有多个相同类型的索引"
+    severity: low
+    check: "Two indexes with same COLUMN set and same NON_UNIQUE flag"
+
+  # === 孤儿数据 ===
+  orphan_fk:
+    description: "外键指向不存在的记录"
+    severity: high
+    check: "LEFT JOIN finds NULL on referenced table"
+    threshold: 0
+
+  # === 文件清理 ===
+  pending_clean:
+    description: "is_pending_clean=1 的记录堆积"
+    severity: medium
+    check: "COUNT(*) WHERE is_pending_clean=1"
+    threshold: 100  # 超过 100 条需要关注
+
+  retry_count:
+    description: "clean_retry_count 过高"
+    severity: medium
+    check: "MAX(clean_retry_count)"
+    threshold: 10
+
+  # === DateTimeField 查询 ===
+  datetime_icontains:
+    description: "DateTimeField/DateField 上使用 __icontains"
+    severity: medium
+    check: "Source code search for __icontains= on date fields"
+    pattern: "fault_date__icontains|created_at__icontains|updated_at__icontains"
+
+  datetime_date_lookup:
+    description: "DateTimeField 上使用 __date="
+    severity: medium
+    check: "Source code search for __date="
+    pattern: "__date="
+
+  datetime_year_month:
+    description: "DateTimeField 上使用 __year= 或 __month="
+    severity: medium
+    check: "Source code search for __year= or __month="
+    pattern: "__year=|__month="
+
+  # === Raw SQL ===
+  raw_sql_without_params:
+    description: "cursor.execute() 未使用参数化查询"
+    severity: high
+    check: "Source code search for cursor.execute with f-string or string concatenation"
+
+  raw_without_tenant:
+    description: "raw SQL 未加 tenant_id 过滤"
+    severity: high
+    check: "Source code search for .raw() calls"
+
+  # === 已删除模块 ===
+  stale_schedule_table:
+    description: "已删除 schedule 模块的数据库表残留"
+    severity: high
+    check: "information_schema.TABLES WHERE TABLE_NAME LIKE '%schedule%' AND NOT django_celery_beat"
+
+  stale_schedule_permission:
+    description: "已删除 schedule 模块的权限残留"
+    severity: medium
+    check: "auth_permission WHERE codename LIKE '%schedule%' AND NOT celery"
+
+  stale_schedule_content_type:
+    description: "已删除 schedule 模块的 Content Type 残留"
+    severity: medium
+    check: "django_content_type WHERE app_label LIKE '%schedule%' AND NOT celery"
+
+  # === 迁移 ===
+  unapplied_migration:
+    description: "存在未应用的迁移"
+    severity: high
+    check: "showmigrations --list shows [ ]"
+    threshold: 0
+
+  # === 主键 ===
+  missing_primary_key:
+    description: "业务表缺少主键"
+    severity: high
+    check: "TABLE has no PRIMARY KEY constraint"
+    exception_tables:
+      - django_celery_beat_*  # 框架表可能例外

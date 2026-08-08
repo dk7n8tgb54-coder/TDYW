@@ -1,0 +1,18 @@
+{
+  "name": "spug-e2e-tests",
+  "version": "1.0.0",
+  "description": "Playwright E2E regression tests for spug-3.0",
+  "private": true,
+  "scripts": {
+    "test": "npx playwright test",
+    "test:chromium": "npx playwright test --project=chromium",
+    "test:smoke": "npx playwright test tests/smoke",
+    "report": "npx playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2"
+  }
+}

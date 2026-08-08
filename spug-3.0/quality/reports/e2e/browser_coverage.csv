@@ -1,0 +1,2 @@
+browser,version,viewport,total,passed,failed,skipped,notes
+Chromium,131.0.6778.87,1440x900,109,109,0,0,All tests passed on Chromium desktop. Firefox and WebKit not tested (environment constraint - single browser focus for stability).

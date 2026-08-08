@@ -1,0 +1,12 @@
+module_name,check_type,result,evidence,notes
+schedule,数据库表,无残留,"information_schema.TABLES WHERE TABLE_NAME LIKE '%schedule%'",仅django_celery_beat框架表
+schedule,迁移记录,无残留,django_migrations WHERE app='schedule',无匹配
+schedule,auth_permission,无残留,auth_permission WHERE codename LIKE '%schedule%',仅django_celery_beat框架权限
+schedule,django_content_type,无残留,django_content_type WHERE app_label LIKE '%schedule%',仅django_celery_beat框架类型
+schedule,INSTALLED_APPS,无残留,spug/settings.py INSTALLED_APPS,无schedule引用
+schedule,urls.py,无残留,spug/urls.py,无schedule引用
+schedule,import语句,无残留,全局搜索 'import schedule',无业务模块引用
+排班/交接班,数据库表,无残留,information_schema.TABLES,无匹配
+排班/交接班,迁移记录,无残留,django_migrations,无匹配
+排班/交接班,auth_permission,无残留,auth_permission,无匹配
+排班/交接班,django_content_type,无残留,django_content_type,无匹配

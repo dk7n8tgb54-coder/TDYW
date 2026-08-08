@@ -1,0 +1,21 @@
+category,table_name,field_name,issue_type,risk_level,evidence,notes
+CharField_Nullable,tdyw_document_file_private,physical_name,null=True on varchar(100),Medium,SHOW CREATE TABLE + model definition,违反AGENTS.md: CharField禁止null=True
+CharField_Nullable,tdyw_document_file_private,thumbnail_path,null=True on varchar(500),Medium,SHOW CREATE TABLE + model definition,违反AGENTS.md: CharField禁止null=True
+CharField_Nullable,tdyw_document_file_public,physical_name,null=True on varchar(100),Medium,SHOW CREATE TABLE + model definition,违反AGENTS.md: CharField禁止null=True
+CharField_Nullable,tdyw_document_file_public,thumbnail_path,null=True on varchar(500),Medium,SHOW CREATE TABLE + model definition,违反AGENTS.md: CharField禁止null=True
+CharField_Nullable,tdyw_document_folder_private,unique_key,null=True on varchar(32),Medium,SHOW CREATE TABLE + model definition,UNIQUE约束允许NULL(MariaDB特性)
+CharField_Nullable,tdyw_document_folder_public,unique_key,null=True on varchar(32),Medium,SHOW CREATE TABLE + model definition,UNIQUE约束允许NULL(MariaDB特性)
+CharField_Nullable,tdyw_document_transfer,celery_task_id,null=True on varchar(100),Low,SHOW CREATE TABLE + model definition,Celery任务ID可空
+CharField_Nullable,users,active_username,null=True on varchar(100),Low,SHOW CREATE TABLE + model definition,活跃用户名可空
+DateTimeField_Query,fault/exporters.py,line 91,__icontains on date field,Medium,"fault_date__icontains=fault_date",违反AGENTS.md: DateTimeField禁止__icontains
+Soft_Delete_Residue,navigations,-,10/10 records soft-deleted,Low,SELECT COUNT(*) WHERE is_deleted=1,全部已删除但未物理清除
+Soft_Delete_Residue,notices,-,10/10 records soft-deleted,Low,SELECT COUNT(*) WHERE is_deleted=1,全部已删除但未物理清除
+Soft_Delete_Residue,tdyw_evidence_attachments,-,2/4 records soft-deleted,Low,SELECT COUNT(*) WHERE is_deleted=1,50%已删除
+Duplicate_Index,tdyw_announcement_reads,-,(announcement_id,user_id) duplicate,Low,information_schema.STATISTICS,两个索引覆盖相同列
+Duplicate_Index,tdyw_document_transfer,-,(created_at) duplicate,Low,information_schema.STATISTICS,自定义+自动生成索引重复
+Duplicate_Index,tdyw_evidence_attachments,-,(file_hash_sha256) duplicate,Low,information_schema.STATISTICS,UNIQUE索引重复
+Duplicate_Index,tdyw_evidence_events,-,(event_hash) duplicate,Low,information_schema.STATISTICS,UNIQUE索引重复
+Duplicate_Index,tdyw_regulation,-,(biz_type,issuing_authority,rule_no,status) duplicate,Low,information_schema.STATISTICS,4个字段重复索引
+Duplicate_Index,tdyw_upgrade_templates,-,(tenant_id) duplicate,Low,information_schema.STATISTICS,自动+自定义索引重复
+Tenant_Semantics,roles,tenant_id,空字符串vs NULL语义不一致,Low,"account/models.py:145, comment says null but field uses blank=True default=''",注释说null但字段不允许null
+Pending_Clean,ALL,-,0 pending records,Low,SELECT COUNT(*) WHERE is_pending_clean=1,无清理失败堆积

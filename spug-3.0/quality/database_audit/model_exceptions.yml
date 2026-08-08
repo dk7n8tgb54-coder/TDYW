@@ -1,0 +1,116 @@
+# 经确认的模型特殊情况
+# 这些表没有 tenant_id 或 is_deleted 是设计决策，不是缺陷
+
+global_data:
+  description: "全局共享数据，不按租户隔离"
+  tables:
+    - table: alerts
+      model: Alert
+      reason: "系统级告警，所有租户共享"
+      
+    - table: alert_reads
+      model: AlertRead
+      reason: "告警已读记录，全局共享"
+      
+    - table: settings
+      model: AppSetting
+      reason: "系统设置，全局共享"
+      
+    - table: user_settings
+      model: UserSetting
+      reason: "用户偏好设置，全局共享"
+      
+    - table: tdyw_regulation
+      model: Regulation
+      reason: "规章为全局共享数据，不按租户隔离"
+      
+    - table: tdyw_regulation_attachment
+      model: RegulationAttachment
+      reason: "规章附件，跟随规章全局共享"
+      
+    - table: tdyw_regulation_category
+      model: RegulationCategory
+      reason: "规章分类，全局配置"
+      
+    - table: tdyw_document_system_folder
+      model: DocumentSystemFolder
+      reason: "系统文件夹，全局配置"
+      
+    - table: tdyw_run_log_event_types
+      model: EventTypeConfig
+      reason: "事件类型配置，全局配置"
+      
+    - table: tdyw_department_duty_log
+      model: DepartmentDutyLog
+      reason: "模型注释明确标注'全局共享，不按租户隔离'"
+
+public_space:
+  description: "公共空间数据，不按租户隔离"
+  tables:
+    - table: tdyw_document_file_public
+      model: DocumentFilePublic
+      reason: "公共空间文件，所有租户可访问"
+      
+    - table: tdyw_document_folder_public
+      model: DocumentFolderPublic
+      reason: "公共空间文件夹，所有租户可访问"
+
+mapping_tables:
+  description: "M2M 映射表，不需要 tenant_id"
+  tables:
+    - table: user_role_rel
+      model: "User.roles M2M"
+      reason: "用户-角色多对多映射表"
+
+indirect_tenant:
+  description: "通过 FK 间接实现租户隔离"
+  tables:
+    - table: tdyw_reminder_logs
+      model: ReminderLog
+      reason: "通过 FK -> Reminder -> tenant_id 间接隔离"
+
+special_soft_delete:
+  description: "使用 deleted_at (DateTimeField) 而非 is_deleted (BooleanField)"
+  tables:
+    - table: users
+      model: User
+      reason: "使用 deleted_at DateTimeField + deleted_by FK，非标准 is_deleted"
+      fields:
+        deleted_at: "DateTimeField(null=True, blank=True)"
+        deleted_by: "ForeignKey(User, null=True)"
+
+special_tenant_id:
+  description: "tenant_id 字段有特殊语义"
+  tables:
+    - table: roles
+      model: Role
+      reason: "tenant_id 用空字符串 '' 表示平台级角色（非 NULL）"
+      field: "CharField(max_length=50, blank=True, db_index=True, default='')"
+      note: "注释说'null 表示平台级'但实际用空字符串"
+
+char_null_exceptions:
+  description: "CharField/TextField null=True 的已知例外（仍违反 AGENTS.md 但有业务原因）"
+  tables:
+    - table: tdyw_document_file_private
+      fields: [physical_name, thumbnail_path]
+      reason: "物理文件名/缩略图路径在文件未上传时可空"
+      
+    - table: tdyw_document_file_public
+      fields: [physical_name, thumbnail_path]
+      reason: "同上"
+      
+    - table: tdyw_document_folder_private
+      fields: [unique_key]
+      reason: "UNIQUE 约束字段，MariaDB 允许多个 NULL"
+      
+    - table: tdyw_document_folder_public
+      fields: [unique_key]
+      reason: "同上"
+      
+    - table: tdyw_document_transfer
+      fields: [celery_task_id]
+      reason: "Celery 任务 ID 在任务创建前可空"
+      
+    - table: users
+      fields: [active_username]
+      reason: "活跃用户名在用户未激活时可空"

@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Environment files (NEVER commit real credentials)
+.env
+*.env
+!*.example.env
+
+# Playwright output (generated artifacts go to quality/reports/e2e/)
+test-results/
+.playwright/
+
+# Temporary files
+tmp_*

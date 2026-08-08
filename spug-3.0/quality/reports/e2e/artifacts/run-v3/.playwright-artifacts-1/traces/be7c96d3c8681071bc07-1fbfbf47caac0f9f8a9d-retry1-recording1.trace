@@ -1,0 +1,20 @@
+{"version":8,"type":"context-options","origin":"library","browserName":"","playwrightVersion":"1.62.1","options":{},"platform":"win32","wallTime":1786183006422,"monotonicTime":47022.831,"sdkLanguage":"javascript","contextId":"request-context@b8ba618f35e6b61a792136cb23e63ac9","title":"document_admin\\document.spec.js:93 › Document Library - Document Admin › DOC005 - Document file list API works"}
+{"type":"before","callId":"call@15","startTime":47026.612,"class":"APIRequestContext","method":"fetch","params":{"url":"/api/document/file/","method":"GET","timeout":15000},"stepId":"pw:api@25"}
+{"type":"log","callId":"call@15","time":47027.395,"message":"→ GET http://localhost:8080/api/document/file/"}
+{"type":"log","callId":"call@15","time":47027.414,"message":"  user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36"}
+{"type":"log","callId":"call@15","time":47027.422,"message":"  accept: */*"}
+{"type":"log","callId":"call@15","time":47027.427,"message":"  accept-encoding: gzip,deflate,br"}
+{"type":"log","callId":"call@15","time":47027.432,"message":"  X-Token: f217c30f7bfa475eb66bd9b410cc8b43"}
+{"type":"log","callId":"call@15","time":47027.438,"message":"  Content-Type: application/json"}
+{"type":"log","callId":"call@15","time":47040.783,"message":"← 405 Method Not Allowed"}
+{"type":"log","callId":"call@15","time":47040.805,"message":"  server: nginx"}
+{"type":"log","callId":"call@15","time":47040.811,"message":"  date: Sat, 08 Aug 2026 09:56:46 GMT"}
+{"type":"log","callId":"call@15","time":47040.816,"message":"  content-type: text/html; charset=utf-8"}
+{"type":"log","callId":"call@15","time":47040.822,"message":"  content-length: 0"}
+{"type":"log","callId":"call@15","time":47040.827,"message":"  connection: keep-alive"}
+{"type":"log","callId":"call@15","time":47040.832,"message":"  allow: DELETE, OPTIONS"}
+{"type":"log","callId":"call@15","time":47040.837,"message":"  x-content-type-options: nosniff, nosniff"}
+{"type":"log","callId":"call@15","time":47040.842,"message":"  referrer-policy: same-origin"}
+{"type":"log","callId":"call@15","time":47040.847,"message":"  cross-origin-opener-policy: same-origin"}
+{"type":"log","callId":"call@15","time":47040.852,"message":"  x-frame-options: SAMEORIGIN"}
+{"type":"after","callId":"call@15","endTime":47040.989,"result":{"response":{"url":"http://localhost:8080/api/document/file/","status":405,"statusText":"Method Not Allowed","headers":[{"name":"Server","value":"nginx"},{"name":"Date","value":"Sat, 08 Aug 2026 09:56:46 GMT"},{"name":"Content-Type","value":"text/html; charset=utf-8"},{"name":"Content-Length","value":"0"},{"name":"Connection","value":"keep-alive"},{"name":"Allow","value":"DELETE, OPTIONS"},{"name":"X-Content-Type-Options","value":"nosniff"},{"name":"Referrer-Policy","value":"same-origin"},{"name":"Cross-Origin-Opener-Policy","value":"same-origin"},{"name":"X-Frame-Options","value":"SAMEORIGIN"},{"name":"X-Content-Type-Options","value":"nosniff"}],"serverAddr":{"ipAddress":"::1","port":8080},"timing":{"startTime":1786183006426,"domainLookupStart":-1,"domainLookupEnd":-1,"connectStart":-1,"secureConnectionStart":-1,"connectEnd":-1,"requestStart":0.5559999999968568,"responseStart":13.00800000000163},"responseEndTiming":13.34599999999773,"fetchUid":"aa9ea7065a53b39bf201c5a6bcb8169c"}}}

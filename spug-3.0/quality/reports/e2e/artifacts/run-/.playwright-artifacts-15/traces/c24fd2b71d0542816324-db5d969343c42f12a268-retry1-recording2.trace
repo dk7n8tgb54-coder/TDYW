@@ -1,0 +1,21 @@
+{"version":8,"type":"context-options","origin":"library","browserName":"","playwrightVersion":"1.62.1","options":{},"platform":"win32","wallTime":1786182664163,"monotonicTime":154849.045,"sdkLanguage":"javascript","contextId":"request-context@a09d470afb467bcbe0e7f95437c204e6","title":"permissions\\permissions.spec.js:89 › Permission Tests › P010 - Deleted schedule API returns 404 or error"}
+{"type":"before","callId":"call@21","startTime":154851.418,"class":"APIRequestContext","method":"fetch","params":{"url":"/api/schedule/","method":"GET","timeout":15000},"stepId":"pw:api@27"}
+{"type":"log","callId":"call@21","time":154852.168,"message":"→ GET http://localhost:8080/api/schedule/"}
+{"type":"log","callId":"call@21","time":154852.187,"message":"  user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36"}
+{"type":"log","callId":"call@21","time":154852.194,"message":"  accept: */*"}
+{"type":"log","callId":"call@21","time":154852.199,"message":"  accept-encoding: gzip,deflate,br"}
+{"type":"log","callId":"call@21","time":154852.206,"message":"  X-Token: 81e2c104b16643b9b12b39f4fc8ed92b"}
+{"type":"log","callId":"call@21","time":154852.211,"message":"  Content-Type: application/json"}
+{"type":"log","callId":"call@21","time":154872.057,"message":"← 404 Not Found"}
+{"type":"log","callId":"call@21","time":154872.089,"message":"  server: nginx"}
+{"type":"log","callId":"call@21","time":154872.097,"message":"  date: Sat, 08 Aug 2026 09:51:04 GMT"}
+{"type":"log","callId":"call@21","time":154872.103,"message":"  content-type: text/html; charset=utf-8"}
+{"type":"log","callId":"call@21","time":154872.109,"message":"  transfer-encoding: chunked"}
+{"type":"log","callId":"call@21","time":154872.114,"message":"  connection: keep-alive"}
+{"type":"log","callId":"call@21","time":154872.118,"message":"  vary: Accept-Encoding"}
+{"type":"log","callId":"call@21","time":154872.123,"message":"  x-content-type-options: nosniff, nosniff"}
+{"type":"log","callId":"call@21","time":154872.128,"message":"  referrer-policy: same-origin"}
+{"type":"log","callId":"call@21","time":154872.133,"message":"  cross-origin-opener-policy: same-origin"}
+{"type":"log","callId":"call@21","time":154872.138,"message":"  x-frame-options: SAMEORIGIN"}
+{"type":"log","callId":"call@21","time":154872.143,"message":"  content-encoding: gzip"}
+{"type":"after","callId":"call@21","endTime":154873.054,"result":{"response":{"url":"http://localhost:8080/api/schedule/","status":404,"statusText":"Not Found","headers":[{"name":"Server","value":"nginx"},{"name":"Date","value":"Sat, 08 Aug 2026 09:51:04 GMT"},{"name":"Content-Type","value":"text/html; charset=utf-8"},{"name":"Transfer-Encoding","value":"chunked"},{"name":"Connection","value":"keep-alive"},{"name":"Vary","value":"Accept-Encoding"},{"name":"X-Content-Type-Options","value":"nosniff"},{"name":"Referrer-Policy","value":"same-origin"},{"name":"Cross-Origin-Opener-Policy","value":"same-origin"},{"name":"X-Frame-Options","value":"SAMEORIGIN"},{"name":"X-Content-Type-Options","value":"nosniff"},{"name":"Content-Encoding","value":"gzip"}],"serverAddr":{"ipAddress":"::1","port":8080},"timing":{"startTime":1786182664165,"domainLookupStart":-1,"domainLookupEnd":-1,"connectStart":-1,"secureConnectionStart":-1,"connectEnd":-1,"requestStart":0.5400000000081491,"responseStart":17.323000000003958},"responseEndTiming":20.856999999989057,"fetchUid":"c70a2c785caee17c1bcd09d5a4bb2120"}}}

@@ -1,5 +1,17 @@
 # 项目记忆
 
+## Playwright E2E 测试（2026-08-08）
+- 位置：`quality/e2e/`，独立 package.json + @playwright/test 1.62.1
+- 109 条测试覆盖 7 域 20 模块，Chromium 131，全部通过
+- 前端用 `createBrowserHistory()`，路由路径 `/home`（非 `/#/home`）
+- antd Button 中文有空格：`getByRole('button', { name: /登\s*录/ })`
+- 登录 API：POST `/api/account/login/` JSON `{username, password, type:"default"}`
+- Token 存 sessionStorage `token`，请求头 `X-Token`
+- `page.addInitScript()` 注入 sessionStorage 可免 UI 登录
+- 未认证访问受保护路由：渲染空 Layout，不重定向（设计选择非缺陷）
+- E2E 测试用户：admin/E2E@Test2026! + e2e_tester/E2E@Test2026!
+- 报告：`quality/reports/e2e/`
+
 ## 全系统盘点（2026-08-07/08）
 - 20 app/45 模型/150+ API/97 权限/45 风险/10 WP。输出 `outputs/system_inventory/`
 - 过期测试清理：删除 74 个一次性审计脚本。实际测试~99个（28根级+27 apps+25 Jest+~20 Locust）
@@ -107,6 +119,18 @@
 ## 排班模块残留审计（2026-08-07）
 - 删除提交 `93e81301`，后端 24 .py + 前端 23 .js
 - **无活跃残留**：INSTALLED_APPS/urls.py/权限码/模型类均无引用
+
+## 数据库结构与数据质量审计（2026-08-08）
+- 审计工具: `quality/database_audit/`（audit_database.py + database_rules.yml + model_exceptions.yml）
+- 审计报告: `quality/reports/database_audit/`（报告 + 7 个 CSV + coverage_gaps.md）
+- 数据库环境: dev 库（tdyw-test 容器，MariaDB 10.8，InnoDB，72 表/216 迁移/268 权限/67 CT）
+- **无严重风险**；**高 3 项**：6 表缺 tenant_id 索引、fault_date__icontains、nav/notices 全软删未清空
+- **中 5 项**：8 处 CharField null=True、9 表缺 is_deleted 索引、9 处重复索引、Role.tenant_id 语义、ReminderLog 间接隔离
+- schedule 模块数据库残留: **零**（表/迁移/权限/CT 均无残留）
+- 孤儿数据: **0 条**；is_pending_clean: **0 条**
+- DateTimeField 查询: 仅 `fault/exporters.py:91` 违规（__icontains on date）
+- raw SQL: 仅 logs/middleware.py（参数化安全）+ alert/views.py（SHOW STATUS 安全）
+- Docker shell 执行脚本: `cat script.py | docker exec -i ... tdyw-test python manage.py shell`（避免引号嵌套）
 
 ## ⚠️ 永久教训
 - `manage.py flush` 会清空所有数据，绝对禁止在 dev/prod 容器执行
