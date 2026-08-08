@@ -4,6 +4,11 @@
  * Released under the AGPL-3.0 License.
  */
 const proxy = require('http-proxy-middleware');
+const http = require('http');
+
+// 禁用 keepAlive，每次请求都建新连接
+// 这样后端容器重启后不会复用死连接，无需重启 npm start
+const noKeepAliveAgent = new http.Agent({ keepAlive: false });
 
 module.exports = function (app) {
   // 代理所有 /api 请求到后端服务
@@ -18,6 +23,9 @@ module.exports = function (app) {
       target: target,
       changeOrigin: true,
       ws: true,  // 支持 WebSocket
+      agent: noKeepAliveAgent,  // 禁用连接复用，后端重启后自动建新连接
+      proxyTimeout: 10000,  // 10s 超时兜底
+      timeout: 30000,       // 30s 整体超时兜底
       onError: (err, req, res) => {
         console.error(`[Proxy] 连接到 ${target} 失败:`, err.message);
         console.error('[Proxy] 请确保后端服务正在运行');
@@ -41,6 +49,7 @@ module.exports = function (app) {
     proxy({
       target: target,
       changeOrigin: true,
+      agent: noKeepAliveAgent,
       onError: (err, req, res) => {
         console.error(`[Proxy] kkFileView 代理失败:`, err.message);
         console.error('[Proxy] 请确保 Docker 环境中的 kkFileView 容器正在运行');

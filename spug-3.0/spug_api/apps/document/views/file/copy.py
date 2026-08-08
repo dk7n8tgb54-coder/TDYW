@@ -194,12 +194,13 @@ class FileCopyExecutor:
         )
 
     @staticmethod
-    def build_upload_dir(is_public, user_id, folder):
+    def build_upload_dir(is_public, user_id, folder, system_folder=None):
         """构建上传目录"""
         upload_dir = get_document_absolute_path(
             is_public=is_public,
             user_id=user_id,
-            folder_id=folder.id if folder else None
+            folder_id=folder.id if folder else None,
+            system_folder=system_folder
         )
         os.makedirs(upload_dir, exist_ok=True)
         return upload_dir
@@ -309,7 +310,10 @@ class FileCopyView(View):
             FileModel, request.user, is_public)
 
         # 构建上传目录 & 生成文件名
-        upload_dir = FileCopyExecutor.build_upload_dir(is_public, request.user.id, folder)
+        upload_dir = FileCopyExecutor.build_upload_dir(
+            is_public, request.user.id, folder,
+            system_folder=ctx.get('system_folder')
+        )
         names = FileNameGenerator.generate(file, folder, is_public, request.user)
         new_file_path = os.path.join(upload_dir, names['physical_name'])
 

@@ -129,7 +129,8 @@ class FileCopier:
         upload_dir = get_document_absolute_path(
             is_public=self.is_public,
             user_id=self.user.id,
-            folder_id=target_folder.id
+            folder_id=target_folder.id,
+            system_folder=self.system_folder if self.system_folder else None
         )
         os.makedirs(upload_dir, exist_ok=True)
 

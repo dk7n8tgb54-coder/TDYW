@@ -1,0 +1,34 @@
+module,api,method,operation,tenant_source,object_check,cross_tenant_test,result,risk_level,evidence,notes
+home,/home/navigation/,GET,list,无(缺失),无(缺失),Tested,FAIL,CRITICAL,发现1条跨租户数据(prefix=NB_),NavView完全无apply_tenant_filter
+home,/home/navigation/,POST,edit,无(缺失),无(缺失),Tested,FAIL,CRITICAL,title被修改为HACKED,NavView完全无apply_tenant_filter
+home,/home/navigation/,DELETE,delete,无(缺失),无(缺失),Tested,FAIL,CRITICAL,对象pk=40已被删除,NavView完全无apply_tenant_filter
+home,/home/notice/,GET,list,无(缺失),无(缺失),Tested,FAIL,CRITICAL,发现1条跨租户数据(prefix=PB_),NoticeView完全无apply_tenant_filter
+home,/home/notice/,POST,edit,无(缺失),无(缺失),Tested,FAIL,CRITICAL,title被修改为HACKED,NoticeView完全无apply_tenant_filter
+home,/home/notice/,DELETE,delete,无(缺失),无(缺失),Tested,FAIL,CRITICAL,对象pk=40已被删除,NoticeView完全无apply_tenant_filter
+home,/home/statistic/,GET,statistics,apply_tenant_filter,N/A,Tested,PASS,INFO,统计含B数据:False,Dashboard正确隔离
+reminder,/reminder/,GET,list,手动(is_supper),手动(tenant_id),Tested,PASS,INFO,未发现跨租户数据(共1条),手动租户过滤有效
+reminder,/reminder/users/,GET,user_list,无(缺失),无(缺失),Tested,FAIL,HIGH,看到B用户:True共43用户,ReminderUsersView无tenant过滤
+reminder,/reminder/,POST,edit,手动(is_supper),手动(tenant_id),Tested,PASS,INFO,name未被修改,正确隔离
+reminder,/reminder/,DELETE,delete,手动(is_supper),手动(tenant_id),Tested,PASS,INFO,对象仍存在,正确隔离
+reminder,/reminder/,POST,create+tenant_forgery,auto_set_tenant,N/A,Tested,PASS,INFO,伪造tenant_id被忽略,auto_set_tenant信号有效
+runlog,/runlog/,GET,list,apply_tenant_filter,apply_tenant_filter,Tested,PASS,INFO,未发现跨租户数据,正确隔离
+runlog,/runlog/detail/,GET,detail,apply_tenant_filter,apply_tenant_filter,Tested,PASS,INFO,返回错误(非200),正确隔离
+runlog,/runlog/,POST,edit,apply_tenant_filter,apply_tenant_filter,Tested,PASS,INFO,未被修改,正确隔离
+runlog,/runlog/,DELETE,delete,apply_tenant_filter,apply_tenant_filter,Tested,PASS,INFO,返回无权限操作,正确隔离
+fault,/fault/faultrecord/,GET,list,apply_tenant_filter,apply_tenant_filter,Tested,PASS,INFO,未发现跨租户数据,正确隔离
+fault,/fault/faultrecord/,POST,edit,apply_tenant_filter,apply_tenant_filter,Tested,PASS,INFO,返回记录不存在或无权操作,正确隔离
+fault,/fault/faultrecord/,DELETE,delete,apply_tenant_filter,apply_tenant_filter,Tested,PASS,INFO,返回记录不存在或无权操作,正确隔离
+account,/account/user/,GET,list,手动(tenant_id),手动(_check_edit_permission),Tested,PASS,INFO,只看到自己,正确隔离
+account,/account/user/,POST,edit,手动(tenant_id),手动(_check_edit_permission),Tested,PASS,INFO,未被修改,正确隔离
+account,/account/user/,DELETE,delete,手动(tenant_id),手动(_check_edit_permission),Tested,PASS,INFO,返回无权操作其他租户用户,正确隔离
+radio_license,/radio-license/,GET,list,apply_tenant_filter,apply_tenant_filter,Source reviewed,PENDING,MEDIUM,_validate_and_fill_responsible_user无tenant过滤,可能允许跨租户用户关联
+regulation,/regulation/,GET,list,N/A,N/A,Tested(model),PASS,INFO,Regulation无tenant_id(全局),需业务确认是否应按租户隔离
+document,/document/folder/private/,GET,list,apply_tenant_filter,apply_tenant_filter,Source reviewed,PENDING,MEDIUM,Private/Public双模型架构,需验证strict_mode
+evidence,/evidence/attachment/,GET,list,apply_tenant_filter,N/A,Source reviewed,PENDING,MEDIUM,多态附件服务,需验证object_id跨租户绑定
+logs,/logs/audit/,GET,list,手动(tenant_id),手动(tenant_id),Source reviewed,PENDING,MEDIUM,AuditLog手动tenant_id过滤,需验证跨租户日志查看
+interference,/interference/,GET,list,apply_tenant_filter,apply_tenant_filter,Source reviewed,PENDING,MEDIUM,预期正确隔离,未执行HTTP测试
+device,/device/resume/,GET,list,apply_tenant_filter,apply_tenant_filter,Source reviewed,PENDING,MEDIUM,预期正确隔离,未执行HTTP测试
+upgrade,/upgrade/,GET,list,apply_tenant_filter,apply_tenant_filter,Source reviewed,PENDING,MEDIUM,预期正确隔离,未执行HTTP测试
+contract_agreement,/contract-agreement/,GET,list,apply_tenant_filter,apply_tenant_filter,Source reviewed,PENDING,MEDIUM,预期正确隔离,未执行HTTP测试
+department_duty_log,/department-duty-log/,GET,list,apply_tenant_filter,apply_tenant_filter,Source reviewed,PENDING,MEDIUM,预期正确隔离,未执行HTTP测试
+data_analysis,/data-analysis/,GET,statistics,apply_tenant_filter,N/A,Source reviewed,PENDING,MEDIUM,Redis缓存需验证租户维度

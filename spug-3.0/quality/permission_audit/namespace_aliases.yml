@@ -1,0 +1,82 @@
+# 合法权限命名空间别名表
+# 审计工具不能简单要求后端 app 名必须等于权限命名空间。
+# 以下映射记录了当前已确认的合法命名差异。
+# 每条记录须附带证据（源码文件 + 验证日期）。
+# 工具运行时会加载此文件，避免把合法历史命名误报为漏洞。
+
+aliases:
+  # regulation 后端 app 使用 document.regulation.* 权限前缀
+  - app: regulation
+    permission_namespace: document.regulation
+    evidence: "apps/regulation/views.py @auth('document.regulation.*')"
+    verified_date: "2026-08-08"
+
+  # reminder 后端 app 使用 home.reminder.* 权限前缀
+  - app: reminder
+    permission_namespace: home.reminder
+    evidence: "apps/reminder/views.py @auth('home.reminder.*')"
+    verified_date: "2026-08-08"
+
+  # alert 后端 app 使用 system.alert.* 权限前缀
+  - app: alert
+    permission_namespace: system.alert
+    evidence: "apps/alert/views.py PERM_MAP / @auth('system.alert.*')"
+    verified_date: "2026-08-08"
+
+  # logs 后端 app 使用 system.audit.* 权限前缀
+  - app: logs
+    permission_namespace: system.audit
+    evidence: "apps/logs/views.py @auth('system.audit.*')"
+    verified_date: "2026-08-08"
+
+  # account 后端 app 使用多个权限前缀
+  - app: account
+    permission_namespace: system.account
+    evidence: "apps/account/views.py UserView PERM_MAP"
+    verified_date: "2026-08-08"
+
+  - app: account
+    permission_namespace: system.role
+    evidence: "apps/account/views.py RoleView PERM_MAP"
+    verified_date: "2026-08-08"
+
+  - app: account
+    permission_namespace: system.tenant
+    evidence: "apps/account/views.py TenantView PERM_MAP"
+    verified_date: "2026-08-08"
+
+  - app: account
+    permission_namespace: system.login
+    evidence: "apps/account/views.py LoginLogView PERM_MAP"
+    verified_date: "2026-08-08"
+
+  # radio_license 后端 app 同时承载执照和批复模块
+  - app: radio_license
+    permission_namespace: radio_license.license
+    evidence: "apps/radio_license/views.py RadioLicenseView PERM_MAP"
+    verified_date: "2026-08-08"
+
+  - app: radio_license
+    permission_namespace: radio_license.approval
+    evidence: "apps/radio_license/views.py StationFrequencyApprovalView PERM_MAP"
+    verified_date: "2026-08-08"
+
+  # setting 后端 app 使用 system.setting.* 权限前缀
+  - app: setting
+    permission_namespace: system.setting
+    evidence: "apps/setting/views.py SettingView extends AdminView"
+    verified_date: "2026-08-08"
+
+# 已删除模块 - 不应出现在权限审计范围中
+excluded_modules:
+  - schedule        # 排班模块（已删除）
+  - shift_handover  # 交接班模块（已删除）
+
+# 前端页面中已知的权限编码不一致（需人工确认，不自动判定为 bug）
+# 这些是前端代码中实际使用的权限前缀与后端不一致的情况
+frontend_namespace_overrides:
+  - page: "exec/fault"
+    frontend_prefix: "exec.faultrecord"
+    backend_prefix: "fault.faultrecord"
+    status: "suspected_bug"
+    note: "故障表单内 hasPermission 使用 exec.faultrecord 前缀，与路由/表格的 fault.faultrecord 不一致"

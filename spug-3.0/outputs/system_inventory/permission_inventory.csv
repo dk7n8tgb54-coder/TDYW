@@ -1,0 +1,104 @@
+permission_code,backend_usage,frontend_route_usage,frontend_button_usage,role_code_definition,module,consistency_status,notes
+system.account.view,AdminView+PERM_MAP,routes.js auth,pages/system/User.js,Role权限管理页面,account,一致,
+system.account.add,AdminView+PERM_MAP,routes.js auth,pages/system/User.js 新增按钮,Role权限管理页面,account,一致,
+system.account.edit,AdminView+PERM_MAP,routes.js auth,pages/system/User.js 编辑按钮,Role权限管理页面,account,一致,
+system.account.del,AdminView+PERM_MAP,routes.js auth,pages/system/User.js 删除按钮,Role权限管理页面,account,一致,
+system.role.view,AdminView+PERM_MAP,routes.js auth,pages/system/Role.js,Role权限管理页面,account,一致,
+system.role.add,AdminView+PERM_MAP,routes.js auth,pages/system/Role.js 新增按钮,Role权限管理页面,account,一致,
+system.role.edit,AdminView+PERM_MAP,routes.js auth,pages/system/Role.js 编辑按钮,Role权限管理页面,account,一致,
+system.role.del,AdminView+PERM_MAP,routes.js auth,pages/system/Role.js 删除按钮,Role权限管理页面,account,一致,
+system.dept.view,AdminView+PERM_MAP,routes.js auth,pages/system/Dept.js,Role权限管理页面,account,一致,
+system.dept.add,AdminView+PERM_MAP,routes.js auth,pages/system/Dept.js 新增按钮,Role权限管理页面,account,一致,
+system.dept.edit,AdminView+PERM_MAP,routes.js auth,pages/system/Dept.js 编辑按钮,Role权限管理页面,account,一致,
+system.dept.del,AdminView+PERM_MAP,routes.js auth,pages/system/Dept.js 删除按钮,Role权限管理页面,account,一致,
+system.tenant.view,AdminView+PERM_MAP,routes.js auth,pages/system/Tenant.js,Role权限管理页面,account,一致,
+system.tenant.add,AdminView+PERM_MAP,routes.js auth,pages/system/Tenant.js 新增按钮,Role权限管理页面,account,一致,
+system.tenant.edit,AdminView+PERM_MAP,routes.js auth,pages/system/Tenant.js 编辑按钮,Role权限管理页面,account,一致,
+system.tenant.del,AdminView+PERM_MAP,routes.js auth,pages/system/Tenant.js 删除按钮,Role权限管理页面,account,一致,
+system.login.view,AdminView+PERM_MAP,routes.js auth,pages/system/LoginLog.js,Role权限管理页面,account,一致,
+system.alert.view,AdminView+PERM_MAP,routes.js auth,pages/maintenance/,Role权限管理页面,alert,一致,GLOBAL租户
+system.alert.add,AdminView+PERM_MAP,routes.js auth,pages/maintenance/ 新增按钮,Role权限管理页面,alert,一致,
+system.alert.edit,AdminView+PERM_MAP,routes.js auth,pages/maintenance/ 编辑按钮,Role权限管理页面,alert,一致,
+system.alert.del,AdminView+PERM_MAP,routes.js auth,pages/maintenance/ 删除按钮,Role权限管理页面,alert,一致,硬删除
+system.audit.view,AdminView+PERM_MAP,routes.js auth,pages/maintenance/AuditLog.js,Role权限管理页面,logs,一致,
+system.setting.view,AdminView+PERM_MAP,routes.js auth,pages/system/Setting.js,Role权限管理页面,setting,一致,GLOBAL
+system.setting.edit,AdminView+PERM_MAP,routes.js auth,pages/system/Setting.js,Role权限管理页面,setting,一致,
+contract_agreement.agreement.view,@auth装饰器,routes.js auth,pages/contractAgreement/,Role权限管理页面,contract_agreement,一致,
+contract_agreement.agreement.add,@auth装饰器,routes.js auth,pages/contractAgreement/ 新增按钮,Role权限管理页面,contract_agreement,一致,
+contract_agreement.agreement.edit,@auth装饰器,routes.js auth,pages/contractAgreement/ 编辑按钮,Role权限管理页面,contract_agreement,一致,
+contract_agreement.agreement.del,@auth装饰器,routes.js auth,pages/contractAgreement/ 删除按钮,Role权限管理页面,contract_agreement,一致,soft_delete
+data_analysis.overview.view,@auth装饰器,routes.js auth,pages/dataAnalysis/,Role权限管理页面,data_analysis,一致,
+data_analysis.fault.view,@auth装饰器,routes.js auth,pages/dataAnalysis/,Role权限管理页面,data_analysis,一致,
+data_analysis.interference.view,@auth装饰器,routes.js auth,pages/dataAnalysis/,Role权限管理页面,data_analysis,一致,
+data_analysis.license.view,@auth装饰器,routes.js auth,pages/dataAnalysis/,Role权限管理页面,data_analysis,一致,
+data_analysis.contract.view,@auth装饰器,routes.js auth,pages/dataAnalysis/,Role权限管理页面,data_analysis,一致,
+department_duty_log.view,@auth装饰器,routes.js auth,pages/departmentDutyLog/,Role权限管理页面,department_duty_log,一致,
+department_duty_log.add,@auth装饰器,routes.js auth,pages/departmentDutyLog/ 新增按钮,Role权限管理页面,department_duty_log,一致,
+department_duty_log.edit,@auth装饰器,routes.js auth,pages/departmentDutyLog/ 编辑按钮,Role权限管理页面,department_duty_log,一致,
+department_duty_log.del,@auth装饰器,routes.js auth,pages/departmentDutyLog/ 删除按钮,Role权限管理页面,department_duty_log,一致,soft_delete
+department_duty_log.sign,@auth装饰器,routes.js auth,pages/departmentDutyLog/ 签署按钮,Role权限管理页面,department_duty_log,一致,
+device.device_resume.view,@auth装饰器,routes.js auth,pages/device/,Role权限管理页面,device,一致,
+device.device_resume.add,@auth装饰器,routes.js auth,pages/device/ 新增按钮,Role权限管理页面,device,一致,
+device.device_resume.edit,@auth装饰器,routes.js auth,pages/device/ 编辑按钮,Role权限管理页面,device,一致,
+device.device_resume.del,@auth装饰器,routes.js auth,pages/device/ 删除按钮,Role权限管理页面,device,一致,soft_delete
+device.device_history.view,@auth装饰器,routes.js auth,pages/device/,Role权限管理页面,device,一致,
+device.device_history.add,@auth装饰器,routes.js auth,pages/device/ 新增按钮,Role权限管理页面,device,一致,
+device.device_history.edit,@auth装饰器,routes.js auth,pages/device/ 编辑按钮,Role权限管理页面,device,一致,
+device.device_history.del,@auth装饰器,routes.js auth,pages/device/ 删除按钮,Role权限管理页面,device,一致,soft_delete
+document.document.view,@document_auth,routes.js auth,pages/document/,Role权限管理页面,document,一致,自定义装饰器
+document.document.add,@document_auth,routes.js auth,pages/document/ 上传按钮,Role权限管理页面,document,一致,
+document.document.edit,@document_auth,routes.js auth,pages/document/ 编辑按钮,Role权限管理页面,document,一致,
+document.document.del,@document_auth,routes.js auth,pages/document/ 删除按钮,Role权限管理页面,document,一致,hard_delete+物理删除
+document.party_building_document.view,@document_auth,routes.js auth,pages/PartyBuildingDocuments/,Role权限管理页面,document,一致,党建隔离
+document.party_building_document.add,@document_auth,routes.js auth,pages/PartyBuildingDocuments/ 上传按钮,Role权限管理页面,document,一致,
+document.party_building_document.del,@document_auth,routes.js auth,pages/PartyBuildingDocuments/ 删除按钮,Role权限管理页面,document,一致,
+document.regulation.view,@auth装饰器,routes.js auth,pages/regulation/,Role权限管理页面,regulation,一致,独立storage.py
+document.regulation.add,@auth装饰器,routes.js auth,pages/regulation/ 新增按钮,Role权限管理页面,regulation,一致,
+document.regulation.edit,@auth装饰器,routes.js auth,pages/regulation/ 编辑按钮,Role权限管理页面,regulation,一致,
+document.regulation.del,@auth装饰器,routes.js auth,pages/regulation/ 删除按钮,Role权限管理页面,regulation,一致,soft_delete
+duty.duty.view,@auth装饰器,routes.js auth,pages/duty/,Role权限管理页面,duty,一致,
+duty.duty.add,@auth装饰器,routes.js auth,pages/duty/ 新增按钮,Role权限管理页面,duty,一致,
+duty.duty.edit,@auth装饰器,routes.js auth,pages/duty/ 编辑按钮,Role权限管理页面,duty,一致,
+duty.duty.del,@auth装饰器,routes.js auth,pages/duty/ 删除按钮,Role权限管理页面,duty,一致,soft_delete
+fault.faultrecord.view,@auth装饰器,routes.js auth,pages/exec/fault/,Role权限管理页面,fault,一致,
+fault.faultrecord.add,@auth装饰器,routes.js auth,pages/exec/fault/ 新增按钮,Role权限管理页面,fault,一致,
+fault.faultrecord.edit,@auth装饰器,routes.js auth,pages/exec/fault/ 编辑按钮,Role权限管理页面,fault,一致,
+fault.faultrecord.del,@auth装饰器,routes.js auth,pages/exec/fault/ 删除按钮,Role权限管理页面,fault,一致,soft_delete
+fault.faultpart.view,@auth装饰器,routes.js auth,pages/exec/fault/,Role权限管理页面,fault,一致,
+fault.faultpart.add,@auth装饰器,routes.js auth,pages/exec/fault/ 新增按钮,Role权限管理页面,fault,一致,
+fault.faultpart.edit,@auth装饰器,routes.js auth,pages/exec/fault/ 编辑按钮,Role权限管理页面,fault,一致,
+fault.faultpart.del,@auth装饰器,routes.js auth,pages/exec/fault/ 删除按钮,Role权限管理页面,fault,一致,soft_delete
+home.announcement.view,AdminView+PERM_MAP,routes.js auth,pages/home/,Role权限管理页面,home,一致,
+home.announcement.add,AdminView+PERM_MAP,routes.js auth,pages/home/ 新增按钮,Role权限管理页面,home,一致,
+home.announcement.edit,AdminView+PERM_MAP,routes.js auth,pages/home/ 编辑按钮,Role权限管理页面,home,一致,
+home.announcement.del,AdminView+PERM_MAP,routes.js auth,pages/home/ 删除按钮,Role权限管理页面,home,一致,soft_delete
+home.navigation.view,AdminView+PERM_MAP,routes.js auth,pages/home/,Role权限管理页面,home,一致,22项修复
+home.navigation.add,AdminView+PERM_MAP,routes.js auth,pages/home/ 新增按钮,Role权限管理页面,home,一致,
+home.navigation.edit,AdminView+PERM_MAP,routes.js auth,pages/home/ 编辑按钮,Role权限管理页面,home,一致,
+home.navigation.del,AdminView+PERM_MAP,routes.js auth,pages/home/ 删除按钮,Role权限管理页面,home,一致,soft_delete
+home.reminder.view,_can_manage函数,routes.js auth,pages/reminder/,Role权限管理页面,reminder,一致,非@auth装饰器
+home.reminder.add,_can_manage函数,routes.js auth,pages/reminder/ 新增按钮,Role权限管理页面,reminder,一致,
+home.reminder.edit,_can_manage函数,routes.js auth,pages/reminder/ 编辑按钮,Role权限管理页面,reminder,一致,
+home.reminder.del,_can_manage函数,routes.js auth,pages/reminder/ 删除按钮,Role权限管理页面,reminder,一致,soft_delete
+interference.view,@auth装饰器,routes.js auth,pages/interference/,Role权限管理页面,interference,一致,
+interference.add,@auth装饰器,routes.js auth,pages/interference/ 新增按钮,Role权限管理页面,interference,一致,
+interference.edit,@auth装饰器,routes.js auth,pages/interference/ 编辑按钮,Role权限管理页面,interference,一致,
+interference.del,@auth装饰器,routes.js auth,pages/interference/ 删除按钮,Role权限管理页面,interference,一致,soft_delete
+radio_license.license.view,@auth装饰器,routes.js auth,pages/radioLicense/,Role权限管理页面,radio_license,一致,
+radio_license.license.add,@auth装饰器,routes.js auth,pages/radioLicense/ 新增按钮,Role权限管理页面,radio_license,一致,
+radio_license.license.edit,@auth装饰器,routes.js auth,pages/radioLicense/ 编辑按钮,Role权限管理页面,radio_license,一致,
+radio_license.license.del,@auth装饰器,routes.js auth,pages/radioLicense/ 删除按钮,Role权限管理页面,radio_license,一致,soft_delete
+radio_license.approval.view,@auth装饰器,routes.js auth,pages/stationFrequencyApproval/,Role权限管理页面,radio_license,一致,28/28PASS
+radio_license.approval.add,@auth装饰器,routes.js auth,pages/stationFrequencyApproval/ 新增按钮,Role权限管理页面,radio_license,一致,P0已修复
+radio_license.approval.edit,@auth装饰器,routes.js auth,pages/stationFrequencyApproval/ 编辑按钮,Role权限管理页面,radio_license,一致,
+radio_license.approval.del,@auth装饰器,routes.js auth,pages/stationFrequencyApproval/ 删除按钮,Role权限管理页面,radio_license,一致,P1已修复
+runlog.runlog.view,@auth装饰器,routes.js auth,pages/runlog/,Role权限管理页面,runlog,一致,
+runlog.runlog.add,@auth装饰器,routes.js auth,pages/runlog/ 新增按钮,Role权限管理页面,runlog,一致,
+runlog.runlog.edit,@auth装饰器,routes.js auth,pages/runlog/ 编辑按钮,Role权限管理页面,runlog,一致,
+runlog.runlog.del,@auth装饰器,routes.js auth,pages/runlog/ 删除按钮,Role权限管理页面,runlog,一致,soft_delete
+upgrade.upgrade.view,@auth装饰器,routes.js auth,pages/upgrade/,Role权限管理页面,upgrade,一致,19/19PASS
+upgrade.upgrade.add,@auth装饰器,routes.js auth,pages/upgrade/ 新增按钮,Role权限管理页面,upgrade,一致,
+upgrade.upgrade.edit,@auth装饰器,routes.js auth,pages/upgrade/ 编辑按钮,Role权限管理页面,upgrade,一致,
+upgrade.upgrade.del,@auth装饰器,routes.js auth,pages/upgrade/ 删除按钮,Role权限管理页面,upgrade,一致,soft_delete
+signature.* (超管限制),SupperOnlyView,无前端入口,无按钮,超管自动拥有,signature,后端存在前端不可配置,超管only; 无细粒度权限码
+evidence.* (各模块内嵌),各模块权限,无独立前端入口,各模块内嵌,各模块自带,evidence,后端存在前端内嵌,无独立权限码; 依赖各模块权限

@@ -35,10 +35,9 @@ class TransferListView(View):
             return json_response(error=error)
 
         system_folder = normalize_system_folder_code(form.system_folder) if form.system_folder else None
-        ok, ctx_err = validate_system_folder_context(
-            system_folder,
-            form.is_public if form.is_public is not None else False,
-        )
+        # 系统文件夹本身是公共空间，is_public 未提供时默认 True
+        is_public = form.is_public if form.is_public is not None else (True if system_folder else False)
+        ok, ctx_err = validate_system_folder_context(system_folder, is_public)
         if not ok:
             return json_response(error=ctx_err)
 

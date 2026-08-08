@@ -1,0 +1,50 @@
+module,behavior,current_implementation,evidence,expected_or_uncertain,test_coverage,risk_level,needs_business_confirmation
+radio_license,CRUD创建执照,POST /radio-license/ 创建RadioLicense记录,test_radio_license.py::test_create_success PASS,expected,yes,low,no
+radio_license,CRUD列表执照,GET /radio-license/ 分页返回,test_radio_license.py::test_list PASS,expected,yes,low,no
+radio_license,CRUD详情执照,GET /radio-license/<pk>/ 返回详情,test_radio_license.py::test_detail PASS,expected,yes,low,no
+radio_license,CRUD编辑执照,POST /radio-license/ with id 编辑,test_radio_license.py::test_edit conditional,uncertain,yes,medium,yes
+radio_license,CRUD删除执照,DELETE /radio-license/?id=<pk> 硬删除,test_radio_license.py::test_delete PASS,expected,yes,low,no
+radio_license,日期校验,开始>结束被拒绝,test_radio_license.py::test_start_after_end_rejected PASS,expected,yes,low,no
+radio_license,状态管理,status是DB字段 Celery任务更新,test_radio_license.py::test_status_is_db_field PASS,expected,yes,low,no
+radio_license,到期扫描,scan_radio_license_expiration Celery任务,test_celery_tasks.py::test_scan_expired_license PASS,expected,yes,low,no
+radio_license,到期幂等性,重复扫描不产生重复更新,test_celery_tasks.py::test_idempotent_double_scan PASS,expected,yes,low,no
+radio_license,权限控制,需要radio_license.license.*权限,test_radio_license.py::test_no_perm_blocked PASS,expected,yes,low,no
+radio_license,租户隔离,TenantModelManager自动过滤tenant_id,test_radio_license.py::test_tenant_b_cannot_see_tenant_a PASS,expected,yes,low,no
+radio_license,无软删除,is_deleted字段不存在(回收站已移除),test_radio_license.py::test_model_has_no_is_deleted PASS,expected,yes,low,no
+radio_license,附件集成,EvidenceAttachment module=radio_license,test_radio_license.py::test_attachment_linked_to_license PASS,expected,yes,low,no
+radio_license,批复独立性,StationFrequencyApproval是独立模型,test_radio_license.py::test_approval_separate_from_license PASS,expected,yes,low,no
+contract_agreement,CRUD创建合同,POST /contract-agreement/ 创建ContractAgreement,test_contract_agreement.py::test_create_success PASS,expected,yes,low,no
+contract_agreement,CRUD编辑合同,POST /contract-agreement/ with id,test_contract_agreement.py::test_edit PASS,expected,yes,low,no
+contract_agreement,CRUD删除合同,DELETE /contract-agreement/?id=<pk> 硬删除,test_contract_agreement.py::test_delete PASS,expected,yes,low,no
+contract_agreement,合同类型约束,CheckConstraint限制contract_type值,test_contract_agreement.py::test_invalid_contract_type_rejected PASS,expected,yes,low,no
+contract_agreement,长期合同,valid_end_date可为空,test_contract_agreement.py::test_long_term_contract_null_end_date conditional,uncertain,yes,medium,yes
+contract_agreement,金额校验,负数金额被拒绝,test_contract_agreement.py::test_negative_fee_rejected PASS,expected,yes,low,no
+contract_agreement,权限控制,需要contract_agreement.agreement.*权限,test_contract_agreement.py::test_no_perm_blocked PASS,expected,yes,low,no
+contract_agreement,租户隔离,TenantModelManager自动过滤,test_contract_agreement.py::test_tenant_b_cannot_see_tenant_a PASS,expected,yes,low,no
+contract_agreement,无软删除,is_deleted字段不存在,test_contract_agreement.py::test_model_has_no_is_deleted PASS,expected,yes,low,no
+contract_agreement,附件集成,EvidenceAttachment module=contract_agreement,test_contract_agreement.py::test_attachment_linked_to_contract PASS,expected,yes,low,no
+contract_agreement,到期扫描,scan_contract_agreement_expiration Celery任务,test_celery_tasks.py::test_scan_expired_contract PASS,expected,yes,low,no
+contract_agreement,到期幂等性,重复扫描不产生重复更新,test_celery_tasks.py::test_idempotent_double_scan PASS,expected,yes,low,no
+document,文件夹创建,POST /document/folder/ 创建,test_file_folder.py::test_create_root_folder PASS,expected,yes,low,no
+document,文件夹重名,UniqueConstraint (name parent tenant_id),test_file_folder.py::test_duplicate_name_same_parent conditional,uncertain,yes,medium,yes
+document,文件创建,DocumentFilePrivate.objects.create,test_file_folder.py::test_create_file_record PASS,expected,yes,low,no
+document,文件硬删除,delete()检查路径在storage/documents/下,test_file_folder.py::test_hard_delete_file conditional,uncertain,yes,medium,no
+document,文件无软删除,is_deleted字段不存在(回收站已移除),test_file_folder.py::test_file_has_no_is_deleted PASS,expected,yes,low,no
+document,文件补偿,is_pending_clean标志+clean_retry_count,test_file_folder.py::test_pending_clean_default_false PASS,expected,yes,low,no
+document,传输状态机,PENDING->UPLOADING->MERGING->COMPLETED,test_file_folder.py::test_status_transitions PASS,expected,yes,low,no
+document,传输跨租户,tenant_id过滤,test_file_folder.py::test_cross_tenant_isolation PASS,expected,yes,low,no
+document,公共空间,无tenant_id跨租户共享,test_file_folder.py::test_public_folder_no_tenant_id PASS,expected,yes,low,no
+document,系统目录,DocumentSystemFolder code唯一 PROTECT,test_party_building.py::test_model_exists PASS,expected,yes,low,no
+document,系统目录无tenant_id,全局共享,test_party_building.py::test_no_tenant_id PASS,expected,yes,low,no
+document,system_scope验证,fail-closed validate_document_context,test_party_building.py::test_validate_private_context_no_system_folder PASS,expected,yes,low,no
+regulation,CRUD创建规章,POST /regulation/create/,test_regulation.py::test_create_success PASS,expected,yes,low,no
+regulation,CRUD删除规章,DELETE /regulation/<pk/ 硬删除,test_regulation.py::test_delete PASS,expected,yes,low,no
+regulation,独立存储,RegulationAttachment非EvidenceAttachment,test_regulation.py::test_uses_regulation_attachment_not_evidence PASS,expected,yes,low,no
+regulation,无租户隔离,Regulation无tenant_id字段(全局共享),test_regulation.py::test_no_tenant_id_field PASS,uncertain,yes,medium,yes
+regulation,权限编码,document.regulation.*前缀,test_regulation.py::test_no_perm_blocked PASS,expected,yes,low,no
+regulation,CASCADE删除,删除规章CASCADE删除附件,test_regulation.py::test_delete_regulation_cascades_attachments PASS,expected,yes,low,no
+regulation,作废操作,POST /regulation/<pk>/retire/ 修改status,test_regulation.py::test_retire_changes_status PASS,expected,yes,low,no
+evidence,多态设计,module不验证白名单 object_id无FK,test_evidence_integration.py::test_forged_module_accepted PASS,uncertain,yes,medium,yes
+evidence,跨租户隔离,apply_tenant_filter,test_evidence_integration.py::test_cross_tenant_isolation PASS,expected,yes,low,no
+evidence,软删除,is_deleted标志+正常查询过滤,test_evidence_integration.py::test_soft_delete_sets_flag PASS,expected,yes,low,no
+evidence,删除执照后附件残留,多态设计无FK约束,test_evidence_integration.py::test_delete_license_keeps_attachment PASS,uncertain,yes,medium,yes

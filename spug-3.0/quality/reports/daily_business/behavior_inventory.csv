@@ -1,0 +1,57 @@
+module,behavior,current_implementation,evidence,expected_or_uncertain,test_coverage,risk_level,needs_business_confirmation
+department_duty_log,创建值班日志,POST /department-duty-log/records/ 创建草稿状态记录,views.py RecordView.post,test_create_success pass,covered,low,no
+department_duty_log,编辑草稿,POST 带 id 参数编辑草稿,views.py RecordView.post test_edit_draft_success pass,covered,low,no
+department_duty_log,删除记录,DELETE 软删除设置 deleted_at,views.py RecordView.delete test_delete_draft_success pass,covered,low,no
+department_duty_log,签署记录,POST action=sign 调用签名系统签署,views.py RecordView.post action=sign test_signed_record_edit_blocked pass,covered,high,no
+department_duty_log,退回草稿,POST action=return 将已签署退回为草稿,views.py RecordView.post action=return test_return_to_draft pass,covered,high,no
+department_duty_log,已签署不可编辑,status=SIGNED 时 edit 返回错误,views.py test_signed_record_edit_blocked pass,covered,high,no
+department_duty_log,已签署不可删除,status=SIGNED 时 delete 返回错误,views.py test_signed_record_delete_blocked pass,covered,high,no
+department_duty_log,30秒幂等去重,check_recent_duplicate 检查同值班人+日期+部门,views.py test_duplicate_within_window_blocked pass,covered,high,no
+department_duty_log,管理端租户隔离,管理端不过滤租户 管理员可见所有租户,views.py apply_tenant_filter 未调用 test_admin_list_no_tenant_filter pass,covered,high,yes
+department_duty_log,跨租户删除被拒,跨租户 delete 返回错误,views.py test_cross_tenant_delete_blocked pass,covered,high,no
+duty,创建值班日志,POST /duty/duty/ 创建记录,views.py DutyRecordView.post test_create_success pass,covered,low,no
+duty,编辑值班日志,POST 带 id 参数编辑  当前存在Bug: timezone UnboundLocalError,views.py:134 test_edit_success expected_failure,covered,high,no
+duty,删除值班日志,DELETE 软删除设置 is_deleted+deleted_at,views.py DutyRecordView.delete test_soft_delete_excludes_from_list pass,covered,high,no
+duty,reporter自动填充,reporter = user.nickname 忽略客户端传入,views.py test_create_reporter_not_from_client pass,covered,high,no
+duty,30秒幂等去重,check_recent_duplicate 检查同duty_person+department+duty_date,views.py test_duplicate_within_window_blocked pass,covered,high,no
+duty,列表无keyword搜索,列表API不支持keyword参数 忽略后返回全部,views.py DutyRecordView.get test_list_no_keyword_search pass,covered,medium,yes
+duty,列表无日期区间筛选,列表API不支持start_date/end_date参数,views.py DutyRecordView.get 未实现,BIZ-001,medium,yes
+duty,租户隔离,apply_tenant_filter 过滤 tenant_id,views.py test_cross_tenant_list_isolation pass,covered,high,no
+duty,tenant_id不信任客户端,创建时 tenant_id = user.tenant_id,views.py test_tenant_id_not_from_client pass,covered,high,no
+runlog,创建事件,POST /runlog/ 创建事件+首次动态,views.py RunLogView.post test_create_event_success pass,covered,low,no
+runlog,编辑事件,PUT /runlog/ 编辑事件字段,views.py RunLogView.put test_edit_event_fields pass,covered,low,no
+runlog,删除事件,DELETE 软删除+级联删除动态,views.py RunLogView.delete test_delete_event_soft_delete pass,covered,high,no
+runlog,状态流转,PUT status 参数 5状态正向+回退,views.py RunLogView.put test_in_progress_to_resolved pass,covered,high,no
+runlog,closed转换Bug,closed分支 json.dumps datetime序列化失败,views.py closed分支 test_verified_to_closed expected_failure,covered,high,no
+runlog,动态编辑Bug,duty_person or None -> NOT NULL约束失败,views.py:424 test_edit_update_within_24h expected_failure,covered,high,no
+runlog,动态24h编辑窗口,editable_until 超时不可编辑,views.py RunLogUpdateView.put test_edit_update_expired pass,covered,medium,no
+runlog,动态非创建者不可编辑,created_by != request.user 不可编辑,views.py test_edit_update_by_non_creator pass,covered,medium,no
+runlog,30秒幂等去重,check_recent_duplicate 检查同标题+类型+系统,views.py test_duplicate_event_blocked pass,covered,high,no
+runlog,租户隔离,apply_tenant_filter 过滤所有查询,views.py test_cross_tenant_list_isolation pass,covered,high,no
+reminder,创建提醒,POST /reminder/ 创建提醒,views.py ReminderView.post test_create_success pass,covered,low,no
+reminder,编辑提醒,POST /reminder/<id>/ 编辑提醒,views.py ReminderView.post test_edit_success pass,covered,low,no
+reminder,删除提醒,DELETE 软删除设置 is_deleted+deleted_at,views.py ReminderView.delete test_delete_success pass,covered,high,no
+reminder,重复匹配,matches_today() 支持 none/daily/weekly/monthly/yearly,models.py test_daily_interval_1 pass,covered,high,no
+reminder,Pending懒创建,GET /reminder/pending/ get_or_create ReminderLog,views.py PendingView test_pending_creates_log pass,covered,high,no
+reminder,Pending幂等,get_or_create 保证不重复创建,views.py test_pending_idempotent pass,covered,high,no
+reminder,Ack确认,POST /reminder/ack/ 标记 is_acked=True,views.py AckView test_ack_success pass,covered,low,no
+reminder,非接收人不可确认,user_id != log.user_id 返回错误,views.py test_ack_by_non_owner pass,covered,high,no
+reminder,已禁用不触发Pending,enabled=False 不出现在 pending,views.py test_pending_excludes_disabled pass,covered,high,no
+reminder,已删除不触发Pending,is_deleted=True 不出现在 pending,views.py test_pending_excludes_deleted pass,covered,high,no
+reminder,软删除不级联删除Log,FK SET_NULL 保留 ReminderLog,models.py test_deleted_reminder_logs_preserved pass,covered,high,no
+reminder,重复创建无幂等检查,相同提醒可重复创建,views.py test_duplicate_reminder_allowed pass,covered,medium,yes
+reminder,租户隔离,apply_tenant_filter 过滤 tenant_id,views.py test_cross_tenant_list_isolation pass,covered,high,no
+announcement,创建草稿,POST /home/announcement/admin/ 创建未发布状态,views.py AdminView.post test_create_draft_success pass,covered,low,no
+announcement,编辑草稿,POST 带 id 编辑草稿,views.py AdminView.post test_edit_draft_success pass,covered,low,no
+announcement,已发布不可直接编辑,status=PUBLISHED 时 edit 返回错误,views.py test_edit_published_blocked pass,covered,high,no
+announcement,发布,POST /admin/<id>/publish/ 设置 status=PUBLISHED,views.py publish_action test_publish_success pass,covered,high,no
+announcement,撤回,POST /admin/<id>/withdraw/ 设置 status=UNPUBLISHED,views.py withdraw_action test_withdraw_success pass,covered,high,no
+announcement,删除自动撤回,删除已发布时先撤回再软删除,views.py AdminView.delete test_delete_published_auto_withdraw pass,covered,high,no
+announcement,全平台可见,SCOPE_ALL 所有租户可见,models.py visible_announcements_for_user test_scope_all_visible_to_all_tenants pass,covered,high,no
+announcement,指定部门可见,SCOPE_TENANT 仅目标租户可见,models.py test_scope_tenant_only_visible_to_target pass,covered,high,no
+announcement,未发布不可见,status=UNPUBLISHED 对用户不可见,models.py test_unpublished_not_visible pass,covered,high,no
+announcement,已过期不可见,effective_end_at < now 对用户不可见,models.py test_expired_not_visible pass,covered,high,no
+announcement,未来生效不可见,effective_start_at > now 对用户不可见,models.py test_future_start_not_visible pass,covered,high,no
+announcement,详情自动已读,GET /announcement/<id>/ 自动创建 AnnouncementRead,views.py UserView test_detail_auto_mark_read pass,covered,medium,no
+announcement,管理端无租户隔离,管理端列表/编辑/删除不过滤租户,views.py AdminView test_admin_list_no_tenant_filter pass,covered,high,yes
+announcement,无定时发布,无 scheduled_publish_at 字段 effective_start_at 仅控制可见性,models.py test_no_scheduled_publish_field pass,covered,low,yes

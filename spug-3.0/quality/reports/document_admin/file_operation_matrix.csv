@@ -1,0 +1,26 @@
+module,operation,database_change,physical_file_change,failure_compensation,permission_check,tenant_check,test_coverage,result,notes
+radio_license,create,INSERT RadioLicense,No,No,Yes,Yes,yes,pass,
+radio_license,edit,UPDATE RadioLicense,No,No,Yes,Yes,yes,conditional,API可能返回error
+radio_license,delete,DELETE RadioLicense,No,No,Yes,Yes,yes,pass,硬删除
+radio_license,list,SELECT RadioLicense,No,No,Yes,Yes,yes,pass,分页+租户过滤
+radio_license,detail,SELECT RadioLicense,No,No,Yes,Yes,yes,pass,跨租户拦截
+radio_license,attachment_create,INSERT EvidenceAttachment,Yes(物理文件由前端上传),No,Yes,Yes,yes,pass,module=radio_license
+radio_license,attachment_list,SELECT EvidenceAttachment,No,No,Yes,Yes,yes,pass,
+contract_agreement,create,INSERT ContractAgreement,No,No,Yes,Yes,yes,pass,
+contract_agreement,edit,UPDATE ContractAgreement,No,No,Yes,Yes,yes,pass,
+contract_agreement,delete,DELETE ContractAgreement,No,No,Yes,Yes,yes,pass,硬删除
+contract_agreement,list,SELECT ContractAgreement,No,No,Yes,Yes,yes,pass,分页+租户过滤
+contract_agreement,attachment_create,INSERT EvidenceAttachment,Yes(物理文件由前端上传),No,Yes,Yes,yes,pass,module=contract_agreement
+document,folder_create,INSERT DocumentFolderPrivate,No,No,Yes,Yes,yes,pass,
+document,folder_delete,DELETE DocumentFolderPrivate,No,No,Yes,Yes,yes,pass,硬删除
+document,file_create,INSERT DocumentFilePrivate,Yes(前端上传到存储),No,Yes,Yes,yes,pass,
+document,file_delete,DELETE DocumentFilePrivate,Yes(删除物理文件),is_pending_clean标志,Yes,Yes,yes,conditional,非安全路径文件DB不删除
+document,transfer_create,INSERT DocumentTransfer,Yes(分片上传),No,Yes,Yes,yes,pass,
+document,transfer_status,UPDATE DocumentTransfer.status,No,No,No,Yes,yes,pass,PENDING->UPLOADING->MERGING->COMPLETED
+document,public_folder_create,INSERT DocumentFolderPublic,No,No,Yes,No,yes,pass,无tenant_id
+regulation,create,INSERT Regulation,No,No,Yes,No,yes,pass,无tenant_id(全局)
+regulation,delete,DELETE Regulation + CASCADE RegulationAttachment,Yes(删除物理文件),No,Yes,No,yes,pass,CASCADE删除附件
+regulation,retire,UPDATE Regulation.status=retired,No,No,Yes,No,yes,pass,
+evidence,attachment_create,INSERT EvidenceAttachment,Yes(由调用方上传),No,Yes,Yes,yes,pass,module无白名单
+evidence,attachment_soft_delete,UPDATE is_deleted=True,No,No,Yes,Yes,yes,pass,
+evidence,attachment_hard_delete,DELETE EvidenceAttachment,Yes(删除物理文件),is_pending_clean,Yes,Yes,yes,pass,

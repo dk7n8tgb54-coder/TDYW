@@ -1,0 +1,341 @@
+# 租户隔离模型矩阵
+# 分类: tenant_private(租户私有), global(全局共享), pending(待业务确认)
+
+modules:
+  home:
+    models:
+      - name: Navigation
+        table: home_navigation
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: true
+        risk: CRITICAL
+        notes: "NavView 完全无 apply_tenant_filter 调用"
+      - name: Notice
+        table: home_notice
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: true
+        risk: CRITICAL
+        notes: "NoticeView 完全无 apply_tenant_filter 调用"
+
+  reminder:
+    models:
+      - name: Reminder
+        table: reminder_reminder
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: true
+        risk: PASS
+        notes: "手动租户过滤有效, 但 ReminderUsersView 泄露用户列表"
+      - name: ReminderLog
+        table: reminder_reminder_log
+        tenant_field: null
+        classification: global
+        manager: models.Manager
+        soft_delete: false
+        tested: false
+        risk: LOW
+
+  runlog:
+    models:
+      - name: RunLog
+        table: runlog_runlog
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: true
+        risk: PASS
+        notes: "apply_tenant_filter 有效"
+
+  fault:
+    models:
+      - name: FaultRecord
+        table: fault_faultrecord
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: true
+        risk: PASS
+        notes: "apply_tenant_filter 有效"
+
+  account:
+    models:
+      - name: User
+        table: account_user
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: models.Manager
+        soft_delete: false
+        tested: true
+        risk: PASS
+        notes: "手动 _check_edit_permission 有效"
+      - name: Role
+        table: account_role
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: models.Manager
+        soft_delete: false
+        tested: false
+        risk: LOW
+      - name: Tenant
+        table: account_tenant
+        tenant_field: null
+        classification: global
+        manager: models.Manager
+        tested: false
+        risk: INFO
+
+  regulation:
+    models:
+      - name: Regulation
+        table: regulation_regulation
+        tenant_field: null
+        classification: pending
+        manager: models.Manager
+        soft_delete: false
+        tested: true
+        risk: MEDIUM
+        notes: "无 tenant_id, 全局共享, 需业务确认"
+      - name: RegulationCategory
+        table: regulation_regulationcategory
+        tenant_field: null
+        classification: pending
+        manager: models.Manager
+        soft_delete: false
+        tested: true
+        risk: MEDIUM
+      - name: RegulationAttachment
+        table: regulation_regulationattachment
+        tenant_field: null
+        classification: pending
+        manager: models.Manager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+
+  document:
+    models:
+      - name: DocumentFolderPrivate
+        table: document_folder_private
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+        notes: "Private/Public 双模型架构"
+      - name: DocumentFilePrivate
+        table: document_file_private
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+      - name: DocumentFolderPublic
+        table: document_folder_public
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+        notes: "公共空间仍按租户隔离"
+      - name: DocumentFilePublic
+        table: document_file_public
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+      - name: DocumentSystemFolder
+        table: document_system_folder
+        tenant_field: null
+        classification: global
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+        notes: "党建系统文件夹全局共享"
+      - name: DocumentTransfer
+        table: document_transfer
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+
+  evidence:
+    models:
+      - name: EvidenceAttachment
+        table: evidence_evidenceattachment
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+        notes: "多态附件按租户隔离"
+
+  logs:
+    models:
+      - name: AuditLog
+        table: logs_auditlog
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: models.Manager
+        soft_delete: false
+        tested: false
+        risk: MEDIUM
+        notes: "手动 tenant_id 过滤"
+      - name: AuditLogSequence
+        table: logs_auditlogsequence
+        tenant_field: null
+        classification: global
+        manager: models.Manager
+        tested: false
+        risk: LOW
+
+  alert:
+    models:
+      - name: AlertRule
+        table: alert_alertrule
+        tenant_field: null
+        classification: global
+        manager: models.Manager
+        tested: false
+        risk: LOW
+      - name: AlertRecord
+        table: alert_alertrecord
+        tenant_field: null
+        classification: global
+        manager: models.Manager
+        tested: false
+        risk: LOW
+
+  setting:
+    models:
+      - name: AppSetting
+        table: setting_appsetting
+        tenant_field: null
+        classification: global
+        manager: models.Manager
+        tested: false
+        risk: LOW
+
+  signature:
+    models:
+      - name: AccountSignature
+        table: signature_accountsignature
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+
+# 以下模块使用 apply_tenant_filter 但未执行 HTTP 行为测试
+  radio_license:
+    models:
+      - name: RadioLicense
+        table: radio_license_radiolicense
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+        notes: "_validate_and_fill_responsible_user 无 tenant 过滤"
+      - name: StationFrequencyApproval
+        table: radio_license_stationfrequencyapproval
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+
+  contract_agreement:
+    models:
+      - name: ContractAgreement
+        table: contract_agreement_contractagreement
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+
+  interference:
+    models:
+      - name: InterferenceRecord
+        table: interference_interferencerecord
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+
+  device:
+    models:
+      - name: DeviceResume
+        table: device_deviceresume
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+      - name: DeviceHistory
+        table: device_devicehistory
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+
+  upgrade:
+    models:
+      - name: UpgradeRecord
+        table: upgrade_upgraderecord
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+
+  department_duty_log:
+    models:
+      - name: DepartmentDutyLog
+        table: department_duty_log_departmentdutylog
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM
+
+  duty:
+    models:
+      - name: DutyRecord
+        table: duty_dutyrecord
+        tenant_field: tenant_id
+        classification: tenant_private
+        manager: TenantModelManager
+        soft_delete: true
+        tested: false
+        risk: MEDIUM

@@ -35,9 +35,6 @@ docker exec spug python3 /data/spug/spug_api/manage.py test tests.test_document_
 ✅ 干扰记录：信号干扰上报
 ✅ 升级记录：系统版本升级管理
 ✅ 值班记录：值班日志记录
-✅ 交接班：换班流程管理
-✅ 排班管理：人员、班次、时间配置
-✅ 换班/替班：排班变更申请与审批
 docker exec spug python3 /data/spug/spug_api/manage.py test tests.test_exec_models --settings=spug.test_settings
 5. test_tenant_isolation.py - 多租户隔离（5个测试）
 ✅ 数据隔离：不同租户数据严格隔离

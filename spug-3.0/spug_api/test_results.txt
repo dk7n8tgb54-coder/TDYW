@@ -1,0 +1,332 @@
+INFO [DocumentConfig] Document app ready
+INFO [DocumentConfig] Registered 2 Celery Beat tasks
+Using existing test database for alias 'default'...
+[Celery] Document tasks imported successfully
+[Celery] RadioLicense tasks imported successfully
+[Celery] Home tasks imported successfully
+Found 124 test(s).
+System check identified some issues:
+
+WARNINGS:
+document.DocumentSystemFolder.folder: (fields.W342) Setting unique=True on a ForeignKey has the same effect as using a OneToOneField.
+	HINT: ForeignKey(unique=True) is usually better served by a OneToOneField.
+
+System check identified 1 issue (0 silenced).
+..INFO [AUTH] 用户: admin_03ee5dff, 需要权限: ['radio_license.license.view']
+INFO [AUTH] 权限检查结果: True
+.INFO [AUTH] 用户: admin_c00f1a57, 需要权限: ['radio_license.license.view']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/
+INFO [AUTH] 用户: admin_461314c2, 需要权限: ['radio_license.license.add', 'radio_license.license.edit']
+INFO [AUTH] 权限检查结果: True
+ERROR [request_id=d8308e21f7f14a20a0fb80be424c912a] Unhandled exception on POST /radio-license/ user=admin_461314c2(id=3074) body={"purpose": "缺少台站名", "valid_from": "2026-08-08", "valid_to": "2027-08-08", "responsible_user_id": 3074, "responsible_user_name": "admin_461314c2"}
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/django/core/handlers/base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "/usr/lib/python3.10/contextlib.py", line 79, in inner
+    return func(*args, **kwds)
+  File "/usr/local/lib/python3.10/dist-packages/django/views/generic/base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/django/views/generic/base.py", line 144, in dispatch
+    return handler(request, *args, **kwargs)
+  File "/data/spug/spug_api/libs/decorators.py", line 27, in wrapper
+    return view_func(*args, **kwargs)
+  File "/data/spug/spug_api/apps/radio_license/views.py", line 221, in post
+    frequency_err = _validate_frequencies(frequencies)
+  File "/data/spug/spug_api/apps/radio_license/views.py", line 39, in _validate_frequencies
+    for index, item in enumerate(frequencies, start=1):
+TypeError: 'NoneType' object is not iterable
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/
+INFO [AUTH] 用户: admin_eb4388d9, 需要权限: ['radio_license.license.add', 'radio_license.license.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [RadioLicense] 单条扫描: license=164, status=normal, days_left=365, updated=False
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/
+INFO [AUTH] 用户: admin_b2da873f, 需要权限: ['radio_license.license.add', 'radio_license.license.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [RadioLicense] 单条扫描: license=165, status=normal, days_left=365, updated=False
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/radio-license/
+INFO [AUTH] 用户: admin_b2da873f, 需要权限: ['radio_license.license.del']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/radio-license/
+INFO [AUTH] 用户: admin_a654b4d2, 需要权限: ['radio_license.license.del']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/
+INFO [AUTH] 用户: admin_77eefde7, 需要权限: ['radio_license.license.add', 'radio_license.license.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [RadioLicense] 单条扫描: license=166, status=normal, days_left=365, updated=False
+INFO [AUTH] 用户: admin_77eefde7, 需要权限: ['radio_license.license.view']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/
+INFO [AUTH] 用户: admin_13832e0d, 需要权限: ['radio_license.license.add', 'radio_license.license.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [RadioLicense] 单条扫描: license=167, status=normal, days_left=365, updated=False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/
+INFO [AUTH] 用户: admin_13832e0d, 需要权限: ['radio_license.license.add', 'radio_license.license.edit']
+INFO [AUTH] 权限检查结果: True
+ERROR [request_id=4494d5e6a8b34e0c91bcbc3a952ce5b1] Unhandled exception on POST /radio-license/ user=admin_13832e0d(id=3079) body={"id": 167, "station_name": "更新后台站名", "purpose": "测试用途", "valid_from": "2026-08-08", "valid_to": "2027-08-08", "responsible_user_id": 3079, "responsible_user_name": "admin_13832e0d", "frequencies": []}
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/django/core/handlers/base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "/usr/lib/python3.10/contextlib.py", line 79, in inner
+    return func(*args, **kwds)
+  File "/usr/local/lib/python3.10/dist-packages/django/views/generic/base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/django/views/generic/base.py", line 144, in dispatch
+    return handler(request, *args, **kwargs)
+  File "/data/spug/spug_api/libs/decorators.py", line 27, in wrapper
+    return view_func(*args, **kwargs)
+  File "/data/spug/spug_api/apps/radio_license/views.py", line 229, in post
+    error = self._handle_edit(form, frequencies, request)
+  File "/data/spug/spug_api/apps/radio_license/views.py", line 299, in _handle_edit
+    _save_license_version_snapshot(old_license, user)
+  File "/data/spug/spug_api/apps/radio_license/views.py", line 430, in _save_license_version_snapshot
+    snapshot_json = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
+  File "/usr/lib/python3.10/json/__init__.py", line 238, in dumps
+    **kw).encode(obj)
+  File "/usr/lib/python3.10/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/lib/python3.10/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/usr/lib/python3.10/json/encoder.py", line 179, in default
+    raise TypeError(f'Object of type {o.__class__.__name__} '
+TypeError: Object of type datetime is not JSON serializable
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/
+INFO [AUTH] 用户: admin_3cc55d58, 需要权限: ['radio_license.license.add', 'radio_license.license.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [RadioLicense] 单条扫描: license=168, status=normal, days_left=365, updated=False
+INFO [AUTH] 用户: admin_3cc55d58, 需要权限: ['radio_license.license.view']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/
+INFO [AUTH] 用户: admin_90d7cd40, 需要权限: ['radio_license.license.add', 'radio_license.license.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [RadioLicense] 单条扫描: license=169, status=expired, days_left=-115, updated=True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/
+INFO [AUTH] 用户: admin_bdc278af, 需要权限: ['radio_license.license.add', 'radio_license.license.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [RadioLicense] 单条扫描: license=170, status=normal, days_left=176, updated=False
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/
+INFO [AUTH] 用户: admin_d21931e2, 需要权限: ['radio_license.license.add', 'radio_license.license.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [RadioLicense] 单条扫描: license=171, status=expired, days_left=-526, updated=True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/
+INFO [AUTH] 用户: admin_c34edfeb, 需要权限: ['radio_license.license.add', 'radio_license.license.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [RadioLicense] 单条扫描: license=172, status=expiring, days_left=0, updated=True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/
+INFO [AUTH] 用户: admin_61a729b8, 需要权限: ['radio_license.license.add', 'radio_license.license.edit']
+INFO [AUTH] 权限检查结果: True
+.INFO [AUTH] 用户: admin_79c04551, 需要权限: ['radio_license.license.view']
+INFO [AUTH] 权限检查结果: True
+.INFO [AUTH] 用户: noperm_c4ed0e73, 需要权限: ['radio_license.license.view']
+INFO [AUTH] 权限检查结果: False
+.INFO [AUTH] 用户: viewer_ae28641a, 需要权限: ['radio_license.license.view']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/
+INFO [AUTH] 用户: viewer_eb22d7a9, 需要权限: ['radio_license.license.add', 'radio_license.license.edit']
+INFO [AUTH] 权限检查结果: False
+..INFO [RadioLicense] 单条扫描: license=173, status=expired, days_left=-10, updated=True
+.INFO [RadioLicense] 单条扫描: license=174, status=expiring, days_left=10, updated=True
+.INFO [RadioLicense] 单条扫描: license=175, status=normal, days_left=365, updated=False
+..INFO [AUTH] 用户: tb_a7c441a7, 需要权限: ['radio_license.license.view']
+INFO [AUTH] 权限检查结果: True
+WARNING [TENANT FILTER] ⚠️ 潜在越权拦截！用户=tb_a7c441a7, 租户=tenant_b, 拦截记录数=1, 过滤后=0
+.WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/radio-license/
+INFO [AUTH] 用户: tb_fed11b6a, 需要权限: ['radio_license.license.del']
+INFO [AUTH] 权限检查结果: False
+.INFO [AUTH] 用户: tb_b1d862a8, 需要权限: ['radio_license.license.view']
+INFO [AUTH] 权限检查结果: True
+WARNING [TENANT FILTER] ⚠️ 潜在越权拦截！用户=tb_b1d862a8, 租户=tenant_b, 拦截记录数=1, 过滤后=0
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/approvals/
+INFO [AUTH] 用户: admin_c2f67fd3, 需要权限: ['radio_license.approval.add', 'radio_license.approval.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [StationFrequencyApproval] 单条扫描: approval=50, status=normal, days_left=365, updated=False
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/approvals/
+INFO [AUTH] 用户: admin_2e9fd672, 需要权限: ['radio_license.approval.add', 'radio_license.approval.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [StationFrequencyApproval] 单条扫描: approval=51, status=normal, days_left=365, updated=False
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/radio-license/approvals/
+INFO [AUTH] 用户: admin_2e9fd672, 需要权限: ['radio_license.approval.del']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/approvals/
+INFO [AUTH] 用户: admin_eb330dd0, 需要权限: ['radio_license.approval.add', 'radio_license.approval.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [StationFrequencyApproval] 单条扫描: approval=52, status=normal, days_left=365, updated=False
+INFO [AUTH] 用户: admin_eb330dd0, 需要权限: ['radio_license.approval.view']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/radio-license/approvals/
+INFO [AUTH] 用户: admin_8b5c9d24, 需要权限: ['radio_license.approval.add', 'radio_license.approval.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [StationFrequencyApproval] 单条扫描: approval=53, status=normal, days_left=365, updated=False
+INFO [AUTH] 用户: admin_8b5c9d24, 需要权限: ['radio_license.approval.view']
+INFO [AUTH] 权限检查结果: True
+.INFO [StationFrequencyApproval] 开始全量扫描批复到期状态: today=2026-08-08
+INFO [StationFrequencyApproval] 单条扫描: approval=54, status=expired, days_left=-5, updated=True
+INFO [StationFrequencyApproval] 全量扫描完成: total=1, updated=1
+INFO Task apps.radio_license.tasks.scan_approval_expiration[b4514435-c37d-4133-aaf0-a8cb179400a1] succeeded in 0.02230757099459879s: {'total': 1, 'updated': 1}
+.....INFO [ContractAgreement] scan one: agreement=98, status=expired, days_left=-5, updated=True
+INFO [ContractAgreement] scan all finished: total=1, updated=1
+INFO Task apps.contract_agreement.tasks.scan_contract_agreement_expiration[9abd0f17-91b0-493b-865d-00b99b928a1c] succeeded in 0.0079311189983855s: {'total': 1, 'updated': 1}
+INFO [ContractAgreement] scan one: agreement=98, status=expired, days_left=-5, updated=False
+INFO [ContractAgreement] scan all finished: total=1, updated=0
+INFO Task apps.contract_agreement.tasks.scan_contract_agreement_expiration[86e5d9f1-e055-4dbd-8017-ba7bab8c4e0b] succeeded in 0.005147778996615671s: {'total': 1, 'updated': 0}
+.INFO [ContractAgreement] scan one: agreement=99, status=expired, days_left=-5, updated=True
+INFO [ContractAgreement] scan all finished: total=1, updated=1
+INFO Task apps.contract_agreement.tasks.scan_contract_agreement_expiration[6c9e577f-dedd-409d-bce1-a964c5802e40] succeeded in 0.007446999996318482s: {'total': 1, 'updated': 1}
+.INFO [RadioLicense] 开始全量扫描执照到期状态: today=2026-08-08
+INFO [RadioLicense] 单条扫描: license=180, status=expired, days_left=-5, updated=True
+INFO [RadioLicense] 单条扫描: license=179, status=expired, days_left=-5, updated=True
+INFO [RadioLicense] 全量扫描完成: total=2, updated=2
+INFO Task apps.radio_license.tasks.scan_radio_license_expiration[40d13a65-185b-4e7a-a2d6-5c234e35b350] succeeded in 0.007666302000870928s: {'total': 2, 'updated': 2}
+.INFO [RadioLicense] 开始全量扫描执照到期状态: today=2026-08-08
+INFO [RadioLicense] 单条扫描: license=181, status=expired, days_left=-5, updated=True
+INFO [RadioLicense] 全量扫描完成: total=1, updated=1
+INFO Task apps.radio_license.tasks.scan_radio_license_expiration[b84f2a4b-3809-4b08-a100-0849b638dfe6] succeeded in 0.007705084004555829s: {'total': 1, 'updated': 1}
+INFO [RadioLicense] 开始全量扫描执照到期状态: today=2026-08-08
+INFO [RadioLicense] 单条扫描: license=181, status=expired, days_left=-5, updated=False
+INFO [RadioLicense] 全量扫描完成: total=1, updated=0
+INFO Task apps.radio_license.tasks.scan_radio_license_expiration[074baa37-5dcd-4a7c-9d70-ac600af05b08] succeeded in 0.003835055002127774s: {'total': 1, 'updated': 0}
+.INFO [RadioLicense] 开始全量扫描执照到期状态: today=2026-08-08
+INFO [RadioLicense] 单条扫描: license=182, status=expired, days_left=-10, updated=True
+INFO [RadioLicense] 全量扫描完成: total=1, updated=1
+INFO Task apps.radio_license.tasks.scan_radio_license_expiration[7417684c-f812-4350-ba7d-9f4966534f27] succeeded in 0.006331682998279575s: {'total': 1, 'updated': 1}
+.INFO [RadioLicense] 开始全量扫描执照到期状态: today=2026-08-08
+INFO [RadioLicense] 单条扫描: license=183, status=expiring, days_left=10, updated=True
+INFO [RadioLicense] 全量扫描完成: total=1, updated=1
+INFO Task apps.radio_license.tasks.scan_radio_license_expiration[57a09d1e-1234-47d4-a96f-d4402b289505] succeeded in 0.007102770003257319s: {'total': 1, 'updated': 1}
+.INFO [RadioLicense] 开始全量扫描执照到期状态: today=2026-08-08
+INFO [RadioLicense] 全量扫描完成: total=0, updated=0
+INFO Task apps.radio_license.tasks.scan_radio_license_expiration[0ae43d4e-adc0-43f7-99be-66cc29dc07ad] succeeded in 0.003899497001839336s: {'total': 0, 'updated': 0}
+.INFO [RadioLicense] 开始全量扫描执照到期状态: today=2026-08-08
+INFO [RadioLicense] 单条扫描: license=184, status=normal, days_left=365, updated=False
+INFO [RadioLicense] 全量扫描完成: total=1, updated=0
+INFO Task apps.radio_license.tasks.scan_radio_license_expiration[b01cf080-422d-425b-8ac1-8070e527a261] succeeded in 0.0038228449993766844s: {'total': 1, 'updated': 0}
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_1fed2dec, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [ContractAgreement] scan one: agreement=100, status=normal, days_left=365, updated=False
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_375fd0fd, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [ContractAgreement] scan one: agreement=101, status=normal, days_left=365, updated=False
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/contract-agreement/
+INFO [AUTH] 用户: admin_375fd0fd, 需要权限: ['contract_agreement.agreement.del']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/contract-agreement/
+INFO [AUTH] 用户: admin_562ddadd, 需要权限: ['contract_agreement.agreement.del']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_b877494d, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [ContractAgreement] scan one: agreement=102, status=normal, days_left=365, updated=False
+INFO [AUTH] 用户: admin_b877494d, 需要权限: ['contract_agreement.agreement.view']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_a3be5005, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [ContractAgreement] scan one: agreement=103, status=normal, days_left=365, updated=False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_a3be5005, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [ContractAgreement] scan one: agreement=103, status=normal, days_left=365, updated=False
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_576915fb, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [ContractAgreement] scan one: agreement=104, status=normal, days_left=365, updated=False
+INFO [AUTH] 用户: admin_576915fb, 需要权限: ['contract_agreement.agreement.view']
+INFO [AUTH] 权限检查结果: True
+.INFO [AUTH] 用户: admin_9b5ee8ba, 需要权限: ['contract_agreement.agreement.view']
+INFO [AUTH] 权限检查结果: True
+.INFO [AUTH] 用户: admin_344337bd, 需要权限: ['contract_agreement.agreement.view']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_2dc1ea77, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [ContractAgreement] scan one: agreement=107, status=normal, days_left=326, updated=False
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_73848add, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [ContractAgreement] scan one: agreement=108, status=expired, days_left=-526, updated=True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_053452a8, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_881234c5, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_34343dd3, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_197876cd, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_dafe28b1, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [ContractAgreement] scan one: agreement=109, status=normal, days_left=365, updated=False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_dafe28b1, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [ContractAgreement] scan one: agreement=110, status=normal, days_left=365, updated=False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_dafe28b1, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [ContractAgreement] scan one: agreement=111, status=normal, days_left=365, updated=False
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: admin_998f7e75, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [ContractAgreement] scan one: agreement=112, status=normal, days_left=365, updated=False
+.INFO [AUTH] 用户: noperm_e6b4e5be, 需要权限: ['contract_agreement.agreement.view']
+INFO [AUTH] 权限检查结果: False
+.INFO [AUTH] 用户: viewer_6fd1cff5, 需要权限: ['contract_agreement.agreement.view']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/contract-agreement/
+INFO [AUTH] 用户: viewer_f44ef61b, 需要权限: ['contract_agreement.agreement.add', 'contract_agreement.agreement.edit']
+INFO [AUTH] 权限检查结果: False
+..INFO [AUTH] 用户: tb_bf315a9a, 需要权限: ['contract_agreement.agreement.view']
+INFO [AUTH] 权限检查结果: True
+WARNING [TENANT FILTER] ⚠️ 潜在越权拦截！用户=tb_bf315a9a, 租户=tenant_b, 拦截记录数=1, 过滤后=0
+.WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/contract-agreement/
+INFO [AUTH] 用户: tb_f18d8efc, 需要权限: ['contract_agreement.agreement.del']
+INFO [AUTH] 权限检查结果: False
+.INFO [AUTH] 用户: tb_197ae0fd, 需要权限: ['contract_agreement.agreement.view']
+INFO [AUTH] 权限检查结果: True
+WARNING [TENANT FILTER] ⚠️ 潜在越权拦截！用户=tb_197ae0fd, 租户=tenant_b, 拦截记录数=1, 过滤后=0
+...ERROR [Document] Refused to delete file outside storage/documents: /tmp/doc_file_test_dtzvbirf/delete_test.txt
+ERROR [Document] 删除物理文件失败: /tmp/doc_file_test_dtzvbirf/delete_test.txt, error=文件路径不在安全区域内，拒绝删除
+..WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/document/folder/
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/document/folder/
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/document/folder/
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/document/folder/
+....................WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/regulation/create/
+INFO [AUTH] 用户: admin_f8db5b33, 需要权限: ['document.regulation.add']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/regulation/63/
+INFO [AUTH] 用户: admin_a10f389f, 需要权限: ['document.regulation.delete']
+INFO [AUTH] 权限检查结果: True
+.INFO [AUTH] 用户: admin_9ffd7fc3, 需要权限: ['document.regulation.view']
+INFO [AUTH] 权限检查结果: True
+.INFO [AUTH] 用户: admin_0ec2dc40, 需要权限: ['document.regulation.view']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/regulation/categories/
+INFO [AUTH] 用户: admin_d2895dca, 需要权限: ['document.regulation.category_manage']
+INFO [AUTH] 权限检查结果: True
+.INFO [AUTH] 用户: admin_5156bd6a, 需要权限: ['document.regulation.view']
+INFO [AUTH] 权限检查结果: True
+....INFO [AUTH] 用户: noperm_b09ca6ec, 需要权限: ['document.regulation.view']
+INFO [AUTH] 权限检查结果: False
+.INFO [AUTH] 用户: viewer_b50f0654, 需要权限: ['document.regulation.view']
+INFO [AUTH] 权限检查结果: True
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/regulation/create/
+INFO [AUTH] 用户: viewer_6083736c, 需要权限: ['document.regulation.add']
+INFO [AUTH] 权限检查结果: False
+.WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/regulation/69/retire/
+INFO [AUTH] 用户: admin_31bd9998, 需要权限: ['document.regulation.edit']
+INFO [AUTH] 权限检查结果: True
+ERROR [AUDIT] 保存审计日志失败: (4025, 'CONSTRAINT `audit_action_valid` failed for `test_spug`.`audit_logs`')
+ERROR [ALERT][ERROR] 审计日志写入失败: 审计日志写入异常: (4025, 'CONSTRAINT `audit_action_valid` failed for `test_spug`.`audit_logs`')
+.......WARNING [TENANT FILTER] ⚠️ 潜在越权拦截！用户=tb_863c92c6, 租户=tenant_b, 拦截记录数=1, 过滤后=0
+..........
+----------------------------------------------------------------------
+Ran 124 tests in 22.290s
+
+OK
+Preserving test database for alias 'default'...

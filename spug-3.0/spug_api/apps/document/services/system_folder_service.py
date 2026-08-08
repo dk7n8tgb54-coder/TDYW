@@ -83,7 +83,7 @@ def is_folder_in_scope(folder_id, code, include_root=True):
     """判断 folder_id 是否在系统根目录或其子孙目录内
 
     Args:
-        folder_id: 待校验的目录 ID
+        folder_id: 待校验的目录 ID（可能来自 request.POST，为字符串）
         code: 系统目录编码
         include_root: 是否允许 folder_id 即为根目录本身
 
@@ -91,6 +91,11 @@ def is_folder_in_scope(folder_id, code, include_root=True):
         bool
     """
     if folder_id is None:
+        return False
+    # folder_id 可能来自 request.POST.get() 为字符串，需转为 int 与 root_id 比较
+    try:
+        folder_id = int(folder_id)
+    except (TypeError, ValueError):
         return False
     root_id = get_system_root_folder_id(code)
     if root_id is None:

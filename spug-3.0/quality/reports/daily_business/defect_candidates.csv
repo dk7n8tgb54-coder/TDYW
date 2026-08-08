@@ -1,0 +1,10 @@
+id,module,title,reproduction,evidence,impact,severity,test_case,current_status,recommended_owner
+DUTY-001,duty,值班日志编辑接口 UnboundLocalError: timezone,POST /duty/duty/ 带 id 参数编辑记录,apps/duty/views.py:134 local variable 'timezone' referenced before assignment,所有值班日志编辑操作返回500,CRITICAL,test_edit_success (expected_failure),OPEN,duty模块负责人
+RUNLOG-001,runlog,跨日事项关闭状态转换 datetime JSON 序列化失败,PUT /runlog/ status=closed,apps/runlog/views.py closed分支 json.dumps 包含 datetime 对象,跨日事项无法正常关闭,CRITICAL,test_verified_to_closed (expected_failure),OPEN,runlog模块负责人
+RUNLOG-002,runlog,运行动态编辑 duty_person NOT NULL 约束失败,PUT /runlog/update/ 不传 duty_person,apps/runlog/views.py:424 update.duty_person = duty_person or None 将空字符串转为 None,不传 duty_person 的动态编辑全部失败,HIGH,test_edit_update_within_24h (expected_failure),OPEN,runlog模块负责人
+BIZ-001,duty,值班日志列表无 keyword 搜索和日期区间筛选,GET /duty/duty/?keyword=xxx 返回全部记录,apps/duty/views.py DutyRecordView.get 未实现搜索/筛选,用户无法搜索值班记录,MEDIUM,test_list_no_keyword_search (pass 记录现状),OPEN,duty模块负责人
+BIZ-002,department_duty_log,部门值班日志管理端无租户隔离,管理端列表返回所有租户的记录,apps/department_duty_log/views.py AdminView 未调用 apply_tenant_filter,管理员可看到/编辑/删除其他租户的日志,HIGH,test_admin_list_no_tenant_filter (pass 记录现状),OPEN,department_duty_log模块负责人
+BIZ-003,announcement,公告管理端无租户隔离,管理端列表/编辑/删除不过滤租户,apps/home/announcement.py AdminView 未调用 apply_tenant_filter,管理员可跨租户编辑/删除公告,HIGH,test_admin_list_no_tenant_filter (pass 记录现状),OPEN,home模块负责人
+BIZ-004,runlog,RunLog 模型业务含义不明确,名称为运行日志 实际功能为跨日事项跟踪+运行动态记录,apps/runlog/models.py RunLog + RunLogUpdate,文档和代码命名不一致,LOW,N/A,OPEN,runlog模块负责人
+BIZ-005,reminder,提醒事项创建无幂等性检查,相同提醒可重复创建,apps/reminder/views.py ReminderView.post 无 check_recent_duplicate,用户重复提交产生重复记录,MEDIUM,test_duplicate_reminder_allowed (pass 记录现状),OPEN,reminder模块负责人
+BIZ-006,announcement,公告无定时发布功能,无 scheduled_publish_at 字段 effective_start_at 仅控制可见性不自动改变状态,apps/home/announcement.py models.py Announcement,用户期望定时发布但当前不存在,LOW,test_no_scheduled_publish_field (pass 记录现状),OPEN,home模块负责人

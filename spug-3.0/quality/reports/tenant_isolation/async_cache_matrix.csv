@@ -1,0 +1,12 @@
+component,type,tenant_context_source,cache_or_task_key,cross_tenant_risk,test_case,result,evidence,notes
+home/get_statistic,Redis Cache,dashboard:{tenant_id},dashboard:{tenant_id},低(含tenant_id),test_cross_tenant_statistics,PASS,统计含B数据:False,缓存键含租户维度
+data_analysis,Redis Cache,data_analysis:{md5(query+tenant_id)},data_analysis:{md5},低(含tenant_id),test_cross_tenant_cache,PENDING,缓存键含tenant_id但需行为测试,未执行缓存行为测试
+account/User.page_perms,Redis Cache,perms_{user_id}=(version,perms),perms_{user_id},低(按user_id),test_cross_tenant_cache,PENDING,权限按用户隔离,未执行缓存行为测试
+radio_license/check_license_expiry,Celery Task,参数user_id,radio_license:expiry_check,低(按用户查询),test_cross_tenant_tasks,PENDING,任务接收user_id并按用户租户查询,未执行Celery行为测试
+contract_agreement/check_expiry,Celery Task,参数user_id,contract_agreement:expiry_check,低(按用户查询),test_cross_tenant_tasks,PENDING,任务接收user_id并按用户租户查询,未执行Celery行为测试
+reminder/check_weekly_report,Celery Task,无(get_or_create),reminder:weekly_report,中(遍历所有enabled提醒),test_cross_tenant_tasks,PENDING,任务遍历所有enabled提醒不按租户过滤,接收者列表按用户隔离
+home/notice_expiry,Celery Task,无(批量处理),home:notice_expiry,中(Notice.objects.all()),test_cross_tenant_tasks,PENDING,Notice.objects.filter批量处理无tenant过滤,与TI-002相关
+document/clean_pending_files,Celery Task,无(retry_clean_pending_files),document:clean_pending,低(按文件ID清理),test_cross_tenant_tasks,PENDING,按文件ID清理不涉及租户过滤,未执行Celery行为测试
+document/merge_chunks,Celery Task,参数transfer_id,document:merge_{transfer_id},低(按transfer_id),test_cross_tenant_tasks,PENDING,按transfer_id操作,未执行Celery行为测试
+logs/archive_and_clean,Celery Task,无(批量处理),logs:archive_clean,低(按时间清理),test_cross_tenant_tasks,PENDING,按时间清理审计日志不按租户区分,全局清理任务设计合理
+alert/check_disk_db_monitor,Celery Task,无(全局监控),alert:monitor,低(全局监控),test_cross_tenant_tasks,PENDING,全局告警不按租户区分,全局告警设计合理

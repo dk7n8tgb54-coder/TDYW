@@ -1,8 +1,0 @@
-#!/bin/sh
-# Git Bash cannot represent mode 0600 on the Windows workspace mount.
-if [ "${1:-}" = "-c" ] && [ "${2:-}" = "%a" ] && [ "${3:-}" = *"backup-test.cnf" ]; then
-    printf '600\n'
-    exit 0
-fi
-
-exec /usr/bin/stat "$@"

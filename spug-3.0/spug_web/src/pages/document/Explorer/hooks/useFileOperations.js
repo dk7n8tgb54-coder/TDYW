@@ -40,7 +40,7 @@ export const useFileOperations = ({
       pollCount++;
       try {
         const resp = await http.get('/api/document/transfers/', {
-          params: { transfer_type: 'COPY' }
+          params: { transfer_type: 'COPY', is_public: isPublic }
         });
         const transfers = Array.isArray(resp) ? resp : (resp?.data || []);
         const completed = [];
@@ -89,7 +89,7 @@ export const useFileOperations = ({
     };
 
     setTimeout(poll, POLL_INTERVAL);
-  }, [refresh]);
+  }, [refresh, isPublic]);
 
   // 统一批量结果提示
   const showBatchResult = useCallback((success, fail, skip = 0, pending = 0) => {

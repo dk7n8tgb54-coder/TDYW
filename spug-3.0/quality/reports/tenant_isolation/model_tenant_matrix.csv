@@ -1,0 +1,38 @@
+module,model,table,tenant_field,tenant_type,manager_filter,soft_delete,global_allowed,test_coverage,risk_level,notes
+home,Navigation,home_navigation,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Tested(list/edit/delete),CRITICAL,NavView完全无apply_tenant_filter调用
+home,Notice,home_notice,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Tested(list/edit/delete),CRITICAL,NoticeView完全无apply_tenant_filter调用
+home,Announcement,home_announcement,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,AdminView模式需逐个验证
+reminder,Reminder,reminder_reminder,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Tested(list/users/edit/delete/forgery),PASS,手动租户过滤有效但ReminderUsersView泄露用户
+reminder,ReminderLog,reminder_reminder_log,None,global,N/A,No,Yes,Not tested,LOW,全局日志模型
+runlog,RunLog,runlog_runlog,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Tested(list/detail/edit/delete),PASS,apply_tenant_filter有效
+runlog,RunLogUpdate,runlog_runlogupdate,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Not tested,LOW,子模型应继承隔离
+fault,FaultRecord,fault_faultrecord,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Tested(list/edit/delete),PASS,apply_tenant_filter有效
+fault,FaultPart,fault_faultpart,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Not tested,LOW,子模型应继承隔离
+account,User,account_user,tenant_id,tenant-private,models.Manager,No(is_active),No,Tested(list/edit/delete),PASS,手动_check_edit_permission有效
+account,Role,account_role,tenant_id,tenant-private,models.Manager,No,Not tested,LOW,角色管理需验证
+account,Tenant,account_tenant,N/A,global,N/A,No,Yes,Source reviewed,INFO,租户定义模型
+document,DocumentFolderPrivate,document_folder_private,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,Private/Public双模型架构
+document,DocumentFilePrivate,document_file_private,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,Private/Public双模型架构
+document,DocumentFolderPublic,document_folder_public,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,公共空间仍按租户隔离
+document,DocumentFilePublic,document_file_public,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,公共空间仍按租户隔离
+document,DocumentSystemFolder,document_system_folder,N/A,global,TenantModelManager,Yes(is_deleted),Yes,Tested(model inspection),INFO,党建系统文件夹全局共享
+document,DocumentTransfer,document_transfer,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,转存记录按租户隔离
+radio_license,RadioLicense,radio_license_radiolicense,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,_validate_and_fill_responsible_user无tenant过滤
+radio_license,StationFrequencyApproval,radio_license_stationfrequencyapproval,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,apply_tenant_filter有效
+contract_agreement,ContractAgreement,contract_agreement_contractagreement,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,apply_tenant_filter有效
+interference,InterferenceRecord,interference_interferencerecord,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,apply_tenant_filter有效
+device,DeviceResume,device_deviceresume,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,apply_tenant_filter有效
+device,DeviceHistory,device_devicehistory,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,apply_tenant_filter有效
+upgrade,UpgradeRecord,upgrade_upgraderecord,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,apply_tenant_filter有效
+department_duty_log,DepartmentDutyLog,department_duty_log_departmentdutylog,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,apply_tenant_filter有效
+duty,DutyRecord,duty_dutyrecord,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,apply_tenant_filter有效
+regulation,Regulation,regulation_regulation,None,global,models.Manager,No,Yes,Tested(model inspection),INFO,无tenant_id字段全局共享
+regulation,RegulationCategory,regulation_regulationcategory,None,global,models.Manager,No,Yes,Tested(model inspection),INFO,无tenant_id字段全局共享
+regulation,RegulationAttachment,regulation_regulationattachment,None,global,models.Manager,Yes(is_deleted),Yes,Source reviewed,MEDIUM,全局附件无租户隔离
+evidence,EvidenceAttachment,evidence_evidenceattachment,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,多态附件按租户隔离
+logs,AuditLog,logs_auditlog,tenant_id,tenant-private,models.Manager,No(is_archived),No,Source reviewed,MEDIUM,手动tenant_id过滤
+logs,AuditLogSequence,logs_auditlogsequence,N/A,global,models.Manager,No,Yes,Source reviewed,LOW,全局哈希链
+alert,Alert,alert_alert,N/A,global,models.Manager,No,Yes,Tested(model inspection),INFO,全局告警
+alert,AlertRead,alert_alertread,N/A,global,models.Manager,No,Yes,Tested(model inspection),INFO,全局告警阅读记录
+setting,Setting,setting_setting,N/A,global,models.Manager,No,Yes,Tested(model inspection),INFO,全局系统设置
+signature,AccountSignature,signature_accountsignature,tenant_id,tenant-private,TenantModelManager,Yes(is_deleted),No,Source reviewed,MEDIUM,签名按租户隔离

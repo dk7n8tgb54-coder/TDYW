@@ -1,0 +1,31 @@
+# 人工确认的合法例外
+# 审计工具发现的问题经人工确认为合法设计后记录在此。
+# 每条记录包含：检查类型、模块、权限编码、原因、确认人、确认日期。
+
+exceptions:
+  # SettingView 继承 AdminView 但无 PERM_MAP
+  # 设计意图：系统设置仅超管可访问，AdminView.dispatch 中 PERM_MAP 为空时自动拒绝非超管
+  - check_type: missing_backend_check
+    module: setting
+    view_class: SettingView
+    api: "/api/setting/"
+    reason: "AdminView 无 PERM_MAP 时 dispatch 自动拒绝非超管，等同于 SupperOnlyView"
+    confirmed_by: "audit_tool_baseline"
+    confirmed_date: "2026-08-08"
+
+  # SettingView 的 POST 方法没有独立权限检查
+  - check_type: missing_backend_check
+    module: setting
+    view_class: SettingView
+    api: "/api/setting/"
+    method: POST
+    reason: "同上，仅超管可操作"
+    confirmed_by: "audit_tool_baseline"
+    confirmed_date: "2026-08-08"
+
+  # 数据分析模块为纯只读聚合，无独立模型
+  - check_type: orphan_permission
+    module: data_analysis
+    reason: "数据分析模块纯只读聚合，权限用于前端路由控制"
+    confirmed_by: "audit_tool_baseline"
+    confirmed_date: "2026-08-08"

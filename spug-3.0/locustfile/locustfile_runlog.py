@@ -129,7 +129,6 @@ class RunLogUser(TokenSharedHttpUser):
                     "recorder": "admin",
                     "detail_content": "初始测试动态",
                     "duty_date": today,
-                    "shift_name": "白班"
                 }
             }
 
@@ -262,7 +261,6 @@ class RunLogUser(TokenSharedHttpUser):
                     "recorder": "压测用户",
                     "detail_content": f"压测动态_{uuid.uuid4().hex[:8]}",
                     "duty_date": today,
-                    "shift_name": random.choice(["白班", "夜班", "中班"])
                 }
             }
 
@@ -305,7 +303,6 @@ class RunLogUser(TokenSharedHttpUser):
                 "recorder": "压测用户",
                 "detail_content": f"压测动态内容_{uuid.uuid4().hex[:12]}",
                 "duty_date": today,
-                "shift_name": random.choice(["白班", "夜班", "中班"]),
                 "attachments": []
             }
 
@@ -551,7 +548,6 @@ class RunLogUser(TokenSharedHttpUser):
                 "recorder": f"压测用户_{random.randint(1, 100)}",
                 "detail_content": f"并发动态_{uuid.uuid4().hex[:8]}_{time_detail}",
                 "duty_date": today,
-                "shift_name": "压测班次",
                 "attachments": []
             }
 

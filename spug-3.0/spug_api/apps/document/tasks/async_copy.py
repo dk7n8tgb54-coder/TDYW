@@ -194,6 +194,36 @@ def _validate_copy_context(transfer):
     return source_file, folder, FileModel, None
 
 
+def _validate_target_path_scope(transfer):
+    """
+    Fail-closed: 校验 transfer.file_path 与 system_folder/is_public 作用域一致。
+
+    党建任务的 target_path 不得落入普通 public 目录；
+    普通 public/private 也必须匹配各自预期根。
+
+    Returns:
+        (True, None) 如果路径在正确作用域内，否则 (False, error_msg)
+    """
+    system_folder = transfer.system_folder or ''
+    is_public = transfer.is_public
+
+    # 根据 transfer 的 system_folder/is_public/user_id/folder_id 计算期望目录
+    expected_dir = get_document_absolute_path(
+        is_public=is_public,
+        user_id=transfer.user_id,
+        folder_id=transfer.folder_id,
+        system_folder=system_folder if system_folder else None,
+    )
+
+    target_path = transfer.file_path
+    if not is_safe_path(expected_dir, target_path):
+        return False, (
+            f'目标路径作用域校验失败：期望 {expected_dir}，实际 {target_path}'
+        )
+
+    return True, None
+
+
 def _execute_copy(transfer, source_file, folder, FileModel):
     """
     执行实际的文件复制
@@ -217,6 +247,11 @@ def _execute_copy(transfer, source_file, folder, FileModel):
         return None, '源文件路径异常'
     if not is_safe_path(document_storage_base, target_path):
         return None, '目标文件路径异常'
+
+    # Fail-closed: 校验目标路径与 system_folder/is_public 作用域一致
+    scope_ok, scope_err = _validate_target_path_scope(transfer)
+    if not scope_ok:
+        return None, scope_err
 
     # 临时文件路径（同目录，确保原子 rename）
     temp_path = target_path + '.copying_tmp'
