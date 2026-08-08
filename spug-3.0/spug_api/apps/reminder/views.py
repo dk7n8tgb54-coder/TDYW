@@ -180,7 +180,7 @@ class ReminderUsersView(View):
     """可选接收人列表
 
     刻意返回所有租户（科室）的用户：业务上科室A可以提醒科室B/C提交材料，
-    需要跨科室选择接收人。
+    需要跨科室选择接收人。 
     """
 
     def get(self, request):
