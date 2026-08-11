@@ -6,7 +6,7 @@ import { action } from 'mobx';
 import { message } from 'antd';
 import http from 'libs/http';
 import { UPLOAD_CONSTANTS, generateUploadId } from '../upload-core-constants';
-import { validateFileName } from '../../../../utils/upload-utils';
+import { validateFileName, validateFileSize, formatMaxFileSizeDisplay } from '../../../../utils/upload-utils';
 
 function formatFileNames(names) {
   return names.length <= 3
@@ -37,12 +37,20 @@ export class FileUploadCoordinator {
 
     const existingItems = this.core.queueStore?.existingFileItems || [];
 
+    const oversizedFiles = [];    // 超过大小限制
     const duplicateFiles = [];     // 已在上传队列中
     const conflictFiles = [];      // 同名 -> 弹窗让用户选（无论大小是否相同）
     const conflictMeta = [];       // 冲突元数据（与 conflictFiles 一一对应）
     const normalFiles = [];        // 无冲突
 
     for (const file of files) {
+      // 文件大小校验（优先于重复/冲突检测）
+      const sizeCheck = validateFileSize(file);
+      if (!sizeCheck.valid) {
+        oversizedFiles.push(file.name);
+        continue;
+      }
+
       const uniqueKey = this.core.queueStore.generateUniqueKey(file, targetFolderId, targetIsPublic);
 
       if (this.core.queueStore.uploadingUniqueKeys.has(uniqueKey)) {
@@ -71,6 +79,10 @@ export class FileUploadCoordinator {
 
     if (duplicateFiles.length > 0) {
       message.warning(`以下文件已在上传队列中，跳过重复提交：${formatFileNames(duplicateFiles)}`);
+    }
+
+    if (oversizedFiles.length > 0) {
+      message.error(`文件超过 ${formatMaxFileSizeDisplay()} 限制，无法上传：${formatFileNames(oversizedFiles)}`);
     }
 
     // 正常文件立即上传

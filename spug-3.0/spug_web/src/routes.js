@@ -65,7 +65,7 @@ export default [
   ]},
   {icon: <FileTextOutlined/>, title: '合同协议', auth: 'contract_agreement.agreement.view', path: '/contract-agreement', component: ContractAgreementIndex},
   {icon: <FolderOpenOutlined/>, title: '资料库', auth: 'document.document.view|document.party_building_document.view|document.regulation.view', child: [
-    {title: '文档管理', auth: 'document.document.view', path: '/document', component: DocumentIndex},
+    {title: '公共文档', auth: 'document.document.view', path: '/document', component: DocumentIndex},
     {title: '党建工作', auth: 'document.party_building_document.view', path: '/document/party-building-documents', component: PartyBuildingDocumentsIndex},
     {title: '规章管理', auth: 'document.regulation.view', path: '/regulation', component: RegulationIndex},
   ]},

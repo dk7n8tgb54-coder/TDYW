@@ -196,8 +196,8 @@ export const UPLOAD_CONSTANTS = {
   RETRY_DELAY_BASE: 2000,
   MAX_RETRY_DELAY_FOLDER: 30000,
   
-  // 文件限制
-  MAX_FILE_SIZE: 10 * 1024 * 1024 * 1024,
+  // 文件限制（单个文件最大 100MB）
+  MAX_FILE_SIZE: 100 * 1024 * 1024,
   
   // 超时配置
   UPLOAD_TIMEOUT: 900000,

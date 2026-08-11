@@ -5,7 +5,7 @@
 import React from 'react';
 import { observer } from 'mobx-react';
 import { Button, Breadcrumb as AntdBreadcrumb, Badge, Radio, Dropdown, Menu, message, Tooltip } from 'antd';
-import { UploadOutlined, CloudUploadOutlined, FolderAddOutlined, AppstoreOutlined, UnorderedListOutlined, DownOutlined, ReloadOutlined, ArrowLeftOutlined, ProfileOutlined, CheckSquareOutlined } from '@ant-design/icons';
+import { UploadOutlined, CloudUploadOutlined, FolderAddOutlined, AppstoreOutlined, UnorderedListOutlined, DownOutlined, ReloadOutlined, ArrowLeftOutlined, CheckSquareOutlined } from '@ant-design/icons';
 import Explorer from './Explorer';
 import UploadPanel, { MiniBar } from './UploadPanel';
 import FolderTree from './FolderTree';
@@ -30,7 +30,6 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
   const folderInputRef = React.useRef(null);
   const explorerRef = React.useRef(null);
   const folderTreeRef = React.useRef(null);
-  const [detailPanelExpanded, setDetailPanelExpanded] = React.useState(false);
   const [viewMode, setViewMode] = React.useState('list');
   const [searchState, setSearchState] = React.useState({
     isSearching: false,
@@ -101,7 +100,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
   // 党建工作锁定模式：面包屑根节点显示锁定根名称，否则显示空间前缀
   const spacePrefix = isPartyBuildingDocuments
     ? rootFolderName
-    : (navigationStore.isPublic ? '公共共享库' : '我的文件');
+    : '公共文档';
 
   // 党建工作模式下的权限前缀
   const permPrefix = isPartyBuildingDocuments ? 'document.party_building_document' : 'document.document';
@@ -205,7 +204,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
       if (isPartyBuildingDocuments) {
         message.info('文件将上传到党建工作，所有用户均可查看下载');
       } else if (navigationStore.isPublic) {
-        message.info('文件将上传到公共共享库，所有用户均可查看下载');
+        message.info('文件将上传到公共文档，所有用户均可查看下载');
       }
       uploadCoreStore.handleFileSelect(files);
     }
@@ -218,7 +217,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
       if (isPartyBuildingDocuments) {
         message.info('文件夹将上传到党建工作，所有用户均可查看下载');
       } else if (navigationStore.isPublic) {
-        message.info('文件夹将上传到公共共享库，所有用户均可查看下载');
+        message.info('文件夹将上传到公共文档，所有用户均可查看下载');
       }
       uploadCoreStore.handleFolderSelect(files);
     }
@@ -264,7 +263,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
   };
 
   // 【拖拽上传】目标目录显示文本（用于遮罩提示 + captureTargetContext）
-  // 普通模式：'我的文件 / 子目录' 或 '公共共享库 / 子目录'
+  // 普通模式：'我的文件 / 子目录' 或 '公共文档 / 子目录'
   // 党建模式：'党建工作 / 子目录'
   const targetPathLabel = [
     spacePrefix,
@@ -308,14 +307,14 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
       if (isPartyBuildingDocuments) {
         message.info('文件将上传到党建工作，所有用户均可查看下载');
       } else if (navigationStore.isPublic) {
-        message.info('文件将上传到公共共享库，所有用户均可查看下载');
+        message.info('文件将上传到公共文档，所有用户均可查看下载');
       }
       uploadCoreStore.handleFileSelect(collected.files, targetContext);
     } else {
       if (isPartyBuildingDocuments) {
         message.info('文件夹将上传到党建工作，所有用户均可查看下载');
       } else if (navigationStore.isPublic) {
-        message.info('文件夹将上传到公共共享库，所有用户均可查看下载');
+        message.info('文件夹将上传到公共文档，所有用户均可查看下载');
       }
       uploadCoreStore.handleFolderEntries(collected.entries, targetContext);
     }
@@ -328,7 +327,8 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
         <div className={styles.topBarLeft}>
           <AntdBreadcrumb className={styles.siteBreadcrumb}>
             <AntdBreadcrumb.Item>首页</AntdBreadcrumb.Item>
-            <AntdBreadcrumb.Item>{title}</AntdBreadcrumb.Item>
+            <AntdBreadcrumb.Item>资料库</AntdBreadcrumb.Item>
+            <AntdBreadcrumb.Item>{isPartyBuildingDocuments ? title : '公共文档'}</AntdBreadcrumb.Item>
           </AntdBreadcrumb>
         </div>
         <div className={styles.topBarRight}>
@@ -438,21 +438,6 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
                   <AppstoreOutlined />
                 </Radio.Button>
               </Radio.Group>
-              <Tooltip title={detailPanelExpanded ? '收起详情面板' : '展开详情面板'}>
-                <Button
-                  type="text"
-                  icon={<ProfileOutlined />}
-                  onClick={() => {
-                    if (explorerRef.current && explorerRef.current.toggleDetailPanel) {
-                      explorerRef.current.toggleDetailPanel((newState) => {
-                        setDetailPanelExpanded(newState);
-                      });
-                    }
-                  }}
-                  size="small"
-                  className={detailPanelExpanded ? styles.detailBtnActive : styles.detailBtn}
-                />
-              </Tooltip>
             </div>
           </div>
         </div>

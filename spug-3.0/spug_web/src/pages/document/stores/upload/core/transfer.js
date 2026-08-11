@@ -13,11 +13,11 @@ export class TransferStore {
   /**
    * 获取传输列表
    */
-  async fetchTransfers(isPublic = false) {
+  async fetchTransfers() {
     try {
       const { http } = await import('libs');
       const data = await http.get(API_ENDPOINTS.TRANSFER_LIST, {
-        params: { is_public: isPublic }
+        params: { is_public: true }
       });
       if (data && Array.isArray(data)) {
         return data;
@@ -37,7 +37,7 @@ export class TransferStore {
    *   - 后端 TransferCreateView 会校验 system_folder 与目标目录 scope 一致
    *
    * @param {Object} transferData - 传输记录数据
-   * @param {string|null} [systemFolderCode=null] - 系统目录 code（党建文档场景必传）
+   * @param {string|null} [systemFolderCode=null] - 系统目录 code（党建工作场景必传）
    */
   async createTransfer(transferData, systemFolderCode = null) {
     try {
@@ -388,7 +388,7 @@ export class TransferStore {
    * @param {number} totalChunks - 总分片数
    * @param {boolean} isPublic - 是否公共空间
    * @param {number|null} [transferId=null] - 传输记录ID
-   * @param {string|null} [systemFolderCode=null] - 系统目录 code（党建文档场景必传，
+   * @param {string|null} [systemFolderCode=null] - 系统目录 code（党建工作场景必传，
    *   显式传入后不依赖 http.js 拦截器，党建任务离开党建路由后仍能正确查询分片）
    * @returns {Promise<{exists: boolean, uploaded_chunks: number[], count: number}>}
    */

@@ -25,6 +25,7 @@ import { uploadCoreStore } from './stores';
 import navigationStore from './stores/navigation';
 import uploadUIStore from './stores/upload/ui';
 import TransferListContainer from './components/TransferListContainer';
+import { formatMaxFileSizeDisplay } from './utils/upload-utils';
 import { DISPLAY_UPLOADING_STATUSES, UPLOAD_STATUS, TERMINAL_STATUSES } from './stores/upload/core/upload-core-constants';
 
 @observer
@@ -197,9 +198,9 @@ class UploadPanel extends React.Component {
     void uploadCoreStore.uploadRefreshTrigger;
     void uploadCoreStore.folderUploadProgress;
 
-    const spaceType = navigationStore.lockedRootFolderName || (navigationStore.isPublic ? '公共共享库' : '我的文件');
-    const spaceColor = navigationStore.isPublic ? 'gold' : 'blue';
-    const spaceIcon = navigationStore.isPublic ? <CloudOutlined /> : <CloudUploadOutlined />;
+    const spaceType = navigationStore.lockedRootFolderName || '公共文档';
+    const spaceColor = 'gold';
+    const spaceIcon = <CloudOutlined />;
 
     const totalTaskCount = currentUploadQueue.length;
     const failedCount = errorItems.length + cancelledItems.length;
@@ -231,6 +232,9 @@ class UploadPanel extends React.Component {
               </Tag>
               <span style={{ fontSize: 12, color: '#8c8c8c' }}>
                 共 {totalTaskCount} 个 | 上传中: {uploadingTotal} | 已完成: {completedTotal} | 失败: {failedCount}
+              </span>
+              <span style={{ fontSize: 12, color: '#bfbfbf', marginLeft: 'auto' }}>
+                单个文件最大 {formatMaxFileSizeDisplay()}
               </span>
             </div>
           }

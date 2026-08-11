@@ -6,7 +6,7 @@
  *   2. 党建模式（navigationStore.systemFolderCode）正确捕获
  *   3. 显式传入 systemFolderCode 覆盖导航状态
  *   4. 返回对象被 Object.freeze 保护
- *   5. 公共空间 tenantId='public'，私有空间从 sessionStorage 读取
+ *   5. tenantId 始终为 'public'（私有空间已移除）
  *   6. folderId 从 navigationStore.getUploadTargetFolderId 读取
  *
  * 这些是"党建任务离开页面后仍携带正确 system_folder"的核心机制：
@@ -16,7 +16,7 @@
 import { captureUploadTargetContext } from '../captureUploadTargetContext';
 import { PARTY_BUILDING_DOCUMENTS_CODE } from 'libs/systemFolderContext';
 
-// captureUploadTargetContext 是纯函数，只依赖 rootStore.navigationStore 和 sessionStorage，
+// captureUploadTargetContext 是纯函数，只依赖 rootStore.navigationStore，
 // 无需实例化含装饰器的 UploadCoreStore，直接调用纯函数测试
 
 describe('captureUploadTargetContext - 上传目标上下文固化', () => {
@@ -32,7 +32,7 @@ describe('captureUploadTargetContext - 上传目标上下文固化', () => {
     return {
       navigationStore: {
         getUploadTargetFolderId: () => null,
-        isPublic: false,
+        isPublic: true,
         systemFolderCode: null,
         ...navOverrides,
       },
@@ -42,13 +42,13 @@ describe('captureUploadTargetContext - 上传目标上下文固化', () => {
   it('普通模式：systemFolderCode=null，不携带党建上下文', () => {
     const rootStore = makeRootStore({
       getUploadTargetFolderId: () => 42,
-      isPublic: false,
+      isPublic: true,
       systemFolderCode: null,
     });
     const ctx = captureUploadTargetContext(rootStore);
     expect(ctx.systemFolderCode).toBe(null);
     expect(ctx.folderId).toBe(42);
-    expect(ctx.isPublic).toBe(false);
+    expect(ctx.isPublic).toBe(true);
   });
 
   it('党建模式：navigationStore.systemFolderCode 正确捕获', () => {
@@ -89,24 +89,10 @@ describe('captureUploadTargetContext - 上传目标上下文固化', () => {
     expect(() => { ctx.systemFolderCode = 'tampered'; }).toThrow();
   });
 
-  it('公共空间 tenantId="public"', () => {
-    const rootStore = makeRootStore({ isPublic: true });
+  it('tenantId 始终为 "public"（私有空间已移除）', () => {
+    const rootStore = makeRootStore();
     const ctx = captureUploadTargetContext(rootStore);
     expect(ctx.tenantId).toBe('public');
-  });
-
-  it('私有空间 tenantId 从 sessionStorage 读取', () => {
-    sessionStorage.setItem('tenant_id', 'tenant_123');
-    const rootStore = makeRootStore({ isPublic: false });
-    const ctx = captureUploadTargetContext(rootStore);
-    expect(ctx.tenantId).toBe('tenant_123');
-  });
-
-  it('私有空间 sessionStorage 无 tenant_id 时回退 "default"', () => {
-    // beforeEach 已 clear，sessionStorage 无 tenant_id
-    const rootStore = makeRootStore({ isPublic: false });
-    const ctx = captureUploadTargetContext(rootStore);
-    expect(ctx.tenantId).toBe('default');
   });
 
   it('targetPathLabel 透传（用于 UI 提示）', () => {
@@ -129,15 +115,15 @@ describe('captureUploadTargetContext - 上传目标上下文固化', () => {
     const rootStore = {};
     const ctx = captureUploadTargetContext(rootStore);
     expect(ctx.folderId).toBe(null);
-    expect(ctx.isPublic).toBe(false);
+    expect(ctx.isPublic).toBe(true);
     expect(ctx.systemFolderCode).toBe(null);
   });
 
   it('rootStore 缺失时安全降级（不抛错）', () => {
     const ctx = captureUploadTargetContext(null);
     expect(ctx.folderId).toBe(null);
-    expect(ctx.isPublic).toBe(false);
+    expect(ctx.isPublic).toBe(true);
     expect(ctx.systemFolderCode).toBe(null);
-    expect(ctx.tenantId).toBe('default');
+    expect(ctx.tenantId).toBe('public');
   });
 });

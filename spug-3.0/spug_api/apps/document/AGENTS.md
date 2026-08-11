@@ -93,7 +93,7 @@ CANCELED    -> (终态)
 | `DEFAULT_MERGE_STATUS_TIMEOUT` | 300s | 合并状态查询超时（5 分钟） |
 | `DEFAULT_ASYNC_COPY_THRESHOLD` | 50MB | 异步复制阈值 |
 | `DEFAULT_CHUNK_CLEANUP_AGE` | 24h | 分片清理时间 |
-| `DEFAULT_MAX_FILE_SIZE` | 10GB | 文件大小上限 |
+| `DEFAULT_MAX_FILE_SIZE` | 100MB | 文件大小上限 |
 
 ---
 

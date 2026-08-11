@@ -26,9 +26,9 @@ import { PARTY_BUILDING_DOCUMENTS_CODE } from 'libs/systemFolderContext';
 export function captureUploadTargetContext(rootStore, options = {}) {
   const nav = rootStore?.navigationStore;
   const folderId = nav?.getUploadTargetFolderId?.() ?? null;
-  const isPublic = nav?.isPublic ?? false;
-  // tenantId 必须当场快照，不能在请求时重新读取 sessionStorage
-  const tenantId = isPublic ? 'public' : (sessionStorage.getItem('tenant_id') || 'default');
+  const isPublic = true;
+  // 私有空间已移除，tenantId 始终为 'public'
+  const tenantId = 'public';
   // 党建模式由调用方显式传入；普通模式恒为 null，避免残留
   const explicitCode = options.systemFolderCode === PARTY_BUILDING_DOCUMENTS_CODE
     ? PARTY_BUILDING_DOCUMENTS_CODE

@@ -1,16 +1,14 @@
 /**
-* Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
-* Copyright (c) <spug.dev@gmail.com>
-* Released under the AGPL-3.0 License.
-*/
+ * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
+ * Copyright (c) <spug.dev@gmail.com>
+ * Released under the AGPL-3.0 License.
+ */
 /**
  * FolderTree - 左侧文件夹树
  *
  * 【M6 重构 + 2026-06-07 key 冲突修复】
  * - 改用 antd loadData API 按需加载子节点
- * - 双根节点（公共/私人）互斥填充 children，避免 key 冲突：
- *   修复前：两个根节点都预加载相同 folders → antd 报 "Same 'key' exist"
- *   修复后：只预加载当前 isPublic 对应根节点，另一个根节点 children=[]（空）
+ * - 单根节点（公共文档），子节点按需加载
  */
 import React from 'react';
 import { observer } from 'mobx-react';
@@ -59,8 +57,8 @@ class FolderTree extends React.Component {
 
   /**
    * 【2026-06-07 M6 重构】根据 parentId 加载子文件夹
-   * parentId === null → 加载根目录的子文件夹（双根节点：公共/私人）
-   * parentId !== null → 加载指定文件夹的子文件夹
+   * parentId === null -> 加载根目录的子文件夹
+   * parentId !== null -> 加载指定文件夹的子文件夹
    */
   fetchChildFolders = async (parentId) => {
     if (!this._isMounted) return [];
@@ -206,7 +204,7 @@ class FolderTree extends React.Component {
   _setRootChildren = (rootKey, folders) => {
     if (!this._isMounted) return;
     const builtChildren = this._buildFolderChildren(folders);
-    // 根节点加载完成后根据实际一级子目录更新叶子状态（folders.length>0 → 可展开）
+    // 根节点加载完成后根据实际一级子目录更新叶子状态（folders.length>0 -> 可展开）
     const isLeaf = builtChildren.length === 0;
     this.setState((prevState) => {
       const newData = prevState.data.map(node => {
@@ -226,13 +224,8 @@ class FolderTree extends React.Component {
   // 构建单根节点树形结构（仅公共根节点）
   buildDualRootTree = () => {
     const publicRoot = {
-  //   - 当前 isPublic 对应的根节点：children: undefined → 触发 antd loadData 按需加载
-  //   - 另一个根节点：children: [] → 表示"已加载但无数据"，避免被 loadData 误触发
-  // 关键：绝不能两个根节点都填充相同 folders（key 冲突）
-  buildDualRootTree = () => {
-    const publicRoot = {
       key: 'public-root',
-      title: this.renderNodeWithTooltip('公共共享库', { isRoot: true, rootVariant: 'public', open: true }),
+      title: this.renderNodeWithTooltip('公共文档', { isRoot: true, rootVariant: 'public', open: true }),
       selectable: true,
       children: undefined,
       isLeaf: false
@@ -260,18 +253,14 @@ class FolderTree extends React.Component {
       return;
     }
 
-    // 双根节点：展开时加载一级子文件夹
-    // 注意：loadData 触发时 this.props.isPublic 可能还是旧的（点击根节点 → selectRootFolder
-    // → componentDidUpdate 异步链路），所以要根据 root key 反推 isPublic
-    if (key === 'private-root' || key === 'public-root') {
+    // 公共根节点：展开时加载一级子文件夹
+    if (key === 'public-root') {
       // 已经预加载过了
       const nodeData = this.state.data.find(n => n.key === key);
       if (nodeData && nodeData.children && nodeData.children.length > 0) {
         return;
       }
-      // 根据 root key 决定 isPublic（绕过 props 可能的时序问题）
-      const rootIsPublic = key === 'public-root';
-      const folders = await this.fetchChildFoldersForSpace(rootIsPublic);
+      const folders = await this.fetchChildFolders(null);
       this._setRootChildren(key, folders);
       return;
     }
@@ -285,27 +274,12 @@ class FolderTree extends React.Component {
   });
 
   /**
-   * 【M6 重构】根据空间类型加载根目录子文件夹（绕过 props.isPublic）
-   * 用于 onLoadData 处理根节点展开，避免 props 时序问题
-   */
-  fetchChildFoldersForSpace = async (isPublic) => {
-    const url = '/api/document/folder/';
-    const params = {
-      id: null,
-      is_public: isPublic
-    };
-    const res = await http.get(url, { params, skipErrorNotification: true });
-    const folders = Array.isArray(res) ? res : (res.folders || []);
-    return folders;
-  };
-
-  /**
    * 更新普通节点的 children
    */
   _setNodeChildren = (key, folders) => {
     if (!this._isMounted) return;
     const builtChildren = this._buildFolderChildren(folders);
-    // 加载完成后同步叶子状态：返回空数组 → 叶子；返回子目录 → 可展开
+    // 加载完成后同步叶子状态：返回空数组 -> 叶子；返回子目录 -> 可展开
     const isLeaf = builtChildren.length === 0;
     this.setState((prevState) => {
       const updateNode = (node) => {
@@ -329,7 +303,7 @@ class FolderTree extends React.Component {
    */
   renderNodeTitle = (name, { isRoot = false, rootVariant = null, open = false } = {}) => {
     const rootClass = isRoot
-      ? (rootVariant === 'public' ? styles.publicRoot : styles.privateRoot)
+      ? (rootVariant === 'public' ? styles.publicRoot : '')
       : '';
     const className = rootClass ? `${styles.nodeContent} ${rootClass}` : styles.nodeContent;
     return (
@@ -364,9 +338,9 @@ class FolderTree extends React.Component {
   /**
    * 【M6 重构】把后端返回的 folder 列表转为 antd tree node 格式。
    * 根据 has_children 字段映射 isLeaf / children：
-   *   - has_children === true  → 可展开（isLeaf:false, children:undefined）
-   *   - has_children === false → 叶子（isLeaf:true, children:[]，不显示三角但保留槽位）
-   *   - has_children 缺失（旧后端）→ 保守允许展开
+   *   - has_children === true  -> 可展开（isLeaf:false, children:undefined）
+   *   - has_children === false -> 叶子（isLeaf:true, children:[]，不显示三角但保留槽位）
+   *   - has_children 缺失（旧后端）-> 保守允许展开
    */
   _buildFolderChildren = (folders) => {
     if (!Array.isArray(folders)) {
@@ -375,7 +349,6 @@ class FolderTree extends React.Component {
     }
     // 累积到 folderMap，用于 buildFolderPath
     if (!this.folderMap) this.folderMap = new Map();
-    const { isPublic } = this.props;
 
     return folders.map(f => {
       if (!f || !f.id) return null;
@@ -394,7 +367,7 @@ class FolderTree extends React.Component {
         log.warn("\u68C0\u6D4B\u5230\u5FAA\u73AF\u5F15\u7528: \u6587\u4EF6\u5939", f.name, 'parent_id 指向自身');
       }
       const { isLeaf, children } = computeLeafState(f.has_children);
-      const creatorName = isPublic ? resolveCreatorName(f.created_by) : null;
+      const creatorName = resolveCreatorName(f.created_by);
       return {
         key: generateKey(f.id, 'folder'),
         rawId: f.id,
@@ -418,9 +391,9 @@ class FolderTree extends React.Component {
       this._expandNodeOnSelect(node.key);
       return;
     }
-    // 处理根节点选择
-    if (node.key === 'private-root' || node.key === 'public-root') {
-      navigationStore.selectRootFolder(node.key === 'public-root');
+    // 处理公共根节点选择
+    if (node.key === 'public-root') {
+      navigationStore.selectRootFolder();
       this._expandNodeOnSelect(node.key);
     } else {
       // 解析文件夹ID（使用工具函数）
@@ -454,7 +427,7 @@ class FolderTree extends React.Component {
     if (!this._isMounted || !key) return;
     this.setState((prevState) => {
       if (prevState.expandedKeys.includes(key)) {
-        // 已展开 → 收起
+        // 已展开 -> 收起
         return { expandedKeys: prevState.expandedKeys.filter(k => k !== key) };
       }
       const node = this._findNodeInData(prevState.data, key);
@@ -532,12 +505,11 @@ class FolderTree extends React.Component {
   };
   render() {
     const {
-      isPublic,
       lockedRoot
     } = this.props;
     const defaultExpandedKey = lockedRoot
       ? 'system-root'
-      : (isPublic ? 'public-root' : 'private-root');
+      : 'public-root';
     return <div className={styles.container}>
         <div className={styles.header}>
           <span className={styles.title}>文件夹</span>
@@ -555,7 +527,7 @@ class FolderTree extends React.Component {
                 this.setState({ expandedKeys });
               }
             }}
-            // 【M6 关键】loadData API + children undefined → 按需加载
+            // 【M6 关键】loadData API + children undefined -> 按需加载
             loadData={this.onLoadData}
             motion={false}
           />

@@ -82,8 +82,8 @@ class SpaceType(Enum):
 # 文件夹递归最大深度
 DEFAULT_MAX_FOLDER_DEPTH = 100
 
-# 文件上传最大大小（字节，默认10GB）
-DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024
+# 文件上传最大大小（字节，默认100MB）
+DEFAULT_MAX_FILE_SIZE = 100 * 1024 * 1024
 
 # 分片文件清理时间（秒，默认24小时）
 DEFAULT_CHUNK_CLEANUP_AGE = 24 * 3600
@@ -96,6 +96,20 @@ DEFAULT_MERGE_STATUS_TIMEOUT = 300
 
 # 异步复制阈值（字节，默认50MB）- 文件大小 >= 此值时使用 Celery 后台复制
 DEFAULT_ASYNC_COPY_THRESHOLD = 50 * 1024 * 1024
+
+
+def format_file_size(size_bytes):
+    """将字节数格式化为人类可读字符串（如 100MB、10GB）。
+
+    用于错误提示文案，避免硬编码 "10GB" 散落在多处。
+    """
+    if size_bytes >= 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024 * 1024):.0f}GB"
+    elif size_bytes >= 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.0f}MB"
+    elif size_bytes >= 1024:
+        return f"{size_bytes / 1024:.0f}KB"
+    return f"{size_bytes}B"
 
 
 # ==================== 传输状态转换规则 ====================

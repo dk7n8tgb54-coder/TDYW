@@ -23,15 +23,16 @@
 import React from 'react';
 import { InboxOutlined, FolderOpenOutlined, LockOutlined, SearchOutlined } from '@ant-design/icons';
 import { collectDroppedItems, hasFilesType, isEmptyFolderBatch, isPlainFilesOnly } from '../utils/dropUpload';
+import { formatMaxFileSizeDisplay } from '../utils/upload-utils';
 import styles from './DocumentDropUploadLayer.module.less';
 
 /**
  * @param {Object} props
  * @param {boolean} props.canUpload - 是否有上传权限
- * @param {boolean} props.isPartyBuildingDocuments - 是否党建文档模式
- * @param {boolean} props.isPartyBuildingDocumentsReady - 党建文档是否初始化完成
+ * @param {boolean} props.isPartyBuildingDocuments - 是否党建工作模式
+ * @param {boolean} props.isPartyBuildingDocumentsReady - 党建工作是否初始化完成
  * @param {boolean} props.isSearching - 是否处于搜索结果模式
- * @param {string} props.targetPathLabel - 当前目标目录显示文本（如 "我的文件 / 子目录" 或 "党建文档 / 子目录"）
+ * @param {string} props.targetPathLabel - 当前目标目录显示文本（如 "我的文件 / 子目录" 或 "党建工作 / 子目录"）
  * @param {Function} props.captureTargetContext - 调用 uploadCoreStore.captureUploadTargetContext 捕获不可变上下文
  * @param {Function} props.onDrop - drop 回调 (collected, targetContext) => void
  * @param {React.ReactNode} props.children - 包裹的 Explorer 组件
@@ -189,7 +190,7 @@ function DocumentDropUploadLayer({
       return (
         <div className={styles.maskContent}>
           <FolderOpenOutlined className={styles.maskIcon} />
-          <div className={styles.maskTitle}>党建文档初始化中</div>
+          <div className={styles.maskTitle}>党建工作初始化中</div>
           <div className={styles.maskHint}>请稍候再上传</div>
         </div>
       );
@@ -199,12 +200,13 @@ function DocumentDropUploadLayer({
       <div className={styles.maskContent}>
         <InboxOutlined className={styles.maskIcon} />
         <div className={styles.maskTitle}>
-          松开鼠标，上传到{isPartyBuildingDocuments ? '党建文档' : ''}
+          松开鼠标，上传到{isPartyBuildingDocuments ? '党建工作' : ''}
         </div>
         <div className={styles.maskPath} title={targetPathLabel}>
-          {targetPathLabel || (isPartyBuildingDocuments ? '党建文档' : '当前目录')}
+          {targetPathLabel || (isPartyBuildingDocuments ? '党建工作' : '当前目录')}
         </div>
         <div className={styles.maskHint}>支持多文件和文件夹</div>
+        <div className={styles.maskHint}>支持单文件最大 {formatMaxFileSizeDisplay()}</div>
       </div>
     );
   };

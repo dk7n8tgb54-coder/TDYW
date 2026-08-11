@@ -351,7 +351,7 @@ class DocumentTransfer(models.Model):
     file_hash = models.CharField(max_length=100, blank=True, default='', verbose_name='文件哈希(MD5)', db_index=True)
     # 目标文件夹（上传时使用）
     folder_id = models.IntegerField(null=True, blank=True, verbose_name='目标文件夹ID')
-    is_public = models.BooleanField(default=False, verbose_name='是否公共空间')
+    is_public = models.BooleanField(default=True, verbose_name='是否公共空间')
     system_folder = models.CharField(
         max_length=64,
         blank=True,

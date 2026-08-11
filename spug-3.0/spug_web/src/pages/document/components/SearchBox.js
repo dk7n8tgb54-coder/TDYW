@@ -34,7 +34,7 @@ const SearchBox = ({
     if (onSearchStart) onSearchStart();
 
     try {
-      const tenantId = isPublic ? null : sessionStorage.getItem('tenant_id');
+      const tenantId = null;
       // 搜索范围：传入 folderId 时限定到该目录子树，否则全库搜索
       const searchFolderId = folderId || null;
       const res = await http.get('/api/document/folder/search/', {

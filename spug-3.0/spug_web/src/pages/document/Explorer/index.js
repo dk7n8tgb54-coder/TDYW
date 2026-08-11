@@ -24,7 +24,7 @@ import PreviewModal from '../PreviewModal';
 import ContextMenu from '../components/ContextMenu';
 import FolderTreeSelector from '../components/FolderTreeSelector';
 import FileConflictModal from '../components/FileConflictModal';
-import { FileTable, FileGrid, SearchResults, DetailPanel, PropertiesModal } from './components';
+import { FileTable, FileGrid, SearchResults, PropertiesModal } from './components';
 
 // Hooks（简化后的统一入口）
 import {
@@ -239,9 +239,6 @@ const Explorer = observer(forwardRef(({
   });
   const [pendingOperation, setPendingOperation] = useState({ mode: null, items: [] });
 
-  // ===== 详情面板状态 =====
-  const [detailPanelExpanded, setDetailPanelExpanded] = useState(false);
-
   // ===== 属性弹窗状态 =====
   const [propertiesModal, setPropertiesModal] = useState({ visible: false, record: null });
 
@@ -426,13 +423,6 @@ const Explorer = observer(forwardRef(({
 
   // ===== 暴露方法 =====
   useImperativeHandle(ref, () => ({
-    toggleDetailPanel: (callback) => {
-      setDetailPanelExpanded(prev => {
-        const newState = !prev;
-        if (callback) callback(newState);
-        return newState;
-      });
-    },
     handleAddFolder: startCreateFolder,
     fetchItems,
   }), [startCreateFolder, fetchItems]);
@@ -518,14 +508,6 @@ const Explorer = observer(forwardRef(({
             />
           )}
         </div>
-
-        <DetailPanel
-          expanded={detailPanelExpanded}
-          onToggle={(newState) => setDetailPanelExpanded(newState)}
-          selectedItem={selectedItem}
-          selectedCount={safeSelectedRowKeys.length}
-          folderContents={folderContents}
-        />
       </div>
 
       {/* Modals */}

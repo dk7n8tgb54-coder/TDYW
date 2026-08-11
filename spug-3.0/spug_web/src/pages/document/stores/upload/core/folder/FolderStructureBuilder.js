@@ -43,7 +43,7 @@ export class FolderStructureBuilder {
    * @param {File[]|Array<{file, relativePath}>} filesOrEntries - 文件列表或规范化条目
    * @param {number|null} rootTargetId - 根目标文件夹 ID（null 表示根目录）
    * @param {boolean} isPublic - 是否公共空间
-   * @param {string|null} [systemFolderCode=null] - 系统目录 code（党建文档场景必传）
+   * @param {string|null} [systemFolderCode=null] - 系统目录 code（党建工作场景必传）
    *   显式传入后，创建文件夹的 POST 请求会显式带 system_folder 参数，
    *   不依赖 http.js 拦截器（党建任务离开党建路由后仍能正确创建子目录）
    * @returns {Promise<Map<string, number>>} folderMap (path → folderId)
@@ -188,7 +188,7 @@ export class FolderStructureBuilder {
    *
    * 【拖拽上传】显式传 system_folder 到 folder create API：
    *   - 党建任务离开党建路由后，http.js 拦截器不再注入 system_folder（路由已变）
-   *   - 但队列项保存的 systemFolderCode 仍指向党建文档
+   *   - 但队列项保存的 systemFolderCode 仍指向党建工作
    *   - 因此这里必须显式传 system_folder，后端才能把子目录创建到党建根下
    */
   async _createOne(name, parentId, isPublic) {
@@ -204,7 +204,7 @@ export class FolderStructureBuilder {
       params.system_folder = this._systemFolderCode;
     }
 
-    const tenantId = isPublic ? null : sessionStorage.getItem('tenant_id');
+    const tenantId = null;
     if (tenantId) {
       params.tenant_id = tenantId;
     }

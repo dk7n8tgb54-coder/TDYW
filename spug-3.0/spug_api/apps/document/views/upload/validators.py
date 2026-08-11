@@ -270,7 +270,8 @@ class ChunkUploadValidator:
             return False, '文件名包含非法字符'
 
         if file_size <= 0 or file_size > max_file_size:
-            return False, '文件大小超出限制（最大10GB）'
+            from apps.document.constants import format_file_size
+            return False, f'文件大小超出限制（最大{format_file_size(max_file_size)}）'
 
         return True, None
 

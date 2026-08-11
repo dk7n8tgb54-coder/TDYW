@@ -46,17 +46,17 @@ class NavigationStore {
   @observable path = [];
 
   /**
-   * 当前是否公共空间 false=我的文件, true=公共共享库
+   * 当前是否公共空间 false=我的文件, true=公共文档
    * @type {boolean}
    */
   @observable isPublic = true;
 
   /**
-   * 【党建文档】模式相关状态
+   * 【党建工作】模式相关状态
    * - mode: 'normal' | 'partyBuildingDocuments'
    * - systemFolderCode: 系统目录编码（如 'party_building_documents'），为 null 表示普通模式
-   * - lockedRootFolderId: 锁定的系统根目录 ID（党建文档根目录），导航不能超出此根
-   * - lockedRootFolderName: 锁定根目录的显示名（如 '党建文档'）
+   * - lockedRootFolderId: 锁定的系统根目录 ID（党建工作根目录），导航不能超出此根
+   * - lockedRootFolderName: 锁定根目录的显示名（如 '党建工作'）
    */
   @observable mode = 'normal';
   @observable systemFolderCode = null;
@@ -119,7 +119,7 @@ class NavigationStore {
     return this.actions.reset();
   }
 
-  // ----- 系统目录（党建文档） -----
+  // ----- 系统目录（党建工作） -----
   @action.bound initSystemFolder({ code, folderId, name }) {
     return this.actions.initSystemFolder({ code, folderId, name });
   }

@@ -684,7 +684,8 @@ class FileMergeChunksView(View):
 
         # 验证文件大小
         if params['file_size'] <= 0 or params['file_size'] > _get_max_file_size():
-            return None, '文件大小超出限制（最大10GB）'
+            from apps.document.constants import format_file_size
+            return None, f'文件大小超出限制（最大{format_file_size(_get_max_file_size())}）'
 
         return params, None
 

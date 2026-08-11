@@ -5,6 +5,7 @@
 
 import { message } from 'antd';
 import {
+  UPLOAD_CONSTANTS,
   PROGRESS_THROTTLE_DELAY,
   RETRY_DELAY_BASE,
   BATCH_UPLOAD_THRESHOLD,
@@ -114,4 +115,33 @@ export function showBatchUploadWarning(count) {
 // ============================================================
 export function calculateRetryDelay(retryCount, maxDelay = 5000) {
   return Math.min(RETRY_DELAY_BASE * Math.pow(2, retryCount), maxDelay);
+}
+
+// ============================================================
+// 文件大小校验
+// ============================================================
+
+/**
+ * 格式化单文件大小上限为人类可读字符串（如 "100MB"）
+ * 从 UPLOAD_CONSTANTS.MAX_FILE_SIZE 动态计算，避免硬编码
+ */
+export function formatMaxFileSizeDisplay() {
+  const bytes = UPLOAD_CONSTANTS.MAX_FILE_SIZE;
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${Math.round(bytes / (1024 * 1024 * 1024))}GB`;
+  }
+  return `${Math.round(bytes / (1024 * 1024))}MB`;
+}
+
+/**
+ * 校验单个文件是否超过大小限制
+ * @param {File} file
+ * @returns {{valid: boolean, message?: string}}
+ */
+export function validateFileSize(file) {
+  const maxSize = UPLOAD_CONSTANTS.MAX_FILE_SIZE;
+  if (file.size > maxSize) {
+    return { valid: false, message: `文件超过 ${formatMaxFileSizeDisplay()} 限制，无法上传` };
+  }
+  return { valid: true };
 }

@@ -16,6 +16,7 @@ import { action } from 'mobx';
 import { message } from 'antd';
 import http from 'libs/http';
 import { FolderStructureBuilder } from './folder/FolderStructureBuilder';
+import { validateFileSize } from '../../../utils/upload-utils';
 
 const FOLDER_UPLOAD_BATCH_SIZE = 20;
 
@@ -335,12 +336,19 @@ export class FolderUploadStore {
       }
 
       const nameCheck = defaultValidateFileName(file.name);
-      if (nameCheck.valid) {
-        // 保留原 item（entries 格式需要 relativePath；File 格式直接用 file.webkitRelativePath）
-        validFiles.push(item);
-      } else {
+      if (!nameCheck.valid) {
         invalidFiles.push({ name: file.name, reason: nameCheck.message });
+        continue;
       }
+
+      const sizeCheck = validateFileSize(file);
+      if (!sizeCheck.valid) {
+        invalidFiles.push({ name: file.name, reason: sizeCheck.message });
+        continue;
+      }
+
+      // 保留原 item（entries 格式需要 relativePath；File 格式直接用 file.webkitRelativePath）
+      validFiles.push(item);
     }
 
     return { validFiles, invalidFiles };
@@ -364,7 +372,7 @@ export class FolderUploadStore {
       const f = isEntriesFormat ? item.file : item;
       return sum + f.size;
     }, 0);
-    const scope = isPublic ? 'public' : 'private';
+    const scope = 'public';
     const sys = systemFolderCode ? `-${systemFolderCode}` : '';
     return `folder-${topFolderName}-${filesOrEntries.length}-${totalSize}-${targetFolderId}-${scope}${sys}`;
   }

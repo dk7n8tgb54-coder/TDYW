@@ -35,12 +35,12 @@ class NavigationComputed {
 
   /**
    * 获取当前文件夹名称
-   * @returns {string} 当前文件夹名，根目录返回'我的文件'或'公共共享库'
+   * @returns {string} 当前文件夹名，根目录返回'我的文件'或'公共文档'
    */
   @computed
   get currentFolderName() {
     if (!this.store.currentFolderId) {
-      return this.store.isPublic ? '公共共享库' : '我的文件';
+      return '公共文档';
     }
     const current = this.store.path[this.store.path.length - 1];
     return current?.name || '未知文件夹';
@@ -66,7 +66,7 @@ class NavigationComputed {
    */
   @computed
   get isRoot() {
-    // 党建文档锁定模式：currentFolderId 即锁定根目录时视为"根"
+    // 党建工作锁定模式：currentFolderId 即锁定根目录时视为"根"
     if (this.store.lockedRootFolderId) {
       return this.store.currentFolderId === this.store.lockedRootFolderId;
     }
@@ -79,7 +79,7 @@ class NavigationComputed {
    */
   @computed
   get canGoUp() {
-    // 党建文档锁定模式：在锁定根目录时不能向上
+    // 党建工作锁定模式：在锁定根目录时不能向上
     if (this.store.lockedRootFolderId) {
       return this.store.currentFolderId !== this.store.lockedRootFolderId
         && this.store.path.length > 0;
@@ -96,11 +96,11 @@ class NavigationComputed {
     if (this.store.lockedRootFolderName) {
       return this.store.lockedRootFolderName;
     }
-    return this.store.isPublic ? '公共共享库' : '我的文件';
+    return '公共文档';
   }
 
   /**
-   * 是否处于党建文档锁定根目录（用于 UI 隐藏重命名/移动/删除等操作）
+   * 是否处于党建工作锁定根目录（用于 UI 隐藏重命名/移动/删除等操作）
    * @returns {boolean}
    */
   @computed

@@ -26,7 +26,7 @@ const CACHE_MAX = 50;
 
 function buildCacheKey({ isPublic, systemFolderCode, tenantId, folderId, page, pageSize }) {
   return [
-    isPublic ? 'pub' : 'priv',
+    'pub',
     systemFolderCode || 'none',
     tenantId || 'none',
     folderId || 'root',
@@ -43,7 +43,7 @@ export function invalidateAllFolderCache() {
 /** 失效与指定作用域相关的所有缓存（按前缀匹配） */
 export function invalidateScopeCache({ isPublic, systemFolderCode, tenantId }) {
   const prefix = [
-    isPublic ? 'pub' : 'priv',
+    'pub',
     systemFolderCode || 'none',
     tenantId || 'none',
   ].join(':');
@@ -120,7 +120,7 @@ function mergeFolderItems(res) {
  * 发送文件夹列表请求（普通模式自动带 tenant_id，公共模式不带）。
  */
 async function requestFolderList({ isPublic, folderId, page, pageSize }) {
-  const tenantId = isPublic ? null : sessionStorage.getItem('tenant_id');
+  const tenantId = null;
   return http.get('/api/document/folder/', {
     params: {
       id: folderId,

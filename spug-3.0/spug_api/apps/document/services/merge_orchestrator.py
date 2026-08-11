@@ -12,6 +12,7 @@ apps.document.views.upload.merge.FileMergeChunksView。
 import os
 import logging
 from django.conf import settings
+from apps.document.constants import DEFAULT_MAX_FILE_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +61,10 @@ class ValidationStage:
             return False, {'error': '文件名包含非法字符'}
 
         # 验证文件大小
-        max_size = getattr(settings, 'MAX_DOCUMENT_FILE_SIZE', 10 * 1024 * 1024 * 1024)
+        max_size = getattr(settings, 'MAX_DOCUMENT_FILE_SIZE', DEFAULT_MAX_FILE_SIZE)
         if params['file_size'] <= 0 or params['file_size'] > max_size:
-            return False, {'error': '文件大小超出限制（最大10GB）'}
+            from apps.document.constants import format_file_size
+            return False, {'error': f'文件大小超出限制（最大{format_file_size(max_size)}）'}
 
         return True, None
 
@@ -85,7 +87,7 @@ class ValidationStage:
         context.folder = folder
 
         # 验证文件上传
-        max_size = getattr(settings, 'MAX_DOCUMENT_FILE_SIZE', 10 * 1024 * 1024 * 1024)
+        max_size = getattr(settings, 'MAX_DOCUMENT_FILE_SIZE', DEFAULT_MAX_FILE_SIZE)
         is_valid, msg = validators['file_upload'](
             params['file_name'], params['file_size'], max_file_size=max_size
         )

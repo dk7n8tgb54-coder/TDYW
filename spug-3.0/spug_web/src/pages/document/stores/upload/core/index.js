@@ -297,7 +297,7 @@ class UploadCoreStore {
    * 提供清晰的代理方法，避免外部代码双重访问 rootStore
    */
   getIsPublic() {
-    return this.rootStore.navigationStore?.isPublic ?? false;
+    return true;
   }
 
   /**

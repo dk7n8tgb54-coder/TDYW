@@ -24,6 +24,7 @@ from apps.document.services.conflict_service import (
 from apps.document.views.base import validate_file_name, validate_file_upload, log_operation, handle_view_errors
 from apps.document.services.file_upload_service import FileUploadService
 from apps.document.views.upload.validators import FolderValidator
+from apps.document.constants import DEFAULT_MAX_FILE_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +150,7 @@ class FileUploadView(View):
 
         # 验证文件大小和类型
         is_valid, msg = validate_file_upload(
-            file.name, file.size, max_file_size=10 * 1024 * 1024 * 1024
+            file.name, file.size, max_file_size=DEFAULT_MAX_FILE_SIZE
         )
         if not is_valid:
             return msg

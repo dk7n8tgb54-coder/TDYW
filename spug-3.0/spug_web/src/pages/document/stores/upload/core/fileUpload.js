@@ -31,8 +31,8 @@ export class FileUploadStore {
     // 队列项可能在入队时未创建 transfer（优化1），或已有 transferId（恢复上传）
     const existingItem = this.queueStore.findUploadItemInCurrentTenant(uploadId);
     let transferId = existingItem?.transferId || null;
-    // 【拖拽上传 - 5.4】优先使用队列项固化的 isPublic/systemFolderCode，避免离开党建路由后丢失
-    const targetIsPublic = isPublic !== null ? isPublic : (existingItem?.isPublic ?? this.rootStore.navigationStore?.isPublic);
+    // 私有空间已移除，始终为公共空间
+    const targetIsPublic = true;
     const targetSystemFolderCode = existingItem?.systemFolderCode || null;
 
     if (!transferId) {
@@ -86,19 +86,15 @@ export class FileUploadStore {
         formData.append('folder_id', parseInt(folderId));
       }
 
-      // 【修复】使用传入的isPublic，如果没有则回退到当前导航状态
-      const targetIsPublic = isPublic !== null ? isPublic : this.rootStore.navigationStore?.isPublic;
-      formData.append('is_public', targetIsPublic ? 'true' : 'false');
+      // 私有空间已移除，is_public 始终为 true
+      formData.append('is_public', 'true');
 
       // 【新增】传递传输记录ID
       if (transferId) {
         formData.append('transfer_id', transferId);
       }
 
-      const tenantIdForRequest = targetIsPublic ? null : sessionStorage.getItem('tenant_id');
-      if (tenantIdForRequest != null && tenantIdForRequest !== '') {
-        formData.append('tenant_id', tenantIdForRequest);
-      }
+      // 私有空间已移除，不再传 tenant_id
 
       // 【拖拽上传 - 5.4】显式传 system_folder：
       //   党建任务离开党建路由后 http.js 拦截器不再注入，

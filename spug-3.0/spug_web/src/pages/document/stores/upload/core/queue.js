@@ -65,7 +65,7 @@ export class UploadQueueStore {
    * 生成唯一标识
    */
   generateUniqueKey(file, targetFolderId, isPublic) {
-    return `${file.size}-${file.name}-${file.lastModified}-${isPublic ? 'public' : 'private'}-${targetFolderId}`;
+    return `${file.size}-${file.name}-${file.lastModified}-public-${targetFolderId}`;
   }
 
   /**

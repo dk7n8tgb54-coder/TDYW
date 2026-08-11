@@ -339,13 +339,8 @@ export class ChunkUploadStore {
       formData.append('folder_id', parseInt(folderId));
     }
 
-    // 【修复】使用targetIsPublic（传入的值或队列项保存的值），而不是当前导航状态
-    formData.append('is_public', targetIsPublic ? 'true' : 'false');
-    
-    const tenantIdForRequest = targetIsPublic ? null : sessionStorage.getItem('tenant_id');
-    if (tenantIdForRequest !== null) {
-      formData.append('tenant_id', tenantIdForRequest);
-    }
+    // 私有空间已移除，is_public 始终为 true
+    formData.append('is_public', 'true');
 
     // 【路径隔离】传递 transfer_id，使分片写入隔离目录
     const uploadItem = this.queueStore.findUploadItemInCurrentTenant(uploadId);
@@ -542,8 +537,8 @@ export class ChunkUploadStore {
         total_chunks: chunkCount,
         file_hash: fileHash,
         folder_id: folderId !== null ? parseInt(folderId) : null,
-        is_public: targetIsPublic,
-        tenant_id: targetIsPublic ? null : sessionStorage.getItem('tenant_id'),
+        is_public: true,
+        tenant_id: null,
         transfer_id: uploadItem?.transferId,
       };
       // 【拖拽上传 - 5.4】显式传 system_folder，不依赖 http.js 拦截器
