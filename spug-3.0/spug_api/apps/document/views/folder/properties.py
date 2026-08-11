@@ -16,6 +16,7 @@ from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_folder_model, get_file_model
 from ...libs.view_utils import permission_denied_response
 from ...libs.document_auth import document_auth
+from ...constants import DEFAULT_MAX_FOLDER_DEPTH
 from ...services.system_folder_service import (
     PARTY_BUILDING_DOCUMENTS_CODE, ensure_folder_in_scope_or_error,
     ensure_file_in_scope_or_error, validate_system_folder_context,
@@ -27,7 +28,7 @@ from ...services.system_scope_validators import (
 logger = logging.getLogger(__name__)
 
 
-def get_active_descendant_folder_ids(folder_obj, FolderModel, max_depth=50):
+def get_active_descendant_folder_ids(folder_obj, FolderModel, max_depth=DEFAULT_MAX_FOLDER_DEPTH):
     """
     BFS 获取文件夹及其所有子孙文件夹ID（仅未删除的）
 

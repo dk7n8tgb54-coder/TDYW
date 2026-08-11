@@ -179,6 +179,8 @@ def create_model_instance(Model, **kwargs):
 
 def validate_file_name(file_name):
     """校验文件名，防止路径遍历和非法字符"""
+    if not file_name or not isinstance(file_name, str):
+        return False
     if '..' in file_name:
         return False
     # 过滤控制字符（0x00-0x1F 和 0x7F DEL），防止 null 字节注入和日志注入

@@ -274,8 +274,8 @@ def generate_unique_logical_name(FileModel, original_name, folder, user, max_ori
             ).values_list('name', flat=True)
         )
         
-        # 有同名文件，提取最大序号
-        regex_pattern = rf"^{re.escape(clean_original)}_(\d{{3}}){re.escape(ext)}$"
+        # 有同名文件，提取最大序号（\d{3,} 匹配 3 位及以上，兼容序号溢出到 1000+）
+        regex_pattern = rf"^{re.escape(clean_original)}_(\d{{3,}}){re.escape(ext)}$"
         max_counter = 0
         for existing_name in all_matching_files:
             match = re.match(regex_pattern, existing_name)

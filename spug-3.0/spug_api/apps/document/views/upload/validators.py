@@ -318,7 +318,7 @@ class FolderValidator:
             return folder, None
 
         except (ValueError, TypeError):
-            return None, None
+            return None, '文件夹ID格式无效'
 
 
 class ChunkStorageManager:

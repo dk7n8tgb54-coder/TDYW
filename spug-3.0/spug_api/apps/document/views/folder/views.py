@@ -20,6 +20,7 @@ from libs.tenant_utils import apply_tenant_filter
 from ...libs.document_utils import get_folder_model, get_file_model, get_document_absolute_path
 from ...libs.view_utils import permission_denied_response
 from ...libs.document_auth import document_auth
+from ...constants import DEFAULT_MAX_FOLDER_DEPTH
 from ...services.system_folder_service import (
     PARTY_BUILDING_DOCUMENTS_CODE, get_system_root_folder_id,
     is_folder_in_scope, is_protected_system_root,
@@ -445,7 +446,7 @@ class FolderView(View):
             return json_response(error='文件夹删除失败，请稍后重试')
 
     # R6 修复：递归删除深度限制，防极深嵌套触发 RecursionError
-    MAX_FOLDER_DEPTH = 50
+    MAX_FOLDER_DEPTH = DEFAULT_MAX_FOLDER_DEPTH
 
     def _delete_folder(self, folder, FolderModel, FileModel, is_public, request_user=None, deleted_by=None, _depth=0):
         """递归物理删除文件夹及其内容

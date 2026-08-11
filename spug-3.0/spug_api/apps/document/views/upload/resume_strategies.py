@@ -57,7 +57,7 @@ class SuccessMarkerStrategy(ChunkSourceStrategy):
                 # 【P2修复】看到标记后验证实际分片文件存在，防止乱序上传导致虚假完整
                 actual_chunks = []
                 for i in range(total_chunks):
-                    chunk_file = os.path.join(chunk_dir, f'chunk_{i}')
+                    chunk_file = os.path.join(chunk_dir, f'{i}.part')
                     if os.path.exists(chunk_file):
                         actual_chunks.append(i)
 

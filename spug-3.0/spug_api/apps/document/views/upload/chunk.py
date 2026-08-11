@@ -76,7 +76,10 @@ def _validate_chunk_size(request, chunk_path, chunk_index):
             )
             return '分片校验失败：大小不匹配'
     except (ValueError, TypeError):
-        pass  # chunk_size 参数无效，跳过校验
+        logger.warning(
+            f'[ChunkUpload] chunk_size 参数无效: {request_chunk_size!r}, chunk={chunk_index}'
+        )
+        return '分片校验失败：chunk_size 参数无效'
     return None
 
 
@@ -198,10 +201,10 @@ class FileChunkUploadView(View):
                 # 【P2修复】验证所有分片文件确实存在，防止乱序上传时标记提前创建
                 missing_chunks = []
                 for i in range(params['total_chunks']):
-                    chunk_file = os.path.join(chunk_dir, f'chunk_{i}')
+                    chunk_file = os.path.join(chunk_dir, f'{i}.part')
                     if not os.path.exists(chunk_file):
                         missing_chunks.append(i)
-
+          
                 if missing_chunks:
                     logger.warning(
                         f'[ChunkUpload] Last chunk arrived but {len(missing_chunks)} chunks missing: '
