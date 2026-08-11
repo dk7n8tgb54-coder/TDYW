@@ -19,7 +19,7 @@ export function generateKey(id, prefix) {
     return `${prefix}-temp-${Date.now()}-${randomStr}`;
   }
   // 根节点特殊处理（保持原有命名规范）
-  if (id === 'private-root' || id === 'public-root') {
+  if (id === 'public-root') {
     return id;
   }
   // 正常ID拼接前缀
@@ -36,7 +36,7 @@ export function parseRawId(key) {
   if (!key) return null;
 
   // 根节点直接返回
-  if (['private-root', 'public-root'].includes(key)) {
+  if (key === 'public-root') {
     return key;
   }
 

@@ -42,15 +42,15 @@ def pack_folder_to_zip(self, folder_id, is_public, user_id, tenant_id=None):
             'error': 错误信息（如果失败）
         }
     """
-    from apps.document.models import DocumentFolderPrivate, DocumentFolderPublic, DocumentFilePrivate, DocumentFilePublic
+    from apps.document.models import DocumentFolderPublic, DocumentFilePublic
     from libs.tenant_utils import apply_tenant_filter
     from apps.document.libs.document_utils import get_folder_model, get_file_model, is_safe_path
 
     _ensure_pack_dir()
 
     # 选择模型
-    FolderModel = DocumentFolderPublic if is_public else DocumentFolderPrivate
-    FileModel = DocumentFilePublic if is_public else DocumentFilePrivate
+    FolderModel = DocumentFolderPublic
+    FileModel = DocumentFilePublic
 
     try:
         # 查询文件夹

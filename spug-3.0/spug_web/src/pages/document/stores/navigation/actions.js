@@ -131,17 +131,16 @@ class NavigationActions {
   }
 
   /**
-   * 选择根节点（我的文件/公共共享库）
-   * @param {boolean} isPublicRoot - 是否为公共根节点
+   * 选择根节点（公共共享库）
    */
-  selectRootFolder(isPublicRoot) {
-    // 党建工作锁定模式：不允许切换空间，固定为公共且定位到锁定根目录
+  selectRootFolder() {
+    // 党建工作锁定模式：固定为公共且定位到锁定根目录
     if (this.store.lockedRootFolderId) {
       this.goToLockedRoot();
       return;
     }
     this.store.selectedFolderId = null;
-    this.store.isPublic = isPublicRoot;
+    this.store.isPublic = true;
     this.store.path = [];
     this.store.currentFolderId = null;
 
@@ -158,21 +157,7 @@ class NavigationActions {
    * 切换到公共空间
    */
   switchToPublic() {
-    this.selectRootFolder(true);
-  }
-
-  /**
-   * 切换到私有空间
-   */
-  switchToPrivate() {
-    this.selectRootFolder(false);
-  }
-
-  /**
-   * 切换空间（自动取反）
-   */
-  toggleSpace() {
-    this.selectRootFolder(!this.store.isPublic);
+    this.selectRootFolder();
   }
 
   // ============================================================
@@ -206,7 +191,7 @@ class NavigationActions {
     this.store.path = [];
     this.store.currentFolderId = null;
     this.store.selectedFolderId = null;
-    this.store.isPublic = false;
+    this.store.isPublic = true;
 
     if (this.store.sync) {
       this.store.sync.syncToUrl();
@@ -273,7 +258,7 @@ class NavigationActions {
     const state = this.store.sync.parseFromUrl();
     if (!state) return false;
 
-    this.store.isPublic = state.isPublic;
+    this.store.isPublic = true;
     if (state.path?.length) {
       this.setPath(state.path, state.folderId);
     } else {

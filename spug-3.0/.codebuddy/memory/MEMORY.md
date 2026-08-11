@@ -38,6 +38,7 @@
   - 附件新建阶段：前端生成临时 UUID 作为 `object_id`，后端 `pk.isdigit()` 跳过记录存在性校验
 - 账号签名 `apps/signature`（apply_signature 事务锁->SHA256->Usage+EvidenceEvent）
 - 党建隔离 `DocumentSystemFolder` + `system_scope_validators`（fail-closed）
+- ⚠️ 私有空间已于 2026-08-11 移除：DocumentFilePrivate/DocumentFolderPrivate 模型+表已删，get_folder_model/get_file_model 始终返回 Public，DocumentTransfer.is_public 保留但 default=True
 - 权限缓存 `User.page_perms` Redis `perms_{id}`=(version,perms)
 - preview_token **两套独立实现**（document/libs vs evidence/attachment_preview_token）待收口
 - Celery: 18 `@shared_task` / 5 队列；12 Beat + 6 事件触发；`retry_clean_pending_files` 不可删

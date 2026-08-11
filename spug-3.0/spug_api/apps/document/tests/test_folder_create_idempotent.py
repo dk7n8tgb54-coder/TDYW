@@ -25,7 +25,7 @@ django.setup()
 from django.db import connection, transaction, IntegrityError
 from apps.account.models import User
 from apps.document.models import (
-    DocumentFolderPrivate, DocumentFolderPublic,
+    DocumentFolderPublic, DocumentFolderPublic,
 )
 from apps.document.views.folder.views import FolderView
 
@@ -83,7 +83,7 @@ def test_1_first_create_returns_created_true_private():
     """测试1: 首次创建返回 created:True"""
     print("\n--- 测试1: 首次创建（私有空间） ---")
     user = make_user('ft_user1', 'ft_tenant1')
-    F = DocumentFolderPrivate
+    F = DocumentFolderPublic
     suffix = str(random.randint(10000, 99999))
     folder_name = f'test_folder_{suffix}'
 
@@ -119,7 +119,7 @@ def test_2_same_name_same_parent_returns_created_false_private():
     """测试2: 同父目录同名创建返回 created:False"""
     print("\n--- 测试2: 同名同父目录（私有空间） ---")
     user = make_user('ft_user2', 'ft_tenant2')
-    F = DocumentFolderPrivate
+    F = DocumentFolderPublic
     suffix = str(random.randint(10000, 99999))
     folder_name = f'dup_folder_{suffix}'
 
@@ -167,7 +167,7 @@ def test_3_different_parent_allows_same_name_private():
     """测试3: 不同父目录允许同名"""
     print("\n--- 测试3: 不同父目录同名（私有空间） ---")
     user = make_user('ft_user3', 'ft_tenant3')
-    F = DocumentFolderPrivate
+    F = DocumentFolderPublic
     suffix = str(random.randint(10000, 99999))
     folder_name = f'same_name_{suffix}'
 
@@ -248,7 +248,7 @@ def test_5_private_space_cross_user_isolation():
     print("\n--- 测试5: 私有空间跨用户隔离 ---")
     user1 = make_user('ft_user5a', 'ft_tenant5')
     user2 = make_user('ft_user5b', 'ft_tenant5')
-    F = DocumentFolderPrivate
+    F = DocumentFolderPublic
     suffix = str(random.randint(10000, 99999))
     folder_name = f'priv_folder_{suffix}'
 
@@ -283,7 +283,7 @@ def test_6_cross_tenant_isolation_private():
     print("\n--- 测试6: 私有空间跨租户隔离 ---")
     user1 = make_user('ft_user6a', 'ft_tenant6a')
     user2 = make_user('ft_user6b', 'ft_tenant6b')
-    F = DocumentFolderPrivate
+    F = DocumentFolderPublic
     suffix = str(random.randint(10000, 99999))
     folder_name = f'tenant_folder_{suffix}'
 
@@ -315,7 +315,7 @@ def test_7_find_existing_folder_scope_matches_unique_key():
     """测试7: _find_existing_folder 作用域与 unique_key 一致"""
     print("\n--- 测试7: _find_existing_folder 作用域验证 ---")
     user = make_user('ft_user7', 'ft_tenant7')
-    F = DocumentFolderPrivate
+    F = DocumentFolderPublic
     suffix = str(random.randint(10000, 99999))
 
     try:
@@ -350,7 +350,7 @@ def test_8_concurrent_integrity_error_fallback():
     """测试8: 并发 IntegrityError 兜底"""
     print("\n--- 测试8: 并发 IntegrityError 兜底 ---")
     user = make_user('ft_user8', 'ft_tenant8')
-    F = DocumentFolderPrivate
+    F = DocumentFolderPublic
     suffix = str(random.randint(10000, 99999))
     folder_name = f'concurrent_{suffix}'
 
@@ -397,7 +397,7 @@ def test_9_root_vs_subdirectory_scope():
     """测试9: 根目录与子目录作用域正确"""
     print("\n--- 测试9: 根目录与子目录作用域 ---")
     user = make_user('ft_user9', 'ft_tenant9')
-    F = DocumentFolderPrivate
+    F = DocumentFolderPublic
     suffix = str(random.randint(10000, 99999))
     folder_name = f'root_sub_{suffix}'
 

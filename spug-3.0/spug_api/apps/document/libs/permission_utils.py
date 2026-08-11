@@ -18,11 +18,11 @@ def check_folder_permission(folder, user):
     检查用户是否有权限操作文件夹
     
     【P0安全】统一权限检查入口
-    - 私密空间：租户完全隔离（管理员也不能跨租户）
     - 公共空间：管理员可查看所有，普通用户只能查看自己的
+    （私有空间已移除）
     
     Args:
-        folder: 文件夹对象（DocumentFolderPrivate 或 DocumentFolderPublic）
+        folder: 文件夹对象（DocumentFolderPublic）
         user: 用户对象
         
     Returns:
@@ -33,23 +33,10 @@ def check_folder_permission(folder, user):
         logger.error('[Permission] 权限检查失败: 用户对象无效')
         return False
     
-    # 获取模型类型
-    from ..models import DocumentFolderPrivate, DocumentFolderPublic
-    
-    # 私密空间完全隔离
-    if isinstance(folder, DocumentFolderPrivate):
-        user_tenant_id = getattr(user, 'tenant_id', '')
-        folder_tenant_id = getattr(folder, 'tenant_id', '')
-        has_permission = user_tenant_id == folder_tenant_id
-        logger.debug(
-            f'[Permission] 私密文件夹权限检查: folder_id={folder.id}, '
-            f'user_tenant={repr(user_tenant_id)}, folder_tenant={repr(folder_tenant_id)}, '
-            f'result={has_permission}'
-        )
-        return has_permission
+    from ..models import DocumentFolderPublic
     
     # 公共空间：管理员有所有权限，普通用户只能操作自己的
-    elif isinstance(folder, DocumentFolderPublic):
+    if isinstance(folder, DocumentFolderPublic):
         if user.is_supper:
             return True
         folder_created_by_id = getattr(folder.created_by, 'id', None) if folder.created_by else None
@@ -72,26 +59,20 @@ def check_file_permission(file_obj, user):
     检查用户是否有权限操作文件
     
     【P0安全】统一权限检查入口
-    - 私密空间：租户完全隔离
     - 公共空间：管理员可查看所有，普通用户只能查看自己的
+    （私有空间已移除）
     
     Args:
-        file_obj: 文件对象（DocumentFilePrivate 或 DocumentFilePublic）
+        file_obj: 文件对象（DocumentFilePublic）
         user: 用户对象
         
     Returns:
         bool: 是否有权限
     """
-    from ..models import DocumentFilePrivate, DocumentFilePublic
-    
-    # 私密空间完全隔离
-    if isinstance(file_obj, DocumentFilePrivate):
-        user_tenant_id = getattr(user, 'tenant_id', '')
-        file_tenant_id = getattr(file_obj, 'tenant_id', '')
-        return user_tenant_id == file_tenant_id
+    from ..models import DocumentFilePublic
     
     # 公共空间
-    elif isinstance(file_obj, DocumentFilePublic):
+    if isinstance(file_obj, DocumentFilePublic):
         if user.is_supper:
             return True
         return file_obj.created_by == user
@@ -126,7 +107,7 @@ def get_folder_and_descendants_iter(folder, FolderModel):
     return folder_ids
 
 
-def get_folder_stats_optimized(folder_obj, space):
+def get_folder_stats_optimized(folder_obj, space=None):
     """
     【性能优化】优化后的文件夹统计信息查询
     
@@ -134,17 +115,16 @@ def get_folder_stats_optimized(folder_obj, space):
     
     Args:
         folder_obj: 文件夹对象
-        space: 空间类型 ('private' 或 'public')
+        space: 空间类型（已废弃，保留兼容，始终用 Public）
         
     Returns:
         tuple: (文件数量, 总大小)
     """
     from django.db.models import Sum, Count
-    from ..models import DocumentFolderPrivate, DocumentFolderPublic
-    from ..models import DocumentFilePrivate, DocumentFilePublic
+    from ..models import DocumentFolderPublic, DocumentFilePublic
     
-    FileModel = DocumentFilePrivate if space == 'private' else DocumentFilePublic
-    FolderModel = DocumentFolderPrivate if space == 'private' else DocumentFolderPublic
+    FileModel = DocumentFilePublic
+    FolderModel = DocumentFolderPublic
     
     # 使用迭代方式获取所有子文件夹ID
     folder_ids = get_folder_and_descendants_iter(folder_obj, FolderModel)

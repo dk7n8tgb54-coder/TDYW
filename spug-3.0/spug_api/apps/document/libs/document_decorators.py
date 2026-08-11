@@ -10,6 +10,7 @@ from libs import json_response
 from apps.document.libs.document_utils import (
     get_folder_model, get_file_model, is_global_admin
 )
+from apps.document.models import DocumentFolderPublic, DocumentFilePublic
 from apps.document.libs.view_utils import permission_denied_response
 import logging
 
@@ -23,7 +24,7 @@ def document_permission_check(need_create_permission=True):
     功能：
     1. 校验用户是否为管理员（管理员可操作所有公共资源）
     2. 公共空间：普通用户只能操作自己创建的资源
-    3. 私有空间：用户只能操作自己的私有资源
+    （私有空间已移除）
 
     Args:
         need_create_permission: 是否需要创建权限（删除/重命名需要，查看/下载不需要）
@@ -41,51 +42,45 @@ def document_permission_check(need_create_permission=True):
         @wraps(view_func)
         def wrapper(request, *args, **kwargs):
             try:
-                # 获取请求参数
-                is_public = request.GET.get('is_public', 'false').lower() == 'true'
+                # 获取请求参数（私有空间已移除，is_public 始终按 True 处理）
+                is_public = True
 
-                # 管理员直接放行（公共空间可操作所有，私有空间仅限自己）
+                # 管理员直接放行
                 if is_global_admin(request.user):
-                    logger.debug(f'[PERMISSION] 管理员 {request.user.username} 通过权限校验 (is_public={is_public})')
+                    logger.debug(f'[PERMISSION] 管理员 {request.user.username} 通过权限校验')
                     return view_func(request, *args, **kwargs)
 
                 # 公共空间权限校验
-                if is_public:
-                    # 从 kwargs 中获取资源ID
-                    folder_id = kwargs.get('folder_id')
-                    file_id = kwargs.get('file_id')
+                # 从 kwargs 中获取资源ID
+                folder_id = kwargs.get('folder_id')
+                file_id = kwargs.get('file_id')
 
-                    if folder_id:
-                        model = get_folder_model(is_public=True)
-                        folder = model.objects.filter(id=folder_id).order_by().first()
-                        if not folder:
-                            return json_response(error='文件夹不存在', code=404)
+                if folder_id:
+                    folder = DocumentFolderPublic.objects.filter(id=folder_id).order_by().first()
+                    if not folder:
+                        return json_response(error='文件夹不存在', code=404)
 
-                        # 校验是否为创建人
-                        if need_create_permission and folder.created_by_id != request.user.id:
-                            logger.warning(
-                                f'[PERMISSION] 用户 {request.user.username} 尝试操作他人的公共文件夹 ID:{folder_id}'
-                            )
-                            return permission_denied_response('无权限操作他人的公共资源', 'not_owner')
+                    # 校验是否为创建人
+                    if need_create_permission and folder.created_by_id != request.user.id:
+                        logger.warning(
+                            f'[PERMISSION] 用户 {request.user.username} 尝试操作他人的公共文件夹 ID:{folder_id}'
+                        )
+                        return permission_denied_response('无权限操作他人的公共资源', 'not_owner')
 
-                    elif file_id:
-                        model = get_file_model(is_public=True)
-                        file = model.objects.filter(id=file_id).order_by().first()
-                        if not file:
-                            return json_response(error='文件不存在', code=404)
+                elif file_id:
+                    file = DocumentFilePublic.objects.filter(id=file_id).order_by().first()
+                    if not file:
+                        return json_response(error='文件不存在', code=404)
 
-                        # 校验是否为创建人
-                        if need_create_permission and file.created_by_id != request.user.id:
-                            logger.warning(
-                                f'[PERMISSION] 用户 {request.user.username} 尝试操作他人的公共文件 ID:{file_id}'
-                            )
-                            return permission_denied_response('无权限操作他人的公共资源', 'not_owner')
-
-                # 私有空间权限校验（已在模型层过滤，无需额外校验）
-                # 私有空间的查询已经在 views 中通过 created_by_id 过滤
+                    # 校验是否为创建人
+                    if need_create_permission and file.created_by_id != request.user.id:
+                        logger.warning(
+                            f'[PERMISSION] 用户 {request.user.username} 尝试操作他人的公共文件 ID:{file_id}'
+                        )
+                        return permission_denied_response('无权限操作他人的公共资源', 'not_owner')
 
                 logger.debug(
-                    f'[PERMISSION] 用户 {request.user.username} 通过权限校验 (is_public={is_public})'
+                    f'[PERMISSION] 用户 {request.user.username} 通过权限校验'
                 )
                 return view_func(request, *args, **kwargs)
 

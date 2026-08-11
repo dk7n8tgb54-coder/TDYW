@@ -16,8 +16,8 @@ from django.http import StreamingHttpResponse
 from urllib.parse import quote
 
 from libs import json_response, JsonParser, Argument
-from libs.tenant_utils import apply_tenant_filter
-from ...libs.document_utils import get_folder_model, get_file_model, is_safe_path
+from ...libs.document_utils import is_safe_path
+from ...models import DocumentFolderPublic, DocumentFilePublic
 from ...libs.document_auth import document_auth
 from ...services.system_folder_service import (
     PARTY_BUILDING_DOCUMENTS_CODE, ensure_folder_in_scope_or_error,
@@ -59,13 +59,11 @@ class FolderDownloadView(View):
         if not ok:
             return json_response(error=ctx_err)
 
-        FolderModel = get_folder_model(is_public=form.is_public)
-        FileModel = get_file_model(is_public=form.is_public)
+        FolderModel = DocumentFolderPublic
+        FileModel = DocumentFilePublic
 
         logger.info(f'[Document] Downloading folder id: {form.id}, is_public={form.is_public}')
         folder_query = FolderModel.objects.filter(pk=form.id).order_by()
-        if not form.is_public:
-            folder_query = apply_tenant_filter(folder_query, request.user, strict_mode=True)
         folder = folder_query.select_related('created_by').first()
 
         if not folder:
@@ -158,8 +156,8 @@ class FolderDownloadView(View):
 
     def _sync_download(self, folder, user, is_public, request=None):
         """同步打包下载（原有逻辑）"""
-        FolderModel = get_folder_model(is_public=is_public)
-        FileModel = get_file_model(is_public=is_public)
+        FolderModel = DocumentFolderPublic
+        FileModel = DocumentFilePublic
 
         zip_path = None
         try:
@@ -268,8 +266,6 @@ class FolderDownloadView(View):
             folder_paths[current.id] = current_zip_path
 
             children_query = FolderModel.objects.filter(parent=current).order_by()
-            if request_user and not is_public:
-                children_query = apply_tenant_filter(children_query, request_user)
             children = list(children_query.select_related('created_by'))
 
             folder_children[current.id] = []
@@ -284,8 +280,6 @@ class FolderDownloadView(View):
     def _batch_query_files(self, folder_ids, FolderModel, FileModel, is_public, request_user):
         """批量查询所有文件并按 folder_id 分组"""
         files_query = FileModel.objects.filter(folder_id__in=list(folder_ids)).order_by()
-        if request_user and not is_public:
-            files_query = apply_tenant_filter(files_query, request_user)
 
         files_by_folder = {}
         for file in files_query.select_related('created_by'):

@@ -72,15 +72,13 @@ def retry_clean_pending_files(self):
     【P0修复】重试清理标记为待清理的文件
     当物理文件删除失败时，会标记为待清理状态，由本任务定时重试
     """
-    from apps.document.models import DocumentFilePrivate, DocumentFilePublic
+    from apps.document.models import DocumentFilePublic
 
-    private_success, private_failed = _process_pending_files(DocumentFilePrivate, '私有')
     public_success, public_failed = _process_pending_files(DocumentFilePublic, '公共')
 
     stats = {
-        'private': private_success,
         'public': public_success,
-        'failed': private_failed + public_failed,
+        'failed': public_failed,
     }
 
     logger.info(f'[Cleanup] 待清理文件处理完成: {stats}')

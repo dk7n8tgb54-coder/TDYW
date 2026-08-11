@@ -313,7 +313,7 @@ class FolderCleanupService:
         self.user = user
         self.FolderModel = FolderModel
         self.FileModel = FileModel
-        self.is_private = FolderModel.__name__ == 'DocumentFolderPrivate'
+        self.is_private = False  # 私有空间已移除
         self.is_public = not self.is_private
         self.permission_checker = PermissionChecker(user, self.is_private)
 

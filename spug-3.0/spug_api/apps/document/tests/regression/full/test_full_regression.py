@@ -22,7 +22,6 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 
 from apps.account.models import User
 from apps.document.models import (
-    DocumentFolderPrivate, DocumentFilePrivate,
     DocumentFolderPublic, DocumentFilePublic,
     DocumentTransfer, DocumentSystemFolder,
 )
@@ -57,16 +56,16 @@ class FullRegressionBase(TestCase):
         # 用 raw SQL 清理, 避免 DocumentFileDeleteMixin 物理删除副作用
         with connection.cursor() as cursor:
             cursor.execute(
-                "DELETE FROM tdyw_document_file_private WHERE file_path LIKE %s",
+                "DELETE FROM tdyw_document_file_public WHERE file_path LIKE %s",
                 [f'{self.tmp_dir}%'])
             cursor.execute(
-                "DELETE FROM tdyw_document_folder_private WHERE name LIKE 'fr_%'")
+                "DELETE FROM tdyw_document_folder_public WHERE name LIKE 'fr_%'")
             cursor.execute(
                 "DELETE FROM tdyw_document_transfer WHERE file_name LIKE 'fr_%'")
         if os.path.exists(self.tmp_dir):
             shutil.rmtree(self.tmp_dir, ignore_errors=True)
         # 清理 move API 可能产生的真实存储路径下的物理文件（防跨测试残留）
-        real_user_dir = os.path.join(self.storage_base, 'private', f'user-{self.admin.id}')
+        real_user_dir = os.path.join(self.storage_base, 'public')
         if os.path.isdir(real_user_dir):
             for root, dirs, files in os.walk(real_user_dir):
                 for fname in files:
@@ -81,15 +80,15 @@ class FullRegressionBase(TestCase):
         file_path = os.path.join(self.user_dir, name)
         with open(file_path, 'wb') as f:
             f.write(content)
-        return DocumentFilePrivate.objects.create(
+        return DocumentFilePublic.objects.create(
             name=name, display_name=name,
             physical_name=name, file_path=file_path,
             file_size=len(content), file_type='text/plain',
-            folder=folder, created_by=self.admin, tenant_id='admin')
+            folder=folder, created_by=self.admin)
 
     def _make_folder(self, name='fr_folder', parent=None):
-        return DocumentFolderPrivate.objects.create(
-            name=name, parent=parent, created_by=self.admin, tenant_id='admin')
+        return DocumentFolderPublic.objects.create(
+            name=name, parent=parent, created_by=self.admin)
 
 
 # ============================================================
@@ -130,7 +129,7 @@ class T13_FaultInjection_PhysicalDeleteFail(FullRegressionBase):
         from apps.document.tasks.cleanup.pending_files import retry_clean_pending_files
         retry_clean_pending_files()
         self.assertFalse(
-            DocumentFilePrivate.objects.filter(id=file_id).exists(),
+            DocumentFilePublic.objects.filter(id=file_id).exists(),
             'retry_clean_pending_files 后应清理 DB 记录')
         self.assertFalse(
             os.path.exists(file_path),
@@ -148,7 +147,7 @@ class T14_FaultInjection_MergeFail(FullRegressionBase):
             status='MERGING', file_name='fr_merge_fail.txt',
             file_size=1024, file_path=os.path.join(self.user_dir, 'fr_merge_fail.txt'),
             file_hash=file_hash, total_chunks=1, uploaded_chunks=1,
-            is_public=False)
+            is_public=True)
         transfer_id = transfer.id
 
         # mock Celery task dispatch 抛异常
@@ -176,7 +175,7 @@ class T15_FaultInjection_kkFileViewUnavailable(FullRegressionBase):
         with patch('requests.get',
                    side_effect=Exception('Connection refused (mock)')):
             resp = self.client.get('/document/preview/', {
-                'id': file.id, 'is_public': False,
+                'id': file.id, 'is_public': True,
             })
         # 预览接口应返回 200 + error, 不应 500
         self.assertEqual(resp.status_code, 200,
@@ -202,7 +201,7 @@ class T16_Celery_RetryCleanPendingFiles(FullRegressionBase):
         # 第一次调用：清理
         retry_clean_pending_files()
         self.assertFalse(
-            DocumentFilePrivate.objects.filter(id=file_id).exists(),
+            DocumentFilePublic.objects.filter(id=file_id).exists(),
             '第一次 retry 后应清理记录')
         self.assertFalse(
             os.path.exists(file_path),
@@ -225,18 +224,18 @@ class T17_Celery_MergeTaskIdempotent(FullRegressionBase):
         folder = self._make_folder('fr_merge_idem_folder')
         file_path = os.path.join(self.user_dir, 'fr_merge_idem.txt')
         physical_name = os.path.basename(file_path)
-        DocumentFilePrivate.objects.create(
+        DocumentFilePublic.objects.create(
             name='fr_merge_idem.txt', display_name='fr_merge_idem.txt',
             physical_name=physical_name,
             file_path=file_path, file_size=1024, file_type='text/plain',
-            folder=folder, created_by=self.admin, tenant_id='admin')
+            folder=folder, created_by=self.admin)
 
         transfer = DocumentTransfer.objects.create(
             tenant_id='admin', user=self.admin, transfer_type='UPLOAD',
             status='COMPLETED', file_name='fr_merge_idem.txt',
             file_size=1024, file_path=file_path,
             file_hash=file_hash, total_chunks=1, uploaded_chunks=1,
-            is_public=False, folder_id=folder.id)
+            is_public=True, folder_id=folder.id)
         transfer_id = transfer.id
 
         # 通过 API 调用 direct_merge（admin 是超管，跳过 ownership 校验）
@@ -246,7 +245,7 @@ class T17_Celery_MergeTaskIdempotent(FullRegressionBase):
             'file_name': 'fr_merge_idem.txt',
             'file_hash': file_hash,
             'total_chunks': 1,
-            'is_public': False,
+            'is_public': True,
         }), content_type='application/json')
         self.assertEqual(resp.status_code, 200)
         resp_data = resp.json()
@@ -307,7 +306,7 @@ class T18_PerformanceGate(FullRegressionBase):
                 status='PENDING', file_name=f'fr_perf_transfer_{i}.txt',
                 file_size=1024, file_path='/tmp/fr_perf.txt',
                 file_hash=uuid.uuid4().hex, total_chunks=1,
-                is_public=False)
+                is_public=True)
 
         start = time.time()
         resp = self.client.get('/document/transfers/')
@@ -326,11 +325,11 @@ class T18_PerformanceGate(FullRegressionBase):
             f.write('x' * 100)
 
         start = time.time()
-        file = DocumentFilePrivate.objects.create(
+        file = DocumentFilePublic.objects.create(
             name='fr_perf_create.txt', display_name='fr_perf_create.txt',
             physical_name='fr_perf_create.txt', file_path=file_path,
             file_size=100, file_type='text/plain',
-            folder=folder, created_by=self.admin, tenant_id='admin')
+            folder=folder, created_by=self.admin)
         elapsed = time.time() - start
 
         self.assertLess(
@@ -426,7 +425,7 @@ class T21_FaultTolerance_MergeTimeout(FullRegressionBase):
             status='MERGING', file_name='fr_timeout.txt',
             file_size=1024, file_path=os.path.join(self.user_dir, 'fr_timeout.txt'),
             file_hash=uuid.uuid4().hex, total_chunks=1, uploaded_chunks=1,
-            is_public=False)
+            is_public=True)
 
         # auto_now=True 会在 save() 时覆盖 updated_at, 用 update() 绕过
         old_time = timezone.now() - timedelta(minutes=35)
@@ -453,7 +452,7 @@ class T21_FaultTolerance_MergeTimeout(FullRegressionBase):
             status='MERGING', file_name='fr_notimeout.txt',
             file_size=1024, file_path=os.path.join(self.user_dir, 'fr_notimeout.txt'),
             file_hash=uuid.uuid4().hex, total_chunks=1, uploaded_chunks=1,
-            is_public=False)
+            is_public=True)
 
         # updated_at 设为 5 分钟前（未超时）
         recent_time = timezone.now() - timedelta(minutes=5)
@@ -478,7 +477,7 @@ class T21_FaultTolerance_MergeTimeout(FullRegressionBase):
             status='MERGING', file_name='fr_zombie.txt',
             file_size=1024, file_path=os.path.join(self.user_dir, 'fr_zombie.txt'),
             file_hash=uuid.uuid4().hex, total_chunks=1, uploaded_chunks=1,
-            is_public=False)
+            is_public=True)
 
         # updated_at 设为 25 小时前
         stale_time = timezone.now() - timedelta(hours=25)
@@ -532,7 +531,7 @@ class T22_FaultTolerance_CleanRetryLimit(FullRegressionBase):
 
         # 验证：DB 记录仍在（不因重试上限而删除，否则物理文件变成无追踪孤儿）
         self.assertTrue(
-            DocumentFilePrivate.objects.filter(id=file_id).exists(),
+            DocumentFilePublic.objects.filter(id=file_id).exists(),
             '重试达上限后 DB 记录应保留, 否则物理文件变成无追踪孤儿')
 
         file.refresh_from_db()
@@ -562,5 +561,5 @@ class T22_FaultTolerance_CleanRetryLimit(FullRegressionBase):
             file.clean_retry_count, original_retry_count,
             '冷却期内应跳过, clean_retry_count 不应变化')
         self.assertTrue(
-            DocumentFilePrivate.objects.filter(id=file.id).exists(),
+            DocumentFilePublic.objects.filter(id=file.id).exists(),
             '冷却期内不应删除记录')

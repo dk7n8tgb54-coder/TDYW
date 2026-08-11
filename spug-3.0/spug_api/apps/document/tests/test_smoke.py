@@ -9,7 +9,7 @@ from tests.helpers.test_base import (
     make_user, make_client, setup_test_env,
     post_json, delete_json, get_response_data, has_error)
 from apps.document.models import (
-    DocumentFolderPrivate, DocumentFilePrivate)
+    DocumentFolderPublic, DocumentFilePublic)
 
 
 class DocumentSmokeTest(TestCase):
@@ -61,7 +61,7 @@ class DocumentSmokeTest(TestCase):
     def test_04_folder_list(self):
         """列出文件夹+文件"""
         # 先创建一个文件夹
-        DocumentFolderPrivate.objects.create(
+        DocumentFolderPublic.objects.create(
             name='列表测试', created_by=self.admin, tenant_id='admin')
         resp = self.client.get('/document/folder/')
         self.assertEqual(resp.status_code, 200)
@@ -72,7 +72,7 @@ class DocumentSmokeTest(TestCase):
 
     def test_05_folder_rename(self):
         """文件夹重命名"""
-        folder = DocumentFolderPrivate.objects.create(
+        folder = DocumentFolderPublic.objects.create(
             name='原名', created_by=self.admin, tenant_id='admin')
         resp = post_json(self.client, '/document/folder/rename/', {
             'id': folder.id,
@@ -84,7 +84,7 @@ class DocumentSmokeTest(TestCase):
 
     def test_06_folder_delete(self):
         """文件夹删除"""
-        folder = DocumentFolderPrivate.objects.create(
+        folder = DocumentFolderPublic.objects.create(
             name='待删除', created_by=self.admin, tenant_id='admin')
         # DELETE 接口解析 request.GET，用 query string 传参
         resp = self.client.delete(
@@ -104,7 +104,7 @@ class DocumentSmokeTest(TestCase):
     def test_08_file_delete(self):
         """文件删除（物理删除）"""
         # 直接创建文件记录模拟
-        f = DocumentFilePrivate.objects.create(
+        f = DocumentFilePublic.objects.create(
             name='smoke_test.txt',
             display_name='smoke_test.txt',
             file_size=100,

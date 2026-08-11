@@ -22,7 +22,6 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 
 from apps.account.models import User
 from apps.document.models import (
-    DocumentFolderPrivate, DocumentFilePrivate,
     DocumentFolderPublic, DocumentFilePublic,
     DocumentTransfer, DocumentSystemFolder,
 )
@@ -53,11 +52,11 @@ class StandardRegressionBase(TestCase):
         os.makedirs(self.user_dir, exist_ok=True)
 
     def tearDown(self):
-        DocumentFilePrivate.objects.filter(
+        DocumentFilePublic.objects.filter(
             file_path__startswith=self.tmp_dir).delete()
         DocumentFilePublic.objects.filter(
             file_path__startswith=self.tmp_dir).delete()
-        DocumentFolderPrivate.objects.filter(
+        DocumentFolderPublic.objects.filter(
             name__startswith='sr_').delete()
         DocumentFolderPublic.objects.filter(
             name__startswith='sr_').delete()
@@ -66,7 +65,7 @@ class StandardRegressionBase(TestCase):
         if os.path.exists(self.tmp_dir):
             shutil.rmtree(self.tmp_dir, ignore_errors=True)
         # 清理 move API 可能产生的真实存储路径下的物理文件（防跨测试残留）
-        real_user_dir = os.path.join(self.storage_base, 'private', f'user-{self.admin.id}')
+        real_user_dir = os.path.join(self.storage_base, 'public')
         if os.path.isdir(real_user_dir):
             for root, dirs, files in os.walk(real_user_dir):
                 for fname in files:
@@ -79,34 +78,24 @@ class StandardRegressionBase(TestCase):
 
     # ============ helpers ============
     def _make_file(self, name='sr_file.txt', content=b'test', folder=None,
-                   is_public=False):
-        """创建真实物理文件 + DB 记录"""
+                   is_public=True):
+        """创建真实物理文件 + DB 记录（私有空间已移除，始终用 Public）"""
         file_path = os.path.join(self.user_dir, name)
         with open(file_path, 'wb') as f:
             f.write(content)
-        if is_public:
-            doc = DocumentFilePublic.objects.create(
-                name=name, display_name=name,
-                physical_name=name, file_path=file_path,
-                file_size=len(content), file_type='text/plain',
-                folder=folder, created_by=self.admin)
-        else:
-            doc = DocumentFilePrivate.objects.create(
-                name=name, display_name=name,
-                physical_name=name, file_path=file_path,
-                file_size=len(content), file_type='text/plain',
-                folder=folder, created_by=self.admin, tenant_id='admin')
+        doc = DocumentFilePublic.objects.create(
+            name=name, display_name=name,
+            physical_name=name, file_path=file_path,
+            file_size=len(content), file_type='text/plain',
+            folder=folder, created_by=self.admin)
         return doc
 
-    def _make_folder(self, name='sr_folder', parent=None, is_public=False):
-        if is_public:
-            return DocumentFolderPublic.objects.create(
-                name=name, parent=parent, created_by=self.admin)
-        return DocumentFolderPrivate.objects.create(
-            name=name, parent=parent, created_by=self.admin, tenant_id='admin')
+    def _make_folder(self, name='sr_folder', parent=None, is_public=True):
+        return DocumentFolderPublic.objects.create(
+            name=name, parent=parent, created_by=self.admin)
 
     def _make_transfer(self, status='PENDING', file_name='sr_transfer.txt',
-                      is_public=False, file_hash=None):
+                      is_public=True, file_hash=None):
         return DocumentTransfer.objects.create(
             tenant_id='admin', user=self.admin, transfer_type='UPLOAD',
             status=status, file_name=file_name,
@@ -130,12 +119,12 @@ class T07_ConflictResolution(StandardRegressionBase):
         # src 必须与 existing 同名才会触发冲突
         src = self._make_file('sr_replace.txt', b'new content')
         resp = post_json(self.client, '/document/file/copy/', {
-            'file_id': src.id, 'is_public': False,
+            'file_id': src.id, 'is_public': True,
             'folder_id': folder.id, 'conflict_action': 'replace',
         })
         self.assertEqual(resp.status_code, 200)
         # 行为保护：replace 时旧文件被删除（或返回明确的冲突响应）
-        old_still_exists = DocumentFilePrivate.objects.filter(id=old_id).exists()
+        old_still_exists = DocumentFilePublic.objects.filter(id=old_id).exists()
         if has_error(resp):
             # 返回冲突响应也是合法行为（前置校验阶段拒绝）
             pass
@@ -145,7 +134,7 @@ class T07_ConflictResolution(StandardRegressionBase):
                 f'replace 后旧文件记录应被删除, resp={resp.json()}')
         # src 仍存在
         self.assertTrue(
-            DocumentFilePrivate.objects.filter(id=src.id).exists(),
+            DocumentFilePublic.objects.filter(id=src.id).exists(),
             'replace 后源文件应仍存在')
 
     def test_keep_keeps_both_with_new_name(self):
@@ -155,7 +144,7 @@ class T07_ConflictResolution(StandardRegressionBase):
         # src 与 existing 同名才会触发冲突
         src = self._make_file('sr_keep.txt', b'new')
         resp = post_json(self.client, '/document/file/copy/', {
-            'file_id': src.id, 'is_public': False,
+            'file_id': src.id, 'is_public': True,
             'folder_id': folder.id, 'conflict_action': 'keep',
         })
         self.assertEqual(resp.status_code, 200)
@@ -163,7 +152,7 @@ class T07_ConflictResolution(StandardRegressionBase):
         if has_error(resp):
             pass
         else:
-            count = DocumentFilePrivate.objects.filter(folder=folder).count()
+            count = DocumentFilePublic.objects.filter(folder=folder).count()
             self.assertGreaterEqual(count, 2,
                                    f'keep 后应有 2 条文件, 实际 {count}, resp={resp.json()}')
 
@@ -171,14 +160,14 @@ class T07_ConflictResolution(StandardRegressionBase):
         """conflict_action=skip: 不创建新文件（src 与 existing 同名）"""
         folder = self._make_folder('sr_skip_dir')
         existing = self._make_file('sr_skip.txt', b'old', folder)
-        before_count = DocumentFilePrivate.objects.filter(folder=folder).count()
+        before_count = DocumentFilePublic.objects.filter(folder=folder).count()
         src = self._make_file('sr_skip.txt', b'new')
         resp = post_json(self.client, '/document/file/copy/', {
-            'file_id': src.id, 'is_public': False,
+            'file_id': src.id, 'is_public': True,
             'folder_id': folder.id, 'conflict_action': 'skip',
         })
         self.assertEqual(resp.status_code, 200)
-        after_count = DocumentFilePrivate.objects.filter(folder=folder).count()
+        after_count = DocumentFilePublic.objects.filter(folder=folder).count()
         self.assertEqual(after_count, before_count,
                         f'skip 后文件数不应增加: before={before_count}, after={after_count}')
 
@@ -278,7 +267,7 @@ class T10_CopyMove(StandardRegressionBase):
         dst_folder = self._make_folder('sr_move_dst')
         file = self._make_file('sr_move.txt', b'move', src_folder)
         resp = post_json(self.client, '/document/file/move/', {
-            'id': file.id, 'is_public': False,
+            'id': file.id, 'is_public': True,
             'target_id': dst_folder.id,
         })
         self.assertEqual(resp.status_code, 200)
@@ -292,7 +281,7 @@ class T10_CopyMove(StandardRegressionBase):
         sub = self._make_folder('sr_move_sub', parent=root)
         new_root = self._make_folder('sr_move_newroot')
         resp = post_json(self.client, '/document/folder/move/', {
-            'id': sub.id, 'is_public': False,
+            'id': sub.id, 'is_public': True,
             'target_id': new_root.id,
         })
         self.assertEqual(resp.status_code, 200)
@@ -311,7 +300,7 @@ class T11_Preview(StandardRegressionBase):
         """preview_token 接口（GET）应返回 token"""
         file = self._make_file('sr_preview.txt', b'preview content')
         resp = self.client.get('/document/preview_token/', {
-            'id': file.id, 'is_public': False,
+            'id': file.id, 'is_public': True,
         })
         self.assertEqual(resp.status_code, 200)
         # 即使因配置返回 error, 也不应崩溃
@@ -325,7 +314,7 @@ class T11_Preview(StandardRegressionBase):
         """file/preview 接口（GET）应可调用"""
         file = self._make_file('sr_preview2.txt', b'preview2')
         resp = self.client.get('/document/preview/', {
-            'id': file.id, 'is_public': False,
+            'id': file.id, 'is_public': True,
         })
         self.assertEqual(resp.status_code, 200)
         # 预览可能返回 url 或 token, 只要不崩溃即可
@@ -358,7 +347,7 @@ class T12_DiskUsage(StandardRegressionBase):
             status='PENDING', file_name='sr_other_transfer.txt',
             file_size=1024, file_path='/tmp/sr_other.txt',
             file_hash=uuid.uuid4().hex, total_chunks=1,
-            is_public=False)
+            is_public=True)
         resp = self.client.get('/document/transfers/')
         self.assertEqual(resp.status_code, 200)
         data = get_response_data(resp)

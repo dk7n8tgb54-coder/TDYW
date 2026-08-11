@@ -39,8 +39,9 @@ class ChunkCacheManager:
         【优化4】新 key 包含 transfer_id，隔离同 hash 并发上传
         格式：document:chunks:{space}:{file_hash}:{transfer_id}
         兼容：无 transfer_id 时使用旧格式 document:chunks:{space}:{file_hash}
+        （私有空间已移除，space 始终为 'public'）
         """
-        space = 'public' if self.is_public else f'user_{self.user_id}'
+        space = 'public'
         base_key = f'{CHUNK_CACHE_PREFIX}:{space}:{self.file_hash}'
         if self.transfer_id is not None:
             return f'{base_key}:{self.transfer_id}'
@@ -75,8 +76,9 @@ class ChunkCacheManager:
         """
         【P1修复】对外暴露旧格式 cache_key，仅供 resume 策略链显式查询。
         不要在 update_cache_after_upload 等"写"路径中使用。
+        （私有空间已移除，space 始终为 'public'）
         """
-        space = 'public' if self.is_public else f'user_{self.user_id}'
+        space = 'public'
         return f'{CHUNK_CACHE_PREFIX}:{space}:{self.file_hash}'
 
     def set_cached_chunks(self, chunks: List[int], timeout: int = DEFAULT_CACHE_TIMEOUT) -> bool:

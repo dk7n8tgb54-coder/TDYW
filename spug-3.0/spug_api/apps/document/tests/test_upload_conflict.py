@@ -17,7 +17,7 @@ django.setup()
 
 from django.conf import settings
 from apps.account.models import User
-from apps.document.models import DocumentFolderPrivate, DocumentFilePrivate
+from apps.document.models import DocumentFolderPublic, DocumentFilePublic
 from apps.document.libs.document_utils import get_document_absolute_path
 from apps.document.views.file.upload import FileUploadView
 
@@ -81,7 +81,7 @@ class FakePostRequest:
 
 
 def make_folder(user, name, parent=None):
-    return DocumentFolderPrivate.objects.create(
+    return DocumentFolderPublic.objects.create(
         name=name, parent=parent,
         created_by=user, tenant_id=user.tenant_id,
     )
@@ -96,7 +96,7 @@ def make_existing_file(user, folder, display_name, content='existing', size=None
     file_path = os.path.join(file_dir, physical_name)
     with open(file_path, 'w') as f:
         f.write(content)
-    return DocumentFilePrivate.objects.create(
+    return DocumentFilePublic.objects.create(
         name=display_name, display_name=display_name,
         physical_name=physical_name, file_path=file_path,
         file_size=size or len(content),
@@ -107,7 +107,7 @@ def make_existing_file(user, folder, display_name, content='existing', size=None
 def cleanup_files(ids):
     for fid in ids:
         try:
-            f = DocumentFilePrivate.objects.filter(id=fid).first()
+            f = DocumentFilePublic.objects.filter(id=fid).first()
             if f:
                 p = f.file_path
                 t = f.thumbnail_path or ''
@@ -123,7 +123,7 @@ def cleanup_files(ids):
 def cleanup_folders(ids):
     for fid in ids:
         try:
-            DocumentFolderPrivate.objects.filter(id=fid).delete()
+            DocumentFolderPublic.objects.filter(id=fid).delete()
         except Exception:
             pass
 
@@ -148,7 +148,7 @@ def test_1_upload_conflict_no_action():
     report('T1: 有冲突信息', len(conflicts) > 0)
 
     # 数据库没有新增
-    count = DocumentFilePrivate.objects.filter(folder=folder, display_name=f'doc_{s}.txt').count()
+    count = DocumentFilePublic.objects.filter(folder=folder, display_name=f'doc_{s}.txt').count()
     report('T1: 文件数不变(1)', count == 1, f'count={count}')
 
     cleanup_files([existing.id])
@@ -174,10 +174,10 @@ def test_2_upload_replace():
     report('T2: action=replace', data.get('data', {}).get('action') == 'replace')
 
     # 旧文件被删除
-    report('T2: 旧文件已删除', not DocumentFilePrivate.objects.filter(id=existing.id).exists())
+    report('T2: 旧文件已删除', not DocumentFilePublic.objects.filter(id=existing.id).exists())
 
     # 新文件已创建
-    new_files = DocumentFilePrivate.objects.filter(folder=folder, display_name=f'rep_{s}.txt')
+    new_files = DocumentFilePublic.objects.filter(folder=folder, display_name=f'rep_{s}.txt')
     report('T2: 新文件已创建', new_files.count() == 1)
 
     cleanup_files([f.id for f in new_files])
@@ -202,7 +202,7 @@ def test_3_upload_keep():
            f'response={data}')
 
     # 检查有 _1 后缀的文件
-    new_files = DocumentFilePrivate.objects.filter(
+    new_files = DocumentFilePublic.objects.filter(
         folder=folder, display_name__startswith=f'keep_{s}')
     report('T3: 有 2 个文件（原+_1）', new_files.count() == 2,
            f'count={new_files.count()}')
@@ -232,7 +232,7 @@ def test_4_upload_skip():
            f'response={data}')
 
     # 文件数不变
-    count = DocumentFilePrivate.objects.filter(folder=folder, display_name=f'skip_{s}.txt').count()
+    count = DocumentFilePublic.objects.filter(folder=folder, display_name=f'skip_{s}.txt').count()
     report('T4: 文件数不变(1)', count == 1)
 
     cleanup_files([existing.id])
@@ -255,7 +255,7 @@ def test_5_upload_no_conflict():
     report('T5: 返回 success', data.get('data', {}).get('status') == 'success',
            f'response={data}')
 
-    new_files = DocumentFilePrivate.objects.filter(folder=folder, display_name=f'new_{s}.txt')
+    new_files = DocumentFilePublic.objects.filter(folder=folder, display_name=f'new_{s}.txt')
     report('T5: 文件已创建', new_files.count() == 1)
 
     cleanup_files([f.id for f in new_files])

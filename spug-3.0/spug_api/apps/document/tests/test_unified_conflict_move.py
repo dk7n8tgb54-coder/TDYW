@@ -21,7 +21,7 @@ django.setup()
 from django.conf import settings
 from django.db import connection, transaction, IntegrityError
 from apps.account.models import User
-from apps.document.models import DocumentFolderPrivate, DocumentFilePrivate
+from apps.document.models import DocumentFolderPublic, DocumentFilePublic
 from apps.document.libs.document_utils import (
     get_document_absolute_path, get_document_relative_path, is_safe_path,
 )
@@ -68,7 +68,7 @@ class FakeRequest:
 
 
 def make_folder(user, name, parent=None):
-    return DocumentFolderPrivate.objects.create(
+    return DocumentFolderPublic.objects.create(
         name=name, parent=parent,
         created_by=user, tenant_id=user.tenant_id,
     )
@@ -83,7 +83,7 @@ def make_file(user, folder, display_name, content='test', file_size=None):
     file_path = os.path.join(file_dir, physical_name)
     with open(file_path, 'w') as f:
         f.write(content)
-    return DocumentFilePrivate.objects.create(
+    return DocumentFilePublic.objects.create(
         name=display_name, display_name=display_name,
         physical_name=physical_name, file_path=file_path,
         file_size=file_size or len(content),
@@ -124,7 +124,7 @@ def test_1_move_no_conflict_physical_migration():
     """T1: 移动无冲突 -> 物理文件迁移到目标目录"""
     print("\n--- T1: 移动无冲突 + 物理迁移 ---")
     user = make_user('ct1', 'ct_t1')
-    F, Folder = DocumentFilePrivate, DocumentFolderPrivate
+    F, Folder = DocumentFilePublic, DocumentFolderPublic
     s = str(random.randint(10000, 99999))
 
     folder_a = make_folder(user, f'A_{s}')
@@ -163,7 +163,7 @@ def test_2_move_conflict_same_name_same_size():
     """T2: 同名同大小冲突 -> 返回 conflict 响应"""
     print("\n--- T2: 同名同大小冲突 ---")
     user = make_user('ct2', 'ct_t2')
-    F, Folder = DocumentFilePrivate, DocumentFolderPrivate
+    F, Folder = DocumentFilePublic, DocumentFolderPublic
     s = str(random.randint(10000, 99999))
 
     folder_a = make_folder(user, f'A_{s}')
@@ -197,7 +197,7 @@ def test_3_move_conflict_different_size():
     """T3: 同名不同大小冲突"""
     print("\n--- T3: 同名不同大小冲突 ---")
     user = make_user('ct3', 'ct_t3')
-    F, Folder = DocumentFilePrivate, DocumentFolderPrivate
+    F, Folder = DocumentFilePublic, DocumentFolderPublic
     s = str(random.randint(10000, 99999))
 
     folder_a = make_folder(user, f'A_{s}')
@@ -225,7 +225,7 @@ def test_4_move_replace():
     """T4: replace 动作 -> 删除目标文件，移动源文件"""
     print("\n--- T4: replace 动作 ---")
     user = make_user('ct4', 'ct_t4')
-    F, Folder = DocumentFilePrivate, DocumentFolderPrivate
+    F, Folder = DocumentFilePublic, DocumentFolderPublic
     s = str(random.randint(10000, 99999))
 
     folder_a = make_folder(user, f'A_{s}')
@@ -257,7 +257,7 @@ def test_5_move_keep():
     """T5: keep 动作 -> 生成唯一 display_name"""
     print("\n--- T5: keep 动作 ---")
     user = make_user('ct5', 'ct_t5')
-    F, Folder = DocumentFilePrivate, DocumentFolderPrivate
+    F, Folder = DocumentFilePublic, DocumentFolderPublic
     s = str(random.randint(10000, 99999))
 
     folder_a = make_folder(user, f'A_{s}')
@@ -287,7 +287,7 @@ def test_6_move_skip():
     """T6: skip 动作 -> 不执行任何操作"""
     print("\n--- T6: skip 动作 ---")
     user = make_user('ct6', 'ct_t6')
-    F, Folder = DocumentFilePrivate, DocumentFolderPrivate
+    F, Folder = DocumentFilePublic, DocumentFolderPublic
     s = str(random.randint(10000, 99999))
 
     folder_a = make_folder(user, f'A_{s}')
@@ -319,7 +319,7 @@ def test_7_move_then_delete_original_folder():
     """T7: 移动后删除原文件夹 -> 文件仍可访问"""
     print("\n--- T7: 移动后删除原文件夹 ---")
     user = make_user('ct7', 'ct_t7')
-    F, Folder = DocumentFilePrivate, DocumentFolderPrivate
+    F, Folder = DocumentFilePublic, DocumentFolderPublic
     s = str(random.randint(10000, 99999))
 
     folder_a = make_folder(user, f'A_{s}')
@@ -353,7 +353,7 @@ def test_8_keep_consecutive_suffixes():
     """T8: keep 连续生成 _1、_2"""
     print("\n--- T8: keep 连续后缀 ---")
     user = make_user('ct8', 'ct_t8')
-    F, Folder = DocumentFilePrivate, DocumentFolderPrivate
+    F, Folder = DocumentFilePublic, DocumentFolderPublic
     s = str(random.randint(10000, 99999))
 
     folder_a = make_folder(user, f'A_{s}')
@@ -398,7 +398,7 @@ def test_9_copy_conflict_detection():
     """T9: 复制冲突检测"""
     print("\n--- T9: 复制冲突检测 ---")
     user = make_user('ct9', 'ct_t9')
-    F, Folder = DocumentFilePrivate, DocumentFolderPrivate
+    F, Folder = DocumentFilePublic, DocumentFolderPublic
     s = str(random.randint(10000, 99999))
 
     folder_a = make_folder(user, f'A_{s}')
@@ -427,7 +427,7 @@ def test_10_copy_replace():
     """T10: 复制 replace 动作"""
     print("\n--- T10: 复制 replace ---")
     user = make_user('ct10', 'ct_t10')
-    F, Folder = DocumentFilePrivate, DocumentFolderPrivate
+    F, Folder = DocumentFilePublic, DocumentFolderPublic
     s = str(random.randint(10000, 99999))
 
     folder_a = make_folder(user, f'A_{s}')
@@ -456,7 +456,7 @@ def test_11_copy_keep():
     """T11: 复制 keep 动作"""
     print("\n--- T11: 复制 keep ---")
     user = make_user('ct11', 'ct_t11')
-    F, Folder = DocumentFilePrivate, DocumentFolderPrivate
+    F, Folder = DocumentFilePublic, DocumentFolderPublic
     s = str(random.randint(10000, 99999))
 
     folder_a = make_folder(user, f'A_{s}')
@@ -493,7 +493,7 @@ def test_12_copy_skip():
     """T12: 复制 skip 动作"""
     print("\n--- T12: 复制 skip ---")
     user = make_user('ct12', 'ct_t12')
-    F, Folder = DocumentFilePrivate, DocumentFolderPrivate
+    F, Folder = DocumentFilePublic, DocumentFolderPublic
     s = str(random.randint(10000, 99999))
 
     folder_a = make_folder(user, f'A_{s}')
@@ -523,7 +523,7 @@ def test_13_move_root_to_folder():
     """T13: 根目录到文件夹移动"""
     print("\n--- T13: 根目录到文件夹移动 ---")
     user = make_user('ct13', 'ct_t13')
-    F, Folder = DocumentFilePrivate, DocumentFolderPrivate
+    F, Folder = DocumentFilePublic, DocumentFolderPublic
     s = str(random.randint(10000, 99999))
 
     # 文件在根目录
@@ -551,7 +551,7 @@ def test_14_move_folder_to_root():
     """T14: 文件夹到根目录移动"""
     print("\n--- T14: 文件夹到根目录移动 ---")
     user = make_user('ct14', 'ct_t14')
-    F, Folder = DocumentFilePrivate, DocumentFolderPrivate
+    F, Folder = DocumentFilePublic, DocumentFolderPublic
     s = str(random.randint(10000, 99999))
 
     folder_a = make_folder(user, f'RootA_{s}')

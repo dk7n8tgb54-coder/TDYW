@@ -50,10 +50,6 @@ class FolderTree extends React.Component {
     this._pendingLoadTokens.clear();
   }
   componentDidUpdate(prevProps) {
-    // 监听isPublic变化，刷新文件夹树
-    if (prevProps.isPublic !== this.props.isPublic) {
-      this.fetchFolders();
-    }
     // 党建工作锁定模式：根目录 ID 变化（初始化后）时刷新
     if (prevProps.lockedRoot !== this.props.lockedRoot
         || prevProps.rootFolderId !== this.props.rootFolderId) {
@@ -68,11 +64,11 @@ class FolderTree extends React.Component {
    */
   fetchChildFolders = async (parentId) => {
     if (!this._isMounted) return [];
-    const { isPublic, lockedRoot } = this.props;
+    const { lockedRoot } = this.props;
     const url = '/api/document/folder/';
     const params = {
       id: parentId,
-      is_public: isPublic
+      is_public: true
     };
     if (lockedRoot) {
       params.system_folder = PARTY_BUILDING_DOCUMENTS_CODE;
@@ -114,7 +110,7 @@ class FolderTree extends React.Component {
       this.setState({
         loading: true
       });
-      const { isPublic, lockedRoot } = this.props;
+      const { lockedRoot } = this.props;
       // 党建工作锁定模式：构建单根节点树
       if (lockedRoot) {
         const treeData = this.buildSingleRootTree();
@@ -126,20 +122,16 @@ class FolderTree extends React.Component {
         }
         return;
       }
-      // 【M6 重构】用 antd loadData + children undefined 实现按需加载
-      // 根节点本身不需要查后端（"我的文件"/"公共共享库"是 UI 概念）
-      // 当前 isPublic 对应的根节点 children 设为 undefined（触发 loadData），
-      // 另一个根节点 children 设为 []（避免被 loadData 误触发 + 不显示展开箭头）
-      const treeData = this.buildDualRootTree(isPublic);
+      // 构建单根节点树（仅公共根节点）
+      const treeData = this.buildDualRootTree();
 
       if (this._isMounted) {
         this.setState({
           data: treeData,
-          expandedKeys: [isPublic ? 'public-root' : 'private-root']
+          expandedKeys: ['public-root']
         }, () => {
-          // setState 回调里预加载当前激活根节点的一级 children
-          // 关键：只预加载一个根节点（另一个保持空），避免 antd key 冲突
-          this._loadActiveRootChildren(isPublic);
+          // 预加载公共根节点的一级 children
+          this._loadActiveRootChildren();
         });
       }
     } catch (error) {
@@ -149,7 +141,7 @@ class FolderTree extends React.Component {
       // 显示空的树形结构
       if (this._isMounted) {
         this.setState({
-          data: this.props.lockedRoot ? this.buildSingleRootTree() : this.buildDualRootTree(this.props.isPublic)
+          data: this.props.lockedRoot ? this.buildSingleRootTree() : this.buildDualRootTree()
         });
       }
     } finally {
@@ -194,14 +186,11 @@ class FolderTree extends React.Component {
   };
 
   /**
-   * 【M6 重构】异步预加载"当前激活"根节点的一级子文件夹
-   * 注意：每次只预加载当前 isPublic 对应的那个根节点（另一个根节点保持空）
-   * - 避免两个根节点 children 列表重复导致 antd key 冲突
-   * - 避免无谓的请求（用户可能永远不会切换到另一个根节点）
+   * 预加载公共根节点的一级子文件夹
    */
-  _loadActiveRootChildren = async (isPublic) => {
+  _loadActiveRootChildren = async () => {
     try {
-      const rootKey = isPublic ? 'public-root' : 'private-root';
+      const rootKey = 'public-root';
       // 根节点的 parentId 是 null
       const folders = await this.fetchChildFolders(null);
       this._setRootChildren(rootKey, folders);
@@ -234,30 +223,21 @@ class FolderTree extends React.Component {
     this.fetchFolders();
   };
 
-  // 构建双根节点树形结构
-  // 【M6 重构】两个根节点同时存在（key 不重复：public-root / private-root）
-  // 互斥地设置 children：
+  // 构建单根节点树形结构（仅公共根节点）
+  buildDualRootTree = () => {
+    const publicRoot = {
   //   - 当前 isPublic 对应的根节点：children: undefined → 触发 antd loadData 按需加载
   //   - 另一个根节点：children: [] → 表示"已加载但无数据"，避免被 loadData 误触发
   // 关键：绝不能两个根节点都填充相同 folders（key 冲突）
-  buildDualRootTree = (isPublic) => {
-    const privateRoot = {
-      key: 'private-root',
-      title: this.renderNodeWithTooltip('我的文件', { isRoot: true, rootVariant: 'private' }),
-      selectable: true,
-      // isPublic === true 时，private-root 暂不预加载
-      children: isPublic ? [] : undefined,
-      isLeaf: false
-    };
+  buildDualRootTree = () => {
     const publicRoot = {
       key: 'public-root',
       title: this.renderNodeWithTooltip('公共共享库', { isRoot: true, rootVariant: 'public', open: true }),
       selectable: true,
-      // isPublic === false 时，public-root 暂不预加载
-      children: isPublic ? undefined : [],
+      children: undefined,
       isLeaf: false
     };
-    return [publicRoot, privateRoot];
+    return [publicRoot];
   };
 
   /**

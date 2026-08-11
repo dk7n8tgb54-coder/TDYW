@@ -24,7 +24,7 @@ django.setup()
 from django.db import connection, transaction, IntegrityError
 from apps.account.models import User
 from apps.document.models import (
-    DocumentFolderPrivate, DocumentFilePrivate,
+    DocumentFolderPublic, DocumentFilePublic,
     DocumentFolderPublic, DocumentFilePublic,
 )
 from apps.document.libs.naming_utils import (
@@ -92,8 +92,8 @@ def test_1_exact_name_exists_private():
     """测试1: 已有 foo.txt 时再次生成不会返回 foo.txt"""
     print("\n--- 测试1: 精确名已存在（私有模型） ---")
     user = make_user()
-    F = DocumentFolderPrivate
-    FileModel = DocumentFilePrivate
+    F = DocumentFolderPublic
+    FileModel = DocumentFilePublic
 
     import random
     suffix = str(random.randint(10000, 99999))
@@ -101,7 +101,7 @@ def test_1_exact_name_exists_private():
         name=f'test_folder_{suffix}',
         parent=None,
         created_by=user,
-        tenant_id=user.tenant_id,
+
     )
 
     try:
@@ -115,7 +115,7 @@ def test_1_exact_name_exists_private():
             file_size=100,
             file_type='text/plain',
             created_by=user,
-            tenant_id=user.tenant_id,
+    
         )
 
         # 再次生成（传入完整文件名，函数内部拆分扩展名）
@@ -139,8 +139,8 @@ def test_2_sequential_suffix():
     """测试2: 已有 foo.txt、foo_001.txt 时返回下一个可用逻辑名"""
     print("\n--- 测试2: 序号递增 ---")
     user = make_user()
-    F = DocumentFolderPrivate
-    FileModel = DocumentFilePrivate
+    F = DocumentFolderPublic
+    FileModel = DocumentFilePublic
 
     import random
     suffix = str(random.randint(10000, 99999))
@@ -148,7 +148,7 @@ def test_2_sequential_suffix():
         name=f'test_folder2_{suffix}',
         parent=None,
         created_by=user,
-        tenant_id=user.tenant_id,
+
     )
 
     try:
@@ -163,7 +163,7 @@ def test_2_sequential_suffix():
                 file_size=100,
                 file_type='text/plain',
                 created_by=user,
-                tenant_id=user.tenant_id,
+        
             )
 
         result = generate_unique_logical_name(FileModel, 'foo.txt', folder, user)
@@ -181,8 +181,8 @@ def test_3_missing_sequence_and_dirty_data():
     """测试3: 中间序号缺失、历史脏数据和扩展名不同的场景"""
     print("\n--- 测试3: 序号缺失和脏数据 ---")
     user = make_user()
-    F = DocumentFolderPrivate
-    FileModel = DocumentFilePrivate
+    F = DocumentFolderPublic
+    FileModel = DocumentFilePublic
 
     import random
     suffix = str(random.randint(10000, 99999))
@@ -190,7 +190,7 @@ def test_3_missing_sequence_and_dirty_data():
         name=f'test_folder3_{suffix}',
         parent=None,
         created_by=user,
-        tenant_id=user.tenant_id,
+
     )
 
     try:
@@ -205,7 +205,7 @@ def test_3_missing_sequence_and_dirty_data():
                 file_size=100,
                 file_type='text/plain',
                 created_by=user,
-                tenant_id=user.tenant_id,
+        
             )
 
         result = generate_unique_logical_name(FileModel, 'foo.txt', folder, user)
@@ -225,7 +225,7 @@ def test_3_missing_sequence_and_dirty_data():
             name=f'test_folder3b_{suffix}',
             parent=None,
             created_by=user,
-            tenant_id=user.tenant_id,
+    
         )
         FileModel.objects.create(
             name='report.pdf',
@@ -236,7 +236,7 @@ def test_3_missing_sequence_and_dirty_data():
             file_size=100,
             file_type='application/pdf',
             created_by=user,
-            tenant_id=user.tenant_id,
+    
         )
 
         # 生成 report.txt 不应受 report.pdf 影响
@@ -293,7 +293,7 @@ def test_5_root_folder():
     """测试5: 根目录（folder=None）"""
     print("\n--- 测试5: 根目录 ---")
     user = make_user()
-    FileModel = DocumentFilePrivate
+    FileModel = DocumentFilePublic
 
     import random
     suffix = str(random.randint(10000, 99999))
@@ -308,7 +308,7 @@ def test_5_root_folder():
             file_size=100,
             file_type='text/plain',
             created_by=user,
-            tenant_id=user.tenant_id,
+    
         )
 
         result = generate_unique_logical_name(
@@ -327,8 +327,8 @@ def test_6_keep_both_creates_two_records():
     """测试6: "保留两者"成功创建两条记录，name 均唯一，display_name 均可区分"""
     print("\n--- 测试6: 保留两者 ---")
     user = make_user()
-    F = DocumentFolderPrivate
-    FileModel = DocumentFilePrivate
+    F = DocumentFolderPublic
+    FileModel = DocumentFilePublic
 
     import random
     suffix = str(random.randint(10000, 99999))
@@ -336,7 +336,7 @@ def test_6_keep_both_creates_two_records():
         name=f'keep_both_{suffix}',
         parent=None,
         created_by=user,
-        tenant_id=user.tenant_id,
+
     )
 
     try:
@@ -351,7 +351,7 @@ def test_6_keep_both_creates_two_records():
             file_size=100,
             file_type='text/plain',
             created_by=user,
-            tenant_id=user.tenant_id,
+    
         )
 
         # 第二次"保留两者"上传 foo.txt
@@ -365,7 +365,7 @@ def test_6_keep_both_creates_two_records():
             file_size=200,
             file_type='text/plain',
             created_by=user,
-            tenant_id=user.tenant_id,
+    
         )
 
         report(
@@ -387,7 +387,7 @@ def test_6_keep_both_creates_two_records():
         # 验证数据库中确实有两条记录
         count = FileModel.objects.filter(
             folder=folder,
-            tenant_id=user.tenant_id,
+    
         ).count()
         report(
             'T6d: 数据库中有两条记录',
@@ -403,8 +403,8 @@ def test_7_no_extension():
     """测试7: 无扩展名文件"""
     print("\n--- 测试7: 无扩展名 ---")
     user = make_user()
-    F = DocumentFolderPrivate
-    FileModel = DocumentFilePrivate
+    F = DocumentFolderPublic
+    FileModel = DocumentFilePublic
 
     import random
     suffix = str(random.randint(10000, 99999))
@@ -412,7 +412,7 @@ def test_7_no_extension():
         name=f'noext_{suffix}',
         parent=None,
         created_by=user,
-        tenant_id=user.tenant_id,
+
     )
 
     try:
@@ -425,7 +425,7 @@ def test_7_no_extension():
             file_size=100,
             file_type='text/plain',
             created_by=user,
-            tenant_id=user.tenant_id,
+    
         )
 
         result = generate_unique_logical_name(FileModel, 'README', folder, user)
@@ -443,8 +443,8 @@ def test_8_multiple_extension():
     """测试8: 多扩展名（如 .tar.gz）"""
     print("\n--- 测试8: 多扩展名 ---")
     user = make_user()
-    F = DocumentFolderPrivate
-    FileModel = DocumentFilePrivate
+    F = DocumentFolderPublic
+    FileModel = DocumentFilePublic
 
     import random
     suffix = str(random.randint(10000, 99999))
@@ -452,7 +452,7 @@ def test_8_multiple_extension():
         name=f'multiext_{suffix}',
         parent=None,
         created_by=user,
-        tenant_id=user.tenant_id,
+
     )
 
     try:
@@ -465,7 +465,7 @@ def test_8_multiple_extension():
             file_size=100,
             file_type='application/gzip',
             created_by=user,
-            tenant_id=user.tenant_id,
+    
         )
 
         # 生成不应该是 archive.tar.gz

@@ -13,7 +13,7 @@ from django.test import TestCase
 from tests.helpers.test_base import (
     make_user, make_client, setup_test_env, post_json, get_response_id, has_error)
 from apps.document.models import (
-    DocumentFolderPrivate, DocumentFilePrivate,
+    DocumentFolderPublic, DocumentFilePublic,
     DocumentFolderPublic, DocumentFilePublic,
     DocumentTransfer, DocumentSystemFolder)
 from apps.document.services.system_scope_validators import (
@@ -39,8 +39,8 @@ class DocumentFolderCRUDTest(TestCase):
         self.assertFalse(has_error(resp))
 
     def test_create_sub_folder(self):
-        parent = DocumentFolderPrivate.objects.create(
-            name='父文件夹', created_by=self.admin, tenant_id='admin')
+        parent = DocumentFolderPublic.objects.create(
+            name='父文件夹', created_by=self.admin)
         resp = post_json(self.client, '/document/folder/', {
             'name': '子文件夹',
             'parent_id': parent.id,
@@ -54,8 +54,8 @@ class DocumentFolderCRUDTest(TestCase):
         模型层有 UniqueConstraint, 但 API 可能未返回标准 error
         记录实际行为: 如果 API 接受了重名, 说明 API 层未校验唯一性 (缺陷候选)
         """
-        DocumentFolderPrivate.objects.create(
-            name='重名测试', created_by=self.admin, tenant_id='admin')
+        DocumentFolderPublic.objects.create(
+            name='重名测试', created_by=self.admin)
         resp = post_json(self.client, '/document/folder/', {
             'name': '重名测试',
             'parent_id': None,
@@ -65,7 +65,7 @@ class DocumentFolderCRUDTest(TestCase):
         # 如果 API 未返回 error, 记录为缺陷候选
         if not has_error(resp):
             # 检查 DB 是否真的创建了重复记录
-            count = DocumentFolderPrivate.objects.filter(
+            count = DocumentFolderPublic.objects.filter(
                 name='重名测试', created_by=self.admin).count()
             if count > 1:
                 # 缺陷: API 未校验唯一性, 但 DB 层可能抛异常
@@ -73,12 +73,12 @@ class DocumentFolderCRUDTest(TestCase):
 
     def test_same_name_different_parent(self):
         """不同父目录下同名"""
-        parent1 = DocumentFolderPrivate.objects.create(
-            name='父1', created_by=self.admin, tenant_id='admin')
-        parent2 = DocumentFolderPrivate.objects.create(
-            name='父2', created_by=self.admin, tenant_id='admin')
-        DocumentFolderPrivate.objects.create(
-            name='同名', parent=parent1, created_by=self.admin, tenant_id='admin')
+        parent1 = DocumentFolderPublic.objects.create(
+            name='父1', created_by=self.admin)
+        parent2 = DocumentFolderPublic.objects.create(
+            name='父2', created_by=self.admin)
+        DocumentFolderPublic.objects.create(
+            name='同名', parent=parent1, created_by=self.admin)
         resp = post_json(self.client, '/document/folder/', {
             'name': '同名',
             'parent_id': parent2.id,
@@ -101,28 +101,28 @@ class DocumentFileCRUDTest(TestCase):
         file_path = os.path.join(self.tmp_dir, 'test.txt')
         with open(file_path, 'w') as f:
             f.write('hello')
-        f = DocumentFilePrivate.objects.create(
+        f = DocumentFilePublic.objects.create(
             name='test.txt', display_name='test.txt',
             file_path=file_path, file_size=5,
             file_type='txt',
-            created_by=self.admin, tenant_id='admin')
+            created_by=self.admin)
         self.assertIsNotNone(f.id)
         self.assertTrue(os.path.exists(file_path))
 
     def test_hard_delete_file(self):
         """删除文件: 路径不在安全区域时 DB 记录不被删除
 
-        发现: DocumentFilePrivate.delete() 检查文件路径是否在 storage/documents/ 下
+        发现: DocumentFilePublic.delete() 检查文件路径是否在 storage/documents/ 下
         临时目录文件被拒绝删除, DB 记录也未被删除 (非原子操作)
         这是模型层的安全设计: 防止误删非存储区域文件
         """
         file_path = os.path.join(self.tmp_dir, 'delete_test.txt')
         with open(file_path, 'w') as f:
             f.write('test')
-        f = DocumentFilePrivate.objects.create(
+        f = DocumentFilePublic.objects.create(
             name='delete_test.txt', display_name='delete_test.txt',
             file_path=file_path, file_size=4, file_type='txt',
-            created_by=self.admin, tenant_id='admin')
+            created_by=self.admin)
         f_id = f.id
         try:
             f.delete()
@@ -130,15 +130,15 @@ class DocumentFileCRUDTest(TestCase):
             pass
         # 文件不在安全区域, DB 记录可能未被删除
         # 记录实际行为: 不在 storage/documents/ 下的文件, delete() 不删除 DB 记录
-        still_exists = DocumentFilePrivate.objects.filter(id=f_id).exists()
+        still_exists = DocumentFilePublic.objects.filter(id=f_id).exists()
         if still_exists:
             # 模型拒绝删除非安全路径的文件, DB 记录保留
             # 这是一种安全保护行为
             pass
 
     def test_file_has_no_is_deleted(self):
-        """DocumentFilePrivate 没有 is_deleted 字段 (回收站已移除)"""
-        fields = {f.name for f in DocumentFilePrivate._meta.get_fields()}
+        """DocumentFilePublic 没有 is_deleted 字段 (回收站已移除)"""
+        fields = {f.name for f in DocumentFilePublic._meta.get_fields()}
         self.assertNotIn('is_deleted', fields)
 
 
@@ -155,13 +155,13 @@ class DocumentFilePhysicalConsistencyTest(TestCase):
 
     def test_db_record_exists_file_missing(self):
         """数据库记录存在但物理文件不存在"""
-        f = DocumentFilePrivate.objects.create(
+        f = DocumentFilePublic.objects.create(
             name='missing.txt', display_name='missing.txt',
             file_path='/tmp/nonexistent_file_12345.txt',
             file_size=12, file_type='txt',
-            created_by=self.admin, tenant_id='admin')
+            created_by=self.admin)
         self.assertFalse(os.path.exists(f.file_path))
-        self.assertTrue(DocumentFilePrivate.objects.filter(id=f.id).exists())
+        self.assertTrue(DocumentFilePublic.objects.filter(id=f.id).exists())
 
 
 class DocumentPendingCleanTest(TestCase):
@@ -172,20 +172,20 @@ class DocumentPendingCleanTest(TestCase):
         self.admin = make_user('admin', is_supper=True)
 
     def test_pending_clean_default_false(self):
-        f = DocumentFilePrivate.objects.create(
+        f = DocumentFilePublic.objects.create(
             name='clean_test.txt', display_name='clean_test.txt',
             file_path='/tmp/clean_test.txt',
             file_size=12, file_type='txt',
-            created_by=self.admin, tenant_id='admin')
+            created_by=self.admin)
         self.assertFalse(f.is_pending_clean)
         self.assertEqual(f.clean_retry_count, 0)
 
     def test_set_pending_clean(self):
-        f = DocumentFilePrivate.objects.create(
+        f = DocumentFilePublic.objects.create(
             name='pending.txt', display_name='pending.txt',
             file_path='/tmp/pending.txt',
             file_size=12, file_type='txt',
-            created_by=self.admin, tenant_id='admin')
+            created_by=self.admin)
         f.is_pending_clean = True
         f.clean_retry_count = 1
         f.save(update_fields=['is_pending_clean', 'clean_retry_count'])

@@ -25,7 +25,7 @@ def check_display_name_conflict(FileModel, display_name, folder, user, is_public
     检查目标文件夹内是否存在相同 display_name 的文件
 
     Args:
-        FileModel: 文件模型类（DocumentFilePrivate / DocumentFilePublic）
+        FileModel: 文件模型类（DocumentFilePublic）
         display_name: 要检查的显示名称
         folder: 目标文件夹对象（None 表示根目录）
         user: 当前用户

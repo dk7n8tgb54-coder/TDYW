@@ -26,9 +26,7 @@ export const isCreatedByAdmin = (record) => {
 };
 
 // 判断当前用户是否可以编辑
-export const canEditItem = (item, isPublic, isAdmin, currentUserId) => {
-  // 私有空间：始终可以编辑
-  if (!isPublic) return true;
+export const canEditItem = (item, isAdmin, currentUserId) => {
   // 公共空间：管理员可以编辑
   if (isAdmin) return true;
   // 处理 created_by_id 为 null 的情况

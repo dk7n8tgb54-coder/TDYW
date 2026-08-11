@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 # 定义租户类型枚举
 TENANT_TYPE_CHOICES = (
     ('PUBLIC', '公共表'),
-    ('PRIVATE', '私有表'),
     ('GLOBAL', '全局表（无租户）'),
 )
 
@@ -25,7 +24,6 @@ TENANT_TYPE_CHOICES = (
 class TenantType:
     """为了向后兼容，保留类名"""
     PUBLIC = 'PUBLIC'
-    PRIVATE = 'PRIVATE'
     GLOBAL = 'GLOBAL'
 
 
@@ -166,163 +164,7 @@ class DocumentFileDeleteMixin(models.Model):
             raise DocumentPhysicalDeleteError(self.file_path)
 
 
-# ==================== 私有空间模型（原有数据保留） ====================
-
-class DocumentFolderPrivate(FolderDeleteMixin, FolderPathMixin, UniqueKeyMixin):
-    """私有空间文件夹模型"""
-    TENANT_TYPE = 'PRIVATE'
-    name = models.CharField(max_length=200, verbose_name='文件夹名称')
-    parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.CASCADE, verbose_name='父文件夹')
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name='创建人')
-    tenant_id = models.CharField(max_length=50, default='', help_text='租户标识')
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
-
-    # ========== 唯一性保障字段 ==========
-    unique_key = models.CharField(
-        max_length=32, null=True, blank=True, unique=True,
-        editable=False, db_index=True,
-        help_text='唯一标识键（MD5哈希）',
-        verbose_name='唯一标识键'
-    )
-
-    class Meta:
-        db_table = 'tdyw_document_folder_private'
-        verbose_name = '文档文件夹(私有)'
-        verbose_name_plural = '文档文件夹(私有)'
-        indexes = [
-            models.Index(
-                fields=['parent_id', 'tenant_id', '-created_at', '-id'],
-                name='doc_pri_folder_list_idx',
-            ),
-        ]
-
-    def __str__(self):
-        return self.name
-
-    def _compute_unique_key(self):
-        """计算唯一标识键：同租户+同用户+同名+同父目录（MD5哈希）"""
-        raw = f'{self.tenant_id or ""}:{self.created_by_id or 0}:{self.name}:{self.parent_id or "ROOT"}'
-        return hashlib.md5(raw.encode('utf-8')).hexdigest()
-
-
-class DocumentFilePrivate(DocumentFileDeleteMixin):
-    """私有空间文件模型 - 生产级映射保障版本"""
-    TENANT_TYPE = 'PRIVATE'
-
-    # ========== 物理标识字段（只写一次，终身只读）==========
-    physical_name = models.CharField(
-        max_length=100,  # 【修复】从32增加到100，支持新命名格式（原始名20+时间戳13+随机6+扩展名）
-        null=True,
-        blank=True,
-        editable=False,  # 【V3】后台不可编辑，防止误修改
-        help_text='物理文件名（存储用），生成后终身不可修改',
-        verbose_name='物理文件名'
-    )
-
-    file_path = models.CharField(
-        max_length=500,
-        editable=False,  # 【V3】路径不可编辑
-        help_text='完整存储路径，生成后不可修改',
-        verbose_name='文件存储路径'
-    )
-
-    # ========== 业务标识字段（可修改）==========
-    name = models.CharField(
-        max_length=100,  # 【修复】从64增加到100，与physical_name保持一致
-        help_text='逻辑文件名（API交互用）',
-        verbose_name='逻辑文件名'
-    )
-
-    display_name = models.CharField(
-        max_length=128,
-        help_text='显示名称（用户看到的文件名）',
-        verbose_name='显示名称'
-    )
-
-    # ========== 关系字段 ==========
-    folder = models.ForeignKey(
-        DocumentFolderPrivate,
-        on_delete=models.SET_NULL,  # 【修复】原为 CASCADE，防止文件夹删除时级联删除已软删除的文件
-        null=True,
-        blank=True,
-        verbose_name='所属文件夹',
-        help_text='NULL表示文件在根目录',
-        related_name='files'
-    )
-
-    # ========== 文件信息字段 ==========
-    file_size = models.BigIntegerField(default=0, verbose_name='文件大小(字节)')
-    file_type = models.CharField(max_length=100, verbose_name='文件类型')
-    created_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        verbose_name='上传人'
-    )
-    tenant_id = models.CharField(max_length=50, default='', help_text='租户标识')
-
-    # ========== 软删除字段（已移除）==========
-    # is_deleted / deleted_at 已于 2026-07-30 移除（回收站功能已废弃）
-
-    # 【P0修复】新增待清理字段（用于物理文件删除失败时的兜底处理）
-    is_pending_clean = models.BooleanField(
-        default=False,
-        help_text='标记为待清理（物理文件删除失败时设置）',
-        verbose_name='待清理标记'
-    )
-    clean_retry_count = models.IntegerField(
-        default=0,
-        help_text='清理重试次数',
-        verbose_name='清理重试次数'
-    )
-    last_clean_attempt = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text='上次清理尝试时间',
-        verbose_name='上次清理尝试时间'
-    )
-
-    # 【新增】缩略图字段
-    thumbnail_path = models.CharField(
-        max_length=500,
-        null=True,
-        blank=True,
-        editable=False,
-        help_text='缩略图存储路径',
-        verbose_name='缩略图路径'
-    )
-
-    # ========== 时间戳字段 ==========
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='上传时间')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
-
-    class Meta:
-        db_table = 'tdyw_document_file_private'
-        verbose_name = '文档文件(私有)'
-        verbose_name_plural = '文档文件(私有)'
-        constraints = [
-            models.UniqueConstraint(
-                fields=['name', 'folder'],
-                name='unique_file_name_folder_private',
-            )
-        ]
-        indexes = [
-            models.Index(
-                fields=['folder_id', 'tenant_id', '-created_at', '-id'],
-                name='doc_pri_file_list_idx',
-            ),
-            models.Index(
-                fields=['tenant_id', 'file_size'],
-                name='doc_pri_file_diskusage_idx',
-            ),
-        ]
-
-    def __str__(self):
-        return self.display_name or self.name
-
-
-# ==================== 公共共享空间模型（新建表） ====================
+# ==================== 公共共享空间模型 ====================
 
 class DocumentFolderPublic(FolderDeleteMixin, FolderPathMixin, UniqueKeyMixin):
     """公共共享空间文件夹模型 - 支持全平台共享"""

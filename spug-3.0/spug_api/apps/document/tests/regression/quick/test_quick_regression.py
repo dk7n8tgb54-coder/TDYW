@@ -3,7 +3,7 @@
 覆盖核心保护点（修复 replace/清理任务/状态同步后不能回退的行为）：
 1. 权限隔离：未认证拒绝、跨租户拒绝、党建反向隔离
 2. 基础 CRUD：文件夹创建/列表/重命名/删除、文件列表/删除
-3. 普通上传：小文件直传走 file/upload 接口，产生 DocumentFilePrivate 记录
+3. 普通上传：小文件直传走 file/upload 接口，产生 DocumentFilePublic 记录
 4. 分片上传：分片保存为 {i}.part 格式、最后一片触发 _SUCCESS_ 标记
 5. 删除补偿：物理文件删除失败时 is_pending_clean 标记落库
 
@@ -21,7 +21,6 @@ from django.conf import settings
 
 from apps.account.models import User
 from apps.document.models import (
-    DocumentFolderPrivate, DocumentFilePrivate,
     DocumentFolderPublic, DocumentFilePublic,
     DocumentTransfer, DocumentSystemFolder,
 )
@@ -54,13 +53,13 @@ class QuickRegressionBase(TestCase):
 
     def tearDown(self):
         # 清理可能产生的测试文件记录（防污染后续测试）
-        DocumentFilePrivate.objects.filter(
+        DocumentFilePublic.objects.filter(
             file_path__startswith=self.tmp_dir
         ).delete()
         DocumentFilePublic.objects.filter(
             file_path__startswith=self.tmp_dir
         ).delete()
-        DocumentFolderPrivate.objects.filter(
+        DocumentFolderPublic.objects.filter(
             name__startswith='qr_'
         ).delete()
         DocumentFolderPublic.objects.filter(
@@ -71,7 +70,7 @@ class QuickRegressionBase(TestCase):
             import shutil
             shutil.rmtree(self.tmp_dir, ignore_errors=True)
         # 清理 move/upload API 可能产生的真实存储路径下的物理文件（防跨测试残留）
-        real_user_dir = os.path.join(self.storage_base, 'private', f'user-{self.admin.id}')
+        real_user_dir = os.path.join(self.storage_base, 'public')
         if os.path.isdir(real_user_dir):
             for root, dirs, files in os.walk(real_user_dir):
                 for fname in files:
@@ -98,11 +97,11 @@ class T01_PermissionIsolation(QuickRegressionBase):
         self.assertIn(resp.status_code, (401, 403, 302),
                      f'未认证请求应被拒绝, 实际 {resp.status_code}')
 
-    def test_cross_tenant_private_folder_hidden(self):
-        """租户A的私有文件夹, 租户B不能看到"""
+    def test_cross_tenant_folder_isolation(self):
+        """租户A的文件夹, 租户B不能看到（租户隔离）"""
         # admin 租户创建文件夹
-        folder = DocumentFolderPrivate.objects.create(
-            name='qr_private_admin', created_by=self.admin, tenant_id='admin')
+        folder = DocumentFolderPublic.objects.create(
+            name='qr_isolated_admin', created_by=self.admin)
         # 另一租户用户
         other = make_user('qr_other_tenant', is_supper=False, tenant_id='other')
         other_client = make_client(other)
@@ -113,8 +112,8 @@ class T01_PermissionIsolation(QuickRegressionBase):
         data = get_response_data(resp)
         if data and 'folders' in data:
             folder_names = [f.get('name') for f in data['folders']]
-            self.assertNotIn('qr_private_admin', folder_names,
-                            '跨租户泄露了私有文件夹')
+            self.assertNotIn('qr_isolated_admin', folder_names,
+                            '跨租户泄露了文件夹')
 
     def test_party_building_reverse_isolation(self):
         """普通模式访问党建目录必须被拒绝"""
@@ -148,39 +147,38 @@ class T02_FolderCRUD(QuickRegressionBase):
 
     def test_create_root_folder(self):
         resp = post_json(self.client, '/document/folder/', {
-            'name': 'qr_root_folder', 'parent_id': None, 'is_public': False})
+            'name': 'qr_root_folder', 'parent_id': None, 'is_public': True})
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(has_error(resp), resp.json())
         data = get_response_data(resp)
         self.assertIsNotNone(data)
         self.assertIn('id', data, f'创建返回缺 id: {data}')
         # DB 验证
-        folder = DocumentFolderPrivate.objects.get(id=data['id'])
+        folder = DocumentFolderPublic.objects.get(id=data['id'])
         self.assertEqual(folder.name, 'qr_root_folder')
-        self.assertEqual(folder.tenant_id, 'admin')
         # unique_key 应已生成
         self.assertTrue(folder.unique_key, 'unique_key 未生成')
 
     def test_rename_folder(self):
-        folder = DocumentFolderPrivate.objects.create(
-            name='qr_old_name', created_by=self.admin, tenant_id='admin')
+        folder = DocumentFolderPublic.objects.create(
+            name='qr_old_name', created_by=self.admin)
         resp = post_json(self.client, '/document/folder/rename/', {
-            'id': folder.id, 'name': 'qr_new_name', 'is_public': False})
+            'id': folder.id, 'name': 'qr_new_name', 'is_public': True})
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(has_error(resp), resp.json())
         folder.refresh_from_db()
         self.assertEqual(folder.name, 'qr_new_name')
 
     def test_delete_empty_folder(self):
-        folder = DocumentFolderPrivate.objects.create(
-            name='qr_to_delete', created_by=self.admin, tenant_id='admin')
+        folder = DocumentFolderPublic.objects.create(
+            name='qr_to_delete', created_by=self.admin)
         folder_id = folder.id
         resp = self.client.delete(
-            f'/document/folder/?id={folder_id}&is_public=false')
+            f'/document/folder/?id={folder_id}&is_public=true')
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(has_error(resp), resp.json())
         self.assertFalse(
-            DocumentFolderPrivate.objects.filter(id=folder_id).exists(),
+            DocumentFolderPublic.objects.filter(id=folder_id).exists(),
             '文件夹删除后仍存在')
 
     def test_duplicate_folder_name_idempotent(self):
@@ -188,10 +186,10 @@ class T02_FolderCRUD(QuickRegressionBase):
 
         保护点：FolderView 的幂等处理不能回退为创建重复记录。
         """
-        existing = DocumentFolderPrivate.objects.create(
-            name='qr_dup_name', created_by=self.admin, tenant_id='admin')
+        existing = DocumentFolderPublic.objects.create(
+            name='qr_dup_name', created_by=self.admin)
         resp = post_json(self.client, '/document/folder/', {
-            'name': 'qr_dup_name', 'parent_id': None, 'is_public': False})
+            'name': 'qr_dup_name', 'parent_id': None, 'is_public': True})
         self.assertEqual(resp.status_code, 200)
         data = get_response_data(resp)
         # 行为：返回 created=False, 不新建重复
@@ -200,8 +198,8 @@ class T02_FolderCRUD(QuickRegressionBase):
             f'同名文件夹应幂等返回 created=False, 实际: {data}'
         )
         # DB 中不应有两条同名
-        count = DocumentFolderPrivate.objects.filter(
-            name='qr_dup_name', tenant_id='admin').count()
+        count = DocumentFolderPublic.objects.filter(
+            name='qr_dup_name').count()
         self.assertEqual(count, 1, f'同名文件夹不应创建重复, 实际 {count} 条')
 
 
@@ -209,13 +207,13 @@ class T03_FileListAndDelete(QuickRegressionBase):
     """文件列表和删除回归"""
 
     def test_list_files_in_folder(self):
-        folder = DocumentFolderPrivate.objects.create(
-            name='qr_file_container', created_by=self.admin, tenant_id='admin')
-        DocumentFilePrivate.objects.create(
+        folder = DocumentFolderPublic.objects.create(
+            name='qr_file_container', created_by=self.admin)
+        DocumentFilePublic.objects.create(
             name='qr_listed.txt', display_name='qr_listed.txt',
             physical_name='qr_listed.txt', file_path=os.path.join(self.user_dir, 'qr_listed.txt'),
             file_size=100, file_type='text/plain',
-            folder=folder, created_by=self.admin, tenant_id='admin')
+            folder=folder, created_by=self.admin)
         resp = self.client.get('/document/folder/', {'id': folder.id})
         self.assertEqual(resp.status_code, 200)
         data = get_response_data(resp)
@@ -228,18 +226,18 @@ class T03_FileListAndDelete(QuickRegressionBase):
         file_path = os.path.join(self.user_dir, 'qr_del.txt')
         with open(file_path, 'w') as f:
             f.write('test content')
-        doc = DocumentFilePrivate.objects.create(
+        doc = DocumentFilePublic.objects.create(
             name='qr_del.txt', display_name='qr_del.txt',
             physical_name='qr_del.txt', file_path=file_path,
             file_size=12, file_type='text/plain',
-            created_by=self.admin, tenant_id='admin')
+            created_by=self.admin)
         resp = self.client.delete(
-            f'/document/file/?id={doc.id}&is_public=false')
+            f'/document/file/?id={doc.id}&is_public=true')
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(has_error(resp), resp.json())
         # DB 记录应删除
         self.assertFalse(
-            DocumentFilePrivate.objects.filter(id=doc.id).exists(),
+            DocumentFilePublic.objects.filter(id=doc.id).exists(),
             '文件记录删除后仍存在')
         # 物理文件应删除
         self.assertFalse(
@@ -254,7 +252,7 @@ class T04_NormalUpload(QuickRegressionBase):
     """普通文件上传回归 - file/upload 接口"""
 
     def test_small_file_upload_creates_record(self):
-        """小于分片阈值的文件走直传, 产生 DocumentFilePrivate 记录"""
+        """小于分片阈值的文件走直传, 产生 DocumentFilePublic 记录"""
         from django.core.files.uploadedfile import SimpleUploadedFile
         content = b'quick regression test content'
         upload_file = SimpleUploadedFile(
@@ -262,7 +260,7 @@ class T04_NormalUpload(QuickRegressionBase):
 
         resp = self.client.post('/document/upload/', {
             'file': upload_file,
-            'is_public': 'false',
+            'is_public': 'true',
             'folder_id': '',
         })
         self.assertEqual(resp.status_code, 200)
@@ -271,7 +269,7 @@ class T04_NormalUpload(QuickRegressionBase):
             data = get_response_data(resp)
             if data and 'id' in data:
                 # DB 应有对应记录
-                doc = DocumentFilePrivate.objects.filter(id=data['id']).first()
+                doc = DocumentFilePublic.objects.filter(id=data['id']).first()
                 self.assertIsNotNone(doc, '上传成功但 DB 无记录')
                 self.assertEqual(doc.file_size, len(content),
                                 f'文件大小不符: {doc.file_size} != {len(content)}')
@@ -324,14 +322,14 @@ class T05_ChunkUpload(QuickRegressionBase):
             status='UPLOADING', file_name='qr_chunked.txt',
             file_size=20, file_path=os.path.join(self.user_dir, 'qr_chunked.txt'),
             file_hash=file_hash, total_chunks=2, uploaded_chunks=0,
-            is_public=False)
+            is_public=True)
 
         # 上传分片 0
         chunk0 = SimpleUploadedFile('chunk', b'chunk0_content')
         resp = self.client.post('/document/upload_chunk/', {
             'file_name': 'qr_chunked.txt', 'file_size': '20',
             'chunk_index': '0', 'total_chunks': '2',
-            'file_hash': file_hash, 'is_public': 'false',
+            'file_hash': file_hash, 'is_public': 'true',
             'folder_id': '', 'transfer_id': str(transfer.id),
         }, format='multipart')
         # 即使因路径配置失败, 也不应因文件名格式问题失败
@@ -341,7 +339,7 @@ class T05_ChunkUpload(QuickRegressionBase):
             resp2 = self.client.post(
                 '/document/check_uploaded_chunks/',
                 data=json.dumps({
-                    'file_hash': file_hash, 'is_public': False,
+                    'file_hash': file_hash, 'is_public': True,
                     'transfer_id': transfer.id,
                 }), content_type='application/json')
             self.assertEqual(resp2.status_code, 200)
@@ -372,11 +370,11 @@ class T06_DeleteCompensation(QuickRegressionBase):
         file_path = os.path.join(self.user_dir, 'qr_compensate.txt')
         with open(file_path, 'w') as f:
             f.write('compensate content')
-        doc = DocumentFilePrivate.objects.create(
+        doc = DocumentFilePublic.objects.create(
             name='qr_compensate.txt', display_name='qr_compensate.txt',
             physical_name='qr_compensate.txt', file_path=file_path,
             file_size=19, file_type='text/plain',
-            created_by=self.admin, tenant_id='admin')
+            created_by=self.admin)
 
         # mock 物理文件删除失败（但文件存在）
         from apps.document.exceptions import DocumentPhysicalDeleteError
@@ -405,7 +403,7 @@ class T06_DeleteCompensation(QuickRegressionBase):
         from django.db import connection
         with connection.cursor() as cursor:
             cursor.execute(
-                "DELETE FROM tdyw_document_file_private WHERE id = %s", [doc.id])
+                "DELETE FROM tdyw_document_file_public WHERE id = %s", [doc.id])
         if os.path.exists(file_path):
             os.remove(file_path)
 
@@ -420,18 +418,18 @@ class T06_DeleteCompensation(QuickRegressionBase):
         file_path = os.path.join(self.user_dir, 'qr_pending.txt')
         with open(file_path, 'w') as f:
             f.write('pending content')
-        doc = DocumentFilePrivate.objects.create(
+        doc = DocumentFilePublic.objects.create(
             name='qr_pending.txt', display_name='qr_pending.txt',
             physical_name='qr_pending.txt', file_path=file_path,
             file_size=15, file_type='text/plain',
-            created_by=self.admin, tenant_id='admin',
+            created_by=self.admin,
             is_pending_clean=True, clean_retry_count=2)
 
         doc_id = doc.id
         try:
             retry_clean_pending_files()
             # 任务执行后, 文件应被清理（物理文件删除, DB 记录删除）
-            doc = DocumentFilePrivate.objects.filter(id=doc_id).first()
+            doc = DocumentFilePublic.objects.filter(id=doc_id).first()
             self.assertIsNone(
                 doc, 'retry_clean_pending_files 后记录仍存在')
             self.assertFalse(
@@ -439,7 +437,7 @@ class T06_DeleteCompensation(QuickRegressionBase):
                 'retry_clean_pending_files 后物理文件仍存在')
         except Exception as e:
             # 任务可能因配置失败, 但至少应能拾取标记
-            doc = DocumentFilePrivate.objects.filter(id=doc_id).first()
+            doc = DocumentFilePublic.objects.filter(id=doc_id).first()
             if doc:
                 doc.is_pending_clean = False
                 doc.save(update_fields=['is_pending_clean'])

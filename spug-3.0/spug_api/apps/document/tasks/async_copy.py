@@ -23,7 +23,7 @@ from celery import shared_task
 from django.db import transaction, IntegrityError
 from django.conf import settings
 
-from apps.document.models import DocumentTransfer, DocumentFilePrivate, DocumentFilePublic
+from apps.document.models import DocumentTransfer, DocumentFilePublic
 from apps.document.constants import TransferStatus, TransferType
 from apps.document.libs.document_utils import (
     get_file_model, get_folder_model, get_document_absolute_path, is_safe_path,

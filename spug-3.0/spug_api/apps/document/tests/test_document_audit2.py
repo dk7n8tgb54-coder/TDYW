@@ -45,13 +45,13 @@ def test_n1():
     has_is_deleted_2 = 'is_deleted=True' in src2
 
     # 检查 is_deleted 字段是否已从模型移除
-    from apps.document.models import DocumentFolderPrivate, DocumentFilePrivate
-    folder_fields = [f.name for f in DocumentFolderPrivate._meta.get_fields()]
-    file_fields = [f.name for f in DocumentFilePrivate._meta.get_fields()]
+    from apps.document.models import DocumentFolderPublic, DocumentFilePublic
+    folder_fields = [f.name for f in DocumentFolderPublic._meta.get_fields()]
+    file_fields = [f.name for f in DocumentFilePublic._meta.get_fields()]
     is_deleted_removed = 'is_deleted' not in folder_fields and 'is_deleted' not in file_fields
 
     # 检查 all_objects manager 是否存在
-    has_all_objects_manager = hasattr(DocumentFolderPrivate, 'all_objects')
+    has_all_objects_manager = hasattr(DocumentFolderPublic, 'all_objects')
 
     # 检查这些函数是否被外部调用（死代码检测）
     # 如果只有 permission_utils.py 自身引用，则是死代码

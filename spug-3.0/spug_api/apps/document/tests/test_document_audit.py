@@ -10,7 +10,7 @@ import django; django.setup()
 from django.db import transaction, connection
 from apps.account.models import User
 from apps.document.models import (
-    DocumentFolderPrivate, DocumentFilePrivate, DocumentTransfer,
+    DocumentFolderPublic, DocumentFilePublic, DocumentTransfer,
 )
 from apps.document.libs.view_utils import AUDIT_ACTION_MAP
 
@@ -50,7 +50,7 @@ def cleanup_folders(ids, FolderModel):
 # =============================================================================
 def test_r1():
     print("\n--- R1: get_active_descendant_folder_ids 循环引用 + 无深度限制 ---")
-    user = make_user(); F = DocumentFolderPrivate; ids = []
+    user = make_user(); F = DocumentFolderPublic; ids = []
     # 先清理之前可能残留的测试数据
     old = F.objects.filter(name__startswith='r1_audit_', tenant_id=user.tenant_id)
     old_ids = list(old.values_list('id', flat=True))

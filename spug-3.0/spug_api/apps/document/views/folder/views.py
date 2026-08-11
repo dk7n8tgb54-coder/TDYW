@@ -16,8 +16,8 @@ from django.db import transaction, IntegrityError
 from django.db.models import Exists, OuterRef
 
 from libs import json_response, JsonParser, Argument, auth
-from libs.tenant_utils import apply_tenant_filter
-from ...libs.document_utils import get_folder_model, get_file_model, get_document_absolute_path
+from ...libs.document_utils import get_document_absolute_path
+from ...models import DocumentFolderPublic, DocumentFilePublic
 from ...libs.view_utils import permission_denied_response
 from ...libs.document_auth import document_auth
 from ...constants import DEFAULT_MAX_FOLDER_DEPTH
@@ -78,15 +78,15 @@ class FolderView(View):
                 form.id = root_id
             elif form.id and form.id != root_id and not is_folder_in_scope(form.id, PARTY_BUILDING_DOCUMENTS_CODE, include_root=False):
                 return json_response(error=SCOPE_ERROR_MSG)
-        elif form.is_public and form.id and is_folder_in_any_system_scope(form.id, include_root=True):
+        elif form.id and is_folder_in_any_system_scope(form.id, include_root=True):
             return json_response(error=NORMAL_DOCUMENT_SCOPE_ERROR_MSG)
 
         page = max(1, form.page)
         page_size = form.page_size or self.DEFAULT_PAGE_SIZE
         page_size = min(page_size, self.MAX_PAGE_SIZE)
 
-        FolderModel = get_folder_model(is_public=form.is_public)
-        FileModel = get_file_model(is_public=form.is_public)
+        FolderModel = DocumentFolderPublic
+        FileModel = DocumentFilePublic
 
         if not form.id:
             if form.all:
@@ -99,14 +99,11 @@ class FolderView(View):
     def _get_all_folders(self, request, FolderModel, is_public, system_folder=None):
         """获取所有文件夹（树形结构）"""
         query = FolderModel.objects.all().select_related('created_by').order_by('-created_at')
-        if not is_public:
-            query = apply_tenant_filter(query, request.user, strict_mode=True)
-
         # 党建文档模式：只返回根目录及其子孙
         if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
             scope_ids = get_descendant_folder_ids(PARTY_BUILDING_DOCUMENTS_CODE, include_root=True)
             query = query.filter(id__in=scope_ids)
-        elif is_public:
+        else:
             query = exclude_system_folder_scope(query)
 
         # 标注 has_children（Exists 子查询，避免 N+1）
@@ -121,18 +118,14 @@ class FolderView(View):
     def _get_root_contents(self, request, FolderModel, FileModel, is_public, page, page_size, system_folder=None):
         """获取根目录内容（分页优化）"""
         folders_query = FolderModel.objects.filter(parent__isnull=True).select_related('created_by').order_by('-created_at')
-        if not is_public:
-            folders_query = apply_tenant_filter(folders_query, request.user, strict_mode=True)
-        elif system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
+        if system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             folders_query = exclude_system_folder_scope(folders_query)
 
         # 标注 has_children（Exists 子查询，避免 N+1）
         folders_query = self._annotate_has_children(folders_query, FolderModel, request, is_public, system_folder)
 
         files_query = FileModel.objects.filter(folder__isnull=True).select_related('created_by').order_by('-created_at')
-        if not is_public:
-            files_query = apply_tenant_filter(files_query, request.user, strict_mode=True)
-        elif system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
+        if system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             files_query = exclude_system_file_scope(files_query)
 
         # 统一分页：文件夹在前，文件在后
@@ -177,18 +170,14 @@ class FolderView(View):
     def _get_folder_contents(self, request, FolderModel, FileModel, folder_id, is_public, page, page_size, system_folder=None):
         """获取指定文件夹内容（分页优化）"""
         folders_query = FolderModel.objects.filter(parent_id=folder_id).select_related('created_by').order_by('-created_at')
-        if not is_public:
-            folders_query = apply_tenant_filter(folders_query, request.user, strict_mode=True)
-        elif system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
+        if system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             folders_query = exclude_system_folder_scope(folders_query)
 
         # 标注 has_children（Exists 子查询，避免 N+1）
         folders_query = self._annotate_has_children(folders_query, FolderModel, request, is_public, system_folder)
 
         files_query = FileModel.objects.filter(folder_id=folder_id).select_related('created_by').order_by('-created_at')
-        if not is_public:
-            files_query = apply_tenant_filter(files_query, request.user, strict_mode=True)
-        elif system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
+        if system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             files_query = exclude_system_file_scope(files_query)
 
         # 统一分页：文件夹在前，文件在后
@@ -234,7 +223,6 @@ class FolderView(View):
         """为文件夹查询标注 has_children（Exists 子查询，避免 N+1）。
 
         子目录存在性严格遵守目录接口的可见范围（fail-closed）：
-        - 私有空间：仅当前租户可见的未删除直接子目录
         - 普通公共空间：排除系统目录作用域的子目录
         - 党建文档：仅党建根目录子树内的子目录
         - 软删除子目录不计入；文件不计入，仅直接子文件夹决定 has_children
@@ -242,13 +230,7 @@ class FolderView(View):
         children_qs = FolderModel.objects.filter(
             parent_id=OuterRef('pk'),
         )
-        if not is_public:
-            # 私有空间严格租户过滤（与 apply_tenant_filter strict_mode=True 一致）
-            # 超级管理员可查看所有账号，不按租户过滤
-            if not getattr(request.user, 'is_supper', False):
-                tenant_id = getattr(request.user, 'tenant_id', 'admin')
-                children_qs = children_qs.filter(tenant_id=tenant_id)
-        elif system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
+        if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
             scope_ids = get_descendant_folder_ids(PARTY_BUILDING_DOCUMENTS_CODE, include_root=True)
             if scope_ids:
                 children_qs = children_qs.filter(id__in=scope_ids)
@@ -311,7 +293,7 @@ class FolderView(View):
         if not ok:
             return json_response(error=scope_err)
 
-        FolderModel = get_folder_model(is_public=is_public)
+        FolderModel = DocumentFolderPublic
         parent = None
 
         if parent_id:
@@ -324,8 +306,6 @@ class FolderView(View):
                 return json_response(error='父文件夹ID无效')
 
             parent_query = FolderModel.objects.filter(pk=parent_id).order_by()
-            if not is_public:
-                parent_query = apply_tenant_filter(parent_query, request.user, strict_mode=True)
             parent = parent_query.first()
             if not parent:
                 return json_response(error='父文件夹不存在')
@@ -376,10 +356,6 @@ class FolderView(View):
         else:
             qs = qs.filter(parent__isnull=True)
 
-        if not is_public:
-            qs = apply_tenant_filter(qs, user, strict_mode=True)
-            qs = qs.filter(created_by=user)
-
         return qs.first()
 
     @document_auth('delete')
@@ -405,19 +381,17 @@ class FolderView(View):
         if not scope_ok:
             return json_response(error=scope_err)
             
-        FolderModel = get_folder_model(is_public=form.is_public)
-        FileModel = get_file_model(is_public=form.is_public)
+        FolderModel = DocumentFolderPublic
+        FileModel = DocumentFilePublic
 
         folder_query = FolderModel.objects.filter(pk=form.id).order_by()
-        if not form.is_public:
-            folder_query = apply_tenant_filter(folder_query, request.user, strict_mode=True)
         folder = folder_query.first()
         
         if not folder:
             return json_response(error='文件夹不存在')
 
         # 公共空间权限校验
-        if form.is_public and not check_public_space_permission(request.user, folder, 'folder', '删除'):
+        if not check_public_space_permission(request.user, folder, 'folder', '删除'):
             return permission_denied_response('公共空间中只能删除自己创建的文件夹', 'not_owner')
 
         folder_name = folder.name
@@ -463,8 +437,6 @@ class FolderView(View):
 
         # 第一步：递归物理删除子文件夹
         sub_folders_query = FolderModel.objects.filter(parent=folder).order_by()
-        if request_user and not is_public:
-            sub_folders_query = apply_tenant_filter(sub_folders_query, request_user, strict_mode=True)
         sub_folders_count = sub_folders_query.count()
         logger.info(f'[Document] Deleting folder {folder.name} (id={folder.id}) with {sub_folders_count} subfolders')
         

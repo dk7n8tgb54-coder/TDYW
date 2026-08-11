@@ -15,7 +15,7 @@ from django.test import TestCase, Client
 from apps.account.models import User
 from apps.document.models import (
     DocumentFolderPublic, DocumentFilePublic,
-    DocumentSystemFolder, DocumentFolderPrivate,
+    DocumentSystemFolder, DocumentFolderPublic,
 )
 from apps.document.services.system_folder_service import PARTY_BUILDING_DOCUMENTS_CODE
 from apps.setting.utils import AppSetting
@@ -73,7 +73,7 @@ class PartyBuildingIsolationTest(TestCase):
         DocumentFilePublic.objects.all().delete()
         DocumentSystemFolder.objects.all().delete()
         DocumentFolderPublic.objects.all().delete()
-        DocumentFolderPrivate.objects.all().delete()
+        DocumentFolderPublic.objects.all().delete()
         super().tearDown()
 
     # ================================================================

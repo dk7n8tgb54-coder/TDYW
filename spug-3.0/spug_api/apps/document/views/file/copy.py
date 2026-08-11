@@ -15,8 +15,7 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 
 from libs import json_response, auth
-from libs.tenant_utils import apply_tenant_filter
-from apps.document.libs.document_utils import get_folder_model, get_file_model, get_document_absolute_path, is_safe_path
+from apps.document.libs.document_utils import get_document_absolute_path, is_safe_path
 from apps.document.libs.naming_utils import generate_physical_name, generate_unique_logical_name, get_file_ext
 from apps.document.libs.view_utils import permission_denied_response
 from apps.document.libs.document_auth import document_auth
@@ -32,7 +31,7 @@ from apps.document.services.system_scope_validators import (
     validate_file_source_scope, validate_target_folder_scope,
 )
 from apps.document.views.base import create_model_instance, check_public_space_permission, log_operation
-from apps.document.models import DocumentTransfer
+from apps.document.models import DocumentTransfer, DocumentFolderPublic, DocumentFilePublic
 from apps.document.constants import TransferStatus, TransferType
 
 logger = logging.getLogger(__name__)
@@ -65,11 +64,7 @@ class FileCopyValidator:
     @staticmethod
     def validate_source_file(file_id, is_public, user):
         """验证源文件存在性（权限由调用方检查）"""
-        FileModel = get_file_model(is_public=is_public)
-
-        file_query = FileModel.objects.filter(pk=file_id).order_by()
-        if not is_public:
-            file_query = apply_tenant_filter(file_query, user, strict_mode=True)
+        file_query = DocumentFilePublic.objects.filter(pk=file_id).order_by()
         file = file_query.select_related('created_by').first()
 
         if not file:
@@ -84,10 +79,7 @@ class FileCopyValidator:
         if not folder_id:
             return None, None
 
-        FolderModel = get_folder_model(is_public=is_public)
-        folder_query = FolderModel.objects.filter(pk=folder_id).order_by()
-        if not is_public:
-            folder_query = apply_tenant_filter(folder_query, user, strict_mode=True)
+        folder_query = DocumentFolderPublic.objects.filter(pk=folder_id).order_by()
         folder = folder_query.first()
 
         if not folder:
@@ -103,15 +95,13 @@ class FileNameGenerator:
     @staticmethod
     def generate(file, folder, is_public, user):
         """生成复制文件的名称"""
-        FileModel = get_file_model(is_public=is_public)
-
         # 获取原始显示名
         original_display_name = file.display_name or file.name
         _, file_ext = get_file_ext(original_display_name)
 
         # 生成三层文件名
         physical_name = generate_physical_name(file_ext, original_display_name)
-        logical_name = generate_unique_logical_name(FileModel, original_display_name, folder, user)
+        logical_name = generate_unique_logical_name(DocumentFilePublic, original_display_name, folder, user)
 
         return {
             'physical_name': physical_name,
@@ -122,19 +112,15 @@ class FileNameGenerator:
     @staticmethod
     def resolve_display_name(original_name, folder, is_public, user, is_same_folder):
         """解析最终显示名称（处理重名）"""
-        FileModel = get_file_model(is_public=is_public)
-
         new_display_name = original_name
         if is_same_folder:
             new_display_name = f'副本_{original_name}'
 
         # 检查目标文件夹下是否已存在同名显示名称
-        existing_file_query = FileModel.objects.filter(
+        existing_file_query = DocumentFilePublic.objects.filter(
             folder=folder,
             display_name=new_display_name
         ).order_by()
-        if not is_public:
-            existing_file_query = apply_tenant_filter(existing_file_query, user, strict_mode=True)
         existing_file = existing_file_query.first()
 
         if existing_file:
@@ -147,7 +133,6 @@ class FileNameGenerator:
     @staticmethod
     def _add_numeric_suffix(display_name, folder, is_public, user):
         """添加数字后缀解决重名"""
-        FileModel = get_file_model(is_public=is_public)
         counter = 1
         new_display_name = display_name
 
@@ -155,12 +140,10 @@ class FileNameGenerator:
             name_without_ext, ext = os.path.splitext(display_name)
             new_display_name = f'{name_without_ext}_{counter}{ext}'
 
-            existing_file_query = FileModel.objects.filter(
+            existing_file_query = DocumentFilePublic.objects.filter(
                 folder=folder,
                 display_name=new_display_name
             ).order_by()
-            if not is_public:
-                existing_file_query = apply_tenant_filter(existing_file_query, user, strict_mode=True)
 
             if not existing_file_query.first():
                 break
@@ -253,7 +236,7 @@ class FileCopyView(View):
         if error:
             return None, json_response(error=error)
 
-        if is_public and not check_public_space_permission(request.user, file, 'file', '复制'):
+        if not check_public_space_permission(request.user, file, 'file', '复制'):
             return None, permission_denied_response('公共空间中只能复制自己创建的文件', 'not_owner')
 
         scope_ok, scope_err = validate_file_source_scope(system_folder, is_public, file)
@@ -292,7 +275,7 @@ class FileCopyView(View):
 
         logger.info(f'[Document] Copying file id: {file.id} to folder_id: {folder_id}, is_public={is_public}')
 
-        FileModel = get_file_model(is_public=is_public)
+        FileModel = DocumentFilePublic
         original_display_name = file.display_name or file.name
 
         # 冲突检测

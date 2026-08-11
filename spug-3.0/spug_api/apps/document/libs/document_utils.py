@@ -21,16 +21,13 @@ _MODEL_CACHE = None
 
 
 def _ensure_models_loaded():
-    """延迟加载模型并缓存（线程安全惰性加载）"""
+    """延迟加载模型并缓存（私有空间已移除，仅加载 Public）"""
     global _MODEL_CACHE
     if _MODEL_CACHE is None:
         from apps.document.models import (
-            DocumentFolderPrivate, DocumentFilePrivate,
             DocumentFolderPublic, DocumentFilePublic
         )
         _MODEL_CACHE = {
-            'folder_private': DocumentFolderPrivate,
-            'file_private': DocumentFilePrivate,
             'folder_public': DocumentFolderPublic,
             'file_public': DocumentFilePublic,
         }
@@ -39,10 +36,10 @@ def _ensure_models_loaded():
 
 # 【性能优化】延迟导入模型，避免启动时加载（已废弃，保留兼容）
 def _get_models():
-    """延迟导入模型"""
+    """延迟导入模型（私有空间已移除，仅返回 Public）"""
     cache = _ensure_models_loaded()
     return (
-        cache['folder_private'], cache['file_private'],
+        cache['folder_public'], cache['file_public'],
         cache['folder_public'], cache['file_public']
     )
 
@@ -94,8 +91,8 @@ def is_child_folder(child_id, parent_id, FolderModel, request_user=None, is_publ
         child_id: 子文件夹ID
         parent_id: 父文件夹ID
         FolderModel: 文件夹模型类
-        request_user: 请求用户（用于租户过滤）
-        is_public: 是否为公共空间
+        request_user: 请求用户（私有空间已移除，公共空间不过滤）
+        is_public: 是否为公共空间（已废弃，保留兼容）
 
     Returns:
         bool: 如果child_id是parent_id的子文件夹返回True，否则返回False
@@ -111,11 +108,8 @@ def is_child_folder(child_id, parent_id, FolderModel, request_user=None, is_publ
         if not current_layer_ids:
             break
 
-        # 【优化】一次性查询当前层所有文件夹的父ID
+        # 【优化】一次性查询当前层所有文件夹的父ID（公共空间无需租户过滤）
         batch_query = FolderModel.objects.filter(pk__in=current_layer_ids)
-        if request_user and not is_public:
-            from libs.tenant_utils import apply_tenant_filter
-            batch_query = apply_tenant_filter(batch_query, request_user)
 
         folder_batch = {f.pk: f for f in batch_query}
 
@@ -187,30 +181,22 @@ def get_document_relative_path(is_public=False, user_id=None, folder_id=None, sy
     生成文档相对路径（相对于 storage/documents 目录）
 
     Args:
-        is_public: 是否公共空间
-        user_id: 用户ID（私有空间必需）
+        is_public: 是否公共空间（已废弃，保留兼容，始终走公共路径）
+        user_id: 用户ID（已废弃，保留兼容）
         folder_id: 文件夹ID（可选）
 
     Returns:
-        str: 相对路径，如 'private/user-1/' 或 'public/' 或 'public/folder-123/'
+        str: 相对路径，如 'public/' 或 'public/folder-123/'
     """
     if is_party_building_documents_context(system_folder):
         if folder_id:
             return f'{PARTY_BUILDING_DOCUMENTS_SYSTEM_FOLDER}/files/folder-{folder_id}'
         return f'{PARTY_BUILDING_DOCUMENTS_SYSTEM_FOLDER}/files'
 
-    if is_public:
-        # 公共空间路径：public/ 或 public/folder-{id}/
-        if folder_id:
-            return f'public/folder-{folder_id}'
-        return 'public'
-    else:
-        # 私有空间路径：private/user-{id}/ 或 private/user-{id}/folder-{id}/
-        if not user_id:
-            raise ValueError('私有空间必须提供 user_id')
-        if folder_id:
-            return f'private/user-{user_id}/folder-{folder_id}'
-        return f'private/user-{user_id}'
+    # 公共空间路径：public/ 或 public/folder-{id}/
+    if folder_id:
+        return f'public/folder-{folder_id}'
+    return 'public'
 
 
 def get_document_absolute_path(is_public=False, user_id=None, folder_id=None, system_folder=None):
@@ -306,31 +292,15 @@ def safe_delete_thumbnail(thumbnail_path):
 
 # ==================== 模型获取工具函数 ====================
 def get_folder_model(is_public=False):
-    """
-    根据是否公共空间获取文件夹模型
-
-    Args:
-        is_public: 是否公共空间
-
-    Returns:
-        Model: DocumentFolderPrivate 或 DocumentFolderPublic
-    """
-    DocumentFolderPrivate, _, DocumentFolderPublic, _ = _get_models()
-    return DocumentFolderPublic if is_public else DocumentFolderPrivate
+    """根据是否公共空间获取文件夹模型（私有空间已移除，始终返回 Public）"""
+    from apps.document.models import DocumentFolderPublic
+    return DocumentFolderPublic
 
 
 def get_file_model(is_public=False):
-    """
-    根据是否公共空间获取文件模型
-
-    Args:
-        is_public: 是否公共空间
-
-    Returns:
-        Model: DocumentFilePrivate 或 DocumentFilePublic
-    """
-    _, DocumentFilePrivate, _, DocumentFilePublic = _get_models()
-    return DocumentFilePublic if is_public else DocumentFilePrivate
+    """根据是否公共空间获取文件模型（私有空间已移除，始终返回 Public）"""
+    from apps.document.models import DocumentFilePublic
+    return DocumentFilePublic
 
 
 def is_global_admin(user):
@@ -530,14 +500,14 @@ def get_chunk_dir_path(file_hash, is_public, request_user, transfer_id=None, sys
     
     Args:
         file_hash: 文件MD5哈希值（32位全量MD5或抽样MD5）
-        is_public: 是否为公共空间
-        request_user: 请求用户对象
+        is_public: 是否为公共空间（已废弃，保留兼容，始终走公共路径）
+        request_user: 请求用户对象（已废弃，保留兼容）
         transfer_id: 传输记录ID（可选，用于任务隔离）
         
     Returns:
         str: 分片目录绝对路径
-        - 有 transfer_id 时: .../document_chunks/{tenant}/{file_hash}/{transfer_id}/
-        - 无 transfer_id 时: .../document_chunks/{tenant}/{file_hash}/（向后兼容）
+        - 有 transfer_id 时: .../document_chunks/public/{file_hash}/{transfer_id}/
+        - 无 transfer_id 时: .../document_chunks/public/{file_hash}/（向后兼容）
         
     Raises:
         ValueError: 如果file_hash格式不正确
@@ -548,13 +518,9 @@ def get_chunk_dir_path(file_hash, is_public, request_user, transfer_id=None, sys
 
     if is_party_building_documents_context(system_folder):
         base_chunk_dir = os.path.join(chunk_base_dir, file_hash)
-    elif is_public:
+    else:
         # 公共空间：简化路径，只使用 public
         base_chunk_dir = os.path.join(chunk_base_dir, "public", file_hash)
-    else:
-        # 私有空间：租户ID隔离（白名单校验 tenant_id）
-        tenant_path = _resolve_tenant_path(request_user)
-        base_chunk_dir = os.path.join(chunk_base_dir, tenant_path, file_hash)
 
     # 【路径隔离】有 transfer_id 时在 file_hash 下再加一层，避免同 hash 并发互踩
     if transfer_id is not None:

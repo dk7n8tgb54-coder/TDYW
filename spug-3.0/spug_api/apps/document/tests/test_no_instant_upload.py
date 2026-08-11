@@ -31,7 +31,7 @@ import django; django.setup()
 
 from django.test import TestCase
 from apps.account.models import User
-from apps.document.models import DocumentTransfer, DocumentFilePrivate
+from apps.document.models import DocumentTransfer, DocumentFilePublic
 from apps.document.constants import TransferStatus
 from apps.document.views.upload.merge import check_idempotency
 
@@ -285,11 +285,11 @@ class TestNoInstantUpload(TestCase):
     # ============================================================
     def test_10_independent_file_paths_via_naming(self):
         """两个同哈希同名的文件通过 generate_file_names 生成独立路径"""
-        from apps.document.models import DocumentFilePrivate, DocumentFolderPrivate
+        from apps.document.models import DocumentFilePublic, DocumentFolderPublic
         from apps.document.libs.naming_utils import generate_file_names
 
         # 创建测试文件夹
-        folder = DocumentFolderPrivate.objects.create(
+        folder = DocumentFolderPublic.objects.create(
             tenant_id='t_a', created_by=self.user_a,
             name='test_folder_10', parent=None,
         )
@@ -297,9 +297,9 @@ class TestNoInstantUpload(TestCase):
         try:
             # 第一个文件 - 正常创建
             names_1 = generate_file_names(
-                DocumentFilePrivate, 'report.pdf', folder, self.user_a
+                DocumentFilePublic, 'report.pdf', folder, self.user_a
             )
-            f1 = DocumentFilePrivate.objects.create(
+            f1 = DocumentFilePublic.objects.create(
                 tenant_id='t_a', created_by=self.user_a,
                 name=names_1['logical_name'],
                 display_name=names_1['display_name'],
@@ -310,9 +310,9 @@ class TestNoInstantUpload(TestCase):
 
             # 第二个文件 - 同名同目录，应生成带后缀的独立名称
             names_2 = generate_file_names(
-                DocumentFilePrivate, 'report.pdf', folder, self.user_a
+                DocumentFilePublic, 'report.pdf', folder, self.user_a
             )
-            f2 = DocumentFilePrivate.objects.create(
+            f2 = DocumentFilePublic.objects.create(
                 tenant_id='t_a', created_by=self.user_a,
                 name=names_2['logical_name'],
                 display_name=names_2['display_name'],
@@ -333,15 +333,15 @@ class TestNoInstantUpload(TestCase):
                           '第二个文件的 name 应有后缀分隔符')
 
             # 验证数据库中不存在两条记录共享同一 file_path
-            paths = list(DocumentFilePrivate.objects.filter(
+            paths = list(DocumentFilePublic.objects.filter(
                 tenant_id='t_a', folder=folder
             ).values_list('file_path', flat=True))
             self.assertEqual(len(paths), len(set(paths)),
                              '数据库中不应有两条记录共享同一 file_path')
         finally:
             # 清理
-            DocumentFilePrivate.objects.filter(folder=folder).delete()
-            DocumentFolderPrivate.objects.filter(id=folder.id).delete()
+            DocumentFilePublic.objects.filter(folder=folder).delete()
+            DocumentFolderPublic.objects.filter(id=folder.id).delete()
 
     # ============================================================
     # 测试 11: check_idempotency 函数签名不含 file_hash 参数
