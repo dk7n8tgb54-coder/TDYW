@@ -57,7 +57,7 @@ class DepartmentDutyLogForm extends React.Component {
   }
 
   /**
-   * 根据一个 moment 拉取其所属月份的已有值班日志日期到 store 缓存。
+   * 根据一个 moment 拉取其所属月份的已有已签署值班日志日期到 store 缓存。
    * m 为空时使用今天。
    */
   _loadDutyDatesForMoment(m) {
@@ -74,7 +74,7 @@ class DepartmentDutyLogForm extends React.Component {
     if (!current) return null;
     const dateStr = current.format('YYYY-MM-DD');
     const hasLog = store.hasDutyDate(dateStr);
-    // 命中"已有值班日志"的日期填充浅绿底纹，其余保持原样（仅显示日期数字）
+    // 命中"已有已签署值班日志"的日期填充浅绿底纹，其余保持原样（仅显示日期数字）
     if (!hasLog) return <div className="duty-date-cell">{current.date()}</div>;
     return <div className="duty-date-has-log">{current.date()}</div>;
   };
@@ -172,7 +172,7 @@ class DepartmentDutyLogForm extends React.Component {
             label="值班日期"
             name="duty_date"
             rules={[{required: true, message: '请选择值班日期'}]}
-            extra="浅绿色底纹的日期表示当天已有值班日志记录"
+            extra="浅绿色底纹的日期表示当天已有已签署的值班日志记录"
           >
             <DatePicker
               style={{width: '100%'}}

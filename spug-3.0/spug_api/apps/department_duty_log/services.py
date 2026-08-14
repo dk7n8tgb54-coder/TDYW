@@ -303,12 +303,16 @@ def get_visible_department_duty_logs(user):
 
 
 def list_duty_dates(user, year, month):
-    """返回当前用户可见的某月内已有值班日志的 duty_date 列表（去重，升序）。
+    """返回当前用户可见的某月内已签署值班日志的 duty_date 列表（去重，升序）。
 
-    供前端日期选择器在面板上标记已有值班日志的日期。
+    供前端日期选择器在面板上标记"已有已签署值班日志"的日期。
+    仅返回已签署（status=signed）记录的日期，草稿不计入底纹，
+    避免同一天存在草稿时误导用户认为当天已完成登记。
     仅返回日期字符串（YYYY-MM-DD），不暴露任何业务字段。
     """
     qs = get_visible_department_duty_logs(user)
+    # 仅标记已签署记录的日期，草稿不计入"已有值班日志"底纹
+    qs = qs.filter(status=STATUS_SIGNED)
     # P0(R2): 改用 __gte/__lt 半开区间范围查询。
     # Django 4.2 已将 __year 优化为 BETWEEN（走索引），但 __month 仍生成
     # EXTRACT(MONTH FROM duty_date)=N 函数调用，绕过索引。

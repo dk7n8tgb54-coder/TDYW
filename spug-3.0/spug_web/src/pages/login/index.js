@@ -155,7 +155,7 @@ export default function () {
       </div>
 
       <div className={styles.footerZone}>
-        <div style={{color: 'rgba(0, 0, 0, .45)'}}>© 2026 YTTD</div>
+        <div style={{color: 'rgba(0, 0, 0, .45)'}}>© 2026 ZSYT</div>
       </div>
     </div>
   )

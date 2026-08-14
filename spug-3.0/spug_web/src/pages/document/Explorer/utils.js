@@ -25,10 +25,10 @@ export const isCreatedByAdmin = (record) => {
          record.created_by.includes('超级管理员');
 };
 
-// 判断当前用户是否可以编辑
-export const canEditItem = (item, isAdmin, currentUserId) => {
-  // 公共空间：管理员可以编辑
-  if (isAdmin) return true;
+// 判断当前用户是否可以编辑（与后端 check_public_space_permission 权限模型一致）
+export const canEditItem = (item, isPublic, isAdmin, currentUserId) => {
+  // 公共空间：超级管理员可以编辑所有资源
+  if (isPublic && isAdmin) return true;
   // 处理 created_by_id 为 null 的情况
   if (!item.created_by_id) return false;
   return item.created_by_id === currentUserId;

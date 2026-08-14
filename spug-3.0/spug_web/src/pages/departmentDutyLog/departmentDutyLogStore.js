@@ -37,7 +37,7 @@ class DepartmentDutyLogStore {
   // 选项
   @observable currentUser = null;
 
-  // 日期选择器面板上"已有值班日志"的日期集合，按 "YYYY-MM" 缓存
+  // 日期选择器面板上"已有已签署值班日志"的日期集合，按 "YYYY-MM" 缓存
   // 结构：{ 'YYYY-MM': Set(['YYYY-MM-DD', ...]) }
   @observable dutyDatesByMonth = {};
   @observable dutyDatesLoading = false;
@@ -152,7 +152,7 @@ class DepartmentDutyLogStore {
   }
 
   /**
-   * 拉取指定月份的已有值班日志日期，结果缓存到 dutyDatesByMonth。
+   * 拉取指定月份的已有已签署值班日志日期，结果缓存到 dutyDatesByMonth。
    * 已缓存的月份不会重复请求。year/month 为整数。
    */
   @action.bound
@@ -172,7 +172,7 @@ class DepartmentDutyLogStore {
   }
 
   /**
-   * 判断某日期是否已有值班日志。无缓存时返回 false（同步），
+   * 判断某日期是否已有已签署值班日志。无缓存时返回 false（同步），
    * 调用方应先 fetchDutyDatesByMonth 把当前面板月份数据拉到。
    */
   hasDutyDate(dateStr) {

@@ -788,9 +788,9 @@ class DepartmentDutyLogDutyDatesTests(TestCase):
         self.client = _make_client(self.user)
 
     def test_get_duty_dates(self):
-        """获取已有值班日志日期"""
-        _make_log(self.user, duty_date=date(2026, 8, 5))
-        _make_log(self.user, duty_date=date(2026, 8, 10))
+        """获取已签署值班日志日期"""
+        _make_signed_log(self.user, duty_date=date(2026, 8, 5))
+        _make_signed_log(self.user, duty_date=date(2026, 8, 10))
         resp = self.client.get(f'{DUTY_DATES_URL}?year=2026&month=8')
         body = resp.json()
         self.assertFalse(body.get('error'))
@@ -800,8 +800,8 @@ class DepartmentDutyLogDutyDatesTests(TestCase):
 
     def test_duty_dates_excludes_other_months(self):
         """不返回其他月份的日期"""
-        _make_log(self.user, duty_date=date(2026, 7, 15))
-        _make_log(self.user, duty_date=date(2026, 8, 10))
+        _make_signed_log(self.user, duty_date=date(2026, 7, 15))
+        _make_signed_log(self.user, duty_date=date(2026, 8, 10))
         resp = self.client.get(f'{DUTY_DATES_URL}?year=2026&month=8')
         body = resp.json()
         dates = body['data']['dates']
@@ -822,6 +822,16 @@ class DepartmentDutyLogDutyDatesTests(TestCase):
         """非法 month"""
         resp = self.client.get(f'{BASE_URL}duty_dates/?year=2026&month=13')
         self.assertTrue(resp.json().get('error'))
+
+    def test_duty_dates_excludes_drafts(self):
+        """草稿不计入底纹，仅已签署记录返回"""
+        _make_log(self.user, duty_date=date(2026, 8, 3))
+        _make_signed_log(self.user, duty_date=date(2026, 8, 9))
+        resp = self.client.get(f'{DUTY_DATES_URL}?year=2026&month=8')
+        body = resp.json()
+        dates = body['data']['dates']
+        self.assertNotIn('2026-08-03', dates)
+        self.assertIn('2026-08-09', dates)
 
 
 # ============================================================

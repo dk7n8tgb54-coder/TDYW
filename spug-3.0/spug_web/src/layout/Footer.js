@@ -12,7 +12,7 @@ export default function () {
   return (
     <Layout.Footer style={{padding: 0}}>
       <div className={styles.footer}>
-        <span>&copy; {new Date().getFullYear()} YTTD</span>
+        <span>&copy; {new Date().getFullYear()} ZSYT</span>
       </div>
     </Layout.Footer>
   )
