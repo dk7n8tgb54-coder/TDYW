@@ -8,16 +8,16 @@
 # 仓库：本地 borg repo（加密 repokey-blake2），路径从 borg.env 的 BORG_REPO 读取。
 #       BORG_PASSPHRASE 必需，用于访问加密 repo。
 #
-# 远程推送（预留，默认关闭）：PUSH_REMOTE=YES 时，在本地 archive 创建并恢复应用后，
-#       再向老 PC 的独立 borg repo 推送一份去重增量 archive。老 PC 需先 borg init
-#       第二个 repo + 配 SSH 免密。当前无老 PC 时保持 PUSH_REMOTE=NO 即可，代码预留。
+# 远程推送（PUSH_REMOTE=YES 时启用）：在本地 archive 创建并恢复应用后，
+#       再向远程机的独立 borg repo 推送一份去重增量 archive。远程机需先 borg init
+#       repo + 配 SSH 免密。不启用时在 borg.env 中设 PUSH_REMOTE=NO。
 #
 # 一致性流程：
 #   获取全局锁 → 前置检查 → 停入口/beat/worker → 停 tdyw 容器（DB 保持运行）
 #   → mariadb-dump --single-transaction → archive_binlog（FLUSH BINARY LOGS + 复制 binlog）
 #   → borg create（dump + documents卷 + media卷 + binlog + manifest）
 #   → borg check --repository-only → 启动 tdyw + 健康检查 → borg prune（GFS）
-#   → 可选 borg create ssh:oldpc:（PUSH_REMOTE=YES 时，推老 PC）
+#   → 可选 borg create 远程仓库（PUSH_REMOTE=YES 时，推远程机）
 #
 # 产物：一个 borg archive（命名 tdyw-YYYYMMDD-HHMMSS），含：
 #   - database.sql.gz（mariadb-dump 逻辑全量）
@@ -39,7 +39,7 @@
 #      DOCUMENTS_VOLUME=docker_tdyw-documents MEDIA_VOLUME=docker_tdyw-media \
 #      DRY_RUN=NO ./borgbackup/borg_backup_set_create.sh
 #
-#   3. 正式备份 + 推老 PC（需先在老 PC borg init + 配 SSH + 填 borg.env 远程参数）
+#   3. 正式备份 + 推远程（borg.env 里设 PUSH_REMOTE=YES + BORG_REMOTE_REPO + BORG_REMOTE_PASSPHRASE）
 #      BORG_ENV_FILE=/opt/docker/borgbackup/borg.env \
 #      DOCUMENTS_VOLUME=docker_tdyw-documents MEDIA_VOLUME=docker_tdyw-media \
 #      DRY_RUN=NO ./borgbackup/borg_backup_set_create.sh
@@ -56,7 +56,8 @@
 #   BORG_ENV_FILE       borg 配置文件（0600），含 BORG_REPO / BORG_PASSPHRASE
 #                       （+ 可选 BORG_REMOTE_REPO / BORG_REMOTE_PASSPHRASE / PUSH_REMOTE）
 #   BORG_COMPRESSION    默认 zstd,3
-#   BORG_RSH            远程 SSH 命令，默认 ssh -i /opt/docker/borgbackup/oldpc_ed25519
+#   BORG_RSH            远程 SSH 命令，默认 ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new
+#                       （用默认 SSH key；如需指定 key 在 borg.env 中设 BORG_RSH="ssh -i /path/to/key ..."）
 #   DRY_RUN             YES（默认，只 preflight）/ NO
 #   APP_STOP_TIMEOUT    停止应用最大等待秒数，默认 900
 #   HEALTH_TIMEOUT      启动后健康检查最大等待秒数，默认 180
@@ -86,7 +87,7 @@ BORG_REMOTE_REPO="${BORG_REMOTE_REPO:-}"
 BORG_REMOTE_PASSPHRASE="${BORG_REMOTE_PASSPHRASE:-}"
 PUSH_REMOTE="${PUSH_REMOTE:-NO}"
 BORG_COMPRESSION="${BORG_COMPRESSION:-zstd,3}"
-BORG_RSH="${BORG_RSH:-ssh -i /opt/docker/borgbackup/oldpc_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=accept-new}"
+BORG_RSH="${BORG_RSH:-ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new}"
 
 DRY_RUN="${DRY_RUN:-YES}"
 APP_STOP_TIMEOUT="${APP_STOP_TIMEOUT:-900}"
@@ -250,9 +251,6 @@ preflight() {
     container_running "${APP_CONTAINER}" || fail "application container is not running: ${APP_CONTAINER}"
     container_running "${DB_CONTAINER}" || fail "database container is not running: ${DB_CONTAINER}"
 
-    [ -z "${DB_NAME}" ] && DB_NAME="$(docker exec "${DB_CONTAINER}" sh -c 'printf %s "${MYSQL_DATABASE:-}"')"
-    [ -n "${DB_NAME}" ] || fail "DB_NAME is empty and MYSQL_DATABASE is unavailable in ${DB_CONTAINER}"
-
     docker exec "${APP_CONTAINER}" test -d "${DOCUMENTS_PATH}" || fail "documents path is missing in app container"
     docker exec "${APP_CONTAINER}" test -d "${MEDIA_PATH}" || fail "media path is missing in app container"
     docker exec "${APP_CONTAINER}" supervisorctl status >/dev/null || fail "supervisorctl is unavailable in the application container"
@@ -269,6 +267,9 @@ preflight() {
     case "${cnf_mode}" in 600|400) ;; *) fail "backup client cnf must have mode 0600 or 0400" ;; esac
 
     load_borg_env
+    # DB_NAME 在 load_borg_env 之后解析，防止 borg.env 中的空赋值覆盖自动探测值
+    [ -z "${DB_NAME}" ] && DB_NAME="$(docker exec "${DB_CONTAINER}" sh -c 'printf %s "${MYSQL_DATABASE:-}"')"
+    [ -n "${DB_NAME}" ] || fail "DB_NAME is empty and MYSQL_DATABASE is unavailable in ${DB_CONTAINER}"
     resolve_volumes
 
     # 本地 borg repo 可访问（BORG_PASSPHRASE 已 export，加密 repo 可读）
@@ -412,8 +413,9 @@ validate_database_credentials() {
     if ! docker exec "${DB_CONTAINER}" "${client_bin}" \
         --defaults-extra-file="${CONTAINER_CNF}" \
         --host=127.0.0.1 --port=3306 --batch --skip-column-names \
-        -e 'SELECT 1 FROM django_migrations LIMIT 1' "${DB_NAME}" >/dev/null; then
-        fail "database account lacks SELECT privilege on ${DB_NAME}"
+        -e 'SELECT 1 FROM django_migrations LIMIT 1' "${DB_NAME}" 2>"${RUNTIME_DIR}/db_select_test.err"; then
+        local db_err; db_err="$(cat "${RUNTIME_DIR}/db_select_test.err" 2>/dev/null | head -1)"
+        fail "SELECT on ${DB_NAME}.django_migrations failed (account=${DB_ACCOUNT}): ${db_err:-unknown error}"
     fi
     DB_VERSION="$(docker exec "${DB_CONTAINER}" "${client_bin}" \
         --defaults-extra-file="${CONTAINER_CNF}" \
@@ -574,9 +576,9 @@ borg_prune_local() {
 }
 
 # ============================================
-# 推送老 PC（预留，PUSH_REMOTE=YES 时执行）
-# 在 restore_application 之后执行：先解冻恢复生产，再后台推老 PC，不延长停机窗口
-# 老 PC 需先独立 borg init 第二个 repo + 配 SSH 免密
+# 推送远程仓库（PUSH_REMOTE=YES 时执行）
+# 在 restore_application 之后执行：先解冻恢复生产，再推远程，不延长停机窗口
+# 远程机需先独立 borg init repo + 配 SSH 免密
 # ============================================
 borg_push_remote() {
     is_yes "${PUSH_REMOTE}" || { log "Remote push skipped (PUSH_REMOTE=${PUSH_REMOTE})"; return 0; }

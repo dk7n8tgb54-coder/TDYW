@@ -1,6 +1,6 @@
 # TDYW BorgBackup 一致性备份与恢复方案
 
-> **场景**：内网 Linux 单机 Docker 部署的 CRUD 系统，数据库与文件均以 Docker volume 保存。单服务器，RAID1（两块 300G 盘，剩余约 166G），约 38 人使用。已有 U 盘 1 个 + 老 PC 1 台可作异地备份目标，borgbackup 已在 Linux 主机安装完成。
+> **场景**：内网 Linux 单机 Docker 部署的 CRUD 系统，数据库与文件均以 Docker volume 保存。单服务器，RAID1（两块 300G 盘，剩余约 166G），约 38 人使用。已有远程备份机（tdywuser@172.16.40.2）可作异地备份目标，borgbackup 已在 Linux 主机安装完成。
 >
 > 本方案以 [BorgBackup](https://www.borgbackup.org/) 为**归档与容灾终态方案**，继承 `backups/backup_set_create.sh` / `backup_set_restore.sh` 已验证的一致性停写窗口理念。
 
@@ -107,8 +107,8 @@ EOF
 
 ```bash
 docker volume ls | grep -E 'documents|media'
-docker volume inspect -f '{{.Mountpoint}}' spug_documents   # /var/lib/docker/volumes/spug_documents/_data
-docker volume inspect -f '{{.Mountpoint}}' spug_media        # /var/lib/docker/volumes/spug_media/_data
+docker volume inspect -f '{{.Mountpoint}}' docker_tdyw-documents   # /var/lib/docker/volumes/docker_tdyw-documents/_data
+docker volume inspect -f '{{.Mountpoint}}' docker_tdyw-media        # /var/lib/docker/volumes/docker_tdyw-media/_data
 ```
 
 脚本通过环境变量 `DOCUMENTS_VOLUME` / `MEDIA_VOLUME` 指定 volume 名，运行时 inspect 解析为宿主路径。**冻结后只读访问**，无需 `--volumes-from`。
@@ -138,7 +138,7 @@ borg_backup_set_create.sh
   ├─ borg_push_remote（PUSH_REMOTE=YES 时）：
   │     BORG_REPO=${BORG_REMOTE_REPO} BORG_PASSPHRASE=${BORG_REMOTE_PASSPHRASE} \
   │       borg create ::${ARCHIVE} ${DUMP_FILE} ${docs_mp} ${med_mp} ${MANIFEST}
-  │     borg prune --keep-monthly=12 ...（老 PC 保留更宽松）
+  │     borg prune --keep-monthly=12 ...（远程机 保留更宽松）
   └─ trap：失败时 borg delete 未完成 archive + 恢复 app
 ```
 
@@ -149,9 +149,9 @@ borg_backup_set_create.sh
 3. **archive 命名**：`tdyw-YYYYMMDD-HHMMSS`，时间戳即 backup_set_id。
 4. **冻结后第一时间 dump**：缩短应用停机时间。
 5. **`--exclude`**：排除 `__pycache__`、`.cache`、`logs`、临时分片 `document_chunks`（与现有 `print_plan` 排除项一致）。
-6. **本地 repo 无加密、远程 repo 加密**：按介质分级，本地省 passphrase 管理，远程防外泄。
-7. **远程推送独立 archive**：不依赖本地 repo 拷贝，老 PC repo 独立可恢复（即使本地 repo 全毁，老 PC 仍能恢复）。
-8. **远程推送在 restore_application 之后**：先恢复生产服务（解冻），再后台推老 PC，缩短业务停机窗口。
+6. **本地 repo 加密、远程 repo 加密**：本地和远程均用 `repokey-blake2`，passphrase 从 0600 文件 `source` 进环境变量，不进 argv。
+7. **远程推送独立 archive**：不依赖本地 repo 拷贝，远程机 repo 独立可恢复（即使本地 repo 全毁，远程机 仍能恢复）。
+8. **远程推送在 restore_application 之后**：先恢复生产服务（解冻），再后台推远程机，缩短业务停机窗口。
 
 ### 4.3 备份脚本核心片段
 
@@ -190,7 +190,7 @@ borg_create_local() {
 borg_push_remote() {
     is_yes "${PUSH_REMOTE}" || return 0
     BORG_PASSPHRASE="${BORG_REMOTE_PASSPHRASE}" \
-    BORG_RSH="ssh -i /opt/docker/borgbackup/oldpc_ed25519 -o BatchMode=yes" \
+    BORG_RSH="${BORG_RSH:-ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new}" \
         borg create --stats --compression "${BORG_COMPRESSION}" \
         --exclude '*/__pycache__' --exclude '*/.cache' --exclude '*/logs' \
         --exclude '*/document_chunks' \
@@ -227,7 +227,7 @@ main() {
     borg_create_local          # 本地 archive + check
     restore_application        # 先解冻恢复生产服务
     borg_prune_local           # 本地 GFS
-    borg_push_remote           # 再推老 PC（业务已恢复，不影响停机）
+    borg_push_remote           # 再推远程机（业务已恢复，不影响停机）
     log "borg backup published: ${BORG_REPO}::${ARCHIVE_NAME}"
 }
 ```
@@ -237,12 +237,12 @@ main() {
 ```bash
 # dry-run（只 preflight）
 BORG_ENV_FILE=/opt/docker/borgbackup/borg.env \
-DOCUMENTS_VOLUME=spug_documents MEDIA_VOLUME=spug_media \
+DOCUMENTS_VOLUME=docker_tdyw-documents MEDIA_VOLUME=docker_tdyw-media \
 ./borgbackup/borg_backup_set_create.sh
 
-# 正式备份（本地 + 推老 PC）
+# 正式备份（本地 + 推远程机）
 BORG_ENV_FILE=/opt/docker/borgbackup/borg.env \
-DOCUMENTS_VOLUME=spug_documents MEDIA_VOLUME=spug_media \
+DOCUMENTS_VOLUME=docker_tdyw-documents MEDIA_VOLUME=docker_tdyw-media \
 DRY_RUN=NO ./borgbackup/borg_backup_set_create.sh
 ```
 
@@ -280,7 +280,7 @@ resolve_archive（borg list 确认存在）
 1. **DB 走逻辑恢复**：`borg extract --stdout` 把 dump 流式喂给 `mariadb`，无需落地大文件。DROP+CREATE 复用 `mariadump_restore.sh` 逻辑。
 2. **文件恢复用暂存替换**：不直接 `borg extract` 覆盖 volume（中途失败污染原数据）。先 extract 到同盘临时目录，rsync `--delete` 原子替换。
 3. **`--verify-data` 仅演练/恢复前可选**：生产恢复前可跑一次完整校验（耗时，但确认块无腐烂）。
-4. **可从老 PC 恢复**：若本地 repo 全毁，`BORG_REPO=backup@oldpc:/data/borg/tdyw BORG_PASSPHRASE=<远程口令>` 切换源即可，流程不变。
+4. **可从远程机恢复**：若本地 repo 全毁，`BORG_REPO=tdywuser@172.16.40.2:/data/tdyw_backup BORG_PASSPHRASE=<远程口令>` 切换源即可，流程不变。
 
 ### 5.4 `borg extract` 路径注意事项
 
@@ -370,13 +370,13 @@ docker exec tdyw-db-test mariadb --defaults-extra-file=/tmp/restore.cnf \
 
 | 副本 | 介质 | 位置 | 加密 | 实现 | 防什么 |
 |---|---|---|---|---|---|
-| 副本 1 | 生产机 RAID1 | 机房 | none | 本地 borg repo，每日 cron | 单盘损坏、快速恢复 |
+| 副本 1 | 生产机 RAID1 | 机房 | repokey-blake2 | 本地 borg repo，每日 cron | 单盘损坏、快速恢复 |
 | 副本 2 | U 盘 | 物理带离机房 | tar 不加密（或额外 gpg） | 每周/月 `borg export-tar` 导出，人手带离 | 整机损坏、勒索、火灾 |
-| 副本 3 | 老 PC | 异机 | repokey-blake2 | 每日 `borg create ssh:oldpc:` 去重增量推送 | 整机损坏、勒索 |
+| 副本 3 | 远程机 | 异机 | repokey-blake2 | 每日 `borg create ssh:tdywuser@172.16.40.2:` 去重增量推送 | 整机损坏、勒索 |
 
-**老 PC 位置决定容灾等级**：
-- 老 PC 在**同一机房/同一建筑** → 算"异机"，防单机硬件损坏、防 `rm -rf`、防勒索（前提勒索未横向到老 PC）；**不防**火灾/盗窃。
-- 老 PC 在**另一地点**（家里/另一栋楼） → 算"真异地"，3-2-1 完整成立，防火灾/盗窃。建议老 PC 放另一地点以获得真异地能力。
+**远程机位置决定容灾等级**：
+- 远程机 在**同一机房/同一建筑** → 算"异机"，防单机硬件损坏、防 `rm -rf`、防勒索（前提勒索未横向到远程机）；**不防**火灾/盗窃。
+- 远程机 在**另一地点**（家里/另一栋楼） → 算"真异地"，3-2-1 完整成立，防火灾/盗窃。建议远程机 放另一地点以获得真异地能力。
 
 ### 6.2 U 盘策略（按容量）
 
@@ -392,7 +392,7 @@ BORG_REPO=/data/borg_repo borg export-tar \
     ::tdyw-$(date -u +%Y%m%d-%H%M%S) /mnt/usb/tdyw-$(date +%Y%m%d).tar.gz
 
 # 策略 B：U 盘较小（容不下完整 archive）
-#   只导出数据库 dump（最关键、最小、无可替代），文件靠老 PC 兜底
+#   只导出数据库 dump（最关键、最小、无可替代），文件靠远程机 兜底
 mkdir -p /tmp/usb-dump && cd /tmp/usb-dump
 BORG_REPO=/data/borg_repo borg extract \
     ::tdyw-$(date -u +%Y%m%d-%H%M%S) path/to/database.sql.gz
@@ -404,8 +404,8 @@ tar czf /mnt/usb/tdyw-db-$(date +%Y%m%d).tar.gz database.sql.gz
 ### 6.3 passphrase + key 离线保存
 
 - passphrase 打印一份纸质 + 存另一个 U 盘，与生产机物理分离；
-- 老 PC 的 SSH 私钥 `/opt/docker/borgbackup/oldpc_ed25519` 也备份一份离线；
-- **丢失 passphrase = 丢失老 PC 全部备份**，这是加密的代价，必须离线冗余。
+- 远程机的 SSH 私钥也备份一份离线；
+- **丢失 passphrase = 丢失全部备份**（本地和远程都加密），这是加密的代价，必须离线冗余。
 
 ---
 
@@ -421,7 +421,7 @@ borg prune --list "${BORG_REPO}" --prefix 'tdyw-' \
     --keep-weekly=4 \    # 每周 1 份，留 4 周
     --keep-monthly=6     # 每月 1 份，留 6 个月
 
-# 老 PC repo（异地容灾，保留长）
+# 远程 repo（异地容灾，保留长）
 borg prune --list "${BORG_REMOTE_REPO}" --prefix 'tdyw-' \
     --keep-within=7d --keep-daily=14 --keep-weekly=8 --keep-monthly=12
 ```
@@ -445,7 +445,7 @@ borg compact --cleanup-commits "${BORG_REPO}"
 |---|---|---|---|
 | 每次备份后 | `borg check --repository-only` | 校验 repo 索引一致性 | 秒级 |
 | 每月 | `borg check --verify-data` | 校验所有块哈希，检测位腐烂 | 分钟~小时级 |
-| 每季度 | 老 PC repo `borg check --verify-data` | 异地副本完整性 | 视网络 |
+| 每季度 | 远程 repo `borg check --verify-data` | 异地副本完整性 | 视网络 |
 
 > `--verify-data` 读取所有块重算哈希，是检测存储静默损坏（bitrot）的手段。本地 tar 方案做不到。
 
@@ -488,8 +488,8 @@ watch -n 5 'cat /sys/block/md0/md/sync_action; cat /sys/block/md0/md/mismatch_cn
 ## 10. 调度
 
 ```cron
-# 每天 02:00 Borg 一致性备份（本地 + 推老 PC）
-0 2 * * * cd /opt/tdyw/spug-3.0 && BORG_ENV_FILE=/opt/docker/borgbackup/borg.env DOCUMENTS_VOLUME=spug_documents MEDIA_VOLUME=spug_media DRY_RUN=NO ./borgbackup/borg_backup_set_create.sh >> /var/log/tdyw-backup/borg_backup.log 2>&1
+# 每天 02:00 Borg 一致性备份（本地 + 推远程机）
+0 2 * * * cd /opt/tdyw/spug-3.0 && BORG_ENV_FILE=/opt/docker/borgbackup/borg.env DOCUMENTS_VOLUME=docker_tdyw-documents MEDIA_VOLUME=docker_tdyw-media DRY_RUN=NO ./borgbackup/borg_backup_set_create.sh >> /var/log/tdyw-backup/borg_backup.log 2>&1
 
 # 每月 1 号 03:00 RAID1 scrub
 0 3 1 * * root echo check > /sys/block/md0/md/sync_action
@@ -519,7 +519,7 @@ BORG_REPO=/data/borg_repo borg export-tar \
 - 兼得"borg 去重日常备份 + tar 异构季度兜底"；
 - 不背每日双跑两套的运维负担。
 
-> 这是 nice-to-have 不是 must-have。若运维资源紧张，此项可省略，老 PC repo 已提供异机冗余。
+> 这是 nice-to-have 不是 must-have。若运维资源紧张，此项可省略，远程机 repo 已提供异机冗余。
 
 ---
 
@@ -531,9 +531,9 @@ BORG_REPO=/data/borg_repo borg export-tar \
 tail -n 200 /var/log/tdyw-backup/borg_backup.log
 BORG_ENV_FILE=/opt/docker/borgbackup/borg.env borg list /data/borg_repo | tail -10
 BORG_ENV_FILE=/opt/docker/borgbackup/borg.env borg info /data/borg_repo::tdyw-$(date -u +%Y%m%d)* | grep -E 'Archive|Deduplicated|Time'
-# 确认老 PC 推送成功
-BORG_PASSPHRASE='<远程口令>' BORG_RSH='ssh -i /opt/docker/borgbackup/oldpc_ed25519' \
-    borg list backup@oldpc:/data/borg/tdyw | tail -5
+# 确认远程推送成功
+BORG_PASSPHRASE='<远程口令>' BORG_RSH='ssh -o BatchMode=yes' \
+    borg list tdywuser@172.16.40.2:/data/tdyw_backup | tail -5
 ```
 
 ### 12.2 月度演练（drill）
@@ -552,12 +552,12 @@ BORG_ENV_FILE=/opt/docker/borgbackup/borg.env \
 ## 13. 安全注意事项
 
 1. **passphrase 不进 argv**：通过 `source borg.env` → `BORG_PASSPHRASE` 环境变量，`/proc/<pid>/environ` 仅 root 可读；
-2. **cnf 权限 0600**：`tdyw_backup.cnf` / `tdyw_restore.cnf` / `borg.env` / `oldpc_ed25519` 均强制 0600/0400，preflight 校验；
+2. **cnf 权限 0600**：`tdyw_backup.cnf` / `tdyw_restore.cnf` / `borg.env` 均强制 0600/0400，preflight 校验；
 3. **borg repo 目录权限**：`/data/borg_repo` 属主为备份用户，`chmod 700`；
-4. **SSH 老 PC**：专用 `backup` 账号 + `command="borg serve --restrict-to-path ..."` 限制，禁 shell；
-5. **不在 Git 提交**：`borg.env` / `*.cnf` / `oldpc_ed25519*` 全部 gitignore；
+4. **SSH 远程机**：`tdywuser` 账号 + `command="borg serve --restrict-to-path ..."` 限制，禁 shell；
+5. **不在 Git 提交**：`borg.env` / `*.cnf` / SSH 私钥全部 gitignore；
 6. **archive 不含密码**：manifest 只记录 DB 版本/git commit，不记录任何凭据；
-7. **本地 repo 无加密的取舍**：同机加密不防勒索（勒索会连 repo 一起加密），所以本地 none 是诚实选择；真正的防外泄靠 U 盘/老 PC 的加密。
+7. **本地 repo 加密**：同机加密不防勒索（勒索会连 repo 一起加密），但能兜底"repo 被直接拷走/硬盘维修/误传"场景；真正的防外泄靠远程机的加密 + 异地隔离。
 
 ---
 
@@ -598,27 +598,27 @@ borg compact ${BORG_REPO}
 # 导出为 tar（U 盘 / 季度异构冗余）
 borg export-tar ${BORG_REPO}::tdyw-20260727-030000 /mnt/usb/tdyw-20260727.tar.gz
 
-# 切换源到老 PC 恢复（本地 repo 全毁时）
-BORG_REPO=backup@oldpc:/data/borg/tdyw BORG_PASSPHRASE='<远程口令>' \
-    BORG_RSH='ssh -i /opt/docker/borgbackup/oldpc_ed25519' \
-    borg list backup@oldpc:/data/borg/tdyw
+# 切换源到远程机恢复（本地 repo 全毁时）
+BORG_REPO=tdywuser@172.16.40.2:/data/tdyw_backup BORG_PASSPHRASE='<远程口令>' \
+    BORG_RSH='ssh -o BatchMode=yes' \
+    borg list tdywuser@172.16.40.2:/data/tdyw_backup
 ```
 
 ---
 
 ## 15. 落地清单
 
-- [ ] 生产机 `borg --version` ≥ 1.2，老 PC borg 版本 ≥ 生产机
-- [ ] `/opt/docker/borgbackup/borg.env`（0600，含 `BORG_REPO` / `BORG_REMOTE_REPO` / `BORG_REMOTE_PASSPHRASE`）
-- [ ] `borg init --encryption=none` 本地 repo + `borg init --encryption=repokey-blake2` 老 PC repo
-- [ ] 老 PC backup 账号 + `borg serve --restrict-to-path` + authorized_keys 限制
-- [ ] 生产机 SSH 免密到老 PC（ed25519，0600）
+- [ ] 生产机 `borg --version` ≥ 1.2，远程机 borg 版本 ≥ 生产机
+- [ ] `/opt/docker/borgbackup/borg.env`（0600，含 `BORG_REPO` / `BORG_REMOTE_REPO` / `BORG_REMOTE_PASSPHRASE` / `PUSH_REMOTE=YES`）
+- [ ] `borg init --encryption=repokey-blake2` 本地 repo + `borg init --encryption=repokey-blake2` 远程 repo
+- [ ] 远程机 `tdywuser` 账号 + `borg serve --restrict-to-path` + authorized_keys 限制
+- [ ] 生产机 SSH 免密到远程机（默认 SSH key，0600）
 - [ ] `tdyw_backup.cnf` / `tdyw_restore.cnf` 已就位（复用现有）
 - [ ] `DOCUMENTS_VOLUME` / `MEDIA_VOLUME` 名确认（`docker volume inspect`）
 - [ ] `borg_backup_set_create.sh` dry-run 通过
-- [ ] 首次正式备份 + `borg check --repository-only` + 确认老 PC archive 存在
+- [ ] 首次正式备份 + `borg check --repository-only` + 确认远程机 archive 存在
 - [ ] drill 模式恢复演练（隔离容器）
 - [ ] cron 调度（备份 + RAID1 scrub + verify-data + compact）
 - [ ] passphrase + SSH 私钥离线保存（纸质 + 另一个 U 盘）
 - [ ] U 盘首次 `borg export-tar` 导出 + 物理带离机房
-- [ ] 确认老 PC 放置位置（机房内=异机级 / 另一地点=真异地级）
+- [ ] 确认远程机放置位置（机房内=异机级 / 另一地点=真异地级）
