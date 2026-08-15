@@ -16,6 +16,11 @@ fi
 docker-entrypoint.sh "$@" &
 MYSQL_PID=$!
 
+# docker stop/compose down 只向 PID 1（本脚本）发 SIGTERM，bash 不会自动转发给
+# 后台子进程；必须显式转发给 mysqld，否则它收不到信号，等待期结束后被 SIGKILL
+# 强杀，InnoDB 无法优雅关库（表现为等满 stop_grace_period 且无任何关闭日志）
+trap 'kill -TERM $MYSQL_PID 2>/dev/null' TERM INT
+
 # 等待 MySQL 就绪
 echo "[Entrypoint] 等待 MySQL 启动..."
 until mysqladmin ping -h 127.0.0.1 -u root -p"${MYSQL_ROOT_PASSWORD}" --silent 2>/dev/null; do
@@ -36,4 +41,12 @@ if [ -n "${MYSQL_USER}" ] && [ -n "${MYSQL_PASSWORD}" ]; then
 fi
 
 # 等待 MySQL 主进程退出
-wait $MYSQL_PID
+# 第一次 wait 被停止信号打断时（退出码>128，此时 trap 已转发信号），必须再等
+# 一次让 mysqld 真正完成优雅关闭；其余情况透传 mysqld 自身的退出码
+status=0
+wait $MYSQL_PID || status=$?
+if [ "$status" -gt 128 ]; then
+    wait $MYSQL_PID
+    status=$?
+fi
+exit "$status"

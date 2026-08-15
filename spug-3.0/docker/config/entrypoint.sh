@@ -28,7 +28,7 @@ python manage.py collectstatic --noinput || echo "收集静态文件失败或已
 
 # 初始化管理员账号（如果不存在）
 echo "检查管理员账号..."
-python manage.py shell -c "
+admin_init_output=$(python manage.py shell -c "
 import os
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'spug.settings')
 import django
@@ -45,12 +45,17 @@ if not User.objects.filter(username='admin').exists():
     print('管理员账号已创建: admin / Admin888..')
 else:
     print('管理员账号已存在')
-" || echo "初始化管理员失败或已跳过"
+" 2>&1) || admin_init_output="${admin_init_output}
+初始化管理员失败或已跳过"
+echo "${admin_init_output}"
 
 echo "=========================================="
 echo "Spug 运维平台启动完成"
 echo "访问地址: http://localhost"
-echo "默认账号: admin / Admin888.."
+# 仅首次创建账号时提示默认凭据，避免每次启动都把默认口令打进容器日志
+case "${admin_init_output}" in
+    *管理员账号已创建*) echo "默认账号: admin / Admin888.." ;;
+esac
 echo "=========================================="
 
 # 执行传入的命令

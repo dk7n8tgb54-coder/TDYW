@@ -62,8 +62,8 @@ FROM ubuntu:22.04
 # 设置时区和字符集
 # DEBIAN_FRONTEND=noninteractive: 抑制 tzdata 等包安装时的交互式 debconf 提示
 ENV TZ=Asia/Shanghai \
-    LANG=en_US.utf8 \
-    LC_ALL=en_US.utf8 \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
 
 # 安装运行时依赖

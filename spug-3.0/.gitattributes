@@ -2,3 +2,8 @@
 *.sh text eol=lf
 # Backup Python workers are mounted into Linux containers and must keep LF endings.
 backups/*.py text eol=lf
+# Dockerfile backslash line continuations break when built with CRLF endings.
+Dockerfile* text eol=lf
+# Nginx/supervisor/MariaDB configs are bind-mounted into Linux containers.
+docker/config/*.conf text eol=lf
+docker/config/*.cnf text eol=lf
