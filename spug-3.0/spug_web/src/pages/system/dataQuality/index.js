@@ -19,7 +19,8 @@ class DataQualityIndex extends React.Component {
   renderSummary = () => {
     const r = store.results;
     if (!r) return null;
-    const allPass = r.total_problems === 0;
+    const errorCount = (r.results || []).filter((x) => x.status === 'error').length;
+    const allPass = r.total_problems === 0 && errorCount === 0;
     return (
       <Alert
         type={allPass ? 'success' : 'warning'}
@@ -28,7 +29,7 @@ class DataQualityIndex extends React.Component {
         message={
           allPass
             ? `全部通过（${r.passed}/${r.total_checks} 项检查正常）`
-            : `发现 ${r.total_problems} 个问题（通过 ${r.passed}/${r.total_checks} 项，异常 ${r.failed} 项）`
+            : `发现 ${r.total_problems} 个问题（通过 ${r.passed}/${r.total_checks} 项，异常 ${r.failed} 项，执行失败 ${errorCount} 项）`
         }
         description={`检查时间：${r.checked_at}`}
         style={{ marginBottom: 16 }}
@@ -38,6 +39,7 @@ class DataQualityIndex extends React.Component {
 
   renderCheckCard = (check) => {
     const isPass = check.status === 'pass';
+    const isError = check.status === 'error';
     const details = check.details || [];
     const columns = [
       { title: '类型', dataIndex: 'model', key: 'model', width: 140 },
@@ -52,8 +54,8 @@ class DataQualityIndex extends React.Component {
         style={{ marginBottom: 12 }}
         title={
           <Space>
-            <Tag color={isPass ? 'success' : 'error'} style={{ margin: 0 }}>
-              {isPass ? '通过' : '异常'}
+            <Tag color={isPass ? 'success' : isError ? 'warning' : 'error'} style={{ margin: 0 }}>
+              {isPass ? '通过' : isError ? '执行失败' : '异常'}
             </Tag>
             <Text strong>{check.check}</Text>
           </Space>
@@ -66,7 +68,14 @@ class DataQualityIndex extends React.Component {
           </Text>
         }
       >
-        {!isPass && details.length > 0 ? (
+        {isError ? (
+          <Alert
+            type="error"
+            showIcon
+            message="检查执行失败"
+            description={check.error || '未知错误'}
+          />
+        ) : !isPass && details.length > 0 ? (
           <Table
             size="small"
             columns={columns}

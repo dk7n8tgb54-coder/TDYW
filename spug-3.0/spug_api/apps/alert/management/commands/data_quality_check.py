@@ -8,9 +8,11 @@
 2. 文件-数据库一致性：DB 有记录但磁盘文件不存在
 3. unique_key 一致性：DocumentFolder 的 unique_key 与 is_deleted 状态不匹配
 4. 待清理文件：is_pending_clean=True 的记录卡住
-5. 租户隔离：跨租户引用
-6. 科室归属一致性：业务记录与创建人科室不一致
-7. 孤儿文件：磁盘上有物理文件但数据库中无对应记录（反向扫描）
+5. 科室归属一致性：业务记录与创建人科室不一致
+6. 孤儿文件：磁盘上有物理文件但数据库中无对应记录（反向扫描）
+
+注：私有资料库（tdyw_document_file_private / tdyw_document_folder_private）已废弃，
+相关表已不存在，巡检不再覆盖；原"文件与文件夹科室隔离"检查随私有表一并移除。
 
 用法：
     python manage.py data_quality_check
@@ -41,10 +43,19 @@ class Command(BaseCommand):
         'file_db_consistency',
         'unique_key_consistency',
         'pending_clean_files',
-        'tenant_isolation',
         'record_tenant_consistency',
         'orphan_disk_files',
     ]
+
+    # 检查执行异常时用于展示的中文检查名（正常路径由各检查函数自己传入 _format_result）
+    CHECK_LABELS = {
+        'check_soft_delete_orphans': '删除残留检查',
+        'check_file_db_consistency': '文件完整性检查',
+        'check_unique_key_consistency': '文件夹标识检查',
+        'check_pending_clean_files': '待清理文件检查',
+        'check_record_tenant_consistency': '科室归属检查',
+        'check_orphan_disk_files': '孤儿文件检查',
+    }
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -75,7 +86,6 @@ class Command(BaseCommand):
             self.check_file_db_consistency,
             self.check_unique_key_consistency,
             self.check_pending_clean_files,
-            self.check_tenant_isolation,
             self.check_record_tenant_consistency,
             self.check_orphan_disk_files,
         ]
@@ -91,7 +101,7 @@ class Command(BaseCommand):
             except Exception as e:
                 logger.error(f'[DataQuality] {check.__name__} failed: {e}', exc_info=True)
                 result = {
-                    'check': check.__name__,
+                    'check': self.CHECK_LABELS.get(check.__name__, check.__name__),
                     'description': check.__doc__.strip() if check.__doc__ else '',
                     'status': 'error',
                     'error': str(e),
@@ -180,7 +190,6 @@ class Command(BaseCommand):
         file_sources = [
             # (table, model_name, base_path, name_column, has_soft_delete)
             # has_soft_delete=True 表示表有 is_deleted 字段，需过滤
-            ('tdyw_document_file_private', '资料库文件', None, 'name', False),
             ('tdyw_document_file_public', '公共资料文件', None, 'name', False),
             ('tdyw_evidence_attachments', '证据附件', media_root, 'file_name', True),
             ('tdyw_regulation_attachment', '法规附件', doc_base, 'original_name', True),
@@ -231,7 +240,6 @@ class Command(BaseCommand):
         # DocumentFolder 已移除 is_deleted 字段（回收站废弃）
         # unique_key 由 UniqueKeyMixin.save() 自动计算，不应为 NULL
         for table, model_name, has_tenant in [
-            ('tdyw_document_folder_private', '资料库文件夹', True),
             ('tdyw_document_folder_public', '公共资料文件夹', False),
         ]:
             tenant_col = ', tenant_id' if has_tenant else ''
@@ -262,7 +270,6 @@ class Command(BaseCommand):
         problems = []
 
         for table, model_name, has_tenant in [
-            ('tdyw_document_file_private', '资料库文件', True),
             ('tdyw_document_file_public', '公共资料文件', False),
         ]:
             tenant_col = ', tenant_id' if has_tenant else ''
@@ -289,35 +296,7 @@ class Command(BaseCommand):
         return self._format_result('待清理文件检查', problems, '删除失败的文件卡住未清理')
 
     # ============================================
-    # 检查 6：租户隔离
-    # DocumentFilePrivate.tenant_id != folder.tenant_id
-    # ============================================
-    def check_tenant_isolation(self):
-        """科室隔离检查：文件与所属文件夹的科室不一致"""
-        problems = []
-
-        rows = self._query("""
-            SELECT f.id, f.name, f.tenant_id AS file_tenant,
-                   f.folder_id, d.tenant_id AS folder_tenant
-            FROM tdyw_document_file_private f
-            INNER JOIN tdyw_document_folder_private d ON f.folder_id = d.id
-            WHERE f.tenant_id != d.tenant_id
-        """)
-        for row in rows:
-            problems.append({
-                'model': '资料库文件',
-                'id': row['id'],
-                'name': row['name'],
-                'issue': f"文件科室({row['file_tenant']})与文件夹科室({row['folder_tenant']})不一致",
-                'file_tenant_id': row['file_tenant'],
-                'folder_id': row['folder_id'],
-                'folder_tenant_id': row['folder_tenant'],
-            })
-
-        return self._format_result('科室隔离检查', problems, '文件与所属文件夹的科室不一致')
-
-    # ============================================
-    # 检查 7：业务记录科室归属一致性
+    # 检查 5：业务记录科室归属一致性
     # 记录的 tenant_id 与创建人的 tenant_id 不一致
     # ============================================
     def check_record_tenant_consistency(self):
@@ -378,8 +357,9 @@ class Command(BaseCommand):
         # 收集 DB 中所有已知的文件绝对路径
         known_paths = set()
 
-        # DocumentFilePrivate / DocumentFilePublic：file_path 为绝对路径
-        for table in ('tdyw_document_file_private', 'tdyw_document_file_public'):
+        # DocumentFilePublic：file_path 为绝对路径
+        # （私有资料库表 tdyw_document_file_private 已废弃删除，不再扫描）
+        for table in ('tdyw_document_file_public',):
             rows = self._query(f"SELECT file_path FROM {table} WHERE file_path != ''")
             for row in rows:
                 known_paths.add(os.path.normpath(row['file_path']))

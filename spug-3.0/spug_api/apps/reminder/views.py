@@ -36,6 +36,8 @@ def _current_date_key(now=None):
 
 def _validate_reminder_form(form):
     """校验提醒规则表单，返回 ((target_date, recipients), None) 或 (None, error_str)"""
+    if len(form.name or '') > 100:
+        return None, '事件名称长度不能超过100个字符'
     try:
         target_date = datetime.strptime(form.target_date, '%Y-%m-%d').date()
     except (ValueError, TypeError):
@@ -44,8 +46,10 @@ def _validate_reminder_form(form):
     valid_types = ['none', 'daily', 'weekly', 'monthly', 'yearly']
     if form.repeat_type not in valid_types:
         return None, '重复类型错误'
-    if form.repeat_type != 'none' and form.repeat_interval < 1:
-        return None, '重复间隔必须 >= 1'
+    # 数据库 CheckConstraint 要求 >=1、列为 INT；上限与前端 InputNumber max 对齐，
+    # 任何重复类型都不得越界，否则将触发 IntegrityError/Out of range 落入全局异常处理
+    if not 1 <= form.repeat_interval <= 365:
+        return None, '重复间隔必须在 1-365 之间'
 
     try:
         recipients = json.loads(form.recipient_users) if isinstance(form.recipient_users, str) else form.recipient_users
@@ -97,9 +101,12 @@ class ReminderView(View):
         if error:
             return json_response(error=error)
 
-        (target_date, recipients), error = _validate_reminder_form(form)
+        # 校验函数错误路径返回 (None, error_str)，不能嵌套解包，
+        # 否则对 None 解包会抛 TypeError 落入全局异常处理
+        result, error = _validate_reminder_form(form)
         if error:
             return json_response(error=error)
+        target_date, recipients = result
 
         if pk:
             return self._save_update(request, pk, form, target_date, recipients)
