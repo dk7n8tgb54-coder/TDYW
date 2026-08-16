@@ -130,7 +130,7 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
   function handleStepAction(step, action) {
     http.put(`/api/upgrade/record-steps/${step.id}/update/`, { action })
       .then(() => {
-        const actionText = action === 'complete' ? '完成' : '重置';
+        const actionText = { complete: '完成', skip: '已跳过', reset: '待执行' }[action] || '处理';
         message.success(`步骤已标记为${actionText}`);
         store.fetchRecordSteps(recordId);
         store.fetchStatusLogs(recordId);
@@ -478,7 +478,10 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
         {canEdit && (
           <Space size={0}>
             {step.status === 'pending' && (
-                <Button size="small" type="link" icon={<CheckCircleOutlined />} onClick={() => handleStepAction(step, 'complete')}>完成</Button>
+              <Button size="small" type="link" icon={<CheckCircleOutlined />} onClick={() => handleStepAction(step, 'complete')}>完成</Button>
+            )}
+            {step.status === 'pending' && (
+              <Button size="small" type="link" onClick={() => handleStepAction(step, 'skip')}>跳过</Button>
             )}
             {step.status !== 'pending' && hasPermission('upgrade.upgrade.step_reset') && (
               <Button size="small" type="link" onClick={() => handleStepAction(step, 'reset')}>重置</Button>
@@ -499,14 +502,15 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
 
     const stepStats = store.recordStepStats || {};
     const total = stepStats.total || store.recordSteps.length;
-    const completed = stepStats.completed || 0;
-    const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+    // completed/skipped 均视为已处理（与后端完成度判定一致）
+    const doneCount = (stepStats.completed || 0) + (stepStats.skipped || 0);
+    const progress = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
     return (
       <Col span={15}>
         <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontWeight: 'bold' }}>
-            步骤清单 <span style={{ color: '#999', fontSize: 12 }}>（{completed}/{total}）</span>
+            步骤清单 <span style={{ color: '#999', fontSize: 12 }}>（{doneCount}/{total}）</span>
           </span>
           {canEdit && (
             <Space size={4}>
@@ -534,12 +538,12 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
         {total > 0 && (
           <Progress percent={progress} size="small" style={{ marginBottom: 8 }}
             status={progress === 100 ? 'success' : 'active'}
-            format={() => `${completed}/${total}`} />
+            format={() => `${doneCount}/${total}`} />
         )}
 
         <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 4 }}>
           {groups.map(g => {
-            const doneCount = g.steps.filter(s => s.status === 'completed').length;
+            const doneCount = g.steps.filter(s => s.status === 'completed' || s.status === 'skipped').length;
             return (
               <div key={g.name}>
                 <div style={{

@@ -290,7 +290,9 @@ export function groupStepsByPhase(steps, presetPhases = []) {
  */
 export function computeStepFlowState(steps, presetPhases = [], statusLogs = []) {
   const { groups } = groupStepsByPhase(steps, presetPhases);
-  const currentIndex = groups.findIndex(g => g.steps.some(s => s.status !== 'completed'));
+  // skipped 与 completed 同样视为已处理（与后端阶段完成判定一致）
+  const isDone = s => s.status === 'completed' || s.status === 'skipped';
+  const currentIndex = groups.findIndex(g => g.steps.some(s => !isDone(s)));
 
   // 按阶段查最近的 pause/resume/test_fail 事件（正序遍历，后覆盖前 = 最近生效）
   const phaseEvent = {};
@@ -306,7 +308,7 @@ export function computeStepFlowState(steps, presetPhases = [], statusLogs = []) 
   }
 
   const nodes = groups.map((g, idx) => {
-    const allDone = g.steps.every(s => s.status === 'completed');
+    const allDone = g.steps.every(isDone);
     let state;
     if (allDone) {
       state = 'completed';

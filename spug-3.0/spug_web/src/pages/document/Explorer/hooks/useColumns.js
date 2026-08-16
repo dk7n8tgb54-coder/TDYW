@@ -4,10 +4,10 @@
  * Released under the AGPL-3.0 License.
  */
 import React, { useCallback, useState, useEffect, useRef } from 'react';
-import { Tag, Input, message, Tooltip } from 'antd';
-import { CheckOutlined, CloseOutlined, LoadingOutlined, FileImageOutlined, CopyOutlined } from '@ant-design/icons';
+import { Tag, Input, message } from 'antd';
+import { CheckOutlined, CloseOutlined, LoadingOutlined, FileImageOutlined } from '@ant-design/icons';
 import { isImage, isVideo, formatFileSize, getFileTypeLabel, getFileIcon, getFolderIcon, isCreatedByAdmin } from '../utils';
-import { copyToClipboard } from '@/utils/common';
+import FileNameText from '../components/FileNameText';
 import { FolderIcon, VideoIcon, getFileTypeIcon } from '../../components/FileTypeIcon';
 import PreviewImage from '../../components/PreviewImage';  // 【H-2修复】安全预览组件
 
@@ -260,9 +260,9 @@ export default function useColumns({
             );
           }
 
-          // 【2026-08-16】悬停提示从原生 title 升级为 antd Tooltip：
-          //   原生 title 延迟约 1s、不换行、无法复制；Tooltip 即时出现、
-          //   自动换行展示完整文件名，并提供一键复制（copyToClipboard 含非安全上下文降级）。
+          // 【2026-08-16】文件名悬停提示收敛（见 components/FileNameText.js）：
+          //   仅当名称真实被截断时才显示 Tooltip（完整名称 + 一键复制），
+          //   完整可见的名字悬停不弹提示，避免扫视列表时提示闪烁。
           const displayName = record.display_name || text;
           return (
             <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
@@ -288,30 +288,7 @@ export default function useColumns({
               ) : (
                 <span style={{ width: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>{getFileTypeIcon(displayName, record.file_type, 24)}</span>
               )}
-              <Tooltip
-                placement="top"
-                title={
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, maxWidth: 440 }}>
-                    <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-all' }}>{displayName}</span>
-                    <CopyOutlined
-                      style={{ color: '#fff', cursor: 'pointer', marginTop: 2, flexShrink: 0 }}
-                      onClick={(e) => {
-                        // 阻止冒泡触发行点击（打开文件夹/预览）
-                        e.stopPropagation();
-                        copyToClipboard(displayName).then((ok) => {
-                          if (ok) {
-                            message.success('文件名已复制');
-                          } else {
-                            message.error('复制失败，请手动复制');
-                          }
-                        });
-                      }}
-                    />
-                  </div>
-                }
-              >
-                <span style={{ marginLeft: 8, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
-              </Tooltip>
+              <FileNameText name={displayName} />
               {isPublic && isCreatedByAdmin(record) && (
                 <Tag color="gold" style={{ marginLeft: 8, flexShrink: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>官方</Tag>
               )}

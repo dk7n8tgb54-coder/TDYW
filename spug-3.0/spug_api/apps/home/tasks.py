@@ -22,8 +22,8 @@ def sync_announcement_status():
     updated = Announcement.objects.filter(
         is_deleted=False,
         status=STATUS_PUBLISHED,
-        effective_end_at__gt='',          # 排除长期有效（空）
-        effective_end_at__lt=now,         # 已到失效时间
+        effective_end_at__isnull=False,  # 排除长期有效（空）；DateTimeField 不能与空字符串比较
+        effective_end_at__lt=now,        # 已到失效时间
     ).update(status=STATUS_EXPIRED)
     if updated > 0:
         log_celery_audit('update', 'home',

@@ -3,7 +3,7 @@
  * 打开时调用详情接口自动标记已读，并刷新父级未读数据。
  */
 import React, { useState, useEffect } from 'react';
-import { Drawer, Spin, Tag, Descriptions, Empty, Button, notification } from 'antd';
+import { Drawer, Spin, Tag, Descriptions, Empty, Button } from 'antd';
 import { PaperClipOutlined } from '@ant-design/icons';
 import { http } from 'libs';
 import AttachmentManager from 'components/AttachmentManager';
@@ -26,7 +26,7 @@ export default function AnnouncementDetail({ visible, announcementId, onClose, o
         setData(res);
         if (onAfterRead) onAfterRead();
       })
-      .catch(e => notification.error({ message: '加载失败', description: e.message || String(e) }))
+      .catch(() => { setData(null); /* 错误已由 http 拦截器统一提示 */ })
       .finally(() => setLoading(false));
   }, [visible, announcementId]);
 

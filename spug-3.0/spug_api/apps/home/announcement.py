@@ -310,7 +310,12 @@ class AnnouncementAdminDetailView(View):
         ann = Announcement.objects.filter(pk=pk, is_deleted=False).first()
         if not ann:
             return json_response(error='公告不存在')
-        return json_response(ann.to_view(include_content=True))
+        data = ann.to_view(include_content=True)
+        # 编辑表单回显与详情核对所需的发布范围（仅管理端返回，避免用户端泄露部门枚举）
+        scopes = list(ann.scopes.values_list('tenant_id', 'tenant_name'))
+        data['_scope_tenant_ids'] = [tid for tid, _ in scopes]
+        data['_scope_tenant_names'] = [name or tid for tid, name in scopes]
+        return json_response(data)
 
     def delete(self, request, pk):
         if not ensure_announcement_perm(request.user, 'delete'):
@@ -354,21 +359,24 @@ class AnnouncementPublishView(View):
     def post(self, request, pk):
         if not ensure_announcement_perm(request.user, 'publish'):
             return json_response(error='权限拒绝')
-        ann = Announcement.objects.filter(pk=pk, is_deleted=False).first()
-        if not ann:
-            return json_response(error='公告不存在')
-        if ann.status == STATUS_PUBLISHED:
-            return json_response(error='公告已发布，请勿重复发布')
-        now = timezone.now()
-        ann.status = STATUS_PUBLISHED
-        ann.published_at = now
-        ann.published_by_id = request.user.id
-        ann.published_by_name = request.user.nickname or request.user.username
-        ann.withdrawn_at = None
-        ann.withdrawn_by_id = None
-        ann.withdrawn_by_name = ''
-        # 保留用户填写的生效时间，compute_status 会按时间区间自然判定可见性
-        ann.save()
+        # select_for_update 串行化并发发布，防止双请求同时通过状态校验
+        with transaction.atomic():
+            ann = Announcement.objects.select_for_update().filter(
+                pk=pk, is_deleted=False).first()
+            if not ann:
+                return json_response(error='公告不存在')
+            if ann.status == STATUS_PUBLISHED:
+                return json_response(error='公告已发布，请勿重复发布')
+            now = timezone.now()
+            ann.status = STATUS_PUBLISHED
+            ann.published_at = now
+            ann.published_by_id = request.user.id
+            ann.published_by_name = request.user.nickname or request.user.username
+            ann.withdrawn_at = None
+            ann.withdrawn_by_id = None
+            ann.withdrawn_by_name = ''
+            # 保留用户填写的生效时间，compute_status 会按时间区间自然判定可见性
+            ann.save()
         record_audit_event(request, 'update', target_type='home', target_id=ann.id, target_name=ann.title)
         return json_response({'id': ann.id, 'status': ann.status, 'published_at': ann.published_at})
 
@@ -379,16 +387,19 @@ class AnnouncementWithdrawView(View):
     def post(self, request, pk):
         if not ensure_announcement_perm(request.user, 'withdraw'):
             return json_response(error='权限拒绝')
-        ann = Announcement.objects.filter(pk=pk, is_deleted=False).first()
-        if not ann:
-            return json_response(error='公告不存在')
-        if ann.status != STATUS_PUBLISHED:
-            return json_response(error='仅已发布公告可撤回')
-        ann.status = STATUS_UNPUBLISHED
-        ann.withdrawn_at = timezone.now()
-        ann.withdrawn_by_id = request.user.id
-        ann.withdrawn_by_name = request.user.nickname or request.user.username
-        ann.save()
+        # select_for_update 串行化并发撤回，防止双请求同时通过状态校验
+        with transaction.atomic():
+            ann = Announcement.objects.select_for_update().filter(
+                pk=pk, is_deleted=False).first()
+            if not ann:
+                return json_response(error='公告不存在')
+            if ann.status != STATUS_PUBLISHED:
+                return json_response(error='仅已发布公告可撤回')
+            ann.status = STATUS_UNPUBLISHED
+            ann.withdrawn_at = timezone.now()
+            ann.withdrawn_by_id = request.user.id
+            ann.withdrawn_by_name = request.user.nickname or request.user.username
+            ann.save()
         record_audit_event(request, 'update', target_type='home', target_id=ann.id, target_name=ann.title)
         return json_response({'id': ann.id, 'status': ann.status})
 

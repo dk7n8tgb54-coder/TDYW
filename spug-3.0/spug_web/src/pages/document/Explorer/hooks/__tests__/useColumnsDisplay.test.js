@@ -4,9 +4,8 @@
  * 覆盖：
  * 1. 文件名列不设固定 width（唯一弹性列，tableLayout="fixed" 下占满剩余宽度）
  * 2. 类型/大小/修改时间/创建人列为固定宽度；搜索模式追加固定宽度路径列
- * 3. 文件名单元格悬停使用 antd Tooltip 展示完整文件名，展示 span 不再挂原生 title
- * 4. Tooltip 内复制按钮：阻止行点击冒泡、复制完整文件名、成功/失败提示
- * 5. record.display_name 缺失时回退到 name 字段
+ * 3. 文件名经 FileNameText 组件渲染（截断提示与复制行为见 FileNameText.test.js）
+ * 4. record.display_name 缺失时回退到 name 字段
  */
 
 // --- Mock antd：Tooltip 用字符串标记便于在元素树中断言 ---
@@ -51,6 +50,7 @@ jest.mock('libs/http', () => ({
 }));
 
 const useColumns = require('../useColumns').default;
+const FileNameText = require('../../components/FileNameText').default;
 
 /**
  * 调用真实 useColumns 生成列配置
@@ -135,7 +135,7 @@ describe('文件名列宽方案（2026-08-16）', () => {
   });
 });
 
-describe('文件名 Tooltip 展示与复制（2026-08-16）', () => {
+describe('文件名单元格（2026-08-16 交互收敛）', () => {
   const longName = '关于开展2026年无线电管理专项行动的阶段性总结报告（附件3-修订版）.docx';
 
   function renderNameCell(record, overrides) {
@@ -148,7 +148,7 @@ describe('文件名 Tooltip 展示与复制（2026-08-16）', () => {
     mockCopyToClipboard.mockResolvedValue(true);
   });
 
-  it('悬停使用 antd Tooltip 展示完整文件名，展示 span 不再挂原生 title', () => {
+  it('文件名经 FileNameText 组件渲染，传入完整 display_name', () => {
     const el = renderNameCell({
       key: 'f1',
       name: longName,
@@ -157,76 +157,32 @@ describe('文件名 Tooltip 展示与复制（2026-08-16）', () => {
       file_type: 'application/pdf',
     });
 
-    const tooltips = findAll(el, (n) => n.type === 'ANTD_TOOLTIP');
-    expect(tooltips).toHaveLength(1);
-
-    // Tooltip 标题内容包含完整文件名（可换行展示）
-    expect(collectText(tooltips[0].props.title).join('')).toContain(longName);
-
-    // 展示 span：保留单行省略样式，且不再挂原生 title（避免双重提示）
-    const displaySpan = tooltips[0].props.children;
-    expect(displaySpan.props.title).toBeUndefined();
-    expect(displaySpan.props.style).toMatchObject({
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-      whiteSpace: 'nowrap',
-    });
-    expect(displaySpan.props.children).toBe(longName);
-  });
-
-  it('复制按钮：阻止行点击冒泡，复制完整文件名并提示成功', async () => {
-    const el = renderNameCell({
-      key: 'f2',
-      name: longName,
-      display_name: longName,
-      isFolder: false,
-      file_type: 'application/pdf',
-    });
-
-    // 复制按钮位于 Tooltip 的 title 内容中（非 children 树）
-    const tooltip = findAll(el, (n) => n.type === 'ANTD_TOOLTIP')[0];
-    const copyIcons = findAll(tooltip.props.title, (n) => n.type === 'COPY_ICON');
-    expect(copyIcons).toHaveLength(1);
-
-    const stopPropagation = jest.fn();
-    copyIcons[0].props.onClick({ stopPropagation });
-    expect(stopPropagation).toHaveBeenCalled();
-
-    await flushMicrotasks();
-    expect(mockCopyToClipboard).toHaveBeenCalledWith(longName);
-    expect(mockMessage.success).toHaveBeenCalledWith('文件名已复制');
-    expect(mockMessage.error).not.toHaveBeenCalled();
-  });
-
-  it('复制失败时提示失败且不弹成功', async () => {
-    mockCopyToClipboard.mockResolvedValueOnce(false);
-    const el = renderNameCell({
-      key: 'f3',
-      name: longName,
-      display_name: longName,
-      isFolder: false,
-      file_type: 'application/pdf',
-    });
-
-    const tooltip = findAll(el, (n) => n.type === 'ANTD_TOOLTIP')[0];
-    const copyIcon = findAll(tooltip.props.title, (n) => n.type === 'COPY_ICON')[0];
-    copyIcon.props.onClick({ stopPropagation: jest.fn() });
-
-    await flushMicrotasks();
-    expect(mockMessage.error).toHaveBeenCalledWith('复制失败，请手动复制');
-    expect(mockMessage.success).not.toHaveBeenCalled();
+    const nodes = findAll(el, (n) => n.type === FileNameText);
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].props.name).toBe(longName);
   });
 
   it('display_name 缺失时回退到 name 字段', () => {
     const el = renderNameCell({
-      key: 'f4',
+      key: 'f2',
       name: 'fallback-name.txt',
       isFolder: true,
       file_type: null,
     });
 
-    const tooltip = findAll(el, (n) => n.type === 'ANTD_TOOLTIP')[0];
-    expect(collectText(tooltip.props.title).join('')).toContain('fallback-name.txt');
-    expect(tooltip.props.children.props.children).toBe('fallback-name.txt');
+    const nodes = findAll(el, (n) => n.type === FileNameText);
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].props.name).toBe('fallback-name.txt');
+  });
+
+  it('管理员上传的文件保留官方标识 Tag（真实 isCreatedByAdmin 实现）', () => {
+    const el = renderNameCell({
+      key: 'f3',
+      name: 'x.txt',
+      created_by: '系统管理员',
+      isFolder: false,
+      file_type: 'text/plain',
+    });
+    expect(collectText(el).join('')).toContain('官方');
   });
 });

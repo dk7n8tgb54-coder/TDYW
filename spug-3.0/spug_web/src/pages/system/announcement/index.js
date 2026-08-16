@@ -56,26 +56,26 @@ function AnnouncementAdmin() {
   const doPublish = (record) => {
     http.post(`/api/home/announcement/admin/${record.id}/publish/`)
       .then(() => { notification.success({ message: '发布成功' }); fetchData(); })
-      .catch(e => notification.error({ message: '发布失败', description: e.message || String(e) }));
+      .catch(() => { /* 错误已由 http 拦截器统一提示 */ });
   };
 
   const doWithdraw = (record) => {
     http.post(`/api/home/announcement/admin/${record.id}/withdraw/`)
       .then(() => { notification.success({ message: '已撤回' }); fetchData(); })
-      .catch(e => notification.error({ message: '撤回失败', description: e.message || String(e) }));
+      .catch(() => { /* 错误已由 http 拦截器统一提示 */ });
   };
 
   const doDelete = (record) => {
     http.delete(`/api/home/announcement/admin/${record.id}/`)
       .then(() => { notification.success({ message: '已删除' }); fetchData(); })
-      .catch(e => notification.error({ message: '删除失败', description: e.message || String(e) }));
+      .catch(() => { /* 错误已由 http 拦截器统一提示 */ });
   };
 
   const openCreate = () => { setEditing(null); setFormVisible(true); };
   const openEdit = (record) => {
     http.get(`/api/home/announcement/admin/${record.id}/`)
       .then(detail => { setEditing(detail); setFormVisible(true); })
-      .catch(e => notification.error({ message: '加载失败', description: e.message || String(e) }));
+      .catch(() => { /* 错误已由 http 拦截器统一提示 */ });
   };
   const openDetail = (record) => { setDetailId(record.id); setDetailVisible(true); };
 

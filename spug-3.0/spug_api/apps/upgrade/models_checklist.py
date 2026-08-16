@@ -76,6 +76,15 @@ class UpgradeRecordStep(models.Model, ModelMixin):
             self.remark = remark
         self.save(update_fields=['status', 'completed_by', 'completed_at', 'remark'])
 
+    def mark_skipped(self, user, remark=''):
+        """标记步骤为已跳过（不计入待执行，视为该步骤已处理）"""
+        self.status = STEP_STATUS_SKIPPED
+        self.completed_by = user.nickname or user.username
+        self.completed_at = timezone.now()
+        if remark:
+            self.remark = remark
+        self.save(update_fields=['status', 'completed_by', 'completed_at', 'remark'])
+
     def reset_status(self):
         """重置步骤为待执行"""
         self.status = STEP_STATUS_PENDING

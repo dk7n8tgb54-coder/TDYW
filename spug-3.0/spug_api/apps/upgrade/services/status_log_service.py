@@ -254,6 +254,12 @@ class StatusLogService:
             return None, '回退操作必须指定"回退到"哪个阶段'
         if action == ACTION_TEST_FAIL and not phase:
             return None, '测试失败必须指定失败的阶段'
+        if action == ACTION_ROLLBACK:
+            # 回退目标必须是该记录现存步骤的阶段（按步骤顺序），
+            # 避免未知目标触发"回退到开头"式全量重置
+            phases = StatusLogService._ordered_phases(upgrade_id, user)
+            if phases and target_action not in phases:
+                return None, f'回退目标阶段 [{target_action}] 不存在，请从该记录的步骤阶段中选择'
 
         to_status, target_main_status, needs_update = StatusLogService._resolve_to_status(
             action, record.status
@@ -339,6 +345,20 @@ class StatusLogService:
             logger.info(f'[Upgrade] 阶段完成撤销 upgrade_id={upgrade_id} phase={phase}')
 
     @staticmethod
+    def _ordered_phases(upgrade_id, user):
+        """获取该升级记录步骤的阶段顺序（按步骤 sequence/id 保序去重）"""
+        from ..models_checklist import UpgradeRecordStep
+        steps = apply_tenant_filter(
+            UpgradeRecordStep.objects.filter(upgrade_id=upgrade_id), user
+        ).order_by('sequence', 'id')
+        order = []
+        for s in steps:
+            ph = (s.phase or '').strip()
+            if ph and ph not in order:
+                order.append(ph)
+        return order
+
+    @staticmethod
     def _mark_phase_done_outcome(upgrade_id, phase, outcome):
         """把指定阶段最近一条 outcome=done 的 phase_done 改为指定 outcome。"""
         log = UpgradeStatusLog.objects.filter(
@@ -355,15 +375,7 @@ class StatusLogService:
 
         阶段顺序由该升级的步骤阶段顺序决定（保序去重）。
         """
-        from ..models_checklist import UpgradeRecordStep
-        steps = apply_tenant_filter(
-            UpgradeRecordStep.objects.filter(upgrade_id=upgrade_id), user
-        ).order_by('sequence', 'id')
-        order = []
-        for s in steps:
-            ph = (s.phase or '').strip()
-            if ph and ph not in order:
-                order.append(ph)
+        order = StatusLogService._ordered_phases(upgrade_id, user)
         try:
             idx = order.index(target_phase)
         except ValueError:
@@ -382,21 +394,14 @@ class StatusLogService:
         与 _mark_rollback_phases_failed 配合：phase_done 标 failed + 步骤重置，
         使该阶段重新变为 current 待执行。
         """
-        from ..models_checklist import UpgradeRecordStep
-        steps = apply_tenant_filter(
-            UpgradeRecordStep.objects.filter(upgrade_id=upgrade_id), user
-        ).order_by('sequence', 'id')
-        order = []
-        for s in steps:
-            ph = (s.phase or '').strip()
-            if ph and ph not in order:
-                order.append(ph)
+        order = StatusLogService._ordered_phases(upgrade_id, user)
         try:
             idx = order.index(target_phase)
         except ValueError:
             idx = 0
         affected = order[idx:]
         if affected:
+            from ..models_checklist import UpgradeRecordStep
             apply_tenant_filter(
                 UpgradeRecordStep.objects.filter(
                     upgrade_id=upgrade_id, phase__in=affected
@@ -515,13 +520,5 @@ class StatusLogService:
         Returns:
             list: [{value, label}, ...]
         """
-        from ..models_checklist import UpgradeRecordStep
-        steps = apply_tenant_filter(
-            UpgradeRecordStep.objects.filter(upgrade_id=upgrade_id), user
-        ).order_by('sequence', 'id')
-        order = []
-        for s in steps:
-            ph = (s.phase or '').strip()
-            if ph and ph not in order:
-                order.append(ph)
+        order = StatusLogService._ordered_phases(upgrade_id, user)
         return [{'value': ph, 'label': ph} for ph in order]

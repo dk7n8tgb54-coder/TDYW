@@ -30,7 +30,7 @@ import logging
 import mimetypes
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 from django.http import FileResponse
 from django.views.generic import View
 from django.conf import settings
@@ -148,12 +148,14 @@ def _serialize_regulation(regulation, include_attachments=False):
         'status': regulation.status,
     }
     if include_attachments:
-        data['attachments'] = [
-            _serialize_attachment(att)
-            for att in regulation.attachments.filter(
+        # 列表视图通过 Prefetch(to_attr='active_attachments') 预取过滤后的附件，
+        # 此处优先使用预取结果；未预取时（详情等单对象场景）回退为即时查询。
+        attachments = getattr(regulation, 'active_attachments', None)
+        if attachments is None:
+            attachments = regulation.attachments.filter(
                 is_deleted=False
             ).order_by('sort_order', '-id')
-        ]
+        data['attachments'] = [_serialize_attachment(att) for att in attachments]
     return data
 
 
@@ -374,8 +376,15 @@ class RegulationListView(View):
         from libs.pagination import paginate
         page, page_size = paginate(request, default_page_size=20, max_page_size=100)
         total = qs.count()
+        # 预取过滤+排序后的附件，避免序列化时 .filter() 击穿 prefetch 造成 N+1
         items = qs.select_related('category').prefetch_related(
-            'attachments'
+            Prefetch(
+                'attachments',
+                queryset=RegulationAttachment.objects.filter(
+                    is_deleted=False
+                ).order_by('sort_order', '-id'),
+                to_attr='active_attachments',
+            )
         )[(page - 1) * page_size: page * page_size]
 
         return json_response(data={
@@ -410,11 +419,18 @@ class RegulationCreateView(View):
         if not form.rule_no:
             return json_response(error='规章编号不能为空')
 
+        form.title = form.title.strip()
+        if not form.title:
+            return json_response(error='规章名称不能为空')
+
         if form.status not in dict(Regulation.STATUS_CHOICES):
             return json_response(error='未知的规章状态')
 
+        # category_id 传 0 / 空字符串视为未选择分类
+        category_id = form.category_id or None
+
         # 校验分类存在且为叶子
-        _, cat_err = _validate_category(form.category_id, require_leaf=True)
+        _, cat_err = _validate_category(category_id, require_leaf=True)
         if cat_err:
             return json_response(error=cat_err)
 
@@ -431,6 +447,12 @@ class RegulationCreateView(View):
                 return json_response(error=date_err)
             parsed_dates[field] = parsed
 
+        # 日期先后关系校验（对应 DB 约束 reg_effective_after_publish，
+        # 在视图层提前拦截，避免 IntegrityError 变成 500）
+        if (parsed_dates['publish_date'] and parsed_dates['effective_date']
+                and parsed_dates['effective_date'] < parsed_dates['publish_date']):
+            return json_response(error='生效日期不能早于发布日期')
+
         if check_recent_duplicate(Regulation, {
             'title': form.title,
             'rule_no': form.rule_no,
@@ -440,7 +462,7 @@ class RegulationCreateView(View):
         regulation = Regulation.objects.create(
             title=form.title,
             rule_no=form.rule_no,
-            category_id=form.category_id,
+            category_id=category_id,
             issuing_authority=form.issuing_authority,
             biz_type=form.biz_type,
             publish_date=parsed_dates['publish_date'],
@@ -473,6 +495,12 @@ class RegulationDetailView(View):
         'issuing_authority': 'issuing_authority', 'biz_type': 'biz_type',
     }
 
+    # strip 后不允许为空的字段
+    _NON_EMPTY_FIELD_LABELS = {
+        'title': '规章名称',
+        'rule_no': '规章编号',
+    }
+
     # 日期字段名 → 中文标签
     _DATE_FIELD_MAP = {
         'publish_date': '发布日期',
@@ -480,22 +508,27 @@ class RegulationDetailView(View):
     }
 
     def _apply_plain_fields(self, regulation, form):
-        """普通字段：val is not None 时更新；rule_no 需 strip 且非空"""
+        """普通字段：val is not None 时更新；title/rule_no 需 strip 且非空"""
         changed = {}
         for arg_name, field_name in self._PLAIN_FIELD_MAP.items():
             val = getattr(form, arg_name, None)
-            if field_name == 'rule_no' and val is not None:
+            if field_name in self._NON_EMPTY_FIELD_LABELS and val is not None:
                 val = val.strip()
                 if not val:
-                    return '规章编号不能为空', None
+                    return f'{self._NON_EMPTY_FIELD_LABELS[field_name]}不能为空', None
             if val is not None and getattr(regulation, field_name) != val:
                 setattr(regulation, field_name, val)
                 changed[field_name] = val
         return None, changed
 
     def _apply_category(self, regulation, form):
-        """分类字段：校验存在且为叶子"""
+        """分类字段：校验存在且为叶子；0/空字符串视为清空分类"""
         if form.category_id is None:
+            return None, {}
+        if not form.category_id:
+            if regulation.category_id is not None:
+                regulation.category_id = None
+                return None, {'category_id': None}
             return None, {}
         _, cat_err = _validate_category(form.category_id, require_leaf=True)
         if cat_err:
@@ -561,6 +594,12 @@ class RegulationDetailView(View):
                 return json_response(error=err)
             if partial:
                 changed.update(partial)
+
+        # 日期先后关系校验（对应 DB 约束 reg_effective_after_publish，
+        # 用应用后的最终值判断，在视图层提前拦截，避免 IntegrityError 变成 500）
+        if (regulation.publish_date and regulation.effective_date
+                and regulation.effective_date < regulation.publish_date):
+            return json_response(error='生效日期不能早于发布日期')
 
         regulation.updated_by = request.user
         regulation.updated_at = timezone.now()

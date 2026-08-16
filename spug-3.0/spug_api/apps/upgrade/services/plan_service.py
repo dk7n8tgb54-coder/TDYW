@@ -328,6 +328,11 @@ class PlanService:
                     )
                     created.append(record_step)
 
+            # 应用方案引入待执行步骤后检查主表状态
+            # （已完成记录存在待执行步骤 → 回退处理中）
+            from .step_service import RecordStepService
+            RecordStepService._check_and_update_record_status(upgrade_id, user)
+
             return {'created_count': len(created), 'deleted_count': deleted_count}, None
         except Exception as e:
             logger.error(f'[Upgrade] 应用方案失败: {e}', exc_info=True)

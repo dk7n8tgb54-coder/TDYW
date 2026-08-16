@@ -23,24 +23,24 @@ export default function AnnouncementDetail({ announcementId, onClose, onChanged 
     setLoading(true);
     http.get(`/api/home/announcement/admin/${announcementId}/`)
       .then(res => setData(res))
-      .catch(e => { setData(null); notification.error({ message: '加载失败', description: e.message || String(e) }); })
+      .catch(() => { setData(null); /* 错误已由 http 拦截器统一提示 */ })
       .finally(() => setLoading(false));
   }, [announcementId]);
 
   const doPublish = () => {
     http.post(`/api/home/announcement/admin/${announcementId}/publish/`)
       .then(() => { notification.success({ message: '发布成功' }); setData({ ...data, computed_status: 'published' }); if (onChanged) onChanged(); })
-      .catch(e => notification.error({ message: '发布失败', description: e.message || String(e) }));
+      .catch(() => { /* 错误已由 http 拦截器统一提示 */ });
   };
   const doWithdraw = () => {
     http.post(`/api/home/announcement/admin/${announcementId}/withdraw/`)
       .then(() => { notification.success({ message: '已撤回' }); setData({ ...data, computed_status: 'unpublished' }); if (onChanged) onChanged(); })
-      .catch(e => notification.error({ message: '撤回失败', description: e.message || String(e) }));
+      .catch(() => { /* 错误已由 http 拦截器统一提示 */ });
   };
   const doDelete = () => {
     http.delete(`/api/home/announcement/admin/${announcementId}/`)
       .then(() => { notification.success({ message: '已删除' }); if (onChanged) onChanged(); onClose(); })
-      .catch(e => notification.error({ message: '删除失败', description: e.message || String(e) }));
+      .catch(() => { /* 错误已由 http 拦截器统一提示 */ });
   };
 
   const status = data ? STATUS_TAG[data.computed_status] || STATUS_TAG.unpublished : null;
@@ -67,7 +67,11 @@ export default function AnnouncementDetail({ announcementId, onClose, onChanged 
             {status && <Tag color={status.color}>{status.text}</Tag>}
           </div>
           <Descriptions column={1} size="small" bordered style={{ marginBottom: 16 }}>
-            <Descriptions.Item label="发布范围">{data.scope_label}</Descriptions.Item>
+            <Descriptions.Item label="发布范围">
+              {data.scope_label}
+              {data._scope_tenant_names && data._scope_tenant_names.length > 0 &&
+                `（${data._scope_tenant_names.join('、')}）`}
+            </Descriptions.Item>
             <Descriptions.Item label="发布部门">{data.publish_department_name || '-'}</Descriptions.Item>
             <Descriptions.Item label="生效时间">
               {data.effective_start_at || '-'}{data.effective_end_at ? ` 至 ${data.effective_end_at}` : '（长期）'}

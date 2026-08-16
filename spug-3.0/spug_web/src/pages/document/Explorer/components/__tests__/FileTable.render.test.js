@@ -129,9 +129,9 @@ describe('FileTable 基础渲染', () => {
   });
 
   it('空数据时渲染公共空间空状态文案', async () => {
-    // rc-table 的空状态内容依赖实测宽度（componentWidth 为 0 时有意不渲染），
-    // 宽度由 rc-resize-observer 内置 polyfill 异步上报（getBoundingClientRect），
-    // jsdom 无布局，需桩掉测量 API 并 flush 一轮异步回调
+    // rc-table 的空状态内容依赖实测宽度（componentWidth 为 0 时有意不渲染）。
+    // jsdom 无布局且 rc-resize-observer 内置 polyfill 的初始回调不触发，
+    // 借助其官方 dev 测试钩子 _el/_rs 驱动 onResize，配合测量 API 桩补齐宽度
     const widthDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
     const rectDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'getBoundingClientRect');
     Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
@@ -145,8 +145,11 @@ describe('FileTable 基础渲染', () => {
     };
     try {
       renderTable({ dataSource: [] });
+      // eslint-disable-next-line global-require
+      const { _el, _rs } = require('rc-resize-observer/lib/utils/observerUtil');
+      const entities = Array.from(_el.keys()).map((target) => ({ target }));
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        _rs(entities);
       });
       expect(container.querySelector('.ant-table-placeholder').textContent).toContain(
         '暂无公共共享文件'

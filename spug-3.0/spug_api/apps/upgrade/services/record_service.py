@@ -105,29 +105,33 @@ class RecordService:
         if error:
             return None, error
 
-        # 更新可编辑字段
-        editable_fields = ['title', 'system', 'upgrade_type', 'status', 'owner',
-                           'upgrade_content', 'impact_scope', 'risk_desc', 'rollback_plan']
-        for field in editable_fields:
-            value = getattr(data, field, None)
-            if value is not None:
-                setattr(record, field, value)
+        try:
+            # 更新可编辑字段
+            editable_fields = ['title', 'system', 'upgrade_type', 'status', 'owner',
+                               'upgrade_content', 'impact_scope', 'risk_desc', 'rollback_plan']
+            for field in editable_fields:
+                value = getattr(data, field, None)
+                if value is not None:
+                    setattr(record, field, value)
 
-        # upgrade_time 特殊处理：datetime → 字符串
-        upgrade_time = getattr(data, 'upgrade_time', None)
-        if upgrade_time is not None:
-            if hasattr(upgrade_time, 'strftime'):
-                record.upgrade_time = upgrade_time.strftime('%Y-%m-%d %H:%M:%S')
-            else:
-                record.upgrade_time = upgrade_time
+            # upgrade_time 特殊处理：datetime → 字符串
+            upgrade_time = getattr(data, 'upgrade_time', None)
+            if upgrade_time is not None:
+                if hasattr(upgrade_time, 'strftime'):
+                    record.upgrade_time = upgrade_time.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    record.upgrade_time = upgrade_time
 
-        record.updated_at = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
-        record.updated_by = user
-        record.save(update_fields=[
-            'title', 'system', 'upgrade_type', 'upgrade_time', 'status', 'owner',
-            'upgrade_content', 'impact_scope', 'risk_desc', 'rollback_plan',
-            'updated_at', 'updated_by',
-        ])
+            record.updated_at = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+            record.updated_by = user
+            record.save(update_fields=[
+                'title', 'system', 'upgrade_type', 'upgrade_time', 'status', 'owner',
+                'upgrade_content', 'impact_scope', 'risk_desc', 'rollback_plan',
+                'updated_at', 'updated_by',
+            ])
+        except Exception as e:
+            logger.error(f'[Upgrade] 更新升级表单失败: {e}', exc_info=True)
+            return None, f'更新升级表单失败: {str(e)}'
 
         return record, None
 

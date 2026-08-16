@@ -107,7 +107,8 @@ class RecordStepService:
             'completed': completed,
             'skipped': skipped,
             'pending': pending,
-            'progress': round(completed / total * 100, 1) if total > 0 else 0,
+            # 完成度与主表自动完成判定一致：completed/skipped 均视为已处理
+            'progress': round((completed + skipped) / total * 100, 1) if total > 0 else 0,
         }
 
     @staticmethod
@@ -129,8 +130,12 @@ class RecordStepService:
 
         now_str = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
 
-        # 自动计算序号
-        max_seq = UpgradeRecordStep.objects.filter(is_deleted=False, upgrade_id=upgrade_id).count()
+        # 自动计算序号：取当前最大 sequence + 1（软删除步骤不再参与计数，
+        # 避免与现存步骤序号重复）
+        from django.db.models import Max
+        max_seq = UpgradeRecordStep.objects.filter(
+            is_deleted=False, upgrade_id=upgrade_id
+        ).aggregate(max_seq=Max('sequence'))['max_seq'] or 0
 
         step = UpgradeRecordStep.objects.create(
             tenant_id=user.tenant_id,
@@ -142,6 +147,10 @@ class RecordStepService:
             sequence=getattr(data, 'sequence', None) or (max_seq + 1),
             is_required=getattr(data, 'is_required', True) if getattr(data, 'is_required', None) is not None else True,
         )
+
+        # 新增待执行步骤后检查主表状态（已完成存在待执行步骤 → 回退处理中）
+        RecordStepService._check_and_update_record_status(upgrade_id, user)
+
         return step, None
 
     @staticmethod
@@ -163,11 +172,14 @@ class RecordStepService:
         if action == 'complete':
             step.mark_completed(user, remark)
             StatusLogService.check_phase_completion(step.upgrade_id, user, phase)
+        elif action == 'skip':
+            step.mark_skipped(user, remark)
+            StatusLogService.check_phase_completion(step.upgrade_id, user, phase)
         elif action == 'reset':
             step.reset_status()
             StatusLogService.on_step_reset(step.upgrade_id, user, phase)
         else:
-            return None, '无效操作，支持: complete/reset'
+            return None, '无效操作，支持: complete/skip/reset'
 
         # 检查是否所有步骤已完成，自动更新升级记录状态
         RecordStepService._check_and_update_record_status(step.upgrade_id, user)
@@ -226,6 +238,9 @@ class RecordStepService:
                     phase = step.phase or ''
                     if action == 'complete':
                         step.mark_completed(user, remark)
+                        affected.append((phase, False))
+                    elif action == 'skip':
+                        step.mark_skipped(user, remark)
                         affected.append((phase, False))
                     elif action == 'reset':
                         step.reset_status()

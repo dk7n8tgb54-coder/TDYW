@@ -21,11 +21,11 @@ from apps.logs.audit import record_audit_event
 logger = logging.getLogger(__name__)
 
 # 导出列定义：(字段, 表头)
+# 注意：UpgradeRecord 无 version 字段（旧模型遗留），导出不再包含"版本"空列
 EXCEL_COLUMNS = [
     ('title', '标题'),
     ('system', '系统'),
     ('upgrade_type', '升级类型'),
-    ('version', '版本'),
     ('upgrade_time', '升级时间'),
     ('status', '状态'),
     ('owner', '负责人'),

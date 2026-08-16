@@ -62,7 +62,7 @@ export default function AnnouncementForm({ record, departments, onCancel, onOk }
       setSaving(true);
       http.post('/api/home/announcement/admin/', payload)
         .then(() => { notification.success({ message: record ? '保存成功' : '创建成功' }); onOk(); })
-        .catch(e => notification.error({ message: '保存失败', description: e.message || String(e) }))
+        .catch(() => { /* 错误已由 http 拦截器统一提示 */ })
         .finally(() => setSaving(false));
     }).catch(() => {});
   };

@@ -1,23 +1,21 @@
 /**
- * Bug 3 前端佐证测试：编辑公告时 scope_tenant_ids 丢失
+ * Bug 3 回归测试：编辑公告时已选部门回显（已修复）
  *
- * 缺陷描述：
- *   后端 AnnouncementAdminDetailView 返回 ann.to_view(include_content=True)，
- *   但 to_view() 不包含 _scope_tenant_ids 字段。
- *   前端 Form.js 编辑初始化时从 record._scope_tenant_ids 取值，
- *   该值始终为 undefined，导致 target_tenant_ids 被设为空数组。
- *   保存时空数组传给后端，_sync_scopes 清空所有范围记录。
+ * 原缺陷：
+ *   管理端详情接口不返回 _scope_tenant_ids，Form.js 编辑初始化时
+ *   record._scope_tenant_ids 恒为 undefined，部门选择框永远为空，
+ *   管理员被迫盲选重选。
  *
- * 验证方式：
- *   模拟后端返回的详情数据和前端 Form.js 的初始化逻辑，
- *   证明 target_tenant_ids 始终为空。
+ * 修复：
+ *   AnnouncementAdminDetailView 返回 _scope_tenant_ids / _scope_tenant_names，
+ *   Form.js 既有逻辑（record._scope_tenant_ids || []）无需改动即可回填。
  */
 
 // ============================================================
-// 模拟后端 to_view() 返回的数据（不含 _scope_tenant_ids）
+// 模拟修复后的后端详情响应（AnnouncementAdminDetailView.get）
 // ============================================================
-function mockBackendDetailView(scopeType) {
-  return {
+function mockBackendDetailView(scopeType, scopeTenantIds = [], scopeTenantNames = []) {
+  const data = {
     id: 42,
     title: '测试公告',
     content: '公告内容',
@@ -40,38 +38,36 @@ function mockBackendDetailView(scopeType) {
     updated_at: null,
     updated_by_name: '',
     attachment_count: 0,
-    // 注意：后端 to_view() 不返回 _scope_tenant_ids
   };
+  if (scopeType === 'tenant') {
+    data._scope_tenant_ids = scopeTenantIds;
+    data._scope_tenant_names = scopeTenantNames;
+  }
+  return data;
 }
 
 // ============================================================
-// 模拟 Form.js 编辑初始化逻辑（Form.js:20-42）
+// 模拟 Form.js 编辑初始化逻辑（Form.js useEffect，未改动）
 // ============================================================
 function simulateFormInit(record) {
-  const SCOPE_ALL = 'all';
   const SCOPE_TENANT = 'tenant';
-
-  const init = {
+  return {
     title: record.title,
     content: record.content,
     scope_type: record.scope_type,
     target_tenant_ids: record.scope_type === SCOPE_TENANT
-      ? (record._scope_tenant_ids || [])   // ← 关键：后端不返回此字段
+      ? (record._scope_tenant_ids || [])
       : [],
     publish_department_id: record.publish_department_id || undefined,
     is_important: record.is_important,
   };
-
-  return init;
 }
 
 // ============================================================
-// 模拟 Form.js 保存 payload 构造逻辑（Form.js:44-61）
+// 模拟 Form.js 保存 payload 构造逻辑（Form.js handleOk，未改动）
 // ============================================================
 function simulateFormSavePayload(formValues, record) {
-  const SCOPE_ALL = 'all';
   const SCOPE_TENANT = 'tenant';
-
   const payload = {
     title: (formValues.title || '').trim(),
     content: formValues.content,
@@ -89,55 +85,52 @@ function simulateFormSavePayload(formValues, record) {
 }
 
 // ============================================================
-describe('Bug 3 前端佐证：编辑时 target_tenant_ids 始终为空', () => {
-  test('后端详情不返回 _scope_tenant_ids 字段', () => {
-    const detail = mockBackendDetailView('tenant');
+describe('Bug 3 修复回归：编辑时已选部门正确回显', () => {
+  test('管理端详情返回 _scope_tenant_ids 与 _scope_tenant_names', () => {
+    const detail = mockBackendDetailView(
+      'tenant', ['t_target1', 't_target2'], ['目标部门1', '目标部门2']);
 
-    // 核心断言：后端 to_view() 不包含 _scope_tenant_ids
-    expect(detail).not.toHaveProperty('_scope_tenant_ids');
-    expect(detail._scope_tenant_ids).toBeUndefined();
+    expect(detail._scope_tenant_ids).toEqual(['t_target1', 't_target2']);
+    expect(detail._scope_tenant_names).toEqual(['目标部门1', '目标部门2']);
   });
 
-  test('编辑指定部门公告时，初始化后 target_tenant_ids 为空数组', () => {
-    const detail = mockBackendDetailView('tenant');
+  test('编辑指定部门公告时，初始化回填已选部门', () => {
+    const detail = mockBackendDetailView(
+      'tenant', ['t_target1', 't_target2'], ['目标部门1', '目标部门2']);
     const formValues = simulateFormInit(detail);
 
-    // 断言：target_tenant_ids 被设为空数组（因为 _scope_tenant_ids 为 undefined）
-    expect(formValues.target_tenant_ids).toEqual([]);
+    // 修复后：部门选择框回填原有选择，不再是空数组
+    expect(formValues.target_tenant_ids).toEqual(['t_target1', 't_target2']);
     expect(formValues.scope_type).toBe('tenant');
   });
 
-  test('编辑全平台公告时，target_tenant_ids 也为空数组（正确行为）', () => {
-    const detail = mockBackendDetailView('all');
-    const formValues = simulateFormInit(detail);
-
-    // 全平台公告不需要 target_tenant_ids，空数组是正确的
-    expect(formValues.target_tenant_ids).toEqual([]);
-    expect(formValues.scope_type).toBe('all');
-  });
-
-  test('保存 payload 中 target_tenant_ids 为空数组', () => {
-    // 模拟完整的编辑流程
-    const detail = mockBackendDetailView('tenant');
+  test('保存 payload 携带回显的部门，编辑不再丢失发布范围', () => {
+    const detail = mockBackendDetailView(
+      'tenant', ['t_target1', 't_target2'], ['目标部门1', '目标部门2']);
     const formValues = simulateFormInit(detail);
     const payload = simulateFormSavePayload(formValues, detail);
 
-    // 断言：保存时 target_tenant_ids 为空数组
-    expect(payload.target_tenant_ids).toEqual([]);
+    expect(payload.target_tenant_ids).toEqual(['t_target1', 't_target2']);
     expect(payload.id).toBe(42);
     expect(payload.scope_type).toBe('tenant');
   });
 
-  test('即使后端返回了 _scope_tenant_ids，前端也能正确处理（对照组）', () => {
-    // 模拟修复后的后端返回
-    const fixedDetail = mockBackendDetailView('tenant');
-    fixedDetail._scope_tenant_ids = ['t_target1', 't_target2'];
+  test('全平台公告不带 scope 字段（正确行为）', () => {
+    const detail = mockBackendDetailView('all');
 
-    const formValues = simulateFormInit(fixedDetail);
-    const payload = simulateFormSavePayload(formValues, fixedDetail);
+    expect(detail).not.toHaveProperty('_scope_tenant_ids');
+    const formValues = simulateFormInit(detail);
+    expect(formValues.target_tenant_ids).toEqual([]);
+  });
 
-    // 修复后应正确回填
-    expect(formValues.target_tenant_ids).toEqual(['t_target1', 't_target2']);
-    expect(payload.target_tenant_ids).toEqual(['t_target1', 't_target2']);
+  test('管理端详情页可展示目标部门名称（核对发布范围）', () => {
+    // 模拟修复后 Detail.js 发布范围行的渲染逻辑
+    const detail = mockBackendDetailView(
+      'tenant', ['t_target1', 't_target2'], ['目标部门1', '目标部门2']);
+    let rendered = detail.scope_label;
+    if (detail._scope_tenant_names && detail._scope_tenant_names.length > 0) {
+      rendered += `（${detail._scope_tenant_names.join('、')}）`;
+    }
+    expect(rendered).toBe('指定部门（目标部门1、目标部门2）');
   });
 });

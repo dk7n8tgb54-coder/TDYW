@@ -17,6 +17,20 @@ import { AttachmentManager } from 'components';
 const ALLOWED_ACCEPT = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.png,.jpg,.jpeg,.gif,.bmp,.webp';
 const MAX_FILE_SIZE_MB = 200;
 
+// 构造提交载荷：清空后的日期/分类字段必须以空字符串显式传给后端。
+// antd 清空 DatePicker/Select 后取值为 undefined，JSON.stringify 会直接丢键，
+// 后端 PUT 无法区分"未提供"与"清空"，导致用户清空字段保存后数值依旧保留。
+export function buildRegulationPayload(formData) {
+  const payload = { ...formData };
+  ['publish_date', 'effective_date'].forEach(f => {
+    payload[f] = payload[f] ? payload[f].format('YYYY-MM-DD') : '';
+  });
+  if (payload.category_id === undefined || payload.category_id === null) {
+    payload.category_id = '';
+  }
+  return payload;
+}
+
 export default observer(function () {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
@@ -39,14 +53,9 @@ export default observer(function () {
 
   function handleSubmit() {
     form.validateFields().then(() => {
-      const formData = form.getFieldsValue();
-      ['publish_date', 'effective_date'].forEach(f => {
-        if (formData[f]) {
-          formData[f] = formData[f].format('YYYY-MM-DD');
-        }
-      });
+      const payload = buildRegulationPayload(form.getFieldsValue());
       setLoading(true);
-      http.post('/api/regulation/create/', formData)
+      http.post('/api/regulation/create/', payload)
         .then(() => {
           message.success('操作成功');
           S.formVisible = false;
@@ -59,14 +68,9 @@ export default observer(function () {
 
   function handleUpdate() {
     form.validateFields().then(() => {
-      const formData = form.getFieldsValue();
-      ['publish_date', 'effective_date'].forEach(f => {
-        if (formData[f]) {
-          formData[f] = formData[f].format('YYYY-MM-DD');
-        }
-      });
+      const payload = buildRegulationPayload(form.getFieldsValue());
       setLoading(true);
-      http.put(`/api/regulation/${info.id}/`, formData)
+      http.put(`/api/regulation/${info.id}/`, payload)
         .then(() => {
           message.success('编辑成功');
           S.formVisible = false;
