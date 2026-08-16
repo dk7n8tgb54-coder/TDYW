@@ -28,16 +28,31 @@ until mysqladmin ping -h 127.0.0.1 -u root -p"${MYSQL_ROOT_PASSWORD}" --silent 2
 done
 echo "[Entrypoint] MySQL 已就绪"
 
-# 自动确保应用账号存在（每次启动都检查，已有则跳过）
+# 自动确保应用账号存在
+# 必须先只读查询账号是否存在、不存在才执行 CREATE USER：
+# CREATE USER ... IDENTIFIED BY '<明文>' 会被 MariaDB 原样写入 binlog，
+# 每次启动都执行（含 IF NOT EXISTS）会导致明文密码反复留痕；SELECT 不会写 binlog
 if [ -n "${MYSQL_USER}" ] && [ -n "${MYSQL_PASSWORD}" ]; then
     echo "[Entrypoint] 检查应用账号 ${MYSQL_USER}..."
+    USER_EXISTS=$(mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -N -e "
+        SELECT COUNT(*) FROM mysql.user WHERE user='${MYSQL_USER}' AND host='%';
+    " 2>/dev/null)
+    if [ "${USER_EXISTS}" = "0" ]; then
+        echo "[Entrypoint] 应用账号不存在，开始创建 ${MYSQL_USER}..."
+        mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e "
+            CREATE USER '${MYSQL_USER}'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}';
+        " 2>/dev/null && echo "[Entrypoint] 应用账号 ${MYSQL_USER} 已创建" \
+          || echo "[Entrypoint] 警告: 应用账号创建失败，请手动检查"
+    else
+        echo "[Entrypoint] 应用账号 ${MYSQL_USER} 已存在，跳过创建"
+    fi
+    # 权限补授语句不含密码，每次启动幂等执行（账号权限缺失时自动修复）
     mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e "
-        CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}';
         GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES
         ON ${MYSQL_DATABASE:-tdyw}.* TO '${MYSQL_USER}'@'%';
         FLUSH PRIVILEGES;
-    " 2>/dev/null && echo "[Entrypoint] 应用账号 ${MYSQL_USER} 已就绪" \
-      || echo "[Entrypoint] 警告: 应用账号检查失败，请手动检查"
+    " 2>/dev/null && echo "[Entrypoint] 应用账号 ${MYSQL_USER} 权限已确认" \
+      || echo "[Entrypoint] 警告: 应用账号权限确认失败，请手动检查"
 fi
 
 # 等待 MySQL 主进程退出

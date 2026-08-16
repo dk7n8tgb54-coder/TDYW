@@ -58,17 +58,32 @@ def _fmt_decimal(value):
     return str(value)
 
 
-def _validate_and_fill_responsible_user(form):
-    """校验责任人账号存在性并回填真实姓名
+def _validate_and_fill_responsible_user(form, request_user):
+    """校验合同协议责任人账号并回填真实姓名。
+
+    与执照/批复侧校验规则一致：
+    1. 必须存在且 is_active=True；
+    2. deleted_by_id IS NULL（未软删）；
+    3. tenant_id 必须等于当前请求用户 tenant_id（超管除外，但仍要求账号未删除且启用）；
+    4. 服务端用 nickname or username 回填 responsible_user_name；
+    5. 不信任客户端传入的 responsible_user_name。
 
     Returns: 错误消息字符串；None 表示通过
     """
     from apps.account.models import User as UserModel
     user = UserModel.objects.filter(
-        pk=form.responsible_user_id, is_active=True
+        pk=form.responsible_user_id,
+        is_active=True,
+        deleted_by_id__isnull=True,
     ).first()
     if not user:
         return '责任人不存在或已禁用，请重新选择'
+
+    # 超管可跨租户配置；普通用户必须与本租户一致
+    if not getattr(request_user, 'is_supper', False):
+        if getattr(user, 'tenant_id', None) != getattr(request_user, 'tenant_id', None):
+            return '责任人不存在或已禁用，请重新选择'
+
     form.responsible_user_name = user.nickname or user.username
     return None
 
@@ -103,7 +118,7 @@ def _serialize_agreement(agreement, user=None, include_attachment_count=True):
     return data
 
 
-def _validate_form(form):
+def _validate_form(form, request_user):
     valid_start_date, error = _parse_date(form.valid_start_date, '起始日期')
     if error:
         return None, error
@@ -131,8 +146,8 @@ def _validate_form(form):
     else:
         fee_detail = ''
 
-    # 责任人校验（存在性 + 回填姓名），status 由扫描任务实时计算，此处不设置
-    responsible_user_err = _validate_and_fill_responsible_user(form)
+    # 责任人校验（存在性/租户一致性 + 回填姓名），status 由扫描任务实时计算，此处不设置
+    responsible_user_err = _validate_and_fill_responsible_user(form, request_user)
     if responsible_user_err:
         return None, responsible_user_err
 
@@ -265,6 +280,11 @@ class ContractAgreementView(View):
         err = self._validate_edit_form(agreement, form)
         if err:
             return json_response(error=err)
+        # 编辑传入了责任人时同样校验（存在性/租户一致性 + 服务端回填姓名）
+        if form.responsible_user_id is not None:
+            responsible_user_err = _validate_and_fill_responsible_user(form, request.user)
+            if responsible_user_err:
+                return json_response(error=responsible_user_err)
         # 只更新传入的非 None 字段
         update_data = {k: v for k, v in form.items() if v is not None and k != 'id'}
         for key, value in update_data.items():
@@ -296,7 +316,7 @@ class ContractAgreementView(View):
         for field, label in required.items():
             if not form.get(field):
                 return json_response(error=f'请输入{label}')
-        data, error = _validate_form(form)
+        data, error = _validate_form(form, request.user)
         if error:
             return json_response(error=error)
         assign_tenant_id(data, request.user)

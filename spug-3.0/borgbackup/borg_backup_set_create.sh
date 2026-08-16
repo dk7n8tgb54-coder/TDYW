@@ -8,16 +8,17 @@
 # 仓库：本地 borg repo（加密 repokey-blake2），路径从 borg.env 的 BORG_REPO 读取。
 #       BORG_PASSPHRASE 必需，用于访问加密 repo。
 #
-# 远程推送（PUSH_REMOTE=YES 时启用）：在本地 archive 创建并恢复应用后，
-#       再向远程机的独立 borg repo 推送一份去重增量 archive。远程机需先 borg init
-#       repo + 配 SSH 免密。不启用时在 borg.env 中设 PUSH_REMOTE=NO。
+# 远程推送（PUSH_REMOTE=YES 时启用）：本地 archive 创建并校验后、应用解冻前，
+#       向远程机的独立 borg repo 推送一份去重增量 archive（与本地同一停写窗口，数据一致）。
+#       远程机需先 borg init repo + 配 SSH 免密。不启用时在 borg.env 中设 PUSH_REMOTE=NO。
 #
 # 一致性流程：
 #   获取全局锁 → 前置检查 → 停入口/beat/worker → 停 tdyw 容器（DB 保持运行）
 #   → mariadb-dump --single-transaction → archive_binlog（FLUSH BINARY LOGS + 复制 binlog）
 #   → borg create（dump + documents卷 + media卷 + binlog + manifest）
-#   → borg check --repository-only → 启动 tdyw + 健康检查 → borg prune（GFS）
-#   → 可选 borg create 远程仓库（PUSH_REMOTE=YES 时，推远程机）
+#   → borg check --repository-only → 可选 borg create 远程仓库（PUSH_REMOTE=YES 时，推远程机）
+#   → 启动 tdyw + 健康检查 → borg prune（GFS）+ borg compact（回收磁盘空间）
+#   （本地与远程 archive 都落盘并校验后才解冻恢复应用；prune/compact 在恢复后执行，不占停机窗口）
 #
 # 产物：一个 borg archive（命名 tdyw-YYYYMMDD-HHMMSS），含：
 #   - database.sql.gz（mariadb-dump 逻辑全量）
@@ -56,6 +57,11 @@
 #   BORG_ENV_FILE       borg 配置文件（0600），含 BORG_REPO / BORG_PASSPHRASE
 #                       （+ 可选 BORG_REMOTE_REPO / BORG_REMOTE_PASSPHRASE / PUSH_REMOTE）
 #   BORG_COMPRESSION    默认 zstd,3
+#   PRUNE_KEEP_WITHIN / PRUNE_KEEP_DAILY / PRUNE_KEEP_WEEKLY / PRUNE_KEEP_MONTHLY
+#                       本地保留策略，默认 2d / 7 / 4 / 6（可在 borg.env 中覆盖）
+#   REMOTE_PRUNE_KEEP_WITHIN / REMOTE_PRUNE_KEEP_DAILY / REMOTE_PRUNE_KEEP_WEEKLY /
+#   REMOTE_PRUNE_KEEP_MONTHLY
+#                       远程保留策略，默认 7d / 14 / 8 / 12（可在 borg.env 中覆盖）
 #   BORG_RSH            远程 SSH 命令，默认 ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new
 #                       （用默认 SSH key；如需指定 key 在 borg.env 中设 BORG_RSH="ssh -i /path/to/key ..."）
 #   DRY_RUN             YES（默认，只 preflight）/ NO
@@ -89,6 +95,16 @@ PUSH_REMOTE="${PUSH_REMOTE:-NO}"
 BORG_COMPRESSION="${BORG_COMPRESSION:-zstd,3}"
 BORG_RSH="${BORG_RSH:-ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new}"
 
+# 保留策略（可在 borg.env 中覆盖；KEEP_WITHIN 为 borg 时长格式，如 2d/1w/30d）
+PRUNE_KEEP_WITHIN="${PRUNE_KEEP_WITHIN:-2d}"
+PRUNE_KEEP_DAILY="${PRUNE_KEEP_DAILY:-7}"
+PRUNE_KEEP_WEEKLY="${PRUNE_KEEP_WEEKLY:-4}"
+PRUNE_KEEP_MONTHLY="${PRUNE_KEEP_MONTHLY:-6}"
+REMOTE_PRUNE_KEEP_WITHIN="${REMOTE_PRUNE_KEEP_WITHIN:-7d}"
+REMOTE_PRUNE_KEEP_DAILY="${REMOTE_PRUNE_KEEP_DAILY:-14}"
+REMOTE_PRUNE_KEEP_WEEKLY="${REMOTE_PRUNE_KEEP_WEEKLY:-8}"
+REMOTE_PRUNE_KEEP_MONTHLY="${REMOTE_PRUNE_KEEP_MONTHLY:-12}"
+
 DRY_RUN="${DRY_RUN:-YES}"
 APP_STOP_TIMEOUT="${APP_STOP_TIMEOUT:-900}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
@@ -110,7 +126,9 @@ DB_ACCOUNT=""
 DB_VERSION=""
 CONTAINER_CNF=""
 LOCAL_ARCHIVE_CREATED=0
+LOCAL_ARCHIVE_VERIFIED=0
 REMOTE_ARCHIVE_CREATED=0
+REMOTE_ARCHIVE_VERIFIED=0
 CURRENT_STAGE="preflight"
 STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 BINLOG_DIR=""
@@ -173,15 +191,16 @@ cleanup() {
     trap - EXIT INT TERM
     set +e
     FREEZE_SECONDS=$(($(date +%s) - FREEZE_STARTED_EPOCH))
-    # 失败时删除未完成 archive（本地 + 远程），避免 borg list 出现半成品
-    if [ "${LOCAL_ARCHIVE_CREATED}" -eq 1 ] && [ "${rc}" -ne 0 ]; then
+    # 失败时只删除“已创建但未通过校验”的 archive（本地 + 远程），避免 borg list 出现半成品。
+    # 已通过校验的 archive 即使后续 prune/compact/远程推送失败也保留，防止丢掉当次有效备份。
+    if [ "${LOCAL_ARCHIVE_CREATED}" -eq 1 ] && [ "${LOCAL_ARCHIVE_VERIFIED}" -ne 1 ] && [ "${rc}" -ne 0 ]; then
         CURRENT_STAGE="cleanup_local_archive"
-        log "deleting incomplete local archive ${ARCHIVE_NAME}"
+        log "deleting unverified local archive ${ARCHIVE_NAME}"
         borg delete --stats "${BORG_REPO}::${ARCHIVE_NAME}" >/dev/null 2>&1 || true
     fi
-    if [ "${REMOTE_ARCHIVE_CREATED}" -eq 1 ] && [ "${rc}" -ne 0 ]; then
+    if [ "${REMOTE_ARCHIVE_CREATED}" -eq 1 ] && [ "${REMOTE_ARCHIVE_VERIFIED}" -ne 1 ] && [ "${rc}" -ne 0 ]; then
         CURRENT_STAGE="cleanup_remote_archive"
-        log "deleting incomplete remote archive ${ARCHIVE_NAME}"
+        log "deleting unverified remote archive ${ARCHIVE_NAME}"
         BORG_PASSPHRASE="${BORG_REMOTE_PASSPHRASE}" BORG_RSH="${BORG_RSH}" \
             borg delete --stats "${BORG_REMOTE_REPO}::${ARCHIVE_NAME}" >/dev/null 2>&1 || true
     fi
@@ -270,6 +289,15 @@ preflight() {
     # DB_NAME 在 load_borg_env 之后解析，防止 borg.env 中的空赋值覆盖自动探测值
     [ -z "${DB_NAME}" ] && DB_NAME="$(docker exec "${DB_CONTAINER}" sh -c 'printf %s "${MYSQL_DATABASE:-}"')"
     [ -n "${DB_NAME}" ] || fail "DB_NAME is empty and MYSQL_DATABASE is unavailable in ${DB_CONTAINER}"
+    # 保留策略参数校验（在 load_borg_env 之后，确保读到 borg.env 的覆盖值）
+    validate_number PRUNE_KEEP_DAILY "${PRUNE_KEEP_DAILY}"
+    validate_number PRUNE_KEEP_WEEKLY "${PRUNE_KEEP_WEEKLY}"
+    validate_number PRUNE_KEEP_MONTHLY "${PRUNE_KEEP_MONTHLY}"
+    validate_number REMOTE_PRUNE_KEEP_DAILY "${REMOTE_PRUNE_KEEP_DAILY}"
+    validate_number REMOTE_PRUNE_KEEP_WEEKLY "${REMOTE_PRUNE_KEEP_WEEKLY}"
+    validate_number REMOTE_PRUNE_KEEP_MONTHLY "${REMOTE_PRUNE_KEEP_MONTHLY}"
+    [ -n "${PRUNE_KEEP_WITHIN}" ] || fail "PRUNE_KEEP_WITHIN is empty"
+    [ -n "${REMOTE_PRUNE_KEEP_WITHIN}" ] || fail "REMOTE_PRUNE_KEEP_WITHIN is empty"
     resolve_volumes
 
     # 本地 borg repo 可访问（BORG_PASSPHRASE 已 export，加密 repo 可读）
@@ -558,6 +586,7 @@ borg_create_local() {
     CURRENT_STAGE="borg_check_local"
     borg check --repository-only "${BORG_REPO}"
     borg list "${BORG_REPO}::${ARCHIVE_NAME}" >/dev/null
+    LOCAL_ARCHIVE_VERIFIED=1
     log "Local archive created and verified"
 }
 
@@ -568,16 +597,27 @@ borg_prune_local() {
     CURRENT_STAGE="prune_local"
     borg prune --list "${BORG_REPO}" \
         --prefix 'tdyw-' \
-        --keep-within=2d \
-        --keep-daily=7 \
-        --keep-weekly=4 \
-        --keep-monthly=6
+        --keep-within="${PRUNE_KEEP_WITHIN}" \
+        --keep-daily="${PRUNE_KEEP_DAILY}" \
+        --keep-weekly="${PRUNE_KEEP_WEEKLY}" \
+        --keep-monthly="${PRUNE_KEEP_MONTHLY}"
     log "Local prune completed"
 }
 
 # ============================================
+# 本地空间回收（borg 1.2：prune 只标记删除，compact 才归还磁盘空间）
+# ============================================
+borg_compact_local() {
+    CURRENT_STAGE="compact_local"
+    borg compact "${BORG_REPO}"
+    log "Local compact completed"
+}
+
+# ============================================
 # 推送远程仓库（PUSH_REMOTE=YES 时执行）
-# 在 restore_application 之后执行：先解冻恢复生产，再推远程，不延长停机窗口
+# 在 restore_application 之前执行：本地和远程 archive 都落盘并校验后才解冻恢复应用；
+# 卷仍处冻结状态，远程 archive 与本地来自同一停写窗口，数据一致。
+# 停机窗口只含 create + borg list 校验；远程 prune/compact 在恢复后的 borg_prune_remote 执行。
 # 远程机需先独立 borg init repo + 配 SSH 免密
 # ============================================
 borg_push_remote() {
@@ -598,15 +638,31 @@ borg_push_remote() {
         ${BINLOG_DIR:+"${BINLOG_DIR}"}
     REMOTE_ARCHIVE_CREATED=1
 
+    CURRENT_STAGE="borg_check_remote"
+    BORG_PASSPHRASE="${BORG_REMOTE_PASSPHRASE}" BORG_RSH="${BORG_RSH}" \
+        borg list "${BORG_REMOTE_REPO}::${ARCHIVE_NAME}" >/dev/null
+    REMOTE_ARCHIVE_VERIFIED=1
+    log "Remote archive created and verified"
+}
+
+# ============================================
+# 远程仓库清理（prune + compact，恢复后执行，不占停机窗口）
+# ============================================
+borg_prune_remote() {
+    is_yes "${PUSH_REMOTE}" || return 0
     CURRENT_STAGE="prune_remote"
     BORG_PASSPHRASE="${BORG_REMOTE_PASSPHRASE}" BORG_RSH="${BORG_RSH}" \
         borg prune --list "${BORG_REMOTE_REPO}" \
         --prefix 'tdyw-' \
-        --keep-within=7d \
-        --keep-daily=14 \
-        --keep-weekly=8 \
-        --keep-monthly=12
-    log "Remote archive created and pruned"
+        --keep-within="${REMOTE_PRUNE_KEEP_WITHIN}" \
+        --keep-daily="${REMOTE_PRUNE_KEEP_DAILY}" \
+        --keep-weekly="${REMOTE_PRUNE_KEEP_WEEKLY}" \
+        --keep-monthly="${REMOTE_PRUNE_KEEP_MONTHLY}"
+
+    CURRENT_STAGE="compact_remote"
+    BORG_PASSPHRASE="${BORG_REMOTE_PASSPHRASE}" BORG_RSH="${BORG_RSH}" \
+        borg compact "${BORG_REMOTE_REPO}"
+    log "Remote repo pruned and compacted"
 }
 
 # ============================================
@@ -639,6 +695,7 @@ main() {
     archive_binlog
     build_manifest
     borg_create_local
+    borg_push_remote
 
     FREEZE_SECONDS=$(($(date +%s) - FREEZE_STARTED_EPOCH))
     CURRENT_STAGE="restore_application"
@@ -646,7 +703,8 @@ main() {
     log "Write freeze duration: ${FREEZE_SECONDS}s"
 
     borg_prune_local
-    borg_push_remote
+    borg_compact_local
+    borg_prune_remote
 
     log "Borg backup published: ${BORG_REPO}::${ARCHIVE_NAME}"
     if is_yes "${PUSH_REMOTE}"; then

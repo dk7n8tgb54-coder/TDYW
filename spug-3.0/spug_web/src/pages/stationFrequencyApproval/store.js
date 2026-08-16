@@ -39,6 +39,8 @@ class Store {
   // ========== 可选责任人 ==========
   @observable responsibleUsers = [];
   @observable responsibleUsersLoaded = false;
+  // 拉取责任人列表时使用的登录 token（非响应式，仅作缓存指纹）
+  _responsibleUsersToken = null;
 
   fetchRecords = () => {
     this.isFetching = true;
@@ -70,13 +72,19 @@ class Store {
   /**
    * 拉取可选责任人列表（懒加载，首次进入表单时调用）。
    * 后端只返回当前租户内启用且未删除的用户。
+   * 本 store 为模块级单例，同一浏览器切换账号（登出不刷新页面）后仍在内存，
+   * 记录拉取时的登录 token，token 变化即强制重拉，避免残留上一账号租户的责任人。
    */
   fetchResponsibleUsers = () => {
-    if (this.responsibleUsersLoaded) return Promise.resolve(this.responsibleUsers);
+    const token = sessionStorage.getItem('token');
+    if (this.responsibleUsersLoaded && token === this._responsibleUsersToken) {
+      return Promise.resolve(this.responsibleUsers);
+    }
     return http.get('/api/radio-license/approvals/responsible-users/')
       .then(res => {
         this.responsibleUsers = res || [];
         this.responsibleUsersLoaded = true;
+        this._responsibleUsersToken = token;
         return this.responsibleUsers;
       })
       .catch(e => {

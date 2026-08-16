@@ -21,6 +21,7 @@
 - **MobX legacy decorators**：`@observable` / `@action` 装饰器语法，Babel 需 `@babel/plugin-proposal-decorators`（`legacy: true`）+ `@babel/plugin-proposal-class-properties`。
 - **MariaDB 10.8**：不支持部分唯一索引；`LIKE '%xxx'` 前缀通配无法走索引；不支持 `JSON_FIELD` 的部分查询操作。
 - **Python 3.10**：可使用 match-case，但项目代码风格以传统 if/elif 为主。
+- **行尾符统一 LF**：所有新建或修改的前后端源码文件（Python、JS/JSX、LESS、HTML、JSON、YAML、配置及测试代码）一律使用 LF 行尾，禁止 CRLF；在 Windows 环境下编辑时也必须保持 LF，不得因编辑器默认设置引入 `\r`。
 
 ---
 

@@ -2,7 +2,7 @@
  * StateChangeHandler - 状态变更处理器
  * 负责处理状态机的状态变更回调
  */
-import { FINAL_STATES, FRONTEND_STATUS_MAP } from '../upload-core-constants';
+import { FINAL_STATES, FRONTEND_STATUS_MAP, TERMINAL_STATUSES } from '../upload-core-constants';
 
 export class StateChangeHandler {
   constructor(coreStore) {
@@ -22,7 +22,9 @@ export class StateChangeHandler {
     if (toState === 'paused') {
       const item = this.core.queueStore.findUploadItemInCurrentTenant(uploadId);
       // 【严重修复 H-03】'cancelled' 现在是正式状态，保留在终态列表中
-      if (item && FINAL_STATES.includes(item.status)) {
+      // 【修复 2026-08-16】改用 TERMINAL_STATUSES（含 error）：error 状态无 PAUSE
+      // 流转，晚到的 paused 监听回调必为过期事件，放行会把后端 FAILED 回写成 PAUSED
+      if (item && TERMINAL_STATUSES.includes(item.status)) {
         console.log(`[StateChangeHandler] ${uploadId}: 跳过终态任务的暂停操作`);
         return;
       }

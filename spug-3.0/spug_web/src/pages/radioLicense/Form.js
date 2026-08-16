@@ -270,9 +270,8 @@ export default observer(function () {
                 <Space key={key} style={{display: 'flex', marginBottom: 8}} align="baseline">
                   <Form.Item
                     {...restField}
-                    name={[name, 'frequency_value']}
-                    rules={[{required: true, message: '请输入频率'}]}>
-                    <Input placeholder="频率值" style={{width: 120}}/>
+                    name={[name, 'frequency_value']}>
+                    <Input placeholder="频率值（选填）" style={{width: 120}}/>
                   </Form.Item>
                   <Form.Item
                     {...restField}

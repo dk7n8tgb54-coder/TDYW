@@ -30,11 +30,33 @@ const jestConfig = config => {
     '^pages/(.*)$': '<rootDir>/src/pages/$1',
     '^components/(.*)$': '<rootDir>/src/components/$1',
     '^stores/(.*)$': '<rootDir>/src/stores/$1',
+    // 与 webpack 侧 addWebpackAlias 的 @ -> src 保持一致，
+    // 使源码中的 @/ 导入在 jest 下同样可解析（此前仅 webpack 支持）
+    '^@/(.*)$': '<rootDir>/src/$1',
   };
   config.testPathIgnorePatterns = [
     ...(config.testPathIgnorePatterns || ['/node_modules/']),
     '_gatewayEnv'
   ];
+  // 【2026-08-16 修复】jest 编译通道补齐 decorators 支持：
+  // webpack 侧由上方 addDecoratorsLegacy() 提供，jest 侧此前缺失，导致 import 链
+  // 触及 MobX 装饰器 store 的测试套件在加载阶段编译失败。
+  // 实际生效的 js transform 在 rewireJestConfig 阶段已被 react-app-rewired 替换为
+  // 其自带的 babelTransform（scripts/utils/babelTransform.js），因此两个来源路径
+  // 都要匹配；css/文件 transform 保持不变。
+  const customBabelTransform = require.resolve('./config/jest/babelTransform.js');
+  const defaultBabelTransforms = [
+    require.resolve('react-scripts/config/jest/babelTransform.js'),
+    require.resolve('react-app-rewired/scripts/utils/babelTransform.js'),
+  ].map((p) => p.toLowerCase());
+  config.transform = Object.fromEntries(
+    Object.entries(config.transform || {}).map(([pattern, transformer]) => [
+      pattern,
+      defaultBabelTransforms.includes(String(transformer).toLowerCase())
+        ? customBabelTransform
+        : transformer,
+    ])
+  );
   return config;
 };
 

@@ -9,7 +9,7 @@
  * failedSyncTransfers 是普通属性非 @observable），移除 @action 无副作用。
  */
 
-import { BACKEND_STATUS_MAP, FINAL_STATES, FRONTEND_STATUS_MAP } from '../upload-core-constants';
+import { BACKEND_STATUS_MAP, FRONTEND_STATUS_MAP, TERMINAL_STATUSES } from '../upload-core-constants';
 
 class StatusSynchronizer {
   constructor(coreStore) {
@@ -90,7 +90,13 @@ class StatusSynchronizer {
     }
 
     // 如果当前已经是终态，不允许非终态状态回退；终态自身仍必须同步到后端。
-    if (FINAL_STATES.includes(item.status) && !FINAL_STATES.includes(toState)) {
+    // 【修复 2026-08-16】改用 TERMINAL_STATUSES（含 error）：FINAL_STATES 有意不含
+    // error（P1-5：error 保留状态机用于原地重试），但 notifyListeners 经 queueMicrotask
+    // 异步派发，同一同步块内连发两次流转时，晚到的监听回调携带过期 toState 而实时
+    // item.status 已是 error，原守卫放行导致后端 FAILED 被回写成 UPLOADING。
+    // error 项的合法重试（RESUME/RETRY_MERGE）在流转时 entry 钩子先写新状态，
+    // 不受此守卫影响。
+    if (TERMINAL_STATUSES.includes(item.status) && !TERMINAL_STATUSES.includes(toState)) {
       return;
     }
 

@@ -6,8 +6,9 @@
  * 【修复 2026-07-17】取消整表 loading 灰色遮罩（antd Table loading 固定 false），
  *   改由 Explorer 顶部轻量进度条提示加载；interactionDisabled 时行降低透明度但保留内容可见。
  */
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { Table, Empty } from 'antd';
+import { resolveVisibleColumns } from './columnVisibility';
 
 /**
  * 文件表格组件
@@ -86,21 +87,49 @@ const FileTable = ({
     );
   }, [isPublic]);
 
+  // 【2026-08-16 响应式列显隐】监听容器宽度，窄容器时按次要程度隐藏列（见 columnVisibility.js），
+  //   优先保证文件名列可读；容器测量失败（无 ResizeObserver）时保持全列展示
+  const containerRef = useRef(null);
+  const [containerWidth, setContainerWidth] = useState(null);
+
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined' || !containerRef.current) return undefined;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry && entry.contentRect) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const visibleColumns = useMemo(
+    () => resolveVisibleColumns(columns, containerWidth, showSelection ? 48 : 0),
+    [columns, containerWidth, showSelection]
+  );
+
   return (
-    <Table
-      columns={columns}
+    <div ref={containerRef}>
+      <Table
+      columns={visibleColumns}
       dataSource={dataSource}
       // 【修复 2026-07-17】取消整表 loading 灰色遮罩
       // 加载提示改由 Explorer 顶部轻量进度条承担，避免整张表变灰闪烁
       loading={false}
       rowKey="key"
-      // 【2026-07-21 列宽调整】
-      //   - tableLayout="fixed"：列宽按 width 分配，文件名列固定 400px，类型/大小/修改时间/创建人列未设 width 弹性伸缩
+      // 【2026-08-16 列宽调整】
+      //   - tableLayout="fixed"：类型/大小/修改时间/创建人列按固定 width 分配，
+      //     文件名列不设 width，作为唯一弹性列占满剩余空间，宽屏时文件名展示空间最大化
       //   - sticky：文件较多时表头粘性固定，内容滚动，表头保持可见
       //   - 移除 virtual：fixed 布局下未设 width 的列才能弹性伸缩，virtual 要求所有列设 width
-      //   - 不设 scroll.x：避免横向滚动，列宽之和 = 容器宽度，其他列自适应
+      //   - 响应式列显隐（文件名优先）：容器变窄时按 创建人→大小→类型→路径 顺序隐藏
+      //     次要列，保证文件名列始终有约 400px（见 columnVisibility.js），正常窄屏不出滚动条
+      //   - scroll.x 为极端窄屏兜底：次要列全部隐藏后仍不足 400px 时（约 <640px 容器），
+      //     表格保持最小总宽出横向滚动，避免文件名列被压到不可读
       tableLayout="fixed"
       sticky={!isSearching}
+      scroll={{ x: 640 }}
       rowClassName={() => interactionDisabled ? 'explorer-row-disabled' : ''}
       rowSelection={showSelection ? {
         selectedRowKeys: safeSelectedRowKeys,
@@ -121,7 +150,8 @@ const FileTable = ({
         },
       })}
       locale={{ emptyText }}
-    />
+      />
+    </div>
   );
 };
 

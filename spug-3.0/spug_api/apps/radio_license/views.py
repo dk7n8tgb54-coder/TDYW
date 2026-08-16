@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.http import FileResponse
 from django.utils import timezone
 from libs import json_response, JsonParser, Argument, auth
+from libs.utils import DateTimeEncoder
 from libs.tenant_utils import apply_tenant_filter, assign_tenant_id
 from libs.idempotency import check_recent_duplicate
 from apps.logs.audit import record_audit_event
@@ -51,17 +52,33 @@ def _validate_frequencies(frequencies):
     return None
 
 
-def _validate_and_fill_responsible_user(form):
-    """校验责任人账号存在性并回填真实姓名
+def _validate_and_fill_responsible_user(form, request_user):
+    """校验执照责任人账号并回填真实姓名。
 
-    Returns: 错误消息字符串；None 表示通过
+    与批复侧 _validate_and_fill_approval_responsible_user 规则一致：
+    1. 必须存在且 is_active=True；
+    2. deleted_by_id IS NULL（未软删）；
+    3. tenant_id 必须等于当前请求用户 tenant_id（超管除外，但仍要求账号未删除且启用）；
+    4. 服务端用 nickname or username 回填 responsible_user_name；
+    5. 不信任客户端传入的 responsible_user_name。
+
+    Returns:
+        错误消息字符串；None 表示通过
     """
     from apps.account.models import User as UserModel
-    if not UserModel.objects.filter(
-        pk=form.responsible_user_id, is_active=True
-    ).exists():
+    user = UserModel.objects.filter(
+        pk=form.responsible_user_id,
+        is_active=True,
+        deleted_by_id__isnull=True,
+    ).first()
+    if user is None:
         return '责任人不存在或已禁用，请重新选择'
-    user = UserModel.objects.get(pk=form.responsible_user_id)
+
+    # 超管可跨租户配置；普通用户必须与本租户一致
+    if not getattr(request_user, 'is_supper', False):
+        if getattr(user, 'tenant_id', None) != getattr(request_user, 'tenant_id', None):
+            return '责任人不存在或已禁用，请重新选择'
+
     form.responsible_user_name = user.nickname or user.username
     return None
 
@@ -208,8 +225,8 @@ class RadioLicenseView(View):
         ).parse(request.body)
 
         if error is None:
-            # 责任人账号存在性校验 + 姓名回填
-            user_err = _validate_and_fill_responsible_user(form)
+            # 责任人账号存在性/租户一致性校验 + 姓名回填
+            user_err = _validate_and_fill_responsible_user(form, request.user)
             if user_err:
                 return json_response(error=user_err)
 
@@ -217,7 +234,8 @@ class RadioLicenseView(View):
             if form.valid_from and form.valid_to and form.valid_from > form.valid_to:
                 return json_response(error='起始日期不能晚于截止日期')
 
-            frequencies = form.pop('frequencies', []) if hasattr(form, 'frequencies') else []
+            # 客户端未传 frequencies 时 JsonParser 存入 None，统一归一为空列表
+            frequencies = form.pop('frequencies', None) or []
             frequency_err = _validate_frequencies(frequencies)
             if frequency_err:
                 return json_response(error=frequency_err)
@@ -305,7 +323,8 @@ class RadioLicenseView(View):
             scan_single_license(license_obj)
             _record_license_edit_evidence(license_obj, old_valid_to, _detect_license_changed_fields(old_license, form), user)
             record_audit_event(
-                request, 'edit', 'radio_license',
+                # AuditLog 动作约束只允许 update（无 edit），用错值会被约束拒绝导致审计丢失
+                request, 'update', 'radio_license',
                 target_id=license_obj.id, target_name=license_obj.station_name,
                 detail={'purpose': license_obj.purpose,
                         'valid_from': str(license_obj.valid_from),
@@ -427,7 +446,8 @@ def _save_license_version_snapshot(license_obj, user):
         'created_at': license_obj.created_at,
         'updated_at': license_obj.updated_at,
     }
-    snapshot_json = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
+    # created_at/updated_at/last_remind_at 是 datetime，必须用 DateTimeEncoder 序列化
+    snapshot_json = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, cls=DateTimeEncoder)
     snapshot_hash = _hashlib.sha256(snapshot_json.encode('utf-8')).hexdigest()
 
     RadioLicenseVersion.objects.create(
@@ -567,9 +587,10 @@ class RadioLicenseEvidencePackageView(View):
 
         buf = BytesIO()
         with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr('object_snapshot.json', json.dumps(snapshot, ensure_ascii=False, indent=2))
-            zf.writestr('evidence_events.json', json.dumps(events_data, ensure_ascii=False, indent=2))
-            zf.writestr('audit_logs.json', json.dumps(audit_data, ensure_ascii=False, indent=2))
+            # 快照/事件/审计/哈希中含 datetime 字段，统一用 DateTimeEncoder 序列化
+            zf.writestr('object_snapshot.json', json.dumps(snapshot, ensure_ascii=False, indent=2, cls=DateTimeEncoder))
+            zf.writestr('evidence_events.json', json.dumps(events_data, ensure_ascii=False, indent=2, cls=DateTimeEncoder))
+            zf.writestr('audit_logs.json', json.dumps(audit_data, ensure_ascii=False, indent=2, cls=DateTimeEncoder))
             zf.writestr('hashes.json', json.dumps({
                 'module': 'radio_license', 'object_id': license_obj.id,
                 'station_name': license_obj.station_name,
@@ -578,14 +599,15 @@ class RadioLicenseEvidencePackageView(View):
                 'events_count': len(events_data),
                 'versions_count': len(snapshot['versions']),
                 'generated_at': timezone.now(),
-            }, ensure_ascii=False, indent=2))
+            }, ensure_ascii=False, indent=2, cls=DateTimeEncoder))
             zf.writestr('verify.txt',
                         '本证据包包含执照业务快照JSON、证据事件JSON、审计日志JSON、版本历史、附件哈希清单。\n'
                         '校验方式：重新计算 object_snapshot.json 的 SHA256；附件 sha256 可重新计算文件哈希比对。\n'
                         '证据事件哈希链可通过 evidence_events.json 中的 prev_hash/event_hash 校验连续性。\n')
 
         buf.seek(0)
-        resp = FileResponse(buf.getvalue(), content_type='application/zip')
+        # FileResponse 必须传文件对象；传 bytes 会被按整数迭代导致内容损坏
+        resp = FileResponse(buf, content_type='application/zip')
         resp['Content-Disposition'] = f'attachment; filename="evidence_radio_license_{license_obj.id}.zip"'
         return resp
 

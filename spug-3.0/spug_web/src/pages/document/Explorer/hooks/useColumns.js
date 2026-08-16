@@ -4,9 +4,10 @@
  * Released under the AGPL-3.0 License.
  */
 import React, { useCallback, useState, useEffect, useRef } from 'react';
-import { Tag, Input, message } from 'antd';
-import { CheckOutlined, CloseOutlined, LoadingOutlined, FileImageOutlined } from '@ant-design/icons';
+import { Tag, Input, message, Tooltip } from 'antd';
+import { CheckOutlined, CloseOutlined, LoadingOutlined, FileImageOutlined, CopyOutlined } from '@ant-design/icons';
 import { isImage, isVideo, formatFileSize, getFileTypeLabel, getFileIcon, getFolderIcon, isCreatedByAdmin } from '../utils';
+import { copyToClipboard } from '@/utils/common';
 import { FolderIcon, VideoIcon, getFileTypeIcon } from '../../components/FileTypeIcon';
 import PreviewImage from '../../components/PreviewImage';  // 【H-2修复】安全预览组件
 
@@ -136,10 +137,10 @@ export default function useColumns({
         title: '文件名',
         dataIndex: 'name',
         key: 'name',
-        // 【2026-07-21 列宽调整】文件名列固定 400px 不伸缩，保证文件名清晰可见；
-        //   超长名称单行省略，悬停 title 显示完整名称。
-        //   类型/大小/修改时间/创建人 列不设 width，在 tableLayout="fixed" 下弹性伸缩。
-        width: 400,
+        // 【2026-08-16 列宽调整】文件名列不设 width，作为唯一弹性列占满剩余宽度
+        //   （tableLayout="fixed" 下未设 width 的列分得全部剩余空间）；
+        //   类型/大小/修改时间/创建人 列固定宽度，宽屏时文件名展示空间最大化。
+        //   超长名称单行省略，悬停 Tooltip 显示完整名称并支持一键复制。
         ellipsis: true,
         sorter: true,
         showSorterTooltip: false,
@@ -259,6 +260,10 @@ export default function useColumns({
             );
           }
 
+          // 【2026-08-16】悬停提示从原生 title 升级为 antd Tooltip：
+          //   原生 title 延迟约 1s、不换行、无法复制；Tooltip 即时出现、
+          //   自动换行展示完整文件名，并提供一键复制（copyToClipboard 含非安全上下文降级）。
+          const displayName = record.display_name || text;
           return (
             <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
               {record.isFolder ? (
@@ -268,7 +273,7 @@ export default function useColumns({
                   fileId={record.id}
                   isPublic={isPublic}
                   thumbnail={!!record.thumbnail_path}
-                  alt={record.display_name || text}
+                  alt={displayName}
                   style={{
                     width: 36,
                     height: 36,
@@ -281,9 +286,32 @@ export default function useColumns({
               ) : isVideo(record.file_type) ? (
                   <span style={{ width: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}><VideoIcon size={24} /></span>
               ) : (
-                <span style={{ width: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>{getFileTypeIcon(record.display_name || record.name, record.file_type, 24)}</span>
+                <span style={{ width: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>{getFileTypeIcon(displayName, record.file_type, 24)}</span>
               )}
-              <span title={record.display_name || text} style={{ marginLeft: 8, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.display_name || text}</span>
+              <Tooltip
+                placement="top"
+                title={
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, maxWidth: 440 }}>
+                    <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-all' }}>{displayName}</span>
+                    <CopyOutlined
+                      style={{ color: '#fff', cursor: 'pointer', marginTop: 2, flexShrink: 0 }}
+                      onClick={(e) => {
+                        // 阻止冒泡触发行点击（打开文件夹/预览）
+                        e.stopPropagation();
+                        copyToClipboard(displayName).then((ok) => {
+                          if (ok) {
+                            message.success('文件名已复制');
+                          } else {
+                            message.error('复制失败，请手动复制');
+                          }
+                        });
+                      }}
+                    />
+                  </div>
+                }
+              >
+                <span style={{ marginLeft: 8, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
+              </Tooltip>
               {isPublic && isCreatedByAdmin(record) && (
                 <Tag color="gold" style={{ marginLeft: 8, flexShrink: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>官方</Tag>
               )}
@@ -307,7 +335,8 @@ export default function useColumns({
         title: '类型',
         dataIndex: 'file_type',
         key: 'file_type',
-        // 【2026-07-21 列宽调整】去掉固定 width，弹性伸缩（文件名列固定 400px）
+        // 【2026-08-16 列宽调整】固定 130px，宽度让给弹性的文件名列
+        width: 130,
         ellipsis: true,
         sorter: true,
         showSorterTooltip: false,
@@ -318,7 +347,8 @@ export default function useColumns({
         title: '大小',
         dataIndex: 'size',
         key: 'size',
-        // 【2026-07-21 列宽调整】去掉固定 width，弹性伸缩（文件名列固定 400px）
+        // 【2026-08-16 列宽调整】固定 110px，宽度让给弹性的文件名列
+        width: 110,
         sorter: true,
         showSorterTooltip: false,
         sortOrder: sortOrder.columnKey === 'size' ? sortOrder.order : null,
@@ -328,8 +358,9 @@ export default function useColumns({
         title: '修改时间',
         dataIndex: 'created_at',
         key: 'created_at',
-        // 【2026-07-21 列宽调整】去掉固定 width，弹性伸缩（文件名列固定 400px）
+        // 【2026-08-16 列宽调整】固定 180px，宽度让给弹性的文件名列
         //   ellipsis:true 强制 white-space:nowrap，杜绝日期时间拆两行撑高行高。
+        width: 180,
         ellipsis: true,
         sorter: true,
         showSorterTooltip: false,
@@ -342,7 +373,8 @@ export default function useColumns({
         title: '创建人',
         dataIndex: 'created_by',
         key: 'created_by',
-        // 【2026-07-21 列宽调整】去掉固定 width，弹性伸缩（文件名列固定 400px）
+        // 【2026-08-16 列宽调整】固定 120px，宽度让给弹性的文件名列
+        width: 120,
         ellipsis: true,
         sorter: true,
         showSorterTooltip: false,

@@ -54,8 +54,9 @@ acquire .backup.lock
   → 从宿主机只读访问 documents/media volume mountpoint（应用已停，无写入）
   → borg create（dump 文件 + documents 卷 + media 卷 + binlog 文件 + manifest）→ 一个 archive
   → borg check --repository-only（快速校验）
+  → 可选 borg create 远程仓库（PUSH_REMOTE=YES 时，本地+远程都落盘后才解冻）
   → 启动 tdyw + 等待健康检查
-  → borg prune（GFS 保留策略）
+  → borg prune（GFS 保留策略）+ borg compact（回收磁盘空间）
 ```
 
 冻结窗口内 DB 与文件都不再被业务写入，dump 与卷快照天然一致。Borg 只是把这一致状态去重存档。
@@ -133,13 +134,14 @@ borg_backup_set_create.sh
   │       --exclude '*/__pycache__' --exclude '*/.cache' --exclude '*/document_chunks' \
   │       ${BORG_REPO}::tdyw-{now} ${DUMP_FILE} ${docs_mp} ${med_mp} ${MANIFEST}
   ├─ borg_check_archive：borg check --repository-only（快速）
-  ├─ restore_application：启动 tdyw + 健康检查
-  ├─ borg_prune：本地 GFS 保留
-  ├─ borg_push_remote（PUSH_REMOTE=YES 时）：
+  ├─ borg_push_remote（PUSH_REMOTE=YES 时，在 restore_application 之前，仅 create + 校验）：
   │     BORG_REPO=${BORG_REMOTE_REPO} BORG_PASSPHRASE=${BORG_REMOTE_PASSPHRASE} \
   │       borg create ::${ARCHIVE} ${DUMP_FILE} ${docs_mp} ${med_mp} ${MANIFEST}
-  │     borg prune --keep-monthly=12 ...（远程机 保留更宽松）
-  └─ trap：失败时 borg delete 未完成 archive + 恢复 app
+  ├─ restore_application：启动 tdyw + 健康检查
+  ├─ borg_prune：本地 GFS 保留
+  ├─ borg_compact：本地回收磁盘空间
+  ├─ borg_prune_remote（PUSH_REMOTE=YES 时）：远程 GFS 保留 + borg compact（恢复后执行，不占停机窗口）
+  └─ trap：失败时只删除“已创建但未通过校验”的 archive + 恢复 app
 ```
 
 ### 4.2 关键设计决策
@@ -151,7 +153,7 @@ borg_backup_set_create.sh
 5. **`--exclude`**：排除 `__pycache__`、`.cache`、`logs`、临时分片 `document_chunks`（与现有 `print_plan` 排除项一致）。
 6. **本地 repo 加密、远程 repo 加密**：本地和远程均用 `repokey-blake2`，passphrase 从 0600 文件 `source` 进环境变量，不进 argv。
 7. **远程推送独立 archive**：不依赖本地 repo 拷贝，远程机 repo 独立可恢复（即使本地 repo 全毁，远程机 仍能恢复）。
-8. **远程推送在 restore_application 之后**：先恢复生产服务（解冻），再后台推远程机，缩短业务停机窗口。
+8. **远程推送在 restore_application 之前**：本地与远程 archive 都落盘并校验后才解冻，且卷仍处冻结状态，远程 archive 与本地来自同一停写窗口、数据一致。停机窗口只含远程 create + 校验；远程 prune/compact 在恢复后执行。
 
 ### 4.3 备份脚本核心片段
 
@@ -199,7 +201,8 @@ borg_push_remote() {
     REMOTE_ARCHIVE_CREATED=1
     BORG_PASSPHRASE="${BORG_REMOTE_PASSPHRASE}" BORG_RSH="ssh -i ..." \
         borg prune --list "${BORG_REMOTE_REPO}" --prefix 'tdyw-' \
-        --keep-within=7d --keep-daily=14 --keep-weekly=8 --keep-monthly=12
+        --keep-within=${REMOTE_PRUNE_KEEP_WITHIN} --keep-daily=${REMOTE_PRUNE_KEEP_DAILY} \
+        --keep-weekly=${REMOTE_PRUNE_KEEP_WEEKLY} --keep-monthly=${REMOTE_PRUNE_KEEP_MONTHLY
 }
 
 cleanup() {
@@ -225,9 +228,10 @@ main() {
     backup_database_logical
     build_manifest
     borg_create_local          # 本地 archive + check
-    restore_application        # 先解冻恢复生产服务
+    restore_application        # 本地+远程 archive 都落盘后才解冻恢复生产服务
     borg_prune_local           # 本地 GFS
-    borg_push_remote           # 再推远程机（业务已恢复，不影响停机）
+    borg_compact_local         # 本地回收磁盘空间
+    borg_prune_remote          # 远程 GFS + compact（恢复后，不占停机窗口）
     log "borg backup published: ${BORG_REPO}::${ARCHIVE_NAME}"
 }
 ```
@@ -411,15 +415,25 @@ tar czf /mnt/usb/tdyw-db-$(date +%Y%m%d).tar.gz database.sql.gz
 
 ## 7. 保留策略（borg prune）
 
-GFS（Grandfather-Father-Son）策略：
+GFS（Grandfather-Father-Son）策略。保留参数集中在 `borg.env` 中配置（脚本内置同值默认，未配置时自动生效）：
 
 ```bash
-# 本地 repo（快速恢复源，保留短）
+# borg.env ---- 保留策略 ----
+PRUNE_KEEP_WITHIN=2d      # 本地：最近 2 天全保留（误删快速回滚）
+PRUNE_KEEP_DAILY=7        # 本地：每天 1 份，留 7 天
+PRUNE_KEEP_WEEKLY=4       # 本地：每周 1 份，留 4 周
+PRUNE_KEEP_MONTHLY=6      # 本地：每月 1 份，留 6 个月
+REMOTE_PRUNE_KEEP_WITHIN=7d    # 远程：最近 7 天全保留
+REMOTE_PRUNE_KEEP_DAILY=14     # 远程：每天 1 份，留 14 天
+REMOTE_PRUNE_KEEP_WEEKLY=8     # 远程：每周 1 份，留 8 周
+REMOTE_PRUNE_KEEP_MONTHLY=12   # 远程：每月 1 份，留 12 个月
+```
+
+```bash
+# 本地 repo（快速恢复源，保留短）——脚本自动带入 borg.env 的值
 borg prune --list "${BORG_REPO}" --prefix 'tdyw-' \
-    --keep-within=2d \   # 最近 2 天全保留（误删快速回滚）
-    --keep-daily=7  \    # 每天 1 份，留 7 天
-    --keep-weekly=4 \    # 每周 1 份，留 4 周
-    --keep-monthly=6     # 每月 1 份，留 6 个月
+    --keep-within=${PRUNE_KEEP_WITHIN} --keep-daily=${PRUNE_KEEP_DAILY} \
+    --keep-weekly=${PRUNE_KEEP_WEEKLY} --keep-monthly=${PRUNE_KEEP_MONTHLY}
 
 # 远程 repo（异地容灾，保留长）
 borg prune --list "${BORG_REMOTE_REPO}" --prefix 'tdyw-' \
@@ -441,12 +455,17 @@ borg compact --cleanup-commits "${BORG_REPO}"
 
 ### 8.1 borg check 分级
 
-| 频率 | 命令 | 作用 | 耗时 |
+| 频率 | 执行方式 | 作用 | 耗时 |
 |---|---|---|---|
-| 每次备份后 | `borg check --repository-only` | 校验 repo 索引一致性 | 秒级 |
-| 每月 | `borg check --verify-data` | 校验所有块哈希，检测位腐烂 | 分钟~小时级 |
-| 每季度 | 远程 repo `borg check --verify-data` | 异地副本完整性 | 视网络 |
+| 每次备份后（本地） | 备份脚本内置：`borg check --repository-only` + `borg list` | 当次 archive 可读、repo 结构一致 | 秒~分钟级 |
+| 每次推送后（远程） | 备份脚本内置：`borg list ::archive` | 当次远程 archive 可读（元数据解密） | 秒级 |
+| 每周日（远程机本地） | `borg_remote_check.sh repo`（`--repository-only --max-duration`，断点续查） | 远程仓库结构/段文件检查 | 限时内（默认 1800s） |
+| 每月 1 日（远程机本地） | `borg_remote_check.sh archives`（`--archives-only`） | 远程 manifest/元数据/分块引用齐全 | 分钟级 |
+| 每月 15 日（远程机本地） | `borg_remote_check.sh data`（`--verify-data`） | 解密校验全部数据块，检测位腐烂 | 小时级（整仓读一遍） |
 
+> 深度校验工具为 `borgbackup/borg_remote_check.sh`（配置模板 `borg_remote_check.env.example`），
+> 部署在远程机本地执行、cron 调度，不经 SSH、不占备份停机窗口。**永不自动 `--repair`**，
+> 发现完整性问题必须人工确认后手动修复。
 > `--verify-data` 读取所有块重算哈希，是检测存储静默损坏（bitrot）的手段。本地 tar 方案做不到。
 
 ### 8.2 RAID1 scrub（位腐烂第一道防线，borg 之外的独立任务）
@@ -477,7 +496,7 @@ watch -n 5 'cat /sys/block/md0/md/sync_action; cat /sys/block/md0/md/mismatch_cn
 
 ## 9. 失败保护与 trap（对齐 backup_set）
 
-- `trap cleanup EXIT`：任何失败/信号都 `borg delete` 未完成 archive（本地 + 远程）+ `restore_application` + 清理临时目录；
+- `trap cleanup EXIT`：任何失败/信号都只 `borg delete`“已创建但未通过校验”的 archive（已校验的保留）+ `restore_application` + 清理临时目录；
 - `flock` 共享 `.backup.lock`，与 `backup_set_*` 互斥，绝不并发备份/恢复；
 - DRY_RUN 不获取锁、不冻结、不创建 archive；
 - 失败 archive 不残留（`LOCAL_ARCHIVE_CREATED=1` 且 `rc!=0` 时删除），避免 `borg list` 出现半成品；
