@@ -98,7 +98,7 @@ class FolderView(View):
     
     def _get_all_folders(self, request, FolderModel, is_public, system_folder=None):
         """获取所有文件夹（树形结构）"""
-        query = FolderModel.objects.all().select_related('created_by').order_by('-created_at')
+        query = FolderModel.objects.all().select_related('created_by').order_by('name', 'id')
         # 党建文档模式：只返回根目录及其子孙
         if system_folder == PARTY_BUILDING_DOCUMENTS_CODE:
             scope_ids = get_descendant_folder_ids(PARTY_BUILDING_DOCUMENTS_CODE, include_root=True)
@@ -117,14 +117,14 @@ class FolderView(View):
     
     def _get_root_contents(self, request, FolderModel, FileModel, is_public, page, page_size, system_folder=None):
         """获取根目录内容（分页优化）"""
-        folders_query = FolderModel.objects.filter(parent__isnull=True).select_related('created_by').order_by('-created_at')
+        folders_query = FolderModel.objects.filter(parent__isnull=True).select_related('created_by').order_by('name', 'id')
         if system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             folders_query = exclude_system_folder_scope(folders_query)
 
         # 标注 has_children（Exists 子查询，避免 N+1）
         folders_query = self._annotate_has_children(folders_query, FolderModel, request, is_public, system_folder)
 
-        files_query = FileModel.objects.filter(folder__isnull=True).select_related('created_by').order_by('-created_at')
+        files_query = FileModel.objects.filter(folder__isnull=True).select_related('created_by').order_by('display_name', 'id')
         if system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             files_query = exclude_system_file_scope(files_query)
 
@@ -169,14 +169,14 @@ class FolderView(View):
 
     def _get_folder_contents(self, request, FolderModel, FileModel, folder_id, is_public, page, page_size, system_folder=None):
         """获取指定文件夹内容（分页优化）"""
-        folders_query = FolderModel.objects.filter(parent_id=folder_id).select_related('created_by').order_by('-created_at')
+        folders_query = FolderModel.objects.filter(parent_id=folder_id).select_related('created_by').order_by('name', 'id')
         if system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             folders_query = exclude_system_folder_scope(folders_query)
 
         # 标注 has_children（Exists 子查询，避免 N+1）
         folders_query = self._annotate_has_children(folders_query, FolderModel, request, is_public, system_folder)
 
-        files_query = FileModel.objects.filter(folder_id=folder_id).select_related('created_by').order_by('-created_at')
+        files_query = FileModel.objects.filter(folder_id=folder_id).select_related('created_by').order_by('display_name', 'id')
         if system_folder != PARTY_BUILDING_DOCUMENTS_CODE:
             files_query = exclude_system_file_scope(files_query)
 

@@ -35,6 +35,7 @@ import {
   useContextMenu,
   useSorting,
   useTableHandlers,
+  DEFAULT_SORT_ORDER,
 } from './hooks';
 
 // Utils
@@ -152,9 +153,16 @@ const Explorer = observer(forwardRef(({
     createMultiSelectMenu,
   } = useContextMenu();
 
+  // ===== 默认排序：名称升序（档案管理型，前端自然排序）=====
+  // 搜索模式下保持后端时间倒序；用户设置过有效排序列时以用户选择为准；
+  // 用户取消排序（columnKey 为空）时回落默认，避免露出后端字典序（数字顺序错误）
+  const effectiveSortOrder = isSearching
+    ? sortOrder
+    : (sortOrder && sortOrder.columnKey ? sortOrder : DEFAULT_SORT_ORDER);
+
   // ===== 表格列配置 =====
   const getColumns = useColumns({
-    sortOrder,
+    sortOrder: effectiveSortOrder,
     isSearching,
     isPublic,
     currentUserId,
@@ -217,7 +225,7 @@ const Explorer = observer(forwardRef(({
 
   // ===== 数据处理和排序 =====
   const filteredItems = isSearching ? (searchState?.results || []) : items;
-  const sortedData = useSorting(filteredItems, sortOrder, creatingFolder);
+  const sortedData = useSorting(filteredItems, effectiveSortOrder, creatingFolder);
   const groupedByType = useSearchGrouping(filteredItems, isSearching);
 
   // ===== 表格事件处理 =====

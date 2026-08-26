@@ -21,6 +21,7 @@ import { createLogger } from '@/pages/document/utils/logger';
 import { FolderIcon } from './components/FileTypeIcon';
 import { PARTY_BUILDING_DOCUMENTS_CODE } from 'libs/systemFolderContext';
 import { computeLeafState, resolveCreatorName } from './utils/folderTreeNode';
+import { naturalCompare } from './utils/naturalSort';
 const log = createLogger("FolderTree");
 
 // 纯函数从 utils/folderTreeNode 导入，便于单测（避免装饰器语法在 jest 中报错）
@@ -350,7 +351,10 @@ class FolderTree extends React.Component {
     // 累积到 folderMap，用于 buildFolderPath
     if (!this.folderMap) this.folderMap = new Map();
 
-    return folders.map(f => {
+    // 同级节点按名称自然排序（后端 order_by 为字典序，"文件夹11"会排在"文件夹2"前）
+    const sorted = [...folders].sort((a, b) => naturalCompare(a.name, b.name));
+
+    return sorted.map(f => {
       if (!f || !f.id) return null;
       // 累积 folderMap
       this.folderMap.set(f.id, {

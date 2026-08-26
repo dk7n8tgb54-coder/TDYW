@@ -6,6 +6,7 @@ import React from 'react';
 import { Modal, Button } from 'antd';
 import { RightOutlined } from '@ant-design/icons';
 import { FolderIcon } from './FileTypeIcon';
+import { sortByName } from '../utils/naturalSort';
 
 const FolderTreeSelector = ({
   visible,
@@ -188,7 +189,8 @@ const FolderTreeSelector = ({
   // 渲染文件夹列表视图
   const renderFolderList = () => {
     const currentFolder = findFolder(currentFolderId);
-    const subFolders = allFolders.filter(f => f.parent_id === currentFolderId);
+    // 按名称自然排序（后端扁平列表为字典序，"文件夹11"会排在"文件夹2"前）
+    const subFolders = sortByName(allFolders.filter(f => f.parent_id === currentFolderId));
 
     return (
       <div style={{ height: 400, display: 'flex', flexDirection: 'column' }}>

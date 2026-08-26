@@ -4,6 +4,13 @@
  * 职责：处理表格数据的排序逻辑
  */
 import { useMemo, useCallback } from 'react';
+import { naturalCompare } from '../../utils/naturalSort';
+
+/**
+ * 默认排序：名称升序（档案管理型定位）
+ * 与后端列表接口 order_by('name'/'display_name', 'id') 保持一致
+ */
+export const DEFAULT_SORT_ORDER = { columnKey: 'name', order: 'ascend' };
 
 /**
  * 排序比较函数
@@ -16,11 +23,9 @@ const compareValues = (a, b, order) => {
   if (a == null) a = '';
   if (b == null) b = '';
 
-  // 字符串比较
+  // 字符串比较（自然排序，数字按数值比较："2" < "11"；与文件夹树共用 naturalCompare）
   if (typeof a === 'string' && typeof b === 'string') {
-    return order === 'ascend'
-      ? a.localeCompare(b, 'zh-CN')
-      : b.localeCompare(a, 'zh-CN');
+    return order === 'ascend' ? naturalCompare(a, b) : naturalCompare(b, a);
   }
 
   // 数字比较
@@ -47,11 +52,10 @@ const compareValues = (a, b, order) => {
  * @returns {number} 比较结果
  */
 const compareWithFolderPriority = (a, b, columnKey, order) => {
-  // 大小列：文件夹始终排在前面
-  if (columnKey === 'size') {
-    if (a.isFolder && !b.isFolder) return order === 'ascend' ? -1 : 1;
-    if (!a.isFolder && b.isFolder) return order === 'ascend' ? 1 : -1;
-    if (a.isFolder && b.isFolder) return 0;
+  // 文件夹恒排在文件之前（档案管理型惯例，与后端"文件夹在前、文件在后"分页分组一致，
+  // 不随排序方向变化——Windows/OneDrive/百度网盘均为文件夹恒置顶）
+  if (a.isFolder !== b.isFolder) {
+    return a.isFolder ? -1 : 1;
   }
 
   // 获取比较值

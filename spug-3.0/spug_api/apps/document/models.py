@@ -192,6 +192,11 @@ class DocumentFolderPublic(FolderDeleteMixin, FolderPathMixin, UniqueKeyMixin):
                 fields=['parent_id', '-created_at', '-id'],
                 name='doc_pub_folder_list_idx',
             ),
+            # 名称排序索引（默认列表排序：文件夹按名称升序）
+            models.Index(
+                fields=['parent_id', 'name', 'id'],
+                name='doc_pub_folder_name_idx',
+            ),
         ]
 
     def __str__(self):
@@ -307,6 +312,11 @@ class DocumentFilePublic(DocumentFileDeleteMixin):
             models.Index(
                 fields=['folder_id', '-created_at', '-id'],
                 name='doc_pub_file_list_idx',
+            ),
+            # 名称排序索引（默认列表排序：文件按显示名称升序）
+            models.Index(
+                fields=['folder_id', 'display_name', 'id'],
+                name='doc_pub_file_name_idx',
             ),
         ]
 

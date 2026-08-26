@@ -17,4 +17,4 @@ export { useDataFetching } from './useDataFetching';
 // 其他Hooks（任务4.2拆分）
 export { useSearchGrouping } from './useSearchGrouping';
 export { useContextMenu, getMenuIcon } from './useContextMenu';
-export { useSorting, useTableHandlers } from './useSorting';
+export { useSorting, useTableHandlers, DEFAULT_SORT_ORDER } from './useSorting';
