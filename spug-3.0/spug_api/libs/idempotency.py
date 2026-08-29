@@ -37,7 +37,12 @@ def check_recent_duplicate(model_class, filters, window_seconds=30):
     """
     threshold = timezone.now() - timedelta(seconds=window_seconds)
     qs = model_class.objects.filter(**filters, created_at__gte=threshold)
-    # 过滤掉已软删除的记录，避免误判
+    # 过滤掉已软删除的记录，避免误判。
+    # 兼容两种软删除约定：is_deleted 布尔标志（TenantModelMixin 系模型）
+    # 与 deleted_at 时间戳（非租户全局表，如 DepartmentDutyLog）。
+    # 双字段并存的模型走 is_deleted 分支，行为与历史一致。
     if hasattr(model_class, 'is_deleted'):
         qs = qs.filter(is_deleted=False)
+    elif hasattr(model_class, 'deleted_at'):
+        qs = qs.filter(deleted_at__isnull=True)
     return qs.exists()
