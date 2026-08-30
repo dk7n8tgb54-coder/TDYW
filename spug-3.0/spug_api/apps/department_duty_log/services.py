@@ -79,6 +79,10 @@ def _parse_date(value, field_name, allow_future=False):
         d = datetime.strptime(value.strip(), '%Y-%m-%d').date()
     except (ValueError, TypeError):
         raise ValueError(f'{field_name} 日期格式不正确，需为 YYYY-MM-DD')
+    # 容错：1900 年以前的日期超出数据库 DATE 可靠范围（会落到数据库层报错），
+    # 与 duty_dates 接口 1900-9999 的合法域保持一致。
+    if d.year < 1900:
+        raise ValueError(f'{field_name} 日期超出支持范围（最早 1900-01-01）')
     if not allow_future and d > date.today():
         raise ValueError(f'{field_name} 不能晚于当前日期')
     return d
@@ -319,11 +323,16 @@ def list_duty_dates(user, year, month):
     # 半开区间 __gte/__lt 同时消除 EXTRACT 函数和 BETWEEN 闭区间，最稳妥。
     # 已通过 EXPLAIN 验证：含 OR 可见性条件时仍走 duty_log_date_idx 索引。
     start_date = date(year, month, 1)
-    end_date = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
-    qs = qs.filter(
-        duty_date__gte=start_date,
-        duty_date__lt=end_date,
-    )
+    # 容错：9999-12 没有次月上界，date(10000, 1, 1) 会抛 ValueError。
+    # 此时省略上界条件（duty_date 本身不会超过 9999-12-31）。
+    if month == 12 and year >= date.max.year:
+        qs = qs.filter(duty_date__gte=start_date)
+    else:
+        end_date = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+        qs = qs.filter(
+            duty_date__gte=start_date,
+            duty_date__lt=end_date,
+        )
     values = (
         qs.values_list('duty_date', flat=True)
         .order_by('duty_date')
@@ -366,8 +375,13 @@ def _parse_list_date_range(query_params):
     start_date_str = query_params.get('start_date', '').strip()
     end_date_str = query_params.get('end_date', '').strip()
     try:
-        start_date = _parse_date(start_date_str, '开始日期') if start_date_str else None
-        end_date = _parse_date(end_date_str, '结束日期') if end_date_str else None
+        # 筛选边界不是业务填报日期，允许未来日期（前端 RangePicker 可选未来范围）
+        start_date = (
+            _parse_date(start_date_str, '开始日期', allow_future=True)
+            if start_date_str else None)
+        end_date = (
+            _parse_date(end_date_str, '结束日期', allow_future=True)
+            if end_date_str else None)
     except ValueError as e:
         return None, None, str(e)
     if start_date and end_date and end_date < start_date:
@@ -641,9 +655,13 @@ def sign_draft(record_id, user, client_version, request_id, confirm, request=Non
             if not record:
                 raise _DutyLogError('记录不存在')
             if record.status != STATUS_DRAFT:
-                # 幂等重试：如果记录已签署且 request_id 匹配已有签署，返回成功
+                # 幂等重试：如果记录已签署且 request_id 匹配本记录已有签署，返回成功。
+                # 必须绑定 module + object_id：否则其他记录的 request_id
+                # 重放到本记录会被误判为幂等重试而返回成功。
                 if request_id and record.status == STATUS_SIGNED:
                     existing = SignatureUsage.objects.filter(
+                        module=MODULE,
+                        object_id=str(record_id),
                         request_id=request_id,
                         signer_user_id=user.id,
                     ).first()
@@ -860,13 +878,16 @@ def _parse_export_filters(raw_data):
     filters = {}
 
     # 日期范围（导出允许更宽范围，不强制 31 天默认）
+    # 筛选边界不是业务填报日期，允许未来日期（与列表筛选语义一致）
     start_date_str = str(raw_data.get('start_date', '')).strip()
     end_date_str = str(raw_data.get('end_date', '')).strip()
     try:
         if start_date_str:
-            filters['start_date'] = _parse_date(start_date_str, '开始日期')
+            filters['start_date'] = _parse_date(
+                start_date_str, '开始日期', allow_future=True)
         if end_date_str:
-            filters['end_date'] = _parse_date(end_date_str, '结束日期')
+            filters['end_date'] = _parse_date(
+                end_date_str, '结束日期', allow_future=True)
     except ValueError as e:
         return None, str(e)
     if filters.get('start_date') and filters.get('end_date') \

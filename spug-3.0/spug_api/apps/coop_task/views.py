@@ -328,6 +328,9 @@ class TaskView(View):
         ).parse(request.GET)
         if error:
             return json_response(error=error)
+        # 分页下限保护：负数会让 ORM 切片抛异常转 500
+        page = max(form.page, 1)
+        page_size = max(form.page_size, 0)
         qs = CoopTask.objects.filter(is_deleted=False)
         if not request.user.is_supper:
             qs = qs.filter(tenant_id=request.user.tenant_id)
@@ -336,7 +339,7 @@ class TaskView(View):
         if form.keyword:
             qs = qs.filter(Q(title__contains=form.keyword) | Q(description__contains=form.keyword))
         total = qs.count()
-        tasks = list(qs.order_by('-id')[(form.page - 1) * form.page_size: form.page * form.page_size])
+        tasks = list(qs.order_by('-id')[(page - 1) * page_size: page * page_size])
         now = timezone.now()
         if not tasks:
             return json_response({'results': [], 'total': total})
@@ -950,8 +953,10 @@ class AttachmentPreviewUrlView(View):
         if err:
             return json_response(error=err)
         preview_file_api_path = f'/api/coop-task/attachments/{pk}/preview-file/'
+        # 附件归属上传方（交付科室）租户，跨租户预览须以附件真实租户绑定令牌
         data, error = AttachmentService.get_preview_url(
-            request.user, pk, preview_file_api_path, skip_tenant_filter=True)
+            request.user, pk, preview_file_api_path, skip_tenant_filter=True,
+            token_tenant_id=att.tenant_id)
         if error:
             return json_response(error=error)
         return json_response(data)
