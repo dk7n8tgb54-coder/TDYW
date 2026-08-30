@@ -17,6 +17,7 @@ import ReactDOM from 'react-dom';
 import {act, Simulate} from 'react-dom/test-utils';
 import {updatePermissions} from 'libs';
 import ComTable from '../Table';
+import store from '../store';
 
 jest.mock('../store', () => ({
   records: [{
@@ -41,7 +42,7 @@ jest.mock('../store', () => ({
   showForm: jest.fn(),
 }));
 
-// 操作列仅在具备编辑/删除权限时渲染：以超级权限走真实 hasPermission 路径
+// 操作列在具备查看/编辑/删除任一权限时渲染：以超级权限走真实 hasPermission 路径
 sessionStorage.setItem('is_supper', 'true');
 updatePermissions();
 
@@ -151,5 +152,35 @@ describe('无线电执照 Table 列宽拖动（TableCard resizable 集成）', (
     expect(colWidths()).toContain('180px');
     const stored = window.__sessionTableColWidths || {};
     expect((stored.rl || {})['频率']).toBeUndefined();
+  });
+});
+
+describe('无线电执照 Table 操作列门控（只读用户保留查看入口）', () => {
+  function grantPermissions(perms) {
+    sessionStorage.setItem('is_supper', 'false');
+    sessionStorage.setItem('permissions', JSON.stringify(perms));
+    updatePermissions();
+  }
+
+  function actionButtons() {
+    return Array.from(container.querySelectorAll('.ant-table-tbody button'))
+      .map(btn => btn.textContent.trim());
+  }
+
+  it('仅查看权限的用户渲染操作列，且只有查看按钮、点击进详情', () => {
+    grantPermissions(['radio_license.license.view']);
+    renderTable();
+    expect(findTh('操作')).toBeTruthy();
+    expect(actionButtons()).toEqual(['查看']);
+    act(() => {
+      Simulate.click(container.querySelector('.ant-table-tbody button'));
+    });
+    expect(store.showDetail).toHaveBeenCalledWith(expect.objectContaining({id: 1}));
+  });
+
+  it('无查看/编辑/删除权限的用户不渲染操作列', () => {
+    grantPermissions([]);
+    renderTable();
+    expect(findTh('操作')).toBeUndefined();
   });
 });

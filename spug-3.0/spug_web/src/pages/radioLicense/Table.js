@@ -115,12 +115,11 @@ class ComTable extends React.Component {
         <Table.Column title="责任人" dataIndex="responsible_user_name" width={100}/>
         <Table.Column title="附件" width={60} render={this.renderAttachmentCount}/>
         <Table.Column title="创建时间" dataIndex="created_at" width={160} ellipsis/>
-        {hasPermission('radio_license.license.edit|radio_license.license.del') && (
-          <Table.Column title="操作" width={200} fixed="right" render={info => (
+        {hasPermission('radio_license.license.view|radio_license.license.edit|radio_license.license.del') && (
+          <Table.Column title="操作" width={150} fixed="right" render={info => (
             <Action>
               <Action.Button auth="radio_license.license.view" onClick={() => store.showDetail(info)}>查看</Action.Button>
               <Action.Button auth="radio_license.license.edit" onClick={() => store.showForm(info)}>编辑</Action.Button>
-              <Action.Button auth="radio_license.attachment.upload|radio_license.attachment.download|radio_license.attachment.delete" onClick={() => store.showDetail(info)}>附件</Action.Button>
               <Action.Button danger auth="radio_license.license.del" onClick={() => this.handleDelete(info)}>删除</Action.Button>
             </Action>
           )}/>

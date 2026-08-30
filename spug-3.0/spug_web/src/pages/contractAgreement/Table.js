@@ -105,11 +105,10 @@ class ComTable extends React.Component {
         <Table.Column title="状态" width={80} render={this.renderStatus}/>
         <Table.Column title="创建时间" dataIndex="created_at" width={160} ellipsis/>
         {hasPermission('contract_agreement.agreement.view|contract_agreement.agreement.edit|contract_agreement.agreement.del') && (
-          <Table.Column title="操作" width={210} fixed="right" render={record => (
+          <Table.Column title="操作" width={150} fixed="right" render={record => (
             <Action>
               <Action.Button auth="contract_agreement.agreement.view" onClick={() => store.showDetail(record)}>查看</Action.Button>
               <Action.Button auth="contract_agreement.agreement.edit" onClick={() => store.showForm(record)}>编辑</Action.Button>
-              <Action.Button auth="contract_agreement.attachment.upload|contract_agreement.attachment.download|contract_agreement.attachment.delete" onClick={() => store.showDetail(record)}>附件</Action.Button>
               <Action.Button danger auth="contract_agreement.agreement.del" onClick={() => this.handleDelete(record)}>删除</Action.Button>
             </Action>
           )}/>
