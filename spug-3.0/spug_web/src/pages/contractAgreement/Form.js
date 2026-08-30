@@ -13,8 +13,7 @@ import { AttachmentManager } from 'components';
 
 const STATUS_TAG_MAP = {
   normal: {color: 'green', text: '正常'},
-  expiring: {color: 'orange', text: '即将到期'},
-  expired: {color: 'red', text: '已过期'},
+  expired: {color: 'default', text: '已关闭'},
 };
 
 export default observer(function () {
@@ -72,10 +71,7 @@ export default observer(function () {
   function renderDaysLeft(record) {
     if (record.days_left === undefined || record.days_left === null) return '-';
     if (record.days_left < 0) {
-      return <span style={{color: '#ff4d4f'}}>已过期 {Math.abs(record.days_left)} 天</span>;
-    }
-    if (record.days_left <= 60) {
-      return <span style={{color: '#fa8c16'}}>{record.days_left} 天</span>;
+      return <span style={{color: '#8c8c8c'}}>已关闭 {Math.abs(record.days_left)} 天</span>;
     }
     return <span>{record.days_left} 天</span>;
   }
@@ -99,6 +95,7 @@ export default observer(function () {
         onCancel={() => S.detailVisible = false}>
         <Descriptions bordered column={2}>
           <Descriptions.Item label="合同名称">{info.contract_name || '-'}</Descriptions.Item>
+          <Descriptions.Item label="合同编号">{info.contract_no || '-'}</Descriptions.Item>
           <Descriptions.Item label="类型">{info.contract_type_display || '-'}</Descriptions.Item>
           <Descriptions.Item label="起始日期">{info.valid_start_date || '-'}</Descriptions.Item>
           <Descriptions.Item label="截止日期">{info.valid_end_date || '-'}</Descriptions.Item>
@@ -131,6 +128,8 @@ export default observer(function () {
             deletePerm="contract_agreement.attachment.delete"
             previewPerm="contract_agreement.agreement.view"
             maxFileSize={50}
+            multiple
+            maxFilesPerBatch={20}
             accept=".pdf,.jpg,.jpeg,.png,.gif,.bmp,.webp,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z"
           />
         )}
@@ -157,6 +156,9 @@ export default observer(function () {
       <Form form={form} initialValues={initialValues} labelCol={{span: 6}} wrapperCol={{span: 15}}>
         <Form.Item name="contract_name" label="合同名称" rules={[{required: true, message: '请输入合同名称'}]}>
           <Input placeholder="请输入合同名称"/>
+        </Form.Item>
+        <Form.Item name="contract_no" label="合同编号">
+          <Input placeholder="请输入合同编号（选填）"/>
         </Form.Item>
         <Form.Item name="contract_type" label="类型" rules={[{required: true, message: '请选择类型'}]}>
           <Select placeholder="请选择类型">

@@ -1,9 +1,10 @@
 /**
- * 文件名列展示优化测试（2026-08-16）
+ * 文件名列展示优化测试（2026-08-16，列宽方案 2026-08-30 调整为全列固定宽）
  *
  * 覆盖：
- * 1. 文件名列不设固定 width（唯一弹性列，tableLayout="fixed" 下占满剩余宽度）
- * 2. 类型/大小/修改时间/创建人列为固定宽度；搜索模式追加固定宽度路径列
+ * 1. 文件名列固定宽度 400（可拖动，minWidth 200）；类型/大小/修改时间/创建人
+ *    列为固定宽度；搜索模式追加固定宽度路径列
+ * 2. 剩余空间由 FileTable 的表尾填充列吸收（见 FileTable.render.test.js）
  * 3. 文件名经 FileNameText 组件渲染（截断提示与复制行为见 FileNameText.test.js）
  * 4. record.display_name 缺失时回退到 name 字段
  */
@@ -103,21 +104,22 @@ function collectText(node, acc = []) {
 
 const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-describe('文件名列宽方案（2026-08-16）', () => {
+describe('文件名列宽方案（2026-08-30 全列固定宽）', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockCopyToClipboard.mockResolvedValue(true);
   });
 
-  it('文件名列不设固定 width，元数据列使用固定宽度', () => {
+  it('文件名列固定宽度 400（可拖动，minWidth 200），元数据列使用固定宽度', () => {
     const columns = buildColumns();
     const byKey = Object.fromEntries(columns.map((c) => [c.key, c]));
 
     expect(columns.map((c) => c.key)).toEqual(
       expect.arrayContaining(['name', 'file_type', 'size', 'created_at', 'created_by'])
     );
-    // 文件名列为唯一弹性列：不设 width 才能在 fixed 布局下占满剩余空间
-    expect(byKey.name.width).toBeUndefined();
+    // 全列固定宽模型：文件名列默认 400px，可拖动调整（minWidth 200 防止拖没）
+    expect(byKey.name.width).toBe(400);
+    expect(byKey.name.minWidth).toBe(200);
     expect(byKey.file_type.width).toBe(130);
     expect(byKey.size.width).toBe(110);
     expect(byKey.created_at.width).toBe(180);
@@ -126,12 +128,12 @@ describe('文件名列宽方案（2026-08-16）', () => {
     expect(byKey.path).toBeUndefined();
   });
 
-  it('搜索模式追加固定宽度路径列，文件名列仍为弹性列', () => {
+  it('搜索模式追加固定宽度路径列', () => {
     const columns = buildColumns({ isSearching: true });
     const byKey = Object.fromEntries(columns.map((c) => [c.key, c]));
 
     expect(byKey.path.width).toBe(180);
-    expect(byKey.name.width).toBeUndefined();
+    expect(byKey.name.width).toBe(400);
   });
 });
 

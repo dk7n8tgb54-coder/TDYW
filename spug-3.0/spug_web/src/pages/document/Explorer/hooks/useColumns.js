@@ -137,10 +137,13 @@ export default function useColumns({
         title: '文件名',
         dataIndex: 'name',
         key: 'name',
-        // 【2026-08-16 列宽调整】文件名列不设 width，作为唯一弹性列占满剩余宽度
-        //   （tableLayout="fixed" 下未设 width 的列分得全部剩余空间）；
-        //   类型/大小/修改时间/创建人 列固定宽度，宽屏时文件名展示空间最大化。
-        //   超长名称单行省略，悬停 Tooltip 显示完整名称并支持一键复制。
+        // 【2026-08-30 全列固定宽 + 可拖动】接入列宽拖动公共组件后，文件名列
+        //   不再是弹性列：默认 400px（原弹性设计的最小可读宽度），可拖动手柄
+        //   调整并持久化（minWidth 200 防止拖没）；剩余空间由表尾填充列吸收
+        //   （见 FileTable 的 FILLER_COLUMN）。超长名称单行省略，
+        //   悬停 Tooltip 显示完整名称并支持一键复制。
+        width: 400,
+        minWidth: 200,
         ellipsis: true,
         sorter: true,
         showSorterTooltip: false,

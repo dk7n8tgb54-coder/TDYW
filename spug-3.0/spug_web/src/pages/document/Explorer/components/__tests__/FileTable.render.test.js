@@ -44,10 +44,10 @@ class ResizeObserverStub {
 }
 ResizeObserverStub.instances = [];
 
-// ---- 公共空间完整列配置（与 useColumns 输出同构）----
+// ---- 公共空间完整列配置（与 useColumns 输出同构：全列固定宽度）----
 function buildColumns() {
   return [
-    { title: '文件名', dataIndex: 'name', key: 'name' },
+    { title: '文件名', dataIndex: 'name', key: 'name', width: 400, minWidth: 200 },
     { title: '类型', dataIndex: 'file_type', key: 'file_type', width: 130 },
     { title: '大小', dataIndex: 'size', key: 'size', width: 110 },
     { title: '修改时间', dataIndex: 'created_at', key: 'created_at', width: 180 },
@@ -106,6 +106,8 @@ afterEach(() => {
   container.remove();
   container = null;
   delete global.ResizeObserver;
+  // 列宽拖动持久化（公共组件会话内存）按用例清理，避免污染后续用例
+  delete window.__sessionTableColWidths;
 });
 
 describe('FileTable 基础渲染', () => {
@@ -119,11 +121,12 @@ describe('FileTable 基础渲染', () => {
     expect(container.textContent).toContain('张三');
   });
 
-  it('scroll.x 最小总宽兜底：body table 带 640px 宽度与 100% 最小宽度', () => {
+  it('scroll.x 按可见列总宽计算：body table 带总宽与 100% 最小宽度', () => {
     renderTable();
+    // 48(选择列)+400(文件名)+130+110+180+120 = 988
     // sticky 模式下存在表头/body 两张 table，内联宽度在 body table 上
     const tables = Array.from(container.querySelectorAll('table'));
-    const bodyTable = tables.find((t) => t.style.width === '640px');
+    const bodyTable = tables.find((t) => t.style.width === '988px');
     expect(bodyTable).toBeTruthy();
     expect(bodyTable.style.minWidth).toBe('100%');
   });
@@ -225,5 +228,131 @@ describe('FileTable 降级路径', () => {
     renderTable();
     expect(headerTexts()).toContain('文件名');
     expect(headerTexts()).toContain('创建人');
+  });
+});
+
+describe('FileTable 列宽拖动（useResizableColumns 集成）', () => {
+  /** colgroup 中所有列的宽度串（含表头/body 两张表，重复出现） */
+  function colWidths() {
+    return Array.from(container.querySelectorAll('colgroup col')).map(
+      (col) => col.style.width
+    );
+  }
+
+  function findTh(title) {
+    return Array.from(container.querySelectorAll('.ant-table-thead th')).find(
+      (th) => th.textContent.trim() === title
+    );
+  }
+
+  /** 拖动手柄：公共组件在固定宽度列表头内渲染的把手 span */
+  function getResizeHandle(th) {
+    return th.querySelector('.resizableHandle');
+  }
+
+  function headerThs() {
+    return Array.from(container.querySelectorAll('.ant-table-thead th'));
+  }
+
+  /** 模拟一次拖拽：mousedown → mousemove(deltaX) → mouseup */
+  function drag(th, deltaX, startClientX = 100) {
+    act(() => {
+      getResizeHandle(th).dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: startClientX })
+      );
+    });
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mousemove', { clientX: startClientX + deltaX }));
+    });
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', {}));
+    });
+  }
+
+  it('全部列（含文件名列）右缘均渲染拖动手柄', () => {
+    renderTable();
+    ['文件名', '类型', '大小', '修改时间', '创建人'].forEach((title) => {
+      expect(getResizeHandle(findTh(title))).toBeTruthy();
+    });
+  });
+
+  it('表尾存在填充列：空表头、无拖拽柄，吸收剩余宽度', () => {
+    renderTable();
+    const ths = headerThs();
+    expect(ths[ths.length - 1].textContent).toBe('');
+    expect(getResizeHandle(ths[ths.length - 1])).toBeNull();
+    // rc-table 的 colgroup 从后向前跳过无宽度的列（填充列没有 col 元素），
+    // fixed 布局下填充列作为唯一的 auto 列吸收全部剩余空间：
+    // 最后一个 col 是最后一个真实列（创建人 120px）
+    const cols = Array.from(container.querySelectorAll('colgroup col'));
+    expect(cols[cols.length - 1].style.width).toBe('120px');
+  });
+
+  it('未持久化时使用列默认宽度（类型 130px、文件名 400px）', () => {
+    renderTable();
+    expect(colWidths()).toContain('130px');
+    expect(colWidths()).toContain('400px');
+  });
+
+  it('会话内存中的持久化宽度应用到对应列', () => {
+    window.__sessionTableColWidths = { document_file: { 类型: 260, 大小: 90 } };
+    renderTable();
+    expect(colWidths()).toContain('260px');
+    expect(colWidths()).toContain('90px');
+    expect(colWidths()).not.toContain('130px');
+  });
+
+  it('拖动列宽：实时更新列宽并写入会话内存', () => {
+    renderTable();
+    drag(findTh('类型'), 40);
+    // 右移 40px：类型列 130 → 170
+    expect(colWidths()).toContain('170px');
+    expect(colWidths()).not.toContain('130px');
+
+    const stored = window.__sessionTableColWidths;
+    expect(stored.document_file['类型']).toBe(170);
+    // 其它列宽度不受影响
+    expect(stored.document_file['修改时间']).toBeUndefined();
+    expect(stored.document_file['文件名']).toBeUndefined();
+  });
+
+  it('拖动手柄双击：恢复该列默认宽度', () => {
+    window.__sessionTableColWidths = { document_file: { 类型: 260 } };
+    renderTable();
+    expect(colWidths()).toContain('260px');
+
+    act(() => {
+      getResizeHandle(findTh('类型')).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    });
+    expect(colWidths()).toContain('130px');
+    expect(colWidths()).not.toContain('260px');
+    const stored = window.__sessionTableColWidths || {};
+    expect((stored.document_file || {})['类型']).toBeUndefined();
+  });
+
+  it('文件名列右缘可拖动：400 → 540 并写入会话内存（弹性列遗留死区已修复）', () => {
+    renderTable();
+    drag(findTh('文件名'), 140);
+    expect(colWidths()).toContain('540px');
+    expect(colWidths()).not.toContain('400px');
+
+    const stored = window.__sessionTableColWidths;
+    expect(stored.document_file['文件名']).toBe(540);
+    // 其它列宽度不受影响
+    expect(stored.document_file['类型']).toBeUndefined();
+  });
+
+  it('双击文件名列手柄：恢复默认 400px', () => {
+    window.__sessionTableColWidths = { document_file: { 文件名: 540 } };
+    renderTable();
+    expect(colWidths()).toContain('540px');
+
+    act(() => {
+      getResizeHandle(findTh('文件名')).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    });
+    expect(colWidths()).toContain('400px');
+    expect(colWidths()).not.toContain('540px');
+    const stored = window.__sessionTableColWidths || {};
+    expect((stored.document_file || {})['文件名']).toBeUndefined();
   });
 });

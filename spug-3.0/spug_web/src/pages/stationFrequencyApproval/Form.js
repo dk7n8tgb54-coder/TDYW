@@ -189,7 +189,7 @@ export default observer(function () {
           <Input placeholder="请输入文件名称" maxLength={200} />
         </Form.Item>
         <Form.Item required name="doc_no" label="文件编号" rules={[{ required: true, message: '请输入文件编号' }]}>
-          <Input placeholder="租户内唯一" maxLength={100} />
+          <Input placeholder="请输入文件编号" maxLength={100} />
         </Form.Item>
         <Form.Item required name="frequency_text" label="批复频率" rules={[{ required: true, message: '请输入批复频率' }]}>
           <Input placeholder="如 88-108 MHz" maxLength={200} />

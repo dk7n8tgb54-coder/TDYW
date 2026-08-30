@@ -565,3 +565,17 @@ class AttachmentService:
         if delete_file:
             for att in att_list:
                 AttachmentService._remove_physical_file_on_commit(att)
+
+    @staticmethod
+    def hard_delete(att: EvidenceAttachment) -> Optional[str]:
+        """物理删除附件（数据库记录 + 物理文件），用于任务级临时资源（如协作任务材料模板）。
+
+        先删物理文件（文件本就不存在时视为成功），成功后删除数据库记录；
+        物理文件删除失败时不删记录，避免留下无文件的悬挂记录。
+        """
+        error = AttachmentService._remove_physical_file(att)
+        if error:
+            return error
+        att.delete()
+        logger.info(f'[Evidence] 附件物理删除 ID={att.id} 文件={att.file_name}')
+        return None

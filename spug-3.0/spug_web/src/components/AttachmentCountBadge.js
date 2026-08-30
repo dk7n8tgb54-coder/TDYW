@@ -20,7 +20,7 @@
  * 真正的附件管理仍由详情页里的 AttachmentManager 完成。
  */
 import React from 'react';
-import { Space, Badge } from 'antd';
+import { Space } from 'antd';
 import { PaperClipOutlined } from '@ant-design/icons';
 
 export default function AttachmentCountBadge({ count, onClick }) {
@@ -38,9 +38,7 @@ export default function AttachmentCountBadge({ count, onClick }) {
   if (onClick) {
     return (
       <a onClick={onClick} style={{ textDecoration: 'none' }}>
-        <Badge count={count} size="small" offset={[6, -2]}>
-          {content}
-        </Badge>
+        {content}
       </a>
     );
   }

@@ -6,7 +6,7 @@
 import React from 'react';
 import { Row, Col } from 'antd';
 import { Breadcrumb } from 'components';
-import RunlogOverview from './RunlogOverview';
+import CoopTaskOverview from './CoopTaskOverview';
 import ExpiryOverview from './ExpiryOverview';
 import FaultOverview from './FaultOverview';
 import UpgradeOverview from './UpgradeOverview';
@@ -22,16 +22,20 @@ function HomeIndex() {
         <Breadcrumb.Item>工作台</Breadcrumb.Item>
       </Breadcrumb>
 
-      {/* 公告面板：首页第一屏靠上位置 */}
-      <AnnouncementPanel />
+      {/* 第1行：公告 + 提醒事项 */}
+      <Row gutter={12} style={{ marginBottom: 12 }}>
+        <Col span={16}>
+          <AnnouncementPanel />
+        </Col>
+        <Col span={8}>
+          <ReminderPanel />
+        </Col>
+      </Row>
 
-      {/* 提醒事项面板 */}
-      <ReminderPanel />
+      {/* 第2行：协作任务（我发起的 + 待我交付） */}
+      <CoopTaskOverview />
 
-      {/* 第1行：跨日事项跟踪概览 */}
-      <RunlogOverview />
-
-      {/* 第2行：到期提醒 + 最近故障 + 进行中升级 + 干扰统计 */}
+      {/* 第3行：到期提醒 + 最近故障 + 进行中升级 + 干扰统计 */}
       <Row gutter={12} style={{ marginBottom: 12 }}>
         <Col span={6}>
           <ExpiryOverview />

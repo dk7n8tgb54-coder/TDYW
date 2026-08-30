@@ -133,6 +133,34 @@
   }
 }
 
+.resizableHeaderCell {
+  position: relative;
+}
+
+.resizableHandle {
+  position: absolute;
+  top: 0;
+  right: -6px;
+  bottom: 0;
+  width: 12px;
+  cursor: col-resize;
+  z-index: 1;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 20%;
+    bottom: 20%;
+    right: 5px;
+    width: 2px;
+    background: transparent;
+  }
+
+  &:hover::after {
+    background: #1890ff;
+  }
+}
+
 .breadcrumb {
   margin: -24px -24px 24px -24px;
   padding: 16px 24px;

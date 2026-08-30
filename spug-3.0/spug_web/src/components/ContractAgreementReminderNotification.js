@@ -5,7 +5,6 @@ import React, { useEffect, useRef } from 'react';
 import { notification, Tag, Button } from 'antd';
 import { WarningOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { http, history, hasPermission } from 'libs';
-import contractAgreementBadge from '../layout/ContractAgreementBadgeStore';
 
 const POLL_INTERVAL = 5 * 60 * 1000;
 const MUTE_KEY_PREFIX = 'spug_contract_agreement_reminder_muted';
@@ -100,7 +99,6 @@ function showReminderNotification(record) {
             onClick={(e) => {
               e.stopPropagation();
               http.post('/api/contract-agreement/reminders/ack/', {agreement_id: record.agreement_id})
-                .then(() => contractAgreementBadge.fetch())
                 .finally(() => notification.close(notifKey));
             }}>
             已处理

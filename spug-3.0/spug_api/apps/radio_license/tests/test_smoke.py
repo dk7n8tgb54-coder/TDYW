@@ -365,7 +365,8 @@ class StationFrequencyApprovalCRUDTests(TestCase):
         approval = StationFrequencyApproval.objects.get(doc_no='APP-EXP')
         self.assertEqual(approval.status, 'expired')
 
-    def test_create_doc_no_duplicated_in_same_tenant_rejected(self):
+    def test_create_doc_no_duplicated_in_same_tenant_allowed(self):
+        """文件编号允许租户内重复。"""
         _make_approval(self.user_a, tenant_id='tenant_a', doc_no='DUP-1')
         today = date.today()
         payload = {
@@ -382,7 +383,12 @@ class StationFrequencyApprovalCRUDTests(TestCase):
             content_type='application/json',
         )
         body = resp.json()
-        self.assertTrue(body.get('error'))
+        self.assertFalse(body.get('error'), body)
+        self.assertEqual(
+            StationFrequencyApproval.objects.filter(
+                tenant_id='tenant_a', doc_no='DUP-1').count(),
+            2,
+        )
 
     def test_create_doc_no_same_in_different_tenant_allowed(self):
         _make_approval(self.user_a, tenant_id='tenant_a', doc_no='SHARE-1')
@@ -491,14 +497,15 @@ class StationFrequencyApprovalCRUDTests(TestCase):
         approval.refresh_from_db()
         self.assertEqual(approval.status, 'expired')
 
-    def test_edit_doc_no_duplicated_excluding_self_rejected(self):
+    def test_edit_doc_no_duplicated_allowed(self):
+        """编辑时可以把文件编号改成已有编号（允许重复）。"""
         _make_approval(self.user_a, tenant_id='tenant_a', doc_no='DUP-A')
         approval2 = _make_approval(self.user_a, tenant_id='tenant_a', doc_no='DUP-B')
         today = date.today()
         payload = {
             'id': approval2.id,
             'name': approval2.name,
-            'doc_no': 'DUP-A',  # 改成已存在的
+            'doc_no': 'DUP-A',  # 改成已存在的编号
             'frequency_text': approval2.frequency_text,
             'valid_from': str(approval2.valid_from),
             'valid_to': str(today + timedelta(days=100)),
@@ -510,7 +517,9 @@ class StationFrequencyApprovalCRUDTests(TestCase):
             content_type='application/json',
         )
         body = resp.json()
-        self.assertTrue(body.get('error'))
+        self.assertFalse(body.get('error'), body)
+        approval2.refresh_from_db()
+        self.assertEqual(approval2.doc_no, 'DUP-A')
 
     def test_edit_cross_tenant_rejected(self):
         """租户 A 用户不能编辑租户 B 的批复。"""
@@ -981,3 +990,84 @@ class StationFrequencyApprovalAttachmentTests(TestCase):
                 object_id=str(approval.id),
             ).exists()
         )
+
+
+# ============================================================
+# 无线电台执照 - 菜单红点（个人口径：只统计本人负责且未 ack）
+# ============================================================
+
+class RadioLicenseBadgeTests(TestCase):
+    """执照 badge 与批复 badge 同口径：responsible_user_id=当前用户 且当前周期未 ack。"""
+
+    def setUp(self):
+        from apps.setting.utils import AppSetting
+        AppSetting.set('bind_ip', False)
+        self.user = _make_user('badge_owner', tenant_id='t_badge')
+        _grant_perms(self.user, [('radio_license', 'license', ['view'])])
+        self.client = _make_client(self.user)
+
+    def _make_license(self, **kwargs):
+        defaults = {
+            'tenant_id': 't_badge',
+            'station_name': 'badge_station',
+            'purpose': 'test',
+            'valid_from': date.today() - timedelta(days=365),
+            'valid_to': date.today() + timedelta(days=30),
+            'responsible_user_id': self.user.id,
+            'responsible_user_name': self.user.nickname,
+            'status': 'normal',
+            'created_by': self.user,
+        }
+        defaults.update(kwargs)
+        return RadioLicense.objects.create(**defaults)
+
+    def test_badge_only_counts_own_responsible(self):
+        """同租户内别人负责的到期执照不进我的红点计数。"""
+        today = date.today()
+        self._make_license(station_name='MINE', valid_to=today + timedelta(days=10))
+        other = _make_user('other_owner', tenant_id='t_badge')
+        _grant_perms(other, [('radio_license', 'license', ['view'])])
+        self._make_license(
+            station_name='OTHERS', responsible_user_id=other.id,
+            responsible_user_name=other.nickname, valid_to=today - timedelta(days=5),
+        )
+
+        resp = self.client.get('/radio-license/badge/')
+        data = resp.json()['data']
+        self.assertEqual(data['count'], 1)
+        self.assertEqual(data['expiring_count'], 1)
+        self.assertEqual(data['expired_count'], 0)
+
+        # 纯查看者（有查看权限但无负责记录）看到 0
+        viewer = _make_user('pure_viewer', tenant_id='t_badge')
+        _grant_perms(viewer, [('radio_license', 'license', ['view'])])
+        resp = _make_client(viewer).get('/radio-license/badge/')
+        self.assertEqual(resp.json()['data']['count'], 0)
+
+        # other 只看到自己负责的那条过期执照
+        other_client = _make_client(other)
+        resp = other_client.get('/radio-license/badge/')
+        data = resp.json()['data']
+        self.assertEqual(data['count'], 1)
+        self.assertEqual(data['expired_count'], 1)
+
+    def test_ack_excludes_from_badge(self):
+        """点已处理后本周期不再计数，续期（valid_to 变化）后重新计数。"""
+        today = date.today()
+        lic = self._make_license(station_name='ACK-ME', valid_to=today + timedelta(days=10))
+
+        resp = self.client.get('/radio-license/badge/')
+        self.assertEqual(resp.json()['data']['count'], 1)
+
+        self.client.post(
+            '/radio-license/reminders/ack/',
+            data=json.dumps({'license_id': lic.id}),
+            content_type='application/json',
+        )
+        resp = self.client.get('/radio-license/badge/')
+        self.assertEqual(resp.json()['data']['count'], 0)
+
+        lic.valid_to = today + timedelta(days=20)
+        lic.save()
+        resp = self.client.get('/radio-license/badge/')
+        self.assertEqual(resp.json()['data']['count'], 1)

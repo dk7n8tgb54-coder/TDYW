@@ -138,7 +138,7 @@ function buildAttachmentColumns(options) {
           <Space>
             <PaperClipOutlined />
             {clickable ? (
-              <Button type="link" style={{ padding: 0 }} onClick={() => onFileNameClick(record)}>
+              <Button type="link" style={{ padding: 0, whiteSpace: 'normal', height: 'auto', textAlign: 'left' }} onClick={() => onFileNameClick(record)}>
                 {text}
               </Button>
             ) : (
@@ -191,8 +191,13 @@ function useAttachmentList({ module, recordId, listUrl, listRequest, normalizeAt
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
   const attachmentsRef = useRef([]);
+  const mountedRef = useRef(true);
+  const onCountChangeRef = useRef(onCountChange);
 
   useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
+  useEffect(() => { onCountChangeRef.current = onCountChange; });
+  // 列表请求可能在弹窗关闭后才返回，卸载后不再回写状态或通知父组件
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   const normalize = useCallback((raw) => {
     if (!normalizeAttachment) return raw;
@@ -200,12 +205,14 @@ function useAttachmentList({ module, recordId, listUrl, listRequest, normalizeAt
   }, [normalizeAttachment]);
 
   const updateAttachments = useCallback((updater) => {
-    setAttachments(prev => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      if (onCountChange) onCountChange(next.length);
-      return next;
-    });
-  }, [onCountChange]);
+    if (!mountedRef.current) return;
+    // 基于镜像 ref 计算下一份列表；onCountChange 只能在事件/回调阶段调用，
+    // 不能放进 setAttachments 的 updater（渲染期间触发父组件 setState 会报警告）
+    const next = typeof updater === 'function' ? updater(attachmentsRef.current) : updater;
+    attachmentsRef.current = next;
+    setAttachments(next);
+    if (onCountChangeRef.current) onCountChangeRef.current(next.length);
+  }, []);
 
   const fetchAttachments = useCallback(() => {
     if (!recordId) { updateAttachments([]); return; }
@@ -214,7 +221,7 @@ function useAttachmentList({ module, recordId, listUrl, listRequest, normalizeAt
       listRequest()
         .then(data => updateAttachments((data || []).map(normalize)))
         .catch(e => console.error(`[AttachmentManager:${module}] 获取附件列表失败:`, e))
-        .finally(() => setLoading(false));
+        .finally(() => { if (mountedRef.current) setLoading(false); });
       return;
     }
     if (!listUrl) { updateAttachments([]); return; }
@@ -222,7 +229,7 @@ function useAttachmentList({ module, recordId, listUrl, listRequest, normalizeAt
     http.get(listUrl)
       .then(data => updateAttachments((data || []).map(normalize)))
       .catch(e => console.error(`[AttachmentManager:${module}] 获取附件列表失败:`, e))
-      .finally(() => setLoading(false));
+      .finally(() => { if (mountedRef.current) setLoading(false); });
   }, [recordId, listUrl, listRequest, module, updateAttachments, normalize]);
 
   useEffect(() => { fetchAttachments(); }, [fetchAttachments]);
@@ -381,6 +388,15 @@ export default function AttachmentManager(props) {
   } = props;
 
   const canUpload = !readOnly && (!uploadPerm || hasPermission(uploadPerm));
+  // 上传通道必须存在（适配器或 uploadUrl），缺失时隐藏上传区，
+  // 避免点上传后 http.post(undefined) 在请求拦截器崩溃（url.startsWith 报错）
+  const showUploadArea = canUpload && !!(uploadRequest || uploadUrl);
+
+  useEffect(() => {
+    if (canUpload && !uploadRequest && !uploadUrl) {
+      console.warn(`[AttachmentManager:${module}] 组件可上传但未配置 uploadUrl/uploadRequest，上传区已隐藏`);
+    }
+  }, [canUpload, uploadRequest, uploadUrl, module]);
   const canDelete = !readOnly && (!deletePerm || hasPermission(deletePerm));
   const canPreview = !previewPerm || hasPermission(previewPerm);
   const canDownload = !downloadPerm || hasPermission(downloadPerm);
@@ -436,7 +452,7 @@ export default function AttachmentManager(props) {
 
   return (
     <div>
-      {canUpload && (
+      {showUploadArea && (
         <div style={{ marginBottom: uploadMode === 'dragger' ? 12 : 0 }}>
           <AttachmentUploadArea
             mode={uploadMode}

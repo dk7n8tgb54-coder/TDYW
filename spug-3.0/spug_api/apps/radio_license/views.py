@@ -873,9 +873,10 @@ class ResponsibleUserListView(View):
 
 
 class RadioLicenseBadgeView(View):
-    """菜单红点统计
+    """菜单红点统计。
 
-    返回本租户下"即将到期 + 已过期"执照的数量，用于左侧菜单红点提示。
+    只统计当前用户负责且当前周期未 ack 的记录（与批复红点口径一致）；
+    使用 Exists + OuterRef 排除当前周期 ack，避免将全部 ack 加载到 Python。
     实时计算（按 valid_to 与 today 差值），不依赖 status 缓存字段。
 
     鉴权：复用 radio_license.license.view（查看权限才能看到红点）。
@@ -883,8 +884,20 @@ class RadioLicenseBadgeView(View):
 
     @auth('radio_license.license.view')
     def get(self, request):
-        from datetime import date, timedelta
+        from datetime import date
+        from django.db.models import Exists, OuterRef
         qs = apply_tenant_filter(RadioLicense.objects.all(), request.user)
+        qs = qs.filter(responsible_user_id=request.user.id)
+
+        # 当前周期 ack：license_id + user_id + ack_valid_to == license.valid_to
+        acked_exists = LicenseReminderAck.objects.filter(
+            tenant_id=getattr(request.user, 'tenant_id', ''),
+            license_id=OuterRef('pk'),
+            user_id=request.user.id,
+            ack_valid_to=OuterRef('valid_to'),
+        )
+        qs = qs.filter(~Exists(acked_exists))
+
         today = date.today()
         # 即将到期：到期前 60 天内且未过期；已过期：valid_to < today
         expiring_count = qs.filter(

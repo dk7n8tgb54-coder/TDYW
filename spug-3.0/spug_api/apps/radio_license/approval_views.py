@@ -247,83 +247,64 @@ class StationFrequencyApprovalView(View):
         return json_response(error=self._handle_create(form, request.user))
 
     def _handle_create(self, form, user):
-        """新增批复：租户内 doc_no 重复校验 + 落库 + 即时扫描 + 审计"""
-        from django.db import transaction, IntegrityError
-
-        # 租户内 doc_no 重复检查（数据库唯一约束为并发兜底）
-        exists = apply_tenant_filter(
-            StationFrequencyApproval.objects.all(), user
-        ).filter(doc_no=form.doc_no).exists()
-        if exists:
-            return '文件编号已存在，请更换'
+        """新增批复：落库 + 即时扫描 + 审计（文件编号允许租户内重复）"""
+        from django.db import transaction
 
         form.pop('remark', None)
         assign_tenant_id(form, user)
         form.created_by = user
 
-        try:
-            with transaction.atomic():
-                create_data = {k: v for k, v in form.items() if v is not None}
-                approval = StationFrequencyApproval.objects.create(**create_data)
-                # 即时扫描更新缓存状态（不等待每日 Celery）
-                scan_single_approval(approval)
-                _record_approval_audit(
-                    user, 'create', approval,
-                    detail={
-                        'name': approval.name, 'doc_no': approval.doc_no,
-                        'frequency_text': approval.frequency_text,
-                        'valid_from': str(approval.valid_from),
-                        'valid_to': str(approval.valid_to),
-                        'responsible_user_id': approval.responsible_user_id,
-                        'responsible_user_name': approval.responsible_user_name,
-                    },
-                )
-        except IntegrityError:
-            return '文件编号已存在，请更换'
+        with transaction.atomic():
+            create_data = {k: v for k, v in form.items() if v is not None}
+            approval = StationFrequencyApproval.objects.create(**create_data)
+            # 即时扫描更新缓存状态（不等待每日 Celery）
+            scan_single_approval(approval)
+            _record_approval_audit(
+                user, 'create', approval,
+                detail={
+                    'name': approval.name, 'doc_no': approval.doc_no,
+                    'frequency_text': approval.frequency_text,
+                    'valid_from': str(approval.valid_from),
+                    'valid_to': str(approval.valid_to),
+                    'responsible_user_id': approval.responsible_user_id,
+                    'responsible_user_name': approval.responsible_user_name,
+                },
+            )
 
         return None
 
     def _handle_edit(self, form, user):
-        """编辑批复：租户内 doc_no 重复校验（排除自身）+ 更新 + 即时扫描 + 审计"""
-        from django.db import transaction, IntegrityError
+        """编辑批复：更新 + 即时扫描 + 审计（文件编号允许租户内重复）"""
+        from django.db import transaction
 
         qs = apply_tenant_filter(StationFrequencyApproval.objects.all(), user)
         old_approval = qs.filter(pk=form.id).first()
         if not old_approval:
             return '编辑失败：记录不存在或无权限编辑'
 
-        # 租户内 doc_no 重复检查（排除自身，仅当传了 doc_no 时）
-        if form.doc_no is not None:
-            dup_exists = qs.filter(doc_no=form.doc_no).exclude(pk=form.id).exists()
-            if dup_exists:
-                return '文件编号已存在，请更换'
-
         form.updated_at = timezone.now()
         form.updated_by = user
         record_id = form.pop('id')
         form.pop('remark', None)
 
-        try:
-            with transaction.atomic():
-                update_data = {k: v for k, v in form.items() if v is not None}
-                updated_count = qs.filter(pk=record_id).update(**update_data)
-                if updated_count == 0:
-                    return '编辑失败：记录不存在或无权限编辑'
-                approval = StationFrequencyApproval.objects.get(pk=record_id)
-                # 即时扫描更新缓存状态
-                scan_single_approval(approval)
-                _record_approval_audit(
-                    user, 'update', approval,
-                    detail={
-                        'name': approval.name, 'doc_no': approval.doc_no,
-                        'valid_from': str(approval.valid_from),
-                        'valid_to': str(approval.valid_to),
-                        'responsible_user_id': approval.responsible_user_id,
-                        'responsible_user_name': approval.responsible_user_name,
-                    },
-                )
-        except IntegrityError:
-            return '文件编号已存在，请更换'
+        with transaction.atomic():
+            update_data = {k: v for k, v in form.items() if v is not None}
+            updated_count = qs.filter(pk=record_id).update(**update_data)
+            if updated_count == 0:
+                return '编辑失败：记录不存在或无权限编辑'
+            approval = StationFrequencyApproval.objects.get(pk=record_id)
+            # 即时扫描更新缓存状态
+            scan_single_approval(approval)
+            _record_approval_audit(
+                user, 'update', approval,
+                detail={
+                    'name': approval.name, 'doc_no': approval.doc_no,
+                    'valid_from': str(approval.valid_from),
+                    'valid_to': str(approval.valid_to),
+                    'responsible_user_id': approval.responsible_user_id,
+                    'responsible_user_name': approval.responsible_user_name,
+                },
+            )
 
         return None
 

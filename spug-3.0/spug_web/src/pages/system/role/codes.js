@@ -261,6 +261,21 @@ export default [{
     ]
   }]
 }, {
+  key: 'coop',
+  label: '协作任务',
+  pages: [{
+    key: 'task',
+    label: '协作任务',
+    perms: [
+      {key: 'view', label: '查看协作任务'},
+      {key: 'add', label: '新建协作任务'},
+      {key: 'edit', label: '编辑协作任务'},
+      {key: 'delete', label: '删除/作废协作任务'},
+      {key: 'submit', label: '交付材料（上传/提交）'},
+      {key: 'accept', label: '验收/退回材料'},
+    ]
+  }]
+}, {
   key: 'fault',
   label: '故障管理',
   pages: [{

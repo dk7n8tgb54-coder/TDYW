@@ -13,8 +13,7 @@ import store from './store';
 
 const STATUS_TAG_MAP = {
   normal: {color: 'green', text: '正常'},
-  expiring: {color: 'orange', text: '即将到期'},
-  expired: {color: 'red', text: '已过期'},
+  expired: {color: 'default', text: '已关闭'},
 };
 
 @observer
@@ -44,10 +43,7 @@ class ComTable extends React.Component {
 
   renderDaysLeft = (text, record) => {
     if (record.days_left < 0) {
-      return <span style={{color: '#ff4d4f'}}>已过期 {Math.abs(record.days_left)} 天</span>;
-    }
-    if (record.days_left <= 60) {
-      return <span style={{color: '#fa8c16'}}>{record.days_left} 天</span>;
+      return <span style={{color: '#8c8c8c'}}>已关闭 {Math.abs(record.days_left)} 天</span>;
     }
     return <span>{record.days_left} 天</span>;
   };
@@ -65,6 +61,7 @@ class ComTable extends React.Component {
     return (
       <TableCard
         tKey="contract_agreement"
+        resizable
         title="合同协议列表"
         rowKey="id"
         loading={store.isFetching}
@@ -96,6 +93,7 @@ class ComTable extends React.Component {
           }
         }}>
         <Table.Column title="合同名称" dataIndex="contract_name" width={190} ellipsis/>
+        <Table.Column title="合同编号" dataIndex="contract_no" width={140} ellipsis/>
         <Table.Column title="类型" dataIndex="contract_type_display" width={130}/>
         <Table.Column title="起始日期" dataIndex="valid_start_date" width={110}/>
         <Table.Column title="截止日期" dataIndex="valid_end_date" width={110}/>
@@ -107,7 +105,7 @@ class ComTable extends React.Component {
         <Table.Column title="状态" width={80} render={this.renderStatus}/>
         <Table.Column title="创建时间" dataIndex="created_at" width={160} ellipsis/>
         {hasPermission('contract_agreement.agreement.view|contract_agreement.agreement.edit|contract_agreement.agreement.del') && (
-          <Table.Column title="操作" width={210} render={record => (
+          <Table.Column title="操作" width={210} fixed="right" render={record => (
             <Action>
               <Action.Button auth="contract_agreement.agreement.view" onClick={() => store.showDetail(record)}>查看</Action.Button>
               <Action.Button auth="contract_agreement.agreement.edit" onClick={() => store.showForm(record)}>编辑</Action.Button>

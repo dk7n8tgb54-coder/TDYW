@@ -9,7 +9,7 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Input, Select, DatePicker } from 'antd';
+import { Input, Select, DatePicker, Button } from 'antd';
 import { SearchForm, AuthDiv, Breadcrumb } from 'components';
 import ComTable from './Table';
 import ComForm from './Form';
@@ -30,6 +30,7 @@ function StationFrequencyApproval({ location }) {
             value={store.f_name}
             onChange={e => store.f_name = e.target.value}
             placeholder="请输入文件名称"
+            onPressEnter={() => {store.pageNum = 1; store.fetchRecords();}}
           />
         </SearchForm.Item>
         <SearchForm.Item span={6} title="文件编号">
@@ -38,13 +39,14 @@ function StationFrequencyApproval({ location }) {
             value={store.f_doc_no}
             onChange={e => store.f_doc_no = e.target.value}
             placeholder="请输入文件编号"
+            onPressEnter={() => {store.pageNum = 1; store.fetchRecords();}}
           />
         </SearchForm.Item>
         <SearchForm.Item span={6} title="状态">
           <Select
             allowClear
             value={store.f_status}
-            onChange={v => store.f_status = v}
+            onChange={v => {store.f_status = v; store.pageNum = 1; store.fetchRecords();}}
             placeholder="请选择状态"
           >
             {store.statusOptions.map(item => (
@@ -71,6 +73,17 @@ function StationFrequencyApproval({ location }) {
             placeholder={['开始日期', '结束日期']}
             style={{ width: '100%' }}
           />
+        </SearchForm.Item>
+        <SearchForm.Item span={24}>
+          <Button type="primary" onClick={() => {store.pageNum = 1; store.fetchRecords();}}>查询</Button>
+          <Button style={{marginLeft: 8}} onClick={() => {
+            store.f_name = undefined;
+            store.f_doc_no = undefined;
+            store.f_status = undefined;
+            store.f_valid_to_range = undefined;
+            store.pageNum = 1;
+            store.fetchRecords();
+          }}>重置</Button>
         </SearchForm.Item>
       </SearchForm>
       <ComTable location={location} />

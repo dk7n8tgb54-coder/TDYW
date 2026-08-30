@@ -173,6 +173,8 @@ export default observer(function () {
             deletePerm="radio_license.attachment.delete"
             previewPerm="radio_license.license.view"
             maxFileSize={50}
+            multiple
+            maxFilesPerBatch={20}
             accept=".pdf,.jpg,.jpeg,.png,.gif,.bmp,.webp,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z"
           />
         )}

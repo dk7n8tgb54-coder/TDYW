@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Input, Select, DatePicker } from 'antd';
+import { Input, Select, DatePicker, Button } from 'antd';
 import { SearchForm, AuthDiv, Breadcrumb } from 'components';
 import ComTable from './Table';
 import ComForm from './Form';
@@ -34,13 +34,23 @@ function ContractAgreement() {
             value={store.f_contract_name}
             onChange={e => store.f_contract_name = e.target.value}
             placeholder="请输入合同名称"
+            onPressEnter={() => {store.pageNum = 1; store.fetchRecords();}}
+          />
+        </SearchForm.Item>
+        <SearchForm.Item span={6} title="合同编号">
+          <Input
+            allowClear
+            value={store.f_contract_no}
+            onChange={e => store.f_contract_no = e.target.value}
+            placeholder="请输入合同编号"
+            onPressEnter={() => {store.pageNum = 1; store.fetchRecords();}}
           />
         </SearchForm.Item>
         <SearchForm.Item span={6} title="类型">
           <Select
             allowClear
             value={store.f_contract_type}
-            onChange={v => store.f_contract_type = v}
+            onChange={v => {store.f_contract_type = v; store.pageNum = 1; store.fetchRecords();}}
             placeholder="请选择类型"
           >
             {store.contractTypeOptions.map(item => (
@@ -52,7 +62,7 @@ function ContractAgreement() {
           <Select
             allowClear
             value={store.f_status}
-            onChange={v => store.f_status = v}
+            onChange={v => {store.f_status = v; store.pageNum = 1; store.fetchRecords();}}
             placeholder="请选择状态"
           >
             {store.statusOptions.map(item => (
@@ -64,7 +74,7 @@ function ContractAgreement() {
           <Select
             allowClear
             value={store.f_has_fee}
-            onChange={v => store.f_has_fee = v}
+            onChange={v => {store.f_has_fee = v; store.pageNum = 1; store.fetchRecords();}}
             placeholder="请选择费用"
           >
             <Select.Option value={true}>有</Select.Option>
@@ -77,6 +87,7 @@ function ContractAgreement() {
             value={store.f_signing_party}
             onChange={e => store.f_signing_party = e.target.value}
             placeholder="请输入签约方"
+            onPressEnter={() => {store.pageNum = 1; store.fetchRecords();}}
           />
         </SearchForm.Item>
         <SearchForm.Item span={6} title="截止日期">
@@ -98,6 +109,20 @@ function ContractAgreement() {
             placeholder={['开始日期', '结束日期']}
             style={{width: '100%'}}
           />
+        </SearchForm.Item>
+        <SearchForm.Item span={24}>
+          <Button type="primary" onClick={() => {store.pageNum = 1; store.fetchRecords();}}>查询</Button>
+          <Button style={{marginLeft: 8}} onClick={() => {
+            store.f_contract_name = undefined;
+            store.f_contract_no = undefined;
+            store.f_contract_type = undefined;
+            store.f_status = undefined;
+            store.f_has_fee = undefined;
+            store.f_signing_party = undefined;
+            store.f_valid_end_range = undefined;
+            store.pageNum = 1;
+            store.fetchRecords();
+          }}>重置</Button>
         </SearchForm.Item>
       </SearchForm>
       <ComTable/>

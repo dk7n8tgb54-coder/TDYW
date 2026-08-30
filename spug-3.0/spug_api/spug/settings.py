@@ -80,6 +80,7 @@ INSTALLED_APPS = [
     'apps.signature',
     'apps.department_duty_log',
     'apps.data_analysis',
+    'apps.coop_task',
     'channels',
     'django_celery_results',  # Celery results backend
     'django_celery_beat',     # Celery Beat定时任务调度

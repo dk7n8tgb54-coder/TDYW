@@ -47,7 +47,7 @@ export default function ReminderPanel() {
     <Card
       title={title}
       size="small"
-      style={{ marginBottom: 12 }}
+      style={{ height: '100%' }}
       bodyStyle={{ maxHeight: 300, overflow: 'auto' }}
     >
       <Spin spinning={loading}>

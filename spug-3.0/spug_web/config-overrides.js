@@ -33,6 +33,10 @@ const jestConfig = config => {
     // 与 webpack 侧 addWebpackAlias 的 @ -> src 保持一致，
     // 使源码中的 @/ 导入在 jest 下同样可解析（此前仅 webpack 支持）
     '^@/(.*)$': '<rootDir>/src/$1',
+    // 【2026-08-30】CRA 默认仅映射 .module.(css|sass|scss) 到 identity-obj-proxy，
+    // .module.less 会落入文件 transform 导出无类名对象，jsdom 下按样式类名查找
+    // 组件内容会失败。补齐 less 模块映射，语义与 CRA 的 css module 映射一致。
+    '^.+\\.module\\.less$': 'identity-obj-proxy',
   };
   config.testPathIgnorePatterns = [
     ...(config.testPathIgnorePatterns || ['/node_modules/']),

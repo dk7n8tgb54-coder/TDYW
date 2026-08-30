@@ -90,8 +90,7 @@ def _validate_and_fill_responsible_user(form, request_user):
 
 STATUS_DISPLAY_MAP = {
     'normal': '正常',
-    'expiring': '即将到期',
-    'expired': '已过期',
+    'expired': '已关闭',
 }
 
 
@@ -153,6 +152,7 @@ def _validate_form(form, request_user):
 
     return {
         'contract_name': form.contract_name.strip(),
+        'contract_no': (form.contract_no or '').strip(),
         'contract_type': form.contract_type,
         'valid_start_date': valid_start_date,
         'valid_end_date': valid_end_date,
@@ -175,6 +175,7 @@ class ContractAgreementView(View):
         qs = apply_tenant_filter(ContractAgreement.objects.all(), request.user)
 
         contract_name = request.GET.get('contract_name', '')
+        contract_no = request.GET.get('contract_no', '')
         contract_type = request.GET.get('contract_type', '')
         status = request.GET.get('status', '')
         signing_party = request.GET.get('signing_party', '')
@@ -186,6 +187,8 @@ class ContractAgreementView(View):
 
         if contract_name:
             qs = qs.filter(contract_name__icontains=contract_name)
+        if contract_no:
+            qs = qs.filter(contract_no__icontains=contract_no)
         if contract_type:
             qs = qs.filter(contract_type=contract_type)
         if status:
@@ -223,6 +226,7 @@ class ContractAgreementView(View):
         form, error = JsonParser(
             Argument('id', type=int, required=False),
             Argument('contract_name', required=False),
+            Argument('contract_no', required=False),
             Argument('contract_type', required=False),
             Argument('valid_start_date', required=False),
             Argument('valid_end_date', required=False),

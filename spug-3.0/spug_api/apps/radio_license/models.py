@@ -280,10 +280,6 @@ class StationFrequencyApproval(models.Model, TenantModelMixin):
         verbose_name_plural = '台站频率批复'
         ordering = ('-created_at', '-id')
         constraints = [
-            models.UniqueConstraint(
-                fields=['tenant_id', 'doc_no'],
-                name='uniq_sfa_tenant_doc_no',
-            ),
             models.CheckConstraint(
                 check=models.Q(status__in=['normal', 'expiring', 'expired']),
                 name='sfa_status_valid',

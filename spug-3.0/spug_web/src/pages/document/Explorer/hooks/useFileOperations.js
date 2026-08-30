@@ -345,7 +345,8 @@ export const useFileOperations = ({
       } else {
         showBatchResult(successCount, failCount, 0, pendingCount);
         if (refresh) refresh(true);
-        if (items.some(i => i.isFolder) && onFolderChange) onFolderChange();
+        // 传入目标目录：目标分支与当前分支（复制源）都要刷新
+        if (items.some(i => i.isFolder) && onFolderChange) onFolderChange(targetFolderId);
         // 有后台复制任务时，启动轮询
         if (pendingCount > 0 && asyncTransferIds.length > 0) {
           pollAsyncCopyStatus(asyncTransferIds);
@@ -403,7 +404,8 @@ export const useFileOperations = ({
       } else {
         showBatchResult(successCount, failCount);
         if (refresh) refresh(true);
-        if (items.some(i => i.isFolder) && onFolderChange) onFolderChange();
+        // 传入目标目录：目标分支与当前分支（移出方）都要刷新
+        if (items.some(i => i.isFolder) && onFolderChange) onFolderChange(targetFolderId);
       }
     } catch (e) {
       message.error(e.message || '移动失败');
@@ -458,7 +460,8 @@ export const useFileOperations = ({
 
     showBatchResult(successCount, failCount, skipCount, pendingCount);
     if (refresh) refresh(true);
-    if (onFolderChange) onFolderChange();
+    // 传入目标目录（冲突项统一操作同一目标），目标分支与当前分支都要刷新
+    if (onFolderChange) onFolderChange(pendingOps.length > 0 ? pendingOps[0].targetFolderId : undefined);
     // 有后台复制任务时，启动轮询
     if (pendingCount > 0 && asyncTransferIds.length > 0) {
       pollAsyncCopyStatus(asyncTransferIds);

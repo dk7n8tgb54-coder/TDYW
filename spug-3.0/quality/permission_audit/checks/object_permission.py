@@ -68,7 +68,7 @@ class ObjectPermissionCheck:
                     # 检查是否是需要对象级权限的模块
                     module = self._get_module_from_path(view.file_path)
                     if module in ('document', 'evidence', 'regulation', 'radio_license',
-                                  'contract_agreement', 'department_duty_log', 'fault',
+                                  'contract_agreement', 'coop_task', 'department_duty_log', 'fault',
                                   'interference', 'device', 'upgrade'):
                         self.findings.append(ObjectPermissionFinding(
                             module=module,

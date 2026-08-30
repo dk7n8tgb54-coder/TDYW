@@ -18,6 +18,7 @@ class Store {
   @observable record = {};
 
   @observable f_contract_name = undefined;
+  @observable f_contract_no = undefined;
   @observable f_contract_type = undefined;
   @observable f_status = undefined;
   @observable f_signing_party = undefined;
@@ -32,8 +33,7 @@ class Store {
 
   statusOptions = [
     {value: 'normal', label: '正常'},
-    {value: 'expiring', label: '即将到期'},
-    {value: 'expired', label: '已过期'},
+    {value: 'expired', label: '已关闭'},
   ];
 
   // ========== 可选责任人列表 ==========
@@ -49,6 +49,7 @@ class Store {
       page_size: this.pageSize,
     };
     if (this.f_contract_name) params.contract_name = this.f_contract_name;
+    if (this.f_contract_no) params.contract_no = this.f_contract_no;
     if (this.f_contract_type) params.contract_type = this.f_contract_type;
     if (this.f_status) params.status = this.f_status;
     if (this.f_signing_party) params.signing_party = this.f_signing_party;

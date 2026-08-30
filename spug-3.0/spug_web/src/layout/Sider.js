@@ -6,7 +6,7 @@ import styles from './layout.module.less';
 import routes from '../routes';
 import radioLicenseBadge from './RadioLicenseBadgeStore';
 import approvalBadge from './ApprovalBadgeStore';
-import contractAgreementBadge from './ContractAgreementBadgeStore';
+import coopTaskBadge from './CoopTaskBadgeStore';
 import logo from './logo-spug-white.png';
 
 let selectedKey = window.location.pathname;
@@ -29,13 +29,12 @@ buildOpenKeysMap(routes);
 const CHILD_BADGE_STORES = {
   '/radio-license': () => radioLicenseBadge,
   '/station-frequency-approval': () => approvalBadge,
-  '/contract-agreement': () => contractAgreementBadge,
+  '/coop-task': () => coopTaskBadge,
 };
 
 // 父菜单 title -> 需要合计的子菜单 badge store 列表
 const PARENT_BADGE_GROUPS = {
-  '执照管理': [radioLicenseBadge, approvalBadge],
-  '合同协议': [contractAgreementBadge],
+  '无线电执照管理': [radioLicenseBadge, approvalBadge],
 };
 
 /**

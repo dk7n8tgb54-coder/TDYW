@@ -8,7 +8,31 @@
  */
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { Table, Empty } from 'antd';
+import { useResizableColumns } from '@/components/resizableColumns';
 import { resolveVisibleColumns } from './columnVisibility';
+
+// 【2026-08-30 列宽拖动】接入 src/components/resizableColumns 公共能力：
+// - 全部列（含文件名列）均为固定宽度列，可在表头拖动调整宽度；宽度保存在
+//   公共组件的会话内存中（按 document_file 键分桶）：站内切页往返保留，
+//   整页刷新/关标签页还原默认；拖动手柄双击可恢复该列默认宽度
+// - 表尾填充列（FILLER_COLUMN）吸收容器剩余宽度，保证拖动精度
+// - 主列表与搜索结果分组表格共用本组件与同一持久化键（列结构一致，宽度互通）
+const FILE_TABLE_TKEY = 'document_file';
+
+// 表尾填充列：无宽度、无内容，吸收容器剩余宽度（tableLayout:fixed 下，
+// 剩余空间只会分给无宽度列——若没有填充列，就会被按比例摊给全部固定列，
+// 导致拖动宽度失真）。antd 默认表格无竖向边框，填充列视觉不可见；
+// 拦截行事件，避免点击表尾空白区误触行操作。
+const FILLER_COLUMN = {
+  title: '',
+  dataIndex: '__column_fill__',
+  key: '__column_fill__',
+  onCell: () => ({
+    onClick: (e) => e.stopPropagation(),
+    onDoubleClick: (e) => e.stopPropagation(),
+    onContextMenu: (e) => e.stopPropagation(),
+  }),
+};
 
 /**
  * 文件表格组件
@@ -104,32 +128,58 @@ const FileTable = ({
     return () => observer.disconnect();
   }, []);
 
-  const visibleColumns = useMemo(
-    () => resolveVisibleColumns(columns, containerWidth, showSelection ? 48 : 0),
-    [columns, containerWidth, showSelection]
+  // 【2026-08-30 列宽拖动】应用持久化宽度并挂载表头拖动手柄（含自定义 header cell）
+  const { resizableColumns, components: resizableComponents } = useResizableColumns(
+    FILE_TABLE_TKEY,
+    columns
   );
+
+  const visibleColumns = useMemo(
+    () => resolveVisibleColumns(resizableColumns, containerWidth, showSelection ? 48 : 0),
+    [resizableColumns, containerWidth, showSelection]
+  );
+
+  // 【2026-08-30 全列固定宽】表尾填充列：吸收容器剩余宽度。所有列均为固定
+  //   宽度列后，若没有无宽度列，tableLayout:fixed 会把剩余空间按比例摊给
+  //   全部列，导致拖动宽度失真；填充列无宽度、无内容，antd 默认表格无竖向
+  //   边框，视觉不可见。拦截行事件，避免点击表尾空白区误触行操作。
+  const tableColumns = useMemo(
+    () => [...visibleColumns, FILLER_COLUMN],
+    [visibleColumns]
+  );
+
+  // 横向滚动兜底：可见列总宽超过容器时出横向滚动条（弹性列时代的固定 640 兜底
+  // 改为按实际总宽计算，拖宽列后窄容器下依然可完整横向滚动查看）
+  const scrollX = useMemo(() => {
+    const total = visibleColumns.reduce(
+      (sum, col) => sum + (typeof col.width === 'number' ? col.width : 0),
+      showSelection ? 48 : 0
+    );
+    return Math.max(640, total);
+  }, [visibleColumns, showSelection]);
 
   return (
     <div ref={containerRef}>
       <Table
-      columns={visibleColumns}
+      columns={tableColumns}
+      components={resizableComponents}
       dataSource={dataSource}
       // 【修复 2026-07-17】取消整表 loading 灰色遮罩
       // 加载提示改由 Explorer 顶部轻量进度条承担，避免整张表变灰闪烁
       loading={false}
       rowKey="key"
-      // 【2026-08-16 列宽调整】
-      //   - tableLayout="fixed"：类型/大小/修改时间/创建人列按固定 width 分配，
-      //     文件名列不设 width，作为唯一弹性列占满剩余空间，宽屏时文件名展示空间最大化
+      // 【2026-08-30 全列固定宽 + 可拖动】
+      //   - 所有列（含文件名列）均为固定宽度列，宽度可拖动调整并持久化
+      //     （见 columnVisibility.js 顶部说明与 useColumns 各列定义）
+      //   - 表尾填充列吸收容器剩余宽度，保证拖动精度且视觉无感
       //   - sticky：文件较多时表头粘性固定，内容滚动，表头保持可见
-      //   - 移除 virtual：fixed 布局下未设 width 的列才能弹性伸缩，virtual 要求所有列设 width
-      //   - 响应式列显隐（文件名优先）：容器变窄时按 创建人→大小→类型→路径 顺序隐藏
-      //     次要列，保证文件名列始终有约 400px（见 columnVisibility.js），正常窄屏不出滚动条
-      //   - scroll.x 为极端窄屏兜底：次要列全部隐藏后仍不足 400px 时（约 <640px 容器），
-      //     表格保持最小总宽出横向滚动，避免文件名列被压到不可读
+      //   - 响应式列显隐：容器放不下全部列时按 创建人→大小→类型→路径 顺序
+      //     隐藏次要列（见 columnVisibility.js），正常窄屏不出滚动条
+      //   - scroll.x 按可见列总宽动态计算：次要列全部隐藏后仍放不下时，
+      //     表格保持总宽出横向滚动，列宽不被压缩
       tableLayout="fixed"
       sticky={!isSearching}
-      scroll={{ x: 640 }}
+      scroll={{ x: scrollX }}
       rowClassName={() => interactionDisabled ? 'explorer-row-disabled' : ''}
       rowSelection={showSelection ? {
         selectedRowKeys: safeSelectedRowKeys,

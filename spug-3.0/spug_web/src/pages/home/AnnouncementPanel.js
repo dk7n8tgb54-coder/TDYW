@@ -49,7 +49,7 @@ export default function AnnouncementPanel() {
           : null,
         <Button key="more" type="link" size="small" onClick={() => history.push('/announcement')}>更多</Button>,
       ].filter(Boolean)}
-      style={{ marginBottom: 12 }}
+      style={{ height: '100%' }}
     >
       {loading && <Spin style={{ display: 'block', margin: '20px auto' }} />}
       {!loading && list.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无公告" />}

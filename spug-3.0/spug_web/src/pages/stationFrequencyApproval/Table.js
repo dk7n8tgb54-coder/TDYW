@@ -75,6 +75,7 @@ class ComTable extends React.Component {
     return (
       <TableCard
         tKey="sfa"
+        resizable
         title="批复列表"
         rowKey="id"
         loading={store.isFetching}
@@ -117,7 +118,7 @@ class ComTable extends React.Component {
         <Table.Column title="附件" width={70} render={this.renderAttachmentCount}/>
         <Table.Column title="创建时间" dataIndex="created_at" width={160} ellipsis/>
         {hasPermission('radio_license.approval.edit|radio_license.approval.del') && (
-          <Table.Column title="操作" width={200} render={info => (
+          <Table.Column title="操作" width={200} fixed="right" render={info => (
             <Action>
               <Action.Button auth="radio_license.approval.view" onClick={() => store.showDetail(info)}>查看</Action.Button>
               <Action.Button auth="radio_license.approval.edit" onClick={() => store.showForm(info)}>编辑</Action.Button>

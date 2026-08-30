@@ -59,6 +59,7 @@ class ComTable extends React.Component {
     return (
       <TableCard
         tKey="regulation"
+        resizable
         title="规章列表"
         rowKey="id"
         loading={store.isFetching}
@@ -90,7 +91,7 @@ class ComTable extends React.Component {
           },
         }}
       >
-        <Table.Column title="规章名称" dataIndex="title" ellipsis
+        <Table.Column title="规章名称" dataIndex="title" width={200} ellipsis
           render={(text, record) => (
             <a onClick={() => store.showDetail(record)}>{text}</a>
           )}

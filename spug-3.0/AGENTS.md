@@ -37,6 +37,7 @@
 | 无线电台执照 | `radioLicense/` | `radio_license/` | RadioLicense | `radio_license.license.*` | 附件(evidence) | RADIO_LICENSE_BEAT_SCHEDULE（过期检查） |
 | 台站频率批复 | `stationFrequencyApproval/` | `radio_license/`（同应用） | StationFrequencyApproval | `radio_license.approval.*` | 附件(evidence) | 同上 |
 | 合同协议 | `contractAgreement/` | `contract_agreement/` | ContractAgreement | `contract_agreement.agreement.*` | 附件(evidence) | CONTRACT_AGREEMENT_BEAT_SCHEDULE |
+| 协作任务 | `coopTask/` | `coop_task/` | CoopTask, CoopTaskItem, CoopTaskAssignment, CoopTaskDelivery | `coop.task.*` | 附件(evidence) | 无（跨科室任务分派/交付/验收，操作联动审计日志） |
 | 资料库/文档管理 | `document/` | `document/` | DocumentFilePrivate/Public, DocumentFolderPrivate/Public, DocumentTransfer, DocumentSystemFolder | `document.document.*`, `document.party_building_document.*` | **是**（文件存储） | 分片上传、合并、清理、异步复制 |
 | 党建工作 | `document/PartyBuildingDocumentsIndex.js` | `document/`（system_scope） | DocumentSystemFolder | `document.party_building_document.*` | **是** | 同文档模块 |
 | 规章管理 | `regulation/` | `regulation/` | Regulation | `document.regulation.*` | **是**（独立 `storage.py`） | 无 |
@@ -92,7 +93,7 @@
 | 业务域 | 后端测试目录 |
 |---|---|
 | 日常业务 | `spug_api/apps/department_duty_log/tests/`、`spug_api/apps/duty/tests/`、`spug_api/apps/runlog/tests/`、`spug_api/apps/reminder/tests/`、`spug_api/apps/home/tests/` |
-| 资料与行政 | `spug_api/apps/radio_license/tests/`、`spug_api/apps/contract_agreement/tests/`、`spug_api/apps/document/tests/`、`spug_api/apps/regulation/tests/` |
+| 资料与行政 | `spug_api/apps/radio_license/tests/`、`spug_api/apps/contract_agreement/tests/`、`spug_api/apps/document/tests/`、`spug_api/apps/regulation/tests/`、`spug_api/apps/coop_task/tests/` |
 | 技术运维稳定契约 | `spug_api/apps/device/tests/stable_contract/`、`spug_api/apps/fault/tests/stable_contract/`、`spug_api/apps/upgrade/tests/stable_contract/`、`spug_api/apps/interference/tests/stable_contract/`、`spug_api/apps/alert/tests/stable_contract/` |
 | 技术运维旧架构基线 | `spug_api/apps/device/tests/legacy_characterization/`、`spug_api/apps/fault/tests/legacy_characterization/`、`spug_api/apps/upgrade/tests/legacy_characterization/`、`spug_api/apps/interference/tests/legacy_characterization/`、`spug_api/apps/alert/tests/legacy_characterization/` |
 | 共享与系统模块 | `spug_api/apps/account/tests/`、`spug_api/apps/data_analysis/tests/`、`spug_api/apps/evidence/tests/`、`spug_api/apps/signature/tests/`、`spug_api/apps/storage/tests/`、`spug_api/apps/logs/tests/`、`spug_api/apps/setting/tests/` |

@@ -12,6 +12,7 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
+import { reaction } from 'mobx';
 import { Tree, Tooltip } from 'antd';
 import { http } from 'libs';
 import navigationStore from './stores/navigation';
@@ -20,7 +21,7 @@ import styles from './FolderTree.module.less';
 import { createLogger } from '@/pages/document/utils/logger';
 import { FolderIcon } from './components/FileTypeIcon';
 import { PARTY_BUILDING_DOCUMENTS_CODE } from 'libs/systemFolderContext';
-import { computeLeafState, resolveCreatorName } from './utils/folderTreeNode';
+import { computeLeafState, resolveCreatorName, resolveRefreshNodeKey, applyChildrenToTree } from './utils/folderTreeNode';
 import { naturalCompare } from './utils/naturalSort';
 const log = createLogger("FolderTree");
 
@@ -30,19 +31,31 @@ export { computeLeafState, resolveCreatorName };
 @observer
 class FolderTree extends React.Component {
   _pendingLoadTokens = new Set();
+  treeRef = React.createRef();
 
   state = {
     data: [],
     loading: false,
-    expandedKeys: []
+    expandedKeys: [],
+    selectedKeys: []
   };
   componentDidMount() {
     this._isMounted = true;
     // 【M6 重构】改用 antd loadData API，按需加载子节点
     this.fetchFolders();
+    // 【2026-08-30 左右同步】右侧导航（列表点击/面包屑/返回/URL 恢复）改变 currentFolderId 时，
+    // 左侧树跟随选中并展开到对应位置（revealFolder）
+    this._navReaction = reaction(
+      () => navigationStore.currentFolderId,
+      (folderId) => this.revealFolder(folderId),
+    );
   }
   componentWillUnmount() {
     this._isMounted = false;
+    if (this._navReaction) {
+      this._navReaction();
+      this._navReaction = null;
+    }
     this._pendingLoadTokens.forEach(token => {
       token.active = false;
     });
@@ -53,6 +66,12 @@ class FolderTree extends React.Component {
     if (prevProps.lockedRoot !== this.props.lockedRoot
         || prevProps.rootFolderId !== this.props.rootFolderId) {
       this.fetchFolders();
+      // 【2026-08-30 左右同步】initSystemFolder 触发 reaction 时 rootFolderId prop 尚未更新，
+      // 定位会因 key 解析不到而放弃；这里在根 ID 就绪后补一次定位
+      if (this.props.lockedRoot && this.props.rootFolderId
+          && navigationStore.currentFolderId === this.props.rootFolderId) {
+        this.revealFolder(this.props.rootFolderId);
+      }
     }
   }
 
@@ -201,25 +220,135 @@ class FolderTree extends React.Component {
   /**
    * 把预加载的 children 写入对应的根节点
    * 通过更新 treeData 中对应 key 的 children
+   * 返回构建后的 children（供 refreshNodeChildren 判断是否需要展开）
    */
   _setRootChildren = (rootKey, folders) => {
-    if (!this._isMounted) return;
+    if (!this._isMounted) return [];
     const builtChildren = this._buildFolderChildren(folders);
     // 根节点加载完成后根据实际一级子目录更新叶子状态（folders.length>0 -> 可展开）
-    const isLeaf = builtChildren.length === 0;
-    this.setState((prevState) => {
-      const newData = prevState.data.map(node => {
-        if (node.key === rootKey) {
-          return { ...node, children: builtChildren, isLeaf };
-        }
-        return node;
-      });
-      return { data: newData };
-    });
+    this.setState((prevState) => ({
+      data: applyChildrenToTree(prevState.data, rootKey, builtChildren),
+    }));
+    return builtChildren;
   };
 
   refresh = () => {
     this.fetchFolders();
+  };
+
+  /**
+   * 【2026-08-30 新建文件夹即时上树】定向刷新指定父目录在树中的子节点。
+   * 与 refresh()（整树重建、展开状态重置）不同：
+   * - 仅重建受影响分支（applyChildrenToTree），保留其它分支与已展开节点
+   * - folderId 为空或等于党建锁定根 ID 时刷新树根节点（system-root / public-root）
+   * - 节点未在树中渲染（分支从未展开）时无需处理：后续展开时 onLoadData 会拉取最新数据
+   * - 刷新后若该节点有子目录且未展开则自动展开，保证新建的子文件夹立即可见
+   * @param {number|null} folderId - 发生结构变化的父目录 ID（null 表示树根）
+   */
+  refreshNodeChildren = async (folderId) => {
+    if (!this._isMounted) return;
+    const { lockedRoot, rootFolderId } = this.props;
+    const key = resolveRefreshNodeKey(folderId, { lockedRoot, rootFolderId });
+    if (!key) return;
+    const isRootKey = key === 'system-root' || key === 'public-root';
+    const node = isRootKey
+      ? this.state.data.find(n => n.key === key)
+      : this._findNodeInData(this.state.data, key);
+    if (!node) return;
+    try {
+      // 根节点取数与预加载逻辑保持一致：党建锁定根是真实文件夹（按 rootFolderId），普通根按 null
+      const parentId = key === 'system-root' ? rootFolderId : (key === 'public-root' ? null : folderId);
+      const folders = await this.fetchChildFolders(parentId);
+      if (!this._isMounted) return;
+      const builtChildren = isRootKey
+        ? this._setRootChildren(key, folders)
+        : this._setNodeChildren(key, folders);
+      if (builtChildren.length > 0) {
+        this.setState((prevState) => (
+          prevState.expandedKeys.includes(key)
+            ? null
+            : { expandedKeys: [...prevState.expandedKeys, key] }
+        ));
+      }
+    } catch (error) {
+      log.warn('[FolderTree] 刷新节点子目录失败:', error);
+    }
+  };
+
+  /**
+   * 【2026-08-30 左右同步】让左侧树跟随右侧导航：选中并展开到当前文件夹。
+   * 由 currentFolderId 的 reaction 触发（右侧列表点击/面包屑/返回/URL 恢复）。
+   * - 目标为树根：直接选中
+   * - 目标节点已在树中：展开祖先链 + 选中（无额外请求）
+   * - 目标节点不在树中（分支从未展开）：沿 navigationStore.path 自上而下逐级
+   *   拉取父级 children 物化缺失节点，再展开 + 选中（对齐 VSCode 的 reveal 行为）
+   * - 物化失败（父级 children 中无该目录）时安全放弃，不影响右侧导航
+   * 说明：点击树中当前节点（toggle 收起）不会改变 currentFolderId，不触发本方法，
+   * 收起行为不受影响；点击其它节点触发的 reveal 与 handleSelect 的展开结果一致，
+   * React 批处理下无闪烁。
+   */
+  revealFolder = async (folderId) => {
+    if (!this._isMounted) return;
+    const { lockedRoot, rootFolderId } = this.props;
+    const targetKey = resolveRefreshNodeKey(folderId, { lockedRoot, rootFolderId });
+    if (!targetKey) return;
+    const token = (this._revealToken = (this._revealToken || 0) + 1);
+
+    const isRootTarget = targetKey === 'public-root' || targetKey === 'system-root';
+    const toExpand = [];
+    if (!isRootTarget) {
+      // 党建锁定根对应树上的 system-root 节点，从链中剔除，避免按 folder-<rootId> 物化
+      const path = (navigationStore.path || []).filter(p => p && p.id != null
+        && !(lockedRoot && p.id === rootFolderId));
+      let parentNodeId = lockedRoot ? rootFolderId : null;
+      let parentKey = lockedRoot ? 'system-root' : 'public-root';
+      const confirmed = new Set();
+      for (const entry of path) {
+        const entryKey = generateKey(entry.id, 'folder');
+        if (!confirmed.has(entryKey) && !this._findNodeInData(this.state.data, entryKey)) {
+          let folders;
+          try {
+            folders = await this.fetchChildFolders(parentNodeId);
+          } catch (error) {
+            log.warn('[FolderTree] 定位目录时加载父级 children 失败:', error);
+            return;
+          }
+          if (!this._isMounted || token !== this._revealToken) return;
+          const built = this._buildFolderChildren(folders);
+          if (!built.some(n => n && n.key === entryKey)) {
+            // 父级 children 中没有该目录（数据不一致或被过滤）：安全放弃
+            log.warn('[FolderTree] 定位目录未出现在父级 children 中，放弃展开:', entry.name);
+            return;
+          }
+          confirmed.add(entryKey);
+          this.setState((prevState) => ({
+            data: applyChildrenToTree(prevState.data, parentKey, built),
+          }));
+        }
+        toExpand.push(entryKey);
+        parentNodeId = entry.id;
+        parentKey = entryKey;
+      }
+    }
+
+    if (!this._isMounted || token !== this._revealToken) return;
+    const ensureKeys = isRootTarget ? [targetKey] : toExpand;
+    this.setState((prevState) => ({
+      expandedKeys: Array.from(new Set([...(prevState.expandedKeys || []), ...ensureKeys])),
+      selectedKeys: [targetKey],
+    }), () => this._scrollToNode(targetKey));
+  };
+
+  /** 展开渲染完成后把选中节点滚入可视区（antd Tree.scrollTo，4.20+；不可用时静默跳过） */
+  _scrollToNode = (key) => {
+    const tree = this.treeRef && this.treeRef.current;
+    if (tree && typeof tree.scrollTo === 'function') {
+      try {
+        tree.scrollTo({ key, align: 'auto' });
+      } catch (error) {
+        // 滚动失败不影响功能
+      }
+    }
   };
 
   // 构建单根节点树形结构（仅公共根节点）
@@ -276,24 +405,16 @@ class FolderTree extends React.Component {
 
   /**
    * 更新普通节点的 children
+   * 返回构建后的 children（供 refreshNodeChildren 判断是否需要展开）
    */
   _setNodeChildren = (key, folders) => {
-    if (!this._isMounted) return;
+    if (!this._isMounted) return [];
     const builtChildren = this._buildFolderChildren(folders);
     // 加载完成后同步叶子状态：返回空数组 -> 叶子；返回子目录 -> 可展开
-    const isLeaf = builtChildren.length === 0;
-    this.setState((prevState) => {
-      const updateNode = (node) => {
-        if (node.key === key) {
-          return { ...node, children: builtChildren, isLeaf };
-        }
-        if (node.children && Array.isArray(node.children)) {
-          return { ...node, children: node.children.map(updateNode) };
-        }
-        return node;
-      };
-      return { data: prevState.data.map(updateNode) };
-    });
+    this.setState((prevState) => ({
+      data: applyChildrenToTree(prevState.data, key, builtChildren),
+    }));
+    return builtChildren;
   };
 
   /**
@@ -386,19 +507,23 @@ class FolderTree extends React.Component {
   handleSelect = (_, {
     node
   }) => {
+    // 【2026-08-30 左右同步】受控选中：点击节点立即高亮（单选）
+    this.setState({ selectedKeys: [node.key] });
+    // 【2026-08-30 左右同步】先做 toggle 展开/收起，再导航：
+    // 导航会触发 revealFolder 把目标节点展开；若先导航后 toggle，
+    // toggle 会把 reveal 刚展开的节点又收起。
+    this._expandNodeOnSelect(node.key);
     // 党建工作系统根节点选择
     if (node.key === 'system-root') {
       const { rootFolderId, rootFolderName } = this.props;
       if (rootFolderId) {
         navigationStore.selectFolder(rootFolderId, rootFolderName || '党建工作');
       }
-      this._expandNodeOnSelect(node.key);
       return;
     }
     // 处理公共根节点选择
     if (node.key === 'public-root') {
       navigationStore.selectRootFolder();
-      this._expandNodeOnSelect(node.key);
     } else {
       // 解析文件夹ID（使用工具函数）
       const folderId = parseRawId(node.key);
@@ -415,7 +540,6 @@ class FolderTree extends React.Component {
         } else {
           navigationStore.selectFolder(folderId, folderName);
         }
-        this._expandNodeOnSelect(node.key);
       }
     }
   };
@@ -426,11 +550,17 @@ class FolderTree extends React.Component {
    * - 未展开且非叶子节点则展开
    * - 叶子节点（isLeaf=true）不操作
    * - children=undefined 时 antd Tree 检测到 expandedKeys 变化会自动触发 onLoadData 按需加载
+   * - 【2026-08-30 根节点固定展开】一级根目录（公共文档/党建工作）不允许收起
    */
   _expandNodeOnSelect = (key) => {
     if (!this._isMounted || !key) return;
+    const rootKey = this.props.lockedRoot ? 'system-root' : 'public-root';
     this.setState((prevState) => {
       if (prevState.expandedKeys.includes(key)) {
+        // 根节点固定展开：点击根只导航，不收起
+        if (key === rootKey) {
+          return null;
+        }
         // 已展开 -> 收起
         return { expandedKeys: prevState.expandedKeys.filter(k => k !== key) };
       }
@@ -507,6 +637,21 @@ class FolderTree extends React.Component {
     }
     return path;
   };
+  /**
+   * 展开/收起回调（受控 expandedKeys）。
+   * 【2026-08-30 根节点固定展开】一级根目录（公共文档/党建工作）始终保持展开：
+   * 用户点击根节点的收起箭头时，antd 传入的 expandedKeys 不含根 key，
+   * 此处强制保留；子目录的收起不受影响。
+   */
+  handleExpand = (expandedKeys) => {
+    if (!this._isMounted) return;
+    const rootKey = this.props.lockedRoot ? 'system-root' : 'public-root';
+    const nextKeys = Array.isArray(expandedKeys) && !expandedKeys.includes(rootKey)
+      ? [...expandedKeys, rootKey]
+      : expandedKeys;
+    this.setState({ expandedKeys: nextKeys });
+  };
+
   render() {
     const {
       lockedRoot
@@ -523,17 +668,15 @@ class FolderTree extends React.Component {
             showIcon={false}
             treeData={this.state.data}
             onSelect={this.handleSelect}
+            selectedKeys={this.state.selectedKeys}
             loading={this.state.loading}
             defaultExpandedKeys={[defaultExpandedKey]}
             expandedKeys={this.state.expandedKeys}
-            onExpand={expandedKeys => {
-              if (this._isMounted) {
-                this.setState({ expandedKeys });
-              }
-            }}
+            onExpand={this.handleExpand}
             // 【M6 关键】loadData API + children undefined -> 按需加载
             loadData={this.onLoadData}
             motion={false}
+            ref={this.treeRef}
           />
         </div>
       </div>;

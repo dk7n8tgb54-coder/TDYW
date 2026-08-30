@@ -11,7 +11,6 @@ import UploadPanel, { MiniBar } from './UploadPanel';
 import FolderTree from './FolderTree';
 import SearchBox from './components/SearchBox';
 import DiskStatus from './components/DiskStatus';
-import KeyboardShortcuts from './components/KeyboardShortcuts';
 import UploadConflictModal from './components/UploadConflictModal';
 import DocumentErrorBoundary from './components/DocumentErrorBoundary';
 import DocumentDropUploadLayer from './components/DocumentDropUploadLayer';
@@ -240,6 +239,19 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
     }
   };
 
+  // 【2026-08-30 新建文件夹即时上树】目录结构变化（新建/删除/重命名文件夹、移入/移出）后，
+  // 定向刷新左侧文件树中对应目录的子节点（不重建整树，保留已展开节点）。
+  // 复制/移动到其它目录时 changedFolderId 为目标目录（null 表示目标为根目录），
+  // 目标分支与当前分支（移出/复制源）都要刷新；未传参（undefined）时仅刷新当前目录分支。
+  const handleFolderStructureChange = (changedFolderId) => {
+    const folderTree = folderTreeRef.current;
+    if (!folderTree || !folderTree.refreshNodeChildren) return;
+    if (changedFolderId !== undefined && changedFolderId !== navigationStore.currentFolderId) {
+      folderTree.refreshNodeChildren(changedFolderId);
+    }
+    folderTree.refreshNodeChildren(navigationStore.currentFolderId);
+  };
+
   const handleSearchStart = () => {
     setSearchState(prev => ({ ...prev, isSearching: true }));
   };
@@ -466,7 +478,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
             >
               <Explorer
                 folderId={effectiveCurrentFolderId}
-                onFolderChange={() => {}}
+                onFolderChange={handleFolderStructureChange}
                 ref={explorerRef}
                 viewMode={viewMode}
                 isPublic={navigationStore.isPublic}
@@ -484,7 +496,6 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
         <MiniBar />
       )}
       {isPartyBuildingDocumentsReady && <UploadPanel />}
-      {isPartyBuildingDocumentsReady && <KeyboardShortcuts />}
       {isPartyBuildingDocumentsReady && <UploadConflictModal />}
     </div>
   );

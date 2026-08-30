@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Input, Select, DatePicker } from 'antd';
+import { Input, Select, DatePicker, Button } from 'antd';
 import { SearchForm, AuthDiv, Breadcrumb } from 'components';
 import ComTable from './Table';
 import ComForm from './Form';
@@ -26,6 +26,7 @@ function RadioLicense() {
             value={store.f_station_name}
             onChange={e => store.f_station_name = e.target.value}
             placeholder="请输入台站名称"
+            onPressEnter={() => {store.pageNum = 1; store.fetchRecords();}}
           />
         </SearchForm.Item>
         <SearchForm.Item span={6} title="用途">
@@ -34,13 +35,14 @@ function RadioLicense() {
             value={store.f_purpose}
             onChange={e => store.f_purpose = e.target.value}
             placeholder="请输入用途关键字"
+            onPressEnter={() => {store.pageNum = 1; store.fetchRecords();}}
           />
         </SearchForm.Item>
         <SearchForm.Item span={6} title="状态">
           <Select
             allowClear
             value={store.f_status}
-            onChange={v => store.f_status = v}
+            onChange={v => {store.f_status = v; store.pageNum = 1; store.fetchRecords();}}
             placeholder="请选择状态"
           >
             {store.statusOptions.map(item => (
@@ -67,6 +69,17 @@ function RadioLicense() {
             placeholder={['开始日期', '结束日期']}
             style={{ width: '100%' }}
           />
+        </SearchForm.Item>
+        <SearchForm.Item span={24}>
+          <Button type="primary" onClick={() => {store.pageNum = 1; store.fetchRecords();}}>查询</Button>
+          <Button style={{marginLeft: 8}} onClick={() => {
+            store.f_station_name = undefined;
+            store.f_purpose = undefined;
+            store.f_status = undefined;
+            store.f_valid_to_range = undefined;
+            store.pageNum = 1;
+            store.fetchRecords();
+          }}>重置</Button>
         </SearchForm.Item>
       </SearchForm>
       <ComTable/>

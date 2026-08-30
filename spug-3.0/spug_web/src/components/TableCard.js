@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Table, Space, Divider, Popover, Checkbox, Button, Input, Select } from 'antd';
 import { ReloadOutlined, SettingOutlined, FullscreenOutlined, SearchOutlined } from '@ant-design/icons';
 import styles from './index.module.less';
+import {useResizableColumns} from './resizableColumns';
 
 let TableFields = localStorage.getItem('TableFields')
 TableFields = TableFields ? JSON.parse(TableFields) : {}
@@ -106,7 +107,14 @@ function Header(props) {
                 key="2"
                 type="link"
                 style={{padding: 0}}
-                onClick={() => onFieldsChange(props.defaultFields)}>重置</Button>
+                onClick={() => onFieldsChange(props.defaultFields)}>重置</Button>,
+              ...(props.resizable ? [
+                <Button
+                  key="3"
+                  type="link"
+                  style={{padding: 0, marginLeft: 8}}
+                  onClick={props.onWidthsReset}>重置列宽</Button>
+              ] : [])
             ]}
             overlayClassName={styles.tableFields}
             trigger="click"
@@ -125,9 +133,12 @@ function TableCard(props) {
   const rootRef = useRef();
   const batchActions = props.batchActions || [];
   const selected = props.selected || [];
+  const resizable = !!props.resizable;
   const [fields, setFields] = useState([]);
   const [defaultFields, setDefaultFields] = useState([]);
   const [columns, setColumns] = useState([]);
+  const {resizableColumns, components: resizableComponents, resetAllWidths} =
+    useResizableColumns(props.tKey, columns, {enabled: resizable});
 
   useEffect(() => {
     let [_columns, _fields] = [props.columns, []];
@@ -138,25 +149,18 @@ function TableCard(props) {
         _columns = [props.children.props]
       }
     }
-    console.log('[TableCard] _columns:', _columns);
     let hideFields = _columns.filter(x => x.hide).map(x => x.title)
     if (props.tKey) {
-      console.log('[TableCard] tKey:', props.tKey, 'TableFields:', TableFields);
       if (TableFields[props.tKey]) {
         hideFields = TableFields[props.tKey]
-        console.log('[TableCard] Using stored hideFields:', hideFields);
       } else {
         TableFields[props.tKey] = hideFields
         localStorage.setItem('TableFields', JSON.stringify(TableFields))
-        console.log('[TableCard] Saving initial hideFields:', hideFields);
       }
     }
     for (let [index, item] of _columns.entries()) {
       if (!hideFields.includes(item.title)) _fields.push(index)
     }
-    console.log('[TableCard] _fields (visible columns):', _fields);
-    console.log('[TableCard] _fields.length:', _fields.length);
-    console.log('[TableCard] Final columns:', _columns.filter((_, index) => fields.includes(index)));
     setFields(_fields);
     setColumns(_columns);
     setDefaultFields(_fields);
@@ -171,6 +175,14 @@ function TableCard(props) {
     }
   }
 
+  const baseColumns = resizable ? resizableColumns : columns;
+  const visibleColumns = baseColumns.filter((_, index) => fields.includes(index));
+  let tableScroll = props.scroll;
+  if (resizable && visibleColumns.length && visibleColumns.every(col => typeof col.width === 'number')) {
+    const extra = (props.rowSelection ? 60 : 0) + (props.expandable ? 48 : 0);
+    tableScroll = {x: visibleColumns.reduce((sum, col) => sum + col.width, 0) + extra};
+  }
+
   return (
     <div ref={rootRef} className={styles.tableCard}>
       <Header
@@ -180,14 +192,17 @@ function TableCard(props) {
         fields={fields}
         rootRef={rootRef}
         defaultFields={defaultFields}
+        resizable={resizable}
+        onWidthsReset={resetAllWidths}
         onFieldsChange={handleFieldsChange}
         onReload={props.onReload}/>
       <Table
-        tableLayout={props.tableLayout}
-        scroll={props.scroll}
+        tableLayout={resizable ? 'fixed' : props.tableLayout}
+        scroll={tableScroll}
+        components={resizableComponents}
         rowKey={props.rowKey}
         loading={props.loading}
-        columns={columns.filter((_, index) => fields.includes(index))}
+        columns={visibleColumns}
         dataSource={props.dataSource}
         rowSelection={props.rowSelection}
         expandable={props.expandable}

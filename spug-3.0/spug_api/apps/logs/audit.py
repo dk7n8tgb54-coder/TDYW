@@ -64,6 +64,7 @@ TARGET_MAP = {
     '/runlog/': {'type': 'runlog', 'name': '运行日志'},
     '/radio-license/': {'type': 'radio_license', 'name': '无线电台执照'},
     '/contract-agreement/': {'type': 'contract_agreement', 'name': '合同协议'},
+    '/coop-task/': {'type': 'coop_task', 'name': '协作任务'},
     '/regulation/': {'type': 'regulation', 'name': '规章管理'},
     '/setting/': {'type': 'setting', 'name': '系统设置'},
     '/upgrade/': {'type': 'upgrade', 'name': '升级'},
@@ -114,6 +115,7 @@ TARGET_TABLE_MAP = {
     'department_duty_log': 'tdyw_department_duty_log',
     'radio_license': 'tdyw_radio_license',
     'contract_agreement': 'tdyw_contract_agreement',
+    'coop_task': 'tdyw_coop_tasks',
 }
 
 
