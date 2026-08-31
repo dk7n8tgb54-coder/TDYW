@@ -40,8 +40,8 @@ import WelcomeIndex from './pages/welcome/index';
 import WelcomeInfo from './pages/welcome/info';
 import DocumentIndex from './pages/document';
 import PartyBuildingDocumentsIndex from './pages/document/PartyBuildingDocumentsIndex';
-import Interference from './pages/interference';
-import InterferenceStatistics from './pages/interference/Statistics';
+import BridgeInterference from './pages/interference/bridge';
+import AirInterference from './pages/interference/air';
 import ExecUpgradeRecord from './pages/upgrade';
 import ExecUpgradeStatistics from './pages/upgrade/Statistics';
 import ExecUpgradePlan from './pages/upgrade/plan/PlanManager';
@@ -92,8 +92,8 @@ export default [
     ]},
   ]},
   {icon: <ExceptionOutlined/>, title: '干扰管理', auth: 'interference.interference.view', child: [
-    {title: '干扰记录', auth: 'interference.interference.view', path: '/interference', component: Interference},
-    {title: '干扰统计', auth: 'interference.statistics.view', path: '/interference/statistics', component: InterferenceStatistics},
+    {title: '地面无线电通信异常/干扰', auth: 'interference.interference.view', path: '/interference/bridge', component: BridgeInterference},
+    {title: '空中干扰', auth: 'interference.interference.view', path: '/interference/air', component: AirInterference},
   ]},
   {icon: <ClockCircleOutlined/>, title: '值班日志', auth: 'duty.duty.view', path: '/duty', component: ExecDutyRecord},
   {icon: <NotificationOutlined/>, title: '公告与提醒', auth: 'home.announcement.view|home.reminder.view', child: [

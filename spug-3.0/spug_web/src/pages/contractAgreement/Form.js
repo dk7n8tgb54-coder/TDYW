@@ -71,7 +71,7 @@ export default observer(function () {
   function renderDaysLeft(record) {
     if (record.days_left === undefined || record.days_left === null) return '-';
     if (record.days_left < 0) {
-      return <span style={{color: '#8c8c8c'}}>已关闭 {Math.abs(record.days_left)} 天</span>;
+      return <span style={{color: '#8c8c8c'}}>已关闭</span>;
     }
     return <span>{record.days_left} 天</span>;
   }

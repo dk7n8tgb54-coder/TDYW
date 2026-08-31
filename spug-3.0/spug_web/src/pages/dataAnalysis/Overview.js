@@ -51,6 +51,12 @@ export default observer(function Overview() {
           <StatCard title="干扰记录数" value={summary.interference_record_count || 0} loading={loading} />
         </Col>
         <Col xs={24} sm={12} lg={8} xl={6}>
+          <StatCard title="地面干扰数" value={summary.interference_bridge_count || 0} loading={loading} />
+        </Col>
+        <Col xs={24} sm={12} lg={8} xl={6}>
+          <StatCard title="空中干扰数" value={summary.interference_air_count || 0} loading={loading} />
+        </Col>
+        <Col xs={24} sm={12} lg={8} xl={6}>
           <StatCard title="设备总数" value={summary.device_total_snapshot || 0} loading={loading} />
         </Col>
         <Col xs={24} sm={12} lg={8} xl={6}>

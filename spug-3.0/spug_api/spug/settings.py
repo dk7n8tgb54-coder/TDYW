@@ -230,6 +230,8 @@ CELERY_TASK_ROUTES = {
     'apps.contract_agreement.tasks.scan_contract_agreement_expiration': {'queue': 'contract_agreement'},
     # 【新增】审计日志归档清理任务（使用 default 队列）
     'apps.logs.tasks.cleanup_old_audit_logs': {'queue': 'default'},
+    # 【新增】协作任务到期附件清理任务（使用 default 队列）
+    'apps.coop_task.tasks.cleanup_expired_task_attachments': {'queue': 'default'},
 }
 
 # 【P0修复】Celery Beat 定时任务配置
@@ -241,6 +243,7 @@ from apps.logs.celery_beat_schedule import LOGS_BEAT_SCHEDULE
 from apps.home.celery_beat_schedule import HOME_BEAT_SCHEDULE
 from apps.reminder.celery_beat_schedule import REMINDER_BEAT_SCHEDULE
 from apps.alert.celery_beat_schedule import ALERT_BEAT_SCHEDULE
+from apps.coop_task.celery_beat_schedule import COOP_TASK_BEAT_SCHEDULE
 
 CELERY_BEAT_SCHEDULE = {
     # 每小时重试清理标记为待清理的物理文件（上传链路，非回收站）
@@ -271,6 +274,9 @@ CELERY_BEAT_SCHEDULE.update(REMINDER_BEAT_SCHEDULE)
 # 合并 Alert 模块的定时任务配置（磁盘/数据库监控 + 数据质量巡检）
 CELERY_BEAT_SCHEDULE.update(ALERT_BEAT_SCHEDULE)
 
+# 合并协作任务模块的定时任务配置（到期任务附件清理）
+CELERY_BEAT_SCHEDULE.update(COOP_TASK_BEAT_SCHEDULE)
+
 # 【新增】默认租户ID配置
 DEFAULT_TENANT_ID = os.environ.get('DEFAULT_TENANT_ID', 'default')
 
@@ -288,6 +294,10 @@ RECYCLE_BIN_LARGE_FILE_THRESHOLD = 104857600  # 大文件阈值：100MB
 # removed by the scheduled cleanup task.
 DOCUMENT_TRANSFER_RETENTION_DAYS = int(os.environ.get('DOCUMENT_TRANSFER_RETENTION_DAYS', '30'))
 DOCUMENT_TRANSFER_CLEANUP_BATCH_SIZE = int(os.environ.get('DOCUMENT_TRANSFER_CLEANUP_BATCH_SIZE', '1000'))
+
+# 协作任务附件保留期（天）：已完成/已作废/已删除的任务超过该天数后，
+# 附件物理文件由定时任务清理（任务/交付/审计记录保留）。设为极大值可视为永不清理。
+COOP_TASK_FILE_RETENTION_DAYS = int(os.environ.get('COOP_TASK_FILE_RETENTION_DAYS', '365'))
 
 # 异步复制阈值（字节，默认50MB）
 # 文件大小 >= 此值时使用 Celery 后台复制，避免长时间占用 HTTP 请求线程

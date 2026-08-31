@@ -5,7 +5,7 @@
 
 定期检查数据库中的数据完整性问题：
 1. 软删除孤儿：子记录指向已软删除的父记录
-2. 文件-数据库一致性：DB 有记录但磁盘文件不存在
+2. 文件-数据库一致性：DB 有记录但磁盘文件不存在（含缩略图）
 3. unique_key 一致性：DocumentFolder 的 unique_key 与 is_deleted 状态不匹配
 4. 待清理文件：is_pending_clean=True 的记录卡住
 5. 科室归属一致性：业务记录与创建人科室不一致
@@ -19,7 +19,7 @@
     python manage.py data_quality_check --json
     python manage.py data_quality_check --check soft_delete_orphans
     python manage.py data_quality_check --no-alert
-    python manage.py data_quality_check --file-sample 100  # 限制文件检查数量
+    python manage.py data_quality_check --file-sample 100  # 限制文件检查数量（默认不限）
 
 建议每周运行一次（Celery Beat 或 cron）。
 """
@@ -71,8 +71,8 @@ class Command(BaseCommand):
             help='不发送告警'
         )
         parser.add_argument(
-            '--file-sample', type=int, default=500,
-            help='文件一致性检查的最大采样数（默认 500）'
+            '--file-sample', type=int, default=0,
+            help='文件一致性检查的最大采样数（默认 0 表示不限制）'
         )
 
     def handle(self, *args, **options):
@@ -177,35 +177,43 @@ class Command(BaseCommand):
     # DB 有文件记录但磁盘上文件不存在
     # ============================================
     def check_file_db_consistency(self):
-        """文件-数据库一致性：DB 有记录但磁盘文件不存在"""
+        """文件-数据库一致性：DB 有记录但磁盘文件不存在（含缩略图）"""
         problems = []
         checked = 0
         missing = 0
 
-        # 每组：(table, model_name, base_path)
+        # 每组：(table, model_name, base_path, name_column, has_soft_delete, thumb_column)
         # base_path=None 表示 file_path 是绝对路径，直接用
+        # thumb_column=None 表示该表没有缩略图字段（证据附件/法规附件目前不生成缩略图）
         media_root = getattr(settings, 'MEDIA_ROOT', '')
         doc_base = os.path.join(settings.BASE_DIR, 'storage', 'documents')
 
         file_sources = [
-            # (table, model_name, base_path, name_column, has_soft_delete)
+            # (table, model_name, base_path, name_column, has_soft_delete, thumb_column)
             # has_soft_delete=True 表示表有 is_deleted 字段，需过滤
-            ('tdyw_document_file_public', '公共资料文件', None, 'name', False),
-            ('tdyw_evidence_attachments', '证据附件', media_root, 'file_name', True),
-            ('tdyw_regulation_attachment', '法规附件', doc_base, 'original_name', True),
+            ('tdyw_document_file_public', '公共资料文件', None, 'name', False, 'thumbnail_path'),
+            ('tdyw_evidence_attachments', '证据附件', media_root, 'file_name', True, None),
+            ('tdyw_regulation_attachment', '法规附件', doc_base, 'original_name', True, None),
         ]
 
-        for table, model_name, base_path, name_col, has_soft_delete in file_sources:
+        for table, model_name, base_path, name_col, has_soft_delete, thumb_col in file_sources:
             where = "WHERE is_deleted = 0 AND file_path != ''" if has_soft_delete else "WHERE file_path != ''"
+            # 无缩略图字段的表用空串占位，保证各表返回列一致
+            thumb_expr = thumb_col if thumb_col else "''"
+            # 默认全量检查：采样会漏掉早期记录（历史教训：缩略图记录 id 偏小，
+            # 曾被 ORDER BY id DESC LIMIT 500 整体排除在检查范围外）
+            limit_clause = 'LIMIT %s' if self.file_sample > 0 else ''
+            limit_params = [self.file_sample] if self.file_sample > 0 else []
             rows = self._query(f"""
-                SELECT id, file_path, {name_col} AS display_name
+                SELECT id, file_path, {name_col} AS display_name, {thumb_expr} AS thumbnail_path
                 FROM {table}
                 {where}
                 ORDER BY id DESC
-                LIMIT %s
-            """, [self.file_sample])
+                {limit_clause}
+            """, limit_params)
 
             for row in rows:
+                # --- 主文件 ---
                 checked += 1
                 abs_path = os.path.join(base_path, row['file_path']) if base_path else row['file_path']
                 if not os.path.exists(abs_path):
@@ -218,9 +226,25 @@ class Command(BaseCommand):
                         'issue': '磁盘上文件不存在',
                     })
 
+                # --- 缩略图（与主文件同等对待：丢失也是一种文件缺失）---
+                thumb_path = row.get('thumbnail_path')
+                if not thumb_path:
+                    continue
+                checked += 1
+                thumb_abs = os.path.join(base_path, thumb_path) if base_path else thumb_path
+                if not os.path.exists(thumb_abs):
+                    missing += 1
+                    problems.append({
+                        'model': f'{model_name}缩略图',
+                        'id': row['id'],
+                        'name': row['display_name'],
+                        'file_path': thumb_abs,
+                        'issue': '磁盘上缩略图不存在',
+                    })
+
         return {
             'check': '文件完整性检查',
-            'description': f'数据库有记录但磁盘上文件缺失（采样 {checked} 条，缺失 {missing} 条）',
+            'description': f'数据库有记录但磁盘上文件缺失（检查 {checked} 条，缺失 {missing} 条）',
             'status': 'pass' if missing == 0 else 'fail',
             'count': missing,
             'checked': checked,
@@ -357,12 +381,21 @@ class Command(BaseCommand):
         # 收集 DB 中所有已知的文件绝对路径
         known_paths = set()
 
-        # DocumentFilePublic：file_path 为绝对路径
+        # DocumentFilePublic：file_path 与 thumbnail_path 均为绝对路径
         # （私有资料库表 tdyw_document_file_private 已废弃删除，不再扫描）
+        # 注意：缩略图不记录在 file_path 中，必须与 thumbnail_path 一并收集，
+        # 否则每个缩略图都会被误判成孤儿（2026-08-31 修复：曾产生 27 条误报）
         for table in ('tdyw_document_file_public',):
-            rows = self._query(f"SELECT file_path FROM {table} WHERE file_path != ''")
+            rows = self._query(f"""
+                SELECT file_path, thumbnail_path
+                FROM {table}
+                WHERE file_path != ''
+                   OR (thumbnail_path IS NOT NULL AND thumbnail_path != '')
+            """)
             for row in rows:
-                known_paths.add(os.path.normpath(row['file_path']))
+                for col in ('file_path', 'thumbnail_path'):
+                    if row.get(col):
+                        known_paths.add(os.path.normpath(row[col]))
 
         # RegulationAttachment：file_path 为相对 storage/documents/ 的相对路径
         # 包含软删除记录（文件仍存在磁盘上，只是待清理，不算孤儿）

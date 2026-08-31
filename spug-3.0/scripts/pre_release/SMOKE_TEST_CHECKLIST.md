@@ -107,7 +107,7 @@
 
 ## 模块 6：干扰记录（interference）
 
-权限码：`interference.view/add/edit/del` + `statistics.view`
+权限码：`interference.view/add/edit/del`（`statistics.view` 仅供 `/api/interference/summary/` 汇总接口使用）
 
 | # | 操作 | 预期结果 | 实际 | 通过 |
 |---|---|---|---|---|
@@ -115,7 +115,7 @@
 | 6.2 | 新建干扰记录 | 创建成功 | | |
 | 6.3 | 编辑干扰记录 | 修改成功 | | |
 | 6.4 | 删除干扰记录 | 删除成功 | | |
-| 6.5 | 干扰统计 | 显示统计图表 | | |
+| 6.5 | 数据分析 → 干扰分析 | 显示干扰统计图表（旧「干扰管理 → 干扰统计」页面已删除） | | |
 
 ---
 

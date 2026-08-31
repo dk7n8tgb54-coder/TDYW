@@ -16,13 +16,26 @@ export const TABS = [
   { key: 'upgrade', label: '升级分析', perm: 'data_analysis.upgrade.view', endpoint: '/api/data-analysis/upgrade/' },
 ];
 
+// 日期范围常量（与后端 apps/data_analysis/services/common.py 保持一致）
+export const DEFAULT_RANGE_DAYS = 365;
+export const MAX_RANGE_DAYS = 1826; // 约 5 年，含起止日
+
+// 快捷区间选项，每次调用重新计算，避免页面长期打开后日期不更新
+export const getDatePresets = () => ({
+  '近半年': [moment().subtract(182, 'days'), moment()],
+  '近一年': [moment().subtract(DEFAULT_RANGE_DAYS - 1, 'days'), moment()],
+  '近两年': [moment().subtract(730, 'days'), moment()],
+  '近三年': [moment().subtract(1095, 'days'), moment()],
+  '近五年': [moment().subtract(MAX_RANGE_DAYS - 1, 'days'), moment()],
+});
+
 class Store {
   // 当前激活的 Tab
   @observable activeTab = 'overview';
 
   // 日期范围（默认最近 365 天）
   @observable dateRange = [
-    moment().subtract(364, 'days'),
+    moment().subtract(DEFAULT_RANGE_DAYS - 1, 'days'),
     moment(),
   ];
 

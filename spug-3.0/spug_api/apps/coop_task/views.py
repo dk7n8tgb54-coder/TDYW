@@ -597,9 +597,19 @@ class TaskUrgeView(View):
         if task.status != TASK_STATUS_IN_PROGRESS:
             return json_response(error='任务已结束，无需催办')
         now = timezone.now()
-        assignment.urge_count += 1
-        assignment.last_urged_at = now
-        assignment.save(update_fields=['urge_count', 'last_urged_at'])
+        # 原子递增，避免并发催办互相覆盖丢失计数；
+        # 条件更新兜底校验后的并发窗口：任务被作废/软删除时放弃递增与成功审计
+        updated = CoopTaskAssignment.objects.filter(
+            pk=assignment.pk,
+            task__status=TASK_STATUS_IN_PROGRESS,
+            task__is_deleted=False,
+        ).update(urge_count=F('urge_count') + 1, last_urged_at=now)
+        if not updated:
+            task.refresh_from_db(fields=['status', 'is_deleted'])
+            if task.is_deleted:
+                return json_response(error='任务不存在或无权限访问')
+            return json_response(error='任务已结束，无需催办')
+        assignment.refresh_from_db(fields=['urge_count', 'last_urged_at'])
         record_audit_event(
             request, 'update', target_type=MODULE, target_id=task.id, target_name=task.title,
             detail={'action': 'urge', 'target_tenant': assignment.target_tenant_name,
@@ -687,8 +697,9 @@ class InboxDetailView(View):
 # ==================== 交付明细动作 ====================
 
 def _get_delivery_for_deliverer(user, pk):
-    """交付方视角取交付明细（上传/提交）"""
-    return CoopTaskDelivery.objects.select_related('assignment__task').filter(pk=pk).first()
+    """交付方视角取交付明细（上传/提交）；已软删除任务不可再操作"""
+    return CoopTaskDelivery.objects.select_related('assignment__task').filter(
+        pk=pk, assignment__task__is_deleted=False).first()
 
 
 def _get_delivery_for_initiator(user, pk):
@@ -704,28 +715,50 @@ def _get_delivery_for_initiator(user, pk):
     return delivery
 
 
+def _check_submittable(delivery):
+    """校验交付明细当前可提交，返回错误文案或 None"""
+    task = delivery.assignment.task
+    if task.is_deleted:
+        return '交付明细不存在或无权限访问'
+    if task.status != TASK_STATUS_IN_PROGRESS:
+        return '任务已结束，无法提交'
+    if delivery.status == DELIVERY_ACCEPTED:
+        return '该材料已验收通过，无需重复提交'
+    return None
+
+
 class DeliverySubmitView(View):
-    """提交交付（rejected 状态可重新提交）"""
+    """提交交付（rejected 状态可重新提交）
+
+    最终写入用条件更新兜底并发：仅当明细仍处于可提交状态且任务进行中才生效，
+    防止与验收/作废并发时把已验收明细覆盖回待验收、或向已作废任务写入提交状态。
+    """
 
     @auth(PERM_SUBMIT)
     def post(self, request, pk):
         delivery = _get_delivery_for_deliverer(request.user, pk)
         if not delivery or delivery.assignment.target_tenant_id != request.user.tenant_id:
             return json_response(error='交付明细不存在或无权限访问')
-        task = delivery.assignment.task
-        if task.status != TASK_STATUS_IN_PROGRESS:
-            return json_response(error='任务已结束，无法提交')
-        if delivery.status == DELIVERY_ACCEPTED:
-            return json_response(error='该材料已验收通过，无需重复提交')
+        error = _check_submittable(delivery)
+        if error:
+            return json_response(error=error)
         now = timezone.now()
-        delivery.status = DELIVERY_SUBMITTED
-        delivery.submitted_at = now
-        delivery.submitter_id = request.user.id
-        delivery.submitter_name = _snapshot_name(request.user)
-        delivery.save(update_fields=[
-            'status', 'submitted_at', 'submitter_id', 'submitter_name'])
+        updated = CoopTaskDelivery.objects.filter(
+            pk=delivery.pk,
+            status__in=[DELIVERY_PENDING, DELIVERY_REJECTED, DELIVERY_SUBMITTED],
+            assignment__task__status=TASK_STATUS_IN_PROGRESS,
+            assignment__task__is_deleted=False,
+        ).update(
+            status=DELIVERY_SUBMITTED, submitted_at=now,
+            submitter_id=request.user.id, submitter_name=_snapshot_name(request.user))
+        if not updated:
+            delivery.refresh_from_db()
+            return json_response(
+                error=_check_submittable(delivery) or '提交失败，请刷新后重试')
+        delivery.refresh_from_db()
         record_audit_event(
-            request, 'update', target_type=MODULE, target_id=task.id, target_name=task.title,
+            request, 'update', target_type=MODULE, target_id=delivery.assignment.task.id,
+            target_name=delivery.assignment.task.title,
             detail={'action': 'submit', 'delivery_id': delivery.id,
                     'item': delivery.item.name, 'delivery_status': DELIVERY_STATUS_TEXT[DELIVERY_SUBMITTED]})
         return json_response(delivery.to_view())
@@ -868,7 +901,26 @@ def _check_delivery_attachment_write(user, delivery):
 
 
 def _get_delivery_for_attachment(user, pk):
-    return CoopTaskDelivery.objects.select_related('assignment__task').filter(pk=pk).first()
+    """按 ID 取交付明细用于附件读写；已软删除任务不可再触达"""
+    return CoopTaskDelivery.objects.select_related('assignment__task').filter(
+        pk=pk, assignment__task__is_deleted=False).first()
+
+
+def _check_preview_object_alive(att):
+    """kkFileView 回调兜底：附件所属协作任务已软删除时，存量 preview_token 一律失效
+
+    preview_token 自带 5 分钟时效且 AttachmentService 只校验附件级软删除，
+    "删除任务前刚签发的令牌"仍处于有效期，必须在回调入口按业务对象复核。
+    非 coop_task 附件不在此校验（交由 AttachmentService 的令牌绑定校验处理）。
+    """
+    if att.module != ATTACHMENT_MODULE:
+        return None
+    if att.object_type == TEMPLATE_OBJECT_TYPE:
+        return None if _get_item_with_task(att.object_id) else '附件不存在或无权限访问'
+    if att.object_type == ATTACHMENT_OBJECT_TYPE:
+        delivery = _get_delivery_for_attachment(None, att.object_id)
+        return None if delivery else '附件不存在或无权限访问'
+    return None
 
 
 class DeliveryAttachmentView(View):
@@ -969,6 +1021,12 @@ class AttachmentPreviewFileView(View):
         preview_token = request.GET.get('preview_token')
         if not preview_token:
             return json_response(error='缺少 preview_token 参数')
+        att = EvidenceAttachment.objects.filter(pk=pk, is_deleted=False).first()
+        if not att:
+            return json_response(error='附件不存在')
+        err = _check_preview_object_alive(att)
+        if err:
+            return json_response(error=err)
         response, error = AttachmentService.preview_file_response(preview_token, pk)
         if error:
             return json_response(error=error)

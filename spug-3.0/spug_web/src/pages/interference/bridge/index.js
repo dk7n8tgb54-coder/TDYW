@@ -1,5 +1,5 @@
 /**
- * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
+ * Copyright (c) OpenSpug Organization. https://github.com/openspug
  * Copyright (c) <spug.dev@gmail.com>
  * Released under the AGPL-3.0 License.
  */
@@ -10,21 +10,19 @@ import ComTable from './Table';
 import ComForm from './Form';
 import store from './store';
 
-// 【优化】命名组件，便于 React DevTools 调试
-function Interference() {
+function BridgeInterference() {
   return (
     <AuthDiv auth="interference.interference.view">
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>干扰信息统计</Breadcrumb.Item>
+        <Breadcrumb.Item>干扰管理</Breadcrumb.Item>
+        <Breadcrumb.Item>地面无线电通信异常/干扰</Breadcrumb.Item>
       </Breadcrumb>
       <FilterBar
         store={store}
         fields={[
-          { key: 'f_frequency', label: '频率', type: 'input', placeholder: '请输入频率' },
-          { key: 'f_report_dept', label: '汇报科室', type: 'select', options: store.reportDepts },
+          { key: 'f_flight_number', label: '航班号', type: 'input', placeholder: '请输入航班号' },
           { key: 'f_datetime', label: '日期时间', type: 'dateRange' },
-          { key: 'f_interference_type', label: '干扰类型', type: 'select', options: store.interferenceTypes },
         ]}
         beforeSearch={() => { store.pageNum = 1; }}
         onSearch={store.fetchRecords}
@@ -36,4 +34,4 @@ function Interference() {
   );
 }
 
-export default observer(Interference);
+export default observer(BridgeInterference);

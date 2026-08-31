@@ -3,13 +3,15 @@
  * Copyright (c) <spug.dev@gmail.com>
  * Released under the AGPL-3.0 License.
  */
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Tabs, DatePicker, Space, Button } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
+import moment from 'moment';
 import { observer } from 'mobx-react';
+import { useLocation } from 'react-router-dom';
 import { Breadcrumb } from 'components';
 import { hasPermission } from 'libs';
-import store, { TABS } from './store';
+import store, { TABS, MAX_RANGE_DAYS, getDatePresets } from './store';
 import Overview from './Overview';
 import FaultAnalysis from './FaultAnalysis';
 import InterferenceAnalysis from './InterferenceAnalysis';
@@ -28,14 +30,37 @@ const TAB_COMPONENTS = {
 };
 
 function DataAnalysisIndex() {
+  const location = useLocation();
   // 过滤出有权限的 Tab
   const visibleTabs = TABS.filter(tab => hasPermission(tab.perm));
+  // 日期快捷选项（组件生命周期内固定，避免每次渲染重建导致面板闪烁）
+  const datePresets = useMemo(() => getDatePresets(), []);
+  // 面板中已选的起止日期（选择过程中），用于限制跨度
+  const [pickingDates, setPickingDates] = useState(null);
 
-  // 挂载时确保当前 Tab 有数据
+  // 可选日期约束：不允许选择未来日期，起止跨度不超过 MAX_RANGE_DAYS
+  const disabledDate = (current) => {
+    if (!current) return false;
+    if (current.isAfter(moment(), 'day')) return true;
+    if (!pickingDates || pickingDates.length === 0) return false;
+    const [start, end] = pickingDates;
+    if (!start || end) return false;
+    const limit = MAX_RANGE_DAYS - 1;
+    return current.isAfter(moment(start).add(limit, 'days'))
+      || current.isBefore(moment(start).subtract(limit, 'days'));
+  };
+
+  // 挂载时初始化：优先使用 URL ?tab= 指定的 Tab（如首页卡片跳转），无权限时回退首个可用 Tab
   useEffect(() => {
     if (visibleTabs.length === 0) return;
+    const query = new URLSearchParams(location.search);
+    const requested = query.get('tab');
+    const requestedTab = TABS.find(t => t.key === requested && hasPermission(t.perm));
     const currentTab = TABS.find(t => t.key === store.activeTab);
-    if (!currentTab || !hasPermission(currentTab.perm)) {
+    if ((!currentTab || !hasPermission(currentTab.perm)) && requestedTab) {
+      store.setActiveTab(requestedTab.key);
+      store.fetchTab(requestedTab.key);
+    } else if (!currentTab || !hasPermission(currentTab.perm)) {
       // 当前 Tab 无权限，切到第一个有权限的
       const firstTab = visibleTabs[0];
       store.setActiveTab(firstTab.key);
@@ -44,6 +69,7 @@ function DataAnalysisIndex() {
       // 有权限但还没加载过数据
       store.fetchTab(store.activeTab);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Tab 切换时加载数据
@@ -91,6 +117,10 @@ function DataAnalysisIndex() {
                   value={store.dateRange}
                   onChange={handleDateChange}
                   allowClear={false}
+                  ranges={datePresets}
+                  disabledDate={disabledDate}
+                  onCalendarChange={setPickingDates}
+                  onOpenChange={(open) => { if (!open) setPickingDates(null); }}
                 />
                 <Button
                   icon={<ReloadOutlined />}

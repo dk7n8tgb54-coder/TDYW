@@ -37,7 +37,9 @@ from django.views.generic import View
 from libs import auth
 from libs.export_utils import check_export_limit, build_export_error_response
 from libs.tenant_utils import apply_tenant_filter
-from apps.interference.models import Interference
+from apps.interference.models import (
+    Interference, BridgeInterferenceRecord, AirInterferenceRecord,
+)
 from apps.evidence.models import EvidenceAttachment
 from apps.logs.audit import record_audit_event
 
@@ -242,14 +244,14 @@ def _set_excel_column_widths(ws, columns, rows):
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
 
-def _build_interference_excel(columns, rows, image_data):
+def _build_interference_excel(columns, rows, image_data, sheet_name=None):
     """构建干扰记录 Excel（含原图嵌入），返回 BytesIO。"""
     from openpyxl import Workbook
     from openpyxl.utils import get_column_letter
 
     wb = Workbook()
     ws = wb.active
-    ws.title = SHEET_NAME
+    ws.title = sheet_name or SHEET_NAME
 
     border = _write_excel_headers(ws, columns)
 
@@ -270,8 +272,13 @@ def _build_interference_excel(columns, rows, image_data):
     return output
 
 
-def _build_zip_response(zip_filename, excel_data, record_ids, rows, attachments_by_object):
-    """构建 ZIP 响应：Excel + 附件原始文件目录。"""
+def _build_zip_response(zip_filename, excel_data, record_ids, rows, attachments_by_object,
+                        folder_label_fn=None):
+    """构建 ZIP 响应：Excel + 附件原始文件目录。
+
+    folder_label_fn: 可选，row dict -> 附件目录标签（不含序号）。
+        为空时沿用旧干扰记录的 频率_汇报科室_日期时间 命名，行为不变。
+    """
     zip_buf = io.BytesIO()
     used_names = set()
 
@@ -289,10 +296,13 @@ def _build_zip_response(zip_filename, excel_data, record_ids, rows, attachments_
                 continue
 
             record = rows[idx - 1]
-            freq = _sanitize_zip_name(str(record.get('frequency', '')))
-            dept = _sanitize_zip_name(str(record.get('report_dept', '')))
-            dt = _sanitize_zip_name(str(record.get('datetime', '')))
-            folder = '附件/%03d_%s_%s_%s' % (idx, freq, dept, dt)
+            if folder_label_fn is None:
+                freq = _sanitize_zip_name(str(record.get('frequency', '')))
+                dept = _sanitize_zip_name(str(record.get('report_dept', '')))
+                dt = _sanitize_zip_name(str(record.get('datetime', '')))
+                folder = '附件/%03d_%s_%s_%s' % (idx, freq, dept, dt)
+            else:
+                folder = '附件/%03d_%s' % (idx, _sanitize_zip_name(str(folder_label_fn(record))))
 
             for att in attachments:
                 full_path = os.path.join(settings.MEDIA_ROOT, att.file_path)
@@ -400,3 +410,185 @@ class InterferenceExportView(View):
             )
             response['Content-Disposition'] = "attachment; filename*=UTF-8''%s" % quote(xlsx_filename)
             return response
+
+
+# ==================== 双业务类型导出（地面/空中） ====================
+#
+# 列定义与各自表单字段及顺序一致；附件导出行为（文本列 + 原图嵌入 + ZIP 原始文件）
+# 沿用旧干扰导出的安全机制，通过 folder_label_fn 差异化 ZIP 内目录命名。
+
+BRIDGE_EXCEL_COLUMNS = [
+    ('export_serial', '序号'),
+    ('datetime', '日期时间'),
+    ('flight_number', '航班号'),
+    ('aircraft_no', '机号'),
+    ('aircraft_type', '机型'),
+    ('location', '位置/机位'),
+    ('frequency', '频率'),
+    ('phenomenon', '现象'),
+    ('remark', '备注'),
+    ('attachment_names', '附件'),
+    ('__image__', '附件图片'),
+]
+
+AIR_EXCEL_COLUMNS = [
+    ('export_serial', '序号'),
+    ('datetime', '日期时间'),
+    ('flight_number', '航班号'),
+    ('aircraft_type', '机型'),
+    ('route', '航线'),
+    ('runway', '使用跑道'),
+    ('approach_procedure', '使用进近程序'),
+    ('alert_form', '被扰频率'),
+    ('alert_altitude_text', '告警高度'),
+    ('alert_segment', '告警航段'),
+    ('duration_text', '持续时间'),
+    ('phenomenon', '现象'),
+    ('handling_method', '处置方式'),
+    ('cause_analysis', '原因分析'),
+    ('attachment_names', '附件'),
+    ('__image__', '附件图片'),
+]
+
+BRIDGE_SHEET_NAME = '地面干扰记录'
+AIR_SHEET_NAME = '空中干扰记录'
+
+
+def _get_business_export_queryset(request, model, flight_field='flight_number'):
+    """按当前筛选条件查询业务记录，与前端列表过滤规则保持一致。"""
+    qs = apply_tenant_filter(model.objects.filter(is_deleted=False), request.user)
+    flight_number = request.GET.get('flight_number')
+    if flight_number:
+        qs = qs.filter(**{f'{flight_field}__icontains': flight_number})
+    status = request.GET.get('status')
+    if status:
+        qs = qs.filter(status=status)
+    start_date = request.GET.get('start_date')
+    end_date = request.GET.get('end_date')
+    if start_date:
+        qs = qs.filter(datetime__gte=start_date)
+    if end_date:
+        qs = qs.filter(datetime__lte=end_date + ' 23:59:59')
+    return qs
+
+
+def _build_business_filename_base(request, prefix):
+    """构建不含扩展名的文件名基础部分。"""
+    start_date = request.GET.get('start_date')
+    end_date = request.GET.get('end_date')
+    if start_date and end_date:
+        scope = '%s-%s' % (start_date, end_date)
+    else:
+        scope = 'all'
+    now = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return '%s_%s_%s' % (prefix, scope, now)
+
+
+def _export_business_records(request, model, object_type, columns, sheet_name,
+                             filename_prefix, folder_label_fn):
+    """双业务记录导出公共实现。
+
+    - 无附件：导出纯 Excel；
+    - 有附件：导出 ZIP（Excel 含原图嵌入 + 附件原始文件目录）；
+    - 附件查询含租户过滤，仅导出当前租户可见附件。
+    """
+    qs = _get_business_export_queryset(request, model)
+    count, error_resp = check_export_limit(qs)
+    if error_resp:
+        return error_resp
+    if count == 0:
+        return build_export_error_response('当前筛选条件下没有可导出的数据')
+
+    rows = []
+    record_ids = []
+    for idx, obj in enumerate(qs.iterator(), start=1):
+        row = obj.to_view()
+        # 日期时间业务精度到分钟（历史秒级数据展示为 :00 由分钟截断统一）
+        if isinstance(row.get('datetime'), datetime):
+            row['datetime'] = row['datetime'].strftime('%Y-%m-%d %H:%M')
+        row['export_serial'] = idx
+        row['attachment_names'] = ''
+        rows.append(row)
+        record_ids.append(str(obj.id))
+
+    # 批量查询附件（避免 N+1）
+    all_attachments = apply_tenant_filter(
+        EvidenceAttachment.objects.filter(
+            module='interference',
+            object_type=object_type,
+            object_id__in=record_ids,
+            is_deleted=False,
+        ),
+        request.user,
+    ).order_by('-uploaded_at')
+
+    attachments_by_object = defaultdict(list)
+    for att in all_attachments:
+        attachments_by_object[att.object_id].append(att)
+
+    image_data = {}
+    total_attachments = 0
+    for idx, rid in enumerate(record_ids, start=1):
+        attachments = attachments_by_object.get(rid, [])
+        names = [att.file_name for att in attachments]
+        rows[idx - 1]['attachment_names'] = ', '.join(names) if names else ''
+        if attachments:
+            image_data[idx + 1] = attachments
+            total_attachments += len(attachments)
+
+    excel_buf = _build_interference_excel(columns, rows, image_data, sheet_name=sheet_name)
+    filename_base = _build_business_filename_base(request, filename_prefix)
+
+    if total_attachments > 0:
+        zip_filename = filename_base + '.zip'
+        record_audit_event(request, 'export', 'interference',
+                           target_name=zip_filename,
+                           detail={
+                               'record_type': object_type,
+                               'count': len(rows),
+                               'format': 'zip',
+                               'attachments': total_attachments,
+                               'embedded_images': min(len(image_data), MAX_EMBED_IMAGES),
+                           })
+        return _build_zip_response(
+            zip_filename, excel_buf, record_ids, rows, attachments_by_object,
+            folder_label_fn=folder_label_fn)
+
+    xlsx_filename = filename_base + '.xlsx'
+    record_audit_event(request, 'export', 'interference',
+                       target_name=xlsx_filename,
+                       detail={'record_type': object_type, 'count': len(rows), 'format': 'xlsx'})
+    response = HttpResponse(
+        excel_buf.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = "attachment; filename*=UTF-8''%s" % quote(xlsx_filename)
+    return response
+
+
+class InterferenceBridgeExportView(View):
+    """地面无线电通信异常/干扰记录导出。"""
+
+    @auth('interference.interference.view')
+    def get(self, request):
+        def folder_label_fn(row):
+            return '%s_%s_%s' % (
+                row.get('flight_number', ''), row.get('location', ''), row.get('datetime', ''))
+
+        return _export_business_records(
+            request, BridgeInterferenceRecord, 'bridge_interference',
+            BRIDGE_EXCEL_COLUMNS, BRIDGE_SHEET_NAME, '地面干扰信息', folder_label_fn)
+
+
+class InterferenceAirExportView(View):
+    """空中干扰记录导出。"""
+
+    @auth('interference.interference.view')
+    def get(self, request):
+        def folder_label_fn(row):
+            return '%s_%s_%s' % (
+                row.get('flight_number', ''), row.get('route', ''), row.get('datetime', ''))
+
+        return _export_business_records(
+            request, AirInterferenceRecord, 'air_interference',
+            AIR_EXCEL_COLUMNS, AIR_SHEET_NAME, '空中干扰信息', folder_label_fn)

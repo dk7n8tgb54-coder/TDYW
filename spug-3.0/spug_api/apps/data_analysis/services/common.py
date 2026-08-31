@@ -3,13 +3,17 @@ import datetime
 from django.db.models import Q
 from django.db.models.functions import TruncMonth
 
+# 默认区间长度（天）与允许的最大跨度（天）
+DEFAULT_RANGE_DAYS = 365
+MAX_RANGE_DAYS = 1826  # 约 5 年，含起止日
+
 
 def parse_date_range(request):
     """从 request.GET 解析日期范围，返回 (start_date, end_date, error_msg)。
-    默认取最近 365 天，最大跨度 366 天。
+    默认取最近 365 天，最大跨度 1826 天（约 5 年）。
     """
     today = datetime.date.today()
-    default_start = today - datetime.timedelta(days=364)
+    default_start = today - datetime.timedelta(days=DEFAULT_RANGE_DAYS - 1)
 
     start_str = request.GET.get('start_date', '').strip()
     end_str = request.GET.get('end_date', '').strip()
@@ -33,8 +37,9 @@ def parse_date_range(request):
     if start_date > end_date:
         return None, None, 'start_date 不能晚于 end_date'
 
-    if (end_date - start_date).days > 365:
-        return None, None, '日期范围不能超过 366 天'
+    span_days = (end_date - start_date).days + 1
+    if span_days > MAX_RANGE_DAYS:
+        return None, None, f'日期范围不能超过 {MAX_RANGE_DAYS} 天（约 5 年）'
 
     return start_date, end_date, None
 

@@ -22,6 +22,30 @@ function targetLabel(assignment) {
     || assignment.target_tenant_name || '';
 }
 
+function RejectModal({rejecting, rejectReason, onReasonChange, onCancel, onReject}) {
+  return (
+    <AntModal
+      title="退回该材料"
+      visible={!!rejecting}
+      confirmLoading={false}
+      onCancel={onCancel}
+      onOk={onReject}
+    >
+      <p>
+        材料：<b>{rejecting && rejecting.item_name}</b>
+        （{rejecting && rejecting._assignment && targetLabel(rejecting._assignment)}）
+      </p>
+      <Input.TextArea
+        rows={3}
+        maxLength={500}
+        value={rejectReason}
+        placeholder="请填写退回原因，交付科室可据此重新修改提交"
+        onChange={onReasonChange}
+      />
+    </AntModal>
+  );
+}
+
 export default function TaskDetail(props) {
   const {taskId, onClose, onChanged, autoOpenTemplate} = props;
   const [loading, setLoading] = useState(false);
@@ -30,11 +54,17 @@ export default function TaskDetail(props) {
   const [rejectReason, setRejectReason] = useState('');
   const [templateItem, setTemplateItem] = useState(null); // 正在管理模板的材料
   const autoOpenedRef = useRef(false); // 引导弹窗只自动打开一次
+  // 卸载与请求时序防护：卸载后不再回写状态；taskId 切换后旧请求响应不得覆盖新数据
+  const mountedRef = useRef(true);
+  const fetchSeqRef = useRef(0);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   const fetchData = useCallback(() => {
+    const seq = ++fetchSeqRef.current;
     setLoading(true);
     http.get(`/api/coop-task/tasks/${taskId}/`)
       .then(data => {
+        if (!mountedRef.current || seq !== fetchSeqRef.current) return;
         setTask(data);
         // 新建任务后的引导：自动打开第一个材料的模板上传
         if (autoOpenTemplate && !autoOpenedRef.current && data.status === 'in_progress'
@@ -44,7 +74,9 @@ export default function TaskDetail(props) {
         }
       })
       .catch(() => { /* 错误已由 http 拦截器统一提示 */ })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (mountedRef.current && seq === fetchSeqRef.current) setLoading(false);
+      });
   }, [taskId, autoOpenTemplate]);
 
   useEffect(() => {
@@ -54,6 +86,7 @@ export default function TaskDetail(props) {
   const doUrge = (assignment) => {
     http.post(`/api/coop-task/tasks/${taskId}/urge/`, {assignment_id: assignment.id})
       .then(() => {
+        if (!mountedRef.current) return;
         notification.success({message: `已催办 ${targetLabel(assignment)}`});
         fetchData();
       })
@@ -63,6 +96,7 @@ export default function TaskDetail(props) {
   const doAccept = (delivery) => {
     http.post(`/api/coop-task/deliveries/${delivery.id}/accept/`)
       .then(() => {
+        if (!mountedRef.current) return;
         notification.success({message: '已验收通过'});
         fetchData();
         onChanged();
@@ -78,6 +112,7 @@ export default function TaskDetail(props) {
     }
     http.post(`/api/coop-task/deliveries/${rejecting.id}/reject/`, {reason})
       .then(() => {
+        if (!mountedRef.current) return;
         notification.success({message: '已退回'});
         setRejecting(null);
         setRejectReason('');
@@ -244,25 +279,13 @@ export default function TaskDetail(props) {
         )}
       </div>
 
-      <AntModal
-        title="退回该材料"
-        visible={!!rejecting}
-        confirmLoading={false}
+      <RejectModal
+        rejecting={rejecting}
+        rejectReason={rejectReason}
+        onReasonChange={e => setRejectReason(e.target.value)}
         onCancel={() => setRejecting(null)}
-        onOk={doReject}
-      >
-        <p>
-          材料：<b>{rejecting && rejecting.item_name}</b>
-          （{rejecting && rejecting._assignment && targetLabel(rejecting._assignment)}）
-        </p>
-        <Input.TextArea
-          rows={3}
-          maxLength={500}
-          value={rejectReason}
-          placeholder="请填写退回原因，交付科室可据此重新修改提交"
-          onChange={e => setRejectReason(e.target.value)}
-        />
-      </AntModal>
+        onReject={doReject}
+      />
     </Modal>
   );
 }

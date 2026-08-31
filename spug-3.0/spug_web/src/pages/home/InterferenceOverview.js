@@ -1,11 +1,13 @@
 /**
- * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
+ * Copyright (c) OpenSpug Organization. https://github.com/openspug
  * Copyright (c) <spug.dev@gmail.com>
  * Released under the AGPL-3.0 License.
+ *
+ * 干扰管理今日概览（双业务类型）：分别展示地面/空中今日记录数并给出总量。
  */
 import React, { useState, useEffect } from 'react';
-import { Card, Statistic, Tag, Row, Col } from 'antd';
-import { ExceptionOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
+import { Card, Statistic, Row, Col } from 'antd';
+import { ExceptionOutlined } from '@ant-design/icons';
 import { http, history } from 'libs';
 
 function InterferenceOverview() {
@@ -29,45 +31,32 @@ function InterferenceOverview() {
       loading={fetching}
       hoverable
       style={{ cursor: 'pointer', height: '100%' }}
-      onClick={() => history.push('/interference')}
+      onClick={() => history.push('/data-analysis?tab=interference')}
     >
       {stats && (
         <div>
           <Statistic
-            title="今日干扰"
+            title="今日干扰合计"
             value={stats.today_total}
             suffix="条"
             valueStyle={{ color: stats.today_total > 0 ? '#faad14' : '#52c41a', fontSize: 28 }}
           />
 
-          {stats.type_stats && stats.type_stats.length > 0 && (
-            <div style={{ marginTop: 12 }}>
-              <span style={{ color: '#999', fontSize: 13 }}>类型分布：</span>
-              <div style={{ marginTop: 4 }}>
-                {stats.type_stats.map(s => (
-                  <Tag key={s.interference_type} style={{ marginBottom: 4 }}>
-                    {s.interference_type}: {s.count}
-                  </Tag>
-                ))}
-              </div>
-            </div>
-          )}
-
           <Row gutter={16} style={{ marginTop: 12 }}>
             <Col span={12}>
               <Statistic
-                title="已上报"
-                value={stats.reported_count}
-                prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
-                valueStyle={{ fontSize: 18, color: '#52c41a' }}
+                title="地面通信异常"
+                value={stats.bridge_today_total}
+                suffix="条"
+                valueStyle={{ fontSize: 18, color: '#1890ff' }}
               />
             </Col>
             <Col span={12}>
               <Statistic
-                title="未上报"
-                value={stats.unreported_count}
-                prefix={<WarningOutlined style={{ color: stats.unreported_count > 0 ? '#faad14' : '#d9d9d9' }} />}
-                valueStyle={{ fontSize: 18, color: stats.unreported_count > 0 ? '#faad14' : '#d9d9d9' }}
+                title="空中干扰"
+                value={stats.air_today_total}
+                suffix="条"
+                valueStyle={{ fontSize: 18, color: '#faad14' }}
               />
             </Col>
           </Row>

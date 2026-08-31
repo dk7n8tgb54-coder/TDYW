@@ -25,15 +25,18 @@ test.describe('Interference Management - Technical Operations', () => {
     await result.context.dispose();
   });
 
-  test('INT003 - Interference statistics page loads', async ({ page, request }) => {
+  // 干扰统计页面（/interference/statistics）已删除，统计能力统一由
+  // 「数据分析 - 干扰分析」提供，这里改为校验数据分析干扰分析页可访问。
+  test('INT003 - Interference analysis page (data analysis) loads', async ({ page, request }) => {
     const { apiLogin, injectAuth } = require('../../fixtures/auth.fixture');
     const session = await apiLogin(request, 'admin');
     await injectAuth(page, session);
-    await page.goto('/interference/statistics');
+    await page.goto('/data-analysis?tab=interference');
     await page.waitForLoadState('networkidle');
 
     const bodyText = await page.locator('body').innerText();
     expect(bodyText.length).toBeGreaterThan(0);
+    expect(bodyText).toContain('干扰分析');
   });
 
   test('INT004 - Create interference record via API', async ({ page, request }) => {

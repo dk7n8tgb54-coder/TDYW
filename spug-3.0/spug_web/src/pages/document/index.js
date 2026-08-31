@@ -96,6 +96,23 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
     : currentPath;
   const breadcrumbPathIndexOffset = breadcrumbPath.length === currentPath.length ? 0 : 1;
   const canGoBack = isPartyBuildingDocuments ? breadcrumbPath.length > 0 : currentPath.length > 0;
+
+  // 返回上一级快捷键：避免在输入控件中拦截 Backspace，并阻止浏览器默认返回行为。
+  React.useEffect(() => {
+    const handleBackspace = (e) => {
+      if (e.key !== 'Backspace' || !canGoBack || e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target;
+      const tagName = target?.tagName?.toLowerCase();
+      if (target?.isContentEditable || ['input', 'textarea', 'select'].includes(tagName)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      navigationStore.goUp();
+    };
+
+    document.addEventListener('keydown', handleBackspace);
+    return () => document.removeEventListener('keydown', handleBackspace);
+  }, [canGoBack]);
+
   // 党建工作锁定模式：面包屑根节点显示锁定根名称，否则显示空间前缀
   const spacePrefix = isPartyBuildingDocuments
     ? rootFolderName
@@ -379,6 +396,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
                 onClick={navigationStore.goUp}
                 className={styles.backButton}
                 size="small"
+                title="返回上一级（Backspace）"
               />
             )}
             <AntdBreadcrumb separator=">" className={styles.breadcrumb}>
@@ -483,6 +501,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
                 viewMode={viewMode}
                 isPublic={navigationStore.isPublic}
                 searchState={searchState}
+                onSearchClear={handleClearSearch}
                 isPartyBuildingDocuments={isPartyBuildingDocuments}
                 permPrefix={permPrefix}
                 multiSelectMode={multiSelectMode}

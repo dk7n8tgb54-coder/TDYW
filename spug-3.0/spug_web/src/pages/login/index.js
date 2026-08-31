@@ -104,54 +104,59 @@ export default function () {
 
   return (
     <div className={styles.container}>
-      <div className={styles.titleContainer}>
-        <div className={styles.logo}><img src={logo} alt="logo"/></div>
-        <div className={styles.title}>空管综合运维管理平台</div>
-      </div>
-      <div className={styles.formContainer}>
-        <Form form={form}>
-          <Form.Item name="username" className={styles.formItem}>
-            <Input
-              size="large"
-              autoComplete="off"
-              placeholder="请输入账户"
-              prefix={<UserOutlined className={styles.icon}/>}/>
-          </Form.Item>
-          <Form.Item name="password" className={styles.formItem}>
-            <Input
-              size="large"
-              type="password"
-              autoComplete="off"
-              placeholder="请输入密码"
-              onPressEnter={handleSubmit}
-              prefix={<LockOutlined className={styles.icon}/>}/>
-          </Form.Item>
-          <Form.Item hidden={!codeVisible} name="captcha" className={styles.formItem}>
-            <div style={{display: 'flex'}}>
-              <Form.Item noStyle name="captcha">
+      <div className={styles.loginZone}>
+        <div className={styles.loginWrapper}>
+          <div className={styles.formContainer}>
+            <div className={styles.header}>
+              <div className={styles.logo}><img src={logo} alt="logo"/></div>
+              <div className={styles.title}>空管综合运维管理平台</div>
+              <div className={styles.subtitle}>Air Traffic Control O&M Platform</div>
+            </div>
+            <Form form={form}>
+              <Form.Item name="username" className={styles.formItem}>
                 <Input
                   size="large"
                   autoComplete="off"
-                  placeholder="请输入验证码"
-                  prefix={<MailOutlined className={styles.icon}/>}/>
+                  placeholder="请输入账户"
+                  prefix={<UserOutlined className={styles.icon}/>}/>
               </Form.Item>
-              {counter > 0 ? (
-                <Button disabled size="large" style={{marginLeft: 8}}>{counter} 秒后重新获取</Button>
-              ) : (
-                <Button size="large" loading={codeLoading} style={{marginLeft: 8}}
-                        onClick={handleCaptcha}>获取验证码</Button>
-              )}
-            </div>
-          </Form.Item>
-        </Form>
+              <Form.Item name="password" className={styles.formItem}>
+                <Input
+                  size="large"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="请输入密码"
+                  onPressEnter={handleSubmit}
+                  prefix={<LockOutlined className={styles.icon}/>}/>
+              </Form.Item>
+              <Form.Item hidden={!codeVisible} name="captcha" className={styles.formItem}>
+                <div style={{display: 'flex'}}>
+                  <Form.Item noStyle name="captcha">
+                    <Input
+                      size="large"
+                      autoComplete="off"
+                      placeholder="请输入验证码"
+                      prefix={<MailOutlined className={styles.icon}/>}/>
+                  </Form.Item>
+                  {counter > 0 ? (
+                    <Button disabled size="large" style={{marginLeft: 8}}>{counter} 秒后重新获取</Button>
+                  ) : (
+                    <Button size="large" loading={codeLoading} style={{marginLeft: 8}}
+                            onClick={handleCaptcha}>获取验证码</Button>
+                  )}
+                </div>
+              </Form.Item>
+            </Form>
 
-        <Button
-          block
-          size="large"
-          type="primary"
-          className={styles.button}
-          loading={loading}
-          onClick={handleSubmit}>登录</Button>
+            <Button
+              block
+              size="large"
+              type="primary"
+              className={styles.button}
+              loading={loading}
+              onClick={handleSubmit}>登录</Button>
+          </div>
+        </div>
       </div>
 
       <div className={styles.footerZone}>

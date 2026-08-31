@@ -108,10 +108,13 @@ export default [{
       {key: 'del', label: '删除干扰记录'},
     ]
   }, {
+    // 注意：干扰统计页面已移除，统计能力统一由「数据分析 - 干扰分析」提供。
+    // 该权限编码仍被后端 /api/interference/summary/（干扰管理统一汇总统计）使用，
+    // 因此保留编码，仅调整展示名称，避免与已删除的页面混淆。
     key: 'statistics',
-    label: '干扰统计',
+    label: '干扰汇总统计',
     perms: [
-      {key: 'view', label: '查看干扰统计'},
+      {key: 'view', label: '查看干扰汇总统计'},
     ]
   }]
   }, {

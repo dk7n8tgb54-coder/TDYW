@@ -144,6 +144,17 @@ is_yes() { case "${1^^}" in YES|TRUE|1) return 0 ;; *) return 1 ;; esac; }
 validate_number() { [[ "$2" =~ ^[0-9]+$ ]] || fail "$1 must be a non-negative integer"; }
 container_running() { [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null || true)" = "true" ]; }
 
+# 早期 borg 1.2.x 的 compact 不支持 --stats，用 du 前后差值记录实际释放的磁盘空间
+repo_disk_usage() { du -sb "$1" 2>/dev/null | awk '{print $1}'; }
+
+human_bytes() {
+    awk -v b="$1" 'BEGIN {
+        split("B KiB MiB GiB TiB", u, " "); i = 1
+        while (b >= 1024 && i < 5) { b /= 1024; i++ }
+        printf "%.2f %s", b, u[i]
+    }'
+}
+
 # ============================================
 # 应用恢复与健康检查（复用 backup_set 逻辑）
 # ============================================
@@ -220,7 +231,14 @@ cleanup() {
         CURRENT_STAGE="${failure_stage}"
         write_failure_marker "${rc}"
     fi
-    [ -n "${RUNTIME_DIR}" ] && [ -d "${RUNTIME_DIR}" ] && rm -rf -- "${RUNTIME_DIR}"
+    if [ -n "${RUNTIME_DIR}" ] && [ -d "${RUNTIME_DIR}" ]; then
+        if [ "${rc}" -ne 0 ] && [ -f "${RUNTIME_DIR}/FAILED.json" ]; then
+            # 失败时仅保留 FAILED.json 供诊断，其余临时文件（含 binlog 副本）清理
+            find "${RUNTIME_DIR}" -mindepth 1 ! -name FAILED.json -delete
+        else
+            rm -rf -- "${RUNTIME_DIR}"
+        fi
+    fi
     exit "${rc}"
 }
 trap cleanup EXIT
@@ -595,7 +613,7 @@ borg_create_local() {
 # ============================================
 borg_prune_local() {
     CURRENT_STAGE="prune_local"
-    borg prune --list "${BORG_REPO}" \
+    borg prune --list --stats "${BORG_REPO}" \
         --prefix 'tdyw-' \
         --keep-within="${PRUNE_KEEP_WITHIN}" \
         --keep-daily="${PRUNE_KEEP_DAILY}" \
@@ -606,11 +624,24 @@ borg_prune_local() {
 
 # ============================================
 # 本地空间回收（borg 1.2：prune 只标记删除，compact 才归还磁盘空间）
+# 实际释放量用 repo 目录 du 前后差值记录，避免依赖 borg 版本的 --stats 支持
 # ============================================
 borg_compact_local() {
     CURRENT_STAGE="compact_local"
+    local usage_before usage_after delta
+    usage_before="$(repo_disk_usage "${BORG_REPO}")"
     borg compact "${BORG_REPO}"
-    log "Local compact completed"
+    usage_after="$(repo_disk_usage "${BORG_REPO}")"
+    if [ -n "${usage_before}" ] && [ -n "${usage_after}" ]; then
+        delta=$((usage_before - usage_after))
+        if [ "${delta}" -gt 0 ]; then
+            log "Local compact completed: reclaimed $(human_bytes "${delta}"), repo now $(human_bytes "${usage_after}")"
+        else
+            log "Local compact completed: no space reclaimed, repo now $(human_bytes "${usage_after}")"
+        fi
+    else
+        log "Local compact completed"
+    fi
 }
 
 # ============================================
@@ -652,7 +683,7 @@ borg_prune_remote() {
     is_yes "${PUSH_REMOTE}" || return 0
     CURRENT_STAGE="prune_remote"
     BORG_PASSPHRASE="${BORG_REMOTE_PASSPHRASE}" BORG_RSH="${BORG_RSH}" \
-        borg prune --list "${BORG_REMOTE_REPO}" \
+        borg prune --list --stats "${BORG_REMOTE_REPO}" \
         --prefix 'tdyw-' \
         --keep-within="${REMOTE_PRUNE_KEEP_WITHIN}" \
         --keep-daily="${REMOTE_PRUNE_KEEP_DAILY}" \

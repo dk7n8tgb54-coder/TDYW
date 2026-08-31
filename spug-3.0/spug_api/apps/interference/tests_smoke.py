@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 干扰记录模块测试
-覆盖：列表查询/权限校验/创建/编辑/删除/数据校验/统计
+覆盖：列表查询/权限校验/创建/编辑/删除/数据校验
+（统计能力已迁移至数据分析-干扰分析，见 apps/data_analysis/tests.py）
 """
 import tempfile
 from unittest.mock import patch
@@ -44,9 +45,11 @@ def _make_client(user):
 
 
 VIEW_PERMS = ['interference.interference.view']
+# 注意：interference.statistics.view 不再列入本模块的编辑权限集合。
+# 旧的 /interference/statistics/ 统计接口已删除，统计能力由
+# 数据分析 - 干扰分析（/api/data-analysis/interference/）提供。
 EDIT_PERMS = ['interference.interference.view', 'interference.interference.add',
-              'interference.interference.edit', 'interference.interference.del',
-              'interference.statistics.view']
+              'interference.interference.edit', 'interference.interference.del']
 
 VALID_DATA = {
     'frequency': '108.5 MHz',
@@ -181,27 +184,7 @@ class InterferenceViewTest(TestCase):
         self.assertTrue(body.get('error'))
 
     # ---- 统计 ----
-
-    def test_statistics(self):
-        """统计 API（验证数据内容，不只检查 200）"""
-        # 先创建一条记录
-        self.editor_client.post('/interference/', data=VALID_DATA, content_type='application/json')
-        resp = self.editor_client.get('/interference/statistics/')
-        self.assertEqual(resp.status_code, 200)
-        body = resp.json()
-        self.assertFalse(body.get('error'))
-        self.assertEqual(body['data']['total_count'], 1)
-        self.assertEqual(len(body['data']['frequency_stats']), 1)
-        self.assertEqual(body['data']['frequency_stats'][0]['frequency'], '108.5 MHz')
-        self.assertEqual(body['data']['frequency_stats'][0]['count'], 1)
-        self.assertEqual(len(body['data']['type_stats']), 1)
-        self.assertEqual(body['data']['type_stats'][0]['type'], '信号干扰')
-
-    def test_statistics_no_perm(self):
-        """统计 API 权限校验"""
-        resp = self.viewer_client.get('/interference/statistics/')
-        body = resp.json()
-        self.assertTrue(body.get('error'))
+    # 干扰统计 API 已移除（由 数据分析-干扰分析 /api/data-analysis/interference/ 取代）
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())

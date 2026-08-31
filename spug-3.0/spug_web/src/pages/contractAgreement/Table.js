@@ -43,7 +43,7 @@ class ComTable extends React.Component {
 
   renderDaysLeft = (text, record) => {
     if (record.days_left < 0) {
-      return <span style={{color: '#8c8c8c'}}>已关闭 {Math.abs(record.days_left)} 天</span>;
+      return <span style={{color: '#8c8c8c'}}>已关闭</span>;
     }
     return <span>{record.days_left} 天</span>;
   };

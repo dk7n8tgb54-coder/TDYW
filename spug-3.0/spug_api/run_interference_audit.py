@@ -20,6 +20,7 @@ from django.db import transaction
 from django.utils import timezone
 from apps.interference.models import Interference
 from apps.interference import views as interference_views
+from apps.interference import business_views as interference_business_views
 from apps.interference import exporters as interference_exporters
 from apps.logs.models import AuditLog
 from libs.tenant_utils import apply_tenant_filter
@@ -43,6 +44,16 @@ def report(test_id, severity, category, title, status, detail=''):
     print(f'[{status}] {test_id} ({severity}) {title}')
     if detail:
         print(f'       {detail}')
+
+
+def statistics_source():
+    """返回当前统计类视图的源码。
+
+    旧的 InterferenceStatisticsView（/interference/statistics/）已随干扰统计页面一并
+    删除，统计能力由 business_views.InterferenceSummaryView 承接，因此这三项统计相关
+    检查（R5/R7/R13）改指新的汇总统计视图。
+    """
+    return inspect.getsource(interference_business_views.InterferenceSummaryView.get)
 
 
 # ========================================================================
@@ -176,7 +187,7 @@ def test_r4():
 # ========================================================================
 def test_r5():
     """验证统计视图是否使用 Substr 而非 TruncDate"""
-    src = inspect.getsource(interference_views.InterferenceStatisticsView.get)
+    src = statistics_source()
     has_substr = 'Substr' in src
     has_trunc = 'TruncDate' in src
     if has_substr and not has_trunc:
@@ -216,7 +227,7 @@ def test_r6():
 # ========================================================================
 def test_r7():
     """验证统计视图错误响应是否泄露内部异常信息"""
-    src = inspect.getsource(interference_views.InterferenceStatisticsView.get)
+    src = statistics_source()
     has_str_e = "str(e)" in src
     has_generic = "json_response(error='获取统计数据失败" in src
     if has_str_e and not has_generic:
@@ -335,7 +346,7 @@ def test_r12():
 # ========================================================================
 def test_r13():
     """验证统计视图是否重复调用 count()"""
-    src = inspect.getsource(interference_views.InterferenceStatisticsView.get)
+    src = statistics_source()
     count_calls = src.count('.count()')
     if count_calls >= 2:
         report('R13', 'P3', '性能',

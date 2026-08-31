@@ -299,8 +299,8 @@ class ReadWorkflowUser(TokenPoolHttpUser):
 
     @task(2)
     def interference_statistics(self):
-        """Get interference statistics."""
-        self._safe_get("/api/interference/statistics/")
+        """Get interference analysis (statistics moved to data-analysis)."""
+        self._safe_get("/api/data-analysis/interference/")
 
     # === Alert ===
 

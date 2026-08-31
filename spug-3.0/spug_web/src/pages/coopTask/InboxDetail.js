@@ -2,7 +2,7 @@
  * 交付详情（交付科室视角）
  * 逐材料上传附件（AttachmentManager）并提交，退回后可重新修改提交
  */
-import React, {useState, useEffect, useCallback} from 'react';
+import React, {useState, useEffect, useCallback, useRef} from 'react';
 import {Modal, Descriptions, Tag, Space, Button, Card, notification, Alert} from 'antd';
 import {PaperClipOutlined} from '@ant-design/icons';
 import {http, hasPermission, X_TOKEN} from 'libs';
@@ -21,15 +21,27 @@ export default function InboxDetail(props) {
   const [task, setTask] = useState(null);
   // 各交付明细当前附件数（由 AttachmentManager onCountChange 回填），用于提交按钮可用性
   const [attachmentCounts, setAttachmentCounts] = useState({});
+  // 提交防重复：请求完成前禁止对同一明细再次触发提交
+  const [submittingIds, setSubmittingIds] = useState({});
+  const submittingRef = useRef({});
+  // 卸载与请求时序防护：卸载后不再回写状态；assignmentId 切换后旧请求响应不得覆盖新数据
+  const mountedRef = useRef(true);
+  const fetchSeqRef = useRef(0);
+  useEffect(() => () => { mountedRef.current = false; }, []);
   const canSubmit = hasPermission('coop.task.submit');
   const editable = task && task.status === 'in_progress';
 
   const fetchData = useCallback(() => {
+    const seq = ++fetchSeqRef.current;
     setLoading(true);
     http.get(`/api/coop-task/inbox/${assignmentId}/`)
-      .then(data => setTask(data))
+      .then(data => {
+        if (mountedRef.current && seq === fetchSeqRef.current) setTask(data);
+      })
       .catch(() => { /* 错误已由 http 拦截器统一提示 */ })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (mountedRef.current && seq === fetchSeqRef.current) setLoading(false);
+      });
   }, [assignmentId]);
 
   useEffect(() => {
@@ -37,18 +49,29 @@ export default function InboxDetail(props) {
   }, [fetchData]);
 
   const doSubmit = (delivery) => {
+    if (submittingRef.current[delivery.id]) return;
+    const nextSubmitting = {...submittingRef.current, [delivery.id]: true};
+    submittingRef.current = nextSubmitting;
+    setSubmittingIds(nextSubmitting);
     http.post(`/api/coop-task/deliveries/${delivery.id}/submit/`)
       .then(() => {
+        if (!mountedRef.current) return;
         notification.success({message: `「${delivery.item_name}」已提交，等待发起方验收`});
         fetchData();
         onChanged();
         coopTaskBadge.fetch();
       })
-      .catch(() => { /* 错误已由 http 拦截器统一提示 */ });
+      .catch(() => { /* 错误已由 http 拦截器统一提示 */ })
+      .finally(() => {
+        const rest = {...submittingRef.current};
+        delete rest[delivery.id];
+        submittingRef.current = rest;
+        if (mountedRef.current) setSubmittingIds(rest);
+      });
   };
 
   const onCountChange = (deliveryId) => (count) => {
-    setAttachmentCounts(prev => ({...prev, [deliveryId]: count}));
+    if (mountedRef.current) setAttachmentCounts(prev => ({...prev, [deliveryId]: count}));
   };
 
   return (
@@ -122,7 +145,8 @@ export default function InboxDetail(props) {
                       <Button
                         size="small"
                         type="primary"
-                        disabled={item.status === 'submitted' || !hasFiles}
+                        disabled={item.status === 'submitted' || !hasFiles
+                          || !!submittingIds[item.id]}
                         onClick={() => doSubmit(item)}>
                         {item.status === 'rejected' ? '重新提交' : '提交'}
                       </Button>

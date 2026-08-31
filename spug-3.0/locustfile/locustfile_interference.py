@@ -6,7 +6,8 @@
 1. GET /api/interference/ - 获取干扰记录列表
 2. POST /api/interference/ - 创建/更新干扰记录
 3. DELETE /api/interference/ - 删除干扰记录
-4. GET /api/interference/statistics/ - 获取统计数据
+4. GET /api/data-analysis/interference/ - 获取干扰分析数据
+   （原 /api/interference/statistics/ 已随干扰统计页面一并删除，统计统一走数据分析）
 python -m locust -f locustfile/locustfile_interference.py -H http://localhost:80 --users 50 --spawn-rate 10 --run-time 5m --headless --csv interference_test
 
 认证：继承 TokenSharedHttpUser，通过 login_shared() 从 _common.py 的
@@ -211,18 +212,18 @@ class InterferenceUser(TokenSharedHttpUser):
 
     @task(1)
     def get_statistics(self):
-        """获取统计数据 (权重: 1)"""
-        url = "/api/interference/statistics/"
+        """获取干扰分析数据 (权重: 1)"""
+        url = "/api/data-analysis/interference/"
 
-        # 随机选择查询时间范围
+        # 随机选择查询时间范围（数据分析接口要求区间不超过 366 天）
         if random.random() < 0.3:
             # 30%概率使用自定义时间范围
             now = datetime.now()
             start_date = (now - timedelta(days=random.randint(30, 180))).strftime('%Y-%m-%d')
             end_date = (now - timedelta(days=random.randint(1, 29))).strftime('%Y-%m-%d')
-            url = f"/api/interference/statistics/?start_date={start_date}&end_date={end_date}"
+            url = f"/api/data-analysis/interference/?start_date={start_date}&end_date={end_date}"
 
-        with self._get(url, "GET /api/interference/statistics/ (统计数据)") as response:
+        with self._get(url, "GET /api/data-analysis/interference/ (干扰分析数据)") as response:
             try:
                 if response.status_code == 200:
                     result = response.json()

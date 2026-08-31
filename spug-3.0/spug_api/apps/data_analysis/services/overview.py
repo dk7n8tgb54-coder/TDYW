@@ -4,7 +4,7 @@ from django.db.models import Count, Q
 
 from apps.device.models import DeviceResume
 from apps.fault.models import FaultRecord
-from apps.interference.models import Interference
+from apps.interference.models import BridgeInterferenceRecord, AirInterferenceRecord
 from apps.upgrade.models import UpgradeRecord
 from apps.upgrade.constants import UpgradeStatus
 from libs.tenant_utils import apply_tenant_filter
@@ -34,11 +34,16 @@ def get_overview(user, start_date, end_date):
     )
     fault_count = fault_qs.count()
 
-    # 干扰记录数（区间内）
-    interference_qs = apply_tenant_filter(
-        Interference.objects.filter(is_deleted=False).filter(interference_range), user
+    # 干扰记录数（区间内，双业务类型：分别统计并给出总量）
+    bridge_qs = apply_tenant_filter(
+        BridgeInterferenceRecord.objects.filter(is_deleted=False).filter(interference_range), user
     )
-    interference_count = interference_qs.count()
+    air_qs = apply_tenant_filter(
+        AirInterferenceRecord.objects.filter(is_deleted=False).filter(interference_range), user
+    )
+    bridge_count = bridge_qs.count()
+    air_count = air_qs.count()
+    interference_count = bridge_count + air_count
 
     # 升级记录（区间内）
     upgrade_qs = apply_tenant_filter(
@@ -54,12 +59,7 @@ def get_overview(user, start_date, end_date):
         ),
         'fault_date', start_date, end_date
     )
-    interference_monthly = build_monthly_trend(
-        apply_tenant_filter(
-            Interference.objects.filter(is_deleted=False), user
-        ),
-        'datetime', start_date, end_date
-    )
+    interference_monthly = _build_interference_total_monthly(user, start_date, end_date)
     upgrade_monthly = build_monthly_trend(
         apply_tenant_filter(
             UpgradeRecord.objects.filter(is_deleted=False), user
@@ -75,6 +75,8 @@ def get_overview(user, start_date, end_date):
             'device_fault_snapshot': device_fault,
             'fault_record_count': fault_count,
             'interference_record_count': interference_count,
+            'interference_bridge_count': bridge_count,
+            'interference_air_count': air_count,
             'upgrade_record_count': upgrade_count,
             'upgrade_completed_count': upgrade_completed,
             'upgrade_completion_rate': calc_rate(upgrade_completed, upgrade_count),
@@ -85,3 +87,15 @@ def get_overview(user, start_date, end_date):
             'upgrade_monthly': upgrade_monthly,
         },
     }
+
+
+def _build_interference_total_monthly(user, start_date, end_date):
+    """两类干扰记录合计月度趋势（仅共同摘要，不混合业务明细字段）。"""
+    monthly = {}
+    for model in (BridgeInterferenceRecord, AirInterferenceRecord):
+        for row in build_monthly_trend(
+                apply_tenant_filter(model.objects.filter(is_deleted=False), user),
+                'datetime', start_date, end_date):
+            monthly[row['month']] = monthly.get(row['month'], 0) + row['count']
+    return [{'month': month, 'count': count}
+            for month, count in sorted(monthly.items())]

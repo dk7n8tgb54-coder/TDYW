@@ -45,6 +45,21 @@ class DataQualityIndex extends React.Component {
       { title: '类型', dataIndex: 'model', key: 'model', width: 140 },
       { title: 'ID', dataIndex: 'id', key: 'id', width: 80 },
       { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
+      {
+        title: '文件路径',
+        dataIndex: 'file_path',
+        key: 'file_path',
+        width: 360,
+        ellipsis: true,
+        render: (value, record) => {
+          const path = value || record.rel_path || '-';
+          return path === '-' ? path : (
+            <Text ellipsis={{ tooltip: path }} copyable={{ text: path }}>
+              {path}
+            </Text>
+          );
+        },
+      },
       { title: '问题描述', dataIndex: 'issue', key: 'issue' },
     ];
     return (
@@ -80,7 +95,7 @@ class DataQualityIndex extends React.Component {
             size="small"
             columns={columns}
             dataSource={details}
-            rowKey={(r) => `${r.model}-${r.id}`}
+            rowKey={(r, index) => `${r.model}-${r.id || r.file_path || r.rel_path || index}`}
             pagination={false}
             scroll={{ y: 300 }}
           />

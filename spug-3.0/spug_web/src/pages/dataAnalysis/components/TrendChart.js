@@ -27,7 +27,7 @@ export default function TrendChart({ title, data, loading }) {
         <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
       ) : (
         <Chart height={300} data={chartData} forceFit>
-          <Axis name="month" />
+          <Axis name="month" label={{ autoHide: true }} />
           <Axis name="count" />
           <Tooltip
             crosshairs={{ type: 'y' }}

@@ -1,4 +1,6 @@
 # Install manually only after dry-run and one supervised real backup pass.
 # Daily independent full backup: logical database dump plus complete documents/media archives.
 # Keep DB_BACKUP_MODE=logical until physical backup and restore drills have passed.
-0 2 * * * cd /opt/tdyw/spug-3.0 && BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf BACKUP_ROOT=/data/backups/tdyw/backup_sets DB_BACKUP_MODE=logical DRY_RUN=NO RETENTION_DAYS=30 RETENTION_DELETE=NO ./backups/backup_set_create.sh >> /var/log/tdyw-backup/backup_set.log 2>&1
+# Retention defaults apply: verified successful backup sets older than 7 days are
+# deleted after each successful backup. Set RETENTION_DELETE=NO to disable.
+0 2 * * * cd /opt/tdyw/spug-3.0 && BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf BACKUP_ROOT=/data/backups/tdyw/backup_sets DB_BACKUP_MODE=logical DRY_RUN=NO ./backups/backup_set_create.sh >> /var/log/tdyw-backup/backup_set.log 2>&1

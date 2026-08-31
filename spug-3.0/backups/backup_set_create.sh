@@ -58,10 +58,11 @@
 #      DB_BACKUP_MODE=both DRY_RUN=NO \
 #      ./backups/backup_set_create.sh
 #
-#   4. 正式备份并清理超过 30 天的已验证成功全量备份   可选，确认恢复演练后再启用
+#   4. 默认策略：正式备份成功后自动删除超过 7 天的已验证成功全量备份
+#      如需临时禁用删除（如恢复演练前留存更久），显式设置 RETENTION_DELETE=NO
 #      BACKUP_CLIENT_CNF=/etc/tdyw-backup/tdyw_backup.cnf \
 #      BACKUP_ROOT=/data/backups/tdyw/backup_sets \
-#      DRY_RUN=NO RETENTION_DAYS=30 RETENTION_DELETE=YES \
+#      DRY_RUN=NO RETENTION_DELETE=NO \
 #      ./backups/backup_set_create.sh
 #
 #   5. 隔离测试：容器名必须包含 test，输出目录必须位于 /tmp   仅测试环境使用
@@ -84,8 +85,8 @@
 #   MIN_FREE_PERCENT    备份盘最低空闲百分比，默认 20
 #   APP_STOP_TIMEOUT    停止应用最大等待秒数，默认 900
 #   HEALTH_TIMEOUT      启动后健康检查最大等待秒数，默认 180
-#   RETENTION_DAYS      本地保留天数，默认 30
-#   RETENTION_DELETE    YES 时才删除通过完整校验的过期成功备份，默认 NO
+#   RETENTION_DAYS      本地保留天数，默认 7
+#   RETENTION_DELETE    YES 时删除通过完整校验的过期成功备份，默认 YES
 #   TEST_MODE           YES 时强制使用名称含 test 的容器和 /tmp 下备份目录
 # ================================================================================
 
@@ -109,8 +110,8 @@ TEST_MODE="${TEST_MODE:-NO}"
 MIN_FREE_PERCENT="${MIN_FREE_PERCENT:-20}"
 APP_STOP_TIMEOUT="${APP_STOP_TIMEOUT:-900}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
-RETENTION_DAYS="${RETENTION_DAYS:-30}"
-RETENTION_DELETE="${RETENTION_DELETE:-NO}"
+RETENTION_DAYS="${RETENTION_DAYS:-7}"
+RETENTION_DELETE="${RETENTION_DELETE:-YES}"
 PHYSICAL_BACKUP_WORKER="${PHYSICAL_BACKUP_WORKER:-${SCRIPT_DIR}/mariabackup_backup.sh}"
 
 BACKUP_SET_ID="backup_set_$(date '+%Y%m%d_%H%M%S')"
@@ -659,7 +660,8 @@ verify_all_artifacts() {
 # ============================================
 # 保留策略
 #
-# 默认不删除。显式启用后，每个通过完整校验且超过保留期的独立全量备份可单独删除。
+# 默认删除：每个通过完整校验且超过 RETENTION_DAYS 的成功全量备份单独删除；
+# 显式设置 RETENTION_DELETE=NO 可禁用删除。
 # ============================================
 cleanup_retention() {
     if ! is_yes "${RETENTION_DELETE}"; then

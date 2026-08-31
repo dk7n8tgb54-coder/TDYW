@@ -45,6 +45,7 @@ const Explorer = observer(forwardRef(({
   isPublic: propIsPublic,
   folderId: propFolderId,
   onFolderChange,
+  onSearchClear,
   searchState,
   viewMode = 'list',
   isPartyBuildingDocuments = false,
@@ -280,6 +281,15 @@ const Explorer = observer(forwardRef(({
   // ===== 行操作处理 =====
   // 非多选模式：文件夹单击进入、文件单击预览（打开）
   // 多选模式：单击切换选中状态
+  const handleOpenRecord = useCallback((record) => {
+    if (record.isFolder) {
+      navigationStore.enterFolder(record.id, record.name);
+      if (isSearching && onSearchClear) onSearchClear();
+      return;
+    }
+    uploadUIStore.handlePreview(record);
+  }, [isSearching, onSearchClear]);
+
   const handleRowClick = useCallback((record) => {
     if (multiSelectMode) {
       const current = Array.isArray(selectedRowKeysRef.current) ? selectedRowKeysRef.current : [];
@@ -292,12 +302,8 @@ const Explorer = observer(forwardRef(({
     }
     // 跳过临时行（新建文件夹输入行），防止点击输入框时触发 enterFolder(null)
     if (record.isTemp || record.id == null) return;
-    if (record.isFolder) {
-      navigationStore.enterFolder(record.id, record.name);
-    } else {
-      uploadUIStore.handlePreview(record);
-    }
-  }, [multiSelectMode, setSelectedRowKeys, navigationStore, uploadUIStore]);
+    handleOpenRecord(record);
+  }, [multiSelectMode, setSelectedRowKeys, handleOpenRecord]);
 
   // 单击已负责打开（文件夹进入/文件预览），双击仅清理可能的残留计时器，不重复处理
   const handleRowDoubleClick = useCallback(() => {
@@ -379,9 +385,7 @@ const Explorer = observer(forwardRef(({
     return createSingleSelectMenu(record, {
       canEdit,
       perms: opPerms,
-      onOpen: record.isFolder
-        ? () => navigationStore.enterFolder(record.id, record.name)
-        : () => uploadUIStore.handlePreview(record),
+      onOpen: () => handleOpenRecord(record),
       onDownload: record.isFolder
         ? () => handleFolderDownload(record)
         : () => handleDownload(record),
@@ -396,6 +400,7 @@ const Explorer = observer(forwardRef(({
     handleDownloadSelected, handleCopyToClipboard, handleCutToClipboard,
     handleDeleteSelected, handleFolderDownload, handleDownload,
     handleDelete, startRename, createMultiSelectMenu, createSingleSelectMenu,
+    handleOpenRecord,
   ]);
 
   // ===== 表格行事件 =====
