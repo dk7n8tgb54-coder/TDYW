@@ -1,0 +1,11 @@
+INFO [DocumentConfig] Document app ready
+INFO [DocumentConfig] Registered 2 Celery Beat tasks
+System check identified some issues:
+
+WARNINGS:
+document.DocumentSystemFolder.folder: (fields.W342) Setting unique=True on a ForeignKey has the same effect as using a OneToOneField.
+	HINT: ForeignKey(unique=True) is usually better served by a OneToOneField.
+[Celery] Document tasks imported successfully
+[Celery] RadioLicense tasks imported successfully
+[Celery] Home tasks imported successfully
+No changes detected

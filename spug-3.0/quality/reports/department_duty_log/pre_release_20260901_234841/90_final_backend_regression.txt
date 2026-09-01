@@ -1,0 +1,6 @@
+INFO [AUTH] 用户: ddl_val_signer, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+----------------------------------------------------------------------
+Ran 261 tests in 15.427s
+
+OK

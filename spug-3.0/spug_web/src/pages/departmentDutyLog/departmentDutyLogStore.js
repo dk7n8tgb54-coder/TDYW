@@ -25,6 +25,7 @@ class DepartmentDutyLogStore {
 
   // 请求序号：丢弃过期异步响应，防止快速切换时竞态覆盖
   _formRequestId = 0;
+  _detailRequestId = 0;
   _signRequestId = 0;
 
   // 筛选 - 默认不限制日期，显示全部记录
@@ -115,15 +116,20 @@ class DepartmentDutyLogStore {
     this.record = record;
     this.detailVisible = true;
     this.detailLoading = true;
+    const reqId = ++this._detailRequestId;
     http.get(`/api/department-duty-log/records/${record.id}/`)
       .then(data => {
+        if (reqId !== this._detailRequestId) return; // 丢弃过期响应
         this.record = data;
       })
       .catch(() => {
+        if (reqId !== this._detailRequestId) return;
         // 详情接口失败：http 拦截器已提示错误，关闭抽屉避免占位 record 误导用户
         this.detailVisible = false;
       })
-      .finally(() => this.detailLoading = false);
+      .finally(() => {
+        if (reqId === this._detailRequestId) this.detailLoading = false;
+      });
   }
 
   @action.bound

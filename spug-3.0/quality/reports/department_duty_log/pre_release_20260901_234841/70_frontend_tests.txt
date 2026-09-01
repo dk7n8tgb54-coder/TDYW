@@ -1,0 +1,77 @@
+﻿npx : FAIL src/pages/departmentDutyLog/__tests__/defect_reproduction.test.js
+所在位置 C:\Users\JayChoi\AppData\Local\Temp\genie-ps-1788279647935-xqavdq.ps1:558 字符: 47
++ ... :CI="true"; npx react-app-rewired test --watchAll=false --testPathPat ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (FAIL src/pages/...duction.test.js:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  DEFECT-1 [P2] store.showDetail 过期异步响应覆盖当前详情
+    × 复现：快速打开 A、B 后，慢返回的 A 覆盖了 B 的详情（期望仍显示 B） (8ms)
+  DEFECT-2 [P3] Form 版本冲突错误提示重复弹出两次
+    × 复现：版本冲突时 message.error 被调用两次（期望仅一次） (7ms)
+
+  ● DEFECT-1 [P2] store.showDetail 过期异步响应覆盖当前详情 › 复现：快速打开 A、B 后，慢返回的 A 覆盖了 B 的详情（期望仍显示 B）
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 2
+    Received: 1
+
+    [0m [90m 100 |[39m
+     [90m 101 |[39m     [90m// 期望：抽屉仍显示 B；实际缺陷：显示 A[39m
+    [31m[1m>[22m[39m[90m 102 |[39m     expect(store[33m.[39mrecord[33m.[39mid)[33m.[39mtoBe([35m2[39m)[3
+3m;[39m
+     [90m     |[39m                             [31m[1m^[22m[39m
+     [90m 103 |[39m     expect(store[33m.[39mrecord[33m.[39mduty_record)[33m.[39mtoBe([32m'B 全文'[39m)[33m;[
+39m
+     [90m 104 |[39m   })[33m;[39m
+     [90m 105 |[39m })[33m;[39m[0m
+
+      at Object.<anonymous> (src/pages/departmentDutyLog/__tests__/defect_reproduction.test.js:102:29)
+
+  ● DEFECT-2 [P3] Form 版本冲突错误提示重复弹出两次 › 复现：版本冲突时 message.error 被调用两次（期望仅一次）
+
+    expect(jest.fn()).toHaveBeenCalledTimes(expected)
+
+    Expected number of calls: 1
+    Received number of calls: 2
+
+    [0m [90m 140 |[39m     [90m// 项目规则：HTTP 拦截器已提示的错误，业务代码不得重复提示[39m
+     [90m 141 |[39m     [90m// 实际缺陷：调用了 2 次[39m
+    [31m[1m>[22m[39m[90m 142 |[39m     expect(message[33m.[39merror)[33m.[39mtoHaveBeenCalledTimes([35m1[39
+m)[33m;[39m
+     [90m     |[39m                           [31m[1m^[22m[39m
+     [90m 143 |[39m   })[33m;[39m
+     [90m 144 |[39m })[33m;[39m
+     [90m 145 |[39m[0m
+
+      at Object.<anonymous> (src/pages/departmentDutyLog/__tests__/defect_reproduction.test.js:142:27)
+
+  console.error node_modules/react/cjs/react.development.js:315
+    Warning: Can't call setState on a component that is not yet mounted. This is a no-op, but it might indicate a bug in your application. Instead, assign to `this.state` directly or define a `state = {};` class property with the desired state in the DepartmentDutyLogForm component.
+
+PASS src/pages/departmentDutyLog/__tests__/release_gate.test.js
+  FE-01 store.showDetail（正向行为）
+    √ 打开记录后详情异步返回时填充全文字段 (7ms)
+  FE-02 Form 业务错误提示（正向行为）
+    √ 非版本类业务错误（如校验失败）只弹一次 (13ms)
+  FE-03 提交成功时序
+    √ 新建：后端成功响应前不关闭弹窗、不刷新列表 (16ms)
+    √ 新建失败：弹窗保持打开，不刷新列表 (15ms)
+  FE-04 dutyDatesByMonth 缓存失效
+    √ 保存成功后失效记录所属月份 (1ms)
+    √ 日期变更时同时失效新旧两个月份 (1ms)
+    √ 其他月份缓存保留 (1ms)
+    √ hasDutyDate 命中与未命中
+    √ fetchDutyDatesByMonth 命中缓存时不发请求 (1ms)
+  FE-05 编辑提交参数
+    √ 编辑提交携带后端下发的 version，且 URL 使用固定 _editId (11ms)
+
+Test Suites: 1 failed, 1 passed, 2 total
+Tests:       2 failed, 10 passed, 12 total
+Snapshots:   0 total
+Time:        2.606s
+Ran all test suites matching /departmentDutyLog/i.
+  console.error node_modules/react/cjs/react.development.js:315
+    Warning: Can't call setState on a component that is not yet mounted. This is a no-op, but it might indicate a bug in your application. Instead, assign to `this.state` directly or define a `state = {};` class property with the desired state in the DepartmentDutyLogForm component.
+

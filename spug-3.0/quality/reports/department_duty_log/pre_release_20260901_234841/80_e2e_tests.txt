@@ -1,0 +1,15 @@
+﻿◇ injected env (4) from .env // tip: ◈ encrypted .env [www.dotenvx.com]
+
+Running 8 tests using 1 worker
+
+◇ injected env (0) from .env // tip: ⌘ override existing { override: true }
+  ok 1 [chromium] › tests\daily_business\department_duty_log_release.spec.js:59:3 › Department Duty Log - Release Gate E2E › RG-E2E-01 列表页加载并渲染表格 (954ms)
+  ok 2 [chromium] › tests\daily_business\department_duty_log_release.spec.js:69:3 › Department Duty Log - Release Gate E2E › RG-E2E-02 新建：填写表单提交后等待后端响应再关闭弹窗 (2.1s)
+  ok 3 [chromium] › tests\daily_business\department_duty_log_release.spec.js:107:3 › Department Duty Log - Release Gate E2E › RG-E2E-03 新建弹窗日期选择器禁止选择未来日期 (1.7s)
+  ok 4 [chromium] › tests\daily_business\department_duty_log_release.spec.js:131:3 › Department Duty Log - Release Gate E2E › RG-E2E-04 详情弹窗展示全文并正确关闭 (1.0s)
+  ok 5 [chromium] › tests\daily_business\department_duty_log_release.spec.js:147:3 › Department Duty Log - Release Gate E2E › RG-E2E-05 关键字筛选生效 (948ms)
+  ok 6 [chromium] › tests\daily_business\department_duty_log_release.spec.js:174:3 › Department Duty Log - Release Gate E2E › RG-E2E-06 编辑弹窗回填并提交（乐观锁 version 正确传递） (1.6s)
+  ok 7 [chromium] › tests\daily_business\department_duty_log_release.spec.js:208:3 › Department Duty Log - Release Gate E2E › RG-E2E-07 删除草稿需二次确认且成功后从列表消失 (1.1s)
+  ok 8 [chromium] › tests\daily_business\department_duty_log_release.spec.js:231:3 › Department Duty Log - Release Gate E2E › RG-E2E-08 API 无权限账号访问被后端拒绝（前端隐藏按钮不可绕过） (8ms)
+
+  8 passed (11.8s)

@@ -111,12 +111,9 @@ class DepartmentDutyLogForm extends React.Component {
           store.invalidateDutyDatesCache(months);
           store.fetchRecords();
         })
-        .catch(err => {
+        .catch(() => {
           if (!this._mounted) return;
-          if (err && err.includes('版本')) {
-            message.error(err);
-            // 版本冲突时不关闭表单，保留用户输入
-          }
+          // HTTP 拦截器已提示业务错误；失败时保持表单打开并保留用户输入。
         })
         .finally(() => {
           if (this._mounted) this.setState({submitting: false});

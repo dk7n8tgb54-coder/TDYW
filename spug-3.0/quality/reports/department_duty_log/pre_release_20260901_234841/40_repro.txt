@@ -1,0 +1,30 @@
+INFO [DocumentConfig] Document app ready
+INFO [DocumentConfig] Registered 2 Celery Beat tasks
+[Celery] Document tasks imported successfully
+[Celery] RadioLicense tasks imported successfully
+[Celery] Home tasks imported successfully
+CURRENT_DB= test_spug
+SQL_MODE= STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+COL: ('id', 'NO', None, 'auto_increment')
+COL: ('username', 'NO', None, '')
+COL: ('nickname', 'NO', None, '')
+COL: ('password_hash', 'NO', None, '')
+COL: ('type', 'NO', None, '')
+COL: ('is_supper', 'NO', None, '')
+COL: ('is_active', 'NO', None, '')
+COL: ('access_token', 'NO', None, '')
+COL: ('token_expired', 'YES', 'NULL', '')
+COL: ('last_login', 'YES', 'NULL', '')
+COL: ('last_ip', 'NO', None, '')
+COL: ('wx_token', 'NO', None, '')
+COL: ('tenant_id', 'NO', None, '')
+COL: ('created_at', 'NO', None, '')
+COL: ('deleted_at', 'YES', 'NULL', '')
+COL: ('created_by_id', 'YES', 'NULL', '')
+COL: ('deleted_by_id', 'YES', 'NULL', '')
+COL: ('active_username', 'YES', 'NULL', 'STORED GENERATED')
+--- existing users ---
+[(1, 'probe1', 'admin')]
+FAIL  probe1 default IntegrityError (1062, "Duplicate entry 'probe1' for key 'uniq_users_active_username'")
+OK    admin t1 id= 3
+OK    user1 t1 id= 4

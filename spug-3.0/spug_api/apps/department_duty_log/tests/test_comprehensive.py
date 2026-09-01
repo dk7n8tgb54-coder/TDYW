@@ -968,6 +968,33 @@ class DepartmentDutyLogAuditTests(TestCase):
             target_type='department_duty_log', action='update')
         self.assertTrue(logs.exists())
 
+    def test_failed_edit_audit_serializes_date_before_snapshot(self):
+        """失败编辑的中间件审计也必须保留可序列化的日期快照"""
+        from apps.logs.models import AuditLog
+        record = _make_record(self.user)
+        resp = self.client.put(
+            f'/department-duty-log/records/{record.id}/',
+            data=json.dumps({
+                'duty_date': 'not-a-date',
+                'duty_record': '非法日期审计测试',
+                'weather': '晴',
+                'version': 1,
+            }),
+            content_type='application/json')
+        body = self._parse(resp)
+        self.assertTrue(body.get('error'))
+
+        log = AuditLog.objects.filter(
+            target_type='department_duty_log', action='update',
+            is_success=False,
+        ).order_by('-id').first()
+        self.assertIsNotNone(log)
+        detail = json.loads(log.detail) if isinstance(log.detail, str) else log.detail
+        self.assertEqual(
+            detail['before']['duty_date'],
+            str(record.duty_date),
+        )
+
     def test_delete_audit(self):
         """草稿删除产生审计"""
         from apps.logs.models import AuditLog
@@ -1372,4 +1399,3 @@ class DepartmentDutyLogPdfExportTests(TestCase):
         self.assertEqual(resp.status_code, 400)
         body = self._parse(resp)
         self.assertTrue(body.get('error'))
-

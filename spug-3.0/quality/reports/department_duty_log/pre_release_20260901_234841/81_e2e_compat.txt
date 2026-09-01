@@ -1,0 +1,10 @@
+﻿◇ injected env (4) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+
+Running 3 tests using 1 worker
+
+◇ injected env (0) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
+  ok 1 [chromium] › tests\daily_business\department_duty_log_compat.spec.js:26:3 › Department Duty Log - 浏览器与视口兼容性 › CMPT-01 Chrome 桌面视口渲染无溢出 (1.0s)
+  ok 2 [chromium] › tests\daily_business\department_duty_log_compat.spec.js:36:3 › Department Duty Log - 浏览器与视口兼容性 › CMPT-02 Edge 桌面视口渲染 (879ms)
+  ok 3 [chromium] › tests\daily_business\department_duty_log_compat.spec.js:51:3 › Department Duty Log - 浏览器与视口兼容性 › CMPT-03 移动视口（375x667）布局与滚动 (949ms)
+
+  3 passed (5.0s)

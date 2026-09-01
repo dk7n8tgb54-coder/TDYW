@@ -1,0 +1,8 @@
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/195/sign/
+INFO [AUTH] 用户: ddl_val_signer, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+----------------------------------------------------------------------
+Ran 222 tests in 9.049s
+
+OK

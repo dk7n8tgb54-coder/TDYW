@@ -298,7 +298,9 @@ def save_audit_log(user_id, username, action, target_type, target_id=None,
 
         # 1. 规范化 detail：dict -> JSON 字符串（与历史行为一致）
         if isinstance(detail, dict):
-            detail = json.dumps(detail, ensure_ascii=False)
+            # Middleware before-snapshots may contain database date/datetime
+            # values; normalize them instead of dropping the audit event.
+            detail = json.dumps(detail, ensure_ascii=False, default=str)
 
         # 2. 计算 request_hash：基于存库 detail 内容，证明详情未被篡改
         #    调用方未显式传入时自动计算，保证写入与校验口径一致

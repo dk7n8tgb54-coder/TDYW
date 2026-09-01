@@ -1,0 +1,8 @@
+﻿No tests found, exiting with code 1
+Run with `--passWithNoTests` to exit with code 0
+In E:\TDYW\spug-3.0\spug_web
+  345 files checked.
+  testMatch: E:/TDYW/spug-3.0/spug_web/src/**/__tests__/**/*.{js,jsx,ts,tsx}, E:/TDYW/spug-3.0/spug_web/src/**/*.{spec,test}.{js,jsx,ts,tsx} - 53 matches
+  testPathIgnorePatterns: \\node_modules\\, _gatewayEnv - 344 matches
+  testRegex:  - 0 matches
+Pattern: departmentDutyLog\\release_gate - 0 matches

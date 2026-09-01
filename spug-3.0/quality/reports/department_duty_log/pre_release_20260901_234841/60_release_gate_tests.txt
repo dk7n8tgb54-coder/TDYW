@@ -1,0 +1,902 @@
+INFO [DocumentConfig] Document app ready
+INFO [DocumentConfig] Registered 2 Celery Beat tasks
+Creating test database for alias 'default' ('test_spug_isolated')...
+[Celery] Document tasks imported successfully
+[Celery] RadioLicense tasks imported successfully
+[Celery] Home tasks imported successfully
+Found 39 test(s).
+Operations to perform:
+  Synchronize unmigrated apps: channels, data_analysis, libs, messages, staticfiles
+  Apply all migrations: account, alert, auth, contenttypes, contract_agreement, coop_task, department_duty_log, device, django_celery_beat, django_celery_results, document, duty, evidence, fault, home, interference, logs, radio_license, regulation, reminder, runlog, sessions, setting, signature, upgrade
+Synchronizing apps without migrations:
+  Creating tables...
+    Running deferred SQL...
+Running migrations:
+  Applying account.0001_initial... OK
+  Applying account.0002_alter_role_is_global_admin_default... OK
+  Applying account.0003_add_tenant_id_index... OK
+  Applying account.0004_tenant_model... OK
+  Applying account.0005_populate_tenants... OK
+  Applying account.0006_role_tenant_system... OK
+  Applying account.0007_role_perms_version... OK
+  Applying account.0008_alter_history_id_alter_role_id_alter_user_id... OK
+  Applying account.0009_alter_history_created_at_alter_role_created_at_and_more... OK
+  Applying account.0010_active_username_unique... OK
+  Applying account.0011_remove_null_from_string_fields... OK
+  Applying account.0012_fix_user_created_by_null... OK
+  Applying account.0013_alter_user_access_token_alter_role_unique_together... OK
+  Applying account.0014_remove_tenant_is_active... OK
+  Applying alert.0001_initial... OK
+  Applying contenttypes.0001_initial... OK
+  Applying contenttypes.0002_remove_content_type_name... OK
+  Applying auth.0001_initial... OK
+  Applying auth.0002_alter_permission_name_max_length... OK
+  Applying auth.0003_alter_user_email_max_length... OK
+  Applying auth.0004_alter_user_username_opts... OK
+  Applying auth.0005_alter_user_last_login_null... OK
+  Applying auth.0006_require_contenttypes_0002... OK
+  Applying auth.0007_alter_validators_add_error_messages... OK
+  Applying auth.0008_alter_user_username_max_length... OK
+  Applying auth.0009_alter_user_last_name_max_length... OK
+  Applying auth.0010_alter_group_name_max_length... OK
+  Applying auth.0011_update_proxy_permissions... OK
+  Applying auth.0012_alter_user_first_name_max_length... OK
+  Applying contract_agreement.0001_initial... OK
+  Applying contract_agreement.0002_three_state_and_responsible_user... OK
+  Applying contract_agreement.0003_alter_contractagreement_id_and_more... OK
+  Applying contract_agreement.0004_alter_contractagreement_created_at_and_more... OK
+  Applying contract_agreement.0005_alter_contractagreement_status_and_more... OK
+  Applying contract_agreement.0006_contract_no_and_status_two_state... OK
+  Applying coop_task.0001_initial... OK
+  Applying coop_task.0002_alter_cooptaskassignment_contact_user_id_and_more... OK
+  Applying department_duty_log.0001_init_department_duty_log... OK
+  Applying department_duty_log.0002_remove_department_name... OK
+  Applying department_duty_log.0003_alter_departmentdutylog_id... OK
+  Applying department_duty_log.0004_alter_departmentdutylog_created_at_and_more... OK
+  Applying department_duty_log.0005_departmentdutylog_duty_log_status_valid_and_more... OK
+  Applying department_duty_log.0006_remove_voltage_fields... OK
+  Applying department_duty_log.0007_remove_void_fields_and_status... OK
+  Applying department_duty_log.0008_simplify_check_constraint... OK
+  Applying department_duty_log.0009_add_duty_date_index... OK
+  Applying department_duty_log.0010_remove_departmentdutylog_duty_log_signature_fields_and_more... OK
+  Applying department_duty_log.0011_remove_departmentdutylog_duty_log_signature_fields_and_more... OK
+  Applying device.0001_initial... OK
+  Applying device.0002_fix_responsible_user_id_null... OK
+  Applying device.0003_fix_related_user_id_null... OK
+  Applying device.0004_device_sn_tenant_unique_and_choices... OK
+  Applying device.0005_evidence_fields... OK
+  Applying device.0006_alter_deviceresume_is_deleted... OK
+  Applying device.0007_alter_deviceevent_id_alter_deviceresume_id... OK
+  Applying device.0008_alter_deviceevent_corrected_at_and_more... OK
+  Applying device.0009_deviceevent_device_event_type_valid_and_more... OK
+  Applying device.0010_remove_null_from_string_fields... OK
+  Applying django_celery_beat.0001_initial... OK
+  Applying django_celery_beat.0002_auto_20161118_0346... OK
+  Applying django_celery_beat.0003_auto_20161209_0049... OK
+  Applying django_celery_beat.0004_auto_20170221_0000... OK
+  Applying django_celery_beat.0005_add_solarschedule_events_choices... OK
+  Applying django_celery_beat.0006_auto_20180322_0932... OK
+  Applying django_celery_beat.0007_auto_20180521_0826... OK
+  Applying django_celery_beat.0008_auto_20180914_1922... OK
+  Applying django_celery_beat.0006_auto_20180210_1226... OK
+  Applying django_celery_beat.0006_periodictask_priority... OK
+  Applying django_celery_beat.0009_periodictask_headers... OK
+  Applying django_celery_beat.0010_auto_20190429_0326... OK
+  Applying django_celery_beat.0011_auto_20190508_0153... OK
+  Applying django_celery_beat.0012_periodictask_expire_seconds... OK
+  Applying django_celery_beat.0013_auto_20200609_0727... OK
+  Applying django_celery_beat.0014_remove_clockedschedule_enabled... OK
+  Applying django_celery_beat.0015_edit_solarschedule_events_choices... OK
+  Applying django_celery_beat.0016_alter_crontabschedule_timezone... OK
+  Applying django_celery_beat.0017_alter_crontabschedule_month_of_year... OK
+  Applying django_celery_beat.0018_improve_crontab_helptext... OK
+  Applying django_celery_beat.0019_alter_periodictasks_options... OK
+  Applying django_celery_results.0001_initial... OK
+  Applying django_celery_results.0002_add_task_name_args_kwargs... OK
+  Applying django_celery_results.0003_auto_20181106_1101... OK
+  Applying django_celery_results.0004_auto_20190516_0412... OK
+  Applying django_celery_results.0005_taskresult_worker... OK
+  Applying django_celery_results.0006_taskresult_date_created... OK
+  Applying django_celery_results.0007_remove_taskresult_hidden... OK
+  Applying django_celery_results.0008_chordcounter... OK
+  Applying django_celery_results.0009_groupresult... OK
+  Applying django_celery_results.0010_remove_duplicate_indices... OK
+  Applying django_celery_results.0011_taskresult_periodic_task_name... OK
+  Applying document.0001_initial... OK
+  Applying document.0002_add_thumbnail_path... OK
+  Applying document.0003_transfer_add_merging_choice... OK
+  Applying document.0004_folder_unique_constraints... OK
+  Applying document.0005_folder_unique_key...  [Private] backfill: 0 rows updated
+  [Public] backfill: 0 rows updated
+ OK
+  Applying document.0006_auto_20260627_0807... OK
+  Applying document.0007_document_list_indexes... OK
+  Applying document.0008_transfer_cleanup_index... OK
+  Applying document.0009_document_system_folder... OK
+  Applying document.0010_transfer_system_folder... OK
+  Applying document.0011_rename_party_building_documents... OK
+  Applying document.0012_system_folder_unique_folder... OK
+  Applying document.0013_disk_usage_aggregate_index... OK
+  Applying document.0014_alter_documentfileprivate_id_and_more... OK
+  Applying document.0015_documenttransfer_doc_transfer_type_valid_and_more... OK
+  Applying document.0016_remove_null_from_string_fields... OK
+  Applying document.0017_add_private_file_unique_constraint... OK
+  Applying document.0018_remove_soft_delete_fields... OK
+  Applying document.0019_add_copy_transfer_fields... OK
+  Applying document.0020_remove_documentfolderprivate_created_by_and_more... OK
+  Applying document.0021_alter_documenttransfer_is_public... OK
+  Applying document.0022_documentfilepublic_doc_pub_file_name_idx_and_more... OK
+  Applying duty.0001_initial... OK
+  Applying duty.0002_auto_20260627_0807... OK
+  Applying duty.0003_alter_dutyrecord_id... OK
+  Applying duty.0004_alter_dutyrecord_created_at_and_more... OK
+  Applying duty.0005_remove_null_from_string_fields... OK
+  Applying duty.0006_dutyrecord_deleted_at_dutyrecord_is_deleted... OK
+  Applying evidence.0001_initial... OK
+  Applying evidence.0002_evidenceattachment_ev_att_obj_del_time_idx... OK
+  Applying evidence.0003_alter_evidenceattachment_id_alter_evidenceevent_id... OK
+  Applying evidence.0004_alter_evidenceattachment_deleted_at_and_more... OK
+  Applying evidence.0005_alter_evidenceevent_created_at... OK
+  Applying evidence.0006_remove_null_from_string_fields... OK
+  Applying evidence.0007_evidenceevent_ev_event_type_valid... OK
+  Applying fault.0001_initial... OK
+  Applying fault.0002_auto_20260627_0807... OK
+  Applying fault.0003_alter_faultpart_id_alter_faultrecord_id... OK
+  Applying fault.0004_alter_faultpart_archive_date_and_more... OK
+  Applying fault.0005_faultpart_fault_part_t_date_idx_and_more... OK
+  Applying fault.0006_faultpart_deleted_at_faultpart_is_deleted_and_more... OK
+  Applying home.0001_initial... OK
+  Applying home.0002_announcement_models... OK
+  Applying home.0003_alter_announcement_id_alter_announcementread_id_and_more... OK
+  Applying home.0004_alter_announcement_created_at_and_more... OK
+  Applying home.0005_announcement_ann_status_valid_and_more... OK
+  Applying home.0006_navigation_deleted_at_navigation_is_deleted_and_more... OK
+  Applying home.0007_alert_alertread_alertread_uniq_alert_read_user_and_more... OK
+  Applying home.0008_remove_alertread_alert_delete_alert_delete_alertread... OK
+  Applying home.0009_navigation_notice_audit_fields... OK
+  Applying home.0010_delete_notice... OK
+  Applying home.0011_delete_navigation... OK
+  Applying interference.0001_initial... OK
+  Applying interference.0002_auto_20260627_0807... OK
+  Applying interference.0003_evidence_status_flow... OK
+  Applying interference.0004_alter_interference_id... OK
+  Applying interference.0005_alter_interference_closed_at_and_more... OK
+  Applying interference.0006_interference_interference_status_valid_and_more... OK
+  Applying interference.0007_remove_null_from_string_fields... OK
+  Applying interference.0008_interference_deleted_at_interference_is_deleted... OK
+  Applying interference.0009_alter_interference_datetime... OK
+  Applying interference.0010_airinterferencerecord_bridgeinterferencerecord_and_more... OK
+  Applying interference.0011_remove_airinterferencerecord_air_interference_status_valid_and_more... OK
+  Applying interference.0012_remove_bridgeinterferencerecord_stand_no_and_more... OK
+  Applying interference.0013_alter_bridgeinterferencerecord_options... OK
+  Applying interference.0014_alter_airinterferencerecord_alert_form... OK
+  Applying interference.0015_remove_airinterferencerecord_approach_procedure_and_more... OK
+  Applying interference.0016_bridgeinterferencerecord_cause_analysis_and_more... OK
+  Applying logs.0001_initial... OK
+  Applying logs.0002_add_audit_indexes... OK
+  Applying logs.0003_audit_hash_fields... OK
+  Applying logs.0004_remove_dup_indexes... OK
+  Applying logs.0005_audit_tenant_ctime_id_idx... OK
+  Applying logs.0006_time_field_to_datetime... OK
+  Applying logs.0007_alter_auditlog_id... OK
+  Applying logs.0008_remove_null_from_string_fields... OK
+  Applying logs.0009_auditlog_audit_action_valid... OK
+  Applying logs.0010_remove_null_from_char_fields... OK
+  Applying radio_license.0001_initial... OK
+  Applying radio_license.0002_add_attachment_model... OK
+  Applying radio_license.0003_add_reminder_model... OK
+  Applying radio_license.0004_remove_is_deleted... OK
+  Applying radio_license.0005_add_reminder_ack... OK
+  Applying radio_license.0006_auto_20260627_0807... OK
+  Applying radio_license.0007_evidence_attachment_version... OK
+  Applying radio_license.0008_remove_radiolicenseattachment... OK
+  Applying radio_license.0009_remove_radiolicensereminder... OK
+  Applying radio_license.0010_station_frequency_approval... OK
+  Applying radio_license.0011_alter_licensereminderack_id_alter_radiolicense_id_and_more... OK
+  Applying radio_license.0012_alter_licensereminderack_created_at_and_more... OK
+  Applying radio_license.0013_alter_radiolicense_status_and_more... OK
+  Applying radio_license.0014_remove_sfa_doc_no_unique... OK
+  Applying regulation.0001_initial... OK
+  Applying regulation.0002_remove_attachment_is_primary... OK
+  Applying regulation.0003_alter_regulation_id_alter_regulationattachment_id_and_more... OK
+  Applying regulation.0004_alter_regulation_updated_at_and_more... OK
+  Applying regulation.0005_regulation_reg_status_valid_and_more... OK
+  Applying regulation.0006_regulation_created_at... OK
+  Applying reminder.0001_initial... OK
+  Applying reminder.0002_add_constraints... OK
+  Applying runlog.0001_initial... OK
+  Applying runlog.0003_add_event_type_config... OK
+  Applying runlog.0004_remove_event_type_tenant_id... OK
+  Applying runlog.0005_auto_20260604_1609... OK
+  Applying runlog.0006_add_duty_person_to_runlogupdate... OK
+  Applying runlog.0007_evidence_fields... OK
+  Applying runlog.0008_alter_runlog_status... OK
+  Applying runlog.0009_time_field_to_datetime... OK
+  Applying runlog.0010_alter_eventtypeconfig_id_alter_runlog_id_and_more... OK
+  Applying runlog.0011_runlog_runlog_severity_valid_and_more... OK
+  Applying runlog.0012_remove_null_from_string_fields... OK
+  Applying runlog.0013_remove_runlogupdate_tdyw_run_lo_runlog__f96268_idx_and_more... OK
+  Applying runlog.0014_runlog_deleted_at_runlog_is_deleted... OK
+  Applying sessions.0001_initial... OK
+  Applying setting.0001_initial... OK
+  Applying setting.0002_alter_setting_id_alter_usersetting_id... OK
+  Applying setting.0003_simplify_check_constraint... OK
+  Applying signature.0001_initial... OK
+  Applying signature.0002_signatureusage... OK
+  Applying signature.0003_alter_accountsignature_id_alter_signatureusage_id... OK
+  Applying signature.0004_alter_accountsignature_assigned_at_and_more... OK
+  Applying signature.0005_remove_null_from_string_fields... OK
+  Applying upgrade.0001_initial... OK
+  Applying upgrade.0002_auto_20260627_0807... OK
+  Applying upgrade.0003_upgrade_attachment... OK
+  Applying upgrade.0004_merge_plan... OK
+  Applying upgrade.0005_drop_upgrade_attachment... OK
+  Applying upgrade.0006_status_log... OK
+  Applying upgrade.0007_step_phase... OK
+  Applying upgrade.0008_status_log_flow... OK
+  Applying upgrade.0009_status_log_action_labels... OK
+  Applying upgrade.0010_alter_upgradestatuslog_action... OK
+  Applying upgrade.0011_record_create_fields... OK
+  Applying upgrade.0012_upgrade_system... OK
+  Applying upgrade.0013_upgradeplanstep_upg_plan_tenant_seq_idx_and_more... OK
+  Applying upgrade.0014_tenant_isolate_upgrade_systems... OK
+  Applying upgrade.0015_alter_upgradeplanstep_id_alter_upgraderecord_id_and_more... OK
+  Applying upgrade.0016_alter_upgradeplanstep_created_at_and_more... OK
+  Applying upgrade.0017_phase_to_display_name... OK
+  Applying upgrade.0018_status_log_phase_outcome... OK
+  Applying upgrade.0019_alter_upgradetemplate_options_and_more... OK
+  Applying upgrade.0020_upgraderecord_deleted_at_upgraderecord_is_deleted_and_more... OK
+  Applying upgrade.0021_alter_upgraderecord_unique_together_and_more... OK
+System check identified some issues:
+
+WARNINGS:
+document.DocumentSystemFolder.folder: (fields.W342) Setting unique=True on a ForeignKey has the same effect as using a OneToOneField.
+	HINT: ForeignKey(unique=True) is usually better served by a OneToOneField.
+
+System check identified 1 issue (0 silenced).
+test_rg_b01_constraints_exist_in_database (apps.department_duty_log.tests.release_gate.test_release_gate.DatabaseConstraintReleaseGateTests)
+RG-B01：三个 CHECK 约束真实存在于数据库（而非仅声明在模型） ... ok
+test_rg_b02_illegal_status_rejected (apps.department_duty_log.tests.release_gate.test_release_gate.DatabaseConstraintReleaseGateTests)
+RG-B02：非法 status 无法落库 ... ok
+test_rg_b03_version_zero_rejected (apps.department_duty_log.tests.release_gate.test_release_gate.DatabaseConstraintReleaseGateTests)
+RG-B03：version < 1 无法落库 ... ok
+test_rg_b04_draft_with_signature_fields_rejected (apps.department_duty_log.tests.release_gate.test_release_gate.DatabaseConstraintReleaseGateTests)
+RG-B04：草稿携带签署字段无法落库 ... ok
+test_rg_b05_signed_without_signature_fields_rejected (apps.department_duty_log.tests.release_gate.test_release_gate.DatabaseConstraintReleaseGateTests)
+RG-B05：已签记录缺失签署字段无法落库 ... ok
+test_rg_b06_signed_by_must_equal_duty_person (apps.department_duty_log.tests.release_gate.test_release_gate.DatabaseConstraintReleaseGateTests)
+RG-B06：已签记录 signed_by 必须等于 duty_person ... ok
+test_rg_b07_legal_records_accepted (apps.department_duty_log.tests.release_gate.test_release_gate.DatabaseConstraintReleaseGateTests)
+RG-B07：合法草稿与合法已签记录均可落库（约束不过严） ... ok
+test_rg_b08_signature_usage_id_unique (apps.department_duty_log.tests.release_gate.test_release_gate.DatabaseConstraintReleaseGateTests)
+RG-B08：signature_usage_id 唯一，防止两条记录复用同一签署证据 ... ok
+test_rg_e01_server_decides_identity_fields (apps.department_duty_log.tests.release_gate.test_release_gate.InvariantReleaseGateTests)
+RG-E01：值班人员/创建人由服务端决定，客户端无法伪造 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_e_owner, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [DepartmentDutyLog] protected fields rejected: ['duty_person', 'duty_person_name', 'created_by']
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_e_owner, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_e02_soft_deleted_invisible_everywhere (apps.department_duty_log.tests.release_gate.test_release_gate.InvariantReleaseGateTests)
+RG-E02：软删除记录不出现在列表、详情、duty_dates、导出筛选中 ... WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/6/
+INFO [AUTH] 用户: rg_e_owner, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/7/
+INFO [AUTH] 用户: rg_e_owner, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_e_owner, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_e_owner, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_e_owner, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_e03_optimistic_lock_conflict_preserves_data (apps.department_duty_log.tests.release_gate.test_release_gate.InvariantReleaseGateTests)
+RG-E03：乐观锁冲突时不覆盖他人更新 ... WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/department-duty-log/records/8/
+INFO [AUTH] 用户: rg_e_owner, 需要权限: ['department_duty_log.department_duty_log.edit']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_e04_other_user_draft_fully_isolated (apps.department_duty_log.tests.release_gate.test_release_gate.InvariantReleaseGateTests)
+RG-E04：他人草稿不可列表、详情、编辑、删除、签署 ... INFO [AUTH] 用户: rg_e_other, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_e_other, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/department-duty-log/records/9/
+INFO [AUTH] 用户: rg_e_other, 需要权限: ['department_duty_log.department_duty_log.edit']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/9/
+INFO [AUTH] 用户: rg_e_other, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/9/sign/
+INFO [AUTH] 用户: rg_e_other, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_e05_signed_record_globally_visible_readonly (apps.department_duty_log.tests.release_gate.test_release_gate.InvariantReleaseGateTests)
+RG-E05：已签记录跨租户可见，但非本人不可编辑/删除/签署 ... INFO [AUTH] 用户: rg_e_other, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_e06_duty_person_and_signed_by_consistency (apps.department_duty_log.tests.release_gate.test_release_gate.InvariantReleaseGateTests)
+RG-E06：全表 signed_by_id 必须等于 duty_person_id（数据完整性抽查） ... ok
+test_rg_c01_sign_bumps_version_and_freezes_signature (apps.department_duty_log.tests.release_gate.test_release_gate.LifecycleEvidenceReleaseGateTests)
+RG-C01：签署成功 -> status=signed、version+1、签署字段完整且写入审计 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/23/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/13/sign/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_c02_sign_twice_rejected (apps.department_duty_log.tests.release_gate.test_release_gate.LifecycleEvidenceReleaseGateTests)
+RG-C02：已签记录不可重复签署，且状态/版本不变 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/26/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/14/sign/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/14/sign/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_c03_return_clears_signature_and_bumps_version (apps.department_duty_log.tests.release_gate.test_release_gate.LifecycleEvidenceReleaseGateTests)
+RG-C03：退回 -> draft、签署字段清空、version+1，且写 void 证据事件 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/29/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/15/sign/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/15/return/
+INFO [AUTH] 用户: rg_c_admin, 需要权限: ['department_duty_log.department_duty_log.return']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_c04_full_draft_sign_return_resign_journey (apps.department_duty_log.tests.release_gate.test_release_gate.LifecycleEvidenceReleaseGateTests)
+RG-C04：完整旅程 draft->signed->draft->signed 全程版本号与证据链单调一致 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/32/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/16/sign/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/16/return/
+INFO [AUTH] 用户: rg_c_admin, 需要权限: ['department_duty_log.department_duty_log.return']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/16/sign/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_c05_signed_record_cannot_be_edited_or_deleted (apps.department_duty_log.tests.release_gate.test_release_gate.LifecycleEvidenceReleaseGateTests)
+RG-C05：已签记录不可编辑、不可删除，数据库保持不变 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/35/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/17/sign/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/department-duty-log/records/17/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.edit']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/17/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_c06_sign_requires_confirm_and_correct_version (apps.department_duty_log.tests.release_gate.test_release_gate.LifecycleEvidenceReleaseGateTests)
+RG-C06：签署校验 confirm=true 与当前 version ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/38/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/18/sign/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/18/sign/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_c07_sign_idempotent_retry_same_request_id (apps.department_duty_log.tests.release_gate.test_release_gate.LifecycleEvidenceReleaseGateTests)
+RG-C07：同 request_id 重试幂等，不同 request_id 重签被拒 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/41/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/19/sign/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/19/sign/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+INFO [DepartmentDutyLog] idempotent retry: record 19 already signed with request_id rg-c07-idem, returning existing result
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/19/sign/
+INFO [AUTH] 用户: rg_c_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_g01_draft_never_in_pdf_bytes (apps.department_duty_log.tests.release_gate.test_release_gate.PdfExportBoundaryReleaseGateTests)
+RG-G01：PDF 字节流中不含草稿正文（含正向对照，防止压缩导致假阴性） ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/44/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/20/sign/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+INFO [DepartmentDutyLog PDF] export success: user=44 records=1 sha256=04d2de9d2eca6536bf0b931bb060b07ecd18aabce049cb96f4ef8a9bd3e74710
+ok
+test_rg_g02_soft_deleted_never_in_pdf (apps.department_duty_log.tests.release_gate.test_release_gate.PdfExportBoundaryReleaseGateTests)
+RG-G02：软删除记录不进入导出 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/46/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/22/sign/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+INFO [DepartmentDutyLog PDF] export success: user=46 records=1 sha256=e055cbc1bd12537d9924beaefdc3adbc43534dd7ba91438bd5164a695b1fcbf4
+ok
+test_rg_g03_empty_result_returns_business_error (apps.department_duty_log.tests.release_gate.test_release_gate.PdfExportBoundaryReleaseGateTests)
+RG-G03：无可导出记录时返回业务错误而非 500 或空 PDF ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/48/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+WARNING Bad Request: /department-duty-log/export/pdf/
+ok
+test_rg_g04_reversed_date_range_rejected (apps.department_duty_log.tests.release_gate.test_release_gate.PdfExportBoundaryReleaseGateTests)
+RG-G04：日期区间反转被拒绝 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/50/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+WARNING Bad Request: /department-duty-log/export/pdf/
+ok
+test_rg_g05_special_chars_and_boundary_filters (apps.department_duty_log.tests.release_gate.test_release_gate.PdfExportBoundaryReleaseGateTests)
+RG-G05：特殊字符、超长筛选、边界日期均不产生 500 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/52/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/23/sign/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+WARNING Bad Request: /department-duty-log/export/pdf/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+WARNING Bad Request: /department-duty-log/export/pdf/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+WARNING Bad Request: /department-duty-log/export/pdf/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+WARNING Bad Request: /department-duty-log/export/pdf/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+WARNING Bad Request: /department-duty-log/export/pdf/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+WARNING Bad Request: /department-duty-log/export/pdf/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+WARNING Bad Request: /department-duty-log/export/pdf/
+ok
+test_rg_g06_export_audit_matches_records (apps.department_duty_log.tests.release_gate.test_release_gate.PdfExportBoundaryReleaseGateTests)
+RG-G06：导出审计记录与实际导出记录一致 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/54/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/24/sign/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/25/sign/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_g_owner, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+INFO [DepartmentDutyLog PDF] export success: user=54 records=2 sha256=5bccf668dac8b0f4ca8aab0839028ec3586f51f10f8f31738b6cf20d9cad2835
+ok
+test_rg_a01_permission_matrix_backend_enforced (apps.department_duty_log.tests.release_gate.test_release_gate.PermissionMatrixReleaseGateTests)
+RG-A01：无对应权限时后端一律拒绝，且数据库记录不被修改 ... INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/department-duty-log/records/26/
+INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.edit']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/26/
+INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/26/sign/
+INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/27/return/
+INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.return']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_view, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_a_view, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_view, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/department-duty-log/records/28/
+INFO [AUTH] 用户: rg_a_view, 需要权限: ['department_duty_log.department_duty_log.edit']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/28/
+INFO [AUTH] 用户: rg_a_view, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/28/sign/
+INFO [AUTH] 用户: rg_a_view, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/29/return/
+INFO [AUTH] 用户: rg_a_view, 需要权限: ['department_duty_log.department_duty_log.return']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_view, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+WARNING Forbidden: /department-duty-log/records/29/signature-image/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_view, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_view, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_a_view, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/department-duty-log/records/30/
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.edit']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/30/
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/30/sign/
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/31/return/
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.return']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_edit, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_a_edit, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_edit, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/department-duty-log/records/32/
+INFO [AUTH] 用户: rg_a_edit, 需要权限: ['department_duty_log.department_duty_log.edit']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/32/
+INFO [AUTH] 用户: rg_a_edit, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/32/sign/
+INFO [AUTH] 用户: rg_a_edit, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/33/return/
+INFO [AUTH] 用户: rg_a_edit, 需要权限: ['department_duty_log.department_duty_log.return']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_edit, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_edit, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_edit, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_edit, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_del, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_a_del, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_del, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/department-duty-log/records/34/
+INFO [AUTH] 用户: rg_a_del, 需要权限: ['department_duty_log.department_duty_log.edit']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/34/
+INFO [AUTH] 用户: rg_a_del, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/34/sign/
+INFO [AUTH] 用户: rg_a_del, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/35/return/
+INFO [AUTH] 用户: rg_a_del, 需要权限: ['department_duty_log.department_duty_log.return']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_del, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_del, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_del, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_del, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_sign, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_a_sign, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_sign, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/department-duty-log/records/36/
+INFO [AUTH] 用户: rg_a_sign, 需要权限: ['department_duty_log.department_duty_log.edit']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/36/
+INFO [AUTH] 用户: rg_a_sign, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/36/sign/
+INFO [AUTH] 用户: rg_a_sign, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/37/return/
+INFO [AUTH] 用户: rg_a_sign, 需要权限: ['department_duty_log.department_duty_log.return']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_sign, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_sign, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_sign, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_sign, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_return, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_a_return, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_return, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/department-duty-log/records/38/
+INFO [AUTH] 用户: rg_a_return, 需要权限: ['department_duty_log.department_duty_log.edit']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/38/
+INFO [AUTH] 用户: rg_a_return, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/38/sign/
+INFO [AUTH] 用户: rg_a_return, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/39/return/
+INFO [AUTH] 用户: rg_a_return, 需要权限: ['department_duty_log.department_duty_log.return']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_a_return, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_return, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_return, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_return, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_export, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_a_export, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_export, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/department-duty-log/records/40/
+INFO [AUTH] 用户: rg_a_export, 需要权限: ['department_duty_log.department_duty_log.edit']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/40/
+INFO [AUTH] 用户: rg_a_export, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/40/sign/
+INFO [AUTH] 用户: rg_a_export, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/41/return/
+INFO [AUTH] 用户: rg_a_export, 需要权限: ['department_duty_log.department_duty_log.return']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_export, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_export, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_a_export, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_export, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_export_view, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_a_export_view, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_export_view, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/department-duty-log/records/42/
+INFO [AUTH] 用户: rg_a_export_view, 需要权限: ['department_duty_log.department_duty_log.edit']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/42/
+INFO [AUTH] 用户: rg_a_export_view, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/42/sign/
+INFO [AUTH] 用户: rg_a_export_view, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/43/return/
+INFO [AUTH] 用户: rg_a_export_view, 需要权限: ['department_duty_log.department_duty_log.return']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_export_view, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+WARNING Forbidden: /department-duty-log/records/43/signature-image/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_export_view, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+WARNING [DepartmentDutyLog PDF] signature verify failed: record_id=27 usage_id=4071329213047397 err=签名使用记录不存在
+WARNING Bad Request: /department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_export_view, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_a_export_view, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_a_all, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_a_all, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_a_all, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/department-duty-log/records/44/
+INFO [AUTH] 用户: rg_a_all, 需要权限: ['department_duty_log.department_duty_log.edit']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/44/
+INFO [AUTH] 用户: rg_a_all, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/44/sign/
+INFO [AUTH] 用户: rg_a_all, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/45/return/
+INFO [AUTH] 用户: rg_a_all, 需要权限: ['department_duty_log.department_duty_log.return']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_a_all, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+WARNING Forbidden: /department-duty-log/records/45/signature-image/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_all, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+WARNING [DepartmentDutyLog PDF] signature verify failed: record_id=27 usage_id=4071329213047397 err=签名使用记录不存在
+WARNING Bad Request: /department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_all, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_a_all, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_a02_export_requires_export_and_view (apps.department_duty_log.tests.release_gate.test_release_gate.PermissionMatrixReleaseGateTests)
+RG-A02：导出必须同时持有 export 与 view，缺一不可 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_export, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_export_view, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+WARNING [DepartmentDutyLog PDF] signature verify failed: record_id=49 usage_id=478147993197492847 err=签名使用记录不存在
+WARNING Bad Request: /department-duty-log/export/pdf/
+ok
+test_rg_a03_no_permission_account_sees_nothing (apps.department_duty_log.tests.release_gate.test_release_gate.PermissionMatrixReleaseGateTests)
+RG-A03：无权限账号所有端点均被拒绝（含只读端点） ... INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_none, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+ok
+test_rg_a04_single_perm_does_not_grant_others (apps.department_duty_log.tests.release_gate.test_release_gate.PermissionMatrixReleaseGateTests)
+RG-A04：单一权限不横向放行其它方法（add 账号不能查看/编辑/删除） ... INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/department-duty-log/records/92/
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.edit']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=DELETE, path=/department-duty-log/records/92/
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.del']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/92/sign/
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/93/return/
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.return']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/
+INFO [AUTH] 用户: rg_a_add, 需要权限: ['department_duty_log.department_duty_log.add']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_d01_pdf_response_headers (apps.department_duty_log.tests.release_gate.test_release_gate.ResponseHeaderReleaseGateTests)
+RG-D01：PDF 响应头合规（类型、中文文件名、长度、nosniff） ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/96/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/109/sign/
+INFO [AUTH] 用户: rg_d_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/export/pdf/
+INFO [AUTH] 用户: rg_d_owner, 需要权限: ['department_duty_log.department_duty_log.export']
+INFO [AUTH] 权限检查结果: True
+INFO [DepartmentDutyLog PDF] export success: user=96 records=1 sha256=d57a0a1ef3c7e380335ad2c4215be3f49c1953d471a6e3222f6b5711067a6015
+ok
+test_rg_d02_signature_image_response_headers (apps.department_duty_log.tests.release_gate.test_release_gate.ResponseHeaderReleaseGateTests)
+RG-D02：签名图片响应头合规（png、nosniff、私有不缓存） ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/99/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/110/sign/
+INFO [AUTH] 用户: rg_d_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_d_owner, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_f01_draft_signature_image_rejected (apps.department_duty_log.tests.release_gate.test_release_gate.SignatureImageAuthzReleaseGateTests)
+RG-F01：草稿（未签署）不允许读取签名图片 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/102/signature/
+INFO [AUTH] 用户: rg_f_owner, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+WARNING Forbidden: /department-duty-log/records/111/signature-image/
+ok
+test_rg_f02_soft_deleted_signed_image_rejected (apps.department_duty_log.tests.release_gate.test_release_gate.SignatureImageAuthzReleaseGateTests)
+RG-F02：软删除的已签记录不可读取签名图片 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/106/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/112/sign/
+INFO [AUTH] 用户: rg_f_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_f_owner, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+WARNING Forbidden: /department-duty-log/records/112/signature-image/
+ok
+test_rg_f03_no_view_permission_rejected (apps.department_duty_log.tests.release_gate.test_release_gate.SignatureImageAuthzReleaseGateTests)
+RG-F03：无 view 权限账号读取签名图片被拒绝 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/110/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/113/sign/
+INFO [AUTH] 用户: rg_f_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_f_noperm, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: False
+ok
+test_rg_f04_signed_image_readable_by_other_viewer (apps.department_duty_log.tests.release_gate.test_release_gate.SignatureImageAuthzReleaseGateTests)
+RG-F04：已签记录全局可见，跨租户有 view 权限者可读取签名图 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/114/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/114/sign/
+INFO [AUTH] 用户: rg_f_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_f_stranger, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+ok
+test_rg_f05_nonexistent_record_rejected (apps.department_duty_log.tests.release_gate.test_release_gate.SignatureImageAuthzReleaseGateTests)
+RG-F05：不存在的记录读取签名图片被拒绝且不产生 500 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/118/signature/
+INFO [AUTH] 用户: rg_f_owner, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+WARNING Forbidden: /department-duty-log/records/99999999/signature-image/
+ok
+test_rg_f06_tampered_usage_id_rejected (apps.department_duty_log.tests.release_gate.test_release_gate.SignatureImageAuthzReleaseGateTests)
+RG-F06：篡改 signature_usage_id 后读取签名图片被拒绝 ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/account/user/122/signature/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/department-duty-log/records/115/sign/
+INFO [AUTH] 用户: rg_f_owner, 需要权限: ['department_duty_log.department_duty_log.sign']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: rg_f_owner, 需要权限: ['department_duty_log.department_duty_log.view']
+INFO [AUTH] 权限检查结果: True
+WARNING Forbidden: /department-duty-log/records/115/signature-image/
+ok
+
+----------------------------------------------------------------------
+Ran 39 tests in 5.938s
+
+OK
+Destroying test database for alias 'default' ('test_spug_isolated')...
