@@ -128,8 +128,6 @@ export default observer(function () {
           <Descriptions.Item label="航班号">{info.flight_number || '-'}</Descriptions.Item>
           <Descriptions.Item label="机型">{info.aircraft_type || '-'}</Descriptions.Item>
           <Descriptions.Item label="航线">{info.route || '-'}</Descriptions.Item>
-          <Descriptions.Item label="使用跑道">{info.runway || '-'}</Descriptions.Item>
-          <Descriptions.Item label="使用进近程序">{info.approach_procedure || '-'}</Descriptions.Item>
           <Descriptions.Item label="被扰频率">{info.alert_form || '-'}</Descriptions.Item>
           <Descriptions.Item label="告警高度">{info.alert_altitude_text || '-'}</Descriptions.Item>
           <Descriptions.Item label="告警航段">{info.alert_segment || '-'}</Descriptions.Item>
@@ -193,16 +191,6 @@ export default observer(function () {
           <Col span={12}>
             <Form.Item name="route" label="航线">
               <Input placeholder="请输入航线（选填）"/>
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="runway" label="使用跑道">
-              <Input placeholder="请输入使用跑道（选填）"/>
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="approach_procedure" label="使用进近程序">
-              <Input placeholder="请输入使用进近程序（选填）"/>
             </Form.Item>
           </Col>
           <Col span={12}>

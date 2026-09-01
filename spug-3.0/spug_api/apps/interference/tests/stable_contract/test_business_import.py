@@ -26,8 +26,9 @@ from apps.logs.models import AuditLog
 
 XLSX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
-BRIDGE_HEADER = ['日期时间', '航班号', '机号', '机型', '位置/机位', '频率', '现象', '备注']
-AIR_HEADER = ['日期时间', '航班号', '机型', '航线', '使用跑道', '使用进近程序', '被扰频率',
+BRIDGE_HEADER = ['日期时间', '航班号', '机号', '机型', '位置/机位', '频率', '现象',
+                 '处置方式', '原因分析', '备注']
+AIR_HEADER = ['日期时间', '航班号', '机型', '航线', '被扰频率',
               '告警高度', '高度单位', '告警航段', '持续时间', '现象', '处置方式', '原因分析']
 
 
@@ -78,10 +79,11 @@ def upload_xlsx(client, url, data, filename='导入.xlsx', extra=None):
 
 BRIDGE_KEY_TO_LABEL = dict(zip(
     ['datetime', 'flight_number', 'aircraft_no', 'aircraft_type', 'location',
-     'frequency', 'phenomenon', 'remark'], BRIDGE_HEADER))
+     'frequency', 'phenomenon', 'handling_method', 'cause_analysis', 'remark'],
+    BRIDGE_HEADER))
 AIR_KEY_TO_LABEL = dict(zip(
-    ['datetime', 'flight_number', 'aircraft_type', 'route', 'runway',
-     'approach_procedure', 'alert_form', 'alert_altitude', 'alert_altitude_unit',
+    ['datetime', 'flight_number', 'aircraft_type', 'route',
+     'alert_form', 'alert_altitude', 'alert_altitude_unit',
      'alert_segment', 'duration', 'phenomenon', 'handling_method', 'cause_analysis'],
     AIR_HEADER))
 
@@ -93,14 +95,14 @@ def _normalize_overrides(overrides, key_to_label):
 
 def bridge_row(**overrides):
     values = ['2026-08-01 10:00', 'CA1234', 'B-2026', 'A320', '007',
-              '118.6', '甚高频出现杂音', '备注内容']
+              '118.6', '甚高频出现杂音', '通知机务排查', '地面电源车干扰', '备注内容']
     data = dict(zip(BRIDGE_HEADER, values))
     data.update(_normalize_overrides(overrides, BRIDGE_KEY_TO_LABEL))
     return [data[key] for key in BRIDGE_HEADER]
 
 
 def air_row(**overrides):
-    values = ['2026-08-02 09:30', 'MU5678', 'B738', 'KMG-SHA', '36L', 'ILS',
+    values = ['2026-08-02 09:30', 'MU5678', 'B738', 'KMG-SHA',
               '高度告警', '1200', '米', '五边进近', '01:30:00', '低高度告警', '', '']
     data = dict(zip(AIR_HEADER, values))
     data.update(_normalize_overrides(overrides, AIR_KEY_TO_LABEL))

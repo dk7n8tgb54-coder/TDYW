@@ -88,6 +88,8 @@ BRIDGE_IMPORT_FIELDS = [
      'aliases': ('位置', '地点', '机位', '机位号')},
     {'key': 'frequency', 'label': '频率', 'aliases': ('工作频率',)},
     {'key': 'phenomenon', 'label': '现象', 'required': True, 'aliases': ('干扰现象',)},
+    {'key': 'handling_method', 'label': '处置方式', 'aliases': ('处置措施',)},
+    {'key': 'cause_analysis', 'label': '原因分析', 'aliases': ('原因',)},
     {'key': 'remark', 'label': '备注'},
 ]
 
@@ -97,8 +99,6 @@ AIR_IMPORT_FIELDS = [
     {'key': 'flight_number', 'label': '航班号', 'aliases': ('航班',)},
     {'key': 'aircraft_type', 'label': '机型'},
     {'key': 'route', 'label': '航线', 'aliases': ('航路',)},
-    {'key': 'runway', 'label': '使用跑道', 'aliases': ('跑道',)},
-    {'key': 'approach_procedure', 'label': '使用进近程序', 'aliases': ('进近程序',)},
     {'key': 'alert_form', 'label': '被扰频率', 'aliases': ('告警形式', '告警类型')},
     {'key': 'alert_altitude', 'label': '告警高度', 'kind': 'altitude'},
     {'key': 'alert_altitude_unit', 'label': '高度单位', 'kind': 'altitude_unit',
@@ -143,7 +143,9 @@ BUSINESS_CONFIG = {
         # 文件内/数据库重复判断键（仅用于预警与拒绝，不建立数据库唯一约束）
         'duplicate_fields': ('datetime', 'flight_number', 'location', 'frequency'),
         'duplicate_label': '日期时间 + 航班号 + 位置/机位 + 频率',
-        'notes': COMMON_TEMPLATE_NOTES,
+        'notes': COMMON_TEMPLATE_NOTES + [
+            '6. 处置方式、原因分析在首次登记时允许留空。',
+        ],
     },
     'air': {
         'key': 'air',

@@ -18,7 +18,7 @@ jest.mock('../store', () => ({
   records: [{
     id: 1, datetime: '2026-08-02 09:30:00', flight_number: 'MU5678',
     aircraft_type: 'B738', route: 'KMG-SHA',
-    runway_approach_text: '36L / ILS', alert_summary: '高度告警',
+    alert_summary: '高度告警',
     duration_text: '90分钟', cause_analysis: '',
     phenomenon: '低高度告警', attachment_count: 0,
   }],

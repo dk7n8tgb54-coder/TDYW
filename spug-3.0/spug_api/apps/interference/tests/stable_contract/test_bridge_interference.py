@@ -26,6 +26,8 @@ def bridge_data(**overrides):
         'location': 'T2航站楼3号廊桥/12号机位',
         'frequency': '118.6',
         'phenomenon': '甚高频通信出现杂音，断续无法建立联系',
+        'handling_method': '通知机务排查',
+        'cause_analysis': '判断为地面电源车干扰',
         'remark': '测试备注',
     }
     data.update(overrides)
@@ -92,6 +94,8 @@ class BridgeInterferenceCRUDTest(TestCase):
         self.assertFalse(resp.json().get('error'), resp.json())
         record = BridgeInterferenceRecord.objects.get(flight_number='CA1234')
         self.assertEqual(record.location, 'T2航站楼3号廊桥/12号机位')
+        self.assertEqual(record.handling_method, '通知机务排查')
+        self.assertEqual(record.cause_analysis, '判断为地面电源车干扰')
         self.assertEqual(record.remark, '测试备注')
         self.assertEqual(record.tenant_id, self.user.tenant_id)
 
@@ -317,7 +321,8 @@ class BridgeInterferenceExportTest(TestCase):
         ws = wb.active
         headers = [cell.value for cell in ws[1]]
         self.assertEqual(headers, ['序号', '日期时间', '航班号', '机号', '机型',
-                                   '位置/机位', '频率', '现象', '备注', '附件', '附件图片'])
+                                   '位置/机位', '频率', '现象', '处置方式', '原因分析',
+                                   '备注', '附件', '附件图片'])
         row2 = [cell.value for cell in ws[2]]
         self.assertEqual(row2[2], 'CA1234')
         self.assertEqual(row2[5], 'T2航站楼3号廊桥/12号机位')
@@ -337,8 +342,9 @@ class BridgeAirFieldBoundaryTest(TestCase):
 
     def test_bridge_model_has_no_air_fields(self):
         names = {f.name for f in BridgeInterferenceRecord._meta.get_fields()}
+        # 处置方式/原因分析为两类业务共有字段，不属于空中专有
         for air_field in ('route', 'runway', 'approach_procedure', 'alert_form',
-                          'alert_altitude', 'duration', 'handling_method', 'cause_analysis'):
+                          'alert_altitude', 'duration'):
             self.assertNotIn(air_field, names)
 
     def test_air_model_has_no_bridge_fields(self):

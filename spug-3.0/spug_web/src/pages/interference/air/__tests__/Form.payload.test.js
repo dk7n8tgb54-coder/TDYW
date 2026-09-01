@@ -2,7 +2,7 @@
  * 空中干扰 Form 提交载荷测试
  *
  * 验证：
- * 1. 表单包含任务规定的字段（日期时间/航班号/机型/航线/使用跑道/使用进近程序/
+ * 1. 表单包含任务规定的字段（日期时间/航班号/机型/航线/
  *    被扰频率/告警高度/告警航段/持续时间/现象/处置方式/原因分析/附件）；
  * 2. 编辑模式提交载荷完整（含 id、日期时间格式化、带单位字段的数值与单位）；
  * 3. 告警高度/持续时间清空时载荷显式携带空串（后端按清除处理）；
@@ -51,8 +51,6 @@ const EDIT_RECORD = {
   flight_number: 'MU5678',
   aircraft_type: 'B738',
   route: 'HFE-VVO',
-  runway: '16',
-  approach_procedure: 'ILS',
   alert_form: 'TCAS RA',
   alert_altitude: 1200,
   alert_altitude_unit: 'm',
@@ -131,7 +129,7 @@ describe('空中表单字段与提交载荷', () => {
     S.formVisible = true;
     renderForm();
     const text = document.body.textContent;
-    for (const label of ['日期时间', '航班号', '机型', '航线', '使用跑道', '使用进近程序',
+    for (const label of ['日期时间', '航班号', '机型', '航线',
       '被扰频率', '告警高度', '告警航段', '持续时间', '现象', '处置方式', '原因分析']) {
       expect(text).toContain(label);
     }
@@ -151,8 +149,6 @@ describe('空中表单字段与提交载荷', () => {
       flight_number: 'MU5678',
       aircraft_type: 'B738',
       route: 'HFE-VVO',
-      runway: '16',
-      approach_procedure: 'ILS',
       alert_form: 'TCAS RA',
       alert_altitude: 1200,
       alert_altitude_unit: 'm',

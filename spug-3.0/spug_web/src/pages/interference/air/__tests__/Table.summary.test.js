@@ -2,9 +2,9 @@
  * 空中干扰列表摘要列测试
  *
  * 验证：
- * 1. 列表只显示关键列：日期时间/航班号/航线/跑道进近程序/告警摘要/持续时间/
+ * 1. 列表只显示关键列：日期时间/航班号/航线/告警摘要/持续时间/
  *    原因分析/附件/操作；
- * 2. 告警摘要/跑道进近程序为后端聚合的共同摘要文本，原因分析以摘要展示；
+ * 2. 告警摘要为后端聚合的共同摘要文本，原因分析以摘要展示；
  * 3. 纯记录型：操作列包含查看/编辑/删除，无状态流转按钮。
  *
  * 环境说明：沿用本仓库惯例使用 ReactDOM + jsdom 真实渲染组件；
@@ -24,8 +24,6 @@ jest.mock('../store', () => ({
       id: 1,
       datetime: '2026-08-02 14:30:00', flight_number: 'MU5678',
       aircraft_type: 'B738', route: 'HFE-VVO',
-      runway: '16', approach_procedure: 'ILS',
-      runway_approach_text: '16 / ILS',
       alert_form: 'TCAS RA', alert_altitude_text: '1200米', alert_segment: '进场下降段',
       alert_summary: 'TCAS RA / 1200米 / 进场下降段',
       duration_text: '45秒',
@@ -36,7 +34,6 @@ jest.mock('../store', () => ({
       id: 2,
       datetime: '2026-08-03 09:00:00', flight_number: 'CZ3321',
       aircraft_type: 'A321', route: 'SHA-CAN',
-      runway_approach_text: '05 / VOR',
       alert_summary: '短时高度偏离',
       duration_text: '2分钟',
       cause_analysis: '',
@@ -114,9 +111,9 @@ afterEach(() => {
 });
 
 describe('空中列表摘要列', () => {
-  test('只显示关键列（日期时间/航班号/航线/跑道进近程序/告警摘要/持续时间/原因分析/附件/操作）', () => {
+  test('只显示关键列（日期时间/航班号/航线/告警摘要/持续时间/原因分析/附件/操作）', () => {
     const headers = headerTexts();
-    for (const title of ['日期时间', '航班号', '航线', '跑道/进近程序', '告警摘要',
+    for (const title of ['日期时间', '航班号', '航线', '告警摘要',
       '持续时间', '原因分析', '附件', '操作']) {
       expect(headers).toContain(title);
     }
@@ -125,10 +122,9 @@ describe('空中列表摘要列', () => {
     expect(headers).not.toContain('频率');
   });
 
-  test('告警摘要与跑道/进近程序列渲染后端聚合文本', () => {
+  test('告警摘要列渲染后端聚合文本', () => {
     const row = rowByFlight('MU5678');
     expect(row.textContent).toContain('TCAS RA / 1200米 / 进场下降段');
-    expect(row.textContent).toContain('16 / ILS');
     expect(row.textContent).toContain('45秒');
   });
 

@@ -23,8 +23,6 @@ def air_data(**overrides):
         'flight_number': 'MU5678',
         'aircraft_type': 'B738',
         'route': 'HFE-VVO',
-        'runway': '16',
-        'approach_procedure': 'ILS',
         'alert_form': 'TCAS RA',
         'alert_altitude': 1200,
         'alert_altitude_unit': 'm',
@@ -324,13 +322,13 @@ class AirInterferenceExportTest(TestCase):
         self.assertEqual(ws.title, '空中干扰记录')
         headers = [cell.value for cell in ws[1]]
         self.assertEqual(headers, ['序号', '日期时间', '航班号', '机型', '航线',
-                                   '使用跑道', '使用进近程序', '被扰频率', '告警高度',
+                                   '被扰频率', '告警高度',
                                    '告警航段', '持续时间', '现象', '处置方式', '原因分析',
                                    '附件', '附件图片'])
         row2 = [cell.value for cell in ws[2]]
         self.assertEqual(row2[2], 'MU5678')
-        self.assertEqual(row2[8], '1200米')
-        self.assertEqual(row2[10], '45秒')
+        self.assertEqual(row2[6], '1200米')
+        self.assertEqual(row2[8], '45秒')
 
     def test_export_empty_data_rejected(self):
         resp = self.client.get('/interference/air/export/')

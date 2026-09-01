@@ -93,7 +93,6 @@ class ComTable extends React.Component {
                       render={text => (text || '').slice(0, 16)}/>
         <Table.Column title="航班号" dataIndex="flight_number"/>
         <Table.Column title="航线" dataIndex="route" ellipsis/>
-        <Table.Column title="跑道/进近程序" dataIndex="runway_approach_text" ellipsis width={140}/>
         <Table.Column title="告警摘要" dataIndex="alert_summary" ellipsis width={200}/>
         <Table.Column title="持续时间" dataIndex="duration_text" width={90}/>
         <Table.Column title="原因分析" dataIndex="cause_analysis" ellipsis width={180}/>

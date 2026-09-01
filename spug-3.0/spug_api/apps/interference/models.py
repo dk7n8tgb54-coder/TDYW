@@ -261,6 +261,10 @@ class BridgeInterferenceRecord(InterferenceBusinessBase):
         help_text='廊桥/航站楼位置或具体机位编号')
     frequency = models.CharField(
         max_length=100, blank=True, default='', verbose_name='频率')
+    handling_method = models.TextField(
+        blank=True, default='', verbose_name='处置方式')
+    cause_analysis = models.TextField(
+        blank=True, default='', verbose_name='原因分析')
     remark = models.TextField(blank=True, default='', verbose_name='备注')
 
     def __repr__(self):
@@ -287,10 +291,6 @@ class AirInterferenceRecord(InterferenceBusinessBase):
     """
     route = models.CharField(
         max_length=200, blank=True, default='', verbose_name='航线')
-    runway = models.CharField(
-        max_length=100, blank=True, default='', verbose_name='使用跑道')
-    approach_procedure = models.CharField(
-        max_length=100, blank=True, default='', verbose_name='使用进近程序')
     alert_form = models.CharField(
         max_length=100, blank=True, default='', verbose_name='被扰频率')
     alert_altitude = models.DecimalField(
@@ -336,9 +336,6 @@ class AirInterferenceRecord(InterferenceBusinessBase):
         # 告警摘要：列表页扫描用（被扰频率 / 告警高度 / 告警航段）
         tmp['alert_summary'] = ' / '.join(
             part for part in (self.alert_form, self.alert_altitude_text, self.alert_segment) if part)
-        # 跑道/进近程序：列表页合并展示
-        tmp['runway_approach_text'] = ' / '.join(
-            part for part in (self.runway, self.approach_procedure) if part)
         return tmp
 
     class Meta:

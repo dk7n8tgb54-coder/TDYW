@@ -2,7 +2,8 @@
  * 地面干扰记录 Form 提交载荷测试
  *
  * 验证：
- * 1. 表单包含任务规定的字段（日期时间/航班号/机号/机型/位置机位/频率/现象/备注/附件）；
+ * 1. 表单包含任务规定的字段（日期时间/航班号/机号/机型/位置机位/频率/现象/
+ *    处置方式/原因分析/备注/附件）；
  * 2. 编辑模式提交载荷携带 id、格式化日期时间与全部业务字段；
  * 3. 新建模式载荷携带 attachment_temp_id（未保存记录临时附件关联）；
  * 4. 必填校验失败时不发起请求。
@@ -53,6 +54,8 @@ const EDIT_RECORD = {
   location: 'T2航站楼3号廊桥/12号机位',
   frequency: '118.6',
   phenomenon: '甚高频通信出现杂音',
+  handling_method: '通知机务排查',
+  cause_analysis: '判断为地面电源车干扰',
   remark: '测试备注',
 };
 
@@ -110,7 +113,8 @@ describe('地面表单字段与提交载荷', () => {
     S.formVisible = true;
     renderForm();
     const text = document.body.textContent;
-    for (const label of ['日期时间', '航班号', '机号', '机型', '位置/机位', '频率', '现象', '备注']) {
+    for (const label of ['日期时间', '航班号', '机号', '机型', '位置/机位', '频率', '现象',
+      '处置方式', '原因分析', '备注']) {
       expect(text).toContain(label);
     }
   });
@@ -132,6 +136,8 @@ describe('地面表单字段与提交载荷', () => {
       location: 'T2航站楼3号廊桥/12号机位',
       frequency: '118.6',
       phenomenon: '甚高频通信出现杂音',
+      handling_method: '通知机务排查',
+      cause_analysis: '判断为地面电源车干扰',
       remark: '测试备注',
     }));
   });

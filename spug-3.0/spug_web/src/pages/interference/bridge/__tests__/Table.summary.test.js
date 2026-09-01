@@ -25,6 +25,7 @@ jest.mock('../store', () => ({
       aircraft_no: 'B-2026', aircraft_type: 'A320',
       location: 'T2航站楼3号廊桥/12号机位', frequency: '118.6',
       phenomenon: '甚高频通信出现杂音，断续无法建立联系，多次呼叫未应答',
+      cause_analysis: '判断为地面电源车干扰，已协调停用并复测正常',
       attachment_count: 2,
     },
     {
@@ -102,9 +103,9 @@ afterEach(() => {
 });
 
 describe('地面列表摘要列', () => {
-  test('只显示关键列（日期时间/航班号/机号/机位/频率/现象/附件/操作）', () => {
+  test('只显示关键列（日期时间/航班号/机号/机位/频率/现象/原因分析/附件/操作）', () => {
     const headers = headerTexts();
-    for (const title of ['日期时间', '航班号', '机号', '位置/机位', '频率', '现象', '附件', '操作']) {
+    for (const title of ['日期时间', '航班号', '机号', '位置/机位', '频率', '现象', '原因分析', '附件', '操作']) {
       expect(headers).toContain(title);
     }
     // 不应出现空中业务专有列

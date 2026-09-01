@@ -349,6 +349,8 @@ class BridgeInterferenceView(_BusinessInterferenceView):
         Argument('aircraft_no', required=False),
         Argument('location', required=False),
         Argument('frequency', required=False),
+        Argument('handling_method', required=False),
+        Argument('cause_analysis', required=False),
         Argument('remark', required=False),
     )
 
@@ -366,8 +368,6 @@ class AirInterferenceView(_BusinessInterferenceView):
     }
     form_args = (
         Argument('route', required=False),
-        Argument('runway', required=False),
-        Argument('approach_procedure', required=False),
         Argument('alert_form', required=False),
         Argument('alert_altitude', required=False),
         Argument('alert_altitude_unit', required=False),

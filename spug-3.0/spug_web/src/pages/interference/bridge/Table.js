@@ -96,6 +96,7 @@ class ComTable extends React.Component {
         <Table.Column title="位置/机位" dataIndex="location"/>
         <Table.Column title="频率" dataIndex="frequency"/>
         <Table.Column title="现象" dataIndex="phenomenon" ellipsis width={220}/>
+        <Table.Column title="原因分析" dataIndex="cause_analysis" ellipsis width={180}/>
         <Table.Column title="附件" width={70} render={info => (
           <AttachmentCountBadge count={info.attachment_count} onClick={() => store.showForm(info, true)}/>
         )}/>

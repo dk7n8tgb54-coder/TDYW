@@ -112,6 +112,12 @@ export default observer(function () {
           <Descriptions.Item label="现象" span={2}>
             <div style={{whiteSpace: 'pre-wrap'}}>{info.phenomenon}</div>
           </Descriptions.Item>
+          <Descriptions.Item label="处置方式" span={2}>
+            <div style={{whiteSpace: 'pre-wrap'}}>{info.handling_method || '-'}</div>
+          </Descriptions.Item>
+          <Descriptions.Item label="原因分析" span={2}>
+            <div style={{whiteSpace: 'pre-wrap'}}>{info.cause_analysis || '-'}</div>
+          </Descriptions.Item>
           <Descriptions.Item label="备注" span={2}>
             <div style={{whiteSpace: 'pre-wrap'}}>{info.remark || '-'}</div>
           </Descriptions.Item>
@@ -181,6 +187,18 @@ export default observer(function () {
                        labelCol={{span: 3}} wrapperCol={{span: 20}}
                        rules={[{ required: true, message: '请输入现象' }]}>
               <Input.TextArea rows={4} placeholder="请输入现象"/>
+            </Form.Item>
+          </Col>
+          <Col span={24}>
+            <Form.Item name="handling_method" label="处置方式"
+                       labelCol={{span: 3}} wrapperCol={{span: 20}}>
+              <Input.TextArea rows={3} placeholder="请输入处置方式（选填）"/>
+            </Form.Item>
+          </Col>
+          <Col span={24}>
+            <Form.Item name="cause_analysis" label="原因分析"
+                       labelCol={{span: 3}} wrapperCol={{span: 20}}>
+              <Input.TextArea rows={3} placeholder="请输入原因分析（选填）"/>
             </Form.Item>
           </Col>
           <Col span={24}>
