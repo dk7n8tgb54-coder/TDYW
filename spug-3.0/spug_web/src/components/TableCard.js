@@ -8,9 +8,7 @@ import { Table, Space, Divider, Popover, Checkbox, Button, Input, Select } from 
 import { ReloadOutlined, SettingOutlined, FullscreenOutlined, SearchOutlined } from '@ant-design/icons';
 import styles from './index.module.less';
 import {useResizableColumns} from './resizableColumns';
-
-let TableFields = localStorage.getItem('TableFields')
-TableFields = TableFields ? JSON.parse(TableFields) : {}
+import tableFieldsStore from './tableFieldsStore';
 
 function Search(props) {
   let keys = props.keys || [''];
@@ -53,11 +51,12 @@ function Header(props) {
   const actions = props.actions || [];
   const fields = props.fields || [];
   const onFieldsChange = props.onFieldsChange;
+  const selectableColumns = columns.filter(item => !item.fixed);
 
   const Fields = () => {
     return (
       <Checkbox.Group value={fields} onChange={onFieldsChange}>
-        {columns.map((item, index) => (
+        {columns.map((item, index) => item.fixed ? null : (
           <Checkbox value={index} key={index}>{item.title}</Checkbox>
         ))}
       </Checkbox.Group>
@@ -66,7 +65,7 @@ function Header(props) {
 
   function handleCheckAll(e) {
     if (e.target.checked) {
-      onFieldsChange(columns.map((_, index) => index))
+      onFieldsChange(selectableColumns.map(item => columns.indexOf(item)))
     } else {
       onFieldsChange([])
     }
@@ -100,8 +99,8 @@ function Header(props) {
             title={[
               <Checkbox
                 key="1"
-                checked={fields.length === columns.length}
-                indeterminate={![0, columns.length].includes(fields.length)}
+                checked={fields.filter(index => !columns[index].fixed).length === selectableColumns.length}
+                indeterminate={![0, selectableColumns.length].includes(fields.filter(index => !columns[index].fixed).length)}
                 onChange={handleCheckAll}>列展示</Checkbox>,
               <Button
                 key="2"
@@ -141,7 +140,8 @@ function TableCard(props) {
     useResizableColumns(props.tKey, columns, {enabled: resizable});
 
   useEffect(() => {
-    let [_columns, _fields] = [props.columns, []];
+    let mounted = true;
+    let _columns = props.columns || [];
     if (props.children) {
       if (Array.isArray(props.children)) {
         _columns = props.children.filter(x => x.props).map(x => x.props)
@@ -150,33 +150,43 @@ function TableCard(props) {
       }
     }
     let hideFields = _columns.filter(x => x.hide).map(x => x.title)
-    if (props.tKey) {
-      if (TableFields[props.tKey]) {
-        hideFields = TableFields[props.tKey]
-      } else {
-        TableFields[props.tKey] = hideFields
-        localStorage.setItem('TableFields', JSON.stringify(TableFields))
-      }
-    }
-    for (let [index, item] of _columns.entries()) {
-      if (!hideFields.includes(item.title)) _fields.push(index)
-    }
-    setFields(_fields);
+    const applyFields = persistedFields => {
+      if (!mounted) return;
+      const selected = persistedFields || hideFields;
+      const fields = _columns.reduce((result, item, index) => {
+        if (!selected.includes(item.title)) result.push(index);
+        return result;
+      }, []);
+      setFields(fields);
+      setColumns(_columns);
+      setDefaultFields(_columns.reduce((result, item, index) => {
+        if (!hideFields.includes(item.title)) result.push(index);
+        return result;
+      }, []));
+    };
     setColumns(_columns);
-    setDefaultFields(_fields);
+    applyFields(hideFields);
+    if (props.tKey) {
+      tableFieldsStore.load().then(() => {
+        applyFields(tableFieldsStore.get(props.tKey));
+      });
+    }
+    return () => { mounted = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function handleFieldsChange(fields) {
     setFields(fields)
     if (props.tKey) {
-      TableFields[props.tKey] = columns.filter((_, index) => !fields.includes(index)).map(x => x.title)
-      localStorage.setItem('TableFields', JSON.stringify(TableFields))
+      const tableFields = {...tableFieldsStore.fields};
+      tableFields[props.tKey] = columns.filter((_, index) => !fields.includes(index)).map(x => x.title);
+      tableFieldsStore.fields = tableFields;
+      tableFieldsStore.save();
     }
   }
 
   const baseColumns = resizable ? resizableColumns : columns;
-  const visibleColumns = baseColumns.filter((_, index) => fields.includes(index));
+  const visibleColumns = baseColumns.filter((column, index) => column.fixed || fields.includes(index));
   let tableScroll = props.scroll;
   if (resizable && visibleColumns.length && visibleColumns.every(col => typeof col.width === 'number')) {
     const extra = (props.rowSelection ? 60 : 0) + (props.expandable ? 48 : 0);

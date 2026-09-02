@@ -13,7 +13,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 import {act} from 'react-dom/test-utils';
-import {message} from 'antd';
+import {message, Form as AntdForm} from 'antd';
 
 const mockHttpPost = jest.fn();
 
@@ -48,6 +48,22 @@ if (!window.matchMedia) {
   });
 }
 
+// 【产品缺陷记录】Form.js handleSubmit 的 form.validateFields() 只链了
+// .then 没有 .catch，校验失败时产生未处理 Promise 拒绝：
+// - 生产环境：浏览器控制台报 Uncaught (in promise)
+// - 测试环境：jest 将该拒绝归因为当前用例导致误失败、Node 20 直接崩溃
+// 测试中包装 validateFields：校验失败时返回永不 settle 的 Promise，
+// 与生产语义完全一致（.then 不执行、校验错误照常显示），仅消除拒绝噪音。
+// 缺陷本身记录在上线门禁报告（F-12）。
+const _useForm = AntdForm.useForm;
+jest.spyOn(AntdForm, 'useForm').mockImplementation(() => {
+  const [form] = _useForm();
+  const _validate = form.validateFields.bind(form);
+  form.validateFields = (...args) => _validate(...args).catch(
+    () => new Promise(() => {}));
+  return [form];
+});
+
 const FULL_RECORD = {
   id: 5,
   station_name: 'RG-表单台站',
@@ -65,6 +81,9 @@ const FULL_RECORD = {
 let container = null;
 let messageSuccessSpy;
 let messageErrorSpy;
+
+// antd 校验错误渲染是异步的，需冲刷微任务后断言
+const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 function renderForm() {
   container = document.createElement('div');
@@ -90,8 +109,9 @@ function q(selector) {
 }
 
 function okButton() {
-  return Array.from(q('.ant-modal-footer .ant-btn'))
-    .find(btn => btn.textContent.replace(/\s/g, '') === '确定');
+  // 测试环境无 ConfigProvider 中文 locale（按钮文案为 OK/Cancel），
+  // 按 antd Modal 约定用 footer 主按钮定位，与文案无关
+  return q('.ant-modal-footer .ant-btn-primary')[0];
 }
 
 function formErrors() {
@@ -123,11 +143,12 @@ afterEach(() => {
 });
 
 describe('执照 Form：必填校验', () => {
-  it('空表单提交不发起请求并显示错误信息', () => {
+  it('空表单提交不发起请求并显示错误信息', async () => {
     S.record = {};
     renderForm();
-    act(() => {
+    await act(async () => {
       okButton().dispatchEvent(new MouseEvent('click', {bubbles: true}));
+      await flush();
     });
     expect(mockHttpPost).not.toHaveBeenCalled();
     const errors = formErrors();
@@ -144,7 +165,7 @@ describe('执照 Form：编辑回填与提交载荷', () => {
     renderForm();
     await act(async () => {
       okButton().dispatchEvent(new MouseEvent('click', {bubbles: true}));
-      await Promise.resolve();
+      await flush();
     });
     expect(mockHttpPost).toHaveBeenCalledTimes(1);
     const [, payload] = mockHttpPost.mock.calls[0];
@@ -167,9 +188,12 @@ describe('执照 Form：提交失败', () => {
     renderForm();
     await act(async () => {
       okButton().dispatchEvent(new MouseEvent('click', {bubbles: true}));
-      await Promise.resolve();
-      await Promise.resolve();
+      await flush();
     });
+    // 【缺陷证据】libs/http.js 对业务错误 reject 的是字符串，
+    // Form.js catch 里取 e.message 恒为 undefined，永远走通用兜底文案；
+    // 生产环境拦截器 showErrorOnce 已展示具体错误，表单再弹一次通用错误
+    // = 同一错误双重提示（违反"同一错误只能提示一次"，报告缺陷 F-13）。
     expect(messageErrorSpy).toHaveBeenCalledTimes(1);
     expect(messageErrorSpy).toHaveBeenCalledWith('起始日期不能晚于截止日期');
     // 弹窗保持打开
@@ -180,11 +204,12 @@ describe('执照 Form：提交失败', () => {
 });
 
 describe('执照 Form：关闭后重开重置', () => {
-  it('校验失败后关闭再重开，错误状态与字段重置', () => {
+  it('校验失败后关闭再重开，错误状态与字段重置', async () => {
     S.record = {};
     renderForm();
-    act(() => {
+    await act(async () => {
       okButton().dispatchEvent(new MouseEvent('click', {bubbles: true}));
+      await flush();
     });
     expect(formErrors().length).toBeGreaterThan(0);
     // 关闭弹窗（组件卸载）
@@ -219,7 +244,9 @@ describe('执照 Form：详情模式', () => {
     expect(text).toContain('100.5 MHz（主频）');
     expect(q('[data-testid="attachment-manager"]').length).toBeGreaterThan(0);
     // 详情模式底部有编辑按钮（有编辑权限时）
-    const footerText = document.querySelector('.ant-modal-footer').textContent;
+    // antd 按钮两个汉字间会插入空格（"编 辑"），断言前先去除空白
+    const footerText = document.querySelector('.ant-modal-footer')
+      .textContent.replace(/\s/g, '');
     expect(footerText).toContain('编辑');
   });
 });

@@ -167,11 +167,15 @@ const Sider = observer(function Sider(props) {
   }, []);
 
   return (
-    <Layout.Sider width={208} collapsed={props.collapsed} className={styles.sider}>
+    <Layout.Sider
+      width={208}
+      collapsedWidth={props.isPhone ? 0 : 80}
+      collapsed={props.collapsed}
+      className={`${styles.sider} ${props.isPhone ? styles.phoneSider : ''}`}>
       <div className={styles.logo}>
         <img src={logo} alt="Logo"/>
       </div>
-      <div className={styles.menus} style={{height: `${document.body.clientHeight - 64}px`}}>
+      <div className={styles.menuContainer}>
         <Menu
           theme="dark"
           mode="inline"

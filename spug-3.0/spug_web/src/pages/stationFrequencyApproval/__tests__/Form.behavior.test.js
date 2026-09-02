@@ -83,8 +83,9 @@ function q(selector) {
 }
 
 function okButton() {
-  return Array.from(q('.ant-modal-footer .ant-btn'))
-    .find(btn => btn.textContent.replace(/\s/g, '') === '确定');
+  // 测试环境无 ConfigProvider 中文 locale（按钮文案为 OK/Cancel），
+  // 按 antd Modal 约定用 footer 主按钮定位，与文案无关
+  return q('.ant-modal-footer .ant-btn-primary')[0];
 }
 
 beforeEach(() => {

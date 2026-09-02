@@ -119,8 +119,8 @@ describe('批复 Table 权限门控', () => {
       .map(th => th.textContent.trim());
     expect(headerTexts).not.toContain('操作');
     expect(actionButtons()).toEqual([]);
-    // 双击行仍可进详情
-    const row = container.querySelector('.ant-table-tbody tr');
+    // 双击数据行仍可进详情（排除 rc-table 的测量行，数据行类名为 ant-table-row）
+    const row = container.querySelector('tr.ant-table-row');
     act(() => {
       row.dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
     });
@@ -143,17 +143,22 @@ describe('批复 Table 删除确认流程', () => {
     const deleteSpy = jest.spyOn(http, 'delete').mockResolvedValue({});
     renderTable();
     const delBtn = actionButtons().indexOf('删除');
-    act(() => {
+    // antd 4.21 的 Modal.confirm 经 setTimeout 异步渲染，需冲刷宏任务
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    await act(async () => {
       container.querySelectorAll('.ant-table-tbody button')[delBtn]
         .dispatchEvent(new MouseEvent('click', {bubbles: true}));
+      await flush();
     });
-    // Modal.confirm 弹出
-    const confirmOk = document.querySelector('.ant-modal-confirm-btns .ant-btn-primary');
+    // Modal.confirm 弹出；批复删除的确认按钮是 danger 样式（okButtonProps.danger），
+    // 按危险按钮定位而非 primary
+    const confirmOk = document.querySelector('.ant-modal-confirm-btns .ant-btn-dangerous');
     expect(confirmOk).toBeTruthy();
+    expect(document.querySelector('.ant-modal-confirm-title').textContent)
+      .toContain('删除确认');
     await act(async () => {
       confirmOk.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-      await Promise.resolve();
-      await Promise.resolve();
+      await flush();
     });
     expect(deleteSpy).toHaveBeenCalledWith(
       '/api/radio-license/approvals/', {params: {id: 1}});

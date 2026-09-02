@@ -1,14 +1,15 @@
 # 项目记忆
 
 ## 运行环境
-- Docker 在 WSL；`tdyw` 容器（镜像 tdyw:0720）路径 `/data/spug/spug_api`，Python 3.10；**无 bind mount**，改代码需 `docker cp`
-- `tdyw-test` 容器（镜像 tdyw:django42-stage2）**有 bind mount**；连 dev 库；验证用此容器
-- ⚠️ 改完后端代码后必须重启容器才能生效。重启：`wsl bash -c 'docker restart tdyw-test'`
+- Docker 在 WSL；`tdyw` 容器（镜像 tdyw:0823）路径 `/data/spug/spug_api`，Python 3.10；**无 bind mount**，改代码需 `docker cp`
+- `tdyw-test` 容器（镜像 tdyw:django42-stage2）**有 bind mount**（`/mnt/e/TDYW/spug-3.0/spug_api -> /data/spug/spug_api`，改代码即时可见）；验证用此容器
+- ⚠️ **2026-09-02 实测修正**：`tdyw-test` 容器内 `db` 解析到 `a45d84978565` = **tdyw-db-test**（MariaDB 10.8.2 测试实例），**不是 dev 库**；dev 库是 `tdyw-db`（mysql:0601）。在 test_spug 上跑 Django 测试是安全的隔离操作
+- `tdyw-test` 内常驻 8 个 celery worker + redis + nginx；前端在 `http://localhost:8080`
 - WSL 调用：`wsl bash -c 'docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw python manage.py check'`
 - spug_web：antd 4.21.5（Modal 用 `visible`）+ legacy 装饰器 + class properties（mobx）
 - kkFileView `KKFILEVIEW_API_URL`(浏览器)/`KKFILEVIEW_SERVER_URL`(回源)，容器名须进 ALLOWED_HOSTS
 - MariaDB 10.8.2；`ATOMIC_REQUESTS=True`；`CONN_MAX_AGE=0`；`sql_mode=STRICT_TRANS_TABLES`
-- ⚠️ **永久教训**：`manage.py flush` 会清空所有数据，绝对禁止在 dev/prod 容器执行。tdyw-test 连 dev 库。
+- ⚠️ **永久教训**：`manage.py flush` 会清空所有数据，绝对禁止在 dev/prod 容器执行
 
 ## 测试体系
 - E2E: `quality/e2e/`，109 条 Playwright 测试，admin/E2E@Test2026! + e2e_tester/E2E@Test2026!
@@ -29,6 +30,13 @@
   - _make_record 须设 tenant_id；软删除后须用 all_with_deleted()；日期格式 19 字符
 - 测试要点：test client 路径无 `/api/` 前缀；makemigrations 指定 app；需设 HTTP_X_REAL_IP + ALLOWED_HOSTS
 - access_token 32 字符；Role.created_by NOT NULL；User.tenant_id 默认 'admin'；json_response 错误时 data=''
+- ⚠️ **登录会轮换 access_token**：`apiLogin`/`login` 之后旧 token 立即失效。E2E 中「UI 登录 + API 上下文」混用会报 `验证失败，请重新登录`，必须在 UI 登录之后再新建 API 上下文
+- 资料库发布门禁（2026-09-02）：201 例在 `apps/document/tests/release_gate/`；**RELEASE_BLOCKED**，
+  2 个 P1 未修：direct_merge.py:211 `file_path=None`（NOT NULL 字段）→ 合并恢复路径必然 IntegrityError；
+  file/views.py:98 catch 在 atomic 外 + `ATOMIC_REQUESTS=True` → `is_pending_clean` 补偿标记被回滚、物理文件永久泄漏
+- `captureOnCommitCallbacks` 在 Django 4.2 是 `TestCase` 的 classmethod，用 `self.captureOnCommitCallbacks(execute=True)`，不能模块级 import
+- 文件哈希必须是 32 位 MD5 或 `sv1_` 前缀，否则一律 `非法的文件哈希值`
+- 干净迁移验证可行：`manage.py test --noinput` 销毁重建 test_spug，document 22 个迁移全部应用成功
 
 ## 模块架构速查
 - 数据分析 `apps/data_analysis`（纯只读聚合，无 model/migration）

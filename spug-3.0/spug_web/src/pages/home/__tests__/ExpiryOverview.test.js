@@ -78,19 +78,19 @@ describe('工作台到期提醒卡片', () => {
     // 过期标签
     expect(text).toContain('执照已过期 1');
 
-    // 点击执照行 → 跳转执照页面
-    const rows = Array.from(container.querySelectorAll('div'))
-      .filter(d => d.textContent.trim() === '无线电台执照');
-    const licenseRow = rows[rows.length - 1].parentElement;
+    // 点击执照行 → 跳转执照页面（行 onClick 在包裹 label span 的 div 上）
+    const licenseLabel = Array.from(container.querySelectorAll('span'))
+      .find(sp => sp.textContent.trim() === '无线电台执照');
+    const licenseRow = licenseLabel.parentElement;
     act(() => {
       licenseRow.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });
     expect(mockPush).toHaveBeenCalledWith('/radio-license');
 
     // 点击批复行 → 跳转批复页面
-    const approvalRows = Array.from(container.querySelectorAll('div'))
-      .filter(d => d.textContent.trim() === '频率批复');
-    const approvalRow = approvalRows[approvalRows.length - 1].parentElement;
+    const approvalLabel = Array.from(container.querySelectorAll('span'))
+      .find(sp => sp.textContent.trim() === '频率批复');
+    const approvalRow = approvalLabel.parentElement;
     act(() => {
       approvalRow.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });

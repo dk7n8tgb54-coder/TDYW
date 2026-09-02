@@ -119,7 +119,9 @@ export default observer(function (props) {
           <Dropdown overlay={UserMenu} style={{background: '#000'}}>
             <span className={styles.action}>
               <Avatar size="small" src={avatar} style={{marginRight: 8}}/>
-              {sessionStorage.getItem('nickname')}
+              <span className={styles.nickname} title={sessionStorage.getItem('nickname') || ''}>
+                {sessionStorage.getItem('nickname')}
+              </span>
             </span>
           </Dropdown>
         </div>

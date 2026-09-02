@@ -388,9 +388,10 @@ class UploadMergeStateMachineTest(StorageCleanupMixin, TestCase):
         })
         self.assertFalse(has_error(resp), resp.json())
         data = get_response_data(resp)
-        self.assertEqual(data['status'], 'pending')
+        self.assertEqual(data['status'], 'merging')
         self.assertTrue(data['task_id'])
         self.assertFalse(data['is_idempotent'])
+        self.assertEqual(DocumentTransfer.objects.get(id=tid).status, 'MERGING')
 
     def test_36_direct_merge_repeat_is_idempotent(self):
         """重复提交同一合并请求返回 is_idempotent=True，不重复投递"""
@@ -413,10 +414,17 @@ class UploadMergeStateMachineTest(StorageCleanupMixin, TestCase):
         self.assertEqual(data['task_id'], first_task, '重复提交不得产生新任务')
 
     def test_37_direct_merge_completed_with_file_record_is_idempotent(self):
-        """COMPLETED 且文件记录存在 -> 幂等返回 completed"""
+        """COMPLETED 且文件记录存在 -> 幂等返回 completed，不重复建文件"""
         tid = self._create_transfer(status='COMPLETED')
+        physical = f'{uuid.uuid4().hex}.bin'
         DocumentTransfer.objects.filter(id=tid).update(
-            file_path='/tmp/whatever.bin', celery_task_id='fake-task-id')
+            file_path=os.path.join('/tmp', physical), celery_task_id='fake-task-id')
+        existing = DocumentFilePublic.objects.create(
+            name='done.bin', display_name='done.bin', physical_name=physical,
+            file_path=os.path.join('/tmp', physical), file_size=30,
+            file_type='application/octet-stream', folder=self.folder,
+            created_by=self.user)
+
         resp = post_json(self.client, DIRECT_MERGE_URL, {
             'transfer_id': tid, 'folder_id': self.folder.id,
             'file_name': 'done.bin', 'file_hash': self.file_hash,
@@ -426,21 +434,32 @@ class UploadMergeStateMachineTest(StorageCleanupMixin, TestCase):
         data = get_response_data(resp)
         self.assertEqual(data['status'], 'completed')
         self.assertTrue(data['is_idempotent'])
+        self.assertEqual(DocumentFilePublic.objects.filter(id=existing.id).count(), 1,
+                         '幂等命中不得重复创建文件记录')
 
     def test_38_direct_merge_completed_without_file_record_resets(self):
-        """COMPLETED 但文件记录缺失 -> 重置为可重新合并，不产生幽灵完成态"""
-        tid = self._create_transfer(status='COMPLETED')
+        """COMPLETED 但文件记录缺失 -> 必须能重置并重新合并（恢复路径）
+
+        契约来源：apps/document/AGENTS.md 三.4 / 四 —— Celery 异常可能导致
+        文件记录未创建但传输状态停在 COMPLETED，重试时需重置为 UPLOADING 重新合并。
+        """
+        tid = self._create_transfer(status='UPLOADING')
+        for idx in range(3):
+            self._upload_chunk(idx, b'0123456789', transfer_id=tid)
+        # 模拟异常：状态被置为 COMPLETED 但文件记录不存在
         DocumentTransfer.objects.filter(id=tid).update(
-            file_path='', celery_task_id=None)
+            status='COMPLETED', file_path='', celery_task_id=None)
+
         resp = post_json(self.client, DIRECT_MERGE_URL, {
             'transfer_id': tid, 'folder_id': self.folder.id,
             'file_name': unique('recover') + '.bin', 'file_hash': self.file_hash,
             'total_chunks': 3, 'file_size': 30, 'is_public': True,
         })
-        self.assertFalse(has_error(resp), resp.json())
+        self.assertFalse(has_error(resp),
+                         f'恢复路径不应报错（file_path 为 NOT NULL 字段）: {resp.json()}')
         t = DocumentTransfer.objects.get(id=tid)
         self.assertNotEqual(t.status, 'COMPLETED',
-                            '文件记录缺失时不得停留在 COMPLETED')
+                            '文件记录缺失时不得停留在 COMPLETED（幽灵完成态）')
         self.assertEqual(
             DocumentFilePublic.objects.filter(folder=self.folder).count(), 0,
             '重置重合并阶段不应立即产生重复文件记录')

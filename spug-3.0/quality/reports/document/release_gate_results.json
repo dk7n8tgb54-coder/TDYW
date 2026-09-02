@@ -1,0 +1,218 @@
+{
+  "schema_version": "1.0",
+  "module": "document",
+  "module_display_name": "资料库",
+  "report_generated_at": "2026-09-02",
+  "verdict": "RELEASE_BLOCKED",
+  "verdict_reason": "2 个 stable_contract 级别的确认缺陷：合并恢复路径必然失败（上传状态机卡死 + 数据不一致）、文件删除补偿标记被请求级事务回滚（物理文件永久泄漏）",
+  "code_version": {
+    "git_branch": "tdyw",
+    "git_head": "9b62488e57e01b62f32ea6378863663fb87d5ab4",
+    "git_head_author": "jay choi",
+    "git_head_date": "2026-09-02T17:35:59+08:00",
+    "git_head_subject": "合同协议资料库、无线电管理部分测试代码以及登录界面修改。",
+    "note": "该提交由用户在本次测试会话期间创建，非测试执行方创建。提交包含了本次会话中已建立的 tests/release_gate 部分文件。"
+  },
+  "environment": {
+    "backend_container": "tdyw-test",
+    "backend_image": "tdyw:django42-stage2",
+    "backend_path": "/data/spug/spug_api",
+    "django_version": "4.2.30",
+    "python_version": "3.10",
+    "database": {
+      "host_alias": "db",
+      "resolved_container": "a45d84978565",
+      "server": "10.8.2-MariaDB",
+      "business_db": "spug (只读，未修改)",
+      "test_db": "test_spug (隔离测试库)",
+      "atomic_requests": true,
+      "sql_mode": "STRICT_TRANS_TABLES"
+    },
+    "frontend_container_under_test": "tdyw-test (0.0.0.0:8080)",
+    "e2e_base_url": "http://localhost:8080",
+    "celery_workers": 8,
+    "redis": "available (django cache 连通)",
+    "kkfileview_api_url": "/kkfileview",
+    "kkfileview_server_url": "http://tdyw-test",
+    "storage_base": "/data/spug/spug_api/storage/documents",
+    "excluded_containers": ["tdyw (dev)", "tdyw-db (dev 库)"]
+  },
+  "summary": {
+    "total_cases": 711,
+    "passed": 707,
+    "failed": 3,
+    "skipped": 1,
+    "blocked": 0,
+    "not_run": 0,
+    "breakdown": {
+      "backend_stable_contract": {"total": 201, "passed": 197, "failed": 3, "skipped": 1},
+      "backend_clean_migration": {"total": 23, "passed": 23, "failed": 0, "skipped": 0},
+      "frontend_component": {"total": 487, "passed": 487, "failed": 0, "skipped": 0},
+      "e2e_playwright": {"total": 23, "passed": 23, "failed": 0, "skipped": 0}
+    },
+    "note": "总计数不含 backend_clean_migration 的 23 项（与 backend_stable_contract 子集重叠，仅作为迁移门禁独立证据）"
+  },
+  "domains": {
+    "public_library": {"status": "PASS", "cases": 34, "failed": 0},
+    "party_building_isolation": {"status": "PASS", "cases": 34, "failed": 0},
+    "permissions": {"status": "PASS", "cases": 26, "failed": 0},
+    "chunked_upload_merge": {"status": "FAIL", "cases": 49, "failed": 1},
+    "filesystem_safety": {"status": "FAIL", "cases": 17, "failed": 2, "skipped": 1},
+    "copy_move_transfer": {"status": "PASS", "cases": 23, "failed": 0},
+    "download_preview_token": {"status": "PASS", "cases": 18, "failed": 0},
+    "frontend_component": {"status": "PASS", "cases": 487, "failed": 0},
+    "e2e_playwright": {"status": "PASS", "cases": 23, "failed": 0}
+  },
+  "findings": [
+    {
+      "id": "DOC-F01",
+      "title": "合并恢复路径对 NOT NULL 字段写入 None，导致上传状态机永久卡死",
+      "severity": "P1",
+      "blocking": true,
+      "category": "data_integrity / state_machine_deadlock",
+      "test": "apps.document.tests.release_gate.test_upload_merge.UploadMergeStateMachineTest.test_38_direct_merge_completed_without_file_record_resets",
+      "steps": [
+        "创建 UPLOADING 状态的传输记录并上传全部分片",
+        "模拟 Celery 异常：将记录直接置为 status=COMPLETED、file_path=''、celery_task_id=NULL（文件记录未创建）",
+        "POST /document/direct_merge/ 提交合并"
+      ],
+      "expected": "按 AGENTS.md 三.4 / 四 约定，重置为 UPLOADING 并重新合并，最终产出文件记录",
+      "actual": "django.db.utils.IntegrityError: (1048, \"Column 'file_path' cannot be null\")，被 direct_merge.py:174 的 except Exception 吞掉，返回 '提交合并任务失败，请稍后重试'；传输记录永久停留在 COMPLETED 且无文件记录",
+      "locations": [
+        "spug_api/apps/document/views/upload/direct_merge.py:209-212",
+        "spug_api/apps/document/models.py:360 (DocumentTransfer.file_path = CharField(max_length=500), 无 null=True)"
+      ],
+      "gate_rule": "上传状态机卡死 / 数据不一致 -> 阻断发布"
+    },
+    {
+      "id": "DOC-F02",
+      "title": "物理删除失败时的 is_pending_clean 补偿标记被请求级事务回滚，物理文件永久泄漏",
+      "severity": "P1",
+      "blocking": true,
+      "category": "filesystem_compensation",
+      "test": "apps.document.tests.release_gate.test_fs_safety.FileSystemSafetyTest.test_10_physical_delete_failure_marks_pending_clean / test_11_pending_clean_flag_survives_request_transaction",
+      "steps": [
+        "创建带真实物理文件的文件记录",
+        "使 safe_delete_document_file 返回 (False, '模拟删除失败')（模拟磁盘/权限/文件锁故障）",
+        "DELETE /document/file/?id=<id>&is_public=true"
+      ],
+      "expected": "记录保留，is_pending_clean=True、clean_retry_count=1、last_clean_attempt 落库，由 Celery retry_clean_pending_files 异步重试",
+      "actual": "三个字段全部回退为 False / 0 / NULL；retry_clean_pending_files 因 is_pending_clean=False 永远选不中该记录，物理文件与数据库记录均永久残留；对外返回 '文件删除失败，已加入待清理队列，系统将自动重试'，与实际行为不符",
+      "locations": [
+        "spug_api/apps/document/views/file/views.py:78-104 (catch 位于 transaction.atomic 之外，异常传播触发回滚)",
+        "spug_api/apps/document/models.py:154-164 (补偿标记写在嵌套 savepoint 内)",
+        "spug_api/apps/document/tasks/cleanup/pending_files.py:33-46",
+        "settings.DATABASES['default']['ATOMIC_REQUESTS'] = True"
+      ],
+      "gate_rule": "文件删除补偿失败 -> 阻断发布"
+    },
+    {
+      "id": "DOC-F03",
+      "title": "@rate_limit 装饰器用于类视图方法时抛 AttributeError 并 fail-open，限流静默失效",
+      "severity": "P2",
+      "blocking": false,
+      "category": "security_control_silently_disabled",
+      "test": "非断言型：在删除/合并请求执行路径中稳定复现（日志证据）",
+      "steps": [
+        "对 /document/file/ 或 /document/merge_chunks/ 发起任意请求",
+        "观察服务端日志"
+      ],
+      "expected": "按 max_requests 限流生效",
+      "actual": "每次请求均输出 AttributeError: 'FileView' object has no attribute 'user'（wrapper 的第一个参数是 self 而非 request），异常被装饰器内的 except 吞掉后 fail-open，限流不生效",
+      "locations": [
+        "spug_api/apps/document/libs/view_utils.py:22-55",
+        "spug_api/apps/document/views/file/views.py:32 (FileView.delete, 200/60s)",
+        "spug_api/apps/document/views/upload/merge.py:599 (FileMergeChunksView.post, 60/60s)"
+      ],
+      "impact": "删除与合并接口无限流保护，可被暴力枚举或高频刷写"
+    },
+    {
+      "id": "DOC-F04",
+      "title": "普通上传接口对含 .. 与路径分隔符的文件名采取净化而非拒绝，与分片上传接口行为不一致",
+      "severity": "P3",
+      "blocking": false,
+      "category": "consistency",
+      "test": "apps.document.tests.release_gate.test_public_basics.PublicBasicsTest.test_21 / test_22；test_upload_merge.test_27 / test_28",
+      "steps": [
+        "multipart 上传文件名 '../../evil.txt' 与 'a/b.txt'"
+      ],
+      "expected": "按 AGENTS.md 五.3 声明拒绝非法文件名",
+      "actual": "Django MultiPartParser 在到达视图前已将文件名 basename 化，接口接受文件并重新生成物理名；物理文件仍落在存储根目录内，未产生路径穿越；分片上传接口（file_name 为普通参数）则会拒绝",
+      "locations": [
+        "spug_api/apps/document/views/file/upload.py:145-158",
+        "spug_api/apps/document/views/upload/validators.py:269-270"
+      ],
+      "risk": "无路径穿越风险，仅接口间行为不一致"
+    },
+    {
+      "id": "DOC-F05",
+      "title": "合并状态查询对不存在的 task_id 返回 pending",
+      "severity": "P3",
+      "blocking": false,
+      "category": "known_limitation",
+      "test": "apps.document.tests.release_gate.test_upload_merge.UploadMergeStateMachineTest.test_39_merge_status_unknown_task_reports_pending",
+      "actual": "Celery AsyncResult 无结果后端时，未知 task_id 返回 PENDING，接口如实透传 'pending'",
+      "mitigation": "前端依赖 DEFAULT_MERGE_STATUS_TIMEOUT=300s 轮询超时兜底"
+    },
+    {
+      "id": "DOC-F06",
+      "title": "既有冒烟测试 4 个用例因模型移除 tenant_id 而失效（测试债务）",
+      "severity": "P2",
+      "blocking": false,
+      "category": "test_debt",
+      "test": "apps.document.tests.test_smoke.DocumentSmokeTest (test_04/test_05/test_06/test_08)",
+      "actual": "TypeError: DocumentFolderPublic() got unexpected keyword arguments: 'tenant_id'",
+      "handling": "未修改既有测试文件（避免通过改动测试让结果变绿），仅如实记录"
+    },
+    {
+      "id": "DOC-F07",
+      "title": "rg_responsive_badge.spec.js（无线电台执照模块）失败",
+      "severity": "P3",
+      "blocking": false,
+      "category": "out_of_scope",
+      "test": "quality/e2e/tests/document_admin/rg_responsive_badge.spec.js - 执照详情弹窗内容不溢出视口",
+      "handling": "属于 radio_license 模块，不在本次资料库测试范围，未跟进"
+    }
+  ],
+  "coverage_gaps": [
+    {
+      "item": "E2E 大文件分片上传（>32MB）与刷新后恢复",
+      "status": "NOT_RUN",
+      "reason": "需要 >32MB 文件与长时间等待；后端断点续传接口已在 test_23/test_24 行为级覆盖，未做浏览器端长流程"
+    },
+    {
+      "item": "E2E 无资料库权限账号访问验证",
+      "status": "NOT_RUN",
+      "reason": "quality/e2e/.env 未配置 E2E_NO_DOC_* 账号；后端权限矩阵已由 26 个用例覆盖"
+    },
+    {
+      "item": "跨 system_folder（多系统目录）隔离",
+      "status": "NOT_APPLICABLE",
+      "reason": "SYSTEM_FOLDER_CODES 只包含 party_building_documents 一个编码，当前版本不存在第二个系统目录，该场景不可构造"
+    },
+    {
+      "item": "kkFileView 真实渲染验证",
+      "status": "PARTIAL",
+      "reason": "仅验证预览 URL 构造（浏览器地址 + 容器回源地址 + base64 + preview_token），未驱动 kkFileView 实际渲染"
+    },
+    {
+      "item": "性能压测与灾备恢复演练",
+      "status": "NOT_RUN",
+      "reason": "不在本次 quick/standard 门禁范围；按规则不得指向开发业务数据库或真实文件目录"
+    }
+  ],
+  "artifacts": {
+    "backend_tests": "spug_api/apps/document/tests/release_gate/",
+    "frontend_tests": "spug_web/src/pages/document/__tests__/releaseGateHttp.test.js",
+    "e2e_tests": "quality/e2e/tests/document_admin/document_release_gate.spec.js",
+    "report_dir": "quality/reports/document/"
+  },
+  "safety_declarations": {
+    "business_code_modified": false,
+    "workspace_changes_overwritten": false,
+    "git_commit_created_by_tester": false,
+    "flush_executed": false,
+    "migration_executed_on_business_db": false,
+    "production_touched": false
+  }
+}

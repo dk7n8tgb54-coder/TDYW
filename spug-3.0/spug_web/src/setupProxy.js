@@ -16,7 +16,27 @@ module.exports = function (app) {
   // 覆盖方式: 设置环境变量 PROXY_TARGET，例如
   //   PROXY_TARGET=http://127.0.0.1:9001 npm start
   const target = process.env.PROXY_TARGET || 'http://127.0.0.1:8080';
-  
+
+  // 慢接口专用代理：数据质量巡检同步执行约 15-20s，不能走通用 10s proxyTimeout
+  // 注意：必须注册在通用 /api 代理之前，Express 按注册顺序匹配
+  app.use(
+    '/api/alert/data-quality',
+    proxy({
+      target: target,
+      changeOrigin: true,
+      agent: noKeepAliveAgent,
+      proxyTimeout: 130000, // 与 axios 默认 120s 对齐，略留余量
+      timeout: 130000,
+      onError: (err, req, res) => {
+        console.error(`[Proxy] 连接到 ${target} 失败:`, err.message);
+        if (res && typeof res.writeHead === 'function') {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '服务暂时不可用', target }));
+        }
+      }
+    })
+  );
+
   app.use(
     '/api',
     proxy({

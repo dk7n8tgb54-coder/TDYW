@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { Switch, Route } from 'react-router-dom';
-import { Layout, message } from 'antd';
+import { Layout } from 'antd';
 import { NotFound } from 'components';
 import ExpirationReminderNotification from 'components/ExpirationReminderNotification';
 import { licenseReminderConfig, approvalReminderConfig } from 'components/expirationReminderConfigs';
@@ -18,7 +18,7 @@ import radioLicenseBadge from './RadioLicenseBadgeStore';
 import approvalBadge from './ApprovalBadgeStore';
 import coopTaskBadge from './CoopTaskBadgeStore';
 import alertStore from './AlertStore';
-import { hasPermission, isMobile } from 'libs';
+import { hasPermission } from 'libs';
 import styles from './layout.module.less';
 
 function initRoutes(Routes, routes) {
@@ -34,14 +34,29 @@ function initRoutes(Routes, routes) {
 }
 
 export default function () {
-  const [collapsed, setCollapsed] = useState(false)
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const [collapsed, setCollapsed] = useState(() => window.innerWidth < 992)
   const [Routes, setRoutes] = useState([]);
+  const isPhone = viewportWidth < 576;
 
   useEffect(() => {
-     if (isMobile) {
-      setCollapsed(true);
-      message.warn('检测到您在移动设备上访问，请使用横屏模式。', 5)
-    }
+    let previousWidth = window.innerWidth;
+    const handleResize = () => {
+      const width = window.innerWidth;
+      setViewportWidth(width);
+      // Crossing the desktop breakpoint applies the responsive default. A user can
+      // still manually toggle the sider after it has been applied.
+      if ((previousWidth >= 992 && width < 992) || (previousWidth < 992 && width >= 992)) {
+        setCollapsed(width < 992);
+      }
+      previousWidth = width;
+    };
+    window.addEventListener('resize', handleResize);
+    handleResize();
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
     const Routes = [];
     initRoutes(Routes, routes);
     setRoutes(Routes)
@@ -55,12 +70,12 @@ export default function () {
       approvalBadge.stop();
       coopTaskBadge.stop();
       alertStore.stop();
-    };
+    }
   }, [])
 
   return (
-    <Layout>
-      <Sider collapsed={collapsed}/>
+    <Layout style={{minWidth: 0, width: '100%'}}>
+      <Sider collapsed={collapsed} isPhone={isPhone}/>
       <Layout style={{height: '100vh', display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0}}>
         <Header collapsed={collapsed} toggle={() => setCollapsed(!collapsed)}/>
         <Layout.Content className={styles.content} id="spug-container" style={{flex: 1, minWidth: 0, width: '100%', overflow: 'auto'}}>
