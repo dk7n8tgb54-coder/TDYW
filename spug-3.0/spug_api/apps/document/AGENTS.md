@@ -6,17 +6,15 @@
 
 ## 一、模型架构
 
-### 双表设计（Public/Private）
+### 公共资料库单空间
 
-资料库使用 Public/Private 双表设计实现租户隔离：
+资料库当前仅保留公共资料库模型。`is_public` 仍作为后端兼容参数存在，但前端和业务流程固定使用公共空间；私有文档、私有目录及公共/私有空间切换均已移除。
 
-| 模型 | 租户类型 | 用途 |
+| 模型 | 作用域/隔离方式 | 用途 |
 |---|---|---|
-| `DocumentFolderPrivate` | PRIVATE | 租户私有文件夹 |
-| `DocumentFolderPublic` | PUBLIC | 公共文件夹 |
-| `DocumentFilePrivate` | PRIVATE | 租户私有文件 |
-| `DocumentFilePublic` | PUBLIC | 公共文件 |
-| `DocumentTransfer` | PRIVATE | 传输记录（上传/下载/复制） |
+| `DocumentFolderPublic` | PUBLIC（全平台共享） | 公共文件夹 |
+| `DocumentFilePublic` | PUBLIC（全平台共享） | 公共文件 |
+| `DocumentTransfer` | 按记录保存 `tenant_id` 和用户范围 | 传输记录（上传/下载/复制） |
 | `DocumentSystemFolder` | GLOBAL | 党建系统文件夹（无租户隔离） |
 
 ### Mixin 继承
@@ -32,7 +30,7 @@ DocumentFileDeleteMixin  # 文件物理删除 + 缩略图清理 + is_pending_cle
 
 1. **`unique_key` 自动计算**：`UniqueKeyMixin.save()` 自动调用 `_compute_unique_key()`，子类必须实现此方法。使用 `update_fields` 时自动补入 `unique_key`。
 2. **`get_full_path()` 有深度保护**：最大深度 `DEFAULT_MAX_FOLDER_DEPTH=100`，检测循环引用。
-3. **逻辑删除已移除**：2026-06-23 起删除改为直接物理删除，模型层保留 `is_deleted`/`deleted_at`/`deleted_by` 字段（避免 migration），但不再被业务设置。
+3. **逻辑删除已移除**：删除直接执行物理删除，不再提供回收站或软删除流程。
 4. **`DocumentFileDeleteMixin.delete()`**：先删物理文件 + 缩略图，成功后 `super().delete()`；失败时用 savepoint 保存 `is_pending_clean` 标记并抛出 `DocumentPhysicalDeleteError`。
 
 ---
@@ -40,7 +38,7 @@ DocumentFileDeleteMixin  # 文件物理删除 + 缩略图清理 + is_pending_cle
 ## 二、党建隔离（System Folder）
 
 1. **`DocumentSystemFolder`**：无租户隔离（GLOBAL），用于党建工作文档。
-2. **`system_scope_validators`**：fail-closed 设计，未匹配到有效 system_folder 的请求直接拒绝。
+2. **`system_scope_validators`**：fail-closed 设计；党建上下文必须匹配有效 `system_folder`，普通公共上下文允许不带该参数，但必须拒绝访问任何系统目录范围。
 3. **HTTP 请求注入**：前端 `libs/systemFolderContext.js` 激活时，`http.js` 自动为 `/api/document/*` 请求注入 `system_folder` 参数（GET->query, POST->body/FormData）。
 4. **View 层校验**：所有涉及 system_folder 的 View 必须校验 `system_folder` 参数有效性。
 5. **权限编码**：`document.party_building_document.view` 独立于 `document.document.view`。
@@ -138,7 +136,7 @@ CANCELED    -> (终态)
 
 ### 移动/复制
 
-1. **跨空间移动**（Private -> Public 或反向）：需要重新计算路径和权限。
+1. **公共资料库内移动**：移动前后都必须校验普通公共目录与党建系统目录的 scope，禁止跨 system scope 移动。
 2. **异步复制**：文件 >= `DEFAULT_ASYNC_COPY_THRESHOLD`（50MB）时使用 Celery `async_copy_files` 任务。
 3. **复制幂等**：基于 `transfer_id` 去重。
 

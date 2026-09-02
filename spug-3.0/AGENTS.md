@@ -38,7 +38,7 @@
 | 台站频率批复 | `stationFrequencyApproval/` | `radio_license/`（同应用） | StationFrequencyApproval | `radio_license.approval.*` | 附件(evidence) | 同上 |
 | 合同协议 | `contractAgreement/` | `contract_agreement/` | ContractAgreement | `contract_agreement.agreement.*` | 附件(evidence) | CONTRACT_AGREEMENT_BEAT_SCHEDULE |
 | 协作任务 | `coopTask/` | `coop_task/` | CoopTask, CoopTaskItem, CoopTaskAssignment, CoopTaskDelivery | `coop.task.*` | 附件(evidence) | COOP_TASK_BEAT_SCHEDULE（到期任务附件清理；跨科室分派/交付/验收联动审计日志） |
-| 资料库/文档管理 | `document/` | `document/` | DocumentFilePrivate/Public, DocumentFolderPrivate/Public, DocumentTransfer, DocumentSystemFolder | `document.document.*`, `document.party_building_document.*` | **是**（文件存储） | 分片上传、合并、清理、异步复制 |
+| 资料库/文档管理 | `document/` | `document/` | DocumentFilePublic, DocumentFolderPublic, DocumentTransfer, DocumentSystemFolder | `document.document.*`, `document.party_building_document.*` | **是**（文件存储） | 分片上传、合并、清理、异步复制 |
 | 党建工作 | `document/PartyBuildingDocumentsIndex.js` | `document/`（system_scope） | DocumentSystemFolder | `document.party_building_document.*` | **是** | 同文档模块 |
 | 规章管理 | `regulation/` | `regulation/` | Regulation | `document.regulation.*` | **是**（独立 `storage.py`） | 无 |
 | 跨日事项跟踪 | `runlog/` | `runlog/` | RunLog | `runlog.runlog.*` | 无 | 无 |

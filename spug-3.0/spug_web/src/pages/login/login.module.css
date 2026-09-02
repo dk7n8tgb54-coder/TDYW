@@ -4,29 +4,33 @@
     background-position: center center;
     background-size: 100% 100%;
     background-color: #f0f2f5;
+    min-height: 100vh;
     height: 100vh;
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
+    box-sizing: border-box;
 }
 
-/* 右侧登录区：占 35%-45% 宽度，垂直居中偏上（底部多留 8vh 上移） */
+/* 右侧登录区：保留随视口变化的呼吸边距，避免大屏贴边或中屏拥挤 */
 .loginZone {
-    flex: 1;
+    flex: 1 0 auto;
+    min-height: 0;
     display: flex;
     justify-content: flex-end;
     align-items: center;
-    padding: 0 6vw 8vh 0;
+    padding: 0 clamp(40px, 11vw, 210px) clamp(24px, 8vh, 96px) 0;
+    box-sizing: border-box;
 }
 
 .loginWrapper {
-    width: 46.2%;
-    min-width: 396px;
-    max-width: 462px;
+    /* vw keeps the physical card size stable when browser zoom changes the CSS viewport. */
+    width: clamp(420px, 25vw, 620px);
 }
 
-/* 玻璃卡片：高透明磨砂 + 白色高光描边 + 顶部亮边 + 内发光 */
+/* 玻璃卡片：高透明磨砂 + 白色高光描边 + 顶部亮边 + 内发光 
 .formContainer {
-    padding: 28px 32px 32px;
+    padding: clamp(24px, 1.75vw, 42px) clamp(28px, 1.875vw, 45px) clamp(30px, 1.75vw, 42px);
     border-radius: 18px;
     background: rgba(235, 245, 255, .24);
     backdrop-filter: blur(30px) saturate(150%);
@@ -37,26 +41,50 @@
         inset 0 0 24px rgba(255, 255, 255, .18),
         0 18px 42px rgba(31, 58, 102, .2),
         0 3px 10px rgba(31, 58, 102, .1);
+}*/
+/* iPhone液态玻璃卡片，适配空管登录页，兼顾可读性 */
+.formContainer {
+    box-sizing: border-box;
+    padding: clamp(28px, 1.875vw, 46px) clamp(28px, 1.875vw, 45px) clamp(30px, 1.75vw, 42px);
+    border-radius: 18px;
+
+    /* 1.底色：变薄，去掉蓝底色，用纯白低透明度，让背景透出来，吃环境色调 */
+    background: rgba(255, 255, 255, 0.08);
+
+    /* 2.核心滤镜：blur、saturate、轻微brightness，液态玻璃标准组合 */
+    backdrop-filter: blur(24px) saturate(170%) brightness(1.05);
+    -webkit-backdrop-filter: blur(24px) saturate(170%) brightness(1.05);
+
+    /* 3.边框：取消四边等高白边；只保留顶部微弱高光，其余三边极弱，模拟玻璃边缘折射 */
+    border-top: 1px solid rgba(255, 255, 255, 0.45);
+    border-right: 1px solid rgba(255, 255, 255, 0.18);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    border-left: 1px solid rgba(255, 255, 255, 0.18);
+
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.55),
+        0 8px 24px rgba(31, 58, 102, 0.11),
+        0 2px 6px rgba(31, 58, 102, 0.05);
 }
 
 /* 卡片顶部 header：logo + 标题 + 副标题，全部居中 */
 .formContainer .header {
     text-align: center;
-    margin-bottom: 24px;
+    margin-bottom: clamp(20px, 1.25vw, 30px);
 }
 
 .formContainer .header .logo {
-    margin-bottom: 12px;
+    margin-bottom: clamp(6px, .45vw, 10px);
 }
 
 .formContainer .header .logo img {
-    height: 36px;
+    height: clamp(32px, 1.875vw, 45px);
     max-width: 100%;
 }
 
 /* 深色实心标题（参考图风格） */
 .formContainer .header .title {
-    font-size: 22px;
+    font-size: clamp(20px, 1.05vw, 26px);
     font-weight: 600;
     color: #1a2332;
     letter-spacing: 2px;
@@ -65,8 +93,8 @@
 }
 
 .formContainer .header .subtitle {
-    font-size: 12px;
-    color: rgba(26, 35, 50, .5);
+    font-size: clamp(10px, .57vw, 14px);
+    color: rgba(26, 35, 50, .4);
     letter-spacing: 1px;
     text-transform: uppercase;
     font-weight: 400;
@@ -95,17 +123,17 @@
 }
 
 .formContainer :global(.ant-input::placeholder) {
-    color: rgba(120, 135, 155, .7);
+    color: #7c8ca2;
 }
 
 .formContainer .icon {
-    color: rgba(26, 35, 50, .35);
-    font-size: 15px;
-    margin-right: 6px;
+    color: #64748b;
+    font-size: clamp(14px, .78vw, 18px);
+    margin-right: clamp(5px, .31vw, 8px);
 }
 
 .formContainer .formItem {
-    margin-bottom: 16px;
+    margin-bottom: clamp(12px, .833vw, 20px);
 }
 
 /* 验证码按钮（MFA 场景）：融入卡片风格 */
@@ -117,15 +145,17 @@
 
 /* 登录按钮：深蓝圆角药丸，必须显式设 color 否则 antd 渐变背景下文字发灰 */
 .formContainer .button {
-    margin-top: 12px;
-    height: 44px;
-    font-size: 16px;
-    letter-spacing: 6px;
+    margin-top: clamp(14px, .8vw, 20px);
+    height: clamp(40px, 2.29vw, 55px);
+    font-size: clamp(15px, .833vw, 20px);
+    letter-spacing: clamp(4px, .31vw, 8px);
     color: #fff !important;
     border: none;
     border-radius: 22px;
     background: linear-gradient(135deg, #1b3a6e 0%, #0d2850 100%);
-    box-shadow: 0 6px 20px rgba(13, 40, 80, .3);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, .15),
+        0 6px 20px rgba(13, 40, 80, .3);
 }
 
 .formContainer .slogan {
@@ -140,8 +170,9 @@
 .footerZone {
     width: 100%;
     bottom: 0;
-    padding: 16px;
-    font-size: 14px;
+    padding: clamp(12px, 1.5vh, 16px);
+    font-size: 12px;
+    color: #8898ac;
     text-align: center;
     display: flex;
     flex-direction: column;
@@ -162,7 +193,7 @@
 @media (max-width: 720px) {
     .loginZone {
         justify-content: center;
-        padding: 0 20px 8vh;
+        padding: 24px 20px 8vh;
     }
 
     .loginWrapper {
@@ -172,5 +203,12 @@
 
     .formContainer {
         padding: 24px 22px 28px;
+    }
+}
+
+@media (max-height: 720px) and (min-width: 721px) {
+    .loginZone {
+        align-items: flex-start;
+        padding-top: 24px;
     }
 }
