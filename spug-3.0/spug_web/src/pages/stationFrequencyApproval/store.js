@@ -8,7 +8,7 @@
  * - 深链 ?id= 加载详情
  */
 import { observable } from 'mobx';
-import { http } from 'libs';
+import { http, syncAttachmentCount } from 'libs';
 
 class Store {
   // ========== 列表数据 ==========
@@ -104,6 +104,9 @@ class Store {
         return this.record;
       });
   };
+
+  // 附件数量变化（上传/删除）时实时回写列表行与当前记录，无需刷新页面
+  updateAttachmentCount = (id, count) => syncAttachmentCount(this, id, count);
 
   showForm = (info = {}) => {
     this.formVisible = true;

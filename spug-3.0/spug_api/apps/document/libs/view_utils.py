@@ -32,17 +32,24 @@ def rate_limit(max_requests=60, window=60, key_prefix='doc'):
     """
     def decorator(view_func):
         @wraps(view_func)
-        def wrapper(request, *args, **kwargs):
+        def wrapper(*args, **kwargs):
+            # Methods receive ``self`` before ``request`` when decorated at
+            # class definition time; plain function views receive request as
+            # the first argument.
+            request = args[0] if args else None
+            if request is not None and not hasattr(request, 'user') and len(args) > 1:
+                request = args[1]
             try:
                 from django.core.cache import cache
-                user_id = getattr(request.user, 'id', 0) or 'anon'
+                user_id = getattr(getattr(request, 'user', None), 'id', 0) or 'anon'
                 # 按用户 + URL 路径维度限流
-                cache_key = f'rate_limit:{key_prefix}:{user_id}:{request.path}'
+                request_path = getattr(request, 'path', '')
+                cache_key = f'rate_limit:{key_prefix}:{user_id}:{request_path}'
                 count = cache.get(cache_key, 0)
                 if count >= max_requests:
                     logger.warning(
                         '[RateLimit] %s 超过限制: %s/%ss (path=%s)',
-                        user_id, max_requests, window, request.path,
+                        user_id, max_requests, window, request_path,
                     )
                     from libs import json_response
                     return json_response(error='请求过于频繁，请稍后重试')
@@ -50,7 +57,7 @@ def rate_limit(max_requests=60, window=60, key_prefix='doc'):
             except Exception:
                 # Redis 不可用时不阻断请求（fail-open）
                 logger.warning('[RateLimit] cache unavailable, skipping rate limit', exc_info=True)
-            return view_func(request, *args, **kwargs)
+            return view_func(*args, **kwargs)
         return wrapper
     return decorator
 

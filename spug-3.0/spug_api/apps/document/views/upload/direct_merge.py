@@ -208,7 +208,9 @@ class DirectMergeView(View):
             )
             transfer.status = TransferStatus.UPLOADING.value
             transfer.celery_task_id = None
-            transfer.file_path = None
+            # DocumentTransfer.file_path is a NOT NULL CharField; an empty
+            # path represents the recoverable pre-merge state.
+            transfer.file_path = ''
             transfer.save(update_fields=['status', 'celery_task_id', 'file_path'])
         return None
 

@@ -108,6 +108,8 @@ export default observer(function () {
     uploadMode: 'dragger',
     multiple: true,
     maxFilesPerBatch: 20,
+    // 新建阶段 attachmentRecordId 是临时 ID，列表里查不到对应行，helper 会直接跳过
+    onCountChange: count => S.updateAttachmentCount(attachmentRecordId, count),
   };
 
   if (viewMode) {

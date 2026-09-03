@@ -75,12 +75,23 @@ class FileView(View):
 
         file_name = file.name
         file_id = file.id
+        delete_error = None
         try:
             # R2 修复：DB 删除包裹事务，保证数据一致性
             with transaction.atomic():
-                # 直接物理删除（模型层负责物理文件 + 缩略图清理 + 待清理兜底）
-                file.delete()
-                logger.info(f'[Document] 文件已删除：id={file_id}, name={file_name}')
+                try:
+                    # 直接物理删除（模型层负责物理文件 + 缩略图清理 + 待清理兜底）
+                    file.delete()
+                except DocumentPhysicalDeleteError as e:
+                    # Consume this exception inside the atomic block so the
+                    # pending-clean marker can commit under ATOMIC_REQUESTS.
+                    delete_error = e
+                else:
+                    logger.info(f'[Document] 文件已删除：id={file_id}, name={file_name}')
+
+            if delete_error is not None:
+                logger.warning(f'[Document] 物理文件删除失败，已标记待清理：{delete_error.file_path}')
+                return json_response(error='文件删除失败，已加入待清理队列，系统将自动重试')
 
             # R3 修复：audit log 移到 on_commit，确保事务提交后才记录
             transaction.on_commit(lambda: log_operation(
@@ -95,10 +106,6 @@ class FileView(View):
 
             return json_response()
 
-        except DocumentPhysicalDeleteError as e:
-            # 物理文件删除失败，已标记为待清理，不算完全失败
-            logger.warning(f'[Document] 物理文件删除失败，已标记待清理：{e.file_path}')
-            return json_response(error='文件删除失败，已加入待清理队列，系统将自动重试')
         except Exception as e:
             logger.error(f'[Document] 文件删除失败：{e}')
             return json_response(error='文件删除失败，请稍后重试')

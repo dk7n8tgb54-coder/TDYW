@@ -153,6 +153,7 @@ export default observer(function () {
             maxFileSize={50}
             multiple
             accept={ACCEPT}
+            onCountChange={count => S.updateAttachmentCount(info.id, count)}
           />
         )}
 

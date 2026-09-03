@@ -176,6 +176,7 @@ export default observer(function () {
             multiple
             maxFilesPerBatch={20}
             accept=".pdf,.jpg,.jpeg,.png,.gif,.bmp,.webp,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z"
+            onCountChange={count => S.updateAttachmentCount(info.id, count)}
           />
         )}
 

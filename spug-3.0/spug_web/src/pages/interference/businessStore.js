@@ -7,7 +7,7 @@
  * 两类业务列表行为一致，仅后端 API 路径不同。
  */
 import { observable } from "mobx";
-import { http } from 'libs';
+import { http, syncAttachmentCount } from 'libs';
 
 export function createBusinessStore(apiPath) {
   class Store {
@@ -53,6 +53,10 @@ export function createBusinessStore(apiPath) {
       this.formVisible = true;
       this.record = {...info, isViewMode};
     }
+
+    // 附件数量变化（上传/删除）时实时回写列表行与当前记录，无需刷新页面。
+    // 地面/空中两个业务共用本工厂，一处接入即可。
+    updateAttachmentCount = (id, count) => syncAttachmentCount(this, id, count);
 
     resetFilter = () => {
       this.f_flight_number = null;

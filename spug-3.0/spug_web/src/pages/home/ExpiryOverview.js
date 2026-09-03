@@ -156,11 +156,10 @@ function ExpiryOverview() {
             )}
           </div>
 
-          {(licenseExpired > 0 || approvalExpired > 0 || contractExpired > 0) && (
+          {(licenseExpired > 0 || approvalExpired > 0) && (
             <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {licenseExpired > 0 && <Tag color="red">执照已过期 {licenseExpired}</Tag>}
               {approvalExpired > 0 && <Tag color="red">批复已过期 {approvalExpired}</Tag>}
-              {contractExpired > 0 && <Tag color="red">合同已过期 {contractExpired}</Tag>}
             </div>
           )}
 

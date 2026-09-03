@@ -1,6 +1,7 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # 资料库冒烟测试 - 快速验证核心 API 可用性
 # 覆盖: 健康检查, 磁盘用量, 文件夹CRUD, 传输列表, 系统目录
+import os
 import uuid
 
 from django.test import TestCase
@@ -10,6 +11,7 @@ from tests.helpers.test_base import (
     post_json, delete_json, get_response_data, has_error)
 from apps.document.models import (
     DocumentFolderPublic, DocumentFilePublic)
+from apps.document.libs.document_utils import get_document_absolute_path
 
 
 class DocumentSmokeTest(TestCase):
@@ -62,8 +64,8 @@ class DocumentSmokeTest(TestCase):
         """列出文件夹+文件"""
         # 先创建一个文件夹
         DocumentFolderPublic.objects.create(
-            name='列表测试', created_by=self.admin, tenant_id='admin')
-        resp = self.client.get('/document/folder/')
+            name='列表测试', created_by=self.admin)
+        resp = self.client.get('/document/folder/', {'is_public': True})
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(has_error(resp))
         data = get_response_data(resp)
@@ -73,11 +75,11 @@ class DocumentSmokeTest(TestCase):
     def test_05_folder_rename(self):
         """文件夹重命名"""
         folder = DocumentFolderPublic.objects.create(
-            name='原名', created_by=self.admin, tenant_id='admin')
+            name='原名', created_by=self.admin)
         resp = post_json(self.client, '/document/folder/rename/', {
             'id': folder.id,
             'name': '新名',
-            'is_public': False,
+            'is_public': True,
         })
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(has_error(resp))
@@ -85,10 +87,10 @@ class DocumentSmokeTest(TestCase):
     def test_06_folder_delete(self):
         """文件夹删除"""
         folder = DocumentFolderPublic.objects.create(
-            name='待删除', created_by=self.admin, tenant_id='admin')
+            name='待删除', created_by=self.admin)
         # DELETE 接口解析 request.GET，用 query string 传参
         resp = self.client.delete(
-            f'/document/folder/?id={folder.id}&is_public=false')
+            f'/document/folder/?id={folder.id}&is_public=true')
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(has_error(resp))
 
@@ -103,21 +105,31 @@ class DocumentSmokeTest(TestCase):
 
     def test_08_file_delete(self):
         """文件删除（物理删除）"""
-        # 直接创建文件记录模拟
-        f = DocumentFilePublic.objects.create(
-            name='smoke_test.txt',
-            display_name='smoke_test.txt',
-            file_size=100,
-            file_type='txt',
-            file_path='smoke_test/smoke_test.txt',
-            created_by=self.admin,
-            tenant_id='admin',
-        )
-        # DELETE 接口解析 request.GET，用 query string 传参
-        resp = self.client.delete(
-            f'/document/file/?id={f.id}&is_public=false')
-        self.assertEqual(resp.status_code, 200)
-        self.assertFalse(has_error(resp))
+        # 创建存储根目录内的真实文件，验证 API 的物理删除副作用
+        storage_dir = get_document_absolute_path(is_public=True)
+        os.makedirs(storage_dir, exist_ok=True)
+        file_path = os.path.join(storage_dir, f'smoke_test_{uuid.uuid4().hex}.txt')
+        with open(file_path, 'wb') as file_handle:
+            file_handle.write(b'smoke test')
+        try:
+            f = DocumentFilePublic.objects.create(
+                name='smoke_test.txt',
+                display_name='smoke_test.txt',
+                file_size=10,
+                file_type='text/plain',
+                file_path=file_path,
+                physical_name=os.path.basename(file_path),
+                created_by=self.admin,
+            )
+            # DELETE 接口解析 request.GET，用 query string 传参
+            resp = self.client.delete(
+                f'/document/file/?id={f.id}&is_public=true')
+            self.assertEqual(resp.status_code, 200)
+            self.assertFalse(has_error(resp))
+            self.assertFalse(os.path.exists(file_path), '物理文件未删除')
+        finally:
+            if os.path.exists(file_path):
+                os.remove(file_path)
 
     # ========== 5. 传输记录 ==========
 

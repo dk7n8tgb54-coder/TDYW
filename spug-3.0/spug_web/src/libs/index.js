@@ -8,6 +8,7 @@ import _history from './history';
 
 export * from './functools';
 export * from './router';
+export * from './attachmentCount';
 export { exportFile } from './exportFile';
 export const http = _http;
 export const history = _history;
