@@ -105,6 +105,47 @@ describe('批复 Store fetchRecords', () => {
     await p1;
     await flush();
     expect(store.records[0].doc_no).toBe('RG-新');
+    // 旧请求延迟返回也不得干扰最新请求的 loading 状态
+    expect(store.isFetching).toBe(false);
+  });
+
+  it('删除最后一页最后一条记录后分页应回退（当前页为空时）', async () => {
+    const store = freshStore();
+    store.pageNum = 2;
+    store.pageSize = 10;
+    store.total = 11;
+    // 第一次：删除后只剩 10 条，第 2 页为空
+    mockHttpGet.mockResolvedValueOnce({records: [], total: 10, page: 2, page_size: 10});
+    // 回退到第 1 页重新拉取：返回 10 条
+    mockHttpGet.mockResolvedValueOnce({
+      records: Array.from({length: 10}, (_, i) => ({id: i + 1, doc_no: `RG-D${i + 1}`})),
+      total: 10, page: 1, page_size: 10,
+    });
+    await store.fetchRecords();
+    expect(store.pageNum).toBe(1);
+    expect(store.records).toHaveLength(10);
+  });
+
+  it('组件卸载后异步回调不得写入页面状态', async () => {
+    const store = freshStore();
+    store.records = [{id: 9, doc_no: 'RG-卸载前'}];
+    const pending = deferred();
+    mockHttpGet.mockReturnValue(pending.promise);
+    const p = store.fetchRecords();
+    expect(store.isFetching).toBe(true);
+    // 模拟组件卸载（Table componentWillUnmount 调用 setActive(false)）
+    store.setActive(false);
+    pending.resolve({records: [{id: 1, doc_no: 'RG-卸载后'}], total: 1, page: 1, page_size: 20});
+    await p;
+    await flush();
+    expect(store.records).toEqual([{id: 9, doc_no: 'RG-卸载前'}]);
+    // 重新挂载后恢复正常拉取
+    store.setActive(true);
+    mockHttpGet.mockResolvedValue({records: [{id: 2, doc_no: 'RG-重新挂载'}], total: 1, page: 1, page_size: 20});
+    await store.fetchRecords();
+    await flush();
+    expect(store.records[0].doc_no).toBe('RG-重新挂载');
+    expect(store.isFetching).toBe(false);
   });
 });
 

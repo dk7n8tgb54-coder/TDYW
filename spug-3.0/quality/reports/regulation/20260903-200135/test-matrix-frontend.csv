@@ -1,0 +1,19 @@
+﻿case_id,layer,risk,module,suite,case,result
+FE-001,frontend,P0,Form.errorPrompt,HTTP 200 + error 时弹窗行为,HTTP 200 + error 时弹窗行为 只提示一次错误，不弹成功、不关闭弹窗、不刷新列表,FAIL
+FE-002,frontend,P0,Http.errorContract,HTTP 200 + error 不得被当作成功,HTTP 200 + error 不得被当作成功 业务错误响应必须 reject，而不是 resolve,PASS
+FE-003,frontend,P0,Http.errorContract,HTTP 200 + error 不得被当作成功,HTTP 200 + error 不得被当作成功 业务错误响应只弹一次错误提示,PASS
+FE-004,frontend,P0,Http.errorContract,HTTP 200 + error 不得被当作成功,HTTP 200 + error 不得被当作成功 正常响应解包 data 且不弹任何提示,PASS
+FE-005,frontend,P0,Http.errorContract,HTTP 200 + error 不得被当作成功,HTTP 200 + error 不得被当作成功 data 为空字符串时解包为空对象,PASS
+FE-006,frontend,P0,Http.errorContract,HTTP 200 + error 不得被当作成功,HTTP 200 + error 不得被当作成功 skipErrorNotification 可抑制拦截器提示（用于业务代码自行提示的场景）,PASS
+FE-007,frontend,P0,Http.errorContract,HTTP 200 + error 不得被当作成功,HTTP 200 + error 不得被当作成功 二进制响应中的 JSON 错误体也能被识别为失败,PASS
+FE-008,frontend,P0,Http.errorContract,HTTP 200 + error 不得被当作成功,HTTP 200 + error 不得被当作成功 二进制正常响应直接透传，不被当作错误,PASS
+FE-009,frontend,P2,Http.errorContract,错误去重与双提示风险,错误去重与双提示风险 拦截器 2 秒内重复相同消息只提示一次,PASS
+FE-010,frontend,P0,Http.errorContract,错误去重与双提示风险,错误去重与双提示风险 reject 值是字符串而非 Error：业务代码 e.message 为 undefined（双提示根因）,PASS
+FE-011,frontend,P2,Http.errorContract,http 模块导出,http 模块导出 libs 导出 http 且响应拦截器已注册,PASS
+FE-012,frontend,P2,Table.resizable,规章管理 Table 列宽拖动（TableCard resizable 集成）,规章管理 Table 列宽拖动（TableCard resizable 集成） 数据列（含规章名称首列）渲染拖拽柄，固定操作列不渲染,PASS
+FE-013,frontend,P2,Table.resizable,规章管理 Table 列宽拖动（TableCard resizable 集成）,规章管理 Table 列宽拖动（TableCard resizable 集成） 真实拖拽更新列宽并按 tKey=regulation 写入会话存储,PASS
+FE-014,frontend,P2,Table.resizable,规章管理 Table 列宽拖动（TableCard resizable 集成）,规章管理 Table 列宽拖动（TableCard resizable 集成） 双击拖拽柄恢复该列默认宽度,PASS
+FE-015,frontend,P1,Form.payload,buildRegulationPayload 单元行为,buildRegulationPayload 单元行为 清空的日期/分类以空字符串显式提交,PASS
+FE-016,frontend,P1,Form.payload,buildRegulationPayload 单元行为,buildRegulationPayload 单元行为 日期 moment 格式化、分类数值保留,PASS
+FE-017,frontend,P2,Form.payload,编辑弹窗提交载荷,编辑弹窗提交载荷 未清空字段时载荷完整（回归对照）,PASS
+FE-018,frontend,P2,Form.payload,编辑弹窗提交载荷,编辑弹窗提交载荷 B5：清空日期与分类后载荷显式携带空字符串,PASS

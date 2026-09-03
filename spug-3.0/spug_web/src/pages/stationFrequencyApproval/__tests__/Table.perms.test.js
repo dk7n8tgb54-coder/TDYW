@@ -15,6 +15,7 @@ import {http} from 'libs';
 import {message} from 'antd';
 
 jest.mock('../store', () => ({
+  setActive: jest.fn(),
   records: [{
     id: 1,
     name: 'RG-批复甲',

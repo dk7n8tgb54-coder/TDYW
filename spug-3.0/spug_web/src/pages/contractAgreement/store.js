@@ -33,6 +33,7 @@ class Store {
 
   statusOptions = [
     {value: 'normal', label: '正常'},
+    {value: 'expiring', label: '即将到期'},
     {value: 'expired', label: '已关闭'},
   ];
 

@@ -80,7 +80,8 @@
 
 ## 历史项目
 - 资料库列表默认排序：2026-08-23 改为名称升序（档案管理型，接受码点序）；文件夹 `order_by('name','id')`、文件 `order_by('display_name','id')`；索引 doc_pub_folder_name_idx / doc_pub_file_name_idx（迁移 0022）；前端 DEFAULT_SORT_ORDER 注入（搜索模式仍时间倒序）；P1 排序持久化 / P2 排序下推后端待做
-- ⚠️ replace_in_file 在 Windows 会把整个文件 LF→CRLF，编辑后必须检查行尾并修复（2026-08-23 教训）
+- ⚠️ replace_in_file 在 Windows 会把整个文件 LF→CRLF，编辑后必须检查行尾并修复（2026-08-23 教训）；write_to_file 新建文件同样产出 CRLF，需转 LF（2026-09-03 教训）
+- ⚠️ radio_license 版本快照 changed_fields/并发行锁/status 实时筛选/列表 N+1/ack 校验已于 2026-09-03 全部修复（views.py + test_list_ack_version_fixes.py 26 例；radio_license 全模块 247 例 OK）
 - 资料库回收站 2026-06-23 移除（模型层保留 is_deleted/deleted_at 避免 migration）
 - 资料库传输列表：3 Tab + 抽屉模式（参考阿里云盘/百度网盘）
 - 秒传/跨 transfer 哈希复用 2026-08-07 移除。保留断点续传

@@ -20,6 +20,7 @@ import ComTable from '../Table';
 import store from '../store';
 
 jest.mock('../store', () => ({
+  setActive: jest.fn(),
   records: [{
     id: 1,
     station_name: 'XX 固定站',

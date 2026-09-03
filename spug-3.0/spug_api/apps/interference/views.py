@@ -352,6 +352,30 @@ ATTACHMENT_MODULE = 'interference'
 ATTACHMENT_OBJECT_TYPE = 'interference'
 
 
+def _get_interference_attachment_for_user(user, attachment_id):
+    """干扰管理附件专用归属校验（DEF-01 修复，范式同 radio_license 执照侧）。
+
+    处理干扰管理附件（下载/删除/预览）前必须同时满足：
+    1. 附件存在且未软删除；
+    2. module == 'interference' 且 object_type == 'interference'；
+    3. 附件属于当前用户可访问的租户范围（apply_tenant_filter，超管放行）。
+    校验在附件行级别进行：不强制父记录存在，兼容新建阶段
+    以临时 UUID（temp-xxx）挂在未保存记录上的附件。
+    任一不满足统一返回业务错误，权限本身由各端点 @auth 独立校验。
+
+    Returns:
+        (attachment, error)
+    """
+    att = apply_tenant_filter(
+        EvidenceAttachment.objects.filter(is_deleted=False), user
+    ).filter(pk=attachment_id).first()
+    if not att:
+        return None, '附件不存在或无权限访问'
+    if att.module != ATTACHMENT_MODULE or att.object_type != ATTACHMENT_OBJECT_TYPE:
+        return None, '附件不存在或无权限访问'
+    return att, None
+
+
 class AttachmentListView(View):
     """附件列表 / 上传
 
@@ -406,6 +430,11 @@ class AttachmentDownloadView(View):
 
     @auth('interference.interference.view')
     def get(self, request, pk):
+        # DEF-01 修复：下载前必须通过干扰管理附件归属校验，
+        # 不得下载其他模块（执照/批复/合同协议等）或跨租户附件
+        att, err = _get_interference_attachment_for_user(request.user, pk)
+        if err:
+            return json_response(error=err)
         inline = request.GET.get('inline') in ('1', 'true', 'True')
         response, error = AttachmentService.download_response(request.user, pk, inline=inline)
         if error:
@@ -418,6 +447,11 @@ class AttachmentPreviewUrlView(View):
 
     @auth('interference.interference.view')
     def get(self, request, pk):
+        # DEF-01 修复：签发预览令牌前必须通过归属校验，
+        # 不得为其他模块/跨租户附件生成干扰管理预览地址
+        att, err = _get_interference_attachment_for_user(request.user, pk)
+        if err:
+            return json_response(error=err)
         preview_file_api_path = f'/api/interference/attachments/{pk}/preview-file/'
         data, error = AttachmentService.get_preview_url(
             request.user, pk, preview_file_api_path)
@@ -451,6 +485,14 @@ class AttachmentDeleteView(View):
         if error:
             return json_response(error=error)
 
+        # DEF-01 修复：删除前必须通过归属校验，
+        # 不得删除其他模块（执照/批复/合同协议等）或跨租户附件；
+        # 同时在软删除前取得附件快照（删除后默认 Manager 过滤 is_deleted，
+        # 再查询必为 None，旧实现的证据事件是死代码）
+        att, err = _get_interference_attachment_for_user(request.user, form.id)
+        if err:
+            return json_response(error=err)
+
         error = AttachmentService.soft_delete(
             request.user, form.id, form.delete_reason, delete_file=True)
         if error:
@@ -458,7 +500,6 @@ class AttachmentDeleteView(View):
 
         # 写入证据事件
         try:
-            att = EvidenceAttachment.objects.filter(pk=form.id).first()
             if att:
                 record_evidence_event(
                     tenant_id=att.tenant_id,

@@ -13,6 +13,7 @@ import store from './store';
 
 const STATUS_TAG_MAP = {
   normal: {color: 'green', text: '正常'},
+  expiring: {color: 'orange', text: '即将到期'},
   expired: {color: 'default', text: '已关闭'},
 };
 

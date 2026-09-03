@@ -45,7 +45,21 @@ class Store {
   // 拉取责任人列表时使用的登录 token（非响应式，仅作缓存指纹）
   _responsibleUsersToken = null;
 
+  // ========== 请求生命周期守卫 ==========
+  // 请求序列号：每次 fetchRecords 单调递增，只有最新请求可写入列表状态，
+  // 防止用户快速切换筛选/分页时旧请求响应覆盖新请求结果
+  _fetchSeq = 0;
+  // 页面组件挂载标记：组件卸载后异步回调不得继续写入页面状态
+  // （store 为模块级单例，由 Table 组件挂载/卸载时调用 setActive 切换）
+  _active = true;
+
+  setActive = (active) => {
+    this._active = active;
+  };
+
   fetchRecords = () => {
+    const seq = ++this._fetchSeq;
+    const requestedPage = this.pageNum;
     this.isFetching = true;
     const params = {
       page: this.pageNum,
@@ -59,17 +73,30 @@ class Store {
       params.valid_to_end = this.f_valid_to_range[1];
     }
 
-    http.get('/api/radio-license/', { params })
+    return http.get('/api/radio-license/', { params })
       .then(({records, total, page, page_size}) => {
-        this.records = records;
+        // 旧请求响应或组件已卸载：不得写入页面状态
+        if (seq !== this._fetchSeq || !this._active) return undefined;
+        const rows = records || [];
+        // 空页回退：删除最后一页最后一条记录后当前页为空，
+        // 回退到上一页重新拉取（真实后端此时会返回有数据的页）
+        if (rows.length === 0 && requestedPage > 1) {
+          this.pageNum = requestedPage - 1;
+          return this.fetchRecords();
+        }
+        this.records = rows;
         this.total = total || 0;
-        this.pageNum = page || this.pageNum;
+        this.pageNum = page || requestedPage;
         this.pageSize = page_size || this.pageSize;
+        return {records: rows, total, page, page_size};
       })
       .catch(e => {
         console.error('[电台执照] 获取列表失败:', e);
       })
-      .finally(() => this.isFetching = false)
+      .finally(() => {
+        // 仅最新请求有权复位 loading，避免旧请求提前关闭新请求的加载态
+        if (seq === this._fetchSeq && this._active) this.isFetching = false;
+      })
   };
 
   // 拉取可选责任人列表（懒加载，首次进入表单时调用）。

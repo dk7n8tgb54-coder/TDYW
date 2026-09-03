@@ -127,12 +127,40 @@ describe('无线电执照 Store fetchRecords', () => {
     store.pageNum = 2;
     store.pageSize = 10;
     store.total = 11;
-    // 删除后只剩 10 条：第 2 页为空
-    mockHttpGet.mockResolvedValue({records: [], total: 10, page: 2, page_size: 10});
+    // 第一次：删除后只剩 10 条，第 2 页为空
+    mockHttpGet.mockResolvedValueOnce({records: [], total: 10, page: 2, page_size: 10});
+    // 回退到第 1 页重新拉取：返回 10 条（模拟真实后端回退后的有效页）
+    mockHttpGet.mockResolvedValueOnce({
+      records: Array.from({length: 10}, (_, i) => ({id: i + 1, station_name: `RG-${i + 1}`})),
+      total: 10, page: 1, page_size: 10,
+    });
     await store.fetchRecords();
-    // 期望：页码应回退到有效页（1），当前页不再为空
+    // 期望：页码回退到有效页（1），当前页有数据
     expect(store.pageNum).toBe(1);
-    expect(store.records).not.toHaveLength(0);
+    expect(store.records).toHaveLength(10);
+  });
+
+  it('组件卸载后异步回调不得写入页面状态', async () => {
+    const store = freshStore();
+    store.records = [{id: 9, station_name: 'RG-卸载前数据'}];
+    const pending = deferred();
+    mockHttpGet.mockReturnValue(pending.promise);
+    const p = store.fetchRecords();
+    expect(store.isFetching).toBe(true);
+    // 模拟组件卸载（Table componentWillUnmount 调用 setActive(false)）
+    store.setActive(false);
+    pending.resolve({records: [{id: 1, station_name: 'RG-卸载后响应'}], total: 1, page: 1, page_size: 20});
+    await p;
+    await flush();
+    // 卸载后响应不得写入
+    expect(store.records).toEqual([{id: 9, station_name: 'RG-卸载前数据'}]);
+    // 重新挂载后恢复正常拉取
+    store.setActive(true);
+    mockHttpGet.mockResolvedValue({records: [{id: 2, station_name: 'RG-重新挂载'}], total: 1, page: 1, page_size: 20});
+    await store.fetchRecords();
+    await flush();
+    expect(store.records[0].station_name).toBe('RG-重新挂载');
+    expect(store.isFetching).toBe(false);
   });
 });
 

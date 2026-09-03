@@ -23,9 +23,11 @@ class ContractAgreement(models.Model, TenantModelMixin):
     )
 
     STATUS_NORMAL = 'normal'
+    STATUS_EXPIRING = 'expiring'
     STATUS_EXPIRED = 'expired'
     STATUS_CHOICES = (
         (STATUS_NORMAL, '正常'),
+        (STATUS_EXPIRING, '即将到期'),
         (STATUS_EXPIRED, '已关闭'),
     )
 
@@ -44,7 +46,7 @@ class ContractAgreement(models.Model, TenantModelMixin):
     responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
-        help_text='状态: normal/expired（expired 显示为已关闭）',
+        help_text='状态: normal/expiring/expired（expired 显示为已关闭）',
     )
     remark = models.TextField(default='', blank=True, help_text='备注')
     last_remind_at = models.DateTimeField(null=True, blank=True, help_text='最近提醒扫描时间')
@@ -83,7 +85,7 @@ class ContractAgreement(models.Model, TenantModelMixin):
                 name='contract_type_valid',
             ),
             models.CheckConstraint(
-                check=models.Q(status__in=['normal', 'expired']),
+                check=models.Q(status__in=['normal', 'expiring', 'expired']),
                 name='contract_status_valid',
             ),
             models.CheckConstraint(

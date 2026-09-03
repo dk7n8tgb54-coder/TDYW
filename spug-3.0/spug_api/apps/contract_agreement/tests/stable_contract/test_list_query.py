@@ -130,8 +130,10 @@ class ListFilterTest(ContractTestCase):
         self.assertNoError(body)
         self.assertEqual({r['id'] for r in body['data']['records']}, {self.a1.id})
 
-    def test_filter_status_normal_and_expired(self):
-        self.assertEqual(self._ids({'status': 'normal'}), {self.a1.id, self.a2.id})
+    def test_filter_status_three_states(self):
+        """三态筛选按 valid_to 实时范围过滤：a1(+30d)=expiring、a2(+300d)=normal、a3(-5d)=expired。"""
+        self.assertEqual(self._ids({'status': 'normal'}), {self.a2.id})
+        self.assertEqual(self._ids({'status': 'expiring'}), {self.a1.id})
         self.assertEqual(self._ids({'status': 'expired'}), {self.a3.id})
 
     def test_combined_filters(self):

@@ -93,7 +93,13 @@ export default observer(function () {
         })
         .catch(e => {
           console.error('[电台执照] 提交表单失败:', e);
-          message.error(e.message || '操作失败，请稍后重试');
+          // libs/http.js 拦截器对 HTTP 200 + error 会 reject 业务错误字符串
+          // 并已弹过一次提示；此处直接透传原始错误（同一文案 2 秒内被
+          // showErrorOnce 去重），保证同一错误只提示一次且文案准确
+          const msg = typeof e === 'string'
+            ? e
+            : (e && e.message) || '操作失败，请稍后重试';
+          message.error(msg);
         })
         .finally(() => setLoading(false));
     });

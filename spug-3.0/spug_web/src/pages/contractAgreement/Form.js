@@ -13,6 +13,7 @@ import { AttachmentManager } from 'components';
 
 const STATUS_TAG_MAP = {
   normal: {color: 'green', text: '正常'},
+  expiring: {color: 'orange', text: '即将到期'},
   expired: {color: 'default', text: '已关闭'},
 };
 
@@ -62,7 +63,9 @@ export default observer(function () {
           S.fetchRecords();
         })
         .catch(e => {
-          message.error(e.message || '操作失败，请稍后重试');
+          // 业务错误已由 http 拦截器统一提示（AGENTS.md 九.3），此处不得重复弹窗；
+          // 弹窗保持打开，等待用户修正后重试
+          console.error('[合同协议] 提交失败:', e);
         })
         .finally(() => setLoading(false));
     });

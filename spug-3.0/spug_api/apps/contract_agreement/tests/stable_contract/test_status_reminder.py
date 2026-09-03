@@ -31,11 +31,11 @@ class StatusCalculationTest(ContractTestCase):
         self.assertEqual(body['data']['days_left'], -3)
 
     def test_status_boundaries(self):
-        """截止日期 = 今天 / +1 / +60 / +61 天"""
+        """截止日期 = 今天 / +1 / +60 / +61 天（三态：60 天窗口内为 expiring）"""
         cases = [
-            (0, 'normal', 0),
-            (1, 'normal', 1),
-            (60, 'normal', 60),
+            (0, 'expiring', 0),
+            (1, 'expiring', 1),
+            (60, 'expiring', 60),
             (61, 'normal', 61),
             (-1, 'expired', -1),
         ]
@@ -47,7 +47,7 @@ class StatusCalculationTest(ContractTestCase):
 
     def test_calculate_status_accepts_string_date(self):
         status, days = calculate_agreement_status(str(self.today + timedelta(days=5)))
-        self.assertEqual(status, 'normal')
+        self.assertEqual(status, 'expiring')
         self.assertEqual(days, 5)
 
     def test_scan_single_updates_status_and_last_remind_at(self):
@@ -65,9 +65,10 @@ class StatusCalculationTest(ContractTestCase):
 
     def test_scan_single_no_change_when_status_same(self):
         ag = make_agreement(self.user, contract_name='无变化扫描合同',
-                            valid_end_date=self.today + timedelta(days=30))
+                            valid_end_date=self.today + timedelta(days=30),
+                            status='expiring')
         result = scan_single_contract_agreement(ag)
-        self.assertEqual(result['status'], 'normal')
+        self.assertEqual(result['status'], 'expiring')
         self.assertFalse(result['updated'])
 
     def test_scan_all_task_updates_all(self):
@@ -85,8 +86,8 @@ class StatusCalculationTest(ContractTestCase):
         border.refresh_from_db()
         self.assertEqual(expired.status, 'expired')
         self.assertEqual(normal.status, 'normal')
-        self.assertEqual(border.status, 'normal')
-        self.assertEqual(result.get()['updated'], 1)
+        self.assertEqual(border.status, 'expiring', '60 天窗口内应更新为 expiring')
+        self.assertEqual(result.get()['updated'], 2)
 
     def test_scan_all_task_is_repeatable(self):
         make_agreement(self.user, contract_name='重复扫描合同',
@@ -193,9 +194,9 @@ class ReminderPopupTest(ContractTestCase):
         self.post_json({'agreement_id': ag.id}, url=ACK_URL)
         self.assertEqual(self.get_json(POPUP_URL)['data']['records'], [])
 
-        # 续期到 15 天后（仍在 60 天窗口内）
+        # 续期到 15 天后（仍在 60 天窗口内，三态应为 expiring）
         ContractAgreement.objects.filter(pk=ag.pk).update(
-            valid_end_date=self.today + timedelta(days=15), status='normal')
+            valid_end_date=self.today + timedelta(days=15), status='expiring')
         after_renew = self.get_json(POPUP_URL)
         ids = [r['agreement_id'] for r in after_renew['data']['records']]
         self.assertIn(ag.id, ids, '续期后旧确认记录应失效并重新提醒')

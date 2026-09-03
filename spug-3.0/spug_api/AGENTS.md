@@ -137,10 +137,11 @@ json_response(error='错误信息')   # HTTP 200, {"error": "错误信息"}
 
 ### 删除
 
-1. 核心业务表使用逻辑删除（`is_deleted=True` + `deleted_at` + `deleted_by`）。
-2. 删除操作必须 `transaction.atomic()` 包裹，审计日志写入与记录删除在同一事务内。
-3. 批量删除需检查外键引用和附件关联。
-4. `TenantModelManager.delete()` 默认执行逻辑删除。
+1. 删除语义以模块产品决策为准：回收站功能已按产品决策全项目移除（git dc7ebf58 / c5e7d266），业务主表默认**物理删除 + 审计留痕**（如 contract_agreement、radio_license 执照）；确需逻辑删除的模块（如带 `is_deleted` 字段的 interference）必须显式设计并在测试中固化。
+2. 附件删除统一走 `EvidenceAttachment` 软删除留痕，物理文件删除失败标记 `is_pending_clean` 由 Celery 重试。
+3. 删除操作必须 `transaction.atomic()` 包裹，审计日志写入与记录删除在同一事务内。
+4. 批量删除需检查外键引用和附件关联。
+5. `TenantModelManager` 在模型含 `is_deleted` 字段时默认查询自动过滤已删除记录（`all_with_deleted()` 可查全量）。
 
 ### 迁移纪律
 
@@ -198,6 +199,39 @@ CELERY_BEAT_SCHEDULE = {**DOCUMENT_BEAT_SCHEDULE, **RADIO_LICENSE_BEAT_SCHEDULE,
 3. **例外**：`regulation` 使用独立的 `storage.py`，不走 evidence 系统。
 4. **新建阶段上传模式**：前端生成临时 UUID 作为 `object_id`，后端 `pk.isdigit()` 判断跳过记录存在性校验；保存记录时传 `attachment_temp_id`，后端 UPDATE `object_id` 关联。
 5. **preview_token**：document/libs 和 evidence 各有独立实现，待收口。
+
+### 附件接口归属校验（防跨模块越权，必做）
+
+**背景（共性缺陷）**：`AttachmentService.download_response / soft_delete / get_preview_url` 只按租户过滤，**不校验附件归属模块**。业务模块的附件端点若把客户端传入的附件 ID 直接透传给服务，持有该模块附件权限的用户即可枚举 ID，越权读取、软删、预览同租户其他模块的附件。2026-09-03 合同协议上线前测试（DEF-01）一次性命中 contract_agreement、radio_license（执照+批复）、interference 三个模块；home/announcement 与 coop_task 因入口自带模块过滤未受影响，radio_license 当日已修复，其余两个随后修复。
+
+**规则**：业务模块的附件下载、删除、预览地址（preview-url）端点，调用 `AttachmentService` 前**必须**先做归属校验，全部满足才放行：
+
+1. 附件存在且未软删除（`is_deleted=False`）；
+2. `module` 与 `object_type` 等于本模块常量；
+3. 附件属于当前用户可访问的租户范围（`apply_tenant_filter`，超管放行）。
+
+校验不通过统一返回业务错误（如「附件不存在或无权限访问」），不泄露目标模块或路径信息。`preview-file`（kkFileView 回调）已有 preview_token 绑定校验，无需额外处理。
+
+**范式**（`_get_xxx_attachment_for_user` 辅助函数，实现参照 radio_license/views.py、contract_agreement/views.py、interference/views.py）：
+
+```python
+def _get_xxx_attachment_for_user(user, attachment_id):
+    att = apply_tenant_filter(
+        EvidenceAttachment.objects.filter(is_deleted=False), user
+    ).filter(pk=attachment_id).first()
+    if not att:
+        return None, '附件不存在或无权限访问'
+    if att.module != ATTACHMENT_MODULE or att.object_type != ATTACHMENT_OBJECT_TYPE:
+        return None, '附件不存在或无权限访问'
+    return att, None
+```
+
+补充约束：
+
+1. 父业务记录存在性校验按模块需要叠加（radio_license 校验父执照租户可见性；interference 因临时 UUID 上传模式不强制父记录存在）。
+2. 新增使用附件的模块必须照此实现，并配套「跨模块附件访问/删除被拒绝」的稳定契约测试。
+3. 软删除后默认 Manager 过滤 `is_deleted=True`，需要附件快照写证据事件/审计的必须在删除**前**取附件对象（删除后查询必为 None，属死代码）。
+4. 收口方向：给 `AttachmentService` 三个方法增加必填 module/object_type 参数，把校验下沉到公共层（过渡期先在视图层校验）。
 
 ### 文件操作安全
 

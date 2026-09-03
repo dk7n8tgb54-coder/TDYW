@@ -20,7 +20,13 @@ const STATUS_TAG_MAP = {
 @observer
 class ComTable extends React.Component {
   componentDidMount() {
+    // 标记页面组件已挂载：卸载后 store 的异步回调不得再写入页面状态
+    store.setActive(true);
     store.fetchRecords()
+  }
+
+  componentWillUnmount() {
+    store.setActive(false);
   }
 
   handleDelete = (text) => {

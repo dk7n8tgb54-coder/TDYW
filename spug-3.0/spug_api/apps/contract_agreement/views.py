@@ -3,7 +3,7 @@
 # Released under the AGPL-3.0 License.
 import logging
 from decimal import Decimal, InvalidOperation
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from django.db import IntegrityError, transaction
 from django.views.generic import View
@@ -90,8 +90,48 @@ def _validate_and_fill_responsible_user(form, request_user):
 
 STATUS_DISPLAY_MAP = {
     'normal': '正常',
+    'expiring': '即将到期',
     'expired': '已关闭',
 }
+
+# 字段长度上限（与模型 CharField max_length 对齐，DEF-05 修复：服务端前置校验，
+# 避免超长输入触发数据库异常导致 HTTP 500 与告警噪音）
+FIELD_LENGTH_LIMITS = {
+    'contract_name': (200, '合同名称'),
+    'contract_no': (100, '合同编号'),
+    'signing_party': (500, '签约方'),
+}
+
+
+def _validate_field_lengths(form):
+    """校验已传字段的长度上限，None（未传）跳过，返回错误消息或 None。"""
+    for field, (limit, label) in FIELD_LENGTH_LIMITS.items():
+        value = getattr(form, field, None)
+        if value is not None and len(value.strip()) > limit:
+            return f'{label}长度不能超过 {limit} 字'
+    return None
+
+
+def _get_contract_attachment_for_user(user, attachment_id):
+    """合同协议附件专用归属校验（DEF-01 修复）。
+
+    处理合同协议附件（下载/删除/预览）前必须同时满足：
+    1. 附件存在且未软删除；
+    2. module == 'contract_agreement' 且 object_type == 'agreement'；
+    3. 附件属于当前用户可访问的租户范围（apply_tenant_filter，超管放行）。
+    任一不满足统一返回业务错误，权限本身由各端点 @auth 独立校验。
+
+    Returns:
+        (attachment, error)
+    """
+    att = apply_tenant_filter(
+        EvidenceAttachment.objects.filter(is_deleted=False), user
+    ).filter(pk=attachment_id).first()
+    if not att:
+        return None, '附件不存在或无权限访问'
+    if att.module != ATTACHMENT_MODULE or att.object_type != ATTACHMENT_OBJECT_TYPE:
+        return None, '附件不存在或无权限访问'
+    return att, None
 
 
 def _serialize_agreement(agreement, user=None, include_attachment_count=True):
@@ -118,6 +158,9 @@ def _serialize_agreement(agreement, user=None, include_attachment_count=True):
 
 
 def _validate_form(form, request_user):
+    length_error = _validate_field_lengths(form)
+    if length_error:
+        return None, length_error
     valid_start_date, error = _parse_date(form.valid_start_date, '起始日期')
     if error:
         return None, error
@@ -192,7 +235,18 @@ class ContractAgreementView(View):
         if contract_type:
             qs = qs.filter(contract_type=contract_type)
         if status:
-            qs = qs.filter(status=status)
+            # 状态筛选按 valid_to 实时范围过滤（与展示的 computed_status 口径一致，
+            # 不依赖 Celery 扫描落库的 status 列），范式同批复 _apply_approval_status_filter
+            today = date.today()
+            if status == ContractAgreement.STATUS_EXPIRED:
+                qs = qs.filter(valid_end_date__lt=today)
+            elif status == ContractAgreement.STATUS_EXPIRING:
+                qs = qs.filter(
+                    valid_end_date__gte=today,
+                    valid_end_date__lte=today + timedelta(days=EXPIRING_DAYS_THRESHOLD),
+                )
+            elif status == ContractAgreement.STATUS_NORMAL:
+                qs = qs.filter(valid_end_date__gt=today + timedelta(days=EXPIRING_DAYS_THRESHOLD))
         if signing_party:
             qs = qs.filter(signing_party__icontains=signing_party)
         if has_fee != '':
@@ -230,13 +284,13 @@ class ContractAgreementView(View):
             Argument('contract_type', required=False),
             Argument('valid_start_date', required=False),
             Argument('valid_end_date', required=False),
-            Argument('has_fee', type=bool, required=False, default=False),
+            Argument('has_fee', type=bool, required=False),
             Argument('fee_amount', required=False),
-            Argument('fee_detail', required=False, default=''),
+            Argument('fee_detail', required=False),
             Argument('signing_party', required=False),
             Argument('responsible_user_id', type=int, required=False),
             Argument('responsible_user_name', required=False),
-            Argument('remark', required=False, default=''),
+            Argument('remark', required=False),
         ).parse(request.body)
         if error:
             return json_response(error=error)
@@ -246,6 +300,9 @@ class ContractAgreementView(View):
 
     def _validate_edit_form(self, agreement, form):
         """按编辑后的完整状态校验，避免局部更新绕过跨字段规则。"""
+        length_error = _validate_field_lengths(form)
+        if length_error:
+            return length_error
         valid_start_date = agreement.valid_start_date
         if form.valid_start_date:
             valid_start_date, err = _parse_date(form.valid_start_date, '起始日期')
@@ -289,8 +346,14 @@ class ContractAgreementView(View):
             responsible_user_err = _validate_and_fill_responsible_user(form, request.user)
             if responsible_user_err:
                 return json_response(error=responsible_user_err)
-        # 只更新传入的非 None 字段
-        update_data = {k: v for k, v in form.items() if v is not None and k != 'id'}
+        # 只更新传入的非 None 字段；responsible_user_name 一律不信客户端
+        # （DEF-02 修复），仅当责任人 ID 校验通过后写入服务端回填值
+        update_data = {k: v for k, v in form.items()
+                       if v is not None and k not in ('id', 'responsible_user_name')}
+        if form.responsible_user_id is not None:
+            # _validate_and_fill_responsible_user 已将 form.responsible_user_name
+            # 覆盖为服务端根据真实用户回填的值
+            update_data['responsible_user_name'] = form.responsible_user_name
         for key, value in update_data.items():
             setattr(agreement, key, value)
         agreement.updated_at = timezone.now()
@@ -425,11 +488,15 @@ class AttachmentDownloadView(View):
 
     @auth('contract_agreement.attachment.download')
     def get(self, request, pk):
+        # DEF-01 修复：下载前必须通过合同协议附件归属校验，
+        # 不得下载其他模块（执照/批复/干扰等）或跨租户附件
+        att, err = _get_contract_attachment_for_user(request.user, pk)
+        if err:
+            return json_response(error=err)
         inline = request.GET.get('inline') in ('1', 'true', 'True')
         response, error = AttachmentService.download_response(request.user, pk, inline=inline)
         if error:
             return json_response(error=error)
-        att = EvidenceAttachment.objects.filter(pk=pk).first()
         if att:
             record_audit_event(
                 request, 'other', 'contract_agreement_attachment',
@@ -442,6 +509,11 @@ class AttachmentDownloadView(View):
 class AttachmentPreviewUrlView(View):
     @auth('contract_agreement.agreement.view')
     def get(self, request, pk):
+        # DEF-01 修复：签发预览令牌前必须通过归属校验，
+        # 不得为其他模块/跨租户附件生成合同协议预览地址
+        att, err = _get_contract_attachment_for_user(request.user, pk)
+        if err:
+            return json_response(error=err)
         preview_file_api_path = f'/api/contract-agreement/attachments/{pk}/preview-file/'
         data, error = AttachmentService.get_preview_url(request.user, pk, preview_file_api_path)
         if error:
@@ -470,7 +542,12 @@ class AttachmentDeleteView(View):
         if error:
             return json_response(error=error)
 
-        att = EvidenceAttachment.objects.filter(pk=form.id).first()
+        # DEF-01 修复：删除前必须通过归属校验，
+        # 不得删除其他模块（执照/批复/干扰等）或跨租户附件
+        att, err = _get_contract_attachment_for_user(request.user, form.id)
+        if err:
+            return json_response(error=err)
+
         with transaction.atomic():
             error = AttachmentService.soft_delete(
                 request.user, form.id, form.delete_reason, delete_file=True)

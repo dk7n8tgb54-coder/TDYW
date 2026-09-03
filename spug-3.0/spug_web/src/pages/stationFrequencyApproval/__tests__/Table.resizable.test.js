@@ -19,6 +19,7 @@ import {updatePermissions} from 'libs';
 import ComTable from '../Table';
 
 jest.mock('../store', () => ({
+  setActive: jest.fn(),
   records: [{
     id: 1,
     name: '关于XX台站频率的批复',

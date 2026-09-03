@@ -8,7 +8,7 @@ from celery import shared_task
 from django.utils import timezone
 
 from django.utils import timezone
-from apps.contract_agreement.models import ContractAgreement
+from apps.contract_agreement.models import ContractAgreement, EXPIRING_DAYS_THRESHOLD
 from apps.logs.audit import log_celery_audit
 
 logger = logging.getLogger(__name__)
@@ -23,11 +23,16 @@ def _as_date(value):
 
 
 def calculate_agreement_status(valid_end_date, today=None):
-    """计算合同协议状态（两态）和剩余天数。
+    """计算合同协议状态（三态）和剩余天数。
+
+    与执照/批复口径一致：
+        days_left < 0                  → expired（前端显示「已关闭」）
+        0 <= days_left <= 阈值(60 天)   → expiring（前端显示「即将到期」）
+        days_left > 阈值               → normal
 
     Returns:
         tuple: (status, days_left)
-            status: 'normal' / 'expired'（expired 前端显示为已关闭）
+            status: 'normal' / 'expiring' / 'expired'
             days_left: 剩余天数（负数=已过截止日期）
     """
     if today is None:
@@ -37,11 +42,13 @@ def calculate_agreement_status(valid_end_date, today=None):
 
     if days_left < 0:
         return 'expired', days_left
+    if days_left <= EXPIRING_DAYS_THRESHOLD:
+        return 'expiring', days_left
     return 'normal', days_left
 
 
 def scan_single_contract_agreement(agreement, today=None):
-    """扫描单条合同协议，更新两态 status 和扫描时间。"""
+    """扫描单条合同协议，更新三态 status 和扫描时间。"""
     if today is None:
         today = timezone.now().date()
     status, days_left = calculate_agreement_status(agreement.valid_end_date, today)
