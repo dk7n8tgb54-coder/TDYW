@@ -62,6 +62,13 @@ def parse_backend():
                 pending = None
             else:
                 pending = key
+            continue
+        # 结论跟在中文 docstring 之后（如 "描述 ... skipped '原因'"）
+        if pending:
+            m2 = re.search(r'\.{3} (ok|FAIL|ERROR|skipped)( \'|$)', ln)
+            if m2:
+                results[pending] = STATUS_MAP[m2.group(1)]
+                pending = None
 
     rows = []
     for i, key in enumerate(order, 1):

@@ -24,8 +24,20 @@ logger = logging.getLogger(__name__)
 
 # 规章附件在 storage/documents 下的独立子目录名
 REGULATION_SUBDIR = 'regulation'
-MAX_STORED_BASENAME_LENGTH = 80
 UNSAFE_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
+
+# 存储文件名主体的字节上限。
+# 文件系统按"字节"限制单文件名（ext4/xfs/overlayfs 均为 255 字节），
+# 而中文等字符在 UTF-8 下占 3 字节，仅按"字符"截断仍会越界并触发
+# OSError: [Errno 36] File name too long（表现为 HTTP 500）。
+# 预留开销：1(下划线) + 12(唯一后缀) + 5(最长扩展名 .docx/.xlsx/.pptx) = 18 字节，
+# 另留 7 字节余量，故取 230。
+MAX_STORED_BASENAME_BYTES = 230
+
+# 原始文件名入库长度上限，与 RegulationAttachment.original_name 的 max_length 对齐。
+# Django 的 UploadedFile 在构造时会把超过 255 字符的文件名截断并保留扩展名
+# （见 django/core/files/uploadedfile.py），因此业务侧无需再校验 file.name 长度。
+MAX_ORIGINAL_NAME_LENGTH = 255
 
 # 允许上传的文件扩展名白名单（小写，含点号）
 ALLOWED_EXTENSIONS = frozenset({
@@ -82,15 +94,36 @@ def _extract_original_extension(filename):
     return ext
 
 
+def _truncate_bytes(text, max_bytes):
+    """按 UTF-8 字节数截断文本，避免多字节字符被切半产生乱码。
+
+    Args:
+        text: 待截断文本
+        max_bytes: 允许的最大 UTF-8 字节数
+
+    Returns:
+        str: 截断后的文本（字节数不超过 max_bytes）
+    """
+    encoded = text.encode('utf-8')
+    if len(encoded) <= max_bytes:
+        return text
+    # errors='ignore' 丢弃被切半的多字节字符残片，避免产生 U+FFFD 乱码
+    return encoded[:max_bytes].decode('utf-8', errors='ignore')
+
+
 def _sanitize_filename_stem(original_name):
-    """清洗原始文件名主体，保留可读性并避免路径/系统非法字符。"""
+    """清洗原始文件名主体，保留可读性并避免路径/系统非法字符。
+
+    截断按"字节"而非"字符"进行：文件系统按字节限制单文件名（255），
+    中文等字符在 UTF-8 下占 3 字节，按字符截断仍会越界导致上传失败。
+    """
     if not original_name:
         return 'attachment'
     basename = os.path.basename(str(original_name).replace('\\', '/'))
     stem, _ = os.path.splitext(basename)
     stem = UNSAFE_FILENAME_CHARS.sub('_', stem)
     stem = re.sub(r'\s+', '_', stem).strip(' ._')
-    stem = stem[:MAX_STORED_BASENAME_LENGTH].rstrip(' ._')
+    stem = _truncate_bytes(stem, MAX_STORED_BASENAME_BYTES).rstrip(' ._')
     return stem or 'attachment'
 
 

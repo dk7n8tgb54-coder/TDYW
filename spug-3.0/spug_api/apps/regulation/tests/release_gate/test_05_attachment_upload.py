@@ -148,23 +148,20 @@ class FilenameSecurityTests(RegulationGateTestCase):
         self.assertNotIn('\x02', att.stored_name)
 
     def test_ascii_long_filename_stored_name_truncated(self):
-        """ASCII 长文件名：存储名主体截断到 80 字符，上传成功"""
+        """ASCII 长文件名：存储名主体按字节截断（230 字节），上传成功"""
         long_name = 'x' * 200 + '.pdf'
         resp = self.upload(self.admin_client, self.regulation.id, long_name, b'%PDF-1.4',
                            'application/pdf')
         self.assertEqual(resp.json()['error'], '')
         att = RegulationAttachment.objects.get(pk=resp.json()['data']['id'])
-        self.assertLessEqual(len(att.stored_name), 80 + 1 + 12 + 5,
-                             '存储文件名主体被截断到 80 字符以内')
+        # 200 个 ASCII 字符 = 200 字节 < 230 字节上限，主体完整保留
+        self.assertEqual(len(att.stored_name), 200 + 1 + 12 + 4)
+        self.assertLessEqual(len(att.stored_name.encode('utf-8')),
+                             storage.MAX_STORED_BASENAME_BYTES + 1 + 12 + 4)
         self.assertTrue(att.stored_name.endswith('.pdf'))
 
-    def test_cjk_long_filename_exceeds_filesystem_limit(self):
-        """P1 缺陷复现：80 个汉字的存储名 = 240 字节 + 17 字节后缀 > 255 字节上限
-
-        MAX_STORED_BASENAME_LENGTH 按"字符"截断（80），而文件系统按"字节"限制（255）。
-        纯中文长文件名必然触发 OSError: File name too long -> HTTP 500。
-        期望：上传成功，或返回明确的业务错误（不得 500）。
-        """
+    def test_cjk_long_filename_upload_succeeds(self):
+        """REG-UPLOAD-001 回归：纯中文长文件名必须能上传成功（不得再 500）"""
         long_name = '长' * 200 + '.pdf'
         resp = self.upload(self.admin_client, self.regulation.id, long_name, b'%PDF-1.4',
                            'application/pdf')
@@ -172,13 +169,46 @@ class FilenameSecurityTests(RegulationGateTestCase):
                          '纯中文长文件名应能上传成功，实际被文件系统字节上限拦截')
         self.assertEqual(self.physical_file_count(), 1)
 
-    def test_stored_name_byte_length_root_cause(self):
-        """根因证据：截断后存储名的字节长度可能超过文件系统 255 字节上限"""
-        stored = storage.build_stored_name('长' * 200 + '.pdf')
-        byte_len = len(stored.encode('utf-8'))
-        self.assertEqual(len(stored), 80 + 1 + 12 + 4, '按字符数截断到 80')
-        self.assertGreater(byte_len, 255,
-                           '根因：80 个汉字 = 240 字节，加后缀后超过 255 字节文件系统上限')
+    def test_cjk_filename_threshold_79_and_80_both_ok(self):
+        """79 / 80 个汉字的临界值均可上传（修复前 80 字必失败）"""
+        for n in (79, 80):
+            with self.subTest(cjk_chars=n):
+                RegulationAttachment.objects.all().delete()
+                name = '规' * n + '.pdf'
+                resp = self.upload(self.admin_client, self.regulation.id, name,
+                                   b'%PDF-1.4', 'application/pdf')
+                self.assertEqual(resp.json()['error'], '', f'{n} 个汉字应上传成功')
+
+    def test_cjk_docx_long_filename_upload_succeeds(self):
+        """最长扩展名（.docx）叠加中文长名也必须成功"""
+        name = '规' * 200 + '.docx'
+        resp = self.upload(
+            self.admin_client, self.regulation.id, name, b'PK\x03\x04',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+        self.assertEqual(resp.json()['error'], '')
+
+    def test_stored_name_never_exceeds_filesystem_limit(self):
+        """不变量：任何语言组合的存储名，字节数均不得超过文件系统 255 上限"""
+        samples = [
+            'a' * 300 + '.pdf',
+            '规' * 300 + '.docx',
+            '规a' * 150 + '.xlsx',
+            'a' * 230 + '.pptx',
+            '😀' * 100 + '.png',
+        ]
+        for name in samples:
+            with self.subTest(name=name[:20]):
+                stored = storage.build_stored_name(name)
+                self.assertLessEqual(len(stored.encode('utf-8')), 255,
+                                     f'存储名超 255 字节: {len(stored.encode("utf-8"))}')
+                self.assertLessEqual(len(stored), 255,
+                                     '存储名字符数不得超过 original_name 字段上限')
+
+    def test_stored_name_has_no_replacement_char(self):
+        """多字节字符被截断时不得产生 U+FFFD 乱码"""
+        for name in ('规' * 100 + '.pdf', '😀' * 60 + '.png', 'é' * 200 + '.txt'):
+            stored = storage.build_stored_name(name)
+            self.assertNotIn('�', stored, '截断不得产生替换字符乱码')
 
     def test_original_name_255_chars_accepted(self):
         name = 'a' * 251 + '.pdf'
@@ -188,25 +218,33 @@ class FilenameSecurityTests(RegulationGateTestCase):
         self.assertEqual(
             RegulationAttachment.objects.get(pk=resp.json()['data']['id']).original_name, name)
 
-    def test_original_name_over_field_limit_is_silently_truncated(self):
-        """P3 观察：超过 255 字符的原始文件名被静默截断落库，接口仍返回成功"""
+    def test_original_name_over_limit_is_normalized_by_django(self):
+        """超过 255 字符的文件名：由 Django 框架层截断并保留扩展名，上传成功
+
+        Django 在 UploadedFile 构造时把 >255 的文件名截断为 name[:255-len(ext)] + ext，
+        业务侧收到的 file.name 恒 <=255，不会触发 MySQL 严格模式 DataError。
+        """
         name = 'a' * 300 + '.pdf'
         resp = self.upload(self.admin_client, self.regulation.id, name, b'%PDF-1.4',
                            'application/pdf')
-        self.assertEqual(resp.json()['error'], '')
+        self.assertEqual(resp.json()['error'], '', 'Django 已归一化文件名，上传应成功')
         att = RegulationAttachment.objects.get(pk=resp.json()['data']['id'])
-        self.assertEqual(len(att.original_name), 255,
-                         '超长原始文件名被静默截断到字段上限 255 字符，用户无感知')
+        self.assertLessEqual(len(att.original_name), 255)
+        self.assertTrue(att.original_name.endswith('.pdf'),
+                        'Django 截断时保留扩展名，不得破坏文件类型识别')
 
-    def test_orm_write_over_field_limit_is_rejected(self):
-        """对照：直接 ORM 写入超长 original_name 会被数据库拒绝（字段约束真实存在）"""
-        from django.db import DatabaseError, transaction
-        with self.assertRaises(DatabaseError):
-            with transaction.atomic():
-                RegulationAttachment.objects.create(
-                    regulation=self.regulation, original_name='a' * 300 + '.pdf',
-                    stored_name='x.pdf', file_path='regulation/x.pdf',
-                    file_size=1, file_type='pdf')
+    def test_original_name_boundary_no_data_error(self):
+        """252~304 字符区间均不产生 DataError / 500"""
+        for length in (251, 252, 300, 500):
+            with self.subTest(name_len=length):
+                RegulationAttachment.objects.all().delete()
+                name = 'a' * length + '.pdf'
+                resp = self.upload(self.admin_client, self.regulation.id, name, b'x',
+                                   'application/pdf')
+                self.assertEqual(resp.json()['error'], '',
+                                 f'{length} 字符文件名不应触发数据库错误')
+                att = RegulationAttachment.objects.first()
+                self.assertLessEqual(len(att.original_name), 255)
 
     def test_unicode_filename_accepted(self):
         name = '规章 附件-测试_😀.pdf'

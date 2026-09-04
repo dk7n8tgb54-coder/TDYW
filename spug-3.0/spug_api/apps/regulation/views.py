@@ -723,6 +723,10 @@ class RegulationAttachmentUploadView(View):
         if ext not in storage.ALLOWED_EXTENSIONS:
             return json_response(error=f'不支持的文件类型: {ext or "无扩展名"}')
 
+        # 说明：无需在此校验 file.name 长度。Django 的 UploadedFile 在构造时
+        # 已将超过 255 字符的文件名截断并保留扩展名（django/core/files/uploadedfile.py），
+        # 因此 file.name 恒不超过 RegulationAttachment.original_name 的字段上限。
+
         try:
             sort_order = int(request.POST.get('sort_order', '0') or '0')
         except ValueError:
