@@ -664,9 +664,10 @@ class RegulationRetireView(View):
         regulation.save(update_fields=['status', 'updated_by', 'updated_at'])
 
         record_audit_event(
-            request, 'retire', AUDIT_TARGET_TYPE,
+            request, 'update', AUDIT_TARGET_TYPE,
             target_id=regulation.id, target_name=regulation.title,
-            detail={'status': regulation.status},
+            # action_kind 保留细分动作语义（AuditLog.ACTION_CHOICES 仅收录大类）
+            detail={'action_kind': 'retire', 'status': regulation.status},
         )
         return json_response(data=_serialize_regulation(regulation))
 
@@ -758,9 +759,10 @@ class RegulationAttachmentUploadView(View):
                     uploaded_by=request.user,
                 )
                 record_audit_event(
-                    request, 'upload_attachment', AUDIT_TARGET_TYPE,
+                    request, 'create', AUDIT_TARGET_TYPE,
                     target_id=regulation.id, target_name=regulation.title,
-                    detail={'attachment_id': att.id, 'file_name': att.original_name,
+                    detail={'action_kind': 'upload_attachment',
+                            'attachment_id': att.id, 'file_name': att.original_name,
                             'file_size': att.file_size},
                 )
         except Exception:
@@ -821,9 +823,11 @@ class RegulationAttachmentDownloadView(View):
         response['Content-Length'] = os.path.getsize(abs_path)
 
         record_audit_event(
-            request, 'download_attachment', AUDIT_TARGET_TYPE,
+            request, 'other', AUDIT_TARGET_TYPE,
             target_id=regulation.id, target_name=regulation.title,
-            detail={'attachment_id': att.id, 'file_name': att.original_name, 'inline': inline},
+            detail={'action_kind': 'download_attachment',
+                    'attachment_id': att.id, 'file_name': att.original_name,
+                    'inline': inline},
         )
         return response
 
@@ -1007,9 +1011,10 @@ class RegulationAttachmentDetailView(View):
         transaction.on_commit(_cleanup_file)
 
         record_audit_event(
-            request, 'delete_attachment', AUDIT_TARGET_TYPE,
+            request, 'delete', AUDIT_TARGET_TYPE,
             target_id=regulation.id, target_name=regulation.title,
-            detail={'attachment_id': att.id, 'file_name': att.original_name},
+            detail={'action_kind': 'delete_attachment',
+                    'attachment_id': att.id, 'file_name': att.original_name},
         )
         return json_response(data={'status': 'deleted'})
 

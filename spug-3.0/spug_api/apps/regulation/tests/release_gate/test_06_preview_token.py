@@ -75,13 +75,17 @@ class DownloadBehaviourTests(RegulationGateTestCase):
         self.assertIn('UTF-8', resp['Content-Disposition'])
 
     def test_download_audit_event_recorded(self):
+        """下载附件应产生审计事件（action 归一为 other，细分动作在 detail.action_kind）"""
         self.downloader_client.get(
             f'/regulation/{self.regulation.id}/attachments/{self.att.id}/download/')
         from apps.logs.models import AuditLog
         log = AuditLog.objects.filter(
-            target_type='regulation', action='download_attachment',
-            target_id=str(self.regulation.id)).first()
-        self.assertIsNotNone(log, '下载附件应产生 download_attachment 审计事件')
+            target_type='regulation', action='other',
+            target_id=str(self.regulation.id)).order_by('-id').first()
+        self.assertIsNotNone(log, '下载附件应产生 other 审计事件')
+        self.assertIn('download_attachment', log.detail,
+                      '细分动作应保留在 detail.action_kind')
+        self.assertIn(str(self.att.id), log.detail)
         self.assertEqual(log.username, self.downloader.username)
 
     def test_download_missing_physical_file_returns_business_error(self):

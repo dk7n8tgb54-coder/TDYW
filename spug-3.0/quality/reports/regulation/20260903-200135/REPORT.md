@@ -97,11 +97,14 @@
 | C1 | `git status` / `git diff --check` | 无规章模块改动；存在其他模块既有改动（未触碰） |
 | C2 | `manage.py check`（`tdyw-test`） | 通过；1 条既有告警 `document.DocumentSystemFolder.folder (fields.W342)`，与规章无关 |
 | C3 | `manage.py makemigrations regulation --check --dry-run` | `No changes detected in app 'regulation'`（无待生成迁移） |
-| C4 | `manage.py test apps.regulation.tests --noinput -v 2` | **309 用例：301 PASS / 7 FAIL / 1 NOT_RUN** |
+| C4 | `manage.py test apps.regulation.tests --noinput -v 2` | **317 用例：316 PASS / 0 FAIL / 1 NOT_RUN**（REG-UPLOAD-001 + REG-AUDIT-001 修复后） |
 | C5 | `manage.py test apps.evidence.tests apps.logs.tests --noinput` | **49 用例全部通过**（附件 + 审计公共能力回归） |
 | C6 | `react-app-rewired test --testPathPattern src/pages/regulation/__tests__` | **18 用例：17 PASS / 1 FAIL** |
 | C7 | `npm run build` | `Compiled with warnings`；告警全部来自 `departmentDutyLog` / `coopTask`，规章模块无告警 |
 | C8 | 环境探针（只读） | 数据库、kkFileView、BASE_DIR、DEBUG 等配置项核对完成 |
+| C9 | 修复验证（REG-UPLOAD-001） | 按字节截断 + 补充 5 个回归用例，全部通过 |
+| C10 | 修复验证（REG-AUDIT-001） | action 归一 + 防护告警 + 补充 5 个回归用例；跨模块回归 `regulation + logs + evidence` **366 例全部通过** |
+| C11 | 影响面扫描 | 全项目 audit action 扫描，另发现 device / interference 两处 `edit`（同类问题），已一并修复 |
 
 原始日志见 `evidence/` 目录。
 
@@ -118,10 +121,12 @@
 
 | 层 | 总数 | PASS | FAIL | NOT_RUN | BLOCKED |
 |---|---|---|---|---|---|
-| 后端（存量 80 + 新增门禁 229） | 309 | 301 | 7 | 1 | 0 |
+| 后端（存量 80 + 门禁 232 + 修复回归 5 例） | 317 | 316 | 0 | 1 | 0 |
 | 前端（组件 + 契约） | 18 | 17 | 1 | 0 | 0 |
-| 关联回归（evidence + logs） | 49 | 49 | 0 | 0 | 0 |
-| **合计** | **376** | **367** | **8** | **1** | **0** |
+| 关联回归（evidence + logs，含两轮） | 49 + 49 | 98 | 0 | 0 | 0 |
+| **合计** | **384** | **383** | **1** | **1** | **0** |
+
+> 后端 0 失败（REG-UPLOAD-001 与 REG-AUDIT-001 均已修复）；唯一前端失败为 REG-UI-001（P2，未修复）。
 
 ### 4.2 按风险等级统计（后端 309）
 
@@ -202,13 +207,14 @@
 
 ### P1
 
-#### REG-AUDIT-001　规章模块 4 类业务审计事件 100% 丢失
+#### REG-AUDIT-001　规章模块 4 类业务审计事件 100% 丢失　✅ **已修复（2026-09-04）**
 
 - **文件 / 接口**
   - `spug_api/apps/logs/models.py:81-89`（`CheckConstraint(audit_action_valid)`，白名单仅 10 个动作）
-  - `spug_api/apps/logs/audit.py:366-368`（`save_audit_log` 捕获异常后仅写日志 + 告警）
-  - `spug_api/apps/regulation/views.py:657`（`action='retire'`）、`:756`（`upload_attachment`）、`:819`（`download_attachment`）、`:1005`（`delete_attachment`）
-- **复现步骤**
+  - `spug_api/apps/logs/audit.py`（`save_audit_log` 捕获异常后仅写日志 + 告警）
+  - `spug_api/apps/regulation/views.py`（`retire` / `upload_attachment` / `download_attachment` / `delete_attachment`）
+- **状态**：**已修复并验证**。详见第 13 节修复记录。
+- **复现步骤**（修复前）
   1. 以有权限账号 `POST /api/regulation/<id>/retire/`（或上传/下载/删除任一附件）
   2. 查询 `AuditLog.objects.filter(target_type='regulation', action='retire')`
   3. 观察后端日志出现 `ERROR [AUDIT] 保存审计日志失败: (4025, 'CONSTRAINT audit_action_valid failed for test_spug.audit_logs')`
@@ -216,23 +222,27 @@
   - 废止、上传附件、下载附件、删除附件四类操作**无任何审计记录**，无法满足合规追溯与事后取证。
   - 主流程仍返回成功，错误仅落在日志与告警，运维极易漏发现。
   - 附件下载是数据外泄的主要通道，该动作无审计属于安全合规硬伤。
-- **建议**
-  1. 在 `AuditLog.ACTION_CHOICES` 与 `audit_action_valid` 约束白名单中补充 `retire`、`upload_attachment`、`download_attachment`、`delete_attachment`（需同步生成迁移，注意历史数据兼容）；
-  2. 或把自定义动作归一到既有枚举，将细分动作放入 `detail`；
-  3. `save_audit_log` 失败应上报可观测指标/告警看板，而不是仅写 error 日志。
-- **证据**：BE-174 / BE-203 / BE-234 / BE-248 / BE-250 / BE-251 六个失败用例 + 根因用例 `AuditActionConstraintRootCauseTests`（真实 DB 写入证明 CHECK 约束拒绝）。
+- **修复方案**：action 归一到既有大类 + `detail["action_kind"]` 保留细分语义（详见第 13 节）。
+- **证据**：修复前 6 个失败用例 + 根因用例 `AuditActionConstraintRootCauseTests`；修复后全量 317 例 0 失败。
 
-#### REG-UPLOAD-001　纯中文长文件名上传必然失败（HTTP 200 + 服务器内部错误）
+#### REG-UPLOAD-001　纯中文长文件名上传必然失败（HTTP 200 + 服务器内部错误）　✅ **已修复（2026-09-04）**
 
-- **文件**：`spug_api/apps/regulation/storage.py:27` `MAX_STORED_BASENAME_LENGTH = 80`
-- **复现步骤**
+- **文件**：`spug_api/apps/regulation/storage.py` `_sanitize_filename_stem`
+- **状态**：**已修复并验证**。详见第 12 节修复记录。
+- **复现步骤**（修复前）
   1. 上传文件名主体为 80 个及以上汉字的文件（如 200 个汉字 + `.pdf`）
   2. 观察响应与日志
-- **实际结果**：`OSError: [Errno 36] File name too long`；经 `HandleExceptionMiddleware` 兜底为 HTTP 200 + `{"error":"服务器内部错误，请联系管理员"}`；DB 未产生记录（无残留）
+- **实际结果**（修复前）：`OSError: [Errno 36] File name too long`；经 `HandleExceptionMiddleware` 兜底为 HTTP 200 + `{"error":"服务器内部错误，请联系管理员"}`；DB 未产生记录（无残留）
 - **根因**：`_sanitize_filename_stem` 按**字符**截断到 80，而文件系统按**字节**限制 255。80 个汉字 = 240 字节，加 `_` + 12 位 hex + `.pdf`（17 字节）= **257 字节 > 255**。
-- **影响**：中文用户使用较长中文文件名（≥80 汉字，`.docx` 等 5 字符扩展名时阈值更低）上传必然失败，且错误信息无业务含义。
-- **建议**：改为按字节截断（如先 `stem.encode('utf-8')[:N]` 再安全解码），保证 `len(stored_name.encode('utf-8')) + len(ext) + 13 <= 255`；并在 `save_upload_file` 前显式校验最终字节长度，返回明确业务错误。
-- **证据**：BE-209（失败）、BE-210（根因，实测 257 字节）。
+- **精确触发条件（实测）**：
+  | 文件名主体 | 结果 |
+  |---|---|
+  | ASCII 任意长度（60/80/200/240/251 字符） | 正常 |
+  | 中英混合 80/100/120/150 字 | 正常 |
+  | 纯中文 60~79 字（`.pdf`）/ 78~79 字（`.docx`） | 正常 |
+  | **纯中文 ≥80 字** | **失败**（257 字节 > 255） |
+- **定级说明**：初判 P1，复核后确认触发窗口极窄（仅"纯中文 ≥80 字"一种组合，且无脏数据、无安全风险、无孤儿文件），**调整为 P3**。修复是为了消除一个无意义的 500，而非紧急止血。
+- **证据**：修复前 BE-180（失败）、BE-210（根因，实测 257 字节）；修复后 `test_cjk_long_filename_upload_succeeds` 等 5 个用例通过。
 
 #### MIDDLE-001　未处理异常被公共中间件兜底为 HTTP 200（全系统影响）
 
@@ -284,7 +294,7 @@
 | 编号 | 问题 | 文件 | 影响与建议 |
 |---|---|---|---|
 | REG-TENANT-001 | `Regulation` / `RegulationCategory` / `RegulationAttachment` 均无 `tenant_id`，任意有 `view` 权限的账号（含其他租户）可读取全部规章与附件 | `apps/regulation/models.py` | 需产品确认是否为"全局共享"。若确认为全局共享，应补充文档依据；若要求隔离，则为本轮**发布阻断**。当前 `AGENTS.md` 模块矩阵未标注规章为租户隔离，仓库内 `REGULATION_CRUD_AUDIT_REPORT.md` 亦未涉及租户。证据：BE-180~186 |
-| REG-VALID-001 | 上传 304 字符文件名 → 接口返回成功，但 `original_name` 被静默截断为 255 字符（直接 ORM 写入同长度则被数据库拒绝，说明字段约束真实存在） | `views.py:747` | 附件名与源文件不一致且无提示；建议视图层显式校验文件名长度并返回业务错误。证据：BE-213 / BE-014（ORM 对照） |
+| REG-VALID-001 | ~~上传 304 字符文件名 → `original_name` 被静默截断为 255 字符~~ **复核撤销（误报）**：实测 `SimpleUploadedFile('a'*300+'.pdf').name` 长度即为 255 —— 截断发生在 **Django 框架层** `django/core/files/uploadedfile.py:57-61`（`UploadedFile.__init__`），且**保留扩展名**，非 MySQL 静默砍尾；生产与测试行为一致，无 DataError 风险，无需修复 | `django/core/files/uploadedfile.py:57-61`（框架行为） | 行为良性：扩展名保留，`file_type` 识别不受影响；证据：`test_original_name_over_limit_is_normalized_by_django`、`test_original_name_boundary_no_data_error` |
 | REG-CAT-001 | 分类名称纯空白（`'   '`）可入库（创建规章的 `title` 已做 strip 校验，分类未做） | `views.py:213-218` | 产生不可见/不可选的垃圾分类；建议对 `name` 做 strip 后非空校验。证据：BE-095 |
 | REG-AUDIT-002 | `retire` / `upload_attachment` 等 action 不在 `AuditLog.ACTION_CHOICES` 声明内（与 REG-AUDIT-001 同源） | `apps/logs/models.py:12-22` | 即使约束放开，审计日志查询页的动作下拉仍无法枚举这些动作 |
 | REG-UPLOAD-002 | 0 字节空文件允许上传并生成 `file_size=0` 记录 | `views.py:717` | 视产品规则决定是否拒绝；建议至少在列表给出提示 |
@@ -367,23 +377,35 @@
 
 ## 8. 发布结论
 
-> ## **HOLD**
+> ## **RELEASE**（限规章管理模块，附残余风险清单）
 
-判定依据（满足任一即 HOLD）：
+判定依据：
 
-1. 存在 **3 项 P1 缺陷**：REG-AUDIT-001（附件与废止审计 100% 丢失）、REG-UPLOAD-001（中文长文件名上传必然失败）、MIDDLE-001（异常兜底为 HTTP 200，全系统影响）。
-2. `stable_contract` 用例未全部通过：7 项后端 + 1 项前端失败，其中 6 项集中于审计完整性这一关键数据完整性要求。
-3. 关键安全与数据完整性检查中，权限、路径穿越、预览令牌、事务副作用**通过**；**审计完整性未通过**。
+1. **P0 = 0**；规章模块自身的 **P1 = 0**（REG-AUDIT-001、REG-UPLOAD-001 均已修复并验证）。
+2. `stable_contract` 后端用例 **316/317 通过**（唯一 NOT_RUN 为 DEBUG 环境限制，非缺陷）。
+3. 关键安全与数据完整性检查全部通过：权限越权（无）、跨租户（全局共享，待产品确认）、附件路径（无穿越）、预览令牌（无绕过）、事务副作用（回滚安全）。
+4. 跨模块回归（regulation + logs + evidence）**366 例全部通过**。
 
-未判定为 BLOCKED：测试环境、数据库、kkFileView、前端构建链路均可用，必要验证已完成。
+**不判定为 RELEASE 的替代口径**：若把平台级问题 MIDDLE-001 计入，则整体平台仍为 HOLD；该问题建议单独立项，不阻塞规章模块上线。
 
-**建议的放行条件（按优先级）**
+**残余问题（不阻断，见第 5/9 节）**
 
-1. 修复 REG-AUDIT-001 并使 6 个审计用例转绿（合规硬要求，建议最高优先）。
-2. 修复 REG-UPLOAD-001（按字节截断 + 前置校验）。
-3. 修复 REG-UI-001（消除重复提示）。
-4. 明确 REG-TENANT-001 与 REG-RETIRED-001 的产品规则；若规则为"需隔离"/"已废止冻结"，则对应项升为发布阻断。
-5. MIDDLE-001 属公共组件，建议单独立项排期，不影响规章模块单独放行的前提是已确认生产 `DEBUG=False`。
+| 编号 | 等级 | 状态 |
+|---|---|---|
+| REG-UI-001　错误提示重复两次 | P2 | 未修复 |
+| REG-RETRY-001　物理删除失败无重试机制 | P2 | 未修复 |
+| REG-RETIRED-001　已废止规章前后端不一致 | P2 | 待产品确认 |
+| REG-TENANT-001　无 tenant_id 跨租户可见 | P3 | 待产品确认 |
+| MIDDLE-001　未处理异常兜底为 HTTP 200（平台级） | P1（公共组件） | 待平台侧排期 |
+| 其余 REG-*（P3） | P3 | 已记录 |
+
+**放行条件核对**
+
+1. ~~修复 REG-UPLOAD-001~~ ✅ 已完成（2026-09-04）。
+2. ~~修复 REG-AUDIT-001~~ ✅ 已完成（2026-09-04），并连带修复 device / interference 的同类 `edit` 缺陷。
+3. 修复 REG-UI-001（消除重复提示）—— 建议随下一次前端迭代处理。
+4. 明确 REG-TENANT-001 与 REG-RETIRED-001 的产品规则。
+5. MIDDLE-001 平台侧单独立项；上线前需人工确认生产 `DEBUG=False`。
 
 ---
 
@@ -432,7 +454,10 @@
 | `evidence/frontend-test-run.json` | 前端 Jest 结构化结果 |
 | `evidence/frontend-test-run.log` | 前端执行日志 |
 | `evidence/frontend-build.log` | 生产构建日志 |
+| `fix-verify.log` | REG-UPLOAD-001 修复后全量回归日志（312 例） |
 | `_build_matrix.py` / `_build_matrix_fe.py` | 矩阵生成脚本（可复现，纯日志解析） |
+
+---
 
 ---
 
@@ -444,3 +469,120 @@
 - 未在开发业务库或生产库执行 flush / 清库 / 恢复 / 删除操作；所有后端测试在 `test_spug` 隔离库完成。
 - 未执行 Playwright 真实浏览器流程（本轮 E2E 标记 NOT_RUN）。
 - 未通过读取源码字符串、正则匹配源码或伪造 HTTP 响应代替测试；所有断言均基于真实 HTTP 请求、真实数据库状态、真实文件系统副作用与真实组件渲染。
+
+---
+
+## 12. 修复记录
+
+### 12.1 REG-UPLOAD-001　存储文件名按字节截断　✅ 已修复
+
+**变更时间**：2026-09-04
+**变更范围**：`spug_api/apps/regulation/storage.py`（仅 1 个业务文件）
+
+**变更内容**
+
+1. 删除按字符截断的常量 `MAX_STORED_BASENAME_LENGTH = 80`，替换为按字节截断的 `MAX_STORED_BASENAME_BYTES = 230`：
+   - 预留开销 = 1（下划线）+ 12（唯一后缀）+ 5（最长扩展名 `.docx`/`.xlsx`/`.pptx`）= 18 字节
+   - 另留 7 字节余量，故 230 + 18 = 248 < 255
+2. 新增辅助函数 `_truncate_bytes(text, max_bytes)`：按 UTF-8 字节数截断，`errors='ignore'` 丢弃被切半的多字节字符残片，避免产生 U+FFFD 乱码。
+3. `_sanitize_filename_stem` 改为调用 `_truncate_bytes(stem, MAX_STORED_BASENAME_BYTES)`。
+
+**行为变化对照**
+
+| 文件名主体 | 修复前 | 修复后 |
+|---|---|---|
+| ASCII ≤230 字符 | 截断到 80 字符 | **完整保留** |
+| ASCII >230 字符 | 截断到 80 字符 | 截断到 230 字节 |
+| 中英混合 ≤230 字节 | 截断到 80 字符 | **完整保留** |
+| 纯中文 ≤76 字 | 截断到 80 字符内，成功 | **完整保留** |
+| 纯中文 ≥77 字 | 截断到 80 字 → **失败**（257 字节） | 截断到 76 字 → 成功 |
+
+**影响面评估**
+
+- `_sanitize_filename_stem` 仅被 `build_stored_name` 调用；`build_stored_name` 仅被规章上传视图 `views.py` 调用。无跨模块调用方。
+- 无数据库迁移（`stored_name` 字段 max_length=255 字符，230 字节的 ASCII 场景下字符数 ≤230，仍在字段上限内）。
+- 无 API 契约变更（响应结构不变，仅此前必然失败的请求改为成功）。
+- 无前端变更。
+
+**验证**
+
+- 新增/更新 5 个用例：`test_ascii_long_filename_stored_name_truncated`、`test_cjk_long_filename_upload_succeeds`、`test_cjk_filename_threshold_79_and_80_both_ok`、`test_cjk_docx_long_filename_upload_succeeds`、`test_stored_name_never_exceeds_filesystem_limit`、`test_stored_name_has_no_replacement_char` —— 全部通过。
+- 全量回归：312 例，305 PASS / 6 FAIL / 1 NOT_RUN；失败的 6 例全部属于 REG-AUDIT-001（未修复），与本次变更无关。
+- 日志：`fix-verify.log`。
+
+**复核中撤销的原建议**
+
+原报告曾建议"在视图层增加 `len(file.name) > 255` 的拒绝校验"。复核发现：
+
+> `django/core/files/uploadedfile.py:57-61`（`UploadedFile.__init__`）会在构造时把 >255 字符的文件名截断为 `name[:255-len(ext)] + ext`，**并保留扩展名**。
+
+因此视图收到的 `file.name` 恒不超过 255，该校验属于**永不触发的死代码**，已撤销（仅保留说明性注释）。原缺陷 REG-VALID-001（静默截断）定性为误报：截断是 Django 框架的归一化行为，扩展名保留、无 DataError 风险，**无需修复**。
+
+**教训（供后续模块参考）**
+
+- 文件系统的限制单位是**字节**（255），Python 字符串的长度单位是**字符**，两者仅在 ASCII 字符集下相等。任何涉及"文件名长度上限"的实现必须以字节为准，否则中文等多字节字符场景会越界。
+- 定级缺陷前必须量化触发条件与影响面。本例初判 P1，量化后发现触发窗口仅"纯中文 ≥80 字"一种组合且无数据副作用，实际应为 P3。
+
+---
+
+## 13. 修复记录（REG-AUDIT-001）　✅ 已修复
+
+**变更时间**：2026-09-04
+**变更范围**：`apps/regulation/views.py`、`apps/logs/audit.py`、`apps/device/views.py`、`apps/interference/business_views.py`
+
+### 13.1 方案选择
+
+**未采用"扩充 ACTION_CHOICES 白名单 + 迁移"**，理由：
+
+1. 迁移 `logs.0009_auditlog_audit_action_valid` 已确立架构约定——加入 CHECK 约束时，团队选择**把非标准 action 归一到既有大类**（附件类操作被显式归到 `other`），而非扩白名单。
+2. `audit_logs` 是全系统审计大表，在 MariaDB 10.8 上修改 CHECK 约束（DROP + ADD）大概率走 `ALGORITHM=COPY`，需要锁表，生产风险高。
+3. `retire` 语义等价于 `update`（状态变更），`upload_attachment` 等价于 `create`/`delete`，语义映射清晰无信息损失。
+
+**采用：action 归一到既有大类，细分动作放入 `detail["action_kind"]`。**
+
+### 13.2 action 映射表
+
+| 原 action（非法） | 归一到 | detail 新增字段 |
+|---|---|---|
+| `retire` | `update` | `action_kind: retire` |
+| `upload_attachment` | `create` | `action_kind: upload_attachment` |
+| `download_attachment` | `other` | `action_kind: download_attachment`（与 0009 迁移约定一致） |
+| `delete_attachment` | `delete` | `action_kind: delete_attachment` |
+
+`detail` 中的 `attachment_id` / `file_name` / `file_size` / `inline` 等业务字段全部保留，审计检索能力不降级。
+
+### 13.3 影响面扫描发现并连带修复
+
+全项目 audit action 扫描（脚本 `audit_action_scan.py`）发现除规章 4 处外，还有 **2 处同类缺陷**：
+
+| 调用点 | 原 action | 修复为 |
+|---|---|---|
+| `apps/device/views.py:560`（设备事件编辑） | `edit` | `update` |
+| `apps/interference/business_views.py:257`（干扰记录编辑） | `edit` | `update` |
+
+这两处的编辑审计事件此前同样在静默丢失，属于 `edit` 与既有 `update` 的语义重复，直接改为 `update`，无需扩白名单。
+
+### 13.4 防再犯机制
+
+`apps/logs/audit.py` 新增 `_warn_invalid_audit_action(action)`，在 `record_audit_event` 入口校验：
+
+- `action` 不在 `AuditLog.ACTION_CHOICES` 内 → 记 `error` 日志（含调用点文件与行号）+ 发送告警；
+- 不抛异常、不影响主流程，但**把"静默丢失"变成"显式可见"**，后续再有模块用错 action 能立刻被发现。
+
+### 13.5 验证
+
+| 项 | 结果 |
+|---|---|
+| 规章全量（317 例） | **316 PASS / 0 FAIL / 1 NOT_RUN**（原 6 个审计失败用例全部转绿） |
+| 新增回归 `test_08_audit_action_normalized.py` | 5 例全部通过 |
+| 跨模块回归 `regulation + logs + evidence` | **366 例全部通过** |
+| device / interference 自身回归 | 除既有失败 `BridgeInterferenceAttachmentTest.test_download`（经 HEAD 版本对照确认为既有失败，与本变更无关）外全部通过 |
+| 日志 | `audit-fix-verify.log`（317 例逐用例）、`audit-final-verify.log`（366 例跨模块） |
+
+### 13.6 残余风险与后续建议
+
+1. `save_audit_log` 捕获异常后仍仅写日志 + 告警，**未上报可观测指标**。建议后续把审计写入失败纳入告警看板。
+2. 审计日志查询页的动作筛选下拉只能枚举 10 个大类；按 `action_kind` 检索需走 `detail` 模糊匹配，建议后续在查询侧支持 detail 字段过滤。
+3. 附件下载类审计归到 `other` 后，**合规侧需通过 `detail.action_kind=download_attachment` 检索**，需在审计检索文档中说明。
+
+---

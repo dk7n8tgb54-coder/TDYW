@@ -59,13 +59,16 @@ class AttachmentSoftDeleteTests(RegulationGateTestCase):
         self.assertEqual(resp.json()['error'], '附件不存在')
 
     def test_delete_attachment_audit_event_recorded(self):
+        """删除附件应产生审计事件（action 归一为 delete，细分动作在 detail.action_kind）"""
         self.admin_client.delete(
             f'/regulation/{self.regulation.id}/attachments/{self.att.id}/')
         from apps.logs.models import AuditLog
         log = AuditLog.objects.filter(
-            target_type='regulation', action='delete_attachment',
-            target_id=str(self.regulation.id)).first()
-        self.assertIsNotNone(log, '删除附件应产生 delete_attachment 审计事件')
+            target_type='regulation', action='delete',
+            target_id=str(self.regulation.id)).order_by('-id').first()
+        self.assertIsNotNone(log, '删除附件应产生 delete 审计事件')
+        self.assertIn('delete_attachment', log.detail,
+                      '细分动作应保留在 detail.action_kind')
         self.assertIn(str(self.att.id), log.detail)
         self.assertNotIn('preview_token', (log.detail or '').lower())
 
@@ -187,12 +190,15 @@ class RegulationDeleteCascadeTests(RegulationGateTransactionTestCase):
 class AuditEventIntegrityTests(RegulationGateTestCase):
     """R-07-04 审计事件完整性与脱敏
 
-    ⚠️ 已知缺陷（REG-AUDIT-001，P1）：
-    规章模块的 retire / upload_attachment / download_attachment / delete_attachment
-    四类业务审计事件，因 action 取值不在 AuditLog 的 DB CHECK 约束
-    audit_action_valid 白名单内，写入被数据库拒绝后由 save_audit_log 静默吞掉，
-    仅落 error 日志 + 告警，主流程不失败 -> 审计事件 100% 丢失。
-    以下相关用例为 defect_reproduction，断言指向期望的正确行为（修复前失败）。
+    ✅ REG-AUDIT-001 已修复（2026-09-04）：
+    规章模块原先使用 retire / upload_attachment / download_attachment /
+    delete_attachment 四个自定义 action，不在 AuditLog.ACTION_CHOICES 内，
+    被 audit_action_valid CHECK 约束拒绝后由 save_audit_log 静默吞掉，
+    导致审计事件 100% 丢失。
+
+    修复方式：action 归一到已有大类（create/update/delete/other），
+    细分动作保留在 detail["action_kind"]，与迁移 0009 的既有约定一致。
+    本组用例已转为 stable_contract，验证归一后的正确行为。
     """
 
     def test_create_update_retire_delete_all_audited(self):
@@ -205,16 +211,26 @@ class AuditEventIntegrityTests(RegulationGateTestCase):
         actions = set(AuditLog.objects.filter(
             target_type='regulation', target_id=str(reg_id)
         ).values_list('action', flat=True))
-        for expected in ('update', 'retire', 'delete'):
+        for expected in ('update', 'delete'):
             self.assertIn(expected, actions, f'应产生 {expected} 审计事件')
+        # 废止归一到 update，细分动作落在 detail.action_kind
+        declared = {code for code, _label in AuditLog.ACTION_CHOICES}
+        for action in actions:
+            self.assertIn(action, declared,
+                          f'所有规章审计 action 均须在 ACTION_CHOICES 内，实际 {action}')
+        retire_log = AuditLog.objects.filter(
+            target_type='regulation', target_id=str(reg_id),
+            detail__icontains='retire').first()
+        self.assertIsNotNone(retire_log, '废止动作应通过 detail.action_kind 保留语义')
 
     def test_audit_records_operator_and_target(self):
         from apps.logs.models import AuditLog
         self.admin_client.post(f'/regulation/{self.regulation.id}/retire/')
         log = AuditLog.objects.filter(
-            target_type='regulation', action='retire',
-            target_id=str(self.regulation.id)).first()
-        self.assertIsNotNone(log)
+            target_type='regulation', action='update',
+            target_id=str(self.regulation.id),
+            detail__icontains='retire').order_by('-id').first()
+        self.assertIsNotNone(log, '废止应产生 update 审计事件且 detail 含 action_kind=retire')
         self.assertEqual(log.username, self.admin.username)
         self.assertEqual(log.user_id, self.admin.id)
         self.assertEqual(log.target_name, '基准规章')
@@ -233,15 +249,32 @@ class AuditEventIntegrityTests(RegulationGateTestCase):
             self.assertNotIn('access_token', detail)
             self.assertNotIn('x-token', detail)
 
-    def test_audit_action_values_outside_declared_choices(self):
-        """retire / upload_attachment 等 action 不在 AuditLog.ACTION_CHOICES 内"""
+    def test_all_regulation_audit_actions_are_declared(self):
+        """REG-AUDIT-001 回归：规章所有业务审计 action 必须在 ACTION_CHOICES 内"""
         from apps.logs.models import AuditLog
-        self.admin_client.post(f'/regulation/{self.regulation.id}/retire/')
-        log = AuditLog.objects.filter(action='retire').first()
-        self.assertIsNotNone(log)
         declared = {code for code, _label in AuditLog.ACTION_CHOICES}
-        self.assertNotIn('retire', declared,
-                         'retire 未声明在 ACTION_CHOICES 中，审计筛选下拉无法枚举')
+        att = self.make_attachment_record(self.regulation, 'decl.pdf', b'x')
+
+        self.create_regulation(title='审计创建', rule_no='RG-AUD-01')
+        self.admin_client.put(f'/regulation/{self.regulation.id}/',
+                              {'title': '审计更新'}, content_type='application/json')
+        self.admin_client.post(f'/regulation/{self.regulation.id}/retire/')
+        self.admin_client.delete(f'/regulation/{self.regulation.id}/')
+        self.upload(self.admin_client, self.regulation2.id, 'aud.pdf', b'x')
+        self.downloader_client.get(
+            f'/regulation/{self.regulation2.id}/attachments/'
+            f'{RegulationAttachment.objects.first().id}/download/')
+        self.admin_client.delete(
+            f'/regulation/{self.regulation2.id}/attachments/'
+            f'{RegulationAttachment.objects.first().id}/')
+
+        rows = AuditLog.objects.filter(target_type='regulation')
+        self.assertGreater(rows.count(), 0)
+        for row in rows:
+            self.assertIn(row.action, declared,
+                          f'审计 action={row.action!r} 未在 ACTION_CHOICES 声明，'
+                          '该事件将被 CHECK 约束拒绝并静默丢失')
+            self.assertTrue(row.log_hash, '审计事件应成功落库并生成哈希链')
 
     def test_sensitive_keyword_sanitizer_masks_tokens(self):
         from apps.logs.audit import sanitize_audit_detail

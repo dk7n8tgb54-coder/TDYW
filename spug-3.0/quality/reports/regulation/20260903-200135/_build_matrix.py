@@ -6,7 +6,9 @@ import os
 import re
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-TMP = os.path.join(BASE, '..', '_tmp')
+TMP = os.path.dirname(os.path.abspath(__file__))  # 后端日志现归档于本目录
+BACKEND_LOG = os.path.join(TMP, 'audit-fix-verify.log')
+FRONTEND_LOG = os.path.join(TMP, 'evidence', 'frontend-test-run.json')
 
 RISK = [
     ('token', 'P0'), ('traversal', 'P0'), ('tamper', 'P0'), ('expired', 'P0'),
@@ -29,8 +31,7 @@ def guess_risk(blob):
 
 
 def parse_backend():
-    with io.open(os.path.join(TMP, 'backend_v2.log'), encoding='utf-8',
-                 errors='replace') as fh:
+    with io.open(BACKEND_LOG, encoding='utf-8', errors='replace') as fh:
         lines = [ln.strip() for ln in fh]
 
     order, results = [], {}
@@ -84,27 +85,26 @@ def parse_backend():
 
 
 def parse_frontend():
-    ansi = re.compile(r'\x1b\[[0-9;]*m')
-    with io.open(os.path.join(TMP, 'jest_v.log'), encoding='utf-8',
-                 errors='replace') as fh:
-        lines = [ansi.sub('', ln).strip() for ln in fh]
+    """从 Jest JSON 结果（evidence/frontend-test-run.json）生成前端矩阵。"""
+    import json
 
-    rows, current_file, suite = [], '', ''
-    for ln in lines:
-        m = re.match(r'^(PASS|FAIL) (.+)$', ln)
-        if m:
-            current_file = os.path.basename(m.group(2).strip())
-            continue
-        if re.match(r'^[A-Za-z][\w ]{2,60}$', ln) and not ln.endswith('.'):
-            suite = ln
-            continue
-        m = re.match(r'^([√✓✕×])\s+(.+?)(?:\s+\(\d+\s*m?s\))?$', ln)
-        if m:
+    with io.open(os.path.join(TMP, 'evidence', 'frontend-test-run.json'),
+                 encoding='utf-8') as fh:
+        data = json.load(fh)
+
+    rows = []
+    status_map = {'passed': 'PASS', 'failed': 'FAIL', 'pending': 'NOT_RUN',
+                  'skipped': 'NOT_RUN'}
+    for suite in data.get('testResults', []):
+        module = re.sub(r'\.test\.js$', '', os.path.basename(suite.get('name', '')))
+        for case in suite.get('assertionResults', []):
+            title = case.get('fullName') or case.get('title', '')
+            suite_name = (case.get('ancestorTitles') or [''])[0]
             rows.append({
                 'case_id': 'FE-%03d' % (len(rows) + 1), 'layer': 'frontend',
-                'module': current_file, 'suite': suite, 'case': m.group(2).strip(),
-                'risk': guess_risk(m.group(2) + ' ' + suite),
-                'result': 'PASS' if m.group(1) in ('√', '✓') else 'FAIL',
+                'module': module, 'suite': suite_name, 'case': title,
+                'risk': guess_risk(title + ' ' + suite_name),
+                'result': status_map.get(case.get('status'), 'NOT_RUN'),
             })
     return rows
 
@@ -122,6 +122,8 @@ def main():
     be, fe = parse_backend(), parse_frontend()
     write_csv(os.path.join(BASE, 'test-matrix-backend.csv'), be)
     write_csv(os.path.join(BASE, 'test-matrix-frontend.csv'), fe)
+    import collections
+    print('by-module:', sorted(collections.Counter(r['module'] for r in be).items()))
     for label, rows in (('backend', be), ('frontend', fe)):
         s = {}
         for r in rows:

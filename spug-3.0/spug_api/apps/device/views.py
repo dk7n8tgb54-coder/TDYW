@@ -557,7 +557,7 @@ class DeviceEventView(View):
             event.remark = form.remark
             event.save()
             record_audit_event(
-                request, 'edit', 'device_event',
+                request, 'update', 'device_event',
                 target_id=event.id, target_name=event.event_title,
                 detail={'device_sn': event.device_sn, 'event_type': event.event_type},
             )

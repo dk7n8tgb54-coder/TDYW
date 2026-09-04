@@ -16,6 +16,7 @@
 import json
 import threading
 import logging
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +213,33 @@ def _send_audit_alert(error_msg):
         logger.error('[AUDIT] send_alert 也失败了，无法通知管理员', exc_info=True)
 
 
+def _warn_invalid_audit_action(action):
+    """业务审计入口对非法 action 提前告警（避免被 CHECK 约束拒绝后静默丢弃）。
+
+    action 必须取自 AuditLog.ACTION_CHOICES；细分动作请放入 detail
+    （如 {'action_kind': 'delete_attachment', ...}）。
+    """
+    try:
+        from apps.logs.models import AuditLog
+
+        declared = {code for code, _label in AuditLog.ACTION_CHOICES}
+        if action in declared:
+            return
+        # 调用栈：[..., 业务调用方, record_audit_event, 本函数]
+        caller = traceback.extract_stack()[-3] if len(
+            traceback.extract_stack()) >= 3 else None
+        where = '%s:%s' % (caller.filename, caller.lineno) if caller else '<unknown>'
+        logger.error(
+            '[AUDIT] 非法审计 action=%r（调用点 %s）。该事件将被 audit_action_valid '
+            'CHECK 约束拒绝并静默丢弃；请改用 AuditLog.ACTION_CHOICES 中的大类，'
+            '细分动作放入 detail["action_kind"]。',
+            action, where,
+        )
+        _send_audit_alert('非法审计 action=%r（调用点 %s）' % (action, where))
+    except Exception:
+        logger.error('[AUDIT] 校验审计 action 时异常', exc_info=True)
+
+
 def record_audit_event(request, action, target_type, target_id=None,
                        target_name=None, detail=None, is_success=True,
                        error=None, before_value=None, after_value=None):
@@ -223,9 +251,17 @@ def record_audit_event(request, action, target_type, target_id=None,
         变更前的值（指南 1.5 要求"变更前后值"），将合并到 detail 中。
     after_value : dict, optional
         变更后的值，将合并到 detail 中。
+
+    Notes
+    -----
+    action 必须取自 AuditLog.ACTION_CHOICES，否则该审计事件会被
+    audit_action_valid CHECK 约束拒绝并由 save_audit_log 静默丢弃。
+    此处对非法 action 记 error 日志并告警，避免再出现审计静默丢失。
     """
     try:
         from libs.utils import get_request_real_ip
+
+        _warn_invalid_audit_action(action)
 
         if error is not None:
             detail = _merge_audit_error(detail, error)

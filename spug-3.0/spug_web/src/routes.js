@@ -17,7 +17,8 @@ import {
   SafetyCertificateOutlined,
   NotificationOutlined,
   ScheduleOutlined,
-  TeamOutlined
+  TeamOutlined,
+  FieldTimeOutlined
 } from '@ant-design/icons';
 
 import HomeIndex from './pages/home';
@@ -53,6 +54,10 @@ import StationFrequencyApproval from './pages/stationFrequencyApproval';
 import ContractAgreementIndex from './pages/contractAgreement';
 import CoopTaskIndex from './pages/coopTask';
 import RegulationIndex from './pages/regulation';
+import EquipmentLifecycleIndex from './pages/equipmentLifecycle';
+import EquipmentLifecycleSystems from './pages/equipmentLifecycle/systems';
+import EquipmentLifecycleSystemDetail from './pages/equipmentLifecycle/systems/detail';
+import EquipmentLifecycleRelations from './pages/equipmentLifecycle/relations';
 import AnnouncementList from './pages/home/AnnouncementList';
 import AnnouncementAdmin from './pages/system/announcement';
 import ReminderAdmin from './pages/reminder';
@@ -91,6 +96,13 @@ export default [
       {title: '故障件管理', auth: 'fault.faultpart.view', path: '/exec/fault/part', component: ExecFaultPart},
     ]},
   ]},
+  {icon: <FieldTimeOutlined/>, title: '设备生命周期', auth: 'equipment_lifecycle.device.view|equipment_lifecycle.system.view|equipment_lifecycle.relation.view', child: [
+    {title: '设备档案', auth: 'equipment_lifecycle.device.view', path: '/equipment-lifecycle', component: EquipmentLifecycleIndex},
+    {title: '系统档案', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.relation.view', path: '/equipment-lifecycle/systems', component: EquipmentLifecycleSystems},
+    {title: '设备关系', auth: 'equipment_lifecycle.relation.view', path: '/equipment-lifecycle/relations', component: EquipmentLifecycleRelations},
+  ]},
+  // 系统详情/关系维护页（从系统列表"详情"进入，不在菜单展示）
+  {path: '/equipment-lifecycle/systems/detail/:id', component: EquipmentLifecycleSystemDetail},
   {icon: <ExceptionOutlined/>, title: '干扰管理', auth: 'interference.interference.view', child: [
     {title: '地面无线电通信异常/干扰', auth: 'interference.interference.view', path: '/interference/bridge', component: BridgeInterference},
     {title: '空中干扰', auth: 'interference.interference.view', path: '/interference/air', component: AirInterference},

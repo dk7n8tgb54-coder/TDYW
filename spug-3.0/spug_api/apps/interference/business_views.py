@@ -254,7 +254,7 @@ class _BusinessInterferenceView(View):
                 return json_response(error=error)
             record.save(update_fields=list(update_data.keys()) + ['updated_at', 'updated_by'])
         record_audit_event(
-            request, 'edit', 'interference',
+            request, 'update', 'interference',
             target_id=str(record.id),
             target_name=self._target_name(record),
             detail={'record_type': self.object_type, 'fields': list(update_data.keys())},

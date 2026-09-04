@@ -96,6 +96,31 @@ export default [{
     ]
   }]
 }, {
+  key: 'equipment_lifecycle',
+  label: '设备生命周期',
+  pages: [{
+    key: 'device',
+    label: '设备档案',
+    perms: [
+      {key: 'view', label: '查看设备档案'},
+      {key: 'manage', label: '维护设备档案（新建/编辑/删除）'},
+    ]
+  }, {
+    key: 'system',
+    label: '系统档案',
+    perms: [
+      {key: 'view', label: '查看系统'},
+      {key: 'manage', label: '维护系统（新建/编辑/删除）'},
+    ]
+  }, {
+    key: 'relation',
+    label: '系统设备关系',
+    perms: [
+      {key: 'view', label: '查看关系'},
+      {key: 'manage', label: '维护关系（建立/编辑/退出）'},
+    ]
+  }]
+}, {
   key: 'interference',
   label: '干扰管理',
   pages: [{

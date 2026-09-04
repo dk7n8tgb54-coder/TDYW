@@ -319,12 +319,15 @@ class AttachmentMetadataTests(RegulationGateTestCase):
             RegulationAttachment.objects.get(pk=resp.json()['data']['id']).sort_order, 0)
 
     def test_upload_audit_event_recorded(self):
+        """上传附件应产生审计事件（action 归一为 create，细分动作在 detail.action_kind）"""
         resp = self.upload(self.admin_client, self.regulation.id, 'audit-up.pdf', b'x')
         from apps.logs.models import AuditLog
         log = AuditLog.objects.filter(
-            target_type='regulation', action='upload_attachment',
-            target_id=str(self.regulation.id)).first()
-        self.assertIsNotNone(log, '上传附件应产生 upload_attachment 审计事件')
+            target_type='regulation', action='create',
+            target_id=str(self.regulation.id)).order_by('-id').first()
+        self.assertIsNotNone(log, '上传附件应产生 create 审计事件')
+        self.assertIn('upload_attachment', log.detail,
+                      '细分动作应保留在 detail.action_kind')
         self.assertIn(str(resp.json()['data']['id']), log.detail)
         self.assertNotIn('preview_token', (log.detail or '').lower(),
                          '审计详情不得包含预览令牌')

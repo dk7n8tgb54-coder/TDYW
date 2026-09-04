@@ -42,6 +42,7 @@ urlpatterns = [
     path('signature/', include('apps.signature.urls')),
     path('department-duty-log/', include('apps.department_duty_log.urls')),
     path('data-analysis/', include('apps.data_analysis.urls')),
+    path('equipment-lifecycle/', include('apps.equipment_lifecycle.urls')),
 ]
 
 # 在开发环境下提供media文件服务
