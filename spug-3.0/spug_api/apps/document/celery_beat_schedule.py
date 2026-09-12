@@ -77,12 +77,14 @@ DOCUMENT_BEAT_SCHEDULE = {
     # 清理超过 24 小时的打包 ZIP 文件
     # 【修复】原 cleanup_expired_pack_tasks 已定义但无 Beat 调度也无 delay 调用，
     # 导致 storage/document_pack_tasks/ 下的 zip 永久堆积
+    # 【修复】走 document.cleanup 队列（cleanup worker 消费）；
+    # 原指定的 document.pack 队列无 worker 消费，清理任务永远不会执行
     # ========================================
     'document-cleanup-expired-pack-tasks': {
         'task': 'apps.document.tasks.pack.cleanup_expired_pack_tasks',
         'schedule': crontab(hour=6, minute=0),
         'kwargs': {'max_age_hours': 24},
-        'options': {'queue': 'document.pack'},
+        'options': {'queue': 'document.cleanup'},
     },
 }
 

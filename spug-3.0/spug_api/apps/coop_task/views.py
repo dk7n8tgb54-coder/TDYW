@@ -981,11 +981,15 @@ class AttachmentDownloadView(View):
             pk=pk, module=ATTACHMENT_MODULE, is_deleted=False).first()
         if not att:
             return json_response(error='附件不存在')
+        # 本端点同时服务交付明细附件与材料模板，object_type 按附件实际归属传入
+        if att.object_type not in (ATTACHMENT_OBJECT_TYPE, TEMPLATE_OBJECT_TYPE):
+            return json_response(error='附件不存在')
         err = _resolve_attachment_read(request.user, att)
         if err:
             return json_response(error=err)
         response, error = AttachmentService.download_response(
-            request.user, pk, inline=request.GET.get('inline') in ('1', 'true', 'True'),
+            request.user, pk, ATTACHMENT_MODULE, att.object_type,
+            inline=request.GET.get('inline') in ('1', 'true', 'True'),
             skip_tenant_filter=True)
         if error:
             return json_response(error=error)
@@ -1001,13 +1005,17 @@ class AttachmentPreviewUrlView(View):
             pk=pk, module=ATTACHMENT_MODULE, is_deleted=False).first()
         if not att:
             return json_response(error='附件不存在')
+        # 本端点同时服务交付明细附件与材料模板，object_type 按附件实际归属传入
+        if att.object_type not in (ATTACHMENT_OBJECT_TYPE, TEMPLATE_OBJECT_TYPE):
+            return json_response(error='附件不存在')
         err = _resolve_attachment_read(request.user, att)
         if err:
             return json_response(error=err)
         preview_file_api_path = f'/api/coop-task/attachments/{pk}/preview-file/'
         # 附件归属上传方（交付科室）租户，跨租户预览须以附件真实租户绑定令牌
         data, error = AttachmentService.get_preview_url(
-            request.user, pk, preview_file_api_path, skip_tenant_filter=True,
+            request.user, pk, ATTACHMENT_MODULE, att.object_type,
+            preview_file_api_path, skip_tenant_filter=True,
             token_tenant_id=att.tenant_id)
         if error:
             return json_response(error=error)

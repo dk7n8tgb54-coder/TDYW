@@ -6,7 +6,7 @@
 import React from 'react';
 import styles from './index.module.css';
 import { SmileTwoTone } from '@ant-design/icons';
-import { Descriptions, Spin, Button, Alert, notification } from 'antd';
+import { Descriptions, Spin, Button, notification } from 'antd';
 import { observer } from 'mobx-react'
 import { http, VERSION } from 'libs';
 
@@ -62,7 +62,8 @@ class About extends React.Component {
           <Descriptions.Item label="Python版本">{info['python_version']}</Descriptions.Item>
           <Descriptions.Item label="Django版本">{info['django_version']}</Descriptions.Item>
           <Descriptions.Item label="Spug API版本">{info['spug_version']}</Descriptions.Item>
-          <Descriptions.Item label="Spug Web版本">{VERSION}</Descriptions.Item>
+          {/* 平台前后端一体发版，Web 版本同样以服务端返回为准（唯一来源 spug_api/VERSION） */}
+          <Descriptions.Item label="Spug Web版本">{info['spug_version']}</Descriptions.Item>
           <Descriptions.Item label="官网文档">
             <a href="https://spug.cc" target="_blank" rel="noopener noreferrer">https://spug.cc</a>
           </Descriptions.Item>
@@ -71,9 +72,6 @@ class About extends React.Component {
                rel="noopener noreferrer">https://ops.spug.cc/docs/change-log/</a>
           </Descriptions.Item>
         </Descriptions>
-        {info['spug_version'] !== VERSION && (
-          <Alert showIcon style={{width: 500}} type="warning" message="Spug API版本与Web版本不匹配，请尝试刷新浏览器后再次查看。"/>
-        )}
       </Spin>
     )
   }

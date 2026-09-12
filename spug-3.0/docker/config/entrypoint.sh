@@ -14,6 +14,9 @@ done
 echo "数据库已连接"
 
 # 执行数据库迁移
+if [ -n "${RELEASE_PENDING_APPS}" ]; then
+    echo "延迟上线模块（本次启动跳过迁移且不注册API）: ${RELEASE_PENDING_APPS}"
+fi
 echo "执行数据库迁移..."
 cd /data/spug/spug_api
 python manage.py migrate --noinput || echo "迁移失败或已跳过"

@@ -42,7 +42,20 @@ urlpatterns = [
     path('signature/', include('apps.signature.urls')),
     path('department-duty-log/', include('apps.department_duty_log.urls')),
     path('data-analysis/', include('apps.data_analysis.urls')),
-    path('equipment-lifecycle/', include('apps.equipment_lifecycle.urls')),
+    path('system/', include('apps.release.urls')),
+]
+
+# 延迟上线模块路由：与 settings.RELEASE_PENDING_APPS 配套，
+# 清单中的模块不注册路由，生产环境不暴露其 API。
+# 注意：include('字符串') 会在调用时立即导入目标模块，因此这里只存参数，
+# 仅对未列入延迟清单的模块构建 path/include，避免启动时导入未安装模块。
+_pending_app_urls = {
+    'equipment_lifecycle': ('equipment-lifecycle/', 'apps.equipment_lifecycle.urls'),
+}
+urlpatterns += [
+    path(prefix, include(urlconf))
+    for name, (prefix, urlconf) in _pending_app_urls.items()
+    if name not in settings.RELEASE_PENDING_APPS
 ]
 
 # 在开发环境下提供media文件服务

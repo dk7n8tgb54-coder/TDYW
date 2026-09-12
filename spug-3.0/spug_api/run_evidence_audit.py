@@ -234,8 +234,13 @@ def test_p12_idempotency_prevents_duplicate():
 # ==================== §1.5 防误操作 ====================
 
 def test_p13_download_has_is_deleted():
-    """R8已修复：download_response 过滤 is_deleted"""
-    src = inspect.getsource(AttachmentService.download_response)
+    """R8已修复：download_response 过滤 is_deleted
+
+    is_deleted 过滤已下沉到公共的 _get_owned_attachment，download_response
+    通过它取附件，因此同时校验两个方法的源码。
+    """
+    src = (inspect.getsource(AttachmentService.download_response)
+           + inspect.getsource(AttachmentService._get_owned_attachment))
     assert 'is_deleted' in src, "download_response 应包含 is_deleted 过滤"
 
 def test_p14_soft_deleted_not_downloadable():
@@ -245,7 +250,8 @@ def test_p14_soft_deleted_not_downloadable():
     att.is_deleted = True
     att.deleted_at = datetime.now()
     att.save()
-    resp, err = AttachmentService.download_response(u, att.id, skip_tenant_filter=True)
+    resp, err = AttachmentService.download_response(
+        u, att.id, att.module, att.object_type, skip_tenant_filter=True)
     assert err is not None, "软删除附件应返回错误"
     assert '不存在' in err or '已删除' in err, f"应提示不存在或已删除: {err}"
 

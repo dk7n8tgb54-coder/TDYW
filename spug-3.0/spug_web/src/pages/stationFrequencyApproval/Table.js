@@ -123,7 +123,9 @@ class ComTable extends React.Component {
         <Table.Column title="责任人" dataIndex="responsible_user_name" width={100}/>
         <Table.Column title="附件" width={70} render={this.renderAttachmentCount}/>
         <Table.Column title="创建时间" dataIndex="created_at" width={160} ellipsis/>
-        {hasPermission('radio_license.approval.edit|radio_license.approval.del') && (
+        {/* 与执照表口径一致：具备查看/编辑/删除任一权限即渲染操作列，
+            仅查看权限的用户保留「查看」入口（行双击仍可进详情） */}
+        {hasPermission('radio_license.approval.view|radio_license.approval.edit|radio_license.approval.del') && (
           <Table.Column title="操作" width={200} fixed="right" render={info => (
             <Action>
               <Action.Button auth="radio_license.approval.view" onClick={() => store.showDetail(info)}>查看</Action.Button>

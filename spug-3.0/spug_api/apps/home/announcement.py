@@ -453,7 +453,9 @@ class AnnouncementAttachmentDeleteView(View):
         ).parse(request.GET)
         if error:
             return json_response(error=error)
-        error = AttachmentService.soft_delete(request.user, form.id, delete_file=True)
+        # 归属校验：管理端删除只放行公告模块附件，防止越权删除同租户其他模块附件
+        error = AttachmentService.soft_delete(
+            request.user, form.id, MODULE, OBJECT_TYPE, delete_file=True)
         if error:
             return json_response(error=error)
         record_audit_event(request, 'delete', target_type='home', target_name='删除附件 ID=%s' % form.id)
@@ -577,8 +579,10 @@ class AnnouncementAttachmentDownloadView(View):
         if not (ensure_announcement_perm(request.user, 'view') or (ann and ann.is_visible_to(request.user))):
             return json_response(error='无权限访问该附件')
         inline = request.GET.get('inline') in ('1', 'true', 'True')
+        # 公告跨租户可见：跳过租户过滤（可见性已由上方 is_visible_to / 管理权限校验），
+        # 但仍强制校验 module / object_type
         response, error = AttachmentService.download_response(
-            request.user, pk, inline=inline, skip_tenant_filter=True)
+            request.user, pk, MODULE, OBJECT_TYPE, inline=inline, skip_tenant_filter=True)
         if error:
             return json_response(error=error)
         return response
@@ -596,8 +600,10 @@ class AnnouncementAttachmentPreviewUrlView(View):
         if not (ensure_announcement_perm(request.user, 'view') or (ann and ann.is_visible_to(request.user))):
             return json_response(error='无权限访问该附件')
         preview_file_api_path = '/api/home/announcement/attachments/%s/preview-file/' % pk
+        # 公告跨租户可见：跳过租户过滤 + 以附件真实 tenant_id 绑定令牌，
+        # 仍强制校验 module / object_type
         data, error = AttachmentService.get_preview_url(
-            request.user, pk, preview_file_api_path,
+            request.user, pk, MODULE, OBJECT_TYPE, preview_file_api_path,
             skip_tenant_filter=True, token_tenant_id=att.tenant_id)
         if error:
             return json_response(error=error)

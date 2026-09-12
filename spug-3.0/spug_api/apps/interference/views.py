@@ -350,6 +350,14 @@ InterferenceAttachmentConfig = AttachmentConfig(
 
 ATTACHMENT_MODULE = 'interference'
 ATTACHMENT_OBJECT_TYPE = 'interference'
+# 地面（历史 Interference）与双业务类型（地面无线电通信异常/干扰、空中干扰）的附件
+# 共用同一组下载 / 预览 / 删除端点，仅以 object_type 区分归属，
+# 因此端点必须接受本模块全部业务对象类型（否则 bridge/air 附件无法下载）。
+BRIDGE_OBJECT_TYPE = 'bridge_interference'
+AIR_OBJECT_TYPE = 'air_interference'
+ATTACHMENT_OBJECT_TYPES = (
+    ATTACHMENT_OBJECT_TYPE, BRIDGE_OBJECT_TYPE, AIR_OBJECT_TYPE,
+)
 
 
 def _get_interference_attachment_for_user(user, attachment_id):
@@ -357,7 +365,7 @@ def _get_interference_attachment_for_user(user, attachment_id):
 
     处理干扰管理附件（下载/删除/预览）前必须同时满足：
     1. 附件存在且未软删除；
-    2. module == 'interference' 且 object_type == 'interference'；
+    2. module == 'interference' 且 object_type 属于本模块业务对象类型集合；
     3. 附件属于当前用户可访问的租户范围（apply_tenant_filter，超管放行）。
     校验在附件行级别进行：不强制父记录存在，兼容新建阶段
     以临时 UUID（temp-xxx）挂在未保存记录上的附件。
@@ -371,7 +379,7 @@ def _get_interference_attachment_for_user(user, attachment_id):
     ).filter(pk=attachment_id).first()
     if not att:
         return None, '附件不存在或无权限访问'
-    if att.module != ATTACHMENT_MODULE or att.object_type != ATTACHMENT_OBJECT_TYPE:
+    if att.module != ATTACHMENT_MODULE or att.object_type not in ATTACHMENT_OBJECT_TYPES:
         return None, '附件不存在或无权限访问'
     return att, None
 
@@ -436,7 +444,8 @@ class AttachmentDownloadView(View):
         if err:
             return json_response(error=err)
         inline = request.GET.get('inline') in ('1', 'true', 'True')
-        response, error = AttachmentService.download_response(request.user, pk, inline=inline)
+        response, error = AttachmentService.download_response(
+            request.user, pk, ATTACHMENT_MODULE, att.object_type, inline=inline)
         if error:
             return json_response(error=error)
         return response
@@ -454,7 +463,8 @@ class AttachmentPreviewUrlView(View):
             return json_response(error=err)
         preview_file_api_path = f'/api/interference/attachments/{pk}/preview-file/'
         data, error = AttachmentService.get_preview_url(
-            request.user, pk, preview_file_api_path)
+            request.user, pk, ATTACHMENT_MODULE, att.object_type,
+            preview_file_api_path)
         if error:
             return json_response(error=error)
         return json_response(data)
@@ -494,7 +504,8 @@ class AttachmentDeleteView(View):
             return json_response(error=err)
 
         error = AttachmentService.soft_delete(
-            request.user, form.id, form.delete_reason, delete_file=True)
+            request.user, form.id, ATTACHMENT_MODULE, att.object_type,
+            form.delete_reason, delete_file=True)
         if error:
             return json_response(error=error)
 

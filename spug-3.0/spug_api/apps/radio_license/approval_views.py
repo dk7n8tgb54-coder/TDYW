@@ -472,7 +472,9 @@ class ApprovalAttachmentDownloadView(View):
             return json_response(error=err)
         inline = request.GET.get('inline') in ('1', 'true', 'True')
         # 已通过桥接校验，直接读取文件流
-        response, error = AttachmentService.download_response(request.user, pk, inline=inline)
+        response, error = AttachmentService.download_response(
+            request.user, pk, APPROVAL_ATTACHMENT_MODULE, APPROVAL_ATTACHMENT_OBJECT_TYPE,
+            inline=inline)
         if error:
             return json_response(error=error)
         return response
@@ -488,7 +490,8 @@ class ApprovalAttachmentPreviewUrlView(View):
             return json_response(error=err)
         preview_file_api_path = f'/api/radio-license/approvals/attachments/{pk}/preview-file/'
         data, error = AttachmentService.get_preview_url(
-            request.user, pk, preview_file_api_path,
+            request.user, pk, APPROVAL_ATTACHMENT_MODULE, APPROVAL_ATTACHMENT_OBJECT_TYPE,
+            preview_file_api_path,
         )
         if error:
             return json_response(error=error)
@@ -536,7 +539,8 @@ class ApprovalAttachmentDeleteView(View):
             return json_response(error='附件不存在或无权限删除')
 
         error = AttachmentService.soft_delete(
-            request.user, form.id, form.delete_reason, delete_file=True,
+            request.user, form.id, APPROVAL_ATTACHMENT_MODULE, APPROVAL_ATTACHMENT_OBJECT_TYPE,
+            form.delete_reason, delete_file=True,
         )
         if error:
             return json_response(error=error)

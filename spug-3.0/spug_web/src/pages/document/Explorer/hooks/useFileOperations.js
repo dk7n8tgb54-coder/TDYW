@@ -242,12 +242,86 @@ export const useFileOperations = ({
     message.success(`已开始下载 ${selectedItems.length} 个文件`);
   }, [isPublic]);
 
+  // 轮询文件夹打包任务状态，完成后经 ready 接口取件
+  const pollFolderPackTask = useCallback((taskId, token) => {
+    const readyUrl = `/api/document/folder/download/ready/?task_id=${taskId}&x-token=${token}`;
+    let pollCount = 0;
+    let failureCount = 0;
+    const MAX_POLLS = 600; // 打包最长等待 20 分钟（2s * 600）
+    const POLL_INTERVAL = 2000;
+
+    // 轮询回调已脱离用户手势上下文，用临时 anchor 触发下载，避免被弹窗拦截
+    const triggerDownload = () => {
+      const anchor = document.createElement('a');
+      anchor.href = readyUrl;
+      anchor.download = '';
+      anchor.style.display = 'none';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    };
+
+    const poll = async () => {
+      pollCount += 1;
+      try {
+        const data = await http.get('/api/document/folder/download/status/', {
+          params: { task_id: taskId },
+          skipErrorNotification: true,
+        });
+        failureCount = 0;
+        if (data && data.status === 'success') {
+          triggerDownload();
+          return;
+        }
+        if (data && data.status === 'failed') {
+          message.error((data && data.error) || '文件夹打包失败');
+          return;
+        }
+        if (pollCount >= MAX_POLLS) {
+          message.error('文件夹打包超时，请稍后重试');
+          return;
+        }
+        setTimeout(poll, POLL_INTERVAL);
+      } catch (e) {
+        // 状态查询失败（skipErrorNotification 已抑制拦截器弹窗）：
+        // 瞬时网络抖动继续重试，连续失败达到阈值才提示一次
+        failureCount += 1;
+        if (failureCount >= 3) {
+          message.error('查询打包进度失败，请稍后重试');
+          return;
+        }
+        if (pollCount < MAX_POLLS) {
+          setTimeout(poll, POLL_INTERVAL);
+        }
+      }
+    };
+    setTimeout(poll, POLL_INTERVAL);
+  }, []);
+
   // 下载文件夹
+  // 先以 probe=true 探测打包方式：小文件夹直接流式下载；大文件夹（≥100 个文件）
+  // 在探测请求内提交异步打包任务，轮询状态后经 ready 接口触发下载，
+  // 避免 window.open 直接收到大文件夹返回的任务 JSON 而无法下载。
   const handleFolderDownload = useCallback((folder) => {
     const token = sessionStorage.getItem('token');
     const url = appendSystemFolderParam(`/api/document/folder/download/?id=${folder.id}&is_public=${isPublic}&x-token=${token}`);
-    window.open(url);
-  }, [isPublic]);
+    http.get('/api/document/folder/download/', {
+      params: withSystemFolderParams({
+        id: folder.id,
+        is_public: isPublic,
+        probe: 'true',
+      }),
+    }).then((data) => {
+      if (data && data.mode === 'async' && data.task_id) {
+        message.info('文件夹较大，正在后台打包，完成后将自动开始下载');
+        pollFolderPackTask(data.task_id, token);
+      } else {
+        window.open(url);
+      }
+    }).catch(() => {
+      // 错误提示由 HTTP 拦截器统一负责，此处不再重复提示
+    });
+  }, [isPublic, pollFolderPackTask]);
 
   // 创建文件夹
   const handleCreateFolder = useCallback(async (name, parentId) => {

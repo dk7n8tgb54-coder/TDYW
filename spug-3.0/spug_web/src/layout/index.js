@@ -10,6 +10,9 @@ import { NotFound } from 'components';
 import ExpirationReminderNotification from 'components/ExpirationReminderNotification';
 import { licenseReminderConfig, approvalReminderConfig } from 'components/expirationReminderConfigs';
 import ContractAgreementReminderNotification from 'components/ContractAgreementReminderNotification';
+import ReleaseNoteNotification from '../pages/release/ReleaseNoteNotification';
+import ReleaseNoteDrawer from '../pages/release/ReleaseNoteDrawer';
+import releaseNoteStore from '../pages/release/store';
 import Sider from './Sider';
 import Header from './Header';
 import Footer from './Footer'
@@ -65,6 +68,8 @@ export default function () {
     approvalBadge.start();
     coopTaskBadge.start();
     alertStore.start();
+    // 登录后初始化：拉取系统版本 + 未读更新（ReleaseNoteNotification 负责弹窗）
+    releaseNoteStore.fetchVersion();
     return () => {
       radioLicenseBadge.stop();
       approvalBadge.stop();
@@ -89,6 +94,8 @@ export default function () {
       <ExpirationReminderNotification config={licenseReminderConfig}/>
       <ExpirationReminderNotification config={approvalReminderConfig}/>
       <ContractAgreementReminderNotification/>
+      <ReleaseNoteNotification/>
+      <ReleaseNoteDrawer/>
     </Layout>
   )
 }

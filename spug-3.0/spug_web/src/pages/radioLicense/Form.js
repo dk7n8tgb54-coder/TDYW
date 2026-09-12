@@ -102,6 +102,9 @@ export default observer(function () {
           message.error(msg);
         })
         .finally(() => setLoading(false));
+    }).catch(() => {
+      // 校验失败是可预期交互：错误信息已由 antd Form 显示在字段下方，
+      // 此处仅消化拒绝，避免产生未处理的 Promise 拒绝（控制台报错）
     });
   }
 
@@ -114,6 +117,7 @@ export default observer(function () {
       <Modal
         visible
         width={900}
+        style={{maxWidth: 'calc(100vw - 32px)'}}
         title="执照详情"
         footer={[
           <Button key="close" onClick={() => S.detailVisible = false}>关闭</Button>,
@@ -177,6 +181,7 @@ export default observer(function () {
             readOnly={false}
             uploadPerm="radio_license.attachment.upload"
             deletePerm="radio_license.attachment.delete"
+            downloadPerm="radio_license.attachment.download"
             previewPerm="radio_license.license.view"
             maxFileSize={50}
             multiple
@@ -218,6 +223,7 @@ export default observer(function () {
     <Modal
       visible
       width={800}
+      style={{maxWidth: 'calc(100vw - 32px)'}}
       maskClosable={false}
       title={S.record.id ? '编辑执照' : '新建执照'}
       onCancel={() => S.formVisible = false}

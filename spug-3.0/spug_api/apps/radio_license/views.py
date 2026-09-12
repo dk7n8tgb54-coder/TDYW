@@ -783,7 +783,8 @@ class AttachmentDownloadView(View):
         if err:
             return json_response(error=err)
         inline = request.GET.get('inline') in ('1', 'true', 'True')
-        response, error = AttachmentService.download_response(request.user, pk, inline=inline)
+        response, error = AttachmentService.download_response(
+            request.user, pk, ATTACHMENT_MODULE, ATTACHMENT_OBJECT_TYPE, inline=inline)
         if error:
             return json_response(error=error)
         return response
@@ -801,7 +802,8 @@ class AttachmentPreviewUrlView(View):
             return json_response(error=err)
         preview_file_api_path = f'/api/radio-license/attachments/{pk}/preview-file/'
         data, error = AttachmentService.get_preview_url(
-            request.user, pk, preview_file_api_path)
+            request.user, pk, ATTACHMENT_MODULE, ATTACHMENT_OBJECT_TYPE,
+            preview_file_api_path)
         if error:
             return json_response(error=error)
         return json_response(data)
@@ -854,7 +856,8 @@ class AttachmentDeleteView(View):
         }
 
         error = AttachmentService.soft_delete(
-            request.user, form.id, delete_reason, delete_file=True)
+            request.user, form.id, ATTACHMENT_MODULE, ATTACHMENT_OBJECT_TYPE,
+            delete_reason, delete_file=True)
         if error:
             return json_response(error=error)
 

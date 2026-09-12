@@ -11,6 +11,7 @@ import zipfile
 import tempfile
 import logging
 from django.conf import settings
+from django.db.models import Count, Sum
 from django.views.generic import View
 from django.http import StreamingHttpResponse
 from urllib.parse import quote
@@ -32,22 +33,27 @@ logger = logging.getLogger(__name__)
 class FolderDownloadView(View):
     """文件夹下载视图 - ZIP打包"""
 
-    # 【P0-6修复】大文件夹阈值：超过此文件数则使用异步模式
-    ASYNC_FILE_COUNT_THRESHOLD = 100
+    # 【大文件夹下载修复】同步/异步判定改为双条件：
+    # 总字节数优先——打包耗时主要由数据量决定，"少量超大文件"同样会阻塞请求；
+    # 文件数兜底——海量小文件的逐条目 I/O 与内存开销亦不可忽略。
+    ASYNC_TOTAL_SIZE_THRESHOLD = 200 * 1024 * 1024  # 200MB
+    ASYNC_FILE_COUNT_THRESHOLD = 500
 
     @document_auth('view')
     def get(self, request):
         """【P0-6修复】支持异步打包模式
 
         流程：
-        1. 小文件夹：同步打包，立即下载
-        2. 大文件夹：异步打包，返回任务 ID，前端轮询状态后下载
+        1. probe=true 探测：返回打包方式（sync/async），异步时附带 task_id
+        2. 小文件夹：同步打包，立即下载
+        3. 大文件夹：异步打包，返回任务 ID，前端轮询状态后下载
         """
         logger.info(f'[Document] FolderDownloadView.get called, user: {request.user.username}')
         form, error = JsonParser(
             Argument('id', type=int, help='参数错误'),
             Argument('is_public', type=bool, required=False, default=False),
             Argument('system_folder', type=str, required=False, default=None),
+            Argument('probe', type=bool, required=False, default=False),
         ).parse(request.GET)
 
         if error is not None:
@@ -78,49 +84,86 @@ class FolderDownloadView(View):
         if not scope_ok:
             return json_response(error=scope_err)
 
-        # 【P0-6修复】检查是否需要异步模式
-        # 统计文件数量（使用 count 而非加载全部到内存）
-        total_files = self._count_folder_files(folder, FolderModel, FileModel, request.user, form.is_public)
+        # 【大文件夹下载修复】打包方式判定：总大小优先，文件数兜底
+        total_files, total_bytes = self._measure_folder(folder, FolderModel, FileModel)
+        use_async = (total_bytes >= self.ASYNC_TOTAL_SIZE_THRESHOLD
+                     or total_files >= self.ASYNC_FILE_COUNT_THRESHOLD)
 
-        if total_files >= self.ASYNC_FILE_COUNT_THRESHOLD:
+        # 【大文件夹下载修复】probe 探测模式：只决定打包方式，不返回 ZIP 流。
+        # 前端先以 probe=true 询问；异步模式下打包任务在本次请求内提交，
+        # 前端拿到 task_id 后轮询 status 并经 ready 接口取件，避免 window.open 收到 JSON。
+        if form.probe:
+            if use_async:
+                task_id = self._try_submit_async_task(folder, request.user, form.is_public)
+                if task_id:
+                    return json_response(data={'probe': True, 'mode': 'async', 'task_id': task_id})
+                # Celery 不可用或提交失败：告知前端走同步下载
+            return json_response(data={'probe': True, 'mode': 'sync'})
+
+        if use_async:
             return self._submit_async_pack_task(folder, request.user, form.is_public, request)
 
         # 小文件夹：同步打包（保持原有逻辑）
         return self._sync_download(folder, request.user, form.is_public, request)
 
-    def _count_folder_files(self, folder, FolderModel, FileModel, user, is_public):
-        """统计文件夹内的文件总数（BFS 批量计数）"""
-        total = 0
-        queue = [folder.id]
+    def _measure_folder(self, folder, FolderModel, FileModel):
+        """统计文件夹子树的文件总数与总字节数（BFS + 单次聚合，用于打包方式判定）"""
+        folder_ids = [folder.id]
         visited = {folder.id}
+        queue = [folder.id]
 
         while queue:
             current_id = queue.pop(0)
-            # 批量统计当前层的文件数
-            file_count = FileModel.objects.filter(folder_id=current_id).order_by().count()
-            total += file_count
-
-            # 批量获取子文件夹
             children = FolderModel.objects.filter(parent_id=current_id).order_by().values_list('id', flat=True)
             for child_id in children:
                 if child_id not in visited:
                     visited.add(child_id)
+                    folder_ids.append(child_id)
                     queue.append(child_id)
 
-        return total
+        stats = FileModel.objects.filter(folder_id__in=folder_ids).order_by().aggregate(
+            files=Count('id'), total_size=Sum('file_size'))
+        return stats['files'] or 0, stats['total_size'] or 0
 
-    def _submit_async_pack_task(self, folder, user, is_public, request=None):
-        """【P0-6修复】提交异步打包任务"""
+    @staticmethod
+    def _celery_available(queue_name=None):
+        """检查 Celery worker 是否在线，且（指定队列时）该队列确有 worker 消费。
+
+        仅检查 worker 在线不足以保证任务会被执行——若任务所在队列没有
+        任何消费者，任务会滞留 broker 永远 PENDING，前端轮询表现为长时间
+        无响应（2026-09 大文件夹下载挂起的根因）。
+        """
+        try:
+            from celery import current_app as celery_app
+            inspector = celery_app.control.inspect()
+            active = inspector.active_queues()
+            if not active:
+                return False
+            if queue_name:
+                return any(
+                    queue_name in (q.get('name') for q in (queues or []))
+                    for queues in active.values()
+                )
+            return True
+        except Exception as e:
+            logger.warning('[Document] Celery availability check failed: %s', e)
+            return False
+
+    def _try_submit_async_task(self, folder, user, is_public):
+        """提交异步打包任务
+
+        Returns:
+            str|None: 成功返回 task_id；Celery 不可用或提交失败返回 None（调用方降级同步）
+        """
         try:
             from ...tasks import pack_folder_to_zip
+            from ...tasks.pack import PACK_TASK_QUEUE
             from ...libs.pack_task_ownership import record_ownership
-            from celery import current_app as celery_app
 
-            # 检查 Celery 连接状态
-            inspector = celery_app.control.inspect()
-            if inspector.active_queues() is None:
-                logger.warning('[Document] Celery not available, falling back to sync mode')
-                return self._sync_download(folder, user, is_public, request)
+            if not self._celery_available(PACK_TASK_QUEUE):
+                logger.warning('[Document] No worker consuming %s queue, folder id=%s falls back to sync',
+                               PACK_TASK_QUEUE, folder.id)
+                return None
 
             # 提交异步任务
             tenant_id = getattr(user, 'tenant_id', None)
@@ -140,19 +183,25 @@ class FolderDownloadView(View):
             )
 
             logger.info(f'[Document] Async pack task submitted: task_id={task.id}, folder_id={folder.id}')
-
-            return json_response(data={
-                'async': True,
-                'task_id': str(task.id),
-                'status': 'pending',
-                'message': '打包任务已提交，请稍后轮询状态'
-            })
+            return str(task.id)
 
         except Exception as e:
             logger.error(f'[Document] Failed to submit async pack task: {e}', exc_info=True)
-            # 降级到同步模式
+            return None
+
+    def _submit_async_pack_task(self, folder, user, is_public, request=None):
+        """提交异步打包任务并返回任务受理响应；不可用时降级同步下载"""
+        task_id = self._try_submit_async_task(folder, user, is_public)
+        if task_id is None:
             logger.info(f'[Document] Falling back to sync mode for folder id={folder.id}')
-            return self._sync_download(folder, user, is_public)
+            return self._sync_download(folder, user, is_public, request)
+
+        return json_response(data={
+            'async': True,
+            'task_id': task_id,
+            'status': 'pending',
+            'message': '打包任务已提交，请稍后轮询状态'
+        })
 
     def _sync_download(self, folder, user, is_public, request=None):
         """同步打包下载（原有逻辑）"""
@@ -435,7 +484,11 @@ class FolderDownloadReadyView(View):
 
         try:
             from celery.result import AsyncResult
-            from ...tasks import pack_folder_to_zip, PACK_TASKS_DIR
+            from ...tasks import pack_folder_to_zip
+            # 【修复】PACK_TASKS_DIR 定义在 tasks.pack 中，tasks/__init__ 并未转出，
+            # 从 ...tasks 导入会抛 ImportError，导致 ready 接口把 JSON 错误体当作
+            # 下载内容返回（前端表现为下载到 .json 文件）
+            from ...tasks.pack import PACK_TASKS_DIR
             from ...libs.pack_task_ownership import verify_ownership as verify_pack_ownership
 
             # 【H-6修复】ready 下载前先校验服务侧 ownership

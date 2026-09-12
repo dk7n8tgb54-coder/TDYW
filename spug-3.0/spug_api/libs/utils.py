@@ -130,7 +130,9 @@ def generate_random_str(length: int = 4, is_digits: bool = True) -> str:
 
 
 def get_request_real_ip(headers: dict):
+    # XFF 链中只有最后一段由本系统 nginx（唯一可信代理）追加，前面的段均可被客户端伪造，
+    # 故取最后一段，防止伪造来源 IP 绕过限流/IP 绑定或污染登录日志与审计日志
     x_real_ip = headers.get('x-forwarded-for')
     if not x_real_ip:
         x_real_ip = headers.get('x-real-ip', '')
-    return x_real_ip.split(',')[0]
+    return x_real_ip.split(',')[-1].strip()

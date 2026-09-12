@@ -29,4 +29,12 @@ ALERT_BEAT_SCHEDULE = {
         'task': 'apps.alert.tasks.cleanup_old_alerts',
         'schedule': crontab(hour=3, minute=0),
     },
+    'flush-run-metrics': {
+        'task': 'apps.alert.tasks.flush_run_metrics',
+        'schedule': 300.0,
+    },
+    'cleanup-run-metrics': {
+        'task': 'apps.alert.tasks.cleanup_run_metrics',
+        'schedule': crontab(hour=3, minute=20),
+    },
 }

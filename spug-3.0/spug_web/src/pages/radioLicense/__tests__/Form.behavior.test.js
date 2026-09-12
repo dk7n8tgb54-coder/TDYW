@@ -13,7 +13,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 import {act} from 'react-dom/test-utils';
-import {message, Form as AntdForm} from 'antd';
+import {message} from 'antd';
 
 const mockHttpPost = jest.fn();
 
@@ -48,21 +48,9 @@ if (!window.matchMedia) {
   });
 }
 
-// 【产品缺陷记录】Form.js handleSubmit 的 form.validateFields() 只链了
-// .then 没有 .catch，校验失败时产生未处理 Promise 拒绝：
-// - 生产环境：浏览器控制台报 Uncaught (in promise)
-// - 测试环境：jest 将该拒绝归因为当前用例导致误失败、Node 20 直接崩溃
-// 测试中包装 validateFields：校验失败时返回永不 settle 的 Promise，
-// 与生产语义完全一致（.then 不执行、校验错误照常显示），仅消除拒绝噪音。
-// 缺陷本身记录在上线门禁报告（F-12）。
-const _useForm = AntdForm.useForm;
-jest.spyOn(AntdForm, 'useForm').mockImplementation(() => {
-  const [form] = _useForm();
-  const _validate = form.validateFields.bind(form);
-  form.validateFields = (...args) => _validate(...args).catch(
-    () => new Promise(() => {}));
-  return [form];
-});
+// F-12 已修复：Form.js 的 handleSubmit 已为 validateFields 链接 .catch，
+// 原先为绕过未处理拒绝的 useForm 包装器已移除，测试走真实代码路径。
+// 校验拒绝若再次失去处理，本文件会以未处理 Promise 拒绝失败（回归检测）。
 
 const FULL_RECORD = {
   id: 5,

@@ -229,6 +229,16 @@ export default [{
       {key: 'edit', label: '编辑租户'},
       {key: 'del', label: '删除租户'},
     ]
+  }, {
+    key: 'release_note',
+    label: '更新日志',
+    perms: [
+      {key: 'view', label: '查看更新日志'},
+      {key: 'add', label: '新建更新日志'},
+      {key: 'edit', label: '编辑更新日志'},
+      {key: 'del', label: '删除更新日志'},
+      {key: 'publish', label: '发布/撤回更新日志'},
+    ]
   }]
 }, {
   key: 'radio_license',

@@ -4,7 +4,7 @@
  * 真实渲染 Table（ReactDOM + jsdom），mock store 与 libs.http.delete，
  * 验证：
  * - 操作列按 permission 门控：超管显示 查看/编辑/删除
- * - 仅查看用户：操作列不渲染（双击行仍可进详情）——记录与执照表的差异
+ * - 仅查看用户：渲染操作列且只有查看按钮（与执照表口径一致，行双击仍可进详情）
  * - 删除确认流程：Modal.confirm 确认后调用 DELETE 并刷新列表
  */
 import React from 'react';
@@ -113,19 +113,24 @@ describe('批复 Table 权限门控', () => {
     expect(newBtn).toBeTruthy();
   });
 
-  it('仅查看权限用户不渲染操作列（与执照表行为不一致，双击行进详情）', () => {
+  it('仅查看权限用户渲染操作列且只有查看按钮（与执照表口径一致）', () => {
     grantPermissions(['radio_license.approval.view']);
     renderTable();
     const headerTexts = Array.from(container.querySelectorAll('.ant-table-thead th'))
       .map(th => th.textContent.trim());
-    expect(headerTexts).not.toContain('操作');
-    expect(actionButtons()).toEqual([]);
-    // 双击数据行仍可进详情（排除 rc-table 的测量行，数据行类名为 ant-table-row）
+    expect(headerTexts).toContain('操作');
+    expect(actionButtons()).toEqual(['查看']);
+    act(() => {
+      container.querySelector('button')
+        .dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    });
+    expect(store.showDetail).toHaveBeenCalledWith(expect.objectContaining({id: 1}));
+    // 双击数据行同样可进详情（排除 rc-table 的测量行，数据行类名为 ant-table-row）
     const row = container.querySelector('tr.ant-table-row');
     act(() => {
       row.dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
     });
-    expect(store.showDetail).toHaveBeenCalled();
+    expect(store.showDetail).toHaveBeenCalledTimes(2);
   });
 
   it('无权限用户不渲染操作列与新建按钮', () => {

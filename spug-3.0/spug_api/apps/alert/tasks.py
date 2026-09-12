@@ -3,6 +3,7 @@
 """告警监控模块 Celery 异步任务"""
 import io
 import logging
+from datetime import timedelta, timezone as dt_timezone
 from celery import shared_task
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,8 @@ def check_disk_space(self):
 def collect_db_metrics(self):
     """每 5 分钟采集数据库关键指标，超阈值告警"""
     from django.db import connection
+    from django.utils import timezone
+    from apps.alert.models import DbMetricSnapshot
     from django.core.cache import cache
 
     try:
@@ -127,9 +130,107 @@ def collect_db_metrics(self):
             'buffer_pool_hit_rate': round(hit_rate, 1),
             'slow_queries': slow_queries,
         }, 300)  # 5 分钟缓存
+        # 以带时间快照供运行指标窗口聚合，保留最近 15 分钟以上
+        DbMetricSnapshot.objects.create(
+            captured_at=timezone.now(),
+            threads_connected=connected,
+            slow_queries=slow_queries,
+        )
 
     except Exception as e:
         logger.error(f'[DB] 指标采集失败: {e}')
+
+
+def record_probe_sample(timestamp, success, http_status=None, duration_ms=0, error_type=''):
+    """保存外部探活结果，并在连续失败三次/恢复时生成事件告警。"""
+    from django.utils.dateparse import parse_datetime
+    from django.utils import timezone
+    from apps.alert.models import HealthProbeSample
+
+    if isinstance(timestamp, str):
+        timestamp = parse_datetime(timestamp)
+    timestamp = timestamp or timezone.now()
+    if timezone.is_naive(timestamp):
+        timestamp = timezone.make_aware(timestamp, dt_timezone.utc)
+    sample, _ = HealthProbeSample.objects.get_or_create(
+        timestamp=timestamp,
+        defaults={
+            'success': bool(success),
+            'http_status': http_status,
+            'duration_ms': max(0, int(duration_ms or 0)),
+            'error_type': str(error_type or '')[:80],
+        },
+    )
+    recent = list(HealthProbeSample.objects.filter(timestamp__lte=timestamp).order_by('-timestamp')[:4])
+    failures = 0
+    for item in recent:
+        if item.success:
+            break
+        failures += 1
+    from libs.alert import send_alert
+    if failures >= 3 and not sample.success:
+        send_alert(
+            title='平台探活不可用',
+            message=f'连续 {failures} 次探活失败，最近错误: {sample.error_type or sample.http_status or "未知"}',
+            level='error', source='health_probe', alert_key='health_probe:unavailable',
+        )
+    elif sample.success and len(recent) > 1 and not recent[1].success:
+        send_alert(
+            title='平台探活已恢复', message='外部探活恢复成功', level='info',
+            source='health_probe', alert_key=f'health_probe:recovered:{timestamp.isoformat()}',
+        )
+    return sample
+
+
+@shared_task(bind=True, max_retries=0)
+def flush_run_metrics(self, bucket_start=None):
+    """聚合完整五分钟窗口；从最后窗口补算，重复执行使用唯一键幂等。"""
+    from datetime import datetime, timezone as dt_timezone
+    from django.utils import timezone
+    from apps.alert.metrics import aggregate_window, floor_window, WINDOW_SECONDS
+    from apps.alert.models import RunMetric
+
+    try:
+        from apps.alert.metrics import ingest_probe_log
+        ingest_probe_log()
+        if bucket_start:
+            if isinstance(bucket_start, str):
+                bucket_start = datetime.fromisoformat(bucket_start.replace('Z', '+00:00'))
+            if bucket_start.tzinfo is None:
+                bucket_start = bucket_start.replace(tzinfo=dt_timezone.utc)
+            buckets = [floor_window(bucket_start)]
+        else:
+            latest = floor_window(timezone.now()) - timedelta(seconds=WINDOW_SECONDS)
+            last = RunMetric.objects.order_by('-bucket_start').values_list('bucket_start', flat=True).first()
+            if last and last < latest:
+                buckets = []
+                current = last + timedelta(seconds=WINDOW_SECONDS)
+                while current <= latest:
+                    buckets.append(current)
+                    current += timedelta(seconds=WINDOW_SECONDS)
+            else:
+                buckets = [latest]
+        for bucket in buckets:
+            aggregate_window(bucket)
+        return len(buckets)
+    except Exception as exc:
+        logger.error('[RUN_METRICS] 聚合失败: %s', exc, exc_info=True)
+        return 0
+
+
+@shared_task(bind=True, max_retries=0)
+def cleanup_run_metrics(self):
+    """每天清理默认 30 天前运行指标及探活原始样本。"""
+    from datetime import timedelta
+    from django.utils import timezone
+    from django.conf import settings
+    from apps.alert.models import RunMetric, HealthProbeSample, DbMetricSnapshot
+
+    retention = max(7, min(int(getattr(settings, 'RUN_METRICS_RETENTION_DAYS', 30)), 90))
+    cutoff = timezone.now() - timedelta(days=retention)
+    RunMetric.objects.filter(bucket_start__lt=cutoff).delete()
+    HealthProbeSample.objects.filter(timestamp__lt=cutoff).delete()
+    DbMetricSnapshot.objects.filter(captured_at__lt=cutoff).delete()
 
 
 @shared_task(bind=True, max_retries=0)

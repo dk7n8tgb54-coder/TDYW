@@ -33,7 +33,8 @@ class TransactionCommitHookTest(TestCase):
         with patch.object(AttachmentService, '_remove_physical_file', return_value=None) as remove:
             with self.captureOnCommitCallbacks(execute=False) as callbacks:
                 error = AttachmentService.soft_delete(
-                    self.user, attachment.id, reason='测试删除', delete_file=True,
+                    self.user, attachment.id, attachment.module, attachment.object_type,
+                    reason='测试删除', delete_file=True,
                 )
                 self.assertIsNone(error)
                 remove.assert_not_called()
@@ -49,7 +50,8 @@ class TransactionCommitHookTest(TestCase):
                 try:
                     with transaction.atomic():
                         AttachmentService.soft_delete(
-                            self.user, attachment.id, reason='回滚测试', delete_file=True,
+                            self.user, attachment.id, attachment.module, attachment.object_type,
+                            reason='回滚测试', delete_file=True,
                         )
                         raise RuntimeError('force rollback')
                 except RuntimeError:

@@ -2,6 +2,7 @@
 # Released under the AGPL-3.0 License
 import logging
 import json
+from datetime import timedelta
 from io import StringIO
 from django.core.management import call_command
 from django.db import transaction
@@ -11,6 +12,8 @@ from libs.utils import json_response
 from libs.parser import JsonParser, Argument
 from libs.mixins import AdminView
 from apps.alert.models import Alert, AlertRead
+from apps.alert.models import RunMetric
+from apps.alert.metrics import health_state
 
 logger = logging.getLogger(__name__)
 
@@ -212,3 +215,82 @@ class AlertTrendView(AdminView):
             })
 
         return json_response({'series': series, 'hours': hours})
+
+
+def _metric_to_view(metric):
+    data = {field: getattr(metric, field) for field in (
+        'bucket_start', 'request_count', 'api_request_count', 'transfer_request_count',
+        'health_check_count', 'websocket_handshake_count', 'client_error_count', 'app_server_error_count',
+        'gateway_error_count', 'business_error_count', 'slow_count', 'total_ms', 'max_ms',
+        'latency_le_200', 'latency_le_500', 'latency_le_1000', 'latency_le_3000',
+        'latency_gt_3000', 'celery_fail_count', 'probe_count', 'probe_success_count',
+        'probe_total_ms', 'probe_max_ms', 'db_threads_connected', 'db_slow_queries',
+    )}
+    count = data['request_count']
+    data['average_ms'] = round(data['total_ms'] / count, 2) if count else None
+    if count:
+        target = max(1, int(count * 0.95 + 0.9999))
+        cumulative = data['latency_le_200']
+        if cumulative >= target:
+            p95 = 200
+        else:
+            cumulative += data['latency_le_500']
+            if cumulative >= target:
+                p95 = 500
+            else:
+                cumulative += data['latency_le_1000']
+                if cumulative >= target:
+                    p95 = 1000
+                else:
+                    cumulative += data['latency_le_3000']
+                    p95 = 3000 if cumulative >= target else None
+        data['p95_ms'] = p95
+    else:
+        data['p95_ms'] = None
+    data['slow_rate'] = round(data['slow_count'] / count, 4) if count else None
+    data['probe_success_rate'] = round(data['probe_success_count'] / data['probe_count'], 4) if data['probe_count'] else None
+    data['state'] = health_state(data)
+    return data
+
+
+class RunMetricView(AdminView):
+    PERM_MAP = {'GET': 'system.alert.view'}
+
+    def get(self, request):
+        form, error = JsonParser(Argument('hours', type=int, default=48, required=False)).parse(request.GET)
+        if error:
+            return json_response(error=error)
+        hours = min(max(form.hours, 24), 168)
+        cutoff = timezone.now() - timedelta(hours=hours)
+        rows = [_metric_to_view(item) for item in RunMetric.objects.filter(bucket_start__gte=cutoff).order_by('bucket_start')]
+        states = {item['state'] for item in rows}
+        state = 'unknown' if not rows or 'unknown' in states else ('unavailable' if 'unavailable' in states else ('degraded' if 'degraded' in states else 'healthy'))
+        return json_response({'hours': hours, 'state': state, 'items': rows, 'series': rows})
+
+
+class RunMetricSummaryView(AdminView):
+    PERM_MAP = {'GET': 'system.alert.view'}
+
+    def get(self, request):
+        form, error = JsonParser(Argument('days', type=int, default=7, required=False)).parse(request.GET)
+        if error:
+            return json_response(error=error)
+        days = min(max(form.days, 1), 30)
+        cutoff = timezone.now() - timedelta(days=days)
+        rows = list(RunMetric.objects.filter(bucket_start__gte=cutoff).order_by('bucket_start'))
+        grouped = {}
+        for item in rows:
+            key = timezone.localtime(item.bucket_start).date().isoformat()
+            target = grouped.setdefault(key, {'date': key, 'request_count': 0, 'system_error_count': 0, 'slow_count': 0, 'unavailable_windows': 0, 'unknown_windows': 0})
+            target['request_count'] += item.request_count
+            target['system_error_count'] += item.app_server_error_count + item.gateway_error_count
+            target['slow_count'] += item.slow_count
+            state = health_state(_metric_to_view(item))
+            target['unavailable_windows'] += state == 'unavailable'
+            target['unknown_windows'] += state == 'unknown'
+        items = list(grouped.values())
+        unavailable = sum(item['unavailable_windows'] for item in items)
+        unknown = sum(item['unknown_windows'] for item in items)
+        degraded = any(item['system_error_count'] or item['slow_count'] for item in items)
+        state = 'unknown' if not rows or unknown else ('unavailable' if unavailable else ('degraded' if degraded else 'healthy'))
+        return json_response({'days': days, 'state': state, 'items': items, 'summary': items})

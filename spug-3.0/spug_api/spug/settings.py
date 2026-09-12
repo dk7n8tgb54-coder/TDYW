@@ -53,7 +53,16 @@ if not DEBUG:
 
 # Application definition
 
-INSTALLED_APPS = [
+# 延迟上线开关：RELEASE_PENDING_APPS 列出暂不上线的模块（逗号分隔的 app 名，
+# 如 RELEASE_PENDING_APPS=equipment_lifecycle，在部署环境的 .env 中设置）。
+# 命中模块会被摘出 INSTALLED_APPS，migrate 自动跳过（不建表、不写 django_migrations）；
+# 开发环境不设置该变量则全量加载，保持原型。
+# 注意：新模块加入延迟清单时，若其在下方定义了 CELERY_BEAT_SCHEDULE 合并项，需同步跳过对应 import/update。
+RELEASE_PENDING_APPS = {
+    a.strip() for a in os.environ.get('RELEASE_PENDING_APPS', '').split(',') if a.strip()
+}
+
+_base_installed_apps = [
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
@@ -82,10 +91,13 @@ INSTALLED_APPS = [
     'apps.data_analysis',
     'apps.coop_task',
     'apps.equipment_lifecycle',
+    'apps.release',
     'channels',
     'django_celery_results',  # Celery results backend
     'django_celery_beat',     # Celery Beat定时任务调度
 ]
+
+INSTALLED_APPS = [a for a in _base_installed_apps if a.split('.')[-1] not in RELEASE_PENDING_APPS]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -278,6 +290,10 @@ CELERY_BEAT_SCHEDULE.update(ALERT_BEAT_SCHEDULE)
 # 合并协作任务模块的定时任务配置（到期任务附件清理）
 CELERY_BEAT_SCHEDULE.update(COOP_TASK_BEAT_SCHEDULE)
 
+RUN_METRICS_RETENTION_DAYS = int(os.environ.get('RUN_METRICS_RETENTION_DAYS', '30'))
+RUN_METRICS_NGINX_LOG = os.environ.get('RUN_METRICS_NGINX_LOG', '/var/log/nginx/run_metrics.log')
+RUN_METRICS_PROBE_LOG = os.environ.get('RUN_METRICS_PROBE_LOG', '/var/log/tdyw/health-probe.jsonl')
+
 # 【新增】默认租户ID配置
 DEFAULT_TENANT_ID = os.environ.get('DEFAULT_TENANT_ID', 'default')
 
@@ -373,7 +389,24 @@ IP_CHECK_EXCLUDES = (
     '*/attachments/*/preview-file/*',
 )
 
-SPUG_VERSION = 'v3.3.3'
+# ==================== 平台版本信息 ====================
+# 版本号唯一来源：spug_api/VERSION 文件，发版时更新该文件即可；
+# 环境变量 SPUG_VERSION 可覆盖（便于镜像/编排注入），
+# 前后端统一通过 /api/system/version/ 获取，禁止在业务代码中硬编码。
+from pathlib import Path
+
+
+def _read_version_file():
+    try:
+        return (Path(__file__).resolve().parent.parent / 'VERSION').read_text(
+            encoding='utf-8').strip()
+    except OSError:
+        return ''
+
+
+SPUG_VERSION = os.environ.get('SPUG_VERSION') or _read_version_file() or 'v0.0.0'
+SPUG_BUILD_NUMBER = os.environ.get('SPUG_BUILD_NUMBER', '')
+SPUG_RELEASE_DATE = os.environ.get('SPUG_RELEASE_DATE', '')
 
 # ==================== 日志配置 ====================
 LOGGING = {

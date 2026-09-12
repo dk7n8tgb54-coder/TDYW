@@ -36,11 +36,26 @@
   file/views.py:98 catch 在 atomic 外 + `ATOMIC_REQUESTS=True` → `is_pending_clean` 补偿标记被回滚、物理文件永久泄漏
 - `captureOnCommitCallbacks` 在 Django 4.2 是 `TestCase` 的 classmethod，用 `self.captureOnCommitCallbacks(execute=True)`，不能模块级 import
 - 文件哈希必须是 32 位 MD5 或 `sv1_` 前缀，否则一律 `非法的文件哈希值`
+- ⚠️ **测试坑：`HttpResponse.close()` 会发 `request_finished` 信号**，Django 接收器重置/关闭 DB 连接，
+  把 `TestCase` atomic 标记 `needs_rollback` → 后续**所有**用例 setUp 报
+  `TransactionManagementError: An error occurred in the current transaction`。
+  定位手法：在测试里打印 `django.db.connection.needs_rollback`。
+  正确做法：只 `for c in resp._closable_objects: c.close()`，不要调 `resp.close()`。
+- ⚠️ `tdyw-test` 容器会整体重启（redis/mysql 断连）造成大面积伪失败；
+  跑测试前先 `docker exec tdyw-test redis-cli ping`，非 PONG 则 `supervisorctl start redis` 后重试。
 - 干净迁移验证可行：`manage.py test --noinput` 销毁重建 test_spug，document 22 个迁移全部应用成功
 
 ## 模块架构速查
 - 数据分析 `apps/data_analysis`（纯只读聚合，无 model/migration）
 - 附件 `apps/evidence`（EvidenceAttachment 多态 + AttachmentService + preview_token）
+  - **2026-09-12 归属校验下沉**：`download_response/get_preview_url/soft_delete` 增加必填
+    `module`/`object_type`（紧跟 attachment_id 之后），统一走 `_get_owned_attachment`
+    （is_deleted=False + module + object_type + apply_tenant_filter；skip_tenant_filter 只免租户）。
+    错误文案：`附件不存在或无权限访问` / `附件不存在或无权限删除`，不泄露归属信息
+  - **多 object_type 共用端点**（迁移时必须按 `att.object_type` 传参，不能硬编码）：
+    coop_task = `delivery` + `item_template`；interference = `interference` +
+    `bridge_interference` + `air_interference`（常量在 views.py `ATTACHMENT_OBJECT_TYPES`，
+    business_views.py 从 views 导入避免循环导入）
   - radio_license/contract_agreement/device/upgrade/fault/interference/department_duty_log 走此机制
   - **例外：regulation 走独立 `storage.py` + RegulationAttachment**
   - 附件新建阶段：前端生成临时 UUID 作为 `object_id`，后端 `pk.isdigit()` 跳过记录存在性校验
@@ -50,6 +65,7 @@
 - 权限缓存 `User.page_perms` Redis `perms_{id}`=(version,perms)
 - preview_token **两套独立实现**（document/libs vs evidence/attachment_preview_token）待收口
 - Celery: 18 `@shared_task` / 5 队列；12 Beat + 6 事件触发；`retry_clean_pending_files` 不可删
+- ⚠️ **Celery Beat 用 DatabaseScheduler**（`tools/start-celery-beat.sh`），`settings.CELERY_BEAT_SCHEDULE` 与各模块 `*_BEAT_SCHEDULE` **不会生效**，必须写 `django_celery_beat.PeriodicTask` 表；该表当前 21 条全靠人工维护（代码零初始化），新增定时任务必须同时 `PeriodicTask.objects.get_or_create(...)`
 - 公共组件: `libs/pagination.py`/`tenant_utils.py`/`alert.py`/`idempotency.py`（已含 is_deleted=False）；`apps/logs/audit.py`
 
 ## 租户隔离

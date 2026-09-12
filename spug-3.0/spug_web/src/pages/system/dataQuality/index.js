@@ -112,13 +112,14 @@ class DataQualityIndex extends React.Component {
   };
 
   render() {
+    const embedded = this.props.embedded;
     const { loading, results } = store;
     return (
       <AuthDiv auth="system.alert.view">
-        <Breadcrumb>
+        {!embedded && <Breadcrumb>
           <Breadcrumb.Item>运维管理</Breadcrumb.Item>
           <Breadcrumb.Item>数据质量巡检</Breadcrumb.Item>
-        </Breadcrumb>
+        </Breadcrumb>}
         <div style={{ marginBottom: 16 }}>
           <Space>
             <Button

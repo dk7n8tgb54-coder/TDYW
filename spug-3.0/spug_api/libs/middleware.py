@@ -129,6 +129,18 @@ class HandleExceptionMiddleware(MiddlewareMixin):
         else:
             return json_response(error='服务器内部错误，请联系管理员')
 
+    def process_response(self, request, response):
+        """低成本识别 HTTP 200 + error；计数失败不得影响响应。"""
+        if response.status_code == 200 and 'application/json' in response.get('Content-Type', ''):
+            try:
+                payload = _json.loads(response.content.decode('utf-8'))
+                if payload.get('error'):
+                    from apps.alert.metrics import record_business_error
+                    record_business_error()
+            except Exception:
+                logger.debug('[RUN_METRICS] business error inspection failed', exc_info=True)
+        return response
+
 
 class AuthenticationMiddleware(MiddlewareMixin):
     """

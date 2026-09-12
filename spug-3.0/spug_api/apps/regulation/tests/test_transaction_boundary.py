@@ -233,7 +233,8 @@ class EvidenceOnCommitPatternTests(TransactionTestCase):
         self.assertTrue(os.path.exists(abs_path))
         try:
             with transaction.atomic():
-                error = AttachmentService.soft_delete(self.user, att.id, delete_file=True)
+                error = AttachmentService.soft_delete(
+                    self.user, att.id, att.module, att.object_type, delete_file=True)
                 self.assertIsNone(error)
                 raise Exception('force rollback')
         except Exception:
@@ -250,7 +251,8 @@ class EvidenceOnCommitPatternTests(TransactionTestCase):
         att, abs_path = self._make_ev_attachment()
         self.assertTrue(os.path.exists(abs_path))
         with transaction.atomic():
-            error = AttachmentService.soft_delete(self.user, att.id, delete_file=True)
+            error = AttachmentService.soft_delete(
+                self.user, att.id, att.module, att.object_type, delete_file=True)
             self.assertIsNone(error)
         self.assertFalse(
             os.path.exists(abs_path),

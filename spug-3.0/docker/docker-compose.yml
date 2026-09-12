@@ -10,7 +10,7 @@ services:
   tdyw:
     # 使用预构建的镜像，先执行: docker build -t spug:latest -f docker/Dockerfile .
     #image: tdyw:20260329
-    image: tdyw:0823
+    image: tdyw:0905
     # spug:20260320
     # 如需重新构建镜像，取消以下 build 配置
     # build:
@@ -42,11 +42,16 @@ services:
       - TZ=Asia/Shanghai
       - KKFILEVIEW_API_URL=${KKFILEVIEW_API_URL:-/kkfileview}
       - KKFILEVIEW_SERVER_URL=${KKFILEVIEW_SERVER_URL:-http://tdyw}
+      # 延迟上线开关：逗号分隔的暂不上线模块名（如 equipment_lifecycle），
+      # 对应模块不迁移数据库、不注册 API；不设置（默认空）则全量加载
+      - RELEASE_PENDING_APPS=${RELEASE_PENDING_APPS:-}
     volumes:
       - tdyw-media:/data/spug/spug_api/media  # 运行日志附件存储
       - tdyw-documents:/data/spug/spug_api/storage/documents  # 资料库文件存储
       - tdyw-document-chunks:/data/spug/spug_api/storage/document_chunks  # 资料库上传分片存储
       - tdyw-logs:/var/log/supervisor  # 日志文件
+      - tdyw-nginx-logs:/var/log/nginx  # 结构化运行日志持久化
+      - tdyw-health-probe-logs:/var/log/tdyw:ro  # sidecar 外部探活记录
       - ./config/nginx.conf:/etc/nginx/nginx.conf:ro  # Nginx 配置
       - ./config/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:ro  # Supervisor 配置
       - ./certs/prod:/etc/nginx/ssl:ro  # SSL 证书
@@ -69,6 +74,28 @@ services:
         reservations:
           cpus: '1'           # 保证至少 1 个 CPU 核心
           memory: 1G          # 保证至少 1GB 内存
+    networks:
+      - tdyw-network
+
+  # ==================== 外部平台探活 sidecar ====================
+  # 与 tdyw 分离，避免容器内进程存活被误认为 Web 可用
+  tdyw-health-probe:
+    image: tdyw:0905
+    container_name: tdyw-health-probe
+    restart: unless-stopped
+    entrypoint: ["python", "/opt/health_probe.py"]
+    environment:
+      - HEALTH_PROBE_URL=${HEALTH_PROBE_URL:-http://tdyw/api/document/health/}
+      - HEALTH_PROBE_LOG=/var/log/tdyw/health-probe.jsonl
+      - NGINX_LOG=/var/log/nginx/run_metrics.log
+      - HEALTH_PROBE_INTERVAL=${HEALTH_PROBE_INTERVAL:-60}
+    volumes:
+      - ./scripts/health_probe.py:/opt/health_probe.py:ro
+      - tdyw-health-probe-logs:/var/log/tdyw
+      - tdyw-nginx-logs:/var/log/nginx
+    depends_on:
+      tdyw:
+        condition: service_started
     networks:
       - tdyw-network
 
@@ -167,6 +194,10 @@ volumes:
   tdyw-document-chunks:
     driver: local
   tdyw-logs:
+    driver: local
+  tdyw-nginx-logs:
+    driver: local
+  tdyw-health-probe-logs:
     driver: local
   tdyw-kkfileview-cache:
     driver: local

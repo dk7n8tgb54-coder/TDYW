@@ -91,7 +91,10 @@ class AttachmentDownloadView(View):
     @auth('upgrade.upgrade.view')
     def get(self, request, pk):
         inline = request.GET.get('inline') in ('1', 'true', 'True')
-        response, error = AttachmentService.download_response(request.user, pk, inline=inline)
+        # 归属校验下沉到服务层：只放行 module='upgrade' / object_type='record' 的附件，
+        # 防止持有 upgrade 附件权限的用户枚举 ID 下载同租户其他模块附件
+        response, error = AttachmentService.download_response(
+            request.user, pk, MODULE, OBJECT_TYPE, inline=inline)
         if error:
             return json_response(error=error)
         return response
@@ -104,7 +107,7 @@ class AttachmentPreviewUrlView(View):
     def get(self, request, pk):
         preview_file_api_path = f'/api/upgrade/attachments/{pk}/preview-file/'
         data, error = AttachmentService.get_preview_url(
-            request.user, pk, preview_file_api_path)
+            request.user, pk, MODULE, OBJECT_TYPE, preview_file_api_path)
         if error:
             return json_response(error=error)
         return json_response(data)
@@ -136,7 +139,8 @@ class AttachmentDeleteView(View):
             return json_response(error=error)
 
         error = AttachmentService.soft_delete(
-            request.user, form.id, form.delete_reason, delete_file=True)
+            request.user, form.id, MODULE, OBJECT_TYPE,
+            form.delete_reason, delete_file=True)
         if error:
             return json_response(error=error)
         return json_response()

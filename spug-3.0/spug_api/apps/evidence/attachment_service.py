@@ -10,6 +10,7 @@
 - 软删除保留物理文件和 DB 记录作为证据痕迹
 - 配置（允许扩展名、大小上限）由调用方传入，各模块可自定义
 - 在线预览通过 kkFileView 实现，使用短时效 preview_token 不暴露长期 x-token
+- 下载 / 预览 / 软删除必须传入附件归属的 module 与 object_type（防跨模块越权）
 
 使用示例：
     from apps.evidence.attachment_service import AttachmentService, AttachmentConfig
@@ -67,6 +68,10 @@ class AttachmentConfig:
 
 # 默认配置（通用场景）
 DefaultAttachmentConfig = AttachmentConfig()
+
+# 附件归属校验统一错误文案（不泄露附件真实所属模块 / 对象类型 / 租户 / 文件路径）
+ATTACHMENT_ACCESS_DENIED_ERROR = '附件不存在或无权限访问'
+ATTACHMENT_DELETE_DENIED_ERROR = '附件不存在或无权限删除'
 
 # 可预览的文件扩展名（kkFileView 支持的类型）
 PREVIEWABLE_EXTENSIONS = frozenset({
@@ -130,6 +135,35 @@ class AttachmentService:
         if not os.path.exists(file_real):
             return None
         return file_real
+
+    @staticmethod
+    def _get_owned_attachment(user, attachment_id, module, object_type,
+                              skip_tenant_filter: bool = False) -> Optional[EvidenceAttachment]:
+        """按「附件 ID + 归属模块 + 对象类型 + 租户范围」取附件，任一不满足返回 None。
+
+        防跨模块越权：业务模块的附件端点通常把客户端传入的附件 ID 直接透传给服务层，
+        若只按租户过滤，持有任一模块附件权限的用户即可枚举 ID 越权下载 / 预览 / 删除
+        同租户其他模块的附件（附件 ID 为自增整数，可遍历）。故 module 与 object_type
+        为强校验项，缺失时直接拒绝并记录错误，绝不退化为「只按 ID 查询」。
+
+        Args:
+            skip_tenant_filter: 仅跳过租户过滤（由调用方自行完成可见性校验），
+                **绝不**跳过 module / object_type 校验。
+
+        Returns:
+            EvidenceAttachment 或 None
+        """
+        if not module or not object_type:
+            logger.error(
+                f'[Evidence] 附件访问缺少归属参数，已拒绝: '
+                f'attachment_id={attachment_id} module={module!r} object_type={object_type!r}'
+            )
+            return None
+        # 默认 Manager 已过滤 is_deleted=True，此处显式声明保证语义清晰
+        qs = EvidenceAttachment.objects.filter(is_deleted=False)
+        if not skip_tenant_filter:
+            qs = apply_tenant_filter(qs, user)
+        return qs.filter(pk=attachment_id, module=module, object_type=object_type).first()
 
     @staticmethod
     def _build_relative_path(module: str, tenant_id, object_type: str, object_id) -> str:
@@ -290,20 +324,23 @@ class AttachmentService:
         return qs.count()
 
     @staticmethod
-    def download_response(user, attachment_id, inline=False, skip_tenant_filter: bool = False) -> Tuple[Optional[FileResponse], Optional[str]]:
+    def download_response(user, attachment_id, module, object_type, inline=False,
+                          skip_tenant_filter: bool = False) -> Tuple[Optional[FileResponse], Optional[str]]:
         """获取下载响应，返回 (response, error)
 
         inline=True 时返回 Content-Disposition: inline 并按文件扩展名推断
         正确的 Content-Type，用于浏览器直接内联预览图片/PDF。
 
+        module / object_type 为附件归属标识，必填且强校验（防跨模块越权，
+        详见 _get_owned_attachment）。校验失败统一返回 ATTACHMENT_ACCESS_DENIED_ERROR。
+
         skip_tenant_filter=True 时跳过租户过滤（由调用方完成可见性校验），
-        用于全平台公告等跨租户可见场景。
+        用于全平台公告等跨租户可见场景，但仍强制校验 module / object_type。
         """
-        base_qs = EvidenceAttachment.objects.filter(is_deleted=False)
-        qs = base_qs if skip_tenant_filter else apply_tenant_filter(base_qs, user)
-        att = qs.filter(pk=attachment_id).first()
+        att = AttachmentService._get_owned_attachment(
+            user, attachment_id, module, object_type, skip_tenant_filter=skip_tenant_filter)
         if not att:
-            return None, '附件不存在或无权限访问'
+            return None, ATTACHMENT_ACCESS_DENIED_ERROR
 
         full_path = os.path.join(settings.MEDIA_ROOT, att.file_path)
         safe_path = AttachmentService._safe_file_path(full_path)
@@ -334,7 +371,7 @@ class AttachmentService:
         return response, None
 
     @staticmethod
-    def get_preview_url(user, attachment_id, preview_file_api_path: str,
+    def get_preview_url(user, attachment_id, module, object_type, preview_file_api_path: str,
                         skip_tenant_filter: bool = False,
                         token_tenant_id: str = None) -> Tuple[Optional[dict], Optional[str]]:
         """生成 kkFileView 在线预览 URL
@@ -342,9 +379,12 @@ class AttachmentService:
         Args:
             user: 已认证用户
             attachment_id: 附件 ID
+            module: 附件归属模块（必填，强校验）
+            object_type: 附件归属对象类型（必填，强校验）
             preview_file_api_path: kkFileView 回调下载文件的 API 路径（不含 server URL）
                 例："/api/upgrade/attachments/123/preview-file/"
-            skip_tenant_filter: True 时跳过租户过滤（由调用方完成可见性校验），用于跨租户可见场景
+            skip_tenant_filter: True 时跳过租户过滤（由调用方完成可见性校验），用于跨租户可见场景；
+                仍强制校验 module / object_type
             token_tenant_id: 覆盖 preview_token 绑定的 tenant_id（默认取 user.tenant_id）。
                 跨租户场景需传附件真实 tenant_id，使 kkFileView 回调的令牌绑定校验通过。
 
@@ -360,11 +400,10 @@ class AttachmentService:
         if not kkfileview_server_url:
             return None, 'Office文档预览服务未配置，请联系管理员配置KKFILEVIEW_SERVER_URL'
 
-        base_qs = EvidenceAttachment.objects.all()
-        qs = base_qs if skip_tenant_filter else apply_tenant_filter(base_qs, user)
-        att = qs.filter(pk=attachment_id, is_deleted=False).first()
+        att = AttachmentService._get_owned_attachment(
+            user, attachment_id, module, object_type, skip_tenant_filter=skip_tenant_filter)
         if not att:
-            return None, '附件不存在或无权限访问'
+            return None, ATTACHMENT_ACCESS_DENIED_ERROR
 
         if att.file_ext not in PREVIEWABLE_EXTENSIONS:
             return None, '该文件类型不支持在线预览'
@@ -502,16 +541,24 @@ class AttachmentService:
         transaction.on_commit(remove_after_commit, robust=True)
 
     @staticmethod
-    def soft_delete(user, attachment_id, reason='', delete_file: bool = False) -> Optional[str]:
+    def soft_delete(user, attachment_id, module, object_type, reason='',
+                    delete_file: bool = False,
+                    skip_tenant_filter: bool = False) -> Optional[str]:
         """软删除附件，返回 error 或 None
+
+        module / object_type 为附件归属标识，必填且强校验（防跨模块越权，
+        详见 _get_owned_attachment）。校验失败统一返回 ATTACHMENT_DELETE_DENIED_ERROR。
+
+        skip_tenant_filter=True 时跳过租户过滤（由调用方完成可见性校验），
+        但仍强制校验 module / object_type。
 
         delete_file=True 时先软删除数据库记录，事务提交后再删除物理文件。
         物理删除失败仅保留孤儿文件并记录错误，不会破坏已提交的数据库一致性。
         """
-        qs = apply_tenant_filter(EvidenceAttachment.objects.all(), user)
-        att = qs.filter(pk=attachment_id, is_deleted=False).first()
+        att = AttachmentService._get_owned_attachment(
+            user, attachment_id, module, object_type, skip_tenant_filter=skip_tenant_filter)
         if not att:
-            return '附件不存在或无权限删除'
+            return ATTACHMENT_DELETE_DENIED_ERROR
 
         att.is_deleted = True
         att.deleted_at = timezone.now()

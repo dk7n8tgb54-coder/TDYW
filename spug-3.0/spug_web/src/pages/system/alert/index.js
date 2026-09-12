@@ -209,18 +209,17 @@ const AlertTable = observer(function AlertTable() {
   );
 });
 
-export default observer(function AlertIndex() {
+export default observer(function AlertIndex({embedded = false}) {
   useEffect(() => {
     store.fetchRecords();
   }, []);
 
-  return (
-    <AuthDiv auth="system.alert.view">
-      <Breadcrumb>
+  const content = <>
+      {!embedded && <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
         <Breadcrumb.Item>系统管理</Breadcrumb.Item>
         <Breadcrumb.Item>系统告警</Breadcrumb.Item>
-      </Breadcrumb>
+      </Breadcrumb>}
       <SearchForm>
         <SearchForm.Item span={5} title="告警级别">
           <Select
@@ -277,6 +276,6 @@ export default observer(function AlertIndex() {
         <DiskTrendChart/>
       </div>
       <AlertTable/>
-    </AuthDiv>
-  );
+    </>;
+  return embedded ? content : <AuthDiv auth="system.alert.view">{content}</AuthDiv>;
 });

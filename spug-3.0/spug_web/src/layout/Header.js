@@ -7,12 +7,13 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { observer } from 'mobx-react';
 import { Layout, Dropdown, Menu, Avatar, Badge, Popover, List, Tag, Button, Empty, Spin } from 'antd';
-import { MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, LogoutOutlined, BellOutlined } from '@ant-design/icons';
+import { MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, LogoutOutlined, BellOutlined, TagsOutlined } from '@ant-design/icons';
 import styles from './layout.module.less';
 import http from '../libs/http';
 import history from '../libs/history';
 import avatar from './avatar.png';
 import alertStore from './AlertStore';
+import releaseNoteStore from '../pages/release/store';
 
 const LEVEL_CONFIG = {
   error: { color: 'red', text: '严重' },
@@ -42,6 +43,15 @@ export default observer(function (props) {
         {
           key: 'profile',
           label: <Link to="/welcome/info"><UserOutlined style={{marginRight: 10}}/>个人中心</Link>
+        },
+        {
+          key: 'release-notes',
+          label: (
+            <span onClick={() => releaseNoteStore.openDrawer()}>
+              <TagsOutlined style={{marginRight: 10}}/>更新日志
+              <Badge count={releaseNoteStore.unreadCount} size="small" offset={[6, -2]}/>
+            </span>
+          )
         },
         { type: 'divider' },
         {

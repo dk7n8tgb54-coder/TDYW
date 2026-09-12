@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
  * Copyright (c) <spug.dev@gmail.com>
  * Released under the AGPL-3.0 License.
@@ -34,7 +34,7 @@ import SystemRole from './pages/system/role';
 import SystemSetting from './pages/system/setting';
 import SystemLogin from './pages/system/login';
 import SystemAudit from './pages/system/audit';
-import SystemAlert from './pages/system/alert';
+import SystemMonitor from './pages/system/monitor';
 import SystemDataQuality from './pages/system/dataQuality';
 import SystemTenant from './pages/system/tenant';
 import WelcomeIndex from './pages/welcome/index';
@@ -61,6 +61,7 @@ import EquipmentLifecycleRelations from './pages/equipmentLifecycle/relations';
 import AnnouncementList from './pages/home/AnnouncementList';
 import AnnouncementAdmin from './pages/system/announcement';
 import ReminderAdmin from './pages/reminder';
+import ReleaseNotesAdmin from './pages/system/releaseNotes';
 
 export default [
   {icon: <DesktopOutlined/>, title: '工作台', auth: 'dashboard.dashboard.view', path: '/home', component: HomeIndex},
@@ -115,17 +116,18 @@ export default [
   {
     icon: <ToolOutlined/>, title: '运维管理', auth: 'system.audit.view|system.alert.view', child: [
       {title: '操作日志', auth: 'system.audit.view', path: '/maintenance/audit', component: SystemAudit},
-      {title: '系统告警', auth: 'system.alert.view', path: '/maintenance/alert', component: SystemAlert},
-      {title: '数据质量巡检', auth: 'system.alert.view', path: '/maintenance/data-quality', component: SystemDataQuality},
+      {title: '系统监控', auth: 'system.alert.view', path: '/maintenance/alert', component: SystemMonitor},
+      {path: '/maintenance/data-quality', component: SystemDataQuality},
     ]
   },
   {
-    icon: <SettingOutlined/>, title: '系统管理', auth: 'system.account.view|system.role.view|system.setting.view|system.login.view|system.tenant.view', child: [
+    icon: <SettingOutlined/>, title: '系统管理', auth: 'system.account.view|system.role.view|system.setting.view|system.login.view|system.tenant.view|system.release_note.view', child: [
       {title: '登录日志', auth: 'system.login.view', path: '/system/login', component: SystemLogin},
       {title: '账户管理', auth: 'system.account.view', path: '/system/account', component: SystemAccount},
       {title: '租户管理', auth: 'system.tenant.view', path: '/system/tenant', component: SystemTenant},
       {title: '角色管理', auth: 'system.role.view', path: '/system/role', component: SystemRole},
       {title: '系统设置', auth: 'system.setting.view', path: '/system/setting', component: SystemSetting},
+      {title: '更新日志', auth: 'system.release_note.view', path: '/system/release-notes', component: ReleaseNotesAdmin},
     ]
   },
   {path: '/welcome/index', component: WelcomeIndex},

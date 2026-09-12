@@ -7,6 +7,8 @@ from apps.alert.views import (
     AlertResolveView,
     DataQualityCheckView,
     AlertTrendView,
+    RunMetricView,
+    RunMetricSummaryView,
 )
 
 urlpatterns = [
@@ -15,4 +17,6 @@ urlpatterns = [
     path('<int:pk>/resolve/', AlertResolveView.as_view()),
     path('data-quality/', DataQualityCheckView.as_view()),
     path('trend/', AlertTrendView.as_view()),
+    path('run-metrics/summary/', RunMetricSummaryView.as_view()),
+    path('run-metrics/', RunMetricView.as_view()),
 ]

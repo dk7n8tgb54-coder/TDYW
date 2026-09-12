@@ -42,14 +42,15 @@ from apps.interference.models import (
     BridgeInterferenceRecord, AirInterferenceRecord, Interference,
     ALTITUDE_UNIT_CHOICES, DURATION_UNIT_CHOICES,
 )
-from apps.interference.views import InterferenceAttachmentConfig
+# 两类业务共用一套附件约束（与旧干扰模块一致），通过 object_type 区分归属。
+# 常量统一在 views.py 定义（business_views 被 urls 在 views 之后加载，
+# 反向放到 business_views 会导致循环导入）。
+from apps.interference.views import (
+    InterferenceAttachmentConfig,
+    ATTACHMENT_MODULE, BRIDGE_OBJECT_TYPE, AIR_OBJECT_TYPE,
+)
 
 logger = logging.getLogger(__name__)
-
-# 两类业务共用一套附件约束（与旧干扰模块一致），通过 object_type 区分归属
-ATTACHMENT_MODULE = 'interference'
-BRIDGE_OBJECT_TYPE = 'bridge_interference'
-AIR_OBJECT_TYPE = 'air_interference'
 
 
 # 公共 JsonParser 参数：两类业务共同字段

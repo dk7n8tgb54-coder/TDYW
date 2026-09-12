@@ -5,6 +5,7 @@
 【P0-6修复】解决同步 I/O 阻塞问题
 """
 import os
+import shutil
 import zipfile
 import tempfile
 import logging
@@ -16,13 +17,18 @@ logger = logging.getLogger(__name__)
 # 打包任务存储目录
 PACK_TASKS_DIR = os.path.join(settings.BASE_DIR, 'storage', 'document_pack_tasks')
 
+# 打包任务队列：复用已有 batch worker（与异步大文件复制同一队列），无需新增 worker。
+# 注意：不得改回独立 document.pack 队列——当前部署没有任何 worker 消费该队列，
+# 任务会滞留在 broker 中永远 PENDING（2026-09 大文件夹下载挂起问题根因）。
+PACK_TASK_QUEUE = 'document.batch'
+
 
 def _ensure_pack_dir():
     """确保打包任务目录存在"""
     os.makedirs(PACK_TASKS_DIR, exist_ok=True)
 
 
-@shared_task(bind=True, soft_time_limit=3600, time_limit=7200, queue='document.pack')
+@shared_task(bind=True, soft_time_limit=3600, time_limit=7200, queue=PACK_TASK_QUEUE)
 def pack_folder_to_zip(self, folder_id, is_public, user_id, tenant_id=None):
     """
     【P0-6修复】异步打包文件夹为 ZIP
@@ -74,8 +80,10 @@ def pack_folder_to_zip(self, folder_id, is_public, user_id, tenant_id=None):
             zip_size = os.path.getsize(zip_path)
 
             # 移动到持久化目录
+            # 【修复】tempfile 建在 /tmp，与 storage 挂载盘跨设备，os.rename 会报
+            # Invalid cross-device link，必须用 shutil.move（跨设备降级为复制+删除）
             final_path = os.path.join(PACK_TASKS_DIR, f'pack_{folder_id}_{user_id}_{self.request.id}.zip')
-            os.rename(zip_path, final_path)
+            shutil.move(zip_path, final_path)
 
             logger.info(f'[Pack] Folder packed successfully: folder_id={folder_id}, size={zip_size}')
 
@@ -118,6 +126,7 @@ def _pack_folder_recursive(folder, zipf, path, FolderModel, FileModel, is_public
         tenant_id: 租户ID
     """
     from libs.tenant_utils import apply_tenant_filter
+    from apps.document.libs.document_utils import is_safe_path
 
     # BFS 收集所有文件夹
     folder_map = {}  # id -> folder_obj
@@ -183,7 +192,7 @@ def _pack_folder_recursive(folder, zipf, path, FolderModel, FileModel, is_public
             stack.append(child_id)
 
 
-@shared_task(bind=True, soft_time_limit=300, time_limit=600, queue='document.pack')
+@shared_task(bind=True, soft_time_limit=300, time_limit=600, queue='document.cleanup')
 def cleanup_expired_pack_tasks(self, max_age_hours=24):
     """
     清理过期的打包任务文件

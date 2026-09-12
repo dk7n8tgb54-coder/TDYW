@@ -12,6 +12,11 @@
 const { test, expect } = require('../../fixtures/auth.fixture');
 const { apiLogin, injectAuth } = require('../../fixtures/auth.fixture');
 const { loginAndCreateContext, apiGet, apiPost } = require('../../helpers/api');
+const fs = require('fs');
+const path = require('path');
+
+// 最小合法 docx 夹具（LibreOffice 可打开），用于 kkFileView Office 预览链路验证
+const DOCX_FIXTURE = path.join(__dirname, '..', '..', 'test-data', 'e2e_minimal.docx');
 
 const LIST_API = '/api/contract-agreement/';
 const RUN_PREFIX = `E2E_CA_${Date.now()}`;
@@ -401,5 +406,40 @@ test.describe('Contract Agreement - Document Admin', () => {
     const bodyText = await page.locator('body').innerText();
     expect(bodyText.length).toBeGreaterThan(0);
     expect(await page.locator('.ant-table-tbody tr.ant-table-row').count()).toBe(0);
+  });
+
+  test('CA017 - Office 文档 kkFileView 预览链路（docx → preview-url → 回调字节一致）', async ({ page, request }) => {
+    const name = `${RUN_PREFIX}_office_preview`;
+    const created = await createViaApi({ contract_name: name });
+    await uiLogin(page, request);
+    await page.goto(`/contract-agreement?id=${created.id}`);
+    const detail = page.locator('.ant-modal').filter({ hasText: '合同协议详情' });
+    await expect(detail).toBeVisible({ timeout: 20000 });
+
+    const fileName = `E2E办公_${Date.now()}.docx`;
+    await detail.locator('input[type="file"]').setInputFiles({
+      name: fileName,
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      buffer: fs.readFileSync(DOCX_FIXTURE),
+    });
+    const attRow = detail.locator('.ant-table-tbody tr').filter({ hasText: fileName });
+    await expect(attRow).toBeVisible({ timeout: 30000 });
+
+    // 点文件名触发预览：docx 走 preview-url → kkFileView onlinePreview iframe
+    await attRow.getByRole('button', { name: fileName, exact: true }).click();
+    const previewIframe = page.locator('.ant-modal iframe').last();
+    await expect(previewIframe).toBeVisible({ timeout: 30000 });
+    const src = await previewIframe.getAttribute('src');
+    expect(src).toContain('/kkfileview/onlinePreview?url=');
+
+    // 解码内嵌回源 file_url，同源请求回调接口，验证真实服务器按令牌返回上传字节
+    const encoded = new URLSearchParams(new URL(src, 'http://localhost').search).get('url');
+    const fileUrl = Buffer.from(encoded, 'base64').toString('utf-8');
+    expect(fileUrl).toContain('/api/contract-agreement/attachments/');
+    const cbPath = fileUrl.slice(fileUrl.indexOf('/api/'));
+    const resp = await request.get(cbPath);
+    expect(resp.status()).toBe(200);
+    const body = await resp.body();
+    expect(body.equals(fs.readFileSync(DOCX_FIXTURE))).toBeTruthy();
   });
 });
