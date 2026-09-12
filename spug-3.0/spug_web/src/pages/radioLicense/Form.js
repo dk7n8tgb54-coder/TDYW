@@ -118,6 +118,7 @@ export default observer(function () {
         visible
         width={900}
         style={{maxWidth: 'calc(100vw - 32px)'}}
+        bodyStyle={{overflowX: 'auto'}}
         title="执照详情"
         footer={[
           <Button key="close" onClick={() => S.detailVisible = false}>关闭</Button>,
@@ -224,6 +225,7 @@ export default observer(function () {
       visible
       width={800}
       style={{maxWidth: 'calc(100vw - 32px)'}}
+      bodyStyle={{overflowX: 'auto'}}
       maskClosable={false}
       title={S.record.id ? '编辑执照' : '新建执照'}
       onCancel={() => S.formVisible = false}

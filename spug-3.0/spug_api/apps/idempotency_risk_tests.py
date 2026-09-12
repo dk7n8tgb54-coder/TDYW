@@ -13,7 +13,7 @@ from django.test import TestCase
 from apps.utils.test_helpers import make_user, make_client, setup_test_env
 from apps.duty.models import DutyRecord
 from apps.fault.models import FaultPart, FaultRecord
-from apps.interference.models import Interference
+from apps.interference.models import InterferenceEvent
 from apps.runlog.models import RunLog
 from apps.regulation.models import RegulationCategory
 from apps.home.models import Navigation
@@ -114,8 +114,8 @@ class FaultRecordIdempotencyTest(TestCase):
 
 
 class InterferenceIdempotencyTest(TestCase):
-    """干扰记录 POST 幂等性修复验证"""
-    URL = '/interference/'
+    """干扰事件 POST 幂等性修复验证"""
+    URL = '/interference/events/'
     PERMS = ['interference.interference.add', 'interference.interference.view']
 
     def setUp(self):
@@ -126,9 +126,11 @@ class InterferenceIdempotencyTest(TestCase):
     def test_double_post_blocked(self):
         """修复验证：连续两次 POST 相同数据，第二次应被拒绝"""
         payload = {
-            'frequency': '108.5', 'report_dept': '技术科',
-            'datetime': '2026-07-29 14:00:00', 'coordinates': 'N30,E120',
-            'interference_type': '电磁干扰', 'phenomenon': '信号衰减', 'is_reported': '否',
+            'datetime': '2026-07-29 14:00:00', 'scene_code': 'unknown',
+            'classification_status': 'pending',
+            'interference_kind_code': 'other',
+            'affected_system_code': 'other', 'source_type_code': 'unknown',
+            'phenomenon': '信号衰减',
         }
         r1 = self.client_auth.post(
             self.URL, data=json.dumps(payload), content_type='application/json')
@@ -140,8 +142,8 @@ class InterferenceIdempotencyTest(TestCase):
         self.assertEqual(r2.status_code, 200)
         self.assertTrue(r2.json().get('error'))
 
-        count = Interference.objects.filter(
-            frequency='108.5', report_dept='技术科').count()
+        count = InterferenceEvent.objects.filter(
+            flight_number='', phenomenon='信号衰减').count()
         self.assertEqual(count, 1, f'修复验证：应仅 1 条记录，实际 {count} 条')
 
 

@@ -96,19 +96,17 @@ def get_statistic(request):
         logger.exception('[dashboard] upgrade 统计失败')
         data['upgrade'] = {}
 
-    # 4. 干扰信息今日统计（双业务类型：分别统计并给出总量）
+    # 4. 干扰信息今日统计（统一从事件主表聚合）
     try:
-        from apps.interference.models import BridgeInterferenceRecord, AirInterferenceRecord
-        bridge_today = apply_tenant_filter(
-            BridgeInterferenceRecord.objects.filter(is_deleted=False), request.user,
-        ).filter(datetime__gte=today_start, datetime__lt=today_end)
-        air_today = apply_tenant_filter(
-            AirInterferenceRecord.objects.filter(is_deleted=False), request.user,
+        from apps.interference.models import InterferenceEvent
+        event_today = apply_tenant_filter(
+            InterferenceEvent.objects.filter(is_deleted=False), request.user,
         ).filter(datetime__gte=today_start, datetime__lt=today_end)
         data['interference'] = {
-            'today_total': bridge_today.count() + air_today.count(),
-            'bridge_today_total': bridge_today.count(),
-            'air_today_total': air_today.count(),
+            'today_total': event_today.count(),
+            'ground_today_total': event_today.filter(scene_code='ground').count(),
+            'air_today_total': event_today.filter(scene_code='air').count(),
+            'cross_today_total': event_today.filter(scene_code='cross').count(),
         }
     except Exception:
         logger.exception('[dashboard] interference 统计失败')

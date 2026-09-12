@@ -9,7 +9,6 @@
  *   NODE_PATH=./node_modules node ../reports/contract_agreement/scripts/check_kkfileview_chain.js
  * 退出码 0=链路通过；非 0=失败（原因打印在输出中）。
  */
-const fs = require('fs');
 const path = require('path');
 
 try {
@@ -21,11 +20,13 @@ const { loginAndCreateContext, apiPost, apiGet } = require(
 const { request } = require('@playwright/test');
 
 const LIST_API = '/api/contract-agreement/';
-const DOCX_FIXTURE = path.join(__dirname, '..', '..', '..', 'e2e', 'test-data', 'e2e_minimal.docx');
+// 最小合法 docx，base64 内联以规避 .gitignore 的 *.docx 规则
+const DOCX_BYTES = Buffer.from(
+  require(path.join(__dirname, '..', '..', '..', 'e2e', 'test-data', 'e2e_minimal_docx_b64.js')), 'base64');
 const NAME = `E2E_CA_chain_check_${Date.now()}`;
 
 (async () => {
-  const docx = fs.readFileSync(DOCX_FIXTURE);
+  const docx = DOCX_BYTES;
   const s = await loginAndCreateContext('admin');
   const { context: ctx } = s;
   let contractId = null;

@@ -4,7 +4,7 @@ from django.test import TestCase
 from apps.fault.models import (
     FaultRecord, FaultPart
 )
-from apps.interference.models import Interference
+from apps.interference.models import InterferenceEvent
 from apps.upgrade.models import UpgradeRecord
 from apps.duty.models import DutyRecord
 from apps.runlog.models import RunLog
@@ -97,7 +97,7 @@ class FaultPartModelTest(TestCase):
 
 
 class InterferenceModelTest(TestCase):
-    """Interference模型测试"""
+    """InterferenceEvent模型测试"""
     
     def setUp(self):
         """测试前准备"""
@@ -110,19 +110,15 @@ class InterferenceModelTest(TestCase):
     
     def test_create_interference(self):
         """测试创建干扰记录"""
-        interference = Interference.objects.create(
-            tenant_id='test_tenant',
-            serial_number=1,
-            frequency='100MHz',
-            report_dept='运维部',
-            datetime='2024-01-15 10:00:00',
-            coordinates='E121.47 N31.23',
-            interference_type='信号干扰',
-            phenomenon='信号波动',
+        interference = InterferenceEvent.objects.create(
+            tenant_id='test_tenant', datetime='2024-01-15 10:00:00',
+            scene_code='unknown', classification_status='pending',
+            interference_kind_code='other', affected_system_code='other',
+            source_type_code='unknown', phenomenon='信号波动',
             created_by=self.user
         )
-        self.assertEqual(interference.frequency, '100MHz')
-        self.assertEqual(interference.is_reported, '否')
+        self.assertEqual(interference.phenomenon, '信号波动')
+        self.assertEqual(interference.scene_code, 'unknown')
 
 
 class UpgradeRecordModelTest(TestCase):

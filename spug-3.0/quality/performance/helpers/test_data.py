@@ -75,10 +75,18 @@ class TestDataGenerator:
             "content": "PERF自动化测试创建的部门值班日志",
         },
         "interference": {
-            "title": "PERF测试干扰记录{seq}",
-            "description": "PERF自动化测试创建的干扰记录",
-            "frequency": "98.5",
-            "location": "PERF测试地点",
+            "datetime": "2026-08-01 10:00:00",
+            "scene_code": "ground",
+            "classification_status": "pending",
+            "interference_kind_code": "other",
+            "affected_system_code": "communication",
+            "source_type_code": "unknown",
+            "phenomenon": "E2E_PERF测试干扰记录{seq}",
+            "ground_detail": {
+                "location": "PERF测试地点",
+                "frequency": "98.5",
+                "ground_equipment": "PERF测试设备",
+            },
         },
         "fault": {
             "title": "PERF测试故障记录{seq}",

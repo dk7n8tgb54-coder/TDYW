@@ -41,8 +41,8 @@ import WelcomeIndex from './pages/welcome/index';
 import WelcomeInfo from './pages/welcome/info';
 import DocumentIndex from './pages/document';
 import PartyBuildingDocumentsIndex from './pages/document/PartyBuildingDocumentsIndex';
-import BridgeInterference from './pages/interference/bridge';
-import AirInterference from './pages/interference/air';
+import InterferenceEvents from './pages/interference/events';
+import InterferenceInvestigations from './pages/interference/investigations';
 import ExecUpgradeRecord from './pages/upgrade';
 import ExecUpgradeStatistics from './pages/upgrade/Statistics';
 import ExecUpgradePlan from './pages/upgrade/plan/PlanManager';
@@ -104,9 +104,9 @@ export default [
   ]},
   // 系统详情/关系维护页（从系统列表"详情"进入，不在菜单展示）
   {path: '/equipment-lifecycle/systems/detail/:id', component: EquipmentLifecycleSystemDetail},
-  {icon: <ExceptionOutlined/>, title: '干扰管理', auth: 'interference.interference.view', child: [
-    {title: '地面无线电通信异常/干扰', auth: 'interference.interference.view', path: '/interference/bridge', component: BridgeInterference},
-    {title: '空中干扰', auth: 'interference.interference.view', path: '/interference/air', component: AirInterference},
+  {icon: <ExceptionOutlined/>, title: '干扰管理', auth: 'interference.interference.view|interference.investigation.view', child: [
+    {title: '干扰记录', auth: 'interference.interference.view', path: '/interference/events', component: InterferenceEvents},
+    {title: '规律调查', auth: 'interference.investigation.view', path: '/interference/investigations', component: InterferenceInvestigations},
   ]},
   {icon: <ClockCircleOutlined/>, title: '值班日志', auth: 'duty.duty.view', path: '/duty', component: ExecDutyRecord},
   {icon: <NotificationOutlined/>, title: '公告与提醒', auth: 'home.announcement.view|home.reminder.view', child: [

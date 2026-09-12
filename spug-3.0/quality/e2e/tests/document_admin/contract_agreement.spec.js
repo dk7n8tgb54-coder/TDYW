@@ -12,11 +12,10 @@
 const { test, expect } = require('../../fixtures/auth.fixture');
 const { apiLogin, injectAuth } = require('../../fixtures/auth.fixture');
 const { loginAndCreateContext, apiGet, apiPost } = require('../../helpers/api');
-const fs = require('fs');
-const path = require('path');
 
-// 最小合法 docx 夹具（LibreOffice 可打开），用于 kkFileView Office 预览链路验证
-const DOCX_FIXTURE = path.join(__dirname, '..', '..', 'test-data', 'e2e_minimal.docx');
+// 最小合法 docx（LibreOffice 可打开），base64 内联以规避 .gitignore 的 *.docx 规则
+const DOCX_BYTES = Buffer.from(
+  require('../../test-data/e2e_minimal_docx_b64.js'), 'base64');
 
 const LIST_API = '/api/contract-agreement/';
 const RUN_PREFIX = `E2E_CA_${Date.now()}`;
@@ -420,7 +419,7 @@ test.describe('Contract Agreement - Document Admin', () => {
     await detail.locator('input[type="file"]').setInputFiles({
       name: fileName,
       mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      buffer: fs.readFileSync(DOCX_FIXTURE),
+      buffer: DOCX_BYTES,
     });
     const attRow = detail.locator('.ant-table-tbody tr').filter({ hasText: fileName });
     await expect(attRow).toBeVisible({ timeout: 30000 });
@@ -440,6 +439,6 @@ test.describe('Contract Agreement - Document Admin', () => {
     const resp = await request.get(cbPath);
     expect(resp.status()).toBe(200);
     const body = await resp.body();
-    expect(body.equals(fs.readFileSync(DOCX_FIXTURE))).toBeTruthy();
+    expect(body.equals(DOCX_BYTES)).toBeTruthy();
   });
 });

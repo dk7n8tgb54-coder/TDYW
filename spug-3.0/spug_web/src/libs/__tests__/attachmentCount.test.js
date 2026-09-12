@@ -18,8 +18,7 @@ const { syncAttachmentCount } = require('../attachmentCount');
 const radioStore = require('../../pages/radioLicense/store').default;
 const contractStore = require('../../pages/contractAgreement/store').default;
 const approvalStore = require('../../pages/stationFrequencyApproval/store').default;
-const bridgeStore = require('../../pages/interference/bridge/store').default;
-const airStore = require('../../pages/interference/air/store').default;
+const interferenceStore = require('../../pages/interference/store').default;
 
 function makeStore(rowId = 7) {
   return {
@@ -129,8 +128,7 @@ describe('业务 store 接入', () => {
     ['radioLicense', radioStore],
     ['contractAgreement', contractStore],
     ['stationFrequencyApproval', approvalStore],
-    ['interference/bridge', bridgeStore],
-    ['interference/air', airStore],
+    ['interference', interferenceStore],
   ];
 
   test.each(cases)('%s store.updateAttachmentCount 回写列表行与当前记录', (name, store) => {

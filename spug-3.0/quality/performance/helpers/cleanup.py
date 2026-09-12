@@ -52,7 +52,7 @@ class CleanupRegistry:
         "runlog": "/api/runlog/{id}/",
         "duty_log": "/api/duty/duty/{id}/",
         "dept_duty_log": "/api/department-duty-log/records/{id}/",
-        "interference": "/api/interference/{id}/",
+        "interference": "/api/interference/events/{id}/",
         "fault": "/api/fault/faultrecord/{id}/",
         "reminder": "/api/reminder/{id}/",
         "device": "/api/device/device-resume/{id}/",

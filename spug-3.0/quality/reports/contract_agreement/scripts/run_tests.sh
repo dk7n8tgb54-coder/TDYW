@@ -26,8 +26,10 @@ apps.contract_agreement.tests.stable_contract.test_crud
 apps.contract_agreement.tests.stable_contract.test_status_reminder
 apps.contract_agreement.tests.stable_contract.test_permission_tenant
 apps.contract_agreement.tests.stable_contract.test_attachments
+apps.contract_agreement.tests.stable_contract.test_office_preview_chain
 apps.contract_agreement.tests.stable_contract.test_audit_async
 apps.contract_agreement.tests.test_smoke
+apps.interference.tests.stable_contract.test_attachment_scoping
 EOF
 fi
 docker cp /tmp/contract_qa_modules.txt "$CONTAINER":/tmp/contract_qa_modules.txt

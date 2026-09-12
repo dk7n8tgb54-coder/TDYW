@@ -295,7 +295,7 @@ class ReadWorkflowUser(TokenPoolHttpUser):
     @task(4)
     def interference_records(self):
         """Get interference record list."""
-        self._safe_get("/api/interference/")
+        self._safe_get("/api/interference/events/")
 
     @task(2)
     def interference_statistics(self):

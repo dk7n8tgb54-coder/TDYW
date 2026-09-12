@@ -95,8 +95,9 @@ async function renderLogin() {
 }
 
 async function clickLogin() {
+  // antd 对两字中文按钮自动插入空格，文本为"登 录"
   const btn = Array.from(document.querySelectorAll('button'))
-    .find(b => b.textContent === '登录');
+    .find(b => b.textContent.replace(/\s/g, '') === '登录');
   expect(btn).toBeTruthy();
   await act(async () => {
     btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));

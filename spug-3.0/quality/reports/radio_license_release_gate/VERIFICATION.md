@@ -53,6 +53,17 @@
 - 剩余 4 项**未修复**缺陷均为 Low：F-12（表单校验拒绝未处理，控制台报错）、F-16（下载按钮权限门控缺失，后端会正确拒绝，仅前端展示问题）、F-17（窄屏弹窗溢出 215px，建议加 `max-width: calc(100vw - 32px)` 类响应式约束）、F-18（批复表仅查看用户无操作列，行为不一致）。
 - 按门禁标准「CONDITIONAL：仅存在已批准的中低风险问题」——若相关方接受上述 4 项 Low 风险（建议随下一批次修复），可按 CONDITIONAL 放行；否则修复后即可 PASS。
 
+## 四（补）、剩余 4 项 Low 缺陷修复记录（2026-09-12）
+
+| 编号 | 修复内容 | 修复位置 | 验证 |
+|---|---|---|---|
+| F-12 | `validateFields()` 链尾补 `.catch(() => {})`，消化校验失败的 Promise 拒绝（错误提示仍由 antd Form 展示） | `radioLicense/Form.js`、`stationFrequencyApproval/Form.js` 的 handleSubmit | `Form.validation-rejection.test.js` PASS（修复前 FAIL）；同时移除 Form.behavior.test.js 中的测试侧包装器，回归走真实路径 |
+| F-16 | 执照详情 AttachmentManager 补 `downloadPerm="radio_license.attachment.download"`，无权限用户不再显示下载按钮 | `radioLicense/Form.js` | `Attachment.downloadPerm.test.js` PASS（修复前 FAIL） |
+| F-17 | 四个 Modal（执照详情 900/编辑 800、批复详情 900/编辑 720）加 `style={{maxWidth: 'calc(100vw - 32px)'}}` + `bodyStyle={{overflowX: 'auto'}}`：弹窗钳制在视口内，超宽内容（附件表格）在弹窗体内部横向滚动，桌面端无溢出时无滚动条 | 两个 Form.js | E2E 375px 实测：弹窗溢出 **399px → 0**，`rg_responsive_badge.spec.js` 全套 14/14 PASS |
+| F-18 | 批复表操作列渲染条件 `edit\|del` → `view\|edit\|del`，仅查看用户保留「查看」入口，与执照表口径一致 | `stationFrequencyApproval/Table.js:128` | `Table.perms.test.js` 用例更新为断言新行为（仅查看→操作列+仅查看按钮+点击进详情），PASS |
+
+**修复后全量回归**：前端 jest 42/42 全绿；E2E 14/14 全绿（前端已重新构建并部署至 tdyw-test）；后端无改动。**至此 18 项缺陷全部修复，上线结论可按 PASS 记录（后端 292 + 前端 42 + E2E 14 全部通过）。**
+
 ## 五、验证产物
 
 - `backend_verify_after_fix.log` / `frontend_verify_after_fix.log`（本目录）

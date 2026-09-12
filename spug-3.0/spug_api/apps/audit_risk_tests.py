@@ -106,7 +106,7 @@ class ExportAuditCoverageTest(TestCase):
 
     ALL_EXPORT_VIEWS = [
         'apps.fault.exporters.FaultRecordExportView',
-        'apps.interference.exporters.InterferenceExportView',
+        'apps.interference.views.EventExportView',
         'apps.upgrade.exporters.UpgradeRecordExportView',
         'apps.runlog.exporters.RunLogExportView',
         'apps.device.exporters.DeviceListExportView',

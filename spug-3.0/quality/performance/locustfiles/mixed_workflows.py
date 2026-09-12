@@ -173,7 +173,7 @@ class MixedWorkflowUser(TokenPoolHttpUser):
     @task(3)
     def browse_interference(self):
         """Browse interference records."""
-        self._safe_get("/api/interference/")
+        self._safe_get("/api/interference/events/")
 
     @task(3)
     def browse_alerts(self):
@@ -257,7 +257,7 @@ class MixedWorkflowUser(TokenPoolHttpUser):
             return
 
         send_data = {k: v for k, v in record.items() if not k.startswith("_")}
-        data = self._safe_post("/api/interference/", send_data)
+        data = self._safe_post("/api/interference/events/", send_data)
         if data and data.get("id"):
             registry.register("interference", data["id"])
 

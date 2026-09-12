@@ -9,7 +9,7 @@ test.describe('Interference Management - Technical Operations', () => {
     const { apiLogin, injectAuth } = require('../../fixtures/auth.fixture');
     const session = await apiLogin(request, 'admin');
     await injectAuth(page, session);
-    await page.goto('/interference');
+    await page.goto('/interference/events');
     await page.waitForLoadState('networkidle');
 
     const bodyText = await page.locator('body').innerText();
@@ -20,7 +20,7 @@ test.describe('Interference Management - Technical Operations', () => {
 
   test('INT002 - Interference API returns data', async ({}) => {
     const result = await loginAndCreateContext('admin');
-    const data = await apiGet(result.context, '/api/interference/');
+    const data = await apiGet(result.context, '/api/interference/events/');
     expect(data).toBeDefined();
     await result.context.dispose();
   });
@@ -48,19 +48,21 @@ test.describe('Interference Management - Technical Operations', () => {
     let testId;
 
     try {
-      const createResult = await apiPost(result.context, '/api/interference/', {
-        title: `E2E_测试干扰_${Date.now()}`,
-        description: 'E2E TEST DATA - Interference description',
-        frequency: 'E2E-100MHz',
-        report_dept: 'E2E测试部门',
-        interference_type: 'signal',
+      const createResult = await apiPost(result.context, '/api/interference/events/', {
+        datetime: new Date().toISOString(),
+        scene_code: 'unknown',
+        classification_status: 'pending',
+        interference_kind_code: 'other',
+        affected_system_code: 'communication',
+        source_type_code: 'unknown',
+        phenomenon: `E2E_测试干扰_${Date.now()}`,
       });
 
       if (!createResult.error && createResult.data) {
         testId = createResult.data.id || createResult.data;
 
         // Verify in UI
-        await page.goto('/interference');
+        await page.goto('/interference/events');
         await page.waitForLoadState('networkidle');
         await page.waitForTimeout(2000);
 
@@ -74,7 +76,7 @@ test.describe('Interference Management - Technical Operations', () => {
     } finally {
       if (testId) {
         try {
-          await apiDelete(result.context, '/api/interference/', { id: testId });
+          await apiDelete(result.context, `/api/interference/events/${testId}/`);
         } catch (e) { /* ignore */ }
       }
       await result.context.dispose();

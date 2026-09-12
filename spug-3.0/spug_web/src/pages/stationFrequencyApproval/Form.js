@@ -104,6 +104,7 @@ export default observer(function () {
         visible
         width={900}
         style={{maxWidth: 'calc(100vw - 32px)'}}
+        bodyStyle={{overflowX: 'auto'}}
         title="批复详情"
         footer={[
           <Button key="close" onClick={() => S.detailVisible = false}>关闭</Button>,
@@ -185,6 +186,7 @@ export default observer(function () {
       visible
       width={720}
       style={{maxWidth: 'calc(100vw - 32px)'}}
+      bodyStyle={{overflowX: 'auto'}}
       maskClosable={false}
       title={S.record.id ? '编辑批复' : '新建批复'}
       onCancel={() => S.formVisible = false}

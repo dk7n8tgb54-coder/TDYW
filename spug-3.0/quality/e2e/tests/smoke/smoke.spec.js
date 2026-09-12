@@ -85,7 +85,7 @@ test.describe('Smoke Tests - System Availability', () => {
       '/runlog',
       '/device/device_resume',
       '/exec/fault/record',
-      '/interference',
+      '/interference/events',
       '/duty',
       '/system/announcement',
       '/reminder',

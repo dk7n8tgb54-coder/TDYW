@@ -11,9 +11,12 @@ const { loginAndCreateContext, apiGet, apiDelete, apiPatch } = require('./api');
 async function cleanupByPrefix(ctx, listPath, deletePath, field = 'title', idField = 'id') {
   try {
     const result = await apiGet(ctx, listPath);
-    if (!result.data || !Array.isArray(result.data)) return;
+    const records = Array.isArray(result.data)
+      ? result.data
+      : (result.data && Array.isArray(result.data.records) ? result.data.records : []);
+    if (!records.length) return;
 
-    const testRecords = result.data.filter(item =>
+    const testRecords = records.filter(item =>
       item[field] && String(item[field]).startsWith('E2E_')
     );
 
@@ -74,7 +77,7 @@ async function fullCleanup() {
     await cleanupByPrefix(context, '/api/device/device-resume/', '/api/device/device-resume/', 'device_name', 'id');
     await cleanupByPrefix(context, '/api/fault/records/', '/api/fault/records/', 'title');
     await cleanupByPrefix(context, '/api/upgrade/records/', '/api/upgrade/records/', 'title');
-    await cleanupByPrefix(context, '/api/interference/records/', '/api/interference/records/', 'title');
+    await cleanupByPrefix(context, '/api/interference/events/', '/api/interference/events/', 'phenomenon', 'id');
 
     // Document folders
     await cleanupDocumentFolders(context);

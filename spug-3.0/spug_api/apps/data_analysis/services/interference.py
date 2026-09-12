@@ -1,73 +1,70 @@
-"""干扰分析服务。
+"""基于 InterferenceEvent 的干扰统计服务。"""
 
-2026-08 双业务拆分：干扰分析分别统计「地面无线电通信异常/干扰」与
-「空中干扰」两类记录并给出总量；两类业务各自的明细字段不混入同一张统计表，
-仅按记录类型分列共同摘要（月度趋势）。
-"""
+from django.db.models import Count
+
 from apps.interference.models import (
-    Interference, BridgeInterferenceRecord, AirInterferenceRecord,
+    InterferenceEvent,
+    InterferenceInvestigation,
+    InvestigationEvent,
+    SpectrumMeasurement,
 )
 from libs.tenant_utils import apply_tenant_filter
-from .common import (
-    make_range_filter, build_distribution, build_monthly_trend, build_meta, calc_rate,
-)
 
-# (key, 中文名, 模型) —— 两类业务统一遍历，避免逻辑分叉
-BUSINESS_RECORD_SPECS = (
-    ('bridge', '地面无线电通信异常/干扰', BridgeInterferenceRecord),
-    ('air', '空中干扰', AirInterferenceRecord),
+from .common import (
+    build_distribution,
+    build_meta,
+    build_monthly_trend,
+    make_range_filter,
 )
 
 
 def get_interference_analysis(user, start_date, end_date):
-    """获取干扰分析数据（双业务类型）。"""
-    interference_range = make_range_filter(start_date, end_date, 'datetime')
+    """返回事件、调查和频谱测量的统一聚合结果。
 
-    summary = {}
-    trends = {}
-    record_count = 0
-    for key, _label, model in BUSINESS_RECORD_SPECS:
-        qs = apply_tenant_filter(
-            model.objects.filter(is_deleted=False).filter(interference_range), user
-        )
-        count = qs.count()
-        record_count += count
-        summary[f'{key}_count'] = count
+    统计只从事件主表聚合，因此跨场景事件、明细表和调查关联都不会重复计数。
+    """
+    event_base = apply_tenant_filter(
+        InterferenceEvent.objects.filter(is_deleted=False), user)
+    event_range = make_range_filter(start_date, end_date, 'datetime')
+    events = event_base.filter(event_range)
 
-        # 月度趋势（按类型分列）
-        trends[f'{key}_monthly'] = build_monthly_trend(
-            apply_tenant_filter(model.objects.filter(is_deleted=False), user),
-            'datetime', start_date, end_date
-        )
+    investigation_base = apply_tenant_filter(
+        InterferenceInvestigation.objects.filter(is_deleted=False), user)
+    measurement_base = apply_tenant_filter(
+        SpectrumMeasurement.objects.filter(
+            is_deleted=False, investigation__is_deleted=False), user)
+    investigation_range = make_range_filter(start_date, end_date, 'created_at')
+    measurement_range = make_range_filter(start_date, end_date, 'measured_at')
 
-    # 保留旧 Interference 表的统计维度，兼容既有数据分析调用方。
-    legacy_qs = apply_tenant_filter(
-        Interference.objects.filter(is_deleted=False).filter(interference_range), user
-    )
-    legacy_count = legacy_qs.count()
-    reported_count = legacy_qs.filter(is_reported='是').count()
-    record_count += legacy_count
-    summary.update({
-        'legacy_record_count': legacy_count,
-        'reported_count': reported_count,
-        'unreported_count': legacy_count - reported_count,
-        'report_rate': calc_rate(reported_count, legacy_count),
-    })
-    trends['record_monthly'] = build_monthly_trend(
-        apply_tenant_filter(Interference.objects.filter(is_deleted=False), user),
-        'datetime', start_date, end_date
-    )
-
-    summary['record_count'] = record_count
-
+    by_scene = build_distribution(events, 'scene_code')
+    by_kind = build_distribution(events, 'interference_kind_code')
+    by_system = build_distribution(events, 'affected_system_code')
+    by_source = build_distribution(events, 'source_type_code')
     return {
         'meta': build_meta(start_date, end_date),
-        'summary': summary,
-        'trends': trends,
+        'summary': {
+            'record_count': events.count(),
+            'investigation_count': investigation_base.filter(investigation_range).count(),
+            'measurement_count': measurement_base.filter(measurement_range).count(),
+            'ground_count': events.filter(scene_code='ground').count(),
+            'air_count': events.filter(scene_code='air').count(),
+            'cross_count': events.filter(scene_code='cross').count(),
+            'unknown_count': events.filter(scene_code='unknown').count(),
+            'pending_count': events.filter(classification_status='pending').count(),
+            'confirmed_count': events.filter(classification_status='confirmed').count(),
+        },
+        'trends': {
+            'record_monthly': build_monthly_trend(
+                event_base, 'datetime', start_date, end_date),
+            'investigation_monthly': build_monthly_trend(
+                investigation_base, 'created_at', start_date, end_date),
+            'measurement_monthly': build_monthly_trend(
+                measurement_base, 'measured_at', start_date, end_date),
+        },
         'distributions': {
-            'by_type': build_distribution(legacy_qs, 'interference_type'),
-            'by_frequency': build_distribution(legacy_qs, 'frequency'),
-            'by_status': build_distribution(legacy_qs, 'status'),
-            'by_report_department': build_distribution(legacy_qs, 'report_dept'),
+            'by_scene': by_scene,
+            'by_interference_kind': by_kind,
+            'by_affected_system': by_system,
+            'by_source_type': by_source,
         },
     }

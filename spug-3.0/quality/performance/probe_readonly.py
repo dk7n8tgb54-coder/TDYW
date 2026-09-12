@@ -131,7 +131,7 @@ def run_probes(base_url, token, iterations=3):
         ("GET", "/api/fault/records/", {"page": 1, "page_size": 5}, "faults"),
         ("GET", "/api/upgrade/records/", {"page": 1, "page_size": 5}, "upgrade_records"),
         ("GET", "/api/upgrade/statistics/", {}, "upgrade_stats"),
-        ("GET", "/api/interference/", {"page": 1, "page_size": 5}, "interferences"),
+        ("GET", "/api/interference/events/", {"page": 1, "page_size": 5}, "interferences"),
         ("GET", "/api/alert/", {"page": 1, "page_size": 5}, "alerts"),
         # System management
         ("GET", "/api/account/user/", {"page": 1, "page_size": 5}, "account_users"),

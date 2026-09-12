@@ -238,7 +238,7 @@ def migrate_existing_data(tenant_id_map):
     from apps.account.models import User
     from apps.fault.models import FaultRecord, FaultPart
     from apps.duty.models import DutyRecord
-    from apps.interference.models import Interference
+    from apps.interference.models import InterferenceEvent, InterferenceInvestigation, SpectrumMeasurement
     from apps.runlog.models import RunLog
     from apps.upgrade.models import UpgradeRecord
 
@@ -249,7 +249,8 @@ def migrate_existing_data(tenant_id_map):
 
     # 为现有数据分配租户(根据created_by的用户租户)
     models_to_migrate = [
-        RunLog, FaultRecord, FaultPart, Interference, UpgradeRecord,
+        RunLog, FaultRecord, FaultPart, InterferenceEvent,
+        InterferenceInvestigation, SpectrumMeasurement, UpgradeRecord,
         DutyRecord
     ]
 

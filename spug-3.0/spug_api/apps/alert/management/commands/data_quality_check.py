@@ -331,7 +331,9 @@ class Command(BaseCommand):
         modules = [
             ('tdyw_fault_records', '故障记录', 'system_name'),
             ('tdyw_run_logs', '运行日志', 'event_title'),
-            ('tdyw_interferences', '干扰记录', 'frequency'),
+            ('tdyw_interference_events', '干扰事件', 'phenomenon'),
+            ('tdyw_interference_investigations', '规律调查', 'name'),
+            ('tdyw_spectrum_measurements', '频谱测量', 'location'),
             ('tdyw_upgrade_records', '升级记录', 'title'),
             ('tdyw_duty_records', '值班日志', 'duty_person'),
         ]

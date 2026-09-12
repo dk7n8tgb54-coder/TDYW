@@ -116,8 +116,13 @@ const TEST_DATA = {
 
   // Interference
   interference: {
-    title: () => `E2E_测试干扰_${Date.now()}`,
-    description: 'E2E TEST DATA - Interference description',
+    datetime: () => new Date().toISOString(),
+    scene_code: 'unknown',
+    classification_status: 'pending',
+    interference_kind_code: 'other',
+    affected_system_code: 'communication',
+    source_type_code: 'unknown',
+    phenomenon: () => `E2E_测试干扰_${Date.now()}`,
   },
 };
 

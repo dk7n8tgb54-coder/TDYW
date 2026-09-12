@@ -15,7 +15,7 @@ import logging
 from django.test import TestCase, RequestFactory
 from apps.account.models import User
 from apps.home.models import Navigation
-from apps.interference.models import Interference
+from apps.interference.models import InterferenceEvent
 from apps.runlog.models import RunLog
 from apps.logs.models import AuditLog
 from apps.utils.test_helpers import make_user, make_client, setup_test_env
@@ -42,20 +42,21 @@ class R2NavViewAuthFixedTest(TestCase):
 
 
 class R4InterferenceSoftDeleteFixedTest(TestCase):
-    """R4 修复验证：Interference 有 is_deleted 字段，逻辑删除"""
+    """R4 修复验证：干扰事件有 is_deleted 字段，逻辑删除"""
 
     def test_interference_has_soft_delete_field(self):
-        field_names = [f.name for f in Interference._meta.get_fields()]
+        field_names = [f.name for f in InterferenceEvent._meta.get_fields()]
         self.assertIn('is_deleted', field_names,
-                      'R4 修复验证失败：Interference 仍无 is_deleted 字段')
+                      'R4 修复验证失败：InterferenceEvent 仍无 is_deleted 字段')
 
     def test_interference_logical_delete(self):
         setup_test_env(self)
         admin_user = make_user('admin_interference_f4', is_supper=True)
-        record = Interference.objects.create(
-            serial_number=996, frequency='400MHz',
-            report_dept='修复验证', interference_type='电磁干扰',
-            phenomenon='测试', coordinates='N33,E123',
+        record = InterferenceEvent.objects.create(
+            datetime='2026-08-01 10:00:00', scene_code='unknown',
+            classification_status='pending', interference_kind_code='other',
+            affected_system_code='other', source_type_code='unknown',
+            phenomenon='测试',
             created_by=admin_user, tenant_id='admin',
         )
         record_id = record.id
@@ -63,7 +64,7 @@ class R4InterferenceSoftDeleteFixedTest(TestCase):
         record.deleted_at = record.created_at
         record.save()
         # 逻辑删除后，记录仍在数据库中
-        self.assertTrue(Interference.objects.filter(pk=record_id).exists())
+        self.assertTrue(InterferenceEvent.objects.all_with_deleted().filter(pk=record_id).exists())
         # 但 is_deleted=True
         record.refresh_from_db()
         self.assertTrue(record.is_deleted)
@@ -95,24 +96,25 @@ class R5RunLogSoftDeleteFixedTest(TestCase):
 
 
 class R6InterferenceAuditFixedTest(TestCase):
-    """R6 修复验证：Interference 删除后有业务级审计日志"""
+    """R6 修复验证：InterferenceEvent 删除后有业务级审计日志"""
 
     def setUp(self):
         setup_test_env(self)
         self.admin_user = make_user('admin_interf_f6', is_supper=True)
         self.client_admin = make_client(self.admin_user)
-        self.record = Interference.objects.create(
-            serial_number=995, frequency='500MHz',
-            report_dept='审计验证', interference_type='通信干扰',
-            phenomenon='测试', coordinates='N34,E124',
+        self.record = InterferenceEvent.objects.create(
+            datetime='2026-08-01 11:00:00', scene_code='unknown',
+            classification_status='pending', interference_kind_code='other',
+            affected_system_code='other', source_type_code='unknown',
+            phenomenon='测试',
             created_by=self.admin_user, tenant_id='admin',
         )
 
     def test_interference_delete_has_business_audit(self):
         record_id = self.record.id
-        self.client_admin.delete(f'/interference/?id={record_id}')
+        self.client_admin.delete(f'/interference/events/{record_id}/')
         audit_logs = AuditLog.objects.filter(
-            action='delete', target_type='interference',
+            action='delete', target_type='interference_event',
         )
         has_business_audit = audit_logs.filter(
             target_name__isnull=False

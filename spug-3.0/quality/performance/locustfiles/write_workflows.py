@@ -208,7 +208,7 @@ class WriteWorkflowUser(TokenPoolHttpUser):
 
         send_data = {k: v for k, v in record.items() if not k.startswith("_")}
 
-        data = self._safe_post("/api/interference/", send_data)
+        data = self._safe_post("/api/interference/events/", send_data)
         if data and data.get("id"):
             registry.register("interference", data["id"])
 
@@ -322,7 +322,7 @@ class WriteWorkflowUser(TokenPoolHttpUser):
             "runlog": "/api/runlog/",
             "duty_log": "/api/duty/duty/",
             "reminder": "/api/reminder/",
-            "interference": "/api/interference/",
+            "interference": "/api/interference/events/",
             "fault": "/api/fault/faultrecord/",
             "device": "/api/device/device-resume/",
             "upgrade": "/api/upgrade/records/",
