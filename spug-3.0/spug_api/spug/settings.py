@@ -357,6 +357,18 @@ TRANSFER_DIR = os.path.join(BASE_DIR, 'storage', 'transfer')
 MEDIA_ROOT = os.environ.get('MEDIA_ROOT', os.path.join(BASE_DIR, 'media'))
 MEDIA_URL = '/media/'
 
+# 磁盘趋势指标采集配置（系统告警 check_disk_space 任务）
+# 公开趋势曲线 disk:<key> 记录目录自身实际占用（du -s -B1 -x 统计，单位字节），
+# disk:total 为同一轮三类总和；文件系统容量告警/满盘预测仍用 shutil.disk_usage，
+# 其历史记录在内部键 fs-usage:<key>，不对外暴露，禁止与目录占用量混算
+ALERT_STORAGE_DIRS = [
+    ('documents', os.path.join(BASE_DIR, 'storage', 'documents')),
+    ('chunks', os.path.join(BASE_DIR, 'storage', 'document_chunks')),
+    ('media', MEDIA_ROOT),
+]
+# 单个目录 du 统计超时（秒）
+ALERT_DU_TIMEOUT_SECONDS = 300
+
 # Static files settings
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')

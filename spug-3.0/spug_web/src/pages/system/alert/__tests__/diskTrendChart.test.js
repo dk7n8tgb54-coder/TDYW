@@ -28,7 +28,7 @@ jest.mock('components', () => {
 });
 
 jest.mock('bizcharts', () => {
-  const captures = {Chart: [], Axis: []};
+  const captures = {Chart: [], Axis: [], Geom: [], Legend: []};
   const capture = key => props => {
     captures[key].push(props);
     return null;
@@ -39,9 +39,9 @@ jest.mock('bizcharts', () => {
       return props.children || null;
     },
     Axis: capture('Axis'),
-    Geom: () => null,
+    Geom: capture('Geom'),
     Tooltip: () => null,
-    Legend: () => null,
+    Legend: capture('Legend'),
     __captures: captures,
   };
 });
@@ -94,6 +94,8 @@ beforeEach(() => {
   polyfillJsdom();
   captures.Chart.length = 0;
   captures.Axis.length = 0;
+  captures.Geom.length = 0;
+  captures.Legend.length = 0;
   store.records = [];
   store.trendData = [];
   store.trendLoading = false;
@@ -147,6 +149,47 @@ describe('磁盘使用趋势图', () => {
     const label = timeAxis.label.formatter(chart.data[0].time);
     expect(label).toMatch(/^\d{2}-\d{2}$/);
     expect(mockHttpGet).toHaveBeenCalledWith('/api/alert/trend/', {params: {hours: 168}});
+    ReactDOM.unmountComponentAtNode(div);
+  });
+
+  it('四条曲线渲染：图例四项、总计与分类明显区分、GB 换算正确', async () => {
+    // disk:total 为后端同一轮采集计算的精确总和（1e9+5e8+3e8=1.8e9），前端不重复相加
+    const t2 = t1 + 600;
+    const series4 = [
+      {name: 'disk:documents', label: '文档存储', points: [{time: t0, value: 1e9}, {time: t1, value: 2e9}, {time: t2, value: 3e9}]},
+      {name: 'disk:chunks', label: '分片存储', points: [{time: t0, value: 5e8}, {time: t1, value: 6e8}, {time: t2, value: 7e8}]},
+      {name: 'disk:media', label: '媒体存储', points: [{time: t0, value: 3e8}, {time: t1, value: 4e8}, {time: t2, value: 5e8}]},
+      {name: 'disk:total', label: '三类存储总计', points: [{time: t0, value: 18e8}, {time: t1, value: 3e9}, {time: t2, value: 42e8}]},
+    ];
+    mockHttpGet.mockImplementation(url => Promise.resolve(
+      String(url).includes('trend') ? {series: series4} : {items: [], total: 0, summary: {}}
+    ));
+    const div = await renderIndex();
+
+    const chart = captures.Chart[captures.Chart.length - 1];
+    // 四组数据、四个图例（图例项由数据 type 派生）
+    const types = [...new Set(chart.data.map(d => d.type))];
+    expect(types).toEqual(['文档存储', '分片存储', '媒体存储', '三类存储总计']);
+    const legend = captures.Legend[captures.Legend.length - 1];
+    expect(legend.name).toBe('type');
+    expect(legend.position).toBe('top');
+
+    // 总计曲线 GB 换算正确：1.8e9 bytes -> 1.68 GB
+    const totalPoint = chart.data.find(
+      d => d.type === '三类存储总计' && d.time === formatAxisTime(new Date(t0 * 1000))
+    );
+    expect(totalPoint.value).toBe(+(18e8 / 1024 / 1024 / 1024).toFixed(2));
+
+    // 总计曲线样式明显区分：虚线、加粗、独立颜色；三类存储保持平滑实线
+    const lineGeom = captures.Geom.filter(props => props.type === 'line').pop();
+    expect(lineGeom.shape[1]('三类存储总计')).toBe('dash');
+    expect(lineGeom.shape[1]('文档存储')).toBe('smooth');
+    expect(lineGeom.size[1]('三类存储总计')).toBe(3);
+    expect(lineGeom.size[1]('文档存储')).toBe(2);
+    const totalColor = lineGeom.color[1]('三类存储总计');
+    expect(totalColor).not.toBe(lineGeom.color[1]('文档存储'));
+    expect(totalColor).not.toBe(lineGeom.color[1]('分片存储'));
+    expect(totalColor).not.toBe(lineGeom.color[1]('媒体存储'));
     ReactDOM.unmountComponentAtNode(div);
   });
 });

@@ -181,7 +181,12 @@ class PredictTimeToThresholdTest(TestCase):
 
 
 class CheckDiskSpaceTaskTest(TestCase):
-    """check_disk_space 任务测试"""
+    """check_disk_space 任务测试
+
+    满盘快照告警与 72h 趋势预警基于文件系统口径（shutil.disk_usage），
+    历史注入到内部键 fs-usage:*；公开曲线 disk:* 为目录实际占用（du），
+    不参与满盘预测。
+    """
 
     def setUp(self):
         cache.clear()
@@ -201,7 +206,7 @@ class CheckDiskSpaceTaskTest(TestCase):
         """往 Redis 注入历史趋势数据
 
         Args:
-            metric_name: 指标名（如 'disk:documents'）
+            metric_name: 指标名（如 'fs-usage:documents'）
             points: list of (hours_ago, value) 元组
         """
         r = get_redis_connection()
@@ -249,10 +254,10 @@ class CheckDiskSpaceTaskTest(TestCase):
         total = 100 * 1024 ** 3  # 100GB
         used_85 = 85 * 1024 ** 3  # 85GB
 
-        # 注入 24 小时的历史数据：每小时涨 1GB（24h 涨 24GB）
+        # 注入 24 小时的文件系统历史数据（内部键）：每小时涨 1GB（24h 涨 24GB）
         # slope ≈ 1GB/h => 15GB 剩余 => 15h 后满 < 72h
         points = [(23 - i, (85 - (23 - i)) * 1024 ** 3) for i in range(24)]
-        self._inject_history('disk:documents', points)
+        self._inject_history('fs-usage:documents', points)
 
         # 当前 85%
         mock_du.return_value = self._make_disk_usage(used=used_85, total=total)
@@ -274,10 +279,10 @@ class CheckDiskSpaceTaskTest(TestCase):
         total = 100 * 1024 ** 3  # 100GB
         used_85 = 85 * 1024 ** 3  # 85GB，剩 15GB
 
-        # 注入 24h 历史：每小时涨 0.1GB
+        # 注入 24h 文件系统历史（内部键）：每小时涨 0.1GB
         # slope ≈ 0.1GB/h => 15GB / 0.1 = 150h > 72h
         points = [(23 - i, (85 - (23 - i) * 0.1) * 1024 ** 3) for i in range(24)]
-        self._inject_history('disk:documents', points)
+        self._inject_history('fs-usage:documents', points)
 
         mock_du.return_value = self._make_disk_usage(used=used_85, total=total)
 
@@ -299,7 +304,7 @@ class CheckDiskSpaceTaskTest(TestCase):
 
         # 只注入 5 个点（< 12）
         points = [(4 - i, (85 - (4 - i) * 5) * 1024 ** 3) for i in range(5)]
-        self._inject_history('disk:documents', points)
+        self._inject_history('fs-usage:documents', points)
 
         mock_du.return_value = self._make_disk_usage(used=used_85, total=total)
 
@@ -319,9 +324,9 @@ class CheckDiskSpaceTaskTest(TestCase):
         total = 100 * 1024 ** 3
         used_95 = 95 * 1024 ** 3
 
-        # 注入快速增长历史
+        # 注入快速增长历史（内部键）
         points = [(23 - i, (95 - (23 - i) * 5) * 1024 ** 3) for i in range(24)]
-        self._inject_history('disk:documents', points)
+        self._inject_history('fs-usage:documents', points)
 
         mock_du.return_value = self._make_disk_usage(used=used_95, total=total)
 
@@ -346,9 +351,9 @@ class CheckDiskSpaceTaskTest(TestCase):
         total = 100 * 1024 ** 3
         used_91 = 91 * 1024 ** 3  # 91%，触发快照告警
 
-        # 注入快速增长历史（预测 < 72h）
+        # 注入快速增长历史（内部键，预测 < 72h）
         points = [(23 - i, (91 - (23 - i) * 3) * 1024 ** 3) for i in range(24)]
-        self._inject_history('disk:documents', points)
+        self._inject_history('fs-usage:documents', points)
 
         mock_du.return_value = self._make_disk_usage(used=used_91, total=total)
 

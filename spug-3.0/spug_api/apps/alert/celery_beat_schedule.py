@@ -9,10 +9,10 @@
 from celery.schedules import crontab
 
 ALERT_BEAT_SCHEDULE = {
-    # 每 10 分钟检查磁盘空间
+    # 每 30 分钟检查磁盘空间（目录实际占用趋势 + 满盘告警）
     'check-disk-space': {
         'task': 'apps.alert.tasks.check_disk_space',
-        'schedule': 600.0,
+        'schedule': 1800.0,
     },
     # 每 5 分钟采集数据库指标
     'collect-db-metrics': {

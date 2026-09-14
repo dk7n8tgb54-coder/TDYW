@@ -29,6 +29,17 @@ const SOURCE_LABELS = {
   db: '数据库',
 };
 
+// 磁盘趋势四条曲线样式：三类存储各用一种实线颜色，
+// 总计用醒目颜色的虚线加粗，与分类曲线明显区分（由后端计算，前端不重复相加）
+const TOTAL_SERIES_LABEL = '三类存储总计';
+const TREND_COLORS = {
+  '文档存储': '#5B8FF9',
+  '分片存储': '#5AD8A6',
+  '媒体存储': '#F6BD16',
+  '三类存储总计': '#E8684A',
+};
+const trendColor = type => TREND_COLORS[type] || '#999999';
+
 const DiskTrendChart = observer(function DiskTrendChart() {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -88,12 +99,18 @@ const DiskTrendChart = observer(function DiskTrendChart() {
               <Axis name="value" title={{text: '已用空间(GB)'}} />
               <Legend name="type" position="top" />
               <ChartTooltip showCrosshairs />
-              <Geom type="line" position="time*value" color="type" shape="smooth" size={2} />
-              <Geom type="point" position="time*value" color="type" size={3} shape="circle" />
+              <Geom
+                type="line"
+                position="time*value"
+                color={['type', trendColor]}
+                shape={['type', type => (type === TOTAL_SERIES_LABEL ? 'dash' : 'smooth')]}
+                size={['type', type => (type === TOTAL_SERIES_LABEL ? 3 : 2)]}
+              />
+              <Geom type="point" position="time*value" color={['type', trendColor]} size={3} shape="circle" />
             </Chart>
           </div>
         ) : (
-          <Empty description="暂无趋势数据（数据采集需运行至少 2 小时）" style={{margin: '40px 0'}} />
+          <Empty description="暂无趋势数据（数据采集需运行至少 6 小时）" style={{margin: '40px 0'}} />
         )}
       </Spin>
     </Card>
