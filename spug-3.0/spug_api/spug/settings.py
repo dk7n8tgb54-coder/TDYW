@@ -199,6 +199,11 @@ CELERY_TIMEZONE = 'Asia/Shanghai'
 CELERY_ENABLE_UTC = True
 # 【修复】禁用 Celery Beat 的时区感知，与 Django USE_TZ=False 保持一致
 DJANGO_CELERY_BEAT_TZ_AWARE = False
+# 【修复】Beat 首次调度时区兼容：django-celery-beat 2.9 在 last_run_at 为空时直接
+# 把 date_changed（上海本地 naive）当 UTC 解释，新任务首次调度最多延迟 8 小时。
+# 自定义调度器仅对该场景把 date_changed 转为 UTC naive，其余行为与官方一致，
+# 详见 libs/beat_tz_compat.py。tools/start-celery-beat.sh 的 --scheduler 与此保持一致。
+CELERY_BEAT_SCHEDULER = 'libs.beat_tz_compat.TZCompatDatabaseScheduler'
 
 # 任务跟踪配置
 CELERY_TASK_TRACK_STARTED = True
