@@ -10,7 +10,7 @@ services:
   tdyw:
     # 使用预构建的镜像，先执行: docker build -t spug:latest -f docker/Dockerfile .
     #image: tdyw:20260329
-    image: tdyw:0914
+    image: tdyw:09142
     # spug:20260320
     # 如需重新构建镜像，取消以下 build 配置
     # build:
@@ -80,7 +80,7 @@ services:
   # ==================== 外部平台探活 sidecar ====================
   # 与 tdyw 分离，避免容器内进程存活被误认为 Web 可用
   tdyw-health-probe:
-    image: tdyw:0914
+    image: tdyw:09142
     container_name: tdyw-health-probe
     restart: unless-stopped
     entrypoint: ["python", "/opt/health_probe.py"]

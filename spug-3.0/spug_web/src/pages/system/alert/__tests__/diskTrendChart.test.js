@@ -1,7 +1,7 @@
 /**
- * 系统告警磁盘使用趋势图组件渲染测试
+ * 磁盘使用趋势图组件渲染测试
  *
- * 真实渲染 AlertIndex（embedded）中的 DiskTrendChart（mobx + antd），
+ * 真实渲染 DiskTrendChart（mobx + antd，挂载于平台健康 Tab），
  * mock bizcharts 捕获 Chart/Axis props，验证多序列展平后横轴刻度按
  * 时间跨度抽样合并、formatter 对非刻度点返回空串、数值换算为 GB。
  *
@@ -14,18 +14,6 @@ jest.mock('libs', () => ({
   http: {get: mockHttpGet, post: jest.fn(), delete: jest.fn()},
   hasPermission: jest.fn(() => true),
 }));
-
-jest.mock('components', () => {
-  const SearchForm = () => null;
-  SearchForm.Item = () => null;
-  return {
-    AuthDiv: () => null,
-    AuthFragment: () => null,
-    Breadcrumb: () => null,
-    SearchForm,
-    TableCard: () => null,
-  };
-});
 
 jest.mock('bizcharts', () => {
   const captures = {Chart: [], Axis: [], Geom: [], Legend: []};
@@ -51,7 +39,7 @@ import ReactDOM from 'react-dom';
 import {act} from 'react-dom/test-utils';
 import {formatAxisTime} from '../chartAxis';
 
-const Index = require('../index').default;
+const DiskTrendChart = require('../DiskTrendChart').default;
 const store = require('../store').default;
 const {__captures: captures} = require('bizcharts');
 
@@ -81,10 +69,10 @@ function polyfillJsdom() {
 
 const flushPromises = () => new Promise(resolve => setTimeout(resolve, 0));
 
-async function renderIndex() {
+async function renderChart() {
   const div = document.createElement('div');
   await act(async () => {
-    ReactDOM.render(<Index embedded/>, div);
+    ReactDOM.render(<DiskTrendChart/>, div);
     await flushPromises();
   });
   return div;
@@ -96,7 +84,6 @@ beforeEach(() => {
   captures.Axis.length = 0;
   captures.Geom.length = 0;
   captures.Legend.length = 0;
-  store.records = [];
   store.trendData = [];
   store.trendLoading = false;
   store.trendHours = 24;
@@ -111,7 +98,7 @@ describe('磁盘使用趋势图', () => {
     mockHttpGet.mockImplementation(url => Promise.resolve(
       String(url).includes('trend') ? {series: SERIES} : {items: [], total: 0, summary: {}}
     ));
-    const div = await renderIndex();
+    const div = await renderChart();
 
     const chart = captures.Chart[captures.Chart.length - 1];
     expect(chart.forceFit).toBe(true);
@@ -138,7 +125,7 @@ describe('磁盘使用趋势图', () => {
     mockHttpGet.mockImplementation(url => Promise.resolve(
       String(url).includes('trend') ? {series: SERIES} : {items: [], total: 0, summary: {}}
     ));
-    const div = await renderIndex();
+    const div = await renderChart();
     await act(async () => {
       await store.setTrendHours(168);
       await flushPromises();
@@ -164,7 +151,7 @@ describe('磁盘使用趋势图', () => {
     mockHttpGet.mockImplementation(url => Promise.resolve(
       String(url).includes('trend') ? {series: series4} : {items: [], total: 0, summary: {}}
     ));
-    const div = await renderIndex();
+    const div = await renderChart();
 
     const chart = captures.Chart[captures.Chart.length - 1];
     // 四组数据、四个图例（图例项由数据 type 派生）
