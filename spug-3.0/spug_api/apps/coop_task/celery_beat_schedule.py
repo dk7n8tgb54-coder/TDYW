@@ -17,7 +17,7 @@ COOP_TASK_BEAT_SCHEDULE = {
         'task': 'apps.coop_task.tasks.cleanup_expired_task_attachments',
         'schedule': crontab(hour=3, minute=40),  # 每天 03:40
         'options': {
-            'queue': 'default',
+            'queue': 'celery',  # default 队列无 worker 消费，投递即积压
             'time_limit': 600,  # 10分钟超时
         },
     },

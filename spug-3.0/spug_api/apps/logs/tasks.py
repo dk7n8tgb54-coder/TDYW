@@ -196,7 +196,9 @@ def verify_audit_hash_chain(self):
                     title='审计日志哈希链验证异常',
                     message=f'发现 {total_errors} 处哈希链断裂，涉及 '
                             f'{len(details)} 个租户。详情: {details[:3]}',
-                    level='critical',
+                    # alerts 表 alert_level_valid 约束仅允许 error/warning/info，
+                    # error 即系统最高级；'critical' 会被约束拒绝导致告警丢失
+                    level='error',
                 )
             except Exception:
                 logger.warning('[AUDIT] 哈希链告警发送失败', exc_info=True)

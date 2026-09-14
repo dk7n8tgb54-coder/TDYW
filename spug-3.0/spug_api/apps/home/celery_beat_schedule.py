@@ -16,6 +16,6 @@ HOME_BEAT_SCHEDULE = {
         'task': 'apps.home.tasks.sync_announcement_status',
         'schedule': crontab(minute=5),  # 每小时第 5 分钟
         'kwargs': {},
-        'options': {'queue': 'home.announcement'},
+        'options': {'queue': 'celery'},
     },
 }

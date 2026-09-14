@@ -9,7 +9,7 @@ CONTRACT_AGREEMENT_BEAT_SCHEDULE = {
         'task': 'apps.contract_agreement.tasks.scan_contract_agreement_expiration',
         'schedule': crontab(hour=8, minute=10),
         'options': {
-            'queue': 'contract_agreement',
+            'queue': 'celery',
             'time_limit': 600,
         },
     },

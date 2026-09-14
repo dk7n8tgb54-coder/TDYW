@@ -245,13 +245,15 @@ CELERY_TASK_ROUTES = {
     'apps.document.tasks.async_copy.copy_file_async': {'queue': 'document.batch'},
     # 【新增】无线电台执照到期扫描任务
     'apps.radio_license.tasks.scan_radio_license_expiration': {'queue': 'radio_license'},
-    'apps.contract_agreement.tasks.scan_contract_agreement_expiration': {'queue': 'contract_agreement'},
+    # 【修复】合同协议到期扫描：contract_agreement 队列无 worker 消费，投递即积压
+    'apps.contract_agreement.tasks.scan_contract_agreement_expiration': {'queue': 'celery'},
     # 【修复】审计日志归档清理与哈希链校验任务使用 celery 队列
     # （default-worker 只监听 celery；default 队列无 Worker 消费，投递即积压）
     'apps.logs.tasks.cleanup_old_audit_logs': {'queue': 'celery'},
     'apps.logs.tasks.verify_audit_hash_chain': {'queue': 'celery'},
-    # 【新增】协作任务到期附件清理任务（使用 default 队列）
-    'apps.coop_task.tasks.cleanup_expired_task_attachments': {'queue': 'default'},
+    # 【新增】协作任务到期附件清理任务
+    # （default 队列无 Worker 消费，投递即积压，与 logs 任务同因改走 celery 队列）
+    'apps.coop_task.tasks.cleanup_expired_task_attachments': {'queue': 'celery'},
 }
 
 # 【P0修复】Celery Beat 定时任务配置
