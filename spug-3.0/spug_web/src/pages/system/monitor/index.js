@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { observer } from 'mobx-react';
 import { Tabs } from 'antd';
+import { useLocation } from 'react-router-dom';
 import { AuthDiv, Breadcrumb } from 'components';
 import AlertIndex from '../alert';
 import DataQualityIndex from '../dataQuality';
@@ -9,8 +10,16 @@ import PlatformHealth from '../alert/PlatformHealth';
 const { TabPane } = Tabs;
 
 export default observer(function SystemMonitor() {
-  const params = new URLSearchParams(window.location.search);
-  const [activeKey, setActiveKey] = useState(params.get('tab') === 'alerts' ? 'alerts' : 'health');
+  const location = useLocation();
+  const requestedTab = new URLSearchParams(location.search).get('tab');
+  const requestedKey = requestedTab === 'alerts' || requestedTab === 'quality' ? requestedTab : 'health';
+  const [activeKey, setActiveKey] = useState(requestedKey);
+
+  // 同一路由切换 query 参数时同步当前 Tab，例如从平台健康跳转系统告警。
+  useEffect(() => {
+    setActiveKey(requestedKey);
+  }, [requestedKey]);
+
   return <AuthDiv auth="system.alert.view">
     <Breadcrumb><Breadcrumb.Item>运维管理</Breadcrumb.Item><Breadcrumb.Item>系统监控</Breadcrumb.Item></Breadcrumb>
     <Tabs activeKey={activeKey} onChange={setActiveKey} destroyInactiveTabPane>

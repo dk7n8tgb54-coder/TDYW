@@ -21,6 +21,7 @@ import ExportButton from './ExportButton';
 import AttachmentManager from './AttachmentManager';
 import AttachmentUploadArea from './AttachmentUploadArea';
 import AttachmentCountBadge from './AttachmentCountBadge';
+import PreviewShell from './PreviewShell';
 import ExpirationReminderNotification from './ExpirationReminderNotification';
 
 export {
@@ -42,5 +43,6 @@ export {
   AttachmentManager,
   AttachmentUploadArea,
   AttachmentCountBadge,
+  PreviewShell,
   ExpirationReminderNotification,
 };

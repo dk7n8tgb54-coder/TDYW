@@ -9,7 +9,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 URL = os.environ.get('HEALTH_PROBE_URL', 'http://tdyw/api/document/health/')
-OUTPUT = os.environ.get('HEALTH_PROBE_LOG', '/var/log/tdyw/probe/health-probe.jsonl')
+OUTPUT = os.environ.get('HEALTH_PROBE_LOG', '/var/log/tdyw/health-probe.jsonl')
 TIMEOUT = float(os.environ.get('HEALTH_PROBE_TIMEOUT', '10'))
 INTERVAL = int(os.environ.get('HEALTH_PROBE_INTERVAL', '60'))
 PROBE_MAX_BYTES = int(os.environ.get('HEALTH_PROBE_MAX_BYTES', str(50 * 1024 * 1024)))

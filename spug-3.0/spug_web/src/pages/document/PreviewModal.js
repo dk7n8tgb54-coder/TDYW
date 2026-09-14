@@ -5,12 +5,13 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Modal, Spin } from 'antd';
+import { Spin } from 'antd';
 import { AudioIcon, FileIcon as FileTypeIcon } from './components/FileTypeIcon';
 import http from 'libs/http';
 import { appendSystemFolderParam } from 'libs/systemFolderContext';
 import uploadUIStore from './stores/upload/ui';
 import navigationStore from './stores/navigation';
+import PreviewShell from 'components/PreviewShell';
 import ReactPlayer from 'react-player';
 import AceEditor from 'react-ace';
 import styles from './PreviewModal.module.less';
@@ -392,24 +393,10 @@ class PreviewModal extends React.Component {
       : '';
 
     return (
-      <Modal
-        title={fileName || '预览'}
+      <PreviewShell
         visible={visible}
-        onCancel={this.handleClose}
-        onOk={this.handleClose}
-        footer={null}
-        width="90%"
-        style={{ top: 20, paddingBottom: 0 }}
-        bodyStyle={{ padding: 0, height: 'calc(100vh - 100px)' }}
-        destroyOnClose
-        maskClosable
-        keyboard
-        afterClose={() => {
-          if (document.activeElement instanceof HTMLElement) {
-            document.activeElement.blur();
-          }
-        }}
-        forceRender={false}
+        fileName={fileName || '预览'}
+        onClose={this.handleClose}
       >
         {isImage ? (
           <div className={styles.previewContainer}>
@@ -467,7 +454,7 @@ class PreviewModal extends React.Component {
             <div className={styles.hint}>请下载文件后使用对应软件打开</div>
           </div>
         )}
-      </Modal>
+      </PreviewShell>
     );
   }
 }

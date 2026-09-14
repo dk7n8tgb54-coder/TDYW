@@ -130,7 +130,7 @@ export default observer(function () {
               ? '-'
               : (info.days_left < 0
                 ? <span style={{ color: '#ff4d4f' }}>已过期 {Math.abs(info.days_left)} 天</span>
-                : <span style={{ color: info.days_left <= 60 ? '#fa8c16' : '#52c41a' }}>{info.days_left} 天</span>)}
+                : <span style={info.days_left <= 60 ? { color: '#fa8c16' } : undefined}>{info.days_left} 天</span>)}
           </Descriptions.Item>
           <Descriptions.Item label="责任人">{info.responsible_user_name || '-'}</Descriptions.Item>
           <Descriptions.Item label="附件数">{info.attachment_count ?? 0}</Descriptions.Item>

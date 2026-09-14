@@ -125,6 +125,8 @@ def _make_record(user, **kwargs):
             'signature_version': 1,
             'signature_sha256': 'a' * 64,
             'business_snapshot_hash': 'b' * 64,
+            # 同日唯一签署约束：signed 记录必须占用 duty_date，draft 由默认 NULL
+            'signed_date': defaults['duty_date'],
         }
         for field, value in signed_defaults.items():
             defaults.setdefault(field, value)
@@ -264,7 +266,7 @@ class PermissionMatrixReleaseGateTests(TestCase):
     def setUp(self):
         AppSetting.set('bind_ip', False)
         self.accounts = {}
-        for key, perms in self.ACCOUNTS.items():
+        for index, (key, perms) in enumerate(self.ACCOUNTS.items()):
             user = _make_user('rg_a_%s' % key, tenant_id='rg_tenant_%s' % key)
             if perms:
                 _grant_perms(user, perms)
@@ -275,11 +277,15 @@ class PermissionMatrixReleaseGateTests(TestCase):
                 'user': user,
                 'client': _make_client(user),
                 'perms': set(perms),
-                # 每个账号都拥有属于自己的草稿与已签记录，
-                # 这样拒绝原因只会是"权限"，不会混入"所有权"
-                'draft': _make_record(user, duty_record='权限矩阵草稿 %s' % key),
+                # 同日唯一签署约束要求全局同日最多一条 signed：
+                # 每个账号的草稿/已签记录使用互不相同的独立日期，
+                # 已签日期与草稿日期使用两段不相交的偏移区间，
+                # 保证 sign-only 账号在矩阵中真实签署草稿时不触碰他人日期
+                'draft': _make_record(user, duty_record='权限矩阵草稿 %s' % key,
+                                      duty_date=date.today() - timedelta(days=index + 1)),
                 'signed': _make_record(user, status=STATUS_SIGNED,
-                                       duty_record='权限矩阵已签 %s' % key),
+                                       duty_record='权限矩阵已签 %s' % key,
+                                       duty_date=date.today() - timedelta(days=index + 21)),
             }
 
     def test_rg_a01_permission_matrix_backend_enforced(self):

@@ -53,4 +53,37 @@ describe('平台健康 Store', () => {
     expect(store.hours).toBe(24);
     expect(mockHttpGet).toHaveBeenCalledWith('/api/alert/run-metrics/', {params: {hours: 24}});
   });
+
+  it('时间跨度快速切换时只应用最新请求的结果', async () => {
+    const store = freshStore();
+    const deferred = () => {
+      let resolve;
+      const promise = new Promise(r => { resolve = r; });
+      return {promise, resolve};
+    };
+    const oldTrend = deferred();
+    const oldSummary = deferred();
+    const newTrend = deferred();
+    const newSummary = deferred();
+    mockHttpGet
+      .mockReturnValueOnce(oldTrend.promise)
+      .mockReturnValueOnce(oldSummary.promise)
+      .mockReturnValueOnce(newTrend.promise)
+      .mockReturnValueOnce(newSummary.promise);
+
+    const oldRequest = store.setHours(24);
+    const newRequest = store.setHours(168);
+    newTrend.resolve({items: [{bucket: 'new'}], state: 'healthy'});
+    newSummary.resolve({items: [{day: 'new'}]});
+    await newRequest;
+    oldTrend.resolve({items: [{bucket: 'old'}], state: 'degraded'});
+    oldSummary.resolve({items: [{day: 'old'}]});
+    await oldRequest;
+
+    expect(store.hours).toBe(168);
+    expect(store.items).toEqual([{bucket: 'new'}]);
+    expect(store.state).toBe('healthy');
+    expect(store.summary).toEqual([{day: 'new'}]);
+    expect(store.loading).toBe(false);
+  });
 });

@@ -140,6 +140,8 @@ def _make_signed_log(user, **kwargs):
         'business_snapshot_hash': 'b' * 64,
     }
     defaults.update(kwargs)
+    # 同日唯一签署约束：signed 记录必须占用 duty_date
+    defaults.setdefault('signed_date', defaults['duty_date'])
     log = DepartmentDutyLog.objects.create(**defaults)
     # Update object_id after creation
     usage.object_id = str(log.id)

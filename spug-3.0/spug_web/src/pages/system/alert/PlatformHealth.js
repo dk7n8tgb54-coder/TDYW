@@ -3,7 +3,8 @@ import { observer } from 'mobx-react';
 import { Alert, Button, Card, Col, Empty, Radio, Row, Spin, Statistic, Table, Tag } from 'antd';
 import { Chart, Geom, Axis, Tooltip as ChartTooltip, Legend } from 'bizcharts';
 import store from './healthStore';
-import { history } from 'libs';
+import {buildAxisTicks, formatAxisTime} from './chartAxis';
+import {history} from 'libs';
 
 const STATES = {
   healthy: {label: '健康', color: 'green', type: 'success'},
@@ -18,8 +19,10 @@ export default observer(function PlatformHealth() {
   useEffect(() => { store.fetch(); }, []);
   const latest = store.items[store.items.length - 1] || {};
   const meta = stateMeta(store.state);
+  // 横轴按数据点抽样约 10 个刻度，粒度随 24h/48h/7d 跨度变化
+  const tickLabels = buildAxisTicks(store.items.map(item => new Date(item.bucket_start)), store.hours);
   const chartData = store.items.map(item => ({
-    time: new Date(item.bucket_start).toLocaleString('zh-CN', {hour12: false}),
+    time: formatAxisTime(new Date(item.bucket_start)),
     requests: item.request_count,
     errors: item.request_count ? +(100 * (item.app_server_error_count + item.gateway_error_count) / item.request_count).toFixed(2) : 0,
   }));
@@ -44,10 +47,12 @@ export default observer(function PlatformHealth() {
         <Col span={6}><Statistic title="平均耗时" value={latest.average_ms == null ? '-' : latest.average_ms} suffix="ms" /></Col>
         <Col span={6}><Statistic title="探活成功率" value={latest.probe_success_rate == null ? '-' : (latest.probe_success_rate * 100).toFixed(1)} suffix="%" /></Col>
       </Row>
-      {chartData.length ? <Chart data={chartData} autoFit height={260} padding={[30, 20, 50, 50]}>
-        <Axis name="time" label={{autoRotate: true, style: {fontSize: 10}}} /><Axis name="requests" />
-        <ChartTooltip /><Legend /><Geom type="line" position="time*requests" color="#1677ff" />
-      </Chart> : <Empty description="监控数据缺失/未知" style={{margin: '32px 0'}} />}
+      {chartData.length ? <div style={{width: '100%'}}>
+        <Chart data={chartData} forceFit height={260} padding={[30, 20, 50, 50]}>
+          <Axis name="time" label={{autoRotate: false, formatter: text => tickLabels.get(text) || '', style: {fontSize: 10}}} /><Axis name="requests" />
+          <ChartTooltip /><Legend /><Geom type="line" position="time*requests" color="#1677ff" />
+        </Chart>
+      </div> : <Empty description="监控数据缺失/未知" style={{margin: '32px 0'}} />}
       <Table size="small" style={{marginTop: 16}} rowKey="date" columns={summaryColumns} dataSource={store.summary} pagination={false} />
     </Card>
   </Spin>;

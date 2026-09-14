@@ -33,6 +33,10 @@ MODULE = 'department_duty_log'
 OBJECT_TYPE = 'department_duty_log'
 SCENE_CODE = 'duty_person'
 
+# 同日唯一签署约束的业务错误文案：服务层预检查与数据库唯一约束兜底共用，
+# 保证并发竞态走哪条路径失败，用户看到的都是同一句话。
+SIGNED_DATE_CONFLICT_ERROR = '该日期已经存在已签署的值班日志，同一天只能签署一条'
+
 # ---- 输入长度限制 ----
 MAX_WEATHER_LEN = 50
 MAX_DUTY_RECORD_LEN = 10000
@@ -45,7 +49,7 @@ PROTECTED_FIELDS = frozenset({
     'tenant_id', 'duty_person', 'duty_person_id', 'duty_person_name',
     'created_by', 'created_by_id', 'updated_by', 'updated_by_id',
     'deleted_by', 'deleted_by_id', 'signed_by', 'signed_by_id',
-    'signed_by_name', 'signed_at', 'signature_usage_id',
+    'signed_by_name', 'signed_at', 'signed_date', 'signature_usage_id',
     'signature_version', 'signature_sha256', 'business_snapshot_hash',
     'status', 'supersedes', 'supersedes_id', 'created_at', 'updated_at', 'deleted_at',
     'id',
@@ -456,7 +460,11 @@ def parse_list_params(request):
 # ============================================================
 
 def create_draft(user, form, request=None):
-    """新建草稿。值班人员和 created_by 固定为当前用户。"""
+    """新建草稿。值班人员和 created_by 固定为当前用户。
+
+    同一天允许多条草稿，创建时不做任何同日检查；
+    「同日最多一条已签署」的约束只在签署时刻生效。
+    """
     # 幂等性检查：30 秒内相同用户+日期+正文视为重复提交
     from libs.idempotency import check_recent_duplicate
     if check_recent_duplicate(
@@ -584,7 +592,12 @@ def update_draft(record_id, user, form, request=None):
 
 
 def soft_delete_draft(record_id, user, request=None):
-    """软删除本人草稿。"""
+    """软删除本人草稿。
+
+    仅允许删除 draft：draft 的 signed_date 恒为 NULL（见模型 CHECK 约束），
+    因此软删除不涉及同日唯一约束字段的维护；已签记录不可删除，
+    其日期占用随「退回草稿」释放。
+    """
     record = DepartmentDutyLog.objects.filter(
         pk=record_id, deleted_at__isnull=True,
     ).first()
@@ -678,6 +691,19 @@ def sign_draft(record_id, user, client_version, request_id, confirm, request=Non
             if client_version is not None and record.version != client_version:
                 raise _DutyLogError('版本不一致，请刷新后重试')
 
+            # 同日唯一签署预检查（非锁定读，快速失败优化）：
+            # 并发的最终仲裁由 signed_date 唯一索引承担——两个事务同时通过
+            # 本检查时，后提交 update 的一方触发唯一键冲突（下方 IntegrityError
+            # 兜底）。此处刻意不用 select_for_update：锁定读会在 status 二级
+            # 索引上留下 gap 锁，两个并发签署方互相等待对方插入反而死锁。
+            conflict_exists = DepartmentDutyLog.objects.filter(
+                duty_date=record.duty_date,
+                status=STATUS_SIGNED,
+                deleted_at__isnull=True,
+            ).exclude(pk=record.id).exists()
+            if conflict_exists:
+                raise _DutyLogError(SIGNED_DATE_CONFLICT_ERROR)
+
             # 生成业务快照
             snapshot = build_business_snapshot(record)
 
@@ -695,24 +721,30 @@ def sign_draft(record_id, user, client_version, request_id, confirm, request=Non
             if error:
                 raise _DutyLogError(error)
 
-            # 回写签署字段
-            updated = DepartmentDutyLog.objects.filter(
-                pk=record_id,
-                status=STATUS_DRAFT,
-                deleted_at__isnull=True,
-                duty_person_id=user.id,
-                version=record.version,
-            ).update(
-                status=STATUS_SIGNED,
-                version=F('version') + 1,
-                signature_usage_id=usage['usage_id'],
-                signed_by_id=user.id,
-                signed_by_name=usage['signer_name'],
-                signed_at=usage['signed_at'],
-                signature_version=usage['signature_version'],
-                signature_sha256=usage['signature_sha256'],
-                business_snapshot_hash=usage['business_snapshot_hash'],
-            )
+            # 回写签署字段（signed_date 占用当天日期，由唯一索引保证同日唯一）
+            try:
+                updated = DepartmentDutyLog.objects.filter(
+                    pk=record_id,
+                    status=STATUS_DRAFT,
+                    deleted_at__isnull=True,
+                    duty_person_id=user.id,
+                    version=record.version,
+                ).update(
+                    status=STATUS_SIGNED,
+                    version=F('version') + 1,
+                    signed_date=record.duty_date,
+                    signature_usage_id=usage['usage_id'],
+                    signed_by_id=user.id,
+                    signed_by_name=usage['signer_name'],
+                    signed_at=usage['signed_at'],
+                    signature_version=usage['signature_version'],
+                    signature_sha256=usage['signature_sha256'],
+                    business_snapshot_hash=usage['business_snapshot_hash'],
+                )
+            except IntegrityError:
+                # 并发兜底：预检查通过后对方事务抢先提交同日签署，
+                # signed_date 唯一索引拒绝本次写入，转为业务错误并回滚。
+                raise _DutyLogError(SIGNED_DATE_CONFLICT_ERROR)
 
             if updated == 0:
                 raise _DutyLogError('签署失败：记录状态已变更，请刷新后重试')
@@ -778,6 +810,8 @@ def return_signed_record(record_id, user, request=None):
                 deleted_at__isnull=True,
             ).update(
                 status=STATUS_DRAFT,
+                # 退回草稿必须释放签署占用日期，其他草稿方可签署同一天
+                signed_date=None,
                 signed_by=None,
                 signed_by_name='',
                 signed_at=None,

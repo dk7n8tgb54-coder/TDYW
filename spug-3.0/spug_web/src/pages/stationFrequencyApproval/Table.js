@@ -70,7 +70,7 @@ class ComTable extends React.Component {
     if (days_left <= 60) {
       return <span style={{ color: '#fa8c16' }}>{days_left} 天</span>;
     }
-    return <span style={{ color: '#52c41a' }}>{days_left} 天</span>;
+    return <span>{days_left} 天</span>;
   };
 
   renderAttachmentCount = (text, record) => {
@@ -126,7 +126,7 @@ class ComTable extends React.Component {
         {/* 与执照表口径一致：具备查看/编辑/删除任一权限即渲染操作列，
             仅查看权限的用户保留「查看」入口（行双击仍可进详情） */}
         {hasPermission('radio_license.approval.view|radio_license.approval.edit|radio_license.approval.del') && (
-          <Table.Column title="操作" width={200} fixed="right" render={info => (
+          <Table.Column title="操作" width={150} fixed="right" render={info => (
             <Action>
               <Action.Button auth="radio_license.approval.view" onClick={() => store.showDetail(info)}>查看</Action.Button>
               <Action.Button auth="radio_license.approval.edit" onClick={() => store.showForm(info)}>编辑</Action.Button>

@@ -9,9 +9,12 @@
 - 元数据接口（target_types / actions）
 - 哈希链字段写入（prev_hash / log_hash / request_hash）
 - 工具函数（resolve_target / resolve_action）
+- 哈希链定时任务 verify_audit_hash_chain（租户去重 / 最近 N 条升序校验 / tenants_checked）
+- 定时任务队列配置（Beat 与 CELERY_TASK_ROUTES 必须指向有 Worker 消费的 celery 队列）
 """
 import tempfile
 from datetime import timedelta
+from unittest import mock
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -20,6 +23,7 @@ from apps.logs.models import AuditLog
 from apps.logs.audit import (
     save_audit_log, resolve_target, resolve_action, sanitize_audit_detail,
 )
+from apps.logs.tasks import verify_audit_hash_chain
 from apps.utils.test_helpers import make_user, make_client, setup_test_env
 
 
@@ -349,3 +353,141 @@ class AuditLogResolverTest(TestCase):
         result = sanitize_audit_detail(list(range(30)), max_list_items=10)
         self.assertEqual(len(result), 11)  # 10 项 + 1 个 _truncated 标记
         self.assertIn('_truncated', result[-1])
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class VerifyAuditHashChainTaskTest(TestCase):
+    """verify_audit_hash_chain 定时任务行为测试
+
+    通过 .apply() 在真实 Django 测试数据库中同步执行任务代码路径，
+    不以读取源码字符串代替行为验证。
+    """
+
+    def setUp(self):
+        setup_test_env(self)
+
+    def _write_logs(self, tenant_id, count):
+        """按时间顺序写入 count 条同租户审计日志，返回写入的实例列表"""
+        logs = []
+        for i in range(count):
+            save_audit_log(
+                user_id=1, username=f'user{i}', action='create',
+                target_type='user', target_id=str(i), target_name=f'对象{i}',
+                ip='127.0.0.1', tenant_id=tenant_id,
+            )
+            logs.append(AuditLog.objects.order_by('-id').first())
+        return logs
+
+    def test_tenant_query_dedup_under_model_ordering(self):
+        """AuditLog 默认排序为 ('-id',) 时，任务的租户查询必须只返回唯一租户"""
+        self.assertEqual(AuditLog._meta.ordering, ('-id',),
+                         '前置条件：AuditLog.Meta.ordering 为 (\'-id\',)')
+        self._write_logs('tenant-a', 3)
+        self._write_logs('tenant-b', 2)
+
+        # 旧写法（未清除默认排序）：DISTINCT 连带 id 列，同一租户重复出现
+        buggy = list(
+            AuditLog.objects.exclude(tenant_id='')
+            .values_list('tenant_id', flat=True).distinct()
+        )
+        self.assertEqual(len(buggy), 5)
+        self.assertEqual(len(set(buggy)), 2, '旧写法在 Meta.ordering 下会产生重复租户')
+
+        # 任务采用的新写法：order_by() 清除默认排序后按 tenant_id 去重
+        fixed = list(
+            AuditLog.objects.exclude(tenant_id='')
+            .order_by()
+            .values_list('tenant_id', flat=True).distinct()
+        )
+        self.assertEqual(sorted(fixed), ['tenant-a', 'tenant-b'])
+
+    def test_task_verifies_each_tenant_once(self):
+        """在真实测试库中执行：每个租户只校验一次且租户查询不重复"""
+        self._write_logs('tenant-a', 3)
+        self._write_logs('tenant-b', 2)
+
+        from apps.logs import hash_chain as hash_chain_mod
+        real_verify = hash_chain_mod.verify_hash_chain
+        calls = []
+
+        def spy(audit_logs):
+            calls.append(list(audit_logs))
+            return real_verify(audit_logs)
+
+        with mock.patch('apps.logs.hash_chain.verify_hash_chain',
+                        side_effect=spy):
+            result = verify_audit_hash_chain.apply(args=()).get()
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(len(calls), 2, '每个租户应只执行一次哈希链校验')
+        self.assertEqual(sorted(c[0].tenant_id for c in calls),
+                         ['tenant-a', 'tenant-b'])
+
+    def test_tenants_checked_reflects_real_count(self):
+        """无错误时 tenants_checked 必须为实际检查的租户数（而非 0）"""
+        self._write_logs('tenant-a', 2)
+        self._write_logs('tenant-b', 1)
+        result = verify_audit_hash_chain.apply(args=()).get()
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['total_errors'], 0)
+        self.assertEqual(result['tenants_checked'], 2)
+
+    def test_verify_selects_most_recent_logs_in_ascending_id_order(self):
+        """只校验最近 HASH_CHAIN_VERIFY_LIMIT 条，且传入链校验时为 id 升序"""
+        logs = self._write_logs('tenant-a', 8)
+
+        from apps.logs import hash_chain as hash_chain_mod
+        from apps.logs import tasks as logs_tasks
+        real_verify = hash_chain_mod.verify_hash_chain
+        captured = []
+
+        def spy(audit_logs):
+            captured.append(list(audit_logs))
+            return real_verify(audit_logs)
+
+        with mock.patch.object(logs_tasks, 'HASH_CHAIN_VERIFY_LIMIT', 5), \
+                mock.patch('apps.logs.hash_chain.verify_hash_chain',
+                           side_effect=spy):
+            result = verify_audit_hash_chain.apply(args=()).get()
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(len(captured), 1)
+        checked = captured[0]
+        self.assertEqual(len(checked), 5, '只校验最近 5 条')
+        ids = [log.id for log in checked]
+        self.assertEqual(ids, sorted(ids), '传给 verify_hash_chain 必须是 id 升序')
+        self.assertEqual(ids, sorted(log.id for log in logs)[-5:],
+                         '选中的必须是 id 最大的 5 条（最近写入的记录）')
+        self.assertEqual(result['total_errors'], 0,
+                         '最近 N 条切片按升序校验时链应完整（首条 prev 不校验）')
+
+
+class LogsTaskQueueConfigTest(TestCase):
+    """logs 定时任务队列配置一致性
+
+    default-worker 只监听 celery 队列，投递到 default 队列的任务
+    永远无人消费，因此 Beat 与 CELERY_TASK_ROUTES 必须指向 celery。
+    """
+
+    def test_beat_schedule_entries_use_celery_queue(self):
+        from apps.logs.celery_beat_schedule import LOGS_BEAT_SCHEDULE
+        expected_tasks = {
+            'logs-cleanup-old-audit-logs': 'apps.logs.tasks.cleanup_old_audit_logs',
+            'logs-verify-audit-hash-chain': 'apps.logs.tasks.verify_audit_hash_chain',
+        }
+        for entry_name, task_name in expected_tasks.items():
+            entry = LOGS_BEAT_SCHEDULE[entry_name]
+            self.assertEqual(entry['task'], task_name)
+            self.assertEqual(
+                entry['options']['queue'], 'celery',
+                f'{entry_name} 必须投递到 celery 队列',
+            )
+
+    def test_celery_task_routes_use_celery_queue(self):
+        from django.conf import settings
+        for task_name in ('apps.logs.tasks.cleanup_old_audit_logs',
+                          'apps.logs.tasks.verify_audit_hash_chain'):
+            self.assertEqual(
+                settings.CELERY_TASK_ROUTES[task_name]['queue'], 'celery',
+                f'{task_name} 的路由必须指向 celery 队列',
+            )

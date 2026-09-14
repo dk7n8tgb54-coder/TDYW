@@ -27,7 +27,7 @@ LOGS_BEAT_SCHEDULE = {
         'task': 'apps.logs.tasks.cleanup_old_audit_logs',
         'schedule': crontab(hour=4, minute=0),
         'kwargs': {'days': 90},
-        'options': {'queue': 'default'},
+        'options': {'queue': 'celery'},
     },
     # ========================================
     # 审计日志哈希链完整性验证 - 每天凌晨6点执行
@@ -38,6 +38,6 @@ LOGS_BEAT_SCHEDULE = {
     'logs-verify-audit-hash-chain': {
         'task': 'apps.logs.tasks.verify_audit_hash_chain',
         'schedule': crontab(hour=6, minute=0),
-        'options': {'queue': 'default'},
+        'options': {'queue': 'celery'},
     },
 }

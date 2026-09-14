@@ -305,8 +305,11 @@ class DutyDatesRegressionTests(TestCase):
         self.assertEqual(self._dates(2026, 7), ['2026-07-15'])
 
     def test_same_date_deduplicated(self):
+        """同日已签去重：同一天允许多条草稿但最多一条已签（数据库唯一约束），
+        底纹日期列表永远只出现一次"""
         _make_record(self.user, status=STATUS_SIGNED, duty_date=date(2026, 7, 15))
-        _make_record(self.user, status=STATUS_SIGNED, duty_date=date(2026, 7, 15))
+        _make_record(self.user, duty_date=date(2026, 7, 15), duty_record='同日草稿甲')
+        _make_record(self.user, duty_date=date(2026, 7, 15), duty_record='同日草稿乙')
         self.assertEqual(self._dates(2026, 7), ['2026-07-15'])
 
     def test_month_boundary(self):
@@ -344,6 +347,8 @@ class SignatureConstraintRegressionTests(TestCase):
             'signature_version': 1,
             'signature_sha256': 'a' * 64,
             'business_snapshot_hash': 'b' * 64,
+            # 同日唯一约束的一致性要求：signed 的 signed_date 必须等于 duty_date
+            'signed_date': date.today(),
         }
 
     def test_signed_without_signature_fields_rejected(self):

@@ -37,7 +37,6 @@ urlpatterns = [
     path('logs/', include('apps.logs.urls')),
     path('radio-license/', include('apps.radio_license.urls')),
     path('contract-agreement/', include('apps.contract_agreement.urls')),
-    path('coop-task/', include('apps.coop_task.urls')),
     path('regulation/', include('apps.regulation.urls')),
     path('signature/', include('apps.signature.urls')),
     path('department-duty-log/', include('apps.department_duty_log.urls')),
@@ -51,6 +50,7 @@ urlpatterns = [
 # 仅对未列入延迟清单的模块构建 path/include，避免启动时导入未安装模块。
 _pending_app_urls = {
     'equipment_lifecycle': ('equipment-lifecycle/', 'apps.equipment_lifecycle.urls'),
+    'coop_task': ('coop-task/', 'apps.coop_task.urls'),
 }
 urlpatterns += [
     path(prefix, include(urlconf))

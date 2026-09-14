@@ -25,6 +25,7 @@ class AlertStore {
   @observable trendData = [];
   @observable trendLoading = false;
   @observable trendHours = 24;
+  trendRequestId = 0;
 
   fetchRecords = () => {
     this.isFetching = true;
@@ -93,19 +94,25 @@ class AlertStore {
   };
 
   fetchTrend = () => {
+    const requestId = ++this.trendRequestId;
+    const hours = this.trendHours;
     this.trendLoading = true;
-    return http.get('/api/alert/trend/', {params: {hours: this.trendHours}})
+    return http.get('/api/alert/trend/', {params: {hours}})
       .then(res => {
-        this.trendData = res.series || [];
+        if (requestId === this.trendRequestId) {
+          this.trendData = res.series || [];
+        }
       })
       .finally(() => {
-        this.trendLoading = false;
+        if (requestId === this.trendRequestId) {
+          this.trendLoading = false;
+        }
       });
   };
 
   setTrendHours = (hours) => {
     this.trendHours = hours;
-    this.fetchTrend();
+    return this.fetchTrend();
   };
 }
 

@@ -85,6 +85,7 @@ services:
         - /mnt/e/TDYW/spug-3.0/config/dev/nginx.conf:/etc/nginx/nginx.conf:ro
         - /mnt/e/TDYW/spug-3.0/config/dev/supervisor/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:rw
         - /mnt/e/TDYW/spug-3.0/config/dev/supervisor/conf.d:/etc/supervisor/conf.d:rw
+        - tdyw-health-probe-test-logs:/var/log/tdyw:ro
 
     # 端口映射：宿主机 80 -> 容器 80
     # 开发环境仅使用 HTTP
@@ -144,6 +145,29 @@ services:
       retries: 3
       start_period: 40s
 
+  # 独立于主应用的外部探活，结果通过共享卷交给 tdyw-test 聚合。
+  health-probe:
+    image: tdyw:django42-stage2
+    container_name: tdyw-health-probe-test
+    restart: always
+    entrypoint: ["python", "/opt/health_probe.py"]
+    environment:
+      - HEALTH_PROBE_URL=${HEALTH_PROBE_URL:-http://tdyw-test/api/document/health/}
+      - HEALTH_PROBE_LOG=/var/log/tdyw/health-probe.jsonl
+      - HEALTH_PROBE_INTERVAL=${HEALTH_PROBE_INTERVAL:-60}
+    volumes:
+      - /mnt/e/TDYW/spug-3.0/docker/scripts/health_probe.py:/opt/health_probe.py:ro
+      - tdyw-health-probe-test-logs:/var/log/tdyw
+    depends_on:
+      spug:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "sh", "-c", "find /var/log/tdyw/health-probe.jsonl -mmin -3 | grep -q ."]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
   # ==================== kkFileView 文件预览服务 ====================
   # Office文档在线预览服务（支持 doc/docx/xls/xlsx/ppt/pptx 等 80+ 格式）
   # 部署文档：https://github.com/kekingcn/kkFileView
@@ -194,4 +218,6 @@ volumes:
   mysql-data:
     driver: local
   kkfileview-cache:
+    driver: local
+  tdyw-health-probe-test-logs:
     driver: local

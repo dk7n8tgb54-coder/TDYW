@@ -24,7 +24,7 @@
  *     其他类型走 previewUrlPrefix 的 preview-url。
  */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Button, Table, Tag, message, Popconfirm, Space, Modal } from 'antd';
+import { Button, Table, Tag, message, Popconfirm, Space } from 'antd';
 import {
   DownloadOutlined,
   DeleteOutlined,
@@ -33,6 +33,7 @@ import {
 } from '@ant-design/icons';
 import { http, hasPermission, X_TOKEN } from 'libs';
 import AttachmentUploadArea from './AttachmentUploadArea';
+import PreviewShell from './PreviewShell';
 
 const DEFAULT_PREVIEWABLE_EXTENSIONS = [
   '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
@@ -90,19 +91,22 @@ function AttachmentPreviewModal({ visible, fileName, previewUrl, previewType, on
   // previewType: image | native | pdf | kkfileview | 其他
   const isImage = previewType === 'image';
   return (
-    <Modal
-      title={`预览：${fileName}`}
-      visible={visible}
-      onCancel={onClose}
-      footer={null}
-      width="90%"
-      style={{ top: 20 }}
-      bodyStyle={{ height: '80vh' }}
-      destroyOnClose
-    >
+    <PreviewShell visible={visible} fileName={fileName} onClose={onClose}>
       {previewUrl && isImage && (
-        <div style={{ height: '100%', textAlign: 'center', overflow: 'auto' }}>
-          <img src={previewUrl} alt={fileName} style={{ maxWidth: '100%', maxHeight: '80vh' }} />
+        <div
+          style={{
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'auto',
+          }}
+        >
+          <img
+            src={previewUrl}
+            alt={fileName}
+            style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+          />
         </div>
       )}
       {previewUrl && !isImage && (
@@ -112,7 +116,7 @@ function AttachmentPreviewModal({ visible, fileName, previewUrl, previewType, on
           title="附件预览"
         />
       )}
-    </Modal>
+    </PreviewShell>
   );
 }
 

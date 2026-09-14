@@ -1,0 +1,61 @@
+# pre-swap snapshot 2026-09-13_16:18:43
+
+## django_migrations latest per app
+account	0014_remove_tenant_is_active
+alert	0001_initial
+auth	0012_alter_user_first_name_max_length
+contenttypes	0002_remove_content_type_name
+contract_agreement	0005_alter_contractagreement_status_and_more
+department_duty_log	0011_remove_departmentdutylog_duty_log_signature_fields_and_more
+device	0010_remove_null_from_string_fields
+django_celery_beat	0019_alter_periodictasks_options
+django_celery_results	0011_taskresult_periodic_task_name
+document	0022_documentfilepublic_doc_pub_file_name_idx_and_more
+duty	0006_dutyrecord_deleted_at_dutyrecord_is_deleted
+evidence	0007_evidenceevent_ev_event_type_valid
+fault	0006_faultpart_deleted_at_faultpart_is_deleted_and_more
+home	0011_delete_navigation
+interference	0009_alter_interference_datetime
+logs	0010_remove_null_from_char_fields
+radio_license	0013_alter_radiolicense_status_and_more
+regulation	0006_regulation_created_at
+reminder	0002_add_constraints
+runlog	0014_runlog_deleted_at_runlog_is_deleted
+sessions	0001_initial
+setting	0003_simplify_check_constraint
+signature	0005_remove_null_from_string_fields
+upgrade	0021_alter_upgraderecord_unique_together_and_more
+
+## key table counts
+tdyw_interferences	3
+tdyw_document_file_public	782
+tdyw_evidence_attachments	45
+tdyw_regulation_attachment	15
+tdyw_radio_license	14
+tdyw_contract_agreement	3
+tdyw_department_duty_log	21
+audit_logs	5268
+users	11
+tdyw_regulation	13
+
+## celery tasks
+celery.backend_cleanup	49
+retry-clean-pending-files	1151
+document-cleanup-old-chunks	49
+document-cleanup-expired-transfers	49
+document-check-merge-timeout	6902
+document-cleanup-stale-merging	49
+document-cleanup-orphan-transfers	195
+document-cleanup-expired-pack-tasks	49
+radio-license-scan-expiration	49
+radio-license-scan-approval-expiration	49
+contract-agreement-scan-expiration	49
+logs-cleanup-old-audit-logs	49
+announcement-sync-status	1153
+cleanup-old-chunks-every-hour	1154
+cleanup-expired-transfers-daily	49
+logs-verify-audit-hash-chain	0
+check-disk-space	5573
+collect-db-metrics	11143
+run-data-quality-check	0
+cleanup-old-alerts	0

@@ -4,6 +4,7 @@ import { Button, Card, Col, Empty, Input, Popconfirm, Radio, Row, Select, Space,
 import { Chart, Geom, Axis, Tooltip as ChartTooltip, Legend } from 'bizcharts';
 import { CheckCircleOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons';
 import { AuthDiv, AuthFragment, Breadcrumb, SearchForm, TableCard } from 'components';
+import {buildAxisTicks, formatAxisTime} from './chartAxis';
 import store from './store';
 
 const { Option } = Select;
@@ -37,11 +38,15 @@ const DiskTrendChart = observer(function DiskTrendChart() {
 
   // 将 store.trendData 展平为 bizcharts 数据格式
   const chartData = [];
+  const tickLabels = new Map();
   let hasData = false;
   store.trendData.forEach(series => {
+    // 各序列时间点一致，横轴刻度按序列分别抽样后合并
+    buildAxisTicks(series.points.map(p => new Date(p.time * 1000)), store.trendHours)
+      .forEach((label, key) => tickLabels.set(key, label));
     series.points.forEach(p => {
       chartData.push({
-        time: new Date(p.time * 1000).toLocaleString('zh-CN', {hour12: false}),
+        time: formatAxisTime(new Date(p.time * 1000)),
         value: +(p.value / 1024 / 1024 / 1024).toFixed(2),  // bytes -> GB
         type: series.label,
       });
@@ -72,19 +77,21 @@ const DiskTrendChart = observer(function DiskTrendChart() {
       bodyStyle={{display: collapsed ? 'none' : 'block'}}>
       <Spin spinning={store.trendLoading}>
         {hasData ? (
-          <Chart
-            data={chartData}
-            autoFit
-            height={280}
-            padding={[30, 20, 60, 60]}
-            scale={{value: {min: 0, alias: '已用(GB)'}}}>
-            <Axis name="time" label={{autoRotate: true, style: {fontSize: 10}}} />
-            <Axis name="value" title={{text: '已用空间(GB)'}} />
-            <Legend name="type" position="top" />
-            <ChartTooltip showCrosshairs />
-            <Geom type="line" position="time*value" color="type" shape="smooth" size={2} />
-            <Geom type="point" position="time*value" color="type" size={3} shape="circle" />
-          </Chart>
+          <div style={{width: '100%'}}>
+            <Chart
+              data={chartData}
+              forceFit
+              height={280}
+              padding={[30, 20, 60, 60]}
+              scale={{value: {min: 0, alias: '已用(GB)'}}}>
+              <Axis name="time" label={{autoRotate: false, formatter: text => tickLabels.get(text) || '', style: {fontSize: 10}}} />
+              <Axis name="value" title={{text: '已用空间(GB)'}} />
+              <Legend name="type" position="top" />
+              <ChartTooltip showCrosshairs />
+              <Geom type="line" position="time*value" color="type" shape="smooth" size={2} />
+              <Geom type="point" position="time*value" color="type" size={3} shape="circle" />
+            </Chart>
+          </div>
         ) : (
           <Empty description="暂无趋势数据（数据采集需运行至少 2 小时）" style={{margin: '40px 0'}} />
         )}

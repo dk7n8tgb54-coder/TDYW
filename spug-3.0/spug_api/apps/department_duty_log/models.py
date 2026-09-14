@@ -44,6 +44,15 @@ class DepartmentDutyLog(models.Model, ModelMixin):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT, help_text='签署状态')
     version = models.PositiveIntegerField(default=1, help_text='乐观锁版本号，每次编辑/签署加 1')
 
+    # ---- 同日唯一签署约束的辅助字段 ----
+    # signed 时由服务层写入 duty_date，draft 时必须为 NULL。
+    # 唯一索引（MariaDB 允许唯一索引中存在多个 NULL）保证：全局最多只有一条
+    # signed 记录占用同一日期；退回草稿时置 NULL 即释放该日期。
+    # 只能由服务层维护，客户端提交该字段一律拒绝（PROTECTED_FIELDS）。
+    signed_date = models.DateField(
+        null=True, blank=True, unique=True,
+        help_text='签署占用日期：signed 时等于 duty_date，draft 时为 NULL；同日唯一约束的载体')
+
     # ---- 签署快照（签署后锁定，不可覆盖）----
     signature_usage_id = models.BigIntegerField(
         null=True, blank=True, unique=True, help_text='关联不可变 SignatureUsage.id')
@@ -134,5 +143,25 @@ class DepartmentDutyLog(models.Model, ModelMixin):
                     )
                 ),
                 name='duty_log_signature_fields',
+            ),
+            # signed_date 与 status/duty_date 的一致性约束（防静默漂移）：
+            # draft -> signed_date 必须为 NULL（草稿不占用日期）
+            # signed -> signed_date 必须非空且等于 duty_date（由唯一索引保证同日唯一）
+            # 注意 MariaDB CHECK 三值逻辑：signed_date 与 duty_date 的等值比较
+            # 在 signed_date 为 NULL 时结果是 UNKNOWN 而非 FALSE，CHECK 对
+            # UNKNOWN 放行，因此必须显式加 signed_date IS NOT NULL 前置条件
+            # （IS NOT NULL 判定永不返回 UNKNOWN）。
+            models.CheckConstraint(
+                check=(
+                    (
+                        models.Q(status=STATUS_DRAFT) &
+                        models.Q(signed_date__isnull=True)
+                    ) | (
+                        models.Q(status=STATUS_SIGNED) &
+                        models.Q(signed_date__isnull=False) &
+                        models.Q(signed_date=models.F('duty_date'))
+                    )
+                ),
+                name='duty_log_signed_date_valid',
             ),
         ]

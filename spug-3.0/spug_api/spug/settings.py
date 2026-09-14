@@ -241,8 +241,10 @@ CELERY_TASK_ROUTES = {
     # 【新增】无线电台执照到期扫描任务
     'apps.radio_license.tasks.scan_radio_license_expiration': {'queue': 'radio_license'},
     'apps.contract_agreement.tasks.scan_contract_agreement_expiration': {'queue': 'contract_agreement'},
-    # 【新增】审计日志归档清理任务（使用 default 队列）
-    'apps.logs.tasks.cleanup_old_audit_logs': {'queue': 'default'},
+    # 【修复】审计日志归档清理与哈希链校验任务使用 celery 队列
+    # （default-worker 只监听 celery；default 队列无 Worker 消费，投递即积压）
+    'apps.logs.tasks.cleanup_old_audit_logs': {'queue': 'celery'},
+    'apps.logs.tasks.verify_audit_hash_chain': {'queue': 'celery'},
     # 【新增】协作任务到期附件清理任务（使用 default 队列）
     'apps.coop_task.tasks.cleanup_expired_task_attachments': {'queue': 'default'},
 }
@@ -256,7 +258,9 @@ from apps.logs.celery_beat_schedule import LOGS_BEAT_SCHEDULE
 from apps.home.celery_beat_schedule import HOME_BEAT_SCHEDULE
 from apps.reminder.celery_beat_schedule import REMINDER_BEAT_SCHEDULE
 from apps.alert.celery_beat_schedule import ALERT_BEAT_SCHEDULE
-from apps.coop_task.celery_beat_schedule import COOP_TASK_BEAT_SCHEDULE
+# 延迟上线模块不注册其 beat 任务：worker 未加载对应 task，照常调度会报 unregistered
+if 'coop_task' not in RELEASE_PENDING_APPS:
+    from apps.coop_task.celery_beat_schedule import COOP_TASK_BEAT_SCHEDULE
 
 CELERY_BEAT_SCHEDULE = {
     # 每小时重试清理标记为待清理的物理文件（上传链路，非回收站）
@@ -287,8 +291,9 @@ CELERY_BEAT_SCHEDULE.update(REMINDER_BEAT_SCHEDULE)
 # 合并 Alert 模块的定时任务配置（磁盘/数据库监控 + 数据质量巡检）
 CELERY_BEAT_SCHEDULE.update(ALERT_BEAT_SCHEDULE)
 
-# 合并协作任务模块的定时任务配置（到期任务附件清理）
-CELERY_BEAT_SCHEDULE.update(COOP_TASK_BEAT_SCHEDULE)
+# 合并协作任务模块的定时任务配置（到期任务附件清理；延迟上线模块跳过）
+if 'coop_task' not in RELEASE_PENDING_APPS:
+    CELERY_BEAT_SCHEDULE.update(COOP_TASK_BEAT_SCHEDULE)
 
 RUN_METRICS_RETENTION_DAYS = int(os.environ.get('RUN_METRICS_RETENTION_DAYS', '30'))
 RUN_METRICS_NGINX_LOG = os.environ.get('RUN_METRICS_NGINX_LOG', '/var/log/nginx/run_metrics.log')

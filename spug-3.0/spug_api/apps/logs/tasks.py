@@ -28,7 +28,7 @@ DELETE_BATCH_SIZE = 5000
     bind=True,
     soft_time_limit=1800,
     time_limit=3600,
-    queue='default',
+    queue='celery',
     name='apps.logs.tasks.cleanup_old_audit_logs',
 )
 def cleanup_old_audit_logs(self, days=90, dry_run=False):
@@ -135,7 +135,7 @@ HASH_CHAIN_VERIFY_LIMIT = 5000
     bind=True,
     soft_time_limit=600,
     time_limit=900,
-    queue='default',
+    queue='celery',
     name='apps.logs.tasks.verify_audit_hash_chain',
 )
 def verify_audit_hash_chain(self):
@@ -152,19 +152,29 @@ def verify_audit_hash_chain(self):
     from apps.logs.hash_chain import verify_hash_chain
 
     try:
-        tenant_ids = AuditLog.objects.exclude(
-            tenant_id=''
-        ).values_list('tenant_id', flat=True).distinct()
+        # 显式 order_by() 清除 Meta.ordering('-id')：否则 DISTINCT 连带排序列 id，
+        # 按 (tenant_id, id) 去重导致同一租户重复出现；物化为 list 避免循环中反复求值
+        tenant_ids = list(
+            AuditLog.objects
+            .exclude(tenant_id='')
+            .order_by()
+            .values_list('tenant_id', flat=True)
+            .distinct()
+        )
 
         total_errors = 0
         details = []
 
         for tenant_id in tenant_ids:
-            logs = AuditLog.objects.filter(
-                tenant_id=tenant_id
-            ).order_by('id')[:HASH_CHAIN_VERIFY_LIMIT]
-
-            result = verify_hash_chain(logs)
+            # 取最近 HASH_CHAIN_VERIFY_LIMIT 条（id 倒序），再反转为 id 升序
+            # 交给 verify_hash_chain（链校验要求升序，不能直接传倒序数据）
+            recent_logs = list(
+                AuditLog.objects
+                .filter(tenant_id=tenant_id)
+                .order_by('-id')[:HASH_CHAIN_VERIFY_LIMIT]
+            )
+            recent_logs.reverse()
+            result = verify_hash_chain(recent_logs)
             if not result['valid']:
                 total_errors += len(result['errors'])
                 details.append({
@@ -193,12 +203,12 @@ def verify_audit_hash_chain(self):
 
         logger.info(
             f'[AUDIT] hash chain verify completed: '
-            f'tenants_checked={len(list(tenant_ids))} total_errors={total_errors}'
+            f'tenants_checked={len(tenant_ids)} total_errors={total_errors}'
         )
 
         return {
             'status': 'success',
-            'tenants_checked': len(details) if total_errors else 0,
+            'tenants_checked': len(tenant_ids),
             'total_errors': total_errors,
             'details': details,
         }

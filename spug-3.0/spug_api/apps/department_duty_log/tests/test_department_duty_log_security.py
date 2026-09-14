@@ -11,7 +11,7 @@
 - 导出安全：草稿内容不可经导出关键字触达；无 view 权限不可导出
 """
 import json
-from datetime import date
+from datetime import date, timedelta
 from urllib.parse import quote
 
 from django.test import TestCase
@@ -119,10 +119,10 @@ class OwnershipSecurityTests(TestCase):
 class ForgedFieldSecurityTests(SignatureFlowBase):
     """伪造字段与幂等键安全"""
 
-    def _create_draft_for(self, user, client, duty_record):
+    def _create_draft_for(self, user, client, duty_record, duty_date=None):
         resp = client.post(
             '/department-duty-log/records/', data=json.dumps({
-                'duty_date': str(date.today()),
+                'duty_date': str(duty_date or date.today()),
                 'weather': '晴',
                 'duty_record': duty_record,
                 'remark': '',
@@ -173,8 +173,11 @@ class ForgedFieldSecurityTests(SignatureFlowBase):
             ('department_duty_log', 'department_duty_log', ['view', 'add', 'sign']),
         ])
         attacker_client = _make_client(attacker)
+        # 攻击记录使用另一日期：同日唯一签署约束会先于幂等检查拒绝，
+        # 幂等键冲突场景需要独立日期才能触达
         attack_record = self._create_draft_for(
-            attacker, attacker_client, '幂等键攻击记录')
+            attacker, attacker_client, '幂等键攻击记录',
+            duty_date=date.today() - timedelta(days=1))
 
         resp = attacker_client.post(
             f'/department-duty-log/records/{attack_record.id}/sign/',
@@ -192,7 +195,11 @@ class ForgedFieldSecurityTests(SignatureFlowBase):
         resp = self._sign(r1, 'sec-reuse-x', version=1)
         self.assertFalse(resp.json().get('error'), resp.json())
 
-        r2 = self._create_draft_for(self.signer, self.signer_client, '重放目标记录')
+        # 目标记录使用另一日期：同一天最多一条已签（数据库唯一约束），
+        # 重放场景需要目标记录能成功签署才能验证重放拒绝
+        r2 = self._create_draft_for(
+            self.signer, self.signer_client, '重放目标记录',
+            duty_date=date.today() - timedelta(days=1))
         resp = self._sign(r2, 'sec-reuse-y', version=1)
         self.assertFalse(resp.json().get('error'), resp.json())
         r2.refresh_from_db()

@@ -127,6 +127,8 @@ def _make_record(user, **kwargs):
             'signature_version': 1,
             'signature_sha256': 'a' * 64,
             'business_snapshot_hash': 'b' * 64,
+            # 同日唯一约束：signed 记录必须占用 duty_date，draft 由默认 NULL
+            'signed_date': defaults['duty_date'],
         }
         for field, value in signed_defaults.items():
             defaults.setdefault(field, value)
@@ -201,6 +203,8 @@ class DepartmentDutyLogPermissionTests(TestCase):
         record_a.signature_version = 1
         record_a.signature_sha256 = 'a' * 64
         record_a.business_snapshot_hash = 'b' * 64
+        # 同日唯一约束：直接落 signed 状态必须同步占用日期
+        record_a.signed_date = record_a.duty_date
         record_a.save()
         # B 现在能看到 A 的已签记录
         resp = self.client_b.get('/department-duty-log/records/')
@@ -570,6 +574,7 @@ class DepartmentDutyLogLifecycleTests(TestCase):
         record.signature_version = 1
         record.signature_sha256 = 'a'
         record.business_snapshot_hash = 'b'
+        record.signed_date = record.duty_date
         record.save()
         self.assertIsNotNone(record.signature_usage_id)
 
@@ -1124,10 +1129,15 @@ class DepartmentDutyLogPdfExportTests(TestCase):
     def _parse(self, response):
         return json.loads(response.content)
 
-    def _sign_record(self, duty_record='今日值班正常', request_id_prefix='pdf'):
-        """创建草稿并签署，返回已签 DepartmentDutyLog"""
+    def _sign_record(self, duty_record='今日值班正常', request_id_prefix='pdf',
+                     duty_date=None):
+        """创建草稿并签署，返回已签 DepartmentDutyLog。
+
+        duty_date 缺省为今天；同一天只允许签署一条，
+        需要多条已签记录的用例必须显式传入不同日期。
+        """
         resp = self.signer_client.post('/department-duty-log/records/', data=json.dumps({
-            'duty_date': str(date.today()),
+            'duty_date': str(duty_date or date.today()),
             'duty_record': duty_record,
             'weather': '晴',
         }), content_type='application/json')
@@ -1219,7 +1229,9 @@ class DepartmentDutyLogPdfExportTests(TestCase):
     def test_pdf_export_returned_excluded(self):
         """退回后的记录不进入导出"""
         signed = self._sign_record(duty_record='signed', request_id_prefix='r1')
-        to_return = self._sign_record(duty_record='to-return', request_id_prefix='r2')
+        to_return = self._sign_record(
+            duty_record='to-return', request_id_prefix='r2',
+            duty_date=date.today() - timedelta(days=1))
         # 退回第二条（可能失败，不影响导出测试）
         self.returner_client.post(
             f'/department-duty-log/records/{to_return.id}/return/',
@@ -1279,7 +1291,8 @@ class DepartmentDutyLogPdfExportTests(TestCase):
         ddl_services.PDF_EXPORT_LIMIT = 1
         try:
             self._sign_record(duty_record='r1', request_id_prefix='ol1')
-            self._sign_record(duty_record='r2', request_id_prefix='ol2')
+            self._sign_record(duty_record='r2', request_id_prefix='ol2',
+                              duty_date=date.today() - timedelta(days=1))
             resp = self.signer_client.post(
                 '/department-duty-log/export/pdf/',
                 data=json.dumps({}),
@@ -1359,9 +1372,10 @@ class DepartmentDutyLogPdfExportTests(TestCase):
 
     def test_pdf_export_filters_applied(self):
         """筛选条件生效：仅导出匹配记录"""
-        # 签署两条，用不同 duty_record
+        # 签署两条（不同日期：同一天只能签署一条），用不同 duty_record
         r1 = self._sign_record(duty_record='关键字A匹配', request_id_prefix='f1')
-        r2 = self._sign_record(duty_record='关键字B不匹配', request_id_prefix='f2')
+        r2 = self._sign_record(duty_record='关键字B不匹配', request_id_prefix='f2',
+                               duty_date=date.today() - timedelta(days=1))
 
         resp = self.signer_client.post(
             '/department-duty-log/export/pdf/',

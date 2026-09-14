@@ -3,7 +3,7 @@
 """告警监控模块 Celery 异步任务"""
 import io
 import logging
-from datetime import timedelta, timezone as dt_timezone
+from datetime import timedelta
 from celery import shared_task
 
 logger = logging.getLogger(__name__)
@@ -146,13 +146,14 @@ def record_probe_sample(timestamp, success, http_status=None, duration_ms=0, err
     from django.utils.dateparse import parse_datetime
     from django.utils import timezone
     from apps.alert.models import HealthProbeSample
+    from apps.alert.metrics import to_storage_dt
 
     if isinstance(timestamp, str):
-        timestamp = parse_datetime(timestamp)
+        # 探活日志时间戳为 UTC ISO8601；缺 offset 的按 UTC 解释
+        timestamp = to_storage_dt(parse_datetime(timestamp), naive_is_utc=True)
     timestamp = timestamp or timezone.now()
-    if timezone.is_naive(timestamp):
-        timestamp = timezone.make_aware(timestamp, dt_timezone.utc)
-    sample, _ = HealthProbeSample.objects.get_or_create(
+    timestamp = to_storage_dt(timestamp)
+    sample, created = HealthProbeSample.objects.get_or_create(
         timestamp=timestamp,
         defaults={
             'success': bool(success),
@@ -161,6 +162,10 @@ def record_probe_sample(timestamp, success, http_status=None, duration_ms=0, err
             'error_type': str(error_type or '')[:80],
         },
     )
+    # flush_run_metrics 会重复扫描完整探活日志。历史样本已存在时不得再次
+    # 触发“不可用/已恢复”事件，否则同一次恢复会随每轮聚合重复告警。
+    if not created:
+        return sample
     recent = list(HealthProbeSample.objects.filter(timestamp__lte=timestamp).order_by('-timestamp')[:4])
     failures = 0
     for item in recent:
@@ -185,7 +190,7 @@ def record_probe_sample(timestamp, success, http_status=None, duration_ms=0, err
 @shared_task(bind=True, max_retries=0)
 def flush_run_metrics(self, bucket_start=None):
     """聚合完整五分钟窗口；从最后窗口补算，重复执行使用唯一键幂等。"""
-    from datetime import datetime, timezone as dt_timezone
+    from datetime import datetime
     from django.utils import timezone
     from apps.alert.metrics import aggregate_window, floor_window, WINDOW_SECONDS
     from apps.alert.models import RunMetric
@@ -196,8 +201,6 @@ def flush_run_metrics(self, bucket_start=None):
         if bucket_start:
             if isinstance(bucket_start, str):
                 bucket_start = datetime.fromisoformat(bucket_start.replace('Z', '+00:00'))
-            if bucket_start.tzinfo is None:
-                bucket_start = bucket_start.replace(tzinfo=dt_timezone.utc)
             buckets = [floor_window(bucket_start)]
         else:
             latest = floor_window(timezone.now()) - timedelta(seconds=WINDOW_SECONDS)
@@ -224,10 +227,11 @@ def cleanup_run_metrics(self):
     from datetime import timedelta
     from django.utils import timezone
     from django.conf import settings
+    from apps.alert.metrics import to_storage_dt
     from apps.alert.models import RunMetric, HealthProbeSample, DbMetricSnapshot
 
     retention = max(7, min(int(getattr(settings, 'RUN_METRICS_RETENTION_DAYS', 30)), 90))
-    cutoff = timezone.now() - timedelta(days=retention)
+    cutoff = to_storage_dt(timezone.now() - timedelta(days=retention))
     RunMetric.objects.filter(bucket_start__lt=cutoff).delete()
     HealthProbeSample.objects.filter(timestamp__lt=cutoff).delete()
     DbMetricSnapshot.objects.filter(captured_at__lt=cutoff).delete()

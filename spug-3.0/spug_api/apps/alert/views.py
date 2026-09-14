@@ -13,7 +13,7 @@ from libs.parser import JsonParser, Argument
 from libs.mixins import AdminView
 from apps.alert.models import Alert, AlertRead
 from apps.alert.models import RunMetric
-from apps.alert.metrics import health_state
+from apps.alert.metrics import health_state, to_local_naive
 
 logger = logging.getLogger(__name__)
 
@@ -263,8 +263,9 @@ class RunMetricView(AdminView):
         hours = min(max(form.hours, 24), 168)
         cutoff = timezone.now() - timedelta(hours=hours)
         rows = [_metric_to_view(item) for item in RunMetric.objects.filter(bucket_start__gte=cutoff).order_by('bucket_start')]
-        states = {item['state'] for item in rows}
-        state = 'unknown' if not rows or 'unknown' in states else ('unavailable' if 'unavailable' in states else ('degraded' if 'degraded' in states else 'healthy'))
+        # 页面展示的是“当前状态”，不能因为时间窗口内较早的缺失桶就一直显示未知。
+        # 历史桶状态仍随 items 返回，当前状态以最新聚合桶为准。
+        state = rows[-1]['state'] if rows else 'unknown'
         return json_response({'hours': hours, 'state': state, 'items': rows, 'series': rows})
 
 
@@ -280,7 +281,8 @@ class RunMetricSummaryView(AdminView):
         rows = list(RunMetric.objects.filter(bucket_start__gte=cutoff).order_by('bucket_start'))
         grouped = {}
         for item in rows:
-            key = timezone.localtime(item.bucket_start).date().isoformat()
+            # USE_TZ=False 时 bucket_start 即本地 naive datetime，localtime() 会拒绝 naive
+            key = to_local_naive(item.bucket_start).date().isoformat()
             target = grouped.setdefault(key, {'date': key, 'request_count': 0, 'system_error_count': 0, 'slow_count': 0, 'unavailable_windows': 0, 'unknown_windows': 0})
             target['request_count'] += item.request_count
             target['system_error_count'] += item.app_server_error_count + item.gateway_error_count

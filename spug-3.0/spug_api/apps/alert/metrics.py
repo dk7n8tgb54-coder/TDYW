@@ -18,6 +18,30 @@ WINDOW_SECONDS = 300
 SLOW_MS = 1000
 
 
+def to_storage_dt(value, naive_is_utc=False):
+    """将 datetime 规整为当前 USE_TZ 配置下 ORM 可直接接受的类型。
+
+    本项目按 USE_TZ=False + TIME_ZONE=Asia/Shanghai 部署，数据库中的
+    DateTimeField 均为本地 naive datetime，MySQL 后端拒绝 aware datetime：
+    - USE_TZ=False：返回 TIME_ZONE 本地 naive datetime；
+    - USE_TZ=True：返回 aware datetime。
+    naive 输入默认按本地时间解释；探活/访问日志中的 naive 时间戳按
+    日志格式约定视为 UTC，调用 naive_is_utc=True。
+    """
+    if timezone.is_naive(value):
+        value = timezone.make_aware(value, dt_timezone.utc if naive_is_utc else None)
+    if settings.USE_TZ:
+        return value
+    return timezone.make_naive(value)
+
+
+def to_local_naive(value):
+    """数据库/存储 datetime → TIME_ZONE 本地 naive datetime，用于展示与按日分组。"""
+    if timezone.is_naive(value):
+        return value
+    return timezone.localtime(value).replace(tzinfo=None)
+
+
 def ingest_probe_log():
     """读取容器外探活 JSONL；文件不可读时保持现有数据并标记未知。"""
     path = Path(getattr(settings, 'RUN_METRICS_PROBE_LOG', '/var/log/tdyw/health-probe.jsonl'))
@@ -30,8 +54,7 @@ def ingest_probe_log():
                 try:
                     item = json.loads(line)
                     timestamp = datetime.fromisoformat(str(item['timestamp']).replace('Z', '+00:00'))
-                    if timestamp.tzinfo is None:
-                        timestamp = timestamp.replace(tzinfo=dt_timezone.utc)
+                    timestamp = to_storage_dt(timestamp, naive_is_utc=True)
                     from .tasks import record_probe_sample
                     before = HealthProbeSample.objects.filter(timestamp=timestamp).exists()
                     record_probe_sample(timestamp, item.get('success'), item.get('http_status'), item.get('duration_ms'), item.get('error_type'))
@@ -45,7 +68,11 @@ def ingest_probe_log():
 
 
 def floor_window(value):
-    value = value.astimezone(dt_timezone.utc)
+    """按 5 分钟窗口取整；结果类型与 USE_TZ 配置一致，可直接用于 ORM。
+
+    TIME_ZONE 偏移为整小时（Asia/Shanghai UTC+8），本地墙上时间取整与
+    UTC 取整得到相同边界。"""
+    value = to_storage_dt(value)
     return value.replace(second=(value.second // WINDOW_SECONDS) * WINDOW_SECONDS, microsecond=0)
 
 
@@ -79,9 +106,10 @@ def _iter_access_records(start, end):
                     try:
                         item = json.loads(line)
                         raw_ts = item.get('timestamp')
-                        ts = datetime.fromisoformat(raw_ts.replace('Z', '+00:00'))
-                        if timezone.is_naive(ts):
-                            ts = ts.replace(tzinfo=dt_timezone.utc)
+                        ts = to_storage_dt(
+                            datetime.fromisoformat(str(raw_ts).replace('Z', '+00:00')),
+                            naive_is_utc=True,
+                        )
                         if start <= ts < end:
                             yield item, ts
                     except (ValueError, TypeError, json.JSONDecodeError, AttributeError):
