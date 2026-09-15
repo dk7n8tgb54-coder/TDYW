@@ -3,7 +3,6 @@ import { observer } from 'mobx-react';
 import { Alert, Button, Card, Col, Empty, Radio, Row, Spin, Statistic, Table, Tag } from 'antd';
 import { Chart, Geom, Axis, Tooltip as ChartTooltip, Legend } from 'bizcharts';
 import store from './healthStore';
-import DiskTrendChart from './DiskTrendChart';
 import {buildAxisTicks, formatAxisTime} from './chartAxis';
 import {history} from 'libs';
 
@@ -58,8 +57,5 @@ export default observer(function PlatformHealth() {
         <Table size="small" style={{marginTop: 16}} rowKey="date" columns={summaryColumns} dataSource={store.summary} pagination={false} />
       </Card>
     </Spin>
-    <div style={{marginTop: 16}}>
-      <DiskTrendChart/>
-    </div>
   </>;
 });

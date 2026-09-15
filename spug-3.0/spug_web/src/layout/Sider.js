@@ -7,6 +7,7 @@ import routes from '../routes';
 import radioLicenseBadge from './RadioLicenseBadgeStore';
 import approvalBadge from './ApprovalBadgeStore';
 import coopTaskBadge from './CoopTaskBadgeStore';
+import contractAgreementBadge from './ContractAgreementBadgeStore';
 import logo from './logo-spug-white.png';
 
 let selectedKey = window.location.pathname;
@@ -30,6 +31,7 @@ const CHILD_BADGE_STORES = {
   '/radio-license': () => radioLicenseBadge,
   '/station-frequency-approval': () => approvalBadge,
   '/coop-task': () => coopTaskBadge,
+  '/contract-agreement': () => contractAgreementBadge,
 };
 
 // 父菜单 title -> 需要合计的子菜单 badge store 列表

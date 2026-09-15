@@ -3,89 +3,30 @@
 """告警监控模块 Celery 异步任务"""
 import io
 import logging
-import os
 import shutil
-import stat
-import subprocess
 from datetime import timedelta
 from celery import shared_task
 
 logger = logging.getLogger(__name__)
 
-# check_disk_space 任务互斥锁：上一轮目录扫描未完成时不重复启动。
-# TTL 兜底：持锁进程异常退出后锁自动过期，避免永久卡死后续采集。
+# check_disk_space 任务互斥锁：上一轮磁盘检查未完成时不重复启动。
+# TTL 兜底：持锁进程异常退出后锁自动过期，避免永久卡死后续检查。
 DISK_CHECK_LOCK_KEY = 'lock:alert:check-disk-space'
 DISK_CHECK_LOCK_TTL = 1800
 
 
-def _walk_directory_bytes(path):
-    """du 命令不存在时（如 Windows 开发环境）的纯 Python 兜底统计。
-
-    与 du -s -B1 -x 语义对齐：不跟随符号链接、不跨文件系统、
-    统计磁盘块占用而非表观大小。
-    """
-    top_dev = os.stat(path).st_dev
-    total = 0
-    for root, dirs, files in os.walk(path):
-        # 跳过其他文件系统上的挂载点（du -x 语义）
-        dirs[:] = [
-            d for d in dirs
-            if os.stat(os.path.join(root, d)).st_dev == top_dev
-        ]
-        for name in files:
-            file_path = os.path.join(root, name)
-            try:
-                st = os.lstat(file_path)  # lstat 不跟随符号链接
-            except OSError:
-                continue
-            if not stat.S_ISREG(st.st_mode) or st.st_dev != top_dev:
-                continue
-            blocks = getattr(st, 'st_blocks', None)
-            total += blocks * 512 if blocks is not None else st.st_size
-    return total
-
-
-def _measure_directory_bytes(path, timeout):
-    """统计目录自身实际占用字节（生产 Linux 优先 du -s -B1 -x）。
-
-    - subprocess 参数数组调用，禁止 shell=True；
-    - du 不跟随符号链接，-x 不跨越嵌套文件系统；
-    - du 超时或非零退出抛异常，由调用方记录日志并跳过本轮写入，不得写 0。
-    """
-    try:
-        proc = subprocess.run(
-            ['du', '-s', '-B1', '-x', path],
-            capture_output=True, text=True, timeout=timeout,
-        )
-    except FileNotFoundError:
-        return _walk_directory_bytes(path)
-    if proc.returncode != 0:
-        raise RuntimeError(f'du 退出码 {proc.returncode}: {(proc.stderr or "").strip()[:200]}')
-    return int(proc.stdout.split()[0])
-
-
 @shared_task(bind=True, max_retries=1, default_retry_delay=60)
 def check_disk_space(self):
-    """每 30 分钟采集存储目录实际占用趋势 + 文件系统满盘告警
+    """每 30 分钟检查存储目录所在文件系统容量，超阈值发满盘告警
 
-    两类指标口径严格分离：
-    - 目录占用（公开趋势曲线）：du 统计目录自身实际字节，公开指标键
-      disk:documents / disk:chunks / disk:media；disk:total 为同一轮三类总和，
-      仅在全部目录采集成功时写入，避免部分失败时形成虚假下降。
-    - 文件系统容量（满盘快照告警 + 72h 趋势预警）：仍用 shutil.disk_usage，
-      历史记录在内部键 fs-usage:<name>，不对外暴露，禁止与目录占用量混算。
+    阈值：使用率 >90% 发 warning，>95% 发 error。历史目录占用趋势采集
+    与 72h 满盘预测已随磁盘使用趋势功能一并移除（原存 Redis ZSet，
+    容器每日重启即丢失，详见版本说明）。
     """
     from django.conf import settings
     from django.core.cache import cache
-    from libs.trend import record_metric, get_trend, linear_slope, predict_time_to_threshold
-
-    # 趋势预警阈值：预测 72 小时内满盘则发预警
-    TREND_WARN_HOURS = 72
-    # 至少 12 个数据点（30min/次 * 12 = 6 小时）才做预测
-    MIN_POINTS_FOR_PREDICTION = 12
 
     storage_dirs = list(getattr(settings, 'ALERT_STORAGE_DIRS', []))
-    du_timeout = int(getattr(settings, 'ALERT_DU_TIMEOUT_SECONDS', 300))
 
     try:
         lock_acquired = cache.add(DISK_CHECK_LOCK_KEY, '1', DISK_CHECK_LOCK_TTL)
@@ -96,36 +37,16 @@ def check_disk_space(self):
         logger.warning('[DISK] 上一轮磁盘检查尚未完成，跳过本轮采集')
         return {'skipped': True}
 
-    result = {'directories': {}, 'failures': [], 'total': None}
+    result = {'checked': [], 'failures': []}
     try:
-        # ---- 第一部分：目录实际占用（公开趋势曲线） ----
-        for name, path in storage_dirs:
-            if not os.path.exists(path):
-                logger.error(f'[DISK] 存储目录不存在，本轮跳过该目录: {name} -> {path}')
-                result['failures'].append(name)
-                continue
-            try:
-                size = _measure_directory_bytes(path, du_timeout)
-            except Exception as e:
-                logger.error(f'[DISK] 目录占用统计失败，本轮跳过该目录: {name} ({path}): {e}')
-                result['failures'].append(name)
-                continue
-            result['directories'][name] = size
-            record_metric(f'disk:{name}', size)
-
-        # 任一目录失败则本轮不写 total，避免曲线出现虚假下降
-        if storage_dirs and not result['failures']:
-            total = sum(result['directories'].values())
-            record_metric('disk:total', total)
-            result['total'] = total
-
-        # ---- 第二部分：文件系统容量告警（满盘快照 + 趋势预警） ----
         for name, path in storage_dirs:
             try:
                 usage = shutil.disk_usage(path)
             except Exception as e:
                 logger.error(f'[DISK] 文件系统容量检查失败: {name} ({path}): {e}')
+                result['failures'].append(name)
                 continue
+            result['checked'].append(name)
             percent = (usage.used / usage.total) * 100
             if percent > 90:
                 from libs.alert import send_alert
@@ -137,29 +58,6 @@ def check_disk_space(self):
                     source='disk',
                     alert_key=f'disk:{name}',
                 )
-
-            # 满盘预测使用内部文件系统指标（fs-usage:*），与公开目录曲线分离
-            record_metric(f'fs-usage:{name}', usage.used)
-            trend = get_trend(f'fs-usage:{name}', 24)
-            if len(trend) >= MIN_POINTS_FOR_PREDICTION:
-                slope = linear_slope(trend)
-                hours = predict_time_to_threshold(usage.used, usage.total, slope)
-                # 快照未触发(<90%)但趋势预测 72h 内会满
-                if hours is not None and hours < TREND_WARN_HOURS and percent < 90:
-                    from libs.alert import send_alert
-                    free_gb = usage.free / (1024 ** 3)
-                    send_alert(
-                        title=f'磁盘空间趋势预警: {name}',
-                        message=(
-                            f'路径: {path}\n'
-                            f'当前使用率: {percent:.1f}%（可用 {free_gb:.1f}GB）\n'
-                            f'按近 24h 增长速率，预计 {hours:.0f} 小时后满盘\n'
-                            f'建议提前清理或扩容'
-                        ),
-                        level='warning',
-                        source='disk',
-                        alert_key=f'disk:{name}:trend',  # 与快照告警分开去重
-                    )
         return result
     finally:
         try:

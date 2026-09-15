@@ -6,7 +6,6 @@ from apps.alert.views import (
     AlertMarkReadView,
     AlertResolveView,
     DataQualityCheckView,
-    AlertTrendView,
     RunMetricView,
     RunMetricSummaryView,
 )
@@ -16,7 +15,6 @@ urlpatterns = [
     path('mark-read/', AlertMarkReadView.as_view()),
     path('<int:pk>/resolve/', AlertResolveView.as_view()),
     path('data-quality/', DataQualityCheckView.as_view()),
-    path('trend/', AlertTrendView.as_view()),
     path('run-metrics/summary/', RunMetricSummaryView.as_view()),
     path('run-metrics/', RunMetricView.as_view()),
 ]

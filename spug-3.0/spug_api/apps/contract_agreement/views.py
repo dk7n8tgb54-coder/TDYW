@@ -568,7 +568,7 @@ class AttachmentDeleteView(View):
 class ReminderPopupView(View):
     """合同协议到期提醒弹窗（按责任人过滤）
 
-    实时查询当前用户负责的 expiring/expired 合同，排除已 ack 的。
+    实时查询当前用户负责的 60 天内即将到期合同（已过期不提醒），排除已 ack 的。
     days_left 实时计算，content 前端拼装。
     """
 
@@ -579,6 +579,7 @@ class ReminderPopupView(View):
         qs = apply_tenant_filter(ContractAgreement.objects.all(), request.user)
         agreements = qs.filter(
             responsible_user_id=request.user.id,
+            valid_end_date__gte=today,
             valid_end_date__lte=today + timedelta(days=EXPIRING_DAYS_THRESHOLD),
         ).select_related('created_by')
 
@@ -603,7 +604,7 @@ class ReminderPopupView(View):
                 'valid_end_date': _fmt_date(agreement.valid_end_date),
                 'days_left': days_left,
                 'status': agreement.status,
-                'remind_type': 'expired' if days_left < 0 else 'expiring_daily',
+                'remind_type': 'expiring_daily',
                 'signing_party': agreement.signing_party,
                 'has_fee': agreement.has_fee,
                 'fee_amount': _fmt_decimal(agreement.fee_amount),
@@ -652,7 +653,7 @@ class ReminderAckView(View):
 
 
 class ContractAgreementBadgeView(View):
-    """菜单角标数量（按 valid_end_date 实时统计，不排除 ack）"""
+    """菜单角标数量（仅统计即将到期；已过期不计入提醒；不排除 ack）"""
 
     @auth('contract_agreement.agreement.view')
     def get(self, request):
@@ -665,7 +666,7 @@ class ContractAgreementBadgeView(View):
         ).count()
         expired_count = qs.filter(valid_end_date__lt=today).count()
         return json_response(data={
-            'count': expiring_count + expired_count,
+            'count': expiring_count,
             'expiring_count': expiring_count,
             'expired_count': expired_count,
         })

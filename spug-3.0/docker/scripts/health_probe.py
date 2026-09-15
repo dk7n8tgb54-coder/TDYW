@@ -101,8 +101,8 @@ def probe_once():
     os.makedirs(os.path.dirname(OUTPUT) or '.', exist_ok=True)
     with open(OUTPUT, 'a', encoding='utf-8') as stream:
         stream.write(json.dumps(record, ensure_ascii=True) + '\n')
-    _rotate(OUTPUT, PROBE_MAX_BYTES, 30)
-    _rotate(NGINX_LOG, NGINX_MAX_BYTES, 14)
+    _rotate(OUTPUT, PROBE_MAX_BYTES, 7)
+    _rotate(NGINX_LOG, NGINX_MAX_BYTES, 7)
     return 0 if success else 1
 
 

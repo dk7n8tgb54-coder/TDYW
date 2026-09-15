@@ -105,7 +105,8 @@ class CeleryTaskConfigTest(ContractTestCase):
 
     def test_beat_schedule_queue_and_time_limit(self):
         entry = settings.CELERY_BEAT_SCHEDULE['contract-agreement-scan-expiration']
-        self.assertEqual(entry['options']['queue'], 'contract_agreement')
+        # 死队列修复后，beat 投递必须走有 worker 消费的 celery 队列（settings 路由同步覆盖）
+        self.assertEqual(entry['options']['queue'], 'celery')
         self.assertEqual(entry['options']['time_limit'], 600)
 
     def test_beat_schedule_cron(self):

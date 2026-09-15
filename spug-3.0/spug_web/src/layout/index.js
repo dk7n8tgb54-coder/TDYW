@@ -20,6 +20,7 @@ import routes from '../routes';
 import radioLicenseBadge from './RadioLicenseBadgeStore';
 import approvalBadge from './ApprovalBadgeStore';
 import coopTaskBadge from './CoopTaskBadgeStore';
+import contractAgreementBadge from './ContractAgreementBadgeStore';
 import alertStore from './AlertStore';
 import { hasPermission } from 'libs';
 import styles from './layout.module.less';
@@ -67,6 +68,7 @@ export default function () {
     radioLicenseBadge.start();
     approvalBadge.start();
     coopTaskBadge.start();
+    contractAgreementBadge.start();
     alertStore.start();
     // 登录后初始化：拉取系统版本 + 未读更新（ReleaseNoteNotification 负责弹窗）
     releaseNoteStore.fetchVersion();
@@ -74,6 +76,7 @@ export default function () {
       radioLicenseBadge.stop();
       approvalBadge.stop();
       coopTaskBadge.stop();
+      contractAgreementBadge.stop();
       alertStore.stop();
     }
   }, [])

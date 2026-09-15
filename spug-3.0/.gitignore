@@ -53,6 +53,8 @@ backups/*.delta.json
 backups/*.meta
 backups/SHA256SUMS
 backups/*.log
+
+kkfileview440/
 # 日志文件
 *.log
 spug_api/logs/

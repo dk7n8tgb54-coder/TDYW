@@ -179,45 +179,6 @@ class DataQualityCheckView(AdminView):
         return json_response(result)
 
 
-class AlertTrendView(AdminView):
-    """磁盘趋势数据 API，从 Redis ZSet 读取历史指标返回给前端图表"""
-    PERM_MAP = {'GET': 'system.alert.view'}
-
-    # 支持查询的指标白名单（顺序即返回顺序；disk:total 为同轮三类总和）
-    METRIC_NAMES = {
-        'disk:documents': '文档存储',
-        'disk:chunks': '分片存储',
-        'disk:media': '媒体存储',
-        'disk:total': '三类存储总计',
-    }
-
-    def get(self, request):
-        form, error = JsonParser(
-            Argument('hours', type=int, default=24, required=False),
-        ).parse(request.GET)
-        if error:
-            return json_response(error=error)
-
-        hours = min(max(form.hours, 1), 168)  # 限制 1-168h（7天）
-        from libs.trend import get_trend
-
-        series = []
-        for name, label in self.METRIC_NAMES.items():
-            trend = get_trend(name, hours)
-            if not trend:
-                continue
-            series.append({
-                'name': name,
-                'label': label,
-                'points': [
-                    {'time': ts, 'value': val}
-                    for ts, val in trend
-                ],
-            })
-
-        return json_response({'series': series, 'hours': hours})
-
-
 def _metric_to_view(metric):
     data = {field: getattr(metric, field) for field in (
         'bucket_start', 'request_count', 'api_request_count', 'transfer_request_count',

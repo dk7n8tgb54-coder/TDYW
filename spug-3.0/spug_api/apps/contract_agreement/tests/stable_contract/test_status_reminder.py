@@ -125,20 +125,24 @@ class ReminderPopupTest(ContractTestCase):
         body = self.get_json(POPUP_URL)
         self.assertEqual(body['data']['records'], [])
 
-    def test_popup_includes_expired_and_expiring(self):
-        make_agreement(self.user, contract_name='已过期提醒',
-                       valid_end_date=self.today - timedelta(days=5),
-                       responsible_user_id=self.user.id)
-        make_agreement(self.user, contract_name='即将到期提醒',
-                       valid_end_date=self.today + timedelta(days=10),
-                       responsible_user_id=self.user.id)
+    def test_popup_excludes_expired(self):
+        """已关闭（已过期）合同不触发弹窗提醒，仅 60 天内即将到期的提醒。"""
+        expired = make_agreement(self.user, contract_name='已过期不提醒',
+                                 valid_end_date=self.today - timedelta(days=5),
+                                 responsible_user_id=self.user.id)
+        expiring = make_agreement(self.user, contract_name='即将到期提醒',
+                                  valid_end_date=self.today + timedelta(days=10),
+                                  responsible_user_id=self.user.id)
         body = self.get_json(POPUP_URL)
-        types = {r['remind_type'] for r in body['data']['records']}
-        self.assertEqual(types, {'expired', 'expiring_daily'})
+        records = body['data']['records']
+        ids = [r['agreement_id'] for r in records]
+        self.assertNotIn(expired.id, ids, '已关闭合同不应触发弹窗提醒')
+        self.assertIn(expiring.id, ids)
+        self.assertEqual({r['remind_type'] for r in records}, {'expiring_daily'})
 
     def test_popup_excludes_acked(self):
         ag = make_agreement(self.user, contract_name='待确认合同',
-                            valid_end_date=self.today - timedelta(days=2),
+                            valid_end_date=self.today + timedelta(days=15),
                             responsible_user_id=self.user.id)
         before = self.get_json(POPUP_URL)
         self.assertIn(ag.id, [r['agreement_id'] for r in before['data']['records']])
@@ -189,14 +193,14 @@ class ReminderPopupTest(ContractTestCase):
 
     def test_renewal_invalidates_old_ack(self):
         ag = make_agreement(self.user, contract_name='续期合同',
-                            valid_end_date=self.today - timedelta(days=2),
+                            valid_end_date=self.today + timedelta(days=15),
                             responsible_user_id=self.user.id)
         self.post_json({'agreement_id': ag.id}, url=ACK_URL)
         self.assertEqual(self.get_json(POPUP_URL)['data']['records'], [])
 
-        # 续期到 15 天后（仍在 60 天窗口内，三态应为 expiring）
+        # 续期到 30 天后（仍在 60 天窗口内，三态应为 expiring，截止日期变化使旧 ack 失效）
         ContractAgreement.objects.filter(pk=ag.pk).update(
-            valid_end_date=self.today + timedelta(days=15), status='expiring')
+            valid_end_date=self.today + timedelta(days=30), status='expiring')
         after_renew = self.get_json(POPUP_URL)
         ids = [r['agreement_id'] for r in after_renew['data']['records']]
         self.assertIn(ag.id, ids, '续期后旧确认记录应失效并重新提醒')
@@ -228,11 +232,11 @@ class BadgeTest(ContractTestCase):
         data = body['data']
         self.assertEqual(data['expiring_count'], 2)
         self.assertEqual(data['expired_count'], 1)
-        self.assertEqual(data['count'], 3)
+        self.assertEqual(data['count'], 2, '角标只统计即将到期，已过期不计入提醒')
 
     def test_badge_not_reduced_by_ack(self):
         ag = make_agreement(self.user, contract_name='角标-确认后',
-                            valid_end_date=self.today - timedelta(days=1),
+                            valid_end_date=self.today + timedelta(days=15),
                             responsible_user_id=self.user.id)
         before = self.get_json(BADGE_URL)['data']
         self.post_json({'agreement_id': ag.id}, url=ACK_URL)

@@ -25,7 +25,7 @@ HEALTH_PROBE_INTERVAL=60
 
 ## 日志与轮转
 
-Nginx 将结构化日志写入 `run_metrics.log`，探活 sidecar 负责按大小轮转：探活日志最多保留 30 个轮转文件，Nginx 运行日志最多保留 14 个轮转文件；大小上限分别为 50 MB 和 200 MB。轮转失败只记录为降级，不会阻塞探活请求。
+Nginx 将结构化日志写入 `run_metrics.log`，探活 sidecar 负责每天（或超过大小上限时）轮转并统一保留 7 天：探活日志大小上限 50 MB，Nginx 运行日志 200 MB。前端平台健康最长可查看 7 天趋势，运行指标数据库表（默认保留 30 天）由 `RUN_METRICS_RETENTION_DAYS` 单独控制。轮转失败只记录为降级，不会阻塞探活请求。
 
 ## 查看状态
 
