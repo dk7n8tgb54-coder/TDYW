@@ -4,8 +4,8 @@
 """通用附件服务 - 跨业务模块共用
 
 设计要点：
-- 文件落盘逻辑统一（文件名清洗、重名加序号、SHA256 计算）
-- 物理路径规范：/data/spug/spug_api/media/{module}/{tenant_id}/{yyyyMM}/{object_type}_{object_id}/{file_name}
+- 文件落盘逻辑统一（文件名清洗、唯一磁盘名生成、SHA256 计算）
+- 物理路径规范：/data/spug/spug_api/media/{module}/{tenant_id}/{yyyyMM}/{object_type}_{object_id}/{唯一磁盘名}
 - 业务对象存在性校验由调用方注入（evidence 不知道 upgrade 的 UpgradeRecord 是否存在）
 - 软删除保留物理文件和 DB 记录作为证据痕迹
 - 配置（允许扩展名、大小上限）由调用方传入，各模块可自定义
@@ -28,6 +28,8 @@ from django.db import transaction
 import re
 import base64
 import logging
+import time
+import uuid
 from dataclasses import dataclass
 from typing import Optional, Tuple
 from urllib.parse import quote
@@ -113,6 +115,28 @@ class AttachmentService:
             file_path = os.path.join(save_dir, disk_name)
             counter += 1
         return disk_name, file_path
+
+    @staticmethod
+    def _generate_unique_disk_name(safe_name: str) -> str:
+        """生成唯一磁盘文件名：{清洗后原始名}_{毫秒时间戳}_{6位随机串}{扩展名}
+
+        与资料库命名规范（apps/document/libs/naming_utils.py）同口径：
+        - 保留原始名前缀，便于备份与排障时人工识别
+        - 时间戳 + 随机串生成即唯一，无需存在性检查，消除并发同名上传互相覆盖的竞态
+        - 磁盘名唯一化同时避免 kkFileView 以文件名作缓存键时跨对象命中旧缓存
+        """
+        base, ext = os.path.splitext(safe_name)
+        suffix = f'_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}{ext}'
+        # Linux 单文件名上限 255 字节（UTF-8），超长时按字节截断原始名部分
+        max_base_bytes = 255 - len(suffix.encode('utf-8'))
+        if len(base.encode('utf-8')) > max_base_bytes:
+            base = base.encode('utf-8')[:max(1, max_base_bytes)].decode('utf-8', errors='ignore')
+        name = f'{base}{suffix}'
+        if len(name.encode('utf-8')) > 255:
+            # 极端情况（如超长扩展名）：放弃原始名前缀，用时间戳 + 随机串兜底
+            name = f'{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}{ext}'
+            name = name.encode('utf-8')[:255].decode('utf-8', errors='ignore')
+        return name
 
     @staticmethod
     def _compute_sha256(file_path: str) -> str:
@@ -209,21 +233,24 @@ class AttachmentService:
                   disk_name: Optional[str] = None) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
         """保存文件到磁盘，返回 (disk_name, file_path, relative_path, error)
 
-        物理路径：{MEDIA_ROOT}/{module}/{tenant_id}/{yyyyMM}/{object_type}_{object_id}/{file_name}
+        物理路径：{MEDIA_ROOT}/{module}/{tenant_id}/{yyyyMM}/{object_type}_{object_id}/{磁盘文件名}
 
         Args:
-            disk_name: 可选，指定磁盘文件名（如 UUID 文件名）。
-                       为空时使用 file.name 经清洗后的名字（向后兼容）。
+            disk_name: 可选，指定磁盘文件名（如 UUID 文件名），重名时自动加序号。
+                       为空时生成唯一磁盘名：
+                       {清洗后原始名}_{毫秒时间戳}_{6位随机串}{原始扩展名}。
         """
-        if disk_name:
-            safe_name = AttachmentService._sanitize_filename(disk_name)
-        else:
-            safe_name = AttachmentService._sanitize_filename(file.name)
         rel_dir = AttachmentService._build_relative_path(module, tenant_id, object_type, object_id)
         save_dir = os.path.join(settings.MEDIA_ROOT, rel_dir)
         os.makedirs(save_dir, exist_ok=True)
 
-        disk_name, file_path = AttachmentService._unique_disk_name(save_dir, safe_name)
+        if disk_name:
+            disk_name, file_path = AttachmentService._unique_disk_name(
+                save_dir, AttachmentService._sanitize_filename(disk_name))
+        else:
+            disk_name = AttachmentService._generate_unique_disk_name(
+                AttachmentService._sanitize_filename(file.name))
+            file_path = os.path.join(save_dir, disk_name)
         try:
             with open(file_path, 'wb+') as destination:
                 for chunk in file.chunks():
@@ -243,14 +270,14 @@ class AttachmentService:
         """上传附件并入库，返回 (attachment, error)
 
         业务对象存在性校验应由调用方在调用前完成。
-        物理路径：{MEDIA_ROOT}/{module}/{tenant_id}/{yyyyMM}/{object_type}_{object_id}/{file_name}
+        物理路径：{MEDIA_ROOT}/{module}/{tenant_id}/{yyyyMM}/{object_type}_{object_id}/{磁盘文件名}
 
         Args:
             owner_tenant_id: 可选，附件归属租户。
                 为空时使用上传人 (user) 的租户（向后兼容，旧调用方行为完全不变）。
                 由内部可信服务层传入（如超级管理员给其他租户账号配置签名时，
                 附件应归属目标账号租户）。HTTP 请求参数不得直接映射到本参数。
-            disk_name: 可选，指定磁盘文件名（如 UUID 文件名），为空时用 file.name。
+            disk_name: 可选，指定磁盘文件名（如 UUID 文件名），为空时自动生成唯一磁盘名。
 
         附件 uploaded_by_id/name 始终记录真实上传人 (user)，与 owner_tenant_id 解耦。
         """
@@ -385,8 +412,8 @@ class AttachmentService:
                 例："/api/upgrade/attachments/123/preview-file/"
             skip_tenant_filter: True 时跳过租户过滤（由调用方完成可见性校验），用于跨租户可见场景；
                 仍强制校验 module / object_type
-            token_tenant_id: 覆盖 preview_token 绑定的 tenant_id（默认取 user.tenant_id）。
-                跨租户场景需传附件真实 tenant_id，使 kkFileView 回调的令牌绑定校验通过。
+            token_tenant_id: 覆盖 preview_token 绑定的 tenant_id（默认即附件真实
+                tenant_id，与回调校验"令牌租户==附件租户"自洽；无特殊需求无需传值）。
 
         Returns:
             (data, error)
@@ -408,8 +435,12 @@ class AttachmentService:
         if att.file_ext not in PREVIEWABLE_EXTENSIONS:
             return None, '该文件类型不支持在线预览'
 
-        # 生成短时效 preview_token（跨租户场景用附件真实 tenant_id 绑定，回调校验才能通过）
-        token_tenant = token_tenant_id if token_tenant_id is not None else getattr(user, 'tenant_id', '')
+        # 生成短时效 preview_token。tenant 必须绑定附件真实租户：回调校验
+        # （preview_file_response）比对的是"令牌租户==附件租户"，而查看者的访问权限
+        # 已在上方 _get_owned_attachment 完整校验（含超管放行）。若绑定查看者租户，
+        # 超管/全局管理员跨租户预览必被回调拒绝，且错误响应体会被 kkFileView 转成
+        # 假预览缓存，污染该文件名的所有后续查看。
+        token_tenant = token_tenant_id if token_tenant_id is not None else att.tenant_id
         preview_token = generate_attachment_preview_token(
             attachment_id=att.id,
             user_id=getattr(user, 'id', 0),
@@ -420,7 +451,7 @@ class AttachmentService:
         )
 
         # 构造 kkFileView 回调下载 URL（fullfilename 拼在 URL 上，一起 base64 编码）
-        # fullfilename 用物理文件名（file_path basename，含 UUID）而非用户上传名，
+        # fullfilename 用物理文件名（file_path basename，唯一磁盘名）而非用户上传名，
         # 确保同名文件重传后 kkFileView 缓存键随之变化，避免命中旧缓存。
         physical_name = os.path.basename(att.file_path) if att.file_path else att.file_name
         file_url = (

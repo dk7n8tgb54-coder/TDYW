@@ -78,7 +78,10 @@ class AttachmentUploadValidationTest(ContractTestCase):
         att = EvidenceAttachment.objects.get(pk=body['data']['id'])
         self.assertNotIn('..', att.file_path)
         self.assertTrue(att.file_path.startswith('contract_agreement'))
-        self.assertEqual(os.path.basename(att.file_path), 'passwd.pdf')
+        # 磁盘名唯一化后格式为 passwd_{时间戳}_{随机串}.pdf，清洗与扩展名保留语义不变
+        disk_name = os.path.basename(att.file_path)
+        self.assertTrue(disk_name.startswith('passwd_'), disk_name)
+        self.assertTrue(disk_name.endswith('.pdf'), disk_name)
 
     def test_no_file_rejected(self):
         resp = self.client.post(f'{self.URL}{self.pk}/attachments/', {})
