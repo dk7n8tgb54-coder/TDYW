@@ -215,26 +215,24 @@ class ContractAgreementFeeTest(TestCase):
             signing_party='甲方',
             valid_start_date=date.today(),
             valid_end_date=date.today() + timedelta(days=365),
-            has_fee=False, fee_amount=0, status='normal',
+            has_fee=False, fee_amount='', status='normal',
             responsible_user_id=self.admin.id,
             responsible_user_name=self.admin.nickname,
             created_by=self.admin, tenant_id='admin')
-        self.assertEqual(c.fee_amount, 0)
+        self.assertEqual(c.fee_amount, '')
 
-    def test_negative_fee_blocked(self):
-        """负数金额被 DB 约束拒绝"""
-        from django.db import IntegrityError
-        with self.assertRaises((IntegrityError, ValueError)):
-            c = ContractAgreement(
-                contract_name='负金额合同', contract_type='service_guarantee',
-                signing_party='甲方',
-                valid_start_date=date.today(),
-                valid_end_date=date.today() + timedelta(days=365),
-                has_fee=True, fee_amount=-100, status='normal',
-                responsible_user_id=self.admin.id,
-                responsible_user_name=self.admin.nickname,
-                tenant_id='admin')
-            c.save()
+    def test_negative_fee_text_accepted(self):
+        """费用文本化后负数金额不再是 DB 约束，「-100元调整款」作为文本保存"""
+        c = ContractAgreement.objects.create(
+            contract_name='负金额文本合同', contract_type='service_guarantee',
+            signing_party='甲方',
+            valid_start_date=date.today(),
+            valid_end_date=date.today() + timedelta(days=365),
+            has_fee=True, fee_amount='-100元调整款', status='normal',
+            responsible_user_id=self.admin.id,
+            responsible_user_name=self.admin.nickname,
+            created_by=self.admin, tenant_id='admin')
+        self.assertEqual(c.fee_amount, '-100元调整款')
 
 
 class ContractAgreementTaskTest(TestCase):

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Database-level regression tests for core business invariants."""
 from datetime import date
-from decimal import Decimal
 
 from django.db import IntegrityError, transaction
 from django.test import TestCase
@@ -36,21 +35,37 @@ class DataIntegrityConstraintTest(TestCase):
         replacement = make_user('reusablename', is_supper=True)
         self.assertEqual(replacement.username, 'reusablename')
 
-    def test_contract_date_and_conditional_fee_are_enforced(self):
-        common = {
-            'tenant_id': 'tenant-a',
-            'contract_name': '测试合同',
-            'contract_type': ContractAgreement.TYPE_SERVICE_GUARANTEE,
-            'valid_start_date': date(2026, 7, 2),
-            'valid_end_date': date(2026, 7, 1),
-            'has_fee': True,
-            'fee_amount': Decimal('-1.00'),
-            'signing_party': '甲方',
-            'responsible_user_id': self.actor.id,
-            'responsible_user_name': self.actor.nickname,
-            'created_by': self.actor,
-        }
-        self.assert_integrity_error(lambda: ContractAgreement.objects.create(**common))
+    def test_contract_date_order_is_enforced(self):
+        """起始日期晚于截止日期被 DB 约束拒绝（费用文本化后费用字段不再参与该断言）"""
+        self.assert_integrity_error(lambda: ContractAgreement.objects.create(
+            tenant_id='tenant-a',
+            contract_name='测试合同',
+            contract_type=ContractAgreement.TYPE_SERVICE_GUARANTEE,
+            valid_start_date=date(2026, 7, 2),
+            valid_end_date=date(2026, 7, 1),
+            has_fee=True,
+            fee_amount='12000元/年',
+            signing_party='甲方',
+            responsible_user_id=self.actor.id,
+            responsible_user_name=self.actor.nickname,
+            created_by=self.actor,
+        ))
+
+    def test_contract_paid_empty_fee_content_is_rejected(self):
+        """has_fee=true 且费用内容为空串被 DB 约束 contract_fee_content_valid 拒绝"""
+        self.assert_integrity_error(lambda: ContractAgreement.objects.create(
+            tenant_id='tenant-a',
+            contract_name='空费用合同',
+            contract_type=ContractAgreement.TYPE_SERVICE_GUARANTEE,
+            valid_start_date=date(2026, 7, 1),
+            valid_end_date=date(2026, 7, 2),
+            has_fee=True,
+            fee_amount='',
+            signing_party='甲方',
+            responsible_user_id=self.actor.id,
+            responsible_user_name=self.actor.nickname,
+            created_by=self.actor,
+        ))
 
     def test_document_transfer_numeric_ranges_are_enforced(self):
         self.assert_integrity_error(lambda: DocumentTransfer.objects.create(

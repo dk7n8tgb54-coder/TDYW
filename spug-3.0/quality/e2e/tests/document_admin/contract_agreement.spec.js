@@ -213,7 +213,7 @@ test.describe('Contract Agreement - Document Admin', () => {
     const name = `${RUN_PREFIX}_费用详情`;
     await createViaApi({
       contract_name: name, has_fee: true,
-      fee_amount: '8888.66', fee_detail: 'E2E分两期支付',
+      fee_amount: '8888.66元/年', fee_detail: 'E2E分两期支付',
     });
     await uiLogin(page, request);
     await page.goto('/contract-agreement');
@@ -222,18 +222,18 @@ test.describe('Contract Agreement - Document Admin', () => {
     await row.getByRole('button', { name: '查看' }).click();
     const detail = page.locator('.ant-modal').filter({ hasText: '合同协议详情' });
     await expect(detail).toBeVisible();
-    await expect(detail).toContainText('人民币 8888.66');
+    await expect(detail).toContainText('8888.66元/年');
     await expect(detail).toContainText('E2E分两期支付');
 
     // 编辑表单费用开关联动（详情页脚部的“编 辑”为 antd 两字按钮，自动带空格）
     await detail.getByRole('button', { name: /编\s*辑/ }).click();
     const form = page.locator('.ant-modal').filter({ hasText: '编辑合同协议' });
     await expect(form).toBeVisible();
-    await expect(form.getByLabel('费用金额')).toBeVisible();
+    await expect(form.getByLabel('费用内容')).toBeVisible();
     await form.locator('.ant-radio-wrapper').filter({ hasText: '无' }).click();
-    await expect(form.getByLabel('费用金额')).toBeHidden();
+    await expect(form.getByLabel('费用内容')).toBeHidden();
     await form.locator('.ant-radio-wrapper').filter({ hasText: '有' }).click();
-    await expect(form.getByLabel('费用金额')).toBeVisible();
+    await expect(form.getByLabel('费用内容')).toBeVisible();
     await form.locator('.ant-modal-footer button:not(.ant-btn-primary)').first().click();
   });
 

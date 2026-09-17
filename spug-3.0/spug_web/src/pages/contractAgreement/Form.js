@@ -5,7 +5,7 @@
  */
 import React, { useState } from 'react';
 import { observer } from 'mobx-react';
-import { Modal, Form, Input, Select, DatePicker, InputNumber, Radio, Button, message, Descriptions, Tag, Divider } from 'antd';
+import { Modal, Form, Input, Select, DatePicker, Radio, Button, message, Descriptions, Tag, Divider } from 'antd';
 import { http, hasPermission } from 'libs';
 import moment from 'moment';
 import S from './store';
@@ -61,7 +61,8 @@ export default observer(function () {
         formData.valid_start_date = formData.valid_start_date.format('YYYY-MM-DD');
       }
       if (!formData.has_fee) {
-        formData.fee_amount = null;
+        // 无费用：费用内容与明细统一提交空串，由服务端强制兜底
+        formData.fee_amount = '';
         formData.fee_detail = '';
       }
       if (S.record.id) {
@@ -121,7 +122,7 @@ export default observer(function () {
           </Descriptions.Item>
           <Descriptions.Item label="剩余天数">{renderDaysLeft(info)}</Descriptions.Item>
           <Descriptions.Item label="责任人">{info.responsible_user_name || '-'}</Descriptions.Item>
-          <Descriptions.Item label="费用">{info.has_fee ? `人民币 ${info.fee_amount || '0.00'}` : '无'}</Descriptions.Item>
+          <Descriptions.Item label="费用">{info.has_fee ? (info.fee_amount || '-') : '无'}</Descriptions.Item>
           <Descriptions.Item label="状态"><Tag color={statusTag.color}>{statusTag.text}</Tag></Descriptions.Item>
           <Descriptions.Item label="签约方" span={2}>{info.signing_party || '-'}</Descriptions.Item>
           <Descriptions.Item label="费用详细数据" span={2}>
@@ -254,8 +255,14 @@ export default observer(function () {
         <Form.Item noStyle shouldUpdate={(prev, cur) => prev.has_fee !== cur.has_fee}>
           {({getFieldValue}) => getFieldValue('has_fee') ? (
             <>
-              <Form.Item name="fee_amount" label="费用金额" rules={[{required: true, message: '请输入费用金额'}]}>
-                <InputNumber min={0} precision={2} style={{width: '100%'}} addonBefore="人民币"/>
+              <Form.Item
+                name="fee_amount"
+                label="费用内容"
+                rules={[
+                  {required: true, message: '请输入费用内容', whitespace: true},
+                  {max: 200, message: '费用内容不能超过 200 字'},
+                ]}>
+                <Input maxLength={200} placeholder="请输入费用，如：12000元/年、按实际结算"/>
               </Form.Item>
               <Form.Item name="fee_detail" label="费用详细数据">
                 <Input.TextArea rows={4} placeholder="可填写付款方式、付款节点、服务费说明等"/>

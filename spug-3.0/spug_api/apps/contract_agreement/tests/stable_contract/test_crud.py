@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """新增 / 详情 / 编辑 / 删除 稳定契约测试。"""
 from datetime import date, timedelta
-from decimal import Decimal
 
 from unittest import mock
 
@@ -169,47 +168,59 @@ class CreateValidationTest(ContractTestCase):
     def test_fee_disabled_clears_amount_and_detail(self):
         body = self.post_json(build_payload(
             self.user, contract_name='无费用合同', has_fee=False,
-            fee_amount=9999, fee_detail='应被清空的明细'))
+            fee_amount='9999', fee_detail='应被清空的明细'))
         self.assertNoError(body)
         obj = ContractAgreement.objects.get(pk=body['data']['id'])
         self.assertFalse(obj.has_fee)
-        self.assertIsNone(obj.fee_amount)
+        self.assertEqual(obj.fee_amount, '')
         self.assertEqual(obj.fee_detail, '')
 
     def test_fee_enabled_amount_required(self):
         body = self.post_json(build_payload(
             self.user, contract_name='有费用缺金额', has_fee=True))
         self.assertBusinessError(body)
-        self.assertIn('费用金额', body.get('error', ''))
+        self.assertIn('费用内容', body.get('error', ''))
 
     def test_fee_enabled_zero_amount_accepted(self):
         body = self.post_json(build_payload(
             self.user, contract_name='零元合同', has_fee=True, fee_amount=0))
         self.assertNoError(body)
         obj = ContractAgreement.objects.get(pk=body['data']['id'])
-        self.assertEqual(Decimal(str(obj.fee_amount)), Decimal('0'))
-        self.assertEqual(Decimal(body['data']['fee_amount']), Decimal('0'))
+        self.assertEqual(obj.fee_amount, '0')
+        self.assertEqual(body['data']['fee_amount'], '0')
 
-    def test_fee_enabled_negative_amount_rejected(self):
+    def test_fee_negative_text_accepted(self):
+        """负数金额限制已随费用文本化退役：「-100元调整款」作为合法文本保存。"""
         body = self.post_json(build_payload(
-            self.user, contract_name='负数金额', has_fee=True, fee_amount=-100))
-        self.assertBusinessError(body)
-        self.assertIn('费用金额不能小于 0', body.get('error', ''))
-
-    def test_fee_enabled_invalid_amount_rejected(self):
-        body = self.post_json(build_payload(
-            self.user, contract_name='非法金额', has_fee=True, fee_amount='abc'))
-        self.assertBusinessError(body)
-        self.assertIn('费用金额格式不正确', body.get('error', ''))
-
-    def test_currency_always_rmb(self):
-        body = self.post_json(build_payload(
-            self.user, contract_name='币种固定', has_fee=True,
-            fee_amount=12345.67, fee_detail='季度付款'))
+            self.user, contract_name='负数文本费用', has_fee=True,
+            fee_amount='-100元调整款'))
         self.assertNoError(body)
         obj = ContractAgreement.objects.get(pk=body['data']['id'])
-        self.assertEqual(obj.fee_currency, '人民币')
-        self.assertEqual(body['data']['fee_currency'], '人民币')
+        self.assertEqual(obj.fee_amount, '-100元调整款')
+
+    def test_fee_free_text_accepted(self):
+        """非数字文本（旧「非法金额」场景）现为合法费用内容。"""
+        body = self.post_json(build_payload(
+            self.user, contract_name='文本费用', has_fee=True, fee_amount='abc'))
+        self.assertNoError(body)
+        obj = ContractAgreement.objects.get(pk=body['data']['id'])
+        self.assertEqual(obj.fee_amount, 'abc')
+
+    def test_fee_complex_type_rejected(self):
+        body = self.post_json(build_payload(
+            self.user, contract_name='复杂类型费用', has_fee=True,
+            fee_amount=['12000', '元/年']))
+        self.assertBusinessError(body)
+        self.assertIn('费用内容格式不正确', body.get('error', ''))
+
+    def test_fee_currency_retired(self):
+        """固定币种「人民币」已退役：响应不再携带 fee_currency。"""
+        body = self.post_json(build_payload(
+            self.user, contract_name='币种退役', has_fee=True,
+            fee_amount='12345.67元/年', fee_detail='季度付款'))
+        self.assertNoError(body)
+        self.assertNotIn('fee_currency', body['data'])
+        self.assertNotIn('fee_currency', {f.name for f in ContractAgreement._meta.get_fields()})
 
     # ---------------- 幂等 ----------------
     def test_duplicate_submit_within_30s_rejected(self):
@@ -273,15 +284,15 @@ class DetailAndEditTest(ContractTestCase):
 
     def test_edit_full_payload_preserves_fee(self):
         created = self.create_via_api(contract_name='费用合同', has_fee=True,
-                                      fee_amount=8888, fee_detail='三期付款')
+                                      fee_amount='8888', fee_detail='三期付款')
         pk = created['data']['id']
         body = self.post_json(build_payload(
             self.user, id=pk, contract_name='费用合同-改', has_fee=True,
-            fee_amount=8888, fee_detail='三期付款'))
+            fee_amount='8888', fee_detail='三期付款'))
         self.assertNoError(body)
         obj = ContractAgreement.objects.get(pk=pk)
         self.assertTrue(obj.has_fee)
-        self.assertEqual(Decimal(str(obj.fee_amount)), Decimal('8888'))
+        self.assertEqual(obj.fee_amount, '8888')
         self.assertEqual(obj.fee_detail, '三期付款')
 
     def test_partial_edit_must_not_reset_fee_fields(self):
@@ -290,7 +301,7 @@ class DetailAndEditTest(ContractTestCase):
         产品规则：局部更新只更新传入字段，未传字段保持原值。
         """
         created = self.create_via_api(contract_name='局部编辑合同', has_fee=True,
-                                      fee_amount=6666, fee_detail='原明细',
+                                      fee_amount='6666', fee_detail='原明细',
                                       remark='原备注')
         pk = created['data']['id']
         body = self.post_json({'id': pk, 'remark': '只改备注'})
@@ -298,7 +309,7 @@ class DetailAndEditTest(ContractTestCase):
         obj = ContractAgreement.objects.get(pk=pk)
         self.assertEqual(obj.remark, '只改备注')
         self.assertTrue(obj.has_fee, '局部编辑不应关闭费用开关')
-        self.assertEqual(Decimal(str(obj.fee_amount)), Decimal('6666'),
+        self.assertEqual(obj.fee_amount, '6666',
                          '局部编辑不应清空费用金额')
         self.assertEqual(obj.fee_detail, '原明细', '局部编辑不应清空费用明细')
 

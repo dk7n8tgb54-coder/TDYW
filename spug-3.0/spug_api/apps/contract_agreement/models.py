@@ -51,8 +51,7 @@ class ContractAgreement(models.Model, TenantModelMixin):
     )
     valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
     has_fee = models.BooleanField(default=False, help_text='是否有费用')
-    fee_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, help_text='费用金额')
-    fee_currency = models.CharField(max_length=10, default='人民币', help_text='币种')
+    fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
     signing_party = models.CharField(max_length=500, help_text='签约方')
     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
@@ -125,12 +124,11 @@ class ContractAgreement(models.Model, TenantModelMixin):
                 ),
                 name='contract_validity_consistent',
             ),
+            # 费用文本化约束：无费用，或费用内容非空串（应用层负责 strip，
+            # 数据库层兜底拦截 has_fee=true 且 fee_amount='' 的记录）
             models.CheckConstraint(
-                check=(
-                    models.Q(has_fee=False) |
-                    models.Q(fee_amount__isnull=False, fee_amount__gte=0)
-                ),
-                name='contract_fee_valid',
+                check=models.Q(has_fee=False) | ~models.Q(fee_amount=''),
+                name='contract_fee_content_valid',
             ),
         ]
 

@@ -65,7 +65,7 @@ const LONG_TERM_ROW = {
   valid_end_date: null,
   validity_type: 'long_term',
   has_fee: false,
-  fee_amount: null,
+  fee_amount: '',
   responsible_user_name: '用户甲',
   signing_party: '某服务中心',
   attachment_count: 0,
@@ -86,6 +86,14 @@ const FIXED_ROW = {
   days_left: 30,
 };
 
+const PAID_ROW = {
+  ...FIXED_ROW,
+  id: 3,
+  contract_name: '文本费用合同',
+  has_fee: true,
+  fee_amount: '12000元/年',
+};
+
 function findRow(name) {
   return Array.from(container.querySelectorAll('.ant-table-tbody tr'))
     .find(tr => tr.textContent.includes(name));
@@ -98,9 +106,9 @@ beforeEach(() => {
   document.body.appendChild(container);
   jest.clearAllMocks();
   http.get.mockReturnValue(new Promise(() => {}));
-  store.records = [LONG_TERM_ROW, FIXED_ROW];
+  store.records = [LONG_TERM_ROW, FIXED_ROW, PAID_ROW];
   store.isFetching = false;
-  store.total = 2;
+  store.total = 3;
 });
 
 afterEach(() => {
@@ -143,5 +151,27 @@ describe('合同协议列表长期有效渲染', () => {
     expect(greenTag).toBeTruthy();
     expect(greenTag.textContent).toBe('正常');
     expect(row.querySelector('.ant-tag-blue')).toBeNull();
+  });
+});
+
+describe('合同协议列表费用列文本化渲染', () => {
+  it('有费用行直接显示费用文本，不拼接人民币', () => {
+    act(() => {
+      ReactDOM.render(<ComTable />, container);
+    });
+    const row = findRow('文本费用合同');
+    expect(row).toBeTruthy();
+    expect(row.textContent).toContain('12000元/年');
+    expect(row.textContent).not.toContain('人民币');
+  });
+
+  it('无费用行显示「无」，页面不出现固定人民币字样', () => {
+    act(() => {
+      ReactDOM.render(<ComTable />, container);
+    });
+    const row = findRow('固定采购合同');
+    expect(row).toBeTruthy();
+    expect(row.textContent).toContain('无');
+    expect(container.textContent).not.toContain('人民币');
   });
 });

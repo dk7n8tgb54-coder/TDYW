@@ -188,9 +188,10 @@ class ContractFieldTypeTest(TestCase):
         resp = self._create(has_fee=True, fee_amount=0)
         self.assertFalse(has_error(resp))
 
-    def test_negative_fee_rejected(self):
-        resp = self._create(has_fee=True, fee_amount=-100)
-        self.assertTrue(has_error(resp))
+    def test_negative_fee_text_accepted(self):
+        """费用文本化后负数限制退役：「-100元调整款」作为合法文本保存。"""
+        resp = self._create(has_fee=True, fee_amount='-100元调整款')
+        self.assertFalse(has_error(resp))
 
 
 class ContractPermissionTest(TestCase):

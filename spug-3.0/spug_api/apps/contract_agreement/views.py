@@ -52,10 +52,39 @@ def _fmt_date(value):
     return value.strftime('%Y-%m-%d') if hasattr(value, 'strftime') else str(value)
 
 
-def _fmt_decimal(value):
+# 费用内容长度上限（与模型 CharField max_length 对齐）
+FEE_AMOUNT_MAX_LENGTH = 200
+
+
+def _normalize_fee_text(value):
+    """费用内容归一化：兼容 JSON 数字与字符串输入，统一为 strip 后的字符串。
+
+    - 数字（int/float，不含 bool）转为普通十进制字符串，不使用科学计数法；
+    - 字符串执行 strip()；
+    - None（未传/null）返回 ''；
+    - bool、列表、字典等类型返回 None，由调用方按非法输入拒绝。
+    """
     if value is None:
+        return ''
+    if isinstance(value, bool):
         return None
-    return str(value)
+    if isinstance(value, (int, float, Decimal)):
+        try:
+            return format(Decimal(str(value)), 'f')
+        except (InvalidOperation, ValueError):
+            return None
+    if isinstance(value, str):
+        return value.strip()
+    return None
+
+
+def _validate_fee_text(normalized):
+    """校验归一化后的费用内容，返回 (fee_amount, error)。"""
+    if normalized is None:
+        return None, '费用内容格式不正确'
+    if len(normalized) > FEE_AMOUNT_MAX_LENGTH:
+        return None, f'费用内容长度不能超过 {FEE_AMOUNT_MAX_LENGTH} 字'
+    return normalized, None
 
 
 def _validate_and_fill_responsible_user(form, request_user):
@@ -144,8 +173,7 @@ def _serialize_agreement(agreement, user=None, include_attachment_count=True):
         'validity_type_display': agreement.validity_type_display,
         'valid_start_date': _fmt_date(agreement.valid_start_date),
         'valid_end_date': _fmt_date(agreement.valid_end_date),
-        'fee_amount': _fmt_decimal(agreement.fee_amount),
-        'fee_currency': agreement.fee_currency or '人民币',
+        'fee_amount': agreement.fee_amount or '',
         'status': status,
         'status_display': STATUS_DISPLAY_MAP.get(status, status),
         'computed_status': status,
@@ -186,18 +214,18 @@ def _validate_form(form, request_user):
         return None, '未知的合同类型'
 
     has_fee = bool(form.has_fee)
-    fee_amount = None
+    fee_amount = ''
     fee_detail = form.fee_detail or ''
     if has_fee:
-        if form.fee_amount in (None, ''):
-            return None, '有费用时请填写费用金额'
-        try:
-            fee_amount = Decimal(str(form.fee_amount))
-        except (InvalidOperation, ValueError):
-            return None, '费用金额格式不正确'
-        if fee_amount < 0:
-            return None, '费用金额不能小于 0'
+        # 费用内容兼容数字与自由文本：只归一化（数字转字符串 + strip）与
+        # 长度校验，不做 Decimal 转换、正负数、精度或币种校验
+        fee_amount, fee_error = _validate_fee_text(_normalize_fee_text(form.fee_amount))
+        if fee_error:
+            return None, fee_error
+        if not fee_amount:
+            return None, '有费用时请填写费用内容'
     else:
+        # 无费用：服务端强制清空费用内容与明细，不信任客户端残留值
         fee_detail = ''
 
     # 责任人校验（存在性/租户一致性 + 回填姓名），status 由扫描任务实时计算，此处不设置
@@ -214,7 +242,6 @@ def _validate_form(form, request_user):
         'valid_end_date': valid_end_date,
         'has_fee': has_fee,
         'fee_amount': fee_amount,
-        'fee_currency': '人民币',
         'fee_detail': fee_detail,
         'signing_party': form.signing_party.strip(),
         'responsible_user_id': form.responsible_user_id,
@@ -307,7 +334,7 @@ class ContractAgreementView(View):
             Argument('valid_start_date', required=False),
             Argument('valid_end_date', required=False),
             Argument('has_fee', type=bool, required=False),
-            Argument('fee_amount', required=False),
+            Argument('fee_amount', required=False, type=None),
             Argument('fee_detail', required=False),
             Argument('signing_party', required=False),
             Argument('responsible_user_id', type=int, required=False),
@@ -328,48 +355,61 @@ class ContractAgreementView(View):
         - fixed → long_term：截止日期必须为空（提交具体日期属于矛盾数据，拒绝）；
         - long_term → fixed：必须同时提供合法截止日期；
         - fixed 维持不变时可继续修改截止日期，校验日期顺序。
+
+        费用编辑语义（按编辑后的完整状态校验）：
+        - 最终状态为无费用：服务端强制清空费用内容与明细（不信任客户端残留值）；
+        - 最终状态为有费用：未传 fee_amount 保持原值，传了则归一化并校验非空、
+          长度 ≤ 200（不做 Decimal/正负数/币种校验）；
+        - Returns: (error, fee_updates)；fee_updates 为需写入的费用字段。
         """
         length_error = _validate_field_lengths(form)
         if length_error:
-            return length_error
+            return length_error, {}
         validity_type = form.validity_type or agreement.validity_type
         if validity_type not in dict(ContractAgreement.VALIDITY_TYPE_CHOICES):
-            return '未知的期限类型'
+            return '未知的期限类型', {}
         validity_changed = validity_type != agreement.validity_type
         valid_start_date = agreement.valid_start_date
         if form.valid_start_date:
             valid_start_date, err = _parse_date(form.valid_start_date, '起始日期')
             if err:
-                return err
+                return err, {}
         if validity_type == ContractAgreement.VALIDITY_LONG_TERM:
             if form.valid_end_date:
-                return '长期有效合同不能填写截止日期'
+                return '长期有效合同不能填写截止日期', {}
             valid_end_date = None
         else:
             if form.valid_end_date:
                 valid_end_date, err = _parse_date(form.valid_end_date, '截止日期')
                 if err:
-                    return err
+                    return err, {}
             elif validity_changed:
-                return '转换为固定期限合同时必须提供截止日期'
+                return '转换为固定期限合同时必须提供截止日期', {}
             else:
                 valid_end_date = agreement.valid_end_date
             if valid_start_date > valid_end_date:
-                return '起始日期不能晚于截止日期'
+                return '起始日期不能晚于截止日期', {}
         if form.contract_type is not None and form.contract_type not in dict(ContractAgreement.CONTRACT_TYPE_CHOICES):
-            return '未知的合同类型'
+            return '未知的合同类型', {}
 
         has_fee = agreement.has_fee if form.has_fee is None else bool(form.has_fee)
-        fee_amount = agreement.fee_amount if form.fee_amount is None else form.fee_amount
-        if has_fee:
-            if fee_amount in (None, ''):
-                return '有费用时请填写费用金额'
-            try:
-                if Decimal(str(fee_amount)) < 0:
-                    return '费用金额不能小于 0'
-            except (InvalidOperation, ValueError):
-                return '费用金额格式不正确'
-        return None
+        fee_updates = {}
+        if not has_fee:
+            # 无费用：强制清空，不信任客户端提交的残留费用内容
+            fee_updates['fee_amount'] = ''
+            fee_updates['fee_detail'] = ''
+        else:
+            if form.fee_amount is None:
+                fee_amount = (agreement.fee_amount or '').strip()
+            else:
+                fee_amount, fee_error = _validate_fee_text(
+                    _normalize_fee_text(form.fee_amount))
+                if fee_error:
+                    return fee_error, {}
+            if not fee_amount:
+                return '有费用时请填写费用内容', {}
+            fee_updates['fee_amount'] = fee_amount
+        return None, fee_updates
 
     def _post_edit(self, request, form):
         """编辑合同协议：权限 → 存在性 → 字段校验 → 落库 → 扫描 → 审计"""
@@ -379,7 +419,7 @@ class ContractAgreementView(View):
         agreement = qs.filter(pk=form.id).first()
         if not agreement:
             return json_response(error='合同协议不存在或无权限编辑')
-        err = self._validate_edit_form(agreement, form)
+        err, fee_updates = self._validate_edit_form(agreement, form)
         if err:
             return json_response(error=err)
         # 编辑传入了责任人时同样校验（存在性/租户一致性 + 服务端回填姓名）
@@ -388,11 +428,15 @@ class ContractAgreementView(View):
             if responsible_user_err:
                 return json_response(error=responsible_user_err)
         # 只更新传入的非 None 字段；responsible_user_name 一律不信客户端
-        # （DEF-02 修复），仅当责任人 ID 校验通过后写入服务端回填值
+        # （DEF-02 修复），仅当责任人 ID 校验通过后写入服务端回填值；
+        # fee_amount 不取原始提交值（可能为 JSON 数字/含空白文本），
+        # 统一由 fee_updates 写入归一化结果或无费用强制清空值
         old_validity_type = agreement.validity_type
         old_valid_end_date = agreement.valid_end_date
         update_data = {k: v for k, v in form.items()
-                       if v is not None and k not in ('id', 'responsible_user_name')}
+                       if v is not None
+                       and k not in ('id', 'responsible_user_name', 'fee_amount')}
+        update_data.update(fee_updates)
         if form.validity_type and form.validity_type != old_validity_type \
                 and form.validity_type == ContractAgreement.VALIDITY_LONG_TERM:
             # fixed → long_term：截止日期显式清空（form 中为 None 的键不会进入 update_data）
@@ -674,7 +718,7 @@ class ReminderPopupView(View):
                 'remind_type': 'expiring_daily',
                 'signing_party': agreement.signing_party,
                 'has_fee': agreement.has_fee,
-                'fee_amount': _fmt_decimal(agreement.fee_amount),
+                'fee_amount': agreement.fee_amount or '',
                 'responsible_user_name': agreement.responsible_user_name,
             })
         return json_response({'records': records})

@@ -4,9 +4,11 @@
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例，无 @testing-library），mock libs.http 与
  * components.AttachmentManager，验证：
  * - 编辑提交：载荷携带 id，日期格式化 YYYY-MM-DD
- * - has_fee 为否时费用金额置 null、费用明细清空（隐藏字段的显式清空语义）
- * - 详情态：标题、剩余天数（负数 → 已关闭）、费用渲染
+ * - has_fee 为否时费用内容与明细提交空串（服务端强制清空语义）
+ * - 费用内容为普通文本输入框：可输入中文/带单位费用并原样提交
+ * - 详情态：标题、剩余天数（负数 → 已关闭）、费用原样显示（无人民币拼接）
  * - 详情态点击"编辑"切换回编辑态
+ * - 后端业务错误：弹窗保持打开、不重复提示
  *
  * 环境说明：项目无 @testing-library，沿用本仓库惯例使用
  * ReactDOM + react-dom/test-utils + jsdom 真实渲染组件。
@@ -57,7 +59,7 @@ const EDIT_RECORD = {
   responsible_user_name: '用户甲',
   signing_party: '某科技公司',
   has_fee: false,
-  fee_amount: 100,
+  fee_amount: '',
   fee_detail: '旧费用明细',
   remark: '备注信息',
 };
@@ -84,6 +86,14 @@ async function clickOk() {
   expect(okBtn).toBeTruthy();
   await click(okBtn);
   await act(async () => {});
+}
+
+function setInputValue(input, value) {
+  // React 17 受控输入：需借用原生 value setter 触发 onChange
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype, 'value').set;
+  setter.call(input, value);
+  input.dispatchEvent(new Event('input', {bubbles: true}));
 }
 
 beforeEach(() => {
@@ -121,21 +131,65 @@ describe('合同协议编辑提交', () => {
     expect(payload.responsible_user_id).toBe(11);
   });
 
-  it('has_fee 为否时费用金额置 null、费用明细清空', async () => {
-    renderForm({...EDIT_RECORD, has_fee: false, fee_amount: 100, fee_detail: '旧费用明细'});
+  it('has_fee 为否时费用内容与明细提交空串', async () => {
+    renderForm({...EDIT_RECORD, has_fee: false, fee_amount: '残留费用', fee_detail: '旧费用明细'});
     await clickOk();
     const [, payload] = http.post.mock.calls[0];
     expect(payload.has_fee).toBe(false);
-    expect(payload.fee_amount).toBeNull();
+    expect(payload.fee_amount).toBe('');
     expect(payload.fee_detail).toBe('');
   });
 
-  it('has_fee 为真时费用字段保留', async () => {
-    renderForm({...EDIT_RECORD, has_fee: true, fee_amount: 100, fee_detail: '明细'});
-    // has_fee 为真时费用字段才注册渲染，fee_amount 需回填后再提交
+  it('has_fee 为真时费用文本原样保留在载荷中', async () => {
+    renderForm({...EDIT_RECORD, has_fee: true, fee_amount: '8888.66元/年', fee_detail: '明细'});
     await clickOk();
     const [, payload] = http.post.mock.calls[0];
     expect(payload.has_fee).toBe(true);
+    expect(payload.fee_amount).toBe('8888.66元/年');
+  });
+
+  it('费用内容为普通文本输入框（非 InputNumber，无人民币前缀）', () => {
+    renderForm({...EDIT_RECORD, has_fee: true, fee_amount: '12000元/年'});
+    const input = document.getElementById('fee_amount');
+    expect(input).toBeTruthy();
+    expect(input.tagName).toBe('INPUT');
+    // antd InputNumber 的类名为 ant-input-number，普通 Input 为 ant-input
+    expect(input.className).toContain('ant-input');
+    expect(input.className).not.toContain('ant-input-number');
+    expect(input.maxLength).toBe(200);
+    expect(document.body.textContent).not.toContain('人民币');
+  });
+
+  it('可以输入中文和带单位的费用并保留在提交载荷中', async () => {
+    renderForm({...EDIT_RECORD, has_fee: true, fee_amount: ''});
+    const input = document.getElementById('fee_amount');
+    setInputValue(input, '按实际使用量结算');
+    await clickOk();
+    const [, payload] = http.post.mock.calls[0];
+    expect(payload.fee_amount).toBe('按实际使用量结算');
+  });
+
+  it('有费用但未填写内容时拦截提交', async () => {
+    renderForm({...EDIT_RECORD, has_fee: true, fee_amount: ''});
+    await clickOk();
+    expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it('费用内容全为空格时拦截提交', async () => {
+    renderForm({...EDIT_RECORD, has_fee: true, fee_amount: ''});
+    setInputValue(document.getElementById('fee_amount'), '   ');
+    await clickOk();
+    expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it('后端业务错误时表单保持打开且不重复提示', async () => {
+    http.post.mockImplementation(() => Promise.reject(new Error('费用内容格式不正确')));
+    renderForm({...EDIT_RECORD, has_fee: true, fee_amount: '8888元/年'});
+    await clickOk();
+    expect(S.formVisible).toBe(true);
+    expect(S.detailVisible).toBe(false);
+    // 成功提示不出现（错误由 http 拦截器统一提示，业务代码不重复弹窗）
+    expect(document.body.textContent).not.toContain('操作成功');
   });
 });
 
@@ -152,6 +206,16 @@ describe('合同协议详情态', () => {
     expect(body).toContain('已关闭');
     // has_fee false → 无
     expect(body).toContain('无');
+  });
+
+  it('详情费用原样显示文本、不拼接人民币', () => {
+    renderForm({
+      id: 9, contract_name: '费用详情合同', has_fee: true,
+      fee_amount: '约30万元', fee_detail: '分两期', remark: '',
+    }, true);
+    const body = document.querySelector('.ant-modal-body').textContent;
+    expect(body).toContain('约30万元');
+    expect(body).not.toContain('人民币');
   });
 
   it('详情态点击"编辑"切换回编辑态', async () => {

@@ -63,7 +63,7 @@ class ComTable extends React.Component {
 
   renderFee = (text, record) => {
     if (!record.has_fee) return '无';
-    return record.fee_amount ? `人民币 ${record.fee_amount}` : '有';
+    return record.fee_amount || '-';
   };
 
   renderAttachmentCount = (text, record) => {
@@ -111,7 +111,7 @@ class ComTable extends React.Component {
         <Table.Column title="起始日期" dataIndex="valid_start_date" width={110}/>
         <Table.Column title="截止日期" dataIndex="valid_end_date" width={110} render={this.renderValidEndDate}/>
         <Table.Column title="剩余天数" width={120} render={this.renderDaysLeft}/>
-        <Table.Column title="费用" width={130} render={this.renderFee}/>
+        <Table.Column title="费用" width={130} ellipsis render={this.renderFee}/>
         <Table.Column title="责任人" dataIndex="responsible_user_name" width={100} ellipsis/>
         <Table.Column title="签约方" dataIndex="signing_party" width={160} ellipsis/>
         <Table.Column title="附件" width={70} render={this.renderAttachmentCount}/>
