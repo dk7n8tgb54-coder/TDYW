@@ -18,6 +18,7 @@ import Header from './Header';
 import Footer from './Footer'
 import routes from '../routes';
 import radioLicenseBadge from './RadioLicenseBadgeStore';
+import approvalBadge from './ApprovalBadgeStore';
 import coopTaskBadge from './CoopTaskBadgeStore';
 import contractAgreementBadge from './ContractAgreementBadgeStore';
 import alertStore from './AlertStore';
@@ -63,8 +64,10 @@ export default function () {
     const Routes = [];
     initRoutes(Routes, routes);
     setRoutes(Routes)
-    // 启动菜单红点轮询（批复已取消主动提醒，无红点）
+    // 启动菜单红点 Store（事件驱动：登录立即获取 + 跨自然日恢复可见时获取，
+    // 无固定轮询；批复红点为全局到期统计，2026-09 第二轮恢复）
     radioLicenseBadge.start();
+    approvalBadge.start();
     coopTaskBadge.start();
     contractAgreementBadge.start();
     alertStore.start();
@@ -72,6 +75,7 @@ export default function () {
     releaseNoteStore.fetchVersion();
     return () => {
       radioLicenseBadge.stop();
+      approvalBadge.stop();
       coopTaskBadge.stop();
       contractAgreementBadge.stop();
       alertStore.stop();

@@ -10,6 +10,7 @@ import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
 import moment from 'moment';
 import S from './store';
+import radioLicenseBadge from '../../layout/RadioLicenseBadgeStore';
 import { AttachmentManager } from 'components';
 
 const STATUS_TAG_MAP = {
@@ -90,6 +91,8 @@ export default observer(function () {
           message.success('操作成功');
           S.formVisible = false;
           S.fetchRecords();
+          // 后端真实成功后立即刷新菜单红点（fetch 静默失败，不影响本流程）
+          radioLicenseBadge.fetch();
         })
         .catch(e => {
           console.error('[电台执照] 提交表单失败:', e);

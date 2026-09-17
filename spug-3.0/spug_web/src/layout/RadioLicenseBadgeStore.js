@@ -1,53 +1,19 @@
 /**
  * 全局"无线电台执照"菜单红点 Store
  *
- * - 5 分钟轮询 /api/radio-license/badge/ 拉取即将到期+已过期数量
- * - 仅在有 radio_license.license.view 权限时拉取
- * - 暴露 observe() / get() 供 Sider 等组件读取
+ * - 数据来源 GET /api/radio-license/badge/（当前用户负责且未 ack 的到期统计）
+ * - 刷新生命周期由 ExpiryBadgeStore 统一提供（事件驱动，无固定轮询）：
+ *   登录立即获取；增删改成功后由页面调用 fetch()；跨自然日恢复焦点/
+ *   可见时获取；同一自然日反复切换窗口不重复请求
+ * - 弹窗提醒"已处理"（ack）成功后仍会调用 fetch()（既有行为保留）
  * - 拉取失败容错（静默忽略），不影响菜单正常渲染
  */
-import { observable, runInAction } from 'mobx';
-import { http, hasPermission } from 'libs';
+import { ExpiryBadgeStore } from './expiryBadgeStoreBase';
 
-const POLL_INTERVAL = 5 * 60 * 1000; // 5 分钟
-
-class RadioLicenseBadgeStore {
-  @observable count = 0;        // 红点总数（即将到期 + 已过期）
-  @observable expiringCount = 0; // 即将到期
-  @observable expiredCount = 0;   // 已过期
-  @observable loaded = false;     // 是否已成功拉取过（首次拉取前不渲染红点，避免闪烁）
-
-  start = () => {
-    if (!hasPermission('radio_license.license.view')) return;
-    // 立即拉取一次
-    this.fetch();
-    // 5 分钟轮询
-    this._timer = setInterval(this.fetch, POLL_INTERVAL);
-  };
-
-  stop = () => {
-    if (this._timer) {
-      clearInterval(this._timer);
-      this._timer = null;
-    }
-  };
-
-  fetch = () => {
-    if (!hasPermission('radio_license.license.view')) return;
-    http.get('/api/radio-license/badge/')
-      .then(res => {
-        const data = res && (res.data || res);
-        runInAction(() => {
-          this.count = data?.count ?? 0;
-          this.expiringCount = data?.expiring_count ?? 0;
-          this.expiredCount = data?.expired_count ?? 0;
-          this.loaded = true;
-        });
-      })
-      .catch(() => {
-        // 静默失败：保留旧值，不影响菜单渲染
-      });
-  };
+class RadioLicenseBadgeStore extends ExpiryBadgeStore {
+  constructor() {
+    super('radio_license.license.view', '/api/radio-license/badge/');
+  }
 }
 
 export default new RadioLicenseBadgeStore();

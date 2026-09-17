@@ -1,12 +1,14 @@
 /**
- * 合同协议菜单红点 Store 测试
+ * 合同协议菜单红点 Store 测试（2026-09 第二轮改为事件驱动刷新）
  *
  * 真实 import layout/ContractAgreementBadgeStore（MobX 装饰器经 babel 编译），mock libs，验证：
- * - 有权限时 start() 立即拉取 /api/contract-agreement/badge/ 并按 5 分钟轮询
+ * - 有权限时 start() 立即拉取 /api/contract-agreement/badge/，无固定轮询
  * - 无权限时 start()/fetch() 均不发请求
  * - 成功后 count/expiringCount/expiredCount/loaded 更新（兼容 data 包装与裸返回）
  * - 失败时静默保留旧值，loaded 不置位
- * - stop() 清除轮询定时器
+ * - 同一自然日 focus / visible 不重复请求；stop() 后事件不再触发
+ *
+ * 三个 Store 的完整生命周期场景见 src/layout/__tests__/expiryBadgeStoreBase.test.js。
  */
 const mockHttpGet = jest.fn();
 
@@ -34,7 +36,7 @@ afterEach(() => {
 });
 
 describe('合同协议菜单红点 Store', () => {
-  it('有权限时 start() 立即拉取并按 5 分钟轮询，stop() 后停止', () => {
+  it('有权限时 start() 立即拉取一次且无固定轮询，stop() 后事件不再触发', async () => {
     jest.useFakeTimers();
     const store = freshStore();
     mockHttpGet.mockReturnValue(new Promise(() => {}));
@@ -42,12 +44,20 @@ describe('合同协议菜单红点 Store', () => {
     expect(mockHttpGet).toHaveBeenCalledTimes(1);
     expect(mockHttpGet).toHaveBeenCalledWith('/api/contract-agreement/badge/');
 
-    jest.advanceTimersByTime(5 * 60 * 1000);
-    expect(mockHttpGet).toHaveBeenCalledTimes(2);
+    // 事件驱动刷新：推进计时器（含 5 分钟）不产生任何新请求
+    jest.advanceTimersByTime(24 * 60 * 60 * 1000);
+    expect(mockHttpGet).toHaveBeenCalledTimes(1);
 
     store.stop();
-    jest.advanceTimersByTime(5 * 60 * 1000);
-    expect(mockHttpGet).toHaveBeenCalledTimes(2);
+    jest.useRealTimers();
+    // stop() 后 focus / visible 事件不再触发请求
+    window.dispatchEvent(new Event('focus'));
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'visible', configurable: true,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flush();
+    expect(mockHttpGet).toHaveBeenCalledTimes(1);
   });
 
   it('无权限时 start() 不发请求', () => {

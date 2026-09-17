@@ -652,7 +652,7 @@ class StationFrequencyApprovalCRUDTests(TestCase):
     # ---- 已移除的提醒/责任人端点 ----
 
     def test_removed_reminder_and_responsible_endpoints_return_404(self):
-        """popup/ack/badge/责任人候选端点已下线，请求应 404。"""
+        """popup/ack/责任人候选端点已下线，请求应 404；badge 已恢复为全局只读统计。"""
         approval = _make_approval(self.user_a, tenant_id='tenant_a', doc_no='GONE-1')
         resp = self.client_a.get('/radio-license/approvals/reminders/popup/')
         self.assertEqual(resp.status_code, 404)
@@ -662,8 +662,12 @@ class StationFrequencyApprovalCRUDTests(TestCase):
             content_type='application/json',
         )
         self.assertEqual(resp.status_code, 404)
+        # badge 恢复：全局只读统计，无个人提醒语义（2026-09 第二轮）
         resp = self.client_a.get('/radio-license/approvals/badge/')
-        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertFalse(body.get('error'), body)
+        self.assertIn('count', body.get('data', {}))
         resp = self.client_a.get('/radio-license/approvals/responsible-users/')
         self.assertEqual(resp.status_code, 404)
 

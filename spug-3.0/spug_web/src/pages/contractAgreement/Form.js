@@ -9,6 +9,7 @@ import { Modal, Form, Input, Select, DatePicker, Radio, Button, message, Descrip
 import { http, hasPermission } from 'libs';
 import moment from 'moment';
 import S from './store';
+import contractAgreementBadge from '../../layout/ContractAgreementBadgeStore';
 import { AttachmentManager } from 'components';
 
 const STATUS_TAG_MAP = {
@@ -75,6 +76,8 @@ export default observer(function () {
           message.success('操作成功');
           S.formVisible = false;
           S.fetchRecords();
+          // 后端真实成功后立即刷新菜单红点（fetch 静默失败，不影响本流程）
+          contractAgreementBadge.fetch();
         })
         .catch(e => {
           // 业务错误已由 http 拦截器统一提示（AGENTS.md 九.3），此处不得重复弹窗；

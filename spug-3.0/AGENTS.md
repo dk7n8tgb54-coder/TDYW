@@ -35,7 +35,7 @@
 | 数据分析 | `dataAnalysis/` | `data_analysis/` | 无（纯只读聚合） | `data_analysis.*` | 无 | Redis 60s 缓存 |
 | 部门值班日志 | `departmentDutyLog/` | `department_duty_log/` | DepartmentDutyLog, DutyLogSign | `department_duty_log.*` | 附件(evidence) | 无 |
 | 无线电台执照 | `radioLicense/` | `radio_license/` | RadioLicense, LicenseReminderAck | `radio_license.license.*` | 附件(evidence) | RADIO_LICENSE_BEAT_SCHEDULE（过期检查） |
-| 台站频率批复 | `stationFrequencyApproval/` | `radio_license/`（同应用） | StationFrequencyApproval（全局共享，无责任人、无主动提醒） | `radio_license.approval.*` | 附件(evidence) | RADIO_LICENSE_BEAT_SCHEDULE（批复到期状态扫描） |
+| 台站频率批复 | `stationFrequencyApproval/` | `radio_license/`（同应用） | StationFrequencyApproval（全局共享，无责任人、无个人主动提醒；有权限账户共享全局菜单红点） | `radio_license.approval.*` | 附件(evidence) | RADIO_LICENSE_BEAT_SCHEDULE（批复到期状态扫描） |
 | 合同协议 | `contractAgreement/` | `contract_agreement/` | ContractAgreement | `contract_agreement.agreement.*` | 附件(evidence) | CONTRACT_AGREEMENT_BEAT_SCHEDULE |
 | 协作任务 | `coopTask/` | `coop_task/` | CoopTask, CoopTaskItem, CoopTaskAssignment, CoopTaskDelivery | `coop.task.*` | 附件(evidence) | COOP_TASK_BEAT_SCHEDULE（到期任务附件清理；跨科室分派/交付/验收联动审计日志） |
 | 资料库/文档管理 | `document/` | `document/` | DocumentFilePublic, DocumentFolderPublic, DocumentTransfer, DocumentSystemFolder | `document.document.*`, `document.party_building_document.*` | **是**（文件存储） | 分片上传、合并、清理、异步复制 |
@@ -175,7 +175,8 @@
 2. **前端路由权限**必须与后端权限编码一致。`spug_web/src/routes.js` 中的 `auth` 字段对应后端 `page_perms`。
 3. **权限缓存**：`User.page_perms` 存储在 Redis `perms_{id}`=(version, perms)，修改权限后必须更新版本号。
 4. **租户隔离**：所有业务模型继承 `TenantModelMixin`，`TenantModelManager` 自动过滤 `tenant_id`。公共数据（如系统设置）使用 `GLOBAL` 租户类型。
-   - **例外（2026-09 起）**：`StationFrequencyApproval`（台站频率批复）为"有权限用户全局共享"——拥有 `radio_license.approval.view/add/edit/del` 的用户跨租户可见可管；`tenant_id` 仅记录创建人来源、附件归属与审计信息，不作为访问边界，权限由 `@auth` 后端独立校验。批复附件访问必须先校验父批复存在，再以 `skip_tenant_filter=True` 局部跳过 `EvidenceAttachment` 租户过滤（详见 `spug_api/apps/radio_license/AGENTS.md`）。`RadioLicense`（执照）仍为租户私有，例外不外溢；批复无责任人字段、无主动到期提醒（弹窗/红点/ack 已移除）。
+   - **例外（2026-09 起）**：`StationFrequencyApproval`（台站频率批复）为"有权限用户全局共享"——拥有 `radio_license.approval.view/add/edit/del` 的用户跨租户可见可管；`tenant_id` 仅记录创建人来源、附件归属与审计信息，不作为访问边界，权限由 `@auth` 后端独立校验。批复附件访问必须先校验父批复存在，再以 `skip_tenant_filter=True` 局部跳过 `EvidenceAttachment` 租户过滤（详见 `spug_api/apps/radio_license/AGENTS.md`）。`RadioLicense`（执照）仍为租户私有，例外不外溢；批复无责任人字段、无个人主动提醒和弹窗（popup/ack/责任人/指定提醒接收人均不存在），但有权限账户共享全局菜单红点（`approvals/badge/` 全局只读统计，2026-09 第二轮恢复）。
+   - **到期菜单红点刷新机制（2026-09 第二轮起）**：执照、批复、合同三类低频到期红点统一采用事件驱动刷新（公共基类 `spug_web/src/layout/expiryBadgeStoreBase.js`）：登录进入主布局立即获取、对应业务新增/编辑/删除真实成功后获取、跨自然日恢复焦点/可见时获取；同一自然日反复切换窗口不重复请求。**禁止使用 setInterval / 循环 setTimeout 固定周期轮询**（协作任务、系统告警等实时性不同的 Store 不适用本约定，维持各自策略）。
 5. **对象级权限**：`check_public_space_permission` 校验公共空间操作权限。
 6. **党建隔离**：`DocumentSystemFolder` + `system_scope_validators` 实现 fail-closed 隔离。
 7. **权限控制不能只隐藏前端按钮**，后端必须独立校验。

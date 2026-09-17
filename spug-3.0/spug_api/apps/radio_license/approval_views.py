@@ -8,7 +8,8 @@
 数据范围（2026-09 第一轮改造）：
 - 批复不再按租户隔离：拥有 radio_license.approval.* 权限的用户全局可见可管。
 - tenant_id 仅记录创建人租户（来源/附件归属/审计），不作为访问边界。
-- 无主动到期提醒：popup/ack/badge 与责任人接口已移除。
+- 无个人主动提醒：popup/ack/责任人与指定提醒接收人接口不存在；
+  菜单红点为全局只读统计（badge，2026-09 第二轮恢复）。
 """
 import logging
 from datetime import timedelta
@@ -312,6 +313,35 @@ class StationFrequencyApprovalView(View):
                         detail=snapshot, target_id=form.id,
                     )
         return json_response(error=error)
+
+
+class StationFrequencyApprovalBadgeView(View):
+    """台站频率批复菜单红点统计（全局只读，2026-09 第二轮恢复）。
+
+    统计口径：
+    - 直接统计全部 StationFrequencyApproval，不按租户/账户/责任人过滤，
+      所有拥有 radio_license.approval.view 的账户看到相同统计；
+    - 按 valid_to 实时计算，不依赖缓存 status 字段：
+      expiring: today <= valid_to <= today + EXPIRING_DAYS_THRESHOLD
+      expired:  valid_to < today
+      count = expiring_count + expired_count；
+    - 纯只读：不创建 ACK、提醒、审计或其他任何数据库副作用。
+    """
+
+    @auth('radio_license.approval.view')
+    def get(self, request):
+        today = timezone.now().date()
+        qs = StationFrequencyApproval.objects.all()
+        expiring_count = qs.filter(
+            valid_to__gte=today,
+            valid_to__lte=today + timedelta(days=EXPIRING_DAYS_THRESHOLD),
+        ).count()
+        expired_count = qs.filter(valid_to__lt=today).count()
+        return json_response(data={
+            'count': expiring_count + expired_count,
+            'expiring_count': expiring_count,
+            'expired_count': expired_count,
+        })
 
 
 class StationFrequencyApprovalDetailView(View):

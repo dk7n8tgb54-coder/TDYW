@@ -164,6 +164,28 @@ spug_web/
 2. **组件卸载后不得回写状态**：异步请求/定时器在 `componentWillUnmount` / `useEffect` cleanup 中清理。
 3. **防止旧请求覆盖新页面状态**：分页/搜索切换时，旧请求的响应不得覆盖新数据。使用请求版本号或 AbortController。
 
+### 低频到期菜单红点（Badge Store）刷新约定
+
+执照、批复、合同等低频到期数据的菜单红圈数字统一继承公共基类
+`src/layout/expiryBadgeStoreBase.js`（以权限编码 + badge URL 配置复用，
+当前实例：`RadioLicenseBadgeStore` / `ApprovalBadgeStore` /
+`ContractAgreementBadgeStore`），采用**事件驱动刷新，禁止固定周期轮询**：
+
+1. **登录立即获取**：主布局 `layout/index.js` 挂载时调用 `start()`——先校验
+   对应 view 权限，有权限立即 `fetch()` 一次并注册 `window focus` 与
+   `document visibilitychange` 监听；无权限不请求、不注册监听、不显示红点。
+2. **CRUD 成功后获取**：对应业务新增/编辑/删除真实成功（HTTP 200 且无
+   `error`）后再调用 `fetch()`；业务失败不得刷新；`fetch()` 静默失败，
+   不得影响已成功的业务操作或重复弹错。
+3. **跨自然日获取**：仅在 `focus` 或恢复 `visible` 时，客户端本地自然日
+   （YYYY-MM-DD）与最后成功获取日期不同才重新请求；同一自然日反复切换
+   窗口不重复请求；请求失败不记录最后成功日期，下次事件可重试。
+4. **在途去重**：focus 与 visibilitychange 连续触发只允许一个在途请求；
+   重复 `start()` / `stop()` 必须幂等。
+5. **不适用范围**：协作任务红点、系统告警等实时性不同的 Store 不使用本
+   基类，维持各自策略；弹窗提醒组件（`ExpirationReminderNotification` /
+   `ContractAgreementReminderNotification`）的自身轮询不属于本约定范围。
+
 ---
 
 ## 五、组件规则

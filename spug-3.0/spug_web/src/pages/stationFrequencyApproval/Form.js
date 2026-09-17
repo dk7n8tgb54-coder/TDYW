@@ -13,6 +13,7 @@ import { Modal, Form, Input, DatePicker, Button, message, Descriptions, Tag, Div
 import { http, hasPermission } from 'libs';
 import moment from 'moment';
 import S from './store';
+import approvalBadge from '../../layout/ApprovalBadgeStore';
 import { AttachmentManager } from 'components';
 
 const STATUS_TAG_MAP = {
@@ -78,6 +79,8 @@ export default observer(function () {
           message.success('操作成功');
           S.formVisible = false;
           S.fetchRecords();
+          // 后端真实成功后立即刷新全局红点（fetch 静默失败，不影响本流程）
+          approvalBadge.fetch();
         })
         .catch(e => {
           console.error('[台站频率批复] 提交表单失败:', e);

@@ -9,7 +9,16 @@
 | 业务线 | 数据范围 | tenant_id 语义 | 责任人 | 主动提醒 |
 |---|---|---|---|---|
 | RadioLicense（执照） | **租户私有**，查询必须 `apply_tenant_filter` | 访问边界 | 保留（`responsible_user_id/name` + 责任人候选接口） | 保留（popup / ack / badge / `LicenseReminderAck`） |
-| StationFrequencyApproval（批复） | **有权限用户全局共享**（2026-09 起），查询不做租户过滤 | 仅创建人来源、附件归属与审计信息 | **已删除**（字段、索引、候选接口、快照字段） | **已移除**（popup / ack / badge 接口与 `StationFrequencyApprovalReminderAck` 已删除，提醒接收人配置留待下一轮） |
+| StationFrequencyApproval（批复） | **有权限用户全局共享**（2026-09 起），查询不做租户过滤 | 仅创建人来源、附件归属与审计信息 | **已删除**（字段、索引、候选接口、快照字段） | **无个人主动提醒**：popup / ack / 责任人候选接口与 `StationFrequencyApprovalReminderAck` 已删除，指定提醒接收人不实现；菜单红点为全局只读统计（`StationFrequencyApprovalBadgeView`，2026-09 第二轮恢复，见下） |
+
+### 批复菜单红点（badge）约束（2026-09 第二轮恢复）
+
+`GET /radio-license/approvals/badge/`（`StationFrequencyApprovalBadgeView`，权限 `radio_license.approval.view`）是**全局只读统计**：
+
+1. 直接统计全部 `StationFrequencyApproval`，**不调用 `apply_tenant_filter`、不按请求账户 `tenant_id`、责任人或 ACK 筛选**——所有拥有 `approval.view` 的账户看到相同数字。
+2. 按 `valid_to` 实时统计（expiring：`today <= valid_to <= today + EXPIRING_DAYS_THRESHOLD`；expired：`valid_to < today`；`count = expiring + expired`），不依赖缓存 `status` 字段或 Celery 扫描。
+3. **不创建任何数据库副作用**：不写 ACK、提醒、审计日志或证据事件；纯只读端点。
+4. 不恢复批复 popup / ack 接口、`StationFrequencyApprovalReminderAck`、责任人字段或指定提醒接收人。
 
 约定：
 

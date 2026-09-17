@@ -203,8 +203,8 @@ class LicensePopupIsolationTests(TestCase):
         lic_ids = [r.get('license_id') for r in lic_popup['data']['records']]
         self.assertEqual(lic_ids, [RadioLicense.objects.get(
             station_name='RG-MIX-执照').id])
-        # 批复提醒端点已下线
+        # 批复提醒端点已下线；badge 为全局只读统计（2026-09 第二轮恢复）
         self.assertEqual(
             client.get('/radio-license/approvals/reminders/popup/').status_code, 404)
-        self.assertEqual(
-            client.get('/radio-license/approvals/badge/').status_code, 404)
+        badge_body = client.get('/radio-license/approvals/badge/').json()
+        self.assertFalse(badge_body.get('error'), badge_body)

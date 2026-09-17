@@ -10,6 +10,7 @@ import { PlusOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
 import { Action, TableCard, AuthButton, AttachmentCountBadge } from 'components';
 import store from './store';
+import contractAgreementBadge from '../../layout/ContractAgreementBadgeStore';
 
 const STATUS_TAG_MAP = {
   normal: {color: 'green', text: '正常'},
@@ -35,6 +36,8 @@ class ComTable extends React.Component {
           .then(() => {
             message.success('删除成功');
             store.fetchRecords();
+            // 后端真实成功后立即刷新菜单红点（fetch 静默失败，不影响本流程）
+            contractAgreementBadge.fetch();
           });
       }
     });
