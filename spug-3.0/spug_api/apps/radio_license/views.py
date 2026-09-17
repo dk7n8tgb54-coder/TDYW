@@ -109,7 +109,7 @@ def _validate_frequencies(frequencies):
 def _validate_and_fill_responsible_user(form, request_user):
     """校验执照责任人账号并回填真实姓名。
 
-    与批复侧 _validate_and_fill_approval_responsible_user 规则一致：
+    规则（执照侧保留责任人；批复侧责任人已于 2026-09 移除）：
     1. 必须存在且 is_active=True；
     2. deleted_by_id IS NULL（未软删）；
     3. tenant_id 必须等于当前请求用户 tenant_id（超管除外，但仍要求账号未删除且启用）；
@@ -946,7 +946,7 @@ class ReminderAckView(View):
     用户点击"已处理"→ 写一条 LicenseReminderAck
     续期后 license.valid_to 变化 → 旧 ack 自动失效 → 重新弹窗
 
-    校验规则（与批复侧 ApprovalReminderAckView 对齐）：
+    校验规则（批复提醒已移除，执照侧保留）：
     1. 权限：@auth 要求 radio_license.license.view；
     2. 租户：apply_tenant_filter 过滤，跨租户对象一律"执照不存在或无权限"；
     3. 责任人：仅执照责任人本人可确认；

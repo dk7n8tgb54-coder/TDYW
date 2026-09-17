@@ -189,7 +189,7 @@ class LicenseEditSaveTests(TestCase):
 class LicenseResponsibleUserValidationTests(TestCase):
     """执照责任人校验：跨租户拦截、软删拦截、姓名服务端回填、超管放行。
 
-    覆盖与批复侧 _validate_and_fill_approval_responsible_user 对齐后的规则。
+    执照侧保留责任人；批复侧责任人已于 2026-09 移除，本类仅覆盖执照规则。
     """
 
     def setUp(self):

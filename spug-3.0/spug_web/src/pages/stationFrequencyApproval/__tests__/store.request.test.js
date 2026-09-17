@@ -159,3 +159,24 @@ describe('批复 Store loadDetail 深链', () => {
     expect(store.record.name).toBe('RG-深链批复');
   });
 });
+
+describe('批复 Store 责任人与提醒接口已移除（2026-09 第一轮改造）', () => {
+  it('store 不再有 fetchResponsibleUsers，请求不触达 responsible-users/popup/ack/badge', async () => {
+    const store = freshStore();
+    expect(store.fetchResponsibleUsers).toBeUndefined();
+    expect(store.responsibleUsers).toBeUndefined();
+    expect(store.responsibleUsersLoaded).toBeUndefined();
+    mockHttpGet.mockImplementation(url => {
+      if (String(url).endsWith('/7/')) {
+        return Promise.resolve({id: 7, name: 'RG-深链批复', doc_no: 'RG-DL-7'});
+      }
+      return Promise.resolve({records: [], total: 0, page: 1, page_size: 20});
+    });
+    await store.fetchRecords();
+    await store.loadDetail(7);
+    await flush();
+    const urls = mockHttpGet.mock.calls.map(([url]) => String(url));
+    expect(urls.some(url => url.includes('responsible-users'))).toBe(false);
+    expect(urls.some(url => url.includes('/reminders/') || url.includes('/badge/'))).toBe(false);
+  });
+});

@@ -165,8 +165,6 @@ class ApprovalExpirationTaskTest(TestCase):
             valid_from=date.today() - timedelta(days=400),
             valid_to=date.today() - timedelta(days=5),
             status='normal',
-            responsible_user_id=self.admin.id,
-            responsible_user_name=self.admin.nickname,
             created_by=self.admin, tenant_id='admin')
         scan_approval_expiration.apply()
         approval.refresh_from_db()

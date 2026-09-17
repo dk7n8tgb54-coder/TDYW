@@ -229,10 +229,12 @@ class StationFrequencyApproval(models.Model, TenantModelMixin):
 
     设计原则：
     - 独立台账，不与 RadioLicense 建立业务外键。
-    - responsible_user_name 由服务端根据 responsible_user_id 回填，不接受客户端传入值。
+    - 数据范围：有 radio_license.approval 权限的用户全局共享（跨租户可见可管），
+      是 TenantModelManager 默认租户隔离的显式例外；tenant_id 仅作来源归属、
+      附件归属和审计信息，不作为访问边界。
     - status 是缓存字段，由 scan_single_approval / scan_approval_expiration 维护；
-      列表、详情、popup、badge 一律按 valid_to 实时计算，不依赖该字段。
-    - 不保留 last_remind_at（前端轮询，不存在准确的"服务端已提醒时间"）。
+      列表、详情一律按 valid_to 实时计算，不依赖该字段。
+    - 不保留主动到期提醒（弹窗/红点/ack 已移除），无 last_remind_at。
     - attachment_count / days_left / computed_status 均为接口计算字段，不落库。
     """
 
@@ -253,9 +255,6 @@ class StationFrequencyApproval(models.Model, TenantModelMixin):
     frequency_text = models.CharField(max_length=200, help_text='批复频率')
     valid_from = models.DateField(help_text='起始日期')
     valid_to = models.DateField(help_text='截止日期')
-
-    responsible_user_id = models.IntegerField(help_text='责任人ID')
-    responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名快照（服务端回填）')
 
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
@@ -295,59 +294,7 @@ class StationFrequencyApproval(models.Model, TenantModelMixin):
                 name='sfa_tenant_created_idx',
             ),
             models.Index(
-                fields=['tenant_id', 'responsible_user_id', 'valid_to'],
-                name='sfa_owner_expiry_idx',
-            ),
-            models.Index(
                 fields=['tenant_id', 'valid_to'],
                 name='sfa_tenant_expiry_idx',
-            ),
-        ]
-
-
-class StationFrequencyApprovalReminderAck(models.Model, TenantModelMixin):
-    """用户对某一批复有效期周期的"已处理"确认记录。
-
-    有效期周期由 (approval_id, user_id, valid_to) 标识：
-    - 用户确认时保存当前 valid_to；
-    - 批复续期后 valid_to 变化，旧 ack 不再匹配，新周期重新提醒；
-    - 更换责任人后，新责任人没有对应 ack，也会收到提醒；
-    - 删除批复时外键级联删除 ack。
-    """
-
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-
-    approval = models.ForeignKey(
-        StationFrequencyApproval, models.CASCADE,
-        related_name='reminder_acks', help_text='批复',
-    )
-    user_id = models.IntegerField(help_text='确认用户ID')
-    user_name = models.CharField(max_length=100, default='', help_text='确认用户姓名快照')
-    ack_valid_to = models.DateField(help_text='确认时的截止日期（用于续期后自动失效）')
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __repr__(self):
-        return '<StationFrequencyApprovalReminderAck approval=%s user=%s valid_to=%s>' % (
-            self.approval_id, self.user_id, self.ack_valid_to)
-
-    def to_view(self):
-        return self.to_dict()
-
-    class Meta:
-        db_table = 'tdyw_station_frequency_approval_reminder_ack'
-        verbose_name = '频率批复提醒确认'
-        verbose_name_plural = '频率批复提醒确认'
-        ordering = ('-created_at', '-id')
-        constraints = [
-            models.UniqueConstraint(
-                fields=['tenant_id', 'approval', 'user_id', 'ack_valid_to'],
-                name='uniq_sfa_ack_cycle',
-            ),
-        ]
-        indexes = [
-            models.Index(
-                fields=['tenant_id', 'user_id', 'approval'],
-                name='sfa_ack_user_approval_idx',
             ),
         ]

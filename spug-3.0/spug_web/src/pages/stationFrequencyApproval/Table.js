@@ -1,9 +1,9 @@
 /**
  * 台站频率批复列表。
  *
- * 设计方案 9.1：
+ * 设计方案 9.1（2026-09 第一轮改造后）：
  * - 列：文件名称 / 文件编号 / 批复频率 / 起始日期 / 截止日期
- *       剩余天数与状态 / 责任人 / 附件数 / 创建时间 / 操作
+ *       剩余天数与状态 / 附件数 / 创建时间 / 操作（责任人列已移除）
  * - 状态展示读取 computed_status（实时计算），剩余天数读取 days_left
  * - 删除接口：DELETE /api/radio-license/approvals/?id=X
  * - 深链 ?id=xxx 打开详情
@@ -43,7 +43,7 @@ class ComTable extends React.Component {
   handleDelete = (text) => {
     Modal.confirm({
       title: '删除确认',
-      content: `确定要删除批复「${text.name}」吗？关联附件将被软删，提醒确认记录将被级联删除。`,
+      content: `确定要删除批复「${text.name}」吗？关联附件将被软删。`,
       okText: '删除',
       okType: 'danger',
       cancelText: '取消',
@@ -120,7 +120,6 @@ class ComTable extends React.Component {
         <Table.Column title="截止日期" dataIndex="valid_to" width={110}/>
         <Table.Column title="剩余天数" width={120} render={(text, record) => this.renderDaysLeft(record.days_left)}/>
         <Table.Column title="状态" width={100} render={(text, record) => this.renderStatus(record.computed_status)}/>
-        <Table.Column title="责任人" dataIndex="responsible_user_name" width={100}/>
         <Table.Column title="附件" width={70} render={this.renderAttachmentCount}/>
         <Table.Column title="创建时间" dataIndex="created_at" width={160} ellipsis/>
         {/* 与执照表口径一致：具备查看/编辑/删除任一权限即渲染操作列，

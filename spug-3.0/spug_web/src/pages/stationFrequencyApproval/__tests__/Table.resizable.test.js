@@ -29,7 +29,6 @@ jest.mock('../store', () => ({
     valid_to: '2026-12-31',
     days_left: 30,
     computed_status: 'normal',
-    responsible_user_name: '李四',
     attachment_count: 1,
     created_at: '2026-08-01 10:00:00',
   }],
@@ -125,7 +124,7 @@ afterEach(() => {
 describe('台站频率批复 Table 列宽拖动（TableCard resizable 集成）', () => {
   it('数据列（含文件名称首列）渲染拖拽柄，固定操作列不渲染', () => {
     renderTable();
-    ['文件名称', '文件编号', '批复频率', '起始日期', '截止日期', '剩余天数', '状态', '责任人', '附件', '创建时间'].forEach(title => {
+    ['文件名称', '文件编号', '批复频率', '起始日期', '截止日期', '剩余天数', '状态', '附件', '创建时间'].forEach(title => {
       expect(findHandle(findTh(title))).not.toBeNull();
     });
     expect(findTh('操作')).toBeTruthy();

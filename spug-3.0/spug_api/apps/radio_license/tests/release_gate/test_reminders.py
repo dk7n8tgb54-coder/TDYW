@@ -1,11 +1,11 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""上线门禁 D 组：提醒、徽标和确认（执照 + 批复）。
+"""上线门禁 D 组：提醒、徽标和确认（仅执照；批复提醒已于 2026-09 移除）。
 
-覆盖：popup 只返回本人负责的 expiring/expired、normal 不提醒、
+覆盖：执照 popup 只返回本人负责的 expiring/expired、normal 不提醒、
 badge 与 popup 口径一致、确认后本周期不重复提醒、同周期确认幂等、
 续期后旧 ack 失效重新提醒、更换责任人后的提醒归属、
-非责任人确认/normal 确认/跨租户确认必须失败。
+非责任人确认/normal 确认/跨租户确认必须失败、批复提醒端点已下线。
 """
 import json
 from datetime import date, timedelta
@@ -14,7 +14,6 @@ from django.test import TestCase
 
 from apps.radio_license.models import (
     RadioLicense, LicenseReminderAck,
-    StationFrequencyApproval, StationFrequencyApprovalReminderAck,
 )
 from apps.radio_license.tests.release_gate import (
     _make_user, _grant_perms, _make_client,
@@ -186,118 +185,26 @@ class LicenseAckAuthorizationTests(TestCase):
         self.assertTrue(body.get('error'))
 
 
-class ApprovalReminderTests(TestCase):
-    """批复 popup / badge / ack 全链路。"""
+class LicensePopupIsolationTests(TestCase):
+    """执照 popup 只返回执照记录（批复提醒已于 2026-09 移除）。"""
 
-    def setUp(self):
+    def test_license_popup_returns_only_license_records(self):
         from apps.setting.utils import AppSetting
         AppSetting.set('bind_ip', False)
-        self.owner = _make_user('rg_aprem_owner', tenant_id=TENANT_A)
-        # 一次性授予执照+批复权限（_grant_perms 对同一用户只能调用一次，
-        # 重复调用会创建同名 Role 触发唯一约束）
-        _grant_perms(self.owner, FULL_APPROVAL_PERMS + FULL_LICENSE_PERMS)
-        self.client = _make_client(self.owner)
-        self.today = date.today()
-
-    def _ack(self, approval_id):
-        return self.client.post(
-            '/radio-license/approvals/reminders/ack/',
-            data=json.dumps({'approval_id': approval_id}),
-            content_type='application/json').json()
-
-    def test_popup_and_badge_consistent(self):
-        rg_make_approval(self.owner, doc_no='RG-APREM-到期',
-                         valid_to=self.today + timedelta(days=10))
-        rg_make_approval(self.owner, doc_no='RG-APREM-过期',
-                         valid_to=self.today - timedelta(days=3))
-        rg_make_approval(self.owner, doc_no='RG-APREM-正常',
-                         valid_to=self.today + timedelta(days=300))
-        popup = self.client.get('/radio-license/approvals/reminders/popup/').json()
-        doc_nos = [r['doc_no'] for r in popup['data']['records']]
-        self.assertEqual(sorted(doc_nos), ['RG-APREM-到期', 'RG-APREM-过期'])
-        badge = self.client.get('/radio-license/approvals/badge/').json()['data']
-        self.assertEqual(badge['count'], 2)
-        self.assertEqual(badge['expiring_count'], 1)
-        self.assertEqual(badge['expired_count'], 1)
-
-    def test_ack_flow_idempotent_and_renewal(self):
-        ap = rg_make_approval(self.owner, doc_no='RG-APREM-ACK',
-                              valid_to=self.today + timedelta(days=10))
-        for _ in range(2):
-            body = self._ack(ap.id)
-            self.assertFalse(body.get('error'), body)
-        self.assertEqual(
-            StationFrequencyApprovalReminderAck.objects.filter(approval=ap).count(), 1)
-        popup = self.client.get('/radio-license/approvals/reminders/popup/').json()
-        self.assertEqual(len(popup['data']['records']), 0)
-        # 续期 → 旧 ack 失效 → 重新提醒
-        ap.valid_to = self.today + timedelta(days=20)
-        ap.save()
-        popup = self.client.get('/radio-license/approvals/reminders/popup/').json()
-        self.assertEqual(len(popup['data']['records']), 1)
-        self.assertEqual(
-            self.client.get('/radio-license/approvals/badge/').json()['data']['count'], 1)
-
-    def test_non_responsible_ack_rejected(self):
-        ap = rg_make_approval(self.owner, doc_no='RG-APREM-NR',
-                              valid_to=self.today + timedelta(days=10))
-        viewer = _make_user('rg_aprem_viewer', tenant_id=TENANT_A)
-        _grant_perms(viewer, FULL_APPROVAL_PERMS)
-        body = _make_client(viewer).post(
-            '/radio-license/approvals/reminders/ack/',
-            data=json.dumps({'approval_id': ap.id}),
-            content_type='application/json').json()
-        self.assertTrue(body.get('error'))
-        self.assertEqual(
-            StationFrequencyApprovalReminderAck.objects.filter(approval=ap).count(), 0)
-
-    def test_ack_normal_approval_rejected(self):
-        ap = rg_make_approval(self.owner, doc_no='RG-APREM-NORM',
-                              valid_to=self.today + timedelta(days=300))
-        body = self._ack(ap.id)
-        self.assertTrue(body.get('error'))
-        self.assertEqual(
-            StationFrequencyApprovalReminderAck.objects.filter(approval=ap).count(), 0)
-
-    def test_cross_tenant_ack_rejected(self):
-        ap = rg_make_approval(self.owner, doc_no='RG-APREM-CROSS',
-                              valid_to=self.today + timedelta(days=10))
-        b_user = _make_user('rg_aprem_tenantb', tenant_id=TENANT_B)
-        _grant_perms(b_user, FULL_APPROVAL_PERMS)
-        body = _make_client(b_user).post(
-            '/radio-license/approvals/reminders/ack/',
-            data=json.dumps({'approval_id': ap.id}),
-            content_type='application/json').json()
-        self.assertTrue(body.get('error'))
-        self.assertEqual(
-            StationFrequencyApprovalReminderAck.objects.filter(approval=ap).count(), 0)
-
-    def test_responsible_change_shifts_reminder(self):
-        new_owner = _make_user('rg_aprem_new', tenant_id=TENANT_A)
-        _grant_perms(new_owner, FULL_APPROVAL_PERMS)
-        ap = rg_make_approval(self.owner, doc_no='RG-APREM-换人',
-                              valid_to=self.today + timedelta(days=10))
-        self._ack(ap.id)
-        ap.responsible_user_id = new_owner.id
-        ap.responsible_user_name = new_owner.nickname
-        ap.save()
-        new_popup = _make_client(new_owner).get(
-            '/radio-license/approvals/reminders/popup/').json()
-        self.assertEqual(len(new_popup['data']['records']), 1)
-        old_popup = self.client.get(
-            '/radio-license/approvals/reminders/popup/').json()
-        self.assertEqual(len(old_popup['data']['records']), 0)
-
-    def test_license_and_approval_reminders_are_isolated(self):
-        """执照 popup 不返回批复记录，批复 popup 不返回执照记录。"""
-        lic = rg_make_license(self.owner, station_name='RG-MIX-执照',
-                              valid_to=self.today + timedelta(days=10))
-        ap = rg_make_approval(self.owner, doc_no='RG-MIX-批复',
-                              valid_to=self.today + timedelta(days=10))
-        lic_popup = self.client.get('/radio-license/reminders/popup/').json()
+        owner = _make_user('rg_mix_owner', tenant_id=TENANT_A)
+        _grant_perms(owner, FULL_LICENSE_PERMS + FULL_APPROVAL_PERMS)
+        client = _make_client(owner)
+        today = date.today()
+        rg_make_license(owner, station_name='RG-MIX-执照',
+                        valid_to=today + timedelta(days=10))
+        rg_make_approval(owner, doc_no='RG-MIX-批复',
+                         valid_to=today + timedelta(days=10))
+        lic_popup = client.get('/radio-license/reminders/popup/').json()
         lic_ids = [r.get('license_id') for r in lic_popup['data']['records']]
-        ap_popup = self.client.get(
-            '/radio-license/approvals/reminders/popup/').json()
-        ap_ids = [r.get('approval_id') for r in ap_popup['data']['records']]
-        self.assertEqual(lic_ids, [lic.id])
-        self.assertEqual(ap_ids, [ap.id])
+        self.assertEqual(lic_ids, [RadioLicense.objects.get(
+            station_name='RG-MIX-执照').id])
+        # 批复提醒端点已下线
+        self.assertEqual(
+            client.get('/radio-license/approvals/reminders/popup/').status_code, 404)
+        self.assertEqual(
+            client.get('/radio-license/approvals/badge/').status_code, 404)

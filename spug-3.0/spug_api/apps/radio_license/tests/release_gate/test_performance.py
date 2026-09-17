@@ -102,8 +102,6 @@ class TenThousandRecordsPerfTests(TransactionTestCase):
                 frequency_text='100MHz',
                 valid_from=self.today - timedelta(days=365),
                 valid_to=self.today + timedelta(days=(i % 400) - 30),
-                responsible_user_id=self.user.id,
-                responsible_user_name=self.user.nickname,
                 status='normal',
                 created_by=self.user,
             )
@@ -147,8 +145,7 @@ class TenThousandRecordsPerfTests(TransactionTestCase):
     def test_badge_popup_detail_performance(self):
         t = self._timeit('/radio-license/badge/', '执照徽标(1万条本人负责)')
         self.assertLess(t, 5)
-        t = self._timeit('/radio-license/approvals/badge/', '批复徽标(1万条本人负责)')
-        self.assertLess(t, 5)
+        # 批复徽标已于 2026-09 第一轮改造移除（无主动提醒），不再有性能项
         # popup 返回本人负责的 expiring/expired 全量记录（无分页），记录实际耗时与返回量
         t0 = time.time()
         resp = self.client.get('/radio-license/reminders/popup/')

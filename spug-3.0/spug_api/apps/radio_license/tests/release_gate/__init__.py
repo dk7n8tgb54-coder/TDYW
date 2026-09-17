@@ -43,7 +43,7 @@ def rg_license_payload(user, **overrides):
 
 
 def rg_approval_payload(user, **overrides):
-    """构造一份合法的批复创建载荷。"""
+    """构造一份合法的批复创建载荷（责任人字段已于 2026-09 移除）。"""
     today = date.today()
     payload = {
         'name': 'RG-门禁批复',
@@ -51,7 +51,6 @@ def rg_approval_payload(user, **overrides):
         'frequency_text': '88-108 MHz',
         'valid_from': str(today - timedelta(days=30)),
         'valid_to': str(today + timedelta(days=300)),
-        'responsible_user_id': user.id,
     }
     payload.update(overrides)
     return payload
@@ -77,7 +76,7 @@ def rg_make_license(user, **kwargs):
 
 
 def rg_make_approval(user, **kwargs):
-    """直接 ORM 创建一条批复记录。"""
+    """直接 ORM 创建一条批复记录（跨租户场景可显式传 tenant_id）。"""
     from apps.radio_license.models import StationFrequencyApproval
     today = date.today()
     defaults = {
@@ -87,8 +86,6 @@ def rg_make_approval(user, **kwargs):
         'frequency_text': '100MHz',
         'valid_from': today - timedelta(days=365),
         'valid_to': today + timedelta(days=300),
-        'responsible_user_id': user.id,
-        'responsible_user_name': user.nickname or user.username,
         'status': 'normal',
         'created_by': user,
     }

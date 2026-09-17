@@ -17,7 +17,7 @@ from apps.evidence.models import EvidenceEvent
 from apps.logs.models import AuditLog
 from apps.radio_license.models import (
     RadioLicense, RadioLicenseVersion, LicenseReminderAck,
-    StationFrequencyApproval, StationFrequencyApprovalReminderAck,
+    StationFrequencyApproval,
 )
 from apps.radio_license.tests.release_gate import (
     _make_user, _grant_perms, _make_client,
@@ -234,20 +234,6 @@ class AuditLogTests(TestCase):
             target_type='radio_license_approval', target_id=str(ap.id),
             action='delete').exists())
 
-    def test_approval_ack_writes_audit_log(self):
-        ap = rg_make_approval(self.user, doc_no='RG-AUD-APACK',
-                              valid_to=self.today + timedelta(days=10))
-        resp = self.client.post(
-            '/radio-license/approvals/reminders/ack/',
-            data=json.dumps({'approval_id': ap.id}),
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'))
-        self.assertTrue(AuditLog.objects.filter(
-            tenant_id=TENANT_A, target_type='radio_license_approval',
-            target_id=str(ap.id), action='update',
-            detail__icontains='ack_valid_to').exists(),
-            '批复提醒确认应写入审计日志')
-
     def test_audit_log_hash_chain_populated(self):
         self._create_license()
         log = AuditLog.objects.filter(
@@ -257,7 +243,7 @@ class AuditLogTests(TestCase):
 
 
 class ConcurrencyTests(TransactionTestCase):
-    """F7 并发场景：并发 ack、并发编辑版本号、删除与上传并发。"""
+    """F7 并发场景：并发执照 ack、并发编辑版本号、删除与上传并发。"""
 
     def setUp(self):
         from apps.setting.utils import AppSetting

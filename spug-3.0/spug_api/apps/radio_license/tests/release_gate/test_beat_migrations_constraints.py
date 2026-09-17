@@ -110,7 +110,7 @@ class DatabaseConstraintTests(TestCase):
         self._assert_integrity_error(lambda: StationFrequencyApproval.objects.create(
             tenant_id=TENANT_A, name='RG-DB-坏状态', doc_no='RG-DB-S',
             frequency_text='x', valid_from=self.today, valid_to=self.today,
-            responsible_user_id=self.user.id, status='bad',
+            status='bad',
             created_by=self.user))
 
     def test_date_order_rejected_by_db(self):
@@ -125,7 +125,7 @@ class DatabaseConstraintTests(TestCase):
             frequency_text='x',
             valid_from=self.today + timedelta(days=10),
             valid_to=self.today,
-            responsible_user_id=self.user.id, created_by=self.user))
+            created_by=self.user))
 
     def test_frequency_constraints_enforced_by_db(self):
         lic = rg_make_license(self.user, station_name='RG-DB-频率')

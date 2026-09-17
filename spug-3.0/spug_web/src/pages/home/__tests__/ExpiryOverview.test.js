@@ -2,8 +2,10 @@
  * 工作台到期提醒卡片（ExpiryOverview）行为测试（上线门禁 六.9）。
  *
  * 真实渲染组件，mock libs（http/history/hasPermission），验证：
- * - 按权限请求执照/批复徽标接口，数量渲染正确
- * - 点击执照行跳转 /radio-license，点击批复行跳转 /station-frequency-approval
+ * - 按权限请求执照/合同徽标接口，数量渲染正确
+ * - 2026-09 第一轮改造：批复不再参与首页到期概览，
+ *   即便用户拥有 radio_license.approval.view 也不请求 approvals/badge/
+ * - 点击执照行跳转 /radio-license，点击合同行跳转 /contract-agreement
  * - 接口失败时显示降级文案（不崩溃）
  * - 无任何权限时显示占位文案
  */
@@ -52,13 +54,17 @@ function grantPerms(perms) {
 }
 
 describe('工作台到期提醒卡片', () => {
-  it('渲染执照与批复徽标数量并正确跳转', async () => {
-    grantPerms(['radio_license.license.view', 'radio_license.approval.view']);
+  it('渲染执照与合同徽标数量并正确跳转，不请求批复徽标', async () => {
+    grantPerms([
+      'radio_license.license.view',
+      'radio_license.approval.view',
+      'contract_agreement.agreement.view',
+    ]);
     mockHttpGet.mockImplementation(url => {
       if (url === '/api/radio-license/badge/') {
         return Promise.resolve({count: 4, expiring_count: 3, expired_count: 1});
       }
-      if (url === '/api/radio-license/approvals/badge/') {
+      if (url === '/api/contract-agreement/badge/') {
         return Promise.resolve({count: 2, expiring_count: 2, expired_count: 0});
       }
       return Promise.resolve({});
@@ -69,14 +75,23 @@ describe('工作台到期提醒卡片', () => {
       await Promise.resolve();
     });
     const text = container.textContent;
-    // 总计：3(执照) + 2(批复) = 5
+    // 总计：3(执照) + 2(合同) = 5
     expect(text).toContain('5');
     expect(text).toContain('无线电台执照');
     expect(text).toContain('3 项');
-    expect(text).toContain('频率批复');
+    expect(text).toContain('合同协议');
     expect(text).toContain('2 项');
     // 过期标签
     expect(text).toContain('执照已过期 1');
+    // 批复不再参与统计（2026-09 第一轮改造）
+    expect(text).not.toContain('频率批复');
+    expect(text).not.toContain('批复已过期');
+
+    // 请求了执照与合同徽标，未请求批复徽标
+    const requestedUrls = mockHttpGet.mock.calls.map(([url]) => url);
+    expect(requestedUrls).toContain('/api/radio-license/badge/');
+    expect(requestedUrls).toContain('/api/contract-agreement/badge/');
+    expect(requestedUrls.filter(url => url.includes('/approvals/badge/'))).toHaveLength(0);
 
     // 点击执照行 → 跳转执照页面（行 onClick 在包裹 label span 的 div 上）
     const licenseLabel = Array.from(container.querySelectorAll('span'))
@@ -87,18 +102,18 @@ describe('工作台到期提醒卡片', () => {
     });
     expect(mockPush).toHaveBeenCalledWith('/radio-license');
 
-    // 点击批复行 → 跳转批复页面
-    const approvalLabel = Array.from(container.querySelectorAll('span'))
-      .find(sp => sp.textContent.trim() === '频率批复');
-    const approvalRow = approvalLabel.parentElement;
+    // 点击合同行 → 跳转合同页面
+    const contractLabel = Array.from(container.querySelectorAll('span'))
+      .find(sp => sp.textContent.trim() === '合同协议');
+    const contractRow = contractLabel.parentElement;
     act(() => {
-      approvalRow.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+      contractRow.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });
-    expect(mockPush).toHaveBeenCalledWith('/station-frequency-approval');
+    expect(mockPush).toHaveBeenCalledWith('/contract-agreement');
   });
 
   it('接口全部失败时显示降级文案', async () => {
-    grantPerms(['radio_license.license.view', 'radio_license.approval.view']);
+    grantPerms(['radio_license.license.view', 'contract_agreement.agreement.view']);
     mockHttpGet.mockRejectedValue(new Error('timeout'));
     render();
     await act(async () => {
@@ -110,7 +125,7 @@ describe('工作台到期提醒卡片', () => {
   });
 
   it('无任何到期模块权限时不发请求', async () => {
-    grantPerms([]);
+    grantPerms(['radio_license.approval.view']);
     render();
     await act(async () => {
       await Promise.resolve();
@@ -120,13 +135,13 @@ describe('工作台到期提醒卡片', () => {
   });
 
   it('全部为 0 时显示空状态文案', async () => {
-    grantPerms(['radio_license.license.view', 'radio_license.approval.view']);
+    grantPerms(['radio_license.license.view', 'contract_agreement.agreement.view']);
     mockHttpGet.mockResolvedValue({count: 0, expiring_count: 0, expired_count: 0});
     render();
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(container.textContent).toContain('暂无即将到期的执照、批复和合同');
+    expect(container.textContent).toContain('暂无即将到期的执照和合同');
   });
 });

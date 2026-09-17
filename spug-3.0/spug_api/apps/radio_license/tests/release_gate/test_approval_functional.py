@@ -94,7 +94,6 @@ class ApprovalCRUDTests(TestCase):
         self.assertFalse(body.get('error'), body)
         ap = StationFrequencyApproval.objects.get(doc_no='RG-DOC-001')
         self.assertEqual(ap.tenant_id, TENANT_A)
-        self.assertEqual(ap.responsible_user_name, self.user.nickname)
 
     def test_create_missing_required_rejected(self):
         for field in ('name', 'doc_no', 'frequency_text'):

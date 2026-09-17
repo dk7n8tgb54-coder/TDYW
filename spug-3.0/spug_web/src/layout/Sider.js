@@ -5,7 +5,6 @@ import { hasPermission, history } from 'libs';
 import styles from './layout.module.less';
 import routes from '../routes';
 import radioLicenseBadge from './RadioLicenseBadgeStore';
-import approvalBadge from './ApprovalBadgeStore';
 import coopTaskBadge from './CoopTaskBadgeStore';
 import contractAgreementBadge from './ContractAgreementBadgeStore';
 import logo from './logo-spug-white.png';
@@ -27,16 +26,16 @@ function buildOpenKeysMap(items, parents = []) {
 buildOpenKeysMap(routes);
 
 // 子菜单 path -> 对应 badge store 的映射（仅当用户有对应权限时 store 才会拉取）
+// 台站频率批复已取消主动提醒，无红点（2026-09 第一轮改造）
 const CHILD_BADGE_STORES = {
   '/radio-license': () => radioLicenseBadge,
-  '/station-frequency-approval': () => approvalBadge,
   '/coop-task': () => coopTaskBadge,
   '/contract-agreement': () => contractAgreementBadge,
 };
 
 // 父菜单 title -> 需要合计的子菜单 badge store 列表
 const PARENT_BADGE_GROUPS = {
-  '无线电执照管理': [radioLicenseBadge, approvalBadge],
+  '无线电执照管理': [radioLicenseBadge],
 };
 
 /**

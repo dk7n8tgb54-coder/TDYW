@@ -1,6 +1,6 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""上线门禁第五组：权限矩阵与租户隔离（后端接口逐项验证）。
+"""上线门禁第五组：权限矩阵与数据范围（后端接口逐项验证）。
 
 权限编码：
 - radio_license.license.view/add/edit/del
@@ -9,7 +9,9 @@
 
 覆盖：无 view 权限访问列表/详情/提醒/徽标、仅 add 不能编辑、仅 edit 不能新增、
 无 del 不能删除、无 upload/download 不能执行附件操作、
-跨租户读写删下载全部隔离、责任人下拉不泄露其他租户用户、超管行为。
+执照跨租户读写删下载全部隔离、批复跨租户全局共享但权限独立校验、
+执照责任人下拉不泄露其他租户用户、超管行为。
+（2026-09 第一轮改造：批复取消租户隔离，主动提醒与责任人接口下线。）
 """
 import json
 from datetime import date, timedelta
@@ -180,17 +182,11 @@ class ApprovalPermissionMatrixTests(TestCase):
             _grant_perms(user, _perms(*items))
         return user, _make_client(user)
 
-    def test_no_view_cannot_access_list_detail_reminder_badge(self):
+    def test_no_view_cannot_access_list_and_detail(self):
         user, client = self._user_with(('approval', 'add'), username='rg_apm_nv')
         body = client.get('/radio-license/approvals/').json()
         self.assertEqual(body.get('error'), '权限拒绝')
         body = client.get(f'/radio-license/approvals/{self.ap.id}/').json()
-        self.assertEqual(body.get('error'), '权限拒绝')
-        body = client.get('/radio-license/approvals/reminders/popup/').json()
-        self.assertEqual(body.get('error'), '权限拒绝')
-        body = client.get('/radio-license/approvals/badge/').json()
-        self.assertEqual(body.get('error'), '权限拒绝')
-        body = client.get('/radio-license/approvals/responsible-users/').json()
         self.assertEqual(body.get('error'), '权限拒绝')
 
     def test_add_only_cannot_edit(self):
@@ -231,7 +227,7 @@ class ApprovalPermissionMatrixTests(TestCase):
 
 
 class TenantIsolationTests(TestCase):
-    """跨租户读写删下载下载全隔离 + 责任人列表 + 超管行为。"""
+    """数据范围：执照仍租户隔离；批复全局共享 + 权限独立校验。"""
 
     def setUp(self):
         from apps.setting.utils import AppSetting
@@ -258,7 +254,12 @@ class TenantIsolationTests(TestCase):
             f'/radio-license/{self.lic_a.id}/attachments/',
             {'file': SimpleUploadedFile('RG-TI-A附件.pdf', b'%PDF-1.4')})
         assert not resp.json().get('error')
-        self.att_a = EvidenceAttachment.objects.get(file_name='RG-TI-A附件.pdf')
+        self.lic_att_a = EvidenceAttachment.objects.get(file_name='RG-TI-A附件.pdf')
+        resp = self.client_a.post(
+            f'/radio-license/approvals/{self.ap_a.id}/attachments/',
+            {'file': SimpleUploadedFile('RG-TI-A批复附件.pdf', b'%PDF-1.4')})
+        assert not resp.json().get('error')
+        self.ap_att_a = EvidenceAttachment.objects.get(file_name='RG-TI-A批复附件.pdf')
         # 租户 B 的数据
         self.lic_b = rg_make_license(self.user_b, station_name='RG-TI-B执照',
                                      tenant_id=TENANT_B,
@@ -266,19 +267,13 @@ class TenantIsolationTests(TestCase):
         self.ap_b = rg_make_approval(self.user_b, doc_no='RG-TI-B', tenant_id=TENANT_B,
                                      valid_to=self.today + timedelta(days=10))
 
-    def test_tenant_b_cannot_read_tenant_a(self):
+    def test_license_remains_tenant_isolated(self):
+        """执照列表/详情/编辑/删除仍按租户隔离（本轮不变更）。"""
         body = self.client_b.get('/radio-license/').json()
-        # 租户 B 只能看到自己的记录，看不到 A 的
         self.assertEqual([r['station_name'] for r in body['data']['records']],
                          ['RG-TI-B执照'])
         body = self.client_b.get(f'/radio-license/{self.lic_a.id}/').json()
         self.assertTrue(body.get('error'))
-        body = self.client_b.get('/radio-license/approvals/').json()
-        self.assertEqual(len(body['data']['records']), 1)  # 只有自己的 RG-TI-B
-        body = self.client_b.get(f'/radio-license/approvals/{self.ap_a.id}/').json()
-        self.assertTrue(body.get('error'))
-
-    def test_tenant_b_cannot_modify_tenant_a(self):
         payload = rg_license_payload(self.user_b, station_name='RG-TI-篡改')
         payload['id'] = self.lic_a.id
         body = self.client_b.post('/radio-license/', data=json.dumps(payload),
@@ -286,51 +281,70 @@ class TenantIsolationTests(TestCase):
         self.assertTrue(body.get('error'))
         self.lic_a.refresh_from_db()
         self.assertEqual(self.lic_a.station_name, 'RG-TI-A执照')
-        payload = rg_approval_payload(self.user_b, doc_no='RG-TI-篡改')
-        payload['id'] = self.ap_a.id
-        body = self.client_b.post('/radio-license/approvals/', data=json.dumps(payload),
-                                  content_type='application/json').json()
-        self.assertTrue(body.get('error'))
-
-    def test_tenant_b_cannot_delete_tenant_a(self):
         body = self.client_b.delete(f'/radio-license/?id={self.lic_a.id}').json()
         self.assertTrue(body.get('error'))
         self.assertTrue(RadioLicense.objects.filter(pk=self.lic_a.id).exists())
+
+    def test_approval_global_visible_to_permitted_users(self):
+        """有 approval.view 的用户跨租户看到相同的全部批复。"""
+        for client in (self.client_a, self.client_b):
+            body = client.get('/radio-license/approvals/').json()
+            doc_nos = {r['doc_no'] for r in body['data']['records']}
+            self.assertEqual(doc_nos, {'RG-TI-A', 'RG-TI-B'})
+            body = client.get(f'/radio-license/approvals/{self.ap_a.id}/').json()
+            self.assertFalse(body.get('error'))
+            self.assertEqual(body['data']['doc_no'], 'RG-TI-A')
+
+    def test_approval_cross_tenant_edit_and_delete_by_perms(self):
+        """跨租户编辑/删除由 approval.edit / approval.del 独立约束。"""
+        payload = rg_approval_payload(self.user_b, doc_no='RG-TI-A')
+        payload['id'] = self.ap_a.id
+        body = self.client_b.post('/radio-license/approvals/',
+                                  data=json.dumps(payload),
+                                  content_type='application/json').json()
+        self.assertFalse(body.get('error'), body)
+        self.ap_a.refresh_from_db()
+        self.assertEqual(self.ap_a.tenant_id, TENANT_A, '编辑不得改写来源租户')
         body = self.client_b.delete(f'/radio-license/approvals/?id={self.ap_a.id}').json()
-        self.assertTrue(body.get('error'))
-        self.assertTrue(StationFrequencyApproval.objects.filter(pk=self.ap_a.id).exists())
+        self.assertFalse(body.get('error'), body)
+        self.assertFalse(
+            StationFrequencyApproval.objects.filter(pk=self.ap_a.id).exists())
 
-    def test_tenant_b_cannot_download_tenant_a_attachment(self):
+    def test_approval_attachment_cross_tenant_access(self):
+        """跨租户列出/下载/预览批复附件；执照附件仍租户隔离。"""
+        # 批复附件：B 用户可列出、下载、预览 A 的批复附件
         body = self.client_b.get(
-            f'/radio-license/attachments/{self.att_a.id}/download/').json()
-        self.assertTrue(body.get('error'))
+            f'/radio-license/approvals/{self.ap_a.id}/attachments/').json()
+        self.assertFalse(body.get('error'), body)
+        names = [a['file_name'] for a in body['data']]
+        self.assertEqual(names, ['RG-TI-A批复附件.pdf'])
+        resp = self.client_b.get(
+            f'/radio-license/approvals/attachments/{self.ap_att_a.id}/download/')
+        self.assertEqual(resp.status_code, 200)
         body = self.client_b.get(
-            f'/radio-license/approvals/attachments/{self.att_a.id}/download/').json()
+            f'/radio-license/approvals/attachments/{self.ap_att_a.id}/preview-url/').json()
+        self.assertFalse(body.get('error'), body)
+        self.assertIn('preview_url', body['data'])
+        # 执照附件：B 用户仍不可下载 A 的执照附件
+        body = self.client_b.get(
+            f'/radio-license/attachments/{self.lic_att_a.id}/download/').json()
         self.assertTrue(body.get('error'))
 
-    def test_tenant_b_cannot_see_tenant_a_reminders(self):
-        """popup 只返回本租户本人负责的记录。"""
-        # user_b 负责自己的执照，但不应看到 A 的
+    def test_license_attachment_and_reminders_unchanged(self):
+        """执照 popup 仍只返回本租户本人负责记录（提醒行为不变）。"""
         body = self.client_b.get('/radio-license/reminders/popup/').json()
         names = [r['station_name'] for r in body['data']['records']]
         self.assertEqual(names, ['RG-TI-B执照'])
-        body = self.client_b.get('/radio-license/approvals/reminders/popup/').json()
-        doc_nos = [r['doc_no'] for r in body['data']['records']]
-        self.assertEqual(doc_nos, ['RG-TI-B'])
 
-    def test_responsible_users_isolated_by_tenant(self):
+    def test_license_responsible_users_isolated_by_tenant(self):
+        """执照责任人列表不泄露其他租户用户。"""
         body = self.client_a.get('/radio-license/responsible-users/').json()
         ids = [u['id'] for u in body['data']]
         self.assertIn(self.user_a.id, ids)
         self.assertNotIn(self.user_b.id, ids, '执照责任人列表不得泄露其他租户用户')
-        body = self.client_b.get('/radio-license/approvals/responsible-users/').json()
-        ids = [u['id'] for u in body['data']]
-        self.assertIn(self.user_b.id, ids)
-        self.assertNotIn(self.user_a.id, ids, '批复责任人列表不得泄露其他租户用户')
 
-    def test_responsible_users_exclude_disabled_and_soft_deleted(self):
-        """禁用用户、软删用户不得出现在责任人下拉。"""
-        from django.utils import timezone
+    def test_license_responsible_users_exclude_disabled_and_soft_deleted(self):
+        """禁用用户、软删用户不得出现在执照责任人下拉。"""
         disabled = _make_user('rg_ti_disabled', tenant_id=TENANT_A, is_active=False)
         deleted = _make_user('rg_ti_deleted', tenant_id=TENANT_A)
         User.objects.filter(pk=deleted.id).update(deleted_by=self.user_a)
@@ -355,31 +369,30 @@ class TenantIsolationTests(TestCase):
         body = client.get('/radio-license/999999/').json()
         self.assertTrue(body.get('error'))
         # 软删除附件不可下载（软删除校验不被权限绕过）
-        EvidenceAttachment.objects.filter(pk=self.att_a.id).update(is_deleted=True)
-        body = client.get(f'/radio-license/attachments/{self.att_a.id}/download/').json()
+        EvidenceAttachment.objects.filter(pk=self.lic_att_a.id).update(is_deleted=True)
+        body = client.get(
+            f'/radio-license/attachments/{self.lic_att_a.id}/download/').json()
         self.assertTrue(body.get('error'), '超管不得下载已软删除附件')
 
 
-class ResponsibleUserLeakTests(TestCase):
-    """责任人列表泄露专项（执照 + 批复两个端点）。"""
+class LicenseResponsibleUserLeakTests(TestCase):
+    """执照责任人列表泄露专项。"""
 
     def setUp(self):
         from apps.setting.utils import AppSetting
         AppSetting.set('bind_ip', False)
         self.user_a = _make_user('rg_leak_a', tenant_id=TENANT_A)
-        _grant_perms(self.user_a, _perms(('license', 'view'), ('approval', 'view')))
+        _grant_perms(self.user_a, _perms(('license', 'view')))
         self.client_a = _make_client(self.user_a)
         self.user_b = _make_user('rg_leak_b', tenant_id=TENANT_B)
-        _grant_perms(self.user_b, _perms(('license', 'view'), ('approval', 'view')))
+        _grant_perms(self.user_b, _perms(('license', 'view')))
 
-    def test_both_responsible_user_endpoints_do_not_leak(self):
-        for path in ('/radio-license/responsible-users/',
-                     '/radio-license/approvals/responsible-users/'):
-            body = self.client_a.get(path).json()
-            self.assertFalse(body.get('error'), body)
-            usernames = [u['username'] for u in body['data']]
-            self.assertIn('rg_leak_a', usernames)
-            self.assertNotIn('rg_leak_b', usernames, f'{path} 泄露了其他租户用户')
-            # 不返回敏感字段
-            for u in body['data']:
-                self.assertEqual(sorted(u.keys()), ['id', 'nickname', 'username'])
+    def test_license_responsible_user_endpoint_does_not_leak(self):
+        body = self.client_a.get('/radio-license/responsible-users/').json()
+        self.assertFalse(body.get('error'), body)
+        usernames = [u['username'] for u in body['data']]
+        self.assertIn('rg_leak_a', usernames)
+        self.assertNotIn('rg_leak_b', usernames, '执照责任人列表泄露了其他租户用户')
+        # 不返回敏感字段
+        for u in body['data']:
+            self.assertEqual(sorted(u.keys()), ['id', 'nickname', 'username'])

@@ -609,19 +609,21 @@ class AttachmentService:
         return None
 
     @staticmethod
-    def soft_delete_by_object(user, module: str, object_type: str, object_id, reason='', delete_file: bool = False):
+    def soft_delete_by_object(user, module: str, object_type: str, object_id, reason='',
+                              delete_file: bool = False, skip_tenant_filter: bool = False):
         """批量软删除某业务对象下的所有附件（用于业务对象删除时联动）
 
         delete_file=True 时在数据库事务提交后尽力删除物理文件。失败只记错误并保留文件，
         避免数据库回滚后物理文件已经丢失。
+
+        skip_tenant_filter=True 时跳过租户过滤（由调用方完成父对象归属与权限校验），
+        仅按 module/object_type/object_id 匹配；默认 False，原调用方行为不变。
         """
-        qs = apply_tenant_filter(
-            EvidenceAttachment.objects.filter(
-                module=module, object_type=object_type,
-                object_id=str(object_id), is_deleted=False,
-            ),
-            user,
+        base_qs = EvidenceAttachment.objects.filter(
+            module=module, object_type=object_type,
+            object_id=str(object_id), is_deleted=False,
         )
+        qs = base_qs if skip_tenant_filter else apply_tenant_filter(base_qs, user)
         now = timezone.now()
         uid = getattr(user, 'id', None)
         uname = user.nickname or user.username

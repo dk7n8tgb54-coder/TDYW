@@ -6,6 +6,7 @@
  * - 提交成功：message.success、关闭弹窗、刷新列表
  * - 提交失败：弹窗保持打开
  * - 详情模式：渲染业务字段与附件区
+ * - 2026-09 第一轮改造：不再渲染责任人字段、不再请求责任人候选接口
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -13,10 +14,11 @@ import {act} from 'react-dom/test-utils';
 import {message} from 'antd';
 
 const mockHttpPost = jest.fn();
+const mockHttpGet = jest.fn().mockResolvedValue([]);
 
 jest.mock('libs', () => ({
   http: {
-    get: jest.fn().mockResolvedValue([]),
+    get: mockHttpGet,
     post: mockHttpPost,
     delete: jest.fn(),
   },
@@ -51,8 +53,6 @@ const FULL_RECORD = {
   frequency_text: '88-108 MHz',
   valid_from: '2026-01-01',
   valid_to: '2027-01-01',
-  responsible_user_id: 4,
-  responsible_user_name: 'RG-责任人',
 };
 
 let container = null;
@@ -90,12 +90,10 @@ function okButton() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockHttpGet.mockResolvedValue([]);
   messageSuccessSpy = jest.spyOn(message, 'success').mockImplementation(() => {});
   messageErrorSpy = jest.spyOn(message, 'error').mockImplementation(() => {});
   sessionStorage.setItem('token', 'rg-test-token');
-  S.responsibleUsers = [{id: 4, nickname: 'RG-责任人', username: 'rg_resp'}];
-  S.responsibleUsersLoaded = true;
-  S._responsibleUsersToken = 'rg-test-token';
   S.formVisible = true;
   S.detailVisible = false;
   S.record = {};
@@ -174,5 +172,30 @@ describe('批复 Form：详情模式', () => {
     expect(text).toContain('RG-FORM-DOC');
     expect(text).toContain('已过期');
     expect(q('[data-testid="attachment-manager"]').length).toBeGreaterThan(0);
+  });
+
+  it('详情与表单不再展示责任人字段', () => {
+    S.detailVisible = true;
+    S.formVisible = false;
+    S.record = {
+      ...FULL_RECORD,
+      responsible_user_name: 'RG-历史责任人快照',
+    };
+    renderForm();
+    const text = document.body.textContent;
+    expect(text).not.toContain('责任人');
+    expect(text).not.toContain('RG-历史责任人快照');
+  });
+});
+
+describe('批复 Form：责任人已移除（2026-09 第一轮改造）', () => {
+  it('打开表单不再请求责任人候选接口', () => {
+    S.record = {...FULL_RECORD};
+    renderForm();
+    const responsibleCalls = mockHttpGet.mock.calls
+      .filter(([url]) => String(url).includes('responsible-users'));
+    expect(responsibleCalls).toHaveLength(0);
+    // 详情/表单页均无责任人选择框
+    expect(document.querySelectorAll('.ant-select')).toHaveLength(0);
   });
 });

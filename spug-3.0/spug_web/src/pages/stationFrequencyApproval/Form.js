@@ -1,16 +1,15 @@
 /**
  * 台站频率批复表单（新增 / 编辑 / 详情三态）。
  *
- * 设计方案 9.2：
- * - 字段：文件名称、文件编号、批复频率、起始日期、截止日期、责任人、备注
+ * 设计方案 9.2（2026-09 第一轮改造后）：
+ * - 字段：文件名称、文件编号、批复频率、起始日期、截止日期、备注（责任人已移除）
  * - 前端日期校验即时反馈，后端仍执行最终校验
- * - 责任人下拉使用批复专属 /approvals/responsible-users/ 接口
  * - 附件只在记录已经创建并取得 id 后显示（详情态）
  * - 统一 POST /api/radio-license/approvals/ 接口：带 id 编辑，不带 id 新增
  */
 import React, { useState, useRef } from 'react';
 import { observer } from 'mobx-react';
-import { Modal, Form, Input, Select, DatePicker, Button, message, Descriptions, Tag, Divider } from 'antd';
+import { Modal, Form, Input, DatePicker, Button, message, Descriptions, Tag, Divider } from 'antd';
 import { http, hasPermission } from 'libs';
 import moment from 'moment';
 import S from './store';
@@ -51,8 +50,6 @@ export default observer(function () {
       initialValues.valid_to = moment(initialValues.valid_to);
     }
     form.setFieldsValue(initialValues);
-    // 加载可选责任人列表（必填项需要）
-    S.fetchResponsibleUsers();
   }, [form]);
 
   function handleSubmit() {
@@ -132,7 +129,6 @@ export default observer(function () {
                 ? <span style={{ color: '#ff4d4f' }}>已过期 {Math.abs(info.days_left)} 天</span>
                 : <span style={info.days_left <= 60 ? { color: '#fa8c16' } : undefined}>{info.days_left} 天</span>)}
           </Descriptions.Item>
-          <Descriptions.Item label="责任人">{info.responsible_user_name || '-'}</Descriptions.Item>
           <Descriptions.Item label="附件数">{info.attachment_count ?? 0}</Descriptions.Item>
           <Descriptions.Item label="备注" span={2}>
             <div style={{ whiteSpace: 'pre-wrap', maxHeight: 200, overflowY: 'auto' }}>
@@ -207,37 +203,6 @@ export default observer(function () {
         </Form.Item>
         <Form.Item required name="valid_to" label="截止日期" rules={[{ required: true, message: '请选择截止日期' }]}>
           <DatePicker style={{ width: '100%' }} placeholder="请选择截止日期" />
-        </Form.Item>
-        <Form.Item
-          required
-          name="responsible_user_id"
-          label="责任人"
-          rules={[{ required: true, message: '请选择责任人' }]}>
-          <Select
-            showSearch
-            allowClear
-            placeholder="请选择责任人（按姓名/账号搜索）"
-            optionFilterProp="label"
-            loading={!S.responsibleUsersLoaded}
-            notFoundContent={S.responsibleUsersLoaded ? '暂无可选用户' : '加载中...'}
-            onChange={(value) => {
-              // 选中后自动回填姓名（后端也会校验并覆盖一次）
-              const u = S.responsibleUsers.find(x => x.id === value);
-              if (u) form.setFieldsValue({ responsible_user_name: u.nickname || u.username });
-            }}>
-            {S.responsibleUsers.map(u => (
-              <Select.Option
-                key={u.id}
-                value={u.id}
-                label={`${u.nickname} ${u.username}`}>
-                {u.nickname}（{u.username}）
-              </Select.Option>
-            ))}
-          </Select>
-        </Form.Item>
-        {/* 隐藏字段，提交时同步携带姓名（后端会自动用真名覆盖） */}
-        <Form.Item name="responsible_user_name" hidden noStyle>
-          <Input />
         </Form.Item>
         <Form.Item name="remark" label="备注">
           <Input.TextArea rows={3} placeholder="请输入备注（非必填）" maxLength={500} />

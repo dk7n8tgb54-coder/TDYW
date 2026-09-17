@@ -25,7 +25,6 @@ jest.mock('../store', () => ({
     valid_to: '2026-09-30',
     days_left: 10,
     computed_status: 'expiring',
-    responsible_user_name: 'RG-责任人',
     attachment_count: 1,
     created_by_name: 'RG-创建人',
     created_at: '2026-08-01 10:00:00',
@@ -111,6 +110,17 @@ describe('批复 Table 权限门控', () => {
     const newBtn = Array.from(container.querySelectorAll('button'))
       .find(btn => btn.textContent.includes('新建'));
     expect(newBtn).toBeTruthy();
+  });
+
+  it('列表不再展示责任人列（2026-09 第一轮改造）', () => {
+    sessionStorage.setItem('is_supper', 'true');
+    updatePermissions();
+    renderTable();
+    const headerTexts = Array.from(container.querySelectorAll('.ant-table-thead th'))
+      .map(th => th.textContent.trim());
+    expect(headerTexts).not.toContain('责任人');
+    // 行数据即便残留历史 responsible_user_name 也不渲染
+    expect(container.textContent).not.toContain('RG-责任人');
   });
 
   it('仅查看权限用户渲染操作列且只有查看按钮（与执照表口径一致）', () => {

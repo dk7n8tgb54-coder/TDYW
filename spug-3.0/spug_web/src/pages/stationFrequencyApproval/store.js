@@ -1,10 +1,9 @@
 /**
  * 台站频率批复 MobX Store。
  *
- * 设计方案第九节：
+ * 设计方案第九节（2026-09 第一轮改造后）：
  * - 列表 / 分页 / 筛选（文件名称、文件编号、状态、截止日期范围）
- * - 责任人懒加载
- * - 表单 / 详情状态切换
+ * - 表单 / 详情状态切换（责任人及候选接口已移除）
  * - 深链 ?id= 加载详情
  */
 import { observable } from 'mobx';
@@ -35,12 +34,6 @@ class Store {
     { value: 'expiring', label: '即将到期' },
     { value: 'expired', label: '已过期' },
   ];
-
-  // ========== 可选责任人 ==========
-  @observable responsibleUsers = [];
-  @observable responsibleUsersLoaded = false;
-  // 拉取责任人列表时使用的登录 token（非响应式，仅作缓存指纹）
-  _responsibleUsersToken = null;
 
   // ========== 请求生命周期守卫 ==========
   // 请求序列号：每次 fetchRecords 单调递增，只有最新请求可写入列表状态，
@@ -93,30 +86,6 @@ class Store {
       .finally(() => {
         // 仅最新请求有权复位 loading，避免旧请求提前关闭新请求的加载态
         if (seq === this._fetchSeq && this._active) { this.isFetching = false; }
-      });
-  };
-
-  /**
-   * 拉取可选责任人列表（懒加载，首次进入表单时调用）。
-   * 后端只返回当前租户内启用且未删除的用户。
-   * 本 store 为模块级单例，同一浏览器切换账号（登出不刷新页面）后仍在内存，
-   * 记录拉取时的登录 token，token 变化即强制重拉，避免残留上一账号租户的责任人。
-   */
-  fetchResponsibleUsers = () => {
-    const token = sessionStorage.getItem('token');
-    if (this.responsibleUsersLoaded && token === this._responsibleUsersToken) {
-      return Promise.resolve(this.responsibleUsers);
-    }
-    return http.get('/api/radio-license/approvals/responsible-users/')
-      .then(res => {
-        this.responsibleUsers = res || [];
-        this.responsibleUsersLoaded = true;
-        this._responsibleUsersToken = token;
-        return this.responsibleUsers;
-      })
-      .catch(e => {
-        console.error('[台站频率批复] 获取责任人列表失败:', e);
-        return [];
       });
   };
 

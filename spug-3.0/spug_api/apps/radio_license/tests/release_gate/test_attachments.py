@@ -226,20 +226,25 @@ class AttachmentIsolationTests(TestCase):
         self.assertEqual(names, ['RG-A批复附件.pdf'])
 
     def test_cross_tenant_download_rejected(self):
+        """执照附件仍租户隔离；批复附件对有权限用户全局可下载。"""
         body = self.client_b.get(f'/radio-license/attachments/{self.lic_att.id}/download/').json()
         self.assertTrue(body.get('error'))
-        body = self.client_b.get(
-            f'/radio-license/approvals/attachments/{self.ap_att.id}/download/').json()
-        self.assertTrue(body.get('error'))
+        resp = self.client_b.get(
+            f'/radio-license/approvals/attachments/{self.ap_att.id}/download/')
+        self.assertEqual(resp.status_code, 200,
+                         '批复附件跨租户下载应放行（父批复已校验）')
 
     def test_cross_tenant_upload_rejected(self):
+        """执照附件不可跨租户上传；批复附件跨租户上传放行且归属父批复租户。"""
         resp = self.client_b.post(
             f'/radio-license/{self.lic_a.id}/attachments/', {'file': _pdf('RG-B越权.pdf')})
         self.assertTrue(resp.json().get('error'))
         resp = self.client_b.post(
-            f'/radio-license/approvals/{self.ap_a.id}/attachments/', {'file': _pdf('RG-B越权.pdf')})
-        self.assertTrue(resp.json().get('error'))
-        self.assertFalse(EvidenceAttachment.objects.filter(file_name='RG-B越权.pdf').exists())
+            f'/radio-license/approvals/{self.ap_a.id}/attachments/', {'file': _pdf('RG-B越权批复.pdf')})
+        self.assertFalse(resp.json().get('error'), resp.json())
+        att = EvidenceAttachment.objects.get(file_name='RG-B越权批复.pdf')
+        # 新附件归属父批复租户（TENANT_A），而非上传人租户（TENANT_B）
+        self.assertEqual(att.tenant_id, TENANT_A)
 
     def test_cross_tenant_delete_rejected(self):
         resp = self.client_b.delete(f'/radio-license/attachments/?id={self.lic_att.id}')
@@ -397,11 +402,7 @@ class ObjectDeletionCascadeTests(TestCase):
         self.assertFalse(os.path.exists(full_path))
 
     def test_delete_approval_cascades(self):
-        from apps.radio_license.models import StationFrequencyApprovalReminderAck
         ap = rg_make_approval(self.user, doc_no='RG-CASC-批复')
-        StationFrequencyApprovalReminderAck.objects.create(
-            tenant_id=TENANT_A, approval=ap, user_id=self.user.id,
-            user_name=self.user.nickname, ack_valid_to=ap.valid_to)
         resp = self.client.post(
             f'/radio-license/approvals/{ap.id}/attachments/', {'file': _pdf('RG-CASC批复附件.pdf')})
         self.assertFalse(resp.json().get('error'), resp.json())
@@ -409,11 +410,9 @@ class ObjectDeletionCascadeTests(TestCase):
 
         resp = self.client.delete(f'/radio-license/approvals/?id={ap.id}')
         self.assertFalse(resp.json().get('error'))
-        # 批复、ack 物理删除
+        # 批复物理删除
         self.assertFalse(
             StationFrequencyApproval.objects.filter(pk=ap.id).exists())
-        self.assertFalse(
-            StationFrequencyApprovalReminderAck.objects.filter(approval_id=ap.id).exists())
         # 附件软删除，记录保留
         att.refresh_from_db()
         self.assertTrue(att.is_deleted)

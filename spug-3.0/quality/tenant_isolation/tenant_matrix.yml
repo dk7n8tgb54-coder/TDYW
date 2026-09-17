@@ -251,11 +251,12 @@ modules:
       - name: StationFrequencyApproval
         table: radio_license_stationfrequencyapproval
         tenant_field: tenant_id
-        classification: tenant_private
+        classification: global
         manager: TenantModelManager
         soft_delete: true
-        tested: false
+        tested: true
         risk: MEDIUM
+        notes: "2026-09 起有 approval 权限用户全局共享（显式例外）；tenant_id 仅作来源/附件归属/审计，访问边界为 radio_license.approval.* 权限；附件先校验父批复再 skip_tenant_filter"
 
   contract_agreement:
     models:

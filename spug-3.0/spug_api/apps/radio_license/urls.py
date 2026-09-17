@@ -8,11 +8,8 @@ from apps.radio_license.approval_views import *  # 批复相关视图（从 view
 
 urlpatterns = [
     # ===== 台站频率批复（固定路径在前，数字主键在后）=====
+    # 无主动提醒：popup/ack/badge/责任人候选接口已于 2026-09 第一轮改造移除
     re_path(r'^approvals/$', StationFrequencyApprovalView.as_view()),
-    re_path(r'^approvals/responsible-users/$', ApprovalResponsibleUserListView.as_view()),
-    re_path(r'^approvals/reminders/popup/$', ApprovalReminderPopupView.as_view()),
-    re_path(r'^approvals/reminders/ack/$', ApprovalReminderAckView.as_view()),
-    re_path(r'^approvals/badge/$', ApprovalBadgeView.as_view()),
 
     re_path(r'^approvals/attachments/(?P<pk>\d+)/download/$', ApprovalAttachmentDownloadView.as_view()),
     re_path(r'^approvals/attachments/(?P<pk>\d+)/preview-url/$', ApprovalAttachmentPreviewUrlView.as_view()),

@@ -8,7 +8,7 @@ import { Switch, Route } from 'react-router-dom';
 import { Layout } from 'antd';
 import { NotFound } from 'components';
 import ExpirationReminderNotification from 'components/ExpirationReminderNotification';
-import { licenseReminderConfig, approvalReminderConfig } from 'components/expirationReminderConfigs';
+import { licenseReminderConfig } from 'components/expirationReminderConfigs';
 import ContractAgreementReminderNotification from 'components/ContractAgreementReminderNotification';
 import ReleaseNoteNotification from '../pages/release/ReleaseNoteNotification';
 import ReleaseNoteDrawer from '../pages/release/ReleaseNoteDrawer';
@@ -18,7 +18,6 @@ import Header from './Header';
 import Footer from './Footer'
 import routes from '../routes';
 import radioLicenseBadge from './RadioLicenseBadgeStore';
-import approvalBadge from './ApprovalBadgeStore';
 import coopTaskBadge from './CoopTaskBadgeStore';
 import contractAgreementBadge from './ContractAgreementBadgeStore';
 import alertStore from './AlertStore';
@@ -64,9 +63,8 @@ export default function () {
     const Routes = [];
     initRoutes(Routes, routes);
     setRoutes(Routes)
-    // 启动无线电台执照菜单红点轮询
+    // 启动菜单红点轮询（批复已取消主动提醒，无红点）
     radioLicenseBadge.start();
-    approvalBadge.start();
     coopTaskBadge.start();
     contractAgreementBadge.start();
     alertStore.start();
@@ -74,7 +72,6 @@ export default function () {
     releaseNoteStore.fetchVersion();
     return () => {
       radioLicenseBadge.stop();
-      approvalBadge.stop();
       coopTaskBadge.stop();
       contractAgreementBadge.stop();
       alertStore.stop();
@@ -95,7 +92,6 @@ export default function () {
         <Footer/>
       </Layout>
       <ExpirationReminderNotification config={licenseReminderConfig}/>
-      <ExpirationReminderNotification config={approvalReminderConfig}/>
       <ContractAgreementReminderNotification/>
       <ReleaseNoteNotification/>
       <ReleaseNoteDrawer/>
