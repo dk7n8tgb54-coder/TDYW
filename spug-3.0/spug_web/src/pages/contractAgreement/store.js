@@ -35,6 +35,7 @@ class Store {
     {value: 'normal', label: '正常'},
     {value: 'expiring', label: '即将到期'},
     {value: 'expired', label: '已关闭'},
+    {value: 'long_term', label: '长期有效'},
   ];
 
   // ========== 可选责任人列表 ==========

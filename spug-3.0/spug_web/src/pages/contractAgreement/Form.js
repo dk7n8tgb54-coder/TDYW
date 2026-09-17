@@ -15,7 +15,11 @@ const STATUS_TAG_MAP = {
   normal: {color: 'green', text: '正常'},
   expiring: {color: 'orange', text: '即将到期'},
   expired: {color: 'default', text: '已关闭'},
+  long_term: {color: 'blue', text: '长期有效'},
 };
+
+const VALIDITY_FIXED = 'fixed';
+const VALIDITY_LONG_TERM = 'long_term';
 
 export default observer(function () {
   const [form] = Form.useForm();
@@ -29,6 +33,8 @@ export default observer(function () {
 
   const initialValues = {
     ...info,
+    // 期限类型：既有记录未携带时默认固定期限，保持原有操作习惯
+    validity_type: info.validity_type || VALIDITY_FIXED,
     has_fee: !!info.has_fee,
   };
   if (initialValues.valid_start_date) {
@@ -39,13 +45,20 @@ export default observer(function () {
   }
 
   function handleSubmit() {
+    // 校验失败由 Form 自身展示字段错误；catch 避免未处理拒绝（浏览器控制台报错）
     form.validateFields().then(() => {
       const formData = form.getFieldsValue();
+      if (!formData.validity_type) {
+        formData.validity_type = VALIDITY_FIXED;
+      }
+      if (formData.validity_type === VALIDITY_LONG_TERM) {
+        // 长期有效：请求中明确提交 valid_end_date=null，清掉表单残留的旧截止日期
+        formData.valid_end_date = null;
+      } else if (formData.valid_end_date) {
+        formData.valid_end_date = formData.valid_end_date.format('YYYY-MM-DD');
+      }
       if (formData.valid_start_date) {
         formData.valid_start_date = formData.valid_start_date.format('YYYY-MM-DD');
-      }
-      if (formData.valid_end_date) {
-        formData.valid_end_date = formData.valid_end_date.format('YYYY-MM-DD');
       }
       if (!formData.has_fee) {
         formData.fee_amount = null;
@@ -68,6 +81,8 @@ export default observer(function () {
           console.error('[合同协议] 提交失败:', e);
         })
         .finally(() => setLoading(false));
+    }).catch(() => {
+      // 校验拒绝：字段错误提示由 Form 渲染，无需额外处理
     });
   }
 
@@ -101,7 +116,9 @@ export default observer(function () {
           <Descriptions.Item label="合同编号">{info.contract_no || '-'}</Descriptions.Item>
           <Descriptions.Item label="类型">{info.contract_type_display || '-'}</Descriptions.Item>
           <Descriptions.Item label="起始日期">{info.valid_start_date || '-'}</Descriptions.Item>
-          <Descriptions.Item label="截止日期">{info.valid_end_date || '-'}</Descriptions.Item>
+          <Descriptions.Item label="截止日期">
+            {info.validity_type === VALIDITY_LONG_TERM ? '长期有效' : (info.valid_end_date || '-')}
+          </Descriptions.Item>
           <Descriptions.Item label="剩余天数">{renderDaysLeft(info)}</Descriptions.Item>
           <Descriptions.Item label="责任人">{info.responsible_user_name || '-'}</Descriptions.Item>
           <Descriptions.Item label="费用">{info.has_fee ? `人民币 ${info.fee_amount || '0.00'}` : '无'}</Descriptions.Item>
@@ -171,25 +188,36 @@ export default observer(function () {
             ))}
           </Select>
         </Form.Item>
+        <Form.Item name="validity_type" label="期限类型" rules={[{required: true}]}>
+          <Radio.Group>
+            <Radio value={VALIDITY_FIXED}>固定期限</Radio>
+            <Radio value={VALIDITY_LONG_TERM}>长期有效</Radio>
+          </Radio.Group>
+        </Form.Item>
         <Form.Item name="valid_start_date" label="起始日期" rules={[{required: true, message: '请选择起始日期'}]}>
           <DatePicker style={{width: '100%'}} placeholder="请选择起始日期"/>
         </Form.Item>
-        <Form.Item
-          name="valid_end_date"
-          label="截止日期"
-          rules={[
-            {required: true, message: '请选择截止日期'},
-            ({getFieldValue}) => ({
-              validator(_, value) {
-                const start = getFieldValue('valid_start_date');
-                if (!start || !value || !value.isBefore(start, 'day')) {
-                  return Promise.resolve();
-                }
-                return Promise.reject(new Error('截止日期不能早于起始日期'));
-              }
-            })
-          ]}>
-          <DatePicker style={{width: '100%'}} placeholder="请选择截止日期"/>
+        <Form.Item noStyle shouldUpdate={(prev, cur) => prev.validity_type !== cur.validity_type}>
+          {({getFieldValue}) => getFieldValue('validity_type') === VALIDITY_LONG_TERM ? null : (
+            <Form.Item
+              name="valid_end_date"
+              label="截止日期"
+              preserve={false}
+              rules={[
+                {required: true, message: '请选择截止日期'},
+                ({getFieldValue}) => ({
+                  validator(_, value) {
+                    const start = getFieldValue('valid_start_date');
+                    if (!start || !value || !value.isBefore(start, 'day')) {
+                      return Promise.resolve();
+                    }
+                    return Promise.reject(new Error('截止日期不能早于起始日期'));
+                  }
+                })
+              ]}>
+              <DatePicker style={{width: '100%'}} placeholder="请选择截止日期"/>
+            </Form.Item>
+          )}
         </Form.Item>
         <Form.Item
           required

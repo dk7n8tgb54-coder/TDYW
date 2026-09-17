@@ -72,6 +72,17 @@ describe('合同协议 Store fetchRecords', () => {
     expect(params).toEqual({page: 1, page_size: 20});
   });
 
+  it('状态筛选可提交 long_term 且状态选项包含长期有效', () => {
+    const store = freshStore();
+    store.f_status = 'long_term';
+    mockHttpGet.mockReturnValue(new Promise(() => {}));
+    store.fetchRecords();
+    const {params} = mockHttpGet.mock.calls[0][1];
+    expect(params.status).toBe('long_term');
+    // 筛选下拉的选项来自 store.statusOptions，必须含「长期有效」
+    expect(store.statusOptions).toContainEqual({value: 'long_term', label: '长期有效'});
+  });
+
   it('成功后更新列表数据并复位 isFetching', async () => {
     const store = freshStore();
     mockHttpGet.mockResolvedValue({

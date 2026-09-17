@@ -21,7 +21,7 @@ from .models import (
     ContractAgreementReminderAck,
     EXPIRING_DAYS_THRESHOLD,
 )
-from .tasks import calculate_agreement_status, scan_single_contract_agreement
+from .tasks import resolve_agreement_status, scan_single_contract_agreement
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,7 @@ STATUS_DISPLAY_MAP = {
     'normal': '正常',
     'expiring': '即将到期',
     'expired': '已关闭',
+    'long_term': '长期有效',
 }
 
 # 字段长度上限（与模型 CharField max_length 对齐，DEF-05 修复：服务端前置校验，
@@ -135,10 +136,12 @@ def _get_contract_attachment_for_user(user, attachment_id):
 
 
 def _serialize_agreement(agreement, user=None, include_attachment_count=True):
-    status, days_left = calculate_agreement_status(agreement.valid_end_date)
+    status, days_left = resolve_agreement_status(agreement)
     data = agreement.to_view()
     data.update({
         'contract_type_display': agreement.contract_type_display,
+        'validity_type': agreement.validity_type,
+        'validity_type_display': agreement.validity_type_display,
         'valid_start_date': _fmt_date(agreement.valid_start_date),
         'valid_end_date': _fmt_date(agreement.valid_end_date),
         'fee_amount': _fmt_decimal(agreement.fee_amount),
@@ -161,14 +164,23 @@ def _validate_form(form, request_user):
     length_error = _validate_field_lengths(form)
     if length_error:
         return None, length_error
+    # 期限类型：未提交默认 fixed（兼容既有调用习惯），非法值拒绝
+    validity_type = form.validity_type or ContractAgreement.VALIDITY_FIXED
+    if validity_type not in dict(ContractAgreement.VALIDITY_TYPE_CHOICES):
+        return None, '未知的期限类型'
     valid_start_date, error = _parse_date(form.valid_start_date, '起始日期')
     if error:
         return None, error
-    valid_end_date, error = _parse_date(form.valid_end_date, '截止日期')
-    if error:
-        return None, error
-    if valid_start_date > valid_end_date:
-        return None, '起始日期不能晚于截止日期'
+    if validity_type == ContractAgreement.VALIDITY_LONG_TERM:
+        if form.valid_end_date:
+            return None, '长期有效合同不能填写截止日期'
+        valid_end_date = None
+    else:
+        valid_end_date, error = _parse_date(form.valid_end_date, '截止日期')
+        if error:
+            return None, error
+        if valid_start_date > valid_end_date:
+            return None, '起始日期不能晚于截止日期'
 
     if form.contract_type not in dict(ContractAgreement.CONTRACT_TYPE_CHOICES):
         return None, '未知的合同类型'
@@ -197,6 +209,7 @@ def _validate_form(form, request_user):
         'contract_name': form.contract_name.strip(),
         'contract_no': (form.contract_no or '').strip(),
         'contract_type': form.contract_type,
+        'validity_type': validity_type,
         'valid_start_date': valid_start_date,
         'valid_end_date': valid_end_date,
         'has_fee': has_fee,
@@ -236,17 +249,25 @@ class ContractAgreementView(View):
             qs = qs.filter(contract_type=contract_type)
         if status:
             # 状态筛选按 valid_to 实时范围过滤（与展示的 computed_status 口径一致，
-            # 不依赖 Celery 扫描落库的 status 列），范式同批复 _apply_approval_status_filter
+            # 不依赖 Celery 扫描落库的 status 列），范式同批复 _apply_approval_status_filter。
+            # normal/expiring/expired 仅适用于固定期限合同；long_term 按期限类型筛选
             today = date.today()
-            if status == ContractAgreement.STATUS_EXPIRED:
-                qs = qs.filter(valid_end_date__lt=today)
+            if status == ContractAgreement.STATUS_LONG_TERM:
+                qs = qs.filter(validity_type=ContractAgreement.VALIDITY_LONG_TERM)
+            elif status == ContractAgreement.STATUS_EXPIRED:
+                qs = qs.filter(
+                    validity_type=ContractAgreement.VALIDITY_FIXED,
+                    valid_end_date__lt=today)
             elif status == ContractAgreement.STATUS_EXPIRING:
                 qs = qs.filter(
+                    validity_type=ContractAgreement.VALIDITY_FIXED,
                     valid_end_date__gte=today,
                     valid_end_date__lte=today + timedelta(days=EXPIRING_DAYS_THRESHOLD),
                 )
             elif status == ContractAgreement.STATUS_NORMAL:
-                qs = qs.filter(valid_end_date__gt=today + timedelta(days=EXPIRING_DAYS_THRESHOLD))
+                qs = qs.filter(
+                    validity_type=ContractAgreement.VALIDITY_FIXED,
+                    valid_end_date__gt=today + timedelta(days=EXPIRING_DAYS_THRESHOLD))
         if signing_party:
             qs = qs.filter(signing_party__icontains=signing_party)
         if has_fee != '':
@@ -282,6 +303,7 @@ class ContractAgreementView(View):
             Argument('contract_name', required=False),
             Argument('contract_no', required=False),
             Argument('contract_type', required=False),
+            Argument('validity_type', required=False),
             Argument('valid_start_date', required=False),
             Argument('valid_end_date', required=False),
             Argument('has_fee', type=bool, required=False),
@@ -299,22 +321,41 @@ class ContractAgreementView(View):
         return self._post_create(request, form)
 
     def _validate_edit_form(self, agreement, form):
-        """按编辑后的完整状态校验，避免局部更新绕过跨字段规则。"""
+        """按编辑后的完整状态校验，避免局部更新绕过跨字段规则。
+
+        期限类型编辑语义（四.3）：
+        - validity_type 未提交 → 保持原值；
+        - fixed → long_term：截止日期必须为空（提交具体日期属于矛盾数据，拒绝）；
+        - long_term → fixed：必须同时提供合法截止日期；
+        - fixed 维持不变时可继续修改截止日期，校验日期顺序。
+        """
         length_error = _validate_field_lengths(form)
         if length_error:
             return length_error
+        validity_type = form.validity_type or agreement.validity_type
+        if validity_type not in dict(ContractAgreement.VALIDITY_TYPE_CHOICES):
+            return '未知的期限类型'
+        validity_changed = validity_type != agreement.validity_type
         valid_start_date = agreement.valid_start_date
         if form.valid_start_date:
             valid_start_date, err = _parse_date(form.valid_start_date, '起始日期')
             if err:
                 return err
-        valid_end_date = agreement.valid_end_date
-        if form.valid_end_date:
-            valid_end_date, err = _parse_date(form.valid_end_date, '截止日期')
-            if err:
-                return err
-        if valid_start_date > valid_end_date:
-            return '起始日期不能晚于截止日期'
+        if validity_type == ContractAgreement.VALIDITY_LONG_TERM:
+            if form.valid_end_date:
+                return '长期有效合同不能填写截止日期'
+            valid_end_date = None
+        else:
+            if form.valid_end_date:
+                valid_end_date, err = _parse_date(form.valid_end_date, '截止日期')
+                if err:
+                    return err
+            elif validity_changed:
+                return '转换为固定期限合同时必须提供截止日期'
+            else:
+                valid_end_date = agreement.valid_end_date
+            if valid_start_date > valid_end_date:
+                return '起始日期不能晚于截止日期'
         if form.contract_type is not None and form.contract_type not in dict(ContractAgreement.CONTRACT_TYPE_CHOICES):
             return '未知的合同类型'
 
@@ -348,8 +389,14 @@ class ContractAgreementView(View):
                 return json_response(error=responsible_user_err)
         # 只更新传入的非 None 字段；responsible_user_name 一律不信客户端
         # （DEF-02 修复），仅当责任人 ID 校验通过后写入服务端回填值
+        old_validity_type = agreement.validity_type
+        old_valid_end_date = agreement.valid_end_date
         update_data = {k: v for k, v in form.items()
                        if v is not None and k not in ('id', 'responsible_user_name')}
+        if form.validity_type and form.validity_type != old_validity_type \
+                and form.validity_type == ContractAgreement.VALIDITY_LONG_TERM:
+            # fixed → long_term：截止日期显式清空（form 中为 None 的键不会进入 update_data）
+            update_data['valid_end_date'] = None
         if form.responsible_user_id is not None:
             # _validate_and_fill_responsible_user 已将 form.responsible_user_name
             # 覆盖为服务端根据真实用户回填的值
@@ -363,10 +410,22 @@ class ContractAgreementView(View):
         with transaction.atomic():
             agreement.save(update_fields=save_fields)
             scan_single_contract_agreement(agreement)
+            # 期限类型切换或截止日期变化时，旧的提醒确认记录（ack_valid_to 绑定旧
+            # 截止日期）不得在未来错误生效，全部清理；清理数量进审计留痕
+            reminder_acks_reset = 0
+            if agreement.validity_type != old_validity_type \
+                    or agreement.valid_end_date != old_valid_end_date:
+                _, reminder_acks_reset = ContractAgreementReminderAck.objects.filter(
+                    agreement=agreement).delete()
             record_audit_event(
                 request, 'update', AUDIT_TARGET_TYPE,
                 target_id=agreement.id, target_name=agreement.contract_name,
-                detail={'contract_type': agreement.contract_type, 'valid_end_date': _fmt_date(agreement.valid_end_date)},
+                detail={
+                    'contract_type': agreement.contract_type,
+                    'validity_type': agreement.validity_type,
+                    'valid_end_date': _fmt_date(agreement.valid_end_date),
+                    'reminder_acks_reset': reminder_acks_reset,
+                },
             )
         return json_response(data=_serialize_agreement(agreement, request.user))
 
@@ -374,9 +433,11 @@ class ContractAgreementView(View):
         """新建合同协议：权限 → 必填 → 校验 → 落库 → 扫描 → 审计"""
         if not request.user.has_perms({'contract_agreement.agreement.add'}):
             return json_response(error='权限拒绝：缺少新增合同协议权限')
+        # 截止日期不在此处做必填校验：fixed 由 _validate_form 要求必填，
+        # long_term 必须为空，避免长期合同被「请输入截止日期」误拦
         required = {
             'contract_name': '合同名称', 'contract_type': '类型',
-            'valid_start_date': '起始日期', 'valid_end_date': '截止日期',
+            'valid_start_date': '起始日期',
             'signing_party': '签约方', 'responsible_user_id': '责任人',
             'responsible_user_name': '责任人',
         }
@@ -402,7 +463,11 @@ class ContractAgreementView(View):
             record_audit_event(
                 request, 'create', AUDIT_TARGET_TYPE,
                 target_id=agreement.id, target_name=agreement.contract_name,
-                detail={'contract_type': agreement.contract_type, 'valid_end_date': _fmt_date(agreement.valid_end_date)},
+                detail={
+                    'contract_type': agreement.contract_type,
+                    'validity_type': agreement.validity_type,
+                    'valid_end_date': _fmt_date(agreement.valid_end_date),
+                },
             )
         return json_response(data=_serialize_agreement(agreement, request.user))
 
@@ -577,7 +642,9 @@ class ReminderPopupView(View):
         from datetime import date, timedelta
         today = date.today()
         qs = apply_tenant_filter(ContractAgreement.objects.all(), request.user)
+        # 长期有效合同无到期概念，显式排除（valid_end_date 为空也不会命中日期范围）
         agreements = qs.filter(
+            validity_type=ContractAgreement.VALIDITY_FIXED,
             responsible_user_id=request.user.id,
             valid_end_date__gte=today,
             valid_end_date__lte=today + timedelta(days=EXPIRING_DAYS_THRESHOLD),
@@ -594,7 +661,7 @@ class ReminderPopupView(View):
             # 续期后旧 ack 自动失效：当前 valid_end_date 不匹配 ack_valid_to 才重新提醒
             if (agreement.id, agreement.valid_end_date) in ack_set:
                 continue
-            status, _ = calculate_agreement_status(agreement.valid_end_date, today)
+            status, _ = resolve_agreement_status(agreement, today)
             records.append({
                 'agreement_id': agreement.id,
                 'contract_name': agreement.contract_name,
@@ -629,7 +696,14 @@ class ReminderAckView(View):
         if not agreement:
             return json_response(error='合同协议不存在或无权限访问')
 
-        status, _ = calculate_agreement_status(agreement.valid_end_date)
+        if agreement.validity_type == ContractAgreement.VALIDITY_LONG_TERM:
+            # 长期有效合同无到期概念：忽略确认（不落确认记录），与「无需提醒」同语义
+            return json_response(data={
+                'agreement_id': form.agreement_id, 'acked': False,
+                'message': '长期有效合同无需到期提醒',
+            })
+
+        status, _ = resolve_agreement_status(agreement)
         if status == 'normal':
             return json_response(data={'agreement_id': form.agreement_id, 'acked': False, 'message': '当前合同无需提醒'})
 
@@ -661,10 +735,13 @@ class ContractAgreementBadgeView(View):
         qs = apply_tenant_filter(ContractAgreement.objects.all(), request.user)
         today = date.today()
         expiring_count = qs.filter(
+            validity_type=ContractAgreement.VALIDITY_FIXED,
             valid_end_date__gte=today,
             valid_end_date__lte=today + timedelta(days=EXPIRING_DAYS_THRESHOLD),
         ).count()
-        expired_count = qs.filter(valid_end_date__lt=today).count()
+        expired_count = qs.filter(
+            validity_type=ContractAgreement.VALIDITY_FIXED,
+            valid_end_date__lt=today).count()
         return json_response(data={
             'count': expiring_count,
             'expiring_count': expiring_count,

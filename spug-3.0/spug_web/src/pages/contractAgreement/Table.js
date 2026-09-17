@@ -15,7 +15,10 @@ const STATUS_TAG_MAP = {
   normal: {color: 'green', text: '正常'},
   expiring: {color: 'orange', text: '即将到期'},
   expired: {color: 'default', text: '已关闭'},
+  long_term: {color: 'blue', text: '长期有效'},
 };
+
+const VALIDITY_LONG_TERM = 'long_term';
 
 @observer
 class ComTable extends React.Component {
@@ -43,10 +46,19 @@ class ComTable extends React.Component {
   };
 
   renderDaysLeft = (text, record) => {
+    // 长期有效合同 days_left 为 null（不适用）
+    if (record.days_left === undefined || record.days_left === null) {
+      return '-';
+    }
     if (record.days_left < 0) {
       return <span style={{color: '#8c8c8c'}}>已关闭</span>;
     }
     return <span>{record.days_left} 天</span>;
+  };
+
+  renderValidEndDate = (text, record) => {
+    if (record.validity_type === VALIDITY_LONG_TERM) return '长期有效';
+    return text || '-';
   };
 
   renderFee = (text, record) => {
@@ -97,7 +109,7 @@ class ComTable extends React.Component {
         <Table.Column title="合同编号" dataIndex="contract_no" width={140} ellipsis/>
         <Table.Column title="类型" dataIndex="contract_type_display" width={130}/>
         <Table.Column title="起始日期" dataIndex="valid_start_date" width={110}/>
-        <Table.Column title="截止日期" dataIndex="valid_end_date" width={110}/>
+        <Table.Column title="截止日期" dataIndex="valid_end_date" width={110} render={this.renderValidEndDate}/>
         <Table.Column title="剩余天数" width={120} render={this.renderDaysLeft}/>
         <Table.Column title="费用" width={130} render={this.renderFee}/>
         <Table.Column title="责任人" dataIndex="responsible_user_name" width={100} ellipsis/>

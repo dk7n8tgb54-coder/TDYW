@@ -23,7 +23,7 @@ def _as_date(value):
 
 
 def calculate_agreement_status(valid_end_date, today=None):
-    """计算合同协议状态（三态）和剩余天数。
+    """计算固定期限合同协议状态（三态）和剩余天数。
 
     与执照/批复口径一致：
         days_left < 0                  → expired（前端显示「已关闭」）
@@ -47,11 +47,22 @@ def calculate_agreement_status(valid_end_date, today=None):
     return 'normal', days_left
 
 
+def resolve_agreement_status(agreement, today=None):
+    """按期限类型计算合同协议状态。
+
+    long_term → status='long_term'，days_left=None（剩余天数不适用，
+    不对空截止日期执行日期减法）；fixed → 委托 calculate_agreement_status。
+    """
+    if agreement.validity_type == ContractAgreement.VALIDITY_LONG_TERM:
+        return ContractAgreement.STATUS_LONG_TERM, None
+    return calculate_agreement_status(agreement.valid_end_date, today)
+
+
 def scan_single_contract_agreement(agreement, today=None):
-    """扫描单条合同协议，更新三态 status 和扫描时间。"""
+    """扫描单条合同协议，更新状态（含长期有效）和扫描时间。"""
     if today is None:
         today = timezone.now().date()
-    status, days_left = calculate_agreement_status(agreement.valid_end_date, today)
+    status, days_left = resolve_agreement_status(agreement, today)
 
     update_data = {'last_remind_at': timezone.now()}
     updated = False

@@ -25,10 +25,19 @@ class ContractAgreement(models.Model, TenantModelMixin):
     STATUS_NORMAL = 'normal'
     STATUS_EXPIRING = 'expiring'
     STATUS_EXPIRED = 'expired'
+    STATUS_LONG_TERM = 'long_term'
     STATUS_CHOICES = (
         (STATUS_NORMAL, '正常'),
         (STATUS_EXPIRING, '即将到期'),
         (STATUS_EXPIRED, '已关闭'),
+        (STATUS_LONG_TERM, '长期有效'),
+    )
+
+    VALIDITY_FIXED = 'fixed'
+    VALIDITY_LONG_TERM = 'long_term'
+    VALIDITY_TYPE_CHOICES = (
+        (VALIDITY_FIXED, '固定期限'),
+        (VALIDITY_LONG_TERM, '长期有效'),
     )
 
     # ---- 业务字段 ----
@@ -36,7 +45,11 @@ class ContractAgreement(models.Model, TenantModelMixin):
     contract_no = models.CharField(max_length=100, default='', blank=True, help_text='合同编号')
     contract_type = models.CharField(max_length=30, choices=CONTRACT_TYPE_CHOICES, help_text='类型')
     valid_start_date = models.DateField(help_text='起始日期')
-    valid_end_date = models.DateField(help_text='截止日期')
+    validity_type = models.CharField(
+        max_length=20, choices=VALIDITY_TYPE_CHOICES, default=VALIDITY_FIXED,
+        help_text='期限类型: fixed=固定期限 long_term=长期有效（长期有效时截止日期为空）',
+    )
+    valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
     has_fee = models.BooleanField(default=False, help_text='是否有费用')
     fee_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, help_text='费用金额')
     fee_currency = models.CharField(max_length=10, default='人民币', help_text='币种')
@@ -46,7 +59,7 @@ class ContractAgreement(models.Model, TenantModelMixin):
     responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
-        help_text='状态: normal/expiring/expired（expired 显示为已关闭）',
+        help_text='状态: normal/expiring/expired（expired 显示为已关闭）/long_term（长期有效）',
     )
     remark = models.TextField(default='', blank=True, help_text='备注')
     last_remind_at = models.DateTimeField(null=True, blank=True, help_text='最近提醒扫描时间')
@@ -67,6 +80,10 @@ class ContractAgreement(models.Model, TenantModelMixin):
     def contract_type_display(self):
         return dict(self.CONTRACT_TYPE_CHOICES).get(self.contract_type, self.contract_type)
 
+    @property
+    def validity_type_display(self):
+        return dict(self.VALIDITY_TYPE_CHOICES).get(self.validity_type, self.validity_type)
+
     class Meta:
         db_table = 'tdyw_contract_agreement'
         verbose_name = '合同协议'
@@ -85,12 +102,28 @@ class ContractAgreement(models.Model, TenantModelMixin):
                 name='contract_type_valid',
             ),
             models.CheckConstraint(
-                check=models.Q(status__in=['normal', 'expiring', 'expired']),
-                name='contract_status_valid',
+                check=models.Q(validity_type__in=['fixed', 'long_term']),
+                name='contract_validity_type_valid',
             ),
             models.CheckConstraint(
-                check=models.Q(valid_end_date__gte=models.F('valid_start_date')),
-                name='contract_date_order_valid',
+                check=models.Q(status__in=['normal', 'expiring', 'expired', 'long_term']),
+                name='contract_status_valid',
+            ),
+            # 期限一致性（数据库层兜底，不依赖 View 校验）：
+            # fixed → 截止日期必填且不早于起始日期；long_term → 截止日期必须为空
+            models.CheckConstraint(
+                check=(
+                    (
+                        models.Q(validity_type='fixed') &
+                        models.Q(valid_end_date__isnull=False) &
+                        models.Q(valid_end_date__gte=models.F('valid_start_date'))
+                    ) |
+                    (
+                        models.Q(validity_type='long_term') &
+                        models.Q(valid_end_date__isnull=True)
+                    )
+                ),
+                name='contract_validity_consistent',
             ),
             models.CheckConstraint(
                 check=(
