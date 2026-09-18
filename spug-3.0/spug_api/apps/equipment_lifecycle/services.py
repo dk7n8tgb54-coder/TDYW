@@ -273,17 +273,13 @@ def collect_applicable_fields(system, include_inactive=False):
     return fields
 
 
-def validate_config_submission(system, fields, submitted, user):
-    """校验整个配置提交，返回 (cleaned: {field_id: (storage, display)}, errors: [str])。
+def validate_field_value_map(fields, submitted, user):
+    """按字段集合校验提交值映射（不含必填检查与附件归属检查），返回 (cleaned, errors)。
 
-    规则：
-    - 提交中出现的 field_id 必须属于本系统适用的启用字段；
-    - 逐字段类型/候选项/范围/正则校验；
-    - 适用且启用的必填字段必须有值（历史系统逐步补录在下一次保存时强制完成）。
+    - submitted: {field_id: value}，键可为 int 或数字字符串；
+    - 提交中出现的 field_id 必须属于给定字段集合（不适用/已停用即拒绝）；
+    - 逐字段做角色编辑权限与类型/候选项/范围/正则校验。
     """
-    from libs.tenant_utils import apply_tenant_filter
-    from apps.evidence.models import EvidenceAttachment
-
     field_map = {f.id: f for f in fields}
     cleaned = {}
     errors = []
@@ -312,6 +308,21 @@ def validate_config_submission(system, fields, submitted, user):
             errors.append(f'{field.display_name}: {err}')
             continue
         cleaned[field_id] = (storage, display)
+    return cleaned, errors
+
+
+def validate_config_submission(system, fields, submitted, user):
+    """校验整个配置提交，返回 (cleaned: {field_id: (storage, display)}, errors: [str])。
+
+    规则：
+    - 提交中出现的 field_id 必须属于本系统适用的启用字段；
+    - 逐字段类型/候选项/范围/正则校验；
+    - 适用且启用的必填字段必须有值（历史系统逐步补录在下一次保存时强制完成）。
+    """
+    from libs.tenant_utils import apply_tenant_filter
+    from apps.evidence.models import EvidenceAttachment
+
+    cleaned, errors = validate_field_value_map(fields, submitted, user)
 
     for field in fields:
         if not field.is_required or not field_applies_to_system(field, system):
@@ -348,7 +359,7 @@ def validate_config_submission(system, fields, submitted, user):
                 ids = json.loads(raw) if raw else []
                 bad = [i for i in ids if i not in valid_ids]
                 if bad:
-                    field = field_map[field_id]
+                    field = next(f for f in fields if f.id == field_id)
                     errors.append(f'{field.display_name}: 附件不存在或无权限访问')
 
     return cleaned, errors

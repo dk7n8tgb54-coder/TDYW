@@ -10,6 +10,7 @@
 import React, { useState } from 'react';
 import { observer } from 'mobx-react';
 import { Table, Button, Modal, Form, Input, InputNumber, Popconfirm, Divider, Spin } from 'antd';
+import {PlusOutlined} from '@ant-design/icons';
 import { AuthButton, AuthDiv } from 'components';
 import store from './store';
 import { PERM } from './constants';
@@ -36,7 +37,7 @@ class ComponentsTab extends React.Component {
           <AuthButton
             auth={PERM.CFG_EDIT}
             type="primary"
-            icon="plus"
+            icon={<PlusOutlined/>}
             onClick={() => store.showComponentForm()}
           >
             新增组成项
@@ -90,7 +91,7 @@ class ComponentsTab extends React.Component {
   }
 }
 
-function ComponentForm() {
+const ComponentForm = observer(function ComponentForm() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const record = store.componentRecord;
@@ -156,6 +157,6 @@ function ComponentForm() {
       </Form>
     </Modal>
   );
-}
+});
 
 export default ComponentsTab;

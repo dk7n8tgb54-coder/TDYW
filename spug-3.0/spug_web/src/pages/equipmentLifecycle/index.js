@@ -9,6 +9,7 @@
 import React from 'react';
 import { observer } from 'mobx-react';
 import { Input, Select, Button, message, Popconfirm, Tag } from 'antd';
+import {PlusOutlined} from '@ant-design/icons';
 import { SearchForm, AuthDiv, Breadcrumb, AuthButton, ExportButton } from 'components';
 import ComTable from './Table';
 import ComForm from './SystemForm';
@@ -22,7 +23,7 @@ function SystemIndex() {
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
         <Breadcrumb.Item>设备全生命周期</Breadcrumb.Item>
-        <Breadcrumb.Item>系统管理</Breadcrumb.Item>
+        <Breadcrumb.Item>系统档案</Breadcrumb.Item>
         <Breadcrumb.Item>系统列表</Breadcrumb.Item>
       </Breadcrumb>
       <SearchForm>
@@ -105,7 +106,7 @@ function SystemIndex() {
         <AuthButton
           auth={PERM.SYS_ADD}
           type="primary"
-          icon="plus"
+          icon={<PlusOutlined/>}
           onClick={() => store.showForm()}
         >
           新增系统

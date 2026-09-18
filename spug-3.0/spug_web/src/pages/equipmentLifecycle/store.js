@@ -39,11 +39,9 @@ class Store {
   @observable detail = {};
   @observable isDetailFetching = false;
 
-  // ========== 配置档案 ==========
-  @observable config = null;
-  @observable isConfigFetching = false;
-  @observable isConfigSaving = false;
-  @observable configAttachments = [];
+  // ========== 详情动态字段（基本信息展示 + 表单加载） ==========
+  @observable formFields = [];
+  @observable isFormFieldsFetching = false;
 
   // ========== 配置组成项 ==========
   @observable components = [];
@@ -141,7 +139,6 @@ class Store {
     this.detailId = record.id;
     this.detail = record;
     this.detailVisible = true;
-    this.config = null;
     this.components = [];
     this.changes = [];
     this.snapshots = [];
@@ -166,49 +163,34 @@ class Store {
       }));
   };
 
-  // ========== 配置档案 ==========
-  fetchConfig = () => {
-    this.isConfigFetching = true;
-    return http.get(`${API_PREFIX}/systems/${this.detailId}/config/`)
+  // ========== 表单动态字段（新增/编辑系统一次提交） ==========
+  fetchFormFields = (params) => {
+    this.isFormFieldsFetching = true;
+    return http.get(`${API_PREFIX}/systems/form-fields/`, {params})
       .then(action(res => {
-        this.config = res;
+        this.formFields = res.data || [];
+        return res;
       }))
-      .catch(action(() => {}))
       .finally(action(() => {
-        this.isConfigFetching = false;
+        this.isFormFieldsFetching = false;
       }));
   };
 
-  saveConfig = (values) => {
-    this.isConfigSaving = true;
-    return http.put(`${API_PREFIX}/systems/${this.detailId}/config/`, {config_values: values})
-      .then(action(() => {
-        this.fetchConfig();
-      }))
-      .finally(action(() => {
-        this.isConfigSaving = false;
-      }));
+  // ========== 系统附件（动态字段 attachment 类型） ==========
+  fetchSystemAttachments = (systemId) => {
+    return http.get(`${API_PREFIX}/systems/${systemId}/config/attachments/`);
   };
 
-  // ========== 配置档案附件 ==========
-  fetchConfigAttachments = () => {
-    return http.get(`${API_PREFIX}/systems/${this.detailId}/config/attachments/`)
-      .then(action(res => {
-        this.configAttachments = res.data || [];
-      }))
-      .catch(action(() => {}));
-  };
-
-  uploadConfigAttachment = (file) => {
+  uploadSystemAttachment = (systemId, file) => {
     const formData = new FormData();
     formData.append('file', file);
     return http.post(
-      `${API_PREFIX}/systems/${this.detailId}/config/attachments/`, formData,
+      `${API_PREFIX}/systems/${systemId}/config/attachments/`, formData,
       {headers: {'Content-Type': 'multipart/form-data'}});
   };
 
-  deleteConfigAttachment = (attId) => {
-    return http.delete(`${API_PREFIX}/systems/${this.detailId}/config/attachments/${attId}/`);
+  deleteSystemAttachment = (systemId, attId) => {
+    return http.delete(`${API_PREFIX}/systems/${systemId}/config/attachments/${attId}/`);
   };
 
   // ========== 配置组成项 ==========

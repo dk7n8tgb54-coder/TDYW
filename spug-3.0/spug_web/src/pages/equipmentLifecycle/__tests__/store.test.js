@@ -5,7 +5,7 @@
  * - fetchRecords 组装分页与筛选参数；成功后 records/total 更新
  * - submitForm 编辑走 PUT、新增走 POST，成功后关闭弹窗并刷新列表
  * - toggleActive / deleteRecord 调用对应端点并刷新
- * - showDetail 记录详情 ID 并清理旧页签数据；saveConfig 以 config_values 提交
+ * - showDetail 记录详情 ID 并清理旧页签数据；fetchFormFields 加载表单动态字段
  * - 组成项提交成功后刷新组成项与详情
  * - fetchSnapshotDiff 按 target 传参；clearSnapshotDiff 复位
  */
@@ -131,15 +131,18 @@ describe('系统详情 Store', () => {
     expect(store.detail.name).toBe('系统A');
   });
 
-  it('saveConfig 以 config_values 键提交并重新拉取配置', async () => {
+  it('fetchFormFields 携带参数请求 form-fields 并缓存字段列表', async () => {
     const store = freshStore();
-    store.detailId = 5;
-    mockHttpPut.mockResolvedValue({saved: true, changed: 1});
-    mockHttpGet.mockResolvedValue({fields: [], values: {}});
-    await store.saveConfig({12: '25米'});
-    expect(mockHttpPut).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/systems/5/config/', {config_values: {12: '25米'}});
-    expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/systems/5/config/');
+    mockHttpGet.mockResolvedValue({
+      data: [{id: 101, field_code: 'frequency'}],
+      values: {},
+      components: [],
+    });
+    await store.fetchFormFields({system_type: 3});
+    expect(mockHttpGet).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/systems/form-fields/', {params: {system_type: 3}});
+    expect(store.formFields.length).toBe(1);
+    expect(store.isFormFieldsFetching).toBe(false);
   });
 
   it('组成项提交成功后刷新组成项与详情', async () => {

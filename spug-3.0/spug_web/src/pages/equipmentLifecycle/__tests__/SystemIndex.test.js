@@ -1,14 +1,13 @@
 /**
- * 设备全生命周期（步骤二）系统详情与列表渲染测试
+ * 设备全生命周期（步骤二交互重构）系统详情与列表渲染测试
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http 与公共组件壳，
  * 验证：
- * - 详情抽屉页签：基本信息 / 配置档案 / 配置组成项 / 配置变更历史 / 配置快照
+ * - 详情抽屉页签：基本信息 / 配置字段 / 配置组成项 / 配置变更历史 / 配置快照
  *   （本步骤不出现故障、巡检、维护、工单、履历页签）
- * - 基本信息展示系统编号、名称、健康状态与可用状态
- * - 配置档案页签：模板字段与自定义字段按类型渲染控件、必填标记、
- *   停用字段历史值只读展示
- * - 配置保存提交 config_values 且不重复提示错误
+ * - 基本信息统一展示固定字段 + 类型模板字段值 + 系统自定义字段值
+ *   （含停用字段历史值）
+ * - 配置字段页签仅管理字段定义：说明文字、定义列表、不出现值录入与保存按钮
  * - 列表操作列：停用/启用按钮随记录状态切换文案
  */
 import React from 'react';
@@ -73,26 +72,29 @@ async function click(node) {
   await act(async () => {});
 }
 
-const CONFIG_PAYLOAD = {
-  system: {id: 5, system_code: 'SYS-001', name: '烟台中心站通信系统',
-    system_type: 3, system_type_name: '通信系统'},
-  fields: [
+const DETAIL_PAYLOAD = {
+  id: 5, system_code: 'SYS-001', name: '烟台中心站通信系统',
+  system_type_name: '通信系统', system_model: 'HX-100',
+  install_location: '烟台中心站机房A', geo_coordinate: '',
+  system_purpose: '', manufacturer: '某通信设备厂', install_unit: '安装一队',
+  use_unit: '运行一科', install_time: '2026-01-01 08:00', enable_time: '2026-02-01 09:00',
+  responsible_user_name: '张三', health_status: 'normal', health_status_text: '正常',
+  is_active: true, remark: '', created_by_name: 'admin', created_at: '2026-09-18 10:00',
+  config_components_count: 2,
+  config_fields: [
     {id: 101, scope_type: 'template', field_code: 'frequency', display_name: '工作频率',
-      field_type: 'text', is_required: true, is_sensitive: false, is_active: true,
-      choices: '', detail_columns: '', number_min: null, number_max: null, help_text: ''},
+      field_type: 'text', field_type_text: '文本', is_required: true, is_sensitive: false,
+      is_active: true, help_text: '单位 MHz', display_order: 1,
+      value: '438.000MHz', display: '438.000MHz'},
     {id: 102, scope_type: 'custom', field_code: 'antenna_h', display_name: '天线高度',
-      field_type: 'number', is_required: false, is_sensitive: false, is_active: true,
-      choices: '', detail_columns: '', number_min: 0, number_max: 100, help_text: '单位米'},
+      field_type: 'number', field_type_text: '数字', is_required: false, is_sensitive: false,
+      is_active: true, help_text: '', display_order: 2,
+      value: 25, display: '25'},
     {id: 103, scope_type: 'template', field_code: 'old_band', display_name: '旧频段',
-      field_type: 'choice', is_required: false, is_sensitive: false, is_active: false,
-      choices: '["UHF","VHF"]', detail_columns: '', number_min: null, number_max: null,
-      help_text: ''},
+      field_type: 'choice', field_type_text: '单选', is_required: false, is_sensitive: false,
+      is_active: false, help_text: '', display_order: 3,
+      value: 'UHF', display: 'UHF'},
   ],
-  values: {
-    101: {value: '438.000MHz', display: '438.000MHz', updated_at: null, updated_by: ''},
-    102: {value: 25, display: '25', updated_at: null, updated_by: ''},
-    103: {value: 'UHF', display: 'UHF', updated_at: null, updated_by: ''},
-  },
 };
 
 describe('系统详情抽屉', () => {
@@ -101,99 +103,83 @@ describe('系统详情抽屉', () => {
     const SystemDetail = require('../SystemDetail').default;
     store.detailId = 5;
     store.detailVisible = true;
-    store.detail = {
-      id: 5, system_code: 'SYS-001', name: '烟台中心站通信系统',
-      system_type_name: '通信系统', system_model: 'HX-100',
-      install_location: '烟台中心站机房A', geo_coordinate: '',
-      system_purpose: '', manufacturer: '某通信设备厂', install_unit: '安装一队',
-      use_unit: '运行一科', install_time: '2026-01-01 08:00', enable_time: '2026-02-01 09:00',
-      responsible_user_name: '张三', health_status: 'normal', health_status_text: '正常',
-      is_active: true, remark: '', created_by_name: 'admin', created_at: '2026-09-18 10:00',
-    };
+    store.detail = DETAIL_PAYLOAD;
     store.isDetailFetching = false;
+    mockHttpGet.mockResolvedValue(DETAIL_PAYLOAD);
     act(() => {
       ReactDOM.render(<SystemDetail/>, container);
     });
     return store;
   }
 
-  it('展示五个页签且不包含故障/巡检/维护/工单/履历', () => {
-    mockHttpGet.mockResolvedValue(CONFIG_PAYLOAD);
+  it('页签随步骤演进：基础五页签 + 故障记录（3.1） + 三类运维台账（3.2），不出现工单/履历/现场采集', () => {
     renderDetail();
     const text = document.body.textContent;
     expect(text).toContain('基本信息');
-    expect(text).toContain('配置档案');
+    expect(text).toContain('配置字段');
     expect(text).toContain('配置组成项');
     expect(text).toContain('配置变更历史');
     expect(text).toContain('配置快照');
-    expect(text).not.toContain('故障管理');
-    expect(text).not.toContain('巡检台账');
-    expect(text).not.toContain('周月维护');
+    // 步骤 3.1：故障记录页签
+    expect(text).toContain('故障记录');
+    // 步骤 3.2：系统详情增加巡检/周月维护/季维护台账页签
+    expect(text).toContain('巡检台账');
+    expect(text).toContain('周月维护台账');
+    expect(text).toContain('季维护台账');
+    // 边界：始终不出现工单、系统履历、离线/二维码/移动端入口
     expect(text).not.toContain('工单管理');
     expect(text).not.toContain('系统履历');
+    expect(text).not.toContain('二维码');
+    expect(text).not.toContain('离线');
+    expect(text).not.toContain('移动端');
   });
 
-  it('基本信息展示编号、名称与健康状态', () => {
-    mockHttpGet.mockResolvedValue(CONFIG_PAYLOAD);
+  it('基本信息统一展示固定字段、模板字段值与自定义字段值（含停用历史值）', () => {
     renderDetail();
     const text = document.body.textContent;
+    // 固定字段
     expect(text).toContain('SYS-001');
     expect(text).toContain('烟台中心站通信系统');
     expect(text).toContain('正常');
     expect(text).toContain('可用');
+    // 分组标题
+    expect(text).toContain('类型扩展字段');
+    expect(text).toContain('系统自定义字段');
+    // 模板字段值
+    expect(text).toContain('工作频率');
+    expect(text).toContain('438.000MHz');
+    // 自定义字段值
+    expect(text).toContain('天线高度');
+    expect(text).toContain('25');
+    // 停用字段历史值仍展示
+    expect(text).toContain('旧频段');
+    expect(text).toContain('已停用');
+    expect(text).toContain('UHF');
   });
 
-  it('配置档案页签渲染模板字段与自定义字段并保留停用字段历史值', async () => {
-    mockHttpGet.mockResolvedValue(CONFIG_PAYLOAD);
+  it('配置字段页签仅管理字段定义，不出现值录入与保存按钮', async () => {
     const store = renderDetail();
     const tab = Array.from(document.body.querySelectorAll('.ant-tabs-tab'))
-      .find(node => node.textContent.includes('配置档案'));
+      .find(node => node.textContent.includes('配置字段'));
     await click(tab);
-    // fetchConfig 被调用
-    expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/systems/5/config/');
     await act(async () => {
-      store.config = CONFIG_PAYLOAD;
-      store.isConfigFetching = false;
+      store.detail = DETAIL_PAYLOAD;
+      store.isDetailFetching = false;
     });
     await flush();
     const text = document.body.textContent;
-    expect(text).toContain('工作频率');
-    expect(text).toContain('天线高度');
-    expect(text).toContain('已停用字段');
-    expect(text).toContain('UHF');
-    // 自定义字段带“自定义”标记
-    const inputs = document.body.querySelectorAll('input.ant-input, input.ant-input-number-input');
-    expect(inputs.length).toBeGreaterThan(0);
-  });
-
-  it('保存配置提交 config_values', async () => {
-    mockHttpGet.mockResolvedValue(CONFIG_PAYLOAD);
-    mockHttpPut.mockResolvedValue({saved: true, changed: 1});
-    const store = renderDetail();
-    const tab = Array.from(document.body.querySelectorAll('.ant-tabs-tab'))
-      .find(node => node.textContent.includes('配置档案'));
-    await click(tab);
-    await act(async () => {
-      store.config = CONFIG_PAYLOAD;
-      store.isConfigFetching = false;
-    });
-    await flush();
-    // 无改动时保存按钮禁用（真实行为）：先修改模板字段输入
-    const input = document.body.querySelector('.ant-tabs-tabpane-active input.ant-input');
-    expect(input).toBeTruthy();
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-      setter.call(input, '439.000MHz');
-      input.dispatchEvent(new Event('input', {bubbles: true}));
-    });
-    await act(async () => {});
-    const saveBtn = Array.from(document.body.querySelectorAll('button'))
-      .find(node => node.textContent.replace(/\s/g, '') === '保存配置');
-    expect(saveBtn).toBeTruthy();
-    expect(saveBtn.disabled).toBe(false);
-    await click(saveBtn);
-    expect(mockHttpPut).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/systems/5/config/', {config_values: {101: '439.000MHz'}});
+    // 职责说明
+    expect(text).toContain('本页仅管理字段定义');
+    expect(text).toContain('字段值在新增或编辑系统时填写');
+    // 定义列表：模板字段与自定义字段分开展示
+    expect(text).toContain('类型模板字段');
+    expect(text).toContain('本系统自定义字段');
+    expect(text).toContain('frequency');
+    expect(text).toContain('antenna_h');
+    // 不再有动态值编辑表单与保存按钮
+    const activePane = document.body.querySelector('.ant-tabs-tabpane-active');
+    expect(Array.from(activePane.querySelectorAll('button'))
+      .some(b => b.textContent.replace(/\s/g, '') === '保存配置')).toBe(false);
   });
 });
 

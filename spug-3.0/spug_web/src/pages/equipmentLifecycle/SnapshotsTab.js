@@ -10,6 +10,7 @@
 import React, { useState } from 'react';
 import { observer } from 'mobx-react';
 import { Table, Button, Modal, Form, Input, Tag, Divider, message } from 'antd';
+import {CameraOutlined} from '@ant-design/icons';
 import { AuthButton } from 'components';
 import store from './store';
 import { PERM } from './constants';
@@ -45,7 +46,7 @@ class SnapshotsTab extends React.Component {
           <AuthButton
             auth={PERM.CFG_SNAPSHOT}
             type="primary"
-            icon="camera"
+            icon={<CameraOutlined/>}
             onClick={() => store.snapshotFormVisible = true}
           >
             生成快照

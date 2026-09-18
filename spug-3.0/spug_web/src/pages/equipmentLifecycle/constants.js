@@ -24,6 +24,14 @@ export const PERM = {
   CFG_FIELD: 'equipment_lifecycle.system_config.field',
   CFG_SNAPSHOT: 'equipment_lifecycle.system_config.snapshot',
   CFG_EXPORT: 'equipment_lifecycle.system_config.export',
+  FAULT_VIEW: 'equipment_lifecycle.fault.view',
+  FAULT_ADD: 'equipment_lifecycle.fault.add',
+  FAULT_EDIT: 'equipment_lifecycle.fault.edit',
+  FAULT_HANDLE: 'equipment_lifecycle.fault.handle',
+  FAULT_RECOVER: 'equipment_lifecycle.fault.recover',
+  FAULT_CLOSE: 'equipment_lifecycle.fault.close',
+  FAULT_DEL: 'equipment_lifecycle.fault.del',
+  FAULT_EXPORT: 'equipment_lifecycle.fault.export',
 };
 
 export const HEALTH_STATUS_OPTIONS = [
@@ -72,5 +80,66 @@ export const ACTION_TEXT = {
   deactivate: '停用',
   promote: '提升为模板字段',
 };
+
+export const FAULT_STATUS_OPTIONS = [
+  {value: 'pending', label: '待处置'},
+  {value: 'handling', label: '处置中'},
+  {value: 'recovered', label: '已恢复'},
+  {value: 'closed', label: '已关闭'},
+  {value: 'cancelled', label: '已作废'},
+];
+
+export const FAULT_STATUS_TEXT = FAULT_STATUS_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
+export const FAULT_STATUS_COLOR = {
+  pending: 'orange',
+  handling: 'geekblue',
+  recovered: 'green',
+  closed: 'default',
+  cancelled: 'default',
+};
+
+export const FAULT_IMPACT_OPTIONS = [
+  {value: 'degraded', label: '降级'},
+  {value: 'fault', label: '故障'},
+  {value: 'interrupted', label: '中断'},
+];
+
+export const FAULT_IMPACT_TEXT = FAULT_IMPACT_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
+export const FAULT_IMPACT_COLOR = {
+  degraded: 'orange',
+  fault: 'red',
+  interrupted: 'red',
+};
+
+export const FAULT_LEVEL_OPTIONS = [
+  {value: 'minor', label: '一般'},
+  {value: 'major', label: '严重'},
+  {value: 'critical', label: '重大'},
+];
+
+export const FAULT_LEVEL_TEXT = FAULT_LEVEL_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
+export const FAULT_DISCOVERY_OPTIONS = [
+  {value: 'patrol', label: '巡检发现'},
+  {value: 'alarm', label: '告警发现'},
+  {value: 'report', label: '人工报告'},
+  {value: 'other', label: '其他'},
+];
+
+export const FAULT_DISCOVERY_TEXT = FAULT_DISCOVERY_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
 
 export const API_PREFIX = '/api/equipment-lifecycle';

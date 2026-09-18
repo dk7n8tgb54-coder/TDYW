@@ -12,6 +12,7 @@ import {
   Table, Button, Modal, Form, Input, InputNumber, Select, Switch, Tag, Drawer,
   Divider, Popconfirm, Spin,
 } from 'antd';
+import {PlusOutlined} from '@ant-design/icons';
 import { AuthDiv, Breadcrumb, AuthButton } from 'components';
 import store from './store';
 import { FIELD_TYPE_OPTIONS, FIELD_TYPE_TEXT, PERM } from '../constants';
@@ -26,14 +27,14 @@ class SystemTypeIndex extends React.Component {
         <Breadcrumb>
           <Breadcrumb.Item>首页</Breadcrumb.Item>
           <Breadcrumb.Item>设备全生命周期</Breadcrumb.Item>
-          <Breadcrumb.Item>系统管理</Breadcrumb.Item>
+          <Breadcrumb.Item>系统档案</Breadcrumb.Item>
           <Breadcrumb.Item>系统类型管理</Breadcrumb.Item>
         </Breadcrumb>
         <div style={{marginBottom: 12}}>
           <AuthButton
             auth={PERM.TYPE_ADD}
             type="primary"
-            icon="plus"
+            icon={<PlusOutlined/>}
             onClick={() => store.showForm()}
           >
             新增系统类型
@@ -91,7 +92,7 @@ class SystemTypeIndex extends React.Component {
   }
 }
 
-function TypeForm() {
+const TypeForm = observer(function TypeForm() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const record = store.record;
@@ -148,7 +149,7 @@ function TypeForm() {
       </Form>
     </Modal>
   );
-}
+});
 
 @observer
 class FieldsDrawer extends React.Component {
@@ -166,7 +167,7 @@ class FieldsDrawer extends React.Component {
           <AuthButton
             auth={PERM.TYPE_ADD}
             type="primary"
-            icon="plus"
+            icon={<PlusOutlined/>}
             onClick={() => store.showFieldForm(null)}
           >
             新增模板字段
@@ -233,7 +234,7 @@ class FieldsDrawer extends React.Component {
   }
 }
 
-function FieldForm() {
+const FieldForm = observer(function FieldForm() {
   const [form] = Form.useForm();
   const [typeOverride, setTypeOverride] = useState(null);
   const record = store.fieldRecord || {};
@@ -395,6 +396,6 @@ function FieldForm() {
       </Form>
     </Modal>
   );
-}
+});
 
 export default SystemTypeIndex;

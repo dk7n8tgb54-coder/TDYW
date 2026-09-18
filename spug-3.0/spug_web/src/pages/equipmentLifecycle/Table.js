@@ -25,7 +25,7 @@ const HEALTH_TAG_COLOR = {
 function confirmDelete(record) {
   Modal.confirm({
     title: '删除确认',
-    content: `确定删除系统「${record.name}」吗？其配置档案、组成项、变更历史与快照将一并删除，且不可恢复。`,
+    content: `确定删除系统「${record.name}」吗？其配置字段值、组成项、变更历史与快照将一并删除，且不可恢复。`,
     onOk: () => store.deleteRecord(record),
   });
 }

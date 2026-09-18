@@ -128,6 +128,47 @@ export default [{
       {key: 'snapshot', label: '生成配置快照'},
       {key: 'export', label: '导出配置档案'},
     ]
+  }, {
+    key: 'fault',
+    label: '故障管理',
+    perms: [
+      {key: 'view', label: '查看故障'},
+      {key: 'add', label: '新增故障'},
+      {key: 'edit', label: '编辑故障/更正处置记录'},
+      {key: 'handle', label: '开始处置/添加处置记录'},
+      {key: 'recover', label: '确认恢复'},
+      {key: 'close', label: '关闭故障'},
+      {key: 'del', label: '作废故障（受控作废，非物理删除）'},
+      {key: 'export', label: '导出故障列表'},
+    ]
+  }, {
+    key: 'inspection_point',
+    label: '巡检点管理',
+    perms: [
+      {key: 'view', label: '查看巡检点'},
+      {key: 'manage', label: '维护巡检点（新增/编辑/停用）'},
+    ]
+  }, {
+    key: 'ledger_template',
+    label: '台账模板',
+    perms: [
+      {key: 'view', label: '查看台账模板'},
+      {key: 'add', label: '新增台账模板'},
+      {key: 'edit', label: '编辑台账模板/项目'},
+      {key: 'del', label: '停用/启用台账模板'},
+    ]
+  }, {
+    key: 'ledger',
+    label: '运行维护台账',
+    perms: [
+      {key: 'view', label: '查看台账'},
+      {key: 'add', label: '新增台账'},
+      {key: 'edit', label: '编辑草稿/批量确认/更正'},
+      {key: 'submit', label: '提交台账'},
+      {key: 'review', label: '复核/退回台账'},
+      {key: 'del', label: '作废台账（受控作废，非物理删除）'},
+      {key: 'export', label: '导出台账'},
+    ]
   }]
 }, {
   key: 'interference',

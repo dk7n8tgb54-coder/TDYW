@@ -4,20 +4,18 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 系统详情——配置档案页签。
- * 固定核心字段之外，按"类型模板字段 + 具体系统自定义字段"渲染动态表单；
- * 停用字段只读展示历史值；自定义字段管理需 system_config.field 权限。
+ * 系统详情——配置字段页签。
+ * 仅管理字段定义（系统类型模板字段 + 本系统自定义字段），不录入字段值；
+ * 字段值统一在新增或编辑系统页面填写。自定义字段管理需 system_config.field 权限。
  */
-import React, { useState } from 'react';
-import moment from 'moment';
+import React, { useState, useRef, useEffect } from 'react';
 import { observer } from 'mobx-react';
-import {
-  Spin, Form, Input, InputNumber, Select, DatePicker, Button, Table, Modal, Tag,
-  Switch, Upload, Icon, message, Popconfirm, Divider,
-} from 'antd';
-import { AuthButton, AuthDiv } from 'components';
+import { Table, Tag, Alert, Divider, Popconfirm, message } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
+import { Form, Input, InputNumber, Select, Switch, Modal } from 'antd';
+import { AuthButton } from 'components';
 import store from './store';
-import { FIELD_TYPE_TEXT, PERM, API_PREFIX } from './constants';
+import { PERM, FIELD_TYPE_TEXT, FIELD_TYPE_OPTIONS } from './constants';
 
 const {TextArea} = Input;
 
@@ -39,265 +37,81 @@ function parseDetailColumns(raw) {
   }
 }
 
+function fieldColumns(showActions, handlers) {
+  const columns = [{
+    title: '字段编码', dataIndex: 'field_code', width: 150,
+  }, {
+    title: '显示名称', dataIndex: 'display_name', width: 150,
+  }, {
+    title: '类型', dataIndex: 'field_type', width: 90,
+    render: v => FIELD_TYPE_TEXT[v] || v,
+  }, {
+    title: '必填', dataIndex: 'is_required', width: 60,
+    render: v => (v ? <Tag color="red">是</Tag> : '否'),
+  }, {
+    title: '状态', dataIndex: 'is_active', width: 80,
+    render: v => (v ? <Tag color="green">启用</Tag> : <Tag color="default">已停用</Tag>),
+  }, {
+    title: '当前值', key: 'value',
+    render: (text, record) => record.display || '-',
+  }];
+  if (showActions) {
+    columns.push({
+      title: '操作', width: 250,
+      render: (text, record) => (
+        <span>
+          <AuthButton auth={PERM.CFG_FIELD} type="link" size="small" style={{padding: 0}}
+                      onClick={() => handlers.showFieldForm(record)}>
+            编辑定义
+          </AuthButton>
+          <Divider type="vertical"/>
+          <AuthButton auth={PERM.CFG_FIELD} type="link" size="small" style={{padding: 0}}
+                      onClick={() => handlers.toggleFieldActive(record)}>
+            {record.is_active ? '停用' : '启用'}
+          </AuthButton>
+          <Divider type="vertical"/>
+          <Popconfirm
+            title="删除后历史值与变更记录不受影响，确认删除？"
+            onOk={() => handlers.handleFieldDeleted(record)}
+          >
+            <AuthButton auth={PERM.CFG_FIELD} type="link" size="small" style={{padding: 0}}>
+              删除
+            </AuthButton>
+          </Popconfirm>
+          <Divider type="vertical"/>
+          <Popconfirm
+            title={`将该字段提升为类型「${store.detail.system_type_name}」模板字段？本系统已有值将随字段迁移。`}
+            onOk={() => handlers.handlePromote(record)}
+          >
+            <AuthButton auth={PERM.CFG_FIELD} type="link" size="small" style={{padding: 0}}>
+              提升为模板字段
+            </AuthButton>
+          </Popconfirm>
+        </span>
+      ),
+    });
+  }
+  return columns;
+}
+
 @observer
 class ConfigArchiveTab extends React.Component {
   state = {
-    values: {},       // 提交草稿：{[field_id]: value}
     fieldFormVisible: false,
-    fieldRecord: null, // null=新增 自定义字段
+    fieldRecord: null, // null=新增自定义字段（仅定义）
   };
 
-  componentDidMount() {
-    store.fetchConfig();
-    store.fetchConfigAttachments();
-  }
-
-  getValue = (field) => {
-    if (this.state.values[field.id] !== undefined) return this.state.values[field.id];
-    const entry = store.config && store.config.values[String(field.id)];
-    return entry ? entry.value : '';
-  };
-
-  setValue = (field, value) => {
-    this.setState(prev => ({values: {...prev.values, [field.id]: value}}));
-  };
-
-  handleSave = () => {
-    store.saveConfig(this.state.values)
-      .then(() => {
-        message.success('配置已保存');
-        this.setState({values: {}});
-      })
-      .catch(() => {});
-  };
-
-  renderControl = (field) => {
-    const value = this.getValue(field);
-    const disabled = !store.config || this.isSavingDisabled();
-    switch (field.field_type) {
-      case 'text':
-        return (
-          <Input
-            maxLength={500}
-            value={value}
-            disabled={disabled}
-            onChange={e => this.setValue(field, e.target.value)}
-          />
-        );
-      case 'longtext':
-        return (
-          <TextArea
-            rows={3}
-            maxLength={10000}
-            value={value}
-            disabled={disabled}
-            onChange={e => this.setValue(field, e.target.value)}
-          />
-        );
-      case 'number': {
-        const parsed = value === '' || value === null || value === undefined ? undefined : value;
-        return (
-          <InputNumber
-            style={{width: '100%'}}
-            min={field.number_min !== null && field.number_min !== undefined ? field.number_min : undefined}
-            max={field.number_max !== null && field.number_max !== undefined ? field.number_max : undefined}
-            value={parsed}
-            disabled={disabled}
-            onChange={v => this.setValue(field, v === undefined ? '' : v)}
-          />
-        );
-      }
-      case 'date':
-        return (
-          <DatePicker
-            style={{width: '100%'}}
-            value={value ? moment(value) : null}
-            disabled={disabled}
-            onChange={d => this.setValue(field, d ? d.format('YYYY-MM-DD') : '')}
-          />
-        );
-      case 'choice':
-        return (
-          <Select
-            allowClear
-            style={{width: '100%'}}
-            value={value || undefined}
-            disabled={disabled}
-            onChange={v => this.setValue(field, v === undefined ? '' : v)}
-          >
-            {parseChoices(field.choices).map(option => (
-              <Select.Option value={option} key={option}>{option}</Select.Option>
-            ))}
-          </Select>
-        );
-      case 'multi_choice':
-        return (
-          <Select
-            mode="multiple"
-            style={{width: '100%'}}
-            value={Array.isArray(value) ? value : []}
-            disabled={disabled}
-            onChange={v => this.setValue(field, v)}
-          >
-            {parseChoices(field.choices).map(option => (
-              <Select.Option value={option} key={option}>{option}</Select.Option>
-            ))}
-          </Select>
-        );
-      case 'boolean':
-        return (
-          <Select
-            allowClear
-            style={{width: '100%'}}
-            value={value === '' || value === null || value === undefined ? undefined : !!value}
-            disabled={disabled}
-            onChange={v => this.setValue(field, v === undefined ? '' : v)}
-          >
-            <Select.Option value={true}>是</Select.Option>
-            <Select.Option value={false}>否</Select.Option>
-          </Select>
-        );
-      case 'attachment':
-        return this.renderAttachmentControl(field);
-      case 'detail_table':
-        return this.renderDetailTableControl(field);
-      default:
-        return <Input disabled value={value}/>;
-    }
-  };
-
-  isSavingDisabled = () => this.state.saving === true;
-
-  renderAttachmentControl = (field) => {
-    const value = this.getValue(field);
-    const ids = Array.isArray(value) ? value : [];
-    const attachments = (store.configAttachments || []).filter(a => ids.includes(a.id));
-    const uploading = this.state[`uploading_${field.id}`] || false;
-    return (
-      <div>
-        <Table
-          size="small"
-          rowKey="id"
-          pagination={false}
-          dataSource={attachments}
-          columns={[{
-            title: '文件名', dataIndex: 'file_name', ellipsis: true,
-          }, {
-            title: '大小', dataIndex: 'file_size', width: 90,
-            render: s => `${Math.max(1, Math.round((s || 0) / 1024))} KB`,
-          }, {
-            title: '操作', width: 130,
-            render: (text, att) => (
-              <span>
-                <a href={`${API_PREFIX}/systems/${store.detailId}/config/attachments/${att.id}/download/`}
-                   target="_blank" rel="noopener noreferrer">下载</a>
-                <Divider type="vertical"/>
-                <Popconfirm
-                  title="删除该附件？"
-                  onOk={() => {
-                    store.deleteConfigAttachment(att.id)
-                      .then(() => {
-                        this.setValue(field, ids.filter(x => x !== att.id));
-                        store.fetchConfigAttachments();
-                      })
-                      .catch(() => {});
-                  }}
-                >
-                  <a>删除</a>
-                </Popconfirm>
-              </span>
-            ),
-          }]}
-          locale={{emptyText: '暂无附件'}}
-        />
-        <Upload
-          showUploadList={false}
-          beforeUpload={(file) => {
-            this.setState({[`uploading_${field.id}`]: true});
-            store.uploadConfigAttachment(file)
-              .then(res => {
-                this.setValue(field, [...ids, res.id]);
-                store.fetchConfigAttachments();
-                this.setState({[`uploading_${field.id}`]: false});
-              })
-              .catch(() => {
-                this.setState({[`uploading_${field.id}`]: false});
-              });
-            return false;
-          }}
-        >
-          <Button size="small" loading={uploading} disabled={this.isSavingDisabled()}>
-            <Icon type="upload"/> 上传附件
-          </Button>
-        </Upload>
-      </div>
-    );
-  };
-
-  renderDetailTableControl = (field) => {
-    const value = this.getValue(field);
-    const rows = Array.isArray(value) ? value : [];
-    const columns = parseDetailColumns(field.detail_columns);
-    const disabled = this.isSavingDisabled();
-    const updateRow = (idx, key, val) => {
-      const next = rows.map((row, i) => i === idx ? {...row, [key]: val} : row);
-      this.setValue(field, next);
-    };
-    return (
-      <div>
-        <Table
-          size="small"
-          rowKey={(_, idx) => idx}
-          pagination={false}
-          dataSource={rows}
-          columns={[
-            ...columns.map(col => ({
-              title: col.name,
-              dataIndex: col.code,
-              render: (text, row, idx) => (
-                <Input
-                  size="small"
-                  value={(row && row[col.code]) || ''}
-                  disabled={disabled}
-                  onChange={e => updateRow(idx, col.code, e.target.value)}
-                />
-              ),
-            })),
-            {
-              title: '操作', width: 60,
-              render: (text, row, idx) => (
-                <a disabled={disabled} onClick={() => {
-                  this.setValue(field, rows.filter((_, i) => i !== idx));
-                }}>删除</a>
-              ),
-            },
-          ]}
-          locale={{emptyText: '暂无明细行'}}
-        />
-        <Button
-          size="small"
-          icon="plus"
-          disabled={disabled}
-          onClick={() => {
-            const blank = {};
-            columns.forEach(col => blank[col.code] = '');
-            this.setValue(field, [...rows, blank]);
-          }}
-        >
-          添加行
-        </Button>
-      </div>
-    );
-  };
-
-  // ========== 自定义字段管理 ==========
   showFieldForm = (record = null) => {
     this.setState({fieldFormVisible: true, fieldRecord: record});
   };
 
+  refreshDetail = () => {
+    store.fetchDetail();
+  };
+
   handleFieldDeleted = (record) => {
     store.deleteCustomField(record.id)
-      .then(() => store.fetchConfig())
+      .then(() => this.refreshDetail())
       .catch(() => {});
   };
 
@@ -305,25 +119,44 @@ class ConfigArchiveTab extends React.Component {
     store.promoteCustomField(record.id)
       .then(() => {
         message.success('已提升为类型模板字段');
-        store.fetchConfig();
+        this.refreshDetail();
       })
       .catch(() => {});
   };
 
   toggleFieldActive = (record) => {
     store.toggleCustomField(record)
-      .then(() => store.fetchConfig())
+      .then(() => this.refreshDetail())
       .catch(() => {});
   };
 
-  renderCustomFieldSection() {
-    const config = store.config;
-    if (!config) return null;
-    const customFields = config.fields.filter(f => f.scope_type === 'custom');
-    const canManage = true; // 按钮内部由 AuthButton 按权限渲染
+  render() {
+    const configFields = store.detail.config_fields || [];
+    const templateFields = configFields.filter(f => f.scope_type === 'template');
+    const customFields = configFields.filter(f => f.scope_type === 'custom');
     return (
-      <div style={{marginBottom: 16}}>
-        <div style={{marginBottom: 8}}>
+      <div>
+        <Alert
+          type="info"
+          showIcon
+          message="本页仅管理字段定义"
+          description="用于定义系统类型字段和具体系统扩展字段；字段值在新增或编辑系统时填写，不在此录入。"
+        />
+        <div style={{marginTop: 16, marginBottom: 8}}>
+          <b>类型模板字段</b>
+          <span style={{color: '#999', marginLeft: 8}}>
+            由系统类型统一定义，作用于该类型全部系统；在「系统类型管理」中维护
+          </span>
+        </div>
+        <Table
+          size="small"
+          rowKey="id"
+          pagination={false}
+          dataSource={templateFields}
+          columns={fieldColumns(false)}
+          locale={{emptyText: '当前系统类型暂无模板字段'}}
+        />
+        <div style={{marginTop: 24, marginBottom: 8}}>
           <b>本系统自定义字段</b>
           <span style={{color: '#999', marginLeft: 8}}>
             仅作用于本系统；同一含义在多个系统复用时建议提升为类型模板字段
@@ -334,7 +167,7 @@ class ConfigArchiveTab extends React.Component {
             size="small"
             type="primary"
             ghost
-            icon="plus"
+            icon={<PlusOutlined/>}
             onClick={() => this.showFieldForm(null)}
           >
             新增自定义字段
@@ -345,150 +178,22 @@ class ConfigArchiveTab extends React.Component {
           rowKey="id"
           pagination={false}
           dataSource={customFields}
-          columns={[{
-            title: '字段编码', dataIndex: 'field_code', width: 140,
-          }, {
-            title: '显示名称', dataIndex: 'display_name', width: 140,
-          }, {
-            title: '类型', dataIndex: 'field_type', width: 90,
-            render: v => FIELD_TYPE_TEXT[v] || v,
-          }, {
-            title: '必填', dataIndex: 'is_required', width: 60,
-            render: v => (v ? <Tag color="red">是</Tag> : '否'),
-          }, {
-            title: '状态', dataIndex: 'is_active', width: 80,
-            render: (v, record) => v
-              ? <Tag color="green">启用</Tag>
-              : <Tag color="default">已停用</Tag>,
-          }, {
-            title: '操作', width: 220,
-            render: (text, record) => (
-              <span>
-                <AuthButton auth={PERM.CFG_FIELD} type="link" size="small"
-                            style={{padding: 0}}
-                            onClick={() => this.showFieldForm(record)}>
-                  编辑
-                </AuthButton>
-                <Divider type="vertical"/>
-                <AuthButton auth={PERM.CFG_FIELD} type="link" size="small"
-                            style={{padding: 0}}
-                            onClick={() => this.toggleFieldActive(record)}>
-                  {record.is_active ? '停用' : '启用'}
-                </AuthButton>
-                <Divider type="vertical"/>
-                <Popconfirm
-                  title="删除后历史值与变更记录不受影响，确认删除？"
-                  onOk={() => this.handleFieldDeleted(record)}
-                >
-                  <AuthButton auth={PERM.CFG_FIELD} type="link" size="small" style={{padding: 0}}>
-                    删除
-                  </AuthButton>
-                </Popconfirm>
-                <Divider type="vertical"/>
-                <Popconfirm
-                  title={`将该字段提升为类型「${config.system.system_type_name}」模板字段？本系统已有值将随字段迁移。`}
-                  onOk={() => this.handlePromote(record)}
-                >
-                  <AuthButton auth={PERM.CFG_FIELD} type="link" size="small" style={{padding: 0}}>
-                    提升为模板字段
-                  </AuthButton>
-                </Popconfirm>
-              </span>
-            ),
-          }]}
+          columns={fieldColumns(true, {
+            showFieldForm: record => this.showFieldForm(record),
+            toggleFieldActive: record => this.toggleFieldActive(record),
+            handleFieldDeleted: record => this.handleFieldDeleted(record),
+            handlePromote: record => this.handlePromote(record),
+          })}
           locale={{emptyText: '暂无自定义字段'}}
         />
-      </div>
-    );
-  }
-
-  render() {
-    const config = store.config;
-    if (store.isConfigFetching || !config) {
-      return <Spin style={{display: 'block', marginTop: 60}}/>;
-    }
-    const activeFields = config.fields.filter(f => f.is_active);
-    const inactiveFields = config.fields.filter(f => !f.is_active);
-    const hasValues = Object.keys(this.state.values).length > 0;
-    return (
-      <div>
-        {this.renderCustomFieldSection()}
-        <Form labelCol={{span: 6}} wrapperCol={{span: 16}}>
-          {activeFields.map(field => (
-            <Form.Item
-              key={field.id}
-              label={(
-                <span>
-                  {field.display_name}
-                  {field.is_required && <span style={{color: '#f5222d'}}> *</span>}
-                  {field.is_sensitive && (
-                    <Tag color="orange" style={{marginLeft: 6}}>敏感</Tag>
-                  )}
-                  {field.scope_type === 'custom' && (
-                    <Tag style={{marginLeft: 6}}>自定义</Tag>
-                  )}
-                </span>
-              )}
-              extra={field.help_text}
-            >
-              {this.renderControl(field)}
-            </Form.Item>
-          ))}
-          {activeFields.length === 0 && (
-            <div style={{color: '#999'}}>
-              当前系统类型暂无模板字段，可在「系统类型管理」中为类型配置字段模板。
-            </div>
-          )}
-        </Form>
-        <AuthDiv auth={PERM.CFG_EDIT} style={{marginTop: 8}}>
-          <Button
-            type="primary"
-            loading={store.isConfigSaving}
-            disabled={!hasValues}
-            onClick={this.handleSave}
-          >
-            保存配置
-          </Button>
-          {hasValues && (
-            <Button style={{marginLeft: 8}} onClick={() => this.setState({values: {}})}>
-              放弃修改
-            </Button>
-          )}
-        </AuthDiv>
-        {inactiveFields.length > 0 && (
-          <div style={{marginTop: 24}}>
-            <b>已停用字段（历史值保留，只读）</b>
-            <Table
-              style={{marginTop: 8}}
-              size="small"
-              rowKey="id"
-              pagination={false}
-              dataSource={inactiveFields}
-              columns={[{
-                title: '显示名称', dataIndex: 'display_name', width: 160,
-              }, {
-                title: '字段编码', dataIndex: 'field_code', width: 160,
-              }, {
-                title: '类型', dataIndex: 'field_type', width: 90,
-                render: v => FIELD_TYPE_TEXT[v] || v,
-              }, {
-                title: '历史值', key: 'value',
-                render: (text, field) => {
-                  const entry = config.values[String(field.id)];
-                  return entry ? (entry.display || '-') : '-';
-                },
-              }]}
-            />
-          </div>
-        )}
         {this.state.fieldFormVisible && (
           <CustomFieldForm
-            system={config.system}
+            system={{id: store.detailId, system_type_name: store.detail.system_type_name}}
             record={this.state.fieldRecord}
             onClose={() => this.setState({fieldFormVisible: false})}
             onSaved={() => {
               this.setState({fieldFormVisible: false});
-              store.fetchConfig();
+              this.refreshDetail();
             }}
           />
         )}
@@ -497,10 +202,16 @@ class ConfigArchiveTab extends React.Component {
   }
 }
 
+/**
+ * 自定义字段定义编辑/新增（仅定义，不填值）。
+ * 新增时字段编码留空由后端自动生成稳定编码。
+ */
 function CustomFieldForm(props) {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [typeOverride, setTypeOverride] = useState(null);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
   const record = props.record || {};
   const isEdit = !!record.id;
 
@@ -522,6 +233,9 @@ function CustomFieldForm(props) {
         data.detail_columns = JSON.stringify(columns);
       }
       delete data.detail_columns_raw;
+      if (!isEdit) {
+        delete data.field_code; // 留空由后端生成稳定编码
+      }
       setLoading(true);
       const request = isEdit
         ? store.updateCustomField(record.id, data)
@@ -529,7 +243,9 @@ function CustomFieldForm(props) {
       request
         .then(() => props.onSaved())
         .catch(() => {})
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (mountedRef.current) setLoading(false);
+        });
     }).catch(() => {});
   }
 
@@ -566,17 +282,15 @@ function CustomFieldForm(props) {
               is_exportable: !!record.is_exportable,
               is_active: record.is_active !== false,
             }}>
-        <Form.Item
-          name="field_code"
-          label="字段编码"
-          extra="稳定字段编码，创建后不可修改"
-          rules={[
-            {required: true, message: '请输入字段编码'},
-            {pattern: /^[a-z][a-z0-9_]{0,49}$/, message: '小写字母开头，仅含小写字母、数字、下划线'},
-          ]}
-        >
-          <Input disabled={isEdit}/>
-        </Form.Item>
+        {isEdit && (
+          <Form.Item
+            name="field_code"
+            label="字段编码"
+            extra="稳定字段编码，创建后不可修改"
+          >
+            <Input disabled/>
+          </Form.Item>
+        )}
         <Form.Item
           name="display_name"
           label="显示名称"
@@ -586,8 +300,8 @@ function CustomFieldForm(props) {
         </Form.Item>
         <Form.Item name="field_type" label="字段类型" rules={[{required: true}]}>
           <Select disabled={isEdit} onChange={v => setTypeOverride(v)}>
-            {Object.entries(FIELD_TYPE_TEXT).map(([value, label]) => (
-              <Select.Option value={value} key={value}>{label}</Select.Option>
+            {FIELD_TYPE_OPTIONS.map(item => (
+              <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
             ))}
           </Select>
         </Form.Item>
@@ -639,6 +353,9 @@ function CustomFieldForm(props) {
           </Form.Item>
         )}
       </Form>
+      <div style={{color: '#999'}}>
+        本弹窗仅定义字段；字段值请在新增或编辑系统页面填写。
+      </div>
     </Modal>
   );
 }
