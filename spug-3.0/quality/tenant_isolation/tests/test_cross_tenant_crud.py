@@ -1,6 +1,6 @@
 """跨租户 CRUD 测试
 
-覆盖模块: reminder, runlog, fault, account
+覆盖模块: reminder, runlog, account
 覆盖操作: 列表查询、详情、修改、删除、租户字段伪造
 """
 import json
@@ -43,7 +43,6 @@ def run(context):
         _test_navigation_removed(results, tk_ua)
         _test_reminder(results, tk_ua, tid_b, ua, biz)
         _test_runlog(results, tk_ua, biz)
-        _test_fault(results, tk_ua, biz)
         _test_account(results, tk_ua, biz, ub)
     finally:
         cleanup_business_objects(biz, tid_a, tid_b)
@@ -176,45 +175,6 @@ def _test_runlog(results, tk_ua, biz):
     if not passed:
         RunLog.objects.filter(pk=bid).update(is_deleted=False)
 
-
-# ==================== Fault ====================
-
-def _test_fault(results, tk_ua, biz):
-    """FaultRecordView 跨租户测试"""
-    c = Client()
-
-    # 列表
-    r = c.get('/fault/faultrecord/', **{'HTTP_X_TOKEN': tk_ua})
-    body = get_body(r)
-    if isinstance(body, dict) and body.get('error'):
-        _rec(results, 'fault', 'Fault列表跨租户', True, f'错误: {body}')
-    else:
-        items = get_items(body)
-        passed, msg = assert_no_cross_tenant(items, 'FB_', 'system_name')
-        _rec(results, 'fault', 'Fault列表跨租户', passed, msg,
-             'high' if not passed else 'info')
-
-    # 修改
-    bid = biz['ft_b'].id
-    c.post('/fault/faultrecord/', data=json.dumps({'id': bid, 'system_name': 'HACKED'}),
-           content_type='application/json', **{'HTTP_X_TOKEN': tk_ua})
-    from apps.fault.models import FaultRecord
-    ft_b = FaultRecord.objects.get(pk=bid)
-    passed, msg = assert_object_not_modified(ft_b, 'system_name', 'HACKED')
-    _rec(results, 'fault', 'Fault修改跨租户', passed, msg,
-         'high' if not passed else 'info')
-
-    # 删除
-    bid = biz['ft_b'].id
-    c.delete(f'/fault/faultrecord/?id={bid}', **{'HTTP_X_TOKEN': tk_ua})
-    passed, msg = assert_object_exists(FaultRecord, bid)
-    _rec(results, 'fault', 'Fault删除跨租户', passed, msg,
-         'high' if not passed else 'info')
-    if not passed:
-        FaultRecord.objects.filter(pk=bid).update(is_deleted=False)
-
-
-# ==================== Account ====================
 
 def _test_account(results, tk_ua, biz, ub):
     """UserView 跨租户测试"""

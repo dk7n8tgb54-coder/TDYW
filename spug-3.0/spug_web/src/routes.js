@@ -18,7 +18,6 @@ import {
   NotificationOutlined,
   ScheduleOutlined,
   TeamOutlined,
-  FieldTimeOutlined
 } from '@ant-design/icons';
 
 import HomeIndex from './pages/home';
@@ -27,8 +26,6 @@ import RunLogIndex from './pages/runlog';
 import RunLogStatistics from './pages/runlog/Statistics';
 import DeviceResume from './pages/device';
 import DeviceHistory from './pages/device/History';
-import ExecFaultRecord from './pages/exec/fault/record';
-import ExecFaultPart from './pages/exec/fault/part';
 import SystemAccount from './pages/system/account';
 import SystemRole from './pages/system/role';
 import SystemSetting from './pages/system/setting';
@@ -54,10 +51,6 @@ import StationFrequencyApproval from './pages/stationFrequencyApproval';
 import ContractAgreementIndex from './pages/contractAgreement';
 import CoopTaskIndex from './pages/coopTask';
 import RegulationIndex from './pages/regulation';
-import EquipmentLifecycleIndex from './pages/equipmentLifecycle';
-import EquipmentLifecycleSystems from './pages/equipmentLifecycle/systems';
-import EquipmentLifecycleSystemDetail from './pages/equipmentLifecycle/systems/detail';
-import EquipmentLifecycleRelations from './pages/equipmentLifecycle/relations';
 import AnnouncementList from './pages/home/AnnouncementList';
 import AnnouncementAdmin from './pages/system/announcement';
 import ReminderAdmin from './pages/reminder';
@@ -65,7 +58,7 @@ import ReleaseNotesAdmin from './pages/system/releaseNotes';
 
 export default [
   {icon: <DesktopOutlined/>, title: '工作台', auth: 'dashboard.dashboard.view', path: '/home', component: HomeIndex},
-  {icon: <BarChartOutlined/>, title: '数据分析', auth: 'data_analysis.overview.view|data_analysis.fault.view|data_analysis.interference.view|data_analysis.device.view|data_analysis.upgrade.view', path: '/data-analysis', component: DataAnalysisIndex},
+  {icon: <BarChartOutlined/>, title: '数据分析', auth: 'data_analysis.overview.view|data_analysis.interference.view|data_analysis.device.view|data_analysis.upgrade.view', path: '/data-analysis', component: DataAnalysisIndex},
   {icon: <ScheduleOutlined/>, title: '部门值班日志', auth: 'department_duty_log.department_duty_log.view', path: '/department-duty-log', component: DepartmentDutyLogIndex},
   {icon: <SafetyCertificateOutlined/>, title: '无线电执照管理', auth: 'radio_license.license.view|radio_license.approval.view', child: [
     {title: '无线电台执照', auth: 'radio_license.license.view', path: '/radio-license', component: RadioLicenseIndex},
@@ -82,7 +75,7 @@ export default [
     {title: '事项列表', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},
     {title: '统计概览', auth: 'runlog.runlog.view', path: '/runlog/statistics', component: RunLogStatistics},
   ]},
-  {icon: <ApartmentOutlined/>, title: '设备管理', auth: 'device.device_resume.view|device.device_history.view|upgrade.upgrade.view|upgrade.statistics.view|fault.faultrecord.view|fault.faultpart.view', child: [
+  {icon: <ApartmentOutlined/>, title: '设备管理', auth: 'device.device_resume.view|device.device_history.view|upgrade.upgrade.view|upgrade.statistics.view', child: [
     {title: '设备履历', auth: 'device.device_resume.view|device.device_history.view', child: [
       {title: '设备台账', auth: 'device.device_resume.view', path: '/device/device_resume', component: DeviceResume},
       {title: '查看履历', auth: 'device.device_history.view', path: '/device/device_history', component: DeviceHistory},
@@ -92,18 +85,7 @@ export default [
       {title: '升级方案', auth: 'upgrade.upgrade.view', path: '/upgrade/plans', component: ExecUpgradePlan},
       {title: '统计报表', auth: 'upgrade.statistics.view', path: '/upgrade/statistics', component: ExecUpgradeStatistics},
     ]},
-    {title: '故障管理', auth: 'fault.faultrecord.view|fault.faultpart.view', child: [
-      {title: '故障处置记录', auth: 'fault.faultrecord.view', path: '/exec/fault/record', component: ExecFaultRecord},
-      {title: '故障件管理', auth: 'fault.faultpart.view', path: '/exec/fault/part', component: ExecFaultPart},
-    ]},
   ]},
-  {icon: <FieldTimeOutlined/>, title: '设备生命周期', auth: 'equipment_lifecycle.device.view|equipment_lifecycle.system.view|equipment_lifecycle.relation.view', child: [
-    {title: '设备档案', auth: 'equipment_lifecycle.device.view', path: '/equipment-lifecycle', component: EquipmentLifecycleIndex},
-    {title: '系统档案', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.relation.view', path: '/equipment-lifecycle/systems', component: EquipmentLifecycleSystems},
-    {title: '设备关系', auth: 'equipment_lifecycle.relation.view', path: '/equipment-lifecycle/relations', component: EquipmentLifecycleRelations},
-  ]},
-  // 系统详情/关系维护页（从系统列表"详情"进入，不在菜单展示）
-  {path: '/equipment-lifecycle/systems/detail/:id', component: EquipmentLifecycleSystemDetail},
   {icon: <ExceptionOutlined/>, title: '干扰管理', auth: 'interference.interference.view|interference.investigation.view', child: [
     {title: '干扰记录', auth: 'interference.interference.view', path: '/interference/events', component: InterferenceEvents},
     {title: '规律调查', auth: 'interference.investigation.view', path: '/interference/investigations', component: InterferenceInvestigations},

@@ -88,12 +88,6 @@ class TestDataGenerator:
                 "ground_equipment": "PERF测试设备",
             },
         },
-        "fault": {
-            "title": "PERF测试故障记录{seq}",
-            "description": "PERF自动化测试创建的故障记录",
-            "device_name": "PERF测试设备",
-            "fault_type": "hardware",
-        },
         "reminder": {
             "title": "PERF测试提醒{seq}",
             "content": "PERF自动化测试创建的提醒事项",

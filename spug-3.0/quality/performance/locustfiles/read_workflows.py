@@ -145,12 +145,6 @@ class ReadWorkflowUser(TokenPoolHttpUser):
         """Get data analysis overview."""
         self._safe_get("/api/data-analysis/overview/")
 
-    @task(3)
-    def data_analysis_fault(self):
-        """Get fault data analysis."""
-        # NOTE: Endpoint path may need verification
-        self._safe_get("/api/data-analysis/fault/")
-
     # === Department Duty Log ===
 
     @task(4)
@@ -265,13 +259,6 @@ class ReadWorkflowUser(TokenPoolHttpUser):
     def device_history(self):
         """Get device history list."""
         self._safe_get("/api/device/device-event/")
-
-    # === Fault ===
-
-    @task(4)
-    def fault_records(self):
-        """Get fault record list."""
-        self._safe_get("/api/fault/faultrecord/")
 
     # === Upgrade ===
 

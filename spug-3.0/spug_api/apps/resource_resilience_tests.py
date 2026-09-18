@@ -180,7 +180,6 @@ class R4ExportSyncBlockingTests(TestCase):
         """R4.5: 所有模块的导出端点必须调用 check_export_limit"""
         import os
         export_files = [
-            'fault/exporters.py',
             'device/exporters.py',
             'interference/exporters.py',
             'runlog/exporters.py',

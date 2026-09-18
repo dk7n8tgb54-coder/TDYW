@@ -147,10 +147,10 @@ class TestFrontendParser(unittest.TestCase):
 
     def test_auth_button_regex(self):
         """测试 AuthButton 正则"""
-        line = '<AuthButton auth="fault.faultrecord.add" type="primary">新建</AuthButton>'
+        line = '<AuthButton auth="interference.interference.add" type="primary">新建</AuthButton>'
         m = FrontendParser.AUTH_BUTTON_RE.search(line)
         self.assertIsNotNone(m)
-        self.assertEqual(m.group(1), 'fault.faultrecord.add')
+        self.assertEqual(m.group(1), 'interference.interference.add')
 
     def test_http_call_regex(self):
         """测试 HTTP 调用正则"""

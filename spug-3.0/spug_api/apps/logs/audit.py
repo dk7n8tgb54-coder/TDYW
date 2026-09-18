@@ -59,7 +59,6 @@ TARGET_MAP = {
     # 业务模块
     '/device/': {'type': 'device', 'name': '设备'},
     '/document/': {'type': 'document', 'name': '文档'},
-    '/fault/': {'type': 'fault', 'name': '故障'},
     '/duty/': {'type': 'duty', 'name': '值班'},
     '/interference/': {'type': 'interference', 'name': '干扰'},
     '/runlog/': {'type': 'runlog', 'name': '运行日志'},
@@ -108,7 +107,6 @@ AUDIT_EXCLUDES = [
 # 只列有单记录更新场景的表；未列出的 target_type 不捕获 before
 TARGET_TABLE_MAP = {
     'device': 'tdyw_device',
-    'fault': 'tdyw_fault_records',
     'upgrade': 'tdyw_upgrade_records',
     'regulation': 'tdyw_regulation',
     'interference_event': 'tdyw_interference_events',

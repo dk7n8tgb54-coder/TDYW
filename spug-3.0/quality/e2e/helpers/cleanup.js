@@ -75,7 +75,6 @@ async function fullCleanup() {
     await cleanupByPrefix(context, '/api/contract-agreement/', '/api/contract-agreement/', 'title');
     await cleanupByPrefix(context, '/api/regulation/regulations/', '/api/regulation/regulations/', 'title');
     await cleanupByPrefix(context, '/api/device/device-resume/', '/api/device/device-resume/', 'device_name', 'id');
-    await cleanupByPrefix(context, '/api/fault/records/', '/api/fault/records/', 'title');
     await cleanupByPrefix(context, '/api/upgrade/records/', '/api/upgrade/records/', 'title');
     await cleanupByPrefix(context, '/api/interference/events/', '/api/interference/events/', 'phenomenon', 'id');
 

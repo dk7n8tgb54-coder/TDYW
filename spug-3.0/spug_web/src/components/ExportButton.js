@@ -9,10 +9,10 @@
  *
  * 示例：
  *   <ExportButton
- *     auth="fault.faultrecord.view"
- *     url="/api/fault/faultrecord/export/"
+ *     auth="interference.interference.view"
+ *     url="/api/interference/events/export/"
  *     params={store.getExportParams()}
- *     filename="故障处置记录.xlsx">
+ *     filename="干扰记录.xlsx">
  *     导出
  *   </ExportButton>
  *

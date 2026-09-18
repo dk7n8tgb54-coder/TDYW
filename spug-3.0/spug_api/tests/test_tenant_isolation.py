@@ -1,7 +1,6 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
 from django.test import TestCase
-from apps.fault.models import FaultRecord
 from apps.upgrade.models import UpgradeRecord
 from apps.duty.models import DutyRecord
 from apps.runlog.models import RunLog
@@ -73,46 +72,6 @@ class TenantFilterTest(TestCase):
         # 用户2只能看到tenant2的数据
         filtered = apply_tenant_filter(queryset, self.user2)
         self.assertEqual(filtered.count(), 1)
-    
-    def test_fault_record_tenant_filter(self):
-        """测试故障记录的租户过滤"""
-        FaultRecord.objects.create(
-            tenant_id='tenant1',
-            system_name='系统A',
-            device_code='DEV001',
-            fault_date='2024-01-15',
-            handler='张三',
-            recorder='李四',
-            fault_level='高',
-            fault_phenomenon='故障1',
-            handling_process='处理1',
-            created_by=self.user1
-        )
-        
-        FaultRecord.objects.create(
-            tenant_id='tenant2',
-            system_name='系统B',
-            device_code='DEV002',
-            fault_date='2024-01-16',
-            handler='王五',
-            recorder='赵六',
-            fault_level='中',
-            fault_phenomenon='故障2',
-            handling_process='处理2',
-            created_by=self.user2
-        )
-        
-        queryset = FaultRecord.objects.all()
-        
-        # 用户1只能看到tenant1的数据
-        filtered = apply_tenant_filter(queryset, self.user1)
-        self.assertEqual(filtered.count(), 1)
-        self.assertEqual(filtered.first().tenant_id, 'tenant1')
-        
-        # 用户2只能看到tenant2的数据
-        filtered = apply_tenant_filter(queryset, self.user2)
-        self.assertEqual(filtered.count(), 1)
-        self.assertEqual(filtered.first().tenant_id, 'tenant2')
     
     def test_upgrade_record_tenant_filter(self):
         """测试升级记录的租户过滤"""

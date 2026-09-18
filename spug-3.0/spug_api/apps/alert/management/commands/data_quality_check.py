@@ -329,7 +329,6 @@ class Command(BaseCommand):
 
         # (表名, 显示名, 记录名列)
         modules = [
-            ('tdyw_fault_records', '故障记录', 'system_name'),
             ('tdyw_run_logs', '运行日志', 'event_title'),
             ('tdyw_interference_events', '干扰事件', 'phenomenon'),
             ('tdyw_interference_investigations', '规律调查', 'name'),
@@ -492,7 +491,6 @@ class Command(BaseCommand):
         'radio_license': '无线电台执照',
         'contract_agreement': '合同协议',
         'department_duty_log': '部门值班日志',
-        'fault': '故障管理',
         'interference': '干扰管理',
         'upgrade': '系统升级',
         'device': '设备台账',

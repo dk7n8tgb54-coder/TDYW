@@ -212,23 +212,6 @@ class WriteWorkflowUser(TokenPoolHttpUser):
         if data and data.get("id"):
             registry.register("interference", data["id"])
 
-    @task(5)
-    def create_fault(self):
-        """Create a test fault record."""
-        gen = get_generator()
-        registry = get_registry()
-
-        try:
-            record = gen.make_record("fault")
-        except ValueError:
-            return
-
-        send_data = {k: v for k, v in record.items() if not k.startswith("_")}
-
-        data = self._safe_post("/api/fault/faultrecord/", send_data)
-        if data and data.get("id"):
-            registry.register("fault", data["id"])
-
     @task(4)
     def create_device(self):
         """Create a test device record."""
@@ -323,7 +306,6 @@ class WriteWorkflowUser(TokenPoolHttpUser):
             "duty_log": "/api/duty/duty/",
             "reminder": "/api/reminder/",
             "interference": "/api/interference/events/",
-            "fault": "/api/fault/faultrecord/",
             "device": "/api/device/device-resume/",
             "upgrade": "/api/upgrade/records/",
             "radio_license": "/api/radio-license/",

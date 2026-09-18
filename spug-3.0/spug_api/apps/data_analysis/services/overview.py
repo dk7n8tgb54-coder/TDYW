@@ -3,7 +3,6 @@ import datetime
 from django.db.models import Count, Q
 
 from apps.device.models import DeviceResume
-from apps.fault.models import FaultRecord
 from apps.interference.models import InterferenceEvent
 from apps.upgrade.models import UpgradeRecord
 from apps.upgrade.constants import UpgradeStatus
@@ -16,7 +15,6 @@ from .common import (
 def get_overview(user, start_date, end_date):
     """获取总览数据。"""
     range_filter = make_range_filter(start_date, end_date, 'created_at')
-    fault_range = make_range_filter(start_date, end_date, 'fault_date')
     interference_range = make_range_filter(start_date, end_date, 'datetime')
     upgrade_range = make_range_filter(start_date, end_date, 'upgrade_time')
 
@@ -27,12 +25,6 @@ def get_overview(user, start_date, end_date):
     device_total = device_qs.count()
     device_normal = device_qs.filter(current_status='1').count()
     device_fault = device_qs.filter(current_status='2').count()
-
-    # 故障记录数（区间内）
-    fault_qs = apply_tenant_filter(
-        FaultRecord.objects.filter(is_deleted=False).filter(fault_range), user
-    )
-    fault_count = fault_qs.count()
 
     # 干扰记录数统一从事件主表统计，明细表不会造成重复计数。
     interference_qs = apply_tenant_filter(
@@ -50,12 +42,6 @@ def get_overview(user, start_date, end_date):
     upgrade_completed = upgrade_qs.filter(status=UpgradeStatus.COMPLETED).count()
 
     # 月度趋势
-    fault_monthly = build_monthly_trend(
-        apply_tenant_filter(
-            FaultRecord.objects.filter(is_deleted=False), user
-        ),
-        'fault_date', start_date, end_date
-    )
     interference_monthly = _build_interference_total_monthly(user, start_date, end_date)
     upgrade_monthly = build_monthly_trend(
         apply_tenant_filter(
@@ -70,7 +56,6 @@ def get_overview(user, start_date, end_date):
             'device_total_snapshot': device_total,
             'device_normal_snapshot': device_normal,
             'device_fault_snapshot': device_fault,
-            'fault_record_count': fault_count,
             'interference_record_count': interference_count,
             'interference_ground_count': ground_count,
             'interference_air_count': air_count,
@@ -79,7 +64,6 @@ def get_overview(user, start_date, end_date):
             'upgrade_completion_rate': calc_rate(upgrade_completed, upgrade_count),
         },
         'trends': {
-            'fault_monthly': fault_monthly,
             'interference_monthly': interference_monthly,
             'upgrade_monthly': upgrade_monthly,
         },

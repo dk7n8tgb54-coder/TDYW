@@ -65,7 +65,6 @@ class Finding1FrontendAuthBackendCheckTest(TestCase):
     前端 Table.js 中以下按钮缺少 auth 属性：
     - system/role/Table.js: 编辑/功能权限/删除/新建
     - system/account/Table.js: 恢复/启用禁用/编辑/重置密码/删除/签名/新建
-    - exec/fault/part/Table.js: 新建/编辑/删除
 
     预期：后端 @auth 装饰器 / PERM_MAP 会拦截未授权请求
     所以前端缺 auth 只是 UX 问题（看到按钮但点了报错），不是安全问题
@@ -80,7 +79,6 @@ class Finding1FrontendAuthBackendCheckTest(TestCase):
         self.viewer = _make_user('viewer_1', tenant_id='admin', last_ip='')
         role = _make_role('viewer_role', {
             'system': {'account': ['view'], 'role': ['view']},
-            'fault': {'faultpart': ['view']},
         })
         self.viewer.roles.add(role)
 
@@ -138,29 +136,29 @@ class Finding1FrontendAuthBackendCheckTest(TestCase):
             "无 del 权限的用户应被后端 PERM_MAP 拦截，但请求通过了"
         )
 
-    def test_faultpart_edit_blocked_without_permission(self):
-        """无 fault.faultpart.edit 权限的用户不能编辑故障件"""
+    def test_interference_event_add_blocked_without_permission(self):
+        """无 interference.interference.add|edit 权限的用户不能新增干扰事件"""
         resp = self.client.post(
-            '/fault/faultpart/',
-            data=json.dumps({'id': 999, 'name': 'hacked'}),
+            '/interference/events/',
+            data=json.dumps({'id': 999, 'phenomenon': 'hacked'}),
             content_type='application/json',
             HTTP_X_TOKEN=self.viewer.access_token,
         )
         body = resp.json()
-        # @auth('fault.faultpart.add|fault.faultpart.edit') 装饰器应拦截
+        # @auth('interference.interference.add|interference.interference.edit') 装饰器应拦截
         self.assertTrue(
             body.get('error'),
             "无 add/edit 权限的用户应被后端 @auth 拦截，但请求通过了"
         )
 
-    def test_faultpart_delete_blocked_without_permission(self):
-        """无 fault.faultpart.del 权限的用户不能删除故障件"""
+    def test_interference_event_delete_blocked_without_permission(self):
+        """无 interference.interference.del 权限的用户不能删除干扰事件"""
         resp = self.client.delete(
-            '/fault/faultpart/?id=999',
+            '/interference/events/999/',
             HTTP_X_TOKEN=self.viewer.access_token,
         )
         body = resp.json()
-        # @auth('fault.faultpart.del') 装饰器应拦截
+        # @auth('interference.interference.del') 装饰器应拦截
         self.assertTrue(
             body.get('error'),
             "无 del 权限的用户应被后端 @auth 拦截，但请求通过了"

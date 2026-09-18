@@ -8,7 +8,6 @@ import { Row, Col } from 'antd';
 import { Breadcrumb } from 'components';
 import CoopTaskOverview from './CoopTaskOverview';
 import ExpiryOverview from './ExpiryOverview';
-import FaultOverview from './FaultOverview';
 import UpgradeOverview from './UpgradeOverview';
 import InterferenceOverview from './InterferenceOverview';
 import AnnouncementPanel from './AnnouncementPanel';
@@ -35,18 +34,15 @@ function HomeIndex() {
       {/* 第2行：协作任务（我发起的 + 待我交付） */}
       <CoopTaskOverview />
 
-      {/* 第3行：到期提醒 + 最近故障 + 进行中升级 + 干扰统计 */}
+      {/* 第3行：到期提醒 + 进行中升级 + 干扰统计 */}
       <Row gutter={12} style={{ marginBottom: 12 }}>
-        <Col span={6}>
+        <Col span={8}>
           <ExpiryOverview />
         </Col>
-        <Col span={6}>
-          <FaultOverview />
-        </Col>
-        <Col span={6}>
+        <Col span={8}>
           <UpgradeOverview />
         </Col>
-        <Col span={6}>
+        <Col span={8}>
           <InterferenceOverview />
         </Col>
       </Row>

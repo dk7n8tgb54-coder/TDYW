@@ -5,11 +5,11 @@ from django.apps import AppConfig
 
 
 class EquipmentLifecycleConfig(AppConfig):
-    """设备生命周期应用配置类
+    """设备全生命周期应用配置类
 
-    第一阶段第 1 步：与 device 模块并行的独立只读视图模块。
-    本应用不定义任何模型，直接租户隔离地只读展示 apps.device 的 DeviceResume，
-    后续阶段（系统主数据、设备关系、部件、履历、巡检、工单、报废、迁移）在本应用内扩展。
+    步骤一（旧结构清理）已删除旧的设备档案、位置历史、系统主数据、
+    系统—设备关系模型及对应四张表（见 migrations/0005），应用外壳保留，
+    后续按《设备全生命周期管理总体方案》在本应用内重建。
     """
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'apps.equipment_lifecycle'

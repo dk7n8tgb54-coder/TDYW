@@ -1,9 +1,6 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
 from django.test import TestCase
-from apps.fault.models import (
-    FaultRecord, FaultPart
-)
 from apps.interference.models import InterferenceEvent
 from apps.upgrade.models import UpgradeRecord
 from apps.duty.models import DutyRecord
@@ -37,63 +34,6 @@ class RunLogModelTest(TestCase):
         )
         self.assertEqual(run_log.system_name, '系统A')
         self.assertEqual(run_log.tenant_id, 'test_tenant')
-
-
-class FaultRecordModelTest(TestCase):
-    """FaultRecord模型测试"""
-    
-    def setUp(self):
-        """测试前准备"""
-        self.user = User.objects.create(
-            username='testuser',
-            nickname='测试用户',
-            password_hash=User.make_password('password123'),
-            tenant_id='test_tenant'
-        )
-    
-    def test_create_fault_record(self):
-        """测试创建故障记录"""
-        fault = FaultRecord.objects.create(
-            tenant_id='test_tenant',
-            system_name='系统A',
-            device_code='DEV001',
-            fault_date='2024-01-15',
-            handler='张三',
-            recorder='李四',
-            fault_level='高',
-            fault_phenomenon='设备无法启动',
-            handling_process='重启设备',
-            created_by=self.user
-        )
-        self.assertEqual(fault.system_name, '系统A')
-        self.assertEqual(fault.fault_level, '高')
-
-
-class FaultPartModelTest(TestCase):
-    """FaultPart模型测试"""
-    
-    def setUp(self):
-        """测试前准备"""
-        self.user = User.objects.create(
-            username='testuser',
-            nickname='测试用户',
-            password_hash=User.make_password('password123'),
-            tenant_id='test_tenant'
-        )
-    
-    def test_create_fault_part(self):
-        """测试创建故障部件"""
-        fault_part = FaultPart.objects.create(
-            tenant_id='test_tenant',
-            name='主板',
-            system_name='系统A',
-            date='2024-01-15',
-            fault_date='2024-01-15',
-            status='维修中',
-            created_by=self.user
-        )
-        self.assertEqual(fault_part.name, '主板')
-        self.assertEqual(fault_part.status, '维修中')
 
 
 class InterferenceModelTest(TestCase):

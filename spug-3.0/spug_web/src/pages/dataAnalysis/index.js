@@ -13,7 +13,6 @@ import { Breadcrumb } from 'components';
 import { hasPermission } from 'libs';
 import store, { TABS, MAX_RANGE_DAYS, getDatePresets } from './store';
 import Overview from './Overview';
-import FaultAnalysis from './FaultAnalysis';
 import InterferenceAnalysis from './InterferenceAnalysis';
 import DeviceAnalysis from './DeviceAnalysis';
 import UpgradeAnalysis from './UpgradeAnalysis';
@@ -23,7 +22,6 @@ const { RangePicker } = DatePicker;
 // Tab key -> 组件映射
 const TAB_COMPONENTS = {
   overview: Overview,
-  fault: FaultAnalysis,
   interference: InterferenceAnalysis,
   device: DeviceAnalysis,
   upgrade: UpgradeAnalysis,

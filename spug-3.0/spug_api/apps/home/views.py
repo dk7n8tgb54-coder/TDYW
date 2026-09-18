@@ -58,25 +58,7 @@ def get_statistic(request):
         logger.exception('[dashboard] runlog 统计失败')
         data['runlog'] = {}
 
-    # 2. 最近故障
-    try:
-        from apps.fault.models import FaultRecord
-        fault_qs = apply_tenant_filter(FaultRecord.objects, request.user).filter(is_deleted=False)
-        recent_faults = list(
-            fault_qs.order_by('-fault_date', '-id').values(
-                'id', 'system_name', 'device_code', 'fault_date',
-                'fault_level', 'fault_phenomenon', 'handler'
-            )[:5]
-        )
-        data['fault'] = {
-            'total_all': fault_qs.count(),
-            'recent': recent_faults,
-        }
-    except Exception:
-        logger.exception('[dashboard] fault 统计失败')
-        data['fault'] = {}
-
-    # 3. 进行中的系统升级
+    # 2. 进行中的系统升级
     try:
         from apps.upgrade.models import UpgradeRecord
         from apps.upgrade.constants import UpgradeStatus
@@ -96,7 +78,7 @@ def get_statistic(request):
         logger.exception('[dashboard] upgrade 统计失败')
         data['upgrade'] = {}
 
-    # 4. 干扰信息今日统计（统一从事件主表聚合）
+    # 3. 干扰信息今日统计（统一从事件主表聚合）
     try:
         from apps.interference.models import InterferenceEvent
         event_today = apply_tenant_filter(
@@ -112,7 +94,7 @@ def get_statistic(request):
         logger.exception('[dashboard] interference 统计失败')
         data['interference'] = {}
 
-    # 5. 资料库今日新增文件
+    # 4. 资料库今日新增文件
     try:
         from apps.document.models import DocumentFilePrivate, DocumentFilePublic
         private_files = apply_tenant_filter(DocumentFilePrivate.objects, request.user)

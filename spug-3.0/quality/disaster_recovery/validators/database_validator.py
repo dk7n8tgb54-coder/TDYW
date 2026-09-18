@@ -168,7 +168,6 @@ def check_orphan_fk(env: dict) -> ValidationResult:
     orphan_checks = [
         ("document_documentfile_private", "created_by_id", "account_user"),
         ("evidence_evidenceattachment", "created_by_id", "account_user"),
-        ("fault_faultrecord", "created_by_id", "account_user"),
     ]
 
     orphan_count = 0

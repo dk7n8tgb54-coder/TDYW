@@ -22,7 +22,6 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('account/', include('apps.account.urls')),
-    path('fault/', include('apps.fault.urls')),
     path('duty/', include('apps.duty.urls')),
     path('device/', include('apps.device.urls')),
     path('setting/', include('apps.setting.urls')),
@@ -49,7 +48,6 @@ urlpatterns = [
 # 注意：include('字符串') 会在调用时立即导入目标模块，因此这里只存参数，
 # 仅对未列入延迟清单的模块构建 path/include，避免启动时导入未安装模块。
 _pending_app_urls = {
-    'equipment_lifecycle': ('equipment-lifecycle/', 'apps.equipment_lifecycle.urls'),
     'coop_task': ('coop-task/', 'apps.coop_task.urls'),
 }
 urlpatterns += [

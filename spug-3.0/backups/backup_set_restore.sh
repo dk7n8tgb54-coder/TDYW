@@ -76,7 +76,7 @@ Usage:
   ./backups/backup_set_restore.sh <backup_set_id|backup_set_directory>
   ./backups/backup_set_restore.sh --mode drill <backup_set_id|backup_set_directory>
   ./backups/backup_set_restore.sh --mode production <backup_set_id|backup_set_directory>
-  ./backup_set_restore.sh --mode production /mnt/e/TDYW/backup_set_20260905_020001/
+  ./backups/backup_set_restore.sh --mode production /mnt/e/TDYW/backup_set_20260905_020001/
 No --mode:
   Verify SHA-256, manifests and the independent full restore plan. No data changes.
 

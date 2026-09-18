@@ -41,11 +41,10 @@ afterEach(() => {
 });
 
 describe('数据分析 TABS 配置', () => {
-  it('五个 Tab 的 key/权限码/端点与后端路由一致', () => {
+  it('四个 Tab 的 key/权限码/端点与后端路由一致', () => {
     const {TABS} = freshStore();
     expect(TABS).toEqual([
       {key: 'overview', label: '总览分析', perm: 'data_analysis.overview.view', endpoint: '/api/data-analysis/overview/'},
-      {key: 'fault', label: '故障分析', perm: 'data_analysis.fault.view', endpoint: '/api/data-analysis/fault/'},
       {key: 'interference', label: '干扰分析', perm: 'data_analysis.interference.view', endpoint: '/api/data-analysis/interference/'},
       {key: 'device', label: '设备分析', perm: 'data_analysis.device.view', endpoint: '/api/data-analysis/device/'},
       {key: 'upgrade', label: '升级分析', perm: 'data_analysis.upgrade.view', endpoint: '/api/data-analysis/upgrade/'},
@@ -105,13 +104,13 @@ describe('数据分析 fetchTab', () => {
 
   it('各 Tab 状态独立互不污染', async () => {
     const {store} = freshStore();
-    mockHttpGet.mockResolvedValueOnce({tab: 'fault'});
-    await store.fetchTab('fault');
+    mockHttpGet.mockResolvedValueOnce({tab: 'interference'});
+    await store.fetchTab('interference');
     await flush();
-    expect(store.getData('fault')).toEqual({tab: 'fault'});
+    expect(store.getData('interference')).toEqual({tab: 'interference'});
     // 其他 Tab 不受影响
-    expect(store.getData('interference')).toBeUndefined();
-    expect(store.isFetching('interference')).toBe(false);
+    expect(store.getData('device')).toBeUndefined();
+    expect(store.isFetching('device')).toBe(false);
   });
 
   it('业务失败（Error 对象）记录错误信息并复位 fetching', async () => {
@@ -137,8 +136,8 @@ describe('数据分析 fetchTab', () => {
 describe('数据分析 Tab 与日期切换', () => {
   it('setActiveTab / setDateRange 更新状态', () => {
     const {store} = freshStore();
-    store.setActiveTab('fault');
-    expect(store.activeTab).toBe('fault');
+    store.setActiveTab('interference');
+    expect(store.activeTab).toBe('interference');
     const range = [moment('2026-01-01'), moment('2026-06-30')];
     store.setDateRange(range);
     expect(store.dateRange).toEqual(range);

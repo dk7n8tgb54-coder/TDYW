@@ -12,7 +12,6 @@ import json
 from django.test import TestCase
 from apps.utils.test_helpers import make_user, make_client, setup_test_env
 from apps.duty.models import DutyRecord
-from apps.fault.models import FaultPart, FaultRecord
 from apps.interference.models import InterferenceEvent
 from apps.runlog.models import RunLog
 from apps.regulation.models import RegulationCategory
@@ -47,69 +46,6 @@ class DutyRecordIdempotencyTest(TestCase):
 
         count = DutyRecord.objects.filter(
             duty_person='张三', department='信息科').count()
-        self.assertEqual(count, 1, f'修复验证：应仅 1 条记录，实际 {count} 条')
-
-
-class FaultPartIdempotencyTest(TestCase):
-    """故障件 POST 幂等性修复验证"""
-    URL = '/fault/faultpart/'
-    PERMS = ['fault.faultpart.add', 'fault.faultpart.view']
-
-    def setUp(self):
-        setup_test_env(self)
-        self.user = make_user('fault_part_tester', self.PERMS)
-        self.client_auth = make_client(self.user)
-
-    def test_double_post_blocked(self):
-        """修复验证：连续两次 POST 相同数据，第二次应被拒绝"""
-        payload = {
-            'name': '雷达主板', 'system_name': '雷达系统',
-            'date': '2026-07-29', 'fault_date': '2026-07-28', 'status': '待维修',
-        }
-        r1 = self.client_auth.post(
-            self.URL, data=json.dumps(payload), content_type='application/json')
-        self.assertEqual(r1.status_code, 200)
-        self.assertFalse(r1.json().get('error'))
-
-        r2 = self.client_auth.post(
-            self.URL, data=json.dumps(payload), content_type='application/json')
-        self.assertEqual(r2.status_code, 200)
-        self.assertTrue(r2.json().get('error'))
-
-        count = FaultPart.objects.filter(
-            name='雷达主板', system_name='雷达系统').count()
-        self.assertEqual(count, 1, f'修复验证：应仅 1 条记录，实际 {count} 条')
-
-
-class FaultRecordIdempotencyTest(TestCase):
-    """故障记录 POST 幂等性修复验证"""
-    URL = '/fault/faultrecord/'
-    PERMS = ['fault.faultrecord.add', 'fault.faultrecord.view']
-
-    def setUp(self):
-        setup_test_env(self)
-        self.user = make_user('fault_rec_tester', self.PERMS)
-        self.client_auth = make_client(self.user)
-
-    def test_double_post_blocked(self):
-        """修复验证：连续两次 POST 相同数据，第二次应被拒绝"""
-        payload = {
-            'system_name': '通信系统', 'device_code': 'DEV-001',
-            'fault_date': '2026-07-29', 'handler': '李四', 'recorder': '王五',
-            'fault_level': '一般', 'fault_phenomenon': '信号中断', 'handling_process': '重启设备',
-        }
-        r1 = self.client_auth.post(
-            self.URL, data=json.dumps(payload), content_type='application/json')
-        self.assertEqual(r1.status_code, 200)
-        self.assertFalse(r1.json().get('error'))
-
-        r2 = self.client_auth.post(
-            self.URL, data=json.dumps(payload), content_type='application/json')
-        self.assertEqual(r2.status_code, 200)
-        self.assertTrue(r2.json().get('error'))
-
-        count = FaultRecord.objects.filter(
-            system_name='通信系统', device_code='DEV-001').count()
         self.assertEqual(count, 1, f'修复验证：应仅 1 条记录，实际 {count} 条')
 
 

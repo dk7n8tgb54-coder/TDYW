@@ -13,10 +13,6 @@ ALL_PERMS = json.dumps({
         "runlog": ["view", "add", "edit", "del",
                    "update_view", "update_add", "update_edit", "update_del"],
     },
-    "fault": {
-        "faultrecord": ["view", "add", "edit", "del"],
-        "faultpart": ["view", "add", "edit", "del"],
-    },
     "regulation": {
         "regulation": ["view", "add", "edit", "del"],
     },

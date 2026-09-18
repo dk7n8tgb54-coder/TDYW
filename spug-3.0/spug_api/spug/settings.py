@@ -71,7 +71,6 @@ _base_installed_apps = [
     'libs',
     'apps.account',
     'apps.setting',
-    'apps.fault',
     'apps.duty',
     'apps.device',
     'apps.interference',

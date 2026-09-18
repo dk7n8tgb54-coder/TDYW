@@ -8,7 +8,6 @@ from django.core.cache import cache
 from django.utils import timezone
 from apps.utils.test_helpers import make_user, make_client, setup_test_env
 from apps.alert.models import Alert, AlertRead
-from apps.fault.models import FaultRecord
 from apps.upgrade.models import UpgradeRecord
 from apps.upgrade.constants import UpgradeStatus
 
@@ -119,8 +118,8 @@ class AlertApiTest(TestCase):
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
-class StatisticFaultUpgradeTest(TestCase):
-    """首页统计接口：最近故障 + 进行中升级"""
+class StatisticUpgradeTest(TestCase):
+    """首页统计接口：进行中升级"""
     URL = '/home/statistic/'
     PERMS = ['dashboard.dashboard.view']
 
@@ -132,22 +131,6 @@ class StatisticFaultUpgradeTest(TestCase):
     def _clear_cache(self):
         """只清除 dashboard 缓存，保留权限缓存"""
         cache.delete(f'dashboard:{self.user.tenant_id}')
-
-    def _make_fault(self, **kwargs):
-        defaults = dict(
-            tenant_id='admin',
-            system_name='测试系统',
-            device_code='DEV001',
-            fault_date=timezone.now(),
-            handler='张三',
-            recorder='李四',
-            fault_level='A',
-            fault_phenomenon='测试故障现象',
-            handling_process='处理过程',
-            created_by=self.user,
-        )
-        defaults.update(kwargs)
-        return FaultRecord.objects.create(**defaults)
 
     def _make_upgrade(self, **kwargs):
         defaults = dict(
@@ -168,56 +151,6 @@ class StatisticFaultUpgradeTest(TestCase):
         r = self.c_auth.get(self.URL)
         self.assertEqual(r.status_code, 200)
         return r.json()['data']
-
-    # --- 最近故障 ---
-
-    def test_fault_recent_ordered_by_fault_date_desc(self):
-        """1. 最近故障按 fault_date 倒序返回"""
-        now = timezone.now()
-        self._make_fault(fault_date=now - timedelta(days=3), system_name='旧故障')
-        self._make_fault(fault_date=now - timedelta(days=1), system_name='新故障')
-        self._make_fault(fault_date=now - timedelta(days=2), system_name='中故障')
-        data = self._get_statistic()
-        recent = data['fault']['recent']
-        self.assertEqual(len(recent), 3)
-        self.assertEqual(recent[0]['system_name'], '新故障')
-        self.assertEqual(recent[1]['system_name'], '中故障')
-        self.assertEqual(recent[2]['system_name'], '旧故障')
-
-    def test_fault_recent_ordered_by_id_when_same_date(self):
-        """1b. fault_date 相同时按 id 倒序"""
-        same_date = timezone.now()
-        f1 = self._make_fault(fault_date=same_date, system_name='先创建')
-        f2 = self._make_fault(fault_date=same_date, system_name='后创建')
-        data = self._get_statistic()
-        recent = data['fault']['recent']
-        self.assertEqual(recent[0]['id'], f2.id)
-        self.assertEqual(recent[1]['id'], f1.id)
-
-    def test_fault_recent_max_5(self):
-        """2. 最多返回5条故障"""
-        now = timezone.now()
-        for i in range(6):
-            self._make_fault(fault_date=now - timedelta(days=i), system_name=f'故障{i}')
-        data = self._get_statistic()
-        self.assertEqual(len(data['fault']['recent']), 5)
-
-    def test_fault_soft_deleted_excluded(self):
-        """3. 软删除故障不参与总数和最近记录"""
-        self._make_fault(system_name='正常故障')
-        self._make_fault(system_name='已删除故障', is_deleted=True)
-        data = self._get_statistic()
-        self.assertEqual(data['fault']['total_all'], 1)
-        self.assertEqual(len(data['fault']['recent']), 1)
-        self.assertEqual(data['fault']['recent'][0]['system_name'], '正常故障')
-
-    def test_fault_tenant_isolation(self):
-        """4. 其他租户故障不可见"""
-        self._make_fault(system_name='本租户故障', tenant_id='admin')
-        self._make_fault(system_name='其他租户故障', tenant_id='other_tenant')
-        data = self._get_statistic()
-        self.assertEqual(data['fault']['total_all'], 1)
-        self.assertEqual(data['fault']['recent'][0]['system_name'], '本租户故障')
 
     # --- 进行中升级 ---
 
@@ -268,19 +201,16 @@ class StatisticFaultUpgradeTest(TestCase):
     def test_empty_data_returns_empty_arrays(self):
         """11. 空数据时返回空数组和0，而不是缺失字段"""
         data = self._get_statistic()
-        self.assertIn('fault', data)
-        self.assertEqual(data['fault']['total_all'], 0)
-        self.assertEqual(data['fault']['recent'], [])
         self.assertIn('upgrade', data)
         self.assertEqual(data['upgrade']['in_progress_total'], 0)
         self.assertEqual(data['upgrade']['in_progress'], [])
 
     def test_dashboard_cache_cleared_between_calls(self):
         """12. 测试中处理 dashboard 缓存，避免不同用例互相污染"""
-        self._make_fault(system_name='故障A')
+        self._make_upgrade(title='升级A')
         data1 = self._get_statistic()
-        self.assertEqual(data1['fault']['total_all'], 1)
+        self.assertEqual(data1['upgrade']['in_progress_total'], 1)
 
-        self._make_fault(system_name='故障B')
+        self._make_upgrade(title='升级B')
         data2 = self._get_statistic()
-        self.assertEqual(data2['fault']['total_all'], 2)
+        self.assertEqual(data2['upgrade']['in_progress_total'], 2)

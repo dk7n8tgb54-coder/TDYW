@@ -4,7 +4,6 @@ from libs.utils import json_response
 from .services.common import parse_date_range
 from .services.cache import get_cache_scope, cache_get, cache_set
 from .services.overview import get_overview
-from .services.fault import get_fault_analysis
 from .services.interference import get_interference_analysis
 from .services.device import get_device_analysis
 from .services.upgrade import get_upgrade_analysis
@@ -33,9 +32,6 @@ def _make_view(perm, service_func, endpoint):
 
 overview_view = _make_view(
     'data_analysis.overview.view', get_overview, 'overview'
-)
-fault_view = _make_view(
-    'data_analysis.fault.view', get_fault_analysis, 'fault'
 )
 interference_view = _make_view(
     'data_analysis.interference.view', get_interference_analysis, 'interference'

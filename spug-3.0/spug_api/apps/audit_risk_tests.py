@@ -105,7 +105,6 @@ class ExportAuditCoverageTest(TestCase):
     """A2 修复验证：导出视图已有审计日志"""
 
     ALL_EXPORT_VIEWS = [
-        'apps.fault.exporters.FaultRecordExportView',
         'apps.interference.views.EventExportView',
         'apps.upgrade.exporters.UpgradeRecordExportView',
         'apps.runlog.exporters.RunLogExportView',

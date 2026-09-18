@@ -75,8 +75,3 @@ excluded_modules:
 # 前端页面中已知的权限编码不一致（需人工确认，不自动判定为 bug）
 # 这些是前端代码中实际使用的权限前缀与后端不一致的情况
 frontend_namespace_overrides:
-  - page: "exec/fault"
-    frontend_prefix: "exec.faultrecord"
-    backend_prefix: "fault.faultrecord"
-    status: "suspected_bug"
-    note: "故障表单内 hasPermission 使用 exec.faultrecord 前缀，与路由/表格的 fault.faultrecord 不一致"

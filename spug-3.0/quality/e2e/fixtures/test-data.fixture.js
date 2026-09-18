@@ -102,12 +102,6 @@ const TEST_DATA = {
     model: 'E2E-TEST-MODEL',
   },
 
-  // Fault record
-  fault: {
-    title: () => `E2E_测试故障_${Date.now()}`,
-    description: 'E2E TEST DATA - Fault description',
-  },
-
   // Upgrade record
   upgrade: {
     title: () => `E2E_测试升级_${Date.now()}`,

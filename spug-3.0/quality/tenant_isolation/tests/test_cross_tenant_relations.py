@@ -45,13 +45,6 @@ def run(context):
             'detail': 'ReminderUsersView 泄露所有租户用户(见 CRUD 测试)，但提醒创建时 recipient_users 由前端传入，后端不校验接收者租户',
             'severity': 'high',
         },
-        {
-            'module': 'fault',
-            'test': '故障关联设备跨租户(源码审查)',
-            'passed': None,
-            'detail': 'FaultRecord 无设备 FK，使用文本字段 device_code，无跨租户关联风险',
-            'severity': 'low',
-        },
     ]
 
     for f in findings:

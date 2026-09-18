@@ -29,17 +29,6 @@ def make_runlog(tenant_id, user, label='A'):
     )
 
 
-def make_fault_record(tenant_id, user, label='A'):
-    """创建故障记录"""
-    from apps.fault.models import FaultRecord
-    return FaultRecord.objects.create(
-        system_name=f'F{label}_{_uid()}', device_code=f'D{label}',
-        handler=user.nickname, recorder=user.nickname,
-        fault_level='一般', fault_phenomenon='测试故障现象',
-        handling_process='测试处理过程',
-        created_by=user, tenant_id=tenant_id,
-    )
-
 
 def make_regulation_category(bootstrap_user):
     """创建规章分类（全局，无租户字段）"""
@@ -79,9 +68,6 @@ def make_all_business_objects(tenants, users):
     # RunLog
     data['rl_a'] = make_runlog(tid_a, ua, 'A')
     data['rl_b'] = make_runlog(tid_b, ub, 'B')
-    # Fault
-    data['ft_a'] = make_fault_record(tid_a, ua, 'A')
-    data['ft_b'] = make_fault_record(tid_b, ub, 'B')
     return data
 
 
@@ -89,10 +75,9 @@ def cleanup_business_objects(data, tid_a, tid_b):
     """清理所有业务对象"""
     from apps.reminder.models import Reminder
     from apps.runlog.models import RunLog
-    from apps.fault.models import FaultRecord
     from apps.regulation.models import Regulation, RegulationCategory
 
-    for model in [Reminder, RunLog, FaultRecord]:
+    for model in [Reminder, RunLog]:
         model.objects.filter(tenant_id__in=[tid_a, tid_b]).delete()
 
     if 'reg' in data:

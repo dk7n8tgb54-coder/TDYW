@@ -61,7 +61,6 @@ success_criteria:
 # ---- Tasks With Idempotency Keys ----
 # These tasks can be safely retried after Celery restart:
 idempotent_tasks:
-  - "fault tasks (check_recent_duplicate)"
   - "interference tasks"
   - "contract_agreement tasks"
   - "department_duty_log tasks"

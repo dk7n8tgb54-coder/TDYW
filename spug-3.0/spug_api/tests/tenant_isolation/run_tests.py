@@ -24,7 +24,6 @@ def setup_data():
     from apps.account.models import User, Role, Tenant
     from apps.reminder.models import Reminder
     from apps.runlog.models import RunLog
-    from apps.fault.models import FaultRecord
     from apps.regulation.models import Regulation, RegulationCategory
     # 获取一个现有用户作为 created_by（Tenant/Role 的 FK）
     bootstrap_user = User.objects.first()
@@ -33,7 +32,7 @@ def setup_data():
     d['tid_b'] = f'ti_b_{_uid()}'
     d['tenant_a'] = Tenant.objects.create(id=d['tid_a'], name='测试A', created_by=bootstrap_user)
     d['tenant_b'] = Tenant.objects.create(id=d['tid_b'], name='测试B', created_by=bootstrap_user)
-    perms = json.dumps({"home":{"reminder":["view","add","edit","delete"]},"runlog":{"runlog":["view","add","edit","del","update_view","update_add","update_edit","update_del"]},"fault":{"faultrecord":["view","add","edit","del"]},"regulation":{"regulation":["view","add","edit","del"]},"dashboard":{"dashboard":["view"]},"system":{"account":["view","add","edit","del"],"role":["view","add","edit","del"]},"logs":{"audit":["view"]}})
+    perms = json.dumps({"home":{"reminder":["view","add","edit","delete"]},"runlog":{"runlog":["view","add","edit","del","update_view","update_add","update_edit","update_del"]},"regulation":{"regulation":["view","add","edit","del"]},"dashboard":{"dashboard":["view"]},"system":{"account":["view","add","edit","del"],"role":["view","add","edit","del"]},"logs":{"audit":["view"]}})
     for lbl, tid, uname in [('ua',d['tid_a'],f'ti_a_{_uid()}'),('ub',d['tid_b'],f'ti_b_{_uid()}')]:
         r = Role.objects.create(name=f'r{uname}',tenant_id=tid,page_perms=perms,created_by=bootstrap_user)
         u = User(username=uname,nickname=uname,password_hash=User.make_password('t'),tenant_id=tid,is_supper=False,is_active=True,access_token=uuid.uuid4().hex,last_ip='127.0.0.1',token_expired=time.time()+86400)
@@ -43,8 +42,6 @@ def setup_data():
     d['rem_b']=Reminder.objects.create(name=f'RB_{_uid()}',target_date=date.today(),repeat_type='none',content='c',enabled=True,recipient_users='[]',tenant_id=d['tid_b'],created_by_id=d['ub'].id,created_by_name=d['ub'].nickname)
     d['rl_a']=RunLog.objects.create(event_title=f'LA_{_uid()}',event_type='运行异常',system_name='SA',severity='P2',status='in_progress',created_by=d['ua'],tenant_id=d['tid_a'])
     d['rl_b']=RunLog.objects.create(event_title=f'LB_{_uid()}',event_type='运行异常',system_name='SB',severity='P2',status='in_progress',created_by=d['ub'],tenant_id=d['tid_b'])
-    d['ft_a']=FaultRecord.objects.create(system_name=f'FA_{_uid()}',device_code='DA',handler='h',recorder='r',fault_level='一般',fault_phenomenon='p',handling_process='pr',created_by=d['ua'],tenant_id=d['tid_a'])
-    d['ft_b']=FaultRecord.objects.create(system_name=f'FB_{_uid()}',device_code='DB',handler='h',recorder='r',fault_level='一般',fault_phenomenon='p',handling_process='pr',created_by=d['ub'],tenant_id=d['tid_b'])
     d['reg_cat']=RegulationCategory.objects.create(name=f'RC_{_uid()}', created_by=bootstrap_user)
     d['reg']=Regulation.objects.create(title=f'RG_{_uid()}',rule_no=f'NO_{_uid()}',category=d['reg_cat'])
     return d
@@ -53,9 +50,8 @@ def cleanup(d):
     from apps.account.models import User,Role,Tenant
     from apps.reminder.models import Reminder
     from apps.runlog.models import RunLog
-    from apps.fault.models import FaultRecord
     from apps.regulation.models import Regulation,RegulationCategory
-    for m in [Reminder,RunLog,FaultRecord]:
+    for m in [Reminder,RunLog]:
         m.objects.filter(tenant_id__in=[d['tid_a'],d['tid_b']]).delete()
     Regulation.objects.filter(pk=d['reg'].pk).delete()
     RegulationCategory.objects.filter(pk=d['reg_cat'].pk).delete()
@@ -148,26 +144,7 @@ def test_rl_del(d):
     n=RunLog.objects.filter(pk=bid,is_deleted=False).first()
     rec('runlog','RunLog删除跨租户',n is not None,f'已删={n is None},resp={_body(r)}',sev='high' if n is None else 'info')
 
-def test_ft_list(d):
-    c=Client(); r=c.get('/fault/',**{'HTTP_X_TOKEN':d['tk_ua']})
-    b=_body(r); items=_items(b)
-    systems=[str(i.get('system_name','')) for i in items]
-    has_b=any('FB_' in s for s in systems)
-    rec('fault','Fault列表跨租户',not has_b,f'看到B:{has_b},共{len(items)}条',sev='high' if has_b else 'info')
 
-def test_ft_edit(d):
-    c=Client(); bid=d['ft_b'].id
-    r=c.put(f'/fault/{bid}/',data=json.dumps({'system_name':'HACKED'}),content_type='application/json',**{'HTTP_X_TOKEN':d['tk_ua']})
-    from apps.fault.models import FaultRecord
-    n=FaultRecord.objects.get(pk=bid)
-    rec('fault','Fault修改跨租户',n.system_name!='HACKED',f'system={n.system_name},resp={_body(r)}',sev='high' if n.system_name=='HACKED' else 'info')
-
-def test_ft_del(d):
-    c=Client(); bid=d['ft_b'].id
-    r=c.delete(f'/fault/{bid}/',**{'HTTP_X_TOKEN':d['tk_ua']})
-    from apps.fault.models import FaultRecord
-    n=FaultRecord.objects.filter(pk=bid,is_deleted=False).first()
-    rec('fault','Fault删除跨租户',n is not None,f'已删={n is None},resp={_body(r)}',sev='high' if n is None else 'info')
 
 def test_dashboard(d):
     c=Client(); r=c.get('/home/statistic/',**{'HTTP_X_TOKEN':d['tk_ua']})
@@ -175,11 +152,11 @@ def test_dashboard(d):
     if b.get('error'):
         rec('dashboard','Dashboard统计隔离',True,f'错误:{b}')
         return
-    # 检查 fault 统计是否包含 B 的数据
-    fault_info=b.get('fault',{})
-    recent=fault_info.get('recent',[])
-    has_b=any('FB_' in str(r.get('system_name','')) for r in recent)
-    rec('dashboard','Dashboard统计跨租户',not has_b,f'统计中含B数据:{has_b},fault_total={fault_info.get("total_all","?")}',sev='medium' if has_b else 'info')
+    # 检查 runlog 统计是否包含 B 的数据
+    runlog_info=b.get('runlog',{})
+    recent=runlog_info.get('recent_pending',[])
+    has_b=any('LB_' in str(r.get('event_title','')) for r in recent)
+    rec('dashboard','Dashboard统计跨租户',not has_b,f'统计中含B数据:{has_b},runlog_in_progress_total={runlog_info.get("in_progress_total","?")}',sev='medium' if has_b else 'info')
 
 def test_regulation_global(d):
     """Regulation 无 tenant_id - 记录为全局数据"""
@@ -192,7 +169,6 @@ ALL_TESTS = [
     test_nav_removed,
     test_rem_list, test_rem_users, test_rem_edit, test_rem_del, test_rem_tenant_forgery,
     test_rl_list, test_rl_detail, test_rl_edit, test_rl_del,
-    test_ft_list, test_ft_edit, test_ft_del,
     test_dashboard,
     test_regulation_global,
 ]

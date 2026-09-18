@@ -34,7 +34,6 @@ datasets:
       - duty_logs
       - runlogs
       - reminders
-      - faults
       - interferences
     cleanup: "Automatic via cleanup helper, matching PERF_ prefix"
     notes: "Requires ALLOW_WRITE_LOAD=true and test database"

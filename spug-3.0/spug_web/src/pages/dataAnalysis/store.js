@@ -10,7 +10,6 @@ import moment from 'moment';
 // Tab 配置：key -> { label, perm, endpoint }
 export const TABS = [
   { key: 'overview', label: '总览分析', perm: 'data_analysis.overview.view', endpoint: '/api/data-analysis/overview/' },
-  { key: 'fault', label: '故障分析', perm: 'data_analysis.fault.view', endpoint: '/api/data-analysis/fault/' },
   { key: 'interference', label: '干扰分析', perm: 'data_analysis.interference.view', endpoint: '/api/data-analysis/interference/' },
   { key: 'device', label: '设备分析', perm: 'data_analysis.device.view', endpoint: '/api/data-analysis/device/' },
   { key: 'upgrade', label: '升级分析', perm: 'data_analysis.upgrade.view', endpoint: '/api/data-analysis/upgrade/' },

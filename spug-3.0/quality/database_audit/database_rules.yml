@@ -69,7 +69,7 @@ rules:
     description: "DateTimeField/DateField 上使用 __icontains"
     severity: medium
     check: "Source code search for __icontains= on date fields"
-    pattern: "fault_date__icontains|created_at__icontains|updated_at__icontains"
+    pattern: "created_at__icontains|updated_at__icontains"
 
   datetime_date_lookup:
     description: "DateTimeField 上使用 __date="

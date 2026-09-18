@@ -2,7 +2,6 @@
 # Released under the AGPL-3.0 License.
 from django.test import TestCase, Client
 from apps.account.models import User
-from apps.fault.models import FaultRecord
 from apps.upgrade.models import UpgradeRecord
 from apps.runlog.models import RunLog
 from apps.setting.utils import AppSetting

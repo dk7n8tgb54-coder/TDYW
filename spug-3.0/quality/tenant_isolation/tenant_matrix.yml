@@ -46,17 +46,6 @@ modules:
         risk: PASS
         notes: "apply_tenant_filter 有效"
 
-  fault:
-    models:
-      - name: FaultRecord
-        table: fault_faultrecord
-        tenant_field: tenant_id
-        classification: tenant_private
-        manager: TenantModelManager
-        soft_delete: true
-        tested: true
-        risk: PASS
-        notes: "apply_tenant_filter 有效"
 
   account:
     models:

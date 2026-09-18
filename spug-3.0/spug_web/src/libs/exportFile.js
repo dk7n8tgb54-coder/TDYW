@@ -9,10 +9,10 @@
  *
  * 示例：
  *   exportFile({
- *     url: '/api/fault/faultrecord/export/',
+ *     url: '/api/interference/events/export/',
  *     method: 'get',
  *     params: store.getExportParams(),
- *     defaultFilename: '故障处置记录.xlsx',
+ *     defaultFilename: '干扰记录.xlsx',
  *   });
  */
 import http from './http';

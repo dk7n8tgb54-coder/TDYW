@@ -45,9 +45,6 @@ export default observer(function Overview() {
       {/* 汇总指标 */}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={8} xl={6}>
-          <StatCard title="故障记录数" value={summary.fault_record_count || 0} loading={loading} />
-        </Col>
-        <Col xs={24} sm={12} lg={8} xl={6}>
           <StatCard title="干扰记录数" value={summary.interference_record_count || 0} loading={loading} />
         </Col>
         <Col xs={24} sm={12} lg={8} xl={6}>
@@ -79,13 +76,6 @@ export default observer(function Overview() {
       {/* 趋势图 */}
       <div style={{ marginTop: 16 }}>
         <Row gutter={[16, 16]}>
-          <Col xs={24} lg={12}>
-            <TrendChart
-              title="故障记录月度趋势"
-              data={trends.fault_monthly}
-              loading={loading}
-            />
-          </Col>
           <Col xs={24} lg={12}>
             <TrendChart
               title="干扰记录月度趋势"
