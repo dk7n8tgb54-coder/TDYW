@@ -97,27 +97,36 @@ export default [{
   }]
 }, {
   key: 'equipment_lifecycle',
-  label: '设备生命周期',
+  label: '设备全生命周期',
   pages: [{
-    key: 'device',
-    label: '设备档案',
-    perms: [
-      {key: 'view', label: '查看设备档案'},
-      {key: 'manage', label: '维护设备档案（新建/编辑/删除）'},
-    ]
-  }, {
     key: 'system',
-    label: '系统档案',
+    label: '系统主数据',
     perms: [
       {key: 'view', label: '查看系统'},
-      {key: 'manage', label: '维护系统（新建/编辑/删除）'},
+      {key: 'add', label: '新增系统'},
+      {key: 'edit', label: '编辑系统'},
+      {key: 'del', label: '删除系统'},
+      {key: 'deactivate', label: '停用/启用系统'},
+      {key: 'export', label: '导出系统列表'},
     ]
   }, {
-    key: 'relation',
-    label: '系统设备关系',
+    key: 'system_type',
+    label: '系统类型模板',
     perms: [
-      {key: 'view', label: '查看关系'},
-      {key: 'manage', label: '维护关系（建立/编辑/退出）'},
+      {key: 'view', label: '查看系统类型与模板'},
+      {key: 'add', label: '新增类型/模板字段'},
+      {key: 'edit', label: '编辑类型/模板字段'},
+      {key: 'del', label: '删除类型/模板字段'},
+    ]
+  }, {
+    key: 'system_config',
+    label: '系统配置档案',
+    perms: [
+      {key: 'view', label: '查看配置档案/历史/快照'},
+      {key: 'edit', label: '编辑配置档案与组成项'},
+      {key: 'field', label: '自定义字段管理'},
+      {key: 'snapshot', label: '生成配置快照'},
+      {key: 'export', label: '导出配置档案'},
     ]
   }]
 }, {

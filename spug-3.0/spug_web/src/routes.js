@@ -51,6 +51,8 @@ import StationFrequencyApproval from './pages/stationFrequencyApproval';
 import ContractAgreementIndex from './pages/contractAgreement';
 import CoopTaskIndex from './pages/coopTask';
 import RegulationIndex from './pages/regulation';
+import EquipmentSystemIndex from './pages/equipmentLifecycle';
+import EquipmentSystemTypeIndex from './pages/equipmentLifecycle/systemType';
 import AnnouncementList from './pages/home/AnnouncementList';
 import AnnouncementAdmin from './pages/system/announcement';
 import ReminderAdmin from './pages/reminder';
@@ -74,6 +76,12 @@ export default [
   {icon: <FileTextOutlined/>, title: '跨日事项跟踪', auth: 'runlog.runlog.view', child: [
     {title: '事项列表', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},
     {title: '统计概览', auth: 'runlog.runlog.view', path: '/runlog/statistics', component: RunLogStatistics},
+  ]},
+  {icon: <ApartmentOutlined/>, title: '设备全生命周期', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_type.view|equipment_lifecycle.system_config.view', child: [
+    {title: '系统管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_type.view|equipment_lifecycle.system_config.view', child: [
+      {title: '系统列表', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_config.view', path: '/el/systems', component: EquipmentSystemIndex},
+      {title: '系统类型管理', auth: 'equipment_lifecycle.system_type.view', path: '/el/system-types', component: EquipmentSystemTypeIndex},
+    ]},
   ]},
   {icon: <ApartmentOutlined/>, title: '设备管理', auth: 'device.device_resume.view|device.device_history.view|upgrade.upgrade.view|upgrade.statistics.view', child: [
     {title: '设备履历', auth: 'device.device_resume.view|device.device_history.view', child: [

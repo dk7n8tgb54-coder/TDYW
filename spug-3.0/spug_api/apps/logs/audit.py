@@ -65,6 +65,7 @@ TARGET_MAP = {
     '/radio-license/': {'type': 'radio_license', 'name': '无线电台执照'},
     '/contract-agreement/': {'type': 'contract_agreement', 'name': '合同协议'},
     '/coop-task/': {'type': 'coop_task', 'name': '协作任务'},
+    '/equipment-lifecycle/': {'type': 'equipment_lifecycle', 'name': '设备全生命周期'},
     '/regulation/': {'type': 'regulation', 'name': '规章管理'},
     '/setting/': {'type': 'setting', 'name': '系统设置'},
     '/upgrade/': {'type': 'upgrade', 'name': '升级'},

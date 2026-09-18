@@ -49,6 +49,7 @@ urlpatterns = [
 # 仅对未列入延迟清单的模块构建 path/include，避免启动时导入未安装模块。
 _pending_app_urls = {
     'coop_task': ('coop-task/', 'apps.coop_task.urls'),
+    'equipment_lifecycle': ('equipment-lifecycle/', 'apps.equipment_lifecycle.urls'),
 }
 urlpatterns += [
     path(prefix, include(urlconf))

@@ -1,0 +1,76 @@
+/**
+ * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
+ * Copyright (c) <spug.dev@gmail.com>
+ * Released under the AGPL-3.0 License.
+ */
+/**
+ * 设备全生命周期（步骤二）常量与文本映射。
+ * 权限码与后端 @auth、role codes.js 保持一致。
+ */
+
+export const PERM = {
+  SYS_VIEW: 'equipment_lifecycle.system.view',
+  SYS_ADD: 'equipment_lifecycle.system.add',
+  SYS_EDIT: 'equipment_lifecycle.system.edit',
+  SYS_DEL: 'equipment_lifecycle.system.del',
+  SYS_DEACTIVATE: 'equipment_lifecycle.system.deactivate',
+  SYS_EXPORT: 'equipment_lifecycle.system.export',
+  TYPE_VIEW: 'equipment_lifecycle.system_type.view',
+  TYPE_ADD: 'equipment_lifecycle.system_type.add',
+  TYPE_EDIT: 'equipment_lifecycle.system_type.edit',
+  TYPE_DEL: 'equipment_lifecycle.system_type.del',
+  CFG_VIEW: 'equipment_lifecycle.system_config.view',
+  CFG_EDIT: 'equipment_lifecycle.system_config.edit',
+  CFG_FIELD: 'equipment_lifecycle.system_config.field',
+  CFG_SNAPSHOT: 'equipment_lifecycle.system_config.snapshot',
+  CFG_EXPORT: 'equipment_lifecycle.system_config.export',
+};
+
+export const HEALTH_STATUS_OPTIONS = [
+  {value: 'normal', label: '正常'},
+  {value: 'degraded', label: '降级'},
+  {value: 'fault', label: '故障'},
+  {value: 'repairing', label: '维修中'},
+  {value: 'interrupted', label: '中断'},
+  {value: 'unknown', label: '未知'},
+];
+
+export const HEALTH_STATUS_TEXT = HEALTH_STATUS_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
+export const FIELD_TYPE_OPTIONS = [
+  {value: 'text', label: '文本'},
+  {value: 'longtext', label: '长文本'},
+  {value: 'number', label: '数字'},
+  {value: 'date', label: '日期'},
+  {value: 'choice', label: '单选'},
+  {value: 'multi_choice', label: '多选'},
+  {value: 'boolean', label: '布尔值'},
+  {value: 'attachment', label: '附件'},
+  {value: 'detail_table', label: '明细表'},
+];
+
+export const FIELD_TYPE_TEXT = FIELD_TYPE_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
+export const SOURCE_TEXT = {
+  system: '系统固定字段',
+  config: '配置字段值',
+  component: '配置组成项',
+  field_definition: '字段定义',
+};
+
+export const ACTION_TEXT = {
+  create: '新建',
+  update: '修改',
+  delete: '删除',
+  activate: '启用',
+  deactivate: '停用',
+  promote: '提升为模板字段',
+};
+
+export const API_PREFIX = '/api/equipment-lifecycle';
