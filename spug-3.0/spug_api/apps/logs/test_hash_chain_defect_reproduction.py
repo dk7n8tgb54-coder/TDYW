@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""审计日志哈希链断链根因验证测试（defect_reproduction）
+"""审计日志哈希链断链根因验证与修复效果测试
 
 生产 2026-09-18 告警共 1448 条链校验错误，诊断结论为两个根因叠加：
-1429 条并发分叉 + 19 条迁移遗留字段不一致。本文件用真实行为测试分别复现：
+1429 条并发分叉 + 19 条迁移遗留字段不一致。本文件先以真实行为测试复现
+根因，并验证 2026-09-18 落地的修复（AuditLogSequence 租户级稳定锁行）：
 
-根因一（并发分叉）
-    save_audit_log（apps/logs/audit.py:351-358）在事务内以
+根因一（并发分叉）——已复现，已修复，本文件现为修复效果验证
+    旧 save_audit_log（apps/logs/audit.py）在事务内以
     ``select_for_update().order_by('-id').first()`` 锁定"当前最后一条日志"。
     该行是随每次写入变动的行，不是稳定的租户锁：后到事务在旧尾节点的行锁上
     阻塞期间，先到事务提交了新尾节点；InnoDB 阻塞解除后从原扫描位置返回
@@ -13,14 +14,20 @@
     prev_hash 落库，形成兄弟分叉。生产 1448 条错误中 1429 条即此模式
     （断点两侧记录自身哈希均正确、prev_hash 指向真实存在的旧记录）。
 
-    复现方式：在主事务"已锁定尾节点、尚未计算哈希落库"的真实检查点
+    修复（2026-09-18）：新增每租户一行的稳定锁行 AuditLogSequence，
+    save_audit_log 在事务内先对该固定行 select_for_update 串行化同租户
+    写入，再在临界区内以锁定读读取尾节点；并发方阻塞在固定行上，先到方
+    提交后必然能看到新尾节点。迁移 0011 同时为存量租户回填尾节点缓存。
+
+    验证方式：在主事务"已锁定尾节点、尚未计算哈希落库"的真实检查点
     （compute_log_hash_from_values 调用处）注入第二条并发写入。并发侧与
-    生产请求相同——独立数据库连接、完整执行真实 save_audit_log——其尾节点
-    锁定读必然阻塞在主事务持有的行锁上，直到主事务提交，从而 100% 确定地
-    复现生产时序（无随机竞争）。此写法参照
+    生产请求相同——独立数据库连接、完整执行真实 save_audit_log——修复前
+    其尾节点锁定读必然阻塞在主事务持有的行锁上并返回旧尾节点（分叉），
+    修复后阻塞点移到稳定锁行上，解除后必然读到先到方提交的新尾节点。
+    100% 确定性复现/验证，无随机竞争。写法参照
     apps/coop_task/tests/test_coop_task_concurrency.py 的检查点注入先例。
 
-根因二（迁移改写哈希输入字段但不重算哈希）
+根因二（迁移改写哈希输入字段但不重算哈希）——已复现，未做历史重写
     0009_auditlog_audit_action_valid.py:18-20 把 upload_attachment /
     delete_attachment / download_attachment 三类 action 原地 update 为
     'other'，而 log_hash 的输入覆盖 action 字段
@@ -29,24 +36,25 @@
     校验必然报"log_hash 与字段不一致，疑似被篡改"——即生产 19 条错误的
     来源（2026-07-27 规章附件日志：14 upload / 4 delete / 1 download）。
     测试同时证明：用迁移前 action 重算与库存 log_hash 精确一致，
-    内容未被篡改。
+    内容未被篡改。按"历史数据不静默重写"约定，本批历史行留待受控
+    迁移决策（建立新链纪元或重建链），本文件持续固定其证据。
 
 约定：
 - 并发用例使用 TransactionTestCase + 独立数据库连接（每线程 close_all），
-  允许线程内真实提交并跨线程可见；顺序用例作为对照证明失败仅由并发引起。
+  允许线程内真实提交并跨线程可见；顺序用例作为对照证明修复前断裂仅由
+  并发引起，而非校验/管道问题。
 - 0009 迁移后 audit_action_valid CHECK 约束禁止直接插入迁移前 action 值，
   根因二用例按"迁移执行后的库存遗留状态"构造行，与生产数据形态一致。
-- 标注 @expectedFailure 的用例断言的是修复后的期望行为（链不分叉）。在
-  落地稳定 AuditLogSequence 租户锁修复之前它按预期失败；修复落地后会
-  "意外成功"报错，届时应移除该标记并升级为 stable_contract 契约测试
-  （AGENTS.md defect_reproduction 分类约定）。管道自检用例不含
-  expectedFailure，用于保证注入管道本身可靠、不掩盖基建错误。
+- test_concurrent_saves_keep_chain_linked 断言修复后的期望行为（链不分叉），
+  修复落地后由 expectedFailure 转为常规契约测试（stable_contract 级），
+  防止并发分叉回归；管道自检用例与该用例共用注入管道，用于保证管道本身
+  可靠、不掩盖基建错误。
 """
 import json
 import tempfile
 import threading
 import time
-from unittest import expectedFailure, mock
+from unittest import mock
 
 from django.db import IntegrityError, OperationalError, connections, transaction
 from django.test import TestCase, TransactionTestCase
@@ -58,7 +66,7 @@ from apps.logs.hash_chain import (
     build_log_hash_payload, compute_log_hash, compute_log_hash_from_values,
     compute_request_hash, verify_hash_chain, verify_log_hash,
 )
-from apps.logs.models import AuditLog
+from apps.logs.models import AuditLog, AuditLogSequence
 from apps.logs.tasks import verify_audit_hash_chain
 
 # 并发分叉探针租户（与链首/主写/并发写一一对应，独立成链便于断言）
@@ -189,28 +197,69 @@ class HashChainConcurrencyForkTests(TransactionTestCase):
                       [parent.log_hash, main_log.log_hash],
                       '并发记录的 prev_hash 应指向链上真实存在的记录')
 
-    # ---- 缺陷复现（修复前按预期失败，修复后"意外成功"） ----
+    # ---- 修复效果验证（stable_contract 级，防并发分叉回归） ----
 
-    @expectedFailure
     def test_concurrent_saves_keep_chain_linked(self):
-        """【根因一复现】并发写入后后提交者必须链到先提交者，而不是共享旧尾节点。
+        """并发写入后后提交者必须链到先提交者，而不是共享旧尾节点。
 
-        当前实现下 rival（后提交）的 prev_hash == parent.log_hash，与 main
-        （先提交）同基旧尾节点，形成兄弟分叉——即生产 1429 条并发分叉的
-        产生机制。断言的是修复后的期望行为：rival.prev_hash == main.log_hash。
-        稳定 AuditLogSequence 租户锁修复落地后本用例将"意外成功"，
-        届时移除 @expectedFailure 并升级为 stable_contract。
+        修复前（取证记录）：rival（后提交）的 prev_hash == parent.log_hash，
+        与 main（先提交）同基旧尾节点，形成兄弟分叉——生产 1429 条并发分叉
+        的产生机制。修复后（AuditLogSequence 稳定锁行）：rival 阻塞在固定
+        锁行上，main 提交后 rival 必然读到 main 的尾哈希。
         """
         parent, main_log, rival_log = self._fork_scene()
         self.assertEqual(
             rival_log.prev_hash, main_log.log_hash,
-            '并发分叉：rival(id=%s) 的 prev_hash=%s... 与 main(id=%s) 同基旧尾节点'
-            ' parent(id=%s) 的 log_hash=%s...，应为 main 的 log_hash'
+            '并发分叉回归：rival(id=%s) 的 prev_hash=%s... 与 main(id=%s) '
+            '同基旧尾节点 parent(id=%s) 的 log_hash=%s...，应为 main 的 '
+            'log_hash=%s...'
             % (rival_log.id, rival_log.prev_hash[:12], main_log.id,
-               parent.id, parent.log_hash[:12]))
+               parent.id, parent.log_hash[:12], main_log.log_hash[:12]))
         result = verify_hash_chain(
             AuditLog.objects.filter(tenant_id=FORK_TENANT).order_by('id'))
         self.assertTrue(result['valid'], result['errors'])
+
+
+class AuditLogSequenceBehaviorTests(TestCase):
+    """AuditLogSequence 稳定锁行行为测试（修复配套）"""
+
+    def test_sequence_row_tracks_tenant_tail(self):
+        """每次写入后序列行尾节点缓存与最新日志一致"""
+        for marker in ('T1', 'T2'):
+            save_audit_log(**_probe_payload(FORK_TENANT, 'req-' + marker, marker))
+        tail = AuditLog.objects.filter(tenant_id=FORK_TENANT).order_by('-id').first()
+        seq = AuditLogSequence.objects.get(tenant_id=FORK_TENANT)
+        self.assertEqual(seq.last_log_id, tail.id)
+        self.assertEqual(seq.last_log_hash, tail.log_hash)
+
+    def test_sequence_lazy_init_continues_existing_chain(self):
+        """序列行缺失（等价迁移前存量租户）时惰性建行，且新日志续接既有链尾"""
+        save_audit_log(**_probe_payload(SEQ_TENANT, 'req-L1', 'L1'))
+        save_audit_log(**_probe_payload(SEQ_TENANT, 'req-L2', 'L2'))
+        # 模拟 0011 迁移前的存量租户：有日志、无序列行
+        AuditLogSequence.objects.filter(tenant_id=SEQ_TENANT).delete()
+        self.assertFalse(AuditLogSequence.objects.filter(tenant_id=SEQ_TENANT).exists())
+
+        save_audit_log(**_probe_payload(SEQ_TENANT, 'req-L3', 'L3'))
+
+        logs = list(AuditLog.objects.filter(tenant_id=SEQ_TENANT).order_by('id'))
+        self.assertEqual(len(logs), 3)
+        result = verify_hash_chain(logs)
+        self.assertTrue(result['valid'], result['errors'])
+        self.assertEqual(logs[2].prev_hash, logs[1].log_hash,
+                         '惰性建行后的新日志必须续接既有链尾')
+        seq = AuditLogSequence.objects.get(tenant_id=SEQ_TENANT)
+        self.assertEqual(seq.last_log_id, logs[2].id)
+        self.assertEqual(seq.last_log_hash, logs[2].log_hash)
+
+    def test_sequence_tail_cache_survives_seq_row_absence_for_new_tenant(self):
+        """全新租户首写：惰性建行且链首 prev_hash 为空串"""
+        save_audit_log(**_probe_payload('chainfork-new', 'req-N1', 'N1'))
+        seq = AuditLogSequence.objects.get(tenant_id='chainfork-new')
+        log = AuditLog.objects.get(tenant_id='chainfork-new')
+        self.assertEqual(seq.last_log_id, log.id)
+        self.assertEqual(seq.last_log_hash, log.log_hash)
+        self.assertEqual(log.prev_hash, '', '全新租户首写应为链首')
 
 
 class ActionRemapWithoutHashRecomputeTests(TestCase):

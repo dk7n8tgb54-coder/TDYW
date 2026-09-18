@@ -8,7 +8,7 @@
 1. 线程本地存储（用于Django信号获取当前用户）
 2. URL路径 -> 操作对象类型映射
 3. HTTP方法 -> 操作类型映射
-4. save_audit_log() 辅助函数（含哈希链 + select_for_update 行锁防并发分叉）
+4. save_audit_log() 辅助函数（哈希链 + AuditLogSequence 租户级稳定锁行串行化，防并发分叉）
 5. record_audit_event() 业务审计函数（支持 before/after 变更前后值）
 6. log_celery_audit() Celery任务审计函数
 """
@@ -306,6 +306,48 @@ def record_audit_event(request, action, target_type, target_id=None,
         _send_audit_alert(str(e))
 
 
+def _lock_or_init_sequence(tenant_id):
+    """锁定租户的 AuditLogSequence 稳定锁行；不存在时惰性初始化。
+
+    必须在 transaction.atomic() 内调用。加锁语义：
+    - 行已存在：select_for_update 命中唯一行只加记录锁，作为同租户写入的
+      串行化临界区（并发方在此阻塞，直到前一个写事务提交后才继续）。
+    - 行不存在（新租户首次写入）：以该租户当前最新一条日志为尾节点建行
+      （无日志则为链首）；并发首写由 tenant_id 唯一约束仲裁，落败方以
+      锁定读回读胜者已提交的行。
+
+    存在性预检使用普通读（不加锁）：避免"锁定读未命中 → 间隙锁 → 并发
+    双双插入"的间隙锁死锁窗口；预检后行恰好被他方建出的竞态由唯一约束
+    兜底，落败方走 IntegrityError 回读路径。
+    """
+    from apps.logs.models import AuditLog, AuditLogSequence
+    from django.db import IntegrityError, transaction
+
+    if AuditLogSequence.objects.filter(tenant_id=tenant_id).first() is None:
+        try:
+            # savepoint：唯一约束冲突只回滚此处，不影响外层事务
+            with transaction.atomic():
+                tail = (
+                    AuditLog.objects
+                    .filter(tenant_id=tenant_id)
+                    .order_by('-id')
+                    .first()
+                )
+                return AuditLogSequence.objects.create(
+                    tenant_id=tenant_id,
+                    last_log_id=tail.id if tail else 0,
+                    last_log_hash=tail.log_hash if tail else '',
+                )
+        except IntegrityError:
+            pass  # 并发首写落败，走下方锁定读回读胜者已提交的行
+    return (
+        AuditLogSequence.objects
+        .select_for_update()
+        .filter(tenant_id=tenant_id)
+        .first()
+    )
+
+
 def save_audit_log(user_id, username, action, target_type, target_id=None,
                    target_name=None, detail=None, ip='', is_success=True,
                    tenant_id='default', request_hash='', response_hash='',
@@ -316,7 +358,8 @@ def save_audit_log(user_id, username, action, target_type, target_id=None,
     - 规范化 detail（dict -> JSON 字符串）
     - 计算 request_hash（基于存库 detail，未传入时自动计算）
     - 查询同租户上一条日志的 log_hash 作为 prev_hash，构建哈希链
-    - 使用 select_for_update() 行锁防止并发分叉
+    - 对租户级稳定锁行 AuditLogSequence select_for_update，同租户写入
+      串行化，防止并发请求读到相同 prev_hash 导致链分叉
     - 计算并写入 log_hash（覆盖全部关键字段 + prev_hash）
 
     任何异常都不影响主请求流程，仅记录错误日志 + 发送告警。
@@ -346,9 +389,18 @@ def save_audit_log(user_id, username, action, target_type, target_id=None,
             request_hash = compute_request_hash(detail)
         response_hash = response_hash or ''
 
-        # 3. 在事务内查询同租户上一条日志的 log_hash 作为 prev_hash
-        #    使用 select_for_update() 加行锁，防止并发请求读到相同 prev_hash 导致链分叉
+        # 3. 在租户级稳定锁行的串行化临界区内完成尾节点读取与落库。
+        #    旧方案锁定"当前最后一条日志"（随每次写入变动的行）：并发方在旧
+        #    尾节点行锁上阻塞，先到方提交新尾节点后，阻塞中的 InnoDB 扫描不
+        #    重新定位，后到方仍读到旧尾节点 → 双方基于同一 prev_hash 落库，
+        #    形成兄弟分叉（生产 1448 条断链中 1429 条的根因）。固定锁行命中
+        #    唯一既有行只加记录锁，不存在该重定位问题。
         with transaction.atomic():
+            sequence = _lock_or_init_sequence(tenant_id)
+
+            # 4. 临界区内读取尾节点：锁定读保证读到最新已提交数据
+            #    （ATOMIC_REQUESTS + REPEATABLE READ 下，普通读可能命中本事务
+            #    早先建立的旧快照而漏掉并发方刚提交的日志）
             last_log = (
                 AuditLog.objects
                 .select_for_update()
@@ -358,10 +410,10 @@ def save_audit_log(user_id, username, action, target_type, target_id=None,
             )
             prev_hash = last_log.log_hash if last_log else ''
 
-            # 4. 显式生成 created_at，保证 log_hash 输入与落库值一致
+            # 5. 显式生成 created_at，保证 log_hash 输入与落库值一致
             created_at = timezone.now()
 
-            # 5. 计算 log_hash（覆盖全部关键字段 + prev_hash）
+            # 6. 计算 log_hash（覆盖全部关键字段 + prev_hash）
             log_hash = compute_log_hash_from_values(
                 tenant_id=tenant_id,
                 user_id=user_id,
@@ -381,8 +433,8 @@ def save_audit_log(user_id, username, action, target_type, target_id=None,
                 prev_hash=prev_hash,
             )
 
-            # 6. 落库
-            AuditLog.objects.create(
+            # 7. 落库
+            new_log = AuditLog.objects.create(
                 user_id=user_id,
                 username=username,
                 action=action,
@@ -401,6 +453,11 @@ def save_audit_log(user_id, username, action, target_type, target_id=None,
                 request_id=request_id,
                 user_agent=user_agent,
             )
+
+            # 8. 更新序列行尾节点缓存（与日志写入同事务原子生效）
+            sequence.last_log_id = new_log.id
+            sequence.last_log_hash = log_hash
+            sequence.save(update_fields=['last_log_id', 'last_log_hash', 'updated_at'])
     except Exception as e:
         logger.error(f'[AUDIT] 保存审计日志失败: {e}')
         _send_audit_alert(str(e))

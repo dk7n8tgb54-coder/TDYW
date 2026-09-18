@@ -87,3 +87,29 @@ class AuditLog(models.Model, ModelMixin):
                 name='audit_action_valid',
             ),
         ]
+
+
+class AuditLogSequence(models.Model):
+    """审计日志哈希链租户序列行（稳定锁行 + 尾节点缓存）
+
+    每租户唯一一行，是同租户审计写入的串行化临界区：save_audit_log 在事务内
+    对本行 select_for_update 后才读取尾节点、计算哈希、落库。
+
+    背景：旧方案锁定"当前最后一条日志"（随每次写入变动的行），并发事务在旧
+    尾节点行锁上阻塞，先到事务提交新尾节点后，阻塞中的 InnoDB 扫描不重新
+    定位，后到事务仍读到旧尾节点，双方基于同一 prev_hash 落库形成兄弟分叉
+    （生产 1448 条断链中 1429 条的根因）。固定行锁不存在该重定位问题。
+
+    last_log_id / last_log_hash 为最近一次写入的尾节点缓存（链首为 0/空串），
+    供修复与巡检工具核对链尾；链的权威定义仍是 audit_logs 各行的
+    prev_hash 连接。行内数据可随时由 audit_logs 重建。
+    """
+    tenant_id = models.CharField(max_length=50, unique=True)
+    last_log_id = models.BigIntegerField(default=0, help_text='当前尾节点日志 id；0 表示该租户尚无日志')
+    last_log_hash = models.CharField(
+        max_length=64, default='',
+        help_text='当前尾节点 log_hash；空串表示链首（该租户尚无日志）')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'audit_log_sequences'
