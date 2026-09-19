@@ -17,6 +17,7 @@
 from django.utils import timezone
 
 from apps.account.models import User
+from apps.equipment_lifecycle import event_services
 from apps.equipment_lifecycle.fault_services import recompute_systems_health
 from apps.equipment_lifecycle.models import (
     DISPOSITION_CONVERTED_FAULT,
@@ -98,17 +99,19 @@ def create_work_order_record(*, tenant_id, created_by, title, work_type, target_
                              work_location='', work_object_desc='', work_component=None,
                              planned_start=None, planned_end=None, work_requirement='',
                              work_steps='', material_note='', client_token='',
-                             status=None):
+                             status=None, request=None):
     """工单创建核心（三条创建路径共用）。
 
     须在 health_recalc_lock + transaction.atomic 内调用（调用方负责锁与事务、
-    字段校验与审计）。创建后同事务重算目标系统健康状态（若为执行中的故障维修
-    工单则立即生效；一般创建不改变状态，重算幂等无害）。
+    字段校验与审计）。创建后同事务生成工单登记履历（目标系统 primary +
+    受影响登记系统 related，步骤 3.4 统一履历），并重算目标系统健康状态
+    （若为执行中的故障维修工单则立即生效；一般创建不改变状态，重算幂等无害）。
 
     - affected_map: {system_id: system}（已通过校验的受影响系统，不含目标系统）；
     - participants: [user]（不含负责人；负责人单独以 role=owner 写入）；
     - source_type/source_fault/source_ledger_item/source_no 由调用方按来源写入；
-    - status 允许转换流程显式指定（普通创建缺省待派发）。
+    - status 允许转换流程显式指定（普通创建缺省待派发）；
+    - request 透传给健康重算以便状态变化审计与履历归属到人。
     """
     if status is None:
         status = SystemWorkOrder.STATUS_PENDING_DISPATCH
@@ -164,7 +167,10 @@ def create_work_order_record(*, tenant_id, created_by, title, work_type, target_
             role=WORK_ORDER_ROLE_PARTICIPANT))
     if participant_rows:
         SystemWorkOrderParticipant.objects.bulk_create(participant_rows)
-    recompute_systems_health(tenant_id, [target_system.id], request=None)
+    # 步骤 3.4：工单登记履历（目标系统 primary + 受影响登记系统 related，同一事务）
+    event_services.record_work_order_lifecycle_events(
+        work_order, 'create', created_by=created_by)
+    recompute_systems_health(tenant_id, [target_system.id], request=request)
     return work_order
 
 

@@ -20,7 +20,7 @@ import {
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { AuthButton } from 'components';
 import store from './store';
-import { HEALTH_STATUS_OPTIONS, FIELD_TYPE_OPTIONS, PERM } from './constants';
+import { HEALTH_STATUS_COLOR, FIELD_TYPE_OPTIONS, PERM } from './constants';
 import DynamicFieldControl, { parseChoices } from './DynamicFieldControl';
 
 const {TextArea} = Input;
@@ -73,7 +73,6 @@ function SystemForm() {
       install_time: record.install_time ? moment(record.install_time) : undefined,
       enable_time: record.enable_time ? moment(record.enable_time) : undefined,
       responsible_user_name: record.responsible_user_name,
-      health_status: record.health_status,
       remark: record.remark,
     });
     setFieldsLoading(true);
@@ -244,7 +243,6 @@ function SystemForm() {
       install_time: values.install_time ? values.install_time.format('YYYY-MM-DD HH:mm') : undefined,
       enable_time: values.enable_time ? values.enable_time.format('YYYY-MM-DD HH:mm') : undefined,
       responsible_user_name: values.responsible_user_name,
-      health_status: values.health_status,
       remark: values.remark || '',
     };
     if (isEdit) {
@@ -484,12 +482,12 @@ function SystemForm() {
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item name="health_status" label="运行健康状态" rules={[{required: true, message: '请选择运行健康状态'}]}>
-              <Select placeholder="请选择运行健康状态">
-                {HEALTH_STATUS_OPTIONS.map(item => (
-                  <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
-                ))}
-              </Select>
+            <Form.Item label="运行健康状态" tooltip="由故障与工单统一计算，不能手动修改">
+              {isEdit && record.health_status_text
+                ? <Tag color={HEALTH_STATUS_COLOR[record.health_status]} style={{fontSize: 14, padding: '2px 10px'}}>
+                    {record.health_status_text}
+                  </Tag>
+                : <Tag color={HEALTH_STATUS_COLOR.normal} style={{fontSize: 14, padding: '2px 10px'}}>正常</Tag>}
             </Form.Item>
           </Col>
         </Row>

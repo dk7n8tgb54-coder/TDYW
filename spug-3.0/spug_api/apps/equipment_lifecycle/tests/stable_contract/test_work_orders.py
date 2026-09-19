@@ -592,10 +592,14 @@ class WorkOrderModuleBoundaryTest(WorkOrderTestBase):
     """42/43/44：模块边界。"""
 
     def test_no_inventory_or_transfer_or_resume_models(self):
-        """42/43. 没有库存、设备调拨、统一系统履历或临时事件表模型。"""
+        """42/43. 没有库存、设备调拨或临时事件表模型。
+
+        步骤 3.5 起，统一系统履历（SystemEvent）由步骤 3.4 正式落地，
+        不再属于禁止集合；仍禁止库存/调拨/旧履历语义模型。
+        """
         model_names = {m.__name__ for m in apps.get_app_config('equipment_lifecycle').get_models()}
         forbidden = {'Inventory', 'Stock', 'SparePart', 'DeviceTransfer', 'Allocation',
-                     'SystemEvent', 'SystemResume', 'LifecycleEvent', 'PlanReminder'}
+                     'SystemResume', 'LifecycleEvent', 'PlanReminder'}
         self.assertEqual(forbidden & model_names, set())
         # 工单模型不关联 DeviceResume
         wo_fields = {f.name for f in SystemWorkOrder._meta.get_fields()}

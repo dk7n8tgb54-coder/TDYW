@@ -612,14 +612,16 @@ class FaultBoundaryTest(FaultTestBase):
                 self.assertNotIn('fault', name.lower())
 
     def test_no_ledger_workorder_event_models_created(self):
-        """30. 本步骤没有创建台账、工单或统一系统履历模型。
+        """30. 本步骤没有创建台账、工单或旧步骤一模型。
 
         注：同一应用内由并行的运维台账任务新增的巡检/维护台账模型不在本
         断言范围；本断言固化的是故障任务自己不得引入的模型。
+        步骤 3.5 起，统一系统履历（SystemEvent）由步骤 3.4 正式落地，
+        不再属于禁止集合；仍禁止旧故障模型与旧步骤一结构回潮。
         """
         model_names = {m.__name__ for m in
                        apps.get_app_config('equipment_lifecycle').get_models()}
-        forbidden = {'SystemEvent', 'WorkOrder', 'FaultWorkOrder', 'SystemInspectionLog',
+        forbidden = {'WorkOrder', 'FaultWorkOrder', 'SystemInspectionLog',
                      'FaultPart', 'FaultRecord', 'LifecycleDevice', 'SystemDeviceRelation'}
         self.assertFalse(model_names & forbidden, model_names)
         # 本任务的三个故障模型必须存在
@@ -627,7 +629,11 @@ class FaultBoundaryTest(FaultTestBase):
                          'SystemFaultHandlingRecord'} <= model_names)
 
     def test_system_edit_cannot_override_fault_computed_health(self):
-        """十一. 普通系统编辑接口不得覆盖故障计算出的健康状态。"""
+        """十一. 普通系统编辑接口不得覆盖故障计算出的健康状态。
+
+        步骤 3.5 收口后约束更强：health_status 不再是系统表单字段，
+        编辑提交携带任何状态值均被忽略，健康状态只能由统一重算服务写入。
+        """
         self.create_fault(fault_payload(self.system_a, primary_impact_status='degraded'))
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'degraded')
@@ -635,28 +641,26 @@ class FaultBoundaryTest(FaultTestBase):
         detail = client.get(f'/equipment-lifecycle/systems/{self.system_a.id}/').json()['data']
         payload = dict(detail)
         payload['name'] = '烟台通信系统'
+        # 存在未恢复故障影响时：编辑正常执行，但提交的 normal 被忽略，状态保持计算值
         payload['health_status'] = 'normal'
         resp = client.put(f'/equipment-lifecycle/systems/{self.system_a.id}/', payload,
                           content_type='application/json')
-        self.assertIn('自动计算', resp.json().get('error', ''))
+        self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'degraded')
-        # 提交与计算值一致时允许编辑
-        payload['health_status'] = 'degraded'
-        payload['name'] = '烟台通信系统（已更新）'
-        resp = client.put(f'/equipment-lifecycle/systems/{self.system_a.id}/', payload,
-                          content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
-        # 故障恢复后允许手动设置为任意合法状态（无有效影响）
+        # 无有效影响（故障作废）后：编辑同样不能手动改状态，重算结果为 normal
         fault = SystemFault.objects.get(primary_system=self.system_a)
         client.post(f'{FAULT_URL}/{fault.id}/cancel/', {'cancel_reason': '误报'},
                     content_type='application/json')
-        payload['health_status'] = 'unknown'
+        self.assertEqual(
+            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'normal')
+        payload['name'] = '烟台通信系统（已更新）'
+        payload['health_status'] = 'interrupted'
         resp = client.put(f'/equipment-lifecycle/systems/{self.system_a.id}/', payload,
                           content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(
-            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'unknown')
+            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'normal')
 
     def test_system_with_fault_cannot_be_deleted(self):
         """删除保护：存在故障关联（主体或受影响）的系统不能物理删除。"""

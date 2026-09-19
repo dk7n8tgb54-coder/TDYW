@@ -9,7 +9,7 @@
  * 配置字段页签仅管理字段定义（不录入值）。
  * 步骤 3.1 新增"故障记录"页签（主体故障 + 受影响故障）；
  * 步骤 3.3 新增"工单"页签（目标工单 + 受影响工单）；
- * 不含统一系统履历页签。
+ * 步骤 3.4 新增"系统履历"页签（统一履历事件，区分主体/受影响/关联角色）。
  */
 import React from 'react';
 import { observer } from 'mobx-react';
@@ -22,6 +22,7 @@ import SnapshotsTab from './SnapshotsTab';
 import FaultRecordsTab from './FaultRecordsTab';
 import SystemLedgerTab from './ledger/SystemLedgerTab';
 import WorkOrdersTab from './workOrder/WorkOrdersTab';
+import SystemEventsTab from './systemEvent/SystemEventsTab';
 
 const { TabPane } = Tabs;
 
@@ -132,6 +133,9 @@ class SystemDetail extends React.Component {
             </TabPane>
             <TabPane tab="季维护台账" key="seasonal_ledger">
               <SystemLedgerTab systemId={d.id} ledgerType="seasonal"/>
+            </TabPane>
+            <TabPane tab="系统履历" key="system_events">
+              <SystemEventsTab systemId={d.id}/>
             </TabPane>
           </Tabs>
         </Spin>

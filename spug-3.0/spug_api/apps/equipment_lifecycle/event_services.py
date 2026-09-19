@@ -1,0 +1,217 @@
+# Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
+# Copyright: (c) <spug.dev@gmail.com>
+# Released under the AGPL-3.0 License.
+"""统一系统履历服务（步骤 3.4）。
+
+职责：
+- record_system_event：履历事件写入唯一入口，故障、台账异常、工单、健康状态、
+  配置快照共用同一事件模型（SystemEvent）；
+- 按业务对象提供分布写入辅助：故障/工单类事件按"主体 + 受影响/关联"角色
+  同时落到相关系统的履历，受影响系统的履历因此完整可查。
+
+约定：
+- 须在业务保存的同一数据库事务内调用（业务回滚则履历一并回滚）；
+- 事件只追加、不改写：更正与受控撤销（故障作废、工单取消）以追加新事件表达；
+- 重复业务请求由业务层状态机与幂等键（client_token、处置状态防重）拦截，
+  业务对象不重复则事件不重复；
+- 事件为纯插入，不递归触发健康状态重算；
+- 事件保存来源编号与系统快照，不保存自由文本冒充来源关系（来源以
+  source_type + source_id 表达，详情跳转由来源页面重新校验权限）。
+"""
+import json
+
+from django.utils import timezone
+
+from apps.equipment_lifecycle.models import (
+    LifecycleSystem,
+    SystemConfigSnapshot,
+    SystemEvent,
+    SystemFault,
+    SystemWorkOrder,
+)
+
+
+def record_system_event(*, tenant_id, system, event_type, action, role, source_type,
+                        title, source_id='', source_no='', detail=None,
+                        occurred_at=None, created_by=None):
+    """写入一条系统履历事件，返回 SystemEvent。
+
+    - system 为 LifecycleSystem 实例（正式系统 ID 关联 + 编号/名称快照）；
+    - occurred_at 缺省取当前时间（业务事实时间由调用方传入更佳）；
+    - detail 为 dict，序列化为 JSON 存储（受控结构，不塞大文本）。
+    """
+    return SystemEvent.objects.create(
+        tenant_id=tenant_id,
+        system=system,
+        event_type=event_type,
+        action=action,
+        role=role,
+        source_type=source_type,
+        source_id=str(source_id or ''),
+        source_no=(source_no or '')[:50],
+        title=(title or '')[:200],
+        detail=json.dumps(detail or {}, ensure_ascii=False),
+        system_code=system.system_code,
+        system_name=system.name,
+        occurred_at=occurred_at or timezone.now(),
+        created_by=created_by,
+    )
+
+
+def record_fault_lifecycle_events(fault, action, detail=None, occurred_at=None, created_by=None):
+    """故障生命周期事件：主体系统（primary）+ 全部受影响系统（affected）。
+
+    - create/recover/close/cancel 共用本分布；受影响系统的履历不依赖健康
+      状态事件兜底；
+    - occurred_at：create 用故障发生时间，recover 用恢复时间，其余取当前时间。
+    """
+    base_detail = {
+        'fault_no': fault.fault_no,
+        'level': fault.level,
+        'status': fault.status,
+        'source_type': fault.source_type,
+    }
+    base_detail.update(detail or {})
+    events = []
+    events.append((fault.primary_system, SystemEvent.ROLE_PRIMARY,
+                   fault.primary_impact_status, {}))
+    for row in fault.affected_systems.all():
+        events.append((row.system, SystemEvent.ROLE_AFFECTED, row.impact_status, {
+            'impact_status': row.impact_status,
+        }))
+    for system, role, impact, extra in events:
+        if action == 'create':
+            title = (f'发生{SystemFault.LEVEL_TEXT_MAP.get(fault.level, fault.level)}故障'
+                     if role == SystemEvent.ROLE_PRIMARY
+                     else f'受「{fault.primary_system_name}」故障影响')
+            row_detail = {
+                **base_detail,
+                'impact_status': impact,
+                **extra,
+            }
+        else:
+            title = {
+                'recover': '故障恢复确认',
+                'close': '故障关闭',
+                'cancel': '故障作废',
+            }[action]
+            row_detail = {**base_detail, 'impact_status': impact, **extra}
+        record_system_event(
+            tenant_id=fault.tenant_id,
+            system=system,
+            event_type=SystemEvent.EVENT_FAULT,
+            action=action,
+            role=role,
+            source_type='fault',
+            source_id=fault.id,
+            source_no=fault.fault_no,
+            title=title,
+            detail=row_detail,
+            occurred_at=occurred_at,
+            created_by=created_by,
+        )
+
+
+def record_work_order_lifecycle_events(order, action, detail=None, occurred_at=None,
+                                       created_by=None):
+    """工单生命周期事件：目标系统（primary）+ 受影响登记系统（related）。
+
+    - 工单受影响系统不参与健康状态计算，角色用 related（关联）与故障的
+      affected（受影响）区分；
+    - create/complete/cancel 共用本分布；派发、接单、执行、复核、退回、关闭
+      归档属过程性操作，记录在处理记录与审计日志，不生成履历事件。
+    """
+    base_detail = {
+        'work_no': order.work_no,
+        'work_type': order.work_type,
+        'status': order.status,
+        'source_type': order.source_type,
+        'source_no': order.source_no,
+    }
+    base_detail.update(detail or {})
+    events = [(order.target_system, SystemEvent.ROLE_PRIMARY)]
+    for row in order.affected_systems.all():
+        events.append((row.system, SystemEvent.ROLE_RELATED))
+    title = {
+        'create': '工单登记',
+        'complete': '工单处理完成',
+        'cancel': '工单取消',
+    }[action]
+    for system, role in events:
+        record_system_event(
+            tenant_id=order.tenant_id,
+            system=system,
+            event_type=SystemEvent.EVENT_WORK_ORDER,
+            action=action,
+            role=role,
+            source_type='work_order',
+            source_id=order.id,
+            source_no=order.work_no,
+            title=title,
+            detail=base_detail,
+            occurred_at=occurred_at,
+            created_by=created_by,
+        )
+
+
+def record_ledger_convert_event(item, ledger, action, target_no='', detail=None,
+                                created_by=None):
+    """台账异常明细转故障/工单事件（落到明细所属系统的履历）。
+
+    - action ∈ convert_to_fault / convert_to_work_order；
+    - target_no 为生成的故障号/工单号（来源关系双向可追溯）。
+    """
+    return record_system_event(
+        tenant_id=item.tenant_id,
+        system=item.system,
+        event_type=SystemEvent.EVENT_LEDGER,
+        action=action,
+        role=SystemEvent.ROLE_PRIMARY,
+        source_type='ledger_item',
+        source_id=item.id,
+        source_no=ledger.ledger_no,
+        title='台账异常转故障' if action == 'convert_to_fault' else '台账异常转工单',
+        detail={
+            'ledger_id': ledger.id,
+            'ledger_no': ledger.ledger_no,
+            'ledger_type': ledger.ledger_type,
+            'ledger_item_id': item.id,
+            'item_name': item.item_name_snapshot,
+            'target_no': target_no,
+            **(detail or {}),
+        },
+        created_by=created_by,
+    )
+
+
+def record_snapshot_event(system, snapshot, created_by=None):
+    """配置快照生成事件（快照创建时同一事务写入）。"""
+    return record_system_event(
+        tenant_id=system.tenant_id,
+        system=system,
+        event_type=SystemEvent.EVENT_CONFIG_SNAPSHOT,
+        action='snapshot',
+        role=SystemEvent.ROLE_PRIMARY,
+        source_type='config_snapshot',
+        source_id=snapshot.id,
+        source_no=snapshot.name,
+        title=f'生成配置快照「{snapshot.name}」',
+        detail={'snapshot_id': snapshot.id, 'content_hash': snapshot.content_hash},
+        created_by=created_by,
+    )
+
+
+def record_health_change_event(system, old_status, new_status, reason='', created_by=None):
+    """健康状态变化事件（仅状态实际变化时由重算服务调用，纯追加）。"""
+    return record_system_event(
+        tenant_id=system.tenant_id,
+        system=system,
+        event_type=SystemEvent.EVENT_HEALTH,
+        action='status_change',
+        role=SystemEvent.ROLE_PRIMARY,
+        source_type='health',
+        title=f'运行健康状态由「{LifecycleSystem.HEALTH_STATUS_TEXT_MAP.get(old_status, old_status)}」'
+              f'变为「{LifecycleSystem.HEALTH_STATUS_TEXT_MAP.get(new_status, new_status)}」',
+        detail={'before': old_status, 'after': new_status, 'reason': (reason or '')[:200]},
+        created_by=created_by,
+    )

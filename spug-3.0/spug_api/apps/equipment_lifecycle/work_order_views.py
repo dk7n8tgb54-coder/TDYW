@@ -47,7 +47,7 @@ from apps.evidence.attachment_service import (
 from apps.evidence.models import EvidenceAttachment
 
 from apps.account.models import User
-from apps.equipment_lifecycle import fault_services, work_order_services
+from apps.equipment_lifecycle import event_services, fault_services, work_order_services
 from apps.equipment_lifecycle.fault_views import _parse_dt
 from apps.equipment_lifecycle.models import (
     ITEM_RESULT_ABNORMAL,
@@ -383,6 +383,7 @@ class WorkOrderView(View):
                     order = work_order_services.create_work_order_record(
                         tenant_id=request.user.tenant_id,
                         created_by=request.user,
+                        request=request,
                         **data,
                     )
                     record_audit_event(request, 'create', AUDIT_TARGET_WORK_ORDER,
@@ -674,6 +675,9 @@ class WorkOrderReviewPassView(WorkOrderActionBaseView):
         order.updated_by = request.user
         order.save(update_fields=['status', 'reviewer', 'reviewed_at', 'review_result',
                                   'actual_end', 'return_reason', 'updated_at', 'updated_by'])
+        # 步骤 3.4：工单完成履历（目标系统 primary + 受影响登记系统 related）
+        event_services.record_work_order_lifecycle_events(
+            order, 'complete', occurred_at=order.actual_end, created_by=request.user)
         return None
 
 
@@ -759,6 +763,10 @@ class WorkOrderCancelView(WorkOrderActionBaseView):
         order.updated_by = request.user
         order.save(update_fields=['status', 'cancelled_by', 'cancelled_at', 'cancel_reason',
                                   'updated_at', 'updated_by'])
+        # 步骤 3.4：工单取消履历（追加新事件，原事件保留）
+        event_services.record_work_order_lifecycle_events(
+            order, 'cancel', detail={'cancel_reason': order.cancel_reason},
+            created_by=request.user)
         return None
 
 
@@ -1084,6 +1092,7 @@ class FaultCreateWorkOrderView(View):
                         source_type='fault',
                         source_fault=fault,
                         source_no=fault.fault_no,
+                        request=request,
                         **data,
                     )
                     record_audit_event(request, 'create', AUDIT_TARGET_WORK_ORDER,
@@ -1265,6 +1274,10 @@ class LedgerItemConvertToFaultView(View):
                         source_ledger_item=item,
                         request=request,
                     )
+                    # 步骤 3.4：台账异常处置履历（来源 ledger_item，与转单同一事务）
+                    event_services.record_ledger_convert_event(
+                        item, ledger, 'convert_to_fault', target_no=fault.fault_no,
+                        created_by=request.user)
                     record_audit_event(request, 'create', 'el_system_fault',
                                        fault.id, fault.fault_no,
                                        after_value={
@@ -1401,7 +1414,13 @@ class LedgerItemConvertToWorkOrderView(View):
                         planned_start=planned_start,
                         planned_end=planned_end,
                         client_token=client_token,
+                        request=request,
                     )
+                    # 步骤 3.4：台账异常处置履历（来源 ledger_item，与转单同一事务）
+                    event_services.record_ledger_convert_event(
+                        item, ledger, 'convert_to_work_order', target_no=order.work_no,
+                        detail={'re_dispose_reason': (form.re_dispose_reason or '').strip()[:200]},
+                        created_by=request.user)
                     record_audit_event(request, 'create', AUDIT_TARGET_WORK_ORDER,
                                        order.id, order.work_no,
                                        after_value={**_order_audit_summary(order),

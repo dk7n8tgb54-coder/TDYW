@@ -37,7 +37,7 @@ from apps.evidence.attachment_service import (
 )
 from apps.evidence.models import EvidenceAttachment
 
-from apps.equipment_lifecycle import fault_services
+from apps.equipment_lifecycle import event_services, fault_services
 from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     SystemConfigComponent,
@@ -220,7 +220,7 @@ def _generate_fault_no(tenant_id):
 
 
 def _fault_audit_summary(fault):
-    return {
+    summary = {
         'fault_no': fault.fault_no,
         'status': fault.status,
         'primary_system': fault.primary_system_name,
@@ -231,6 +231,9 @@ def _fault_audit_summary(fault):
             for row in fault.affected_systems.all()
         ],
     }
+    if fault.status == SystemFault.STATUS_CANCELLED and fault.cancel_reason:
+        summary['cancel_reason'] = fault.cancel_reason
+    return summary
 
 
 class FaultView(View):
@@ -578,6 +581,9 @@ class FaultRecoverView(FaultActionBaseView):
         fault.updated_at = timezone.now()
         fault.updated_by = request.user
         fault.save()
+        # 步骤 3.4：恢复确认履历（主体 + 受影响，同一事务）
+        event_services.record_fault_lifecycle_events(
+            fault, 'recover', occurred_at=recovered_at, created_by=request.user)
         self.recompute(request, fault, '故障恢复 ' + fault.fault_no)
         return None
 
@@ -611,6 +617,9 @@ class FaultCloseView(FaultActionBaseView):
         fault.updated_at = timezone.now()
         fault.updated_by = request.user
         fault.save()
+        # 步骤 3.4：故障关闭履历（主体 + 受影响，同一事务）
+        event_services.record_fault_lifecycle_events(
+            fault, 'close', created_by=request.user)
         self.recompute(request, fault, '故障关闭 ' + fault.fault_no)
         return None
 
@@ -637,9 +646,14 @@ class FaultCancelView(FaultActionBaseView):
         if not form.cancel_reason.strip():
             return '作废原因不能为空'
         fault.status = SystemFault.STATUS_CANCELLED
+        fault.cancel_reason = form.cancel_reason.strip()[:200]
         fault.updated_at = timezone.now()
         fault.updated_by = request.user
         fault.save()
+        # 步骤 3.4：受控作废履历（追加新事件，原事件保留；主体 + 受影响）
+        event_services.record_fault_lifecycle_events(
+            fault, 'cancel', detail={'cancel_reason': fault.cancel_reason},
+            created_by=request.user)
         self.recompute(request, fault, '故障作废 ' + fault.fault_no)
         return None
 

@@ -189,18 +189,27 @@ class SystemMasterTest(TestCase):
             resp = getattr(client, method)(url, body, content_type='application/json')
             self.assertEqual(resp.json().get('error'), '权限拒绝', f'{method} {url}: {resp.content}')
 
-    def test_health_status_choices_enforced(self):
-        payload = system_payload(system_type=self.system_type.id, health_status='scrapped')
+    def test_health_status_not_editable_via_system_form(self):
+        """步骤 3.5 收口：健康状态由故障/工单统一计算，新增/编辑系统不能设置。
+
+        - 提交中携带的 health_status 一律被忽略（不是表单字段）；
+        - 新建系统健康状态初始化为 normal（无任何有效影响时的计算结果）；
+        - 编辑系统不会改变健康状态。
+        """
+        payload = system_payload(system_type=self.system_type.id, health_status='fault',
+                                 system_code='HS-01')
         resp = self.client.post('/equipment-lifecycle/systems/', payload,
                                 content_type='application/json')
-        self.assertIn('不合法', resp.json()['error'])
-        # 六个合法状态
-        for status in ('normal', 'degraded', 'fault', 'repairing', 'interrupted', 'unknown'):
-            payload = system_payload(system_type=self.system_type.id, health_status=status,
-                                     system_code=f'ST-{status}')
-            resp = self.client.post('/equipment-lifecycle/systems/', payload,
-                                    content_type='application/json')
-            self.assertFalse(resp.json().get('error'), f'{status}: {resp.content}')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        self.assertEqual(resp.json()['data']['health_status'], 'normal')
+
+        system_id = resp.json()['data']['id']
+        edit_payload = system_payload(system_type=self.system_type.id,
+                                      health_status='interrupted', system_code='HS-01')
+        resp = self.client.put(f'/equipment-lifecycle/systems/{system_id}/', edit_payload,
+                               content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        self.assertEqual(resp.json()['data']['health_status'], 'normal')
 
     def test_geo_coordinate_validation(self):
         payload = system_payload(system_type=self.system_type.id, geo_coordinate='200,37')

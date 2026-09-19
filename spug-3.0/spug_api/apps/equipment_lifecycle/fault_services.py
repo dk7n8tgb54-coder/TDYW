@@ -26,6 +26,7 @@ from contextlib import contextmanager
 from django.db import connection
 from django.utils import timezone
 
+from apps.equipment_lifecycle import event_services
 from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     SystemFault,
@@ -190,6 +191,10 @@ def recompute_systems_health(tenant_id, system_ids, request=None, audit_reason=N
         old_status = system.health_status
         system.health_status = new_status
         system.save(update_fields=['health_status'])
+        # 步骤 3.4：状态实际变化才生成一次履历事件（重复计算且结果不变不生成）
+        event_services.record_health_change_event(
+            system, old_status, new_status, reason=audit_reason or '',
+            created_by=request.user if request is not None else None)
         if request is not None:
             record_audit_event(
                 request, 'other', AUDIT_TARGET_HEALTH, system.id, system.name,
@@ -209,6 +214,7 @@ def create_fault_record(*, tenant_id, created_by, primary_system, primary_impact
     须在 health_recalc_lock + transaction.atomic 内调用（调用方负责锁与事务）：
     - 创建故障主单（正式系统外键 + 发生时快照）；
     - 批量创建受影响系统关联（快照）；
+    - 同事务生成故障发生履历事件（主体 + 受影响，步骤 3.4 统一履历）；
     - 同事务重算相关系统健康状态（request 透传以记录状态变化审计）；
     - source_type/source_ledger_item 供台账异常转故障写入来源关系，
       转换与来源关系保存处于同一事务。
@@ -254,6 +260,10 @@ def create_fault_record(*, tenant_id, created_by, primary_system, primary_impact
         ))
     if rows:
         SystemFaultAffectedSystem.objects.bulk_create(rows)
+    # 步骤 3.4：故障发生履历（主体系统 primary + 受影响系统 affected，同一事务）
+    event_services.record_fault_lifecycle_events(
+        fault, 'create', occurred_at=fault.occurred_at, created_by=created_by,
+        detail={'source_ledger_item_id': source_ledger_item.id} if source_ledger_item else None)
     related_ids = [primary_system.id] + [row.system_id for row in rows]
     recompute_systems_health(tenant_id, related_ids, request=request)
     return fault

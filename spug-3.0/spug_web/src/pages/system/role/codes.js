@@ -185,6 +185,13 @@ export default [{
       {key: 'del', label: '取消工单（受控取消，非物理删除）'},
       {key: 'export', label: '导出工单列表'},
     ]
+  }, {
+    key: 'system_event',
+    label: '系统履历',
+    perms: [
+      {key: 'view', label: '查看系统履历'},
+      {key: 'export', label: '导出系统履历'},
+    ]
   }]
 }, {
   key: 'interference',
@@ -386,28 +393,6 @@ export default [{
       {key: 'delete', label: '删除/作废协作任务'},
       {key: 'submit', label: '交付材料（上传/提交）'},
       {key: 'accept', label: '验收/退回材料'},
-    ]
-  }]
-}, {
-  key: 'fault',
-  label: '故障管理',
-  pages: [{
-    key: 'faultrecord',
-    label: '故障处置记录',
-    perms: [
-      {key: 'view', label: '查看故障处置记录'},
-      {key: 'add', label: '新建故障处置记录'},
-      {key: 'edit', label: '编辑故障处置记录'},
-      {key: 'del', label: '删除故障处置记录'},
-    ]
-  }, {
-    key: 'faultpart',
-    label: '故障件管理',
-    perms: [
-      {key: 'view', label: '查看故障件'},
-      {key: 'add', label: '新建故障件'},
-      {key: 'edit', label: '编辑故障件'},
-      {key: 'del', label: '删除故障件'},
     ]
   }]
 }, {

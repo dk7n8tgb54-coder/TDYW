@@ -59,6 +59,15 @@ export const HEALTH_STATUS_TEXT = HEALTH_STATUS_OPTIONS.reduce((acc, item) => {
   return acc;
 }, {});
 
+export const HEALTH_STATUS_COLOR = {
+  normal: 'green',
+  degraded: 'orange',
+  fault: 'red',
+  repairing: 'geekblue',
+  interrupted: 'red',
+  unknown: 'default',
+};
+
 export const FIELD_TYPE_OPTIONS = [
   {value: 'text', label: '文本'},
   {value: 'longtext', label: '长文本'},

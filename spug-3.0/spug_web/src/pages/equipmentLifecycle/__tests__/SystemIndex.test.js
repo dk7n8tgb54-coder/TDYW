@@ -112,7 +112,7 @@ describe('系统详情抽屉', () => {
     return store;
   }
 
-  it('页签随步骤演进：基础五页签 + 故障记录（3.1） + 三类运维台账（3.2），不出现工单/履历/现场采集', () => {
+  it('页签随步骤演进：基础五页签 + 故障记录（3.1） + 三类运维台账（3.2） + 工单（3.3） + 系统履历（3.4）', () => {
     renderDetail();
     const text = document.body.textContent;
     expect(text).toContain('基本信息');
@@ -126,12 +126,15 @@ describe('系统详情抽屉', () => {
     expect(text).toContain('巡检台账');
     expect(text).toContain('周月维护台账');
     expect(text).toContain('季维护台账');
-    // 边界：始终不出现工单、系统履历、离线/二维码/移动端入口
-    expect(text).not.toContain('工单管理');
-    expect(text).not.toContain('系统履历');
+    // 步骤 3.3：工单页签
+    expect(text).toContain('工单');
+    // 步骤 3.4：系统履历页签（统一履历；角色筛选断言见 systemEvent 组件测试）
+    expect(text).toContain('系统履历');
+    // 边界：不出现离线/二维码/移动端与系统升级入口
     expect(text).not.toContain('二维码');
     expect(text).not.toContain('离线');
     expect(text).not.toContain('移动端');
+    expect(text).not.toContain('系统升级');
   });
 
   it('基本信息统一展示固定字段、模板字段值与自定义字段值（含停用历史值）', () => {

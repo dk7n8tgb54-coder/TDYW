@@ -5,8 +5,9 @@
  */
 /**
  * 设备全生命周期——系统列表页（步骤二）。
+ * 支持跨页跳转直达详情：/el/systems?detail=<系统ID>（当前运行状态/履历页跳入）。
  */
-import React from 'react';
+import React, { useEffect } from 'react';
 import { observer } from 'mobx-react';
 import { Input, Select, Button, message, Popconfirm, Tag } from 'antd';
 import {PlusOutlined} from '@ant-design/icons';
@@ -17,13 +18,23 @@ import SystemDetail from './SystemDetail';
 import store from './store';
 import { API_PREFIX, HEALTH_STATUS_OPTIONS, PERM } from './constants';
 
-function SystemIndex() {
+function SystemIndex(props) {
+  useEffect(() => {
+    // 跨页跳转直达详情（当前运行状态/履历页跳入：?detail=<系统ID>）
+    const params = new URLSearchParams(props.location ? props.location.search : '');
+    const detailId = params.get('detail');
+    if (detailId && /^\d+$/.test(detailId)) {
+      store.showDetail({id: parseInt(detailId, 10)});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <AuthDiv auth={PERM.SYS_VIEW}>
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
         <Breadcrumb.Item>设备全生命周期</Breadcrumb.Item>
-        <Breadcrumb.Item>系统档案</Breadcrumb.Item>
+        <Breadcrumb.Item>系统管理</Breadcrumb.Item>
         <Breadcrumb.Item>系统列表</Breadcrumb.Item>
       </Breadcrumb>
       <SearchForm>

@@ -55,6 +55,9 @@ import EquipmentSystemIndex from './pages/equipmentLifecycle';
 import EquipmentSystemTypeIndex from './pages/equipmentLifecycle/systemType';
 import EquipmentFaultIndex from './pages/equipmentLifecycle/FaultIndex';
 import EquipmentWorkOrderIndex from './pages/equipmentLifecycle/workOrder';
+import EquipmentConfigFieldsIndex from './pages/equipmentLifecycle/ConfigFieldsIndex';
+import EquipmentSystemEventIndex from './pages/equipmentLifecycle/systemEvent';
+import EquipmentSystemStatusIndex from './pages/equipmentLifecycle/systemStatus';
 import {
   InspectionLedgerIndex, WeekMonthLedgerIndex, SeasonalLedgerIndex,
   TemplateIndex as LedgerTemplateIndex, PointIndex as LedgerPointIndex,
@@ -83,10 +86,11 @@ export default [
     {title: '事项列表', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},
     {title: '统计概览', auth: 'runlog.runlog.view', path: '/runlog/statistics', component: RunLogStatistics},
   ]},
-  {icon: <ApartmentOutlined/>, title: '设备全生命周期', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_type.view|equipment_lifecycle.system_config.view|equipment_lifecycle.fault.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection_point.view|equipment_lifecycle.work_order.view', child: [
-    {title: '系统档案', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_type.view|equipment_lifecycle.system_config.view', child: [
+  {icon: <ApartmentOutlined/>, title: '设备全生命周期', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_type.view|equipment_lifecycle.system_config.view|equipment_lifecycle.fault.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection_point.view|equipment_lifecycle.work_order.view|equipment_lifecycle.system_event.view', child: [
+    {title: '系统管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_type.view|equipment_lifecycle.system_config.view', child: [
       {title: '系统列表', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_config.view', path: '/el/systems', component: EquipmentSystemIndex},
-      {title: '系统类型管理', auth: 'equipment_lifecycle.system_type.view', path: '/el/system-types', component: EquipmentSystemTypeIndex},
+      {title: '系统类型', auth: 'equipment_lifecycle.system_type.view', path: '/el/system-types', component: EquipmentSystemTypeIndex},
+      {title: '配置字段', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_config.view', path: '/el/config-fields', component: EquipmentConfigFieldsIndex},
     ]},
     {title: '运行维护', auth: 'equipment_lifecycle.fault.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection_point.view|equipment_lifecycle.work_order.view', child: [
       {title: '故障管理', auth: 'equipment_lifecycle.fault.view', path: '/el/faults', component: EquipmentFaultIndex},
@@ -96,6 +100,10 @@ export default [
       {title: '台账模板', auth: 'equipment_lifecycle.ledger_template.view', path: '/el/ledger-templates', component: LedgerTemplateIndex},
       {title: '巡检点管理', auth: 'equipment_lifecycle.inspection_point.view', path: '/el/inspection-points', component: LedgerPointIndex},
       {title: '工单管理', auth: 'equipment_lifecycle.work_order.view', path: '/el/work-orders', component: EquipmentWorkOrderIndex},
+    ]},
+    {title: '履历与状态', auth: 'equipment_lifecycle.system_event.view|equipment_lifecycle.system.view', child: [
+      {title: '系统履历', auth: 'equipment_lifecycle.system_event.view', path: '/el/system-events', component: EquipmentSystemEventIndex},
+      {title: '当前运行状态', auth: 'equipment_lifecycle.system.view', path: '/el/system-status', component: EquipmentSystemStatusIndex},
     ]},
   ]},
   {icon: <ApartmentOutlined/>, title: '设备管理', auth: 'device.device_resume.view|device.device_history.view|upgrade.upgrade.view|upgrade.statistics.view', child: [

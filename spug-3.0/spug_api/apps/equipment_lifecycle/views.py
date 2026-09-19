@@ -26,7 +26,7 @@ import re
 from datetime import datetime
 from types import SimpleNamespace
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import Q
 from django.http import HttpResponse
 from django.utils import timezone
@@ -78,12 +78,13 @@ RESERVED_FIELD_LABELS = {
 DATETIME_FORMATS = ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M', '%Y-%m-%d')
 
 # 系统固定字段的变更历史展示名（与模型 help_text 口径一致）
+# 注意：health_status 由故障/工单驱动统一计算（fault_services），不属于可编辑固定字段
 FIXED_CHANGE_LABELS = {
     'name': '系统名称', 'system_model': '系统型号', 'install_location': '安装地点',
     'geo_coordinate': '安装经纬度', 'system_purpose': '系统用途',
     'manufacturer': '生产厂家', 'install_unit': '安装单位', 'use_unit': '使用单位',
     'install_time': '安装时间', 'enable_time': '启用时间',
-    'responsible_user_name': '系统负责人', 'health_status': '运行健康状态', 'remark': '备注',
+    'responsible_user_name': '系统负责人', 'remark': '备注',
 }
 
 
@@ -116,14 +117,17 @@ def _parse_system_fields(data, for_update=False):
         Argument('install_time', type=str, required=True, help='安装时间'),
         Argument('enable_time', type=str, required=True, help='启用时间'),
         Argument('responsible_user_name', type=str, required=True, help='系统负责人'),
-        Argument('health_status', type=str, required=True, help='运行健康状态'),
         Argument('remark', type=str, required=False, default=''),
     )
     return parser.parse(data or {})
 
 
 def _fixed_field_snapshot(item):
-    """提取参与变更历史比对的系统固定字段快照。"""
+    """提取参与变更历史比对的系统固定字段快照。
+
+    health_status 不参与比对：它由故障/工单驱动统一计算（fault_services），
+    不是用户可编辑字段，其变化通过健康状态审计与系统履历记录。
+    """
     return {
         'name': item.name, 'system_model': item.system_model,
         'install_location': item.install_location, 'geo_coordinate': item.geo_coordinate,
@@ -131,8 +135,7 @@ def _fixed_field_snapshot(item):
         'install_unit': item.install_unit, 'use_unit': item.use_unit,
         'install_time': item.install_time.isoformat(sep=' ', timespec='minutes') if item.install_time else '',
         'enable_time': item.enable_time.isoformat(sep=' ', timespec='minutes') if item.enable_time else '',
-        'responsible_user_name': item.responsible_user_name,
-        'health_status': item.health_status, 'remark': item.remark,
+        'responsible_user_name': item.responsible_user_name, 'remark': item.remark,
     }
 
 
@@ -146,7 +149,11 @@ def _diff_fixed_changes(before, after):
 
 
 def _apply_fixed_fields(item, form, install_time, enable_time, user):
-    """把校验通过的固定字段写入系统实例（不落库）。"""
+    """把校验通过的固定字段写入系统实例（不落库）。
+
+    health_status 不在此写入：普通系统编辑不能覆盖由故障和工单计算的健康状态
+    （步骤 3.5 收口，新建系统初始化为 normal，后续变化只由重算服务写入）。
+    """
     item.name = form.name.strip()
     item.system_model = form.system_model.strip()
     item.install_location = form.install_location.strip()
@@ -158,7 +165,6 @@ def _apply_fixed_fields(item, form, install_time, enable_time, user):
     item.install_time = install_time
     item.enable_time = enable_time
     item.responsible_user_name = form.responsible_user_name.strip()
-    item.health_status = form.health_status
     item.remark = (form.remark or '').strip()[:1000]
     item.updated_at = timezone.now()
     item.updated_by = user
@@ -186,20 +192,6 @@ def _validate_system_fixed_payload(request, form, for_update=False, item=None):
             return None, None, None, None, '系统编号创建后不可修改'
         system_code = item.system_code
         system_type = item.system_type
-    if form.health_status not in LifecycleSystem.HEALTH_STATUS_TEXT_MAP:
-        return None, None, None, None, '运行健康状态不合法'
-    # 步骤 3.1 起：存在未恢复故障影响时，健康状态由故障记录自动计算，
-    # 普通系统编辑不得随意覆盖（提交值必须与计算值一致）
-    if for_update:
-        from apps.equipment_lifecycle import fault_services
-        active_impacts = fault_services.collect_active_impacts(
-            item.tenant_id, [item.id]).get(item.id)
-        if active_impacts:
-            derived = fault_services.derive_health_status(active_impacts)
-            if form.health_status != derived:
-                return None, None, None, None, (
-                    '系统存在未恢复的故障影响，运行健康状态由故障记录自动计算'
-                    f'（当前应为「{LifecycleSystem.HEALTH_STATUS_TEXT_MAP[derived]}」），不能手动修改')
     err = SystemView._check_geo(form.geo_coordinate)
     if err:
         return None, None, None, None, err
@@ -333,17 +325,38 @@ def _get_field_for_user(pk, user):
 def _collect_system_references(system):
     """删除保护：返回引用该系统的业务对象描述列表，非空则禁止物理删除。
 
-    步骤 3.1 起故障以系统 ID 建立业务关联；历史故障必须继续可查，
-    存在故障关联（主体或受影响）的系统不得物理删除。fail-closed 语义，
-    后续步骤在此追加对应查询。
+    步骤 3.1 起故障、步骤 3.2 起巡检点/台账明细、步骤 3.3 起工单、步骤 3.4 起
+    履历事件均以系统 ID 建立业务关联（PROTECT）；历史记录必须继续可查，
+    存在关联的系统不得物理删除。fail-closed 语义。
     """
-    from apps.equipment_lifecycle.models import SystemFault
+    from apps.equipment_lifecycle.models import (
+        OperationLedgerItem,
+        SystemEvent,
+        SystemFault,
+        SystemInspectionPoint,
+        SystemWorkOrder,
+        SystemWorkOrderAffectedSystem,
+    )
     refs = []
     has_fault = SystemFault.objects.filter(tenant_id=system.tenant_id).filter(
         Q(primary_system_id=system.id) | Q(affected_systems__system_id=system.id)
     ).exists()
     if has_fault:
         refs.append('故障记录')
+    if SystemInspectionPoint.objects.filter(
+            tenant_id=system.tenant_id, system_id=system.id).exists():
+        refs.append('巡检点')
+    if OperationLedgerItem.objects.filter(
+            tenant_id=system.tenant_id, system_id=system.id).exists():
+        refs.append('运维台账明细')
+    if SystemWorkOrder.objects.filter(
+            tenant_id=system.tenant_id, target_system_id=system.id).exists() or \
+            SystemWorkOrderAffectedSystem.objects.filter(
+                tenant_id=system.tenant_id, system_id=system.id).exists():
+        refs.append('工单')
+    if SystemEvent.objects.filter(
+            tenant_id=system.tenant_id, system_id=system.id).exists():
+        refs.append('系统履历事件')
     return refs
 
 
@@ -614,6 +627,8 @@ class SystemTypeDetailView(View):
             return json_response(error='该类型下已存在系统，不能删除')
         if item.template_fields.exists():
             return json_response(error='该类型下存在字段模板，请先删除或停用全部模板字段')
+        if item.ledger_templates.exists():
+            return json_response(error='该类型下已存在台账模板，不能删除')
         with transaction.atomic():
             item.delete()
             record_audit_event(request, 'delete', AUDIT_TARGET_TYPE, item.id, item.name,
@@ -920,7 +935,7 @@ class SystemView(View):
                 install_time=install_time,
                 enable_time=enable_time,
                 responsible_user_name=form.responsible_user_name.strip(),
-                health_status=form.health_status,
+                health_status=LifecycleSystem.HEALTH_NORMAL,
                 is_active=True,
                 remark=(form.remark or '').strip()[:1000],
                 created_by=request.user,
@@ -1089,7 +1104,7 @@ class SystemView(View):
                     install_time=install_time,
                     enable_time=enable_time,
                     responsible_user_name=form.responsible_user_name.strip(),
-                    health_status=form.health_status,
+                    health_status=LifecycleSystem.HEALTH_NORMAL,
                     is_active=True,
                     remark=(form.remark or '').strip()[:1000],
                     created_by=request.user,
@@ -1638,6 +1653,27 @@ class SystemExportView(View):
         record_audit_event(request, 'export', AUDIT_TARGET_SYSTEM, '', '',
                            detail={'count': len(rows)})
         return _csv_response('el_systems', headers, rows)
+
+
+class SystemStatusSummaryView(View):
+    """当前运行状态汇总（只读聚合，供"履历与状态→当前运行状态"页面）。
+
+    - 按健康状态统计本租户系统数量（含停用系统单独计数）；
+    - 健康状态唯一来源为 fault_services 计算（步骤 3.5 收口），本视图只读。
+    """
+
+    @auth('equipment_lifecycle.system.view')
+    def get(self, request):
+        query = apply_tenant_filter(LifecycleSystem.objects.all(), request.user)
+        summary = {status: 0 for status, _ in LifecycleSystem.HEALTH_STATUS_CHOICES}
+        for row in query.values('health_status').annotate(n=models.Count('id')):
+            summary[row['health_status']] = row['n']
+        return json_response({
+            'summary': summary,
+            'total': sum(summary.values()),
+            'active_total': query.filter(is_active=True).count(),
+            'inactive_total': query.filter(is_active=False).count(),
+        })
 
 
 class SystemFormFieldsView(View):
@@ -2233,6 +2269,9 @@ class SystemSnapshotView(View):
                 content_hash=hashlib.sha256(content_text.encode('utf-8')).hexdigest(),
                 created_by=request.user,
             )
+            # 步骤 3.4：配置快照生成进入系统履历（同一事务）
+            from apps.equipment_lifecycle import event_services
+            event_services.record_snapshot_event(item, snapshot, created_by=request.user)
             record_audit_event(request, 'create', AUDIT_TARGET_CONFIG, item.id, item.name,
                                after_value={'action': 'create_snapshot', 'name': snapshot.name,
                                             'content_hash': snapshot.content_hash})

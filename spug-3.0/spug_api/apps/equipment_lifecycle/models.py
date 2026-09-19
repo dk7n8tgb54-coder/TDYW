@@ -643,6 +643,8 @@ class SystemFault(TenantModelMixin, models.Model):
                                      help_text='恢复确认人')
     recovered_confirmed_at = models.DateTimeField(null=True, blank=True, help_text='恢复确认时间')
     final_result = models.TextField(max_length=2000, default='', blank=True, help_text='最终结果')
+    cancel_reason = models.CharField(max_length=200, default='', blank=True,
+                                     help_text='作废原因（受控作废时填写，审计与履历留痕）')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING,
                               help_text='当前状态')
     source_type = models.CharField(max_length=20, default=SOURCE_MANUAL, help_text='来源类型：manual 人工 / ledger_item 台账异常明细（步骤 3.3）')
@@ -2058,4 +2060,141 @@ class OperationLedgerCorrection(TenantModelMixin, models.Model):
             'corrected_by': self.corrected_by_id,
             'corrected_by_name': self.corrected_by.username if self.corrected_by_id else '',
             'corrected_at': self.corrected_at,
+        }
+
+
+# 统一系统履历事件枚举（步骤 3.4；Meta 约束访问不到类作用域，提为模块级）
+EVENT_TYPE_VALUES = ['fault', 'work_order', 'ledger', 'health', 'config_snapshot']
+EVENT_ROLE_VALUES = ['primary', 'affected', 'related']
+EVENT_SOURCE_TYPE_VALUES = ['fault', 'work_order', 'ledger_item', 'health', 'config_snapshot']
+EVENT_ACTION_VALUES = [
+    'create', 'recover', 'close', 'cancel',
+    'convert_to_fault', 'convert_to_work_order',
+    'complete', 'status_change', 'snapshot',
+]
+
+
+class SystemEvent(TenantModelMixin, models.Model):
+    """统一系统履历事件（步骤 3.4）。
+
+    - 由业务动作经 event_services.record_system_event 自动生成，与业务保存
+      处于同一事务；普通用户不能手工新增，不提供普通修改与物理删除接口；
+    - 故障、台账异常、工单、健康状态与配置快照共用同一事件模型，
+      每条事件有明确主要来源（source_type + source_id）；
+    - 通过正式系统 ID 外键关联（PROTECT），保存系统编号/名称快照，
+      系统改名后历史事件仍显示保存时的名称；
+    - 更正与受控撤销以追加新事件表达（如故障作废、工单取消），
+      已生成事件原样保留；来源对象作废后事件与关联继续保留；
+    - 事件纯插入，不递归触发健康状态重算；重复业务请求由业务层
+      状态机与幂等键拦截，不产生重复事件。
+    """
+
+    EVENT_FAULT = 'fault'
+    EVENT_WORK_ORDER = 'work_order'
+    EVENT_LEDGER = 'ledger'
+    EVENT_HEALTH = 'health'
+    EVENT_CONFIG_SNAPSHOT = 'config_snapshot'
+    EVENT_TYPE_CHOICES = (
+        (EVENT_FAULT, '故障'),
+        (EVENT_WORK_ORDER, '工单'),
+        (EVENT_LEDGER, '台账异常'),
+        (EVENT_HEALTH, '健康状态'),
+        (EVENT_CONFIG_SNAPSHOT, '配置快照'),
+    )
+    EVENT_TYPE_TEXT_MAP = dict(EVENT_TYPE_CHOICES)
+
+    ROLE_PRIMARY = 'primary'
+    ROLE_AFFECTED = 'affected'
+    ROLE_RELATED = 'related'
+    ROLE_CHOICES = (
+        (ROLE_PRIMARY, '主体'),
+        (ROLE_AFFECTED, '受影响'),
+        (ROLE_RELATED, '关联'),
+    )
+    ROLE_TEXT_MAP = dict(ROLE_CHOICES)
+
+    system = models.ForeignKey(
+        LifecycleSystem, models.PROTECT, related_name='system_events',
+        help_text='关联系统（正式系统 ID）')
+    event_type = models.CharField(max_length=20, choices=EVENT_TYPE_CHOICES, help_text='事件类型')
+    action = models.CharField(max_length=30, help_text='事件动作')
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, help_text='系统在事件中的角色')
+    source_type = models.CharField(max_length=20, help_text='主要来源类型')
+    source_id = models.CharField(
+        max_length=32, default='', blank=True, help_text='来源对象ID（健康状态事件为空）')
+    source_no = models.CharField(
+        max_length=50, default='', blank=True, help_text='来源编号快照（故障号/工单号/台账号/快照名）')
+    title = models.CharField(max_length=200, help_text='事件摘要（保存时点快照）')
+    detail = models.TextField(default='', blank=True, help_text='受控结构化详情 JSON')
+    system_code = models.CharField(max_length=50, help_text='系统编号快照')
+    system_name = models.CharField(max_length=100, help_text='系统名称快照')
+    occurred_at = models.DateTimeField(help_text='业务事实时间')
+    created_by = models.ForeignKey(
+        User, models.PROTECT, related_name='+', null=True, blank=True,
+        help_text='触发业务动作的用户（服务内部触发可为空）')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    class Meta:
+        db_table = 'tdyw_el_system_event'
+        verbose_name = '系统履历事件'
+        verbose_name_plural = '系统履历事件'
+        ordering = ('-occurred_at', '-id')
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(event_type__in=EVENT_TYPE_VALUES),
+                name='el_system_event_type_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(role__in=EVENT_ROLE_VALUES),
+                name='el_system_event_role_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(source_type__in=EVENT_SOURCE_TYPE_VALUES),
+                name='el_system_event_source_type_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(action__in=EVENT_ACTION_VALUES),
+                name='el_system_event_action_valid',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['tenant_id', 'system', '-occurred_at', '-id']),
+            models.Index(fields=['tenant_id', 'event_type']),
+            models.Index(fields=['tenant_id', 'source_type', 'source_id']),
+        ]
+
+    def __repr__(self):
+        return '<SystemEvent %s %s>' % (self.event_type, self.title[:30])
+
+    def get_detail(self):
+        if not self.detail:
+            return {}
+        try:
+            data = json.loads(self.detail)
+            return data if isinstance(data, dict) else {}
+        except (ValueError, TypeError):
+            return {}
+
+    def to_view(self):
+        return {
+            'id': self.id,
+            'system': self.system_id,
+            'system_code': self.system_code,
+            'system_name': self.system_name,
+            'event_type': self.event_type,
+            'event_type_text': self.EVENT_TYPE_TEXT_MAP.get(self.event_type, self.event_type),
+            'action': self.action,
+            'role': self.role,
+            'role_text': self.ROLE_TEXT_MAP.get(self.role, self.role),
+            'source_type': self.source_type,
+            'source_id': self.source_id,
+            'source_no': self.source_no,
+            'title': self.title,
+            'detail': self.get_detail(),
+            'occurred_at': self.occurred_at,
+            'created_by_name': self.created_by.username if self.created_by_id else '',
+            'created_at': self.created_at,
         }
