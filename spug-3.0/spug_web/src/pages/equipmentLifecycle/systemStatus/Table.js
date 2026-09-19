@@ -26,10 +26,6 @@ class ComTable extends React.Component {
     dataIndex: 'name',
     width: 200,
   }, {
-    title: '系统类型',
-    dataIndex: 'system_type_name',
-    width: 130,
-  }, {
     title: '安装地点',
     dataIndex: 'install_location',
     ellipsis: true,

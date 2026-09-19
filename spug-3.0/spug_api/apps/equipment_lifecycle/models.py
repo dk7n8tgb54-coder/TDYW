@@ -6,8 +6,7 @@
 按《设备与系统全生命周期管理总体方案 v2.0》步骤二建设：
 
 - LifecycleSystem          系统主数据（平级、无父子层级、无系统—设备关系）
-- SystemType               系统类型（模板归属）
-- ConfigFieldDefinition    配置字段定义（类型模板字段 / 具体系统自定义字段）
+- ConfigFieldDefinition    配置字段定义（具体系统自定义字段）
 - SystemConfigValue        系统在某个字段下的当前值（类型化存储，可查询）
 - SystemConfigComponent    配置组成项（按类型汇总，不做单台设备资产）
 - SystemConfigChange       配置变更历史（字段前后值、来源、人员、时间）
@@ -32,45 +31,6 @@ FAULT_IMPACT_VALUES = ['degraded', 'fault', 'interrupted']
 FAULT_STATUS_VALUES = ['pending', 'handling', 'recovered', 'closed', 'cancelled']
 FIELD_TYPE_VALUES_LIST = ['text', 'longtext', 'number', 'date', 'choice',
                           'multi_choice', 'boolean', 'attachment', 'detail_table']
-
-
-class SystemType(TenantModelMixin, models.Model):
-    """系统类型：系统分类与模板字段归属，租户内名称唯一。"""
-
-    name = models.CharField(max_length=50, help_text='系统类型名称，租户内唯一')
-    description = models.CharField(max_length=500, default='', blank=True, help_text='类型说明')
-    display_order = models.IntegerField(default=0, help_text='显示顺序，小者靠前')
-    is_active = models.BooleanField(default=True, help_text='是否启用（停用后不可用于新建系统）')
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
-    updated_at = models.DateTimeField(null=True, blank=True)
-    updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
-
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-
-    class Meta:
-        db_table = 'tdyw_el_system_type'
-        verbose_name = '系统类型'
-        verbose_name_plural = '系统类型'
-        ordering = ('display_order', 'id')
-        constraints = [
-            models.UniqueConstraint(fields=['tenant_id', 'name'], name='uniq_el_system_type_tenant_name'),
-        ]
-
-    def __repr__(self):
-        return '<SystemType %r>' % self.name
-
-    def to_view(self):
-        return {
-            'id': self.id,
-            'name': self.name,
-            'description': self.description,
-            'display_order': self.display_order,
-            'is_active': self.is_active,
-            'created_at': self.created_at,
-            'updated_at': self.updated_at,
-        }
 
 
 class LifecycleSystem(TenantModelMixin, models.Model):
@@ -100,7 +60,6 @@ class LifecycleSystem(TenantModelMixin, models.Model):
 
     system_code = models.CharField(max_length=50, help_text='系统编号，租户内唯一，创建后不可修改')
     name = models.CharField(max_length=100, help_text='系统正式名称')
-    system_type = models.ForeignKey(SystemType, models.PROTECT, related_name='systems', help_text='系统类型')
     system_model = models.CharField(max_length=100, help_text='系统型号')
     install_location = models.CharField(max_length=200, help_text='安装地点')
     geo_coordinate = models.CharField(max_length=100, default='', blank=True, help_text='安装经纬度，格式: 经度,纬度')
@@ -135,7 +94,6 @@ class LifecycleSystem(TenantModelMixin, models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=['tenant_id', 'system_type']),
             models.Index(fields=['tenant_id', 'health_status']),
             models.Index(fields=['tenant_id', '-created_at', '-id']),
         ]
@@ -148,8 +106,6 @@ class LifecycleSystem(TenantModelMixin, models.Model):
             'id': self.id,
             'system_code': self.system_code,
             'name': self.name,
-            'system_type': self.system_type_id,
-            'system_type_name': self.system_type.name,
             'system_model': self.system_model,
             'install_location': self.install_location,
             'geo_coordinate': self.geo_coordinate,
@@ -180,10 +136,8 @@ class ConfigFieldDefinition(TenantModelMixin, models.Model):
     - 字段定义删除不得级联删除历史值（由 SystemConfigValue.field PROTECT 保证）。
     """
 
-    SCOPE_TEMPLATE = 'template'
     SCOPE_CUSTOM = 'custom'
     SCOPE_CHOICES = (
-        (SCOPE_TEMPLATE, '系统类型模板字段'),
         (SCOPE_CUSTOM, '系统自定义字段'),
     )
 
@@ -218,8 +172,7 @@ class ConfigFieldDefinition(TenantModelMixin, models.Model):
     )
 
     scope_type = models.CharField(max_length=20, choices=SCOPE_CHOICES, help_text='字段作用范围')
-    scope_owner_id = models.CharField(max_length=20, help_text='归属对象ID（模板=系统类型ID，自定义=系统ID）')
-    system_type = models.ForeignKey(SystemType, models.PROTECT, related_name='template_fields', null=True, blank=True, help_text='模板字段所属系统类型')
+    scope_owner_id = models.CharField(max_length=20, help_text='归属对象ID（=系统ID）')
     system = models.ForeignKey(LifecycleSystem, models.PROTECT, related_name='custom_fields', null=True, blank=True, help_text='自定义字段所属系统')
     field_code = models.CharField(max_length=50, help_text='稳定字段编码，作用范围内唯一')
     display_name = models.CharField(max_length=100, help_text='显示名称')
@@ -276,7 +229,6 @@ class ConfigFieldDefinition(TenantModelMixin, models.Model):
             'id': self.id,
             'scope_type': self.scope_type,
             'scope_owner_id': self.scope_owner_id,
-            'system_type': self.system_type_id,
             'system': self.system_id,
             'field_code': self.field_code,
             'display_name': self.display_name,
@@ -1016,9 +968,6 @@ class OperationLedgerTemplate(TenantModelMixin, models.Model):
     ledger_type = models.CharField(max_length=20, help_text='台账类型')
     maintenance_cycle = models.CharField(
         max_length=20, default='', blank=True, help_text='周月维护周期（week/month/season；巡检为空）')
-    applicable_system_type = models.ForeignKey(
-        SystemType, models.PROTECT, related_name='ledger_templates', null=True, blank=True,
-        help_text='适用系统类型（可选）')
     applicable_systems = models.ManyToManyField(
         LifecycleSystem, blank=True, related_name='ledger_templates',
         db_table='tdyw_el_ledger_template_systems', help_text='适用具体系统（可多选）')
@@ -1057,9 +1006,7 @@ class OperationLedgerTemplate(TenantModelMixin, models.Model):
         return '<OperationLedgerTemplate %r>' % self.template_code
 
     def applies_to_system(self, system):
-        """模板是否适用于指定系统（按类型或具体系统匹配）。"""
-        if self.applicable_system_type_id and self.applicable_system_type_id == system.system_type_id:
-            return True
+        """模板是否适用于指定系统（按具体系统匹配）。"""
         return self.applicable_systems.all().filter(pk=system.pk).exists()
 
     def to_view(self, with_counts=False):
@@ -1069,8 +1016,6 @@ class OperationLedgerTemplate(TenantModelMixin, models.Model):
             'template_code': self.template_code,
             'ledger_type': self.ledger_type,
             'maintenance_cycle': self.maintenance_cycle,
-            'applicable_system_type': self.applicable_system_type_id,
-            'applicable_system_type_name': self.applicable_system_type.name if self.applicable_system_type_id else '',
             'description': self.description,
             'is_active': self.is_active,
             'created_at': self.created_at,

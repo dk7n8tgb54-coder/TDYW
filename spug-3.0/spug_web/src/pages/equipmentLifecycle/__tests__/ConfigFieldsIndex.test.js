@@ -4,7 +4,7 @@
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
  * - 页面提示"仅管理字段定义"，选择系统后加载系统详情并渲染配置字段管理
  * - 系统候选通过 /systems/ 查询（system.view 权限域），只列可用系统
- * - 选中系统后展示类型模板字段与自定义字段两组定义
+ * - 选中系统后展示自定义字段定义列表
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -53,17 +53,17 @@ function flush() {
 }
 
 const SYSTEMS_PAYLOAD = {
-  data: [{id: 5, system_code: 'SYS-001', name: '通信系统', system_type_name: '通信系统'}],
+  data: [{id: 5, system_code: 'SYS-001', name: '通信系统'}],
   total: 1,
 };
 
 const DETAIL_PAYLOAD = {
-  id: 5, system_code: 'SYS-001', name: '通信系统', system_type_name: '通信系统',
+  id: 5, system_code: 'SYS-001', name: '通信系统',
   config_fields: [
-    {id: 101, scope_type: 'template', field_code: 'frequency', display_name: '工作频率',
-      field_type: 'text', is_required: true, is_active: true, display: '438.000MHz'},
     {id: 102, scope_type: 'custom', field_code: 'antenna_h', display_name: '天线高度',
       field_type: 'number', is_required: false, is_active: true, display: '25'},
+    {id: 101, scope_type: 'custom', field_code: 'frequency', display_name: '工作频率',
+      field_type: 'text', is_required: true, is_active: true, display: '438.000MHz'},
   ],
 };
 
@@ -103,9 +103,8 @@ describe('配置字段独立入口', () => {
     // 详情按系统 ID 加载
     expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/systems/5/');
     const after = document.body.textContent;
-    expect(after).toContain('类型模板字段');
-    expect(after).toContain('工作频率');
     expect(after).toContain('本系统自定义字段');
+    expect(after).toContain('工作频率');
     expect(after).toContain('天线高度');
   });
 });

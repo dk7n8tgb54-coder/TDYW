@@ -47,7 +47,7 @@ function SystemStatusIndex() {
     <AuthDiv auth={PERM.SYS_VIEW}>
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>设备全生命周期</Breadcrumb.Item>
+        <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
         <Breadcrumb.Item>履历与状态</Breadcrumb.Item>
         <Breadcrumb.Item>当前运行状态</Breadcrumb.Item>
       </Breadcrumb>

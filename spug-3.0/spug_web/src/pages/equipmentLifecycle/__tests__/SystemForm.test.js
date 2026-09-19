@@ -2,12 +2,11 @@
  * 设备全生命周期（步骤二交互重构）系统新增/编辑表单测试
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
- * - 编辑模式：修改模板字段值后一次提交，PUT 载荷为结构化聚合格式
+ * - 编辑模式：修改自定义字段值后一次提交，PUT 载荷为结构化聚合格式
  *   {system, config_values, components}，只提交发生变化的字段值
  * - 编辑模式：表单内联添加自定义字段后立即出现在当前表单（无需先保存系统），
  *   值随本次编辑一并提交（custom_fields 携带 client_key 与 value）
- * - 新增模式：选择系统类型后自动加载该类型模板字段
- * - 新增模式：切换系统类型时弹出确认提醒，不静默丢弃已填写值
+ * - 新增模式：无系统类型选择与模板字段通道，内联自定义字段入口可用
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -98,22 +97,8 @@ function findButtonByText(text) {
     .find(b => b.textContent.replace(/\s/g, '') === normalized) || null;
 }
 
-async function chooseSelectOption(labelText, optionText) {
-  const item = findFormItem(labelText);
-  const selector = item.querySelector('.ant-select-selector');
-  await act(async () => {
-    selector.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
-  });
-  await act(async () => {});
-  const option = Array.from(
-    document.querySelectorAll('.ant-select-dropdown .ant-select-item-option'))
-    .find(o => o.textContent.trim() === optionText);
-  expect(option).toBeTruthy();
-  await click(option);
-}
-
 const RECORD = {
-  id: 5, system_code: 'SYS-001', name: '烟台中心站通信系统', system_type: 3,
+  id: 5, system_code: 'SYS-001', name: '烟台中心站通信系统',
   system_model: 'HX-100', install_location: '烟台中心站机房A', geo_coordinate: '',
   system_purpose: '', manufacturer: '某通信设备厂', install_unit: '安装一队',
   use_unit: '运行一科', install_time: '2026-01-01 08:00', enable_time: '2026-02-01 09:00',
@@ -122,7 +107,7 @@ const RECORD = {
 
 const FORM_FIELDS_PAYLOAD = {
   data: [
-    {id: 101, scope_type: 'template', field_code: 'frequency', display_name: '工作频率',
+    {id: 101, scope_type: 'custom', field_code: 'frequency', display_name: '工作频率',
       field_type: 'text', is_required: true, is_active: true, is_sensitive: false,
       choices: '', choices_parsed: [], number_min: null, number_max: null,
       text_regex: '', help_text: '', default_parsed: ''},
@@ -138,8 +123,7 @@ const FORM_FIELDS_PAYLOAD = {
   components: [{id: 7, name: '接入交换机', category: '', model_version: 'S5735',
     quantity: 4, purpose: '', asset_sn: '', external_ref: '', remark: '',
     display_order: 0}],
-  system: {id: 5, system_code: 'SYS-001', name: '烟台中心站通信系统',
-    system_type: 3, system_type_name: '通信系统'},
+  system: {id: 5, system_code: 'SYS-001', name: '烟台中心站通信系统'},
 };
 
 function renderEditForm() {
@@ -159,10 +143,6 @@ function renderCreateForm() {
   const SystemForm = require('../SystemForm').default;
   store.record = {};
   store.formVisible = true;
-  store.types = [
-    {id: 3, name: '通信系统', is_active: true},
-    {id: 4, name: '软件系统', is_active: true},
-  ];
   act(() => {
     ReactDOM.render(<SystemForm/>, container);
   });
@@ -170,14 +150,14 @@ function renderCreateForm() {
 }
 
 describe('编辑系统（聚合提交）', () => {
-  it('修改模板字段值后一次提交，PUT 为结构化聚合载荷且只含变化字段', async () => {
+  it('修改自定义字段值后一次提交，PUT 为结构化聚合载荷且只含变化字段', async () => {
     renderEditForm();
     await flush();
     // 模板字段与自定义字段均渲染，且带当前值
     const freqInput = findFormItem('工作频率').querySelector('input');
     expect(freqInput.value).toBe('438.000MHz');
     expect(findFormItem('天线高度')).toBeTruthy();
-    // 修改模板字段值
+    // 修改自定义字段值
     await setInputValue(freqInput, '439.000MHz');
     // 提交
     const saveBtn = findButtonByText('保 存');
@@ -249,58 +229,15 @@ describe('编辑系统（聚合提交）', () => {
   });
 });
 
-describe('新增系统（类型模板字段）', () => {
-  it('选择系统类型后自动加载该类型模板字段', async () => {
-    const store = renderCreateForm();
-    mockHttpGet.mockResolvedValue({
-      data: [FORM_FIELDS_PAYLOAD.data[0]],
-      values: {},
-      components: [],
-      system: null,
-    });
-    await chooseSelectOption('系统类型', '通信系统');
-    await flush();
-    expect(mockHttpGet).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/systems/form-fields/', {params: {system_type: 3}});
-    expect(document.body.textContent).toContain('类型扩展字段');
-    expect(document.body.textContent).toContain('工作频率');
-    expect(store.formFields.length).toBe(1);
-  });
-
-  it('切换系统类型弹出确认提醒，不静默丢弃已填写值', async () => {
+describe('新增系统（无类型机制）', () => {
+  it('新增模式不含系统类型选择，不请求模板字段，内联自定义字段入口可用', async () => {
     renderCreateForm();
-    mockHttpGet.mockImplementation((url, config) => {
-      const systemType = config && config.params ? config.params.system_type : null;
-      return Promise.resolve({
-        data: [{
-          id: systemType === 4 ? 201 : 101,
-          scope_type: 'template',
-          field_code: systemType === 4 ? 'db_version' : 'frequency',
-          display_name: systemType === 4 ? '数据库版本' : '工作频率',
-          field_type: 'text', is_required: false, is_active: true, is_sensitive: false,
-          choices: '', choices_parsed: [], number_min: null, number_max: null,
-          text_regex: '', help_text: '', default_parsed: '',
-        }],
-        values: {},
-        components: [],
-        system: null,
-      });
-    });
-    await chooseSelectOption('系统类型', '通信系统');
     await flush();
-    // 在模板字段中填写值
-    const freqInput = findFormItem('工作频率').querySelector('input');
-    await setInputValue(freqInput, '438.000MHz');
-    // 切换类型 → 出现确认提醒
-    await chooseSelectOption('系统类型', '软件系统');
-    expect(document.body.textContent).toContain('更换模板字段');
-    expect(document.body.textContent).toContain('确定切换');
-    // 确认后加载新类型的模板字段
-    const confirmBtn = findButtonByText('确定切换');
-    await click(confirmBtn);
-    await flush();
-    expect(mockHttpGet).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/systems/form-fields/', {params: {system_type: 4}});
-    expect(document.body.textContent).toContain('数据库版本');
+    // 系统类型表单项已随类型机制移除
+    expect(findFormItem('系统类型')).toBeNull();
+    // 新增模式不再请求 form-fields（无 ?system_type= 通道）
+    expect(mockHttpGet).not.toHaveBeenCalled();
+    // 内联添加自定义字段入口保留
+    expect(findButtonByText('添加自定义字段')).toBeTruthy();
   });
 });

@@ -5,12 +5,12 @@
  */
 /**
  * 系统详情——配置字段页签。
- * 仅管理字段定义（系统类型模板字段 + 本系统自定义字段），不录入字段值；
+ * 仅管理字段定义（本系统自定义字段），不录入字段值；
  * 字段值统一在新增或编辑系统页面填写。自定义字段管理需 system_config.field 权限。
  */
 import React, { useState, useRef, useEffect } from 'react';
 import { observer } from 'mobx-react';
-import { Table, Tag, Alert, Divider, Popconfirm, message } from 'antd';
+import { Table, Tag, Alert, Divider, Popconfirm } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { Form, Input, InputNumber, Select, Switch, Modal } from 'antd';
 import { AuthButton } from 'components';
@@ -78,15 +78,6 @@ function fieldColumns(showActions, handlers) {
               删除
             </AuthButton>
           </Popconfirm>
-          <Divider type="vertical"/>
-          <Popconfirm
-            title={`将该字段提升为类型「${store.detail.system_type_name}」模板字段？本系统已有值将随字段迁移。`}
-            onOk={() => handlers.handlePromote(record)}
-          >
-            <AuthButton auth={PERM.CFG_FIELD} type="link" size="small" style={{padding: 0}}>
-              提升为模板字段
-            </AuthButton>
-          </Popconfirm>
         </span>
       ),
     });
@@ -115,15 +106,6 @@ class ConfigArchiveTab extends React.Component {
       .catch(() => {});
   };
 
-  handlePromote = (record) => {
-    store.promoteCustomField(record.id)
-      .then(() => {
-        message.success('已提升为类型模板字段');
-        this.refreshDetail();
-      })
-      .catch(() => {});
-  };
-
   toggleFieldActive = (record) => {
     store.toggleCustomField(record)
       .then(() => this.refreshDetail())
@@ -132,7 +114,6 @@ class ConfigArchiveTab extends React.Component {
 
   render() {
     const configFields = store.detail.config_fields || [];
-    const templateFields = configFields.filter(f => f.scope_type === 'template');
     const customFields = configFields.filter(f => f.scope_type === 'custom');
     return (
       <div>
@@ -140,26 +121,12 @@ class ConfigArchiveTab extends React.Component {
           type="info"
           showIcon
           message="本页仅管理字段定义"
-          description="用于定义系统类型字段和具体系统扩展字段；字段值在新增或编辑系统时填写，不在此录入。"
+          description="用于定义具体系统的扩展字段；字段值在新增或编辑系统时填写，不在此录入。"
         />
         <div style={{marginTop: 16, marginBottom: 8}}>
-          <b>类型模板字段</b>
-          <span style={{color: '#999', marginLeft: 8}}>
-            由系统类型统一定义，作用于该类型全部系统；在「系统类型管理」中维护
-          </span>
-        </div>
-        <Table
-          size="small"
-          rowKey="id"
-          pagination={false}
-          dataSource={templateFields}
-          columns={fieldColumns(false)}
-          locale={{emptyText: '当前系统类型暂无模板字段'}}
-        />
-        <div style={{marginTop: 24, marginBottom: 8}}>
           <b>本系统自定义字段</b>
           <span style={{color: '#999', marginLeft: 8}}>
-            仅作用于本系统；同一含义在多个系统复用时建议提升为类型模板字段
+            仅作用于本系统
           </span>
           <AuthButton
             auth={PERM.CFG_FIELD}
@@ -182,13 +149,12 @@ class ConfigArchiveTab extends React.Component {
             showFieldForm: record => this.showFieldForm(record),
             toggleFieldActive: record => this.toggleFieldActive(record),
             handleFieldDeleted: record => this.handleFieldDeleted(record),
-            handlePromote: record => this.handlePromote(record),
           })}
           locale={{emptyText: '暂无自定义字段'}}
         />
         {this.state.fieldFormVisible && (
           <CustomFieldForm
-            system={{id: store.detailId, system_type_name: store.detail.system_type_name}}
+            system={{id: store.detailId}}
             record={this.state.fieldRecord}
             onClose={() => this.setState({fieldFormVisible: false})}
             onSaved={() => {

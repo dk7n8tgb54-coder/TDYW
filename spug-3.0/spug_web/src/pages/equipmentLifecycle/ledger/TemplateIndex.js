@@ -33,7 +33,6 @@ class TemplateIndex extends React.Component {
       title: '台账类型', dataIndex: 'ledger_type', width: 110,
       render: (v, r) => `${LEDGER_TYPE_TEXT[v] || v}${r.maintenance_cycle ? `（${CYCLE_TEXT[r.maintenance_cycle]}）` : ''}`,
     },
-    {title: '适用系统类型', dataIndex: 'applicable_system_type_name', width: 130, render: v => v || '-'},
     {
       title: '适用系统', dataIndex: 'applicable_systems', ellipsis: true,
       render: list => (list || []).length ? list.map(s => s.name).join('、') : '-',
@@ -67,7 +66,7 @@ class TemplateIndex extends React.Component {
       <AuthDiv auth={PERM_L.TPL_VIEW}>
         <Breadcrumb>
           <Breadcrumb.Item>首页</Breadcrumb.Item>
-          <Breadcrumb.Item>设备全生命周期</Breadcrumb.Item>
+          <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
           <Breadcrumb.Item>运行维护</Breadcrumb.Item>
           <Breadcrumb.Item>台账模板</Breadcrumb.Item>
         </Breadcrumb>

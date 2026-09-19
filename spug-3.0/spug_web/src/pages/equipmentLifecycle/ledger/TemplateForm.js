@@ -42,7 +42,6 @@ const EMPTY_ITEM = () => ({
 class TemplateForm extends React.Component {
   state = {
     loading: false,
-    systemTypes: [],
     systems: [],
     items: [],
     template: {
@@ -50,16 +49,12 @@ class TemplateForm extends React.Component {
       template_code: '',
       ledger_type: 'inspection',
       maintenance_cycle: '',
-      applicable_system_type: undefined,
       applicable_systems: [],
       description: '',
     },
   };
 
   componentDidMount() {
-    http.get(`${API_PREFIX_L}/system-types/`)
-      .then(res => this.setState({systemTypes: res.data}))
-      .catch(() => {});
     http.get(`${API_PREFIX_L}/systems/`, {params: {page: 1, page_size: 999}})
       .then(res => this.setState({systems: res.data}))
       .catch(() => {});
@@ -74,7 +69,6 @@ class TemplateForm extends React.Component {
               template_code: res.template_code,
               ledger_type: res.ledger_type,
               maintenance_cycle: res.maintenance_cycle || '',
-              applicable_system_type: res.applicable_system_type || undefined,
               applicable_systems: (res.applicable_systems || []).map(s => s.id),
               description: res.description || '',
             },
@@ -209,7 +203,7 @@ class TemplateForm extends React.Component {
   };
 
   render() {
-    const {template, systemTypes, systems, items, loading} = this.state;
+    const {template, systems, items, loading} = this.state;
     const {store} = this.props;
     const isEdit = !!store.record.id;
     const isWeekMonth = template.ledger_type === LEDGER_TYPE.WEEK_MONTH;
@@ -252,14 +246,7 @@ class TemplateForm extends React.Component {
               </Select>
             </Form.Item>
           )}
-          <Form.Item label="适用系统类型">
-            <Select
-              allowClear style={{width: 180}} value={template.applicable_system_type}
-              onChange={v => this.setTemplate('applicable_system_type', v)}>
-              {systemTypes.map(t => <Option value={t.id} key={t.id}>{t.name}</Option>)}
-            </Select>
-          </Form.Item>
-          <Form.Item label="适用系统（可多选）">
+          <Form.Item required label="适用系统（可多选）">
             <Select
               allowClear mode="multiple" style={{minWidth: 240}} value={template.applicable_systems}
               onChange={v => this.setTemplate('applicable_systems', v)}>

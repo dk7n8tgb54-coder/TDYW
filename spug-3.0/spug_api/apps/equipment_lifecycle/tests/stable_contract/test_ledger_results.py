@@ -3,7 +3,7 @@
 from django.test import TestCase
 
 from apps.equipment_lifecycle.models import OperationLedgerItem
-from apps.equipment_lifecycle.tests.base import make_client, make_system, make_type
+from apps.equipment_lifecycle.tests.base import make_client, make_system
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
     LEDGER_URL,
     create_ledger_ok,
@@ -19,8 +19,7 @@ from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
 class LedgerResultContractTests(TestCase):
     def setUp(self):
         self.user = make_ledger_user('result_op')
-        self.system_type = make_type(self.user)
-        self.system = make_system(self.user, system_type=self.system_type)
+        self.system = make_system(self.user)
 
     def test_batch_confirm_normal(self):
         """17. 正常项支持批量确认（独立动作接口，一次确认多条）。"""

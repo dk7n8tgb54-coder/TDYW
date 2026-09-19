@@ -22,11 +22,6 @@ def _na(view):
 
 
 urlpatterns = [
-    # 系统类型
-    path('system-types/', views.SystemTypeView.as_view()),
-    path('system-types/<int:pk>/', views.SystemTypeDetailView.as_view()),
-    path('system-types/<int:pk>/fields/', views.TypeFieldView.as_view()),
-    path('system-types/<int:pk>/fields/<int:fid>/', views.TypeFieldDetailView.as_view()),
     # 系统主数据
     path('systems/', views.SystemView.as_view()),
     path('systems/export/', views.SystemExportView.as_view()),
@@ -43,7 +38,6 @@ urlpatterns = [
     path('systems/<int:pk>/components/<int:cid>/', views.SystemComponentDetailView.as_view()),
     path('systems/<int:pk>/custom-fields/', views.CustomFieldView.as_view()),
     path('systems/<int:pk>/custom-fields/<int:fid>/', views.CustomFieldDetailView.as_view()),
-    path('systems/<int:pk>/custom-fields/<int:fid>/promote/', views.CustomFieldPromoteView.as_view()),
     path('systems/<int:pk>/changes/', views.SystemChangeView.as_view()),
     path('systems/<int:pk>/snapshots/', views.SystemSnapshotView.as_view()),
     path('systems/<int:pk>/snapshots/<int:sid>/', views.SystemSnapshotDetailView.as_view()),

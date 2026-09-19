@@ -226,13 +226,6 @@ def _validate_template_header(request, body, item=None):
         dup = dup.exclude(pk=item.pk)
     if dup.exists():
         return None, '模板编号已存在：%s' % template_code
-    system_type = None
-    if body.get('applicable_system_type'):
-        from apps.equipment_lifecycle.models import SystemType
-        system_type = apply_tenant_filter(SystemType.objects.all(), request.user).filter(
-            pk=body['applicable_system_type']).first()
-        if not system_type:
-            return None, '适用系统类型不存在'
     systems = []
     system_ids = body.get('applicable_systems')
     if system_ids:
@@ -242,14 +235,13 @@ def _validate_template_header(request, body, item=None):
             pk__in=system_ids))
         if len(systems) != len(set(system_ids)):
             return None, '适用系统不存在或无权限访问'
-    if not system_type and not systems:
-        return None, '请选择适用系统类型或适用系统'
+    if not systems:
+        return None, '请选择适用系统'
     return {
         'name': name,
         'template_code': template_code,
         'ledger_type': ledger_type,
         'maintenance_cycle': maintenance_cycle,
-        'applicable_system_type': system_type,
         'applicable_systems': systems,
         'description': str(body.get('description') or '').strip(),
     }, None
@@ -284,9 +276,6 @@ def _validate_template_item_payload(request, template, body, item=None):
         if not point:
             return None, '巡检点不存在'
         applicable_ids = set(template.applicable_systems.values_list('id', flat=True))
-        if template.applicable_system_type_id:
-            applicable_ids |= set(LifecycleSystem.objects.filter(
-                system_type_id=template.applicable_system_type_id).values_list('id', flat=True))
         if point.system_id not in applicable_ids:
             return None, '巡检点不属于模板适用系统'
     number_min = body.get('number_min')
@@ -327,7 +316,7 @@ class LedgerTemplateView(View):
     @auth('equipment_lifecycle.ledger_template.view')
     def get(self, request):
         query = apply_tenant_filter(
-            OperationLedgerTemplate.objects.select_related('applicable_system_type'), request.user)
+            OperationLedgerTemplate.objects.all(), request.user)
         ledger_type = request.GET.get('ledger_type')
         if ledger_type:
             query = query.filter(ledger_type=ledger_type)
@@ -440,7 +429,6 @@ class LedgerTemplateDetailView(View):
         with transaction.atomic():
             for field in ('name', 'template_code', 'description'):
                 setattr(template, field, header[field])
-            template.applicable_system_type = header['applicable_system_type']
             template.updated_by = request.user
             template.save()
             template.applicable_systems.set(header['applicable_systems'])

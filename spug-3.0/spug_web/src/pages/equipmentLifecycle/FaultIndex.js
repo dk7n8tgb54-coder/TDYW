@@ -149,7 +149,7 @@ function FaultIndex(props) {
     <AuthDiv auth={PERM.FAULT_VIEW}>
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>设备全生命周期</Breadcrumb.Item>
+        <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
         <Breadcrumb.Item>运行维护</Breadcrumb.Item>
         <Breadcrumb.Item>故障管理</Breadcrumb.Item>
       </Breadcrumb>

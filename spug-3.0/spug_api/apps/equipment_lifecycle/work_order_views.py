@@ -997,14 +997,13 @@ class WorkOrderCandidateSystemsView(View):
 
     @auth('equipment_lifecycle.work_order.view')
     def get(self, request):
-        systems = LifecycleSystem.objects.select_related('system_type').filter(
+        systems = LifecycleSystem.objects.filter(
             tenant_id=request.user.tenant_id, is_active=True).order_by('system_code')
         return json_response({'data': [{
             'id': s.id,
             'system_code': s.system_code,
             'name': s.name,
             'install_location': s.install_location,
-            'system_type_name': s.system_type.name,
         } for s in systems]})
 
 

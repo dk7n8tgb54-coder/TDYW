@@ -43,7 +43,6 @@ describe('系统列表 Store', () => {
     store.page = 2;
     store.pageSize = 50;
     store.f_keyword = '通信';
-    store.f_system_type = 3;
     store.f_health_status = 'fault';
     store.f_is_active = false;
     store.f_use_unit = '运行一科';
@@ -54,7 +53,6 @@ describe('系统列表 Store', () => {
         page: 2,
         page_size: 50,
         keyword: '通信',
-        system_type: 3,
         health_status: 'fault',
         is_active: false,
         use_unit: '运行一科',
@@ -73,14 +71,6 @@ describe('系统列表 Store', () => {
     expect(store.records.length).toBe(1);
     expect(store.total).toBe(1);
     expect(store.isFetching).toBe(false);
-  });
-
-  it('fetchTypes 拉取类型下拉', async () => {
-    const store = freshStore();
-    mockHttpGet.mockResolvedValue({data: [{id: 3, name: '通信系统'}]});
-    await store.fetchTypes();
-    expect(store.types.length).toBe(1);
-    expect(store.types[0].name).toBe('通信系统');
   });
 
   it('submitForm 新增走 POST、编辑走 PUT，成功后关闭弹窗刷新', async () => {
@@ -138,9 +128,9 @@ describe('系统详情 Store', () => {
       values: {},
       components: [],
     });
-    await store.fetchFormFields({system_type: 3});
+    await store.fetchFormFields({system: 5});
     expect(mockHttpGet).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/systems/form-fields/', {params: {system_type: 3}});
+      '/api/equipment-lifecycle/systems/form-fields/', {params: {system: 5}});
     expect(store.formFields.length).toBe(1);
     expect(store.isFormFieldsFetching).toBe(false);
   });

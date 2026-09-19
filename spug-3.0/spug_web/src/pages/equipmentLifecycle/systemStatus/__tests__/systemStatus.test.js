@@ -66,7 +66,7 @@ const SUMMARY_PAYLOAD = {
 
 const SYSTEMS_PAYLOAD = {
   data: [
-    {id: 5, system_code: 'SYS-001', name: '通信系统', system_type_name: '通信系统',
+    {id: 5, system_code: 'SYS-001', name: '通信系统',
       install_location: '机房A', health_status: 'fault', health_status_text: '故障',
       is_active: true},
   ],

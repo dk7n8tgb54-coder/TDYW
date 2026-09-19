@@ -256,12 +256,8 @@ def field_applies_to_system(field, system):
 
 
 def collect_applicable_fields(system, include_inactive=False):
-    """收集系统适用的全部配置字段：类型模板字段 + 本系统自定义字段。"""
+    """收集系统适用的全部配置字段：本系统自定义字段。"""
     qs = ConfigFieldDefinition.objects.filter(
-        tenant_id=system.tenant_id,
-        scope_type=ConfigFieldDefinition.SCOPE_TEMPLATE,
-        scope_owner_id=str(system.system_type_id),
-    ) | ConfigFieldDefinition.objects.filter(
         tenant_id=system.tenant_id,
         scope_type=ConfigFieldDefinition.SCOPE_CUSTOM,
         scope_owner_id=str(system.id),
@@ -401,7 +397,6 @@ def build_snapshot_content(system):
     fixed = {
         'system_code': system.system_code,
         'name': system.name,
-        'system_type': system.system_type.name,
         'system_model': system.system_model,
         'install_location': system.install_location,
         'geo_coordinate': system.geo_coordinate,

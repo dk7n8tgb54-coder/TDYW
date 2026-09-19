@@ -54,7 +54,6 @@ function makeInstance(ledgerType, statePatch) {
     loading: false,
     createdFrom: 'template',
     systems: [],
-    systemTypeNames: {},
     templateEntries: [],
     templateOptions: {},
     pointsMap: {},

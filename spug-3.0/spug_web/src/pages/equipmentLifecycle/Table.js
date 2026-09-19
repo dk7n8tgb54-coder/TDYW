@@ -32,7 +32,6 @@ function confirmDelete(record) {
 
 class SystemTable extends React.Component {
   componentDidMount() {
-    store.fetchTypes();
     store.fetchRecords();
   }
 
@@ -44,10 +43,6 @@ class SystemTable extends React.Component {
     title: '系统名称',
     dataIndex: 'name',
     width: 200,
-  }, {
-    title: '系统类型',
-    dataIndex: 'system_type_name',
-    width: 110,
   }, {
     title: '系统型号',
     dataIndex: 'system_model',

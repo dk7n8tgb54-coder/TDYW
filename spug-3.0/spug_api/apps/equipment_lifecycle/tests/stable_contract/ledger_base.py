@@ -12,7 +12,7 @@ from apps.equipment_lifecycle.models import (
     OperationLedgerTemplateItem,
     SystemInspectionPoint,
 )
-from apps.equipment_lifecycle.tests.base import URL_PREFIX, make_client, make_system, make_type, make_user
+from apps.equipment_lifecycle.tests.base import URL_PREFIX, make_client, make_system, make_user
 
 # ===== 步骤 3.2 权限码（与 ledger_views/@auth、前端 routes/codes 一致） =====
 P_POINT_VIEW = 'equipment_lifecycle.inspection_point.view'
@@ -54,7 +54,7 @@ def make_point(system, created_by, tenant_id='default', **kwargs):
     return SystemInspectionPoint.objects.create(**defaults)
 
 
-def make_ledger_template(created_by, tenant_id='default', system_type=None,
+def make_ledger_template(created_by, tenant_id='default', applicable_systems=None,
                          ledger_type=LEDGER_TYPE_INSPECTION, **kwargs):
     cycle_default = {
         LEDGER_TYPE_INSPECTION: '',
@@ -66,14 +66,16 @@ def make_ledger_template(created_by, tenant_id='default', system_type=None,
         template_code='TPL-INS-001',
         ledger_type=ledger_type,
         maintenance_cycle=cycle_default,
-        applicable_system_type=system_type,
         description='',
         is_active=True,
         tenant_id=tenant_id,
         created_by=created_by,
     )
     defaults.update(kwargs)
-    return OperationLedgerTemplate.objects.create(**defaults)
+    template = OperationLedgerTemplate.objects.create(**defaults)
+    if applicable_systems:
+        template.applicable_systems.set(applicable_systems)
+    return template
 
 
 def make_template_item(template, created_by, tenant_id='default', **kwargs):

@@ -52,7 +52,6 @@ import ContractAgreementIndex from './pages/contractAgreement';
 import CoopTaskIndex from './pages/coopTask';
 import RegulationIndex from './pages/regulation';
 import EquipmentSystemIndex from './pages/equipmentLifecycle';
-import EquipmentSystemTypeIndex from './pages/equipmentLifecycle/systemType';
 import EquipmentFaultIndex from './pages/equipmentLifecycle/FaultIndex';
 import EquipmentWorkOrderIndex from './pages/equipmentLifecycle/workOrder';
 import EquipmentConfigFieldsIndex from './pages/equipmentLifecycle/ConfigFieldsIndex';
@@ -86,10 +85,9 @@ export default [
     {title: '事项列表', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},
     {title: '统计概览', auth: 'runlog.runlog.view', path: '/runlog/statistics', component: RunLogStatistics},
   ]},
-  {icon: <ApartmentOutlined/>, title: '设备全生命周期', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_type.view|equipment_lifecycle.system_config.view|equipment_lifecycle.fault.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection_point.view|equipment_lifecycle.work_order.view|equipment_lifecycle.system_event.view', child: [
-    {title: '系统管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_type.view|equipment_lifecycle.system_config.view', child: [
+  {icon: <ApartmentOutlined/>, title: '设备全生命周期管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_config.view|equipment_lifecycle.fault.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection_point.view|equipment_lifecycle.work_order.view|equipment_lifecycle.system_event.view', child: [
+    {title: '系统档案', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_config.view', child: [
       {title: '系统列表', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_config.view', path: '/el/systems', component: EquipmentSystemIndex},
-      {title: '系统类型', auth: 'equipment_lifecycle.system_type.view', path: '/el/system-types', component: EquipmentSystemTypeIndex},
       {title: '配置字段', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_config.view', path: '/el/config-fields', component: EquipmentConfigFieldsIndex},
     ]},
     {title: '运行维护', auth: 'equipment_lifecycle.fault.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection_point.view|equipment_lifecycle.work_order.view', child: [

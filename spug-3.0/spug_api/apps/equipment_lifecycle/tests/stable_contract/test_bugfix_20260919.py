@@ -26,7 +26,6 @@ from apps.equipment_lifecycle.tests.base import (
     ALL_SYSTEM_PERMS,
     make_client,
     make_system,
-    make_type,
     make_user,
 )
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
@@ -56,8 +55,7 @@ class LedgerPaginationContractTests(TestCase):
 
     def setUp(self):
         self.user = make_ledger_user('page_op')
-        self.system_type = make_type(self.user)
-        self.system = make_system(self.user, system_type=self.system_type)
+        self.system = make_system(self.user)
         self.client = make_client(self.user)
 
     def _create_ledger(self, items, token):
@@ -125,11 +123,10 @@ class SystemHealthStatusFilterContractTests(TestCase):
 
     def setUp(self):
         self.user = make_user('filter_op', perms=ALL_SYSTEM_PERMS)
-        self.system_type = make_type(self.user)
         self.client = make_client(self.user)
-        self.normal_system = make_system(self.user, system_type=self.system_type)
+        self.normal_system = make_system(self.user)
         self.fault_system = make_system(
-            self.user, system_type=self.system_type,
+            self.user,
             system_code='SYS-FLT', name='故障系统', health_status='fault')
 
     def test_plain_string_filter(self):
@@ -166,8 +163,7 @@ class LedgerMultiChoiceContractTests(TestCase):
 
     def setUp(self):
         self.user = make_ledger_user('mc_op')
-        self.system_type = make_type(self.user)
-        self.system = make_system(self.user, system_type=self.system_type)
+        self.system = make_system(self.user)
         self.client = make_client(self.user)
 
     def test_create_with_json_string_value(self):
@@ -231,8 +227,7 @@ class LedgerVersionParamContractTests(TestCase):
 
     def setUp(self):
         self.user = make_ledger_user('ver_op')
-        self.system_type = make_type(self.user)
-        self.system = make_system(self.user, system_type=self.system_type)
+        self.system = make_system(self.user)
         self.client = make_client(self.user)
         payload = ledger_payload(
             [entry_payload(self.system.id, [item_payload()])], client_token='tok-ver')

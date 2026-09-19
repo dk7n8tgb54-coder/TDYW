@@ -5,7 +5,7 @@
  */
 /**
  * 设备全生命周期——系统详情抽屉。
- * 基本信息统一展示固定字段 + 系统类型模板字段值 + 系统自定义字段值；
+ * 基本信息统一展示固定字段 + 系统自定义字段值；
  * 配置字段页签仅管理字段定义（不录入值）。
  * 步骤 3.1 新增"故障记录"页签（主体故障 + 受影响故障）；
  * 步骤 3.3 新增"工单"页签（目标工单 + 受影响工单）；
@@ -58,14 +58,12 @@ class SystemDetail extends React.Component {
   renderBasic() {
     const d = store.detail;
     const configFields = d.config_fields || [];
-    const templateFields = configFields.filter(f => f.scope_type === 'template');
     const customFields = configFields.filter(f => f.scope_type === 'custom');
     return (
       <div>
         <Descriptions bordered size="small" column={2}>
           <Descriptions.Item label="系统编号">{d.system_code}</Descriptions.Item>
           <Descriptions.Item label="系统名称">{d.name}</Descriptions.Item>
-          <Descriptions.Item label="系统类型">{d.system_type_name}</Descriptions.Item>
           <Descriptions.Item label="系统型号">{d.system_model}</Descriptions.Item>
           <Descriptions.Item label="安装地点">{d.install_location}</Descriptions.Item>
           <Descriptions.Item label="安装经纬度">{d.geo_coordinate || '-'}</Descriptions.Item>
@@ -86,7 +84,6 @@ class SystemDetail extends React.Component {
           <Descriptions.Item label="创建人">{d.created_by_name}</Descriptions.Item>
           <Descriptions.Item label="创建时间">{d.created_at}</Descriptions.Item>
         </Descriptions>
-        {this.renderConfigGroup(templateFields, '类型扩展字段')}
         {this.renderConfigGroup(customFields, '系统自定义字段')}
       </div>
     );

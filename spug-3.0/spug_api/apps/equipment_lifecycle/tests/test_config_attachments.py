@@ -17,7 +17,7 @@ from apps.evidence.models import EvidenceAttachment
 
 from apps.equipment_lifecycle.tests.base import (
     ALL_CONFIG_PERMS,
-    make_client, make_field, make_system, make_type, make_user,
+    make_client, make_field, make_system, make_user,
 )
 
 
@@ -35,10 +35,9 @@ class ConfigAttachmentTest(TestCase):
     def setUp(self):
         self.admin = make_user('att_admin', ALL_CONFIG_PERMS, tenant_id='t1')
         self.client = make_client(self.admin)
-        self.system_type = make_type(self.admin, tenant_id='t1', name='通信系统')
-        self.system = make_system(self.admin, system_type=self.system_type, tenant_id='t1')
+        self.system = make_system(self.admin, tenant_id='t1')
         self.attachment_field = make_field(
-            self.system_type, self.admin, tenant_id='t1', field_code='topology_files',
+            self.system, self.admin, tenant_id='t1', field_code='topology_files',
             display_name='拓扑附件', field_type='attachment')
 
     def _upload(self, system_id=None, name='topo.png'):

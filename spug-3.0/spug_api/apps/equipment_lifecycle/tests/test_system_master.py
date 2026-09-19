@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""系统主数据（步骤二）稳定契约测试。
+"""系统主数据稳定契约测试。
 
 覆盖任务九要求：系统编号租户内唯一、跨租户隔离、无父子层级、
 停用/启用语义、删除保护基础能力、权限独立校验、审计留痕。
@@ -13,35 +13,31 @@ from apps.equipment_lifecycle.models import (
     SystemConfigChange,
     SystemConfigComponent,
     SystemConfigSnapshot,
-    SystemConfigValue,
-    SystemType,
 )
 from apps.logs.models import AuditLog
 
 from apps.equipment_lifecycle.tests.base import (
-    ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS, ALL_TYPE_PERMS,
+    ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS,
     P_SYS_ADD, P_SYS_DEACT, P_SYS_DEL, P_SYS_EDIT, P_SYS_VIEW,
-    make_client, make_field, make_system, make_type, make_user, system_payload,
+    make_client, make_system, make_user, system_payload,
 )
 
 
 class SystemMasterTest(TestCase):
     def setUp(self):
-        self.admin = make_user('el_admin', ALL_SYSTEM_PERMS + ALL_TYPE_PERMS + ALL_CONFIG_PERMS,
+        self.admin = make_user('el_admin', ALL_SYSTEM_PERMS + ALL_CONFIG_PERMS,
                                tenant_id='tenant_a')
         self.other_admin = make_user('el_admin_b', ALL_SYSTEM_PERMS, tenant_id='tenant_b')
         self.noview_user = make_user('el_noview', [], tenant_id='tenant_a')
         self.client = make_client(self.admin)
-        self.system_type = make_type(self.admin, tenant_id='tenant_a', name='通信系统')
 
     def test_create_system_success(self):
-        payload = system_payload(system_type=self.system_type.id)
+        payload = system_payload()
         resp = self.client.post('/equipment-lifecycle/systems/', payload,
                                 content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         data = resp.json()['data']
         self.assertEqual(data['system_code'], 'SYS-NEW-01')
-        self.assertEqual(data['system_type_name'], '通信系统')
         self.assertTrue(LifecycleSystem.objects.filter(
             tenant_id='tenant_a', system_code='SYS-NEW-01').exists())
         # 创建记录配置变更历史
@@ -54,20 +50,16 @@ class SystemMasterTest(TestCase):
             target_id=str(system.id)).exists())
 
     def test_system_code_unique_within_tenant(self):
-        make_system(self.admin, system_type=self.system_type, tenant_id='tenant_a',
-                    system_code='DUP-01')
-        payload = system_payload(system_type=self.system_type.id, system_code='DUP-01')
+        make_system(self.admin, tenant_id='tenant_a', system_code='DUP-01')
+        payload = system_payload(system_code='DUP-01')
         resp = self.client.post('/equipment-lifecycle/systems/', payload,
                                 content_type='application/json')
         self.assertIn('已存在', resp.json()['error'])
         self.assertEqual(LifecycleSystem.objects.filter(tenant_id='tenant_a').count(), 1)
 
     def test_same_code_across_tenants_isolated(self):
-        make_system(self.admin, system_type=self.system_type, tenant_id='tenant_a',
-                    system_code='SHARE-01')
-        type_b = make_type(self.other_admin, tenant_id='tenant_b', name='通信系统B')
-        make_system(self.other_admin, system_type=type_b, tenant_id='tenant_b',
-                    system_code='SHARE-01')
+        make_system(self.admin, tenant_id='tenant_a', system_code='SHARE-01')
+        make_system(self.other_admin, tenant_id='tenant_b', system_code='SHARE-01')
         self.assertEqual(LifecycleSystem.objects.filter(system_code='SHARE-01').count(), 2)
         # 租户A用户只能看到本租户记录
         resp = self.client.get('/equipment-lifecycle/systems/')
@@ -93,8 +85,8 @@ class SystemMasterTest(TestCase):
         self.assertNotIn('device', component_fields)
 
     def test_system_code_immutable_on_edit(self):
-        system = make_system(self.admin, system_type=self.system_type, tenant_id='tenant_a')
-        payload = system_payload(system_type=self.system_type.id, system_code='CHANGED-01')
+        system = make_system(self.admin, tenant_id='tenant_a')
+        payload = system_payload(system_code='CHANGED-01')
         resp = self.client.put(f'/equipment-lifecycle/systems/{system.id}/', payload,
                                content_type='application/json')
         self.assertIn('不可修改', resp.json()['error'])
@@ -102,8 +94,8 @@ class SystemMasterTest(TestCase):
         self.assertEqual(system.system_code, 'SYS-001')
 
     def test_edit_records_before_after_history(self):
-        system = make_system(self.admin, system_type=self.system_type, tenant_id='tenant_a')
-        payload = system_payload(system_type=self.system_type.id, system_code=system.system_code,
+        system = make_system(self.admin, tenant_id='tenant_a')
+        payload = system_payload(system_code=system.system_code,
                                  name='改名字的系统', install_location='新机房Z')
         resp = self.client.put(f'/equipment-lifecycle/systems/{system.id}/', payload,
                                content_type='application/json')
@@ -120,7 +112,7 @@ class SystemMasterTest(TestCase):
                 self.assertEqual(c['new'], '改名字的系统')
 
     def test_deactivate_and_activate(self):
-        system = make_system(self.admin, system_type=self.system_type, tenant_id='tenant_a')
+        system = make_system(self.admin, tenant_id='tenant_a')
         resp = self.client.post(f'/equipment-lifecycle/systems/{system.id}/active/',
                                 {'is_active': False}, content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -142,12 +134,12 @@ class SystemMasterTest(TestCase):
         self.assertEqual(change.action, 'activate')
 
     def test_delete_removes_archive_and_audits(self):
-        """未被引用的系统可物理删除，配置档案随主体清理并记录审计。"""
-        system = make_system(self.admin, system_type=self.system_type, tenant_id='tenant_a')
-        field = make_field(self.system_type, self.admin, tenant_id='tenant_a')
-        SystemConfigValue.objects.create(
-            tenant_id='tenant_a', system=system, field=field,
-            value_text='438.000MHz', updated_by=self.admin)
+        """未被引用的系统可物理删除，配置档案随主体清理并记录审计。
+
+        自定义字段定义对系统为 PROTECT 外键（存在字段定义的系统无法物理删除），
+        本用例的档案清理覆盖组成项与快照。
+        """
+        system = make_system(self.admin, tenant_id='tenant_a')
         SystemConfigComponent.objects.create(
             tenant_id='tenant_a', system=system, name='接入交换机',
             model_version='S5735', quantity=4, created_by=self.admin)
@@ -157,7 +149,6 @@ class SystemMasterTest(TestCase):
         resp = self.client.delete(f'/equipment-lifecycle/systems/{system.id}/')
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertFalse(LifecycleSystem.objects.filter(pk=system.id).exists())
-        self.assertFalse(SystemConfigValue.objects.filter(system_id=system.id).exists())
         self.assertFalse(SystemConfigComponent.objects.filter(system_id=system.id).exists())
         self.assertFalse(SystemConfigSnapshot.objects.filter(system_id=system.id).exists())
         self.assertTrue(AuditLog.objects.filter(
@@ -166,7 +157,7 @@ class SystemMasterTest(TestCase):
     def test_delete_protection_helper_blocks_when_referenced(self):
         """删除保护基础能力：引用检查非空时禁止物理删除（步骤三接入真实引用）。"""
         from apps.equipment_lifecycle.views import _collect_system_references
-        system = make_system(self.admin, system_type=self.system_type, tenant_id='tenant_a')
+        system = make_system(self.admin, tenant_id='tenant_a')
         # 步骤二当前无外部引用，返回空列表（fail-closed 扩展点）
         self.assertEqual(_collect_system_references(system), [])
         resp = self.client.delete(f'/equipment-lifecycle/systems/{system.id}/')
@@ -175,8 +166,8 @@ class SystemMasterTest(TestCase):
     def test_permission_denied_without_perm(self):
         """权限不足时后端独立拒绝，不依赖前端按钮隐藏。"""
         client = make_client(self.noview_user)
-        system = make_system(self.admin, system_type=self.system_type, tenant_id='tenant_a')
-        payload = system_payload(system_type=self.system_type.id)
+        system = make_system(self.admin, tenant_id='tenant_a')
+        payload = system_payload()
         cases = [
             ('get', '/equipment-lifecycle/systems/', None),
             ('post', '/equipment-lifecycle/systems/', payload),
@@ -196,54 +187,30 @@ class SystemMasterTest(TestCase):
         - 新建系统健康状态初始化为 normal（无任何有效影响时的计算结果）；
         - 编辑系统不会改变健康状态。
         """
-        payload = system_payload(system_type=self.system_type.id, health_status='fault',
-                                 system_code='HS-01')
+        payload = system_payload(health_status='fault', system_code='HS-01')
         resp = self.client.post('/equipment-lifecycle/systems/', payload,
                                 content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(resp.json()['data']['health_status'], 'normal')
 
         system_id = resp.json()['data']['id']
-        edit_payload = system_payload(system_type=self.system_type.id,
-                                      health_status='interrupted', system_code='HS-01')
+        edit_payload = system_payload(health_status='interrupted', system_code='HS-01')
         resp = self.client.put(f'/equipment-lifecycle/systems/{system_id}/', edit_payload,
                                content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(resp.json()['data']['health_status'], 'normal')
 
     def test_geo_coordinate_validation(self):
-        payload = system_payload(system_type=self.system_type.id, geo_coordinate='200,37')
+        payload = system_payload(geo_coordinate='200,37')
         resp = self.client.post('/equipment-lifecycle/systems/', payload,
                                 content_type='application/json')
         self.assertIn('经纬度', resp.json()['error'])
 
-    def test_system_types_management(self):
-        resp = self.client.get('/equipment-lifecycle/system-types/')
-        self.assertFalse(resp.json().get('error'))
-        # 新建
-        resp = self.client.post('/equipment-lifecycle/system-types/',
-                                {'name': '软件系统', 'description': '应用软件'},
-                                content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
-        type_id = resp.json()['data']['id']
-        # 租户内同名被拒
-        resp = self.client.post('/equipment-lifecycle/system-types/',
-                                {'name': '软件系统'}, content_type='application/json')
-        self.assertIn('同名', resp.json()['error'])
-        # 有系统引用的类型不能删除
-        make_system(self.admin, system_type=self.system_type, tenant_id='tenant_a')
-        resp = self.client.delete(f'/equipment-lifecycle/system-types/{self.system_type.id}/')
-        self.assertIn('不能删除', resp.json()['error'])
-        # 空类型可删除
-        resp = self.client.delete(f'/equipment-lifecycle/system-types/{type_id}/')
-        self.assertFalse(resp.json().get('error'))
-        self.assertFalse(SystemType.objects.filter(pk=type_id).exists())
-
     def test_list_filters(self):
-        make_system(self.admin, system_type=self.system_type, tenant_id='tenant_a',
+        make_system(self.admin, tenant_id='tenant_a',
                     system_code='F-01', name='过滤测试甲', health_status='fault',
                     use_unit='运行九科')
-        make_system(self.admin, system_type=self.system_type, tenant_id='tenant_a',
+        make_system(self.admin, tenant_id='tenant_a',
                     system_code='F-02', name='过滤测试乙', is_active=False)
         resp = self.client.get('/equipment-lifecycle/systems/?keyword=F-01')
         self.assertEqual(resp.json()['data']['total'], 1)
@@ -256,10 +223,12 @@ class SystemMasterTest(TestCase):
         self.assertEqual(resp.json()['data']['total'], 1)
 
     def test_export_csv(self):
-        make_system(self.admin, system_type=self.system_type, tenant_id='tenant_a')
+        make_system(self.admin, tenant_id='tenant_a')
         resp = self.client.get('/equipment-lifecycle/systems/export/')
         self.assertEqual(resp.status_code, 200)
         self.assertIn('text/csv', resp['Content-Type'])
         self.assertIn('系统编号'.encode('utf-8'), resp.content)
+        # 系统类型机制已移除：导出不再有"系统类型"列
+        self.assertNotIn('系统类型'.encode('utf-8'), resp.content)
         self.assertTrue(AuditLog.objects.filter(
             tenant_id='tenant_a', action='export', target_type='el_system').exists())

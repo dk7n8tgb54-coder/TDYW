@@ -4,9 +4,9 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——配置字段页面（系统管理）。
+ * 设备全生命周期——配置字段页面（系统档案）。
  * 独立入口的"字段定义"管理：选择系统后复用系统详情的配置字段页签能力
- * （模板字段只读展示、自定义字段定义管理）；
+ * （自定义字段定义管理）；
  * 字段值不在此填写——统一在新增/编辑系统页面录入（步骤二聚合提交）。
  */
 import React, { useState } from 'react';
@@ -55,8 +55,8 @@ function ConfigFieldsIndex() {
     <AuthDiv auth={`${PERM.SYS_VIEW}|${PERM.CFG_VIEW}`}>
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>设备全生命周期</Breadcrumb.Item>
-        <Breadcrumb.Item>系统管理</Breadcrumb.Item>
+        <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
+        <Breadcrumb.Item>系统档案</Breadcrumb.Item>
         <Breadcrumb.Item>配置字段</Breadcrumb.Item>
       </Breadcrumb>
       <div style={{marginBottom: 12}}>

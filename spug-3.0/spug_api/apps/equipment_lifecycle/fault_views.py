@@ -873,14 +873,13 @@ class FaultCandidateSystemsView(View):
     @auth('equipment_lifecycle.fault.view')
     def get(self, request):
         systems = apply_tenant_filter(
-            LifecycleSystem.objects.select_related('system_type'), request.user
+            LifecycleSystem.objects.all(), request.user
         ).filter(is_active=True).order_by('system_code')
         return json_response({'data': [{
             'id': s.id,
             'system_code': s.system_code,
             'name': s.name,
             'install_location': s.install_location,
-            'system_type_name': s.system_type.name,
         } for s in systems]})
 
 

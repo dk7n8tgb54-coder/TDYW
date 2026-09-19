@@ -12,7 +12,7 @@ from apps.equipment_lifecycle.models import (
     OperationLedgerCorrection,
     OperationLedgerItem,
 )
-from apps.equipment_lifecycle.tests.base import make_client, make_system, make_type
+from apps.equipment_lifecycle.tests.base import make_client, make_system
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
     LEDGER_URL,
     create_ledger_ok,
@@ -28,8 +28,7 @@ from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
 class LedgerWorkflowContractTests(TestCase):
     def setUp(self):
         self.user = make_ledger_user('flow_op')
-        self.system_type = make_type(self.user)
-        self.system = make_system(self.user, system_type=self.system_type)
+        self.system = make_system(self.user)
         self.client_ = make_client(self.user)
         self.ledger = create_ledger_ok(self.client_, ledger_payload(
             [entry_payload(self.system.id, [item_payload()])],

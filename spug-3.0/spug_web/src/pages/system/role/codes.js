@@ -110,15 +110,6 @@ export default [{
       {key: 'export', label: '导出系统列表'},
     ]
   }, {
-    key: 'system_type',
-    label: '系统类型模板',
-    perms: [
-      {key: 'view', label: '查看系统类型与模板'},
-      {key: 'add', label: '新增类型/模板字段'},
-      {key: 'edit', label: '编辑类型/模板字段'},
-      {key: 'del', label: '删除类型/模板字段'},
-    ]
-  }, {
     key: 'system_config',
     label: '系统配置档案',
     perms: [

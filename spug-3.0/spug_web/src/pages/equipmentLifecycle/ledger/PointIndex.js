@@ -59,7 +59,7 @@ class PointIndex extends React.Component {
       <AuthDiv auth={PERM_L.POINT_VIEW}>
         <Breadcrumb>
           <Breadcrumb.Item>首页</Breadcrumb.Item>
-          <Breadcrumb.Item>设备全生命周期</Breadcrumb.Item>
+          <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
           <Breadcrumb.Item>运行维护</Breadcrumb.Item>
           <Breadcrumb.Item>巡检点管理</Breadcrumb.Item>
         </Breadcrumb>

@@ -9,6 +9,7 @@
  * - 支持故障生成工单/台账转工单的预填场景（initialValues 覆盖）。
  */
 import React, { useEffect } from 'react';
+import { observer } from 'mobx-react';
 import { Form, Modal, Input, Select, DatePicker } from 'antd';
 import store from './store';
 import { WORK_TYPE_OPTIONS, PRIORITY_OPTIONS } from './constants';
@@ -18,7 +19,7 @@ const {Option} = Select;
 
 const formLayout = {labelCol: {span: 6}, wrapperCol: {span: 16}};
 
-export default function WorkOrderForm({visible, onClose, isEdit = false, initialValues = null, onSubmit = null, title = null, extraReason = false}) {
+function WorkOrderForm({visible, onClose, isEdit = false, initialValues = null, onSubmit = null, title = null, extraReason = false}) {
   const [form] = Form.useForm();
   const submitting = onSubmit ? store.isSubmitting : store.isSubmitting;
 
@@ -174,3 +175,6 @@ export default function WorkOrderForm({visible, onClose, isEdit = false, initial
     </Modal>
   );
 }
+
+// observer：表单内直接读取 store.systems / store.isSubmitting，候选项异步返回后需触发重渲染
+export default observer(WorkOrderForm);

@@ -16,7 +16,7 @@ from apps.upgrade.models import UpgradeRecord
 from apps.equipment_lifecycle.models import LifecycleSystem
 
 from apps.equipment_lifecycle.tests.base import (
-    make_client, make_system, make_type, make_user,
+    make_client, make_system, make_user,
 )
 
 
@@ -77,8 +77,7 @@ class ModuleIsolationTest(TestCase):
 
     def test_new_data_only_in_equipment_lifecycle_tables(self):
         admin = make_user('iso_admin', tenant_id='iso_t', is_supper=True)
-        system_type = make_type(admin, tenant_id='iso_t')
-        system = make_system(admin, system_type=system_type, tenant_id='iso_t')
+        system = make_system(admin, tenant_id='iso_t')
         with connection.cursor() as c:
             c.execute("SELECT COUNT(*) FROM tdyw_el_systems WHERE id=%s", [system.id])
             self.assertEqual(c.fetchone()[0], 1)

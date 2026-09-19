@@ -5,15 +5,14 @@
 
 权限域（前后端一致，后端独立校验）：
 - equipment_lifecycle.system.view|add|edit|del|deactivate|export
-- equipment_lifecycle.system_type.view|add|edit|del
 - equipment_lifecycle.system_config.view|edit|field|snapshot|export
 
 系统新增（POST /systems/）与编辑（PUT /systems/<pk>/）支持结构化聚合提交：
-{"system": {...}, "template_values": [...], "custom_fields": [...], "components": [...]}
+{"system": {...}, "custom_fields": [...], "components": [...]}
 （编辑为 config_values / custom_fields / components）。固定字段、字段定义、
 字段值与组成项在同一事务内写入，任一步失败整体回滚；旧平铺载荷仍兼容。
 内联自定义字段的 client_key 仅用于关联本次请求的定义与值，正式字段编码
-由后端生成。配置字段定义集中维护接口（类型字段/自定义字段/提升）保留。
+由后端生成。配置字段定义集中维护接口（自定义字段）保留。
 
 所有写操作记录业务审计（record_audit_event）与配置变更历史；
 所有查询经租户过滤（apply_tenant_filter / TenantModelManager.for_user）。
@@ -48,12 +47,10 @@ from apps.equipment_lifecycle.models import (
     SystemConfigComponent,
     SystemConfigSnapshot,
     SystemConfigValue,
-    SystemType,
 )
 from apps.equipment_lifecycle import services
 
 AUDIT_TARGET_SYSTEM = 'el_system'
-AUDIT_TARGET_TYPE = 'el_system_type'
 AUDIT_TARGET_CONFIG = 'el_system_config'
 
 # 配置档案附件归属标识（动态字段 attachment 类型的物理存储归属）
@@ -64,13 +61,13 @@ FIELD_CODE_PATTERN = re.compile(r'^[a-z][a-z0-9_]{0,49}$')
 
 # 固定核心字段：动态字段不得与其重名（编码与显示名称双向占用）
 RESERVED_FIELD_CODES = {
-    'system_code', 'name', 'system_type', 'system_model', 'install_location',
+    'system_code', 'name', 'system_model', 'install_location',
     'geo_coordinate', 'system_purpose', 'manufacturer', 'install_unit',
     'use_unit', 'install_time', 'enable_time', 'responsible_user_name',
     'health_status', 'is_active', 'remark', 'id', 'created_at', 'updated_at',
 }
 RESERVED_FIELD_LABELS = {
-    '系统编号', '系统名称', '系统类型', '系统型号', '安装地点', '安装经纬度',
+    '系统编号', '系统名称', '系统型号', '安装地点', '安装经纬度',
     '系统用途', '生产厂家', '安装单位', '使用单位', '安装时间', '启用时间',
     '系统负责人', '运行健康状态', '是否可用', '备注',
 }
@@ -99,14 +96,9 @@ def _read_json_body(request):
 
 def _parse_system_fields(data, for_update=False):
     """解析系统固定字段（data 为已解析的 dict）。"""
-    if isinstance(data, dict) and 'system_type' not in data and data.get('system_type_id') is not None:
-        # 兼容结构化请求中 system_type_id 键名
-        data = dict(data)
-        data['system_type'] = data['system_type_id']
     parser = JsonParser(
         Argument('system_code', type=str, required=not for_update, help='系统编号'),
         Argument('name', type=str, required=True, help='系统名称'),
-        Argument('system_type', type=int, required=not for_update, help='系统类型'),
         Argument('system_model', type=str, required=True, help='系统型号'),
         Argument('install_location', type=str, required=True, help='安装地点'),
         Argument('geo_coordinate', type=str, required=False, default=''),
@@ -171,41 +163,36 @@ def _apply_fixed_fields(item, form, install_time, enable_time, user):
 
 
 def _validate_system_fixed_payload(request, form, for_update=False, item=None):
-    """校验系统固定字段公共部分，返回 (system_type, system_code, install_time, enable_time, error)。
+    """校验系统固定字段公共部分，返回 (system_code, install_time, enable_time, error)。
 
-    - 新增：system_type 必须存在且启用；system_code 租户内唯一；
-    - 编辑：system_code 不可修改；system_type 以现有值为准（不可改）。
+    - 新增：system_code 租户内唯一；
+    - 编辑：system_code 不可修改。
     """
     system_code = (form.system_code or '').strip()
     if not for_update:
         if not system_code:
-            return None, None, None, None, '系统编号不能为空'
+            return None, None, None, '系统编号不能为空'
         if apply_tenant_filter(LifecycleSystem.objects.all(), request.user).filter(
                 system_code=system_code).exists():
-            return None, None, None, None, '系统编号已存在'
-        system_type = apply_tenant_filter(SystemType.objects.all(), request.user).filter(
-            pk=form.system_type, is_active=True).first()
-        if not system_type:
-            return None, None, None, None, '系统类型不存在或已停用'
+            return None, None, None, '系统编号已存在'
     else:
         if system_code and system_code != item.system_code:
-            return None, None, None, None, '系统编号创建后不可修改'
+            return None, None, None, '系统编号创建后不可修改'
         system_code = item.system_code
-        system_type = item.system_type
     err = SystemView._check_geo(form.geo_coordinate)
     if err:
-        return None, None, None, None, err
+        return None, None, None, err
     install_time = _parse_datetime(form.install_time)
     enable_time = _parse_datetime(form.enable_time)
     if not install_time or not enable_time:
-        return None, None, None, None, '安装时间/启用时间格式不正确，应为 YYYY-MM-DD HH:MM'
-    return system_type, system_code, install_time, enable_time, None
+        return None, None, None, '安装时间/启用时间格式不正确，应为 YYYY-MM-DD HH:MM'
+    return system_code, install_time, enable_time, None
 
 
-def _generate_field_code(display_name, tenant_id, system_type_id=None, custom_system_id=None):
+def _generate_field_code(display_name, tenant_id, custom_system_id=None):
     """按显示名称生成稳定字段编码：ASCII 可读优先，中文等回退 custom_field_N。
 
-    编码在类型模板字段与系统自定义字段两个作用范围内均不重复。
+    编码在系统自定义字段作用范围内不重复。
     """
     slug = re.sub(r'[^a-z0-9]+', '_', str(display_name).strip().lower()).strip('_')
     if slug and slug[0].isdigit():
@@ -213,12 +200,9 @@ def _generate_field_code(display_name, tenant_id, system_type_id=None, custom_sy
     if not slug or slug in RESERVED_FIELD_CODES:
         slug = 'custom_field'
     slug = slug[:50]
-    existing = set(ConfigFieldDefinition.objects.filter(
-        tenant_id=tenant_id, scope_type=ConfigFieldDefinition.SCOPE_TEMPLATE,
-        scope_owner_id=str(system_type_id),
-    ).values_list('field_code', flat=True)) if system_type_id else set()
+    existing = set()
     if custom_system_id:
-        existing |= set(ConfigFieldDefinition.objects.filter(
+        existing = set(ConfigFieldDefinition.objects.filter(
             tenant_id=tenant_id, scope_type=ConfigFieldDefinition.SCOPE_CUSTOM,
             scope_owner_id=str(custom_system_id),
         ).values_list('field_code', flat=True))
@@ -309,13 +293,7 @@ def _parse_datetime(value):
 
 
 def _get_system_for_user(pk, user):
-    return apply_tenant_filter(
-        LifecycleSystem.objects.all().select_related('system_type'), user
-    ).filter(pk=pk).first()
-
-
-def _get_type_for_user(pk, user):
-    return apply_tenant_filter(SystemType.objects.all(), user).filter(pk=pk).first()
+    return apply_tenant_filter(LifecycleSystem.objects.all(), user).filter(pk=pk).first()
 
 
 def _get_field_for_user(pk, user):
@@ -494,7 +472,7 @@ def _validate_field_definition_payload(form, scope_type, owner_obj):
     if default and form.field_type == ConfigFieldDefinition.TYPE_BOOLEAN and default not in ('true', 'false'):
         return '布尔默认值必须为 true 或 false'
 
-    # 重名校验：同一作用范围内字段编码与显示名称均不得重复（不得与固定字段或模板字段重名）
+    # 重名校验：同一作用范围内字段编码与显示名称均不得重复（不得与固定字段重名）
     dup_query = ConfigFieldDefinition.objects.filter(
         tenant_id=owner_obj.tenant_id,
         scope_type=scope_type,
@@ -504,15 +482,56 @@ def _validate_field_definition_payload(form, scope_type, owner_obj):
         dup_query = dup_query.exclude(pk=form.pk)
     if dup_query.exists():
         return '字段编码或显示名称与现有字段重复'
-    # 自定义字段还不得与所属系统类型的模板字段重名
-    if scope_type == ConfigFieldDefinition.SCOPE_CUSTOM and getattr(owner_obj, 'system_type_id', None):
-        template_dup = ConfigFieldDefinition.objects.filter(
-            tenant_id=owner_obj.tenant_id,
-            scope_type=ConfigFieldDefinition.SCOPE_TEMPLATE,
-            scope_owner_id=str(owner_obj.system_type_id),
-        ).filter(Q(field_code=code) | Q(display_name=label)).exists()
-        if template_dup:
-            return '字段编码或显示名称与该类型的模板字段重复'
+    return None
+
+
+def _parse_field_definition(request, code_required=True):
+    """字段定义新增/编辑公共参数解析（自定义字段定义与内联字段共用）。"""
+    return JsonParser(
+        Argument('field_code', type=str, required=code_required,
+                 default='' if not code_required else None, help='字段编码'),
+        Argument('display_name', type=str, required=True, help='显示名称'),
+        Argument('field_type', type=str, required=True, help='字段类型'),
+        Argument('help_text', type=str, required=False, default=''),
+        Argument('display_order', type=int, required=False, default=0),
+        Argument('is_required', type=bool, required=False, default=False),
+        Argument('default_value', type=str, required=False, default=''),
+        Argument('choices', type=str, required=False, default=''),
+        Argument('detail_columns', type=str, required=False, default=''),
+        Argument('number_min', type=float, required=False),
+        Argument('number_max', type=float, required=False),
+        Argument('text_regex', type=str, required=False, default=''),
+        Argument('is_searchable', type=bool, required=False, default=False),
+        Argument('is_filterable', type=bool, required=False, default=False),
+        Argument('is_exportable', type=bool, required=False, default=False),
+        Argument('visible_roles', type=str, required=False, default=''),
+        Argument('editable_roles', type=str, required=False, default=''),
+        Argument('is_sensitive', type=bool, required=False, default=False),
+        Argument('applies_to', type=str, required=False, default=ConfigFieldDefinition.APPLIES_ALL),
+        Argument('is_active', type=bool, required=False, default=True),
+    ).parse(request.body)
+
+
+def _check_existing_field_values(field, form):
+    """字段类型或候选项变更时必须校验已有值，禁止静默破坏数据。"""
+    existing = SystemConfigValue.objects.filter(field=field)
+    if not existing.exists():
+        return None
+    if form.field_type != field.field_type:
+        return '该字段已有历史值，不能变更字段类型；请先确认历史值处理方案'
+    if form.field_type in (ConfigFieldDefinition.TYPE_CHOICE, ConfigFieldDefinition.TYPE_MULTI_CHOICE):
+        options = set(str(x) for x in (json.loads(form.choices) if form.choices else []))
+        for record in existing:
+            if field.field_type == ConfigFieldDefinition.TYPE_MULTI_CHOICE:
+                try:
+                    items = json.loads(record.value_text) if record.value_text else []
+                except (ValueError, TypeError):
+                    items = []
+            else:
+                items = [record.value_text] if record.value_text else []
+            for item in items:
+                if str(item) not in options:
+                    return f'已有值「{item}」不在新候选项内，请先处理历史值'
     return None
 
 
@@ -537,288 +556,11 @@ def _parse_health_status_filter(raw):
     return [part.strip() for part in text.split(',') if part.strip()]
 
 
-class SystemTypeView(View):
-    @auth('equipment_lifecycle.system_type.view')
-    def get(self, request):
-        types = apply_tenant_filter(SystemType.objects.all(), request.user)
-        if request.GET.get('active_only'):
-            types = types.filter(is_active=True)
-        data = []
-        for item in types:
-            row = item.to_view()
-            row['systems_count'] = item.systems.count()
-            row['template_fields_count'] = item.template_fields.filter(is_active=True).count()
-            data.append(row)
-        return json_response({'data': data})
-
-    @auth('equipment_lifecycle.system_type.add')
-    def post(self, request):
-        form, error = JsonParser(
-            Argument('name', type=str, required=True, help='系统类型名称'),
-            Argument('description', type=str, required=False, default=''),
-            Argument('display_order', type=int, required=False, default=0),
-            Argument('is_active', type=bool, required=False, default=True),
-        ).parse(request.body)
-        if error:
-            return json_response(error=error)
-        name = form.name.strip()
-        if not name:
-            return json_response(error='系统类型名称不能为空')
-        dup = apply_tenant_filter(SystemType.objects.all(), request.user).filter(name=name).exists()
-        if dup:
-            return json_response(error='已存在同名系统类型')
-        with transaction.atomic():
-            item = SystemType.objects.create(
-                tenant_id=request.user.tenant_id,
-                name=name,
-                description=(form.description or '').strip()[:500],
-                display_order=form.display_order,
-                is_active=form.is_active,
-                created_by=request.user,
-            )
-            record_audit_event(request, 'create', AUDIT_TARGET_TYPE, item.id, item.name,
-                               after_value={'name': item.name, 'is_active': item.is_active})
-        return json_response(item.to_view())
-
-
-class SystemTypeDetailView(View):
-    @auth('equipment_lifecycle.system_type.edit')
-    def put(self, request, pk):
-        item = _get_type_for_user(pk, request.user)
-        if not item:
-            return json_response(error='系统类型不存在')
-        form, error = JsonParser(
-            Argument('name', type=str, required=True, help='系统类型名称'),
-            Argument('description', type=str, required=False, default=''),
-            Argument('display_order', type=int, required=False, default=0),
-            Argument('is_active', type=bool, required=False, default=True),
-        ).parse(request.body)
-        if error:
-            return json_response(error=error)
-        name = form.name.strip()
-        if not name:
-            return json_response(error='系统类型名称不能为空')
-        dup = apply_tenant_filter(SystemType.objects.all(), request.user).filter(name=name).exclude(pk=item.pk).exists()
-        if dup:
-            return json_response(error='已存在同名系统类型')
-        before = {'name': item.name, 'description': item.description,
-                  'display_order': item.display_order, 'is_active': item.is_active}
-        item.name = name
-        item.description = (form.description or '').strip()[:500]
-        item.display_order = form.display_order
-        item.is_active = form.is_active
-        item.updated_at = timezone.now()
-        item.updated_by = request.user
-        with transaction.atomic():
-            item.save(update_fields=['name', 'description', 'display_order', 'is_active',
-                                     'updated_at', 'updated_by'])
-            record_audit_event(request, 'update', AUDIT_TARGET_TYPE, item.id, item.name,
-                               before_value=before,
-                               after_value={'name': item.name, 'description': item.description,
-                                            'display_order': item.display_order, 'is_active': item.is_active})
-        return json_response(item.to_view())
-
-    @auth('equipment_lifecycle.system_type.del')
-    def delete(self, request, pk):
-        item = _get_type_for_user(pk, request.user)
-        if not item:
-            return json_response(error='系统类型不存在')
-        if item.systems.exists():
-            return json_response(error='该类型下已存在系统，不能删除')
-        if item.template_fields.exists():
-            return json_response(error='该类型下存在字段模板，请先删除或停用全部模板字段')
-        if item.ledger_templates.exists():
-            return json_response(error='该类型下已存在台账模板，不能删除')
-        with transaction.atomic():
-            item.delete()
-            record_audit_event(request, 'delete', AUDIT_TARGET_TYPE, item.id, item.name,
-                               before_value={'name': item.name})
-        return json_response({})
-
-
-class TypeFieldView(View):
-    @auth('equipment_lifecycle.system_type.view')
-    def get(self, request, pk):
-        item = _get_type_for_user(pk, request.user)
-        if not item:
-            return json_response(error='系统类型不存在')
-        fields = item.template_fields.all()
-        return json_response({'data': [_serialize_field(f) for f in fields]})
-
-    @auth('equipment_lifecycle.system_type.add')
-    def post(self, request, pk):
-        item = _get_type_for_user(pk, request.user)
-        if not item:
-            return json_response(error='系统类型不存在')
-        form, error = self._parse(request)
-        if error:
-            return json_response(error=error)
-        err = _validate_field_definition_payload(form, ConfigFieldDefinition.SCOPE_TEMPLATE, item)
-        if err:
-            return json_response(error=err)
-        with transaction.atomic():
-            field = ConfigFieldDefinition.objects.create(
-                tenant_id=request.user.tenant_id,
-                scope_type=ConfigFieldDefinition.SCOPE_TEMPLATE,
-                scope_owner_id=str(item.id),
-                system_type=item,
-                field_code=(form.field_code or '').strip(),
-                display_name=(form.display_name or '').strip(),
-                field_type=form.field_type,
-                help_text=(form.help_text or '').strip()[:200],
-                display_order=form.display_order,
-                is_required=form.is_required,
-                default_value=(form.default_value or '').strip(),
-                choices=(form.choices or '').strip(),
-                detail_columns=(form.detail_columns or '').strip(),
-                number_min=form.number_min,
-                number_max=form.number_max,
-                text_regex=(form.text_regex or '').strip()[:200],
-                is_searchable=form.is_searchable,
-                is_filterable=form.is_filterable,
-                is_exportable=form.is_exportable,
-                visible_roles=(form.visible_roles or '').strip(),
-                editable_roles=(form.editable_roles or '').strip(),
-                is_sensitive=form.is_sensitive,
-                applies_to=form.applies_to,
-                is_active=True,
-                created_by=request.user,
-            )
-            record_audit_event(request, 'create', AUDIT_TARGET_TYPE, item.id, item.name,
-                               after_value={'action': 'add_template_field',
-                                            'field_code': field.field_code,
-                                            'display_name': field.display_name,
-                                            'field_type': field.field_type})
-        return json_response(_serialize_field(field))
-
-    @staticmethod
-    def _parse(request, code_required=True):
-        return JsonParser(
-            Argument('field_code', type=str, required=code_required,
-                     default='' if not code_required else None, help='字段编码'),
-            Argument('display_name', type=str, required=True, help='显示名称'),
-            Argument('field_type', type=str, required=True, help='字段类型'),
-            Argument('help_text', type=str, required=False, default=''),
-            Argument('display_order', type=int, required=False, default=0),
-            Argument('is_required', type=bool, required=False, default=False),
-            Argument('default_value', type=str, required=False, default=''),
-            Argument('choices', type=str, required=False, default=''),
-            Argument('detail_columns', type=str, required=False, default=''),
-            Argument('number_min', type=float, required=False),
-            Argument('number_max', type=float, required=False),
-            Argument('text_regex', type=str, required=False, default=''),
-            Argument('is_searchable', type=bool, required=False, default=False),
-            Argument('is_filterable', type=bool, required=False, default=False),
-            Argument('is_exportable', type=bool, required=False, default=False),
-            Argument('visible_roles', type=str, required=False, default=''),
-            Argument('editable_roles', type=str, required=False, default=''),
-            Argument('is_sensitive', type=bool, required=False, default=False),
-            Argument('applies_to', type=str, required=False, default=ConfigFieldDefinition.APPLIES_ALL),
-            Argument('is_active', type=bool, required=False, default=True),
-        ).parse(request.body)
-
-
-class TypeFieldDetailView(View):
-    @auth('equipment_lifecycle.system_type.edit')
-    def put(self, request, pk, fid):
-        item = _get_type_for_user(pk, request.user)
-        if not item:
-            return json_response(error='系统类型不存在')
-        field = _get_field_for_user(fid, request.user)
-        if not field or field.scope_type != ConfigFieldDefinition.SCOPE_TEMPLATE \
-                or field.scope_owner_id != str(item.id):
-            return json_response(error='模板字段不存在')
-        form, error = TypeFieldView._parse(request)
-        if error:
-            return json_response(error=error)
-        form.pk = field.pk
-        err = _validate_field_definition_payload(form, ConfigFieldDefinition.SCOPE_TEMPLATE, item)
-        if err:
-            return json_response(error=err)
-        err = self._check_existing_values(field, form)
-        if err:
-            return json_response(error=err)
-        before = {'field_code': field.field_code, 'display_name': field.display_name,
-                  'is_required': field.is_required, 'is_active': field.is_active}
-        field.display_name = (form.display_name or '').strip()
-        field.help_text = (form.help_text or '').strip()[:200]
-        field.display_order = form.display_order
-        field.is_required = form.is_required
-        field.default_value = (form.default_value or '').strip()
-        field.choices = (form.choices or '').strip()
-        field.detail_columns = (form.detail_columns or '').strip()
-        field.number_min = form.number_min
-        field.number_max = form.number_max
-        field.text_regex = (form.text_regex or '').strip()[:200]
-        field.is_searchable = form.is_searchable
-        field.is_filterable = form.is_filterable
-        field.is_exportable = form.is_exportable
-        field.visible_roles = (form.visible_roles or '').strip()
-        field.editable_roles = (form.editable_roles or '').strip()
-        field.is_sensitive = form.is_sensitive
-        field.applies_to = form.applies_to
-        field.is_active = form.is_active
-        field.updated_at = timezone.now()
-        field.updated_by = request.user
-        with transaction.atomic():
-            field.save()
-            record_audit_event(request, 'update', AUDIT_TARGET_TYPE, item.id, item.name,
-                               before_value=before,
-                               after_value={'action': 'edit_template_field',
-                                            'field_code': field.field_code,
-                                            'display_name': field.display_name,
-                                            'is_active': field.is_active})
-        return json_response(_serialize_field(field))
-
-    @staticmethod
-    def _check_existing_values(field, form):
-        """字段类型或候选项变更时必须校验已有值，禁止静默破坏数据。"""
-        existing = SystemConfigValue.objects.filter(field=field)
-        if not existing.exists():
-            return None
-        if form.field_type != field.field_type:
-            return '该字段已有历史值，不能变更字段类型；请先确认历史值处理方案'
-        if form.field_type in (ConfigFieldDefinition.TYPE_CHOICE, ConfigFieldDefinition.TYPE_MULTI_CHOICE):
-            options = set(str(x) for x in (json.loads(form.choices) if form.choices else []))
-            for record in existing:
-                if field.field_type == ConfigFieldDefinition.TYPE_MULTI_CHOICE:
-                    try:
-                        items = json.loads(record.value_text) if record.value_text else []
-                    except (ValueError, TypeError):
-                        items = []
-                else:
-                    items = [record.value_text] if record.value_text else []
-                for item in items:
-                    if str(item) not in options:
-                        return f'已有值「{item}」不在新候选项内，请先处理历史值'
-        return None
-
-    @auth('equipment_lifecycle.system_type.del')
-    def delete(self, request, pk, fid):
-        item = _get_type_for_user(pk, request.user)
-        if not item:
-            return json_response(error='系统类型不存在')
-        field = _get_field_for_user(fid, request.user)
-        if not field or field.scope_type != ConfigFieldDefinition.SCOPE_TEMPLATE \
-                or field.scope_owner_id != str(item.id):
-            return json_response(error='模板字段不存在')
-        if SystemConfigValue.objects.filter(field=field).exists():
-            return json_response(error='该字段已有历史值，不能删除；请停用以保留历史值')
-        with transaction.atomic():
-            field.delete()
-            record_audit_event(request, 'delete', AUDIT_TARGET_TYPE, item.id, item.name,
-                               before_value={'action': 'delete_template_field',
-                                             'field_code': field.field_code,
-                                             'display_name': field.display_name})
-        return json_response({})
-
-
 class SystemView(View):
     @auth('equipment_lifecycle.system.view')
     def get(self, request):
         form, error = JsonParser(
             Argument('keyword', type=str, required=False),
-            Argument('system_type', type=int, required=False),
             # 前端单选以标量字符串提交，声明为 list 会使 JsonParser 对普通
             # 字符串执行 json.loads 而报错（见 _parse_health_status_filter）
             Argument('health_status', type=str, required=False),
@@ -829,13 +571,10 @@ class SystemView(View):
         if error:
             return json_response(error=error)
 
-        query = apply_tenant_filter(
-            LifecycleSystem.objects.all().select_related('system_type'), request.user)
+        query = apply_tenant_filter(LifecycleSystem.objects.all(), request.user)
         if form.keyword:
             query = query.filter(
                 Q(system_code__icontains=form.keyword) | Q(name__icontains=form.keyword))
-        if form.system_type:
-            query = query.filter(system_type_id=form.system_type)
         if form.health_status:
             statuses = _parse_health_status_filter(form.health_status)
             if statuses is None:
@@ -864,7 +603,7 @@ class SystemView(View):
 
     @staticmethod
     def _apply_dynamic_filters(request, query):
-        """动态字段筛选：cf_<field_id>=value，仅支持启用且可筛选的类型模板字段。"""
+        """动态字段筛选：cf_<field_id>=value，仅支持启用且可筛选的自定义字段。"""
         for key, value in request.GET.items():
             if not key.startswith('cf_') or value in ('', None):
                 continue
@@ -874,7 +613,7 @@ class SystemView(View):
                 continue
             field = apply_tenant_filter(ConfigFieldDefinition.objects.all(), request.user).filter(
                 pk=field_id,
-                scope_type=ConfigFieldDefinition.SCOPE_TEMPLATE,
+                scope_type=ConfigFieldDefinition.SCOPE_CUSTOM,
                 is_filterable=True,
                 is_active=True,
             ).first()
@@ -914,7 +653,7 @@ class SystemView(View):
 
     def _create_flat(self, request, form):
         """旧平铺载荷：仅创建系统固定字段。"""
-        system_type, system_code, install_time, enable_time, error = _validate_system_fixed_payload(
+        system_code, install_time, enable_time, error = _validate_system_fixed_payload(
             request, form)
         if error:
             return json_response(error=error)
@@ -924,7 +663,6 @@ class SystemView(View):
                 tenant_id=request.user.tenant_id,
                 system_code=system_code,
                 name=form.name.strip(),
-                system_type=system_type,
                 system_model=form.system_model.strip(),
                 install_location=form.install_location.strip(),
                 geo_coordinate=(form.geo_coordinate or '').strip(),
@@ -943,12 +681,11 @@ class SystemView(View):
             services.record_config_change(item, SystemConfigChange.SOURCE_SYSTEM,
                                           SystemConfigChange.ACTION_CREATE, [], request.user)
             record_audit_event(request, 'create', AUDIT_TARGET_SYSTEM, item.id, item.name,
-                               after_value={'system_code': item.system_code, 'name': item.name,
-                                            'system_type': system_type.name})
+                               after_value={'system_code': item.system_code, 'name': item.name})
         return json_response(item.to_view())
 
     def _create_aggregate(self, request, body):
-        """结构化聚合创建：系统固定字段 + 模板字段值 + 内联自定义字段 + 组成项一次提交。
+        """结构化聚合创建：系统固定字段 + 内联自定义字段 + 组成项一次提交。
 
         所有校验在写入前完成；写操作在单事务内执行，任何一步失败整体回滚，
         不会留下只有系统、没有字段值，或只有字段定义、没有系统的半成品数据。
@@ -956,71 +693,23 @@ class SystemView(View):
         form, error = _parse_system_fields(body.get('system'))
         if error:
             return json_response(error=error)
-        system_type, system_code, install_time, enable_time, error = _validate_system_fixed_payload(
+        system_code, install_time, enable_time, error = _validate_system_fixed_payload(
             request, form)
         if error:
             return json_response(error=error)
 
-        template_values_payload = body.get('template_values')
         custom_fields_payload = body.get('custom_fields')
         components_payload = body.get('components')
-        if template_values_payload is not None and not isinstance(template_values_payload, list):
-            return json_response(error='template_values 必须为数组')
         if custom_fields_payload is not None and not isinstance(custom_fields_payload, list):
             return json_response(error='custom_fields 必须为数组')
         if components_payload is not None and not isinstance(components_payload, list):
             return json_response(error='components 必须为数组')
-        template_values_payload = template_values_payload or []
         custom_fields_payload = custom_fields_payload or []
         components_payload = components_payload or []
 
         if custom_fields_payload and not request.user.has_perms(
                 ['equipment_lifecycle.system_config.field']):
             return json_response(error='无自定义字段管理权限，不能在新增系统时创建字段定义')
-
-        # ---- 校验模板字段值（含默认值与必填） ----
-        template_fields = list(ConfigFieldDefinition.objects.filter(
-            tenant_id=request.user.tenant_id,
-            scope_type=ConfigFieldDefinition.SCOPE_TEMPLATE,
-            scope_owner_id=str(system_type.id),
-            is_active=True,
-        ))
-        template_field_map = {f.id: f for f in template_fields}
-        submitted_map = {}
-        for entry in template_values_payload:
-            if not isinstance(entry, dict):
-                return json_response(error='template_values 条目格式不正确')
-            try:
-                field_id = int(entry.get('field_id'))
-            except (TypeError, ValueError):
-                return json_response(error='template_values 中 field_id 不合法')
-            if field_id not in template_field_map:
-                return json_response(error='模板字段不存在、已停用或不属于所选系统类型')
-            if field_id in submitted_map:
-                return json_response(error='模板字段值重复提交')
-            submitted_map[field_id] = entry.get('value')
-
-        submission = {}
-        for field in template_fields:
-            if field.id in submitted_map:
-                submission[field.id] = submitted_map[field.id]
-            elif field.default_value:
-                submission[field.id] = field.default_value
-            elif field.is_required:
-                return json_response(error=f'模板字段「{field.display_name}」为必填项')
-            if field.field_type == ConfigFieldDefinition.TYPE_ATTACHMENT \
-                    and submission.get(field.id):
-                return json_response(
-                    error=f'模板字段「{field.display_name}」为附件类型，请待系统创建后在编辑页面上传附件')
-        cleaned_template, errors = services.validate_field_value_map(
-            template_fields, submission, request.user)
-        if errors:
-            return json_response(error='；'.join(errors))
-        for field in template_fields:
-            if field.is_required:
-                entry = cleaned_template.get(field.id)
-                if entry is None or entry[1] == '':
-                    return json_response(error=f'模板字段「{field.display_name}」为必填项')
 
         # ---- 校验内联自定义字段定义与值（field_code 由后端生成） ----
         custom_specs = []
@@ -1042,10 +731,10 @@ class SystemView(View):
                 return json_response(error=f'自定义字段名称重复：{name}')
             seen_names.add(name)
             form_obj.field_code = _generate_field_code(name, request.user.tenant_id,
-                                                       system_type_id=system_type.id)
-            # 伪归属对象：id=0 时自定义作用域查询必为空，模板作用域重名校验仍生效
+                                                       custom_system_id=0)
+            # 伪归属对象：id=0 时自定义作用域查询必为空（新建系统尚无已有字段）
             pseudo_owner = SimpleNamespace(
-                tenant_id=request.user.tenant_id, id=0, system_type_id=system_type.id)
+                tenant_id=request.user.tenant_id, id=0)
             error = _validate_field_definition_payload(
                 form_obj, ConfigFieldDefinition.SCOPE_CUSTOM, pseudo_owner)
             if error:
@@ -1093,7 +782,6 @@ class SystemView(View):
                     tenant_id=request.user.tenant_id,
                     system_code=system_code,
                     name=form.name.strip(),
-                    system_type=system_type,
                     system_model=form.system_model.strip(),
                     install_location=form.install_location.strip(),
                     geo_coordinate=(form.geo_coordinate or '').strip(),
@@ -1119,7 +807,6 @@ class SystemView(View):
                         scope_type=ConfigFieldDefinition.SCOPE_CUSTOM,
                         scope_owner_id=str(item.id),
                         system=item,
-                        system_type=None,
                         field_code=spec['field_code'],
                         display_name=spec['display_name'],
                         field_type=spec['field_type'],
@@ -1157,22 +844,6 @@ class SystemView(View):
                             'scope': ConfigFieldDefinition.SCOPE_CUSTOM,
                             'code': field.field_code, 'label': field.display_name,
                             'old': '', 'new': spec['display']})
-                for field_id, (storage, display) in cleaned_template.items():
-                    if display == '':
-                        continue
-                    field = template_field_map[field_id]
-                    SystemConfigValue.objects.create(
-                        tenant_id=item.tenant_id, system=item, field=field,
-                        value_text=storage.get('value_text', ''),
-                        value_number=storage.get('value_number'),
-                        value_date=storage.get('value_date'),
-                        value_bool=storage.get('value_bool'),
-                        updated_by=request.user,
-                    )
-                    value_changes.append({
-                        'scope': ConfigFieldDefinition.SCOPE_TEMPLATE,
-                        'code': field.field_code, 'label': field.display_name,
-                        'old': '', 'new': display})
                 if value_changes:
                     services.record_config_change(
                         item, SystemConfigChange.SOURCE_CONFIG, SystemConfigChange.ACTION_CREATE,
@@ -1190,8 +861,6 @@ class SystemView(View):
                           'old': '', 'new': '；'.join(component_briefs)}], request.user)
                 record_audit_event(request, 'create', AUDIT_TARGET_SYSTEM, item.id, item.name,
                                    after_value={'system_code': item.system_code, 'name': item.name,
-                                                'system_type': system_type.name,
-                                                'template_values': len(value_changes),
                                                 'custom_fields': field_codes,
                                                 'components': len(component_briefs)})
         except IntegrityError:
@@ -1223,7 +892,7 @@ class SystemDetailView(View):
         data = item.to_view()
         data['created_by_name'] = item.created_by.username if item.created_by_id else ''
         data['config_components_count'] = item.components.count()
-        # 基本信息统一展示：固定字段 + 类型模板字段值 + 系统自定义字段值（含停用字段历史值）
+        # 基本信息统一展示：固定字段 + 系统自定义字段值（含停用字段历史值）
         fields = [f for f in services.collect_applicable_fields(item, include_inactive=True)
                   if _field_visible(f, request.user)]
         value_map = {v.field_id: v for v in SystemConfigValue.objects.filter(system=item)}
@@ -1287,7 +956,7 @@ class SystemDetailView(View):
 
     def _update_flat(self, request, item, form):
         """旧平铺载荷：仅更新系统固定字段。"""
-        _, _, install_time, enable_time, error = _validate_system_fixed_payload(
+        _, install_time, enable_time, error = _validate_system_fixed_payload(
             request, form, for_update=True, item=item)
         if error:
             return json_response(error=error)
@@ -1313,7 +982,7 @@ class SystemDetailView(View):
         form, error = _parse_system_fields(body.get('system'), for_update=True)
         if error:
             return json_response(error=error)
-        _, _, install_time, enable_time, error = _validate_system_fixed_payload(
+        _, install_time, enable_time, error = _validate_system_fixed_payload(
             request, form, for_update=True, item=item)
         if error:
             return json_response(error=error)
@@ -1359,8 +1028,7 @@ class SystemDetailView(View):
                     return json_response(error=f'自定义字段名称重复：{name}')
                 seen_names.add(name)
                 form_obj.field_code = _generate_field_code(
-                    name, item.tenant_id, system_type_id=item.system_type_id,
-                    custom_system_id=item.id)
+                    name, item.tenant_id, custom_system_id=item.id)
                 error = _validate_field_definition_payload(
                     form_obj, ConfigFieldDefinition.SCOPE_CUSTOM, item)
                 if error:
@@ -1481,7 +1149,6 @@ class SystemDetailView(View):
                         scope_type=ConfigFieldDefinition.SCOPE_CUSTOM,
                         scope_owner_id=str(item.id),
                         system=item,
-                        system_type=None,
                         field_code=spec['field_code'],
                         display_name=spec['display_name'],
                         field_type=spec['field_type'],
@@ -1632,15 +1299,14 @@ class SystemActiveView(View):
 class SystemExportView(View):
     @auth('equipment_lifecycle.system.export')
     def get(self, request):
-        query = apply_tenant_filter(
-            LifecycleSystem.objects.all().select_related('system_type'), request.user)
-        headers = ['系统编号', '系统名称', '系统类型', '系统型号', '安装地点', '安装经纬度',
+        query = apply_tenant_filter(LifecycleSystem.objects.all(), request.user)
+        headers = ['系统编号', '系统名称', '系统型号', '安装地点', '安装经纬度',
                    '系统用途', '生产厂家', '安装单位', '使用单位', '安装时间', '启用时间',
                    '系统负责人', '运行健康状态', '是否可用', '备注', '创建时间']
         rows = []
         for item in query:
             rows.append([
-                item.system_code, item.name, item.system_type.name, item.system_model,
+                item.system_code, item.name, item.system_model,
                 item.install_location, item.geo_coordinate, item.system_purpose,
                 item.manufacturer, item.install_unit, item.use_unit,
                 item.install_time.strftime('%Y-%m-%d %H:%M') if item.install_time else '',
@@ -1677,56 +1343,45 @@ class SystemStatusSummaryView(View):
 
 
 class SystemFormFieldsView(View):
-    """新增/编辑系统表单的动态字段与组成项加载。
+    """编辑系统表单的动态字段与组成项加载。
 
-    - ?system_type=<id>：新增模式，返回该类型启用中的模板字段（无值）；
-    - ?system=<id>：编辑模式，返回适用字段（模板+自定义，含停用字段历史值）、
-      当前值与已有配置组成项，供一次提交聚合编辑。
+    ?system=<id>：返回适用字段（自定义字段，含停用字段历史值）、
+    当前值与已有配置组成项，供一次提交聚合编辑。
     """
 
     @auth('equipment_lifecycle.system.view')
     def get(self, request):
         system_param = request.GET.get('system')
-        type_param = request.GET.get('system_type')
         values = {}
         components = []
         system_info = None
-        if system_param:
-            try:
-                system_id = int(system_param)
-            except (TypeError, ValueError):
-                return json_response(error='system 参数不合法')
-            item = _get_system_for_user(system_id, request.user)
-            if not item:
-                return json_response(error='系统不存在')
-            fields = [f for f in services.collect_applicable_fields(item, include_inactive=True)
-                      if _field_visible(f, request.user)]
-            value_map = {v.field_id: v for v in SystemConfigValue.objects.filter(system=item)}
-            sensitive_names = []
-            for field in fields:
-                record = value_map.get(field.id)
-                display = services.value_to_display(field, record)
-                values[str(field.id)] = {
-                    'value': services.value_to_payload(field, record),
-                    'display': display,
-                }
-                if field.is_sensitive and field.is_active and display:
-                    sensitive_names.append(field.display_name)
-            if sensitive_names:
-                record_audit_event(request, 'other', AUDIT_TARGET_CONFIG, item.id, item.name,
-                                   detail={'sensitive_view': sensitive_names})
-            components = [c.to_view() for c in item.components.all()]
-            system_info = {'id': item.id, 'system_code': item.system_code, 'name': item.name,
-                           'system_type': item.system_type_id,
-                           'system_type_name': item.system_type.name}
-        elif type_param:
-            type_item = _get_type_for_user(type_param, request.user)
-            if not type_item:
-                return json_response(error='系统类型不存在')
-            fields = [f for f in type_item.template_fields.filter(is_active=True)
-                      if _field_visible(f, request.user)]
-        else:
-            return json_response(error='缺少 system 或 system_type 参数')
+        if not system_param:
+            return json_response(error='缺少 system 参数')
+        try:
+            system_id = int(system_param)
+        except (TypeError, ValueError):
+            return json_response(error='system 参数不合法')
+        item = _get_system_for_user(system_id, request.user)
+        if not item:
+            return json_response(error='系统不存在')
+        fields = [f for f in services.collect_applicable_fields(item, include_inactive=True)
+                  if _field_visible(f, request.user)]
+        value_map = {v.field_id: v for v in SystemConfigValue.objects.filter(system=item)}
+        sensitive_names = []
+        for field in fields:
+            record = value_map.get(field.id)
+            display = services.value_to_display(field, record)
+            values[str(field.id)] = {
+                'value': services.value_to_payload(field, record),
+                'display': display,
+            }
+            if field.is_sensitive and field.is_active and display:
+                sensitive_names.append(field.display_name)
+        if sensitive_names:
+            record_audit_event(request, 'other', AUDIT_TARGET_CONFIG, item.id, item.name,
+                               detail={'sensitive_view': sensitive_names})
+        components = [c.to_view() for c in item.components.all()]
+        system_info = {'id': item.id, 'system_code': item.system_code, 'name': item.name}
         return json_response({
             'data': [_serialize_field(f) for f in fields],
             'values': values,
@@ -1764,7 +1419,6 @@ class SystemConfigView(View):
                                detail={'sensitive_view': sensitive_codes})
         return json_response({
             'system': {'id': item.id, 'system_code': item.system_code, 'name': item.name,
-                       'system_type': item.system_type_id, 'system_type_name': item.system_type.name,
                        'system_created_at': item.created_at},
             'fields': [_serialize_field(f) for f in visible_fields],
             'values': values,
@@ -1857,7 +1511,7 @@ class SystemConfigExportView(View):
             record = value_map.get(field.id)
             rows.append([
                 field.field_code, field.display_name,
-                '类型模板' if field.scope_type == ConfigFieldDefinition.SCOPE_TEMPLATE else '系统自定义',
+                '系统自定义',
                 field.FIELD_TYPE_TEXT_MAP.get(field.field_type, field.field_type),
                 services.value_to_display(field, record),
             ])
@@ -2009,14 +1663,13 @@ class CustomFieldView(View):
         item = _get_system_for_user(pk, request.user)
         if not item:
             return json_response(error='系统不存在')
-        form, error = TypeFieldView._parse(request, code_required=False)
+        form, error = _parse_field_definition(request, code_required=False)
         if error:
             return json_response(error=error)
         if not (form.field_code or '').strip():
             # 字段编码留空时由后端按显示名称生成稳定编码
             form.field_code = _generate_field_code(
-                form.display_name, request.user.tenant_id,
-                system_type_id=item.system_type_id, custom_system_id=item.id)
+                form.display_name, request.user.tenant_id, custom_system_id=item.id)
         err = _validate_field_definition_payload(form, ConfigFieldDefinition.SCOPE_CUSTOM, item)
         if err:
             return json_response(error=err)
@@ -2070,14 +1723,14 @@ class CustomFieldDetailView(View):
         if not field or field.scope_type != ConfigFieldDefinition.SCOPE_CUSTOM \
                 or field.scope_owner_id != str(item.id):
             return json_response(error='自定义字段不存在')
-        form, error = TypeFieldView._parse(request)
+        form, error = _parse_field_definition(request)
         if error:
             return json_response(error=error)
         form.pk = field.pk
         err = _validate_field_definition_payload(form, ConfigFieldDefinition.SCOPE_CUSTOM, item)
         if err:
             return json_response(error=err)
-        err = TypeFieldDetailView._check_existing_values(field, form)
+        err = _check_existing_field_values(field, form)
         if err:
             return json_response(error=err)
         before_active = field.is_active
@@ -2142,69 +1795,6 @@ class CustomFieldDetailView(View):
                                before_value={'action': 'delete_custom_field',
                                              'field_code': field.field_code})
         return json_response({})
-
-
-class CustomFieldPromoteView(View):
-    """把具体系统自定义字段提升为系统类型模板字段，历史值跟随迁移。"""
-
-    @auth('equipment_lifecycle.system_config.field')
-    def post(self, request, pk, fid):
-        item = _get_system_for_user(pk, request.user)
-        if not item:
-            return json_response(error='系统不存在')
-        field = _get_field_for_user(fid, request.user)
-        if not field or field.scope_type != ConfigFieldDefinition.SCOPE_CUSTOM \
-                or field.scope_owner_id != str(item.id):
-            return json_response(error='自定义字段不存在')
-        dup = ConfigFieldDefinition.objects.filter(
-            tenant_id=item.tenant_id,
-            scope_type=ConfigFieldDefinition.SCOPE_TEMPLATE,
-            scope_owner_id=str(item.system_type_id),
-        ).filter(Q(field_code=field.field_code) | Q(display_name=field.display_name)).exists()
-        if dup:
-            return json_response(error='该系统类型模板下已存在同编码或同名的字段')
-        with transaction.atomic():
-            promoted = ConfigFieldDefinition.objects.create(
-                tenant_id=item.tenant_id,
-                scope_type=ConfigFieldDefinition.SCOPE_TEMPLATE,
-                scope_owner_id=str(item.system_type_id),
-                system_type=item.system_type,
-                field_code=field.field_code,
-                display_name=field.display_name,
-                field_type=field.field_type,
-                help_text=field.help_text,
-                display_order=field.display_order,
-                is_required=field.is_required,
-                default_value=field.default_value,
-                choices=field.choices,
-                detail_columns=field.detail_columns,
-                number_min=field.number_min,
-                number_max=field.number_max,
-                text_regex=field.text_regex,
-                is_searchable=field.is_searchable,
-                is_filterable=field.is_filterable,
-                is_exportable=field.is_exportable,
-                visible_roles=field.visible_roles,
-                editable_roles=field.editable_roles,
-                is_sensitive=field.is_sensitive,
-                applies_to=ConfigFieldDefinition.APPLIES_ALL,
-                is_active=True,
-                created_by=request.user,
-            )
-            moved = SystemConfigValue.objects.filter(field=field).update(field=promoted)
-            field.delete()
-            services.record_config_change(
-                item, SystemConfigChange.SOURCE_FIELD_DEF, SystemConfigChange.ACTION_PROMOTE,
-                [{'scope': ConfigFieldDefinition.SCOPE_CUSTOM, 'code': field.field_code,
-                  'label': field.display_name,
-                  'old': '系统自定义字段',
-                  'new': f'已提升为类型「{item.system_type.name}」模板字段'}],
-                request.user)
-            record_audit_event(request, 'update', AUDIT_TARGET_CONFIG, item.id, item.name,
-                               after_value={'action': 'promote_custom_field',
-                                            'field_code': field.field_code,
-                                            'moved_values': moved})
-        return json_response(_serialize_field(promoted))
 
 
 class SystemChangeView(View):

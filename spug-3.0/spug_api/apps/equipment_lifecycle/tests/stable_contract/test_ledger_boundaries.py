@@ -10,7 +10,7 @@ from apps.equipment_lifecycle.models import (
     OperationLedger,
     OperationLedgerItem,
 )
-from apps.equipment_lifecycle.tests.base import make_client, make_system, make_type
+from apps.equipment_lifecycle.tests.base import make_client, make_system
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
     LEDGER_URL,
     POINT_URL,
@@ -28,8 +28,7 @@ class LedgerIsolationContractTests(TestCase):
     def setUp(self):
         self.admin_a = make_ledger_user('iso_admin_a', tenant_id='tenant-a')
         self.admin_b = make_ledger_user('iso_admin_b', tenant_id='tenant-b')
-        self.type_a = make_type(self.admin_a, tenant_id='tenant-a')
-        self.system_a = make_system(self.admin_a, system_type=self.type_a, tenant_id='tenant-a',
+        self.system_a = make_system(self.admin_a, tenant_id='tenant-a',
                                     system_code='SYS-A1', name='A租户系统')
         self.client_a = make_client(self.admin_a)
         self.client_b = make_client(self.admin_b)
@@ -52,7 +51,7 @@ class LedgerIsolationContractTests(TestCase):
     def test_system_detail_items_scoped_to_current_system(self):
         """30. 系统详情只能读取有权限查看的当前系统明细。"""
         system_b_tenant_a = make_system(
-            self.admin_a, system_type=self.type_a, tenant_id='tenant-a',
+            self.admin_a, tenant_id='tenant-a',
             system_code='SYS-A2', name='A租户第二系统')
         ledger = create_ledger_ok(self.client_a, ledger_payload([
             entry_payload(self.system_a.id, [item_payload(item_name='A系统项')]),
@@ -82,8 +81,7 @@ class LedgerBoundaryContractTests(TestCase):
 
     def setUp(self):
         self.admin = make_ledger_user('boundary_op')
-        self.system_type = make_type(self.admin)
-        self.system = make_system(self.admin, system_type=self.system_type)
+        self.system = make_system(self.admin)
         self.client_ = make_client(self.admin)
 
     def test_abnormal_ledger_does_not_touch_health_status(self):
@@ -112,9 +110,9 @@ class LedgerBoundaryContractTests(TestCase):
                      'FieldTerminal', 'SiteCollection'}
         self.assertEqual(forbidden & model_names, set())
         # 台账模型集合精确可控：仅允许步骤二 + 3.1 + 3.2 + 3.3（工单四表）
-        # + 3.4（统一系统履历）的模型
+        # + 3.4（统一系统履历）的模型（类型主数据模型已随机制移除删除）
         expected = {
-            'SystemType', 'LifecycleSystem', 'ConfigFieldDefinition', 'SystemConfigValue',
+            'LifecycleSystem', 'ConfigFieldDefinition', 'SystemConfigValue',
             'SystemConfigComponent', 'SystemConfigChange', 'SystemConfigSnapshot',
             'SystemFault', 'SystemFaultAffectedSystem', 'SystemFaultHandlingRecord',
             'SystemInspectionPoint', 'OperationLedgerTemplate', 'OperationLedgerTemplateItem',

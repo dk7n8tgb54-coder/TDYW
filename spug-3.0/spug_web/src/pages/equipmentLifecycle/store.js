@@ -20,14 +20,10 @@ class Store {
 
   // ========== 筛选条件 ==========
   @observable f_keyword = undefined;
-  @observable f_system_type = undefined;
   @observable f_health_status = undefined;
   @observable f_is_active = undefined;
   @observable f_use_unit = undefined;
   @observable f_install_location = undefined;
-
-  // ========== 系统类型下拉 ==========
-  @observable types = [];
 
   // ========== 新增/编辑表单 ==========
   @observable formVisible = false;
@@ -64,7 +60,6 @@ class Store {
 
   @action resetFilter = () => {
     this.f_keyword = undefined;
-    this.f_system_type = undefined;
     this.f_health_status = undefined;
     this.f_is_active = undefined;
     this.f_use_unit = undefined;
@@ -76,7 +71,6 @@ class Store {
     this.isFetching = true;
     const params = {page: this.page, page_size: this.pageSize};
     if (this.f_keyword) params.keyword = this.f_keyword;
-    if (this.f_system_type) params.system_type = this.f_system_type;
     if (this.f_health_status) params.health_status = this.f_health_status;
     if (this.f_is_active !== undefined && this.f_is_active !== null) params.is_active = this.f_is_active;
     if (this.f_use_unit) params.use_unit = this.f_use_unit;
@@ -90,14 +84,6 @@ class Store {
       .finally(action(() => {
         this.isFetching = false;
       }));
-  };
-
-  fetchTypes = () => {
-    return http.get(`${API_PREFIX}/system-types/`)
-      .then(action(res => {
-        this.types = res.data;
-      }))
-      .catch(action(() => {}));
   };
 
   showForm = action((record = {}) => {
@@ -247,10 +233,6 @@ class Store {
 
   deleteCustomField = (fieldId) => {
     return http.delete(`${API_PREFIX}/systems/${this.detailId}/custom-fields/${fieldId}/`);
-  };
-
-  promoteCustomField = (fieldId) => {
-    return http.post(`${API_PREFIX}/systems/${this.detailId}/custom-fields/${fieldId}/promote/`);
   };
 
   toggleCustomField = (record) => {

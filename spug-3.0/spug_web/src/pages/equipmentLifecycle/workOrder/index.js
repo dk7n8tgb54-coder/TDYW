@@ -160,7 +160,7 @@ function WorkOrderIndex(props) {
     <AuthDiv auth={WO_PERM.VIEW}>
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>设备全生命周期</Breadcrumb.Item>
+        <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
         <Breadcrumb.Item>运行维护</Breadcrumb.Item>
         <Breadcrumb.Item>工单管理</Breadcrumb.Item>
       </Breadcrumb>
@@ -252,7 +252,13 @@ function WorkOrderIndex(props) {
         </ExportButton>
       </div>
       <WorkOrderTable/>
-      {store.formVisible && <ComForm/>}
+      {store.formVisible && (
+        <ComForm
+          visible={store.formVisible}
+          onClose={() => {store.formVisible = false}}
+          isEdit={!!store.record.id}
+        />
+      )}
       {store.detailVisible && (
         <WorkOrderDetail
           woId={store.detailId}

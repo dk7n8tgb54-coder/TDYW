@@ -27,7 +27,7 @@ from apps.logs.models import AuditLog
 
 from apps.equipment_lifecycle.tests.base import (
     ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS,
-    make_client, make_system, make_type, make_user,
+    make_client, make_system, make_user,
 )
 
 FAULT_URL = '/equipment-lifecycle/faults'
@@ -67,17 +67,14 @@ class FaultTestBase(TestCase):
                                      tenant_id='tenant_b')
         self.noperm_user = make_user('flt_noperm', ALL_SYSTEM_PERMS, tenant_id='tenant_a')
         self.client = make_client(self.admin)
-        self.sys_type = make_type(self.admin, tenant_id='tenant_a', name='通信系统')
-        self.system_a = make_system(self.admin, system_type=self.sys_type, tenant_id='tenant_a',
+        self.system_a = make_system(self.admin, tenant_id='tenant_a',
                                     system_code='SYS-A1', name='烟台通信系统',
                                     install_location='机房A')
-        self.system_a2 = make_system(self.admin, system_type=self.sys_type, tenant_id='tenant_a',
+        self.system_a2 = make_system(self.admin, tenant_id='tenant_a',
                                      system_code='SYS-A2', name='威海监控系统',
                                      install_location='机房B')
-        self.system_b = make_system(self.other_admin,
-                                    make_type(self.other_admin, tenant_id='tenant_b',
-                                              name='通信系统B'),
-                                    tenant_id='tenant_b', system_code='SYS-B1',
+        self.system_b = make_system(self.other_admin, tenant_id='tenant_b',
+                                    system_code='SYS-B1',
                                     name='烟台通信系统', install_location='机房A-B')
 
     def next_occurred_at(self):
@@ -383,7 +380,6 @@ class FaultLifecycleTest(FaultTestBase):
         detail = client.get(f'/equipment-lifecycle/systems/{self.system_a.id}/').json()['data']
         payload = dict(detail)
         payload['name'] = '改名后的通信系统'
-        payload['system_type'] = self.sys_type.id
         resp = client.put(f'/equipment-lifecycle/systems/{self.system_a.id}/', payload,
                           content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)

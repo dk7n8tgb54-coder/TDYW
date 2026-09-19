@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
-"""设备全生命周期（步骤二）测试公共夹具。"""
+"""设备全生命周期测试公共夹具（系统类型机制已移除）。"""
 import time
 
 from apps.account.models import User
 from apps.equipment_lifecycle.models import (
     ConfigFieldDefinition,
     LifecycleSystem,
-    SystemType,
 )
 
 # 权限码（与 views/@auth、前端 routes/codes 一致）
@@ -16,10 +15,6 @@ P_SYS_EDIT = 'equipment_lifecycle.system.edit'
 P_SYS_DEL = 'equipment_lifecycle.system.del'
 P_SYS_DEACT = 'equipment_lifecycle.system.deactivate'
 P_SYS_EXPORT = 'equipment_lifecycle.system.export'
-P_TYPE_VIEW = 'equipment_lifecycle.system_type.view'
-P_TYPE_ADD = 'equipment_lifecycle.system_type.add'
-P_TYPE_EDIT = 'equipment_lifecycle.system_type.edit'
-P_TYPE_DEL = 'equipment_lifecycle.system_type.del'
 P_CFG_VIEW = 'equipment_lifecycle.system_config.view'
 P_CFG_EDIT = 'equipment_lifecycle.system_config.edit'
 P_CFG_FIELD = 'equipment_lifecycle.system_config.field'
@@ -27,7 +22,6 @@ P_CFG_SNAPSHOT = 'equipment_lifecycle.system_config.snapshot'
 P_CFG_EXPORT = 'equipment_lifecycle.system_config.export'
 
 ALL_SYSTEM_PERMS = [P_SYS_VIEW, P_SYS_ADD, P_SYS_EDIT, P_SYS_DEL, P_SYS_DEACT, P_SYS_EXPORT]
-ALL_TYPE_PERMS = [P_TYPE_VIEW, P_TYPE_ADD, P_TYPE_EDIT, P_TYPE_DEL]
 ALL_CONFIG_PERMS = [P_CFG_VIEW, P_CFG_EDIT, P_CFG_FIELD, P_CFG_SNAPSHOT, P_CFG_EXPORT]
 
 URL_PREFIX = '/equipment-lifecycle'
@@ -61,20 +55,10 @@ def make_client(user):
     return client
 
 
-def make_type(created_by, tenant_id='default', name='通信系统', **kwargs):
-    defaults = dict(
-        name=name, description='', display_order=0, is_active=True,
-        tenant_id=tenant_id, created_by=created_by,
-    )
-    defaults.update(kwargs)
-    return SystemType.objects.create(**defaults)
-
-
-def make_system(created_by, system_type=None, tenant_id='default', **kwargs):
+def make_system(created_by, tenant_id='default', **kwargs):
     defaults = dict(
         system_code='SYS-001',
         name='烟台中心站通信系统',
-        system_type=system_type,
         system_model='HX-100',
         install_location='烟台中心站机房A',
         geo_coordinate='',
@@ -92,19 +76,14 @@ def make_system(created_by, system_type=None, tenant_id='default', **kwargs):
         created_by=created_by,
     )
     defaults.update(kwargs)
-    if defaults.get('system_type') is None:
-        defaults['system_type'] = make_type(created_by, tenant_id=tenant_id)
     return LifecycleSystem.objects.create(**defaults)
 
 
-def make_field(owner_obj, created_by, tenant_id='default', scope='template', **kwargs):
-    """创建配置字段定义。owner_obj 为 SystemType（模板）或 LifecycleSystem（自定义）。"""
-    if scope == ConfigFieldDefinition.SCOPE_TEMPLATE:
-        defaults = dict(system_type=owner_obj, system=None)
-    else:
-        defaults = dict(system=owner_obj, system_type=None)
-    defaults.update(dict(
-        scope_type=scope,
+def make_field(owner_obj, created_by, tenant_id='default', **kwargs):
+    """创建系统自定义配置字段定义。owner_obj 为 LifecycleSystem。"""
+    defaults = dict(
+        system=owner_obj,
+        scope_type=ConfigFieldDefinition.SCOPE_CUSTOM,
         scope_owner_id=str(owner_obj.id),
         field_code='frequency',
         display_name='工作频率',
@@ -128,7 +107,7 @@ def make_field(owner_obj, created_by, tenant_id='default', scope='template', **k
         is_active=True,
         tenant_id=tenant_id,
         created_by=created_by,
-    ))
+    )
     defaults.update(kwargs)
     return ConfigFieldDefinition.objects.create(**defaults)
 
@@ -138,7 +117,6 @@ def system_payload(**overrides):
     payload = {
         'system_code': 'SYS-NEW-01',
         'name': '新建测试系统',
-        'system_type': None,  # 由调用方覆盖
         'system_model': 'MODEL-X',
         'install_location': '机房B',
         'geo_coordinate': '121.5,37.5',

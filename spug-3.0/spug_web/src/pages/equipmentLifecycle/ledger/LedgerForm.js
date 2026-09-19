@@ -83,7 +83,6 @@ class LedgerForm extends React.Component {
     loading: false,
     createdFrom: 'template',
     systems: [],
-    systemTypeNames: {},
     templateEntries: [],       // [{system_id, template_id}]
     templateOptions: {},       // system_id -> [template]
     pointsMap: {},             // system_id -> [point]

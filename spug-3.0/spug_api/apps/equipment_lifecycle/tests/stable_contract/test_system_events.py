@@ -28,8 +28,8 @@ from apps.equipment_lifecycle.models import (
     SystemInspectionPoint,
 )
 from apps.equipment_lifecycle.tests.base import (
-    ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS, ALL_TYPE_PERMS,
-    URL_PREFIX, make_client, make_system, make_type, make_user,
+    ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS,
+    URL_PREFIX, make_client, make_system, make_user,
 )
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
     ALL_LEDGER_PERMS, ALL_POINT_PERMS, ALL_TEMPLATE_PERMS,
@@ -111,18 +111,16 @@ class SystemEventTestBase(TestCase):
     """公共夹具：租户 A/B、两套系统。"""
 
     def setUp(self):
-        self.admin = make_user('ev_admin', list(ALL_PERMS) + ALL_TYPE_PERMS, tenant_id='tenant_a')
-        self.other_admin = make_user('ev_admin_b', list(ALL_PERMS) + ALL_TYPE_PERMS, tenant_id='tenant_b')
+        self.admin = make_user('ev_admin', list(ALL_PERMS), tenant_id='tenant_a')
+        self.other_admin = make_user('ev_admin_b', list(ALL_PERMS), tenant_id='tenant_b')
         self.noperm_user = make_user('ev_noperm', ALL_SYSTEM_PERMS, tenant_id='tenant_a')
         self.client = make_client(self.admin)
-        self.sys_type = make_type(self.admin, tenant_id='tenant_a', name='通信系统')
-        self.system_a = make_system(self.admin, system_type=self.sys_type, tenant_id='tenant_a',
+        self.system_a = make_system(self.admin, tenant_id='tenant_a',
                                     system_code='SYS-A1', name='烟台通信系统')
-        self.system_a2 = make_system(self.admin, system_type=self.sys_type, tenant_id='tenant_a',
+        self.system_a2 = make_system(self.admin, tenant_id='tenant_a',
                                      system_code='SYS-A2', name='威海监控系统')
-        self.sys_type_b = make_type(self.other_admin, tenant_id='tenant_b', name='通信系统B')
-        self.system_b = make_system(self.other_admin, system_type=self.sys_type_b,
-                                    tenant_id='tenant_b', system_code='SYS-B1', name='烟台通信系统')
+        self.system_b = make_system(self.other_admin, tenant_id='tenant_b',
+                                    system_code='SYS-B1', name='烟台通信系统')
 
     # ---------- 公共步骤 ----------
 
@@ -401,8 +399,9 @@ class LedgerConvertEventTests(SystemEventTestBase):
     def create_reviewed_ledger_with_abnormal_item(self):
         template = OperationLedgerTemplate.objects.create(
             name='巡检模板-履历', template_code='TPL-EV-001', ledger_type='inspection',
-            maintenance_cycle='', applicable_system_type=self.sys_type,
+            maintenance_cycle='',
             is_active=True, tenant_id='tenant_a', created_by=self.admin)
+        template.applicable_systems.set([self.system_a])
         body = create_ledger_ok(self.client, ledger_payload([
             entry_payload(self.system_a.id, [
                 item_payload(result='abnormal', abnormal_desc='温度越限 65℃'),
@@ -574,25 +573,14 @@ class DeleteProtectionRegressionTests(SystemEventTestBase):
         # 通过真实 API 创建带明细的台账（明细以正式系统 ID 关联）
         template = OperationLedgerTemplate.objects.create(
             name='巡检模板-删除保护', template_code='TPL-EV-003', ledger_type='inspection',
-            maintenance_cycle='', applicable_system_type=self.sys_type,
+            maintenance_cycle='',
             is_active=True, tenant_id='tenant_a', created_by=self.admin)
+        template.applicable_systems.set([self.system_a])
         create_ledger_ok(self.client, ledger_payload([
             entry_payload(self.system_a.id, [item_payload()], template_id=template.id),
         ]))
         resp = self.client.delete(f'{SYSTEM_URL}/{self.system_a.id}/')
         self.assertIn('台账明细', resp.json().get('error', ''))
-
-    def test_system_type_with_ledger_template_cannot_be_deleted(self):
-        """存在台账模板的系统类型删除返回业务错误（此前为 ProtectedError 500）。"""
-        empty_type = make_type(self.admin, tenant_id='tenant_a', name='无系统类型')
-        OperationLedgerTemplate.objects.create(
-            name='模板-阻断', template_code='TPL-EV-002', ledger_type='inspection',
-            maintenance_cycle='', applicable_system_type=empty_type,
-            is_active=True, tenant_id='tenant_a', created_by=self.admin)
-        resp = self.client.delete(f'{URL_PREFIX}/system-types/{empty_type.id}/')
-        self.assertIn('台账模板', resp.json().get('error', ''))
-        self.assertTrue(OperationLedgerTemplate.objects.filter(
-            template_code='TPL-EV-002').exists())
 
 
 class ViewWiringContractTests(SystemEventTestBase):

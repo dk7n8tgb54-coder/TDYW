@@ -3,7 +3,7 @@
 from django.test import TestCase
 
 from apps.equipment_lifecycle.models import OperationLedgerItem, SystemInspectionPoint
-from apps.equipment_lifecycle.tests.base import make_client, make_system, make_type
+from apps.equipment_lifecycle.tests.base import make_client, make_system
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
     POINT_URL,
     create_ledger_ok,
@@ -20,8 +20,7 @@ from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
 class InspectionPointContractTests(TestCase):
     def setUp(self):
         self.user = make_ledger_user('point_op')
-        self.system_type = make_type(self.user)
-        self.system = make_system(self.user, system_type=self.system_type)
+        self.system = make_system(self.user)
 
     def test_point_must_belong_to_system(self):
         """1. 巡检点必须关联系统 ID：缺少 system 或 system 不存在时创建失败。"""

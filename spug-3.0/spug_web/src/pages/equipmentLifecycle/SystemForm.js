@@ -5,7 +5,7 @@
  */
 /**
  * 设备全生命周期——系统新增/编辑弹窗（聚合提交）。
- * 统一包含：固定基础字段 + 所选类型模板字段 + 本次临时新增自定义字段 +
+ * 统一包含：固定基础字段 + 已有自定义字段 + 本次临时新增自定义字段 +
  * 配置组成项；一次填写、一次提交，无需先保存系统再补录字段值。
  * 有 system_config.field 权限的用户可在表单内联新增自定义字段（字段定义
  * 由后端生成稳定编码并随本次提交一并创建）。
@@ -62,7 +62,6 @@ function SystemForm() {
     form.setFieldsValue({
       system_code: record.system_code,
       name: record.name,
-      system_type: record.system_type,
       system_model: record.system_model,
       install_location: record.install_location,
       geo_coordinate: record.geo_coordinate,
@@ -102,55 +101,6 @@ function SystemForm() {
         if (mountedRef.current) setFieldsLoading(false);
       });
   }, []);
-
-  const loadTemplateFields = (typeId) => {
-    if (!typeId) {
-      setDynamicFields([]);
-      return;
-    }
-    setFieldsLoading(true);
-    store.fetchFormFields({system_type: typeId})
-      .then(res => {
-        if (!mountedRef.current) return;
-        const list = res.data || [];
-        setDynamicFields(list);
-        // 切换类型：保留仍适用于新类型的值与临时自定义字段值，其余随确认丢弃
-        const keep = new Set(list.map(f => f.id));
-        setFieldValues(prev => {
-          const next = {};
-          Object.keys(prev).forEach(key => {
-            if (String(key).startsWith('temp_')) {
-              next[key] = prev[key];
-              return;
-            }
-            if (keep.has(Number(key)) && prev[key] !== undefined) next[Number(key)] = prev[key];
-          });
-          return next;
-        });
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (mountedRef.current) setFieldsLoading(false);
-      });
-  };
-
-  const handleTypeChange = (value) => {
-    const templateIds = new Set(
-      dynamicFields.filter(f => f.scope_type === 'template').map(f => f.id));
-    const dirty = Object.keys(fieldValues).some(
-      key => templateIds.has(Number(key)) && !isEmptyValue(fieldValues[key]));
-    if (!dirty) {
-      loadTemplateFields(value);
-      return;
-    }
-    Modal.confirm({
-      title: '切换系统类型',
-      content: '系统类型变化将更换模板字段，已填写的类型字段值将不再显示且不会被保存，确定切换吗？',
-      okText: '确定切换',
-      cancelText: '取消',
-      onOk: () => loadTemplateFields(value),
-    });
-  };
 
   const addTempField = (spec) => {
     tempSeqRef.current += 1;
@@ -246,11 +196,10 @@ function SystemForm() {
       remark: values.remark || '',
     };
     if (isEdit) {
-      // 系统编号创建后不可修改，编辑时原样回传；类型不可改不回传
+      // 系统编号创建后不可修改，编辑时原样回传
       system.system_code = record.system_code;
     } else {
       system.system_code = values.system_code;
-      system.system_type = values.system_type;
     }
     const payload = {system};
 
@@ -265,11 +214,6 @@ function SystemForm() {
         }
       });
       if (Object.keys(configValues).length > 0) payload.config_values = configValues;
-    } else {
-      const templateValues = activeFields
-        .filter(f => f.scope_type === 'template' && !isEmptyValue(fieldValues[f.id]))
-        .map(f => ({field_id: f.id, value: fieldValues[f.id]}));
-      if (templateValues.length > 0) payload.template_values = templateValues;
     }
     if (tempFields.length > 0) {
       payload.custom_fields = tempFields.map(buildCustomFieldSpec);
@@ -348,10 +292,8 @@ function SystemForm() {
   };
 
   const activeDynamic = dynamicFields.filter(f => f.is_active !== false);
-  const templateFields = activeDynamic.filter(f => f.scope_type === 'template');
   const customFields = activeDynamic.filter(f => f.scope_type === 'custom');
   const inactiveFields = dynamicFields.filter(f => f.is_active === false);
-  const activeTypes = store.types.filter(t => t.is_active || t.id === record.system_type);
 
   return (
     <Modal
@@ -386,20 +328,6 @@ function SystemForm() {
               rules={[{required: true, message: '请输入系统名称'}, {max: 100, message: '长度不能超过 100'}]}
             >
               <Input placeholder="请输入系统正式名称"/>
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="system_type" label="系统类型" rules={[{required: !isEdit, message: '请选择系统类型'}]}>
-              <Select
-                placeholder="请选择系统类型"
-                disabled={isEdit}
-                notFoundContent="暂无系统类型，请先在类型管理中创建"
-                onChange={handleTypeChange}
-              >
-                {activeTypes.map(t => (
-                  <Select.Option value={t.id} key={t.id}>{t.name}</Select.Option>
-                ))}
-              </Select>
             </Form.Item>
           </Col>
           <Col span={12}>
@@ -496,11 +424,7 @@ function SystemForm() {
           <TextArea rows={2} placeholder="选填"/>
         </Form.Item>
 
-        {templateFields.length > 0 && (
-          <Divider orientation="left" plain>类型扩展字段</Divider>
-        )}
-        {fieldsLoading && <div style={{color: '#999', marginBottom: 8}}>正在加载模板字段……</div>}
-        {templateFields.map(f => renderDynamicItem(f))}
+        {fieldsLoading && <div style={{color: '#999', marginBottom: 8}}>正在加载字段……</div>}
         {customFields.length > 0 && (
           <Divider orientation="left" plain>系统自定义字段</Divider>
         )}
@@ -520,7 +444,7 @@ function SystemForm() {
         </AuthButton>
         {dynamicFields.length === 0 && !isEdit && (
           <div style={{color: '#999', marginTop: 8}}>
-            选择系统类型后自动加载对应模板字段；如需扩展字段，可点击上方「添加自定义字段」。
+            如需扩展字段，可点击上方「添加自定义字段」。
           </div>
         )}
 

@@ -22,7 +22,7 @@ from apps.equipment_lifecycle.models import (
 )
 
 from apps.equipment_lifecycle.tests.base import (
-    ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS, make_client, make_system, make_type, make_user,
+    ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS, make_client, make_system, make_user,
 )
 from apps.equipment_lifecycle.tests.stable_contract.test_fault_management import (
     ALL_FAULT_PERMS, fault_payload,
@@ -66,14 +66,12 @@ class WorkOrderTestBase(TestCase):
         self.noperm_user = make_user('wo_noperm', ALL_SYSTEM_PERMS, tenant_id='tenant_a')
         self.worker = make_user('wo_worker', ALL_SYSTEM_PERMS + ALL_WO_PERMS, tenant_id='tenant_a')
         self.client = make_client(self.admin)
-        self.sys_type = make_type(self.admin, tenant_id='tenant_a', name='通信系统')
-        self.system_a = make_system(self.admin, system_type=self.sys_type, tenant_id='tenant_a',
+        self.system_a = make_system(self.admin, tenant_id='tenant_a',
                                     system_code='SYS-A1', name='烟台通信系统', install_location='机房A')
-        self.system_a2 = make_system(self.admin, system_type=self.sys_type, tenant_id='tenant_a',
+        self.system_a2 = make_system(self.admin, tenant_id='tenant_a',
                                      system_code='SYS-A2', name='威海监控系统', install_location='机房B')
-        self.system_b = make_system(self.other_admin,
-                                    make_type(self.other_admin, tenant_id='tenant_b', name='通信系统B'),
-                                    tenant_id='tenant_b', system_code='SYS-B1',
+        self.system_b = make_system(self.other_admin, tenant_id='tenant_b',
+                                    system_code='SYS-B1',
                                     name='烟台通信系统', install_location='机房A-B')
 
     # ---------- 便捷方法 ----------

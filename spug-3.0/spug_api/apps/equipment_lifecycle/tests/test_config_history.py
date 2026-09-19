@@ -19,7 +19,7 @@ from apps.logs.models import AuditLog
 from apps.equipment_lifecycle.tests.base import (
     ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS,
     P_CFG_EDIT, P_CFG_SNAPSHOT, P_CFG_VIEW,
-    make_client, make_field, make_system, make_type, make_user,
+    make_client, make_field, make_system, make_user,
 )
 
 
@@ -27,8 +27,7 @@ class ComponentTest(TestCase):
     def setUp(self):
         self.admin = make_user('cmp_admin', ALL_CONFIG_PERMS, tenant_id='t1')
         self.client = make_client(self.admin)
-        self.system_type = make_type(self.admin, tenant_id='t1', name='通信系统')
-        self.system = make_system(self.admin, system_type=self.system_type, tenant_id='t1')
+        self.system = make_system(self.admin, tenant_id='t1')
 
     def _payload(self, **overrides):
         payload = {
@@ -98,9 +97,8 @@ class HistoryAndSnapshotTest(TestCase):
     def setUp(self):
         self.admin = make_user('his_admin', ALL_SYSTEM_PERMS + ALL_CONFIG_PERMS, tenant_id='t1')
         self.client = make_client(self.admin)
-        self.system_type = make_type(self.admin, tenant_id='t1', name='通信系统')
-        self.system = make_system(self.admin, system_type=self.system_type, tenant_id='t1')
-        self.field = make_field(self.system_type, self.admin, tenant_id='t1',
+        self.system = make_system(self.admin, tenant_id='t1')
+        self.field = make_field(self.system, self.admin, tenant_id='t1',
                                 field_code='antenna_h', display_name='天线高度')
 
     def test_mixed_changes_traceable(self):

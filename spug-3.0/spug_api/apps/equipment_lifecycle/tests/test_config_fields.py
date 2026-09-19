@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
-"""配置档案字段与值（步骤二）稳定契约测试。
+"""配置档案字段与值稳定契约测试。
 
-覆盖任务九要求：不同类型展示不同模板字段、自定义字段隔离、
-必填/类型/候选项/范围校验、字段停用后历史值保留、
-敏感关键词拦截、权限独立校验、字段定义删除不级联删除历史值。
+覆盖任务九要求：自定义字段按系统隔离、必填/类型/候选项/范围校验、
+字段停用后历史值保留、敏感关键词拦截、权限独立校验、
+字段定义删除不级联删除历史值、字段类型变更保护。
+
+原类型模板字段 CRUD / 提升 / 类型字段差异用例已按等价语义
+改造为系统自定义字段用例。
 """
 import json
 
@@ -11,117 +14,23 @@ from django.test import TestCase
 
 from apps.equipment_lifecycle.models import (
     ConfigFieldDefinition,
-    LifecycleSystem,
-    SystemConfigChange,
     SystemConfigValue,
 )
 from apps.logs.models import AuditLog
 
 from apps.equipment_lifecycle.tests.base import (
-    ALL_CONFIG_PERMS, ALL_TYPE_PERMS,
+    ALL_CONFIG_PERMS,
     P_CFG_EDIT, P_CFG_FIELD, P_CFG_VIEW,
-    make_client, make_field, make_system, make_type, make_user,
+    make_client, make_field, make_system, make_user,
 )
-
-
-class TemplateFieldTest(TestCase):
-    def setUp(self):
-        self.admin = make_user('cfg_admin', ALL_CONFIG_PERMS + ALL_TYPE_PERMS, tenant_id='t1')
-        self.client = make_client(self.admin)
-        self.type_comm = make_type(self.admin, tenant_id='t1', name='通信系统')
-        self.type_soft = make_type(self.admin, tenant_id='t1', name='软件系统')
-
-    def _field_payload(self, **overrides):
-        payload = {
-            'field_code': 'frequency',
-            'display_name': '工作频率',
-            'field_type': 'text',
-            'help_text': '单位 MHz',
-            'display_order': 1,
-            'is_required': False,
-            'default_value': '',
-            'choices': '',
-            'is_searchable': True,
-            'is_filterable': True,
-            'is_exportable': True,
-        }
-        payload.update(overrides)
-        return payload
-
-    def test_template_field_crud(self):
-        resp = self.client.post(
-            f'/equipment-lifecycle/system-types/{self.type_comm.id}/fields/',
-            self._field_payload(), content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
-        field_id = resp.json()['data']['id']
-        self.assertTrue(ConfigFieldDefinition.objects.filter(
-            pk=field_id, scope_type='template', scope_owner_id=str(self.type_comm.id)).exists())
-        # 重复编码/名称被拒
-        resp = self.client.post(
-            f'/equipment-lifecycle/system-types/{self.type_comm.id}/fields/',
-            self._field_payload(), content_type='application/json')
-        self.assertIn('重复', resp.json()['error'])
-        # 与固定字段重名被拒
-        resp = self.client.post(
-            f'/equipment-lifecycle/system-types/{self.type_comm.id}/fields/',
-            self._field_payload(field_code='install_location', display_name='安装地点'),
-            content_type='application/json')
-        self.assertIn('固定核心字段', resp.json()['error'])
-        # 停用
-        resp = self.client.put(
-            f'/equipment-lifecycle/system-types/{self.type_comm.id}/fields/{field_id}/',
-            self._field_payload(is_active=False), content_type='application/json')
-        self.assertFalse(resp.json().get('error'))
-        field = ConfigFieldDefinition.objects.get(pk=field_id)
-        self.assertFalse(field.is_active)
-
-    def test_different_types_show_different_template_fields(self):
-        make_field(self.type_comm, self.admin, tenant_id='t1', field_code='frequency',
-                   display_name='工作频率')
-        make_field(self.type_soft, self.admin, tenant_id='t1', field_code='db_version',
-                   display_name='数据库版本')
-        sys_comm = make_system(self.admin, system_type=self.type_comm, tenant_id='t1')
-        sys_soft = make_system(self.admin, system_type=self.type_soft, tenant_id='t1',
-                               system_code='SYS-SOFT')
-        resp_comm = self.client.get(f'/equipment-lifecycle/systems/{sys_comm.id}/config/')
-        resp_soft = self.client.get(f'/equipment-lifecycle/systems/{sys_soft.id}/config/')
-        codes_comm = {f['field_code'] for f in resp_comm.json()['data']['fields']}
-        codes_soft = {f['field_code'] for f in resp_soft.json()['data']['fields']}
-        self.assertEqual(codes_comm, {'frequency'})
-        self.assertEqual(codes_soft, {'db_version'})
-
-    def test_sensitive_keyword_rejected(self):
-        for bad_code, bad_name in (('password', '口令字段'), ('api_token', '接口字段'),
-                                   ('frequency', '密码字段')):
-            resp = self.client.post(
-                f'/equipment-lifecycle/system-types/{self.type_comm.id}/fields/',
-                self._field_payload(field_code=bad_code, display_name=bad_name),
-                content_type='application/json')
-            self.assertIn('关键词', resp.json()['error'])
-
-    def test_choice_field_requires_options(self):
-        resp = self.client.post(
-            f'/equipment-lifecycle/system-types/{self.type_comm.id}/fields/',
-            self._field_payload(field_code='band', display_name='频段',
-                                field_type='choice', choices=''),
-            content_type='application/json')
-        self.assertIn('候选项', resp.json()['error'])
-        resp = self.client.post(
-            f'/equipment-lifecycle/system-types/{self.type_comm.id}/fields/',
-            self._field_payload(field_code='band', display_name='频段', field_type='choice',
-                                choices=json.dumps(['UHF', 'VHF'])),
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
 
 
 class CustomFieldTest(TestCase):
     def setUp(self):
         self.admin = make_user('cf_admin', ALL_CONFIG_PERMS, tenant_id='t1')
         self.client = make_client(self.admin)
-        self.system_type = make_type(self.admin, tenant_id='t1', name='通信系统')
-        self.system = make_system(self.admin, system_type=self.system_type, tenant_id='t1')
-        self.other_system = make_system(self.admin, system_type=self.system_type,
-                                        tenant_id='t1', system_code='SYS-OTHER')
+        self.system = make_system(self.admin, tenant_id='t1')
+        self.other_system = make_system(self.admin, tenant_id='t1', system_code='SYS-OTHER')
 
     def _payload(self, **overrides):
         payload = {
@@ -149,20 +58,45 @@ class CustomFieldTest(TestCase):
         self.assertEqual(ConfigFieldDefinition.objects.get(pk=field_id).system_id,
                          self.system.id)
 
-    def test_custom_field_cannot_duplicate_template_or_fixed(self):
-        make_field(self.system_type, self.admin, tenant_id='t1', field_code='frequency',
-                   display_name='工作频率')
-        # 与模板字段同名编码
+    def test_custom_field_cannot_duplicate_existing_or_fixed(self):
+        # 同一系统内重复编码被拒
         resp = self.client.post(
             f'/equipment-lifecycle/systems/{self.system.id}/custom-fields/',
-            self._payload(field_code='frequency'), content_type='application/json')
+            self._payload(), content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        resp = self.client.post(
+            f'/equipment-lifecycle/systems/{self.system.id}/custom-fields/',
+            self._payload(), content_type='application/json')
         self.assertIn('重复', resp.json()['error'])
-        # 与固定字段同名
+        # 与固定字段同名编码/名称被拒
         resp = self.client.post(
             f'/equipment-lifecycle/systems/{self.system.id}/custom-fields/',
             self._payload(field_code='use_unit', display_name='使用单位'),
             content_type='application/json')
         self.assertIn('固定核心字段', resp.json()['error'])
+
+    def test_sensitive_keyword_rejected(self):
+        for bad_code, bad_name in (('password', '口令字段'), ('api_token', '接口字段'),
+                                   ('frequency', '密码字段')):
+            resp = self.client.post(
+                f'/equipment-lifecycle/systems/{self.system.id}/custom-fields/',
+                self._payload(field_code=bad_code, display_name=bad_name),
+                content_type='application/json')
+            self.assertIn('关键词', resp.json()['error'])
+
+    def test_choice_field_requires_options(self):
+        resp = self.client.post(
+            f'/equipment-lifecycle/systems/{self.system.id}/custom-fields/',
+            self._payload(field_code='band', display_name='频段',
+                          field_type='choice', choices=''),
+            content_type='application/json')
+        self.assertIn('候选项', resp.json()['error'])
+        resp = self.client.post(
+            f'/equipment-lifecycle/systems/{self.system.id}/custom-fields/',
+            self._payload(field_code='band', display_name='频段', field_type='choice',
+                          choices=json.dumps(['UHF', 'VHF'])),
+            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
 
     def test_deactivated_custom_field_keeps_value(self):
         """字段停用后不再用于新录入，但历史值必须保留可查。"""
@@ -220,35 +154,6 @@ class CustomFieldTest(TestCase):
         # 有值字段未被级联删除
         self.assertTrue(SystemConfigValue.objects.filter(field_id=used_id).exists())
 
-    def test_promote_custom_field_to_template(self):
-        """同一含义复用时可提升为类型模板字段，值随迁移。"""
-        resp = self.client.post(
-            f'/equipment-lifecycle/systems/{self.system.id}/custom-fields/',
-            self._payload(), content_type='application/json')
-        field_id = resp.json()['data']['id']
-        self.client.put(f'/equipment-lifecycle/systems/{self.system.id}/config/',
-                        {'config_values': {str(field_id): '提升前的值'}},
-                        content_type='application/json')
-        resp = self.client.post(
-            f'/equipment-lifecycle/systems/{self.system.id}/custom-fields/{field_id}/promote/')
-        self.assertFalse(resp.json().get('error'), resp.content)
-        promoted_id = resp.json()['data']['id']
-        promoted = ConfigFieldDefinition.objects.get(pk=promoted_id)
-        self.assertEqual(promoted.scope_type, 'template')
-        self.assertEqual(promoted.system_type_id, self.system_type.id)
-        self.assertFalse(ConfigFieldDefinition.objects.filter(pk=field_id).exists())
-        # 值已迁移到新模板字段
-        value = SystemConfigValue.objects.get(field_id=promoted_id)
-        self.assertEqual(value.value_text, '提升前的值')
-        self.assertEqual(value.system_id, self.system.id)
-        # 提升动作进入变更历史
-        self.assertTrue(SystemConfigChange.objects.filter(
-            system=self.system, action='promote').exists())
-        # 同类型下其他系统的配置视图现在能看到该模板字段
-        resp = self.client.get(f'/equipment-lifecycle/systems/{self.other_system.id}/config/')
-        codes = {f['field_code'] for f in resp.json()['data']['fields']}
-        self.assertIn('special_note', codes)
-
     def test_field_permission_denied(self):
         viewer = make_user('cf_viewer', [P_CFG_VIEW], tenant_id='t1')
         client = make_client(viewer)
@@ -266,16 +171,15 @@ class CustomFieldTest(TestCase):
 
 class ConfigValueValidationTest(TestCase):
     def setUp(self):
-        self.admin = make_user('val_admin', ALL_CONFIG_PERMS + ALL_TYPE_PERMS, tenant_id='t1')
+        self.admin = make_user('val_admin', ALL_CONFIG_PERMS, tenant_id='t1')
         self.client = make_client(self.admin)
-        self.system_type = make_type(self.admin, tenant_id='t1', name='通信系统')
-        self.system = make_system(self.admin, system_type=self.system_type, tenant_id='t1')
+        self.system = make_system(self.admin, tenant_id='t1')
 
     def _add_field(self, **kwargs):
         defaults = dict(tenant_id='t1', field_code='num_field', display_name='数字字段',
                         field_type='number')
         defaults.update(kwargs)
-        return make_field(self.system_type, self.admin, **defaults)
+        return make_field(self.system, self.admin, **defaults)
 
     def test_number_range_validation(self):
         field = self._add_field(number_min=0, number_max=100)
@@ -344,11 +248,10 @@ class ConfigValueValidationTest(TestCase):
         self.assertFalse(resp.json().get('error'), resp.content)
 
     def test_foreign_field_rejected(self):
-        """其他系统的自定义字段 / 其他类型的模板字段提交被拒。"""
-        other_system = make_system(self.admin, system_type=self.system_type,
-                                   tenant_id='t1', system_code='SYS-F')
+        """其他系统的自定义字段提交被拒。"""
+        other_system = make_system(self.admin, tenant_id='t1', system_code='SYS-F')
         foreign_field = make_field(other_system, self.admin, tenant_id='t1',
-                                   scope='custom', field_code='foreign_f',
+                                   field_code='foreign_f',
                                    display_name='外部字段')
         resp = self.client.put(f'/equipment-lifecycle/systems/{self.system.id}/config/',
                                {'config_values': {str(foreign_field.id): 'x'}},
@@ -370,6 +273,7 @@ class ConfigValueValidationTest(TestCase):
         self.client.put(f'/equipment-lifecycle/systems/{self.system.id}/config/',
                         {'config_values': {str(field.id): '30米'}},
                         content_type='application/json')
+        from apps.equipment_lifecycle.models import SystemConfigChange
         change = SystemConfigChange.objects.filter(
             system=self.system, source='config').latest('id')
         changes = json.loads(change.changes)
@@ -390,13 +294,14 @@ class ConfigValueValidationTest(TestCase):
         self.assertEqual(after, before + 1)
 
     def test_type_change_with_existing_values_blocked(self):
+        """字段已有历史值时不能变更字段类型（自定义字段编辑接口）。"""
         field = self._add_field(field_code='antenna_h', display_name='天线高度',
                                 field_type='text')
         self.client.put(f'/equipment-lifecycle/systems/{self.system.id}/config/',
                         {'config_values': {str(field.id): '20米'}},
                         content_type='application/json')
         resp = self.client.put(
-            f'/equipment-lifecycle/system-types/{self.system_type.id}/fields/{field.id}/',
+            f'/equipment-lifecycle/systems/{self.system.id}/custom-fields/{field.id}/',
             {'field_code': 'antenna_h', 'display_name': '天线高度', 'field_type': 'number',
              'display_order': 0, 'is_active': True},
             content_type='application/json')

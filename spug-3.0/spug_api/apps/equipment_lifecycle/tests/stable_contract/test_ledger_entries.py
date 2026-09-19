@@ -5,7 +5,7 @@ from datetime import datetime
 from django.test import TestCase
 
 from apps.equipment_lifecycle.models import OperationLedger, OperationLedgerItem
-from apps.equipment_lifecycle.tests.base import make_client, make_system, make_type
+from apps.equipment_lifecycle.tests.base import make_client, make_system
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
     LEDGER_URL,
     create_ledger_ok,
@@ -20,11 +20,8 @@ from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
 class LedgerMultiSystemContractTests(TestCase):
     def setUp(self):
         self.user = make_ledger_user('entry_op')
-        self.system_type = make_type(self.user)
-        self.system_a = make_system(self.user, system_type=self.system_type,
-                                    system_code='SYS-A', name='通信系统A')
-        self.system_b = make_system(self.user, system_type=self.system_type,
-                                    system_code='SYS-B', name='通信系统B')
+        self.system_a = make_system(self.user, system_code='SYS-A', name='通信系统A')
+        self.system_b = make_system(self.user, system_code='SYS-B', name='通信系统B')
 
     def test_one_ledger_contains_multiple_systems(self):
         """9. 一张台账可以包含多个系统。"""
@@ -130,11 +127,10 @@ class LedgerMultiSystemContractTests(TestCase):
         self.assertTrue(resp.json().get('error'))
         self.assertIn('补录说明', resp.json()['error'])
         # 模板生成方式允许不填补录说明
-        template = None
         from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
             make_ledger_template, make_template_item)
         template = make_ledger_template(
-            self.user, system_type=self.system_type, ledger_type='inspection')
+            self.user, ledger_type='inspection', applicable_systems=[self.system_a])
         make_template_item(template, self.user)
         payload = ledger_payload(
             [entry_payload(self.system_a.id, [item_payload()], template_id=template.id)],

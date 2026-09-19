@@ -33,8 +33,8 @@ function SystemIndex(props) {
     <AuthDiv auth={PERM.SYS_VIEW}>
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>设备全生命周期</Breadcrumb.Item>
-        <Breadcrumb.Item>系统管理</Breadcrumb.Item>
+        <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
+        <Breadcrumb.Item>系统档案</Breadcrumb.Item>
         <Breadcrumb.Item>系统列表</Breadcrumb.Item>
       </Breadcrumb>
       <SearchForm>
@@ -46,19 +46,6 @@ function SystemIndex(props) {
             placeholder="请输入系统编号或名称"
             onPressEnter={() => {store.page = 1; store.fetchRecords();}}
           />
-        </SearchForm.Item>
-        <SearchForm.Item span={6} title="系统类型">
-          <Select
-            allowClear
-            style={{width: '100%'}}
-            value={store.f_system_type}
-            onChange={v => {store.f_system_type = v; store.page = 1; store.fetchRecords();}}
-            placeholder="请选择系统类型"
-          >
-            {store.types.map(t => (
-              <Select.Option value={t.id} key={t.id}>{t.name}</Select.Option>
-            ))}
-          </Select>
         </SearchForm.Item>
         <SearchForm.Item span={6} title="运行健康状态">
           <Select
