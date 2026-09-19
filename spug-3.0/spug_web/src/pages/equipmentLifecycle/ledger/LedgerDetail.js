@@ -4,14 +4,17 @@
  */
 /**
  * 台账详情抽屉：表头信息 + 按系统分组的明细列表（含异常突出显示）。
+ * 步骤 3.3：异常明细展示处置状态，支持"转故障"/"转工单"，处置目标可跳转。
  */
-import React from 'react';
+import React, { useState } from 'react';
 import {observer} from 'mobx-react';
 import {Drawer, Tabs, Descriptions, Tag, Spin, Table, Collapse, Empty} from 'antd';
 import {
   CREATED_FROM_TEXT, CYCLE_TEXT, EXEC_SCOPE_TEXT, LEDGER_TYPE_TEXT, RESULT_COLOR,
   RESULT_TEXT, STATUS_COLOR, STATUS_TEXT,
 } from './constants';
+import { DispositionTag, ConvertActions } from '../workOrder/LedgerItemDisposition';
+import WorkOrderDetail from '../workOrder/WorkOrderDetail';
 
 const {TabPane} = Tabs;
 const {Panel} = Collapse;
@@ -20,6 +23,17 @@ const RESULT_TAG_STYLE = {marginRight: 0};
 
 @observer
 class LedgerDetail extends React.Component {
+  state = {workOrderDetailId: null, workOrderDetailVisible: false};
+
+  openWorkOrderDetail = (id) => {
+    this.setState({workOrderDetailId: id, workOrderDetailVisible: true});
+  };
+
+  refreshConverted = () => {
+    // 转单成功后重新获取台账详情（处置状态由后端重新计算）
+    this.props.store.fetchDetail();
+  };
+
   renderValue = (item) => {
     if (item.input_type === 'number') return item.value_number === null || item.value_number === undefined ? '-' : item.value_number;
     if (item.input_type === 'boolean') return item.value_bool === null || item.value_bool === undefined ? '-' : (item.value_bool ? '是' : '否');
@@ -48,6 +62,20 @@ class LedgerDetail extends React.Component {
       },
       {title: '异常说明', dataIndex: 'abnormal_desc', width: 160, render: v => v || '-'},
       {title: '现场处理', dataIndex: 'onsite_action', width: 160, render: v => v || '-'},
+      {
+        title: '处置状态', key: 'disposition', width: 130,
+        render: (t, r) => (
+          <span>
+            <DispositionTag item={r}/>
+            <ConvertActions
+              ledger={this.props.store.detail}
+              item={r}
+              onOpenWorkOrder={this.openWorkOrderDetail}
+              onConverted={this.refreshConverted}
+            />
+          </span>
+        ),
+      },
       {title: '执行人', dataIndex: 'executor_name', width: 90, render: v => v || '-'},
       {title: '执行时间', dataIndex: 'executed_at', width: 140, render: v => v || '-'},
     ];
@@ -170,6 +198,14 @@ class LedgerDetail extends React.Component {
             )}
           </Tabs>
         </Spin>
+        {/* 异常明细生成的工单详情（嵌套抽屉，跳回来源由工单侧提供） */}
+        {this.state.workOrderDetailVisible && (
+          <WorkOrderDetail
+            woId={this.state.workOrderDetailId}
+            visible={this.state.workOrderDetailVisible}
+            onClose={() => this.setState({workOrderDetailVisible: false})}
+          />
+        )}
       </Drawer>
     );
   }

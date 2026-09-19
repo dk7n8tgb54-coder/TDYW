@@ -7,8 +7,9 @@
  * 设备全生命周期——系统详情抽屉。
  * 基本信息统一展示固定字段 + 系统类型模板字段值 + 系统自定义字段值；
  * 配置字段页签仅管理字段定义（不录入值）。
- * 步骤 3.1 新增"故障记录"页签（主体故障 + 受影响故障），
- * 不含巡检、维护、工单和统一系统履历页签。
+ * 步骤 3.1 新增"故障记录"页签（主体故障 + 受影响故障）；
+ * 步骤 3.3 新增"工单"页签（目标工单 + 受影响工单）；
+ * 不含统一系统履历页签。
  */
 import React from 'react';
 import { observer } from 'mobx-react';
@@ -20,6 +21,7 @@ import ChangeHistoryTab from './ChangeHistoryTab';
 import SnapshotsTab from './SnapshotsTab';
 import FaultRecordsTab from './FaultRecordsTab';
 import SystemLedgerTab from './ledger/SystemLedgerTab';
+import WorkOrdersTab from './workOrder/WorkOrdersTab';
 
 const { TabPane } = Tabs;
 
@@ -118,6 +120,9 @@ class SystemDetail extends React.Component {
             </TabPane>
             <TabPane tab="故障记录" key="faults">
               <FaultRecordsTab systemId={d.id}/>
+            </TabPane>
+            <TabPane tab="工单" key="work_orders">
+              <WorkOrdersTab systemId={d.id}/>
             </TabPane>
             <TabPane tab="巡检台账" key="inspection_ledger">
               <SystemLedgerTab systemId={d.id} ledgerType="inspection"/>

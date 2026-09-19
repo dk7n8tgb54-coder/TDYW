@@ -15,7 +15,10 @@ import { Drawer, Tabs, Descriptions, Tag, Spin, Button, Timeline, Modal, Form,
 import { PlusOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import { AuthButton } from 'components';
+import { history } from 'libs';
 import store from './faultStore';
+import { GenerateWorkOrderButton, FaultWorkOrdersTab } from './workOrder/FaultWorkOrders';
+import { LEDGER_TYPE_PATH } from './workOrder/constants';
 import {
   PERM, FAULT_STATUS_TEXT, FAULT_STATUS_COLOR, FAULT_IMPACT_TEXT, FAULT_IMPACT_COLOR,
   FAULT_LEVEL_TEXT, FAULT_DISCOVERY_TEXT,
@@ -67,6 +70,25 @@ class FaultDetail extends React.Component {
         </Descriptions.Item>
         <Descriptions.Item label="恢复确认信息" span={2}>{d.recover_confirm || '-'}</Descriptions.Item>
         <Descriptions.Item label="最终结果" span={2}>{d.final_result || '-'}</Descriptions.Item>
+        {/* 步骤 3.3：来源台账追溯（台账异常转故障后可跳回来源台账明细） */}
+        {d.source_type === 'ledger_item' && d.source_ledger && (
+          <Descriptions.Item label="来源台账" span={2}>
+            <Button
+              type="link"
+              size="small"
+              style={{padding: 0}}
+              onClick={() => {
+                const path = LEDGER_TYPE_PATH[d.source_ledger_type];
+                if (path) {
+                  store.closeDetail();
+                  history.push(`${path}?detail=${d.source_ledger}`);
+                }
+              }}
+            >
+              {d.source_ledger_no || '查看来源台账'}
+            </Button>
+          </Descriptions.Item>
+        )}
         <Descriptions.Item label="创建人">{d.created_by_name}</Descriptions.Item>
         <Descriptions.Item label="创建时间">{d.created_at}</Descriptions.Item>
       </Descriptions>
@@ -121,6 +143,10 @@ class FaultDetail extends React.Component {
             {editable && (
               <AuthCancelButton fault={d}/>
             )}
+            {/* 步骤 3.3：未作废的故障可生成维修工单（允许多张） */}
+            <span style={{marginLeft: 8}}>
+              <GenerateWorkOrderButton fault={d}/>
+            </span>
           </div>
           <Tabs defaultActiveKey="basic">
             <TabPane tab="基本信息" key="basic">
@@ -131,6 +157,9 @@ class FaultDetail extends React.Component {
             </TabPane>
             <TabPane tab="处置记录" key="handling">
               <HandlingTimeline editable={editable}/>
+            </TabPane>
+            <TabPane tab="关联工单" key="workOrders">
+              <FaultWorkOrdersTab fault={d}/>
             </TabPane>
           </Tabs>
         </Spin>

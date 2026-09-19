@@ -17,12 +17,19 @@ import LedgerDetail from './LedgerDetail';
 import {getLedgerStore} from './store';
 import {API_PREFIX_L, CYCLE_TEXT, LEDGER_TYPE, LEDGER_TYPE_TEXT, PERM_L, STATUS_COLOR, STATUS_TEXT} from './constants';
 
-function LedgerIndex({ledgerType}) {
+function LedgerIndex({ledgerType, location}) {
   const store = getLedgerStore(ledgerType);
   const isWeekMonth = ledgerType === LEDGER_TYPE.WEEK_MONTH;
 
   useEffect(() => {
+    // 跨页跳转直达详情（故障详情/工单详情跳入：?detail=<台账ID>）
+    const params = new URLSearchParams(location ? location.search : '');
+    const detailId = params.get('detail');
+    if (detailId && /^\d+$/.test(detailId)) {
+      store.fetchDetail(parseInt(detailId, 10));
+    }
     store.fetchRecords();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const columns = [

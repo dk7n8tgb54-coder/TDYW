@@ -336,33 +336,28 @@ class FaultView(View):
                         'phenomenon': phenomenon,
                     }, window_seconds=IDEMPOTENCY_WINDOW_SECONDS):
                         return json_response(error='请勿重复提交相同故障')
-                    fault = SystemFault.objects.create(
+                    # 统一走正式故障创建服务（台账异常转故障复用同一路径）
+                    fault = fault_services.create_fault_record(
                         tenant_id=request.user.tenant_id,
-                        fault_no=_generate_fault_no(request.user.tenant_id),
+                        created_by=request.user,
                         primary_system=primary_system,
                         primary_impact_status=form.primary_impact_status,
-                        **_primary_snapshot(primary_system),
                         occurred_at=occurred_at,
                         discovery=form.discovery,
                         level=form.level,
-                        phenomenon=phenomenon[:2000],
-                        impact_scope=(form.impact_scope or '').strip()[:1000],
-                        fault_location=(form.fault_location or '').strip()[:200],
-                        fault_object_name=(form.fault_object_name or '').strip()[:100],
-                        fault_object_model=(form.fault_object_model or '').strip()[:100],
-                        fault_object_sn=(form.fault_object_sn or '').strip()[:100],
-                        fault_component=fault_component,
-                        reason_analysis=(form.reason_analysis or '').strip()[:2000],
-                        status=SystemFault.STATUS_PENDING,
-                        source_type=SystemFault.SOURCE_MANUAL,
-                        created_by=request.user,
+                        phenomenon=phenomenon,
                         handler=handler,
+                        affected_map=affected_map,
+                        fault_component=fault_component,
+                        impact_scope=form.impact_scope or '',
+                        fault_location=form.fault_location or '',
+                        fault_object_name=form.fault_object_name or '',
+                        fault_object_model=form.fault_object_model or '',
+                        fault_object_sn=form.fault_object_sn or '',
+                        reason_analysis=form.reason_analysis or '',
+                        source_type=SystemFault.SOURCE_MANUAL,
+                        request=request,
                     )
-                    _create_affected_rows(fault, affected_map)
-                    # 新增故障后同事务重算相关系统健康状态
-                    fault_services.recompute_systems_health(
-                        request.user.tenant_id, related_ids, request=request,
-                        audit_reason='新增故障 ' + fault.fault_no)
                     record_audit_event(request, 'create', AUDIT_TARGET_FAULT, fault.id,
                                        fault.fault_no, after_value=_fault_audit_summary(fault))
         except fault_services.HealthRecalcLockTimeout as exc:

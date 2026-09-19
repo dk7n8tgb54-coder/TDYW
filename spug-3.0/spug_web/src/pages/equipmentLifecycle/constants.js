@@ -32,6 +32,17 @@ export const PERM = {
   FAULT_CLOSE: 'equipment_lifecycle.fault.close',
   FAULT_DEL: 'equipment_lifecycle.fault.del',
   FAULT_EXPORT: 'equipment_lifecycle.fault.export',
+  LEDGER_HANDLE_EXCEPTION: 'equipment_lifecycle.ledger.handle_exception',
+  WO_VIEW: 'equipment_lifecycle.work_order.view',
+  WO_ADD: 'equipment_lifecycle.work_order.add',
+  WO_EDIT: 'equipment_lifecycle.work_order.edit',
+  WO_DISPATCH: 'equipment_lifecycle.work_order.dispatch',
+  WO_ACCEPT: 'equipment_lifecycle.work_order.accept',
+  WO_EXECUTE: 'equipment_lifecycle.work_order.execute',
+  WO_REVIEW: 'equipment_lifecycle.work_order.review',
+  WO_CLOSE: 'equipment_lifecycle.work_order.close',
+  WO_DEL: 'equipment_lifecycle.work_order.del',
+  WO_EXPORT: 'equipment_lifecycle.work_order.export',
 };
 
 export const HEALTH_STATUS_OPTIONS = [

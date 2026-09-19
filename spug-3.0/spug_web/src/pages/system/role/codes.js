@@ -168,6 +168,22 @@ export default [{
       {key: 'review', label: '复核/退回台账'},
       {key: 'del', label: '作废台账（受控作废，非物理删除）'},
       {key: 'export', label: '导出台账'},
+      {key: 'handle_exception', label: '异常处置（异常明细转故障/转工单）'},
+    ]
+  }, {
+    key: 'work_order',
+    label: '工单管理',
+    perms: [
+      {key: 'view', label: '查看工单'},
+      {key: 'add', label: '新增工单/故障生成工单/异常转工单'},
+      {key: 'edit', label: '编辑待派发工单/更正处理记录'},
+      {key: 'dispatch', label: '派发工单'},
+      {key: 'accept', label: '接单（授权角色）'},
+      {key: 'execute', label: '开始执行/处理记录/提交复核'},
+      {key: 'review', label: '复核通过/退回'},
+      {key: 'close', label: '关闭工单'},
+      {key: 'del', label: '取消工单（受控取消，非物理删除）'},
+      {key: 'export', label: '导出工单列表'},
     ]
   }]
 }, {

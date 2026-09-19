@@ -645,8 +645,12 @@ class SystemFault(TenantModelMixin, models.Model):
     final_result = models.TextField(max_length=2000, default='', blank=True, help_text='最终结果')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING,
                               help_text='当前状态')
-    source_type = models.CharField(max_length=20, default=SOURCE_MANUAL, help_text='来源类型（预留）')
-    source_id = models.CharField(max_length=50, default='', blank=True, help_text='来源 ID（预留）')
+    source_type = models.CharField(max_length=20, default=SOURCE_MANUAL, help_text='来源类型：manual 人工 / ledger_item 台账异常明细（步骤 3.3）')
+    source_id = models.CharField(max_length=50, default='', blank=True, help_text='来源对象 ID 冗余（与来源外键一致，便于追溯查询）')
+    source_ledger_item = models.ForeignKey(
+        'equipment_lifecycle.OperationLedgerItem', models.PROTECT,
+        related_name='generated_faults', null=True, blank=True,
+        help_text='来源台账异常明细（台账异常转故障时写入，真实外键保证可追溯）')
 
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+', help_text='创建人')
     handler = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True,
@@ -729,6 +733,14 @@ class SystemFault(TenantModelMixin, models.Model):
             'final_result': self.final_result,
             'source_type': self.source_type,
             'source_id': self.source_id,
+            # 台账来源追溯：跳回来源台账明细所需定位信息
+            'source_ledger_item': self.source_ledger_item_id,
+            'source_ledger': (
+                self.source_ledger_item.ledger_id if self.source_ledger_item_id else None),
+            'source_ledger_no': (
+                self.source_ledger_item.ledger.ledger_no if self.source_ledger_item_id else ''),
+            'source_ledger_type': (
+                self.source_ledger_item.ledger.ledger_type if self.source_ledger_item_id else ''),
             'updated_at': self.updated_at,
             'affected_systems': [row.to_view() for row in self.affected_systems.all()],
         })
@@ -1459,6 +1471,535 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
             'executed_at': self.executed_at,
             'is_temporary': self.is_temporary,
             'display_order': self.display_order,
+        }
+
+
+# ======================================================================
+# 步骤 3.3：工单管理与异常转单
+# ----------------------------------------------------------------------
+# 结构：工单主表 → 受影响系统 / 参与人 / 处理记录，来源关联故障或台账明细。
+# 状态流转由后端状态机校验（SystemWorkOrder.STATE_TRANSITIONS）；
+# 执行中的"故障维修"工单参与统一健康状态计算（fault_services，"维修中"），
+# 其余类型工单默认不覆盖系统健康状态。
+# 本步骤不建统一系统履历、计划提醒、库存/调拨与系统升级嫁接。
+# ======================================================================
+
+# 工单类型（稳定编码，页面中文名称不得作为关联条件）
+WORK_TYPE_REPAIR = 'repair'                    # 故障维修
+WORK_TYPE_SPECIAL_MAINTENANCE = 'special_maintenance'  # 专项维护
+WORK_TYPE_TECH_REFORM = 'tech_reform'          # 技术改造
+WORK_TYPE_CONFIG_CHANGE = 'config_change'      # 配置变更
+WORK_TYPE_FIELD_TEST = 'field_test'            # 现场测试
+WORK_TYPE_CALIBRATION = 'calibration'          # 校准
+WORK_ORDER_TYPE_VALUES = [
+    WORK_TYPE_REPAIR, WORK_TYPE_SPECIAL_MAINTENANCE, WORK_TYPE_TECH_REFORM,
+    WORK_TYPE_CONFIG_CHANGE, WORK_TYPE_FIELD_TEST, WORK_TYPE_CALIBRATION,
+]
+
+# 工单状态（后端状态机：STATE_TRANSITIONS）
+WORK_ORDER_STATUS_PENDING_DISPATCH = 'pending_dispatch'  # 待派发
+WORK_ORDER_STATUS_PENDING_ACCEPT = 'pending_accept'      # 待接单
+WORK_ORDER_STATUS_EXECUTING = 'executing'                # 执行中
+WORK_ORDER_STATUS_PENDING_REVIEW = 'pending_review'      # 待复核
+WORK_ORDER_STATUS_COMPLETED = 'completed'                # 已完成
+WORK_ORDER_STATUS_CLOSED = 'closed'                      # 已关闭
+WORK_ORDER_STATUS_CANCELLED = 'cancelled'                # 已取消
+WORK_ORDER_STATUS_VALUES = [
+    WORK_ORDER_STATUS_PENDING_DISPATCH, WORK_ORDER_STATUS_PENDING_ACCEPT,
+    WORK_ORDER_STATUS_EXECUTING, WORK_ORDER_STATUS_PENDING_REVIEW,
+    WORK_ORDER_STATUS_COMPLETED, WORK_ORDER_STATUS_CLOSED, WORK_ORDER_STATUS_CANCELLED,
+]
+
+# 工单来源类型
+WORK_ORDER_SOURCE_MANUAL = 'manual'
+WORK_ORDER_SOURCE_FAULT = 'fault'
+WORK_ORDER_SOURCE_LEDGER_ITEM = 'ledger_item'
+WORK_ORDER_SOURCE_VALUES = [WORK_ORDER_SOURCE_MANUAL, WORK_ORDER_SOURCE_FAULT, WORK_ORDER_SOURCE_LEDGER_ITEM]
+
+# 优先级
+WORK_ORDER_PRIORITY_VALUES = ['low', 'normal', 'high', 'urgent']
+
+# 参与人角色
+WORK_ORDER_ROLE_OWNER = 'owner'
+WORK_ORDER_ROLE_PARTICIPANT = 'participant'
+WORK_ORDER_ROLE_VALUES = [WORK_ORDER_ROLE_OWNER, WORK_ORDER_ROLE_PARTICIPANT]
+
+# 工单编号前缀
+WORK_ORDER_NO_PREFIX = 'WO'
+
+# 台账异常明细处置状态（由来源关系动态计算，不落库、不依赖前端）
+DISPOSITION_NONE = 'none'                      # 未处置
+DISPOSITION_CONVERTED_FAULT = 'converted_fault'          # 已转故障
+DISPOSITION_CONVERTED_WORK_ORDER = 'converted_work_order'  # 已转工单
+DISPOSITION_TARGET_CANCELLED = 'target_cancelled'        # 处置目标已取消或作废
+DISPOSITION_STATUS_VALUES = [
+    DISPOSITION_NONE, DISPOSITION_CONVERTED_FAULT,
+    DISPOSITION_CONVERTED_WORK_ORDER, DISPOSITION_TARGET_CANCELLED,
+]
+
+
+class SystemWorkOrder(TenantModelMixin, models.Model):
+    """系统工单主表（步骤 3.3）：以系统（LifecycleSystem）为业务对象。
+
+    关联规则（与 SystemFault 一致）：
+    - 目标系统必须通过正式系统 ID 外键关联（PROTECT），页面只显示名称；
+    - 工单创建时保存目标系统快照（编号/名称/安装地点），系统改名后
+      历史工单显示快照但外键仍然有效；
+    - 可选引用配置组成项（SET_NULL + 名称快照），组成项修改/删除不影响历史；
+    - 来源：manual 人工创建 / fault 来源故障 / ledger_item 来源台账异常明细，
+      来源一律用真实外键（PROTECT），不保存自由文本冒充来源。
+
+    状态流转（后端校验，动作接口触发）：
+    待派发 →(dispatch)→ 待接单 →(start)→ 执行中 →(submit)→ 待复核
+      →(review pass)→ 已完成 →(close)→ 已关闭；
+    待复核 →(review return)→ 执行中；
+    待派发/待接单/执行中/待复核 →(cancel, del 权限)→ 已取消。
+    接单（accept）为待接单状态内的确认动作（记录接单人），不改变状态；
+    已关闭/已取消为终态，不参与健康状态计算。
+    """
+
+    STATUS_PENDING_DISPATCH = WORK_ORDER_STATUS_PENDING_DISPATCH
+    STATUS_PENDING_ACCEPT = WORK_ORDER_STATUS_PENDING_ACCEPT
+    STATUS_EXECUTING = WORK_ORDER_STATUS_EXECUTING
+    STATUS_PENDING_REVIEW = WORK_ORDER_STATUS_PENDING_REVIEW
+    STATUS_COMPLETED = WORK_ORDER_STATUS_COMPLETED
+    STATUS_CLOSED = WORK_ORDER_STATUS_CLOSED
+    STATUS_CANCELLED = WORK_ORDER_STATUS_CANCELLED
+    STATUS_CHOICES = (
+        (STATUS_PENDING_DISPATCH, '待派发'),
+        (STATUS_PENDING_ACCEPT, '待接单'),
+        (STATUS_EXECUTING, '执行中'),
+        (STATUS_PENDING_REVIEW, '待复核'),
+        (STATUS_COMPLETED, '已完成'),
+        (STATUS_CLOSED, '已关闭'),
+        (STATUS_CANCELLED, '已取消'),
+    )
+    STATUS_TEXT_MAP = dict(STATUS_CHOICES)
+
+    # 允许的状态流转（后端强制校验）
+    STATE_TRANSITIONS = {
+        STATUS_PENDING_DISPATCH: {STATUS_PENDING_ACCEPT, STATUS_CANCELLED},
+        STATUS_PENDING_ACCEPT: {STATUS_EXECUTING, STATUS_CANCELLED},
+        STATUS_EXECUTING: {STATUS_PENDING_REVIEW, STATUS_CANCELLED},
+        STATUS_PENDING_REVIEW: {STATUS_COMPLETED, STATUS_EXECUTING, STATUS_CANCELLED},
+        STATUS_COMPLETED: {STATUS_CLOSED},
+        STATUS_CLOSED: set(),
+        STATUS_CANCELLED: set(),
+    }
+    # 允许普通编辑的状态（仅待派发）
+    EDITABLE_STATUSES = {STATUS_PENDING_DISPATCH}
+    # 允许受控取消的状态
+    CANCELLABLE_STATUSES = {
+        STATUS_PENDING_DISPATCH, STATUS_PENDING_ACCEPT,
+        STATUS_EXECUTING, STATUS_PENDING_REVIEW,
+    }
+
+    TYPE_REPAIR = WORK_TYPE_REPAIR
+    TYPE_SPECIAL_MAINTENANCE = WORK_TYPE_SPECIAL_MAINTENANCE
+    TYPE_TECH_REFORM = WORK_TYPE_TECH_REFORM
+    TYPE_CONFIG_CHANGE = WORK_TYPE_CONFIG_CHANGE
+    TYPE_FIELD_TEST = WORK_TYPE_FIELD_TEST
+    TYPE_CALIBRATION = WORK_TYPE_CALIBRATION
+    TYPE_CHOICES = (
+        (TYPE_REPAIR, '故障维修'),
+        (TYPE_SPECIAL_MAINTENANCE, '专项维护'),
+        (TYPE_TECH_REFORM, '技术改造'),
+        (TYPE_CONFIG_CHANGE, '配置变更'),
+        (TYPE_FIELD_TEST, '现场测试'),
+        (TYPE_CALIBRATION, '校准'),
+    )
+    TYPE_TEXT_MAP = dict(TYPE_CHOICES)
+
+    SOURCE_MANUAL = WORK_ORDER_SOURCE_MANUAL
+    SOURCE_FAULT = WORK_ORDER_SOURCE_FAULT
+    SOURCE_LEDGER_ITEM = WORK_ORDER_SOURCE_LEDGER_ITEM
+    SOURCE_CHOICES = (
+        (SOURCE_MANUAL, '人工创建'),
+        (SOURCE_FAULT, '来源故障'),
+        (SOURCE_LEDGER_ITEM, '来源台账异常'),
+    )
+    SOURCE_TEXT_MAP = dict(SOURCE_CHOICES)
+
+    PRIORITY_LOW = 'low'
+    PRIORITY_NORMAL = 'normal'
+    PRIORITY_HIGH = 'high'
+    PRIORITY_URGENT = 'urgent'
+    PRIORITY_CHOICES = (
+        (PRIORITY_LOW, '较低'),
+        (PRIORITY_NORMAL, '一般'),
+        (PRIORITY_HIGH, '高'),
+        (PRIORITY_URGENT, '紧急'),
+    )
+    PRIORITY_TEXT_MAP = dict(PRIORITY_CHOICES)
+
+    work_no = models.CharField(max_length=50, help_text='工单编号，租户内唯一，自动生成')
+    title = models.CharField(max_length=100, help_text='工单标题')
+    work_type = models.CharField(max_length=30, choices=TYPE_CHOICES, help_text='工单类型（稳定编码）')
+    priority = models.CharField(
+        max_length=20, choices=PRIORITY_CHOICES, default=PRIORITY_NORMAL, help_text='优先级')
+
+    # —— 来源（真实外键 + 编号快照；人工工单两者必须为空） ——
+    source_type = models.CharField(max_length=20, choices=SOURCE_CHOICES, default=SOURCE_MANUAL,
+                                   help_text='来源类型')
+    source_fault = models.ForeignKey(
+        SystemFault, models.PROTECT, related_name='generated_work_orders', null=True, blank=True,
+        help_text='来源故障（source_type=fault 时必填）')
+    source_ledger_item = models.ForeignKey(
+        OperationLedgerItem, models.PROTECT, related_name='generated_work_orders', null=True, blank=True,
+        help_text='来源台账异常明细（source_type=ledger_item 时必填）')
+    source_no = models.CharField(max_length=50, default='', blank=True,
+                                 help_text='来源单据编号快照（故障编号或台账编号，列表显示与追溯）')
+
+    # —— 目标系统（正式外键 + 创建时快照） ——
+    target_system = models.ForeignKey(
+        LifecycleSystem, models.PROTECT, related_name='target_work_orders',
+        help_text='目标系统（本次作业对象系统，外键关联系统主数据）')
+    target_system_code = models.CharField(max_length=50, help_text='目标系统编号快照')
+    target_system_name = models.CharField(max_length=100, help_text='目标系统名称快照')
+    target_system_location = models.CharField(max_length=200, help_text='目标系统安装地点快照')
+
+    work_location = models.CharField(max_length=200, default='', blank=True, help_text='作业位置')
+    work_object_desc = models.TextField(max_length=1000, default='', blank=True,
+                                        help_text='具体作业对象描述')
+    work_component = models.ForeignKey(
+        SystemConfigComponent, models.SET_NULL, related_name='work_orders', null=True, blank=True,
+        help_text='可选配置组成项引用（非必填，非创建前置条件）')
+    work_component_name = models.CharField(max_length=100, default='', blank=True,
+                                           help_text='配置组成项名称快照（组成项修改后不变）')
+
+    owner = models.ForeignKey(User, models.PROTECT, related_name='owned_work_orders',
+                              null=True, blank=True, help_text='当前负责人（派发时指定）')
+    dispatched_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True,
+                                      help_text='派发人')
+    dispatched_at = models.DateTimeField(null=True, blank=True, help_text='派发时间')
+    accepted_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True,
+                                    help_text='接单人')
+    accepted_at = models.DateTimeField(null=True, blank=True, help_text='接单时间')
+
+    planned_start = models.DateTimeField(null=True, blank=True, help_text='计划开始时间')
+    planned_end = models.DateTimeField(null=True, blank=True, help_text='计划结束时间')
+    actual_start = models.DateTimeField(null=True, blank=True, help_text='实际开始时间（开始执行时记录）')
+    actual_end = models.DateTimeField(null=True, blank=True, help_text='实际完成时间（复核通过时记录）')
+
+    work_requirement = models.TextField(max_length=2000, default='', blank=True, help_text='作业要求')
+    work_steps = models.TextField(max_length=2000, default='', blank=True, help_text='作业步骤')
+    process_result = models.TextField(max_length=2000, default='', blank=True,
+                                      help_text='处理结果（提交复核前必填）')
+    work_hours = models.FloatField(null=True, blank=True, help_text='工时（小时）')
+    interrupt_hours = models.FloatField(null=True, blank=True, help_text='系统中断时间（小时）')
+    material_note = models.TextField(max_length=500, default='', blank=True,
+                                     help_text='材料说明（名称/型号/数量/单位/说明/可选外部库存编号）')
+
+    reviewer = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True,
+                                 help_text='复核人')
+    reviewed_at = models.DateTimeField(null=True, blank=True, help_text='复核时间')
+    review_result = models.TextField(max_length=1000, default='', blank=True, help_text='复核结果')
+    return_reason = models.CharField(max_length=500, default='', blank=True,
+                                     help_text='最近一次复核退回原因')
+    closed_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True,
+                                  help_text='关闭人')
+    closed_at = models.DateTimeField(null=True, blank=True, help_text='关闭时间')
+    cancelled_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True,
+                                     help_text='取消人')
+    cancelled_at = models.DateTimeField(null=True, blank=True, help_text='取消时间')
+    cancel_reason = models.CharField(max_length=500, default='', blank=True, help_text='取消原因')
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES,
+                              default=STATUS_PENDING_DISPATCH, help_text='当前状态')
+    client_token = models.CharField(max_length=64, default='', blank=True,
+                                    help_text='客户端幂等令牌（创建/转单防重复）')
+    created_by = models.ForeignKey(User, models.PROTECT, related_name='+', help_text='创建人')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
+    updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True)
+
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    class Meta:
+        db_table = 'tdyw_el_work_order'
+        verbose_name = '系统工单'
+        verbose_name_plural = '系统工单'
+        ordering = ('-created_at', '-id')
+        constraints = [
+            models.UniqueConstraint(fields=['tenant_id', 'work_no'], name='uniq_el_work_order_tenant_no'),
+            models.CheckConstraint(
+                check=models.Q(work_type__in=WORK_ORDER_TYPE_VALUES),
+                name='el_work_order_type_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(status__in=WORK_ORDER_STATUS_VALUES),
+                name='el_work_order_status_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(priority__in=WORK_ORDER_PRIORITY_VALUES),
+                name='el_work_order_priority_valid',
+            ),
+            models.CheckConstraint(
+                check=models.Q(source_type__in=WORK_ORDER_SOURCE_VALUES),
+                name='el_work_order_source_valid',
+            ),
+            # 来源类型与来源对象必须匹配：manual 两者皆空，fault/ledger_item 只允许对应外键
+            models.CheckConstraint(
+                check=(
+                    (models.Q(source_type=WORK_ORDER_SOURCE_MANUAL)
+                     & models.Q(source_fault__isnull=True)
+                     & models.Q(source_ledger_item__isnull=True))
+                    | (models.Q(source_type=WORK_ORDER_SOURCE_FAULT)
+                       & models.Q(source_fault__isnull=False)
+                       & models.Q(source_ledger_item__isnull=True))
+                    | (models.Q(source_type=WORK_ORDER_SOURCE_LEDGER_ITEM)
+                       & models.Q(source_fault__isnull=True)
+                       & models.Q(source_ledger_item__isnull=False))
+                ),
+                name='el_work_order_source_consistent',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['tenant_id', 'status']),
+            models.Index(fields=['tenant_id', 'work_type', 'status']),
+            models.Index(fields=['tenant_id', 'target_system', '-created_at', '-id']),
+            models.Index(fields=['tenant_id', 'client_token']),
+            models.Index(fields=['tenant_id', 'source_fault']),
+            models.Index(fields=['tenant_id', 'source_ledger_item']),
+        ]
+
+    def __repr__(self):
+        return '<SystemWorkOrder %r>' % self.work_no
+
+    def can_transition_to(self, new_status):
+        return new_status in self.STATE_TRANSITIONS.get(self.status, set())
+
+    def to_view(self):
+        """列表行摘要。"""
+        return {
+            'id': self.id,
+            'work_no': self.work_no,
+            'title': self.title,
+            'work_type': self.work_type,
+            'work_type_text': self.TYPE_TEXT_MAP.get(self.work_type, self.work_type),
+            'priority': self.priority,
+            'priority_text': self.PRIORITY_TEXT_MAP.get(self.priority, self.priority),
+            'status': self.status,
+            'status_text': self.STATUS_TEXT_MAP.get(self.status, self.status),
+            'source_type': self.source_type,
+            'source_type_text': self.SOURCE_TEXT_MAP.get(self.source_type, self.source_type),
+            'source_no': self.source_no,
+            'target_system': self.target_system_id,
+            'target_system_name': self.target_system_name,
+            'target_system_code': self.target_system_code,
+            'owner': self.owner_id,
+            'owner_name': self.owner.username if self.owner_id else '',
+            'planned_start': self.planned_start,
+            'planned_end': self.planned_end,
+            'actual_start': self.actual_start,
+            'actual_end': self.actual_end,
+            'affected_count': self.affected_systems.count(),
+            'created_by_name': self.created_by.username if self.created_by_id else '',
+            'created_at': self.created_at,
+        }
+
+    def to_detail_view(self):
+        """详情：全字段 + 受影响系统 + 参与人 + 来源追溯信息。"""
+        data = self.to_view()
+        data.update({
+            'target_system_location': self.target_system_location,
+            'work_location': self.work_location,
+            'work_object_desc': self.work_object_desc,
+            'work_component': self.work_component_id,
+            'work_component_name': self.work_component_name,
+            'dispatched_by': self.dispatched_by_id,
+            'dispatched_by_name': self.dispatched_by.username if self.dispatched_by_id else '',
+            'dispatched_at': self.dispatched_at,
+            'accepted_by': self.accepted_by_id,
+            'accepted_by_name': self.accepted_by.username if self.accepted_by_id else '',
+            'accepted_at': self.accepted_at,
+            'work_requirement': self.work_requirement,
+            'work_steps': self.work_steps,
+            'process_result': self.process_result,
+            'work_hours': self.work_hours,
+            'interrupt_hours': self.interrupt_hours,
+            'material_note': self.material_note,
+            'reviewer': self.reviewer_id,
+            'reviewer_name': self.reviewer.username if self.reviewer_id else '',
+            'reviewed_at': self.reviewed_at,
+            'review_result': self.review_result,
+            'return_reason': self.return_reason,
+            'closed_by': self.closed_by_id,
+            'closed_by_name': self.closed_by.username if self.closed_by_id else '',
+            'closed_at': self.closed_at,
+            'cancelled_by': self.cancelled_by_id,
+            'cancelled_by_name': self.cancelled_by.username if self.cancelled_by_id else '',
+            'cancelled_at': self.cancelled_at,
+            'cancel_reason': self.cancel_reason,
+            'client_token': self.client_token,
+            'updated_at': self.updated_at,
+            'affected_systems': [row.to_view() for row in self.affected_systems.all()],
+            'participants': [row.to_view() for row in self.participants.all()],
+            # 来源追溯：故障来源给出故障主键；台账来源给出台账与明细定位信息
+            'source_fault': self.source_fault_id,
+            'source_ledger_item': self.source_ledger_item_id,
+            'source_ledger': self.source_ledger_item.ledger_id if self.source_ledger_item_id else None,
+            'source_ledger_type': (
+                self.source_ledger_item.ledger.ledger_type if self.source_ledger_item_id else ''),
+        })
+        return data
+
+
+class SystemWorkOrderAffectedSystem(TenantModelMixin, models.Model):
+    """工单受影响系统关联：记录本次作业会波及的系统（业务影响记录）。
+
+    - 受影响系统不参与"维修中"健康状态计算，只有目标系统参与；
+    - 目标系统不得重复出现在受影响系统中，同一工单内系统唯一；
+    - 每条关联保存工单创建时的系统快照。
+    """
+
+    work_order = models.ForeignKey(SystemWorkOrder, models.CASCADE, related_name='affected_systems',
+                                   help_text='所属工单')
+    system = models.ForeignKey(LifecycleSystem, models.PROTECT,
+                               related_name='work_order_affected_records', help_text='受影响系统')
+    system_code = models.CharField(max_length=50, help_text='系统编号快照')
+    system_name = models.CharField(max_length=100, help_text='系统名称快照')
+    install_location = models.CharField(max_length=200, help_text='安装地点快照')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    class Meta:
+        db_table = 'tdyw_el_work_order_affected_system'
+        verbose_name = '工单受影响系统'
+        verbose_name_plural = '工单受影响系统'
+        ordering = ('id',)
+        constraints = [
+            models.UniqueConstraint(fields=['work_order', 'system'],
+                                    name='uniq_el_work_order_affected_pair'),
+        ]
+        indexes = [
+            models.Index(fields=['tenant_id', 'system']),
+        ]
+
+    def __repr__(self):
+        return '<SystemWorkOrderAffectedSystem work_order=%s system=%s>' % (
+            self.work_order_id, self.system_id)
+
+    def to_view(self):
+        return {
+            'id': self.id,
+            'system': self.system_id,
+            'system_code': self.system_code,
+            'system_name': self.system_name,
+            'install_location': self.install_location,
+            'created_at': self.created_at,
+        }
+
+
+class SystemWorkOrderParticipant(TenantModelMixin, models.Model):
+    """工单参与人员：负责人与参与人记录（业务角色，不等于系统权限）。
+
+    - 用户必须是当前租户内有效账户（视图层校验）；
+    - 同一工单同一人员唯一（负责人兼参与人时只保留一行 role=owner）；
+    - 参与人不因此自动获得任何系统权限（权限与业务角色分别判断）。
+    """
+
+    work_order = models.ForeignKey(SystemWorkOrder, models.CASCADE, related_name='participants',
+                                   help_text='所属工单')
+    user = models.ForeignKey(User, models.PROTECT, related_name='+', help_text='参与人员')
+    role = models.CharField(max_length=20, help_text='参与角色：owner 负责人 / participant 参与人')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    class Meta:
+        db_table = 'tdyw_el_work_order_participant'
+        verbose_name = '工单参与人员'
+        verbose_name_plural = '工单参与人员'
+        ordering = ('id',)
+        constraints = [
+            models.UniqueConstraint(fields=['work_order', 'user'],
+                                    name='uniq_el_work_order_participant'),
+            models.CheckConstraint(
+                check=models.Q(role__in=WORK_ORDER_ROLE_VALUES),
+                name='el_work_order_participant_role_valid',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['tenant_id', 'work_order']),
+        ]
+
+    def __repr__(self):
+        return '<SystemWorkOrderParticipant work_order=%s user=%s role=%s>' % (
+            self.work_order_id, self.user_id, self.role)
+
+    def to_view(self):
+        return {
+            'id': self.id,
+            'user': self.user_id,
+            'username': self.user.username if self.user_id else '',
+            'nickname': self.user.nickname if self.user_id else '',
+            'role': self.role,
+            'role_text': '负责人' if self.role == WORK_ORDER_ROLE_OWNER else '参与人',
+            'created_at': self.created_at,
+        }
+
+
+class SystemWorkOrderHandlingRecord(TenantModelMixin, models.Model):
+    """工单处理过程记录：追加式时间线，不把过程反复覆盖在一个文本字段中。
+
+    - 已保存记录不得被普通用户静默覆盖：更正时把原内容、新内容、更正原因
+      追加保存到 corrections JSON 数组（与故障处置记录同一模式）；
+    - 附件复用 EvidenceAttachment 体系
+      （module=equipment_lifecycle, object_type=el_work_order_handling, object_id=记录ID）。
+    """
+
+    work_order = models.ForeignKey(SystemWorkOrder, models.CASCADE, related_name='handling_records',
+                                   help_text='所属工单')
+    handled_at = models.DateTimeField(help_text='处理时间')
+    handler = models.ForeignKey(User, models.PROTECT, related_name='+', help_text='处理人')
+    content = models.TextField(max_length=2000, help_text='处理内容')
+    result = models.CharField(max_length=200, default='', blank=True, help_text='处理结果')
+    work_hours = models.FloatField(null=True, blank=True, help_text='本次工时（小时）')
+    corrections = models.TextField(default='', blank=True, help_text='更正历史 JSON 数组')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    class Meta:
+        db_table = 'tdyw_el_work_order_handling_record'
+        verbose_name = '工单处理记录'
+        verbose_name_plural = '工单处理记录'
+        ordering = ('handled_at', 'id')
+        indexes = [
+            models.Index(fields=['tenant_id', 'work_order', 'handled_at', 'id']),
+        ]
+
+    def __repr__(self):
+        return '<SystemWorkOrderHandlingRecord work_order=%s at=%s>' % (
+            self.work_order_id, self.handled_at)
+
+    def get_corrections(self):
+        if not self.corrections:
+            return []
+        try:
+            data = json.loads(self.corrections)
+            return data if isinstance(data, list) else []
+        except (ValueError, TypeError):
+            return []
+
+    def to_view(self):
+        return {
+            'id': self.id,
+            'work_order': self.work_order_id,
+            'handled_at': self.handled_at,
+            'handler': self.handler_id,
+            'handler_name': self.handler.username if self.handler_id else '',
+            'content': self.content,
+            'result': self.result,
+            'work_hours': self.work_hours,
+            'corrections': self.get_corrections(),
+            'created_at': self.created_at,
         }
 
 

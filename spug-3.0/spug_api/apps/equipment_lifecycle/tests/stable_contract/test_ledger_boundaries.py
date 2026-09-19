@@ -111,13 +111,15 @@ class LedgerBoundaryContractTests(TestCase):
         forbidden = {'QrCode', 'MobileTask', 'OfflineTask', 'OfflineSyncQueue', 'SyncQueue',
                      'FieldTerminal', 'SiteCollection'}
         self.assertEqual(forbidden & model_names, set())
-        # 台账模型集合精确可控：仅允许步骤二 + 3.1 + 3.2 的模型
+        # 台账模型集合精确可控：仅允许步骤二 + 3.1 + 3.2 + 3.3（工单四表）的模型
         expected = {
             'SystemType', 'LifecycleSystem', 'ConfigFieldDefinition', 'SystemConfigValue',
             'SystemConfigComponent', 'SystemConfigChange', 'SystemConfigSnapshot',
             'SystemFault', 'SystemFaultAffectedSystem', 'SystemFaultHandlingRecord',
             'SystemInspectionPoint', 'OperationLedgerTemplate', 'OperationLedgerTemplateItem',
             'OperationLedger', 'OperationLedgerItem', 'OperationLedgerCorrection',
+            'SystemWorkOrder', 'SystemWorkOrderAffectedSystem',
+            'SystemWorkOrderParticipant', 'SystemWorkOrderHandlingRecord',
         }
         self.assertEqual(model_names, expected)
 

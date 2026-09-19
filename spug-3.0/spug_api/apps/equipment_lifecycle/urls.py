@@ -3,7 +3,7 @@
 # Released under the AGPL-3.0 License.
 from django.urls import path
 
-from apps.equipment_lifecycle import fault_views, ledger_views, views
+from apps.equipment_lifecycle import fault_views, ledger_views, views, work_order_views
 
 urlpatterns = [
     # 系统类型
@@ -80,4 +80,31 @@ urlpatterns = [
     path('ledgers/<int:pk>/items/<int:item_pk>/attachments/<int:aid>/', ledger_views.LedgerItemAttachmentDetailView.as_view()),
     # 按系统查询台账明细（系统详情页台账 Tab）
     path('systems/<int:pk>/ledger-items/', ledger_views.SystemLedgerItemsView.as_view()),
+    # ==================== 工单管理与异常转单（步骤 3.3） ====================
+    # 工单
+    path('work-orders/', work_order_views.WorkOrderView.as_view()),
+    path('work-orders/export/', work_order_views.WorkOrderExportView.as_view()),
+    path('work-orders/candidate-systems/', work_order_views.WorkOrderCandidateSystemsView.as_view()),
+    path('work-orders/candidate-users/', work_order_views.WorkOrderCandidateUsersView.as_view()),
+    path('work-orders/<int:pk>/', work_order_views.WorkOrderDetailView.as_view()),
+    path('work-orders/<int:pk>/dispatch/', work_order_views.WorkOrderDispatchView.as_view()),
+    path('work-orders/<int:pk>/accept/', work_order_views.WorkOrderAcceptView.as_view()),
+    path('work-orders/<int:pk>/start/', work_order_views.WorkOrderStartView.as_view()),
+    path('work-orders/<int:pk>/submit-review/', work_order_views.WorkOrderSubmitReviewView.as_view()),
+    path('work-orders/<int:pk>/review-pass/', work_order_views.WorkOrderReviewPassView.as_view()),
+    path('work-orders/<int:pk>/review-return/', work_order_views.WorkOrderReviewReturnView.as_view()),
+    path('work-orders/<int:pk>/close/', work_order_views.WorkOrderCloseView.as_view()),
+    path('work-orders/<int:pk>/cancel/', work_order_views.WorkOrderCancelView.as_view()),
+    path('work-orders/<int:pk>/handling-records/', work_order_views.WorkOrderHandlingRecordView.as_view()),
+    path('work-orders/<int:pk>/handling-records/<int:rid>/', work_order_views.WorkOrderHandlingRecordDetailView.as_view()),
+    path('work-orders/<int:pk>/handling-records/<int:rid>/attachments/', work_order_views.WorkOrderHandlingAttachmentView.as_view()),
+    path('work-orders/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/download/', work_order_views.WorkOrderHandlingAttachmentDownloadView.as_view()),
+    path('work-orders/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/', work_order_views.WorkOrderHandlingAttachmentDetailView.as_view()),
+    # 来源与转单
+    path('faults/<int:pk>/work-orders/', work_order_views.FaultWorkOrdersView.as_view()),
+    path('faults/<int:pk>/create-work-order/', work_order_views.FaultCreateWorkOrderView.as_view()),
+    path('ledgers/<int:ledger_pk>/items/<int:item_pk>/convert-to-fault/', work_order_views.LedgerItemConvertToFaultView.as_view()),
+    path('ledgers/<int:ledger_pk>/items/<int:item_pk>/convert-to-work-order/', work_order_views.LedgerItemConvertToWorkOrderView.as_view()),
+    # 按系统查询工单（目标/受影响）
+    path('systems/<int:pk>/work-orders/', work_order_views.SystemWorkOrdersView.as_view()),
 ]

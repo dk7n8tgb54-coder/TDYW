@@ -35,7 +35,7 @@ from apps.evidence.attachment_service import (
 )
 from apps.evidence.models import EvidenceAttachment
 
-from apps.equipment_lifecycle import ledger_services
+from apps.equipment_lifecycle import ledger_services, work_order_services
 from apps.equipment_lifecycle.ledger_services import ITEM_RESULT_TEXT_MAP, LedgerValidationError
 from apps.equipment_lifecycle.models import (
     ITEM_RESULT_ABNORMAL,
@@ -555,9 +555,13 @@ def _get_ledger_for_user(pk, user):
     return apply_tenant_filter(OperationLedger.objects.all(), user).filter(pk=pk).first()
 
 
-def _ledger_detail(ledger):
+def _ledger_detail(ledger, user=None):
     view = ledger.to_view(with_counts=True)
-    view['items'] = [it.to_view() for it in ledger.items.all()]
+    items = [it.to_view() for it in ledger.items.all()]
+    if user is not None:
+        # 异常明细处置状态（步骤 3.3）：由来源关系动态计算，事实依据不落库
+        work_order_services.append_item_disposition(ledger.tenant_id, items)
+    view['items'] = items
     view['corrections'] = [c.to_view() for c in ledger.corrections.all()]
     return view
 
@@ -611,7 +615,7 @@ class LedgerView(View):
                            after_value={'ledger_type': ledger.ledger_type,
                                         'created_from': ledger.created_from,
                                         'items_count': ledger.items.count()})
-        return json_response(_ledger_detail(ledger))
+        return json_response(_ledger_detail(ledger, request.user))
 
 
 class LedgerPreviewView(View):
@@ -634,7 +638,7 @@ class LedgerDetailView(View):
         ledger = _get_ledger_for_user(pk, request.user)
         if not ledger:
             return json_response(error='台账不存在')
-        return json_response(_ledger_detail(ledger))
+        return json_response(_ledger_detail(ledger, request.user))
 
     @auth('equipment_lifecycle.ledger.edit')
     def put(self, request, pk):
@@ -647,7 +651,7 @@ class LedgerDetailView(View):
         record_audit_event(request, 'update', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
                            before_value={'version': ledger.version - 1},
                            after_value={'version': ledger.version, 'changes': changed})
-        return json_response(_ledger_detail(ledger))
+        return json_response(_ledger_detail(ledger, request.user))
 
 
 class LedgerSubmitView(View):
@@ -658,7 +662,7 @@ class LedgerSubmitView(View):
             return json_response(error=error)
         record_audit_event(request, 'update', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
                            after_value={'action_kind': 'submit', 'status': ledger.status})
-        return json_response(_ledger_detail(ledger))
+        return json_response(_ledger_detail(ledger, request.user))
 
 
 class LedgerReturnView(View):
@@ -671,7 +675,7 @@ class LedgerReturnView(View):
         record_audit_event(request, 'update', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
                            after_value={'action_kind': 'return', 'status': ledger.status,
                                         'reason': ledger.return_reason})
-        return json_response(_ledger_detail(ledger))
+        return json_response(_ledger_detail(ledger, request.user))
 
 
 class LedgerReviewView(View):
@@ -683,7 +687,7 @@ class LedgerReviewView(View):
         record_audit_event(request, 'approve', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
                            after_value={'action_kind': 'review', 'status': ledger.status,
                                         'reviewer_name': ledger.reviewer_name})
-        return json_response(_ledger_detail(ledger))
+        return json_response(_ledger_detail(ledger, request.user))
 
 
 class LedgerVoidView(View):
@@ -697,7 +701,7 @@ class LedgerVoidView(View):
         record_audit_event(request, 'delete', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
                            after_value={'action_kind': 'void_ledger', 'status': ledger.status,
                                         'reason': ledger.void_reason})
-        return json_response(_ledger_detail(ledger))
+        return json_response(_ledger_detail(ledger, request.user))
 
 
 class LedgerCorrectView(View):
@@ -728,7 +732,7 @@ class LedgerConfirmNormalView(View):
         record_audit_event(request, 'update', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
                            after_value={'action_kind': 'confirm_normal',
                                         'item_ids': body.get('item_ids')})
-        return json_response(_ledger_detail(ledger))
+        return json_response(_ledger_detail(ledger, request.user))
 
 
 class LedgerAbnormalItemsView(View):
@@ -763,6 +767,8 @@ class LedgerAbnormalItemsView(View):
             view['ledger_executed_date'] = item.ledger.executed_date
             view['ledger_status'] = item.ledger.status
             data.append(view)
+        # 异常明细处置状态（步骤 3.3）：由来源关系动态计算
+        work_order_services.append_item_disposition(request.user.tenant_id, data)
         return json_response({'data': data, 'total': total, 'page': page, 'page_size': page_size})
 
 

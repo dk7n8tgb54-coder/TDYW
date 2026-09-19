@@ -7,7 +7,7 @@
  * 设备全生命周期——运行维护/故障管理列表页（步骤 3.1）。
  * 业务关联一律使用系统 ID，页面仅展示系统名称。
  */
-import React from 'react';
+import React, { useEffect } from 'react';
 import { observer } from 'mobx-react';
 import { Input, Select, Button, Tag, Table, DatePicker } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
@@ -135,7 +135,16 @@ class FaultTable extends React.Component {
   }
 }
 
-function FaultIndex() {
+function FaultIndex(props) {
+  useEffect(() => {
+    // 跨页跳转直达详情（台账详情/工单详情跳入）
+    const params = new URLSearchParams(props.location ? props.location.search : '');
+    const detailId = params.get('detail');
+    if (detailId && /^\d+$/.test(detailId)) {
+      store.showDetail(parseInt(detailId, 10));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <AuthDiv auth={PERM.FAULT_VIEW}>
       <Breadcrumb>

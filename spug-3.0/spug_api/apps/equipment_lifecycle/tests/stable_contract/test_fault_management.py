@@ -473,7 +473,8 @@ class FaultLifecycleTest(FaultTestBase):
         """23. 故障操作失败时系统状态同步回滚。"""
         before = LifecycleSystem.objects.get(pk=self.system_a.id).health_status
         payload = fault_payload(self.system_a)
-        with mock.patch('apps.equipment_lifecycle.fault_views._create_affected_rows',
+        # 步骤 3.3 起故障创建收敛到统一服务 create_fault_record，回滚锚点同步更新
+        with mock.patch('apps.equipment_lifecycle.fault_services.create_fault_record',
                         side_effect=RuntimeError('模拟事务中途失败')):
             resp = self.client.post(f'{FAULT_URL}/', payload, content_type='application/json')
         # 异常被请求中间件包装为业务错误返回

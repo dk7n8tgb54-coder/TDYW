@@ -112,9 +112,10 @@ class FaultStore {
       }));
   };
 
-  showDetail = action((record) => {
-    this.detailId = record.id;
-    this.detail = record;
+  showDetail = action((recordOrId) => {
+    // 支持对象或纯 ID（跨页 ?detail= 跳转直达详情）
+    this.detailId = typeof recordOrId === 'object' ? recordOrId.id : recordOrId;
+    this.detail = typeof recordOrId === 'object' ? recordOrId : {};
     this.detailVisible = true;
     this.handlingRecords = [];
     this.fetchDetail();
