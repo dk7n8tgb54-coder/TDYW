@@ -100,7 +100,7 @@ class ComTable extends React.Component {
       url: '/api/runlog/export/pdf/',
       method: 'post',
       data: store.getExportParams(),
-      defaultFilename: '跨日事项跟踪报告.pdf',
+      defaultFilename: '事件管理报告.pdf',
       timeout: 60000,
       loadingText: '正在生成PDF...',
     });
@@ -112,7 +112,7 @@ class ComTable extends React.Component {
       url: '/api/runlog/export/excel/',
       method: 'get',
       params: store.getExportParams(),
-      defaultFilename: '跨日事项跟踪明细.xlsx',
+      defaultFilename: '事件管理明细.xlsx',
       timeout: 60000,
       loadingText: '正在生成Excel...',
     });
@@ -372,7 +372,7 @@ class ComTable extends React.Component {
 
         <TableCard
           tKey="rl"
-          title="跨日事项跟踪列表"
+          title="事件列表"
           rowKey="id"
           loading={store.isFetching}
           dataSource={store.dataSource}

@@ -80,8 +80,8 @@ export default [
     {title: '党建工作', auth: 'document.party_building_document.view', path: '/document/party-building-documents', component: PartyBuildingDocumentsIndex},
     {title: '规章管理', auth: 'document.regulation.view', path: '/regulation', component: RegulationIndex},
   ]},
-  {icon: <FileTextOutlined/>, title: '跨日事项跟踪', auth: 'runlog.runlog.view', child: [
-    {title: '事项列表', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},
+  {icon: <FileTextOutlined/>, title: '事件管理', auth: 'runlog.runlog.view', child: [
+    {title: '事件列表', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},
     {title: '统计概览', auth: 'runlog.runlog.view', path: '/runlog/statistics', component: RunLogStatistics},
   ]},
   {icon: <ApartmentOutlined/>, title: '设备全生命周期管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_config.view|equipment_lifecycle.fault.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection_point.view|equipment_lifecycle.work_order.view|equipment_lifecycle.system_event.view', child: [

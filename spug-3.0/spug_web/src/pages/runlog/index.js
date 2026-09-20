@@ -37,7 +37,7 @@ export default observer(function () {
     <AuthDiv auth="runlog.runlog.view">
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>跨日事项跟踪</Breadcrumb.Item>
+        <Breadcrumb.Item>事件管理</Breadcrumb.Item>
       </Breadcrumb>
       <ComTable/>
       {store.formVisible && <ComForm/>}

@@ -152,7 +152,7 @@ describe('值班日志 Form 引入当日记录', () => {
     await click(importBtn);
     await act(async () => {});
 
-    // 默认 Tab 是跨日事项跟踪，勾选其中的记录
+    // 默认 Tab 是事件管理，勾选其中的记录
     // （antd 默认不销毁非活动 TabPane，必须限定活动面板内的 checkbox）
     const runlogCheckbox = document.querySelector('.ant-tabs-tabpane-active .ant-checkbox-input');
     expect(runlogCheckbox).toBeTruthy();
@@ -181,7 +181,7 @@ describe('值班日志 Form 引入当日记录', () => {
     const textarea = document.querySelector('textarea');
     const value = textarea.value;
     expect(value).toContain('值班正常');
-    expect(value).toContain('--- 引入跨日事项跟踪 ---');
+    expect(value).toContain('--- 引入事件管理 ---');
     expect(value).toContain('--- 引入干扰记录 ---');
     expect(value).toContain('【跨日事项A - 序号2 - 记录人A】');
     expect(value).toContain('事项内容A');

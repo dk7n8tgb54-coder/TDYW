@@ -57,15 +57,15 @@ export default [{
   }]
 }, {
   key: 'runlog',
-  label: '跨日事项跟踪',
+  label: '事件管理',
   pages: [{
     key: 'runlog',
-    label: '跨日事项跟踪',
+    label: '事件管理',
     perms: [
-      {key: 'view', label: '查看跨日事项跟踪'},
-      {key: 'add', label: '新建跨日事项'},
-      {key: 'edit', label: '编辑跨日事项'},
-      {key: 'del', label: '删除跨日事项'},
+      {key: 'view', label: '查看事件'},
+      {key: 'add', label: '新建事件'},
+      {key: 'edit', label: '编辑事件'},
+      {key: 'del', label: '删除事件'},
       {key: 'update_view', label: '查看动态'},
       {key: 'update_add', label: '添加动态'},
       {key: 'update_edit', label: '编辑动态'},
