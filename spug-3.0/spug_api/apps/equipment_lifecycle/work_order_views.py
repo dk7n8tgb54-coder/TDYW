@@ -1190,7 +1190,7 @@ class LedgerItemConvertToFaultView(View):
 
     - 只有结果为"异常"的明细可以转故障；草稿/退回/作废台账不能转；
     - 故障系统固定为明细所属系统；
-    - 带入台账类型、编号、检查项、巡检点/位置、异常说明、实测值与现场处理内容；
+    - 带入台账类型、编号、检查项、异常说明、实测值与现场处理内容；
     - 必须调用步骤 3.1 的正式故障创建服务（fault_services.create_fault_record），
       转换与来源关系保存处于同一事务；
     - 同一异常明细默认只允许直接生成一张故障；目标已作废后重新处置须填写原因。
@@ -1257,7 +1257,7 @@ class LedgerItemConvertToFaultView(View):
                         discovery=form.discovery,
                         level=form.level,
                         phenomenon=phenomenon,
-                        fault_location=(item.point_name_snapshot or item.location_snapshot),
+                        fault_location='',
                         source_type='ledger_item',
                         source_ledger_item=item,
                         request=request,
@@ -1283,13 +1283,10 @@ class LedgerItemConvertToFaultView(View):
         return json_response(fault_data.to_detail_view())
 
     def _compose_phenomenon(self, item, ledger):
-        """由台账明细组装默认故障现象：台账类型/编号 + 检查项 + 位置 + 异常说明
+        """由台账明细组装默认故障现象：台账类型/编号 + 检查项 + 异常说明
         + 实测值 + 现场处理内容。"""
         ledger_label = f'{LEDGER_TYPE_TEXT.get(ledger.ledger_type, ledger.ledger_type)} {ledger.ledger_no}'
-        location = item.point_name_snapshot or item.location_snapshot
         parts = [f'[{ledger_label}] {item.item_name_snapshot}']
-        if location:
-            parts.append(f'位置：{location}')
         parts.append(item.abnormal_desc or '发现异常')
         value_text = _item_value_text(item)
         if value_text:
@@ -1395,8 +1392,7 @@ class LedgerItemConvertToWorkOrderView(View):
                         source_no=ledger.ledger_no,
                         system=item.system,
                         affects_system_operation=form.affects_system_operation,
-                        work_location=((form.work_location or '').strip()
-                                       or item.point_name_snapshot or item.location_snapshot),
+                        work_location=(form.work_location or '').strip(),
                         work_requirement=work_requirement[:2000],
                         work_steps=(form.work_steps or '').strip()[:2000],
                         material_note=(form.material_note or '').strip()[:500],

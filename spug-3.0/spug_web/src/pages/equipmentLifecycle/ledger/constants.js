@@ -8,8 +8,6 @@
  */
 
 export const PERM_L = {
-  POINT_VIEW: 'equipment_lifecycle.inspection_point.view',
-  POINT_MANAGE: 'equipment_lifecycle.inspection_point.manage',
   TPL_VIEW: 'equipment_lifecycle.ledger_template.view',
   TPL_ADD: 'equipment_lifecycle.ledger_template.add',
   TPL_EDIT: 'equipment_lifecycle.ledger_template.edit',

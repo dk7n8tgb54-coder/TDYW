@@ -54,14 +54,13 @@ from apps.equipment_lifecycle.models import (
     OperationLedgerItem,
     OperationLedgerTemplate,
     OperationLedgerTemplateItem,
-    SystemInspectionPoint,
 )
 
 # 编辑台账时允许更新的明细字段（模板快照字段生成后不可变）
 ITEM_EDITABLE_FIELDS = {
     'value_text', 'value_number', 'value_bool', 'result', 'abnormal_desc',
     'na_reason', 'onsite_action', 'executor_name', 'executed_at',
-    'correction_reason', 'location_snapshot', 'display_order',
+    'correction_reason', 'display_order',
 }
 # 明细值/结果字段（快照映射展示用）
 ITEM_RESULT_TEXT_MAP = {
@@ -141,18 +140,6 @@ def get_systems_for_user(user, system_ids):
     if inactive:
         raise LedgerValidationError('系统已停用，不能用于新台账：%s' % '、'.join(inactive))
     return found
-
-
-def get_point_for_entry(point_id, system):
-    """录入校验用巡检点：必须属于明细系统且未停用；返回 None 表示不关联。"""
-    if point_id in (None, ''):
-        return None
-    point = SystemInspectionPoint.objects.filter(pk=point_id, system=system).first()
-    if not point:
-        raise LedgerValidationError('巡检点不存在或不属于所选系统')
-    if not point.is_active:
-        raise LedgerValidationError('巡检点已停用，不能用于新台账：%s' % point.name)
-    return point
 
 
 def get_template_for_entry(template_id, ledger_type, maintenance_cycle, system):
@@ -405,8 +392,6 @@ def _build_item_instances(ledger, systems_map, entries_payload):
 
 def _build_item_instance(ledger, system, template, row, order):
     """校验单条明细并构建未落库的 OperationLedgerItem。"""
-    point = get_point_for_entry(row.get('inspection_point_id'), system)
-    location = str(row.get('location') or '').strip()
     if template is not None and row.get('template_item_id'):
         tpl_item = OperationLedgerTemplateItem.objects.filter(
             pk=row['template_item_id'], template=template).first()
@@ -416,16 +401,12 @@ def _build_item_instance(ledger, system, template, row, order):
             raise LedgerValidationError('模板项目已停用：%s' % tpl_item.name)
         if not tpl_item.matches_cycle(ledger.maintenance_cycle):
             raise LedgerValidationError('模板项目与本次维护周期不匹配：%s' % tpl_item.name)
-        if tpl_item.inspection_point_id and not point:
-            point = get_point_for_entry(tpl_item.inspection_point_id, system)
         snapshot = build_template_snapshot(template, tpl_item)
         is_temporary = False
     else:
         snapshot = build_manual_snapshot(row)
         validate_snapshot_execution_scope(snapshot['execution_scope'])
         is_temporary = True
-        if not point and not location:
-            raise LedgerValidationError('明细"%s"缺少巡检点或维护位置' % snapshot['item_name_snapshot'])
     value_text, value_number, value_bool = validate_item_value(snapshot['input_type'], row)
     result, is_auto, correction = resolve_item_result(snapshot['input_type'], snapshot, row)
     validate_item_result_rules(result, row)
@@ -436,9 +417,6 @@ def _build_item_instance(ledger, system, template, row, order):
         system_code_snapshot=system.system_code,
         system_name_snapshot=system.name,
         system_location_snapshot=system.install_location,
-        inspection_point=point,
-        point_name_snapshot=point.name if point else '',
-        location_snapshot=location,
         value_text=value_text,
         value_number=value_number,
         value_bool=value_bool,
@@ -599,12 +577,6 @@ def update_ledger(user, pk, body):
 
 def _apply_item_edits(item, row, system):
     """编辑已有明细：仅允许更新填写值/结果类字段，校验规则与创建一致。"""
-    if row.get('inspection_point_id') is not None or 'inspection_point_id' in row:
-        point = get_point_for_entry(row.get('inspection_point_id'), system)
-        item.inspection_point = point
-        item.point_name_snapshot = point.name if point else ''
-    if 'location' in row:
-        item.location_snapshot = str(row.get('location') or '').strip()
     payload = {
         'value_text': row.get('value_text'),
         'value_number': row.get('value_number'),
@@ -666,7 +638,6 @@ def preview_entries(user, body):
                     continue
                 view = tpl_item.to_view()
                 view['client_key'] = '%s-%s' % (system.id, tpl_item.id)
-                view['inspection_point_id'] = tpl_item.inspection_point_id
                 items.append(view)
         preview.append({
             'system': {

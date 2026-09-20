@@ -207,7 +207,7 @@ const FaultForm = observer(function FaultForm() {
         <Form.Item name="impact_scope" label="影响范围">
           <TextArea rows={2} placeholder="受影响的业务或范围（选填）"/>
         </Form.Item>
-        <Form.Item name="fault_location" label="故障位置/巡检点">
+        <Form.Item name="fault_location" label="故障位置">
           <Input placeholder="如 机房A 01柜（选填）"/>
         </Form.Item>
         <Form.Item name="fault_component" label="配置组成项" extra="可选：引用故障系统的配置组成项，不要求逐台建档">

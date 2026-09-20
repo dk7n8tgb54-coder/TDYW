@@ -25,7 +25,7 @@ from apps.equipment_lifecycle.tests.base import (
     ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS, make_client, make_system, make_user,
 )
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
-    ALL_LEDGER_PERMS, ALL_POINT_PERMS, ALL_TEMPLATE_PERMS,
+    ALL_LEDGER_PERMS, ALL_TEMPLATE_PERMS,
     create_ledger_ok, entry_payload, item_payload, ledger_payload, post_json,
 )
 
@@ -67,7 +67,7 @@ class SingleSystemSimplificationTest(TestCase):
 
     def setUp(self):
         perms = (ALL_SYSTEM_PERMS + ALL_CONFIG_PERMS + ALL_FAULT_PERMS + ALL_WO_PERMS +
-                 ALL_LEDGER_PERMS + ALL_POINT_PERMS + ALL_TEMPLATE_PERMS + [P_HANDLE_EXCEPTION])
+                 ALL_LEDGER_PERMS + ALL_TEMPLATE_PERMS + [P_HANDLE_EXCEPTION])
         self.admin = make_user('ss_admin', perms, tenant_id='tenant_a')
         self.client = make_client(self.admin)
         self.system_a = make_system(self.admin, tenant_id='tenant_a',

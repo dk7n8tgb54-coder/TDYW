@@ -577,7 +577,7 @@ class SystemFault(TenantModelMixin, models.Model):
     phenomenon = models.TextField(max_length=2000, help_text='故障现象')
     impact_scope = models.TextField(max_length=1000, default='', blank=True, help_text='影响范围')
     fault_location = models.CharField(max_length=200, default='', blank=True,
-                                      help_text='故障位置或巡检点描述')
+                                      help_text='故障位置描述')
     fault_object_name = models.CharField(max_length=100, default='', blank=True,
                                          help_text='具体故障对象名称快照')
     fault_object_model = models.CharField(max_length=100, default='', blank=True,
@@ -759,7 +759,7 @@ class SystemFaultHandlingRecord(TenantModelMixin, models.Model):
 # ======================================================================
 # 步骤 3.2：巡检 / 周月维护 / 季维护台账
 # ----------------------------------------------------------------------
-# 结构：系统 → 巡检点/维护位置 → 检查项或维护项 → 台账明细 → 台账汇总表。
+# 结构：系统 → 检查项或维护项 → 台账明细 → 台账汇总表。
 # 三类台账共用统一模型（OperationLedger/OperationLedgerItem），
 # 通过 ledger_type + maintenance_cycle 区分，不为三类台账复制三套表。
 # 本步骤只记录异常，不转故障/工单，不修改系统健康状态（步骤 3.1 逻辑），
@@ -839,64 +839,6 @@ def ledger_cycle_combo_q(ledger_type_field, cycle_field):
         models.Q(**{ledger_type_field: LEDGER_TYPE_WEEK_MONTH, cycle_field + '__in': [CYCLE_WEEK, CYCLE_MONTH]}) |
         models.Q(**{ledger_type_field: LEDGER_TYPE_SEASONAL, cycle_field: CYCLE_SEASON})
     )
-
-
-class SystemInspectionPoint(TenantModelMixin, models.Model):
-    """系统巡检点：具体系统下的稳定检查位置/功能点（机柜、电源区域、操作席等）。
-
-    - 必须关联系统 ID（LifecycleSystem PROTECT），不关联 DeviceResume；
-    - 同一租户、同一系统内 point_code 唯一；
-    - 停用后不能用于新台账，历史台账明细中的巡检点快照继续显示；
-    - 不是设备资产，不建立独立履历。
-    """
-
-    system = models.ForeignKey(
-        LifecycleSystem, models.PROTECT, related_name='inspection_points', help_text='所属系统')
-    point_code = models.CharField(max_length=50, help_text='巡检点编码，同一租户同一系统内唯一')
-    name = models.CharField(max_length=100, help_text='巡检点名称')
-    location_desc = models.CharField(max_length=200, default='', blank=True, help_text='位置说明')
-    display_order = models.IntegerField(default=0, help_text='显示顺序，小者靠前')
-    is_active = models.BooleanField(default=True, help_text='是否启用（停用后不能用于新台账）')
-    remark = models.CharField(max_length=500, default='', blank=True, help_text='备注')
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
-    updated_at = models.DateTimeField(null=True, blank=True)
-    updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
-
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-
-    class Meta:
-        db_table = 'tdyw_el_inspection_point'
-        verbose_name = '系统巡检点'
-        verbose_name_plural = '系统巡检点'
-        ordering = ('display_order', 'id')
-        constraints = [
-            models.UniqueConstraint(
-                fields=['tenant_id', 'system', 'point_code'],
-                name='uniq_el_inspection_point_system_code',
-            ),
-        ]
-        indexes = [
-            models.Index(fields=['tenant_id', 'system']),
-        ]
-
-    def __repr__(self):
-        return '<SystemInspectionPoint %r>' % self.point_code
-
-    def to_view(self):
-        return {
-            'id': self.id,
-            'system': self.system_id,
-            'point_code': self.point_code,
-            'name': self.name,
-            'location_desc': self.location_desc,
-            'display_order': self.display_order,
-            'is_active': self.is_active,
-            'remark': self.remark,
-            'created_at': self.created_at,
-            'updated_at': self.updated_at,
-        }
 
 
 class OperationLedgerTemplate(TenantModelMixin, models.Model):
@@ -984,9 +926,6 @@ class OperationLedgerTemplateItem(TenantModelMixin, models.Model):
         OperationLedgerTemplate, models.CASCADE, related_name='items', help_text='所属模板')
     item_code = models.CharField(max_length=50, help_text='项目编码，模板内唯一')
     name = models.CharField(max_length=100, help_text='项目名称')
-    inspection_point = models.ForeignKey(
-        SystemInspectionPoint, models.PROTECT, related_name='template_items', null=True, blank=True,
-        help_text='可选巡检点（须属于模板适用系统）')
     standard = models.CharField(max_length=500, default='', blank=True, help_text='检查或维护标准')
     input_type = models.CharField(max_length=20, help_text='录入类型')
     unit = models.CharField(max_length=20, default='', blank=True, help_text='单位')
@@ -1060,8 +999,6 @@ class OperationLedgerTemplateItem(TenantModelMixin, models.Model):
             'template': self.template_id,
             'item_code': self.item_code,
             'name': self.name,
-            'inspection_point': self.inspection_point_id,
-            'inspection_point_name': self.inspection_point.name if self.inspection_point_id else '',
             'standard': self.standard,
             'input_type': self.input_type,
             'unit': self.unit,
@@ -1233,12 +1170,6 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
     system_code_snapshot = models.CharField(max_length=50, default='', blank=True, help_text='系统编号快照')
     system_name_snapshot = models.CharField(max_length=100, default='', blank=True, help_text='系统名称快照')
     system_location_snapshot = models.CharField(max_length=200, default='', blank=True, help_text='系统安装地点快照')
-    # —— 巡检点/维护位置 ——
-    inspection_point = models.ForeignKey(
-        SystemInspectionPoint, models.PROTECT, related_name='ledger_items', null=True, blank=True,
-        help_text='可选巡检点（须属于明细系统）')
-    point_name_snapshot = models.CharField(max_length=100, default='', blank=True, help_text='巡检点名称快照')
-    location_snapshot = models.CharField(max_length=200, default='', blank=True, help_text='手填维护/检查位置快照')
     # —— 模板项目快照 ——
     template_item = models.ForeignKey(
         OperationLedgerTemplateItem, models.SET_NULL, related_name='ledger_items', null=True, blank=True,
@@ -1333,9 +1264,6 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
             'system_code': self.system_code_snapshot,
             'system_name': self.system_name_snapshot,
             'system_location': self.system_location_snapshot,
-            'inspection_point': self.inspection_point_id,
-            'inspection_point_name': self.point_name_snapshot,
-            'location': self.location_snapshot,
             'template_item': self.template_item_id,
             'template_name': self.template_name_snapshot,
             'item_code': self.item_code_snapshot,

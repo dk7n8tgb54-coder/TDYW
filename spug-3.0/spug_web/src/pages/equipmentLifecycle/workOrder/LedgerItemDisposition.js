@@ -234,7 +234,7 @@ function ConvertToWorkOrderModal({visible, ledger, item, needReason, onClose, on
     priority: 'normal',
     system: item.system,
     affects_system_operation: false,
-    work_location: item.inspection_point_name || item.location || '',
+    work_location: '',
     work_requirement: defaultRequirement,
     re_dispose_reason: '',
   };

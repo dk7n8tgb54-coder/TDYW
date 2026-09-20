@@ -10,7 +10,6 @@ from apps.equipment_lifecycle.models import (
 from apps.equipment_lifecycle.tests.base import make_client, make_system
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
     ALL_LEDGER_PERMS,
-    ALL_POINT_PERMS,
     ALL_TEMPLATE_PERMS,
     LEDGER_URL,
     TEMPLATE_URL,
@@ -35,7 +34,7 @@ def _tpl_item_payload(tpl_item, **kw):
 class LedgerTemplateContractTests(TestCase):
     def setUp(self):
         self.user = make_ledger_user(
-            'tpl_op', perms=ALL_LEDGER_PERMS + ALL_POINT_PERMS + ALL_TEMPLATE_PERMS)
+            'tpl_op', perms=ALL_LEDGER_PERMS + ALL_TEMPLATE_PERMS)
         self.system = make_system(self.user)
 
     def _make_inspection_template(self, **kw):

@@ -158,7 +158,6 @@ describe('台账录入表单（LedgerForm）', () => {
       if (url.includes('/systems/')) {
         return Promise.resolve({data: [{id: 11, system_code: 'S1', name: '系统一', install_location: '机房A'}], total: 1});
       }
-      if (url.includes('/inspection-points/')) return Promise.resolve({data: []});
       if (url.includes('/ledger-templates/available/')) {
         return Promise.resolve({data: [{id: 5, name: '巡检模板A', template_code: 'T1', items_count: 1}]});
       }
@@ -173,7 +172,7 @@ describe('台账录入表单（LedgerForm）', () => {
             items: [{
               id: 201, name: '电源电压', standard: '48V-54V', input_type: 'number',
               unit: 'V', normal_range: '48-54', choices: [], number_min: 48, number_max: 54,
-              is_required: false, inspection_point: null,
+              is_required: false,
             }],
           }],
         });

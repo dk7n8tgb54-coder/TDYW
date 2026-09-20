@@ -13,13 +13,11 @@ from apps.equipment_lifecycle.models import (
 from apps.equipment_lifecycle.tests.base import make_client, make_system
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
     LEDGER_URL,
-    POINT_URL,
     create_ledger_ok,
     entry_payload,
     item_payload,
     ledger_payload,
     make_ledger_user,
-    make_point,
     post_json,
 )
 
@@ -116,7 +114,7 @@ class LedgerBoundaryContractTests(TestCase):
             'LifecycleSystem', 'ConfigFieldDefinition', 'SystemConfigValue',
             'SystemConfigComponent', 'SystemConfigChange', 'SystemConfigSnapshot',
             'SystemFault', 'SystemFaultHandlingRecord',
-            'SystemInspectionPoint', 'OperationLedgerTemplate', 'OperationLedgerTemplateItem',
+            'OperationLedgerTemplate', 'OperationLedgerTemplateItem',
             'OperationLedger', 'OperationLedgerItem', 'OperationLedgerCorrection',
             'SystemWorkOrder',
             'SystemWorkOrderParticipant', 'SystemWorkOrderHandlingRecord',
@@ -143,7 +141,7 @@ class LedgerBoundaryContractTests(TestCase):
         self.assertTrue(callable(fault_services.collect_active_impacts))
         # 本步骤新增表均使用 tdyw_el_* 新表名，不复用步骤一删除的旧表
         for model_name in ('OperationLedger', 'OperationLedgerItem', 'OperationLedgerTemplate',
-                           'OperationLedgerTemplateItem', 'SystemInspectionPoint',
+                           'OperationLedgerTemplateItem',
                            'OperationLedgerCorrection'):
             table = django_apps.get_model('equipment_lifecycle', model_name)._meta.db_table
             self.assertTrue(table.startswith('tdyw_el_'), table)

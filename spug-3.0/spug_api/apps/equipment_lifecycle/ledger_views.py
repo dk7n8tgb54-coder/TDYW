@@ -4,12 +4,11 @@
 """设备全生命周期——巡检/周月维护/季维护台账视图（步骤 3.2）。
 
 权限域（前后端一致，后端独立校验）：
-- equipment_lifecycle.inspection_point.view|manage
 - equipment_lifecycle.ledger_template.view|add|edit|del
 - equipment_lifecycle.ledger.view|add|edit|submit|review|del|export
 
 约定：
-- 所有系统关联通过系统 ID，后端重新查询系统/模板/巡检点，不信任前端
+- 所有系统关联通过系统 ID，后端重新查询系统/模板，不信任前端
   传来的名称与模板内容；
 - 台账创建/提交/复核/退回/作废均考虑重复请求（状态机 + client_token）；
 - HTTP 200 + error 为业务失败；写操作记录业务审计并使用状态动作接口；
@@ -50,7 +49,6 @@ from apps.equipment_lifecycle.models import (
     OperationLedgerItem,
     OperationLedgerTemplate,
     OperationLedgerTemplateItem,
-    SystemInspectionPoint,
 )
 from apps.equipment_lifecycle.views import (
     EL_ATTACHMENT_MODULE,
@@ -58,7 +56,6 @@ from apps.equipment_lifecycle.views import (
     _read_json_body,
 )
 
-AUDIT_TARGET_POINT = 'el_inspection_point'
 AUDIT_TARGET_TEMPLATE = 'el_ledger_template'
 AUDIT_TARGET_LEDGER = 'el_operation_ledger'
 
@@ -81,119 +78,6 @@ def _parse_choices_field(raw):
     if not isinstance(values, list) or any(not isinstance(v, str) for v in values):
         raise LedgerValidationError('候选项格式不正确，必须为字符串数组')
     return json.dumps(values, ensure_ascii=False), values
-
-
-# ======================================================================
-# 巡检点
-# ======================================================================
-
-def _get_point_for_user(pk, user):
-    return apply_tenant_filter(SystemInspectionPoint.objects.all(), user).filter(pk=pk).first()
-
-
-class InspectionPointView(View):
-    """巡检点列表（可按系统过滤）与创建。"""
-
-    @auth('equipment_lifecycle.inspection_point.view')
-    def get(self, request):
-        query = apply_tenant_filter(SystemInspectionPoint.objects.select_related('system'), request.user)
-        system_id = request.GET.get('system')
-        if system_id and str(system_id).isdigit():
-            query = query.filter(system_id=system_id)
-        keyword = request.GET.get('keyword')
-        if keyword:
-            query = query.filter(Q(point_code__icontains=keyword) | Q(name__icontains=keyword))
-        is_active = request.GET.get('is_active')
-        if is_active in ('true', 'false'):
-            query = query.filter(is_active=(is_active == 'true'))
-        data = []
-        for item in query:
-            view = item.to_view()
-            view['system_code'] = item.system.system_code
-            view['system_name'] = item.system.name
-            data.append(view)
-        return json_response({'data': data})
-
-    @auth('equipment_lifecycle.inspection_point.manage')
-    def post(self, request):
-        body = _read_json_body(request)
-        if body is None:
-            return json_response(error='请求体格式不正确')
-        system = _get_system_for_user(body.get('system'), request.user)
-        if not system:
-            return json_response(error='所属系统不存在')
-        if not system.is_active:
-            return json_response(error='系统已停用，不能添加巡检点')
-        point_code = str(body.get('point_code') or '').strip()
-        name = str(body.get('name') or '').strip()
-        if not point_code or not name:
-            return json_response(error='巡检点编码和名称不能为空')
-        if SystemInspectionPoint.objects.filter(
-                tenant_id=request.user.tenant_id, system=system, point_code=point_code).exists():
-            return json_response(error='同一系统内巡检点编码已存在：%s' % point_code)
-        point = SystemInspectionPoint.objects.create(
-            system=system,
-            point_code=point_code,
-            name=name,
-            location_desc=str(body.get('location_desc') or '').strip(),
-            display_order=body.get('display_order') if isinstance(body.get('display_order'), int) else 0,
-            is_active=bool(body.get('is_active', True)),
-            remark=str(body.get('remark') or '').strip(),
-            tenant_id=request.user.tenant_id,
-            created_by=request.user,
-        )
-        record_audit_event(request, 'create', AUDIT_TARGET_POINT, point.id, point.name,
-                           after_value={'point_code': point.point_code, 'system': system.system_code})
-        return json_response(point.to_view())
-
-
-class InspectionPointDetailView(View):
-    @auth('equipment_lifecycle.inspection_point.manage')
-    def put(self, request, pk):
-        body = _read_json_body(request)
-        if body is None:
-            return json_response(error='请求体格式不正确')
-        point = _get_point_for_user(pk, request.user)
-        if not point:
-            return json_response(error='巡检点不存在')
-        name = str(body.get('name') or '').strip()
-        if not name:
-            return json_response(error='巡检点名称不能为空')
-        before = {'name': point.name, 'location_desc': point.location_desc,
-                  'display_order': point.display_order, 'remark': point.remark}
-        point.name = name
-        point.location_desc = str(body.get('location_desc') or '').strip()
-        if isinstance(body.get('display_order'), int):
-            point.display_order = body['display_order']
-        point.remark = str(body.get('remark') or '').strip()
-        point.updated_by = request.user
-        point.save()
-        record_audit_event(request, 'update', AUDIT_TARGET_POINT, point.id, point.name,
-                           before_value=before,
-                           after_value={'name': point.name, 'location_desc': point.location_desc,
-                                        'display_order': point.display_order, 'remark': point.remark})
-        return json_response(point.to_view())
-
-
-class InspectionPointActiveView(View):
-    """巡检点停用/启用：停用后不能用于新台账，历史台账快照不受影响。"""
-
-    @auth('equipment_lifecycle.inspection_point.manage')
-    def put(self, request, pk):
-        body = _read_json_body(request)
-        if body is None or not isinstance(body.get('is_active'), bool):
-            return json_response(error='请求体格式不正确')
-        point = _get_point_for_user(pk, request.user)
-        if not point:
-            return json_response(error='巡检点不存在')
-        point.is_active = body['is_active']
-        point.updated_by = request.user
-        point.save(update_fields=['is_active', 'updated_at', 'updated_by'])
-        record_audit_event(
-            request, 'update' if point.is_active else 'delete', AUDIT_TARGET_POINT, point.id,
-            point.name, after_value={'is_active': point.is_active,
-                                     'action_kind': 'activate_point' if point.is_active else 'deactivate_point'})
-        return json_response(point.to_view())
 
 
 # ======================================================================
@@ -269,15 +153,6 @@ def _validate_template_item_payload(request, template, body, item=None):
             return None, str(e)
         if not choices:
             return None, '单选/多选项目必须配置候选项'
-    point = None
-    if body.get('inspection_point'):
-        point = SystemInspectionPoint.objects.filter(
-            pk=body['inspection_point'], tenant_id=request.user.tenant_id).first()
-        if not point:
-            return None, '巡检点不存在'
-        applicable_ids = set(template.applicable_systems.values_list('id', flat=True))
-        if point.system_id not in applicable_ids:
-            return None, '巡检点不属于模板适用系统'
     number_min = body.get('number_min')
     number_max = body.get('number_max')
     for label, value in (('数值正常下限', number_min), ('数值正常上限', number_max)):
@@ -295,7 +170,6 @@ def _validate_template_item_payload(request, template, body, item=None):
     return {
         'item_code': item_code,
         'name': name,
-        'inspection_point': point,
         'standard': str(body.get('standard') or '').strip(),
         'input_type': input_type,
         'unit': str(body.get('unit') or '').strip(),
@@ -835,7 +709,7 @@ class LedgerExportView(View):
         writer = csv.writer(buffer)
         writer.writerow([
             '台账编号', '台账类型', '维护周期', '实际执行日期', '状态', '系统编号', '系统名称',
-            '巡检点/位置', '项目编码', '项目名称', '标准要求', '录入类型', '填写值', '单位',
+            '项目编码', '项目名称', '标准要求', '录入类型', '填写值', '单位',
             '正常范围', '结果', '异常说明', '不适用原因', '现场处理内容', '明细执行人',
             '明细执行时间', '录入渠道', '补录说明', '录入时间'])
         count = 0
@@ -854,7 +728,6 @@ class LedgerExportView(View):
                 ledger.ledger_no, LEDGER_TYPE_TEXT.get(ledger.ledger_type, ledger.ledger_type),
                 ledger.maintenance_cycle, ledger.executed_date,
                 ledger.status, item.system_code_snapshot, item.system_name_snapshot,
-                item.point_name_snapshot or item.location_snapshot,
                 item.item_code_snapshot, item.item_name_snapshot, item.standard_snapshot,
                 item.input_type, value, item.unit_snapshot, item.normal_range_snapshot,
                 ITEM_RESULT_TEXT_MAP.get(item.result, item.result),

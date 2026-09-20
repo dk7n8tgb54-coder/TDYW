@@ -50,7 +50,6 @@ class LedgerDetail extends React.Component {
 
   renderItems = (items) => {
     const columns = [
-      {title: '巡检点/位置', key: 'point', width: 150, render: (t, r) => r.inspection_point_name || r.location || '-'},
       {title: '项目', dataIndex: 'item_name', width: 160},
       {title: '标准要求', dataIndex: 'standard', ellipsis: true},
       {title: '填写值', key: 'value', width: 110, render: (t, r) => this.renderValue(r)},

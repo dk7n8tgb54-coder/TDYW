@@ -6,7 +6,7 @@
  * 设备全生命周期——运行维护台账状态管理（步骤 3.2，MobX legacy decorators）。
  *
  * - LedgerStore 按 ledger_type 参数化，三类台账页面共用同一实现；
- * - TemplateStore / PointStore 为模板与巡检点管理页的独立 Store；
+ * - TemplateStore 为模板管理页的独立 Store；
  * - 错误提示统一由 http 拦截器弹出，业务代码不重复提示。
  */
 import {observable, action} from 'mobx';
@@ -148,57 +148,6 @@ export class TemplateStore {
   };
 }
 
-export class PointStore {
-  @observable records = [];
-  @observable isFetching = false;
-  @observable formVisible = false;
-  @observable record = {};
-  @observable isSubmitting = false;
-
-  f_keyword = undefined;
-  f_system = undefined;
-  systems = [];
-
-  @action setFilter = (key, value) => {
-    this[key] = value;
-  };
-
-  fetchRecords = () => {
-    this.isFetching = true;
-    const params = {};
-    if (this.f_keyword) params.keyword = this.f_keyword;
-    if (this.f_system) params.system = this.f_system;
-    return http.get(`${API_PREFIX_L}/inspection-points/`, {params})
-      .then(action(res => {
-        this.records = res.data;
-      }))
-      .catch(action(() => {}))
-      .finally(action(() => {
-        this.isFetching = false;
-      }));
-  };
-
-  fetchSystems = () => {
-    return http.get(`${API_PREFIX_L}/systems/`, {params: {page: 1, page_size: 999}})
-      .then(action(res => {
-        this.systems = res.data;
-      }))
-      .catch(action(() => {}));
-  };
-
-  showForm = action((record = {}) => {
-    this.record = record;
-    this.formVisible = true;
-  });
-
-  toggleActive = (record, is_active) => {
-    return http.put(`${API_PREFIX_L}/inspection-points/${record.id}/active/`, {is_active})
-      .then(action(() => {
-        this.fetchRecords();
-      }));
-  };
-}
-
 const ledgerStoreCache = {};
 
 export function getLedgerStore(ledgerType) {
@@ -209,4 +158,3 @@ export function getLedgerStore(ledgerType) {
 }
 
 export const templateStore = new TemplateStore();
-export const pointStore = new PointStore();

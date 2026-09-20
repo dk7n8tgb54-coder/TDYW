@@ -59,7 +59,7 @@ class FaultDetail extends React.Component {
         <Descriptions.Item label="处置负责人">{d.handler_name || '-'}</Descriptions.Item>
         <Descriptions.Item label="故障现象" span={2}>{d.phenomenon}</Descriptions.Item>
         <Descriptions.Item label="影响范围" span={2}>{d.impact_scope || '-'}</Descriptions.Item>
-        <Descriptions.Item label="故障位置/巡检点" span={2}>{d.fault_location || '-'}</Descriptions.Item>
+        <Descriptions.Item label="故障位置" span={2}>{d.fault_location || '-'}</Descriptions.Item>
         <Descriptions.Item label="故障对象" span={2}>
           {[d.fault_object_name, d.fault_object_model, d.fault_object_sn]
             .filter(Boolean).join(' / ') || '-'}

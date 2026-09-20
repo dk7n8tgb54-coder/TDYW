@@ -303,7 +303,7 @@ def _get_field_for_user(pk, user):
 def _collect_system_references(system):
     """删除保护：返回引用该系统的业务对象描述列表，非空则禁止物理删除。
 
-    步骤 3.1 起故障、步骤 3.2 起巡检点/台账明细、步骤 3.3 起工单、步骤 3.4 起
+    步骤 3.1 起故障、步骤 3.2 起台账明细、步骤 3.3 起工单、步骤 3.4 起
     履历事件均以系统 ID 建立业务关联（PROTECT）；历史记录必须继续可查，
     存在关联的系统不得物理删除。fail-closed 语义。
     """
@@ -311,16 +311,12 @@ def _collect_system_references(system):
         OperationLedgerItem,
         SystemEvent,
         SystemFault,
-        SystemInspectionPoint,
         SystemWorkOrder,
     )
     refs = []
     if SystemFault.objects.filter(
             tenant_id=system.tenant_id, system_id=system.id).exists():
         refs.append('故障记录')
-    if SystemInspectionPoint.objects.filter(
-            tenant_id=system.tenant_id, system_id=system.id).exists():
-        refs.append('巡检点')
     if OperationLedgerItem.objects.filter(
             tenant_id=system.tenant_id, system_id=system.id).exists():
         refs.append('运维台账明细')

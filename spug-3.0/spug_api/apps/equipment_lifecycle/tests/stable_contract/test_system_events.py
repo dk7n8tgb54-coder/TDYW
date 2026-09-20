@@ -25,14 +25,13 @@ from apps.equipment_lifecycle.models import (
     SystemConfigSnapshot,
     SystemEvent,
     SystemFault,
-    SystemInspectionPoint,
 )
 from apps.equipment_lifecycle.tests.base import (
     ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS,
     URL_PREFIX, make_client, make_system, make_user,
 )
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
-    ALL_LEDGER_PERMS, ALL_POINT_PERMS, ALL_TEMPLATE_PERMS,
+    ALL_LEDGER_PERMS, ALL_TEMPLATE_PERMS,
     LEDGER_URL, create_ledger_ok, entry_payload, item_payload, ledger_payload,
     post_json,
 )
@@ -56,7 +55,7 @@ ALL_EVENT_PERMS = [
 P_HANDLE_EXCEPTION = 'equipment_lifecycle.ledger.handle_exception'
 
 ALL_PERMS = (ALL_SYSTEM_PERMS + ALL_CONFIG_PERMS + ALL_FAULT_PERMS + ALL_WO_PERMS +
-             ALL_LEDGER_PERMS + ALL_POINT_PERMS + ALL_TEMPLATE_PERMS +
+             ALL_LEDGER_PERMS + ALL_TEMPLATE_PERMS +
              ALL_EVENT_PERMS + [P_HANDLE_EXCEPTION])
 
 FAULT_URL = URL_PREFIX + '/faults'
@@ -558,14 +557,8 @@ class DeleteProtectionRegressionTests(SystemEventTestBase):
         resp = self.client.delete(f'{SYSTEM_URL}/{self.system_a2.id}/')
         self.assertIn('系统履历事件', resp.json().get('error', ''))
 
-    def test_system_delete_blocked_by_inspection_point_and_ledger_item(self):
-        """巡检点与台账明细引用阻断系统删除（fail-closed）。"""
-        SystemInspectionPoint.objects.create(
-            tenant_id='tenant_a', system=self.system_a, point_code='P-EV-01',
-            name='机柜A', created_by=self.admin)
-        resp = self.client.delete(f'{SYSTEM_URL}/{self.system_a.id}/')
-        self.assertIn('巡检点', resp.json().get('error', ''))
-        SystemInspectionPoint.objects.all().delete()
+    def test_system_delete_blocked_by_ledger_item(self):
+        """台账明细引用阻断系统删除（fail-closed）。"""
         # 通过真实 API 创建带明细的台账（明细以正式系统 ID 关联）
         template = OperationLedgerTemplate.objects.create(
             name='巡检模板-删除保护', template_code='TPL-EV-003', ledger_type='inspection',

@@ -10,13 +10,10 @@ from apps.equipment_lifecycle.models import (
     OperationLedger,
     OperationLedgerTemplate,
     OperationLedgerTemplateItem,
-    SystemInspectionPoint,
 )
 from apps.equipment_lifecycle.tests.base import URL_PREFIX, make_client, make_system, make_user
 
 # ===== 步骤 3.2 权限码（与 ledger_views/@auth、前端 routes/codes 一致） =====
-P_POINT_VIEW = 'equipment_lifecycle.inspection_point.view'
-P_POINT_MANAGE = 'equipment_lifecycle.inspection_point.manage'
 P_TPL_VIEW = 'equipment_lifecycle.ledger_template.view'
 P_TPL_ADD = 'equipment_lifecycle.ledger_template.add'
 P_TPL_EDIT = 'equipment_lifecycle.ledger_template.edit'
@@ -29,29 +26,11 @@ P_LED_REVIEW = 'equipment_lifecycle.ledger.review'
 P_LED_DEL = 'equipment_lifecycle.ledger.del'
 P_LED_EXPORT = 'equipment_lifecycle.ledger.export'
 
-ALL_POINT_PERMS = [P_POINT_VIEW, P_POINT_MANAGE]
 ALL_TEMPLATE_PERMS = [P_TPL_VIEW, P_TPL_ADD, P_TPL_EDIT, P_TPL_DEL]
 ALL_LEDGER_PERMS = [P_LED_VIEW, P_LED_ADD, P_LED_EDIT, P_LED_SUBMIT, P_LED_REVIEW, P_LED_DEL, P_LED_EXPORT]
 
 LEDGER_URL = URL_PREFIX + '/ledgers'
-POINT_URL = URL_PREFIX + '/inspection-points'
 TEMPLATE_URL = URL_PREFIX + '/ledger-templates'
-
-
-def make_point(system, created_by, tenant_id='default', **kwargs):
-    defaults = dict(
-        system=system,
-        point_code='P-001',
-        name='主用服务器区',
-        location_desc='机房A列01柜',
-        display_order=0,
-        is_active=True,
-        remark='',
-        tenant_id=tenant_id,
-        created_by=created_by,
-    )
-    defaults.update(kwargs)
-    return SystemInspectionPoint.objects.create(**defaults)
 
 
 def make_ledger_template(created_by, tenant_id='default', applicable_systems=None,
@@ -83,7 +62,6 @@ def make_template_item(template, created_by, tenant_id='default', **kwargs):
         template=template,
         item_code='CHK-001',
         name='设备指示灯检查',
-        inspection_point=None,
         standard='指示灯常亮绿色',
         input_type='text',
         unit='',
@@ -108,7 +86,6 @@ def make_template_item(template, created_by, tenant_id='default', **kwargs):
 def item_payload(**kwargs):
     """明细载荷：手动/临时项最小集。"""
     payload = {
-        'location': '机柜A',
         'item_name': '设备指示灯检查',
         'standard': '指示灯常亮绿色',
         'input_type': 'text',
@@ -150,7 +127,7 @@ def ledger_payload(entries, **kwargs):
 def make_ledger_user(username='ledger_op', tenant_id='default', perms=None, is_supper=False):
     """创建具备全部台账权限的测试用户。"""
     if perms is None:
-        perms = ALL_LEDGER_PERMS + ALL_POINT_PERMS
+        perms = ALL_LEDGER_PERMS
     return make_user(username, perms=perms, tenant_id=tenant_id, is_supper=is_supper)
 
 

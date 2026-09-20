@@ -2,7 +2,7 @@
  * 运维台账（步骤 3.2）Store 行为测试。
  * 真实执行 Store 方法与请求参数组装，mock libs.http 返回真实响应格式。
  */
-import {LedgerStore, TemplateStore, PointStore, getLedgerStore, templateStore, pointStore} from '../store';
+import {LedgerStore, TemplateStore, getLedgerStore, templateStore} from '../store';
 import {LEDGER_TYPE} from '../constants';
 
 const mockHttpGet = jest.fn();
@@ -85,7 +85,7 @@ describe('LedgerStore', () => {
   });
 });
 
-describe('TemplateStore / PointStore', () => {
+describe('TemplateStore', () => {
   beforeEach(() => {
     [mockHttpGet, mockHttpPut].forEach(fn => fn.mockReset());
   });
@@ -101,19 +101,7 @@ describe('TemplateStore / PointStore', () => {
     expect(mockHttpPut).toHaveBeenCalledWith('/api/equipment-lifecycle/ledger-templates/4/active/', {is_active: false});
   });
 
-  test('巡检点列表携带系统过滤，停用走 active 端点', async () => {
-    mockHttpGet.mockResolvedValue({data: [], total: 0});
-    const store = new PointStore();
-    store.f_system = 7;
-    await store.fetchRecords();
-    expect(mockHttpGet.mock.calls[0][1].params.system).toBe(7);
-    mockHttpPut.mockResolvedValue({});
-    await store.toggleActive({id: 2}, false);
-    expect(mockHttpPut).toHaveBeenCalledWith('/api/equipment-lifecycle/inspection-points/2/active/', {is_active: false});
-  });
-
-  test('全局单例导出存在（模板/巡检点页共用）', () => {
+  test('全局单例导出存在（模板页共用）', () => {
     expect(templateStore).toBeInstanceOf(TemplateStore);
-    expect(pointStore).toBeInstanceOf(PointStore);
   });
 });

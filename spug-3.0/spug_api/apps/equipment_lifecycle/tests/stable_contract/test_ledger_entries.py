@@ -27,8 +27,8 @@ class LedgerMultiSystemContractTests(TestCase):
         """9. 一张台账可以包含多个系统。"""
         client = make_client(self.user)
         payload = ledger_payload([
-            entry_payload(self.system_a.id, [item_payload(location='A机柜')]),
-            entry_payload(self.system_b.id, [item_payload(item_name='链路状态', location='B机柜')]),
+            entry_payload(self.system_a.id, [item_payload()]),
+            entry_payload(self.system_b.id, [item_payload(item_name='链路状态')]),
         ])
         data = create_ledger_ok(client, payload)
         systems = {i['system'] for i in data['items']}

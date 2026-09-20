@@ -21,7 +21,7 @@ from apps.equipment_lifecycle.tests.base import (
     ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS, make_client, make_user,
 )
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
-    ALL_LEDGER_PERMS, ALL_POINT_PERMS, entry_payload, item_payload,
+    ALL_LEDGER_PERMS, entry_payload, item_payload,
     ledger_payload, make_ledger_user, post_json,
 )
 from apps.equipment_lifecycle.tests.stable_contract.test_fault_management import (
@@ -31,7 +31,7 @@ from apps.equipment_lifecycle.tests.stable_contract.test_work_orders import (
     ALL_WO_PERMS, WorkOrderTestBase, work_order_payload,
 )
 
-ALL_HANDLE_PERMS = ALL_LEDGER_PERMS + ALL_POINT_PERMS + [
+ALL_HANDLE_PERMS = ALL_LEDGER_PERMS + [
     'equipment_lifecycle.ledger.handle_exception',
 ]
 
@@ -241,7 +241,7 @@ class LedgerItemConvertToFaultTest(ConversionTestBase):
         self.assertEqual(fault.source_type, 'ledger_item')
         self.assertEqual(fault.source_ledger_item_id, item_ids[0])
         self.assertEqual(fault.source_id, str(item_ids[0]))
-        # 带入台账上下文（现象含台账编号/项目名，位置为巡检点或手填位置）
+        # 带入台账上下文（现象含台账编号/项目名）
         self.assertIn('EL-', fault.phenomenon)
         # 异常影响立即生效（同事务重算健康状态）
         self.assertEqual(

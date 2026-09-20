@@ -30,7 +30,7 @@ function flush() {
 function makeRowState() {
   return {
     client_key: 'k1', id: undefined, system_id: 1, template_item_id: undefined,
-    inspection_point_id: undefined, location: '机柜A', item_name: '外观检查',
+    item_name: '外观检查',
     standard: '', input_type: 'text', unit: '', normal_range: '', choices: [],
     number_min: null, number_max: null, is_required: false,
     value_text: '正常', value_number: null, value_bool: null,

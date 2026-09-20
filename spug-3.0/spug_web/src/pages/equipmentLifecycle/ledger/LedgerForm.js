@@ -52,8 +52,6 @@ function makeRow(base) {
     id: undefined,
     system_id: undefined,
     template_item_id: undefined,
-    inspection_point_id: undefined,
-    location: '',
     item_name: '',
     standard: '',
     input_type: 'text',
@@ -85,7 +83,6 @@ class LedgerForm extends React.Component {
     systems: [],
     templateEntries: [],       // [{system_id, template_id}]
     templateOptions: {},       // system_id -> [template]
-    pointsMap: {},             // system_id -> [point]
     rows: [],
     cycle: undefined,
     header: {
@@ -118,8 +115,6 @@ class LedgerForm extends React.Component {
             id: item.id,
             system_id: item.system,
             template_item_id: item.template_item,
-            inspection_point_id: item.inspection_point,
-            location: item.location || '',
             item_name: item.item_name,
             standard: item.standard || '',
             input_type: item.input_type,
@@ -200,15 +195,6 @@ class LedgerForm extends React.Component {
     return http.get(url).then(res => res.data).catch(() => []);
   };
 
-  loadPoints = (systemId) => {
-    if (!systemId || this.state.pointsMap[systemId]) return;
-    http.get(`${API_PREFIX_L}/inspection-points/`, {params: {system: systemId, is_active: 'true'}})
-      .then(res => {
-        this.setState(prev => ({pointsMap: {...prev.pointsMap, [systemId]: res.data}}));
-      })
-      .catch(() => {});
-  };
-
   generatePreview = () => {
     const {templateEntries, cycle} = this.state;
     const {store} = this.props;
@@ -229,8 +215,6 @@ class LedgerForm extends React.Component {
           rows.push(makeRow({
             system_id: entry.system.id,
             template_item_id: item.id,
-            inspection_point_id: item.inspection_point,
-            location: '',
             item_name: item.name,
             standard: item.standard || '',
             input_type: item.input_type,
@@ -253,7 +237,6 @@ class LedgerForm extends React.Component {
   };
 
   addManualRow = (systemId) => {
-    this.loadPoints(systemId);
     this.setState(prev => ({
       rows: [...prev.rows, makeRow({system_id: systemId, is_temporary: true})],
     }));
@@ -389,8 +372,6 @@ class LedgerForm extends React.Component {
       items: groupMap[systemId].map(r => ({
         id: r.id,
         template_item_id: r.template_item_id || undefined,
-        inspection_point_id: r.inspection_point_id || undefined,
-        location: r.location,
         item_name: r.is_temporary || !r.id ? r.item_name : undefined,
         standard: r.is_temporary || !r.id ? r.standard : undefined,
         input_type: r.is_temporary || !r.id ? r.input_type : undefined,
@@ -496,7 +477,6 @@ class LedgerForm extends React.Component {
               value={entry.system_id}
               onChange={v => {
                 this.setTemplateEntry(index, {system_id: v, template_id: undefined});
-                this.loadPoints(v);
                 this.fetchTemplates(v).then(list => {
                   this.setState(prev => ({templateOptions: {...prev.templateOptions, [v]: list}}));
                 });
@@ -556,27 +536,7 @@ class LedgerForm extends React.Component {
   };
 
   renderRowTable = (groupRows) => {
-    const {pointsMap} = this.state;
-    const systemId = groupRows[0].system_id;
-    const points = pointsMap[systemId] || [];
     const columns = [
-      {
-        title: '巡检点/位置', key: 'point', width: 150,
-        render: (t, r) => r.template_item_id && !r.is_temporary ? (
-          (r.inspection_point_name_snapshot || (r.inspection_point_id ? '' : ''))
-          || <Input size="small" placeholder="维护位置" value={r.location} onChange={e => this.setRow(r.client_key, {location: e.target.value})}/>
-        ) : (
-          <Space size={4} direction="vertical" style={{width: '100%'}}>
-            <Select
-              size="small" style={{width: '100%'}} allowClear placeholder="选择巡检点"
-              value={r.inspection_point_id || undefined}
-              onChange={v => this.setRow(r.client_key, {inspection_point_id: v || undefined})}>
-              {points.map(p => <Option value={p.id} key={p.id}>{p.name}</Option>)}
-            </Select>
-            <Input size="small" placeholder="或填写维护位置" value={r.location} onChange={e => this.setRow(r.client_key, {location: e.target.value})}/>
-          </Space>
-        ),
-      },
       {
         title: '检查/维护项目', key: 'item', width: 180,
         render: (t, r) => (

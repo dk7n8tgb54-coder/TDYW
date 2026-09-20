@@ -643,7 +643,7 @@ class WorkOrderModuleBoundaryTest(WorkOrderTestBase):
     def test_fault_and_ledger_flows_still_work(self):
         """步骤 3.1 故障流程与步骤 3.2 台账保存逻辑没有被破坏（回归冒烟）。"""
         from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
-            ALL_LEDGER_PERMS, ALL_POINT_PERMS, entry_payload, item_payload,
+            ALL_LEDGER_PERMS, entry_payload, item_payload,
             ledger_payload, make_ledger_user, post_json,
         )
         # 3.1：故障创建 → 处置 → 恢复 → 关闭
@@ -659,7 +659,7 @@ class WorkOrderModuleBoundaryTest(WorkOrderTestBase):
         self.assertEqual(fault.status, 'recovered')
         # 3.2：台账创建（含异常明细）→ 提交 → 复核
         ledger_user = make_ledger_user('wo_ledger_user',
-                                       perms=ALL_LEDGER_PERMS + ALL_POINT_PERMS + ALL_SYSTEM_PERMS,
+                                       perms=ALL_LEDGER_PERMS + ALL_SYSTEM_PERMS,
                                        tenant_id='tenant_a')
         ledger_client = make_client(ledger_user)
         payload = ledger_payload([entry_payload(self.system_a.id, [

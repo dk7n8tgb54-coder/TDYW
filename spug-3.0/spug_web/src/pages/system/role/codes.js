@@ -133,13 +133,6 @@ export default [{
       {key: 'export', label: '导出故障列表'},
     ]
   }, {
-    key: 'inspection_point',
-    label: '巡检点管理',
-    perms: [
-      {key: 'view', label: '查看巡检点'},
-      {key: 'manage', label: '维护巡检点（新增/编辑/停用）'},
-    ]
-  }, {
     key: 'ledger_template',
     label: '台账模板',
     perms: [

@@ -58,10 +58,6 @@ urlpatterns = [
     path('faults/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/download/', fault_views.FaultHandlingAttachmentDownloadView.as_view()),
     path('faults/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/', _na(fault_views.FaultHandlingAttachmentDetailView.as_view())),
     # ==================== 运维台账（步骤 3.2） ====================
-    # 巡检点
-    path('inspection-points/', ledger_views.InspectionPointView.as_view()),
-    path('inspection-points/<int:pk>/', ledger_views.InspectionPointDetailView.as_view()),
-    path('inspection-points/<int:pk>/active/', ledger_views.InspectionPointActiveView.as_view()),
     # 台账模板
     path('ledger-templates/', ledger_views.LedgerTemplateView.as_view()),
     path('ledger-templates/available/', ledger_views.LedgerTemplateAvailableView.as_view()),
