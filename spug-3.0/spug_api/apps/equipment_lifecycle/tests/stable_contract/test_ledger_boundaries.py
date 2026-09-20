@@ -109,15 +109,16 @@ class LedgerBoundaryContractTests(TestCase):
         forbidden = {'QrCode', 'MobileTask', 'OfflineTask', 'OfflineSyncQueue', 'SyncQueue',
                      'FieldTerminal', 'SiteCollection'}
         self.assertEqual(forbidden & model_names, set())
-        # 台账模型集合精确可控：仅允许步骤二 + 3.1 + 3.2 + 3.3（工单四表）
-        # + 3.4（统一系统履历）的模型（类型主数据模型已随机制移除删除）
+        # 台账模型集合精确可控：仅允许步骤二 + 3.1 + 3.2 + 3.3（工单三表）
+        # + 3.4（统一系统履历）的模型（类型主数据模型已随机制移除删除；
+        # 单系统简化删除受影响系统关联两表，新增工单影响运行标记）
         expected = {
             'LifecycleSystem', 'ConfigFieldDefinition', 'SystemConfigValue',
             'SystemConfigComponent', 'SystemConfigChange', 'SystemConfigSnapshot',
-            'SystemFault', 'SystemFaultAffectedSystem', 'SystemFaultHandlingRecord',
+            'SystemFault', 'SystemFaultHandlingRecord',
             'SystemInspectionPoint', 'OperationLedgerTemplate', 'OperationLedgerTemplateItem',
             'OperationLedger', 'OperationLedgerItem', 'OperationLedgerCorrection',
-            'SystemWorkOrder', 'SystemWorkOrderAffectedSystem',
+            'SystemWorkOrder',
             'SystemWorkOrderParticipant', 'SystemWorkOrderHandlingRecord',
             'SystemEvent',
         }

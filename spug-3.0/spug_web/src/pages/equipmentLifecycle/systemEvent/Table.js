@@ -4,7 +4,7 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——统一系统履历列表表格（步骤 3.4，只读）。
+ * 设备全生命周期——统一系统履历列表表格（步骤 3.4，只读，单系统简化）。
  * 来源列仅渲染跳转链接；点击后由来源页面独立重新校验权限与租户。
  */
 import React from 'react';
@@ -14,8 +14,7 @@ import { AuthDiv } from 'components';
 import { history } from 'libs';
 import store from './store';
 import {
-  PERM, EVENT_TYPE_TEXT, EVENT_TYPE_COLOR,
-  EVENT_ROLE_TEXT, EVENT_ROLE_COLOR, SOURCE_TYPE_TEXT, buildSourceHref,
+  PERM, EVENT_TYPE_TEXT, EVENT_TYPE_COLOR, SOURCE_TYPE_TEXT, buildSourceHref,
 } from './constants';
 
 @observer
@@ -51,11 +50,6 @@ class ComTable extends React.Component {
     dataIndex: 'event_type',
     width: 100,
     render: (text) => <Tag color={EVENT_TYPE_COLOR[text]}>{EVENT_TYPE_TEXT[text] || text}</Tag>,
-  }, {
-    title: '角色',
-    dataIndex: 'role',
-    width: 80,
-    render: (text) => <Tag color={EVENT_ROLE_COLOR[text]}>{EVENT_ROLE_TEXT[text] || text}</Tag>,
   }, {
     title: '来源',
     key: 'source',

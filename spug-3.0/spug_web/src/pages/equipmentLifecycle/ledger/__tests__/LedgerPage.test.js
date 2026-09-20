@@ -198,6 +198,28 @@ describe('台账录入表单（LedgerForm）', () => {
       expect.objectContaining({ledger_type: 'inspection', entries: [{system_id: 11, template_id: 5}]}));
   });
 
+  test('按系统加载适用模板请求参数名为 system（与后端契约一致，回归 2026-09-19）', async () => {
+    const store = getLedgerStore('inspection');
+    store.formVisible = true;
+    mockHttpGet.mockImplementation((url) => {
+      if (url.includes('/systems/')) return Promise.resolve({data: [], total: 0});
+      return Promise.resolve({data: [{id: 5, name: '巡检模板A', template_code: 'T1', items_count: 1}]});
+    });
+    const instance = renderForm(store);
+    await act(async () => {});
+    let listPromise = null;
+    await act(async () => {
+      listPromise = instance.fetchTemplates(11);
+    });
+    const list = await listPromise;
+    expect(list).toHaveLength(1);
+    // 后端 LedgerTemplateAvailableView 读取 request.GET.get('system')；
+    // 参数名写错时后端返回 error='系统不存在' 且下拉为空
+    const call = mockHttpGet.mock.calls.find(c => c[0].includes('/ledger-templates/available/'));
+    expect(call[0]).toContain('system=11');
+    expect(call[0]).not.toContain('system_id=11');
+  });
+
   test('一次提交多系统明细：payload 按系统分组且每条明细携带 system_id', async () => {
     const store = getLedgerStore('inspection');
     store.formVisible = true;

@@ -67,13 +67,12 @@ describe('故障 Store', () => {
   it('submitForm 新增走 POST、编辑走 PUT，成功后关闭弹窗并刷新列表', async () => {
     const store = freshStore();
     const payload = {
-      primary_system: 7,
-      primary_impact_status: 'degraded',
+      system: 7,
+      impact_status: 'degraded',
       occurred_at: '2026-09-18 08:30',
       discovery: 'patrol',
       level: 'major',
       phenomenon: '丢包',
-      affected_systems: [{system_id: 9, impact_status: 'fault'}],
     };
     mockHttpPost.mockResolvedValue({});
     mockHttpPut.mockResolvedValue({});
@@ -90,12 +89,12 @@ describe('故障 Store', () => {
 
   it('submitForm 失败（后端业务错误）时弹窗保持打开、不刷新', async () => {
     const store = freshStore();
-    mockHttpPost.mockRejectedValue(new Error('主故障系统不存在'));
+    mockHttpPost.mockRejectedValue(new Error('故障系统不存在'));
     mockHttpGet.mockResolvedValue({data: [], total: 0});
     store.showForm();
     store.formVisible = true;
     let caught = false;
-    await store.submitForm({primary_system: 1}).catch(() => {
+    await store.submitForm({system: 1}).catch(() => {
       caught = true;
     });
     expect(caught).toBe(true);
@@ -147,14 +146,13 @@ describe('故障 Store', () => {
       '/api/equipment-lifecycle/faults/8/handling-records/');
   });
 
-  it('fetchSystemFaults 按角色查询系统故障', async () => {
+  it('fetchSystemFaults 查询本系统故障（单系统简化，无角色参数）', async () => {
     const store = freshStore();
-    mockHttpGet.mockResolvedValue({data: [{id: 1, fault_role: 'affected'}]});
-    await store.fetchSystemFaults(7, 'affected');
+    mockHttpGet.mockResolvedValue({data: [{id: 1, system: 7}]});
+    await store.fetchSystemFaults(7);
     expect(mockHttpGet).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/systems/7/faults/', {params: {role: 'affected'}});
+      '/api/equipment-lifecycle/systems/7/faults/');
     expect(store.systemFaults.length).toBe(1);
-    expect(store.systemFaultRole).toBe('affected');
   });
 
   it('fetchDetail 把后端详情（http 解包后即详情本体）赋给 store.detail', async () => {
@@ -163,7 +161,7 @@ describe('故障 Store', () => {
     const store = freshStore();
     const detail = {
       id: 8, fault_no: 'GZ20260919-0001', status: 'handling',
-      primary_system_name: '系统A', affected_systems: [],
+      system_name: '系统A',
     };
     mockHttpGet.mockResolvedValue(detail);
     store.detailId = 8;
@@ -174,8 +172,8 @@ describe('故障 Store', () => {
 
   it('fetchDetailById 返回详情本体（供编辑表单回填）', async () => {
     const store = freshStore();
-    const detail = {id: 5, fault_no: 'GZ20260919-0002', primary_system: 7,
-      primary_impact_status: 'fault', affected_systems: []};
+    const detail = {id: 5, fault_no: 'GZ20260919-0002', system: 7,
+      impact_status: 'fault'};
     mockHttpGet.mockResolvedValue(detail);
     await expect(store.fetchDetailById(5)).resolves.toEqual(detail);
   });

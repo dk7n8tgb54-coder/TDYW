@@ -25,7 +25,7 @@ import DynamicFieldControl, { parseChoices } from './DynamicFieldControl';
 
 const {TextArea} = Input;
 
-// 内联新增字段不开放附件/明细表：附件依赖已创建的系统，明细表列定义请走「配置字段」管理
+// 内联新增字段不开放附件/明细表：附件依赖已创建的系统，明细表列定义请在系统详情「配置字段」页签管理
 const INLINE_FIELD_TYPE_OPTIONS = FIELD_TYPE_OPTIONS.filter(
   item => item.value !== 'attachment' && item.value !== 'detail_table');
 
@@ -638,7 +638,7 @@ function CustomFieldDefModal({onClose, onSaved}) {
       </Form>
       <div style={{color: '#999'}}>
         字段编码由系统自动生成；字段仅作用于本系统，保存定义后立即加入当前表单，
-        填写值后随本次保存一并提交。附件与明细表字段请在系统创建后于「配置字段」中定义。
+        填写值后随本次保存一并提交。附件与明细表字段请在系统创建后于系统详情的「配置字段」页签中定义。
       </div>
     </Modal>
   );

@@ -4,9 +4,10 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——故障详情抽屉（步骤 3.1）。
- * 基本信息 / 受影响系统 / 处置记录时间线（追加式，支持更正留痕）/ 恢复确认 / 关闭 / 作废。
- * 所有动作成功后重新获取真实数据；错误提示由 http 拦截器统一弹出，不重复提示。
+ * 设备全生命周期——故障详情抽屉（步骤 3.1，单系统简化）。
+ * 基本信息 / 处置记录时间线（追加式，支持更正留痕）/ 恢复确认 / 关闭 / 作废。
+ * 不再提供"受影响系统"页签；所有动作成功后重新获取真实数据；
+ * 错误提示由 http 拦截器统一弹出，不重复提示。
  */
 import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react';
@@ -43,12 +44,13 @@ class FaultDetail extends React.Component {
         <Descriptions.Item label="状态">
           <Tag color={FAULT_STATUS_COLOR[d.status]}>{FAULT_STATUS_TEXT[d.status]}</Tag>
         </Descriptions.Item>
-        <Descriptions.Item label="主故障系统">
-          {`${d.primary_system_name}（${d.primary_system_code}）`}
+        <Descriptions.Item label="故障系统">
+          {`${d.system_name}（${d.system_code}）`}
         </Descriptions.Item>
-        <Descriptions.Item label="主系统影响状态">
-          <Tag color={FAULT_IMPACT_COLOR[d.primary_impact_status]}>
-            {FAULT_IMPACT_TEXT[d.primary_impact_status]}
+        <Descriptions.Item label="安装地点">{d.system_location || '-'}</Descriptions.Item>
+        <Descriptions.Item label="系统影响程度">
+          <Tag color={FAULT_IMPACT_COLOR[d.impact_status]}>
+            {FAULT_IMPACT_TEXT[d.impact_status]}
           </Tag>
         </Descriptions.Item>
         <Descriptions.Item label="发生时间">{d.occurred_at}</Descriptions.Item>
@@ -95,29 +97,6 @@ class FaultDetail extends React.Component {
     );
   }
 
-  renderAffected() {
-    const d = store.detail;
-    const rows = d.affected_systems || [];
-    if (!rows.length) {
-      return <Empty description="本故障未记录其他受影响系统" image={Empty.PRESENTED_IMAGE_SIMPLE}/>;
-    }
-    return (
-      <Descriptions bordered size="small" column={1}>
-        {rows.map(row => (
-          <Descriptions.Item
-            key={row.id}
-            label={`${row.system_name}（${row.system_code}）`}
-          >
-            <Tag color={FAULT_IMPACT_COLOR[row.impact_status]}>
-              {FAULT_IMPACT_TEXT[row.impact_status]}
-            </Tag>
-            <span style={{color: '#999', marginLeft: 8}}>{row.install_location}</span>
-          </Descriptions.Item>
-        ))}
-      </Descriptions>
-    );
-  }
-
   render() {
     const d = store.detail;
     const editable = d.status === 'pending' || d.status === 'handling' || d.status === 'recovered';
@@ -151,9 +130,6 @@ class FaultDetail extends React.Component {
           <Tabs defaultActiveKey="basic">
             <TabPane tab="基本信息" key="basic">
               {this.renderBasic()}
-            </TabPane>
-            <TabPane tab={`受影响系统${d.affected_systems ? `（${d.affected_systems.length}）` : ''}`} key="affected">
-              {this.renderAffected()}
             </TabPane>
             <TabPane tab="处置记录" key="handling">
               <HandlingTimeline editable={editable}/>

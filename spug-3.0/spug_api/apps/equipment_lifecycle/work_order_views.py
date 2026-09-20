@@ -1,7 +1,7 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——系统工单管理与异常转单视图（步骤 3.3）。
+"""设备全生命周期——系统工单管理与异常转单视图（步骤 3.3，单系统简化）。
 
 权限域（前后端一致，后端独立校验）：
 - equipment_lifecycle.work_order.view|add|edit|dispatch|accept|execute|review|close|del|export
@@ -13,8 +13,11 @@
 - 台账异常转工单：ledger.handle_exception + work_order.add
 
 设计要点：
-- 目标系统/受影响系统/来源对象一律提交并存储稳定 ID，后端重新查询校验
-  （租户、可用性、状态、去重），不信任前端传来的名称、租户、状态和快照；
+- 一张工单只关联一个作业系统，不建设跨系统影响关系；
+- 作业系统/来源对象一律提交并存储稳定 ID，后端重新查询校验
+  （租户、可用性、状态），不信任前端传来的名称、租户、状态和快照；
+- affects_system_operation（作业期间是否影响系统运行）由后端保存前
+  重新校验布尔类型；只有执行中且为真的故障维修工单才参与"维修中"计算；
 - 状态流转只经动作接口，由后端状态机（SystemWorkOrder.STATE_TRANSITIONS）
   校验；普通编辑接口（PUT）仅限待派发工单且不得修改状态；
 - 接单（accept）为待接单状态内的确认动作：只有指定负责人或持有 accept
@@ -61,7 +64,6 @@ from apps.equipment_lifecycle.models import (
     SystemConfigComponent,
     SystemFault,
     SystemWorkOrder,
-    SystemWorkOrderAffectedSystem,
 )
 from apps.equipment_lifecycle.views import _read_json_body
 from apps.equipment_lifecycle.work_order_services import (
@@ -94,6 +96,13 @@ def _require_perm(user, code):
     return user.has_perms([code])
 
 
+def _validate_affected_systems_rejected(body):
+    """旧参数已随单系统简化删除：出现即拒绝，不静默忽略。"""
+    if 'affected_system_ids' in body or 'affected_systems' in body:
+        return '工单已不再支持受影响系统，请只提交一个作业系统'
+    return None
+
+
 def _get_order_for_user(pk, user, for_update=False):
     qs = SystemWorkOrder.objects.all()
     if for_update:
@@ -118,7 +127,7 @@ def _get_system_for_user(pk, user):
 def _validate_order_fields(body, request, for_update=False, order=None):
     """校验工单业务字段（创建与编辑共用），返回 (data, error)。
 
-    data 包含：title/work_type/priority/target_system/affected_map/work_component/
+    data 包含：title/work_type/priority/system/affects_system_operation/work_component/
     planned_start/planned_end/work_requirement/work_steps/work_location/
     work_object_desc/material_note/client_token。
     状态字段一律忽略：普通编辑接口不得修改状态。
@@ -127,8 +136,8 @@ def _validate_order_fields(body, request, for_update=False, order=None):
         Argument('title', type=str, required=True, help='工单标题'),
         Argument('work_type', type=str, required=True, help='工单类型'),
         Argument('priority', type=str, required=False, default=SystemWorkOrder.PRIORITY_NORMAL),
-        Argument('target_system', type=int, required=True, help='目标系统ID'),
-        Argument('affected_system_ids', type=list, required=False, default=None),
+        Argument('system', type=int, required=True, help='作业系统ID'),
+        Argument('affects_system_operation', type=bool, required=False, default=False),
         Argument('work_location', type=str, required=False, default=''),
         Argument('work_object_desc', type=str, required=False, default=''),
         Argument('work_component', type=int, required=False, default=None),
@@ -149,31 +158,25 @@ def _validate_order_fields(body, request, for_update=False, order=None):
         return None, '工单类型不合法'
     if form.priority not in SystemWorkOrder.PRIORITY_TEXT_MAP:
         return None, '优先级不合法'
+    # 作业期间是否影响系统运行：后端重新校验布尔类型（不信任前端任意值）
+    if not isinstance(form.affects_system_operation, bool):
+        return None, '作业期间是否影响系统运行必须为布尔值'
 
-    # 目标系统：以稳定 ID 重新查询（租户 + 可用性；编辑未变更时保持历史关联）
-    target_system = _get_active_system_for_user(form.target_system, request.user)
-    if not target_system:
-        if for_update and order and order.target_system_id == form.target_system:
-            target_system = order.target_system  # 未变更的目标系统即使停用也保持原关联
+    # 作业系统：以稳定 ID 重新查询（租户 + 可用性；编辑未变更时保持历史关联）
+    system = _get_active_system_for_user(form.system, request.user)
+    if not system:
+        if for_update and order and order.system_id == form.system:
+            system = order.system  # 未变更的作业系统即使停用也保持原关联
         else:
-            return None, '目标系统不存在、已停用或无权限'
-
-    affected_map, error = work_order_services.validate_affected_systems(
-        form.affected_system_ids, target_system, request.user.tenant_id,
-        allow_inactive=(
-            set(order.affected_systems.values_list('system_id', flat=True))
-            if for_update and order and form.affected_system_ids is not None else set()
-        ))
-    if error:
-        return None, error
+            return None, '作业系统不存在、已停用或无权限'
 
     work_component = None
     if form.work_component:
         work_component = SystemConfigComponent.objects.filter(
             tenant_id=request.user.tenant_id, pk=form.work_component,
-            system=target_system).first()
+            system=system).first()
         if not work_component:
-            return None, '配置组成项不存在或不属于目标系统'
+            return None, '配置组成项不存在或不属于作业系统'
 
     planned_start = _parse_dt(form.planned_start) if form.planned_start else None
     planned_end = _parse_dt(form.planned_end) if form.planned_end else None
@@ -188,8 +191,8 @@ def _validate_order_fields(body, request, for_update=False, order=None):
         'title': title,
         'work_type': form.work_type,
         'priority': form.priority,
-        'target_system': target_system,
-        'affected_map': affected_map or {},
+        'system': system,
+        'affects_system_operation': bool(form.affects_system_operation),
         'work_component': work_component,
         'planned_start': planned_start,
         'planned_end': planned_end,
@@ -209,7 +212,8 @@ def _order_audit_summary(order):
         'work_type': order.work_type,
         'status': order.status,
         'priority': order.priority,
-        'target_system': order.target_system_name,
+        'system': order.system_name,
+        'affects_system_operation': order.affects_system_operation,
         'owner': order.owner.username if order.owner_id else '',
         'source_type': order.source_type,
         'source_no': order.source_no,
@@ -327,14 +331,11 @@ class WorkOrderView(View):
                 return json_response(error='来源类型筛选值不合法')
             query = query.filter(source_type=form.source_type)
         if form.system:
-            query = query.filter(
-                Q(target_system_id=form.system) |
-                Q(affected_systems__system_id=form.system)
-            ).distinct()
+            query = query.filter(system_id=form.system)
         if form.keyword:
             query = query.filter(
                 Q(work_no__icontains=form.keyword) | Q(title__icontains=form.keyword) |
-                Q(target_system_name__icontains=form.keyword) |
+                Q(system_name__icontains=form.keyword) |
                 Q(source_no__icontains=form.keyword))
         planned_from = _parse_dt(form.planned_from) if form.planned_from else None
         planned_to = _parse_dt(form.planned_to) if form.planned_to else None
@@ -360,6 +361,9 @@ class WorkOrderView(View):
         body = _read_json_body(request)
         if body is None:
             return json_response(error='请求数据格式不正确')
+        err = _validate_affected_systems_rejected(body)
+        if err:
+            return json_response(error=err)
         data, error = _validate_order_fields(body, request)
         if error:
             return json_response(error=error)
@@ -373,10 +377,10 @@ class WorkOrderView(View):
         try:
             with fault_services.health_recalc_lock():
                 with transaction.atomic():
-                    # 防重复提交后备：同租户/同目标系统/同标题窗口期内视为重复
+                    # 防重复提交后备：同租户/同作业系统/同标题窗口期内视为重复
                     if check_recent_duplicate(SystemWorkOrder, {
                         'tenant_id': request.user.tenant_id,
-                        'target_system_id': data['target_system'].id,
+                        'system_id': data['system'].id,
                         'title': data['title'],
                     }, window_seconds=IDEMPOTENCY_WINDOW_SECONDS):
                         return json_response(error='请勿重复提交相同工单')
@@ -409,6 +413,9 @@ class WorkOrderDetailView(View):
         body = _read_json_body(request)
         if body is None:
             return json_response(error='请求数据格式不正确')
+        err = _validate_affected_systems_rejected(body)
+        if err:
+            return json_response(error=err)
         try:
             with fault_services.health_recalc_lock():
                 with transaction.atomic():
@@ -417,21 +424,20 @@ class WorkOrderDetailView(View):
                         return json_response(error='工单不存在')
                     if order.status not in SystemWorkOrder.EDITABLE_STATUSES:
                         return json_response(error='只有待派发的工单可以编辑')
-                    if body.get('affected_system_ids') is None:
-                        return json_response(error='受影响系统提交缺失')
                     data, error = _validate_order_fields(
                         body, request, for_update=True, order=order)
                     if error:
                         return json_response(error=error)
                     before_summary = _order_audit_summary(order)
-                    old_target_id = order.target_system_id
+                    old_system_id = order.system_id
                     order.title = data['title']
                     order.work_type = data['work_type']
                     order.priority = data['priority']
-                    order.target_system = data['target_system']
-                    order.target_system_code = data['target_system'].system_code
-                    order.target_system_name = data['target_system'].name
-                    order.target_system_location = data['target_system'].install_location
+                    order.system = data['system']
+                    order.system_code = data['system'].system_code
+                    order.system_name = data['system'].name
+                    order.system_location = data['system'].install_location
+                    order.affects_system_operation = data['affects_system_operation']
                     order.work_location = data['work_location']
                     order.work_object_desc = data['work_object_desc']
                     order.work_component = data['work_component']
@@ -446,21 +452,7 @@ class WorkOrderDetailView(View):
                     order.updated_by = request.user
                     order.save()
 
-                    # 受影响系统全量替换（唯一约束防重复；delete+recreate 保持快照新鲜）
-                    order.affected_systems.all().delete()
-                    SystemWorkOrderAffectedSystem.objects.bulk_create([
-                        SystemWorkOrderAffectedSystem(
-                            tenant_id=order.tenant_id,
-                            work_order=order,
-                            system=system,
-                            system_code=system.system_code,
-                            system_name=system.name,
-                            install_location=system.install_location,
-                        ) for system in data['affected_map'].values()
-                    ])
-
-                    related_ids = {old_target_id, order.target_system_id}
-                    related_ids.update(data['affected_map'].keys())
+                    related_ids = {old_system_id, order.system_id}
                     fault_services.recompute_systems_health(
                         request.user.tenant_id, related_ids, request=request,
                         audit_reason='编辑工单 ' + order.work_no)
@@ -479,7 +471,7 @@ class WorkOrderActionBaseView(View):
 
     ACTION_NAME = ''
     audit_action = 'update'
-    # 是否在动作后重算目标系统健康状态（默认重算，幂等无害）
+    # 是否在动作后重算作业系统健康状态（默认重算，幂等无害）
     recompute_after = True
 
     def post(self, request, pk):
@@ -495,7 +487,7 @@ class WorkOrderActionBaseView(View):
                         return json_response(error=error)
                     if self.recompute_after:
                         fault_services.recompute_systems_health(
-                            order.tenant_id, [order.target_system_id], request=request,
+                            order.tenant_id, [order.system_id], request=request,
                             audit_reason=f'{self.ACTION_NAME} ' + order.work_no)
                     record_audit_event(request, self.audit_action, AUDIT_TARGET_WORK_ORDER,
                                        order.id, order.work_no,
@@ -1062,11 +1054,14 @@ class FaultCreateWorkOrderView(View):
         body = _read_json_body(request)
         if body is None:
             return json_response(error='请求数据格式不正确')
+        err = _validate_affected_systems_rejected(body)
+        if err:
+            return json_response(error=err)
         try:
             with fault_services.health_recalc_lock():
                 with transaction.atomic():
                     fault_qs = SystemFault.objects.select_for_update().select_related(
-                        'primary_system')
+                        'system')
                     if not getattr(request.user, 'is_supper', False):
                         fault_qs = fault_qs.filter(tenant_id=request.user.tenant_id)
                     fault = fault_qs.filter(pk=pk).first()
@@ -1108,8 +1103,8 @@ class FaultCreateWorkOrderView(View):
             Argument('title', type=str, required=False, default=''),
             Argument('work_type', type=str, required=False, default=SystemWorkOrder.TYPE_REPAIR),
             Argument('priority', type=str, required=False, default=SystemWorkOrder.PRIORITY_NORMAL),
-            Argument('target_system', type=int, required=False, default=None),
-            Argument('affected_system_ids', type=list, required=False, default=None),
+            Argument('system', type=int, required=False, default=None),
+            Argument('affects_system_operation', type=bool, required=False, default=None),
             Argument('work_location', type=str, required=False, default=''),
             Argument('work_object_desc', type=str, required=False, default=''),
             Argument('work_component', type=int, required=False, default=None),
@@ -1130,34 +1125,28 @@ class FaultCreateWorkOrderView(View):
         if form.priority not in SystemWorkOrder.PRIORITY_TEXT_MAP:
             return None, '优先级不合法'
 
-        # 默认目标系统 = 主故障系统；变更时按 ID 重新查询校验
-        target_system_id = form.target_system or fault.primary_system_id
-        target_system = _get_active_system_for_user(target_system_id, request.user)
-        if not target_system:
-            if target_system_id == fault.primary_system_id:
-                target_system = fault.primary_system  # 未变更时即使停用也保持关联
-            else:
-                return None, '目标系统不存在、已停用或无权限'
+        # 作业系统固定默认为故障所属系统；不接受改派其他系统（需要时单独建单）
+        if form.system is not None and form.system != fault.system_id:
+            return None, '工单系统固定为故障所属系统，不能指定其他系统'
+        system = fault.system
 
-        # 默认带入故障的实际受影响系统（可编辑）
-        if form.affected_system_ids is None:
-            affected_ids = list(
-                fault.affected_systems.values_list('system_id', flat=True))
+        # 影响运行默认值：尚未恢复确认的故障 → 是；已恢复后的部件维修 → 否。
+        # 前端可显式传值调整，未传时按默认规则落库。
+        if form.affects_system_operation is None:
+            affects = fault.status in fault_services.ACTIVE_FAULT_STATUSES
         else:
-            affected_ids = form.affected_system_ids
-        affected_map, error = work_order_services.validate_affected_systems(
-            affected_ids, target_system, request.user.tenant_id)
-        if error:
-            return None, error
+            if not isinstance(form.affects_system_operation, bool):
+                return None, '作业期间是否影响系统运行必须为布尔值'
+            affects = form.affects_system_operation
 
         # 默认带入故障的配置组成项快照（可选引用）
         work_component = None
         if form.work_component:
             work_component = SystemConfigComponent.objects.filter(
                 tenant_id=request.user.tenant_id, pk=form.work_component,
-                system=target_system).first()
+                system=system).first()
             if not work_component:
-                return None, '配置组成项不存在或不属于目标系统'
+                return None, '配置组成项不存在或不属于作业系统'
 
         planned_start = _parse_dt(form.planned_start) if form.planned_start else None
         planned_end = _parse_dt(form.planned_end) if form.planned_end else None
@@ -1182,8 +1171,8 @@ class FaultCreateWorkOrderView(View):
             'title': title[:100],
             'work_type': form.work_type,
             'priority': form.priority,
-            'target_system': target_system,
-            'affected_map': affected_map,
+            'system': system,
+            'affects_system_operation': affects,
             'work_component': work_component,
             'planned_start': planned_start,
             'planned_end': planned_end,
@@ -1200,7 +1189,7 @@ class LedgerItemConvertToFaultView(View):
     """台账异常明细转故障（台账详情"转故障"操作）。
 
     - 只有结果为"异常"的明细可以转故障；草稿/退回/作废台账不能转；
-    - 故障主系统固定为明细所属系统；
+    - 故障系统固定为明细所属系统；
     - 带入台账类型、编号、检查项、巡检点/位置、异常说明、实测值与现场处理内容；
     - 必须调用步骤 3.1 的正式故障创建服务（fault_services.create_fault_record），
       转换与来源关系保存处于同一事务；
@@ -1230,7 +1219,7 @@ class LedgerItemConvertToFaultView(View):
                                  default=SystemFault.DISCOVERY_PATROL),
                         Argument('level', type=str, required=False,
                                  default=SystemFault.LEVEL_MINOR),
-                        Argument('primary_impact_status', type=str, required=False,
+                        Argument('impact_status', type=str, required=False,
                                  default=SystemFault.IMPACT_DEGRADED),
                         Argument('phenomenon', type=str, required=False, default=''),
                         Argument('re_dispose_reason', type=str, required=False, default=''),
@@ -1252,8 +1241,8 @@ class LedgerItemConvertToFaultView(View):
                         return json_response(error='故障发现方式不合法')
                     if form.level not in SystemFault.LEVEL_TEXT_MAP:
                         return json_response(error='故障级别不合法')
-                    if form.primary_impact_status not in SystemFault.IMPACT_TEXT_MAP:
-                        return json_response(error='主故障系统影响状态不合法')
+                    if form.impact_status not in SystemFault.IMPACT_TEXT_MAP:
+                        return json_response(error='故障系统影响状态不合法')
 
                     phenomenon = (form.phenomenon or '').strip()
                     if not phenomenon:
@@ -1262,8 +1251,8 @@ class LedgerItemConvertToFaultView(View):
                     fault = fault_services.create_fault_record(
                         tenant_id=request.user.tenant_id,
                         created_by=request.user,
-                        primary_system=item.system,
-                        primary_impact_status=form.primary_impact_status,
+                        system=item.system,
+                        impact_status=form.impact_status,
                         occurred_at=occurred_at,
                         discovery=form.discovery,
                         level=form.level,
@@ -1290,7 +1279,7 @@ class LedgerItemConvertToFaultView(View):
                                        })
         except fault_services.HealthRecalcLockTimeout as exc:
             return json_response(error=str(exc))
-        fault_data = SystemFault.objects.select_related('primary_system').get(pk=fault.id)
+        fault_data = SystemFault.objects.select_related('system').get(pk=fault.id)
         return json_response(fault_data.to_detail_view())
 
     def _compose_phenomenon(self, item, ledger):
@@ -1313,7 +1302,7 @@ class LedgerItemConvertToFaultView(View):
 class LedgerItemConvertToWorkOrderView(View):
     """台账异常明细直接转工单（台账详情"转工单"操作）。
 
-    - 只有结果为"异常"的有效明细可以转工单；目标系统固定为明细所属系统；
+    - 只有结果为"异常"的有效明细可以转工单；作业系统固定为明细所属系统；
     - 工单类型由用户明确选择（默认专项维护或故障维修）；
     - 带入台账、检查项、位置、异常说明、实测值和现场处理内容；
     - 一次操作不得同时直接创建故障和工单；重复提交不产生重复工单；
@@ -1327,6 +1316,9 @@ class LedgerItemConvertToWorkOrderView(View):
         body = _read_json_body(request)
         if body is None:
             return json_response(error='请求数据格式不正确')
+        err = _validate_affected_systems_rejected(body)
+        if err:
+            return json_response(error=err)
         try:
             with fault_services.health_recalc_lock():
                 with transaction.atomic():
@@ -1352,7 +1344,8 @@ class LedgerItemConvertToWorkOrderView(View):
                                  default=SystemWorkOrder.TYPE_SPECIAL_MAINTENANCE),
                         Argument('priority', type=str, required=False,
                                  default=SystemWorkOrder.PRIORITY_NORMAL),
-                        Argument('affected_system_ids', type=list, required=False, default=None),
+                        Argument('affects_system_operation', type=bool, required=False,
+                                 default=False),
                         Argument('work_location', type=str, required=False, default=''),
                         Argument('work_requirement', type=str, required=False, default=''),
                         Argument('work_steps', type=str, required=False, default=''),
@@ -1368,13 +1361,10 @@ class LedgerItemConvertToWorkOrderView(View):
                         return json_response(error='工单类型不合法')
                     if form.priority not in SystemWorkOrder.PRIORITY_TEXT_MAP:
                         return json_response(error='优先级不合法')
+                    if not isinstance(form.affects_system_operation, bool):
+                        return json_response(error='作业期间是否影响系统运行必须为布尔值')
                     if 'target_system' in body and body.get('target_system') not in (None, item.system_id):
-                        return json_response(error='目标系统固定为明细所属系统，不能指定其他系统')
-
-                    affected_map, error = work_order_services.validate_affected_systems(
-                        form.affected_system_ids, item.system, request.user.tenant_id)
-                    if error:
-                        return json_response(error=error)
+                        return json_response(error='工单系统固定为明细所属系统，不能指定其他系统')
 
                     planned_start = _parse_dt(form.planned_start) if form.planned_start else None
                     planned_end = _parse_dt(form.planned_end) if form.planned_end else None
@@ -1403,8 +1393,8 @@ class LedgerItemConvertToWorkOrderView(View):
                         source_type='ledger_item',
                         source_ledger_item=item,
                         source_no=ledger.ledger_no,
-                        target_system=item.system,
-                        affected_map=affected_map,
+                        system=item.system,
+                        affects_system_operation=form.affects_system_operation,
                         work_location=((form.work_location or '').strip()
                                        or item.point_name_snapshot or item.location_snapshot),
                         work_requirement=work_requirement[:2000],
@@ -1433,9 +1423,10 @@ class LedgerItemConvertToWorkOrderView(View):
 
 
 class SystemWorkOrdersView(View):
-    """按系统查询工单：role=target 目标工单 / affected 受影响工单 / all 两者。
+    """按系统查询工单（系统详情"工单"页签，单系统简化）。
 
-    只返回当前系统（租户内）关联的工单，不泄露其他无权限系统的数据。
+    只返回作业系统为当前系统（租户内）的工单，不泄露其他系统的数据，
+    不再区分目标/受影响角色。
     """
 
     @auth('equipment_lifecycle.work_order.view')
@@ -1443,30 +1434,14 @@ class SystemWorkOrdersView(View):
         system = _get_system_for_user(pk, request.user)
         if not system:
             return json_response(error='系统不存在')
-        role = request.GET.get('role', 'all')
-        if role not in ('all', 'target', 'affected'):
-            return json_response(error='查询范围不合法')
-        rows = []
-        if role in ('all', 'target'):
-            for order in SystemWorkOrder.objects.filter(
-                    tenant_id=system.tenant_id, target_system=system):
-                rows.append((order.created_at, order.id, order.to_view(), 'target'))
-        if role in ('all', 'affected'):
-            affected_qs = SystemWorkOrder.objects.filter(
-                tenant_id=system.tenant_id, affected_systems__system=system)
-            for order in affected_qs.exclude(target_system=system):
-                rows.append((order.created_at, order.id, order.to_view(), 'affected'))
-        rows.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        data = []
-        for _, _, row, order_role in rows:
-            row['order_role'] = order_role
-            row['order_role_text'] = '目标工单' if order_role == 'target' else '受影响工单'
-            data.append(row)
+        query = SystemWorkOrder.objects.filter(
+            tenant_id=system.tenant_id, system=system)
         page, page_size = paginate(request)
-        total = len(data)
-        data = data[(page - 1) * page_size: page * page_size]
+        total = query.count()
+        records = query[(page - 1) * page_size: page * page_size]
         return json_response({
-            'data': data, 'total': total, 'page': page, 'page_size': page_size,
+            'data': [r.to_view() for r in records],
+            'total': total, 'page': page, 'page_size': page_size,
         })
 
 
@@ -1482,7 +1457,7 @@ class WorkOrderExportView(View):
         work_type = request.GET.get('work_type')
         if work_type and work_type in SystemWorkOrder.TYPE_TEXT_MAP:
             query = query.filter(work_type=work_type)
-        headers = ['工单编号', '标题', '工单类型', '优先级', '状态', '目标系统', '系统编号',
+        headers = ['工单编号', '标题', '工单类型', '优先级', '状态', '作业系统', '系统编号',
                    '作业位置', '来源类型', '来源单据', '负责人', '计划开始', '计划结束',
                    '实际开始', '实际完成', '处理结果', '工时(小时)', '中断时间(小时)', '创建时间']
         rows = []
@@ -1493,8 +1468,8 @@ class WorkOrderExportView(View):
                 item.TYPE_TEXT_MAP.get(item.work_type, item.work_type),
                 item.PRIORITY_TEXT_MAP.get(item.priority, item.priority),
                 item.STATUS_TEXT_MAP.get(item.status, item.status),
-                item.target_system_name,
-                item.target_system_code,
+                item.system_name,
+                item.system_code,
                 item.work_location,
                 item.SOURCE_TEXT_MAP.get(item.source_type, item.source_type),
                 item.source_no,

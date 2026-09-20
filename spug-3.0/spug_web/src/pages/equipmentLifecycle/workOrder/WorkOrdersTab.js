@@ -3,53 +3,31 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 系统详情——工单页签（步骤 3.3）。
- * 区分当前系统作为目标系统的「目标工单」（参与维修中状态计算）
- * 与作为受影响系统的「受影响工单」（仅业务影响记录，不影响健康状态）；
+ * 系统详情——工单页签（步骤 3.3，单系统简化）。
+ * 只展示作业系统为当前系统的工单，不再区分目标/受影响工单；
  * 只查询当前系统（租户内）关联的工单，不泄露其他系统的数据。
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Table, Tag, Radio, Empty, Button } from 'antd';
+import { Table, Tag, Empty, Button } from 'antd';
 import store from './store';
 import WorkOrderDetail from './WorkOrderDetail';
 import {
   WO_PERM, WORK_TYPE_TEXT, WO_STATUS_TEXT, WO_STATUS_COLOR, PRIORITY_TEXT, PRIORITY_COLOR,
 } from './constants';
 
-const ROLE_OPTIONS = [
-  {value: 'all', label: '全部'},
-  {value: 'target', label: '目标工单'},
-  {value: 'affected', label: '受影响工单'},
-];
-
 @observer
 class WorkOrdersTab extends React.Component {
   state = {detailId: null, detailVisible: false};
 
   componentDidMount() {
-    store.fetchSystemOrders(this.props.systemId, store.systemOrderRole);
+    store.fetchSystemOrders(this.props.systemId);
   }
-
-  componentWillUnmount() {
-    store.systemOrderRole = 'all';
-  }
-
-  onRoleChange = (e) => {
-    store.fetchSystemOrders(this.props.systemId, e.target.value);
-  };
 
   columns = [{
     title: '工单编号',
     dataIndex: 'work_no',
     width: 150,
-  }, {
-    title: '角色',
-    dataIndex: 'order_role',
-    width: 100,
-    render: (text, record) => (
-      <Tag color={text === 'target' ? 'geekblue' : 'default'}>{record.order_role_text}</Tag>
-    ),
   }, {
     title: '标题',
     dataIndex: 'title',
@@ -97,14 +75,6 @@ class WorkOrdersTab extends React.Component {
   render() {
     return (
       <div>
-        <div style={{marginBottom: 12}}>
-          <Radio.Group
-            options={ROLE_OPTIONS}
-            optionType="button"
-            value={store.systemOrderRole}
-            onChange={this.onRoleChange}
-          />
-        </div>
         <Table
           rowKey="id"
           size="small"

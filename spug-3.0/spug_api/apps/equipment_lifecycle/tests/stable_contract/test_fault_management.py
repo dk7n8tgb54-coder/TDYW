@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""系统故障管理与系统健康状态联动（步骤 3.1）稳定契约测试。
+"""系统故障管理与系统健康状态联动（步骤 3.1，单系统简化）稳定契约测试。
 
-覆盖任务十九要求的行为契约：系统 ID 关联、租户隔离、主/受影响系统边界、
-快照、健康状态优先级计算、状态流转、幂等与回滚、处置记录、权限、
-受控作废、无设备档案依赖、模块边界（device/upgrade 无关联、无台账/工单/履历）。
+覆盖行为契约：系统 ID 关联、租户隔离、一张故障单只关联一个故障系统、
+受影响系统参数已删除、快照、健康状态优先级计算（只看本系统记录）、
+状态流转、幂等与回滚、处置记录、权限、受控作废、无设备档案依赖、
+模块边界（device/upgrade 无关联、无台账/工单/履历）。
 
 全部通过真实 HTTP 路径 + 隔离测试数据库执行，验证数据库状态与真实副作用。
 """
@@ -20,7 +21,6 @@ from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     SystemConfigComponent,
     SystemFault,
-    SystemFaultAffectedSystem,
     SystemFaultHandlingRecord,
 )
 from apps.logs.models import AuditLog
@@ -40,17 +40,16 @@ ALL_FAULT_PERMS = [
 ]
 
 
-def fault_payload(system, **overrides):
+def fault_payload(system_obj, **overrides):
     payload = {
-        'primary_system': system.id,
-        'primary_impact_status': 'degraded',
+        'system': system_obj.id,
+        'impact_status': 'degraded',
         'occurred_at': '2026-09-18 08:30',
         'discovery': 'patrol',
         'level': 'major',
         'phenomenon': '主用链路频繁丢包',
         'impact_scope': '本站话音业务',
         'fault_location': '机房A 01柜',
-        'affected_systems': [],
     }
     payload.update(overrides)
     return payload
@@ -95,7 +94,7 @@ class FaultTestBase(TestCase):
         """走完 创建→开始处置→恢复→关闭 全流程，返回故障详情。"""
         user = user or self.admin
         body = self.create_fault(fault_payload(
-            system, primary_impact_status=impact,
+            system, impact_status=impact,
             occurred_at=self.next_occurred_at()), user=user)
         self.assertFalse(body.get('error'), body)
         fid = body['data']['id']
@@ -115,65 +114,62 @@ class FaultTestBase(TestCase):
 
 
 class FaultCreateValidationTest(FaultTestBase):
-    """任务十九 1/2/4/5/7/8/21/28：关联校验与幂等。"""
+    """关联校验与幂等（单系统简化）。"""
 
     def test_fault_requires_valid_system_id(self):
-        """1. 故障必须关联有效系统 ID。"""
-        body = self.create_fault(fault_payload(self.system_a, primary_system=999999),
-                                 expect_error='主故障系统不存在')
+        """故障必须关联有效系统 ID。"""
+        body = self.create_fault(fault_payload(self.system_a, system=999999),
+                                 expect_error='故障系统不存在')
         self.assertFalse(body.get('data'))
         self.assertEqual(SystemFault.objects.count(), 0)
 
     def test_system_name_cannot_be_used_as_key(self):
-        """2. 系统名称不能作为关联键提交（必须用 ID）。"""
-        payload = fault_payload(self.system_a, primary_system='烟台通信系统')
-        self.create_fault(payload, expect_error='主故障系统')
+        """系统名称不能作为关联键提交（必须用 ID）。"""
+        payload = fault_payload(self.system_a, system='烟台通信系统')
+        self.create_fault(payload, expect_error='故障系统')
         self.assertEqual(SystemFault.objects.count(), 0)
-        # 受影响系统同样不能以名称提交
-        payload2 = fault_payload(self.system_a, affected_systems=[
-            {'system_id': '威海监控系统', 'impact_status': 'fault'}])
-        self.create_fault(payload2, expect_error='受影响系统必须以系统ID提交')
 
-    def test_cannot_link_primary_system_of_other_tenant(self):
-        """4. 不能关联其他租户的主故障系统。"""
-        body = self.create_fault(fault_payload(self.system_b), expect_error='主故障系统不存在')
+    def test_cannot_link_system_of_other_tenant(self):
+        """不能关联其他租户的故障系统。"""
+        body = self.create_fault(fault_payload(self.system_b), expect_error='故障系统不存在')
         self.assertFalse(body.get('data'))
         self.assertEqual(SystemFault.objects.count(), 0)
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_b.id).health_status, 'normal')
 
-    def test_cannot_link_affected_system_of_other_tenant(self):
-        """5. 不能关联其他租户的受影响系统。"""
-        payload = fault_payload(self.system_a, affected_systems=[
-            {'system_id': self.system_b.id, 'impact_status': 'fault'}])
-        self.create_fault(payload, expect_error='受影响系统不存在')
-        self.assertEqual(SystemFault.objects.count(), 0)
-
-    def test_single_primary_system_and_not_in_affected_list(self):
-        """6/7. 一张故障只有一个主故障系统，且主系统不能重复出现在受影响系统中。"""
-        body = self.create_fault(fault_payload(self.system_a, affected_systems=[
-            {'system_id': self.system_a.id, 'impact_status': 'fault'}]),
-            expect_error='主故障系统不能同时作为受影响系统')
-        self.assertEqual(SystemFault.objects.count(), 0)
-        # 正常创建后仅有一个主故障系统字段
-        body = self.create_fault(fault_payload(self.system_a, affected_systems=[
-            {'system_id': self.system_a2.id, 'impact_status': 'fault'}]))
+    def test_one_fault_links_exactly_one_system(self):
+        """一张故障只关联一个系统：创建后仅有一个系统外键，无受影响系统。"""
+        body = self.create_fault(fault_payload(self.system_a))
+        self.assertFalse(body.get('error'), body)
         fault = SystemFault.objects.get(pk=body['data']['id'])
-        self.assertEqual(fault.primary_system_id, self.system_a.id)
-        affected_ids = set(fault.affected_systems.values_list('system_id', flat=True))
-        self.assertEqual(affected_ids, {self.system_a2.id})
-        self.assertNotIn(self.system_a.id, affected_ids)
+        self.assertEqual(fault.system_id, self.system_a.id)
+        self.assertNotEqual(fault.system_id, self.system_a2.id)
+        # 单系统简化：受影响系统结构已删除，模型无 affected_systems 反向关系
+        self.assertFalse(
+            any(rel.get_accessor_name() == 'affected_systems'
+                for rel in SystemFault._meta.related_objects))
 
-    def test_duplicate_affected_system_rejected(self):
-        """8. 同一个受影响系统不能重复添加。"""
-        payload = fault_payload(self.system_a, affected_systems=[
-            {'system_id': self.system_a2.id, 'impact_status': 'fault'},
-            {'system_id': self.system_a2.id, 'impact_status': 'degraded'}])
-        self.create_fault(payload, expect_error='同一受影响系统不能重复添加')
+    def test_affected_systems_param_rejected(self):
+        """故障 API 不再接受受影响系统（POST/PUT 均拒绝，不静默忽略）。"""
+        self.create_fault(fault_payload(self.system_a, affected_systems=[
+            {'system_id': self.system_a2.id, 'impact_status': 'fault'}]),
+            expect_error='受影响系统')
         self.assertEqual(SystemFault.objects.count(), 0)
+        # 编辑同样拒绝
+        body = self.create_fault(fault_payload(self.system_a))
+        fid = body['data']['id']
+        client = make_client(self.admin)
+        detail = client.get(f'{FAULT_URL}/{fid}/').json()['data']
+        payload = {k: detail[k] for k in (
+            'system', 'impact_status', 'occurred_at', 'discovery', 'level', 'phenomenon')}
+        payload['affected_systems'] = [{'system_id': self.system_a2.id,
+                                        'impact_status': 'fault'}]
+        resp = client.put(f'{FAULT_URL}/{fid}/', payload, content_type='application/json')
+        self.assertIn('受影响系统', resp.json().get('error', ''))
+        self.assertEqual(SystemFault.objects.get(pk=fid).system_id, self.system_a.id)
 
     def test_duplicate_submission_rejected(self):
-        """21. 重复提交不会创建重复故障。"""
+        """重复提交不会创建重复故障。"""
         payload = fault_payload(self.system_a)
         first = self.create_fault(payload)
         self.assertFalse(first.get('error'), first)
@@ -185,7 +181,7 @@ class FaultCreateValidationTest(FaultTestBase):
         self.assertTrue(fault.fault_no.startswith('GZ'), fault.fault_no)
 
     def test_fault_without_component_and_without_device(self):
-        """27/28. 未建立设备档案、配置组成项为空时仍可报障。"""
+        """未建立设备档案、配置组成项为空时仍可报障。"""
         self.assertEqual(SystemConfigComponent.objects.count(), 0)
         body = self.create_fault(fault_payload(self.system_a))
         self.assertFalse(body.get('error'), body)
@@ -197,10 +193,10 @@ class FaultCreateValidationTest(FaultTestBase):
         """已停用系统默认不能创建新故障。"""
         self.system_a.is_active = False
         self.system_a.save(update_fields=['is_active'])
-        self.create_fault(fault_payload(self.system_a), expect_error='主故障系统不存在')
+        self.create_fault(fault_payload(self.system_a), expect_error='故障系统不存在')
 
     def test_component_reference_optional_and_snapshot_preserved(self):
-        """八. 引用组成项时保存对象快照；组成项删除不改变历史快照。"""
+        """引用组成项时保存对象快照；组成项删除不改变历史快照。"""
         comp = SystemConfigComponent.objects.create(
             tenant_id='tenant_a', system=self.system_a, name='接入交换机',
             model_version='H3C-5120', created_by=self.admin)
@@ -225,7 +221,7 @@ class FaultCreateValidationTest(FaultTestBase):
 
 
 class FaultTenantIsolationTest(FaultTestBase):
-    """任务十九 3. 不同租户同名系统，故障互不可见。"""
+    """不同租户同名系统，故障互不可见。"""
 
     def test_same_name_systems_faults_isolated(self):
         # 两租户系统同名（setUp 中 system_a 与 system_b 同名）
@@ -245,13 +241,15 @@ class FaultTenantIsolationTest(FaultTestBase):
                                             {}, content_type='application/json')
         self.assertEqual(resp.json().get('error'), '故障记录不存在')
         self.assertEqual(SystemFault.objects.get(pk=fault_b.id).status, 'pending')
+        # 租户内数据不交叉关联：租户A 的故障不能挂在租户B 系统上（校验拒绝）
+        self.create_fault(fault_payload(self.system_b), expect_error='故障系统不存在')
 
 
 class HealthStatusComputationTest(FaultTestBase):
-    """任务十九 11-18：健康状态统一计算。"""
+    """健康状态统一计算（单系统简化：只按本系统记录计算）。"""
 
     def _create(self, system, impact, **kw):
-        payload = fault_payload(system, primary_impact_status=impact,
+        payload = fault_payload(system, impact_status=impact,
                                 occurred_at=self.next_occurred_at())
         payload.update(kw)
         body = self.create_fault(payload)
@@ -263,22 +261,22 @@ class HealthStatusComputationTest(FaultTestBase):
         return system.health_status
 
     def test_degraded_fault_sets_system_degraded(self):
-        """11. 新增降级故障后系统变为降级。"""
+        """新增降级故障后系统变为降级。"""
         self._create(self.system_a, 'degraded')
         self.assertEqual(self._refresh(self.system_a), 'degraded')
 
     def test_fault_impact_sets_system_fault(self):
-        """12. 新增故障影响后系统变为故障。"""
+        """新增故障影响后系统变为故障。"""
         self._create(self.system_a, 'fault')
         self.assertEqual(self._refresh(self.system_a), 'fault')
 
     def test_interrupted_fault_sets_system_interrupted(self):
-        """13. 新增中断故障后系统变为中断。"""
+        """新增中断故障后系统变为中断。"""
         self._create(self.system_a, 'interrupted')
         self.assertEqual(self._refresh(self.system_a), 'interrupted')
 
     def test_priority_interrupted_over_fault_over_degraded(self):
-        """14. 中断、故障、降级同时存在时按正确优先级计算。"""
+        """中断、故障、降级同时存在时按正确优先级计算。"""
         self._create(self.system_a, 'degraded')
         self.assertEqual(self._refresh(self.system_a), 'degraded')
         self._create(self.system_a, 'fault')
@@ -292,31 +290,38 @@ class HealthStatusComputationTest(FaultTestBase):
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(self._refresh(self.system_a), 'fault')
         # 作废故障故障后回落到降级
-        f2 = SystemFault.objects.filter(primary_system=self.system_a,
-                                        primary_impact_status='fault',
+        f2 = SystemFault.objects.filter(system=self.system_a,
+                                        impact_status='fault',
                                         status='pending').first()
         resp = client.post(f'{FAULT_URL}/{f2.id}/cancel/', {'cancel_reason': '误报'},
                            content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(self._refresh(self.system_a), 'degraded')
         # 作废最后一张降级故障 → 正常
-        f1 = SystemFault.objects.filter(primary_system=self.system_a,
-                                        primary_impact_status='degraded',
+        f1 = SystemFault.objects.filter(system=self.system_a,
+                                        impact_status='degraded',
                                         status='pending').first()
         resp = client.post(f'{FAULT_URL}/{f1.id}/cancel/', {'cancel_reason': '误报'},
                            content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(self._refresh(self.system_a), 'normal')
 
-    def test_affected_system_health_updated(self):
-        """15. 系统作为受影响系统时同样能够更新状态。"""
-        self._create(self.system_a, 'degraded', affected_systems=[
-            {'system_id': self.system_a2.id, 'impact_status': 'fault'}])
-        self.assertEqual(self._refresh(self.system_a), 'degraded')
-        self.assertEqual(self._refresh(self.system_a2), 'fault')
+    def test_fault_of_system_a_does_not_change_system_b(self):
+        """系统A 的故障不会改变系统B 的状态（不建设跨系统影响）。"""
+        self._create(self.system_a, 'interrupted')
+        self.assertEqual(self._refresh(self.system_a), 'interrupted')
+        self.assertEqual(self._refresh(self.system_a2), 'normal')
+        # 作废后系统A 恢复正常；系统B 始终不受影响
+        client = make_client(self.admin)
+        f = SystemFault.objects.filter(system=self.system_a, status='pending').first()
+        resp = client.post(f'{FAULT_URL}/{f.id}/cancel/', {'cancel_reason': '误报'},
+                           content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        self.assertEqual(self._refresh(self.system_a), 'normal')
+        self.assertEqual(self._refresh(self.system_a2), 'normal')
 
     def test_close_one_fault_keeps_other_fault_status(self):
-        """16. 关闭一张故障不会覆盖其他未恢复故障产生的状态。"""
+        """关闭一张故障不会覆盖其他未恢复故障产生的状态。"""
         self._create(self.system_a, 'degraded')
         closed = self.run_lifecycle(self.system_a, impact='fault')
         self.assertEqual(closed.status, 'closed')
@@ -324,7 +329,7 @@ class HealthStatusComputationTest(FaultTestBase):
         self.assertEqual(self._refresh(self.system_a), 'degraded')
 
     def test_normal_only_after_all_active_faults_recovered(self):
-        """17. 所有有效故障恢复后系统才能恢复正常。"""
+        """所有有效故障恢复后系统才能恢复正常。"""
         f1 = self._create(self.system_a, 'degraded')
         self.run_lifecycle(self.system_a, impact='fault')
         self.assertEqual(self._refresh(self.system_a), 'degraded')
@@ -339,7 +344,7 @@ class HealthStatusComputationTest(FaultTestBase):
         self.assertEqual(self._refresh(self.system_a), 'normal')
 
     def test_cancelled_fault_excluded_from_computation(self):
-        """18. 已作废故障不参与状态计算。"""
+        """已作废故障不参与状态计算。"""
         fault = self._create(self.system_a, 'interrupted')
         self.assertEqual(self._refresh(self.system_a), 'interrupted')
         resp = make_client(self.admin).post(f'{FAULT_URL}/{fault.id}/cancel/',
@@ -348,29 +353,27 @@ class HealthStatusComputationTest(FaultTestBase):
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(self._refresh(self.system_a), 'normal')
 
-    def test_affected_system_removed_on_edit_recomputes(self):
-        """增删受影响系统后，修改前后的系统都重新计算。"""
-        fault = self._create(self.system_a, 'degraded', affected_systems=[
-            {'system_id': self.system_a2.id, 'impact_status': 'fault'}])
-        self.assertEqual(self._refresh(self.system_a2), 'fault')
+    def test_edit_system_change_recomputes_both(self):
+        """编辑变更故障系统后，修改前后的系统都重新计算。"""
+        fault = self._create(self.system_a, 'degraded')
+        self.assertEqual(self._refresh(self.system_a), 'degraded')
+        self.assertEqual(self._refresh(self.system_a2), 'normal')
         client = make_client(self.admin)
         detail = client.get(f'{FAULT_URL}/{fault.id}/').json()['data']
-        # 编辑：移除受影响系统 → system_a2 恢复正常
         payload = {k: detail[k] for k in (
-            'primary_system', 'primary_impact_status', 'occurred_at', 'discovery',
-            'level', 'phenomenon')}
-        payload['affected_systems'] = []
+            'impact_status', 'occurred_at', 'discovery', 'level', 'phenomenon')}
+        payload['system'] = self.system_a2.id
         resp = client.put(f'{FAULT_URL}/{fault.id}/', payload, content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
-        self.assertEqual(self._refresh(self.system_a2), 'normal')
-        self.assertEqual(self._refresh(self.system_a), 'degraded')
+        self.assertEqual(self._refresh(self.system_a), 'normal')
+        self.assertEqual(self._refresh(self.system_a2), 'degraded')
 
 
 class FaultLifecycleTest(FaultTestBase):
-    """任务十九 9/10/19/20/22/23/24/26/27：状态流转、快照、幂等与回滚。"""
+    """状态流转、快照、幂等与回滚。"""
 
     def test_rename_system_keeps_fk_and_snapshot(self):
-        """9/10. 系统改名后故障外键仍有效，详情显示发生时的名称与编号快照。"""
+        """系统改名后故障外键仍有效，详情显示发生时的名称与编号快照。"""
         old_name = self.system_a.name
         old_code = self.system_a.system_code
         body = self.create_fault(fault_payload(self.system_a))
@@ -385,15 +388,16 @@ class FaultLifecycleTest(FaultTestBase):
         self.assertFalse(resp.json().get('error'), resp.content)
         # 外键仍有效，快照保持故障发生时名称
         fault.refresh_from_db()
-        self.assertEqual(fault.primary_system_id, self.system_a.id)
+        self.assertEqual(fault.system_id, self.system_a.id)
         detail = json.loads(json.dumps(
             make_client(self.admin).get(f'{FAULT_URL}/{fault.id}/').json()['data']))
-        self.assertEqual(detail['primary_system_name'], old_name)
-        self.assertEqual(detail['primary_system_code'], old_code)
-        self.assertEqual(detail['primary_system'], self.system_a.id)
+        self.assertEqual(detail['system_name'], old_name)
+        self.assertEqual(detail['system_code'], old_code)
+        self.assertEqual(detail['system'], self.system_a.id)
+        self.assertEqual(detail['system_location'], '机房A')
 
     def test_close_requires_recovery_confirmation(self):
-        """19. 未恢复确认的故障不能关闭。"""
+        """未恢复确认的故障不能关闭。"""
         body = self.create_fault(fault_payload(self.system_a))
         fid = body['data']['id']
         client = make_client(self.admin)
@@ -419,15 +423,14 @@ class FaultLifecycleTest(FaultTestBase):
         self.assertEqual(SystemFault.objects.get(pk=fid).status, 'closed')
 
     def test_closed_fault_cannot_be_edited(self):
-        """20. 已关闭故障不能通过普通编辑接口修改。"""
+        """已关闭故障不能通过普通编辑接口修改。"""
         fault = self.run_lifecycle(self.system_a)
         client = make_client(self.admin)
         detail = client.get(f'{FAULT_URL}/{fault.id}/').json()['data']
         payload = {k: detail[k] for k in (
-            'primary_system', 'primary_impact_status', 'occurred_at', 'discovery',
+            'system', 'impact_status', 'occurred_at', 'discovery',
             'level', 'phenomenon')}
         payload['phenomenon'] = '试图篡改已关闭故障'
-        payload['affected_systems'] = []
         resp = client.put(f'{FAULT_URL}/{fault.id}/', payload, content_type='application/json')
         self.assertIn('不能编辑', resp.json().get('error', ''))
         fault.refresh_from_db()
@@ -438,7 +441,7 @@ class FaultLifecycleTest(FaultTestBase):
         self.assertIn('不能作废', resp.json().get('error', ''))
 
     def test_repeated_recover_and_close_no_side_effects(self):
-        """22. 重复恢复或关闭不会产生重复副作用。"""
+        """重复恢复或关闭不会产生重复副作用。"""
         body = self.create_fault(fault_payload(self.system_a))
         fid = body['data']['id']
         client = make_client(self.admin)
@@ -466,10 +469,10 @@ class FaultLifecycleTest(FaultTestBase):
         self.assertEqual(update_audits.count(), 3)
 
     def test_failed_operation_rolls_back_health_status(self):
-        """23. 故障操作失败时系统状态同步回滚。"""
+        """故障操作失败时系统状态同步回滚。"""
         before = LifecycleSystem.objects.get(pk=self.system_a.id).health_status
         payload = fault_payload(self.system_a)
-        # 步骤 3.3 起故障创建收敛到统一服务 create_fault_record，回滚锚点同步更新
+        # 故障创建收敛到统一服务 create_fault_record，回滚锚点同步更新
         with mock.patch('apps.equipment_lifecycle.fault_services.create_fault_record',
                         side_effect=RuntimeError('模拟事务中途失败')):
             resp = self.client.post(f'{FAULT_URL}/', payload, content_type='application/json')
@@ -481,7 +484,7 @@ class FaultLifecycleTest(FaultTestBase):
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, before)
 
     def test_handling_records_ordered_and_correction_tracked(self):
-        """24. 处置记录按时间正确保存和展示；更正保留原内容与原因。"""
+        """处置记录按时间正确保存和展示；更正保留原内容与原因。"""
         body = self.create_fault(fault_payload(self.system_a))
         fid = body['data']['id']
         client = make_client(self.admin)
@@ -509,7 +512,7 @@ class FaultLifecycleTest(FaultTestBase):
         self.assertEqual(corrected['corrections'][0]['reason'], '笔误更正')
 
     def test_del_is_controlled_cancel_not_physical_delete(self):
-        """26. del 执行受控作废，不是物理删除。"""
+        """del 执行受控作废，不是物理删除。"""
         fault = self.run_lifecycle_without_close(self.system_a)
         resp = make_client(self.admin).post(f'{FAULT_URL}/{fault.id}/cancel/',
                                             {'cancel_reason': '误报作废'},
@@ -530,7 +533,7 @@ class FaultLifecycleTest(FaultTestBase):
         return SystemFault.objects.get(pk=fid)
 
     def test_full_flow_without_device_resume(self):
-        """27. 未建立单台设备档案仍可完整处理故障闭环。"""
+        """未建立单台设备档案仍可完整处理故障闭环。"""
         from apps.device.models import DeviceResume  # 仅确认无需创建任何设备档案
         self.assertEqual(DeviceResume.objects.count(), 0)
         fault = self.run_lifecycle(self.system_a)
@@ -540,7 +543,7 @@ class FaultLifecycleTest(FaultTestBase):
 
 
 class FaultPermissionTest(FaultTestBase):
-    """任务十九 25. 权限不足时后端拒绝查看或操作。"""
+    """权限不足时后端拒绝查看或操作。"""
 
     def test_view_permission_required(self):
         resp = make_client(self.noperm_user).get(f'{FAULT_URL}/')
@@ -578,10 +581,10 @@ class FaultPermissionTest(FaultTestBase):
 
 
 class FaultBoundaryTest(FaultTestBase):
-    """任务十九 29/30 及系统编辑/删除联动保护。"""
+    """模块边界及系统编辑/删除联动保护。"""
 
     def test_old_fault_tables_absent_and_no_cross_module_links(self):
-        """29. 旧故障表不存在；device/upgrade 与新故障模型无任何外键关联。"""
+        """旧故障表不存在；device/upgrade 与新故障模型无任何外键关联。"""
         with connection.cursor() as cursor:
             cursor.execute("SHOW TABLES LIKE 'tdyw_fault_records'")
             self.assertIsNone(cursor.fetchone())
@@ -591,9 +594,6 @@ class FaultBoundaryTest(FaultTestBase):
         related_apps = {
             rel.related_model._meta.app_label
             for rel in SystemFault._meta.related_objects
-        } | {
-            rel.related_model._meta.app_label
-            for rel in SystemFaultAffectedSystem._meta.related_objects
         } | {
             rel.related_model._meta.app_label
             for rel in SystemFaultHandlingRecord._meta.related_objects
@@ -608,7 +608,7 @@ class FaultBoundaryTest(FaultTestBase):
                 self.assertNotIn('fault', name.lower())
 
     def test_no_ledger_workorder_event_models_created(self):
-        """30. 本步骤没有创建台账、工单或旧步骤一模型。
+        """本步骤没有创建台账、工单或旧步骤一模型。
 
         注：同一应用内由并行的运维台账任务新增的巡检/维护台账模型不在本
         断言范围；本断言固化的是故障任务自己不得引入的模型。
@@ -620,17 +620,17 @@ class FaultBoundaryTest(FaultTestBase):
         forbidden = {'WorkOrder', 'FaultWorkOrder', 'SystemInspectionLog',
                      'FaultPart', 'FaultRecord', 'LifecycleDevice', 'SystemDeviceRelation'}
         self.assertFalse(model_names & forbidden, model_names)
-        # 本任务的三个故障模型必须存在
-        self.assertTrue({'SystemFault', 'SystemFaultAffectedSystem',
-                         'SystemFaultHandlingRecord'} <= model_names)
+        # 单系统简化后：受影响系统模型已删除，故障主模型与处置记录仍存在
+        self.assertTrue({'SystemFault', 'SystemFaultHandlingRecord'} <= model_names)
+        self.assertNotIn('SystemFaultAffectedSystem', model_names)
 
     def test_system_edit_cannot_override_fault_computed_health(self):
-        """十一. 普通系统编辑接口不得覆盖故障计算出的健康状态。
+        """普通系统编辑接口不得覆盖故障计算出的健康状态。
 
         步骤 3.5 收口后约束更强：health_status 不再是系统表单字段，
         编辑提交携带任何状态值均被忽略，健康状态只能由统一重算服务写入。
         """
-        self.create_fault(fault_payload(self.system_a, primary_impact_status='degraded'))
+        self.create_fault(fault_payload(self.system_a, impact_status='degraded'))
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'degraded')
         client = make_client(self.admin)
@@ -645,7 +645,7 @@ class FaultBoundaryTest(FaultTestBase):
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'degraded')
         # 无有效影响（故障作废）后：编辑同样不能手动改状态，重算结果为 normal
-        fault = SystemFault.objects.get(primary_system=self.system_a)
+        fault = SystemFault.objects.get(system=self.system_a)
         client.post(f'{FAULT_URL}/{fault.id}/cancel/', {'cancel_reason': '误报'},
                     content_type='application/json')
         self.assertEqual(
@@ -659,9 +659,9 @@ class FaultBoundaryTest(FaultTestBase):
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'normal')
 
     def test_system_with_fault_cannot_be_deleted(self):
-        """删除保护：存在故障关联（主体或受影响）的系统不能物理删除。"""
-        self.create_fault(fault_payload(self.system_a, affected_systems=[
-            {'system_id': self.system_a2.id, 'impact_status': 'fault'}]))
+        """删除保护：存在故障关联的系统不能物理删除。"""
+        self.create_fault(fault_payload(self.system_a, occurred_at=self.next_occurred_at()))
+        self.create_fault(fault_payload(self.system_a2, occurred_at=self.next_occurred_at()))
         client = make_client(self.admin)
         resp = client.delete(f'/equipment-lifecycle/systems/{self.system_a.id}/')
         self.assertIn('故障记录', resp.json().get('error', ''))
@@ -671,23 +671,17 @@ class FaultBoundaryTest(FaultTestBase):
         self.assertTrue(LifecycleSystem.objects.filter(pk=self.system_a2.id).exists())
 
     def test_fault_query_by_system_and_candidates(self):
-        """按系统查询（区分主体/受影响）与候选系统接口。"""
-        self.create_fault(fault_payload(self.system_a, affected_systems=[
-            {'system_id': self.system_a2.id, 'impact_status': 'fault'}]))
+        """按系统查询故障（单系统，不再区分主体/受影响）与候选系统接口。"""
+        self.create_fault(fault_payload(self.system_a))
         client = make_client(self.admin)
-        # 主体故障
-        resp = client.get(f'/equipment-lifecycle/systems/{self.system_a.id}/faults/',
-                          {'role': 'primary'})
+        resp = client.get(f'/equipment-lifecycle/systems/{self.system_a.id}/faults/')
         rows = resp.json()['data']['data']
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]['fault_role'], 'primary')
-        # 受影响故障
-        resp = client.get(f'/equipment-lifecycle/systems/{self.system_a2.id}/faults/',
-                          {'role': 'affected'})
-        rows = resp.json()['data']['data']
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]['fault_role'], 'affected')
-        self.assertEqual(rows[0]['impact_status'], 'fault')
+        self.assertEqual(rows[0]['system'], self.system_a.id)
+        self.assertNotIn('fault_role', rows[0])
+        # 其他系统查不到该故障
+        resp = client.get(f'/equipment-lifecycle/systems/{self.system_a2.id}/faults/')
+        self.assertEqual(resp.json()['data']['data'], [])
         # 候选系统：只含可用系统，含编号与安装地点
         resp = client.get(f'{FAULT_URL}/candidate-systems/')
         codes = {r['system_code']: r for r in resp.json()['data']['data']}
@@ -699,8 +693,8 @@ class FaultBoundaryTest(FaultTestBase):
         self.assertNotIn('SYS-A1', {r['system_code'] for r in resp.json()['data']['data']})
 
     def test_health_status_change_audited(self):
-        """十七. 系统健康状态变化记录审计。"""
-        self.create_fault(fault_payload(self.system_a, primary_impact_status='interrupted'))
+        """系统健康状态变化记录审计。"""
+        self.create_fault(fault_payload(self.system_a, impact_status='interrupted'))
         self.assertTrue(AuditLog.objects.filter(
             tenant_id='tenant_a', target_type='el_system_health',
             target_id=str(self.system_a.id),

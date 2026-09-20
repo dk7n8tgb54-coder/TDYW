@@ -224,15 +224,13 @@ class FaultStore {
     this.fetchRecords();
   };
 
-  // ========== 系统详情故障页签 ==========
+  // ========== 系统详情故障页签（单系统简化：只查本系统故障） ==========
   @observable systemFaults = [];
   @observable isSystemFaultsFetching = false;
-  @observable systemFaultRole = 'all';
 
-  fetchSystemFaults = (systemId, role = 'all') => {
-    this.systemFaultRole = role;
+  fetchSystemFaults = (systemId) => {
     this.isSystemFaultsFetching = true;
-    return http.get(`${API_PREFIX}/systems/${systemId}/faults/`, {params: {role}})
+    return http.get(`${API_PREFIX}/systems/${systemId}/faults/`)
       .then(action(res => {
         this.systemFaults = res.data || [];
       }))

@@ -1,14 +1,15 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——系统故障管理与系统健康状态联动视图（步骤 3.1）。
+"""设备全生命周期——系统故障管理与系统健康状态联动视图（步骤 3.1，单系统简化）。
 
 权限域（前后端一致，后端独立校验）：
 - equipment_lifecycle.fault.view|add|edit|handle|recover|close|del|export
 
 设计要点：
-- 业务关联一律使用系统 ID（LifecycleSystem 主键），页面仅显示名称；
-- 主故障系统/受影响系统提交时由后端重新查询校验（租户、可用性、去重），
+- 一张故障单只关联一个故障系统；业务关联一律使用系统 ID（LifecycleSystem 主键），
+  页面仅显示名称，不建设主/受影响系统等跨系统关系；
+- 故障系统提交时由后端重新查询校验（租户、可用性），
   不信任前端传来的名称或状态；
 - 状态流转只经动作接口（start/recover/close/cancel），普通编辑不允许改状态；
 - 所有改变有效故障影响的写操作在 health_recalc_lock 内 + 单事务中完成，
@@ -42,7 +43,6 @@ from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     SystemConfigComponent,
     SystemFault,
-    SystemFaultAffectedSystem,
     SystemFaultHandlingRecord,
 )
 
@@ -84,7 +84,7 @@ def _parse_dt(value):
 
 
 def _get_fault_for_user(pk, user, for_update=False):
-    qs = apply_tenant_filter(SystemFault.objects.select_related('primary_system'), user)
+    qs = apply_tenant_filter(SystemFault.objects.select_related('system'), user)
     if for_update:
         qs = qs.select_for_update()
     return qs.filter(pk=pk).first()
@@ -103,58 +103,15 @@ def _get_active_system_for_user(pk, user):
         pk=pk, is_active=True).first()
 
 
-def _system_snapshot(system):
-    return {
-        'system_code': system.system_code,
-        'system_name': system.name,
-        'install_location': system.install_location,
-    }
-
-
-def _primary_snapshot(system):
-    """主故障系统快照 → SystemFault.primary_* 字段。"""
-    return {
-        'primary_system_code': system.system_code,
-        'primary_system_name': system.name,
-        'primary_system_location': system.install_location,
-    }
-
-
-def _validate_affected_payload(entries, primary_system, user):
-    """校验受影响系统提交列表，返回 ({system_id: (system, impact)}, error)。
-
-    - entries 为 None 表示本次提交不含该字段（编辑时保持不变）；
-    - 主故障系统不能重复出现在受影响系统中，同一系统不能重复添加；
-    - 全部通过系统 ID 提交，后端重新查询校验租户与可用性。
-    """
-    if entries is None:
-        return {}, None
-    if not isinstance(entries, list):
-        return None, '受影响系统格式不正确'
-    result = {}
-    for entry in entries:
-        if not isinstance(entry, dict):
-            return None, '受影响系统格式不正确'
-        try:
-            system_id = int(entry.get('system_id'))
-        except (TypeError, ValueError):
-            return None, '受影响系统必须以系统ID提交'
-        impact = entry.get('impact_status')
-        if impact not in SystemFault.IMPACT_TEXT_MAP:
-            return None, '受影响系统影响状态不合法'
-        if system_id == primary_system.id:
-            return None, '主故障系统不能同时作为受影响系统'
-        if system_id in result:
-            return None, '同一受影响系统不能重复添加'
-        system = _get_active_system_for_user(system_id, user)
-        if not system:
-            return None, f'受影响系统不存在、已停用或无权限（ID {system_id}）'
-        result[system_id] = (system, impact)
-    return result, None
+def _validate_affected_systems_rejected(body):
+    """旧参数已随单系统简化删除：出现即拒绝，不静默忽略。"""
+    if 'affected_systems' in body:
+        return '故障已不再支持受影响系统，请只提交一个故障系统'
+    return None
 
 
 def _validate_fault_fields(form, request, for_update=False, fault=None):
-    """校验故障公共字段（不含受影响系统），返回 (occurred_at, handler, error)。"""
+    """校验故障公共字段，返回 (occurred_at, handler, error)。"""
     occurred_at = _parse_dt(form.occurred_at)
     if not occurred_at:
         return None, None, '故障发生时间格式不正确，应为 YYYY-MM-DD HH:MM'
@@ -164,8 +121,8 @@ def _validate_fault_fields(form, request, for_update=False, fault=None):
         return None, None, '故障级别不合法'
     if form.discovery not in SystemFault.DISCOVERY_TEXT_MAP:
         return None, None, '故障发现方式不合法'
-    if form.primary_impact_status not in SystemFault.IMPACT_TEXT_MAP:
-        return None, None, '主故障系统影响状态不合法'
+    if form.impact_status not in SystemFault.IMPACT_TEXT_MAP:
+        return None, None, '故障系统影响状态不合法'
     handler = request.user
     if form.handler_id:
         handler = apply_tenant_filter(User.objects.all(), request.user).filter(
@@ -175,36 +132,22 @@ def _validate_fault_fields(form, request, for_update=False, fault=None):
     return occurred_at, handler, None
 
 
-def _validate_fault_systems(form, request, for_update=False, fault=None):
-    """校验主故障系统与可选组成项，返回 (primary_system, fault_component, error)。"""
-    primary_system = _get_active_system_for_user(form.primary_system, request.user)
-    if not primary_system:
-        if for_update and fault and fault.primary_system_id == form.primary_system:
-            # 未变更的主系统即使是停用系统也保持原关联（历史故障继续可查）
-            primary_system = fault.primary_system
+def _validate_fault_system(form, request, for_update=False, fault=None):
+    """校验故障系统与可选组成项，返回 (system, fault_component, error)。"""
+    system = _get_active_system_for_user(form.system, request.user)
+    if not system:
+        if for_update and fault and fault.system_id == form.system:
+            # 未变更的故障系统即使是停用系统也保持原关联（历史故障继续可查）
+            system = fault.system
         else:
-            return None, None, '主故障系统不存在、已停用或无权限'
+            return None, None, '故障系统不存在、已停用或无权限'
     fault_component = None
     if form.fault_component:
         fault_component = apply_tenant_filter(SystemConfigComponent.objects.all(), request.user).filter(
-            pk=form.fault_component, system=primary_system).first()
+            pk=form.fault_component, system=system).first()
         if not fault_component:
-            return None, None, '配置组成项不存在或不属于主故障系统'
-    return primary_system, fault_component, None
-
-
-def _create_affected_rows(fault, affected_map):
-    rows = []
-    for system, impact in affected_map.values():
-        rows.append(SystemFaultAffectedSystem(
-            tenant_id=fault.tenant_id,
-            fault=fault,
-            system=system,
-            impact_status=impact,
-            **_system_snapshot(system),
-        ))
-    SystemFaultAffectedSystem.objects.bulk_create(rows)
-    return rows
+            return None, None, '配置组成项不存在或不属于故障系统'
+    return system, fault_component, None
 
 
 def _generate_fault_no(tenant_id):
@@ -223,13 +166,9 @@ def _fault_audit_summary(fault):
     summary = {
         'fault_no': fault.fault_no,
         'status': fault.status,
-        'primary_system': fault.primary_system_name,
-        'primary_impact_status': fault.primary_impact_status,
+        'system': fault.system_name,
+        'impact_status': fault.impact_status,
         'level': fault.level,
-        'affected_systems': [
-            {'system': row.system_name, 'impact_status': row.impact_status}
-            for row in fault.affected_systems.all()
-        ],
     }
     if fault.status == SystemFault.STATUS_CANCELLED and fault.cancel_reason:
         summary['cancel_reason'] = fault.cancel_reason
@@ -261,13 +200,11 @@ class FaultView(View):
                 return json_response(error='故障级别筛选值不合法')
             query = query.filter(level=form.level)
         if form.system:
-            query = query.filter(
-                Q(primary_system_id=form.system) | Q(affected_systems__system_id=form.system)
-            ).distinct()
+            query = query.filter(system_id=form.system)
         if form.keyword:
             query = query.filter(
                 Q(fault_no__icontains=form.keyword) | Q(phenomenon__icontains=form.keyword) |
-                Q(primary_system_name__icontains=form.keyword))
+                Q(system_name__icontains=form.keyword))
         # 时间筛选用 __gte/__lt（项目禁用 DateTimeField __date 等查询）
         occurred_from = _parse_dt(form.occurred_from) if form.occurred_from else None
         occurred_to = _parse_dt(form.occurred_to) if form.occurred_to else None
@@ -295,8 +232,8 @@ class FaultView(View):
         if body is None:
             return json_response(error='请求数据格式不正确')
         form, error = JsonParser(
-            Argument('primary_system', type=int, required=True, help='主故障系统ID'),
-            Argument('primary_impact_status', type=str, required=True, help='主故障系统影响状态'),
+            Argument('system', type=int, required=True, help='故障系统ID'),
+            Argument('impact_status', type=str, required=True, help='故障系统影响状态'),
             Argument('occurred_at', type=str, required=True, help='故障发生时间'),
             Argument('discovery', type=str, required=True, help='故障发现方式'),
             Argument('level', type=str, required=True, help='故障级别'),
@@ -312,29 +249,27 @@ class FaultView(View):
         ).parse(body)
         if error:
             return json_response(error=error)
-        affected_entries = body.get('affected_systems')
+        err = _validate_affected_systems_rejected(body)
+        if err:
+            return json_response(error=err)
 
-        primary_system, fault_component, err = _validate_fault_systems(form, request)
+        system, fault_component, err = _validate_fault_system(form, request)
         if err:
             return json_response(error=err)
         occurred_at, handler, err = _validate_fault_fields(form, request)
-        if err:
-            return json_response(error=err)
-        affected_map, err = _validate_affected_payload(affected_entries, primary_system, request.user)
         if err:
             return json_response(error=err)
         phenomenon = form.phenomenon.strip()
         if not phenomenon:
             return json_response(error='故障现象不能为空')
 
-        related_ids = [primary_system.id] + list(affected_map.keys())
         try:
             with fault_services.health_recalc_lock():
                 with transaction.atomic():
-                    # 防重复提交：同租户/同主系统/同发生时间/同现象在窗口期内视为重复
+                    # 防重复提交：同租户/同系统/同发生时间/同现象在窗口期内视为重复
                     if check_recent_duplicate(SystemFault, {
                         'tenant_id': request.user.tenant_id,
-                        'primary_system_id': primary_system.id,
+                        'system_id': system.id,
                         'occurred_at': occurred_at,
                         'phenomenon': phenomenon,
                     }, window_seconds=IDEMPOTENCY_WINDOW_SECONDS):
@@ -343,14 +278,13 @@ class FaultView(View):
                     fault = fault_services.create_fault_record(
                         tenant_id=request.user.tenant_id,
                         created_by=request.user,
-                        primary_system=primary_system,
-                        primary_impact_status=form.primary_impact_status,
+                        system=system,
+                        impact_status=form.impact_status,
                         occurred_at=occurred_at,
                         discovery=form.discovery,
                         level=form.level,
                         phenomenon=phenomenon,
                         handler=handler,
-                        affected_map=affected_map,
                         fault_component=fault_component,
                         impact_scope=form.impact_scope or '',
                         fault_location=form.fault_location or '',
@@ -384,8 +318,8 @@ class FaultDetailView(View):
         if body is None:
             return json_response(error='请求数据格式不正确')
         form, error = JsonParser(
-            Argument('primary_system', type=int, required=True, help='主故障系统ID'),
-            Argument('primary_impact_status', type=str, required=True, help='主故障系统影响状态'),
+            Argument('system', type=int, required=True, help='故障系统ID'),
+            Argument('impact_status', type=str, required=True, help='故障系统影响状态'),
             Argument('occurred_at', type=str, required=True, help='故障发生时间'),
             Argument('discovery', type=str, required=True, help='故障发现方式'),
             Argument('level', type=str, required=True, help='故障级别'),
@@ -401,9 +335,9 @@ class FaultDetailView(View):
         ).parse(body)
         if error:
             return json_response(error=error)
-        affected_entries = body.get('affected_systems')
-        if affected_entries is None:
-            return json_response(error='受影响系统提交缺失')
+        err = _validate_affected_systems_rejected(body)
+        if err:
+            return json_response(error=err)
 
         try:
             with fault_services.health_recalc_lock():
@@ -413,12 +347,10 @@ class FaultDetailView(View):
                         return json_response(error='故障记录不存在')
                     if fault.status not in EDITABLE_FAULT_STATUSES:
                         return json_response(error='已关闭或已作废的故障不能编辑')
-                    # 修改前后的关联系统都需要重算（影响可能消失或新增）
-                    related_ids = {fault.primary_system_id}
-                    related_ids.update(
-                        fault.affected_systems.values_list('system_id', flat=True))
+                    # 修改前后的系统都需要重算（影响可能消失或新增）
+                    related_ids = {fault.system_id}
 
-                    primary_system, fault_component, err = _validate_fault_systems(
+                    system, fault_component, err = _validate_fault_system(
                         form, request, for_update=True, fault=fault)
                     if err:
                         return json_response(error=err)
@@ -426,21 +358,17 @@ class FaultDetailView(View):
                         form, request, for_update=True, fault=fault)
                     if err:
                         return json_response(error=err)
-                    affected_map, err = _validate_affected_payload(
-                        affected_entries, primary_system, request.user)
-                    if err:
-                        return json_response(error=err)
                     phenomenon = form.phenomenon.strip()
                     if not phenomenon:
                         return json_response(error='故障现象不能为空')
 
                     before_summary = _fault_audit_summary(fault)
-                    old_primary = fault.primary_system
-                    old_component = fault.fault_component
-                    fault.primary_system = primary_system
-                    fault.primary_impact_status = form.primary_impact_status
-                    for key, value in _primary_snapshot(primary_system).items():
-                        setattr(fault, key, value)
+                    old_system = fault.system
+                    fault.system = system
+                    fault.impact_status = form.impact_status
+                    fault.system_code = system.system_code
+                    fault.system_name = system.name
+                    fault.system_location = system.install_location
                     fault.occurred_at = occurred_at
                     fault.discovery = form.discovery
                     fault.level = form.level
@@ -457,11 +385,7 @@ class FaultDetailView(View):
                     fault.updated_by = request.user
                     fault.save()
 
-                    # 受影响系统全量替换（唯一约束防重复，delete+recreate 保持快照新鲜）
-                    fault.affected_systems.all().delete()
-                    _create_affected_rows(fault, affected_map)
-
-                    related_ids.update({primary_system.id} | set(affected_map.keys()))
+                    related_ids.add(system.id)
                     fault_services.recompute_systems_health(
                         request.user.tenant_id, related_ids, request=request,
                         audit_reason='编辑故障 ' + fault.fault_no)
@@ -506,10 +430,8 @@ class FaultActionBaseView(View):
         raise NotImplementedError
 
     def recompute(self, request, fault, reason):
-        related_ids = {fault.primary_system_id}
-        related_ids.update(fault.affected_systems.values_list('system_id', flat=True))
         fault_services.recompute_systems_health(
-            fault.tenant_id, related_ids, request=request, audit_reason=reason)
+            fault.tenant_id, [fault.system_id], request=request, audit_reason=reason)
 
 
 class FaultStartView(FaultActionBaseView):
@@ -884,7 +806,10 @@ class FaultCandidateSystemsView(View):
 
 
 class SystemFaultListView(View):
-    """按系统查询故障：role=primary 主体故障 / affected 受影响故障 / all 两者。"""
+    """按系统查询故障（系统详情"故障记录"页签，单系统简化）。
+
+    只返回故障系统为当前系统的故障，不再区分主体/受影响角色。
+    """
 
     @auth('equipment_lifecycle.fault.view')
     def get(self, request, pk):
@@ -892,36 +817,15 @@ class SystemFaultListView(View):
             pk=pk).first()
         if not system:
             return json_response(error='系统不存在')
-        role = request.GET.get('role', 'all')
-        if role not in ('all', 'primary', 'affected'):
-            return json_response(error='查询范围不合法')
-        rows = []
-        if role in ('all', 'primary'):
-            for fault in apply_tenant_filter(SystemFault.objects.all(), request.user).filter(
-                    primary_system=system):
-                rows.append((fault.occurred_at, fault.id, fault.to_view(), 'primary'))
-        if role in ('all', 'affected'):
-            for record in SystemFaultAffectedSystem.objects.filter(
-                    tenant_id=system.tenant_id, system=system).select_related('fault'):
-                fault = record.fault
-                if fault.tenant_id != system.tenant_id:
-                    continue
-                row = fault.to_view()
-                row['impact_status'] = record.impact_status
-                row['impact_status_text'] = SystemFault.IMPACT_TEXT_MAP.get(record.impact_status, '')
-                rows.append((fault.occurred_at, fault.id, row, 'affected'))
-        rows.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        data = []
-        for _, _, row, fault_role in rows:
-            row['fault_role'] = fault_role
-            row['fault_role_text'] = '主体故障' if fault_role == 'primary' else '受影响故障'
-            data.append(row)
+        query = apply_tenant_filter(SystemFault.objects.all(), request.user).filter(
+            system=system)
         from libs.pagination import paginate
         page, page_size = paginate(request)
-        total = len(data)
-        data = data[(page - 1) * page_size: page * page_size]
+        total = query.count()
+        records = query[(page - 1) * page_size: page * page_size]
         return json_response({
-            'data': data, 'total': total, 'page': page, 'page_size': page_size,
+            'data': [r.to_view() for r in records],
+            'total': total, 'page': page, 'page_size': page_size,
         })
 
 
@@ -935,15 +839,15 @@ class FaultExportView(View):
         level = request.GET.get('level')
         if level and level in SystemFault.LEVEL_TEXT_MAP:
             query = query.filter(level=level)
-        headers = ['故障编号', '主故障系统', '系统编号', '影响状态', '故障级别', '状态',
+        headers = ['故障编号', '故障系统', '系统编号', '影响状态', '故障级别', '状态',
                    '发生时间', '发现方式', '故障现象', '恢复时间', '最终结果', '处置负责人']
         rows = []
         for item in query:
             rows.append([
                 item.fault_no,
-                item.primary_system_name,
-                item.primary_system_code,
-                item.IMPACT_TEXT_MAP.get(item.primary_impact_status, ''),
+                item.system_name,
+                item.system_code,
+                item.IMPACT_TEXT_MAP.get(item.impact_status, ''),
                 item.LEVEL_TEXT_MAP.get(item.level, item.level),
                 item.STATUS_TEXT_MAP.get(item.status, item.status),
                 item.occurred_at.strftime('%Y-%m-%d %H:%M') if item.occurred_at else '',

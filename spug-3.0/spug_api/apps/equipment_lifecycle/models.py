@@ -494,17 +494,17 @@ class SystemConfigSnapshot(TenantModelMixin, models.Model):
 
 
 class SystemFault(TenantModelMixin, models.Model):
-    """系统故障主表（步骤 3.1）：以系统（LifecycleSystem）为业务对象的新故障管理。
+    """系统故障主表（步骤 3.1，单系统简化）。
 
     与步骤一删除的旧故障表（tdyw_fault_records/tdyw_fault_parts）无关，不复用旧表名。
 
-    关联规则：
-    - 主故障系统必须通过外键关联系统主数据（请求与存储一律用系统 ID，页面只显示名称）；
-    - 每张故障单有且仅有一个主故障系统，可有零或多个受影响系统（SystemFaultAffectedSystem）；
+    关联规则（一个故障单只关联一个故障系统，不建设跨系统影响关系）：
+    - 故障系统必须通过外键关联系统主数据（请求与存储一律用系统 ID，页面只显示名称）；
     - 故障发生时保存系统快照（编号/名称/安装地点），系统改名后历史详情仍显示当时名称；
       快照仅用于历史展示，不替代正式外键；
     - 具体故障对象可选引用配置组成项（SET_NULL，组成项删除不影响历史快照文本），
       不建立单台设备外键、不关联 DeviceResume。
+    一次实际工作涉及多个独立系统时分别建立故障，不允许一单关联多系统。
 
     状态流转（后端校验，动作接口触发）：
     pending →(start)→ handling →(recover)→ recovered →(close)→ closed；
@@ -561,15 +561,15 @@ class SystemFault(TenantModelMixin, models.Model):
     SOURCE_MANUAL = 'manual'
 
     fault_no = models.CharField(max_length=50, help_text='故障编号，租户内唯一，自动生成')
-    primary_system = models.ForeignKey(
-        LifecycleSystem, models.PROTECT, related_name='primary_faults',
-        help_text='主故障系统（外键关联系统主数据）')
-    primary_impact_status = models.CharField(
-        max_length=20, choices=IMPACT_CHOICES, help_text='主故障系统影响状态')
-    # 主故障系统故障发生时快照
-    primary_system_code = models.CharField(max_length=50, help_text='主故障系统编号快照')
-    primary_system_name = models.CharField(max_length=100, help_text='主故障系统名称快照')
-    primary_system_location = models.CharField(max_length=200, help_text='主故障系统安装地点快照')
+    system = models.ForeignKey(
+        LifecycleSystem, models.PROTECT, related_name='faults',
+        help_text='故障系统（外键关联系统主数据，一个故障单只关联一个系统）')
+    impact_status = models.CharField(
+        max_length=20, choices=IMPACT_CHOICES, help_text='故障系统影响状态')
+    # 故障系统故障发生时快照
+    system_code = models.CharField(max_length=50, help_text='故障系统编号快照')
+    system_name = models.CharField(max_length=100, help_text='故障系统名称快照')
+    system_location = models.CharField(max_length=200, help_text='故障系统安装地点快照')
 
     occurred_at = models.DateTimeField(help_text='故障发生时间')
     discovery = models.CharField(max_length=20, choices=DISCOVERY_CHOICES, help_text='故障发现方式')
@@ -629,13 +629,13 @@ class SystemFault(TenantModelMixin, models.Model):
                 name='el_fault_status_valid',
             ),
             models.CheckConstraint(
-                check=models.Q(primary_impact_status__in=FAULT_IMPACT_VALUES),
-                name='el_fault_primary_impact_valid',
+                check=models.Q(impact_status__in=FAULT_IMPACT_VALUES),
+                name='el_fault_impact_valid',
             ),
         ]
         indexes = [
             models.Index(fields=['tenant_id', 'status']),
-            models.Index(fields=['tenant_id', 'primary_system', '-occurred_at', '-id']),
+            models.Index(fields=['tenant_id', 'system', '-occurred_at', '-id']),
             models.Index(fields=['tenant_id', '-occurred_at', '-id']),
         ]
 
@@ -647,11 +647,12 @@ class SystemFault(TenantModelMixin, models.Model):
         return {
             'id': self.id,
             'fault_no': self.fault_no,
-            'primary_system': self.primary_system_id,
-            'primary_system_name': self.primary_system_name,
-            'primary_system_code': self.primary_system_code,
-            'primary_impact_status': self.primary_impact_status,
-            'primary_impact_status_text': self.IMPACT_TEXT_MAP.get(self.primary_impact_status, ''),
+            'system': self.system_id,
+            'system_name': self.system_name,
+            'system_code': self.system_code,
+            'system_location': self.system_location,
+            'impact_status': self.impact_status,
+            'impact_status_text': self.IMPACT_TEXT_MAP.get(self.impact_status, ''),
             'occurred_at': self.occurred_at,
             'level': self.level,
             'level_text': self.LEVEL_TEXT_MAP.get(self.level, self.level),
@@ -660,13 +661,12 @@ class SystemFault(TenantModelMixin, models.Model):
             'status_text': self.STATUS_TEXT_MAP.get(self.status, self.status),
             'handler': self.handler_id,
             'handler_name': self.handler.username if self.handler_id else '',
-            'affected_count': self.affected_systems.count(),
             'created_by_name': self.created_by.username if self.created_by_id else '',
             'created_at': self.created_at,
         }
 
     def to_detail_view(self):
-        """详情：全字段 + 受影响系统（含各自快照）。"""
+        """详情：全字段（单系统简化，无受影响系统）。"""
         data = self.to_view()
         data.update({
             'discovery': self.discovery,
@@ -696,63 +696,8 @@ class SystemFault(TenantModelMixin, models.Model):
             'source_ledger_type': (
                 self.source_ledger_item.ledger.ledger_type if self.source_ledger_item_id else ''),
             'updated_at': self.updated_at,
-            'affected_systems': [row.to_view() for row in self.affected_systems.all()],
         })
         return data
-
-
-class SystemFaultAffectedSystem(TenantModelMixin, models.Model):
-    """故障受影响系统关联：同一故障对每个关联系统的影响状态独立记录。
-
-    - 不用整张故障单级别推导系统状态（不同系统受影响可能不同）；
-    - 主故障系统不得重复出现在受影响系统列表，同一系统在同一故障中唯一；
-    - 每条关联保存受影响系统在故障发生时的快照。
-    """
-
-    fault = models.ForeignKey(SystemFault, models.CASCADE, related_name='affected_systems',
-                              help_text='所属故障')
-    system = models.ForeignKey(LifecycleSystem, models.PROTECT, related_name='fault_affected_records',
-                               help_text='受影响系统')
-    impact_status = models.CharField(max_length=20, choices=SystemFault.IMPACT_CHOICES,
-                                     help_text='该系统的影响状态')
-    system_code = models.CharField(max_length=50, help_text='系统编号快照')
-    system_name = models.CharField(max_length=100, help_text='系统名称快照')
-    install_location = models.CharField(max_length=200, help_text='安装地点快照')
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-
-    class Meta:
-        db_table = 'tdyw_el_fault_affected_system'
-        verbose_name = '故障受影响系统'
-        verbose_name_plural = '故障受影响系统'
-        ordering = ('id',)
-        constraints = [
-            models.UniqueConstraint(fields=['fault', 'system'], name='uniq_el_fault_affected_pair'),
-            models.CheckConstraint(
-                check=models.Q(impact_status__in=FAULT_IMPACT_VALUES),
-                name='el_fault_affected_impact_valid',
-            ),
-        ]
-        indexes = [
-            models.Index(fields=['tenant_id', 'system']),
-        ]
-
-    def __repr__(self):
-        return '<SystemFaultAffectedSystem fault=%s system=%s>' % (self.fault_id, self.system_id)
-
-    def to_view(self):
-        return {
-            'id': self.id,
-            'system': self.system_id,
-            'system_code': self.system_code,
-            'system_name': self.system_name,
-            'install_location': self.install_location,
-            'impact_status': self.impact_status,
-            'impact_status_text': SystemFault.IMPACT_TEXT_MAP.get(self.impact_status, ''),
-            'created_at': self.created_at,
-        }
 
 
 class SystemFaultHandlingRecord(TenantModelMixin, models.Model):
@@ -1424,10 +1369,11 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
 # ======================================================================
 # 步骤 3.3：工单管理与异常转单
 # ----------------------------------------------------------------------
-# 结构：工单主表 → 受影响系统 / 参与人 / 处理记录，来源关联故障或台账明细。
+# 结构：工单主表（一张工单只关联一个作业系统）→ 参与人 / 处理记录，
+# 来源关联故障或台账明细。
 # 状态流转由后端状态机校验（SystemWorkOrder.STATE_TRANSITIONS）；
-# 执行中的"故障维修"工单参与统一健康状态计算（fault_services，"维修中"），
-# 其余类型工单默认不覆盖系统健康状态。
+# 执行中且 affects_system_operation=True 的"故障维修"工单参与统一
+# 健康状态计算（fault_services，"维修中"），其余工单不影响系统健康状态。
 # 本步骤不建统一系统履历、计划提醒、库存/调拨与系统升级嫁接。
 # ======================================================================
 
@@ -1486,15 +1432,18 @@ DISPOSITION_STATUS_VALUES = [
 
 
 class SystemWorkOrder(TenantModelMixin, models.Model):
-    """系统工单主表（步骤 3.3）：以系统（LifecycleSystem）为业务对象。
+    """系统工单主表（步骤 3.3，单系统简化）。
 
-    关联规则（与 SystemFault 一致）：
-    - 目标系统必须通过正式系统 ID 外键关联（PROTECT），页面只显示名称；
-    - 工单创建时保存目标系统快照（编号/名称/安装地点），系统改名后
+    关联规则（一张工单只关联一个作业系统，不建设跨系统影响关系）：
+    - 作业系统必须通过正式系统 ID 外键关联（PROTECT），页面只显示名称；
+    - 工单创建时保存作业系统快照（编号/名称/安装地点），系统改名后
       历史工单显示快照但外键仍然有效；
+    - affects_system_operation 记录"作业期间是否影响系统运行"：
+      只有执行中且影响运行的工单才使系统进入"维修中"状态；
     - 可选引用配置组成项（SET_NULL + 名称快照），组成项修改/删除不影响历史；
     - 来源：manual 人工创建 / fault 来源故障 / ledger_item 来源台账异常明细，
       来源一律用真实外键（PROTECT），不保存自由文本冒充来源。
+    一次实际工作涉及多个独立系统时分别建立工单，不允许一单关联多系统。
 
     状态流转（后端校验，动作接口触发）：
     待派发 →(dispatch)→ 待接单 →(start)→ 执行中 →(submit)→ 待复核
@@ -1597,13 +1546,15 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
     source_no = models.CharField(max_length=50, default='', blank=True,
                                  help_text='来源单据编号快照（故障编号或台账编号，列表显示与追溯）')
 
-    # —— 目标系统（正式外键 + 创建时快照） ——
-    target_system = models.ForeignKey(
-        LifecycleSystem, models.PROTECT, related_name='target_work_orders',
-        help_text='目标系统（本次作业对象系统，外键关联系统主数据）')
-    target_system_code = models.CharField(max_length=50, help_text='目标系统编号快照')
-    target_system_name = models.CharField(max_length=100, help_text='目标系统名称快照')
-    target_system_location = models.CharField(max_length=200, help_text='目标系统安装地点快照')
+    # —— 作业系统（正式外键 + 创建时快照） ——
+    system = models.ForeignKey(
+        LifecycleSystem, models.PROTECT, related_name='work_orders',
+        help_text='作业系统（本次作业对象系统，外键关联系统主数据，一张工单只关联一个系统）')
+    system_code = models.CharField(max_length=50, help_text='作业系统编号快照')
+    system_name = models.CharField(max_length=100, help_text='作业系统名称快照')
+    system_location = models.CharField(max_length=200, help_text='作业系统安装地点快照')
+    affects_system_operation = models.BooleanField(
+        default=False, help_text='作业期间是否影响系统运行（执行中且为真才参与"维修中"计算）')
 
     work_location = models.CharField(max_length=200, default='', blank=True, help_text='作业位置')
     work_object_desc = models.TextField(max_length=1000, default='', blank=True,
@@ -1705,7 +1656,7 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
         indexes = [
             models.Index(fields=['tenant_id', 'status']),
             models.Index(fields=['tenant_id', 'work_type', 'status']),
-            models.Index(fields=['tenant_id', 'target_system', '-created_at', '-id']),
+            models.Index(fields=['tenant_id', 'system', '-created_at', '-id']),
             models.Index(fields=['tenant_id', 'client_token']),
             models.Index(fields=['tenant_id', 'source_fault']),
             models.Index(fields=['tenant_id', 'source_ledger_item']),
@@ -1732,25 +1683,25 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
             'source_type': self.source_type,
             'source_type_text': self.SOURCE_TEXT_MAP.get(self.source_type, self.source_type),
             'source_no': self.source_no,
-            'target_system': self.target_system_id,
-            'target_system_name': self.target_system_name,
-            'target_system_code': self.target_system_code,
+            'system': self.system_id,
+            'system_name': self.system_name,
+            'system_code': self.system_code,
+            'affects_system_operation': self.affects_system_operation,
             'owner': self.owner_id,
             'owner_name': self.owner.username if self.owner_id else '',
             'planned_start': self.planned_start,
             'planned_end': self.planned_end,
             'actual_start': self.actual_start,
             'actual_end': self.actual_end,
-            'affected_count': self.affected_systems.count(),
             'created_by_name': self.created_by.username if self.created_by_id else '',
             'created_at': self.created_at,
         }
 
     def to_detail_view(self):
-        """详情：全字段 + 受影响系统 + 参与人 + 来源追溯信息。"""
+        """详情：全字段 + 参与人 + 来源追溯信息（单系统简化，无受影响系统）。"""
         data = self.to_view()
         data.update({
-            'target_system_location': self.target_system_location,
+            'system_location': self.system_location,
             'work_location': self.work_location,
             'work_object_desc': self.work_object_desc,
             'work_component': self.work_component_id,
@@ -1781,7 +1732,6 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
             'cancel_reason': self.cancel_reason,
             'client_token': self.client_token,
             'updated_at': self.updated_at,
-            'affected_systems': [row.to_view() for row in self.affected_systems.all()],
             'participants': [row.to_view() for row in self.participants.all()],
             # 来源追溯：故障来源给出故障主键；台账来源给出台账与明细定位信息
             'source_fault': self.source_fault_id,
@@ -1791,54 +1741,6 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
                 self.source_ledger_item.ledger.ledger_type if self.source_ledger_item_id else ''),
         })
         return data
-
-
-class SystemWorkOrderAffectedSystem(TenantModelMixin, models.Model):
-    """工单受影响系统关联：记录本次作业会波及的系统（业务影响记录）。
-
-    - 受影响系统不参与"维修中"健康状态计算，只有目标系统参与；
-    - 目标系统不得重复出现在受影响系统中，同一工单内系统唯一；
-    - 每条关联保存工单创建时的系统快照。
-    """
-
-    work_order = models.ForeignKey(SystemWorkOrder, models.CASCADE, related_name='affected_systems',
-                                   help_text='所属工单')
-    system = models.ForeignKey(LifecycleSystem, models.PROTECT,
-                               related_name='work_order_affected_records', help_text='受影响系统')
-    system_code = models.CharField(max_length=50, help_text='系统编号快照')
-    system_name = models.CharField(max_length=100, help_text='系统名称快照')
-    install_location = models.CharField(max_length=200, help_text='安装地点快照')
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-
-    class Meta:
-        db_table = 'tdyw_el_work_order_affected_system'
-        verbose_name = '工单受影响系统'
-        verbose_name_plural = '工单受影响系统'
-        ordering = ('id',)
-        constraints = [
-            models.UniqueConstraint(fields=['work_order', 'system'],
-                                    name='uniq_el_work_order_affected_pair'),
-        ]
-        indexes = [
-            models.Index(fields=['tenant_id', 'system']),
-        ]
-
-    def __repr__(self):
-        return '<SystemWorkOrderAffectedSystem work_order=%s system=%s>' % (
-            self.work_order_id, self.system_id)
-
-    def to_view(self):
-        return {
-            'id': self.id,
-            'system': self.system_id,
-            'system_code': self.system_code,
-            'system_name': self.system_name,
-            'install_location': self.install_location,
-            'created_at': self.created_at,
-        }
 
 
 class SystemWorkOrderParticipant(TenantModelMixin, models.Model):
@@ -2009,8 +1911,8 @@ class OperationLedgerCorrection(TenantModelMixin, models.Model):
 
 
 # 统一系统履历事件枚举（步骤 3.4；Meta 约束访问不到类作用域，提为模块级）
+# 单系统简化：一条事件只关联一个系统，不再有跨系统角色（primary/affected/related 已删）
 EVENT_TYPE_VALUES = ['fault', 'work_order', 'ledger', 'health', 'config_snapshot']
-EVENT_ROLE_VALUES = ['primary', 'affected', 'related']
 EVENT_SOURCE_TYPE_VALUES = ['fault', 'work_order', 'ledger_item', 'health', 'config_snapshot']
 EVENT_ACTION_VALUES = [
     'create', 'recover', 'close', 'cancel',
@@ -2020,14 +1922,16 @@ EVENT_ACTION_VALUES = [
 
 
 class SystemEvent(TenantModelMixin, models.Model):
-    """统一系统履历事件（步骤 3.4）。
+    """统一系统履历事件（步骤 3.4，单系统简化）。
 
     - 由业务动作经 event_services.record_system_event 自动生成，与业务保存
       处于同一事务；普通用户不能手工新增，不提供普通修改与物理删除接口；
     - 故障、台账异常、工单、健康状态与配置快照共用同一事件模型，
       每条事件有明确主要来源（source_type + source_id）；
-    - 通过正式系统 ID 外键关联（PROTECT），保存系统编号/名称快照，
-      系统改名后历史事件仍显示保存时的名称；
+    - 一条事件只通过正式系统 ID 外键关联一个系统（PROTECT），保存系统
+      编号/名称快照，系统改名后历史事件仍显示保存时的名称；
+      不再建立跨系统事件角色（primary/affected/related 已随受影响系统
+      结构一并移除），系统名称只用于事件快照，不替代正式外键；
     - 更正与受控撤销以追加新事件表达（如故障作废、工单取消），
       已生成事件原样保留；来源对象作废后事件与关联继续保留；
     - 事件纯插入，不递归触发健康状态重算；重复业务请求由业务层
@@ -2048,22 +1952,11 @@ class SystemEvent(TenantModelMixin, models.Model):
     )
     EVENT_TYPE_TEXT_MAP = dict(EVENT_TYPE_CHOICES)
 
-    ROLE_PRIMARY = 'primary'
-    ROLE_AFFECTED = 'affected'
-    ROLE_RELATED = 'related'
-    ROLE_CHOICES = (
-        (ROLE_PRIMARY, '主体'),
-        (ROLE_AFFECTED, '受影响'),
-        (ROLE_RELATED, '关联'),
-    )
-    ROLE_TEXT_MAP = dict(ROLE_CHOICES)
-
     system = models.ForeignKey(
         LifecycleSystem, models.PROTECT, related_name='system_events',
-        help_text='关联系统（正式系统 ID）')
+        help_text='关联系统（正式系统 ID，一条事件只关联一个系统）')
     event_type = models.CharField(max_length=20, choices=EVENT_TYPE_CHOICES, help_text='事件类型')
     action = models.CharField(max_length=30, help_text='事件动作')
-    role = models.CharField(max_length=10, choices=ROLE_CHOICES, help_text='系统在事件中的角色')
     source_type = models.CharField(max_length=20, help_text='主要来源类型')
     source_id = models.CharField(
         max_length=32, default='', blank=True, help_text='来源对象ID（健康状态事件为空）')
@@ -2091,10 +1984,6 @@ class SystemEvent(TenantModelMixin, models.Model):
             models.CheckConstraint(
                 check=models.Q(event_type__in=EVENT_TYPE_VALUES),
                 name='el_system_event_type_valid',
-            ),
-            models.CheckConstraint(
-                check=models.Q(role__in=EVENT_ROLE_VALUES),
-                name='el_system_event_role_valid',
             ),
             models.CheckConstraint(
                 check=models.Q(source_type__in=EVENT_SOURCE_TYPE_VALUES),
@@ -2132,8 +2021,6 @@ class SystemEvent(TenantModelMixin, models.Model):
             'event_type': self.event_type,
             'event_type_text': self.EVENT_TYPE_TEXT_MAP.get(self.event_type, self.event_type),
             'action': self.action,
-            'role': self.role,
-            'role_text': self.ROLE_TEXT_MAP.get(self.role, self.role),
             'source_type': self.source_type,
             'source_id': self.source_id,
             'source_no': self.source_no,

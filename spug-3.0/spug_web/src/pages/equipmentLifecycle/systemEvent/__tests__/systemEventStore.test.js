@@ -1,9 +1,9 @@
 /**
- * 设备全生命周期（步骤 3.4）统一系统履历——Store 与来源跳转测试
+ * 设备全生命周期（步骤 3.4，单系统简化）统一系统履历——Store 与来源跳转测试
  *
  * 真实 import store/constants（MobX 装饰器经 babel 编译），mock libs.http，验证：
- * - fetchRecords 组装分页与筛选参数（事件类型/角色/时间范围）
- * - fetchSystemEvents 按系统 ID 查询并携带角色过滤（详情页签复用）
+ * - fetchRecords 组装分页与筛选参数（事件类型/来源类型/时间范围，不再有角色筛选）
+ * - fetchSystemEvents 按系统 ID 查询本系统事件（详情页签复用，无角色过滤）
  * - buildSourceHref：按来源类型生成跳转地址，无权限或无来源时不跳转
  * - 履历只读：Store 不含任何新增/修改/删除请求方法
  */
@@ -32,31 +32,31 @@ afterEach(() => {
 });
 
 describe('系统履历 Store（步骤 3.4）', () => {
-  it('fetchRecords 组装分页与筛选参数（关键词/事件类型/角色/时间范围）', () => {
+  it('fetchRecords 组装分页与筛选参数（关键词/事件类型/来源类型/时间范围）', () => {
     const {store} = freshModule();
     store.page = 2;
     store.pageSize = 30;
     store.f_keyword = '维修';
     store.f_event_type = 'fault';
-    store.f_role = 'affected';
+    store.f_source_type = 'work_order';
     store.f_range = ['2026-09-01 00:00', '2026-09-19 23:59'];
     mockHttpGet.mockReturnValue(new Promise(() => {}));
     store.fetchRecords();
     expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/system-events/', {
       params: {
         page: 2, page_size: 30,
-        keyword: '维修', event_type: 'fault', role: 'affected',
+        keyword: '维修', event_type: 'fault', source_type: 'work_order',
         occurred_from: '2026-09-01 00:00', occurred_to: '2026-09-19 23:59',
       },
     });
   });
 
-  it('fetchSystemEvents 按系统 ID 查询并携带角色过滤', () => {
+  it('fetchSystemEvents 按系统 ID 查询本系统事件（无角色参数）', () => {
     const {store} = freshModule();
     mockHttpGet.mockResolvedValue({data: [{id: 1, title: '工单登记'}], total: 1});
-    return store.fetchSystemEvents(66, 'primary').then(() => {
+    return store.fetchSystemEvents(66).then(() => {
       expect(mockHttpGet).toHaveBeenCalledWith(
-        '/api/equipment-lifecycle/systems/66/system-events/', {params: {page: 1, page_size: 20, role: 'primary'}});
+        '/api/equipment-lifecycle/systems/66/system-events/', {params: {page: 1, page_size: 20}});
       expect(store.records).toHaveLength(1);
       expect(store.total).toBe(1);
     });

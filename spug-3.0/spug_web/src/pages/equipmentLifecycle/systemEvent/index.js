@@ -15,7 +15,7 @@ import { ExportButton } from 'components';
 import { AuthDiv, Breadcrumb, SearchForm } from 'components';
 import ComTable from './Table';
 import store from './store';
-import { PERM, API_PREFIX, EVENT_TYPE_OPTIONS, EVENT_ROLE_OPTIONS } from './constants';
+import { PERM, API_PREFIX, EVENT_TYPE_OPTIONS, SOURCE_TYPE_TEXT } from './constants';
 
 const {RangePicker} = DatePicker;
 
@@ -51,16 +51,16 @@ function SystemEventIndex() {
             ))}
           </Select>
         </SearchForm.Item>
-        <SearchForm.Item span={5} title="角色">
+        <SearchForm.Item span={5} title="来源类型">
           <Select
             allowClear
             style={{width: '100%'}}
-            value={store.f_role}
-            onChange={v => {store.f_role = v; store.page = 1; store.fetchRecords();}}
-            placeholder="主体/受影响/关联"
+            value={store.f_source_type}
+            onChange={v => {store.f_source_type = v; store.page = 1; store.fetchRecords();}}
+            placeholder="请选择来源类型"
           >
-            {EVENT_ROLE_OPTIONS.map(item => (
-              <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
+            {Object.entries(SOURCE_TYPE_TEXT).map(([value, label]) => (
+              <Select.Option value={value} key={value}>{label}</Select.Option>
             ))}
           </Select>
         </SearchForm.Item>

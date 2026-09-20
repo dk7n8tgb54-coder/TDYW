@@ -4,9 +4,10 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——统一系统履历（步骤 3.4）常量与来源跳转。
+ * 设备全生命周期——统一系统履历（步骤 3.4，单系统简化）常量与来源跳转。
  * 权限码与后端 @auth、role codes.js 保持一致。
- * 履历只读（append-only）：无新增/编辑/删除入口。
+ * 履历只读（append-only）：无新增/编辑/删除入口；
+ * 一条事件只关联一个系统，不再有跨系统角色（primary/affected/related 已删）。
  */
 import { hasPermission } from 'libs';
 import { LEDGER_TYPE_PATH } from '../workOrder/constants';
@@ -37,24 +38,6 @@ export const EVENT_TYPE_COLOR = {
   ledger: 'orange',
   health: 'purple',
   config_snapshot: 'cyan',
-};
-
-// 系统在事件中的角色：主体 / 受影响 / 关联（工单受影响登记，不参与健康计算）
-export const EVENT_ROLE_OPTIONS = [
-  {value: 'primary', label: '主体'},
-  {value: 'affected', label: '受影响'},
-  {value: 'related', label: '关联'},
-];
-
-export const EVENT_ROLE_TEXT = EVENT_ROLE_OPTIONS.reduce((acc, item) => {
-  acc[item.value] = item.label;
-  return acc;
-}, {});
-
-export const EVENT_ROLE_COLOR = {
-  primary: 'red',
-  affected: 'orange',
-  related: 'blue',
 };
 
 export const SOURCE_TYPE_TEXT = {

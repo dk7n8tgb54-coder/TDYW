@@ -1,20 +1,22 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""系统健康状态统一计算服务（步骤 3.1，步骤 3.3 扩展"维修中"）。
+"""系统健康状态统一计算服务（步骤 3.1，单系统简化）。
 
 规则：
 - 系统健康状态只允许由本服务计算写入，故障/工单 View 不得直接改写状态；
-- 计算范围：系统作为主故障系统/受影响系统的全部有效故障（排除已作废与已关闭），
-  以及目标系统上处于"执行中"的故障维修工单（步骤 3.3）；
-- 优先级：中断 > 维修中 > 故障 > 降级（多张故障/工单并存时取最高影响）；
+- 计算范围只看本系统自己的业务记录（不查询任何跨系统关联表）：
+  本系统的有效故障（排除已作废与已关闭），
+  以及本系统上"执行中且影响系统运行"的故障维修工单（步骤 3.3）；
+- 优先级：中断 > 维修中 > 故障 > 降级（多张故障/工单并存时取最高影响，
+  一张故障关闭不会覆盖本系统其他未恢复故障/工单的影响）；
 - 无有效影响 → 正常；
 - 「未知 unknown」为预留状态，本服务不产生该状态（无法可靠判断时由调用方处理）；
-- 仅"故障维修"类型且"执行中"的工单产生"维修中" repairing；专项维护、技术改造、
-  配置变更、现场测试、校准工单默认不自动覆盖系统健康状态；
+- 仅"故障维修"类型且"执行中"且 affects_system_operation=True 的工单产生
+  "维修中" repairing；系统已恢复后的离线部件维修（不影响运行）不改变系统状态；
 - 系统状态更新与故障/工单业务操作处于同一数据库事务，且必须在
   health_recalc_lock 全局锁内执行，保证并发操作的重算结果
-  以"所有有效影响（故障+执行中维修工单）的重新查询结果"为准，
+  以"所有有效影响（故障+执行中影响运行的维修工单）的重新查询结果"为准，
   不允许最后请求直接覆盖。
 
 锁说明：MySQL/MariaDB GET_LOCK 连接级命名锁。所有改变有效影响集合的
@@ -30,7 +32,6 @@ from apps.equipment_lifecycle import event_services
 from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     SystemFault,
-    SystemFaultAffectedSystem,
     SystemWorkOrder,
     WORK_ORDER_STATUS_EXECUTING,
     WORK_TYPE_REPAIR,
@@ -47,10 +48,11 @@ HEALTH_IMPACT_PRIORITY = (
 # recovered（已完成恢复确认）/closed/cancelled 均不再产生影响。
 ACTIVE_FAULT_STATUSES = (SystemFault.STATUS_PENDING, SystemFault.STATUS_HANDLING)
 
-# 产生"维修中"状态的工单条件：故障维修类型 + 执行中（步骤 3.3）
+# 产生"维修中"状态的工单条件：故障维修类型 + 执行中 + 作业期间影响系统运行
 REPAIRING_WORK_ORDER_FILTER = {
     'work_type': WORK_TYPE_REPAIR,
     'status': WORK_ORDER_STATUS_EXECUTING,
+    'affects_system_operation': True,
 }
 
 HEALTH_RECALC_LOCK_NAME = 'el_health_recalc'
@@ -64,11 +66,10 @@ class HealthRecalcLockTimeout(Exception):
 
 
 def collect_active_impacts(tenant_id, system_ids):
-    """查询系统当前承担的全部有效故障影响，返回 {system_id: set(impact)}。
+    """查询系统自身的有效故障影响，返回 {system_id: set(impact)}。
 
-    来源：
-    - 主故障系统：SystemFault.primary_impact_status（status ∈ ACTIVE_FAULT_STATUSES）；
-    - 受影响系统：SystemFaultAffectedSystem.impact_status（同上）。
+    单系统简化：只按本系统 ID 查询 SystemFault.impact_status
+    （status ∈ ACTIVE_FAULT_STATUSES），不查询任何受影响系统关联表。
     """
     system_ids = [int(i) for i in system_ids]
     impacts = {}
@@ -77,42 +78,34 @@ def collect_active_impacts(tenant_id, system_ids):
     fault_rows = SystemFault.objects.filter(
         tenant_id=tenant_id,
         status__in=ACTIVE_FAULT_STATUSES,
-        primary_system_id__in=system_ids,
-    ).values_list('primary_system_id', 'primary_impact_status')
-    for system_id, impact in fault_rows:
-        impacts.setdefault(system_id, set()).add(impact)
-    affected_rows = SystemFaultAffectedSystem.objects.filter(
-        tenant_id=tenant_id,
-        fault__status__in=ACTIVE_FAULT_STATUSES,
-        fault__tenant_id=tenant_id,
         system_id__in=system_ids,
     ).values_list('system_id', 'impact_status')
-    for system_id, impact in affected_rows:
+    for system_id, impact in fault_rows:
         impacts.setdefault(system_id, set()).add(impact)
     return impacts
 
 
 def collect_repairing_system_ids(tenant_id, system_ids):
-    """查询目标系统上执行中的故障维修工单，返回 set(system_id)。
+    """查询本系统上执行中且影响运行的故障维修工单，返回 set(system_id)。
 
-    仅"故障维修"类型且"执行中"的工单参与"维修中"状态计算；
-    受影响系统关联不参与计算（只有本次维修对象系统才进入维修中）。
+    仅"故障维修"类型 + "执行中" + affects_system_operation=True 的工单
+    参与"维修中"状态计算。
     """
     if not system_ids or not tenant_id:
         return set()
     rows = SystemWorkOrder.objects.filter(
         tenant_id=tenant_id,
-        target_system_id__in=[int(i) for i in system_ids],
+        system_id__in=[int(i) for i in system_ids],
         **REPAIRING_WORK_ORDER_FILTER,
-    ).values_list('target_system_id', flat=True)
+    ).values_list('system_id', flat=True)
     return {int(i) for i in rows}
 
 
 def derive_health_status(impacts, repairing=False):
     """由影响集合推导健康状态：中断 > 维修中 > 故障 > 降级，无影响 → 正常。
 
-    - impacts 为该系统的有效故障影响集合；
-    - repairing 表示该系统存在执行中的故障维修工单（步骤 3.3）。
+    - impacts 为该系统自身的有效故障影响集合；
+    - repairing 表示该系统存在执行中且影响运行的故障维修工单（步骤 3.3）。
     """
     if SystemFault.IMPACT_INTERRUPTED in impacts:
         return LifecycleSystem.HEALTH_INTERRUPTED
@@ -164,10 +157,10 @@ def health_recalc_lock():
 def recompute_systems_health(tenant_id, system_ids, request=None, audit_reason=None):
     """重算并写入给定系统的健康状态（必须在持锁+事务内调用）。
 
-    - 以"所有有效故障 + 执行中故障维修工单的重新查询结果"为准，
+    - 以"所有有效故障 + 执行中影响运行的维修工单的重新查询结果"为准，
       重复调用结果一致（幂等）；
     - 仅写发生变化的系统，状态变化记录审计（request 为 None 时跳过审计，
-      供服务内部/测试直接调用）；
+      供服务内部/测试直接调用）；状态实际未变化不重复生成履历；
     - 返回 {system_id: 最终状态}。
     """
     from apps.logs.audit import record_audit_event
@@ -203,19 +196,18 @@ def recompute_systems_health(tenant_id, system_ids, request=None, audit_reason=N
     return result
 
 
-def create_fault_record(*, tenant_id, created_by, primary_system, primary_impact_status,
+def create_fault_record(*, tenant_id, created_by, system, impact_status,
                         occurred_at, discovery, level, phenomenon, handler=None,
-                        affected_map=None, fault_component=None,
+                        fault_component=None,
                         impact_scope='', fault_location='', fault_object_name='',
                         fault_object_model='', fault_object_sn='', reason_analysis='',
                         source_type=None, source_ledger_item=None, request=None):
-    """正式故障创建服务（步骤 3.1 定稿，步骤 3.3 台账异常转故障复用）。
+    """正式故障创建服务（单系统简化，台账异常转故障复用）。
 
     须在 health_recalc_lock + transaction.atomic 内调用（调用方负责锁与事务）：
-    - 创建故障主单（正式系统外键 + 发生时快照）；
-    - 批量创建受影响系统关联（快照）；
-    - 同事务生成故障发生履历事件（主体 + 受影响，步骤 3.4 统一履历）；
-    - 同事务重算相关系统健康状态（request 透传以记录状态变化审计）；
+    - 创建故障主单（一个故障系统外键 + 发生时快照，无受影响系统）；
+    - 同事务生成故障发生履历事件（只落故障所属系统，步骤 3.4 统一履历）；
+    - 同事务重算故障系统健康状态（request 透传以记录状态变化审计）；
     - source_type/source_ledger_item 供台账异常转故障写入来源关系，
       转换与来源关系保存处于同一事务。
 
@@ -224,11 +216,11 @@ def create_fault_record(*, tenant_id, created_by, primary_system, primary_impact
     fault = SystemFault.objects.create(
         tenant_id=tenant_id,
         fault_no=generate_fault_no(tenant_id),
-        primary_system=primary_system,
-        primary_impact_status=primary_impact_status,
-        primary_system_code=primary_system.system_code,
-        primary_system_name=primary_system.name,
-        primary_system_location=primary_system.install_location,
+        system=system,
+        impact_status=impact_status,
+        system_code=system.system_code,
+        system_name=system.name,
+        system_location=system.install_location,
         occurred_at=occurred_at,
         discovery=discovery,
         level=level,
@@ -247,25 +239,11 @@ def create_fault_record(*, tenant_id, created_by, primary_system, primary_impact
         created_by=created_by,
         handler=handler,
     )
-    rows = []
-    for system, impact in (affected_map or {}).values():
-        rows.append(SystemFaultAffectedSystem(
-            tenant_id=tenant_id,
-            fault=fault,
-            system=system,
-            impact_status=impact,
-            system_code=system.system_code,
-            system_name=system.name,
-            install_location=system.install_location,
-        ))
-    if rows:
-        SystemFaultAffectedSystem.objects.bulk_create(rows)
-    # 步骤 3.4：故障发生履历（主体系统 primary + 受影响系统 affected，同一事务）
+    # 步骤 3.4：故障发生履历（只落故障所属系统，同一事务）
     event_services.record_fault_lifecycle_events(
         fault, 'create', occurred_at=fault.occurred_at, created_by=created_by,
         detail={'source_ledger_item_id': source_ledger_item.id} if source_ledger_item else None)
-    related_ids = [primary_system.id] + [row.system_id for row in rows]
-    recompute_systems_health(tenant_id, related_ids, request=request)
+    recompute_systems_health(tenant_id, [system.id], request=request)
     return fault
 
 

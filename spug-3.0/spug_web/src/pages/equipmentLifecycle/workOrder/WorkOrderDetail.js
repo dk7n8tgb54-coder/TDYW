@@ -3,11 +3,12 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 工单详情抽屉（步骤 3.3）——props 驱动的可复用组件。
+ * 工单详情抽屉（步骤 3.3，单系统简化）——props 驱动的可复用组件。
  * 可在工单列表页、故障详情、台账详情、系统详情中嵌入使用（无全局单例依赖）。
- * 包含：基本信息 / 来源追溯（跳转）/ 受影响系统 / 参与人员 / 处理记录时间线
+ * 包含：基本信息 / 来源追溯（跳转）/ 参与人员 / 处理记录时间线
  * / 派发 / 接单 / 开始执行 / 提交复核 / 复核通过或退回 / 完成 / 关闭 / 取消。
- * 所有动作成功后重新获取后端真实数据；错误提示由 http 拦截器统一弹出。
+ * 不再提供"受影响系统"页签；所有动作成功后重新获取后端真实数据；
+ * 错误提示由 http 拦截器统一弹出。
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { Drawer, Tabs, Descriptions, Tag, Spin, Button, Timeline, Modal, Form,
@@ -129,9 +130,6 @@ export default function WorkOrderDetail({woId, visible, onClose}) {
           <TabPane tab="基本信息" key="basic">
             {renderBasic(detail, gotoFault, gotoLedger)}
           </TabPane>
-          <TabPane tab={`受影响系统${detail.affected_systems ? `（${detail.affected_systems.length}）` : ''}`} key="affected">
-            {renderAffected(detail)}
-          </TabPane>
           <TabPane tab={`参与人员${detail.participants ? `（${detail.participants.length}）` : ''}`} key="participants">
             {renderParticipants(detail)}
           </TabPane>
@@ -176,10 +174,15 @@ function renderBasic(d, gotoFault, gotoLedger) {
       <Descriptions.Item label="优先级">
         <Tag color={PRIORITY_COLOR[d.priority]}>{PRIORITY_TEXT[d.priority] || d.priority}</Tag>
       </Descriptions.Item>
-      <Descriptions.Item label="目标系统">
-        {`${d.target_system_name || ''}（${d.target_system_code || ''}）`}
+      <Descriptions.Item label="作业系统">
+        {`${d.system_name || ''}（${d.system_code || ''}）`}
       </Descriptions.Item>
-      <Descriptions.Item label="安装地点">{d.target_system_location || '-'}</Descriptions.Item>
+      <Descriptions.Item label="安装地点">{d.system_location || '-'}</Descriptions.Item>
+      <Descriptions.Item label="作业期间影响系统运行">
+        <Tag color={d.affects_system_operation ? 'geekblue' : 'default'}>
+          {d.affects_system_operation ? '影响运行' : '不影响运行'}
+        </Tag>
+      </Descriptions.Item>
       <Descriptions.Item label="作业位置">{d.work_location || '-'}</Descriptions.Item>
       <Descriptions.Item label="作业对象">
         {[d.work_object_desc, d.work_component_name && `组成项：${d.work_component_name}`]
@@ -232,22 +235,6 @@ function renderBasic(d, gotoFault, gotoLedger) {
       )}
       <Descriptions.Item label="创建人">{d.created_by_name}</Descriptions.Item>
       <Descriptions.Item label="创建时间">{d.created_at}</Descriptions.Item>
-    </Descriptions>
-  );
-}
-
-function renderAffected(d) {
-  const rows = d.affected_systems || [];
-  if (!rows.length) {
-    return <Empty description="本工单未记录受影响系统" image={Empty.PRESENTED_IMAGE_SIMPLE}/>;
-  }
-  return (
-    <Descriptions bordered size="small" column={1}>
-      {rows.map(row => (
-        <Descriptions.Item key={row.id} label={`${row.system_name}（${row.system_code}）`}>
-          <span style={{color: '#999'}}>{row.install_location}</span>
-        </Descriptions.Item>
-      ))}
     </Descriptions>
   );
 }

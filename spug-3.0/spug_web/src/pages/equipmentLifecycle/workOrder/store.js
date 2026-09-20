@@ -101,13 +101,14 @@ class WorkOrderStore {
   });
 
   buildFormPayload = (values) => {
-    // 所有业务关联一律提交 ID（系统 ID、用户 ID），不提交名称
+    // 所有业务关联一律提交 ID（系统 ID、用户 ID），不提交名称；
+    // 一张工单只关联一个作业系统（单系统简化，无受影响系统）
     const payload = {
       title: values.title,
       work_type: values.work_type,
       priority: values.priority || 'normal',
-      target_system: values.target_system,
-      affected_system_ids: values.affected_system_ids || [],
+      system: values.system,
+      affects_system_operation: !!values.affects_system_operation,
       work_location: values.work_location || '',
       work_object_desc: values.work_object_desc || '',
       work_component: values.work_component || undefined,
@@ -253,15 +254,13 @@ class WorkOrderStore {
       }));
   };
 
-  // ========== 系统详情工单页签 ==========
+  // ========== 系统详情工单页签（单系统简化：只查本系统工单） ==========
   @observable systemOrders = [];
   @observable isSystemOrdersFetching = false;
-  @observable systemOrderRole = 'all';
 
-  fetchSystemOrders = (systemId, role = 'all') => {
-    this.systemOrderRole = role;
+  fetchSystemOrders = (systemId) => {
     this.isSystemOrdersFetching = true;
-    return http.get(`${API_PREFIX}/systems/${systemId}/work-orders/`, {params: {role}})
+    return http.get(`${API_PREFIX}/systems/${systemId}/work-orders/`)
       .then(action(res => {
         this.systemOrders = res.data || [];
       }))

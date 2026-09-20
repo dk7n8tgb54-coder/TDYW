@@ -1,10 +1,10 @@
 /**
- * 设备全生命周期（步骤 3.4）统一系统履历——组件渲染测试
+ * 设备全生命周期（步骤 3.4，单系统简化）统一系统履历——组件渲染测试
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http 与公共组件壳，验证：
- * - 履历列表渲染事件类型/角色/来源/摘要，故障来源渲染跳转链接
+ * - 履历列表渲染事件类型/来源/摘要，故障来源渲染跳转链接（不再有角色列）
  * - 健康状态事件（无来源）来源列不渲染链接
- * - 系统详情履历页签：按系统查询、角色单选切换（主体/受影响/关联）、
+ * - 系统详情履历页签：按系统查询本系统事件（无角色切换），
  *   无新增/编辑/删除操作按钮（履历 append-only）
  */
 import React from 'react';
@@ -54,19 +54,12 @@ function flush() {
   return new Promise(resolve => setTimeout(resolve, 0));
 }
 
-async function click(node) {
-  await act(async () => {
-    node.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-  });
-  await act(async () => {});
-}
-
 const EVENTS_PAYLOAD = {
   data: [
     {
       id: 1, system: 5, system_code: 'SYS-001', system_name: '通信系统',
       event_type: 'fault', event_type_text: '故障', action: 'create',
-      role: 'primary', role_text: '主体', source_type: 'fault',
+      source_type: 'fault',
       source_id: '9', source_no: 'GZ20260919-0001',
       title: '发生严重故障', detail: {}, occurred_at: '2026-09-19 08:00',
       created_by_name: 'admin',
@@ -74,14 +67,14 @@ const EVENTS_PAYLOAD = {
     {
       id: 2, system: 5, system_code: 'SYS-001', system_name: '通信系统',
       event_type: 'health', event_type_text: '健康状态', action: 'status_change',
-      role: 'primary', role_text: '主体', source_type: 'health', source_id: '',
+      source_type: 'health', source_id: '',
       source_no: '', title: '运行健康状态由「正常」变为「故障」', detail: {},
       occurred_at: '2026-09-19 08:00', created_by_name: '',
     },
     {
       id: 3, system: 6, system_code: 'SYS-002', system_name: '供电系统',
       event_type: 'work_order', event_type_text: '工单', action: 'create',
-      role: 'related', role_text: '关联', source_type: 'work_order',
+      source_type: 'work_order',
       source_id: '7', source_no: 'WO20260919-0002', title: '工单登记', detail: {},
       occurred_at: '2026-09-19 09:00', created_by_name: 'ops',
     },
@@ -89,8 +82,8 @@ const EVENTS_PAYLOAD = {
   total: 3,
 };
 
-describe('履历列表表格', () => {
-  it('渲染事件行：类型/角色/摘要，故障来源渲染链接，健康状态无链接', async () => {
+describe('履历列表表格（单系统简化）', () => {
+  it('渲染事件行：类型/摘要，故障来源渲染链接，健康状态无链接，无角色列', async () => {
     mockHttpGet.mockResolvedValue(EVENTS_PAYLOAD);
     // eslint-disable-next-line global-require
     const ComTable = require('../Table').default;
@@ -101,9 +94,12 @@ describe('履历列表表格', () => {
     const text = document.body.textContent;
     expect(text).toContain('GZ20260919-0001');
     expect(text).toContain('发生严重故障');
-    expect(text).toContain('主体');
     expect(text).toContain('故障');
     expect(text).toContain('工单登记');
+    // 单系统简化：不再展示"角色"列与主体/受影响/关联文案
+    expect(text).not.toContain('角色');
+    expect(text).not.toContain('受影响');
+    expect(text).not.toContain('关联');
     // 来源链接：故障来源有 <a>，健康状态来源只有纯文本
     const links = Array.from(container.querySelectorAll('a'));
     const faultLink = links.find(a => a.textContent === '故障 GZ20260919-0001');
@@ -127,8 +123,8 @@ describe('履历列表表格', () => {
   });
 });
 
-describe('系统详情——系统履历页签', () => {
-  it('按系统查询并支持主体/受影响/关联角色切换；不提供新增/编辑/删除入口', async () => {
+describe('系统详情——系统履历页签（单系统简化）', () => {
+  it('按系统查询本系统事件，无角色切换；不提供新增/编辑/删除入口', async () => {
     mockHttpGet.mockResolvedValue({data: EVENTS_PAYLOAD.data, total: 3});
     // eslint-disable-next-line global-require
     const SystemEventsTab = require('../SystemEventsTab').default;
@@ -140,19 +136,13 @@ describe('系统详情——系统履历页签', () => {
       '/api/equipment-lifecycle/systems/5/system-events/',
       {params: {page: 1, page_size: 20}});
     const text = document.body.textContent;
-    expect(text).toContain('全部');
-    expect(text).toContain('主体');
-    expect(text).toContain('受影响');
-    expect(text).toContain('关联');
+    // 不再提供角色单选切换
+    expect(text).not.toContain('主体');
+    expect(text).not.toContain('受影响');
+    expect(text).not.toContain('关联');
+    expect(container.querySelectorAll('.ant-radio-button-wrapper').length).toBe(0);
     // 履历 append-only：无"新增/编辑/删除"操作文案
     expect(text).not.toContain('新增');
     expect(text).not.toContain('删除');
-    // 切换角色：带 role 参数重新查询
-    const radios = Array.from(container.querySelectorAll('.ant-radio-button-wrapper'));
-    const affectedRadio = radios.find(r => r.textContent === '受影响');
-    await click(affectedRadio);
-    expect(mockHttpGet).toHaveBeenLastCalledWith(
-      '/api/equipment-lifecycle/systems/5/system-events/',
-      {params: {page: 1, page_size: 20, role: 'affected'}});
   });
 });

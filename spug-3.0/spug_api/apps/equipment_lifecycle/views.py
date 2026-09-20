@@ -313,13 +313,10 @@ def _collect_system_references(system):
         SystemFault,
         SystemInspectionPoint,
         SystemWorkOrder,
-        SystemWorkOrderAffectedSystem,
     )
     refs = []
-    has_fault = SystemFault.objects.filter(tenant_id=system.tenant_id).filter(
-        Q(primary_system_id=system.id) | Q(affected_systems__system_id=system.id)
-    ).exists()
-    if has_fault:
+    if SystemFault.objects.filter(
+            tenant_id=system.tenant_id, system_id=system.id).exists():
         refs.append('故障记录')
     if SystemInspectionPoint.objects.filter(
             tenant_id=system.tenant_id, system_id=system.id).exists():
@@ -328,9 +325,7 @@ def _collect_system_references(system):
             tenant_id=system.tenant_id, system_id=system.id).exists():
         refs.append('运维台账明细')
     if SystemWorkOrder.objects.filter(
-            tenant_id=system.tenant_id, target_system_id=system.id).exists() or \
-            SystemWorkOrderAffectedSystem.objects.filter(
-                tenant_id=system.tenant_id, system_id=system.id).exists():
+            tenant_id=system.tenant_id, system_id=system.id).exists():
         refs.append('工单')
     if SystemEvent.objects.filter(
             tenant_id=system.tenant_id, system_id=system.id).exists():

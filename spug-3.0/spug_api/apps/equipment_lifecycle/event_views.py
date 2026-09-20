@@ -56,11 +56,10 @@ def _parse_dt(value):
 
 
 def _filtered_events(request):
-    """公共过滤：租户 + 事件类型/来源/角色/关键词/时间范围，返回 QuerySet。"""
+    """公共过滤：租户 + 事件类型/来源/关键词/时间范围，返回 QuerySet。"""
     form, error = JsonParser(
         Argument('event_type', type=str, required=False),
         Argument('source_type', type=str, required=False),
-        Argument('role', type=str, required=False),
         Argument('keyword', type=str, required=False),
         Argument('occurred_from', type=str, required=False),
         Argument('occurred_to', type=str, required=False),
@@ -76,10 +75,6 @@ def _filtered_events(request):
         if form.source_type not in SystemEvent.EVENT_SOURCE_TYPE_VALUES:
             return None, '来源类型筛选值不合法'
         query = query.filter(source_type=form.source_type)
-    if form.role:
-        if form.role not in SystemEvent.ROLE_TEXT_MAP:
-            return None, '角色筛选值不合法'
-        query = query.filter(role=form.role)
     if form.keyword:
         query = query.filter(
             Q(title__icontains=form.keyword) | Q(source_no__icontains=form.keyword) |
@@ -116,9 +111,9 @@ class SystemEventView(View):
 
 
 class SystemEventsUnderSystemView(View):
-    """按系统查询履历（系统详情"系统履历"页签）。
+    """按系统查询履历（系统详情"系统履历"页签，单系统简化）。
 
-    系统必须属于当前用户租户；返回该系统的全部角色事件（主体/受影响/关联）。
+    系统必须属于当前用户租户；只返回该系统自己的事件。
     """
 
     @auth('equipment_lifecycle.system_event.view')
@@ -128,17 +123,12 @@ class SystemEventsUnderSystemView(View):
         if not system:
             return json_response(error='系统不存在')
         form, error = JsonParser(
-            Argument('role', type=str, required=False),
             Argument('event_type', type=str, required=False),
         ).parse(request.GET)
         if error:
             return json_response(error=error)
         query = apply_tenant_filter(SystemEvent.objects.all(), request.user).filter(
             system=system)
-        if form.role:
-            if form.role not in SystemEvent.ROLE_TEXT_MAP:
-                return json_response(error='角色筛选值不合法')
-            query = query.filter(role=form.role)
         if form.event_type:
             if form.event_type not in SystemEvent.EVENT_TYPE_TEXT_MAP:
                 return json_response(error='事件类型筛选值不合法')
@@ -158,7 +148,7 @@ class SystemEventExportView(View):
         query, error = _filtered_events(request)
         if error:
             return json_response(error=error)
-        headers = ['发生时间', '系统编号', '系统名称', '事件类型', '角色',
+        headers = ['发生时间', '系统编号', '系统名称', '事件类型',
                    '来源类型', '来源编号', '事件摘要', '记录人']
         rows = []
         for item in query:
@@ -167,7 +157,6 @@ class SystemEventExportView(View):
                 item.system_code,
                 item.system_name,
                 item.EVENT_TYPE_TEXT_MAP.get(item.event_type, item.event_type),
-                item.ROLE_TEXT_MAP.get(item.role, item.role),
                 SOURCE_TYPE_TEXT.get(item.source_type, item.source_type),
                 item.source_no,
                 item.title,

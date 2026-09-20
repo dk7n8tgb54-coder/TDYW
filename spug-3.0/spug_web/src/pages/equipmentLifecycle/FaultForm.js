@@ -4,15 +4,14 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——故障新增/编辑弹窗（步骤 3.1）。
- * - 系统选择器仅提交系统 ID（页面显示名称+编号+安装地点）；
- * - 已选主故障系统不能再选为受影响系统，受影响系统不可重复；
+ * 设备全生命周期——故障新增/编辑弹窗（步骤 3.1，单系统简化）。
+ * - 普通用户只需要选择一个"故障系统"（提交系统 ID，显示名称+编号+安装地点）；
+ * - 不再提供主故障系统与受影响系统；一次实际工作涉及多个系统时分别建立故障；
  * - 可选引用配置组成项（非必填），选中后自动回填故障对象快照，可手动调整。
  */
 import React, { useState, useEffect, useRef } from 'react';
 import { observer } from 'mobx-react';
-import { Modal, Form, Select, Input, DatePicker, Button, Divider, message } from 'antd';
-import { MinusCircleOutlined } from '@ant-design/icons';
+import { Modal, Form, Select, Input, DatePicker, message } from 'antd';
 import moment from 'moment';
 import { http } from 'libs';
 import store from './faultStore';
@@ -33,30 +32,9 @@ function SystemOptionLabel({system}) {
   );
 }
 
-function renderSystemSelect(value, onChange, excludeIds, placeholder) {
-  return (
-    <Select
-      showSearch
-      optionFilterProp="children"
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      style={{width: '100%'}}
-      allowClear
-    >
-      {store.systems.map(s => (
-        <Select.Option value={s.id} key={s.id} disabled={excludeIds.has(s.id)}>
-          <SystemOptionLabel system={s}/>
-        </Select.Option>
-      ))}
-    </Select>
-  );
-}
-
 const FaultForm = observer(function FaultForm() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const [affected, setAffected] = useState([]);
   const [components, setComponents] = useState([]);
   const mountedRef = useRef(true);
   const record = store.record;
@@ -74,8 +52,8 @@ const FaultForm = observer(function FaultForm() {
       .then(detail => {
         if (!mountedRef.current) return;
         form.setFieldsValue({
-          primary_system: detail.primary_system,
-          primary_impact_status: detail.primary_impact_status,
+          system: detail.system,
+          impact_status: detail.impact_status,
           occurred_at: detail.occurred_at ? moment(detail.occurred_at, 'YYYY-MM-DD HH:mm') : null,
           discovery: detail.discovery,
           level: detail.level,
@@ -88,11 +66,7 @@ const FaultForm = observer(function FaultForm() {
           fault_component: detail.fault_component || undefined,
           reason_analysis: detail.reason_analysis,
         });
-        setAffected((detail.affected_systems || []).map(row => ({
-          system_id: row.system,
-          impact_status: row.impact_status,
-        })));
-        fetchComponents(detail.primary_system);
+        fetchComponents(detail.system);
       })
       .catch(() => {})
       .finally(() => {
@@ -113,7 +87,7 @@ const FaultForm = observer(function FaultForm() {
       .catch(() => {});
   }
 
-  function handlePrimarySystemChange(value) {
+  function handleSystemChange(value) {
     form.setFieldsValue({fault_component: undefined});
     setComponents([]);
     fetchComponents(value);
@@ -131,35 +105,11 @@ const FaultForm = observer(function FaultForm() {
     });
   }
 
-  function addAffected() {
-    setAffected(prev => [...prev, {system_id: undefined, impact_status: 'fault'}]);
-  }
-
-  function removeAffected(index) {
-    setAffected(prev => prev.filter((_, i) => i !== index));
-  }
-
-  function changeAffected(index, key, value) {
-    setAffected(prev => prev.map((row, i) => (
-      i === index ? {...row, [key]: value} : row
-    )));
-  }
-
   function handleSubmit() {
     form.validateFields().then(values => {
-      for (const row of affected) {
-        if (!row.system_id || !row.impact_status) {
-          message.warning('请完善受影响系统的选择与影响状态');
-          return;
-        }
-      }
       const payload = {
         ...values,
         occurred_at: values.occurred_at ? values.occurred_at.format('YYYY-MM-DD HH:mm') : null,
-        affected_systems: affected.map(row => ({
-          system_id: row.system_id,
-          impact_status: row.impact_status,
-        })),
       };
       setLoading(true);
       store.submitForm(payload)
@@ -173,8 +123,6 @@ const FaultForm = observer(function FaultForm() {
     }).catch(() => {});
   }
 
-  const selectedAffectedIds = new Set(affected.map(row => row.system_id).filter(Boolean));
-
   return (
     <Modal
       visible={store.formVisible}
@@ -187,28 +135,29 @@ const FaultForm = observer(function FaultForm() {
     >
       <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}>
         <Form.Item
-          name="primary_system"
-          label="主故障系统"
-          rules={[{required: true, message: '请选择主故障系统'}]}
+          name="system"
+          label="故障系统"
+          rules={[{required: true, message: '请选择故障系统'}]}
+          extra="一张故障单只关联一个系统；涉及多个系统时请分别建立故障"
         >
           <Select
             showSearch
             optionFilterProp="children"
-            placeholder="请选择主故障系统（显示名称、编号、安装地点）"
+            placeholder="请选择故障系统（显示名称、编号、安装地点）"
             allowClear
-            onChange={v => handlePrimarySystemChange(v)}
+            onChange={v => handleSystemChange(v)}
           >
             {store.systems.map(s => (
-              <Select.Option value={s.id} key={s.id} disabled={selectedAffectedIds.has(s.id)}>
+              <Select.Option value={s.id} key={s.id}>
                 <SystemOptionLabel system={s}/>
               </Select.Option>
             ))}
           </Select>
         </Form.Item>
         <Form.Item
-          name="primary_impact_status"
-          label="主系统影响状态"
-          rules={[{required: true, message: '请选择主故障系统影响状态'}]}
+          name="impact_status"
+          label="系统影响程度"
+          rules={[{required: true, message: '请选择系统影响程度'}]}
         >
           <Select placeholder="降级 / 故障 / 中断">
             {FAULT_IMPACT_OPTIONS.map(item => (
@@ -261,7 +210,7 @@ const FaultForm = observer(function FaultForm() {
         <Form.Item name="fault_location" label="故障位置/巡检点">
           <Input placeholder="如 机房A 01柜（选填）"/>
         </Form.Item>
-        <Form.Item name="fault_component" label="配置组成项" extra="可选：引用主故障系统的配置组成项，不要求逐台建档">
+        <Form.Item name="fault_component" label="配置组成项" extra="可选：引用故障系统的配置组成项，不要求逐台建档">
           <Select allowClear placeholder="可选" onChange={handleComponentChange}>
             {components.map(c => (
               <Select.Option value={c.id} key={c.id}>
@@ -279,32 +228,6 @@ const FaultForm = observer(function FaultForm() {
         <Form.Item name="fault_object_sn" label="对象编号/序列号">
           <Input placeholder="资产编号或序列号（选填）"/>
         </Form.Item>
-        <Divider orientation="left" plain>受影响系统（可选）</Divider>
-        {affected.map((row, index) => (
-          <div key={index} style={{display: 'flex', alignItems: 'center', marginBottom: 8}}>
-            <div style={{flex: 1, marginRight: 8}}>
-              {renderSystemSelect(
-                row.system_id,
-                v => changeAffected(index, 'system_id', v),
-                selectedAffectedIds,
-                '请选择受影响系统',
-              )}
-            </div>
-            <Select
-              value={row.impact_status}
-              onChange={v => changeAffected(index, 'impact_status', v)}
-              style={{width: 120, marginRight: 8}}
-            >
-              {FAULT_IMPACT_OPTIONS.map(item => (
-                <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
-              ))}
-            </Select>
-            <MinusCircleOutlined onClick={() => removeAffected(index)}/>
-          </div>
-        ))}
-        <Button type="dashed" block onClick={addAffected} style={{marginBottom: 16}}>
-          添加受影响系统
-        </Button>
         <Form.Item name="reason_analysis" label="原因分析">
           <TextArea rows={2} placeholder="（选填，处置过程中可继续完善）"/>
         </Form.Item>

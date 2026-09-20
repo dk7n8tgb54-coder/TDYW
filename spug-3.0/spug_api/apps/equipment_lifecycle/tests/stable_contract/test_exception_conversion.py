@@ -120,8 +120,7 @@ class FaultToWorkOrderTest(ConversionTestBase):
     def create_fault_with_impacts(self):
         client = make_client(self.admin)
         body = client.post('/equipment-lifecycle/faults/', fault_payload(
-            self.system_a, primary_impact_status='fault',
-            affected_systems=[{'system_id': self.system_a2.id, 'impact_status': 'degraded'}]),
+            self.system_a, impact_status='fault'),
             content_type='application/json').json()
         self.assertFalse(body.get('error'), body)
         return SystemFault.objects.get(pk=body['data']['id'])
@@ -140,14 +139,11 @@ class FaultToWorkOrderTest(ConversionTestBase):
         self.assertFalse(second.get('error'), second)
         orders = SystemWorkOrder.objects.filter(source_type='fault', source_fault=fault)
         self.assertEqual(orders.count(), 2)
-        # 默认类型为故障维修，默认目标系统为主故障系统，受影响系统默认带入
+        # 默认类型为故障维修，作业系统固定为故障所属系统，影响运行默认为是
         first_order = orders.order_by('id').first()
         self.assertEqual(first_order.work_type, 'repair')
-        self.assertEqual(first_order.target_system_id, fault.primary_system_id)
-        self.assertEqual(
-            set(SystemWorkOrder.objects.get(pk=first_order.id)
-                .affected_systems.values_list('system_id', flat=True)),
-            {self.system_a2.id})
+        self.assertEqual(first_order.system_id, fault.system_id)
+        self.assertTrue(first_order.affects_system_operation)
         # 现象带入作业要求
         self.assertEqual(first_order.work_requirement, fault.phenomenon)
 
@@ -238,8 +234,8 @@ class LedgerItemConvertToFaultTest(ConversionTestBase):
         body = self.convert_to_fault(ledger_id, item_ids[0])
         self.assertFalse(body.get('error'), body)
         fault = SystemFault.objects.get(pk=body['data']['id'])
-        # 故障主系统固定为明细所属系统
-        self.assertEqual(fault.primary_system_id, self.system_a.id)
+        # 故障系统固定为明细所属系统
+        self.assertEqual(fault.system_id, self.system_a.id)
         self.assertEqual(fault.status, 'pending')
         # 来源关系：真实外键 + 来源类型
         self.assertEqual(fault.source_type, 'ledger_item')
@@ -360,8 +356,8 @@ class LedgerItemConvertToWorkOrderTest(ConversionTestBase):
             'work_type': 'special_maintenance', 'client_token': 'tok-li-1'})
         self.assertFalse(body.get('error'), body)
         order = SystemWorkOrder.objects.get(pk=body['data']['id'])
-        # 目标系统固定为明细所属系统
-        self.assertEqual(order.target_system_id, self.system_a.id)
+        # 作业系统固定为明细所属系统
+        self.assertEqual(order.system_id, self.system_a.id)
         self.assertEqual(order.work_type, 'special_maintenance')
         self.assertEqual(order.source_type, 'ledger_item')
         self.assertEqual(order.source_ledger_item_id, item_ids[0])

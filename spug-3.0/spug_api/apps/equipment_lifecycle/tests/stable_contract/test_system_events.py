@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""统一系统履历（步骤 3.4，步骤 3.5 集成）稳定契约测试。
+"""统一系统履历（步骤 3.4，步骤 3.5 集成，单系统简化）稳定契约测试。
 
-覆盖任务十一/十九要求的行为契约：
+覆盖行为契约：
 - 普通用户不能手工新增履历；履历只读，无普通修改与物理删除入口；
 - 故障、台账异常、工单、健康状态、配置快照共用同一事件模型（SystemEvent）；
-- 故障/工单事件按角色分布（主体 primary / 受影响 affected / 关联 related）；
+- 每条事件只关联业务对象所属的一个系统（无跨系统角色 primary/affected/related）；
 - 业务保存与履历生成处于同一事务；重复请求不产生重复事件；
 - 状态不变不生成健康事件；来源作废后原事件保留并追加新事件；
 - 普通配置字段修改只进配置历史，不进履历；
@@ -71,34 +71,33 @@ def _uniq_client_token():
     return f'token-ev-{_event_seq[0]}'
 
 
-def fault_payload(system, **overrides):
+def fault_payload(system_obj, **overrides):
     """发生时间/现象按序错开，避开创建接口的窗口期查重（同故障流程互不影响）。"""
     _event_seq[0] += 1
     seq = _event_seq[0]
     moment = datetime(2026, 9, 18, 8, 0) + timedelta(minutes=seq)
     payload = {
-        'primary_system': system.id,
-        'primary_impact_status': 'degraded',
+        'system': system_obj.id,
+        'impact_status': 'degraded',
         'occurred_at': moment.strftime('%Y-%m-%d %H:%M'),
         'discovery': 'patrol',
         'level': 'major',
         'phenomenon': f'主用链路频繁丢包（场景{seq}）',
-        'affected_systems': [],
     }
     payload.update(overrides)
     return payload
 
 
-def work_order_payload(system, **overrides):
+def work_order_payload(system_obj, **overrides):
     """标题按序错开，避开创建接口的窗口期查重。"""
     _event_seq[0] += 1
     seq = _event_seq[0]
     payload = {
-        'title': f'{system.system_code} 例行维护工单（场景{seq}）',
+        'title': f'{system_obj.system_code} 例行维护工单（场景{seq}）',
         'work_type': 'special_maintenance',
         'priority': 'normal',
-        'target_system': system.id,
-        'affected_system_ids': [],
+        'system': system_obj.id,
+        'affects_system_operation': False,
         'work_location': '机房A 01柜',
         'work_requirement': '按规程完成季度维护',
         'client_token': '',
@@ -181,44 +180,36 @@ class SystemEventTestBase(TestCase):
 
 
 class FaultEventTests(SystemEventTestBase):
-    """故障动作 → 履历事件（主体/受影响分布、同事务、动作幂等）。"""
+    """故障动作 → 履历事件（只落故障所属系统，同事务、动作幂等）。"""
 
-    def test_fault_create_generates_primary_and_affected_events(self):
-        """故障创建：主系统 primary + 受影响系统 affected 各一条，快照与来源完整。"""
+    def test_fault_create_generates_single_system_event(self):
+        """故障创建：只生成一条故障事件（落故障系统），快照与来源完整。"""
         before = len(self.events())
         body = self.client.post(
             f'{FAULT_URL}/',
-            fault_payload(self.system_a, affected_systems=[
-                {'system_id': self.system_a2.id, 'impact_status': 'degraded'},
-            ]),
+            fault_payload(self.system_a, impact_status='degraded'),
             content_type='application/json').json()
         self.assertFalse(body.get('error'), body)
         fault_id = body['data']['id']
         events = self.events()
-        # 2 条故障事件（primary+affected）+ 2 条健康事件（两系统 normal→degraded）
-        self.assertEqual(len(events), before + 4)
-        self.assertEqual(len([e for e in events if e.event_type == SystemEvent.EVENT_FAULT]), 2)
+        # 1 条故障事件 + 1 条健康事件（故障系统 normal→degraded），不再有其他系统事件
+        self.assertEqual(len(events), before + 2)
         self.assertEqual(
-            len([e for e in events if e.event_type == SystemEvent.EVENT_HEALTH]), 2)
-        fault_events = [e for e in events if e.event_type == SystemEvent.EVENT_FAULT]
-        primary = [e for e in fault_events if e.role == SystemEvent.ROLE_PRIMARY]
-        affected = [e for e in fault_events if e.role == SystemEvent.ROLE_AFFECTED]
-        self.assertEqual(len(primary), 1)
-        self.assertEqual(len(affected), 1)
-        for e in fault_events:
-            self.assertEqual(e.event_type, SystemEvent.EVENT_FAULT)
-            self.assertEqual(e.action, 'create')
-            self.assertEqual(e.source_type, 'fault')
-            self.assertEqual(e.source_id, str(fault_id))
-            self.assertEqual(e.system_id, self.system_a.id if e.role == 'primary'
-                             else self.system_a2.id)
-            # 系统快照：正式系统 ID 关联 + 编号/名称快照
-            self.assertEqual(e.system_code,
-                             self.system_a.system_code if e.role == 'primary'
-                             else self.system_a2.system_code)
-            self.assertEqual(e.created_by_id, self.admin.id)
-        self.assertIn('发生', primary[0].title)
-        self.assertIn(self.system_a.name, affected[0].title)
+            len([e for e in events if e.event_type == SystemEvent.EVENT_FAULT]), 1)
+        self.assertEqual(
+            len([e for e in events if e.event_type == SystemEvent.EVENT_HEALTH]), 1)
+        fault_event = [e for e in events if e.event_type == SystemEvent.EVENT_FAULT][0]
+        self.assertEqual(fault_event.action, 'create')
+        self.assertEqual(fault_event.source_type, 'fault')
+        self.assertEqual(fault_event.source_id, str(fault_id))
+        # 只关联故障所属系统；其他系统无任何事件
+        self.assertEqual(fault_event.system_id, self.system_a.id)
+        self.assertEqual(fault_event.system_code, self.system_a.system_code)
+        self.assertEqual(fault_event.system_name, self.system_a.name)
+        self.assertEqual(fault_event.created_by_id, self.admin.id)
+        self.assertIn('发生', fault_event.title)
+        self.assertEqual(
+            [e.system_id for e in events if e.system_id == self.system_a2.id], [])
 
     def test_lifecycle_actions_generate_recover_and_close_events(self):
         """恢复/关闭各生成一次事件；恢复事件业务时间取恢复确认时间。"""
@@ -281,38 +272,38 @@ class FaultEventTests(SystemEventTestBase):
     def test_business_rollback_rolls_back_events(self):
         """业务校验失败回滚时不留下半成品事件（同事务）。"""
         before = len(self.events())
-        # 主系统与受影响系统重复（主系统同时作为受影响系统）→ 校验失败
+        # 提交不合法的影响状态 → 校验失败
         body = self.client.post(
             f'{FAULT_URL}/',
-            fault_payload(self.system_a, affected_systems=[
-                {'system_id': self.system_a.id, 'impact_status': 'fault'},
-            ]),
+            fault_payload(self.system_a, impact_status='invalid_status'),
             content_type='application/json').json()
         self.assertTrue(body.get('error'))
         self.assertEqual(len(self.events()), before)
 
 
 class WorkOrderEventTests(SystemEventTestBase):
-    """工单动作 → 履历事件（目标 primary + 受影响登记 related）。"""
+    """工单动作 → 履历事件（只落作业系统）。"""
 
-    def test_work_order_create_generates_target_and_related_events(self):
-        """工单登记：目标系统 primary + 受影响登记 related；专项维护不影响健康状态。"""
+    def test_work_order_create_generates_single_system_event(self):
+        """工单登记：只生成一条事件（落作业系统）；专项维护不影响健康状态。"""
         before_health = len(self.events(event_type=SystemEvent.EVENT_HEALTH))
         body = self.client.post(
             f'{WO_URL}/',
-            work_order_payload(self.system_a, affected_system_ids=[self.system_a2.id],
-                               client_token=_uniq_client_token()),
+            work_order_payload(self.system_a, client_token=_uniq_client_token()),
             content_type='application/json').json()
         self.assertFalse(body.get('error'), body)
         wid = body['data']['id']
         wo_events = [e for e in self.events() if e.event_type == SystemEvent.EVENT_WORK_ORDER]
-        self.assertEqual(len(wo_events), 2)
-        roles = {e.role for e in wo_events}
-        self.assertEqual(roles, {SystemEvent.ROLE_PRIMARY, SystemEvent.ROLE_RELATED})
-        for e in wo_events:
-            self.assertEqual(e.source_type, 'work_order')
-            self.assertEqual(e.source_id, str(wid))
-            self.assertEqual(e.get_detail().get('work_no'), body['data']['work_no'])
+        self.assertEqual(len(wo_events), 1)
+        e = wo_events[0]
+        self.assertEqual(e.source_type, 'work_order')
+        self.assertEqual(e.source_id, str(wid))
+        self.assertEqual(e.get_detail().get('work_no'), body['data']['work_no'])
+        self.assertEqual(e.system_id, self.system_a.id)
+        self.assertEqual(e.action, 'create')
+        # 其他系统无工单事件
+        self.assertEqual(
+            [ev for ev in wo_events if ev.system_id == self.system_a2.id], [])
         # 专项维护工单不覆盖健康状态：无健康事件
         self.assertEqual(len(self.events(event_type=SystemEvent.EVENT_HEALTH)), before_health)
 
@@ -324,7 +315,7 @@ class WorkOrderEventTests(SystemEventTestBase):
         wid = self.run_work_order_to_complete(work_order_payload(self.system_a))
         complete_events = [e for e in self.events() if e.action == 'complete']
         self.assertEqual(len(complete_events), 1)
-        self.assertEqual(complete_events[0].role, SystemEvent.ROLE_PRIMARY)
+        self.assertEqual(complete_events[0].system_id, self.system_a.id)
         # 关闭归档：不生成新事件
         r = self.client.post(f'{WO_URL}/{wid}/close/', {}, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
@@ -333,19 +324,20 @@ class WorkOrderEventTests(SystemEventTestBase):
                               and e.event_type == SystemEvent.EVENT_WORK_ORDER]), 0)
 
     def test_repair_work_order_start_and_review_generate_repairing_health_events(self):
-        """执行中的故障维修工单产生"维修中"；完成回落后"故障"保持（未恢复不恢复正常）。"""
+        """执行中且影响运行的故障维修工单产生"维修中"；完成回落后"故障"保持。"""
         body = self.client.post(f'{FAULT_URL}/',
-                                fault_payload(self.system_a, primary_impact_status='fault'),
+                                fault_payload(self.system_a, impact_status='fault'),
                                 content_type='application/json').json()
         self.assertFalse(body.get('error'), body)
         fid = body['data']['id']
-        # 生成维修工单并推进到执行中
+        # 生成维修工单并推进到执行中（来源故障未恢复 → 默认影响运行）
         wo_body = self.client.post(
             f'{FAULT_URL}/{fid}/create-work-order/',
             {'client_token': _uniq_client_token(), 'work_type': 'repair'},
             content_type='application/json').json()
         self.assertFalse(wo_body.get('error'), wo_body)
         wid = wo_body['data']['id']
+        self.assertTrue(wo_body['data']['affects_system_operation'])
         for action, payload in (
                 ('dispatch', {'owner_id': self.admin.id}),
                 ('accept', {}),
@@ -433,7 +425,6 @@ class LedgerConvertEventTests(SystemEventTestBase):
         self.assertEqual(e.action, 'convert_to_fault')
         self.assertEqual(e.source_type, 'ledger_item')
         self.assertEqual(e.source_id, str(item_id))
-        self.assertEqual(e.role, SystemEvent.ROLE_PRIMARY)
         self.assertEqual(e.system_id, self.system_a.id)
         self.assertEqual(e.get_detail().get('ledger_id'), ledger_id)
         self.assertEqual(e.get_detail().get('target_no'), body['data']['fault_no'])
@@ -514,22 +505,27 @@ class ReadOnlyAndIsolationTests(SystemEventTestBase):
         resp = self.client.get(f'{SYSTEM_URL}/{self.system_b.id}/system-events/')
         self.assertIn('不存在', resp.json().get('error', ''))
 
-    def test_system_events_role_filter(self):
-        """系统详情履历接口：角色过滤（主体/受影响/关联）。"""
-        self.client.post(
-            f'{FAULT_URL}/',
-            fault_payload(self.system_a2, affected_systems=[
-                {'system_id': self.system_a.id, 'impact_status': 'degraded'},
-            ]),
-            content_type='application/json').json()
+    def test_system_events_by_system_and_type_filter(self):
+        """系统详情履历接口：只返回该系统的事件，支持事件类型过滤。"""
+        self.client.post(f'{FAULT_URL}/', fault_payload(self.system_a2),
+                         content_type='application/json').json()
+        self.client.post(f'{FAULT_URL}/', fault_payload(self.system_a),
+                         content_type='application/json').json()
         resp = self.client.get(
-            f'{SYSTEM_URL}/{self.system_a.id}/system-events/?role=affected').json()
+            f'{SYSTEM_URL}/{self.system_a.id}/system-events/').json()
         self.assertFalse(resp.get('error'))
         rows = resp['data']['data']
         self.assertTrue(rows)
         for row in rows:
-            self.assertEqual(row['role'], 'affected')
             self.assertEqual(row['system'], self.system_a.id)
+            self.assertNotIn('role', row)
+        # 事件类型过滤
+        resp = self.client.get(
+            f'{SYSTEM_URL}/{self.system_a.id}/system-events/?event_type=fault').json()
+        rows = resp['data']['data']
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertEqual(row['event_type'], 'fault')
 
     def test_event_list_permission_required(self):
         """无履历查看权限时后端真实拒绝。"""

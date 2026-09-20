@@ -3,14 +3,15 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 工单新增/编辑表单（Modal）。
- * - 系统与人员一律提交 ID，页面仅展示名称；
+ * 工单新增/编辑表单（Modal，单系统简化）。
+ * - 普通用户只需要选择一个"作业系统"（提交 ID，页面显示名称）；
+ * - 提供"作业期间是否影响系统运行"直观选择（执行中且为真才进入"维修中"）；
  * - 编辑仅限待派发工单（后端强制校验，前端同步隐藏入口）；
  * - 支持故障生成工单/台账转工单的预填场景（initialValues 覆盖）。
  */
 import React, { useEffect } from 'react';
 import { observer } from 'mobx-react';
-import { Form, Modal, Input, Select, DatePicker } from 'antd';
+import { Form, Modal, Input, Select, DatePicker, Switch } from 'antd';
 import store from './store';
 import { WORK_TYPE_OPTIONS, PRIORITY_OPTIONS } from './constants';
 
@@ -28,14 +29,12 @@ function WorkOrderForm({visible, onClose, isEdit = false, initialValues = null, 
       form.resetFields();
       if (isEdit && store.record && store.record.id) {
         const r = store.record;
-        const affectedIds = (r.affected_system_ids || (r.affected_systems || []).map(row => row.system))
-          .filter(Boolean);
         form.setFieldsValue({
           title: r.title,
           work_type: r.work_type,
           priority: r.priority,
-          target_system: r.target_system,
-          affected_system_ids: affectedIds.length ? affectedIds : undefined,
+          system: r.system,
+          affects_system_operation: !!r.affects_system_operation,
           work_location: r.work_location,
           work_object_desc: r.work_object_desc,
           work_requirement: r.work_requirement,
@@ -68,7 +67,7 @@ function WorkOrderForm({visible, onClose, isEdit = false, initialValues = null, 
       onOk={handleOk}
       destroyOnClose
     >
-      <Form form={form} {...formLayout} initialValues={{priority: 'normal'}}>
+      <Form form={form} {...formLayout} initialValues={{priority: 'normal', affects_system_operation: false}}>
           <Form.Item
             name="title"
             label="工单标题"
@@ -95,15 +94,15 @@ function WorkOrderForm({visible, onClose, isEdit = false, initialValues = null, 
             </Select>
           </Form.Item>
           <Form.Item
-            name="target_system"
-            label="目标系统"
-            rules={[{required: true, message: '请选择目标系统'}]}
-            extra="本次作业对象系统；受影响系统不参与系统健康状态计算"
+            name="system"
+            label="作业系统"
+            rules={[{required: true, message: '请选择作业系统'}]}
+            extra="一张工单只关联一个系统；涉及多个系统时请分别建立工单"
           >
             <Select
               showSearch
               optionFilterProp="children"
-              placeholder="请选择目标系统"
+              placeholder="请选择作业系统"
               allowClear
             >
               {store.systems.map(s => (
@@ -114,23 +113,12 @@ function WorkOrderForm({visible, onClose, isEdit = false, initialValues = null, 
             </Select>
           </Form.Item>
           <Form.Item
-            name="affected_system_ids"
-            label="受影响系统"
-            extra="可选；不能包含目标系统，同一系统不能重复添加"
+            name="affects_system_operation"
+            label="作业期间影响系统运行"
+            valuePropName="checked"
+            extra="执行中的故障维修工单仅在影响运行时使系统进入「维修中」；离线部件维修、专项维护等默认关闭"
           >
-            <Select
-              mode="multiple"
-              showSearch
-              optionFilterProp="children"
-              placeholder="请选择受影响系统（可多选）"
-              allowClear
-            >
-              {store.systems.map(s => (
-                <Option value={s.id} key={s.id}>
-                  {`${s.name}（${s.system_code}）`}
-                </Option>
-              ))}
-            </Select>
+            <Switch checkedChildren="影响" unCheckedChildren="不影响"/>
           </Form.Item>
           <Form.Item name="work_location" label="作业位置">
             <Input maxLength={200} placeholder="如：机房A列01柜（选填）"/>

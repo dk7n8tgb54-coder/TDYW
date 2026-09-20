@@ -136,7 +136,7 @@ function ConvertToFaultModal({visible, ledger, item, needReason, onClose, onConv
           occurred_at: values.occurred_at ? values.occurred_at.format('YYYY-MM-DD HH:mm') : '',
           discovery: values.discovery,
           level: values.level,
-          primary_impact_status: values.primary_impact_status,
+          impact_status: values.impact_status,
           phenomenon: values.phenomenon || '',
           re_dispose_reason: values.re_dispose_reason || '',
         })
@@ -160,7 +160,7 @@ function ConvertToFaultModal({visible, ledger, item, needReason, onClose, onConv
       destroyOnClose
     >
       <p style={{color: '#999', marginTop: 0}}>
-        故障主系统固定为明细所属系统「{item.system_name}（{item.system_code}）」；
+        故障系统固定为明细所属系统「{item.system_name}（{item.system_code}）」；
         将带入台账类型、编号、检查项、位置、异常说明、实测值与现场处理内容。
       </p>
       <Form
@@ -170,7 +170,7 @@ function ConvertToFaultModal({visible, ledger, item, needReason, onClose, onConv
         initialValues={{
           discovery: 'patrol',
           level: 'minor',
-          primary_impact_status: 'degraded',
+          impact_status: 'degraded',
           phenomenon: '',
         }}
       >
@@ -197,7 +197,7 @@ function ConvertToFaultModal({visible, ledger, item, needReason, onClose, onConv
             <Select.Option value="critical">重大</Select.Option>
           </Select>
         </Form.Item>
-        <Form.Item name="primary_impact_status" label="主系统影响">
+        <Form.Item name="impact_status" label="系统影响程度">
           <Select>
             <Select.Option value="degraded">降级</Select.Option>
             <Select.Option value="fault">故障</Select.Option>
@@ -232,7 +232,8 @@ function ConvertToWorkOrderModal({visible, ledger, item, needReason, onClose, on
     title: `${item.item_name_snapshot || ''} 异常处理`,
     work_type: 'special_maintenance',
     priority: 'normal',
-    target_system: item.system,
+    system: item.system,
+    affects_system_operation: false,
     work_location: item.inspection_point_name || item.location || '',
     work_requirement: defaultRequirement,
     re_dispose_reason: '',

@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""工单管理与系统健康状态联动（步骤 3.3）稳定契约测试。
+"""工单管理与系统健康状态联动（步骤 3.3，单系统简化）稳定契约测试。
 
-覆盖任务二十四要求的工单行为契约：系统 ID 关联、租户隔离、目标/受影响系统
-边界、快照、参与人、状态流转、幂等、受控取消、健康状态"维修中"联动、
+覆盖工单行为契约：系统 ID 关联、租户隔离、一张工单只关联一个作业系统、
+受影响系统参数已删除、快照、参与人、状态流转、幂等、受控取消、
+affects_system_operation（作业期间是否影响系统运行）与"维修中"联动、
 模块边界（无库存/调拨/履历、device/upgrade 无变化）与 3.1/3.2 回归冒烟。
 
 全部通过真实 HTTP 路径 + 隔离测试数据库执行，验证数据库状态与真实副作用。
@@ -39,13 +40,13 @@ ALL_WO_PERMS = [
 ]
 
 
-def work_order_payload(system, **overrides):
+def work_order_payload(system_obj, **overrides):
     payload = {
-        'title': f'{system.system_code} 例行维护工单',
+        'title': f'{system_obj.system_code} 例行维护工单',
         'work_type': 'special_maintenance',
         'priority': 'normal',
-        'target_system': system.id,
-        'affected_system_ids': [],
+        'system': system_obj.id,
+        'affects_system_operation': False,
         'work_location': '机房A 01柜',
         'work_object_desc': '主用交换机',
         'work_requirement': '按规程完成季度维护',
@@ -143,11 +144,16 @@ class WorkOrderTestBase(TestCase):
             self.assertIn(expect_error, body.get('error', ''), body)
         return body
 
-    def run_to_executing(self, system=None, work_type='repair', user=None, **overrides):
-        """创建 → 派发 → 接单 → 开始执行，返回工单详情 dict。"""
+    def run_to_executing(self, system=None, work_type='repair', user=None, affects=True,
+                         **overrides):
+        """创建 → 派发 → 接单 → 开始执行，返回工单模型实例。
+
+        affects 映射为 affects_system_operation（默认 True：执行中影响运行）。
+        """
         system = system or self.system_a
         data = self.create_order_ok(work_order_payload(
-            system, work_type=work_type, **overrides), user=user)
+            system, work_type=work_type,
+            affects_system_operation=affects, **overrides), user=user)
         oid = data['id']
         self.dispatch_order(oid, user=user)
         self.accept_order(oid, user=user)
@@ -158,53 +164,77 @@ class WorkOrderTestBase(TestCase):
         """创建一张未恢复的有效故障（影响保持）。"""
         client = make_client(self.admin)
         resp = client.post('/equipment-lifecycle/faults/', fault_payload(
-            system, primary_impact_status=impact), content_type='application/json')
+            system, impact_status=impact), content_type='application/json')
         body = resp.json()
         self.assertFalse(body.get('error'), body)
         return SystemFault.objects.get(pk=body['data']['id'])
 
 
 class WorkOrderCreateValidationTest(WorkOrderTestBase):
-    """1-5, 8, 10：工单创建校验。"""
+    """工单创建校验。"""
 
-    def test_order_requires_valid_target_system_id(self):
-        """1. 工单必须关联有效目标系统ID。"""
-        self.create_order(work_order_payload(self.system_a, target_system=99999),
-                          expect_error='目标系统不存在')
+    def test_order_requires_valid_system_id(self):
+        """工单必须关联有效作业系统ID。"""
+        self.create_order(work_order_payload(self.system_a, system=99999),
+                          expect_error='作业系统不存在')
         self.assertEqual(SystemWorkOrder.objects.count(), 0)
 
     def test_system_name_is_not_a_join_key(self):
-        """2. 系统名称不能作为关联键：以名称提交必须失败且不产生模糊匹配。"""
+        """系统名称不能作为关联键：以名称提交必须失败且不产生模糊匹配。"""
         payload = work_order_payload(self.system_a)
-        payload['target_system'] = self.system_a.name  # 名称而非 ID
+        payload['system'] = self.system_a.name  # 名称而非 ID
         self.create_order(payload, expect_error=None)
         self.assertEqual(SystemWorkOrder.objects.count(), 0)
 
     def test_cannot_link_cross_tenant_system(self):
-        """3. 不能关联其他租户系统。"""
-        self.create_order(work_order_payload(self.system_b), expect_error='目标系统不存在')
+        """不能关联其他租户系统。"""
+        self.create_order(work_order_payload(self.system_b), expect_error='作业系统不存在')
         self.assertEqual(SystemWorkOrder.objects.count(), 0)
 
-    def test_target_system_cannot_be_affected_system(self):
-        """4. 目标系统不能重复出现在受影响系统中。"""
+    def test_affected_system_ids_param_rejected(self):
+        """工单 API 不再接受受影响系统（POST/PUT 均拒绝，不静默忽略）。"""
         self.create_order(work_order_payload(
-            self.system_a, affected_system_ids=[self.system_a.id]),
-            expect_error='目标系统不能同时作为受影响系统')
+            self.system_a, affected_system_ids=[self.system_a2.id]),
+            expect_error='受影响系统')
+        self.assertEqual(SystemWorkOrder.objects.count(), 0)
+        # 编辑同样拒绝
+        data = self.create_order_ok(work_order_payload(self.system_a))
+        client = make_client(self.admin)
+        resp = client.put(f'{WORK_ORDER_URL}/{data["id"]}/',
+                          work_order_payload(self.system_a,
+                                             affected_system_ids=[self.system_a2.id]),
+                          content_type='application/json')
+        self.assertIn('受影响系统', resp.json().get('error', ''), resp.content)
+        order = SystemWorkOrder.objects.get(pk=data['id'])
+        # 工单仍只关联原作业系统
+        self.assertEqual(order.system_id, self.system_a.id)
+        self.assertFalse(
+            any(rel.get_accessor_name() == 'affected_systems'
+                for rel in SystemWorkOrder._meta.related_objects))
 
-    def test_affected_system_cannot_duplicate(self):
-        """5. 同一受影响系统不能重复关联。"""
+    def test_one_order_links_exactly_one_system(self):
+        """一张工单只关联一个作业系统。"""
+        data = self.create_order_ok(work_order_payload(self.system_a))
+        order = SystemWorkOrder.objects.get(pk=data['id'])
+        self.assertEqual(order.system_id, self.system_a.id)
+        self.assertNotEqual(order.system_id, self.system_a2.id)
+
+    def test_affects_system_operation_must_be_bool(self):
+        """affects_system_operation 非布尔提交被后端重新校验拒绝。"""
         self.create_order(work_order_payload(
-            self.system_a, affected_system_ids=[self.system_a2.id, self.system_a2.id]),
-            expect_error='同一受影响系统不能重复添加')
+            self.system_a, affects_system_operation='yes'),
+            expect_error='affects_system_operation')
+        self.assertEqual(SystemWorkOrder.objects.count(), 0)
 
     def test_create_without_component_and_device_resume(self):
-        """8/9. 配置组成项为空、无设备档案仍可创建工单（由全流程测试覆盖创建）。"""
+        """配置组成项为空、无设备档案仍可创建工单。"""
         data = self.create_order_ok(work_order_payload(self.system_a))
         self.assertIsNone(data['work_component'])
         self.assertEqual(data['work_type'], 'special_maintenance')
+        self.assertFalse(data['affects_system_operation'])
 
     def test_work_no_unique_within_tenant(self):
-        """10. 工单编号租户内唯一且自动生成。"""
+        """工单编号租户内唯一且自动生成。"""
         first = self.create_order_ok(work_order_payload(self.system_a, title='工单一'))
         second = self.create_order_ok(work_order_payload(self.system_a, title='工单二'))
         self.assertNotEqual(first['work_no'], second['work_no'])
@@ -214,10 +244,10 @@ class WorkOrderCreateValidationTest(WorkOrderTestBase):
 
 
 class WorkOrderSystemLinkTest(WorkOrderTestBase):
-    """6/7：外键有效性 + 快照。"""
+    """外键有效性 + 快照。"""
 
     def test_snapshot_stable_after_system_rename(self):
-        """6/7. 系统改名后工单外键仍有效，详情显示创建时快照。"""
+        """系统改名后工单外键仍有效，详情显示创建时快照。"""
         data = self.create_order_ok(work_order_payload(self.system_a))
         oid = data['id']
         system = LifecycleSystem.objects.get(pk=self.system_a.id)
@@ -229,18 +259,18 @@ class WorkOrderSystemLinkTest(WorkOrderTestBase):
         client = make_client(self.admin)
         detail = client.get(f'{WORK_ORDER_URL}/{oid}/').json()['data']
         # 外键仍然有效（返回正式系统 ID）
-        self.assertEqual(detail['target_system'], self.system_a.id)
+        self.assertEqual(detail['system'], self.system_a.id)
         # 快照保持创建时内容，不随系统改名变化
-        self.assertEqual(detail['target_system_name'], old_name)
-        self.assertEqual(detail['target_system_code'], old_code)
-        self.assertEqual(detail['target_system_location'], old_location)
+        self.assertEqual(detail['system_name'], old_name)
+        self.assertEqual(detail['system_code'], old_code)
+        self.assertEqual(detail['system_location'], old_location)
 
 
 class WorkOrderStateFlowTest(WorkOrderTestBase):
-    """11-19：参与人与状态流转。"""
+    """参与人与状态流转。"""
 
     def test_owner_must_be_same_tenant_active_user(self):
-        """11. 非当前租户人员不能成为工单负责人。"""
+        """非当前租户人员不能成为工单负责人。"""
         data = self.create_order_ok(work_order_payload(self.system_a))
         self.dispatch_order(data['id'], owner=self.other_admin,
                             expect_error='不属于当前租户')
@@ -249,12 +279,12 @@ class WorkOrderStateFlowTest(WorkOrderTestBase):
         self.assertIsNone(order.owner_id)
 
     def test_accept_requires_dispatch_first(self):
-        """13. 未派发工单不能接单。"""
+        """未派发工单不能接单。"""
         data = self.create_order_ok(work_order_payload(self.system_a))
         self.accept_order(data['id'], expect_error='只有待接单的工单可以接单')
 
     def test_start_requires_accept(self):
-        """12/14. 状态流转由后端校验：未接单不能开始执行。"""
+        """状态流转由后端校验：未接单不能开始执行。"""
         data = self.create_order_ok(work_order_payload(self.system_a))
         # 待派发直接开始 → 拒绝
         self.start_order(data['id'], expect_error='只有待接单的工单可以开始执行')
@@ -265,7 +295,7 @@ class WorkOrderStateFlowTest(WorkOrderTestBase):
         self.assertEqual(order.status, SystemWorkOrder.STATUS_PENDING_ACCEPT)
 
     def test_submit_review_requires_process_and_records(self):
-        """15. 未填写处理过程和结果不能提交复核。"""
+        """未填写处理过程和结果不能提交复核。"""
         order = self.run_to_executing(work_type='special_maintenance')
         # 无处理结果
         self.submit_review(order.id, process_result='  ', expect_error='必须填写处理结果')
@@ -278,48 +308,20 @@ class WorkOrderStateFlowTest(WorkOrderTestBase):
         order.refresh_from_db()
         self.assertEqual(order.status, SystemWorkOrder.STATUS_PENDING_REVIEW)
 
-    def test_review_return_requires_reason(self):
-        """16. 复核退回必须填写原因。"""
-        order = self.run_to_executing(work_type='special_maintenance')
-        self.add_record(order.id)
-        self.submit_review(order.id)
-        self.submit_review(order.id)
+    def test_edit_can_change_system_and_affects_flag(self):
+        """编辑待派发工单可变更作业系统与影响运行标记（不再要求受影响系统字段）。"""
+        data = self.create_order_ok(work_order_payload(self.system_a))
         client = make_client(self.admin)
-        resp = client.post(f'{WORK_ORDER_URL}/{order.id}/review-return/', {'return_reason': ' '},
-                           content_type='application/json')
-        self.assertIn('必须填写', resp.json().get('error', ''), resp.content)
-        resp = client.post(f'{WORK_ORDER_URL}/{order.id}/review-return/',
-                           {'return_reason': '处理结果不完整'},
-                           content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
-        order.refresh_from_db()
-        self.assertEqual(order.status, SystemWorkOrder.STATUS_EXECUTING)
-        self.assertEqual(order.return_reason, '处理结果不完整')
-
-    def test_edit_requires_affected_systems_field(self):
-        """编辑待派发工单必须显式提交受影响系统，防止省略字段时静默清空。"""
-        data = self.create_order_ok(work_order_payload(
-            self.system_a, affected_system_ids=[self.system_a2.id]))
-        client = make_client(self.admin)
-        payload = work_order_payload(self.system_a)
-        payload.pop('affected_system_ids')
-        resp = client.put(f'{WORK_ORDER_URL}/{data["id"]}/', payload,
-                          content_type='application/json')
-        self.assertIn('受影响系统提交缺失', resp.json().get('error', ''), resp.content)
-        # 数据库不受影响
-        self.assertEqual(
-            SystemWorkOrder.objects.get(pk=data['id'])
-            .affected_systems.count(), 1)
-        # 显式提交空数组才是清空
         resp = client.put(f'{WORK_ORDER_URL}/{data["id"]}/',
-                          work_order_payload(self.system_a, affected_system_ids=[]),
+                          work_order_payload(self.system_a2, affects_system_operation=True),
                           content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
-        self.assertEqual(
-            SystemWorkOrder.objects.get(pk=data['id']).affected_systems.count(), 0)
+        order = SystemWorkOrder.objects.get(pk=data['id'])
+        self.assertEqual(order.system_id, self.system_a2.id)
+        self.assertTrue(order.affects_system_operation)
 
     def test_closed_order_not_editable(self):
-        """17. 已关闭工单不能普通编辑。"""
+        """已关闭工单不能普通编辑。"""
         order = self.run_to_executing(work_type='special_maintenance')
         self.add_record(order.id)
         self.submit_review(order.id)
@@ -333,7 +335,7 @@ class WorkOrderStateFlowTest(WorkOrderTestBase):
         self.assertIn('待派发', resp.json().get('error', ''), resp.content)
 
     def test_del_is_controlled_cancel_not_physical_delete(self):
-        """18. 删除权限执行受控取消，不物理删除。"""
+        """删除权限执行受控取消，不物理删除。"""
         data = self.create_order_ok(work_order_payload(self.system_a))
         resp = make_client(self.admin).post(f'{WORK_ORDER_URL}/{data["id"]}/cancel/',
                                             {'cancel_reason': '计划变更'},
@@ -345,7 +347,7 @@ class WorkOrderStateFlowTest(WorkOrderTestBase):
         self.assertTrue(SystemWorkOrder.objects.filter(pk=data['id']).exists())
 
     def test_repeated_state_requests_no_side_effects(self):
-        """19. 重复派发、接单、开始、完成或关闭不产生重复副作用。"""
+        """重复派发、接单、开始、完成或关闭不产生重复副作用。"""
         data = self.create_order_ok(work_order_payload(self.system_a))
         # 派发两次：第二次拒绝，状态不变
         self.dispatch_order(data['id'])
@@ -381,7 +383,7 @@ class WorkOrderStateFlowTest(WorkOrderTestBase):
             SystemWorkOrderParticipant.objects.filter(work_order=order).count(), 1)
 
     def test_participants_recorded_and_deduped(self):
-        """11 补充：参与人以租户用户 ID 记录，负责人兼参与人不重复。"""
+        """参与人以租户用户 ID 记录，负责人兼参与人不重复。"""
         data = self.create_order_ok(work_order_payload(self.system_a))
         self.dispatch_order(data['id'], owner=self.worker, participants=[self.worker, self.admin])
         rows = SystemWorkOrderParticipant.objects.filter(work_order_id=data['id'])
@@ -391,11 +393,12 @@ class WorkOrderStateFlowTest(WorkOrderTestBase):
 
 
 class WorkOrderHealthLinkageTest(WorkOrderTestBase):
-    """32-38：执行中故障维修工单与统一健康状态计算联动。"""
+    """执行中工单与统一健康状态计算联动（affects_system_operation 规则）。"""
 
-    def test_executing_repair_order_sets_repairing(self):
-        """32. 执行中的故障维修工单使目标系统进入维修中。"""
+    def test_executing_repair_order_with_affect_sets_repairing(self):
+        """执行中且影响运行的故障维修工单使作业系统进入维修中。"""
         order = self.run_to_executing(work_type='repair')
+        self.assertTrue(order.affects_system_operation)
         system = LifecycleSystem.objects.get(pk=self.system_a.id)
         self.assertEqual(system.health_status, 'repairing')
         # 完成后回到正常
@@ -406,8 +409,24 @@ class WorkOrderHealthLinkageTest(WorkOrderTestBase):
         system.refresh_from_db()
         self.assertEqual(system.health_status, 'normal')
 
+    def test_executing_repair_order_without_affect_keeps_normal(self):
+        """执行中但不影响运行的维修工单不改变系统状态（离线部件维修）。"""
+        order = self.run_to_executing(work_type='repair', affects=False,
+                                      title='离线部件维修')
+        self.assertFalse(order.affects_system_operation)
+        system = LifecycleSystem.objects.get(pk=self.system_a.id)
+        self.assertEqual(system.health_status, 'normal')
+
+    def test_repair_order_of_system_a_does_not_change_system_b(self):
+        """系统A 的工单不会改变系统B 的状态（不建设跨系统联动）。"""
+        self.run_to_executing(work_type='repair', system=self.system_a)
+        self.assertEqual(
+            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'repairing')
+        self.assertEqual(
+            LifecycleSystem.objects.get(pk=self.system_a2.id).health_status, 'normal')
+
     def test_non_repair_order_does_not_change_health(self):
-        """33. 非故障维修工单默认不改变系统健康状态。"""
+        """非故障维修工单不改变系统健康状态。"""
         for work_type in ('special_maintenance', 'tech_reform', 'config_change',
                           'field_test', 'calibration'):
             with self.subTest(work_type=work_type):
@@ -421,7 +440,7 @@ class WorkOrderHealthLinkageTest(WorkOrderTestBase):
                                              content_type='application/json')
 
     def test_interrupted_fault_priority_over_repairing(self):
-        """34. 未恢复中断故障的优先级高于维修中。"""
+        """未恢复中断故障的优先级高于维修中。"""
         fault = self.create_active_fault(self.system_a, impact='interrupted')
         order = self.run_to_executing(work_type='repair')
         system = LifecycleSystem.objects.get(pk=self.system_a.id)
@@ -444,11 +463,10 @@ class WorkOrderHealthLinkageTest(WorkOrderTestBase):
         self.assertEqual(system.health_status, 'normal')
 
     def test_completed_order_with_active_fault_keeps_fault_status(self):
-        """35. 工单完成后仍有未恢复故障时，系统不会恢复正常。"""
+        """工单完成后仍有未恢复故障时，系统不会恢复正常。"""
         fault = self.create_active_fault(self.system_a, impact='fault')
         order = self.run_to_executing(work_type='repair')
         system = LifecycleSystem.objects.get(pk=self.system_a.id)
-        # 执行中：维修中 < 故障优先级？维修中优先级高于故障
         self.assertEqual(system.health_status, 'repairing')
         self.add_record(order.id)
         self.submit_review(order.id)
@@ -460,7 +478,7 @@ class WorkOrderHealthLinkageTest(WorkOrderTestBase):
         self.assertEqual(SystemFault.objects.get(pk=fault.id).status, 'pending')
 
     def test_normal_only_after_all_impacts_resolved(self):
-        """36. 所有故障和维修影响解除后系统才能恢复正常。"""
+        """所有故障和维修影响解除后系统才能恢复正常。"""
         fault = self.create_active_fault(self.system_a, impact='degraded')
         order = self.run_to_executing(work_type='repair')
         system = LifecycleSystem.objects.get(pk=self.system_a.id)
@@ -482,7 +500,7 @@ class WorkOrderHealthLinkageTest(WorkOrderTestBase):
         self.assertEqual(system.health_status, 'normal')
 
     def test_failed_order_operation_rolls_back_status(self):
-        """37. 工单操作失败时状态更新同步回滚。"""
+        """工单操作失败时状态更新同步回滚。"""
         order = self.run_to_executing(work_type='repair')
         system = LifecycleSystem.objects.get(pk=self.system_a.id)
         self.assertEqual(system.health_status, 'repairing')
@@ -499,7 +517,7 @@ class WorkOrderHealthLinkageTest(WorkOrderTestBase):
         self.assertEqual(system.health_status, 'repairing')
 
     def test_multiple_faults_and_orders_computed_together(self):
-        """38. 多故障、多工单并存时综合查询，取最高优先级影响。"""
+        """多故障、多工单并存时综合查询，取最高优先级影响。"""
         self.create_active_fault(self.system_a, impact='degraded')
         self.create_active_fault(self.system_a2, impact='interrupted')
         repair = self.run_to_executing(work_type='repair')
@@ -532,10 +550,10 @@ class WorkOrderHealthLinkageTest(WorkOrderTestBase):
 
 
 class WorkOrderPermissionTest(WorkOrderTestBase):
-    """40/41：权限与附件访问。"""
+    """权限与附件访问。"""
 
     def test_backend_rejects_without_permission(self):
-        """40. 权限不足时后端真实拒绝操作（不能只靠前端隐藏按钮）。"""
+        """权限不足时后端真实拒绝操作（不能只靠前端隐藏按钮）。"""
         # 无 work_order 权限：创建被拒
         resp = make_client(self.noperm_user).post(
             f'{WORK_ORDER_URL}/', work_order_payload(self.system_a),
@@ -554,7 +572,7 @@ class WorkOrderPermissionTest(WorkOrderTestBase):
         self.assertIn('权限拒绝', resp.json().get('error', ''), resp.content)
 
     def test_cross_tenant_order_invisible(self):
-        """39. 不同租户的工单互不可见（列表、详情）。"""
+        """不同租户的工单互不可见（列表、详情）。"""
         data_b = self.create_order_ok(work_order_payload(self.system_b, title='租户B工单'),
                                       user=self.other_admin)
         # tenant_a 列表看不到 tenant_b 工单
@@ -566,7 +584,7 @@ class WorkOrderPermissionTest(WorkOrderTestBase):
         self.assertIn('不存在', resp.json().get('error', ''), resp.content)
 
     def test_attachment_requires_parent_and_tenant(self):
-        """41. 附件访问执行父对象和租户权限校验。"""
+        """附件访问执行父对象和租户权限校验。"""
         order = self.run_to_executing(work_type='special_maintenance')
         record = self.add_record(order.id)
         rid = record['data']['id']
@@ -587,10 +605,10 @@ class WorkOrderPermissionTest(WorkOrderTestBase):
 
 
 class WorkOrderModuleBoundaryTest(WorkOrderTestBase):
-    """42/43/44：模块边界。"""
+    """模块边界。"""
 
     def test_no_inventory_or_transfer_or_resume_models(self):
-        """42/43. 没有库存、设备调拨或临时事件表模型。
+        """没有库存、设备调拨或临时事件表模型。
 
         步骤 3.5 起，统一系统履历（SystemEvent）由步骤 3.4 正式落地，
         不再属于禁止集合；仍禁止库存/调拨/旧履历语义模型。
@@ -605,7 +623,7 @@ class WorkOrderModuleBoundaryTest(WorkOrderTestBase):
         self.assertNotIn('device', wo_fields)
 
     def test_device_and_upgrade_apps_unchanged(self):
-        """44. device、upgrade 模块没有发生变化（模型集合冻结校验）。"""
+        """device、upgrade 模块没有发生变化（模型集合冻结校验）。"""
         expected_device = {'DeviceResume', 'DeviceEvent'}
         expected_upgrade = {'UpgradeRecord', 'UpgradeSystem', 'UpgradeTemplate',
                             'UpgradePlanStep', 'UpgradeRecordStep', 'UpgradeStatusLog'}
@@ -623,7 +641,7 @@ class WorkOrderModuleBoundaryTest(WorkOrderTestBase):
                         f'{model.__name__}.{field.name} 不应关联 {related._meta.app_label}')
 
     def test_fault_and_ledger_flows_still_work(self):
-        """45. 步骤 3.1 故障流程与步骤 3.2 台账保存逻辑没有被破坏（回归冒烟）。"""
+        """步骤 3.1 故障流程与步骤 3.2 台账保存逻辑没有被破坏（回归冒烟）。"""
         from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
             ALL_LEDGER_PERMS, ALL_POINT_PERMS, entry_payload, item_payload,
             ledger_payload, make_ledger_user, post_json,
@@ -663,22 +681,17 @@ class WorkOrderModuleBoundaryTest(WorkOrderTestBase):
 class WorkOrderQueryViewTest(WorkOrderTestBase):
     """按系统/按故障查询工单的边界。"""
 
-    def test_system_work_orders_role_filter(self):
-        data = self.create_order_ok(work_order_payload(
-            self.system_a, affected_system_ids=[self.system_a2.id]))
+    def test_system_work_orders_single_system_only(self):
+        """按系统查询工单只返回作业系统为该系统的工单（不再区分角色）。"""
+        data = self.create_order_ok(work_order_payload(self.system_a))
         client = make_client(self.admin)
-        # 目标视角
-        resp = client.get(f'/equipment-lifecycle/systems/{self.system_a.id}/work-orders/',
-                          {'role': 'target'})
+        resp = client.get(f'/equipment-lifecycle/systems/{self.system_a.id}/work-orders/')
         rows = resp.json()['data']['data']
         self.assertIn(data['id'], [r['id'] for r in rows])
-        self.assertEqual(rows[0]['order_role'], 'target')
-        # 受影响视角
-        resp = client.get(f'/equipment-lifecycle/systems/{self.system_a2.id}/work-orders/',
-                          {'role': 'affected'})
-        rows = resp.json()['data']['data']
-        self.assertIn(data['id'], [r['id'] for r in rows])
-        self.assertEqual(rows[0]['order_role'], 'affected')
+        self.assertNotIn('order_role', rows[0])
+        # 其他系统查不到该工单
+        resp = client.get(f'/equipment-lifecycle/systems/{self.system_a2.id}/work-orders/')
+        self.assertEqual(resp.json()['data']['data'], [])
         # 跨租户系统 → 拒绝
         resp = client.get(f'/equipment-lifecycle/systems/{self.system_b.id}/work-orders/')
         self.assertIn('不存在', resp.json().get('error', ''), resp.content)

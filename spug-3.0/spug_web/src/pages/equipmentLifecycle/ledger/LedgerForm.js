@@ -196,7 +196,7 @@ class LedgerForm extends React.Component {
     const {store} = this.props;
     let url = `${API_PREFIX_L}/ledger-templates/available/?ledger_type=${store.ledgerType}`;
     if (this.isWeekMonth && this.state.cycle) url += `&maintenance_cycle=${this.state.cycle}`;
-    if (systemId) url += `&system_id=${systemId}`;
+    if (systemId) url += `&system=${systemId}`;
     return http.get(url).then(res => res.data).catch(() => []);
   };
 

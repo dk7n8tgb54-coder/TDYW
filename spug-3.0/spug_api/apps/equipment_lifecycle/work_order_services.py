@@ -1,7 +1,7 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""系统工单服务层（步骤 3.3）。
+"""系统工单服务层（步骤 3.3，单系统简化）。
 
 职责：
 - 工单编号生成（租户内当日序号，须在持锁事务内调用）；
@@ -10,6 +10,7 @@
 - 幂等令牌查询（同租户 + 同来源 + 同 client_token 视为同一请求）。
 
 约定：
+- 一张工单只关联一个作业系统，不建设跨系统影响关系；
 - 健康状态重算统一走 fault_services.recompute_systems_health（不另写第二套）；
 - 来源对象（故障/台账明细）使用真实外键（PROTECT），后端根据来源类型重新
   查询真实对象并校验租户，不信任前端传来的名称或快照。
@@ -27,7 +28,6 @@ from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     SystemFault,
     SystemWorkOrder,
-    SystemWorkOrderAffectedSystem,
     SystemWorkOrderParticipant,
     WORK_ORDER_NO_PREFIX,
     WORK_ORDER_ROLE_OWNER,
@@ -91,23 +91,23 @@ def find_existing_by_token(tenant_id, client_token, source_type=None, source_obj
     return qs.order_by('id').first()
 
 
-def create_work_order_record(*, tenant_id, created_by, title, work_type, target_system,
+def create_work_order_record(*, tenant_id, created_by, title, work_type, system,
                              priority=SystemWorkOrder.PRIORITY_NORMAL,
                              source_type=WORK_ORDER_SOURCE_MANUAL, source_fault=None,
                              source_ledger_item=None, source_no='',
-                             affected_map=None, owner=None, participants=None,
+                             affects_system_operation=False, owner=None, participants=None,
                              work_location='', work_object_desc='', work_component=None,
                              planned_start=None, planned_end=None, work_requirement='',
                              work_steps='', material_note='', client_token='',
                              status=None, request=None):
-    """工单创建核心（三条创建路径共用）。
+    """工单创建核心（三条创建路径共用，单系统简化）。
 
     须在 health_recalc_lock + transaction.atomic 内调用（调用方负责锁与事务、
-    字段校验与审计）。创建后同事务生成工单登记履历（目标系统 primary +
-    受影响登记系统 related，步骤 3.4 统一履历），并重算目标系统健康状态
-    （若为执行中的故障维修工单则立即生效；一般创建不改变状态，重算幂等无害）。
+    字段校验与审计）。创建后同事务生成工单登记履历（只落作业系统，步骤 3.4
+    统一履历），并重算作业系统健康状态（若为执行中且影响运行的故障维修工单
+    则立即生效；一般创建不改变状态，重算幂等无害）。
 
-    - affected_map: {system_id: system}（已通过校验的受影响系统，不含目标系统）；
+    - affects_system_operation：作业期间是否影响系统运行（后端保存前重新校验）；
     - participants: [user]（不含负责人；负责人单独以 role=owner 写入）；
     - source_type/source_fault/source_ledger_item/source_no 由调用方按来源写入；
     - status 允许转换流程显式指定（普通创建缺省待派发）；
@@ -125,10 +125,11 @@ def create_work_order_record(*, tenant_id, created_by, title, work_type, target_
         source_fault=source_fault,
         source_ledger_item=source_ledger_item,
         source_no=(source_no or '').strip()[:50],
-        target_system=target_system,
-        target_system_code=target_system.system_code,
-        target_system_name=target_system.name,
-        target_system_location=target_system.install_location,
+        system=system,
+        system_code=system.system_code,
+        system_name=system.name,
+        system_location=system.install_location,
+        affects_system_operation=bool(affects_system_operation),
         work_location=(work_location or '').strip()[:200],
         work_object_desc=(work_object_desc or '').strip()[:1000],
         work_component=work_component,
@@ -143,17 +144,6 @@ def create_work_order_record(*, tenant_id, created_by, title, work_type, target_
         client_token=(client_token or '').strip()[:64],
         created_by=created_by,
     )
-    if affected_map:
-        SystemWorkOrderAffectedSystem.objects.bulk_create([
-            SystemWorkOrderAffectedSystem(
-                tenant_id=tenant_id,
-                work_order=work_order,
-                system=system,
-                system_code=system.system_code,
-                system_name=system.name,
-                install_location=system.install_location,
-            ) for system in affected_map.values()
-        ])
     participant_rows = []
     if owner is not None:
         participant_rows.append(SystemWorkOrderParticipant(
@@ -167,10 +157,10 @@ def create_work_order_record(*, tenant_id, created_by, title, work_type, target_
             role=WORK_ORDER_ROLE_PARTICIPANT))
     if participant_rows:
         SystemWorkOrderParticipant.objects.bulk_create(participant_rows)
-    # 步骤 3.4：工单登记履历（目标系统 primary + 受影响登记系统 related，同一事务）
+    # 步骤 3.4：工单登记履历（只落作业系统，同一事务）
     event_services.record_work_order_lifecycle_events(
         work_order, 'create', created_by=created_by)
-    recompute_systems_health(tenant_id, [target_system.id], request=request)
+    recompute_systems_health(tenant_id, [system.id], request=request)
     return work_order
 
 
@@ -235,37 +225,6 @@ def append_item_disposition(tenant_id, items):
     for item in items:
         item['disposition'] = disposition_map.get(item.get('id'))
     return items
-
-
-def validate_affected_systems(entries, target_system, tenant_id, allow_inactive=()):
-    """校验受影响系统 ID 列表，返回 ({system_id: system}, error)。
-
-    - 全部通过系统 ID 提交并重新查询校验（租户、可用性）；
-    - 目标系统不得重复出现在受影响系统中，同一系统不得重复添加；
-    - allow_inactive: 允许保持关联的已停用系统 ID 集合（编辑时未变更的历史关联）。
-    """
-    if entries is None:
-        return {}, None
-    if not isinstance(entries, list):
-        return None, '受影响系统格式不正确'
-    result = {}
-    for entry in entries:
-        try:
-            system_id = int(entry)
-        except (TypeError, ValueError):
-            return None, '受影响系统必须以系统ID提交'
-        if system_id == target_system.id:
-            return None, '目标系统不能同时作为受影响系统'
-        if system_id in result:
-            return None, '同一受影响系统不能重复添加'
-        system = LifecycleSystem.objects.filter(
-            tenant_id=tenant_id, pk=system_id).first()
-        if not system:
-            return None, f'受影响系统不存在或无权限（ID {system_id}）'
-        if not system.is_active and system_id not in allow_inactive:
-            return None, f'受影响系统已停用（ID {system_id}）'
-        result[system_id] = system
-    return result, None
 
 
 def set_participants(work_order, owner, participant_users):

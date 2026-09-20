@@ -1,8 +1,9 @@
 /**
- * 设备全生命周期（步骤 3.3）工单组件渲染测试
+ * 设备全生命周期（步骤 3.3，单系统简化）工单组件渲染测试
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
- * - 工单详情抽屉展示目标系统（名称+编号快照）、状态标签、来源单据
+ * - 工单详情抽屉展示作业系统（名称+编号+地点快照）与影响运行标记、状态标签、来源单据
+ * - 详情不再提供"受影响系统"页签
  * - 派发/接单/开始执行等按钮随状态与权限切换
  * - 故障详情"关联工单"页签展示该故障生成的工单（允许多张）
  * - 台账异常明细处置状态标签与可转单操作按处置状态切换
@@ -70,12 +71,12 @@ describe('工单详情抽屉', () => {
     source_type: 'fault',
     source_no: 'GZ20260919-0001',
     source_fault: 33,
-    target_system: 7,
-    target_system_name: '烟台通信系统',
-    target_system_code: 'SYS-A1',
-    target_system_location: '机房A',
+    system: 7,
+    system_name: '烟台通信系统',
+    system_code: 'SYS-A1',
+    system_location: '机房A',
+    affects_system_operation: true,
     owner_name: '',
-    affected_systems: [],
     participants: [],
     work_requirement: '链路丢包，需更换光模块',
     process_result: '',
@@ -91,7 +92,7 @@ describe('工单详情抽屉', () => {
     });
   }
 
-  it('展示目标系统快照、状态与来源单据，待派发状态显示派发按钮', async () => {
+  it('展示作业系统快照、影响运行标记、状态与来源单据，待派发状态显示派发按钮', async () => {
     mockHttpGet.mockImplementation((url) => {
       if (url.includes('/work-orders/5/handling-records/')) {
         return Promise.resolve({data: [], total: 0});
@@ -109,10 +110,35 @@ describe('工单详情抽屉', () => {
     expect(text).toContain('烟台通信系统');
     expect(text).toContain('SYS-A1');
     expect(text).toContain('机房A');
+    expect(text).toContain('作业期间影响系统运行');
+    expect(text).toContain('影响运行');
     expect(text).toContain('待派发');
     expect(text).toContain('派发');
     // 详情请求指向工单端点
     expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/work-orders/5/');
+  });
+
+  it('不再提供"受影响系统"页签', async () => {
+    mockHttpGet.mockImplementation((url) => {
+      if (url.includes('/work-orders/5/handling-records/')) {
+        return Promise.resolve({data: [], total: 0});
+      }
+      if (url.includes('/work-orders/candidate-users/')) {
+        return Promise.resolve({data: []});
+      }
+      return Promise.resolve({...detail, affected_systems: [
+        {id: 1, system: 9, system_name: '威海监控系统', system_code: 'SYS-A2'},
+      ]});
+    });
+    renderDetail({});
+    await act(flush);
+    await act(flush);
+    const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab')).map(t => t.textContent);
+    expect(tabs.some(t => t.includes('受影响系统'))).toBe(false);
+    // 页签含计数后缀（如"参与人员（0）"），按包含断言
+    expect(tabs.some(t => t.includes('基本信息'))).toBe(true);
+    expect(tabs.some(t => t.includes('参与人员'))).toBe(true);
+    expect(tabs.some(t => t.includes('处理记录'))).toBe(true);
   });
 
   it('执行中状态显示取消入口，不显示派发/开始执行按钮', async () => {
@@ -187,6 +213,37 @@ describe('故障详情关联工单页签', () => {
     });
     await act(flush);
     expect(container.textContent).toContain('尚未生成工单');
+  });
+
+  it('生成维修工单默认值：未恢复故障默认影响运行，已恢复故障默认不影响', async () => {
+    const {GenerateWorkOrderButton} = require('../FaultWorkOrders');
+    mockHttpGet.mockImplementation((url) => {
+      if (url.includes('/candidate-systems/')) {
+        return Promise.resolve({data: [{id: 7, name: '烟台通信系统', system_code: 'SYS-A1'}]});
+      }
+      return Promise.resolve({data: []});
+    });
+    async function openAndReadSwitch(fault) {
+      ReactDOM.unmountComponentAtNode(container);
+      await act(async () => {
+        ReactDOM.render(<GenerateWorkOrderButton fault={fault}/>, container);
+      });
+      const btn = Array.from(container.querySelectorAll('button'))
+        .find(b => b.textContent.replace(/\s+/g, '') === '生成维修工单');
+      await act(async () => {
+        btn.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+      });
+      await act(flush);
+      // antd Switch 选中态带 ant-switch-checked class
+      const sw = document.querySelector('.ant-switch');
+      return sw && sw.classList.contains('ant-switch-checked');
+    }
+    // 尚未恢复（处置中）的故障 → 默认影响运行
+    expect(await openAndReadSwitch({id: 33, fault_no: 'GZ20260919-0001', status: 'handling'}))
+      .toBe(true);
+    // 已恢复的故障（离线部件维修）→ 默认不影响运行
+    expect(await openAndReadSwitch({id: 33, fault_no: 'GZ20260919-0001', status: 'recovered'}))
+      .toBe(false);
   });
 });
 

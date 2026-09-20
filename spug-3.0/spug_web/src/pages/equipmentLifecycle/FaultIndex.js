@@ -34,19 +34,19 @@ class FaultTable extends React.Component {
     dataIndex: 'fault_no',
     width: 160,
   }, {
-    title: '主故障系统',
-    dataIndex: 'primary_system_name',
+    title: '故障系统',
+    dataIndex: 'system_name',
     width: 200,
     ellipsis: true,
     render: (text, record) => (
       <span>
         <span>{text}</span>
-        <span style={{color: '#999', marginLeft: 6}}>{record.primary_system_code}</span>
+        <span style={{color: '#999', marginLeft: 6}}>{record.system_code}</span>
       </span>
     ),
   }, {
     title: '影响状态',
-    dataIndex: 'primary_impact_status',
+    dataIndex: 'impact_status',
     width: 90,
     render: (text) => (
       <Tag color={FAULT_IMPACT_COLOR[text]}>{FAULT_IMPACT_TEXT[text] || text}</Tag>
@@ -71,11 +71,6 @@ class FaultTable extends React.Component {
     title: '故障现象',
     dataIndex: 'phenomenon',
     ellipsis: true,
-  }, {
-    title: '受影响系统',
-    dataIndex: 'affected_count',
-    width: 90,
-    render: (text) => text ? `${text} 个` : '-',
   }, {
     title: '处置负责人',
     dataIndex: 'handler_name',
@@ -163,7 +158,7 @@ function FaultIndex(props) {
             onPressEnter={() => {store.page = 1; store.fetchRecords();}}
           />
         </SearchForm.Item>
-        <SearchForm.Item span={6} title="主故障系统">
+        <SearchForm.Item span={6} title="故障系统">
           <Select
             allowClear
             showSearch

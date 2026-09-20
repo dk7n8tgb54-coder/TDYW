@@ -54,7 +54,6 @@ import RegulationIndex from './pages/regulation';
 import EquipmentSystemIndex from './pages/equipmentLifecycle';
 import EquipmentFaultIndex from './pages/equipmentLifecycle/FaultIndex';
 import EquipmentWorkOrderIndex from './pages/equipmentLifecycle/workOrder';
-import EquipmentConfigFieldsIndex from './pages/equipmentLifecycle/ConfigFieldsIndex';
 import EquipmentSystemEventIndex from './pages/equipmentLifecycle/systemEvent';
 import EquipmentSystemStatusIndex from './pages/equipmentLifecycle/systemStatus';
 import {
@@ -88,7 +87,6 @@ export default [
   {icon: <ApartmentOutlined/>, title: '设备全生命周期管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_config.view|equipment_lifecycle.fault.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection_point.view|equipment_lifecycle.work_order.view|equipment_lifecycle.system_event.view', child: [
     {title: '系统档案', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_config.view', child: [
       {title: '系统列表', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_config.view', path: '/el/systems', component: EquipmentSystemIndex},
-      {title: '配置字段', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.system_config.view', path: '/el/config-fields', component: EquipmentConfigFieldsIndex},
     ]},
     {title: '运行维护', auth: 'equipment_lifecycle.fault.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection_point.view|equipment_lifecycle.work_order.view', child: [
       {title: '故障管理', auth: 'equipment_lifecycle.fault.view', path: '/el/faults', component: EquipmentFaultIndex},

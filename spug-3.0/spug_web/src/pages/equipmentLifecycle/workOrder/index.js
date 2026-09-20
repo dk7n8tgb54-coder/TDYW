@@ -53,14 +53,14 @@ class WorkOrderTable extends React.Component {
       <Tag color={WO_STATUS_COLOR[text]}>{WO_STATUS_TEXT[text] || text}</Tag>
     ),
   }, {
-    title: '目标系统',
-    dataIndex: 'target_system_name',
+    title: '作业系统',
+    dataIndex: 'system_name',
     width: 180,
     ellipsis: true,
     render: (text, record) => (
       <span>
         <span>{text}</span>
-        <span style={{color: '#999', marginLeft: 6}}>{record.target_system_code}</span>
+        <span style={{color: '#999', marginLeft: 6}}>{record.system_code}</span>
       </span>
     ),
   }, {
@@ -114,7 +114,7 @@ class WorkOrderTable extends React.Component {
   }];
 
   editOrder = (record) => {
-    // 编辑回填需要详情数据（受影响系统 ID 列表），先取真实详情再打开表单
+    // 编辑回填需要详情数据（作业系统、影响运行标记），先取真实详情再打开表单
     store.fetchDetail(record.id).then(() => {
       store.showForm(store.detail);
     });

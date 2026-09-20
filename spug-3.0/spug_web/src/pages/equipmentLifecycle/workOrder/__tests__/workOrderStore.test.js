@@ -7,7 +7,7 @@
  * - submitForm 新增走 POST、编辑走 PUT
  * - 状态动作调用独立动作端点，成功后重新获取详情、处理记录与列表
  * - 故障生成维修工单调用于来源故障端点，携带幂等令牌
- * - 系统详情工单页签按 role（target/affected）查询
+ * - 系统详情工单页签只查本系统工单（单系统简化，无 role 参数）
  * - 后端业务错误（http reject）时 Promise 拒绝，不进入成功提示路径
  */
 const mockHttpGet = jest.fn();
@@ -60,7 +60,7 @@ describe('工单 Store（步骤 3.3）', () => {
     });
   });
 
-  it('buildFormPayload 提交系统 ID 列表与幂等令牌，计划时间格式化', () => {
+  it('buildFormPayload 提交作业系统 ID 与影响运行标记、幂等令牌，计划时间格式化', () => {
     const {store} = freshStore();
     store.formToken = 'tok-abc';
     const moment = require('moment');
@@ -68,19 +68,20 @@ describe('工单 Store（步骤 3.3）', () => {
       title: '季度维护',
       work_type: 'special_maintenance',
       priority: 'normal',
-      target_system: 7,
-      affected_system_ids: [9, 11],
+      system: 7,
+      affects_system_operation: true,
       work_location: '机房A',
       planned_range: [moment('2026-09-20 08:00'), moment('2026-09-20 12:00')],
     });
-    // 业务关联一律提交 ID
-    expect(payload.target_system).toBe(7);
-    expect(payload.affected_system_ids).toEqual([9, 11]);
+    // 业务关联一律提交 ID（单系统简化：一张工单只关联一个作业系统）
+    expect(payload.system).toBe(7);
+    expect(payload.affects_system_operation).toBe(true);
     expect(payload.client_token).toBe('tok-abc');
     expect(payload.planned_start).toBe('2026-09-20 08:00');
     expect(payload.planned_end).toBe('2026-09-20 12:00');
-    // 不存在把系统名称当关联键的字段
-    expect(payload.target_system_name).toBeUndefined();
+    // 不存在把系统名称当关联键的字段，也不再提交受影响系统
+    expect(payload.system_name).toBeUndefined();
+    expect(payload.affected_system_ids).toBeUndefined();
   });
 
   it('submitForm 新增走 POST、编辑走 PUT，成功后关闭弹窗并刷新列表', async () => {
@@ -91,18 +92,18 @@ describe('工单 Store（步骤 3.3）', () => {
     mockHttpGet.mockResolvedValue({data: [], total: 0});
     const values = {
       title: '季度维护', work_type: 'special_maintenance', priority: 'normal',
-      target_system: 7, affected_system_ids: [],
+      system: 7, affects_system_operation: false,
     };
     await store.submitForm(values);
     expect(mockHttpPost).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/work-orders/',
-      expect.objectContaining({title: '季度维护', target_system: 7, client_token: 'tok-1'}));
+      expect.objectContaining({title: '季度维护', system: 7, client_token: 'tok-1'}));
 
     store.record = {id: 5};
     await store.submitForm(values);
     expect(mockHttpPut).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/work-orders/5/',
-      expect.objectContaining({target_system: 7}));
+      expect.objectContaining({system: 7}));
     expect(store.formVisible).toBe(false);
   });
 
@@ -163,36 +164,35 @@ describe('工单 Store（步骤 3.3）', () => {
     mockHttpGet.mockResolvedValue({data: [], total: 0});
     await store.submitConvertFromFault({
       title: '维修工单', work_type: 'repair', priority: 'normal',
-      target_system: 7, affected_system_ids: [9],
+      system: 7, affects_system_operation: true,
     });
     expect(mockHttpPost).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/faults/33/create-work-order/',
       expect.objectContaining({
-        work_type: 'repair', target_system: 7,
-        affected_system_ids: [9], client_token: 'tok-conv',
+        work_type: 'repair', system: 7,
+        affects_system_operation: true, client_token: 'tok-conv',
       }));
     expect(store.convertVisible).toBe(false);
   });
 
-  it('系统详情工单页签按 role 查询', async () => {
+  it('系统详情工单页签只查本系统工单（无 role 参数）', async () => {
     const {store} = freshStore();
-    const rows = [{id: 1, order_role: 'target'}];
+    const rows = [{id: 1, system: 7}];
     mockHttpGet.mockResolvedValue({data: rows});
-    await store.fetchSystemOrders(7, 'affected');
+    await store.fetchSystemOrders(7);
     expect(mockHttpGet).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/systems/7/work-orders/', {params: {role: 'affected'}});
+      '/api/equipment-lifecycle/systems/7/work-orders/');
     expect(store.systemOrders).toEqual(rows);
-    expect(store.systemOrderRole).toBe('affected');
   });
 
   it('后端业务错误（http reject）时 Promise 拒绝，不关闭弹窗不刷新', async () => {
     const {store} = freshStore();
     store.formToken = 'tok-err';
     store.formVisible = true;
-    mockHttpPost.mockRejectedValue(new Error('目标系统不存在'));
+    mockHttpPost.mockRejectedValue(new Error('作业系统不存在'));
     await expect(store.submitForm({
-      title: 'X', work_type: 'repair', target_system: 7,
-    })).rejects.toThrow('目标系统不存在');
+      title: 'X', work_type: 'repair', system: 7,
+    })).rejects.toThrow('作业系统不存在');
     expect(store.formVisible).toBe(true);
   });
 

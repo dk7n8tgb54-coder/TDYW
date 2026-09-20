@@ -3,10 +3,9 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 故障详情 × 维修工单联动组件（步骤 3.3）。
- * - GenerateWorkOrderButton：故障详情"生成维修工单"入口（预填故障信息，可编辑）；
- * - FaultWorkOrdersTab：故障详情"关联工单"页签（展示该故障生成的全部工单，
- *   点击可打开工单详情抽屉）。
+ * "生成维修工单"按钮：默认故障维修类型、作业系统固定为故障所属系统；
+ * 尚未恢复的故障默认影响系统运行；已恢复故障（离线部件维修）默认不影响。
+ * 带入现象/位置/对象描述/组成项，全部可编辑。
  * 幂等：每次打开生成表单生成新的 client_token，重复提交返回已有工单。
  */
 import React, { useState, useEffect } from 'react';
@@ -23,10 +22,6 @@ import {
 
 const API_PREFIX = '/api/equipment-lifecycle';
 
-/**
- * "生成维修工单"按钮：默认故障维修类型、目标系统为主故障系统、
- * 带入受影响系统/现象/位置/对象描述/组成项，全部可编辑。
- */
 export function GenerateWorkOrderButton({fault}) {
   const [visible, setVisible] = useState(false);
   const disabled = fault.status === 'cancelled';
@@ -48,12 +43,14 @@ export function GenerateWorkOrderButton({fault}) {
 
 function FaultConvertModal({visible, fault, onClose}) {
   const [submitting, setSubmitting] = useState(false);
+  // 尚未恢复确认的故障 → 现场维修默认影响运行；已恢复后的部件维修默认不影响
+  const defaultAffects = fault.status === 'pending' || fault.status === 'handling';
   const initialValues = {
     title: `${fault.fault_no || ''} 维修工单`,
     work_type: 'repair',
     priority: 'normal',
-    target_system: fault.primary_system,
-    affected_system_ids: (fault.affected_systems || []).map(row => row.system).filter(Boolean),
+    system: fault.system,
+    affects_system_operation: defaultAffects,
     work_location: fault.fault_location || '',
     work_object_desc: [fault.fault_object_name, fault.fault_object_model, fault.fault_object_sn]
       .filter(Boolean).join(' / '),
