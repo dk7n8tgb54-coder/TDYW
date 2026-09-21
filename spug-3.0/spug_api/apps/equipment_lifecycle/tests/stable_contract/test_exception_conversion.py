@@ -72,8 +72,7 @@ class ConversionTestBase(WorkOrderTestBase):
                 value_number=50, number_min=52, number_max=54,
                 result='abnormal', **override))
         payload = ledger_payload(
-            [entry_payload(system.id, entries_items)],
-            entry_note='转换测试台账')
+            [entry_payload(system.id, entries_items)])
         client = make_client(user)
         body = post_json(client, '/equipment-lifecycle/ledgers/', payload).json()
         self.assertFalse(body.get('error'), body)

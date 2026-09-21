@@ -1032,16 +1032,11 @@ class OperationLedger(TenantModelMixin, models.Model):
     maintenance_cycle = models.CharField(
         max_length=20, default='', blank=True, help_text='维护周期（week/month/season；巡检为空）')
     executed_date = models.DateField(help_text='实际执行日期')
-    shift = models.CharField(max_length=50, default='', blank=True, help_text='班次')
-    location_scope = models.CharField(max_length=200, default='', blank=True, help_text='机房、区域或维护范围')
     executor_names = models.CharField(max_length=200, default='', blank=True, help_text='执行人（多人以顿号或逗号分隔）')
-    collaborator_names = models.CharField(max_length=200, default='', blank=True, help_text='协作人')
-    summary = models.TextField(max_length=2000, default='', blank=True, help_text='总体说明')
     status = models.CharField(max_length=20, default=LEDGER_STATUS_DRAFT, help_text='台账状态')
     executed_start = models.DateTimeField(null=True, blank=True, help_text='实际执行开始时间')
     executed_end = models.DateTimeField(null=True, blank=True, help_text='实际执行结束时间')
     entry_channel = models.CharField(max_length=20, default=ENTRY_CHANNEL_WEB, help_text='录入渠道（当前固定 web）')
-    entry_note = models.CharField(max_length=500, default='', blank=True, help_text='补录说明')
     created_from = models.CharField(max_length=20, default=LEDGER_FROM_TEMPLATE, help_text='创建方式（template 模板生成 / manual 临时补录）')
     client_token = models.CharField(max_length=64, default='', blank=True, help_text='客户端幂等令牌（创建防重复）')
     version = models.IntegerField(default=1, help_text='并发编辑版本号')
@@ -1121,16 +1116,11 @@ class OperationLedger(TenantModelMixin, models.Model):
             'ledger_type': self.ledger_type,
             'maintenance_cycle': self.maintenance_cycle,
             'executed_date': self.executed_date,
-            'shift': self.shift,
-            'location_scope': self.location_scope,
             'executor_names': self.executor_names,
-            'collaborator_names': self.collaborator_names,
-            'summary': self.summary,
             'status': self.status,
             'executed_start': self.executed_start,
             'executed_end': self.executed_end,
             'entry_channel': self.entry_channel,
-            'entry_note': self.entry_note,
             'created_from': self.created_from,
             'version': self.version,
             'submitted_at': self.submitted_at,

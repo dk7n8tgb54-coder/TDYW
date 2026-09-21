@@ -337,6 +337,68 @@ class DetailAndEditTest(ContractTestCase):
         self.assertBusinessError(body)
         self.assertIn('起始日期不能晚于截止日期', body.get('error', ''))
 
+    def test_edit_allows_equal_start_and_end_dates(self):
+        """编辑路径的日期顺序边界：起始 == 截止 允许（与 DB CHECK 的 gte 口径一致）。"""
+        created = self.create_via_api(contract_name='同日边界合同')
+        pk = created['data']['id']
+        body = self.post_json({'id': pk,
+                               'valid_start_date': str(self.today - timedelta(days=5)),
+                               'valid_end_date': str(self.today - timedelta(days=5))})
+        self.assertNoError(body)
+        obj = ContractAgreement.objects.get(pk=pk)
+        self.assertEqual(obj.valid_end_date, self.today - timedelta(days=5))
+
+    def test_edit_overlong_fields_rejected(self):
+        """编辑路径同样必须做字段长度前置校验（DEF-05 的编辑侧）。
+
+        新增路径已有 test_create_overlong_fields_rejected；若编辑侧缺失，
+        超长输入会直接落到数据库层抛 DataError（HTTP 500 + 告警噪音）。
+        """
+        created = self.create_via_api(contract_name='编辑超长宿主合同')
+        pk = created['data']['id']
+        cases = [
+            ('contract_name', '合' * 201, 200),
+            ('contract_no', 'N' * 101, 100),
+        ]
+        for field, value, max_len in cases:
+            with self.subTest(field=field):
+                payload = {'id': pk, field: value}
+                try:
+                    with mock.patch('libs.alert.send_alert') as mocked_alert:
+                        body = self.post_json(payload)
+                except (DataError, OperationalError) as exc:
+                    self.fail(f'编辑 {field} 超过 {max_len} 字符未被服务端校验，'
+                              f'直接抛出数据库异常（HTTP 500）: {exc}')
+                self.assertFalse(
+                    mocked_alert.called,
+                    f'编辑 {field} 超长未拦截并触发未处理异常告警；实际响应: {body}')
+                self.assertEqual(
+                    body.get('error'), f'{"合同名称" if field == "contract_name" else "合同编号"}长度不能超过 {max_len} 字',
+                    f'编辑 {field} 超长应返回精确业务错误，实际: {body}')
+
+    def test_edit_validates_responsible_user(self):
+        """编辑路径传 responsible_user_id 时必须做存在性与租户一致性校验（M486）。
+
+        新增路径的校验已有测试；编辑路径若跳过校验，客户端可把责任人改成
+        不存在或跨租户的用户（responsible_user_id 是普通整型列，无外键约束）。
+        """
+        created = self.create_via_api(contract_name='编辑责任人校验合同')
+        pk = created['data']['id']
+        original_id = ContractAgreement.objects.get(pk=pk).responsible_user_id
+
+        nonexistent = self.post_json({'id': pk, 'responsible_user_id': 999999})
+        self.assertIn('责任人不存在或已禁用', nonexistent.get('error', ''),
+                      f'编辑传不存在的责任人应被拒绝: {nonexistent}')
+
+        cross_tenant = self.post_json({'id': pk,
+                                       'responsible_user_id': self.other_tenant_user.id})
+        self.assertIn('责任人不存在或已禁用', cross_tenant.get('error', ''),
+                      f'非超管编辑传跨租户责任人应被拒绝: {cross_tenant}')
+
+        obj = ContractAgreement.objects.get(pk=pk)
+        self.assertEqual(obj.responsible_user_id, original_id,
+                         '被拒绝的编辑不得改动责任人')
+
     def test_edit_rejected_when_fee_enabled_without_amount(self):
         created = self.create_via_api(contract_name='费用校验合同', has_fee=False)
         pk = created['data']['id']

@@ -1,0 +1,186 @@
+﻿page,route,component,menu,operation,permission_code,api,source_file,line,status,notes
+contractAgreement/Form.js,,contractAgreement/Form.js,,edit,contract_agreement.agreement.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\contractAgreement\Form.js,110,ok,
+contractAgreement/index.js,,contractAgreement/index.js,,page_container,contract_agreement.agreement.view,,E:\TDYW\spug-3.0\spug_web\src\pages\contractAgreement\index.js,25,ok,
+contractAgreement/Table.js,,contractAgreement/Table.js,,edit,contract_agreement.agreement.view|contract_agreement.agreement.edit|contract_agreement.agreement.del,,E:\TDYW\spug-3.0\spug_web\src\pages\contractAgreement\Table.js,123,ok,
+contractAgreement/Table.js,,contractAgreement/Table.js,,view,contract_agreement.agreement.view,,E:\TDYW\spug-3.0\spug_web\src\pages\contractAgreement\Table.js,126,ok,
+contractAgreement/Table.js,,contractAgreement/Table.js,,edit,contract_agreement.agreement.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\contractAgreement\Table.js,127,ok,
+contractAgreement/Table.js,,contractAgreement/Table.js,,delete,contract_agreement.agreement.del,,E:\TDYW\spug-3.0\spug_web\src\pages\contractAgreement\Table.js,128,ok,
+coopTask/Detail.js,,coopTask/Detail.js,,edit,coop.task.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\Detail.js,71,ok,
+coopTask/Detail.js,,coopTask/Detail.js,,hasPermission,coop.task.accept,,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\Detail.js,162,ok,
+coopTask/Detail.js,,coopTask/Detail.js,,edit,coop.task.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\Detail.js,220,ok,
+coopTask/Detail.js,,coopTask/Detail.js,,edit,coop.task.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\Detail.js,244,ok,
+coopTask/InboxDetail.js,,coopTask/InboxDetail.js,,hasPermission,coop.task.submit,,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\InboxDetail.js,31,ok,
+coopTask/index.js,,coopTask/index.js,,page_container,coop.task.view|coop.task.submit,,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\index.js,49,ok,
+coopTask/Table.js,,coopTask/Table.js,,edit,coop.task.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\Table.js,89,ok,
+coopTask/Table.js,,coopTask/Table.js,,delete,coop.task.delete,,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\Table.js,90,ok,
+coopTask/Table.js,,coopTask/Table.js,,add,coop.task.add,,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\Table.js,154,ok,
+departmentDutyLog/DepartmentDutyLogExportButton.js,,departmentDutyLog/DepartmentDutyLogExportButton.js,,export,department_duty_log.department_duty_log.export,,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\DepartmentDutyLogExportButton.js,72,ok,
+departmentDutyLog/DepartmentDutyLogTable.js,,departmentDutyLog/DepartmentDutyLogTable.js,,view,department_duty_log.department_duty_log.view,,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\DepartmentDutyLogTable.js,90,ok,
+departmentDutyLog/DepartmentDutyLogTable.js,,departmentDutyLog/DepartmentDutyLogTable.js,,edit,department_duty_log.department_duty_log.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\DepartmentDutyLogTable.js,93,ok,
+departmentDutyLog/DepartmentDutyLogTable.js,,departmentDutyLog/DepartmentDutyLogTable.js,,Action.Button,department_duty_log.department_duty_log.sign,,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\DepartmentDutyLogTable.js,97,ok,
+departmentDutyLog/DepartmentDutyLogTable.js,,departmentDutyLog/DepartmentDutyLogTable.js,,delete,department_duty_log.department_duty_log.del,,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\DepartmentDutyLogTable.js,101,ok,
+departmentDutyLog/DepartmentDutyLogTable.js,,departmentDutyLog/DepartmentDutyLogTable.js,,Action.Button,department_duty_log.department_duty_log.return,,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\DepartmentDutyLogTable.js,105,ok,
+departmentDutyLog/index.js,,departmentDutyLog/index.js,,page_container,department_duty_log.department_duty_log.view,,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\index.js,22,ok,
+departmentDutyLog/index.js,,departmentDutyLog/index.js,,page_container,department_duty_log.department_duty_log.add,,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\index.js,85,ok,
+device/DetailView.js,,device/DetailView.js,,add,device.device_resume.history_add,,E:\TDYW\spug-3.0\spug_web\src\pages\device\DetailView.js,80,ok,
+device/index.js,,device/index.js,,page_container,device.device_resume.view,,E:\TDYW\spug-3.0\spug_web\src\pages\device\index.js,24,ok,
+device/Table.js,,device/Table.js,,view,device.device_resume.view,,E:\TDYW\spug-3.0\spug_web\src\pages\device\Table.js,55,ok,
+device/Table.js,,device/Table.js,,edit,device.device_resume.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\device\Table.js,56,ok,
+device/Table.js,,device/Table.js,,delete,device.device_resume.delete,,E:\TDYW\spug-3.0\spug_web\src\pages\device\Table.js,57,ok,
+device/Table.js,,device/Table.js,,add,device.device_resume.add,,E:\TDYW\spug-3.0\spug_web\src\pages\device\Table.js,66,ok,
+duty/index.js,,duty/index.js,,page_container,duty.duty.view,,E:\TDYW\spug-3.0\spug_web\src\pages\duty\index.js,19,ok,
+duty/Table.js,,duty/Table.js,,edit,duty.duty.edit|duty.duty.del,,E:\TDYW\spug-3.0\spug_web\src\pages\duty\Table.js,134,ok,
+duty/Table.js,,duty/Table.js,,edit,duty.duty.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\duty\Table.js,138,ok,
+duty/Table.js,,duty/Table.js,,delete,duty.duty.del,,E:\TDYW\spug-3.0\spug_web\src\pages\duty\Table.js,139,ok,
+equipmentLifecycle/systemEvent/constants.js,,equipmentLifecycle/systemEvent/constants.js,,view,equipment_lifecycle.fault.view,,E:\TDYW\spug-3.0\spug_web\src\pages\equipmentLifecycle\systemEvent\constants.js,61,ok,
+equipmentLifecycle/systemEvent/constants.js,,equipmentLifecycle/systemEvent/constants.js,,view,equipment_lifecycle.work_order.view,,E:\TDYW\spug-3.0\spug_web\src\pages\equipmentLifecycle\systemEvent\constants.js,64,ok,
+equipmentLifecycle/systemEvent/constants.js,,equipmentLifecycle/systemEvent/constants.js,,view,equipment_lifecycle.ledger.view,,E:\TDYW\spug-3.0\spug_web\src\pages\equipmentLifecycle\systemEvent\constants.js,69,ok,
+home/AnnouncementList.js,,home/AnnouncementList.js,,view,home.announcement.view,,E:\TDYW\spug-3.0\spug_web\src\pages\home\AnnouncementList.js,34,ok,
+home/CoopTaskOverview.js,,home/CoopTaskOverview.js,,view,coop.task.view,,E:\TDYW\spug-3.0\spug_web\src\pages\home\CoopTaskOverview.js,25,ok,
+home/CoopTaskOverview.js,,home/CoopTaskOverview.js,,view,coop.task.view,,E:\TDYW\spug-3.0\spug_web\src\pages\home\CoopTaskOverview.js,48,ok,
+home/ExpiryOverview.js,,home/ExpiryOverview.js,,view,radio_license.license.view,,E:\TDYW\spug-3.0\spug_web\src\pages\home\ExpiryOverview.js,19,ok,
+home/ExpiryOverview.js,,home/ExpiryOverview.js,,view,contract_agreement.agreement.view,,E:\TDYW\spug-3.0\spug_web\src\pages\home\ExpiryOverview.js,20,ok,
+interference/EventForm.js,,interference/EventForm.js,,edit,interference.interference.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\EventForm.js,146,ok,
+interference/EventForm.js,,interference/EventForm.js,,add,interference.interference.add,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\EventForm.js,147,ok,
+interference/events.js,,interference/events.js,,view,interference.interference.view,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\events.js,91,ok,
+interference/events.js,,interference/events.js,,edit,interference.interference.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\events.js,92,ok,
+interference/events.js,,interference/events.js,,delete,interference.interference.del,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\events.js,93,ok,
+interference/events.js,,interference/events.js,,page_container,interference.interference.view,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\events.js,97,ok,
+interference/events.js,,interference/events.js,,add,interference.interference.add,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\events.js,117,ok,
+interference/events.js,,interference/events.js,,add,interference.investigation.add,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\events.js,118,ok,
+interference/events.js,,interference/events.js,,edit,interference.investigation.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\events.js,119,ok,
+interference/InvestigationForm.js,,interference/InvestigationForm.js,,edit,interference.investigation.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\InvestigationForm.js,75,ok,
+interference/InvestigationForm.js,,interference/InvestigationForm.js,,add,interference.investigation.add,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\InvestigationForm.js,76,ok,
+interference/InvestigationForm.js,,interference/InvestigationForm.js,,view,interference.measurement.view,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\InvestigationForm.js,78,ok,
+interference/InvestigationForm.js,,interference/InvestigationForm.js,,add,interference.measurement.add|interference.measurement.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\InvestigationForm.js,156,ok,
+interference/investigations.js,,interference/investigations.js,,view,interference.investigation.view,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\investigations.js,39,ok,
+interference/investigations.js,,interference/investigations.js,,edit,interference.investigation.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\investigations.js,40,ok,
+interference/investigations.js,,interference/investigations.js,,delete,interference.investigation.del,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\investigations.js,41,ok,
+interference/investigations.js,,interference/investigations.js,,page_container,interference.investigation.view,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\investigations.js,45,ok,
+interference/investigations.js,,interference/investigations.js,,add,interference.investigation.add,,E:\TDYW\spug-3.0\spug_web\src\pages\interference\investigations.js,52,ok,
+login/index.js,,login/index.js,,view,dashboard.dashboard.view,,E:\TDYW\spug-3.0\spug_web\src\pages\login\index.js,17,ok,
+radioLicense/Form.js,,radioLicense/Form.js,,edit,radio_license.license.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\radioLicense\Form.js,128,ok,
+radioLicense/index.js,,radioLicense/index.js,,page_container,radio_license.license.view,,E:\TDYW\spug-3.0\spug_web\src\pages\radioLicense\index.js,17,ok,
+radioLicense/Table.js,,radioLicense/Table.js,,edit,radio_license.license.view|radio_license.license.edit|radio_license.license.del,,E:\TDYW\spug-3.0\spug_web\src\pages\radioLicense\Table.js,127,ok,
+radioLicense/Table.js,,radioLicense/Table.js,,view,radio_license.license.view,,E:\TDYW\spug-3.0\spug_web\src\pages\radioLicense\Table.js,130,ok,
+radioLicense/Table.js,,radioLicense/Table.js,,edit,radio_license.license.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\radioLicense\Table.js,131,ok,
+radioLicense/Table.js,,radioLicense/Table.js,,delete,radio_license.license.del,,E:\TDYW\spug-3.0\spug_web\src\pages\radioLicense\Table.js,132,ok,
+regulation/CategoryTree.js,,regulation/CategoryTree.js,,hasPermission,document.regulation.category_manage,,E:\TDYW\spug-3.0\spug_web\src\pages\regulation\CategoryTree.js,59,ok,
+regulation/CategoryTree.js,,regulation/CategoryTree.js,,hasPermission,document.regulation.category_manage,,E:\TDYW\spug-3.0\spug_web\src\pages\regulation\CategoryTree.js,93,ok,
+regulation/Form.js,,regulation/Form.js,,edit,document.regulation.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\regulation\Form.js,39,ok,
+regulation/index.js,,regulation/index.js,,page_container,document.regulation.view,,E:\TDYW\spug-3.0\spug_web\src\pages\regulation\index.js,19,ok,
+regulation/Table.js,,regulation/Table.js,,view,document.regulation.view,,E:\TDYW\spug-3.0\spug_web\src\pages\regulation\Table.js,117,ok,
+regulation/Table.js,,regulation/Table.js,,edit,document.regulation.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\regulation\Table.js,119,ok,
+regulation/Table.js,,regulation/Table.js,,edit,document.regulation.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\regulation\Table.js,122,ok,
+regulation/Table.js,,regulation/Table.js,,delete,document.regulation.delete,,E:\TDYW\spug-3.0\spug_web\src\pages\regulation\Table.js,124,ok,
+reminder/index.js,,reminder/index.js,,page_container,home.reminder.view,,E:\TDYW\spug-3.0\spug_web\src\pages\reminder\index.js,124,ok,
+runlog/Form.js,,runlog/Form.js,,edit,runlog.runlog.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Form.js,173,ok,
+runlog/Form.js,,runlog/Form.js,,edit,runlog.runlog.update_edit,,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Form.js,460,ok,
+runlog/Form.js,,runlog/Form.js,,edit,runlog.runlog.update_del,,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Form.js,468,ok,
+runlog/index.js,,runlog/index.js,,page_container,runlog.runlog.view,,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\index.js,37,ok,
+runlog/Statistics.js,,runlog/Statistics.js,,page_container,runlog.runlog.view,,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Statistics.js,204,ok,
+runlog/Table.js,,runlog/Table.js,,edit,runlog.runlog.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Table.js,157,ok,
+runlog/Table.js,,runlog/Table.js,,add,runlog.runlog.add,,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Table.js,312,ok,
+runlog/Table.js,,runlog/Table.js,,view,runlog.runlog.view,,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Table.js,333,ok,
+runlog/Table.js,,runlog/Table.js,,edit,runlog.runlog.update_view,,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Table.js,401,ok,
+runlog/Table.js,,runlog/Table.js,,add,runlog.runlog.update_add|runlog.runlog.edit|runlog.runlog.del,,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Table.js,411,ok,
+runlog/Table.js,,runlog/Table.js,,edit,runlog.runlog.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Table.js,418,ok,
+runlog/Table.js,,runlog/Table.js,,delete,runlog.runlog.del,,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Table.js,419,ok,
+stationFrequencyApproval/Form.js,,stationFrequencyApproval/Form.js,,edit,radio_license.approval.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\stationFrequencyApproval\Form.js,111,ok,
+stationFrequencyApproval/index.js,,stationFrequencyApproval/index.js,,page_container,radio_license.approval.view,,E:\TDYW\spug-3.0\spug_web\src\pages\stationFrequencyApproval\index.js,21,ok,
+stationFrequencyApproval/Table.js,,stationFrequencyApproval/Table.js,,edit,radio_license.approval.view|radio_license.approval.edit|radio_license.approval.del,,E:\TDYW\spug-3.0\spug_web\src\pages\stationFrequencyApproval\Table.js,130,ok,
+stationFrequencyApproval/Table.js,,stationFrequencyApproval/Table.js,,view,radio_license.approval.view,,E:\TDYW\spug-3.0\spug_web\src\pages\stationFrequencyApproval\Table.js,133,ok,
+stationFrequencyApproval/Table.js,,stationFrequencyApproval/Table.js,,edit,radio_license.approval.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\stationFrequencyApproval\Table.js,134,ok,
+stationFrequencyApproval/Table.js,,stationFrequencyApproval/Table.js,,delete,radio_license.approval.del,,E:\TDYW\spug-3.0\spug_web\src\pages\stationFrequencyApproval\Table.js,135,ok,
+system/account/index.js,,system/account/index.js,,page_container,system.account.view,,E:\TDYW\spug-3.0\spug_web\src\pages\system\account\index.js,17,ok,
+system/account/Table.js,,system/account/Table.js,,add,system.account.add,,E:\TDYW\spug-3.0\spug_web\src\pages\system\account\Table.js,76,ok,
+system/account/Table.js,,system/account/Table.js,,edit,system.account.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\system\account\Table.js,82,ok,
+system/account/Table.js,,system/account/Table.js,,add,system.account.add,,E:\TDYW\spug-3.0\spug_web\src\pages\system\account\Table.js,85,ok,
+system/account/Table.js,,system/account/Table.js,,edit,system.account.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\system\account\Table.js,86,ok,
+system/account/Table.js,,system/account/Table.js,,delete,system.account.del,,E:\TDYW\spug-3.0\spug_web\src\pages\system\account\Table.js,87,ok,
+system/account/Table.js,,system/account/Table.js,,edit,system.account.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\system\account\Table.js,89,ok,
+system/alert/index.js,,system/alert/index.js,,page_container,system.alert.view,,E:\TDYW\spug-3.0\spug_web\src\pages\system\alert\index.js,211,ok,
+system/announcement/Detail.js,,system/announcement/Detail.js,,edit,home.announcement.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\system\announcement\Detail.js,47,ok,
+system/announcement/Detail.js,,system/announcement/Detail.js,,hasPermission,home.announcement.publish,,E:\TDYW\spug-3.0\spug_web\src\pages\system\announcement\Detail.js,48,ok,
+system/announcement/Detail.js,,system/announcement/Detail.js,,hasPermission,home.announcement.withdraw,,E:\TDYW\spug-3.0\spug_web\src\pages\system\announcement\Detail.js,49,ok,
+system/announcement/Detail.js,,system/announcement/Detail.js,,delete,home.announcement.delete,,E:\TDYW\spug-3.0\spug_web\src\pages\system\announcement\Detail.js,50,ok,
+system/announcement/index.js,,system/announcement/index.js,,edit,home.announcement.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\system\announcement\index.js,83,ok,
+system/announcement/index.js,,system/announcement/index.js,,hasPermission,home.announcement.publish,,E:\TDYW\spug-3.0\spug_web\src\pages\system\announcement\index.js,84,ok,
+system/announcement/index.js,,system/announcement/index.js,,hasPermission,home.announcement.withdraw,,E:\TDYW\spug-3.0\spug_web\src\pages\system\announcement\index.js,85,ok,
+system/announcement/index.js,,system/announcement/index.js,,delete,home.announcement.delete,,E:\TDYW\spug-3.0\spug_web\src\pages\system\announcement\index.js,86,ok,
+system/announcement/index.js,,system/announcement/index.js,,page_container,home.announcement.view,,E:\TDYW\spug-3.0\spug_web\src\pages\system\announcement\index.js,130,ok,
+system/audit/index.js,,system/audit/index.js,,page_container,system.audit.view,,E:\TDYW\spug-3.0\spug_web\src\pages\system\audit\index.js,20,ok,
+system/dataQuality/index.js,,system/dataQuality/index.js,,page_container,system.alert.view,,E:\TDYW\spug-3.0\spug_web\src\pages\system\dataQuality\index.js,118,ok,
+system/login/index.js,,system/login/index.js,,page_container,system.account.view,,E:\TDYW\spug-3.0\spug_web\src\pages\system\login\index.js,15,ok,
+system/monitor/index.js,,system/monitor/index.js,,page_container,system.alert.view,,E:\TDYW\spug-3.0\spug_web\src\pages\system\monitor\index.js,23,ok,
+system/releaseNotes/index.js,,system/releaseNotes/index.js,,edit,system.release_note.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\system\releaseNotes\index.js,72,ok,
+system/releaseNotes/index.js,,system/releaseNotes/index.js,,add,system.release_note.add,,E:\TDYW\spug-3.0\spug_web\src\pages\system\releaseNotes\index.js,73,ok,
+system/releaseNotes/index.js,,system/releaseNotes/index.js,,hasPermission,system.release_note.publish,,E:\TDYW\spug-3.0\spug_web\src\pages\system\releaseNotes\index.js,74,ok,
+system/releaseNotes/index.js,,system/releaseNotes/index.js,,delete,system.release_note.del,,E:\TDYW\spug-3.0\spug_web\src\pages\system\releaseNotes\index.js,75,ok,
+system/releaseNotes/index.js,,system/releaseNotes/index.js,,page_container,system.release_note.view,,E:\TDYW\spug-3.0\spug_web\src\pages\system\releaseNotes\index.js,114,ok,
+system/role/index.js,,system/role/index.js,,page_container,system.role.view,,E:\TDYW\spug-3.0\spug_web\src\pages\system\role\index.js,17,ok,
+system/role/Table.js,,system/role/Table.js,,edit,system.account.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\system\role\Table.js,70,ok,
+system/role/Table.js,,system/role/Table.js,,edit,system.account.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\system\role\Table.js,71,ok,
+system/role/Table.js,,system/role/Table.js,,delete,system.account.del,,E:\TDYW\spug-3.0\spug_web\src\pages\system\role\Table.js,72,ok,
+system/setting/index.js,,system/setting/index.js,,page_container,system.setting.view,,E:\TDYW\spug-3.0\spug_web\src\pages\system\setting\index.js,47,ok,
+system/tenant/index.js,,system/tenant/index.js,,page_container,system.tenant.view,,E:\TDYW\spug-3.0\spug_web\src\pages\system\tenant\index.js,15,ok,
+system/tenant/Table.js,,system/tenant/Table.js,,edit,system.tenant.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\system\tenant\Table.js,36,ok,
+system/tenant/Table.js,,system/tenant/Table.js,,delete,system.tenant.del,,E:\TDYW\spug-3.0\spug_web\src\pages\system\tenant\Table.js,37,ok,
+upgrade/Form_old.js,,upgrade/Form_old.js,,edit,upgrade.upgrade.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\Form_old.js,208,ok,
+upgrade/Form_old.js,,upgrade/Form_old.js,,edit,upgrade.upgrade.update_del,,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\Form_old.js,394,ok,
+upgrade/index.js,,upgrade/index.js,,page_container,upgrade.upgrade.view,,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\index.js,34,ok,
+upgrade/Statistics.js,,upgrade/Statistics.js,,page_container,upgrade.statistics.view,,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\Statistics.js,65,ok,
+upgrade/Table.js,,upgrade/Table.js,,edit,upgrade.upgrade.edit|upgrade.upgrade.del,,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\Table.js,101,ok,
+upgrade/Table.js,,upgrade/Table.js,,delete,upgrade.upgrade.del,,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\Table.js,105,ok,
+upgrade/Workbench.js,,upgrade/Workbench.js,,edit,upgrade.upgrade.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\Workbench.js,96,ok,
+upgrade/Workbench.js,,upgrade/Workbench.js,,add,upgrade.upgrade.add,,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\Workbench.js,110,ok,
+upgrade/WorkbenchForm.js,,upgrade/WorkbenchForm.js,,hasPermission,upgrade.upgrade.step_reset,,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\WorkbenchForm.js,486,ok,
+upgrade/WorkbenchForm.js,,upgrade/WorkbenchForm.js,,delete,upgrade.upgrade.step_del,,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\WorkbenchForm.js,489,ok,
+upgrade/WorkbenchForm.js,,upgrade/WorkbenchForm.js,,delete,upgrade.upgrade.step_del,,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\WorkbenchForm.js,529,ok,
+upgrade/WorkbenchForm.js,,upgrade/WorkbenchForm.js,,edit,upgrade.upgrade.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\WorkbenchForm.js,766,ok,
+upgrade/components/SystemSelect.js,,upgrade/components/SystemSelect.js,,add,upgrade.upgrade.edit,,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\components\SystemSelect.js,32,ok,
+upgrade/components/SystemSelect.js,,upgrade/components/SystemSelect.js,,hasPermission,upgrade.system.manage,,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\components\SystemSelect.js,33,ok,
+,/home,,工作台,route_access,dashboard.dashboard.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,69,ok,Route-level permission
+,/data-analysis,,数据分析,route_access,data_analysis.overview.view|data_analysis.interference.view|data_analysis.device.view|data_analysis.upgrade.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,70,ok,Route-level permission
+,/department-duty-log,,无线电执照管理,route_access,radio_license.license.view|radio_license.approval.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,71,ok,Route-level permission
+,/radio-license,,无线电台执照,route_access,radio_license.license.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,73,ok,Route-level permission
+,/station-frequency-approval,,台站频率批复,route_access,radio_license.approval.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,74,ok,Route-level permission
+,/contract-agreement,,合同协议,route_access,contract_agreement.agreement.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,76,ok,Route-level permission
+,/coop-task,,资料库,route_access,document.document.view|document.party_building_document.view|document.regulation.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,77,ok,Route-level permission
+,/document,,公共文档,route_access,document.document.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,79,ok,Route-level permission
+,/document/party-building-documents,,党建工作,route_access,document.party_building_document.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,80,ok,Route-level permission
+,/regulation,,事件管理,route_access,runlog.runlog.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,81,ok,Route-level permission
+,/runlog,,事件列表,route_access,runlog.runlog.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,84,ok,Route-level permission
+,/runlog/statistics,,系统档案,route_access,equipment_lifecycle.system.view|equipment_lifecycle.system_config.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,85,ok,Route-level permission
+,/el/systems,,运行维护,route_access,equipment_lifecycle.fault.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.work_order.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,89,ok,Route-level permission
+,/el/faults,,故障管理,route_access,equipment_lifecycle.fault.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,92,ok,Route-level permission
+,/el/inspection-ledgers,,巡检台账,route_access,equipment_lifecycle.ledger.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,93,ok,Route-level permission
+,/el/week-month-ledgers,,周月维护台账,route_access,equipment_lifecycle.ledger.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,94,ok,Route-level permission
+,/el/seasonal-ledgers,,季维护台账,route_access,equipment_lifecycle.ledger.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,95,ok,Route-level permission
+,/el/ledger-templates,,台账模板,route_access,equipment_lifecycle.ledger_template.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,96,ok,Route-level permission
+,/el/work-orders,,履历与状态,route_access,equipment_lifecycle.system_event.view|equipment_lifecycle.system.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,97,ok,Route-level permission
+,/el/system-events,,系统履历,route_access,equipment_lifecycle.system_event.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,100,ok,Route-level permission
+,/el/system-status,,设备履历,route_access,device.device_resume.view|device.device_history.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,101,ok,Route-level permission
+,/device/device_resume,,设备台账,route_access,device.device_resume.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,106,ok,Route-level permission
+,/device/device_history,,系统升级管理,route_access,upgrade.upgrade.view|upgrade.statistics.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,107,ok,Route-level permission
+,/upgrade,,升级表单,route_access,upgrade.upgrade.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,110,ok,Route-level permission
+,/upgrade/plans,,升级方案,route_access,upgrade.upgrade.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,111,ok,Route-level permission
+,/upgrade/statistics,,干扰管理,route_access,interference.interference.view|interference.investigation.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,112,ok,Route-level permission
+,/interference/events,,干扰记录,route_access,interference.interference.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,116,ok,Route-level permission
+,/interference/investigations,,规律调查,route_access,interference.investigation.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,117,ok,Route-level permission
+,/duty,,公告与提醒,route_access,home.announcement.view|home.reminder.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,119,ok,Route-level permission
+,/system/announcement,,发布公告,route_access,home.announcement.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,121,ok,Route-level permission
+,/reminder,,运维管理,route_access,system.audit.view|system.alert.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,122,ok,Route-level permission
+,/maintenance/audit,,操作日志,route_access,system.audit.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,126,ok,Route-level permission
+,/maintenance/alert,,系统监控,route_access,system.alert.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,127,ok,Route-level permission
+,/maintenance/data-quality,,系统管理,route_access,system.account.view|system.role.view|system.setting.view|system.login.view|system.tenant.view|system.release_note.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,128,ok,Route-level permission
+,/system/login,,登录日志,route_access,system.login.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,133,ok,Route-level permission
+,/system/account,,账户管理,route_access,system.account.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,134,ok,Route-level permission
+,/system/tenant,,租户管理,route_access,system.tenant.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,135,ok,Route-level permission
+,/system/role,,角色管理,route_access,system.role.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,136,ok,Route-level permission
+,/system/setting,,系统设置,route_access,system.setting.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,137,ok,Route-level permission
+,/system/release-notes,,更新日志,route_access,system.release_note.view,,E:\TDYW\spug-3.0\spug_web\src\routes.js,138,ok,Route-level permission
+,/welcome/index,,,route_access,,,E:\TDYW\spug-3.0\spug_web\src\routes.js,141,no_auth,Route without auth permission
+,/welcome/info,,,route_access,,,E:\TDYW\spug-3.0\spug_web\src\routes.js,142,no_auth,Route without auth permission
+,/upgrade/workbench/:id,,,route_access,,,E:\TDYW\spug-3.0\spug_web\src\routes.js,144,no_auth,Route without auth permission
+,/announcement,,,route_access,,,E:\TDYW\spug-3.0\spug_web\src\routes.js,146,no_auth,Route without auth permission

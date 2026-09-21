@@ -118,25 +118,17 @@ class LedgerMultiSystemContractTests(TestCase):
         # created_at 为录入时间（当前），晚于实际执行日期
         self.assertGreater(ledger.created_at.date(), ledger.executed_date)
 
-    def test_manual_ledger_requires_entry_note(self):
-        """23. 补录必须记录补录说明（临时直接新建时必填）。"""
+    def test_manual_ledger_entry_note_removed(self):
+        """23. 补录说明字段已删除（2026-09-21）：临时直接新建不再要求补录说明。"""
         client = make_client(self.user)
         payload = ledger_payload(
-            [entry_payload(self.system_a.id, [item_payload()])], entry_note='')
-        resp = post_json(client, LEDGER_URL + '/', payload)
-        self.assertTrue(resp.json().get('error'))
-        self.assertIn('补录说明', resp.json()['error'])
-        # 模板生成方式允许不填补录说明
-        from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
-            make_ledger_template, make_template_item)
-        template = make_ledger_template(
-            self.user, ledger_type='inspection', applicable_systems=[self.system_a])
-        make_template_item(template, self.user)
-        payload = ledger_payload(
-            [entry_payload(self.system_a.id, [item_payload()], template_id=template.id)],
-            entry_note='', created_from='template')
+            [entry_payload(self.system_a.id, [item_payload()])], created_from='manual')
         data = create_ledger_ok(client, payload)
-        self.assertEqual(data['entry_note'], '')
+        self.assertNotIn('entry_note', data)
+        self.assertNotIn('shift', data)
+        self.assertNotIn('location_scope', data)
+        self.assertNotIn('collaborator_names', data)
+        self.assertNotIn('summary', data)
 
     def test_ledger_no_unique_per_type_and_day(self):
         """台账编号按类型+日期自增且租户内唯一。"""

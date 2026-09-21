@@ -8,7 +8,8 @@
  *   或临时直接新建；
  * - 明细按系统分组表格录入，一张台账一次提交全部系统明细；
  * - 数值项按正常范围自动建议结果，改判须填写修正原因；
- * - 正常项支持批量确认，异常项要求填写异常说明。
+ * - 正常项支持批量确认，异常项要求填写异常说明；
+ * - 表头仅保留维护周期（周月维护）、实际执行日期（新增默认当日）与执行人。
  * 提交成功后重新获取后端真实数据，不做乐观更新。
  */
 import React from 'react';
@@ -32,6 +33,13 @@ let CLIENT_SEQ = 0;
 function newClientKey() {
   CLIENT_SEQ += 1;
   return `k${Date.now()}_${CLIENT_SEQ}`;
+}
+
+// 本地当日日期（YYYY-MM-DD）：新增台账实际执行日期默认填当天
+function todayStr() {
+  const d = new Date();
+  const pad = n => (n < 10 ? `0${n}` : `${n}`);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function autoJudge(row) {
@@ -88,15 +96,10 @@ class LedgerForm extends React.Component {
     rows: [],
     cycle: undefined,
     header: {
-      executed_date: null,
+      executed_date: todayStr(),
       executed_start: null,
       executed_end: null,
-      shift: '',
-      location_scope: '',
       executor_names: '',
-      collaborator_names: '',
-      summary: '',
-      entry_note: '',
     },
     version: undefined,
   };
@@ -146,12 +149,7 @@ class LedgerForm extends React.Component {
               executed_date: res.executed_date,
               executed_start: res.executed_start,
               executed_end: res.executed_end,
-              shift: res.shift || '',
-              location_scope: res.location_scope || '',
               executor_names: res.executor_names || '',
-              collaborator_names: res.collaborator_names || '',
-              summary: res.summary || '',
-              entry_note: res.entry_note || '',
             },
           });
         })
@@ -346,10 +344,6 @@ class LedgerForm extends React.Component {
       message.error('周月维护台账必须选择维护周期（周/月）');
       return;
     }
-    if (createdFrom === 'manual' && !(header.entry_note || '').trim()) {
-      message.error('临时补录必须填写补录说明');
-      return;
-    }
     if (!rows.length) {
       message.error('请至少录入一条台账明细');
       return;
@@ -429,7 +423,7 @@ class LedgerForm extends React.Component {
   };
 
   renderHeader = () => {
-    const {header, cycle, createdFrom} = this.state;
+    const {header, cycle} = this.state;
     const {store} = this.props;
     const isEdit = !!store.record.id;
     return (
@@ -461,25 +455,8 @@ class LedgerForm extends React.Component {
             value={header.executed_date || ''}
             onChange={e => this.setHeader('executed_date', e.target.value)}/>
         </Form.Item>
-        <Form.Item label="班次">
-          <Input style={{width: 100}} value={header.shift} onChange={e => this.setHeader('shift', e.target.value)}/>
-        </Form.Item>
-        <Form.Item label="机房/区域">
-          <Input style={{width: 150}} value={header.location_scope} onChange={e => this.setHeader('location_scope', e.target.value)}/>
-        </Form.Item>
         <Form.Item label="执行人">
           <Input style={{width: 150}} value={header.executor_names} onChange={e => this.setHeader('executor_names', e.target.value)}/>
-        </Form.Item>
-        <Form.Item label="协作人">
-          <Input style={{width: 150}} value={header.collaborator_names} onChange={e => this.setHeader('collaborator_names', e.target.value)}/>
-        </Form.Item>
-        <Form.Item required={createdFrom === 'manual'} label="补录说明">
-          <Input style={{width: 200}} value={header.entry_note} onChange={e => this.setHeader('entry_note', e.target.value)}/>
-        </Form.Item>
-        <Form.Item label="总体说明">
-          <Input.TextArea
-            style={{width: 300}} rows={1} value={header.summary}
-            onChange={e => this.setHeader('summary', e.target.value)}/>
         </Form.Item>
       </Form>
     );

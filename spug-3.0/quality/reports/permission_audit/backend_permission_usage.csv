@@ -1,0 +1,403 @@
+﻿api,http_method,view,service,model,operation,login_required,permission_code,object_check,tenant_check,source_file,line,status,notes
+/api/account/^login/$,,login,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/account/^logout/$,,logout,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/account/^user/$,GET,UserView,,,,yes,system.account.view,,,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,52,ok,
+/api/account/^user/$,POST,UserView,,,,yes,system.account.add,,,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,52,ok,
+/api/account/^user/$,PATCH,UserView,,,,yes,system.account.edit,,,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,52,ok,
+/api/account/^user/$,DELETE,UserView,,,,yes,system.account.del,,,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,52,ok,
+/api/account/^user/tenant_choices/$,,get_tenant_choices,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/account/^user/restore/$,,restore_user,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/account/^role/$,GET,RoleView,,,,yes,system.account.view,,,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,377,ok,
+/api/account/^role/$,POST,RoleView,,,,yes,system.account.edit,,,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,377,ok,
+/api/account/^role/$,PATCH,RoleView,,,,yes,system.account.edit,,,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,377,ok,
+/api/account/^role/$,DELETE,RoleView,,,,yes,system.account.del,,,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,377,ok,
+/api/account/^role/assignable/$,GET,AssignableRoleView,,,,yes,system.account.view,,,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,566,ok,
+/api/account/^tenant/$,GET,TenantView,,,,yes,system.tenant.view,,,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,578,ok,
+/api/account/^tenant/$,POST,TenantView,,,,yes,system.tenant.add,,,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,578,ok,
+/api/account/^tenant/$,PATCH,TenantView,,,,yes,system.tenant.edit,,,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,578,ok,
+/api/account/^tenant/$,DELETE,TenantView,,,,yes,system.tenant.del,,,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,578,ok,
+/api/account/^self/$,,SelfView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,657,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/account/^login/history/$,,HistoryView,,,,yes,super_only,,,E:\TDYW\spug-3.0\spug_api\apps\account\history.py,9,super_only,AdminView without PERM_MAP - only super user can access
+/api/alert/mark-read/,POST,AlertMarkReadView,,,,yes,system.alert.view,,,E:\TDYW\spug-3.0\spug_api\apps\alert\views.py,111,ok,
+/api/alert/<int:pk>/resolve/,POST,AlertResolveView,,,,yes,system.alert.resolve,,,E:\TDYW\spug-3.0\spug_api\apps\alert\views.py,152,ok,
+/api/alert/data-quality/,GET,DataQualityCheckView,,,,yes,system.alert.view,,,E:\TDYW\spug-3.0\spug_api\apps\alert\views.py,170,ok,
+/api/alert/run-metrics/summary/,GET,RunMetricSummaryView,,,,yes,system.alert.view,,,E:\TDYW\spug-3.0\spug_api\apps\alert\views.py,235,ok,
+/api/alert/run-metrics/,GET,RunMetricView,,,,yes,system.alert.view,,,E:\TDYW\spug-3.0\spug_api\apps\alert\views.py,219,ok,
+/api/contract-agreement/^$,GET,ContractAgreementView,,,,yes,contract_agreement.agreement.view,,,E:\TDYW\spug-3.0\spug_api\apps\contract_agreement\views.py,257,ok,
+/api/contract-agreement/^$,POST,ContractAgreementView,,,,yes,contract_agreement.agreement.add|contract_agreement.agreement.edit,,,E:\TDYW\spug-3.0\spug_api\apps\contract_agreement\views.py,327,ok,
+/api/contract-agreement/^$,DELETE,ContractAgreementView,,,,yes,contract_agreement.agreement.del,,,E:\TDYW\spug-3.0\spug_api\apps\contract_agreement\views.py,519,ok,
+/api/contract-agreement/(?P<pk>\d+)/$,GET,ContractAgreementDetailView,,,,yes,contract_agreement.agreement.view,,,E:\TDYW\spug-3.0\spug_api\apps\contract_agreement\views.py,549,ok,
+/api/contract-agreement/(?P<pk>\d+)/attachments/$,GET,AttachmentListView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,52,ok,
+/api/contract-agreement/(?P<pk>\d+)/attachments/$,POST,AttachmentListView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,61,ok,
+/api/contract-agreement/attachments/(?P<pk>\d+)/download/$,GET,AttachmentDownloadView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,92,ok,
+/api/contract-agreement/attachments/(?P<pk>\d+)/preview-url/$,GET,AttachmentPreviewUrlView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,107,ok,
+/api/contract-agreement/attachments/(?P<pk>\d+)/preview-file/$,,AttachmentPreviewFileView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,116,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/contract-agreement/attachments/$,DELETE,AttachmentDeleteView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,133,ok,
+/api/contract-agreement/reminders/popup/$,GET,ReminderPopupView,,,,yes,radio_license.license.view,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\views.py,903,ok,
+/api/contract-agreement/reminders/ack/$,,ReminderAckView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\reminder\views.py,247,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/contract-agreement/badge/$,GET,ContractAgreementBadgeView,,,,yes,contract_agreement.agreement.view,,,E:\TDYW\spug-3.0\spug_api\apps\contract_agreement\views.py,777,ok,
+/api/contract-agreement/responsible-users/$,GET,ResponsibleUserListView,,,,yes,radio_license.license.view,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\views.py,1024,ok,
+/api/coop_task/^departments/$,GET,DepartmentListView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,303,ok,
+/api/coop_task/^badge/$,GET,BadgeView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,844,ok,
+/api/coop_task/^items/(?P<pk>\d+)/templates/$,GET,ItemTemplateView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,1129,ok,
+/api/coop_task/^items/(?P<pk>\d+)/templates/$,POST,ItemTemplateView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,1141,ok,
+/api/coop_task/^items/(?P<pk>\d+)/templates/$,DELETE,ItemTemplateView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,1172,ok,
+/api/coop_task/^tasks/$,GET,TaskView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,322,ok,
+/api/coop_task/^tasks/$,POST,TaskView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,376,ok,
+/api/coop_task/^tasks/(?P<pk>\d+)/$,GET,TaskDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,440,ok,
+/api/coop_task/^tasks/(?P<pk>\d+)/$,POST,TaskDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,494,ok,
+/api/coop_task/^tasks/(?P<pk>\d+)/$,DELETE,TaskDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,537,ok,
+/api/coop_task/^tasks/(?P<pk>\d+)/void/$,POST,TaskVoidView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,560,ok,
+/api/coop_task/^tasks/(?P<pk>\d+)/urge/$,POST,TaskUrgeView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,585,ok,
+/api/coop_task/^inbox/$,GET,InboxView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,626,ok,
+/api/coop_task/^inbox/(?P<pk>\d+)/$,GET,InboxDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,661,ok,
+/api/coop_task/^deliveries/(?P<pk>\d+)/submit/$,POST,DeliverySubmitView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,738,ok,
+/api/coop_task/^deliveries/(?P<pk>\d+)/accept/$,POST,DeliveryAcceptView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,771,ok,
+/api/coop_task/^deliveries/(?P<pk>\d+)/reject/$,POST,DeliveryRejectView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,803,ok,
+/api/coop_task/^deliveries/(?P<pk>\d+)/attachments/$,GET,DeliveryAttachmentView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,930,ok,
+/api/coop_task/^deliveries/(?P<pk>\d+)/attachments/$,POST,DeliveryAttachmentView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\coop_task\views.py,942,ok,
+/api/coop_task/^attachments/(?P<pk>\d+)/download/$,GET,AttachmentDownloadView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,92,ok,
+/api/coop_task/^attachments/(?P<pk>\d+)/preview-url/$,GET,AttachmentPreviewUrlView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,107,ok,
+/api/coop_task/^attachments/(?P<pk>\d+)/preview-file/$,,AttachmentPreviewFileView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,116,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/coop_task/^attachments/$,DELETE,AttachmentDeleteView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,133,ok,
+/api/data-analysis/overview/,,overview_view,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/data-analysis/interference/,,interference_view,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/data-analysis/device/,,device_view,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/data-analysis/upgrade/,,upgrade_view,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/department-duty-log/records/,GET,DepartmentDutyLogListCreateView,,,,yes,department_duty_log.department_duty_log.view,,,E:\TDYW\spug-3.0\spug_api\apps\department_duty_log\views.py,34,ok,
+/api/department-duty-log/records/,POST,DepartmentDutyLogListCreateView,,,,yes,department_duty_log.department_duty_log.add,,,E:\TDYW\spug-3.0\spug_api\apps\department_duty_log\views.py,60,ok,
+/api/department-duty-log/records/duty_dates/,GET,DepartmentDutyLogDutyDatesView,,,,yes,department_duty_log.department_duty_log.view,,,E:\TDYW\spug-3.0\spug_api\apps\department_duty_log\views.py,243,ok,
+/api/department-duty-log/records/<int:pk>/,GET,DepartmentDutyLogDetailView,,,,yes,department_duty_log.department_duty_log.view,,,E:\TDYW\spug-3.0\spug_api\apps\department_duty_log\views.py,81,ok,
+/api/department-duty-log/records/<int:pk>/,PUT,DepartmentDutyLogDetailView,,,,yes,department_duty_log.department_duty_log.edit,,,E:\TDYW\spug-3.0\spug_api\apps\department_duty_log\views.py,89,ok,
+/api/department-duty-log/records/<int:pk>/,DELETE,DepartmentDutyLogDetailView,,,,yes,department_duty_log.department_duty_log.del,,,E:\TDYW\spug-3.0\spug_api\apps\department_duty_log\views.py,106,ok,
+/api/department-duty-log/records/<int:pk>/sign/,POST,DepartmentDutyLogSignView,,,,yes,department_duty_log.department_duty_log.sign,,,E:\TDYW\spug-3.0\spug_api\apps\department_duty_log\views.py,117,ok,
+/api/department-duty-log/records/<int:pk>/return/,POST,DepartmentDutyLogReturnView,,,,yes,department_duty_log.department_duty_log.return,,,E:\TDYW\spug-3.0\spug_api\apps\department_duty_log\views.py,160,ok,
+/api/department-duty-log/records/<int:pk>/signature-image/,GET,DepartmentDutyLogSignatureImageView,,,,yes,department_duty_log.department_duty_log.view,,,E:\TDYW\spug-3.0\spug_api\apps\department_duty_log\views.py,180,ok,
+/api/department-duty-log/export/pdf/,POST,DepartmentDutyLogPdfExportView,,,,yes,department_duty_log.department_duty_log.export,,,E:\TDYW\spug-3.0\spug_api\apps\department_duty_log\views.py,269,ok,
+/api/department-duty-log/options/,GET,DepartmentDutyLogOptionsView,,,,yes,department_duty_log.department_duty_log.view,,,E:\TDYW\spug-3.0\spug_api\apps\department_duty_log\views.py,226,ok,
+/api/device/device-resume/export/$,GET,DeviceListExportView,,,,yes,device.device_resume.view,,,E:\TDYW\spug-3.0\spug_api\apps\device\exporters.py,81,ok,
+/api/device/device-resume/$,GET,DeviceResumeView,,,,yes,device.device_resume.view,,,E:\TDYW\spug-3.0\spug_api\apps\device\views.py,25,ok,
+/api/device/device-resume/$,POST,DeviceResumeView,,,,yes,device.device_resume.add,,,E:\TDYW\spug-3.0\spug_api\apps\device\views.py,105,ok,
+/api/device/device-resume/$,PUT,DeviceResumeView,,,,yes,device.device_resume.edit,,,E:\TDYW\spug-3.0\spug_api\apps\device\views.py,222,ok,
+/api/device/device-resume/$,DELETE,DeviceResumeView,,,,yes,device.device_resume.delete,,,E:\TDYW\spug-3.0\spug_api\apps\device\views.py,333,ok,
+/api/device/device-event/$,GET,DeviceEventView,,,,yes,device.device_resume.history_view,,,E:\TDYW\spug-3.0\spug_api\apps\device\views.py,406,ok,
+/api/device/device-event/$,POST,DeviceEventView,,,,yes,device.device_resume.history_add,,,E:\TDYW\spug-3.0\spug_api\apps\device\views.py,445,ok,
+/api/device/device-event/$,PUT,DeviceEventView,,,,yes,device.device_resume.history_edit,,,E:\TDYW\spug-3.0\spug_api\apps\device\views.py,520,ok,
+/api/device/device-event/$,DELETE,DeviceEventView,,,,yes,device.device_resume.history_delete,,,E:\TDYW\spug-3.0\spug_api\apps\device\views.py,568,ok,
+/api/device/device-resume/export/pdf/$,POST,DeviceResumeExportView,,,,yes,device.device_resume.history_view,,,E:\TDYW\spug-3.0\spug_api\apps\device\views.py,611,ok,
+/api/device/device-resume/evidence/package/$,GET,DeviceEvidencePackageView,,,,yes,device.device_resume.view,,,E:\TDYW\spug-3.0\spug_api\apps\device\views.py,780,ok,
+/api/document/system-folder/,GET,SystemFolderView,,,,yes,document.document.view|document.party_building_document.view,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\system_folder.py,27,ok,
+/api/document/folder/,,FolderView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\folder\views.py,40,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/folder/search/,,FolderSearchView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\search.py,125,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/file/,,FileView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\file\views.py,28,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/upload/,,FileUploadView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\file\upload.py,32,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/download/,,FileDownloadView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\file\download.py,27,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/preview/,,FilePreviewView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\file\preview.py,56,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/text_content/,,FileTextContentView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\file\preview.py,291,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/office_preview_url/,,OfficePreviewUrlView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\file\preview.py,423,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/preview_token/,,PreviewTokenView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\file\preview.py,565,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/file/copy/,,FileCopyView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\file\copy.py,214,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/file/move/,,FileMoveView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\file\move.py,31,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/file/rename/,,FileRenameView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\file\rename.py,24,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/folder/copy/,,FolderCopyView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\folder\copy.py,33,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/folder/move/,,FolderMoveView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\folder\move.py,26,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/folder/download/,,FolderDownloadView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\folder\download.py,33,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/folder/rename/,,FolderRenameView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\folder\rename.py,24,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/folder/properties/,,FolderPropertiesView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\folder\properties.py,85,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/folder/download/status/,,FolderDownloadStatusView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\folder\download.py,372,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/folder/download/ready/,,FolderDownloadReadyView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\folder\download.py,468,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/upload_chunk/,,FileChunkUploadView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\upload\chunk.py,86,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/merge_chunks/,,FileMergeChunksView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\upload\merge.py,551,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/merge_status/,,FileMergeStatusView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\upload\status.py,20,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/check_uploaded_chunks/,,CheckUploadedChunksView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\upload\resume.py,32,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/direct_merge/,,DirectMergeView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\upload\direct_merge.py,42,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/disk_usage/,,DiskUsageView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\disk.py,55,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/transfers/,,TransferListView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\transfer\list.py,19,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/transfers/create/,,TransferCreateView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\transfer\create.py,20,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/transfers/<int:transfer_id>/progress/,,TransferProgressUpdateView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\transfer\progress.py,20,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/transfers/<int:transfer_id>/complete/,,TransferCompleteView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\transfer\status.py,21,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/transfers/<int:transfer_id>/cancel/,,TransferCancelView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\transfer\cancel.py,182,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/transfers/<int:transfer_id>/status/,,TransferStatusUpdateView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\transfer\status.py,134,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/transfers/<int:transfer_id>/delete/,,TransferDeleteView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\transfer\delete.py,19,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/transfers/<int:transfer_id>/fail/,,TransferFailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\transfer\status.py,64,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/transfers/<int:transfer_id>/update_hash/,,TransferHashUpdateView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\transfer\delete.py,42,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/transfers/batch/pause/,,TransferBatchPauseView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\transfer\batch.py,29,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/transfers/batch/resume/,,TransferBatchResumeView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\transfer\batch.py,104,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/transfers/batch/cancel/,,TransferBatchCancelView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\transfer\batch.py,183,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/transfers/batch/delete/,,TransferBatchDeleteView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\transfer\batch.py,242,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/health/,,HealthCheckView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\health.py,18,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/health/db-pool/,,DatabasePoolStatusView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\health.py,106,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/document/health/db-pool/metrics/,,DatabasePoolMetricsView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\document\views\health.py,250,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/duty/duty/,GET,DutyRecordView,,,,yes,duty.duty.view,,,E:\TDYW\spug-3.0\spug_api\apps\duty\views.py,73,ok,
+/api/duty/duty/,POST,DutyRecordView,,,,yes,duty.duty.add|duty.duty.edit|duty.duty.del,,,E:\TDYW\spug-3.0\spug_api\apps\duty\views.py,85,ok,
+/api/duty/duty/,DELETE,DutyRecordView,,,,yes,duty.duty.del,,,E:\TDYW\spug-3.0\spug_api\apps\duty\views.py,164,ok,
+/api/duty/duty/import_records/,GET,DutyImportView,,,,yes,duty.duty.view,,,E:\TDYW\spug-3.0\spug_api\apps\duty\views.py,61,ok,
+/api/duty/duty/export/pdf/,,export_pdf,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/systems/,GET,SystemView,,,,yes,equipment_lifecycle.system.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,552,ok,
+/api/equipment_lifecycle/systems/,POST,SystemView,,,,yes,equipment_lifecycle.system.add,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,634,ok,
+/api/equipment_lifecycle/systems/export/,GET,SystemExportView,,,,yes,equipment_lifecycle.system.export,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1292,ok,
+/api/equipment_lifecycle/systems/form-fields/,GET,SystemFormFieldsView,,,,yes,equipment_lifecycle.system.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1344,ok,
+/api/equipment_lifecycle/systems/status-summary/,GET,SystemStatusSummaryView,,,,yes,equipment_lifecycle.system.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1323,ok,
+/api/equipment_lifecycle/systems/<int:pk>/,GET,SystemDetailView,,,,yes,equipment_lifecycle.system.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,879,ok,
+/api/equipment_lifecycle/systems/<int:pk>/,PUT,SystemDetailView,,,,yes,equipment_lifecycle.system.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,934,ok,
+/api/equipment_lifecycle/systems/<int:pk>/,DELETE,SystemDetailView,,,,yes,equipment_lifecycle.system.del,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1239,ok,
+/api/equipment_lifecycle/systems/<int:pk>/active/,POST,SystemActiveView,,,,yes,equipment_lifecycle.system.deactivate,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1262,ok,
+/api/equipment_lifecycle/systems/<int:pk>/config/,GET,SystemConfigView,,,,yes,equipment_lifecycle.system_config.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1386,ok,
+/api/equipment_lifecycle/systems/<int:pk>/config/,PUT,SystemConfigView,,,,yes,equipment_lifecycle.system_config.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1419,ok,
+/api/equipment_lifecycle/systems/<int:pk>/config/export/,GET,SystemConfigExportView,,,,yes,equipment_lifecycle.system_config.export,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1490,ok,
+/api/equipment_lifecycle/systems/<int:pk>/config/attachments/,GET,SystemConfigAttachmentView,,,,yes,equipment_lifecycle.system_config.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1921,ok,
+/api/equipment_lifecycle/systems/<int:pk>/config/attachments/,POST,SystemConfigAttachmentView,,,,yes,equipment_lifecycle.system_config.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1930,ok,
+/api/equipment_lifecycle/systems/<int:pk>/config/attachments/<int:aid>/download/,GET,SystemConfigAttachmentDownloadView,,,,yes,equipment_lifecycle.system_config.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1975,ok,
+/api/equipment_lifecycle/systems/<int:pk>/config/attachments/<int:aid>/,DELETE,SystemConfigAttachmentDetailView,,,,yes,equipment_lifecycle.system_config.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1950,ok,
+/api/equipment_lifecycle/systems/<int:pk>/components/,GET,SystemComponentView,,,,yes,equipment_lifecycle.system_config.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1516,ok,
+/api/equipment_lifecycle/systems/<int:pk>/components/,POST,SystemComponentView,,,,yes,equipment_lifecycle.system_config.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1523,ok,
+/api/equipment_lifecycle/systems/<int:pk>/components/<int:cid>/,PUT,SystemComponentDetailView,,,,yes,equipment_lifecycle.system_config.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1571,ok,
+/api/equipment_lifecycle/systems/<int:pk>/components/<int:cid>/,DELETE,SystemComponentDetailView,,,,yes,equipment_lifecycle.system_config.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1622,ok,
+/api/equipment_lifecycle/systems/<int:pk>/custom-fields/,GET,CustomFieldView,,,,yes,equipment_lifecycle.system_config.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1645,ok,
+/api/equipment_lifecycle/systems/<int:pk>/custom-fields/,POST,CustomFieldView,,,,yes,equipment_lifecycle.system_config.field,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1653,ok,
+/api/equipment_lifecycle/systems/<int:pk>/custom-fields/<int:fid>/,PUT,CustomFieldDetailView,,,,yes,equipment_lifecycle.system_config.field,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1709,ok,
+/api/equipment_lifecycle/systems/<int:pk>/custom-fields/<int:fid>/,DELETE,CustomFieldDetailView,,,,yes,equipment_lifecycle.system_config.field,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1768,ok,
+/api/equipment_lifecycle/systems/<int:pk>/changes/,GET,SystemChangeView,,,,yes,equipment_lifecycle.system_config.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1793,ok,
+/api/equipment_lifecycle/systems/<int:pk>/snapshots/,GET,SystemSnapshotView,,,,yes,equipment_lifecycle.system_config.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1813,ok,
+/api/equipment_lifecycle/systems/<int:pk>/snapshots/,POST,SystemSnapshotView,,,,yes,equipment_lifecycle.system_config.snapshot,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1828,ok,
+/api/equipment_lifecycle/systems/<int:pk>/snapshots/<int:sid>/,GET,SystemSnapshotDetailView,,,,yes,equipment_lifecycle.system_config.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1864,ok,
+/api/equipment_lifecycle/systems/<int:pk>/faults/,GET,SystemFaultListView,,,,yes,equipment_lifecycle.fault.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\fault_views.py,815,ok,
+/api/equipment_lifecycle/faults/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/faults/export/,GET,FaultExportView,,,,yes,equipment_lifecycle.fault.export,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\fault_views.py,834,ok,
+/api/equipment_lifecycle/faults/candidate-systems/,GET,FaultCandidateSystemsView,,,,yes,equipment_lifecycle.fault.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\fault_views.py,796,ok,
+/api/equipment_lifecycle/faults/<int:pk>/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/faults/<int:pk>/start/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/faults/<int:pk>/recover/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/faults/<int:pk>/close/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/faults/<int:pk>/cancel/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/faults/<int:pk>/handling-records/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/faults/<int:pk>/handling-records/<int:rid>/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/faults/<int:pk>/handling-records/<int:rid>/attachments/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/faults/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/download/,GET,FaultHandlingAttachmentDownloadView,,,,yes,equipment_lifecycle.fault.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\fault_views.py,778,ok,
+/api/equipment_lifecycle/faults/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/ledger-templates/,GET,LedgerTemplateView,,,,yes,equipment_lifecycle.ledger_template.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,191,ok,
+/api/equipment_lifecycle/ledger-templates/,POST,LedgerTemplateView,,,,yes,equipment_lifecycle.ledger_template.add,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,213,ok,
+/api/equipment_lifecycle/ledger-templates/available/,GET,LedgerTemplateAvailableView,,,,yes,equipment_lifecycle.ledger.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,258,ok,
+/api/equipment_lifecycle/ledger-templates/<int:pk>/,GET,LedgerTemplateDetailView,,,,yes,equipment_lifecycle.ledger_template.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,301,ok,
+/api/equipment_lifecycle/ledger-templates/<int:pk>/,PUT,LedgerTemplateDetailView,,,,yes,equipment_lifecycle.ledger_template.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,313,ok,
+/api/equipment_lifecycle/ledger-templates/<int:pk>/active/,PUT,LedgerTemplateActiveView,,,,yes,equipment_lifecycle.ledger_template.del,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,340,ok,
+/api/equipment_lifecycle/ledger-templates/<int:pk>/items/,GET,LedgerTemplateItemView,,,,yes,equipment_lifecycle.ledger_template.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,360,ok,
+/api/equipment_lifecycle/ledger-templates/<int:pk>/items/,POST,LedgerTemplateItemView,,,,yes,equipment_lifecycle.ledger_template.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,374,ok,
+/api/equipment_lifecycle/ledger-templates/<int:pk>/items/<int:iid>/,PUT,LedgerTemplateItemDetailView,,,,yes,equipment_lifecycle.ledger_template.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,394,ok,
+/api/equipment_lifecycle/ledger-templates/<int:pk>/items/<int:iid>/,DELETE,LedgerTemplateItemDetailView,,,,yes,equipment_lifecycle.ledger_template.del,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,418,ok,
+/api/equipment_lifecycle/ledgers/,GET,LedgerView,,,,yes,equipment_lifecycle.ledger.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,454,ok,
+/api/equipment_lifecycle/ledgers/,POST,LedgerView,,,,yes,equipment_lifecycle.ledger.add,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,490,ok,
+/api/equipment_lifecycle/ledgers/preview/,POST,LedgerPreviewView,,,,yes,equipment_lifecycle.ledger.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,508,ok,
+/api/equipment_lifecycle/ledgers/abnormal-items/,GET,LedgerAbnormalItemsView,,,,yes,equipment_lifecycle.ledger.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,625,ok,
+/api/equipment_lifecycle/ledgers/export/,GET,LedgerExportView,,,,yes,equipment_lifecycle.ledger.export,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,704,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/,GET,LedgerDetailView,,,,yes,equipment_lifecycle.ledger.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,520,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/,PUT,LedgerDetailView,,,,yes,equipment_lifecycle.ledger.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,527,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/submit/,POST,LedgerSubmitView,,,,yes,equipment_lifecycle.ledger.submit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,542,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/return/,POST,LedgerReturnView,,,,yes,equipment_lifecycle.ledger.review,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,553,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/review/,POST,LedgerReviewView,,,,yes,equipment_lifecycle.ledger.review,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,566,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/void/,POST,LedgerVoidView,,,,yes,equipment_lifecycle.ledger.del,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,578,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/correct/,POST,LedgerCorrectView,,,,yes,equipment_lifecycle.ledger.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,592,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/confirm-normal/,POST,LedgerConfirmNormalView,,,,yes,equipment_lifecycle.ledger.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,608,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/attachments/,GET,LedgerAttachmentView,,,,yes,equipment_lifecycle.ledger.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,784,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/attachments/,POST,LedgerAttachmentView,,,,yes,equipment_lifecycle.ledger.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,792,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/attachments/<int:aid>/download/,GET,LedgerAttachmentDownloadView,,,,yes,equipment_lifecycle.ledger.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,836,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/attachments/<int:aid>/,DELETE,LedgerAttachmentDetailView,,,,yes,equipment_lifecycle.ledger.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,814,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/items/<int:item_pk>/attachments/,GET,LedgerItemAttachmentView,,,,yes,equipment_lifecycle.ledger.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,861,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/items/<int:item_pk>/attachments/,POST,LedgerItemAttachmentView,,,,yes,equipment_lifecycle.ledger.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,869,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/items/<int:item_pk>/attachments/<int:aid>/download/,GET,LedgerItemAttachmentDownloadView,,,,yes,equipment_lifecycle.ledger.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,922,ok,
+/api/equipment_lifecycle/ledgers/<int:pk>/items/<int:item_pk>/attachments/<int:aid>/,DELETE,LedgerItemAttachmentDetailView,,,,yes,equipment_lifecycle.ledger.edit,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,900,ok,
+/api/equipment_lifecycle/systems/<int:pk>/ledger-items/,GET,SystemLedgerItemsView,,,,yes,equipment_lifecycle.ledger.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,666,ok,
+/api/equipment_lifecycle/work-orders/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/work-orders/export/,GET,WorkOrderExportView,,,,yes,equipment_lifecycle.work_order.export,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\work_order_views.py,1446,ok,
+/api/equipment_lifecycle/work-orders/candidate-systems/,GET,WorkOrderCandidateSystemsView,,,,yes,equipment_lifecycle.work_order.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\work_order_views.py,991,ok,
+/api/equipment_lifecycle/work-orders/candidate-users/,GET,WorkOrderCandidateUsersView,,,,yes,equipment_lifecycle.work_order.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\work_order_views.py,1006,ok,
+/api/equipment_lifecycle/work-orders/<int:pk>/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/work-orders/<int:pk>/dispatch/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/work-orders/<int:pk>/accept/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/work-orders/<int:pk>/start/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/work-orders/<int:pk>/submit-review/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/work-orders/<int:pk>/review-pass/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/work-orders/<int:pk>/review-return/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/work-orders/<int:pk>/close/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/work-orders/<int:pk>/cancel/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/work-orders/<int:pk>/handling-records/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/work-orders/<int:pk>/handling-records/<int:rid>/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/work-orders/<int:pk>/handling-records/<int:rid>/attachments/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/work-orders/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/download/,GET,WorkOrderHandlingAttachmentDownloadView,,,,yes,equipment_lifecycle.work_order.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\work_order_views.py,972,ok,
+/api/equipment_lifecycle/work-orders/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/faults/<int:pk>/work-orders/,GET,FaultWorkOrdersView,,,,yes,equipment_lifecycle.work_order.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\work_order_views.py,1021,ok,
+/api/equipment_lifecycle/faults/<int:pk>/create-work-order/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/ledgers/<int:ledger_pk>/items/<int:item_pk>/convert-to-fault/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/ledgers/<int:ledger_pk>/items/<int:item_pk>/convert-to-work-order/,,_na,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/equipment_lifecycle/systems/<int:pk>/work-orders/,GET,SystemWorkOrdersView,,,,yes,equipment_lifecycle.work_order.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\work_order_views.py,1429,ok,
+/api/equipment_lifecycle/system-events/,GET,SystemEventView,,,,yes,equipment_lifecycle.system_event.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\event_views.py,100,ok,
+/api/equipment_lifecycle/system-events/export/,GET,SystemEventExportView,,,,yes,equipment_lifecycle.system_event.export,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\event_views.py,147,ok,
+/api/equipment_lifecycle/systems/<int:pk>/system-events/,GET,SystemEventsUnderSystemView,,,,yes,equipment_lifecycle.system_event.view,,,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\event_views.py,120,ok,
+/api/home/statistic/,,get_statistic,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/home/announcement/admin/,,AnnouncementAdminListView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,236,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/admin/departments/,,AnnouncementDepartmentsView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,346,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/admin/<int:pk>/,,AnnouncementAdminDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,304,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/admin/<int:pk>/publish/,,AnnouncementPublishView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,356,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/admin/<int:pk>/withdraw/,,AnnouncementWithdrawView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,384,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/admin/<int:pk>/attachments/,,AnnouncementAttachmentListView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,409,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/admin/attachments/,,AnnouncementAttachmentDeleteView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,445,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/,,AnnouncementListView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,467,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/unread-count/,,AnnouncementUnreadCountView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,538,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/reminders/,,AnnouncementRemindersView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,551,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/<int:pk>/,,AnnouncementDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,504,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/<int:pk>/read/,,AnnouncementReadView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,515,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/<int:pk>/attachments/,,AnnouncementUserAttachmentListView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,526,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/attachments/<int:pk>/download/,,AnnouncementAttachmentDownloadView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,570,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/attachments/<int:pk>/preview-url/,,AnnouncementAttachmentPreviewUrlView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,591,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/home/announcement/attachments/<int:pk>/preview-file/,,AnnouncementAttachmentPreviewFileView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\home\announcement.py,613,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/interference/^events/export/$,GET,EventExportView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,1175,ok,
+/api/interference/^events/import/$,POST,EventImportView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,1205,ok,
+/api/interference/^events/$,GET,EventListView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,457,ok,
+/api/interference/^events/$,POST,EventListView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,489,ok,
+/api/interference/^events/(?P<pk>\d+)/attachments/$,,EventAttachmentListView,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/interference/^events/(?P<pk>\d+)/$,GET,EventDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,556,ok,
+/api/interference/^events/(?P<pk>\d+)/$,PUT,EventDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,563,ok,
+/api/interference/^events/(?P<pk>\d+)/$,PATCH,EventDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,567,ok,
+/api/interference/^events/(?P<pk>\d+)/$,DELETE,EventDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,579,ok,
+/api/interference/^investigations/$,GET,InvestigationListView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,609,ok,
+/api/interference/^investigations/$,POST,InvestigationListView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,633,ok,
+/api/interference/^investigations/(?P<pk>\d+)/events/$,GET,InvestigationEventsView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,802,ok,
+/api/interference/^investigations/(?P<pk>\d+)/events/$,POST,InvestigationEventsView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,822,ok,
+/api/interference/^investigations/(?P<pk>\d+)/events/$,DELETE,InvestigationEventsView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,851,ok,
+/api/interference/^investigations/(?P<pk>\d+)/measurements/$,GET,InvestigationMeasurementsView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,911,ok,
+/api/interference/^investigations/(?P<pk>\d+)/measurements/$,POST,InvestigationMeasurementsView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,919,ok,
+/api/interference/^investigations/(?P<pk>\d+)/attachments/$,,InvestigationAttachmentListView,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/interference/^investigations/(?P<pk>\d+)/$,GET,InvestigationDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,710,ok,
+/api/interference/^investigations/(?P<pk>\d+)/$,PUT,InvestigationDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,727,ok,
+/api/interference/^investigations/(?P<pk>\d+)/$,PATCH,InvestigationDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,731,ok,
+/api/interference/^investigations/(?P<pk>\d+)/$,DELETE,InvestigationDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,773,ok,
+/api/interference/^measurements/(?P<pk>\d+)/attachments/$,,MeasurementAttachmentListView,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/interference/^measurements/(?P<pk>\d+)/$,GET,MeasurementDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,944,ok,
+/api/interference/^measurements/(?P<pk>\d+)/$,PUT,MeasurementDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,951,ok,
+/api/interference/^measurements/(?P<pk>\d+)/$,PATCH,MeasurementDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,955,ok,
+/api/interference/^measurements/(?P<pk>\d+)/$,DELETE,MeasurementDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\interference\views.py,978,ok,
+/api/interference/^attachments/$,DELETE,AttachmentDeleteView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,133,ok,
+/api/interference/^attachments/(?P<pk>\d+)/download/$,GET,AttachmentDownloadView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,92,ok,
+/api/interference/^attachments/(?P<pk>\d+)/preview-url/$,GET,AttachmentPreviewUrlView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,107,ok,
+/api/interference/^attachments/(?P<pk>\d+)/preview-file/$,,AttachmentPreviewFileView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,116,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/logs/^audit/$,GET,AuditLogView,,,,yes,system.audit.view,,,E:\TDYW\spug-3.0\spug_api\apps\logs\views.py,17,ok,
+/api/logs/^audit/export/$,GET,AuditLogExportView,,,,yes,system.audit.view,,,E:\TDYW\spug-3.0\spug_api\apps\logs\views.py,99,ok,
+/api/logs/^audit/target_types/$,GET,AuditLogTargetTypesView,,,,yes,system.audit.view,,,E:\TDYW\spug-3.0\spug_api\apps\logs\views.py,201,ok,
+/api/logs/^audit/actions/$,GET,AuditLogActionsView,,,,yes,system.audit.view,,,E:\TDYW\spug-3.0\spug_api\apps\logs\views.py,223,ok,
+/api/radio-license/^approvals/badge/$,GET,StationFrequencyApprovalBadgeView,,,,yes,radio_license.approval.view,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,332,ok,
+/api/radio-license/^approvals/$,GET,StationFrequencyApprovalView,,,,yes,radio_license.approval.view,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,121,ok,
+/api/radio-license/^approvals/$,POST,StationFrequencyApprovalView,,,,yes,radio_license.approval.add|radio_license.approval.edit,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,186,ok,
+/api/radio-license/^approvals/$,DELETE,StationFrequencyApprovalView,,,,yes,radio_license.approval.del,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,284,ok,
+/api/radio-license/^approvals/attachments/(?P<pk>\d+)/download/$,GET,ApprovalAttachmentDownloadView,,,,yes,radio_license.attachment.download,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,456,ok,
+/api/radio-license/^approvals/attachments/(?P<pk>\d+)/preview-url/$,GET,ApprovalAttachmentPreviewUrlView,,,,yes,radio_license.approval.view,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,476,ok,
+/api/radio-license/^approvals/attachments/(?P<pk>\d+)/preview-file/$,,ApprovalAttachmentPreviewFileView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,491,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/radio-license/^approvals/attachments/$,DELETE,ApprovalAttachmentDeleteView,,,,yes,radio_license.attachment.delete,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,513,ok,
+/api/radio-license/^approvals/(?P<pk>\d+)/attachments/$,GET,ApprovalAttachmentListView,,,,yes,radio_license.approval.view,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,408,ok,
+/api/radio-license/^approvals/(?P<pk>\d+)/attachments/$,POST,ApprovalAttachmentListView,,,,yes,radio_license.attachment.upload,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,420,ok,
+/api/radio-license/^approvals/(?P<pk>\d+)/$,GET,StationFrequencyApprovalDetailView,,,,yes,radio_license.approval.view,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,351,ok,
+/api/radio-license/^$,GET,RadioLicenseView,,,,yes,radio_license.license.view,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\views.py,207,ok,
+/api/radio-license/^$,POST,RadioLicenseView,,,,yes,radio_license.license.add|radio_license.license.edit,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\views.py,273,ok,
+/api/radio-license/^$,DELETE,RadioLicenseView,,,,yes,radio_license.license.del,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\views.py,406,ok,
+/api/radio-license/(?P<pk>\d+)/$,GET,RadioLicenseDetailView,,,,yes,radio_license.license.view,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\views.py,440,ok,
+/api/radio-license/(?P<pk>\d+)/attachments/$,GET,AttachmentListView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,52,ok,
+/api/radio-license/(?P<pk>\d+)/attachments/$,POST,AttachmentListView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,61,ok,
+/api/radio-license/attachments/(?P<pk>\d+)/download/$,GET,AttachmentDownloadView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,92,ok,
+/api/radio-license/attachments/(?P<pk>\d+)/preview-url/$,GET,AttachmentPreviewUrlView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,107,ok,
+/api/radio-license/attachments/(?P<pk>\d+)/preview-file/$,,AttachmentPreviewFileView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,116,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/radio-license/attachments/$,DELETE,AttachmentDeleteView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,133,ok,
+/api/radio-license/reminders/popup/$,GET,ReminderPopupView,,,,yes,radio_license.license.view,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\views.py,903,ok,
+/api/radio-license/reminders/ack/$,,ReminderAckView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\reminder\views.py,247,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/radio-license/badge/$,GET,RadioLicenseBadgeView,,,,yes,radio_license.license.view,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\views.py,1047,ok,
+/api/radio-license/responsible-users/$,GET,ResponsibleUserListView,,,,yes,radio_license.license.view,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\views.py,1024,ok,
+/api/radio-license/evidence/package/$,GET,RadioLicenseEvidencePackageView,,,,yes,radio_license.license.view,,,E:\TDYW\spug-3.0\spug_api\apps\radio_license\views.py,610,ok,
+/api/regulation/categories/tree/$,GET,CategoryTreeView,,,,yes,document.regulation.view,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,193,ok,
+/api/regulation/categories/$,GET,CategoryListCreateView,,,,yes,document.regulation.view,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,202,ok,
+/api/regulation/categories/$,POST,CategoryListCreateView,,,,yes,document.regulation.category_manage,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,212,ok,
+/api/regulation/categories/(?P<pk>\d+)/$,PUT,CategoryDetailView,,,,yes,document.regulation.category_manage,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,265,ok,
+/api/regulation/categories/(?P<pk>\d+)/$,DELETE,CategoryDetailView,,,,yes,document.regulation.category_manage,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,303,ok,
+/api/regulation/^$,GET,RegulationListView,,,,yes,document.regulation.view,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,342,ok,
+/api/regulation/create/$,POST,RegulationCreateView,,,,yes,document.regulation.add,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,403,ok,
+/api/regulation/(?P<pk>\d+)/$,GET,RegulationDetailView,,,,yes,document.regulation.view,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,486,ok,
+/api/regulation/(?P<pk>\d+)/$,PUT,RegulationDetailView,,,,yes,document.regulation.edit,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,569,ok,
+/api/regulation/(?P<pk>\d+)/$,DELETE,RegulationDetailView,,,,yes,document.regulation.delete,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,618,ok,
+/api/regulation/(?P<pk>\d+)/retire/$,POST,RegulationRetireView,,,,yes,document.regulation.edit,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,653,ok,
+/api/regulation/(?P<pk>\d+)/attachments/$,GET,RegulationAttachmentListView,,,,yes,document.regulation.view,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,685,ok,
+/api/regulation/(?P<pk>\d+)/attachments/upload/$,POST,RegulationAttachmentUploadView,,,,yes,document.regulation.upload,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,708,ok,
+/api/regulation/(?P<pk>\d+)/attachments/(?P<att_id>\d+)/download/$,GET,RegulationAttachmentDownloadView,,,,yes,document.regulation.download,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,787,ok,
+/api/regulation/(?P<pk>\d+)/attachments/(?P<att_id>\d+)/preview-url/$,GET,RegulationAttachmentPreviewUrlView,,,,yes,document.regulation.view,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,845,ok,
+/api/regulation/(?P<pk>\d+)/attachments/(?P<att_id>\d+)/preview-file/$,,RegulationAttachmentPreviewFileView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,902,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/regulation/(?P<pk>\d+)/attachments/(?P<att_id>\d+)/$,DELETE,RegulationAttachmentDetailView,,,,yes,document.regulation.upload,,,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,989,ok,
+/api/system/version/,,SystemVersionView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\release\views.py,101,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/system/release-notes/,,ReleaseNoteListView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\release\views.py,114,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/system/release-notes/unread/,,ReleaseNoteUnreadView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\release\views.py,142,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/system/release-notes/settings/,,ReleaseNoteSettingsView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\release\views.py,159,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/system/release-notes/<int:pk>/,,ReleaseNoteDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\release\views.py,185,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/system/release-notes/<int:pk>/read/,,ReleaseNoteReadView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\release\views.py,195,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/system/release-notes/<int:pk>/ack/,,ReleaseNoteAckView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\release\views.py,206,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/system/release-notes/admin/,,ReleaseNoteAdminListView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\release\views.py,260,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/system/release-notes/admin/<int:pk>/,,ReleaseNoteAdminDetailView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\release\views.py,389,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/system/release-notes/admin/<int:pk>/publish/,,ReleaseNoteAdminPublishView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\release\views.py,403,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/reminder/<int:pk>/,,ReminderView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\reminder\views.py,67,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/reminder/users/,,ReminderUsersView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\reminder\views.py,186,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/reminder/status/,,ReminderStatusView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\reminder\views.py,269,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/reminder/pending/,,ReminderPendingView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\reminder\views.py,210,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/reminder/ack/,,ReminderAckView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\reminder\views.py,247,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/runlog/detail/,GET,RunLogDetailView,,,,yes,runlog.runlog.update_view,,,E:\TDYW\spug-3.0\spug_api\apps\runlog\urls.py,20,ok,
+/api/runlog/update/,POST,RunLogUpdateView,,,,yes,runlog.runlog.update_add,,,E:\TDYW\spug-3.0\spug_api\apps\runlog\views.py,324,ok,
+/api/runlog/update/,PUT,RunLogUpdateView,,,,yes,runlog.runlog.update_edit,,,E:\TDYW\spug-3.0\spug_api\apps\runlog\views.py,387,ok,
+/api/runlog/update/,DELETE,RunLogUpdateView,,,,yes,runlog.runlog.update_del,,,E:\TDYW\spug-3.0\spug_api\apps\runlog\views.py,446,ok,
+/api/runlog/statistics/,GET,RunLogStatisticsView,,,,yes,runlog.runlog.view,,,E:\TDYW\spug-3.0\spug_api\apps\runlog\views.py,672,ok,
+/api/runlog/overview/,GET,RunLogOverviewView,,,,yes,runlog.runlog.view,,,E:\TDYW\spug-3.0\spug_api\apps\runlog\views.py,1052,ok,
+/api/runlog/event_types/,,EventTypeConfigView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\runlog\views.py,570,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/runlog/upload/,POST,RunLogUploadAttachmentView,,,,yes,runlog.runlog.update_add,,,E:\TDYW\spug-3.0\spug_api\apps\runlog\urls.py,59,ok,
+/api/runlog/export/pdf/,POST,RunLogExportView,,,,yes,runlog.runlog.view,,,E:\TDYW\spug-3.0\spug_api\apps\runlog\views.py,839,ok,
+/api/runlog/export/excel/,GET,RunLogExcelExportView,,,,yes,runlog.runlog.view,,,E:\TDYW\spug-3.0\spug_api\apps\runlog\exporters.py,218,ok,
+/api/runlog/repair/,POST,RunLogRepairView,,,,yes,runlog.runlog.edit,,,E:\TDYW\spug-3.0\spug_api\apps\runlog\views.py,503,ok,
+/api/runlog/evidence/package/,GET,RunLogEvidencePackageView,,,,yes,runlog.runlog.view,,,E:\TDYW\spug-3.0\spug_api\apps\runlog\views.py,977,ok,
+/api/setting/^$,,SettingView,,,,yes,super_only,,,E:\TDYW\spug-3.0\spug_api\apps\setting\views.py,37,super_only,AdminView without PERM_MAP - only super user can access
+/api/setting/^user/$,,UserSettingView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\setting\user.py,9,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/setting/^email_test/$,,email_test,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/setting/^mfa/$,,MFAView,,,,yes,super_only,,,E:\TDYW\spug-3.0\spug_api\apps\setting\views.py,72,super_only,AdminView without PERM_MAP - only super user can access
+/api/setting/^about/$,,get_about,,,,yes,,,,,0,dynamic,View class not found in static analysis
+/api/signature/^user/(?P<user_id>\d+)/signature/$,,SignatureManageView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\signature\views.py,50,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/signature/^user/(?P<user_id>\d+)/signature/status/$,,SignatureStatusView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\signature\views.py,120,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/signature/^user/(?P<user_id>\d+)/signature/history/$,,SignatureHistoryView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\signature\views.py,142,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/signature/^mine/$,,MySignatureView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\signature\views.py,160,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/signature/^preview/(?P<attachment_id>\d+)/$,,SignaturePreviewView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\signature\views.py,185,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/upgrade/records/export/,GET,RecordExportView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\exporters.py,70,ok,
+/api/upgrade/records/,GET,RecordListView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\record\list.py,14,ok,
+/api/upgrade/records/<int:pk>/,GET,RecordDetailView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\record\detail.py,14,ok,
+/api/upgrade/records/create/,POST,RecordCreateView,,,,yes,upgrade.upgrade.add,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\record\create.py,14,ok,
+/api/upgrade/records/<int:pk>/update/,PUT,RecordUpdateView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\record\update.py,14,ok,
+/api/upgrade/records/<int:pk>/delete/,DELETE,RecordDeleteView,,,,yes,upgrade.upgrade.del,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\record\delete.py,14,ok,
+/api/upgrade/filter-options/,GET,FilterOptionsView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\filter_options.py,14,ok,
+/api/upgrade/statistics/,GET,StatisticsView,,,,yes,upgrade.statistics.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\statistics.py,14,ok,
+/api/upgrade/records/<int:record_id>/attachments/,GET,AttachmentListView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,52,ok,
+/api/upgrade/records/<int:record_id>/attachments/,POST,AttachmentListView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,61,ok,
+/api/upgrade/attachments/<int:pk>/download/,GET,AttachmentDownloadView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,92,ok,
+/api/upgrade/attachments/<int:pk>/preview-url/,GET,AttachmentPreviewUrlView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,107,ok,
+/api/upgrade/attachments/<int:pk>/preview-file/,,AttachmentPreviewFileView,,,,yes,,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,116,no_perm_check,"View has no permission check (no PERM_MAP, no @auth)"
+/api/upgrade/attachments/,DELETE,AttachmentDeleteView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\upload.py,133,ok,
+/api/upgrade/plans/,GET,PlanListView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\plan.py,15,ok,
+/api/upgrade/plans/<int:pk>/,GET,PlanDetailView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\plan.py,24,ok,
+/api/upgrade/plans/create/,POST,PlanCreateView,,,,yes,upgrade.upgrade.add,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\plan.py,35,ok,
+/api/upgrade/plans/<int:pk>/update/,PUT,PlanUpdateView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\plan.py,58,ok,
+/api/upgrade/plans/<int:pk>/delete/,DELETE,PlanDeleteView,,,,yes,upgrade.upgrade.del,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\plan.py,83,ok,
+/api/upgrade/plans/<int:pk>/apply/,POST,PlanApplyView,,,,yes,upgrade.upgrade.add,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\plan.py,103,ok,
+/api/upgrade/plans/<int:pk>/reorder/,PUT,PlanReorderStepsView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\plan.py,128,ok,
+/api/upgrade/records/<int:record_id>/steps/,GET,RecordStepListView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\step.py,16,ok,
+/api/upgrade/records/<int:record_id>/steps/add/,POST,RecordStepAddView,,,,yes,upgrade.upgrade.add,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\step.py,26,ok,
+/api/upgrade/record-steps/<int:pk>/update/,PUT,RecordStepUpdateView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\step.py,54,ok,
+/api/upgrade/record-steps/<int:pk>/delete/,DELETE,RecordStepDeleteView,,,,yes,upgrade.upgrade.step_del,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\step.py,84,ok,
+/api/upgrade/records/<int:record_id>/steps/batch/,PUT,RecordStepBatchUpdateView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\step.py,104,ok,
+/api/upgrade/records/<int:record_id>/steps/clear/,DELETE,RecordStepClearView,,,,yes,upgrade.upgrade.step_del,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\step.py,128,ok,
+/api/upgrade/records/<int:record_id>/status-logs/,GET,StatusLogListView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\status_log.py,29,ok,
+/api/upgrade/records/<int:record_id>/status-logs/,POST,StatusLogListView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\status_log.py,44,ok,
+/api/upgrade/status-logs/<int:pk>/delete/,DELETE,StatusLogDeleteView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\status_log.py,79,ok,
+/api/upgrade/systems/,GET,UpgradeSystemListView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\systems.py,24,ok,
+/api/upgrade/systems/create/,POST,UpgradeSystemCreateView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\systems.py,42,ok,
+/api/upgrade/systems/<int:pk>/delete/,DELETE,UpgradeSystemDeleteView,,,,yes,upgrade.system.manage,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\systems.py,105,ok,
+/api/upgrade/upgrade/,GET,LegacyUpgradeView,,,,yes,upgrade.upgrade.view,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\legacy.py,25,ok,
+/api/upgrade/upgrade/,POST,LegacyUpgradeView,,,,yes,upgrade.upgrade.add,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\legacy.py,76,ok,
+/api/upgrade/upgrade/,PUT,LegacyUpgradeView,,,,yes,upgrade.upgrade.edit,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\legacy.py,103,ok,
+/api/upgrade/upgrade/,DELETE,LegacyUpgradeView,,,,yes,upgrade.upgrade.del,,,E:\TDYW\spug-3.0\spug_api\apps\upgrade\views\legacy.py,132,ok,

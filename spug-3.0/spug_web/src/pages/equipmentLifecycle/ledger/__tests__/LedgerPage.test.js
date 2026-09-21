@@ -7,7 +7,7 @@
  * - 异常数量红色突出显示
  * - 录入表单：模板先行预览生成明细（只选模板按适用系统展开）、
  *   payload 按系统+模板分组且每条明细携带 system_id、
- *   异常项必须填写说明、补录说明缺失被前端拦截、
+ *   异常项必须填写说明、新增模式实际执行日期默认当日、
  *   后端业务错误不视为成功（弹窗不关闭）、成功后重新获取真实数据
  * - 页面不存在机房现场/离线/二维码/移动端入口
  */
@@ -89,7 +89,7 @@ const LEDGERS_PAYLOAD = {
     {
       id: 1, ledger_no: 'EL-INS-20260910-0001', ledger_type: 'inspection',
       maintenance_cycle: '', executed_date: '2026-09-10', status: 'submitted',
-      location_scope: '中心机房', executor_names: '王五', items_count: 3,
+      executor_names: '王五', items_count: 3,
       abnormal_count: 2, created_by_name: 'op1', created_at: '2026-09-11 09:00',
     },
   ],
@@ -273,6 +273,18 @@ describe('台账录入表单（LedgerForm）', () => {
       {id: 11, system_code: 'S1', name: '系统一'}]);
   });
 
+  test('新增模式实际执行日期自动填入当日日期', async () => {
+    const store = getLedgerStore('inspection');
+    store.formVisible = true;
+    mockHttpGet.mockResolvedValue({data: [], total: 0});
+    const instance = renderForm(store);
+    await act(async () => {});
+    const d = new Date();
+    const pad = n => (n < 10 ? `0${n}` : `${n}`);
+    const today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    expect(instance.state.header.executed_date).toBe(today);
+  });
+
   test('一次提交多系统明细：payload 按系统分组且每条明细携带 system_id', async () => {
     const store = getLedgerStore('inspection');
     store.formVisible = true;
@@ -282,8 +294,7 @@ describe('台账录入表单（LedgerForm）', () => {
     act(() => {
       instance.setState({
         createdFrom: 'manual',
-        header: {executed_date: '2026-09-10', entry_note: '补录', shift: '', location_scope: '',
-          executor_names: '', collaborator_names: '', summary: '', executed_start: null, executed_end: null},
+        header: {executed_date: '2026-09-10', executor_names: '', executed_start: null, executed_end: null},
         rows: [
           {client_key: 'a', system_id: 11, item_name: '项一', input_type: 'text', value_text: 'ok', result: 'normal', is_temporary: true},
           {client_key: 'b', system_id: 22, item_name: '项二', input_type: 'text', value_text: 'ok', result: 'normal', is_temporary: true},
@@ -313,8 +324,7 @@ describe('台账录入表单（LedgerForm）', () => {
     act(() => {
       instance.setState({
         createdFrom: 'manual',
-        header: {executed_date: '2026-09-10', entry_note: '补录', shift: '', location_scope: '',
-          executor_names: '', collaborator_names: '', summary: '', executed_start: null, executed_end: null},
+        header: {executed_date: '2026-09-10', executor_names: '', executed_start: null, executed_end: null},
         rows: [{client_key: 'a', system_id: 11, item_name: '项一', input_type: 'text', value_text: '', result: 'abnormal', abnormal_desc: ''}],
       });
     });
@@ -324,7 +334,7 @@ describe('台账录入表单（LedgerForm）', () => {
     expect(mockHttpPost).not.toHaveBeenCalled();
   });
 
-  test('临时补录缺少补录说明或周月维护缺少周期时提交被拦截', async () => {
+  test('周月维护缺少维护周期时提交被拦截', async () => {
     const store = getLedgerStore('week_month');
     store.formVisible = true;
     mockHttpGet.mockResolvedValue({data: [], total: 0});
@@ -332,8 +342,7 @@ describe('台账录入表单（LedgerForm）', () => {
     act(() => {
       instance.setState({
         createdFrom: 'manual',
-        header: {executed_date: '2026-09-10', entry_note: '', shift: '', location_scope: '',
-          executor_names: '', collaborator_names: '', summary: '', executed_start: null, executed_end: null},
+        header: {executed_date: '2026-09-10', executor_names: '', executed_start: null, executed_end: null},
         rows: [{client_key: 'a', system_id: 11, item_name: '项一', input_type: 'text', value_text: 'x', result: 'normal'}],
       });
     });
@@ -352,8 +361,7 @@ describe('台账录入表单（LedgerForm）', () => {
     act(() => {
       instance.setState({
         createdFrom: 'manual',
-        header: {executed_date: '2026-09-10', entry_note: '补录', shift: '', location_scope: '',
-          executor_names: '', collaborator_names: '', summary: '', executed_start: null, executed_end: null},
+        header: {executed_date: '2026-09-10', executor_names: '', executed_start: null, executed_end: null},
         rows: [{client_key: 'a', system_id: 11, item_name: '项一', input_type: 'text', value_text: 'x', result: 'normal'}],
       });
     });
@@ -376,8 +384,7 @@ describe('台账录入表单（LedgerForm）', () => {
     act(() => {
       instance.setState({
         createdFrom: 'manual',
-        header: {executed_date: '2026-09-10', entry_note: '补录', shift: '', location_scope: '',
-          executor_names: '', collaborator_names: '', summary: '', executed_start: null, executed_end: null},
+        header: {executed_date: '2026-09-10', executor_names: '', executed_start: null, executed_end: null},
         rows: [{client_key: 'a', system_id: 11, item_name: '项一', input_type: 'text', value_text: 'x', result: 'normal'}],
       });
     });

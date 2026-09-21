@@ -345,21 +345,13 @@ def _parse_header_payload(user, body, for_update=False):
         executed_date = datetime.strptime(str(executed_date)[:10], '%Y-%m-%d').date()
     except ValueError:
         raise LedgerValidationError('实际执行日期格式不正确')
-    entry_note = str(body.get('entry_note') or '').strip()
-    if created_from == LEDGER_FROM_MANUAL and not entry_note:
-        raise LedgerValidationError('临时补录必须填写补录说明')
     return {
         'ledger_type': ledger_type,
         'maintenance_cycle': maintenance_cycle,
         'executed_date': executed_date,
-        'shift': str(body.get('shift') or '').strip(),
-        'location_scope': str(body.get('location_scope') or '').strip(),
         'executor_names': str(body.get('executor_names') or '').strip(),
-        'collaborator_names': str(body.get('collaborator_names') or '').strip(),
-        'summary': str(body.get('summary') or '').strip(),
         'executed_start': parse_datetime_value(body.get('executed_start'), '实际执行开始时间', allow_empty=True),
         'executed_end': parse_datetime_value(body.get('executed_end'), '实际执行结束时间', allow_empty=True),
-        'entry_note': entry_note,
         'client_token': str(body.get('client_token') or '')[:64],
     }
 
@@ -574,9 +566,8 @@ def update_ledger(user, pk, body):
                 item.delete()
         ledger.version += 1
         ledger.save(update_fields=[
-            'ledger_type', 'maintenance_cycle', 'executed_date', 'shift', 'location_scope',
-            'executor_names', 'collaborator_names', 'summary', 'executed_start', 'executed_end',
-            'entry_note', 'version'])
+            'ledger_type', 'maintenance_cycle', 'executed_date',
+            'executor_names', 'executed_start', 'executed_end', 'version'])
         return ledger, changed, None
     except LedgerValidationError as e:
         return None, None, str(e)
@@ -826,9 +817,7 @@ def correct_ledger(user, pk, body):
             item.save()
         else:
             header_updates = {
-                'summary': ('总体说明', body.get('summary')),
                 'executor_names': ('执行人', body.get('executor_names')),
-                'collaborator_names': ('协作人', body.get('collaborator_names')),
             }
             for field, (label, new_value) in header_updates.items():
                 if new_value is None:
@@ -838,7 +827,7 @@ def correct_ledger(user, pk, body):
                 if old_value != new_value:
                     changes.append({'field': field, 'label': label, 'old': old_value, 'new': new_value})
                     setattr(ledger, field, new_value)
-            ledger.save(update_fields=['summary', 'executor_names', 'collaborator_names'])
+            ledger.save(update_fields=['executor_names'])
         if not changes:
             return None, None, '没有需要更正的内容'
         correction = OperationLedgerCorrection.objects.create(

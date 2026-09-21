@@ -126,14 +126,9 @@ class LedgerDetail extends React.Component {
                 </Descriptions.Item>
                 <Descriptions.Item label="实际执行开始">{d.executed_start || '-'}</Descriptions.Item>
                 <Descriptions.Item label="实际执行结束">{d.executed_end || '-'}</Descriptions.Item>
-                <Descriptions.Item label="班次">{d.shift || '-'}</Descriptions.Item>
-                <Descriptions.Item label="机房/区域">{d.location_scope || '-'}</Descriptions.Item>
                 <Descriptions.Item label="执行人">{d.executor_names || '-'}</Descriptions.Item>
-                <Descriptions.Item label="协作人">{d.collaborator_names || '-'}</Descriptions.Item>
                 <Descriptions.Item label="创建方式">{CREATED_FROM_TEXT[d.created_from] || d.created_from}</Descriptions.Item>
                 <Descriptions.Item label="录入渠道">{d.entry_channel}</Descriptions.Item>
-                <Descriptions.Item label="补录说明" span={2}>{d.entry_note || '-'}</Descriptions.Item>
-                <Descriptions.Item label="总体说明" span={2}>{d.summary || '-'}</Descriptions.Item>
                 {d.status === 'returned' && (
                   <Descriptions.Item label="退回原因" span={2}>
                     <span style={{color: '#fa8c16'}}>{d.return_reason}</span>

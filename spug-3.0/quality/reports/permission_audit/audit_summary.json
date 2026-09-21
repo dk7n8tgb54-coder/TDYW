@@ -1,0 +1,2775 @@
+{
+  "timestamp": "2026-09-21T20:52:46.296761",
+  "stats": {
+    "total_findings": 343,
+    "severity_counts": {
+      "high": 141,
+      "low": 131,
+      "pending": 42,
+      "medium": 29
+    },
+    "mismatch_type_counts": {
+      "frontend_only_no_backend": 52,
+      "backend_only_no_frontend": 67,
+      "missing_backend_check": 131,
+      "invalid_permission": 26,
+      "orphan_permission": 38,
+      "object_permission": 29
+    },
+    "frontend_routes": 44,
+    "frontend_perm_entries": 141,
+    "frontend_perm_codes": 105,
+    "backend_views": 305,
+    "backend_perm_entries": 402,
+    "backend_perm_codes": 95,
+    "url_patterns": 324,
+    "total_perm_codes": 143,
+    "timestamp": "2026-09-21T20:52:46.296761"
+  },
+  "findings": [
+    {
+      "id": "FE_ONLY_1",
+      "severity": "high",
+      "module": "coop.task",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'coop.task.accept' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\coopTask\\Detail.js:162, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_2",
+      "severity": "high",
+      "module": "coop.task",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'coop.task.add' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\coopTask\\Table.js:154, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_3",
+      "severity": "high",
+      "module": "coop.task",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'coop.task.delete' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\coopTask\\Table.js:90, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_4",
+      "severity": "high",
+      "module": "coop.task",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'coop.task.edit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\coopTask\\Detail.js:71, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_5",
+      "severity": "high",
+      "module": "coop.task",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'coop.task.edit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\coopTask\\Detail.js:220, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_6",
+      "severity": "high",
+      "module": "coop.task",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'coop.task.edit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\coopTask\\Detail.js:244, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_7",
+      "severity": "high",
+      "module": "coop.task",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'coop.task.edit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\coopTask\\Table.js:89, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_8",
+      "severity": "high",
+      "module": "coop.task",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'coop.task.submit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\coopTask\\InboxDetail.js:31, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_9",
+      "severity": "high",
+      "module": "coop.task",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'coop.task.submit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\coopTask\\index.js:49, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_10",
+      "severity": "high",
+      "module": "coop.task",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'coop.task.view' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\coopTask\\index.js:49, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_11",
+      "severity": "high",
+      "module": "coop.task",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'coop.task.view' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\home\\CoopTaskOverview.js:25, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_12",
+      "severity": "high",
+      "module": "coop.task",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'coop.task.view' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\home\\CoopTaskOverview.js:48, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_13",
+      "severity": "high",
+      "module": "dashboard.dashboard",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'dashboard.dashboard.view' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\login\\index.js:17, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_14",
+      "severity": "high",
+      "module": "home.announcement",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'home.announcement.delete' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\announcement\\Detail.js:50, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_15",
+      "severity": "high",
+      "module": "home.announcement",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'home.announcement.delete' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\announcement\\index.js:86, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_16",
+      "severity": "high",
+      "module": "home.announcement",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'home.announcement.edit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\announcement\\Detail.js:47, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_17",
+      "severity": "high",
+      "module": "home.announcement",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'home.announcement.edit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\announcement\\index.js:83, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_18",
+      "severity": "high",
+      "module": "home.announcement",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'home.announcement.publish' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\announcement\\Detail.js:48, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_19",
+      "severity": "high",
+      "module": "home.announcement",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'home.announcement.publish' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\announcement\\index.js:84, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_20",
+      "severity": "high",
+      "module": "home.announcement",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'home.announcement.view' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\home\\AnnouncementList.js:34, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_21",
+      "severity": "high",
+      "module": "home.announcement",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'home.announcement.view' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\announcement\\index.js:130, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_22",
+      "severity": "high",
+      "module": "home.announcement",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'home.announcement.withdraw' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\announcement\\Detail.js:49, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_23",
+      "severity": "high",
+      "module": "home.announcement",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'home.announcement.withdraw' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\announcement\\index.js:85, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_24",
+      "severity": "high",
+      "module": "interference.interference",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.interference.add' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\EventForm.js:147, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_25",
+      "severity": "high",
+      "module": "interference.interference",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.interference.add' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\events.js:117, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_26",
+      "severity": "high",
+      "module": "interference.interference",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.interference.del' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\events.js:93, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_27",
+      "severity": "high",
+      "module": "interference.interference",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.interference.edit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\EventForm.js:146, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_28",
+      "severity": "high",
+      "module": "interference.interference",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.interference.edit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\events.js:92, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_29",
+      "severity": "high",
+      "module": "interference.interference",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.interference.view' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\events.js:91, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_30",
+      "severity": "high",
+      "module": "interference.interference",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.interference.view' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\events.js:97, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_31",
+      "severity": "high",
+      "module": "interference.investigation",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.investigation.add' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\events.js:118, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_32",
+      "severity": "high",
+      "module": "interference.investigation",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.investigation.add' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\InvestigationForm.js:76, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_33",
+      "severity": "high",
+      "module": "interference.investigation",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.investigation.add' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\investigations.js:52, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_34",
+      "severity": "high",
+      "module": "interference.investigation",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.investigation.del' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\investigations.js:41, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_35",
+      "severity": "high",
+      "module": "interference.investigation",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.investigation.edit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\events.js:119, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_36",
+      "severity": "high",
+      "module": "interference.investigation",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.investigation.edit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\InvestigationForm.js:75, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_37",
+      "severity": "high",
+      "module": "interference.investigation",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.investigation.edit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\investigations.js:40, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_38",
+      "severity": "high",
+      "module": "interference.investigation",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.investigation.view' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\investigations.js:39, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_39",
+      "severity": "high",
+      "module": "interference.investigation",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.investigation.view' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\investigations.js:45, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_40",
+      "severity": "high",
+      "module": "interference.measurement",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.measurement.add' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\InvestigationForm.js:156, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_41",
+      "severity": "high",
+      "module": "interference.measurement",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.measurement.edit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\InvestigationForm.js:156, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_42",
+      "severity": "high",
+      "module": "interference.measurement",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'interference.measurement.view' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\interference\\InvestigationForm.js:78, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_43",
+      "severity": "high",
+      "module": "runlog.runlog",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'runlog.runlog.add' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\runlog\\Table.js:312, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_44",
+      "severity": "high",
+      "module": "runlog.runlog",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'runlog.runlog.del' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\runlog\\Table.js:411, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_45",
+      "severity": "high",
+      "module": "runlog.runlog",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'runlog.runlog.del' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\runlog\\Table.js:419, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_46",
+      "severity": "high",
+      "module": "system.release_note",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'system.release_note.add' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\releaseNotes\\index.js:73, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_47",
+      "severity": "high",
+      "module": "system.release_note",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'system.release_note.del' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\releaseNotes\\index.js:75, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_48",
+      "severity": "high",
+      "module": "system.release_note",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'system.release_note.edit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\releaseNotes\\index.js:72, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_49",
+      "severity": "high",
+      "module": "system.release_note",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'system.release_note.publish' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\releaseNotes\\index.js:74, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_50",
+      "severity": "high",
+      "module": "system.release_note",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'system.release_note.view' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\releaseNotes\\index.js:114, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_51",
+      "severity": "high",
+      "module": "upgrade.upgrade",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'upgrade.upgrade.step_reset' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\upgrade\\WorkbenchForm.js:486, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "FE_ONLY_52",
+      "severity": "high",
+      "module": "upgrade.upgrade",
+      "mismatch_type": "frontend_only_no_backend",
+      "evidence": "Frontend uses 'upgrade.upgrade.update_del' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\upgrade\\Form_old.js:394, but no backend @auth or PERM_MAP found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_53",
+      "severity": "low",
+      "module": "contract_agreement.agreement",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'contract_agreement.agreement.add' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\contract_agreement\\views.py:327, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_54",
+      "severity": "low",
+      "module": "device.device_resume",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'device.device_resume.history_delete' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\device\\views.py:568, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_55",
+      "severity": "low",
+      "module": "device.device_resume",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'device.device_resume.history_edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\device\\views.py:520, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_56",
+      "severity": "low",
+      "module": "device.device_resume",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'device.device_resume.history_view' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\device\\views.py:406, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_57",
+      "severity": "low",
+      "module": "device.device_resume",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'device.device_resume.history_view' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\device\\views.py:611, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_58",
+      "severity": "low",
+      "module": "document.regulation",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'document.regulation.add' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\regulation\\views.py:403, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_59",
+      "severity": "low",
+      "module": "document.regulation",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'document.regulation.download' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\regulation\\views.py:787, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_60",
+      "severity": "low",
+      "module": "document.regulation",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'document.regulation.upload' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\regulation\\views.py:708, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_61",
+      "severity": "low",
+      "module": "document.regulation",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'document.regulation.upload' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\regulation\\views.py:989, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_62",
+      "severity": "low",
+      "module": "duty.duty",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'duty.duty.add' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\duty\\views.py:85, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_63",
+      "severity": "low",
+      "module": "equipment_lifecycle.fault",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.fault.export' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\fault_views.py:834, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_64",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger.add' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:490, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_65",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger.del' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:578, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_66",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:527, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_67",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:592, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_68",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:608, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_69",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:792, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_70",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:814, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_71",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:869, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_72",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:900, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_73",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger.export' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:704, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_74",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger.review' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:553, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_75",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger.review' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:566, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_76",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger.submit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:542, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_77",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger_template",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger_template.add' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:213, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_78",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger_template",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger_template.del' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:340, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_79",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger_template",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger_template.del' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:418, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_80",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger_template",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger_template.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:313, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_81",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger_template",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger_template.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:374, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_82",
+      "severity": "low",
+      "module": "equipment_lifecycle.ledger_template",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.ledger_template.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:394, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_83",
+      "severity": "low",
+      "module": "equipment_lifecycle.system",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system.add' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:634, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_84",
+      "severity": "low",
+      "module": "equipment_lifecycle.system",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system.deactivate' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1262, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_85",
+      "severity": "low",
+      "module": "equipment_lifecycle.system",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system.del' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1239, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_86",
+      "severity": "low",
+      "module": "equipment_lifecycle.system",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:934, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_87",
+      "severity": "low",
+      "module": "equipment_lifecycle.system",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system.export' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1292, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_88",
+      "severity": "low",
+      "module": "equipment_lifecycle.system",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system.view' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:552, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_89",
+      "severity": "low",
+      "module": "equipment_lifecycle.system",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system.view' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1344, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_90",
+      "severity": "low",
+      "module": "equipment_lifecycle.system",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system.view' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1323, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_91",
+      "severity": "low",
+      "module": "equipment_lifecycle.system",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system.view' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:879, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_92",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1419, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_93",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1930, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_94",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1950, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_95",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1523, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_96",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1571, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_97",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.edit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1622, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_98",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.export' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1490, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_99",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.field' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1653, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_100",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.field' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1709, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_101",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.field' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1768, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_102",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.snapshot' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1828, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_103",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.view' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1386, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_104",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.view' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1921, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_105",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.view' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1975, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_106",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.view' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1516, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_107",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.view' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1645, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_108",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.view' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1793, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_109",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.view' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1813, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_110",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_config",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_config.view' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1864, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_111",
+      "severity": "low",
+      "module": "equipment_lifecycle.system_event",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.system_event.export' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\event_views.py:147, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_112",
+      "severity": "low",
+      "module": "equipment_lifecycle.work_order",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'equipment_lifecycle.work_order.export' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\work_order_views.py:1446, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_113",
+      "severity": "low",
+      "module": "radio_license.approval",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'radio_license.approval.add' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\radio_license\\approval_views.py:186, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_114",
+      "severity": "low",
+      "module": "radio_license.attachment",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'radio_license.attachment.delete' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\radio_license\\approval_views.py:513, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_115",
+      "severity": "low",
+      "module": "radio_license.attachment",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'radio_license.attachment.download' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\radio_license\\approval_views.py:456, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_116",
+      "severity": "low",
+      "module": "radio_license.attachment",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'radio_license.attachment.upload' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\radio_license\\approval_views.py:420, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_117",
+      "severity": "low",
+      "module": "radio_license.license",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'radio_license.license.add' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\radio_license\\views.py:273, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_118",
+      "severity": "low",
+      "module": "system.alert",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'system.alert.resolve' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\alert\\views.py:152, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "BE_ONLY_119",
+      "severity": "low",
+      "module": "system.tenant",
+      "mismatch_type": "backend_only_no_frontend",
+      "evidence": "Backend checks 'system.tenant.add' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\account\\views.py:578, but no frontend usage found",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_120",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'login' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_121",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'logout' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_122",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'get_tenant_choices' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_123",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'restore_user' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_124",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'SelfView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\account\\views.py:657",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_125",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AttachmentPreviewFileView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\upgrade\\views\\upload.py:116",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_126",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReminderAckView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\reminder\\views.py:247",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_127",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AttachmentPreviewFileView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\upgrade\\views\\upload.py:116",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_128",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'overview_view' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_129",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'interference_view' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_130",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'device_view' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_131",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'upgrade_view' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_132",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FolderView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\folder\\views.py:40",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_133",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FolderSearchView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\search.py:125",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_134",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FileView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\file\\views.py:28",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_135",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FileUploadView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\file\\upload.py:32",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_136",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FileDownloadView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\file\\download.py:27",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_137",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FilePreviewView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\file\\preview.py:56",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_138",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FileTextContentView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\file\\preview.py:291",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_139",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'OfficePreviewUrlView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\file\\preview.py:423",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_140",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'PreviewTokenView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\file\\preview.py:565",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_141",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FileCopyView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\file\\copy.py:214",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_142",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FileMoveView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\file\\move.py:31",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_143",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FileRenameView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\file\\rename.py:24",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_144",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FolderCopyView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\folder\\copy.py:33",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_145",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FolderMoveView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\folder\\move.py:26",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_146",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FolderDownloadView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\folder\\download.py:33",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_147",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FolderRenameView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\folder\\rename.py:24",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_148",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FolderPropertiesView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\folder\\properties.py:85",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_149",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FolderDownloadStatusView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\folder\\download.py:372",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_150",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FolderDownloadReadyView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\folder\\download.py:468",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_151",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FileChunkUploadView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\upload\\chunk.py:86",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_152",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FileMergeChunksView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\upload\\merge.py:551",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_153",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'FileMergeStatusView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\upload\\status.py:20",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_154",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'CheckUploadedChunksView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\upload\\resume.py:32",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_155",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'DirectMergeView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\upload\\direct_merge.py:42",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_156",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'DiskUsageView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\disk.py:55",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_157",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'TransferListView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\transfer\\list.py:19",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_158",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'TransferCreateView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\transfer\\create.py:20",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_159",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'TransferProgressUpdateView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\transfer\\progress.py:20",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_160",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'TransferCompleteView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\transfer\\status.py:21",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_161",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'TransferCancelView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\transfer\\cancel.py:182",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_162",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'TransferStatusUpdateView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\transfer\\status.py:134",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_163",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'TransferDeleteView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\transfer\\delete.py:19",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_164",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'TransferFailView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\transfer\\status.py:64",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_165",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'TransferHashUpdateView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\transfer\\delete.py:42",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_166",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'TransferBatchPauseView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\transfer\\batch.py:29",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_167",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'TransferBatchResumeView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\transfer\\batch.py:104",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_168",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'TransferBatchCancelView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\transfer\\batch.py:183",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_169",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'TransferBatchDeleteView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\transfer\\batch.py:242",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_170",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'HealthCheckView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\health.py:18",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_171",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'DatabasePoolStatusView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\health.py:106",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_172",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'DatabasePoolMetricsView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\document\\views\\health.py:250",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_173",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'export_pdf' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_174",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_175",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_176",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_177",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_178",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_179",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_180",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_181",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_182",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_183",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_184",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_185",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_186",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_187",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_188",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_189",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_190",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_191",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_192",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_193",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_194",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_195",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_196",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_197",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_198",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_199",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_200",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View '_na' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_201",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'get_statistic' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_202",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementAdminListView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:236",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_203",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementDepartmentsView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:346",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_204",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementAdminDetailView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:304",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_205",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementPublishView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:356",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_206",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementWithdrawView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:384",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_207",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementAttachmentListView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:409",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_208",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementAttachmentDeleteView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:445",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_209",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementListView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:467",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_210",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementUnreadCountView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:538",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_211",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementRemindersView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:551",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_212",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementDetailView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:504",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_213",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementReadView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:515",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_214",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementUserAttachmentListView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:526",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_215",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementAttachmentDownloadView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:570",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_216",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementAttachmentPreviewUrlView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:591",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_217",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AnnouncementAttachmentPreviewFileView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\home\\announcement.py:613",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_218",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'EventAttachmentListView' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_219",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'InvestigationAttachmentListView' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_220",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'MeasurementAttachmentListView' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_221",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AttachmentPreviewFileView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\upgrade\\views\\upload.py:116",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_222",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ApprovalAttachmentPreviewFileView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\radio_license\\approval_views.py:491",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_223",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AttachmentPreviewFileView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\upgrade\\views\\upload.py:116",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_224",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReminderAckView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\reminder\\views.py:247",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_225",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'RegulationAttachmentPreviewFileView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\regulation\\views.py:902",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_226",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'SystemVersionView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\release\\views.py:101",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_227",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReleaseNoteListView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\release\\views.py:114",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_228",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReleaseNoteUnreadView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\release\\views.py:142",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_229",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReleaseNoteSettingsView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\release\\views.py:159",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_230",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReleaseNoteDetailView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\release\\views.py:185",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_231",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReleaseNoteReadView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\release\\views.py:195",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_232",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReleaseNoteAckView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\release\\views.py:206",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_233",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReleaseNoteAdminListView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\release\\views.py:260",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_234",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReleaseNoteAdminDetailView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\release\\views.py:389",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_235",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReleaseNoteAdminPublishView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\release\\views.py:403",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_236",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReminderView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\reminder\\views.py:67",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_237",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReminderUsersView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\reminder\\views.py:186",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_238",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReminderStatusView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\reminder\\views.py:269",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_239",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReminderPendingView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\reminder\\views.py:210",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_240",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'ReminderAckView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\reminder\\views.py:247",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_241",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'EventTypeConfigView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\runlog\\views.py:570",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_242",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'UserSettingView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\setting\\user.py:9",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_243",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'email_test' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_244",
+      "severity": "pending",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'get_about' could not be resolved by static analysis. May be a function-based view or dynamically imported.",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_245",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'SignatureManageView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\signature\\views.py:50",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_246",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'SignatureStatusView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\signature\\views.py:120",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_247",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'SignatureHistoryView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\signature\\views.py:142",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_248",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'MySignatureView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\signature\\views.py:160",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_249",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'SignaturePreviewView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\signature\\views.py:185",
+      "current_status": "open"
+    },
+    {
+      "id": "MISSING_250",
+      "severity": "high",
+      "module": "",
+      "mismatch_type": "missing_backend_check",
+      "evidence": "View 'AttachmentPreviewFileView' has no PERM_MAP and no @auth decorator. Non-super users can access this endpoint without any permission check. File: E:\\TDYW\\spug-3.0\\spug_api\\apps\\upgrade\\views\\upload.py:116",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_251",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'deactivate' in permission code 'equipment_lifecycle.system.deactivate' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1262",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_252",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'submit' in permission code 'coop.task.submit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\coopTask\\InboxDetail.js:31",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_253",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'submit' in permission code 'coop.task.submit' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\coopTask\\index.js:49",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_254",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'category_manage' in permission code 'document.regulation.category_manage' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\regulation\\CategoryTree.js:59",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_255",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'category_manage' in permission code 'document.regulation.category_manage' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\regulation\\CategoryTree.js:93",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_256",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'category_manage' in permission code 'document.regulation.category_manage' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\regulation\\views.py:212",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_257",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'category_manage' in permission code 'document.regulation.category_manage' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\regulation\\views.py:265",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_258",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'category_manage' in permission code 'document.regulation.category_manage' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\regulation\\views.py:303",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_259",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'return' in permission code 'department_duty_log.department_duty_log.return' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\departmentDutyLog\\DepartmentDutyLogTable.js:105",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_260",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'return' in permission code 'department_duty_log.department_duty_log.return' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\department_duty_log\\views.py:160",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_261",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'resolve' in permission code 'system.alert.resolve' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\alert\\views.py:152",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_262",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'step_del' in permission code 'upgrade.upgrade.step_del' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\upgrade\\WorkbenchForm.js:489",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_263",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'step_del' in permission code 'upgrade.upgrade.step_del' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\upgrade\\WorkbenchForm.js:529",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_264",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'step_del' in permission code 'upgrade.upgrade.step_del' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\upgrade\\views\\step.py:84",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_265",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'step_del' in permission code 'upgrade.upgrade.step_del' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\upgrade\\views\\step.py:128",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_266",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'withdraw' in permission code 'home.announcement.withdraw' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\announcement\\Detail.js:49",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_267",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'withdraw' in permission code 'home.announcement.withdraw' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\system\\announcement\\index.js:85",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_268",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'review' in permission code 'equipment_lifecycle.ledger.review' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:553",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_269",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'review' in permission code 'equipment_lifecycle.ledger.review' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:566",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_270",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'accept' in permission code 'coop.task.accept' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\coopTask\\Detail.js:162",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_271",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'field' in permission code 'equipment_lifecycle.system_config.field' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1653",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_272",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'field' in permission code 'equipment_lifecycle.system_config.field' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1709",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_273",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'field' in permission code 'equipment_lifecycle.system_config.field' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1768",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_274",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'submit' in permission code 'equipment_lifecycle.ledger.submit' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\ledger_views.py:542",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_275",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'snapshot' in permission code 'equipment_lifecycle.system_config.snapshot' at E:\\TDYW\\spug-3.0\\spug_api\\apps\\equipment_lifecycle\\views.py:1828",
+      "current_status": "open"
+    },
+    {
+      "id": "INVALID_276",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "invalid_permission",
+      "evidence": "Unknown action 'step_reset' in permission code 'upgrade.upgrade.step_reset' at E:\\TDYW\\spug-3.0\\spug_web\\src\\pages\\upgrade\\WorkbenchForm.js:486",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_277",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'contract_agreement.agreement.add' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_278",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'device.device_resume.history_delete' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_279",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'device.device_resume.history_edit' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_280",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'device.device_resume.history_view' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_281",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'document.regulation.add' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_282",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'document.regulation.download' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_283",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'document.regulation.upload' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_284",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'duty.duty.add' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_285",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.fault.export' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_286",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.ledger.add' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_287",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.ledger.del' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_288",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.ledger.edit' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_289",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.ledger.export' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_290",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.ledger.review' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_291",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.ledger.submit' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_292",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.ledger_template.add' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_293",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.ledger_template.del' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_294",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.ledger_template.edit' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_295",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.system.add' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_296",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.system.deactivate' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_297",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.system.del' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_298",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.system.edit' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_299",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.system.export' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_300",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.system.view' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_301",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.system_config.edit' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_302",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.system_config.export' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_303",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.system_config.field' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_304",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.system_config.snapshot' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_305",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.system_config.view' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_306",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.system_event.export' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_307",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'equipment_lifecycle.work_order.export' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_308",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'radio_license.approval.add' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_309",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'radio_license.attachment.delete' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_310",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'radio_license.attachment.download' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_311",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'radio_license.attachment.upload' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_312",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'radio_license.license.add' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_313",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'system.alert.resolve' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "ORPHAN_314",
+      "severity": "low",
+      "module": "",
+      "mismatch_type": "orphan_permission",
+      "evidence": "Permission 'system.tenant.add' is checked in backend but not used in any frontend route or button",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_315",
+      "severity": "medium",
+      "module": "department_duty_log",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'DepartmentDutyLogListCreateView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_316",
+      "severity": "medium",
+      "module": "department_duty_log",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'DepartmentDutyLogDetailView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_317",
+      "severity": "medium",
+      "module": "department_duty_log",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'DepartmentDutyLogSignView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_318",
+      "severity": "medium",
+      "module": "department_duty_log",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'DepartmentDutyLogReturnView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_319",
+      "severity": "medium",
+      "module": "department_duty_log",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'DepartmentDutyLogSignatureImageView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_320",
+      "severity": "medium",
+      "module": "department_duty_log",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'DepartmentDutyLogOptionsView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_321",
+      "severity": "medium",
+      "module": "department_duty_log",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'DepartmentDutyLogDutyDatesView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_322",
+      "severity": "medium",
+      "module": "department_duty_log",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'DepartmentDutyLogPdfExportView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_323",
+      "severity": "medium",
+      "module": "document",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'SystemFolderView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_324",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'FilterOptionsView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_325",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'PlanListView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_326",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'PlanDetailView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_327",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'PlanCreateView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_328",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'PlanUpdateView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_329",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'PlanDeleteView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_330",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'PlanApplyView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_331",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'PlanReorderStepsView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_332",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'StatisticsView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_333",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'RecordStepListView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_334",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'RecordStepAddView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_335",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'RecordStepUpdateView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_336",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'RecordStepDeleteView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_337",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'RecordStepBatchUpdateView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_338",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'RecordStepClearView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_339",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'RecordCreateView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_340",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'RecordDeleteView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_341",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'RecordDetailView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_342",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'RecordListView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    },
+    {
+      "id": "OBJ_343",
+      "severity": "medium",
+      "module": "upgrade",
+      "mismatch_type": "object_permission",
+      "evidence": "View 'RecordUpdateView' has permission checks but no object-level checks (no check_public_space_permission, apply_tenant_filter, or similar)",
+      "current_status": "open"
+    }
+  ]
+}

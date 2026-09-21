@@ -205,6 +205,35 @@ class AttachmentAccessTest(ContractTestCase):
         body = self.get_json(f'{self.URL}attachments/{up["data"]["id"]}/preview-url/')
         self.assertBusinessError(body, 'zip 类型不应生成在线预览地址')
 
+    def test_same_module_wrong_object_type_rejected(self):
+        """同租户、module 匹配但 object_type 不匹配的附件必须被归属校验拒绝（M252）。
+
+        归属校验是 `module != X or object_type != Y`；若被弱化为 and，
+        「module 匹配、object_type 不匹配」的附件即可通过视图层校验。
+        现有跨模块测试 module 与 object_type 双双不同，无法区分该分支。
+        """
+        rel = 'contract_agreement/admin/202609/record_999/mismatched.pdf'
+        full = self.media_path(rel)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, 'wb') as fh:
+            fh.write(b'mismatched-type-bytes')
+        EvidenceAttachment.objects.create(
+            tenant_id='admin', module='contract_agreement', object_type='record',
+            object_id='999', file_name='类型不匹配.pdf', file_path=rel,
+            file_size=20, file_ext='.pdf', uploaded_by_id=self.user.id,
+            uploaded_by_name=self.user.nickname,
+        )
+        att = EvidenceAttachment.objects.get(file_path=rel)
+
+        expected = '附件不存在或无权限访问'
+        preview = self.get_json(f'{self.URL}attachments/{att.id}/preview-url/')
+        self.assertEqual(preview.get('error'), expected,
+                         f'object_type 不匹配的附件不得签发预览令牌: {preview}')
+        download = self._decode(
+            self.client.get(f'{self.URL}attachments/{att.id}/download/'))
+        self.assertEqual(download.get('error'), expected,
+                         f'object_type 不匹配的附件不得下载: {download}')
+
     def test_delete_attachment_soft_deletes_and_audits(self):
         self.assertNoError(self.delete_attachment(self.att_id, reason='测试删除'))
         att = EvidenceAttachment.objects.all_with_deleted().get(pk=self.att_id)

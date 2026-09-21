@@ -1,0 +1,144 @@
+﻿permission_code,namespace,resource,action,source_type,source_file,line,module,registered,used_by_role,status,notes
+contract_agreement.agreement.add,contract_agreement,agreement,add,backend,E:\TDYW\spug-3.0\spug_api\apps\contract_agreement\views.py,327,contract_agreement,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+contract_agreement.agreement.del,contract_agreement,agreement,del,both,E:\TDYW\spug-3.0\spug_web\src\pages\contractAgreement\Table.js,123,contract_agreement,yes,yes,valid,
+contract_agreement.agreement.edit,contract_agreement,agreement,edit,both,E:\TDYW\spug-3.0\spug_web\src\pages\contractAgreement\Form.js,110,contract_agreement,yes,yes,valid,
+contract_agreement.agreement.view,contract_agreement,agreement,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\contractAgreement\index.js,25,contract_agreement,yes,yes,valid,
+coop.task.accept,coop,task,accept,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\Detail.js,162,coop,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+coop.task.add,coop,task,add,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\Table.js,154,coop,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+coop.task.delete,coop,task,delete,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\Table.js,90,coop,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+coop.task.edit,coop,task,edit,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\Detail.js,71,coop,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+coop.task.submit,coop,task,submit,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\InboxDetail.js,31,coop,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+coop.task.view,coop,task,view,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\coopTask\index.js,49,coop,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+dashboard.dashboard.view,dashboard,dashboard,view,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\login\index.js,17,dashboard,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+data_analysis.overview.view|data_analysis.interference.view|data_analysis.device.view|data_analysis.upgrade.view,data_analysis,overview,view|data_analysis,frontend,,0,data_analysis,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+department_duty_log.department_duty_log.add,department_duty_log,department_duty_log,add,both,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\index.js,85,department_duty_log,yes,yes,valid,
+department_duty_log.department_duty_log.del,department_duty_log,department_duty_log,del,both,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\DepartmentDutyLogTable.js,101,department_duty_log,yes,yes,valid,
+department_duty_log.department_duty_log.edit,department_duty_log,department_duty_log,edit,both,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\DepartmentDutyLogTable.js,93,department_duty_log,yes,yes,valid,
+department_duty_log.department_duty_log.export,department_duty_log,department_duty_log,export,both,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\DepartmentDutyLogExportButton.js,72,department_duty_log,yes,yes,valid,
+department_duty_log.department_duty_log.return,department_duty_log,department_duty_log,return,both,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\DepartmentDutyLogTable.js,105,department_duty_log,yes,yes,valid,
+department_duty_log.department_duty_log.sign,department_duty_log,department_duty_log,sign,both,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\DepartmentDutyLogTable.js,97,department_duty_log,yes,yes,valid,
+department_duty_log.department_duty_log.view,department_duty_log,department_duty_log,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\departmentDutyLog\DepartmentDutyLogTable.js,90,department_duty_log,yes,yes,valid,
+device.device_resume.add,device,device_resume,add,both,E:\TDYW\spug-3.0\spug_web\src\pages\device\Table.js,66,device,yes,yes,valid,
+device.device_resume.delete,device,device_resume,delete,both,E:\TDYW\spug-3.0\spug_web\src\pages\device\Table.js,57,device,yes,yes,valid,
+device.device_resume.edit,device,device_resume,edit,both,E:\TDYW\spug-3.0\spug_web\src\pages\device\Table.js,56,device,yes,yes,valid,
+device.device_resume.history_add,device,device_resume,history_add,both,E:\TDYW\spug-3.0\spug_web\src\pages\device\DetailView.js,80,device,yes,yes,valid,
+device.device_resume.history_delete,device,device_resume,history_delete,backend,E:\TDYW\spug-3.0\spug_api\apps\device\views.py,568,device,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+device.device_resume.history_edit,device,device_resume,history_edit,backend,E:\TDYW\spug-3.0\spug_api\apps\device\views.py,520,device,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+device.device_resume.history_view,device,device_resume,history_view,backend,E:\TDYW\spug-3.0\spug_api\apps\device\views.py,406,device,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+device.device_resume.view,device,device_resume,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\device\index.js,24,device,yes,yes,valid,
+device.device_resume.view|device.device_history.view,device,device_resume,view|device,frontend,,0,device,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+document.document.view,document,document,view,both,E:\TDYW\spug-3.0\spug_api\apps\document\views\system_folder.py,27,document,yes,yes,valid,
+document.document.view|document.party_building_document.view|document.regulation.view,document,document,view|document,frontend,,0,document,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+document.party_building_document.view,document,party_building_document,view,both,E:\TDYW\spug-3.0\spug_api\apps\document\views\system_folder.py,27,document,yes,yes,valid,
+document.regulation.add,document,regulation,add,backend,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,403,document,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+document.regulation.category_manage,document,regulation,category_manage,both,E:\TDYW\spug-3.0\spug_web\src\pages\regulation\CategoryTree.js,59,document,yes,yes,valid,
+document.regulation.delete,document,regulation,delete,both,E:\TDYW\spug-3.0\spug_web\src\pages\regulation\Table.js,124,document,yes,yes,valid,
+document.regulation.download,document,regulation,download,backend,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,787,document,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+document.regulation.edit,document,regulation,edit,both,E:\TDYW\spug-3.0\spug_web\src\pages\regulation\Form.js,39,document,yes,yes,valid,
+document.regulation.upload,document,regulation,upload,backend,E:\TDYW\spug-3.0\spug_api\apps\regulation\views.py,708,document,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+document.regulation.view,document,regulation,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\regulation\index.js,19,document,yes,yes,valid,
+duty.duty.add,duty,duty,add,backend,E:\TDYW\spug-3.0\spug_api\apps\duty\views.py,85,duty,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+duty.duty.del,duty,duty,del,both,E:\TDYW\spug-3.0\spug_web\src\pages\duty\Table.js,134,duty,yes,yes,valid,
+duty.duty.edit,duty,duty,edit,both,E:\TDYW\spug-3.0\spug_web\src\pages\duty\Table.js,134,duty,yes,yes,valid,
+duty.duty.view,duty,duty,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\duty\index.js,19,duty,yes,yes,valid,
+equipment_lifecycle.fault.export,equipment_lifecycle,fault,export,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\fault_views.py,834,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.fault.view,equipment_lifecycle,fault,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\equipmentLifecycle\systemEvent\constants.js,61,equipment_lifecycle,yes,yes,valid,
+equipment_lifecycle.fault.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.work_order.view,equipment_lifecycle,fault,view|equipment_lifecycle,frontend,,0,equipment_lifecycle,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+equipment_lifecycle.ledger.add,equipment_lifecycle,ledger,add,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,490,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.ledger.del,equipment_lifecycle,ledger,del,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,578,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.ledger.edit,equipment_lifecycle,ledger,edit,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,527,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.ledger.export,equipment_lifecycle,ledger,export,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,704,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.ledger.review,equipment_lifecycle,ledger,review,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,553,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.ledger.submit,equipment_lifecycle,ledger,submit,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,542,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.ledger.view,equipment_lifecycle,ledger,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\equipmentLifecycle\systemEvent\constants.js,69,equipment_lifecycle,yes,yes,valid,
+equipment_lifecycle.ledger_template.add,equipment_lifecycle,ledger_template,add,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,213,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.ledger_template.del,equipment_lifecycle,ledger_template,del,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,340,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.ledger_template.edit,equipment_lifecycle,ledger_template,edit,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,313,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.ledger_template.view,equipment_lifecycle,ledger_template,view,both,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\ledger_views.py,191,equipment_lifecycle,yes,yes,valid,
+equipment_lifecycle.system.add,equipment_lifecycle,system,add,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,634,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.system.deactivate,equipment_lifecycle,system,deactivate,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1262,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.system.del,equipment_lifecycle,system,del,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1239,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.system.edit,equipment_lifecycle,system,edit,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,934,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.system.export,equipment_lifecycle,system,export,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1292,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.system.view,equipment_lifecycle,system,view,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,552,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.system.view|equipment_lifecycle.system_config.view,equipment_lifecycle,system,view|equipment_lifecycle,frontend,,0,equipment_lifecycle,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+equipment_lifecycle.system_config.edit,equipment_lifecycle,system_config,edit,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1419,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.system_config.export,equipment_lifecycle,system_config,export,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1490,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.system_config.field,equipment_lifecycle,system_config,field,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1653,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.system_config.snapshot,equipment_lifecycle,system_config,snapshot,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1828,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.system_config.view,equipment_lifecycle,system_config,view,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\views.py,1386,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.system_event.export,equipment_lifecycle,system_event,export,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\event_views.py,147,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.system_event.view,equipment_lifecycle,system_event,view,both,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\event_views.py,100,equipment_lifecycle,yes,yes,valid,
+equipment_lifecycle.system_event.view|equipment_lifecycle.system.view,equipment_lifecycle,system_event,view|equipment_lifecycle,frontend,,0,equipment_lifecycle,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+equipment_lifecycle.work_order.export,equipment_lifecycle,work_order,export,backend,E:\TDYW\spug-3.0\spug_api\apps\equipment_lifecycle\work_order_views.py,1446,equipment_lifecycle,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+equipment_lifecycle.work_order.view,equipment_lifecycle,work_order,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\equipmentLifecycle\systemEvent\constants.js,64,equipment_lifecycle,yes,yes,valid,
+home.announcement.delete,home,announcement,delete,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\system\announcement\Detail.js,50,home,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+home.announcement.edit,home,announcement,edit,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\system\announcement\Detail.js,47,home,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+home.announcement.publish,home,announcement,publish,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\system\announcement\Detail.js,48,home,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+home.announcement.view,home,announcement,view,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\home\AnnouncementList.js,34,home,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+home.announcement.view|home.reminder.view,home,announcement,view|home,frontend,,0,home,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+home.announcement.withdraw,home,announcement,withdraw,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\system\announcement\Detail.js,49,home,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+home.reminder.view,home,reminder,view,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\reminder\index.js,124,home,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+interference.interference.add,interference,interference,add,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\interference\EventForm.js,147,interference,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+interference.interference.del,interference,interference,del,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\interference\events.js,93,interference,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+interference.interference.edit,interference,interference,edit,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\interference\EventForm.js,146,interference,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+interference.interference.view,interference,interference,view,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\interference\events.js,91,interference,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+interference.interference.view|interference.investigation.view,interference,interference,view|interference,frontend,,0,interference,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+interference.investigation.add,interference,investigation,add,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\interference\events.js,118,interference,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+interference.investigation.del,interference,investigation,del,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\interference\investigations.js,41,interference,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+interference.investigation.edit,interference,investigation,edit,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\interference\events.js,119,interference,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+interference.investigation.view,interference,investigation,view,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\interference\investigations.js,39,interference,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+interference.measurement.add,interference,measurement,add,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\interference\InvestigationForm.js,156,interference,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+interference.measurement.edit,interference,measurement,edit,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\interference\InvestigationForm.js,156,interference,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+interference.measurement.view,interference,measurement,view,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\interference\InvestigationForm.js,78,interference,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+radio_license.approval.add,radio_license,approval,add,backend,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,186,radio_license,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+radio_license.approval.del,radio_license,approval,del,both,E:\TDYW\spug-3.0\spug_web\src\pages\stationFrequencyApproval\Table.js,130,radio_license,yes,yes,valid,
+radio_license.approval.edit,radio_license,approval,edit,both,E:\TDYW\spug-3.0\spug_web\src\pages\stationFrequencyApproval\Form.js,111,radio_license,yes,yes,valid,
+radio_license.approval.view,radio_license,approval,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\stationFrequencyApproval\index.js,21,radio_license,yes,yes,valid,
+radio_license.attachment.delete,radio_license,attachment,delete,backend,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,513,radio_license,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+radio_license.attachment.download,radio_license,attachment,download,backend,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,456,radio_license,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+radio_license.attachment.upload,radio_license,attachment,upload,backend,E:\TDYW\spug-3.0\spug_api\apps\radio_license\approval_views.py,420,radio_license,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+radio_license.license.add,radio_license,license,add,backend,E:\TDYW\spug-3.0\spug_api\apps\radio_license\views.py,273,radio_license,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+radio_license.license.del,radio_license,license,del,both,E:\TDYW\spug-3.0\spug_web\src\pages\radioLicense\Table.js,127,radio_license,yes,yes,valid,
+radio_license.license.edit,radio_license,license,edit,both,E:\TDYW\spug-3.0\spug_web\src\pages\radioLicense\Form.js,128,radio_license,yes,yes,valid,
+radio_license.license.view,radio_license,license,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\home\ExpiryOverview.js,19,radio_license,yes,yes,valid,
+radio_license.license.view|radio_license.approval.view,radio_license,license,view|radio_license,frontend,,0,radio_license,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+runlog.runlog.add,runlog,runlog,add,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Table.js,312,runlog,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+runlog.runlog.del,runlog,runlog,del,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Table.js,411,runlog,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+runlog.runlog.edit,runlog,runlog,edit,both,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Form.js,173,runlog,yes,yes,valid,
+runlog.runlog.update_add,runlog,runlog,update_add,both,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Table.js,411,runlog,yes,yes,valid,
+runlog.runlog.update_del,runlog,runlog,update_del,both,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Form.js,468,runlog,yes,yes,valid,
+runlog.runlog.update_edit,runlog,runlog,update_edit,both,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Form.js,460,runlog,yes,yes,valid,
+runlog.runlog.update_view,runlog,runlog,update_view,both,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\Table.js,401,runlog,yes,yes,valid,
+runlog.runlog.view,runlog,runlog,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\runlog\index.js,37,runlog,yes,yes,valid,
+system.account.add,system,account,add,both,E:\TDYW\spug-3.0\spug_web\src\pages\system\account\Table.js,76,system,yes,yes,valid,
+system.account.del,system,account,del,both,E:\TDYW\spug-3.0\spug_web\src\pages\system\account\Table.js,87,system,yes,yes,valid,
+system.account.edit,system,account,edit,both,E:\TDYW\spug-3.0\spug_web\src\pages\system\account\Table.js,82,system,yes,yes,valid,
+system.account.view,system,account,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\system\account\index.js,17,system,yes,yes,valid,
+system.account.view|system.role.view|system.setting.view|system.login.view|system.tenant.view|system.release_note.view,system,account,view|system,frontend,,0,system,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+system.alert.resolve,system,alert,resolve,backend,E:\TDYW\spug-3.0\spug_api\apps\alert\views.py,152,system,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+system.alert.view,system,alert,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\system\alert\index.js,211,system,yes,yes,valid,
+system.audit.view,system,audit,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\system\audit\index.js,20,system,yes,yes,valid,
+system.audit.view|system.alert.view,system,audit,view|system,frontend,,0,system,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+system.login.view,system,login,view,frontend,,0,system,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+system.release_note.add,system,release_note,add,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\system\releaseNotes\index.js,73,system,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+system.release_note.del,system,release_note,del,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\system\releaseNotes\index.js,75,system,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+system.release_note.edit,system,release_note,edit,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\system\releaseNotes\index.js,72,system,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+system.release_note.publish,system,release_note,publish,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\system\releaseNotes\index.js,74,system,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+system.release_note.view,system,release_note,view,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\system\releaseNotes\index.js,114,system,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+system.role.view,system,role,view,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\system\role\index.js,17,system,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+system.setting.view,system,setting,view,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\system\setting\index.js,47,system,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+system.tenant.add,system,tenant,add,backend,E:\TDYW\spug-3.0\spug_api\apps\account\views.py,578,system,yes,no,backend_only,Used in backend but not found in frontend routes/buttons
+system.tenant.del,system,tenant,del,both,E:\TDYW\spug-3.0\spug_web\src\pages\system\tenant\Table.js,37,system,yes,yes,valid,
+system.tenant.edit,system,tenant,edit,both,E:\TDYW\spug-3.0\spug_web\src\pages\system\tenant\Table.js,36,system,yes,yes,valid,
+system.tenant.view,system,tenant,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\system\tenant\index.js,15,system,yes,yes,valid,
+upgrade.statistics.view,upgrade,statistics,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\Statistics.js,65,upgrade,yes,yes,valid,
+upgrade.system.manage,upgrade,system,manage,both,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\components\SystemSelect.js,33,upgrade,yes,yes,valid,
+upgrade.upgrade.add,upgrade,upgrade,add,both,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\Workbench.js,110,upgrade,yes,yes,valid,
+upgrade.upgrade.del,upgrade,upgrade,del,both,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\Table.js,101,upgrade,yes,yes,valid,
+upgrade.upgrade.edit,upgrade,upgrade,edit,both,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\Form_old.js,208,upgrade,yes,yes,valid,
+upgrade.upgrade.step_del,upgrade,upgrade,step_del,both,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\WorkbenchForm.js,489,upgrade,yes,yes,valid,
+upgrade.upgrade.step_reset,upgrade,upgrade,step_reset,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\WorkbenchForm.js,486,upgrade,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+upgrade.upgrade.update_del,upgrade,upgrade,update_del,frontend,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\Form_old.js,394,upgrade,no,yes,frontend_only,Used in frontend but not found in backend permission checks
+upgrade.upgrade.view,upgrade,upgrade,view,both,E:\TDYW\spug-3.0\spug_web\src\pages\upgrade\index.js,34,upgrade,yes,yes,valid,
+upgrade.upgrade.view|upgrade.statistics.view,upgrade,upgrade,view|upgrade,frontend,,0,upgrade,no,yes,frontend_only,Used in frontend but not found in backend permission checks

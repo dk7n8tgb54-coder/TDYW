@@ -89,6 +89,21 @@ class StatusCalculationTest(ContractTestCase):
         self.assertEqual(border.status, 'expiring', '60 天窗口内应更新为 expiring')
         self.assertEqual(result.get()['updated'], 2)
 
+    def test_scan_single_respects_explicit_today(self):
+        """显式传入的 today 必须被采纳，不得被当前日期覆盖（M739）。
+
+        固定日期扫描是状态计算确定性的基础：end=今天+200 的合同
+        以 today=今天+300 扫描应判为 expired，而不是按真实今天判 normal。
+        """
+        ag = make_agreement(self.user, contract_name='固定日期扫描合同',
+                            valid_end_date=self.today + timedelta(days=200))
+        result = scan_single_contract_agreement(ag, today=self.today + timedelta(days=300))
+        self.assertEqual(result['status'], 'expired')
+        self.assertEqual(result['days_left'], -100)
+        self.assertTrue(result['updated'])
+        ag.refresh_from_db()
+        self.assertEqual(ag.status, 'expired', '应按注入的 today 落库状态')
+
     def test_scan_all_task_is_repeatable(self):
         make_agreement(self.user, contract_name='重复扫描合同',
                        valid_end_date=self.today - timedelta(days=1))
@@ -212,6 +227,53 @@ class ReminderPopupTest(ContractTestCase):
     def test_ack_nonexistent_agreement(self):
         body = self.post_json({'agreement_id': 999999}, url=ACK_URL)
         self.assertBusinessError(body)
+
+    def test_ack_skips_only_acked_and_keeps_remaining_records(self):
+        """ack 去重必须逐条 continue，不得 break 掉后续未确认合同（M654/M652）。
+
+        已确认合同在遍历序中排在前面时，其后的未确认合同仍应出现在
+        弹窗记录里，且 days_left 必须是真实计算值。
+        """
+        first = make_agreement(self.user, contract_name='先创建-17天',
+                               valid_end_date=self.today + timedelta(days=17),
+                               responsible_user_id=self.user.id)
+        second = make_agreement(self.user, contract_name='后创建-23天',
+                                valid_end_date=self.today + timedelta(days=23),
+                                responsible_user_id=self.user.id)
+
+        before = self.get_json(POPUP_URL)
+        records = {r['agreement_id']: r for r in before['data']['records']}
+        self.assertIn(first.id, records)
+        self.assertIn(second.id, records)
+        # 弹窗按 -created_at/-id 排序：后创建的排前面，确认排在第一位的那条
+        head_id = before['data']['records'][0]['agreement_id']
+        ack = self.post_json({'agreement_id': head_id}, url=ACK_URL)
+        self.assertNoError(ack)
+        self.assertTrue(ack['data']['acked'])
+
+        after = self.get_json(POPUP_URL)
+        after_ids = [r['agreement_id'] for r in after['data']['records']]
+        self.assertNotIn(head_id, after_ids, '已确认的合同不应再次弹出')
+        remaining_id = second.id if head_id == first.id else first.id
+        self.assertIn(remaining_id, after_ids,
+                      '确认第一条后，其余未确认合同必须仍在提醒列表中')
+        remaining = next(r for r in after['data']['records'] if r['agreement_id'] == remaining_id)
+        expected_days = 23 if remaining_id == second.id else 17
+        self.assertEqual(remaining['days_left'], expected_days,
+                         '提醒记录的 days_left 必须是真实剩余天数')
+
+    def test_ack_normal_contract_refused(self):
+        """normal（未进入到期窗口）合同的确认请求应被拒绝且不落确认记录（M690）。"""
+        ag = make_agreement(self.user, contract_name='未到期不确认',
+                            valid_end_date=self.today + timedelta(days=200),
+                            responsible_user_id=self.user.id)
+        body = self.post_json({'agreement_id': ag.id}, url=ACK_URL)
+        self.assertNoError(body)
+        self.assertFalse(body['data']['acked'])
+        self.assertEqual(body['data']['message'], '当前合同无需提醒')
+        self.assertEqual(
+            ContractAgreementReminderAck.objects.filter(agreement=ag).count(), 0,
+            'normal 合同确认不得落确认记录')
 
 
 class BadgeTest(ContractTestCase):

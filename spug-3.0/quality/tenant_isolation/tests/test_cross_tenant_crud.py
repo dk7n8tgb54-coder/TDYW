@@ -82,14 +82,18 @@ def _test_reminder(results, tk_ua, tid_b, ua, biz):
     _rec(results, 'reminder', 'Reminder列表跨租户', passed, msg,
          'high' if not passed else 'info')
 
-    # 用户列表泄露
+    # 用户列表跨租户可见（设计契约，非漏洞，2026-09-21 重分类）：
+    # 业务上科室A可以提醒科室B/C提交材料，ReminderUsersView 刻意返回全部
+    # 租户用户（见 apps/reminder/views.py ReminderUsersView docstring）。
+    # 此断言锁定该设计契约：跨租户用户必须可见；若未来改为租户内可见，
+    # 属业务设计变更，应先修订业务设计并同步本用例与本文件相关结论。
     r = c.get('/reminder/users/', **{'HTTP_X_TOKEN': tk_ua})
     users = get_items(get_body(r))
     found_b = any(u.get('id') == biz['rem_b'].created_by_id for u in users)
-    _rec(results, 'reminder', 'ReminderUsers跨租户泄露',
-         not found_b,
-         f'看到B用户: {found_b}, 共 {len(users)} 用户',
-         'high' if found_b else 'info')
+    _rec(results, 'reminder', 'ReminderUsers跨租户可见(设计契约:跨科室提醒)',
+         found_b,
+         f'B用户可见: {found_b}, 共 {len(users)} 用户',
+         'high' if not found_b else 'info')
 
     # 修改
     bid = biz['rem_b'].id

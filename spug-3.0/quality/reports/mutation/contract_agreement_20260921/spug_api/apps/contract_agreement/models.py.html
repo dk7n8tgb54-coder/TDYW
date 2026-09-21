@@ -1,0 +1,1024 @@
+<html><body><h1>spug_api/apps/contract_agreement/models.py</h1>Killed 85 out of 178 mutants<h2>Survived</h2>Survived mutation testing. These mutants show holes in your test suite.<h3>Mutant 9</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -17,7 +17,7 @@
+     TYPE_SERVICE_GUARANTEE = 'service_guarantee'
+ 
+     CONTRACT_TYPE_CHOICES = (
+-        (TYPE_DEVICE_PURCHASE, '设备采购合同'),
++        (TYPE_DEVICE_PURCHASE, 'XX设备采购合同XX'),
+         (TYPE_INFO_ACCESS, '信息引接合同'),
+         (TYPE_SERVICE_GUARANTEE, '服务保障协议'),
+     )
+</pre><h3>Mutant 10</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -18,7 +18,7 @@
+ 
+     CONTRACT_TYPE_CHOICES = (
+         (TYPE_DEVICE_PURCHASE, '设备采购合同'),
+-        (TYPE_INFO_ACCESS, '信息引接合同'),
++        (TYPE_INFO_ACCESS, 'XX信息引接合同XX'),
+         (TYPE_SERVICE_GUARANTEE, '服务保障协议'),
+     )
+ 
+</pre><h3>Mutant 11</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -19,7 +19,7 @@
+     CONTRACT_TYPE_CHOICES = (
+         (TYPE_DEVICE_PURCHASE, '设备采购合同'),
+         (TYPE_INFO_ACCESS, '信息引接合同'),
+-        (TYPE_SERVICE_GUARANTEE, '服务保障协议'),
++        (TYPE_SERVICE_GUARANTEE, 'XX服务保障协议XX'),
+     )
+ 
+     STATUS_NORMAL = 'normal'
+</pre><h3>Mutant 20</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -27,7 +27,7 @@
+     STATUS_EXPIRED = 'expired'
+     STATUS_LONG_TERM = 'long_term'
+     STATUS_CHOICES = (
+-        (STATUS_NORMAL, '正常'),
++        (STATUS_NORMAL, 'XX正常XX'),
+         (STATUS_EXPIRING, '即将到期'),
+         (STATUS_EXPIRED, '已关闭'),
+         (STATUS_LONG_TERM, '长期有效'),
+</pre><h3>Mutant 21</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -28,7 +28,7 @@
+     STATUS_LONG_TERM = 'long_term'
+     STATUS_CHOICES = (
+         (STATUS_NORMAL, '正常'),
+-        (STATUS_EXPIRING, '即将到期'),
++        (STATUS_EXPIRING, 'XX即将到期XX'),
+         (STATUS_EXPIRED, '已关闭'),
+         (STATUS_LONG_TERM, '长期有效'),
+     )
+</pre><h3>Mutant 22</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -29,7 +29,7 @@
+     STATUS_CHOICES = (
+         (STATUS_NORMAL, '正常'),
+         (STATUS_EXPIRING, '即将到期'),
+-        (STATUS_EXPIRED, '已关闭'),
++        (STATUS_EXPIRED, 'XX已关闭XX'),
+         (STATUS_LONG_TERM, '长期有效'),
+     )
+ 
+</pre><h3>Mutant 23</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -30,7 +30,7 @@
+         (STATUS_NORMAL, '正常'),
+         (STATUS_EXPIRING, '即将到期'),
+         (STATUS_EXPIRED, '已关闭'),
+-        (STATUS_LONG_TERM, '长期有效'),
++        (STATUS_LONG_TERM, 'XX长期有效XX'),
+     )
+ 
+     VALIDITY_FIXED = 'fixed'
+</pre><h3>Mutant 30</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -41,7 +41,7 @@
+     )
+ 
+     # ---- 业务字段 ----
+-    contract_name = models.CharField(max_length=200, help_text='合同名称')
++    contract_name = models.CharField(max_length=201, help_text='合同名称')
+     contract_no = models.CharField(max_length=100, default='', blank=True, help_text='合同编号')
+     contract_type = models.CharField(max_length=30, choices=CONTRACT_TYPE_CHOICES, help_text='类型')
+     valid_start_date = models.DateField(help_text='起始日期')
+</pre><h3>Mutant 31</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -41,7 +41,7 @@
+     )
+ 
+     # ---- 业务字段 ----
+-    contract_name = models.CharField(max_length=200, help_text='合同名称')
++    contract_name = models.CharField(max_length=200, help_text='XX合同名称XX')
+     contract_no = models.CharField(max_length=100, default='', blank=True, help_text='合同编号')
+     contract_type = models.CharField(max_length=30, choices=CONTRACT_TYPE_CHOICES, help_text='类型')
+     valid_start_date = models.DateField(help_text='起始日期')
+</pre><h3>Mutant 33</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -42,7 +42,7 @@
+ 
+     # ---- 业务字段 ----
+     contract_name = models.CharField(max_length=200, help_text='合同名称')
+-    contract_no = models.CharField(max_length=100, default='', blank=True, help_text='合同编号')
++    contract_no = models.CharField(max_length=101, default='', blank=True, help_text='合同编号')
+     contract_type = models.CharField(max_length=30, choices=CONTRACT_TYPE_CHOICES, help_text='类型')
+     valid_start_date = models.DateField(help_text='起始日期')
+     validity_type = models.CharField(
+</pre><h3>Mutant 34</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -42,7 +42,7 @@
+ 
+     # ---- 业务字段 ----
+     contract_name = models.CharField(max_length=200, help_text='合同名称')
+-    contract_no = models.CharField(max_length=100, default='', blank=True, help_text='合同编号')
++    contract_no = models.CharField(max_length=100, default='XXXX', blank=True, help_text='合同编号')
+     contract_type = models.CharField(max_length=30, choices=CONTRACT_TYPE_CHOICES, help_text='类型')
+     valid_start_date = models.DateField(help_text='起始日期')
+     validity_type = models.CharField(
+</pre><h3>Mutant 35</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -42,7 +42,7 @@
+ 
+     # ---- 业务字段 ----
+     contract_name = models.CharField(max_length=200, help_text='合同名称')
+-    contract_no = models.CharField(max_length=100, default='', blank=True, help_text='合同编号')
++    contract_no = models.CharField(max_length=100, default='', blank=False, help_text='合同编号')
+     contract_type = models.CharField(max_length=30, choices=CONTRACT_TYPE_CHOICES, help_text='类型')
+     valid_start_date = models.DateField(help_text='起始日期')
+     validity_type = models.CharField(
+</pre><h3>Mutant 36</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -42,7 +42,7 @@
+ 
+     # ---- 业务字段 ----
+     contract_name = models.CharField(max_length=200, help_text='合同名称')
+-    contract_no = models.CharField(max_length=100, default='', blank=True, help_text='合同编号')
++    contract_no = models.CharField(max_length=100, default='', blank=True, help_text='XX合同编号XX')
+     contract_type = models.CharField(max_length=30, choices=CONTRACT_TYPE_CHOICES, help_text='类型')
+     valid_start_date = models.DateField(help_text='起始日期')
+     validity_type = models.CharField(
+</pre><h3>Mutant 38</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -43,7 +43,7 @@
+     # ---- 业务字段 ----
+     contract_name = models.CharField(max_length=200, help_text='合同名称')
+     contract_no = models.CharField(max_length=100, default='', blank=True, help_text='合同编号')
+-    contract_type = models.CharField(max_length=30, choices=CONTRACT_TYPE_CHOICES, help_text='类型')
++    contract_type = models.CharField(max_length=31, choices=CONTRACT_TYPE_CHOICES, help_text='类型')
+     valid_start_date = models.DateField(help_text='起始日期')
+     validity_type = models.CharField(
+         max_length=20, choices=VALIDITY_TYPE_CHOICES, default=VALIDITY_FIXED,
+</pre><h3>Mutant 39</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -43,7 +43,7 @@
+     # ---- 业务字段 ----
+     contract_name = models.CharField(max_length=200, help_text='合同名称')
+     contract_no = models.CharField(max_length=100, default='', blank=True, help_text='合同编号')
+-    contract_type = models.CharField(max_length=30, choices=CONTRACT_TYPE_CHOICES, help_text='类型')
++    contract_type = models.CharField(max_length=30, choices=CONTRACT_TYPE_CHOICES, help_text='XX类型XX')
+     valid_start_date = models.DateField(help_text='起始日期')
+     validity_type = models.CharField(
+         max_length=20, choices=VALIDITY_TYPE_CHOICES, default=VALIDITY_FIXED,
+</pre><h3>Mutant 41</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -44,7 +44,7 @@
+     contract_name = models.CharField(max_length=200, help_text='合同名称')
+     contract_no = models.CharField(max_length=100, default='', blank=True, help_text='合同编号')
+     contract_type = models.CharField(max_length=30, choices=CONTRACT_TYPE_CHOICES, help_text='类型')
+-    valid_start_date = models.DateField(help_text='起始日期')
++    valid_start_date = models.DateField(help_text='XX起始日期XX')
+     validity_type = models.CharField(
+         max_length=20, choices=VALIDITY_TYPE_CHOICES, default=VALIDITY_FIXED,
+         help_text='期限类型: fixed=固定期限 long_term=长期有效（长期有效时截止日期为空）',
+</pre><h3>Mutant 43</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -46,7 +46,7 @@
+     contract_type = models.CharField(max_length=30, choices=CONTRACT_TYPE_CHOICES, help_text='类型')
+     valid_start_date = models.DateField(help_text='起始日期')
+     validity_type = models.CharField(
+-        max_length=20, choices=VALIDITY_TYPE_CHOICES, default=VALIDITY_FIXED,
++        max_length=21, choices=VALIDITY_TYPE_CHOICES, default=VALIDITY_FIXED,
+         help_text='期限类型: fixed=固定期限 long_term=长期有效（长期有效时截止日期为空）',
+     )
+     valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
+</pre><h3>Mutant 44</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -47,7 +47,7 @@
+     valid_start_date = models.DateField(help_text='起始日期')
+     validity_type = models.CharField(
+         max_length=20, choices=VALIDITY_TYPE_CHOICES, default=VALIDITY_FIXED,
+-        help_text='期限类型: fixed=固定期限 long_term=长期有效（长期有效时截止日期为空）',
++        help_text='XX期限类型: fixed=固定期限 long_term=长期有效（长期有效时截止日期为空）XX',
+     )
+     valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
+     has_fee = models.BooleanField(default=False, help_text='是否有费用')
+</pre><h3>Mutant 45</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -49,7 +49,7 @@
+         max_length=20, choices=VALIDITY_TYPE_CHOICES, default=VALIDITY_FIXED,
+         help_text='期限类型: fixed=固定期限 long_term=长期有效（长期有效时截止日期为空）',
+     )
+-    valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
++    valid_end_date = models.DateField(null=False, blank=True, help_text='截止日期（长期有效合同为空）')
+     has_fee = models.BooleanField(default=False, help_text='是否有费用')
+     fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+</pre><h3>Mutant 46</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -49,7 +49,7 @@
+         max_length=20, choices=VALIDITY_TYPE_CHOICES, default=VALIDITY_FIXED,
+         help_text='期限类型: fixed=固定期限 long_term=长期有效（长期有效时截止日期为空）',
+     )
+-    valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
++    valid_end_date = models.DateField(null=True, blank=False, help_text='截止日期（长期有效合同为空）')
+     has_fee = models.BooleanField(default=False, help_text='是否有费用')
+     fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+</pre><h3>Mutant 47</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -49,7 +49,7 @@
+         max_length=20, choices=VALIDITY_TYPE_CHOICES, default=VALIDITY_FIXED,
+         help_text='期限类型: fixed=固定期限 long_term=长期有效（长期有效时截止日期为空）',
+     )
+-    valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
++    valid_end_date = models.DateField(null=True, blank=True, help_text='XX截止日期（长期有效合同为空）XX')
+     has_fee = models.BooleanField(default=False, help_text='是否有费用')
+     fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+</pre><h3>Mutant 49</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -50,7 +50,7 @@
+         help_text='期限类型: fixed=固定期限 long_term=长期有效（长期有效时截止日期为空）',
+     )
+     valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
+-    has_fee = models.BooleanField(default=False, help_text='是否有费用')
++    has_fee = models.BooleanField(default=True, help_text='是否有费用')
+     fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+     signing_party = models.CharField(max_length=500, help_text='签约方')
+</pre><h3>Mutant 50</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -50,7 +50,7 @@
+         help_text='期限类型: fixed=固定期限 long_term=长期有效（长期有效时截止日期为空）',
+     )
+     valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
+-    has_fee = models.BooleanField(default=False, help_text='是否有费用')
++    has_fee = models.BooleanField(default=False, help_text='XX是否有费用XX')
+     fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+     signing_party = models.CharField(max_length=500, help_text='签约方')
+</pre><h3>Mutant 52</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -51,7 +51,7 @@
+     )
+     valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
+     has_fee = models.BooleanField(default=False, help_text='是否有费用')
+-    fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
++    fee_amount = models.CharField(max_length=201, default='', blank=True, help_text='费用内容')
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+     signing_party = models.CharField(max_length=500, help_text='签约方')
+     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
+</pre><h3>Mutant 53</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -51,7 +51,7 @@
+     )
+     valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
+     has_fee = models.BooleanField(default=False, help_text='是否有费用')
+-    fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
++    fee_amount = models.CharField(max_length=200, default='XXXX', blank=True, help_text='费用内容')
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+     signing_party = models.CharField(max_length=500, help_text='签约方')
+     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
+</pre><h3>Mutant 54</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -51,7 +51,7 @@
+     )
+     valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
+     has_fee = models.BooleanField(default=False, help_text='是否有费用')
+-    fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
++    fee_amount = models.CharField(max_length=200, default='', blank=False, help_text='费用内容')
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+     signing_party = models.CharField(max_length=500, help_text='签约方')
+     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
+</pre><h3>Mutant 55</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -51,7 +51,7 @@
+     )
+     valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
+     has_fee = models.BooleanField(default=False, help_text='是否有费用')
+-    fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
++    fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='XX费用内容XX')
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+     signing_party = models.CharField(max_length=500, help_text='签约方')
+     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
+</pre><h3>Mutant 57</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -52,7 +52,7 @@
+     valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
+     has_fee = models.BooleanField(default=False, help_text='是否有费用')
+     fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
+-    fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
++    fee_detail = models.TextField(default='XXXX', blank=True, help_text='费用详细数据')
+     signing_party = models.CharField(max_length=500, help_text='签约方')
+     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
+     responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
+</pre><h3>Mutant 58</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -52,7 +52,7 @@
+     valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
+     has_fee = models.BooleanField(default=False, help_text='是否有费用')
+     fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
+-    fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
++    fee_detail = models.TextField(default='', blank=False, help_text='费用详细数据')
+     signing_party = models.CharField(max_length=500, help_text='签约方')
+     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
+     responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
+</pre><h3>Mutant 59</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -52,7 +52,7 @@
+     valid_end_date = models.DateField(null=True, blank=True, help_text='截止日期（长期有效合同为空）')
+     has_fee = models.BooleanField(default=False, help_text='是否有费用')
+     fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
+-    fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
++    fee_detail = models.TextField(default='', blank=True, help_text='XX费用详细数据XX')
+     signing_party = models.CharField(max_length=500, help_text='签约方')
+     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
+     responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
+</pre><h3>Mutant 61</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -53,7 +53,7 @@
+     has_fee = models.BooleanField(default=False, help_text='是否有费用')
+     fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+-    signing_party = models.CharField(max_length=500, help_text='签约方')
++    signing_party = models.CharField(max_length=501, help_text='签约方')
+     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
+     responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
+     status = models.CharField(
+</pre><h3>Mutant 62</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -53,7 +53,7 @@
+     has_fee = models.BooleanField(default=False, help_text='是否有费用')
+     fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+-    signing_party = models.CharField(max_length=500, help_text='签约方')
++    signing_party = models.CharField(max_length=500, help_text='XX签约方XX')
+     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
+     responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
+     status = models.CharField(
+</pre><h3>Mutant 64</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -54,7 +54,7 @@
+     fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+     signing_party = models.CharField(max_length=500, help_text='签约方')
+-    responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
++    responsible_user_id = models.IntegerField(null=False, help_text='责任人ID')
+     responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
+     status = models.CharField(
+         max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
+</pre><h3>Mutant 65</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -54,7 +54,7 @@
+     fee_amount = models.CharField(max_length=200, default='', blank=True, help_text='费用内容')
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+     signing_party = models.CharField(max_length=500, help_text='签约方')
+-    responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
++    responsible_user_id = models.IntegerField(null=True, help_text='XX责任人IDXX')
+     responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
+     status = models.CharField(
+         max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
+</pre><h3>Mutant 67</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -55,7 +55,7 @@
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+     signing_party = models.CharField(max_length=500, help_text='签约方')
+     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
+-    responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
++    responsible_user_name = models.CharField(max_length=101, default='', help_text='责任人姓名')
+     status = models.CharField(
+         max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
+         help_text='状态: normal/expiring/expired（expired 显示为已关闭）/long_term（长期有效）',
+</pre><h3>Mutant 68</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -55,7 +55,7 @@
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+     signing_party = models.CharField(max_length=500, help_text='签约方')
+     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
+-    responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
++    responsible_user_name = models.CharField(max_length=100, default='XXXX', help_text='责任人姓名')
+     status = models.CharField(
+         max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
+         help_text='状态: normal/expiring/expired（expired 显示为已关闭）/long_term（长期有效）',
+</pre><h3>Mutant 69</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -55,7 +55,7 @@
+     fee_detail = models.TextField(default='', blank=True, help_text='费用详细数据')
+     signing_party = models.CharField(max_length=500, help_text='签约方')
+     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
+-    responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
++    responsible_user_name = models.CharField(max_length=100, default='', help_text='XX责任人姓名XX')
+     status = models.CharField(
+         max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
+         help_text='状态: normal/expiring/expired（expired 显示为已关闭）/long_term（长期有效）',
+</pre><h3>Mutant 71</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -57,7 +57,7 @@
+     responsible_user_id = models.IntegerField(null=True, help_text='责任人ID')
+     responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
+     status = models.CharField(
+-        max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
++        max_length=21, choices=STATUS_CHOICES, default=STATUS_NORMAL,
+         help_text='状态: normal/expiring/expired（expired 显示为已关闭）/long_term（长期有效）',
+     )
+     remark = models.TextField(default='', blank=True, help_text='备注')
+</pre><h3>Mutant 72</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -58,7 +58,7 @@
+     responsible_user_name = models.CharField(max_length=100, default='', help_text='责任人姓名')
+     status = models.CharField(
+         max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
+-        help_text='状态: normal/expiring/expired（expired 显示为已关闭）/long_term（长期有效）',
++        help_text='XX状态: normal/expiring/expired（expired 显示为已关闭）/long_term（长期有效）XX',
+     )
+     remark = models.TextField(default='', blank=True, help_text='备注')
+     last_remind_at = models.DateTimeField(null=True, blank=True, help_text='最近提醒扫描时间')
+</pre><h3>Mutant 73</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -60,7 +60,7 @@
+         max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
+         help_text='状态: normal/expiring/expired（expired 显示为已关闭）/long_term（长期有效）',
+     )
+-    remark = models.TextField(default='', blank=True, help_text='备注')
++    remark = models.TextField(default='XXXX', blank=True, help_text='备注')
+     last_remind_at = models.DateTimeField(null=True, blank=True, help_text='最近提醒扫描时间')
+ 
+     # ---- 通用字段 ----
+</pre><h3>Mutant 74</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -60,7 +60,7 @@
+         max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
+         help_text='状态: normal/expiring/expired（expired 显示为已关闭）/long_term（长期有效）',
+     )
+-    remark = models.TextField(default='', blank=True, help_text='备注')
++    remark = models.TextField(default='', blank=False, help_text='备注')
+     last_remind_at = models.DateTimeField(null=True, blank=True, help_text='最近提醒扫描时间')
+ 
+     # ---- 通用字段 ----
+</pre><h3>Mutant 75</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -60,7 +60,7 @@
+         max_length=20, choices=STATUS_CHOICES, default=STATUS_NORMAL,
+         help_text='状态: normal/expiring/expired（expired 显示为已关闭）/long_term（长期有效）',
+     )
+-    remark = models.TextField(default='', blank=True, help_text='备注')
++    remark = models.TextField(default='', blank=True, help_text='XX备注XX')
+     last_remind_at = models.DateTimeField(null=True, blank=True, help_text='最近提醒扫描时间')
+ 
+     # ---- 通用字段 ----
+</pre><h3>Mutant 77</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -61,7 +61,7 @@
+         help_text='状态: normal/expiring/expired（expired 显示为已关闭）/long_term（长期有效）',
+     )
+     remark = models.TextField(default='', blank=True, help_text='备注')
+-    last_remind_at = models.DateTimeField(null=True, blank=True, help_text='最近提醒扫描时间')
++    last_remind_at = models.DateTimeField(null=False, blank=True, help_text='最近提醒扫描时间')
+ 
+     # ---- 通用字段 ----
+     created_at = models.DateTimeField(auto_now_add=True)
+</pre><h3>Mutant 78</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -61,7 +61,7 @@
+         help_text='状态: normal/expiring/expired（expired 显示为已关闭）/long_term（长期有效）',
+     )
+     remark = models.TextField(default='', blank=True, help_text='备注')
+-    last_remind_at = models.DateTimeField(null=True, blank=True, help_text='最近提醒扫描时间')
++    last_remind_at = models.DateTimeField(null=True, blank=False, help_text='最近提醒扫描时间')
+ 
+     # ---- 通用字段 ----
+     created_at = models.DateTimeField(auto_now_add=True)
+</pre><h3>Mutant 79</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -61,7 +61,7 @@
+         help_text='状态: normal/expiring/expired（expired 显示为已关闭）/long_term（长期有效）',
+     )
+     remark = models.TextField(default='', blank=True, help_text='备注')
+-    last_remind_at = models.DateTimeField(null=True, blank=True, help_text='最近提醒扫描时间')
++    last_remind_at = models.DateTimeField(null=True, blank=True, help_text='XX最近提醒扫描时间XX')
+ 
+     # ---- 通用字段 ----
+     created_at = models.DateTimeField(auto_now_add=True)
+</pre><h3>Mutant 85</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -66,7 +66,7 @@
+     # ---- 通用字段 ----
+     created_at = models.DateTimeField(auto_now_add=True)
+     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
+-    updated_at = models.DateTimeField(null=True, blank=True)
++    updated_at = models.DateTimeField(null=False, blank=True)
+     updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True)
+ 
+     def __repr__(self):
+</pre><h3>Mutant 86</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -66,7 +66,7 @@
+     # ---- 通用字段 ----
+     created_at = models.DateTimeField(auto_now_add=True)
+     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
+-    updated_at = models.DateTimeField(null=True, blank=True)
++    updated_at = models.DateTimeField(null=True, blank=False)
+     updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True)
+ 
+     def __repr__(self):
+</pre><h3>Mutant 90</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -67,7 +67,7 @@
+     created_at = models.DateTimeField(auto_now_add=True)
+     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
+     updated_at = models.DateTimeField(null=True, blank=True)
+-    updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True)
++    updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=False)
+ 
+     def __repr__(self):
+         return '<ContractAgreement %r>' % self.contract_name
+</pre><h3>Mutant 96</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -85,7 +85,7 @@
+ 
+     class Meta:
+         db_table = 'tdyw_contract_agreement'
+-        verbose_name = '合同协议'
++        verbose_name = 'XX合同协议XX'
+         verbose_name_plural = '合同协议'
+         ordering = ('-created_at', '-id')
+         indexes = [
+</pre><h3>Mutant 97</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -85,7 +85,7 @@
+ 
+     class Meta:
+         db_table = 'tdyw_contract_agreement'
+-        verbose_name = '合同协议'
++        verbose_name = None
+         verbose_name_plural = '合同协议'
+         ordering = ('-created_at', '-id')
+         indexes = [
+</pre><h3>Mutant 98</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -86,7 +86,7 @@
+     class Meta:
+         db_table = 'tdyw_contract_agreement'
+         verbose_name = '合同协议'
+-        verbose_name_plural = '合同协议'
++        verbose_name_plural = 'XX合同协议XX'
+         ordering = ('-created_at', '-id')
+         indexes = [
+             models.Index(fields=['tenant_id', '-created_at', '-id'], name='tdyw_contra_tenant_8811a0_idx'),
+</pre><h3>Mutant 99</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -86,7 +86,7 @@
+     class Meta:
+         db_table = 'tdyw_contract_agreement'
+         verbose_name = '合同协议'
+-        verbose_name_plural = '合同协议'
++        verbose_name_plural = None
+         ordering = ('-created_at', '-id')
+         indexes = [
+             models.Index(fields=['tenant_id', '-created_at', '-id'], name='tdyw_contra_tenant_8811a0_idx'),
+</pre><h3>Mutant 102</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -87,7 +87,7 @@
+         db_table = 'tdyw_contract_agreement'
+         verbose_name = '合同协议'
+         verbose_name_plural = '合同协议'
+-        ordering = ('-created_at', '-id')
++        ordering = None
+         indexes = [
+             models.Index(fields=['tenant_id', '-created_at', '-id'], name='tdyw_contra_tenant_8811a0_idx'),
+             models.Index(fields=['tenant_id', 'contract_type'], name='tdyw_contra_tenant_f8adba_idx'),
+</pre><h3>Mutant 119</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -97,7 +97,7 @@
+         ]
+         constraints = [
+             models.CheckConstraint(
+-                check=models.Q(contract_type__in=['device_purchase', 'info_access', 'service_guarantee']),
++                check=models.Q(contract_type__in=['XXdevice_purchaseXX', 'info_access', 'service_guarantee']),
+                 name='contract_type_valid',
+             ),
+             models.CheckConstraint(
+</pre><h3>Mutant 120</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -97,7 +97,7 @@
+         ]
+         constraints = [
+             models.CheckConstraint(
+-                check=models.Q(contract_type__in=['device_purchase', 'info_access', 'service_guarantee']),
++                check=models.Q(contract_type__in=['device_purchase', 'XXinfo_accessXX', 'service_guarantee']),
+                 name='contract_type_valid',
+             ),
+             models.CheckConstraint(
+</pre><h3>Mutant 121</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -97,7 +97,7 @@
+         ]
+         constraints = [
+             models.CheckConstraint(
+-                check=models.Q(contract_type__in=['device_purchase', 'info_access', 'service_guarantee']),
++                check=models.Q(contract_type__in=['device_purchase', 'info_access', 'XXservice_guaranteeXX']),
+                 name='contract_type_valid',
+             ),
+             models.CheckConstraint(
+</pre><h3>Mutant 122</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -98,7 +98,7 @@
+         constraints = [
+             models.CheckConstraint(
+                 check=models.Q(contract_type__in=['device_purchase', 'info_access', 'service_guarantee']),
+-                name='contract_type_valid',
++                name='XXcontract_type_validXX',
+             ),
+             models.CheckConstraint(
+                 check=models.Q(validity_type__in=['fixed', 'long_term']),
+</pre><h3>Mutant 123</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -101,7 +101,7 @@
+                 name='contract_type_valid',
+             ),
+             models.CheckConstraint(
+-                check=models.Q(validity_type__in=['fixed', 'long_term']),
++                check=models.Q(validity_type__in=['XXfixedXX', 'long_term']),
+                 name='contract_validity_type_valid',
+             ),
+             models.CheckConstraint(
+</pre><h3>Mutant 124</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -101,7 +101,7 @@
+                 name='contract_type_valid',
+             ),
+             models.CheckConstraint(
+-                check=models.Q(validity_type__in=['fixed', 'long_term']),
++                check=models.Q(validity_type__in=['fixed', 'XXlong_termXX']),
+                 name='contract_validity_type_valid',
+             ),
+             models.CheckConstraint(
+</pre><h3>Mutant 125</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -102,7 +102,7 @@
+             ),
+             models.CheckConstraint(
+                 check=models.Q(validity_type__in=['fixed', 'long_term']),
+-                name='contract_validity_type_valid',
++                name='XXcontract_validity_type_validXX',
+             ),
+             models.CheckConstraint(
+                 check=models.Q(status__in=['normal', 'expiring', 'expired', 'long_term']),
+</pre><h3>Mutant 126</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -105,7 +105,7 @@
+                 name='contract_validity_type_valid',
+             ),
+             models.CheckConstraint(
+-                check=models.Q(status__in=['normal', 'expiring', 'expired', 'long_term']),
++                check=models.Q(status__in=['XXnormalXX', 'expiring', 'expired', 'long_term']),
+                 name='contract_status_valid',
+             ),
+             # 期限一致性（数据库层兜底，不依赖 View 校验）：
+</pre><h3>Mutant 127</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -105,7 +105,7 @@
+                 name='contract_validity_type_valid',
+             ),
+             models.CheckConstraint(
+-                check=models.Q(status__in=['normal', 'expiring', 'expired', 'long_term']),
++                check=models.Q(status__in=['normal', 'XXexpiringXX', 'expired', 'long_term']),
+                 name='contract_status_valid',
+             ),
+             # 期限一致性（数据库层兜底，不依赖 View 校验）：
+</pre><h3>Mutant 128</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -105,7 +105,7 @@
+                 name='contract_validity_type_valid',
+             ),
+             models.CheckConstraint(
+-                check=models.Q(status__in=['normal', 'expiring', 'expired', 'long_term']),
++                check=models.Q(status__in=['normal', 'expiring', 'XXexpiredXX', 'long_term']),
+                 name='contract_status_valid',
+             ),
+             # 期限一致性（数据库层兜底，不依赖 View 校验）：
+</pre><h3>Mutant 129</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -105,7 +105,7 @@
+                 name='contract_validity_type_valid',
+             ),
+             models.CheckConstraint(
+-                check=models.Q(status__in=['normal', 'expiring', 'expired', 'long_term']),
++                check=models.Q(status__in=['normal', 'expiring', 'expired', 'XXlong_termXX']),
+                 name='contract_status_valid',
+             ),
+             # 期限一致性（数据库层兜底，不依赖 View 校验）：
+</pre><h3>Mutant 130</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -106,7 +106,7 @@
+             ),
+             models.CheckConstraint(
+                 check=models.Q(status__in=['normal', 'expiring', 'expired', 'long_term']),
+-                name='contract_status_valid',
++                name='XXcontract_status_validXX',
+             ),
+             # 期限一致性（数据库层兜底，不依赖 View 校验）：
+             # fixed → 截止日期必填且不早于起始日期；long_term → 截止日期必须为空
+</pre><h3>Mutant 131</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -113,7 +113,7 @@
+             models.CheckConstraint(
+                 check=(
+                     (
+-                        models.Q(validity_type='fixed') &
++                        models.Q(validity_type='XXfixedXX') &
+                         models.Q(valid_end_date__isnull=False) &
+                         models.Q(valid_end_date__gte=models.F('valid_start_date'))
+                     ) |
+</pre><h3>Mutant 132</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -113,7 +113,7 @@
+             models.CheckConstraint(
+                 check=(
+                     (
+-                        models.Q(validity_type='fixed') &
++                        models.Q(validity_type='fixed') |
+                         models.Q(valid_end_date__isnull=False) &
+                         models.Q(valid_end_date__gte=models.F('valid_start_date'))
+                     ) |
+</pre><h3>Mutant 133</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -114,7 +114,7 @@
+                 check=(
+                     (
+                         models.Q(validity_type='fixed') &
+-                        models.Q(valid_end_date__isnull=False) &
++                        models.Q(valid_end_date__isnull=True) &
+                         models.Q(valid_end_date__gte=models.F('valid_start_date'))
+                     ) |
+                     (
+</pre><h3>Mutant 134</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -114,7 +114,7 @@
+                 check=(
+                     (
+                         models.Q(validity_type='fixed') &
+-                        models.Q(valid_end_date__isnull=False) &
++                        models.Q(valid_end_date__isnull=False) |
+                         models.Q(valid_end_date__gte=models.F('valid_start_date'))
+                     ) |
+                     (
+</pre><h3>Mutant 136</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -118,7 +118,7 @@
+                         models.Q(valid_end_date__gte=models.F('valid_start_date'))
+                     ) |
+                     (
+-                        models.Q(validity_type='long_term') &
++                        models.Q(validity_type='XXlong_termXX') &
+                         models.Q(valid_end_date__isnull=True)
+                     )
+                 ),
+</pre><h3>Mutant 137</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -118,7 +118,7 @@
+                         models.Q(valid_end_date__gte=models.F('valid_start_date'))
+                     ) |
+                     (
+-                        models.Q(validity_type='long_term') &
++                        models.Q(validity_type='long_term') |
+                         models.Q(valid_end_date__isnull=True)
+                     )
+                 ),
+</pre><h3>Mutant 138</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -119,7 +119,7 @@
+                     ) |
+                     (
+                         models.Q(validity_type='long_term') &
+-                        models.Q(valid_end_date__isnull=True)
++                        models.Q(valid_end_date__isnull=False)
+                     )
+                 ),
+                 name='contract_validity_consistent',
+</pre><h3>Mutant 139</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -122,7 +122,7 @@
+                         models.Q(valid_end_date__isnull=True)
+                     )
+                 ),
+-                name='contract_validity_consistent',
++                name='XXcontract_validity_consistentXX',
+             ),
+             # 费用文本化约束：无费用，或费用内容非空串（应用层负责 strip，
+             # 数据库层兜底拦截 has_fee=true 且 fee_amount='' 的记录）
+</pre><h3>Mutant 140</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -127,7 +127,7 @@
+             # 费用文本化约束：无费用，或费用内容非空串（应用层负责 strip，
+             # 数据库层兜底拦截 has_fee=true 且 fee_amount='' 的记录）
+             models.CheckConstraint(
+-                check=models.Q(has_fee=False) | ~models.Q(fee_amount=''),
++                check=models.Q(has_fee=True) | ~models.Q(fee_amount=''),
+                 name='contract_fee_content_valid',
+             ),
+         ]
+</pre><h3>Mutant 141</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -127,7 +127,7 @@
+             # 费用文本化约束：无费用，或费用内容非空串（应用层负责 strip，
+             # 数据库层兜底拦截 has_fee=true 且 fee_amount='' 的记录）
+             models.CheckConstraint(
+-                check=models.Q(has_fee=False) | ~models.Q(fee_amount=''),
++                check=models.Q(has_fee=False) & ~models.Q(fee_amount=''),
+                 name='contract_fee_content_valid',
+             ),
+         ]
+</pre><h3>Mutant 142</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -127,7 +127,7 @@
+             # 费用文本化约束：无费用，或费用内容非空串（应用层负责 strip，
+             # 数据库层兜底拦截 has_fee=true 且 fee_amount='' 的记录）
+             models.CheckConstraint(
+-                check=models.Q(has_fee=False) | ~models.Q(fee_amount=''),
++                check=models.Q(has_fee=False) | models.Q(fee_amount=''),
+                 name='contract_fee_content_valid',
+             ),
+         ]
+</pre><h3>Mutant 143</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -127,7 +127,7 @@
+             # 费用文本化约束：无费用，或费用内容非空串（应用层负责 strip，
+             # 数据库层兜底拦截 has_fee=true 且 fee_amount='' 的记录）
+             models.CheckConstraint(
+-                check=models.Q(has_fee=False) | ~models.Q(fee_amount=''),
++                check=models.Q(has_fee=False) | ~models.Q(fee_amount='XXXX'),
+                 name='contract_fee_content_valid',
+             ),
+         ]
+</pre><h3>Mutant 144</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -128,7 +128,7 @@
+             # 数据库层兜底拦截 has_fee=true 且 fee_amount='' 的记录）
+             models.CheckConstraint(
+                 check=models.Q(has_fee=False) | ~models.Q(fee_amount=''),
+-                name='contract_fee_content_valid',
++                name='XXcontract_fee_content_validXX',
+             ),
+         ]
+ 
+</pre><h3>Mutant 147</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -138,7 +138,7 @@
+ 
+ class ContractAgreementReminderAck(models.Model, TenantModelMixin):
+     """合同协议到期提醒确认记录"""
+-    objects = TenantModelManager()
++    objects = None
+     tenant_id = make_tenant_id()
+ 
+     agreement = models.ForeignKey(
+</pre><h3>Mutant 149</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -142,7 +142,7 @@
+     tenant_id = make_tenant_id()
+ 
+     agreement = models.ForeignKey(
+-        ContractAgreement, models.CASCADE, related_name='reminder_acks', help_text='合同协议')
++        ContractAgreement, models.CASCADE, related_name='XXreminder_acksXX', help_text='合同协议')
+     user_id = models.IntegerField(help_text='确认处理的用户ID')
+     user_name = models.CharField(max_length=100, default='', help_text='确认处理的用户名称')
+     ack_valid_to = models.DateField(help_text='确认时合同的截止日期（用于续期后自动失效）')
+</pre><h3>Mutant 150</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -142,7 +142,7 @@
+     tenant_id = make_tenant_id()
+ 
+     agreement = models.ForeignKey(
+-        ContractAgreement, models.CASCADE, related_name='reminder_acks', help_text='合同协议')
++        ContractAgreement, models.CASCADE, related_name='reminder_acks', help_text='XX合同协议XX')
+     user_id = models.IntegerField(help_text='确认处理的用户ID')
+     user_name = models.CharField(max_length=100, default='', help_text='确认处理的用户名称')
+     ack_valid_to = models.DateField(help_text='确认时合同的截止日期（用于续期后自动失效）')
+</pre><h3>Mutant 152</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -143,7 +143,7 @@
+ 
+     agreement = models.ForeignKey(
+         ContractAgreement, models.CASCADE, related_name='reminder_acks', help_text='合同协议')
+-    user_id = models.IntegerField(help_text='确认处理的用户ID')
++    user_id = models.IntegerField(help_text='XX确认处理的用户IDXX')
+     user_name = models.CharField(max_length=100, default='', help_text='确认处理的用户名称')
+     ack_valid_to = models.DateField(help_text='确认时合同的截止日期（用于续期后自动失效）')
+     created_at = models.DateTimeField(auto_now_add=True)
+</pre><h3>Mutant 154</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -144,7 +144,7 @@
+     agreement = models.ForeignKey(
+         ContractAgreement, models.CASCADE, related_name='reminder_acks', help_text='合同协议')
+     user_id = models.IntegerField(help_text='确认处理的用户ID')
+-    user_name = models.CharField(max_length=100, default='', help_text='确认处理的用户名称')
++    user_name = models.CharField(max_length=101, default='', help_text='确认处理的用户名称')
+     ack_valid_to = models.DateField(help_text='确认时合同的截止日期（用于续期后自动失效）')
+     created_at = models.DateTimeField(auto_now_add=True)
+ 
+</pre><h3>Mutant 155</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -144,7 +144,7 @@
+     agreement = models.ForeignKey(
+         ContractAgreement, models.CASCADE, related_name='reminder_acks', help_text='合同协议')
+     user_id = models.IntegerField(help_text='确认处理的用户ID')
+-    user_name = models.CharField(max_length=100, default='', help_text='确认处理的用户名称')
++    user_name = models.CharField(max_length=100, default='XXXX', help_text='确认处理的用户名称')
+     ack_valid_to = models.DateField(help_text='确认时合同的截止日期（用于续期后自动失效）')
+     created_at = models.DateTimeField(auto_now_add=True)
+ 
+</pre><h3>Mutant 156</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -144,7 +144,7 @@
+     agreement = models.ForeignKey(
+         ContractAgreement, models.CASCADE, related_name='reminder_acks', help_text='合同协议')
+     user_id = models.IntegerField(help_text='确认处理的用户ID')
+-    user_name = models.CharField(max_length=100, default='', help_text='确认处理的用户名称')
++    user_name = models.CharField(max_length=100, default='', help_text='XX确认处理的用户名称XX')
+     ack_valid_to = models.DateField(help_text='确认时合同的截止日期（用于续期后自动失效）')
+     created_at = models.DateTimeField(auto_now_add=True)
+ 
+</pre><h3>Mutant 158</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -145,7 +145,7 @@
+         ContractAgreement, models.CASCADE, related_name='reminder_acks', help_text='合同协议')
+     user_id = models.IntegerField(help_text='确认处理的用户ID')
+     user_name = models.CharField(max_length=100, default='', help_text='确认处理的用户名称')
+-    ack_valid_to = models.DateField(help_text='确认时合同的截止日期（用于续期后自动失效）')
++    ack_valid_to = models.DateField(help_text='XX确认时合同的截止日期（用于续期后自动失效）XX')
+     created_at = models.DateTimeField(auto_now_add=True)
+ 
+     def __repr__(self):
+</pre><h3>Mutant 164</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -157,7 +157,7 @@
+ 
+     class Meta:
+         db_table = 'tdyw_contract_agreement_reminder_ack'
+-        verbose_name = '合同协议提醒确认'
++        verbose_name = 'XX合同协议提醒确认XX'
+         verbose_name_plural = '合同协议提醒确认'
+         ordering = ('-created_at',)
+         indexes = [
+</pre><h3>Mutant 165</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -157,7 +157,7 @@
+ 
+     class Meta:
+         db_table = 'tdyw_contract_agreement_reminder_ack'
+-        verbose_name = '合同协议提醒确认'
++        verbose_name = None
+         verbose_name_plural = '合同协议提醒确认'
+         ordering = ('-created_at',)
+         indexes = [
+</pre><h3>Mutant 166</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -158,7 +158,7 @@
+     class Meta:
+         db_table = 'tdyw_contract_agreement_reminder_ack'
+         verbose_name = '合同协议提醒确认'
+-        verbose_name_plural = '合同协议提醒确认'
++        verbose_name_plural = 'XX合同协议提醒确认XX'
+         ordering = ('-created_at',)
+         indexes = [
+             models.Index(fields=['tenant_id', 'user_id', 'agreement'], name='tdyw_cara_user_idx'),
+</pre><h3>Mutant 167</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -158,7 +158,7 @@
+     class Meta:
+         db_table = 'tdyw_contract_agreement_reminder_ack'
+         verbose_name = '合同协议提醒确认'
+-        verbose_name_plural = '合同协议提醒确认'
++        verbose_name_plural = None
+         ordering = ('-created_at',)
+         indexes = [
+             models.Index(fields=['tenant_id', 'user_id', 'agreement'], name='tdyw_cara_user_idx'),
+</pre><h3>Mutant 169</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -159,7 +159,7 @@
+         db_table = 'tdyw_contract_agreement_reminder_ack'
+         verbose_name = '合同协议提醒确认'
+         verbose_name_plural = '合同协议提醒确认'
+-        ordering = ('-created_at',)
++        ordering = None
+         indexes = [
+             models.Index(fields=['tenant_id', 'user_id', 'agreement'], name='tdyw_cara_user_idx'),
+         ]
+</pre><h3>Mutant 173</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -161,7 +161,7 @@
+         verbose_name_plural = '合同协议提醒确认'
+         ordering = ('-created_at',)
+         indexes = [
+-            models.Index(fields=['tenant_id', 'user_id', 'agreement'], name='tdyw_cara_user_idx'),
++            models.Index(fields=['tenant_id', 'user_id', 'agreement'], name='XXtdyw_cara_user_idxXX'),
+         ]
+         constraints = [
+             models.UniqueConstraint(
+</pre><h3>Mutant 178</h3><pre>--- spug_api/apps/contract_agreement/models.py
++++ spug_api/apps/contract_agreement/models.py
+@@ -166,7 +166,7 @@
+         constraints = [
+             models.UniqueConstraint(
+                 fields=['tenant_id', 'agreement_id', 'user_id', 'ack_valid_to'],
+-                name='uniq_contract_user_valid_end',
++                name='XXuniq_contract_user_valid_endXX',
+             ),
+         ]
+ 
+</pre></body></html>

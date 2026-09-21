@@ -288,9 +288,9 @@ class TestNoInstantUpload(TestCase):
         from apps.document.models import DocumentFilePublic, DocumentFolderPublic
         from apps.document.libs.naming_utils import generate_file_names
 
-        # 创建测试文件夹
+        # 创建测试文件夹（Public 模型为全平台共享，2026-08-11 起无 tenant_id 字段）
         folder = DocumentFolderPublic.objects.create(
-            tenant_id='t_a', created_by=self.user_a,
+            created_by=self.user_a,
             name='test_folder_10', parent=None,
         )
 
@@ -300,7 +300,7 @@ class TestNoInstantUpload(TestCase):
                 DocumentFilePublic, 'report.pdf', folder, self.user_a
             )
             f1 = DocumentFilePublic.objects.create(
-                tenant_id='t_a', created_by=self.user_a,
+                created_by=self.user_a,
                 name=names_1['logical_name'],
                 display_name=names_1['display_name'],
                 physical_name=names_1['physical_name'],
@@ -313,7 +313,7 @@ class TestNoInstantUpload(TestCase):
                 DocumentFilePublic, 'report.pdf', folder, self.user_a
             )
             f2 = DocumentFilePublic.objects.create(
-                tenant_id='t_a', created_by=self.user_a,
+                created_by=self.user_a,
                 name=names_2['logical_name'],
                 display_name=names_2['display_name'],
                 physical_name=names_2['physical_name'],
@@ -334,7 +334,7 @@ class TestNoInstantUpload(TestCase):
 
             # 验证数据库中不存在两条记录共享同一 file_path
             paths = list(DocumentFilePublic.objects.filter(
-                tenant_id='t_a', folder=folder
+                folder=folder
             ).values_list('file_path', flat=True))
             self.assertEqual(len(paths), len(set(paths)),
                              '数据库中不应有两条记录共享同一 file_path')

@@ -43,7 +43,6 @@ function LedgerIndex({ledgerType, location}) {
       title: '状态', dataIndex: 'status', width: 90,
       render: v => <Tag color={STATUS_COLOR[v]}>{STATUS_TEXT[v] || v}</Tag>,
     },
-    {title: '机房/区域', dataIndex: 'location_scope', ellipsis: true},
     {title: '执行人', dataIndex: 'executor_names', width: 140, ellipsis: true},
     {title: '明细数', dataIndex: 'items_count', width: 70, align: 'center'},
     {

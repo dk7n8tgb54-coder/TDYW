@@ -50,8 +50,7 @@ class LedgerTemplateContractTests(TestCase):
         # 用巡检模板生成周月维护台账 → 拒绝
         payload = ledger_payload(
             [entry_payload(self.system.id, [_tpl_item_payload(tpl_item)], template_id=template.id)],
-            ledger_type='week_month', maintenance_cycle='week', created_from='template',
-            entry_note='周维护补录')
+            ledger_type='week_month', maintenance_cycle='week', created_from='template')
         resp = post_json(client, LEDGER_URL + '/', payload)
         self.assertTrue(resp.json().get('error'))
         # 用巡检模板生成季维护台账 → 拒绝
@@ -79,16 +78,14 @@ class LedgerTemplateContractTests(TestCase):
         # 周台账：只加载 all + week_only（须传模板项目 ID，仅周期匹配项目被快照）
         payload = ledger_payload(
             [entry_payload(self.system.id, [_tpl_item_payload(both)], template_id=template.id)],
-            ledger_type='week_month', maintenance_cycle='week', created_from='template',
-            entry_note='周维护补录')
+            ledger_type='week_month', maintenance_cycle='week', created_from='template')
         # 同时提交仅每月项 → 与周周期不匹配，整体拒绝
         bad = ledger_payload(
             [entry_payload(self.system.id, [
                 _tpl_item_payload(both), _tpl_item_payload(make_template_item(
                     template, self.user, item_code='MO-1b', name='仅每月项B',
                     execution_scope='month_only'))], template_id=template.id)],
-            ledger_type='week_month', maintenance_cycle='week', created_from='template',
-            entry_note='周维护补录')
+            ledger_type='week_month', maintenance_cycle='week', created_from='template')
         self.assertTrue(post_json(client, LEDGER_URL + '/', bad).json().get('error'))
         data = create_ledger_ok(client, payload)
         names = [i['item_name'] for i in data['items']]
@@ -104,8 +101,7 @@ class LedgerTemplateContractTests(TestCase):
                            execution_scope='week_only')
         payload = ledger_payload(
             [entry_payload(self.system.id, [_tpl_item_payload(month_item_m)], template_id=template_m.id)],
-            ledger_type='week_month', maintenance_cycle='month', created_from='template',
-            entry_note='月维护补录')
+            ledger_type='week_month', maintenance_cycle='month', created_from='template')
         data = create_ledger_ok(client, payload)
         names = [i['item_name'] for i in data['items']]
         self.assertEqual(names, ['月检项目'])

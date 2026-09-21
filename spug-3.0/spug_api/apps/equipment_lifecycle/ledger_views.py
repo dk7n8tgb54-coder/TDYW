@@ -732,7 +732,7 @@ class LedgerExportView(View):
             '台账编号', '台账类型', '维护周期', '实际执行日期', '状态', '系统编号', '系统名称',
             '项目编码', '项目名称', '标准要求', '录入类型', '填写值', '单位',
             '正常范围', '结果', '异常说明', '不适用原因', '现场处理内容', '明细执行人',
-            '明细执行时间', '录入渠道', '补录说明', '录入时间'])
+            '明细执行时间', '录入渠道', '录入时间'])
         count = 0
         for item in rows:
             ledger = item.ledger
@@ -753,7 +753,7 @@ class LedgerExportView(View):
                 item.input_type, value, item.unit_snapshot, item.normal_range_snapshot,
                 ITEM_RESULT_TEXT_MAP.get(item.result, item.result),
                 item.abnormal_desc, item.na_reason, item.onsite_action, item.executor_name,
-                item.executed_at or '', ledger.entry_channel, ledger.entry_note,
+                item.executed_at or '', ledger.entry_channel,
                 ledger.created_at])
             count += 1
         response = HttpResponse(buffer.getvalue().encode('utf-8-sig'), content_type='text/csv')

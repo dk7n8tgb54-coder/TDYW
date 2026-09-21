@@ -78,6 +78,31 @@ class NoPermissionTest(ContractTestCase):
     def test_reminder_popup_denied(self):
         self.assertBusinessError(self.get_json(POPUP_URL, client=self.np))
 
+    def test_create_denied_by_auth_decorator_exact_message(self):
+        """无权限 POST 应由 @auth 装饰器层拦截，返回统一的『权限拒绝』。
+
+        精确断言装饰器文案：handler 内的 has_perms 兜底返回的是更具体的
+        『权限拒绝：缺少新增合同协议权限』——两者文案不同，精确匹配才能
+        锁定装饰器这一层纵深防御确实存在（变异测试 M407 的教训）。
+        """
+        body = self.post_json(build_payload(self.noperm, contract_name='装饰器拦截'),
+                              client=self.np)
+        self.assertEqual(body.get('error'), '权限拒绝',
+                         f'应由 @auth 装饰器统一拦截: {body}')
+        self.assertFalse(ContractAgreement.objects.filter(
+            contract_name='装饰器拦截').exists())
+
+    def test_preview_url_denied_exact_message(self):
+        """无 view 权限用户请求预览令牌签发必须被 @auth 拦截（M612）。
+
+        preview-url 的归属校验只管附件归属，权限本身完全依赖 @auth 装饰器；
+        装饰器一旦缺失，同租户无权限用户即可拿到预览地址。
+        """
+        resp = self.np.get(f'{self.URL}attachments/{self.att_id}/preview-url/')
+        body = self._decode(resp)
+        self.assertEqual(body.get('error'), '权限拒绝',
+                         f'无 view 权限请求 preview-url 应由 @auth 拦截: {body}')
+
     def test_reminder_ack_denied(self):
         self.assertBusinessError(
             self.post_json({'agreement_id': self.ag.id}, url=ACK_URL, client=self.np))

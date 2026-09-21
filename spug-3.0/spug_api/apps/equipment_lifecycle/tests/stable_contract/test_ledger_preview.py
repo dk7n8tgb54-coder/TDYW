@@ -207,7 +207,7 @@ class LedgerTemplateProvenanceContractTests(TestCase):
         payload = ledger_payload([
             entry_payload(self.system_a.id, [_tpl_item_payload(item_a)], template_id=template_a.id),
             entry_payload(self.system_a.id, [_tpl_item_payload(item_b)], template_id=template_b.id),
-        ], created_from='template', entry_note='')
+        ], created_from='template')
         data = create_ledger_ok(client, payload)
         self.assertEqual(len(data['items']), 2)
         by_template = {i['template_name'] for i in data['items']}
@@ -234,7 +234,7 @@ class LedgerTemplateProvenanceContractTests(TestCase):
                 {'item_name': '临时加测项', 'standard': '', 'input_type': 'text',
                  'value_text': '正常', 'result': 'normal'},
             ], template_id=template.id),
-        ], created_from='template', entry_note='')
+        ], created_from='template')
         data = create_ledger_ok(client, payload)
         ledger = OperationLedger.objects.get(pk=data['id'])
         template_item = ledger.items.get(template_item_id=tpl_item.id)

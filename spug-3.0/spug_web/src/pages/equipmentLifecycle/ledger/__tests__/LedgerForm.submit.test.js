@@ -63,12 +63,7 @@ function makeInstance(ledgerType, statePatch) {
       executed_date: '2026-09-19',
       executed_start: null,
       executed_end: null,
-      shift: '',
-      location_scope: '',
       executor_names: '',
-      collaborator_names: '',
-      summary: '',
-      entry_note: '',
     },
     version: undefined,
     ...statePatch,
@@ -108,6 +103,10 @@ describe('LedgerForm.submit 载荷契约', () => {
     const payload = mockHttpPost.mock.calls[0][1];
     expect(payload.ledger_type).toBe('inspection');
     expect(payload.maintenance_cycle).toBe('');
+    // 2026-09-21 起班次/机房区域/协作人/补录说明/总体说明已删除，载荷不再携带
+    ['shift', 'location_scope', 'collaborator_names', 'entry_note', 'summary'].forEach(key => {
+      expect(payload).not.toHaveProperty(key);
+    });
   });
 
   test('周月维护台账提交所选周期', async () => {

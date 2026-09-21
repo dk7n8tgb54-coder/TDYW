@@ -1,0 +1,131 @@
+<html><body><h1>spug_api/apps/contract_agreement/tasks.py</h1>Killed 47 out of 59 mutants<h2>Survived</h2>Survived mutation testing. These mutants show holes in your test suite.<h3>Mutant 739</h3><pre>--- spug_api/apps/contract_agreement/tasks.py
++++ spug_api/apps/contract_agreement/tasks.py
+@@ -60,7 +60,7 @@
+ 
+ def scan_single_contract_agreement(agreement, today=None):
+     """扫描单条合同协议，更新状态（含长期有效）和扫描时间。"""
+-    if today is None:
++    if today is not None:
+         today = timezone.now().date()
+     status, days_left = resolve_agreement_status(agreement, today)
+ 
+</pre><h3>Mutant 740</h3><pre>--- spug_api/apps/contract_agreement/tasks.py
++++ spug_api/apps/contract_agreement/tasks.py
+@@ -61,7 +61,7 @@
+ def scan_single_contract_agreement(agreement, today=None):
+     """扫描单条合同协议，更新状态（含长期有效）和扫描时间。"""
+     if today is None:
+-        today = timezone.now().date()
++        today = None
+     status, days_left = resolve_agreement_status(agreement, today)
+ 
+     update_data = {'last_remind_at': timezone.now()}
+</pre><h3>Mutant 745</h3><pre>--- spug_api/apps/contract_agreement/tasks.py
++++ spug_api/apps/contract_agreement/tasks.py
+@@ -65,7 +65,7 @@
+     status, days_left = resolve_agreement_status(agreement, today)
+ 
+     update_data = {'last_remind_at': timezone.now()}
+-    updated = False
++    updated = None
+     if agreement.status != status:
+         update_data['status'] = status
+         agreement.status = status
+</pre><h3>Mutant 749</h3><pre>--- spug_api/apps/contract_agreement/tasks.py
++++ spug_api/apps/contract_agreement/tasks.py
+@@ -68,7 +68,7 @@
+     updated = False
+     if agreement.status != status:
+         update_data['status'] = status
+-        agreement.status = status
++        agreement.status = None
+         updated = True
+ 
+     ContractAgreement.objects.filter(pk=agreement.id).update(**update_data)
+</pre><h3>Mutant 753</h3><pre>--- spug_api/apps/contract_agreement/tasks.py
++++ spug_api/apps/contract_agreement/tasks.py
+@@ -72,7 +72,7 @@
+         updated = True
+ 
+     ContractAgreement.objects.filter(pk=agreement.id).update(**update_data)
+-    agreement.last_remind_at = update_data['last_remind_at']
++    agreement.last_remind_at = None
+ 
+     logger.info(
+         '[ContractAgreement] scan one: agreement=%s, status=%s, days_left=%s, updated=%s',
+</pre><h3>Mutant 754</h3><pre>--- spug_api/apps/contract_agreement/tasks.py
++++ spug_api/apps/contract_agreement/tasks.py
+@@ -75,7 +75,7 @@
+     agreement.last_remind_at = update_data['last_remind_at']
+ 
+     logger.info(
+-        '[ContractAgreement] scan one: agreement=%s, status=%s, days_left=%s, updated=%s',
++        'XX[ContractAgreement] scan one: agreement=%s, status=%s, days_left=%s, updated=%sXX',
+         agreement.id, status, days_left, updated,
+     )
+     return {
+</pre><h3>Mutant 756</h3><pre>--- spug_api/apps/contract_agreement/tasks.py
++++ spug_api/apps/contract_agreement/tasks.py
+@@ -80,7 +80,7 @@
+     )
+     return {
+         'status': status,
+-        'days_left': days_left,
++        'XXdays_leftXX': days_left,
+         'updated': updated,
+     }
+ 
+</pre><h3>Mutant 763</h3><pre>--- spug_api/apps/contract_agreement/tasks.py
++++ spug_api/apps/contract_agreement/tasks.py
+@@ -88,7 +88,7 @@
+ @shared_task(bind=True, soft_time_limit=300, time_limit=600, queue='contract_agreement')
+ def scan_contract_agreement_expiration(self):
+     """扫描全部合同协议到期状态。"""
+-    today = timezone.now().date()
++    today = None
+     agreements = ContractAgreement.objects.all().select_related('created_by')
+     total = agreements.count()
+     updated_count = 0
+</pre><h3>Mutant 774</h3><pre>--- spug_api/apps/contract_agreement/tasks.py
++++ spug_api/apps/contract_agreement/tasks.py
+@@ -98,7 +98,7 @@
+         if result['updated']:
+             updated_count += 1
+ 
+-    logger.info('[ContractAgreement] scan all finished: total=%s, updated=%s', total, updated_count)
++    logger.info('XX[ContractAgreement] scan all finished: total=%s, updated=%sXX', total, updated_count)
+     if updated_count > 0:
+         log_celery_audit('update', 'contract_agreement',
+                          target_name='合同协议到期状态扫描',
+</pre><h3>Mutant 779</h3><pre>--- spug_api/apps/contract_agreement/tasks.py
++++ spug_api/apps/contract_agreement/tasks.py
+@@ -101,7 +101,7 @@
+     logger.info('[ContractAgreement] scan all finished: total=%s, updated=%s', total, updated_count)
+     if updated_count > 0:
+         log_celery_audit('update', 'contract_agreement',
+-                         target_name='合同协议到期状态扫描',
++                         target_name='XX合同协议到期状态扫描XX',
+                          detail={'total': total, 'updated': updated_count})
+     return {'total': total, 'updated': updated_count}
+ 
+</pre><h3>Mutant 780</h3><pre>--- spug_api/apps/contract_agreement/tasks.py
++++ spug_api/apps/contract_agreement/tasks.py
+@@ -102,6 +102,6 @@
+     if updated_count > 0:
+         log_celery_audit('update', 'contract_agreement',
+                          target_name='合同协议到期状态扫描',
+-                         detail={'total': total, 'updated': updated_count})
++                         detail={'XXtotalXX': total, 'updated': updated_count})
+     return {'total': total, 'updated': updated_count}
+ 
+</pre><h3>Mutant 781</h3><pre>--- spug_api/apps/contract_agreement/tasks.py
++++ spug_api/apps/contract_agreement/tasks.py
+@@ -102,6 +102,6 @@
+     if updated_count > 0:
+         log_celery_audit('update', 'contract_agreement',
+                          target_name='合同协议到期状态扫描',
+-                         detail={'total': total, 'updated': updated_count})
++                         detail={'total': total, 'XXupdatedXX': updated_count})
+     return {'total': total, 'updated': updated_count}
+ 
+</pre></body></html>
