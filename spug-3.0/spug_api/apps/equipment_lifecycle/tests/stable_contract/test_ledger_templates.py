@@ -208,3 +208,78 @@ class LedgerTemplateContractTests(TestCase):
             'ledger_type': 'inspection', 'maintenance_cycle': '',
             'applicable_systems': [999999]})
         self.assertEqual(resp.json().get('error'), '适用系统不存在或无权限访问')
+
+
+class LedgerTemplateAvailableContractTests(TestCase):
+    """available 接口：system 参数可选，缺省时返回全部模板并附适用系统。"""
+
+    def setUp(self):
+        self.user = make_ledger_user('avail_op')
+        self.system_a = make_system(self.user, system_code='SYS-A', name='通信系统A')
+        self.system_b = make_system(self.user, system_code='SYS-B', name='通信系统B')
+        self.template_a = make_ledger_template(
+            self.user, name='A专用模板', template_code='TPL-AV-1',
+            applicable_systems=[self.system_a])
+        self.template_ab = make_ledger_template(
+            self.user, name='全科模板', template_code='TPL-AV-2',
+            applicable_systems=[self.system_a, self.system_b])
+        make_ledger_template(
+            self.user, name='停用模板', template_code='TPL-AV-3',
+            applicable_systems=[self.system_a], is_active=False)
+
+    def _get_available(self, query=''):
+        client = make_client(self.user)
+        return client.get(TEMPLATE_URL + '/available/?ledger_type=inspection' + query)
+
+    def test_available_without_system_returns_all_with_applicable_systems(self):
+        """不带 system：返回该类型全部启用模板，每个附 applicable_systems。"""
+        resp = self._get_available()
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()['data']['data']
+        codes = {t['template_code'] for t in data}
+        self.assertEqual(codes, {'TPL-AV-1', 'TPL-AV-2'})
+        by_code = {t['template_code']: t for t in data}
+        self.assertEqual(
+            {s['id'] for s in by_code['TPL-AV-2']['applicable_systems']},
+            {self.system_a.id, self.system_b.id})
+        self.assertEqual(
+            {s['id'] for s in by_code['TPL-AV-1']['applicable_systems']},
+            {self.system_a.id})
+        # 每个适用系统带编号/名称，供前端展示"适用 N 套"
+        first = by_code['TPL-AV-2']['applicable_systems'][0]
+        self.assertIn('system_code', first)
+        self.assertIn('name', first)
+
+    def test_available_with_system_filters_as_before(self):
+        """带 system：只返回适用于该系统的模板（原有行为不变）。"""
+        resp = self._get_available('&system=%s' % self.system_a.id)
+        codes = {t['template_code'] for t in resp.json()['data']['data']}
+        self.assertEqual(codes, {'TPL-AV-1', 'TPL-AV-2'})
+        resp = self._get_available('&system=%s' % self.system_b.id)
+        codes = {t['template_code'] for t in resp.json()['data']['data']}
+        self.assertEqual(codes, {'TPL-AV-2'})
+        # 不存在的系统仍报错
+        resp = self._get_available('&system=999999')
+        self.assertEqual(resp.json().get('error'), '系统不存在')
+
+    def test_available_week_month_items_count_respects_scope(self):
+        """周月维护模板 items_count 按周期 scope 过滤。"""
+        template = make_ledger_template(
+            self.user, ledger_type='week_month', maintenance_cycle='week',
+            name='周月模板', template_code='TPL-AV-4',
+            applicable_systems=[self.system_a, self.system_b])
+        make_template_item(
+            template, self.user, item_code='WK-1', name='仅每周项', execution_scope='week_only')
+        make_template_item(
+            template, self.user, item_code='MO-1', name='仅每月项', execution_scope='month_only')
+        make_template_item(
+            template, self.user, item_code='BM-1', name='周月均执行项', execution_scope='all')
+        client = make_client(self.user)
+        resp = client.get(
+            TEMPLATE_URL + '/available/?ledger_type=week_month&maintenance_cycle=week')
+        by_code = {t['template_code']: t for t in resp.json()['data']['data']}
+        self.assertEqual(by_code['TPL-AV-4']['items_count'], 2)
+        resp = client.get(
+            TEMPLATE_URL + '/available/?ledger_type=week_month&maintenance_cycle=month')
+        by_code = {t['template_code']: t for t in resp.json()['data']['data']}
+        self.assertEqual(by_code['TPL-AV-4']['items_count'], 2)

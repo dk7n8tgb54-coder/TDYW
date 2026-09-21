@@ -142,9 +142,10 @@ def get_systems_for_user(user, system_ids):
     return found
 
 
-def get_template_for_entry(template_id, ledger_type, maintenance_cycle, system):
-    """录入校验用模板：类型/周期匹配、启用且适用于该系统。"""
-    template = OperationLedgerTemplate.objects.filter(pk=template_id).first()
+def get_active_template(user, template_id, ledger_type, maintenance_cycle):
+    """录入校验用模板：租户内存在、启用且类型/周期匹配（不校验适用系统）。"""
+    template = apply_tenant_filter(
+        OperationLedgerTemplate.objects.all(), user).filter(pk=template_id).first()
     if not template:
         raise LedgerValidationError('台账模板不存在')
     if not template.is_active:
@@ -153,6 +154,12 @@ def get_template_for_entry(template_id, ledger_type, maintenance_cycle, system):
         raise LedgerValidationError('台账模板类型与台账类型不一致：%s' % template.name)
     if ledger_type == LEDGER_TYPE_WEEK_MONTH and template.maintenance_cycle != maintenance_cycle:
         raise LedgerValidationError('台账模板维护周期与本次维护周期不一致：%s' % template.name)
+    return template
+
+
+def get_template_for_entry(user, template_id, ledger_type, maintenance_cycle, system):
+    """录入校验用模板：类型/周期匹配、启用且适用于该系统。"""
+    template = get_active_template(user, template_id, ledger_type, maintenance_cycle)
     if not template.applies_to_system(system):
         raise LedgerValidationError('台账模板不适用于系统：%s' % system.name)
     return template
@@ -357,7 +364,7 @@ def _parse_header_payload(user, body, for_update=False):
     }
 
 
-def _build_item_instances(ledger, systems_map, entries_payload):
+def _build_item_instances(user, ledger, systems_map, entries_payload):
     """校验 entries 并构建明细实例列表（不落库）。
 
     entries_payload: [{system_id, template_id?, items: [{...}]}]
@@ -375,7 +382,7 @@ def _build_item_instances(ledger, systems_map, entries_payload):
         template = None
         if entry.get('template_id'):
             template = get_template_for_entry(
-                entry['template_id'], ledger.ledger_type, ledger.maintenance_cycle, system)
+                user, entry['template_id'], ledger.ledger_type, ledger.maintenance_cycle, system)
         rows = entry.get('items')
         if not isinstance(rows, list) or not rows:
             raise LedgerValidationError('系统 %s 至少需要一条台账明细' % system.name)
@@ -483,7 +490,7 @@ def create_ledger(user, body):
             created_by=user,
             **header,
         )
-        items = _build_item_instances(ledger, systems_map, entries)
+        items = _build_item_instances(user, ledger, systems_map, entries)
         ledger.ledger_no = generate_ledger_no(user.tenant_id, ledger.ledger_type, ledger.executed_date)
         ledger.client_token = client_token
         ledger.save()
@@ -542,7 +549,7 @@ def update_ledger(user, pk, body):
             template = None
             if entry.get('template_id'):
                 template = get_template_for_entry(
-                    entry['template_id'], ledger.ledger_type, ledger.maintenance_cycle, system)
+                    user, entry['template_id'], ledger.ledger_type, ledger.maintenance_cycle, system)
             rows = entry.get('items')
             if not isinstance(rows, list) or not rows:
                 raise LedgerValidationError('系统 %s 至少需要一条台账明细' % system.name)
@@ -605,8 +612,34 @@ def _apply_item_edits(item, row, system):
     item.save()
 
 
+def _preview_system_entry(system, template, maintenance_cycle):
+    """单个系统的预览条目（items 为启用且匹配周期的模板项目视图）。"""
+    items = []
+    if template is not None:
+        for tpl_item in template.items.filter(is_active=True):
+            if not tpl_item.matches_cycle(maintenance_cycle):
+                continue
+            view = tpl_item.to_view()
+            view['client_key'] = '%s-%s' % (system.id, tpl_item.id)
+            items.append(view)
+    return {
+        'system': {
+            'id': system.id, 'system_code': system.system_code, 'name': system.name,
+            'install_location': system.install_location,
+        },
+        'template': {'id': template.id, 'name': template.name} if template else None,
+        'items': items,
+    }
+
+
 def preview_entries(user, body):
-    """按 系统+模板 生成台账明细预览骨架（不落库，值/结果由填写人补充）。"""
+    """按 系统+模板 生成台账明细预览骨架（不落库，值/结果由填写人补充）。
+
+    条目两种形态：
+    - {system_id, template_id?}：显式指定系统（原有行为）；
+    - {template_id}：只选模板，按模板适用系统展开为多个系统条目
+      （仅当前用户可见且未停用的系统，展开排除显式条目已包含的系统）。
+    """
     ledger_type = body.get('ledger_type')
     maintenance_cycle = body.get('maintenance_cycle') or ''
     try:
@@ -616,37 +649,44 @@ def preview_entries(user, body):
     entries = body.get('entries')
     if not isinstance(entries, list) or not entries:
         return None, '请至少选择一个系统'
+    if not all(isinstance(e, dict) for e in entries):
+        return None, '台账系统条目格式不正确'
+    if any(not e.get('system_id') and not e.get('template_id') for e in entries):
+        return None, '台账系统条目格式不正确'
+    explicit_ids = {e.get('system_id') for e in entries if e.get('system_id')}
     try:
-        systems_map = get_systems_for_user(user, [
-            e.get('system_id') for e in entries if isinstance(e, dict)])
+        systems_map = get_systems_for_user(user, list(explicit_ids)) if explicit_ids else {}
+        preview = []
+        for entry in entries:
+            if not entry.get('system_id'):
+                continue
+            system = systems_map.get(entry.get('system_id'))
+            template = None
+            if entry.get('template_id'):
+                template = get_template_for_entry(
+                    user, entry['template_id'], ledger_type, maintenance_cycle, system)
+            preview.append(_preview_system_entry(system, template, maintenance_cycle))
+        seen_templates = set()
+        for entry in entries:
+            if entry.get('system_id') or not entry.get('template_id'):
+                continue
+            template = get_active_template(user, entry['template_id'], ledger_type, maintenance_cycle)
+            if template.id in seen_templates:
+                continue
+            seen_templates.add(template.id)
+            expand_ids = [
+                s.id for s in template.applicable_systems.all() if s.id not in explicit_ids]
+            expanded = apply_tenant_filter(
+                LifecycleSystem.objects.all(), user).filter(pk__in=expand_ids, is_active=True)
+            systems = sorted(expanded, key=lambda s: s.system_code)
+            if not systems:
+                raise LedgerValidationError('模板未包含可用的适用系统：%s' % template.name)
+            for system in systems:
+                preview.append(_preview_system_entry(system, template, maintenance_cycle))
     except LedgerValidationError as e:
         return None, str(e)
-    preview = []
-    for entry in entries:
-        system = systems_map.get(entry.get('system_id'))
-        template = None
-        if entry.get('template_id'):
-            try:
-                template = get_template_for_entry(
-                    entry['template_id'], ledger_type, maintenance_cycle, system)
-            except LedgerValidationError as e:
-                return None, str(e)
-        items = []
-        if template is not None:
-            for tpl_item in template.items.filter(is_active=True):
-                if not tpl_item.matches_cycle(maintenance_cycle):
-                    continue
-                view = tpl_item.to_view()
-                view['client_key'] = '%s-%s' % (system.id, tpl_item.id)
-                items.append(view)
-        preview.append({
-            'system': {
-                'id': system.id, 'system_code': system.system_code, 'name': system.name,
-                'install_location': system.install_location,
-            },
-            'template': {'id': template.id, 'name': template.name} if template else None,
-            'items': items,
-        })
+    if not preview:
+        return None, '请至少选择一个系统'
     return preview, None
 
 

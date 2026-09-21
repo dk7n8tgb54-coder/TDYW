@@ -4,7 +4,8 @@
  */
 /**
  * 运维台账录入/编辑表单（步骤 3.2）：
- * - 通过模板生成（可多系统多模板）或临时直接新建；
+ * - 通过模板生成（模板先行：可不选系统，按模板适用系统展开为多系统明细）
+ *   或临时直接新建；
  * - 明细按系统分组表格录入，一张台账一次提交全部系统明细；
  * - 数值项按正常范围自动建议结果，改判须填写修正原因；
  * - 正常项支持批量确认，异常项要求填写异常说明。
@@ -51,6 +52,7 @@ function makeRow(base) {
     client_key: newClientKey(),
     id: undefined,
     system_id: undefined,
+    template_id: undefined,      // 来源模板（提交时随 entries 分组上报）
     template_item_id: undefined,
     item_name: '',
     standard: '',
@@ -81,8 +83,8 @@ class LedgerForm extends React.Component {
     loading: false,
     createdFrom: 'template',
     systems: [],
-    templateEntries: [],       // [{system_id, template_id}]
-    templateOptions: {},       // system_id -> [template]
+    templateEntries: [],       // [{system_id?, template_id}]，system_id 可缺省（模板先行展开）
+    templates: [],             // 当前类型全部启用模板（含 applicable_systems，供过滤与展开提示）
     rows: [],
     cycle: undefined,
     header: {
@@ -154,6 +156,9 @@ class LedgerForm extends React.Component {
           });
         })
         .finally(() => this.setState({loading: false}));
+    } else if (!this.isWeekMonth) {
+      // 新增模式：一次加载当前类型全部启用模板（周月维护待选周期后再加载）
+      this.fetchTemplates().then(templates => this.setState({templates}));
     }
   }
 
@@ -187,20 +192,21 @@ class LedgerForm extends React.Component {
     this.setState(prev => ({templateEntries: prev.templateEntries.filter((t, i) => i !== index)}));
   };
 
-  fetchTemplates = (systemId) => {
+  fetchTemplates = (cycleOverride) => {
     const {store} = this.props;
     let url = `${API_PREFIX_L}/ledger-templates/available/?ledger_type=${store.ledgerType}`;
-    if (this.isWeekMonth && this.state.cycle) url += `&maintenance_cycle=${this.state.cycle}`;
-    if (systemId) url += `&system=${systemId}`;
+    const cycle = cycleOverride || this.state.cycle;
+    if (this.isWeekMonth && cycle) url += `&maintenance_cycle=${cycle}`;
     return http.get(url).then(res => res.data).catch(() => []);
   };
 
   generatePreview = () => {
     const {templateEntries, cycle} = this.state;
     const {store} = this.props;
-    const entries = templateEntries.filter(t => t.system_id && t.template_id);
+    // 模板先行：system_id 可缺省，由后端按模板适用系统展开
+    const entries = templateEntries.filter(t => t.template_id);
     if (!entries.length) {
-      message.error('请先选择系统和模板');
+      message.error('请先选择模板条目');
       return;
     }
     this.setState({loading: true});
@@ -214,6 +220,7 @@ class LedgerForm extends React.Component {
         (entry.items || []).forEach(item => {
           rows.push(makeRow({
             system_id: entry.system.id,
+            template_id: entry.template ? entry.template.id : undefined,
             template_item_id: item.id,
             item_name: item.name,
             standard: item.standard || '',
@@ -357,40 +364,46 @@ class LedgerForm extends React.Component {
       message.error(`异常明细"${missingAbnormal.item_name}"必须填写异常说明`);
       return;
     }
-    // 按系统分组组装 entries
+    // 按 系统+模板 分组组装 entries（同系统不同模板分列，后端逐条目校验快照来源）
     const groupMap = {};
     for (const r of rows) {
       if (!r.system_id) {
         message.error('每条明细必须选择所属系统');
         return;
       }
-      if (!groupMap[r.system_id]) groupMap[r.system_id] = [];
-      groupMap[r.system_id].push(r);
+      const key = `${r.system_id}|${r.template_id || ''}`;
+      if (!groupMap[key]) groupMap[key] = [];
+      groupMap[key].push(r);
     }
-    const entries = Object.keys(groupMap).map(systemId => ({
-      system_id: Number(systemId),
-      items: groupMap[systemId].map(r => ({
-        id: r.id,
-        template_item_id: r.template_item_id || undefined,
-        item_name: r.is_temporary || !r.id ? r.item_name : undefined,
-        standard: r.is_temporary || !r.id ? r.standard : undefined,
-        input_type: r.is_temporary || !r.id ? r.input_type : undefined,
-        unit: r.is_temporary || !r.id ? r.unit : undefined,
-        normal_range: r.is_temporary || !r.id ? r.normal_range : undefined,
-        choices: r.is_temporary || !r.id ? r.choices : undefined,
-        number_min: r.is_temporary || !r.id ? r.number_min : undefined,
-        number_max: r.is_temporary || !r.id ? r.number_max : undefined,
-        value_text: r.value_text,
-        value_number: r.value_number,
-        value_bool: r.value_bool,
-        result: r.result,
-        correction_reason: r.correction_reason,
-        abnormal_desc: r.abnormal_desc,
-        na_reason: r.na_reason,
-        onsite_action: r.onsite_action,
-        executor_name: r.executor_name,
-      })),
-    }));
+    const entries = Object.keys(groupMap).map(key => {
+      const [systemId, templateId] = key.split('|');
+      const entry = {
+        system_id: Number(systemId),
+        items: groupMap[key].map(r => ({
+          id: r.id,
+          template_item_id: r.template_item_id || undefined,
+          item_name: r.is_temporary || !r.id ? r.item_name : undefined,
+          standard: r.is_temporary || !r.id ? r.standard : undefined,
+          input_type: r.is_temporary || !r.id ? r.input_type : undefined,
+          unit: r.is_temporary || !r.id ? r.unit : undefined,
+          normal_range: r.is_temporary || !r.id ? r.normal_range : undefined,
+          choices: r.is_temporary || !r.id ? r.choices : undefined,
+          number_min: r.is_temporary || !r.id ? r.number_min : undefined,
+          number_max: r.is_temporary || !r.id ? r.number_max : undefined,
+          value_text: r.value_text,
+          value_number: r.value_number,
+          value_bool: r.value_bool,
+          result: r.result,
+          correction_reason: r.correction_reason,
+          abnormal_desc: r.abnormal_desc,
+          na_reason: r.na_reason,
+          onsite_action: r.onsite_action,
+          executor_name: r.executor_name,
+        })),
+      };
+      if (templateId) entry.template_id = Number(templateId);
+      return entry;
+    });
     const payload = {
       ledger_type: store.ledgerType,
       // 巡检固定空周期；周月维护提交所选周期；季维护后端校验固定为 'season'
@@ -426,7 +439,16 @@ class LedgerForm extends React.Component {
             <Select
               style={{width: 100}} value={cycle} disabled={isEdit}
               placeholder="周/月"
-              onChange={v => this.setState({cycle: v})}>
+              onChange={v => {
+                this.setState({cycle: v});
+                if (!isEdit) {
+                  // 周期决定可用模板集合：切换后重新加载并清空已选模板
+                  this.fetchTemplates(v).then(templates => this.setState({templates}));
+                  this.setState(prev => ({
+                    templateEntries: prev.templateEntries.map(t => ({...t, template_id: undefined})),
+                  }));
+                }
+              }}>
               <Option value="week">周</Option>
               <Option value="month">月</Option>
             </Select>
@@ -464,41 +486,57 @@ class LedgerForm extends React.Component {
   };
 
   renderTemplateSection = () => {
-    const {templateEntries, systems, templateOptions} = this.state;
+    const {templateEntries, systems, templates} = this.state;
     const {store} = this.props;
     if (store.record.id) return null;
     return (
       <div style={{marginBottom: 12}}>
         <Divider orientation="left" style={{fontSize: 13, margin: '12px 0 8px'}}>通过模板生成</Divider>
-        {templateEntries.map((entry, index) => (
-          <Space key={index} style={{marginBottom: 8}}>
-            <Select
-              style={{width: 260}} placeholder="选择系统"
-              value={entry.system_id}
-              onChange={v => {
-                this.setTemplateEntry(index, {system_id: v, template_id: undefined});
-                this.fetchTemplates(v).then(list => {
-                  this.setState(prev => ({templateOptions: {...prev.templateOptions, [v]: list}}));
-                });
-              }}>
-              {systems.map(s => (
-                <Option value={s.id} key={s.id}>{s.system_code}｜{s.name}｜{s.install_location}</Option>
-              ))}
-            </Select>
-            <Select
-              style={{width: 260}} placeholder="选择模板"
-              value={entry.template_id}
-              disabled={!entry.system_id}
-              onChange={v => this.setTemplateEntry(index, {template_id: v})}>
-              {(templateOptions[entry.system_id] || []).map(t => (
-                <Option value={t.id} key={t.id}>{t.name}（{t.template_code}）</Option>
-              ))}
-            </Select>
-            <Button icon={<DeleteOutlined/>} onClick={() => this.removeTemplateEntry(index)}/>
-          </Space>
-        ))}
+        {templateEntries.map((entry, index) => {
+          const tpl = templates.find(t => t.id === entry.template_id);
+          const scopeCount = tpl ? (tpl.applicable_systems || []).length : null;
+          const expandHint = entry.template_id && !entry.system_id ? (
+            scopeCount > 0
+              ? `将展开全部适用系统（${scopeCount} 套）`
+              : '该模板未绑定适用系统'
+          ) : null;
+          // 选中系统后，模板下拉只显示适用于该系统的模板
+          const candidates = templates.filter(t => !entry.system_id
+            || (t.applicable_systems || []).some(s => s.id === entry.system_id));
+          return (
+            <div key={index} style={{marginBottom: 4}}>
+              <Space style={{marginBottom: 4}}>
+                <Select
+                  style={{width: 260}} allowClear placeholder="全部适用系统（可不选）"
+                  value={entry.system_id}
+                  onChange={v => this.setTemplateEntry(index, {system_id: v, template_id: undefined})}>
+                  {systems.map(s => (
+                    <Option value={s.id} key={s.id}>{s.system_code}｜{s.name}｜{s.install_location}</Option>
+                  ))}
+                </Select>
+                <Select
+                  style={{width: 260}} placeholder="选择模板"
+                  value={entry.template_id}
+                  onChange={v => this.setTemplateEntry(index, {template_id: v})}>
+                  {candidates.map(t => (
+                    <Option value={t.id} key={t.id}>{t.name}（{t.template_code}）</Option>
+                  ))}
+                </Select>
+                <Button icon={<DeleteOutlined/>} onClick={() => this.removeTemplateEntry(index)}/>
+              </Space>
+              {expandHint && (
+                <div style={{
+                  color: scopeCount > 0 ? '#999' : '#f5222d',
+                  fontSize: 12, marginBottom: 4,
+                }}>
+                  {expandHint}
+                </div>
+              )}
+            </div>
+          );
+        })}
         <div>
-          <Button size="small" icon={<PlusOutlined/>} onClick={this.addTemplateEntry}>添加系统</Button>
+          <Button size="small" icon={<PlusOutlined/>} onClick={this.addTemplateEntry}>添加模板条目</Button>
           <Button size="small" type="primary" ghost style={{marginLeft: 8}} onClick={this.generatePreview}>
             生成台账明细
           </Button>

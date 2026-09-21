@@ -5,7 +5,8 @@
  * mock libs.http 与公共组件壳，验证：
  * - 三类台账页面名称正确（巡检/周月维护/季维护），周月维护单入口区分周与月
  * - 异常数量红色突出显示
- * - 录入表单：模板预览生成明细、payload 每条明细携带 system_id、
+ * - 录入表单：模板先行预览生成明细（只选模板按适用系统展开）、
+ *   payload 按系统+模板分组且每条明细携带 system_id、
  *   异常项必须填写说明、补录说明缺失被前端拦截、
  *   后端业务错误不视为成功（弹窗不关闭）、成功后重新获取真实数据
  * - 页面不存在机房现场/离线/二维码/移动端入口
@@ -191,32 +192,85 @@ describe('台账录入表单（LedgerForm）', () => {
     const rows = instance.state.rows;
     expect(rows).toHaveLength(1);
     expect(rows[0].system_id).toBe(11);
+    expect(rows[0].template_id).toBe(5);
     expect(rows[0].template_item_id).toBe(201);
     expect(rows[0].input_type).toBe('number');
     expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/ledgers/preview/',
       expect.objectContaining({ledger_type: 'inspection', entries: [{system_id: 11, template_id: 5}]}));
   });
 
-  test('按系统加载适用模板请求参数名为 system（与后端契约一致，回归 2026-09-19）', async () => {
+  test('模板先行：只选模板不选系统，预览请求仅携带 template_id 并展开多系统明细', async () => {
+    const store = getLedgerStore('inspection');
+    store.formVisible = true;
+    mockHttpGet.mockImplementation((url) => {
+      if (url.includes('/systems/')) {
+        return Promise.resolve({data: [
+          {id: 11, system_code: 'S1', name: '系统一', install_location: '机房A'},
+          {id: 12, system_code: 'S2', name: '系统二', install_location: '机房B'},
+        ], total: 2});
+      }
+      if (url.includes('/ledger-templates/available/')) {
+        return Promise.resolve({data: [{
+          id: 5, name: '全科巡检模板', template_code: 'T1', items_count: 1,
+          applicable_systems: [{id: 11, system_code: 'S1', name: '系统一'}, {id: 12, system_code: 'S2', name: '系统二'}],
+        }]});
+      }
+      return Promise.resolve({data: []});
+    });
+    mockHttpPost.mockImplementation((url) => {
+      if (url.endsWith('/ledgers/preview/')) {
+        return Promise.resolve({
+          data: [11, 12].map(sid => ({
+            system: {id: sid, system_code: `S${sid - 10}`, name: `系统${sid - 10}`, install_location: '机房'},
+            template: {id: 5, name: '全科巡检模板'},
+            items: [{
+              id: 200 + sid, name: '电源电压', standard: '48V-54V', input_type: 'text',
+              unit: '', normal_range: '', choices: [], number_min: null, number_max: null,
+              is_required: false,
+            }],
+          })),
+        });
+      }
+      return Promise.resolve({});
+    });
+    const instance = renderForm(store);
+    await act(async () => {});
+    await act(async () => {
+      instance.setState({templateEntries: [{template_id: 5}]});
+    });
+    await act(async () => {
+      instance.generatePreview();
+    });
+    await flush();
+    // 预览请求只带 template_id，不带 system_id（后端按适用系统展开）
+    expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/ledgers/preview/',
+      expect.objectContaining({ledger_type: 'inspection', entries: [{template_id: 5}]}));
+    const rows = instance.state.rows;
+    expect(rows).toHaveLength(2);
+    expect(rows.map(r => r.system_id)).toEqual([11, 12]);
+    rows.forEach(r => expect(r.template_id).toBe(5));
+  });
+
+  test('挂载即加载当前类型全部模板（不带 system 参数），存入 templates 状态', async () => {
     const store = getLedgerStore('inspection');
     store.formVisible = true;
     mockHttpGet.mockImplementation((url) => {
       if (url.includes('/systems/')) return Promise.resolve({data: [], total: 0});
-      return Promise.resolve({data: [{id: 5, name: '巡检模板A', template_code: 'T1', items_count: 1}]});
+      return Promise.resolve({data: [{
+        id: 5, name: '巡检模板A', template_code: 'T1', items_count: 1,
+        applicable_systems: [{id: 11, system_code: 'S1', name: '系统一'}],
+      }]});
     });
     const instance = renderForm(store);
     await act(async () => {});
-    let listPromise = null;
-    await act(async () => {
-      listPromise = instance.fetchTemplates(11);
-    });
-    const list = await listPromise;
-    expect(list).toHaveLength(1);
-    // 后端 LedgerTemplateAvailableView 读取 request.GET.get('system')；
-    // 参数名写错时后端返回 error='系统不存在' 且下拉为空
-    const call = mockHttpGet.mock.calls.find(c => c[0].includes('/ledger-templates/available/'));
-    expect(call[0]).toContain('system=11');
-    expect(call[0]).not.toContain('system_id=11');
+    const availableCalls = mockHttpGet.mock.calls.filter(c => c[0].includes('/ledger-templates/available/'));
+    expect(availableCalls).toHaveLength(1);
+    // 模板先行：挂载一次性加载，不需要按系统过滤（原 2026-09-19 的
+    // "system 参数名回归"随逐系统加载方式一并退役）
+    expect(availableCalls[0][0]).not.toContain('system=');
+    expect(instance.state.templates).toHaveLength(1);
+    expect(instance.state.templates[0].applicable_systems).toEqual([
+      {id: 11, system_code: 'S1', name: '系统一'}]);
   });
 
   test('一次提交多系统明细：payload 按系统分组且每条明细携带 system_id', async () => {

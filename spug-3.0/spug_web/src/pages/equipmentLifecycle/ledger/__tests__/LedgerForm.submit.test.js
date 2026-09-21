@@ -29,7 +29,8 @@ function flush() {
 
 function makeRowState() {
   return {
-    client_key: 'k1', id: undefined, system_id: 1, template_item_id: undefined,
+    client_key: 'k1', id: undefined, system_id: 1, template_id: undefined,
+    template_item_id: undefined,
     item_name: '外观检查',
     standard: '', input_type: 'text', unit: '', normal_range: '', choices: [],
     number_min: null, number_max: null, is_required: false,
@@ -55,8 +56,7 @@ function makeInstance(ledgerType, statePatch) {
     createdFrom: 'template',
     systems: [],
     templateEntries: [],
-    templateOptions: {},
-    pointsMap: {},
+    templates: [],
     rows: [],
     cycle: undefined,
     header: {
@@ -129,5 +129,46 @@ describe('LedgerForm.submit 载荷契约', () => {
     await flush();
     expect(instance.props.store.formVisible).toBe(false);
     expect(instance.props.store.fetchRecords).toHaveBeenCalled();
+  });
+
+  test('模板明细按 系统+模板 分组并携带 template_id', async () => {
+    mockHttpPost.mockResolvedValue({});
+    const instance = makeInstance('inspection');
+    instance.state.rows = [
+      {...makeRowState(), client_key: 'k1', system_id: 1, template_id: 5, result: 'normal'},
+      {...makeRowState(), client_key: 'k2', system_id: 1, template_id: 6, item_name: '电压测量', result: 'normal'},
+      {...makeRowState(), client_key: 'k3', system_id: 2, template_id: 5, item_name: '链路状态', result: 'normal'},
+    ];
+    instance.submit();
+    await flush();
+    const payload = mockHttpPost.mock.calls[0][1];
+    expect(payload.entries).toHaveLength(3);
+    const byKey = {};
+    payload.entries.forEach(e => {
+      byKey[`${e.system_id}|${e.template_id || ''}`] = e;
+    });
+    expect(Object.keys(byKey)).toHaveLength(3);
+    expect(byKey['1|5'].template_id).toBe(5);
+    expect(byKey['1|6'].template_id).toBe(6);
+    expect(byKey['2|5'].template_id).toBe(5);
+  });
+
+  test('同系统模板明细与临时明细分列，临时条目不带 template_id', async () => {
+    mockHttpPost.mockResolvedValue({});
+    const instance = makeInstance('inspection');
+    instance.state.rows = [
+      {...makeRowState(), client_key: 'k1', system_id: 1, template_id: 5, result: 'normal'},
+      {...makeRowState(), client_key: 'k2', system_id: 1, template_id: undefined, item_name: '临时加测', result: 'normal'},
+    ];
+    instance.submit();
+    await flush();
+    const payload = mockHttpPost.mock.calls[0][1];
+    expect(payload.entries).toHaveLength(2);
+    const withTpl = payload.entries.find(e => e.template_id);
+    const manual = payload.entries.find(e => !e.template_id);
+    expect(withTpl.system_id).toBe(1);
+    expect(withTpl.template_id).toBe(5);
+    expect(manual.system_id).toBe(1);
+    expect(manual.template_id).toBeUndefined();
   });
 });

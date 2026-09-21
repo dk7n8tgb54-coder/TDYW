@@ -247,7 +247,12 @@ class LedgerTemplateView(View):
 
 
 class LedgerTemplateAvailableView(View):
-    """按台账类型/周期/系统加载适用（启用）模板。"""
+    """按台账类型/周期/系统加载适用（启用）模板。
+
+    system 参数可选：带 system 时只返回适用于该系统的模板（原有行为）；
+    缺省时返回该类型全部启用模板并附 applicable_systems，供录入端
+    "只选模板、按适用系统展开"的模板先行交互使用。
+    """
 
     @auth('equipment_lifecycle.ledger.view')
     def get(self, request):
@@ -259,19 +264,35 @@ class LedgerTemplateAvailableView(View):
             ledger_services.validate_ledger_type_cycle(ledger_type, maintenance_cycle)
         except LedgerValidationError as e:
             return json_response(error=str(e))
-        system = _get_system_for_user(request.GET.get('system'), request.user)
-        if not system:
-            return json_response(error='系统不存在')
+
+        def _view(template, with_systems=False):
+            view = template.to_view()
+            count_qs = template.items.filter(is_active=True)
+            if ledger_type == LEDGER_TYPE_WEEK_MONTH:
+                count_qs = count_qs.filter(execution_scope__in=[
+                    'all', 'week_only' if maintenance_cycle == 'week' else 'month_only'])
+            view['items_count'] = count_qs.count()
+            if with_systems:
+                view['applicable_systems'] = [
+                    {'id': s.id, 'system_code': s.system_code, 'name': s.name}
+                    for s in template.applicable_systems.all()]
+            return view
+
         data = []
-        for template in apply_tenant_filter(
-                OperationLedgerTemplate.objects.all(), request.user).filter(
-                ledger_type=ledger_type, is_active=True).prefetch_related('applicable_systems'):
-            if template.applies_to_system(system):
-                view = template.to_view()
-                view['items_count'] = template.items.filter(is_active=True).filter(
-                    **({'execution_scope__in': ['all', 'week_only' if maintenance_cycle == 'week' else 'month_only']}
-                       if ledger_type == LEDGER_TYPE_WEEK_MONTH else {})).count()
-                data.append(view)
+        templates = apply_tenant_filter(
+            OperationLedgerTemplate.objects.all(), request.user).filter(
+            ledger_type=ledger_type, is_active=True).prefetch_related('applicable_systems')
+        system_param = request.GET.get('system')
+        if system_param:
+            system = _get_system_for_user(system_param, request.user)
+            if not system:
+                return json_response(error='系统不存在')
+            for template in templates:
+                if template.applies_to_system(system):
+                    data.append(_view(template))
+        else:
+            for template in templates:
+                data.append(_view(template, with_systems=True))
         return json_response({'data': data})
 
 
