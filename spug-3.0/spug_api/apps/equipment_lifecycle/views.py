@@ -50,11 +50,51 @@ from apps.equipment_lifecycle.models import (
     SystemConfigComponent,
     SystemConfigSnapshot,
     SystemConfigValue,
+    SystemFault,
+    SystemWorkOrder,
+    WORK_ORDER_STATUS_EXECUTING,
+    WORK_TYPE_REPAIR,
 )
-from apps.equipment_lifecycle import services
+from apps.equipment_lifecycle import fault_services, services
 
 AUDIT_TARGET_SYSTEM = 'el_system'
 AUDIT_TARGET_CONFIG = 'el_system_config'
+
+COMPONENT_MAINTENANCE_EMPTY = {'fault_count': 0, 'repairing_count': 0}
+
+
+def _component_maintenance_rows(systems):
+    """部件维护状态汇总（与系统运行健康状态分离展示）。
+
+    - fault_count：有效（待处置/处置中）且不影响系统运行的故障数（部件故障提示）；
+    - repairing_count：执行中且不影响系统运行的维修工单数（部件维修中提示）。
+    不影响运行的部件维修/部件故障不参与系统健康状态计算，只作独立提示展示；
+    入参 systems 必须来自租户过滤后的查询结果，避免跨租户计数。
+    返回 {system_id: {'fault_count': n, 'repairing_count': n}}。
+    """
+    ids = [s.id for s in systems]
+    if not ids:
+        return {}
+    result = {i: dict(COMPONENT_MAINTENANCE_EMPTY) for i in ids}
+    fault_rows = (
+        SystemFault.objects
+        .filter(system_id__in=ids,
+                status__in=fault_services.ACTIVE_FAULT_STATUSES,
+                affects_system_operation=False)
+        .values_list('system_id')
+        .annotate(total=models.Count('id')))
+    repairing_rows = (
+        SystemWorkOrder.objects
+        .filter(system_id__in=ids, work_type=WORK_TYPE_REPAIR,
+                status=WORK_ORDER_STATUS_EXECUTING,
+                affects_system_operation=False)
+        .values_list('system_id')
+        .annotate(total=models.Count('id')))
+    for system_id, total in fault_rows:
+        result[system_id]['fault_count'] = total
+    for system_id, total in repairing_rows:
+        result[system_id]['repairing_count'] = total
+    return result
 
 # 配置档案附件归属标识（动态字段 attachment 类型的物理存储归属）
 EL_ATTACHMENT_MODULE = 'equipment_lifecycle'
@@ -599,9 +639,17 @@ class SystemView(View):
         from libs.pagination import paginate
         page, page_size = paginate(request)
         total = query.count()
-        records = query[(page - 1) * page_size: page * page_size]
+        records = list(query[(page - 1) * page_size: page * page_size])
+        # 部件维护提示与系统健康状态分离展示（部件故障/部件维修中不影响运行状态）
+        component_map = _component_maintenance_rows(records)
+        rows = []
+        for record in records:
+            row = record.to_view()
+            row['component_maintenance'] = component_map.get(
+                record.id, dict(COMPONENT_MAINTENANCE_EMPTY))
+            rows.append(row)
         return json_response({
-            'data': [r.to_view() for r in records],
+            'data': rows,
             'total': total,
             'page': page,
             'page_size': page_size,
@@ -898,6 +946,9 @@ class SystemDetailView(View):
         data = item.to_view()
         data['created_by_name'] = item.created_by.username if item.created_by_id else ''
         data['config_components_count'] = item.components.count()
+        # 部件维护提示与系统健康状态分离展示（部件故障/部件维修中不影响运行状态）
+        data['component_maintenance'] = _component_maintenance_rows([item]).get(
+            item.id, dict(COMPONENT_MAINTENANCE_EMPTY))
         # 基本信息统一展示：固定字段 + 系统自定义字段值（含停用字段历史值）
         fields = [f for f in services.collect_applicable_fields(item, include_inactive=True)
                   if _field_visible(f, request.user)]

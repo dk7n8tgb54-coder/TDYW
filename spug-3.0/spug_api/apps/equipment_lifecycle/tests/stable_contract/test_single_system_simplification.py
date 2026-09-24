@@ -52,6 +52,8 @@ P_HANDLE_EXCEPTION = 'equipment_lifecycle.ledger.handle_exception'
 def fault_payload(system_obj, **overrides):
     payload = {
         'system': system_obj.id,
+        # 本文件的恢复/健康联动契约基于"影响系统运行"的故障（新默认不影响，见 test_health_split.py）
+        'affects_system_operation': True,
         'impact_status': 'fault',
         'occurred_at': '2026-09-19 08:00',
         'discovery': 'patrol',
@@ -168,8 +170,10 @@ class SingleSystemSimplificationTest(TestCase):
             {e.source_id for e in events.filter(event_type=SystemEvent.EVENT_WORK_ORDER)},
             {str(wid)})
 
-    def test_unrecovered_fault_repair_order_defaults_to_affect(self):
-        """尚未恢复的故障生成现场维修工单：默认影响运行，执行后进入维修中。"""
+    def test_unrecovered_fault_repair_order_defaults_to_no_affect(self):
+        """尚未恢复的故障生成现场维修工单：默认"作业期间不影响系统运行"，
+        执行中不进入"维修中"，系统保持来源故障的"故障"状态；
+        仅用户明确选择影响运行时才参与健康状态计算。"""
         body = self.client.post(f'{FAULT_URL}/', fault_payload(self.system_a),
                                 content_type='application/json').json()
         fid = body['data']['id']
@@ -178,14 +182,15 @@ class SingleSystemSimplificationTest(TestCase):
             {'client_token': 'tok-online-1', 'work_type': 'repair'},
             content_type='application/json').json()
         self.assertFalse(wo_body.get('error'), wo_body)
-        self.assertTrue(wo_body['data']['affects_system_operation'])
+        self.assertFalse(wo_body['data']['affects_system_operation'])
         wid = wo_body['data']['id']
         for action, payload in (('dispatch', {'owner_id': self.admin.id}),
                                 ('accept', {}), ('start', {})):
             self.client.post(f'{WO_URL}/{wid}/{action}/', payload,
                              content_type='application/json')
+        # 来源故障仍有效且影响运行 → 系统保持"故障"而非"维修中"
         self.assertEqual(
-            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'repairing')
+            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'fault')
 
     def test_fault_to_work_order_system_fixed_to_fault_system(self):
         """转单不能把工单改到其他系统：作业系统固定为故障所属系统。"""

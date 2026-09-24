@@ -1,0 +1,532 @@
+{
+  "version": 1,
+  "generated_by": "scripts/code_quality_check.py --write-baseline",
+  "policy": {
+    "legacy": {
+      "max_file_lines": 1000,
+      "max_function_lines": 250,
+      "max_complexity": 25
+    },
+    "new": {
+      "max_file_lines": 800,
+      "max_function_lines": 120,
+      "max_complexity": 15
+    }
+  },
+  "files": {
+    "spug_api/apps/coop_task/views.py": {
+      "code_lines": 968
+    },
+    "spug_api/apps/department_duty_log/services.py": {
+      "code_lines": 806
+    },
+    "spug_api/apps/equipment_lifecycle/models.py": {
+      "code_lines": 1500
+    },
+    "spug_api/apps/equipment_lifecycle/views.py": {
+      "code_lines": 1778
+    },
+    "spug_api/apps/equipment_lifecycle/work_order_views.py": {
+      "code_lines": 1222
+    },
+    "spug_api/apps/interference/views.py": {
+      "code_lines": 1113
+    },
+    "spug_api/apps/signature/services.py": {
+      "code_lines": 992
+    },
+    "spug_api/apps/department_duty_log/tests/test_comprehensive.py": {
+      "code_lines": 1027
+    },
+    "spug_api/apps/department_duty_log/tests/release_gate/test_release_gate.py": {
+      "code_lines": 864
+    }
+  },
+  "functions": [
+    {
+      "file": "spug_web/src/components/AttachmentUploadArea.js",
+      "line": 107,
+      "kind": "javascript",
+      "code_lines": 141,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/components/FilterBar.js",
+      "line": 45,
+      "kind": "javascript",
+      "code_lines": 152,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/coopTask/Detail.js",
+      "line": 49,
+      "kind": "javascript",
+      "code_lines": 242,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/coopTask/Form.js",
+      "line": 13,
+      "kind": "javascript",
+      "code_lines": 130,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/coopTask/InboxDetail.js",
+      "line": 18,
+      "kind": "javascript",
+      "code_lines": 181,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/coopTask/Table.js",
+      "line": 15,
+      "kind": "javascript",
+      "code_lines": 212,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/equipmentLifecycle/ConfigArchiveTab.js",
+      "line": 175,
+      "kind": "javascript",
+      "code_lines": 152,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/equipmentLifecycle/FaultForm.js",
+      "line": 34,
+      "kind": "javascript",
+      "code_lines": 202,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/equipmentLifecycle/SystemForm.js",
+      "line": 42,
+      "kind": "javascript",
+      "code_lines": 475,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/home/AnnouncementList.js",
+      "line": 18,
+      "kind": "javascript",
+      "code_lines": 137,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/home/CoopTaskOverview.js",
+      "line": 18,
+      "kind": "javascript",
+      "code_lines": 134,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/home/ExpiryOverview.js",
+      "line": 12,
+      "kind": "javascript",
+      "code_lines": 135,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/interference/events.js",
+      "line": 12,
+      "kind": "javascript",
+      "code_lines": 135,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/reminder/index.js",
+      "line": 29,
+      "kind": "javascript",
+      "code_lines": 124,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/runlog/Statistics.js",
+      "line": 167,
+      "kind": "javascript",
+      "code_lines": 146,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/upgrade/CreateUpgradeModal.js",
+      "line": 125,
+      "kind": "javascript",
+      "code_lines": 136,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/upgrade/Workbench.js",
+      "line": 19,
+      "kind": "javascript",
+      "code_lines": 145,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/coopTask/__tests__/InboxDetail.test.js",
+      "line": 130,
+      "kind": "javascript",
+      "code_lines": 138,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/coopTask/__tests__/TaskDetail.test.js",
+      "line": 134,
+      "kind": "javascript",
+      "code_lines": 146,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/Explorer/hooks/useColumns.js",
+      "line": 151,
+      "kind": "javascript",
+      "code_lines": 149,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/Explorer/hooks/useContextMenu.js",
+      "line": 33,
+      "kind": "javascript",
+      "code_lines": 149,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/Explorer/hooks/useDataFetching.js",
+      "line": 155,
+      "kind": "javascript",
+      "code_lines": 203,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/Explorer/hooks/useExplorerState.js",
+      "line": 82,
+      "kind": "javascript",
+      "code_lines": 191,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/equipmentLifecycle/workOrder/index.js",
+      "line": 142,
+      "kind": "javascript",
+      "code_lines": 123,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/system/account/SignatureModal.js",
+      "line": 184,
+      "kind": "javascript",
+      "code_lines": 188,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/system/announcement/index.js",
+      "line": 20,
+      "kind": "javascript",
+      "code_lines": 172,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/system/releaseNotes/index.js",
+      "line": 15,
+      "kind": "javascript",
+      "code_lines": 149,
+      "complexity": null
+    },
+    {
+      "file": "spug_api/apps/alert/metrics.py",
+      "line": 128,
+      "kind": "python",
+      "code_lines": 68,
+      "complexity": 19,
+      "name": "aggregate_window"
+    },
+    {
+      "file": "spug_api/apps/contract_agreement/views.py",
+      "line": 191,
+      "kind": "python",
+      "code_lines": 60,
+      "complexity": 18,
+      "name": "_validate_form"
+    },
+    {
+      "file": "spug_api/apps/contract_agreement/views.py",
+      "line": 350,
+      "kind": "python",
+      "code_lines": 63,
+      "complexity": 19,
+      "name": "_validate_edit_form"
+    },
+    {
+      "file": "spug_api/apps/coop_task/views.py",
+      "line": 119,
+      "kind": "python",
+      "code_lines": 66,
+      "complexity": 18,
+      "name": "_validate_task_targets"
+    },
+    {
+      "file": "spug_api/apps/department_duty_log/services.py",
+      "line": 651,
+      "kind": "python",
+      "code_lines": 132,
+      "complexity": 17,
+      "name": "sign_draft"
+    },
+    {
+      "file": "spug_api/apps/department_duty_log/services.py",
+      "line": 1029,
+      "kind": "python",
+      "code_lines": 124,
+      "complexity": 11,
+      "name": "export_pdf"
+    },
+    {
+      "file": "spug_api/apps/device/pdf_export.py",
+      "line": 285,
+      "kind": "python",
+      "code_lines": 132,
+      "complexity": 9,
+      "name": "_build_event_block"
+    },
+    {
+      "file": "spug_api/apps/duty/pdf_export.py",
+      "line": 118,
+      "kind": "python",
+      "code_lines": 122,
+      "complexity": 9,
+      "name": "generate_duty_log_pdf"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/fault_views.py",
+      "line": 245,
+      "kind": "python",
+      "code_lines": 80,
+      "complexity": 16,
+      "name": "post"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/fault_views.py",
+      "line": 338,
+      "kind": "python",
+      "code_lines": 90,
+      "complexity": 17,
+      "name": "put"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/ledger_services.py",
+      "line": 162,
+      "kind": "python",
+      "code_lines": 69,
+      "complexity": 29,
+      "name": "validate_item_value"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/ledger_services.py",
+      "line": 462,
+      "kind": "python",
+      "code_lines": 78,
+      "complexity": 22,
+      "name": "update_ledger"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/ledger_services.py",
+      "line": 711,
+      "kind": "python",
+      "code_lines": 71,
+      "complexity": 22,
+      "name": "correct_ledger"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/ledger_views.py",
+      "line": 628,
+      "kind": "python",
+      "code_lines": 60,
+      "complexity": 16,
+      "name": "get"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/services.py",
+      "line": 67,
+      "kind": "python",
+      "code_lines": 137,
+      "complexity": 60,
+      "name": "normalize_field_value"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/services.py",
+      "line": 444,
+      "kind": "python",
+      "code_lines": 45,
+      "complexity": 23,
+      "name": "diff_content"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/views.py",
+      "line": 431,
+      "kind": "python",
+      "code_lines": 101,
+      "complexity": 54,
+      "name": "_validate_field_definition_payload"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/views.py",
+      "line": 741,
+      "kind": "python",
+      "code_lines": 182,
+      "complexity": 33,
+      "name": "_create_aggregate"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/views.py",
+      "line": 1032,
+      "kind": "python",
+      "code_lines": 269,
+      "complexity": 54,
+      "name": "_update_aggregate"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/views.py",
+      "line": 1773,
+      "kind": "python",
+      "code_lines": 57,
+      "complexity": 20,
+      "name": "put"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/work_order_services.py",
+      "line": 94,
+      "kind": "python",
+      "code_lines": 71,
+      "complexity": 16,
+      "name": "create_work_order_record"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/work_order_services.py",
+      "line": 167,
+      "kind": "python",
+      "code_lines": 50,
+      "complexity": 17,
+      "name": "compute_item_disposition"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/work_order_views.py",
+      "line": 127,
+      "kind": "python",
+      "code_lines": 79,
+      "complexity": 26,
+      "name": "_validate_order_fields"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/work_order_views.py",
+      "line": 301,
+      "kind": "python",
+      "code_lines": 57,
+      "complexity": 19,
+      "name": "get"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/work_order_views.py",
+      "line": 1102,
+      "kind": "python",
+      "code_lines": 86,
+      "complexity": 28,
+      "name": "_build_data"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/work_order_views.py",
+      "line": 1202,
+      "kind": "python",
+      "code_lines": 93,
+      "complexity": 19,
+      "name": "post"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/work_order_views.py",
+      "line": 1321,
+      "kind": "python",
+      "code_lines": 109,
+      "complexity": 31,
+      "name": "post"
+    },
+    {
+      "file": "spug_api/apps/evidence/services.py",
+      "line": 57,
+      "kind": "python",
+      "code_lines": 125,
+      "complexity": 5,
+      "name": "record_evidence_event"
+    },
+    {
+      "file": "spug_api/apps/interference/views.py",
+      "line": 261,
+      "kind": "python",
+      "code_lines": 78,
+      "complexity": 37,
+      "name": "_event_payload"
+    },
+    {
+      "file": "spug_api/apps/interference/views.py",
+      "line": 434,
+      "kind": "python",
+      "code_lines": 19,
+      "complexity": 18,
+      "name": "_validate_detail_state"
+    },
+    {
+      "file": "spug_api/apps/interference/views.py",
+      "line": 633,
+      "kind": "python",
+      "code_lines": 44,
+      "complexity": 17,
+      "name": "post"
+    },
+    {
+      "file": "spug_api/apps/regulation/run_crud_audit.py",
+      "line": 101,
+      "kind": "python",
+      "code_lines": 277,
+      "complexity": 34,
+      "name": "run_audit"
+    },
+    {
+      "file": "spug_api/apps/alert/management/commands/data_quality_check.py",
+      "line": 368,
+      "kind": "python",
+      "code_lines": 117,
+      "complexity": 25,
+      "name": "check_orphan_disk_files"
+    },
+    {
+      "file": "spug_api/apps/document/tasks/merge.py",
+      "line": 404,
+      "kind": "python",
+      "code_lines": 111,
+      "complexity": 18,
+      "name": "_create_file_instance"
+    },
+    {
+      "file": "spug_api/apps/document/tasks/thumbnail.py",
+      "line": 45,
+      "kind": "python",
+      "code_lines": 121,
+      "complexity": 12,
+      "name": "generate_document_thumbnail"
+    },
+    {
+      "file": "spug_api/apps/document/views/search.py",
+      "line": 181,
+      "kind": "python",
+      "code_lines": 151,
+      "complexity": 10,
+      "name": "get"
+    },
+    {
+      "file": "spug_api/apps/document/views/file/upload.py",
+      "line": 37,
+      "kind": "python",
+      "code_lines": 90,
+      "complexity": 20,
+      "name": "post"
+    }
+  ]
+}

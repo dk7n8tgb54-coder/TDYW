@@ -28,6 +28,9 @@ from libs.tenant_base_model import TenantModelManager, TenantModelMixin, make_te
 # Meta/CheckConstraint 内无法访问类体常量（类作用域不形成闭包），枚举值提为模块级
 HEALTH_STATUS_VALUES = ['normal', 'degraded', 'fault', 'repairing', 'interrupted', 'unknown']
 FAULT_IMPACT_VALUES = ['degraded', 'fault', 'interrupted']
+# 影响系统运行时的合法影响程度即 FAULT_IMPACT_VALUES；
+# 不影响系统运行（部件故障/离线维修）时 impact_status 统一存空串
+FAULT_IMPACT_DB_VALUES = [''] + FAULT_IMPACT_VALUES
 FAULT_STATUS_VALUES = ['pending', 'handling', 'recovered', 'closed', 'cancelled']
 FIELD_TYPE_VALUES_LIST = ['text', 'longtext', 'number', 'date', 'choice',
                           'multi_choice', 'boolean', 'attachment', 'detail_table']
@@ -566,7 +569,13 @@ class SystemFault(TenantModelMixin, models.Model):
         LifecycleSystem, models.PROTECT, related_name='faults',
         help_text='故障系统（外键关联系统主数据，一个故障单只关联一个系统）')
     impact_status = models.CharField(
-        max_length=20, choices=IMPACT_CHOICES, help_text='故障系统影响状态')
+        max_length=20, choices=IMPACT_CHOICES, default='', blank=True,
+        help_text='系统影响程度：影响系统运行时必填（degraded降级/fault故障/interrupted中断）；'
+                  '不影响系统运行时后端强制存空串')
+    affects_system_operation = models.BooleanField(
+        default=False,
+        help_text='是否影响系统运行（False=部件故障/离线维修，默认不影响，不参与健康状态计算；'
+                  'True=影响运行，按 impact_status 参与健康状态计算）')
     # 故障系统故障发生时快照
     system_code = models.CharField(max_length=50, help_text='故障系统编号快照')
     system_name = models.CharField(max_length=100, help_text='故障系统名称快照')
@@ -630,7 +639,7 @@ class SystemFault(TenantModelMixin, models.Model):
                 name='el_fault_status_valid',
             ),
             models.CheckConstraint(
-                check=models.Q(impact_status__in=FAULT_IMPACT_VALUES),
+                check=models.Q(impact_status__in=FAULT_IMPACT_DB_VALUES),
                 name='el_fault_impact_valid',
             ),
         ]
@@ -654,6 +663,7 @@ class SystemFault(TenantModelMixin, models.Model):
             'system_location': self.system_location,
             'impact_status': self.impact_status,
             'impact_status_text': self.IMPACT_TEXT_MAP.get(self.impact_status, ''),
+            'affects_system_operation': self.affects_system_operation,
             'occurred_at': self.occurred_at,
             'level': self.level,
             'level_text': self.LEVEL_TEXT_MAP.get(self.level, self.level),

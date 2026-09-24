@@ -77,6 +77,8 @@ def fault_payload(system_obj, **overrides):
     moment = datetime(2026, 9, 18, 8, 0) + timedelta(minutes=seq)
     payload = {
         'system': system_obj.id,
+        # 履历与健康事件契约基于"影响系统运行"的故障（新默认不影响，见 test_health_split.py）
+        'affects_system_operation': True,
         'impact_status': 'degraded',
         'occurred_at': moment.strftime('%Y-%m-%d %H:%M'),
         'discovery': 'patrol',
@@ -329,10 +331,11 @@ class WorkOrderEventTests(SystemEventTestBase):
                                 content_type='application/json').json()
         self.assertFalse(body.get('error'), body)
         fid = body['data']['id']
-        # 生成维修工单并推进到执行中（来源故障未恢复 → 默认影响运行）
+        # 生成维修工单并推进到执行中（新默认不影响运行 → 此处显式选择影响运行）
         wo_body = self.client.post(
             f'{FAULT_URL}/{fid}/create-work-order/',
-            {'client_token': _uniq_client_token(), 'work_type': 'repair'},
+            {'client_token': _uniq_client_token(), 'work_type': 'repair',
+             'affects_system_operation': True},
             content_type='application/json').json()
         self.assertFalse(wo_body.get('error'), wo_body)
         wid = wo_body['data']['id']
@@ -411,9 +414,11 @@ class LedgerConvertEventTests(SystemEventTestBase):
         """台账异常转故障：ledger 事件 + 故障创建事件同一事务；正常台账不产生任何事件。"""
         ledger_id, item_id = self.create_reviewed_ledger_with_abnormal_item()
         before = len(self.events())
+        # 显式选择影响系统运行：转换同事务内生成健康状态变化事件（默认不影响）
         r = self.client.post(
             f'{LEDGER_URL}/{ledger_id}/items/{item_id}/convert-to-fault/',
-            {}, content_type='application/json')
+            {'affects_system_operation': True, 'impact_status': 'degraded'},
+            content_type='application/json')
         body = r.json()
         self.assertFalse(body.get('error'), body)
         events = self.events()[before:]

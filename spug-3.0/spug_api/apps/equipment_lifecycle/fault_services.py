@@ -6,7 +6,8 @@
 规则：
 - 系统健康状态只允许由本服务计算写入，故障/工单 View 不得直接改写状态；
 - 计算范围只看本系统自己的业务记录（不查询任何跨系统关联表）：
-  本系统的有效故障（排除已作废与已关闭），
+  本系统的有效故障（排除已作废与已关闭，且仅限明确选择"影响系统运行"的故障；
+  部件故障/离线维修默认不影响运行，不参与计算），
   以及本系统上"执行中且影响系统运行"的故障维修工单（步骤 3.3）；
 - 优先级：中断 > 维修中 > 故障 > 降级（多张故障/工单并存时取最高影响，
   一张故障关闭不会覆盖本系统其他未恢复故障/工单的影响）；
@@ -70,6 +71,8 @@ def collect_active_impacts(tenant_id, system_ids):
 
     单系统简化：只按本系统 ID 查询 SystemFault.impact_status
     （status ∈ ACTIVE_FAULT_STATUSES），不查询任何受影响系统关联表。
+    部件故障但不影响系统运行（affects_system_operation=False，默认值）
+    不参与系统健康状态计算；只有明确选择影响系统运行的故障才计入。
     """
     system_ids = [int(i) for i in system_ids]
     impacts = {}
@@ -78,6 +81,7 @@ def collect_active_impacts(tenant_id, system_ids):
     fault_rows = SystemFault.objects.filter(
         tenant_id=tenant_id,
         status__in=ACTIVE_FAULT_STATUSES,
+        affects_system_operation=True,
         system_id__in=system_ids,
     ).values_list('system_id', 'impact_status')
     for system_id, impact in fault_rows:
@@ -198,7 +202,7 @@ def recompute_systems_health(tenant_id, system_ids, request=None, audit_reason=N
 
 def create_fault_record(*, tenant_id, created_by, system, impact_status,
                         occurred_at, discovery, level, phenomenon, handler=None,
-                        fault_component=None,
+                        fault_component=None, affects_system_operation=False,
                         impact_scope='', fault_location='', fault_object_name='',
                         fault_object_model='', fault_object_sn='', reason_analysis='',
                         source_type=None, source_ledger_item=None, request=None):
@@ -206,6 +210,9 @@ def create_fault_record(*, tenant_id, created_by, system, impact_status,
 
     须在 health_recalc_lock + transaction.atomic 内调用（调用方负责锁与事务）：
     - 创建故障主单（一个故障系统外键 + 发生时快照，无受影响系统）；
+    - 默认"部件故障但不影响系统运行"（affects_system_operation=False），
+      此时 impact_status 强制存空串且不参与健康状态计算；
+      仅调用方明确传 affects_system_operation=True 时按 impact_status 参与计算；
     - 同事务生成故障发生履历事件（只落故障所属系统，步骤 3.4 统一履历）；
     - 同事务重算故障系统健康状态（request 透传以记录状态变化审计）；
     - source_type/source_ledger_item 供台账异常转故障写入来源关系，
@@ -213,11 +220,14 @@ def create_fault_record(*, tenant_id, created_by, system, impact_status,
 
     返回 SystemFault 实例。
     """
+    if not affects_system_operation:
+        impact_status = ''
     fault = SystemFault.objects.create(
         tenant_id=tenant_id,
         fault_no=generate_fault_no(tenant_id),
         system=system,
         impact_status=impact_status,
+        affects_system_operation=bool(affects_system_operation),
         system_code=system.system_code,
         system_name=system.name,
         system_location=system.install_location,

@@ -138,11 +138,12 @@ class FaultToWorkOrderTest(ConversionTestBase):
         self.assertFalse(second.get('error'), second)
         orders = SystemWorkOrder.objects.filter(source_type='fault', source_fault=fault)
         self.assertEqual(orders.count(), 2)
-        # 默认类型为故障维修，作业系统固定为故障所属系统，影响运行默认为是
+        # 默认类型为故障维修，作业系统固定为故障所属系统；
+        # 影响运行默认为"否"（部件离线维修不影响系统状态，见 test_health_split.py）
         first_order = orders.order_by('id').first()
         self.assertEqual(first_order.work_type, 'repair')
         self.assertEqual(first_order.system_id, fault.system_id)
-        self.assertTrue(first_order.affects_system_operation)
+        self.assertFalse(first_order.affects_system_operation)
         # 现象带入作业要求
         self.assertEqual(first_order.work_requirement, fault.phenomenon)
 
@@ -242,9 +243,11 @@ class LedgerItemConvertToFaultTest(ConversionTestBase):
         self.assertEqual(fault.source_id, str(item_ids[0]))
         # 带入台账上下文（现象含台账编号/项目名）
         self.assertIn('EL-', fault.phenomenon)
-        # 异常影响立即生效（同事务重算健康状态）
+        # 默认"部件故障但不影响系统运行"：系统健康状态保持正常（同事务重算）
+        self.assertFalse(fault.affects_system_operation)
+        self.assertEqual(fault.impact_status, '')
         self.assertEqual(
-            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'degraded')
+            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'normal')
 
     def test_non_abnormal_item_cannot_convert(self):
         """25. 正常、不适用或待复核明细不能转单。"""

@@ -110,6 +110,26 @@ def _validate_affected_systems_rejected(body):
     return None
 
 
+def _validate_affects_and_impact(form, fallback_affects=False, fallback_impact=''):
+    """校验"影响系统运行"开关与影响程度，返回 (affects, impact_status, error)。
+
+    默认"部件故障但不影响系统运行"：affects=False 时影响程度强制存空串；
+    仅明确选择影响系统运行时，才要求影响程度（降级/故障/中断）。
+    编辑场景开关未显式提交时（fallback 传入原故障取值）保持原影响设置不变，
+    避免旧载荷编辑静默把"影响运行"的故障翻转成"不影响运行"。
+    """
+    if form.affects_system_operation is None:
+        return bool(fallback_affects), fallback_impact or '', None
+    affects = bool(form.affects_system_operation)
+    impact_status = (form.impact_status or '').strip()
+    if affects:
+        if impact_status not in SystemFault.IMPACT_TEXT_MAP:
+            return False, '', '影响系统运行时必须选择影响程度（降级/故障/中断）'
+    else:
+        impact_status = ''
+    return affects, impact_status, None
+
+
 def _validate_fault_fields(form, request, for_update=False, fault=None):
     """校验故障公共字段，返回 (occurred_at, handler, error)。"""
     occurred_at = _parse_dt(form.occurred_at)
@@ -121,8 +141,6 @@ def _validate_fault_fields(form, request, for_update=False, fault=None):
         return None, None, '故障级别不合法'
     if form.discovery not in SystemFault.DISCOVERY_TEXT_MAP:
         return None, None, '故障发现方式不合法'
-    if form.impact_status not in SystemFault.IMPACT_TEXT_MAP:
-        return None, None, '故障系统影响状态不合法'
     handler = request.user
     if form.handler_id:
         handler = apply_tenant_filter(User.objects.all(), request.user).filter(
@@ -167,6 +185,7 @@ def _fault_audit_summary(fault):
         'fault_no': fault.fault_no,
         'status': fault.status,
         'system': fault.system_name,
+        'affects_system_operation': fault.affects_system_operation,
         'impact_status': fault.impact_status,
         'level': fault.level,
     }
@@ -233,7 +252,10 @@ class FaultView(View):
             return json_response(error='请求数据格式不正确')
         form, error = JsonParser(
             Argument('system', type=int, required=True, help='故障系统ID'),
-            Argument('impact_status', type=str, required=True, help='故障系统影响状态'),
+            Argument('affects_system_operation', type=bool, required=False, default=False,
+                     help='是否影响系统运行，默认不影响（部件故障/离线维修）'),
+            Argument('impact_status', type=str, required=False, default='',
+                     help='系统影响程度：影响系统运行时必填（降级/故障/中断）'),
             Argument('occurred_at', type=str, required=True, help='故障发生时间'),
             Argument('discovery', type=str, required=True, help='故障发现方式'),
             Argument('level', type=str, required=True, help='故障级别'),
@@ -259,6 +281,9 @@ class FaultView(View):
         occurred_at, handler, err = _validate_fault_fields(form, request)
         if err:
             return json_response(error=err)
+        affects, impact_status, err = _validate_affects_and_impact(form)
+        if err:
+            return json_response(error=err)
         phenomenon = form.phenomenon.strip()
         if not phenomenon:
             return json_response(error='故障现象不能为空')
@@ -279,7 +304,8 @@ class FaultView(View):
                         tenant_id=request.user.tenant_id,
                         created_by=request.user,
                         system=system,
-                        impact_status=form.impact_status,
+                        affects_system_operation=affects,
+                        impact_status=impact_status,
                         occurred_at=occurred_at,
                         discovery=form.discovery,
                         level=form.level,
@@ -319,7 +345,10 @@ class FaultDetailView(View):
             return json_response(error='请求数据格式不正确')
         form, error = JsonParser(
             Argument('system', type=int, required=True, help='故障系统ID'),
-            Argument('impact_status', type=str, required=True, help='故障系统影响状态'),
+            Argument('affects_system_operation', type=bool, required=False, default=None,
+                     help='是否影响系统运行；编辑未提交时保留原值'),
+            Argument('impact_status', type=str, required=False, default='',
+                     help='系统影响程度：影响系统运行时必填（降级/故障/中断）'),
             Argument('occurred_at', type=str, required=True, help='故障发生时间'),
             Argument('discovery', type=str, required=True, help='故障发现方式'),
             Argument('level', type=str, required=True, help='故障级别'),
@@ -358,6 +387,11 @@ class FaultDetailView(View):
                         form, request, for_update=True, fault=fault)
                     if err:
                         return json_response(error=err)
+                    affects, impact_status, err = _validate_affects_and_impact(
+                        form, fallback_affects=fault.affects_system_operation,
+                        fallback_impact=fault.impact_status)
+                    if err:
+                        return json_response(error=err)
                     phenomenon = form.phenomenon.strip()
                     if not phenomenon:
                         return json_response(error='故障现象不能为空')
@@ -365,7 +399,8 @@ class FaultDetailView(View):
                     before_summary = _fault_audit_summary(fault)
                     old_system = fault.system
                     fault.system = system
-                    fault.impact_status = form.impact_status
+                    fault.affects_system_operation = affects
+                    fault.impact_status = impact_status
                     fault.system_code = system.system_code
                     fault.system_name = system.name
                     fault.system_location = system.install_location

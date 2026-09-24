@@ -1044,6 +1044,8 @@ class FaultCreateWorkOrderView(View):
     - 只有未作废的有效故障可以生成工单；
     - 一个故障允许生成多张维修工单（不用来源唯一约束阻止）；
     - 每次创建请求必须携带幂等键（client_token），重复提交返回已有工单；
+    - 作业期间影响系统运行默认为"否"（拆下部件离线维修不改变系统状态），
+      仅用户明确选择影响运行时才参与健康状态计算；
     - 工单完成不自动关闭来源故障（故障恢复由步骤 3.1 流程确认）。
     """
 
@@ -1130,10 +1132,10 @@ class FaultCreateWorkOrderView(View):
             return None, '工单系统固定为故障所属系统，不能指定其他系统'
         system = fault.system
 
-        # 影响运行默认值：尚未恢复确认的故障 → 是；已恢复后的部件维修 → 否。
-        # 前端可显式传值调整，未传时按默认规则落库。
+        # 影响运行默认值：默认"作业期间不影响系统运行"（拆下部件离线维修不改变系统状态）。
+        # 只有用户明确选择影响运行时才参与健康状态计算，前端默认值与后端一致。
         if form.affects_system_operation is None:
-            affects = fault.status in fault_services.ACTIVE_FAULT_STATUSES
+            affects = False
         else:
             if not isinstance(form.affects_system_operation, bool):
                 return None, '作业期间是否影响系统运行必须为布尔值'
@@ -1219,8 +1221,10 @@ class LedgerItemConvertToFaultView(View):
                                  default=SystemFault.DISCOVERY_PATROL),
                         Argument('level', type=str, required=False,
                                  default=SystemFault.LEVEL_MINOR),
-                        Argument('impact_status', type=str, required=False,
-                                 default=SystemFault.IMPACT_DEGRADED),
+                        Argument('affects_system_operation', type=bool, required=False, default=False,
+                                 help='是否影响系统运行，默认不影响（部件故障）'),
+                        Argument('impact_status', type=str, required=False, default='',
+                                 help='系统影响程度：影响系统运行时必填（降级/故障/中断）'),
                         Argument('phenomenon', type=str, required=False, default=''),
                         Argument('re_dispose_reason', type=str, required=False, default=''),
                     ).parse(body)
@@ -1241,8 +1245,14 @@ class LedgerItemConvertToFaultView(View):
                         return json_response(error='故障发现方式不合法')
                     if form.level not in SystemFault.LEVEL_TEXT_MAP:
                         return json_response(error='故障级别不合法')
-                    if form.impact_status not in SystemFault.IMPACT_TEXT_MAP:
-                        return json_response(error='故障系统影响状态不合法')
+                    # 默认"部件故障但不影响系统运行"；仅明确选择影响运行时才要求影响程度
+                    affects = bool(form.affects_system_operation)
+                    if affects:
+                        if form.impact_status not in SystemFault.IMPACT_TEXT_MAP:
+                            return json_response(error='影响系统运行时必须选择影响程度（降级/故障/中断）')
+                        impact_status = form.impact_status
+                    else:
+                        impact_status = ''
 
                     phenomenon = (form.phenomenon or '').strip()
                     if not phenomenon:
@@ -1252,7 +1262,8 @@ class LedgerItemConvertToFaultView(View):
                         tenant_id=request.user.tenant_id,
                         created_by=request.user,
                         system=item.system,
-                        impact_status=form.impact_status,
+                        affects_system_operation=affects,
+                        impact_status=impact_status,
                         occurred_at=occurred_at,
                         discovery=form.discovery,
                         level=form.level,

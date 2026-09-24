@@ -43,6 +43,9 @@ ALL_FAULT_PERMS = [
 def fault_payload(system_obj, **overrides):
     payload = {
         'system': system_obj.id,
+        # 默认构造"影响系统运行"的故障：健康状态相关契约均基于显式影响运行；
+        # "部件故障但不影响运行"（新默认）的契约见 test_health_split.py
+        'affects_system_operation': True,
         'impact_status': 'degraded',
         'occurred_at': '2026-09-18 08:30',
         'discovery': 'patrol',
