@@ -33,6 +33,7 @@ from apps.equipment_lifecycle.models import (
     WORK_ORDER_ROLE_OWNER,
     WORK_ORDER_ROLE_PARTICIPANT,
     WORK_ORDER_SOURCE_FAULT,
+    WORK_ORDER_SOURCE_INSPECTION_RECORD,
     WORK_ORDER_SOURCE_LEDGER_ITEM,
     WORK_ORDER_SOURCE_MANUAL,
     WORK_ORDER_STATUS_CANCELLED,
@@ -88,15 +89,39 @@ def find_existing_by_token(tenant_id, client_token, source_type=None, source_obj
         qs = qs.filter(source_fault=source_object)
     elif source_type == WORK_ORDER_SOURCE_LEDGER_ITEM and source_object is not None:
         qs = qs.filter(source_ledger_item=source_object)
+    elif source_type == WORK_ORDER_SOURCE_INSPECTION_RECORD and source_object is not None:
+        qs = qs.filter(source_inspection_record=source_object)
     return qs.order_by('id').first()
+
+
+def _clean_text(value, limit):
+    """可选文本字段规范化（None 视为空串，去首尾空白并限长）。"""
+    return (value or '').strip()[:limit]
+
+
+def _build_participant_rows(tenant_id, work_order, owner, participants):
+    """生成参与人员行：负责人以 role=owner 单独一行；负责人兼参与人只保留一行。"""
+    rows = []
+    if owner is not None:
+        rows.append(SystemWorkOrderParticipant(
+            tenant_id=tenant_id, work_order=work_order, user=owner,
+            role=WORK_ORDER_ROLE_OWNER))
+    for user in participants or []:
+        if owner is not None and user.id == owner.id:
+            continue
+        rows.append(SystemWorkOrderParticipant(
+            tenant_id=tenant_id, work_order=work_order, user=user,
+            role=WORK_ORDER_ROLE_PARTICIPANT))
+    return rows
 
 
 def create_work_order_record(*, tenant_id, created_by, title, work_type, system,
                              priority=SystemWorkOrder.PRIORITY_NORMAL,
                              source_type=WORK_ORDER_SOURCE_MANUAL, source_fault=None,
-                             source_ledger_item=None, source_no='',
+                             source_ledger_item=None, source_inspection_record=None,
+                             source_no='',
                              affects_system_operation=False, owner=None, participants=None,
-                             work_location='', work_object_desc='', work_component=None,
+                             work_location='', work_object_desc='',
                              planned_start=None, planned_end=None, work_requirement='',
                              work_steps='', material_note='', client_token='',
                              status=None, request=None):
@@ -109,7 +134,8 @@ def create_work_order_record(*, tenant_id, created_by, title, work_type, system,
 
     - affects_system_operation：作业期间是否影响系统运行（后端保存前重新校验）；
     - participants: [user]（不含负责人；负责人单独以 role=owner 写入）；
-    - source_type/source_fault/source_ledger_item/source_no 由调用方按来源写入；
+    - source_type/source_fault/source_ledger_item/source_inspection_record/source_no
+      由调用方按来源写入；
     - status 允许转换流程显式指定（普通创建缺省待派发）；
     - request 透传给健康重算以便状态变化审计与履历归属到人。
     """
@@ -118,43 +144,32 @@ def create_work_order_record(*, tenant_id, created_by, title, work_type, system,
     work_order = SystemWorkOrder.objects.create(
         tenant_id=tenant_id,
         work_no=generate_work_no(tenant_id),
-        title=(title or '').strip()[:100],
+        title=_clean_text(title, 100),
         work_type=work_type,
         priority=priority,
         source_type=source_type,
         source_fault=source_fault,
         source_ledger_item=source_ledger_item,
-        source_no=(source_no or '').strip()[:50],
+        source_inspection_record=source_inspection_record,
+        source_no=_clean_text(source_no, 50),
         system=system,
         system_code=system.system_code,
         system_name=system.name,
         system_location=system.install_location,
         affects_system_operation=bool(affects_system_operation),
-        work_location=(work_location or '').strip()[:200],
-        work_object_desc=(work_object_desc or '').strip()[:1000],
-        work_component=work_component,
-        work_component_name=work_component.name if work_component else '',
+        work_location=_clean_text(work_location, 200),
+        work_object_desc=_clean_text(work_object_desc, 1000),
         owner=owner,
         planned_start=planned_start,
         planned_end=planned_end,
-        work_requirement=(work_requirement or '').strip()[:2000],
-        work_steps=(work_steps or '').strip()[:2000],
-        material_note=(material_note or '').strip()[:500],
+        work_requirement=_clean_text(work_requirement, 2000),
+        work_steps=_clean_text(work_steps, 2000),
+        material_note=_clean_text(material_note, 500),
         status=status,
-        client_token=(client_token or '').strip()[:64],
+        client_token=_clean_text(client_token, 64),
         created_by=created_by,
     )
-    participant_rows = []
-    if owner is not None:
-        participant_rows.append(SystemWorkOrderParticipant(
-            tenant_id=tenant_id, work_order=work_order, user=owner,
-            role=WORK_ORDER_ROLE_OWNER))
-    for user in (participants or []):
-        if owner is not None and user.id == owner.id:
-            continue  # 负责人兼参与人只保留一行，页面不重复显示
-        participant_rows.append(SystemWorkOrderParticipant(
-            tenant_id=tenant_id, work_order=work_order, user=user,
-            role=WORK_ORDER_ROLE_PARTICIPANT))
+    participant_rows = _build_participant_rows(tenant_id, work_order, owner, participants)
     if participant_rows:
         SystemWorkOrderParticipant.objects.bulk_create(participant_rows)
     # 步骤 3.4：工单登记履历（只落作业系统，同一事务）

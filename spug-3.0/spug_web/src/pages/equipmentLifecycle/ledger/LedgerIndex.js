@@ -5,6 +5,8 @@
 /**
  * 运维台账列表页：巡检 / 周月维护 / 季维护 共用，ledgerType 由路由入口注入。
  * 周月维护单入口，通过"维护周期"筛选区分周与月。
+ * 值班巡检改造后，巡检台账（历史）只读：仅保留列表/详情/导出，
+ * 不提供新增、编辑、提交、作废与异常转单入口；巡检业务走独立巡检单。
  */
 import React, {useEffect} from 'react';
 import {observer} from 'mobx-react';
@@ -17,22 +19,19 @@ import LedgerDetail from './LedgerDetail';
 import {getLedgerStore} from './store';
 import {API_PREFIX_L, CYCLE_TEXT, LEDGER_TYPE, LEDGER_TYPE_TEXT, PERM_L, STATUS_COLOR, STATUS_TEXT} from './constants';
 
-function LedgerIndex({ledgerType, location}) {
-  const store = getLedgerStore(ledgerType);
-  const isWeekMonth = ledgerType === LEDGER_TYPE.WEEK_MONTH;
+// 页面标题：旧巡检台账只承担历史查看与导出（值班巡检改造后写入口已关闭）
+function ledgerPageTitle(ledgerType) {
+  return ledgerType === LEDGER_TYPE.INSPECTION
+    ? '巡检台账（历史）' : `${LEDGER_TYPE_TEXT[ledgerType]}台账`;
+}
 
-  useEffect(() => {
-    // 跨页跳转直达详情（故障详情/工单详情跳入：?detail=<台账ID>）
-    const params = new URLSearchParams(location ? location.search : '');
-    const detailId = params.get('detail');
-    if (detailId && /^\d+$/.test(detailId)) {
-      store.fetchDetail(parseInt(detailId, 10));
-    }
-    store.fetchRecords();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+// 旧巡检台账（历史）只读：列表与详情不提供任何写操作（新增/编辑/提交/作废/转单）
+function isReadonlyLedger(ledgerType) {
+  return ledgerType === LEDGER_TYPE.INSPECTION;
+}
 
-  const columns = [
+function buildColumns(store, ledgerType, isWeekMonth) {
+  return [
     {title: '台账编号', dataIndex: 'ledger_no', width: 190},
     ...(isWeekMonth ? [{
       title: '维护周期', dataIndex: 'maintenance_cycle', width: 80,
@@ -53,7 +52,9 @@ function LedgerIndex({ledgerType, location}) {
     {title: '录入时间', dataIndex: 'created_at', width: 160},
     {
       title: '操作', width: 150, align: 'center',
-      render: (text, record) => (
+      render: (text, record) => isReadonlyLedger(ledgerType) ? (
+        <a onClick={() => store.fetchDetail(record.id)}>详情</a>
+      ) : (
         <span>
           <a onClick={() => store.fetchDetail(record.id)}>详情</a>
           {['draft', 'returned'].includes(record.status) && (
@@ -83,6 +84,77 @@ function LedgerIndex({ledgerType, location}) {
       ),
     },
   ];
+}
+
+// observer：筛选控件直接读取 store.f_keyword / f_status / f_cycle，输入后需触发重渲染
+const LedgerSearchForm = observer(function LedgerSearchForm({store, isWeekMonth}) {
+  return (
+    <SearchForm>
+      <SearchForm.Item span={6} title="台账编号">
+        <Input
+          allowClear
+          value={store.f_keyword}
+          onChange={e => store.f_keyword = e.target.value}
+          placeholder="请输入台账编号"
+          onPressEnter={() => {
+            store.page = 1;
+            store.fetchRecords();
+          }}
+        />
+      </SearchForm.Item>
+      <SearchForm.Item span={6} title="状态">
+        <Select
+          allowClear
+          style={{width: '100%'}}
+          value={store.f_status}
+          onChange={v => {
+            store.f_status = v;
+            store.page = 1;
+            store.fetchRecords();
+          }}
+          placeholder="请选择状态">
+          {Object.keys(STATUS_TEXT).map(key => (
+            <Select.Option value={key} key={key}>{STATUS_TEXT[key]}</Select.Option>
+          ))}
+        </Select>
+      </SearchForm.Item>
+      {isWeekMonth && (
+        <SearchForm.Item span={6} title="维护周期">
+          <Select
+            allowClear
+            style={{width: '100%'}}
+            value={store.f_cycle}
+            onChange={v => {
+              store.f_cycle = v;
+              store.page = 1;
+              store.fetchRecords();
+            }}
+            placeholder="请选择周期">
+            <Select.Option value="week">周</Select.Option>
+            <Select.Option value="month">月</Select.Option>
+          </Select>
+        </SearchForm.Item>
+      )}
+    </SearchForm>
+  );
+});
+
+function LedgerIndex({ledgerType, location}) {
+  const store = getLedgerStore(ledgerType);
+  const isWeekMonth = ledgerType === LEDGER_TYPE.WEEK_MONTH;
+
+  useEffect(() => {
+    // 跨页跳转直达详情（故障详情/工单详情跳入：?detail=<台账ID>）
+    const params = new URLSearchParams(location ? location.search : '');
+    const detailId = params.get('detail');
+    if (detailId && /^\d+$/.test(detailId)) {
+      store.fetchDetail(parseInt(detailId, 10));
+    }
+    store.fetchRecords();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const columns = buildColumns(store, ledgerType, isWeekMonth);
 
   return (
     <AuthDiv auth={PERM_L.LED_VIEW}>
@@ -90,68 +162,25 @@ function LedgerIndex({ledgerType, location}) {
         <Breadcrumb.Item>首页</Breadcrumb.Item>
         <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
         <Breadcrumb.Item>运行维护</Breadcrumb.Item>
-        <Breadcrumb.Item>{LEDGER_TYPE_TEXT[ledgerType]}台账</Breadcrumb.Item>
+        <Breadcrumb.Item>{ledgerPageTitle(ledgerType)}</Breadcrumb.Item>
       </Breadcrumb>
-      <SearchForm>
-        <SearchForm.Item span={6} title="台账编号">
-          <Input
-            allowClear
-            value={store.f_keyword}
-            onChange={e => store.f_keyword = e.target.value}
-            placeholder="请输入台账编号"
-            onPressEnter={() => {
-              store.page = 1;
-              store.fetchRecords();
-            }}
-          />
-        </SearchForm.Item>
-        <SearchForm.Item span={6} title="状态">
-          <Select
-            allowClear
-            style={{width: '100%'}}
-            value={store.f_status}
-            onChange={v => {
-              store.f_status = v;
-              store.page = 1;
-              store.fetchRecords();
-            }}
-            placeholder="请选择状态">
-            {Object.keys(STATUS_TEXT).map(key => (
-              <Select.Option value={key} key={key}>{STATUS_TEXT[key]}</Select.Option>
-            ))}
-          </Select>
-        </SearchForm.Item>
-        {isWeekMonth && (
-          <SearchForm.Item span={6} title="维护周期">
-            <Select
-              allowClear
-              style={{width: '100%'}}
-              value={store.f_cycle}
-              onChange={v => {
-                store.f_cycle = v;
-                store.page = 1;
-                store.fetchRecords();
-              }}
-              placeholder="请选择周期">
-              <Select.Option value="week">周</Select.Option>
-              <Select.Option value="month">月</Select.Option>
-            </Select>
-          </SearchForm.Item>
-        )}
-      </SearchForm>
+      <LedgerSearchForm store={store} isWeekMonth={isWeekMonth}/>
       <div style={{marginBottom: 12}}>
-        <AuthButton
-          auth={PERM_L.LED_ADD}
-          type="primary"
-          icon={<PlusOutlined/>}
-          onClick={() => store.showForm()}>
-          新增{LEDGER_TYPE_TEXT[ledgerType]}台账
-        </AuthButton>
+        {/* 值班巡检改造：巡检台账停止新增，仅保留历史查看；巡检入口在"今日巡检"工作台 */}
+        {ledgerType !== LEDGER_TYPE.INSPECTION && (
+          <AuthButton
+            auth={PERM_L.LED_ADD}
+            type="primary"
+            icon={<PlusOutlined/>}
+            onClick={() => store.showForm()}>
+            新增{LEDGER_TYPE_TEXT[ledgerType]}台账
+          </AuthButton>
+        )}
         <ExportButton
           auth={PERM_L.LED_EXPORT}
           style={{marginLeft: 8}}
           url={`${API_PREFIX_L}/ledgers/export/?ledger_type=${ledgerType}`}
-          filename={`${LEDGER_TYPE_TEXT[ledgerType]}台账.csv`}>
+          filename={`${ledgerPageTitle(ledgerType)}.csv`}>
           导出
         </ExportButton>
       </div>

@@ -49,9 +49,14 @@ class FaultDetail extends React.Component {
         </Descriptions.Item>
         <Descriptions.Item label="安装地点">{d.system_location || '-'}</Descriptions.Item>
         <Descriptions.Item label="系统影响程度">
-          <Tag color={FAULT_IMPACT_COLOR[d.impact_status]}>
-            {FAULT_IMPACT_TEXT[d.impact_status]}
-          </Tag>
+          {d.affects_system_operation ? (
+            <Tag color={FAULT_IMPACT_COLOR[d.impact_status]}>
+              {FAULT_IMPACT_TEXT[d.impact_status]}
+            </Tag>
+          ) : (
+            // 部件故障/离线维修：不影响系统对外服务，独立于系统运行状态展示
+            <Tag>不影响运行</Tag>
+          )}
         </Descriptions.Item>
         <Descriptions.Item label="发生时间">{d.occurred_at}</Descriptions.Item>
         <Descriptions.Item label="发现方式">{FAULT_DISCOVERY_TEXT[d.discovery]}</Descriptions.Item>
@@ -59,8 +64,9 @@ class FaultDetail extends React.Component {
         <Descriptions.Item label="处置负责人">{d.handler_name || '-'}</Descriptions.Item>
         <Descriptions.Item label="故障现象" span={2}>{d.phenomenon}</Descriptions.Item>
         <Descriptions.Item label="影响范围" span={2}>{d.impact_scope || '-'}</Descriptions.Item>
+        {/* 历史字段仅展示：故障位置/对象型号/序列号/组成项为精简前的存量数据 */}
         <Descriptions.Item label="故障位置" span={2}>{d.fault_location || '-'}</Descriptions.Item>
-        <Descriptions.Item label="故障对象" span={2}>
+        <Descriptions.Item label="故障部位/设备" span={2}>
           {[d.fault_object_name, d.fault_object_model, d.fault_object_sn]
             .filter(Boolean).join(' / ') || '-'}
           {d.fault_component_name ? `（组成项：${d.fault_component_name}）` : ''}
@@ -88,6 +94,22 @@ class FaultDetail extends React.Component {
               }}
             >
               {d.source_ledger_no || '查看来源台账'}
+            </Button>
+          </Descriptions.Item>
+        )}
+        {/* 值班巡检改造：新巡检异常转故障跳转到来源巡检单（与旧台账来源互不影响） */}
+        {d.source_type === 'inspection_record' && d.source_inspection_sheet && (
+          <Descriptions.Item label="来源巡检单" span={2}>
+            <Button
+              type="link"
+              size="small"
+              style={{padding: 0}}
+              onClick={() => {
+                store.closeDetail();
+                history.push(`/el/inspection-sheets?detail=${d.source_inspection_sheet}`);
+              }}
+            >
+              {d.source_inspection_sheet_no || '查看来源巡检单'}
             </Button>
           </Descriptions.Item>
         )}

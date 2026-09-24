@@ -5,9 +5,8 @@
  * - fetchRecords 组装分页与筛选参数；成功后 records/total 更新
  * - submitForm 编辑走 PUT、新增走 POST，成功后关闭弹窗并刷新列表
  * - toggleActive / deleteRecord 调用对应端点并刷新
- * - showDetail 记录详情 ID 并清理旧页签数据；fetchFormFields 加载表单动态字段
- * - 组成项提交成功后刷新组成项与详情
- * - fetchSnapshotDiff 按 target 传参；clearSnapshotDiff 复位
+ * - showDetail 记录详情 ID 并清理旧数据
+ * （自定义字段机制已下线，fetchFormFields 与配置相关方法/用例一并移除）
  */
 const mockHttpGet = jest.fn();
 const mockHttpPost = jest.fn();
@@ -109,56 +108,16 @@ describe('系统列表 Store', () => {
 });
 
 describe('系统详情 Store', () => {
-  it('showDetail 记录 ID 并清理旧页签数据', async () => {
+  it('showDetail 记录 ID 并加载详情', async () => {
     const store = freshStore();
     mockHttpGet.mockResolvedValue({id: 5, name: '系统A'});
-    store.components = [{id: 1}];
     store.showDetail({id: 5, name: '系统A'});
     expect(store.detailId).toBe(5);
     expect(store.detailVisible).toBe(true);
-    expect(store.components).toEqual([]);
     await flush();
     expect(store.detail.name).toBe('系统A');
   });
 
-  it('fetchFormFields 携带参数请求 form-fields 并缓存字段列表', async () => {
-    const store = freshStore();
-    mockHttpGet.mockResolvedValue({
-      data: [{id: 101, field_code: 'frequency'}],
-      values: {},
-      components: [],
-    });
-    await store.fetchFormFields({system: 5});
-    expect(mockHttpGet).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/systems/form-fields/', {params: {system: 5}});
-    expect(store.formFields.length).toBe(1);
-    expect(store.isFormFieldsFetching).toBe(false);
-  });
-
-  it('组成项提交成功后刷新组成项与详情', async () => {
-    const store = freshStore();
-    store.detailId = 5;
-    mockHttpPost.mockResolvedValue({});
-    mockHttpGet.mockResolvedValue({data: [], total: 0});
-    store.showComponentForm({name: '接入交换机'});
-    await store.submitComponent({name: '接入交换机', quantity: 4});
-    expect(mockHttpPost).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/systems/5/components/', {name: '接入交换机', quantity: 4});
-    expect(store.componentFormVisible).toBe(false);
-  });
-
-  it('fetchSnapshotDiff 按 target 传参并保存差异', async () => {
-    const store = freshStore();
-    store.detailId = 5;
-    const diff = {snapshot: {id: 2, name: 'S'}, target: {label: '当前配置'}, diffs: []};
-    mockHttpGet.mockResolvedValue(diff);
-    await store.fetchSnapshotDiff(2, 'current');
-    expect(mockHttpGet).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/systems/5/snapshots/2/', {params: {target: 'current'}});
-    expect(store.snapshotDiff).toStrictEqual(diff);
-    store.clearSnapshotDiff();
-    expect(store.snapshotDiff).toBe(null);
-  });
 });
 
 function flush() {

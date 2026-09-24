@@ -10,10 +10,10 @@ import React, { useState } from 'react';
 import {observer} from 'mobx-react';
 import {Drawer, Tabs, Descriptions, Tag, Spin, Table, Collapse, Empty} from 'antd';
 import {
-  CREATED_FROM_TEXT, CYCLE_TEXT, EXEC_SCOPE_TEXT, LEDGER_TYPE_TEXT, RESULT_COLOR,
+  CREATED_FROM_TEXT, CYCLE_TEXT, EXEC_SCOPE_TEXT, LEDGER_TYPE, LEDGER_TYPE_TEXT, RESULT_COLOR,
   RESULT_TEXT, STATUS_COLOR, STATUS_TEXT,
 } from './constants';
-import { DispositionTag, ConvertActions } from '../workOrder/LedgerItemDisposition';
+import { DispositionTag, DispositionTargets, ConvertActions } from '../workOrder/LedgerItemDisposition';
 import WorkOrderDetail from '../workOrder/WorkOrderDetail';
 
 const {TabPane} = Tabs;
@@ -48,7 +48,7 @@ class LedgerDetail extends React.Component {
     return item.value_text || '-';
   };
 
-  renderItems = (items) => {
+  renderItems = (items, isInspection) => {
     const columns = [
       {title: '项目', dataIndex: 'item_name', width: 160},
       {title: '填写值', key: 'value', width: 110, render: (t, r) => this.renderValue(r)},
@@ -64,12 +64,18 @@ class LedgerDetail extends React.Component {
         render: (t, r) => (
           <span>
             <DispositionTag item={r}/>
-            <ConvertActions
-              ledger={this.props.store.detail}
-              item={r}
-              onOpenWorkOrder={this.openWorkOrderDetail}
-              onConverted={this.refreshConverted}
-            />
+            {/* 旧巡检台账（历史）只读：不提供转故障/转工单操作，
+                仍展示历史处置状态与已生成故障/工单的跳转 */}
+            {isInspection ? (
+              <DispositionTargets item={r} onOpenWorkOrder={this.openWorkOrderDetail}/>
+            ) : (
+              <ConvertActions
+                ledger={this.props.store.detail}
+                item={r}
+                onOpenWorkOrder={this.openWorkOrderDetail}
+                onConverted={this.refreshConverted}
+              />
+            )}
           </span>
         ),
       },
@@ -91,6 +97,7 @@ class LedgerDetail extends React.Component {
   render() {
     const {store} = this.props;
     const d = store.detail;
+    const isInspection = d.ledger_type === LEDGER_TYPE.INSPECTION;
     // 按系统分组
     const groups = [];
     const groupMap = {};
@@ -104,7 +111,7 @@ class LedgerDetail extends React.Component {
     });
     return (
       <Drawer
-        title={`${LEDGER_TYPE_TEXT[d.ledger_type] || ''}台账详情 - ${d.ledger_no || ''}`}
+        title={`${isInspection ? '巡检台账（历史）' : `${LEDGER_TYPE_TEXT[d.ledger_type] || ''}台账`}详情 - ${d.ledger_no || ''}`}
         visible={store.detailVisible}
         width={1000}
         onClose={() => store.closeDetail()}
@@ -161,7 +168,7 @@ class LedgerDetail extends React.Component {
                           )}
                         </span>
                       }>
-                      {this.renderItems(g.items)}
+                      {this.renderItems(g.items, isInspection)}
                     </Panel>
                   ))}
                 </Collapse>

@@ -3,14 +3,18 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 运维台账路由入口 + 模板入口（routes.js 引用）：
+ * 运维台账路由入口 + 模板入口 + 值班巡检入口（routes.js 引用）：
  * - *LedgerIndex：台账列表页（查询/详情/编辑/退回修改）；
- * - InspectionToday：今日巡检常驻工作台（打开即填，提交瞬间实体化台账）。
+ * - InspectionToday：今日巡检工作台（值班巡检单：值班日+模板+固定四轮，
+ *   不关联系统；旧巡检台账仅保留历史查看）；
+ * - InspectionTemplateIndex：巡检模板管理（设备名称 → 检查内容两级结构）。
  */
 import React from 'react';
 import LedgerIndex from './LedgerIndex';
 import TemplateIndex from './TemplateIndex';
-import LedgerWorksheet from './LedgerWorksheet';
+import InspectionWorksheet from '../inspection/InspectionWorksheet';
+import InspectionTemplateIndex from '../inspection/TemplateIndex';
+import InspectionSheetIndex from '../inspection/SheetIndex';
 import {LEDGER_TYPE} from './constants';
 
 export function InspectionLedgerIndex(props) {
@@ -18,8 +22,10 @@ export function InspectionLedgerIndex(props) {
 }
 
 export function InspectionToday(props) {
-  return <LedgerWorksheet ledgerType={LEDGER_TYPE.INSPECTION} {...props}/>;
+  return <InspectionWorksheet {...props}/>;
 }
+
+export {InspectionTemplateIndex, InspectionSheetIndex};
 
 export function WeekMonthLedgerIndex(props) {
   return <LedgerIndex ledgerType={LEDGER_TYPE.WEEK_MONTH} {...props}/>;

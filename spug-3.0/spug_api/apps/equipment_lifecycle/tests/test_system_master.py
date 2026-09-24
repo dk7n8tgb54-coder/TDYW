@@ -8,16 +8,11 @@ import json
 
 from django.test import TestCase
 
-from apps.equipment_lifecycle.models import (
-    LifecycleSystem,
-    SystemConfigChange,
-    SystemConfigComponent,
-    SystemConfigSnapshot,
-)
+from apps.equipment_lifecycle.models import LifecycleSystem
 from apps.logs.models import AuditLog
 
 from apps.equipment_lifecycle.tests.base import (
-    ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS,
+    ALL_SYSTEM_PERMS,
     P_SYS_ADD, P_SYS_DEACT, P_SYS_DEL, P_SYS_EDIT, P_SYS_VIEW,
     make_client, make_system, make_user, system_payload,
 )
@@ -25,7 +20,7 @@ from apps.equipment_lifecycle.tests.base import (
 
 class SystemMasterTest(TestCase):
     def setUp(self):
-        self.admin = make_user('el_admin', ALL_SYSTEM_PERMS + ALL_CONFIG_PERMS,
+        self.admin = make_user('el_admin', ALL_SYSTEM_PERMS,
                                tenant_id='tenant_a')
         self.other_admin = make_user('el_admin_b', ALL_SYSTEM_PERMS, tenant_id='tenant_b')
         self.noview_user = make_user('el_noview', [], tenant_id='tenant_a')
@@ -42,12 +37,9 @@ class SystemMasterTest(TestCase):
         self.assertNotEqual(data['system_code'], 'CLIENT-IGNORED-01')
         self.assertTrue(LifecycleSystem.objects.filter(
             tenant_id='tenant_a', system_code=data['system_code']).exists())
-        # 创建记录配置变更历史
+        # 审计日志（配置变更历史已下线，留痕由业务审计承载）
         system = LifecycleSystem.objects.get(
             system_code=data['system_code'], tenant_id='tenant_a')
-        self.assertTrue(SystemConfigChange.objects.filter(
-            system=system, source='system', action='create').exists())
-        # 审计日志
         self.assertTrue(AuditLog.objects.filter(
             tenant_id='tenant_a', target_type='el_system', action='create',
             target_id=str(system.id)).exists())
@@ -92,10 +84,14 @@ class SystemMasterTest(TestCase):
         field_names = {f.name for f in LifecycleSystem._meta.get_fields()}
         for forbidden in ('parent', 'parent_system', 'subsystem', 'children'):
             self.assertNotIn(forbidden, field_names)
-        # 组成项不是设备资产：模型不存在指向设备台账的外键
-        component_fields = {f.name for f in SystemConfigComponent._meta.get_fields()}
-        self.assertNotIn('device_resume', component_fields)
-        self.assertNotIn('device', component_fields)
+        # 配置组成项已下线：模型集合中不存在相关模型
+        from django.apps import apps as django_apps
+        model_names = {m.__name__ for m in
+                       django_apps.get_app_config('equipment_lifecycle').get_models()}
+        self.assertNotIn('SystemConfigComponent', model_names)
+        # 自定义字段机制已下线（迁移 0023）：字段定义/字段值模型不存在
+        self.assertNotIn('ConfigFieldDefinition', model_names)
+        self.assertNotIn('SystemConfigValue', model_names)
 
     def test_system_code_immutable_on_edit(self):
         system = make_system(self.admin, tenant_id='tenant_a')
@@ -107,22 +103,18 @@ class SystemMasterTest(TestCase):
         system.refresh_from_db()
         self.assertEqual(system.system_code, 'SYS-001')
 
-    def test_edit_records_before_after_history(self):
+    def test_edit_records_audit_with_changed_labels(self):
+        """配置变更历史已下线：编辑留痕由业务审计承载（记录变更字段名）。"""
         system = make_system(self.admin, tenant_id='tenant_a')
         payload = system_payload(name='改名字的系统', install_location='新机房Z')
         resp = self.client.put(f'/equipment-lifecycle/systems/{system.id}/', payload,
                                content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
-        change = SystemConfigChange.objects.filter(
-            system=system, source='system', action='update').latest('id')
-        changes = json.loads(change.changes)
-        labels = {c['label'] for c in changes}
-        self.assertIn('系统名称', labels)
-        self.assertIn('安装地点', labels)
-        for c in changes:
-            if c['label'] == '系统名称':
-                self.assertEqual(c['old'], '烟台中心站通信系统')
-                self.assertEqual(c['new'], '改名字的系统')
+        log = AuditLog.objects.filter(
+            tenant_id='tenant_a', target_type='el_system', action='update',
+            target_id=str(system.id)).latest('id')
+        self.assertIn('系统名称', log.detail)
+        self.assertIn('安装地点', log.detail)
 
     def test_deactivate_and_activate(self):
         system = make_system(self.admin, tenant_id='tenant_a')
@@ -142,28 +134,17 @@ class SystemMasterTest(TestCase):
         resp = self.client.post(f'/equipment-lifecycle/systems/{system.id}/active/',
                                 {'is_active': True}, content_type='application/json')
         self.assertFalse(resp.json().get('error'))
-        change = SystemConfigChange.objects.filter(
-            system=system, source='system').latest('id')
-        self.assertEqual(change.action, 'activate')
 
     def test_delete_removes_archive_and_audits(self):
-        """未被引用的系统可物理删除，配置档案随主体清理并记录审计。
+        """未被引用的系统可物理删除并记录审计。
 
-        自定义字段定义对系统为 PROTECT 外键（存在字段定义的系统无法物理删除），
-        本用例的档案清理覆盖组成项与快照。
+        自定义字段机制已下线（迁移 0023 删除字段定义/字段值两表），
+        配置组成项/变更历史/快照已下线，无随删数据。
         """
         system = make_system(self.admin, tenant_id='tenant_a')
-        SystemConfigComponent.objects.create(
-            tenant_id='tenant_a', system=system, name='接入交换机',
-            model_version='S5735', quantity=4, created_by=self.admin)
-        SystemConfigSnapshot.objects.create(
-            tenant_id='tenant_a', system=system, name='初始快照',
-            content='{}', created_by=self.admin)
         resp = self.client.delete(f'/equipment-lifecycle/systems/{system.id}/')
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertFalse(LifecycleSystem.objects.filter(pk=system.id).exists())
-        self.assertFalse(SystemConfigComponent.objects.filter(system_id=system.id).exists())
-        self.assertFalse(SystemConfigSnapshot.objects.filter(system_id=system.id).exists())
         self.assertTrue(AuditLog.objects.filter(
             tenant_id='tenant_a', action='delete', target_type='el_system').exists())
 

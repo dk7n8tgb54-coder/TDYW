@@ -15,11 +15,6 @@ export const PERM = {
   SYS_DEL: 'equipment_lifecycle.system.del',
   SYS_DEACTIVATE: 'equipment_lifecycle.system.deactivate',
   SYS_EXPORT: 'equipment_lifecycle.system.export',
-  CFG_VIEW: 'equipment_lifecycle.system_config.view',
-  CFG_EDIT: 'equipment_lifecycle.system_config.edit',
-  CFG_FIELD: 'equipment_lifecycle.system_config.field',
-  CFG_SNAPSHOT: 'equipment_lifecycle.system_config.snapshot',
-  CFG_EXPORT: 'equipment_lifecycle.system_config.export',
   FAULT_VIEW: 'equipment_lifecycle.fault.view',
   FAULT_ADD: 'equipment_lifecycle.fault.add',
   FAULT_EDIT: 'equipment_lifecycle.fault.edit',
@@ -62,39 +57,6 @@ export const HEALTH_STATUS_COLOR = {
   repairing: 'geekblue',
   interrupted: 'red',
   unknown: 'default',
-};
-
-export const FIELD_TYPE_OPTIONS = [
-  {value: 'text', label: '文本'},
-  {value: 'longtext', label: '长文本'},
-  {value: 'number', label: '数字'},
-  {value: 'date', label: '日期'},
-  {value: 'choice', label: '单选'},
-  {value: 'multi_choice', label: '多选'},
-  {value: 'boolean', label: '布尔值'},
-  {value: 'attachment', label: '附件'},
-  {value: 'detail_table', label: '明细表'},
-];
-
-export const FIELD_TYPE_TEXT = FIELD_TYPE_OPTIONS.reduce((acc, item) => {
-  acc[item.value] = item.label;
-  return acc;
-}, {});
-
-export const SOURCE_TEXT = {
-  system: '系统固定字段',
-  config: '配置字段值',
-  component: '配置组成项',
-  field_definition: '字段定义',
-};
-
-export const ACTION_TEXT = {
-  create: '新建',
-  update: '修改',
-  delete: '删除',
-  activate: '启用',
-  deactivate: '停用',
-  promote: '提升为模板字段',
 };
 
 export const FAULT_STATUS_OPTIONS = [

@@ -30,7 +30,7 @@ def _tpl_item_payload(tpl_item, **kw):
     return payload
 
 
-def _preview_body(entries, ledger_type='inspection', maintenance_cycle=''):
+def _preview_body(entries, ledger_type='week_month', maintenance_cycle='week'):
     return {
         'ledger_type': ledger_type,
         'maintenance_cycle': maintenance_cycle,
@@ -139,10 +139,10 @@ class LedgerTemplateProvenanceContractTests(TestCase):
     def test_same_system_two_templates_create_ok(self):
         """同系统两条不同模板条目创建成功，各自明细带各自模板快照。"""
         template_a = make_ledger_template(
-            self.user, name='模板A')
+            self.user, name='模板A', ledger_type='week_month', maintenance_cycle='week')
         item_a = make_template_item(template_a, self.user, name='模板A项目')
         template_b = make_ledger_template(
-            self.user, name='模板B')
+            self.user, name='模板B', ledger_type='week_month', maintenance_cycle='week')
         item_b = make_template_item(template_b, self.user, name='模板B项目')
         client = make_client(self.user)
         payload = ledger_payload([
@@ -165,7 +165,7 @@ class LedgerTemplateProvenanceContractTests(TestCase):
     def test_mixed_template_and_manual_items_same_system(self):
         """同系统模板明细与手动临时明细混合：手动项 is_temporary=True。"""
         template = make_ledger_template(
-            self.user, name='混合模板')
+            self.user, name='混合模板', ledger_type='week_month', maintenance_cycle='week')
         tpl_item = make_template_item(template, self.user, name='模板项')
         client = make_client(self.user)
         payload = ledger_payload([

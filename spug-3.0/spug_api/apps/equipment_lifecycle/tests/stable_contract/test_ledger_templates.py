@@ -41,26 +41,29 @@ class LedgerTemplateContractTests(TestCase):
             'tpl_op', perms=ALL_LEDGER_PERMS + ALL_TEMPLATE_PERMS)
         self.system = make_system(self.user)
 
-    def _make_inspection_template(self, **kw):
-        template = make_ledger_template(self.user, ledger_type='inspection', **kw)
+    def _make_week_month_template(self, **kw):
+        kw.setdefault('ledger_type', 'week_month')
+        kw.setdefault('maintenance_cycle', {'week_month': 'week', 'seasonal': 'season'}.get(kw['ledger_type'], ''))
+        template = make_ledger_template(self.user, **kw)
         item = make_template_item(template, self.user)
         return template, item
 
-    def test_inspection_template_only_generates_inspection_ledger(self):
-        """5. 巡检模板只能生成巡检台账。"""
-        template, tpl_item = self._make_inspection_template()
+    def test_week_month_template_only_generates_week_month_ledger(self):
+        """5. 周月维护模板只能生成周月维护台账（类型不匹配一律拒绝）。"""
+        template, tpl_item = self._make_week_month_template()
         client = make_client(self.user)
-        # 用巡检模板生成周月维护台账 → 拒绝
-        payload = ledger_payload(
-            [entry_payload(self.system.id, [_tpl_item_payload(tpl_item)], template_id=template.id)],
-            ledger_type='week_month', maintenance_cycle='week', created_from='template')
-        resp = post_json(client, LEDGER_URL + '/', payload)
-        self.assertTrue(resp.json().get('error'))
-        # 用巡检模板生成季维护台账 → 拒绝
+        # 用周月维护模板生成季维护台账 → 拒绝
         payload = ledger_payload(
             [entry_payload(self.system.id, [_tpl_item_payload(tpl_item)], template_id=template.id)],
             ledger_type='seasonal', maintenance_cycle='season', created_from='template')
-        self.assertTrue(post_json(client, LEDGER_URL + '/', payload).json().get('error'))
+        resp = post_json(client, LEDGER_URL + '/', payload)
+        self.assertTrue(resp.json().get('error'))
+        # 旧巡检类型已删除：用维护模板生成旧巡检台账 → 明确类型错误
+        payload = ledger_payload(
+            [entry_payload(self.system.id, [_tpl_item_payload(tpl_item)], template_id=template.id)],
+            ledger_type='inspection', maintenance_cycle='', created_from='template')
+        resp = post_json(client, LEDGER_URL + '/', payload)
+        self.assertIn('已删除', resp.json().get('error') or '')
 
     def test_week_month_template_filters_items_by_cycle(self):
         """6. 周月维护模板正确区分周、月和周月均执行项目。"""
@@ -116,7 +119,7 @@ class LedgerTemplateContractTests(TestCase):
         client = make_client(self.user)
         payload = ledger_payload(
             [entry_payload(self.system.id, [_tpl_item_payload(tpl_item)], template_id=template.id)],
-            ledger_type='inspection', maintenance_cycle='', created_from='template')
+            ledger_type='week_month', maintenance_cycle='week', created_from='template')
         self.assertTrue(post_json(client, LEDGER_URL + '/', payload).json().get('error'))
         # 正确生成季维护台账
         payload = ledger_payload(
@@ -127,7 +130,7 @@ class LedgerTemplateContractTests(TestCase):
         self.assertEqual(data['items'][0]['template_name'], '季维护模板')
 
     def test_quarter_maintenance_is_not_official_type(self):
-        """8. “季度维护”不作为正式台账类型（非法类型被拒绝）。"""
+        """8. "季度维护"不作为正式台账类型（非法类型被拒绝）。"""
         client = make_client(self.user)
         for bad in ('quarter', '季度维护', 'quarterly'):
             payload = ledger_payload(
@@ -136,12 +139,13 @@ class LedgerTemplateContractTests(TestCase):
             self.assertTrue(resp.json().get('error'), bad)
         self.assertNotIn('quarter', LEDGER_TYPE_VALUES)
         self.assertNotIn('季度维护', LEDGER_TYPE_VALUES)
-        # 季维护正式类型存在
+        # 季维护正式类型存在；旧巡检类型已删除
         self.assertIn('seasonal', LEDGER_TYPE_VALUES)
+        self.assertNotIn('inspection', LEDGER_TYPE_VALUES)
 
     def test_template_change_does_not_affect_generated_ledger(self):
         """15. 模板修改不影响已生成台账。"""
-        template, tpl_item = self._make_inspection_template()
+        template, tpl_item = self._make_week_month_template()
         client = make_client(self.user)
         payload = ledger_payload(
             [entry_payload(self.system.id, [_tpl_item_payload(tpl_item)], template_id=template.id)],
@@ -156,7 +160,7 @@ class LedgerTemplateContractTests(TestCase):
 
     def test_template_item_deactivate_keeps_history(self):
         """16. 模板项目停用不删除历史台账明细。"""
-        template, tpl_item = self._make_inspection_template()
+        template, tpl_item = self._make_week_month_template()
         client = make_client(self.user)
         payload = ledger_payload(
             [entry_payload(self.system.id, [_tpl_item_payload(tpl_item)], template_id=template.id)],
@@ -188,7 +192,7 @@ class LedgerTemplateContractTests(TestCase):
         client = make_client(self.user)
         resp = post_json(client, TEMPLATE_URL + '/', {
             'name': '无绑定模板',
-            'ledger_type': 'inspection', 'maintenance_cycle': '',
+            'ledger_type': 'week_month', 'maintenance_cycle': 'week',
             'items': [{'name': '指示灯检查', 'input_type': 'text'}]})
         data = resp.json()['data']
         self.assertNotIn('template_code', data)
@@ -213,7 +217,7 @@ class LedgerTemplateAvailableContractTests(TestCase):
     def test_available_returns_all_active_templates(self):
         """返回该类型全部启用模板，不再附带 applicable_systems/template_code。"""
         client = make_client(self.user)
-        resp = client.get(TEMPLATE_URL + '/available/?ledger_type=inspection')
+        resp = client.get(TEMPLATE_URL + '/available/?ledger_type=week_month&maintenance_cycle=week')
         self.assertEqual(resp.status_code, 200)
         data = resp.json()['data']['data']
         names = {t['name'] for t in data}
@@ -221,6 +225,12 @@ class LedgerTemplateAvailableContractTests(TestCase):
         for template in data:
             self.assertNotIn('applicable_systems', template)
             self.assertNotIn('template_code', template)
+
+    def test_available_rejects_removed_inspection_type(self):
+        """旧巡检类型已删除：available 请求返回明确的类型已删除错误。"""
+        client = make_client(self.user)
+        resp = client.get(TEMPLATE_URL + '/available/?ledger_type=inspection')
+        self.assertIn('已删除', resp.json().get('error') or '')
 
     def test_available_week_month_items_count_respects_scope(self):
         """周月维护模板 items_count 按周期 scope 过滤。"""

@@ -21,13 +21,11 @@ from apps.equipment_lifecycle import urls as el_urls
 from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     OperationLedgerTemplate,
-    SystemConfigChange,
-    SystemConfigSnapshot,
     SystemEvent,
     SystemFault,
 )
 from apps.equipment_lifecycle.tests.base import (
-    ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS,
+    ALL_SYSTEM_PERMS,
     URL_PREFIX, make_client, make_system, make_user,
 )
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
@@ -54,7 +52,7 @@ ALL_EVENT_PERMS = [
 ]
 P_HANDLE_EXCEPTION = 'equipment_lifecycle.ledger.handle_exception'
 
-ALL_PERMS = (ALL_SYSTEM_PERMS + ALL_CONFIG_PERMS + ALL_FAULT_PERMS + ALL_WO_PERMS +
+ALL_PERMS = (ALL_SYSTEM_PERMS + ALL_FAULT_PERMS + ALL_WO_PERMS +
              ALL_LEDGER_PERMS + ALL_TEMPLATE_PERMS +
              ALL_EVENT_PERMS + [P_HANDLE_EXCEPTION])
 
@@ -392,8 +390,8 @@ class LedgerConvertEventTests(SystemEventTestBase):
 
     def create_reviewed_ledger_with_abnormal_item(self):
         template = OperationLedgerTemplate.objects.create(
-            name='巡检模板-履历', ledger_type='inspection',
-            maintenance_cycle='',
+            name='维护模板-履历', ledger_type='week_month',
+            maintenance_cycle='week',
             is_active=True, tenant_id='tenant_a', created_by=self.admin)
         body = create_ledger_ok(self.client, ledger_payload([
             entry_payload(self.system_a.id, [
@@ -458,7 +456,11 @@ class LedgerConvertEventTests(SystemEventTestBase):
 
 
 class ReadOnlyAndIsolationTests(SystemEventTestBase):
-    """履历只读、租户隔离、快照事件、普通配置修改不进履历、导出权限。"""
+    """履历只读、租户隔离、配置修改不进履历、导出权限。
+
+    配置快照功能已下线：不再生成快照事件；存量 config_snapshot
+    事件的兼容展示由 event_views 文本映射与前端常量承载。
+    """
 
     def test_events_api_is_readonly(self):
         """普通用户不能手工新增履历；不存在修改/删除接口（405）。"""
@@ -467,8 +469,8 @@ class ReadOnlyAndIsolationTests(SystemEventTestBase):
                 f'{URL_PREFIX}/system-events/', body, content_type='application/json')
             self.assertEqual(resp.status_code, 405, f'{method}: {resp.content}')
 
-    def test_snapshot_generates_event_but_normal_field_edit_does_not(self):
-        """配置快照生成进入履历；普通固定字段修改只进配置历史，不进履历。"""
+    def test_normal_field_edit_and_config_save_do_not_generate_events(self):
+        """普通固定字段与配置值修改不进履历（快照功能已下线，不再有快照事件）。"""
         before = len(self.events())
         # 普通编辑：名称修改
         r = self.client.put(f'{SYSTEM_URL}/{self.system_a.id}/', {
@@ -476,23 +478,24 @@ class ReadOnlyAndIsolationTests(SystemEventTestBase):
             'name': '烟台通信系统（改名）',
             'system_model': 'HX-100', 'install_location': '机房A',
             'manufacturer': '某厂', 'install_unit': '安装一队', 'use_unit': '运行一科',
-            'install_time': '2026-01-01 08:00', 'enable_time': '2026-02-01 09:00',
+            'install_time': '2026-01-01', 'enable_time': '2026-02-01',
             'responsible_user_name': '张三',
         }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
         self.assertEqual(len(self.events()), before)
-        self.assertTrue(SystemConfigChange.objects.filter(
-            system_id=self.system_a.id, source='system').exists())
-        # 生成快照 → 履历事件
-        r = self.client.post(f'{SYSTEM_URL}/{self.system_a.id}/snapshots/',
-                             {'name': '改造前快照'}, content_type='application/json')
+        # 扩展信息（呼号/工作频率）随固定字段编辑保存，同样不进履历
+        # （自定义字段机制已下线，原"配置值保存不进履历"断言并入此处）
+        r = self.client.put(f'{SYSTEM_URL}/{self.system_a.id}/', {
+            'system_code': self.system_a.system_code,
+            'name': '烟台通信系统（改名）',
+            'system_model': 'HX-100', 'install_location': '机房A',
+            'manufacturer': '某厂', 'install_unit': '安装一队', 'use_unit': '运行一科',
+            'install_time': '2026-01-01', 'enable_time': '2026-02-01',
+            'responsible_user_name': '张三',
+            'callsign': 'XZ1234', 'work_frequency': '128.000MHz',
+        }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
-        events = self.events()[before:]
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].event_type, SystemEvent.EVENT_CONFIG_SNAPSHOT)
-        self.assertEqual(events[0].source_type, 'config_snapshot')
-        self.assertTrue(SystemConfigSnapshot.objects.filter(
-            system_id=self.system_a.id).exists())
+        self.assertEqual(len(self.events()), before)
 
     def test_tenant_isolation(self):
         """履历租户隔离：跨租户事件互不可见；跨租户系统履历接口拒绝。"""
@@ -556,8 +559,13 @@ class DeleteProtectionRegressionTests(SystemEventTestBase):
         resp = self.client.delete(f'{SYSTEM_URL}/{self.system_a.id}/')
         self.assertIn('工单', resp.json().get('error', ''))
         # 只存在履历事件的系统（无其他业务引用）也被阻断
-        self.client.post(f'{SYSTEM_URL}/{self.system_a2.id}/snapshots/',
-                         {'name': '快照-阻断'}, content_type='application/json').json()
+        # （配置快照已下线，直接以夹具创建存量事件模拟历史数据）
+        SystemEvent.objects.create(
+            tenant_id=self.system_a2.tenant_id, system=self.system_a2,
+            event_type=SystemEvent.EVENT_FAULT, action='create',
+            source_type='fault', source_id='0', source_no='GZ-存量',
+            title='存量履历事件', system_code=self.system_a2.system_code,
+            system_name=self.system_a2.name, occurred_at=datetime.now())
         resp = self.client.delete(f'{SYSTEM_URL}/{self.system_a2.id}/')
         self.assertIn('系统履历事件', resp.json().get('error', ''))
 
@@ -565,8 +573,8 @@ class DeleteProtectionRegressionTests(SystemEventTestBase):
         """台账明细引用阻断系统删除（fail-closed）。"""
         # 通过真实 API 创建带明细的台账（明细以正式系统 ID 关联）
         template = OperationLedgerTemplate.objects.create(
-            name='巡检模板-删除保护', ledger_type='inspection',
-            maintenance_cycle='',
+            name='维护模板-删除保护', ledger_type='week_month',
+            maintenance_cycle='week',
             is_active=True, tenant_id='tenant_a', created_by=self.admin)
         create_ledger_ok(self.client, ledger_payload([
             entry_payload(self.system_a.id, [item_payload()], template_id=template.id),

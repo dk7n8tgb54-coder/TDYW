@@ -57,11 +57,11 @@ from apps.equipment_lifecycle.models import (
     LEDGER_STATUS_DRAFT,
     LEDGER_STATUS_RETURNED,
     LEDGER_STATUS_VOID,
+    LEGACY_LEDGER_TYPE_INSPECTION,
     LEDGER_TYPE_TEXT,
     LifecycleSystem,
     OperationLedger,
     OperationLedgerItem,
-    SystemConfigComponent,
     SystemFault,
     SystemWorkOrder,
 )
@@ -124,10 +124,43 @@ def _get_system_for_user(pk, user):
     return LifecycleSystem.objects.filter(pk=pk).first()
 
 
+def _clean_text(value, limit):
+    """可选文本字段规范化（None 视为空串，去首尾空白并限长）。"""
+    return (value or '').strip()[:limit]
+
+
+def _parse_planned_range(form):
+    """解析计划起止时间并校验先后关系，返回 (start, end, error)。"""
+    planned_start = _parse_dt(form.planned_start) if form.planned_start else None
+    planned_end = _parse_dt(form.planned_end) if form.planned_end else None
+    if form.planned_start and not planned_start:
+        return None, None, '计划开始时间格式不正确'
+    if form.planned_end and not planned_end:
+        return None, None, '计划结束时间格式不正确'
+    if planned_start and planned_end and planned_end < planned_start:
+        return None, None, '计划结束时间不能早于计划开始时间'
+    return planned_start, planned_end, None
+
+
+def _resolve_affects_default(form):
+    """影响运行缺省语义：未传为不影响；显式传值必须为布尔。返回 (affects, error)。"""
+    if form.affects_system_operation is None:
+        return False, None
+    if not isinstance(form.affects_system_operation, bool):
+        return None, '作业期间是否影响系统运行必须为布尔值'
+    return bool(form.affects_system_operation), None
+
+
+def _default_work_object_desc(fault):
+    """故障转工单的作业对象描述默认值（对象名称/型号/编号以 / 连接）。"""
+    parts = [fault.fault_object_name, fault.fault_object_model, fault.fault_object_sn]
+    return ' / '.join(p for p in parts if p)
+
+
 def _validate_order_fields(body, request, for_update=False, order=None):
     """校验工单业务字段（创建与编辑共用），返回 (data, error)。
 
-    data 包含：title/work_type/priority/system/affects_system_operation/work_component/
+    data 包含：title/work_type/priority/system/affects_system_operation/
     planned_start/planned_end/work_requirement/work_steps/work_location/
     work_object_desc/material_note/client_token。
     状态字段一律忽略：普通编辑接口不得修改状态。
@@ -140,7 +173,6 @@ def _validate_order_fields(body, request, for_update=False, order=None):
         Argument('affects_system_operation', type=bool, required=False, default=False),
         Argument('work_location', type=str, required=False, default=''),
         Argument('work_object_desc', type=str, required=False, default=''),
-        Argument('work_component', type=int, required=False, default=None),
         Argument('planned_start', type=str, required=False, default=None),
         Argument('planned_end', type=str, required=False, default=None),
         Argument('work_requirement', type=str, required=False, default=''),
@@ -170,22 +202,9 @@ def _validate_order_fields(body, request, for_update=False, order=None):
         else:
             return None, '作业系统不存在、已停用或无权限'
 
-    work_component = None
-    if form.work_component:
-        work_component = SystemConfigComponent.objects.filter(
-            tenant_id=request.user.tenant_id, pk=form.work_component,
-            system=system).first()
-        if not work_component:
-            return None, '配置组成项不存在或不属于作业系统'
-
-    planned_start = _parse_dt(form.planned_start) if form.planned_start else None
-    planned_end = _parse_dt(form.planned_end) if form.planned_end else None
-    if form.planned_start and not planned_start:
-        return None, '计划开始时间格式不正确'
-    if form.planned_end and not planned_end:
-        return None, '计划结束时间格式不正确'
-    if planned_start and planned_end and planned_end < planned_start:
-        return None, '计划结束时间不能早于计划开始时间'
+    planned_start, planned_end, error = _parse_planned_range(form)
+    if error:
+        return None, error
 
     return {
         'title': title,
@@ -193,15 +212,14 @@ def _validate_order_fields(body, request, for_update=False, order=None):
         'priority': form.priority,
         'system': system,
         'affects_system_operation': bool(form.affects_system_operation),
-        'work_component': work_component,
         'planned_start': planned_start,
         'planned_end': planned_end,
-        'work_requirement': (form.work_requirement or '').strip()[:2000],
-        'work_steps': (form.work_steps or '').strip()[:2000],
-        'work_location': (form.work_location or '').strip()[:200],
-        'work_object_desc': (form.work_object_desc or '').strip()[:1000],
-        'material_note': (form.material_note or '').strip()[:500],
-        'client_token': (form.client_token or '').strip()[:64],
+        'work_requirement': _clean_text(form.work_requirement, 2000),
+        'work_steps': _clean_text(form.work_steps, 2000),
+        'work_location': _clean_text(form.work_location, 200),
+        'work_object_desc': _clean_text(form.work_object_desc, 1000),
+        'material_note': _clean_text(form.material_note, 500),
+        'client_token': _clean_text(form.client_token, 64),
     }, None
 
 
@@ -245,6 +263,10 @@ def _get_ledger_item_for_convert(ledger_pk, item_pk, user, for_update=False):
     if not item:
         return None, None, '台账明细不存在'
     ledger = item.ledger
+    # 旧巡检台账类型已删除（旧巡检台账下线改造）：异常转单一律显式拒绝，
+    # 新巡检走 /inspection-sheets/.../convert-* 独立接口；周月/季维护不受影响。
+    if ledger.ledger_type == LEGACY_LEDGER_TYPE_INSPECTION:
+        return None, None, '旧巡检台账（历史）已删除，不能转故障或转工单'
     if ledger.status in (LEDGER_STATUS_DRAFT, LEDGER_STATUS_RETURNED, LEDGER_STATUS_VOID):
         return None, None, '草稿、已退回或已作废的台账不能转单'
     if ledger.status not in CONVERTIBLE_LEDGER_STATUSES:
@@ -440,9 +462,6 @@ class WorkOrderDetailView(View):
                     order.affects_system_operation = data['affects_system_operation']
                     order.work_location = data['work_location']
                     order.work_object_desc = data['work_object_desc']
-                    order.work_component = data['work_component']
-                    order.work_component_name = (
-                        data['work_component'].name if data['work_component'] else '')
                     order.planned_start = data['planned_start']
                     order.planned_end = data['planned_end']
                     order.work_requirement = data['work_requirement']
@@ -1109,7 +1128,6 @@ class FaultCreateWorkOrderView(View):
             Argument('affects_system_operation', type=bool, required=False, default=None),
             Argument('work_location', type=str, required=False, default=''),
             Argument('work_object_desc', type=str, required=False, default=''),
-            Argument('work_component', type=int, required=False, default=None),
             Argument('planned_start', type=str, required=False, default=None),
             Argument('planned_end', type=str, required=False, default=None),
             Argument('work_requirement', type=str, required=False, default=''),
@@ -1119,9 +1137,7 @@ class FaultCreateWorkOrderView(View):
         if error:
             return None, error
 
-        title = (form.title or '').strip()
-        if not title:
-            title = f'{fault.fault_no} 维修工单'
+        title = _clean_text(form.title, 100) or f'{fault.fault_no} 维修工单'
         if form.work_type not in SystemWorkOrder.TYPE_TEXT_MAP:
             return None, '工单类型不合法'
         if form.priority not in SystemWorkOrder.PRIORITY_TEXT_MAP:
@@ -1134,56 +1150,35 @@ class FaultCreateWorkOrderView(View):
 
         # 影响运行默认值：默认"作业期间不影响系统运行"（拆下部件离线维修不改变系统状态）。
         # 只有用户明确选择影响运行时才参与健康状态计算，前端默认值与后端一致。
-        if form.affects_system_operation is None:
-            affects = False
-        else:
-            if not isinstance(form.affects_system_operation, bool):
-                return None, '作业期间是否影响系统运行必须为布尔值'
-            affects = form.affects_system_operation
+        affects, error = _resolve_affects_default(form)
+        if error:
+            return None, error
 
-        # 默认带入故障的配置组成项快照（可选引用）
-        work_component = None
-        if form.work_component:
-            work_component = SystemConfigComponent.objects.filter(
-                tenant_id=request.user.tenant_id, pk=form.work_component,
-                system=system).first()
-            if not work_component:
-                return None, '配置组成项不存在或不属于作业系统'
+        planned_start, planned_end, error = _parse_planned_range(form)
+        if error:
+            return None, error
 
-        planned_start = _parse_dt(form.planned_start) if form.planned_start else None
-        planned_end = _parse_dt(form.planned_end) if form.planned_end else None
-        if form.planned_start and not planned_start:
-            return None, '计划开始时间格式不正确'
-        if form.planned_end and not planned_end:
-            return None, '计划结束时间格式不正确'
-        if planned_start and planned_end and planned_end < planned_start:
-            return None, '计划结束时间不能早于计划开始时间'
-
-        work_requirement = (form.work_requirement or '').strip()
-        if not work_requirement:
-            # 默认带入故障现象与故障位置
-            work_requirement = fault.phenomenon
-
-        work_object_desc = (form.work_object_desc or '').strip()
-        if not work_object_desc:
-            parts = [fault.fault_object_name, fault.fault_object_model, fault.fault_object_sn]
-            work_object_desc = ' / '.join(p for p in parts if p)
+        # 默认带入故障现象与故障位置
+        work_requirement = (_clean_text(form.work_requirement, 2000)
+                            or fault.phenomenon)[:2000]
+        work_object_desc = (_clean_text(form.work_object_desc, 1000)
+                            or _default_work_object_desc(fault))[:1000]
 
         return ({
-            'title': title[:100],
+            'title': title,
             'work_type': form.work_type,
             'priority': form.priority,
             'system': system,
             'affects_system_operation': affects,
-            'work_component': work_component,
             'planned_start': planned_start,
             'planned_end': planned_end,
-            'work_requirement': work_requirement[:2000],
-            'work_steps': (form.work_steps or '').strip()[:2000],
-            'work_location': ((form.work_location or '').strip() or fault.fault_location)[:200],
-            'work_object_desc': work_object_desc[:1000],
-            'material_note': (form.material_note or '').strip()[:500],
-            'client_token': (body.get('client_token') or '').strip()[:64],
+            'work_requirement': work_requirement,
+            'work_steps': _clean_text(form.work_steps, 2000),
+            'work_location': (_clean_text(form.work_location, 200)
+                              or fault.fault_location)[:200],
+            'work_object_desc': work_object_desc,
+            'material_note': _clean_text(form.material_note, 500),
+            'client_token': _clean_text(body.get('client_token'), 64),
         }, None)
 
 

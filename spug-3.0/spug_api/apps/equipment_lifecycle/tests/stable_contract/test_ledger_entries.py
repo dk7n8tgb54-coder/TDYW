@@ -56,7 +56,7 @@ class LedgerMultiSystemContractTests(TestCase):
         self.assertTrue(OperationLedger.objects.filter(pk=data['id']).exists())
         self.assertEqual(
             OperationLedgerItem.objects.filter(ledger_id=data['id']).count(), 2)
-        self.assertTrue(data['ledger_no'].startswith('EL-INS-'))
+        self.assertTrue(data['ledger_no'].startswith('EL-WM-'))
 
     def test_invalid_item_rolls_back_whole_ledger(self):
         """12. 任一明细校验失败时整张台账回滚（不产生只有表头没有明细的台账）。"""
@@ -140,4 +140,4 @@ class LedgerMultiSystemContractTests(TestCase):
         second = create_ledger_ok(client, ledger_payload(
             [entry_payload(self.system_a.id, [item_payload()])]))
         self.assertNotEqual(first['ledger_no'], second['ledger_no'])
-        self.assertTrue(first['ledger_no'].startswith('EL-INS-20260910-'))
+        self.assertTrue(first['ledger_no'].startswith('EL-WM-20260910-'))

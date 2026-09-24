@@ -1,12 +1,14 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——巡检/周月维护/季维护台账服务（步骤 3.2）。
+"""设备全生命周期——周月维护/季维护台账服务（步骤 3.2）。
 
-三类台账共用统一模型，通过 ledger_type + maintenance_cycle 区分：
-- 巡检（inspection）不要求维护周期；
+两类维护台账共用统一模型，通过 ledger_type + maintenance_cycle 区分：
 - 周月维护（week_month）必须为周（week）或月（month）；
-- 季维护（seasonal）固定为季（season）。
+- 季维护（seasonal）固定为季（season）；
+- 旧巡检台账（ledger_type=inspection）业务分支已删除（2026-09-24），
+  巡检由独立模型（InspectionTemplate/InspectionDutySheet/InspectionRecord）承担，
+  旧类型请求一律显式拒绝。
 
 核心约定：
 - 系统关联一律使用系统 ID，页面显示的名称/编号/地点均保存快照；
@@ -32,6 +34,7 @@ from apps.equipment_lifecycle.models import (
     ITEM_RESULT_PENDING_REVIEW,
     ITEM_RESULT_NORMAL,
     ITEM_RESULT_VALUES,
+    LEGACY_LEDGER_TYPE_INSPECTION,
     LEDGER_FROM_MANUAL,
     LEDGER_FROM_TEMPLATE,
     LEDGER_FROM_VALUES,
@@ -43,7 +46,6 @@ from apps.equipment_lifecycle.models import (
     LEDGER_STATUS_SUBMITTED,
     LEDGER_STATUS_VOID,
     LEDGER_STATUS_VALUES,
-    LEDGER_TYPE_INSPECTION,
     LEDGER_TYPE_SEASONAL,
     LEDGER_TYPE_VALUES,
     LEDGER_TYPE_WEEK_MONTH,
@@ -72,19 +74,30 @@ ITEM_RESULT_TEXT_MAP = {
 # 正常/不正常单选的固定候选项（与前端 constants.js NORMAL_ABNORMAL_CHOICES 对齐）
 LEDGER_CHOICE_ABNORMAL = '不正常'
 
+# 旧巡检台账类型已删除（值班巡检改造 + 旧巡检台账下线）：
+# 所有针对旧类型的新建/编辑/写操作一律显式拒绝，不静默当作维护台账处理；
+# 周月维护/季维护台账不受影响。
+LEGACY_INSPECTION_ERROR = '旧巡检台账（历史）已删除，巡检类型不再支持该操作'
+
+
+def legacy_inspection_error(ledger):
+    """已删除的旧巡检类型统一拦截：对旧类型台账的写操作返回明确错误。"""
+    if ledger is not None and ledger.ledger_type == LEGACY_LEDGER_TYPE_INSPECTION:
+        return LEGACY_INSPECTION_ERROR
+    return None
+
 
 class LedgerValidationError(Exception):
     """台账业务校验失败（message 为可直接展示给用户的错误文案）。"""
 
 
 def validate_ledger_type_cycle(ledger_type, maintenance_cycle):
-    """校验台账类型与维护周期组合是否合法（三类台账统一规则）。"""
+    """校验台账类型与维护周期组合是否合法（维护台账统一规则）。"""
+    if ledger_type == LEGACY_LEDGER_TYPE_INSPECTION:
+        raise LedgerValidationError(LEGACY_INSPECTION_ERROR)
     if ledger_type not in LEDGER_TYPE_VALUES:
         raise LedgerValidationError('台账类型不合法')
-    if ledger_type == LEDGER_TYPE_INSPECTION:
-        if maintenance_cycle:
-            raise LedgerValidationError('巡检台账不要求填写维护周期')
-    elif ledger_type == LEDGER_TYPE_WEEK_MONTH:
+    if ledger_type == LEDGER_TYPE_WEEK_MONTH:
         if maintenance_cycle not in (CYCLE_WEEK, CYCLE_MONTH):
             raise LedgerValidationError('周月维护台账必须选择"周"或"月"维护周期')
     else:  # seasonal
@@ -470,6 +483,9 @@ def update_ledger(user, pk, body):
     ledger = _get_ledger_for_user(pk, user, for_update=True)
     if not ledger:
         return None, None, '台账不存在'
+    error = legacy_inspection_error(ledger)
+    if error:
+        return None, None, error
     if ledger.status not in OperationLedger.EDITABLE_STATUSES:
         return None, None, '当前状态不允许编辑台账'
     version = body.get('version')
@@ -634,6 +650,9 @@ def submit_ledger(user, pk):
     ledger = _get_ledger_for_user(pk, user, for_update=True)
     if not ledger:
         return None, '台账不存在'
+    error = legacy_inspection_error(ledger)
+    if error:
+        return None, error
     if not ledger.can_transition_to(LEDGER_STATUS_SUBMITTED):
         return None, '当前状态不允许提交（已提交或已复核台账请勿重复操作）'
     if not ledger.items.exists():
@@ -654,6 +673,9 @@ def return_ledger(user, pk, reason):
     ledger = _get_ledger_for_user(pk, user, for_update=True)
     if not ledger:
         return None, '台账不存在'
+    error = legacy_inspection_error(ledger)
+    if error:
+        return None, error
     if not ledger.can_transition_to(LEDGER_STATUS_RETURNED):
         return None, '当前状态不允许退回'
     ledger.status = LEDGER_STATUS_RETURNED
@@ -670,6 +692,9 @@ def review_ledger(user, pk):
     ledger = _get_ledger_for_user(pk, user, for_update=True)
     if not ledger:
         return None, '台账不存在'
+    error = legacy_inspection_error(ledger)
+    if error:
+        return None, error
     if not ledger.can_transition_to(LEDGER_STATUS_REVIEWED):
         return None, '当前状态不允许复核'
     ledger.status = LEDGER_STATUS_REVIEWED
@@ -689,6 +714,9 @@ def void_ledger(user, pk, reason):
     ledger = _get_ledger_for_user(pk, user, for_update=True)
     if not ledger:
         return None, '台账不存在'
+    error = legacy_inspection_error(ledger)
+    if error:
+        return None, error
     if not ledger.can_transition_to(LEDGER_STATUS_VOID):
         return None, '当前状态不允许作废'
     ledger.status = LEDGER_STATUS_VOID
@@ -713,6 +741,9 @@ def correct_ledger(user, pk, body):
     ledger = _get_ledger_for_user(pk, user, for_update=True)
     if not ledger:
         return None, None, '台账不存在'
+    error = legacy_inspection_error(ledger)
+    if error:
+        return None, None, error
     if ledger.status != 'reviewed':
         return None, None, '只有已复核台账可以进行更正'
     reason = str(body.get('reason') or '').strip()
@@ -787,6 +818,9 @@ def confirm_normal(user, pk, item_ids):
     ledger = _get_ledger_for_user(pk, user, for_update=True)
     if not ledger:
         return None, '台账不存在'
+    error = legacy_inspection_error(ledger)
+    if error:
+        return None, error
     if ledger.status not in OperationLedger.EDITABLE_STATUSES:
         return None, '当前状态不允许批量确认'
     if not isinstance(item_ids, list) or not item_ids:

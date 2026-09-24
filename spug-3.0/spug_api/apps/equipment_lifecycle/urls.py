@@ -13,7 +13,9 @@
 from django.db import transaction
 from django.urls import path
 
-from apps.equipment_lifecycle import event_views, fault_views, ledger_views, views, work_order_views
+from apps.equipment_lifecycle import (
+    event_views, fault_views, inspection_views, ledger_views, views, work_order_views,
+)
 from apps.upgrade.views.system_records import SystemUpgradeRecordsView
 
 
@@ -26,22 +28,9 @@ urlpatterns = [
     # 系统主数据
     path('systems/', views.SystemView.as_view()),
     path('systems/export/', views.SystemExportView.as_view()),
-    path('systems/form-fields/', views.SystemFormFieldsView.as_view()),
     path('systems/status-summary/', views.SystemStatusSummaryView.as_view()),
     path('systems/<int:pk>/', views.SystemDetailView.as_view()),
     path('systems/<int:pk>/active/', views.SystemActiveView.as_view()),
-    path('systems/<int:pk>/config/', views.SystemConfigView.as_view()),
-    path('systems/<int:pk>/config/export/', views.SystemConfigExportView.as_view()),
-    path('systems/<int:pk>/config/attachments/', views.SystemConfigAttachmentView.as_view()),
-    path('systems/<int:pk>/config/attachments/<int:aid>/download/', views.SystemConfigAttachmentDownloadView.as_view()),
-    path('systems/<int:pk>/config/attachments/<int:aid>/', views.SystemConfigAttachmentDetailView.as_view()),
-    path('systems/<int:pk>/components/', views.SystemComponentView.as_view()),
-    path('systems/<int:pk>/components/<int:cid>/', views.SystemComponentDetailView.as_view()),
-    path('systems/<int:pk>/custom-fields/', views.CustomFieldView.as_view()),
-    path('systems/<int:pk>/custom-fields/<int:fid>/', views.CustomFieldDetailView.as_view()),
-    path('systems/<int:pk>/changes/', views.SystemChangeView.as_view()),
-    path('systems/<int:pk>/snapshots/', views.SystemSnapshotView.as_view()),
-    path('systems/<int:pk>/snapshots/<int:sid>/', views.SystemSnapshotDetailView.as_view()),
     # 按系统查询故障（主体/受影响）
     path('systems/<int:pk>/faults/', fault_views.SystemFaultListView.as_view()),
     # 系统故障（步骤 3.1）
@@ -117,6 +106,27 @@ urlpatterns = [
     path('systems/<int:pk>/work-orders/', work_order_views.SystemWorkOrdersView.as_view()),
     # 按系统查询升级记录（系统详情"升级记录"页签，视图在 upgrade app）
     path('systems/<int:pk>/upgrade-records/', SystemUpgradeRecordsView.as_view()),
+    # ==================== 值班巡检（今日巡检改造，独立巡检模型） ====================
+    # 巡检模板（模板 → 设备名称 → 检查内容，设备名称不关联系统）
+    path('inspection-templates/', inspection_views.InspectionTemplateView.as_view()),
+    path('inspection-templates/available/', inspection_views.InspectionTemplateAvailableView.as_view()),
+    path('inspection-templates/<int:pk>/', inspection_views.InspectionTemplateDetailView.as_view()),
+    path('inspection-templates/<int:pk>/active/', inspection_views.InspectionTemplateActiveView.as_view()),
+    # 值班巡检单（值班日 + 模板唯一；四轮固定；转单时才选择系统）
+    path('inspection-sheets/candidate-systems/', inspection_views.InspectionCandidateSystemsView.as_view()),
+    path('inspection-sheets/export/', inspection_views.InspectionSheetExportView.as_view()),
+    path('inspection-sheets/batch-export/xlsx/', inspection_views.InspectionSheetBatchExportXlsxView.as_view()),
+    path('inspection-sheets/batch-export/pdf/', inspection_views.InspectionSheetBatchExportPdfView.as_view()),
+    path('inspection-sheets/', inspection_views.InspectionSheetView.as_view()),
+    path('inspection-sheets/<int:pk>/export/xlsx/', inspection_views.InspectionSheetDetailExportXlsxView.as_view()),
+    path('inspection-sheets/<int:pk>/export/pdf/', inspection_views.InspectionSheetDetailExportPdfView.as_view()),
+    path('inspection-sheets/<int:pk>/', inspection_views.InspectionSheetDetailView.as_view()),
+    path('inspection-sheets/<int:pk>/submit/', inspection_views.InspectionSheetSubmitView.as_view()),
+    path('inspection-sheets/<int:pk>/void/', inspection_views.InspectionSheetVoidView.as_view()),
+    path('inspection-sheets/<int:sheet_pk>/records/<int:record_pk>/convert-to-fault/',
+         _na(inspection_views.InspectionRecordConvertToFaultView.as_view())),
+    path('inspection-sheets/<int:sheet_pk>/records/<int:record_pk>/convert-to-work-order/',
+         _na(inspection_views.InspectionRecordConvertToWorkOrderView.as_view())),
     # ==================== 统一系统履历（步骤 3.4，只读 append-only） ====================
     path('system-events/', event_views.SystemEventView.as_view()),
     path('system-events/export/', event_views.SystemEventExportView.as_view()),

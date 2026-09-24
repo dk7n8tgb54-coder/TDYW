@@ -18,7 +18,7 @@ from apps.equipment_lifecycle.models import (
 )
 
 from apps.equipment_lifecycle.tests.base import (
-    ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS, make_client, make_user,
+    ALL_SYSTEM_PERMS, make_client, make_user,
 )
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
     ALL_LEDGER_PERMS, entry_payload, item_payload,
@@ -50,7 +50,7 @@ class ConversionTestBase(WorkOrderTestBase):
             set(ALL_FAULT_PERMS + ALL_WO_PERMS + ALL_HANDLE_PERMS), version=0)
         self.ledger_user = make_ledger_user(
             'cv_ledger_user',
-            perms=ALL_HANDLE_PERMS + ALL_SYSTEM_PERMS + ALL_CONFIG_PERMS,
+            perms=ALL_HANDLE_PERMS + ALL_SYSTEM_PERMS,
             tenant_id='tenant_a')
         self.other_ledger_user = make_ledger_user(
             'cv_ledger_user_b', perms=ALL_HANDLE_PERMS + ALL_SYSTEM_PERMS + ALL_WO_PERMS,
@@ -243,6 +243,9 @@ class LedgerItemConvertToFaultTest(ConversionTestBase):
         self.assertEqual(fault.source_id, str(item_ids[0]))
         # 带入台账上下文（现象含台账编号/项目名）
         self.assertIn('EL-', fault.phenomenon)
+        # 转换缺省发现方式/级别：巡检发现 + 一般
+        self.assertEqual(fault.discovery, 'patrol')
+        self.assertEqual(fault.level, 'minor')
         # 默认"部件故障但不影响系统运行"：系统健康状态保持正常（同事务重算）
         self.assertFalse(fault.affects_system_operation)
         self.assertEqual(fault.impact_status, '')

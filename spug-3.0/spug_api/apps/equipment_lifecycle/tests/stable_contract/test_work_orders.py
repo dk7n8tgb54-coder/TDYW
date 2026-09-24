@@ -23,7 +23,7 @@ from apps.equipment_lifecycle.models import (
 )
 
 from apps.equipment_lifecycle.tests.base import (
-    ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS, make_client, make_system, make_user,
+    ALL_SYSTEM_PERMS, make_client, make_system, make_user,
 )
 from apps.equipment_lifecycle.tests.stable_contract.test_fault_management import (
     ALL_FAULT_PERMS, fault_payload,
@@ -60,7 +60,7 @@ class WorkOrderTestBase(TestCase):
     """公共夹具：两个租户、可用/停用系统、工单与故障全权限用户。"""
 
     def setUp(self):
-        self.admin = make_user('wo_admin', ALL_SYSTEM_PERMS + ALL_CONFIG_PERMS + ALL_FAULT_PERMS + ALL_WO_PERMS,
+        self.admin = make_user('wo_admin', ALL_SYSTEM_PERMS + ALL_FAULT_PERMS + ALL_WO_PERMS,
                                tenant_id='tenant_a')
         self.other_admin = make_user('wo_admin_b', ALL_SYSTEM_PERMS + ALL_FAULT_PERMS + ALL_WO_PERMS,
                                      tenant_id='tenant_b')
@@ -227,9 +227,10 @@ class WorkOrderCreateValidationTest(WorkOrderTestBase):
         self.assertEqual(SystemWorkOrder.objects.count(), 0)
 
     def test_create_without_component_and_device_resume(self):
-        """配置组成项为空、无设备档案仍可创建工单。"""
+        """配置组成项已下线、无设备档案仍可创建工单。"""
         data = self.create_order_ok(work_order_payload(self.system_a))
-        self.assertIsNone(data['work_component'])
+        self.assertNotIn('work_component', data)
+        self.assertEqual(data['work_component_name'], '')
         self.assertEqual(data['work_type'], 'special_maintenance')
         self.assertFalse(data['affects_system_operation'])
 

@@ -215,7 +215,7 @@ describe('故障详情关联工单页签', () => {
     expect(container.textContent).toContain('尚未生成工单');
   });
 
-  it('生成维修工单默认值：未恢复故障默认影响运行，已恢复故障默认不影响', async () => {
+  it('生成维修工单默认值：默认不影响运行（部件离线维修不影响系统状态）', async () => {
     const {GenerateWorkOrderButton} = require('../FaultWorkOrders');
     mockHttpGet.mockImplementation((url) => {
       if (url.includes('/candidate-systems/')) {
@@ -238,10 +238,10 @@ describe('故障详情关联工单页签', () => {
       const sw = document.querySelector('.ant-switch');
       return sw && sw.classList.contains('ant-switch-checked');
     }
-    // 尚未恢复（处置中）的故障 → 默认影响运行
+    // 新契约：无论来源故障是否恢复，转工单默认均不影响系统运行，
+    // 需要影响运行时由用户在表单中明确开启（与后端默认一致）
     expect(await openAndReadSwitch({id: 33, fault_no: 'GZ20260919-0001', status: 'handling'}))
-      .toBe(true);
-    // 已恢复的故障（离线部件维修）→ 默认不影响运行
+      .toBe(false);
     expect(await openAndReadSwitch({id: 33, fault_no: 'GZ20260919-0001', status: 'recovered'}))
       .toBe(false);
   });

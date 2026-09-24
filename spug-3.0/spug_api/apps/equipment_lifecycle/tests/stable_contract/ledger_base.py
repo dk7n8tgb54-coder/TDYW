@@ -4,7 +4,7 @@ import time
 
 from apps.account.models import User  # noqa: F401  (保持与 base 一致的导入习惯)
 from apps.equipment_lifecycle.models import (
-    LEDGER_TYPE_INSPECTION,
+    CYCLE_WEEK,
     LEDGER_TYPE_SEASONAL,
     LEDGER_TYPE_WEEK_MONTH,
     OperationLedger,
@@ -34,16 +34,15 @@ TEMPLATE_URL = URL_PREFIX + '/ledger-templates'
 
 
 def make_ledger_template(created_by, tenant_id='default',
-                         ledger_type=LEDGER_TYPE_INSPECTION, **kwargs):
+                         ledger_type=LEDGER_TYPE_WEEK_MONTH, **kwargs):
     cycle_default = {
-        LEDGER_TYPE_INSPECTION: '',
         LEDGER_TYPE_WEEK_MONTH: 'week',
         LEDGER_TYPE_SEASONAL: 'season',
     }[ledger_type]
     defaults = dict(
-        name='巡检模板A' if ledger_type == LEDGER_TYPE_INSPECTION else '维护模板A',
+        name='维护模板A',
         ledger_type=ledger_type,
-        maintenance_cycle=cycle_default,
+        maintenance_cycle=kwargs.pop('maintenance_cycle', cycle_default),
         description='',
         is_active=True,
         tenant_id=tenant_id,
@@ -94,9 +93,11 @@ def entry_payload(system_id, items, template_id=None):
 
 
 def ledger_payload(entries, **kwargs):
+    """台账载荷：默认周月维护（值班巡检改造后旧巡检台账只读，
+    写路径契约测试一律落在仍活跃的周/月/季维护台账上）。"""
     payload = {
-        'ledger_type': LEDGER_TYPE_INSPECTION,
-        'maintenance_cycle': '',
+        'ledger_type': LEDGER_TYPE_WEEK_MONTH,
+        'maintenance_cycle': CYCLE_WEEK,
         'executed_date': '2026-09-10',
         'executed_start': '2026-09-10 09:00',
         'executed_end': '2026-09-10 11:00',

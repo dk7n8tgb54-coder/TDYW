@@ -86,6 +86,13 @@ export default function WorkOrderDetail({woId, visible, onClose}) {
     history.push(`${path}?detail=${ledgerId}`);
   };
 
+  // 巡检来源跳转：跳到巡检单记录页打开来源值班巡检单（新巡检独立链路）
+  const gotoInspectionSheet = (sheetId) => {
+    if (!sheetId) return;
+    onClose();
+    history.push(`/el/inspection-sheets?detail=${sheetId}`);
+  };
+
   const status = detail.status;
   const editable = status === 'pending_dispatch';
   const [dispatchVisible, setDispatchVisible] = useState(false);
@@ -99,36 +106,15 @@ export default function WorkOrderDetail({woId, visible, onClose}) {
       destroyOnClose
     >
       <Spin spinning={fetching}>
-        <div style={{marginBottom: 12}}>
-          {status === 'pending_dispatch' && (
-            <AuthButton
-              auth={WO_PERM.DISPATCH}
-              type="primary"
-              loading={acting}
-              onClick={() => setDispatchVisible(true)}
-            >
-              派发
-            </AuthButton>
-          )}
-          {status === 'pending_accept' && <AcceptButtons runAction={runAction} acting={acting}/>}
-          {status === 'pending_review' && <ReviewButtons runAction={runAction} acting={acting}/>}
-          {status === 'completed' && (
-            <AuthButton
-              auth={WO_PERM.CLOSE}
-              type="primary"
-              loading={acting}
-              onClick={() => runAction('close').then(() => message.success('工单已关闭')).catch(() => {})}
-            >
-              关闭工单
-            </AuthButton>
-          )}
-          {['pending_dispatch', 'pending_accept', 'executing', 'pending_review'].includes(status) && (
-            <CancelButton order={detail} runAction={runAction} acting={acting}/>
-          )}
-        </div>
+        <StatusActionBar
+          detail={detail}
+          acting={acting}
+          runAction={runAction}
+          onDispatch={setDispatchVisible}
+        />
         <Tabs defaultActiveKey="basic">
           <TabPane tab="基本信息" key="basic">
-            {renderBasic(detail, gotoFault, gotoLedger)}
+            {renderBasic(detail, gotoFault, gotoLedger, gotoInspectionSheet)}
           </TabPane>
           <TabPane tab={`参与人员${detail.participants ? `（${detail.participants.length}）` : ''}`} key="participants">
             {renderParticipants(detail)}
@@ -162,7 +148,41 @@ async function runActionRawPost(woId, path, payload) {
   await http.post(`${API_PREFIX}/work-orders/${woId}/${path}/`, payload);
 }
 
-function renderBasic(d, gotoFault, gotoLedger) {
+/** 状态动作按钮栏：按工单状态显示派发/接单/复核/关闭/取消入口。 */
+function StatusActionBar({detail, acting, runAction, onDispatch}) {
+  const status = detail.status;
+  return (
+    <div style={{marginBottom: 12}}>
+      {status === 'pending_dispatch' && (
+        <AuthButton
+          auth={WO_PERM.DISPATCH}
+          type="primary"
+          loading={acting}
+          onClick={() => onDispatch(true)}
+        >
+          派发
+        </AuthButton>
+      )}
+      {status === 'pending_accept' && <AcceptButtons runAction={runAction} acting={acting}/>}
+      {status === 'pending_review' && <ReviewButtons runAction={runAction} acting={acting}/>}
+      {status === 'completed' && (
+        <AuthButton
+          auth={WO_PERM.CLOSE}
+          type="primary"
+          loading={acting}
+          onClick={() => runAction('close').then(() => message.success('工单已关闭')).catch(() => {})}
+        >
+          关闭工单
+        </AuthButton>
+      )}
+      {['pending_dispatch', 'pending_accept', 'executing', 'pending_review'].includes(status) && (
+        <CancelButton order={detail} runAction={runAction} acting={acting}/>
+      )}
+    </div>
+  );
+}
+
+function renderBasic(d, gotoFault, gotoLedger, gotoInspectionSheet) {
   return (
     <Descriptions bordered size="small" column={2}>
       <Descriptions.Item label="工单编号">{d.work_no}</Descriptions.Item>
@@ -198,6 +218,11 @@ function renderBasic(d, gotoFault, gotoLedger) {
           <Button type="link" size="small" style={{padding: 0}}
                   onClick={() => gotoLedger(d.source_ledger_type, d.source_ledger)}>
             {d.source_no || '查看来源台账'}
+          </Button>
+        ) : d.source_type === 'inspection_record' && d.source_inspection_sheet ? (
+          <Button type="link" size="small" style={{padding: 0}}
+                  onClick={() => gotoInspectionSheet(d.source_inspection_sheet)}>
+            {d.source_inspection_sheet_no || '查看来源巡检单'}
           </Button>
         ) : (d.source_no || '-')}
       </Descriptions.Item>

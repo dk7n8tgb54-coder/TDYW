@@ -19,14 +19,13 @@ from django.test import TestCase
 from apps.equipment_lifecycle import fault_services
 from apps.equipment_lifecycle.models import (
     LifecycleSystem,
-    SystemConfigComponent,
     SystemFault,
     SystemFaultHandlingRecord,
 )
 from apps.logs.models import AuditLog
 
 from apps.equipment_lifecycle.tests.base import (
-    ALL_CONFIG_PERMS, ALL_SYSTEM_PERMS,
+    ALL_SYSTEM_PERMS,
     make_client, make_system, make_user,
 )
 
@@ -63,7 +62,7 @@ class FaultTestBase(TestCase):
 
     def setUp(self):
         self._occ_seq = 0
-        self.admin = make_user('flt_admin', ALL_SYSTEM_PERMS + ALL_CONFIG_PERMS + ALL_FAULT_PERMS,
+        self.admin = make_user('flt_admin', ALL_SYSTEM_PERMS + ALL_FAULT_PERMS,
                                tenant_id='tenant_a')
         self.other_admin = make_user('flt_admin_b', ALL_SYSTEM_PERMS + ALL_FAULT_PERMS,
                                      tenant_id='tenant_b')
@@ -184,12 +183,11 @@ class FaultCreateValidationTest(FaultTestBase):
         self.assertTrue(fault.fault_no.startswith('GZ'), fault.fault_no)
 
     def test_fault_without_component_and_without_device(self):
-        """未建立设备档案、配置组成项为空时仍可报障。"""
-        self.assertEqual(SystemConfigComponent.objects.count(), 0)
+        """未建立设备档案（配置组成项已下线）时仍可报障。"""
         body = self.create_fault(fault_payload(self.system_a))
         self.assertFalse(body.get('error'), body)
         fault = SystemFault.objects.get(pk=body['data']['id'])
-        self.assertIsNone(fault.fault_component_id)
+        self.assertEqual(fault.fault_component_name, '')
         self.assertEqual(fault.status, 'pending')
 
     def test_inactive_system_cannot_create_new_fault(self):
@@ -198,29 +196,122 @@ class FaultCreateValidationTest(FaultTestBase):
         self.system_a.save(update_fields=['is_active'])
         self.create_fault(fault_payload(self.system_a), expect_error='故障系统不存在')
 
-    def test_component_reference_optional_and_snapshot_preserved(self):
-        """引用组成项时保存对象快照；组成项删除不改变历史快照。"""
-        comp = SystemConfigComponent.objects.create(
-            tenant_id='tenant_a', system=self.system_a, name='接入交换机',
-            model_version='H3C-5120', created_by=self.admin)
-        payload = fault_payload(self.system_a, fault_component=comp.id,
-                                fault_object_name='接入交换机01',
-                                fault_object_model='H3C-5120')
-        body = self.create_fault(payload)
-        fault = SystemFault.objects.get(pk=body['data']['id'])
-        self.assertEqual(fault.fault_component_id, comp.id)
-        self.assertEqual(fault.fault_object_name, '接入交换机01')
-        comp_name = fault.fault_object_name
-        comp_model = fault.fault_object_model
-        # 删除组成项：故障记录与快照不受影响（SET_NULL）
+    def test_component_api_removed(self):
+        """配置组成项功能已下线：组成项接口不再可达。"""
         client = make_client(self.admin)
-        resp = client.delete(
-            f'/equipment-lifecycle/systems/{self.system_a.id}/components/{comp.id}/')
+        resp = client.get(
+            f'/equipment-lifecycle/systems/{self.system_a.id}/components/')
+        self.assertEqual(resp.status_code, 404)
+
+
+class FaultSimplifiedFirstReportTest(FaultTestBase):
+    """首报表单精简契约：发现方式/级别缺省化 + 历史数据兼容。
+
+    产品规则（2026-09）：手工新增故障不传 discovery 默认"人工报告"、
+    不传 level 默认"一般"，两字段不再必填；编辑精简载荷（不携带
+    discovery/level/历史设备字段）保留原值，不静默清空历史数据；
+    详情展示、级别筛选与 CSV 导出仍返回 discovery/level 及旧设备字段。
+    """
+
+    def test_manual_create_without_discovery_and_level_defaults(self):
+        """手工新增不传 discovery/level：缺省人工报告 + 一般，详情正常返回。"""
+        payload = fault_payload(self.system_a, occurred_at=self.next_occurred_at())
+        payload.pop('discovery')
+        payload.pop('level')
+        body = self.create_fault(payload)
+        self.assertFalse(body.get('error'), body)
+        fault = SystemFault.objects.get(pk=body['data']['id'])
+        self.assertEqual(fault.discovery, 'report')
+        self.assertEqual(fault.level, 'minor')
+        detail = make_client(self.admin).get(f'{FAULT_URL}/{fault.id}/').json()['data']
+        self.assertEqual(detail['discovery'], 'report')
+        self.assertEqual(detail['discovery_text'], '人工报告')
+        self.assertEqual(detail['level'], 'minor')
+        self.assertEqual(detail['level_text'], '一般')
+
+    def test_manual_create_explicit_and_default_mix(self):
+        """只缺一项时：缺省项补默认值，显式项仍生效。"""
+        payload = fault_payload(self.system_a, occurred_at=self.next_occurred_at())
+        payload.pop('level')
+        body = self.create_fault(payload)
+        self.assertFalse(body.get('error'), body)
+        fault = SystemFault.objects.get(pk=body['data']['id'])
+        self.assertEqual(fault.discovery, 'patrol')
+        self.assertEqual(fault.level, 'minor')
+
+    def test_invalid_explicit_discovery_or_level_rejected(self):
+        """缺省不等于放弃校验：显式提交非法值仍被拒绝且不落库。"""
+        self.create_fault(fault_payload(self.system_a, occurred_at=self.next_occurred_at(),
+                                        discovery='bogus'),
+                          expect_error='故障发现方式不合法')
+        self.create_fault(fault_payload(self.system_a, occurred_at=self.next_occurred_at(),
+                                        level='bogus'),
+                          expect_error='故障级别不合法')
+        self.assertEqual(SystemFault.objects.count(), 0)
+
+    def test_edit_minimal_payload_preserves_history(self):
+        """精简编辑载荷不携带 discovery/level/历史设备字段时保留原值。"""
+        payload = fault_payload(self.system_a, occurred_at=self.next_occurred_at(),
+                                fault_object_name='接入交换机01',
+                                fault_object_model='H3C-5120', fault_object_sn='SN001')
+        fid = self.create_fault(payload)['data']['id']
+        client = make_client(self.admin)
+        minimal = {
+            'system': self.system_a.id,
+            'affects_system_operation': True,
+            'impact_status': 'degraded',
+            'occurred_at': '2026-09-18 09:00',
+            'phenomenon': '现象描述更新',
+            'fault_object_name': '接入交换机02',
+        }
+        resp = client.put(f'{FAULT_URL}/{fid}/', minimal, content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
-        fault.refresh_from_db()
-        self.assertIsNone(fault.fault_component_id)
-        self.assertEqual(fault.fault_object_name, comp_name)
-        self.assertEqual(fault.fault_object_model, comp_model)
+        fault = SystemFault.objects.get(pk=fid)
+        self.assertEqual(fault.phenomenon, '现象描述更新')
+        self.assertEqual(fault.fault_object_name, '接入交换机02')
+        # 未提交字段全部保留原值（discovery/level + 旧设备字段）
+        self.assertEqual(fault.discovery, 'patrol')
+        self.assertEqual(fault.level, 'major')
+        self.assertEqual(fault.impact_scope, '本站话音业务')
+        self.assertEqual(fault.fault_location, '机房A 01柜')
+        self.assertEqual(fault.fault_object_model, 'H3C-5120')
+        self.assertEqual(fault.fault_object_sn, 'SN001')
+
+    def test_edit_still_accepts_explicit_discovery_and_level(self):
+        """旧客户端显式提交 discovery/level 仍校验并更新（接口兼容）。"""
+        fid = self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at()))['data']['id']
+        client = make_client(self.admin)
+        detail = client.get(f'{FAULT_URL}/{fid}/').json()['data']
+        edit = {k: detail[k] for k in (
+            'system', 'impact_status', 'occurred_at', 'discovery', 'level', 'phenomenon')}
+        edit['affects_system_operation'] = True
+        edit['discovery'] = 'alarm'
+        edit['level'] = 'critical'
+        resp = client.put(f'{FAULT_URL}/{fid}/', edit, content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        fault = SystemFault.objects.get(pk=fid)
+        self.assertEqual(fault.discovery, 'alarm')
+        self.assertEqual(fault.level, 'critical')
+
+    def test_list_level_filter_and_export_keep_historical_fields(self):
+        """级别列表筛选与 CSV 导出仍正常返回发现方式/级别等历史字段。"""
+        fid = self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at(),
+            fault_object_name='接入交换机01'))['data']['id']
+        client = make_client(self.admin)
+        resp = client.get(f'{FAULT_URL}/', {'level': 'major'})
+        self.assertFalse(resp.json().get('error'), resp.content)
+        rows = resp.json()['data']['data']
+        self.assertEqual([r['id'] for r in rows], [fid])
+        resp = client.get(f'{FAULT_URL}/export/')
+        self.assertEqual(resp.status_code, 200)
+        text = resp.content.decode('utf-8-sig')
+        self.assertIn('发现方式', text)
+        self.assertIn('故障级别', text)
+        self.assertIn('巡检发现', text)
+        self.assertIn('严重', text)
+        self.assertIn('主用链路频繁丢包', text)
 
 
 class FaultTenantIsolationTest(FaultTestBase):

@@ -202,11 +202,12 @@ def recompute_systems_health(tenant_id, system_ids, request=None, audit_reason=N
 
 def create_fault_record(*, tenant_id, created_by, system, impact_status,
                         occurred_at, discovery, level, phenomenon, handler=None,
-                        fault_component=None, affects_system_operation=False,
+                        affects_system_operation=False,
                         impact_scope='', fault_location='', fault_object_name='',
                         fault_object_model='', fault_object_sn='', reason_analysis='',
-                        source_type=None, source_ledger_item=None, request=None):
-    """正式故障创建服务（单系统简化，台账异常转故障复用）。
+                        source_type=None, source_ledger_item=None,
+                        source_inspection_record=None, request=None):
+    """正式故障创建服务（单系统简化，台账/巡检异常转故障复用）。
 
     须在 health_recalc_lock + transaction.atomic 内调用（调用方负责锁与事务）：
     - 创建故障主单（一个故障系统外键 + 发生时快照，无受影响系统）；
@@ -215,8 +216,8 @@ def create_fault_record(*, tenant_id, created_by, system, impact_status,
       仅调用方明确传 affects_system_operation=True 时按 impact_status 参与计算；
     - 同事务生成故障发生履历事件（只落故障所属系统，步骤 3.4 统一履历）；
     - 同事务重算故障系统健康状态（request 透传以记录状态变化审计）；
-    - source_type/source_ledger_item 供台账异常转故障写入来源关系，
-      转换与来源关系保存处于同一事务。
+    - source_type/source_ledger_item/source_inspection_record 供异常转故障写入
+      来源关系，转换与来源关系保存处于同一事务。
 
     返回 SystemFault 实例。
     """
@@ -240,19 +241,22 @@ def create_fault_record(*, tenant_id, created_by, system, impact_status,
         fault_object_name=(fault_object_name or '').strip()[:100],
         fault_object_model=(fault_object_model or '').strip()[:100],
         fault_object_sn=(fault_object_sn or '').strip()[:100],
-        fault_component=fault_component,
         reason_analysis=(reason_analysis or '').strip()[:2000],
         status=SystemFault.STATUS_PENDING,
         source_type=source_type or SystemFault.SOURCE_MANUAL,
-        source_id=str(source_ledger_item.id) if source_ledger_item else '',
+        source_id=str(source_ledger_item.id) if source_ledger_item else (
+            str(source_inspection_record.id) if source_inspection_record else ''),
         source_ledger_item=source_ledger_item,
+        source_inspection_record=source_inspection_record,
         created_by=created_by,
         handler=handler,
     )
     # 步骤 3.4：故障发生履历（只落故障所属系统，同一事务）
     event_services.record_fault_lifecycle_events(
         fault, 'create', occurred_at=fault.occurred_at, created_by=created_by,
-        detail={'source_ledger_item_id': source_ledger_item.id} if source_ledger_item else None)
+        detail={'source_ledger_item_id': source_ledger_item.id} if source_ledger_item else (
+            {'source_inspection_record_id': source_inspection_record.id}
+            if source_inspection_record else None))
     recompute_systems_health(tenant_id, [system.id], request=request)
     return fault
 

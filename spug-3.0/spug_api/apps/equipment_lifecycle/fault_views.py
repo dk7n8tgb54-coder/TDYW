@@ -15,6 +15,9 @@
 - 所有改变有效故障影响的写操作在 health_recalc_lock 内 + 单事务中完成，
   系统健康状态由 fault_services 统一重算（同事务写入）；
 - 创建接口以业务字段窗口期查重 + 唯一编号约束防重复提交；
+- 首报表单精简（2026-09）：手工新增故障 discovery 缺省"人工报告"、level 缺省
+  "一般"，两字段不再必填；编辑未提交 discovery/level 及历史设备字段
+  （影响范围/故障位置/对象名称/型号/序列号）时保留原值，不静默清空历史数据；
 - 写操作记录业务审计（record_audit_event）。
 """
 import csv
@@ -41,7 +44,6 @@ from apps.evidence.models import EvidenceAttachment
 from apps.equipment_lifecycle import event_services, fault_services
 from apps.equipment_lifecycle.models import (
     LifecycleSystem,
-    SystemConfigComponent,
     SystemFault,
     SystemFaultHandlingRecord,
 )
@@ -131,15 +133,19 @@ def _validate_affects_and_impact(form, fallback_affects=False, fallback_impact='
 
 
 def _validate_fault_fields(form, request, for_update=False, fault=None):
-    """校验故障公共字段，返回 (occurred_at, handler, error)。"""
+    """校验故障公共字段，返回 (occurred_at, handler, error)。
+
+    discovery/level 允许缺省（None=编辑保留原值，创建由 JsonParser 补默认值），
+    仅显式提交时校验取值合法性。
+    """
     occurred_at = _parse_dt(form.occurred_at)
     if not occurred_at:
         return None, None, '故障发生时间格式不正确，应为 YYYY-MM-DD HH:MM'
     if occurred_at > timezone.now():
         return None, None, '故障发生时间不能晚于当前时间'
-    if form.level not in SystemFault.LEVEL_TEXT_MAP:
+    if form.level is not None and form.level not in SystemFault.LEVEL_TEXT_MAP:
         return None, None, '故障级别不合法'
-    if form.discovery not in SystemFault.DISCOVERY_TEXT_MAP:
+    if form.discovery is not None and form.discovery not in SystemFault.DISCOVERY_TEXT_MAP:
         return None, None, '故障发现方式不合法'
     handler = request.user
     if form.handler_id:
@@ -151,21 +157,15 @@ def _validate_fault_fields(form, request, for_update=False, fault=None):
 
 
 def _validate_fault_system(form, request, for_update=False, fault=None):
-    """校验故障系统与可选组成项，返回 (system, fault_component, error)。"""
+    """校验故障系统，返回 (system, error)。"""
     system = _get_active_system_for_user(form.system, request.user)
     if not system:
         if for_update and fault and fault.system_id == form.system:
             # 未变更的故障系统即使是停用系统也保持原关联（历史故障继续可查）
             system = fault.system
         else:
-            return None, None, '故障系统不存在、已停用或无权限'
-    fault_component = None
-    if form.fault_component:
-        fault_component = apply_tenant_filter(SystemConfigComponent.objects.all(), request.user).filter(
-            pk=form.fault_component, system=system).first()
-        if not fault_component:
-            return None, None, '配置组成项不存在或不属于故障系统'
-    return system, fault_component, None
+            return None, '故障系统不存在、已停用或无权限'
+    return system, None
 
 
 def _generate_fault_no(tenant_id):
@@ -192,6 +192,38 @@ def _fault_audit_summary(fault):
     if fault.status == SystemFault.STATUS_CANCELLED and fault.cancel_reason:
         summary['cancel_reason'] = fault.cancel_reason
     return summary
+
+
+def _fault_optional_fields(form):
+    """故障可选文本字段规范化（strip 限长由创建服务统一处理）。"""
+    return {
+        'impact_scope': form.impact_scope or '',
+        'fault_location': form.fault_location or '',
+        'fault_object_name': form.fault_object_name or '',
+        'fault_object_model': form.fault_object_model or '',
+        'fault_object_sn': form.fault_object_sn or '',
+        'reason_analysis': form.reason_analysis or '',
+    }
+
+
+def _apply_fault_text_fields(fault, form):
+    """编辑故障时写入可选文本字段（统一 strip 限长）。
+
+    未提交（None）的字段保留原值：精简后的表单不再携带影响范围/故障位置/
+    对象型号/序列号等历史字段，编辑旧故障时不得静默清空历史数据。
+    """
+    if form.impact_scope is not None:
+        fault.impact_scope = form.impact_scope.strip()[:1000]
+    if form.fault_location is not None:
+        fault.fault_location = form.fault_location.strip()[:200]
+    if form.fault_object_name is not None:
+        fault.fault_object_name = form.fault_object_name.strip()[:100]
+    if form.fault_object_model is not None:
+        fault.fault_object_model = form.fault_object_model.strip()[:100]
+    if form.fault_object_sn is not None:
+        fault.fault_object_sn = form.fault_object_sn.strip()[:100]
+    if form.reason_analysis is not None:
+        fault.reason_analysis = form.reason_analysis.strip()[:2000]
 
 
 class FaultView(View):
@@ -257,15 +289,16 @@ class FaultView(View):
             Argument('impact_status', type=str, required=False, default='',
                      help='系统影响程度：影响系统运行时必填（降级/故障/中断）'),
             Argument('occurred_at', type=str, required=True, help='故障发生时间'),
-            Argument('discovery', type=str, required=True, help='故障发现方式'),
-            Argument('level', type=str, required=True, help='故障级别'),
+            Argument('discovery', type=str, required=False, default=SystemFault.DISCOVERY_REPORT,
+                     help='故障发现方式，缺省人工报告（首报表单不再必填）'),
+            Argument('level', type=str, required=False, default=SystemFault.LEVEL_MINOR,
+                     help='故障级别，缺省一般（首报表单不再必填）'),
             Argument('phenomenon', type=str, required=True, help='故障现象'),
             Argument('impact_scope', type=str, required=False, default=''),
             Argument('fault_location', type=str, required=False, default=''),
             Argument('fault_object_name', type=str, required=False, default=''),
             Argument('fault_object_model', type=str, required=False, default=''),
             Argument('fault_object_sn', type=str, required=False, default=''),
-            Argument('fault_component', type=int, required=False, default=None),
             Argument('reason_analysis', type=str, required=False, default=''),
             Argument('handler_id', type=int, required=False, default=None),
         ).parse(body)
@@ -275,7 +308,7 @@ class FaultView(View):
         if err:
             return json_response(error=err)
 
-        system, fault_component, err = _validate_fault_system(form, request)
+        system, err = _validate_fault_system(form, request)
         if err:
             return json_response(error=err)
         occurred_at, handler, err = _validate_fault_fields(form, request)
@@ -311,13 +344,7 @@ class FaultView(View):
                         level=form.level,
                         phenomenon=phenomenon,
                         handler=handler,
-                        fault_component=fault_component,
-                        impact_scope=form.impact_scope or '',
-                        fault_location=form.fault_location or '',
-                        fault_object_name=form.fault_object_name or '',
-                        fault_object_model=form.fault_object_model or '',
-                        fault_object_sn=form.fault_object_sn or '',
-                        reason_analysis=form.reason_analysis or '',
+                        **_fault_optional_fields(form),
                         source_type=SystemFault.SOURCE_MANUAL,
                         request=request,
                     )
@@ -350,16 +377,17 @@ class FaultDetailView(View):
             Argument('impact_status', type=str, required=False, default='',
                      help='系统影响程度：影响系统运行时必填（降级/故障/中断）'),
             Argument('occurred_at', type=str, required=True, help='故障发生时间'),
-            Argument('discovery', type=str, required=True, help='故障发现方式'),
-            Argument('level', type=str, required=True, help='故障级别'),
+            Argument('discovery', type=str, required=False, default=None,
+                     help='故障发现方式；编辑未提交时保留原值'),
+            Argument('level', type=str, required=False, default=None,
+                     help='故障级别；编辑未提交时保留原值'),
             Argument('phenomenon', type=str, required=True, help='故障现象'),
-            Argument('impact_scope', type=str, required=False, default=''),
-            Argument('fault_location', type=str, required=False, default=''),
-            Argument('fault_object_name', type=str, required=False, default=''),
-            Argument('fault_object_model', type=str, required=False, default=''),
-            Argument('fault_object_sn', type=str, required=False, default=''),
-            Argument('fault_component', type=int, required=False, default=None),
-            Argument('reason_analysis', type=str, required=False, default=''),
+            Argument('impact_scope', type=str, required=False, default=None),
+            Argument('fault_location', type=str, required=False, default=None),
+            Argument('fault_object_name', type=str, required=False, default=None),
+            Argument('fault_object_model', type=str, required=False, default=None),
+            Argument('fault_object_sn', type=str, required=False, default=None),
+            Argument('reason_analysis', type=str, required=False, default=None),
             Argument('handler_id', type=int, required=False, default=None),
         ).parse(body)
         if error:
@@ -379,7 +407,7 @@ class FaultDetailView(View):
                     # 修改前后的系统都需要重算（影响可能消失或新增）
                     related_ids = {fault.system_id}
 
-                    system, fault_component, err = _validate_fault_system(
+                    system, err = _validate_fault_system(
                         form, request, for_update=True, fault=fault)
                     if err:
                         return json_response(error=err)
@@ -405,16 +433,13 @@ class FaultDetailView(View):
                     fault.system_name = system.name
                     fault.system_location = system.install_location
                     fault.occurred_at = occurred_at
-                    fault.discovery = form.discovery
-                    fault.level = form.level
+                    # 未提交的发现方式/级别保留原值（精简表单编辑不携带）
+                    if form.discovery is not None:
+                        fault.discovery = form.discovery
+                    if form.level is not None:
+                        fault.level = form.level
                     fault.phenomenon = phenomenon[:2000]
-                    fault.impact_scope = (form.impact_scope or '').strip()[:1000]
-                    fault.fault_location = (form.fault_location or '').strip()[:200]
-                    fault.fault_object_name = (form.fault_object_name or '').strip()[:100]
-                    fault.fault_object_model = (form.fault_object_model or '').strip()[:100]
-                    fault.fault_object_sn = (form.fault_object_sn or '').strip()[:100]
-                    fault.fault_component = fault_component
-                    fault.reason_analysis = (form.reason_analysis or '').strip()[:2000]
+                    _apply_fault_text_fields(fault, form)
                     fault.handler = handler
                     fault.updated_at = timezone.now()
                     fault.updated_by = request.user

@@ -5,7 +5,6 @@ from django.test import TestCase, TransactionTestCase
 
 from apps.equipment_lifecycle.models import (
     ENTRY_CHANNEL_VALUES,
-    LEDGER_TYPE_INSPECTION,
     LifecycleSystem,
     OperationLedger,
     OperationLedgerItem,
@@ -108,17 +107,21 @@ class LedgerBoundaryContractTests(TestCase):
                      'FieldTerminal', 'SiteCollection'}
         self.assertEqual(forbidden & model_names, set())
         # 台账模型集合精确可控：仅允许步骤二 + 3.1 + 3.2 + 3.3（工单三表）
-        # + 3.4（统一系统履历）的模型（类型主数据模型已随机制移除删除；
-        # 单系统简化删除受影响系统关联两表，新增工单影响运行标记）
+        # + 3.4（统一系统履历）+ 值班巡检（今日巡检改造，6 表）的模型
+        # （类型主数据模型已随机制移除删除；
+        # 单系统简化删除受影响系统关联两表，新增工单影响运行标记；
+        # 自定义字段机制下线删除字段定义/字段值两表，扩展信息转固定字段）
         expected = {
-            'LifecycleSystem', 'ConfigFieldDefinition', 'SystemConfigValue',
-            'SystemConfigComponent', 'SystemConfigChange', 'SystemConfigSnapshot',
+            'LifecycleSystem',
             'SystemFault', 'SystemFaultHandlingRecord',
             'OperationLedgerTemplate', 'OperationLedgerTemplateItem',
             'OperationLedger', 'OperationLedgerItem', 'OperationLedgerCorrection',
             'SystemWorkOrder',
             'SystemWorkOrderParticipant', 'SystemWorkOrderHandlingRecord',
             'SystemEvent',
+            # 值班巡检（今日巡检改造）：模板两级结构 + 值班巡检单/人员/明细
+            'InspectionTemplate', 'InspectionTemplateDevice', 'InspectionTemplateItem',
+            'InspectionDutySheet', 'InspectionDutyPerson', 'InspectionRecord',
         }
         self.assertEqual(model_names, expected)
 

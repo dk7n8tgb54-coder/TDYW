@@ -110,16 +110,6 @@ export default [{
       {key: 'export', label: '导出系统列表'},
     ]
   }, {
-    key: 'system_config',
-    label: '系统配置档案',
-    perms: [
-      {key: 'view', label: '查看配置档案/历史/快照'},
-      {key: 'edit', label: '编辑配置档案与组成项'},
-      {key: 'field', label: '自定义字段管理'},
-      {key: 'snapshot', label: '生成配置快照'},
-      {key: 'export', label: '导出配置档案'},
-    ]
-  }, {
     key: 'fault',
     label: '故障管理',
     perms: [
@@ -152,7 +142,28 @@ export default [{
       {key: 'review', label: '复核/退回台账'},
       {key: 'del', label: '作废台账（受控作废，非物理删除）'},
       {key: 'export', label: '导出台账'},
+      {key: 'handle_exception', label: '异常处置（周/月/季维护台账异常转故障/转工单；旧巡检台账已只读）'},
+    ]
+  }, {
+    key: 'inspection',
+    label: '值班巡检（今日巡检）',
+    perms: [
+      {key: 'view', label: '查看巡检单'},
+      {key: 'add', label: '新增巡检单'},
+      {key: 'edit', label: '编辑草稿巡检单'},
+      {key: 'submit', label: '提交巡检单'},
+      {key: 'del', label: '作废巡检单（受控作废，非物理删除）'},
       {key: 'handle_exception', label: '异常处置（异常明细转故障/转工单）'},
+      {key: 'export', label: '导出巡检单（列表/详情 Excel/PDF）'},
+    ]
+  }, {
+    key: 'inspection_template',
+    label: '巡检模板',
+    perms: [
+      {key: 'view', label: '查看巡检模板'},
+      {key: 'add', label: '新增巡检模板'},
+      {key: 'edit', label: '编辑巡检模板'},
+      {key: 'del', label: '删除/停用巡检模板'},
     ]
   }, {
     key: 'work_order',

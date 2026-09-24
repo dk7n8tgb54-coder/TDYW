@@ -127,6 +127,9 @@
 5. 不得通过扩大 baseline、删除测试、关闭检查或增加无期限豁免来掩盖新增复杂度。
 6. 首次建立或经评审更新 baseline 时运行 `python scripts/code_quality_check.py --write-baseline`，正常门禁不得使用该参数。
 7. 门禁只统计 `spug_web/src/` 前端源码和 `spug_api/{apps,libs,consumer}/` 后端源码；测试文件的文件行数可放行，但函数长度和复杂度仍需治理。
+8. JavaScript 函数边界由 `spug_web/node_modules/@babel/parser` AST 解析；解析失败只提示警告，必须由前端语法构建检查兜底，不能用正则结果冒充 AST 结果。
+9. 本地门禁同时读取工作区 diff、暂存区 diff 和未跟踪文件；baseline 写入只允许在评审明确时执行。
+10. 复杂度警告默认不阻断门禁，函数长度、文件长度、语法错误等错误仍阻断；发布门禁可在外层将警告升级为阻断条件。
 
 ---
 

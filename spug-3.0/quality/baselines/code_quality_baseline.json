@@ -21,7 +21,7 @@
       "code_lines": 806
     },
     "spug_api/apps/equipment_lifecycle/models.py": {
-      "code_lines": 1500
+      "code_lines": 1915
     },
     "spug_api/apps/equipment_lifecycle/views.py": {
       "code_lines": 1778
@@ -39,7 +39,7 @@
       "code_lines": 1027
     },
     "spug_api/apps/department_duty_log/tests/release_gate/test_release_gate.py": {
-      "code_lines": 864
+      "code_lines": 870
     }
   },
   "functions": [
@@ -47,197 +47,725 @@
       "file": "spug_web/src/components/AttachmentUploadArea.js",
       "line": 107,
       "kind": "javascript",
-      "code_lines": 141,
-      "complexity": null
+      "code_lines": 142,
+      "complexity": null,
+      "name": "useSerialUploadQueue"
     },
     {
       "file": "spug_web/src/components/FilterBar.js",
       "line": 45,
       "kind": "javascript",
-      "code_lines": 152,
+      "code_lines": 153,
+      "complexity": null,
+      "name": "FilterBar"
+    },
+    {
+      "file": "spug_web/src/layout/Sider.js",
+      "line": 74,
+      "kind": "javascript",
+      "code_lines": 121,
+      "complexity": null,
+      "name": "Sider"
+    },
+    {
+      "file": "spug_web/src/layout/__tests__/expiryBadgeStoreBase.test.js",
+      "line": 82,
+      "kind": "javascript",
+      "code_lines": 247,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/contractAgreement/Form.js",
+      "line": 25,
+      "kind": "javascript",
+      "code_lines": 261,
       "complexity": null
     },
     {
       "file": "spug_web/src/pages/coopTask/Detail.js",
       "line": 49,
       "kind": "javascript",
-      "code_lines": 242,
-      "complexity": null
+      "code_lines": 243,
+      "complexity": null,
+      "name": "TaskDetail"
     },
     {
       "file": "spug_web/src/pages/coopTask/Form.js",
       "line": 13,
       "kind": "javascript",
-      "code_lines": 130,
-      "complexity": null
+      "code_lines": 131,
+      "complexity": null,
+      "name": "TaskForm"
     },
     {
       "file": "spug_web/src/pages/coopTask/InboxDetail.js",
       "line": 18,
       "kind": "javascript",
-      "code_lines": 181,
-      "complexity": null
+      "code_lines": 182,
+      "complexity": null,
+      "name": "InboxDetail"
     },
     {
       "file": "spug_web/src/pages/coopTask/Table.js",
       "line": 15,
       "kind": "javascript",
-      "code_lines": 212,
+      "code_lines": 213,
+      "complexity": null,
+      "name": "TaskTable"
+    },
+    {
+      "file": "spug_web/src/pages/device/Form.js",
+      "line": 12,
+      "kind": "javascript",
+      "code_lines": 177,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/index.js",
+      "line": 26,
+      "kind": "javascript",
+      "code_lines": 496,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/UploadPanel.js",
+      "line": 311,
+      "kind": "javascript",
+      "code_lines": 169,
+      "complexity": null,
+      "name": "render"
+    },
+    {
+      "file": "spug_web/src/pages/duty/Form.js",
+      "line": 60,
+      "kind": "javascript",
+      "code_lines": 220,
       "complexity": null
     },
     {
       "file": "spug_web/src/pages/equipmentLifecycle/ConfigArchiveTab.js",
       "line": 175,
       "kind": "javascript",
-      "code_lines": 152,
-      "complexity": null
+      "code_lines": 153,
+      "complexity": null,
+      "name": "CustomFieldForm"
     },
     {
       "file": "spug_web/src/pages/equipmentLifecycle/FaultForm.js",
-      "line": 34,
+      "line": 36,
       "kind": "javascript",
-      "code_lines": 202,
-      "complexity": null
+      "code_lines": 224,
+      "complexity": null,
+      "name": "FaultForm"
     },
     {
       "file": "spug_web/src/pages/equipmentLifecycle/SystemForm.js",
       "line": 42,
       "kind": "javascript",
-      "code_lines": 475,
-      "complexity": null
+      "code_lines": 476,
+      "complexity": null,
+      "name": "SystemForm"
     },
     {
       "file": "spug_web/src/pages/home/AnnouncementList.js",
       "line": 18,
       "kind": "javascript",
-      "code_lines": 137,
-      "complexity": null
+      "code_lines": 138,
+      "complexity": null,
+      "name": "AnnouncementList"
     },
     {
       "file": "spug_web/src/pages/home/CoopTaskOverview.js",
       "line": 18,
       "kind": "javascript",
-      "code_lines": 134,
-      "complexity": null
+      "code_lines": 135,
+      "complexity": null,
+      "name": "CoopTaskOverview"
     },
     {
       "file": "spug_web/src/pages/home/ExpiryOverview.js",
       "line": 12,
       "kind": "javascript",
-      "code_lines": 135,
-      "complexity": null
+      "code_lines": 136,
+      "complexity": null,
+      "name": "ExpiryOverview"
     },
     {
       "file": "spug_web/src/pages/interference/events.js",
       "line": 12,
       "kind": "javascript",
-      "code_lines": 135,
+      "code_lines": 136,
+      "complexity": null,
+      "name": "EventsPage"
+    },
+    {
+      "file": "spug_web/src/pages/login/index.js",
+      "line": 32,
+      "kind": "javascript",
+      "code_lines": 136,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/radioLicense/Form.js",
+      "line": 22,
+      "kind": "javascript",
+      "code_lines": 308,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/regulation/Form.js",
+      "line": 34,
+      "kind": "javascript",
+      "code_lines": 177,
       "complexity": null
     },
     {
       "file": "spug_web/src/pages/reminder/index.js",
       "line": 29,
       "kind": "javascript",
-      "code_lines": 124,
+      "code_lines": 125,
+      "complexity": null,
+      "name": "ReminderAdmin"
+    },
+    {
+      "file": "spug_web/src/pages/reminder/ReminderFormModal.js",
+      "line": 17,
+      "kind": "javascript",
+      "code_lines": 126,
+      "complexity": null,
+      "name": "ReminderFormModal"
+    },
+    {
+      "file": "spug_web/src/pages/runlog/EventTypeModal.js",
+      "line": 12,
+      "kind": "javascript",
+      "code_lines": 139,
+      "complexity": null,
+      "name": "EventTypeModal"
+    },
+    {
+      "file": "spug_web/src/pages/runlog/Form.js",
+      "line": 17,
+      "kind": "javascript",
+      "code_lines": 523,
       "complexity": null
     },
     {
       "file": "spug_web/src/pages/runlog/Statistics.js",
       "line": 167,
       "kind": "javascript",
-      "code_lines": 146,
+      "code_lines": 147,
+      "complexity": null,
+      "name": "Statistics"
+    },
+    {
+      "file": "spug_web/src/pages/stationFrequencyApproval/Form.js",
+      "line": 28,
+      "kind": "javascript",
+      "code_lines": 189,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/upgrade/CalendarView.js",
+      "line": 23,
+      "kind": "javascript",
+      "code_lines": 232,
       "complexity": null
     },
     {
       "file": "spug_web/src/pages/upgrade/CreateUpgradeModal.js",
       "line": 125,
       "kind": "javascript",
-      "code_lines": 136,
+      "code_lines": 137,
+      "complexity": null,
+      "name": "CreateUpgradeModal"
+    },
+    {
+      "file": "spug_web/src/pages/upgrade/Form_old.js",
+      "line": 18,
+      "kind": "javascript",
+      "code_lines": 498,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/upgrade/Statistics.js",
+      "line": 15,
+      "kind": "javascript",
+      "code_lines": 144,
       "complexity": null
     },
     {
       "file": "spug_web/src/pages/upgrade/Workbench.js",
       "line": 19,
       "kind": "javascript",
-      "code_lines": 145,
-      "complexity": null
+      "code_lines": 146,
+      "complexity": null,
+      "name": "Workbench"
+    },
+    {
+      "file": "spug_web/src/pages/upgrade/WorkbenchForm.js",
+      "line": 28,
+      "kind": "javascript",
+      "code_lines": 798,
+      "complexity": null,
+      "name": "WorkbenchForm"
     },
     {
       "file": "spug_web/src/pages/coopTask/__tests__/InboxDetail.test.js",
-      "line": 130,
+      "line": 134,
       "kind": "javascript",
-      "code_lines": 138,
+      "code_lines": 139,
       "complexity": null
     },
     {
       "file": "spug_web/src/pages/coopTask/__tests__/TaskDetail.test.js",
+      "line": 138,
+      "kind": "javascript",
+      "code_lines": 147,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/components/DocumentDropUploadLayer.js",
+      "line": 40,
+      "kind": "javascript",
+      "code_lines": 194,
+      "complexity": null,
+      "name": "DocumentDropUploadLayer"
+    },
+    {
+      "file": "spug_web/src/pages/document/components/FolderTreeSelector.js",
+      "line": 11,
+      "kind": "javascript",
+      "code_lines": 264,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/components/SearchBox.js",
+      "line": 14,
+      "kind": "javascript",
+      "code_lines": 123,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/components/TransferItem.js",
+      "line": 114,
+      "kind": "javascript",
+      "code_lines": 218,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/components/VirtualTransferList.js",
+      "line": 196,
+      "kind": "javascript",
+      "code_lines": 206,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/Explorer/index.js",
+      "line": 44,
+      "kind": "javascript",
+      "code_lines": 526,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/__tests__/pauseForPageLeave.test.js",
+      "line": 50,
+      "kind": "javascript",
+      "code_lines": 186,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/components/__tests__/FileConflictModal.test.js",
+      "line": 46,
+      "kind": "javascript",
+      "code_lines": 364,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/components/__tests__/FileConflictModal.test.js",
+      "line": 198,
+      "kind": "javascript",
+      "code_lines": 174,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/Explorer/components/FileGrid.js",
+      "line": 62,
+      "kind": "javascript",
+      "code_lines": 135,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/Explorer/components/FileTable.js",
+      "line": 53,
+      "kind": "javascript",
+      "code_lines": 154,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/Explorer/hooks/useColumns.js",
+      "line": 118,
+      "kind": "javascript",
+      "code_lines": 260,
+      "complexity": null,
+      "name": "useColumns"
+    },
+    {
+      "file": "spug_web/src/pages/document/Explorer/hooks/useColumns.js",
       "line": 134,
       "kind": "javascript",
-      "code_lines": 146,
+      "code_lines": 243,
       "complexity": null
     },
     {
       "file": "spug_web/src/pages/document/Explorer/hooks/useColumns.js",
       "line": 151,
       "kind": "javascript",
-      "code_lines": 149,
+      "code_lines": 150,
       "complexity": null
     },
     {
       "file": "spug_web/src/pages/document/Explorer/hooks/useContextMenu.js",
       "line": 33,
       "kind": "javascript",
-      "code_lines": 149,
+      "code_lines": 150,
       "complexity": null
     },
     {
       "file": "spug_web/src/pages/document/Explorer/hooks/useDataFetching.js",
       "line": 155,
       "kind": "javascript",
-      "code_lines": 203,
+      "code_lines": 204,
       "complexity": null
     },
     {
       "file": "spug_web/src/pages/document/Explorer/hooks/useExplorerState.js",
       "line": 82,
       "kind": "javascript",
-      "code_lines": 191,
+      "code_lines": 192,
       "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/Explorer/hooks/useFileOperations.js",
+      "line": 11,
+      "kind": "javascript",
+      "code_lines": 554,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/Explorer/components/__tests__/FileTable.render.test.js",
+      "line": 234,
+      "kind": "javascript",
+      "code_lines": 125,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/Explorer/hooks/__tests__/createFolderNotifications.test.js",
+      "line": 37,
+      "kind": "javascript",
+      "code_lines": 253,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/Explorer/hooks/__tests__/renameNotifications.test.js",
+      "line": 36,
+      "kind": "javascript",
+      "code_lines": 239,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/chunkUpload.js",
+      "line": 27,
+      "kind": "javascript",
+      "code_lines": 287,
+      "complexity": null,
+      "name": "uploadFileChunked"
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/chunkUpload.js",
+      "line": 320,
+      "kind": "javascript",
+      "code_lines": 188,
+      "complexity": null,
+      "name": "uploadSingleChunk"
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/fileUpload.js",
+      "line": 26,
+      "kind": "javascript",
+      "code_lines": 236,
+      "complexity": null,
+      "name": "uploadFileNormal"
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/UploadStateMachine.js",
+      "line": 163,
+      "kind": "javascript",
+      "code_lines": 134,
+      "complexity": null,
+      "name": "transition"
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/__tests__/batch-operations.test.js",
+      "line": 38,
+      "kind": "javascript",
+      "code_lines": 207,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/lifecycle/StateChangeHandler.js",
+      "line": 208,
+      "kind": "javascript",
+      "code_lines": 146,
+      "complexity": null,
+      "name": "handleMergingState"
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/__tests__/boundary.test.js",
+      "line": 9,
+      "kind": "javascript",
+      "code_lines": 306,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/__tests__/concurrencySlot.test.js",
+      "line": 194,
+      "kind": "javascript",
+      "code_lines": 247,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/__tests__/conflictResolution.test.js",
+      "line": 109,
+      "kind": "javascript",
+      "code_lines": 169,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/__tests__/e2e.test.js",
+      "line": 10,
+      "kind": "javascript",
+      "code_lines": 493,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/__tests__/integration.test.js",
+      "line": 9,
+      "kind": "javascript",
+      "code_lines": 541,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/__tests__/operationVersion.test.js",
+      "line": 16,
+      "kind": "javascript",
+      "code_lines": 305,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/__tests__/stateMachineGateway.flows.test.js",
+      "line": 7,
+      "kind": "javascript",
+      "code_lines": 135,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/__tests__/StateMachineManager.test.js",
+      "line": 9,
+      "kind": "javascript",
+      "code_lines": 667,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/__tests__/StateMachineManager.test.js",
+      "line": 108,
+      "kind": "javascript",
+      "code_lines": 244,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/__tests__/StateMachineManager.test.js",
+      "line": 355,
+      "kind": "javascript",
+      "code_lines": 132,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/__tests__/StatusSynchronizer.test.js",
+      "line": 3,
+      "kind": "javascript",
+      "code_lines": 142,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/__tests__/UploadStateMachine.core.test.js",
+      "line": 17,
+      "kind": "javascript",
+      "code_lines": 342,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/stores/upload/core/__tests__/UploadStateMachine.test.js",
+      "line": 14,
+      "kind": "javascript",
+      "code_lines": 415,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/document/utils/__tests__/dropUpload.test.js",
+      "line": 211,
+      "kind": "javascript",
+      "code_lines": 169,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/equipmentLifecycle/ledger/LedgerIndex.js",
+      "line": 20,
+      "kind": "javascript",
+      "code_lines": 144,
+      "complexity": null,
+      "name": "LedgerIndex"
     },
     {
       "file": "spug_web/src/pages/equipmentLifecycle/workOrder/index.js",
       "line": 142,
       "kind": "javascript",
-      "code_lines": 123,
+      "code_lines": 124,
+      "complexity": null,
+      "name": "WorkOrderIndex"
+    },
+    {
+      "file": "spug_web/src/pages/equipmentLifecycle/workOrder/WorkOrderDetail.js",
+      "line": 29,
+      "kind": "javascript",
+      "code_lines": 131,
+      "complexity": null,
+      "name": "WorkOrderDetail"
+    },
+    {
+      "file": "spug_web/src/pages/equipmentLifecycle/workOrder/WorkOrderForm.js",
+      "line": 23,
+      "kind": "javascript",
+      "code_lines": 143,
+      "complexity": null,
+      "name": "WorkOrderForm"
+    },
+    {
+      "file": "spug_web/src/pages/equipmentLifecycle/__tests__/faultStore.test.js",
+      "line": 38,
+      "kind": "javascript",
+      "code_lines": 143,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/equipmentLifecycle/ledger/__tests__/LedgerPage.test.js",
+      "line": 142,
+      "kind": "javascript",
+      "code_lines": 255,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/equipmentLifecycle/ledger/__tests__/LedgerWorksheet.test.js",
+      "line": 204,
+      "kind": "javascript",
+      "code_lines": 427,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/equipmentLifecycle/workOrder/__tests__/workOrderStore.test.js",
+      "line": 41,
+      "kind": "javascript",
+      "code_lines": 168,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/release/__tests__/ReleaseNoteNotification.test.js",
+      "line": 110,
+      "kind": "javascript",
+      "code_lines": 225,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/release/__tests__/releaseStore.test.js",
+      "line": 32,
+      "kind": "javascript",
+      "code_lines": 149,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/system/account/Form.js",
+      "line": 14,
+      "kind": "javascript",
+      "code_lines": 121,
       "complexity": null
     },
     {
       "file": "spug_web/src/pages/system/account/SignatureModal.js",
       "line": 184,
       "kind": "javascript",
-      "code_lines": 188,
-      "complexity": null
+      "code_lines": 189,
+      "complexity": null,
+      "name": "useSignatureModal"
     },
     {
       "file": "spug_web/src/pages/system/announcement/index.js",
       "line": 20,
       "kind": "javascript",
-      "code_lines": 172,
-      "complexity": null
+      "code_lines": 173,
+      "complexity": null,
+      "name": "AnnouncementAdmin"
     },
     {
       "file": "spug_web/src/pages/system/releaseNotes/index.js",
       "line": 15,
       "kind": "javascript",
-      "code_lines": 149,
+      "code_lines": 150,
+      "complexity": null,
+      "name": "ReleaseNotesAdmin"
+    },
+    {
+      "file": "spug_web/src/pages/system/role/Form.js",
+      "line": 12,
+      "kind": "javascript",
+      "code_lines": 133,
       "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/system/setting/PushSetting.js",
+      "line": 14,
+      "kind": "javascript",
+      "code_lines": 129,
+      "complexity": null
+    },
+    {
+      "file": "spug_web/src/pages/upgrade/plan/PlanForm.js",
+      "line": 30,
+      "kind": "javascript",
+      "code_lines": 199,
+      "complexity": null,
+      "name": "PlanForm"
+    },
+    {
+      "file": "spug_web/src/pages/upgrade/plan/PlanManager.js",
+      "line": 75,
+      "kind": "javascript",
+      "code_lines": 187,
+      "complexity": null
+    },
+    {
+      "file": "spug_api/apps/logs_audit_tests.py",
+      "line": 454,
+      "kind": "python",
+      "code_lines": 73,
+      "complexity": 16,
+      "name": "main"
     },
     {
       "file": "spug_api/apps/alert/metrics.py",
       "line": 128,
       "kind": "python",
       "code_lines": 68,
-      "complexity": 19,
+      "complexity": 25,
       "name": "aggregate_window"
     },
     {
@@ -250,10 +778,18 @@
     },
     {
       "file": "spug_api/apps/contract_agreement/views.py",
+      "line": 257,
+      "kind": "python",
+      "code_lines": 68,
+      "complexity": 16,
+      "name": "get"
+    },
+    {
+      "file": "spug_api/apps/contract_agreement/views.py",
       "line": 350,
       "kind": "python",
       "code_lines": 63,
-      "complexity": 19,
+      "complexity": 20,
       "name": "_validate_edit_form"
     },
     {
@@ -261,8 +797,24 @@
       "line": 119,
       "kind": "python",
       "code_lines": 66,
-      "complexity": 18,
+      "complexity": 23,
       "name": "_validate_task_targets"
+    },
+    {
+      "file": "spug_api/apps/coop_task/views.py",
+      "line": 322,
+      "kind": "python",
+      "code_lines": 51,
+      "complexity": 19,
+      "name": "get"
+    },
+    {
+      "file": "spug_api/apps/coop_task/views.py",
+      "line": 440,
+      "kind": "python",
+      "code_lines": 52,
+      "complexity": 17,
+      "name": "get"
     },
     {
       "file": "spug_api/apps/department_duty_log/services.py",
@@ -277,7 +829,7 @@
       "line": 1029,
       "kind": "python",
       "code_lines": 124,
-      "complexity": 11,
+      "complexity": 14,
       "name": "export_pdf"
     },
     {
@@ -285,7 +837,7 @@
       "line": 285,
       "kind": "python",
       "code_lines": 132,
-      "complexity": 9,
+      "complexity": 10,
       "name": "_build_event_block"
     },
     {
@@ -297,8 +849,24 @@
       "name": "generate_duty_log_pdf"
     },
     {
+      "file": "spug_api/apps/duty/views.py",
+      "line": 186,
+      "kind": "python",
+      "code_lines": 93,
+      "complexity": 17,
+      "name": "export_pdf"
+    },
+    {
       "file": "spug_api/apps/equipment_lifecycle/fault_views.py",
-      "line": 245,
+      "line": 201,
+      "kind": "python",
+      "code_lines": 46,
+      "complexity": 17,
+      "name": "get"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/fault_views.py",
+      "line": 249,
       "kind": "python",
       "code_lines": 80,
       "complexity": 16,
@@ -306,9 +874,9 @@
     },
     {
       "file": "spug_api/apps/equipment_lifecycle/fault_views.py",
-      "line": 338,
+      "line": 342,
       "kind": "python",
-      "code_lines": 90,
+      "code_lines": 92,
       "complexity": 17,
       "name": "put"
     },
@@ -317,7 +885,7 @@
       "line": 162,
       "kind": "python",
       "code_lines": 69,
-      "complexity": 29,
+      "complexity": 32,
       "name": "validate_item_value"
     },
     {
@@ -325,7 +893,7 @@
       "line": 462,
       "kind": "python",
       "code_lines": 78,
-      "complexity": 22,
+      "complexity": 23,
       "name": "update_ledger"
     },
     {
@@ -341,7 +909,7 @@
       "line": 628,
       "kind": "python",
       "code_lines": 60,
-      "complexity": 16,
+      "complexity": 20,
       "name": "get"
     },
     {
@@ -349,15 +917,31 @@
       "line": 67,
       "kind": "python",
       "code_lines": 137,
-      "complexity": 60,
+      "complexity": 69,
       "name": "normalize_field_value"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/services.py",
+      "line": 206,
+      "kind": "python",
+      "code_lines": 21,
+      "complexity": 16,
+      "name": "value_to_display"
+    },
+    {
+      "file": "spug_api/apps/equipment_lifecycle/services.py",
+      "line": 310,
+      "kind": "python",
+      "code_lines": 52,
+      "complexity": 19,
+      "name": "validate_config_submission"
     },
     {
       "file": "spug_api/apps/equipment_lifecycle/services.py",
       "line": 444,
       "kind": "python",
       "code_lines": 45,
-      "complexity": 23,
+      "complexity": 21,
       "name": "diff_content"
     },
     {
@@ -365,7 +949,7 @@
       "line": 431,
       "kind": "python",
       "code_lines": 101,
-      "complexity": 54,
+      "complexity": 60,
       "name": "_validate_field_definition_payload"
     },
     {
@@ -373,7 +957,7 @@
       "line": 741,
       "kind": "python",
       "code_lines": 182,
-      "complexity": 33,
+      "complexity": 34,
       "name": "_create_aggregate"
     },
     {
@@ -381,7 +965,7 @@
       "line": 1032,
       "kind": "python",
       "code_lines": 269,
-      "complexity": 54,
+      "complexity": 61,
       "name": "_update_aggregate"
     },
     {
@@ -394,18 +978,18 @@
     },
     {
       "file": "spug_api/apps/equipment_lifecycle/work_order_services.py",
-      "line": 94,
+      "line": 96,
       "kind": "python",
-      "code_lines": 71,
-      "complexity": 16,
+      "code_lines": 74,
+      "complexity": 17,
       "name": "create_work_order_record"
     },
     {
       "file": "spug_api/apps/equipment_lifecycle/work_order_services.py",
-      "line": 167,
+      "line": 172,
       "kind": "python",
       "code_lines": 50,
-      "complexity": 17,
+      "complexity": 19,
       "name": "compute_item_disposition"
     },
     {
@@ -413,7 +997,7 @@
       "line": 127,
       "kind": "python",
       "code_lines": 79,
-      "complexity": 26,
+      "complexity": 28,
       "name": "_validate_order_fields"
     },
     {
@@ -421,7 +1005,7 @@
       "line": 301,
       "kind": "python",
       "code_lines": 57,
-      "complexity": 19,
+      "complexity": 22,
       "name": "get"
     },
     {
@@ -429,7 +1013,7 @@
       "line": 1102,
       "kind": "python",
       "code_lines": 86,
-      "complexity": 28,
+      "complexity": 31,
       "name": "_build_data"
     },
     {
@@ -437,7 +1021,7 @@
       "line": 1202,
       "kind": "python",
       "code_lines": 93,
-      "complexity": 19,
+      "complexity": 20,
       "name": "post"
     },
     {
@@ -445,7 +1029,7 @@
       "line": 1321,
       "kind": "python",
       "code_lines": 109,
-      "complexity": 31,
+      "complexity": 33,
       "name": "post"
     },
     {
@@ -453,7 +1037,7 @@
       "line": 57,
       "kind": "python",
       "code_lines": 125,
-      "complexity": 5,
+      "complexity": 7,
       "name": "record_evidence_event"
     },
     {
@@ -461,7 +1045,7 @@
       "line": 261,
       "kind": "python",
       "code_lines": 78,
-      "complexity": 37,
+      "complexity": 42,
       "name": "_event_payload"
     },
     {
@@ -477,15 +1061,23 @@
       "line": 633,
       "kind": "python",
       "code_lines": 44,
-      "complexity": 17,
+      "complexity": 18,
       "name": "post"
+    },
+    {
+      "file": "spug_api/apps/logs/audit.py",
+      "line": 244,
+      "kind": "python",
+      "code_lines": 62,
+      "complexity": 20,
+      "name": "record_audit_event"
     },
     {
       "file": "spug_api/apps/regulation/run_crud_audit.py",
       "line": 101,
       "kind": "python",
       "code_lines": 277,
-      "complexity": 34,
+      "complexity": 7,
       "name": "run_audit"
     },
     {
@@ -493,8 +1085,16 @@
       "line": 368,
       "kind": "python",
       "code_lines": 117,
-      "complexity": 25,
+      "complexity": 28,
       "name": "check_orphan_disk_files"
+    },
+    {
+      "file": "spug_api/apps/document/tasks/async_copy.py",
+      "line": 132,
+      "kind": "python",
+      "code_lines": 63,
+      "complexity": 17,
+      "name": "_validate_copy_context"
     },
     {
       "file": "spug_api/apps/document/tasks/merge.py",
@@ -517,7 +1117,31 @@
       "line": 181,
       "kind": "python",
       "code_lines": 151,
-      "complexity": 10,
+      "complexity": 16,
+      "name": "get"
+    },
+    {
+      "file": "spug_api/apps/document/views/file/preview.py",
+      "line": 60,
+      "kind": "python",
+      "code_lines": 69,
+      "complexity": 16,
+      "name": "get"
+    },
+    {
+      "file": "spug_api/apps/document/views/file/preview.py",
+      "line": 141,
+      "kind": "python",
+      "code_lines": 41,
+      "complexity": 16,
+      "name": "_route_preview"
+    },
+    {
+      "file": "spug_api/apps/document/views/file/preview.py",
+      "line": 295,
+      "kind": "python",
+      "code_lines": 72,
+      "complexity": 16,
       "name": "get"
     },
     {
@@ -525,7 +1149,15 @@
       "line": 37,
       "kind": "python",
       "code_lines": 90,
-      "complexity": 20,
+      "complexity": 21,
+      "name": "post"
+    },
+    {
+      "file": "spug_api/apps/document/views/folder/copy.py",
+      "line": 37,
+      "kind": "python",
+      "code_lines": 85,
+      "complexity": 16,
       "name": "post"
     }
   ]

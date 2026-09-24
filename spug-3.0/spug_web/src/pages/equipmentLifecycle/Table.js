@@ -12,6 +12,7 @@ import { Table, Modal, Tag, Button } from 'antd';
 import { AuthButton, Action } from 'components';
 import store from './store';
 import { HEALTH_STATUS_TEXT, PERM } from './constants';
+import ComponentMaintenanceTags from './ComponentMaintenanceTags';
 
 const HEALTH_TAG_COLOR = {
   normal: 'green',
@@ -25,7 +26,7 @@ const HEALTH_TAG_COLOR = {
 function confirmDelete(record) {
   Modal.confirm({
     title: '删除确认',
-    content: `确定删除系统「${record.name}」吗？其配置字段值、组成项、变更历史与快照将一并删除，且不可恢复。`,
+    content: `确定删除系统「${record.name}」吗？删除后不可恢复。`,
     onOk: () => store.deleteRecord(record),
   });
 }
@@ -59,11 +60,15 @@ class SystemTable extends React.Component {
   }, {
     title: '运行健康状态',
     dataIndex: 'health_status',
-    width: 110,
+    width: 200,
     render: (value, record) => (
-      <Tag color={HEALTH_TAG_COLOR[value] || 'default'}>
-        {record.health_status_text || HEALTH_STATUS_TEXT[value] || value}
-      </Tag>
+      <span>
+        <Tag color={HEALTH_TAG_COLOR[value] || 'default'}>
+          {record.health_status_text || HEALTH_STATUS_TEXT[value] || value}
+        </Tag>
+        {/* 部件维护提示与系统运行状态分离展示 */}
+        <ComponentMaintenanceTags summary={record.component_maintenance}/>
+      </span>
     ),
   }, {
     title: '是否可用',

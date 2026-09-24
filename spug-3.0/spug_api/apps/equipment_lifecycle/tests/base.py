@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-"""设备全生命周期测试公共夹具（系统类型机制已移除）。"""
+"""设备全生命周期测试公共夹具（自定义字段机制已移除，扩展信息为固定字段）。"""
 import time
 
 from apps.account.models import User
 from apps.equipment_lifecycle.models import (
-    ConfigFieldDefinition,
     LifecycleSystem,
 )
 
@@ -15,14 +14,8 @@ P_SYS_EDIT = 'equipment_lifecycle.system.edit'
 P_SYS_DEL = 'equipment_lifecycle.system.del'
 P_SYS_DEACT = 'equipment_lifecycle.system.deactivate'
 P_SYS_EXPORT = 'equipment_lifecycle.system.export'
-P_CFG_VIEW = 'equipment_lifecycle.system_config.view'
-P_CFG_EDIT = 'equipment_lifecycle.system_config.edit'
-P_CFG_FIELD = 'equipment_lifecycle.system_config.field'
-P_CFG_SNAPSHOT = 'equipment_lifecycle.system_config.snapshot'
-P_CFG_EXPORT = 'equipment_lifecycle.system_config.export'
 
 ALL_SYSTEM_PERMS = [P_SYS_VIEW, P_SYS_ADD, P_SYS_EDIT, P_SYS_DEL, P_SYS_DEACT, P_SYS_EXPORT]
-ALL_CONFIG_PERMS = [P_CFG_VIEW, P_CFG_EDIT, P_CFG_FIELD, P_CFG_SNAPSHOT, P_CFG_EXPORT]
 
 URL_PREFIX = '/equipment-lifecycle'
 
@@ -62,12 +55,14 @@ def make_system(created_by, tenant_id='default', **kwargs):
         system_model='HX-100',
         install_location='烟台中心站机房A',
         geo_coordinate='',
+        callsign='',
+        work_frequency='',
         system_purpose='',
         manufacturer='某通信设备厂',
         install_unit='安装一队',
         use_unit='运行一科',
-        install_time='2026-01-01 08:00',
-        enable_time='2026-02-01 09:00',
+        install_time='2026-01-01',
+        enable_time='2026-02-01',
         responsible_user_name='张三',
         health_status=LifecycleSystem.HEALTH_NORMAL,
         is_active=True,
@@ -79,39 +74,6 @@ def make_system(created_by, tenant_id='default', **kwargs):
     return LifecycleSystem.objects.create(**defaults)
 
 
-def make_field(owner_obj, created_by, tenant_id='default', **kwargs):
-    """创建系统自定义配置字段定义。owner_obj 为 LifecycleSystem。"""
-    defaults = dict(
-        system=owner_obj,
-        scope_type=ConfigFieldDefinition.SCOPE_CUSTOM,
-        scope_owner_id=str(owner_obj.id),
-        field_code='frequency',
-        display_name='工作频率',
-        field_type=ConfigFieldDefinition.TYPE_TEXT,
-        help_text='',
-        display_order=0,
-        is_required=False,
-        default_value='',
-        choices='',
-        detail_columns='',
-        number_min=None,
-        number_max=None,
-        text_regex='',
-        is_searchable=False,
-        is_filterable=False,
-        is_exportable=False,
-        visible_roles='',
-        editable_roles='',
-        is_sensitive=False,
-        applies_to=ConfigFieldDefinition.APPLIES_ALL,
-        is_active=True,
-        tenant_id=tenant_id,
-        created_by=created_by,
-    )
-    defaults.update(kwargs)
-    return ConfigFieldDefinition.objects.create(**defaults)
-
-
 def system_payload(**overrides):
     from apps.equipment_lifecycle.models import LifecycleSystem
     payload = {
@@ -119,12 +81,14 @@ def system_payload(**overrides):
         'system_model': 'MODEL-X',
         'install_location': '机房B',
         'geo_coordinate': '121.5,37.5',
+        'callsign': '',
+        'work_frequency': '',
         'system_purpose': '业务用途说明',
         'manufacturer': '某厂',
         'install_unit': '安装单位A',
         'use_unit': '使用单位B',
-        'install_time': '2026-03-01 08:00',
-        'enable_time': '2026-03-10 09:30',
+        'install_time': '2026-03-01',
+        'enable_time': '2026-03-10',
         'responsible_user_name': '李四',
         'health_status': LifecycleSystem.HEALTH_NORMAL,
         'remark': '',

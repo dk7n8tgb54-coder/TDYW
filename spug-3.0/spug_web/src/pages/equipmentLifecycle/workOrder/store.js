@@ -111,7 +111,6 @@ class WorkOrderStore {
       affects_system_operation: !!values.affects_system_operation,
       work_location: values.work_location || '',
       work_object_desc: values.work_object_desc || '',
-      work_component: values.work_component || undefined,
       work_requirement: values.work_requirement || '',
       work_steps: values.work_steps || '',
       material_note: values.material_note || '',

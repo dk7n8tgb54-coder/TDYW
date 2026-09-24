@@ -5,7 +5,8 @@
 
 职责：
 - record_system_event：履历事件写入唯一入口，故障、台账异常、工单、健康状态、
-  配置快照共用同一事件模型（SystemEvent）；
+  升级与值班巡检共用同一事件模型（SystemEvent）；config_snapshot 类型仅
+  存量兼容展示（配置快照功能已下线，不再新增写入）；
 - 按业务对象提供写入辅助：每条事件只关联业务对象所属的那一个系统，
   不再向其他系统（受影响/关联）分布写入事件。
 
@@ -24,7 +25,6 @@ from django.utils import timezone
 
 from apps.equipment_lifecycle.models import (
     LifecycleSystem,
-    SystemConfigSnapshot,
     SystemEvent,
     SystemFault,
     SystemWorkOrder,
@@ -194,22 +194,6 @@ def record_upgrade_lifecycle_events(record, action, detail=None, created_by=None
     )
 
 
-def record_snapshot_event(system, snapshot, created_by=None):
-    """配置快照生成事件（快照创建时同一事务写入）。"""
-    return record_system_event(
-        tenant_id=system.tenant_id,
-        system=system,
-        event_type=SystemEvent.EVENT_CONFIG_SNAPSHOT,
-        action='snapshot',
-        source_type='config_snapshot',
-        source_id=snapshot.id,
-        source_no=snapshot.name,
-        title=f'生成配置快照「{snapshot.name}」',
-        detail={'snapshot_id': snapshot.id, 'content_hash': snapshot.content_hash},
-        created_by=created_by,
-    )
-
-
 def record_health_change_event(system, old_status, new_status, reason='', created_by=None):
     """健康状态变化事件（仅状态实际变化时由重算服务调用，纯追加）。"""
     return record_system_event(
@@ -221,5 +205,38 @@ def record_health_change_event(system, old_status, new_status, reason='', create
         title=f'运行健康状态由「{LifecycleSystem.HEALTH_STATUS_TEXT_MAP.get(old_status, old_status)}」'
               f'变为「{LifecycleSystem.HEALTH_STATUS_TEXT_MAP.get(new_status, new_status)}」',
         detail={'before': old_status, 'after': new_status, 'reason': (reason or '')[:200]},
+        created_by=created_by,
+    )
+
+
+def record_inspection_convert_event(record, sheet, system, action, target_no='',
+                                    detail=None, created_by=None):
+    """巡检异常明细转故障/工单事件（落到用户所选目标系统的履历）。
+
+    - action ∈ convert_to_fault / convert_to_work_order；
+    - 巡检单不关联系统：事件落在转换时用户显式选择的系统上（system 为目标系统）；
+    - target_no 为生成的故障号/工单号（来源关系双向可追溯）。
+    """
+    return record_system_event(
+        tenant_id=record.tenant_id,
+        system=system,
+        event_type=SystemEvent.EVENT_INSPECTION,
+        action=action,
+        source_type='inspection_record',
+        source_id=record.id,
+        source_no=sheet.sheet_no,
+        title='巡检异常转故障' if action == 'convert_to_fault' else '巡检异常转工单',
+        detail={
+            'sheet_id': sheet.id,
+            'sheet_no': sheet.sheet_no,
+            'duty_date': str(sheet.duty_date),
+            'round_no': record.round_no,
+            'round_text': record.ROUND_TEXT_MAP.get(record.round_no, record.round_no),
+            'device_name': record.device_name_snapshot,
+            'item_name': record.item_name_snapshot,
+            'inspection_record_id': record.id,
+            'target_no': target_no,
+            **(detail or {}),
+        },
         created_by=created_by,
     )

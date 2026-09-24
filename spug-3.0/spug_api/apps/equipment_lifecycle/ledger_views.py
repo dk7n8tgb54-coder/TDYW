@@ -35,13 +35,14 @@ from apps.evidence.attachment_service import (
 from apps.evidence.models import EvidenceAttachment
 
 from apps.equipment_lifecycle import ledger_services, work_order_services
-from apps.equipment_lifecycle.ledger_services import ITEM_RESULT_TEXT_MAP, LedgerValidationError
+from apps.equipment_lifecycle.ledger_services import (
+    ITEM_RESULT_TEXT_MAP, LedgerValidationError, legacy_inspection_error,
+)
 from apps.equipment_lifecycle.models import (
     ITEM_RESULT_ABNORMAL,
     LEDGER_INPUT_TYPE_VALUES,
     LEDGER_STATUS_VOID,
     LEDGER_TYPE_TEXT,
-    LEDGER_TYPE_VALUES,
     LEDGER_TYPE_WEEK_MONTH,
     EXEC_SCOPE_VALUES,
     LifecycleSystem,
@@ -94,10 +95,9 @@ def _validate_template_header(request, body, item=None):
     if not name:
         return None, '模板名称不能为空'
     ledger_type = body.get('ledger_type')
-    if ledger_type not in LEDGER_TYPE_VALUES:
-        return None, '台账类型不合法'
     maintenance_cycle = body.get('maintenance_cycle') or ''
     try:
+        # 旧巡检类型在此返回"已删除"明确错误；其余非法类型/组合一并拒绝
         ledger_services.validate_ledger_type_cycle(ledger_type, maintenance_cycle)
     except LedgerValidationError as e:
         return None, str(e)
@@ -202,10 +202,9 @@ class LedgerTemplateAvailableView(View):
     @auth('equipment_lifecycle.ledger.view')
     def get(self, request):
         ledger_type = request.GET.get('ledger_type')
-        if ledger_type not in LEDGER_TYPE_VALUES:
-            return json_response(error='台账类型不合法')
         maintenance_cycle = request.GET.get('maintenance_cycle') or ''
         try:
+            # 旧巡检类型在此返回"已删除"明确错误；其余非法类型返回"不合法"
             ledger_services.validate_ledger_type_cycle(ledger_type, maintenance_cycle)
         except LedgerValidationError as e:
             return json_response(error=str(e))
@@ -695,6 +694,11 @@ def _get_ledger_item_for_user(ledger, item_pk):
     return ledger.items.filter(pk=item_pk).first()
 
 
+def _reject_inspection_ledger(ledger):
+    """已删除的旧巡检类型统一拦截：附件上传/删除等写操作在此拒绝（查看/下载不受限）。"""
+    return legacy_inspection_error(ledger)
+
+
 def _attachment_for_user(user, attachment_id, object_type, object_id):
     """附件归属校验：存在、未删除、module/object_type/object_id 与租户全部匹配。"""
     return apply_tenant_filter(
@@ -717,6 +721,9 @@ class LedgerAttachmentView(View):
         ledger = _get_ledger_for_user(pk, request.user)
         if not ledger:
             return json_response(error='台账不存在')
+        error = _reject_inspection_ledger(ledger)
+        if error:
+            return json_response(error=error)
         if ledger.status not in OperationLedger.EDITABLE_STATUSES:
             return json_response(error='当前状态不允许上传台账附件')
         file = request.FILES.get('file')
@@ -739,6 +746,9 @@ class LedgerAttachmentDetailView(View):
         ledger = _get_ledger_for_user(pk, request.user)
         if not ledger:
             return json_response(error='台账不存在')
+        error = _reject_inspection_ledger(ledger)
+        if error:
+            return json_response(error=error)
         if ledger.status not in OperationLedger.EDITABLE_STATUSES:
             return json_response(error='当前状态不允许删除台账附件')
         att = _attachment_for_user(request.user, aid, LEDGER_ATTACHMENT_OBJECT_TYPE, ledger.id)
@@ -794,6 +804,9 @@ class LedgerItemAttachmentView(View):
         ledger, item, error = self._check(request, pk, item_pk)
         if error:
             return json_response(error=error)
+        error = _reject_inspection_ledger(ledger)
+        if error:
+            return json_response(error=error)
         if ledger.status not in OperationLedger.EDITABLE_STATUSES:
             return json_response(error='当前状态不允许上传明细附件')
         file = request.FILES.get('file')
@@ -823,6 +836,9 @@ class LedgerItemAttachmentDetailView(View):
     @auth('equipment_lifecycle.ledger.edit')
     def delete(self, request, pk, item_pk, aid):
         ledger, item, error = self._check(request, pk, item_pk)
+        if error:
+            return json_response(error=error)
+        error = _reject_inspection_ledger(ledger)
         if error:
             return json_response(error=error)
         if ledger.status not in OperationLedger.EDITABLE_STATUSES:

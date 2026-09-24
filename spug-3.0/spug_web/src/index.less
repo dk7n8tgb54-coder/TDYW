@@ -27,6 +27,22 @@ code {
   cursor: pointer;
 }
 
+/* 设备全生命周期：巡检/模板回显表格（el-ins-recap-table）统一边框样式 */
+.el-ins-recap-table {
+  border-collapse: collapse;
+
+  th, td {
+    border: 1px solid #f0f0f0;
+    padding: 8px;
+    text-align: left;
+  }
+
+  th {
+    background: #fafafa;
+    font-weight: 500;
+  }
+}
+
 /* 打印样式：隐藏侧边栏和顶栏，只显示审计日志表格 */
 @media print {
   .ant-layout-sider,

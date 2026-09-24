@@ -51,6 +51,11 @@ git commit -m "xxx"   # ← 自动触发代码门禁检查
 保持或减少现状；修改到已有超标函数时，立即使用新阈值检查。不得通过删除
 测试、关闭检查或扩大基线来掩盖新增复杂度。
 
+JavaScript 函数边界使用 Babel AST 解析；解析失败时跳过该文件的函数长度
+扫描并输出警告，前端构建/语法检查仍是必需的兜底检查。门禁会合并工作区
+diff、暂存区 diff 和未跟踪文件的变更范围。复杂度是默认非阻断警告，文件长度、
+函数长度和语法错误会阻断门禁。
+
 ## 跳过检查（紧急情况）
 
 ```bash
@@ -69,6 +74,9 @@ python scripts/code_quality_check.py --backend-only
 
 # 只检查前端代码
 python scripts/code_quality_check.py --frontend-only
+
+# CI 机器可读输出
+python scripts/code_quality_check.py --format json
 
 # 首次建立或人工确认历史基线（只在基线变更评审时使用）
 python scripts/code_quality_check.py --write-baseline

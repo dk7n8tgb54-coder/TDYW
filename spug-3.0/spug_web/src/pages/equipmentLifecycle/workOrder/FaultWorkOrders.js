@@ -4,8 +4,9 @@
  */
 /**
  * "生成维修工单"按钮：默认故障维修类型、作业系统固定为故障所属系统；
- * 尚未恢复的故障默认影响系统运行；已恢复故障（离线部件维修）默认不影响。
- * 带入现象/位置/对象描述/组成项，全部可编辑。
+ * 作业期间影响系统运行默认为"否"（拆下部件离线维修不改变系统状态），
+ * 需要影响运行时由用户在表单中明确开启（前后端默认一致）。
+ * 带入现象/位置/对象描述，全部可编辑。
  * 幂等：每次打开生成表单生成新的 client_token，重复提交返回已有工单。
  */
 import React, { useState, useEffect } from 'react';
@@ -43,14 +44,13 @@ export function GenerateWorkOrderButton({fault}) {
 
 function FaultConvertModal({visible, fault, onClose}) {
   const [submitting, setSubmitting] = useState(false);
-  // 尚未恢复确认的故障 → 现场维修默认影响运行；已恢复后的部件维修默认不影响
-  const defaultAffects = fault.status === 'pending' || fault.status === 'handling';
+  // 影响运行默认"否"：部件离线维修不影响系统状态，需要时用户明确开启
   const initialValues = {
     title: `${fault.fault_no || ''} 维修工单`,
     work_type: 'repair',
     priority: 'normal',
     system: fault.system,
-    affects_system_operation: defaultAffects,
+    affects_system_operation: false,
     work_location: fault.fault_location || '',
     work_object_desc: [fault.fault_object_name, fault.fault_object_model, fault.fault_object_sn]
       .filter(Boolean).join(' / '),

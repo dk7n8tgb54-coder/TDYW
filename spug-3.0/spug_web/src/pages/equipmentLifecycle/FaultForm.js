@@ -7,17 +7,20 @@
  * 设备全生命周期——故障新增/编辑弹窗（步骤 3.1，单系统简化）。
  * - 普通用户只需要选择一个"故障系统"（提交系统 ID，显示名称+编号+安装地点）；
  * - 不再提供主故障系统与受影响系统；一次实际工作涉及多个系统时分别建立故障；
- * - 可选引用配置组成项（非必填），选中后自动回填故障对象快照，可手动调整。
+ * - 首报表单精简（2026-09）：只保留 故障系统/影响系统运行(+程度)/发生时间/
+ *   故障部位/设备(选填)/故障现象；发现方式缺省"人工报告"、故障级别缺省
+ *   "一般"由后端写入，不再出现在表单；
+ * - 历史设备字段（影响范围/故障位置/对象型号/序列号）仅详情展示：编辑提交
+ *   不携带，后端保留原值；原因分析仅在编辑（处置阶段）可填；
+ * - 默认"部件故障但不影响系统运行"：只有明确开启"影响系统运行"时才需要
+ *   选择影响程度（降级/故障/中断），并参与系统健康状态计算。
  */
 import React, { useState, useEffect, useRef } from 'react';
 import { observer } from 'mobx-react';
-import { Modal, Form, Select, Input, DatePicker, message } from 'antd';
+import { Modal, Form, Select, Input, DatePicker, Switch, message } from 'antd';
 import moment from 'moment';
-import { http } from 'libs';
 import store from './faultStore';
-import {
-  API_PREFIX, FAULT_IMPACT_OPTIONS, FAULT_LEVEL_OPTIONS, FAULT_DISCOVERY_OPTIONS,
-} from './constants';
+import { API_PREFIX, FAULT_IMPACT_OPTIONS } from './constants';
 
 const {TextArea} = Input;
 
@@ -31,10 +34,115 @@ function SystemOptionLabel({system}) {
   );
 }
 
+function applyDetailToForm(form, detail) {
+  // 仅回填表单仍管理的精简字段；discovery/level 与历史设备字段不进表单，
+  // 编辑提交不携带这些键，后端保留原值（不静默清空历史数据）
+  form.setFieldsValue({
+    system: detail.system,
+    affects_system_operation: !!detail.affects_system_operation,
+    impact_status: detail.impact_status || undefined,
+    occurred_at: detail.occurred_at ? moment(detail.occurred_at, 'YYYY-MM-DD HH:mm') : null,
+    fault_object_name: detail.fault_object_name,
+    phenomenon: detail.phenomenon,
+    reason_analysis: detail.reason_analysis,
+  });
+}
+
+function SystemImpactFields({systems}) {
+  return (
+    <>
+      <Form.Item
+        name="system"
+        label="故障系统"
+        rules={[{required: true, message: '请选择故障系统'}]}
+        extra="一张故障单只关联一个系统；涉及多个系统时请分别建立故障"
+      >
+        <Select
+          showSearch
+          optionFilterProp="children"
+          placeholder="请选择故障系统（显示名称、编号、安装地点）"
+          allowClear
+        >
+          {systems.map(s => (
+            <Select.Option value={s.id} key={s.id}>
+              <SystemOptionLabel system={s}/>
+            </Select.Option>
+          ))}
+        </Select>
+      </Form.Item>
+      <Form.Item
+        name="affects_system_operation"
+        label="影响系统运行"
+        valuePropName="checked"
+        extra="默认关闭：部件故障、离线维修不影响系统对外服务；开启后按影响程度参与系统健康状态计算"
+      >
+        <Switch checkedChildren="影响" unCheckedChildren="不影响"/>
+      </Form.Item>
+      <Form.Item noStyle shouldUpdate={
+        (prev, cur) => prev.affects_system_operation !== cur.affects_system_operation
+      }>
+        {({getFieldValue}) => getFieldValue('affects_system_operation') ? (
+          <Form.Item
+            name="impact_status"
+            label="系统影响程度"
+            preserve={false}
+            rules={[{required: true, message: '请选择系统影响程度'}]}
+          >
+            <Select placeholder="降级 / 故障 / 中断">
+              {FAULT_IMPACT_OPTIONS.map(item => (
+                <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+        ) : null}
+      </Form.Item>
+    </>
+  );
+}
+
+function OccurrenceFields() {
+  return (
+    <>
+      <Form.Item
+        name="occurred_at"
+        label="故障发生时间"
+        rules={[{required: true, message: '请选择故障发生时间'}]}
+      >
+        <DatePicker showTime={{format: 'HH:mm'}} format="YYYY-MM-DD HH:mm" style={{width: '100%'}}/>
+      </Form.Item>
+      <Form.Item
+        name="phenomenon"
+        label="故障现象"
+        rules={[
+          {required: true, message: '请填写故障现象'},
+          {max: 2000, message: '长度不能超过 2000'},
+        ]}
+      >
+        <TextArea rows={3} placeholder="描述观察到的故障现象，必要时可补充影响范围"/>
+      </Form.Item>
+    </>
+  );
+}
+
+function FaultObjectFields({isEdit}) {
+  return (
+    <>
+      <Form.Item name="fault_object_name" label="故障部位/设备">
+        <Input placeholder="故障的部位或设备，如 信道机 / 天馈系统（选填）"/>
+      </Form.Item>
+      {/* 原因分析不放在首报（新增）表单，保留处置阶段（编辑）填写 */}
+      {isEdit && (
+        <Form.Item name="reason_analysis" label="原因分析">
+          <TextArea rows={2} placeholder="（选填，处置过程中可继续完善）"/>
+        </Form.Item>
+      )}
+    </>
+  );
+}
+
 const FaultForm = observer(function FaultForm() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const [components, setComponents] = useState([]);
   const mountedRef = useRef(true);
   const record = store.record;
   const isEdit = !!record.id;
@@ -50,22 +158,7 @@ const FaultForm = observer(function FaultForm() {
     store.fetchDetailById(record.id)
       .then(detail => {
         if (!mountedRef.current) return;
-        form.setFieldsValue({
-          system: detail.system,
-          impact_status: detail.impact_status,
-          occurred_at: detail.occurred_at ? moment(detail.occurred_at, 'YYYY-MM-DD HH:mm') : null,
-          discovery: detail.discovery,
-          level: detail.level,
-          phenomenon: detail.phenomenon,
-          impact_scope: detail.impact_scope,
-          fault_location: detail.fault_location,
-          fault_object_name: detail.fault_object_name,
-          fault_object_model: detail.fault_object_model,
-          fault_object_sn: detail.fault_object_sn,
-          fault_component: detail.fault_component || undefined,
-          reason_analysis: detail.reason_analysis,
-        });
-        fetchComponents(detail.system);
+        applyDetailToForm(form, detail);
       })
       .catch(() => {})
       .finally(() => {
@@ -73,36 +166,6 @@ const FaultForm = observer(function FaultForm() {
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  function fetchComponents(systemId) {
-    if (!systemId) {
-      setComponents([]);
-      return;
-    }
-    http.get(`${API_PREFIX}/systems/${systemId}/components/`)
-      .then(res => {
-        if (mountedRef.current) setComponents(res.data || []);
-      })
-      .catch(() => {});
-  }
-
-  function handleSystemChange(value) {
-    form.setFieldsValue({fault_component: undefined});
-    setComponents([]);
-    fetchComponents(value);
-  }
-
-  function handleComponentChange(value) {
-    if (!value) return;
-    const comp = components.find(c => c.id === value);
-    if (!comp) return;
-    // 引用组成项时自动回填故障对象快照（可手动覆盖，后端保存快照文本）
-    form.setFieldsValue({
-      fault_object_name: form.getFieldValue('fault_object_name') || comp.name,
-      fault_object_model: form.getFieldValue('fault_object_model') || comp.model_version,
-      fault_object_sn: form.getFieldValue('fault_object_sn') || comp.asset_sn,
-    });
-  }
 
   function handleSubmit() {
     form.validateFields().then(values => {
@@ -132,104 +195,15 @@ const FaultForm = observer(function FaultForm() {
       onCancel={() => store.formVisible = false}
       onOk={handleSubmit}
     >
-      <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}>
-        <Form.Item
-          name="system"
-          label="故障系统"
-          rules={[{required: true, message: '请选择故障系统'}]}
-          extra="一张故障单只关联一个系统；涉及多个系统时请分别建立故障"
-        >
-          <Select
-            showSearch
-            optionFilterProp="children"
-            placeholder="请选择故障系统（显示名称、编号、安装地点）"
-            allowClear
-            onChange={v => handleSystemChange(v)}
-          >
-            {store.systems.map(s => (
-              <Select.Option value={s.id} key={s.id}>
-                <SystemOptionLabel system={s}/>
-              </Select.Option>
-            ))}
-          </Select>
-        </Form.Item>
-        <Form.Item
-          name="impact_status"
-          label="系统影响程度"
-          rules={[{required: true, message: '请选择系统影响程度'}]}
-        >
-          <Select placeholder="降级 / 故障 / 中断">
-            {FAULT_IMPACT_OPTIONS.map(item => (
-              <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
-            ))}
-          </Select>
-        </Form.Item>
-        <Form.Item
-          name="occurred_at"
-          label="故障发生时间"
-          rules={[{required: true, message: '请选择故障发生时间'}]}
-        >
-          <DatePicker showTime={{format: 'HH:mm'}} format="YYYY-MM-DD HH:mm" style={{width: '100%'}}/>
-        </Form.Item>
-        <Form.Item
-          name="discovery"
-          label="发现方式"
-          rules={[{required: true, message: '请选择故障发现方式'}]}
-        >
-          <Select placeholder="请选择发现方式">
-            {FAULT_DISCOVERY_OPTIONS.map(item => (
-              <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
-            ))}
-          </Select>
-        </Form.Item>
-        <Form.Item
-          name="level"
-          label="故障级别"
-          rules={[{required: true, message: '请选择故障级别'}]}
-        >
-          <Select placeholder="请选择级别">
-            {FAULT_LEVEL_OPTIONS.map(item => (
-              <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
-            ))}
-          </Select>
-        </Form.Item>
-        <Form.Item
-          name="phenomenon"
-          label="故障现象"
-          rules={[
-            {required: true, message: '请填写故障现象'},
-            {max: 2000, message: '长度不能超过 2000'},
-          ]}
-        >
-          <TextArea rows={3} placeholder="描述观察到的故障现象"/>
-        </Form.Item>
-        <Form.Item name="impact_scope" label="影响范围">
-          <TextArea rows={2} placeholder="受影响的业务或范围（选填）"/>
-        </Form.Item>
-        <Form.Item name="fault_location" label="故障位置">
-          <Input placeholder="如 机房A 01柜（选填）"/>
-        </Form.Item>
-        <Form.Item name="fault_component" label="配置组成项" extra="可选：引用故障系统的配置组成项，不要求逐台建档">
-          <Select allowClear placeholder="可选" onChange={handleComponentChange}>
-            {components.map(c => (
-              <Select.Option value={c.id} key={c.id}>
-                {`${c.name}${c.model_version ? `（${c.model_version}）` : ''}`}
-              </Select.Option>
-            ))}
-          </Select>
-        </Form.Item>
-        <Form.Item name="fault_object_name" label="故障对象名称">
-          <Input placeholder="具体故障对象名称（选填）"/>
-        </Form.Item>
-        <Form.Item name="fault_object_model" label="故障对象型号">
-          <Input placeholder="型号或版本（选填）"/>
-        </Form.Item>
-        <Form.Item name="fault_object_sn" label="对象编号/序列号">
-          <Input placeholder="资产编号或序列号（选填）"/>
-        </Form.Item>
-        <Form.Item name="reason_analysis" label="原因分析">
-          <TextArea rows={2} placeholder="（选填，处置过程中可继续完善）"/>
-        </Form.Item>
+      <Form
+        form={form}
+        labelCol={{span: 6}}
+        wrapperCol={{span: 16}}
+        initialValues={{affects_system_operation: false}}
+      >
+        <SystemImpactFields systems={store.systems}/>
+        <OccurrenceFields/>
+        <FaultObjectFields isEdit={isEdit}/>
       </Form>
     </Modal>
   );

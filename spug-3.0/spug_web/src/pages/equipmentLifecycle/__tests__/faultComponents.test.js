@@ -68,7 +68,7 @@ const FAULT_DETAIL = {
   level: 'major', level_text: '严重', phenomenon: '主用链路频繁丢包',
   impact_scope: '话音业务', fault_location: '机房A 01柜',
   fault_object_name: '接入交换机01', fault_object_model: 'H3C-5120', fault_object_sn: '',
-  fault_component: 3, fault_component_name: '接入交换机',
+  fault_component_name: '接入交换机',
   reason_analysis: '', recovered_at: null, recover_confirm: '',
   recovered_by: null, recovered_by_name: '', recovered_confirmed_at: null,
   final_result: '', handler: 2, handler_name: 'operator',
@@ -87,10 +87,10 @@ const HANDLING_RECORDS = {
   total: 2, page: 1, page_size: 100,
 };
 
-async function renderDetail(status) {
+async function renderDetail(status, overrides) {
   const store = require('../faultStore').default;
   const FaultDetail = require('../FaultDetail').default;
-  const detail = {...FAULT_DETAIL, status};
+  const detail = {...FAULT_DETAIL, status, ...(overrides || {})};
   mockHttpGet.mockImplementation((url) => {
     if (url.includes('/handling-records')) {
       return Promise.resolve(HANDLING_RECORDS);
@@ -212,5 +212,151 @@ describe('系统详情故障页签（单系统简化）', () => {
     // 请求不再携带 role 参数
     expect(mockHttpGet).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/systems/9/faults/');
+  });
+});
+
+describe('故障影响系统运行开关（运行状态与部件维修分离）', () => {
+  async function renderForm(record, detail) {
+    const store = require('../faultStore').default;
+    const FaultForm = require('../FaultForm').default;
+    store.systems = [{id: 7, name: '烟台通信系统', install_location: '机房A'}];
+    store.record = record || {};
+    store.formVisible = true;
+    // 编辑模式：mock 详情回填请求（http 拦截器解包后 resolve 详情本体）
+    mockHttpGet.mockResolvedValue(
+      detail || {id: 11, system: 7, affects_system_operation: false, impact_status: '',
+        occurred_at: '2026-09-18 08:30', discovery: 'patrol', level: 'major',
+        phenomenon: '板卡告警'});
+    ReactDOM.unmountComponentAtNode(container);
+    await act(async () => {
+      ReactDOM.render(<FaultForm/>, container);
+    });
+    await act(async () => {await flush();});
+  }
+
+  function switchNode() {
+    return document.querySelector('.ant-switch');
+  }
+
+  it('新增故障默认不影响系统运行：开关关闭、不渲染影响程度选择', async () => {
+    await renderForm({});
+    const sw = switchNode();
+    expect(sw).toBeTruthy();
+    expect(sw.classList.contains('ant-switch-checked')).toBe(false);
+    expect(document.body.textContent).not.toContain('系统影响程度');
+  });
+
+  it('开启影响系统运行后出现必填的影响程度选择', async () => {
+    await renderForm({});
+    await act(async () => {
+      switchNode().dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    });
+    await act(async () => {await flush();});
+    expect(switchNode().classList.contains('ant-switch-checked')).toBe(true);
+    expect(document.body.textContent).toContain('系统影响程度');
+  });
+
+  it('编辑部件故障（不影响运行）回显开关关闭', async () => {
+    await renderForm({id: 11}, {id: 11, system: 7, affects_system_operation: false,
+      impact_status: '', occurred_at: '2026-09-18 08:30', discovery: 'patrol',
+      level: 'major', phenomenon: '板卡告警'});
+    await act(async () => {await flush();});
+    const sw = switchNode();
+    expect(sw).toBeTruthy();
+    expect(sw.classList.contains('ant-switch-checked')).toBe(false);
+    expect(document.body.textContent).not.toContain('系统影响程度');
+  });
+
+  it('编辑影响运行的故障回显开关开启与影响程度', async () => {
+    await renderForm({id: 12}, {id: 12, system: 7, affects_system_operation: true,
+      impact_status: 'interrupted', occurred_at: '2026-09-18 08:30', discovery: 'patrol',
+      level: 'critical', phenomenon: '链路中断'});
+    await act(async () => {await flush();});
+    const sw = switchNode();
+    expect(sw).toBeTruthy();
+    expect(sw.classList.contains('ant-switch-checked')).toBe(true);
+    expect(document.body.textContent).toContain('系统影响程度');
+  });
+});
+
+describe('故障首报表单精简（2026-09）', () => {
+  // 编辑模式回填用的历史故障详情：携带发现方式/级别与旧设备字段
+  const EDIT_DETAIL = {
+    id: 11, system: 7, affects_system_operation: true, impact_status: 'fault',
+    occurred_at: '2026-09-18 08:30', discovery: 'patrol', discovery_text: '巡检发现',
+    level: 'major', level_text: '严重', phenomenon: '主用链路频繁丢包',
+    impact_scope: '话音业务', fault_location: '机房A 01柜',
+    fault_object_name: '接入交换机01', fault_object_model: 'H3C-5120',
+    fault_object_sn: 'SN001', reason_analysis: '',
+  };
+
+  async function renderForm(record, detail) {
+    const store = require('../faultStore').default;
+    const FaultForm = require('../FaultForm').default;
+    store.systems = [{id: 7, name: '烟台通信系统', install_location: '机房A'}];
+    store.record = record || {};
+    store.formVisible = true;
+    mockHttpGet.mockResolvedValue(detail || EDIT_DETAIL);
+    ReactDOM.unmountComponentAtNode(container);
+    await act(async () => {
+      ReactDOM.render(<FaultForm/>, container);
+    });
+    await act(async () => {await flush();});
+  }
+
+  it('新增首报表单只显示精简字段，不再渲染发现方式/级别/历史设备字段', async () => {
+    await renderForm({});
+    const text = bodyText();
+    expect(text).toContain('故障部位/设备');
+    expect(text).toContain('故障现象');
+    ['发现方式', '故障级别', '影响范围', '故障位置', '故障对象名称',
+      '故障对象型号', '对象编号/序列号', '原因分析'].forEach(label => {
+      expect(text).not.toContain(label);
+    });
+  });
+
+  it('编辑表单保留原因分析入口（处置阶段填写），历史字段同样不回进表单', async () => {
+    await renderForm({id: 11}, EDIT_DETAIL);
+    const text = bodyText();
+    expect(text).toContain('原因分析');
+    expect(text).not.toContain('发现方式');
+    expect(text).not.toContain('故障级别');
+  });
+
+  it('编辑提交载荷不携带 discovery/level 与历史设备字段（由后端保留原值）', async () => {
+    await renderForm({id: 11}, EDIT_DETAIL);
+    mockHttpPut.mockResolvedValue({});
+    const okButton = Array.from(document.querySelectorAll('.ant-modal-footer button'))
+      .find(b => b.className.includes('ant-btn-primary'));
+    await act(async () => {
+      okButton.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    });
+    await act(async () => {await flush();});
+    expect(mockHttpPut).toHaveBeenCalledTimes(1);
+    expect(mockHttpPut.mock.calls[0][0]).toBe('/api/equipment-lifecycle/faults/11/');
+    const payload = mockHttpPut.mock.calls[0][1];
+    ['discovery', 'level', 'impact_scope', 'fault_location', 'fault_object_model',
+      'fault_object_sn'].forEach(key => {
+      expect(payload).not.toHaveProperty(key);
+    });
+    // 表单仍管理的精简字段正常提交（必填校验由回填值满足）
+    expect(payload.system).toBe(7);
+    expect(payload.affects_system_operation).toBe(true);
+    expect(payload.impact_status).toBe('fault');
+    expect(payload.occurred_at).toBe('2026-09-18 08:30');
+    expect(payload.fault_object_name).toBe('接入交换机01');
+    expect(payload.phenomenon).toBe('主用链路频繁丢包');
+  });
+});
+
+describe('故障详情影响状态展示（运行状态与部件维修分离）', () => {
+  it('影响运行的故障展示影响程度标签，部件故障展示"不影响运行"', async () => {
+    await renderDetail('handling', {affects_system_operation: true});
+    let text = bodyText();
+    expect(text).toContain('故障');
+    expect(text).not.toContain('不影响运行');
+    await renderDetail('handling', {affects_system_operation: false, impact_status: ''});
+    text = bodyText();
+    expect(text).toContain('不影响运行');
   });
 });

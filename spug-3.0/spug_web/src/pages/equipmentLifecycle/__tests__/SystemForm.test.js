@@ -1,12 +1,10 @@
 /**
- * 设备全生命周期（步骤二交互重构）系统新增/编辑表单测试
+ * 设备全生命周期系统新增/编辑表单测试
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
- * - 编辑模式：修改自定义字段值后一次提交，PUT 载荷为结构化聚合格式
- *   {system, config_values, components}，只提交发生变化的字段值
- * - 编辑模式：表单内联添加自定义字段后立即出现在当前表单（无需先保存系统），
- *   值随本次编辑一并提交（custom_fields 携带 client_key 与 value）
- * - 新增模式：无系统类型选择与模板字段通道，内联自定义字段入口可用
+ * - 编辑模式：回填扩展信息（呼号/安装经纬度/工作频率），PUT 载荷为
+ *   结构化聚合格式 {system}，不请求 form-fields（自定义字段已下线）
+ * - 新增模式：扩展信息选填，确定走 POST；不含自定义字段入口
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -100,30 +98,10 @@ function findButtonByText(text) {
 const RECORD = {
   id: 5, system_code: 'SYS-001', name: '烟台中心站通信系统',
   system_model: 'HX-100', install_location: '烟台中心站机房A', geo_coordinate: '',
+  callsign: 'XZ5792', work_frequency: '438.500MHz',
   system_purpose: '', manufacturer: '某通信设备厂', install_unit: '安装一队',
-  use_unit: '运行一科', install_time: '2026-01-01 08:00', enable_time: '2026-02-01 09:00',
+  use_unit: '运行一科', install_time: '2026-01-01', enable_time: '2026-02-01',
   responsible_user_name: '张三', health_status: 'normal', remark: '',
-};
-
-const FORM_FIELDS_PAYLOAD = {
-  data: [
-    {id: 101, scope_type: 'custom', field_code: 'frequency', display_name: '工作频率',
-      field_type: 'text', is_required: true, is_active: true, is_sensitive: false,
-      choices: '', choices_parsed: [], number_min: null, number_max: null,
-      text_regex: '', help_text: '', default_parsed: ''},
-    {id: 102, scope_type: 'custom', field_code: 'antenna_h', display_name: '天线高度',
-      field_type: 'number', is_required: false, is_active: true, is_sensitive: false,
-      choices: '', choices_parsed: [], number_min: 0, number_max: 100,
-      text_regex: '', help_text: '', default_parsed: ''},
-  ],
-  values: {
-    101: {value: '438.000MHz', display: '438.000MHz'},
-    102: {value: 25, display: '25'},
-  },
-  components: [{id: 7, name: '接入交换机', category: '', model_version: 'S5735',
-    quantity: 4, purpose: '', asset_sn: '', external_ref: '', remark: '',
-    display_order: 0}],
-  system: {id: 5, system_code: 'SYS-001', name: '烟台中心站通信系统'},
 };
 
 function renderEditForm() {
@@ -131,7 +109,6 @@ function renderEditForm() {
   const SystemForm = require('../SystemForm').default;
   store.record = RECORD;
   store.formVisible = true;
-  mockHttpGet.mockResolvedValue(FORM_FIELDS_PAYLOAD);
   act(() => {
     ReactDOM.render(<SystemForm/>, container);
   });
@@ -150,16 +127,18 @@ function renderCreateForm() {
 }
 
 describe('编辑系统（聚合提交）', () => {
-  it('修改自定义字段值后一次提交，PUT 为结构化聚合载荷且只含变化字段', async () => {
+  it('扩展信息回填并随固定字段一次提交，PUT 为结构化聚合载荷', async () => {
     renderEditForm();
     await flush();
-    // 模板字段与自定义字段均渲染，且带当前值
+    // 扩展信息区块与字段
+    expect(document.body.textContent).toContain('扩展信息');
+    const callsignInput = findFormItem('呼号').querySelector('input');
     const freqInput = findFormItem('工作频率').querySelector('input');
-    expect(freqInput.value).toBe('438.000MHz');
-    expect(findFormItem('天线高度')).toBeTruthy();
-    // 修改自定义字段值
-    await setInputValue(freqInput, '439.000MHz');
-    // 提交
+    expect(callsignInput.value).toBe('XZ5792');
+    expect(freqInput.value).toBe('438.500MHz');
+    expect(findFormItem('安装经纬度')).toBeTruthy();
+    // 修改呼号后提交
+    await setInputValue(callsignInput, 'XZ0007');
     const saveBtn = findButtonByText('保 存');
     expect(saveBtn).toBeTruthy();
     await click(saveBtn);
@@ -170,74 +149,55 @@ describe('编辑系统（聚合提交）', () => {
     // 固定字段在 system 键下；系统编号由后端自动生成，前端不传
     expect(payload.system.system_code).toBeUndefined();
     expect(payload.system.name).toBe('烟台中心站通信系统');
-    expect(payload.system.install_time).toBe('2026-01-01 08:00');
-    // 动态字段值只提交发生变化的
-    expect(payload.config_values).toEqual({101: '439.000MHz'});
+    expect(payload.system.install_time).toBe('2026-01-01');
+    // 扩展信息随载荷提交
+    expect(payload.system.callsign).toBe('XZ0007');
+    expect(payload.system.work_frequency).toBe('438.500MHz');
+    // 自定义字段机制已下线：不再有 config_values / custom_fields 键
+    expect(payload.config_values).toBeUndefined();
     expect(payload.custom_fields).toBeUndefined();
-    // 组成项全量同步（带已有 id，不含内部键）
-    expect(payload.components).toEqual([{
-      id: 7, name: '接入交换机', category: '', model_version: 'S5735', quantity: 4,
-      purpose: '', asset_sn: '', external_ref: '', remark: '', display_order: 0,
-    }]);
+    expect(payload.components).toBeUndefined();
   });
 
-  it('编辑时内联添加自定义字段立即出现，值随本次编辑一并提交', async () => {
+  it('编辑模式不请求 form-fields，不提供自定义字段入口', async () => {
     renderEditForm();
     await flush();
-    // 打开添加自定义字段弹窗
-    const addBtn = findButtonByText('添加自定义字段');
-    expect(addBtn).toBeTruthy();
-    await click(addBtn);
-    const defModal = Array.from(document.querySelectorAll('.ant-modal'))
-      .find(m => {
-        const header = m.querySelector('.ant-modal-header');
-        return header && header.textContent.includes('添加自定义字段');
-      });
-    expect(defModal).toBeTruthy();
-    // 填写字段定义（仅名称，编码由后端生成）
-    const nameInput = defModal.querySelector('.ant-modal-body input');
-    await setInputValue(nameInput, '天线方位角');
-    const confirmBtn = Array.from(defModal.querySelectorAll('.ant-modal-footer button'))
-      .find(b => b.textContent.replace(/\s/g, '') === '添加');
-    await click(confirmBtn);
+    expect(mockHttpGet).not.toHaveBeenCalled();
+    expect(findButtonByText('添加自定义字段')).toBeNull();
+    expect(document.body.textContent).not.toContain('系统自定义字段');
+  });
+
+  it('选填字段清空后随载荷提交空串', async () => {
+    renderEditForm();
     await flush();
-    // 新字段立即加入当前表单，无需先保存系统
-    const newItem = findFormItem('天线方位角');
-    expect(newItem).toBeTruthy();
-    expect(document.body.textContent).toContain('本次新增自定义字段');
-    // 填写新字段值后提交
-    const newInput = newItem.querySelector('input');
-    await setInputValue(newInput, '正北 15 度');
+    const callsignInput = findFormItem('呼号').querySelector('input');
+    await setInputValue(callsignInput, '');
     await click(findButtonByText('保 存'));
     await flush();
     expect(mockHttpPut).toHaveBeenCalledTimes(1);
     const [, payload] = mockHttpPut.mock.calls[0];
-    expect(payload.custom_fields).toEqual([{
-      client_key: 'temp_1',
-      name: '天线方位角',
-      field_type: 'text',
-      required: false,
-      value: '正北 15 度',
-      choices: [],
-      number_min: null,
-      number_max: null,
-      text_regex: '',
-      help_text: '',
-      is_sensitive: false,
-      is_exportable: false,
-    }]);
+    expect(payload.system.callsign).toBe('');
+  });
+
+  it('安装经纬度格式非法时前端拦截，不发请求', async () => {
+    renderEditForm();
+    await flush();
+    const geoInput = findFormItem('安装经纬度').querySelector('input');
+    await setInputValue(geoInput, 'abc');
+    await click(findButtonByText('保 存'));
+    await flush();
+    expect(mockHttpPut).not.toHaveBeenCalled();
   });
 });
 
-describe('新增系统（无类型机制）', () => {
-  it('新增模式不含系统类型选择，不请求模板字段，内联自定义字段入口可用', async () => {
+describe('新增系统', () => {
+  it('扩展信息字段渲染且不含自定义字段入口', async () => {
     renderCreateForm();
     await flush();
-    // 系统类型表单项已随类型机制移除
-    expect(findFormItem('系统类型')).toBeNull();
-    // 新增模式不再请求 form-fields（无 ?system_type= 通道）
-    expect(mockHttpGet).not.toHaveBeenCalled();
-    // 内联添加自定义字段入口保留
-    expect(findButtonByText('添加自定义字段')).toBeTruthy();
+    expect(findFormItem('呼号')).toBeTruthy();
+    expect(findFormItem('工作频率')).toBeTruthy();
+    expect(findFormItem('安装经纬度')).toBeTruthy();
+    expect(findButtonByText('添加自定义字段')).toBeNull();
+    expect(document.body.textContent).toContain('扩展信息');
   });
 });

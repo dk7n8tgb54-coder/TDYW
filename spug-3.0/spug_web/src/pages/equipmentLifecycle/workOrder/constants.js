@@ -83,6 +83,7 @@ export const WO_SOURCE_TEXT = {
   manual: '人工创建',
   fault: '来源故障',
   ledger_item: '来源台账异常',
+  inspection_record: '来源巡检异常',
 };
 
 export const DISPOSITION_TEXT = {
