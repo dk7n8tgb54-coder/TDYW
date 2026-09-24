@@ -20,6 +20,7 @@ import ComponentsTab from './ComponentsTab';
 import ChangeHistoryTab from './ChangeHistoryTab';
 import SnapshotsTab from './SnapshotsTab';
 import FaultRecordsTab from './FaultRecordsTab';
+import UpgradeRecordsTab from './UpgradeRecordsTab';
 import SystemLedgerTab from './ledger/SystemLedgerTab';
 import WorkOrdersTab from './workOrder/WorkOrdersTab';
 import SystemEventsTab from './systemEvent/SystemEventsTab';
@@ -62,7 +63,6 @@ class SystemDetail extends React.Component {
     return (
       <div>
         <Descriptions bordered size="small" column={2}>
-          <Descriptions.Item label="系统编号">{d.system_code}</Descriptions.Item>
           <Descriptions.Item label="系统名称">{d.name}</Descriptions.Item>
           <Descriptions.Item label="系统型号">{d.system_model}</Descriptions.Item>
           <Descriptions.Item label="安装地点">{d.install_location}</Descriptions.Item>
@@ -118,6 +118,9 @@ class SystemDetail extends React.Component {
             </TabPane>
             <TabPane tab="故障记录" key="faults">
               <FaultRecordsTab systemId={d.id}/>
+            </TabPane>
+            <TabPane tab="升级记录" key="upgrade_records">
+              <UpgradeRecordsTab systemId={d.id}/>
             </TabPane>
             <TabPane tab="工单" key="work_orders">
               <WorkOrdersTab systemId={d.id}/>

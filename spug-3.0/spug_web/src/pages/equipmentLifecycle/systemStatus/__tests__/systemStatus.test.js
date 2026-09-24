@@ -93,7 +93,8 @@ describe('当前运行状态页面', () => {
     expect(text).toContain('中断');
     expect(text).toContain('未知');
     expect(text).toContain('系统总数（可用 8 / 停用 1）');
-    expect(text).toContain('SYS-001');
+    // 系统编号由后端自动生成，前端不展示
+    expect(text).not.toContain('SYS-001');
     // 只读页面：没有修改健康状态的入口
     expect(text).not.toContain('修改状态');
     // 汇总接口被调用

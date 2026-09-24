@@ -22,6 +22,19 @@ FULL_APPROVAL_PERMS = [('radio_license', 'approval', ['view', 'add', 'edit', 'de
 FULL_ATTACHMENT_PERMS = [('radio_license', 'attachment', ['upload', 'download', 'delete'])]
 
 
+def rg_ensure_tenants():
+    """确保 RG 测试租户的 Tenant 行存在。
+
+    审计序列行（AuditLogSequence）由 Tenant post_save 信号预建；
+    若测试只造 User 而不建 Tenant 行，序列行无法预建，并发首写会
+    重演唯一键竞态死锁（生产租户必有 Tenant 行，测试需对齐现实）。
+    """
+    from apps.account.models import Tenant
+
+    for tid in (TENANT_A, TENANT_B):
+        Tenant.objects.get_or_create(id=tid, defaults={'name': f'RG-{tid}'})
+
+
 def rg_license_payload(user, **overrides):
     """构造一份合法的执照创建载荷。"""
     today = date.today()

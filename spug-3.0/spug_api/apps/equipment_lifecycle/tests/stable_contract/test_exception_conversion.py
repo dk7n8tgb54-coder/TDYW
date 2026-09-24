@@ -69,7 +69,7 @@ class ConversionTestBase(WorkOrderTestBase):
             override.update(item_overrides or {})
             entries_items.append(item_payload(
                 item_name=f'电源电压测量{i}', input_type='number', value_text='',
-                value_number=50, number_min=52, number_max=54,
+                value_number=50,
                 result='abnormal', **override))
         payload = ledger_payload(
             [entry_payload(system.id, entries_items)])
@@ -271,7 +271,7 @@ class LedgerItemConvertToFaultTest(ConversionTestBase):
         # 草稿（不提交）
         payload = ledger_payload([entry_payload(self.system_a.id, [
             item_payload(item_name='电压检查', input_type='number', value_text='',
-                         value_number=50, number_min=52, number_max=54,
+                         value_number=50,
                          result='abnormal', abnormal_desc='偏低'),
         ])])
         body = post_json(make_client(self.ledger_user), '/equipment-lifecycle/ledgers/',

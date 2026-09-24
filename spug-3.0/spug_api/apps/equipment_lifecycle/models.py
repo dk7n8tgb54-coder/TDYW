@@ -37,7 +37,8 @@ class LifecycleSystem(TenantModelMixin, models.Model):
     """系统主数据：一个对象代表某地点实际运行的一套系统实例。
 
     - 所有系统平级，不设父系统/子系统/树形层级（无 parent 字段，测试固化）；
-    - system_code 租户内唯一，创建后不可修改；
+    - system_code 为后端内部标识：新增时自动生成（SYS-日期-随机），租户内唯一，
+      创建后不可修改，不向前端展示；
     - is_active 只控制系统能否继续被业务选择，不表达运行状态；
     - health_status 为运行健康状态，步骤二仅初始化，不做故障/工单驱动计算。
     """
@@ -845,19 +846,15 @@ class OperationLedgerTemplate(TenantModelMixin, models.Model):
     """运维台账模板：巡检/周月维护/季维护共用，ledger_type 决定用途。
 
     - 模板只决定以后生成的台账内容，修改不影响已生成台账（明细保存快照）；
-    - 适用范围：可选系统类型 + 可选具体系统（多选），不得自由填写系统名称；
+    - 模板不绑定系统，适用于任何系统（录入时逐条目显式选择系统）；
     - 停用后不能用于新台账，历史记录继续可查；
     - 周期组合校验：巡检空 / 周月维护 week|month / 季维护 season。
     """
 
     name = models.CharField(max_length=100, help_text='模板名称')
-    template_code = models.CharField(max_length=50, help_text='模板编号，租户内唯一')
     ledger_type = models.CharField(max_length=20, help_text='台账类型')
     maintenance_cycle = models.CharField(
         max_length=20, default='', blank=True, help_text='周月维护周期（week/month/season；巡检为空）')
-    applicable_systems = models.ManyToManyField(
-        LifecycleSystem, blank=True, related_name='ledger_templates',
-        db_table='tdyw_el_ledger_template_systems', help_text='适用具体系统（可多选）')
     description = models.CharField(max_length=500, default='', blank=True, help_text='说明')
     is_active = models.BooleanField(default=True, help_text='是否启用（停用后不能用于新台账）')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -874,8 +871,6 @@ class OperationLedgerTemplate(TenantModelMixin, models.Model):
         verbose_name_plural = '运维台账模板'
         ordering = ('-created_at', '-id')
         constraints = [
-            models.UniqueConstraint(
-                fields=['tenant_id', 'template_code'], name='uniq_el_ledger_template_code'),
             models.CheckConstraint(
                 check=models.Q(ledger_type__in=LEDGER_TYPE_VALUES),
                 name='el_ledger_template_type_valid',
@@ -890,17 +885,12 @@ class OperationLedgerTemplate(TenantModelMixin, models.Model):
         ]
 
     def __repr__(self):
-        return '<OperationLedgerTemplate %r>' % self.template_code
-
-    def applies_to_system(self, system):
-        """模板是否适用于指定系统（按具体系统匹配）。"""
-        return self.applicable_systems.all().filter(pk=system.pk).exists()
+        return '<OperationLedgerTemplate %r>' % self.name
 
     def to_view(self, with_counts=False):
         data = {
             'id': self.id,
             'name': self.name,
-            'template_code': self.template_code,
             'ledger_type': self.ledger_type,
             'maintenance_cycle': self.maintenance_cycle,
             'description': self.description,
@@ -916,7 +906,9 @@ class OperationLedgerTemplate(TenantModelMixin, models.Model):
 class OperationLedgerTemplateItem(TenantModelMixin, models.Model):
     """台账模板项目：模板中的检查或维护项目。
 
-    - 录入类型支持文本/数值/单选/多选/布尔/附件；
+    - 录入类型收敛为两种：正常/不正常(choice，候选项固定)与数字/文本(text，
+      纯数字填写值同时落 value_number)；枚举中其余类型仅为历史数据兼容保留，
+      新建项目不可再选；
     - 周月维护模板项目通过 execution_scope 区分 仅每周/仅每月/周月均执行，
       生成台账时只加载与本次维护周期匹配的项目；
     - 停用或删除项目不影响历史台账明细（明细保存全量快照）。
@@ -924,17 +916,12 @@ class OperationLedgerTemplateItem(TenantModelMixin, models.Model):
 
     template = models.ForeignKey(
         OperationLedgerTemplate, models.CASCADE, related_name='items', help_text='所属模板')
-    item_code = models.CharField(max_length=50, help_text='项目编码，模板内唯一')
     name = models.CharField(max_length=100, help_text='项目名称')
-    standard = models.CharField(max_length=500, default='', blank=True, help_text='检查或维护标准')
     input_type = models.CharField(max_length=20, help_text='录入类型')
     unit = models.CharField(max_length=20, default='', blank=True, help_text='单位')
-    normal_range = models.CharField(max_length=100, default='', blank=True, help_text='正常范围（展示文本）')
-    number_min = models.FloatField(null=True, blank=True, help_text='数值正常下限（含，自动判定用）')
-    number_max = models.FloatField(null=True, blank=True, help_text='数值正常上限（含，自动判定用）')
     choices = models.TextField(default='', blank=True, help_text='候选项 JSON 数组（单选/多选）')
     default_value = models.CharField(max_length=200, default='', blank=True, help_text='默认值')
-    is_required = models.BooleanField(default=False, help_text='是否必填')
+    is_required = models.BooleanField(default=True, help_text='是否必填')
     execution_scope = models.CharField(
         max_length=20, default=EXEC_SCOPE_ALL, help_text='执行范围（周月维护模板：all/week_only/month_only）')
     abnormal_rule = models.CharField(max_length=200, default='', blank=True, help_text='异常判定规则')
@@ -955,9 +942,6 @@ class OperationLedgerTemplateItem(TenantModelMixin, models.Model):
         verbose_name_plural = '台账模板项目'
         ordering = ('display_order', 'id')
         constraints = [
-            models.UniqueConstraint(
-                fields=['tenant_id', 'template', 'item_code'],
-                name='uniq_el_ledger_template_item_code'),
             models.CheckConstraint(
                 check=models.Q(input_type__in=LEDGER_INPUT_TYPE_VALUES),
                 name='el_ledger_template_item_input_type_valid',
@@ -972,7 +956,7 @@ class OperationLedgerTemplateItem(TenantModelMixin, models.Model):
         ]
 
     def __repr__(self):
-        return '<OperationLedgerTemplateItem %r>' % self.item_code
+        return '<OperationLedgerTemplateItem %r>' % self.name
 
     def get_choices(self):
         if not self.choices:
@@ -997,14 +981,9 @@ class OperationLedgerTemplateItem(TenantModelMixin, models.Model):
         return {
             'id': self.id,
             'template': self.template_id,
-            'item_code': self.item_code,
             'name': self.name,
-            'standard': self.standard,
             'input_type': self.input_type,
             'unit': self.unit,
-            'normal_range': self.normal_range,
-            'number_min': self.number_min,
-            'number_max': self.number_max,
             'choices': self.get_choices(),
             'default_value': self.default_value,
             'is_required': self.is_required,
@@ -1165,15 +1144,10 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
         OperationLedgerTemplateItem, models.SET_NULL, related_name='ledger_items', null=True, blank=True,
         help_text='来源模板项目（仅溯源；历史明细不依赖其当前内容）')
     template_name_snapshot = models.CharField(max_length=100, default='', blank=True, help_text='模板名称快照')
-    item_code_snapshot = models.CharField(max_length=50, default='', blank=True, help_text='项目编码快照')
     item_name_snapshot = models.CharField(max_length=100, help_text='检查或维护项目名称快照')
-    standard_snapshot = models.CharField(max_length=500, default='', blank=True, help_text='标准要求快照')
     input_type = models.CharField(max_length=20, help_text='录入类型快照')
     unit_snapshot = models.CharField(max_length=20, default='', blank=True, help_text='单位快照')
-    normal_range_snapshot = models.CharField(max_length=100, default='', blank=True, help_text='正常范围快照')
     choices_snapshot = models.TextField(default='', blank=True, help_text='候选项快照 JSON 数组')
-    number_min = models.FloatField(null=True, blank=True, help_text='数值正常下限快照（自动判定用）')
-    number_max = models.FloatField(null=True, blank=True, help_text='数值正常上限快照（自动判定用）')
     is_required = models.BooleanField(default=False, help_text='必填规则快照')
     abnormal_rule_snapshot = models.CharField(max_length=200, default='', blank=True, help_text='异常判定规则快照')
     execution_scope = models.CharField(max_length=20, default=EXEC_SCOPE_ALL, help_text='执行范围快照')
@@ -1183,8 +1157,6 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
     value_bool = models.BooleanField(null=True, blank=True, help_text='布尔填写值')
     # —— 结果与异常 ——
     result = models.CharField(max_length=20, help_text='结果：normal/abnormal/not_applicable/pending_review')
-    is_auto_judged = models.BooleanField(default=False, help_text='结果是否由数值范围自动判定')
-    correction_reason = models.CharField(max_length=200, default='', blank=True, help_text='修正自动判定结果的原因')
     abnormal_desc = models.CharField(max_length=500, default='', blank=True, help_text='异常说明（异常项必填）')
     na_reason = models.CharField(max_length=200, default='', blank=True, help_text='不适用原因')
     onsite_action = models.CharField(max_length=500, default='', blank=True, help_text='现场处理内容')
@@ -1256,14 +1228,9 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
             'system_location': self.system_location_snapshot,
             'template_item': self.template_item_id,
             'template_name': self.template_name_snapshot,
-            'item_code': self.item_code_snapshot,
             'item_name': self.item_name_snapshot,
-            'standard': self.standard_snapshot,
             'input_type': self.input_type,
             'unit': self.unit_snapshot,
-            'normal_range': self.normal_range_snapshot,
-            'number_min': self.number_min,
-            'number_max': self.number_max,
             'choices': self.get_choices(),
             'is_required': self.is_required,
             'abnormal_rule': self.abnormal_rule_snapshot,
@@ -1272,8 +1239,6 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
             'value_number': self.value_number,
             'value_bool': self.value_bool,
             'result': self.result,
-            'is_auto_judged': self.is_auto_judged,
-            'correction_reason': self.correction_reason,
             'abnormal_desc': self.abnormal_desc,
             'na_reason': self.na_reason,
             'onsite_action': self.onsite_action,
@@ -1830,12 +1795,14 @@ class OperationLedgerCorrection(TenantModelMixin, models.Model):
 
 # 统一系统履历事件枚举（步骤 3.4；Meta 约束访问不到类作用域，提为模块级）
 # 单系统简化：一条事件只关联一个系统，不再有跨系统角色（primary/affected/related 已删）
-EVENT_TYPE_VALUES = ['fault', 'work_order', 'ledger', 'health', 'config_snapshot']
-EVENT_SOURCE_TYPE_VALUES = ['fault', 'work_order', 'ledger_item', 'health', 'config_snapshot']
+# upgrade：系统升级管理挂接系统档案（2026-09），升级登记/完成/回退写入履历
+EVENT_TYPE_VALUES = ['fault', 'work_order', 'ledger', 'health', 'config_snapshot', 'upgrade']
+EVENT_SOURCE_TYPE_VALUES = ['fault', 'work_order', 'ledger_item', 'health', 'config_snapshot', 'upgrade']
 EVENT_ACTION_VALUES = [
     'create', 'recover', 'close', 'cancel',
     'convert_to_fault', 'convert_to_work_order',
     'complete', 'status_change', 'snapshot',
+    'rollback',
 ]
 
 
@@ -1861,12 +1828,14 @@ class SystemEvent(TenantModelMixin, models.Model):
     EVENT_LEDGER = 'ledger'
     EVENT_HEALTH = 'health'
     EVENT_CONFIG_SNAPSHOT = 'config_snapshot'
+    EVENT_UPGRADE = 'upgrade'
     EVENT_TYPE_CHOICES = (
         (EVENT_FAULT, '故障'),
         (EVENT_WORK_ORDER, '工单'),
         (EVENT_LEDGER, '台账异常'),
         (EVENT_HEALTH, '健康状态'),
         (EVENT_CONFIG_SNAPSHOT, '配置快照'),
+        (EVENT_UPGRADE, '系统升级'),
     )
     EVENT_TYPE_TEXT_MAP = dict(EVENT_TYPE_CHOICES)
 

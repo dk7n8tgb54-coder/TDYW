@@ -37,10 +37,11 @@ class Store {
   // === 升级方案（合并原模板+步骤清单）===
   @observable plans = [];
 
-  // === 升级系统候选项（仅 active 字典项，用于新建/编辑表单的 SystemSelect）===
-  // 注意：与 filterOptions.systems 不同——后者含历史兜底，用于列表筛选；
-  //       本字段仅含字典表 active 项，停用后立即从下拉消失。
+  // === 升级系统候选项（系统档案可用系统，用于新建/编辑表单的 SystemSelect）===
+  // 挂接系统档案后候选来源为 equipment_lifecycle LifecycleSystem（is_active=true），
+  // 请求与提交一律使用系统 ID；列表筛选用 filterOptions.systems（同源对象列表）。
   @observable systems = [];
+  @observable systemsFetching = false;
 
   // === 工作台相关状态 ===
   @observable recordSteps = [];
@@ -198,27 +199,17 @@ class Store {
       });
   };
 
-  // === 升级系统候选项接口（仅 active 字典项）===
+  // === 升级系统候选项接口（系统档案可用系统，请求只提交系统 ID）===
   fetchSystems = () => {
-    return http.get('/api/upgrade/systems/')
+    this.systemsFetching = true;
+    return http.get('/api/upgrade/candidate-systems/')
       .then((data) => {
-        this.systems = data || [];
+        this.systems = (data && data.data) || [];
       })
       .catch((error) => {
         console.error('[Upgrade Store] Systems error:', error);
-      });
-  };
-
-  // 乐观移除：立即从本地 systems 过滤掉指定 name，UI 即时更新
-  removeSystem = (name) => {
-    this.systems = this.systems.filter(s => s.name !== name);
-  };
-
-  // 乐观新增：立即把新项追加到本地 systems
-  addSystem = (system) => {
-    if (system && !this.systems.some(s => s.name === system.name)) {
-      this.systems = [...this.systems, system];
-    }
+      })
+      .finally(() => this.systemsFetching = false);
   };
 
   fetchPlanDetail = (id) => {

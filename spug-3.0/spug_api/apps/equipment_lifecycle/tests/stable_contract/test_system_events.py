@@ -389,10 +389,9 @@ class LedgerConvertEventTests(SystemEventTestBase):
 
     def create_reviewed_ledger_with_abnormal_item(self):
         template = OperationLedgerTemplate.objects.create(
-            name='巡检模板-履历', template_code='TPL-EV-001', ledger_type='inspection',
+            name='巡检模板-履历', ledger_type='inspection',
             maintenance_cycle='',
             is_active=True, tenant_id='tenant_a', created_by=self.admin)
-        template.applicable_systems.set([self.system_a])
         body = create_ledger_ok(self.client, ledger_payload([
             entry_payload(self.system_a.id, [
                 item_payload(result='abnormal', abnormal_desc='温度越限 65℃'),
@@ -561,10 +560,9 @@ class DeleteProtectionRegressionTests(SystemEventTestBase):
         """台账明细引用阻断系统删除（fail-closed）。"""
         # 通过真实 API 创建带明细的台账（明细以正式系统 ID 关联）
         template = OperationLedgerTemplate.objects.create(
-            name='巡检模板-删除保护', template_code='TPL-EV-003', ledger_type='inspection',
+            name='巡检模板-删除保护', ledger_type='inspection',
             maintenance_cycle='',
             is_active=True, tenant_id='tenant_a', created_by=self.admin)
-        template.applicable_systems.set([self.system_a])
         create_ledger_ok(self.client, ledger_payload([
             entry_payload(self.system_a.id, [item_payload()], template_id=template.id),
         ]))

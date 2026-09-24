@@ -2,7 +2,7 @@
  * 设备全生命周期（步骤 3.3，单系统简化）工单组件渲染测试
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
- * - 工单详情抽屉展示作业系统（名称+编号+地点快照）与影响运行标记、状态标签、来源单据
+ * - 工单详情抽屉展示作业系统（名称+地点快照）与影响运行标记、状态标签、来源单据
  * - 详情不再提供"受影响系统"页签
  * - 派发/接单/开始执行等按钮随状态与权限切换
  * - 故障详情"关联工单"页签展示该故障生成的工单（允许多张）
@@ -108,7 +108,7 @@ describe('工单详情抽屉', () => {
     const text = document.body.textContent;
     expect(text).toContain('WO20260919-0001');
     expect(text).toContain('烟台通信系统');
-    expect(text).toContain('SYS-A1');
+    expect(text).not.toContain('SYS-A1');
     expect(text).toContain('机房A');
     expect(text).toContain('作业期间影响系统运行');
     expect(text).toContain('影响运行');

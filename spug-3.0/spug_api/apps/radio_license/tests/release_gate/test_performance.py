@@ -189,6 +189,8 @@ class ConcurrentWriteTests(TransactionTestCase):
     def setUp(self):
         from apps.setting.utils import AppSetting
         AppSetting.set('bind_ip', False)
+        from apps.radio_license.tests.release_gate import rg_ensure_tenants
+        rg_ensure_tenants()
         self.user = _make_user('rg_concw_user', tenant_id=TENANT_A)
         _grant_perms(self.user, FULL_LICENSE_PERMS + FULL_APPROVAL_PERMS)
         self.client = _make_client(self.user)

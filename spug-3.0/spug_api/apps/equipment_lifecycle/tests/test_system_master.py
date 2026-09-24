@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """系统主数据稳定契约测试。
 
-覆盖任务九要求：系统编号租户内唯一、跨租户隔离、无父子层级、
-停用/启用语义、删除保护基础能力、权限独立校验、审计留痕。
+覆盖任务九要求：系统编号后端自动生成且租户内唯一、跨租户隔离、
+无父子层级、停用/启用语义、删除保护基础能力、权限独立校验、审计留痕。
 """
 import json
 
@@ -32,16 +32,19 @@ class SystemMasterTest(TestCase):
         self.client = make_client(self.admin)
 
     def test_create_system_success(self):
-        payload = system_payload()
+        payload = system_payload(system_code='CLIENT-IGNORED-01')
         resp = self.client.post('/equipment-lifecycle/systems/', payload,
                                 content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         data = resp.json()['data']
-        self.assertEqual(data['system_code'], 'SYS-NEW-01')
+        # 编号由后端自动生成（SYS-日期-随机），客户端传入的取值被忽略
+        self.assertRegex(data['system_code'], r'^SYS-\d{8}-[0-9A-F]{6}$')
+        self.assertNotEqual(data['system_code'], 'CLIENT-IGNORED-01')
         self.assertTrue(LifecycleSystem.objects.filter(
-            tenant_id='tenant_a', system_code='SYS-NEW-01').exists())
+            tenant_id='tenant_a', system_code=data['system_code']).exists())
         # 创建记录配置变更历史
-        system = LifecycleSystem.objects.get(system_code='SYS-NEW-01', tenant_id='tenant_a')
+        system = LifecycleSystem.objects.get(
+            system_code=data['system_code'], tenant_id='tenant_a')
         self.assertTrue(SystemConfigChange.objects.filter(
             system=system, source='system', action='create').exists())
         # 审计日志
@@ -49,13 +52,23 @@ class SystemMasterTest(TestCase):
             tenant_id='tenant_a', target_type='el_system', action='create',
             target_id=str(system.id)).exists())
 
-    def test_system_code_unique_within_tenant(self):
-        make_system(self.admin, tenant_id='tenant_a', system_code='DUP-01')
-        payload = system_payload(system_code='DUP-01')
-        resp = self.client.post('/equipment-lifecycle/systems/', payload,
-                                content_type='application/json')
-        self.assertIn('已存在', resp.json()['error'])
-        self.assertEqual(LifecycleSystem.objects.filter(tenant_id='tenant_a').count(), 1)
+    def test_system_code_generated_unique_within_tenant(self):
+        codes = set()
+        for name in ('自动生成甲', '自动生成乙', '自动生成丙'):
+            payload = system_payload(name=name)
+            resp = self.client.post('/equipment-lifecycle/systems/', payload,
+                                    content_type='application/json')
+            self.assertFalse(resp.json().get('error'), resp.content)
+            codes.add(resp.json()['data']['system_code'])
+        self.assertEqual(len(codes), 3)
+        self.assertEqual(
+            LifecycleSystem.objects.filter(tenant_id='tenant_a').count(), 3)
+        # 唯一约束仍由 (tenant_id, system_code) 数据库层兜底
+        constraints = {
+            c.name for c in LifecycleSystem._meta.constraints
+            if hasattr(c, 'fields') and set(c.fields) == {'tenant_id', 'system_code'}
+        }
+        self.assertIn('uniq_el_systems_tenant_code', constraints)
 
     def test_same_code_across_tenants_isolated(self):
         make_system(self.admin, tenant_id='tenant_a', system_code='SHARE-01')
@@ -89,14 +102,14 @@ class SystemMasterTest(TestCase):
         payload = system_payload(system_code='CHANGED-01')
         resp = self.client.put(f'/equipment-lifecycle/systems/{system.id}/', payload,
                                content_type='application/json')
-        self.assertIn('不可修改', resp.json()['error'])
+        # 客户端传入的编号被忽略，不报错、也不改变原值
+        self.assertFalse(resp.json().get('error'), resp.content)
         system.refresh_from_db()
         self.assertEqual(system.system_code, 'SYS-001')
 
     def test_edit_records_before_after_history(self):
         system = make_system(self.admin, tenant_id='tenant_a')
-        payload = system_payload(system_code=system.system_code,
-                                 name='改名字的系统', install_location='新机房Z')
+        payload = system_payload(name='改名字的系统', install_location='新机房Z')
         resp = self.client.put(f'/equipment-lifecycle/systems/{system.id}/', payload,
                                content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)

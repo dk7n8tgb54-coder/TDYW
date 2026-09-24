@@ -43,11 +43,11 @@ ABNORMAL_ITEMS_URL = LEDGER_URL + '/abnormal-items'
 
 
 def make_abnormal_item(index):
-    """数值超限的异常明细。"""
+    """手动判定为异常的明细（数值行）。"""
     return item_payload(
         item_name='电压测量%d' % index,
         input_type='number', value_text='', value_number=10,
-        number_min=48, number_max=54, result='abnormal', abnormal_desc='电压超限')
+        result='abnormal', abnormal_desc='电压超限')
 
 
 class LedgerPaginationContractTests(TestCase):

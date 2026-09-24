@@ -38,12 +38,12 @@ function SystemIndex(props) {
         <Breadcrumb.Item>系统列表</Breadcrumb.Item>
       </Breadcrumb>
       <SearchForm>
-        <SearchForm.Item span={6} title="系统编号/名称">
+        <SearchForm.Item span={6} title="系统名称">
           <Input
             allowClear
             value={store.f_keyword}
             onChange={e => store.f_keyword = e.target.value}
-            placeholder="请输入系统编号或名称"
+            placeholder="请输入系统名称"
             onPressEnter={() => {store.page = 1; store.fetchRecords();}}
           />
         </SearchForm.Item>

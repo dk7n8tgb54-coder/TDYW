@@ -4,86 +4,33 @@
  */
 /**
  * 运维台账录入/编辑表单（步骤 3.2）：
- * - 通过模板生成（模板先行：可不选系统，按模板适用系统展开为多系统明细）
- *   或临时直接新建；
- * - 明细按系统分组表格录入，一张台账一次提交全部系统明细；
- * - 数值项按正常范围自动建议结果，改判须填写修正原因；
- * - 正常项支持批量确认，异常项要求填写异常说明；
+ * - 通过模板生成（模板自动覆盖全部未停用电台）或临时直接新建；
+ * - 明细按系统分组表格录入；新增提交按电台拆分立账：每个电台一条台账
+ *   记录（独立编号、独立复核），client_token 按电台后缀保证重试幂等；
+ * - 明细仅填写值：结果不强制选择（单选填"不正常"由后端记异常），异常说明选填；
  * - 表头仅保留维护周期（周月维护）、实际执行日期（新增默认当日）与执行人。
  * 提交成功后重新获取后端真实数据，不做乐观更新。
  */
 import React from 'react';
 import {observer} from 'mobx-react';
 import {
-  Modal, Form, Input, InputNumber, Select, DatePicker, Button, Table, Collapse,
-  Checkbox, Tag, Tooltip, Space, Divider, message,
+  Modal, Form, Input, Select, Button, Collapse,
+  Space, Divider, message,
 } from 'antd';
 import {PlusOutlined, DeleteOutlined} from '@ant-design/icons';
 import {http} from 'libs';
 import {
-  API_PREFIX_L, CYCLE_TEXT, LEDGER_TYPE, LEDGER_TYPE_TEXT, PERM_L,
-  RESULT_COLOR, RESULT_TEXT,
+  API_PREFIX_L, LEDGER_TYPE, LEDGER_TYPE_TEXT,
 } from './constants';
+import {
+  buildSubmitEntries, expandTemplateEntries, makeRow,
+  rowsFromPreview, rowLooksAbnormal, todayStr,
+} from './ledgerCommon';
+import LedgerRowsTable from './LedgerRowsTable';
 import {getLedgerStore} from './store';
 
 const {Panel} = Collapse;
 const {Option} = Select;
-
-let CLIENT_SEQ = 0;
-function newClientKey() {
-  CLIENT_SEQ += 1;
-  return `k${Date.now()}_${CLIENT_SEQ}`;
-}
-
-// 本地当日日期（YYYY-MM-DD）：新增台账实际执行日期默认填当天
-function todayStr() {
-  const d = new Date();
-  const pad = n => (n < 10 ? `0${n}` : `${n}`);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function autoJudge(row) {
-  if (row.input_type !== 'number') return null;
-  if (row.value_number === null || row.value_number === undefined) return null;
-  if (row.number_min === null && row.number_max === null) return null;
-  if (row.number_min !== null && row.value_number < row.number_min) return 'abnormal';
-  if (row.number_max !== null && row.value_number > row.number_max) return 'abnormal';
-  return 'normal';
-}
-
-const VALUE_DEFAULTS = {
-  text: '', number: null, choice: '', multi_choice: [], boolean: null, attachment: '',
-};
-
-function makeRow(base) {
-  return Object.assign({
-    client_key: newClientKey(),
-    id: undefined,
-    system_id: undefined,
-    template_id: undefined,      // 来源模板（提交时随 entries 分组上报）
-    template_item_id: undefined,
-    item_name: '',
-    standard: '',
-    input_type: 'text',
-    unit: '',
-    normal_range: '',
-    choices: [],
-    number_min: null,
-    number_max: null,
-    is_required: false,
-    value_text: '',
-    value_number: null,
-    value_bool: null,
-    result: '',
-    correction_reason: '',
-    abnormal_desc: '',
-    na_reason: '',
-    onsite_action: '',
-    executor_name: '',
-    executed_at: null,
-    is_temporary: false,
-  }, base || {});
-}
 
 @observer
 class LedgerForm extends React.Component {
@@ -91,8 +38,8 @@ class LedgerForm extends React.Component {
     loading: false,
     createdFrom: 'template',
     systems: [],
-    templateEntries: [],       // [{system_id?, template_id}]，system_id 可缺省（模板先行展开）
-    templates: [],             // 当前类型全部启用模板（含 applicable_systems，供过滤与展开提示）
+    templateEntries: [],       // [{template_id}]，展开时自动覆盖全部未停用电台
+    templates: [],             // 当前类型全部启用模板
     rows: [],
     cycle: undefined,
     header: {
@@ -121,23 +68,15 @@ class LedgerForm extends React.Component {
             system_id: item.system,
             template_item_id: item.template_item,
             item_name: item.item_name,
-            standard: item.standard || '',
             input_type: item.input_type,
             unit: item.unit || '',
-            normal_range: item.normal_range || '',
             choices: item.choices || [],
-            number_min: item.number_min,
-            number_max: item.number_max,
             is_required: item.is_required,
             value_text: item.value_text || '',
             value_number: item.value_number,
             value_bool: item.value_bool,
+            // 结果仅用于已有异常行的角标/高亮显示，提交时不再上报
             result: item.result,
-            correction_reason: item.correction_reason || '',
-            abnormal_desc: item.abnormal_desc || '',
-            na_reason: item.na_reason || '',
-            onsite_action: item.onsite_action || '',
-            executor_name: item.executor_name || '',
             is_temporary: item.is_temporary,
           }));
           this.setState({
@@ -176,7 +115,7 @@ class LedgerForm extends React.Component {
 
   addTemplateEntry = () => {
     this.setState(prev => ({
-      templateEntries: [...prev.templateEntries, {system_id: undefined, template_id: undefined}],
+      templateEntries: [...prev.templateEntries, {template_id: undefined}],
     }));
   };
 
@@ -199,12 +138,14 @@ class LedgerForm extends React.Component {
   };
 
   generatePreview = () => {
-    const {templateEntries, cycle} = this.state;
+    const {templateEntries, systems, cycle} = this.state;
     const {store} = this.props;
-    // 模板先行：system_id 可缺省，由后端按模板适用系统展开
-    const entries = templateEntries.filter(t => t.template_id);
+    // 模板条目自动覆盖全部未停用系统：展开为 系统×模板 配对（预览接口契约不变）
+    const entries = expandTemplateEntries(templateEntries, systems);
     if (!entries.length) {
-      message.error('请先选择模板条目');
+      message.error(templateEntries.some(t => t.template_id)
+        ? '系统档案中没有可用系统，请先维护系统'
+        : '请先选择模板');
       return;
     }
     this.setState({loading: true});
@@ -213,27 +154,7 @@ class LedgerForm extends React.Component {
       maintenance_cycle: this.isWeekMonth ? (cycle || '') : '',
       entries,
     }).then(res => {
-      const rows = [];
-      (res.data || []).forEach(entry => {
-        (entry.items || []).forEach(item => {
-          rows.push(makeRow({
-            system_id: entry.system.id,
-            template_id: entry.template ? entry.template.id : undefined,
-            template_item_id: item.id,
-            item_name: item.name,
-            standard: item.standard || '',
-            input_type: item.input_type,
-            unit: item.unit || '',
-            normal_range: item.normal_range || '',
-            choices: item.choices || [],
-            number_min: item.number_min,
-            number_max: item.number_max,
-            is_required: item.is_required,
-            value_text: item.default_value || '',
-            result: '',
-          }));
-        });
-      });
+      const rows = rowsFromPreview(res.data);
       if (!rows.length) {
         message.warning('所选模板没有与本次周期匹配的项目');
       }
@@ -251,88 +172,6 @@ class LedgerForm extends React.Component {
     this.setState(prev => ({rows: prev.rows.filter(r => r.client_key !== clientKey)}));
   };
 
-  batchConfirmNormal = (rows) => {
-    const candidates = rows.filter(r => {
-      if (r.result === 'abnormal') return false;
-      if (r.result === 'normal') return false;
-      const auto = autoJudge(r);
-      return auto !== 'abnormal';
-    });
-    if (!candidates.length) {
-      message.warning('没有可批量确认的明细');
-      return;
-    }
-    this.setState(prev => ({
-      rows: prev.rows.map(r => (candidates.some(c => c.client_key === r.client_key) ? {...r, result: 'normal'} : r)),
-    }));
-  };
-
-  renderValueControl = (row) => {
-    const disabled = false;
-    switch (row.input_type) {
-      case 'number':
-        return (
-          <InputNumber
-            style={{width: '100%'}}
-            value={row.value_number}
-            onChange={v => this.setRow(row.client_key, {value_number: v})}/>
-        );
-      case 'choice':
-        return (
-          <Select
-            style={{width: '100%'}} allowClear value={row.value_text || undefined}
-            onChange={v => this.setRow(row.client_key, {value_text: v || ''})}>
-            {(row.choices || []).map(c => <Option value={c} key={c}>{c}</Option>)}
-          </Select>
-        );
-      case 'multi_choice':
-        return (
-          <Select
-            mode="multiple" style={{width: '100%'}} value={row.value_text ? JSON.parse(row.value_text || '[]') : []}
-            onChange={v => this.setRow(row.client_key, {value_text: JSON.stringify(v)})}>
-            {(row.choices || []).map(c => <Option value={c} key={c}>{c}</Option>)}
-          </Select>
-        );
-      case 'boolean':
-        return (
-          <Select
-            style={{width: '100%'}} allowClear value={row.value_bool === null || row.value_bool === undefined ? undefined : !!row.value_bool}
-            onChange={v => this.setRow(row.client_key, {value_bool: v === undefined ? null : v})}>
-            <Option value={true}>是</Option>
-            <Option value={false}>否</Option>
-          </Select>
-        );
-      case 'attachment':
-        return <Input disabled placeholder="保存台账后通过明细附件上传" value=""/>;
-      default:
-        return <Input value={row.value_text} onChange={e => this.setRow(row.client_key, {value_text: e.target.value})}/>;
-    }
-  };
-
-  renderResultControl = (row) => {
-    const auto = autoJudge(row);
-    return (
-      <Space size={4} direction="vertical" style={{width: '100%'}}>
-        <Select
-          style={{width: '100%'}}
-          value={row.result || undefined}
-          placeholder="请选择"
-          onChange={v => this.setRow(row.client_key, {result: v || ''})}>
-          {Object.keys(RESULT_TEXT).map(key => (
-            <Option value={key} key={key}>{RESULT_TEXT[key]}</Option>
-          ))}
-        </Select>
-        {auto && row.result && row.result !== auto && (
-          <Input
-            size="small"
-            placeholder={`自动建议为${RESULT_TEXT[auto]}，须填修正原因`}
-            value={row.correction_reason}
-            onChange={e => this.setRow(row.client_key, {correction_reason: e.target.value})}/>
-        )}
-      </Space>
-    );
-  };
-
   submit = () => {
     const {store} = this.props;
     const {header, rows, createdFrom, cycle, version} = this.state;
@@ -348,56 +187,13 @@ class LedgerForm extends React.Component {
       message.error('请至少录入一条台账明细');
       return;
     }
-    const missingResult = rows.find(r => !r.result);
-    if (missingResult) {
-      message.error(`明细"${missingResult.item_name}"尚未选择结果`);
-      return;
-    }
-    const missingAbnormal = rows.find(r => r.result === 'abnormal' && !(r.abnormal_desc || '').trim());
-    if (missingAbnormal) {
-      message.error(`异常明细"${missingAbnormal.item_name}"必须填写异常说明`);
-      return;
-    }
     // 按 系统+模板 分组组装 entries（同系统不同模板分列，后端逐条目校验快照来源）
-    const groupMap = {};
-    for (const r of rows) {
-      if (!r.system_id) {
-        message.error('每条明细必须选择所属系统');
-        return;
-      }
-      const key = `${r.system_id}|${r.template_id || ''}`;
-      if (!groupMap[key]) groupMap[key] = [];
-      groupMap[key].push(r);
+    const built = buildSubmitEntries(rows);
+    if (built.error) {
+      message.error(built.error);
+      return;
     }
-    const entries = Object.keys(groupMap).map(key => {
-      const [systemId, templateId] = key.split('|');
-      const entry = {
-        system_id: Number(systemId),
-        items: groupMap[key].map(r => ({
-          id: r.id,
-          template_item_id: r.template_item_id || undefined,
-          item_name: r.is_temporary || !r.id ? r.item_name : undefined,
-          standard: r.is_temporary || !r.id ? r.standard : undefined,
-          input_type: r.is_temporary || !r.id ? r.input_type : undefined,
-          unit: r.is_temporary || !r.id ? r.unit : undefined,
-          normal_range: r.is_temporary || !r.id ? r.normal_range : undefined,
-          choices: r.is_temporary || !r.id ? r.choices : undefined,
-          number_min: r.is_temporary || !r.id ? r.number_min : undefined,
-          number_max: r.is_temporary || !r.id ? r.number_max : undefined,
-          value_text: r.value_text,
-          value_number: r.value_number,
-          value_bool: r.value_bool,
-          result: r.result,
-          correction_reason: r.correction_reason,
-          abnormal_desc: r.abnormal_desc,
-          na_reason: r.na_reason,
-          onsite_action: r.onsite_action,
-          executor_name: r.executor_name,
-        })),
-      };
-      if (templateId) entry.template_id = Number(templateId);
-      return entry;
-    });
+    const entries = built.entries;
     const payload = {
       ledger_type: store.ledgerType,
       // 巡检固定空周期；周月维护提交所选周期；季维护后端校验固定为 'season'
@@ -405,13 +201,30 @@ class LedgerForm extends React.Component {
         ? cycle
         : (store.ledgerType === LEDGER_TYPE.SEASONAL ? 'season' : ''),
       created_from: createdFrom,
-      entries,
       ...header,
     };
     this.setState({loading: true});
-    const request = store.record.id
-      ? http.put(`${API_PREFIX_L}/ledgers/${store.record.id}/`, {...payload, version})
-      : http.post(`${API_PREFIX_L}/ledgers/`, payload);
+    let request;
+    if (store.record.id) {
+      // 编辑草稿：单条台账整体 PUT（历史台账可能跨系统，保持原接口）
+      request = http.put(`${API_PREFIX_L}/ledgers/${store.record.id}/`, {...payload, entries, version});
+    } else {
+      // 按电台拆分立账：每个电台一条台账记录（独立编号/复核）；
+      // client_token 按电台后缀，本次弹窗内重试时已建台账幂等返回
+      if (!this.submitToken) {
+        this.submitToken = `lf_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      }
+      const entriesBySystem = {};
+      entries.forEach(e => {
+        (entriesBySystem[e.system_id] = entriesBySystem[e.system_id] || []).push(e);
+      });
+      const posts = Object.keys(entriesBySystem).map(systemId => http.post(`${API_PREFIX_L}/ledgers/`, {
+        ...payload,
+        client_token: `${this.submitToken}_s${systemId}`,
+        entries: entriesBySystem[systemId],
+      }));
+      request = Promise.all(posts);
+    }
     request.then(() => {
       store.formVisible = false;
       store.fetchRecords();
@@ -463,52 +276,26 @@ class LedgerForm extends React.Component {
   };
 
   renderTemplateSection = () => {
-    const {templateEntries, systems, templates} = this.state;
+    const {templateEntries, templates} = this.state;
     const {store} = this.props;
     if (store.record.id) return null;
     return (
       <div style={{marginBottom: 12}}>
         <Divider orientation="left" style={{fontSize: 13, margin: '12px 0 8px'}}>通过模板生成</Divider>
         {templateEntries.map((entry, index) => {
-          const tpl = templates.find(t => t.id === entry.template_id);
-          const scopeCount = tpl ? (tpl.applicable_systems || []).length : null;
-          const expandHint = entry.template_id && !entry.system_id ? (
-            scopeCount > 0
-              ? `将展开全部适用系统（${scopeCount} 套）`
-              : '该模板未绑定适用系统'
-          ) : null;
-          // 选中系统后，模板下拉只显示适用于该系统的模板
-          const candidates = templates.filter(t => !entry.system_id
-            || (t.applicable_systems || []).some(s => s.id === entry.system_id));
           return (
             <div key={index} style={{marginBottom: 4}}>
-              <Space style={{marginBottom: 4}}>
+              <Space style={{marginBottom: 4}} wrap>
                 <Select
-                  style={{width: 260}} allowClear placeholder="全部适用系统（可不选）"
-                  value={entry.system_id}
-                  onChange={v => this.setTemplateEntry(index, {system_id: v, template_id: undefined})}>
-                  {systems.map(s => (
-                    <Option value={s.id} key={s.id}>{s.system_code}｜{s.name}｜{s.install_location}</Option>
-                  ))}
-                </Select>
-                <Select
-                  style={{width: 260}} placeholder="选择模板"
+                  style={{width: 240}} placeholder="选择模板"
                   value={entry.template_id}
                   onChange={v => this.setTemplateEntry(index, {template_id: v})}>
-                  {candidates.map(t => (
-                    <Option value={t.id} key={t.id}>{t.name}（{t.template_code}）</Option>
+                  {templates.map(t => (
+                    <Option value={t.id} key={t.id}>{t.name}</Option>
                   ))}
                 </Select>
                 <Button icon={<DeleteOutlined/>} onClick={() => this.removeTemplateEntry(index)}/>
               </Space>
-              {expandHint && (
-                <div style={{
-                  color: scopeCount > 0 ? '#999' : '#f5222d',
-                  fontSize: 12, marginBottom: 4,
-                }}>
-                  {expandHint}
-                </div>
-              )}
             </div>
           );
         })}
@@ -538,7 +325,7 @@ class LedgerForm extends React.Component {
           <Button
             key={s.id} size="small" style={{marginRight: 8, marginBottom: 8}}
             onClick={() => this.addManualRow(s.id)}>
-            + {s.system_code}｜{s.name}
+            + {s.name}
           </Button>
         ))}
         {rows.length === 0 && (
@@ -550,72 +337,9 @@ class LedgerForm extends React.Component {
     );
   };
 
-  renderRowTable = (groupRows) => {
-    const columns = [
-      {
-        title: '检查/维护项目', key: 'item', width: 180,
-        render: (t, r) => (
-          <Space size={2} direction="vertical" style={{width: '100%'}}>
-            {(r.is_temporary || !r.id) && !r.template_item_id ? (
-              <Input size="small" placeholder="项目名称" value={r.item_name} onChange={e => this.setRow(r.client_key, {item_name: e.target.value})}/>
-            ) : <span>{r.item_name}</span>}
-            {r.standard && <span style={{color: '#999', fontSize: 12}}>标准：{r.standard}</span>}
-          </Space>
-        ),
-      },
-      {title: '单位', dataIndex: 'unit', width: 60, render: v => v || '-'},
-      {title: '正常范围', dataIndex: 'normal_range', width: 100, render: v => v || '-'},
-      {title: '填写值', key: 'value', width: 130, render: (t, r) => this.renderValueControl(r)},
-      {title: '结果', key: 'result', width: 150, render: (t, r) => this.renderResultControl(r)},
-      {
-        title: '异常说明', key: 'abnormal', width: 150,
-        render: (t, r) => r.result === 'abnormal' ? (
-          <Input.TextArea
-            rows={1} placeholder="必填" className="el-ledger-abnormal-input"
-            value={r.abnormal_desc}
-            onChange={e => this.setRow(r.client_key, {abnormal_desc: e.target.value})}/>
-        ) : r.result === 'not_applicable' ? (
-          <Input size="small" placeholder="不适用原因（选填）" value={r.na_reason} onChange={e => this.setRow(r.client_key, {na_reason: e.target.value})}/>
-        ) : '-',
-      },
-      {
-        title: '现场处理', key: 'onsite', width: 130,
-        render: (t, r) => (
-          <Input.TextArea rows={1} value={r.onsite_action} onChange={e => this.setRow(r.client_key, {onsite_action: e.target.value})}/>
-        ),
-      },
-      {
-        title: '执行人', key: 'executor', width: 90,
-        render: (t, r) => (
-          <Input size="small" value={r.executor_name} onChange={e => this.setRow(r.client_key, {executor_name: e.target.value})}/>
-        ),
-      },
-      {
-        title: '操作', key: 'action', width: 50, align: 'center',
-        render: (t, r) => (
-          <Tooltip title="移除该明细">
-            <a style={{color: '#f5222d'}} onClick={() => this.removeRow(r.client_key)}><DeleteOutlined/></a>
-          </Tooltip>
-        ),
-      },
-    ];
-    return (
-      <div>
-        <div style={{marginBottom: 6}}>
-          <Checkbox
-            onChange={e => {
-              if (e.target.checked) this.batchConfirmNormal(groupRows);
-            }}>
-            批量确认未判定项为正常
-          </Checkbox>
-        </div>
-        <Table
-          rowKey="client_key" size="small"
-          columns={columns} dataSource={groupRows} pagination={false}
-          rowClassName={r => (r.result === 'abnormal' ? 'el-ledger-abnormal-row' : '')}/>
-      </div>
-    );
-  };
+  renderRowTable = (groupRows) => (
+    <LedgerRowsTable rows={groupRows} onSetRow={this.setRow} onRemoveRow={this.removeRow}/>
+  );
 
   render() {
     const {store} = this.props;
@@ -628,7 +352,7 @@ class LedgerForm extends React.Component {
       if (!groupMap[key]) {
         groupMap[key] = {
           system_id: r.system_id,
-          label: system ? `${system.name}（${system.system_code}｜${system.install_location}）` : `系统 #${r.system_id}`,
+          label: system ? `${system.name}（${system.install_location}）` : `系统 #${r.system_id}`,
           rows: [],
         };
         groups.push(groupMap[key]);
@@ -665,9 +389,9 @@ class LedgerForm extends React.Component {
                 extra={
                   <span>
                     {g.rows.length} 项
-                    {g.rows.some(r => r.result === 'abnormal') && (
+                    {g.rows.some(r => rowLooksAbnormal(r)) && (
                       <span style={{color: '#f5222d', marginLeft: 8}}>
-                        异常 {g.rows.filter(r => r.result === 'abnormal').length}
+                        异常 {g.rows.filter(r => rowLooksAbnormal(r)).length}
                       </span>
                     )}
                   </span>

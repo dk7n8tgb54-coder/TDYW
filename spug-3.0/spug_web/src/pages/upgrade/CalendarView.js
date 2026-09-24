@@ -94,7 +94,7 @@ export default observer(function () {
             }}
           >
             <Badge status={STATUS_COLOR_MAP[record.status] || 'default'} />
-            {record.title} {record.system}
+            {record.title} {record.system_name}
           </div>
         ))}
         {records.length > 3 && (
@@ -170,7 +170,7 @@ export default observer(function () {
               onChange={v => { store.f_system = v; }}
             >
               {store.filterOptions.systems.map(item => (
-                <Option value={item} key={item}>{item}</Option>
+                <Option value={item.id} key={item.id}>{item.name}</Option>
               ))}
             </Select>
             <Select
@@ -232,7 +232,7 @@ export default observer(function () {
               </Col>
               <Col span={4}>
                 <div><strong>系统</strong></div>
-                <div>{record.system}</div>
+                <div>{record.system_name || '-'}</div>
               </Col>
               <Col span={4}>
                 <div><strong>负责人</strong></div>

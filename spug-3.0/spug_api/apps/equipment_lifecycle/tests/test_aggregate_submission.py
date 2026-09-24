@@ -34,7 +34,6 @@ URL = '/equipment-lifecycle/systems'
 def aggregate_payload(**overrides):
     payload = {
         'system': {
-            'system_code': 'AGG-001',
             'name': '聚合提交系统',
             'system_model': 'MODEL-A',
             'install_location': '机房C',
@@ -72,7 +71,9 @@ class AggregateCreateTest(TestCase):
         ])
         resp = self.client.post(URL + '/', payload, content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
-        system = LifecycleSystem.objects.get(tenant_id='t9', system_code='AGG-001')
+        # 编号由后端自动生成，按返回值定位系统
+        system = LifecycleSystem.objects.get(
+            tenant_id='t9', system_code=resp.json()['data']['system_code'])
         # 自定义字段定义已创建，编码由后端生成，client_key 不落库
         custom = ConfigFieldDefinition.objects.get(
             tenant_id='t9', scope_type='custom', scope_owner_id=str(system.id))
@@ -120,7 +121,7 @@ class AggregateCreateTest(TestCase):
         resp = self.client.post(URL + '/', payload, content_type='application/json')
         self.assertIn('候选项', resp.json()['error'])
         self.assertEqual(
-            LifecycleSystem.objects.filter(tenant_id='t9', system_code='AGG-001').count(), 0)
+            LifecycleSystem.objects.filter(tenant_id='t9').count(), 0)
         self.assertEqual(
             ConfigFieldDefinition.objects.filter(tenant_id='t9', scope_type='custom').count(), 0)
         self.assertEqual(SystemConfigValue.objects.count(), 0)
@@ -134,7 +135,7 @@ class AggregateCreateTest(TestCase):
         resp = self.client.post(URL + '/', payload, content_type='application/json')
         self.assertIn('必填', resp.json()['error'])
         self.assertFalse(
-            LifecycleSystem.objects.filter(tenant_id='t9', system_code='AGG-001').exists())
+            LifecycleSystem.objects.filter(tenant_id='t9').exists())
 
     def test_rollback_on_duplicate_custom_field_name(self):
         payload = aggregate_payload(custom_fields=[
@@ -144,7 +145,7 @@ class AggregateCreateTest(TestCase):
         resp = self.client.post(URL + '/', payload, content_type='application/json')
         self.assertIn('重复', resp.json()['error'])
         self.assertFalse(
-            LifecycleSystem.objects.filter(tenant_id='t9', system_code='AGG-001').exists())
+            LifecycleSystem.objects.filter(tenant_id='t9').exists())
 
     def test_rollback_on_duplicate_client_key(self):
         payload = aggregate_payload(custom_fields=[
@@ -154,7 +155,7 @@ class AggregateCreateTest(TestCase):
         resp = self.client.post(URL + '/', payload, content_type='application/json')
         self.assertIn('client_key', resp.json()['error'])
         self.assertFalse(
-            LifecycleSystem.objects.filter(tenant_id='t9', system_code='AGG-001').exists())
+            LifecycleSystem.objects.filter(tenant_id='t9').exists())
 
     def test_rollback_on_secret_keyword_custom_field(self):
         payload = aggregate_payload(custom_fields=[
@@ -163,7 +164,7 @@ class AggregateCreateTest(TestCase):
         resp = self.client.post(URL + '/', payload, content_type='application/json')
         self.assertIn('关键词', resp.json()['error'])
         self.assertFalse(
-            LifecycleSystem.objects.filter(tenant_id='t9', system_code='AGG-001').exists())
+            LifecycleSystem.objects.filter(tenant_id='t9').exists())
 
     def test_custom_field_requires_field_permission(self):
         """无字段管理权限的用户提交内联字段定义被整体拒绝。"""
@@ -175,7 +176,7 @@ class AggregateCreateTest(TestCase):
         resp = client.post(URL + '/', payload, content_type='application/json')
         self.assertIn('权限', resp.json()['error'])
         self.assertFalse(
-            LifecycleSystem.objects.filter(tenant_id='t9', system_code='AGG-001').exists())
+            LifecycleSystem.objects.filter(tenant_id='t9').exists())
 
 
 class AggregateUpdateTest(TestCase):
@@ -196,7 +197,6 @@ class AggregateUpdateTest(TestCase):
     def _payload(self, **overrides):
         payload = {
             'system': {
-                'system_code': self.system.system_code,
                 'name': '编辑后的系统',
                 'system_model': 'HX-100',
                 'install_location': '机房D',

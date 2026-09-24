@@ -45,7 +45,7 @@ class FaultDetail extends React.Component {
           <Tag color={FAULT_STATUS_COLOR[d.status]}>{FAULT_STATUS_TEXT[d.status]}</Tag>
         </Descriptions.Item>
         <Descriptions.Item label="故障系统">
-          {`${d.system_name}（${d.system_code}）`}
+          {d.system_name}
         </Descriptions.Item>
         <Descriptions.Item label="安装地点">{d.system_location || '-'}</Descriptions.Item>
         <Descriptions.Item label="系统影响程度">

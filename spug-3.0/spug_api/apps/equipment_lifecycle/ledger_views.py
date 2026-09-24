@@ -85,17 +85,14 @@ def _parse_choices_field(raw):
 # ======================================================================
 
 def _get_template_for_user(pk, user):
-    return apply_tenant_filter(
-        OperationLedgerTemplate.objects.prefetch_related('applicable_systems'), user
-    ).filter(pk=pk).first()
+    return apply_tenant_filter(OperationLedgerTemplate.objects.all(), user).filter(pk=pk).first()
 
 
 def _validate_template_header(request, body, item=None):
-    """模板表头字段校验，返回字段 dict 或错误信息。"""
+    """模板表头字段校验，返回字段 dict 或错误信息（编号由后端自动生成）。"""
     name = str(body.get('name') or '').strip()
-    template_code = str(body.get('template_code') or '').strip()
-    if not name or not template_code:
-        return None, '模板名称和编号不能为空'
+    if not name:
+        return None, '模板名称不能为空'
     ledger_type = body.get('ledger_type')
     if ledger_type not in LEDGER_TYPE_VALUES:
         return None, '台账类型不合法'
@@ -104,39 +101,19 @@ def _validate_template_header(request, body, item=None):
         ledger_services.validate_ledger_type_cycle(ledger_type, maintenance_cycle)
     except LedgerValidationError as e:
         return None, str(e)
-    dup = OperationLedgerTemplate.objects.filter(
-        tenant_id=request.user.tenant_id, template_code=template_code)
-    if item:
-        dup = dup.exclude(pk=item.pk)
-    if dup.exists():
-        return None, '模板编号已存在：%s' % template_code
-    systems = []
-    system_ids = body.get('applicable_systems')
-    if system_ids:
-        if not isinstance(system_ids, list):
-            return None, '适用系统必须为数组'
-        systems = list(apply_tenant_filter(LifecycleSystem.objects.all(), request.user).filter(
-            pk__in=system_ids))
-        if len(systems) != len(set(system_ids)):
-            return None, '适用系统不存在或无权限访问'
-    if not systems:
-        return None, '请选择适用系统'
     return {
         'name': name,
-        'template_code': template_code,
         'ledger_type': ledger_type,
         'maintenance_cycle': maintenance_cycle,
-        'applicable_systems': systems,
         'description': str(body.get('description') or '').strip(),
     }, None
 
 
 def _validate_template_item_payload(request, template, body, item=None):
     """模板项目字段校验，返回字段 dict 或错误信息。"""
-    item_code = str(body.get('item_code') or '').strip()
     name = str(body.get('name') or '').strip()
-    if not item_code or not name:
-        return None, '项目编码和名称不能为空'
+    if not name:
+        return None, '项目名称不能为空'
     input_type = body.get('input_type')
     if input_type not in LEDGER_INPUT_TYPE_VALUES:
         return None, '录入类型不合法：%s' % input_type
@@ -153,32 +130,13 @@ def _validate_template_item_payload(request, template, body, item=None):
             return None, str(e)
         if not choices:
             return None, '单选/多选项目必须配置候选项'
-    number_min = body.get('number_min')
-    number_max = body.get('number_max')
-    for label, value in (('数值正常下限', number_min), ('数值正常上限', number_max)):
-        if value not in (None, '') and not isinstance(value, (int, float)):
-            try:
-                float(value)
-            except (TypeError, ValueError):
-                return None, '%s必须为数字' % label
-    dup = OperationLedgerTemplateItem.objects.filter(
-        tenant_id=request.user.tenant_id, template=template, item_code=item_code)
-    if item:
-        dup = dup.exclude(pk=item.pk)
-    if dup.exists():
-        return None, '模板内项目编码已存在：%s' % item_code
     return {
-        'item_code': item_code,
         'name': name,
-        'standard': str(body.get('standard') or '').strip(),
         'input_type': input_type,
         'unit': str(body.get('unit') or '').strip(),
-        'normal_range': str(body.get('normal_range') or '').strip(),
-        'number_min': number_min if number_min not in ('', None) else None,
-        'number_max': number_max if number_max not in ('', None) else None,
         'choices': choices_raw,
         'default_value': str(body.get('default_value') or '').strip(),
-        'is_required': bool(body.get('is_required', False)),
+        'is_required': bool(body.get('is_required', True)),
         'execution_scope': execution_scope,
         'abnormal_rule': str(body.get('abnormal_rule') or '').strip(),
         'operation_guide': str(body.get('operation_guide') or '').strip(),
@@ -199,14 +157,8 @@ class LedgerTemplateView(View):
             query = query.filter(is_active=(is_active == 'true'))
         keyword = request.GET.get('keyword')
         if keyword:
-            query = query.filter(Q(name__icontains=keyword) | Q(template_code__icontains=keyword))
-        data = []
-        for item in query.prefetch_related('applicable_systems'):
-            view = item.to_view(with_counts=True)
-            view['applicable_systems'] = [
-                {'id': s.id, 'system_code': s.system_code, 'name': s.name}
-                for s in item.applicable_systems.all()]
-            data.append(view)
+            query = query.filter(Q(name__icontains=keyword))
+        data = [item.to_view(with_counts=True) for item in query]
         return json_response({'data': data})
 
     @auth('equipment_lifecycle.ledger_template.add')
@@ -225,9 +177,8 @@ class LedgerTemplateView(View):
                 template = OperationLedgerTemplate.objects.create(
                     tenant_id=request.user.tenant_id,
                     created_by=request.user,
-                    **{k: v for k, v in header.items() if k != 'applicable_systems'},
+                    **header,
                 )
-                template.applicable_systems.set(header['applicable_systems'])
                 for row in items_payload:
                     fields, error = _validate_template_item_payload(request, template, row)
                     if error:
@@ -238,21 +189,15 @@ class LedgerTemplateView(View):
         except LedgerValidationError as e:
             return json_response(error=str(e))
         except IntegrityError:
-            return json_response(error='模板编号已存在')
+            return json_response(error='模板保存失败，请重试')
         record_audit_event(request, 'create', AUDIT_TARGET_TEMPLATE, template.id, template.name,
-                           after_value={'template_code': template.template_code,
-                                        'ledger_type': template.ledger_type,
+                           after_value={'ledger_type': template.ledger_type,
                                         'items_count': len(items_payload)})
         return json_response(template.to_view(with_counts=True))
 
 
 class LedgerTemplateAvailableView(View):
-    """按台账类型/周期/系统加载适用（启用）模板。
-
-    system 参数可选：带 system 时只返回适用于该系统的模板（原有行为）；
-    缺省时返回该类型全部启用模板并附 applicable_systems，供录入端
-    "只选模板、按适用系统展开"的模板先行交互使用。
-    """
+    """按台账类型/周期加载启用模板（模板不绑定系统，供录入端候选）。"""
 
     @auth('equipment_lifecycle.ledger.view')
     def get(self, request):
@@ -265,35 +210,19 @@ class LedgerTemplateAvailableView(View):
         except LedgerValidationError as e:
             return json_response(error=str(e))
 
-        def _view(template, with_systems=False):
+        def _view(template):
             view = template.to_view()
             count_qs = template.items.filter(is_active=True)
             if ledger_type == LEDGER_TYPE_WEEK_MONTH:
                 count_qs = count_qs.filter(execution_scope__in=[
                     'all', 'week_only' if maintenance_cycle == 'week' else 'month_only'])
             view['items_count'] = count_qs.count()
-            if with_systems:
-                view['applicable_systems'] = [
-                    {'id': s.id, 'system_code': s.system_code, 'name': s.name}
-                    for s in template.applicable_systems.all()]
             return view
 
-        data = []
         templates = apply_tenant_filter(
             OperationLedgerTemplate.objects.all(), request.user).filter(
-            ledger_type=ledger_type, is_active=True).prefetch_related('applicable_systems')
-        system_param = request.GET.get('system')
-        if system_param:
-            system = _get_system_for_user(system_param, request.user)
-            if not system:
-                return json_response(error='系统不存在')
-            for template in templates:
-                if template.applies_to_system(system):
-                    data.append(_view(template))
-        else:
-            for template in templates:
-                data.append(_view(template, with_systems=True))
-        return json_response({'data': data})
+            ledger_type=ledger_type, is_active=True)
+        return json_response({'data': [_view(t) for t in templates]})
 
 
 class LedgerTemplateDetailView(View):
@@ -303,9 +232,6 @@ class LedgerTemplateDetailView(View):
         if not template:
             return json_response(error='台账模板不存在')
         view = template.to_view(with_counts=True)
-        view['applicable_systems'] = [
-            {'id': s.id, 'system_code': s.system_code, 'name': s.name, 'install_location': s.install_location}
-            for s in template.applicable_systems.all()]
         view['items'] = [it.to_view() for it in template.items.all()]
         return json_response(view)
 
@@ -322,11 +248,10 @@ class LedgerTemplateDetailView(View):
             return json_response(error=error)
         before = {'name': template.name, 'description': template.description}
         with transaction.atomic():
-            for field in ('name', 'template_code', 'description'):
+            for field in ('name', 'description'):
                 setattr(template, field, header[field])
             template.updated_by = request.user
             template.save()
-            template.applicable_systems.set(header['applicable_systems'])
         record_audit_event(request, 'update', AUDIT_TARGET_TEMPLATE, template.id, template.name,
                            before_value=before,
                            after_value={'name': template.name, 'description': template.description})
@@ -384,8 +309,7 @@ class LedgerTemplateItemView(View):
         item = OperationLedgerTemplateItem.objects.create(
             template=template, tenant_id=request.user.tenant_id, created_by=request.user, **fields)
         record_audit_event(request, 'create', AUDIT_TARGET_TEMPLATE, template.id, template.name,
-                           after_value={'action_kind': 'add_template_item',
-                                        'item_code': item.item_code, 'item_name': item.name})
+                           after_value={'action_kind': 'add_template_item', 'item_name': item.name})
         return json_response(item.to_view())
 
 
@@ -422,7 +346,7 @@ class LedgerTemplateItemDetailView(View):
         item = template.items.filter(pk=iid).first()
         if not item:
             return json_response(error='模板项目不存在')
-        before = {'item_code': item.item_code, 'item_name': item.name}
+        before = {'item_name': item.name}
         # 历史台账明细保存全量快照（template_item SET_NULL），物理删除模板项目不影响历史
         item.delete()
         record_audit_event(request, 'delete', AUDIT_TARGET_TEMPLATE, template.id, template.name,
@@ -730,8 +654,8 @@ class LedgerExportView(View):
         writer = csv.writer(buffer)
         writer.writerow([
             '台账编号', '台账类型', '维护周期', '实际执行日期', '状态', '系统编号', '系统名称',
-            '项目编码', '项目名称', '标准要求', '录入类型', '填写值', '单位',
-            '正常范围', '结果', '异常说明', '不适用原因', '现场处理内容', '明细执行人',
+            '项目名称', '录入类型', '填写值', '单位',
+            '结果', '异常说明', '不适用原因', '现场处理内容', '明细执行人',
             '明细执行时间', '录入渠道', '录入时间'])
         count = 0
         for item in rows:
@@ -749,8 +673,8 @@ class LedgerExportView(View):
                 ledger.ledger_no, LEDGER_TYPE_TEXT.get(ledger.ledger_type, ledger.ledger_type),
                 ledger.maintenance_cycle, ledger.executed_date,
                 ledger.status, item.system_code_snapshot, item.system_name_snapshot,
-                item.item_code_snapshot, item.item_name_snapshot, item.standard_snapshot,
-                item.input_type, value, item.unit_snapshot, item.normal_range_snapshot,
+                item.item_name_snapshot,
+                item.input_type, value, item.unit_snapshot,
                 ITEM_RESULT_TEXT_MAP.get(item.result, item.result),
                 item.abnormal_desc, item.na_reason, item.onsite_action, item.executor_name,
                 item.executed_at or '', ledger.entry_channel,

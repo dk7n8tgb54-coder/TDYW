@@ -107,7 +107,7 @@ function WorkOrderForm({visible, onClose, isEdit = false, initialValues = null, 
             >
               {store.systems.map(s => (
                 <Option value={s.id} key={s.id}>
-                  {`${s.name}（${s.system_code}）`}
+                  {s.name}
                 </Option>
               ))}
             </Select>

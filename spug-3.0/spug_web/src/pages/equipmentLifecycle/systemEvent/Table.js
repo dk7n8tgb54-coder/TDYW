@@ -40,10 +40,7 @@ class ComTable extends React.Component {
     key: 'system',
     width: 200,
     render: (text, record) => (
-      <span>
-        <span style={{marginRight: 6}}>{record.system_code}</span>
-        <span style={{color: '#999'}}>{record.system_name}</span>
-      </span>
+      <span style={{color: '#999'}}>{record.system_name}</span>
     ),
   }, {
     title: '事件类型',

@@ -49,7 +49,6 @@ class SystemLedgerTab extends React.Component {
       render: (t, r) => r.ledger_executed_date,
     },
     {title: '项目', dataIndex: 'item_name', width: 160},
-    {title: '标准要求', dataIndex: 'standard', ellipsis: true, render: v => v || '-'},
     {title: '填写值', key: 'value', width: 100, render: (t, r) => r.value_text || (r.value_number === null || r.value_number === undefined ? '-' : r.value_number)},
     {
       title: '结果', dataIndex: 'result', width: 80,

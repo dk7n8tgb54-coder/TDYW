@@ -12,7 +12,8 @@
 - 系统关联一律使用系统 ID，页面显示的名称/编号/地点均保存快照；
 - 模板生成台账时保存模板项目全量快照，模板后续修改不影响已生成台账；
 - 表头与全部明细在同一事务内写入，任一明细校验失败整体回滚；
-- 数值项目按正常范围自动建议结果，用户改判须填写修正原因；
+- 明细结果不再强制选择：未提交结果时按填写值派生默认
+  （正常/不正常单选填"不正常"记 abnormal，其余一律 normal），异常说明选填；
 - 本模块只记录异常：不转故障/工单、不修改系统健康状态、不做计划提醒。
 """
 import json
@@ -59,8 +60,7 @@ from apps.equipment_lifecycle.models import (
 # 编辑台账时允许更新的明细字段（模板快照字段生成后不可变）
 ITEM_EDITABLE_FIELDS = {
     'value_text', 'value_number', 'value_bool', 'result', 'abnormal_desc',
-    'na_reason', 'onsite_action', 'executor_name', 'executed_at',
-    'correction_reason', 'display_order',
+    'na_reason', 'onsite_action', 'executor_name', 'executed_at', 'display_order',
 }
 # 明细值/结果字段（快照映射展示用）
 ITEM_RESULT_TEXT_MAP = {
@@ -69,6 +69,8 @@ ITEM_RESULT_TEXT_MAP = {
     ITEM_RESULT_NOT_APPLICABLE: '不适用',
     ITEM_RESULT_PENDING_REVIEW: '待复核',
 }
+# 正常/不正常单选的固定候选项（与前端 constants.js NORMAL_ABNORMAL_CHOICES 对齐）
+LEDGER_CHOICE_ABNORMAL = '不正常'
 
 
 class LedgerValidationError(Exception):
@@ -157,27 +159,6 @@ def get_active_template(user, template_id, ledger_type, maintenance_cycle):
     return template
 
 
-def get_template_for_entry(user, template_id, ledger_type, maintenance_cycle, system):
-    """录入校验用模板：类型/周期匹配、启用且适用于该系统。"""
-    template = get_active_template(user, template_id, ledger_type, maintenance_cycle)
-    if not template.applies_to_system(system):
-        raise LedgerValidationError('台账模板不适用于系统：%s' % system.name)
-    return template
-
-
-def auto_judge_number_result(number_min, number_max, value_number):
-    """数值范围自动判定：命中返回 'normal'/'abnormal'，无法判定返回 None。"""
-    if value_number is None:
-        return None
-    if number_min is None and number_max is None:
-        return None
-    if number_min is not None and value_number < number_min:
-        return ITEM_RESULT_ABNORMAL
-    if number_max is not None and value_number > number_max:
-        return ITEM_RESULT_ABNORMAL
-    return ITEM_RESULT_NORMAL
-
-
 def validate_item_value(input_type, payload):
     """按录入类型校验填写值：必填、类型、候选项。
 
@@ -196,7 +177,14 @@ def validate_item_value(input_type, payload):
     if input_type == 'text':
         if is_required and not str(value_text).strip():
             raise LedgerValidationError('该项为必填项，请填写内容')
-        return str(value_text), None, None
+        # 数字/文本类型：纯数字填写值同时落 value_number，供范围自动判定与批量确认超限拦截使用
+        number = None
+        if value_number not in (None, ''):
+            try:
+                number = float(value_number)
+            except (TypeError, ValueError):
+                number = None
+        return str(value_text), number, None
     if input_type == 'number':
         if value_number in (None, ''):
             if is_required:
@@ -242,35 +230,25 @@ def validate_item_value(input_type, payload):
     return str(value_text) if value_text else '', None, None
 
 
-def resolve_item_result(input_type, snapshot, payload):
-    """确定明细结果：数值范围自动判定 + 用户改判校验。
+def resolve_item_result(payload):
+    """确定明细结果：录入界面已无结果列，不强制选择。
 
-    返回 (result, is_auto_judged, correction_reason)。
+    显式提交时校验合法性；未提交时按填写值派生默认——
+    正常/不正常单选填"不正常"记 abnormal，其余一律 normal，
+    避免"填写值=不正常、结果=正常"的数据矛盾。
     """
     result = payload.get('result') or ''
-    correction_reason = str(payload.get('correction_reason') or '').strip()
-    if result and result not in ITEM_RESULT_VALUES:
+    if not result:
+        if str(payload.get('value_text') or '').strip() == LEDGER_CHOICE_ABNORMAL:
+            return ITEM_RESULT_ABNORMAL
+        return ITEM_RESULT_NORMAL
+    if result not in ITEM_RESULT_VALUES:
         raise LedgerValidationError('结果不合法：%s' % result)
-    auto = auto_judge_number_result(
-        snapshot.get('number_min'), snapshot.get('number_max'), payload.get('value_number'))
-    if auto is None:
-        if not result:
-            raise LedgerValidationError('请选择检查结果')
-        return result, False, correction_reason
-    if not result or result == auto:
-        return auto, True, correction_reason
-    # 用户结论与自动判定不一致：改判为 normal/abnormal 属于修正判定结论，须填写原因
-    if result in (ITEM_RESULT_NORMAL, ITEM_RESULT_ABNORMAL) and not correction_reason:
-        raise LedgerValidationError(
-            '项目"%s"数值自动判定为%s，修改为%s须填写修正原因' % (
-                snapshot.get('item_name', ''), ITEM_RESULT_TEXT_MAP[auto], ITEM_RESULT_TEXT_MAP[result]))
-    return result, False, correction_reason
+    return result
 
 
 def validate_item_result_rules(result, payload):
-    """结果配套规则：异常必填异常说明；不适用允许填写原因。"""
-    if result == ITEM_RESULT_ABNORMAL and not str(payload.get('abnormal_desc') or '').strip():
-        raise LedgerValidationError('异常项必须填写异常说明')
+    """结果配套规则：异常说明选填；正常项不应填写异常说明。"""
     if result == ITEM_RESULT_NORMAL and str(payload.get('abnormal_desc') or '').strip() \
             and payload.get('force_abnormal_desc'):
         raise LedgerValidationError('正常项不应填写异常说明')
@@ -281,15 +259,10 @@ def build_template_snapshot(template, tpl_item):
     return {
         'template_item': tpl_item,
         'template_name_snapshot': template.name,
-        'item_code_snapshot': tpl_item.item_code,
         'item_name_snapshot': tpl_item.name,
-        'standard_snapshot': tpl_item.standard,
         'input_type': tpl_item.input_type,
         'unit_snapshot': tpl_item.unit,
-        'normal_range_snapshot': tpl_item.normal_range,
         'choices_snapshot': json.dumps(tpl_item.get_choices(), ensure_ascii=False),
-        'number_min': tpl_item.number_min,
-        'number_max': tpl_item.number_max,
         'is_required': tpl_item.is_required,
         'abnormal_rule_snapshot': tpl_item.abnormal_rule,
         'execution_scope': tpl_item.execution_scope,
@@ -310,15 +283,10 @@ def build_manual_snapshot(payload):
     return {
         'template_item': None,
         'template_name_snapshot': '',
-        'item_code_snapshot': str(payload.get('item_code') or '').strip(),
         'item_name_snapshot': item_name,
-        'standard_snapshot': str(payload.get('standard') or '').strip(),
         'input_type': input_type,
         'unit_snapshot': str(payload.get('unit') or '').strip(),
-        'normal_range_snapshot': str(payload.get('normal_range') or '').strip(),
         'choices_snapshot': json.dumps(choices, ensure_ascii=False),
-        'number_min': payload.get('number_min'),
-        'number_max': payload.get('number_max'),
         'is_required': bool(payload.get('is_required')),
         'abnormal_rule_snapshot': str(payload.get('abnormal_rule') or '').strip(),
         'execution_scope': payload.get('execution_scope') or 'all',
@@ -373,8 +341,8 @@ def _build_item_instances(user, ledger, systems_map, entries_payload):
         seen_system_ids.add(system.id)
         template = None
         if entry.get('template_id'):
-            template = get_template_for_entry(
-                user, entry['template_id'], ledger.ledger_type, ledger.maintenance_cycle, system)
+            template = get_active_template(
+                user, entry['template_id'], ledger.ledger_type, ledger.maintenance_cycle)
         rows = entry.get('items')
         if not isinstance(rows, list) or not rows:
             raise LedgerValidationError('系统 %s 至少需要一条台账明细' % system.name)
@@ -407,7 +375,7 @@ def _build_item_instance(ledger, system, template, row, order):
         validate_snapshot_execution_scope(snapshot['execution_scope'])
         is_temporary = True
     value_text, value_number, value_bool = validate_item_value(snapshot['input_type'], row)
-    result, is_auto, correction = resolve_item_result(snapshot['input_type'], snapshot, row)
+    result = resolve_item_result(row)
     validate_item_result_rules(result, row)
     item = OperationLedgerItem(
         ledger=ledger,
@@ -420,8 +388,6 @@ def _build_item_instance(ledger, system, template, row, order):
         value_number=value_number,
         value_bool=value_bool,
         result=result,
-        is_auto_judged=is_auto,
-        correction_reason=correction,
         abnormal_desc=str(row.get('abnormal_desc') or '').strip(),
         na_reason=str(row.get('na_reason') or '').strip(),
         onsite_action=str(row.get('onsite_action') or '').strip(),
@@ -540,8 +506,8 @@ def update_ledger(user, pk, body):
                 raise LedgerValidationError('明细必须关联正式系统')
             template = None
             if entry.get('template_id'):
-                template = get_template_for_entry(
-                    user, entry['template_id'], ledger.ledger_type, ledger.maintenance_cycle, system)
+                template = get_active_template(
+                    user, entry['template_id'], ledger.ledger_type, ledger.maintenance_cycle)
             rows = entry.get('items')
             if not isinstance(rows, list) or not rows:
                 raise LedgerValidationError('系统 %s 至少需要一条台账明细' % system.name)
@@ -583,13 +549,13 @@ def _apply_item_edits(item, row, system):
         'choices': item.get_choices(),
     }
     value_text, value_number, value_bool = validate_item_value(item.input_type, payload)
+    value_changed = (item.value_text, item.value_number, item.value_bool) != (
+        value_text, value_number, value_bool)
     item.value_text, item.value_number, item.value_bool = value_text, value_number, value_bool
-    result, is_auto, correction = resolve_item_result(item.input_type, {
-        'number_min': item.number_min, 'number_max': item.number_max,
-        'item_name': item.item_name_snapshot,
-    }, row)
-    item.result, item.is_auto_judged, item.correction_reason = result, is_auto, correction
-    validate_item_result_rules(result, row)
+    # 结果列已从录入界面移除：仅显式提交结果或填写值变化时重算，否则保留原结果
+    if row.get('result') or value_changed:
+        item.result = resolve_item_result(row)
+        validate_item_result_rules(item.result, row)
     if 'abnormal_desc' in row:
         item.abnormal_desc = str(row.get('abnormal_desc') or '').strip()
     if 'na_reason' in row:
@@ -626,10 +592,8 @@ def _preview_system_entry(system, template, maintenance_cycle):
 def preview_entries(user, body):
     """按 系统+模板 生成台账明细预览骨架（不落库，值/结果由填写人补充）。
 
-    条目两种形态：
-    - {system_id, template_id?}：显式指定系统（原有行为）；
-    - {template_id}：只选模板，按模板适用系统展开为多个系统条目
-      （仅当前用户可见且未停用的系统，展开排除显式条目已包含的系统）。
+    条目形态：{system_id, template_id?}——系统必选；模板不绑定系统，
+    适用于任何系统。
     """
     ledger_type = body.get('ledger_type')
     maintenance_cycle = body.get('maintenance_cycle') or ''
@@ -642,38 +606,21 @@ def preview_entries(user, body):
         return None, '请至少选择一个系统'
     if not all(isinstance(e, dict) for e in entries):
         return None, '台账系统条目格式不正确'
-    if any(not e.get('system_id') and not e.get('template_id') for e in entries):
-        return None, '台账系统条目格式不正确'
-    explicit_ids = {e.get('system_id') for e in entries if e.get('system_id')}
+    if any(not e.get('system_id') for e in entries):
+        return None, '请选择系统'
     try:
-        systems_map = get_systems_for_user(user, list(explicit_ids)) if explicit_ids else {}
+        systems_map = get_systems_for_user(
+            user, list({e.get('system_id') for e in entries}))
         preview = []
         for entry in entries:
-            if not entry.get('system_id'):
-                continue
             system = systems_map.get(entry.get('system_id'))
+            if system is None:
+                raise LedgerValidationError('明细必须关联正式系统')
             template = None
             if entry.get('template_id'):
-                template = get_template_for_entry(
-                    user, entry['template_id'], ledger_type, maintenance_cycle, system)
+                template = get_active_template(
+                    user, entry['template_id'], ledger_type, maintenance_cycle)
             preview.append(_preview_system_entry(system, template, maintenance_cycle))
-        seen_templates = set()
-        for entry in entries:
-            if entry.get('system_id') or not entry.get('template_id'):
-                continue
-            template = get_active_template(user, entry['template_id'], ledger_type, maintenance_cycle)
-            if template.id in seen_templates:
-                continue
-            seen_templates.add(template.id)
-            expand_ids = [
-                s.id for s in template.applicable_systems.all() if s.id not in explicit_ids]
-            expanded = apply_tenant_filter(
-                LifecycleSystem.objects.all(), user).filter(pk__in=expand_ids, is_active=True)
-            systems = sorted(expanded, key=lambda s: s.system_code)
-            if not systems:
-                raise LedgerValidationError('模板未包含可用的适用系统：%s' % template.name)
-            for system in systems:
-                preview.append(_preview_system_entry(system, template, maintenance_cycle))
     except LedgerValidationError as e:
         return None, str(e)
     if not preview:
@@ -790,15 +737,11 @@ def correct_ledger(user, pk, body):
             new_result = body.get('result', item.result)
             if new_result not in ITEM_RESULT_VALUES:
                 raise LedgerValidationError('结果不合法：%s' % new_result)
-            if new_result == ITEM_RESULT_ABNORMAL and not str(body.get('abnormal_desc', item.abnormal_desc) or '').strip():
-                raise LedgerValidationError('异常项必须填写异常说明')
             updates = {
                 'value_text': value_text,
                 'value_number': value_number,
                 'value_bool': value_bool,
                 'result': new_result,
-                'is_auto_judged': False,
-                'correction_reason': reason,
             }
             if 'abnormal_desc' in body:
                 updates['abnormal_desc'] = str(body.get('abnormal_desc') or '').strip()
@@ -854,10 +797,6 @@ def confirm_normal(user, pk, item_ids):
     for item in items:
         if item.result == ITEM_RESULT_ABNORMAL and item.abnormal_desc:
             continue  # 已确认异常的明细不通过批量确认改为正常，需逐项修改
-        auto = auto_judge_number_result(item.number_min, item.number_max, item.value_number)
-        if auto == ITEM_RESULT_ABNORMAL:
-            continue  # 数值超限的明细不参与批量确认
         item.result = ITEM_RESULT_NORMAL
-        item.is_auto_judged = auto == ITEM_RESULT_NORMAL
-        item.save(update_fields=['result', 'is_auto_judged'])
+        item.save(update_fields=['result'])
     return ledger, None

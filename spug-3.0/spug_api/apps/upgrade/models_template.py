@@ -16,6 +16,7 @@
 from django.db import models
 from libs import ModelMixin
 from apps.account.models import User
+from apps.equipment_lifecycle.models import LifecycleSystem
 
 
 class UpgradeTemplate(models.Model, ModelMixin):
@@ -23,7 +24,12 @@ class UpgradeTemplate(models.Model, ModelMixin):
     tenant_id = models.CharField(max_length=50, default='', db_index=True, help_text='租户标识')
     name = models.CharField(max_length=100, verbose_name='方案名称')
     description = models.TextField(default='', blank=True, verbose_name='方案描述')
-    system = models.CharField(max_length=100, default='', blank=True, verbose_name='系统')
+    system = models.ForeignKey(
+        LifecycleSystem, models.PROTECT, related_name='upgrade_templates',
+        null=True, blank=True,
+        help_text='升级系统（正式系统 ID；历史未匹配方案允许为空）')
+    system_name = models.CharField(
+        max_length=100, default='', blank=True, verbose_name='系统名称快照')
     upgrade_type = models.CharField(max_length=50, default='', blank=True, verbose_name='升级类型')
 
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')

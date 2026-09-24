@@ -140,8 +140,8 @@ describe('系统详情抽屉', () => {
   it('基本信息统一展示固定字段与自定义字段值（含停用历史值）', () => {
     renderDetail();
     const text = document.body.textContent;
-    // 固定字段
-    expect(text).toContain('SYS-001');
+    // 固定字段（系统编号由后端自动生成，前端不展示）
+    expect(text).not.toContain('SYS-001');
     expect(text).toContain('烟台中心站通信系统');
     expect(text).toContain('正常');
     expect(text).toContain('可用');
@@ -208,8 +208,9 @@ describe('系统列表操作列', () => {
       ReactDOM.render(<ComTable/>, container);
     });
     await flush();
-    expect(container.textContent).toContain('SYS-001');
-    expect(container.textContent).toContain('SYS-002');
+    expect(container.textContent).toContain('系统甲');
+    expect(container.textContent).toContain('系统乙');
+    expect(container.textContent).not.toContain('SYS-001');
     const buttons = Array.from(container.querySelectorAll('button'));
     const deactivate = buttons.find(node => node.textContent === '停 用' || node.textContent === '停用');
     const activate = buttons.find(node => node.textContent === '启 用' || node.textContent === '启用');

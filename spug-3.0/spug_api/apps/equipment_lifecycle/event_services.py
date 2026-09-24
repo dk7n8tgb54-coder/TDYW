@@ -159,6 +159,41 @@ def record_ledger_convert_event(item, ledger, action, target_no='', detail=None,
     )
 
 
+def record_upgrade_lifecycle_events(record, action, detail=None, created_by=None):
+    """升级记录生命周期事件：只落升级记录所属系统的履历（升级管理挂接系统档案）。
+
+    - create/complete/rollback 共用本写入；登记、完成、回退为里程碑动作，
+      过程性状态记录在升级状态时间线（UpgradeStatusLog），不生成履历事件；
+    - record 为 apps.upgrade.models.UpgradeRecord 实例（鸭子类型，不引入反向依赖）；
+    - 历史未匹配系统档案的记录（system 为空）不写履历。
+    """
+    if getattr(record, 'system_id', None) is None:
+        return None
+    base_detail = {
+        'upgrade_title': record.title,
+        'upgrade_type': record.upgrade_type,
+        'status': record.status,
+        'owner': record.owner,
+    }
+    base_detail.update(detail or {})
+    title = {
+        'create': '系统升级登记',
+        'complete': '系统升级完成',
+        'rollback': '系统升级回退',
+    }[action]
+    return record_system_event(
+        tenant_id=record.tenant_id,
+        system=record.system,
+        event_type=SystemEvent.EVENT_UPGRADE,
+        action=action,
+        source_type='upgrade',
+        source_id=record.id,
+        title=title,
+        detail=base_detail,
+        created_by=created_by,
+    )
+
+
 def record_snapshot_event(system, snapshot, created_by=None):
     """配置快照生成事件（快照创建时同一事务写入）。"""
     return record_system_event(

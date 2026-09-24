@@ -1,22 +1,39 @@
 # -*- coding: utf-8 -*-
-"""系统升级模块 legacy_characterization 测试"""
+"""系统升级模块 legacy_characterization 测试
+
+2026-09 升级管理挂接系统档案（upgrade 0022）后更新：
+- 原"system 是文本字段不是外键""UpgradeSystem 字典表结构"等固化旧现状的
+  测试已随业务规则有意变更而改写为新契约（FK 关联 LifecycleSystem + 快照）；
+- 字典表 UpgradeSystem 已删除，相关测试移除。
+"""
 from django.test import TestCase
+from django.db.models import ProtectedError
 from apps.utils.test_helpers import make_user, setup_test_env
-from apps.upgrade.models import UpgradeRecord, UpgradeSystem
+from apps.upgrade.models import UpgradeRecord
+from apps.equipment_lifecycle.models import LifecycleSystem
+from apps.equipment_lifecycle.tests.base import make_system
 from apps.device.models import DeviceEvent
 
 
-class UpgradeRecordLegacyFieldsTest(TestCase):
-    """记录 UpgradeRecord 当前字段结构"""
+class UpgradeRecordLinkageFieldsTest(TestCase):
+    """记录 UpgradeRecord 挂接系统档案后的字段结构"""
 
     def setUp(self):
         setup_test_env(self)
         self.user = make_user('legacy_upg', ['upgrade.upgrade.view'])
 
-    def test_system_field_is_text_not_fk(self):
-        """LEGACY: system 是文本字段，不是外键"""
+    def test_system_field_is_fk_to_lifecycle_system(self):
+        """NEW: system 是指向系统档案 LifecycleSystem 的外键（可空，兼容历史未匹配记录）"""
         field = UpgradeRecord._meta.get_field('system')
-        self.assertEqual(field.get_internal_type(), 'CharField')
+        self.assertEqual(field.get_internal_type(), 'ForeignKey')
+        self.assertEqual(field.related_model, LifecycleSystem)
+        self.assertTrue(field.null)
+
+    def test_system_snapshot_fields_exist(self):
+        """NEW: 存在编号/名称/安装地点快照字段"""
+        for name in ('system_code', 'system_name', 'system_location'):
+            field = UpgradeRecord._meta.get_field(name)
+            self.assertEqual(field.get_internal_type(), 'CharField', name)
 
     def test_owner_is_text_not_fk(self):
         """LEGACY: owner 是文本字段"""
@@ -30,57 +47,43 @@ class UpgradeRecordLegacyFieldsTest(TestCase):
         device_fks = [f for f in fk_fields if 'device' in f.name.lower()]
         self.assertEqual(device_fks, [])
 
-    def test_rename_system_doesnt_update_record(self):
-        """LEGACY: 改系统名称后旧记录中的文本不会更新"""
-        sys = UpgradeSystem.objects.create(
-            tenant_id=self.user.tenant_id, name='旧名',
-            is_active=True, sort_order=1, created_by=self.user)
+    def test_rename_system_doesnt_update_record_snapshot(self):
+        """NEW: 系统档案改名后，已保存记录的名称快照不随动（快照仅用于历史展示）"""
+        system = make_system(self.user, tenant_id=self.user.tenant_id, name='旧名')
         rec = UpgradeRecord.objects.create(
-            tenant_id=self.user.tenant_id, title='升级', system='旧名',
+            tenant_id=self.user.tenant_id, title='升级',
+            system=system, system_name=system.name,
             upgrade_type='软件升级', created_by=self.user)
-        sys.name = '新名'
-        sys.save()
+        system.name = '新名'
+        system.save()
         rec.refresh_from_db()
-        self.assertEqual(rec.system, '旧名')
+        self.assertEqual(rec.system_name, '旧名')
+        # 正式外键仍指向同一系统
+        self.assertEqual(rec.system_id, system.id)
 
-    def test_delete_system_doesnt_delete_records(self):
-        """LEGACY: 删除候选项后升级记录仍存在"""
-        sys = UpgradeSystem.objects.create(
-            tenant_id=self.user.tenant_id, name='待删系统',
-            is_active=True, sort_order=1, created_by=self.user)
-        rec = UpgradeRecord.objects.create(
-            tenant_id=self.user.tenant_id, title='升级', system='待删系统',
+    def test_delete_linked_system_protected(self):
+        """NEW: 存在升级记录引用的系统不可物理删除（PROTECT）"""
+        system = make_system(self.user, tenant_id=self.user.tenant_id)
+        UpgradeRecord.objects.create(
+            tenant_id=self.user.tenant_id, title='升级',
+            system=system, system_name=system.name,
             upgrade_type='软件升级', created_by=self.user)
-        sys.delete()
-        self.assertTrue(UpgradeRecord.objects.filter(pk=rec.id).exists())
+        with self.assertRaises(ProtectedError):
+            system.delete()
+
+    def test_unlinked_legacy_record_allowed(self):
+        """NEW: 历史未匹配记录允许 system 外键为空，仅保留名称快照"""
+        rec = UpgradeRecord.objects.create(
+            tenant_id=self.user.tenant_id, title='历史遗留',
+            system_name='无法匹配的旧系统名',
+            upgrade_type='软件升级', created_by=self.user)
+        rec.refresh_from_db()
+        self.assertIsNone(rec.system_id)
+        self.assertEqual(rec.system_name, '无法匹配的旧系统名')
 
     def test_no_auto_device_history(self):
         """LEGACY: 创建升级记录不会自动写入 DeviceEvent"""
         UpgradeRecord.objects.create(
             tenant_id=self.user.tenant_id, title='自动履历测试',
-            system='测试', upgrade_type='软件升级', created_by=self.user)
+            system_name='测试', upgrade_type='软件升级', created_by=self.user)
         self.assertEqual(DeviceEvent.objects.filter(event_title='自动履历测试').count(), 0)
-
-
-class UpgradeSystemLegacyFieldsTest(TestCase):
-    """记录 UpgradeSystem 当前字段结构"""
-
-    def setUp(self):
-        setup_test_env(self)
-        self.user = make_user('legacy_sys', ['upgrade.upgrade.view'])
-
-    def test_upgrade_system_is_dictionary_table(self):
-        """LEGACY: UpgradeSystem 是字典表（候选项），不是全局系统主数据"""
-        # UpgradeSystem 有 tenant_id，是租户级别的字典
-        field = UpgradeSystem._meta.get_field('tenant_id')
-        self.assertEqual(field.get_internal_type(), 'CharField')
-
-    def test_upgrade_system_has_sort_order(self):
-        """LEGACY: UpgradeSystem 有排序字段"""
-        field = UpgradeSystem._meta.get_field('sort_order')
-        self.assertEqual(field.get_internal_type(), 'IntegerField')
-
-    def test_upgrade_system_has_is_active(self):
-        """LEGACY: UpgradeSystem 有启用/停用标志"""
-        field = UpgradeSystem._meta.get_field('is_active')
-        self.assertEqual(field.get_internal_type(), 'BooleanField')

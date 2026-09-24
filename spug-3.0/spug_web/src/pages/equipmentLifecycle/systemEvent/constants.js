@@ -25,6 +25,7 @@ export const EVENT_TYPE_OPTIONS = [
   {value: 'ledger', label: '台账异常'},
   {value: 'health', label: '健康状态'},
   {value: 'config_snapshot', label: '配置快照'},
+  {value: 'upgrade', label: '系统升级'},
 ];
 
 export const EVENT_TYPE_TEXT = EVENT_TYPE_OPTIONS.reduce((acc, item) => {
@@ -38,6 +39,7 @@ export const EVENT_TYPE_COLOR = {
   ledger: 'orange',
   health: 'purple',
   config_snapshot: 'cyan',
+  upgrade: 'gold',
 };
 
 export const SOURCE_TYPE_TEXT = {
@@ -46,6 +48,7 @@ export const SOURCE_TYPE_TEXT = {
   ledger_item: '台账异常',
   health: '健康状态',
   config_snapshot: '配置快照',
+  upgrade: '系统升级',
 };
 
 /**
@@ -69,6 +72,10 @@ export function buildSourceHref(event) {
       return hasPermission('equipment_lifecycle.ledger.view') && path && detail.ledger_id
         ? `${path}?detail=${detail.ledger_id}` : null;
     }
+    case 'upgrade':
+      // 升级记录工作台为全屏页，按升级表单查看权限跳转
+      return hasPermission('upgrade.upgrade.view') && id
+        ? `/upgrade/workbench/${id}` : null;
     default:
       return null;
   }

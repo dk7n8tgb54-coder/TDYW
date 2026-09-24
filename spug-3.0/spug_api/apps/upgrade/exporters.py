@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # 注意：UpgradeRecord 无 version 字段（旧模型遗留），导出不再包含"版本"空列
 EXCEL_COLUMNS = [
     ('title', '标题'),
-    ('system', '系统'),
+    ('system_name', '系统'),
     ('upgrade_type', '升级类型'),
     ('upgrade_time', '升级时间'),
     ('status', '状态'),

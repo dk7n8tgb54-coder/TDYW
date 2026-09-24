@@ -14,7 +14,7 @@ class RecordUpdateView(View):
     def put(self, request, pk):
         form, error = JsonParser(
             Argument('title', required=False),
-            Argument('system', required=False),
+            Argument('system', type=int, required=False),
             Argument('upgrade_type', required=False),
             Argument('upgrade_time', required=False),
             Argument('status', required=False),

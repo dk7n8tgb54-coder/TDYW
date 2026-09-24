@@ -623,17 +623,26 @@ class WorkOrderModuleBoundaryTest(WorkOrderTestBase):
         self.assertNotIn('device', wo_fields)
 
     def test_device_and_upgrade_apps_unchanged(self):
-        """device、upgrade 模块没有发生变化（模型集合冻结校验）。"""
+        """device、upgrade 模块没有发生变化（模型集合冻结校验）。
+
+        2026-09 升级管理挂接系统档案：UpgradeSystem 字典表删除
+        （候选系统改由 equipment_lifecycle.LifecycleSystem 提供），
+        冻结基线同步移除该模型。
+        """
         expected_device = {'DeviceResume', 'DeviceEvent'}
-        expected_upgrade = {'UpgradeRecord', 'UpgradeSystem', 'UpgradeTemplate',
+        expected_upgrade = {'UpgradeRecord', 'UpgradeTemplate',
                             'UpgradePlanStep', 'UpgradeRecordStep', 'UpgradeStatusLog'}
         actual_device = {m.__name__ for m in apps.get_app_config('device').get_models()}
         actual_upgrade = {m.__name__ for m in apps.get_app_config('upgrade').get_models()}
         self.assertEqual(actual_device, expected_device)
         self.assertEqual(actual_upgrade, expected_upgrade)
         # 设备生命周期模型不依赖 device/upgrade 应用的任何模型
+        # （只检查 el 模型自身声明的字段；upgrade→el 的反向关联
+        # （如 LifecycleSystem.upgrade_records）是挂接系统的预期方向，不算依赖）
         for model in apps.get_app_config('equipment_lifecycle').get_models():
             for field in model._meta.get_fields():
+                if getattr(field, 'concrete', False) is not True:
+                    continue
                 related = getattr(field, 'related_model', None)
                 if related is not None:
                     self.assertNotIn(

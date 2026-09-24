@@ -48,9 +48,9 @@ class StatisticsService:
         for item in by_type:
             item['percent'] = round(item['count'] / total * 100) if total > 0 else 0
 
-        # 按系统统计
+        # 按系统统计（system_name 为保存时点名称快照，历史文本自然归类）
         by_system = list(
-            queryset.values('system')
+            queryset.values('system_name')
             .annotate(count=Count('id'))
             .order_by('-count')
         )
@@ -120,7 +120,8 @@ class StatisticsService:
     def _apply_filters(queryset, filters):
         """应用筛选条件"""
         if filters.get('system'):
-            queryset = queryset.filter(system=filters['system'])
+            # system 参数为系统档案 ID（正式外键精确过滤）
+            queryset = queryset.filter(system_id=filters['system'])
         if filters.get('start_date') and filters.get('end_date'):
             from datetime import datetime, timedelta
             end_date = datetime.strptime(filters['end_date'], '%Y-%m-%d') + timedelta(days=1)

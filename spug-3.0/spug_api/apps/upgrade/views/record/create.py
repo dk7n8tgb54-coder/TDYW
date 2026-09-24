@@ -14,7 +14,7 @@ class RecordCreateView(View):
     def post(self, request):
         form, error = JsonParser(
             Argument('title', help='请输入标题'),
-            Argument('system', help='请输入系统'),
+            Argument('system', type=int, help='请选择升级系统'),
             Argument('upgrade_type', help='请选择升级类型'),
             Argument('upgrade_time', help='请选择计划升级时间'),
             Argument('status', required=False, default='处理中'),

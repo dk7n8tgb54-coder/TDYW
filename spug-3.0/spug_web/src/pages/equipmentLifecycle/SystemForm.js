@@ -60,7 +60,6 @@ function SystemForm() {
   useEffect(() => {
     if (!isEdit) return;
     form.setFieldsValue({
-      system_code: record.system_code,
       name: record.name,
       system_model: record.system_model,
       install_location: record.install_location,
@@ -195,12 +194,7 @@ function SystemForm() {
       responsible_user_name: values.responsible_user_name,
       remark: values.remark || '',
     };
-    if (isEdit) {
-      // 系统编号创建后不可修改，编辑时原样回传
-      system.system_code = record.system_code;
-    } else {
-      system.system_code = values.system_code;
-    }
+    // 系统编号由后端自动生成，前端不传
     const payload = {system};
 
     const activeFields = dynamicFields.filter(f => f.is_active !== false);
@@ -308,19 +302,6 @@ function SystemForm() {
     >
       <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 17}}>
         <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item
-              name="system_code"
-              label="系统编号"
-              rules={[
-                {required: !isEdit, message: '请输入系统编号'},
-                {max: 50, message: '长度不能超过 50'},
-                {pattern: /^[A-Za-z0-9_-]+$/, message: '仅支持字母、数字、中划线和下划线'},
-              ]}
-            >
-              <Input disabled={isEdit} placeholder="租户内唯一，创建后不可修改"/>
-            </Form.Item>
-          </Col>
           <Col span={12}>
             <Form.Item
               name="name"

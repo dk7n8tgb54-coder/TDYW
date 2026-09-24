@@ -4,14 +4,16 @@
 """
 系统升级模块模型
 
-注意：当前模型与数据库 schema 完全匹配（Django 2.2 + MySQL）。
-数据库 schema 变更（DateTimeField/ForeignKey/去除冗余字段）需通过迁移 0004 执行，
-迁移完成后需同步更新本文件和 serializers/services 层。
+升级记录/升级方案通过正式外键关联系统档案（equipment_lifecycle.LifecycleSystem），
+并保存系统编号/名称/安装地点快照；请求与存储一律用系统 ID，页面只显示名称，
+快照仅用于历史展示，不替代正式外键（对齐故障管理/运维台账的挂接模式）。
+历史未匹配到系统档案的记录允许 system 外键为空，仅保留 system_name 文本。
 """
 from django.db import models
 from django.utils import timezone
 from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 from apps.account.models import User
+from apps.equipment_lifecycle.models import LifecycleSystem
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,7 +24,16 @@ class UpgradeRecord(models.Model, TenantModelMixin):
     objects = TenantModelManager()
     tenant_id = make_tenant_id()
     title = models.CharField(max_length=200, default='', verbose_name='标题')
-    system = models.CharField(max_length=100)
+    system = models.ForeignKey(
+        LifecycleSystem, models.PROTECT, related_name='upgrade_records',
+        null=True, blank=True,
+        help_text='升级系统（正式系统 ID；历史未匹配记录允许为空）')
+    system_code = models.CharField(
+        max_length=50, default='', blank=True, verbose_name='系统编号快照')
+    system_name = models.CharField(
+        max_length=100, default='', blank=True, verbose_name='系统名称快照')
+    system_location = models.CharField(
+        max_length=200, default='', blank=True, verbose_name='系统安装地点快照')
     upgrade_type = models.CharField(max_length=50)
     upgrade_time = models.DateTimeField(null=True, blank=True, verbose_name='计划升级时间')
     status = models.CharField(max_length=20, default='处理中')
@@ -55,46 +66,14 @@ class UpgradeRecord(models.Model, TenantModelMixin):
             models.Index(fields=['tenant_id', 'status', 'upgrade_time', 'id'], name='upg_rec_status_time_idx'),
             # 升级类型精确筛选 + 时间排序（upgrade_type 为列表高频筛选字段）
             models.Index(fields=['tenant_id', 'upgrade_type', 'upgrade_time', 'id'], name='upg_rec_type_time_idx'),
+            # 按系统查询（系统详情"升级记录"页签）
+            models.Index(fields=['tenant_id', 'system'], name='upg_rec_system_idx'),
         ]
 
 
 
 
 
-
-
-class UpgradeSystem(models.Model, TenantModelMixin):
-    """升级系统候选项字典
-
-    用于"升级系统"字段的候选列表维护。新建升级申请时可搜索/选择/新增。
-    历史升级记录的 system 字段是纯文本，不受本表删除/停用影响。
-    """
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-    name = models.CharField(max_length=100, verbose_name='系统名称')
-    is_active = models.BooleanField(default=True, verbose_name='是否启用')
-    sort_order = models.IntegerField(default=0, verbose_name='排序')
-
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    created_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True)
-    updated_at = models.DateTimeField(null=True, blank=True, verbose_name='更新时间')
-    updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True)
-    is_deleted = models.BooleanField(default=False, help_text='软删除标识')
-    deleted_at = models.DateTimeField(null=True, blank=True, help_text='删除时间')
-
-    def __repr__(self):
-        return '<UpgradeSystem %r>' % self.name
-
-    class Meta:
-        db_table = 'tdyw_upgrade_systems'
-        verbose_name = '升级系统候选项'
-        verbose_name_plural = '升级系统候选项'
-        ordering = ('sort_order', 'name',)
-        unique_together = [['tenant_id', 'name']]
-        indexes = [
-            # 启用系统下拉/系统管理列表：tenant_id + is_active + sort_order + name
-            models.Index(fields=['tenant_id', 'is_active', 'sort_order', 'name'], name='upg_sys_active_idx'),
-        ]
 
 
 # 导入升级方案模型（原升级模板+步骤清单合并），确保 Django 发现

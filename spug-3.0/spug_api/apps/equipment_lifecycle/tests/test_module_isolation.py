@@ -66,7 +66,9 @@ class ModuleIsolationTest(TestCase):
                     '0009_deviceevent_device_event_type_valid_and_more.py',
                     '0010_remove_null_from_string_fields.py']),
             'device 迁移集合发生变化')
-        self.assertEqual(len(upgrade_files), 21, 'upgrade 迁移数量发生变化')
+        # 2026-09 升级管理挂接系统档案新增 0022（UpgradeRecord/Template 挂
+        # LifecycleSystem 外键并删除升级系统字典表），基线由 21 更新为 22
+        self.assertEqual(len(upgrade_files), 22, 'upgrade 迁移数量发生变化')
 
     def test_old_fault_app_removed(self):
         from django.apps import apps

@@ -21,7 +21,7 @@ class ComTable extends React.Component {
   }
 
   handleDelete = (text) => {
-    const logInfo = `${text['title']} - ${text['system']}`;
+    const logInfo = `${text['title']} - ${text['system_name']}`;
     Modal.confirm({
       title: '删除确认',
       content: `确定要删除【${logInfo}】的升级表单?`,
@@ -92,7 +92,7 @@ class ComTable extends React.Component {
           },
         }}>
         <Table.Column title="标题" dataIndex="title" width={200}/>
-        <Table.Column title="系统" dataIndex="system" width={120}/>
+        <Table.Column title="系统" dataIndex="system_name" width={120}/>
         <Table.Column title="升级类型" dataIndex="upgrade_type" width={100}/>
         <Table.Column title="升级时间" dataIndex="upgrade_time" width={180}/>
         <Table.Column title="状态" dataIndex="status" width={100} render={(text) => <StatusTag status={text}/>}/>

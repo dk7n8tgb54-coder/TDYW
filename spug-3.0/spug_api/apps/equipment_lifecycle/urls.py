@@ -14,6 +14,7 @@ from django.db import transaction
 from django.urls import path
 
 from apps.equipment_lifecycle import event_views, fault_views, ledger_views, views, work_order_views
+from apps.upgrade.views.system_records import SystemUpgradeRecordsView
 
 
 def _na(view):
@@ -114,6 +115,8 @@ urlpatterns = [
     path('ledgers/<int:ledger_pk>/items/<int:item_pk>/convert-to-work-order/', _na(work_order_views.LedgerItemConvertToWorkOrderView.as_view())),
     # 按系统查询工单（目标/受影响）
     path('systems/<int:pk>/work-orders/', work_order_views.SystemWorkOrdersView.as_view()),
+    # 按系统查询升级记录（系统详情"升级记录"页签，视图在 upgrade app）
+    path('systems/<int:pk>/upgrade-records/', SystemUpgradeRecordsView.as_view()),
     # ==================== 统一系统履历（步骤 3.4，只读 append-only） ====================
     path('system-events/', event_views.SystemEventView.as_view()),
     path('system-events/export/', event_views.SystemEventExportView.as_view()),

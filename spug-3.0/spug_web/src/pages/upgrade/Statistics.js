@@ -51,7 +51,7 @@ export default observer(function () {
   ];
 
   const systemColumns = [
-    { title: '系统', dataIndex: 'system', key: 'system' },
+    { title: '系统', dataIndex: 'system_name', key: 'system_name' },
     { title: '次数', dataIndex: 'count', key: 'count' },
     { title: '占比', dataIndex: 'percent', key: 'percent', render: (text) => `${text}%` }
   ];
@@ -83,11 +83,13 @@ export default observer(function () {
               placeholder="选择系统"
               style={{ width: '100%' }}
               allowClear
+              showSearch
+              optionFilterProp="children"
               value={selectedSystem}
               onChange={setSelectedSystem}
             >
               {store.filterOptions.systems.map(sys => (
-                <Option key={sys} value={sys}>{sys}</Option>
+                <Option key={sys.id} value={sys.id}>{sys.name}</Option>
               ))}
             </Select>
           </Col>
@@ -128,7 +130,7 @@ export default observer(function () {
                 columns={systemColumns}
                 pagination={false}
                 size="small"
-                rowKey="system"
+                rowKey="system_name"
               />
             ) : (
               <Empty description="暂无数据"/>

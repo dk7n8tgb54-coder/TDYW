@@ -26,7 +26,6 @@ function SystemOptionLabel({system}) {
   return (
     <span>
       {system.name}
-      <span style={{color: '#999', marginLeft: 6}}>{system.system_code}</span>
       <span style={{color: '#bbb', marginLeft: 6}}>{system.install_location}</span>
     </span>
   );

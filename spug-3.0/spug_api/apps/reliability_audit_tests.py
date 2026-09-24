@@ -276,7 +276,12 @@ class R11HomeModelsSoftDeleteFixedTest(TestCase):
 
 
 class R12UpgradeModelsSoftDeleteFixedTest(TestCase):
-    """R12 修复验证：UpgradeRecord/Step/System 有 is_deleted 字段"""
+    """R12 修复验证：UpgradeRecord/Step 有 is_deleted 字段
+
+    注：UpgradeSystem 字典表已于 2026-09 升级管理挂接系统档案时删除
+    （候选系统改由 equipment_lifecycle.LifecycleSystem 提供），
+    原 R12 对 UpgradeSystem 的断言随之移除。
+    """
 
     def test_upgrade_record_has_soft_delete(self):
         from apps.upgrade.models import UpgradeRecord
@@ -289,12 +294,6 @@ class R12UpgradeModelsSoftDeleteFixedTest(TestCase):
         field_names = [f.name for f in UpgradeRecordStep._meta.get_fields()]
         self.assertIn('is_deleted', field_names,
                       'R12 修复验证失败：UpgradeRecordStep 仍无 is_deleted 字段')
-
-    def test_upgrade_system_has_soft_delete(self):
-        from apps.upgrade.models import UpgradeSystem
-        field_names = [f.name for f in UpgradeSystem._meta.get_fields()]
-        self.assertIn('is_deleted', field_names,
-                      'R12 修复验证失败：UpgradeSystem 仍无 is_deleted 字段')
 
 
 class R13HomeModelsTenantIsolationFixedTest(TestCase):

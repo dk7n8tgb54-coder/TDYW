@@ -1,10 +1,22 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
+from django.db import transaction
 from django.urls import re_path
 
 from apps.radio_license.views import *
 from apps.radio_license.approval_views import *  # 批复相关视图（从 views.py 拆分）
+
+
+def _na(view):
+    """动作视图装配：关闭请求级原子事务。
+
+    执照并发新增/编辑时审计序列行锁与业务行锁可能死锁（MariaDB 1213），
+    需要 views._run_atomic_with_deadlock_retry 的显式事务 + 死锁重试，
+    重试必须发生在请求级事务之外（同 equipment_lifecycle/urls.py 先例）。
+    """
+    return transaction.non_atomic_requests(view)
+
 
 urlpatterns = [
     # ===== 台站频率批复（固定路径在前，数字主键在后）=====
@@ -22,7 +34,7 @@ urlpatterns = [
     re_path(r'^approvals/(?P<pk>\d+)/$', StationFrequencyApprovalDetailView.as_view()),
 
     # ===== 无线电台执照 =====
-    re_path(r'^$', RadioLicenseView.as_view()),
+    re_path(r'^$', _na(RadioLicenseView.as_view())),
     re_path(r'(?P<pk>\d+)/$', RadioLicenseDetailView.as_view()),
     re_path(r'(?P<pk>\d+)/attachments/$', AttachmentListView.as_view()),
     re_path(r'attachments/(?P<pk>\d+)/download/$', AttachmentDownloadView.as_view()),

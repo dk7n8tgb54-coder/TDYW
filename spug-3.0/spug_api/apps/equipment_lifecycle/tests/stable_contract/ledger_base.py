@@ -33,7 +33,7 @@ LEDGER_URL = URL_PREFIX + '/ledgers'
 TEMPLATE_URL = URL_PREFIX + '/ledger-templates'
 
 
-def make_ledger_template(created_by, tenant_id='default', applicable_systems=None,
+def make_ledger_template(created_by, tenant_id='default',
                          ledger_type=LEDGER_TYPE_INSPECTION, **kwargs):
     cycle_default = {
         LEDGER_TYPE_INSPECTION: '',
@@ -42,7 +42,6 @@ def make_ledger_template(created_by, tenant_id='default', applicable_systems=Non
     }[ledger_type]
     defaults = dict(
         name='巡检模板A' if ledger_type == LEDGER_TYPE_INSPECTION else '维护模板A',
-        template_code='TPL-INS-001',
         ledger_type=ledger_type,
         maintenance_cycle=cycle_default,
         description='',
@@ -51,26 +50,18 @@ def make_ledger_template(created_by, tenant_id='default', applicable_systems=Non
         created_by=created_by,
     )
     defaults.update(kwargs)
-    template = OperationLedgerTemplate.objects.create(**defaults)
-    if applicable_systems:
-        template.applicable_systems.set(applicable_systems)
-    return template
+    return OperationLedgerTemplate.objects.create(**defaults)
 
 
 def make_template_item(template, created_by, tenant_id='default', **kwargs):
     defaults = dict(
         template=template,
-        item_code='CHK-001',
         name='设备指示灯检查',
-        standard='指示灯常亮绿色',
         input_type='text',
         unit='',
-        normal_range='',
-        number_min=None,
-        number_max=None,
         choices='',
         default_value='',
-        is_required=False,
+        is_required=True,
         execution_scope='all',
         abnormal_rule='',
         operation_guide='',
@@ -87,7 +78,6 @@ def item_payload(**kwargs):
     """明细载荷：手动/临时项最小集。"""
     payload = {
         'item_name': '设备指示灯检查',
-        'standard': '指示灯常亮绿色',
         'input_type': 'text',
         'value_text': '正常',
         'result': 'normal',
@@ -153,7 +143,7 @@ def make_full_ledger(created_by, tenant_id='default', system=None, **kwargs):
         [entry_payload(system.id, [
             item_payload(),
             item_payload(item_name='电源电压测量', input_type='number', value_text='',
-                         value_number=52, number_min=48, number_max=54,
+                         value_number=52,
                          result='abnormal', abnormal_desc='电压偏低'),
         ])],
         **kwargs)

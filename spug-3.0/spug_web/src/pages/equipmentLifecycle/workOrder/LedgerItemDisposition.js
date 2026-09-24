@@ -160,7 +160,7 @@ function ConvertToFaultModal({visible, ledger, item, needReason, onClose, onConv
       destroyOnClose
     >
       <p style={{color: '#999', marginTop: 0}}>
-        故障系统固定为明细所属系统「{item.system_name}（{item.system_code}）」；
+        故障系统固定为明细所属系统「{item.system_name}」；
         将带入台账类型、编号、检查项、位置、异常说明、实测值与现场处理内容。
       </p>
       <Form

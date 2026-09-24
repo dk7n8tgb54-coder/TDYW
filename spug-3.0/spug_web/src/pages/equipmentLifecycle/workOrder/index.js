@@ -57,12 +57,6 @@ class WorkOrderTable extends React.Component {
     dataIndex: 'system_name',
     width: 180,
     ellipsis: true,
-    render: (text, record) => (
-      <span>
-        <span>{text}</span>
-        <span style={{color: '#999', marginLeft: 6}}>{record.system_code}</span>
-      </span>
-    ),
   }, {
     title: '来源',
     dataIndex: 'source_type',

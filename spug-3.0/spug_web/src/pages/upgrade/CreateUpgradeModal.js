@@ -41,7 +41,7 @@ function BasicInfoFields() {
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item name="system" label="升级系统" rules={[{ required: true, message: '请选择或输入系统' }]}>
+          <Form.Item name="system" label="升级系统" rules={[{ required: true, message: '请选择升级系统' }]}>
             <SystemSelect />
           </Form.Item>
         </Col>
@@ -140,10 +140,11 @@ export default observer(function CreateUpgradeModal() {
     }
   }, []);
 
-  // 标题自动生成
+  // 标题自动生成（system 为系统档案 ID，标题取系统名称）
   function buildTitle(allValues) {
     const parts = [];
-    if (allValues.system) parts.push(allValues.system);
+    const sys = store.systems.find(s => s.id === allValues.system);
+    if (sys) parts.push(sys.name);
     if (allValues.upgrade_type) parts.push(allValues.upgrade_type);
     if (allValues.upgrade_time) {
       const t = allValues.upgrade_time;
@@ -174,7 +175,7 @@ export default observer(function CreateUpgradeModal() {
       if (!plan) { message.error('获取方案失败'); return; }
       setSelectedPlan(plan);
       const values = {};
-      if (plan.system) values.system = plan.system;
+      if (plan.system_id) values.system = plan.system_id;
       if (plan.upgrade_type) values.upgrade_type = plan.upgrade_type;
       form.setFieldsValue(values);
       // 方案预填后重新生成标题（若用户未手动编辑过标题）

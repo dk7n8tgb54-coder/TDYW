@@ -48,6 +48,7 @@ B7  回退目标阶段不存在时静默重置全部步骤：
 """
 import io
 import json
+import uuid
 from datetime import datetime
 
 from django.test import TestCase
@@ -57,6 +58,7 @@ from apps.upgrade.models_checklist import UpgradeRecordStep
 from apps.upgrade.models_status_log import UpgradeStatusLog
 from apps.upgrade.models_template import UpgradeTemplate, UpgradePlanStep
 from apps.utils.test_helpers import make_user, make_client, setup_test_env
+from apps.equipment_lifecycle.tests.base import make_system
 
 PERMS = [
     'upgrade.upgrade.view', 'upgrade.upgrade.add', 'upgrade.upgrade.edit',
@@ -72,9 +74,14 @@ class UpgradeDefectBase(TestCase):
         setup_test_env(self)
         self.user = make_user('upg_defect', PERMS)
         self.client = make_client(self.user)
+        # 升级管理挂接系统档案（2026-09）：system 为 LifecycleSystem 外键
+        self.system = make_system(
+            self.user, tenant_id=self.user.tenant_id,
+            system_code=f'SYS-{uuid.uuid4().hex[:8]}')
         self.record = UpgradeRecord.objects.create(
             tenant_id=self.user.tenant_id, title='缺陷验证单',
-            system='测试系统', upgrade_type='功能升级', status='处理中',
+            system=self.system, system_name=self.system.name,
+            upgrade_type='功能升级', status='处理中',
             created_by=self.user)
 
     def add_step(self, title, phase='', sequence=None):
@@ -137,7 +144,7 @@ class InvalidUpgradeTimeTests(UpgradeDefectBase):
 
     def test_create_invalid_time_rejected(self):
         payload = {
-            'title': 'B1-创建非法时间', 'system': '测试系统',
+            'title': 'B1-创建非法时间', 'system': self.system.id,
             'upgrade_type': '功能升级', 'upgrade_time': 'not-a-date',
             'owner': '负责人', 'upgrade_content': '内容',
         }
@@ -165,7 +172,7 @@ class UpdateValidationTests(UpgradeDefectBase):
                                  {field: ''})
             self.assertTrue(resp.json().get('error'), field)
         self.record.refresh_from_db()
-        self.assertEqual(self.record.system, '测试系统')
+        self.assertEqual(self.record.system_name, self.system.name)
 
     def test_update_invalid_upgrade_type_rejected(self):
         resp = self.put_json(f'/upgrade/records/{self.record.id}/update/',

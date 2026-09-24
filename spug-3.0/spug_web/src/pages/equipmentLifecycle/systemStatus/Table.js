@@ -18,10 +18,6 @@ import { PERM, HEALTH_STATUS_OPTIONS, HEALTH_STATUS_TEXT, HEALTH_STATUS_COLOR } 
 @observer
 class ComTable extends React.Component {
   columns = [{
-    title: '系统编号',
-    dataIndex: 'system_code',
-    width: 140,
-  }, {
     title: '系统名称',
     dataIndex: 'name',
     width: 200,
@@ -59,7 +55,7 @@ class ComTable extends React.Component {
             style={{width: 240}}
             value={store.f_keyword}
             onChange={e => store.f_keyword = e.target.value}
-            placeholder="系统编号/名称"
+            placeholder="系统名称"
             onPressEnter={() => {store.page = 1; store.fetchRecords();}}
           />
           <Button type="primary" style={{marginLeft: 8}}

@@ -115,7 +115,6 @@ def make_field(owner_obj, created_by, tenant_id='default', **kwargs):
 def system_payload(**overrides):
     from apps.equipment_lifecycle.models import LifecycleSystem
     payload = {
-        'system_code': 'SYS-NEW-01',
         'name': '新建测试系统',
         'system_model': 'MODEL-X',
         'install_location': '机房B',

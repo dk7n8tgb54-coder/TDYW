@@ -34,7 +34,7 @@ function SystemEventIndex() {
             allowClear
             value={store.f_keyword}
             onChange={e => store.f_keyword = e.target.value}
-            placeholder="摘要、来源编号、系统编号/名称"
+            placeholder="摘要、来源编号、系统名称"
             onPressEnter={() => {store.page = 1; store.fetchRecords();}}
           />
         </SearchForm.Item>

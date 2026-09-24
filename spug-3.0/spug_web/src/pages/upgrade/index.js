@@ -39,9 +39,9 @@ export default observer(function () {
       </Breadcrumb>
       <SearchForm>
         <SearchForm.Item span={6} title="系统">
-          <Select allowClear value={store.f_system} onChange={v => { store.f_system = v; store.page = 1; store.fetchRecords(); }} placeholder="请选择系统">
+          <Select allowClear showSearch optionFilterProp="children" value={store.f_system} onChange={v => { store.f_system = v; store.page = 1; store.fetchRecords(); }} placeholder="请选择系统">
             {store.filterOptions.systems.map(item => (
-              <Option value={item} key={item}>{item}</Option>
+              <Option value={item.id} key={item.id}>{item.name}</Option>
             ))}
           </Select>
         </SearchForm.Item>

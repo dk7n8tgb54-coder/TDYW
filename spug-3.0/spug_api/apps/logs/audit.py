@@ -347,6 +347,46 @@ def _lock_or_init_sequence(tenant_id):
     )
 
 
+
+def lock_audit_sequence_row(tenant_id):
+    """在业务事务开始处预取租户审计序列行锁（统一锁序，防死锁）。
+
+    背景：并发写执照/合同时，业务行锁（执照行锁、插入意向锁）与
+    save_audit_log 内部的序列行锁可能形成环（MariaDB 1213）；而
+    save_audit_log 按设计吞掉异常，死锁回滚后业务数据无声丢失。
+    在事务第一步预取序列行锁，使并发方在序列行上排队而非交叉等待，
+    消除「业务行锁 -> 序列行锁」与「序列行锁 -> 业务行锁」两类环。
+    必须在 transaction.atomic() 内调用；同一事务内重复调用幂等
+    （select_for_update 重入无害），后续 save_audit_log 复用已持锁。
+    """
+    return _lock_or_init_sequence(tenant_id)
+
+
+def init_audit_sequence_for_tenant(tenant_id):
+    """租户创建时预建审计序列行（消除业务并发首写竞态）。
+
+    _lock_or_init_sequence 的惰性首写在并发业务写入时存在唯一键
+    插入竞态窗口（MariaDB 1213，且 save_audit_log 会吞掉该异常导致
+    业务事务被毒化、数据无声丢失）。租户创建是单线程时机，在此处
+    预建序列行后，业务并发只会走 select_for_update 串行化路径。
+    重复调用幂等；并发初始化竞态由唯一约束兜底。
+    """
+    from apps.logs.models import AuditLog, AuditLogSequence
+    from django.db import IntegrityError
+
+    if not tenant_id or AuditLogSequence.objects.filter(tenant_id=tenant_id).exists():
+        return
+    tail = AuditLog.objects.filter(tenant_id=tenant_id).order_by('-id').first()
+    try:
+        AuditLogSequence.objects.create(
+            tenant_id=tenant_id,
+            last_log_id=tail.id if tail else 0,
+            last_log_hash=tail.log_hash if tail else '',
+        )
+    except IntegrityError:
+        pass  # 并发初始化落败：行已由他方建出，目的达成
+
+
 def save_audit_log(user_id, username, action, target_type, target_id=None,
                    target_name=None, detail=None, ip='', is_success=True,
                    tenant_id='default', request_hash='', response_hash='',

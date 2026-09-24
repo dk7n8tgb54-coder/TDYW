@@ -32,11 +32,10 @@ function makeRowState() {
     client_key: 'k1', id: undefined, system_id: 1, template_id: undefined,
     template_item_id: undefined,
     item_name: '外观检查',
-    standard: '', input_type: 'text', unit: '', normal_range: '', choices: [],
-    number_min: null, number_max: null, is_required: false,
+    input_type: 'text', unit: '', choices: [],
+    is_required: false,
     value_text: '正常', value_number: null, value_bool: null,
-    result: 'normal', correction_reason: '', abnormal_desc: '', na_reason: '',
-    onsite_action: '', executor_name: '', executed_at: null, is_temporary: true,
+    executed_at: null, is_temporary: true,
   };
 }
 
@@ -107,6 +106,11 @@ describe('LedgerForm.submit 载荷契约', () => {
     ['shift', 'location_scope', 'collaborator_names', 'entry_note', 'summary'].forEach(key => {
       expect(payload).not.toHaveProperty(key);
     });
+    // 2026-09-22 起结果/异常说明/不适用原因/现场处理/行内执行人列移除，明细载荷不再携带
+    const item = payload.entries[0].items[0];
+    ['result', 'abnormal_desc', 'na_reason', 'onsite_action', 'executor_name'].forEach(key => {
+      expect(item).not.toHaveProperty(key);
+    });
   });
 
   test('周月维护台账提交所选周期', async () => {
@@ -130,34 +134,42 @@ describe('LedgerForm.submit 载荷契约', () => {
     expect(instance.props.store.fetchRecords).toHaveBeenCalled();
   });
 
-  test('模板明细按 系统+模板 分组并携带 template_id', async () => {
+  test('模板明细按 系统+模板 分组并携带 template_id，按电台拆分提交', async () => {
     mockHttpPost.mockResolvedValue({});
     const instance = makeInstance('inspection');
     instance.state.rows = [
-      {...makeRowState(), client_key: 'k1', system_id: 1, template_id: 5, result: 'normal'},
-      {...makeRowState(), client_key: 'k2', system_id: 1, template_id: 6, item_name: '电压测量', result: 'normal'},
-      {...makeRowState(), client_key: 'k3', system_id: 2, template_id: 5, item_name: '链路状态', result: 'normal'},
+      {...makeRowState(), client_key: 'k1', system_id: 1, template_id: 5},
+      {...makeRowState(), client_key: 'k2', system_id: 1, template_id: 6, item_name: '电压测量'},
+      {...makeRowState(), client_key: 'k3', system_id: 2, template_id: 5, item_name: '链路状态'},
     ];
     instance.submit();
     await flush();
-    const payload = mockHttpPost.mock.calls[0][1];
-    expect(payload.entries).toHaveLength(3);
+    expect(mockHttpPost).toHaveBeenCalledTimes(2); // 两个电台各一条台账记录
+    const payloads = mockHttpPost.mock.calls.map(c => c[1]);
+    // 电台1 挂两个模板：同一条台账内分列两个模板分组
+    expect(payloads[0].entries.map(e => e.template_id)).toEqual([5, 6]);
+    expect(payloads[1].entries.map(e => e.template_id)).toEqual([5]);
     const byKey = {};
-    payload.entries.forEach(e => {
-      byKey[`${e.system_id}|${e.template_id || ''}`] = e;
+    payloads.forEach(p => {
+      p.entries.forEach(e => {
+        byKey[`${e.system_id}|${e.template_id || ''}`] = e;
+      });
     });
     expect(Object.keys(byKey)).toHaveLength(3);
     expect(byKey['1|5'].template_id).toBe(5);
     expect(byKey['1|6'].template_id).toBe(6);
     expect(byKey['2|5'].template_id).toBe(5);
+    // client_token 按电台后缀，同一提交令牌
+    const tokens = payloads.map(p => p.client_token);
+    expect(tokens[0].replace(/_s\d+$/, '')).toBe(tokens[1].replace(/_s\d+$/, ''));
   });
 
   test('同系统模板明细与临时明细分列，临时条目不带 template_id', async () => {
     mockHttpPost.mockResolvedValue({});
     const instance = makeInstance('inspection');
     instance.state.rows = [
-      {...makeRowState(), client_key: 'k1', system_id: 1, template_id: 5, result: 'normal'},
-      {...makeRowState(), client_key: 'k2', system_id: 1, template_id: undefined, item_name: '临时加测', result: 'normal'},
+      {...makeRowState(), client_key: 'k1', system_id: 1, template_id: 5},
+      {...makeRowState(), client_key: 'k2', system_id: 1, template_id: undefined, item_name: '临时加测'},
     ];
     instance.submit();
     await flush();

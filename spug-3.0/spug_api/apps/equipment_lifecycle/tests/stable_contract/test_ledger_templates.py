@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-"""步骤 3.2 稳定契约：台账模板与快照（提示词二十三 第 5-8、15-16 项）。"""
+"""步骤 3.2 稳定契约：台账模板与快照（提示词二十三 第 5-8、15-16 项）。
+
+2026-09-22 简化：模板不再声明适用系统，模板项目不再有 standard/normal_range/
+number_min/number_max 字段，新建项目默认必填。
+"""
 from django.test import TestCase
 
 from apps.equipment_lifecycle.models import (
@@ -38,9 +42,8 @@ class LedgerTemplateContractTests(TestCase):
         self.system = make_system(self.user)
 
     def _make_inspection_template(self, **kw):
-        template = make_ledger_template(
-            self.user, ledger_type='inspection', applicable_systems=[self.system], **kw)
-        item = make_template_item(template, self.user, standard='指示灯常亮绿色')
+        template = make_ledger_template(self.user, ledger_type='inspection', **kw)
+        item = make_template_item(template, self.user)
         return template, item
 
     def test_inspection_template_only_generates_inspection_ledger(self):
@@ -63,16 +66,15 @@ class LedgerTemplateContractTests(TestCase):
         """6. 周月维护模板正确区分周、月和周月均执行项目。"""
         template = make_ledger_template(
             self.user, ledger_type='week_month',
-            maintenance_cycle='week', name='周月维护模板', template_code='TPL-WM-001',
-            applicable_systems=[self.system])
+            maintenance_cycle='week', name='周月维护模板')
         make_template_item(
-            template, self.user, item_code='WK-1', name='仅每周项',
+            template, self.user, name='仅每周项',
             execution_scope='week_only')
         make_template_item(
-            template, self.user, item_code='MO-1', name='仅每月项',
+            template, self.user, name='仅每月项',
             execution_scope='month_only')
         both = make_template_item(
-            template, self.user, item_code='BM-1', name='周月均执行项',
+            template, self.user, name='周月均执行项',
             execution_scope='all')
         client = make_client(self.user)
         # 周台账：只加载 all + week_only（须传模板项目 ID，仅周期匹配项目被快照）
@@ -83,7 +85,7 @@ class LedgerTemplateContractTests(TestCase):
         bad = ledger_payload(
             [entry_payload(self.system.id, [
                 _tpl_item_payload(both), _tpl_item_payload(make_template_item(
-                    template, self.user, item_code='MO-1b', name='仅每月项B',
+                    template, self.user, name='仅每月项B',
                     execution_scope='month_only'))], template_id=template.id)],
             ledger_type='week_month', maintenance_cycle='week', created_from='template')
         self.assertTrue(post_json(client, LEDGER_URL + '/', bad).json().get('error'))
@@ -93,11 +95,10 @@ class LedgerTemplateContractTests(TestCase):
         # 月台账：需要月周期模板，只加载 month_only 项目
         template_m = make_ledger_template(
             self.user, ledger_type='week_month',
-            maintenance_cycle='month', name='月度维护模板', template_code='TPL-WM-002',
-            applicable_systems=[self.system])
-        month_item_m = make_template_item(template_m, self.user, item_code='MO-2', name='月检项目',
+            maintenance_cycle='month', name='月度维护模板')
+        month_item_m = make_template_item(template_m, self.user, name='月检项目',
                                           execution_scope='month_only')
-        make_template_item(template_m, self.user, item_code='WK-2', name='周检项目',
+        make_template_item(template_m, self.user, name='周检项目',
                            execution_scope='week_only')
         payload = ledger_payload(
             [entry_payload(self.system.id, [_tpl_item_payload(month_item_m)], template_id=template_m.id)],
@@ -110,8 +111,7 @@ class LedgerTemplateContractTests(TestCase):
         """7. 季维护模板只能生成季维护台账。"""
         template = make_ledger_template(
             self.user, ledger_type='seasonal',
-            name='季维护模板', template_code='TPL-SE-001',
-            applicable_systems=[self.system])
+            name='季维护模板')
         tpl_item = make_template_item(template, self.user)
         client = make_client(self.user)
         payload = ledger_payload(
@@ -147,14 +147,11 @@ class LedgerTemplateContractTests(TestCase):
             [entry_payload(self.system.id, [_tpl_item_payload(tpl_item)], template_id=template.id)],
             created_from='template')
         data = create_ledger_ok(client, payload)
-        old_standard = data['items'][0]['standard']
-        # 修改模板项目标准与名称
-        tpl_item.standard = '已变更标准文本'
+        # 修改模板项目名称
         tpl_item.name = '已变更项目名'
         tpl_item.save()
         item = OperationLedgerItem.objects.get(ledger_id=data['id'])
-        self.assertEqual(item.standard_snapshot, old_standard)
-        self.assertNotEqual(item.standard_snapshot, '已变更标准文本')
+        self.assertEqual(item.item_name_snapshot, '设备指示灯检查')
         self.assertNotEqual(item.item_name_snapshot, '已变更项目名')
 
     def test_template_item_deactivate_keeps_history(self):
@@ -172,110 +169,76 @@ class LedgerTemplateContractTests(TestCase):
         item = OperationLedgerItem.objects.filter(ledger_id=data['id']).first()
         self.assertIsNotNone(item)
         self.assertEqual(item.item_name_snapshot, '设备指示灯检查')
-        self.assertEqual(item.standard_snapshot, '指示灯常亮绿色')
         self.assertIsNone(item.template_item_id)
 
     def test_template_cycle_combo_validated(self):
         """周月维护模板周期必须为周或月；季维护模板固定季（模板层校验）。"""
         client = make_client(self.user)
         resp = post_json(client, TEMPLATE_URL + '/', {
-            'name': '非法周期模板', 'template_code': 'TPL-BAD-1',
-            'ledger_type': 'week_month', 'maintenance_cycle': 'season',
-            'applicable_systems': [self.system.id]})
+            'name': '非法周期模板',
+            'ledger_type': 'week_month', 'maintenance_cycle': 'season'})
         self.assertTrue(resp.json().get('error'))
         resp = post_json(client, TEMPLATE_URL + '/', {
-            'name': '非法季模板', 'template_code': 'TPL-BAD-2',
-            'ledger_type': 'seasonal', 'maintenance_cycle': 'week',
-            'applicable_systems': [self.system.id]})
+            'name': '非法季模板',
+            'ledger_type': 'seasonal', 'maintenance_cycle': 'week'})
         self.assertTrue(resp.json().get('error'))
 
-    def test_template_requires_applicable_systems(self):
-        """模板头校验只认 applicable_systems：未选择适用系统被拒。"""
+    def test_template_without_applicable_systems_created_ok(self):
+        """模板不再要求适用系统，模板编号字段已彻底移除（接口不返回）。"""
         client = make_client(self.user)
         resp = post_json(client, TEMPLATE_URL + '/', {
-            'name': '无适用系统模板', 'template_code': 'TPL-BAD-3',
-            'ledger_type': 'inspection', 'maintenance_cycle': ''})
-        self.assertEqual(resp.json().get('error'), '请选择适用系统')
-        self.assertFalse(
-            OperationLedgerTemplate.objects.filter(template_code='TPL-BAD-3').exists())
-        # 传不存在的系统 ID 同样被拒
-        resp = post_json(client, TEMPLATE_URL + '/', {
-            'name': '幽灵系统模板', 'template_code': 'TPL-BAD-4',
+            'name': '无绑定模板',
             'ledger_type': 'inspection', 'maintenance_cycle': '',
-            'applicable_systems': [999999]})
-        self.assertEqual(resp.json().get('error'), '适用系统不存在或无权限访问')
+            'items': [{'name': '指示灯检查', 'input_type': 'text'}]})
+        data = resp.json()['data']
+        self.assertNotIn('template_code', data)
+        self.assertNotIn('applicable_systems', data)
+        template = OperationLedgerTemplate.objects.get(name='无绑定模板')
+        self.assertFalse(
+            template.items.filter(is_required=False).exists(),
+            '新建模板项目应默认必填')
 
 
 class LedgerTemplateAvailableContractTests(TestCase):
-    """available 接口：system 参数可选，缺省时返回全部模板并附适用系统。"""
+    """available 接口：按类型/周期返回启用模板（模板不绑定系统）。"""
 
     def setUp(self):
         self.user = make_ledger_user('avail_op')
         self.system_a = make_system(self.user, system_code='SYS-A', name='通信系统A')
         self.system_b = make_system(self.user, system_code='SYS-B', name='通信系统B')
-        self.template_a = make_ledger_template(
-            self.user, name='A专用模板', template_code='TPL-AV-1',
-            applicable_systems=[self.system_a])
-        self.template_ab = make_ledger_template(
-            self.user, name='全科模板', template_code='TPL-AV-2',
-            applicable_systems=[self.system_a, self.system_b])
-        make_ledger_template(
-            self.user, name='停用模板', template_code='TPL-AV-3',
-            applicable_systems=[self.system_a], is_active=False)
+        make_ledger_template(self.user, name='模板一')
+        make_ledger_template(self.user, name='模板二')
+        make_ledger_template(self.user, name='停用模板', is_active=False)
 
-    def _get_available(self, query=''):
+    def test_available_returns_all_active_templates(self):
+        """返回该类型全部启用模板，不再附带 applicable_systems/template_code。"""
         client = make_client(self.user)
-        return client.get(TEMPLATE_URL + '/available/?ledger_type=inspection' + query)
-
-    def test_available_without_system_returns_all_with_applicable_systems(self):
-        """不带 system：返回该类型全部启用模板，每个附 applicable_systems。"""
-        resp = self._get_available()
+        resp = client.get(TEMPLATE_URL + '/available/?ledger_type=inspection')
         self.assertEqual(resp.status_code, 200)
         data = resp.json()['data']['data']
-        codes = {t['template_code'] for t in data}
-        self.assertEqual(codes, {'TPL-AV-1', 'TPL-AV-2'})
-        by_code = {t['template_code']: t for t in data}
-        self.assertEqual(
-            {s['id'] for s in by_code['TPL-AV-2']['applicable_systems']},
-            {self.system_a.id, self.system_b.id})
-        self.assertEqual(
-            {s['id'] for s in by_code['TPL-AV-1']['applicable_systems']},
-            {self.system_a.id})
-        # 每个适用系统带编号/名称，供前端展示"适用 N 套"
-        first = by_code['TPL-AV-2']['applicable_systems'][0]
-        self.assertIn('system_code', first)
-        self.assertIn('name', first)
-
-    def test_available_with_system_filters_as_before(self):
-        """带 system：只返回适用于该系统的模板（原有行为不变）。"""
-        resp = self._get_available('&system=%s' % self.system_a.id)
-        codes = {t['template_code'] for t in resp.json()['data']['data']}
-        self.assertEqual(codes, {'TPL-AV-1', 'TPL-AV-2'})
-        resp = self._get_available('&system=%s' % self.system_b.id)
-        codes = {t['template_code'] for t in resp.json()['data']['data']}
-        self.assertEqual(codes, {'TPL-AV-2'})
-        # 不存在的系统仍报错
-        resp = self._get_available('&system=999999')
-        self.assertEqual(resp.json().get('error'), '系统不存在')
+        names = {t['name'] for t in data}
+        self.assertEqual(names, {'模板一', '模板二'})
+        for template in data:
+            self.assertNotIn('applicable_systems', template)
+            self.assertNotIn('template_code', template)
 
     def test_available_week_month_items_count_respects_scope(self):
         """周月维护模板 items_count 按周期 scope 过滤。"""
         template = make_ledger_template(
             self.user, ledger_type='week_month', maintenance_cycle='week',
-            name='周月模板', template_code='TPL-AV-4',
-            applicable_systems=[self.system_a, self.system_b])
+            name='周月模板')
         make_template_item(
-            template, self.user, item_code='WK-1', name='仅每周项', execution_scope='week_only')
+            template, self.user, name='仅每周项', execution_scope='week_only')
         make_template_item(
-            template, self.user, item_code='MO-1', name='仅每月项', execution_scope='month_only')
+            template, self.user, name='仅每月项', execution_scope='month_only')
         make_template_item(
-            template, self.user, item_code='BM-1', name='周月均执行项', execution_scope='all')
+            template, self.user, name='周月均执行项', execution_scope='all')
         client = make_client(self.user)
         resp = client.get(
             TEMPLATE_URL + '/available/?ledger_type=week_month&maintenance_cycle=week')
-        by_code = {t['template_code']: t for t in resp.json()['data']['data']}
-        self.assertEqual(by_code['TPL-AV-4']['items_count'], 2)
+        by_name = {t['name']: t for t in resp.json()['data']['data']}
+        self.assertEqual(by_name['周月模板']['items_count'], 2)
         resp = client.get(
             TEMPLATE_URL + '/available/?ledger_type=week_month&maintenance_cycle=month')
-        by_code = {t['template_code']: t for t in resp.json()['data']['data']}
-        self.assertEqual(by_code['TPL-AV-4']['items_count'], 2)
+        by_name = {t['name']: t for t in resp.json()['data']['data']}
+        self.assertEqual(by_name['周月模板']['items_count'], 2)

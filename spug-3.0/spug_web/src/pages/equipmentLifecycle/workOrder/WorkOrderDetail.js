@@ -175,7 +175,7 @@ function renderBasic(d, gotoFault, gotoLedger) {
         <Tag color={PRIORITY_COLOR[d.priority]}>{PRIORITY_TEXT[d.priority] || d.priority}</Tag>
       </Descriptions.Item>
       <Descriptions.Item label="作业系统">
-        {`${d.system_name || ''}（${d.system_code || ''}）`}
+        {d.system_name || ''}
       </Descriptions.Item>
       <Descriptions.Item label="安装地点">{d.system_location || '-'}</Descriptions.Item>
       <Descriptions.Item label="作业期间影响系统运行">

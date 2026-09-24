@@ -11,6 +11,8 @@
 {"system": {...}, "custom_fields": [...], "components": [...]}
 （编辑为 config_values / custom_fields / components）。固定字段、字段定义、
 字段值与组成项在同一事务内写入，任一步失败整体回滚；旧平铺载荷仍兼容。
+系统编号（system_code）为后端内部标识：新增时由后端自动生成（租户内唯一、
+创建后不可修改），客户端传入的取值一律忽略，前端不展示。
 内联自定义字段的 client_key 仅用于关联本次请求的定义与值，正式字段编码
 由后端生成。配置字段定义集中维护接口（自定义字段）保留。
 
@@ -23,6 +25,7 @@ import io
 import json
 import re
 from datetime import datetime
+from secrets import token_hex
 from types import SimpleNamespace
 
 from django.db import IntegrityError, models, transaction
@@ -94,10 +97,12 @@ def _read_json_body(request):
     return body if isinstance(body, dict) else None
 
 
-def _parse_system_fields(data, for_update=False):
-    """解析系统固定字段（data 为已解析的 dict）。"""
+def _parse_system_fields(data):
+    """解析系统固定字段（data 为已解析的 dict）。
+
+    system_code 为后端内部标识，不接收客户端取值，新增时自动生成。
+    """
     parser = JsonParser(
-        Argument('system_code', type=str, required=not for_update, help='系统编号'),
         Argument('name', type=str, required=True, help='系统名称'),
         Argument('system_model', type=str, required=True, help='系统型号'),
         Argument('install_location', type=str, required=True, help='安装地点'),
@@ -162,31 +167,35 @@ def _apply_fixed_fields(item, form, install_time, enable_time, user):
     item.updated_by = user
 
 
-def _validate_system_fixed_payload(request, form, for_update=False, item=None):
-    """校验系统固定字段公共部分，返回 (system_code, install_time, enable_time, error)。
+def _validate_system_fixed_payload(request, form):
+    """校验系统固定字段公共部分，返回 (install_time, enable_time, error)。
 
-    - 新增：system_code 租户内唯一；
-    - 编辑：system_code 不可修改。
+    system_code 不来自客户端：新增由 _generate_system_code 生成，编辑保持原值。
     """
-    system_code = (form.system_code or '').strip()
-    if not for_update:
-        if not system_code:
-            return None, None, None, '系统编号不能为空'
-        if apply_tenant_filter(LifecycleSystem.objects.all(), request.user).filter(
-                system_code=system_code).exists():
-            return None, None, None, '系统编号已存在'
-    else:
-        if system_code and system_code != item.system_code:
-            return None, None, None, '系统编号创建后不可修改'
-        system_code = item.system_code
     err = SystemView._check_geo(form.geo_coordinate)
     if err:
-        return None, None, None, err
+        return None, None, err
     install_time = _parse_datetime(form.install_time)
     enable_time = _parse_datetime(form.enable_time)
     if not install_time or not enable_time:
-        return None, None, None, '安装时间/启用时间格式不正确，应为 YYYY-MM-DD HH:MM'
-    return system_code, install_time, enable_time, None
+        return None, None, '安装时间/启用时间格式不正确，应为 YYYY-MM-DD HH:MM'
+    return install_time, enable_time, None
+
+
+def _generate_system_code(user):
+    """生成租户内唯一的系统编号：SYS-日期-6位随机十六进制。
+
+    编号仅作后端标识（快照/审计/导出命名），不向前端展示。预检查避开已有
+    编号，极小概率的并发碰撞由 (tenant_id, system_code) 唯一约束兜底。
+    """
+    # USE_TZ=False 下 timezone.now() 即本地 naive 时间，直接取日期（localdate 会抛错）
+    prefix = 'SYS-%s-' % timezone.now().strftime('%Y%m%d')
+    for _ in range(5):
+        code = prefix + token_hex(3).upper()
+        if not apply_tenant_filter(LifecycleSystem.objects.all(), user).filter(
+                system_code=code).exists():
+            return code
+    return prefix + token_hex(8).upper()
 
 
 def _generate_field_code(display_name, tenant_id, custom_system_id=None):
@@ -304,7 +313,8 @@ def _collect_system_references(system):
     """删除保护：返回引用该系统的业务对象描述列表，非空则禁止物理删除。
 
     步骤 3.1 起故障、步骤 3.2 起台账明细、步骤 3.3 起工单、步骤 3.4 起
-    履历事件均以系统 ID 建立业务关联（PROTECT）；历史记录必须继续可查，
+    履历事件均以系统 ID 建立业务关联（PROTECT）；升级管理挂接系统档案后，
+    升级记录同样以系统 ID 关联。历史记录必须继续可查，
     存在关联的系统不得物理删除。fail-closed 语义。
     """
     from apps.equipment_lifecycle.models import (
@@ -313,6 +323,7 @@ def _collect_system_references(system):
         SystemFault,
         SystemWorkOrder,
     )
+    from apps.upgrade.models import UpgradeRecord
     refs = []
     if SystemFault.objects.filter(
             tenant_id=system.tenant_id, system_id=system.id).exists():
@@ -326,6 +337,10 @@ def _collect_system_references(system):
     if SystemEvent.objects.filter(
             tenant_id=system.tenant_id, system_id=system.id).exists():
         refs.append('系统履历事件')
+    if UpgradeRecord.objects.filter(
+            tenant_id=system.tenant_id, system_id=system.id,
+            is_deleted=False).exists():
+        refs.append('升级记录')
     return refs
 
 
@@ -644,10 +659,10 @@ class SystemView(View):
 
     def _create_flat(self, request, form):
         """旧平铺载荷：仅创建系统固定字段。"""
-        system_code, install_time, enable_time, error = _validate_system_fixed_payload(
-            request, form)
+        install_time, enable_time, error = _validate_system_fixed_payload(request, form)
         if error:
             return json_response(error=error)
+        system_code = _generate_system_code(request.user)
 
         with transaction.atomic():
             item = LifecycleSystem.objects.create(
@@ -684,10 +699,10 @@ class SystemView(View):
         form, error = _parse_system_fields(body.get('system'))
         if error:
             return json_response(error=error)
-        system_code, install_time, enable_time, error = _validate_system_fixed_payload(
-            request, form)
+        install_time, enable_time, error = _validate_system_fixed_payload(request, form)
         if error:
             return json_response(error=error)
+        system_code = _generate_system_code(request.user)
 
         custom_fields_payload = body.get('custom_fields')
         components_payload = body.get('components')
@@ -940,15 +955,14 @@ class SystemDetailView(View):
             return json_response(error='请求数据格式不正确')
         if isinstance(body.get('system'), dict):
             return self._update_aggregate(request, item, body)
-        form, error = _parse_system_fields(body, for_update=True)
+        form, error = _parse_system_fields(body)
         if error:
             return json_response(error=error)
         return self._update_flat(request, item, form)
 
     def _update_flat(self, request, item, form):
         """旧平铺载荷：仅更新系统固定字段。"""
-        _, install_time, enable_time, error = _validate_system_fixed_payload(
-            request, form, for_update=True, item=item)
+        install_time, enable_time, error = _validate_system_fixed_payload(request, form)
         if error:
             return json_response(error=error)
         before = _fixed_field_snapshot(item)
@@ -970,11 +984,10 @@ class SystemDetailView(View):
         所有校验在写入前完成；写操作在单事务内执行，任何一步失败整体回滚。
         config_values / custom_fields / components 任一键缺省时对应部分保持不变。
         """
-        form, error = _parse_system_fields(body.get('system'), for_update=True)
+        form, error = _parse_system_fields(body.get('system'))
         if error:
             return json_response(error=error)
-        _, install_time, enable_time, error = _validate_system_fixed_payload(
-            request, form, for_update=True, item=item)
+        install_time, enable_time, error = _validate_system_fixed_payload(request, form)
         if error:
             return json_response(error=error)
 

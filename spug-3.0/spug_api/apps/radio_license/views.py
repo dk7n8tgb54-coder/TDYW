@@ -200,6 +200,26 @@ def _record_license_edit_evidence(license_obj, old_valid_to, changed_fields, use
             logger.error(f'执照更新证据事件写入失败: {ev_err}')
 
 
+def _run_atomic_with_deadlock_retry(operation, max_attempts=2):
+    """显式事务 + 死锁重试。
+
+    并发写执照时，审计序列行锁（AuditLogSequence）与执照/频点行锁可能
+    形成 MariaDB 死锁（1213），整个事务被回滚。配合 urls 层对该视图的
+    non_atomic_requests 豁免，这里以显式 atomic 提供事务边界并对死锁
+    重试一次：创建载荷互不相同、编辑按主键幂等覆盖，重试不会重复落库。
+    """
+    from django.db import OperationalError, transaction
+    for attempt in range(max_attempts):
+        try:
+            with transaction.atomic():
+                result = operation()
+            return result
+        except OperationalError as exc:
+            if attempt + 1 < max_attempts and getattr(exc, 'args', [None])[:1] == [1213]:
+                continue
+            raise
+
+
 class RadioLicenseView(View):
     """执照列表 / 新增编辑 / 删除"""
 
@@ -321,7 +341,6 @@ class RadioLicenseView(View):
 
     def _handle_create(self, form, frequencies, request):
         """新增模式：创建执照 + 频率明细 + 即时扫描"""
-        from django.db import transaction
         user = request.user
         form.created_by = user
         form.pop('remark', None)
@@ -336,7 +355,10 @@ class RadioLicenseView(View):
         }):
             return '提交过于频繁，请勿重复提交'
 
-        with transaction.atomic():
+        def _do_create():
+            # 首步预取租户审计序列行锁（统一锁序，防并发死锁 1213）
+            from apps.logs.audit import lock_audit_sequence_row
+            lock_audit_sequence_row(user.tenant_id)
             license_obj = RadioLicense.objects.create(**create_data)
             _create_frequencies(license_obj, frequencies, user)
             scan_single_license(license_obj)
@@ -347,11 +369,12 @@ class RadioLicenseView(View):
                         'valid_from': str(license_obj.valid_from),
                         'valid_to': str(license_obj.valid_to)},
             )
+
+        _run_atomic_with_deadlock_retry(_do_create)
         return None
 
     def _handle_edit(self, form, frequencies, request):
         """编辑模式：版本快照 + 状态流转 + 续期/更新证据事件"""
-        from django.db import transaction
         user = request.user
         qs = apply_tenant_filter(RadioLicense.objects.all(), user)
         old_license = qs.filter(pk=form.id).first()
@@ -370,7 +393,10 @@ class RadioLicenseView(View):
         form.pop('remark', None)
         update_data = {k: v for k, v in form.items() if v is not None}
 
-        with transaction.atomic():
+        def _do_edit():
+            # 首步预取租户审计序列行锁（统一锁序，防并发死锁 1213）
+            from apps.logs.audit import lock_audit_sequence_row
+            lock_audit_sequence_row(user.tenant_id)
             # 行锁序列化同一执照的并发编辑：两个并发请求不会同时读到
             # 相同的最大版本号，保证 version_no 按单张执照严格递增不重复。
             # 锁定后重新读取，快照基于最新的"修改前"状态。
@@ -400,7 +426,8 @@ class RadioLicenseView(View):
                         'valid_from': str(license_obj.valid_from),
                         'valid_to': str(license_obj.valid_to)},
             )
-        return None
+
+        return _run_atomic_with_deadlock_retry(_do_edit)
 
     @auth('radio_license.license.del')
     def delete(self, request):

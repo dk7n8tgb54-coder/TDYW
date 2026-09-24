@@ -45,8 +45,8 @@ from .views.step import (
 # === 新接口 - 升级状态日志 ===
 from .views.status_log import StatusLogListView, StatusLogDeleteView
 
-# === 新接口 - 升级系统候选项字典 ===
-from .views.systems import UpgradeSystemListView, UpgradeSystemCreateView, UpgradeSystemDeleteView
+# === 新接口 - 系统档案候选 / 按系统查询升级记录 ===
+from .views.system_records import UpgradeCandidateSystemsView, SystemUpgradeRecordsView
 
 # === 兼容旧接口 ===
 from .views.legacy import LegacyUpgradeView
@@ -95,10 +95,8 @@ urlpatterns = [
     path('records/<int:record_id>/status-logs/', StatusLogListView.as_view()),            # GET 列表 / POST 记录 / GET ?action=options 动作选项
     path('status-logs/<int:pk>/delete/', StatusLogDeleteView.as_view()),                  # DELETE 删除日志
 
-    # === 升级系统候选项字典 ===
-    path('systems/', UpgradeSystemListView.as_view()),                                    # GET 系统候选列表
-    path('systems/create/', UpgradeSystemCreateView.as_view()),                           # POST 新增系统候选项
-    path('systems/<int:pk>/delete/', UpgradeSystemDeleteView.as_view()),                  # DELETE 移除系统候选项
+    # === 系统档案候选与按系统查询（升级管理挂接系统档案）===
+    path('candidate-systems/', UpgradeCandidateSystemsView.as_view()),               # GET 表单系统候选项
 
     # === 兼容旧接口（前端迁移完成后移除）===
     path('upgrade/', LegacyUpgradeView.as_view()),

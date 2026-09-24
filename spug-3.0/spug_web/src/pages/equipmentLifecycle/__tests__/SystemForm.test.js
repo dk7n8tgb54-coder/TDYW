@@ -167,8 +167,8 @@ describe('编辑系统（聚合提交）', () => {
     expect(mockHttpPut).toHaveBeenCalledTimes(1);
     const [url, payload] = mockHttpPut.mock.calls[0];
     expect(url).toBe('/api/equipment-lifecycle/systems/5/');
-    // 固定字段在 system 键下，编号原样回传
-    expect(payload.system.system_code).toBe('SYS-001');
+    // 固定字段在 system 键下；系统编号由后端自动生成，前端不传
+    expect(payload.system.system_code).toBeUndefined();
     expect(payload.system.name).toBe('烟台中心站通信系统');
     expect(payload.system.install_time).toBe('2026-01-01 08:00');
     // 动态字段值只提交发生变化的

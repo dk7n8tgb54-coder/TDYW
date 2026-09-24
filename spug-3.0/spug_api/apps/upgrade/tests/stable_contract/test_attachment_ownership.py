@@ -52,7 +52,7 @@ class UpgradeAttachmentOwnershipTest(TestCase):
         self.record = UpgradeRecord.objects.create(
             tenant_id=self.user.tenant_id,
             title='升级附件归属测试',
-            system='测试系统',
+            system_name='测试系统',
             upgrade_type='软件升级',
             created_by=self.user,
         )

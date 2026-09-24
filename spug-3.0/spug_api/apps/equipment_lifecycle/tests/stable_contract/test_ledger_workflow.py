@@ -94,7 +94,6 @@ class LedgerWorkflowContractTests(TestCase):
         self.assertEqual(changes['result']['new'], 'abnormal')
         item.refresh_from_db()
         self.assertEqual(item.result, 'abnormal')
-        self.assertEqual(item.correction_reason, '复核更正')
 
     def test_void_is_controlled_not_physical_delete(self):
         """28. 作废不执行物理删除（受控终态）。"""

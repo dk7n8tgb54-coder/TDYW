@@ -55,9 +55,9 @@ function StepDetailModal({ visible, plan, onCancel }) {
       {plan.description && (
         <div style={{ marginBottom: 12, color: '#666' }}>{plan.description}</div>
       )}
-      {plan.system || plan.upgrade_type ? (
+      {plan.system_name || plan.upgrade_type ? (
         <div style={{ marginBottom: 12 }}>
-          {plan.system && <Tag>{plan.system}</Tag>}
+          {plan.system_name && <Tag>{plan.system_name}</Tag>}
           {plan.upgrade_type && <Tag color="cyan">{plan.upgrade_type}</Tag>}
         </div>
       ) : null}
@@ -169,8 +169,8 @@ export default observer(function () {
     },
     {
       title: '系统',
-      dataIndex: 'system',
-      key: 'system',
+      dataIndex: 'system_name',
+      key: 'system_name',
       width: 120,
       render: text => text || '-',
     },

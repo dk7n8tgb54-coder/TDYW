@@ -4,7 +4,9 @@
 """
 升级表单服务 - 创建/更新/删除/列表/详情
 
-当前模型使用 CharField 存储日期时间、IntegerField 存储关联ID。
+升级系统通过正式外键关联系统档案（LifecycleSystem）并保存快照：
+请求与存储一律用系统 ID，页面只显示名称；新建/换绑只允许可用（未停用）系统，
+编辑未变更的关联允许保留已停用系统（历史单据继续可查）。
 """
 import logging
 from django.db import transaction
@@ -12,11 +14,21 @@ from django.utils import timezone
 
 from libs.tenant_utils import apply_tenant_filter
 from libs.idempotency import check_recent_duplicate
+from apps.equipment_lifecycle.models import LifecycleSystem
+from apps.equipment_lifecycle.event_services import record_upgrade_lifecycle_events
 from ..validators import RecordValidator
 from ..serializers import UpgradeRecordSerializer
-from ..constants import PRESET_SYSTEMS, UPGRADE_PHASES, RESULT_MILESTONES, STANDARD_FLOW_ORDER
+from ..constants import UPGRADE_PHASES, RESULT_MILESTONES, STANDARD_FLOW_ORDER
 
 logger = logging.getLogger(__name__)
+
+
+def get_active_system_for_user(pk, user):
+    """取本租户可用（未停用）系统：新建/换绑升级记录只允许选择可用系统。"""
+    if not pk:
+        return None
+    return apply_tenant_filter(LifecycleSystem.objects.all(), user).filter(
+        pk=pk, is_active=True).first()
 
 
 class RecordService:
@@ -40,6 +52,11 @@ class RecordService:
         if error:
             return None, error
 
+        # 系统档案校验：新建只允许选择本租户可用系统
+        system = get_active_system_for_user(record_data.system, user)
+        if not system:
+            return None, '升级系统不存在或已停用'
+
         # 幂等性检查：防止双击重复提交
         if check_recent_duplicate(UpgradeRecord, {
             'tenant_id': user.tenant_id,
@@ -62,7 +79,10 @@ class RecordService:
                 record = UpgradeRecord.objects.create(
                     tenant_id=user.tenant_id,
                     title=getattr(record_data, 'title', '') or '',
-                    system=record_data.system,
+                    system=system,
+                    system_code=system.system_code,
+                    system_name=system.name,
+                    system_location=system.install_location,
                     upgrade_type=record_data.upgrade_type,
                     upgrade_time=upgrade_time_val,
                     status=getattr(record_data, 'status', '处理中') or '处理中',
@@ -73,6 +93,9 @@ class RecordService:
                     rollback_plan=getattr(record_data, 'rollback_plan', '') or '',
                     created_by=user,
                 )
+
+                # 3. 同事务写系统履历（升级登记）
+                record_upgrade_lifecycle_events(record, 'create', created_by=user)
 
             return record, None
 
@@ -105,9 +128,21 @@ class RecordService:
         if error:
             return None, error
 
+        # 系统档案变更：换绑只允许选择可用系统；未变更的关联即使已停用也保留
+        # （历史单据继续可查），并同步重写快照
+        new_system_id = getattr(data, 'system', None)
+        if new_system_id is not None and new_system_id != record.system_id:
+            system = get_active_system_for_user(new_system_id, user)
+            if not system:
+                return None, '升级系统不存在或已停用'
+            record.system = system
+            record.system_code = system.system_code
+            record.system_name = system.name
+            record.system_location = system.install_location
+
         try:
-            # 更新可编辑字段
-            editable_fields = ['title', 'system', 'upgrade_type', 'status', 'owner',
+            # 更新可编辑字段（system 已在上方单独处理）
+            editable_fields = ['title', 'upgrade_type', 'status', 'owner',
                                'upgrade_content', 'impact_scope', 'risk_desc', 'rollback_plan']
             for field in editable_fields:
                 value = getattr(data, field, None)
@@ -125,7 +160,8 @@ class RecordService:
             record.updated_at = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
             record.updated_by = user
             record.save(update_fields=[
-                'title', 'system', 'upgrade_type', 'upgrade_time', 'status', 'owner',
+                'title', 'system', 'system_code', 'system_name', 'system_location',
+                'upgrade_type', 'upgrade_time', 'status', 'owner',
                 'upgrade_content', 'impact_scope', 'risk_desc', 'rollback_plan',
                 'updated_at', 'updated_by',
             ])
@@ -190,7 +226,7 @@ class RecordService:
                 record_audit_event(
                     request, 'delete', 'upgrade',
                     target_id=record.id, target_name=record.title,
-                    detail={'title': record.title, 'system': record.system,
+                    detail={'title': record.title, 'system_name': record.system_name,
                             'upgrade_type': record.upgrade_type},
                 )
 
@@ -284,44 +320,28 @@ class RecordService:
 
     @staticmethod
     def get_filter_options(user):
-        """获取筛选选项（去重值列表 + 系统字典合并）
+        """获取筛选选项（去重值列表 + 系统档案可用系统）
 
-        系统候选项来源（均按当前租户过滤）：
-        1. 升级系统字典表（UpgradeSystem，is_active=True）— 主源，租户隔离
-        2. 历史升级记录中出现过的系统 — 兜底，保证旧记录的系统仍可筛选/选择
+        系统候选来源：系统档案（LifecycleSystem）本租户可用（未停用）系统，
+        返回对象列表 [{id, system_code, name, install_location}]。
 
         Args:
             user: 当前请求用户
 
         Returns:
-            dict: {systems, statuses, upgrade_types}
+            dict: {systems, statuses, upgrade_types, phases, milestones, standard_flow}
         """
-        from ..models import UpgradeRecord, UpgradeSystem
+        from ..models import UpgradeRecord
 
         queryset = apply_tenant_filter(UpgradeRecord.objects.filter(is_deleted=False), user)
 
-        # 字典表 active 项（按当前租户过滤，租户隔离）
-        tenant_id = getattr(user, 'tenant_id', '')
-        dict_systems = list(
-            UpgradeSystem.objects.filter(tenant_id=tenant_id, is_active=True, is_deleted=False)
-            .order_by('sort_order', 'name')
-            .values_list('name', flat=True)
+        # 系统档案可用系统（按当前租户过滤，租户隔离）
+        systems = list(
+            apply_tenant_filter(
+                LifecycleSystem.objects.filter(is_active=True), user
+            ).order_by('system_code')
+            .values('id', 'system_code', 'name', 'install_location')
         )
-
-        # 历史系统列表（兜底，保证旧记录系统仍可见）
-        history_systems = list(
-            queryset.values_list('system', flat=True)
-            .distinct()
-            .order_by('system')
-        )
-
-        # 合并：字典表在前，历史系统中不在字典表的追加在后
-        all_systems = list(dict_systems)
-        dict_set_lower = {s.lower() for s in dict_systems}
-        for sys in history_systems:
-            if sys and sys.lower() not in dict_set_lower:
-                all_systems.append(sys)
-                dict_set_lower.add(sys.lower())
 
         statuses = list(
             queryset.values_list('status', flat=True)
@@ -339,6 +359,7 @@ class RecordService:
         from ..models_template import UpgradePlanStep
         from ..models_checklist import UpgradeRecordStep
 
+        tenant_id = getattr(user, 'tenant_id', '')
         preset_phase_labels = [p['label'] for p in UPGRADE_PHASES]
         history_phase_qs = (
             list(UpgradePlanStep.objects.filter(tenant_id=tenant_id)
@@ -354,7 +375,7 @@ class RecordService:
                 phase_seen.add(ph.lower())
 
         return {
-            'systems': all_systems,
+            'systems': systems,
             'statuses': statuses,
             'upgrade_types': upgrade_types,
             'phases': all_phases,
@@ -368,7 +389,8 @@ class RecordService:
         if filters.get('status'):
             queryset = queryset.filter(status=filters['status'])
         if filters.get('system'):
-            queryset = queryset.filter(system__startswith=filters['system'])
+            # system 参数为系统档案 ID（正式外键精确过滤）
+            queryset = queryset.filter(system_id=filters['system'])
         if filters.get('upgrade_type'):
             queryset = queryset.filter(upgrade_type=filters['upgrade_type'])
         if filters.get('owner'):

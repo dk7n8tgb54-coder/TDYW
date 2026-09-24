@@ -15,8 +15,29 @@ from django.utils import timezone
 
 from libs.tenant_utils import apply_tenant_filter
 from libs.idempotency import check_recent_duplicate
+from .record_service import get_active_system_for_user
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_plan_system(data, user, template=None):
+    """解析并校验方案的系统外键。
+
+    返回 (system, error)：
+    - 未提供 system → (None, None)，方案允许不关联系统；
+    - 提供且与现有关联相同 → 保留（未变更的关联即使已停用也保留）；
+    - 提供新系统 → 必须为本租户可用系统。
+    """
+    system_id = getattr(data, 'system', None)
+    if system_id in (None, ''):
+        return None, None
+    system_id = int(system_id)
+    if template is not None and template.system_id == system_id:
+        return template.system, None
+    system = get_active_system_for_user(system_id, user)
+    if not system:
+        return None, '升级系统不存在或已停用'
+    return system, None
 
 
 class PlanService:
@@ -42,7 +63,8 @@ class PlanService:
                 'id': t.id,
                 'name': t.name,
                 'description': t.description,
-                'system': t.system,
+                'system_id': t.system_id,
+                'system_name': t.system_name or (t.system.name if t.system_id else ''),
                 'upgrade_type': t.upgrade_type,
                 'step_count': step_count,
                 'created_at': t.created_at,
@@ -69,7 +91,8 @@ class PlanService:
             'id': template.id,
             'name': template.name,
             'description': template.description,
-            'system': template.system,
+            'system_id': template.system_id,
+            'system_name': template.system_name or (template.system.name if template.system_id else ''),
             'upgrade_type': template.upgrade_type,
             'steps': [
                 {
@@ -135,6 +158,11 @@ class PlanService:
         }):
             return None, '提交过于频繁，请勿重复提交'
 
+        # 系统档案校验（方案允许不关联系统）
+        system, error = _resolve_plan_system(data, user)
+        if error:
+            return None, error
+
         try:
             now_str = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
             with transaction.atomic():
@@ -142,7 +170,8 @@ class PlanService:
                     tenant_id=user.tenant_id,
                     name=name,
                     description=getattr(data, 'description', '') or '',
-                    system=getattr(data, 'system', '') or '',
+                    system=system,
+                    system_name=system.name if system else '',
                     upgrade_type=getattr(data, 'upgrade_type', '') or '',
                     created_by=user,
                 )
@@ -178,17 +207,26 @@ class PlanService:
 
         steps_data = getattr(data, 'steps', None)
 
+        # 系统档案变更校验（未变更的关联即使已停用也保留）
+        system, error = _resolve_plan_system(data, user, template=template)
+        if error:
+            return None, error
+
         try:
             now_str = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
             with transaction.atomic():
-                editable_fields = ['name', 'description', 'system', 'upgrade_type']
-                for field in editable_fields:
+                if getattr(data, 'system', None) is not None:
+                    template.system = system
+                    template.system_name = system.name if system else ''
+                for field in ('name', 'description', 'upgrade_type'):
                     value = getattr(data, field, None)
                     if value is not None:
                         setattr(template, field, value)
 
                 template.updated_at = now_str
-                template.save(update_fields=['name', 'description', 'system', 'upgrade_type', 'updated_at'])
+                template.save(update_fields=[
+                    'name', 'description', 'system', 'system_name',
+                    'upgrade_type', 'updated_at'])
 
                 # 若提交了 steps，则整体替换
                 if steps_data is not None:

@@ -38,12 +38,6 @@ class FaultTable extends React.Component {
     dataIndex: 'system_name',
     width: 200,
     ellipsis: true,
-    render: (text, record) => (
-      <span>
-        <span>{text}</span>
-        <span style={{color: '#999', marginLeft: 6}}>{record.system_code}</span>
-      </span>
-    ),
   }, {
     title: '影响状态',
     dataIndex: 'impact_status',
@@ -170,7 +164,7 @@ function FaultIndex(props) {
           >
             {store.systems.map(s => (
               <Select.Option value={s.id} key={s.id}>
-                {`${s.name}（${s.system_code}）`}
+                {s.name}
               </Select.Option>
             ))}
           </Select>

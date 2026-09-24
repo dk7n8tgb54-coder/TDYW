@@ -36,10 +36,6 @@ class SystemTable extends React.Component {
   }
 
   columns = [{
-    title: '系统编号',
-    dataIndex: 'system_code',
-    width: 130,
-  }, {
     title: '系统名称',
     dataIndex: 'name',
     width: 200,

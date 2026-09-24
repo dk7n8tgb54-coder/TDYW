@@ -36,7 +36,7 @@ class PlanCreateView(View):
         form, error = JsonParser(
             Argument('name', help='请输入方案名称'),
             Argument('description', required=False, default=''),
-            Argument('system', required=False, default=''),
+            Argument('system', type=int, required=False, default=None),
             Argument('upgrade_type', required=False, default=''),
             Argument('steps', type=list, required=False, default=[]),
         ).parse(request.body)
@@ -59,7 +59,7 @@ class PlanUpdateView(View):
         form, error = JsonParser(
             Argument('name', required=False),
             Argument('description', required=False),
-            Argument('system', required=False),
+            Argument('system', type=int, required=False),
             Argument('upgrade_type', required=False),
             Argument('steps', type=list, required=False),
         ).parse(request.body)

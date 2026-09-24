@@ -51,10 +51,8 @@ class LedgerDetail extends React.Component {
   renderItems = (items) => {
     const columns = [
       {title: '项目', dataIndex: 'item_name', width: 160},
-      {title: '标准要求', dataIndex: 'standard', ellipsis: true},
       {title: '填写值', key: 'value', width: 110, render: (t, r) => this.renderValue(r)},
       {title: '单位', dataIndex: 'unit', width: 70, render: v => v || '-'},
-      {title: '正常范围', dataIndex: 'normal_range', width: 100, render: v => v || '-'},
       {
         title: '结果', dataIndex: 'result', width: 90,
         render: v => <Tag color={RESULT_COLOR[v]} style={RESULT_TAG_STYLE}>{RESULT_TEXT[v] || v}</Tag>,
@@ -97,9 +95,9 @@ class LedgerDetail extends React.Component {
     const groups = [];
     const groupMap = {};
     (d.items || []).forEach(item => {
-      const key = `${item.system}_${item.system_code}`;
+      const key = String(item.system);
       if (!groupMap[key]) {
-        groupMap[key] = {system_code: item.system_code, system_name: item.system_name, items: []};
+        groupMap[key] = {system_name: item.system_name, items: []};
         groups.push(groupMap[key]);
       }
       groupMap[key].items.push(item);
@@ -151,7 +149,7 @@ class LedgerDetail extends React.Component {
                 <Collapse defaultActiveKey={groups.map((g, i) => String(i))}>
                   {groups.map((g, i) => (
                     <Panel
-                      header={`${g.system_name}（${g.system_code}）`}
+                      header={g.system_name}
                       key={String(i)}
                       extra={
                         <span>

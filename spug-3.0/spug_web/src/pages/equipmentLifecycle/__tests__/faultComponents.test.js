@@ -2,7 +2,7 @@
  * 设备全生命周期（步骤 3.1，单系统简化）故障组件渲染测试
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
- * - 故障详情抽屉展示故障系统（名称+编号+安装地点快照）、影响程度、状态流转按钮随状态切换
+ * - 故障详情抽屉展示故障系统（名称+安装地点快照）、影响程度、状态流转按钮随状态切换
  * - 详情不再提供"受影响系统"页签
  * - 处置记录时间线按时间展示，更正留痕可见
  * - 系统详情故障页签只展示本系统故障（不区分主体/受影响角色）
@@ -120,11 +120,12 @@ function tabTexts() {
 }
 
 describe('故障详情抽屉（单系统简化）', () => {
-  it('展示故障系统名称与编号/地点快照、影响程度与现象', async () => {
+  it('展示故障系统名称与地点快照、影响程度与现象', async () => {
     await renderDetail('handling');
     const text = bodyText();
     expect(text).toContain('GZ20260918-0001');
-    expect(text).toContain('烟台通信系统（SYS-A1）');
+    expect(text).toContain('烟台通信系统');
+    expect(text).not.toContain('SYS-A1');
     expect(text).toContain('机房A');
     expect(text).toContain('主用链路频繁丢包');
     expect(text).toContain('巡检发现');

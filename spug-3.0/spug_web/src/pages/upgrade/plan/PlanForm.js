@@ -39,7 +39,7 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
         form.setFieldsValue({
           name: initialValues.name || '',
           description: initialValues.description || '',
-          system: initialValues.system || undefined,
+          system: initialValues.system_id || undefined,
           upgrade_type: initialValues.upgrade_type || undefined,
         });
         setSteps((initialValues.steps || []).map(s => ({
@@ -138,7 +138,7 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
           <TextArea rows={2} placeholder="方案用途描述（选填）" />
         </Form.Item>
         <Form.Item name="system" label="系统">
-          <SystemSelect placeholder="请选择或输入系统" />
+          <SystemSelect placeholder="请选择升级系统（可选）" />
         </Form.Item>
         <Form.Item name="upgrade_type" label="升级类型">
           <Select allowClear placeholder="请选择升级类型（可选）">

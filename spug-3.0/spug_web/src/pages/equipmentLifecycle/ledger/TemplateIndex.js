@@ -27,15 +27,10 @@ class TemplateIndex extends React.Component {
   }
 
   columns = [
-    {title: '模板编号', dataIndex: 'template_code', width: 140},
     {title: '模板名称', dataIndex: 'name', width: 180},
     {
       title: '台账类型', dataIndex: 'ledger_type', width: 110,
       render: (v, r) => `${LEDGER_TYPE_TEXT[v] || v}${r.maintenance_cycle ? `（${CYCLE_TEXT[r.maintenance_cycle]}）` : ''}`,
-    },
-    {
-      title: '适用系统', dataIndex: 'applicable_systems', ellipsis: true,
-      render: list => (list || []).length ? list.map(s => s.name).join('、') : '-',
     },
     {title: '项目数', dataIndex: 'items_count', width: 70, align: 'center'},
     {
@@ -71,11 +66,11 @@ class TemplateIndex extends React.Component {
           <Breadcrumb.Item>台账模板</Breadcrumb.Item>
         </Breadcrumb>
         <SearchForm>
-          <SearchForm.Item span={6} title="模板编号/名称">
+          <SearchForm.Item span={6} title="模板名称">
             <Input
               allowClear value={store.f_keyword}
               onChange={e => store.setFilter('f_keyword', e.target.value)}
-              placeholder="请输入模板编号或名称"
+              placeholder="请输入模板名称"
               onPressEnter={() => store.fetchRecords()}/>
           </SearchForm.Item>
           <SearchForm.Item span={6} title="台账类型">

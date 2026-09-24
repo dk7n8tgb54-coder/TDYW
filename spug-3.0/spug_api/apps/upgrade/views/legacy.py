@@ -39,12 +39,12 @@ class LegacyUpgradeView(View):
         # 列表模式（旧前端不带分页，全量返回）
         records_qs = apply_tenant_filter(UpgradeRecord.objects.all(), request.user)
 
-        # 筛选
+        # 筛选（旧契约 system 为纯文本，映射到名称快照模糊匹配）
         filters = request.GET.dict()
         if filters.get('status'):
             records_qs = records_qs.filter(status=filters['status'])
         if filters.get('system'):
-            records_qs = records_qs.filter(system__icontains=filters['system'])
+            records_qs = records_qs.filter(system_name__icontains=filters['system'])
         if filters.get('upgrade_type'):
             records_qs = records_qs.filter(upgrade_type=filters['upgrade_type'])
         if filters.get('owner'):
@@ -58,7 +58,7 @@ class LegacyUpgradeView(View):
         records_qs = records_qs.order_by('-upgrade_time', '-id')
 
         # 去重选项
-        systems = list(records_qs.order_by('system').values_list('system', flat=True).distinct())
+        systems = list(records_qs.order_by('system_name').values_list('system_name', flat=True).distinct())
         statuses = list(records_qs.order_by('status').values_list('status', flat=True).distinct())
         upgrade_types = list(records_qs.order_by('upgrade_type').values_list('upgrade_type', flat=True).distinct())
 
@@ -74,7 +74,9 @@ class LegacyUpgradeView(View):
 
     @auth('upgrade.upgrade.add')
     def post(self, request):
-        """创建升级表单（兼容旧前端）"""
+        """创建升级表单（兼容旧前端，system 为纯文本）"""
+        from apps.upgrade.models import UpgradeRecord
+        from apps.equipment_lifecycle.models import LifecycleSystem
         from apps.upgrade.services.record_service import RecordService
 
         form, error = JsonParser(
@@ -89,19 +91,33 @@ class LegacyUpgradeView(View):
         if error:
             return json_response(error=error)
 
-        record, error = RecordService.create_record(
-            user=request.user,
-            record_data=form,
+        # 旧契约 system 为纯文本：能按名称匹配到系统档案则走新链路（写外键+快照），
+        # 匹配不到则保留旧语义以纯文本落库（仅名称快照，不建系统关联）
+        system_text = (form.system or '').strip()
+        system_obj = apply_tenant_filter(
+            LifecycleSystem.objects.filter(is_active=True), request.user
+        ).filter(name__iexact=system_text).first() if system_text else None
+        if system_obj:
+            form.system = system_obj.id
+            record, error = RecordService.create_record(user=request.user, record_data=form)
+            if error:
+                return json_response(error=error)
+            return json_response()
+
+        UpgradeRecord.objects.create(
+            tenant_id=request.user.tenant_id,
+            system_name=system_text,
+            upgrade_type=form.upgrade_type,
+            upgrade_time=form.upgrade_time,
+            status=form.status,
+            owner=form.owner,
+            created_by=request.user,
         )
-
-        if error:
-            return json_response(error=error)
-
         return json_response()
 
     @auth('upgrade.upgrade.edit')
     def put(self, request):
-        """更新升级表单（兼容旧前端）"""
+        """更新升级表单（兼容旧前端，system 为纯文本）"""
         from apps.upgrade.services.record_service import RecordService
 
         form, error = JsonParser(
@@ -117,6 +133,10 @@ class LegacyUpgradeView(View):
         if error:
             return json_response(error=error)
 
+        # 旧契约 system 为纯文本：不传给新服务层（新契约 system 为系统 ID），
+        # 服务层更新后仅对未关联系统档案的历史记录同步名称快照
+        legacy_system = getattr(form, 'system', None)
+        form.system = None
         record, error = RecordService.update_record(
             record_id=form.id,
             user=request.user,
@@ -125,6 +145,10 @@ class LegacyUpgradeView(View):
 
         if error:
             return json_response(error=error)
+
+        if legacy_system and record is not None and not record.system_id:
+            record.system_name = legacy_system
+            record.save(update_fields=['system_name'])
 
         return json_response()
 

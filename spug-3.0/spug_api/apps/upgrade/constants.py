@@ -146,17 +146,3 @@ PHASE_LABEL_MAP.update({p['value']: p['label'] for p in RESULT_MILESTONES})
 
 # 执行阶段有序列表（用于步骤排序）
 PHASE_ORDER = [p['value'] for p in UPGRADE_PHASES]
-
-# 预设系统列表（下拉选择用，历史数据也会动态合并）
-PRESET_SYSTEMS = [
-    '运维管理平台',
-    '数据库系统',
-    '网络设备',
-    '安全设备',
-    '中间件',
-    '监控系统',
-    '备份系统',
-    '邮件系统',
-    'OA系统',
-    '其他',
-]

@@ -30,7 +30,7 @@ def get_upgrade_analysis(user, start_date, end_date):
     # 分布
     by_status = build_distribution(upgrade_qs, 'status')
     by_type = build_distribution(upgrade_qs, 'upgrade_type')
-    by_system = build_distribution(upgrade_qs, 'system')
+    by_system = build_distribution(upgrade_qs, 'system_name')
 
     return {
         'meta': build_meta(start_date, end_date),

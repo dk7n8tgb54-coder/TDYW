@@ -207,6 +207,13 @@ class StatusLogService:
                     record.updated_at = now_str
                     record.updated_by = user
                     record.save(update_fields=['status', 'updated_at', 'updated_by'])
+
+                # 4. 同事务写系统履历：完成/回退是升级里程碑动作
+                #    （历史未匹配系统档案的记录 system 为空，辅助函数内部跳过）
+                if action in (ACTION_COMPLETE, ACTION_ROLLBACK) and record is not None:
+                    from apps.equipment_lifecycle.event_services import record_upgrade_lifecycle_events
+                    record_upgrade_lifecycle_events(
+                        record, action, detail={'status': to_status}, created_by=user)
             logger.info(
                 f'[Upgrade] 状态日志 upgrade_id={upgrade_id} action={action} '
                 f'target={target_action or "-"} override={is_override} '

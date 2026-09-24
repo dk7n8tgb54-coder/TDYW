@@ -64,11 +64,13 @@ class LedgerMultiSystemContractTests(TestCase):
         before = OperationLedger.objects.count()
         payload = ledger_payload([
             entry_payload(self.system_a.id, [item_payload()]),
-            entry_payload(self.system_b.id, [item_payload(result='abnormal', abnormal_desc='')]),
+            entry_payload(self.system_b.id, [
+                item_payload(item_name='电压测量', input_type='number',
+                             value_text='', value_number='abc')]),
         ])
         resp = post_json(client, LEDGER_URL + '/', payload)
         self.assertTrue(resp.json().get('error'))
-        self.assertIn('异常说明', resp.json()['error'])
+        self.assertIn('填写值', resp.json()['error'])
         self.assertEqual(OperationLedger.objects.count(), before)
         self.assertFalse(OperationLedgerItem.objects.exists())
 

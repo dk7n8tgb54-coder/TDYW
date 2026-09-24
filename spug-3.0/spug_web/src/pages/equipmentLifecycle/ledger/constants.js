@@ -72,13 +72,19 @@ export const EXEC_SCOPE_TEXT = {
 };
 
 export const INPUT_TYPE_TEXT = {
-  text: '文本',
+  text: '数字/文本',
   number: '数值',
-  choice: '单选',
+  choice: '正常/不正常',
   multi_choice: '多选',
   boolean: '布尔值',
   attachment: '附件',
 };
+
+// 模板项目录入类型收敛为两种：正常/不正常、数字/文本；
+// 其余类型仅为历史数据保留，新建项目不可再选
+export const TEMPLATE_INPUT_TYPE_KEYS = ['choice', 'text'];
+// 正常/不正常类型候选项固定，不再开放配置
+export const NORMAL_ABNORMAL_CHOICES = ['正常', '不正常'];
 
 export const CREATED_FROM_TEXT = {
   template: '模板生成',
