@@ -87,10 +87,6 @@ class SystemDetail extends React.Component {
             <TabPane tab="工单" key="work_orders">
               <WorkOrdersTab systemId={d.id}/>
             </TabPane>
-            {/* 旧巡检台账只承担历史查看（值班巡检改造后巡检走独立巡检单，不写入本台账） */}
-            <TabPane tab="巡检台账（历史）" key="inspection_ledger">
-              <SystemLedgerTab systemId={d.id} ledgerType="inspection"/>
-            </TabPane>
             <TabPane tab="周月维护台账" key="week_month_ledger">
               <SystemLedgerTab systemId={d.id} ledgerType="week_month"/>
             </TabPane>

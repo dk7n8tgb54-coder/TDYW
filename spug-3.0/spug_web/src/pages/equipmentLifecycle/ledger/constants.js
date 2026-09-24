@@ -21,14 +21,13 @@ export const PERM_L = {
   LED_EXPORT: 'equipment_lifecycle.ledger.export',
 };
 
+// 台账类型：旧巡检类型 inspection 已删除（2026-09-24），巡检业务走独立巡检单
 export const LEDGER_TYPE = {
-  INSPECTION: 'inspection',
   WEEK_MONTH: 'week_month',
   SEASONAL: 'seasonal',
 };
 
 export const LEDGER_TYPE_TEXT = {
-  inspection: '巡检',
   week_month: '周月维护',
   seasonal: '季维护',
 };

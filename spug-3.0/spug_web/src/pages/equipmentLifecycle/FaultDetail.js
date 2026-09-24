@@ -78,7 +78,9 @@ class FaultDetail extends React.Component {
         </Descriptions.Item>
         <Descriptions.Item label="恢复确认信息" span={2}>{d.recover_confirm || '-'}</Descriptions.Item>
         <Descriptions.Item label="最终结果" span={2}>{d.final_result || '-'}</Descriptions.Item>
-        {/* 步骤 3.3：来源台账追溯（台账异常转故障后可跳回来源台账明细） */}
+        {/* 步骤 3.3：来源台账追溯（台账异常转故障后可跳回来源台账明细）；
+            旧巡检台账（历史）已删除：来源明细被删除的故障回落 legacy 快照，
+            仅展示台账号文本，不做跳转 */}
         {d.source_type === 'ledger_item' && d.source_ledger && (
           <Descriptions.Item label="来源台账" span={2}>
             <Button
@@ -95,6 +97,11 @@ class FaultDetail extends React.Component {
             >
               {d.source_ledger_no || '查看来源台账'}
             </Button>
+          </Descriptions.Item>
+        )}
+        {d.source_type === 'ledger_item' && !d.source_ledger && d.source_ledger_no && (
+          <Descriptions.Item label="来源台账" span={2}>
+            {d.source_ledger_no}（旧巡检台账（历史）已删除，来源为历史台账明细）
           </Descriptions.Item>
         )}
         {/* 值班巡检改造：新巡检异常转故障跳转到来源巡检单（与旧台账来源互不影响） */}

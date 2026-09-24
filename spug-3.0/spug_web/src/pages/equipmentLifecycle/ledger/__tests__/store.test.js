@@ -34,13 +34,13 @@ describe('LedgerStore', () => {
 
   test('fetchRecords 携带台账类型与筛选参数（按类型区分请求）', async () => {
     mockHttpGet.mockResolvedValue({data: [{id: 1}], total: 1, page: 1, page_size: 20});
-    const store = new LedgerStore(LEDGER_TYPE.INSPECTION);
+    const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
     store.f_status = 'submitted';
     store.page = 2;
     await store.fetchRecords();
     const [url, config] = mockHttpGet.mock.calls[0];
     expect(url).toBe('/api/equipment-lifecycle/ledgers/');
-    expect(config.params.ledger_type).toBe('inspection');
+    expect(config.params.ledger_type).toBe('week_month');
     expect(config.params.status).toBe('submitted');
     expect(config.params.page).toBe(2);
     expect(store.records).toEqual([{id: 1}]);

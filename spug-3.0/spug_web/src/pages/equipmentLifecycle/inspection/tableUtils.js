@@ -23,3 +23,13 @@ export function withProjectSpans(items) {
     return {item, isGroupStart, span};
   });
 }
+
+/**
+ * 判断某轮次草稿是否有已填写内容（value_text / onsite_action 任一非空），
+ * 用于轮次表头"有草稿"提示与该列浅色底（未记录轮次不因空白列而染色）。
+ */
+export function roundHasDraft(roundValues) {
+  return Object.values(roundValues || {}).some(
+    v => !!v && !!((v.value_text && String(v.value_text).trim()) ||
+      (v.onsite_action && String(v.onsite_action).trim())));
+}

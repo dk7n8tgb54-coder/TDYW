@@ -100,9 +100,9 @@ export const DISPOSITION_COLOR = {
   target_cancelled: 'orange',
 };
 
-// 台账类型 → 路由路径（来源/目标跳转用）
+// 台账类型 → 路由路径（来源/目标跳转用；旧巡检类型已删除，
+// legacy 快照来源在详情页仅展示文本，不做跳转）
 export const LEDGER_TYPE_PATH = {
-  inspection: '/el/inspection-ledgers',
   week_month: '/el/week-month-ledgers',
   seasonal: '/el/seasonal-ledgers',
 };

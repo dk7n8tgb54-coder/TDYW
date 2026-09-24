@@ -4,14 +4,15 @@
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
  * - 页面只渲染一张四轮巡检矩阵表（检查项目 | 检查内容 | 当日 11:00/16:00/22:00、次日 06:30），
  *   不再分"填写表格/记录回显表格"两套渲染；
- * - 同一设备名称连续行合并单元格（rowSpan）；
- * - 轮次三态：当前选择轮次可编辑、已记录轮次只读展示保存值、未记录轮次显示"—"；
- *   底色只跟随当前选择轮次列（未选中列无底色，已提交/已作废单全部无轮次底色）；
+ * - 每个轮次列表头吸顶展示：轮次名称 + 状态（未记录/已记录 + 有草稿）+ 该轮次
+ *   专属"一键正常/记录本轮"按钮；页面无顶部轮次选择区（Radio）；
+ * - 四个轮次彼此独立：未记录轮次整列可编辑、可按任意顺序记录；已记录轮次只读
+ *   展示保存值且按钮隐藏（底色浅蓝）；有草稿的未记录列浅黄 + 表头"有草稿"提示；
+ * - "记录本轮"只提交对应轮次；成功后该轮次变只读并清理该轮次草稿；
+ *   请求期间按钮 loading、其余记录按钮禁用（防重复提交）；失败后仍可编辑；
+ * - "一键正常"只填充对应轮次尚未填写的选择型检查项，不覆盖已填内容（含异常）；
  * - 未恢复草稿时自动选中上一次使用的模板（最近一张巡检单的模板，已停用不选）；
  * - 值班人员仅手输姓名回车添加（下拉不打开，历史草稿账号值仍映射姓名回显）；
- * - "记录本轮"只提交当前选择的轮次；成功后当前轮次变只读并清理该轮次草稿；
- * - 一键正常只作用于当前轮次的选择型检查项；
- * - 切换轮次不丢未记录草稿；旧格式（扁平 values + round）本地草稿兼容读取；
  * - 不显示实际填写时间与迟填标记；页面无系统选择器；
  * - 提交后异常记录可转故障/工单，弹窗必须选择系统（未选不提交）。
  *
@@ -62,6 +63,7 @@ beforeEach(() => {
   jest.spyOn(message, 'success').mockImplementation(() => {});
   jest.spyOn(message, 'error').mockImplementation(() => {});
   jest.spyOn(message, 'warning').mockImplementation(() => {});
+  jest.spyOn(message, 'info').mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -199,14 +201,35 @@ function headerTexts() {
 }
 
 function headButton(name) {
+  // 卡片头（extra 区）的单据级按钮，如 作废
   return Array.from(container.querySelectorAll('.ant-card-head button'))
     .find(b => b.textContent.replace(/\s+/g, '') === name);
 }
 
-function switchRound(round) {
-  const input = Array.from(container.querySelectorAll('input[type=radio]'))
-    .find(i => i.value === round);
-  input.click();
+function roundTh(round) {
+  return container.querySelector(`table.el-ins-recap-table th[data-round="${round}"]`);
+}
+
+function roundRoundName(round) {
+  return roundTh(round).querySelector('.el-ins-round-name').textContent.trim();
+}
+
+function roundStatus(round) {
+  return roundTh(round).querySelector('.el-ins-round-status').textContent.trim();
+}
+
+function roundButton(round, name) {
+  return Array.from(roundTh(round).querySelectorAll('button'))
+    .find(b => b.textContent.replace(/\s+/g, '') === name);
+}
+
+function roundCells(round) {
+  return Array.from(container.querySelectorAll(
+    `table.el-ins-recap-table td[data-round="${round}"]`));
+}
+
+function editableInputs(round) {
+  return roundCells(round).filter(td => td.querySelector('input, .ant-select'));
 }
 
 function fillInput(inputEl, text) {
@@ -238,18 +261,29 @@ async function renderWorksheet(detail) {
 }
 
 describe('今日巡检工作台 · 单张四轮矩阵表', () => {
-  it('页面只渲染一张巡检矩阵表，表头为 检查项目/检查内容 + 四个固定轮次', async () => {
+  it('页面只渲染一张巡检矩阵表，四个轮次表头吸顶展示 名称/状态/操作按钮', async () => {
     seedTemplateOnly();
     mockDraftFlow(draftSheetDetail());
     await renderWorksheet(draftSheetDetail());
     expect(container.querySelectorAll('table').length).toBe(1);
     const headers = headerTexts();
-    expect(headers).toEqual([
-      '检查项目', '检查内容', '当日 11:00', '当日 16:00', '当日 22:00', '次日 06:30',
-    ]);
-    // 不再有旧填写表/回显表两套表头
+    expect(headers[0]).toBe('检查项目');
+    expect(headers[1]).toBe('检查内容');
+    // 四个轮次表头：名称 + 状态 + 每轮次独立的 一键正常/记录本轮
+    const roundLabels = ['r1', 'r2', 'r3', 'r4'].map(roundRoundName);
+    expect(roundLabels).toEqual(['当日 11:00', '当日 16:00', '当日 22:00', '次日 06:30']);
+    for (const r of ['r1', 'r2', 'r3', 'r4']) {
+      expect(roundStatus(r)).toContain('未记录');
+      expect(roundButton(r, '一键正常')).not.toBeUndefined();
+      expect(roundButton(r, '记录本轮')).not.toBeUndefined();
+    }
+    // 不再有顶部轮次选择区（Radio），也不再有旧填写表/回显表两套表头
+    expect(container.querySelectorAll('input[type=radio]').length).toBe(0);
     expect(headers).not.toContain('本轮填写值');
     expect(headers).not.toContain('现场处理');
+    // 表头吸顶（滚动时轮次名称/状态/按钮仍可见）
+    const th = roundTh('r1');
+    expect(getComputedStyle(th).position).toBe('sticky');
   });
 
   it('同一设备名称连续行合并单元格，检查内容逐行显示', async () => {
@@ -265,7 +299,7 @@ describe('今日巡检工作台 · 单张四轮矩阵表', () => {
     expect(text).toContain('驻波比检查');
   });
 
-  it('已有记录回显到对应轮次列，未记录轮次显示—，已记录单元格只读', async () => {
+  it('已有记录回显到对应轮次列，未记录轮次可编辑，已记录轮次整列浅蓝只读', async () => {
     const detailRecords = draftSheetDetail({
       recorded_rounds: ['r1', 'r2'],
       records: [
@@ -279,21 +313,26 @@ describe('今日巡检工作台 · 单张四轮矩阵表', () => {
     const text = bodyText();
     expect(text).toContain('450');
     expect(text).toContain('XJ20260924-0001');
-    // 草稿态但当前轮次 r1 已记录：全部单元格无输入控件
-    expect(container.querySelectorAll(
-      '.el-ins-recap-table input, .el-ins-recap-table .ant-select').length).toBe(0);
-    // 底色只跟随当前选择轮次列：默认选中 r1 → 仅 r1 的已记录单元格浅蓝
-    expect(container.querySelectorAll('.el-ins-cell-recorded').length).toBe(1);
-    // 切到 r2：浅蓝随选择列移动，r1 已记录列不再有底色
-    await act(async () => {switchRound('r2');});
-    await act(flush);
-    expect(container.querySelectorAll('.el-ins-cell-recorded').length).toBe(1);
-    const blueRow = container.querySelector('.el-ins-cell-recorded').closest('tr');
-    expect(blueRow.textContent).toContain('输出功率读数');
-    expect(blueRow.textContent).not.toContain('面板指示灯');
+    // r1/r2 已记录：整列只读无控件；r3/r4 未记录：整列可编辑
+    expect(roundCells('r1').length).toBe(3);
+    expect(roundCells('r1').filter(
+      td => td.querySelector('input, .ant-select')).length).toBe(0);
+    expect(roundCells('r2').filter(
+      td => td.querySelector('input, .ant-select')).length).toBe(0);
+    expect(roundCells('r3').filter(
+      td => td.querySelector('input, .ant-select')).length).toBe(3);
+    // 已记录轮次表头：状态"已记录"，无操作按钮
+    expect(roundStatus('r1')).toBe('已记录');
+    expect(roundStatus('r2')).toBe('已记录');
+    expect(roundButton('r1', '记录本轮')).toBeUndefined();
+    expect(roundButton('r1', '一键正常')).toBeUndefined();
+    // 草稿单中已记录轮次整列浅蓝
+    expect(container.querySelectorAll('.el-ins-cell-recorded').length).toBe(6);
+    // 已记录值在对应单元格回显
+    expect(roundCells('r2')[1].textContent).toContain('450');
   });
 
-  it('当前选择轮次可编辑，其他轮次不可编辑', async () => {
+  it('未记录轮次全部可编辑（四轮彼此独立、可按任意顺序填写）', async () => {
     seedTemplateOnly();
     const detail = draftSheetDetail({
       recorded_rounds: ['r1'],
@@ -301,19 +340,19 @@ describe('今日巡检工作台 · 单张四轮矩阵表', () => {
     });
     mockDraftFlow(detail);
     await renderWorksheet(detail);
-    // r1 已记录：默认轮次无输入控件
-    expect(container.querySelectorAll(
-      '.el-ins-recap-table input, .el-ins-recap-table .ant-select').length).toBe(0);
-    // 切到 r2：三个检查内容均出现控件，且只出现在当前轮次单元格
-    await act(async () => {switchRound('r2');});
-    await act(flush);
-    expect(container.querySelectorAll('.el-ins-cell-current').length).toBe(3);
-    // 两个选择项下拉 + 一个数值输入框（antd Select 内部 input 不计）
-    expect(container.querySelectorAll(
-      '.el-ins-cell-current .ant-select').length).toBe(2);
-    const textInputs = Array.from(container.querySelectorAll('.el-ins-cell-current input'))
-      .filter(i => (i.placeholder || '').startsWith('请输入'));
-    expect(textInputs.length).toBe(1);
+    // r1 已记录只读；r2/r3/r4 三个未记录轮次整列可编辑（每列 3 项）
+    expect(roundCells('r1').filter(
+      td => td.querySelector('input, .ant-select')).length).toBe(0);
+    expect(container.querySelectorAll('.el-ins-cell-editable').length).toBe(9);
+    // 每个可编辑列：两个选择项下拉 + 一个数值输入框
+    for (const r of ['r2', 'r3', 'r4']) {
+      const selects = roundCells(r).filter(td => td.querySelector('.ant-select'));
+      expect(selects.length).toBe(2);
+      const textInputs = roundCells(r).filter(
+        td => Array.from(td.querySelectorAll('input'))
+          .some(i => (i.placeholder || '').startsWith('请输入')));
+      expect(textInputs.length).toBe(1);
+    }
   });
 
   it('不显示实际填写时间与迟填/逾期标记，页面无系统选择器', async () => {
@@ -441,29 +480,30 @@ function draftWithR1Recorded() {
   });
 }
 
-describe('今日巡检工作台 · 记录本轮', () => {
+describe('今日巡检工作台 · 记录本轮（按轮次提交）', () => {
 
-  it('记录本轮只提交当前选择的轮次（必填校验通过后）', async () => {
-    seedTemplateOnly();
+  it('点击某轮次表头"记录本轮"只提交对应轮次（不提交其他轮次）', async () => {
+    seedDraft({
+      r2: {t_22: {value_text: '450'}},
+      r3: {t_22: {value_text: '380'}},
+    });
     mockDraftFlow(draftWithR1Recorded());
-    await renderWorksheet(draftWithR1Recorded());
     mockHttpPut.mockResolvedValue(draftWithR1Recorded());
-    await act(async () => {switchRound('r2');});
+    await renderWorksheet();
+    // r2 轮次：一键正常填两个选择项（草稿已有数值项）
+    await act(async () => {roundButton('r2', '一键正常').click();});
     await act(flush);
-    // 一键正常填两个选择项，再手填数值项
-    await act(async () => {headButton('一键正常').click();});
-    await act(flush);
-    const input = Array.from(container.querySelectorAll('.el-ins-cell-current input'))
-      .find(i => i.placeholder === '请输入');
-    await act(async () => {fillInput(input, '450');});
-    await act(async () => {headButton('记录本轮').click();});
+    // 只点 r2 的"记录本轮"，不触碰 r3
+    await act(async () => {roundButton('r2', '记录本轮').click();});
     await act(flush);
     await act(flush);
-    expect(mockHttpPut).toHaveBeenCalled();
+    expect(mockHttpPut).toHaveBeenCalledTimes(1);
     const [url, payload] = mockHttpPut.mock.calls[0];
     expect(url).toContain('/inspection-sheets/5/');
     expect(payload.version).toBe(1);
     expect(payload.persons).toEqual([{user: 3, person_name: '值班员甲'}]);
+    // 全部记录 round_no = r2；r3 的草稿内容不在载荷中
+    expect(payload.records.map(r => r.round_no)).toEqual(['r2', 'r2', 'r2']);
     expect(payload.records).toEqual([
       {template_item_id: 21, round_no: 'r2', value_text: '正常', onsite_action: ''},
       {template_item_id: 22, round_no: 'r2', value_text: '450', onsite_action: ''},
@@ -471,8 +511,49 @@ describe('今日巡检工作台 · 记录本轮', () => {
     ]);
   });
 
-  it('记录成功后当前轮次变只读、提示已记录，并清理该轮次本地草稿', async () => {
-    seedDraft({r2: {t_22: {value_text: '450'}}});
+  it('可以不按时间顺序记录：先记录 r3 再记录 r2 各自独立成功', async () => {
+    seedDraft({
+      r3: {t_21: {value_text: '正常'}, t_22: {value_text: '380'},
+        t_23: {value_text: '正常'}},
+      r2: {t_21: {value_text: '正常'}, t_22: {value_text: '450'},
+        t_23: {value_text: '正常'}},
+    });
+    mockDraftFlow(draftWithR1Recorded());
+    await renderWorksheet();
+    // 先记录 r3（跳过 r2）
+    mockHttpPut.mockResolvedValue(draftSheetDetail({
+      recorded_rounds: ['r1', 'r3'],
+      records: [record('r1', 21, '正常'), record('r3', 22, '380')],
+      version: 2,
+    }));
+    await act(async () => {roundButton('r3', '记录本轮').click();});
+    await act(flush);
+    await act(flush);
+    expect(message.success).toHaveBeenCalledWith('已记录 当日 22:00 轮次');
+    // 再记录 r2（版本号取自详情返回）
+    mockHttpPut.mockResolvedValue(draftSheetDetail({
+      recorded_rounds: ['r1', 'r2', 'r3'],
+      records: [record('r1', 21, '正常'), record('r2', 22, '450'),
+        record('r3', 22, '380')],
+      version: 3,
+    }));
+    await act(async () => {roundButton('r2', '记录本轮').click();});
+    await act(flush);
+    await act(flush);
+    expect(mockHttpPut).toHaveBeenCalledTimes(2);
+    expect(mockHttpPut.mock.calls[1][1].version).toBe(2);
+    expect(mockHttpPut.mock.calls[1][1].records.every(
+      r => r.round_no === 'r2')).toBe(true);
+    expect(message.success).toHaveBeenCalledWith('已记录 当日 16:00 轮次');
+  });
+
+  it('记录成功后该轮次变只读、提示一次，并清理该轮次草稿（其他轮次草稿保留）', async () => {
+    seedDraft({
+      r2: {t_21: {value_text: '正常'}, t_22: {value_text: '450'},
+        t_23: {value_text: '正常'}},
+      r3: {t_21: {value_text: '正常'}, t_22: {value_text: '380'},
+        t_23: {value_text: '正常'}},
+    });
     const after = draftSheetDetail({
       recorded_rounds: ['r1', 'r2'],
       records: [record('r1', 21, '正常'), record('r2', 22, '450')],
@@ -481,108 +562,135 @@ describe('今日巡检工作台 · 记录本轮', () => {
     mockDraftFlow(draftWithR1Recorded());
     mockHttpPut.mockResolvedValue(after);
     await renderWorksheet();
-    await act(async () => {switchRound('r2');});
-    await act(flush);
-    await act(async () => {headButton('一键正常').click();});
-    await act(flush);
-    await act(async () => {headButton('记录本轮').click();});
+    await act(async () => {roundButton('r2', '记录本轮').click();});
     await act(flush);
     await act(flush);
+    expect(message.success).toHaveBeenCalledTimes(1);
     expect(message.success).toHaveBeenCalledWith('已记录 当日 16:00 轮次');
-    // r2 已记录：无编辑控件，全部只读
-    expect(container.querySelectorAll(
-      '.el-ins-recap-table input, .el-ins-recap-table .ant-select').length).toBe(0);
-    // 该轮次草稿已清理（无未记录填写内容 → 暂存移除）
-    expect(localStorage.getItem('el_insp_ws_admin')).toBeNull();
+    // r2 已记录：整列只读、按钮隐藏；r3 仍可编辑
+    expect(roundCells('r2').filter(
+      td => td.querySelector('input, .ant-select')).length).toBe(0);
+    expect(roundStatus('r2')).toBe('已记录');
+    expect(roundButton('r2', '记录本轮')).toBeUndefined();
+    expect(editableInputs('r3').length).toBe(3);
+    // r2 草稿已清理，r3 草稿保留
+    const savedDraft = JSON.parse(localStorage.getItem('el_insp_ws_admin'));
+    expect(savedDraft.values.r2).toBeUndefined();
+    expect(savedDraft.values.r3).toEqual({
+      t_21: {value_text: '正常'}, t_22: {value_text: '380'},
+      t_23: {value_text: '正常'},
+    });
   });
 
   it('必填检查内容未填写时不允许记录本轮', async () => {
     seedTemplateOnly();
     mockDraftFlow(draftWithR1Recorded());
     await renderWorksheet(draftWithR1Recorded());
-    await act(async () => {switchRound('r2');});
-    await act(flush);
-    await act(async () => {headButton('记录本轮').click();});
+    await act(async () => {roundButton('r2', '记录本轮').click();});
     await act(flush);
     expect(mockHttpPut).not.toHaveBeenCalled();
     expect(message.error).toHaveBeenCalledWith(
       expect.stringContaining('必填内容'));
   });
+});
 
-  it('已记录轮次点击记录本轮不发起请求（前端拦截，后端亦有保护）', async () => {
-    await renderWorksheet(draftWithR1Recorded());
-    // 默认轮次 r1 已记录：记录按钮点击不发请求并给出提示
-    await act(async () => {headButton('记录本轮').click();});
+describe('今日巡检工作台 · 记录本轮（加载与失败保护）', () => {
+
+  it('请求期间按钮 loading、其余记录按钮禁用，重复点击不产生重复请求', async () => {
+    seedDraft({r1: {t_21: {value_text: '正常'}, t_22: {value_text: '450'},
+      t_23: {value_text: '正常'}}});
+    let resolvePut;
+    mockHttpPut.mockImplementation(
+      () => new Promise(res => {resolvePut = res;}));
+    mockDraftFlow(draftSheetDetail());
+    await renderWorksheet();
+    const btn = roundButton('r1', '记录本轮');
+    await act(async () => {btn.click();});
     await act(flush);
-    expect(mockHttpPut).not.toHaveBeenCalled();
-    expect(message.warning).toHaveBeenCalledWith(
-      expect.stringContaining('已记录'));
+    expect(mockHttpPut).toHaveBeenCalledTimes(1);
+    // 请求在途：按钮 loading，其他轮次记录按钮禁用
+    expect(btn.className).toContain('ant-btn-loading');
+    expect(roundButton('r2', '记录本轮').disabled).toBe(true);
+    expect(roundButton('r4', '记录本轮').disabled).toBe(true);
+    // 在途期间重复点击不产生第二个请求
+    await act(async () => {btn.click();});
+    await act(flush);
+    expect(mockHttpPut).toHaveBeenCalledTimes(1);
+    // 成功返回后 loading 解除、提示成功
+    await act(async () => {resolvePut(draftSheetDetail({
+      recorded_rounds: ['r1'], records: [record('r1', 21, '正常')], version: 2,
+    }));});
+    await act(flush);
+    await act(flush);
+    expect(message.success).toHaveBeenCalledWith('已记录 当日 11:00 轮次');
+    expect(roundTh('r1').querySelector('.ant-btn-loading')).toBeNull();
+  });
+
+  it('保存失败时轮次不被锁定：无成功提示，该轮次仍可编辑、草稿保留', async () => {
+    seedDraft({r1: {t_21: {value_text: '正常'}, t_22: {value_text: '450'},
+      t_23: {value_text: '正常'}}});
+    mockDraftFlow(draftSheetDetail());
+    // 拒绝原因（如版本冲突）由 libs/http 拦截器统一提示，组件不重复提示
+    mockHttpPut.mockRejectedValue('巡检单已被他人修改，请刷新后重试');
+    await renderWorksheet();
+    await act(async () => {roundButton('r1', '记录本轮').click();});
+    await act(flush);
+    await act(flush);
+    expect(message.success).not.toHaveBeenCalled();
+    // 该轮次保持可编辑（输入控件仍在），按钮退出 loading
+    expect(editableInputs('r1').length).toBe(3);
+    expect(roundTh('r1').querySelector('.ant-btn-loading')).toBeNull();
+    expect(roundStatus('r1')).toContain('未记录');
+    // 草稿未被清除
+    const savedDraft = JSON.parse(localStorage.getItem('el_insp_ws_admin'));
+    expect(savedDraft.values.r1.t_22.value_text).toBe('450');
   });
 });
 
 describe('今日巡检工作台 · 一键正常与草稿暂存', () => {
-  it('一键正常只作用于当前轮次的选择型检查项，不覆盖其他轮次', async () => {
+  it('一键正常只填充对应轮次列，不影响其他轮次', async () => {
     seedTemplateOnly();
     mockDraftFlow(draftSheetDetail());
     await renderWorksheet(draftSheetDetail());
-    await act(async () => {headButton('一键正常').click();});
+    await act(async () => {roundButton('r1', '一键正常').click();});
     await act(flush);
     // r1 的两个选择项填入"正常"
-    let selects = Array.from(container.querySelectorAll('.el-ins-cell-current .ant-select'));
-    expect(selects.length).toBe(2);
-    selects.forEach(s => expect(s.textContent).toBe('正常'));
-    // 切到 r2：选择项未被填充（仅显示占位符）
-    await act(async () => {switchRound('r2');});
-    await act(flush);
-    selects = Array.from(container.querySelectorAll('.el-ins-cell-current .ant-select'));
-    selects.forEach(s => expect(s.textContent).toBe('正常 / 不正常'));
+    const r1Selects = roundCells('r1').filter(td => td.querySelector('.ant-select'));
+    expect(r1Selects.length).toBe(2);
+    r1Selects.forEach(td => expect(
+      td.querySelector('.ant-select').textContent).toBe('正常'));
+    // r2/r3/r4 列未被填充（仅显示占位符）
+    for (const r of ['r2', 'r3', 'r4']) {
+      roundCells(r).filter(td => td.querySelector('.ant-select')).forEach(td => {
+        expect(td.querySelector('.ant-select').textContent).toBe('正常 / 不正常');
+      });
+    }
   });
 
-  it('切换轮次时未记录草稿不丢失', async () => {
-    seedDraft({r1: {t_22: {value_text: '100'}}});
-    mockDraftFlow(draftSheetDetail());
-    await renderWorksheet();
-    const inputOf = () => Array.from(container.querySelectorAll('.el-ins-cell-current input'))
-      .find(i => i.placeholder === '请输入');
-    expect(inputOf().value).toBe('100');
-    await act(async () => {switchRound('r2');});
-    await act(flush);
-    // r2 的数值项输入框存在（Select 内部也含 input，按 placeholder 定位）
-    const r2input = Array.from(container.querySelectorAll('.el-ins-cell-current input'))
-      .find(i => i.placeholder === '请输入');
-    expect(r2input).not.toBeUndefined();
-    expect(r2input.value).toBe('');
-    await act(async () => {switchRound('r1');});
-    await act(flush);
-    expect(inputOf().value).toBe('100');
-  });
-
-  it('旧格式本地草稿（扁平 values + round）兼容读取不报错', async () => {
-    seedLegacyDraft({t_22: {value_text: '300'}}, 'r1');
-    mockDraftFlow(draftSheetDetail());
-    await renderWorksheet();
-    const input = Array.from(container.querySelectorAll('.el-ins-cell-current input'))
-      .find(i => i.placeholder === '请输入');
-    expect(input.value).toBe('300');
-  });
-
-  it('不正常单元格内可填写现场处理内容（同轮次单元格内）', async () => {
+  it('一键正常不覆盖已填写内容（含"不正常"与现场处理），只补未填项', async () => {
     seedDraft({
       r1: {
-        t_21: {value_text: '不正常'},
+        t_21: {value_text: '不正常', onsite_action: '已切换备用'},
         t_22: {value_text: '500'},
-        t_23: {value_text: '正常'},
       },
     });
     mockDraftFlow(draftSheetDetail());
-    mockHttpPut.mockResolvedValue(draftSheetDetail());
     await renderWorksheet();
-    const onsite = Array.from(container.querySelectorAll('.el-ins-cell-current input'))
-      .find(i => i.placeholder === '现场处理内容');
-    expect(onsite).not.toBeUndefined();
-    await act(async () => {fillInput(onsite, '已切换备用');});
+    await act(async () => {roundButton('r1', '一键正常').click();});
     await act(flush);
-    await act(async () => {headButton('记录本轮').click();});
+    // 已填的"不正常"+现场处理保持不变
+    const selects = roundCells('r1').filter(td => td.querySelector('.ant-select'));
+    expect(selects[0].querySelector('.ant-select').textContent).toBe('不正常');
+    expect(selects[1].querySelector('.ant-select').textContent).toBe('正常');
+    const onsite = Array.from(roundCells('r1')[0].querySelectorAll('input'))
+      .find(i => i.placeholder === '现场处理内容');
+    expect(onsite.value).toBe('已切换备用');
+    // 提示中说明未覆盖已填项
+    expect(message.success).toHaveBeenCalledWith(
+      expect.stringContaining('保持不变'));
+    // 记录本轮：异常值与现场处理随本轮一并提交
+    mockHttpPut.mockResolvedValue(draftSheetDetail());
+    await act(async () => {roundButton('r1', '记录本轮').click();});
     await act(flush);
     const payload = mockHttpPut.mock.calls[0][1];
     expect(payload.records).toEqual([
@@ -591,6 +699,41 @@ describe('今日巡检工作台 · 一键正常与草稿暂存', () => {
       {template_item_id: 22, round_no: 'r1', value_text: '500', onsite_action: ''},
       {template_item_id: 23, round_no: 'r1', value_text: '正常', onsite_action: ''},
     ]);
+  });
+
+  it('未记录轮次草稿按列独立保存，表头显示"有草稿"提示（无迟填/逾期）', async () => {
+    seedDraft({r1: {t_22: {value_text: '100'}}});
+    mockDraftFlow(draftSheetDetail());
+    await renderWorksheet();
+    // r1 有草稿：表头"未记录 + 有草稿"，整列浅黄；其他轮次无提示无底色
+    expect(roundStatus('r1')).toBe('未记录有草稿');
+    expect(roundTh('r1').querySelector('.el-ins-round-draft-tag')).not.toBeNull();
+    expect(roundCells('r1').every(
+      td => td.className.includes('el-ins-cell-draft'))).toBe(true);
+    for (const r of ['r2', 'r3', 'r4']) {
+      expect(roundStatus(r)).toBe('未记录');
+      expect(roundTh(r).querySelector('.el-ins-round-draft-tag')).toBeNull();
+      expect(roundCells(r).some(
+        td => td.className.includes('el-ins-cell-draft'))).toBe(false);
+    }
+    // 各轮次填写互不影响（草稿按列独立）
+    const r2Input = Array.from(roundCells('r2')[1].querySelectorAll('input'))
+      .find(i => i.placeholder === '请输入');
+    await act(async () => {fillInput(r2Input, '200');});
+    await act(flush);
+    const r1Input = Array.from(roundCells('r1')[1].querySelectorAll('input'))
+      .find(i => i.placeholder === '请输入');
+    expect(r1Input.value).toBe('100');
+    expect(r2Input.value).toBe('200');
+  });
+
+  it('旧格式本地草稿（扁平 values + round）兼容读取不报错', async () => {
+    seedLegacyDraft({t_22: {value_text: '300'}}, 'r1');
+    mockDraftFlow(draftSheetDetail());
+    await renderWorksheet();
+    const input = Array.from(roundCells('r1')[1].querySelectorAll('input'))
+      .find(i => i.placeholder === '请输入');
+    expect(input.value).toBe('300');
   });
 });
 
@@ -607,12 +750,15 @@ describe('今日巡检工作台 · 提交后与作废后', () => {
     });
     mockDraftFlow(submittedDetail);
     await renderWorksheet(submittedDetail);
-    // 只读：无轮次选择与操作按钮、无编辑控件
+    // 只读：无轮次操作按钮、无编辑控件
     expect(container.querySelectorAll(
       '.el-ins-recap-table input, .el-ins-recap-table .ant-select').length).toBe(0);
-    expect(headButton('记录本轮')).toBeUndefined();
+    for (const r of ['r1', 'r2', 'r3', 'r4']) {
+      expect(roundButton(r, '记录本轮')).toBeUndefined();
+      expect(roundButton(r, '一键正常')).toBeUndefined();
+    }
     expect(container.querySelectorAll('input[type=radio]').length).toBe(0);
-    // 已提交单无"当前选择轮次"概念：所有列均无记录底色，异常浅红保留
+    // 已提交单无轮次列底色（异常浅红保留）
     expect(container.querySelectorAll('.el-ins-cell-recorded').length).toBe(0);
     expect(container.querySelectorAll('.el-ins-cell-abnormal').length).toBe(1);
     // 异常单元格内转故障入口
@@ -644,7 +790,7 @@ describe('今日巡检工作台 · 提交后与作废后', () => {
     expect(container.querySelectorAll(
       '.el-ins-recap-table input, .el-ins-recap-table .ant-select').length).toBe(0);
     expect(container.querySelectorAll('.el-ins-cell-recorded').length).toBe(0);
-    expect(headButton('记录本轮')).toBeUndefined();
+    expect(roundButton('r1', '记录本轮')).toBeUndefined();
     expect(headButton('作废')).toBeUndefined();
   });
 

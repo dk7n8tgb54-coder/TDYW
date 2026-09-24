@@ -219,6 +219,8 @@ function renderBasic(d, gotoFault, gotoLedger, gotoInspectionSheet) {
                   onClick={() => gotoLedger(d.source_ledger_type, d.source_ledger)}>
             {d.source_no || '查看来源台账'}
           </Button>
+        ) : d.source_type === 'ledger_item' && d.source_ledger_legacy && d.source_ledger_no ? (
+          <span>{d.source_ledger_no}（旧巡检台账（历史）已删除，来源为历史台账明细）</span>
         ) : d.source_type === 'inspection_record' && d.source_inspection_sheet ? (
           <Button type="link" size="small" style={{padding: 0}}
                   onClick={() => gotoInspectionSheet(d.source_inspection_sheet)}>

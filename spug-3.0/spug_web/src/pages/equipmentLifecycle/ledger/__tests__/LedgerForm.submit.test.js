@@ -3,8 +3,7 @@
  *
  * 不渲染组件，直接在 LedgerForm.prototype 实例上驱动 submit()，
  * 捕获 http.post 载荷，验证台账类型与维护周期组合满足后端
- * validate_ledger_type_cycle 契约：
- * - 巡检：maintenance_cycle 固定空串；
+ * validate_ledger_type_cycle 契约（旧巡检类型已删除，仅剩两类维护台账）：
  * - 周月维护：提交所选周期（week/month）；
  * - 季维护：必须提交 'season'（后端校验"季维护台账维护周期固定为季"，
  *   前端若传空串则季维护台账永远无法创建）。
@@ -93,15 +92,13 @@ describe('LedgerForm.submit 载荷契约', () => {
     expect(payload.maintenance_cycle).toBe('season');
   });
 
-  test('巡检台账提交空维护周期', async () => {
+  test('季维护台账载荷不携带历史遗留字段', async () => {
     mockHttpPost.mockResolvedValue({});
-    const instance = makeInstance('inspection');
+    const instance = makeInstance('seasonal');
     instance.state.rows = [makeRowState()];
     instance.submit();
     await flush();
     const payload = mockHttpPost.mock.calls[0][1];
-    expect(payload.ledger_type).toBe('inspection');
-    expect(payload.maintenance_cycle).toBe('');
     // 2026-09-21 起班次/机房区域/协作人/补录说明/总体说明已删除，载荷不再携带
     ['shift', 'location_scope', 'collaborator_names', 'entry_note', 'summary'].forEach(key => {
       expect(payload).not.toHaveProperty(key);
@@ -126,7 +123,7 @@ describe('LedgerForm.submit 载荷契约', () => {
 
   test('提交成功后关闭弹窗并刷新列表', async () => {
     mockHttpPost.mockResolvedValue({});
-    const instance = makeInstance('inspection');
+    const instance = makeInstance('week_month', {cycle: 'week'});
     instance.state.rows = [makeRowState()];
     instance.submit();
     await flush();
@@ -136,7 +133,7 @@ describe('LedgerForm.submit 载荷契约', () => {
 
   test('模板明细按 系统+模板 分组并携带 template_id，按电台拆分提交', async () => {
     mockHttpPost.mockResolvedValue({});
-    const instance = makeInstance('inspection');
+    const instance = makeInstance('week_month', {cycle: 'week'});
     instance.state.rows = [
       {...makeRowState(), client_key: 'k1', system_id: 1, template_id: 5},
       {...makeRowState(), client_key: 'k2', system_id: 1, template_id: 6, item_name: '电压测量'},
@@ -166,7 +163,7 @@ describe('LedgerForm.submit 载荷契约', () => {
 
   test('同系统模板明细与临时明细分列，临时条目不带 template_id', async () => {
     mockHttpPost.mockResolvedValue({});
-    const instance = makeInstance('inspection');
+    const instance = makeInstance('week_month', {cycle: 'week'});
     instance.state.rows = [
       {...makeRowState(), client_key: 'k1', system_id: 1, template_id: 5},
       {...makeRowState(), client_key: 'k2', system_id: 1, template_id: undefined, item_name: '临时加测'},

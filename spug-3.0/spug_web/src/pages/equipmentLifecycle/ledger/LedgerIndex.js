@@ -3,10 +3,9 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 运维台账列表页：巡检 / 周月维护 / 季维护 共用，ledgerType 由路由入口注入。
+ * 运维台账列表页：周月维护 / 季维护 共用，ledgerType 由路由入口注入。
  * 周月维护单入口，通过"维护周期"筛选区分周与月。
- * 值班巡检改造后，巡检台账（历史）只读：仅保留列表/详情/导出，
- * 不提供新增、编辑、提交、作废与异常转单入口；巡检业务走独立巡检单。
+ * 旧巡检台账（历史）入口已删除（2026-09-24），巡检业务走独立巡检单。
  */
 import React, {useEffect} from 'react';
 import {observer} from 'mobx-react';
@@ -18,17 +17,6 @@ import ComForm from './LedgerForm';
 import LedgerDetail from './LedgerDetail';
 import {getLedgerStore} from './store';
 import {API_PREFIX_L, CYCLE_TEXT, LEDGER_TYPE, LEDGER_TYPE_TEXT, PERM_L, STATUS_COLOR, STATUS_TEXT} from './constants';
-
-// 页面标题：旧巡检台账只承担历史查看与导出（值班巡检改造后写入口已关闭）
-function ledgerPageTitle(ledgerType) {
-  return ledgerType === LEDGER_TYPE.INSPECTION
-    ? '巡检台账（历史）' : `${LEDGER_TYPE_TEXT[ledgerType]}台账`;
-}
-
-// 旧巡检台账（历史）只读：列表与详情不提供任何写操作（新增/编辑/提交/作废/转单）
-function isReadonlyLedger(ledgerType) {
-  return ledgerType === LEDGER_TYPE.INSPECTION;
-}
 
 function buildColumns(store, ledgerType, isWeekMonth) {
   return [
@@ -52,9 +40,7 @@ function buildColumns(store, ledgerType, isWeekMonth) {
     {title: '录入时间', dataIndex: 'created_at', width: 160},
     {
       title: '操作', width: 150, align: 'center',
-      render: (text, record) => isReadonlyLedger(ledgerType) ? (
-        <a onClick={() => store.fetchDetail(record.id)}>详情</a>
-      ) : (
+      render: (text, record) => (
         <span>
           <a onClick={() => store.fetchDetail(record.id)}>详情</a>
           {['draft', 'returned'].includes(record.status) && (
@@ -162,25 +148,22 @@ function LedgerIndex({ledgerType, location}) {
         <Breadcrumb.Item>首页</Breadcrumb.Item>
         <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
         <Breadcrumb.Item>运行维护</Breadcrumb.Item>
-        <Breadcrumb.Item>{ledgerPageTitle(ledgerType)}</Breadcrumb.Item>
+        <Breadcrumb.Item>{LEDGER_TYPE_TEXT[ledgerType]}台账</Breadcrumb.Item>
       </Breadcrumb>
       <LedgerSearchForm store={store} isWeekMonth={isWeekMonth}/>
       <div style={{marginBottom: 12}}>
-        {/* 值班巡检改造：巡检台账停止新增，仅保留历史查看；巡检入口在"今日巡检"工作台 */}
-        {ledgerType !== LEDGER_TYPE.INSPECTION && (
-          <AuthButton
-            auth={PERM_L.LED_ADD}
-            type="primary"
-            icon={<PlusOutlined/>}
-            onClick={() => store.showForm()}>
-            新增{LEDGER_TYPE_TEXT[ledgerType]}台账
-          </AuthButton>
-        )}
+        <AuthButton
+          auth={PERM_L.LED_ADD}
+          type="primary"
+          icon={<PlusOutlined/>}
+          onClick={() => store.showForm()}>
+          新增{LEDGER_TYPE_TEXT[ledgerType]}台账
+        </AuthButton>
         <ExportButton
           auth={PERM_L.LED_EXPORT}
           style={{marginLeft: 8}}
           url={`${API_PREFIX_L}/ledgers/export/?ledger_type=${ledgerType}`}
-          filename={`${ledgerPageTitle(ledgerType)}.csv`}>
+          filename={`${LEDGER_TYPE_TEXT[ledgerType]}台账.csv`}>
           导出
         </ExportButton>
       </div>

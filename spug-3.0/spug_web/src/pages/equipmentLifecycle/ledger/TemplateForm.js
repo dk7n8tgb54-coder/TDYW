@@ -41,8 +41,8 @@ class TemplateForm extends React.Component {
     items: [],
     template: {
       name: '',
-      ledger_type: 'inspection',
-      maintenance_cycle: '',
+      ledger_type: 'week_month',
+      maintenance_cycle: 'week',
       description: '',
     },
   };
@@ -92,8 +92,8 @@ class TemplateForm extends React.Component {
     this.setState({loading: true});
     const base = {
       ...template,
-      maintenance_cycle: template.ledger_type === LEDGER_TYPE.INSPECTION
-        ? '' : template.ledger_type === LEDGER_TYPE.SEASONAL ? 'season' : template.maintenance_cycle,
+      maintenance_cycle: template.ledger_type === LEDGER_TYPE.SEASONAL
+        ? 'season' : template.maintenance_cycle,
     };
     const request = isEdit
       ? http.put(`${API_PREFIX_L}/ledger-templates/${store.record.id}/`, base)

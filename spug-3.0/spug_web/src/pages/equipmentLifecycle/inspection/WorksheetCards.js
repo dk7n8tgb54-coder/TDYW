@@ -6,16 +6,19 @@
  * 今日巡检工作台的展示卡片（合并矩阵表改造）：
  * - HeaderCard：值班日 / 巡检模板 / 值班人员（仅手输姓名）与"开始巡检"入口；
  * - SheetMatrixCard：单张四轮巡检矩阵表（检查项目 | 检查内容 | 四个固定轮次），
- *   卡片头部 = 单号信息 + 轮次选择 + 一键正常/记录本轮/提交巡检单/作废按钮；
- *   不再区分"填写表格"与"记录回显表格"两套渲染；
- * - 底色只跟随当前选择的轮次列：未记录轮次整列浅黄可编辑；选中已记录轮次时
- *   已填单元格浅蓝只读；未选中的列无论是否已记录都无底色；异常单元格浅红；
+ *   卡片头部 = 单号信息 + 提交巡检单/作废（单据级操作）；
+ *   轮次级操作（一键正常 / 记录本轮）放在对应轮次列表头内部，与轮次名称、
+ *   当前状态（未记录/已记录 + 有草稿提示）一起吸顶展示，滚动时仍可见；
+ *   不再保留顶部"记录轮次"选择区：四个未记录轮次同时可编辑、彼此独立，
+ *   按任意顺序填写和记录；
+ * - 底色按列：有草稿的未记录轮次列浅黄、草稿单中已记录轮次列浅蓝、
+ *   异常单元格浅红；已提交/已作废单无列底色（异常浅红保留）；
  * - 表格均为列式布局：第一列检查项目（连续同项目合并单元格）、第二列检查内容。
  * 组件只读 props 不直接读取 store，保证 observable 读取发生在 observer 顶层组件。
  */
 import React from 'react';
 import {
-  Button, Card, Col, DatePicker, Input, Radio, Row, Select, Tag, Tooltip,
+  Button, Card, Col, DatePicker, Input, Row, Select, Tag, Tooltip,
 } from 'antd';
 import moment from 'moment';
 import {AuthButton} from 'components';
@@ -23,7 +26,7 @@ import {
   ABNORMAL_VALUE, DISPOSITION_TEXT, INSPECTION_ROUNDS, PERM_I,
   SHEET_STATUS_COLOR, SHEET_STATUS_TEXT, NORMAL_ABNORMAL_CHOICES,
 } from './constants';
-import {withProjectSpans} from './tableUtils';
+import {roundHasDraft, withProjectSpans} from './tableUtils';
 
 function groupRecordsByRound(records) {
   // 记录回收：轮次 → {recordKey: record}（recordKey 用模板项 id / 临时加项键）
@@ -114,28 +117,29 @@ function RecordValue({record, isSubmitted, onConvert}) {
   );
 }
 
-function RoundCell({item, record, editable, highlightRecorded, value, onChange,
+function RoundCell({round, item, record, editable, highlight, value, onChange,
                      isSubmitted, onConvert}) {
   const cls = ['el-ins-round-cell'];
   const abnormal = editable
     ? value.value_text === ABNORMAL_VALUE
     : !!(record && record.result === 'abnormal');
-  if (editable) cls.push('el-ins-cell-current');
-  else if (record && highlightRecorded) cls.push('el-ins-cell-recorded');
+  if (editable) cls.push('el-ins-cell-editable');
+  if (highlight === 'draft') cls.push('el-ins-cell-draft');
+  else if (highlight === 'recorded') cls.push('el-ins-cell-recorded');
   if (abnormal) cls.push('el-ins-cell-abnormal');
   return (
-    <td className={cls.join(' ')}>
+    <td className={cls.join(' ')} data-round={round}>
       {editable ? (
         <span>
           <ValueControl item={item} value={value.value_text}
-                        onChange={val => onChange(`t_${item.id}`, 'value_text', val)}/>
+                        onChange={val => onChange(round, `t_${item.id}`, 'value_text', val)}/>
           {value.value_text === ABNORMAL_VALUE && (
             <Input
               size="small"
               style={{marginTop: 4}}
               placeholder="现场处理内容"
               value={value.onsite_action || ''}
-              onChange={e => onChange(`t_${item.id}`, 'onsite_action', e.target.value)}
+              onChange={e => onChange(round, `t_${item.id}`, 'onsite_action', e.target.value)}
             />
           )}
         </span>
@@ -145,6 +149,46 @@ function RoundCell({item, record, editable, highlightRecorded, value, onChange,
         <span style={{color: '#ddd'}}>—</span>
       )}
     </td>
+  );
+}
+
+/**
+ * 轮次列表头：轮次名称 + 当前状态（未记录/已记录，未记录可带"有草稿"提示）
+ * + 该轮次专属的"一键正常/记录本轮"操作（吸顶，随表格滚动始终可见）。
+ * 仅草稿单的未记录轮次渲染操作按钮（canOperate 由卡片按单据状态与
+ * recorded_rounds 计算后传入；后端同样拒绝已记录轮次与已提交单写入）。
+ */
+function RoundHeadCell({round, recorded, canOperate, hasDraft, recording,
+                        onFillNormal, onRecord}) {
+  return (
+    <th className="el-ins-col-round" data-round={round.value}>
+      <div className="el-ins-round-head">
+        <span className="el-ins-round-name">{round.label}</span>
+        <span className="el-ins-round-status">
+          {recorded ? '已记录' : '未记录'}
+          {!recorded && hasDraft && (
+            <span className="el-ins-round-draft-tag">有草稿</span>
+          )}
+        </span>
+        {canOperate && (
+          <span className="el-ins-round-actions">
+            <AuthButton
+              auth={PERM_I.EDIT} size="small" style={{padding: '0 8px'}}
+              disabled={!!recording}
+              onClick={() => onFillNormal(round.value)}>
+              一键正常
+            </AuthButton>
+            <AuthButton
+              auth={PERM_I.EDIT} type="primary" size="small" style={{padding: '0 8px'}}
+              loading={recording === round.value}
+              disabled={!!recording && recording !== round.value}
+              onClick={() => onRecord(round.value)}>
+              记录本轮
+            </AuthButton>
+          </span>
+        )}
+      </div>
+    </th>
   );
 }
 
@@ -221,12 +265,20 @@ function HeaderCard({dutyDate, onDutyDateChange, templateId, onTemplateChange,
   );
 }
 
-function SheetMatrixCard({sheet, template, currentRound, recordedRounds, editable,
-                          values, onRoundChange, onValueChange,
-                          onFillNormal, onRecord, onSubmit, onVoid, onConvert}) {
+function SheetMatrixCard({sheet, template, recordedRounds, editable, values,
+                           recordingRound, onValueChange,
+                           onFillNormal, onRecord, onSubmit, onVoid, onConvert}) {
   const isSubmitted = sheet.status === 'submitted';
+  const recordedSet = new Set(recordedRounds || []);
   const recordsByRound = groupRecordsByRound(sheet.records);
   const rows = buildMatrixRows(sheet, template);
+  // 列底色（仅草稿单）：已记录轮次列浅蓝；有草稿的未记录轮次列浅黄；
+  // 已提交/已作废单无列底色，异常单元格浅红保留
+  const columnHighlight = roundValue => {
+    if (sheet.status !== 'draft') return null;
+    if (recordedSet.has(roundValue)) return 'recorded';
+    return roundHasDraft(values[roundValue]) ? 'draft' : null;
+  };
   return (
     <Card
       size="small"
@@ -243,7 +295,7 @@ function SheetMatrixCard({sheet, template, currentRound, recordedRounds, editabl
           </span>
           {editable && (
             <span>
-              <LegendChip className="el-ins-legend-current" text="当前填写"/>
+              <LegendChip className="el-ins-legend-draft" text="有草稿"/>
               <LegendChip className="el-ins-legend-recorded" text="已记录"/>
               <LegendChip className="el-ins-legend-abnormal" text="异常"/>
             </span>
@@ -253,23 +305,7 @@ function SheetMatrixCard({sheet, template, currentRound, recordedRounds, editabl
       extra={
         editable ? (
           <span>
-            记录轮次：
-            <Radio.Group
-              style={{marginLeft: 8}}
-              value={currentRound}
-              onChange={e => onRoundChange(e.target.value)}
-            >
-              {INSPECTION_ROUNDS.map(r => (
-                <Radio.Button value={r.value} key={r.value}>{r.label}</Radio.Button>
-              ))}
-            </Radio.Group>
-            <AuthButton auth={PERM_I.EDIT} style={{marginLeft: 8}} onClick={onFillNormal}>
-              一键正常
-            </AuthButton>
-            <AuthButton auth={PERM_I.EDIT} type="primary" style={{marginLeft: 8}} onClick={onRecord}>
-              记录本轮
-            </AuthButton>
-            <AuthButton auth={PERM_I.SUBMIT} style={{marginLeft: 8}} onClick={onSubmit}>
+            <AuthButton auth={PERM_I.SUBMIT} onClick={onSubmit}>
               提交巡检单
             </AuthButton>
             <AuthButton auth={PERM_I.DEL} style={{marginLeft: 8}} onClick={onVoid}>
@@ -284,7 +320,15 @@ function SheetMatrixCard({sheet, template, currentRound, recordedRounds, editabl
           <tr>
             <th className="el-ins-col-project">检查项目</th>
             <th className="el-ins-col-content">检查内容</th>
-            {INSPECTION_ROUNDS.map(r => <th key={r.value}>{r.label}</th>)}
+            {INSPECTION_ROUNDS.map(r => (
+              <RoundHeadCell
+                key={r.value} round={r}
+                recorded={recordedSet.has(r.value)}
+                canOperate={!!editable && !recordedSet.has(r.value)}
+                hasDraft={roundHasDraft(values[r.value])}
+                recording={recordingRound || null}
+                onFillNormal={onFillNormal} onRecord={onRecord}/>
+            ))}
           </tr>
           </thead>
           <tbody>
@@ -296,12 +340,11 @@ function SheetMatrixCard({sheet, template, currentRound, recordedRounds, editabl
               <td className="el-ins-col-content">{item.content}</td>
               {INSPECTION_ROUNDS.map(r => (
                 <RoundCell
-                  key={r.value}
+                  key={r.value} round={r.value}
                   item={item.item}
                   record={(recordsByRound[r.value] || {})[item.key]}
-                  editable={!!(editable && item.item && r.value === currentRound &&
-                    !(recordedRounds || []).includes(r.value))}
-                  highlightRecorded={!!editable && r.value === currentRound}
+                  editable={!!(editable && item.item && !recordedSet.has(r.value))}
+                  highlight={columnHighlight(r.value)}
                   value={(values[r.value] || {})[item.key] || {}}
                   onChange={onValueChange}
                   isSubmitted={isSubmitted} onConvert={onConvert}/>

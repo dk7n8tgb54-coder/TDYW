@@ -3,7 +3,8 @@
  *
  * 真实渲染组件（ReactDOM + jsdom，全 createElement 风格与仓库测试惯例一致），
  * mock libs.http 与公共组件壳，验证：
- * - 三类台账页面名称正确（巡检/周月维护/季维护），周月维护单入口区分周与月
+ * - 两类维护台账页面名称正确（周月维护/季维护），周月维护单入口区分周与月；
+ *   旧巡检台账（历史）入口已删除，entries 不再导出 InspectionLedgerIndex
  * - 异常数量红色突出显示
  * - 录入表单：模板先行预览生成明细（只选模板，自动覆盖全部未停用系统）、
  *   payload 按系统+模板分组且每条明细携带 system_id、
@@ -87,8 +88,8 @@ function flush() {
 const LEDGERS_PAYLOAD = {
   data: [
     {
-      id: 1, ledger_no: 'EL-INS-20260910-0001', ledger_type: 'inspection',
-      maintenance_cycle: '', executed_date: '2026-09-10', status: 'submitted',
+      id: 1, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month',
+      maintenance_cycle: 'week', executed_date: '2026-09-10', status: 'submitted',
       executor_names: '王五', items_count: 3,
       abnormal_count: 2, created_by_name: 'op1', created_at: '2026-09-11 09:00',
     },
@@ -101,8 +102,13 @@ const ledgerFormModule = require('../LedgerForm');
 const storeModule = require('../store');
 
 describe('三类台账页面', () => {
+  test('旧巡检台账（历史）入口已删除：entries 不再导出 InspectionLedgerIndex', () => {
+    expect(entriesModule.InspectionLedgerIndex).toBeUndefined();
+    expect(entriesModule.WeekMonthLedgerIndex).toBeDefined();
+    expect(entriesModule.SeasonalLedgerIndex).toBeDefined();
+  });
+
   test.each([
-    [entriesModule.InspectionLedgerIndex, 'inspection', '巡检台账'],
     [entriesModule.WeekMonthLedgerIndex, 'week_month', '周月维护台账'],
     [entriesModule.SeasonalLedgerIndex, 'seasonal', '季维护台账'],
   ])('%s 入口渲染正确的页面名称与请求类型', async (Component, type, label) => {
@@ -119,7 +125,7 @@ describe('三类台账页面', () => {
   test('异常数量突出显示（红色加粗）', async () => {
     mockHttpGet.mockResolvedValue(LEDGERS_PAYLOAD);
     await act(async () => {
-      ReactDOM.render(h(entriesModule.InspectionLedgerIndex), container);
+      ReactDOM.render(h(entriesModule.WeekMonthLedgerIndex), container);
     });
     await act(async () => {});
     const abnormal = container.querySelector('span[style*="f5222d"], span[style*="rgb(245, 34, 45)"]');
@@ -130,7 +136,7 @@ describe('三类台账页面', () => {
   test('页面不存在二维码、离线、移动端或机房现场录入入口', async () => {
     mockHttpGet.mockResolvedValue(LEDGERS_PAYLOAD);
     await act(async () => {
-      ReactDOM.render(h(entriesModule.InspectionLedgerIndex), container);
+      ReactDOM.render(h(entriesModule.WeekMonthLedgerIndex), container);
     });
     await act(async () => {});
     ['二维码', '离线', '移动端', '现场录入', '扫码'].forEach(word => {
@@ -139,21 +145,21 @@ describe('三类台账页面', () => {
   });
 });
 
-describe('台账录入表单（LedgerForm）', () => {
-  // 引入未包 observer 的原始类，测试可直接通过 ref 拿到类实例驱动交互
-  const LedgerForm = ledgerFormModule.LedgerForm;
-  const getLedgerStore = storeModule.getLedgerStore;
+// 引入未包 observer 的原始类，测试可直接通过 ref 拿到类实例驱动交互
+const LedgerForm = ledgerFormModule.LedgerForm;
+const getLedgerStore = storeModule.getLedgerStore;
 
-  function renderForm(store) {
-    let instance = null;
-    act(() => {
-      ReactDOM.render(h(LedgerForm, {ref: r => {instance = r;}, store}), container);
-    });
-    return instance;
-  }
+function renderForm(store) {
+  let instance = null;
+  act(() => {
+    ReactDOM.render(h(LedgerForm, {ref: r => {instance = r;}, store}), container);
+  });
+  return instance;
+}
 
+describe('台账录入表单（LedgerForm）：模板预览与加载', () => {
   test('模板预览生成明细（数值项快照进入行状态）', async () => {
-    const store = getLedgerStore('inspection');
+    const store = getLedgerStore('seasonal');
     store.formVisible = true;
     mockHttpGet.mockImplementation((url) => {
       if (url.includes('/systems/')) {
@@ -196,11 +202,11 @@ describe('台账录入表单（LedgerForm）', () => {
     expect(rows[0].template_item_id).toBe(201);
     expect(rows[0].input_type).toBe('number');
     expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/ledgers/preview/',
-      expect.objectContaining({ledger_type: 'inspection', entries: [{system_id: 11, template_id: 5}]}));
+      expect.objectContaining({ledger_type: 'seasonal', entries: [{system_id: 11, template_id: 5}]}));
   });
 
   test('只选模板自动展开全部可用系统（停用系统被剔除，不选电台）', async () => {
-    const store = getLedgerStore('inspection');
+    const store = getLedgerStore('seasonal');
     store.formVisible = true;
     mockHttpGet.mockImplementation((url) => {
       if (url.includes('/systems/')) {
@@ -242,15 +248,18 @@ describe('台账录入表单（LedgerForm）', () => {
     });
     await flush();
     expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/ledgers/preview/',
-      expect.objectContaining({ledger_type: 'inspection', entries: [{system_id: 11, template_id: 5}]}));
+      expect.objectContaining({ledger_type: 'seasonal', entries: [{system_id: 11, template_id: 5}]}));
     const rows = instance.state.rows;
     expect(rows).toHaveLength(1);
     expect(rows[0].system_id).toBe(11);
     expect(rows[0].template_id).toBe(5);
   });
 
+});
+
+describe('台账录入表单（LedgerForm）：模板加载与表头初始化', () => {
   test('挂载即加载当前类型全部模板（不带 system 参数），存入 templates 状态', async () => {
-    const store = getLedgerStore('inspection');
+    const store = getLedgerStore('seasonal');
     store.formVisible = true;
     mockHttpGet.mockImplementation((url) => {
       if (url.includes('/systems/')) return Promise.resolve({data: [], total: 0});
@@ -269,7 +278,7 @@ describe('台账录入表单（LedgerForm）', () => {
   });
 
   test('新增模式实际执行日期自动填入当日日期', async () => {
-    const store = getLedgerStore('inspection');
+    const store = getLedgerStore('seasonal');
     store.formVisible = true;
     mockHttpGet.mockResolvedValue({data: [], total: 0});
     const instance = renderForm(store);
@@ -280,8 +289,11 @@ describe('台账录入表单（LedgerForm）', () => {
     expect(instance.state.header.executed_date).toBe(today);
   });
 
+});
+
+describe('台账录入表单（LedgerForm）：提交行为', () => {
   test('一次提交多系统明细：按电台拆分提交，每条请求只含本电台明细', async () => {
-    const store = getLedgerStore('inspection');
+    const store = getLedgerStore('seasonal');
     store.formVisible = true;
     mockHttpGet.mockResolvedValue({data: [], total: 0});
     mockHttpPost.mockResolvedValue({});
@@ -313,7 +325,7 @@ describe('台账录入表单（LedgerForm）', () => {
   });
 
   test('结果不再拦截提交：异常行无说明也一次提交成功', async () => {
-    const store = getLedgerStore('inspection');
+    const store = getLedgerStore('seasonal');
     store.formVisible = true;
     mockHttpGet.mockResolvedValue({data: [], total: 0});
     mockHttpPost.mockResolvedValue({});
@@ -350,8 +362,11 @@ describe('台账录入表单（LedgerForm）', () => {
     expect(mockHttpPost).not.toHaveBeenCalled();
   });
 
+});
+
+describe('台账录入表单（LedgerForm）：提交结果处理', () => {
   test('后端业务错误不被当作成功：弹窗保持打开且不刷新列表', async () => {
-    const store = getLedgerStore('inspection');
+    const store = getLedgerStore('seasonal');
     store.formVisible = true;
     mockHttpGet.mockResolvedValue({data: [], total: 0});
     mockHttpPost.mockRejectedValue({error: '台账模板不存在'});
@@ -374,7 +389,7 @@ describe('台账录入表单（LedgerForm）', () => {
   });
 
   test('提交成功后关闭弹窗并重新获取后端真实数据', async () => {
-    const store = getLedgerStore('inspection');
+    const store = getLedgerStore('seasonal');
     store.formVisible = true;
     mockHttpGet.mockResolvedValue({data: [], total: 0});
     mockHttpPost.mockResolvedValue({});

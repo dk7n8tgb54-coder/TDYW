@@ -196,7 +196,7 @@ class LedgerForm extends React.Component {
     const entries = built.entries;
     const payload = {
       ledger_type: store.ledgerType,
-      // 巡检固定空周期；周月维护提交所选周期；季维护后端校验固定为 'season'
+      // 周月维护提交所选周期；季维护后端校验固定为 'season'（旧巡检类型已删除）
       maintenance_cycle: this.isWeekMonth
         ? cycle
         : (store.ledgerType === LEDGER_TYPE.SEASONAL ? 'season' : ''),

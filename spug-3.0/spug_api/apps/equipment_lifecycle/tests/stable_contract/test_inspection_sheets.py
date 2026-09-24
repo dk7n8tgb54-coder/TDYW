@@ -25,11 +25,12 @@ from apps.equipment_lifecycle.models import (
     InspectionTemplateItem,
     INSPECTION_ROUND_TEXT_MAP,
 )
-from apps.equipment_lifecycle.tests.base import make_client, make_system
+from apps.equipment_lifecycle.tests.base import make_client, make_system, make_user
 from apps.equipment_lifecycle.tests.stable_contract.inspection_base import (
     ALL_INSPECTION_PERMS,
     INS_URL,
     ITPL_URL,
+    P_INS_VIEW,
     create_sheet_ok,
     get_sheet_detail,
     get_template_items,
@@ -374,6 +375,56 @@ class SheetRecordedRoundsTest(InspectionSheetTestBase):
         detail = self._record_round(body['id'], 'r2', 2)
         self.assertEqual(detail['recorded_rounds'], ['r1', 'r2'])
 
+    def test_rounds_recorded_out_of_order(self):
+        """四轮可按任意顺序独立记录（不要求先完成前一轮）：先 r3 后 r1。"""
+        body = self.create_sheet()
+        detail = self._record_round(body['id'], 'r3', 1)
+        self.assertEqual(detail['recorded_rounds'], ['r3'])
+        detail = self._record_round(body['id'], 'r1', 2)
+        self.assertEqual(detail['recorded_rounds'], ['r1', 'r3'])
+        detail = self._record_round(body['id'], 'r4', 3)
+        self.assertEqual(detail['recorded_rounds'], ['r1', 'r3', 'r4'])
+        sheet = InspectionDutySheet.objects.get(pk=body['id'])
+        self.assertEqual(sheet.get_recorded_rounds(), ['r1', 'r3', 'r4'])
+
+    def test_recording_one_round_keeps_other_round_values(self):
+        """记录某一轮不影响其他轮次：r1 异常+现场处理记录后，记录 r2 时 r1 原样保留。"""
+        body = self.create_sheet()
+        item = self.items['面板指示灯']
+        put_records_ok(self.client, body['id'], 1, records=[
+            {'template_item_id': item.id, 'round_no': 'r1',
+             'value_text': '不正常', 'onsite_action': '已切换备用'}])
+        put_records_ok(self.client, body['id'], 2, records=[
+            {'template_item_id': item.id, 'round_no': 'r2',
+             'value_text': '正常'}])
+        r1 = InspectionRecord.objects.get(sheet_id=body['id'], round_no='r1')
+        r2 = InspectionRecord.objects.get(sheet_id=body['id'], round_no='r2')
+        self.assertEqual(r1.value_text, '不正常')
+        self.assertEqual(r1.onsite_action, '已切换备用')
+        self.assertEqual(r1.result, 'abnormal')
+        self.assertEqual(r2.value_text, '正常')
+        self.assertEqual(r2.result, 'normal')
+
+    def test_failed_save_does_not_lock_round(self):
+        """保存失败（载荷校验不通过）时轮次不被错误锁定：事务整体回滚，
+        轮次未记入 recorded_rounds、版本号不变，修正后同一轮次可再次记录。"""
+        body = self.create_sheet()
+        item = self.items['面板指示灯']
+        resp = self.client.put(f'{INS_URL}/{body["id"]}/',
+                               {'version': 1, 'records': [
+                                   {'template_item_id': item.id,
+                                    'round_no': 'r2', 'value_text': '非法值'}]},
+                               content_type='application/json')
+        self.assertIn('不合法', resp.json().get('error', ''))
+        sheet = InspectionDutySheet.objects.get(pk=body['id'])
+        self.assertEqual(sheet.get_recorded_rounds(), [])
+        self.assertEqual(sheet.version, 1)
+        self.assertFalse(InspectionRecord.objects.filter(
+            sheet_id=body['id'], round_no='r2').exists())
+        # 修正载荷后同一轮次可正常记录
+        detail = self._record_round(body['id'], 'r2', 1)
+        self.assertEqual(detail['recorded_rounds'], ['r2'])
+
     def test_persons_only_update_allowed_after_recording(self):
         """已记录轮次存在时，人员登记/空记录载荷仍可提交（版本号推进）。"""
         body = self.create_sheet()
@@ -418,6 +469,51 @@ class SheetWorkflowTest(InspectionSheetTestBase):
                                 {'version': 1, 'records': []},
                                 content_type='application/json')
         self.assertIn('已被他人修改', resp.json().get('error', ''))
+
+    def test_version_conflict_leaves_no_partial_save(self):
+        """版本冲突时带记录的请求整体失败：不落任何明细、不锁定轮次。"""
+        body = self.create_sheet()
+        put_records_ok(self.client, body['id'], 1, records=[])
+        item = self.items['面板指示灯']
+        stale = make_client(self.admin)
+        resp = stale.put(f'{INS_URL}/{body["id"]}/',
+                         {'version': 1, 'records': [
+                             {'template_item_id': item.id,
+                              'round_no': 'r2', 'value_text': '正常'}]},
+                         content_type='application/json')
+        self.assertIn('已被他人修改', resp.json().get('error', ''))
+        self.assertEqual(InspectionRecord.objects.filter(
+            sheet_id=body['id']).count(), 0)
+        self.assertEqual(InspectionDutySheet.objects.get(
+            pk=body['id']).get_recorded_rounds(), [])
+
+    def test_record_round_requires_edit_permission(self):
+        """无 inspection.edit 权限的用户不能记录轮次（后端独立校验权限）。"""
+        body = self.create_sheet()
+        viewer = make_user('ins_viewer_only', [P_INS_VIEW], tenant_id='tenant_a')
+        resp = make_client(viewer).put(f'{INS_URL}/{body["id"]}/',
+                                       {'version': 1, 'records': [
+                                           {'template_item_id': self.items['面板指示灯'].id,
+                                            'round_no': 'r1', 'value_text': '正常'}]},
+                                       content_type='application/json')
+        self.assertIn('权限拒绝', resp.json().get('error', ''))
+        sheet = InspectionDutySheet.objects.get(pk=body['id'])
+        self.assertEqual(sheet.get_recorded_rounds(), [])
+        self.assertEqual(sheet.records.count(), 0)
+
+    def test_cross_tenant_cannot_record_round(self):
+        """跨租户用户不能对他人巡检单记录轮次（对象级租户隔离）。"""
+        body = self.create_sheet()
+        foreign = make_client(self.other_admin)
+        resp = foreign.put(f'{INS_URL}/{body["id"]}/',
+                           {'version': 1, 'records': [
+                               {'template_item_id': self.items['面板指示灯'].id,
+                                'round_no': 'r1', 'value_text': '正常'}]},
+                           content_type='application/json')
+        self.assertIn('巡检单不存在', resp.json().get('error', ''))
+        sheet = InspectionDutySheet.objects.get(pk=body['id'])
+        self.assertEqual(sheet.get_recorded_rounds(), [])
+        self.assertEqual(sheet.records.count(), 0)
 
     def test_client_token_idempotent(self):
         """同 client_token 重复创建返回已有单（不重复建单）。"""

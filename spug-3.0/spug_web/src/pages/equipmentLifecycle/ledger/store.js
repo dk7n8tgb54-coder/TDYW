@@ -14,7 +14,7 @@ import {http} from 'libs';
 import {API_PREFIX_L} from './constants';
 
 export class LedgerStore {
-  ledgerType; // inspection | week_month | seasonal
+  ledgerType; // week_month | seasonal
 
   @observable records = [];
   @observable total = 0;

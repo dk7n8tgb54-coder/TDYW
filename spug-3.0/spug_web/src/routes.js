@@ -57,7 +57,7 @@ import EquipmentWorkOrderIndex from './pages/equipmentLifecycle/workOrder';
 import EquipmentSystemEventIndex from './pages/equipmentLifecycle/systemEvent';
 import EquipmentSystemStatusIndex from './pages/equipmentLifecycle/systemStatus';
 import {
-  InspectionLedgerIndex, InspectionToday, WeekMonthLedgerIndex, SeasonalLedgerIndex,
+  InspectionToday, WeekMonthLedgerIndex, SeasonalLedgerIndex,
   TemplateIndex as LedgerTemplateIndex, InspectionTemplateIndex, InspectionSheetIndex,
 } from './pages/equipmentLifecycle/ledger/entries';
 import AnnouncementList from './pages/home/AnnouncementList';
@@ -92,7 +92,6 @@ export default [
       {title: '故障管理', auth: 'equipment_lifecycle.fault.view', path: '/el/faults', component: EquipmentFaultIndex},
       {title: '今日巡检', auth: 'equipment_lifecycle.inspection.view', path: '/el/inspection-today', component: InspectionToday},
       {title: '巡检单记录', auth: 'equipment_lifecycle.inspection.view', path: '/el/inspection-sheets', component: InspectionSheetIndex},
-      {title: '巡检台账（历史）', auth: 'equipment_lifecycle.ledger.view', path: '/el/inspection-ledgers', component: InspectionLedgerIndex},
       {title: '巡检模板', auth: 'equipment_lifecycle.inspection_template.view', path: '/el/inspection-templates', component: InspectionTemplateIndex},
       {title: '周月维护台账', auth: 'equipment_lifecycle.ledger.view', path: '/el/week-month-ledgers', component: WeekMonthLedgerIndex},
       {title: '季维护台账', auth: 'equipment_lifecycle.ledger.view', path: '/el/seasonal-ledgers', component: SeasonalLedgerIndex},

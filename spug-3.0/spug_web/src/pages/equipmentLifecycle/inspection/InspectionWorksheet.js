@@ -11,13 +11,17 @@
  * - 进入页面未恢复草稿时自动选中上一次使用的模板（最近一张巡检单的模板；
  *   模板已停用/删除则保持未选择）；
  * - 固定四轮：当日 11:00 / 16:00 / 22:00、次日 06:30（归属前一值班日，可回选值班日）；
- * - 不记录实际填写时间、不标记迟填、不根据点击时间判断轮次（轮次显式选择）；
+ * - 不记录实际填写时间、不标记迟填、不根据点击时间判断轮次；
  * - 页面结构 = 单张四轮巡检矩阵表（检查项目 | 检查内容 | 四轮），不再分"填写区/回显区"；
  *   同一批检查项目只渲染一次；
- * - 轮次三态：当前选择轮次可编辑；已记录轮次（sheet.recorded_rounds）只读展示保存值；
- *   未记录轮次显示"—"；已提交/已作废巡检单全部只读；
- * - 底色只跟随当前选择轮次列（未记录=浅黄、已记录已填=浅蓝），未选中列无底色；
- * - "记录本轮"只提交当前选择的轮次（后端同样只允许单轮、已记录轮次拒绝再改）；
+ * - 四个轮次彼此独立、可按任意顺序填写和记录：未记录轮次整列可编辑，轮次操作
+ *   （一键正常/记录本轮）放在对应轮次列表头内部（吸顶），不再有顶部轮次选择区；
+ * - 轮次状态持久化在后端 recorded_rounds：未记录（可编辑，可带"有草稿"提示）、
+ *   已记录（只读、按钮隐藏、后端拒绝再改）、已提交/已作废（整单只读）；
+ * - 底色按列：有草稿的未记录轮次列浅黄、草稿单中已记录轮次列浅蓝、异常浅红；
+ * - "一键正常"只填充当前轮次未填写的检查项，不覆盖已填内容（含异常与现场处理）；
+ * - "记录本轮"只提交当前轮次（后端单轮契约，version 乐观锁），请求期间按钮
+ *   loading 且其余轮次记录按钮禁用，失败时轮次保持可编辑；
  * - 草稿按轮次保存在 localStorage（{values: {r1: {...}}}, 旧扁平格式兼容读取），
  *   切换轮次不丢内容；已记录轮次草稿自动清理；空白草稿不入存储；
  * - 巡检单不关联系统：异常转故障/工单时才在转换弹窗中选择系统（必填）。
@@ -166,12 +170,11 @@ function loadDutySheet(dateStr, tplId, mountedRef) {
     .catch(() => {});
 }
 
-/** 草稿数据：值班日/模板/人员/轮次/按轮次填写的值 + 暂存恢复与持久化。 */
+/** 草稿数据：值班日/模板/人员/按轮次填写的值 + 暂存恢复与持久化。 */
 function useWorksheetDraft() {
   const [dutyDate, setDutyDate] = useState(moment().format('YYYY-MM-DD'));
   const [templateId, setTemplateId] = useState(null);
   const [persons, setPersons] = useState([]);
-  const [currentRound, setCurrentRound] = useState('r1');
   const [values, setValues] = useState({});   // {r1: {t_21: {value_text, onsite_action}}}
   const [restored, setRestored] = useState(false);
   const mountedRef = useRef(true);
@@ -276,14 +279,15 @@ function useWorksheetDraft() {
 
   return {
     dutyDate, setDutyDate, templateId, setTemplateId, persons, setPersons,
-    currentRound, setCurrentRound, values, setValues, restored,
+    values, setValues, restored,
     clearRound, clearRestored, mountedRef,
   };
 }
 
-/** 草稿动作：建单/人员变更/一键正常/记录本轮/提交，以及当前轮次填写更新。 */
+/** 草稿动作：建单/人员变更/按轮次一键正常/按轮次记录本轮/提交，以及填写更新。 */
 function useWorksheetActions(draft, template, sheet) {
   const [convert, setConvert] = useState(null);
+  const [recordingRound, setRecordingRound] = useState(null);
   const {mountedRef} = draft;
 
   function handleStart() {
@@ -305,37 +309,39 @@ function useWorksheetActions(draft, template, sheet) {
     }
   }
 
-  function handleFillNormal() {
-    // 一键正常：仅当前轮次的选择型检查项填入"正常"；数值/文本项与已记录轮次不动
-    const roundKey = draft.currentRound;
-    const roundValues = {...(draft.values[roundKey] || {})};
-    let filled = false;
-    (template ? template.devices : []).forEach(d => {
-      (d.items || []).forEach(item => {
-        if (item.input_type !== 'choice') return;
-        filled = true;
-        roundValues[`t_${item.id}`] = {
-          ...(roundValues[`t_${item.id}`] || {}), value_text: NORMAL_VALUE,
-        };
-      });
-    });
-    if (filled) {
-      draft.setValues({...draft.values, [roundKey]: roundValues});
-      message.success('已一键填入"正常"；数值/文本项请人工填写');
+  function handleFillNormal(round) {
+    // 一键正常：只作用于指定轮次这一列，且只填充"尚未填写"的选择型检查项；
+    // 已填写内容（含"不正常"与现场处理）一律不覆盖，故无需覆盖确认；
+    // 数值/文本项始终人工填写；已记录轮次不执行。
+    if (sheet && sheet.status !== 'draft') return;
+    if (sheet && recordedRounds(sheet).includes(round)) return;
+    const {roundValues, filled, untouched, choiceCount} = computeFillNormal(
+      template, draft.values[round] || {});
+    if (!choiceCount) {
+      message.info(`「${ROUND_TEXT[round]}」模板无选择型检查项，请人工填写`);
+      return;
     }
+    if (!filled) {
+      message.info(`「${ROUND_TEXT[round]}」选择型检查项均已填写，未做修改`);
+      return;
+    }
+    draft.setValues({...draft.values, [round]: roundValues});
+    message.success(
+      `已为「${ROUND_TEXT[round]}」${filled} 个未填写检查项填入"正常"` +
+      (untouched ? `；${untouched} 个已填写项保持不变` : '；数值/文本项请人工填写'));
   }
 
-  function handleRecordRound() {
+  function handleRecordRound(round) {
     if (!sheet || sheet.status !== 'draft') {
       message.warning('请先开始巡检（生成草稿巡检单）');
       return;
     }
-    const round = draft.currentRound;
-    const roundValues = draft.values[round] || {};
+    if (recordingRound) return;   // 已有轮次在记录中：防重复提交
     if (recordedRounds(sheet).includes(round)) {
       message.warning(`「${ROUND_TEXT[round]}」轮次已记录，不能再次修改`);
       return;
     }
+    const roundValues = draft.values[round] || {};
     const missing = findMissingRequired(template, roundValues);
     if (missing.length) {
       message.error(`请先填写 ${ROUND_TEXT[round]} 轮次必填内容：${missing.join('、')}`);
@@ -346,6 +352,7 @@ function useWorksheetActions(draft, template, sheet) {
       message.warning(`请先填写 ${ROUND_TEXT[round]} 轮次的检查内容`);
       return;
     }
+    setRecordingRound(round);
     store.saveSheet(sheet.id, {
       version: sheet.version,
       persons: buildPersonPayloadRows(draft.persons, store.users),
@@ -354,7 +361,11 @@ function useWorksheetActions(draft, template, sheet) {
       if (!mountedRef.current) return;
       draft.clearRound(round);
       message.success(`已记录 ${ROUND_TEXT[round]} 轮次`);
-    }).catch(() => {});
+    }).catch(() => {
+      // 保存失败：错误提示由 http 拦截器弹出，轮次保持可编辑、草稿保留
+    }).finally(() => {
+      if (mountedRef.current) setRecordingRound(null);
+    });
   }
 
   function handleSubmit() {
@@ -366,17 +377,16 @@ function useWorksheetActions(draft, template, sheet) {
     }).catch(() => {});
   }
 
-  function updateValue(key, field, val) {
-    const roundKey = draft.currentRound;
-    const roundValues = draft.values[roundKey] || {};
+  function updateValue(round, key, field, val) {
+    const roundValues = draft.values[round] || {};
     draft.setValues({
       ...draft.values,
-      [roundKey]: {...roundValues, [key]: {...roundValues[key], [field]: val}},
+      [round]: {...roundValues, [key]: {...roundValues[key], [field]: val}},
     });
   }
 
   return {
-    convert, setConvert,
+    convert, setConvert, recordingRound,
     handleStart, handlePersonsChange, handleFillNormal, handleRecordRound, handleSubmit,
     updateValue,
   };
@@ -384,6 +394,29 @@ function useWorksheetActions(draft, template, sheet) {
 
 function recordedRounds(sheet) {
   return (sheet && sheet.recorded_rounds) || [];
+}
+
+/** 一键正常取值计算：只给未填写的选择型检查项填"正常"，已填写项（含异常）
+ *  与现场处理一律保留；返回 {roundValues, filled, untouched, choiceCount}。 */
+function computeFillNormal(template, roundValues) {
+  const next = {...roundValues};
+  let filled = 0;
+  let untouched = 0;
+  let choiceCount = 0;
+  (template ? template.devices : []).forEach(d => {
+    (d.items || []).forEach(item => {
+      if (item.input_type !== 'choice') return;
+      choiceCount += 1;
+      const existing = next[`t_${item.id}`];
+      if (existing && existing.value_text && String(existing.value_text).trim()) {
+        untouched += 1;
+        return;
+      }
+      filled += 1;
+      next[`t_${item.id}`] = {...(existing || {}), value_text: NORMAL_VALUE};
+    });
+  });
+  return {roundValues: next, filled, untouched, choiceCount};
 }
 
 function InspectionWorksheet() {
@@ -423,10 +456,10 @@ function InspectionWorksheet() {
         hasTemplate={!!template} isVoid={isVoid} onStart={actions.handleStart}/>
       {sheet && (
         <SheetMatrixCard
-          sheet={sheet} template={template} currentRound={draft.currentRound}
+          sheet={sheet} template={template}
           recordedRounds={recordedRounds(sheet)} editable={sheet.status === 'draft'}
-          values={draft.values}
-          onRoundChange={draft.setCurrentRound} onValueChange={actions.updateValue}
+          values={draft.values} recordingRound={actions.recordingRound}
+          onValueChange={actions.updateValue}
           onFillNormal={actions.handleFillNormal} onRecord={actions.handleRecordRound}
           onSubmit={actions.handleSubmit} onVoid={handleVoid}
           onConvert={actions.setConvert}/>
@@ -455,15 +488,23 @@ function InspectionWorksheet() {
         }
         .el-ins-matrix thead th.el-ins-col-project,
         .el-ins-matrix thead th.el-ins-col-content { z-index: 3; background: #fafafa; }
-        .el-ins-matrix th:not(.el-ins-col-project):not(.el-ins-col-content) { min-width: 150px; }
-        .el-ins-cell-current { background: #fffbe6; }
+        /* 轮次列：宽度覆盖表头两按钮一行，避免操作后列宽跳动；窄屏横向滚动 */
+        .el-ins-matrix th.el-ins-col-round, .el-ins-matrix td.el-ins-round-cell {
+          min-width: 186px; max-width: 230px;
+        }
+        .el-ins-round-head { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+        .el-ins-round-name { font-weight: 600; }
+        .el-ins-round-status { font-weight: normal; font-size: 12px; color: #595959; }
+        .el-ins-round-draft-tag { margin-left: 6px; color: #d48806; }
+        .el-ins-round-actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+        .el-ins-cell-draft { background: #fffbe6; }
         .el-ins-cell-recorded { background: #f0f7ff; }
         .el-ins-cell-abnormal { background: #fff1f0; }
         .el-ins-legend-chip {
           display: inline-block; width: 10px; height: 10px; margin-right: 4px;
           border: 1px solid #e8e8e8; vertical-align: middle;
         }
-        .el-ins-legend-current { background: #fffbe6; }
+        .el-ins-legend-draft { background: #fffbe6; }
         .el-ins-legend-recorded { background: #f0f7ff; }
         .el-ins-legend-abnormal { background: #fff1f0; }
       `}</style>

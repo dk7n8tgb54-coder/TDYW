@@ -142,7 +142,7 @@ export default [{
       {key: 'review', label: '复核/退回台账'},
       {key: 'del', label: '作废台账（受控作废，非物理删除）'},
       {key: 'export', label: '导出台账'},
-      {key: 'handle_exception', label: '异常处置（周/月/季维护台账异常转故障/转工单；旧巡检台账已只读）'},
+      {key: 'handle_exception', label: '异常处置（周/月/季维护台账异常转故障/转工单；旧巡检台账已删除）'},
     ]
   }, {
     key: 'inspection',

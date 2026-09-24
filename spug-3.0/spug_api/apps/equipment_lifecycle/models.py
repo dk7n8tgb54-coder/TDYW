@@ -1233,7 +1233,8 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
                 name='el_work_order_source_valid',
             ),
             # 来源类型与来源对象必须匹配：manual 两者皆空，fault/ledger_item/inspection_record
-            # 只允许对应外键
+            # 只允许对应外键；ledger_item 来源在外键已解除且 legacy 快照在位时仍合法
+            # （旧巡检台账明细受控删除后的迁移态，2026-09-24）
             models.CheckConstraint(
                 check=(
                     (models.Q(source_type=WORK_ORDER_SOURCE_MANUAL)
@@ -1246,8 +1247,10 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
                        & models.Q(source_inspection_record__isnull=True))
                     | (models.Q(source_type=WORK_ORDER_SOURCE_LEDGER_ITEM)
                        & models.Q(source_fault__isnull=True)
-                       & models.Q(source_ledger_item__isnull=False)
-                       & models.Q(source_inspection_record__isnull=True))
+                       & models.Q(source_inspection_record__isnull=True)
+                       & (models.Q(source_ledger_item__isnull=False)
+                          | (models.Q(source_ledger_item__isnull=True)
+                             & ~models.Q(source_ledger_legacy=''))))
                     | (models.Q(source_type=WORK_ORDER_SOURCE_INSPECTION_RECORD)
                        & models.Q(source_fault__isnull=True)
                        & models.Q(source_ledger_item__isnull=True)
