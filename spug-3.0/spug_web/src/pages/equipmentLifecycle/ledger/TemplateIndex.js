@@ -62,7 +62,7 @@ class TemplateIndex extends React.Component {
         <Breadcrumb>
           <Breadcrumb.Item>首页</Breadcrumb.Item>
           <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
-          <Breadcrumb.Item>运行维护</Breadcrumb.Item>
+          <Breadcrumb.Item>巡检与维护</Breadcrumb.Item>
           <Breadcrumb.Item>台账模板</Breadcrumb.Item>
         </Breadcrumb>
         <SearchForm>

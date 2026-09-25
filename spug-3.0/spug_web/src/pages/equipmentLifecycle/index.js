@@ -35,7 +35,6 @@ function SystemIndex(props) {
         <Breadcrumb.Item>首页</Breadcrumb.Item>
         <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
         <Breadcrumb.Item>系统档案</Breadcrumb.Item>
-        <Breadcrumb.Item>系统列表</Breadcrumb.Item>
       </Breadcrumb>
       <SearchForm>
         <SearchForm.Item span={6} title="系统名称">

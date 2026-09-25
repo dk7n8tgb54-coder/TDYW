@@ -39,10 +39,15 @@ class FaultStore {
   @observable detailId = null;
   @observable detail = {};
   @observable isDetailFetching = false;
+  // 详情可能被多个入口并发刷新（打开详情、动作后的统一刷新、重开其他故障）；
+  // 只接受最后一次响应：旧响应不覆盖新数据、不提前关闭 loading。
+  detailRequestSeq = 0;
 
   // ========== 处理进展（原处置记录） ==========
   @observable handlingRecords = [];
   @observable isHandlingFetching = false;
+  // 处理进展可能在详情初始请求尚未完成时再次刷新；只接受最后一次响应。
+  handlingRequestSeq = 0;
 
   // ========== 动作执行中 ==========
   @observable isActionSubmitting = false;
@@ -113,7 +118,9 @@ class FaultStore {
   };
 
   showDetail = action((recordOrId) => {
-    // 支持对象或纯 ID（跨页 ?detail= 跳转直达详情）
+    // 支持对象或纯 ID（跨页 ?detail= 跳转直达详情）。
+    // 详情与处理进展请求统一在此发起；FaultDetail 挂载时不再重复请求
+    // （打开详情时的并发重复请求是旧响应覆盖新数据的竞态来源）。
     this.detailId = typeof recordOrId === 'object' ? recordOrId.id : recordOrId;
     this.detail = typeof recordOrId === 'object' ? recordOrId : {};
     this.detailVisible = true;
@@ -128,15 +135,20 @@ class FaultStore {
   });
 
   fetchDetail = () => {
+    const requestSeq = ++this.detailRequestSeq;
     this.isDetailFetching = true;
     return http.get(`${API_PREFIX}/faults/${this.detailId}/`)
       .then(action(res => {
         // http 拦截器已解包 json_response 的 data 层，res 即详情本体
-        this.detail = res;
+        if (requestSeq === this.detailRequestSeq) {
+          this.detail = res;
+        }
       }))
       .catch(action(() => {}))
       .finally(action(() => {
-        this.isDetailFetching = false;
+        if (requestSeq === this.detailRequestSeq) {
+          this.isDetailFetching = false;
+        }
       }));
   };
 
@@ -146,14 +158,19 @@ class FaultStore {
   };
 
   fetchHandlingRecords = () => {
+    const requestSeq = ++this.handlingRequestSeq;
     this.isHandlingFetching = true;
     return http.get(`${API_PREFIX}/faults/${this.detailId}/handling-records/`)
       .then(action(res => {
-        this.handlingRecords = res.data;
+        if (requestSeq === this.handlingRequestSeq) {
+          this.handlingRecords = res.data || [];
+        }
       }))
       .catch(action(() => {}))
       .finally(action(() => {
-        this.isHandlingFetching = false;
+        if (requestSeq === this.handlingRequestSeq) {
+          this.isHandlingFetching = false;
+        }
       }));
   };
 
@@ -197,10 +214,9 @@ class FaultStore {
   addHandlingRecord = (formData) => {
     this.isActionSubmitting = true;
     return http.post(`${API_PREFIX}/faults/${this.detailId}/handling-records/`, formData)
-      .then(action(() => {
-        this.fetchHandlingRecords();
-        this.fetchDetail();
-      }))
+      // 添加处理进展只改变时间线；避免无关的详情请求让整个抽屉进入刷新态。
+      // 返回列表刷新 Promise，调用方在真实列表完成后再关闭弹窗。
+      .then(action(() => this.fetchHandlingRecords()))
       .finally(action(() => {
         this.isActionSubmitting = false;
       }));
@@ -210,9 +226,7 @@ class FaultStore {
     this.isActionSubmitting = true;
     return http.put(
       `${API_PREFIX}/faults/${this.detailId}/handling-records/${recordId}/`, formData)
-      .then(action(() => {
-        this.fetchHandlingRecords();
-      }))
+      .then(action(() => this.fetchHandlingRecords()))
       .finally(action(() => {
         this.isActionSubmitting = false;
       }));

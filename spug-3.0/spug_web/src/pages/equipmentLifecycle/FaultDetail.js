@@ -12,6 +12,8 @@
  * 不关联用户账号），均不代表负责整个故障（处置负责人独立展示）；
  * 不再提供"受影响系统"页签；所有动作成功后重新获取真实数据；
  * 错误提示由 http 拦截器统一弹出，不重复提示。
+ * 约束：凡在 render 中读取 store observable 的函数组件必须用 observer 包裹
+ * （MobX 只追踪 observer 组件自身的读取），否则对应区域不会随 store 更新。
  */
 import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react';
@@ -34,12 +36,7 @@ const {TabPane} = Tabs;
 
 @observer
 class FaultDetail extends React.Component {
-  componentDidMount() {
-    // 无论从列表行还是其他入口打开，挂载时都重新获取真实数据
-    store.fetchDetail();
-    store.fetchHandlingRecords();
-  }
-
+  // 详情与处理进展请求由 store.showDetail 统一发起，挂载时不再重复请求
   renderBasic() {
     const d = store.detail;
     return (
@@ -178,7 +175,7 @@ class FaultDetail extends React.Component {
   }
 }
 
-function AuthStartButton() {
+const AuthStartButton = observer(function AuthStartButton() {
   return (
     <AuthButton
       auth={PERM.FAULT_HANDLE}
@@ -191,7 +188,7 @@ function AuthStartButton() {
       开始处置
     </AuthButton>
   );
-}
+});
 
 function AuthRecoverButton() {
   const [visible, setVisible] = useState(false);
@@ -218,7 +215,7 @@ function AuthCloseButton() {
   );
 }
 
-function AuthCancelButton({fault}) {
+const AuthCancelButton = observer(function AuthCancelButton({fault}) {
   const [visible, setVisible] = useState(false);
   const [reason, setReason] = useState('');
   return (
@@ -252,9 +249,9 @@ function AuthCancelButton({fault}) {
       </Modal>
     </span>
   );
-}
+});
 
-function RecoverModal({visible, form, onClose}) {
+const RecoverModal = observer(function RecoverModal({visible, form, onClose}) {
   return (
     <Modal
       visible={visible}
@@ -295,9 +292,9 @@ function RecoverModal({visible, form, onClose}) {
       </Form>
     </Modal>
   );
-}
+});
 
-function CloseModal({visible, onClose}) {
+const CloseModal = observer(function CloseModal({visible, onClose}) {
   const [result, setResult] = useState('');
   const d = store.detail;
   return (
@@ -339,9 +336,11 @@ function CloseModal({visible, onClose}) {
       )}
     </Modal>
   );
-}
+});
 
-function HandlingTimeline({editable}) {
+// observer 必须包裹：时间线读取 handlingRecords/isHandlingFetching，
+// 未包裹时这两项变化不触发重渲染——添加进展后新记录不显示、Spin 状态冻结
+const HandlingTimeline = observer(function HandlingTimeline({editable}) {
   return (
     <div>
       <p style={{color: '#999', marginTop: 0}}>
@@ -387,7 +386,7 @@ function HandlingTimeline({editable}) {
       </Spin>
     </div>
   );
-}
+});
 
 function AddHandlingButton() {
   const [visible, setVisible] = useState(false);

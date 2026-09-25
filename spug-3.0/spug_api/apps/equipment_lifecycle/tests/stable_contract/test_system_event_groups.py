@@ -483,8 +483,9 @@ class GroupPermissionExportTests(SystemEventGroupTestBase):
         self.assertEqual(rows[0][3], work_no)
         self.assertEqual(rows[1][3], fno2)
         self.assertEqual(rows[2][3], fno1)
-        self.assertIn('SYS-A3', rows[0][0])
-        self.assertIn('SYS-A1', rows[1][0])
+        # 系统列只显示系统名称，不显示编号
+        self.assertEqual(rows[0][0], '大连导航系统')
+        self.assertEqual(rows[1][0], '烟台通信系统')
         self.assertEqual(rows[1][0], rows[2][0])
         # 未关闭（未走 close）的故障节点数 = create + recover = 2
         self.assertEqual(rows[1][7], '2')

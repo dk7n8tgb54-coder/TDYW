@@ -320,8 +320,7 @@ def build_group_export_rows(user, base_queryset):
     groups = _build_page_groups(user, base_queryset, system_ids, last_at_map)
     rows = []
     for group in groups:
-        system_label = '{} {}'.format(
-            group['system']['system_code'], group['system']['name'])
+        system_label = group['system']['name']
         for item in group['items']:
             rows.append([
                 system_label,

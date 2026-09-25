@@ -3,7 +3,7 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——运行维护/工单管理列表页（步骤 3.3）。
+ * 设备全生命周期——运行处置/工单管理列表页（步骤 3.3）。
  * 业务关联一律使用系统 ID，页面仅展示系统名称；
  * 支持 /el/work-orders?detail=<id> 跨页跳转直达详情。
  */
@@ -155,7 +155,7 @@ function WorkOrderIndex(props) {
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
         <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
-        <Breadcrumb.Item>运行维护</Breadcrumb.Item>
+        <Breadcrumb.Item>运行处置</Breadcrumb.Item>
         <Breadcrumb.Item>工单管理</Breadcrumb.Item>
       </Breadcrumb>
       <SearchForm>

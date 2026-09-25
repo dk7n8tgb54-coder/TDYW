@@ -26,12 +26,7 @@ class GroupTable extends React.Component {
     title: '系统',
     key: 'system',
     width: 260,
-    render: (text, group) => (
-      <span>
-        <span style={{fontWeight: 500}}>{group.system.system_code}</span>
-        <span style={{marginLeft: 8, color: '#666'}}>{group.system.name}</span>
-      </span>
-    ),
+    render: (text, group) => group.system.name,
   }, {
     title: '当前健康状态',
     key: 'health',

@@ -187,3 +187,74 @@ describe('故障 Store · 详情查询', () => {
     await expect(store.fetchDetailById(5)).resolves.toEqual(detail);
   });
 });
+
+describe('故障 Store · 请求竞态守卫（2026-09 添加进展后刷新状态异常缺陷）', () => {
+  function deferred() {
+    let resolve;
+    return {promise: new Promise(r => {resolve = r;}), resolve};
+  }
+  const flushAsync = () => new Promise(resolve => setTimeout(resolve, 0));
+
+  it('并发 fetchDetail 旧响应不覆盖新详情，loading 由最后一次请求关闭', async () => {
+    const store = freshStore();
+    store.detailId = 8;
+    const older = deferred();
+    const newer = deferred();
+    mockHttpGet.mockImplementationOnce(() => older.promise);
+    mockHttpGet.mockImplementationOnce(() => newer.promise);
+    const p1 = store.fetchDetail();
+    const p2 = store.fetchDetail();
+    expect(store.isDetailFetching).toBe(true);
+    // 旧请求先返回：不覆盖数据，也不关闭 loading（最新请求仍在途）
+    older.resolve({id: 8, fault_no: 'OLD'});
+    await p1;
+    expect(store.detail).toEqual({});
+    expect(store.isDetailFetching).toBe(true);
+    // 最新请求返回：应用数据并关闭 loading
+    newer.resolve({id: 8, fault_no: 'NEW'});
+    await p2;
+    expect(store.detail.fault_no).toBe('NEW');
+    expect(store.isDetailFetching).toBe(false);
+  });
+
+  it('并发 fetchHandlingRecords 旧响应不覆盖新时间线', async () => {
+    const store = freshStore();
+    store.detailId = 8;
+    const older = deferred();
+    const newer = deferred();
+    mockHttpGet.mockImplementationOnce(() => older.promise);
+    mockHttpGet.mockImplementationOnce(() => newer.promise);
+    const p1 = store.fetchHandlingRecords();
+    const p2 = store.fetchHandlingRecords();
+    older.resolve({data: [{id: 1, content: '旧记录'}], total: 1});
+    await p1;
+    expect(store.handlingRecords).toEqual([]);
+    expect(store.isHandlingFetching).toBe(true);
+    newer.resolve({data: [{id: 2, content: '新记录'}], total: 1});
+    await p2;
+    expect(store.handlingRecords.map(r => r.content)).toEqual(['新记录']);
+    expect(store.isHandlingFetching).toBe(false);
+  });
+
+  it('添加处理进展成功后等待列表刷新完成，动作 loading 不提前结束', async () => {
+    const store = freshStore();
+    store.detailId = 8;
+    const listFetch = deferred();
+    mockHttpPost.mockResolvedValue({});
+    mockHttpGet.mockImplementation(() => listFetch.promise);
+    let done = false;
+    const p = store.addHandlingRecord({content: '现场检查'})
+      .then(() => {done = true;});
+    await flushAsync();
+    // POST 已成功但列表 GET 在途：弹窗关闭信号（外层 Promise）与 loading 均未结束
+    expect(mockHttpGet).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/faults/8/handling-records/');
+    expect(done).toBe(false);
+    expect(store.isActionSubmitting).toBe(true);
+    listFetch.resolve({data: [{id: 2, content: '现场检查'}], total: 1});
+    await p;
+    expect(done).toBe(true);
+    expect(store.isActionSubmitting).toBe(false);
+    expect(store.handlingRecords.map(r => r.content)).toEqual(['现场检查']);
+  });
+});

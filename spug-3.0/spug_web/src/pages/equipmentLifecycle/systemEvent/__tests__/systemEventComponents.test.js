@@ -151,7 +151,7 @@ const NODES_PAYLOAD = {
 };
 
 describe('分组表格——系统行与事项展开', () => {
-  it('渲染系统分组行：编号/名称/健康状态/事项数/未关闭故障/最近履历时间', async () => {
+  it('渲染系统分组行：只显示系统名称不显示编号，含健康状态/事项数/未关闭故障/最近履历时间', async () => {
     freshGroupStore();
     mockHttpGet.mockResolvedValue(GROUPS_PAYLOAD);
     // eslint-disable-next-line global-require
@@ -161,8 +161,8 @@ describe('分组表格——系统行与事项展开', () => {
     });
     await act(flush);
     const text = bodyText();
-    expect(text).toContain('SYS-001');
     expect(text).toContain('通信系统');
+    expect(text).not.toContain('SYS-001');
     expect(text).toContain('降级');
     expect(text).toContain('2项');
     expect(text).toContain('未关闭故障');
@@ -283,7 +283,7 @@ describe('分组表格——健康状态面板与异常状态', () => {
       ReactDOM.render(<SystemEventIndex/>, container);
     });
     await act(flush);
-    expect(bodyText()).not.toContain('SYS-001');
+    expect(bodyText()).not.toContain('通信系统');
     expect(mockHttpGet).not.toHaveBeenCalled();
   });
 });

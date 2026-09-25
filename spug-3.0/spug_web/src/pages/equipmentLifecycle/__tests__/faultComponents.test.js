@@ -109,9 +109,9 @@ async function renderDetail(status, overrides) {
   });
   ReactDOM.unmountComponentAtNode(container);
   await act(async () => {
-    store.detailId = 11;
-    store.detailVisible = true;
-    store.detail = detail;
+    // 真实打开路径：列表行与 ?detail= 深链接均经 showDetail 进入，
+    // 详情与处理进展请求由 showDetail 统一发起
+    store.showDetail(detail);
     ReactDOM.render(<FaultDetail/>, container);
   });
   await act(async () => {await flush();});
@@ -204,6 +204,72 @@ describe('故障详情抽屉（单系统简化）', () => {
       expect(url.startsWith('/api/equipment-lifecycle/')).toBe(true);
     }
     expect(urls.some(u => u.includes('/fault/'))).toBe(false);
+  });
+});
+
+describe('处理进展刷新响应式（2026-09 添加进展后时间线不更新缺陷回归）', () => {
+  it('仅更新 handlingRecords（不动 isDetailFetching）时间线立即显示新进展', async () => {
+    // 缺陷机理：HandlingTimeline 未包 observer 时，读取的 handlingRecords
+    // 不被 MobX 追踪，时间线只能靠父组件因 isDetailFetching/detail 变化
+    // 重渲染"搭车"刷新；添加进展成功后若无人触发详情刷新，新记录不显示。
+    const store = await renderDetail('handling');
+    const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'));
+    const handlingTab = tabs.find(t => t.textContent.includes('处理进展'));
+    await act(async () => {
+      handlingTab.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    });
+    await act(async () => {await flush();});
+    expect(bodyText()).toContain('现场检查，确认光模块告警');
+    // 模拟 addHandlingRecord 成功后 fetchHandlingRecords 的应用结果：
+    // 只发生 handlingRecords 变化（详情请求未被触发）
+    await act(async () => {
+      store.handlingRecords = [...store.handlingRecords, {
+        id: 99, fault: 11, handled_at: '2026-09-18 11:00', handler: 2,
+        handler_name: 'operator', recorder_name: '记录员乙',
+        progress_type: 'self_fix', progress_type_text: '本方处理',
+        content: '新添加的进展内容XYZ', result: '', corrections: [],
+      }];
+    });
+    await act(async () => {await flush();});
+    expect(bodyText()).toContain('新添加的进展内容XYZ');
+    expect(bodyText()).toContain('记录员乙');
+  });
+
+  it('仅结束 isHandlingFetching 时时间线 Spin 同步停止（不冻结转圈）', async () => {
+    const store = await renderDetail('handling');
+    // antd Tabs 未激活页签不渲染内容：先切到处理进展页签
+    const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'));
+    const handlingTab = tabs.find(t => t.textContent.includes('处理进展'));
+    await act(async () => {
+      handlingTab.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    });
+    await act(async () => {await flush();});
+    // 初始请求已完成，Spin 应为停止状态；再模拟一次进行中→完成，
+    // 若 Spin 未被 observer 追踪，其 spinning 状态会冻结在旧值
+    await act(async () => {
+      store.isHandlingFetching = true;
+    });
+    await act(async () => {await flush();});
+    const spinCountWhileFetching = Array.from(
+      document.querySelectorAll('.ant-spin-spinning')).length;
+    await act(async () => {
+      store.isHandlingFetching = false;
+    });
+    await act(async () => {await flush();});
+    const spinCountAfterFetch = Array.from(
+      document.querySelectorAll('.ant-spin-spinning')).length;
+    expect(spinCountWhileFetching).toBeGreaterThan(0);
+    expect(spinCountAfterFetch).toBe(0);
+  });
+
+  it('打开详情只发起一次详情请求与一次处理进展请求（无重复并发）', async () => {
+    await renderDetail('handling');
+    const detailCalls = mockHttpGet.mock.calls
+      .filter(call => call[0] === '/api/equipment-lifecycle/faults/11/').length;
+    const handlingCalls = mockHttpGet.mock.calls
+      .filter(call => call[0].includes('/handling-records')).length;
+    expect(detailCalls).toBe(1);
+    expect(handlingCalls).toBe(1);
   });
 });
 
@@ -586,9 +652,8 @@ async function renderDetailCustom({detail, records}) {
   });
   ReactDOM.unmountComponentAtNode(container);
   await act(async () => {
-    store.detailId = detail.id;
-    store.detailVisible = true;
-    store.detail = detail;
+    // 真实打开路径：请求由 showDetail 统一发起（挂载不再重复请求）
+    store.showDetail(detail);
     ReactDOM.render(<FaultDetail/>, container);
   });
   await act(async () => {await flush();});
