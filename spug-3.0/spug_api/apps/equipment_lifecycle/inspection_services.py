@@ -44,7 +44,9 @@ from apps.equipment_lifecycle.models import (
     INSPECTION_ROUND_TEXT_MAP,
     INSPECTION_ROUND_VALUES,
     INSPECTION_SHEET_DRAFT,
+    INSPECTION_SHEET_EDITABLE_STATUSES,
     INSPECTION_SHEET_NO_PREFIX,
+    INSPECTION_SHEET_RETURNED,
     INSPECTION_SHEET_SUBMITTED,
     INSPECTION_SHEET_VOID,
     WORK_ORDER_STATUS_CANCELLED,
@@ -522,7 +524,7 @@ def _upsert_manual_record(user, sheet, spec):
 
 
 def _delete_sheet_record(sheet, spec):
-    """按载荷删除一条巡检记录（仅草稿可删，必须提供记录 ID）。"""
+    """按载荷删除一条巡检记录（仅草稿/已退回可编辑单，必须提供记录 ID）。"""
     record_id = spec.get('id')
     if not record_id:
         raise InspectionValidationError('删除记录必须提供记录 ID')
@@ -592,11 +594,12 @@ def _resolve_spec_round(sheet, spec):
     return spec.get('round_no')
 
 
-def _validate_record_rounds(sheet, records):
+def _validate_record_rounds(sheet, records, allow_recorded=False):
     """"记录本轮"轮次保护（与前端单轮提交契约一致）：
 
     - 一次请求只允许提交一个轮次的记录（含删除，删除按已存记录轮次计）；
-    - 该轮次已记录（recorded_rounds）时拒绝再次修改；
+    - 该轮次已记录（recorded_rounds）时拒绝再次修改（allow_recorded=True
+      时放行：仅退回整改状态的巡检单允许重改已记录轮次）；
     - round_no 缺失的载荷不在此拦截，由后续逐条校验报错。
     返回本次提交的唯一轮次（可能为 None）。
     """
@@ -607,7 +610,7 @@ def _validate_record_rounds(sheet, records):
     if not rounds:
         return None
     round_no = rounds.pop()
-    if round_no in sheet.get_recorded_rounds():
+    if not allow_recorded and round_no in sheet.get_recorded_rounds():
         round_text = INSPECTION_ROUND_TEXT_MAP.get(round_no, round_no)
         raise InspectionValidationError(
             f'「{round_text}」轮次已记录，不能再次修改（如需调整请作废巡检单重开）')
@@ -615,24 +618,27 @@ def _validate_record_rounds(sheet, records):
 
 
 def update_sheet(user, sheet_id, body):
-    """编辑草稿巡检单：值班人员 + 单轮巡检记录 upsert（version 乐观锁）。
+    """编辑可修改状态（草稿/已退回整改）的巡检单：值班人员 + 单轮巡检记录
+    upsert（version 乐观锁）。
 
     记录载荷 spec 支持：
     - {template_item_id, round_no, 填写值...}：模板行 upsert；
     - {client_key, round_no, device_name?, item_name?, 填写值...}：临时加项 upsert；
     - {id, 填写值...}：按记录 ID 更新填写值；
-    - {id, deleted: true}：删除该条记录（仅草稿）。
+    - {id, deleted: true}：删除该条记录。
 
     轮次保护：一次请求只允许提交一个轮次；该轮次写入成功后记入
-    recorded_rounds（与明细、版本号同一事务），已记录轮次再提交即被拒绝。
+    recorded_rounds（与明细、版本号同一事务），已记录轮次再提交即被拒绝；
+    已退回整改的单例外：recorded_rounds 不阻止整改（原有填写内容保留，
+    已记录轮次允许重改/补填），重新提交后恢复只读。
     """
     records = body.get('records')
     if records is not None and not isinstance(records, list):
         raise InspectionValidationError('巡检记录载荷不合法')
     with transaction.atomic():
         sheet = get_sheet_for_user(user, sheet_id, for_update=True)
-        if sheet.status != INSPECTION_SHEET_DRAFT:
-            raise InspectionValidationError('已提交的巡检单不能再修改')
+        if sheet.status not in INSPECTION_SHEET_EDITABLE_STATUSES:
+            raise InspectionValidationError('已提交或已作废的巡检单不能再修改')
         try:
             version = int(body.get('version'))
         except (TypeError, ValueError):
@@ -641,7 +647,9 @@ def update_sheet(user, sheet_id, body):
             raise InspectionValidationError('巡检单已被他人修改，请刷新后重试')
         record_round = None
         if records:
-            record_round = _validate_record_rounds(sheet, records)
+            record_round = _validate_record_rounds(
+                sheet, records,
+                allow_recorded=sheet.status == INSPECTION_SHEET_RETURNED)
         if body.get('persons') is not None:
             _reconcile_persons(user, sheet, body.get('persons'))
         if records:
@@ -666,11 +674,15 @@ def update_sheet(user, sheet_id, body):
 
 
 def submit_sheet(user, sheet_id):
-    """提交巡检单（记录/提交分离）：草稿 → 已提交，提交后不可再修改。"""
+    """提交巡检单（记录/提交分离）：草稿/已退回 → 已提交，提交后不可再修改。
+
+    已退回单重新提交：仍需满足值班人员、巡检记录等原有提交校验，
+    提交成功后更新提交人与提交时间（原退回留痕保留）。
+    """
     with transaction.atomic():
         sheet = get_sheet_for_user(user, sheet_id, for_update=True)
-        if sheet.status != INSPECTION_SHEET_DRAFT:
-            raise InspectionValidationError('只有草稿状态的巡检单可以提交')
+        if sheet.status not in (INSPECTION_SHEET_DRAFT, INSPECTION_SHEET_RETURNED):
+            raise InspectionValidationError('只有草稿或已退回状态的巡检单可以提交')
         if not sheet.persons.exists():
             raise InspectionValidationError('请先登记值班人员再提交')
         if not sheet.records.exists():
@@ -678,6 +690,33 @@ def submit_sheet(user, sheet_id):
         sheet.status = INSPECTION_SHEET_SUBMITTED
         sheet.submitted_at = timezone.now()
         sheet.submitted_by = user
+        sheet.updated_at = timezone.now()
+        sheet.updated_by = user
+        sheet.save()
+    return sheet
+
+
+def return_sheet(user, sheet_id, reason):
+    """超级管理员退回整改：已提交 → 已退回（原因必填，行锁事务）。
+
+    - 仅允许 submitted → returned（草稿/已退回/已作废一律拒绝）；
+    - 退回不删除、不修改任何巡检记录与值班人员，历史故障/工单来源
+      关系（source_inspection_record）原样保留；
+    - 不释放值班日+模板唯一占用（单据仍有效，仅回到可编辑状态）。
+    """
+    reason = str(reason or '').strip()
+    if not reason:
+        raise InspectionValidationError('退回原因不能为空')
+    if len(reason) > 200:
+        raise InspectionValidationError('退回原因不能超过 200 字')
+    with transaction.atomic():
+        sheet = get_sheet_for_user(user, sheet_id, for_update=True)
+        if sheet.status != INSPECTION_SHEET_SUBMITTED:
+            raise InspectionValidationError('只有已提交状态的巡检单可以退回整改')
+        sheet.status = INSPECTION_SHEET_RETURNED
+        sheet.returned_at = timezone.now()
+        sheet.returned_by = user
+        sheet.return_reason = reason[:200]
         sheet.updated_at = timezone.now()
         sheet.updated_by = user
         sheet.save()
@@ -704,7 +743,8 @@ def void_sheet(user, sheet_id, reason):
 
 
 # ----------------------------------------------------------------------
-# 巡检异常处置状态与转换校验（转换实现在 inspection_views）
+# 巡检异常处置状态（由来源关系动态推导，只读展示；转单功能已下线，
+# 故障/工单统一在对应模块创建，历史来源数据继续可追溯）
 # ----------------------------------------------------------------------
 
 def _merge_disposition_targets(result, targets, id_attr, key, no_attr,
@@ -784,80 +824,3 @@ def append_batch_record_disposition(tenant_id, sheet_details):
         record['disposition'] = disposition_map.get(record['id'], {
             'status': 'none', 'fault': None, 'work_order': None})
     return sheet_details
-
-
-def check_record_redispose(record, user, re_dispose_reason, kind):
-    """巡检异常明细再次转单校验（镜像台账明细规则）。
-
-    - 已存在同来源的未取消目标 → 一律拒绝（不能静默重复创建）；
-    - 仅存在已取消目标 → 必须填写重新处置原因；
-    - 首次处置 → 直接放行。
-    """
-    reason = (re_dispose_reason or '').strip()
-    if kind == 'fault':
-        existing = SystemFault.objects.filter(
-            tenant_id=user.tenant_id, source_inspection_record=record).order_by('-id')
-        active = existing.exclude(status=SystemFault.STATUS_CANCELLED).first()
-        latest = existing.first()
-        if active:
-            return f'该巡检异常已转故障（{active.fault_no}），不能重复转换'
-        if latest and not reason:
-            return '该巡检异常曾转故障（目标已作废）。如需重新处置请填写重新处置原因'
-        return None
-    # kind == 'work_order'
-    existing_orders = SystemWorkOrder.objects.filter(
-        tenant_id=user.tenant_id, source_inspection_record=record).order_by('-id')
-    active_order = existing_orders.exclude(status=WORK_ORDER_STATUS_CANCELLED).first()
-    latest_order = existing_orders.first()
-    if active_order:
-        return f'该巡检异常已转工单（{active_order.work_no}），不能重复转换'
-    active_fault = SystemFault.objects.filter(
-        tenant_id=user.tenant_id, source_inspection_record=record).exclude(
-        status=SystemFault.STATUS_CANCELLED).first()
-    if active_fault:
-        if not reason:
-            return (f'该巡检异常已转故障（{active_fault.fault_no}）。'
-                    f'维修工单应从该故障生成；如确需直接转工单请填写重新处置原因')
-        return None
-    if latest_order and not reason:
-        return '该巡检异常曾转工单（目标已作废）。如需重新处置请填写重新处置原因'
-    return None
-
-
-def get_record_for_convert(user, sheet_id, record_pk, for_update=False):
-    """重新查询巡检单与明细并校验：URL 匹配、同租户、已提交、结果异常。
-
-    巡检单不关联系统：转换目标系统由用户在转换时显式选择并经后端校验，
-    不允许由设备名称推断系统。返回 (record, sheet, error)。
-    """
-    qs = InspectionRecord.objects.select_related('sheet', 'sheet__template')
-    if for_update:
-        qs = qs.select_for_update()
-    record = apply_tenant_filter(qs, user).filter(
-        pk=record_pk, sheet_id=sheet_id).first()
-    if not record:
-        return None, None, '巡检明细不存在'
-    sheet = record.sheet
-    if sheet.status != INSPECTION_SHEET_SUBMITTED:
-        if sheet.status == INSPECTION_SHEET_VOID:
-            return None, None, '已作废的巡检单不能转单'
-        return None, None, '只有已提交的巡检单才能转单（草稿请先提交）'
-    if record.result != INSPECTION_RESULT_ABNORMAL:
-        return None, None, '只有结果为"异常"的巡检明细可以转单'
-    return record, sheet, None
-
-
-def compose_abnormal_phenomenon(record, sheet):
-    """由巡检明细组装默认故障现象/作业要求（单号+值班日+轮次+设备+检查内容）。"""
-    round_text = record.ROUND_TEXT_MAP.get(record.round_no, record.round_no)
-    parts = [
-        f'[值班巡检 {sheet.sheet_no} {sheet.duty_date} {round_text}] '
-        f'{record.device_name_snapshot}：{record.item_name_snapshot}'
-    ]
-    if record.abnormal_desc:
-        parts.append(record.abnormal_desc)
-    if record.value_text:
-        parts.append(f'填写值：{record.value_text}')
-    if record.onsite_action:
-        parts.append(f'现场处理：{record.onsite_action}')
-    return '；'.join(parts)[:2000]

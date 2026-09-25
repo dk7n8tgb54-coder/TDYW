@@ -17,11 +17,14 @@ import re
 from unittest import mock
 from urllib.parse import unquote
 
+from django.db import transaction
 from django.test import TestCase
+from django.utils import timezone
 from openpyxl import load_workbook
 
+from apps.equipment_lifecycle import fault_services
 from apps.equipment_lifecycle import inspection_views
-from apps.equipment_lifecycle.models import InspectionRecord
+from apps.equipment_lifecycle.models import InspectionRecord, SystemFault
 from apps.equipment_lifecycle.tests.base import make_client, make_system, make_user
 from apps.equipment_lifecycle.tests.stable_contract.inspection_base import (
     INS_URL,
@@ -38,7 +41,6 @@ from apps.equipment_lifecycle.tests.stable_contract.inspection_base import (
 
 EXPORT_URL = '/equipment-lifecycle/inspection-sheets/export'
 P_INS_EXPORT = 'equipment_lifecycle.inspection.export'
-P_FAULT_ADD = 'equipment_lifecycle.fault.add'
 
 INFO_SHEET = '巡查单信息'
 MATRIX_SHEET = '四轮巡检明细'
@@ -208,17 +210,21 @@ class InspectionDetailExcelExportTest(InspectionExportTestBase):
         self.assertEqual(unrecorded[0].font.color.rgb, 'FF808080')
 
     def test_detail_excel_includes_convert_disposition(self):
-        """异常明细已转故障时，导出包含转单去向（与详情页一致）。"""
+        """异常明细存在历史"已转故障"来源数据时，导出包含转单去向（与详情页一致）。"""
+        record = InspectionRecord.objects.get(pk=next(
+            r['id'] for r in self.submitted['records'] if r['result'] == 'abnormal'))
         system = make_system(created_by=self.admin, tenant_id='tenant_a')
-        converter = make_inspection_user(
-            'ins_export_converter', tenant_id='tenant_a', extra_perms=[P_FAULT_ADD])
-        abnormal_id = next(
-            r['id'] for r in self.submitted['records'] if r['result'] == 'abnormal')
-        resp = make_client(converter).post(
-            f'{INS_URL}/{self.submitted["id"]}/records/{abnormal_id}/convert-to-fault/',
-            {'system': system.id, 'affects_system_operation': False},
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.json())
+        with fault_services.health_recalc_lock():
+            with transaction.atomic():
+                fault_services.create_fault_record(
+                    tenant_id='tenant_a', created_by=self.admin,
+                    system=system, impact_status='',
+                    occurred_at=timezone.now(),
+                    discovery=SystemFault.DISCOVERY_PATROL,
+                    level=SystemFault.LEVEL_MINOR,
+                    phenomenon='历史巡检异常转入的故障',
+                    source_type='inspection_record',
+                    source_inspection_record=record)
 
         resp = self.exporter.get(f'{INS_URL}/{self.submitted["id"]}/export/xlsx/')
         text = sheet_text(load_worksheet(resp)[MATRIX_SHEET])

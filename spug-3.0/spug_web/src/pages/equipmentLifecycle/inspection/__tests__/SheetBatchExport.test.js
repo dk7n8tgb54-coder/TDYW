@@ -2,10 +2,12 @@
  * 巡检单批量导出测试（按筛选条件批量导出详情，不增加手动勾选）：
  * - store 初始 f_duty_range 即默认最近 30 个自然日（含今天），页面首次渲染
  *   显示默认范围并自动执行列表查询；
- * - 批量导出 Excel/PDF 按当前筛选条件请求对应端点，不携带 page/page_size；
- * - 数量显示来自列表接口返回的 total；筛选结果为空时批量按钮禁用；
- * - 批量按钮按 equipment_lifecycle.inspection.export 权限显示，loading 防重复；
- * - 现有单条详情 Excel/PDF 导出不受影响。
+ * - 批量导出 Excel/PDF 先弹日期范围选择框（默认为当前筛选范围副本），确认后
+ *   请求对应端点：弹窗日期覆盖 duty_from/duty_to、保留其他筛选、无分页参数；
+ * - 数量显示来自列表接口返回的 total；为 0 时批量按钮仍可打开弹窗重新选择
+ *   日期范围，无数据由后端统一返回业务错误；
+ * - 批量按钮按 equipment_lifecycle.inspection.export 权限显示，确认 loading 防重复；
+ * - 现有单条详情 Excel/PDF 导出不受影响（不弹日期范围框）。
  * exportFile 由 libs mock 承接（下载行为由 libs/exportFile 自身测试保障）。
  */
 import React from 'react';
@@ -159,7 +161,7 @@ describe('巡检单批量导出：默认日期范围', () => {
 });
 
 describe('巡检单批量导出：请求契约', () => {
-  it('批量导出 Excel/PDF 按当前筛选条件调用正确 URL 且不含分页参数', async () => {
+  it('批量导出先弹日期范围弹窗，确认后按当前筛选条件调用正确 URL 且不含分页参数', async () => {
     mockFlow();
     await renderPage();
     const momentLocal = moment;
@@ -170,6 +172,30 @@ describe('巡检单批量导出：请求契约', () => {
 
     await act(async () => {
       findButton(container, '批量导出 Excel（共 18 条）').click();
+    });
+    await act(flush);
+    await act(flush);
+    // 只打开弹窗，尚未发起导出
+    expect(mockExportFile).not.toHaveBeenCalled();
+    expect(document.body.querySelector('.ant-modal')).not.toBeNull();
+    // 弹窗按当前筛选 + 弹窗日期统计可导出条数（page_size=1 只取 total）
+    const countCalls = mockHttpGet.mock.calls.filter(
+      call => call[0].endsWith('/inspection-sheets/') && call[1] && call[1].params
+        && call[1].params.page_size === 1);
+    expect(countCalls).toHaveLength(1);
+    expect(countCalls[0][1].params).toEqual({
+      duty_from: '2026-09-01',
+      duty_to: '2026-09-15',
+      status: 'submitted',
+      keyword: 'XJ20260924',
+      page: 1,
+      page_size: 1,
+    });
+    expect(document.body.querySelector('.ant-modal').textContent)
+      .toContain('共可导出 18 条巡检单记录');
+
+    await act(async () => {
+      findButton(document.body, '确认').click();
     });
     await act(flush);
     expect(mockExportFile).toHaveBeenCalledTimes(1);
@@ -185,14 +211,23 @@ describe('巡检单批量导出：请求契约', () => {
     expect(xlsxOptions.params).not.toHaveProperty('page');
     expect(xlsxOptions.params).not.toHaveProperty('page_size');
 
+    // PDF：再次打开弹窗（默认仍取当前筛选副本）确认后走 PDF 端点
     await act(async () => {
       findButton(container, '批量导出 PDF（共 18 条）').click();
+    });
+    await act(flush);
+    await act(async () => {
+      findButton(document.body, '确认').click();
     });
     await act(flush);
     expect(mockExportFile).toHaveBeenCalledTimes(2);
     expect(mockExportFile.mock.calls[1][0].url)
       .toBe('/api/equipment-lifecycle/inspection-sheets/batch-export/pdf/');
     expect(mockExportFile.mock.calls[1][0].params).toEqual(xlsxOptions.params);
+
+    // 弹窗确认不修改列表筛选条件
+    expect(store.f_duty_range.map(m => m.format('YYYY-MM-DD')))
+      .toEqual(['2026-09-01', '2026-09-15']);
   });
 
   it('默认 30 天范围内批量导出携带默认日期，筛选变化后使用最新筛选', async () => {
@@ -204,12 +239,20 @@ describe('巡检单批量导出：请求契约', () => {
       findButton(container, '批量导出 Excel（共 18 条）').click();
     });
     await act(flush);
+    await act(async () => {
+      findButton(document.body, '确认').click();
+    });
+    await act(flush);
     expect(mockExportFile.mock.calls[0][0].params).toEqual(expectedDefaultRange());
 
     // 筛选条件变化后，批量导出使用最新筛选
     store.f_status = 'draft';
     await act(async () => {
       findButton(container, '批量导出 Excel（共 18 条）').click();
+    });
+    await act(flush);
+    await act(async () => {
+      findButton(document.body, '确认').click();
     });
     await act(flush);
     expect(mockExportFile.mock.calls[1][0].params).toEqual({
@@ -235,7 +278,7 @@ describe('巡检单批量导出：权限与按钮状态', () => {
     expect(findButton(container, '批量导出 PDF（共 18 条）')).toBeDefined();
   });
 
-  it('数量显示使用列表接口返回的 total；为 0 时批量按钮禁用', async () => {
+  it('数量显示使用列表接口返回的 total；为 0 时批量按钮仍可打开日期弹窗重新选择范围', async () => {
     mockFlow(18);
     await renderPage();
     expect(document.body.textContent).toContain('共 18 条');
@@ -245,8 +288,25 @@ describe('巡检单批量导出：权限与按钮状态', () => {
     mockHttpGet.mockReset();
     mockFlow(0);
     await renderPage();
-    expect(findButton(container, '批量导出 Excel（共 0 条）').disabled).toBe(true);
-    expect(findButton(container, '批量导出 PDF（共 0 条）').disabled).toBe(true);
+    const button = findButton(container, '批量导出 Excel（共 0 条）');
+    // 当前列表为空仍允许打开弹窗选择新日期范围，无数据由后端统一返回业务错误
+    expect(button.disabled).toBe(false);
+    mockExportFile.mockResolvedValue(undefined);
+    await act(async () => {
+      button.click();
+    });
+    await act(flush);
+    expect(document.body.querySelector('.ant-modal')).not.toBeNull();
+    // 统计为 0 时弹窗内明确提示无数据（确认后由后端统一返回业务错误）
+    await act(flush);
+    expect(document.body.querySelector('.ant-modal').textContent)
+      .toContain('没有可导出的数据');
+    await act(async () => {
+      findButton(document.body, '确认').click();
+    });
+    await act(flush);
+    expect(mockExportFile).toHaveBeenCalledTimes(1);
+    expect(mockExportFile.mock.calls[0][0].params).toEqual(expectedDefaultRange());
   });
 
   it('批量导出 loading 期间不能重复触发，完成后恢复', async () => {
@@ -254,23 +314,26 @@ describe('巡检单批量导出：权限与按钮状态', () => {
     await renderPage();
     mockExportFile.mockImplementation(() => new Promise(() => {}));
 
-    const button = findButton(container, '批量导出 Excel（共 18 条）');
     await act(async () => {
-      button.click();
+      findButton(container, '批量导出 Excel（共 18 条）').click();
+    });
+    await act(flush);
+    await act(async () => {
+      findButton(document.body, '确认').click();
     });
     await act(flush);
     expect(mockExportFile).toHaveBeenCalledTimes(1);
-    const loadingButton = findButton(container, '批量导出 Excel（共 18 条）');
-    expect(loadingButton.disabled || loadingButton.className.includes('ant-btn-loading'))
+    const okButton = findButton(document.body, '确认');
+    expect(okButton.disabled || okButton.className.includes('ant-btn-loading'))
       .toBe(true);
     await act(async () => {
-      loadingButton.click();
+      okButton.click();
     });
     await act(flush);
     expect(mockExportFile).toHaveBeenCalledTimes(1);
   });
 
-  it('现有单条详情 Excel/PDF 导出不受批量导出影响', async () => {
+  it('现有单条详情 Excel/PDF 导出不受批量导出影响（不弹日期范围框）', async () => {
     mockFlow();
     await renderPage();
 
@@ -300,5 +363,7 @@ describe('巡检单批量导出：权限与按钮状态', () => {
     expect(mockExportFile).toHaveBeenCalledTimes(2);
     expect(mockExportFile.mock.calls[1][0].url)
       .toBe('/api/equipment-lifecycle/inspection-sheets/5/export/pdf/');
+    // 单条导出保持直接下载，未出现日期范围弹窗
+    expect(document.body.querySelector('.ant-modal')).toBeNull();
   });
 });

@@ -14,7 +14,9 @@
  * - 未恢复草稿时自动选中上一次使用的模板（最近一张巡检单的模板，已停用不选）；
  * - 值班人员仅手输姓名回车添加（下拉不打开，历史草稿账号值仍映射姓名回显）；
  * - 不显示实际填写时间与迟填标记；页面无系统选择器；
- * - 提交后异常记录可转故障/工单，弹窗必须选择系统（未选不提交）。
+ * - 已提交后异常记录仍展示（结果 + 现场处理），但不再出现"转故障""转工单"
+ *   按钮与转换弹窗（转单功能已下线）；历史"已转故障/已转工单"处置状态
+ *   以标签只读展示。
  *
  * 注意：store 为模块级单例，每个用例渲染前必须 resetDetail；
  * 有 seed 的用例走 localStorage 恢复 → loadSheet 流程，无 seed 的用例直接预置 store。
@@ -701,18 +703,23 @@ describe('今日巡检工作台 · 一键正常与草稿暂存', () => {
     ]);
   });
 
-  it('未记录轮次草稿按列独立保存，表头显示"有草稿"提示（无迟填/逾期）', async () => {
+  it('未记录轮次草稿按列独立保存，表头同行显示状态与"有草稿"提示（无迟填/逾期）', async () => {
     seedDraft({r1: {t_22: {value_text: '100'}}});
     mockDraftFlow(draftSheetDetail());
     await renderWorksheet();
-    // r1 有草稿：表头"未记录 + 有草稿"，整列浅黄；其他轮次无提示无底色
-    expect(roundStatus('r1')).toBe('未记录有草稿');
-    expect(roundTh('r1').querySelector('.el-ins-round-draft-tag')).not.toBeNull();
+    // r1 有草稿：状态"未记录"与轮次名同行，"有草稿"可见，整列浅黄
+    expect(roundStatus('r1')).toBe('未记录');
+    const r1Tag = roundTh('r1').querySelector('.el-ins-round-draft-tag');
+    expect(r1Tag).not.toBeNull();
+    expect(r1Tag.style.visibility).toBe('visible');
     expect(roundCells('r1').every(
       td => td.className.includes('el-ins-cell-draft'))).toBe(true);
+    // 其他轮次无草稿："有草稿"占位隐藏（保持列宽稳定），无浅黄底
     for (const r of ['r2', 'r3', 'r4']) {
       expect(roundStatus(r)).toBe('未记录');
-      expect(roundTh(r).querySelector('.el-ins-round-draft-tag')).toBeNull();
+      const tag = roundTh(r).querySelector('.el-ins-round-draft-tag');
+      expect(tag).not.toBeNull();
+      expect(tag.style.visibility).toBe('hidden');
       expect(roundCells(r).some(
         td => td.className.includes('el-ins-cell-draft'))).toBe(false);
     }
@@ -738,13 +745,13 @@ describe('今日巡检工作台 · 一键正常与草稿暂存', () => {
 });
 
 describe('今日巡检工作台 · 提交后与作废后', () => {
-  it('已提交巡检单全部只读，异常记录可转故障/工单；弹窗未选系统不提交', async () => {
+  it('已提交巡检单全部只读，异常记录仍展示但不出现转故障/转工单按钮与转换弹窗', async () => {
     seedTemplateOnly();
     const submittedDetail = draftSheetDetail({
       status: 'submitted', status_text: '已提交',
       recorded_rounds: ['r1'],
       records: [record('r1', 21, '不正常', {
-        result: 'abnormal',
+        result: 'abnormal', abnormal_desc: '告警灯红色', onsite_action: '已切换备用',
         disposition: {status: 'none', fault: null, work_order: null},
       })],
     });
@@ -761,20 +768,44 @@ describe('今日巡检工作台 · 提交后与作废后', () => {
     // 已提交单无轮次列底色（异常浅红保留）
     expect(container.querySelectorAll('.el-ins-cell-recorded').length).toBe(0);
     expect(container.querySelectorAll('.el-ins-cell-abnormal').length).toBe(1);
-    // 异常单元格内转故障入口
-    const btn = Array.from(container.querySelectorAll('button'))
-      .find(b => b.textContent.replace(/\s+/g, '') === '转故障');
-    await act(async () => {btn.click();});
-    await act(flush);
-    expect(bodyText()).toContain('故障系统');
-    // 无 ConfigProvider 的 jsdom 环境下 antd Modal 默认 footer 为 OK/Cancel
-    const ok = Array.from(document.querySelectorAll('button'))
-      .find(b => b.textContent.replace(/\s+/g, '') === 'OK');
-    await act(async () => {ok.click();});
-    await act(flush);
-    const convertCalls = mockHttpPost.mock.calls.filter(
-      call => call[0].includes('convert-to-fault'));
+    // 异常记录（结果 + 现场处理）继续展示
+    expect(bodyText()).toContain('不正常');
+    expect(bodyText()).toContain('（已切换备用）');
+    // 不再出现转故障/转工单入口与转换弹窗
+    const buttonNames = Array.from(container.querySelectorAll('button'))
+      .map(b => b.textContent.replace(/\s+/g, ''));
+    expect(buttonNames).not.toContain('转故障');
+    expect(buttonNames).not.toContain('转工单');
+    expect(document.querySelectorAll('.ant-modal-root').length).toBe(0);
+    // 全程未发出转换请求
+    const convertCalls = [...mockHttpPost.mock.calls, ...mockHttpGet.mock.calls]
+      .filter(call => call[0].includes('convert-to-'));
     expect(convertCalls.length).toBe(0);
+  });
+
+  it('历史"已转故障"处置状态以标签只读展示，仍无转单入口', async () => {
+    seedTemplateOnly();
+    const convertedDetail = draftSheetDetail({
+      status: 'submitted', status_text: '已提交',
+      recorded_rounds: ['r1'],
+      records: [record('r1', 21, '不正常', {
+        result: 'abnormal', abnormal_desc: '告警灯红色', onsite_action: '已切换备用',
+        disposition: {status: 'converted_fault',
+          fault: {id: 9, fault_no: 'GZ20260924-0001', status: 'pending'},
+          work_order: null},
+      })],
+    });
+    mockDraftFlow(convertedDetail);
+    await renderWorksheet(convertedDetail);
+    // 异常内容与历史处置标签只读展示
+    expect(bodyText()).toContain('不正常');
+    expect(bodyText()).toContain('已转故障');
+    // 无任何转单按钮
+    const buttonNames = Array.from(container.querySelectorAll('button'))
+      .map(b => b.textContent.replace(/\s+/g, ''));
+    expect(buttonNames).not.toContain('转故障');
+    expect(buttonNames).not.toContain('转工单');
+    expect(document.querySelectorAll('.ant-modal-root').length).toBe(0);
   });
 
   it('已作废巡检单全部只读且无操作按钮', async () => {
@@ -826,5 +857,90 @@ describe('今日巡检工作台 · 提交后与作废后', () => {
     await act(flush);
     expect(bodyText()).toContain('XJ20260924-0001');
     expect(bodyText()).not.toContain('开始巡检');
+  });
+});
+
+describe('今日巡检工作台 · 已退回整改单', () => {
+
+  function returnedSheetDetail(overrides = {}) {
+    // r1 为已记录轮次：三项检查内容均有已存值（原"记录本轮"必填契约）
+    return draftSheetDetail({
+      status: 'returned', status_text: '已退回',
+      recorded_rounds: ['r1', 'r2'],
+      records: [
+        record('r1', 21, '不正常', {result: 'abnormal', onsite_action: '已切换备用'}),
+        record('r1', 22, '500'),
+        record('r1', 23, '正常'),
+        record('r2', 22, '480'),
+      ],
+      ...overrides,
+    });
+  }
+
+  it('已退回单整单可改：状态展示已退回，已记录轮次仍可编辑并回显原值', async () => {
+    seedTemplateOnly();
+    mockDraftFlow(returnedSheetDetail());
+    await renderWorksheet(returnedSheetDetail());
+    expect(bodyText()).toContain('已退回');
+    // 四个轮次（含已记录的 r1/r2）都有轮次操作按钮：recorded_rounds 不限制整改
+    for (const r of ['r1', 'r2', 'r3', 'r4']) {
+      expect(roundButton(r, '记录本轮')).not.toBeUndefined();
+      expect(roundButton(r, '一键正常')).not.toBeUndefined();
+    }
+    // 服务端已存记录回显到填写控件（原有填写内容不因退回清空）
+    const r1Select = roundCells('r1')[0].querySelector('.ant-select');
+    expect(r1Select).not.toBeNull();
+    expect(r1Select.textContent).toContain('不正常');
+    const r2Input = roundCells('r2')[1].querySelector('input');
+    expect(r2Input.value).toBe('480');
+    // 单据级操作：重新提交与作废按钮均可见
+    expect(headButton('提交巡检单')).not.toBeUndefined();
+    expect(headButton('作废')).not.toBeUndefined();
+    // 整改提示文案
+    expect(bodyText()).toContain('已退回整改');
+  });
+
+  it('已退回单可重改已记录轮次：点击 r1 记录本轮正常发送 PUT', async () => {
+    seedTemplateOnly();
+    mockDraftFlow(returnedSheetDetail());
+    mockHttpPut.mockResolvedValue(returnedSheetDetail({
+      records: [
+        record('r1', 21, '正常'),
+        record('r1', 22, '500'),
+        record('r1', 23, '正常'),
+        record('r2', 22, '480'),
+      ],
+      version: 6,
+    }));
+    await renderWorksheet(returnedSheetDetail());
+    await act(async () => {roundButton('r1', '记录本轮').click();});
+    await act(flush);
+    await act(flush);
+    expect(mockHttpPut).toHaveBeenCalledTimes(1);
+    const [url, payload] = mockHttpPut.mock.calls[0];
+    expect(url).toContain('/inspection-sheets/5/');
+    expect(payload.version).toBe(1);
+    expect(payload.records.map(r => r.round_no)).toEqual(['r1', 'r1', 'r1']);
+    expect(payload.records[0]).toEqual(
+      {template_item_id: 21, round_no: 'r1', value_text: '不正常', onsite_action: '已切换备用'});
+    expect(message.success).toHaveBeenCalledWith('已记录 当日 11:00 轮次');
+  });
+
+  it('已退回单可重新提交：提交按钮 POST submit 端点并清理草稿', async () => {
+    mockDraftFlow(returnedSheetDetail());
+    mockHttpPost.mockResolvedValue(draftSheetDetail({
+      status: 'submitted', status_text: '已提交',
+      recorded_rounds: ['r1', 'r2'],
+      records: [record('r1', 21, '不正常'), record('r2', 22, '480')],
+    }));
+    await renderWorksheet(returnedSheetDetail());
+    await act(async () => {headButton('提交巡检单').click();});
+    await act(flush);
+    await act(flush);
+    expect(mockHttpPost).toHaveBeenCalledTimes(1);
+    expect(mockHttpPost.mock.calls[0][0]).toContain('/inspection-sheets/5/submit/');
+    expect(message.success).toHaveBeenCalledWith('巡检单已提交');
+    // 提交后草稿清空
+    expect(localStorage.getItem('el_insp_ws_admin')).toBeNull();
   });
 });

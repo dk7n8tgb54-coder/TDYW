@@ -7,7 +7,7 @@
  * 权限码与后端 inspection_views/@auth、role codes.js 保持一致。
  * 业务规则：巡检单唯一范围 = 值班日 + 巡检模板；固定四轮
  * （第四轮次日 06:30 归属前一值班日）；不记录实际填写时间；
- * 巡检单不关联系统，转单时才选择系统。
+ * 巡检单只记录结果与现场处理，无转故障/转工单入口（历史处置状态只读展示）。
  */
 
 export const API_PREFIX = '/api/equipment-lifecycle';
@@ -18,7 +18,6 @@ export const PERM_I = {
   EDIT: 'equipment_lifecycle.inspection.edit',
   SUBMIT: 'equipment_lifecycle.inspection.submit',
   DEL: 'equipment_lifecycle.inspection.del',
-  HANDLE: 'equipment_lifecycle.inspection.handle_exception',
   EXPORT: 'equipment_lifecycle.inspection.export',
 };
 
@@ -43,14 +42,19 @@ export const ROUND_TEXT = Object.fromEntries(
 export const SHEET_STATUS_TEXT = {
   draft: '草稿',
   submitted: '已提交',
+  returned: '已退回',
   void: '已作废',
 };
 
 export const SHEET_STATUS_COLOR = {
   draft: 'default',
   submitted: 'processing',
+  returned: 'warning',
   void: 'default',
 };
+
+// 允许编辑明细/值班人员的单据状态（草稿 + 超管退回整改），与后端一致
+export const EDITABLE_SHEET_STATUSES = ['draft', 'returned'];
 
 export const RESULT_TEXT = {
   normal: '正常',

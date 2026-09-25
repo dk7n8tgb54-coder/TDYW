@@ -153,7 +153,6 @@ export default [{
       {key: 'edit', label: '编辑草稿巡检单'},
       {key: 'submit', label: '提交巡检单'},
       {key: 'del', label: '作废巡检单（受控作废，非物理删除）'},
-      {key: 'handle_exception', label: '异常处置（异常明细转故障/转工单）'},
       {key: 'export', label: '导出巡检单（列表/详情 Excel/PDF）'},
     ]
   }, {

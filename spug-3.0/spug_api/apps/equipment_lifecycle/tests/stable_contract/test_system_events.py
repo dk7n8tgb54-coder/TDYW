@@ -82,6 +82,7 @@ def fault_payload(system_obj, **overrides):
         'discovery': 'patrol',
         'level': 'major',
         'phenomenon': f'主用链路频繁丢包（场景{seq}）',
+        'registrar_name': '登记人甲',
     }
     payload.update(overrides)
     return payload

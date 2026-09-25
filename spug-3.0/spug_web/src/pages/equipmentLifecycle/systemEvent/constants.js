@@ -55,6 +55,63 @@ export const SOURCE_TYPE_TEXT = {
 };
 
 /**
+ * 事项聚合视图（按系统分组）可用的事件类型/来源类型：
+ * 健康状态与配置快照不参与事项聚合（后端同样拒绝这两类筛选值），
+ * 健康状态经分组头的"状态变化"面板查看。
+ */
+export const MAIN_EVENT_TYPE_OPTIONS = EVENT_TYPE_OPTIONS.filter(
+  item => item.value !== 'health' && item.value !== 'config_snapshot');
+
+export const MAIN_SOURCE_TYPE_OPTIONS = Object.entries(SOURCE_TYPE_TEXT)
+  .filter(([value]) => value !== 'health' && value !== 'config_snapshot')
+  .map(([value, label]) => ({value, label}));
+
+export const HEALTH_COLOR = {
+  normal: 'green',
+  degraded: 'orange',
+  fault: 'red',
+  repairing: 'geekblue',
+  interrupted: 'red',
+  unknown: 'default',
+};
+
+// 事项当前状态颜色（业务表状态码；升级/台账事项无状态码时用默认样式）
+export const ITEM_STATUS_COLOR = {
+  pending: 'orange',
+  handling: 'blue',
+  recovered: 'green',
+  closed: 'default',
+  cancelled: 'red',
+  pending_dispatch: 'orange',
+  pending_accept: 'gold',
+  executing: 'blue',
+  pending_review: 'purple',
+  completed: 'green',
+};
+
+/** '2026-09-18T10:00:00' → '2026-09-18 10:00'（接口时间为本地 naive 时间）。 */
+export function formatDateTime(value) {
+  if (!value) return '-';
+  return String(value).replace('T', ' ').slice(0, 16);
+}
+
+/** 故障持续时间（发生 → 恢复确认）的展示文案。 */
+export function formatDuration(seconds) {
+  if (seconds === null || seconds === undefined) return '-';
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const rest = minutes % 60;
+    return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
+  }
+  const days = Math.floor(hours / 24);
+  const restHours = hours % 24;
+  return restHours ? `${days} 天 ${restHours} 小时` : `${days} 天`;
+}
+
+/**
  * 来源跳转地址：履历只携带 source_type/source_id（与摘要），
  * 跳转后由来源页面独立重新校验对象权限与租户。
  * 无对应权限或无来源对象（如健康状态事件）时返回 null，不渲染链接。

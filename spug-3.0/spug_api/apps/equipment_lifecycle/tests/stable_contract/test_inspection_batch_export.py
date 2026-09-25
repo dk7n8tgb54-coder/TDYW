@@ -23,13 +23,15 @@ from datetime import timedelta
 from unittest import mock
 from urllib.parse import unquote
 
+from django.db import transaction
 from django.test import TestCase
 from django.utils import timezone
 from openpyxl import load_workbook
 
-from apps.equipment_lifecycle import inspection_export
+from apps.equipment_lifecycle import fault_services, inspection_export
 from apps.equipment_lifecycle.models import (
     InspectionDutySheet,
+    InspectionRecord,
     SystemEvent,
     SystemFault,
     SystemWorkOrder,
@@ -52,7 +54,6 @@ from apps.logs.models import AuditLog
 BATCH_XLSX_URL = '/equipment-lifecycle/inspection-sheets/batch-export/xlsx'
 BATCH_PDF_URL = '/equipment-lifecycle/inspection-sheets/batch-export/pdf'
 P_INS_EXPORT = 'equipment_lifecycle.inspection.export'
-P_FAULT_ADD = 'equipment_lifecycle.fault.add'
 
 SUMMARY_SHEET = '巡检单汇总'
 EMPTY_ERROR = '当前筛选条件下没有可导出的数据'
@@ -295,18 +296,22 @@ class InspectionBatchExcelTest(InspectionBatchExportTestBase):
             '批量导出数据超过 2 条，请缩小值班日期范围或增加筛选条件后重试')
 
     def test_batch_excel_includes_convert_disposition(self):
-        """异常明细已转故障时，批量 Excel 明细工作表包含转单去向。"""
-        system = make_system(created_by=self.admin, tenant_id='tenant_a')
-        converter = make_inspection_user(
-            'ins_batch_converter', tenant_id='tenant_a', extra_perms=[P_FAULT_ADD])
+        """异常明细存在历史"已转故障"来源数据时，批量 Excel 明细工作表包含转单去向。"""
         target = self.sheets[0]
-        abnormal_id = next(
-            r['id'] for r in target['records'] if r['result'] == 'abnormal')
-        resp = make_client(converter).post(
-            f'{INS_URL}/{target["id"]}/records/{abnormal_id}/convert-to-fault/',
-            {'system': system.id, 'affects_system_operation': False},
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.json())
+        record = InspectionRecord.objects.get(pk=next(
+            r['id'] for r in target['records'] if r['result'] == 'abnormal'))
+        system = make_system(created_by=self.admin, tenant_id='tenant_a')
+        with fault_services.health_recalc_lock():
+            with transaction.atomic():
+                fault_services.create_fault_record(
+                    tenant_id='tenant_a', created_by=self.admin,
+                    system=system, impact_status='',
+                    occurred_at=timezone.now(),
+                    discovery=SystemFault.DISCOVERY_PATROL,
+                    level=SystemFault.LEVEL_MINOR,
+                    phenomenon='历史巡检异常转入的故障',
+                    source_type='inspection_record',
+                    source_inspection_record=record)
 
         resp = self.exporter.get(f'{BATCH_XLSX_URL}/?{self.window}')
         text = workbook_text(load_workbook_from(resp))

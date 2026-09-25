@@ -1,9 +1,11 @@
 /**
- * 巡检单导出测试（列表导出按钮 + 详情抽屉 Excel/PDF 导出按钮）：
- * - 导出按钮按 equipment_lifecycle.inspection.export 权限显示；
- * - 列表导出携带当前筛选条件（不含分页参数）；
- * - 详情抽屉 Excel/PDF 分别请求对应导出端点；
- * - ExportButton 下载中防重复点击，失败后恢复可点、不崩溃。
+ * 巡检单导出测试（列表导出日期范围弹窗 + 详情抽屉 Excel/PDF 直接导出）：
+ * - 列表导出按钮先弹日期范围选择框（默认为当前筛选范围副本/最近 30 个自然日），
+ *   确认后才经 exportFile 下载；取消或校验失败不发起请求、不改列表筛选；
+ * - 导出参数保留 status/keyword 等当前筛选、弹窗日期覆盖 duty_from/duty_to、
+ *   不含分页参数，权限仍按 equipment_lifecycle.inspection.export 控制且
+ *   导出进行中防重复提交、失败后状态恢复；
+ * - 详情抽屉单条 Excel/PDF 保持直接下载，不弹日期范围框。
  * exportFile 由 libs mock 承接（下载行为本身由 libs/exportFile 自身测试保障）。
  */
 import React from 'react';
@@ -38,10 +40,12 @@ if (!window.matchMedia) {
 }
 
 let container = null;
+let pageRef = null;   // SheetIndex 类实例引用（驱动弹窗日期变更的真实处理函数）
 
 beforeEach(() => {
   container = document.createElement('div');
   document.body.appendChild(container);
+  pageRef = null;
   mockHasPermission.mockImplementation(() => true);
   // 重置单例 store 的筛选与详情状态，避免用例间串扰
   const store = require('../store').default;
@@ -102,14 +106,19 @@ function mockFlow() {
 async function renderPage() {
   const SheetIndex = require('../SheetIndex').default;
   await act(async () => {
-    ReactDOM.render(<SheetIndex/>, container);
+    ReactDOM.render(<SheetIndex ref={r => {pageRef = r;}}/>, container);
   });
   await act(flush);
   await act(flush);
 }
 
-describe('巡检单导出按钮', () => {
-  it('无 export 权限时列表导出按钮不渲染，有权限时渲染', async () => {
+function modalHidden() {
+  const wrap = document.body.querySelector('.ant-modal-wrap');
+  return !wrap || wrap.style.display === 'none';
+}
+
+describe('巡检单导出：权限与日期弹窗打开', () => {
+  it('无 export 权限时列表导出按钮不渲染（弹窗入口不可见），有权限时渲染', async () => {
     mockFlow();
     mockHasPermission.mockImplementation(
       code => code !== 'equipment_lifecycle.inspection.export');
@@ -122,7 +131,129 @@ describe('巡检单导出按钮', () => {
     expect(findButton(container, '导出 Excel')).toBeDefined();
   });
 
-  it('列表导出携带当前筛选条件（值班日范围/状态/关键字，不含分页）', async () => {
+  it('点击列表导出 Excel 按钮只打开日期弹窗，不调用 exportFile', async () => {
+    mockFlow();
+    await renderPage();
+    mockExportFile.mockResolvedValue(undefined);
+
+    await act(async () => {
+      findButton(container, '导出 Excel').click();
+    });
+    await act(flush);
+
+    expect(mockExportFile).not.toHaveBeenCalled();
+    const modal = document.body.querySelector('.ant-modal');
+    expect(modal).not.toBeNull();
+    expect(modal.textContent).toContain('选择导出日期范围');
+  });
+
+  it('弹窗默认值为当前筛选范围副本；筛选为空时回退最近 30 个自然日', async () => {
+    mockFlow();
+    const moment = require('moment');
+    const store = require('../store').default;
+    store.f_duty_range = [moment('2026-09-01'), moment('2026-09-30')];
+    await renderPage();
+
+    await act(async () => {
+      findButton(container, '导出 Excel').click();
+    });
+    await act(flush);
+    const readModalPicker = () => [...document.body.querySelector('.ant-modal')
+      .querySelectorAll('.ant-picker-input input')].map(input => input.value);
+    expect(readModalPicker()).toEqual(['2026-09-01', '2026-09-30']);
+
+    // 筛选范围被清空后，弹窗默认回退最近 30 个自然日（含今天）
+    store.f_duty_range = [];
+    await act(async () => {
+      findButton(container, '导出 Excel').click();
+    });
+    await act(flush);
+    expect(readModalPicker()).toEqual([
+      moment().subtract(29, 'days').format('YYYY-MM-DD'),
+      moment().format('YYYY-MM-DD'),
+    ]);
+  });
+  it('打开弹窗按所选日期范围统计可导出条数，日期变更后重新统计', async () => {
+    // 列表 mock 按起始日期返回不同 total，区分首次统计与变更后统计
+    mockHttpGet.mockImplementation((url, config) => {
+      if (/\/inspection-sheets\/\d+\/$/.test(url)) {
+        return Promise.resolve(SHEET_DETAIL);
+      }
+      if (url.includes('/inspection-sheets/')) {
+        const params = (config && config.params) || {};
+        return Promise.resolve(
+          {data: LIST_ROWS, total: params.duty_from === '2026-10-01' ? 7 : 1});
+      }
+      return Promise.resolve({data: {}});
+    });
+    const moment = require('moment');
+    const store = require('../store').default;
+    store.f_duty_range = [moment('2026-09-01'), moment('2026-09-30')];
+    await renderPage();
+
+    await act(async () => {
+      findButton(container, '导出 Excel').click();
+    });
+    await act(flush);
+    await act(flush);
+
+    // 统计请求：弹窗日期 + page_size=1 只取 total，不修改列表筛选
+    const countCalls = mockHttpGet.mock.calls.filter(
+      call => call[0].endsWith('/inspection-sheets/') && call[1] && call[1].params
+        && call[1].params.page_size === 1);
+    expect(countCalls).toHaveLength(1);
+    expect(countCalls[0][1].params).toEqual({
+      duty_from: '2026-09-01',
+      duty_to: '2026-09-30',
+      page: 1,
+      page_size: 1,
+    });
+    expect(document.body.querySelector('.ant-modal').textContent)
+      .toContain('共可导出 1 条巡检单记录');
+
+    // 弹窗内变更日期后按新范围重新统计
+    await act(async () => {
+      pageRef.handleExportRangeChange([moment('2026-10-01'), moment('2026-10-31')]);
+    });
+    await act(flush);
+    await act(flush);
+    const countCalls2 = mockHttpGet.mock.calls.filter(
+      call => call[0].endsWith('/inspection-sheets/') && call[1] && call[1].params
+        && call[1].params.page_size === 1);
+    expect(countCalls2).toHaveLength(2);
+    expect(countCalls2[1][1].params.duty_from).toBe('2026-10-01');
+    expect(countCalls2[1][1].params.duty_to).toBe('2026-10-31');
+    expect(document.body.querySelector('.ant-modal').textContent)
+      .toContain('共可导出 7 条巡检单记录');
+  });
+});
+
+describe('巡检单导出：确认导出与状态控制', () => {
+  it('取消不触发下载且列表筛选条件不变', async () => {
+    mockFlow();
+    const moment = require('moment');
+    const store = require('../store').default;
+    store.f_duty_range = [moment('2026-09-01'), moment('2026-09-30')];
+    store.f_status = 'submitted';
+    await renderPage();
+
+    await act(async () => {
+      findButton(container, '导出 Excel').click();
+    });
+    await act(flush);
+    await act(async () => {
+      findButton(document.body, '取消').click();
+    });
+    await act(flush);
+
+    expect(mockExportFile).not.toHaveBeenCalled();
+    expect(store.f_duty_range.map(m => m.format('YYYY-MM-DD')))
+      .toEqual(['2026-09-01', '2026-09-30']);
+    expect(store.f_status).toBe('submitted');
+    expect(modalHidden()).toBe(true);
+  });
+
+  it('确认后按弹窗日期调用导出接口，保留 status/keyword 且不含分页参数', async () => {
     mockFlow();
     const moment = require('moment');
     const store = require('../store').default;
@@ -136,6 +267,10 @@ describe('巡检单导出按钮', () => {
       findButton(container, '导出 Excel').click();
     });
     await act(flush);
+    await act(async () => {
+      findButton(document.body, '确认').click();
+    });
+    await act(flush);
 
     expect(mockExportFile).toHaveBeenCalledTimes(1);
     const options = mockExportFile.mock.calls[0][0];
@@ -146,9 +281,82 @@ describe('巡检单导出按钮', () => {
       status: 'submitted',
       keyword: 'XJ20260924',
     });
+    expect(options.params).not.toHaveProperty('page');
+    expect(options.params).not.toHaveProperty('page_size');
+  });
+});
+
+describe('巡检单导出：防重复与失败恢复', () => {
+  it('导出进行中确认按钮 loading、重复确认/取消不生效，请求结束后关闭弹窗', async () => {
+    mockFlow();
+    await renderPage();
+    let resolveExport;
+    mockExportFile.mockImplementation(
+      () => new Promise(resolve => {resolveExport = resolve;}));
+
+    await act(async () => {
+      findButton(container, '导出 Excel').click();
+    });
+    await act(flush);
+    await act(async () => {
+      findButton(document.body, '确认').click();
+    });
+    await act(flush);
+
+    expect(mockExportFile).toHaveBeenCalledTimes(1);
+    const okButton = findButton(document.body, '确认');
+    expect(okButton.disabled || okButton.className.includes('ant-btn-loading'))
+      .toBe(true);
+    // loading 期间重复确认不再触发请求，取消也不关闭弹窗（防重复提交）
+    await act(async () => {
+      okButton.click();
+      findButton(document.body, '取消').click();
+    });
+    await act(flush);
+    expect(mockExportFile).toHaveBeenCalledTimes(1);
+    expect(modalHidden()).toBe(false);
+
+    await act(async () => {
+      resolveExport();
+    });
+    await act(flush);
+    await act(flush);
+    expect(modalHidden()).toBe(true);
   });
 
-  it('详情抽屉导出 Excel/PDF 请求对应单据的导出端点', async () => {
+  it('导出失败后不崩溃且状态恢复可再次导出（错误提示由拦截器负责）', async () => {
+    mockFlow();
+    await renderPage();
+    mockExportFile.mockRejectedValue(new Error('export failed'));
+
+    await act(async () => {
+      findButton(container, '导出 Excel').click();
+    });
+    await act(flush);
+    await act(async () => {
+      findButton(document.body, '确认').click();
+    });
+    await act(flush);
+    await act(flush);
+
+    expect(mockExportFile).toHaveBeenCalledTimes(1);
+    // 失败后状态恢复：可重新打开弹窗再次导出
+    mockExportFile.mockResolvedValue(undefined);
+    await act(async () => {
+      findButton(container, '导出 Excel').click();
+    });
+    await act(flush);
+    await act(async () => {
+      findButton(document.body, '确认').click();
+    });
+    await act(flush);
+    expect(mockExportFile).toHaveBeenCalledTimes(2);
+    expect(document.body.textContent).toContain('XJ20260924-0001');
+  });
+});
+
+describe('巡检单导出：详情抽屉单条导出', () => {
+  it('详情抽屉导出 Excel/PDF 请求对应单据的导出端点，不弹日期范围框', async () => {
     mockFlow();
     await renderPage();
 
@@ -182,47 +390,7 @@ describe('巡检单导出按钮', () => {
       .toBe('/api/equipment-lifecycle/inspection-sheets/5/export/pdf/');
     expect(mockExportFile.mock.calls[1][0].defaultFilename)
       .toBe('巡检单_XJ20260924-0001.pdf');
-  });
-
-  it('下载进行中防重复点击（loading 状态），完成后恢复', async () => {
-    mockFlow();
-    await renderPage();
-    mockExportFile.mockImplementation(() => new Promise(() => {}));
-
-    const button = findButton(container, '导出 Excel');
-    await act(async () => {
-      button.click();
-    });
-    await act(flush);
-
-    expect(mockExportFile).toHaveBeenCalledTimes(1);
-    const loadingButton = findButton(container, '导出 Excel');
-    expect(loadingButton.disabled || loadingButton.className.includes('ant-btn-loading'))
-      .toBe(true);
-    // loading 期间重复点击不再触发请求
-    await act(async () => {
-      loadingButton.click();
-    });
-    await act(flush);
-    expect(mockExportFile).toHaveBeenCalledTimes(1);
-  });
-
-  it('导出失败不崩溃且按钮恢复可点（错误提示由拦截器负责）', async () => {
-    mockFlow();
-    await renderPage();
-    mockExportFile.mockRejectedValue(new Error('export failed'));
-
-    await act(async () => {
-      findButton(container, '导出 Excel').click();
-    });
-    await act(flush);
-    await act(flush);
-
-    expect(mockExportFile).toHaveBeenCalledTimes(1);
-    const button = findButton(container, '导出 Excel');
-    expect(button.disabled).toBe(false);
-    expect(button.className.includes('ant-btn-loading')).toBe(false);
-    // 页面仍在正常渲染
-    expect(document.body.textContent).toContain('XJ20260924-0001');
+    // 单条导出保持直接下载，未出现日期范围弹窗
+    expect(document.body.querySelector('.ant-modal')).toBeNull();
   });
 });

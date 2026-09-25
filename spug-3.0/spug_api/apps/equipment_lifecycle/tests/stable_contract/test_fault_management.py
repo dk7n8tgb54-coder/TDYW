@@ -3,7 +3,9 @@
 
 覆盖行为契约：系统 ID 关联、租户隔离、一张故障单只关联一个故障系统、
 受影响系统参数已删除、快照、健康状态优先级计算（只看本系统记录）、
-状态流转、幂等与回滚、处置记录、权限、受控作废、无设备档案依赖、
+状态流转、幂等与回滚、处理进展（进展类型/时间默认/更正留痕）、
+故障登记人与进展记录人（实际操作人员，共用登录账号可区分）、权限、
+受控作废、无设备档案依赖、
 模块边界（device/upgrade 无关联、无台账/工单/履历）。
 
 全部通过真实 HTTP 路径 + 隔离测试数据库执行，验证数据库状态与真实副作用。
@@ -16,6 +18,7 @@ from django.apps import apps
 from django.db import connection
 from django.test import TestCase
 
+from apps.account.models import User
 from apps.equipment_lifecycle import fault_services
 from apps.equipment_lifecycle.models import (
     LifecycleSystem,
@@ -50,6 +53,7 @@ def fault_payload(system_obj, **overrides):
         'discovery': 'patrol',
         'level': 'major',
         'phenomenon': '主用链路频繁丢包',
+        'registrar_name': '登记人甲',
         'impact_scope': '本站话音业务',
         'fault_location': '机房A 01柜',
     }
@@ -578,7 +582,7 @@ class FaultLifecycleTest(FaultTestBase):
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, before)
 
     def test_handling_records_ordered_and_correction_tracked(self):
-        """处置记录按时间正确保存和展示；更正保留原内容与原因。"""
+        """处理进展按时间正确保存和展示；更正保留原内容与原因。"""
         body = self.create_fault(fault_payload(self.system_a))
         fid = body['data']['id']
         client = make_client(self.admin)
@@ -586,7 +590,7 @@ class FaultLifecycleTest(FaultTestBase):
                                     ('2026-09-18 09:00', '第二步提前发生：接报')):
             resp = client.post(f'{FAULT_URL}/{fid}/handling-records/',
                                {'handled_at': handled_at, 'content': content,
-                                'result': '进行中'},
+                                'result': '进行中', 'recorder_name': '记录人甲'},
                                content_type='application/json')
             self.assertFalse(resp.json().get('error'), resp.content)
         resp = client.get(f'{FAULT_URL}/{fid}/handling-records/')
@@ -634,6 +638,170 @@ class FaultLifecycleTest(FaultTestBase):
         self.assertEqual(fault.status, 'closed')
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'normal')
+
+
+class FaultHandlingProgressTest(FaultTestBase):
+    """处理进展契约（2026-09 改版）：类型结构化选填、时间默认、无工单可恢复。
+
+    覆盖：本方维修、送厂维修、仅测试、暂未修复等场景均能保存进展；
+    进展类型可为空（历史记录兼容）；工单不是记录进展的前置条件；
+    未恢复故障持续参与健康状态计算。
+    """
+
+    def add_progress(self, fid, user=None, expect_error=None, **overrides):
+        payload = {'content': '现场检查，设备告警与现象一致',
+                   'recorder_name': '记录人甲'}
+        payload.update(overrides)
+        client = make_client(user or self.admin)
+        resp = client.post(f'{FAULT_URL}/{fid}/handling-records/', payload,
+                           content_type='application/json')
+        body = resp.json()
+        if expect_error is not None:
+            self.assertIn(expect_error, body.get('error', ''), body)
+        return body
+
+    def _create_started_fault(self, impact='fault'):
+        """创建并开始处置一张影响运行的有效故障，返回 (fault, client)。"""
+        body = self.create_fault(fault_payload(
+            self.system_a, impact_status=impact, occurred_at=self.next_occurred_at()))
+        self.assertFalse(body.get('error'), body)
+        fid = body['data']['id']
+        client = make_client(self.admin)
+        r = client.post(f'{FAULT_URL}/{fid}/start/', {}, content_type='application/json')
+        self.assertFalse(r.json().get('error'), r.content)
+        return SystemFault.objects.get(pk=fid), client
+
+    def test_progress_type_saved_as_structured_field(self):
+        """进展类型以正式结构化字段存储并返回文本（送厂场景）。"""
+        fault, client = self._create_started_fault()
+        body = self.add_progress(fault.id, progress_type='to_vendor',
+                                 content='故障部件拆下送厂家维修',
+                                 result='待厂家反馈')
+        self.assertFalse(body.get('error'), body)
+        record = SystemFaultHandlingRecord.objects.get(pk=body['data']['id'])
+        self.assertEqual(record.progress_type, 'to_vendor')
+        self.assertEqual(record.to_view()['progress_type_text'], '送厂')
+        # 时间线接口同样返回结构化类型
+        rows = client.get(f'{FAULT_URL}/{fault.id}/handling-records/').json()['data']['data']
+        target = [r for r in rows if r['id'] == record.id][0]
+        self.assertEqual(target['progress_type'], 'to_vendor')
+        self.assertEqual(target['progress_type_text'], '送厂')
+
+    def test_progress_type_optional_and_default_empty(self):
+        """不提交进展类型仍可保存（空串=未选择，历史记录同口径）。"""
+        fault, _ = self._create_started_fault()
+        body = self.add_progress(fault.id)
+        self.assertFalse(body.get('error'), body)
+        record = SystemFaultHandlingRecord.objects.get(pk=body['data']['id'])
+        self.assertEqual(record.progress_type, '')
+        self.assertEqual(record.to_view()['progress_type_text'], '')
+
+    def test_progress_type_invalid_rejected(self):
+        """非法进展类型拒绝且不落库（不通过文本拼接解析类型）。"""
+        fault, _ = self._create_started_fault()
+        self.add_progress(fault.id, progress_type='bogus', expect_error='进展类型不合法')
+        self.assertEqual(SystemFaultHandlingRecord.objects.count(), 0)
+
+    def test_all_progress_type_choices_accepted(self):
+        """全部候选类型（检查/本方处理/送厂/厂家反馈/返还/测试/持续观察/其他）可用。"""
+        choices = SystemFaultHandlingRecord.PROGRESS_TYPE_CHOICES
+        fault, _ = self._create_started_fault()
+        for value, _text in choices:
+            body = self.add_progress(fault.id, progress_type=value)
+            self.assertFalse(body.get('error'), body)
+        self.assertEqual(
+            SystemFaultHandlingRecord.objects.filter(fault=fault).count(),
+            len(choices))
+
+    def test_handled_at_defaults_to_now(self):
+        """进展时间缺省为当前时间（服务端兜底，不信任前端默认）。"""
+        from django.utils import timezone
+        fault, _ = self._create_started_fault()
+        body = self.add_progress(fault.id)
+        self.assertFalse(body.get('error'), body)
+        record = SystemFaultHandlingRecord.objects.get(pk=body['data']['id'])
+        now = timezone.now()
+        self.assertIsNotNone(record.handled_at)
+        self.assertLessEqual(record.handled_at, now)
+        self.assertGreater((now - record.handled_at).total_seconds(), -5)
+
+    def test_future_handled_at_rejected(self):
+        """进展时间晚于当前时间被拒绝。"""
+        fault, _ = self._create_started_fault()
+        self.add_progress(fault.id, handled_at='2099-01-01 10:00',
+                          expect_error='进展时间不能晚于当前时间')
+        self.assertEqual(SystemFaultHandlingRecord.objects.count(), 0)
+
+    def test_correction_updates_type_and_keeps_history(self):
+        """更正可修改进展类型并留痕；不提交类型时保留原值。"""
+        fault, _ = self._create_started_fault()
+        body = self.add_progress(fault.id, progress_type='check', content='初步检查')
+        rid = body['data']['id']
+        client = make_client(self.admin)
+        # 更正提交新类型
+        resp = client.put(f'{FAULT_URL}/{fault.id}/handling-records/{rid}/',
+                          {'content': '确认为发射机故障', 'progress_type': 'self_fix',
+                           'correction_reason': '补充定位结论'},
+                          content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        record = SystemFaultHandlingRecord.objects.get(pk=rid)
+        self.assertEqual(record.progress_type, 'self_fix')
+        self.assertEqual(record.get_corrections()[0]['old'], '初步检查')
+        # 更正不提交类型：保留原值
+        resp = client.put(f'{FAULT_URL}/{fault.id}/handling-records/{rid}/',
+                          {'content': '确认为发射机故障（修订）',
+                           'correction_reason': '文字修订'},
+                          content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        record.refresh_from_db()
+        self.assertEqual(record.progress_type, 'self_fix')
+
+    def test_unrecovered_fault_keeps_progress_and_health_impact(self):
+        """暂未修复/送厂维修中：可持续追加进展，故障保持未恢复，
+        影响运行的系统健康状态不显示正常。"""
+        fault, client = self._create_started_fault(impact='fault')
+        for progress_type, content in (
+                ('check', '现场检查确认发射机无输出'),
+                ('to_vendor', '发射机拆下送厂家维修'),
+                ('vendor_feedback', '厂家反馈主板损坏，待返修'),
+                ('watch', '备用链路保障中，持续观察')):
+            body = self.add_progress(fault.id, progress_type=progress_type, content=content)
+            self.assertFalse(body.get('error'), body)
+        fault.refresh_from_db()
+        self.assertEqual(fault.status, 'handling')
+        self.assertIsNone(fault.recovered_at)
+        # 系统健康状态保持故障（未恢复继续参与计算），不因持续填写进展而结束
+        self.assertEqual(
+            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'fault')
+
+    def test_fault_without_work_order_can_record_and_recover(self):
+        """全程无工单：仅测试通过后按原规则确认恢复并关闭。"""
+        fault, client = self._create_started_fault(impact='degraded')
+        self.add_progress(fault.id, progress_type='test',
+                          content='更换备件后本方测试，各项指标正常')
+        self.assertFalse(
+            SystemFault.objects.get(pk=fault.id).generated_work_orders.exists())
+        resp = client.post(f'{FAULT_URL}/{fault.id}/recover/', {
+            'recovered_at': '2026-09-18 11:00',
+            'recover_confirm': '本方测试通过，业务验证正常',
+        }, content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        resp = client.post(f'{FAULT_URL}/{fault.id}/close/', {
+            'final_result': '更换备件并测试通过'},
+            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        fault.refresh_from_db()
+        self.assertEqual(fault.status, 'closed')
+        self.assertFalse(fault.generated_work_orders.exists())
+        self.assertEqual(
+            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'normal')
+
+    def test_closed_fault_cannot_add_progress(self):
+        """已关闭/已作废的故障不能追加处理进展（终态保护）。"""
+        fault = self.run_lifecycle(self.system_a)
+        self.add_progress(fault.id, expect_error='不能追加处理进展')
+        self.assertEqual(
+            SystemFaultHandlingRecord.objects.filter(fault=fault).count(), 0)
 
 
 class FaultPermissionTest(FaultTestBase):
@@ -793,3 +961,218 @@ class FaultBoundaryTest(FaultTestBase):
             tenant_id='tenant_a', target_type='el_system_health',
             target_id=str(self.system_a.id),
             detail__contains='interrupted').exists())
+
+
+class FaultRegistrarAndProgressRecorderTest(FaultTestBase):
+    """故障登记人与进展记录人契约（2026-09 人员记录优化，手动输入姓名）。
+
+    语义：两者均为手动输入的姓名文本，只表示"实际添加记录的人"，不代表
+    负责整个故障或承担维修责任（处置负责人 SystemFault.handler 独立存在，
+    能力不变）；姓名为文本快照、不关联 User——实际操作人可能没有系统账号
+    （多人共用一个登录账号时，各条记录登记/记录实际操作人姓名）。
+    登录账号仍通过审计字段（created_by / 进展.handler）独立留痕。
+    """
+
+    def test_registrar_name_saved_independent_of_created_by(self):
+        """手动输入登记人姓名可保存（无需是系统用户），与 created_by 分字段。"""
+        body = self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at(),
+            registrar_name='实际登记人张三'))
+        self.assertFalse(body.get('error'), body)
+        fault = SystemFault.objects.get(pk=body['data']['id'])
+        # 登记人=手动输入姓名；created_by=登录账号；两者独立
+        self.assertEqual(fault.registrar_name, '实际登记人张三')
+        self.assertEqual(fault.created_by_id, self.admin.id)
+        detail = body['data']
+        self.assertEqual(detail['registrar_name'], '实际登记人张三')
+        self.assertEqual(detail['created_by_name'], self.admin.username)
+        # 姓名不要求存在于用户表
+        self.assertFalse(User.objects.filter(username='实际登记人张三').exists())
+
+    def test_registrar_name_required_on_manual_create(self):
+        """手工新增必须显式提交登记人姓名（不默认当前登录用户）。"""
+        before = SystemFault.objects.count()
+        self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at(),
+            registrar_name='  '),
+            expect_error='故障登记人不能为空')
+        self.assertEqual(SystemFault.objects.count(), before)
+
+    def test_registrar_name_accepts_any_manual_text(self):
+        """任意手动输入文本均接受（strip 后保存，限长 100）。"""
+        raw_name = '  外部协助人员-李四（无系统账号）  '
+        body = self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at(),
+            registrar_name=raw_name))
+        self.assertFalse(body.get('error'), body)
+        fault = SystemFault.objects.get(pk=body['data']['id'])
+        self.assertEqual(fault.registrar_name, raw_name.strip())
+
+    def test_list_detail_export_show_registrar_name(self):
+        """列表、详情与 CSV 导出均显示故障登记人姓名。"""
+        fid = self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at(),
+            registrar_name='实际登记人张三'))['data']['id']
+        client = make_client(self.admin)
+        row = client.get(f'{FAULT_URL}/').json()['data']['data'][0]
+        self.assertEqual(row['registrar_name'], '实际登记人张三')
+        detail = client.get(f'{FAULT_URL}/{fid}/').json()['data']
+        self.assertEqual(detail['registrar_name'], '实际登记人张三')
+        resp = client.get(f'{FAULT_URL}/export/')
+        self.assertEqual(resp.status_code, 200)
+        text = resp.content.decode('utf-8-sig')
+        self.assertIn('故障登记人', text)
+        self.assertIn('实际登记人张三', text)
+
+    def test_progress_records_store_manual_recorder_name_per_record(self):
+        """共用登录账号时不同人员可分别添加进展，每条进展保存实际记录人姓名。"""
+        body = self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at(),
+            registrar_name='实际登记人张三'))
+        fid = body['data']['id']
+        client = make_client(self.admin)
+        first = client.post(
+            f'{FAULT_URL}/{fid}/handling-records/',
+            {'content': '现场检查确认', 'progress_type': 'check',
+             'recorder_name': '检查人王五'},
+            content_type='application/json').json()
+        self.assertFalse(first.get('error'), first)
+        second = client.post(
+            f'{FAULT_URL}/{fid}/handling-records/',
+            {'content': '送厂家维修', 'progress_type': 'to_vendor',
+             'recorder_name': '送修人赵六', 'result': '待厂家反馈'},
+            content_type='application/json').json()
+        self.assertFalse(second.get('error'), second)
+        records = list(SystemFaultHandlingRecord.objects.filter(fault_id=fid).order_by('id'))
+        # 每条进展保存各自的手动姓名；登录账号统一记录在 handler（审计）
+        self.assertEqual(records[0].recorder_name, '检查人王五')
+        self.assertEqual(records[1].recorder_name, '送修人赵六')
+        self.assertEqual(records[0].handler_id, self.admin.id)
+        self.assertEqual(records[1].handler_id, self.admin.id)
+        # 时间线接口返回 recorder_name（历史回落 handler_name 由前端处理）
+        rows = client.get(f'{FAULT_URL}/{fid}/handling-records/').json()['data']['data']
+        names = {r['id']: r for r in rows}
+        self.assertEqual(names[records[0].id]['recorder_name'], '检查人王五')
+        self.assertEqual(names[records[1].id]['recorder_name'], '送修人赵六')
+
+    def test_progress_recorder_name_required(self):
+        """追加进展必须显式提交记录人姓名（不默认当前登录用户）。"""
+        body = self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at()))
+        fid = body['data']['id']
+        client = make_client(self.admin)
+        resp = client.post(f'{FAULT_URL}/{fid}/handling-records/',
+                           {'content': '持续观察', 'recorder_name': '  '},
+                           content_type='application/json')
+        self.assertIn('进展记录人不能为空', resp.json().get('error', ''))
+        self.assertEqual(SystemFaultHandlingRecord.objects.count(), 0)
+
+    def test_correction_updates_recorder_name_and_keeps_when_not_submitted(self):
+        """更正可修改进展记录人姓名；未提交时保留原值（历史兼容）。"""
+        body = self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at()))
+        fid = body['data']['id']
+        client = make_client(self.admin)
+        resp = client.post(f'{FAULT_URL}/{fid}/handling-records/',
+                           {'content': '初步检查', 'progress_type': 'check',
+                            'recorder_name': '记录人甲'},
+                           content_type='application/json')
+        rid = resp.json()['data']['id']
+        # 显式提交新记录人姓名
+        resp = client.put(f'{FAULT_URL}/{fid}/handling-records/{rid}/',
+                          {'content': '初步检查（补记实际操作人）',
+                           'recorder_name': '实际检查人王五',
+                           'correction_reason': '登记实际检查人'},
+                          content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        record = SystemFaultHandlingRecord.objects.get(pk=rid)
+        self.assertEqual(record.recorder_name, '实际检查人王五')
+        # 未提交记录人：保留原值
+        resp = client.put(f'{FAULT_URL}/{fid}/handling-records/{rid}/',
+                          {'content': '初步检查（修订）', 'correction_reason': '文字修订'},
+                          content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        record.refresh_from_db()
+        self.assertEqual(record.recorder_name, '实际检查人王五')
+
+    def test_progress_recorder_name_history_fallback(self):
+        """历史进展无 recorder_name（空串）时正常查看更正，展示回落 handler 用户名。"""
+        body = self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at()))
+        fid = body['data']['id']
+        record = SystemFaultHandlingRecord.objects.create(
+            tenant_id='tenant_a',
+            fault_id=fid,
+            handled_at=datetime(2026, 1, 5, 9, 0),
+            handler=self.admin,
+            content='历史进展记录（无记录人姓名字段）',
+        )
+        client = make_client(self.admin)
+        rows = client.get(f'{FAULT_URL}/{fid}/handling-records/').json()['data']['data']
+        target = [r for r in rows if r['id'] == record.id][0]
+        self.assertEqual(target['recorder_name'], '')
+        self.assertEqual(target['handler_name'], self.admin.username)
+        # 更正历史记录（不提交记录人）仍成功且姓名保持为空
+        resp = client.put(f'{FAULT_URL}/{fid}/handling-records/{record.id}/',
+                          {'content': '历史进展（修订）', 'correction_reason': '文字修订'},
+                          content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        record.refresh_from_db()
+        self.assertEqual(record.recorder_name, '')
+
+    def test_history_fault_without_registrar_view_edit_export(self):
+        """历史故障（登记人为空）可查看、编辑、导出，编辑不补写登记人。"""
+        fault = SystemFault.objects.create(
+            tenant_id='tenant_a',
+            fault_no='GZ20260101-0001',
+            system=self.system_a,
+            impact_status='degraded',
+            affects_system_operation=True,
+            system_code=self.system_a.system_code,
+            system_name=self.system_a.name,
+            system_location=self.system_a.install_location,
+            occurred_at=datetime(2026, 1, 1, 8, 0),
+            discovery='patrol',
+            level='major',
+            phenomenon='历史遗留故障（无登记人）',
+            created_by=self.admin,
+        )
+        client = make_client(self.admin)
+        detail = client.get(f'{FAULT_URL}/{fault.id}/').json()['data']
+        self.assertEqual(detail['registrar_name'], '')
+        # 编辑（不提交登记人）仍然成功且登记人保持为空
+        resp = client.put(f'{FAULT_URL}/{fault.id}/', {
+            'system': self.system_a.id,
+            'affects_system_operation': True,
+            'impact_status': 'degraded',
+            'occurred_at': '2026-01-01 08:00',
+            'phenomenon': '历史遗留故障（编辑补充）',
+        }, content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        fault.refresh_from_db()
+        self.assertEqual(fault.registrar_name, '')
+        # 导出：登记人列为空串，不报错
+        resp = client.get(f'{FAULT_URL}/export/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('历史遗留故障（编辑补充）', resp.content.decode('utf-8-sig'))
+
+    def test_unfixed_fault_with_progress_not_auto_recovered(self):
+        """暂未修复场景：追加"持续观察"进展后故障保持处置中，不被自动恢复/关闭。"""
+        body = self.create_fault(fault_payload(
+            self.system_a, impact_status='fault',
+            occurred_at=self.next_occurred_at()))
+        fid = body['data']['id']
+        make_client(self.admin).post(f'{FAULT_URL}/{fid}/start/', {},
+                                     content_type='application/json')
+        client = make_client(self.admin)
+        resp = client.post(f'{FAULT_URL}/{fid}/handling-records/',
+                           {'content': '主板返修中，暂未修复，下一步等待厂家寄回',
+                            'progress_type': 'watch', 'result': '暂未修复',
+                            'recorder_name': '值班跟踪人'},
+                           content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        fault = SystemFault.objects.get(pk=fid)
+        self.assertEqual(fault.status, 'handling')
+        self.assertIsNone(fault.recovered_at)
+        self.assertIsNone(fault.recovered_by_id)
+        self.assertNotEqual(fault.status, SystemFault.STATUS_CLOSED)

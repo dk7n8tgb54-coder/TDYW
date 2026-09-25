@@ -6,46 +6,7 @@
 
 ## 一、架构分层
 
-```
-spug_api/
-├── spug/              # Django 项目配置
-│   ├── settings.py    # INSTALLED_APPS, MIDDLEWARE, DATABASES, CELERY, CACHE
-│   ├── urls.py        # 根 URL 路由
-│   ├── wsgi.py        # WSGI 入口
-│   └── asgi.py        # ASGI 入口（Channels 4）
-├── apps/              # 业务应用
-│   ├── account/       # 用户、角色、租户、登录日志
-│   ├── alert/         # 系统告警、数据质量巡检
-│   ├── contract_agreement/  # 合同协议
-│   ├── data_analysis/ # 数据分析（纯只读聚合）
-│   ├── department_duty_log/ # 部门值班日志
-│   ├── device/        # 设备台账、设备履历
-│   ├── document/      # 资料库/文档管理（含党建隔离）
-│   ├── duty/          # 值班日志
-│   ├── evidence/      # 附件系统（通用多态附件）
-│   ├── fault/         # 故障管理
-│   ├── home/          # 工作台、导航、公告
-│   ├── interference/  # 干扰管理
-│   ├── logs/          # 操作日志/审计日志
-│   ├── radio_license/ # 无线电台执照、台站频率批复
-│   ├── regulation/    # 规章管理
-│   ├── reminder/      # 提醒事项
-│   ├── runlog/        # 跨日事项跟踪
-│   ├── setting/       # 系统设置
-│   ├── signature/     # 账号签名
-│   └── upgrade/       # 系统升级
-├── libs/              # 公共基础设施
-│   ├── middleware.py       # 认证 + 异常处理中间件
-│   ├── tenant_base_model.py # 租户模型基类 + 逻辑删除 Manager
-│   ├── tenant_utils.py     # 租户过滤工具
-│   ├── pagination.py       # 分页工具
-│   ├── decorators.py       # 权限装饰器
-│   ├── idempotency.py      # 幂等检查
-│   ├── utils.py            # json_response, get_request_real_ip 等
-│   ├── alert.py            # 统一告警
-│   └── ...
-└── requirements.txt
-```
+后端目录分为 Django 配置（`spug/`）、业务应用（`apps/`）、公共基础设施（`libs/`）和依赖配置。业务应用按领域独立组织；共享租户、权限、分页、幂等、响应和告警能力只能通过 `libs/` 的公开接口使用。
 
 ### 职责边界
 
@@ -137,7 +98,7 @@ json_response(error='错误信息')   # HTTP 200, {"error": "错误信息"}
 
 ### 删除
 
-1. 删除语义以模块产品决策为准：回收站功能已按产品决策全项目移除（git dc7ebf58 / c5e7d266），业务主表默认**物理删除 + 审计留痕**（如 contract_agreement、radio_license 执照）；确需逻辑删除的模块（如带 `is_deleted` 字段的 interference）必须显式设计并在测试中固化。
+1. 删除语义以模块产品决策为准：业务主表默认**物理删除 + 审计留痕**；确需逻辑删除的模块（如带 `is_deleted` 字段的 interference）必须显式设计并在测试中固化。
 2. 附件删除统一走 `EvidenceAttachment` 软删除留痕，物理文件删除失败标记 `is_pending_clean` 由 Celery 重试。
 3. 删除操作必须 `transaction.atomic()` 包裹，审计日志写入与记录删除在同一事务内。
 4. 批量删除需检查外键引用和附件关联。
@@ -202,9 +163,7 @@ CELERY_BEAT_SCHEDULE = {**DOCUMENT_BEAT_SCHEDULE, **RADIO_LICENSE_BEAT_SCHEDULE,
 
 ### 附件接口归属校验（防跨模块越权，必做）
 
-**背景（共性缺陷）**：`AttachmentService.download_response / soft_delete / get_preview_url` 只按租户过滤，**不校验附件归属模块**。业务模块的附件端点若把客户端传入的附件 ID 直接透传给服务，持有该模块附件权限的用户即可枚举 ID，越权读取、软删、预览同租户其他模块的附件。2026-09-03 合同协议上线前测试（DEF-01）一次性命中 contract_agreement、radio_license（执照+批复）、interference 三个模块；home/announcement 与 coop_task 因入口自带模块过滤未受影响，radio_license 当日已修复，其余两个随后修复。
-
-**规则**：业务模块的附件下载、删除、预览地址（preview-url）端点，调用 `AttachmentService` 前**必须**先做归属校验，全部满足才放行：
+业务模块的附件下载、删除、预览地址（preview-url）端点，调用 `AttachmentService` 前**必须**先做归属校验：
 
 1. 附件存在且未软删除（`is_deleted=False`）；
 2. `module` 与 `object_type` 等于本模块常量；
@@ -212,7 +171,7 @@ CELERY_BEAT_SCHEDULE = {**DOCUMENT_BEAT_SCHEDULE, **RADIO_LICENSE_BEAT_SCHEDULE,
 
 校验不通过统一返回业务错误（如「附件不存在或无权限访问」），不泄露目标模块或路径信息。`preview-file`（kkFileView 回调）已有 preview_token 绑定校验，无需额外处理。
 
-**范式**（`_get_xxx_attachment_for_user` 辅助函数，实现参照 radio_license/views.py、contract_agreement/views.py、interference/views.py）：
+建议通过模块私有的 `_get_xxx_attachment_for_user` 辅助函数集中校验：
 
 ```python
 def _get_xxx_attachment_for_user(user, attachment_id):
@@ -231,7 +190,7 @@ def _get_xxx_attachment_for_user(user, attachment_id):
 1. 父业务记录存在性校验按模块需要叠加（radio_license 校验父执照租户可见性；interference 因临时 UUID 上传模式不强制父记录存在）。
 2. 新增使用附件的模块必须照此实现，并配套「跨模块附件访问/删除被拒绝」的稳定契约测试。
 3. 软删除后默认 Manager 过滤 `is_deleted=True`，需要附件快照写证据事件/审计的必须在删除**前**取附件对象（删除后查询必为 None，属死代码）。
-4. 收口方向：给 `AttachmentService` 三个方法增加必填 module/object_type 参数，把校验下沉到公共层（过渡期先在视图层校验）。
+4. 后续可给 `AttachmentService` 增加必填 `module`/`object_type` 参数，把校验下沉到公共层；迁移完成前继续在视图层校验。
 
 ### 文件操作安全
 
@@ -261,51 +220,15 @@ def _get_xxx_attachment_for_user(user, attachment_id):
 
 ---
 
-## 九、各业务类型共同风险
+## 九、模块变更检查清单
 
-### 普通 CRUD 模块
+按模块类型补充检查：
 
-- 多步写操作必须 `transaction.atomic()`。
-- 删除必须逻辑删除 + 审计日志。
-- 列表查询必须过滤租户 + `is_deleted=False`。
-- 排序交换必须 `select_for_update`。
-
-### 审批或状态流转模块
-
-- 状态转换必须遵循 `ALLOWED_STATUS_TRANSITIONS`。
-- 状态变更必须 `update_fields` 限定，避免覆盖其他字段。
-- 审计日志必须记录状态变更前后的值。
-
-### 文件和附件模块
-
-- 物理文件操作不在事务内。
-- 删除失败标记 `is_pending_clean`。
-- 文件路径防止目录穿越。
-- 分片上传需检查 `operationVersion` 防止过期回调。
-
-### 统计分析模块
-
-- 纯只读聚合，无 model/migration。
-- 跨 app 查询需注意性能。
-- Redis 缓存 60s，key 需含租户隔离。
-
-### Celery 异步模块
-
-- 任务参数中传入 `user_id`，任务内重新查询。
-- 递归重试需有深度限制。
-- `transaction.on_commit` 触发任务。
-
-### 跨租户或公共数据模块
-
-- 公共数据用 `GLOBAL` 租户类型。
-- `apply_tenant_filter` 统一处理。
-- 党建隔离用 `system_scope_validators` fail-closed。
-
-### 外部系统集成模块
-
-- kkFileView：浏览器用 `KKFILEVIEW_API_URL`，回源用 `KKFILEVIEW_SERVER_URL`。
-- 调用失败需有降级处理。
-- 容器名须进 `ALLOWED_HOSTS`。
+- 状态流转：使用 `ALLOWED_STATUS_TRANSITIONS`，用 `update_fields` 限定写入，并审计前后值。
+- 统计分析：保持只读，跨 app 查询评估性能，缓存 key 必须含租户范围。
+- 跨租户或党建数据：使用 `GLOBAL`、`apply_tenant_filter` 和 fail-closed 的 `system_scope_validators`。
+- 外部集成：kkFileView 区分浏览器回源地址，调用失败有降级，容器名加入 `ALLOWED_HOSTS`。
+- 文件、事务、Celery、幂等和删除规则分别遵守前述章节，不在此重复。
 
 ---
 

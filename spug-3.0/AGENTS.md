@@ -25,111 +25,37 @@
 
 ---
 
-## 二、正式业务模块及前后端对应关系
+## 二、目录职责与模块边界
 
-### 模块矩阵
+| 前端入口 | 后端应用 | 说明 |
+|---|---|---|
+| `home/`、`system/`、`reminder/` | `home/`、`account/`、`setting/` | 工作台、系统管理和提醒 |
+| `dataAnalysis/` | `data_analysis/` | 只读聚合，使用租户隔离缓存 |
+| `departmentDutyLog/`、`duty/`、`runlog/` | 同名应用 | 日志和值班业务 |
+| `radioLicense/`、`stationFrequencyApproval/` | `radio_license/` | 执照和批复；批复例外见模块规则 |
+| `contractAgreement/` | `contract_agreement/` | 合同协议 |
+| `coopTask/` | `coop_task/` | 协作任务及附件清理 |
+| `document/`、党建页面、`regulation/` | `document/`、`regulation/` | 文档、党建隔离和规章 |
+| `device/`、`upgrade/`、`exec/fault/`、`interference/` | 同名应用 | 技术运维业务 |
+| `maintenance/` | `logs/`、`alert/` | 审计日志和系统告警 |
+| 公共附件、签名能力 | `evidence/`、`signature/` | 业务入口负责权限和归属校验 |
 
-| 模块 | 前端入口 (`spug_web/src/pages/`) | 后端应用 (`spug_api/apps/`) | 主要模型 | 权限前缀 | 物理文件副作用 | Celery/异步 |
-|---|---|---|---|---|---|---|
-| 工作台/首页 | `home/` | `home/` | Navigation, Notice | `home.announcement`, `home.navigation` | 无 | HOME_BEAT_SCHEDULE（公告过期同步） |
-| 数据分析 | `dataAnalysis/` | `data_analysis/` | 无（纯只读聚合） | `data_analysis.*` | 无 | Redis 60s 缓存 |
-| 部门值班日志 | `departmentDutyLog/` | `department_duty_log/` | DepartmentDutyLog, DutyLogSign | `department_duty_log.*` | 附件(evidence) | 无 |
-| 无线电台执照 | `radioLicense/` | `radio_license/` | RadioLicense, LicenseReminderAck | `radio_license.license.*` | 附件(evidence) | RADIO_LICENSE_BEAT_SCHEDULE（过期检查） |
-| 台站频率批复 | `stationFrequencyApproval/` | `radio_license/`（同应用） | StationFrequencyApproval（全局共享，无责任人、无个人主动提醒；有权限账户共享全局菜单红点） | `radio_license.approval.*` | 附件(evidence) | RADIO_LICENSE_BEAT_SCHEDULE（批复到期状态扫描） |
-| 合同协议 | `contractAgreement/` | `contract_agreement/` | ContractAgreement | `contract_agreement.agreement.*` | 附件(evidence) | CONTRACT_AGREEMENT_BEAT_SCHEDULE |
-| 协作任务 | `coopTask/` | `coop_task/` | CoopTask, CoopTaskItem, CoopTaskAssignment, CoopTaskDelivery | `coop.task.*` | 附件(evidence) | COOP_TASK_BEAT_SCHEDULE（到期任务附件清理；跨科室分派/交付/验收联动审计日志） |
-| 资料库/文档管理 | `document/` | `document/` | DocumentFilePublic, DocumentFolderPublic, DocumentTransfer, DocumentSystemFolder | `document.document.*`, `document.party_building_document.*` | **是**（文件存储） | 分片上传、合并、清理、异步复制 |
-| 党建工作 | `document/PartyBuildingDocumentsIndex.js` | `document/`（system_scope） | DocumentSystemFolder | `document.party_building_document.*` | **是** | 同文档模块 |
-| 规章管理 | `regulation/` | `regulation/` | Regulation | `document.regulation.*` | **是**（独立 `storage.py`） | 无 |
-| 跨日事项跟踪 | `runlog/` | `runlog/` | RunLog | `runlog.runlog.*` | 无 | 无 |
-| 设备台账 | `device/` | `device/` | DeviceResume | `device.device_resume.*` | 无 | 无 |
-| 设备履历 | `device/`（同目录） | `device/` | DeviceHistory | `device.device_history.*` | 无 | 无 |
-| 系统升级 | `upgrade/` | `upgrade/` | UpgradeRecord, UpgradePlan, UpgradeStatistics | `upgrade.*` | 无 | 无 |
-| 故障管理 | `exec/fault/` | `fault/` | FaultRecord, FaultPart | `fault.faultrecord.*`, `fault.faultpart.*` | 无 | 无 |
-| 干扰管理 | `interference/` | `interference/` | InterferenceRecord | `interference.*` | 附件(evidence) | 无 |
-| 值班日志 | `duty/` | `duty/` | DutyRecord | `duty.duty.*` | 无 | 无 |
-| 公告管理 | `system/` | `home/` | Notice | `home.announcement.*` | 无 | HOME_BEAT_SCHEDULE |
-| 提醒事项 | `reminder/` | `reminder/` | Reminder | `home.reminder.*` | 无 | REMINDER_BEAT_SCHEDULE |
-| 操作日志 | `maintenance/` | `logs/` | AuditLog, AuditLogSequence | `system.audit.*` | 无 | LOGS_BEAT_SCHEDULE（归档/清理/哈希链校验） |
-| 系统告警 | `maintenance/` | `alert/` | AlertRule, AlertRecord | `system.alert.*` | 无 | ALERT_BEAT_SCHEDULE（磁盘/DB 监控） |
-| 账户管理 | `system/` | `account/` | User, Role, RolePolicy, Tenant, LoginLog | `system.account.*`, `system.role.*`, `system.tenant.*`, `system.login.*` | 无 | 无 |
-| 系统设置 | `system/` | `setting/` | AppSetting | `system.setting.*` | 无 | 无 |
-| 附件系统 | （内嵌于多模块） | `evidence/` | EvidenceAttachment | （各模块自带） | **是**（文件存储） | 无 |
-| 签名系统 | （内嵌） | `signature/` | AccountSignature, SignatureUsage, EvidenceEvent | （各模块自带） | 无 | 无 |
+模块级 `AGENTS.md` 记录该模块的例外、状态机和副作用细节；新增或删除模块时同步检查路由、API、权限、数据库、测试和 E2E 覆盖关系。
 
-### 非正式模块（不纳入规则覆盖范围）
+### 质量工程与测试边界
 
-`backups/`、`scripts/`（运维脚本）、`locustfile/`（压测）、`hy3扫描边界/`、`loop engineering/`、`outputs/`、`Trae/`、`dev/` 以及根目录下的各种 `*_AUDIT_REPORT.md` 均为临时产物或实验目录，不是正式业务模块。
+`scripts/`、`locustfile/` 和其他临时目录不属于生产业务模块。`quality/` 负责跨模块契约、租户隔离、权限和数据库审计、E2E、性能、灾备、发布门禁及报告；业务测试仍放在所属 Django app 或前端页面的 `__tests__/`。
 
-### 全系统质量工程
+测试必须执行真实代码路径，禁止读取源码或正则匹配冒充行为测试。后端测试使用 Docker 和隔离测试数据库；Playwright 只能使用开发或专用测试环境和测试账号；压测、恢复演练必须 fail-closed；敏感数据不得写入 Git 或报告；产物统一放在 `quality/reports/`。
 
-`quality/` 是正式的跨系统质量工程目录，但不是生产业务模块。业务模块自身的特征测试放在对应应用的 `tests/` 目录；跨模块测试、审计工具、性能与灾备工具和统一发布门禁放在 `quality/`。
+测试分类：`stable_contract` 可纳入发布门禁，`legacy_characterization` 默认只作对照，`defect_reproduction` 不得弱化断言，`migration_validation` 校验迁移前后完整性。未执行或环境不可用必须标记 `NOT_RUN`、`BLOCKED` 或等价状态。发布门禁不得自动降低阈值、接受视觉基线或创建无期限风险例外。
 
-| 目录 | 职责 |
-|---|---|
-| `quality/api_contract/` | API 契约发现、兼容性检查和结构化快照 |
-| `quality/tenant_isolation/` | 全系统租户隔离与跨租户越权测试 |
-| `quality/permission_audit/` | 前端路由、后端 API 和角色权限一致性审计 |
-| `quality/database_audit/` | 数据库结构、迁移、索引和数据质量只读审计 |
-| `quality/e2e/` | Playwright 全系统端到端回归测试 |
-| `quality/performance/` | 性能场景、环境保护和性能基线 |
-| `quality/disaster_recovery/` | 备份盘点、恢复验证和灾备演练保护工具 |
-| `quality/release_gate/` | `quick`、`standard`、`full` 统一发布门禁 |
-| `quality/reports/` | 各专项生成的结构化结果、报告和运行证据 |
+代码质量由 `scripts/code_quality_check.py` 执行，并使用 `quality/baselines/code_quality_baseline.json` 做增量治理：
 
-#### 测试分类
-
-- `stable_contract`：长期稳定的业务不变量，可纳入发布门禁。
-- `legacy_characterization`：重构前的临时行为基线，默认不作为长期发布阻断条件。
-- `defect_reproduction`：已确认缺陷的最小复现测试，不得通过弱化断言掩盖问题。
-- `migration_validation`：架构或数据迁移前后的完整性、数量和关联校验。
-
-不得将临时旧架构行为误写为长期业务契约。业务规则有意改变时，应同步更新测试、行为清单和门禁策略；新增或删除模块时，应同步更新模块、API、权限、数据库和 E2E 覆盖关系。
-
-#### 业务模块测试落点
-
-后端业务测试必须跟随所属 Django app，不能因属于全系统质量计划就全部集中到 `quality/`：
-
-| 业务域 | 后端测试目录 |
-|---|---|
-| 日常业务 | `spug_api/apps/department_duty_log/tests/`、`spug_api/apps/duty/tests/`、`spug_api/apps/runlog/tests/`、`spug_api/apps/reminder/tests/`、`spug_api/apps/home/tests/` |
-| 资料与行政 | `spug_api/apps/radio_license/tests/`、`spug_api/apps/contract_agreement/tests/`、`spug_api/apps/document/tests/`、`spug_api/apps/regulation/tests/`、`spug_api/apps/coop_task/tests/` |
-| 技术运维稳定契约 | `spug_api/apps/device/tests/stable_contract/`、`spug_api/apps/fault/tests/stable_contract/`、`spug_api/apps/upgrade/tests/stable_contract/`、`spug_api/apps/interference/tests/stable_contract/`、`spug_api/apps/alert/tests/stable_contract/` |
-| 技术运维旧架构基线 | `spug_api/apps/device/tests/legacy_characterization/`、`spug_api/apps/fault/tests/legacy_characterization/`、`spug_api/apps/upgrade/tests/legacy_characterization/`、`spug_api/apps/interference/tests/legacy_characterization/`、`spug_api/apps/alert/tests/legacy_characterization/` |
-| 共享与系统模块 | `spug_api/apps/account/tests/`、`spug_api/apps/data_analysis/tests/`、`spug_api/apps/evidence/tests/`、`spug_api/apps/signature/tests/`、`spug_api/apps/storage/tests/`、`spug_api/apps/logs/tests/`、`spug_api/apps/setting/tests/` |
-
-附件、签名、存储等共享能力通过具体业务入口测试时，测试应优先放在调用它的业务 app；只有验证共享能力自身的通用行为时才放在共享 app 的 `tests/`。跨 app 的租户、权限、数据库和端到端测试分别放在对应的 `quality/` 专项目录，避免复制同一用例。
-
-前端组件、hook 和 store 测试放在对应页面的 `spug_web/src/pages/<page>/__tests__/`；真实浏览器流程只放在 `quality/e2e/tests/`。不得将 Playwright 测试混入组件测试目录，也不得用 Playwright 代替组件和后端行为测试。
-
-#### 质量工程约束
-
-1. 测试和审计必须执行真实代码路径；静态审计工具可以解析源码，但不能用源码字符串匹配冒充业务行为测试。
-2. 后端行为测试必须在 Docker 容器和隔离测试数据库中执行；未确认数据库用途时禁止任何写入、清理或恢复操作。
-3. Playwright 只能使用开发或专用测试环境和测试账号，只能清理由本次测试创建的数据。
-4. 性能压测和恢复演练必须通过 fail-closed 环境保护，禁止指向生产环境、开发业务数据库或真实文件目录。
-5. 密码、Cookie、Token、`storageState`、数据库备份、真实业务文件和未脱敏数据不得写入 Git 或报告。
-6. 运行产物统一放在 `quality/reports/`，不得混入测试源码目录；经过人工确认且长期使用的基线可放在对应工具的 `baselines/`。
-7. `PASS` 只表示检查已经实际执行并通过；未执行、依赖缺失、环境不可用和报告过期必须标记为 `NOT_RUN`、`BLOCKED` 或等价状态。
-8. `stable_contract` 失败、确认的严重租户/权限问题和数据完整性问题可以阻断发布；`legacy_characterization` 默认只用于重构前后对照。
-9. 发布门禁不得自动降低阈值、自动接受视觉基线或自动创建风险例外。临时例外必须有明确原因、责任人、批准人和到期日期。
-10. `quick` 用于开发期快速检查，`standard` 用于常规发布前检查，`full` 用于重大版本；任何档位都不得自动执行生产压测或数据库恢复。
-
-#### 代码复杂度门禁
-
-代码质量检查由 `scripts/code_quality_check.py` 执行，使用
-`quality/baselines/code_quality_baseline.json` 记录历史问题并实行增量治理：
-
-1. 新文件和新增代码使用收紧阈值：有效代码不超过 800 行，函数不超过 120 行，圈复杂度不超过 15。
-2. 历史文件保留保底阈值：有效代码不超过 1000 行，函数不超过 250 行，圈复杂度不超过 25；已有超标文件只能保持或减少现状。
-3. 修改到历史超标函数时，函数本身使用收紧阈值；未修改的历史函数按保底阈值检查。
-4. 已进入 baseline 的文件只能保持或减少有效代码行数；已进入 baseline 的函数只能保持或降低函数行数和复杂度。
-5. 不得通过扩大 baseline、删除测试、关闭检查或增加无期限豁免来掩盖新增复杂度。
-6. 首次建立或经评审更新 baseline 时运行 `python scripts/code_quality_check.py --write-baseline`，正常门禁不得使用该参数。
-7. 门禁只统计 `spug_web/src/` 前端源码和 `spug_api/{apps,libs,consumer}/` 后端源码；测试文件的文件行数可放行，但函数长度和复杂度仍需治理。
-8. JavaScript 函数边界由 `spug_web/node_modules/@babel/parser` AST 解析；解析失败只提示警告，必须由前端语法构建检查兜底，不能用正则结果冒充 AST 结果。
-9. 本地门禁同时读取工作区 diff、暂存区 diff 和未跟踪文件；baseline 写入只允许在评审明确时执行。
-10. 复杂度警告默认不阻断门禁，函数长度、文件长度、语法错误等错误仍阻断；发布门禁可在外层将警告升级为阻断条件。
+- 新增代码不超过 800 行，函数不超过 120 行，圈复杂度不超过 15；历史文件保底为 1000 行、250 行、25，已有超标项只能保持或减少。
+- 不得扩大 baseline、删除测试或关闭检查掩盖问题；`--write-baseline` 只允许在明确评审时使用。
+- JavaScript 函数边界使用 Babel AST 解析，解析失败必须由前端语法构建检查兜底；门禁同时检查工作区、暂存区和未跟踪文件。
+- 语法错误、文件长度和函数长度错误必须阻断，复杂度警告可由发布门禁升级为阻断。
 
 ---
 
@@ -139,7 +65,7 @@
 2. **禁止 `git push --force`、`git reset --hard`、`git stash`** 等破坏性操作。
 3. **禁止覆盖或回滚工作区未提交修改**。修改前必须先 `git status` + `git diff` 检查。
 4. **只能修改用户在当前任务中明确授权的文件和目录**，不得自行扩大范围；未获得生产业务代码修改授权时，只允许只读调查或修改当前任务明确允许的测试、工具和报告。
-5. 修改文件时使用 `replace_in_file` 做精准编辑，禁止用 `write_to_file` 覆盖大文件（除非新建文件）。
+5. 修改文件必须使用精准补丁或等价的局部编辑方式，禁止覆盖式重写已有大文件。
 
 ---
 
@@ -160,9 +86,17 @@
 - 配置化（枚举 + 集合）优于散落的硬编码。同一字符串/逻辑出现 3 次以上应抽出。
 - 每次修复后主动全局扫描同类问题。
 
+## 六、解耦硬性原则
+
+1. 跨模块调用必须通过公开的 Service、API 或事件；禁止直接访问其他模块的内部实现。
+2. View、页面组件和 Celery Task 只负责入口编排，不承载核心业务规则。
+3. 文件、Redis、HTTP 和第三方 SDK 等外部副作用必须集中在对应的 Service 或适配器中。
+4. 新增公共抽象必须有至少两个真实调用场景，并能减少重复或隔离变化。
+5. 修改公共模块、共享模型或权限租户能力时，必须搜索全部调用方并补充必要测试。
+
 ---
 
-## 六、真实行为测试要求
+## 七、真实行为测试要求
 
 1. **禁止以读取源码字符串代替行为测试**。测试必须执行真实代码路径。
 2. **禁止用 `fs.readFileSync` 读取源码再做正则匹配的伪测试**。
@@ -172,7 +106,7 @@
 
 ---
 
-## 七、数据库迁移纪律
+## 八、数据库迁移纪律
 
 1. `makemigrations` **必须指定 app 名**（如 `makemigrations radio_license`），否则会扫描所有 app 生成意外迁移。
 2. 一功能一 migration。
@@ -185,7 +119,7 @@
 
 ---
 
-## 八、权限、角色、租户和数据范围隔离
+## 九、权限、角色、租户和数据范围隔离
 
 1. **权限编码格式**：`<app>.<model>.<action>`（如 `document.document.view`）。
 2. **前端路由权限**必须与后端权限编码一致。`spug_web/src/routes.js` 中的 `auth` 字段对应后端 `page_perms`。
@@ -199,7 +133,7 @@
 
 ---
 
-## 九、API、前端请求及错误提示一致性
+## 十、API、前端请求及错误提示一致性
 
 1. **HTTP 200 可携带业务错误**：本项目 API 约定 HTTP 200 + `{"error": "..."}` 表示业务失败。前端 `libs/http.js` 拦截器会检查 `error` 字段并自动提示。
 2. **前端不得将 HTTP 200 + `error` 当作成功**。
@@ -209,7 +143,7 @@
 
 ---
 
-## 十、Celery、定时任务和幂等性要求
+## 十一、Celery、定时任务和幂等性要求
 
 1. Celery 任务必须保存并重新校验用户和数据作用域（不信任调用方传入的 user_id）。
 2. 异步任务必须设计幂等键。
@@ -233,7 +167,7 @@
 
 ---
 
-## 十一、文件系统与外部服务补偿
+## 十二、文件系统与外部服务补偿
 
 1. `transaction.atomic` **不能回滚物理文件或外部系统副作用**。
 2. 文件操作顺序：先写物理文件，成功后写数据库；删除时先删物理文件，成功后删数据库记录。
@@ -243,7 +177,7 @@
 
 ---
 
-## 十二、公共组件修改扩大回归范围
+## 十三、公共组件修改扩大回归范围
 
 修改以下内容时，必须搜索所有调用方并评估影响：
 
@@ -256,59 +190,13 @@
 
 ---
 
-## 十三、启动、检查和测试命令
+## 十四、启动、检查和测试命令
 
-### 后端（Docker 容器内）
-
-```bash
-# Django check
-docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw python manage.py check
-
-# 语法检查
-docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw python -m py_compile <file_path>
-
-# 生成迁移（必须指定 app）
-docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw python manage.py makemigrations <app_name>
-
-# 执行迁移
-docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw python manage.py migrate
-
-# 运行测试
-docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw python manage.py test apps.<app>.tests --noinput
-```
-
-> **注意**：Django test runner 创建 test_spug 可能因迁移顺序失败，可用 `--keepdb` 或手动创建 test_spug。`tdyw-test` 容器连的是 dev 库，**绝对禁止** `manage.py flush`。
-
-### 前端
-
-```bash
-cd spug_web
-npm install
-npm start          # 开发服务器
-npm run build      # 生产构建
-```
-
-### JS 语法验证（项目使用 legacy decorators）
-
-```bash
-# node --check 不支持 ESM import，需用 @babel/core 脚本
-# 必须加 @babel/plugin-proposal-decorators (legacy: true)
-# 必须加 @babel/plugin-proposal-class-properties
-```
-
-### Docker
-
-```bash
-# 重启容器使代码生效（Django dev server 不自动热更新）
-docker restart tdyw
-
-# bind mount 容器（tdyw-test）也需重启才能看到最新代码
-docker restart tdyw-test
-```
+后端行为测试必须在 Docker 容器和隔离测试数据库中执行；`makemigrations` 必须指定 app；`tdyw-test` 连接开发库，禁止执行 `manage.py flush`。后端、前端和 Docker 的具体命令以 `spug_api/AGENTS.md`、`spug_web/AGENTS.md` 及项目脚本为准。
 
 ---
 
-## 十四、最终汇报格式
+## 十五、最终汇报格式
 
 完成任务后，汇报必须包含：
 

@@ -715,3 +715,82 @@ class WorkOrderQueryViewTest(WorkOrderTestBase):
         self.submit_review(order.id)
         self.add_record(order.id, expect_error='只有执行中的工单可以追加处理记录')
         self.assertEqual(SystemWorkOrderHandlingRecord.objects.filter(work_order_id=order.id).count(), 1)
+
+
+class WorkOrderFaultDecouplingTest(WorkOrderTestBase):
+    """工单与故障解耦契约（2026-09 处理进展改版固化）：
+
+    - 工单完成（复核通过）不得自动将来源故障标记为恢复或关闭；
+    - 故障恢复仍需用户按故障流程显式确认（含本方测试通过后的确认）；
+    - 来源故障未恢复期间继续参与系统健康状态计算。
+    """
+
+    def create_work_order_from_fault(self, fault, client_token='tok-decouple-1'):
+        resp = make_client(self.admin).post(
+            f'/equipment-lifecycle/faults/{fault.id}/create-work-order/',
+            {'client_token': client_token, 'affects_system_operation': False},
+            content_type='application/json')
+        body = resp.json()
+        self.assertFalse(body.get('error'), body)
+        return SystemWorkOrder.objects.get(pk=body['data']['id'])
+
+    def test_completed_work_order_does_not_recover_or_close_fault(self):
+        """工单走完 复核通过 后：来源故障仍为处置中，未自动恢复/关闭。"""
+        fault = self.create_active_fault(self.system_a, impact='fault')
+        client = make_client(self.admin)
+        client.post(f'/equipment-lifecycle/faults/{fault.id}/start/',
+                    {}, content_type='application/json')
+        order = self.create_work_order_from_fault(fault)
+        self.assertEqual(order.source_type, 'fault')
+        self.assertEqual(order.source_fault_id, fault.id)
+        self.dispatch_order(order.id)
+        self.accept_order(order.id)
+        self.start_order(order.id)
+        self.add_record(order.id)
+        self.submit_review(order.id)
+        resp = make_client(self.admin).post(
+            f'{WORK_ORDER_URL}/{order.id}/review-pass/', {},
+            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        order.refresh_from_db()
+        self.assertEqual(order.status, SystemWorkOrder.STATUS_COMPLETED)
+        # 来源故障状态未被工单完成改动：仍处置中、无恢复数据
+        fault.refresh_from_db()
+        self.assertEqual(fault.status, SystemFault.STATUS_HANDLING)
+        self.assertIsNone(fault.recovered_at)
+        self.assertIsNone(fault.recovered_by_id)
+        self.assertEqual(fault.final_result, '')
+        # 未恢复故障继续参与系统健康状态计算（工单不影响运行 → 不产生维修中）
+        self.assertEqual(
+            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'fault')
+
+    def test_fault_can_add_progress_after_work_order_completed(self):
+        """工单完成后来源故障仍可继续追加处理进展并按原规则确认恢复。"""
+        fault = self.create_active_fault(self.system_a, impact='degraded')
+        client = make_client(self.admin)
+        client.post(f'/equipment-lifecycle/faults/{fault.id}/start/',
+                    {}, content_type='application/json')
+        order = self.create_work_order_from_fault(fault)
+        self.dispatch_order(order.id)
+        self.accept_order(order.id)
+        self.start_order(order.id)
+        self.add_record(order.id)
+        self.submit_review(order.id)
+        make_client(self.admin).post(f'{WORK_ORDER_URL}/{order.id}/review-pass/',
+                                     {}, content_type='application/json')
+        # 故障侧追加处理进展（送厂/返还/测试），然后人工确认恢复
+        resp = client.post(f'/equipment-lifecycle/faults/{fault.id}/handling-records/',
+                           {'content': '部件已返还，本方测试通过',
+                            'progress_type': 'test', 'result': '复测通过',
+                            'recorder_name': '复测人乙'},
+                           content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        resp = client.post(f'/equipment-lifecycle/faults/{fault.id}/recover/', {
+            'recovered_at': '2026-09-18 12:00',
+            'recover_confirm': '本方测试通过，业务确认恢复',
+        }, content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        fault.refresh_from_db()
+        self.assertEqual(fault.status, SystemFault.STATUS_RECOVERED)
+        self.assertEqual(
+            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'normal')

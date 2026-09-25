@@ -41,6 +41,11 @@ class FaultRecordsTab extends React.Component {
     dataIndex: 'occurred_at',
     width: 140,
   }, {
+    title: '故障登记人',
+    dataIndex: 'registrar_name',
+    width: 100,
+    render: (text) => text || '-',
+  }, {
     title: '故障现象',
     dataIndex: 'phenomenon',
     ellipsis: true,

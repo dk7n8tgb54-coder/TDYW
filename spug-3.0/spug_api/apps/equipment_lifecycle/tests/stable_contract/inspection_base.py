@@ -21,9 +21,10 @@ P_INS_ADD = 'equipment_lifecycle.inspection.add'
 P_INS_EDIT = 'equipment_lifecycle.inspection.edit'
 P_INS_SUBMIT = 'equipment_lifecycle.inspection.submit'
 P_INS_DEL = 'equipment_lifecycle.inspection.del'
-P_INS_HANDLE = 'equipment_lifecycle.inspection.handle_exception'
+# 旧处置权限码 equipment_lifecycle.inspection.handle_exception 已随巡检转故障/
+# 转工单功能下线（无视图引用），不再纳入测试夹具。
 ALL_INSPECTION_PERMS = [P_INS_VIEW, P_INS_ADD, P_INS_EDIT, P_INS_SUBMIT,
-                        P_INS_DEL, P_INS_HANDLE]
+                        P_INS_DEL]
 
 P_ITPL_VIEW = 'equipment_lifecycle.inspection_template.view'
 P_ITPL_ADD = 'equipment_lifecycle.inspection_template.add'

@@ -59,6 +59,7 @@ def fault_payload(system_obj, **overrides):
         'discovery': 'patrol',
         'level': 'major',
         'phenomenon': '发射机告警，无法正常工作',
+        'registrar_name': '登记人甲',
     }
     payload.update(overrides)
     return payload

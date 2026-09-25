@@ -120,4 +120,22 @@ export const FAULT_DISCOVERY_TEXT = FAULT_DISCOVERY_OPTIONS.reduce((acc, item) =
   return acc;
 }, {});
 
+// 故障处理进展类型（选填，与后端 SystemFaultHandlingRecord.PROGRESS_TYPE_CHOICES 一致）
+export const FAULT_PROGRESS_TYPE_OPTIONS = [
+  {value: 'check', label: '检查'},
+  {value: 'self_fix', label: '本方处理'},
+  {value: 'to_vendor', label: '送厂'},
+  {value: 'vendor_feedback', label: '厂家反馈'},
+  {value: 'return', label: '返还'},
+  {value: 'test', label: '测试'},
+  {value: 'watch', label: '持续观察'},
+  {value: 'other', label: '其他'},
+];
+
+export const FAULT_PROGRESS_TYPE_TEXT = FAULT_PROGRESS_TYPE_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
+
 export const API_PREFIX = '/api/equipment-lifecycle';

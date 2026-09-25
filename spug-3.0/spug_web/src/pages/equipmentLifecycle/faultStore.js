@@ -40,7 +40,7 @@ class FaultStore {
   @observable detail = {};
   @observable isDetailFetching = false;
 
-  // ========== 处置记录 ==========
+  // ========== 处理进展（原处置记录） ==========
   @observable handlingRecords = [];
   @observable isHandlingFetching = false;
 

@@ -3,22 +3,19 @@
 """值班巡检视图（今日巡检改造）。
 
 权限域（前后端一致，后端独立校验）：
-- equipment_lifecycle.inspection.view|add|edit|submit|del|handle_exception
+- equipment_lifecycle.inspection.view|add|edit|submit|del|export
 - equipment_lifecycle.inspection_template.view|add|edit|del
 
 业务规则（与 inspection_services 一致）：
 - 巡检单唯一范围 = 值班日 + 巡检模板，值班人员登记在单上；
 - 四个固定轮次（第四轮次日 06:30 归属前一值班日），不记录实际填写时间；
-- 巡检单不关联系统：异常转故障/工单时必须由用户选择系统并经后端校验
-  （存在/本租户/未停用），不能由设备名称推断系统；
-- 转换在 health_recalc_lock + 同一事务内完成，履历事件落目标系统，
-  来源关系双向可追溯，重复转换被拒绝或要求重新处置原因。
+- 巡检单只负责记录巡检结果、异常内容和现场处理，不提供转故障/转工单接口；
+  故障统一在故障管理模块创建，维修执行事项统一在工单管理模块创建；
+- 历史巡检异常的处置状态（已转故障/已转工单）由来源关系动态推导、只读展示。
 """
 import json as _json
 from datetime import datetime
 
-from django.db import transaction
-from django.utils import timezone
 from django.views.generic import View
 
 from libs import JsonParser, Argument, json_response, auth
@@ -30,22 +27,13 @@ from libs.export_utils import (
 from libs.tenant_utils import apply_tenant_filter
 from apps.logs.audit import record_audit_event
 
-from apps.equipment_lifecycle import event_services, fault_services, inspection_services
+from apps.equipment_lifecycle import inspection_services
 from apps.equipment_lifecycle import inspection_export
 from apps.equipment_lifecycle.inspection_services import InspectionValidationError
-from apps.equipment_lifecycle.models import (
-    InspectionDutySheet,
-    InspectionRecord,
-    InspectionTemplate,
-    LifecycleSystem,
-    SystemFault,
-    SystemWorkOrder,
-)
+from apps.equipment_lifecycle.models import InspectionDutySheet
 
 AUDIT_TARGET_INSPECTION_SHEET = 'el_inspection_sheet'
 AUDIT_TARGET_INSPECTION_TEMPLATE = 'el_inspection_template'
-AUDIT_TARGET_FAULT = 'el_system_fault'
-AUDIT_TARGET_WORK_ORDER = 'el_work_order'
 
 DATETIME_FORMATS = ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%dT%H:%M:%S',
                     '%Y-%m-%dT%H:%M', '%Y-%m-%d')
@@ -56,11 +44,6 @@ def _read_json_body(request):
         return _json.loads(request.body.decode('utf-8')) if request.body else {}
     except Exception:
         return None
-
-
-def _require_perm(user, code):
-    """显式单项权限校验（has_perms 为任一匹配语义，双权限动作分别调用）。"""
-    return user.has_perms([code])
 
 
 def _parse_dt(value):
@@ -182,26 +165,6 @@ class InspectionTemplateAvailableView(View):
         })
 
 
-class InspectionCandidateSystemsView(View):
-    """巡检转单目标系统候选项：本租户可用系统。
-
-    巡检单不关联系统，转换时才选择系统；本端点只需 inspection.view 权限，
-    供转故障/转工单弹窗使用（不依赖 fault.view 或 work_order.view）。
-    """
-
-    @auth('equipment_lifecycle.inspection.view')
-    def get(self, request):
-        systems = apply_tenant_filter(
-            LifecycleSystem.objects.all(), request.user
-        ).filter(is_active=True).order_by('system_code')
-        return json_response({'data': [{
-            'id': s.id,
-            'system_code': s.system_code,
-            'name': s.name,
-            'install_location': s.install_location,
-        } for s in systems]})
-
-
 class InspectionSheetView(View):
     """值班巡检单列表 / 创建（值班日 + 模板 唯一，client_token 幂等）。"""
 
@@ -271,7 +234,7 @@ def _filter_sheet_queryset(qs, form):
     if form.template:
         qs = qs.filter(template_id=form.template)
     if form.status:
-        if form.status not in ('draft', 'submitted', 'void'):
+        if form.status not in ('draft', 'submitted', 'returned', 'void'):
             return None, '状态筛选值不合法'
         qs = qs.filter(status=form.status)
     if form.keyword:
@@ -346,266 +309,33 @@ class InspectionSheetVoidView(View):
         return json_response(sheet.to_detail_view())
 
 
-class _InspectionConvertBaseView(View):
-    """巡检异常转故障/工单公共流程：锁 + 事务 + 重新校验 + 追溯。"""
+class InspectionSheetReturnView(View):
+    """超级管理员退回整改：已提交 → 已退回（原因必填）。
 
-    KIND = 'fault'
+    权限双层校验（后端独立，不依赖前端隐藏按钮）：
+    - @auth 要求巡检编辑权限（超管恒通过）；
+    - 视图内显式校验 request.user.is_supper，普通管理员/普通用户
+      即使持有权限码直接调用接口也被拒绝。
+    """
 
-    def _convert(self, request, sheet_pk, record_pk):
-        raise NotImplementedError
-
-    def post(self, request, sheet_pk, record_pk):
+    @auth('equipment_lifecycle.inspection.edit')
+    def post(self, request, pk):
+        if not request.user.is_supper:
+            return json_response(error='仅超级管理员可以退回整改巡检单')
+        body = _read_json_body(request) or {}
         try:
-            with fault_services.health_recalc_lock():
-                with transaction.atomic():
-                    return self._convert(request, sheet_pk, record_pk)
-        except fault_services.HealthRecalcLockTimeout as exc:
-            return json_response(error=str(exc))
+            sheet = inspection_services.return_sheet(
+                request.user, pk, body.get('return_reason'))
         except InspectionValidationError as exc:
-            return json_response(error=str(exc))
-
-
-def _validate_convert_system(request, body):
-    """转换目标系统校验：必须显式选择，且存在/本租户/未停用。
-
-    巡检单不关联系统，设备名称不能推断系统：系统只能由用户在转换时选择。
-    """
-    system_id = body.get('system')
-    if not system_id:
-        return None, '请选择系统（巡检单不关联系统，转换目标系统必须显式选择）'
-    system = apply_tenant_filter(LifecycleSystem.objects.all(), request.user).filter(
-        pk=system_id, is_active=True).first()
-    if not system:
-        return None, '系统不存在、已停用或无权限'
-    return system, None
-
-
-def _validate_affects_and_impact(body):
-    """转换默认"不影响系统运行"；明确选择影响运行时必须给出影响程度。"""
-    affects = bool(body.get('affects_system_operation'))
-    impact_status = (body.get('impact_status') or '').strip()
-    if affects:
-        if impact_status not in SystemFault.IMPACT_TEXT_MAP:
-            return False, '', '影响系统运行时必须选择影响程度（降级/故障/中断）'
-    else:
-        impact_status = ''
-    return affects, impact_status, None
-
-
-def _validate_occurred_at(body):
-    occurred_at = _parse_dt(body.get('occurred_at')) if body.get('occurred_at') else None
-    if body.get('occurred_at') and not occurred_at:
-        return None, '故障发生时间格式不正确'
-    if not occurred_at:
-        occurred_at = timezone.now()
-    if occurred_at > timezone.now():
-        return None, '故障发生时间不能晚于当前时间'
-    return occurred_at, None
-
-
-class InspectionRecordConvertToFaultView(_InspectionConvertBaseView):
-    """巡检异常明细转故障（明细上"转故障"操作）。
-
-    - 仅已提交巡检单中结果为"异常"的明细可以转；
-    - 系统必须由用户显式选择（后端校验存在/本租户/未停用）；
-    - 默认"部件故障但不影响系统运行"，明确选择影响运行时按影响程度参与计算；
-    - 同一来源关系保存在同一事务，履历事件落目标系统，双向可追溯。
-    """
-
-    @auth('equipment_lifecycle.inspection.handle_exception')
-    def post(self, request, sheet_pk, record_pk):
-        if not _require_perm(request.user, 'equipment_lifecycle.fault.add'):
-            return json_response(error='权限拒绝')
-        return super().post(request, sheet_pk, record_pk)
-
-    def _convert(self, request, sheet_pk, record_pk):
-        body = _read_json_body(request) or {}
-        record, sheet, error = inspection_services.get_record_for_convert(
-            request.user, sheet_pk, record_pk, for_update=True)
-        if error:
-            return json_response(error=error)
-        error = inspection_services.check_record_redispose(
-            record, request.user, body.get('re_dispose_reason'), 'fault')
-        if error:
-            return json_response(error=error)
-        system, error = _validate_convert_system(request, body)
-        if error:
-            return json_response(error=error)
-        affects, impact_status, error = _validate_affects_and_impact(body)
-        if error:
-            return json_response(error=error)
-        occurred_at, error = _validate_occurred_at(body)
-        if error:
-            return json_response(error=error)
-        discovery = body.get('discovery') or SystemFault.DISCOVERY_PATROL
-        if discovery not in SystemFault.DISCOVERY_TEXT_MAP:
-            return json_response(error='故障发现方式不合法')
-        level = body.get('level') or SystemFault.LEVEL_MINOR
-        if level not in SystemFault.LEVEL_TEXT_MAP:
-            return json_response(error='故障级别不合法')
-        phenomenon = (body.get('phenomenon') or '').strip()
-        if not phenomenon:
-            phenomenon = inspection_services.compose_abnormal_phenomenon(record, sheet)
-
-        fault = fault_services.create_fault_record(
-            tenant_id=request.user.tenant_id,
-            created_by=request.user,
-            system=system,
-            affects_system_operation=affects,
-            impact_status=impact_status,
-            occurred_at=occurred_at,
-            discovery=discovery,
-            level=level,
-            phenomenon=phenomenon,
-            source_type='inspection_record',
-            source_inspection_record=record,
-            request=request,
-        )
-        event_services.record_inspection_convert_event(
-            record, sheet, system, 'convert_to_fault', target_no=fault.fault_no,
-            detail={'re_dispose_reason': (body.get('re_dispose_reason') or '').strip()[:200]},
-            created_by=request.user)
-        record_audit_event(request, 'create', AUDIT_TARGET_FAULT,
-                           fault.id, fault.fault_no,
-                           after_value={
-                               'action': 'convert_from_inspection_record',
-                               'sheet_no': sheet.sheet_no,
-                               'inspection_record_id': record.id,
-                               'item_name': record.item_name_snapshot,
-                               'status': fault.status,
-                               're_dispose_reason': (
-                                   body.get('re_dispose_reason') or '').strip()[:200],
-                           })
-        return json_response(fault.to_detail_view())
-
-
-def _validate_order_form(form):
-    """工单转换载荷校验：类型/优先级/布尔与计划时间区间。返回 (start, end, error)。"""
-    if form.work_type not in SystemWorkOrder.TYPE_TEXT_MAP:
-        return None, None, '工单类型不合法'
-    if form.priority not in SystemWorkOrder.PRIORITY_TEXT_MAP:
-        return None, None, '优先级不合法'
-    if not isinstance(form.affects_system_operation, bool):
-        return None, None, '作业期间是否影响系统运行必须为布尔值'
-    planned_start = _parse_dt(form.planned_start) if form.planned_start else None
-    planned_end = _parse_dt(form.planned_end) if form.planned_end else None
-    if form.planned_start and not planned_start:
-        return None, None, '计划开始时间格式不正确'
-    if form.planned_end and not planned_end:
-        return None, None, '计划结束时间格式不正确'
-    if planned_start and planned_end and planned_end < planned_start:
-        return None, None, '计划结束时间不能早于计划开始时间'
-    return planned_start, planned_end, None
-
-
-def _create_inspection_work_order(request, record, sheet, system, form,
-                                  client_token, planned_start, planned_end):
-    """创建巡检异常转出的维修工单，并落巡检转换履历与审计事件。"""
-    from apps.equipment_lifecycle import work_order_services
-    title = (form.title or '').strip()
-    if not title:
-        title = f'{record.item_name_snapshot} 巡检异常维修'[:100]
-    work_requirement = (form.work_requirement or '').strip()
-    if not work_requirement:
-        work_requirement = inspection_services.compose_abnormal_phenomenon(record, sheet)
-    order = work_order_services.create_work_order_record(
-        tenant_id=request.user.tenant_id,
-        created_by=request.user,
-        title=title,
-        work_type=form.work_type,
-        priority=form.priority,
-        source_type='inspection_record',
-        source_inspection_record=record,
-        source_no=sheet.sheet_no,
-        system=system,
-        affects_system_operation=form.affects_system_operation,
-        work_location=(form.work_location or '').strip(),
-        work_requirement=work_requirement[:2000],
-        work_steps=(form.work_steps or '').strip()[:2000],
-        material_note=(form.material_note or '').strip()[:500],
-        planned_start=planned_start,
-        planned_end=planned_end,
-        client_token=client_token,
-        request=request,
-    )
-    event_services.record_inspection_convert_event(
-        record, sheet, system, 'convert_to_work_order', target_no=order.work_no,
-        detail={'re_dispose_reason': (form.re_dispose_reason or '').strip()[:200]},
-        created_by=request.user)
-    record_audit_event(request, 'create', AUDIT_TARGET_WORK_ORDER,
-                       order.id, order.work_no,
-                       after_value={
-                           'action': 'convert_from_inspection_record',
-                           'sheet_no': sheet.sheet_no,
-                           'inspection_record_id': record.id,
-                           'item_name': record.item_name_snapshot,
-                           'status': order.status,
-                           're_dispose_reason': (
-                               form.re_dispose_reason or '').strip()[:200],
-                       })
-    return order
-
-
-class InspectionRecordConvertToWorkOrderView(_InspectionConvertBaseView):
-    """巡检异常明细直接转工单（明细上"转工单"操作）。
-
-    - 系统必须由用户显式选择；作业期间影响系统运行默认"否"；
-    - 幂等：同 client_token 视为同一请求返回已有工单；
-    - 重复转换拒绝，目标已作废后重新处置须填写原因。
-    """
-
-    @auth('equipment_lifecycle.inspection.handle_exception')
-    def post(self, request, sheet_pk, record_pk):
-        if not _require_perm(request.user, 'equipment_lifecycle.work_order.add'):
-            return json_response(error='权限拒绝')
-        return super().post(request, sheet_pk, record_pk)
-
-    def _convert(self, request, sheet_pk, record_pk):
-        from apps.equipment_lifecycle import work_order_services
-        body = _read_json_body(request) or {}
-        record, sheet, error = inspection_services.get_record_for_convert(
-            request.user, sheet_pk, record_pk, for_update=True)
-        if error:
-            return json_response(error=error)
-        client_token = (body.get('client_token') or '').strip()[:64]
-        existing = work_order_services.find_existing_by_token(
-            request.user.tenant_id, client_token,
-            source_type='inspection_record', source_object=record)
-        if existing:
-            return json_response(existing.to_detail_view())
-        error = inspection_services.check_record_redispose(
-            record, request.user, body.get('re_dispose_reason'), 'work_order')
-        if error:
-            return json_response(error=error)
-        system, error = _validate_convert_system(request, body)
-        if error:
-            return json_response(error=error)
-        form, error = JsonParser(
-            Argument('title', type=str, required=False, default=''),
-            Argument('work_type', type=str, required=False,
-                     default=SystemWorkOrder.TYPE_REPAIR),
-            Argument('priority', type=str, required=False,
-                     default=SystemWorkOrder.PRIORITY_NORMAL),
-            Argument('affects_system_operation', type=bool, required=False,
-                     default=False),
-            Argument('work_location', type=str, required=False, default=''),
-            Argument('work_requirement', type=str, required=False, default=''),
-            Argument('work_steps', type=str, required=False, default=''),
-            Argument('material_note', type=str, required=False, default=''),
-            Argument('planned_start', type=str, required=False, default=None),
-            Argument('planned_end', type=str, required=False, default=None),
-            Argument('client_token', type=str, required=False, default=''),
-            Argument('re_dispose_reason', type=str, required=False, default=''),
-        ).parse(body)
-        if error:
-            return json_response(error=error)
-        planned_start, planned_end, error = _validate_order_form(form)
-        if error:
-            return json_response(error=error)
-        order = _create_inspection_work_order(
-            request, record, sheet, system, form, client_token,
-            planned_start, planned_end)
-        return json_response(order.to_detail_view())
+            return _error(exc)
+        # 状态机保证退回前必为 submitted，before/after 一并留痕
+        record_audit_event(request, 'update', AUDIT_TARGET_INSPECTION_SHEET,
+                           sheet.id, sheet.sheet_no,
+                           before_value={'status': 'submitted'},
+                           after_value={'action_kind': 'return_for_rectification',
+                                        'status': sheet.status,
+                                        'return_reason': sheet.return_reason})
+        return json_response(sheet.to_detail_view())
 
 
 # ----------------------------------------------------------------------

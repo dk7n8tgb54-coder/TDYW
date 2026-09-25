@@ -6,60 +6,7 @@
 
 ## 一、技术栈与目录结构
 
-```
-spug_web/
-├── src/
-│   ├── routes.js          # 路由 + 菜单定义（含权限编码 auth 字段）
-│   ├── App.js             # 根组件（Layout + 路由渲染）
-│   ├── index.js           # 入口（MobX Provider + Router）
-│   ├── gStore.js          # 全局 Store（HistoryStore 等）
-│   ├── pages/             # 业务页面
-│   │   ├── home/          # 工作台
-│   │   ├── dataAnalysis/  # 数据分析
-│   │   ├── departmentDutyLog/ # 部门值班日志
-│   │   ├── radioLicense/  # 无线电台执照
-│   │   ├── stationFrequencyApproval/ # 台站频率批复
-│   │   ├── contractAgreement/ # 合同协议
-│   │   ├── document/      # 资料库/文档管理（含党建）
-│   │   ├── regulation/    # 规章管理
-│   │   ├── runlog/        # 跨日事项跟踪
-│   │   ├── device/        # 设备台账/履历
-│   │   ├── upgrade/       # 系统升级
-│   │   ├── exec/fault/    # 故障管理
-│   │   ├── interference/  # 干扰管理
-│   │   ├── duty/          # 值班日志
-│   │   ├── system/        # 系统管理（账户/角色/设置/登录日志/审计/告警/租户）
-│   │   ├── reminder/      # 提醒事项
-│   │   └── welcome/       # 欢迎页
-│   ├── components/         # 公共组件
-│   │   ├── AuthButton.js  # 权限按钮（无权限返回 null）
-│   │   ├── AuthCard.js    # 权限卡片
-│   │   ├── AuthDiv.js     # 权限容器
-│   │   ├── AuthFragment.js # 权限片段
-│   │   ├── AttachmentManager.js # 附件管理器
-│   │   ├── AttachmentUploadArea.js # 附件上传区域
-│   │   ├── AttachmentCountBadge.js # 附件计数徽章
-│   │   ├── ExpirationReminderNotification.js # 到期提醒通知
-│   │   ├── SearchForm.js  # 搜索表单
-│   │   ├── FilterBar.js   # 过滤栏
-│   │   ├── TableCard.js   # 表格卡片
-│   │   ├── ExportButton.js # 导出按钮
-│   │   ├── Breadcrumb.js  # 面包屑
-│   │   ├── Link.js / LinkButton.js # 链接组件
-│   │   ├── StatisticsCard.js # 统计卡片
-│   │   ├── ACEditor.js    # 代码编辑器
-│   │   ├── Action.js      # 操作按钮组
-│   │   └── NotFound.js    # 404
-│   └── libs/              # 公共工具
-│       ├── http.js        # Axios 实例 + 拦截器
-│       ├── history.js     # 路由 history
-│       ├── router.js      # 路由工具
-│       ├── functools.js   # 权限判断、X_TOKEN、日期工具
-│       ├── systemFolderContext.js # 党建 system_folder 上下文
-│       └── index.js       # 统一导出
-├── package.json
-└── webpack.config.js
-```
+前端按 `pages/` 业务页面、`components/` 公共组件、`libs/` 公共工具和 `layout/` 布局组织；`routes.js` 管理路由与菜单，`gStore.js` 保存跨页面状态，`http.js` 负责统一请求处理。具体目录以源码为准。
 
 ### 关键约束
 
@@ -80,36 +27,7 @@ spug_web/
 - `icon` / `title`：菜单图标和标题
 - `child`：子路由（嵌套菜单）
 
-### 权限编码映射
-
-| 前端路由 | auth 权限编码 | 后端应用 |
-|---|---|---|
-| `/home` | `dashboard.dashboard.view` | home |
-| `/data-analysis` | `data_analysis.*.view`（多选） | data_analysis |
-| `/department-duty-log` | `department_duty_log.department_duty_log.view` | department_duty_log |
-| `/radio-license` | `radio_license.license.view` | radio_license |
-| `/station-frequency-approval` | `radio_license.approval.view` | radio_license |
-| `/contract-agreement` | `contract_agreement.agreement.view` | contract_agreement |
-| `/document` | `document.document.view` | document |
-| `/document/party-building-documents` | `document.party_building_document.view` | document |
-| `/regulation` | `document.regulation.view` | regulation |
-| `/runlog` | `runlog.runlog.view` | runlog |
-| `/device/device_resume` | `device.device_resume.view` | device |
-| `/device/device_history` | `device.device_history.view` | device |
-| `/upgrade` | `upgrade.upgrade.view` | upgrade |
-| `/exec/fault/record` | `fault.faultrecord.view` | fault |
-| `/exec/fault/part` | `fault.faultpart.view` | fault |
-| `/interference` | `interference.interference.view` | interference |
-| `/duty` | `duty.duty.view` | duty |
-| `/system/announcement` | `home.announcement.view` | home |
-| `/reminder` | `home.reminder.view` | reminder |
-| `/maintenance/audit` | `system.audit.view` | logs |
-| `/maintenance/alert` | `system.alert.view` | alert |
-| `/system/account` | `system.account.view` | account |
-| `/system/role` | `system.role.view` | account |
-| `/system/setting` | `system.setting.view` | setting |
-| `/system/login` | `system.login.view` | account |
-| `/system/tenant` | `system.tenant.view` | account |
+路由权限的事实来源是 `src/routes.js` 与后端权限定义，不在本文件维护完整映射表。新增或修改路由时，必须同步检查 `auth` 编码、后端权限定义和数据库角色权限分配。
 
 ### 权限规则
 
@@ -262,13 +180,6 @@ spug_web/
 
 ---
 
-## 十、常见反模式（禁止）
+## 十、实现检查
 
-1. **乐观更新**：未等后端返回就更新 UI 状态。
-2. **重复提示**：HTTP 拦截器已提示后业务代码再 `message.error()`。
-3. **卸载后回写**：组件卸载后异步请求回调仍 `setState`。
-4. **旧请求覆盖新状态**：分页/搜索切换时旧请求覆盖新数据。
-5. **权限仅前端**：只隐藏按钮不做后端校验。
-6. **Modal 用 `open`**：antd 4.x 用 `visible`。
-7. **Form 不 resetFields**：编辑弹窗关闭后不重置，下次打开残留旧数据。
-8. **loading 不恢复**：请求失败时 `loading` 卡在 `true`。
+除前述请求和状态规则外，禁止使用 antd 4.x 的 `Modal/Drawer open` 属性；编辑表单关闭后必须 `resetFields()`；请求失败必须恢复 `loading`。权限仍必须由后端独立校验。

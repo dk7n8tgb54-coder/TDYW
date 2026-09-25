@@ -18,13 +18,16 @@
  *   （一键正常/记录本轮）放在对应轮次列表头内部（吸顶），不再有顶部轮次选择区；
  * - 轮次状态持久化在后端 recorded_rounds：未记录（可编辑，可带"有草稿"提示）、
  *   已记录（只读、按钮隐藏、后端拒绝再改）、已提交/已作废（整单只读）；
+ * - 已退回整改单（超管退回）：整单可改（含已记录轮次），打开时以服务端已存
+ *   记录回显各轮次填写值（与本地草稿合并、本地优先），整改后重新提交；
  * - 底色按列：有草稿的未记录轮次列浅黄、草稿单中已记录轮次列浅蓝、异常浅红；
  * - "一键正常"只填充当前轮次未填写的检查项，不覆盖已填内容（含异常与现场处理）；
  * - "记录本轮"只提交当前轮次（后端单轮契约，version 乐观锁），请求期间按钮
  *   loading 且其余轮次记录按钮禁用，失败时轮次保持可编辑；
  * - 草稿按轮次保存在 localStorage（{values: {r1: {...}}}, 旧扁平格式兼容读取），
  *   切换轮次不丢内容；已记录轮次草稿自动清理；空白草稿不入存储；
- * - 巡检单不关联系统：异常转故障/工单时才在转换弹窗中选择系统（必填）。
+ * - 巡检单只记录巡检结果、异常内容和现场处理：历史已转故障/已转工单的处置
+ *   状态只读展示（转单功能已下线，故障/工单在对应模块创建，无跳转或创建入口）。
  *
  * 结构：数据与动作（useWorksheetDraft / useWorksheetActions）在本文件，
  * 展示卡片拆分在 WorksheetCards.js。
@@ -35,9 +38,8 @@ import {Card, Empty, Input, Modal, message} from 'antd';
 import moment from 'moment';
 import {AuthDiv, Breadcrumb} from 'components';
 import store from './store';
-import {ConvertToFaultModal, ConvertToWorkOrderModal} from './ConvertModals';
 import {HeaderCard, SheetMatrixCard} from './WorksheetCards';
-import {NORMAL_VALUE, ROUND_TEXT} from './constants';
+import {EDITABLE_SHEET_STATUSES, NORMAL_VALUE, ROUND_TEXT} from './constants';
 
 const ROUND_KEYS = ['r1', 'r2', 'r3', 'r4'];
 
@@ -154,6 +156,21 @@ function confirmVoidSheet(sheet) {
   });
 }
 
+/** 已退回整改单：由服务端已存记录构建按轮次初始填写值（原有填写内容回显，
+ *  key 与填写态一致 = t_{模板项id} / m_{client_key}）。 */
+function buildValuesFromRecords(sheet) {
+  const values = {};
+  (sheet.records || []).forEach(r => {
+    const key = r.template_item ? `t_${r.template_item}` : `m_${r.client_key || r.id}`;
+    values[r.round_no] = values[r.round_no] || {};
+    values[r.round_no][key] = {
+      value_text: r.value_text || '',
+      onsite_action: r.onsite_action || '',
+    };
+  });
+  return values;
+}
+
 /** 加载值班日+模板对应的当日巡检单：有则拉取详情，无则清空详情等"开始巡检"。 */
 function loadDutySheet(dateStr, tplId, mountedRef) {
   return store.fetchSheets({duty_date: dateStr, template: tplId, page_size: 1})
@@ -228,6 +245,19 @@ function useWorksheetDraft() {
     // 草稿对账：已记录轮次草稿清理；非草稿单（已提交/已作废）内容全部只读且暂存无意义
     const sheet = store.detail;
     if (!sheet) return;
+    if (sheet.status === 'returned') {
+      // 已退回整改单：以服务端已存记录为底、本地未提交草稿优先合并，
+      // 原有填写内容回显且不因退回清空（recorded_rounds 不限制整改）
+      setValues(prev => {
+        const base = buildValuesFromRecords(sheet);
+        const merged = {};
+        ROUND_KEYS.forEach(r => {
+          merged[r] = {...(base[r] || {}), ...(prev[r] || {})};
+        });
+        return merged;
+      });
+      return;
+    }
     if (sheet.status !== 'draft') {
       setValues({});
       localStorage.removeItem(storageKey());
@@ -286,7 +316,6 @@ function useWorksheetDraft() {
 
 /** 草稿动作：建单/人员变更/按轮次一键正常/按轮次记录本轮/提交，以及填写更新。 */
 function useWorksheetActions(draft, template, sheet) {
-  const [convert, setConvert] = useState(null);
   const [recordingRound, setRecordingRound] = useState(null);
   const {mountedRef} = draft;
 
@@ -301,7 +330,8 @@ function useWorksheetActions(draft, template, sheet) {
 
   function handlePersonsChange(vals) {
     draft.setPersons(vals);
-    if (sheet && sheet.status === 'draft') {
+    // 草稿/已退回整改单均可补改值班人员
+    if (sheet && EDITABLE_SHEET_STATUSES.includes(sheet.status)) {
       store.saveSheet(sheet.id, {
         version: sheet.version,
         persons: buildPersonPayloadRows(vals, store.users),
@@ -312,9 +342,10 @@ function useWorksheetActions(draft, template, sheet) {
   function handleFillNormal(round) {
     // 一键正常：只作用于指定轮次这一列，且只填充"尚未填写"的选择型检查项；
     // 已填写内容（含"不正常"与现场处理）一律不覆盖，故无需覆盖确认；
-    // 数值/文本项始终人工填写；已记录轮次不执行。
-    if (sheet && sheet.status !== 'draft') return;
-    if (sheet && recordedRounds(sheet).includes(round)) return;
+    // 数值/文本项始终人工填写；草稿单已记录轮次不执行（退回整改单不限制）。
+    if (sheet && !EDITABLE_SHEET_STATUSES.includes(sheet.status)) return;
+    if (sheet && sheet.status === 'draft' &&
+        recordedRounds(sheet).includes(round)) return;
     const {roundValues, filled, untouched, choiceCount} = computeFillNormal(
       template, draft.values[round] || {});
     if (!choiceCount) {
@@ -332,12 +363,13 @@ function useWorksheetActions(draft, template, sheet) {
   }
 
   function handleRecordRound(round) {
-    if (!sheet || sheet.status !== 'draft') {
+    if (!sheet || !EDITABLE_SHEET_STATUSES.includes(sheet.status)) {
       message.warning('请先开始巡检（生成草稿巡检单）');
       return;
     }
     if (recordingRound) return;   // 已有轮次在记录中：防重复提交
-    if (recordedRounds(sheet).includes(round)) {
+    if (sheet.status === 'draft' && recordedRounds(sheet).includes(round)) {
+      // 仅草稿单拒绝重复记录；退回整改单允许重改已记录轮次
       message.warning(`「${ROUND_TEXT[round]}」轮次已记录，不能再次修改`);
       return;
     }
@@ -386,7 +418,7 @@ function useWorksheetActions(draft, template, sheet) {
   }
 
   return {
-    convert, setConvert, recordingRound,
+    recordingRound,
     handleStart, handlePersonsChange, handleFillNormal, handleRecordRound, handleSubmit,
     updateValue,
   };
@@ -430,11 +462,6 @@ function InspectionWorksheet() {
     confirmVoidSheet(sheet);
   }
 
-  function closeConvert() {
-    actions.setConvert(null);
-    if (sheet) store.fetchSheet(sheet.id).catch(() => {});
-  }
-
   return (
     <AuthDiv>
       <Breadcrumb>
@@ -457,20 +484,14 @@ function InspectionWorksheet() {
       {sheet && (
         <SheetMatrixCard
           sheet={sheet} template={template}
-          recordedRounds={recordedRounds(sheet)} editable={sheet.status === 'draft'}
+          recordedRounds={recordedRounds(sheet)}
+          editable={EDITABLE_SHEET_STATUSES.includes(sheet.status)}
           values={draft.values} recordingRound={actions.recordingRound}
           onValueChange={actions.updateValue}
           onFillNormal={actions.handleFillNormal} onRecord={actions.handleRecordRound}
-          onSubmit={actions.handleSubmit} onVoid={handleVoid}
-          onConvert={actions.setConvert}/>
+          onSubmit={actions.handleSubmit} onVoid={handleVoid}/>
       )}
       {!sheet && !template && <Empty description="请选择巡检模板开始今日巡检"/>}
-      {actions.convert && actions.convert.type === 'fault' && (
-        <ConvertToFaultModal visible record={actions.convert.record} onClose={closeConvert}/>
-      )}
-      {actions.convert && actions.convert.type === 'work_order' && (
-        <ConvertToWorkOrderModal visible record={actions.convert.record} onClose={closeConvert}/>
-      )}
       <style>{`
         .el-ins-matrix-wrap { overflow: auto; max-height: calc(100vh - 300px); }
         .el-ins-matrix th, .el-ins-matrix td { padding: 5px 8px; }
@@ -488,14 +509,17 @@ function InspectionWorksheet() {
         }
         .el-ins-matrix thead th.el-ins-col-project,
         .el-ins-matrix thead th.el-ins-col-content { z-index: 3; background: #fafafa; }
-        /* 轮次列：宽度覆盖表头两按钮一行，避免操作后列宽跳动；窄屏横向滚动 */
+        /* 轮次列固定宽度：标题行（名称+状态+有草稿占位）与按钮行均不超过
+           200px，列宽不随 填写中/有草稿/已记录 状态切换而跳动 */
         .el-ins-matrix th.el-ins-col-round, .el-ins-matrix td.el-ins-round-cell {
-          min-width: 186px; max-width: 230px;
+          width: 200px; min-width: 200px;
         }
         .el-ins-round-head { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+        .el-ins-round-title { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
         .el-ins-round-name { font-weight: 600; }
         .el-ins-round-status { font-weight: normal; font-size: 12px; color: #595959; }
-        .el-ins-round-draft-tag { margin-left: 6px; color: #d48806; }
+        .el-ins-round-status-recorded { color: #1890ff; }
+        .el-ins-round-draft-tag { font-weight: normal; font-size: 12px; color: #d48806; }
         .el-ins-round-actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
         .el-ins-cell-draft { background: #fffbe6; }
         .el-ins-cell-recorded { background: #f0f7ff; }

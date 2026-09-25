@@ -10,6 +10,11 @@
  * - 首报表单精简（2026-09）：只保留 故障系统/影响系统运行(+程度)/发生时间/
  *   故障部位/设备(选填)/故障现象；发现方式缺省"人工报告"、故障级别缺省
  *   "一般"由后端写入，不再出现在表单；
+ * - 故障登记人（2026-09）：手动输入的登记人姓名（与今日巡检值班人员同款
+ *   输入：输入姓名后回车确认，可多个），实际添加这条故障记录的人，不代表
+ *   负责后续跟进或维修责任（姓名为文本快照，不关联用户账号）；仅新增时
+ *   必填，不预填任何默认姓名；编辑不出现在表单，后端保留原登记人
+ *   （created_by 登录账号仅审计）；
  * - 历史设备字段（影响范围/故障位置/对象型号/序列号）仅详情展示：编辑提交
  *   不携带，后端保留原值；原因分析仅在编辑（处置阶段）可填；
  * - 默认"部件故障但不影响系统运行"：只有明确开启"影响系统运行"时才需要
@@ -124,6 +129,28 @@ function OccurrenceFields() {
   );
 }
 
+// 故障登记人：手动输入姓名（输入后回车确认，可多个，顿号分隔提交），只表示
+// 实际添加这条故障记录的人，不代表负责后续跟进、不承担维修责任；
+// 与登录账号审计字段独立；必填、不预填默认姓名。
+// 仅新增可填，编辑不渲染（后端保留原登记人）
+function RegistrarFields({isEdit}) {
+  if (isEdit) return null;
+  return (
+    <Form.Item
+      name="registrar_names"
+      label="故障登记人"
+      rules={[{required: true, type: 'array', message: '请输入姓名后回车确认'}]}
+    >
+      {/* open=false：仅手输姓名（回车/失焦添加），与今日巡检值班人员输入一致 */}
+      <Select
+        mode="tags"
+        open={false}
+        placeholder="输入姓名后回车确认（可多个）"
+      />
+    </Form.Item>
+  );
+}
+
 function FaultObjectFields({isEdit}) {
   return (
     <>
@@ -172,7 +199,14 @@ const FaultForm = observer(function FaultForm() {
       const payload = {
         ...values,
         occurred_at: values.occurred_at ? values.occurred_at.format('YYYY-MM-DD HH:mm') : null,
+        // 标签数组以顿号拼接为登记人姓名文本（多人）
+        registrar_name: (values.registrar_names || []).join('、'),
       };
+      delete payload.registrar_names;
+      if (isEdit) {
+        // 登记人仅新增可填：编辑不提交该键，后端保留原登记人
+        delete payload.registrar_name;
+      }
       setLoading(true);
       store.submitForm(payload)
         .then(() => {
@@ -203,6 +237,7 @@ const FaultForm = observer(function FaultForm() {
       >
         <SystemImpactFields systems={store.systems}/>
         <OccurrenceFields/>
+        <RegistrarFields isEdit={isEdit}/>
         <FaultObjectFields isEdit={isEdit}/>
       </Form>
     </Modal>

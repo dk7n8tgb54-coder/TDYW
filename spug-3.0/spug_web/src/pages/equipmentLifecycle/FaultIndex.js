@@ -71,6 +71,11 @@ class FaultTable extends React.Component {
     dataIndex: 'phenomenon',
     ellipsis: true,
   }, {
+    title: '故障登记人',
+    dataIndex: 'registrar_name',
+    width: 100,
+    render: (text) => text || '-',
+  }, {
     title: '处置负责人',
     dataIndex: 'handler_name',
     width: 100,

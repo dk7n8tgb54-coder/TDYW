@@ -5,14 +5,18 @@
  */
 /**
  * 设备全生命周期——故障详情抽屉（步骤 3.1，单系统简化）。
- * 基本信息 / 处置记录时间线（追加式，支持更正留痕）/ 恢复确认 / 关闭 / 作废。
+ * 基本信息 / 处理进展时间线（追加式，支持更正留痕）/ 关联工单 / 恢复确认 / 关闭 / 作废。
+ * 处理进展记录故障整体跟进（检查、本方处理、送厂、厂家反馈、返还、测试、持续观察等），
+ * 关联工单只用于需要派发、执行和复核的本方任务，生成工单始终可选；
+ * 人员展示口径：故障登记人/进展记录人均为手动输入姓名（实际登记/记录的人，
+ * 不关联用户账号），均不代表负责整个故障（处置负责人独立展示）；
  * 不再提供"受影响系统"页签；所有动作成功后重新获取真实数据；
  * 错误提示由 http 拦截器统一弹出，不重复提示。
  */
 import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react';
 import { Drawer, Tabs, Descriptions, Tag, Spin, Button, Timeline, Modal, Form,
-  Input, DatePicker, Popconfirm, message, Empty } from 'antd';
+  Input, DatePicker, Select, Popconfirm, message, Empty } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import { AuthButton } from 'components';
@@ -22,7 +26,7 @@ import { GenerateWorkOrderButton, FaultWorkOrdersTab } from './workOrder/FaultWo
 import { LEDGER_TYPE_PATH } from './workOrder/constants';
 import {
   PERM, FAULT_STATUS_TEXT, FAULT_STATUS_COLOR, FAULT_IMPACT_TEXT, FAULT_IMPACT_COLOR,
-  FAULT_LEVEL_TEXT, FAULT_DISCOVERY_TEXT,
+  FAULT_LEVEL_TEXT, FAULT_DISCOVERY_TEXT, FAULT_PROGRESS_TYPE_OPTIONS,
 } from './constants';
 
 const {TextArea} = Input;
@@ -61,6 +65,7 @@ class FaultDetail extends React.Component {
         <Descriptions.Item label="发生时间">{d.occurred_at}</Descriptions.Item>
         <Descriptions.Item label="发现方式">{FAULT_DISCOVERY_TEXT[d.discovery]}</Descriptions.Item>
         <Descriptions.Item label="级别">{FAULT_LEVEL_TEXT[d.level]}</Descriptions.Item>
+        <Descriptions.Item label="故障登记人">{d.registrar_name || '-'}</Descriptions.Item>
         <Descriptions.Item label="处置负责人">{d.handler_name || '-'}</Descriptions.Item>
         <Descriptions.Item label="故障现象" span={2}>{d.phenomenon}</Descriptions.Item>
         <Descriptions.Item label="影响范围" span={2}>{d.impact_scope || '-'}</Descriptions.Item>
@@ -160,7 +165,7 @@ class FaultDetail extends React.Component {
             <TabPane tab="基本信息" key="basic">
               {this.renderBasic()}
             </TabPane>
-            <TabPane tab="处置记录" key="handling">
+            <TabPane tab="处理进展" key="handling">
               <HandlingTimeline editable={editable}/>
             </TabPane>
             <TabPane tab="关联工单" key="workOrders">
@@ -339,6 +344,10 @@ function CloseModal({visible, onClose}) {
 function HandlingTimeline({editable}) {
   return (
     <div>
+      <p style={{color: '#999', marginTop: 0}}>
+        处理进展记录故障的整体跟进（检查、临时措施、送厂、厂家反馈、返还、测试、持续观察等）；
+        需要派发、执行和复核的本方任务请使用"关联工单"，生成工单为可选操作。
+      </p>
       {editable && (
         <div style={{marginBottom: 12}}>
           <AddHandlingButton/>
@@ -351,7 +360,13 @@ function HandlingTimeline({editable}) {
               <Timeline.Item key={record.id}>
                 <div>
                   <b>{record.handled_at}</b>
-                  <span style={{marginLeft: 8}}>处置人：{record.handler_name}</span>
+                  {/* 进展记录人优先手动姓名；历史记录无姓名时回落操作账号用户名 */}
+                  <span style={{marginLeft: 8}}>
+                    进展记录人：{record.recorder_name || record.handler_name || '-'}
+                  </span>
+                  {record.progress_type_text && (
+                    <Tag style={{marginLeft: 8}}>{record.progress_type_text}</Tag>
+                  )}
                   {record.result && <Tag style={{marginLeft: 8}}>{record.result}</Tag>}
                   {editable && (
                     <CorrectButton record={record}/>
@@ -367,7 +382,7 @@ function HandlingTimeline({editable}) {
             ))}
           </Timeline>
         ) : (
-          <Empty description="暂无处置记录" image={Empty.PRESENTED_IMAGE_SIMPLE}/>
+          <Empty description="暂无处理进展" image={Empty.PRESENTED_IMAGE_SIMPLE}/>
         )}
       </Spin>
     </div>
@@ -384,7 +399,7 @@ function AddHandlingButton() {
         icon={<PlusOutlined/>}
         onClick={() => setVisible(true)}
       >
-        添加处置记录
+        添加处理进展
       </AuthButton>
       <HandlingModal visible={visible} onClose={() => setVisible(false)}/>
     </span>
@@ -421,10 +436,21 @@ function HandlingModal({visible, record, onClose}) {
     if (visible) {
       form.resetFields();
       if (isCorrect) {
+        // 更正时回显原进展记录人（历史记录无姓名回落操作账号用户名）
+        const prevRecorder = record.recorder_name || record.handler_name || '';
         form.setFieldsValue({
           handled_at: record.handled_at ? moment(record.handled_at, 'YYYY-MM-DD HH:mm') : null,
+          recorder_names: prevRecorder ? prevRecorder.split('、').filter(Boolean) : [],
+          progress_type: record.progress_type || undefined,
           content: record.content,
           result: record.result,
+        });
+      } else {
+        // 新增进展：时间默认当前时间；进展记录人为手动输入姓名（回车确认，
+        // 可多个），不预填默认姓名；进展类型/处理结果选填
+        form.setFieldsValue({
+          handled_at: moment(),
+          recorder_names: [],
         });
       }
     }
@@ -433,7 +459,7 @@ function HandlingModal({visible, record, onClose}) {
   return (
     <Modal
       visible={visible}
-      title={isCorrect ? '更正处置记录' : '添加处置记录'}
+      title={isCorrect ? '更正处理进展' : '添加处理进展'}
       confirmLoading={loading}
       onCancel={onClose}
       onOk={() => {
@@ -441,6 +467,9 @@ function HandlingModal({visible, record, onClose}) {
           setLoading(true);
           const payload = {
             handled_at: values.handled_at.format('YYYY-MM-DD HH:mm'),
+            // 标签数组以顿号拼接为记录人姓名文本（多人）
+            recorder_name: (values.recorder_names || []).join('、'),
+            progress_type: values.progress_type || '',
             content: values.content,
             result: values.result || '',
           };
@@ -449,7 +478,7 @@ function HandlingModal({visible, record, onClose}) {
                 correction_reason: values.correction_reason})
             : store.addHandlingRecord(payload);
           request.then(() => {
-            message.success(isCorrect ? '处置记录已更正' : '处置记录已添加');
+            message.success(isCorrect ? '处理进展已更正' : '处理进展已添加');
             setLoading(false);
             onClose();
           }).catch(() => setLoading(false));
@@ -459,20 +488,44 @@ function HandlingModal({visible, record, onClose}) {
       <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}>
         <Form.Item
           name="handled_at"
-          label="处置时间"
-          rules={[{required: true, message: '请选择处置时间'}]}
+          label="进展时间"
+          rules={[{required: true, message: '请选择进展时间'}]}
         >
           <DatePicker showTime={{format: 'HH:mm'}} format="YYYY-MM-DD HH:mm" style={{width: '100%'}}/>
         </Form.Item>
+        {/* 进展记录人：手动输入姓名（输入后回车确认，可多个，顿号分隔提交），
+            只表示实际添加本条进展的人，不代表负责整个故障；必填、不预填 */}
+        <Form.Item
+          name="recorder_names"
+          label="进展记录人"
+          rules={[{required: true, type: 'array', message: '请输入姓名后回车确认'}]}
+        >
+          {/* open=false：仅手输姓名（回车/失焦添加），与今日巡检值班人员输入一致 */}
+          <Select
+            mode="tags"
+            open={false}
+            placeholder="输入姓名后回车确认（可多个）"
+          />
+        </Form.Item>
+        <Form.Item name="progress_type" label="进展类型">
+          <Select
+            allowClear
+            placeholder="选填：检查 / 本方处理 / 送厂 / 厂家反馈 / 返还 / 测试 / 持续观察 / 其他"
+          >
+            {FAULT_PROGRESS_TYPE_OPTIONS.map(item => (
+              <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
+            ))}
+          </Select>
+        </Form.Item>
         <Form.Item
           name="content"
-          label="处置内容"
-          rules={[{required: true, message: '请填写处置内容'}]}
+          label="进展内容"
+          rules={[{required: true, message: '请填写进展内容'}]}
         >
-          <TextArea rows={3}/>
+          <TextArea rows={3} placeholder="如：现场检查情况、已采取的临时措施、送厂安排、厂家反馈、返还及复测、持续观察结论等"/>
         </Form.Item>
-        <Form.Item name="result" label="处置结果">
-          <Input placeholder="如：已更换板卡 / 待观察（选填）"/>
+        <Form.Item name="result" label="处理结果">
+          <Input placeholder="选填，如：已临时保障 / 待厂家维修中 / 复测通过"/>
         </Form.Item>
         {isCorrect && (
           <Form.Item

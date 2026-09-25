@@ -18,6 +18,13 @@
 - 首报表单精简（2026-09）：手工新增故障 discovery 缺省"人工报告"、level 缺省
   "一般"，两字段不再必填；编辑未提交 discovery/level 及历史设备字段
   （影响范围/故障位置/对象名称/型号/序列号）时保留原值，不静默清空历史数据；
+- 人员字段（2026-09）：新增故障登记人 registrar_name（手动输入的登记人姓名，
+  实际添加故障记录的人，手工新增必填、不预填当前用户，可与 created_by 登录
+  账号不同）；处理进展的进展记录人 recorder_name 同为手动输入姓名（见
+  fault_progress_views）。两者均只表示"谁登记/谁记录"，不代表负责整个故障或
+  承担维修责任；姓名为文本快照、不关联 User（实际操作人可能没有系统账号）；
+  台账异常转故障等程序化入口由服务层自动登记操作人姓名；
+  处置负责人（SystemFault.handler）能力保持不变；
 - 写操作记录业务审计（record_audit_event）。
 """
 import csv
@@ -36,26 +43,16 @@ from libs.idempotency import check_recent_duplicate
 from libs.tenant_utils import apply_tenant_filter
 from apps.account.models import User
 from apps.logs.audit import record_audit_event
-from apps.evidence.attachment_service import (
-    AttachmentService, DefaultAttachmentConfig, ATTACHMENT_DELETE_DENIED_ERROR,
-)
-from apps.evidence.models import EvidenceAttachment
-
 from apps.equipment_lifecycle import event_services, fault_services
 from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     SystemFault,
-    SystemFaultHandlingRecord,
 )
 
 AUDIT_TARGET_FAULT = 'el_system_fault'
 AUDIT_TARGET_HEALTH = fault_services.AUDIT_TARGET_HEALTH
 
-# 处置记录附件归属标识（复用 EvidenceAttachment 体系，不新建文件存储）
-FAULT_ATTACHMENT_MODULE = 'equipment_lifecycle'
-FAULT_ATTACHMENT_OBJECT_TYPE = 'el_fault_handling'
-
-# 允许普通编辑与追加处置记录的故障状态（closed/cancelled 均不允许）
+# 允许普通编辑与追加处理进展的故障状态（closed/cancelled 均不允许）
 EDITABLE_FAULT_STATUSES = (
     SystemFault.STATUS_PENDING, SystemFault.STATUS_HANDLING, SystemFault.STATUS_RECOVERED,
 )
@@ -90,13 +87,6 @@ def _get_fault_for_user(pk, user, for_update=False):
     if for_update:
         qs = qs.select_for_update()
     return qs.filter(pk=pk).first()
-
-
-def _get_record_for_user(fault, rid, user, for_update=False):
-    qs = apply_tenant_filter(SystemFaultHandlingRecord.objects.all(), user)
-    if for_update:
-        qs = qs.select_for_update()
-    return qs.filter(pk=rid, fault=fault).first()
 
 
 def _get_active_system_for_user(pk, user):
@@ -301,6 +291,9 @@ class FaultView(View):
             Argument('fault_object_sn', type=str, required=False, default=''),
             Argument('reason_analysis', type=str, required=False, default=''),
             Argument('handler_id', type=int, required=False, default=None),
+            Argument('registrar_name', type=str, required=False, default=None,
+                     help='故障登记人姓名（手动输入必填，不预填；实际添加本条故障记录的人，'
+                          '多人以顿号分隔；与登录账号审计字段 created_by 独立）'),
         ).parse(body)
         if error:
             return json_response(error=error)
@@ -320,6 +313,10 @@ class FaultView(View):
         phenomenon = form.phenomenon.strip()
         if not phenomenon:
             return json_response(error='故障现象不能为空')
+        # 登记人手动输入必填（不默认当前登录用户）
+        registrar_name = (form.registrar_name or '').strip()
+        if not registrar_name:
+            return json_response(error='故障登记人不能为空')
 
         try:
             with fault_services.health_recalc_lock():
@@ -344,6 +341,7 @@ class FaultView(View):
                         level=form.level,
                         phenomenon=phenomenon,
                         handler=handler,
+                        registrar_name=registrar_name,
                         **_fault_optional_fields(form),
                         source_type=SystemFault.SOURCE_MANUAL,
                         request=request,
@@ -640,215 +638,6 @@ class FaultCancelView(FaultActionBaseView):
         return None
 
 
-class FaultHandlingRecordView(View):
-    """处置记录：按处置时间正序的时间线 / 追加记录。"""
-
-    @auth('equipment_lifecycle.fault.view')
-    def get(self, request, pk):
-        fault = _get_fault_for_user(pk, request.user)
-        if not fault:
-            return json_response(error='故障记录不存在')
-        query = apply_tenant_filter(SystemFaultHandlingRecord.objects.all(), request.user).filter(
-            fault=fault)
-        from libs.pagination import paginate
-        page, page_size = paginate(request, default_page_size=100)
-        total = query.count()
-        records = query[(page - 1) * page_size: page * page_size]
-        return json_response({
-            'data': [r.to_view() for r in records],
-            'total': total, 'page': page, 'page_size': page_size,
-        })
-
-    @auth('equipment_lifecycle.fault.handle')
-    def post(self, request, pk):
-        form, error = JsonParser(
-            Argument('handled_at', type=str, required=True, help='处置时间'),
-            Argument('content', type=str, required=True, help='处置内容'),
-            Argument('result', type=str, required=False, default=''),
-        ).parse(request.body)
-        if error:
-            return json_response(error=error)
-        handled_at = _parse_dt(form.handled_at)
-        if not handled_at:
-            return json_response(error='处置时间格式不正确，应为 YYYY-MM-DD HH:MM')
-        content = form.content.strip()
-        if not content:
-            return json_response(error='处置内容不能为空')
-        with fault_services.health_recalc_lock():
-            with transaction.atomic():
-                fault = _get_fault_for_user(pk, request.user, for_update=True)
-                if not fault:
-                    return json_response(error='故障记录不存在')
-                if fault.status not in EDITABLE_FAULT_STATUSES:
-                    return json_response(error='已关闭或已作废的故障不能追加处置记录')
-                record = SystemFaultHandlingRecord.objects.create(
-                    tenant_id=fault.tenant_id,
-                    fault=fault,
-                    handled_at=handled_at,
-                    handler=request.user,
-                    content=content[:2000],
-                    result=(form.result or '').strip()[:200],
-                )
-                record_audit_event(request, 'create', AUDIT_TARGET_FAULT, fault.id,
-                                   fault.fault_no,
-                                   after_value={'action': 'add_handling_record',
-                                                'record_id': record.id,
-                                                'handled_at': handled_at.isoformat(sep=' ',
-                                                                                   timespec='minutes')})
-        return json_response(record.to_view())
-
-
-class FaultHandlingRecordDetailView(View):
-    """处置记录更正：保存原内容、修改内容和更正原因，不静默覆盖。"""
-
-    @auth('equipment_lifecycle.fault.edit')
-    def put(self, request, pk, rid):
-        form, error = JsonParser(
-            Argument('handled_at', type=str, required=False, default=None),
-            Argument('content', type=str, required=True, help='处置内容'),
-            Argument('result', type=str, required=False, default=''),
-            Argument('correction_reason', type=str, required=True, help='更正原因'),
-        ).parse(request.body)
-        if error:
-            return json_response(error=error)
-        content = form.content.strip()
-        if not content:
-            return json_response(error='处置内容不能为空')
-        correction_reason = form.correction_reason.strip()
-        if not correction_reason:
-            return json_response(error='更正原因不能为空')
-        handled_at = None
-        if form.handled_at:
-            handled_at = _parse_dt(form.handled_at)
-            if not handled_at:
-                return json_response(error='处置时间格式不正确，应为 YYYY-MM-DD HH:MM')
-        with fault_services.health_recalc_lock():
-            with transaction.atomic():
-                fault = _get_fault_for_user(pk, request.user, for_update=True)
-                if not fault:
-                    return json_response(error='故障记录不存在')
-                if fault.status not in EDITABLE_FAULT_STATUSES:
-                    return json_response(error='已关闭或已作废的故障不能更正处置记录')
-                record = _get_record_for_user(fault, rid, request.user, for_update=True)
-                if not record:
-                    return json_response(error='处置记录不存在')
-                corrections = record.get_corrections()
-                corrections.append({
-                    'old': record.content,
-                    'new': content[:2000],
-                    'reason': correction_reason[:500],
-                    'by': request.user.username,
-                    'at': timezone.now().isoformat(sep=' ', timespec='minutes'),
-                })
-                record.content = content[:2000]
-                record.result = (form.result or '').strip()[:200]
-                if handled_at:
-                    record.handled_at = handled_at
-                record.corrections = json.dumps(corrections, ensure_ascii=False)
-                record.save()
-                record_audit_event(request, 'update', AUDIT_TARGET_FAULT, fault.id,
-                                   fault.fault_no,
-                                   after_value={'action': 'correct_handling_record',
-                                                'record_id': record.id,
-                                                'reason': correction_reason[:200]})
-        return json_response(record.to_view())
-
-
-class FaultHandlingAttachmentView(View):
-    """处置记录附件（复用 EvidenceAttachment 能力）。
-
-    访问前先校验处置记录所属故障存在且属于当前租户。
-    """
-
-    @auth('equipment_lifecycle.fault.view')
-    def get(self, request, pk, rid):
-        fault = _get_fault_for_user(pk, request.user)
-        if not fault:
-            return json_response(error='故障记录不存在')
-        record = _get_record_for_user(fault, rid, request.user)
-        if not record:
-            return json_response(error='处置记录不存在')
-        attachments = AttachmentService.list(
-            request.user, FAULT_ATTACHMENT_MODULE, FAULT_ATTACHMENT_OBJECT_TYPE, record.id)
-        return json_response({'data': attachments})
-
-    @auth('equipment_lifecycle.fault.handle')
-    def post(self, request, pk, rid):
-        with fault_services.health_recalc_lock():
-            with transaction.atomic():
-                fault = _get_fault_for_user(pk, request.user, for_update=True)
-                if not fault:
-                    return json_response(error='故障记录不存在')
-                if fault.status not in EDITABLE_FAULT_STATUSES:
-                    return json_response(error='已关闭或已作废的故障不能上传处置附件')
-                record = _get_record_for_user(fault, rid, request.user)
-                if not record:
-                    return json_response(error='处置记录不存在')
-                file = request.FILES.get('file')
-                if not file:
-                    return json_response(error='缺少上传文件')
-                att, error = AttachmentService.upload(
-                    file, request.user, FAULT_ATTACHMENT_MODULE, FAULT_ATTACHMENT_OBJECT_TYPE,
-                    record.id, config=DefaultAttachmentConfig, owner_tenant_id=fault.tenant_id)
-                if error:
-                    return json_response(error=error)
-                record_audit_event(request, 'create', AUDIT_TARGET_FAULT, fault.id,
-                                   fault.fault_no,
-                                   after_value={'action': 'upload_handling_attachment',
-                                                'record_id': record.id,
-                                                'file_name': att.file_name})
-        return json_response(att.to_view())
-
-
-class FaultHandlingAttachmentDetailView(View):
-    @auth('equipment_lifecycle.fault.edit')
-    def delete(self, request, pk, rid, aid):
-        with fault_services.health_recalc_lock():
-            with transaction.atomic():
-                fault = _get_fault_for_user(pk, request.user, for_update=True)
-                if not fault:
-                    return json_response(error='故障记录不存在')
-                if fault.status not in EDITABLE_FAULT_STATUSES:
-                    return json_response(error='已关闭或已作废的故障不能删除处置附件')
-                record = _get_record_for_user(fault, rid, request.user)
-                if not record:
-                    return json_response(error='处置记录不存在')
-                att = apply_tenant_filter(
-                    EvidenceAttachment.objects.filter(is_deleted=False), request.user
-                ).filter(pk=aid, module=FAULT_ATTACHMENT_MODULE,
-                         object_type=FAULT_ATTACHMENT_OBJECT_TYPE,
-                         object_id=str(record.id)).first()
-                if not att:
-                    return json_response(error=ATTACHMENT_DELETE_DENIED_ERROR)
-                error = AttachmentService.soft_delete(
-                    request.user, aid, FAULT_ATTACHMENT_MODULE, FAULT_ATTACHMENT_OBJECT_TYPE,
-                    reason='故障处置记录附件删除')
-                if error:
-                    return json_response(error=error)
-                record_audit_event(request, 'delete', AUDIT_TARGET_FAULT, fault.id,
-                                   fault.fault_no,
-                                   after_value={'action': 'delete_handling_attachment',
-                                                'record_id': record.id,
-                                                'file_name': att.file_name})
-        return json_response({})
-
-
-class FaultHandlingAttachmentDownloadView(View):
-    @auth('equipment_lifecycle.fault.view')
-    def get(self, request, pk, rid, aid):
-        fault = _get_fault_for_user(pk, request.user)
-        if not fault:
-            return json_response(error='故障记录不存在')
-        record = _get_record_for_user(fault, rid, request.user)
-        if not record:
-            return json_response(error='处置记录不存在')
-        response, error = AttachmentService.download_response(
-            request.user, aid, FAULT_ATTACHMENT_MODULE, FAULT_ATTACHMENT_OBJECT_TYPE)
-        if error:
-            return json_response(error=error)
-        return response
-
-
 class FaultCandidateSystemsView(View):
     """故障表单系统候选项：本租户可用系统（请求只提交系统 ID）。"""
 
@@ -900,7 +689,8 @@ class FaultExportView(View):
         if level and level in SystemFault.LEVEL_TEXT_MAP:
             query = query.filter(level=level)
         headers = ['故障编号', '故障系统', '系统编号', '影响状态', '故障级别', '状态',
-                   '发生时间', '发现方式', '故障现象', '恢复时间', '最终结果', '处置负责人']
+                   '发生时间', '发现方式', '故障现象', '恢复时间', '最终结果',
+                   '故障登记人', '处置负责人']
         rows = []
         for item in query:
             rows.append([
@@ -915,6 +705,7 @@ class FaultExportView(View):
                 item.phenomenon,
                 item.recovered_at.strftime('%Y-%m-%d %H:%M') if item.recovered_at else '',
                 item.final_result,
+                item.registrar_name or '',
                 item.handler.username if item.handler_id else '',
             ])
         buf = io.StringIO()

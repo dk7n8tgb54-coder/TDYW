@@ -334,7 +334,7 @@ class MaintenanceConvertStillWorksTest(TestCase):
 
 
 class NewInspectionChainStillWorksTest(TestCase):
-    """12：新巡检创建、提交、详情、导出、转故障、转工单仍正常。"""
+    """12：新巡检创建、提交、详情、导出仍正常；转故障/转工单接口已下线。"""
 
     def setUp(self):
         perms = ALL_SYSTEM_PERMS + [
@@ -368,23 +368,23 @@ class NewInspectionChainStillWorksTest(TestCase):
         resp = self.client_.get('%s/%s/export/xlsx/' % (INS_URL, sheet['id']))
         self.assertEqual(resp.status_code, 200)
         self.assertIn('spreadsheet', resp.get('Content-Type', ''))
-        # 转故障 + 转工单（用户显式选系统）
+        # 巡检转故障/转工单接口已下线：请求 404 且不产生故障/工单记录
         convert_fault_url = (
             '%s/%s/records/%s/convert-to-fault/' % (INS_URL, sheet['id'], abnormal_ids[0]))
-        resp = post_json(self.client_, convert_fault_url, {'system': self.system.id})
-        body = resp.json()
-        self.assertFalse(body.get('error'), body)
-        self.assertEqual(body['data']['source_type'], 'inspection_record')
+        resp = self.client_.post(convert_fault_url, {'system': self.system.id},
+                                 content_type='application/json')
+        self.assertEqual(resp.status_code, 404)
         convert_wo_url = (
             '%s/%s/records/%s/convert-to-work-order/' % (
                 INS_URL, sheet['id'], abnormal_ids[0]))
-        resp = post_json(self.client_, convert_wo_url, {
+        resp = self.client_.post(convert_wo_url, {
             'system': self.system.id, 'work_type': 'special_maintenance',
             're_dispose_reason': '故障已恢复，需专项检查',
-            'client_token': 'tok-ins-wo-after-purge'})
-        body = resp.json()
-        self.assertFalse(body.get('error'), body)
-        self.assertEqual(body['data']['source_type'], 'inspection_record')
+            'client_token': 'tok-ins-wo-after-purge'},
+            content_type='application/json')
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(SystemFault.objects.count(), 0)
+        self.assertEqual(SystemWorkOrder.objects.count(), 0)
 
 
 class LegacyPurgeCommandTest(TransactionTestCase):

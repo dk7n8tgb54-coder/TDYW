@@ -14,7 +14,8 @@ from django.db import transaction
 from django.urls import path
 
 from apps.equipment_lifecycle import (
-    event_views, fault_views, inspection_views, ledger_views, views, work_order_views,
+    event_views, fault_progress_views, fault_views, inspection_views, ledger_views,
+    views, work_order_views,
 )
 from apps.upgrade.views.system_records import SystemUpgradeRecordsView
 
@@ -42,11 +43,11 @@ urlpatterns = [
     path('faults/<int:pk>/recover/', _na(fault_views.FaultRecoverView.as_view())),
     path('faults/<int:pk>/close/', _na(fault_views.FaultCloseView.as_view())),
     path('faults/<int:pk>/cancel/', _na(fault_views.FaultCancelView.as_view())),
-    path('faults/<int:pk>/handling-records/', _na(fault_views.FaultHandlingRecordView.as_view())),
-    path('faults/<int:pk>/handling-records/<int:rid>/', _na(fault_views.FaultHandlingRecordDetailView.as_view())),
-    path('faults/<int:pk>/handling-records/<int:rid>/attachments/', _na(fault_views.FaultHandlingAttachmentView.as_view())),
-    path('faults/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/download/', fault_views.FaultHandlingAttachmentDownloadView.as_view()),
-    path('faults/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/', _na(fault_views.FaultHandlingAttachmentDetailView.as_view())),
+    path('faults/<int:pk>/handling-records/', _na(fault_progress_views.FaultHandlingRecordView.as_view())),
+    path('faults/<int:pk>/handling-records/<int:rid>/', _na(fault_progress_views.FaultHandlingRecordDetailView.as_view())),
+    path('faults/<int:pk>/handling-records/<int:rid>/attachments/', _na(fault_progress_views.FaultHandlingAttachmentView.as_view())),
+    path('faults/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/download/', fault_progress_views.FaultHandlingAttachmentDownloadView.as_view()),
+    path('faults/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/', _na(fault_progress_views.FaultHandlingAttachmentDetailView.as_view())),
     # ==================== 运维台账（步骤 3.2） ====================
     # 台账模板
     path('ledger-templates/', ledger_views.LedgerTemplateView.as_view()),
@@ -112,8 +113,7 @@ urlpatterns = [
     path('inspection-templates/available/', inspection_views.InspectionTemplateAvailableView.as_view()),
     path('inspection-templates/<int:pk>/', inspection_views.InspectionTemplateDetailView.as_view()),
     path('inspection-templates/<int:pk>/active/', inspection_views.InspectionTemplateActiveView.as_view()),
-    # 值班巡检单（值班日 + 模板唯一；四轮固定；转单时才选择系统）
-    path('inspection-sheets/candidate-systems/', inspection_views.InspectionCandidateSystemsView.as_view()),
+    # 值班巡检单（值班日 + 模板唯一；四轮固定；只记录结果与现场处理，不提供转故障/转工单接口）
     path('inspection-sheets/export/', inspection_views.InspectionSheetExportView.as_view()),
     path('inspection-sheets/batch-export/xlsx/', inspection_views.InspectionSheetBatchExportXlsxView.as_view()),
     path('inspection-sheets/batch-export/pdf/', inspection_views.InspectionSheetBatchExportPdfView.as_view()),
@@ -123,12 +123,14 @@ urlpatterns = [
     path('inspection-sheets/<int:pk>/', inspection_views.InspectionSheetDetailView.as_view()),
     path('inspection-sheets/<int:pk>/submit/', inspection_views.InspectionSheetSubmitView.as_view()),
     path('inspection-sheets/<int:pk>/void/', inspection_views.InspectionSheetVoidView.as_view()),
-    path('inspection-sheets/<int:sheet_pk>/records/<int:record_pk>/convert-to-fault/',
-         _na(inspection_views.InspectionRecordConvertToFaultView.as_view())),
-    path('inspection-sheets/<int:sheet_pk>/records/<int:record_pk>/convert-to-work-order/',
-         _na(inspection_views.InspectionRecordConvertToWorkOrderView.as_view())),
+    # 超级管理员退回整改（仅 submitted → returned，后端显式校验 is_supper）
+    path('inspection-sheets/<int:pk>/return/', inspection_views.InspectionSheetReturnView.as_view()),
     # ==================== 统一系统履历（步骤 3.4，只读 append-only） ====================
     path('system-events/', event_views.SystemEventView.as_view()),
     path('system-events/export/', event_views.SystemEventExportView.as_view()),
     path('systems/<int:pk>/system-events/', event_views.SystemEventsUnderSystemView.as_view()),
+    # 系统履历事项聚合（按系统分组 + 业务事项聚合；只读，健康状态/配置快照不参与）
+    path('system-event-groups/', event_views.SystemEventGroupView.as_view()),
+    path('system-event-groups/nodes/', event_views.SystemEventGroupNodesView.as_view()),
+    path('system-event-groups/export/', event_views.SystemEventGroupExportView.as_view()),
 ]

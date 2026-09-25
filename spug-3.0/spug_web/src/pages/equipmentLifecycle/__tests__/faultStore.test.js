@@ -6,8 +6,8 @@
  * - fetchSystems 拉取候选系统（供选择器展示名称、提交 ID）
  * - submitForm 新增走 POST、编辑走 PUT，payload 原样透传系统 ID
  * - 状态动作（开始处置/恢复/关闭/作废）调用明确动作端点，
- *   成功后重新获取详情、处置记录与列表（重新获取真实数据）
- * - 处置记录添加与更正调用对应端点
+ *   成功后重新获取详情、处理进展与列表（重新获取真实数据）
+ * - 处理进展添加与更正调用对应端点
  * - 后端业务错误（http reject）时不显示成功提示路径（Promise 拒绝，不关闭弹窗）
  */
 const mockHttpGet = jest.fn();
@@ -35,7 +35,7 @@ afterEach(() => {
   [mockHttpGet, mockHttpPost, mockHttpPut, mockHttpDelete].forEach(fn => fn.mockReset());
 });
 
-describe('故障 Store', () => {
+describe('故障 Store · 列表与候选系统', () => {
   it('fetchRecords 组装分页与筛选参数（系统以 ID 传递）', () => {
     const store = freshStore();
     store.page = 3;
@@ -64,6 +64,9 @@ describe('故障 Store', () => {
     expect(store.systems).toEqual(systems);
   });
 
+});
+
+describe('故障 Store · 表单提交', () => {
   it('submitForm 新增走 POST、编辑走 PUT，成功后关闭弹窗并刷新列表', async () => {
     const store = freshStore();
     const payload = {
@@ -101,7 +104,10 @@ describe('故障 Store', () => {
     expect(store.formVisible).toBe(true);
   });
 
-  it('状态动作调用明确动作端点，成功后刷新详情/处置记录/列表', async () => {
+});
+
+describe('故障 Store · 状态动作与处理进展', () => {
+  it('状态动作调用明确动作端点，成功后刷新详情/处理进展/列表', async () => {
     const store = freshStore();
     store.detailId = 8;
     mockHttpPost.mockResolvedValue({});
@@ -126,7 +132,7 @@ describe('故障 Store', () => {
     expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/faults/', {params: {page: 1, page_size: 20}});
   });
 
-  it('处置记录添加与更正调用对应端点并刷新时间线', async () => {
+  it('处理进展添加与更正调用对应端点并刷新时间线', async () => {
     const store = freshStore();
     store.detailId = 8;
     mockHttpPost.mockResolvedValue({});
@@ -146,6 +152,9 @@ describe('故障 Store', () => {
       '/api/equipment-lifecycle/faults/8/handling-records/');
   });
 
+});
+
+describe('故障 Store · 详情查询', () => {
   it('fetchSystemFaults 查询本系统故障（单系统简化，无角色参数）', async () => {
     const store = freshStore();
     mockHttpGet.mockResolvedValue({data: [{id: 1, system: 7}]});

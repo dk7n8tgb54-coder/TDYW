@@ -471,6 +471,19 @@ def create_ledger(user, body):
         return None, str(e)
 
 
+def _validate_expected_version(ledger, version):
+    """校验编辑请求携带的并发版本；不匹配视为冲突，返回错误信息或 None。"""
+    if version is None:
+        return None
+    try:
+        expected_version = int(version)
+    except (TypeError, ValueError):
+        return '版本参数不合法'
+    if expected_version != ledger.version:
+        return '台账已被他人修改，请刷新后重试'
+    return None
+
+
 @transaction.atomic
 def update_ledger(user, pk, body):
     """编辑可编辑状态（草稿/已退回）的台账：区分新增、修改、移除并记录变化。
@@ -488,14 +501,9 @@ def update_ledger(user, pk, body):
         return None, None, error
     if ledger.status not in OperationLedger.EDITABLE_STATUSES:
         return None, None, '当前状态不允许编辑台账'
-    version = body.get('version')
-    if version is not None:
-        try:
-            expected_version = int(version)
-        except (TypeError, ValueError):
-            return None, None, '版本参数不合法'
-        if expected_version != ledger.version:
-            return None, None, '台账已被他人修改，请刷新后重试'
+    error = _validate_expected_version(ledger, body.get('version'))
+    if error:
+        return None, None, error
     try:
         header = _parse_header_payload(user, body, for_update=True)
     except LedgerValidationError as e:
@@ -514,38 +522,8 @@ def update_ledger(user, pk, body):
 
         systems_map = get_systems_for_user(user, [
             e.get('system_id') for e in entries if isinstance(e, dict)])
-        keep_ids = set()
-        order = 0
-        for entry in entries:
-            system = systems_map.get(entry.get('system_id'))
-            if system is None:
-                raise LedgerValidationError('明细必须关联正式系统')
-            template = None
-            if entry.get('template_id'):
-                template = get_active_template(
-                    user, entry['template_id'], ledger.ledger_type, ledger.maintenance_cycle)
-            rows = entry.get('items')
-            if not isinstance(rows, list) or not rows:
-                raise LedgerValidationError('系统 %s 至少需要一条台账明细' % system.name)
-            for row in rows:
-                order += 1
-                item_id = row.get('id')
-                if item_id:
-                    item = OperationLedgerItem.objects.filter(pk=item_id, ledger=ledger).first()
-                    if not item:
-                        raise LedgerValidationError('台账明细不存在或已移除')
-                    _apply_item_edits(item, row, system)
-                    keep_ids.add(item.id)
-                    changed['items_updated'] += 1
-                else:
-                    item = _build_item_instance(ledger, system, template, row, order)
-                    item.save()
-                    keep_ids.add(item.id)
-                    changed['items_added'] += 1
-        for item in list(ledger.items.all()):
-            if item.id not in keep_ids:
-                changed['items_removed'].append(item.item_name_snapshot)
-                item.delete()
+        keep_ids = _apply_entry_edits(user, ledger, entries, systems_map, changed)
+        _remove_absent_items(ledger, keep_ids, changed)
         ledger.version += 1
         ledger.save(update_fields=[
             'ledger_type', 'maintenance_cycle', 'executed_date',
@@ -553,6 +531,47 @@ def update_ledger(user, pk, body):
         return ledger, changed, None
     except LedgerValidationError as e:
         return None, None, str(e)
+
+
+def _apply_entry_edits(user, ledger, entries, systems_map, changed):
+    """按条目应用明细修改/新增，返回本次请求保留的已有明细 id 集合。"""
+    keep_ids = set()
+    order = 0
+    for entry in entries:
+        system = systems_map.get(entry.get('system_id'))
+        if system is None:
+            raise LedgerValidationError('明细必须关联正式系统')
+        template = None
+        if entry.get('template_id'):
+            template = get_active_template(
+                user, entry['template_id'], ledger.ledger_type, ledger.maintenance_cycle)
+        rows = entry.get('items')
+        if not isinstance(rows, list) or not rows:
+            raise LedgerValidationError('系统 %s 至少需要一条台账明细' % system.name)
+        for row in rows:
+            order += 1
+            item_id = row.get('id')
+            if item_id:
+                item = OperationLedgerItem.objects.filter(pk=item_id, ledger=ledger).first()
+                if not item:
+                    raise LedgerValidationError('台账明细不存在或已移除')
+                _apply_item_edits(item, row, system)
+                keep_ids.add(item.id)
+                changed['items_updated'] += 1
+            else:
+                item = _build_item_instance(ledger, system, template, row, order)
+                item.save()
+                keep_ids.add(item.id)
+                changed['items_added'] += 1
+    return keep_ids
+
+
+def _remove_absent_items(ledger, keep_ids, changed):
+    """物理删除请求未包含的已有明细，并记录移除清单。"""
+    for item in list(ledger.items.all()):
+        if item.id not in keep_ids:
+            changed['items_removed'].append(item.item_name_snapshot)
+            item.delete()
 
 
 def _apply_item_edits(item, row, system):
@@ -757,51 +776,9 @@ def correct_ledger(user, pk, body):
     changes = []
     try:
         if item is not None:
-            payload = {
-                'value_text': body.get('value_text', item.value_text),
-                'value_number': body.get('value_number', item.value_number),
-                'value_bool': body.get('value_bool', item.value_bool),
-                'is_required': item.is_required,
-                'choices': item.get_choices(),
-            }
-            value_text, value_number, value_bool = validate_item_value(item.input_type, payload)
-            new_result = body.get('result', item.result)
-            if new_result not in ITEM_RESULT_VALUES:
-                raise LedgerValidationError('结果不合法：%s' % new_result)
-            updates = {
-                'value_text': value_text,
-                'value_number': value_number,
-                'value_bool': value_bool,
-                'result': new_result,
-            }
-            if 'abnormal_desc' in body:
-                updates['abnormal_desc'] = str(body.get('abnormal_desc') or '').strip()
-            if 'na_reason' in body:
-                updates['na_reason'] = str(body.get('na_reason') or '').strip()
-            if 'onsite_action' in body:
-                updates['onsite_action'] = str(body.get('onsite_action') or '').strip()
-            for field, new_value in updates.items():
-                old_value = getattr(item, field)
-                if old_value != new_value:
-                    changes.append({
-                        'field': field, 'label': CORRECTABLE_FIELDS.get(field, field),
-                        'old': old_value, 'new': new_value,
-                    })
-                    setattr(item, field, new_value)
-            item.save()
+            _correct_ledger_item(item, body, changes)
         else:
-            header_updates = {
-                'executor_names': ('执行人', body.get('executor_names')),
-            }
-            for field, (label, new_value) in header_updates.items():
-                if new_value is None:
-                    continue
-                new_value = str(new_value).strip()
-                old_value = getattr(ledger, field)
-                if old_value != new_value:
-                    changes.append({'field': field, 'label': label, 'old': old_value, 'new': new_value})
-                    setattr(ledger, field, new_value)
-            ledger.save(update_fields=['executor_names'])
+            _correct_ledger_header(ledger, body, changes)
         if not changes:
             return None, None, '没有需要更正的内容'
         correction = OperationLedgerCorrection.objects.create(
@@ -810,6 +787,58 @@ def correct_ledger(user, pk, body):
         return correction, changes, None
     except LedgerValidationError as e:
         return None, None, str(e)
+
+
+def _correct_ledger_item(item, body, changes):
+    """复核后更正单条明细：校验填写值与结果，比较前后值并应用变更。"""
+    payload = {
+        'value_text': body.get('value_text', item.value_text),
+        'value_number': body.get('value_number', item.value_number),
+        'value_bool': body.get('value_bool', item.value_bool),
+        'is_required': item.is_required,
+        'choices': item.get_choices(),
+    }
+    value_text, value_number, value_bool = validate_item_value(item.input_type, payload)
+    new_result = body.get('result', item.result)
+    if new_result not in ITEM_RESULT_VALUES:
+        raise LedgerValidationError('结果不合法：%s' % new_result)
+    updates = {
+        'value_text': value_text,
+        'value_number': value_number,
+        'value_bool': value_bool,
+        'result': new_result,
+    }
+    if 'abnormal_desc' in body:
+        updates['abnormal_desc'] = str(body.get('abnormal_desc') or '').strip()
+    if 'na_reason' in body:
+        updates['na_reason'] = str(body.get('na_reason') or '').strip()
+    if 'onsite_action' in body:
+        updates['onsite_action'] = str(body.get('onsite_action') or '').strip()
+    for field, new_value in updates.items():
+        old_value = getattr(item, field)
+        if old_value != new_value:
+            changes.append({
+                'field': field, 'label': CORRECTABLE_FIELDS.get(field, field),
+                'old': old_value, 'new': new_value,
+            })
+            setattr(item, field, new_value)
+    item.save()
+
+
+def _correct_ledger_header(ledger, body, changes):
+    """复核后更正表头允许字段（当前仅执行人），比较前后值并应用变更。"""
+    header_updates = {
+        'executor_names': ('执行人', body.get('executor_names')),
+    }
+    for field, (label, new_value) in header_updates.items():
+        if new_value is None:
+            continue
+        new_value = str(new_value).strip()
+        old_value = getattr(ledger, field)
+        if old_value != new_value:
+            changes.append({'field': field, 'label': label, 'old': old_value, 'new': new_value})
+            setattr(ledger, field, new_value)
+    ledger.save(update_fields=['executor_names'])
 
 
 @transaction.atomic

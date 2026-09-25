@@ -4,8 +4,8 @@
  */
 /**
  * 设备全生命周期——值班巡检 Store（今日巡检改造）。
- * 错误提示统一由 http 拦截器弹出；巡检单不关联系统，
- * 转换目标系统由用户在转换弹窗中选择并经后端校验。
+ * 错误提示统一由 http 拦截器弹出；巡检单只记录巡检结果与现场处理，
+ * 历史已转故障/已转工单的处置状态由详情接口只读返回（转单功能已下线）。
  */
 import {observable, action} from 'mobx';
 import moment from 'moment';
@@ -20,7 +20,6 @@ export function defaultDutyRange() {
 class InspectionStore {
   @observable templates = [];      // 可用模板树（设备 → 检查内容）
   @observable users = [];          // 本租户有效账号（值班人员候选）
-  @observable systems = [];        // 转换弹窗目标系统候选（复用工单候选系统接口）
   @observable records = [];        // 巡检单列表
   @observable total = 0;
   @observable page = 1;
@@ -29,7 +28,6 @@ class InspectionStore {
   @observable detail = null;       // 巡检单详情（含 persons/records/disposition）
   @observable isDetailFetching = false;
   @observable submitting = false;
-  @observable converting = false;
 
   @action fetchTemplates = () => {
     return http.get(`${API_PREFIX}/inspection-templates/available/`)
@@ -41,12 +39,6 @@ class InspectionStore {
     // 值班人员已不选择账号，账号表仅用于历史草稿中账号值的姓名映射与回显
     return http.get(`${API_PREFIX}/work-orders/candidate-users/`)
       .then(action(res => {this.users = res.data || [];}));
-  };
-
-  @action fetchSystems = () => {
-    // 巡检转单专用候选系统（inspection.view 即可获取，不依赖 fault/work_order 权限）
-    return http.get(`${API_PREFIX}/inspection-sheets/candidate-systems/`)
-      .then(action(res => {this.systems = res.data || [];}));
   };
 
   @action fetchSheets = (params = {}) => {
@@ -105,22 +97,14 @@ class InspectionStore {
       }));
   };
 
-  @action convertToFault = (sheetId, recordId, payload) => {
-    this.converting = true;
-    return http.post(
-      `${API_PREFIX}/inspection-sheets/${sheetId}/records/${recordId}/convert-to-fault/`,
-      payload)
-      .then(action(res => {return res;}))
-      .finally(action(() => {this.converting = false;}));
-  };
-
-  @action convertToWorkOrder = (sheetId, recordId, payload) => {
-    this.converting = true;
-    return http.post(
-      `${API_PREFIX}/inspection-sheets/${sheetId}/records/${recordId}/convert-to-work-order/`,
-      payload)
-      .then(action(res => {return res;}))
-      .finally(action(() => {this.converting = false;}));
+  // 超级管理员退回整改（后端独立校验 is_supper；HTTP 200 + error 由拦截器提示并 reject）
+  @action returnSheet = (id, returnReason) => {
+    return http.post(`${API_PREFIX}/inspection-sheets/${id}/return/`,
+      {return_reason: returnReason})
+      .then(action(res => {
+        this.detail = res;
+        return res;
+      }));
   };
 
   @action resetDetail = () => {this.detail = null;};

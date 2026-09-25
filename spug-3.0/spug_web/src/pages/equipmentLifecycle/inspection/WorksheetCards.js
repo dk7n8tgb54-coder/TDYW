@@ -13,7 +13,9 @@
  *   按任意顺序填写和记录；
  * - 底色按列：有草稿的未记录轮次列浅黄、草稿单中已记录轮次列浅蓝、
  *   异常单元格浅红；已提交/已作废单无列底色（异常浅红保留）；
- * - 表格均为列式布局：第一列检查项目（连续同项目合并单元格）、第二列检查内容。
+ * - 表格均为列式布局：第一列检查项目（连续同项目合并单元格）、第二列检查内容；
+ * - 巡检单只记录巡检结果、异常内容和现场处理：历史已转故障/已转工单的
+ *   处置状态以标签只读展示（转单功能已下线，无任何转单入口）。
  * 组件只读 props 不直接读取 store，保证 observable 读取发生在 observer 顶层组件。
  */
 import React from 'react';
@@ -88,10 +90,9 @@ function ValueControl({item, value, onChange}) {
   );
 }
 
-function RecordValue({record, isSubmitted, onConvert}) {
+function RecordValue({record, isSubmitted}) {
   const color = record.result === 'abnormal' ? 'red' : 'inherit';
-  const showConvertBtns = isSubmitted && record.result === 'abnormal' &&
-    record.disposition && record.disposition.status === 'none';
+  // 历史处置状态只读展示：已转故障/已转工单/目标已作废（转单功能已下线）
   const showDispositionTag = isSubmitted && record.result === 'abnormal' &&
     record.disposition && record.disposition.status !== 'none';
   return (
@@ -100,25 +101,13 @@ function RecordValue({record, isSubmitted, onConvert}) {
         {record.value_text || '—'}
         {record.onsite_action ? `（${record.onsite_action}）` : ''}
       </span>
-      {showConvertBtns && (
-        <span>
-          <AuthButton auth={PERM_I.HANDLE} type="link" size="small" style={{padding: 0}}
-                      onClick={() => onConvert({type: 'fault', record})}>
-            转故障
-          </AuthButton>
-          <AuthButton auth={PERM_I.HANDLE} type="link" size="small" style={{padding: 0}}
-                      onClick={() => onConvert({type: 'work_order', record})}>
-            转工单
-          </AuthButton>
-        </span>
-      )}
       {showDispositionTag && <Tag>{DISPOSITION_TEXT[record.disposition.status]}</Tag>}
     </span>
   );
 }
 
 function RoundCell({round, item, record, editable, highlight, value, onChange,
-                     isSubmitted, onConvert}) {
+                     isSubmitted}) {
   const cls = ['el-ins-round-cell'];
   const abnormal = editable
     ? value.value_text === ABNORMAL_VALUE
@@ -144,7 +133,7 @@ function RoundCell({round, item, record, editable, highlight, value, onChange,
           )}
         </span>
       ) : record ? (
-        <RecordValue record={record} isSubmitted={isSubmitted} onConvert={onConvert}/>
+        <RecordValue record={record} isSubmitted={isSubmitted}/>
       ) : (
         <span style={{color: '#ddd'}}>—</span>
       )}
@@ -155,19 +144,27 @@ function RoundCell({round, item, record, editable, highlight, value, onChange,
 /**
  * 轮次列表头：轮次名称 + 当前状态（未记录/已记录，未记录可带"有草稿"提示）
  * + 该轮次专属的"一键正常/记录本轮"操作（吸顶，随表格滚动始终可见）。
- * 仅草稿单的未记录轮次渲染操作按钮（canOperate 由卡片按单据状态与
- * recorded_rounds 计算后传入；后端同样拒绝已记录轮次与已提交单写入）。
+ * 可编辑单（草稿/已退回整改）渲染操作按钮：草稿单只对未记录轮次开放，
+ * 已退回整改单不限制（recorded_rounds 不拦截整改，后端同样放行）。
  */
 function RoundHeadCell({round, recorded, canOperate, hasDraft, recording,
                         onFillNormal, onRecord}) {
   return (
     <th className="el-ins-col-round" data-round={round.value}>
       <div className="el-ins-round-head">
-        <span className="el-ins-round-name">{round.label}</span>
-        <span className="el-ins-round-status">
-          {recorded ? '已记录' : '未记录'}
-          {!recorded && hasDraft && (
-            <span className="el-ins-round-draft-tag">有草稿</span>
+        <span className="el-ins-round-title">
+          <span className="el-ins-round-name">{round.label}</span>
+          <span className={recorded
+            ? 'el-ins-round-status el-ins-round-status-recorded'
+            : 'el-ins-round-status'}>
+            {recorded ? '已记录' : '未记录'}
+          </span>
+          {/* "有草稿"恒渲染、按状态显隐：占住宽度，列宽不随填写状态跳动 */}
+          {!recorded && (
+            <span className="el-ins-round-draft-tag"
+                  style={{visibility: hasDraft ? 'visible' : 'hidden'}}>
+              有草稿
+            </span>
           )}
         </span>
         {canOperate && (
@@ -267,15 +264,16 @@ function HeaderCard({dutyDate, onDutyDateChange, templateId, onTemplateChange,
 
 function SheetMatrixCard({sheet, template, recordedRounds, editable, values,
                            recordingRound, onValueChange,
-                           onFillNormal, onRecord, onSubmit, onVoid, onConvert}) {
+                           onFillNormal, onRecord, onSubmit, onVoid}) {
   const isSubmitted = sheet.status === 'submitted';
+  const isReturned = sheet.status === 'returned';
   const recordedSet = new Set(recordedRounds || []);
   const recordsByRound = groupRecordsByRound(sheet.records);
   const rows = buildMatrixRows(sheet, template);
-  // 列底色（仅草稿单）：已记录轮次列浅蓝；有草稿的未记录轮次列浅黄；
+  // 列底色（草稿/已退回整改单）：已记录轮次列浅蓝；有草稿的未记录轮次列浅黄；
   // 已提交/已作废单无列底色，异常单元格浅红保留
   const columnHighlight = roundValue => {
-    if (sheet.status !== 'draft') return null;
+    if (sheet.status !== 'draft' && !isReturned) return null;
     if (recordedSet.has(roundValue)) return 'recorded';
     return roundHasDraft(values[roundValue]) ? 'draft' : null;
   };
@@ -324,7 +322,7 @@ function SheetMatrixCard({sheet, template, recordedRounds, editable, values,
               <RoundHeadCell
                 key={r.value} round={r}
                 recorded={recordedSet.has(r.value)}
-                canOperate={!!editable && !recordedSet.has(r.value)}
+                canOperate={!!editable && (isReturned || !recordedSet.has(r.value))}
                 hasDraft={roundHasDraft(values[r.value])}
                 recording={recordingRound || null}
                 onFillNormal={onFillNormal} onRecord={onRecord}/>
@@ -343,11 +341,12 @@ function SheetMatrixCard({sheet, template, recordedRounds, editable, values,
                   key={r.value} round={r.value}
                   item={item.item}
                   record={(recordsByRound[r.value] || {})[item.key]}
-                  editable={!!(editable && item.item && !recordedSet.has(r.value))}
+                  editable={!!(editable && item.item &&
+                    (isReturned || !recordedSet.has(r.value)))}
                   highlight={columnHighlight(r.value)}
                   value={(values[r.value] || {})[item.key] || {}}
                   onChange={onValueChange}
-                  isSubmitted={isSubmitted} onConvert={onConvert}/>
+                  isSubmitted={isSubmitted}/>
               ))}
             </tr>
           ))}
@@ -356,7 +355,13 @@ function SheetMatrixCard({sheet, template, recordedRounds, editable, values,
       </div>
       {isSubmitted && (
         <div style={{color: '#999', marginTop: 8}}>
-          已提交巡检单不可再修改；异常明细可转故障/工单（转换时需选择系统）。
+          已提交巡检单不可再修改；巡检单只记录巡检结果与现场处理，故障/工单在对应模块创建。
+        </div>
+      )}
+      {isReturned && (
+        <div style={{color: '#d48806', marginTop: 8}}>
+          该巡检单已退回整改：可修改各轮次巡检内容与值班人员，整改后重新提交
+          （原有填写内容与故障/工单来源关系保留）。
         </div>
       )}
     </Card>

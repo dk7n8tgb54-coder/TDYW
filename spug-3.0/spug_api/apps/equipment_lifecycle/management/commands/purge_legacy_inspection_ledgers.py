@@ -54,8 +54,8 @@ LEDGER_ITEM_ATTACHMENT_OBJECT_TYPE = 'el_operation_ledger_item'
 KEEP_EVENT_SOURCE_TYPES = ['ledger_item']
 
 
-def collect_scope(tenants):
-    """收集待删除对象与全部外部引用（只读，不修改任何数据）。"""
+def _collect_ledger_objects(tenants):
+    """收集删除范围内的台账/明细/模板/模板项目/更正记录（只读）。"""
     ledger_qs = OperationLedger.objects.filter(ledger_type=LEGACY_LEDGER_TYPE_INSPECTION)
     template_qs = OperationLedgerTemplate.objects.filter(ledger_type=LEGACY_LEDGER_TYPE_INSPECTION)
     if tenants:
@@ -71,13 +71,11 @@ def collect_scope(tenants):
         OperationLedgerTemplateItem.objects.filter(template_id__in=template_ids).order_by('id'))
     corrections = list(
         OperationLedgerCorrection.objects.filter(ledger_id__in=ledger_ids).order_by('id'))
+    return ledgers, ledger_ids, items, item_ids, templates, template_ids, template_items, corrections
 
-    attachments = list(EvidenceAttachment.objects.filter(
-        module=EL_ATTACHMENT_MODULE,
-        object_type__in=[LEDGER_ATTACHMENT_OBJECT_TYPE, LEDGER_ITEM_ATTACHMENT_OBJECT_TYPE],
-        object_id__in=[str(i) for i in ledger_ids + item_ids],
-    ).order_by('id'))
 
+def _collect_external_refs(item_ids, ledger_ids, tenants):
+    """收集故障/工单外键引用与履历/审计文本引用（只读，不做删除）。"""
     fault_refs = list(SystemFault.objects.filter(
         source_ledger_item_id__in=item_ids).order_by('id')) if item_ids else []
     order_refs = list(SystemWorkOrder.objects.filter(
@@ -93,22 +91,41 @@ def collect_scope(tenants):
     audit_logs_no = list(AuditLog.objects.filter(
         target_type=LEDGER_ATTACHMENT_OBJECT_TYPE,
         target_name__startswith='EL-INS').order_by('id')) if not tenants else []
+    return fault_refs, order_refs, events, audit_logs, audit_logs_no
 
-    # 异常数据：旧巡检类型误填了维护周期（违反当时组合约束的历史脏数据）
-    anomaly_cycles = [l for l in ledgers if l.maintenance_cycle]
-    anomaly_templates = [t for t in templates if t.maintenance_cycle]
-    # 租户完整性：明细/引用与台账不在同一租户（理论不可能，防御性盘点）
+
+def _collect_scope_anomalies(ledgers, items, templates):
+    """盘点异常历史数据：误填维护周期、明细与台账租户不一致。"""
     ledger_tenant = {l.id: l.tenant_id for l in ledgers}
-    cross_tenant_items = [i for i in items if i.tenant_id != ledger_tenant.get(i.ledger_id)]
+    return {
+        'anomaly_cycles': [l for l in ledgers if l.maintenance_cycle],
+        'anomaly_templates': [t for t in templates if t.maintenance_cycle],
+        'cross_tenant_items': [
+            i for i in items if i.tenant_id != ledger_tenant.get(i.ledger_id)],
+    }
 
+
+def collect_scope(tenants):
+    """收集待删除对象与全部外部引用（只读，不修改任何数据）。"""
+    (ledgers, ledger_ids, items, item_ids,
+     templates, template_ids, template_items, corrections) = _collect_ledger_objects(tenants)
+    attachments = list(EvidenceAttachment.objects.filter(
+        module=EL_ATTACHMENT_MODULE,
+        object_type__in=[LEDGER_ATTACHMENT_OBJECT_TYPE, LEDGER_ITEM_ATTACHMENT_OBJECT_TYPE],
+        object_id__in=[str(i) for i in ledger_ids + item_ids],
+    ).order_by('id'))
+    fault_refs, order_refs, events, audit_logs, audit_logs_no = _collect_external_refs(
+        item_ids, ledger_ids, tenants)
+    anomalies = _collect_scope_anomalies(ledgers, items, templates)
     return {
         'ledgers': ledgers, 'items': items,
         'templates': templates, 'template_items': template_items,
         'corrections': corrections, 'attachments': attachments,
         'fault_refs': fault_refs, 'order_refs': order_refs,
         'events': events, 'audit_logs': audit_logs, 'audit_logs_no': audit_logs_no,
-        'anomaly_cycles': anomaly_cycles, 'anomaly_templates': anomaly_templates,
-        'cross_tenant_items': cross_tenant_items,
+        'anomaly_cycles': anomalies['anomaly_cycles'],
+        'anomaly_templates': anomalies['anomaly_templates'],
+        'cross_tenant_items': anomalies['cross_tenant_items'],
     }
 
 

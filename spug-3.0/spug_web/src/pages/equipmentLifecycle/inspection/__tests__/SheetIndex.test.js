@@ -182,3 +182,154 @@ describe('巡检单记录列表页', () => {
     expect(urls.some(u => /\/inspection-sheets\/5\/$/.test(u))).toBe(true);
   });
 });
+
+function findButton(name) {
+  return Array.from(document.querySelectorAll('button'))
+    .find(b => b.textContent.replace(/\s+/g, '') === name);
+}
+
+function setNativeValue(el, value) {
+  const proto = el.tagName === 'TEXTAREA'
+    ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
+  el.dispatchEvent(new Event('input', {bubbles: true}));
+}
+
+const RETURNED_DETAIL = {
+  ...SHEET_DETAIL,
+  status: 'returned', status_text: '已退回',
+  return_reason: '巡检数据有误，请整改后重新提交',
+  returned_at: '2026-09-25 09:00', returned_by_name: 'sa',
+};
+
+const VOID_DETAIL = {...SHEET_DETAIL, status: 'void', status_text: '已作废'};
+
+describe('巡检单记录 · 超级管理员退回整改', () => {
+  const {message} = require('antd');
+
+  beforeEach(() => {
+    jest.spyOn(message, 'success').mockImplementation(() => {});
+    jest.spyOn(message, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    // 先卸载 React 树再清理 antd 门户节点（顺序颠倒会让 unmount 找不到节点）
+    ReactDOM.unmountComponentAtNode(container);
+    jest.restoreAllMocks();
+    document.querySelectorAll('.ant-modal-root').forEach(el => el.remove());
+    sessionStorage.removeItem('is_supper');
+  });
+
+  async function openSubmittedDetail(isSupper) {
+    sessionStorage.setItem('is_supper', String(isSupper));
+    mockFlow();
+    await renderPage();
+    const detailBtn = findButton('详情');
+    await act(async () => {
+      detailBtn.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    });
+    await act(flush);
+    await act(flush);
+  }
+
+  it('超级管理员在已提交详情中看到退回整改按钮，必填原因后提交成功并刷新', async () => {
+    await openSubmittedDetail(true);
+    const returnBtn = findButton('退回整改');
+    expect(returnBtn).not.toBeUndefined();
+    // 打开弹窗
+    await act(async () => {returnBtn.click();});
+    await act(flush);
+    await act(flush);
+    const modalText = () => {
+      const root = document.querySelector('.ant-modal');
+      return root ? root.textContent : '';
+    };
+    expect(modalText()).toContain('退回整改');
+    // 原因为空不能提交
+    await act(async () => {findButton('确认退回').click();});
+    await act(flush);
+    await act(flush);
+    expect(mockHttpPost).not.toHaveBeenCalled();
+    expect(modalText()).toContain('退回原因不能为空');
+    // 填写原因后提交：POST 退回端点，成功后刷新详情与列表
+    const textarea = document.querySelector('.ant-modal textarea');
+    setNativeValue(textarea, '巡检数据有误，请整改');
+    // 后端退回成功后，详情/列表接口返回已退回状态的数据
+    mockHttpPost.mockResolvedValue(RETURNED_DETAIL);
+    mockHttpGet.mockImplementation((url) => {
+      if (/\/inspection-sheets\/\d+\/$/.test(url)) {
+        return Promise.resolve(RETURNED_DETAIL);
+      }
+      if (url.includes('/inspection-sheets/')) {
+        return Promise.resolve({data: [RETURNED_DETAIL], total: 1});
+      }
+      return Promise.resolve({data: {}});
+    });
+    await act(async () => {findButton('确认退回').click();});
+    await act(flush);
+    await act(flush);
+    await act(flush);
+    expect(mockHttpPost).toHaveBeenCalledTimes(1);
+    const [url, payload] = mockHttpPost.mock.calls[0];
+    expect(url).toBe('/api/equipment-lifecycle/inspection-sheets/5/return/');
+    expect(payload).toEqual({return_reason: '巡检数据有误，请整改'});
+    // 成功提示只弹一次（错误场景由 http 拦截器统一提示）
+    expect(message.success).toHaveBeenCalledWith('巡检单已退回整改');
+    // 详情与列表各刷新一次（初次打开 1 次 + 成功后 1 次）
+    const detailGets = mockHttpGet.mock.calls.filter(
+      c => /\/inspection-sheets\/5\/$/.test(c[0]));
+    const listGets = mockHttpGet.mock.calls.filter(
+      c => c[0].endsWith('/inspection-sheets/'));
+    expect(detailGets.length).toBe(2);
+    expect(listGets.length).toBe(2);
+    // 详情已刷新为已退回状态并展示退回原因，退回按钮消失
+    expect(bodyText()).toContain('已退回');
+    expect(bodyText()).toContain('巡检数据有误，请整改后重新提交');
+    expect(findButton('退回整改')).toBeUndefined();
+  });
+
+  it('普通用户（非超级管理员）不显示退回整改按钮', async () => {
+    await openSubmittedDetail(false);
+    expect(findButton('退回整改')).toBeUndefined();
+  });
+
+  it('已退回详情不显示退回按钮并展示退回原因', async () => {
+    sessionStorage.setItem('is_supper', 'true');
+    mockHttpGet.mockImplementation((url) => {
+      if (/\/inspection-sheets\/\d+\/$/.test(url)) {
+        return Promise.resolve(RETURNED_DETAIL);
+      }
+      if (url.includes('/inspection-sheets/')) {
+        return Promise.resolve({data: [RETURNED_DETAIL], total: 1});
+      }
+      return Promise.resolve({data: {}});
+    });
+    await renderPage();
+    await act(async () => {findButton('详情').click();});
+    await act(flush);
+    await act(flush);
+    expect(bodyText()).toContain('已退回');
+    expect(bodyText()).toContain('退回原因');
+    expect(bodyText()).toContain('巡检数据有误，请整改后重新提交');
+    expect(findButton('退回整改')).toBeUndefined();
+  });
+
+  it('已作废详情不显示退回整改按钮（非已提交状态一律不显示）', async () => {
+    sessionStorage.setItem('is_supper', 'true');
+    mockHttpGet.mockImplementation((url) => {
+      if (/\/inspection-sheets\/\d+\/$/.test(url)) {
+        return Promise.resolve(VOID_DETAIL);
+      }
+      if (url.includes('/inspection-sheets/')) {
+        return Promise.resolve({data: [VOID_DETAIL], total: 1});
+      }
+      return Promise.resolve({data: {}});
+    });
+    await renderPage();
+    await act(async () => {findButton('详情').click();});
+    await act(flush);
+    await act(flush);
+    expect(bodyText()).toContain('已作废');
+    expect(findButton('退回整改')).toBeUndefined();
+  });
+});

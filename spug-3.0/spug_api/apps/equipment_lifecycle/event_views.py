@@ -31,6 +31,13 @@ from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     SystemEvent,
 )
+from apps.equipment_lifecycle.event_group_services import (
+    GROUP_SOURCE_TYPES,
+    MAIN_EVENT_TYPES,
+    build_group_export_rows,
+    collect_item_nodes,
+    list_system_groups,
+)
 
 AUDIT_TARGET_EVENT = 'el_system_event'
 
@@ -55,31 +62,21 @@ def _parse_dt(value):
     return None
 
 
-def _filtered_events(request):
-    """公共过滤：租户 + 事件类型/来源/关键词/时间范围，返回 QuerySet。"""
-    form, error = JsonParser(
-        Argument('event_type', type=str, required=False),
-        Argument('source_type', type=str, required=False),
-        Argument('keyword', type=str, required=False),
-        Argument('occurred_from', type=str, required=False),
-        Argument('occurred_to', type=str, required=False),
-    ).parse(request.GET)
-    if error:
-        return None, error
-    query = apply_tenant_filter(SystemEvent.objects.all(), request.user)
+def _apply_type_filters(query, form, allowed_event_types, allowed_source_types):
+    """事件类型/来源类型筛选：校验可选值并过滤（None 表示不限定类型集合）。"""
     if form.event_type:
-        if form.event_type not in SystemEvent.EVENT_TYPE_TEXT_MAP:
+        if form.event_type not in (allowed_event_types or SystemEvent.EVENT_TYPE_TEXT_MAP):
             return None, '事件类型筛选值不合法'
         query = query.filter(event_type=form.event_type)
     if form.source_type:
-        if form.source_type not in SystemEvent.EVENT_SOURCE_TYPE_VALUES:
+        if form.source_type not in (allowed_source_types or SystemEvent.EVENT_SOURCE_TYPE_VALUES):
             return None, '来源类型筛选值不合法'
         query = query.filter(source_type=form.source_type)
-    if form.keyword:
-        query = query.filter(
-            Q(title__icontains=form.keyword) | Q(source_no__icontains=form.keyword) |
-            Q(system_code__icontains=form.keyword) | Q(system_name__icontains=form.keyword))
-    # 时间筛选用 __gte/__lt（项目禁用 DateTimeField __date 等查询）
+    return query, None
+
+
+def _apply_time_filters(query, form):
+    """发生时间范围筛选：用 __gte/__lt（项目禁用 DateTimeField __date 等查询）。"""
     occurred_from = _parse_dt(form.occurred_from) if form.occurred_from else None
     occurred_to = _parse_dt(form.occurred_to) if form.occurred_to else None
     if form.occurred_from and not occurred_from:
@@ -91,6 +88,38 @@ def _filtered_events(request):
     if occurred_to:
         query = query.filter(occurred_at__lt=occurred_to)
     return query, None
+
+
+def _filtered_events(request, allowed_event_types=None, allowed_source_types=None):
+    """公共过滤：租户 + 事件类型/来源/关键词/时间范围，返回 QuerySet。
+
+    - allowed_event_types / allowed_source_types 提供时作为可选值校验集合，
+      并将基础查询限定在这些类型内（事项聚合视图用它排除健康状态与
+      配置快照事件）；缺省 None 保持原行为（全部事件类型，平铺接口不变）。
+    """
+    form, error = JsonParser(
+        Argument('event_type', type=str, required=False),
+        Argument('source_type', type=str, required=False),
+        Argument('keyword', type=str, required=False),
+        Argument('occurred_from', type=str, required=False),
+        Argument('occurred_to', type=str, required=False),
+    ).parse(request.GET)
+    if error:
+        return None, error
+    query = apply_tenant_filter(SystemEvent.objects.all(), request.user)
+    if allowed_event_types is not None:
+        query = query.filter(event_type__in=allowed_event_types)
+    if allowed_source_types is not None:
+        query = query.filter(source_type__in=allowed_source_types)
+    query, error = _apply_type_filters(
+        query, form, allowed_event_types, allowed_source_types)
+    if error:
+        return None, error
+    if form.keyword:
+        query = query.filter(
+            Q(title__icontains=form.keyword) | Q(source_no__icontains=form.keyword) |
+            Q(system_code__icontains=form.keyword) | Q(system_name__icontains=form.keyword))
+    return _apply_time_filters(query, form)
 
 
 class SystemEventView(View):
@@ -171,4 +200,87 @@ class SystemEventExportView(View):
         response['Content-Disposition'] = f'attachment; filename=el_system_events_{stamp}.csv'
         record_audit_event(request, 'export', AUDIT_TARGET_EVENT, '', '',
                            after_value={'total': len(rows)})
+        return response
+
+
+class SystemEventGroupView(View):
+    """系统履历事项分组列表（按系统分组、按业务事项聚合，只读）。
+
+    - 聚合在后端完成后分页（page 为系统分组页，默认每页 10 个系统）；
+    - 健康状态与配置快照事件不参与事项聚合：健康状态经分组头当前状态与
+      /systems/<pk>/system-events/?event_type=health 历史面板查看，
+      SystemEvent 原始数据不变；
+    - 事项节点时间线经 /system-event-groups/nodes/ 按需加载。
+    """
+
+    @auth('equipment_lifecycle.system_event.view')
+    def get(self, request):
+        query, error = _filtered_events(
+            request, allowed_event_types=MAIN_EVENT_TYPES,
+            allowed_source_types=GROUP_SOURCE_TYPES)
+        if error:
+            return json_response(error=error)
+        page, page_size = paginate(request, default_page_size=10)
+        return json_response(list_system_groups(request.user, query, page, page_size))
+
+
+class SystemEventGroupNodesView(View):
+    """单个事项的完整节点时间线（展开事项时按需加载，按发生时间升序）。
+
+    台账异常转换节点已按 target_no 归并进故障/工单事项，本接口返回与
+    分组列表一致的归并结果，前端不需要自行拼接多个来源的节点。
+    """
+
+    @auth('equipment_lifecycle.system_event.view')
+    def get(self, request):
+        form, error = JsonParser(
+            Argument('system', type=int, required=True),
+            Argument('source_type', type=str, required=True),
+            Argument('source_id', type=str, required=True),
+        ).parse(request.GET)
+        if error:
+            return json_response(error='参数不完整')
+        if form.source_type not in GROUP_SOURCE_TYPES:
+            return json_response(error='来源类型不合法')
+        nodes, error = collect_item_nodes(
+            request.user, form.system, form.source_type, form.source_id)
+        if error:
+            return json_response(error=error)
+        return json_response({'data': [n.to_view() for n in nodes]})
+
+
+class SystemEventGroupExportView(View):
+    """系统履历事项分组导出（CSV，同一系统的事项连续输出）。
+
+    列序：系统/事项最近更新时间/事项类型/事项编号/事项当前状态/事项摘要/
+    首次发生时间/节点数量；节点级明细仍可用原 /system-events/export/。
+    复用 system_event.export 权限并记录审计。
+    """
+
+    @auth('equipment_lifecycle.system_event.export')
+    def get(self, request):
+        query, error = _filtered_events(
+            request, allowed_event_types=MAIN_EVENT_TYPES,
+            allowed_source_types=GROUP_SOURCE_TYPES)
+        if error:
+            return json_response(error=error)
+        rows = build_group_export_rows(request.user, query)
+        headers = ['系统', '事项最近更新时间', '事项类型', '事项编号',
+                   '事项当前状态', '事项摘要', '首次发生时间', '节点数量']
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(headers)
+        for row in rows:
+            writer.writerow([
+                row[0],
+                row[1].strftime('%Y-%m-%d %H:%M') if row[1] else '',
+                row[2], row[3], row[4], row[5],
+                row[6].strftime('%Y-%m-%d %H:%M') if row[6] else '',
+                row[7],
+            ])
+        response = HttpResponse('\ufeff' + buf.getvalue(), content_type='text/csv; charset=utf-8')
+        stamp = timezone.now().strftime('%Y%m%d%H%M%S')
+        response['Content-Disposition'] = f'attachment; filename=el_system_event_groups_{stamp}.csv'
+        record_audit_event(request, 'export', AUDIT_TARGET_EVENT, '', '',
+                           after_value={'total': len(rows), 'kind': 'event_groups'})
         return response

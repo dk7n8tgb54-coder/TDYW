@@ -200,20 +200,31 @@ def recompute_systems_health(tenant_id, system_ids, request=None, audit_reason=N
     return result
 
 
+def user_display_name(user):
+    """用户展示姓名：昵称优先、回落用户名（登记人/记录人缺省姓名取此口径）。"""
+    if not user:
+        return ''
+    return (getattr(user, 'nickname', '') or user.username)
+
+
 def create_fault_record(*, tenant_id, created_by, system, impact_status,
                         occurred_at, discovery, level, phenomenon, handler=None,
+                        registrar_name=None,
                         affects_system_operation=False,
                         impact_scope='', fault_location='', fault_object_name='',
                         fault_object_model='', fault_object_sn='', reason_analysis='',
                         source_type=None, source_ledger_item=None,
                         source_inspection_record=None, request=None):
-    """正式故障创建服务（单系统简化，台账/巡检异常转故障复用）。
+    """正式故障创建服务（单系统简化，台账异常转故障复用）。
 
     须在 health_recalc_lock + transaction.atomic 内调用（调用方负责锁与事务）：
     - 创建故障主单（一个故障系统外键 + 发生时快照，无受影响系统）；
     - 默认"部件故障但不影响系统运行"（affects_system_operation=False），
       此时 impact_status 强制存空串且不参与健康状态计算；
       仅调用方明确传 affects_system_operation=True 时按 impact_status 参与计算；
+    - registrar_name 为故障登记人（手动输入的登记人姓名，多人以顿号分隔，
+      实际添加本条故障记录的人，与登录账号审计字段 created_by 独立，
+      不关联 User）；缺省取创建人显示姓名（转单流程由操作人登记）；
     - 同事务生成故障发生履历事件（只落故障所属系统，步骤 3.4 统一履历）；
     - 同事务重算故障系统健康状态（request 透传以记录状态变化审计）；
     - source_type/source_ledger_item/source_inspection_record 供异常转故障写入
@@ -249,6 +260,7 @@ def create_fault_record(*, tenant_id, created_by, system, impact_status,
         source_ledger_item=source_ledger_item,
         source_inspection_record=source_inspection_record,
         created_by=created_by,
+        registrar_name=(registrar_name or '').strip()[:200] or user_display_name(created_by),
         handler=handler,
     )
     # 步骤 3.4：故障发生履历（只落故障所属系统，同一事务）

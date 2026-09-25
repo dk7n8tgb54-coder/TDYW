@@ -274,7 +274,19 @@ class SystemFault(TenantModelMixin, models.Model):
         help_text='旧巡检台账来源快照 JSON（台账号/类型/项目名/系统快照等；'
                   '来源明细随旧巡检台账受控删除后，据此展示历史来源，不做跳转）')
 
-    created_by = models.ForeignKey(User, models.PROTECT, related_name='+', help_text='创建人')
+    created_by = models.ForeignKey(
+        User, models.PROTECT, related_name='+',
+        help_text='创建人（实际登录账号，仅用于审计）')
+    # 故障登记人（2026-09）：手动输入的登记人姓名，只表示"谁登记"，
+    # 不代表其负责后续跟进、不承担维修责任（跟进人/处置人仍是 handler）；
+    # 不关联 User——实际登记人可能没有系统账号（共用登录账号场景），
+    # 参照系统档案 responsible_user_name 的姓名快照口径。
+    # 历史故障登记人为空（可空文本），新增时由视图层写入（缺省当前登录用户姓名）。
+    registrar_name = models.CharField(
+        max_length=200, default='', blank=True,
+        help_text='故障登记人（手动输入的登记人姓名，多人以顿号分隔；'
+                  '实际添加本条故障记录的人，不代表后续跟进与维修责任；'
+                  '与登录账号 created_by 独立，历史数据可为空）')
     handler = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True,
                                 help_text='当前处置负责人')
 
@@ -330,6 +342,7 @@ class SystemFault(TenantModelMixin, models.Model):
             'status_text': self.STATUS_TEXT_MAP.get(self.status, self.status),
             'handler': self.handler_id,
             'handler_name': self.handler.username if self.handler_id else '',
+            'registrar_name': self.registrar_name or '',
             'created_by_name': self.created_by.username if self.created_by_id else '',
             'created_at': self.created_at,
         }
@@ -400,20 +413,61 @@ class SystemFault(TenantModelMixin, models.Model):
 
 
 class SystemFaultHandlingRecord(TenantModelMixin, models.Model):
-    """故障处置过程记录：追加式时间线，不把过程反复覆盖在一个文本字段中。
+    """故障处理进展记录（原"处置记录"，2026-09 统一改名）：追加式时间线，
+    记录检查、临时措施、送厂、厂家反馈、返还、本方测试、持续观察等整体跟进，
+    不把过程反复覆盖在一个文本字段中。
 
     - 已保存记录不得被普通用户静默覆盖：更正时把原内容、修改内容、更正原因
       追加保存到 corrections JSON 数组（[{old, new, reason, by, at}]）；
+    - progress_type 为选填的结构化进展类型（空串=未选择，历史记录为空），
+      故障恢复/关闭仍走原有状态流转，不依赖进展类型推断；
     - 附件使用项目现有 EvidenceAttachment 能力
       （module=equipment_lifecycle, object_type=el_fault_handling, object_id=记录ID）。
     """
 
+    # 进展类型（2026-09：本方维修/送厂/仅测试/暂未修复等真实跟进阶段，
+    # 结构化存储，选填；空串=未选择。历史记录类型为空，不通过文本解析反推类型）
+    PROGRESS_CHECK = 'check'
+    PROGRESS_SELF_FIX = 'self_fix'
+    PROGRESS_TO_VENDOR = 'to_vendor'
+    PROGRESS_VENDOR_FEEDBACK = 'vendor_feedback'
+    PROGRESS_RETURN = 'return'
+    PROGRESS_TEST = 'test'
+    PROGRESS_WATCH = 'watch'
+    PROGRESS_OTHER = 'other'
+    PROGRESS_TYPE_CHOICES = (
+        (PROGRESS_CHECK, '检查'),
+        (PROGRESS_SELF_FIX, '本方处理'),
+        (PROGRESS_TO_VENDOR, '送厂'),
+        (PROGRESS_VENDOR_FEEDBACK, '厂家反馈'),
+        (PROGRESS_RETURN, '返还'),
+        (PROGRESS_TEST, '测试'),
+        (PROGRESS_WATCH, '持续观察'),
+        (PROGRESS_OTHER, '其他'),
+    )
+    PROGRESS_TYPE_TEXT_MAP = dict(PROGRESS_TYPE_CHOICES)
+
     fault = models.ForeignKey(SystemFault, models.CASCADE, related_name='handling_records',
                               help_text='所属故障')
-    handled_at = models.DateTimeField(help_text='处置时间')
-    handler = models.ForeignKey(User, models.PROTECT, related_name='+', help_text='处置人')
-    content = models.TextField(max_length=2000, help_text='处置内容')
-    result = models.CharField(max_length=200, default='', blank=True, help_text='处置结果')
+    handled_at = models.DateTimeField(help_text='进展时间')
+    # handler 保留为审计字段（记录操作登录账号，历史数据不变）；
+    # 进展记录人为手动输入姓名（recorder_name，2026-09），不关联 User，
+    # 历史记录无 recorder_name 时展示回落到 handler 的用户名
+    handler = models.ForeignKey(
+        User, models.PROTECT, related_name='+',
+        help_text='记录操作账号（审计字段；进展记录人姓名见 recorder_name）')
+    recorder_name = models.CharField(
+        max_length=200, default='', blank=True,
+        help_text='进展记录人（手动输入的记录人姓名，多人以顿号分隔；'
+                  '实际添加本条进展的人，不代表负责整个故障；'
+                  '空串=历史记录，展示回落 handler 用户名）')
+    content = models.TextField(max_length=2000, help_text='进展内容')
+    progress_type = models.CharField(
+        max_length=20, choices=PROGRESS_TYPE_CHOICES, default='', blank=True,
+        help_text='进展类型（选填：check检查/self_fix本方处理/to_vendor送厂/'
+                  'vendor_feedback厂家反馈/return返还/test测试/watch持续观察/other其他；'
+                  '空串=未选择，历史记录为空）')
+    result = models.CharField(max_length=200, default='', blank=True, help_text='处理结果（选填）')
     corrections = models.TextField(default='', blank=True, help_text='更正历史 JSON 数组')
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -422,8 +476,8 @@ class SystemFaultHandlingRecord(TenantModelMixin, models.Model):
 
     class Meta:
         db_table = 'tdyw_el_fault_handling_record'
-        verbose_name = '故障处置记录'
-        verbose_name_plural = '故障处置记录'
+        verbose_name = '故障处理进展'
+        verbose_name_plural = '故障处理进展'
         ordering = ('handled_at', 'id')
         indexes = [
             models.Index(fields=['tenant_id', 'fault', 'handled_at', 'id']),
@@ -448,6 +502,9 @@ class SystemFaultHandlingRecord(TenantModelMixin, models.Model):
             'handled_at': self.handled_at,
             'handler': self.handler_id,
             'handler_name': self.handler.username if self.handler_id else '',
+            'recorder_name': self.recorder_name or '',
+            'progress_type': self.progress_type,
+            'progress_type_text': self.PROGRESS_TYPE_TEXT_MAP.get(self.progress_type, ''),
             'content': self.content,
             'result': self.result,
             'corrections': self.get_corrections(),
@@ -1435,7 +1492,7 @@ class SystemWorkOrderHandlingRecord(TenantModelMixin, models.Model):
     """工单处理过程记录：追加式时间线，不把过程反复覆盖在一个文本字段中。
 
     - 已保存记录不得被普通用户静默覆盖：更正时把原内容、新内容、更正原因
-      追加保存到 corrections JSON 数组（与故障处置记录同一模式）；
+      追加保存到 corrections JSON 数组（与故障处理进展同一模式）；
     - 附件复用 EvidenceAttachment 体系
       （module=equipment_lifecycle, object_type=el_work_order_handling, object_id=记录ID）。
     """
@@ -1721,12 +1778,19 @@ INSPECTION_RESULT_NORMAL = 'normal'
 INSPECTION_RESULT_ABNORMAL = 'abnormal'
 INSPECTION_RESULT_VALUES = [INSPECTION_RESULT_NORMAL, INSPECTION_RESULT_ABNORMAL]
 
-# 巡检单状态：记录/提交分离；作废为受控作废（留档可查，释放当日唯一占用）
+# 巡检单状态：记录/提交分离；已退回（超级管理员退回整改）可再编辑重提；
+# 作废为受控作废（留档可查，释放当日唯一占用）
 INSPECTION_SHEET_DRAFT = 'draft'
 INSPECTION_SHEET_SUBMITTED = 'submitted'
+INSPECTION_SHEET_RETURNED = 'returned'
 INSPECTION_SHEET_VOID = 'void'
 INSPECTION_SHEET_STATUS_VALUES = [
-    INSPECTION_SHEET_DRAFT, INSPECTION_SHEET_SUBMITTED, INSPECTION_SHEET_VOID,
+    INSPECTION_SHEET_DRAFT, INSPECTION_SHEET_SUBMITTED,
+    INSPECTION_SHEET_RETURNED, INSPECTION_SHEET_VOID,
+]
+# 允许编辑明细/值班人员的状态（草稿与已退回整改）
+INSPECTION_SHEET_EDITABLE_STATUSES = [
+    INSPECTION_SHEET_DRAFT, INSPECTION_SHEET_RETURNED,
 ]
 
 # 巡检单编号前缀：XJ{yyyymmdd}-{seq:04d}，租户内唯一
@@ -1895,6 +1959,8 @@ class InspectionDutySheet(TenantModelMixin, models.Model):
     - 一张单 = 一个值班日 + 一个模板：同一值班日同一模板只有一张有效单
       （作废单通过 uniq_key 后缀释放唯一占用，沿用项目 __deleted_{id} 惯例）；
     - 记录/提交分离：草稿可多次累积四轮记录，提交后不可再修改；
+    - 已提交单仅超级管理员可"退回整改"（submitted → returned，原因留痕），
+      已退回单可再编辑并重新提交（returned → submitted，更新提交人/时间）；
     - 不关联 LifecycleSystem：异常转故障/工单时才由用户选择系统。
     """
 
@@ -1908,6 +1974,7 @@ class InspectionDutySheet(TenantModelMixin, models.Model):
         choices=(
             (INSPECTION_SHEET_DRAFT, '草稿'),
             (INSPECTION_SHEET_SUBMITTED, '已提交'),
+            (INSPECTION_SHEET_RETURNED, '已退回'),
             (INSPECTION_SHEET_VOID, '已作废'),
         ),
         default=INSPECTION_SHEET_DRAFT, help_text='当前状态')
@@ -1929,6 +1996,11 @@ class InspectionDutySheet(TenantModelMixin, models.Model):
                                   help_text='作废人')
     void_reason = models.CharField(max_length=200, default='', blank=True,
                                    help_text='作废原因（受控作废留痕）')
+    returned_at = models.DateTimeField(null=True, blank=True, help_text='退回时间')
+    returned_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True,
+                                    help_text='退回人（超级管理员）')
+    return_reason = models.CharField(max_length=200, default='', blank=True,
+                                     help_text='退回原因（超级管理员退回整改留痕）')
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+', help_text='创建人')
     updated_at = models.DateTimeField(null=True, blank=True)
@@ -2004,6 +2076,9 @@ class InspectionDutySheet(TenantModelMixin, models.Model):
             'void_reason': self.void_reason,
             'voided_at': self.voided_at,
             'voided_by_name': self.voided_by.username if self.voided_by_id else '',
+            'return_reason': self.return_reason,
+            'returned_at': self.returned_at,
+            'returned_by_name': self.returned_by.username if self.returned_by_id else '',
             'recorded_rounds': self.get_recorded_rounds(),
             'persons': [p.to_view() for p in self.persons.all()],
             'records': [r.to_view() for r in self.records.all()],

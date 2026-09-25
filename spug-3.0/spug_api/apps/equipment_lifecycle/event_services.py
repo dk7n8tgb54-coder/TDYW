@@ -207,36 +207,3 @@ def record_health_change_event(system, old_status, new_status, reason='', create
         detail={'before': old_status, 'after': new_status, 'reason': (reason or '')[:200]},
         created_by=created_by,
     )
-
-
-def record_inspection_convert_event(record, sheet, system, action, target_no='',
-                                    detail=None, created_by=None):
-    """巡检异常明细转故障/工单事件（落到用户所选目标系统的履历）。
-
-    - action ∈ convert_to_fault / convert_to_work_order；
-    - 巡检单不关联系统：事件落在转换时用户显式选择的系统上（system 为目标系统）；
-    - target_no 为生成的故障号/工单号（来源关系双向可追溯）。
-    """
-    return record_system_event(
-        tenant_id=record.tenant_id,
-        system=system,
-        event_type=SystemEvent.EVENT_INSPECTION,
-        action=action,
-        source_type='inspection_record',
-        source_id=record.id,
-        source_no=sheet.sheet_no,
-        title='巡检异常转故障' if action == 'convert_to_fault' else '巡检异常转工单',
-        detail={
-            'sheet_id': sheet.id,
-            'sheet_no': sheet.sheet_no,
-            'duty_date': str(sheet.duty_date),
-            'round_no': record.round_no,
-            'round_text': record.ROUND_TEXT_MAP.get(record.round_no, record.round_no),
-            'device_name': record.device_name_snapshot,
-            'item_name': record.item_name_snapshot,
-            'inspection_record_id': record.id,
-            'target_no': target_no,
-            **(detail or {}),
-        },
-        created_by=created_by,
-    )
