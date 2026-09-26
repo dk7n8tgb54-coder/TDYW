@@ -47,15 +47,6 @@ describe('LedgerStore', () => {
     expect(store.total).toBe(1);
   });
 
-  test('周月维护 Store 请求携带 maintenance_cycle 筛选', async () => {
-    mockHttpGet.mockResolvedValue({data: [], total: 0});
-    const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
-    store.f_cycle = 'month';
-    await store.fetchRecords();
-    expect(mockHttpGet.mock.calls[0][1].params.ledger_type).toBe('week_month');
-    expect(mockHttpGet.mock.calls[0][1].params.maintenance_cycle).toBe('month');
-  });
-
   test('submitLedger 调用提交动作接口并在成功后重新获取列表', async () => {
     mockHttpPost.mockResolvedValue({});
     mockHttpGet.mockResolvedValue({data: [], total: 0});

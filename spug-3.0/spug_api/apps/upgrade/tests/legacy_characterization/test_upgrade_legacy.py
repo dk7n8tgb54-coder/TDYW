@@ -12,7 +12,6 @@ from apps.utils.test_helpers import make_user, setup_test_env
 from apps.upgrade.models import UpgradeRecord
 from apps.equipment_lifecycle.models import LifecycleSystem
 from apps.equipment_lifecycle.tests.base import make_system
-from apps.device.models import DeviceEvent
 
 
 class UpgradeRecordLinkageFieldsTest(TestCase):
@@ -80,10 +79,3 @@ class UpgradeRecordLinkageFieldsTest(TestCase):
         rec.refresh_from_db()
         self.assertIsNone(rec.system_id)
         self.assertEqual(rec.system_name, '无法匹配的旧系统名')
-
-    def test_no_auto_device_history(self):
-        """LEGACY: 创建升级记录不会自动写入 DeviceEvent"""
-        UpgradeRecord.objects.create(
-            tenant_id=self.user.tenant_id, title='自动履历测试',
-            system_name='测试', upgrade_type='软件升级', created_by=self.user)
-        self.assertEqual(DeviceEvent.objects.filter(event_title='自动履历测试').count(), 0)

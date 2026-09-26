@@ -74,9 +74,9 @@ class MixedWorkloadUser(TokenSharedHttpUser):
                 resp.failure(f"HTTP {resp.status_code}")
 
     @task(6)
-    def list_devices(self):
-        with self._get("/api/device/device-resume/",
-                       "GET /api/device/device-resume/ (混合-设备列表)",
+    def list_interference_events(self):
+        with self._get("/api/interference/events/",
+                       "GET /api/interference/events/ (混合-干扰列表)",
                        params={"page": 1, "page_size": 20}) as resp:
             if resp.status_code == 200:
                 resp.success()

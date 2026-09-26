@@ -369,7 +369,6 @@ class LedgerConvertEventTests(SystemEventTestBase):
     def create_reviewed_ledger_with_abnormal_item(self):
         template = OperationLedgerTemplate.objects.create(
             name='维护模板-履历', ledger_type='week_month',
-            maintenance_cycle='week',
             is_active=True, tenant_id='tenant_a', created_by=self.admin)
         body = create_ledger_ok(self.client, ledger_payload([
             entry_payload(self.system_a.id, [
@@ -552,7 +551,6 @@ class DeleteProtectionRegressionTests(SystemEventTestBase):
         # 通过真实 API 创建带明细的台账（明细以正式系统 ID 关联）
         template = OperationLedgerTemplate.objects.create(
             name='维护模板-删除保护', ledger_type='week_month',
-            maintenance_cycle='week',
             is_active=True, tenant_id='tenant_a', created_by=self.admin)
         create_ledger_ok(self.client, ledger_payload([
             entry_payload(self.system_a.id, [item_payload()], template_id=template.id),

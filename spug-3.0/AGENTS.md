@@ -36,7 +36,7 @@
 | `contractAgreement/` | `contract_agreement/` | 合同协议 |
 | `coopTask/` | `coop_task/` | 协作任务及附件清理 |
 | `document/`、党建页面、`regulation/` | `document/`、`regulation/` | 文档、党建隔离和规章 |
-| `device/`、`upgrade/`、`exec/fault/`、`interference/` | 同名应用 | 技术运维业务 |
+| `upgrade/`、`exec/fault/`、`interference/` | 同名应用 | 技术运维业务（device 设备管理模块已于 2026-09 整体移除） |
 | `maintenance/` | `logs/`、`alert/` | 审计日志和系统告警 |
 | 公共附件、签名能力 | `evidence/`、`signature/` | 业务入口负责权限和归属校验 |
 

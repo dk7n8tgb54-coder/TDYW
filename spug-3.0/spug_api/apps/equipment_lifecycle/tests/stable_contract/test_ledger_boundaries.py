@@ -115,6 +115,8 @@ class LedgerBoundaryContractTests(TestCase):
             'LifecycleSystem',
             'SystemFault', 'SystemFaultHandlingRecord',
             'OperationLedgerTemplate', 'OperationLedgerTemplateItem',
+            # 行对象树（2026-09 第一阶段）：模板行节点 + 实际行实例
+            'OperationLedgerRowTemplateNode', 'OperationLedgerRowInstance',
             'OperationLedger', 'OperationLedgerItem', 'OperationLedgerCorrection',
             'SystemWorkOrder',
             'SystemWorkOrderParticipant', 'SystemWorkOrderHandlingRecord',
@@ -125,11 +127,9 @@ class LedgerBoundaryContractTests(TestCase):
         }
         self.assertEqual(model_names, expected)
 
-    def test_device_upgrade_and_fault_logic_untouched(self):
-        """36. device、upgrade 和步骤 3.1 故障状态逻辑未发生无关变化。"""
-        # device / upgrade 模型关键字段仍然在位
-        device_fields = {f.name for f in django_apps.get_model('device', 'DeviceResume')._meta.get_fields()}
-        self.assertIn('device_name', device_fields)
+    def test_upgrade_and_fault_logic_untouched(self):
+        """36. upgrade 和步骤 3.1 故障状态逻辑未发生无关变化。"""
+        # upgrade 模型关键字段仍然在位
         upgrade_fields = {f.name for f in django_apps.get_model('upgrade', 'UpgradeRecord')._meta.get_fields()}
         self.assertIn('title', upgrade_fields)
         # 步骤 3.1 故障模型与状态计算入口未被本步骤修改

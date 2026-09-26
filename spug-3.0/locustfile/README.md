@@ -57,7 +57,6 @@ docker ps  →  tdyw / tdyw-db / kkfileview
 ### 旧脚本（保留备用，未列入 runner）
 | 文件 | 作用 |
 |---|---|
-| `locustfile_device.py` | 设备 CRUD（与 mixed_workload 重叠） |
 | `locustfile_interference.py` | 干扰记录 CRUD |
 | `locustfile_runlog.py` | 运行日志 CRUD |
 | `locustfile_pagination.py` | 通用分页 |

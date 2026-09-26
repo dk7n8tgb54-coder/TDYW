@@ -69,7 +69,7 @@ class ObjectPermissionCheck:
                     module = self._get_module_from_path(view.file_path)
                     if module in ('document', 'evidence', 'regulation', 'radio_license',
                                   'contract_agreement', 'coop_task', 'department_duty_log',
-                                  'interference', 'device', 'upgrade'):
+                                  'interference', 'upgrade'):
                         self.findings.append(ObjectPermissionFinding(
                             module=module,
                             api=self._find_api_for_view(view.name),

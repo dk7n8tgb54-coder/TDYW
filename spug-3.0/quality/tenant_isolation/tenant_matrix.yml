@@ -269,25 +269,6 @@ modules:
         tested: false
         risk: MEDIUM
 
-  device:
-    models:
-      - name: DeviceResume
-        table: device_deviceresume
-        tenant_field: tenant_id
-        classification: tenant_private
-        manager: TenantModelManager
-        soft_delete: true
-        tested: false
-        risk: MEDIUM
-      - name: DeviceHistory
-        table: device_devicehistory
-        tenant_field: tenant_id
-        classification: tenant_private
-        manager: TenantModelManager
-        soft_delete: true
-        tested: false
-        risk: MEDIUM
-
   upgrade:
     models:
       - name: UpgradeRecord

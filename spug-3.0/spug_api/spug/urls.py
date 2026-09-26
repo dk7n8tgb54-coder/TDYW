@@ -23,7 +23,6 @@ from django.conf.urls.static import static
 urlpatterns = [
     path('account/', include('apps.account.urls')),
     path('duty/', include('apps.duty.urls')),
-    path('device/', include('apps.device.urls')),
     path('setting/', include('apps.setting.urls')),
     path('interference/', include('apps.interference.urls')),
     path('home/', include('apps.home.urls')),

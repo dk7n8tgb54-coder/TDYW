@@ -98,10 +98,13 @@ class WorkOrderStore {
 
   buildFormPayload = (values) => {
     // 所有业务关联一律提交 ID（系统 ID、用户 ID），不提交名称；
-    // 一张工单只关联一个作业系统（单系统简化，无受影响系统）
+    // 一张工单只关联一个作业系统（单系统简化，无受影响系统）；
+    // maintenance_subtype 仅专项维护有业务含义（默认一般维护），
+    // 故障维修提交默认值由后端统一归一，前端不展示该字段
     const payload = {
       title: values.title,
       work_type: values.work_type,
+      maintenance_subtype: values.maintenance_subtype || 'general',
       priority: values.priority || 'normal',
       system: values.system,
       affects_system_operation: !!values.affects_system_operation,

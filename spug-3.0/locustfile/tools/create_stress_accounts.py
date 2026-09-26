@@ -34,7 +34,6 @@ ALL_PERMS = {
     "document": {"document": ["view", "create_folder", "upload", "delete",
                               "download", "move", "copy", "rename"]},
     "logs": {"audit": ["view", "export"]},
-    "device": {"device_resume": ["view"]},
     "interference": {"interference": ["view"]},
     "home": {"statistic": ["view"]},
     "department_duty_log": {"department_duty_log": ["view", "export"]},

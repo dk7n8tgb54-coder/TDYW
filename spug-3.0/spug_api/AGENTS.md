@@ -156,7 +156,7 @@ CELERY_BEAT_SCHEDULE = {**DOCUMENT_BEAT_SCHEDULE, **RADIO_LICENSE_BEAT_SCHEDULE,
 ### EvidenceAttachment 通用附件
 
 1. 多模块共用 `apps/evidence/` 的 `EvidenceAttachment` 模型和 `AttachmentService`。
-2. **使用附件的模块**：radio_license、contract_agreement、device、upgrade、fault、interference、department_duty_log。
+2. **使用附件的模块**：radio_license、contract_agreement、upgrade、fault、interference、department_duty_log。
 3. **例外**：`regulation` 使用独立的 `storage.py`，不走 evidence 系统。
 4. **新建阶段上传模式**：前端生成临时 UUID 作为 `object_id`，后端 `pk.isdigit()` 判断跳过记录存在性校验；保存记录时传 `attachment_temp_id`，后端 UPDATE `object_id` 关联。
 5. **preview_token**：document/libs 和 evidence 各有独立实现，待收口。

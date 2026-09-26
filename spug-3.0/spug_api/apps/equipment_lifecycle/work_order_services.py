@@ -26,6 +26,7 @@ from apps.equipment_lifecycle.models import (
     DISPOSITION_NONE,
     DISPOSITION_TARGET_CANCELLED,
     LifecycleSystem,
+    MAINTENANCE_SUBTYPE_DEFAULT,
     SystemFault,
     SystemWorkOrder,
     WORK_ORDER_NO_PREFIX,
@@ -34,6 +35,7 @@ from apps.equipment_lifecycle.models import (
     WORK_ORDER_SOURCE_LEDGER_ITEM,
     WORK_ORDER_SOURCE_MANUAL,
     WORK_ORDER_STATUS_CANCELLED,
+    WORK_TYPE_SPECIAL_MAINTENANCE,
 )
 
 AUDIT_TARGET_WORK_ORDER = 'el_work_order'
@@ -82,8 +84,22 @@ def _clean_text(value, limit):
     return (value or '').strip()[:limit]
 
 
+def normalize_maintenance_subtype(work_type, maintenance_subtype=None):
+    """维护二级分类规范化（2026-09 工单类型收敛）。
+
+    - 仅专项维护（special_maintenance）有业务含义：提交合法值按提交保存，
+      未提交/非法值回落"一般维护"（非法值由视图层先行拒绝，此处兜底）；
+    - 其他顶层类型（故障维修与历史类型）一律统一落默认值，前端不展示。
+    """
+    if (work_type == WORK_TYPE_SPECIAL_MAINTENANCE
+            and maintenance_subtype in SystemWorkOrder.SUBTYPE_TEXT_MAP):
+        return maintenance_subtype
+    return MAINTENANCE_SUBTYPE_DEFAULT
+
+
 def create_work_order_record(*, tenant_id, created_by, title, work_type, system,
                              priority=SystemWorkOrder.PRIORITY_NORMAL,
+                             maintenance_subtype=None,
                              source_type=WORK_ORDER_SOURCE_MANUAL, source_fault=None,
                              source_ledger_item=None, source_inspection_record=None,
                              source_no='',
@@ -111,6 +127,7 @@ def create_work_order_record(*, tenant_id, created_by, title, work_type, system,
         work_no=generate_work_no(tenant_id),
         title=_clean_text(title, 100),
         work_type=work_type,
+        maintenance_subtype=normalize_maintenance_subtype(work_type, maintenance_subtype),
         priority=priority,
         source_type=source_type,
         source_fault=source_fault,

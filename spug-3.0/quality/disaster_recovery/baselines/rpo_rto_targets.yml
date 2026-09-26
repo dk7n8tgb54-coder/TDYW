@@ -118,7 +118,7 @@ components:
     evidence: >
       Beat re-schedules all periodic tasks automatically on restart.
       Non-periodic tasks with idempotency keys can be safely retried.
-      Non-idempotent tasks (upgrade, device, radio_license) need manual verification.
+      Non-idempotent tasks (upgrade, radio_license) need manual verification.
     backup_method: "none (configuration is in code/git)"
 
   - component: system_config

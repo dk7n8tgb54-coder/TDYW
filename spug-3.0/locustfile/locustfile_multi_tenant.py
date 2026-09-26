@@ -49,16 +49,6 @@ class MultiTenantUser(TokenSharedHttpUser):
             else:
                 resp.failure(f"HTTP {resp.status_code}")
 
-    @task(3)
-    def list_own_devices(self):
-        with self._get("/api/device/device-resume/",
-                       "GET /api/device/device-resume/ (多租户-本租户)",
-                       params={"page": 1, "page_size": 20}) as resp:
-            if resp.status_code == 200:
-                resp.success()
-            else:
-                resp.failure(f"HTTP {resp.status_code}")
-
     @task(2)
     def list_own_interference(self):
         with self._get("/api/interference/",

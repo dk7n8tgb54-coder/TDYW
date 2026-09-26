@@ -12,7 +12,7 @@ import {observer} from 'mobx-react';
 import {Table, Tag, Empty} from 'antd';
 import {http} from 'libs';
 import {
-  API_PREFIX_L, CYCLE_TEXT, LEDGER_TYPE_TEXT, RESULT_COLOR, RESULT_TEXT, STATUS_COLOR, STATUS_TEXT,
+  API_PREFIX_L, LEDGER_TYPE_TEXT, RESULT_COLOR, RESULT_TEXT, STATUS_COLOR, STATUS_TEXT,
 } from './constants';
 
 @observer
@@ -48,11 +48,15 @@ class SystemLedgerTab extends React.Component {
       title: '执行日期', key: 'executed_date', width: 100,
       render: (t, r) => r.ledger_executed_date,
     },
+    {
+      title: '行路径', key: 'row_path', width: 170, ellipsis: true,
+      render: (t, r) => r.row_path || '-',
+    },
     {title: '项目', dataIndex: 'item_name', width: 160},
     {title: '填写值', key: 'value', width: 100, render: (t, r) => r.value_text || (r.value_number === null || r.value_number === undefined ? '-' : r.value_number)},
     {
       title: '结果', dataIndex: 'result', width: 80,
-      render: v => <Tag color={RESULT_COLOR[v]}>{RESULT_TEXT[v] || v}</Tag>,
+      render: v => <Tag color={RESULT_COLOR[v]}>{RESULT_TEXT[v] || v || '未填写'}</Tag>,
     },
     {title: '异常说明', dataIndex: 'abnormal_desc', ellipsis: true, render: v => v || '-'},
     {

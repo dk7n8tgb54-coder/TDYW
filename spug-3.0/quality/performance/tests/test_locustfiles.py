@@ -63,7 +63,6 @@ def test_read_workflows_coverage():
     required_endpoints = [
         "/api/home/",
         "/api/document/",
-        "/api/device/",
         "/api/logs/",
     ]
     for endpoint in required_endpoints:

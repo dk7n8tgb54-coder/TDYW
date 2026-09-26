@@ -127,7 +127,6 @@ def run_probes(base_url, token, iterations=3):
         ("GET", "/api/document/file/", {"is_public": "false", "page": 1, "page_size": 5}, "doc_files"),
         ("GET", "/api/regulation/", {"page": 1, "page_size": 5}, "regulations"),
         # Technical operations
-        ("GET", "/api/device/device-resume/", {"page": 1, "page_size": 5}, "devices"),
         ("GET", "/api/upgrade/records/", {"page": 1, "page_size": 5}, "upgrade_records"),
         ("GET", "/api/upgrade/statistics/", {}, "upgrade_stats"),
         ("GET", "/api/interference/events/", {"page": 1, "page_size": 5}, "interferences"),

@@ -57,7 +57,6 @@ TARGET_MAP = {
     '/account/login': {'type': 'auth', 'name': '认证'},
     '/account/logout': {'type': 'auth', 'name': '认证'},
     # 业务模块
-    '/device/': {'type': 'device', 'name': '设备'},
     '/document/': {'type': 'document', 'name': '文档'},
     '/duty/': {'type': 'duty', 'name': '值班'},
     '/interference/': {'type': 'interference', 'name': '干扰'},
@@ -107,7 +106,6 @@ AUDIT_EXCLUDES = [
 # target_type -> 数据库表名映射（用于 PUT/PATCH 时查询旧值）
 # 只列有单记录更新场景的表；未列出的 target_type 不捕获 before
 TARGET_TABLE_MAP = {
-    'device': 'tdyw_device',
     'upgrade': 'tdyw_upgrade_records',
     'regulation': 'tdyw_regulation',
     'interference_event': 'tdyw_interference_events',

@@ -424,18 +424,30 @@ class WorkOrderHealthLinkageTest(WorkOrderTestBase):
             LifecycleSystem.objects.get(pk=self.system_a2.id).health_status, 'normal')
 
     def test_non_repair_order_does_not_change_health(self):
-        """非故障维修工单不改变系统健康状态。"""
-        for work_type in ('special_maintenance', 'tech_reform', 'config_change',
-                          'field_test', 'calibration'):
-            with self.subTest(work_type=work_type):
-                order = self.run_to_executing(work_type=work_type,
-                                              title=f'{work_type}-状态不影响')
-                system = LifecycleSystem.objects.get(pk=self.system_a.id)
-                self.assertEqual(system.health_status, 'normal')
-                # 清理：取消该工单，避免影响后续断言
-                make_client(self.admin).post(f'{WORK_ORDER_URL}/{order.id}/cancel/',
-                                             {'cancel_reason': '测试清理'},
-                                             content_type='application/json')
+        """非故障维修工单不改变系统健康状态。
+
+        2026-09 工单类型收敛后新建只允许故障维修/专项维护；已下线顶层类型
+        （技术改造等）的历史工单以 queryset.update 模拟历史数据，
+        同样不得参与"维修中"计算（REPAIRING_WORK_ORDER_FILTER 只认 repair）。
+        """
+        order = self.run_to_executing(work_type='special_maintenance',
+                                      title='专项维护-状态不影响')
+        system = LifecycleSystem.objects.get(pk=self.system_a.id)
+        self.assertEqual(system.health_status, 'normal')
+        # 清理：取消该工单，避免影响后续断言
+        make_client(self.admin).post(f'{WORK_ORDER_URL}/{order.id}/cancel/',
+                                     {'cancel_reason': '测试清理'},
+                                     content_type='application/json')
+        # 历史顶层类型工单（执行中 + 影响运行）同样不进入维修中
+        legacy = self.run_to_executing(work_type='special_maintenance',
+                                       title='历史类型-状态不影响')
+        SystemWorkOrder.objects.filter(pk=legacy.id).update(work_type='tech_reform')
+        fault_services.recompute_systems_health('tenant_a', [self.system_a.id])
+        self.assertEqual(
+            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'normal')
+        make_client(self.admin).post(f'{WORK_ORDER_URL}/{legacy.id}/cancel/',
+                                     {'cancel_reason': '测试清理'},
+                                     content_type='application/json')
 
     def test_interrupted_fault_priority_over_repairing(self):
         """未恢复中断故障的优先级高于维修中。"""
@@ -616,19 +628,16 @@ class WorkOrderModuleBoundaryTest(WorkOrderTestBase):
         self.assertNotIn('device_resume', wo_fields)
         self.assertNotIn('device', wo_fields)
 
-    def test_device_and_upgrade_apps_unchanged(self):
-        """device、upgrade 模块没有发生变化（模型集合冻结校验）。
+    def test_upgrade_app_unchanged(self):
+        """upgrade 模块没有发生变化（模型集合冻结校验）。
 
         2026-09 升级管理挂接系统档案：UpgradeSystem 字典表删除
         （候选系统改由 equipment_lifecycle.LifecycleSystem 提供），
         冻结基线同步移除该模型。
         """
-        expected_device = {'DeviceResume', 'DeviceEvent'}
         expected_upgrade = {'UpgradeRecord', 'UpgradeTemplate',
                             'UpgradePlanStep', 'UpgradeRecordStep', 'UpgradeStatusLog'}
-        actual_device = {m.__name__ for m in apps.get_app_config('device').get_models()}
         actual_upgrade = {m.__name__ for m in apps.get_app_config('upgrade').get_models()}
-        self.assertEqual(actual_device, expected_device)
         self.assertEqual(actual_upgrade, expected_upgrade)
         # 设备生命周期模型不依赖 device/upgrade 应用的任何模型
         # （只检查 el 模型自身声明的字段；upgrade→el 的反向关联

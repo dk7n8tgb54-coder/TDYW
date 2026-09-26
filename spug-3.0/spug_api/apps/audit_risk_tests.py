@@ -108,8 +108,6 @@ class ExportAuditCoverageTest(TestCase):
         'apps.interference.views.EventExportView',
         'apps.upgrade.exporters.UpgradeRecordExportView',
         'apps.runlog.exporters.RunLogExportView',
-        'apps.device.exporters.DeviceListExportView',
-        'apps.device.views.DeviceResumeExportView',
     ]
 
     def test_all_export_views_have_audit_logging(self):

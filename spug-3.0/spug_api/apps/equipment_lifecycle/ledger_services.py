@@ -3,9 +3,9 @@
 # Released under the AGPL-3.0 License.
 """设备全生命周期——周月维护/季维护台账服务（步骤 3.2）。
 
-两类维护台账共用统一模型，通过 ledger_type + maintenance_cycle 区分：
-- 周月维护（week_month）必须为周（week）或月（month）；
-- 季维护（seasonal）固定为季（season）；
+两类维护台账共用统一模型，通过 ledger_type 区分：
+- 周月维护（week_month）：周表/月表合一，不再选择维护周期（2026-09-26）；
+- 季维护（seasonal）；
 - 旧巡检台账（ledger_type=inspection）业务分支已删除（2026-09-24），
   巡检由独立模型（InspectionTemplate/InspectionDutySheet/InspectionRecord）承担，
   旧类型请求一律显式拒绝。
@@ -27,8 +27,6 @@ from django.utils import timezone
 from libs.tenant_utils import apply_tenant_filter
 
 from apps.equipment_lifecycle.models import (
-    CYCLE_MONTH,
-    CYCLE_WEEK,
     ITEM_RESULT_ABNORMAL,
     ITEM_RESULT_NOT_APPLICABLE,
     ITEM_RESULT_PENDING_REVIEW,
@@ -46,11 +44,8 @@ from apps.equipment_lifecycle.models import (
     LEDGER_STATUS_SUBMITTED,
     LEDGER_STATUS_VOID,
     LEDGER_STATUS_VALUES,
-    LEDGER_TYPE_SEASONAL,
     LEDGER_TYPE_VALUES,
-    LEDGER_TYPE_WEEK_MONTH,
     ENTRY_CHANNEL_WEB,
-    EXEC_SCOPE_VALUES,
     LifecycleSystem,
     OperationLedger,
     OperationLedgerCorrection,
@@ -91,18 +86,12 @@ class LedgerValidationError(Exception):
     """台账业务校验失败（message 为可直接展示给用户的错误文案）。"""
 
 
-def validate_ledger_type_cycle(ledger_type, maintenance_cycle):
-    """校验台账类型与维护周期组合是否合法（维护台账统一规则）。"""
+def validate_ledger_type(ledger_type):
+    """校验台账类型是否合法（旧巡检类型显式拒绝，维护台账统一规则）。"""
     if ledger_type == LEGACY_LEDGER_TYPE_INSPECTION:
         raise LedgerValidationError(LEGACY_INSPECTION_ERROR)
     if ledger_type not in LEDGER_TYPE_VALUES:
         raise LedgerValidationError('台账类型不合法')
-    if ledger_type == LEDGER_TYPE_WEEK_MONTH:
-        if maintenance_cycle not in (CYCLE_WEEK, CYCLE_MONTH):
-            raise LedgerValidationError('周月维护台账必须选择"周"或"月"维护周期')
-    else:  # seasonal
-        if maintenance_cycle != 'season':
-            raise LedgerValidationError('季维护台账维护周期固定为"季"')
 
 
 def parse_datetime_value(value, field_label, allow_empty=False):
@@ -157,8 +146,8 @@ def get_systems_for_user(user, system_ids):
     return found
 
 
-def get_active_template(user, template_id, ledger_type, maintenance_cycle):
-    """录入校验用模板：租户内存在、启用且类型/周期匹配（不校验适用系统）。"""
+def get_active_template(user, template_id, ledger_type):
+    """录入校验用模板：租户内存在、启用且类型匹配（不校验适用系统）。"""
     template = apply_tenant_filter(
         OperationLedgerTemplate.objects.all(), user).filter(pk=template_id).first()
     if not template:
@@ -167,8 +156,6 @@ def get_active_template(user, template_id, ledger_type, maintenance_cycle):
         raise LedgerValidationError('台账模板已停用，不能用于新台账：%s' % template.name)
     if template.ledger_type != ledger_type:
         raise LedgerValidationError('台账模板类型与台账类型不一致：%s' % template.name)
-    if ledger_type == LEDGER_TYPE_WEEK_MONTH and template.maintenance_cycle != maintenance_cycle:
-        raise LedgerValidationError('台账模板维护周期与本次维护周期不一致：%s' % template.name)
     return template
 
 
@@ -278,7 +265,6 @@ def build_template_snapshot(template, tpl_item):
         'choices_snapshot': json.dumps(tpl_item.get_choices(), ensure_ascii=False),
         'is_required': tpl_item.is_required,
         'abnormal_rule_snapshot': tpl_item.abnormal_rule,
-        'execution_scope': tpl_item.execution_scope,
     }
 
 
@@ -302,20 +288,13 @@ def build_manual_snapshot(payload):
         'choices_snapshot': json.dumps(choices, ensure_ascii=False),
         'is_required': bool(payload.get('is_required')),
         'abnormal_rule_snapshot': str(payload.get('abnormal_rule') or '').strip(),
-        'execution_scope': payload.get('execution_scope') or 'all',
     }
-
-
-def validate_snapshot_execution_scope(execution_scope):
-    if execution_scope not in EXEC_SCOPE_VALUES:
-        raise LedgerValidationError('执行范围不合法：%s' % execution_scope)
 
 
 def _parse_header_payload(user, body, for_update=False):
     """解析并校验台账表头字段，返回头部字段 dict。"""
     ledger_type = body.get('ledger_type')
-    maintenance_cycle = body.get('maintenance_cycle') or ''
-    validate_ledger_type_cycle(ledger_type, maintenance_cycle)
+    validate_ledger_type(ledger_type)
     created_from = body.get('created_from') or ''
     if created_from and created_from not in LEDGER_FROM_VALUES:
         raise LedgerValidationError('创建方式不合法')
@@ -328,7 +307,6 @@ def _parse_header_payload(user, body, for_update=False):
         raise LedgerValidationError('实际执行日期格式不正确')
     return {
         'ledger_type': ledger_type,
-        'maintenance_cycle': maintenance_cycle,
         'executed_date': executed_date,
         'executor_names': str(body.get('executor_names') or '').strip(),
         'executed_start': parse_datetime_value(body.get('executed_start'), '实际执行开始时间', allow_empty=True),
@@ -355,7 +333,7 @@ def _build_item_instances(user, ledger, systems_map, entries_payload):
         template = None
         if entry.get('template_id'):
             template = get_active_template(
-                user, entry['template_id'], ledger.ledger_type, ledger.maintenance_cycle)
+                user, entry['template_id'], ledger.ledger_type)
         rows = entry.get('items')
         if not isinstance(rows, list) or not rows:
             raise LedgerValidationError('系统 %s 至少需要一条台账明细' % system.name)
@@ -373,19 +351,19 @@ def _build_item_instances(user, ledger, systems_map, entries_payload):
 def _build_item_instance(ledger, system, template, row, order):
     """校验单条明细并构建未落库的 OperationLedgerItem。"""
     if template is not None and row.get('template_item_id'):
+        if template.row_nodes.filter(is_active=True).exists():
+            raise LedgerValidationError(
+                '模板 %s 已配置行结构，请通过矩阵方式生成台账明细' % template.name)
         tpl_item = OperationLedgerTemplateItem.objects.filter(
             pk=row['template_item_id'], template=template).first()
         if not tpl_item:
             raise LedgerValidationError('模板项目不存在或不属于所选模板')
         if not tpl_item.is_active:
             raise LedgerValidationError('模板项目已停用：%s' % tpl_item.name)
-        if not tpl_item.matches_cycle(ledger.maintenance_cycle):
-            raise LedgerValidationError('模板项目与本次维护周期不匹配：%s' % tpl_item.name)
         snapshot = build_template_snapshot(template, tpl_item)
         is_temporary = False
     else:
         snapshot = build_manual_snapshot(row)
-        validate_snapshot_execution_scope(snapshot['execution_scope'])
         is_temporary = True
     value_text, value_number, value_bool = validate_item_value(snapshot['input_type'], row)
     result = resolve_item_result(row)
@@ -422,14 +400,28 @@ def _get_ledger_for_user(pk, user, for_update=False):
     return qs.filter(pk=pk).first()
 
 
+def _is_matrix_create_payload(body):
+    """矩阵创建载荷：表头 + system_id + template_id（无 entries 明细）。"""
+    return bool(body.get('template_id')) and bool(body.get('system_id')) \
+        and not body.get('entries')
+
+
 @transaction.atomic
 def create_ledger(user, body):
     """创建台账：表头 + 全部明细 + 快照一次写入，任一明细失败整体回滚。
 
+    矩阵模式（第一阶段行对象树）：载荷为表头 + system_id + template_id
+    （+ row_instances 实例规格），行实例树与"行叶子实例 × 列项目"单元格
+    自动生成，委托 ledger_row_services 处理；
+    既有 entries 模式保留：临时补录项与旧平面模板条目（旧模板已受控停用，
+    配置了行结构的模板在 entries 模式下显式拒绝）。
     幂等：client_token 命中同租户已有台账时直接返回该台账。
-    创建方式未指定时按 entries 是否含模板自动推断（manual 须填补录说明）。
     返回 (ledger, None) 或 (None, error_message)。
     """
+    if _is_matrix_create_payload(body):
+        from apps.equipment_lifecycle import ledger_row_services
+
+        return ledger_row_services.create_matrix_ledger(user, body)
     if not body.get('created_from'):
         entries_raw = body.get('entries') or []
         body['created_from'] = LEDGER_FROM_TEMPLATE if any(
@@ -501,6 +493,8 @@ def update_ledger(user, pk, body):
         return None, None, error
     if ledger.status not in OperationLedger.EDITABLE_STATUSES:
         return None, None, '当前状态不允许编辑台账'
+    if ledger.row_instances.exists():
+        return None, None, '矩阵台账请通过单元格与行实例接口编辑明细'
     error = _validate_expected_version(ledger, body.get('version'))
     if error:
         return None, None, error
@@ -526,7 +520,7 @@ def update_ledger(user, pk, body):
         _remove_absent_items(ledger, keep_ids, changed)
         ledger.version += 1
         ledger.save(update_fields=[
-            'ledger_type', 'maintenance_cycle', 'executed_date',
+            'ledger_type', 'executed_date',
             'executor_names', 'executed_start', 'executed_end', 'version'])
         return ledger, changed, None
     except LedgerValidationError as e:
@@ -544,7 +538,7 @@ def _apply_entry_edits(user, ledger, entries, systems_map, changed):
         template = None
         if entry.get('template_id'):
             template = get_active_template(
-                user, entry['template_id'], ledger.ledger_type, ledger.maintenance_cycle)
+                user, entry['template_id'], ledger.ledger_type)
         rows = entry.get('items')
         if not isinstance(rows, list) or not rows:
             raise LedgerValidationError('系统 %s 至少需要一条台账明细' % system.name)
@@ -604,17 +598,19 @@ def _apply_item_edits(item, row, system):
     item.save()
 
 
-def _preview_system_entry(system, template, maintenance_cycle):
-    """单个系统的预览条目（items 为启用且匹配周期的模板项目视图）。"""
+def _preview_system_entry(system, template):
+    """单个系统的预览条目（items 为启用的列项目视图）。
+
+    模板配置了行结构（第一阶段行对象树）时同时返回 row_nodes 树，
+    供录入端渲染"行路径 × 平面列项目"矩阵。
+    """
     items = []
     if template is not None:
         for tpl_item in template.items.filter(is_active=True):
-            if not tpl_item.matches_cycle(maintenance_cycle):
-                continue
             view = tpl_item.to_view()
             view['client_key'] = '%s-%s' % (system.id, tpl_item.id)
             items.append(view)
-    return {
+    entry = {
         'system': {
             'id': system.id, 'system_code': system.system_code, 'name': system.name,
             'install_location': system.install_location,
@@ -622,6 +618,16 @@ def _preview_system_entry(system, template, maintenance_cycle):
         'template': {'id': template.id, 'name': template.name} if template else None,
         'items': items,
     }
+    if template is not None:
+        from apps.equipment_lifecycle import ledger_row_services
+
+        active_nodes = ledger_row_services.load_template_nodes(template, only_active=True)
+        entry['row_nodes'] = ledger_row_services.build_node_tree(active_nodes)
+        entry['is_matrix'] = bool(active_nodes)
+    else:
+        entry['row_nodes'] = []
+        entry['is_matrix'] = False
+    return entry
 
 
 def preview_entries(user, body):
@@ -631,9 +637,8 @@ def preview_entries(user, body):
     适用于任何系统。
     """
     ledger_type = body.get('ledger_type')
-    maintenance_cycle = body.get('maintenance_cycle') or ''
     try:
-        validate_ledger_type_cycle(ledger_type, maintenance_cycle)
+        validate_ledger_type(ledger_type)
     except LedgerValidationError as e:
         return None, str(e)
     entries = body.get('entries')
@@ -654,8 +659,8 @@ def preview_entries(user, body):
             template = None
             if entry.get('template_id'):
                 template = get_active_template(
-                    user, entry['template_id'], ledger_type, maintenance_cycle)
-            preview.append(_preview_system_entry(system, template, maintenance_cycle))
+                    user, entry['template_id'], ledger_type)
+            preview.append(_preview_system_entry(system, template))
     except LedgerValidationError as e:
         return None, str(e)
     if not preview:
@@ -676,6 +681,12 @@ def submit_ledger(user, pk):
         return None, '当前状态不允许提交（已提交或已复核台账请勿重复操作）'
     if not ledger.items.exists():
         return None, '台账没有明细，不能提交'
+    if ledger.row_instances.exists():
+        from apps.equipment_lifecycle import ledger_row_services
+
+        error = ledger_row_services.validate_matrix_submit(ledger)
+        if error:
+            return None, error
     ledger.status = LEDGER_STATUS_SUBMITTED
     ledger.submitted_at = timezone.now()
     ledger.submitted_by = user
@@ -843,7 +854,10 @@ def _correct_ledger_header(ledger, body, changes):
 
 @transaction.atomic
 def confirm_normal(user, pk, item_ids):
-    """批量确认正常：可编辑状态下将所选明细结果置为正常（不覆盖异常说明）。"""
+    """批量确认正常：可编辑状态下将所选明细结果置为正常（不覆盖异常说明）。
+
+    矩阵台账：仅允许作用于"未填写"单元格，不能修改已有异常结果。
+    """
     ledger = _get_ledger_for_user(pk, user, for_update=True)
     if not ledger:
         return None, '台账不存在'
@@ -854,6 +868,14 @@ def confirm_normal(user, pk, item_ids):
         return None, '当前状态不允许批量确认'
     if not isinstance(item_ids, list) or not item_ids:
         return None, '请选择需要确认的明细'
+    if ledger.row_instances.exists():
+        from apps.equipment_lifecycle import ledger_row_services
+
+        try:
+            ledger_row_services.confirm_normal_matrix(ledger, item_ids)
+        except LedgerValidationError as e:
+            return None, str(e)
+        return ledger, None
     items = ledger.items.filter(pk__in=item_ids)
     if items.count() != len(set(item_ids)):
         return None, '台账明细不存在或已移除'

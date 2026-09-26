@@ -1,14 +1,15 @@
-"""REG-AUDIT-001 修复回归：edit → update 归一（device / interference）与审计 action 防护。
+"""REG-AUDIT-001 修复回归：edit → update 归一与审计 action 防护。
 
-背景：apps/device/views.py 与 apps/interference/business_views.py 曾使用
-action='edit'（不在 AuditLog.ACTION_CHOICES / audit_action_valid 白名单内），
-导致设备事件与干扰记录的编辑审计事件被 CHECK 约束拒绝后静默丢失。
+背景：apps/device/views.py（已随设备管理模块于 2026-09 整体移除）与
+apps/interference/business_views.py 曾使用 action='edit'（不在
+AuditLog.ACTION_CHOICES / audit_action_valid 白名单内），导致编辑审计
+事件被 CHECK 约束拒绝后静默丢失。
 
-本模块验证：
-1. device 设备事件编辑的审计 action 已归一为 update 并真实落库；
-2. interference 作用域下 action=update 可正常落库；
-3. record_audit_event 对非法 action 会提前告警（不再纯静默丢失）；
-4. ACTION_CHOICES 全集均可真实落库（声明与 DB 约束一致）。
+本模块以 interference 作用域验证（与作用域无关，约束仅作用于 action）：
+1. action=update 可正常落库；
+2. record_audit_event 对非法 action 会提前告警（不再纯静默丢失），
+   edit 作为非法 action 的对照哨兵保留；
+3. ACTION_CHOICES 全集均可真实落库（声明与 DB 约束一致）。
 """
 import hashlib
 import time
@@ -39,62 +40,7 @@ def _make_client(user):
     return client
 
 
-DEVICE_PERMS = [
-    'device.device_resume.view', 'device.device_resume.history_view',
-    'device.device_resume.history_edit',
-]
 INTERFERENCE_PERMS = ['interference.view', 'interference.edit']
-
-
-class DeviceEditAuditNormalizedTests(TestCase):
-    """device 设备事件编辑：action 从 edit 归一到 update
-
-    说明：device 事件的完整 HTTP 端到端链路依赖设备履历前置数据
-    （device_resume_id / event_type 枚举 / 时间逻辑校验），由 device 模块
-    自身特征测试覆盖。本用例聚焦验证其调用点归一后的 action 在
-    device_event 作用域下可真实落库（edit 无法落库、update 可以）。
-    """
-
-    def setUp(self):
-        AppSetting.set('bind_ip', False)
-        self.user = _make_user('audit_dev', DEVICE_PERMS)
-        self._rf = RequestFactory()
-
-    def _fake_request(self):
-        req = self._rf.get('/device/device-event/')
-        req.user = self.user
-        return req
-
-    def test_update_action_persists_for_device_event_target(self):
-        from apps.logs.audit import record_audit_event
-        from apps.logs.models import AuditLog
-
-        record_audit_event(
-            self._fake_request(), 'update', 'device_event',
-            target_id='8888', target_name='审计-设备事件',
-            detail={'device_sn': 'SN-AUDIT-001', 'event_type': 'fault'},
-        )
-        log = AuditLog.objects.filter(
-            target_type='device_event', target_id='8888').first()
-        self.assertIsNotNone(log, 'action=update 应成功落库（edit 无法落库）')
-        self.assertEqual(log.action, 'update')
-
-    def test_edit_action_cannot_be_persisted_for_device_event_target(self):
-        """对照：edit 仍不在白名单内，会被 CHECK 约束拒绝（防回退哨兵）"""
-        from apps.logs.audit import record_audit_event
-        from apps.logs.models import AuditLog
-
-        AuditLog.objects.filter(target_name='audit-device-edit').delete()
-        with self.assertLogs('apps.logs.audit', level='ERROR') as captured:
-            record_audit_event(
-                self._fake_request(), 'edit', 'device_event',
-                target_id='7777', target_name='audit-device-edit',
-            )
-        self.assertFalse(
-            AuditLog.objects.filter(target_name='audit-device-edit').exists(),
-            'action=edit 不得落库')
-        self.assertTrue(any('非法审计 action' in m for m in captured.output),
-                        '调用点应提前告警而非静默')
 
 
 class AuditActionGuardTests(TestCase):
@@ -137,6 +83,23 @@ class AuditActionGuardTests(TestCase):
             )
         self.assertTrue(any('非法审计 action' in msg for msg in captured.output),
                         '非法 action 应提前告警')
+
+    def test_edit_action_cannot_be_persisted(self):
+        """对照：edit 仍不在白名单内，会被 CHECK 约束拒绝（防回退哨兵）"""
+        from apps.logs.audit import record_audit_event
+        from apps.logs.models import AuditLog
+
+        AuditLog.objects.filter(target_name='audit-edit-guard').delete()
+        with self.assertLogs('apps.logs.audit', level='ERROR') as captured:
+            record_audit_event(
+                self._fake_request(), 'edit', 'interference',
+                target_id='997', target_name='audit-edit-guard',
+            )
+        self.assertFalse(
+            AuditLog.objects.filter(target_name='audit-edit-guard').exists(),
+            'action=edit 不得落库')
+        self.assertTrue(any('非法审计 action' in m for m in captured.output),
+                        '调用点应提前告警而非静默')
 
     def test_all_declared_actions_can_be_persisted(self):
         from apps.logs.audit import record_audit_event

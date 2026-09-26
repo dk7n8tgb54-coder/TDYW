@@ -42,7 +42,7 @@
 | BC-NULL-05 | 嵌套结构空值：`POST /systems/` 传 `template_values: null`、`custom_fields: null`、`components: null`、`components: [null]`（equipment_lifecycle 结构化载荷） | 按现有契约拒绝或按空集处理，绝不 500、不产生半写 | 【新增】 | `apps/equipment_lifecycle/tests/` |
 | BC-NULL-06 | 列表接口过滤参数空值：`?status=&keyword=` | 视为不过滤；不产生 `LIKE '%%'` 全表慢查（MariaDB 前缀通配无法走索引） | 【新增】 | 各 app `tests/` 或 `quality/database_audit/` |
 | BC-NULL-07 | 附件字段空值：不传 attachments / `attachments: null` / 附件 id 为 null | 创建成功且 `EvidenceAttachment` 计数不变、无孤儿文件 | 【新增】 | 调用方业务 app `tests/`（AGENTS.md 测试落点规则） |
-| BC-NULL-08 | PUT 半更新：只传部分字段 | 未传字段保持原值，不被静默清空/置 null（对齐 device PUT 不收位置字段的既有约定） | 【新增】 | 各 app `tests/` |
+| BC-NULL-08 | PUT 半更新：只传部分字段 | 未传字段保持原值，不被静默清空/置 null | 【新增】 | 各 app `tests/` |
 
 ---
 
@@ -118,7 +118,7 @@
 
 | 用例ID | 输入构造 | 期望结果与断言 | 现状 | 建议落点 |
 |---|---|---|---|---|
-| BC-AUTHN-01 | 完全缺失 x-token，请求各模块代表端点 | 401 + 固定文案 | 【既有】各模块 `test_unauthenticated_denied`（alert/device/upgrade 等） | 做成参数化抽查矩阵补全其余模块 |
+| BC-AUTHN-01 | 完全缺失 x-token，请求各模块代表端点 | 401 + 固定文案 | 【既有】各模块 `test_unauthenticated_denied`（alert/upgrade 等） | 做成参数化抽查矩阵补全其余模块 |
 | BC-AUTHN-02 | 无效 token：32 位随机串 / 31 位 / 33 位 / 空串 | 全部 401（长度≠32 直接拒，`:189`） | 【部分既有】regulation `test_04_permission_tenant.py:26-32` | 补长度边界 |
 | BC-AUTHN-03 | 过期 token：token_expired < now | 401 | 【新增】 | `apps/account/tests/` |
 | BC-AUTHN-04 | 停用账户的有效 token（is_active=False） | 401 | 【新增】 | `apps/account/tests/` |

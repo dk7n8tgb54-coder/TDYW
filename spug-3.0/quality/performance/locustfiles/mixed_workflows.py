@@ -156,11 +156,6 @@ class MixedWorkflowUser(TokenPoolHttpUser):
         self._safe_get("/api/regulation/")
 
     @task(4)
-    def browse_devices(self):
-        """Browse devices."""
-        self._safe_get("/api/device/device-resume/")
-
-    @task(4)
     def browse_upgrades(self):
         """Browse upgrade records."""
         self._safe_get("/api/upgrade/records/")

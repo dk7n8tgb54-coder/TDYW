@@ -107,7 +107,8 @@ const LIST_PAYLOAD = {
     id: 5,
     work_no: 'WO20260919-0001',
     title: '主用链路抢修',
-    work_type: 'repair',
+    work_type: 'special_maintenance',
+    maintenance_subtype: 'field_test',
     priority: 'high',
     status: 'executing',
     source_type: 'manual',
@@ -160,6 +161,14 @@ function findButtonByText(text) {
 }
 
 describe('工单新增/编辑表单打开链路', () => {
+  test('列表展示工单类型与维护分类列（专项维护行）', async () => {
+    await renderPage();
+    const text = container.textContent;
+    expect(text).toContain('专项维护');
+    expect(text).toContain('维护分类');
+    expect(text).toContain('现场测试');
+  });
+
   test('点击"新增工单"按钮后弹窗真实打开并拉取候选系统', async () => {
     await renderPage();
     expect(document.querySelector('.ant-modal-title')).toBeNull();

@@ -95,11 +95,13 @@ def _collect_external_refs(item_ids, ledger_ids, tenants):
 
 
 def _collect_scope_anomalies(ledgers, items, templates):
-    """盘点异常历史数据：误填维护周期、明细与台账租户不一致。"""
+    """盘点异常历史数据：明细与台账租户不一致。
+
+    维护周期（maintenance_cycle）字段已删除（2026-09-26），
+    "旧巡检误填维护周期" 盘点随之退役。
+    """
     ledger_tenant = {l.id: l.tenant_id for l in ledgers}
     return {
-        'anomaly_cycles': [l for l in ledgers if l.maintenance_cycle],
-        'anomaly_templates': [t for t in templates if t.maintenance_cycle],
         'cross_tenant_items': [
             i for i in items if i.tenant_id != ledger_tenant.get(i.ledger_id)],
     }
@@ -123,8 +125,6 @@ def collect_scope(tenants):
         'corrections': corrections, 'attachments': attachments,
         'fault_refs': fault_refs, 'order_refs': order_refs,
         'events': events, 'audit_logs': audit_logs, 'audit_logs_no': audit_logs_no,
-        'anomaly_cycles': anomalies['anomaly_cycles'],
-        'anomaly_templates': anomalies['anomaly_templates'],
         'cross_tenant_items': anomalies['cross_tenant_items'],
     }
 
@@ -271,9 +271,7 @@ class Command(BaseCommand):
             ledger_type=LEGACY_LEDGER_TYPE_INSPECTION).count())
         self.stdout.write('维护台账模板: %d' % OperationLedgerTemplate.objects.exclude(
             ledger_type=LEGACY_LEDGER_TYPE_INSPECTION).count())
-        anomalies = scope['anomaly_cycles'] + scope['anomaly_templates']
         self.stdout.write('== 异常数据检查 ==')
-        self.stdout.write('旧巡检误填维护周期: %d' % len(anomalies))
         self.stdout.write('明细与台账租户不一致: %d' % len(scope['cross_tenant_items']))
 
     def handle(self, *args, **options):

@@ -630,10 +630,8 @@ class FaultLifecycleTest(FaultTestBase):
         client.post(f'{FAULT_URL}/{fid}/start/', {}, content_type='application/json')
         return SystemFault.objects.get(pk=fid)
 
-    def test_full_flow_without_device_resume(self):
-        """未建立单台设备档案仍可完整处理故障闭环。"""
-        from apps.device.models import DeviceResume  # 仅确认无需创建任何设备档案
-        self.assertEqual(DeviceResume.objects.count(), 0)
+    def test_full_flow_without_device_archive(self):
+        """未建立任何单台设备档案仍可完整处理故障闭环。"""
         fault = self.run_lifecycle(self.system_a)
         self.assertEqual(fault.status, 'closed')
         self.assertEqual(
@@ -852,7 +850,7 @@ class FaultBoundaryTest(FaultTestBase):
             self.assertIsNone(cursor.fetchone())
             cursor.execute("SHOW TABLES LIKE 'tdyw_fault_parts'")
             self.assertIsNone(cursor.fetchone())
-        # 新故障模型没有指向 device/upgrade 模型的反向关联
+        # 新故障模型没有指向 upgrade 模型的反向关联
         related_apps = {
             rel.related_model._meta.app_label
             for rel in SystemFault._meta.related_objects
@@ -860,14 +858,12 @@ class FaultBoundaryTest(FaultTestBase):
             rel.related_model._meta.app_label
             for rel in SystemFaultHandlingRecord._meta.related_objects
         }
-        self.assertFalse(related_apps & {'device', 'upgrade'}, related_apps)
-        # device/upgrade 模型上没有新增的故障反向关系
-        from apps.device.models import DeviceResume
+        self.assertFalse(related_apps & {'upgrade'}, related_apps)
+        # upgrade 模型上没有新增的故障反向关系
         from apps.upgrade.models import UpgradeRecord
-        for model in (DeviceResume, UpgradeRecord):
-            reverse_names = {rel.get_accessor_name() for rel in model._meta.related_objects}
-            for name in reverse_names:
-                self.assertNotIn('fault', name.lower())
+        reverse_names = {rel.get_accessor_name() for rel in UpgradeRecord._meta.related_objects}
+        for name in reverse_names:
+            self.assertNotIn('fault', name.lower())
 
     def test_no_ledger_workorder_event_models_created(self):
         """本步骤没有创建台账、工单或旧步骤一模型。

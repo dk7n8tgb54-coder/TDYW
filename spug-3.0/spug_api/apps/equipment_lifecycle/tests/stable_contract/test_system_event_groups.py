@@ -163,8 +163,7 @@ class SystemEventGroupTestBase(TestCase):
         """创建→提交→复核一张含异常明细的台账，返回 (ledger_id, item_id)。"""
         template = OperationLedgerTemplate.objects.create(
             name='维护模板-履历聚合', ledger_type='week_month',
-            maintenance_cycle='week', is_active=True, tenant_id='tenant_a',
-            created_by=self.admin)
+            is_active=True, tenant_id='tenant_a', created_by=self.admin)
         body = create_ledger_ok(self.client, ledger_payload([
             entry_payload(self.system_a.id, [
                 item_payload(result='abnormal', abnormal_desc='温度越限 65℃'),

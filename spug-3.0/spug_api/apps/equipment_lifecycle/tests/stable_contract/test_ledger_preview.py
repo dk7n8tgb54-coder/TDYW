@@ -30,10 +30,9 @@ def _tpl_item_payload(tpl_item, **kw):
     return payload
 
 
-def _preview_body(entries, ledger_type='week_month', maintenance_cycle='week'):
+def _preview_body(entries, ledger_type='week_month'):
     return {
         'ledger_type': ledger_type,
-        'maintenance_cycle': maintenance_cycle,
         'entries': entries,
     }
 
@@ -95,27 +94,20 @@ class LedgerPreviewContractTests(TestCase):
         resp = post_json(client, PREVIEW_URL, _preview_body(['not-a-dict']))
         self.assertEqual(resp.json().get('error'), '台账系统条目格式不正确')
 
-    def test_preview_explicit_week_month_cycle(self):
-        """周月维护显式条目：按周期过滤项目，周期不匹配被拒。"""
+    def test_preview_week_month_includes_all_active_items(self):
+        """周月维护不分周表/月表：预览展开全部启用项目，无周期过滤。"""
         template = make_ledger_template(
-            self.user, ledger_type='week_month', maintenance_cycle='week',
-            name='周维护模板')
-        make_template_item(template, self.user, name='仅每周项', execution_scope='week_only')
-        make_template_item(template, self.user, name='仅每月项', execution_scope='month_only')
-        make_template_item(template, self.user, name='周月均执行项', execution_scope='all')
+            self.user, ledger_type='week_month', name='周月维护模板')
+        make_template_item(template, self.user, name='周检项目')
+        make_template_item(template, self.user, name='月检项目')
         client = make_client(self.user)
         resp = post_json(client, PREVIEW_URL, _preview_body(
             [{'system_id': self.system_a.id, 'template_id': template.id}],
-            ledger_type='week_month', maintenance_cycle='week'))
+            ledger_type='week_month'))
         data = resp.json()
         self.assertFalse(data.get('error'), data)
         names = {i['name'] for i in data['data']['data'][0]['items']}
-        self.assertEqual(names, {'仅每周项', '周月均执行项'})
-        # 周期与模板不一致 → 拒绝
-        resp = post_json(client, PREVIEW_URL, _preview_body(
-            [{'system_id': self.system_a.id, 'template_id': template.id}],
-            ledger_type='week_month', maintenance_cycle='month'))
-        self.assertIn('周期不一致', resp.json().get('error') or '')
+        self.assertEqual(names, {'周检项目', '月检项目'})
 
     def test_preview_explicit_entry_without_template_still_supported(self):
         """显式系统条目不带模板（手动骨架）行为保持不变。"""
@@ -139,10 +131,10 @@ class LedgerTemplateProvenanceContractTests(TestCase):
     def test_same_system_two_templates_create_ok(self):
         """同系统两条不同模板条目创建成功，各自明细带各自模板快照。"""
         template_a = make_ledger_template(
-            self.user, name='模板A', ledger_type='week_month', maintenance_cycle='week')
+            self.user, name='模板A', ledger_type='week_month')
         item_a = make_template_item(template_a, self.user, name='模板A项目')
         template_b = make_ledger_template(
-            self.user, name='模板B', ledger_type='week_month', maintenance_cycle='week')
+            self.user, name='模板B', ledger_type='week_month')
         item_b = make_template_item(template_b, self.user, name='模板B项目')
         client = make_client(self.user)
         payload = ledger_payload([
@@ -165,7 +157,7 @@ class LedgerTemplateProvenanceContractTests(TestCase):
     def test_mixed_template_and_manual_items_same_system(self):
         """同系统模板明细与手动临时明细混合：手动项 is_temporary=True。"""
         template = make_ledger_template(
-            self.user, name='混合模板', ledger_type='week_month', maintenance_cycle='week')
+            self.user, name='混合模板', ledger_type='week_month')
         tpl_item = make_template_item(template, self.user, name='模板项')
         client = make_client(self.user)
         payload = ledger_payload([

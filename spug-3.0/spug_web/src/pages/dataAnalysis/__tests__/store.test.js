@@ -2,7 +2,7 @@
  * 数据分析 Store 测试
  *
  * 真实 import store（MobX 装饰器经 babel 编译），mock libs.http，验证：
- * - TABS 配置：五个分析 Tab 的 key/权限码/端点与后端路由一致
+ * - TABS 配置：三个分析 Tab 的 key/权限码/端点与后端路由一致
  * - 默认日期范围为最近一年；快捷区间预设天数正确
  * - fetchTab：未知 Tab 不发请求；日期参数格式化 YYYY-MM-DD
  * - 每个 Tab 独立的 data/fetching/error 状态，互不污染
@@ -41,12 +41,11 @@ afterEach(() => {
 });
 
 describe('数据分析 TABS 配置', () => {
-  it('四个 Tab 的 key/权限码/端点与后端路由一致', () => {
+  it('三个 Tab 的 key/权限码/端点与后端路由一致', () => {
     const {TABS} = freshStore();
     expect(TABS).toEqual([
       {key: 'overview', label: '总览分析', perm: 'data_analysis.overview.view', endpoint: '/api/data-analysis/overview/'},
       {key: 'interference', label: '干扰分析', perm: 'data_analysis.interference.view', endpoint: '/api/data-analysis/interference/'},
-      {key: 'device', label: '设备分析', perm: 'data_analysis.device.view', endpoint: '/api/data-analysis/device/'},
       {key: 'upgrade', label: '升级分析', perm: 'data_analysis.upgrade.view', endpoint: '/api/data-analysis/upgrade/'},
     ]);
   });
@@ -109,18 +108,18 @@ describe('数据分析 fetchTab', () => {
     await flush();
     expect(store.getData('interference')).toEqual({tab: 'interference'});
     // 其他 Tab 不受影响
-    expect(store.getData('device')).toBeUndefined();
-    expect(store.isFetching('device')).toBe(false);
+    expect(store.getData('overview')).toBeUndefined();
+    expect(store.isFetching('overview')).toBe(false);
   });
 
   it('业务失败（Error 对象）记录错误信息并复位 fetching', async () => {
     const {store} = freshStore();
     mockHttpGet.mockRejectedValue(new Error('查询超时'));
-    await store.fetchTab('device');
+    await store.fetchTab('overview');
     await flush();
-    expect(store.getError('device')).toBe('查询超时');
-    expect(store.getData('device')).toBeUndefined();
-    expect(store.isFetching('device')).toBe(false);
+    expect(store.getError('overview')).toBe('查询超时');
+    expect(store.getData('overview')).toBeUndefined();
+    expect(store.isFetching('overview')).toBe(false);
   });
 
   it('业务失败（字符串拒绝）使用兜底错误文案', async () => {

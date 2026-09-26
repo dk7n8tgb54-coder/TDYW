@@ -358,10 +358,245 @@ describe('台账异常处置组件', () => {
     expect(container.textContent).not.toContain('未处置');
     expect(container.textContent).not.toContain('转故障');
   });
+
+  it('异常转工单弹窗默认专项维护并显示维护分类（默认一般维护）', async () => {
+    const {ConvertActions} = require('../LedgerItemDisposition');
+    const ledger = {id: 11, ledger_no: 'EL-WM-20260910-0001'};
+    act(() => {
+      ReactDOM.render(
+        <ConvertActions ledger={ledger} item={{id: 1, result: 'abnormal', system: 7,
+          item_name_snapshot: '电压检查', disposition: {status: 'none'}}}/>,
+        container,
+      );
+    });
+    const btn = Array.from(container.querySelectorAll('button'))
+      .find(b => b.textContent.replace(/\s+/g, '') === '转工单');
+    expect(btn).toBeTruthy();
+    await act(async () => {
+      btn.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    });
+    await act(flush);
+    await act(flush);
+    const formItems = Array.from(document.querySelectorAll('.ant-form-item'));
+    const typeItem = formItems.find(el => {
+      const l = el.querySelector('.ant-form-item-label');
+      return l && l.textContent === '工单类型';
+    });
+    expect(typeItem.textContent).toContain('专项维护');
+    const subtypeItem = formItems.find(el => {
+      const l = el.querySelector('.ant-form-item-label');
+      return l && l.textContent === '维护分类';
+    });
+    expect(subtypeItem).toBeTruthy();
+    expect(subtypeItem.textContent).toContain('一般维护');
+  });
+});
+
+describe('工单详情抽屉（维护分类展示）', () => {
+  it('专项维护工单展示维护分类', async () => {
+    mockHttpGet.mockImplementation((url) => {
+      if (url.includes('/work-orders/5/handling-records/')) {
+        return Promise.resolve({data: [], total: 0});
+      }
+      return Promise.resolve({...detail, work_type: 'special_maintenance',
+        maintenance_subtype: 'calibration'});
+    });
+    renderDetail({});
+    await act(flush);
+    await act(flush);
+    const text = document.body.textContent;
+    expect(text).toContain('维护分类');
+    expect(text).toContain('校准');
+  });
+
+  it('故障维修工单不展示维护分类（二级分类仅专项维护有业务含义）', async () => {
+    mockHttpGet.mockImplementation((url) => {
+      if (url.includes('/work-orders/5/handling-records/')) {
+        return Promise.resolve({data: [], total: 0});
+      }
+      return Promise.resolve({...detail, work_type: 'repair',
+        maintenance_subtype: 'general'});
+    });
+    renderDetail({});
+    await act(flush);
+    await act(flush);
+    expect(document.body.textContent).not.toContain('维护分类');
+  });
+
+  it('历史技术改造工单仍显示原类型文本且不展示维护分类', async () => {
+    mockHttpGet.mockImplementation((url) => {
+      if (url.includes('/work-orders/5/handling-records/')) {
+        return Promise.resolve({data: [], total: 0});
+      }
+      return Promise.resolve({...detail, work_type: 'tech_reform',
+        work_type_text: '技术改造', maintenance_subtype: 'general'});
+    });
+    renderDetail({});
+    await act(flush);
+    await act(flush);
+    const text = document.body.textContent;
+    expect(text).toContain('技术改造');
+    expect(text).not.toContain('维护分类');
+  });
+});
+
+// ===== 工单类型收敛（新增表单交互）辅助函数（模块级，避免 describe 回调计行超标） =====
+const convergenceStore = require('../store').default;
+
+function renderForm(props = {}) {
+  const WorkOrderForm = require('../WorkOrderForm').default;
+  act(() => {
+    ReactDOM.render(<WorkOrderForm visible onClose={() => {}} {...props}/>, container);
+  });
+}
+
+function findFormItem(label) {
+  return Array.from(document.querySelectorAll('.ant-form-item')).find(
+    el => {
+      const labelEl = el.querySelector('.ant-form-item-label');
+      return labelEl && labelEl.textContent === label;
+    });
+}
+
+async function openSelectOptions(label) {
+  const item = findFormItem(label);
+  expect(item).toBeTruthy();
+  await act(async () => {
+    item.querySelector('.ant-select-selector').dispatchEvent(
+      new MouseEvent('mousedown', {bubbles: true}));
+  });
+  await act(flush);
+  // 取最后一个未隐藏下拉：先开过的下拉关闭动画未结束时会残留 DOM
+  const dropdowns = Array.from(document.querySelectorAll(
+    '.ant-select-dropdown:not(.ant-select-dropdown-hidden)'));
+  const dropdown = dropdowns[dropdowns.length - 1];
+  return dropdown ? Array.from(dropdown.querySelectorAll('.ant-select-item-option')) : [];
+}
+
+async function pickOption(label, optionTitle) {
+  const options = await openSelectOptions(label);
+  const option = options.find(o => o.title === optionTitle);
+  expect(option).toBeTruthy();
+  await act(async () => {
+    option.click();
+  });
+  await act(flush);
+}
+
+async function fillTitle(value) {
+  const titleInput = findFormItem('工单标题').querySelector('input');
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype, 'value').set;
+    setter.call(titleInput, value);
+    titleInput.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+  await act(flush);
+}
+
+async function submitForm() {
+  await act(async () => {
+    document.querySelector('.ant-modal-footer .ant-btn-primary').click();
+  });
+  await act(flush);
+  await act(flush);
+}
+
+function resetConvergenceStore() {
+  convergenceStore.systems = [];
+  convergenceStore.formVisible = false;
+  convergenceStore.record = {};
+  convergenceStore.isSubmitting = false;
+}
+
+describe('工单类型收敛（新增表单交互）', () => {
+  afterEach(resetConvergenceStore);
+
+  it('顶层类型下拉只显示故障维修/专项维护两个可新建类型', async () => {
+    mockHttpGet.mockResolvedValue({data: [], total: 0});
+    renderForm();
+    await act(flush);
+    const titles = (await openSelectOptions('工单类型')).map(o => o.title);
+    expect(titles).toEqual(['故障维修', '专项维护']);
+    // 不包含看似可选但实际不可用的已下线类型
+    expect(titles).not.toContain('技术改造');
+    expect(titles).not.toContain('配置变更');
+    expect(titles).not.toContain('现场测试');
+    expect(titles).not.toContain('校准');
+  });
+
+  it('选择专项维护后显示维护分类，提交参数携带 work_type 与维护分类', async () => {
+    convergenceStore.systems = [{id: 7, name: '烟台通信系统', system_code: 'SYS-A1'}];
+    mockHttpGet.mockResolvedValue({data: [], total: 0});
+    mockHttpPost.mockResolvedValue({data: {id: 9}});
+    renderForm();
+    await act(flush);
+    // 故障维修状态下无维护分类表单项
+    expect(findFormItem('维护分类')).toBeFalsy();
+    await pickOption('工单类型', '专项维护');
+    // 选择专项维护后维护分类出现，默认一般维护
+    expect(findFormItem('维护分类')).toBeTruthy();
+    expect(findFormItem('维护分类').textContent).toContain('一般维护');
+    // 一次打开读取维护分类选项（五项收敛后的分类）并点选"校准"
+    const subtypeOptions = await openSelectOptions('维护分类');
+    expect(subtypeOptions.map(o => o.title)).toEqual(
+      ['一般维护', '配置变更', '现场测试', '校准', '临时维护']);
+    const calibration = subtypeOptions.find(o => o.title === '校准');
+    expect(calibration).toBeTruthy();
+    await act(async () => {
+      calibration.click();
+    });
+    await act(flush);
+    await fillTitle('季度校准工单');
+    await pickOption('作业系统', '烟台通信系统');
+    await submitForm();
+    expect(mockHttpPost).toHaveBeenCalledTimes(1);
+    const [url, payload] = mockHttpPost.mock.calls[0];
+    expect(url).toBe('/api/equipment-lifecycle/work-orders/');
+    expect(payload.work_type).toBe('special_maintenance');
+    expect(payload.maintenance_subtype).toBe('calibration');
+    // 真实请求成功后刷新列表
+    expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/work-orders/',
+      {params: {page: 1, page_size: 20}});
+  });
+
+  it('切回故障维修后维护分类隐藏，提交参数回落统一默认值', async () => {
+    convergenceStore.systems = [{id: 7, name: '烟台通信系统', system_code: 'SYS-A1'}];
+    mockHttpGet.mockResolvedValue({data: [], total: 0});
+    mockHttpPost.mockResolvedValue({data: {id: 10}});
+    renderForm();
+    await act(flush);
+    await pickOption('工单类型', '专项维护');
+    expect(findFormItem('维护分类')).toBeTruthy();
+    await pickOption('工单类型', '故障维修');
+    // 故障维修隐藏维护分类
+    expect(findFormItem('维护分类')).toBeFalsy();
+    await fillTitle('抢修工单');
+    await pickOption('作业系统', '烟台通信系统');
+    await submitForm();
+    const [url, payload] = mockHttpPost.mock.calls[0];
+    expect(url).toBe('/api/equipment-lifecycle/work-orders/');
+    expect(payload.work_type).toBe('repair');
+    expect(payload.maintenance_subtype).toBe('general');
+  });
+
+  it('提交失败时 Promise 拒绝走 http 拦截器提示路径，不重复弹错', async () => {
+    convergenceStore.systems = [{id: 7, name: '烟台通信系统', system_code: 'SYS-A1'}];
+    mockHttpGet.mockResolvedValue({data: [], total: 0});
+    mockHttpPost.mockRejectedValue({error: '工单类型已下线：技术改造请在"系统升级管理"中登记'});
+    renderForm();
+    await act(flush);
+    await pickOption('工单类型', '专项维护');
+    await fillTitle('失败用例');
+    await pickOption('作业系统', '烟台通信系统');
+    await submitForm();
+    // 失败请求到达后端一次；错误由 http 拦截器统一提示，业务代码不重复提示
+    expect(mockHttpPost).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('工单常量契约', () => {
-  it('状态与类型文本映射覆盖后端全部枚举（不含禁用类型）', () => {
+  it('状态与类型文本映射覆盖后端全部枚举（含历史类型，供展示与筛选）', () => {
     const {WO_STATUS_TEXT, WORK_TYPE_TEXT} = require('../constants');
     ['pending_dispatch', 'pending_accept', 'executing', 'pending_review',
       'completed', 'closed', 'cancelled'].forEach(s => expect(WO_STATUS_TEXT[s]).toBeTruthy());
@@ -369,5 +604,30 @@ describe('工单常量契约', () => {
       'field_test', 'calibration'].forEach(t => expect(WORK_TYPE_TEXT[t]).toBeTruthy());
     // 不得加入建设/验收/试运行/投运/停运/下线/归档等类型
     expect(Object.keys(WORK_TYPE_TEXT).length).toBe(6);
+  });
+
+  it('顶层类型收敛：可新建类型只有故障维修/专项维护，历史类型仅保留展示', () => {
+    const {
+      WORK_TYPE_CREATION_OPTIONS, RETIRED_WORK_TYPE_TEXT, WORK_TYPE_HINT,
+      MAINTENANCE_SUBTYPE_OPTIONS, MAINTENANCE_SUBTYPE_TEXT, MAINTENANCE_SUBTYPE_DEFAULT,
+    } = require('../constants');
+    // 新建/编辑只允许两种顶层类型（与后端 WORK_ORDER_CREATABLE_TYPE_VALUES 一致）
+    expect(WORK_TYPE_CREATION_OPTIONS.map(o => o.value))
+      .toEqual(['repair', 'special_maintenance']);
+    // 已下线顶层类型仅保留展示文案，不在新建选项中
+    expect(RETIRED_WORK_TYPE_TEXT).toEqual({
+      tech_reform: '技术改造',
+      config_change: '配置变更',
+      field_test: '现场测试',
+      calibration: '校准',
+    });
+    // 边界提示：技术改造指向系统升级管理
+    expect(WORK_TYPE_HINT).toContain('系统升级管理');
+    // 维护分类五项，默认一般维护
+    expect(MAINTENANCE_SUBTYPE_OPTIONS.map(o => o.value)).toEqual([
+      'general', 'config_change', 'field_test', 'calibration', 'temporary_maintenance',
+    ]);
+    expect(MAINTENANCE_SUBTYPE_TEXT['calibration']).toBe('校准');
+    expect(MAINTENANCE_SUBTYPE_DEFAULT).toBe('general');
   });
 });

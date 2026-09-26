@@ -3,8 +3,9 @@
  *
  * - 下拉仅提供 正常/不正常(choice) 与 数字/文本(text)，历史类型仅对已有行回显；
  * - 正常/不正常候选项固定为 正常/不正常，不再开放配置（候选项列已移除）；
- * - 模板项目仅剩 名称/录入类型/单位/必填（默认勾选）/执行范围，
- *   标准说明、正常范围、数值上下限列已移除；
+ * - 模板项目仅剩 名称/录入类型/单位/必填（默认勾选），
+ *   标准说明、正常范围、数值上下限、执行范围列已移除
+ *   （执行范围随周表/月表合一于 2026-09-26 删除）；
  * - 切换录入类型时清掉不再适用的字段。
  *
  * 沿用 LedgerForm.submit.test.js 的不渲染模式：直接构造组件实例，
@@ -22,7 +23,7 @@ function item(patch) {
     key: `k${Math.random()}`, id: undefined,
     name: '', input_type: 'choice',
     unit: '',
-    choices: ['正常', '不正常'], is_required: true, execution_scope: 'all', display_order: 0,
+    choices: ['正常', '不正常'], is_required: true, display_order: 0,
     ...patch,
   };
 }
@@ -35,8 +36,8 @@ function makeInstance(items) {
     loading: false,
     items,
     template: {
-      name: '测试模板', ledger_type: 'inspection',
-      maintenance_cycle: '', description: '',
+      name: '测试模板', ledger_type: 'week_month',
+      description: '',
     },
   };
   instance.setState = jest.fn(patch => {

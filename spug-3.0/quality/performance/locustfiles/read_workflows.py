@@ -41,8 +41,6 @@ class ReadWorkflowUser(TokenPoolHttpUser):
     - Contract Agreement
     - Documents
     - Regulations
-    - Devices
-    - Faults
     - Upgrades
     - Interference
     - Alerts
@@ -247,18 +245,6 @@ class ReadWorkflowUser(TokenPoolHttpUser):
     def regulation_category_tree(self):
         """Get regulation category tree."""
         self._safe_get("/api/regulation/categories/tree/")
-
-    # === Device ===
-
-    @task(4)
-    def device_list(self):
-        """Get device resume list."""
-        self._safe_get("/api/device/device-resume/")
-
-    @task(3)
-    def device_history(self):
-        """Get device history list."""
-        self._safe_get("/api/device/device-event/")
 
     # === Upgrade ===
 

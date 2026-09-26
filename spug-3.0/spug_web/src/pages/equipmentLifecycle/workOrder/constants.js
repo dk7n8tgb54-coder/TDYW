@@ -34,6 +34,45 @@ export const WORK_TYPE_TEXT = WORK_TYPE_OPTIONS.reduce((acc, item) => {
   return acc;
 }, {});
 
+// 顶层工单类型收敛（2026-09）：新建/编辑只允许以下两种类型；
+// 技术改造统一由"系统升级管理"承载（不在工单中登记，也不自动建单），
+// 配置变更/现场测试/校准并入专项维护的"维护分类"（见 MAINTENANCE_SUBTYPE_OPTIONS）。
+// WORK_TYPE_OPTIONS 保留全部历史类型，仅供列表筛选与历史工单展示。
+export const WORK_TYPE_CREATION_OPTIONS = [
+  {value: 'repair', label: '故障维修'},
+  {value: 'special_maintenance', label: '专项维护'},
+];
+
+// 已下线顶层类型：仅用于编辑历史工单时回显原值（禁用不可选）与文案提示，
+// 新建/编辑均不可再选择；后端创建/编辑接口独立拒绝。
+export const RETIRED_WORK_TYPE_TEXT = {
+  tech_reform: '技术改造',
+  config_change: '配置变更',
+  field_test: '现场测试',
+  calibration: '校准',
+};
+
+// 类型边界提示（表单 extra 文案，与后端拒绝文案语义一致）
+export const WORK_TYPE_HINT =
+  '技术改造请在「系统升级管理」中登记；配置变更/现场测试/校准作为专项维护的维护分类';
+
+// 专项维护二级分类（维护分类）：默认"一般维护"；配置变更仅作为维护分类
+// 记录，不直接等同于修改系统档案（系统档案只维护当前有效主数据）
+export const MAINTENANCE_SUBTYPE_DEFAULT = 'general';
+
+export const MAINTENANCE_SUBTYPE_OPTIONS = [
+  {value: 'general', label: '一般维护'},
+  {value: 'config_change', label: '配置变更'},
+  {value: 'field_test', label: '现场测试'},
+  {value: 'calibration', label: '校准'},
+  {value: 'temporary_maintenance', label: '临时维护'},
+];
+
+export const MAINTENANCE_SUBTYPE_TEXT = MAINTENANCE_SUBTYPE_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
 // 状态筛选选项：仅新流程状态（历史兼容状态不作为筛选选项）
 export const WO_STATUS_OPTIONS = [
   {value: 'executing', label: '执行中'},

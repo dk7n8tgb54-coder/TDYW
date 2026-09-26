@@ -41,9 +41,6 @@ from apps.equipment_lifecycle.models import (
     LEDGER_TYPE_TEXT,
     LEDGER_TYPE_VALUES,
     LEDGER_TYPE_WEEK_MONTH,
-    CYCLE_MONTH,
-    CYCLE_SEASON,
-    CYCLE_WEEK,
     LEDGER_STATUS_REVIEWED,
     LEDGER_STATUS_VOID,
     OperationLedger,
@@ -160,7 +157,7 @@ class LegacyInspectionTypeRejectedTest(TestCase):
         """2. 新建 ledger_type=inspection 被拒绝并返回明确错误。"""
         payload = ledger_payload(
             [entry_payload(self.system.id, [item_payload()])],
-            ledger_type='inspection', maintenance_cycle='')
+            ledger_type='inspection')
         resp = post_json(self.client_, LEDGER_URL + '/', payload)
         body = resp.json()
         self.assertTrue(body.get('error'))
@@ -171,15 +168,14 @@ class LegacyInspectionTypeRejectedTest(TestCase):
     def test_preview_rejects_inspection_type(self):
         """预览接口不再支持旧巡检类型。"""
         resp = post_json(self.client_, LEDGER_URL + '/preview/', {
-            'ledger_type': 'inspection', 'maintenance_cycle': '',
+            'ledger_type': 'inspection',
             'entries': [{'system_id': self.system.id}]})
         self.assertIn('已删除', resp.json().get('error') or '')
 
     def test_template_create_rejects_inspection_type(self):
         """台账模板新建不再接受巡检类型。"""
         resp = post_json(self.client_, TEMPLATE_URL + '/', {
-            'name': '巡检模板', 'ledger_type': 'inspection',
-            'maintenance_cycle': '', 'items': []})
+            'name': '巡检模板', 'ledger_type': 'inspection', 'items': []})
         self.assertIn('已删除', resp.json().get('error') or '')
 
     def test_ledger_type_enum_no_inspection(self):
@@ -198,14 +194,14 @@ class LegacyInspectionTypeRejectedTest(TestCase):
 
 
 class MaintenanceLedgerStillWorksTest(TestCase):
-    """7：周/月/季维护台账查询、新增、编辑、提交、退回、复核、作废仍正常。"""
+    """7：周月/季维护台账查询、新增、编辑、提交、退回、复核、作废仍正常。"""
 
     def setUp(self):
         self.user = make_ledger_user('maint_flow_op')
         self.system = make_system(self.user)
         self.client_ = make_client(self.user)
 
-    def _create_week_ledger(self, cycle=CYCLE_WEEK, executed_date='2026-09-10'):
+    def _create_ledger(self, executed_date='2026-09-10', ledger_type=LEDGER_TYPE_WEEK_MONTH):
         payload = ledger_payload(
             [entry_payload(self.system.id, [
                 item_payload(),
@@ -213,19 +209,18 @@ class MaintenanceLedgerStillWorksTest(TestCase):
                              value_text='', value_number=52,
                              result='abnormal', abnormal_desc='电压偏低'),
             ])],
-            ledger_type=LEDGER_TYPE_WEEK_MONTH,
-            maintenance_cycle=cycle, executed_date=executed_date)
+            ledger_type=ledger_type, executed_date=executed_date)
         return create_ledger_ok(self.client_, payload)
 
     def test_full_maintenance_workflow(self):
         """新增→编辑→提交→退回→再提交→复核→更正→作废 全链路可用。"""
-        data = self._create_week_ledger()
+        data = self._create_ledger()
         ledger_id = data['id']
         # 编辑：version 并发控制 + 明细新增
         payload = ledger_payload(
             [entry_payload(self.system.id, [item_payload(), item_payload(
                 item_name='新增项', value_text='正常')])],
-            ledger_type=LEDGER_TYPE_WEEK_MONTH, maintenance_cycle=CYCLE_WEEK,
+            ledger_type=LEDGER_TYPE_WEEK_MONTH,
             executed_date='2026-09-10', version=1)
         resp = put_json(self.client_, '%s/%s/' % (LEDGER_URL, ledger_id), payload)
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -260,23 +255,18 @@ class MaintenanceLedgerStillWorksTest(TestCase):
             OperationLedger.objects.get(pk=ledger_id).status, LEDGER_STATUS_VOID)
 
     def test_week_month_seasonal_all_creatable(self):
-        """4/5/6：周、月、季三类维护台账均可正常创建并保留。"""
-        self._create_week_ledger(CYCLE_WEEK, '2026-09-10')
-        self._create_week_ledger(CYCLE_MONTH, '2026-09-30')
+        """4/5/6：周月维护（单表）与季维护台账均可正常创建并保留。"""
+        self._create_ledger('2026-09-10')
+        self._create_ledger('2026-09-30')
         payload = ledger_payload(
             [entry_payload(self.system.id, [item_payload()])],
-            ledger_type=LEDGER_TYPE_SEASONAL, maintenance_cycle=CYCLE_SEASON,
+            ledger_type=LEDGER_TYPE_SEASONAL,
             executed_date='2026-09-20')
         seasonal = create_ledger_ok(self.client_, payload)
         self.assertEqual(seasonal['ledger_type'], 'seasonal')
         self.assertEqual(
             OperationLedger.objects.filter(
-                ledger_type=LEDGER_TYPE_WEEK_MONTH,
-                maintenance_cycle=CYCLE_WEEK).count(), 1)
-        self.assertEqual(
-            OperationLedger.objects.filter(
-                ledger_type=LEDGER_TYPE_WEEK_MONTH,
-                maintenance_cycle=CYCLE_MONTH).count(), 1)
+                ledger_type=LEDGER_TYPE_WEEK_MONTH).count(), 2)
         self.assertEqual(
             OperationLedger.objects.filter(
                 ledger_type=LEDGER_TYPE_SEASONAL).count(), 1)
@@ -302,7 +292,7 @@ class MaintenanceConvertStillWorksTest(TestCase):
                              value_text='', value_number=52,
                              result='abnormal', abnormal_desc='电压偏低'),
             ])],
-            ledger_type=LEDGER_TYPE_WEEK_MONTH, maintenance_cycle=CYCLE_WEEK)
+            ledger_type=LEDGER_TYPE_WEEK_MONTH)
         data = create_ledger_ok(self.client_, payload)
         resp = post_json(self.client_, '%s/%s/submit/' % (LEDGER_URL, data['id']), {})
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -400,18 +390,18 @@ class LegacyPurgeCommandTest(TransactionTestCase):
         self.user_b = make_user('purge_admin_b', perms=perms, tenant_id='tenant_b')
         self.system_a = make_system(self.user_a, tenant_id='tenant_a')
         self.system_b = make_system(self.user_b, tenant_id='tenant_b')
-        # 周/月/季维护数据（tenant_a）
+        # 周月/季维护数据（tenant_a）
         self.week_ledger = self._make_ledger(
-            self.system_a, LEDGER_TYPE_WEEK_MONTH, CYCLE_WEEK)
+            self.system_a, LEDGER_TYPE_WEEK_MONTH, ledger_no='EL-WM-TEST-A')
         self.month_ledger = self._make_ledger(
-            self.system_a, LEDGER_TYPE_WEEK_MONTH, CYCLE_MONTH)
+            self.system_a, LEDGER_TYPE_WEEK_MONTH, ledger_no='EL-WM-TEST-B')
         self.seasonal_ledger = self._make_ledger(
-            self.system_a, LEDGER_TYPE_SEASONAL, CYCLE_SEASON)
+            self.system_a, LEDGER_TYPE_SEASONAL, ledger_no='EL-SE-TEST-A')
         # tenant_a 旧巡检台账 + 模板 + 更正记录
         self.legacy_ledger = self._make_ledger(
-            self.system_a, 'inspection', '', ledger_no='EL-INS-20260901-0001')
+            self.system_a, 'inspection', ledger_no='EL-INS-20260901-0001')
         self.legacy_template = OperationLedgerTemplate.objects.create(
-            name='旧巡检模板', ledger_type='inspection', maintenance_cycle='',
+            name='旧巡检模板', ledger_type='inspection',
             tenant_id='tenant_a', created_by=self.user_a)
         self.legacy_tpl_item = OperationLedgerTemplateItem.objects.create(
             template=self.legacy_template, name='旧巡检项目', input_type='choice',
@@ -423,7 +413,7 @@ class LegacyPurgeCommandTest(TransactionTestCase):
             changes='[]', corrected_by=self.user_a)
         # tenant_b 旧巡检台账（验证 --tenant 范围）
         self.legacy_ledger_b = self._make_ledger(
-            self.system_b, 'inspection', '', ledger_no='EL-INS-20260902-0001')
+            self.system_b, 'inspection', ledger_no='EL-INS-20260902-0001')
         # 外部引用：故障 + 工单（引用 tenant_a 旧巡检异常明细，不得删除）
         self.fault = SystemFault.objects.create(
             tenant_id='tenant_a', fault_no='GZ20260901-0001',
@@ -453,12 +443,11 @@ class LegacyPurgeCommandTest(TransactionTestCase):
             system_name=self.system_a.name, occurred_at='2026-09-01 10:00:00',
             created_by=self.user_a)
 
-    def _make_ledger(self, system, ledger_type, cycle, ledger_no=None):
+    def _make_ledger(self, system, ledger_type, ledger_no=None):
         ledger = OperationLedger.objects.create(
             tenant_id=system.tenant_id,
-            ledger_no=ledger_no or 'EL-TEST-%s-%s-%d' % (
-                ledger_type, cycle or 'nocycle', system.id),
-            ledger_type=ledger_type, maintenance_cycle=cycle,
+            ledger_no=ledger_no or 'EL-TEST-%s-%d' % (ledger_type, system.id),
+            ledger_type=ledger_type,
             executed_date='2026-09-01', status='reviewed',
             created_by=self.user_a if system is self.system_a else self.user_b)
         OperationLedgerItem.objects.create(
@@ -489,7 +478,7 @@ class LegacyPurgeCommandTest(TransactionTestCase):
         self.assertEqual(self._legacy_counts('tenant_a'), (1, 1, 1))
         self.assertEqual(
             OperationLedger.objects.filter(
-                ledger_type=LEDGER_TYPE_WEEK_MONTH, maintenance_cycle=CYCLE_WEEK).count(), 1)
+                ledger_type=LEDGER_TYPE_WEEK_MONTH).count(), 2)
 
     def test_dry_run_does_not_modify_database(self):
         """14. dry-run 只统计，不删除。"""
@@ -508,21 +497,16 @@ class LegacyPurgeCommandTest(TransactionTestCase):
         self.assertEqual(self._legacy_counts(), before)
 
     def test_confirm_deletes_only_inspection(self):
-        """3/4/5/6/17：--confirm 只删除 inspection；周/月/季维护与共享模型完整。"""
+        """3/4/5/6/17：--confirm 只删除 inspection；周月/季维护与共享模型完整。"""
         out = call_purge('--confirm')
         self.assertIn('清理完成', out)
         # 旧巡检数据全部删除
         self.assertEqual(self._legacy_counts('tenant_a'), (0, 0, 0))
         self.assertEqual(self._legacy_counts('tenant_b'), (0, 0, 0))
-        # 周/月/季维护数据保留
+        # 周月/季维护数据保留
         self.assertEqual(
             OperationLedger.objects.filter(
-                ledger_type=LEDGER_TYPE_WEEK_MONTH,
-                maintenance_cycle=CYCLE_WEEK).count(), 1)
-        self.assertEqual(
-            OperationLedger.objects.filter(
-                ledger_type=LEDGER_TYPE_WEEK_MONTH,
-                maintenance_cycle=CYCLE_MONTH).count(), 1)
+                ledger_type=LEDGER_TYPE_WEEK_MONTH).count(), 2)
         self.assertEqual(
             OperationLedger.objects.filter(
                 ledger_type=LEDGER_TYPE_SEASONAL).count(), 1)
@@ -530,8 +514,7 @@ class LegacyPurgeCommandTest(TransactionTestCase):
         self.assertEqual(OperationLedgerCorrection.objects.count(), 0)
         maintenance_template = OperationLedgerTemplate.objects.create(
             name='清理后维护模板', ledger_type=LEDGER_TYPE_WEEK_MONTH,
-            maintenance_cycle=CYCLE_WEEK, tenant_id='tenant_a',
-            created_by=self.user_a)
+            tenant_id='tenant_a', created_by=self.user_a)
         self.assertTrue(OperationLedgerTemplateItem.objects.create(
             template=maintenance_template, name='新维护项目', input_type='text',
             tenant_id='tenant_a', created_by=self.user_a))

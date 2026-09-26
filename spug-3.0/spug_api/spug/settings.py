@@ -72,7 +72,6 @@ _base_installed_apps = [
     'apps.account',
     'apps.setting',
     'apps.duty',
-    'apps.device',
     'apps.interference',
     'apps.home',
     'apps.reminder',

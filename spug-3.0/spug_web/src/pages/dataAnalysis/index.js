@@ -14,7 +14,6 @@ import { hasPermission } from 'libs';
 import store, { TABS, MAX_RANGE_DAYS, getDatePresets } from './store';
 import Overview from './Overview';
 import InterferenceAnalysis from './InterferenceAnalysis';
-import DeviceAnalysis from './DeviceAnalysis';
 import UpgradeAnalysis from './UpgradeAnalysis';
 
 const { RangePicker } = DatePicker;
@@ -23,7 +22,6 @@ const { RangePicker } = DatePicker;
 const TAB_COMPONENTS = {
   overview: Overview,
   interference: InterferenceAnalysis,
-  device: DeviceAnalysis,
   upgrade: UpgradeAnalysis,
 };
 

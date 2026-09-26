@@ -20,7 +20,7 @@ import { http, history } from 'libs';
 import { AuthButton } from 'components';
 import {
   WO_PERM, WORK_TYPE_TEXT, WO_STATUS_TEXT, WO_STATUS_COLOR, PRIORITY_TEXT,
-  PRIORITY_COLOR, WO_SOURCE_TEXT, LEDGER_TYPE_PATH,
+  PRIORITY_COLOR, WO_SOURCE_TEXT, LEDGER_TYPE_PATH, MAINTENANCE_SUBTYPE_TEXT,
 } from './constants';
 
 const {TextArea} = Input;
@@ -169,6 +169,12 @@ function renderBasic(d, gotoFault, gotoLedger, gotoInspectionSheet) {
         </Descriptions.Item>
         <Descriptions.Item label="工单标题" span={2}>{d.title}</Descriptions.Item>
         <Descriptions.Item label="工单类型">{WORK_TYPE_TEXT[d.work_type] || d.work_type}</Descriptions.Item>
+        {/* 维护分类仅专项维护有业务含义；其他类型（含历史类型）不展示 */}
+        {d.work_type === 'special_maintenance' && (
+          <Descriptions.Item label="维护分类">
+            {MAINTENANCE_SUBTYPE_TEXT[d.maintenance_subtype] || d.maintenance_subtype || '-'}
+          </Descriptions.Item>
+        )}
         <Descriptions.Item label="优先级">
           <Tag color={PRIORITY_COLOR[d.priority]}>{PRIORITY_TEXT[d.priority] || d.priority}</Tag>
         </Descriptions.Item>

@@ -96,12 +96,6 @@ const TEST_DATA = {
     content: 'E2E TEST DATA - Regulation content',
   },
 
-  // Device resume
-  device: {
-    name: () => `E2E_测试设备_${Date.now()}`,
-    model: 'E2E-TEST-MODEL',
-  },
-
   // Upgrade record
   upgrade: {
     title: () => `E2E_测试升级_${Date.now()}`,

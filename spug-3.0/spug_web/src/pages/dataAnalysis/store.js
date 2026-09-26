@@ -11,7 +11,6 @@ import moment from 'moment';
 export const TABS = [
   { key: 'overview', label: '总览分析', perm: 'data_analysis.overview.view', endpoint: '/api/data-analysis/overview/' },
   { key: 'interference', label: '干扰分析', perm: 'data_analysis.interference.view', endpoint: '/api/data-analysis/interference/' },
-  { key: 'device', label: '设备分析', perm: 'data_analysis.device.view', endpoint: '/api/data-analysis/device/' },
   { key: 'upgrade', label: '升级分析', perm: 'data_analysis.upgrade.view', endpoint: '/api/data-analysis/upgrade/' },
 ];
 

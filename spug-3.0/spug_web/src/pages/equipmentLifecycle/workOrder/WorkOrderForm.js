@@ -3,9 +3,12 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 工单新增/编辑表单（Modal，单系统简化 + 单账号协同流程）。
+ * 工单新增/编辑表单（Modal，单系统简化 + 单账号协同流程 + 工单类型收敛）。
  * - 普通用户只需要选择一个"作业系统"（提交 ID，页面显示名称）；
  * - 提供"作业期间是否影响系统运行"直观选择（执行中且为真才进入"维修中"）；
+ * - 顶层工单类型只显示故障维修/专项维护（2026-09 类型收敛）：选择专项维护后
+ *   显示"维护分类"（默认一般维护），选择故障维修时隐藏；技术改造请在
+ *   系统升级管理中登记，不保留看似可选但实际不可用的空选项；
  * - 不再要求负责人/参与人；创建成功后工单即为"执行中"；
  * - 编辑仅限执行中工单（后端强制校验，前端同步控制入口）；
  * - 支持故障生成工单/台账转工单的预填场景（initialValues 覆盖）。
@@ -14,7 +17,10 @@ import React, { useEffect } from 'react';
 import { observer } from 'mobx-react';
 import { Form, Modal, Input, Select, DatePicker, Switch } from 'antd';
 import store from './store';
-import { WORK_TYPE_OPTIONS, PRIORITY_OPTIONS } from './constants';
+import {
+  WORK_TYPE_CREATION_OPTIONS, WORK_TYPE_HINT, RETIRED_WORK_TYPE_TEXT,
+  MAINTENANCE_SUBTYPE_DEFAULT, MAINTENANCE_SUBTYPE_OPTIONS, PRIORITY_OPTIONS,
+} from './constants';
 
 const {TextArea} = Input;
 const {Option} = Select;
@@ -25,6 +31,7 @@ function applyRecordToForm(form, record) {
   form.setFieldsValue({
     title: record.title,
     work_type: record.work_type,
+    maintenance_subtype: record.maintenance_subtype || MAINTENANCE_SUBTYPE_DEFAULT,
     priority: record.priority,
     system: record.system,
     affects_system_operation: !!record.affects_system_operation,
@@ -34,6 +41,60 @@ function applyRecordToForm(form, record) {
     work_steps: record.work_steps,
     material_note: record.material_note,
   });
+}
+
+/** 工单类型 + 维护分类（类型收敛交互：专项维护才显示维护分类）。 */
+function WorkTypeFields() {
+  const form = Form.useFormInstance();
+  return (
+    <Form.Item noStyle shouldUpdate={(prev, cur) => prev.work_type !== cur.work_type}>
+      {({getFieldValue}) => {
+        const currentType = getFieldValue('work_type');
+        return (
+          <>
+            <Form.Item
+              name="work_type"
+              label="工单类型"
+              rules={[{required: true, message: '请选择工单类型'}]}
+              extra={WORK_TYPE_HINT}
+            >
+              <Select
+                placeholder="请选择工单类型"
+                onChange={value => form.setFieldsValue({
+                  maintenance_subtype: value === 'special_maintenance'
+                    ? MAINTENANCE_SUBTYPE_DEFAULT : undefined,
+                })}
+              >
+                {WORK_TYPE_CREATION_OPTIONS.map(item => (
+                  <Option value={item.value} key={item.value}>{item.label}</Option>
+                ))}
+                {/* 编辑历史工单时回显已下线类型：仅禁用展示当前值，不可再提交 */}
+                {RETIRED_WORK_TYPE_TEXT[currentType] && (
+                  <Option value={currentType} disabled>
+                    {RETIRED_WORK_TYPE_TEXT[currentType]}（已下线，请改选）
+                  </Option>
+                )}
+              </Select>
+            </Form.Item>
+            {currentType === 'special_maintenance' && (
+              <Form.Item
+                name="maintenance_subtype"
+                label="维护分类"
+                extra="配置变更仅作为维护分类记录，不直接修改系统档案"
+                rules={[{required: true, message: '请选择维护分类'}]}
+              >
+                <Select placeholder="请选择维护分类">
+                  {MAINTENANCE_SUBTYPE_OPTIONS.map(item => (
+                    <Option value={item.value} key={item.value}>{item.label}</Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            )}
+          </>
+        );
+      }}
+    </Form.Item>
+  );
 }
 
 function OrderFormFields({systems, extraReason}) {
@@ -46,17 +107,7 @@ function OrderFormFields({systems, extraReason}) {
       >
         <Input maxLength={100} placeholder="请输入工单标题"/>
       </Form.Item>
-      <Form.Item
-        name="work_type"
-        label="工单类型"
-        rules={[{required: true, message: '请选择工单类型'}]}
-      >
-        <Select placeholder="请选择工单类型">
-          {WORK_TYPE_OPTIONS.map(item => (
-            <Option value={item.value} key={item.value}>{item.label}</Option>
-          ))}
-        </Select>
-      </Form.Item>
+      <WorkTypeFields/>
       <Form.Item name="priority" label="优先级">
         <Select>
           {PRIORITY_OPTIONS.map(item => (
@@ -169,7 +220,9 @@ function WorkOrderForm({visible, onClose, isEdit = false, initialValues = null, 
       onOk={handleOk}
       destroyOnClose
     >
-      <Form form={form} {...formLayout} initialValues={{priority: 'normal', affects_system_operation: false}}>
+      <Form form={form} {...formLayout}
+            initialValues={{priority: 'normal', affects_system_operation: false,
+                            maintenance_subtype: MAINTENANCE_SUBTYPE_DEFAULT}}>
         <OrderFormFields systems={store.systems} extraReason={extraReason}/>
       </Form>
     </Modal>

@@ -73,29 +73,6 @@ export default [{
     ]
   }]
 }, {
-  key: 'device',
-  label: '设备管理',
-  pages: [{
-    key: 'device_resume',
-    label: '设备履历',
-    perms: [
-      {key: 'view', label: '查看设备档案'},
-      {key: 'add', label: '新增设备档案'},
-      {key: 'edit', label: '编辑设备档案'},
-      {key: 'delete', label: '删除设备档案'},
-      {key: 'history_view', label: '查看时间线事件'},
-      {key: 'history_add', label: '新增时间线事件'},
-      {key: 'history_edit', label: '编辑时间线事件'},
-      {key: 'history_delete', label: '删除时间线事件'},
-    ]
-  }, {
-    key: 'device_history',
-    label: '查看履历',
-    perms: [
-      {key: 'view', label: '查看履历'},
-    ]
-  }]
-}, {
   key: 'equipment_lifecycle',
   label: '设备全生命周期',
   pages: [{

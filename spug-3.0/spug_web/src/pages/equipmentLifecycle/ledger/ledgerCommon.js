@@ -7,7 +7,7 @@
  * 提交 entries 组装、异常行判定。LedgerForm（新增/编辑弹窗）与
  * LedgerWorksheet（常驻工作台）共用，两处提交行为保持一致。
  */
-import {NORMAL_ABNORMAL_CHOICES} from './constants';
+import {NORMAL_ABNORMAL_CHOICES, ROW_PATH_SEPARATOR} from './constants';
 
 let CLIENT_SEQ = 0;
 
@@ -264,4 +264,150 @@ export function buildSubmitEntries(rows) {
     return entry;
   });
   return {entries};
+}
+
+// ==================== 行对象树矩阵（第一阶段：行方向多级 + 平面列项目） ====================
+
+let PLANNED_SEQ = 0;
+
+export function newPlannedKey() {
+  PLANNED_SEQ += 1;
+  return `p${Date.now()}_${PLANNED_SEQ}`;
+}
+
+/**
+ * 模板行节点树 → 计划实例树（录入端预览态）：每个节点默认 1 个计划实例，
+ * 名称默认节点名；可重复分组（repeat_group）的计划实例可复制出"第2信道"等。
+ */
+export function plannedFromRowNodes(rowNodes) {
+  return (rowNodes || []).map(node => plannedFromNode(node, null));
+}
+
+function plannedFromNode(node, parentKey) {
+  return {
+    key: newPlannedKey(),
+    node_id: node.id,
+    node_type: node.node_type,
+    name: node.name,
+    parentKey: parentKey,
+    children: (node.children || []).map(c => plannedFromNode(c, null)),
+  };
+}
+
+/** 复制计划实例子树（可重复分组"新增信道"），名称重置为节点名供用户修改 */
+export function clonePlanned(planned) {
+  const clone = {
+    ...planned,
+    key: newPlannedKey(),
+    children: (planned.children || []).map(c => clonePlanned(c)),
+  };
+  clone.children.forEach(c => {
+    c.parentKey = clone.key;
+  });
+  return clone;
+}
+
+/** 计划实例展平：附 path（实例名连接）与 depth（根为 1）。 */
+export function flattenPlanned(plannedList, prefix = '', out = []) {
+  (plannedList || []).forEach(p => {
+    const path = prefix ? `${prefix}${ROW_PATH_SEPARATOR}${p.name}` : p.name;
+    out.push({...p, path, depth: path.split(ROW_PATH_SEPARATOR).length});
+    flattenPlanned(p.children, path, out);
+  });
+  return out;
+}
+
+/** 计划树中某实例的同级数量（"至少保留一个信道"判断用）。 */
+export function siblingCount(plannedList, key) {
+  const find = list => {
+    for (const p of list) {
+      if (p.key === key) return list.length;
+      const hit = find(p.children || []);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  return find(plannedList || []) || 0;
+}
+
+/** 计划实例规格 → 创建载荷 row_instances（递归）。 */
+export function buildRowSpec(plannedList) {
+  return (plannedList || []).map(p => ({
+    template_node: p.node_id,
+    name: p.name,
+    children: buildRowSpec(p.children || []),
+  }));
+}
+
+/**
+ * 计划模式单元格填写值：key = `${行叶子计划key}|${列项目id}`，
+ * 与实例名解耦（重命名"第1信道"不丢已填内容）。
+ */
+export function plannedCellKey(plannedKey, itemId) {
+  return `${plannedKey}|${itemId}`;
+}
+
+/** 填写值是否为空（多选空数组视为空，与后端 _cell_value_empty 口径一致）。 */
+export function cellValueEmpty(cell) {
+  if (!cell) return true;
+  if (cell.value_number !== null && cell.value_number !== undefined) return false;
+  if (cell.value_bool !== null && cell.value_bool !== undefined) return false;
+  if (cell.input_type === 'multi_choice') {
+    try {
+      return !(cell.value_text ? JSON.parse(cell.value_text) : []).length;
+    } catch (e) {
+      return true;
+    }
+  }
+  return !String(cell.value_text || '').trim();
+}
+
+/** 单元格是否按异常提示（结果异常，或正常/不正常单选填了"不正常"）。 */
+export function cellLooksAbnormal(cell) {
+  if (!cell) return false;
+  if (cell.result === 'abnormal') return true;
+  return cell.input_type === 'choice' && cell.value_text === NORMAL_ABNORMAL_CHOICES[1];
+}
+
+/**
+ * 矩阵行过滤：mode=all 全部；abnormal 仅保留含异常单元格的行叶子
+ * （及其祖先）；unset 仅保留含未填写单元格的行叶子（及其祖先）。
+ * rows 为带 children 的树（叶子为 check 行对象）。
+ */
+export function filterMatrixRows(rows, mode, isRowAbnormal, isRowUnfilled) {
+  if (mode !== 'abnormal' && mode !== 'unset') return rows;
+  const hit = mode === 'abnormal' ? isRowAbnormal : isRowUnfilled;
+  const walk = list => (list || []).reduce((out, row) => {
+    const children = walk(row.children);
+    if (children.length) {
+      out.push({...row, children});
+      return out;
+    }
+    if (!row.isCellLeaf) return out;
+    if (hit(row)) out.push({...row, children: []});
+    return out;
+  }, []);
+  return walk(rows);
+}
+
+/**
+ * 行级完成进度（含子孙叶子汇总）：filled / total。
+ * getCell(row, column) 由调用方提供（计划态取本地值，编辑态取台账单元格）。
+ */
+export function rowProgress(row, columns, getCell) {
+  if (!row.isCellLeaf) {
+    let filled = 0;
+    let total = 0;
+    (row.children || []).forEach(child => {
+      const p = rowProgress(child, columns, getCell);
+      filled += p.filled;
+      total += p.total;
+    });
+    return {filled, total};
+  }
+  let filled = 0;
+  columns.forEach(col => {
+    if (!cellValueEmpty(getCell(row, col))) filled += 1;
+  });
+  return {filled, total: columns.length};
 }

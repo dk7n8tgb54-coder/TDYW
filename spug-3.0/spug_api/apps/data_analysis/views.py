@@ -5,7 +5,6 @@ from .services.common import parse_date_range
 from .services.cache import get_cache_scope, cache_get, cache_set
 from .services.overview import get_overview
 from .services.interference import get_interference_analysis
-from .services.device import get_device_analysis
 from .services.upgrade import get_upgrade_analysis
 
 
@@ -35,9 +34,6 @@ overview_view = _make_view(
 )
 interference_view = _make_view(
     'data_analysis.interference.view', get_interference_analysis, 'interference'
-)
-device_view = _make_view(
-    'data_analysis.device.view', get_device_analysis, 'device'
 )
 upgrade_view = _make_view(
     'data_analysis.upgrade.view', get_upgrade_analysis, 'upgrade'

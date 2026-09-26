@@ -517,7 +517,9 @@ class SystemFaultHandlingRecord(TenantModelMixin, models.Model):
 # ----------------------------------------------------------------------
 # 结构：系统 → 检查项或维护项 → 台账明细 → 台账汇总表。
 # 两类维护台账共用统一模型（OperationLedger/OperationLedgerItem），
-# 通过 ledger_type + maintenance_cycle 区分，不为两类台账复制两套表。
+# 通过 ledger_type 区分，不为两类台账复制两套表。
+# 周月维护不再拆分周表/月表（2026-09-26）：维护周期与项目执行范围已删除，
+# 一张周月维护台账即一次完整维护记录。
 # 旧巡检台账（ledger_type=inspection）业务分支已删除（2026-09-24）：
 # 巡检由独立模型（InspectionTemplate/InspectionDutySheet/InspectionRecord）承担，
 # 历史数据由 purge_legacy_inspection_ledgers 管理命令受控清理。
@@ -527,21 +529,9 @@ class SystemFaultHandlingRecord(TenantModelMixin, models.Model):
 
 # 台账类型（旧巡检类型 inspection 已删除，仅保留常量供显式拒绝与历史数据清理识别）
 LEGACY_LEDGER_TYPE_INSPECTION = 'inspection'  # 旧巡检（已下线，不再支持）
-LEDGER_TYPE_WEEK_MONTH = 'week_month'    # 周月维护（周期字段区分周/月）
+LEDGER_TYPE_WEEK_MONTH = 'week_month'    # 周月维护（周表/月表合一）
 LEDGER_TYPE_SEASONAL = 'seasonal'        # 季维护（正式名称，不用"季度维护"）
 LEDGER_TYPE_VALUES = ['week_month', 'seasonal']
-
-# 维护周期
-CYCLE_WEEK = 'week'
-CYCLE_MONTH = 'month'
-CYCLE_SEASON = 'season'
-CYCLE_VALUES = ['week', 'month', 'season']
-
-# 周月维护模板项目的执行范围
-EXEC_SCOPE_ALL = 'all'              # 周月均执行
-EXEC_SCOPE_WEEK_ONLY = 'week_only'  # 仅每周执行
-EXEC_SCOPE_MONTH_ONLY = 'month_only'
-EXEC_SCOPE_VALUES = ['all', 'week_only', 'month_only']
 
 # 台账状态
 LEDGER_STATUS_DRAFT = 'draft'
@@ -557,9 +547,47 @@ ITEM_RESULT_ABNORMAL = 'abnormal'
 ITEM_RESULT_NOT_APPLICABLE = 'not_applicable'
 ITEM_RESULT_PENDING_REVIEW = 'pending_review'
 ITEM_RESULT_VALUES = ['normal', 'abnormal', 'not_applicable', 'pending_review']
+# 未填写：矩阵台账单元格生成后的初始态（空串），不参与结果统计；
+# 未填写不能被自动转换为正常（一键正常仅显式作用于未填写单元格）
+ITEM_RESULT_UNSET = ''
+# DB CHECK 约束值域 = 四种显式结果 + 未填写（空串）
+ITEM_RESULT_DB_VALUES = [ITEM_RESULT_UNSET] + ITEM_RESULT_VALUES
+ITEM_RESULT_TEXT_MAP_FULL = {
+    ITEM_RESULT_UNSET: '未填写',
+    ITEM_RESULT_NORMAL: '正常',
+    ITEM_RESULT_ABNORMAL: '异常',
+    ITEM_RESULT_NOT_APPLICABLE: '不适用',
+    ITEM_RESULT_PENDING_REVIEW: '待复核',
+}
 
 # 台账明细录入类型（模板项目与明细快照共用）
 LEDGER_INPUT_TYPE_VALUES = ['text', 'number', 'choice', 'multi_choice', 'boolean', 'attachment']
+
+# ======================================================================
+# 行对象树（第一阶段：行方向多级对象结构 + 平面列项目）
+# ----------------------------------------------------------------------
+# 行方向支持递归父子结构（最大 5 级），列方向保持平面（模板项目一律根级，
+# 无 parent/node_type）；同一组列项目被所有行叶子复用，实际单元格 =
+# 行叶子实例 × 启用列项目。列方向父子结构与列分组表头为第二阶段范围，
+# 本阶段不引入任何列方向的层级字段。
+# ======================================================================
+
+# 行模板节点类型
+ROW_NODE_TYPE_GROUP = 'group'                # 普通行分组
+ROW_NODE_TYPE_REPEAT_GROUP = 'repeat_group'  # 可重复分组（实际台账可创建多个实例，如"信道"）
+ROW_NODE_TYPE_CHECK = 'check'                # 行对象叶子（如"主电台""备电台"）
+ROW_NODE_TYPE_VALUES = [ROW_NODE_TYPE_GROUP, ROW_NODE_TYPE_REPEAT_GROUP, ROW_NODE_TYPE_CHECK]
+ROW_NODE_TYPE_TEXT = {
+    ROW_NODE_TYPE_GROUP: '行分组',
+    ROW_NODE_TYPE_REPEAT_GROUP: '可重复分组',
+    ROW_NODE_TYPE_CHECK: '行对象',
+}
+
+# 行方向最大层级（根节点为第 1 级；后端唯一权威定义，前端 constants.js 同步为 ROW_MAX_LEVEL）
+LEDGER_ROW_MAX_LEVEL = 5
+
+# 行路径展示分隔符（row_path_snapshot / 模板节点路径共用）
+ROW_PATH_SEPARATOR = ' / '
 
 # 台账创建来源
 LEDGER_FROM_TEMPLATE = 'template'
@@ -581,20 +609,6 @@ LEDGER_TYPE_TEXT = {
     LEDGER_TYPE_WEEK_MONTH: '周月维护',
     LEDGER_TYPE_SEASONAL: '季维护',
 }
-LEDGER_CYCLE_TEXT = {CYCLE_WEEK: '周', CYCLE_MONTH: '月', CYCLE_SEASON: '季'}
-
-
-def ledger_cycle_combo_q(ledger_type_field, cycle_field):
-    """台账类型与维护周期的合法组合（台账表头与模板共用 DB 校验）：
-
-    - 周月维护：必须为周或月；
-    - 季维护：固定为季；
-    - 旧巡检类型已删除，任何组合均不合法（迁移收窄 CHECK 前须先清理历史数据）。
-    """
-    return (
-        models.Q(**{ledger_type_field: LEDGER_TYPE_WEEK_MONTH, cycle_field + '__in': [CYCLE_WEEK, CYCLE_MONTH]}) |
-        models.Q(**{ledger_type_field: LEDGER_TYPE_SEASONAL, cycle_field: CYCLE_SEASON})
-    )
 
 
 class OperationLedgerTemplate(TenantModelMixin, models.Model):
@@ -603,14 +617,11 @@ class OperationLedgerTemplate(TenantModelMixin, models.Model):
     - 模板只决定以后生成的台账内容，修改不影响已生成台账（明细保存快照）；
     - 模板不绑定系统，适用于任何系统（录入时逐条目显式选择系统）；
     - 停用后不能用于新台账，历史记录继续可查；
-    - 周期组合校验：周月维护 week|month / 季维护 season
-      （旧巡检类型已删除，DB CHECK 收窄前须先清理历史数据）。
+    - 周月维护不再拆分周表/月表，模板无维护周期字段（2026-09-26）。
     """
 
     name = models.CharField(max_length=100, help_text='模板名称')
     ledger_type = models.CharField(max_length=20, help_text='台账类型')
-    maintenance_cycle = models.CharField(
-        max_length=20, default='', blank=True, help_text='周月维护周期（week/month/season；巡检为空）')
     description = models.CharField(max_length=500, default='', blank=True, help_text='说明')
     is_active = models.BooleanField(default=True, help_text='是否启用（停用后不能用于新台账）')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -631,10 +642,6 @@ class OperationLedgerTemplate(TenantModelMixin, models.Model):
                 check=models.Q(ledger_type__in=LEDGER_TYPE_VALUES),
                 name='el_ledger_template_type_valid',
             ),
-            models.CheckConstraint(
-                check=ledger_cycle_combo_q('ledger_type', 'maintenance_cycle'),
-                name='el_ledger_template_cycle_combo',
-            ),
         ]
         indexes = [
             models.Index(fields=['tenant_id', 'ledger_type']),
@@ -648,7 +655,6 @@ class OperationLedgerTemplate(TenantModelMixin, models.Model):
             'id': self.id,
             'name': self.name,
             'ledger_type': self.ledger_type,
-            'maintenance_cycle': self.maintenance_cycle,
             'description': self.description,
             'is_active': self.is_active,
             'created_at': self.created_at,
@@ -665,8 +671,8 @@ class OperationLedgerTemplateItem(TenantModelMixin, models.Model):
     - 录入类型收敛为两种：正常/不正常(choice，候选项固定)与数字/文本(text，
       纯数字填写值同时落 value_number)；枚举中其余类型仅为历史数据兼容保留，
       新建项目不可再选；
-    - 周月维护模板项目通过 execution_scope 区分 仅每周/仅每月/周月均执行，
-      生成台账时只加载与本次维护周期匹配的项目；
+    - 周月维护不再拆分周表/月表，项目执行范围（仅每周/仅每月）已删除（2026-09-26），
+      启用项目一律参与每次周月维护台账；
     - 停用或删除项目不影响历史台账明细（明细保存全量快照）。
     """
 
@@ -678,8 +684,6 @@ class OperationLedgerTemplateItem(TenantModelMixin, models.Model):
     choices = models.TextField(default='', blank=True, help_text='候选项 JSON 数组（单选/多选）')
     default_value = models.CharField(max_length=200, default='', blank=True, help_text='默认值')
     is_required = models.BooleanField(default=True, help_text='是否必填')
-    execution_scope = models.CharField(
-        max_length=20, default=EXEC_SCOPE_ALL, help_text='执行范围（周月维护模板：all/week_only/month_only）')
     abnormal_rule = models.CharField(max_length=200, default='', blank=True, help_text='异常判定规则')
     operation_guide = models.CharField(max_length=500, default='', blank=True, help_text='操作说明')
     display_order = models.IntegerField(default=0, help_text='显示顺序，小者靠前')
@@ -702,10 +706,6 @@ class OperationLedgerTemplateItem(TenantModelMixin, models.Model):
                 check=models.Q(input_type__in=LEDGER_INPUT_TYPE_VALUES),
                 name='el_ledger_template_item_input_type_valid',
             ),
-            models.CheckConstraint(
-                check=models.Q(execution_scope__in=EXEC_SCOPE_VALUES),
-                name='el_ledger_template_item_scope_valid',
-            ),
         ]
         indexes = [
             models.Index(fields=['tenant_id', 'template']),
@@ -723,16 +723,6 @@ class OperationLedgerTemplateItem(TenantModelMixin, models.Model):
         except (ValueError, TypeError):
             return []
 
-    def matches_cycle(self, cycle):
-        """项目是否匹配本次维护周期：周月维护模板按 scope 过滤，其余全匹配。"""
-        if self.template.ledger_type != LEDGER_TYPE_WEEK_MONTH:
-            return True
-        if self.execution_scope == EXEC_SCOPE_ALL:
-            return True
-        if self.execution_scope == EXEC_SCOPE_WEEK_ONLY:
-            return cycle == CYCLE_WEEK
-        return cycle == CYCLE_MONTH
-
     def to_view(self):
         return {
             'id': self.id,
@@ -743,7 +733,6 @@ class OperationLedgerTemplateItem(TenantModelMixin, models.Model):
             'choices': self.get_choices(),
             'default_value': self.default_value,
             'is_required': self.is_required,
-            'execution_scope': self.execution_scope,
             'abnormal_rule': self.abnormal_rule,
             'operation_guide': self.operation_guide,
             'display_order': self.display_order,
@@ -764,8 +753,6 @@ class OperationLedger(TenantModelMixin, models.Model):
 
     ledger_no = models.CharField(max_length=50, help_text='台账编号，租户内唯一，自动生成')
     ledger_type = models.CharField(max_length=20, help_text='台账类型')
-    maintenance_cycle = models.CharField(
-        max_length=20, default='', blank=True, help_text='维护周期（week/month/season；巡检为空）')
     executed_date = models.DateField(help_text='实际执行日期')
     executor_names = models.CharField(max_length=200, default='', blank=True, help_text='执行人（多人以顿号或逗号分隔）')
     status = models.CharField(max_length=20, default=LEDGER_STATUS_DRAFT, help_text='台账状态')
@@ -773,6 +760,9 @@ class OperationLedger(TenantModelMixin, models.Model):
     executed_end = models.DateTimeField(null=True, blank=True, help_text='实际执行结束时间')
     entry_channel = models.CharField(max_length=20, default=ENTRY_CHANNEL_WEB, help_text='录入渠道（当前固定 web）')
     created_from = models.CharField(max_length=20, default=LEDGER_FROM_TEMPLATE, help_text='创建方式（template 模板生成 / manual 临时补录）')
+    template = models.ForeignKey(
+        OperationLedgerTemplate, models.SET_NULL, related_name='ledgers', null=True, blank=True,
+        help_text='来源模板（矩阵台账行实例管理依赖；历史台账可为空，仅溯源不约束内容）')
     client_token = models.CharField(max_length=64, default='', blank=True, help_text='客户端幂等令牌（创建防重复）')
     version = models.IntegerField(default=1, help_text='并发编辑版本号')
     submitted_at = models.DateTimeField(null=True, blank=True)
@@ -816,10 +806,6 @@ class OperationLedger(TenantModelMixin, models.Model):
                 name='el_operation_ledger_type_valid',
             ),
             models.CheckConstraint(
-                check=ledger_cycle_combo_q('ledger_type', 'maintenance_cycle'),
-                name='el_operation_ledger_cycle_combo',
-            ),
-            models.CheckConstraint(
                 check=models.Q(status__in=LEDGER_STATUS_VALUES),
                 name='el_operation_ledger_status_valid',
             ),
@@ -849,7 +835,6 @@ class OperationLedger(TenantModelMixin, models.Model):
             'id': self.id,
             'ledger_no': self.ledger_no,
             'ledger_type': self.ledger_type,
-            'maintenance_cycle': self.maintenance_cycle,
             'executed_date': self.executed_date,
             'executor_names': self.executor_names,
             'status': self.status,
@@ -857,6 +842,7 @@ class OperationLedger(TenantModelMixin, models.Model):
             'executed_end': self.executed_end,
             'entry_channel': self.entry_channel,
             'created_from': self.created_from,
+            'template': self.template_id,
             'version': self.version,
             'submitted_at': self.submitted_at,
             'reviewed_at': self.reviewed_at,
@@ -872,7 +858,128 @@ class OperationLedger(TenantModelMixin, models.Model):
         if with_counts:
             data['items_count'] = self.items.count()
             data['abnormal_count'] = self.items.filter(result=ITEM_RESULT_ABNORMAL).count()
+            data['has_row_instances'] = self.row_instances.exists()
         return data
+
+
+class OperationLedgerRowTemplateNode(TenantModelMixin, models.Model):
+    """台账模板行节点（第一阶段行对象树）：模板中的行方向结构定义。
+
+    - 行方向递归父子结构，最大层级 LEDGER_ROW_MAX_LEVEL（根为第 1 级）；
+    - group 普通行分组 / repeat_group 可重复分组（实际台账中可创建多个
+      实例，如"信道"）/ check 行对象叶子（如"主电台""备电台"，单元格只在
+      行叶子上生成）；
+    - 有子节点的节点不能作为 check；列方向不涉及本模型（列项目仍是
+      OperationLedgerTemplateItem 平面结构，无 parent/node_type）；
+    - 行节点只定义结构：实际台账中的"第1信道""第2信道"是行实例
+      （OperationLedgerRowInstance），不在模板里复制节点；
+    - 停用节点不参与实例生成与预览；物理删除级联删除子节点，
+      历史行实例仅保留快照（template_node SET_NULL）。
+    """
+
+    template = models.ForeignKey(
+        OperationLedgerTemplate, models.CASCADE, related_name='row_nodes', help_text='所属模板')
+    parent = models.ForeignKey(
+        'self', models.CASCADE, related_name='children', null=True, blank=True, help_text='父节点（根节点为空）')
+    node_type = models.CharField(max_length=20, help_text='节点类型：group/repeat_group/check')
+    name = models.CharField(max_length=100, help_text='节点名称')
+    row_code = models.CharField(max_length=50, default='', blank=True, help_text='节点编码（缺省自动生成）')
+    display_order = models.IntegerField(default=0, help_text='显示顺序，小者靠前')
+    is_repeatable = models.BooleanField(default=False, help_text='是否可在实际台账中创建多个实例（由节点类型派生并保持同步）')
+    is_active = models.BooleanField(default=True, help_text='是否启用（停用节点不参与实例生成）')
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
+    updated_at = models.DateTimeField(null=True, blank=True)
+    updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
+
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    class Meta:
+        db_table = 'tdyw_el_ledger_row_template_node'
+        verbose_name = '台账模板行节点'
+        verbose_name_plural = '台账模板行节点'
+        ordering = ('display_order', 'id')
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(node_type__in=ROW_NODE_TYPE_VALUES),
+                name='el_ledger_row_node_type_valid',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['tenant_id', 'template']),
+        ]
+
+    def __repr__(self):
+        return '<OperationLedgerRowTemplateNode %r>' % self.name
+
+    def to_view(self):
+        return {
+            'id': self.id,
+            'template': self.template_id,
+            'parent': self.parent_id,
+            'node_type': self.node_type,
+            'name': self.name,
+            'row_code': self.row_code,
+            'display_order': self.display_order,
+            'is_repeatable': self.is_repeatable,
+            'is_active': self.is_active,
+        }
+
+
+class OperationLedgerRowInstance(TenantModelMixin, models.Model):
+    """实际台账行实例：行模板节点在某张台账中的具体实例（如"第1信道"）。
+
+    - 可重复分组（repeat_group）节点可创建多个实例，每个实例的子树按模板
+      子结构一并实例化；group/check 根节点各生成一个实例，不可增删；
+    - 行实例只组织结构不保存结果；结果保存在实际单元格
+      （OperationLedgerItem，行叶子实例 × 列项目）；
+    - 行实例删除级联删除其子树实例与对应单元格（草稿态结构编辑）；
+    - row_path_snapshot / row_level_snapshot 为自身路径与层级（实例名连接），
+      重命名时同步刷新子树及其单元格快照。
+    """
+
+    ledger = models.ForeignKey(
+        OperationLedger, models.CASCADE, related_name='row_instances', help_text='所属台账')
+    template_node = models.ForeignKey(
+        OperationLedgerRowTemplateNode, models.SET_NULL, related_name='ledger_instances',
+        null=True, blank=True, help_text='来源行模板节点（仅溯源；删除后实例保留快照）')
+    parent_instance = models.ForeignKey(
+        'self', models.CASCADE, related_name='children', null=True, blank=True, help_text='父行实例（根实例为空）')
+    instance_name = models.CharField(max_length=100, help_text='实例名称（如"第1信道"）')
+    instance_code = models.CharField(max_length=50, default='', blank=True, help_text='实例编码（缺省自动生成）')
+    row_path_snapshot = models.CharField(max_length=500, default='', blank=True, help_text='自身行路径快照（实例名以" / "连接）')
+    row_level_snapshot = models.IntegerField(default=1, help_text='自身层级快照（根为 1）')
+    display_order = models.IntegerField(default=0, help_text='显示顺序，小者靠前')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    class Meta:
+        db_table = 'tdyw_el_ledger_row_instance'
+        verbose_name = '台账行实例'
+        verbose_name_plural = '台账行实例'
+        ordering = ('display_order', 'id')
+        indexes = [
+            models.Index(fields=['tenant_id', 'ledger']),
+        ]
+
+    def __repr__(self):
+        return '<OperationLedgerRowInstance %r>' % self.instance_name
+
+    def to_view(self):
+        return {
+            'id': self.id,
+            'ledger': self.ledger_id,
+            'template_node': self.template_node_id,
+            'parent_instance': self.parent_instance_id,
+            'instance_name': self.instance_name,
+            'instance_code': self.instance_code,
+            'row_path': self.row_path_snapshot,
+            'row_level': self.row_level_snapshot,
+            'display_order': self.display_order,
+        }
 
 
 class OperationLedgerItem(TenantModelMixin, models.Model):
@@ -906,7 +1013,18 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
     choices_snapshot = models.TextField(default='', blank=True, help_text='候选项快照 JSON 数组')
     is_required = models.BooleanField(default=False, help_text='必填规则快照')
     abnormal_rule_snapshot = models.CharField(max_length=200, default='', blank=True, help_text='异常判定规则快照')
-    execution_scope = models.CharField(max_length=20, default=EXEC_SCOPE_ALL, help_text='执行范围快照')
+    # —— 行实例（矩阵台账；历史明细无行实例，以"历史记录"方式展示） ——
+    row_instance = models.ForeignKey(
+        'OperationLedgerRowInstance', models.CASCADE, related_name='cells', null=True, blank=True,
+        help_text='所属实际行实例（矩阵台账单元格；行实例删除时其单元格一并删除）')
+    row_path_snapshot = models.CharField(max_length=500, default='', blank=True, help_text='行路径快照（实例名以" / "连接）')
+    row_level_snapshot = models.IntegerField(null=True, blank=True, help_text='行层级快照（根为 1）')
+    row_code_snapshot = models.CharField(max_length=50, default='', blank=True, help_text='行实例编码快照')
+    # —— 列项目快照（列方向第一阶段为平面结构，列项目即模板项目） ——
+    column_name_snapshot = models.CharField(max_length=100, default='', blank=True, help_text='列项目名称快照')
+    column_code_snapshot = models.CharField(max_length=50, default='', blank=True, help_text='列项目编码快照（来源模板项目 ID）')
+    cell_code_snapshot = models.CharField(max_length=150, default='', blank=True, help_text='单元格编码快照（行实例编码:列项目编码）')
+    operation_guide_snapshot = models.CharField(max_length=500, default='', blank=True, help_text='操作说明快照')
     # —— 填写值（按录入类型分列，可校验） ——
     value_text = models.TextField(default='', blank=True, help_text='文本类值（多选为 JSON 选项数组）')
     value_number = models.FloatField(null=True, blank=True, help_text='数值填写值')
@@ -937,12 +1055,8 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
                 name='el_ledger_item_input_type_valid',
             ),
             models.CheckConstraint(
-                check=models.Q(result__in=ITEM_RESULT_VALUES),
+                check=models.Q(result__in=ITEM_RESULT_DB_VALUES),
                 name='el_ledger_item_result_valid',
-            ),
-            models.CheckConstraint(
-                check=models.Q(execution_scope__in=EXEC_SCOPE_VALUES),
-                name='el_ledger_item_scope_valid',
             ),
         ]
         indexes = [
@@ -990,7 +1104,6 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
             'choices': self.get_choices(),
             'is_required': self.is_required,
             'abnormal_rule': self.abnormal_rule_snapshot,
-            'execution_scope': self.execution_scope,
             'value_text': self.value_text,
             'value_number': self.value_number,
             'value_bool': self.value_bool,
@@ -1002,6 +1115,15 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
             'executed_at': self.executed_at,
             'is_temporary': self.is_temporary,
             'display_order': self.display_order,
+            # —— 行实例与单元格快照（历史明细无行实例，快照为空） ——
+            'row_instance': self.row_instance_id,
+            'row_path': self.row_path_snapshot,
+            'row_level': self.row_level_snapshot,
+            'row_code': self.row_code_snapshot,
+            'column_name': self.column_name_snapshot or self.item_name_snapshot,
+            'column_code': self.column_code_snapshot,
+            'cell_code': self.cell_code_snapshot,
+            'operation_guide': self.operation_guide_snapshot,
         }
 
 
@@ -1019,14 +1141,43 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
 # 工单类型（稳定编码，页面中文名称不得作为关联条件）
 WORK_TYPE_REPAIR = 'repair'                    # 故障维修
 WORK_TYPE_SPECIAL_MAINTENANCE = 'special_maintenance'  # 专项维护
-WORK_TYPE_TECH_REFORM = 'tech_reform'          # 技术改造
-WORK_TYPE_CONFIG_CHANGE = 'config_change'      # 配置变更
-WORK_TYPE_FIELD_TEST = 'field_test'            # 现场测试
-WORK_TYPE_CALIBRATION = 'calibration'          # 校准
+WORK_TYPE_TECH_REFORM = 'tech_reform'          # 技术改造（已下线，历史数据保留展示）
+WORK_TYPE_CONFIG_CHANGE = 'config_change'      # 配置变更（已下线，并入专项维护分类）
+WORK_TYPE_FIELD_TEST = 'field_test'            # 现场测试（已下线，并入专项维护分类）
+WORK_TYPE_CALIBRATION = 'calibration'          # 校准（已下线，并入专项维护分类）
 WORK_ORDER_TYPE_VALUES = [
     WORK_TYPE_REPAIR, WORK_TYPE_SPECIAL_MAINTENANCE, WORK_TYPE_TECH_REFORM,
     WORK_TYPE_CONFIG_CHANGE, WORK_TYPE_FIELD_TEST, WORK_TYPE_CALIBRATION,
 ]
+
+# 顶层工单类型收敛（2026-09）：新建数据只允许故障维修/专项维护；技术改造统一由
+# "系统升级管理"承载（不再自动创建技术改造工单），配置变更/现场测试/校准并入
+# 专项维护的维护分类（maintenance_subtype）。历史顶层类型仍保留在
+# WORK_ORDER_TYPE_VALUES / TYPE_CHOICES 中用于历史工单的展示与筛选，
+# 仅创建/编辑接口拒绝再选（work_order_views._validate_work_type_for_create）。
+WORK_ORDER_CREATABLE_TYPE_VALUES = [WORK_TYPE_REPAIR, WORK_TYPE_SPECIAL_MAINTENANCE]
+RETIRED_WORK_TYPE_HINTS = {
+    WORK_TYPE_TECH_REFORM: '技术改造请在"系统升级管理"中登记',
+    WORK_TYPE_CONFIG_CHANGE: '配置变更已并入专项维护的维护分类',
+    WORK_TYPE_FIELD_TEST: '现场测试已并入专项维护的维护分类',
+    WORK_TYPE_CALIBRATION: '校准已并入专项维护的维护分类',
+}
+
+# 专项维护二级分类（维护分类）。仅 special_maintenance 有业务含义：
+# 缺省"一般维护"，允许用户选择；其他顶层类型（含 repair 与历史类型）
+# 统一落默认值且前端不展示。配置变更仅作为维护分类记录，
+# 不等同于修改系统档案（系统档案只维护当前有效主数据）。
+MAINTENANCE_SUBTYPE_GENERAL = 'general'                  # 一般维护（默认）
+MAINTENANCE_SUBTYPE_CONFIG_CHANGE = 'config_change'      # 配置变更
+MAINTENANCE_SUBTYPE_FIELD_TEST = 'field_test'            # 现场测试
+MAINTENANCE_SUBTYPE_CALIBRATION = 'calibration'          # 校准
+MAINTENANCE_SUBTYPE_TEMPORARY = 'temporary_maintenance'  # 临时维护
+MAINTENANCE_SUBTYPE_VALUES = [
+    MAINTENANCE_SUBTYPE_GENERAL, MAINTENANCE_SUBTYPE_CONFIG_CHANGE,
+    MAINTENANCE_SUBTYPE_FIELD_TEST, MAINTENANCE_SUBTYPE_CALIBRATION,
+    MAINTENANCE_SUBTYPE_TEMPORARY,
+]
+MAINTENANCE_SUBTYPE_DEFAULT = MAINTENANCE_SUBTYPE_GENERAL
 
 # 工单状态（后端状态机：STATE_TRANSITIONS）
 # 单账号协同流程（2026-09）：新工单创建即执行中，不再有派发/接单/复核环节；
@@ -1154,6 +1305,21 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
     )
     TYPE_TEXT_MAP = dict(TYPE_CHOICES)
 
+    # 维护二级分类（仅专项维护有业务含义，见模块顶部常量说明）
+    SUBTYPE_GENERAL = MAINTENANCE_SUBTYPE_GENERAL
+    SUBTYPE_CONFIG_CHANGE = MAINTENANCE_SUBTYPE_CONFIG_CHANGE
+    SUBTYPE_FIELD_TEST = MAINTENANCE_SUBTYPE_FIELD_TEST
+    SUBTYPE_CALIBRATION = MAINTENANCE_SUBTYPE_CALIBRATION
+    SUBTYPE_TEMPORARY = MAINTENANCE_SUBTYPE_TEMPORARY
+    SUBTYPE_CHOICES = (
+        (SUBTYPE_GENERAL, '一般维护'),
+        (SUBTYPE_CONFIG_CHANGE, '配置变更'),
+        (SUBTYPE_FIELD_TEST, '现场测试'),
+        (SUBTYPE_CALIBRATION, '校准'),
+        (SUBTYPE_TEMPORARY, '临时维护'),
+    )
+    SUBTYPE_TEXT_MAP = dict(SUBTYPE_CHOICES)
+
     SOURCE_MANUAL = WORK_ORDER_SOURCE_MANUAL
     SOURCE_FAULT = WORK_ORDER_SOURCE_FAULT
     SOURCE_LEDGER_ITEM = WORK_ORDER_SOURCE_LEDGER_ITEM
@@ -1181,6 +1347,10 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
     work_no = models.CharField(max_length=50, help_text='工单编号，租户内唯一，自动生成')
     title = models.CharField(max_length=100, help_text='工单标题')
     work_type = models.CharField(max_length=30, choices=TYPE_CHOICES, help_text='工单类型（稳定编码）')
+    maintenance_subtype = models.CharField(
+        max_length=30, choices=SUBTYPE_CHOICES, default=MAINTENANCE_SUBTYPE_DEFAULT,
+        help_text='维护二级分类（仅专项维护有业务含义：一般维护/配置变更/现场测试/校准/临时维护；'
+                  '其他顶层类型统一落默认值且前端不展示）')
     priority = models.CharField(
         max_length=20, choices=PRIORITY_CHOICES, default=PRIORITY_NORMAL, help_text='优先级')
 
@@ -1292,6 +1462,10 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
                 name='el_work_order_type_valid',
             ),
             models.CheckConstraint(
+                check=models.Q(maintenance_subtype__in=MAINTENANCE_SUBTYPE_VALUES),
+                name='el_work_order_subtype_valid',
+            ),
+            models.CheckConstraint(
                 check=models.Q(status__in=WORK_ORDER_STATUS_VALUES),
                 name='el_work_order_status_valid',
             ),
@@ -1354,6 +1528,9 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
             'title': self.title,
             'work_type': self.work_type,
             'work_type_text': self.TYPE_TEXT_MAP.get(self.work_type, self.work_type),
+            'maintenance_subtype': self.maintenance_subtype,
+            'maintenance_subtype_text': self.SUBTYPE_TEXT_MAP.get(
+                self.maintenance_subtype, self.maintenance_subtype),
             'priority': self.priority,
             'priority_text': self.PRIORITY_TEXT_MAP.get(self.priority, self.priority),
             'status': self.status,

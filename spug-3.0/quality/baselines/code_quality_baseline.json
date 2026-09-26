@@ -114,13 +114,6 @@
       "name": "TaskTable"
     },
     {
-      "file": "spug_web/src/pages/device/Form.js",
-      "line": 12,
-      "kind": "javascript",
-      "code_lines": 177,
-      "complexity": null
-    },
-    {
       "file": "spug_web/src/pages/document/index.js",
       "line": 26,
       "kind": "javascript",
@@ -831,14 +824,6 @@
       "code_lines": 124,
       "complexity": 14,
       "name": "export_pdf"
-    },
-    {
-      "file": "spug_api/apps/device/pdf_export.py",
-      "line": 285,
-      "kind": "python",
-      "code_lines": 132,
-      "complexity": 10,
-      "name": "_build_event_block"
     },
     {
       "file": "spug_api/apps/duty/pdf_export.py",

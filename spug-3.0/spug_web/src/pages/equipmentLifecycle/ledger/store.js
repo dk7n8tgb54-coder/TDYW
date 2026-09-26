@@ -24,7 +24,6 @@ export class LedgerStore {
 
   @observable f_keyword = undefined;
   @observable f_status = undefined;
-  @observable f_cycle = undefined; // 周月维护页筛选周/月
   @observable f_date_from = undefined;
   @observable f_date_to = undefined;
 
@@ -43,7 +42,6 @@ export class LedgerStore {
   @action resetFilter = () => {
     this.f_keyword = undefined;
     this.f_status = undefined;
-    this.f_cycle = undefined;
     this.f_date_from = undefined;
     this.f_date_to = undefined;
     this.page = 1;
@@ -54,7 +52,6 @@ export class LedgerStore {
     const params = {page: this.page, page_size: this.pageSize, ledger_type: this.ledgerType};
     if (this.f_keyword) params.keyword = this.f_keyword;
     if (this.f_status) params.status = this.f_status;
-    if (this.f_cycle) params.maintenance_cycle = this.f_cycle;
     if (this.f_date_from) params.executed_from = this.f_date_from;
     if (this.f_date_to) params.executed_to = this.f_date_to;
     return http.get(`${API_PREFIX_L}/ledgers/`, {params})

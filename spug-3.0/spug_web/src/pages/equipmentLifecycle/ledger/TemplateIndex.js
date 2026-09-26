@@ -14,8 +14,7 @@ import {SearchForm, AuthDiv, Breadcrumb, AuthButton} from 'components';
 import TemplateForm from './TemplateForm';
 import {templateStore as store} from './store';
 import {
-  API_PREFIX_L, CREATED_FROM_TEXT, CYCLE_TEXT, EXEC_SCOPE_TEXT,
-  INPUT_TYPE_TEXT, LEDGER_TYPE_TEXT, PERM_L,
+  API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L,
 } from './constants';
 
 const STATUS_ACTIVE = {color: 'green'};
@@ -30,7 +29,7 @@ class TemplateIndex extends React.Component {
     {title: '模板名称', dataIndex: 'name', width: 180},
     {
       title: '台账类型', dataIndex: 'ledger_type', width: 110,
-      render: (v, r) => `${LEDGER_TYPE_TEXT[v] || v}${r.maintenance_cycle ? `（${CYCLE_TEXT[r.maintenance_cycle]}）` : ''}`,
+      render: v => LEDGER_TYPE_TEXT[v] || v,
     },
     {title: '项目数', dataIndex: 'items_count', width: 70, align: 'center'},
     {

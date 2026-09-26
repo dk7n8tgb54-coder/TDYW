@@ -92,11 +92,6 @@ class TestDataGenerator:
             "title": "PERF测试提醒{seq}",
             "content": "PERF自动化测试创建的提醒事项",
         },
-        "device": {
-            "name": "PERF测试设备{seq}",
-            "model": "PERF-MODEL-001",
-            "manufacturer": "PERF测试厂商",
-        },
         "upgrade": {
             "title": "PERF测试升级记录{seq}",
             "description": "PERF自动化测试创建的升级记录",

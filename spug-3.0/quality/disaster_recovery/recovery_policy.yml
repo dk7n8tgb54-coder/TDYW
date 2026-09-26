@@ -118,7 +118,7 @@ policies:
       1. Restart Celery worker and beat containers.
       2. Beat will re-schedule all periodic tasks automatically.
       3. Non-periodic tasks that were in-flight: check if they have idempotency keys
-         (interference, contract_agreement, etc. do; upgrade, device, radio_license do not).
+         (interference, contract_agreement, etc. do; upgrade, radio_license do not).
       4. For non-idempotent tasks, manually check if side effects occurred before crash.
     escalation:
       - "If worker won't start, check broker (Redis db 2) connectivity."

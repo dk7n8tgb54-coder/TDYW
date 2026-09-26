@@ -14,8 +14,8 @@ from django.db import transaction
 from django.urls import path
 
 from apps.equipment_lifecycle import (
-    event_views, fault_progress_views, fault_views, inspection_views, ledger_views,
-    views, work_order_views,
+    event_views, fault_progress_views, fault_views, inspection_views, ledger_row_views,
+    ledger_views, views, work_order_views,
 )
 from apps.upgrade.views.system_records import SystemUpgradeRecordsView
 
@@ -56,12 +56,21 @@ urlpatterns = [
     path('ledger-templates/<int:pk>/active/', ledger_views.LedgerTemplateActiveView.as_view()),
     path('ledger-templates/<int:pk>/items/', ledger_views.LedgerTemplateItemView.as_view()),
     path('ledger-templates/<int:pk>/items/<int:iid>/', ledger_views.LedgerTemplateItemDetailView.as_view()),
+    # 台账模板行节点（第一阶段行对象树：行方向多级，列方向保持平面）
+    path('ledger-templates/<int:pk>/row-nodes/', ledger_row_views.LedgerTemplateRowNodesView.as_view()),
+    path('ledger-templates/<int:pk>/row-nodes/sort/', ledger_row_views.LedgerTemplateRowNodeSortView.as_view()),
+    path('ledger-templates/<int:pk>/row-nodes/<int:nid>/', ledger_row_views.LedgerTemplateRowNodeDetailView.as_view()),
+    path('ledger-templates/<int:pk>/row-nodes/<int:nid>/active/', ledger_row_views.LedgerTemplateRowNodeActiveView.as_view()),
     # 台账
     path('ledgers/', ledger_views.LedgerView.as_view()),
     path('ledgers/preview/', ledger_views.LedgerPreviewView.as_view()),
     path('ledgers/abnormal-items/', ledger_views.LedgerAbnormalItemsView.as_view()),
     path('ledgers/export/', ledger_views.LedgerExportView.as_view()),
     path('ledgers/<int:pk>/', ledger_views.LedgerDetailView.as_view()),
+    # 矩阵台账行实例与单元格（第一阶段）
+    path('ledgers/<int:pk>/row-instances/', ledger_row_views.LedgerRowInstanceView.as_view()),
+    path('ledgers/<int:pk>/row-instances/<int:iid>/', ledger_row_views.LedgerRowInstanceDetailView.as_view()),
+    path('ledgers/<int:pk>/cells/', ledger_row_views.LedgerCellsView.as_view()),
     path('ledgers/<int:pk>/submit/', ledger_views.LedgerSubmitView.as_view()),
     path('ledgers/<int:pk>/return/', ledger_views.LedgerReturnView.as_view()),
     path('ledgers/<int:pk>/review/', ledger_views.LedgerReviewView.as_view()),

@@ -12,7 +12,7 @@
 |---|---|---|
 | 业务 app | 22 个 | - |
 | 有后端单元测试的 app | 9 个（department_duty_log / radio_license / regulation / signature×2 / logs / setting / account / checksheet） | 🟢 良好 |
-| 无后端测试的 app | 13 个（其中 7 个有基础冒烟模板：contract_agreement / device / duty / home / runlog / upgrade / fault；6 个完全无：document / evidence / exec / safety_question_bank / 其他无 HTTP 入口） | 🟡 中 |
+| 无后端测试的 app | 13 个（其中 7 个有基础冒烟模板：contract_agreement / duty / home / runlog / upgrade / fault；6 个完全无：document / evidence / exec / safety_question_bank / 其他无 HTTP 入口） | 🟡 中 |
 | 前端测试 | 17 个文件，全集中在 document/stores/upload/ | 🟡 中 |
 | CI/CD | 无（仅 git→gitee 镜像） | 🟡 中 |
 | 数据库迁移 | 全部已应用，makemigrations --check 无变更 | 🟢 良好 |
@@ -118,7 +118,7 @@ cd spug_web && npx react-app-rewired test --watchAll=false
 **目标**：覆盖无单元测试的 17 个 app 的核心流程。
 
 **17 个无测试 app 清单**：
-account / checksheet / contract_agreement / device / document / duty / evidence / exec / fault / home / interference / logs / runlog / safety_question_bank / setting / upgrade
+account / checksheet / contract_agreement / document / duty / evidence / exec / fault / home / interference / logs / runlog / safety_question_bank / setting / upgrade
 
 **每个模块最少验证**：
 - 列表 / 新建 / 编辑 / 删除
@@ -133,7 +133,6 @@ account / checksheet / contract_agreement / device / document / duty / evidence 
 | evidence | 附件上传/预览令牌/多态查询 |
 | upgrade | 升级计划 CRUD/状态流转/步骤/附件 |
 | checksheet | 检查单 CRUD/导出 |
-| device | 设备 CRUD/履历 |
 | home | 公告/统计概览 |
 | logs | 审计日志/哈希 |
 | runlog | 运行日志 CRUD/事件类型/统计 |
@@ -198,7 +197,6 @@ account / checksheet / contract_agreement / device / document / duty / evidence 
 **已有但未列入 runner 的旧脚本**（保留备用）：
 | 脚本 | 说明 |
 |---|---|
-| `locustfile_device.py` | 设备 CRUD（与 mixed_workload 重叠，可按需单独跑） |
 | `locustfile_interference.py` | 干扰记录 CRUD（同上） |
 | `locustfile_runlog.py` | 运行日志 CRUD（同上） |
 | `locustfile_pagination.py` | 通用分页（与 audit_log 深页重叠） |

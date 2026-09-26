@@ -67,6 +67,7 @@ describe('工单 Store（步骤 3.3）', () => {
     const payload = store.buildFormPayload({
       title: '季度维护',
       work_type: 'special_maintenance',
+      maintenance_subtype: 'config_change',
       priority: 'normal',
       system: 7,
       affects_system_operation: true,
@@ -79,6 +80,9 @@ describe('工单 Store（步骤 3.3）', () => {
     expect(payload.client_token).toBe('tok-abc');
     expect(payload.planned_start).toBe('2026-09-20 08:00');
     expect(payload.planned_end).toBe('2026-09-20 12:00');
+    // 工单类型收敛（2026-09）：payload 携带 work_type 与维护分类
+    expect(payload.work_type).toBe('special_maintenance');
+    expect(payload.maintenance_subtype).toBe('config_change');
     // 不存在把系统名称当关联键的字段，也不再提交受影响系统
     expect(payload.system_name).toBeUndefined();
     expect(payload.affected_system_ids).toBeUndefined();
@@ -194,5 +198,18 @@ describe('工单 Store（转单与查询）', () => {
     store.showForm();
     expect(store.formToken).toBeTruthy();
     expect(store.formToken).not.toBe(first);
+  });
+});
+
+describe('工单 Store（维护分类负载，2026-09 类型收敛）', () => {
+  it('buildFormPayload 维护分类缺省回落"一般维护"（故障维修不在前端展示该字段）', () => {
+    const {store} = freshStore();
+    const payload = store.buildFormPayload({
+      title: '抢修工单',
+      work_type: 'repair',
+      system: 7,
+    });
+    expect(payload.work_type).toBe('repair');
+    expect(payload.maintenance_subtype).toBe('general');
   });
 });

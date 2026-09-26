@@ -66,10 +66,13 @@ from apps.equipment_lifecycle.models import (
     LEGACY_LEDGER_TYPE_INSPECTION,
     LEDGER_TYPE_TEXT,
     LifecycleSystem,
+    MAINTENANCE_SUBTYPE_DEFAULT,
     OperationLedger,
     OperationLedgerItem,
+    RETIRED_WORK_TYPE_HINTS,
     SystemFault,
     SystemWorkOrder,
+    WORK_ORDER_CREATABLE_TYPE_VALUES,
 )
 from apps.equipment_lifecycle.views import _read_json_body
 from apps.equipment_lifecycle.work_order_services import (
@@ -100,6 +103,33 @@ DISPOSITION_STATUS_TEXT = {
 def _require_perm(user, code):
     """显式单项权限校验（has_perms 为任一匹配语义，双权限动作分别调用）。"""
     return user.has_perms([code])
+
+
+def _validate_work_type_for_create(work_type):
+    """顶层工单类型收敛校验（2026-09）：历史类型仅保留展示与筛选，
+    新建/编辑不再允许选择。返回错误文案（None 表示合法）。"""
+    if work_type not in SystemWorkOrder.TYPE_TEXT_MAP:
+        return '工单类型不合法'
+    if work_type not in WORK_ORDER_CREATABLE_TYPE_VALUES:
+        hint = RETIRED_WORK_TYPE_HINTS.get(work_type)
+        return f'工单类型已下线：{hint}' if hint else '工单类型已下线，不能再选择'
+    return None
+
+
+def _validate_maintenance_subtype(work_type, value):
+    """维护二级分类校验与规范化（工单类型收敛）。
+
+    - 专项维护：未传默认"一般维护"；传值必须合法（不静默吞掉非法值）；
+    - 其他顶层类型：无业务含义，统一落默认值。
+    返回 (subtype, error)。
+    """
+    if work_type == SystemWorkOrder.TYPE_SPECIAL_MAINTENANCE:
+        if value in (None, ''):
+            return MAINTENANCE_SUBTYPE_DEFAULT, None
+        if value not in SystemWorkOrder.SUBTYPE_TEXT_MAP:
+            return None, '维护分类不合法'
+        return value, None
+    return MAINTENANCE_SUBTYPE_DEFAULT, None
 
 
 def _validate_affected_systems_rejected(body):
@@ -166,14 +196,15 @@ def _default_work_object_desc(fault):
 def _validate_order_fields(body, request, for_update=False, order=None):
     """校验工单业务字段（创建与编辑共用），返回 (data, error)。
 
-    data 包含：title/work_type/priority/system/affects_system_operation/
-    planned_start/planned_end/work_requirement/work_steps/work_location/
-    work_object_desc/material_note/client_token。
+    data 包含：title/work_type/maintenance_subtype/priority/system/
+    affects_system_operation/planned_start/planned_end/work_requirement/
+    work_steps/work_location/work_object_desc/material_note/client_token。
     状态字段一律忽略：普通编辑接口不得修改状态。
     """
     form, error = JsonParser(
         Argument('title', type=str, required=True, help='工单标题'),
         Argument('work_type', type=str, required=True, help='工单类型'),
+        Argument('maintenance_subtype', type=str, required=False, default=None),
         Argument('priority', type=str, required=False, default=SystemWorkOrder.PRIORITY_NORMAL),
         Argument('system', type=int, required=True, help='作业系统ID'),
         Argument('affects_system_operation', type=bool, required=False, default=False),
@@ -192,8 +223,14 @@ def _validate_order_fields(body, request, for_update=False, order=None):
     title = (form.title or '').strip()
     if not title:
         return None, '工单标题不能为空'
-    if form.work_type not in SystemWorkOrder.TYPE_TEXT_MAP:
-        return None, '工单类型不合法'
+    # 顶层工单类型收敛：历史类型仅保留展示，新建/编辑拒绝再选
+    error = _validate_work_type_for_create(form.work_type)
+    if error:
+        return None, error
+    maintenance_subtype, error = _validate_maintenance_subtype(
+        form.work_type, form.maintenance_subtype)
+    if error:
+        return None, error
     if form.priority not in SystemWorkOrder.PRIORITY_TEXT_MAP:
         return None, '优先级不合法'
     # 作业期间是否影响系统运行：后端重新校验布尔类型（不信任前端任意值）
@@ -215,6 +252,7 @@ def _validate_order_fields(body, request, for_update=False, order=None):
     return {
         'title': title,
         'work_type': form.work_type,
+        'maintenance_subtype': maintenance_subtype,
         'priority': form.priority,
         'system': system,
         'affects_system_operation': bool(form.affects_system_operation),
@@ -234,6 +272,7 @@ def _order_audit_summary(order):
         'work_no': order.work_no,
         'title': order.title,
         'work_type': order.work_type,
+        'maintenance_subtype': order.maintenance_subtype,
         'status': order.status,
         'priority': order.priority,
         'system': order.system_name,
@@ -460,6 +499,7 @@ class WorkOrderDetailView(View):
                     old_system_id = order.system_id
                     order.title = data['title']
                     order.work_type = data['work_type']
+                    order.maintenance_subtype = data['maintenance_subtype']
                     order.priority = data['priority']
                     order.system = data['system']
                     order.system_code = data['system'].system_code
@@ -1013,8 +1053,10 @@ class FaultCreateWorkOrderView(View):
             return None, error
 
         title = _clean_text(form.title, 100) or f'{fault.fault_no} 维修工单'
-        if form.work_type not in SystemWorkOrder.TYPE_TEXT_MAP:
-            return None, '工单类型不合法'
+        # 故障生成的工单固定为故障维修类型（2026-09 类型收敛：专项维护等
+        # 类型不应从故障生成；历史版本曾允许传任意合法类型，现显式拒绝）
+        if form.work_type != SystemWorkOrder.TYPE_REPAIR:
+            return None, '故障生成的工单固定为故障维修类型'
         if form.priority not in SystemWorkOrder.PRIORITY_TEXT_MAP:
             return None, '优先级不合法'
 
@@ -1181,7 +1223,8 @@ class LedgerItemConvertToWorkOrderView(View):
     """台账异常明细直接转工单（台账详情"转工单"操作）。
 
     - 只有结果为"异常"的有效明细可以转工单；作业系统固定为明细所属系统；
-    - 工单类型由用户明确选择（默认专项维护或故障维修）；
+    - 工单类型由用户明确选择（默认专项维护；2026-09 类型收敛后新建只允许
+      故障维修/专项维护），支持携带维护分类 maintenance_subtype；
     - 带入台账、检查项、位置、异常说明、实测值和现场处理内容；
     - 一次操作不得同时直接创建故障和工单；重复提交不产生重复工单；
     - 已完成直接处置（已转故障/工单）再次转单须填写重新处置原因。
@@ -1216,87 +1259,137 @@ class LedgerItemConvertToWorkOrderView(View):
                     if error:
                         return json_response(error=error)
 
-                    form, error = JsonParser(
-                        Argument('title', type=str, required=False, default=''),
-                        Argument('work_type', type=str, required=False,
-                                 default=SystemWorkOrder.TYPE_SPECIAL_MAINTENANCE),
-                        Argument('priority', type=str, required=False,
-                                 default=SystemWorkOrder.PRIORITY_NORMAL),
-                        Argument('affects_system_operation', type=bool, required=False,
-                                 default=False),
-                        Argument('work_location', type=str, required=False, default=''),
-                        Argument('work_requirement', type=str, required=False, default=''),
-                        Argument('work_steps', type=str, required=False, default=''),
-                        Argument('material_note', type=str, required=False, default=''),
-                        Argument('planned_start', type=str, required=False, default=None),
-                        Argument('planned_end', type=str, required=False, default=None),
-                        Argument('client_token', type=str, required=False, default=''),
-                        Argument('re_dispose_reason', type=str, required=False, default=''),
-                    ).parse(body)
+                    data, error = _validate_convert_to_order_payload(body, item, ledger)
                     if error:
                         return json_response(error=error)
-                    if form.work_type not in SystemWorkOrder.TYPE_TEXT_MAP:
-                        return json_response(error='工单类型不合法')
-                    if form.priority not in SystemWorkOrder.PRIORITY_TEXT_MAP:
-                        return json_response(error='优先级不合法')
-                    if not isinstance(form.affects_system_operation, bool):
-                        return json_response(error='作业期间是否影响系统运行必须为布尔值')
-                    if 'target_system' in body and body.get('target_system') not in (None, item.system_id):
-                        return json_response(error='工单系统固定为明细所属系统，不能指定其他系统')
-
-                    planned_start = _parse_dt(form.planned_start) if form.planned_start else None
-                    planned_end = _parse_dt(form.planned_end) if form.planned_end else None
-                    if form.planned_start and not planned_start:
-                        return json_response(error='计划开始时间格式不正确')
-                    if form.planned_end and not planned_end:
-                        return json_response(error='计划结束时间格式不正确')
-                    if planned_start and planned_end and planned_end < planned_start:
-                        return json_response(error='计划结束时间不能早于计划开始时间')
-
-                    title = (form.title or '').strip()
-                    if not title:
-                        title = f'{item.item_name_snapshot} 异常处理'[:100]
-
-                    work_requirement = (form.work_requirement or '').strip()
-                    if not work_requirement:
-                        work_requirement = LedgerItemConvertToFaultView._compose_phenomenon(
-                            self, item, ledger)
 
                     order = work_order_services.create_work_order_record(
                         tenant_id=request.user.tenant_id,
                         created_by=request.user,
-                        title=title,
-                        work_type=form.work_type,
-                        priority=form.priority,
                         source_type='ledger_item',
                         source_ledger_item=item,
                         source_no=ledger.ledger_no,
-                        system=item.system,
-                        affects_system_operation=form.affects_system_operation,
-                        work_location=(form.work_location or '').strip(),
-                        work_requirement=work_requirement[:2000],
-                        work_steps=(form.work_steps or '').strip()[:2000],
-                        material_note=(form.material_note or '').strip()[:500],
-                        planned_start=planned_start,
-                        planned_end=planned_end,
                         client_token=client_token,
                         request=request,
+                        **data,
                     )
                     # 步骤 3.4：台账异常处置履历（来源 ledger_item，与转单同一事务）
+                    re_dispose_reason = (body.get('re_dispose_reason') or '').strip()[:200]
                     event_services.record_ledger_convert_event(
                         item, ledger, 'convert_to_work_order', target_no=order.work_no,
-                        detail={'re_dispose_reason': (form.re_dispose_reason or '').strip()[:200]},
+                        detail={'re_dispose_reason': re_dispose_reason},
                         created_by=request.user)
                     record_audit_event(request, 'create', AUDIT_TARGET_WORK_ORDER,
                                        order.id, order.work_no,
                                        after_value={**_order_audit_summary(order),
                                                     'source_ledger_no': ledger.ledger_no,
                                                     'source_ledger_item_id': item.id,
-                                                    're_dispose_reason': (
-                                                        form.re_dispose_reason or '').strip()[:200]})
+                                                    're_dispose_reason': re_dispose_reason})
         except fault_services.HealthRecalcLockTimeout as exc:
             return json_response(error=str(exc))
         return json_response(order.to_detail_view())
+
+
+def _default_convert_title_and_requirement(form, item, ledger):
+    """台账转工单的标题与作业要求默认组装（未填写时带入台账上下文）。"""
+    title = (form.title or '').strip()
+    if not title:
+        title = f'{item.item_name_snapshot} 异常处理'[:100]
+    work_requirement = (form.work_requirement or '').strip()
+    if not work_requirement:
+        work_requirement = LedgerItemConvertToFaultView._compose_phenomenon(
+            None, item, ledger)
+    return title, work_requirement
+
+
+def _validate_convert_to_order_payload(body, item, ledger):
+    """台账异常转工单载荷校验与字段组装（2026-09 类型收敛）。
+
+    返回 (data, error)。data 为 create_work_order_record 的业务字段：
+    类型收敛校验（拒绝已下线顶层类型）、维护分类规范化、计划时间解析、
+    标题与作业要求默认组装集中在此，post 只编排事务与副作用。
+    """
+    form, error = JsonParser(
+        Argument('title', type=str, required=False, default=''),
+        Argument('work_type', type=str, required=False,
+                 default=SystemWorkOrder.TYPE_SPECIAL_MAINTENANCE),
+        Argument('maintenance_subtype', type=str, required=False, default=None),
+        Argument('priority', type=str, required=False,
+                 default=SystemWorkOrder.PRIORITY_NORMAL),
+        Argument('affects_system_operation', type=bool, required=False,
+                 default=False),
+        Argument('work_location', type=str, required=False, default=''),
+        Argument('work_requirement', type=str, required=False, default=''),
+        Argument('work_steps', type=str, required=False, default=''),
+        Argument('material_note', type=str, required=False, default=''),
+        Argument('planned_start', type=str, required=False, default=None),
+        Argument('planned_end', type=str, required=False, default=None),
+        Argument('client_token', type=str, required=False, default=''),
+        Argument('re_dispose_reason', type=str, required=False, default=''),
+    ).parse(body)
+    if error:
+        return None, error
+    # 顶层工单类型收敛：历史类型仅保留展示，转单拒绝再选
+    type_error = _validate_work_type_for_create(form.work_type)
+    if type_error:
+        return None, type_error
+    maintenance_subtype, subtype_error = _validate_maintenance_subtype(
+        form.work_type, form.maintenance_subtype)
+    if subtype_error:
+        return None, subtype_error
+    if form.priority not in SystemWorkOrder.PRIORITY_TEXT_MAP:
+        return None, '优先级不合法'
+    if not isinstance(form.affects_system_operation, bool):
+        return None, '作业期间是否影响系统运行必须为布尔值'
+    if 'target_system' in body and body.get('target_system') not in (None, item.system_id):
+        return None, '工单系统固定为明细所属系统，不能指定其他系统'
+    planned_start, planned_end, error = _parse_planned_range(form)
+    if error:
+        return None, error
+
+    title, work_requirement = _default_convert_title_and_requirement(form, item, ledger)
+
+    return ({
+        'title': title,
+        'work_type': form.work_type,
+        'maintenance_subtype': maintenance_subtype,
+        'priority': form.priority,
+        'system': item.system,
+        'affects_system_operation': form.affects_system_operation,
+        'work_location': (form.work_location or '').strip(),
+        'work_requirement': work_requirement[:2000],
+        'work_steps': (form.work_steps or '').strip()[:2000],
+        'material_note': (form.material_note or '').strip()[:500],
+        'planned_start': planned_start,
+        'planned_end': planned_end,
+    }, None)
+
+
+def _work_order_export_row(item):
+    """工单导出单行文本（维护分类仅专项维护有业务含义，其他类型留空）。"""
+    return [
+        item.work_no,
+        item.title,
+        item.TYPE_TEXT_MAP.get(item.work_type, item.work_type),
+        (item.SUBTYPE_TEXT_MAP.get(item.maintenance_subtype, item.maintenance_subtype)
+         if item.work_type == SystemWorkOrder.TYPE_SPECIAL_MAINTENANCE else ''),
+        item.PRIORITY_TEXT_MAP.get(item.priority, item.priority),
+        item.STATUS_TEXT_MAP.get(item.status, item.status),
+        item.system_name,
+        item.system_code,
+        item.work_location,
+        item.SOURCE_TEXT_MAP.get(item.source_type, item.source_type),
+        item.source_no,
+        item.owner.username if item.owner_id else '',
+        item.planned_start.strftime('%Y-%m-%d %H:%M') if item.planned_start else '',
+        item.planned_end.strftime('%Y-%m-%d %H:%M') if item.planned_end else '',
+        item.actual_start.strftime('%Y-%m-%d %H:%M') if item.actual_start else '',
+        item.actual_end.strftime('%Y-%m-%d %H:%M') if item.actual_end else '',
+        item.process_result,
+        item.work_hours if item.work_hours is not None else '',
+        item.interrupt_hours if item.interrupt_hours is not None else '',
+        item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '',
+    ]
 
 
 class SystemWorkOrdersView(View):
@@ -1334,32 +1427,11 @@ class WorkOrderExportView(View):
         work_type = request.GET.get('work_type')
         if work_type and work_type in SystemWorkOrder.TYPE_TEXT_MAP:
             query = query.filter(work_type=work_type)
-        headers = ['工单编号', '标题', '工单类型', '优先级', '状态', '作业系统', '系统编号',
+        headers = ['工单编号', '标题', '工单类型', '维护分类', '优先级', '状态', '作业系统', '系统编号',
                    '作业位置', '来源类型', '来源单据', '负责人', '计划开始', '计划结束',
                    '实际开始', '实际完成', '处理结果', '工时(小时)', '中断时间(小时)', '创建时间']
-        rows = []
-        for item in query.select_related('owner').order_by('-created_at', '-id'):
-            rows.append([
-                item.work_no,
-                item.title,
-                item.TYPE_TEXT_MAP.get(item.work_type, item.work_type),
-                item.PRIORITY_TEXT_MAP.get(item.priority, item.priority),
-                item.STATUS_TEXT_MAP.get(item.status, item.status),
-                item.system_name,
-                item.system_code,
-                item.work_location,
-                item.SOURCE_TEXT_MAP.get(item.source_type, item.source_type),
-                item.source_no,
-                item.owner.username if item.owner_id else '',
-                item.planned_start.strftime('%Y-%m-%d %H:%M') if item.planned_start else '',
-                item.planned_end.strftime('%Y-%m-%d %H:%M') if item.planned_end else '',
-                item.actual_start.strftime('%Y-%m-%d %H:%M') if item.actual_start else '',
-                item.actual_end.strftime('%Y-%m-%d %H:%M') if item.actual_end else '',
-                item.process_result,
-                item.work_hours if item.work_hours is not None else '',
-                item.interrupt_hours if item.interrupt_hours is not None else '',
-                item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '',
-            ])
+        rows = [_work_order_export_row(item)
+                for item in query.select_related('owner').order_by('-created_at', '-id')]
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow(headers)

@@ -24,8 +24,6 @@ import HomeIndex from './pages/home';
 import DataAnalysisIndex from './pages/dataAnalysis';
 import RunLogIndex from './pages/runlog';
 import RunLogStatistics from './pages/runlog/Statistics';
-import DeviceResume from './pages/device';
-import DeviceHistory from './pages/device/History';
 import SystemAccount from './pages/system/account';
 import SystemRole from './pages/system/role';
 import SystemSetting from './pages/system/setting';
@@ -69,7 +67,7 @@ import ReleaseNotesAdmin from './pages/system/releaseNotes';
 
 export default [
   {icon: <DesktopOutlined/>, title: '工作台', auth: 'dashboard.dashboard.view', path: '/home', component: HomeIndex},
-  {icon: <BarChartOutlined/>, title: '数据分析', auth: 'data_analysis.overview.view|data_analysis.interference.view|data_analysis.device.view|data_analysis.upgrade.view', path: '/data-analysis', component: DataAnalysisIndex},
+  {icon: <BarChartOutlined/>, title: '数据分析', auth: 'data_analysis.overview.view|data_analysis.interference.view|data_analysis.upgrade.view', path: '/data-analysis', component: DataAnalysisIndex},
   {icon: <ScheduleOutlined/>, title: '部门值班日志', auth: 'department_duty_log.department_duty_log.view', path: '/department-duty-log', component: DepartmentDutyLogIndex},
   {icon: <SafetyCertificateOutlined/>, title: '无线电执照管理', auth: 'radio_license.license.view|radio_license.approval.view', child: [
     {title: '无线电台执照', auth: 'radio_license.license.view', path: '/radio-license', component: RadioLicenseIndex},
@@ -112,12 +110,6 @@ export default [
     ]},
     {title: '履历与状态', auth: 'equipment_lifecycle.system_event.view', child: [
       {title: '系统履历', auth: 'equipment_lifecycle.system_event.view', path: '/el/system-events', component: EquipmentSystemEventIndex},
-    ]},
-  ]},
-  {icon: <ApartmentOutlined/>, title: '设备管理', auth: 'device.device_resume.view|device.device_history.view', child: [
-    {title: '设备履历', auth: 'device.device_resume.view|device.device_history.view', child: [
-      {title: '设备台账', auth: 'device.device_resume.view', path: '/device/device_resume', component: DeviceResume},
-      {title: '查看履历', auth: 'device.device_history.view', path: '/device/device_history', component: DeviceHistory},
     ]},
   ]},
   {icon: <ExceptionOutlined/>, title: '干扰管理', auth: 'interference.interference.view|interference.investigation.view', child: [

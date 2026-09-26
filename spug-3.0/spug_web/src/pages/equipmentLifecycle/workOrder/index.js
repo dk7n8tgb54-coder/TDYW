@@ -19,6 +19,7 @@ import store from './store';
 import {
   WO_PERM, WORK_TYPE_OPTIONS, WORK_TYPE_TEXT, WO_STATUS_OPTIONS, WO_STATUS_TEXT,
   WO_STATUS_COLOR, PRIORITY_OPTIONS, PRIORITY_TEXT, PRIORITY_COLOR, WO_SOURCE_TEXT,
+  MAINTENANCE_SUBTYPE_TEXT,
 } from './constants';
 
 @observer
@@ -41,6 +42,15 @@ class WorkOrderTable extends React.Component {
     dataIndex: 'work_type',
     width: 90,
     render: (text) => WORK_TYPE_TEXT[text] || text,
+  }, {
+    // 维护分类仅专项维护有业务含义；其他类型（含历史类型）显示 "-"
+    title: '维护分类',
+    dataIndex: 'maintenance_subtype',
+    width: 90,
+    render: (text, record) => (
+      record.work_type === 'special_maintenance'
+        ? (MAINTENANCE_SUBTYPE_TEXT[text] || text || '-') : '-'
+    ),
   }, {
     title: '优先级',
     dataIndex: 'priority',

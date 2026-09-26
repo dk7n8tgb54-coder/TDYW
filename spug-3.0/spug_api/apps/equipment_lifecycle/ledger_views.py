@@ -40,11 +40,10 @@ from apps.equipment_lifecycle.ledger_services import (
 )
 from apps.equipment_lifecycle.models import (
     ITEM_RESULT_ABNORMAL,
+    ITEM_RESULT_TEXT_MAP_FULL,
     LEDGER_INPUT_TYPE_VALUES,
     LEDGER_STATUS_VOID,
     LEDGER_TYPE_TEXT,
-    LEDGER_TYPE_WEEK_MONTH,
-    EXEC_SCOPE_VALUES,
     LifecycleSystem,
     OperationLedger,
     OperationLedgerItem,
@@ -95,16 +94,14 @@ def _validate_template_header(request, body, item=None):
     if not name:
         return None, '模板名称不能为空'
     ledger_type = body.get('ledger_type')
-    maintenance_cycle = body.get('maintenance_cycle') or ''
     try:
-        # 旧巡检类型在此返回"已删除"明确错误；其余非法类型/组合一并拒绝
-        ledger_services.validate_ledger_type_cycle(ledger_type, maintenance_cycle)
+        # 旧巡检类型在此返回"已删除"明确错误；其余非法类型一并拒绝
+        ledger_services.validate_ledger_type(ledger_type)
     except LedgerValidationError as e:
         return None, str(e)
     return {
         'name': name,
         'ledger_type': ledger_type,
-        'maintenance_cycle': maintenance_cycle,
         'description': str(body.get('description') or '').strip(),
     }, None
 
@@ -117,11 +114,6 @@ def _validate_template_item_payload(request, template, body, item=None):
     input_type = body.get('input_type')
     if input_type not in LEDGER_INPUT_TYPE_VALUES:
         return None, '录入类型不合法：%s' % input_type
-    execution_scope = body.get('execution_scope') or 'all'
-    if execution_scope not in EXEC_SCOPE_VALUES:
-        return None, '执行范围不合法：%s' % execution_scope
-    if template.ledger_type != LEDGER_TYPE_WEEK_MONTH:
-        execution_scope = 'all'
     choices_raw, choices = '', []
     if input_type in ('choice', 'multi_choice'):
         try:
@@ -137,7 +129,6 @@ def _validate_template_item_payload(request, template, body, item=None):
         'choices': choices_raw,
         'default_value': str(body.get('default_value') or '').strip(),
         'is_required': bool(body.get('is_required', True)),
-        'execution_scope': execution_scope,
         'abnormal_rule': str(body.get('abnormal_rule') or '').strip(),
         'operation_guide': str(body.get('operation_guide') or '').strip(),
         'display_order': body.get('display_order') if isinstance(body.get('display_order'), int) else 0,
@@ -197,25 +188,23 @@ class LedgerTemplateView(View):
 
 
 class LedgerTemplateAvailableView(View):
-    """按台账类型/周期加载启用模板（模板不绑定系统，供录入端候选）。"""
+    """按台账类型加载启用模板（模板不绑定系统，供录入端候选）。
+
+    周月维护不再区分周/月周期，模板候选与项目数不按周期过滤。
+    """
 
     @auth('equipment_lifecycle.ledger.view')
     def get(self, request):
         ledger_type = request.GET.get('ledger_type')
-        maintenance_cycle = request.GET.get('maintenance_cycle') or ''
         try:
             # 旧巡检类型在此返回"已删除"明确错误；其余非法类型返回"不合法"
-            ledger_services.validate_ledger_type_cycle(ledger_type, maintenance_cycle)
+            ledger_services.validate_ledger_type(ledger_type)
         except LedgerValidationError as e:
             return json_response(error=str(e))
 
         def _view(template):
             view = template.to_view()
-            count_qs = template.items.filter(is_active=True)
-            if ledger_type == LEDGER_TYPE_WEEK_MONTH:
-                count_qs = count_qs.filter(execution_scope__in=[
-                    'all', 'week_only' if maintenance_cycle == 'week' else 'month_only'])
-            view['items_count'] = count_qs.count()
+            view['items_count'] = template.items.filter(is_active=True).count()
             return view
 
         templates = apply_tenant_filter(
@@ -286,9 +275,6 @@ class LedgerTemplateItemView(View):
         if not template:
             return json_response(error='台账模板不存在')
         rows = template.items.all()
-        execution_scope = request.GET.get('execution_scope')
-        if execution_scope:
-            rows = rows.filter(execution_scope=execution_scope)
         is_active = request.GET.get('is_active')
         if is_active in ('true', 'false'):
             rows = rows.filter(is_active=(is_active == 'true'))
@@ -363,11 +349,24 @@ def _get_ledger_for_user(pk, user):
 
 def _ledger_detail(ledger, user=None):
     view = ledger.to_view(with_counts=True)
+    if ledger.template:
+        view['template_name'] = ledger.template.name
     items = [it.to_view() for it in ledger.items.all()]
     if user is not None:
         # 异常明细处置状态（步骤 3.3）：由来源关系动态计算，事实依据不落库
         work_order_services.append_item_disposition(ledger.tenant_id, items)
     view['items'] = items
+    if view.get('has_row_instances'):
+        # 矩阵台账（第一阶段行对象树）：附带行实例树供前端渲染矩阵，
+        # 并为每个明细单元格补充 row_headers 祖先链（[{level, name, code}]）
+        from apps.equipment_lifecycle import ledger_row_services
+
+        view['row_instances'] = ledger_row_services.load_instance_tree(ledger)
+        headers_map = ledger_row_services.build_row_headers_map(ledger)
+        for item in items:
+            item['row_headers'] = headers_map.get(item.get('row_instance'), [])
+    else:
+        view['row_instances'] = []
     view['corrections'] = [c.to_view() for c in ledger.corrections.all()]
     return view
 
@@ -379,9 +378,6 @@ class LedgerView(View):
         ledger_type = request.GET.get('ledger_type')
         if ledger_type:
             query = query.filter(ledger_type=ledger_type)
-        maintenance_cycle = request.GET.get('maintenance_cycle')
-        if maintenance_cycle:
-            query = query.filter(maintenance_cycle=maintenance_cycle)
         status = request.GET.get('status')
         if status:
             query = query.filter(status=status)
@@ -630,9 +626,6 @@ class LedgerExportView(View):
         ledger_type = request.GET.get('ledger_type')
         if ledger_type:
             query = query.filter(ledger__ledger_type=ledger_type)
-        maintenance_cycle = request.GET.get('maintenance_cycle')
-        if maintenance_cycle:
-            query = query.filter(ledger__maintenance_cycle=maintenance_cycle)
         status = request.GET.get('status')
         if status:
             query = query.filter(ledger__status=status)
@@ -652,8 +645,8 @@ class LedgerExportView(View):
         buffer = io.StringIO()
         writer = csv.writer(buffer)
         writer.writerow([
-            '台账编号', '台账类型', '维护周期', '实际执行日期', '状态', '系统编号', '系统名称',
-            '项目名称', '录入类型', '填写值', '单位',
+            '台账编号', '台账类型', '实际执行日期', '状态', '系统编号', '系统名称',
+            '行路径', '项目名称', '录入类型', '填写值', '单位',
             '结果', '异常说明', '不适用原因', '现场处理内容', '明细执行人',
             '明细执行时间', '录入渠道', '录入时间'])
         count = 0
@@ -670,11 +663,12 @@ class LedgerExportView(View):
                     value = '、'.join(map(str, value))
             writer.writerow([
                 ledger.ledger_no, LEDGER_TYPE_TEXT.get(ledger.ledger_type, ledger.ledger_type),
-                ledger.maintenance_cycle, ledger.executed_date,
+                ledger.executed_date,
                 ledger.status, item.system_code_snapshot, item.system_name_snapshot,
+                item.row_path_snapshot,
                 item.item_name_snapshot,
                 item.input_type, value, item.unit_snapshot,
-                ITEM_RESULT_TEXT_MAP.get(item.result, item.result),
+                ITEM_RESULT_TEXT_MAP_FULL.get(item.result, item.result),
                 item.abnormal_desc, item.na_reason, item.onsite_action, item.executor_name,
                 item.executed_at or '', ledger.entry_channel,
                 ledger.created_at])

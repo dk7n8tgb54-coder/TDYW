@@ -83,7 +83,6 @@ test.describe('Smoke Tests - System Availability', () => {
       '/contract-agreement',
       '/document',
       '/runlog',
-      '/device/device_resume',
       '/interference/events',
       '/duty',
       '/system/announcement',

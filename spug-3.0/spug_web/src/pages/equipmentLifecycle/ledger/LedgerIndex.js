@@ -4,7 +4,7 @@
  */
 /**
  * 运维台账列表页：周月维护 / 季维护 共用，ledgerType 由路由入口注入。
- * 周月维护单入口，通过"维护周期"筛选区分周与月。
+ * 周月维护不再拆分周表/月表（2026-09-26），无维护周期筛选与列。
  * 旧巡检台账（历史）入口已删除（2026-09-24），巡检业务走独立巡检单。
  */
 import React, {useEffect} from 'react';
@@ -16,15 +16,11 @@ import ComTable from './LedgerTable';
 import ComForm from './LedgerForm';
 import LedgerDetail from './LedgerDetail';
 import {getLedgerStore} from './store';
-import {API_PREFIX_L, CYCLE_TEXT, LEDGER_TYPE, LEDGER_TYPE_TEXT, PERM_L, STATUS_COLOR, STATUS_TEXT} from './constants';
+import {API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_COLOR, STATUS_TEXT} from './constants';
 
-function buildColumns(store, ledgerType, isWeekMonth) {
+function buildColumns(store, ledgerType) {
   return [
     {title: '台账编号', dataIndex: 'ledger_no', width: 190},
-    ...(isWeekMonth ? [{
-      title: '维护周期', dataIndex: 'maintenance_cycle', width: 80,
-      render: v => CYCLE_TEXT[v] || '-',
-    }] : []),
     {title: '实际执行日期', dataIndex: 'executed_date', width: 110},
     {
       title: '状态', dataIndex: 'status', width: 90,
@@ -72,8 +68,8 @@ function buildColumns(store, ledgerType, isWeekMonth) {
   ];
 }
 
-// observer：筛选控件直接读取 store.f_keyword / f_status / f_cycle，输入后需触发重渲染
-const LedgerSearchForm = observer(function LedgerSearchForm({store, isWeekMonth}) {
+// observer：筛选控件直接读取 store.f_keyword / f_status，输入后需触发重渲染
+const LedgerSearchForm = observer(function LedgerSearchForm({store}) {
   return (
     <SearchForm>
       <SearchForm.Item span={6} title="台账编号">
@@ -104,30 +100,12 @@ const LedgerSearchForm = observer(function LedgerSearchForm({store, isWeekMonth}
           ))}
         </Select>
       </SearchForm.Item>
-      {isWeekMonth && (
-        <SearchForm.Item span={6} title="维护周期">
-          <Select
-            allowClear
-            style={{width: '100%'}}
-            value={store.f_cycle}
-            onChange={v => {
-              store.f_cycle = v;
-              store.page = 1;
-              store.fetchRecords();
-            }}
-            placeholder="请选择周期">
-            <Select.Option value="week">周</Select.Option>
-            <Select.Option value="month">月</Select.Option>
-          </Select>
-        </SearchForm.Item>
-      )}
     </SearchForm>
   );
 });
 
 function LedgerIndex({ledgerType, location}) {
   const store = getLedgerStore(ledgerType);
-  const isWeekMonth = ledgerType === LEDGER_TYPE.WEEK_MONTH;
 
   useEffect(() => {
     // 跨页跳转直达详情（故障详情/工单详情跳入：?detail=<台账ID>）
@@ -140,7 +118,7 @@ function LedgerIndex({ledgerType, location}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const columns = buildColumns(store, ledgerType, isWeekMonth);
+  const columns = buildColumns(store, ledgerType);
 
   return (
     <AuthDiv auth={PERM_L.LED_VIEW}>
@@ -150,7 +128,7 @@ function LedgerIndex({ledgerType, location}) {
         <Breadcrumb.Item>巡检与维护</Breadcrumb.Item>
         <Breadcrumb.Item>{LEDGER_TYPE_TEXT[ledgerType]}台账</Breadcrumb.Item>
       </Breadcrumb>
-      <LedgerSearchForm store={store} isWeekMonth={isWeekMonth}/>
+      <LedgerSearchForm store={store}/>
       <div style={{marginBottom: 12}}>
         <AuthButton
           auth={PERM_L.LED_ADD}

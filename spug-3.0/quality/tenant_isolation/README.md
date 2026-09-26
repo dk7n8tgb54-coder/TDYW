@@ -77,9 +77,9 @@ docker exec tdyw-test rm -rf /data/spug/spug_api/quality_tenant_isolation
 | dashboard | test_cross_tenant_statistics.py | 统计隔离 |
 | regulation | test_global_data_boundaries.py | 模型审查 |
 
-### 仅源码审查的模块 (11 个)
+### 仅源码审查的模块 (10 个)
 
-radio_license, contract_agreement, interference, device, upgrade,
+radio_license, contract_agreement, interference, upgrade,
 department_duty_log, duty, document, evidence, logs, data_analysis
 
 ### 已确认漏洞

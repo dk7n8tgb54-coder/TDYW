@@ -104,6 +104,7 @@ def record_work_order_lifecycle_events(order, action, detail=None, occurred_at=N
     base_detail = {
         'work_no': order.work_no,
         'work_type': order.work_type,
+        'maintenance_subtype': order.maintenance_subtype,
         'status': order.status,
         'affects_system_operation': order.affects_system_operation,
         'source_type': order.source_type,

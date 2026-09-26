@@ -32,7 +32,8 @@ export const LEDGER_TYPE_TEXT = {
   seasonal: '季维护',
 };
 
-export const CYCLE_TEXT = {week: '周', month: '月', season: '季'};
+// 维护周期（week/month/season）已删除（2026-09-26）：周月维护不再拆分周表/月表，
+// 周月维护与季维护仅靠 ledger_type 区分。
 
 export const STATUS_TEXT = {
   draft: '草稿',
@@ -64,12 +65,6 @@ export const RESULT_COLOR = {
   pending_review: 'warning',
 };
 
-export const EXEC_SCOPE_TEXT = {
-  all: '周月均执行',
-  week_only: '仅每周执行',
-  month_only: '仅每月执行',
-};
-
 export const INPUT_TYPE_TEXT = {
   text: '数字/文本',
   number: '数值',
@@ -78,6 +73,39 @@ export const INPUT_TYPE_TEXT = {
   boolean: '布尔值',
   attachment: '附件',
 };
+
+// ==================== 行对象树（第一阶段：行方向多级 + 平面列项目） ====================
+// 行方向最大层级（根为第 1 级；与后端 models.py LEDGER_ROW_MAX_LEVEL 保持一致，
+// 本文件是前端唯一权威定义，禁止在组件里散落硬编码）
+export const ROW_MAX_LEVEL = 5;
+
+// 行路径分隔符（与后端 ROW_PATH_SEPARATOR 一致）
+export const ROW_PATH_SEPARATOR = ' / ';
+
+export const ROW_NODE_TYPE_TEXT = {
+  group: '行分组',
+  repeat_group: '可重复分组',
+  check: '行对象',
+};
+
+export const ROW_NODE_TYPE_COLOR = {
+  group: 'default',
+  repeat_group: 'processing',
+  check: 'success',
+};
+
+// 列方向第一阶段固定平面结构，模板页固定提示（第二阶段列父子结构另行实施）
+export const FLAT_COLUMN_HINT = '当前列项目为平面结构，暂不支持列分组和列级父子关系。';
+
+// 结果含"未填写"（矩阵单元格生成后的初始态，空串）
+export const UNSET_RESULT_TEXT = '未填写';
+
+// 矩阵筛选模式
+export const MATRIX_FILTER_MODES = [
+  {key: 'all', text: '全部'},
+  {key: 'abnormal', text: '仅异常'},
+  {key: 'unset', text: '仅未填写'},
+];
 
 // 模板项目录入类型收敛为两种：正常/不正常、数字/文本；
 // 其余类型仅为历史数据保留，新建项目不可再选

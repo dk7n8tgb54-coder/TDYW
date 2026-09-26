@@ -231,6 +231,8 @@ function ConvertToWorkOrderModal({visible, ledger, item, needReason, onClose, on
   const initialValues = {
     title: `${item.item_name_snapshot || ''} 异常处理`,
     work_type: 'special_maintenance',
+    // 台账异常转工单默认专项维护 + 一般维护，用户可在表单中改选维护分类
+    maintenance_subtype: 'general',
     priority: 'normal',
     system: item.system,
     affects_system_operation: false,
