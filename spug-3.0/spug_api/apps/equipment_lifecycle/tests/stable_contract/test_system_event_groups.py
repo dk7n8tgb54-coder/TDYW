@@ -388,7 +388,8 @@ class WorkOrderUpgradeAggregationTests(SystemEventGroupTestBase):
         self.assertEqual(len(items), 2)
         by_type = {item['event_type']: item for item in items}
         self.assertEqual(by_type['work_order']['item_no'], work_no)
-        self.assertEqual(by_type['work_order']['status_text'], '待派发')
+        # 单账号流程：工单创建即执行中
+        self.assertEqual(by_type['work_order']['status_text'], '执行中')
         self.assertEqual(by_type['work_order']['node_count'], 1)
         upgrade = by_type['upgrade']
         self.assertEqual(upgrade['title'], 'DVOR 数字板升级')

@@ -40,7 +40,6 @@ class WorkOrderStore {
 
   // ========== 候选项 ==========
   @observable systems = [];
-  @observable users = [];
 
   // ========== 详情抽屉（列表页入口；组件内嵌场景见 WorkOrderDetail props 用法） ==========
   @observable detailVisible = false;
@@ -82,13 +81,10 @@ class WorkOrderStore {
   };
 
   fetchCandidates = () => {
-    return Promise.all([
-      http.get(`${API_PREFIX}/work-orders/candidate-systems/`),
-      http.get(`${API_PREFIX}/work-orders/candidate-users/`),
-    ]).then(action(([sysRes, userRes]) => {
-      this.systems = sysRes.data || [];
-      this.users = userRes.data || [];
-    })).catch(action(() => {}));
+    return http.get(`${API_PREFIX}/work-orders/candidate-systems/`)
+      .then(action(res => {
+        this.systems = res.data || [];
+      })).catch(action(() => {}));
   };
 
   systemOption = (id) => this.systems.find(s => s.id === id);
@@ -195,12 +191,8 @@ class WorkOrderStore {
       }));
   };
 
-  dispatch = (formData, id = this.detailId) => this.runAction('dispatch', formData, id);
-  accept = (id = this.detailId) => this.runAction('accept', {}, id);
-  start = (id = this.detailId) => this.runAction('start', {}, id);
-  submitReview = (formData, id = this.detailId) => this.runAction('submit-review', formData, id);
-  reviewPass = (formData, id = this.detailId) => this.runAction('review-pass', formData, id);
-  reviewReturn = (formData, id = this.detailId) => this.runAction('review-return', formData, id);
+  // 完成工单（单账号协同流程：执行中 → 已完成，无复核环节）
+  complete = (formData, id = this.detailId) => this.runAction('complete', formData, id);
   close = (id = this.detailId) => this.runAction('close', {}, id);
   cancel = (formData, id = this.detailId) => this.runAction('cancel', formData, id);
 

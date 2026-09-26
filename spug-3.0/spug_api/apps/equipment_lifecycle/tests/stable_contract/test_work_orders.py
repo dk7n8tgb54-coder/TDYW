@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""工单管理与系统健康状态联动（步骤 3.3，单系统简化）稳定契约测试。
+"""工单管理与系统健康状态联动（步骤 3.3，单账号协同流程）稳定契约测试。
 
 覆盖工单行为契约：系统 ID 关联、租户隔离、一张工单只关联一个作业系统、
-受影响系统参数已删除、快照、参与人、状态流转、幂等、受控取消、
-affects_system_operation（作业期间是否影响系统运行）与"维修中"联动、
-模块边界（无库存/调拨/履历、device/upgrade 无变化）与 3.1/3.2 回归冒烟。
+受影响系统参数已删除、快照、状态流转（创建即执行中 → 完成工单 → 关闭/
+受控取消）、幂等、affects_system_operation（作业期间是否影响系统运行）
+与"维修中"联动、模块边界（无库存/调拨、device/upgrade 无变化）与
+3.1/3.2 回归冒烟。派发/接单/复核环节已整体下线（单账号流程）。
 
 全部通过真实 HTTP 路径 + 隔离测试数据库执行，验证数据库状态与真实副作用。
 """
@@ -12,6 +13,7 @@ from unittest import mock
 
 from django.apps import apps
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.equipment_lifecycle import fault_services
 from apps.equipment_lifecycle.models import (
@@ -19,7 +21,6 @@ from apps.equipment_lifecycle.models import (
     SystemFault,
     SystemWorkOrder,
     SystemWorkOrderHandlingRecord,
-    SystemWorkOrderParticipant,
 )
 
 from apps.equipment_lifecycle.tests.base import (
@@ -33,9 +34,8 @@ WORK_ORDER_URL = '/equipment-lifecycle/work-orders'
 
 ALL_WO_PERMS = [
     'equipment_lifecycle.work_order.view', 'equipment_lifecycle.work_order.add',
-    'equipment_lifecycle.work_order.edit', 'equipment_lifecycle.work_order.dispatch',
-    'equipment_lifecycle.work_order.accept', 'equipment_lifecycle.work_order.execute',
-    'equipment_lifecycle.work_order.review', 'equipment_lifecycle.work_order.close',
+    'equipment_lifecycle.work_order.edit', 'equipment_lifecycle.work_order.execute',
+    'equipment_lifecycle.work_order.close',
     'equipment_lifecycle.work_order.del', 'equipment_lifecycle.work_order.export',
 ]
 
@@ -89,34 +89,6 @@ class WorkOrderTestBase(TestCase):
         self.assertFalse(body.get('error'), body)
         return body['data']
 
-    def dispatch_order(self, oid, user=None, owner=None, participants=None, expect_error=None):
-        client = make_client(user or self.admin)
-        payload = {'owner_id': (owner or self.worker).id}
-        if participants is not None:
-            payload['participant_ids'] = [u.id for u in participants]
-        resp = client.post(f'{WORK_ORDER_URL}/{oid}/dispatch/', payload,
-                           content_type='application/json')
-        body = resp.json()
-        if expect_error is not None:
-            self.assertIn(expect_error, body.get('error', ''), body)
-        return body
-
-    def accept_order(self, oid, user=None, expect_error=None):
-        client = make_client(user or self.admin)
-        resp = client.post(f'{WORK_ORDER_URL}/{oid}/accept/', {}, content_type='application/json')
-        body = resp.json()
-        if expect_error is not None:
-            self.assertIn(expect_error, body.get('error', ''), body)
-        return body
-
-    def start_order(self, oid, user=None, expect_error=None):
-        client = make_client(user or self.admin)
-        resp = client.post(f'{WORK_ORDER_URL}/{oid}/start/', {}, content_type='application/json')
-        body = resp.json()
-        if expect_error is not None:
-            self.assertIn(expect_error, body.get('error', ''), body)
-        return body
-
     def add_record(self, oid, user=None, expect_error=None, **overrides):
         client = make_client(user or self.admin)
         payload = {
@@ -133,11 +105,12 @@ class WorkOrderTestBase(TestCase):
             self.assertIn(expect_error, body.get('error', ''), body)
         return body
 
-    def submit_review(self, oid, user=None, expect_error=None, **overrides):
+    def complete_order(self, oid, user=None, expect_error=None, **overrides):
+        """完成工单（执行中 → 已完成）。"""
         client = make_client(user or self.admin)
         payload = {'process_result': '已完成全部作业步骤，系统恢复正常', 'work_hours': 3.0}
         payload.update(overrides)
-        resp = client.post(f'{WORK_ORDER_URL}/{oid}/submit-review/', payload,
+        resp = client.post(f'{WORK_ORDER_URL}/{oid}/complete/', payload,
                            content_type='application/json')
         body = resp.json()
         if expect_error is not None:
@@ -146,7 +119,7 @@ class WorkOrderTestBase(TestCase):
 
     def run_to_executing(self, system=None, work_type='repair', user=None, affects=True,
                          **overrides):
-        """创建 → 派发 → 接单 → 开始执行，返回工单模型实例。
+        """创建工单并返回模型实例（单账号流程：创建即执行中，自动记录 actual_start）。
 
         affects 映射为 affects_system_operation（默认 True：执行中影响运行）。
         """
@@ -154,11 +127,21 @@ class WorkOrderTestBase(TestCase):
         data = self.create_order_ok(work_order_payload(
             system, work_type=work_type,
             affects_system_operation=affects, **overrides), user=user)
-        oid = data['id']
-        self.dispatch_order(oid, user=user)
-        self.accept_order(oid, user=user)
-        self.start_order(oid, user=user)
-        return SystemWorkOrder.objects.get(pk=oid)
+        order = SystemWorkOrder.objects.get(pk=data['id'])
+        self.assertEqual(order.status, SystemWorkOrder.STATUS_EXECUTING)
+        self.assertIsNotNone(order.actual_start)
+        return order
+
+    def run_to_completed(self, system=None, work_type='repair', user=None, affects=True,
+                         **overrides):
+        """创建 → 处理记录 → 完成工单，返回工单模型实例。"""
+        order = self.run_to_executing(system=system, work_type=work_type, user=user,
+                                      affects=affects, **overrides)
+        self.add_record(order.id, user=user)
+        self.complete_order(order.id, user=user)
+        order.refresh_from_db()
+        self.assertEqual(order.status, SystemWorkOrder.STATUS_COMPLETED)
+        return order
 
     def create_active_fault(self, system, impact='degraded'):
         """创建一张未恢复的有效故障（影响保持）。"""
@@ -268,49 +251,99 @@ class WorkOrderSystemLinkTest(WorkOrderTestBase):
 
 
 class WorkOrderStateFlowTest(WorkOrderTestBase):
-    """参与人与状态流转。"""
+    """单账号协同流程状态流转（创建即执行中 → 完成 → 关闭；取消受控）。"""
 
-    def test_owner_must_be_same_tenant_active_user(self):
-        """非当前租户人员不能成为工单负责人。"""
+    def test_created_order_is_executing_with_actual_start(self):
+        """新工单创建即执行中，自动记录实际开始时间，不要求负责人/参与人。"""
         data = self.create_order_ok(work_order_payload(self.system_a))
-        self.dispatch_order(data['id'], owner=self.other_admin,
-                            expect_error='不属于当前租户')
         order = SystemWorkOrder.objects.get(pk=data['id'])
-        self.assertEqual(order.status, SystemWorkOrder.STATUS_PENDING_DISPATCH)
+        self.assertEqual(order.status, SystemWorkOrder.STATUS_EXECUTING)
+        self.assertIsNotNone(order.actual_start)
         self.assertIsNone(order.owner_id)
+        self.assertFalse(order.participants.exists())
+        # 不写派发/接单/复核历史字段
+        self.assertIsNone(order.dispatched_by_id)
+        self.assertIsNone(order.dispatched_at)
+        self.assertIsNone(order.accepted_by_id)
+        self.assertIsNone(order.accepted_at)
+        self.assertIsNone(order.reviewer_id)
+        self.assertIsNone(order.reviewed_at)
+        # 历史字段未被删除（模型仍保留，可展示历史工单）
+        field_names = {f.name for f in SystemWorkOrder._meta.get_fields()}
+        for legacy in ('owner', 'dispatched_by', 'dispatched_at', 'accepted_by',
+                       'accepted_at', 'reviewer', 'reviewed_at'):
+            self.assertIn(legacy, field_names)
 
-    def test_accept_requires_dispatch_first(self):
-        """未派发工单不能接单。"""
+    def test_legacy_dispatch_accept_start_routes_removed(self):
+        """派发/接单/开始执行/复核路由已下线：请求 404 且不产生状态变化。"""
         data = self.create_order_ok(work_order_payload(self.system_a))
-        self.accept_order(data['id'], expect_error='只有待接单的工单可以接单')
-
-    def test_start_requires_accept(self):
-        """状态流转由后端校验：未接单不能开始执行。"""
-        data = self.create_order_ok(work_order_payload(self.system_a))
-        # 待派发直接开始 → 拒绝
-        self.start_order(data['id'], expect_error='只有待接单的工单可以开始执行')
-        # 派发后未接单开始 → 拒绝
-        self.dispatch_order(data['id'])
-        self.start_order(data['id'], expect_error='请先接单')
+        client = make_client(self.admin)
+        for action, payload in (
+                ('dispatch', {'owner_id': self.other_admin.id}),
+                ('accept', {}),
+                ('start', {}),
+                ('submit-review', {'process_result': 'x'}),
+                ('review-pass', {}),
+                ('review-return', {'return_reason': 'x'})):
+            resp = client.post(f'{WORK_ORDER_URL}/{data["id"]}/{action}/', payload,
+                               content_type='application/json')
+            self.assertEqual(resp.status_code, 404, action)
         order = SystemWorkOrder.objects.get(pk=data['id'])
-        self.assertEqual(order.status, SystemWorkOrder.STATUS_PENDING_ACCEPT)
+        self.assertEqual(order.status, SystemWorkOrder.STATUS_EXECUTING)
+        self.assertIsNone(order.dispatched_by_id)
 
-    def test_submit_review_requires_process_and_records(self):
-        """未填写处理过程和结果不能提交复核。"""
+    def test_complete_requires_result_and_handling_record(self):
+        """完成工单必须填写处理结果且存在处理记录。"""
         order = self.run_to_executing(work_type='special_maintenance')
         # 无处理结果
-        self.submit_review(order.id, process_result='  ', expect_error='必须填写处理结果')
-        # 有结果但无处理记录（处理过程）
-        self.submit_review(order.id, expect_error='必须填写处理过程')
+        self.complete_order(order.id, process_result='  ', expect_error='必须填写处理结果')
+        # 有结果但无处理记录
+        self.complete_order(order.id, expect_error='必须填写处理过程')
         # 补齐处理记录后成功
         self.add_record(order.id)
-        body = self.submit_review(order.id)
+        body = self.complete_order(order.id)
         self.assertFalse(body.get('error'), body)
         order.refresh_from_db()
-        self.assertEqual(order.status, SystemWorkOrder.STATUS_PENDING_REVIEW)
+        self.assertEqual(order.status, SystemWorkOrder.STATUS_COMPLETED)
+        self.assertIsNotNone(order.actual_end)
+        self.assertEqual(order.completed_by_id, self.admin.id)
+        self.assertIsNotNone(order.completed_at)
+        # 不伪造复核语义
+        self.assertIsNone(order.reviewer_id)
+        self.assertIsNone(order.reviewed_at)
 
-    def test_edit_can_change_system_and_affects_flag(self):
-        """编辑待派发工单可变更作业系统与影响运行标记（不再要求受影响系统字段）。"""
+    def test_complete_only_from_executing_and_idempotent(self):
+        """只有执行中的工单可以完成；重复提交被状态机拒绝（幂等）。"""
+        order = self.run_to_executing(work_type='special_maintenance')
+        self.add_record(order.id)
+        self.complete_order(order.id)
+        order.refresh_from_db()
+        actual_end = order.actual_end
+        # 再次完成 → 拒绝，数据不变
+        self.complete_order(order.id, expect_error='只有执行中的工单可以完成工单')
+        order.refresh_from_db()
+        self.assertEqual(order.status, SystemWorkOrder.STATUS_COMPLETED)
+        self.assertEqual(order.actual_end, actual_end)
+        # 已完成不能再次追加处理记录
+        self.add_record(order.id, expect_error='只有执行中的工单可以追加处理记录')
+        # 已完成的工单不能取消
+        resp = make_client(self.admin).post(f'{WORK_ORDER_URL}/{order.id}/cancel/',
+                                            {'cancel_reason': '测试'},
+                                            content_type='application/json')
+        self.assertTrue(resp.json().get('error'), resp.content)
+        # 完成后可关闭；关闭后终态
+        resp = make_client(self.admin).post(f'{WORK_ORDER_URL}/{order.id}/close/',
+                                            {}, content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        order.refresh_from_db()
+        self.assertEqual(order.status, SystemWorkOrder.STATUS_CLOSED)
+        self.assertEqual(order.closed_by_id, self.admin.id)
+        resp = make_client(self.admin).post(f'{WORK_ORDER_URL}/{order.id}/close/',
+                                            {}, content_type='application/json')
+        self.assertTrue(resp.json().get('error'), resp.content)
+
+    def test_edit_executing_order_allowed(self):
+        """执行中工单可普通编辑基础信息（不得修改状态）。"""
         data = self.create_order_ok(work_order_payload(self.system_a))
         client = make_client(self.admin)
         resp = client.put(f'{WORK_ORDER_URL}/{data["id"]}/',
@@ -320,20 +353,17 @@ class WorkOrderStateFlowTest(WorkOrderTestBase):
         order = SystemWorkOrder.objects.get(pk=data['id'])
         self.assertEqual(order.system_id, self.system_a2.id)
         self.assertTrue(order.affects_system_operation)
+        self.assertEqual(order.status, SystemWorkOrder.STATUS_EXECUTING)
 
     def test_closed_order_not_editable(self):
         """已关闭工单不能普通编辑。"""
-        order = self.run_to_executing(work_type='special_maintenance')
-        self.add_record(order.id)
-        self.submit_review(order.id)
-        make_client(self.admin).post(f'{WORK_ORDER_URL}/{order.id}/review-pass/', {},
-                                     content_type='application/json')
+        order = self.run_to_completed(work_type='special_maintenance')
         make_client(self.admin).post(f'{WORK_ORDER_URL}/{order.id}/close/', {},
                                      content_type='application/json')
         resp = make_client(self.admin).put(
             f'{WORK_ORDER_URL}/{order.id}/', work_order_payload(self.system_a),
             content_type='application/json')
-        self.assertIn('待派发', resp.json().get('error', ''), resp.content)
+        self.assertIn('可以编辑', resp.json().get('error', ''), resp.content)
 
     def test_del_is_controlled_cancel_not_physical_delete(self):
         """删除权限执行受控取消，不物理删除。"""
@@ -347,50 +377,19 @@ class WorkOrderStateFlowTest(WorkOrderTestBase):
         self.assertEqual(order.cancel_reason, '计划变更')
         self.assertTrue(SystemWorkOrder.objects.filter(pk=data['id']).exists())
 
-    def test_repeated_state_requests_no_side_effects(self):
-        """重复派发、接单、开始、完成或关闭不产生重复副作用。"""
-        data = self.create_order_ok(work_order_payload(self.system_a))
-        # 派发两次：第二次拒绝，状态不变
-        self.dispatch_order(data['id'])
-        self.dispatch_order(data['id'], expect_error='只有待派发的工单可以派发')
-        # 同一人重复接单：幂等成功，不改变记录（负责人本人接单）
-        first = self.accept_order(data['id'], user=self.worker)
-        self.assertFalse(first.get('error'), first)
-        second = self.accept_order(data['id'], user=self.worker)
-        self.assertFalse(second.get('error'), second)
-        order = SystemWorkOrder.objects.get(pk=data['id'])
-        accepted_at = order.accepted_at
-        self.assertEqual(order.accepted_by_id, self.worker.id)
-        # 其他人再接单 → 拒绝
-        self.accept_order(data['id'], user=self.admin, expect_error='接单')
-        # 开始执行两次：第二次拒绝
-        self.start_order(data['id'])
-        self.start_order(data['id'], expect_error='只有待接单的工单可以开始执行')
-        # 走完复核后关闭两次：第二次拒绝
-        self.add_record(data['id'])
-        self.submit_review(data['id'])
-        make_client(self.admin).post(f'{WORK_ORDER_URL}/{data["id"]}/review-pass/', {},
-                                     content_type='application/json')
-        make_client(self.admin).post(f'{WORK_ORDER_URL}/{data["id"]}/close/', {},
-                                     content_type='application/json')
-        third = make_client(self.admin).post(f'{WORK_ORDER_URL}/{data["id"]}/close/', {},
-                                             content_type='application/json')
-        self.assertTrue(third.json().get('error'))
+    def test_cancel_records_operator_and_time(self):
+        """取消记录取消账号与时间，来源对象不被删除。"""
+        order = self.run_to_executing(work_type='special_maintenance')
+        before = timezone.now()
+        resp = make_client(self.admin).post(f'{WORK_ORDER_URL}/{order.id}/cancel/',
+                                            {'cancel_reason': '误建工单'},
+                                            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
         order.refresh_from_db()
-        self.assertEqual(order.status, SystemWorkOrder.STATUS_CLOSED)
-        self.assertEqual(order.accepted_at, accepted_at)
-        # 参与人唯一：负责人一行，未重复
-        self.assertEqual(
-            SystemWorkOrderParticipant.objects.filter(work_order=order).count(), 1)
-
-    def test_participants_recorded_and_deduped(self):
-        """参与人以租户用户 ID 记录，负责人兼参与人不重复。"""
-        data = self.create_order_ok(work_order_payload(self.system_a))
-        self.dispatch_order(data['id'], owner=self.worker, participants=[self.worker, self.admin])
-        rows = SystemWorkOrderParticipant.objects.filter(work_order_id=data['id'])
-        self.assertEqual(rows.count(), 2)  # owner + admin（worker 去重）
-        self.assertTrue(rows.filter(user=self.worker, role='owner').exists())
-        self.assertTrue(rows.filter(user=self.admin, role='participant').exists())
+        self.assertEqual(order.status, SystemWorkOrder.STATUS_CANCELLED)
+        self.assertEqual(order.cancelled_by_id, self.admin.id)
+        self.assertIsNotNone(order.cancelled_at)
+        self.assertGreaterEqual(order.cancelled_at, before)
 
 
 class WorkOrderHealthLinkageTest(WorkOrderTestBase):
@@ -404,9 +403,7 @@ class WorkOrderHealthLinkageTest(WorkOrderTestBase):
         self.assertEqual(system.health_status, 'repairing')
         # 完成后回到正常
         self.add_record(order.id)
-        self.submit_review(order.id)
-        make_client(self.admin).post(f'{WORK_ORDER_URL}/{order.id}/review-pass/', {},
-                                     content_type='application/json')
+        self.complete_order(order.id)
         system.refresh_from_db()
         self.assertEqual(system.health_status, 'normal')
 
@@ -448,9 +445,7 @@ class WorkOrderHealthLinkageTest(WorkOrderTestBase):
         self.assertEqual(system.health_status, 'interrupted')
         # 工单完成仍有未恢复故障 → 回到中断而非正常
         self.add_record(order.id)
-        self.submit_review(order.id)
-        make_client(self.admin).post(f'{WORK_ORDER_URL}/{order.id}/review-pass/', {},
-                                     content_type='application/json')
+        self.complete_order(order.id)
         system.refresh_from_db()
         self.assertEqual(system.health_status, 'interrupted')
         # 故障恢复后 → 正常
@@ -470,9 +465,7 @@ class WorkOrderHealthLinkageTest(WorkOrderTestBase):
         system = LifecycleSystem.objects.get(pk=self.system_a.id)
         self.assertEqual(system.health_status, 'repairing')
         self.add_record(order.id)
-        self.submit_review(order.id)
-        make_client(self.admin).post(f'{WORK_ORDER_URL}/{order.id}/review-pass/', {},
-                                     content_type='application/json')
+        self.complete_order(order.id)
         system.refresh_from_db()
         # 工单完成 → 退回故障影响（不是 normal）
         self.assertEqual(system.health_status, 'fault')
@@ -485,9 +478,7 @@ class WorkOrderHealthLinkageTest(WorkOrderTestBase):
         system = LifecycleSystem.objects.get(pk=self.system_a.id)
         self.assertEqual(system.health_status, 'repairing')
         self.add_record(order.id)
-        self.submit_review(order.id)
-        make_client(self.admin).post(f'{WORK_ORDER_URL}/{order.id}/review-pass/', {},
-                                     content_type='application/json')
+        self.complete_order(order.id)
         system.refresh_from_db()
         self.assertEqual(system.health_status, 'degraded')
         # 故障恢复确认后 → 正常
@@ -506,10 +497,11 @@ class WorkOrderHealthLinkageTest(WorkOrderTestBase):
         system = LifecycleSystem.objects.get(pk=self.system_a.id)
         self.assertEqual(system.health_status, 'repairing')
         before = order.status
+        self.add_record(order.id)
         with mock.patch('apps.equipment_lifecycle.work_order_views.record_audit_event',
                         side_effect=RuntimeError('模拟事务中途失败')):
             resp = make_client(self.admin).post(
-                f'{WORK_ORDER_URL}/{order.id}/submit-review/',
+                f'{WORK_ORDER_URL}/{order.id}/complete/',
                 {'process_result': '结果文本'}, content_type='application/json')
         self.assertTrue(resp.json().get('error'), resp.content)
         order.refresh_from_db()
@@ -530,9 +522,7 @@ class WorkOrderHealthLinkageTest(WorkOrderTestBase):
             LifecycleSystem.objects.get(pk=self.system_a2.id).health_status, 'interrupted')
         # 维修完成 → system_a 回到降级
         self.add_record(repair.id)
-        self.submit_review(repair.id)
-        make_client(self.admin).post(f'{WORK_ORDER_URL}/{repair.id}/review-pass/', {},
-                                     content_type='application/json')
+        self.complete_order(repair.id)
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'degraded')
 
@@ -560,14 +550,17 @@ class WorkOrderPermissionTest(WorkOrderTestBase):
             f'{WORK_ORDER_URL}/', work_order_payload(self.system_a),
             content_type='application/json')
         self.assertIn('权限拒绝', resp.json().get('error', ''), resp.content)
-        # 有查看权限但无派发权限：派发被拒
+        # 有查看权限但无执行权限：完成工单被拒
         viewer = make_user('wo_viewer', ['equipment_lifecycle.work_order.view'] + ALL_SYSTEM_PERMS,
                            tenant_id='tenant_a')
         data = self.create_order_ok(work_order_payload(self.system_a))
-        resp = make_client(viewer).post(f'{WORK_ORDER_URL}/{data["id"]}/dispatch/',
-                                        {'owner_id': self.worker.id},
+        self.add_record(data['id'])
+        resp = make_client(viewer).post(f'{WORK_ORDER_URL}/{data["id"]}/complete/',
+                                        {'process_result': '结果'},
                                         content_type='application/json')
         self.assertIn('权限拒绝', resp.json().get('error', ''), resp.content)
+        order = SystemWorkOrder.objects.get(pk=data['id'])
+        self.assertEqual(order.status, SystemWorkOrder.STATUS_EXECUTING)
         # 列表也拒绝
         resp = make_client(self.noperm_user).get(f'{WORK_ORDER_URL}/')
         self.assertIn('权限拒绝', resp.json().get('error', ''), resp.content)
@@ -707,20 +700,18 @@ class WorkOrderQueryViewTest(WorkOrderTestBase):
         self.assertIn('不存在', resp.json().get('error', ''), resp.content)
 
     def test_handling_record_state_restriction(self):
-        """处理记录仅执行中可追加；待派发/待复核拒绝。"""
-        data = self.create_order_ok(work_order_payload(self.system_a, title='记录状态-待派发'))
+        """处理记录仅执行中可追加；完成后拒绝。"""
+        data = self.create_order_ok(work_order_payload(self.system_a, title='记录状态-执行中'))
+        self.add_record(data['id'])
+        self.complete_order(data['id'])
         self.add_record(data['id'], expect_error='只有执行中的工单可以追加处理记录')
-        order = self.run_to_executing(work_type='special_maintenance', title='记录状态-执行中')
-        self.add_record(order.id)
-        self.submit_review(order.id)
-        self.add_record(order.id, expect_error='只有执行中的工单可以追加处理记录')
-        self.assertEqual(SystemWorkOrderHandlingRecord.objects.filter(work_order_id=order.id).count(), 1)
+        self.assertEqual(SystemWorkOrderHandlingRecord.objects.filter(work_order_id=data['id']).count(), 1)
 
 
 class WorkOrderFaultDecouplingTest(WorkOrderTestBase):
     """工单与故障解耦契约（2026-09 处理进展改版固化）：
 
-    - 工单完成（复核通过）不得自动将来源故障标记为恢复或关闭；
+    - 工单完成不得自动将来源故障标记为恢复或关闭；
     - 故障恢复仍需用户按故障流程显式确认（含本方测试通过后的确认）；
     - 来源故障未恢复期间继续参与系统健康状态计算。
     """
@@ -735,7 +726,7 @@ class WorkOrderFaultDecouplingTest(WorkOrderTestBase):
         return SystemWorkOrder.objects.get(pk=body['data']['id'])
 
     def test_completed_work_order_does_not_recover_or_close_fault(self):
-        """工单走完 复核通过 后：来源故障仍为处置中，未自动恢复/关闭。"""
+        """工单完成后：来源故障仍为处置中，未自动恢复/关闭。"""
         fault = self.create_active_fault(self.system_a, impact='fault')
         client = make_client(self.admin)
         client.post(f'/equipment-lifecycle/faults/{fault.id}/start/',
@@ -743,15 +734,10 @@ class WorkOrderFaultDecouplingTest(WorkOrderTestBase):
         order = self.create_work_order_from_fault(fault)
         self.assertEqual(order.source_type, 'fault')
         self.assertEqual(order.source_fault_id, fault.id)
-        self.dispatch_order(order.id)
-        self.accept_order(order.id)
-        self.start_order(order.id)
+        # 单账号流程：创建即执行中，添加处理记录后直接完成
+        self.assertEqual(order.status, SystemWorkOrder.STATUS_EXECUTING)
         self.add_record(order.id)
-        self.submit_review(order.id)
-        resp = make_client(self.admin).post(
-            f'{WORK_ORDER_URL}/{order.id}/review-pass/', {},
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
+        self.complete_order(order.id)
         order.refresh_from_db()
         self.assertEqual(order.status, SystemWorkOrder.STATUS_COMPLETED)
         # 来源故障状态未被工单完成改动：仍处置中、无恢复数据
@@ -771,13 +757,8 @@ class WorkOrderFaultDecouplingTest(WorkOrderTestBase):
         client.post(f'/equipment-lifecycle/faults/{fault.id}/start/',
                     {}, content_type='application/json')
         order = self.create_work_order_from_fault(fault)
-        self.dispatch_order(order.id)
-        self.accept_order(order.id)
-        self.start_order(order.id)
         self.add_record(order.id)
-        self.submit_review(order.id)
-        make_client(self.admin).post(f'{WORK_ORDER_URL}/{order.id}/review-pass/',
-                                     {}, content_type='application/json')
+        self.complete_order(order.id)
         # 故障侧追加处理进展（送厂/返还/测试），然后人工确认恢复
         resp = client.post(f'/equipment-lifecycle/faults/{fault.id}/handling-records/',
                            {'content': '部件已返还，本方测试通过',

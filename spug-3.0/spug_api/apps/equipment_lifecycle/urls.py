@@ -85,12 +85,9 @@ urlpatterns = [
     path('work-orders/candidate-systems/', work_order_views.WorkOrderCandidateSystemsView.as_view()),
     path('work-orders/candidate-users/', work_order_views.WorkOrderCandidateUsersView.as_view()),
     path('work-orders/<int:pk>/', _na(work_order_views.WorkOrderDetailView.as_view())),
-    path('work-orders/<int:pk>/dispatch/', _na(work_order_views.WorkOrderDispatchView.as_view())),
-    path('work-orders/<int:pk>/accept/', _na(work_order_views.WorkOrderAcceptView.as_view())),
-    path('work-orders/<int:pk>/start/', _na(work_order_views.WorkOrderStartView.as_view())),
-    path('work-orders/<int:pk>/submit-review/', _na(work_order_views.WorkOrderSubmitReviewView.as_view())),
-    path('work-orders/<int:pk>/review-pass/', _na(work_order_views.WorkOrderReviewPassView.as_view())),
-    path('work-orders/<int:pk>/review-return/', _na(work_order_views.WorkOrderReviewReturnView.as_view())),
+    # 完成工单（单账号协同流程：执行中 → 已完成，无派发/接单/复核环节，
+    # 旧 dispatch/accept/start/submit-review/review-* 路由已删除）
+    path('work-orders/<int:pk>/complete/', _na(work_order_views.WorkOrderCompleteView.as_view())),
     path('work-orders/<int:pk>/close/', _na(work_order_views.WorkOrderCloseView.as_view())),
     path('work-orders/<int:pk>/cancel/', _na(work_order_views.WorkOrderCancelView.as_view())),
     path('work-orders/<int:pk>/handling-records/', _na(work_order_views.WorkOrderHandlingRecordView.as_view())),

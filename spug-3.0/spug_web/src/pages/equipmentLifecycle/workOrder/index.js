@@ -3,8 +3,9 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——运行处置/工单管理列表页（步骤 3.3）。
+ * 设备全生命周期——运行处置/工单管理列表页（步骤 3.3，单账号协同流程）。
  * 业务关联一律使用系统 ID，页面仅展示系统名称；
+ * 新工单创建即执行中（无派发/接单/复核环节）；
  * 支持 /el/work-orders?detail=<id> 跨页跳转直达详情。
  */
 import React, { useEffect } from 'react';
@@ -92,7 +93,7 @@ class WorkOrderTable extends React.Component {
         >
           详情
         </AuthButton>
-        {record.status === 'pending_dispatch' && (
+        {(record.status === 'executing' || record.status === 'pending_dispatch') && (
           <AuthButton
             auth={WO_PERM.EDIT}
             type="link"

@@ -9,7 +9,7 @@
  * 验证：
  * - 点击"新增工单"按钮后 Modal 真实打开（标题"新增工单"），并拉取候选系统
  * - 点击弹窗关闭按钮后弹窗收起
- * - 待派发工单点击"编辑"后打开"编辑工单"弹窗并回填标题（先取详情再打开）
+ * - 执行中工单点击"编辑"后打开"编辑工单"弹窗并回填标题（先取详情再打开）
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -109,7 +109,7 @@ const LIST_PAYLOAD = {
     title: '主用链路抢修',
     work_type: 'repair',
     priority: 'high',
-    status: 'pending_dispatch',
+    status: 'executing',
     source_type: 'manual',
     system_name: '烟台通信系统',
     system_code: 'SYS-A1',
@@ -125,7 +125,7 @@ const DETAIL_PAYLOAD = {
   title: '主用链路抢修',
   work_type: 'repair',
   priority: 'high',
-  status: 'pending_dispatch',
+  status: 'executing',
   system: 7,
   system_name: '烟台通信系统',
   system_code: 'SYS-A1',
@@ -185,7 +185,7 @@ describe('工单新增/编辑表单打开链路', () => {
     expect(document.querySelector('.ant-modal-title')).toBeNull();
   });
 
-  test('待派发工单点击"编辑"后打开编辑弹窗并回填标题', async () => {
+  test('执行中工单点击"编辑"后打开编辑弹窗并回填标题', async () => {
     await renderPage();
     const editBtn = findButtonByText('编辑');
     expect(editBtn).toBeTruthy();

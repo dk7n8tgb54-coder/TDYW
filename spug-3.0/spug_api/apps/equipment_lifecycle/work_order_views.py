@@ -1,11 +1,19 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——系统工单管理与异常转单视图（步骤 3.3，单系统简化）。
+"""设备全生命周期——系统工单管理与异常转单视图（步骤 3.3，单账号协同流程）。
 
 权限域（前后端一致，后端独立校验）：
-- equipment_lifecycle.work_order.view|add|edit|dispatch|accept|execute|review|close|del|export
+- equipment_lifecycle.work_order.view|add|edit|execute|close|del|export
 - equipment_lifecycle.ledger.handle_exception（台账异常处置）
+
+说明（2026-09 单账号协同流程改造）：
+- 系统由多人共用一个账号操作，派发/接单/开始执行/提交复核/复核通过/复核退回
+  环节已整体下线：对应视图与路由已删除（历史工单的派发/接单/复核字段保留展示）；
+- 新工单创建即执行中（actual_start 自动记录），不要求负责人与参与人，
+  不创建参与人员记录；
+- 执行中通过 POST /work-orders/<id>/complete/ 完成工单（须已填写处理结果与
+  处理记录），完成后进入"已完成"，可再关闭；取消仅限执行中（及历史兼容状态）。
 
 双权限动作（has_perms 为任一匹配语义，须在视图内显式分别校验）：
 - 故障生成维修工单：work_order.add + fault.view
@@ -19,9 +27,7 @@
 - affects_system_operation（作业期间是否影响系统运行）由后端保存前
   重新校验布尔类型；只有执行中且为真的故障维修工单才参与"维修中"计算；
 - 状态流转只经动作接口，由后端状态机（SystemWorkOrder.STATE_TRANSITIONS）
-  校验；普通编辑接口（PUT）仅限待派发工单且不得修改状态；
-- 接单（accept）为待接单状态内的确认动作：只有指定负责人或持有 accept
-  权限的角色可接单；开始执行要求已接单并记录实际开始时间；
+  校验；普通编辑接口（PUT）仅限待派发（历史）/执行中工单且不得修改状态；
 - 所有改变健康状态影响的工单操作在 health_recalc_lock + 单事务中完成，
   系统状态由 fault_services 统一重算（同事务写入）；
 - 创建/转单以 client_token 幂等 + 窗口查重防重复，重复请求不产生重复数据；
@@ -421,7 +427,7 @@ class WorkOrderView(View):
 
 
 class WorkOrderDetailView(View):
-    """工单详情 / 编辑待派发工单。"""
+    """工单详情 / 编辑（历史待派发或执行中工单）。"""
 
     @auth('equipment_lifecycle.work_order.view')
     def get(self, request, pk):
@@ -445,7 +451,7 @@ class WorkOrderDetailView(View):
                     if not order:
                         return json_response(error='工单不存在')
                     if order.status not in SystemWorkOrder.EDITABLE_STATUSES:
-                        return json_response(error='只有待派发的工单可以编辑')
+                        return json_response(error='只有待派发（历史）或执行中的工单可以编辑')
                     data, error = _validate_order_fields(
                         body, request, for_update=True, order=order)
                     if error:
@@ -486,12 +492,17 @@ class WorkOrderDetailView(View):
 
 
 class WorkOrderActionBaseView(View):
-    """工单状态动作公共流程：行锁 + 状态机校验 + 同事务健康重算 + 审计。"""
+    """工单状态动作公共流程：行锁 + 状态机校验 + 同事务健康重算 + 审计。
+
+    handle_locked 可通过 self.audit_extra 附加审计 after_value 内容
+    （视图实例每请求新建，实例属性安全）。
+    """
 
     ACTION_NAME = ''
     audit_action = 'update'
     # 是否在动作后重算作业系统健康状态（默认重算，幂等无害）
     recompute_after = True
+    audit_extra = None
 
     def post(self, request, pk):
         try:
@@ -501,6 +512,7 @@ class WorkOrderActionBaseView(View):
                     if not order:
                         return json_response(error='工单不存在')
                     before_status = order.status
+                    self.audit_extra = None
                     error = self.handle_locked(request, order)
                     if error:
                         return json_response(error=error)
@@ -511,7 +523,8 @@ class WorkOrderActionBaseView(View):
                     record_audit_event(request, self.audit_action, AUDIT_TARGET_WORK_ORDER,
                                        order.id, order.work_no,
                                        before_value={'status': before_status},
-                                       after_value=_order_audit_summary(order))
+                                       after_value={**_order_audit_summary(order),
+                                                    **(self.audit_extra or {})})
         except fault_services.HealthRecalcLockTimeout as exc:
             return json_response(error=str(exc))
         order.refresh_from_db()
@@ -521,109 +534,20 @@ class WorkOrderActionBaseView(View):
         raise NotImplementedError
 
 
-class WorkOrderDispatchView(WorkOrderActionBaseView):
-    """派发：待派发 → 待接单（必须指定负责人，可指定参与人）。"""
+class WorkOrderCompleteView(WorkOrderActionBaseView):
+    """完成工单：执行中 → 已完成（单账号协同流程，无复核环节）。
 
-    ACTION_NAME = '派发'
-
-    @auth('equipment_lifecycle.work_order.dispatch')
-    def post(self, request, pk):
-        return super().post(request, pk)
-
-    def handle_locked(self, request, order):
-        if order.status != SystemWorkOrder.STATUS_PENDING_DISPATCH:
-            return '只有待派发的工单可以派发'
-        body = _read_json_body(request) or {}
-        form, error = JsonParser(
-            Argument('owner_id', type=int, required=True, help='负责人ID'),
-            Argument('participant_ids', type=list, required=False, default=None),
-        ).parse(body)
-        if error:
-            return error
-        owner = work_order_services.get_tenant_active_user(request.user, pk=form.owner_id)
-        if not owner:
-            return '负责人不存在、已停用或不属于当前租户'
-        participants = []
-        for uid in (form.participant_ids or []):
-            try:
-                uid = int(uid)
-            except (TypeError, ValueError):
-                return '参与人必须以用户ID提交'
-            user = work_order_services.get_tenant_active_user(request.user, pk=uid)
-            if not user:
-                return f'参与人不存在、已停用或不属于当前租户（ID {uid}）'
-            if user.id not in [u.id for u in participants]:
-                participants.append(user)
-        order.status = SystemWorkOrder.STATUS_PENDING_ACCEPT
-        order.owner = owner
-        order.dispatched_by = request.user
-        order.dispatched_at = timezone.now()
-        order.updated_at = timezone.now()
-        order.updated_by = request.user
-        order.save(update_fields=['status', 'owner', 'dispatched_by', 'dispatched_at',
-                                  'updated_at', 'updated_by'])
-        work_order_services.set_participants(order, owner, participants)
-        return None
-
-
-class WorkOrderAcceptView(WorkOrderActionBaseView):
-    """接单：待接单状态内的确认动作（不改状态）。
-
-    - 只有指定负责人或持有 accept 权限的角色可以接单；
-    - 重复接单（同一人）不产生重复副作用；被他人接单后拒绝。
+    - 校验：工单处于执行中、已填写处理结果、存在至少一条处理记录；
+      工时与系统中断时间为选填浮点数（沿用原提交复核字段的校验规则）；
+    - 保存处理结果/工时/系统中断时间，写入 actual_end 与完成操作账号
+      completed_by / completed_at；不写 reviewer / reviewed_at
+      （历史复核语义不得伪造）；
+    - 同事务写入工单完成履历（SystemEvent 'complete'），审计记录原状态、
+      新状态、处理结果是否填写与实际完成时间；
+    - 行锁 + 状态机校验保证并发与幂等：重复提交因状态已非执行中被拒绝。
     """
 
-    ACTION_NAME = '接单'
-    recompute_after = False
-
-    @auth('equipment_lifecycle.work_order.view')
-    def post(self, request, pk):
-        return super().post(request, pk)
-
-    def handle_locked(self, request, order):
-        if order.status != SystemWorkOrder.STATUS_PENDING_ACCEPT:
-            return '只有待接单的工单可以接单'
-        is_owner = order.owner_id == request.user.id
-        if not is_owner and not _require_perm(request.user, 'equipment_lifecycle.work_order.accept'):
-            return '只有指定负责人或授权角色可以接单'
-        if order.accepted_by_id == request.user.id:
-            return None  # 幂等：同一人重复接单无副作用
-        if order.accepted_by_id:
-            return f'工单已由 {order.accepted_by.username} 接单'
-        order.accepted_by = request.user
-        order.accepted_at = timezone.now()
-        order.updated_at = timezone.now()
-        order.updated_by = request.user
-        order.save(update_fields=['accepted_by', 'accepted_at', 'updated_at', 'updated_by'])
-        return None
-
-
-class WorkOrderStartView(WorkOrderActionBaseView):
-    """开始执行：待接单 → 执行中（要求已接单，记录实际开始时间）。"""
-
-    ACTION_NAME = '开始执行'
-
-    @auth('equipment_lifecycle.work_order.execute')
-    def post(self, request, pk):
-        return super().post(request, pk)
-
-    def handle_locked(self, request, order):
-        if order.status != SystemWorkOrder.STATUS_PENDING_ACCEPT:
-            return '只有待接单的工单可以开始执行'
-        if not order.accepted_by_id:
-            return '请先接单，再开始执行'
-        order.status = SystemWorkOrder.STATUS_EXECUTING
-        order.actual_start = timezone.now()
-        order.updated_at = timezone.now()
-        order.updated_by = request.user
-        order.save(update_fields=['status', 'actual_start', 'updated_at', 'updated_by'])
-        return None
-
-
-class WorkOrderSubmitReviewView(WorkOrderActionBaseView):
-    """提交复核：执行中 → 待复核（须已填写处理过程和结果）。"""
-
-    ACTION_NAME = '提交复核'
+    ACTION_NAME = '完成工单'
 
     @auth('equipment_lifecycle.work_order.execute')
     def post(self, request, pk):
@@ -631,7 +555,7 @@ class WorkOrderSubmitReviewView(WorkOrderActionBaseView):
 
     def handle_locked(self, request, order):
         if order.status != SystemWorkOrder.STATUS_EXECUTING:
-            return '只有执行中的工单可以提交复核'
+            return '只有执行中的工单可以完成工单'
         body = _read_json_body(request) or {}
         form, error = JsonParser(
             Argument('process_result', type=str, required=True, help='处理结果'),
@@ -642,82 +566,32 @@ class WorkOrderSubmitReviewView(WorkOrderActionBaseView):
             return error
         process_result = (form.process_result or '').strip()
         if not process_result:
-            return '提交复核前必须填写处理结果'
+            return '完成工单前必须填写处理结果'
         if not order.handling_records.exists():
-            return '提交复核前必须填写处理过程（处理记录）'
+            return '完成工单前必须填写处理过程（处理记录）'
+        now = timezone.now()
         order.process_result = process_result[:2000]
         if form.work_hours is not None:
             order.work_hours = form.work_hours
         if form.interrupt_hours is not None:
             order.interrupt_hours = form.interrupt_hours
-        order.status = SystemWorkOrder.STATUS_PENDING_REVIEW
-        order.updated_at = timezone.now()
+        order.status = SystemWorkOrder.STATUS_COMPLETED
+        order.actual_end = now
+        order.completed_by = request.user
+        order.completed_at = now
+        order.updated_at = now
         order.updated_by = request.user
         order.save(update_fields=['process_result', 'work_hours', 'interrupt_hours',
-                                  'status', 'updated_at', 'updated_by'])
-        return None
-
-
-class WorkOrderReviewPassView(WorkOrderActionBaseView):
-    """复核通过：待复核 → 已完成（记录实际完成时间与复核人）。"""
-
-    ACTION_NAME = '复核通过'
-
-    @auth('equipment_lifecycle.work_order.review')
-    def post(self, request, pk):
-        return super().post(request, pk)
-
-    def handle_locked(self, request, order):
-        if order.status != SystemWorkOrder.STATUS_PENDING_REVIEW:
-            return '只有待复核的工单可以复核通过'
-        body = _read_json_body(request) or {}
-        form, error = JsonParser(
-            Argument('review_result', type=str, required=False, default=''),
-        ).parse(body)
-        if error:
-            return error
-        order.status = SystemWorkOrder.STATUS_COMPLETED
-        order.reviewer = request.user
-        order.reviewed_at = timezone.now()
-        order.review_result = (form.review_result or '').strip()[:1000]
-        order.actual_end = timezone.now()
-        order.return_reason = ''
-        order.updated_at = timezone.now()
-        order.updated_by = request.user
-        order.save(update_fields=['status', 'reviewer', 'reviewed_at', 'review_result',
-                                  'actual_end', 'return_reason', 'updated_at', 'updated_by'])
-        # 步骤 3.4：工单完成履历（目标系统 primary + 受影响登记系统 related）
+                                  'status', 'actual_end', 'completed_by', 'completed_at',
+                                  'updated_at', 'updated_by'])
+        self.audit_extra = {
+            'action': 'complete_work_order',
+            'process_result_filled': True,
+            'actual_end': order.actual_end.strftime('%Y-%m-%d %H:%M:%S'),
+        }
+        # 步骤 3.4：工单完成履历（只落作业系统，同一事务）
         event_services.record_work_order_lifecycle_events(
             order, 'complete', occurred_at=order.actual_end, created_by=request.user)
-        return None
-
-
-class WorkOrderReviewReturnView(WorkOrderActionBaseView):
-    """复核退回：待复核 → 执行中（必须填写退回原因）。"""
-
-    ACTION_NAME = '复核退回'
-
-    @auth('equipment_lifecycle.work_order.review')
-    def post(self, request, pk):
-        return super().post(request, pk)
-
-    def handle_locked(self, request, order):
-        if order.status != SystemWorkOrder.STATUS_PENDING_REVIEW:
-            return '只有待复核的工单可以复核退回'
-        body = _read_json_body(request) or {}
-        form, error = JsonParser(
-            Argument('return_reason', type=str, required=True, help='退回原因'),
-        ).parse(body)
-        if error:
-            return error
-        reason = (form.return_reason or '').strip()
-        if not reason:
-            return '复核退回必须填写原因'
-        order.status = SystemWorkOrder.STATUS_EXECUTING
-        order.return_reason = reason[:500]
-        order.updated_at = timezone.now()
-        order.updated_by = request.user
-        order.save(update_fields=['status', 'return_reason', 'updated_at', 'updated_by'])
         return None
 
 
@@ -1019,7 +893,8 @@ class WorkOrderCandidateSystemsView(View):
 
 
 class WorkOrderCandidateUsersView(View):
-    """工单表单人员候选项：当前租户内有效账户（负责人/参与人只能选本租户用户）。"""
+    """人员候选项：当前租户内有效账户（值班巡检人员选择等场景复用；
+    工单不再指派负责人/参与人，历史派发弹窗已下线）。"""
 
     @auth('equipment_lifecycle.work_order.view')
     def get(self, request):

@@ -110,27 +110,14 @@ describe('工单 Store（步骤 3.3）', () => {
   it('状态动作调用独立动作端点，成功后重新获取真实数据', async () => {
     const {store} = freshStore();
     store.detailId = 5;
-    const detail = {id: 5, status: 'pending_accept'};
+    const detail = {id: 5, status: 'executing'};
     mockHttpPost.mockResolvedValue(detail);
     mockHttpGet.mockResolvedValue({data: [], total: 0});
-    await store.accept();
+    // 完成工单（单账号协同流程：执行中 → 已完成，使用 /complete/ 端点）
+    await store.complete({process_result: '维护完成', work_hours: 3});
     expect(mockHttpPost).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/work-orders/5/accept/', {});
-    await store.dispatch({owner_id: 3, participant_ids: [4]});
-    expect(mockHttpPost).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/work-orders/5/dispatch/',
-      {owner_id: 3, participant_ids: [4]});
-    await store.start();
-    expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/work-orders/5/start/', {});
-    await store.submitReview({process_result: '结果'});
-    expect(mockHttpPost).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/work-orders/5/submit-review/', {process_result: '结果'});
-    await store.reviewPass({review_result: '同意'});
-    expect(mockHttpPost).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/work-orders/5/review-pass/', {review_result: '同意'});
-    await store.reviewReturn({return_reason: '返工'});
-    expect(mockHttpPost).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/work-orders/5/review-return/', {return_reason: '返工'});
+      '/api/equipment-lifecycle/work-orders/5/complete/',
+      {process_result: '维护完成', work_hours: 3});
     await store.close();
     expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/work-orders/5/close/', {});
     await store.cancel({cancel_reason: '计划变更'});
@@ -156,6 +143,9 @@ describe('工单 Store（步骤 3.3）', () => {
       {content: '更正内容', correction_reason: '笔误'});
   });
 
+});
+
+describe('工单 Store（转单与查询）', () => {
   it('故障生成维修工单：POST 来源故障端点并携带幂等令牌', async () => {
     const {store} = freshStore();
     store.convertSource = {id: 33};

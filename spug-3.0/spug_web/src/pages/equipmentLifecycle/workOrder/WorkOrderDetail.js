@@ -3,16 +3,17 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 工单详情抽屉（步骤 3.3，单系统简化）——props 驱动的可复用组件。
+ * 工单详情抽屉（步骤 3.3，单账号协同流程）——props 驱动的可复用组件。
  * 可在工单列表页、故障详情、台账详情、系统详情中嵌入使用（无全局单例依赖）。
- * 包含：基本信息 / 来源追溯（跳转）/ 参与人员 / 处理记录时间线
- * / 派发 / 接单 / 开始执行 / 提交复核 / 复核通过或退回 / 完成 / 关闭 / 取消。
- * 不再提供"受影响系统"页签；所有动作成功后重新获取后端真实数据；
- * 错误提示由 http 拦截器统一弹出。
+ * 包含：基本信息 / 来源追溯（跳转）/ 参与人员（历史）/ 处理记录时间线
+ * / 完成工单 / 关闭 / 取消。
+ * 派发/接单/开始执行/提交复核/复核通过或退回已下线；历史工单的
+ * 负责人/派发/接单/复核信息以"历史流程信息"分区展示；
+ * 所有动作成功后重新获取后端真实数据；错误提示由 http 拦截器统一弹出。
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { Drawer, Tabs, Descriptions, Tag, Spin, Button, Timeline, Modal, Form,
-  Input, Select, DatePicker, InputNumber, message, Empty } from 'antd';
+  Input, DatePicker, InputNumber, message, Empty } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import { http, history } from 'libs';
@@ -26,14 +27,15 @@ const {TextArea} = Input;
 const {TabPane} = Tabs;
 const API_PREFIX = '/api/equipment-lifecycle';
 
+// 历史兼容状态（旧流程）：仅保留受控取消，不再提供派发/接单/复核操作
+const LEGACY_STATUSES = ['pending_dispatch', 'pending_accept', 'pending_review'];
+
 export default function WorkOrderDetail({woId, visible, onClose}) {
   const [detail, setDetail] = useState({});
   const [records, setRecords] = useState([]);
   const [fetching, setFetching] = useState(false);
   const [recordsFetching, setRecordsFetching] = useState(false);
   const [acting, setActing] = useState(false);
-  const [systems, setSystems] = useState([]);
-  const [users, setUsers] = useState([]);
 
   const fetchDetail = useCallback((id) => {
     if (!id) return Promise.resolve();
@@ -58,9 +60,6 @@ export default function WorkOrderDetail({woId, visible, onClose}) {
       setRecords([]);
       fetchDetail(woId);
       fetchRecords(woId);
-      http.get(`${API_PREFIX}/work-orders/candidate-users/`)
-        .then(res => setUsers(res.data || []))
-        .catch(() => {});
     }
   }, [visible, woId, fetchDetail, fetchRecords]);
 
@@ -94,8 +93,6 @@ export default function WorkOrderDetail({woId, visible, onClose}) {
   };
 
   const status = detail.status;
-  const editable = status === 'pending_dispatch';
-  const [dispatchVisible, setDispatchVisible] = useState(false);
 
   return (
     <Drawer
@@ -106,12 +103,7 @@ export default function WorkOrderDetail({woId, visible, onClose}) {
       destroyOnClose
     >
       <Spin spinning={fetching}>
-        <StatusActionBar
-          detail={detail}
-          acting={acting}
-          runAction={runAction}
-          onDispatch={setDispatchVisible}
-        />
+        <StatusActionBar detail={detail} acting={acting} runAction={runAction}/>
         <Tabs defaultActiveKey="basic">
           <TabPane tab="基本信息" key="basic">
             {renderBasic(detail, gotoFault, gotoLedger, gotoInspectionSheet)}
@@ -133,13 +125,6 @@ export default function WorkOrderDetail({woId, visible, onClose}) {
           </TabPane>
         </Tabs>
       </Spin>
-      <DispatchModal
-        visible={dispatchVisible}
-        setVisible={setDispatchVisible}
-        runAction={runAction}
-        acting={acting}
-        users={users}
-      />
     </Drawer>
   );
 }
@@ -148,23 +133,17 @@ async function runActionRawPost(woId, path, payload) {
   await http.post(`${API_PREFIX}/work-orders/${woId}/${path}/`, payload);
 }
 
-/** 状态动作按钮栏：按工单状态显示派发/接单/复核/关闭/取消入口。 */
-function StatusActionBar({detail, acting, runAction, onDispatch}) {
+/** 状态动作按钮栏：执行中→完成工单/取消；已完成→关闭工单；历史兼容状态→仅取消。 */
+function StatusActionBar({detail, acting, runAction}) {
   const status = detail.status;
   return (
     <div style={{marginBottom: 12}}>
-      {status === 'pending_dispatch' && (
-        <AuthButton
-          auth={WO_PERM.DISPATCH}
-          type="primary"
-          loading={acting}
-          onClick={() => onDispatch(true)}
-        >
-          派发
-        </AuthButton>
+      {status === 'executing' && (
+        <span>
+          <CompleteButton runAction={runAction} acting={acting}/>
+          <CancelButton order={detail} runAction={runAction} acting={acting}/>
+        </span>
       )}
-      {status === 'pending_accept' && <AcceptButtons runAction={runAction} acting={acting}/>}
-      {status === 'pending_review' && <ReviewButtons runAction={runAction} acting={acting}/>}
       {status === 'completed' && (
         <AuthButton
           auth={WO_PERM.CLOSE}
@@ -175,101 +154,121 @@ function StatusActionBar({detail, acting, runAction, onDispatch}) {
           关闭工单
         </AuthButton>
       )}
-      {['pending_dispatch', 'pending_accept', 'executing', 'pending_review'].includes(status) && (
-        <CancelButton order={detail} runAction={runAction} acting={acting}/>
-      )}
+      {LEGACY_STATUSES.includes(status) && <CancelButton order={detail} runAction={runAction} acting={acting}/>}
     </div>
   );
 }
 
 function renderBasic(d, gotoFault, gotoLedger, gotoInspectionSheet) {
   return (
-    <Descriptions bordered size="small" column={2}>
-      <Descriptions.Item label="工单编号">{d.work_no}</Descriptions.Item>
-      <Descriptions.Item label="状态">
-        <Tag color={WO_STATUS_COLOR[d.status]}>{WO_STATUS_TEXT[d.status] || d.status}</Tag>
-      </Descriptions.Item>
-      <Descriptions.Item label="工单标题" span={2}>{d.title}</Descriptions.Item>
-      <Descriptions.Item label="工单类型">{WORK_TYPE_TEXT[d.work_type] || d.work_type}</Descriptions.Item>
-      <Descriptions.Item label="优先级">
-        <Tag color={PRIORITY_COLOR[d.priority]}>{PRIORITY_TEXT[d.priority] || d.priority}</Tag>
-      </Descriptions.Item>
-      <Descriptions.Item label="作业系统">
-        {d.system_name || ''}
-      </Descriptions.Item>
-      <Descriptions.Item label="安装地点">{d.system_location || '-'}</Descriptions.Item>
-      <Descriptions.Item label="作业期间影响系统运行">
-        <Tag color={d.affects_system_operation ? 'geekblue' : 'default'}>
-          {d.affects_system_operation ? '影响运行' : '不影响运行'}
-        </Tag>
-      </Descriptions.Item>
-      <Descriptions.Item label="作业位置">{d.work_location || '-'}</Descriptions.Item>
-      <Descriptions.Item label="作业对象">
-        {[d.work_object_desc, d.work_component_name && `组成项：${d.work_component_name}`]
-          .filter(Boolean).join('；') || '-'}
-      </Descriptions.Item>
-      <Descriptions.Item label="来源类型">{WO_SOURCE_TEXT[d.source_type] || d.source_type}</Descriptions.Item>
-      <Descriptions.Item label="来源单据">
-        {d.source_type === 'fault' && d.source_fault ? (
-          <Button type="link" size="small" style={{padding: 0}} onClick={() => gotoFault(d.source_fault)}>
-            {d.source_no || '查看来源故障'}
-          </Button>
-        ) : d.source_type === 'ledger_item' && d.source_ledger ? (
-          <Button type="link" size="small" style={{padding: 0}}
-                  onClick={() => gotoLedger(d.source_ledger_type, d.source_ledger)}>
-            {d.source_no || '查看来源台账'}
-          </Button>
-        ) : d.source_type === 'ledger_item' && d.source_ledger_legacy && d.source_ledger_no ? (
-          <span>{d.source_ledger_no}（旧巡检台账（历史）已删除，来源为历史台账明细）</span>
-        ) : d.source_type === 'inspection_record' && d.source_inspection_sheet ? (
-          <Button type="link" size="small" style={{padding: 0}}
-                  onClick={() => gotoInspectionSheet(d.source_inspection_sheet)}>
-            {d.source_inspection_sheet_no || '查看来源巡检单'}
-          </Button>
-        ) : (d.source_no || '-')}
-      </Descriptions.Item>
-      <Descriptions.Item label="负责人">{d.owner_name || '-'}</Descriptions.Item>
-      <Descriptions.Item label="派发">
-        {d.dispatched_by_name ? `${d.dispatched_by_name}（${d.dispatched_at || ''}）` : '-'}
-      </Descriptions.Item>
-      <Descriptions.Item label="接单">
-        {d.accepted_by_name ? `${d.accepted_by_name}（${d.accepted_at || ''}）` : '-'}
-      </Descriptions.Item>
-      <Descriptions.Item label="计划开始">{d.planned_start || '-'}</Descriptions.Item>
-      <Descriptions.Item label="计划结束">{d.planned_end || '-'}</Descriptions.Item>
-      <Descriptions.Item label="实际开始">{d.actual_start || '-'}</Descriptions.Item>
-      <Descriptions.Item label="实际完成">{d.actual_end || '-'}</Descriptions.Item>
-      <Descriptions.Item label="作业要求" span={2}>{d.work_requirement || '-'}</Descriptions.Item>
-      <Descriptions.Item label="作业步骤" span={2}>{d.work_steps || '-'}</Descriptions.Item>
-      <Descriptions.Item label="处理结果" span={2}>{d.process_result || '-'}</Descriptions.Item>
-      <Descriptions.Item label="工时（小时）">{d.work_hours ?? '-'}</Descriptions.Item>
-      <Descriptions.Item label="系统中断（小时）">{d.interrupt_hours ?? '-'}</Descriptions.Item>
-      <Descriptions.Item label="材料说明" span={2}>{d.material_note || '-'}</Descriptions.Item>
-      <Descriptions.Item label="复核">
-        {d.reviewer_name ? `${d.reviewer_name}（${d.reviewed_at || ''}）` : '-'}
-      </Descriptions.Item>
-      <Descriptions.Item label="复核结果">{d.review_result || '-'}</Descriptions.Item>
-      {d.status === 'executing' && d.return_reason && (
-        <Descriptions.Item label="退回原因" span={2}>
-          <span style={{color: '#fa8c16'}}>{d.return_reason}</span>
+    <div>
+      <Descriptions bordered size="small" column={2}>
+        <Descriptions.Item label="工单编号">{d.work_no}</Descriptions.Item>
+        <Descriptions.Item label="状态">
+          <Tag color={WO_STATUS_COLOR[d.status]}>{WO_STATUS_TEXT[d.status] || d.status}</Tag>
         </Descriptions.Item>
-      )}
-      {d.status === 'cancelled' && (
-        <Descriptions.Item label="取消原因" span={2}>
-          {d.cancelled_by_name ? `${d.cancelled_by_name}（${d.cancelled_at || ''}）：` : ''}
-          {d.cancel_reason || '-'}
+        <Descriptions.Item label="工单标题" span={2}>{d.title}</Descriptions.Item>
+        <Descriptions.Item label="工单类型">{WORK_TYPE_TEXT[d.work_type] || d.work_type}</Descriptions.Item>
+        <Descriptions.Item label="优先级">
+          <Tag color={PRIORITY_COLOR[d.priority]}>{PRIORITY_TEXT[d.priority] || d.priority}</Tag>
         </Descriptions.Item>
-      )}
-      <Descriptions.Item label="创建人">{d.created_by_name}</Descriptions.Item>
-      <Descriptions.Item label="创建时间">{d.created_at}</Descriptions.Item>
-    </Descriptions>
+        <Descriptions.Item label="作业系统">
+          {d.system_name || ''}
+        </Descriptions.Item>
+        <Descriptions.Item label="安装地点">{d.system_location || '-'}</Descriptions.Item>
+        <Descriptions.Item label="作业期间影响系统运行">
+          <Tag color={d.affects_system_operation ? 'geekblue' : 'default'}>
+            {d.affects_system_operation ? '影响运行' : '不影响运行'}
+          </Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label="作业位置">{d.work_location || '-'}</Descriptions.Item>
+        <Descriptions.Item label="作业对象">
+          {[d.work_object_desc, d.work_component_name && `组成项：${d.work_component_name}`]
+            .filter(Boolean).join('；') || '-'}
+        </Descriptions.Item>
+        <Descriptions.Item label="来源类型">{WO_SOURCE_TEXT[d.source_type] || d.source_type}</Descriptions.Item>
+        <Descriptions.Item label="来源单据">
+          {d.source_type === 'fault' && d.source_fault ? (
+            <Button type="link" size="small" style={{padding: 0}} onClick={() => gotoFault(d.source_fault)}>
+              {d.source_no || '查看来源故障'}
+            </Button>
+          ) : d.source_type === 'ledger_item' && d.source_ledger ? (
+            <Button type="link" size="small" style={{padding: 0}}
+                    onClick={() => gotoLedger(d.source_ledger_type, d.source_ledger)}>
+              {d.source_no || '查看来源台账'}
+            </Button>
+          ) : d.source_type === 'ledger_item' && d.source_ledger_legacy && d.source_ledger_no ? (
+            <span>{d.source_ledger_no}（旧巡检台账（历史）已删除，来源为历史台账明细）</span>
+          ) : d.source_type === 'inspection_record' && d.source_inspection_sheet ? (
+            <Button type="link" size="small" style={{padding: 0}}
+                    onClick={() => gotoInspectionSheet(d.source_inspection_sheet)}>
+              {d.source_inspection_sheet_no || '查看来源巡检单'}
+            </Button>
+          ) : (d.source_no || '-')}
+        </Descriptions.Item>
+        <Descriptions.Item label="计划开始">{d.planned_start || '-'}</Descriptions.Item>
+        <Descriptions.Item label="计划结束">{d.planned_end || '-'}</Descriptions.Item>
+        <Descriptions.Item label="实际开始">{d.actual_start || '-'}</Descriptions.Item>
+        <Descriptions.Item label="实际完成">{d.actual_end || '-'}</Descriptions.Item>
+        <Descriptions.Item label="作业要求" span={2}>{d.work_requirement || '-'}</Descriptions.Item>
+        <Descriptions.Item label="作业步骤" span={2}>{d.work_steps || '-'}</Descriptions.Item>
+        <Descriptions.Item label="处理结果" span={2}>{d.process_result || '-'}</Descriptions.Item>
+        <Descriptions.Item label="工时（小时）">{d.work_hours ?? '-'}</Descriptions.Item>
+        <Descriptions.Item label="系统中断（小时）">{d.interrupt_hours ?? '-'}</Descriptions.Item>
+        <Descriptions.Item label="材料说明" span={2}>{d.material_note || '-'}</Descriptions.Item>
+        <Descriptions.Item label="完成账号">{d.completed_by_name || '-'}</Descriptions.Item>
+        <Descriptions.Item label="完成时间">{d.completed_at || '-'}</Descriptions.Item>
+        {d.status === 'cancelled' && (
+          <Descriptions.Item label="取消原因" span={2}>
+            {d.cancelled_by_name ? `${d.cancelled_by_name}（${d.cancelled_at || ''}）：` : ''}
+            {d.cancel_reason || '-'}
+          </Descriptions.Item>
+        )}
+        <Descriptions.Item label="创建人">{d.created_by_name}</Descriptions.Item>
+        <Descriptions.Item label="创建时间">{d.created_at}</Descriptions.Item>
+      </Descriptions>
+      <LegacyProcessSection d={d}/>
+    </div>
+  );
+}
+
+/** 历史流程信息（旧流程派发/接单/复核/退回），仅历史工单有数据时展示。 */
+function LegacyProcessSection({d}) {
+  const hasLegacy = !!(d.owner_name || d.dispatched_by_name || d.accepted_by_name
+    || d.reviewer_name || d.review_result || d.return_reason);
+  if (!hasLegacy) return null;
+  return (
+    <div style={{marginTop: 16}}>
+      <div style={{color: '#999', marginBottom: 8}}>历史流程信息（旧流程，仅供参考）</div>
+      <Descriptions bordered size="small" column={2}>
+        <Descriptions.Item label="负责人">{d.owner_name || '-'}</Descriptions.Item>
+        <Descriptions.Item label="派发">
+          {d.dispatched_by_name ? `${d.dispatched_by_name}（${d.dispatched_at || ''}）` : '-'}
+        </Descriptions.Item>
+        <Descriptions.Item label="接单">
+          {d.accepted_by_name ? `${d.accepted_by_name}（${d.accepted_at || ''}）` : '-'}
+        </Descriptions.Item>
+        <Descriptions.Item label="复核">
+          {d.reviewer_name ? `${d.reviewer_name}（${d.reviewed_at || ''}）` : '-'}
+        </Descriptions.Item>
+        {d.review_result && (
+          <Descriptions.Item label="复核结果" span={2}>{d.review_result}</Descriptions.Item>
+        )}
+        {d.return_reason && (
+          <Descriptions.Item label="退回原因" span={2}>
+            <span style={{color: '#fa8c16'}}>{d.return_reason}</span>
+          </Descriptions.Item>
+        )}
+      </Descriptions>
+    </div>
   );
 }
 
 function renderParticipants(d) {
   const rows = d.participants || [];
   if (!rows.length) {
-    return <Empty description="尚未派发，暂无参与人员" image={Empty.PRESENTED_IMAGE_SIMPLE}/>;
+    return <Empty description="无参与人员（新流程不再指派参与人，历史工单保留展示）"
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}/>;
   }
   return (
     <Descriptions bordered size="small" column={1}>
@@ -287,116 +286,71 @@ function renderParticipants(d) {
 
 /* ========== 动作按钮与弹窗 ========== */
 
-function AcceptButtons({runAction, acting}) {
+/** 完成工单：沿用原提交复核表单字段（处理结果必填，工时/系统中断选填）。 */
+function CompleteButton({runAction, acting}) {
+  const [visible, setVisible] = useState(false);
   return (
     <span>
       <AuthButton
-        auth={WO_PERM.ACCEPT}
+        auth={WO_PERM.EXECUTE}
         type="primary"
         loading={acting}
-        onClick={() => runAction('accept').then(() => message.success('接单成功')).catch(() => {})}
+        onClick={() => setVisible(true)}
       >
-        接单
+        完成工单
       </AuthButton>
-      <StartButton runAction={runAction} acting={acting}/>
+      <CompleteModal
+        visible={visible}
+        acting={acting}
+        runAction={runAction}
+        onClose={() => setVisible(false)}
+      />
     </span>
   );
 }
 
-function StartButton({runAction, acting}) {
-  return (
-    <AuthButton
-      auth={WO_PERM.EXECUTE}
-      type="primary"
-      loading={acting}
-      style={{marginLeft: 8}}
-      onClick={() => runAction('start').then(() => message.success('已开始执行')).catch(() => {})}
-    >
-      开始执行
-    </AuthButton>
-  );
-}
-
-function ReviewButtons({runAction, acting}) {
-  const [passVisible, setPassVisible] = useState(false);
-  const [returnVisible, setReturnVisible] = useState(false);
-  return (
-    <span>
-      <AuthButton auth={WO_PERM.REVIEW} type="primary" loading={acting}
-                  onClick={() => setPassVisible(true)}>
-        复核通过
-      </AuthButton>
-      <AuthButton auth={WO_PERM.REVIEW} style={{marginLeft: 8}} loading={acting}
-                  onClick={() => setReturnVisible(true)}>
-        复核退回
-      </AuthButton>
-      <ReviewPassModal visible={passVisible} acting={acting} runAction={runAction}
-                       onClose={() => setPassVisible(false)}/>
-      <ReviewReturnModal visible={returnVisible} acting={acting} runAction={runAction}
-                         onClose={() => setReturnVisible(false)}/>
-    </span>
-  );
-}
-
-function ReviewPassModal({visible, acting, runAction, onClose}) {
+function CompleteModal({visible, acting, runAction, onClose}) {
   const [form] = Form.useForm();
+  useEffect(() => {
+    if (visible) form.resetFields();
+  }, [visible, form]);
   return (
     <Modal
       visible={visible}
-      title="复核通过"
+      title="完成工单"
       confirmLoading={acting}
+      destroyOnClose
       onCancel={() => {onClose(); form.resetFields();}}
       onOk={() => {
         form.validateFields().then(values => {
-          runAction('review-pass', {review_result: values.review_result || ''})
-            .then(() => {
-              message.success('复核通过，工单已完成');
-              onClose();
-              form.resetFields();
-            })
-            .catch(() => {});
+          runAction('complete', {
+            process_result: values.process_result,
+            work_hours: values.work_hours ?? null,
+            interrupt_hours: values.interrupt_hours ?? null,
+          }).then(() => {
+            message.success('工单已完成');
+            onClose();
+            form.resetFields();
+          }).catch(() => {});
         }).catch(() => {});
       }}
     >
-      <p>复核通过后工单记为"已完成"，记录实际完成时间与复核人，之后可关闭工单。</p>
+      <p>完成后工单记为"已完成"，记录实际完成时间与完成账号；之后可关闭工单归档。</p>
       <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}>
-        <Form.Item name="review_result" label="复核结果">
-          <TextArea rows={3} maxLength={1000} placeholder="复核意见（选填）"/>
+        <Form.Item
+          name="process_result"
+          label="处理结果"
+          rules={[{required: true, message: '请填写处理结果'}]}
+        >
+          <TextArea rows={4} maxLength={2000} placeholder="请填写处理结果（必填）"/>
+        </Form.Item>
+        <Form.Item name="work_hours" label="工时">
+          <InputNumber min={0} max={999} step={0.5} style={{width: '100%'}} placeholder="小时（选填）"/>
+        </Form.Item>
+        <Form.Item name="interrupt_hours" label="系统中断时间">
+          <InputNumber min={0} max={999} step={0.5} style={{width: '100%'}} placeholder="小时（选填）"/>
         </Form.Item>
       </Form>
-    </Modal>
-  );
-}
-
-function ReviewReturnModal({visible, acting, runAction, onClose}) {
-  const [reason, setReason] = useState('');
-  return (
-    <Modal
-      visible={visible}
-      title="复核退回"
-      confirmLoading={acting}
-      onCancel={() => {onClose(); setReason('');}}
-      onOk={() => {
-        if (!reason.trim()) {
-          message.warning('复核退回必须填写原因');
-          return;
-        }
-        runAction('review-return', {return_reason: reason.trim()})
-          .then(() => {
-            message.success('已退回执行中');
-            onClose();
-            setReason('');
-          })
-          .catch(() => {});
-      }}
-    >
-      <p>退回后工单回到"执行中"，可继续追加处理记录并重新提交复核。</p>
-      <Input.TextArea
-        rows={3}
-        value={reason}
-        onChange={e => setReason(e.target.value)}
-        placeholder="请填写退回原因（必填）"
-      />
     </Modal>
   );
 }
@@ -406,7 +360,7 @@ function CancelButton({order, runAction, acting}) {
   const [reason, setReason] = useState('');
   return (
     <span style={{marginLeft: 8}}>
-      <AuthButton auth={WO_PERM.DEL} danger onClick={() => setVisible(true)}>取消</AuthButton>
+      <AuthButton auth={WO_PERM.DEL} danger onClick={() => setVisible(true)}>取消工单</AuthButton>
       <Modal
         visible={visible}
         title="取消确认"
@@ -434,66 +388,6 @@ function CancelButton({order, runAction, acting}) {
         />
       </Modal>
     </span>
-  );
-}
-
-/* ========== 派发弹窗（负责人 + 参与人） ========== */
-
-function DispatchModal({visible, setVisible, runAction, acting, users}) {
-  const [form] = Form.useForm();
-  useEffect(() => {
-    if (visible) form.resetFields();
-  }, [visible, form]);
-  return (
-    <Modal
-      visible={visible}
-      title="派发工单"
-      confirmLoading={acting}
-      onCancel={() => setVisible(false)}
-      onOk={() => {
-        form.validateFields().then(values => {
-          runAction('dispatch', {
-            owner_id: values.owner_id,
-            participant_ids: values.participant_ids || [],
-          }).then(() => {
-            message.success('派发成功，等待接单');
-            setVisible(false);
-          }).catch(() => {});
-        }).catch(() => {});
-      }}
-    >
-      <p>派发后工单进入"待接单"，必须指定负责人；负责人或授权角色接单后才能开始执行。</p>
-      <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}>
-        <Form.Item
-          name="owner_id"
-          label="负责人"
-          rules={[{required: true, message: '请选择负责人'}]}
-        >
-          <Select showSearch optionFilterProp="children" placeholder="请选择负责人">
-            {(users || []).map(u => (
-              <Select.Option value={u.id} key={u.id}>
-                {u.nickname || u.username}
-              </Select.Option>
-            ))}
-          </Select>
-        </Form.Item>
-        <Form.Item name="participant_ids" label="参与人">
-          <Select
-            mode="multiple"
-            showSearch
-            optionFilterProp="children"
-            placeholder="请选择参与人（可多选，选填）"
-            allowClear
-          >
-            {(users || []).map(u => (
-              <Select.Option value={u.id} key={u.id}>
-                {u.nickname || u.username}
-              </Select.Option>
-            ))}
-          </Select>
-        </Form.Item>
-      </Form>
-    </Modal>
   );
 }
 

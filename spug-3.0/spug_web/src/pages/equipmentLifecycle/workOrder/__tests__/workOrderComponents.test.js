@@ -1,10 +1,10 @@
 /**
- * 设备全生命周期（步骤 3.3，单系统简化）工单组件渲染测试
+ * 设备全生命周期（步骤 3.3，单账号协同流程）工单组件渲染测试
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
  * - 工单详情抽屉展示作业系统（名称+地点快照）与影响运行标记、状态标签、来源单据
- * - 详情不再提供"受影响系统"页签
- * - 派发/接单/开始执行等按钮随状态与权限切换
+ * - 详情不再提供"受影响系统"页签，不再提供派发/接单/开始执行/提交复核/复核按钮
+ * - 执行中显示完成工单/取消工单，已完成显示关闭工单，历史兼容状态不崩溃
  * - 故障详情"关联工单"页签展示该故障生成的工单（允许多张）
  * - 台账异常明细处置状态标签与可转单操作按处置状态切换
  * - 所有请求只指向 equipment-lifecycle 前缀（不使用旧 fault 接口）
@@ -18,6 +18,9 @@ const mockHttpPost = jest.fn();
 const mockHttpPut = jest.fn();
 const mockHttpDelete = jest.fn();
 
+// 权限可按用例切换（默认超管全可见）
+const mockPermState = {isSuper: true, granted: true};
+
 jest.mock('libs', () => ({
   http: {
     get: mockHttpGet,
@@ -25,8 +28,8 @@ jest.mock('libs', () => ({
     put: mockHttpPut,
     delete: mockHttpDelete,
   },
-  hasPermission: jest.fn(() => true),
-  Permission: {isSuper: true},
+  hasPermission: jest.fn(() => mockPermState.granted),
+  Permission: {get isSuper() {return mockPermState.isSuper;}},
   history: {push: jest.fn()},
   X_TOKEN: '',
   exportFile: jest.fn(),
@@ -52,22 +55,29 @@ afterEach(() => {
   ReactDOM.unmountComponentAtNode(container);
   document.body.removeChild(container);
   [mockHttpGet, mockHttpPost, mockHttpPut, mockHttpDelete].forEach(fn => fn.mockReset());
+  mockPermState.isSuper = true;
+  mockPermState.granted = true;
 });
 
 function flush() {
   return new Promise(resolve => setTimeout(resolve, 0));
 }
 
-describe('工单详情抽屉', () => {
-  const detail = {
+function findButtonByText(text) {
+  // 抽屉/弹窗渲染在 body portal 下，需全局查找按钮
+  return Array.from(document.querySelectorAll('button'))
+    .find(btn => btn.textContent.replace(/\s+/g, '') === text);
+}
+
+const detail = {
     id: 5,
     work_no: 'WO20260919-0001',
     title: '主用链路抢修',
     work_type: 'repair',
     work_type_text: '故障维修',
     priority: 'high',
-    status: 'pending_dispatch',
-    status_text: '待派发',
+    status: 'executing',
+    status_text: '执行中',
     source_type: 'fault',
     source_no: 'GZ20260919-0001',
     source_fault: 33,
@@ -82,23 +92,21 @@ describe('工单详情抽屉', () => {
     process_result: '',
   };
 
-  function renderDetail(props) {
-    const WorkOrderDetail = require('../WorkOrderDetail').default;
-    act(() => {
-      ReactDOM.render(
-        <WorkOrderDetail woId={5} visible {...props}/>,
-        container,
-      );
-    });
-  }
+function renderDetail(props) {
+  const WorkOrderDetail = require('../WorkOrderDetail').default;
+  act(() => {
+    ReactDOM.render(
+      <WorkOrderDetail woId={5} visible {...props}/>,
+      container,
+    );
+  });
+}
 
-  it('展示作业系统快照、影响运行标记、状态与来源单据，待派发状态显示派发按钮', async () => {
+describe('工单详情抽屉（基本信息渲染）', () => {
+  it('展示作业系统快照、影响运行标记、状态与来源单据，执行中显示完成工单/取消工单', async () => {
     mockHttpGet.mockImplementation((url) => {
       if (url.includes('/work-orders/5/handling-records/')) {
         return Promise.resolve({data: [], total: 0});
-      }
-      if (url.includes('/work-orders/candidate-users/')) {
-        return Promise.resolve({data: []});
       }
       return Promise.resolve(detail);
     });
@@ -112,19 +120,37 @@ describe('工单详情抽屉', () => {
     expect(text).toContain('机房A');
     expect(text).toContain('作业期间影响系统运行');
     expect(text).toContain('影响运行');
-    expect(text).toContain('待派发');
-    expect(text).toContain('派发');
+    expect(text).toContain('执行中');
+    const flat = text.replace(/\s+/g, '');
+    expect(flat).toContain('完成工单');
+    expect(flat).toContain('取消工单');
     // 详情请求指向工单端点
     expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/work-orders/5/');
+  });
+
+  it('执行中不再显示派发/接单/开始执行/提交复核/复核通过/复核退回按钮', async () => {
+    mockHttpGet.mockImplementation((url) => {
+      if (url.includes('/work-orders/5/handling-records/')) {
+        return Promise.resolve({data: [], total: 0});
+      }
+      return Promise.resolve(detail);
+    });
+    renderDetail({});
+    await act(flush);
+    await act(flush);
+    const flat = document.body.textContent.replace(/\s+/g, '');
+    expect(flat).not.toContain('派发');
+    expect(flat).not.toContain('接单');
+    expect(flat).not.toContain('开始执行');
+    expect(flat).not.toContain('提交复核');
+    expect(flat).not.toContain('复核通过');
+    expect(flat).not.toContain('复核退回');
   });
 
   it('不再提供"受影响系统"页签', async () => {
     mockHttpGet.mockImplementation((url) => {
       if (url.includes('/work-orders/5/handling-records/')) {
         return Promise.resolve({data: [], total: 0});
-      }
-      if (url.includes('/work-orders/candidate-users/')) {
-        return Promise.resolve({data: []});
       }
       return Promise.resolve({...detail, affected_systems: [
         {id: 1, system: 9, system_name: '威海监控系统', system_code: 'SYS-A2'},
@@ -140,24 +166,60 @@ describe('工单详情抽屉', () => {
     expect(tabs.some(t => t.includes('参与人员'))).toBe(true);
     expect(tabs.some(t => t.includes('处理记录'))).toBe(true);
   });
+});
 
-  it('执行中状态显示取消入口，不显示派发/开始执行按钮', async () => {
+describe('工单详情抽屉（状态与历史兼容）', () => {
+  it('已完成状态显示关闭工单；历史待复核状态不崩溃且仅保留取消', async () => {
     mockHttpGet.mockImplementation((url) => {
       if (url.includes('/work-orders/5/handling-records/')) {
         return Promise.resolve({data: [], total: 0});
       }
-      if (url.includes('/work-orders/candidate-users/')) {
-        return Promise.resolve({data: []});
-      }
-      return Promise.resolve({...detail, status: 'executing', status_text: '执行中'});
+      return Promise.resolve({...detail, status: 'completed', status_text: '已完成',
+        process_result: '已更换光模块'});
     });
     renderDetail({});
     await act(flush);
     await act(flush);
-    const text = document.body.textContent.replace(/\s+/g, '');
-    expect(text).toContain('执行中');
-    expect(text).toContain('取消');
-    expect(text).not.toContain('开始执行');
+    let flat = document.body.textContent.replace(/\s+/g, '');
+    expect(flat).toContain('已完成');
+    expect(flat).toContain('关闭工单');
+    expect(findButtonByText('完成工单')).toBeFalsy();
+
+    // 历史待复核状态：页面正常渲染（不崩溃），无复核按钮，仅受控取消
+    ReactDOM.unmountComponentAtNode(container);
+    mockHttpGet.mockImplementation((url) => {
+      if (url.includes('/work-orders/5/handling-records/')) {
+        return Promise.resolve({data: [], total: 0});
+      }
+      return Promise.resolve({...detail, status: 'pending_review', status_text: '待复核'});
+    });
+    renderDetail({});
+    await act(flush);
+    await act(flush);
+    flat = document.body.textContent.replace(/\s+/g, '');
+    expect(flat).toContain('待复核（历史）');
+    expect(flat).toContain('取消工单');
+    expect(flat).not.toContain('复核通过');
+    expect(flat).not.toContain('复核退回');
+    expect(flat).not.toContain('关闭工单');
+  });
+
+  it('历史工单的派发/接单/复核信息以"历史流程信息"分区展示且不崩溃', async () => {
+    mockHttpGet.mockImplementation((url) => {
+      if (url.includes('/work-orders/5/handling-records/')) {
+        return Promise.resolve({data: [], total: 0});
+      }
+      return Promise.resolve({...detail, status: 'closed', status_text: '已关闭',
+        owner_name: '李四', dispatched_by_name: '李四', dispatched_at: '2026-09-01 08:00',
+        accepted_by_name: '李四', accepted_at: '2026-09-01 08:10',
+        reviewer_name: '李四', reviewed_at: '2026-09-02 09:00'});
+    });
+    renderDetail({});
+    await act(flush);
+    await act(flush);
+    const flat = document.body.textContent.replace(/\s+/g, '');
+    expect(flat).toContain('历史流程信息');
+    expect(flat).toContain('李四');
   });
 
   it('处理记录时间线执行中可追加，更正留痕可见（Tabs 懒渲染，直接单测时间线）', async () => {

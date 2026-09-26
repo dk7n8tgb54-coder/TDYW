@@ -1029,10 +1029,14 @@ WORK_ORDER_TYPE_VALUES = [
 ]
 
 # 工单状态（后端状态机：STATE_TRANSITIONS）
-WORK_ORDER_STATUS_PENDING_DISPATCH = 'pending_dispatch'  # 待派发
-WORK_ORDER_STATUS_PENDING_ACCEPT = 'pending_accept'      # 待接单
+# 单账号协同流程（2026-09）：新工单创建即执行中，不再有派发/接单/复核环节；
+# pending_dispatch / pending_accept / pending_review 仅为历史数据兼容保留
+# （迁移 0033 已将 pending_dispatch/pending_accept 归入 executing，
+# pending_review 由人工迁移命令处理，不自动完成）。
+WORK_ORDER_STATUS_PENDING_DISPATCH = 'pending_dispatch'  # 待派发（历史）
+WORK_ORDER_STATUS_PENDING_ACCEPT = 'pending_accept'      # 待接单（历史）
 WORK_ORDER_STATUS_EXECUTING = 'executing'                # 执行中
-WORK_ORDER_STATUS_PENDING_REVIEW = 'pending_review'      # 待复核
+WORK_ORDER_STATUS_PENDING_REVIEW = 'pending_review'      # 待复核（历史）
 WORK_ORDER_STATUS_COMPLETED = 'completed'                # 已完成
 WORK_ORDER_STATUS_CLOSED = 'closed'                      # 已关闭
 WORK_ORDER_STATUS_CANCELLED = 'cancelled'                # 已取消
@@ -1089,13 +1093,13 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
       来源一律用真实外键（PROTECT），不保存自由文本冒充来源。
     一次实际工作涉及多个独立系统时分别建立工单，不允许一单关联多系统。
 
-    状态流转（后端校验，动作接口触发）：
-    待派发 →(dispatch)→ 待接单 →(start)→ 执行中 →(submit)→ 待复核
-      →(review pass)→ 已完成 →(close)→ 已关闭；
-    待复核 →(review return)→ 执行中；
-    待派发/待接单/执行中/待复核 →(cancel, del 权限)→ 已取消。
-    接单（accept）为待接单状态内的确认动作（记录接单人），不改变状态；
-    已关闭/已取消为终态，不参与健康状态计算。
+    状态流转（后端校验，动作接口触发，单账号协同流程）：
+    创建即执行中（创建时自动记录实际开始时间）→(complete)→ 已完成
+      →(close)→ 已关闭；
+    执行中 →(cancel, del 权限)→ 已取消；
+    已关闭/已取消为终态，不参与健康状态计算；
+    pending_dispatch / pending_accept / pending_review 为历史兼容状态，
+    仅供历史数据展示与受控取消，不再产生新工单。
     """
 
     STATUS_PENDING_DISPATCH = WORK_ORDER_STATUS_PENDING_DISPATCH
@@ -1116,19 +1120,19 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
     )
     STATUS_TEXT_MAP = dict(STATUS_CHOICES)
 
-    # 允许的状态流转（后端强制校验）
+    # 允许的状态流转（后端强制校验；历史状态仅保留受控取消出口）
     STATE_TRANSITIONS = {
-        STATUS_PENDING_DISPATCH: {STATUS_PENDING_ACCEPT, STATUS_CANCELLED},
-        STATUS_PENDING_ACCEPT: {STATUS_EXECUTING, STATUS_CANCELLED},
-        STATUS_EXECUTING: {STATUS_PENDING_REVIEW, STATUS_CANCELLED},
-        STATUS_PENDING_REVIEW: {STATUS_COMPLETED, STATUS_EXECUTING, STATUS_CANCELLED},
+        STATUS_PENDING_DISPATCH: {STATUS_CANCELLED},
+        STATUS_PENDING_ACCEPT: {STATUS_CANCELLED},
+        STATUS_EXECUTING: {STATUS_COMPLETED, STATUS_CANCELLED},
+        STATUS_PENDING_REVIEW: {STATUS_CANCELLED},
         STATUS_COMPLETED: {STATUS_CLOSED},
         STATUS_CLOSED: set(),
         STATUS_CANCELLED: set(),
     }
-    # 允许普通编辑的状态（仅待派发）
-    EDITABLE_STATUSES = {STATUS_PENDING_DISPATCH}
-    # 允许受控取消的状态
+    # 允许普通编辑的状态（执行中可修正基础信息；待派发为历史兼容）
+    EDITABLE_STATUSES = {STATUS_PENDING_DISPATCH, STATUS_EXECUTING}
+    # 允许受控取消的状态（含历史兼容状态）
     CANCELLABLE_STATUSES = {
         STATUS_PENDING_DISPATCH, STATUS_PENDING_ACCEPT,
         STATUS_EXECUTING, STATUS_PENDING_REVIEW,
@@ -1218,18 +1222,23 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
                                            help_text='配置组成项名称快照（组成项功能下线前历史数据，仅展示）')
 
     owner = models.ForeignKey(User, models.PROTECT, related_name='owned_work_orders',
-                              null=True, blank=True, help_text='当前负责人（派发时指定）')
+                              null=True, blank=True,
+                              help_text='负责人（历史流程字段，新流程不再写入；历史工单保留展示）')
     dispatched_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True,
-                                      help_text='派发人')
-    dispatched_at = models.DateTimeField(null=True, blank=True, help_text='派发时间')
+                                      help_text='派发人（历史流程字段，新流程不再写入）')
+    dispatched_at = models.DateTimeField(null=True, blank=True,
+                                         help_text='派发时间（历史流程字段，新流程不再写入）')
     accepted_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True,
-                                    help_text='接单人')
-    accepted_at = models.DateTimeField(null=True, blank=True, help_text='接单时间')
+                                    help_text='接单人（历史流程字段，新流程不再写入）')
+    accepted_at = models.DateTimeField(null=True, blank=True,
+                                       help_text='接单时间（历史流程字段，新流程不再写入）')
 
     planned_start = models.DateTimeField(null=True, blank=True, help_text='计划开始时间')
     planned_end = models.DateTimeField(null=True, blank=True, help_text='计划结束时间')
-    actual_start = models.DateTimeField(null=True, blank=True, help_text='实际开始时间（开始执行时记录）')
-    actual_end = models.DateTimeField(null=True, blank=True, help_text='实际完成时间（复核通过时记录）')
+    actual_start = models.DateTimeField(null=True, blank=True,
+                                        help_text='实际开始时间（创建工单时自动记录；历史工单为开始执行时间）')
+    actual_end = models.DateTimeField(null=True, blank=True,
+                                      help_text='实际完成时间（完成工单时记录）')
 
     work_requirement = models.TextField(max_length=2000, default='', blank=True, help_text='作业要求')
     work_steps = models.TextField(max_length=2000, default='', blank=True, help_text='作业步骤')
@@ -1240,9 +1249,14 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
     material_note = models.TextField(max_length=500, default='', blank=True,
                                      help_text='材料说明（名称/型号/数量/单位/说明/可选外部库存编号）')
 
+    completed_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True,
+                                     help_text='完成操作账号（完成工单动作的实际登录账号，历史工单可为空）')
+    completed_at = models.DateTimeField(null=True, blank=True,
+                                        help_text='完成操作时间（完成工单动作发生时间）')
     reviewer = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True,
-                                 help_text='复核人')
-    reviewed_at = models.DateTimeField(null=True, blank=True, help_text='复核时间')
+                                 help_text='复核人（历史流程字段，新流程不再写入）')
+    reviewed_at = models.DateTimeField(null=True, blank=True,
+                                       help_text='复核时间（历史流程字段，新流程不再写入）')
     review_result = models.TextField(max_length=1000, default='', blank=True, help_text='复核结果')
     return_reason = models.CharField(max_length=500, default='', blank=True,
                                      help_text='最近一次复核退回原因')
@@ -1255,7 +1269,7 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
     cancel_reason = models.CharField(max_length=500, default='', blank=True, help_text='取消原因')
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES,
-                              default=STATUS_PENDING_DISPATCH, help_text='当前状态')
+                              default=STATUS_EXECUTING, help_text='当前状态（新工单创建即执行中）')
     client_token = models.CharField(max_length=64, default='', blank=True,
                                     help_text='客户端幂等令牌（创建/转单防重复）')
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+', help_text='创建人')
@@ -1393,6 +1407,9 @@ class SystemWorkOrder(TenantModelMixin, models.Model):
             'work_hours': self.work_hours,
             'interrupt_hours': self.interrupt_hours,
             'material_note': self.material_note,
+            'completed_by': self.completed_by_id,
+            'completed_by_name': self.completed_by.username if self.completed_by_id else '',
+            'completed_at': self.completed_at,
             'reviewer': self.reviewer_id,
             'reviewer_name': self.reviewer.username if self.reviewer_id else '',
             'reviewed_at': self.reviewed_at,

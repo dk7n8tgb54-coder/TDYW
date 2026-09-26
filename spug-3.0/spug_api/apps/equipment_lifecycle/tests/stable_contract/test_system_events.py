@@ -42,9 +42,8 @@ ALL_FAULT_PERMS = [
 ]
 ALL_WO_PERMS = [
     'equipment_lifecycle.work_order.view', 'equipment_lifecycle.work_order.add',
-    'equipment_lifecycle.work_order.edit', 'equipment_lifecycle.work_order.dispatch',
-    'equipment_lifecycle.work_order.accept', 'equipment_lifecycle.work_order.execute',
-    'equipment_lifecycle.work_order.review', 'equipment_lifecycle.work_order.close',
+    'equipment_lifecycle.work_order.edit', 'equipment_lifecycle.work_order.execute',
+    'equipment_lifecycle.work_order.close',
     'equipment_lifecycle.work_order.del', 'equipment_lifecycle.work_order.export',
 ]
 ALL_EVENT_PERMS = [
@@ -154,27 +153,17 @@ class SystemEventTestBase(TestCase):
         return fid
 
     def run_work_order_to_complete(self, payload):
-        """创建→派发→接单→开始执行→处理记录→提交复核→复核通过，返回工单 id。"""
+        """创建（即执行中）→ 处理记录 → 完成工单，返回工单 id。"""
         body = self.client.post(f'{WO_URL}/', payload, content_type='application/json').json()
         self.assertFalse(body.get('error'), body)
         wid = body['data']['id']
-        r = self.client.post(f'{WO_URL}/{wid}/dispatch/',
-                             {'owner_id': self.admin.id}, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
-        r = self.client.post(f'{WO_URL}/{wid}/accept/', {}, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
-        r = self.client.post(f'{WO_URL}/{wid}/start/', {}, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
         r = self.client.post(f'{WO_URL}/{wid}/handling-records/', {
             'handled_at': '2026-09-18 11:00', 'content': '完成检查维护',
         }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
-        r = self.client.post(f'{WO_URL}/{wid}/submit-review/', {
+        r = self.client.post(f'{WO_URL}/{wid}/complete/', {
             'process_result': '维护完成，指标正常',
         }, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
-        r = self.client.post(f'{WO_URL}/{wid}/review-pass/', {},
-                             content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
         return wid
 
@@ -330,7 +319,7 @@ class WorkOrderEventTests(SystemEventTestBase):
                                 content_type='application/json').json()
         self.assertFalse(body.get('error'), body)
         fid = body['data']['id']
-        # 生成维修工单并推进到执行中（新默认不影响运行 → 此处显式选择影响运行）
+        # 生成维修工单（单账号流程：创建即执行中；默认不影响运行 → 此处显式选择影响运行）
         wo_body = self.client.post(
             f'{FAULT_URL}/{fid}/create-work-order/',
             {'client_token': _uniq_client_token(), 'work_type': 'repair',
@@ -339,32 +328,20 @@ class WorkOrderEventTests(SystemEventTestBase):
         self.assertFalse(wo_body.get('error'), wo_body)
         wid = wo_body['data']['id']
         self.assertTrue(wo_body['data']['affects_system_operation'])
-        for action, payload in (
-                ('dispatch', {'owner_id': self.admin.id}),
-                ('accept', {}),
-                ('start', {})):
-            r = self.client.post(f'{WO_URL}/{wid}/{action}/', payload,
-                                 content_type='application/json')
-            self.assertFalse(r.json().get('error'), r.content)
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'repairing')
         start_health = [e for e in self.events(self.system_a, SystemEvent.EVENT_HEALTH)
                         if e.get_detail().get('after') == 'repairing']
         self.assertEqual(len(start_health), 1)
         self.assertEqual(start_health[0].get_detail().get('before'), 'fault')
-        # 提交复核前必须先追加处理记录（步骤 3.3 状态机要求）
+        # 完成工单前必须先追加处理记录（步骤 3.3 状态机要求）
         r = self.client.post(f'{WO_URL}/{wid}/handling-records/',
                              {'handled_at': '2026-09-18 11:00', 'content': '完成维修'},
                              content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
-        # 提交复核 → 工单不再执行中 → 健康回落到 fault（来源故障未恢复）
-        r = self.client.post(f'{WO_URL}/{wid}/submit-review/',
+        # 完成工单 → 工单完成事件；故障未恢复 → 系统保持"故障"不恢复正常
+        r = self.client.post(f'{WO_URL}/{wid}/complete/',
                              {'process_result': '维修完成'}, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
-        self.assertEqual(
-            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'fault')
-        # 复核通过 → 工单完成事件；故障未恢复 → 系统不恢复正常
-        r = self.client.post(f'{WO_URL}/{wid}/review-pass/', {}, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'fault')
@@ -597,10 +574,9 @@ class ViewWiringContractTests(SystemEventTestBase):
             'faults/<int:pk>/handling-records/<int:rid>/',
             'faults/<int:pk>/handling-records/<int:rid>/attachments/',
             'faults/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/',
-            'work-orders/', 'work-orders/<int:pk>/', 'work-orders/<int:pk>/dispatch/',
-            'work-orders/<int:pk>/accept/', 'work-orders/<int:pk>/start/',
-            'work-orders/<int:pk>/submit-review/', 'work-orders/<int:pk>/review-pass/',
-            'work-orders/<int:pk>/review-return/', 'work-orders/<int:pk>/close/',
+            'work-orders/', 'work-orders/<int:pk>/',
+            'work-orders/<int:pk>/complete/',
+            'work-orders/<int:pk>/close/',
             'work-orders/<int:pk>/cancel/', 'work-orders/<int:pk>/handling-records/',
             'work-orders/<int:pk>/handling-records/<int:rid>/',
             'work-orders/<int:pk>/handling-records/<int:rid>/attachments/',

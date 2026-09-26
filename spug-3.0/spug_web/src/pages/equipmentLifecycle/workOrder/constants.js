@@ -3,18 +3,17 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——工单管理（步骤 3.3）常量与文本映射。
+ * 设备全生命周期——工单管理（步骤 3.3，单账号协同流程）常量与文本映射。
  * 权限码与后端 @auth、role codes.js 保持一致；状态流转以后端状态机为准。
+ * 单账号协同流程（2026-09）：新工单创建即执行中，派发/接单/复核环节已下线；
+ * 待派发/待接单/待复核仅为历史兼容状态，不在筛选选项中提供，但历史数据仍可显示。
  */
 
 export const WO_PERM = {
   VIEW: 'equipment_lifecycle.work_order.view',
   ADD: 'equipment_lifecycle.work_order.add',
   EDIT: 'equipment_lifecycle.work_order.edit',
-  DISPATCH: 'equipment_lifecycle.work_order.dispatch',
-  ACCEPT: 'equipment_lifecycle.work_order.accept',
   EXECUTE: 'equipment_lifecycle.work_order.execute',
-  REVIEW: 'equipment_lifecycle.work_order.review',
   CLOSE: 'equipment_lifecycle.work_order.close',
   DEL: 'equipment_lifecycle.work_order.del',
   EXPORT: 'equipment_lifecycle.work_order.export',
@@ -35,20 +34,24 @@ export const WORK_TYPE_TEXT = WORK_TYPE_OPTIONS.reduce((acc, item) => {
   return acc;
 }, {});
 
+// 状态筛选选项：仅新流程状态（历史兼容状态不作为筛选选项）
 export const WO_STATUS_OPTIONS = [
-  {value: 'pending_dispatch', label: '待派发'},
-  {value: 'pending_accept', label: '待接单'},
   {value: 'executing', label: '执行中'},
-  {value: 'pending_review', label: '待复核'},
   {value: 'completed', label: '已完成'},
   {value: 'closed', label: '已关闭'},
   {value: 'cancelled', label: '已取消'},
 ];
 
-export const WO_STATUS_TEXT = WO_STATUS_OPTIONS.reduce((acc, item) => {
-  acc[item.value] = item.label;
-  return acc;
-}, {});
+// 状态文本：含历史兼容状态（历史工单仍需正常显示，不崩溃）
+export const WO_STATUS_TEXT = {
+  pending_dispatch: '待派发（历史）',
+  pending_accept: '待接单（历史）',
+  executing: '执行中',
+  pending_review: '待复核（历史）',
+  completed: '已完成',
+  closed: '已关闭',
+  cancelled: '已取消',
+};
 
 export const WO_STATUS_COLOR = {
   pending_dispatch: 'orange',

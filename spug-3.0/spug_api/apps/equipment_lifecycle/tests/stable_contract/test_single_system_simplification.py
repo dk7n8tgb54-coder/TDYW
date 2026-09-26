@@ -153,12 +153,7 @@ class SingleSystemSimplificationTest(TestCase):
         self.assertFalse(wo_body['data']['affects_system_operation'])
         self.assertEqual(wo_body['data']['system'], self.system_a.id)
         wid = wo_body['data']['id']
-        # 4) 工单推进到执行中：系统仍保持正常
-        for action, payload in (('dispatch', {'owner_id': self.admin.id}),
-                                ('accept', {}), ('start', {})):
-            r = self.client.post(f'{WO_URL}/{wid}/{action}/', payload,
-                                 content_type='application/json')
-            self.assertFalse(r.json().get('error'), r.content)
+        # 4) 单账号流程：创建即执行中，系统仍保持正常
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'normal')
         order = SystemWorkOrder.objects.get(pk=wid)
@@ -185,10 +180,7 @@ class SingleSystemSimplificationTest(TestCase):
         self.assertFalse(wo_body.get('error'), wo_body)
         self.assertFalse(wo_body['data']['affects_system_operation'])
         wid = wo_body['data']['id']
-        for action, payload in (('dispatch', {'owner_id': self.admin.id}),
-                                ('accept', {}), ('start', {})):
-            self.client.post(f'{WO_URL}/{wid}/{action}/', payload,
-                             content_type='application/json')
+        # 单账号流程：创建即执行中
         # 来源故障仍有效且影响运行 → 系统保持"故障"而非"维修中"
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'fault')

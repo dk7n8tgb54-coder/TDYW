@@ -1,23 +1,23 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""系统工单服务层（步骤 3.3，单系统简化）。
+"""系统工单服务层（步骤 3.3，单系统简化；单账号协同流程）。
 
 职责：
 - 工单编号生成（租户内当日序号，须在持锁事务内调用）；
-- 工单创建核心（人工创建 / 故障生成维修工单 / 台账异常转工单三条路径共用）；
+- 工单创建核心（人工创建 / 故障生成维修工单 / 台账异常转工单等路径共用）：
+  创建即执行中并自动记录实际开始时间，不再有派发/接单/复核环节；
 - 台账异常明细处置状态计算（由来源关系动态推导，事实依据不落库）；
 - 幂等令牌查询（同租户 + 同来源 + 同 client_token 视为同一请求）。
 
 约定：
 - 一张工单只关联一个作业系统，不建设跨系统影响关系；
 - 健康状态重算统一走 fault_services.recompute_systems_health（不另写第二套）；
-- 来源对象（故障/台账明细）使用真实外键（PROTECT），后端根据来源类型重新
+- 来源对象（故障/台账明细/巡检明细）使用真实外键（PROTECT），后端根据来源类型重新
   查询真实对象并校验租户，不信任前端传来的名称或快照。
 """
 from django.utils import timezone
 
-from apps.account.models import User
 from apps.equipment_lifecycle import event_services
 from apps.equipment_lifecycle.fault_services import recompute_systems_health
 from apps.equipment_lifecycle.models import (
@@ -28,10 +28,7 @@ from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     SystemFault,
     SystemWorkOrder,
-    SystemWorkOrderParticipant,
     WORK_ORDER_NO_PREFIX,
-    WORK_ORDER_ROLE_OWNER,
-    WORK_ORDER_ROLE_PARTICIPANT,
     WORK_ORDER_SOURCE_FAULT,
     WORK_ORDER_SOURCE_INSPECTION_RECORD,
     WORK_ORDER_SOURCE_LEDGER_ITEM,
@@ -61,20 +58,6 @@ def generate_work_no(tenant_id):
     return f'{prefix}{index:04d}'
 
 
-def get_tenant_active_user(user, pk=None, tenant_id=None):
-    """校验并返回本租户内有效账户（不存在/停用/跨租户返回 None）。
-
-    - 指定 pk 时按 pk 查询；tenant_id 缺省取请求用户租户（fail-closed，
-      超级管理员也不得为本租户以外的人员指派工单角色）。
-    """
-    qs = User.objects.filter(
-        is_active=True, deleted_at__isnull=True,
-        tenant_id=tenant_id or user.tenant_id)
-    if pk is None:
-        return None
-    return qs.filter(pk=pk).first()
-
-
 def find_existing_by_token(tenant_id, client_token, source_type=None, source_object=None):
     """按幂等令牌查找已存在工单：同租户 + 同令牌（+ 同来源）视为同一请求。
 
@@ -99,48 +82,30 @@ def _clean_text(value, limit):
     return (value or '').strip()[:limit]
 
 
-def _build_participant_rows(tenant_id, work_order, owner, participants):
-    """生成参与人员行：负责人以 role=owner 单独一行；负责人兼参与人只保留一行。"""
-    rows = []
-    if owner is not None:
-        rows.append(SystemWorkOrderParticipant(
-            tenant_id=tenant_id, work_order=work_order, user=owner,
-            role=WORK_ORDER_ROLE_OWNER))
-    for user in participants or []:
-        if owner is not None and user.id == owner.id:
-            continue
-        rows.append(SystemWorkOrderParticipant(
-            tenant_id=tenant_id, work_order=work_order, user=user,
-            role=WORK_ORDER_ROLE_PARTICIPANT))
-    return rows
-
-
 def create_work_order_record(*, tenant_id, created_by, title, work_type, system,
                              priority=SystemWorkOrder.PRIORITY_NORMAL,
                              source_type=WORK_ORDER_SOURCE_MANUAL, source_fault=None,
                              source_ledger_item=None, source_inspection_record=None,
                              source_no='',
-                             affects_system_operation=False, owner=None, participants=None,
+                             affects_system_operation=False,
                              work_location='', work_object_desc='',
                              planned_start=None, planned_end=None, work_requirement='',
                              work_steps='', material_note='', client_token='',
                              status=None, request=None):
-    """工单创建核心（三条创建路径共用，单系统简化）。
+    """工单创建核心（人工创建/故障转单/台账转单/巡检转单路径共用，单账号协同流程）。
 
     须在 health_recalc_lock + transaction.atomic 内调用（调用方负责锁与事务、
-    字段校验与审计）。创建后同事务生成工单登记履历（只落作业系统，步骤 3.4
-    统一履历），并重算作业系统健康状态（若为执行中且影响运行的故障维修工单
-    则立即生效；一般创建不改变状态，重算幂等无害）。
+    字段校验与审计）。创建即执行中并自动记录实际开始时间；不要求负责人与
+    参与人，不创建参与人员记录（历史工单的参与人记录保留展示）。
 
     - affects_system_operation：作业期间是否影响系统运行（后端保存前重新校验）；
-    - participants: [user]（不含负责人；负责人单独以 role=owner 写入）；
     - source_type/source_fault/source_ledger_item/source_inspection_record/source_no
       由调用方按来源写入；
-    - status 允许转换流程显式指定（普通创建缺省待派发）；
+    - status 允许显式指定（普通创建缺省执行中）；
     - request 透传给健康重算以便状态变化审计与履历归属到人。
     """
     if status is None:
-        status = SystemWorkOrder.STATUS_PENDING_DISPATCH
+        status = SystemWorkOrder.STATUS_EXECUTING
     work_order = SystemWorkOrder.objects.create(
         tenant_id=tenant_id,
         work_no=generate_work_no(tenant_id),
@@ -159,19 +124,16 @@ def create_work_order_record(*, tenant_id, created_by, title, work_type, system,
         affects_system_operation=bool(affects_system_operation),
         work_location=_clean_text(work_location, 200),
         work_object_desc=_clean_text(work_object_desc, 1000),
-        owner=owner,
         planned_start=planned_start,
         planned_end=planned_end,
         work_requirement=_clean_text(work_requirement, 2000),
         work_steps=_clean_text(work_steps, 2000),
         material_note=_clean_text(material_note, 500),
         status=status,
+        actual_start=timezone.now(),
         client_token=_clean_text(client_token, 64),
         created_by=created_by,
     )
-    participant_rows = _build_participant_rows(tenant_id, work_order, owner, participants)
-    if participant_rows:
-        SystemWorkOrderParticipant.objects.bulk_create(participant_rows)
     # 步骤 3.4：工单登记履历（只落作业系统，同一事务）
     event_services.record_work_order_lifecycle_events(
         work_order, 'create', created_by=created_by)
@@ -240,25 +202,3 @@ def append_item_disposition(tenant_id, items):
     for item in items:
         item['disposition'] = disposition_map.get(item.get('id'))
     return items
-
-
-def set_participants(work_order, owner, participant_users):
-    """重设工单参与人员（派发时调用；须在持锁事务内）。
-
-    - 先清后建（唯一约束防重复）；负责人以 role=owner 单独一行；
-    - 负责人同时出现在参与人列表时去重，页面不重复显示。
-    """
-    work_order.participants.all().delete()
-    rows = []
-    if owner is not None:
-        rows.append(SystemWorkOrderParticipant(
-            tenant_id=work_order.tenant_id, work_order=work_order, user=owner,
-            role=WORK_ORDER_ROLE_OWNER))
-    for user in participant_users or []:
-        if owner is not None and user.id == owner.id:
-            continue
-        rows.append(SystemWorkOrderParticipant(
-            tenant_id=work_order.tenant_id, work_order=work_order, user=user,
-            role=WORK_ORDER_ROLE_PARTICIPANT))
-    if rows:
-        SystemWorkOrderParticipant.objects.bulk_create(rows)

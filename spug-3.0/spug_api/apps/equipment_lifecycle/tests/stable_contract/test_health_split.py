@@ -117,14 +117,10 @@ class HealthSplitTestBase(TestCase):
         return SystemWorkOrder.objects.get(pk=body['data']['id'])
 
     def run_work_order_to_executing(self, order_id):
-        """派发 → 接单 → 开始执行。"""
-        for action, payload in (
-                ('dispatch', {'owner_id': self.admin.id}),
-                ('accept', {}),
-                ('start', {})):
-            r = self.client.post(f'{WO_URL}/{order_id}/{action}/', payload,
-                                 content_type='application/json')
-            self.assertFalse(r.json().get('error'), r.content)
+        """单账号流程：工单创建即执行中（派发/接单/开始执行已下线）。"""
+        order = SystemWorkOrder.objects.get(pk=order_id)
+        self.assertEqual(order.status, SystemWorkOrder.STATUS_EXECUTING)
+        return order
 
     def system_health(self):
         return LifecycleSystem.objects.get(pk=self.system_a.id).health_status

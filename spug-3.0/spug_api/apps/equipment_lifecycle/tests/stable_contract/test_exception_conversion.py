@@ -184,13 +184,9 @@ class FaultToWorkOrderTest(ConversionTestBase):
             {'client_token': 'tok-flow'}, content_type='application/json').json()
         oid = resp['data']['id']
         client = make_client(self.admin)
-        self.dispatch_order(oid)
-        self.accept_order(oid)
-        self.start_order(oid)
+        # 单账号流程：创建即执行中，处理记录后直接完成并关闭
         self.add_record(oid)
-        self.submit_review(oid)
-        client.post(f'/equipment-lifecycle/work-orders/{oid}/review-pass/', {},
-                    content_type='application/json')
+        self.complete_order(oid)
         client.post(f'/equipment-lifecycle/work-orders/{oid}/close/', {},
                     content_type='application/json')
         fault.refresh_from_db()
