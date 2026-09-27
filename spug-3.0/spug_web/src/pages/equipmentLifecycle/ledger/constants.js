@@ -83,9 +83,9 @@ export const ROW_MAX_LEVEL = 5;
 export const ROW_PATH_SEPARATOR = ' / ';
 
 export const ROW_NODE_TYPE_TEXT = {
-  group: '行分组',
+  group: '分组',
   repeat_group: '可重复分组',
-  check: '行对象',
+  check: '检查对象',
 };
 
 export const ROW_NODE_TYPE_COLOR = {
@@ -95,7 +95,7 @@ export const ROW_NODE_TYPE_COLOR = {
 };
 
 // 列方向第一阶段固定平面结构，模板页固定提示（第二阶段列父子结构另行实施）
-export const FLAT_COLUMN_HINT = '当前列项目为平面结构，暂不支持列分组和列级父子关系。';
+export const FLAT_COLUMN_HINT = '检查项目为表格的列，当前为平面结构，暂不支持列分组。';
 
 // 结果含"未填写"（矩阵单元格生成后的初始态，空串）
 export const UNSET_RESULT_TEXT = '未填写';

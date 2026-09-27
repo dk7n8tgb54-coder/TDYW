@@ -3,18 +3,20 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 台账模板行结构树编辑器（第一阶段行方向多级结构）。
- * - 树形表格：名称/类型/层级/路径/子节点数/同级排序/停用；
+ * 台账模板检查对象编辑器（表格的行，行方向多级结构）。
+ * - 检查对象直接添加，生成表格的填写行；分组/可重复分组是需要时才使用的
+ *   组织方式（可重复分组在实际台账中可创建多个实例，如"信道"）；
+ * - 树形表格：名称/类型/同级排序/停用；最大 5 级嵌套；
  * - 新建模板（remote=false）：树在本地编辑，随模板一次提交；
  * - 编辑模板（remote=true）：新增/停用/排序即时提交后端并刷新；
  *   名称、类型本地改后失焦/切换即提交；
- * - 约束：最大层级 ROW_MAX_LEVEL、check 不能包含子节点。
+ * - 约束：最大层级 ROW_MAX_LEVEL、检查对象（check）不能包含子项。
  */
 import React from 'react';
-import {Table, Input, Select, Button, Tooltip, Popconfirm, message} from 'antd';
+import {Table, Input, Select, Button, Tooltip, Popconfirm, Dropdown, Menu, message} from 'antd';
 import {
   PlusOutlined, ArrowUpOutlined, ArrowDownOutlined,
-  StopOutlined, PlayCircleOutlined, DeleteOutlined,
+  StopOutlined, PlayCircleOutlined, DeleteOutlined, DownOutlined,
 } from '@ant-design/icons';
 import {ROW_MAX_LEVEL, ROW_NODE_TYPE_TEXT} from './constants';
 
@@ -73,6 +75,26 @@ export function locateSiblings(tree, key, parent = null) {
 }
 
 const CHILDLESS_TYPES = ['check'];
+const CHILD_NODE_TYPES = ['check', 'group', 'repeat_group'];
+const GROUP_NODE_TYPES = ['group', 'repeat_group'];
+
+/** 远端模式即时创建时的缺省名称（后端要求非空，创建后可直接改名）。 */
+export function defaultNodeName(nodeType) {
+  return {
+    check: '新检查对象', group: '新分组', repeat_group: '新可重复分组',
+  }[nodeType] || '新检查对象';
+}
+
+/** 添加节点下拉：root 仅分组两类；行内提供检查对象/分组/可重复分组。 */
+function AddNodeDropdown({root, onPick, children}) {
+  const types = root ? GROUP_NODE_TYPES : CHILD_NODE_TYPES;
+  const menu = (
+    <Menu onClick={({key}) => onPick(key)}>
+      {types.map(k => <Menu.Item key={k}>{ROW_NODE_TYPE_TEXT[k]}</Menu.Item>)}
+    </Menu>
+  );
+  return <Dropdown overlay={menu} trigger={['click']}>{children}</Dropdown>;
+}
 
 export default class RowTreeEditor extends React.Component {
   static defaultProps = {remote: false};
@@ -89,33 +111,32 @@ export default class RowTreeEditor extends React.Component {
     this.apply(mapTreeNodes(tree, node.key, n => ({...n, ...patch})), null);
   };
 
-  addRoot = () => {
+  addRoot = (nodeType) => {
     const {remote} = this.props;
-    const node = makeLocalNode('', 'group');
     if (remote) {
       this.apply(null, {type: 'create', parent: null,
-        payload: {name: '新行节点', node_type: 'group'}});
+        payload: {name: defaultNodeName(nodeType), node_type: nodeType}});
       return;
     }
-    this.apply([...this.props.tree, node], null);
+    this.apply([...this.props.tree, makeLocalNode('', nodeType)], null);
   };
 
-  addChild = (parentNode) => {
+  addChild = (parentNode, nodeType) => {
     const {remote} = this.props;
     if (parentNode.depth >= ROW_MAX_LEVEL) {
-      message.warning(`行结构最多支持 ${ROW_MAX_LEVEL} 级`);
+      message.warning(`检查对象最多支持 ${ROW_MAX_LEVEL} 级嵌套`);
       return;
     }
     if (CHILDLESS_TYPES.includes(parentNode.node_type)) {
-      message.warning('行对象（check）节点不能包含子节点，请先改为行分组');
+      message.warning('检查对象不能再包含子项，请先将其改为分组');
       return;
     }
     if (remote) {
       this.apply(null, {type: 'create', parent: parentNode,
-        payload: {name: '新行节点', node_type: 'check'}});
+        payload: {name: defaultNodeName(nodeType), node_type: nodeType}});
       return;
     }
-    const node = makeLocalNode('', 'check');
+    const node = makeLocalNode('', nodeType);
     this.apply(mapTreeNodes(this.props.tree, parentNode.key, n => ({
       ...n, children: [...(n.children || []), node],
     })), null);
@@ -124,7 +145,7 @@ export default class RowTreeEditor extends React.Component {
   commitName = (row) => {
     const name = String(row.name || '').trim();
     if (!name) {
-      message.warning('行节点名称不能为空');
+      message.warning('名称不能为空');
       this.patchLocal(row, {name: row._lastValidName || row.name});
       return;
     }
@@ -135,7 +156,7 @@ export default class RowTreeEditor extends React.Component {
 
   changeType = (row, nodeType) => {
     if (nodeType === 'check' && (row.children || []).length) {
-      message.warning('该节点存在子节点，不能设置为行对象（check）');
+      message.warning('该项包含子项，不能设置为检查对象');
       return;
     }
     this.patchLocal(row, {node_type: nodeType, is_repeatable: nodeType === 'repeat_group'});
@@ -178,14 +199,33 @@ export default class RowTreeEditor extends React.Component {
       orderedKeys} : null);
   };
 
+  /** 行内"添加子项"按钮：达上限或检查对象时禁用。 */
+  renderAddChild = (row) => {
+    const atMaxDepth = row.level >= ROW_MAX_LEVEL;
+    const disabled = atMaxDepth || CHILDLESS_TYPES.includes(row.node_type);
+    const reason = atMaxDepth ? `最多支持 ${ROW_MAX_LEVEL} 级嵌套`
+      : '检查对象不能再包含子项';
+    const button = (
+      <Tooltip title={disabled ? reason : '添加子项'}>
+        <Button size="small" type="link" icon={<PlusOutlined/>} disabled={disabled}/>
+      </Tooltip>
+    );
+    if (disabled) return button;
+    return (
+      <AddNodeDropdown root={false} onPick={key => this.addChild(row, key)}>
+        {button}
+      </AddNodeDropdown>
+    );
+  };
+
   columns = () => {
     const {remote} = this.props;
     return [
       {
-        title: '名称', key: 'name', width: 180,
+        title: '名称', key: 'name', width: 200,
         render: (t, row) => (
           <Input
-            size="small" placeholder="节点名称" value={row.name}
+            size="small" placeholder="请输入名称" value={row.name}
             onChange={e => this.patchLocal(row, {name: e.target.value})}
             onBlur={e => this.commitName({...row, name: e.target.value})}/>
         ),
@@ -205,14 +245,6 @@ export default class RowTreeEditor extends React.Component {
           </Select>
         ),
       },
-      {title: '层级', key: 'level', width: 60, align: 'center',
-        render: (t, row) => row.level},
-      {
-        title: '路径', key: 'path', width: 220, ellipsis: true,
-        render: (t, row) => <span style={{color: '#888'}}>{row.path}</span>,
-      },
-      {title: '子节点数', key: 'children_count', width: 80, align: 'center',
-        render: (t, row) => row.childrenCount},
       {
         title: '排序', key: 'order', width: 90, align: 'center',
         render: (t, row) => (
@@ -226,34 +258,25 @@ export default class RowTreeEditor extends React.Component {
       },
       {
         title: '操作', key: 'action', width: 170, align: 'center',
-        render: (t, row) => {
-          const atMaxDepth = row.level >= ROW_MAX_LEVEL;
-          const addDisabled = atMaxDepth || CHILDLESS_TYPES.includes(row.node_type);
-          const addReason = atMaxDepth ? `最多 ${ROW_MAX_LEVEL} 级`
-            : '行对象节点不能包含子节点';
-          return (
-            <span>
-              <Tooltip title={addDisabled ? addReason : '添加子行节点'}>
-                <Button size="small" type="link" icon={<PlusOutlined/>}
-                        disabled={addDisabled} onClick={() => this.addChild(row)}/>
-              </Tooltip>
-              {remote ? (
-                <Popconfirm
-                  title={row.is_active ? '停用后该节点不参与台账生成，确定停用？' : '确定启用？'}
-                  onConfirm={() => this.toggleNode(row)}>
-                  <Button size="small" type="link"
-                          icon={row.is_active ? <StopOutlined/> : <PlayCircleOutlined/>}>
-                    {row.is_active ? '停用' : '启用'}
-                  </Button>
-                </Popconfirm>
-              ) : (
-                <Popconfirm title="确定删除该节点（含子节点）？" onConfirm={() => this.removeNode(row)}>
-                  <Button size="small" type="link" icon={<DeleteOutlined/>}/>
-                </Popconfirm>
-              )}
-            </span>
-          );
-        },
+        render: (t, row) => (
+          <span>
+            {this.renderAddChild(row)}
+            {remote ? (
+              <Popconfirm
+                title={row.is_active ? '停用后该项及其子项不参与台账生成，确定停用？' : '确定启用？'}
+                onConfirm={() => this.toggleNode(row)}>
+                <Button size="small" type="link"
+                        icon={row.is_active ? <StopOutlined/> : <PlayCircleOutlined/>}>
+                  {row.is_active ? '停用' : '启用'}
+                </Button>
+              </Popconfirm>
+            ) : (
+              <Popconfirm title="确定删除该项（含子项）？" onConfirm={() => this.removeNode(row)}>
+                <Button size="small" type="link" icon={<DeleteOutlined/>}/>
+              </Popconfirm>
+            )}
+          </span>
+        ),
       },
     ];
   };
@@ -264,11 +287,17 @@ export default class RowTreeEditor extends React.Component {
     return (
       <div>
         <div style={{marginBottom: 8}}>
-          <Button size="small" type="primary" ghost icon={<PlusOutlined/>} onClick={this.addRoot}>
-            添加根级行节点
+          <Button size="small" type="primary" ghost icon={<PlusOutlined/>}
+                  onClick={() => this.addRoot('check')}>
+            添加检查对象
           </Button>
+          <AddNodeDropdown root onPick={key => this.addRoot(key)}>
+            <Button size="small" style={{marginLeft: 8}}>
+              添加分组 <DownOutlined/>
+            </Button>
+          </AddNodeDropdown>
           <span style={{marginLeft: 8, color: '#999', fontSize: 12}}>
-            行方向最多 {ROW_MAX_LEVEL} 级；"行对象"为生成填写单元格的行叶子，"可重复分组"在实际台账中可创建多个实例（如多个信道）。
+            检查对象生成表格的填写行；分组/可重复分组仅用于组织（可重复分组在实际台账中可创建多个实例，如"信道"）；最多支持 {ROW_MAX_LEVEL} 级嵌套。
           </span>
         </div>
         <Table
@@ -278,6 +307,7 @@ export default class RowTreeEditor extends React.Component {
           dataSource={dataSource}
           pagination={false}
           defaultExpandAllRows
+          locale={{emptyText: '尚未添加检查对象：点击上方"添加检查对象"开始，或先添加分组进行组织'}}
         />
       </div>
     );

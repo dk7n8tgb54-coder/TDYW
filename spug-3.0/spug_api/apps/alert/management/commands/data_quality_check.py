@@ -493,7 +493,6 @@ class Command(BaseCommand):
         'department_duty_log': '部门值班日志',
         'interference': '干扰管理',
         'upgrade': '系统升级',
-        'device': '设备台账',
         'account_signature': '电子签名',
         'announcement': '公告附件',
         'regulation': '规章管理',

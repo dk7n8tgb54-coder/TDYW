@@ -54,6 +54,23 @@ from apps.equipment_lifecycle.models import (
 # 行模板节点：树构建与校验
 # ======================================================================
 
+def validate_row_headers(raw):
+    """行层级表头名称校验：空 → ''；否则必须为非空字符串数组（≤最大层级）。
+
+    层级由数组顺序派生（第 1 项为第 1 级），不信任前端提交的 level 编号；
+    返回规范化后的 JSON 存储串。
+    """
+    if raw in (None, ''):
+        return ''
+    if not isinstance(raw, list) \
+            or any(not isinstance(x, str) or not x.strip() for x in raw):
+        raise LedgerValidationError('行层级表头必须为非空字符串数组')
+    if len(raw) > LEDGER_ROW_MAX_LEVEL:
+        raise LedgerValidationError(
+            '行层级表头最多支持 %d 级' % LEDGER_ROW_MAX_LEVEL)
+    return json.dumps([x.strip() for x in raw], ensure_ascii=False)
+
+
 def load_template_nodes(template, only_active=False):
     """加载模板全部（或仅启用）行节点，按显示顺序排列。"""
     nodes = list(template.row_nodes.order_by('display_order', 'id'))
@@ -485,7 +502,8 @@ def create_matrix_ledger(user, body):
         ledger = OperationLedger(
             tenant_id=user.tenant_id, status=LEDGER_STATUS_DRAFT,
             entry_channel=ENTRY_CHANNEL_WEB, created_from=LEDGER_FROM_TEMPLATE,
-            template=template, created_by=user, **header)
+            template=template, created_by=user,
+            row_headers_snapshot=template.row_headers, **header)
         ledger.ledger_no = generate_ledger_no(user.tenant_id, ledger.ledger_type,
                                               ledger.executed_date)
         ledger.client_token = client_token

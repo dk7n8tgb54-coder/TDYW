@@ -624,6 +624,8 @@ def _preview_system_entry(system, template):
         active_nodes = ledger_row_services.load_template_nodes(template, only_active=True)
         entry['row_nodes'] = ledger_row_services.build_node_tree(active_nodes)
         entry['is_matrix'] = bool(active_nodes)
+        # 行层级表头名称：录入端矩阵层级列头展示（与模板设计器一致）
+        entry['row_headers'] = template.get_row_headers()
     else:
         entry['row_nodes'] = []
         entry['is_matrix'] = False

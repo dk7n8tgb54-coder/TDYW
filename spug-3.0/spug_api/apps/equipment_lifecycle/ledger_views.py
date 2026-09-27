@@ -34,7 +34,7 @@ from apps.evidence.attachment_service import (
 )
 from apps.evidence.models import EvidenceAttachment
 
-from apps.equipment_lifecycle import ledger_services, work_order_services
+from apps.equipment_lifecycle import ledger_row_services, ledger_services, work_order_services
 from apps.equipment_lifecycle.ledger_services import (
     ITEM_RESULT_TEXT_MAP, LedgerValidationError, legacy_inspection_error,
 )
@@ -44,6 +44,7 @@ from apps.equipment_lifecycle.models import (
     LEDGER_INPUT_TYPE_VALUES,
     LEDGER_STATUS_VOID,
     LEDGER_TYPE_TEXT,
+    ROW_NODE_TYPE_CHECK,
     LifecycleSystem,
     OperationLedger,
     OperationLedgerItem,
@@ -89,7 +90,11 @@ def _get_template_for_user(pk, user):
 
 
 def _validate_template_header(request, body, item=None):
-    """模板表头字段校验，返回字段 dict 或错误信息（编号由后端自动生成）。"""
+    """模板表头字段校验，返回字段 dict 或错误信息（编号由后端自动生成）。
+
+    row_headers（行层级表头名称）为可选字段：新建与编辑均可提交，
+    层级由数组顺序派生，不信任前端提交的 level 编号。
+    """
     name = str(body.get('name') or '').strip()
     if not name:
         return None, '模板名称不能为空'
@@ -97,12 +102,15 @@ def _validate_template_header(request, body, item=None):
     try:
         # 旧巡检类型在此返回"已删除"明确错误；其余非法类型一并拒绝
         ledger_services.validate_ledger_type(ledger_type)
+        row_headers = ledger_row_services.validate_row_headers(
+            body.get('row_headers'))
     except LedgerValidationError as e:
         return None, str(e)
     return {
         'name': name,
         'ledger_type': ledger_type,
         'description': str(body.get('description') or '').strip(),
+        'row_headers': row_headers,
     }, None
 
 
@@ -135,6 +143,13 @@ def _validate_template_item_payload(request, template, body, item=None):
     }, None
 
 
+def _apply_item_active_patch(fields, body):
+    """列项目启停状态仅随请求显式提交时更新（缺省保持原值，防止误启用）。"""
+    if 'is_active' in body:
+        fields['is_active'] = bool(body['is_active'])
+    return fields
+
+
 class LedgerTemplateView(View):
     @auth('equipment_lifecycle.ledger_template.view')
     def get(self, request):
@@ -163,7 +178,15 @@ class LedgerTemplateView(View):
         items_payload = body.get('items') or []
         if not isinstance(items_payload, list):
             return json_response(error='items 必须为数组')
+        if not items_payload:
+            return json_response(error='请至少添加一个检查项目')
+        row_nodes_payload = body.get('row_nodes') or []
+        if not isinstance(row_nodes_payload, list):
+            return json_response(error='row_nodes 必须为数组')
+        if not row_nodes_payload:
+            return json_response(error='请至少添加一个检查对象')
         try:
+            # 模板 / 检查项目 / 行结构（检查对象）同事务落库，任一失败整体回滚
             with transaction.atomic():
                 template = OperationLedgerTemplate.objects.create(
                     tenant_id=request.user.tenant_id,
@@ -177,13 +200,20 @@ class LedgerTemplateView(View):
                     OperationLedgerTemplateItem.objects.create(
                         template=template, tenant_id=request.user.tenant_id,
                         created_by=request.user, **fields)
+                created_nodes = ledger_row_services.create_template_row_nodes(
+                    request.user, template, row_nodes_payload)
+                # 分组不生成填写行：必须存在检查对象（check）节点
+                if not template.row_nodes.filter(
+                        node_type=ROW_NODE_TYPE_CHECK, is_active=True).exists():
+                    raise LedgerValidationError('请至少添加一个检查对象')
         except LedgerValidationError as e:
             return json_response(error=str(e))
         except IntegrityError:
             return json_response(error='模板保存失败，请重试')
         record_audit_event(request, 'create', AUDIT_TARGET_TEMPLATE, template.id, template.name,
                            after_value={'ledger_type': template.ledger_type,
-                                        'items_count': len(items_payload)})
+                                        'items_count': len(items_payload),
+                                        'row_nodes_count': len(created_nodes)})
         return json_response(template.to_view(with_counts=True))
 
 
@@ -234,15 +264,17 @@ class LedgerTemplateDetailView(View):
         header, error = _validate_template_header(request, body, item=template)
         if error:
             return json_response(error=error)
-        before = {'name': template.name, 'description': template.description}
+        before = {'name': template.name, 'description': template.description,
+                  'row_headers': template.get_row_headers()}
         with transaction.atomic():
-            for field in ('name', 'description'):
+            for field in ('name', 'description', 'row_headers'):
                 setattr(template, field, header[field])
             template.updated_by = request.user
             template.save()
         record_audit_event(request, 'update', AUDIT_TARGET_TEMPLATE, template.id, template.name,
                            before_value=before,
-                           after_value={'name': template.name, 'description': template.description})
+                           after_value={'name': template.name, 'description': template.description,
+                                        'row_headers': template.get_row_headers()})
         return json_response(template.to_view(with_counts=True))
 
 
@@ -292,7 +324,8 @@ class LedgerTemplateItemView(View):
         if error:
             return json_response(error=error)
         item = OperationLedgerTemplateItem.objects.create(
-            template=template, tenant_id=request.user.tenant_id, created_by=request.user, **fields)
+            template=template, tenant_id=request.user.tenant_id, created_by=request.user,
+            **_apply_item_active_patch(fields, body))
         record_audit_event(request, 'create', AUDIT_TARGET_TEMPLATE, template.id, template.name,
                            after_value={'action_kind': 'add_template_item', 'item_name': item.name})
         return json_response(item.to_view())
@@ -314,7 +347,7 @@ class LedgerTemplateItemDetailView(View):
         if error:
             return json_response(error=error)
         before = item.to_view()
-        for field, value in fields.items():
+        for field, value in _apply_item_active_patch(fields, body).items():
             setattr(item, field, value)
         item.updated_by = request.user
         item.save()
@@ -367,6 +400,9 @@ def _ledger_detail(ledger, user=None):
             item['row_headers'] = headers_map.get(item.get('row_instance'), [])
     else:
         view['row_instances'] = []
+    # 行层级表头名称（列头展示用）：优先生成时快照，历史台账回退模板当前值
+    view['row_headers'] = ledger.get_row_headers() or (
+        ledger.template.get_row_headers() if ledger.template else [])
     view['corrections'] = [c.to_view() for c in ledger.corrections.all()]
     return view
 

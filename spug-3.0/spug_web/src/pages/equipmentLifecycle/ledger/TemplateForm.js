@@ -3,40 +3,36 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 台账模板新增/编辑弹窗（第一阶段行对象树改造）：两部分结构。
- * - 行结构：行方向多级树（group/repeat_group/check，最大 5 级），
- *   新建随模板一次提交，编辑即时调用行节点接口；
- * - 列检查项目：平面结构（无列分组/列父子，第二阶段范围），
- *   录入类型收敛为 正常/不正常 与 数字/文本 两种。
+ * 台账模板新增/编辑弹窗：可视化表格设计（2026-09-27 第二轮改版）。
+ * - 三个区块：基本信息 → 可视化设计表格 → 预览；设计表格即模板编辑主界面，
+ *   行（检查对象/分组）与列（检查项目）以及行层级表头名称（如"信道""电台"）
+ *   都在与实际台账一致的矩阵表格中配置，不再分设行树/列项目两张独立表格；
+ * - 设计表格：行内添加子行/同级行/改名/排序/停用；点击列标题弹出配置气泡
+ *   （录入类型/必填/单位/候选项/操作指导/异常规则/默认值）；工具栏"添加列"；
+ * - 新建：全部内容（表头 + row_headers + items + row_nodes）随模板一次提交，
+ *   后端同事务落库，成功后才提示"保存成功"；
+ * - 编辑：保留既有保存时机——行结构修改后立即保存（行节点接口），
+ *   层级表头/检查项目随底部「保存基本信息」一并保存；各区块右上角
+ *   明确标注实际保存时机，不展示不准确的提示；
+ * - 保存前校验：模板名称、至少一个检查对象（分组不生成填写行）、
+ *   所有检查项目已命名；错误在对应区块红字提示并滚动定位；
+ * - 预览复用 MatrixEditor 只读形态并显示层级表头名称，实时反映
+ *   有效检查对象 × 检查项目交叉。
  */
 import React from 'react';
 import {observer} from 'mobx-react';
 import {
-  Modal, Form, Input, Select, Table, Button, Divider, Tag, Tabs, Alert, message,
+  Modal, Form, Input, Select, Tag, message,
 } from 'antd';
-import {PlusOutlined, DeleteOutlined} from '@ant-design/icons';
 import {http} from 'libs';
-import RowTreeEditor, {annotateNodeTree} from './RowTreeEditor';
+import {annotateNodeTree} from './RowTreeEditor';
+import TemplateDesignTable, {makeEmptyColumn} from './TemplateDesignTable';
+import TemplatePreview from './TemplatePreview';
 import {
-  API_PREFIX_L, FLAT_COLUMN_HINT, INPUT_TYPE_TEXT,
-  LEDGER_TYPE_TEXT, NORMAL_ABNORMAL_CHOICES, TEMPLATE_INPUT_TYPE_KEYS,
+  API_PREFIX_L, LEDGER_TYPE_TEXT,
 } from './constants';
 
 const {Option} = Select;
-const {TabPane} = Tabs;
-
-const EMPTY_ITEM = () => ({
-  key: `it${Date.now()}${Math.random()}`,
-  id: undefined,
-  name: '',
-  input_type: 'choice',
-  unit: '',
-  choices: [...NORMAL_ABNORMAL_CHOICES],
-  is_required: true,
-  abnormal_rule: '',
-  operation_guide: '',
-  display_order: 0,
-});
 
 /** 服务端行节点树 → 本地编辑树（补 key，保留嵌套 children）。 */
 function withNodeKeys(tree) {
@@ -62,14 +58,43 @@ function hasEmptyNodeName(tree) {
     || hasEmptyNodeName(node.children || []));
 }
 
+/** 树中是否存在检查对象（check）节点：只有分组不生成填写行。 */
+function hasCheckNode(tree) {
+  return (tree || []).some(node => node.node_type === 'check'
+    || hasCheckNode(node.children || []));
+}
+
+/** 配置区块：序号标题 + 保存时机提示 + 校验错误（红字）+ 滚动定位锚点。 */
+function SectionCard({index, title, hint, error, innerRef, children}) {
+  return (
+    <div ref={innerRef} style={{marginBottom: 20}}>
+      <div style={{marginBottom: 8}}>
+        <span style={{fontWeight: 600}}>{index}. {title}</span>
+        {hint && <Tag style={{marginLeft: 8}}>{hint}</Tag>}
+        {error && (
+          <span style={{color: '#f5222d', marginLeft: 8, fontSize: 12}}>{error}</span>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 @observer
 class TemplateForm extends React.Component {
+  // 各区块滚动定位锚点（校验失败时定位到出错区块）
+  sectionRefs = {
+    basic: React.createRef(),
+    design: React.createRef(),
+  };
+
   state = {
     loading: false,
-    activeTab: 'rows',
     items: [],
     rowTree: [],
     rowTreeVersion: 0,
+    rowHeaders: [],
+    errors: {},
     template: {
       name: '',
       ledger_type: 'week_month',
@@ -91,30 +116,43 @@ class TemplateForm extends React.Component {
             ledger_type: res.ledger_type,
             description: res.description || '',
           },
-          items: (res.items || []).map(it => ({...EMPTY_ITEM(), ...it, choices: it.choices || []})),
+          items: (res.items || []).map(
+            it => ({...makeEmptyColumn(), ...it, choices: it.choices || []})),
           rowTree: withNodeKeys(nodeRes.data || []),
+          rowHeaders: res.row_headers || [],
           rowTreeVersion: this.state.rowTreeVersion + 1,
         });
       }).finally(() => this.setState({loading: false}));
     }
   }
 
+  clearError = (key) => {
+    const current = this.state.errors || {};
+    if (!current[key]) return;
+    this.setState(prev => {
+      const errors = {...prev.errors};
+      delete errors[key];
+      return {errors};
+    });
+  };
+
   setTemplate = (key, value) => {
+    this.clearError('basic');
     this.setState(prev => ({template: {...prev.template, [key]: value}}));
   };
 
-  setItem = (key, patch) => {
-    this.setState(prev => ({
-      items: prev.items.map(it => (it.key === key ? {...it, ...patch} : it)),
-    }));
+  onItemsChange = (items) => {
+    this.clearError('items');
+    this.setState({items});
   };
 
-  addItem = () => {
-    this.setState(prev => ({items: [...prev.items, EMPTY_ITEM()]}));
+  onRowHeadersChange = (rowHeaders) => {
+    this.setState({rowHeaders});
   };
 
-  removeItem = (key) => {
-    this.setState(prev => ({items: prev.items.filter(it => it.key !== key)}));
+  onRowTreeChange = (tree) => {
+    this.clearError('rows');
+    this.setState({rowTree: tree});
   };
 
   fetchRowNodes = (templateId) => {
@@ -159,39 +197,77 @@ class TemplateForm extends React.Component {
     }
   };
 
-  submit = () => {
+  scrollToSection = (key) => {
+    // rows/items 校验错误都定位到可视化设计表格区块
+    const target = (key === 'rows' || key === 'items') ? 'design' : key;
+    const el = this.sectionRefs[target] && this.sectionRefs[target].current;
+    if (el && el.scrollIntoView) el.scrollIntoView({behavior: 'smooth', block: 'start'});
+  };
+
+  /** 保存前校验；错误写入对应区块并滚动定位，返回是否通过。 */
+  validate = () => {
     const {template, items, rowTree} = this.state;
-    const {store} = this.props;
+    const isEdit = !!this.props.store.record.id;
+    const errors = {};
     if (!String(template.name || '').trim()) {
-      message.error('模板名称不能为空');
-      return;
+      errors.basic = '请填写模板名称';
     }
-    if (hasEmptyNodeName(rowTree)) {
-      message.error('行结构存在未命名的行节点，请填写名称');
-      this.setState({activeTab: 'rows'});
-      return;
+    if (!isEdit) {
+      if (!rowTree.length) {
+        errors.rows = '请至少添加一个检查对象';
+      } else if (hasEmptyNodeName(rowTree)) {
+        errors.rows = '请为所有检查对象和分组填写名称';
+      } else if (!hasCheckNode(rowTree)) {
+        errors.rows = '请至少添加一个检查对象（分组仅用于组织，不生成填写行）';
+      }
+      if (!items.length) {
+        errors.items = '请至少添加一个检查项目';
+      } else if (items.some(it => !String(it.name || '').trim())) {
+        errors.items = '请填写所有检查项目名称';
+      }
     }
-    if (!rowTree.length) {
-      message.error('请至少配置一个行结构节点（行方向多级对象）');
-      this.setState({activeTab: 'rows'});
-      return;
+    this.setState({errors});
+    const firstKey = ['basic', 'rows', 'items'].find(key => errors[key]);
+    if (firstKey) {
+      message.error(errors[firstKey]);
+      this.scrollToSection(firstKey);
+      return false;
     }
+    return true;
+  };
+
+  submit = () => {
+    if (!this.validate()) return;
+    const {template, items, rowTree, rowHeaders} = this.state;
+    const {store} = this.props;
     const isEdit = !!store.record.id;
+    // 列项目顺序即本地数组顺序，保存时统一重排 display_order
+    const itemPayload = it => {
+      const payload = {...it};
+      delete payload.key;
+      return payload;
+    };
+    const orderedItems = items.map((it, index) => ({...itemPayload(it), display_order: index}));
     this.setState({loading: true});
     const request = isEdit
-      ? http.put(`${API_PREFIX_L}/ledger-templates/${store.record.id}/`, {...template})
+      ? http.put(`${API_PREFIX_L}/ledger-templates/${store.record.id}/`,
+          {...template, row_headers: rowHeaders})
       : http.post(`${API_PREFIX_L}/ledger-templates/`, {
-          ...template, items, row_nodes: toRowNodesPayload(rowTree)});
+          ...template,
+          row_headers: rowHeaders,
+          items: orderedItems,
+          row_nodes: toRowNodesPayload(rowTree),
+        });
     let saveItems = Promise.resolve();
     if (isEdit) {
       const templateId = store.record.id;
-      saveItems = Promise.all(items.map(it => {
-        const payload = {...it};
-        delete payload.key;
-        if (it.id) {
-          return http.put(`${API_PREFIX_L}/ledger-templates/${templateId}/items/${it.id}/`, payload);
+      saveItems = Promise.all(orderedItems.map(payload => {
+        if (payload.id) {
+          return http.put(
+            `${API_PREFIX_L}/ledger-templates/${templateId}/items/${payload.id}/`, payload);
         }
-        return http.post(`${API_PREFIX_L}/ledger-templates/${templateId}/items/`, payload);
+        return http.post(
+          `${API_PREFIX_L}/ledger-templates/${templateId}/items/`, payload);
       }));
     }
     request
@@ -199,63 +275,38 @@ class TemplateForm extends React.Component {
       .then(() => {
         store.formVisible = false;
         store.fetchRecords();
-        message.success('保存成功');
+        message.success(isEdit ? '已保存' : '保存成功');
       })
       .finally(() => this.setState({loading: false}));
   };
 
-  itemColumns = () => {
-    const {items} = this.state;
-    // 数字/文本（含历史数值类型）行才涉及单位
-    const isMeasureRow = it => it.input_type === 'text' || it.input_type === 'number';
-    const hasMeasure = items.some(isMeasureRow);
-    const notApplicable = <span style={{color: '#ccc'}}>—</span>;
-    const columns = [
-      {
-        title: '项目名称', width: 150,
-        render: (t, it) => <Input size="small" value={it.name} onChange={e => this.setItem(it.key, {name: e.target.value})}/>,
-      },
-      {
-        title: '录入类型', width: 110,
-        render: (t, it) => (
+  renderBasicSection = (isEdit) => {
+    const {template} = this.state;
+    return (
+      <Form layout="inline" style={{marginBottom: 4}}>
+        <Form.Item required label="模板名称">
+          <Input
+            placeholder="请输入模板名称" value={template.name}
+            onChange={e => this.setTemplate('name', e.target.value)}/>
+        </Form.Item>
+        <Form.Item required label="台账类型">
           <Select
-            size="small" style={{width: '100%'}} value={it.input_type}
-            onChange={v => {
-              // 切换录入类型时清掉不再适用的字段；正常/不正常候选项固定不可配置
-              const patch = {input_type: v};
-              if (v !== 'text' && v !== 'number') {
-                patch.unit = '';
-              }
-              patch.choices = v === 'choice' ? [...NORMAL_ABNORMAL_CHOICES] : [];
-              this.setItem(it.key, patch);
-            }}>
-            {TEMPLATE_INPUT_TYPE_KEYS.map(k => <Option value={k} key={k}>{INPUT_TYPE_TEXT[k]}</Option>)}
-            {!TEMPLATE_INPUT_TYPE_KEYS.includes(it.input_type) && (
-              <Option value={it.input_type} key={it.input_type}>
-                {INPUT_TYPE_TEXT[it.input_type] || it.input_type}（历史）
-              </Option>
-            )}
+            disabled={isEdit} style={{width: 130}} value={template.ledger_type}
+            onChange={v => this.setTemplate('ledger_type', v)}>
+            {Object.keys(LEDGER_TYPE_TEXT).map(k => <Option value={k} key={k}>{LEDGER_TYPE_TEXT[k]}</Option>)}
           </Select>
-        ),
-      },
-      ...(hasMeasure ? [{
-        title: '单位', width: 80,
-        render: (t, it) => isMeasureRow(it)
-          ? <Input size="small" value={it.unit} onChange={e => this.setItem(it.key, {unit: e.target.value})}/>
-          : notApplicable,
-      }] : []),
-      {title: '必填', width: 55, align: 'center',
-        render: (t, it) => <input type="checkbox" checked={it.is_required} onChange={e => this.setItem(it.key, {is_required: e.target.checked})}/>},
-      {
-        title: '操作', width: 45, align: 'center',
-        render: (t, it) => <a style={{color: '#f5222d'}} onClick={() => this.removeItem(it.key)}><DeleteOutlined/></a>,
-      },
-    ];
-    return columns;
+        </Form.Item>
+        <Form.Item label="说明">
+          <Input
+            style={{width: 220}} placeholder="选填" value={template.description}
+            onChange={e => this.setTemplate('description', e.target.value)}/>
+        </Form.Item>
+      </Form>
+    );
   };
 
   render() {
-    const {template, items, loading, activeTab, rowTree, rowTreeVersion} = this.state;
+    const {template, items, loading, rowTree, rowTreeVersion, rowHeaders, errors} = this.state;
     const {store} = this.props;
     const isEdit = !!store.record.id;
     return (
@@ -265,59 +316,38 @@ class TemplateForm extends React.Component {
         width={1180}
         confirmLoading={loading}
         maskClosable={false}
+        bodyStyle={{maxHeight: 'calc(100vh - 180px)', overflowY: 'auto'}}
         onCancel={() => {
           store.formVisible = false;
         }}
         onOk={this.submit}
-        okText="保存">
-        <Form layout="inline" style={{marginBottom: 8}}>
-          <Form.Item required label="模板名称">
-            <Input value={template.name} onChange={e => this.setTemplate('name', e.target.value)}/>
-          </Form.Item>
-          <Form.Item required label="台账类型">
-            <Select
-              disabled={isEdit} style={{width: 130}} value={template.ledger_type}
-              onChange={v => this.setTemplate('ledger_type', v)}>
-              {Object.keys(LEDGER_TYPE_TEXT).map(k => <Option value={k} key={k}>{LEDGER_TYPE_TEXT[k]}</Option>)}
-            </Select>
-          </Form.Item>
-          <Form.Item label="说明">
-            <Input style={{width: 220}} value={template.description} onChange={e => this.setTemplate('description', e.target.value)}/>
-          </Form.Item>
-        </Form>
-        <Tabs activeKey={activeTab} onChange={k => this.setState({activeTab: k})}>
-          <TabPane tab="行结构" key="rows">
-            <RowTreeEditor
-              tableKey={`rows-${rowTreeVersion}`}
-              tree={rowTree}
-              remote={isEdit}
-              onChange={tree => this.setState({rowTree: tree})}
-              onCommit={this.commitRowNode}
-            />
-          </TabPane>
-          <TabPane tab={`列检查项目（${items.length}）`} key="items">
-            <Alert type="info" showIcon message={FLAT_COLUMN_HINT} style={{marginBottom: 8}}/>
-            <div style={{marginBottom: 8}}>
-              <Button size="small" type="primary" ghost icon={<PlusOutlined/>} onClick={this.addItem}>添加项目</Button>
-              {isEdit && (
-                <Tag style={{marginLeft: 8}}>编辑模式下项目修改、新增逐行立即保存</Tag>
-              )}
-            </div>
-            <Table
-              rowKey="key" size="small"
-              columns={this.itemColumns()}
-              dataSource={items}
-              pagination={false}
-            />
-          </TabPane>
-        </Tabs>
-        {activeTab === 'rows' && !rowTree.length && (
-          <Divider style={{margin: '4px 0 0'}} dashed>
-            <span style={{color: '#999', fontSize: 12}}>
-              尚未配置行结构：可参考 信道（可重复分组）→ 主电台 / 备电台（行对象）
-            </span>
-          </Divider>
-        )}
+        okText={isEdit ? '保存基本信息' : '保存'}>
+        <SectionCard
+          index={1} title="基本信息" error={errors.basic}
+          hint={isEdit ? '点击底部「保存基本信息」后保存' : null}
+          innerRef={this.sectionRefs.basic}>
+          {this.renderBasicSection(isEdit)}
+        </SectionCard>
+        <SectionCard
+          index={2} title="可视化设计表格（检查对象 × 检查项目）"
+          error={[errors.rows, errors.items].filter(Boolean).join('；') || null}
+          hint={isEdit ? '行结构修改后立即保存；层级表头与检查项目随底部「保存基本信息」一并保存' : null}
+          innerRef={this.sectionRefs.design}>
+          <TemplateDesignTable
+            tableKey={`design-${rowTreeVersion}`}
+            tree={rowTree}
+            items={items}
+            rowHeaders={rowHeaders}
+            remote={isEdit}
+            onChange={this.onRowTreeChange}
+            onItemsChange={this.onItemsChange}
+            onRowHeadersChange={this.onRowHeadersChange}
+            onCommit={this.commitRowNode}
+          />
+        </SectionCard>
+        <SectionCard index={3} title="预览（实际台账效果）">
+          <TemplatePreview rows={rowTree} items={items} rowHeaders={rowHeaders}/>
+        </SectionCard>
       </Modal>
     );
   }

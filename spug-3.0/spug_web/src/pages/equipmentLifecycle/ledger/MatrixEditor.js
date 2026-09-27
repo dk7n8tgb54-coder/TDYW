@@ -136,13 +136,18 @@ function useAutoExpandedKeys(rows) {
   return [expandedKeys, setExpandedKeys];
 }
 
-/** 行层级列：第 level 级一行层级列；祖先分组命中 chain 且为合并首行时 rowSpan。 */
+/** 行层级列：第 level 级一行层级列；祖先分组命中 chain 且为合并首行时 rowSpan。
+ * 列头名称：renderLevelTitle 自定义（设计器内联编辑）> levelHeaders[level-1]
+ * （模板行层级表头名称）> 默认"第N级"。 */
 function buildLevelColumns(options) {
-  const {maxDepth, levelColumnWidth, renderGroupTitle, renderLeafTitle} = options;
+  const {maxDepth, levelColumnWidth, renderGroupTitle, renderLeafTitle,
+    levelHeaders, renderLevelTitle} = options;
   const columns = [];
   for (let level = 1; level <= maxDepth; level += 1) {
     columns.push({
-      title: `第${level}级`,
+      title: renderLevelTitle
+        ? renderLevelTitle(level)
+        : (levelHeaders && levelHeaders[level - 1]) || `第${level}级`,
       key: `row_level_${level}`,
       width: levelColumnWidth,
       onCell: record => {
@@ -165,15 +170,18 @@ function buildLevelColumns(options) {
   return columns;
 }
 
-/** 列项目数据列：仅行叶子交叉格渲染填写控件（只读态渲染值与结果标签）。 */
+/** 列项目数据列：仅行叶子交叉格渲染填写控件（只读态渲染值与结果标签）。
+ * 列头：renderColumnTitle 自定义（设计器"点击列标题配置"）> 默认名称+单位。 */
 function buildDataColumns(options) {
-  const {columns, editable, getCell, onCellChange, renderCellExtra} = options;
+  const {columns, editable, getCell, onCellChange, renderCellExtra, renderColumnTitle} = options;
   return columns.map(col => ({
-    title: (
-      <Tooltip title={col.operation_guide || col.name}>
-        <span>{col.name}{col.unit ? <span style={{color: '#999'}}>（{col.unit}）</span> : null}</span>
-      </Tooltip>
-    ),
+    title: renderColumnTitle
+      ? renderColumnTitle(col)
+      : (
+        <Tooltip title={col.operation_guide || col.name}>
+          <span>{col.name}{col.unit ? <span style={{color: '#999'}}>（{col.unit}）</span> : null}</span>
+        </Tooltip>
+      ),
     key: `col_${col.id}`,
     width: 150,
     render: (t, record) => {
@@ -204,12 +212,18 @@ function buildDataColumns(options) {
  * rows：树形行（children 嵌套），叶子行 isCellLeaf=true 才渲染单元格；
  * getCell(row, column) 返回单元格数据（或 null）；
  * onCellChange(row, column, patch) 缺省或 readOnly 时为只读态；
- * renderRowActions(row) 渲染在分组合并单元格内（实例新增/删除等）。
+ * renderRowActions(row) 渲染在分组合并单元格内（实例新增/删除等）；
+ * levelHeaders：行层级表头名称数组（模板 row_headers，如 ['信道','电台']），
+ * 未配置的层级回退"第N级"；
+ * renderRowName(row)：自定义行名称渲染（设计器内联改名）；
+ * renderLevelTitle(level)/renderColumnTitle(col)：层级列/数据列自定义列头
+ * （模板设计器使用；缺省为名称文本）。
  */
 export default function MatrixEditor({
   columns, rows, getCell, onCellChange, readOnly,
   renderRowActions, renderRowTitle, renderCellExtra, tableKey,
-  levelColumnWidth = 150,
+  levelColumnWidth = 150, levelHeaders,
+  renderRowName, renderLevelTitle, renderColumnTitle,
 }) {
   const editable = !readOnly && typeof onCellChange === 'function';
   const [expandedKeys, setExpandedKeys] = useAutoExpandedKeys(rows);
@@ -217,12 +231,17 @@ export default function MatrixEditor({
     prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]));
   const isExpanded = row => !row.children || !row.children.length
     || expandedKeys.includes(row.key);
-  if (!rows || !rows.length) {
+  // 行/列均为空才整体空态：设计器可能先配置列（此时仍渲染列头供点击配置）；
+  // 设计器（renderLevelTitle）空表时也保留层级列供编辑行层级表头
+  if ((!rows || !rows.length) && (!columns || !columns.length) && !renderLevelTitle) {
     return <Empty description="暂无行数据"/>;
   }
-  const emitted = emitVisibleRows(rows, isExpanded);
+  const emitted = rows && rows.length ? emitVisibleRows(rows, isExpanded) : [];
+  // 设计器（renderLevelTitle）空树时也保留第 1 级层级列，供编辑层级表头
   const maxDepth = Math.min(
-    emitted.reduce((max, record) => Math.max(max, record.depth), 0), ROW_MAX_LEVEL);
+    Math.max(emitted.reduce((max, record) => Math.max(max, record.depth), 0),
+      renderLevelTitle ? 1 : 0),
+    ROW_MAX_LEVEL);
 
   const renderGroupTitle = row => (
     <span>
@@ -236,7 +255,7 @@ export default function MatrixEditor({
         </a>
       )}
       <Tooltip title={row.path} placement="topLeft">
-        <span>{row.name}</span>
+        <span>{renderRowName ? renderRowName(row) : row.name}</span>
       </Tooltip>
       {renderRowTitle && <span style={{marginLeft: 8}}>{renderRowTitle(row)}</span>}
       {renderRowActions && <span style={{marginLeft: 8}}>{renderRowActions(row)}</span>}
@@ -246,18 +265,21 @@ export default function MatrixEditor({
   const renderLeafTitle = row => (
     <Tooltip title={row.path} placement="topLeft">
       <span>
-        <span>{row.name}</span>
+        <span>{renderRowName ? renderRowName(row) : row.name}</span>
         {renderRowTitle && <span style={{marginLeft: 8}}>{renderRowTitle(row)}</span>}
+        {renderRowActions && <span style={{marginLeft: 8}}>{renderRowActions(row)}</span>}
       </span>
     </Tooltip>
   );
 
   const levelColumns = buildLevelColumns({
     maxDepth, levelColumnWidth, renderGroupTitle, renderLeafTitle,
+    levelHeaders, renderLevelTitle,
   });
   const tableColumns = [
     ...levelColumns,
-    ...buildDataColumns({columns, editable, getCell, onCellChange, renderCellExtra}),
+    ...buildDataColumns({columns, editable, getCell, onCellChange, renderCellExtra,
+      renderColumnTitle}),
   ];
   return (
     <Table

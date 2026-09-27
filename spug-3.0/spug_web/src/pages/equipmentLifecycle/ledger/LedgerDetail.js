@@ -84,7 +84,9 @@ class LedgerDetail extends React.Component {
           行层级 × 列项目矩阵：每级行项目独立成列、父节点纵向合并；单元格按
           "行对象 × 列项目"生成，快照与填写内容不受模板后续修改影响。
         </p>
-        <MatrixEditor columns={columns} rows={rows} getCell={getCell} readOnly/>
+        <MatrixEditor
+          columns={columns} rows={rows} getCell={getCell} readOnly
+          levelHeaders={d.row_headers || []}/>
       </div>
     );
   };

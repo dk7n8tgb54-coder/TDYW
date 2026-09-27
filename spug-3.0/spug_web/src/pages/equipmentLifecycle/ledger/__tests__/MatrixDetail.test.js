@@ -135,6 +135,28 @@ describe('LedgerDetail 矩阵台账', () => {
     expect(document.body.textContent).toContain('驻波比超限');
   });
 
+  it('层级表头名称快照（row_headers）替代"第N级"列头显示', async () => {
+    const LedgerDetail = require('../LedgerDetail').default;
+    const detail = matrixDetail();
+    detail.row_headers = ['信道', '电台'];
+    const store = {detail, detailVisible: true, closeDetail: jest.fn()};
+    await act(async () => {
+      ReactDOM.render(<LedgerDetail store={store}/>, container);
+    });
+    await act(flush);
+    const matrixTab = Array.from(document.querySelectorAll('.ant-tabs-tab'))
+      .find(t => t.textContent.includes('检查明细（矩阵）'));
+    await act(async () => {
+      matrixTab.click();
+    });
+    await act(flush);
+    const headers = Array.from(document.querySelectorAll('.ant-table-thead th'))
+      .map(th => th.textContent.trim());
+    expect(headers).toContain('信道');
+    expect(headers).toContain('电台');
+    expect(headers.some(h => h.startsWith('第1级'))).toBe(false);
+  });
+
   it('历史台账（无行实例）按系统分组展示，不补造行树', async () => {
     const LedgerDetail = require('../LedgerDetail').default;
     const detail = matrixDetail();

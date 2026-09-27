@@ -625,6 +625,13 @@ class LedgerForm extends React.Component {
     );
   };
 
+  /** 行层级表头名称：计划态取预览条目，编辑态取台账快照/模板值。 */
+  levelHeaders = () => {
+    const {preview, detail} = this.state;
+    return (preview && preview.row_headers)
+      || (detail && detail.row_headers) || [];
+  };
+
   renderMatrix = (rows, getCell, onCellChange, options) => {
     const {filterMode, columns} = this.state;
     const filtered = filterMatrixRows(
@@ -640,6 +647,7 @@ class LedgerForm extends React.Component {
         renderRowActions={options.rowActions}
         renderRowTitle={row => this.renderRowTitleProgress(row, getCell)}
         renderCellExtra={options.renderCellExtra}
+        levelHeaders={this.levelHeaders()}
       />
     );
   };

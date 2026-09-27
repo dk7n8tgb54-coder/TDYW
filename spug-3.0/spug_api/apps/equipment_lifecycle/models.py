@@ -623,6 +623,11 @@ class OperationLedgerTemplate(TenantModelMixin, models.Model):
     name = models.CharField(max_length=100, help_text='模板名称')
     ledger_type = models.CharField(max_length=20, help_text='台账类型')
     description = models.CharField(max_length=500, default='', blank=True, help_text='说明')
+    # 行层级表头名称（2026-09-27 模板可视化设计）：JSON 字符串数组，按层级顺序，
+    # 如 ["信道","电台"] 表示第 1 级列头为"信道"、第 2 级为"电台"；
+    # 空串表示未配置，展示端回退默认"第N级"；层级由数组顺序派生，不存 level 编号
+    row_headers = models.TextField(
+        default='', blank=True, help_text='行层级表头名称 JSON 字符串数组（如 ["信道","电台"]，空为默认"第N级"）')
     is_active = models.BooleanField(default=True, help_text='是否启用（停用后不能用于新台账）')
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
@@ -650,12 +655,23 @@ class OperationLedgerTemplate(TenantModelMixin, models.Model):
     def __repr__(self):
         return '<OperationLedgerTemplate %r>' % self.name
 
+    def get_row_headers(self):
+        """行层级表头名称列表（按层级顺序；未配置或内容损坏返回空列表）。"""
+        if not self.row_headers:
+            return []
+        try:
+            data = json.loads(self.row_headers)
+            return data if isinstance(data, list) else []
+        except (ValueError, TypeError):
+            return []
+
     def to_view(self, with_counts=False):
         data = {
             'id': self.id,
             'name': self.name,
             'ledger_type': self.ledger_type,
             'description': self.description,
+            'row_headers': self.get_row_headers(),
             'is_active': self.is_active,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
@@ -764,6 +780,10 @@ class OperationLedger(TenantModelMixin, models.Model):
         OperationLedgerTemplate, models.SET_NULL, related_name='ledgers', null=True, blank=True,
         help_text='来源模板（矩阵台账行实例管理依赖；历史台账可为空，仅溯源不约束内容）')
     client_token = models.CharField(max_length=64, default='', blank=True, help_text='客户端幂等令牌（创建防重复）')
+    # 行层级表头名称快照（2026-09-27 模板可视化设计）：生成矩阵台账时取模板
+    # row_headers 原样保存，模板后续修改层级表头不影响已生成台账的展示
+    row_headers_snapshot = models.TextField(
+        default='', blank=True, help_text='行层级表头名称快照 JSON 字符串数组（生成时模板的层级表头）')
     version = models.IntegerField(default=1, help_text='并发编辑版本号')
     submitted_at = models.DateTimeField(null=True, blank=True)
     submitted_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
@@ -829,6 +849,16 @@ class OperationLedger(TenantModelMixin, models.Model):
 
     def can_transition_to(self, new_status):
         return new_status in self.STATE_TRANSITIONS.get(self.status, set())
+
+    def get_row_headers(self):
+        """行层级表头名称快照列表（未快照或内容损坏返回空列表，展示端回退模板值）。"""
+        if not self.row_headers_snapshot:
+            return []
+        try:
+            data = json.loads(self.row_headers_snapshot)
+            return data if isinstance(data, list) else []
+        except (ValueError, TypeError):
+            return []
 
     def to_view(self, with_counts=False):
         data = {
