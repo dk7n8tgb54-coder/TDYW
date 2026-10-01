@@ -1,24 +1,24 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——巡检/周月维护/季维护台账视图（步骤 3.2）。
+"""设备全生命周期——周月维护/季维护台账视图（步骤 3.2）。
 
 权限域（前后端一致，后端独立校验）：
-- equipment_lifecycle.ledger_template.view|add|edit|del
 - equipment_lifecycle.ledger.view|add|edit|submit|review|del|export
+- Excel 模板管理使用 equipment_lifecycle.ledger_template.view|add|edit|del
+  （见 excel_template_views），旧可视化模板台账路线已删除（2026-10）
 
 约定：
-- 所有系统关联通过系统 ID，后端重新查询系统/模板，不信任前端
-  传来的名称与模板内容；
+- 台账系统关联通过系统 ID，后端重新查询系统，不信任前端传来的名称；
+- 正式新增台账统一走 Excel/WPS 模板路线（/excel-ledgers/），
+  POST /ledgers/ 仅保留手工补录（created_from=manual）能力；
 - 台账创建/提交/复核/退回/作废均考虑重复请求（状态机 + client_token）；
 - HTTP 200 + error 为业务失败；写操作记录业务审计并使用状态动作接口；
 - 附件走 evidence 体系，访问前校验所属台账/明细与租户归属。
 """
 import csv
 import io
-import json
 
-from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.http import HttpResponse
 from django.views.generic import View
@@ -34,22 +34,21 @@ from apps.evidence.attachment_service import (
 )
 from apps.evidence.models import EvidenceAttachment
 
-from apps.equipment_lifecycle import ledger_row_services, ledger_services, work_order_services
+from apps.equipment_lifecycle import ledger_services
 from apps.equipment_lifecycle.ledger_services import (
-    ITEM_RESULT_TEXT_MAP, LedgerValidationError, legacy_inspection_error,
+    LedgerValidationError, legacy_inspection_error,
+    append_item_disposition,
 )
 from apps.equipment_lifecycle.models import (
     ITEM_RESULT_ABNORMAL,
     ITEM_RESULT_TEXT_MAP_FULL,
-    LEDGER_INPUT_TYPE_VALUES,
+    LEDGER_FROM_EXCEL,
+    LEDGER_FROM_MANUAL,
     LEDGER_STATUS_VOID,
     LEDGER_TYPE_TEXT,
-    ROW_NODE_TYPE_CHECK,
     LifecycleSystem,
     OperationLedger,
     OperationLedgerItem,
-    OperationLedgerTemplate,
-    OperationLedgerTemplateItem,
 )
 from apps.equipment_lifecycle.views import (
     EL_ATTACHMENT_MODULE,
@@ -57,319 +56,23 @@ from apps.equipment_lifecycle.views import (
     _read_json_body,
 )
 
-AUDIT_TARGET_TEMPLATE = 'el_ledger_template'
 AUDIT_TARGET_LEDGER = 'el_operation_ledger'
 
 # 附件归属标识：台账表头 / 台账明细
 LEDGER_ATTACHMENT_OBJECT_TYPE = 'el_operation_ledger'
 LEDGER_ITEM_ATTACHMENT_OBJECT_TYPE = 'el_operation_ledger_item'
 
+# 统一列表详情路由（与前端 routes.js 的正式台账路径一致）
+LEDGER_TYPE_DETAIL_PATH = {
+    'week_month': '/el/week-month-ledgers',
+    'seasonal': '/el/seasonal-ledgers',
+}
 
-def _parse_choices_field(raw):
-    """校验候选项字段：空或 JSON 字符串数组；返回 (存储串, 列表)。"""
-    if raw in (None, ''):
-        return '', []
-    if isinstance(raw, list):
-        values = raw
-    else:
-        try:
-            values = json.loads(raw)
-        except (ValueError, TypeError):
-            raise LedgerValidationError('候选项格式不正确，必须为字符串数组')
-    if not isinstance(values, list) or any(not isinstance(v, str) for v in values):
-        raise LedgerValidationError('候选项格式不正确，必须为字符串数组')
-    return json.dumps(values, ensure_ascii=False), values
-
-
-# ======================================================================
-# 台账模板
-# ======================================================================
-
-def _get_template_for_user(pk, user):
-    return apply_tenant_filter(OperationLedgerTemplate.objects.all(), user).filter(pk=pk).first()
-
-
-def _validate_template_header(request, body, item=None):
-    """模板表头字段校验，返回字段 dict 或错误信息（编号由后端自动生成）。
-
-    row_headers（行层级表头名称）为可选字段：新建与编辑均可提交，
-    层级由数组顺序派生，不信任前端提交的 level 编号。
-    """
-    name = str(body.get('name') or '').strip()
-    if not name:
-        return None, '模板名称不能为空'
-    ledger_type = body.get('ledger_type')
-    try:
-        # 旧巡检类型在此返回"已删除"明确错误；其余非法类型一并拒绝
-        ledger_services.validate_ledger_type(ledger_type)
-        row_headers = ledger_row_services.validate_row_headers(
-            body.get('row_headers'))
-    except LedgerValidationError as e:
-        return None, str(e)
-    return {
-        'name': name,
-        'ledger_type': ledger_type,
-        'description': str(body.get('description') or '').strip(),
-        'row_headers': row_headers,
-    }, None
-
-
-def _validate_template_item_payload(request, template, body, item=None):
-    """模板项目字段校验，返回字段 dict 或错误信息。"""
-    name = str(body.get('name') or '').strip()
-    if not name:
-        return None, '项目名称不能为空'
-    input_type = body.get('input_type')
-    if input_type not in LEDGER_INPUT_TYPE_VALUES:
-        return None, '录入类型不合法：%s' % input_type
-    choices_raw, choices = '', []
-    if input_type in ('choice', 'multi_choice'):
-        try:
-            choices_raw, choices = _parse_choices_field(body.get('choices'))
-        except LedgerValidationError as e:
-            return None, str(e)
-        if not choices:
-            return None, '单选/多选项目必须配置候选项'
-    return {
-        'name': name,
-        'input_type': input_type,
-        'unit': str(body.get('unit') or '').strip(),
-        'choices': choices_raw,
-        'default_value': str(body.get('default_value') or '').strip(),
-        'is_required': bool(body.get('is_required', True)),
-        'abnormal_rule': str(body.get('abnormal_rule') or '').strip(),
-        'operation_guide': str(body.get('operation_guide') or '').strip(),
-        'display_order': body.get('display_order') if isinstance(body.get('display_order'), int) else 0,
-    }, None
-
-
-def _apply_item_active_patch(fields, body):
-    """列项目启停状态仅随请求显式提交时更新（缺省保持原值，防止误启用）。"""
-    if 'is_active' in body:
-        fields['is_active'] = bool(body['is_active'])
-    return fields
-
-
-class LedgerTemplateView(View):
-    @auth('equipment_lifecycle.ledger_template.view')
-    def get(self, request):
-        query = apply_tenant_filter(
-            OperationLedgerTemplate.objects.all(), request.user)
-        ledger_type = request.GET.get('ledger_type')
-        if ledger_type:
-            query = query.filter(ledger_type=ledger_type)
-        is_active = request.GET.get('is_active')
-        if is_active in ('true', 'false'):
-            query = query.filter(is_active=(is_active == 'true'))
-        keyword = request.GET.get('keyword')
-        if keyword:
-            query = query.filter(Q(name__icontains=keyword))
-        data = [item.to_view(with_counts=True) for item in query]
-        return json_response({'data': data})
-
-    @auth('equipment_lifecycle.ledger_template.add')
-    def post(self, request):
-        body = _read_json_body(request)
-        if body is None:
-            return json_response(error='请求体格式不正确')
-        header, error = _validate_template_header(request, body)
-        if error:
-            return json_response(error=error)
-        items_payload = body.get('items') or []
-        if not isinstance(items_payload, list):
-            return json_response(error='items 必须为数组')
-        if not items_payload:
-            return json_response(error='请至少添加一个检查项目')
-        row_nodes_payload = body.get('row_nodes') or []
-        if not isinstance(row_nodes_payload, list):
-            return json_response(error='row_nodes 必须为数组')
-        if not row_nodes_payload:
-            return json_response(error='请至少添加一个检查对象')
-        try:
-            # 模板 / 检查项目 / 行结构（检查对象）同事务落库，任一失败整体回滚
-            with transaction.atomic():
-                template = OperationLedgerTemplate.objects.create(
-                    tenant_id=request.user.tenant_id,
-                    created_by=request.user,
-                    **header,
-                )
-                for row in items_payload:
-                    fields, error = _validate_template_item_payload(request, template, row)
-                    if error:
-                        raise LedgerValidationError(error)
-                    OperationLedgerTemplateItem.objects.create(
-                        template=template, tenant_id=request.user.tenant_id,
-                        created_by=request.user, **fields)
-                created_nodes = ledger_row_services.create_template_row_nodes(
-                    request.user, template, row_nodes_payload)
-                # 分组不生成填写行：必须存在检查对象（check）节点
-                if not template.row_nodes.filter(
-                        node_type=ROW_NODE_TYPE_CHECK, is_active=True).exists():
-                    raise LedgerValidationError('请至少添加一个检查对象')
-        except LedgerValidationError as e:
-            return json_response(error=str(e))
-        except IntegrityError:
-            return json_response(error='模板保存失败，请重试')
-        record_audit_event(request, 'create', AUDIT_TARGET_TEMPLATE, template.id, template.name,
-                           after_value={'ledger_type': template.ledger_type,
-                                        'items_count': len(items_payload),
-                                        'row_nodes_count': len(created_nodes)})
-        return json_response(template.to_view(with_counts=True))
-
-
-class LedgerTemplateAvailableView(View):
-    """按台账类型加载启用模板（模板不绑定系统，供录入端候选）。
-
-    周月维护不再区分周/月周期，模板候选与项目数不按周期过滤。
-    """
-
-    @auth('equipment_lifecycle.ledger.view')
-    def get(self, request):
-        ledger_type = request.GET.get('ledger_type')
-        try:
-            # 旧巡检类型在此返回"已删除"明确错误；其余非法类型返回"不合法"
-            ledger_services.validate_ledger_type(ledger_type)
-        except LedgerValidationError as e:
-            return json_response(error=str(e))
-
-        def _view(template):
-            view = template.to_view()
-            view['items_count'] = template.items.filter(is_active=True).count()
-            return view
-
-        templates = apply_tenant_filter(
-            OperationLedgerTemplate.objects.all(), request.user).filter(
-            ledger_type=ledger_type, is_active=True)
-        return json_response({'data': [_view(t) for t in templates]})
-
-
-class LedgerTemplateDetailView(View):
-    @auth('equipment_lifecycle.ledger_template.view')
-    def get(self, request, pk):
-        template = _get_template_for_user(pk, request.user)
-        if not template:
-            return json_response(error='台账模板不存在')
-        view = template.to_view(with_counts=True)
-        view['items'] = [it.to_view() for it in template.items.all()]
-        return json_response(view)
-
-    @auth('equipment_lifecycle.ledger_template.edit')
-    def put(self, request, pk):
-        body = _read_json_body(request)
-        if body is None:
-            return json_response(error='请求体格式不正确')
-        template = _get_template_for_user(pk, request.user)
-        if not template:
-            return json_response(error='台账模板不存在')
-        header, error = _validate_template_header(request, body, item=template)
-        if error:
-            return json_response(error=error)
-        before = {'name': template.name, 'description': template.description,
-                  'row_headers': template.get_row_headers()}
-        with transaction.atomic():
-            for field in ('name', 'description', 'row_headers'):
-                setattr(template, field, header[field])
-            template.updated_by = request.user
-            template.save()
-        record_audit_event(request, 'update', AUDIT_TARGET_TEMPLATE, template.id, template.name,
-                           before_value=before,
-                           after_value={'name': template.name, 'description': template.description,
-                                        'row_headers': template.get_row_headers()})
-        return json_response(template.to_view(with_counts=True))
-
-
-class LedgerTemplateActiveView(View):
-    """模板停用/启用（del 权限＝受控停用，不物理删除模板）。"""
-
-    @auth('equipment_lifecycle.ledger_template.del')
-    def put(self, request, pk):
-        body = _read_json_body(request)
-        if body is None or not isinstance(body.get('is_active'), bool):
-            return json_response(error='请求体格式不正确')
-        template = _get_template_for_user(pk, request.user)
-        if not template:
-            return json_response(error='台账模板不存在')
-        template.is_active = body['is_active']
-        template.updated_by = request.user
-        template.save(update_fields=['is_active', 'updated_at', 'updated_by'])
-        record_audit_event(
-            request, 'update' if template.is_active else 'delete', AUDIT_TARGET_TEMPLATE,
-            template.id, template.name,
-            after_value={'is_active': template.is_active,
-                         'action_kind': 'activate_template' if template.is_active else 'deactivate_template'})
-        return json_response(template.to_view())
-
-
-class LedgerTemplateItemView(View):
-    @auth('equipment_lifecycle.ledger_template.view')
-    def get(self, request, pk):
-        template = _get_template_for_user(pk, request.user)
-        if not template:
-            return json_response(error='台账模板不存在')
-        rows = template.items.all()
-        is_active = request.GET.get('is_active')
-        if is_active in ('true', 'false'):
-            rows = rows.filter(is_active=(is_active == 'true'))
-        return json_response({'data': [it.to_view() for it in rows]})
-
-    @auth('equipment_lifecycle.ledger_template.edit')
-    def post(self, request, pk):
-        body = _read_json_body(request)
-        if body is None:
-            return json_response(error='请求体格式不正确')
-        template = _get_template_for_user(pk, request.user)
-        if not template:
-            return json_response(error='台账模板不存在')
-        fields, error = _validate_template_item_payload(request, template, body)
-        if error:
-            return json_response(error=error)
-        item = OperationLedgerTemplateItem.objects.create(
-            template=template, tenant_id=request.user.tenant_id, created_by=request.user,
-            **_apply_item_active_patch(fields, body))
-        record_audit_event(request, 'create', AUDIT_TARGET_TEMPLATE, template.id, template.name,
-                           after_value={'action_kind': 'add_template_item', 'item_name': item.name})
-        return json_response(item.to_view())
-
-
-class LedgerTemplateItemDetailView(View):
-    @auth('equipment_lifecycle.ledger_template.edit')
-    def put(self, request, pk, iid):
-        body = _read_json_body(request)
-        if body is None:
-            return json_response(error='请求体格式不正确')
-        template = _get_template_for_user(pk, request.user)
-        if not template:
-            return json_response(error='台账模板不存在')
-        item = template.items.filter(pk=iid).first()
-        if not item:
-            return json_response(error='模板项目不存在')
-        fields, error = _validate_template_item_payload(request, template, body, item=item)
-        if error:
-            return json_response(error=error)
-        before = item.to_view()
-        for field, value in _apply_item_active_patch(fields, body).items():
-            setattr(item, field, value)
-        item.updated_by = request.user
-        item.save()
-        record_audit_event(request, 'update', AUDIT_TARGET_TEMPLATE, template.id, template.name,
-                           before_value={'action_kind': 'edit_template_item', 'item': before},
-                           after_value={'action_kind': 'edit_template_item', 'item': item.to_view()})
-        return json_response(item.to_view())
-
-    @auth('equipment_lifecycle.ledger_template.del')
-    def delete(self, request, pk, iid):
-        template = _get_template_for_user(pk, request.user)
-        if not template:
-            return json_response(error='台账模板不存在')
-        item = template.items.filter(pk=iid).first()
-        if not item:
-            return json_response(error='模板项目不存在')
-        before = {'item_name': item.name}
-        # 历史台账明细保存全量快照（template_item SET_NULL），物理删除模板项目不影响历史
-        item.delete()
-        record_audit_event(request, 'delete', AUDIT_TARGET_TEMPLATE, template.id, template.name,
-                           before_value={'action_kind': 'delete_template_item', **before})
-        return json_response({})
+# 统一列表来源类型（由 created_from 派生；旧可视化模板来源已随路线删除）
+LEDGER_FROM_SOURCE_TYPE = {
+    LEDGER_FROM_MANUAL: 'manual',
+    LEDGER_FROM_EXCEL: 'excel',
+}
 
 
 # ======================================================================
@@ -381,36 +84,57 @@ def _get_ledger_for_user(pk, user):
 
 
 def _ledger_detail(ledger, user=None):
+    if ledger.created_from == LEDGER_FROM_EXCEL:
+        # Excel 路线台账没有普通 OperationLedgerItem 明细，按 created_from
+        # 分支返回 Excel 详情（版本快照 + 绑定 + 布局 + 填写值 + 编辑状态）
+        from apps.equipment_lifecycle import excel_ledger_services
+
+        try:
+            return excel_ledger_services.ledger_detail(ledger)
+        except excel_ledger_services.ExcelLedgerError:
+            # 缺少填写记录的异常数据降级为基础视图，不让统一详情整体失败
+            pass
     view = ledger.to_view(with_counts=True)
-    if ledger.template:
-        view['template_name'] = ledger.template.name
     items = [it.to_view() for it in ledger.items.all()]
     if user is not None:
-        # 异常明细处置状态（步骤 3.3）：由来源关系动态计算，事实依据不落库
-        work_order_services.append_item_disposition(ledger.tenant_id, items)
+        # 异常明细处置状态：由来源故障关系动态计算，事实依据不落库
+        append_item_disposition(ledger.tenant_id, items)
     view['items'] = items
-    if view.get('has_row_instances'):
-        # 矩阵台账（第一阶段行对象树）：附带行实例树供前端渲染矩阵，
-        # 并为每个明细单元格补充 row_headers 祖先链（[{level, name, code}]）
-        from apps.equipment_lifecycle import ledger_row_services
-
-        view['row_instances'] = ledger_row_services.load_instance_tree(ledger)
-        headers_map = ledger_row_services.build_row_headers_map(ledger)
-        for item in items:
-            item['row_headers'] = headers_map.get(item.get('row_instance'), [])
-    else:
-        view['row_instances'] = []
-    # 行层级表头名称（列头展示用）：优先生成时快照，历史台账回退模板当前值
-    view['row_headers'] = ledger.get_row_headers() or (
-        ledger.template.get_row_headers() if ledger.template else [])
     view['corrections'] = [c.to_view() for c in ledger.corrections.all()]
     return view
+
+
+def _ledger_source_fields(ledger):
+    """统一列表来源字段：source_type + Excel 路线模板/版本 + 详情路由。
+
+    Excel 路线台账的来源版本经 select_related('excel_record__version')
+    读取；记录缺失（异常数据）时来源信息降级为空，不影响列表返回。
+    """
+    source_type = LEDGER_FROM_SOURCE_TYPE.get(ledger.created_from, ledger.created_from)
+    fields = {
+        'source_type': source_type,
+        'source_template_name': '',
+        'source_version_no': None,
+        'detail_route': '',
+    }
+    if source_type == 'excel':
+        record = getattr(ledger, 'excel_record', None)
+        version = record.version if record is not None else None
+        fields['source_template_name'] = version.template_name_snapshot if version else ''
+        fields['source_version_no'] = version.version_no if version else None
+    path = LEDGER_TYPE_DETAIL_PATH.get(ledger.ledger_type)
+    if path:
+        fields['detail_route'] = '%s?detail=%d&source=%s' % (
+            path, ledger.id, source_type)
+    return fields
 
 
 class LedgerView(View):
     @auth('equipment_lifecycle.ledger.view')
     def get(self, request):
         query = apply_tenant_filter(OperationLedger.objects.all(), request.user)
+        # 统一维护台账列表（2026-10）：Excel 模板 / 手工补录一并返回，
+        # 前端按 source_type 区分来源与详情路由（旧可视化模板路线已删除）
         ledger_type = request.GET.get('ledger_type')
         if ledger_type:
             query = query.filter(ledger_type=ledger_type)
@@ -429,15 +153,20 @@ class LedgerView(View):
         executed_to = request.GET.get('executed_to')
         if executed_to:
             query = query.filter(executed_date__lte=executed_to)
-        query = query.annotate(
+        query = query.select_related('excel_record__version').annotate(
             items_count=Count('items', distinct=True),
             abnormal_count=Count('items', filter=Q(items__result=ITEM_RESULT_ABNORMAL), distinct=True),
         )
         page, page_size = paginate(request)
         total = query.count()
         records = query[(page - 1) * page_size: page * page_size] if total else []
+        data = []
+        for record in records:
+            view = record.to_view(with_counts=True)
+            view.update(_ledger_source_fields(record))
+            data.append(view)
         return json_response({
-            'data': [r.to_view(with_counts=True) for r in records],
+            'data': data,
             'total': total, 'page': page, 'page_size': page_size,
         })
 
@@ -454,20 +183,6 @@ class LedgerView(View):
                                         'created_from': ledger.created_from,
                                         'items_count': ledger.items.count()})
         return json_response(_ledger_detail(ledger, request.user))
-
-
-class LedgerPreviewView(View):
-    """按 系统+模板 生成台账明细预览骨架。"""
-
-    @auth('equipment_lifecycle.ledger.view')
-    def post(self, request):
-        body = _read_json_body(request)
-        if body is None:
-            return json_response(error='请求体格式不正确')
-        preview, error = ledger_services.preview_entries(request.user, body)
-        if error:
-            return json_response(error=error)
-        return json_response({'data': preview})
 
 
 class LedgerDetailView(View):
@@ -605,8 +320,8 @@ class LedgerAbnormalItemsView(View):
             view['ledger_executed_date'] = item.ledger.executed_date
             view['ledger_status'] = item.ledger.status
             data.append(view)
-        # 异常明细处置状态（步骤 3.3）：由来源关系动态计算
-        work_order_services.append_item_disposition(request.user.tenant_id, data)
+        # 异常明细处置状态：由来源故障关系动态计算
+        append_item_disposition(request.user.tenant_id, data)
         return json_response({'data': data, 'total': total, 'page': page, 'page_size': page_size})
 
 
@@ -652,56 +367,67 @@ class SystemLedgerItemsView(View):
         return json_response({'data': data, 'total': total, 'page': page, 'page_size': page_size})
 
 
+def _apply_ledger_item_filters(query, params):
+    """导出/明细查询共用过滤（GET 参数 → ORM 条件，日期用范围查询）。"""
+    ledger_type = params.get('ledger_type')
+    if ledger_type:
+        query = query.filter(ledger__ledger_type=ledger_type)
+    status = params.get('status')
+    if status:
+        query = query.filter(ledger__status=status)
+    system_id = params.get('system')
+    if system_id and str(system_id).isdigit():
+        query = query.filter(system_id=system_id)
+    date_from = params.get('executed_from')
+    if date_from:
+        query = query.filter(ledger__executed_date__gte=date_from)
+    date_to = params.get('executed_to')
+    if date_to:
+        query = query.filter(ledger__executed_date__lte=date_to)
+    keyword = params.get('keyword')
+    if keyword:
+        query = query.filter(ledger__ledger_no__icontains=keyword)
+    return query
+
+
+def _format_ledger_item_value(item):
+    """明细填写值的 CSV 展示文本（按录入类型分列取值）。"""
+    if item.input_type == 'number':
+        return '' if item.value_number is None else item.value_number
+    if item.input_type == 'boolean':
+        return '' if item.value_bool is None else ('是' if item.value_bool else '否')
+    value = item.get_value_list() if item.input_type == 'multi_choice' and item.value_text \
+        else item.value_text
+    if isinstance(value, list):
+        return '、'.join(map(str, value))
+    return value
+
+
 class LedgerExportView(View):
     """台账明细级 CSV 导出：重新执行查询与租户过滤，不信任前端明细 ID。"""
 
     @auth('equipment_lifecycle.ledger.export')
     def get(self, request):
-        query = OperationLedgerItem.objects.filter(
-            tenant_id=request.user.tenant_id, ledger__isnull=False)
-        ledger_type = request.GET.get('ledger_type')
-        if ledger_type:
-            query = query.filter(ledger__ledger_type=ledger_type)
-        status = request.GET.get('status')
-        if status:
-            query = query.filter(ledger__status=status)
-        system_id = request.GET.get('system')
-        if system_id and str(system_id).isdigit():
-            query = query.filter(system_id=system_id)
-        date_from = request.GET.get('executed_from')
-        if date_from:
-            query = query.filter(ledger__executed_date__gte=date_from)
-        date_to = request.GET.get('executed_to')
-        if date_to:
-            query = query.filter(ledger__executed_date__lte=date_to)
-        keyword = request.GET.get('keyword')
-        if keyword:
-            query = query.filter(ledger__ledger_no__icontains=keyword)
+        query = _apply_ledger_item_filters(
+            OperationLedgerItem.objects.filter(
+                tenant_id=request.user.tenant_id, ledger__isnull=False),
+            request.GET)
         rows = query.select_related('ledger', 'system').order_by('-ledger__executed_date', '-id')
         buffer = io.StringIO()
         writer = csv.writer(buffer)
         writer.writerow([
             '台账编号', '台账类型', '实际执行日期', '状态', '系统编号', '系统名称',
-            '行路径', '项目名称', '录入类型', '填写值', '单位',
+            '项目名称', '录入类型', '填写值', '单位',
             '结果', '异常说明', '不适用原因', '现场处理内容', '明细执行人',
             '明细执行时间', '录入渠道', '录入时间'])
         count = 0
         for item in rows:
             ledger = item.ledger
-            if item.input_type == 'number':
-                value = '' if item.value_number is None else item.value_number
-            elif item.input_type == 'boolean':
-                value = '' if item.value_bool is None else ('是' if item.value_bool else '否')
-            else:
-                value = item.get_value_list() if item.input_type == 'multi_choice' and item.value_text \
-                    else item.value_text
-                if isinstance(value, list):
-                    value = '、'.join(map(str, value))
+            value = _format_ledger_item_value(item)
             writer.writerow([
                 ledger.ledger_no, LEDGER_TYPE_TEXT.get(ledger.ledger_type, ledger.ledger_type),
                 ledger.executed_date,
                 ledger.status, item.system_code_snapshot, item.system_name_snapshot,
-                item.row_path_snapshot,
                 item.item_name_snapshot,
                 item.input_type, value, item.unit_snapshot,
                 ITEM_RESULT_TEXT_MAP_FULL.get(item.result, item.result),

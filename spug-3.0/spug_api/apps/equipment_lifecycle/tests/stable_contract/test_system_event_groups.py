@@ -6,9 +6,10 @@
 - 不同故障/不同系统之间严格隔离，不发生错误合并；
 - 健康状态与配置快照事件默认不进入主事项列表，但原始数据保留且健康历史
   经系统详情履历接口（/systems/<pk>/system-events/）仍可查询；
-- 台账异常转故障/工单节点按 target_no 归并进目标事项（显示来源台账），
+- 台账异常转故障节点按 target_no 归并进目标事项（显示来源台账），
   找不到目标时独立成项；
-- 工单与升级记录可正确聚合；分页以系统分组为单位，按最近事项时间倒序；
+- 升级记录可正确聚合；工单已随工单功能删除（2026-09-30）；
+- 分页以系统分组为单位，按最近事项时间倒序；
 - 权限不足拒绝访问；导出按系统分组连续输出且列序符合契约。
 
 全部通过真实 HTTP 路径 + 隔离测试数据库执行，验证数据库状态与真实副作用。
@@ -23,7 +24,6 @@ from apps.equipment_lifecycle import event_services
 from apps.equipment_lifecycle.models import (
     OperationLedger,
     OperationLedgerItem,
-    OperationLedgerTemplate,
     SystemEvent,
 )
 from apps.equipment_lifecycle.tests.base import (
@@ -40,24 +40,16 @@ ALL_FAULT_PERMS = [
     'equipment_lifecycle.fault.recover', 'equipment_lifecycle.fault.close',
     'equipment_lifecycle.fault.del', 'equipment_lifecycle.fault.export',
 ]
-ALL_WO_PERMS = [
-    'equipment_lifecycle.work_order.view', 'equipment_lifecycle.work_order.add',
-    'equipment_lifecycle.work_order.edit', 'equipment_lifecycle.work_order.dispatch',
-    'equipment_lifecycle.work_order.accept', 'equipment_lifecycle.work_order.execute',
-    'equipment_lifecycle.work_order.review', 'equipment_lifecycle.work_order.close',
-    'equipment_lifecycle.work_order.del', 'equipment_lifecycle.work_order.export',
-]
 ALL_EVENT_PERMS = [
     'equipment_lifecycle.system_event.view', 'equipment_lifecycle.system_event.export',
 ]
 P_HANDLE_EXCEPTION = 'equipment_lifecycle.ledger.handle_exception'
 
-ALL_PERMS = (ALL_SYSTEM_PERMS + ALL_FAULT_PERMS + ALL_WO_PERMS +
+ALL_PERMS = (ALL_SYSTEM_PERMS + ALL_FAULT_PERMS +
              ALL_LEDGER_PERMS + ALL_TEMPLATE_PERMS +
              ALL_EVENT_PERMS + [P_HANDLE_EXCEPTION])
 
 FAULT_URL = URL_PREFIX + '/faults'
-WO_URL = URL_PREFIX + '/work-orders'
 SYSTEM_URL = URL_PREFIX + '/systems'
 GROUPS_URL = URL_PREFIX + '/system-event-groups'
 NODES_URL = GROUPS_URL + '/nodes'
@@ -76,8 +68,6 @@ def fault_payload(system_obj, **overrides):
         'affects_system_operation': False,
         'impact_status': '',
         'occurred_at': moment.strftime('%Y-%m-%d %H:%M'),
-        'discovery': 'patrol',
-        'level': 'major',
         'phenomenon': f'主用链路频繁丢包（场景{seq}）',
         'registrar_name': '登记人甲',
     }
@@ -129,6 +119,7 @@ class SystemEventGroupTestBase(TestCase):
         self.assertFalse(r.json().get('error'), r.content)
         r = self.client.post(f'{FAULT_URL}/{fid}/recover/', {
             'recovered_at': recover_at,
+            'recovered_by_name': '恢复确认人甲',
             'recover_confirm': '业务已恢复正常',
             'final_result': '更换备件并验证',
         }, content_type='application/json')
@@ -140,34 +131,22 @@ class SystemEventGroupTestBase(TestCase):
             self.assertFalse(r.json().get('error'), r.content)
         return fid, fno
 
-    def create_work_order(self, system, **overrides):
-        """创建工单（登记事件），返回 (order_id, work_no)。"""
-        _seq[0] += 1
-        payload = {
-            'title': f'{system.system_code} 例行维护工单（场景{_seq[0]}）',
-            'work_type': 'special_maintenance',
-            'priority': 'normal',
-            'system': system.id,
-            'affects_system_operation': False,
-            'work_location': '机房A 01柜',
-            'work_requirement': '按规程完成季度维护',
-            'client_token': '',
-        }
-        payload.update(overrides)
-        body = self.client.post(
-            f'{WO_URL}/', payload, content_type='application/json').json()
-        self.assertFalse(body.get('error'), body)
-        return body['data']['id'], body['data']['work_no']
+    def record_ledger_convert_to_fault(self, target_no):
+        """直接经服务写一条台账转故障事件（归并/独立路径用）。"""
+        ledger_id, item_id = self.create_reviewed_ledger_with_abnormal_item()
+        ledger = OperationLedger.objects.get(pk=ledger_id)
+        ledger_item = OperationLedgerItem.objects.get(pk=item_id)
+        event_services.record_ledger_convert_event(
+            ledger_item, ledger, 'convert_to_fault', target_no=target_no,
+            created_by=self.admin)
+        return ledger_id, item_id
 
     def create_reviewed_ledger_with_abnormal_item(self):
         """创建→提交→复核一张含异常明细的台账，返回 (ledger_id, item_id)。"""
-        template = OperationLedgerTemplate.objects.create(
-            name='维护模板-履历聚合', ledger_type='week_month',
-            is_active=True, tenant_id='tenant_a', created_by=self.admin)
         body = create_ledger_ok(self.client, ledger_payload([
             entry_payload(self.system_a.id, [
                 item_payload(result='abnormal', abnormal_desc='温度越限 65℃'),
-            ], template_id=template.id),
+            ]),
         ]))
         ledger_id, item_id = body['id'], body['items'][0]['id']
         r = self.client.post(f'{LEDGER_URL}/{ledger_id}/submit/', {},
@@ -208,7 +187,6 @@ class FaultItemAggregationTests(SystemEventGroupTestBase):
         self.assertEqual(item['item_no'], fno)
         self.assertEqual(item['node_count'], 3)
         self.assertEqual(item['status_text'], '已关闭')
-        self.assertEqual(item['level_text'], '严重')
         self.assertEqual(item['duration_seconds'], 7200)
         self.assertIn('主用链路频繁丢包', item['title'])
 
@@ -342,22 +320,6 @@ class LedgerMergeTests(SystemEventGroupTestBase):
         self.assertEqual([n['action'] for n in nodes].count('convert_to_fault'), 1)
         self.assertEqual(len(nodes), 2)
 
-    def test_ledger_convert_merges_into_work_order_item(self):
-        """台账异常转工单：转换节点并入目标工单事项。"""
-        ledger_id, item_id = self.create_reviewed_ledger_with_abnormal_item()
-        r = self.client.post(
-            f'{LEDGER_URL}/{ledger_id}/items/{item_id}/convert-to-work-order/',
-            {'client_token': 'token-evg-wo', 'work_type': 'special_maintenance'},
-            content_type='application/json')
-        body = r.json()
-        self.assertFalse(body.get('error'), body)
-        _, items = self.group_items()
-        self.assertEqual(len(items), 1)
-        item = items[0]
-        self.assertEqual(item['source_type'], 'work_order')
-        self.assertEqual(item['node_count'], 2)
-        self.assertEqual(len(item['ledger_sources']), 1)
-
     def test_ledger_convert_without_target_standalone(self):
         """台账转换找不到目标事项时独立成项（防御路径）。"""
         ledger_id, item_id = self.create_reviewed_ledger_with_abnormal_item()
@@ -376,25 +338,19 @@ class LedgerMergeTests(SystemEventGroupTestBase):
         self.assertEqual(item['status_text'], '')
 
 
-class WorkOrderUpgradeAggregationTests(SystemEventGroupTestBase):
-    """工单与升级事项聚合。"""
+class UpgradeAggregationTests(SystemEventGroupTestBase):
+    """升级事项聚合（工单事项已随工单功能删除，2026-09-30）。"""
 
-    def test_work_order_and_upgrade_aggregate(self):
-        """工单登记与升级登记/完成各自聚合成独立事项。"""
-        _, work_no = self.create_work_order(self.system_a)
+    def test_upgrade_aggregates_with_two_nodes(self):
+        """升级登记/完成聚合为一条事项，状态取最新节点快照。"""
         self.record_upgrade_events(self.system_a, title='DVOR 数字板升级')
         _, items = self.group_items()
-        self.assertEqual(len(items), 2)
-        by_type = {item['event_type']: item for item in items}
-        self.assertEqual(by_type['work_order']['item_no'], work_no)
-        # 单账号流程：工单创建即执行中
-        self.assertEqual(by_type['work_order']['status_text'], '执行中')
-        self.assertEqual(by_type['work_order']['node_count'], 1)
-        upgrade = by_type['upgrade']
+        self.assertEqual(len(items), 1)
+        upgrade = items[0]
+        self.assertEqual(upgrade['event_type'], 'upgrade')
         self.assertEqual(upgrade['title'], 'DVOR 数字板升级')
         self.assertEqual(upgrade['status_text'], '已完成')
         self.assertEqual(upgrade['node_count'], 2)
-
 
 class GroupPaginationFilterTests(SystemEventGroupTestBase):
     """分组分页、排序与筛选。"""
@@ -409,8 +365,8 @@ class GroupPaginationFilterTests(SystemEventGroupTestBase):
         # system_a2：一个较早故障
         self.run_fault(self.system_a2, close=False, occurred_at='2026-09-19 08:00',
                        recover_at='2026-09-19 11:00')
-        # system_a3：工单登记事件发生于当前时间（最新）
-        _, self.work_no = self.create_work_order(self.system_a3)
+        # system_a3：升级登记事件发生于当前时间（最新）
+        self.record_upgrade_events(self.system_a3, title='ADS-B 软件升级')
 
     def test_pagination_by_system_group(self):
         """分页以系统分组为单位，分组按最近事项时间倒序。"""
@@ -428,11 +384,11 @@ class GroupPaginationFilterTests(SystemEventGroupTestBase):
 
     def test_filters_apply_at_node_level(self):
         """筛选条件作用于节点级决定事项是否入选。"""
-        _, items = self.group_items('?event_type=work_order')
-        self.assertEqual([i['event_type'] for i in items], ['work_order'])
-        _, items = self.group_items(f'?keyword={self.work_no}')
-        self.assertEqual([i['item_no'] for i in items], [self.work_no])
-        # 时间范围排除 9-18/9-19/9-20 的故障，只剩工单登记节点
+        _, items = self.group_items('?event_type=upgrade')
+        self.assertEqual([i['event_type'] for i in items], ['upgrade'])
+        _, items = self.group_items('?keyword=系统升级登记')
+        self.assertEqual([i['title'] for i in items], ['ADS-B 软件升级'])
+        # 时间范围排除 9-18/9-19/9-20 的故障，只剩升级登记节点
         payload = self.groups('?occurred_from=2026-09-21 00:00')
         codes = [g['system']['system_code'] for g in payload['data']]
         self.assertEqual(codes, ['SYS-A3'])
@@ -465,7 +421,7 @@ class GroupPermissionExportTests(SystemEventGroupTestBase):
 
     def test_export_orders_by_system_and_item(self):
         """导出按系统分组连续输出，组内按事项最近更新倒序，列序符合契约。"""
-        _, work_no = self.create_work_order(self.system_a3)
+        self.record_upgrade_events(self.system_a3, title='ADS-B 软件升级')
         fid1, fno1 = self.run_fault(self.system_a, close=False,
                                     occurred_at='2026-09-18 08:00',
                                     recover_at='2026-09-18 10:00')
@@ -479,8 +435,8 @@ class GroupPermissionExportTests(SystemEventGroupTestBase):
         self.assertEqual(lines[0].split(',')[0], '系统')
         rows = [line.split(',') for line in lines[1:]]
         self.assertEqual(len(rows), 3)
-        # 分组顺序：system_a3（工单，最新）→ system_a（两个故障连续，倒序）
-        self.assertEqual(rows[0][3], work_no)
+        # 分组顺序：system_a3（升级，最新）→ system_a（两个故障连续，倒序）
+        self.assertEqual(rows[0][3], '')
         self.assertEqual(rows[1][3], fno2)
         self.assertEqual(rows[2][3], fno1)
         # 系统列只显示系统名称，不显示编号

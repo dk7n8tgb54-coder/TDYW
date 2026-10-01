@@ -1,0 +1,3270 @@
+{
+ "id": 10,
+ "name": "NB500无方向信标周月维护记录表（E2E验收）",
+ "ledger_type": "week_month",
+ "description": "NB500.xlsx 真实 WPS/Excel 模板端到端验收（2026-09-30）",
+ "is_active": true,
+ "draft_source_filename": "NB500.xlsx",
+ "draft_source_hash": "ba3b59a3245da42e1ae0cd03087b957138af2ba6c84baea4cb309cfc9b2852a9",
+ "has_draft_bindings": false,
+ "draft_updated_at": "2026-09-30 16:35:01",
+ "created_at": "2026-09-30 16:35:01",
+ "updated_at": null,
+ "latest_version_no": 0,
+ "versions_count": 0,
+ "ledgers_count": 0,
+ "status": "draft",
+ "draft": {
+  "sheet_name": "Sheet1",
+  "layout": {
+   "active_sheet": "Sheet1",
+   "sheets": [
+    {
+     "name": "Sheet1",
+     "max_row": 19,
+     "max_column": 6,
+     "merged_ranges": [
+      "A1:F1",
+      "E2:F2",
+      "B19:C19",
+      "E19:F19",
+      "A4:A9",
+      "A10:A12",
+      "A13:A15",
+      "A16:F18"
+     ],
+     "row_heights": {
+      "1": 40.0,
+      "2": 40.0,
+      "3": 40.0,
+      "4": 40.0,
+      "5": 40.0,
+      "6": 40.0,
+      "7": 40.0,
+      "8": 40.0,
+      "9": 40.0,
+      "10": 40.0,
+      "11": 40.0,
+      "12": 40.0,
+      "13": 40.0,
+      "14": 40.0,
+      "15": 40.0,
+      "16": 40.0,
+      "17": 40.0,
+      "18": 40.0,
+      "19": 40.0
+     },
+     "column_widths": {
+      "A": 16.82,
+      "B": 11.33,
+      "C": 12.85,
+      "D": 11.58,
+      "E": 17.77,
+      "F": 15.39
+     },
+     "hidden_rows": [],
+     "hidden_columns": [],
+     "cells": {
+      "A1": {
+       "v": "NDB-500无方向信标周、月维护记录表",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": true,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": "center",
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "bottom": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "A2": {
+       "v": "设备组件",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B2": {
+       "v": "参数 ",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "C2": {
+       "v": "A 机",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D2": {
+       "v": " B 机",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E2": {
+       "v": "其他",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": "center",
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "A3": {
+       "v": "伺服检测组件",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B3": {
+       "v": "天线电流",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "C3": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D3": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E3": {
+       "v": "交流电压",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "F3": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "A4": {
+       "v": "监控器",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": "center",
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B4": {
+       "v": "电源电流",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "C4": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D4": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E4": {
+       "v": "UPS",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "F4": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B5": {
+       "v": "-54V",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "C5": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D5": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E5": {
+       "v": "电池电压",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "F5": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B6": {
+       "v": "+24V",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "C6": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D6": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E6": {
+       "v": "天线及拉线",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "F6": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B7": {
+       "v": "+15V",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "C7": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D7": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E7": {
+       "v": "空调",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "F7": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B8": {
+       "v": "-15V",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "C8": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D8": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E8": {
+       "v": "电源插座",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "F8": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B9": {
+       "v": "+5V",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "C9": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D9": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E9": {
+       "v": "机房温湿度",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "F9": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "A10": {
+       "v": "谐波滤波器",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": "center",
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B10": {
+       "v": "正向功率",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "C10": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D10": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E10": {
+       "v": "机房密封",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "F10": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B11": {
+       "v": "反向功率",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "C11": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D11": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E11": {
+       "v": "气体消防",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "F11": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B12": {
+       "v": "调幅度",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "C12": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D12": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E12": {
+       "v": "通信联系",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "F12": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "A13": {
+       "v": "发射机",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": "center",
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B13": {
+       "v": "射频电平",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "C13": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D13": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E13": {
+       "v": "设备地线",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "F13": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B14": {
+       "v": "音频电平",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "C14": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D14": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E14": {
+       "v": "避雷器",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "F14": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B15": {
+       "v": "调制度",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "C15": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D15": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E15": {
+       "v": "电磁环境",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "F15": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "A16": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": "center",
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "A19": {
+       "v": "维护人签字：",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "B19": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": "center",
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "D19": {
+       "v": "维护日期：",
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": null,
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      },
+      "E19": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 16.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": {
+         "h": "center",
+         "v": "center",
+         "wrap": true
+        },
+        "border": {
+         "top": {
+          "style": "thin",
+          "color": null
+         },
+         "bottom": {
+          "style": "thin",
+          "color": null
+         },
+         "left": {
+          "style": "thin",
+          "color": null
+         },
+         "right": {
+          "style": "thin",
+          "color": null
+         }
+        },
+        "number_format": null
+       }
+      }
+     },
+     "print": {
+      "orientation": "portrait",
+      "paper_size": 9,
+      "fit_to_width": null,
+      "fit_to_height": 0
+     }
+    },
+    {
+     "name": "Sheet2",
+     "max_row": 1,
+     "max_column": 1,
+     "merged_ranges": [],
+     "row_heights": {},
+     "column_widths": {
+      "A": 13.0
+     },
+     "hidden_rows": [],
+     "hidden_columns": [],
+     "cells": {
+      "A1": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 11.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": null,
+        "border": {},
+        "number_format": null
+       }
+      }
+     },
+     "print": {
+      "orientation": "portrait",
+      "paper_size": 9,
+      "fit_to_width": null,
+      "fit_to_height": null
+     }
+    },
+    {
+     "name": "Sheet3",
+     "max_row": 1,
+     "max_column": 1,
+     "merged_ranges": [],
+     "row_heights": {},
+     "column_widths": {
+      "A": 13.0
+     },
+     "hidden_rows": [],
+     "hidden_columns": [],
+     "cells": {
+      "A1": {
+       "v": null,
+       "s": {
+        "font": {
+         "name": "宋体",
+         "size": 11.0,
+         "bold": false,
+         "italic": false,
+         "underline": null,
+         "strike": false,
+         "color": null
+        },
+        "fill": null,
+        "align": null,
+        "border": {},
+        "number_format": null
+       }
+      }
+     },
+     "print": {
+      "orientation": "portrait",
+      "paper_size": 9,
+      "fit_to_width": null,
+      "fit_to_height": null
+     }
+    }
+   ]
+  },
+  "field_bindings": [],
+  "pdf_params": {
+   "paper_size": "A4",
+   "orientation": "portrait",
+   "margins": {
+    "top": 1.91,
+    "bottom": 1.91,
+    "left": 1.78,
+    "right": 1.78,
+    "header": 0.76,
+    "footer": 0.76
+   },
+   "scale_mode": "fit_width",
+   "scale_percent": 100,
+   "repeat_header_rows": "",
+   "row_breaks": [],
+   "page_order": "down_then_over"
+  },
+  "source_filename": "NB500.xlsx",
+  "source_hash": "ba3b59a3245da42e1ae0cd03087b957138af2ba6c84baea4cb309cfc9b2852a9",
+  "draft_updated_at": "2026-09-30 16:35:01",
+  "draft_updated_by": "NB500验收"
+ },
+ "compatibility": {
+  "status": "ok",
+  "warnings": [],
+  "unsupported": []
+ }
+}

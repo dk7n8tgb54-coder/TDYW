@@ -5,11 +5,12 @@
  */
 /**
  * 设备全生命周期——故障详情抽屉（步骤 3.1，单系统简化）。
- * 基本信息 / 处理进展时间线（追加式，支持更正留痕）/ 关联工单 / 恢复确认 / 关闭 / 作废。
- * 处理进展记录故障整体跟进（检查、本方处理、送厂、厂家反馈、返还、测试、持续观察等），
- * 关联工单只用于需要派发、执行和复核的本方任务，生成工单始终可选；
- * 人员展示口径：故障登记人/进展记录人均为手动输入姓名（实际登记/记录的人，
- * 不关联用户账号），均不代表负责整个故障（处置负责人独立展示）；
+ * 基本信息 / 处理进展时间线（追加式，支持更正留痕、工时）/ 恢复确认 / 关闭 / 作废。
+ * 处理进展记录故障整体跟进（检查、本方处理、送厂、厂家反馈、返还、测试、持续观察
+ * 等）并承接原工单处理记录的工时；关联工单/生成维修工单已随工单功能删除（2026-09-30）；
+ * 人员展示口径：故障登记人/恢复确认人/进展记录人均为手动输入姓名（实际
+ * 登记/确认/记录的人，不关联用户账号），均不代表负责整个故障；
+ * 处置负责人/发现方式/级别/影响范围/故障位置字段已删除（2026-09）；
  * 不再提供"受影响系统"页签；所有动作成功后重新获取真实数据；
  * 错误提示由 http 拦截器统一弹出，不重复提示。
  * 约束：凡在 render 中读取 store observable 的函数组件必须用 observer 包裹
@@ -18,21 +19,27 @@
 import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react';
 import { Drawer, Tabs, Descriptions, Tag, Spin, Button, Timeline, Modal, Form,
-  Input, DatePicker, Select, Popconfirm, message, Empty } from 'antd';
+  Input, InputNumber, DatePicker, Select, Popconfirm, message, Empty } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import { AuthButton } from 'components';
 import { history } from 'libs';
 import store from './faultStore';
-import { GenerateWorkOrderButton, FaultWorkOrdersTab } from './workOrder/FaultWorkOrders';
-import { LEDGER_TYPE_PATH } from './workOrder/constants';
+import { LEDGER_TYPE_PATH } from './ledger/constants';
 import {
   PERM, FAULT_STATUS_TEXT, FAULT_STATUS_COLOR, FAULT_IMPACT_TEXT, FAULT_IMPACT_COLOR,
-  FAULT_LEVEL_TEXT, FAULT_DISCOVERY_TEXT, FAULT_PROGRESS_TYPE_OPTIONS,
+  FAULT_PROGRESS_TYPE_OPTIONS,
 } from './constants';
 
 const {TextArea} = Input;
 const {TabPane} = Tabs;
+
+// 本次工时（小时）：选填，非负（工单下线后由处理进展承接工时登记）
+const WORK_HOURS_RULE = [{
+  validator: (_, value) => (
+    value === undefined || value === null || (typeof value === 'number' && value >= 0)
+      ? Promise.resolve() : Promise.reject(new Error('工时不能为负数'))),
+}];
 
 @observer
 class FaultDetail extends React.Component {
@@ -60,19 +67,16 @@ class FaultDetail extends React.Component {
           )}
         </Descriptions.Item>
         <Descriptions.Item label="发生时间">{d.occurred_at}</Descriptions.Item>
-        <Descriptions.Item label="发现方式">{FAULT_DISCOVERY_TEXT[d.discovery]}</Descriptions.Item>
-        <Descriptions.Item label="级别">{FAULT_LEVEL_TEXT[d.level]}</Descriptions.Item>
-        <Descriptions.Item label="故障登记人">{d.registrar_name || '-'}</Descriptions.Item>
-        <Descriptions.Item label="处置负责人">{d.handler_name || '-'}</Descriptions.Item>
-        <Descriptions.Item label="故障现象" span={2}>{d.phenomenon}</Descriptions.Item>
-        <Descriptions.Item label="影响范围" span={2}>{d.impact_scope || '-'}</Descriptions.Item>
-        {/* 历史字段仅展示：故障位置/对象型号/序列号/组成项为精简前的存量数据 */}
-        <Descriptions.Item label="故障位置" span={2}>{d.fault_location || '-'}</Descriptions.Item>
+        {/* 删除字段后单格数为奇数：登记人独占一行，避免 Descriptions 列跨度告警 */}
+        <Descriptions.Item label="故障登记人" span={2}>{d.registrar_name || '-'}</Descriptions.Item>
+        {/* 展示顺序与新增/编辑表单一致：故障部位/设备位于故障现象之前；
+            对象型号/序列号/组成项为精简前的存量快照，仅展示 */}
         <Descriptions.Item label="故障部位/设备" span={2}>
           {[d.fault_object_name, d.fault_object_model, d.fault_object_sn]
             .filter(Boolean).join(' / ') || '-'}
           {d.fault_component_name ? `（组成项：${d.fault_component_name}）` : ''}
         </Descriptions.Item>
+        <Descriptions.Item label="故障现象" span={2}>{d.phenomenon}</Descriptions.Item>
         <Descriptions.Item label="原因分析" span={2}>{d.reason_analysis || '-'}</Descriptions.Item>
         <Descriptions.Item label="恢复时间">{d.recovered_at || '-'}</Descriptions.Item>
         <Descriptions.Item label="恢复确认人">
@@ -153,10 +157,6 @@ class FaultDetail extends React.Component {
             {editable && (
               <AuthCancelButton fault={d}/>
             )}
-            {/* 步骤 3.3：未作废的故障可生成维修工单（允许多张） */}
-            <span style={{marginLeft: 8}}>
-              <GenerateWorkOrderButton fault={d}/>
-            </span>
           </div>
           <Tabs defaultActiveKey="basic">
             <TabPane tab="基本信息" key="basic">
@@ -164,9 +164,6 @@ class FaultDetail extends React.Component {
             </TabPane>
             <TabPane tab="处理进展" key="handling">
               <HandlingTimeline editable={editable}/>
-            </TabPane>
-            <TabPane tab="关联工单" key="workOrders">
-              <FaultWorkOrdersTab fault={d}/>
             </TabPane>
           </Tabs>
         </Spin>
@@ -262,6 +259,8 @@ const RecoverModal = observer(function RecoverModal({visible, form, onClose}) {
         form.validateFields().then(values => {
           store.confirmRecover({
             recovered_at: values.recovered_at.format('YYYY-MM-DD HH:mm'),
+            // 标签数组以顿号拼接为恢复确认人姓名文本（多人）
+            recovered_by_name: (values.recovered_by_names || []).join('、'),
             recover_confirm: values.recover_confirm,
             final_result: values.final_result || '',
           }).then(() => {
@@ -271,13 +270,29 @@ const RecoverModal = observer(function RecoverModal({visible, form, onClose}) {
         }).catch(() => {});
       }}
     >
-      <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}>
+      {/* 恢复时间默认当前时间（与处理进展"进展时间"默认一致），可修改 */}
+      <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}
+        initialValues={{recovered_at: moment()}}>
         <Form.Item
           name="recovered_at"
           label="恢复时间"
           rules={[{required: true, message: '请选择恢复时间'}]}
         >
           <DatePicker showTime={{format: 'HH:mm'}} format="YYYY-MM-DD HH:mm" style={{width: '100%'}}/>
+        </Form.Item>
+        {/* 恢复确认人：手动输入姓名（输入后回车确认，可多个，顿号分隔提交），
+            只表示实际确认恢复的人；必填、不预填，与登录账号审计字段独立 */}
+        <Form.Item
+          name="recovered_by_names"
+          label="恢复确认人"
+          rules={[{required: true, type: 'array', message: '请输入姓名后回车确认'}]}
+        >
+          {/* open=false：仅手输姓名（回车/失焦添加），与故障登记人输入一致 */}
+          <Select
+            mode="tags"
+            open={false}
+            placeholder="输入姓名后回车确认（可多个）"
+          />
         </Form.Item>
         <Form.Item
           name="recover_confirm"
@@ -344,8 +359,8 @@ const HandlingTimeline = observer(function HandlingTimeline({editable}) {
   return (
     <div>
       <p style={{color: '#999', marginTop: 0}}>
-        处理进展记录故障的整体跟进（检查、临时措施、送厂、厂家反馈、返还、测试、持续观察等）；
-        需要派发、执行和复核的本方任务请使用"关联工单"，生成工单为可选操作。
+        处理进展记录故障的整体跟进（检查、临时措施、本方处理、送厂、厂家反馈、返还、
+        测试、持续观察等），并支持逐条登记工时；无需再另行生成维修工单。
       </p>
       {editable && (
         <div style={{marginBottom: 12}}>
@@ -367,6 +382,9 @@ const HandlingTimeline = observer(function HandlingTimeline({editable}) {
                     <Tag style={{marginLeft: 8}}>{record.progress_type_text}</Tag>
                   )}
                   {record.result && <Tag style={{marginLeft: 8}}>{record.result}</Tag>}
+                  {record.work_hours !== null && record.work_hours !== undefined && (
+                    <Tag style={{marginLeft: 8}}>工时 {record.work_hours}h</Tag>
+                  )}
                   {editable && (
                     <CorrectButton record={record}/>
                   )}
@@ -443,6 +461,7 @@ function HandlingModal({visible, record, onClose}) {
           progress_type: record.progress_type || undefined,
           content: record.content,
           result: record.result,
+          work_hours: record.work_hours ?? undefined,
         });
       } else {
         // 新增进展：时间默认当前时间；进展记录人为手动输入姓名（回车确认，
@@ -471,6 +490,7 @@ function HandlingModal({visible, record, onClose}) {
             progress_type: values.progress_type || '',
             content: values.content,
             result: values.result || '',
+            work_hours: values.work_hours ?? null,
           };
           const request = isCorrect
             ? store.correctHandlingRecord(record.id, {...payload,
@@ -525,6 +545,9 @@ function HandlingModal({visible, record, onClose}) {
         </Form.Item>
         <Form.Item name="result" label="处理结果">
           <Input placeholder="选填，如：已临时保障 / 待厂家维修中 / 复测通过"/>
+        </Form.Item>
+        <Form.Item name="work_hours" label="本次工时" rules={WORK_HOURS_RULE}>
+          <InputNumber min={0} step={0.5} style={{width: 160}} placeholder="选填，小时"/>
         </Form.Item>
         {isCorrect && (
           <Form.Item

@@ -37,14 +37,14 @@ describe('分组列表请求', () => {
     store.pageSize = 10;
     store.f_keyword = '故障';
     store.f_event_type = 'fault';
-    store.f_source_type = 'work_order';
+    store.f_source_type = 'ledger_item';
     store.f_range = ['2026-09-01 00:00', '2026-09-25 23:59'];
     mockHttpGet.mockReturnValue(new Promise(() => {}));
     store.fetchGroups();
     expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/system-event-groups/', {
       params: {
         page: 2, page_size: 10,
-        keyword: '故障', event_type: 'fault', source_type: 'work_order',
+        keyword: '故障', event_type: 'fault', source_type: 'ledger_item',
         occurred_from: '2026-09-01 00:00', occurred_to: '2026-09-25 23:59',
       },
     });

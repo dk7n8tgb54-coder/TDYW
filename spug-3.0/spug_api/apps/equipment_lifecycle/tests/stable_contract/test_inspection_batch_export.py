@@ -10,7 +10,7 @@
   独立分页（从新页开始）；
 - 独立权限 equipment_lifecycle.inspection.export；后端重新执行筛选与
   租户隔离；Excel/PDF 数量上限分别校验；无匹配数据返回统一业务错误；
-- 导出为只读行为：不修改巡检单及明细，故障/工单/履历关联数据不受影响；
+- 导出为只读行为：不修改巡检单及明细，故障/履历关联数据不受影响；
 - 每次批量导出记录一条审计事件（导出类型、数量、筛选条件）。
 
 全部通过真实 HTTP 路径 + 隔离测试数据库执行，Excel 以 openpyxl 读取、
@@ -34,7 +34,6 @@ from apps.equipment_lifecycle.models import (
     InspectionRecord,
     SystemEvent,
     SystemFault,
-    SystemWorkOrder,
 )
 from apps.equipment_lifecycle.tests.base import make_client, make_system, make_user
 from apps.equipment_lifecycle.tests.stable_contract.inspection_base import (
@@ -307,8 +306,6 @@ class InspectionBatchExcelTest(InspectionBatchExportTestBase):
                     tenant_id='tenant_a', created_by=self.admin,
                     system=system, impact_status='',
                     occurred_at=timezone.now(),
-                    discovery=SystemFault.DISCOVERY_PATROL,
-                    level=SystemFault.LEVEL_MINOR,
                     phenomenon='历史巡检异常转入的故障',
                     source_type='inspection_record',
                     source_inspection_record=record)
@@ -373,10 +370,9 @@ class InspectionBatchExportSafetyTest(InspectionBatchExportTestBase):
             self.assertEqual(resp.json()['error'], '权限拒绝', url)
 
     def test_batch_export_is_readonly(self):
-        """批量导出不修改巡检单及明细，故障/工单/履历关联数据不受影响。"""
+        """批量导出不修改巡检单及明细，故障/履历关联数据不受影响。"""
         before_detail = get_sheet_detail(self.client, self.sheet['id'])
         fault_count = SystemFault.objects.count()
-        order_count = SystemWorkOrder.objects.count()
         event_count = SystemEvent.objects.count()
 
         for url in (BATCH_XLSX_URL, BATCH_PDF_URL):
@@ -394,7 +390,6 @@ class InspectionBatchExportSafetyTest(InspectionBatchExportTestBase):
             [(r['id'], r['round_no'], r['value_text'], r['result'],
               r['abnormal_desc'], r['onsite_action']) for r in after_detail['records']])
         self.assertEqual(SystemFault.objects.count(), fault_count)
-        self.assertEqual(SystemWorkOrder.objects.count(), order_count)
         self.assertEqual(SystemEvent.objects.count(), event_count)
 
     def test_single_detail_export_still_works(self):

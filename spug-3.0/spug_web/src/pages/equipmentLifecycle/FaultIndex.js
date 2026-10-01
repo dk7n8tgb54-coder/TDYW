@@ -17,7 +17,7 @@ import FaultDetail from './FaultDetail';
 import store from './faultStore';
 import {
   API_PREFIX, PERM, FAULT_STATUS_OPTIONS, FAULT_STATUS_TEXT, FAULT_STATUS_COLOR,
-  FAULT_IMPACT_TEXT, FAULT_IMPACT_COLOR, FAULT_LEVEL_OPTIONS, FAULT_LEVEL_TEXT,
+  FAULT_IMPACT_TEXT, FAULT_IMPACT_COLOR,
 } from './constants';
 
 const { RangePicker } = DatePicker;
@@ -51,11 +51,6 @@ class FaultTable extends React.Component {
       )
     ),
   }, {
-    title: '级别',
-    dataIndex: 'level',
-    width: 80,
-    render: (text) => FAULT_LEVEL_TEXT[text] || text,
-  }, {
     title: '状态',
     dataIndex: 'status',
     width: 90,
@@ -73,11 +68,6 @@ class FaultTable extends React.Component {
   }, {
     title: '故障登记人',
     dataIndex: 'registrar_name',
-    width: 100,
-    render: (text) => text || '-',
-  }, {
-    title: '处置负责人',
-    dataIndex: 'handler_name',
     width: 100,
     render: (text) => text || '-',
   }, {
@@ -136,7 +126,7 @@ class FaultTable extends React.Component {
 
 function FaultIndex(props) {
   useEffect(() => {
-    // 跨页跳转直达详情（台账详情/工单详情跳入）
+    // 跨页跳转直达详情（台账详情跳入）
     const params = new URLSearchParams(props.location ? props.location.search : '');
     const detailId = params.get('detail');
     if (detailId && /^\d+$/.test(detailId)) {
@@ -188,19 +178,6 @@ function FaultIndex(props) {
             placeholder="请选择状态"
           >
             {FAULT_STATUS_OPTIONS.map(item => (
-              <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
-            ))}
-          </Select>
-        </SearchForm.Item>
-        <SearchForm.Item span={4} title="级别">
-          <Select
-            allowClear
-            style={{width: '100%'}}
-            value={store.f_level}
-            onChange={v => {store.f_level = v; store.page = 1; store.fetchRecords();}}
-            placeholder="请选择级别"
-          >
-            {FAULT_LEVEL_OPTIONS.map(item => (
               <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
             ))}
           </Select>

@@ -18,7 +18,6 @@ const HEALTH_TAG_COLOR = {
   normal: 'green',
   degraded: 'orange',
   fault: 'red',
-  repairing: 'geekblue',
   interrupted: 'red',
   unknown: 'default',
 };

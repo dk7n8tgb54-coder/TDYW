@@ -6,8 +6,9 @@
  * 设备全生命周期——值班巡检（今日巡检改造）常量与文本映射。
  * 权限码与后端 inspection_views/@auth、role codes.js 保持一致。
  * 业务规则：巡检单唯一范围 = 值班日 + 巡检模板；固定四轮
- * （第四轮次日 06:30 归属前一值班日）；不记录实际填写时间；
- * 巡检单只记录结果与现场处理，无转故障/转工单入口（历史处置状态只读展示）。
+ * （第四轮 6:30-6:50 发生在次日，归属前一值班日）；不记录实际填写时间；
+ * 巡检单只记录结果与现场处理，无转故障入口（历史处置状态只读展示；
+ * 转工单已随故障维修工单功能整体删除，2026-09-30）。
  */
 
 export const API_PREFIX = '/api/equipment-lifecycle';
@@ -30,10 +31,10 @@ export const PERM_ITPL = {
 
 // 固定巡检轮次（与后端 INSPECTION_ROUND_CHOICES 一致）
 export const INSPECTION_ROUNDS = [
-  {value: 'r1', label: '当日 11:00'},
-  {value: 'r2', label: '当日 16:00'},
-  {value: 'r3', label: '当日 22:00'},
-  {value: 'r4', label: '次日 06:30'},
+  {value: 'r1', label: '11:00-11:20'},
+  {value: 'r2', label: '16:00-16:20'},
+  {value: 'r3', label: '22:00-22:20'},
+  {value: 'r4', label: '6:30-6:50'},
 ];
 
 export const ROUND_TEXT = Object.fromEntries(
@@ -69,6 +70,5 @@ export const NORMAL_ABNORMAL_CHOICES = [NORMAL_VALUE, ABNORMAL_VALUE];
 export const DISPOSITION_TEXT = {
   none: '未处置',
   converted_fault: '已转故障',
-  converted_work_order: '已转工单',
   target_cancelled: '目标已作废',
 };

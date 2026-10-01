@@ -10,7 +10,7 @@
  * 一条事件只关联一个系统，不再有跨系统角色（primary/affected/related 已删）。
  */
 import { hasPermission } from 'libs';
-import { LEDGER_TYPE_PATH } from '../workOrder/constants';
+import { LEDGER_TYPE_PATH } from '../ledger/constants';
 
 export const PERM = {
   EVENT_VIEW: 'equipment_lifecycle.system_event.view',
@@ -21,7 +21,6 @@ export const API_PREFIX = '/api/equipment-lifecycle';
 
 export const EVENT_TYPE_OPTIONS = [
   {value: 'fault', label: '故障'},
-  {value: 'work_order', label: '工单'},
   {value: 'ledger', label: '台账异常'},
   {value: 'inspection', label: '值班巡检'},
   {value: 'health', label: '健康状态'},
@@ -36,7 +35,6 @@ export const EVENT_TYPE_TEXT = EVENT_TYPE_OPTIONS.reduce((acc, item) => {
 
 export const EVENT_TYPE_COLOR = {
   fault: 'red',
-  work_order: 'geekblue',
   ledger: 'orange',
   inspection: 'cyan',
   health: 'purple',
@@ -123,9 +121,6 @@ export function buildSourceHref(event) {
     case 'fault':
       return hasPermission('equipment_lifecycle.fault.view') && id
         ? `/el/faults?detail=${id}` : null;
-    case 'work_order':
-      return hasPermission('equipment_lifecycle.work_order.view') && id
-        ? `/el/work-orders?detail=${id}` : null;
     case 'ledger_item': {
       const detail = event.detail || {};
       const path = LEDGER_TYPE_PATH[detail.ledger_type];

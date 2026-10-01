@@ -3,7 +3,8 @@
 
 覆盖行为契约：
 - 普通用户不能手工新增履历；履历只读，无普通修改与物理删除入口；
-- 故障、台账异常、工单、健康状态、配置快照共用同一事件模型（SystemEvent）；
+- 故障、台账异常、健康状态、配置快照共用同一事件模型（SystemEvent）；
+- （工单事件类型已随「故障维修工单」功能整体删除，2026-09-30）；
 - 每条事件只关联业务对象所属的一个系统（无跨系统角色 primary/affected/related）；
 - 业务保存与履历生成处于同一事务；重复请求不产生重复事件；
 - 状态不变不生成健康事件；来源作废后原事件保留并追加新事件；
@@ -20,7 +21,6 @@ from django.test import TestCase
 from apps.equipment_lifecycle import urls as el_urls
 from apps.equipment_lifecycle.models import (
     LifecycleSystem,
-    OperationLedgerTemplate,
     SystemEvent,
     SystemFault,
 )
@@ -40,23 +40,16 @@ ALL_FAULT_PERMS = [
     'equipment_lifecycle.fault.recover', 'equipment_lifecycle.fault.close',
     'equipment_lifecycle.fault.del', 'equipment_lifecycle.fault.export',
 ]
-ALL_WO_PERMS = [
-    'equipment_lifecycle.work_order.view', 'equipment_lifecycle.work_order.add',
-    'equipment_lifecycle.work_order.edit', 'equipment_lifecycle.work_order.execute',
-    'equipment_lifecycle.work_order.close',
-    'equipment_lifecycle.work_order.del', 'equipment_lifecycle.work_order.export',
-]
 ALL_EVENT_PERMS = [
     'equipment_lifecycle.system_event.view', 'equipment_lifecycle.system_event.export',
 ]
 P_HANDLE_EXCEPTION = 'equipment_lifecycle.ledger.handle_exception'
 
-ALL_PERMS = (ALL_SYSTEM_PERMS + ALL_FAULT_PERMS + ALL_WO_PERMS +
+ALL_PERMS = (ALL_SYSTEM_PERMS + ALL_FAULT_PERMS +
              ALL_LEDGER_PERMS + ALL_TEMPLATE_PERMS +
              ALL_EVENT_PERMS + [P_HANDLE_EXCEPTION])
 
 FAULT_URL = URL_PREFIX + '/faults'
-WO_URL = URL_PREFIX + '/work-orders'
 SYSTEM_URL = URL_PREFIX + '/systems'
 
 _event_seq = [0]
@@ -78,28 +71,8 @@ def fault_payload(system_obj, **overrides):
         'affects_system_operation': True,
         'impact_status': 'degraded',
         'occurred_at': moment.strftime('%Y-%m-%d %H:%M'),
-        'discovery': 'patrol',
-        'level': 'major',
         'phenomenon': f'主用链路频繁丢包（场景{seq}）',
         'registrar_name': '登记人甲',
-    }
-    payload.update(overrides)
-    return payload
-
-
-def work_order_payload(system_obj, **overrides):
-    """标题按序错开，避开创建接口的窗口期查重。"""
-    _event_seq[0] += 1
-    seq = _event_seq[0]
-    payload = {
-        'title': f'{system_obj.system_code} 例行维护工单（场景{seq}）',
-        'work_type': 'special_maintenance',
-        'priority': 'normal',
-        'system': system_obj.id,
-        'affects_system_operation': False,
-        'work_location': '机房A 01柜',
-        'work_requirement': '按规程完成季度维护',
-        'client_token': '',
     }
     payload.update(overrides)
     return payload
@@ -142,6 +115,7 @@ class SystemEventTestBase(TestCase):
         self.assertFalse(r.json().get('error'), r.content)
         r = self.client.post(f'{FAULT_URL}/{fid}/recover/', {
             'recovered_at': '2026-09-18 10:00',
+            'recovered_by_name': '恢复确认人甲',
             'recover_confirm': '业务已恢复正常',
             'final_result': '更换备件并验证',
         }, content_type='application/json')
@@ -151,21 +125,6 @@ class SystemEventTestBase(TestCase):
         }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
         return fid
-
-    def run_work_order_to_complete(self, payload):
-        """创建（即执行中）→ 处理记录 → 完成工单，返回工单 id。"""
-        body = self.client.post(f'{WO_URL}/', payload, content_type='application/json').json()
-        self.assertFalse(body.get('error'), body)
-        wid = body['data']['id']
-        r = self.client.post(f'{WO_URL}/{wid}/handling-records/', {
-            'handled_at': '2026-09-18 11:00', 'content': '完成检查维护',
-        }, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
-        r = self.client.post(f'{WO_URL}/{wid}/complete/', {
-            'process_result': '维护完成，指标正常',
-        }, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
-        return wid
 
 
 class FaultEventTests(SystemEventTestBase):
@@ -270,110 +229,14 @@ class FaultEventTests(SystemEventTestBase):
         self.assertEqual(len(self.events()), before)
 
 
-class WorkOrderEventTests(SystemEventTestBase):
-    """工单动作 → 履历事件（只落作业系统）。"""
-
-    def test_work_order_create_generates_single_system_event(self):
-        """工单登记：只生成一条事件（落作业系统）；专项维护不影响健康状态。"""
-        before_health = len(self.events(event_type=SystemEvent.EVENT_HEALTH))
-        body = self.client.post(
-            f'{WO_URL}/',
-            work_order_payload(self.system_a, client_token=_uniq_client_token()),
-            content_type='application/json').json()
-        self.assertFalse(body.get('error'), body)
-        wid = body['data']['id']
-        wo_events = [e for e in self.events() if e.event_type == SystemEvent.EVENT_WORK_ORDER]
-        self.assertEqual(len(wo_events), 1)
-        e = wo_events[0]
-        self.assertEqual(e.source_type, 'work_order')
-        self.assertEqual(e.source_id, str(wid))
-        self.assertEqual(e.get_detail().get('work_no'), body['data']['work_no'])
-        self.assertEqual(e.system_id, self.system_a.id)
-        self.assertEqual(e.action, 'create')
-        # 其他系统无工单事件
-        self.assertEqual(
-            [ev for ev in wo_events if ev.system_id == self.system_a2.id], [])
-        # 专项维护工单不覆盖健康状态：无健康事件
-        self.assertEqual(len(self.events(event_type=SystemEvent.EVENT_HEALTH)), before_health)
-
-    def test_complete_generates_event_and_close_archives_silently(self):
-        """复核通过（完成）生成事件；关闭归档不再生成事件；完成不自动恢复健康。"""
-        self.run_fault_lifecycle(self.system_a)  # 保持系统有历史
-        self.client.post(f'{WO_URL}/', work_order_payload(self.system_a),
-                         content_type='application/json').json()
-        wid = self.run_work_order_to_complete(work_order_payload(self.system_a))
-        complete_events = [e for e in self.events() if e.action == 'complete']
-        self.assertEqual(len(complete_events), 1)
-        self.assertEqual(complete_events[0].system_id, self.system_a.id)
-        # 关闭归档：不生成新事件
-        r = self.client.post(f'{WO_URL}/{wid}/close/', {}, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
-        self.assertEqual(len([e for e in self.events() if e.action == 'complete']), 1)
-        self.assertEqual(len([e for e in self.events() if e.action == 'close'
-                              and e.event_type == SystemEvent.EVENT_WORK_ORDER]), 0)
-
-    def test_repair_work_order_start_and_review_generate_repairing_health_events(self):
-        """执行中且影响运行的故障维修工单产生"维修中"；完成回落后"故障"保持。"""
-        body = self.client.post(f'{FAULT_URL}/',
-                                fault_payload(self.system_a, impact_status='fault'),
-                                content_type='application/json').json()
-        self.assertFalse(body.get('error'), body)
-        fid = body['data']['id']
-        # 生成维修工单（单账号流程：创建即执行中；默认不影响运行 → 此处显式选择影响运行）
-        wo_body = self.client.post(
-            f'{FAULT_URL}/{fid}/create-work-order/',
-            {'client_token': _uniq_client_token(), 'work_type': 'repair',
-             'affects_system_operation': True},
-            content_type='application/json').json()
-        self.assertFalse(wo_body.get('error'), wo_body)
-        wid = wo_body['data']['id']
-        self.assertTrue(wo_body['data']['affects_system_operation'])
-        self.assertEqual(
-            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'repairing')
-        start_health = [e for e in self.events(self.system_a, SystemEvent.EVENT_HEALTH)
-                        if e.get_detail().get('after') == 'repairing']
-        self.assertEqual(len(start_health), 1)
-        self.assertEqual(start_health[0].get_detail().get('before'), 'fault')
-        # 完成工单前必须先追加处理记录（步骤 3.3 状态机要求）
-        r = self.client.post(f'{WO_URL}/{wid}/handling-records/',
-                             {'handled_at': '2026-09-18 11:00', 'content': '完成维修'},
-                             content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
-        # 完成工单 → 工单完成事件；故障未恢复 → 系统保持"故障"不恢复正常
-        r = self.client.post(f'{WO_URL}/{wid}/complete/',
-                             {'process_result': '维修完成'}, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
-        self.assertEqual(
-            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'fault')
-        self.assertTrue([e for e in self.events() if e.action == 'complete'])
-        self.assertFalse([e for e in self.events(self.system_a, SystemEvent.EVENT_HEALTH)
-                          if e.get_detail().get('after') == 'normal'])
-
-    def test_work_order_cancel_appends_event(self):
-        """工单受控取消：追加取消事件且原因进入事件详情。"""
-        body = self.client.post(f'{WO_URL}/', work_order_payload(self.system_a),
-                                content_type='application/json').json()
-        wid = body['data']['id']
-        r = self.client.post(f'{WO_URL}/{wid}/cancel/',
-                             {'cancel_reason': '计划变更'}, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
-        cancel_events = [e for e in self.events() if e.action == 'cancel'
-                         and e.event_type == SystemEvent.EVENT_WORK_ORDER]
-        self.assertEqual(len(cancel_events), 1)
-        self.assertEqual(cancel_events[0].get_detail().get('cancel_reason'), '计划变更')
-
-
 class LedgerConvertEventTests(SystemEventTestBase):
     """台账异常转单 → 履历事件（来源 ledger_item，双向可追溯，不重复）。"""
 
     def create_reviewed_ledger_with_abnormal_item(self):
-        template = OperationLedgerTemplate.objects.create(
-            name='维护模板-履历', ledger_type='week_month',
-            is_active=True, tenant_id='tenant_a', created_by=self.admin)
         body = create_ledger_ok(self.client, ledger_payload([
             entry_payload(self.system_a.id, [
                 item_payload(result='abnormal', abnormal_desc='温度越限 65℃'),
-            ], template_id=template.id),
+            ]),
         ]))
         ledger_id = body['id']
         item_id = body['items'][0]['id']
@@ -415,18 +278,15 @@ class LedgerConvertEventTests(SystemEventTestBase):
         self.assertEqual(len(events), 3)
 
     def test_duplicate_convert_request_generates_no_duplicate_events(self):
-        """重复转单（同 client_token）返回已有工单且不产生重复事件。"""
+        """重复转故障被拒绝（不能重复转换）且不产生重复事件。"""
         ledger_id, item_id = self.create_reviewed_ledger_with_abnormal_item()
-        token = _uniq_client_token()
-        url = f'{LEDGER_URL}/{ledger_id}/items/{item_id}/convert-to-work-order/'
-        first = self.client.post(url, {'client_token': token, 'work_type': 'special_maintenance'},
-                                 content_type='application/json').json()
+        url = f'{LEDGER_URL}/{ledger_id}/items/{item_id}/convert-to-fault/'
+        first = self.client.post(url, {}, content_type='application/json').json()
         self.assertFalse(first.get('error'), first)
         count = len(self.events())
-        second = self.client.post(url, {'client_token': token, 'work_type': 'special_maintenance'},
-                                  content_type='application/json').json()
-        self.assertFalse(second.get('error'), second)
-        self.assertEqual(second['data']['id'], first['data']['id'])
+        second = self.client.post(url, {}, content_type='application/json').json()
+        self.assertTrue(second.get('error'))
+        self.assertIn('不能重复转换', second['error'])
         self.assertEqual(len(self.events()), count)
         self.assertEqual(len([e for e in self.events()
                               if e.source_id == str(item_id)]), 1)
@@ -529,12 +389,12 @@ class ReadOnlyAndIsolationTests(SystemEventTestBase):
 class DeleteProtectionRegressionTests(SystemEventTestBase):
     """步骤 3.5 删除保护收口：关联存在时返回业务错误而非 500。"""
 
-    def test_system_delete_blocked_by_work_order_and_events(self):
-        """工单引用与履历事件引用分别阻断系统删除。"""
-        self.client.post(f'{WO_URL}/', work_order_payload(self.system_a),
+    def test_system_delete_blocked_by_fault_and_events(self):
+        """故障引用与履历事件引用分别阻断系统删除。"""
+        self.client.post(f'{FAULT_URL}/', fault_payload(self.system_a),
                          content_type='application/json').json()
         resp = self.client.delete(f'{SYSTEM_URL}/{self.system_a.id}/')
-        self.assertIn('工单', resp.json().get('error', ''))
+        self.assertIn('故障记录', resp.json().get('error', ''))
         # 只存在履历事件的系统（无其他业务引用）也被阻断
         # （配置快照已下线，直接以夹具创建存量事件模拟历史数据）
         SystemEvent.objects.create(
@@ -549,11 +409,8 @@ class DeleteProtectionRegressionTests(SystemEventTestBase):
     def test_system_delete_blocked_by_ledger_item(self):
         """台账明细引用阻断系统删除（fail-closed）。"""
         # 通过真实 API 创建带明细的台账（明细以正式系统 ID 关联）
-        template = OperationLedgerTemplate.objects.create(
-            name='维护模板-删除保护', ledger_type='week_month',
-            is_active=True, tenant_id='tenant_a', created_by=self.admin)
         create_ledger_ok(self.client, ledger_payload([
-            entry_payload(self.system_a.id, [item_payload()], template_id=template.id),
+            entry_payload(self.system_a.id, [item_payload()]),
         ]))
         resp = self.client.delete(f'{SYSTEM_URL}/{self.system_a.id}/')
         self.assertIn('台账明细', resp.json().get('error', ''))
@@ -572,16 +429,7 @@ class ViewWiringContractTests(SystemEventTestBase):
             'faults/<int:pk>/handling-records/<int:rid>/',
             'faults/<int:pk>/handling-records/<int:rid>/attachments/',
             'faults/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/',
-            'work-orders/', 'work-orders/<int:pk>/',
-            'work-orders/<int:pk>/complete/',
-            'work-orders/<int:pk>/close/',
-            'work-orders/<int:pk>/cancel/', 'work-orders/<int:pk>/handling-records/',
-            'work-orders/<int:pk>/handling-records/<int:rid>/',
-            'work-orders/<int:pk>/handling-records/<int:rid>/attachments/',
-            'work-orders/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/',
-            'faults/<int:pk>/create-work-order/',
             'ledgers/<int:ledger_pk>/items/<int:item_pk>/convert-to-fault/',
-            'ledgers/<int:ledger_pk>/items/<int:item_pk>/convert-to-work-order/',
         }
         checked = 0
         for pattern in el_urls.urlpatterns:
@@ -599,4 +447,4 @@ class ViewWiringContractTests(SystemEventTestBase):
         from apps.equipment_lifecycle import event_services as es
         self.assertTrue(callable(es.record_system_event))
         self.assertTrue(callable(es.record_fault_lifecycle_events))
-        self.assertTrue(callable(es.record_work_order_lifecycle_events))
+        self.assertTrue(callable(es.record_ledger_convert_event))

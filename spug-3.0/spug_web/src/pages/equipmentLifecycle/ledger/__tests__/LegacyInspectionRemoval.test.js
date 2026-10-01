@@ -100,13 +100,17 @@ describe('旧巡检台账（历史）入口删除', () => {
     expect(all.some(r => r.title === '巡检台账（历史）')).toBe(false);
   });
 
-  it('同模块其他入口不受影响：新巡检/周月/季/台账模板路由仍在', () => {
+  it('同模块其他入口不受影响：新巡检/周月/季/Excel台账模板路由仍在', () => {
     const all = flattenRoutes(routes);
     const paths = all.map(r => r.path);
     ['/el/inspection-today', '/el/inspection-sheets', '/el/inspection-templates',
-      '/el/week-month-ledgers', '/el/seasonal-ledgers', '/el/ledger-templates',
-      '/el/systems', '/el/faults', '/el/work-orders',
+      '/el/week-month-ledgers', '/el/seasonal-ledgers', '/el/excel-ledger-templates',
+      '/el/systems', '/el/faults',
     ].forEach(path => expect(paths).toContain(path));
+    // 工单路由已随故障维修工单功能整体删除（2026-09-30）
+    expect(paths).not.toContain('/el/work-orders');
+    // 旧可视化台账模板入口已随旧可视化模板路线整体删除（2026-10）
+    expect(paths).not.toContain('/el/ledger-templates');
   });
 
   it('ledger/entries 不再导出 InspectionLedgerIndex，维护与新巡检入口仍导出', () => {
@@ -124,27 +128,19 @@ describe('旧巡检台账（历史）入口删除', () => {
     expect(constants.LEDGER_TYPE_TEXT.inspection).toBeUndefined();
     expect(constants.LEDGER_TYPE_TEXT.week_month).toBe('周月维护');
     expect(constants.LEDGER_TYPE_TEXT.seasonal).toBe('季维护');
-    const woConstants = require('../../workOrder/constants');
-    expect(woConstants.LEDGER_TYPE_PATH.inspection).toBeUndefined();
-    expect(woConstants.LEDGER_TYPE_PATH.week_month).toBe('/el/week-month-ledgers');
+    // LEDGER_TYPE_PATH 已随工单功能删除迁入 ledger/constants（2026-09-30）
+    expect(constants.LEDGER_TYPE_PATH.inspection).toBeUndefined();
+    expect(constants.LEDGER_TYPE_PATH.week_month).toBe('/el/week-month-ledgers');
   });
 
-  it('台账模板表单默认类型为周月维护且不再提供巡检类型选项', async () => {
-    const {TemplateStore} = require('../store');
-    const TemplateForm = require('../TemplateForm').default;
-    const store = new TemplateStore();
-    store.formVisible = true;
-    let instance = null;
-    await act(async () => {
-      ReactDOM.render(
-        h(TemplateForm, {ref: r => {instance = r;}, store}), container);
-    });
-    await act(async () => {});
-    expect(instance.state.template.ledger_type).toBe('week_month');
-    const text = document.body.textContent;
-    // 类型下拉当前选中值为"周月维护"（由 LEDGER_TYPE_TEXT 驱动，选项已无巡检）
-    expect(text).toContain('周月维护');
-    expect(text).not.toContain('巡检');
+  it('旧可视化台账模板入口组件已整体删除（2026-10）', () => {
+    let deleted = false;
+    try {
+      jest.isolateModules(() => require('../TemplateIndex'));
+    } catch (e) {
+      deleted = true;
+    }
+    expect(deleted).toBe(true);
   });
 });
 

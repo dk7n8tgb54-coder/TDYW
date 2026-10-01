@@ -97,7 +97,7 @@ const SUBMITTED_SHEET = {
 // http.get 按 URL 分发；巡检页签挂载时的各类列表请求都返回空数据
 function mockListResponses({templates = [TEMPLATE_TREE]} = {}) {
   mockHttpGet.mockImplementation((url) => {
-    if (url.includes('/work-orders/candidate-users/')) {
+    if (url.includes('/candidate-users/')) {
       return Promise.resolve({data: []});
     }
     if (url.includes('/inspection-templates/available/')) {
@@ -163,7 +163,7 @@ describe('巡检中心页签与权限', () => {
     // 今日巡检工作台真实挂载：发起模板/账号请求
     const called = mockHttpGet.mock.calls.map(c => c[0]);
     expect(called.some(u => u.includes('/inspection-templates/available/'))).toBe(true);
-    expect(called.some(u => u.includes('/work-orders/candidate-users/'))).toBe(true);
+    expect(called.some(u => u.includes('/candidate-users/'))).toBe(true);
   });
 
   it('仅有模板权限：只显示巡检模板页签并默认打开', async () => {

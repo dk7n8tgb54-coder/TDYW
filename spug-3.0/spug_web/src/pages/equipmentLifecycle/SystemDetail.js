@@ -19,7 +19,6 @@ import FaultRecordsTab from './FaultRecordsTab';
 import UpgradeRecordsTab from './UpgradeRecordsTab';
 import ComponentMaintenanceTags from './ComponentMaintenanceTags';
 import SystemLedgerTab from './ledger/SystemLedgerTab';
-import WorkOrdersTab from './workOrder/WorkOrdersTab';
 import SystemEventsTab from './systemEvent/SystemEventsTab';
 
 const { TabPane } = Tabs;
@@ -83,9 +82,6 @@ class SystemDetail extends React.Component {
             </TabPane>
             <TabPane tab="升级记录" key="upgrade_records">
               <UpgradeRecordsTab systemId={d.id}/>
-            </TabPane>
-            <TabPane tab="工单" key="work_orders">
-              <WorkOrdersTab systemId={d.id}/>
             </TabPane>
             <TabPane tab="周月维护台账" key="week_month_ledger">
               <SystemLedgerTab systemId={d.id} ledgerType="week_month"/>

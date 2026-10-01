@@ -5,9 +5,12 @@
 /**
  * 设备全生命周期——运行维护台账（步骤 3.2）常量与文本映射。
  * 权限码与后端 ledger_views/@auth、role codes.js 保持一致。
+ * 旧可视化模板路线常量（ROW_* / MATRIX_* / TEMPLATE_INPUT_TYPE_* 等）
+ * 已随路线删除（2026-10）。
  */
 
 export const PERM_L = {
+  // Excel 模板管理沿用 ledger_template.* 权限码（后端 excel_template_views 独立校验）
   TPL_VIEW: 'equipment_lifecycle.ledger_template.view',
   TPL_ADD: 'equipment_lifecycle.ledger_template.add',
   TPL_EDIT: 'equipment_lifecycle.ledger_template.edit',
@@ -32,8 +35,12 @@ export const LEDGER_TYPE_TEXT = {
   seasonal: '季维护',
 };
 
-// 维护周期（week/month/season）已删除（2026-09-26）：周月维护不再拆分周表/月表，
-// 周月维护与季维护仅靠 ledger_type 区分。
+// 台账类型 → 路由路径（来源/目标跳转用；2026-09-30 自 workOrder/constants 迁入，
+// 工单功能已删除；旧巡检类型已删除，legacy 快照来源在详情页仅展示文本，不做跳转）
+export const LEDGER_TYPE_PATH = {
+  week_month: '/el/week-month-ledgers',
+  seasonal: '/el/seasonal-ledgers',
+};
 
 export const STATUS_TEXT = {
   draft: '草稿',
@@ -74,48 +81,23 @@ export const INPUT_TYPE_TEXT = {
   attachment: '附件',
 };
 
-// ==================== 行对象树（第一阶段：行方向多级 + 平面列项目） ====================
-// 行方向最大层级（根为第 1 级；与后端 models.py LEDGER_ROW_MAX_LEVEL 保持一致，
-// 本文件是前端唯一权威定义，禁止在组件里散落硬编码）
-export const ROW_MAX_LEVEL = 5;
-
-// 行路径分隔符（与后端 ROW_PATH_SEPARATOR 一致）
-export const ROW_PATH_SEPARATOR = ' / ';
-
-export const ROW_NODE_TYPE_TEXT = {
-  group: '分组',
-  repeat_group: '可重复分组',
-  check: '检查对象',
-};
-
-export const ROW_NODE_TYPE_COLOR = {
-  group: 'default',
-  repeat_group: 'processing',
-  check: 'success',
-};
-
-// 列方向第一阶段固定平面结构，模板页固定提示（第二阶段列父子结构另行实施）
-export const FLAT_COLUMN_HINT = '检查项目为表格的列，当前为平面结构，暂不支持列分组。';
-
-// 结果含"未填写"（矩阵单元格生成后的初始态，空串）
-export const UNSET_RESULT_TEXT = '未填写';
-
-// 矩阵筛选模式
-export const MATRIX_FILTER_MODES = [
-  {key: 'all', text: '全部'},
-  {key: 'abnormal', text: '仅异常'},
-  {key: 'unset', text: '仅未填写'},
-];
-
-// 模板项目录入类型收敛为两种：正常/不正常、数字/文本；
-// 其余类型仅为历史数据保留，新建项目不可再选
-export const TEMPLATE_INPUT_TYPE_KEYS = ['choice', 'text'];
-// 正常/不正常类型候选项固定，不再开放配置
-export const NORMAL_ABNORMAL_CHOICES = ['正常', '不正常'];
-
 export const CREATED_FROM_TEXT = {
-  template: '模板生成',
   manual: '临时补录',
+  excel_template: 'Excel模板',
+};
+
+// ==================== 统一列表来源（2026-10 Excel 台账接入正式列表） ====================
+// 后端 /ledgers/ 返回 source_type（由 created_from 派生），前端按此渲染来源标签；
+// Excel 来源记录点击详情进入 ExcelLedgerDetail，手工补录走既有明细详情。
+// 旧可视化模板来源（visual）已随路线删除（2026-10）。
+export const SOURCE_TYPE_TEXT = {
+  excel: 'Excel模板',
+  manual: '临时补录',
+};
+
+export const SOURCE_TYPE_COLOR = {
+  excel: 'green',
+  manual: 'default',
 };
 
 export const API_PREFIX_L = '/api/equipment-lifecycle';

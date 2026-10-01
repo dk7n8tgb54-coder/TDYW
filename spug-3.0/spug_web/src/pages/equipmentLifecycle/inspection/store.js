@@ -5,7 +5,7 @@
 /**
  * 设备全生命周期——值班巡检 Store（今日巡检改造）。
  * 错误提示统一由 http 拦截器弹出；巡检单只记录巡检结果与现场处理，
- * 历史已转故障/已转工单的处置状态由详情接口只读返回（转单功能已下线）。
+ * 历史已转故障的处置状态由详情接口只读返回（转单功能已下线；转工单已删除）。
  */
 import {observable, action} from 'mobx';
 import moment from 'moment';
@@ -35,9 +35,10 @@ class InspectionStore {
   };
 
   @action fetchUsers = () => {
-    // 复用工单候选账号接口：本租户有效账户（含 nickname）；
-    // 值班人员已不选择账号，账号表仅用于历史草稿中账号值的姓名映射与回显
-    return http.get(`${API_PREFIX}/work-orders/candidate-users/`)
+    // 本租户有效账户（含 nickname）；原工单候选账号端点已随工单功能删除，
+    // 2026-09-30 迁至 /candidate-users/；值班人员已不选择账号，
+    // 账号表仅用于历史草稿中账号值的姓名映射与回显
+    return http.get(`${API_PREFIX}/candidate-users/`)
       .then(action(res => {this.users = res.data || [];}));
   };
 

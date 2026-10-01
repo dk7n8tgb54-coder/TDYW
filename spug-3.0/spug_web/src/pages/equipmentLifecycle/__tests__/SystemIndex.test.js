@@ -3,7 +3,7 @@
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http 与公共组件壳，
  * 验证：
- * - 详情抽屉页签：基本信息 / 故障记录 / 升级记录 / 周月维护 / 季维护 / 工单 / 履历
+ * - 详情抽屉页签：基本信息 / 故障记录 / 升级记录 / 周月维护 / 季维护 / 履历
  *   （自定义字段机制已下线，「系统当前配置」页签一并移除；
  *   旧巡检台账（历史）页签已删除）
  * - 基本信息展示固定字段；扩展信息展示 呼号/安装经纬度/工作频率（选填）
@@ -97,7 +97,7 @@ describe('系统详情抽屉', () => {
     return store;
   }
 
-  it('页签随步骤演进：基础页签 + 故障记录（3.1） + 三类运维台账（3.2） + 工单（3.3） + 系统履历（3.4）', () => {
+  it('页签随步骤演进：基础页签 + 故障记录（3.1） + 三类运维台账（3.2） + 系统履历（3.4）；工单页签已删除', () => {
     renderDetail();
     const text = document.body.textContent;
     expect(text).toContain('基本信息');
@@ -113,8 +113,8 @@ describe('系统详情抽屉', () => {
     expect(text).not.toContain('巡检台账');
     expect(text).toContain('周月维护台账');
     expect(text).toContain('季维护台账');
-    // 步骤 3.3：工单页签
-    expect(text).toContain('工单');
+    // 工单页签已随故障维修工单功能整体删除（2026-09-30）
+    expect(text).not.toContain('工单');
     // 步骤 3.4：系统履历页签（统一履历；角色筛选断言见 systemEvent 组件测试）
     expect(text).toContain('系统履历');
     // 边界：不出现离线/二维码/移动端与系统升级入口
@@ -206,13 +206,13 @@ describe('系统列表操作列', () => {
 });
 
 describe('系统列表部件维护提示（运行状态与部件维修分离）', () => {
-  it('列表同时展示系统运行健康状态与部件维护标签（部件故障/部件维修中）', async () => {
+  it('列表同时展示系统运行健康状态与部件维护标签（部件故障）', async () => {
     const SystemTable = require('../Table').default;
     const row = {
       id: 1, name: '烟台通信系统', system_model: 'HX-100', install_location: '机房A',
       use_unit: '运行一科', responsible_user_name: '张三', is_active: true,
       health_status: 'normal', health_status_text: '正常',
-      component_maintenance: {fault_count: 2, repairing_count: 1},
+      component_maintenance: {fault_count: 2},
     };
     mockHttpGet.mockImplementation((url) => {
       if (url.includes('/systems')) {
@@ -229,10 +229,10 @@ describe('系统列表部件维护提示（运行状态与部件维修分离）'
     // 系统运行状态（正常）与部件维护提示并列展示，互不混淆
     expect(text).toContain('正常');
     expect(text).toContain('部件故障2');
-    expect(text).toContain('部件维修中1');
+    // 部件维修中标签已随工单功能删除
+    expect(text).not.toContain('部件维修中');
     // 无部件维护时不出空标签
     expect(text).not.toContain('部件故障0');
-    expect(text).not.toContain('部件维修中0');
   });
 
   it('系统详情"当前状态"展示部件维护提示', async () => {
@@ -243,7 +243,7 @@ describe('系统列表部件维护提示（运行状态与部件维修分离）'
       return Promise.resolve({data: {}});
     });
     store.detail = {...DETAIL_PAYLOAD,
-      component_maintenance: {fault_count: 1, repairing_count: 0}};
+      component_maintenance: {fault_count: 1}};
     store.detailVisible = true;
     await act(async () => {
       ReactDOM.render(<SystemDetail/>, container);

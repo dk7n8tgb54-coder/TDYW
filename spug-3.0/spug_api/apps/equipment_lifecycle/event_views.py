@@ -43,7 +43,6 @@ AUDIT_TARGET_EVENT = 'el_system_event'
 
 SOURCE_TYPE_TEXT = {
     'fault': '故障',
-    'work_order': '工单',
     'ledger_item': '台账异常',
     'health': '健康状态',
     'config_snapshot': '配置快照',
@@ -227,7 +226,7 @@ class SystemEventGroupView(View):
 class SystemEventGroupNodesView(View):
     """单个事项的完整节点时间线（展开事项时按需加载，按发生时间升序）。
 
-    台账异常转换节点已按 target_no 归并进故障/工单事项，本接口返回与
+    台账异常转换节点已按 target_no 归并进故障事项，本接口返回与
     分组列表一致的归并结果，前端不需要自行拼接多个来源的节点。
     """
 

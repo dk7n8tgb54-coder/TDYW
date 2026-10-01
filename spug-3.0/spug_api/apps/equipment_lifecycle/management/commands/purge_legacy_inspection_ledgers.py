@@ -2,14 +2,16 @@
 # Released under the AGPL-3.0 License.
 """旧巡检台账（历史）受控清理命令（2026-09 旧巡检台账下线改造）。
 
-彻底删除 OperationLedger / OperationLedgerItem / OperationLedgerTemplate /
-OperationLedgerTemplateItem 中 ledger_type='inspection' 的历史业务数据，
+彻底删除 ledger_type='inspection' 的历史台账/明细业务数据
+（OperationLedger / OperationLedgerItem / OperationLedgerCorrection）。
+旧模板两表（tdyw_el_ledger_template / tdyw_el_ledger_template_item）已随
+旧可视化模板路线在迁移 0045 中整体删除，不再涉及；
 周月维护/季维护共享模型与数据、新巡检独立链路（InspectionTemplate 等）一律不动。
 
 删除前处理外部引用（不级联删除任何业务单据）：
-- SystemFault / SystemWorkOrder 的 source_ledger_item 外键：先把旧巡检来源
-  语义快照写入 source_ledger_legacy JSON 字段，再解除外键（来源类型仍为
-  ledger_item，历史语义不丢失）；
+- SystemFault 的 source_ledger_item 外键：先把旧巡检来源语义快照写入
+  source_ledger_legacy JSON 字段，再解除外键（来源类型仍为 ledger_item，
+  历史语义不丢失）。（SystemWorkOrder 引用处理已随工单功能删除，2026-09-30）
 - SystemEvent / AuditLog 为文本快照引用（无外键），原样保留；
 - EvidenceAttachment 旧巡检附件：数据库行随事务硬删除，物理文件在事务提交
   后尽力删除（删除失败仅保留孤儿文件并告警，不影响数据库一致性）。
@@ -37,11 +39,8 @@ from apps.equipment_lifecycle.models import (
     OperationLedger,
     OperationLedgerCorrection,
     OperationLedgerItem,
-    OperationLedgerTemplate,
-    OperationLedgerTemplateItem,
     SystemEvent,
     SystemFault,
-    SystemWorkOrder,
 )
 from apps.evidence.models import EvidenceAttachment
 from apps.logs.models import AuditLog
@@ -55,30 +54,22 @@ KEEP_EVENT_SOURCE_TYPES = ['ledger_item']
 
 
 def _collect_ledger_objects(tenants):
-    """收集删除范围内的台账/明细/模板/模板项目/更正记录（只读）。"""
+    """收集删除范围内的台账/明细/更正记录（只读）。"""
     ledger_qs = OperationLedger.objects.filter(ledger_type=LEGACY_LEDGER_TYPE_INSPECTION)
-    template_qs = OperationLedgerTemplate.objects.filter(ledger_type=LEGACY_LEDGER_TYPE_INSPECTION)
     if tenants:
         ledger_qs = ledger_qs.filter(tenant_id__in=tenants)
-        template_qs = template_qs.filter(tenant_id__in=tenants)
     ledgers = list(ledger_qs.order_by('id'))
     ledger_ids = [l.id for l in ledgers]
     items = list(OperationLedgerItem.objects.filter(ledger_id__in=ledger_ids).order_by('id'))
     item_ids = [i.id for i in items]
-    templates = list(template_qs.order_by('id'))
-    template_ids = [t.id for t in templates]
-    template_items = list(
-        OperationLedgerTemplateItem.objects.filter(template_id__in=template_ids).order_by('id'))
     corrections = list(
         OperationLedgerCorrection.objects.filter(ledger_id__in=ledger_ids).order_by('id'))
-    return ledgers, ledger_ids, items, item_ids, templates, template_ids, template_items, corrections
+    return ledgers, ledger_ids, items, item_ids, corrections
 
 
 def _collect_external_refs(item_ids, ledger_ids, tenants):
-    """收集故障/工单外键引用与履历/审计文本引用（只读，不做删除）。"""
+    """收集故障外键引用与履历/审计文本引用（只读，不做删除）。"""
     fault_refs = list(SystemFault.objects.filter(
-        source_ledger_item_id__in=item_ids).order_by('id')) if item_ids else []
-    order_refs = list(SystemWorkOrder.objects.filter(
         source_ledger_item_id__in=item_ids).order_by('id')) if item_ids else []
     item_id_strs = [str(i) for i in item_ids]
     events = list(SystemEvent.objects.filter(
@@ -91,10 +82,10 @@ def _collect_external_refs(item_ids, ledger_ids, tenants):
     audit_logs_no = list(AuditLog.objects.filter(
         target_type=LEDGER_ATTACHMENT_OBJECT_TYPE,
         target_name__startswith='EL-INS').order_by('id')) if not tenants else []
-    return fault_refs, order_refs, events, audit_logs, audit_logs_no
+    return fault_refs, events, audit_logs, audit_logs_no
 
 
-def _collect_scope_anomalies(ledgers, items, templates):
+def _collect_scope_anomalies(ledgers, items):
     """盘点异常历史数据：明细与台账租户不一致。
 
     维护周期（maintenance_cycle）字段已删除（2026-09-26），
@@ -109,28 +100,26 @@ def _collect_scope_anomalies(ledgers, items, templates):
 
 def collect_scope(tenants):
     """收集待删除对象与全部外部引用（只读，不修改任何数据）。"""
-    (ledgers, ledger_ids, items, item_ids,
-     templates, template_ids, template_items, corrections) = _collect_ledger_objects(tenants)
+    (ledgers, ledger_ids, items, item_ids, corrections) = _collect_ledger_objects(tenants)
     attachments = list(EvidenceAttachment.objects.filter(
         module=EL_ATTACHMENT_MODULE,
         object_type__in=[LEDGER_ATTACHMENT_OBJECT_TYPE, LEDGER_ITEM_ATTACHMENT_OBJECT_TYPE],
         object_id__in=[str(i) for i in ledger_ids + item_ids],
     ).order_by('id'))
-    fault_refs, order_refs, events, audit_logs, audit_logs_no = _collect_external_refs(
+    fault_refs, events, audit_logs, audit_logs_no = _collect_external_refs(
         item_ids, ledger_ids, tenants)
-    anomalies = _collect_scope_anomalies(ledgers, items, templates)
+    anomalies = _collect_scope_anomalies(ledgers, items)
     return {
         'ledgers': ledgers, 'items': items,
-        'templates': templates, 'template_items': template_items,
         'corrections': corrections, 'attachments': attachments,
-        'fault_refs': fault_refs, 'order_refs': order_refs,
+        'fault_refs': fault_refs,
         'events': events, 'audit_logs': audit_logs, 'audit_logs_no': audit_logs_no,
         'cross_tenant_items': anomalies['cross_tenant_items'],
     }
 
 
-def build_legacy_snapshot(fault_or_order, item, ledger):
-    """把旧巡检来源语义固化为 JSON 快照（故障/工单详情展示用）。"""
+def build_legacy_snapshot(fault, item, ledger):
+    """把旧巡检来源语义固化为 JSON 快照（故障详情展示用）。"""
     return json.dumps({
         'ledger_id': ledger.id,
         'ledger_no': ledger.ledger_no,
@@ -150,7 +139,8 @@ def build_legacy_snapshot(fault_or_order, item, ledger):
 def migrate_external_references(scope):
     """迁移外部引用：写 legacy 快照 + 解除 source_ledger_item 外键。
 
-    不删除、不修改故障与工单本身；返回迁移数量 (fault_count, order_count)。
+    不删除、不修改故障本身；返回迁移数量 fault_count。
+    （工单引用迁移分支已随工单功能删除，2026-09-30）
     """
     item_map = {i.id: i for i in scope['items']}
     ledger_map = {l.id: l for l in scope['ledgers']}
@@ -165,18 +155,7 @@ def migrate_external_references(scope):
         updated = SystemFault.objects.filter(pk=fault.id).update(
             source_ledger_legacy=snapshot, source_ledger_item=None)
         fault_count += updated
-    order_count = 0
-    for order in scope['order_refs']:
-        item = item_map.get(order.source_ledger_item_id)
-        if item is None:
-            raise CommandError(
-                '工单 %s 引用的台账明细 %s 不在删除范围内，停止删除' % (order.id, order.source_ledger_item_id))
-        ledger = ledger_map.get(item.ledger_id)
-        snapshot = build_legacy_snapshot(order, item, ledger)
-        updated = SystemWorkOrder.objects.filter(pk=order.id).update(
-            source_ledger_legacy=snapshot, source_ledger_item=None)
-        order_count += updated
-    return fault_count, order_count
+    return fault_count
 
 
 def delete_attachment_rows(scope):
@@ -188,23 +167,17 @@ def delete_attachment_rows(scope):
 
 
 def delete_legacy_data(scope):
-    """删除旧巡检业务数据（须在事务内调用）：更正记录 → 明细 → 模板 → 表头。"""
+    """删除旧巡检业务数据（须在事务内调用）：更正记录 → 明细 → 表头。"""
     ledger_ids = [l.id for l in scope['ledgers']]
     item_ids = [i.id for i in scope['items']]
-    template_ids = [t.id for t in scope['templates']]
     deleted_corrections = OperationLedgerCorrection.objects.filter(
         ledger_id__in=ledger_ids).delete()[0] if ledger_ids else 0
     deleted_items = OperationLedgerItem.objects.filter(
         id__in=item_ids).delete()[0] if item_ids else 0
-    deleted_template_items = OperationLedgerTemplateItem.objects.filter(
-        template_id__in=template_ids).delete()[0] if template_ids else 0
-    deleted_templates = OperationLedgerTemplate.objects.filter(
-        id__in=template_ids).delete()[0] if template_ids else 0
     deleted_ledgers = OperationLedger.objects.filter(
         id__in=ledger_ids).delete()[0] if ledger_ids else 0
     return {
         'corrections': deleted_corrections, 'items': deleted_items,
-        'template_items': deleted_template_items, 'templates': deleted_templates,
         'ledgers': deleted_ledgers,
     }
 
@@ -257,19 +230,14 @@ class Command(BaseCommand):
             self.stdout.write('  租户 %s / 状态 %s: %d' % (tenant, status, n))
         self.stdout.write('台账明细: %d' % len(scope['items']))
         self.stdout.write('台账更正记录: %d' % len(scope['corrections']))
-        self.stdout.write('台账模板: %d' % len(scope['templates']))
-        self.stdout.write('台账模板项目: %d' % len(scope['template_items']))
         self.stdout.write('附件（表头+明细）: %d' % len(scope['attachments']))
-        self.stdout.write('== 外部引用（故障/工单迁移，履历/审计保留）==')
+        self.stdout.write('== 外部引用（故障迁移，履历/审计保留）==')
         self.stdout.write('引用旧明细的故障（解除外键+写快照）: %d' % len(scope['fault_refs']))
-        self.stdout.write('引用旧明细的工单（解除外键+写快照）: %d' % len(scope['order_refs']))
         self.stdout.write('引用旧明细的系统履历事件（保留）: %d' % len(scope['events']))
         self.stdout.write('引用旧台账的审计日志（保留）: %d' % (
             len(scope['audit_logs']) or len(scope['audit_logs_no'])))
         self.stdout.write('== 周月/季维护与新巡检（保留，不受影响）==')
         self.stdout.write('维护台账表头（week_month/seasonal）: %d' % OperationLedger.objects.exclude(
-            ledger_type=LEGACY_LEDGER_TYPE_INSPECTION).count())
-        self.stdout.write('维护台账模板: %d' % OperationLedgerTemplate.objects.exclude(
             ledger_type=LEGACY_LEDGER_TYPE_INSPECTION).count())
         self.stdout.write('== 异常数据检查 ==')
         self.stdout.write('明细与台账租户不一致: %d' % len(scope['cross_tenant_items']))
@@ -297,7 +265,7 @@ class Command(BaseCommand):
         self.stdout.write('开始受控删除（单事务，失败自动回滚）...')
         try:
             with transaction.atomic():
-                fault_count, order_count = migrate_external_references(scope)
+                fault_count = migrate_external_references(scope)
                 attachment_paths = delete_attachment_rows(scope)
                 deleted = delete_legacy_data(scope)
         except Exception as e:
@@ -305,11 +273,10 @@ class Command(BaseCommand):
 
         removed, missing, failed = delete_attachment_files(attachment_paths)
         self.stdout.write('== 删除完成 ==')
-        self.stdout.write('已迁移外部引用: 故障 %d、工单 %d（来源外键已解除，legacy 快照已写入）' % (
-            fault_count, order_count))
-        self.stdout.write('已删除: 台账 %d、明细 %d、更正 %d、模板 %d、模板项目 %d、附件行 %d' % (
+        self.stdout.write('已迁移外部引用: 故障 %d（来源外键已解除，legacy 快照已写入）' % fault_count)
+        self.stdout.write('已删除: 台账 %d、明细 %d、更正 %d、附件行 %d' % (
             deleted['ledgers'], deleted['items'], deleted['corrections'],
-            deleted['templates'], deleted['template_items'], len(attachment_paths)))
+            len(attachment_paths)))
         self.stdout.write('附件物理文件: 已删 %d、本不存在 %d、失败 %d' % (removed, missing, len(failed)))
         for path in failed:
             self.stdout.write(self.style.WARNING('  孤儿文件: %s' % path))
@@ -327,10 +294,8 @@ class Command(BaseCommand):
         self.stdout.write('== 删除后复核 ==')
         self.stdout.write('残留旧巡检台账: %d（指定租户范围内应为 0）' % remaining_ledgers)
         self.stdout.write('残留旧巡检明细: %d' % remaining_items)
-        self.stdout.write('保留的维护台账: %d、维护模板: %d、系统履历事件: %d、审计日志: %d' % (
+        self.stdout.write('保留的维护台账: %d、系统履历事件: %d、审计日志: %d' % (
             OperationLedger.objects.exclude(
-                ledger_type=LEGACY_LEDGER_TYPE_INSPECTION).count(),
-            OperationLedgerTemplate.objects.exclude(
                 ledger_type=LEGACY_LEDGER_TYPE_INSPECTION).count(),
             SystemEvent.objects.filter(source_type__in=KEEP_EVENT_SOURCE_TYPES).count(),
             AuditLog.objects.filter(

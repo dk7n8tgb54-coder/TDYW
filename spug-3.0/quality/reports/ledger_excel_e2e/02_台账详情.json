@@ -1,0 +1,1778 @@
+{
+ "id": 22,
+ "ledger_no": "EL-WM-20260928-0001",
+ "ledger_type": "week_month",
+ "executed_date": "2026-09-28",
+ "executor_names": "李验收、王验收",
+ "status": "submitted",
+ "executed_start": null,
+ "executed_end": null,
+ "entry_channel": "web",
+ "created_from": "excel_template",
+ "template": null,
+ "version": 1,
+ "submitted_at": "2026-09-29 00:15:03",
+ "reviewed_at": null,
+ "reviewer_name": "",
+ "returned_at": null,
+ "return_reason": "",
+ "voided_at": null,
+ "void_reason": "",
+ "created_at": "2026-09-29 00:15:03",
+ "created_by": 46,
+ "created_by_name": "excel_pilot",
+ "excel": {
+  "record_id": 4,
+  "values": {
+   "786ed622-e9d5-4968-9fa6-1b4ccea2209c": "正常",
+   "c3091a3e-b3a7-4330-b0e1-086bac41a9bf": "正常",
+   "eb142fdb-b9df-489a-8005-dd818b976872": "正常",
+   "b6002d20-7a04-409d-8c5a-17682da1e0aa": "正常",
+   "c9d5c2e6-b8d7-4b02-b0cd-76be9ad8f6d0": "正常",
+   "95e0f7de-85c2-4b71-bfb1-96cae75e5128": "指示灯正常",
+   "7c6040c0-0428-47a9-b3f5-9fd6059104c7": "正常",
+   "250ef6bf-676a-442e-a03f-a7dffb01b195": "正常",
+   "813f186b-5a29-42b8-9f35-089840de953e": "异常",
+   "76079cb2-ad35-4df3-bdbc-7e4bacc2dd5d": "正常",
+   "1b0a177a-909c-4fb7-9f1c-98d8a97e4462": "正常",
+   "3bb27fd5-68a8-42ad-9443-93f3a6323450": "RX模块已更换",
+   "255a93e2-fcae-492e-8f34-bfd4ec86689a": "2026-09-28",
+   "a8ad1e7a-dca6-4024-b089-46200679d4fe": "正常"
+  },
+  "editable": false,
+  "voided": false,
+  "version": {
+   "id": 4,
+   "template": 5,
+   "version_no": 1,
+   "template_name": "信道维护台账（Excel上传试点）",
+   "ledger_type": "week_month",
+   "source_filename": "信道维护台账验收样例.xlsx",
+   "source_hash": "6082afae53908fdbf10748db4ec44b007f519947c9f1d1e4225045c239553679",
+   "field_count": 14,
+   "published_at": "2026-09-29 00:15:03",
+   "layout": {
+    "active_sheet": "信道维护记录",
+    "sheets": [
+     {
+      "name": "信道维护记录",
+      "max_row": 6,
+      "max_column": 8,
+      "merged_ranges": [
+       "A1:H1",
+       "A3:A4",
+       "A5:A6"
+      ],
+      "row_heights": {
+       "1": 30.0,
+       "2": 26.0,
+       "3": 24.0,
+       "4": 24.0,
+       "5": 24.0,
+       "6": 24.0
+      },
+      "column_widths": {
+       "A": 12.0,
+       "B": 12.0,
+       "C": 12.0,
+       "D": 12.0,
+       "E": 12.0,
+       "F": 12.0,
+       "G": 14.0,
+       "H": 20.0
+      },
+      "cells": {
+       "A1": {
+        "v": "信道维护记录表",
+        "s": {
+         "font": {
+          "name": "宋体",
+          "size": 14.0,
+          "bold": true,
+          "italic": false,
+          "color": null
+         },
+         "fill": null,
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {},
+         "number_format": null
+        }
+       },
+       "A2": {
+        "v": "信道",
+        "s": {
+         "font": {
+          "name": "宋体",
+          "size": 11.0,
+          "bold": true,
+          "italic": false,
+          "color": null
+         },
+         "fill": "00F2F2F2",
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "B2": {
+        "v": "电台",
+        "s": {
+         "font": {
+          "name": "宋体",
+          "size": 11.0,
+          "bold": true,
+          "italic": false,
+          "color": null
+         },
+         "fill": "00F2F2F2",
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "C2": {
+        "v": "PS模块",
+        "s": {
+         "font": {
+          "name": "宋体",
+          "size": 11.0,
+          "bold": true,
+          "italic": false,
+          "color": null
+         },
+         "fill": "00F2F2F2",
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "D2": {
+        "v": "TX模块",
+        "s": {
+         "font": {
+          "name": "宋体",
+          "size": 11.0,
+          "bold": true,
+          "italic": false,
+          "color": null
+         },
+         "fill": "00F2F2F2",
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "E2": {
+        "v": "RX模块",
+        "s": {
+         "font": {
+          "name": "宋体",
+          "size": 11.0,
+          "bold": true,
+          "italic": false,
+          "color": null
+         },
+         "fill": "00F2F2F2",
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "F2": {
+        "v": "BB模块",
+        "s": {
+         "font": {
+          "name": "宋体",
+          "size": 11.0,
+          "bold": true,
+          "italic": false,
+          "color": null
+         },
+         "fill": "00F2F2F2",
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "G2": {
+        "v": "显示模块",
+        "s": {
+         "font": {
+          "name": "宋体",
+          "size": 11.0,
+          "bold": true,
+          "italic": false,
+          "color": null
+         },
+         "fill": "00F2F2F2",
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "H2": {
+        "v": "备注",
+        "s": {
+         "font": {
+          "name": "宋体",
+          "size": 11.0,
+          "bold": true,
+          "italic": false,
+          "color": null
+         },
+         "fill": "00F2F2F2",
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "A3": {
+        "v": "第1信道",
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "B3": {
+        "v": "主电台",
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "C3": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "D3": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "E3": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "F3": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "G3": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "H3": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "B4": {
+        "v": "备电台",
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "C4": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "D4": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "E4": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "F4": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "G4": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "H4": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "A5": {
+        "v": "第2信道",
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "B5": {
+        "v": "主电台",
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "C5": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "D5": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "E5": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "F5": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "G5": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "H5": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "B6": {
+        "v": "备电台",
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "C6": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "D6": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "E6": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "F6": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "G6": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "H6": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       }
+      },
+      "print": {
+       "orientation": "portrait",
+       "paper_size": 9,
+       "fit_to_width": 1,
+       "fit_to_height": 0
+      }
+     },
+     {
+      "name": "维护结论",
+      "max_row": 4,
+      "max_column": 2,
+      "merged_ranges": [],
+      "row_heights": {
+       "2": 22.0,
+       "3": 22.0,
+       "4": 22.0
+      },
+      "column_widths": {
+       "A": 14.0,
+       "B": 24.0
+      },
+      "cells": {
+       "A1": {
+        "v": "维护结论",
+        "s": {
+         "font": {
+          "name": "宋体",
+          "size": 11.0,
+          "bold": true,
+          "italic": false,
+          "color": null
+         },
+         "fill": "00F2F2F2",
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "B1": {
+        "v": "内容（填写）",
+        "s": {
+         "font": {
+          "name": "宋体",
+          "size": 11.0,
+          "bold": true,
+          "italic": false,
+          "color": null
+         },
+         "fill": "00F2F2F2",
+         "align": {
+          "h": "center",
+          "v": "center",
+          "wrap": true
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "A2": {
+        "v": "维护日期",
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": {
+          "h": "left",
+          "v": "center",
+          "wrap": false
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "B2": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "A3": {
+        "v": "维护人员",
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": {
+          "h": "left",
+          "v": "center",
+          "wrap": false
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "B3": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "A4": {
+        "v": "总体结论",
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": {
+          "h": "left",
+          "v": "center",
+          "wrap": false
+         },
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       },
+       "B4": {
+        "v": null,
+        "s": {
+         "font": null,
+         "fill": null,
+         "align": null,
+         "border": {
+          "top": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "bottom": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "left": {
+           "style": "thin",
+           "color": "00000000"
+          },
+          "right": {
+           "style": "thin",
+           "color": "00000000"
+          }
+         },
+         "number_format": null
+        }
+       }
+      },
+      "print": {
+       "orientation": "portrait",
+       "paper_size": 9,
+       "fit_to_width": null,
+       "fit_to_height": null
+      }
+     }
+    ]
+   },
+   "sheet_name": "信道维护记录",
+   "bindings": [
+    {
+     "field_id": "786ed622-e9d5-4968-9fa6-1b4ccea2209c",
+     "sheet_name": "信道维护记录",
+     "cell_coordinate": "C3",
+     "field_name": "第1信道-主电台-PS模块",
+     "input_type": "status",
+     "is_required": true,
+     "unit": "",
+     "options": [
+      "正常",
+      "异常"
+     ],
+     "default_value": "",
+     "operation_guide": "按巡检卡逐项检查并选择结果",
+     "abnormal_rule": "",
+     "maintenance_cycles": [
+      "all"
+     ]
+    },
+    {
+     "field_id": "c3091a3e-b3a7-4330-b0e1-086bac41a9bf",
+     "sheet_name": "信道维护记录",
+     "cell_coordinate": "D3",
+     "field_name": "第1信道-主电台-TX模块",
+     "input_type": "status",
+     "is_required": true,
+     "unit": "",
+     "options": [
+      "正常",
+      "异常"
+     ],
+     "default_value": "",
+     "operation_guide": "按巡检卡逐项检查并选择结果",
+     "abnormal_rule": "",
+     "maintenance_cycles": [
+      "all"
+     ]
+    },
+    {
+     "field_id": "eb142fdb-b9df-489a-8005-dd818b976872",
+     "sheet_name": "信道维护记录",
+     "cell_coordinate": "E3",
+     "field_name": "第1信道-主电台-RX模块",
+     "input_type": "status",
+     "is_required": true,
+     "unit": "",
+     "options": [
+      "正常",
+      "异常"
+     ],
+     "default_value": "",
+     "operation_guide": "按巡检卡逐项检查并选择结果",
+     "abnormal_rule": "",
+     "maintenance_cycles": [
+      "all"
+     ]
+    },
+    {
+     "field_id": "b6002d20-7a04-409d-8c5a-17682da1e0aa",
+     "sheet_name": "信道维护记录",
+     "cell_coordinate": "F3",
+     "field_name": "第1信道-主电台-BB模块",
+     "input_type": "status",
+     "is_required": true,
+     "unit": "",
+     "options": [
+      "正常",
+      "异常"
+     ],
+     "default_value": "",
+     "operation_guide": "按巡检卡逐项检查并选择结果",
+     "abnormal_rule": "",
+     "maintenance_cycles": [
+      "all"
+     ]
+    },
+    {
+     "field_id": "c9d5c2e6-b8d7-4b02-b0cd-76be9ad8f6d0",
+     "sheet_name": "信道维护记录",
+     "cell_coordinate": "G3",
+     "field_name": "第1信道-主电台-显示模块",
+     "input_type": "status",
+     "is_required": true,
+     "unit": "",
+     "options": [
+      "正常",
+      "异常"
+     ],
+     "default_value": "",
+     "operation_guide": "按巡检卡逐项检查并选择结果",
+     "abnormal_rule": "",
+     "maintenance_cycles": [
+      "all"
+     ]
+    },
+    {
+     "field_id": "95e0f7de-85c2-4b71-bfb1-96cae75e5128",
+     "sheet_name": "信道维护记录",
+     "cell_coordinate": "H3",
+     "field_name": "第1信道-主电台-备注",
+     "input_type": "text",
+     "is_required": false,
+     "unit": "",
+     "options": [],
+     "default_value": "",
+     "operation_guide": "",
+     "abnormal_rule": "",
+     "maintenance_cycles": [
+      "all"
+     ]
+    },
+    {
+     "field_id": "7c6040c0-0428-47a9-b3f5-9fd6059104c7",
+     "sheet_name": "信道维护记录",
+     "cell_coordinate": "C4",
+     "field_name": "第1信道-备电台-PS模块",
+     "input_type": "status",
+     "is_required": true,
+     "unit": "",
+     "options": [
+      "正常",
+      "异常"
+     ],
+     "default_value": "",
+     "operation_guide": "按巡检卡逐项检查并选择结果",
+     "abnormal_rule": "",
+     "maintenance_cycles": [
+      "all"
+     ]
+    },
+    {
+     "field_id": "250ef6bf-676a-442e-a03f-a7dffb01b195",
+     "sheet_name": "信道维护记录",
+     "cell_coordinate": "D4",
+     "field_name": "第1信道-备电台-TX模块",
+     "input_type": "status",
+     "is_required": true,
+     "unit": "",
+     "options": [
+      "正常",
+      "异常"
+     ],
+     "default_value": "",
+     "operation_guide": "按巡检卡逐项检查并选择结果",
+     "abnormal_rule": "",
+     "maintenance_cycles": [
+      "all"
+     ]
+    },
+    {
+     "field_id": "813f186b-5a29-42b8-9f35-089840de953e",
+     "sheet_name": "信道维护记录",
+     "cell_coordinate": "E4",
+     "field_name": "第1信道-备电台-RX模块",
+     "input_type": "status",
+     "is_required": true,
+     "unit": "",
+     "options": [
+      "正常",
+      "异常"
+     ],
+     "default_value": "",
+     "operation_guide": "按巡检卡逐项检查并选择结果",
+     "abnormal_rule": "",
+     "maintenance_cycles": [
+      "all"
+     ]
+    },
+    {
+     "field_id": "76079cb2-ad35-4df3-bdbc-7e4bacc2dd5d",
+     "sheet_name": "信道维护记录",
+     "cell_coordinate": "F4",
+     "field_name": "第1信道-备电台-BB模块",
+     "input_type": "status",
+     "is_required": true,
+     "unit": "",
+     "options": [
+      "正常",
+      "异常"
+     ],
+     "default_value": "",
+     "operation_guide": "按巡检卡逐项检查并选择结果",
+     "abnormal_rule": "",
+     "maintenance_cycles": [
+      "all"
+     ]
+    },
+    {
+     "field_id": "1b0a177a-909c-4fb7-9f1c-98d8a97e4462",
+     "sheet_name": "信道维护记录",
+     "cell_coordinate": "G4",
+     "field_name": "第1信道-备电台-显示模块",
+     "input_type": "status",
+     "is_required": true,
+     "unit": "",
+     "options": [
+      "正常",
+      "异常"
+     ],
+     "default_value": "",
+     "operation_guide": "按巡检卡逐项检查并选择结果",
+     "abnormal_rule": "",
+     "maintenance_cycles": [
+      "all"
+     ]
+    },
+    {
+     "field_id": "3bb27fd5-68a8-42ad-9443-93f3a6323450",
+     "sheet_name": "信道维护记录",
+     "cell_coordinate": "H4",
+     "field_name": "第1信道-备电台-备注",
+     "input_type": "text",
+     "is_required": false,
+     "unit": "",
+     "options": [],
+     "default_value": "",
+     "operation_guide": "",
+     "abnormal_rule": "",
+     "maintenance_cycles": [
+      "all"
+     ]
+    },
+    {
+     "field_id": "255a93e2-fcae-492e-8f34-bfd4ec86689a",
+     "sheet_name": "维护结论",
+     "cell_coordinate": "B2",
+     "field_name": "维护日期",
+     "input_type": "date",
+     "is_required": true,
+     "unit": "",
+     "options": [],
+     "default_value": "",
+     "operation_guide": "",
+     "abnormal_rule": "",
+     "maintenance_cycles": [
+      "all"
+     ]
+    },
+    {
+     "field_id": "a8ad1e7a-dca6-4024-b089-46200679d4fe",
+     "sheet_name": "维护结论",
+     "cell_coordinate": "B4",
+     "field_name": "总体结论",
+     "input_type": "choice",
+     "is_required": true,
+     "unit": "",
+     "options": [
+      "正常",
+      "异常"
+     ],
+     "default_value": "正常",
+     "operation_guide": "",
+     "abnormal_rule": "",
+     "maintenance_cycles": [
+      "all"
+     ]
+    }
+   ]
+  }
+ }
+}

@@ -4,12 +4,12 @@
 
 业务规则（与模型 docstring 一致）：
 - 巡检单唯一范围 = 值班日 + 巡检模板，值班人员登记在单上（支持多人+姓名快照）；
-- 每个值班日固定四轮（r1 11:00 / r2 16:00 / r3 22:00 / r4 次日 06:30，
+- 每个值班日固定四轮（r1 11:00-11:20 / r2 16:00-16:20 / r3 22:00-22:20 / r4 次日 6:30-6:50，
   第四轮归属前一值班日）；不记录实际填写时间、不判断迟填；
 - 模板结构 = 模板 → 设备名称 → 检查内容，设备名称不关联 LifecycleSystem；
 - 巡检明细保存全量快照，模板修改/停用不影响历史记录；
 - 结果由后端按填写值派生（choice 填"不正常"→ abnormal），不由前端决定；
-- 异常明细转故障/工单时才由用户选择系统（视图层实现，见 inspection_views）。
+- 异常明细转故障时才由用户选择系统（视图层实现，见 fault_views）。
 
 安全规则：
 - 后端不信任前端传来的单据状态与系统信息，转换前重新查询校验；
@@ -32,7 +32,6 @@ from apps.equipment_lifecycle.models import (
     InspectionTemplateDevice,
     InspectionTemplateItem,
     SystemFault,
-    SystemWorkOrder,
     INSPECTION_CHOICE_ABNORMAL,
     INSPECTION_DEFAULT_CHOICES,
     INSPECTION_INPUT_TYPE_CHOICE,
@@ -49,7 +48,6 @@ from apps.equipment_lifecycle.models import (
     INSPECTION_SHEET_RETURNED,
     INSPECTION_SHEET_SUBMITTED,
     INSPECTION_SHEET_VOID,
-    WORK_ORDER_STATUS_CANCELLED,
 )
 
 AUDIT_TARGET_INSPECTION_SHEET = 'el_inspection_sheet'
@@ -64,7 +62,7 @@ class InspectionValidationError(Exception):
 
 
 def parse_duty_date(value):
-    """解析值班日（YYYY-MM-DD），缺省为当天（值班日可回选，用于次日 06:30 轮次）。"""
+    """解析值班日（YYYY-MM-DD），缺省为当天（值班日可回选，用于次日 6:30-6:50 轮次）。"""
     if not value:
         return timezone.now().date()
     try:
@@ -700,7 +698,7 @@ def return_sheet(user, sheet_id, reason):
     """超级管理员退回整改：已提交 → 已退回（原因必填，行锁事务）。
 
     - 仅允许 submitted → returned（草稿/已退回/已作废一律拒绝）；
-    - 退回不删除、不修改任何巡检记录与值班人员，历史故障/工单来源
+    - 退回不删除、不修改任何巡检记录与值班人员，历史故障来源
       关系（source_inspection_record）原样保留；
     - 不释放值班日+模板唯一占用（单据仍有效，仅回到可编辑状态）。
     """
@@ -743,8 +741,8 @@ def void_sheet(user, sheet_id, reason):
 
 
 # ----------------------------------------------------------------------
-# 巡检异常处置状态（由来源关系动态推导，只读展示；转单功能已下线，
-# 故障/工单统一在对应模块创建，历史来源数据继续可追溯）
+# 巡检异常处置状态（由来源故障关系动态推导，只读展示；转工单已随
+# 工单功能整体删除，2026-09-30；历史来源数据继续可追溯）
 # ----------------------------------------------------------------------
 
 def _merge_disposition_targets(result, targets, id_attr, key, no_attr,
@@ -764,11 +762,11 @@ def _merge_disposition_targets(result, targets, id_attr, key, no_attr,
 def compute_record_disposition(tenant_id, record_ids):
     """计算巡检异常明细的处置状态（由来源关系动态推导，不落库）。
 
-    返回 {record_id: {'status': ..., 'fault': {...} 或 None, 'work_order': {...} 或 None}}。
+    返回 {record_id: {'status': ..., 'fault': {...} 或 None}}。
     """
     record_ids = [int(i) for i in record_ids]
     result = {
-        i: {'status': 'none', 'fault': None, 'work_order': None}
+        i: {'status': 'none', 'fault': None}
         for i in record_ids
     }
     if not record_ids or not tenant_id:
@@ -778,13 +776,8 @@ def compute_record_disposition(tenant_id, record_ids):
     _merge_disposition_targets(
         result, faults, 'source_inspection_record_id', 'fault', 'fault_no',
         SystemFault.STATUS_CANCELLED, 'converted_fault')
-    orders = SystemWorkOrder.objects.filter(
-        tenant_id=tenant_id, source_inspection_record_id__in=record_ids).order_by('-id')
-    _merge_disposition_targets(
-        result, orders, 'source_inspection_record_id', 'work_order', 'work_no',
-        WORK_ORDER_STATUS_CANCELLED, 'converted_work_order')
     for slot in result.values():
-        if slot['status'] == 'none' and (slot['fault'] or slot['work_order']):
+        if slot['status'] == 'none' and slot['fault']:
             slot['status'] = 'target_cancelled'
     return result
 
@@ -795,7 +788,7 @@ def append_record_disposition(tenant_id, records):
     disposition_map = compute_record_disposition(tenant_id, ids) if ids else {}
     for record in records:
         record['disposition'] = disposition_map.get(record.get('id'), {
-            'status': 'none', 'fault': None, 'work_order': None})
+            'status': 'none', 'fault': None})
     return records
 
 
@@ -807,7 +800,7 @@ def append_batch_record_disposition(tenant_id, sheet_details):
     """把处置状态批量并入多张巡检单的明细序列化结果（批量导出用）。
 
     与 append_record_disposition 口径一致，但所有巡检单的明细合并后
-    分块查询故障/工单，避免批量导出时逐单循环重复查询。
+    分块查询来源故障，避免批量导出时逐单循环重复查询。
     sheet_details 为 to_detail_view() 后的 dict 列表，原地并入后原样返回。
     """
     record_map = {}
@@ -822,5 +815,5 @@ def append_batch_record_disposition(tenant_id, sheet_details):
         disposition_map.update(compute_record_disposition(tenant_id, chunk))
     for record in record_map.values():
         record['disposition'] = disposition_map.get(record['id'], {
-            'status': 'none', 'fault': None, 'work_order': None})
+            'status': 'none', 'fault': None})
     return sheet_details

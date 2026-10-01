@@ -98,9 +98,6 @@ class ItemTable extends React.Component {
     ellipsis: true,
     render: (text, record) => (
       <span>
-        {record.level_text ? (
-          <Tag color="red" style={{marginRight: 6}}>{record.level_text}</Tag>
-        ) : null}
         {record.title}
       </span>
     ),

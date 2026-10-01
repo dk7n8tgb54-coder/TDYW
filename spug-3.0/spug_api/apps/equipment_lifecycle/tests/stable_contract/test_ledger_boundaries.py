@@ -92,7 +92,7 @@ class LedgerBoundaryContractTests(TestCase):
         self.assertEqual(self.system.health_status, 'normal')
 
     def test_abnormal_ledger_does_not_create_fault(self):
-        """34. 台账异常不会自动创建故障或工单（步骤 3.1 SystemFault 数量不变）。"""
+        """34. 台账异常不会自动创建故障（步骤 3.1 SystemFault 数量不变）。"""
         from apps.equipment_lifecycle.models import SystemFault
         before = SystemFault.objects.count()
         create_ledger_ok(self.client_, ledger_payload(
@@ -106,24 +106,26 @@ class LedgerBoundaryContractTests(TestCase):
         forbidden = {'QrCode', 'MobileTask', 'OfflineTask', 'OfflineSyncQueue', 'SyncQueue',
                      'FieldTerminal', 'SiteCollection'}
         self.assertEqual(forbidden & model_names, set())
-        # 台账模型集合精确可控：仅允许步骤二 + 3.1 + 3.2 + 3.3（工单三表）
-        # + 3.4（统一系统履历）+ 值班巡检（今日巡检改造，6 表）的模型
-        # （类型主数据模型已随机制移除删除；
-        # 单系统简化删除受影响系统关联两表，新增工单影响运行标记；
+        # 台账模型集合精确可控：仅允许步骤二 + 3.1 + 3.2 + 3.4（统一系统履历）
+        # + 值班巡检（今日巡检改造，6 表）的模型
+        # （类型主数据模型已随机制移除删除；工单三表已随工单功能删除 2026-09-30；
+        # 单系统简化删除受影响系统关联两表；
         # 自定义字段机制下线删除字段定义/字段值两表，扩展信息转固定字段）
         expected = {
             'LifecycleSystem',
             'SystemFault', 'SystemFaultHandlingRecord',
-            'OperationLedgerTemplate', 'OperationLedgerTemplateItem',
-            # 行对象树（2026-09 第一阶段）：模板行节点 + 实际行实例
-            'OperationLedgerRowTemplateNode', 'OperationLedgerRowInstance',
+            # 旧可视化模板四表已随路线整体删除（2026-10，迁移 0045）
             'OperationLedger', 'OperationLedgerItem', 'OperationLedgerCorrection',
-            'SystemWorkOrder',
-            'SystemWorkOrderParticipant', 'SystemWorkOrderHandlingRecord',
             'SystemEvent',
             # 值班巡检（今日巡检改造）：模板两级结构 + 值班巡检单/人员/明细
             'InspectionTemplate', 'InspectionTemplateDevice', 'InspectionTemplateItem',
             'InspectionDutySheet', 'InspectionDutyPerson', 'InspectionRecord',
+            # 设计器台账模板（2026-09-29 路线下线）：模型与历史表休眠保留，
+            # 视图/服务/路由均已删除，所有 layout-templates 端点应 404
+            'OperationLedgerLayoutTemplate', 'OperationLedgerLayoutVersion',
+            # Excel 上传版维护台账模板（2026-09-28 试点）：模板 + 不可变版本 + 台账填写记录
+            'OperationLedgerExcelTemplate', 'OperationLedgerExcelTemplateVersion',
+            'OperationLedgerExcelRecord',
         }
         self.assertEqual(model_names, expected)
 
@@ -143,10 +145,110 @@ class LedgerBoundaryContractTests(TestCase):
         self.assertTrue(callable(fault_services.recompute_systems_health))
         self.assertTrue(callable(fault_services.collect_active_impacts))
         # 本步骤新增表均使用 tdyw_el_* 新表名，不复用步骤一删除的旧表
-        for model_name in ('OperationLedger', 'OperationLedgerItem', 'OperationLedgerTemplate',
-                           'OperationLedgerTemplateItem',
+        for model_name in ('OperationLedger', 'OperationLedgerItem',
                            'OperationLedgerCorrection'):
             table = django_apps.get_model('equipment_lifecycle', model_name)._meta.db_table
             self.assertTrue(table.startswith('tdyw_el_'), table)
             self.assertNotIn(table, {'tdyw_fault_records', 'tdyw_fault_parts',
                                      'tdyw_lifecycle_devices', 'tdyw_lifecycle_device_relations'})
+
+
+class DesignerRouteRemovedContractTests(TestCase):
+    """在线设计器路线下线契约（2026-09-29）：layout-templates 端点全部 404。
+
+    设计器模型与历史表休眠保留（模型清单见
+    test_no_offline_or_mobile_models），但不再存在任何 HTTP 入口；
+    Excel 路线（excel-templates/excel-ledgers）不受影响。
+    未认证请求会被认证中间件在 URL 解析前以 401 短路，因此本测试
+    以已认证客户端发起，验证的是真实路由解析行为。
+    """
+
+    DESIGNER_PATHS = (
+        '/equipment-lifecycle/layout-templates/',
+        '/equipment-lifecycle/layout-templates/1/',
+        '/equipment-lifecycle/layout-templates/1/draft/',
+        '/equipment-lifecycle/layout-templates/1/draft/from-version/',
+        '/equipment-lifecycle/layout-templates/1/publish/',
+        '/equipment-lifecycle/layout-templates/1/versions/',
+        '/equipment-lifecycle/layout-templates/1/versions/1/',
+    )
+
+    def setUp(self):
+        self.admin = make_ledger_user('designer_gone_admin')
+        self.client_ = make_client(self.admin)
+
+    def test_layout_template_endpoints_are_gone(self):
+        """设计器 CRUD/草稿/发布/版本端点均不再解析到任何视图。"""
+        for path in self.DESIGNER_PATHS:
+            resp = self.client_.get(path)
+            self.assertEqual(resp.status_code, 404, path)
+            resp = self.client_.post(path, {}, content_type='application/json')
+            self.assertEqual(resp.status_code, 404, path)
+
+    def test_excel_template_endpoints_still_served(self):
+        """同前缀下的 Excel 模板端点仍正常路由（无模板权限时 @auth 拒绝而非 404）。"""
+        resp = self.client_.get('/equipment-lifecycle/excel-templates/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['error'], '权限拒绝')
+
+
+class VisualTemplateRouteRemovedContractTests(TestCase):
+    """旧可视化模板路线下线契约（2026-10，迁移 0045）。
+
+    正式维护台账统一走 Excel/WPS 模板路线；旧可视化模板接口（模板 CRUD、
+    预览、行实例、单元格）全部 404；台账创建/编辑携带模板引用时显式拒绝；
+    手工补录（manual）与 Excel（excel_template）路线不受影响。
+    """
+
+    def setUp(self):
+        self.admin = make_ledger_user('visual_gone_admin')
+        self.system = make_system(self.admin)
+        self.client_ = make_client(self.admin)
+
+    def test_visual_template_endpoints_are_gone(self):
+        """模板 CRUD / 行节点 / 行实例 / 单元格 / 预览端点均 404。"""
+        paths = (
+            '/equipment-lifecycle/ledger-templates/',
+            '/equipment-lifecycle/ledger-templates/1/',
+            '/equipment-lifecycle/ledger-templates/1/items/',
+            '/equipment-lifecycle/ledger-templates/1/row-nodes/',
+            '/equipment-lifecycle/ledger-templates/available/',
+            '/equipment-lifecycle/ledgers/preview/',
+            '%s/1/row-instances/' % LEDGER_URL,
+            '%s/1/row-instances/9/' % LEDGER_URL,
+            '%s/1/cells/' % LEDGER_URL,
+        )
+        for path in paths:
+            resp = self.client_.get(path)
+            self.assertEqual(resp.status_code, 404, path)
+            resp = self.client_.post(path, {}, content_type='application/json')
+            self.assertEqual(resp.status_code, 404, path)
+
+    def test_create_rejects_visual_template_source(self):
+        """POST /ledgers/ 携带 created_from='template' 显式拒绝。"""
+        payload = ledger_payload(
+            [entry_payload(self.system.id, [item_payload()])],
+            created_from='template')
+        resp = post_json(self.client_, LEDGER_URL + '/', payload)
+        self.assertTrue(resp.json().get('error'))
+        self.assertIn('不合法', resp.json()['error'])
+        self.assertFalse(OperationLedger.objects.exists())
+
+    def test_create_rejects_template_id_entries(self):
+        """entries 携带 template_id（旧可视化模板引用）显式拒绝。"""
+        payload = ledger_payload([
+            dict(entry_payload(self.system.id, [item_payload()]), template_id=123),
+        ])
+        resp = post_json(self.client_, LEDGER_URL + '/', payload)
+        self.assertTrue(resp.json().get('error'))
+        self.assertIn('已下线', resp.json()['error'])
+        self.assertFalse(OperationLedger.objects.exists())
+
+    def test_manual_ledger_still_creatable(self):
+        """手工补录路线保持可用（同一入口，manual 来源）。"""
+        ledger = create_ledger_ok(self.client_, ledger_payload(
+            [entry_payload(self.system.id, [item_payload()])],
+            created_from='manual'))
+        record = OperationLedger.objects.get(pk=ledger['id'])
+        self.assertEqual(record.created_from, 'manual')
+        self.assertEqual(record.items.count(), 1)

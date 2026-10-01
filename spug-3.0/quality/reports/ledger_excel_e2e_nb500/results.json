@@ -1,0 +1,212 @@
+[
+ {
+  "step": "0",
+  "name": "认证与列表连通（GET /excel-templates/）",
+  "status": "PASS",
+  "detail": "现有模板数=1"
+ },
+ {
+  "step": "1",
+  "name": "上传 NB500.xlsx 创建模板",
+  "status": "PASS",
+  "detail": "template_id=10 hash=ba3b59a3245da42e"
+ },
+ {
+  "step": "1a",
+  "name": "上传登记哈希 == 原始文件 SHA-256",
+  "status": "PASS",
+  "detail": "ba3b59a3245da42e vs ba3b59a3245da42e"
+ },
+ {
+  "step": "2",
+  "name": "解析预览：布局 meta 完整（详情接口）",
+  "status": "PASS",
+  "detail": "全部通过"
+ },
+ {
+  "step": "2a",
+  "name": "解析预览：A1:F19 标题值正确",
+  "status": "PASS",
+  "detail": "A1='NDB-500无方向信标周、月维护记录表'"
+ },
+ {
+  "step": "3",
+  "name": "单字段绑定（C3 数值型）",
+  "status": "PASS",
+  "detail": "draft.field_bindings=1"
+ },
+ {
+  "step": "3a",
+  "name": "负向：有内容的表头格拒绝绑定",
+  "status": "PASS",
+  "detail": "单元格 A2 已有内容（标题/表头等），不能绑定为填写字段"
+ },
+ {
+  "step": "3b",
+  "name": "负向：合并区非锚点格拒绝（F19∈E19:F19）",
+  "status": "PASS",
+  "detail": "第1个字段 位于合并区域 E19:F19，只能绑定左上角单元格 E19"
+ },
+ {
+  "step": "4",
+  "name": "批量绑定清单生成",
+  "status": "PASS",
+  "detail": "字段数=42"
+ },
+ {
+  "step": "4a",
+  "name": "负向：批量内重复单元格拒绝",
+  "status": "PASS",
+  "detail": "单元格 C3 已绑定字段（一个单元格最多绑定一个字段）"
+ },
+ {
+  "step": "4b",
+  "name": "批量绑定 42 字段整体落库",
+  "status": "PASS",
+  "detail": "落库=42"
+ },
+ {
+  "step": "5",
+  "name": "草稿保存（绑定+布局+PDF参数随草稿持久化）",
+  "status": "PASS",
+  "detail": "字段=42, pdf_params键=['margins', 'orientation', 'page_order', 'paper_size', 'repeat_header_rows', 'row_breaks', 'scale_mode', 'scale_percent']"
+ },
+ {
+  "step": "6",
+  "name": "重新打开：详情完整恢复绑定工作区",
+  "status": "PASS",
+  "detail": "draft_updated_at=2026-09-30 16:35:01"
+ },
+ {
+  "step": "7",
+  "name": "PDF 参数保存（A4/纵向/fit_width/重复表头行2:2）",
+  "status": "PASS",
+  "detail": "{\"paper_size\": \"A4\", \"orientation\": \"portrait\", \"margins\": {\"top\": 1.91, \"bottom\": 1.91, \"left\": 1.78, \"right\": 1.78, \"header\": 0.76, \"footer\": 0.76}, \"scale_mo"
+ },
+ {
+  "step": "7a",
+  "name": "负向：分页行越界（>19）拒绝",
+  "status": "PASS",
+  "detail": "手动分页行 25 超出工作表行数（19 行）"
+ },
+ {
+  "step": "7b",
+  "name": "负向：未知纸张规格拒绝",
+  "status": "PASS",
+  "detail": "纸张大小必须是：A4、A3、A5、B4、B5、letter、legal"
+ },
+ {
+  "step": "7c",
+  "name": "草稿 PDF 预览（未填写留空）",
+  "status": "PASS",
+  "detail": "bytes=51654"
+ },
+ {
+  "step": "8",
+  "name": "发布不可变版本 v1",
+  "status": "PASS",
+  "detail": "version_id=7 field_count=42 hash=ba3b59a3245da42e"
+ },
+ {
+  "step": "8a",
+  "name": "版本快照哈希 == 原始文件",
+  "status": "PASS",
+  "detail": ""
+ },
+ {
+  "step": "8b",
+  "name": "版本详情含 42 绑定与 PDF 参数快照",
+  "status": "FAIL",
+  "detail": "bindings=0 pdf_params=True"
+ },
+ {
+  "step": "8c",
+  "name": "负向：版本快照只读（PUT=405）",
+  "status": "PASS",
+  "detail": "HTTP 405"
+ },
+ {
+  "step": "9a",
+  "name": "负向：季维护请求×周月模板拒绝",
+  "status": "PASS",
+  "detail": "模板「NB500无方向信标周月维护记录表（E2E验收）」为周月维护模板，与所选台账类型不一致"
+ },
+ {
+  "step": "9",
+  "name": "创建台账（created_from=excel_template）",
+  "status": "PASS",
+  "detail": "id=29 no=EL-WM-20260930-0001"
+ },
+ {
+  "step": "9b",
+  "name": "台账编号/类型/状态",
+  "status": "PASS",
+  "detail": "no=EL-WM-20260930-0001 status=draft"
+ },
+ {
+  "step": "9c",
+  "name": "同 client_token 防重复创建",
+  "status": "PASS",
+  "detail": "id=29"
+ },
+ {
+  "step": "9d",
+  "name": "可用模板列表返回 NB500 模板",
+  "status": "PASS",
+  "detail": "['信道维护台账（Excel上传试点）', 'NB500无方向信标周月维护记录表（E2E验收）']"
+ },
+ {
+  "step": "9e",
+  "name": "保存填写值（42 字段）",
+  "status": "PASS",
+  "detail": "落值=42"
+ },
+ {
+  "step": "9f",
+  "name": "重新打开台账：填写值完整回放",
+  "status": "PASS",
+  "detail": "日期='2026-09-30' 签字='NB500验收员' C3=3.2"
+ },
+ {
+  "step": "9g",
+  "name": "负向：未绑定字段值拒绝",
+  "status": "PASS",
+  "detail": "填写值包含未绑定的字段，已拒绝"
+ },
+ {
+  "step": "9h",
+  "name": "提交台账（draft→submitted）",
+  "status": "PASS",
+  "detail": "status=submitted"
+ },
+ {
+  "step": "9i",
+  "name": "导出前版式预检 export/check",
+  "status": "PASS",
+  "detail": "warnings=['工作表「Sheet2」没有可打印内容，可能产生空白页', '工作表「Sheet3」没有可打印内容，可能产生空白页']"
+ },
+ {
+  "step": "10",
+  "name": "Excel 导出（xlsx 二进制）",
+  "status": "PASS",
+  "detail": "HTTP 200 bytes=8223"
+ },
+ {
+  "step": "11",
+  "name": "PDF 导出（LibreOffice 转换）",
+  "status": "PASS",
+  "detail": "HTTP 200 bytes=55645"
+ },
+ {
+  "step": "11a",
+  "name": "Excel 台账列表可见（专用列表）",
+  "status": "PASS",
+  "detail": "total=2"
+ },
+ {
+  "step": "11b",
+  "name": "正式明细台账列表不混入 Excel 台账",
+  "status": "PASS",
+  "detail": ""
+ }
+]

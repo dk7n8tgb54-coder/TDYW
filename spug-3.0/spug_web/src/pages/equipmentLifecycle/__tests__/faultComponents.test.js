@@ -6,7 +6,7 @@
  * - 详情不再提供"受影响系统"页签
  * - 处理进展时间线按时间展示，进展类型可见，更正留痕可见
  * - 添加处理进展：时间默认当前时间、进展类型/处理结果选填、真实提交载荷
- * - 处理进展与关联工单页签区分
+ * - 处理进展页签（关联工单页签已随工单功能删除）
  * - 系统详情故障页签只展示本系统故障（不区分主体/受影响角色）
  * - 不使用旧 fault 页面/接口（所有请求只指向 equipment-lifecycle 前缀）
  */
@@ -66,14 +66,12 @@ const FAULT_DETAIL = {
   system_location: '机房A',
   impact_status: 'fault', impact_status_text: '故障',
   status: 'handling', status_text: '处置中',
-  occurred_at: '2026-09-18 08:30', discovery: 'patrol', discovery_text: '巡检发现',
-  level: 'major', level_text: '严重', phenomenon: '主用链路频繁丢包',
-  impact_scope: '话音业务', fault_location: '机房A 01柜',
+  occurred_at: '2026-09-18 08:30', phenomenon: '主用链路频繁丢包',
   fault_object_name: '接入交换机01', fault_object_model: 'H3C-5120', fault_object_sn: '',
   fault_component_name: '接入交换机',
   reason_analysis: '', recovered_at: null, recover_confirm: '',
-  recovered_by: null, recovered_by_name: '', recovered_confirmed_at: null,
-  final_result: '', handler: 2, handler_name: 'operator',
+  recovered_by_name: '', recovered_confirmed_at: null,
+  final_result: '',
   registrar_name: '登记员甲',
   created_by_name: 'admin', created_at: '2026-09-18 08:40',
 };
@@ -136,17 +134,22 @@ describe('故障详情抽屉（单系统简化）', () => {
     expect(text).not.toContain('SYS-A1');
     expect(text).toContain('机房A');
     expect(text).toContain('主用链路频繁丢包');
-    expect(text).toContain('巡检发现');
     // 故障登记人独立展示（不代表负责整个故障）
     expect(text).toContain('故障登记人');
     expect(text).toContain('登记员甲');
+    // 已退役字段不再出现在详情（处置负责人/发现方式/级别/影响范围/故障位置）
+    ['处置负责人', '发现方式', '级别', '影响范围', '故障位置'].forEach(label => {
+      expect(text).not.toContain(label);
+    });
   });
 
   it('不再提供"受影响系统"页签', async () => {
     await renderDetail('handling');
     const tabs = tabTexts();
     expect(tabs.some(t => t.includes('受影响系统'))).toBe(false);
-    expect(tabs).toEqual(expect.arrayContaining(['基本信息', '处理进展', '关联工单']));
+    expect(tabs).toEqual(expect.arrayContaining(['基本信息', '处理进展']));
+    // 关联工单页签已随工单功能删除（2026-09-30）
+    expect(tabs.some(t => t.includes('关联工单'))).toBe(false);
   });
 
   it('状态按钮随当前状态切换：处置中显示确认恢复与作废', async () => {
@@ -191,9 +194,8 @@ describe('故障详情抽屉（单系统简化）', () => {
     expect(text).toContain('更正');
     // 添加处理进展入口可见
     expect(text).toContain('添加处理进展');
-    // 页签说明区分"处理进展"与"关联工单"
-    expect(text).toContain('关联工单');
-    expect(text).toContain('可选');
+    // 页签说明明确无需再生成维修工单（工单功能已删除）
+    expect(text).toContain('无需再另行生成维修工单');
   });
 
   it('所有请求只指向 equipment-lifecycle 前缀（不使用旧 fault 接口）', async () => {
@@ -312,8 +314,7 @@ describe('故障影响系统运行开关（运行状态与部件维修分离）'
     // 编辑模式：mock 详情回填请求（http 拦截器解包后 resolve 详情本体）
     mockHttpGet.mockResolvedValue(
       detail || {id: 11, system: 7, affects_system_operation: false, impact_status: '',
-        occurred_at: '2026-09-18 08:30', discovery: 'patrol', level: 'major',
-        phenomenon: '板卡告警'});
+        occurred_at: '2026-09-18 08:30', phenomenon: '板卡告警'});
     ReactDOM.unmountComponentAtNode(container);
     await act(async () => {
       ReactDOM.render(<FaultForm/>, container);
@@ -345,8 +346,7 @@ describe('故障影响系统运行开关（运行状态与部件维修分离）'
 
   it('编辑部件故障（不影响运行）回显开关关闭', async () => {
     await renderForm({id: 11}, {id: 11, system: 7, affects_system_operation: false,
-      impact_status: '', occurred_at: '2026-09-18 08:30', discovery: 'patrol',
-      level: 'major', phenomenon: '板卡告警'});
+      impact_status: '', occurred_at: '2026-09-18 08:30', phenomenon: '板卡告警'});
     await act(async () => {await flush();});
     const sw = switchNode();
     expect(sw).toBeTruthy();
@@ -356,8 +356,7 @@ describe('故障影响系统运行开关（运行状态与部件维修分离）'
 
   it('编辑影响运行的故障回显开关开启与影响程度', async () => {
     await renderForm({id: 12}, {id: 12, system: 7, affects_system_operation: true,
-      impact_status: 'interrupted', occurred_at: '2026-09-18 08:30', discovery: 'patrol',
-      level: 'critical', phenomenon: '链路中断'});
+      impact_status: 'interrupted', occurred_at: '2026-09-18 08:30', phenomenon: '链路中断'});
     await act(async () => {await flush();});
     const sw = switchNode();
     expect(sw).toBeTruthy();
@@ -366,13 +365,11 @@ describe('故障影响系统运行开关（运行状态与部件维修分离）'
   });
 });
 
-describe('故障首报表单精简（2026-09）', () => {
-  // 编辑模式回填用的历史故障详情：携带发现方式/级别与旧设备字段
+describe('故障首报表单精简（2026-09，字段退役后口径）', () => {
+  // 编辑模式回填用的历史故障详情：已退役字段不再由后端返回
   const EDIT_DETAIL = {
     id: 11, system: 7, affects_system_operation: true, impact_status: 'fault',
-    occurred_at: '2026-09-18 08:30', discovery: 'patrol', discovery_text: '巡检发现',
-    level: 'major', level_text: '严重', phenomenon: '主用链路频繁丢包',
-    impact_scope: '话音业务', fault_location: '机房A 01柜',
+    occurred_at: '2026-09-18 08:30', phenomenon: '主用链路频繁丢包',
     fault_object_name: '接入交换机01', fault_object_model: 'H3C-5120',
     fault_object_sn: 'SN001', reason_analysis: '',
   };
@@ -402,6 +399,18 @@ describe('故障首报表单精简（2026-09）', () => {
     });
   });
 
+  it('字段顺序：故障部位/设备位于故障发生时间与故障现象之间（新增与编辑一致）', async () => {
+    await renderForm({});
+    let text = bodyText();
+    expect(text.indexOf('故障发生时间')).toBeGreaterThan(-1);
+    expect(text.indexOf('故障发生时间')).toBeLessThan(text.indexOf('故障部位/设备'));
+    expect(text.indexOf('故障部位/设备')).toBeLessThan(text.indexOf('故障现象'));
+    await renderForm({id: 11}, EDIT_DETAIL);
+    text = bodyText();
+    expect(text.indexOf('故障发生时间')).toBeLessThan(text.indexOf('故障部位/设备'));
+    expect(text.indexOf('故障部位/设备')).toBeLessThan(text.indexOf('故障现象'));
+  });
+
   it('编辑表单保留原因分析入口（处置阶段填写），历史字段同样不回进表单', async () => {
     await renderForm({id: 11}, EDIT_DETAIL);
     const text = bodyText();
@@ -410,7 +419,7 @@ describe('故障首报表单精简（2026-09）', () => {
     expect(text).not.toContain('故障级别');
   });
 
-  it('编辑提交载荷不携带 discovery/level 与历史设备字段（由后端保留原值）', async () => {
+  it('编辑提交载荷不携带已退役字段与历史设备字段（由后端保留原值）', async () => {
     await renderForm({id: 11}, EDIT_DETAIL);
     mockHttpPut.mockResolvedValue({});
     const okButton = Array.from(document.querySelectorAll('.ant-modal-footer button'))
@@ -445,6 +454,17 @@ describe('故障详情影响状态展示（运行状态与部件维修分离）'
     await renderDetail('handling', {affects_system_operation: false, impact_status: ''});
     text = bodyText();
     expect(text).toContain('不影响运行');
+  });
+});
+
+describe('故障详情字段顺序', () => {
+  it('故障部位/设备位于发生时间之后、故障现象之前（与新增/编辑表单顺序一致）', async () => {
+    await renderDetail('handling');
+    const text = bodyText();
+    const atObject = text.indexOf('故障部位/设备');
+    expect(atObject).toBeGreaterThan(-1);
+    expect(text.indexOf('发生时间')).toBeLessThan(atObject);
+    expect(atObject).toBeLessThan(text.indexOf('故障现象'));
   });
 });
 
@@ -761,5 +781,40 @@ describe('故障登记人与进展记录人（手动输入姓名，可多个）'
     expect(text).toContain('更早历史进展（无任何人员）');
     // 详情：历史故障无登记人显示"-"
     expect(text).toContain('故障登记人');
+  });
+});
+
+describe('恢复确认弹窗（恢复确认人手动输入，参考故障登记人）', () => {
+  async function openRecoverModal() {
+    await renderDetail('handling');
+    const recoverButton = Array.from(document.querySelectorAll('button'))
+      .find(b => b.textContent.replace(/\s+/g, '') === '确认恢复');
+    expect(recoverButton).toBeTruthy();
+    await act(async () => {
+      recoverButton.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    });
+    await act(async () => {await flush();});
+  }
+
+  it('恢复确认人必填手输：不预填登录账号，多人顿号拼接提交', async () => {
+    await openRecoverModal();
+    const text = modalText();
+    expect(text).toContain('恢复确认人');
+    expect(text).toContain('输入姓名后回车确认');
+    expect(selectionTags('恢复确认人')).toEqual([]);
+    // 未填确认人提交：required 校验拦截，不发请求
+    await setTextareaValue('恢复确认信息', '业务验证已恢复');
+    await submitModal('post');
+    expect(mockHttpPost).toHaveBeenCalledTimes(0);
+    // 手输姓名（可多个）后真实提交
+    await typeAndEnter('恢复确认人', '确认人甲');
+    await typeAndEnter('恢复确认人', '确认人乙');
+    await submitModal('post');
+    expect(mockHttpPost).toHaveBeenCalledTimes(1);
+    const [url, payload] = mockHttpPost.mock.calls[0];
+    expect(url).toBe('/api/equipment-lifecycle/faults/11/recover/');
+    expect(payload.recovered_by_name).toBe('确认人甲、确认人乙');
+    expect(payload.recover_confirm).toBe('业务验证已恢复');
+    expect(payload.recovered_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   });
 });

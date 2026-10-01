@@ -6,7 +6,7 @@
   与普通用户直接调用接口均被拒绝（后端独立校验，不依赖前端按钮）；
 - 仅允许 submitted → returned：草稿/已退回/已作废一律拒绝；退回原因必填；
 - 退回留痕（退回人/退回时间/退回原因）真实落库；原有巡检记录、值班人员、
-  uniq_key 唯一占用与历史故障/工单来源关系（source_inspection_record）
+  uniq_key 唯一占用与历史故障来源关系（source_inspection_record）
   原样保留，不被删除或破坏；
 - 已退回单可编辑：已记录轮次允许重改（recorded_rounds 不拦截整改）、
   值班人员可补改，version 乐观锁仍然生效；
@@ -22,12 +22,11 @@ from django.db import transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.equipment_lifecycle import fault_services, work_order_services
+from apps.equipment_lifecycle import fault_services
 from apps.equipment_lifecycle.models import (
     InspectionDutySheet,
     InspectionRecord,
     SystemFault,
-    SystemWorkOrder,
     INSPECTION_SHEET_SUBMITTED,
 )
 from apps.equipment_lifecycle.tests.base import make_client, make_system, make_user
@@ -217,7 +216,7 @@ class ReturnDataPreservationTest(InspectionReturnTestBase):
         self.assertEqual(sheet.uniq_key, uniq_key_before)
 
     def _make_historical_relations(self):
-        """走正式服务构造历史"巡检异常转故障/转工单"来源关系。"""
+        """走正式服务构造历史"巡检异常转故障"来源关系。"""
         record = InspectionRecord.objects.get(pk=self.abnormal_record_id)
         with fault_services.health_recalc_lock():
             with transaction.atomic():
@@ -225,32 +224,20 @@ class ReturnDataPreservationTest(InspectionReturnTestBase):
                     tenant_id='tenant_a', created_by=self.admin,
                     system=self.system, impact_status='',
                     occurred_at=timezone.now(),
-                    discovery=SystemFault.DISCOVERY_PATROL,
-                    level=SystemFault.LEVEL_MINOR,
                     phenomenon='巡检异常转入的故障',
                     source_type='inspection_record',
                     source_inspection_record=record)
-                order = work_order_services.create_work_order_record(
-                    tenant_id='tenant_a', created_by=self.admin,
-                    title='巡检异常维修', work_type=SystemWorkOrder.TYPE_REPAIR,
-                    system=self.system,
-                    source_type='inspection_record',
-                    source_inspection_record=record,
-                    source_no=self.sheet.sheet_no)
-        return fault, order
+        return fault
 
-    def test_return_preserves_fault_and_work_order_relations(self):
-        """退回后来源关系外键不变，详情处置状态仍为已转故障/已转工单。"""
+    def test_return_preserves_fault_relations(self):
+        """退回后来源关系外键不变，详情处置状态仍为已转故障。"""
         self.system = make_system(
             self.admin, tenant_id='tenant_a',
             system_code='SYS-RET', name='退回目标系统', install_location='机房R')
-        fault, order = self._make_historical_relations()
+        fault = self._make_historical_relations()
         self.return_sheet()
         self.assertEqual(
             SystemFault.objects.get(pk=fault.id).source_inspection_record_id,
-            self.abnormal_record_id)
-        self.assertEqual(
-            SystemWorkOrder.objects.get(pk=order.id).source_inspection_record_id,
             self.abnormal_record_id)
         detail = get_sheet_detail(self.sa_client, self.sheet_id)
         disposition = next(
@@ -258,7 +245,6 @@ class ReturnDataPreservationTest(InspectionReturnTestBase):
             if r['id'] == self.abnormal_record_id)
         self.assertEqual(disposition['status'], 'converted_fault')
         self.assertEqual(disposition['fault']['id'], fault.id)
-        self.assertEqual(disposition['work_order']['id'], order.id)
 
 
 class ReturnedSheetEditAndResubmitTest(InspectionReturnTestBase):

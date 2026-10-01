@@ -60,7 +60,7 @@ async function click(node) {
 }
 
 const SUMMARY_PAYLOAD = {
-  summary: {normal: 5, degraded: 2, fault: 1, repairing: 1, interrupted: 0, unknown: 0},
+  summary: {normal: 5, degraded: 2, fault: 1, interrupted: 1, unknown: 0},
   total: 9, active_total: 8, inactive_total: 1,
 };
 
@@ -89,7 +89,8 @@ describe('当前运行状态页面', () => {
     expect(text).toContain('正常');
     expect(text).toContain('降级');
     expect(text).toContain('故障');
-    expect(text).toContain('维修中');
+    // 维修中已随工单功能删除（2026-09-30），汇总不再出现该状态
+    expect(text).not.toContain('维修中');
     expect(text).toContain('中断');
     expect(text).toContain('未知');
     expect(text).toContain('系统总数（可用 8 / 停用 1）');

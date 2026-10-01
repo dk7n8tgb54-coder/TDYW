@@ -5,8 +5,10 @@
 /**
  * 设备全生命周期——运行维护台账状态管理（步骤 3.2，MobX legacy decorators）。
  *
- * - LedgerStore 按 ledger_type 参数化，三类台账页面共用同一实现；
- * - TemplateStore 为模板管理页的独立 Store；
+ * - LedgerStore 按 ledger_type 参数化，两类台账页面共用同一实现；
+ *   统一列表同时返回 Excel 模板台账与手工补录台账，Excel 详情由
+ *   ExcelLedgerStore（excel/excelLedgerStore.js）独立承载；
+ * - 旧可视化模板 TemplateStore 已随旧可视化模板路线删除（2026-10）；
  * - 错误提示统一由 http 拦截器弹出，业务代码不重复提示。
  */
 import {observable, action} from 'mobx';
@@ -26,10 +28,6 @@ export class LedgerStore {
   @observable f_status = undefined;
   @observable f_date_from = undefined;
   @observable f_date_to = undefined;
-
-  @observable formVisible = false;
-  @observable record = {};      // 编辑中的台账（草稿回填）
-  @observable isSubmitting = false;
 
   @observable detailVisible = false;
   @observable detail = {};
@@ -65,11 +63,6 @@ export class LedgerStore {
       }));
   };
 
-  showForm = action((record = {}) => {
-    this.record = record;
-    this.formVisible = true;
-  });
-
   submitLedger = (id) => {
     return http.post(`${API_PREFIX_L}/ledgers/${id}/submit/`, {})
       .then(action(() => {
@@ -103,48 +96,6 @@ export class LedgerStore {
   });
 }
 
-export class TemplateStore {
-  @observable records = [];
-  @observable isFetching = false;
-  @observable formVisible = false;
-  @observable record = {};
-  @observable isSubmitting = false;
-
-  f_ledger_type = undefined;
-  f_keyword = undefined;
-
-  @action setFilter = (key, value) => {
-    this[key] = value;
-  };
-
-  fetchRecords = () => {
-    this.isFetching = true;
-    const params = {};
-    if (this.f_ledger_type) params.ledger_type = this.f_ledger_type;
-    if (this.f_keyword) params.keyword = this.f_keyword;
-    return http.get(`${API_PREFIX_L}/ledger-templates/`, {params})
-      .then(action(res => {
-        this.records = res.data;
-      }))
-      .catch(action(() => {}))
-      .finally(action(() => {
-        this.isFetching = false;
-      }));
-  };
-
-  showForm = action((record = {}) => {
-    this.record = record;
-    this.formVisible = true;
-  });
-
-  toggleActive = (record, is_active) => {
-    return http.put(`${API_PREFIX_L}/ledger-templates/${record.id}/active/`, {is_active})
-      .then(action(() => {
-        this.fetchRecords();
-      }));
-  };
-}
-
 const ledgerStoreCache = {};
 
 export function getLedgerStore(ledgerType) {
@@ -153,5 +104,3 @@ export function getLedgerStore(ledgerType) {
   }
   return ledgerStoreCache[ledgerType];
 }
-
-export const templateStore = new TemplateStore();

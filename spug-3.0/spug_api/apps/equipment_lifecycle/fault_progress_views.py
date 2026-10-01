@@ -120,6 +120,8 @@ class FaultHandlingRecordView(View):
                      help='进展类型（选填：check/self_fix/to_vendor/vendor_feedback/'
                           'return/test/watch/other，缺省未选择）'),
             Argument('result', type=str, required=False, default=''),
+            Argument('work_hours', type=float, required=False, default=None,
+                     help='本次工时（小时，选填）'),
             Argument('recorder_name', type=str, required=False, default=None,
                      help='进展记录人姓名（手动输入，实际添加本条进展的人，'
                           '缺省当前登录用户显示姓名）'),
@@ -137,6 +139,8 @@ class FaultHandlingRecordView(View):
         progress_type = _validate_progress_type(form.progress_type)
         if progress_type is None:
             return json_response(error='进展类型不合法')
+        if form.work_hours is not None and form.work_hours < 0:
+            return json_response(error='工时不能为负数')
         # 记录人手动输入必填（不默认当前登录用户）
         recorder_name = (form.recorder_name or '').strip()[:200]
         if not recorder_name:
@@ -157,6 +161,7 @@ class FaultHandlingRecordView(View):
                     progress_type=progress_type,
                     content=content[:2000],
                     result=(form.result or '').strip()[:200],
+                    work_hours=form.work_hours,
                 )
                 record_audit_event(request, 'create', AUDIT_TARGET_FAULT, fault.id,
                                    fault.fault_no,
@@ -180,6 +185,8 @@ class FaultHandlingRecordDetailView(View):
             Argument('progress_type', type=str, required=False, default=None,
                      help='进展类型；未提交时保留原值'),
             Argument('result', type=str, required=False, default=''),
+            Argument('work_hours', type=float, required=False, default=None,
+                     help='本次工时（小时）；未提交时保留原值'),
             Argument('recorder_name', type=str, required=False, default=None,
                      help='进展记录人姓名（手动输入）；未提交时保留原值'),
             Argument('correction_reason', type=str, required=True, help='更正原因'),
@@ -219,6 +226,10 @@ class FaultHandlingRecordDetailView(View):
                 if recorder_name is not None:
                     record.recorder_name = recorder_name
                 record.result = (form.result or '').strip()[:200]
+                if form.work_hours is not None:
+                    if form.work_hours < 0:
+                        return json_response(error='工时不能为负数')
+                    record.work_hours = form.work_hours
                 if handled_at:
                     record.handled_at = handled_at
                 record.corrections = json.dumps(corrections, ensure_ascii=False)

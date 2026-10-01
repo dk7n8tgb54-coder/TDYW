@@ -14,8 +14,8 @@ from django.db import transaction
 from django.urls import path
 
 from apps.equipment_lifecycle import (
-    event_views, fault_progress_views, fault_views, inspection_views, ledger_row_views,
-    ledger_views, views, work_order_views,
+    event_views, excel_ledger_views, excel_template_views, fault_progress_views,
+    fault_views, inspection_views, ledger_views, views,
 )
 from apps.upgrade.views.system_records import SystemUpgradeRecordsView
 
@@ -49,28 +49,34 @@ urlpatterns = [
     path('faults/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/download/', fault_progress_views.FaultHandlingAttachmentDownloadView.as_view()),
     path('faults/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/', _na(fault_progress_views.FaultHandlingAttachmentDetailView.as_view())),
     # ==================== 运维台账（步骤 3.2） ====================
-    # 台账模板
-    path('ledger-templates/', ledger_views.LedgerTemplateView.as_view()),
-    path('ledger-templates/available/', ledger_views.LedgerTemplateAvailableView.as_view()),
-    path('ledger-templates/<int:pk>/', ledger_views.LedgerTemplateDetailView.as_view()),
-    path('ledger-templates/<int:pk>/active/', ledger_views.LedgerTemplateActiveView.as_view()),
-    path('ledger-templates/<int:pk>/items/', ledger_views.LedgerTemplateItemView.as_view()),
-    path('ledger-templates/<int:pk>/items/<int:iid>/', ledger_views.LedgerTemplateItemDetailView.as_view()),
-    # 台账模板行节点（第一阶段行对象树：行方向多级，列方向保持平面）
-    path('ledger-templates/<int:pk>/row-nodes/', ledger_row_views.LedgerTemplateRowNodesView.as_view()),
-    path('ledger-templates/<int:pk>/row-nodes/sort/', ledger_row_views.LedgerTemplateRowNodeSortView.as_view()),
-    path('ledger-templates/<int:pk>/row-nodes/<int:nid>/', ledger_row_views.LedgerTemplateRowNodeDetailView.as_view()),
-    path('ledger-templates/<int:pk>/row-nodes/<int:nid>/active/', ledger_row_views.LedgerTemplateRowNodeActiveView.as_view()),
+    # 旧可视化台账模板 / 行节点 / 行实例 / 单元格接口已随旧可视化模板路线
+    # 整体删除（2026-10，迁移 0045 清理数据与表）；正式新增台账统一走
+    # Excel/WPS 模板路线（excel-templates / excel-ledgers）。
+    # Excel 上传版维护台账模板（2026-09-28 试点：固定版式 .xlsx 草稿 + 不可变发布版本；
+    # 台账创建走 excel-ledgers）
+    path('excel-templates/available/', excel_template_views.ExcelTemplateAvailableView.as_view()),
+    path('excel-templates/sample/', excel_template_views.ExcelTemplateSampleView.as_view()),
+    path('excel-templates/', excel_template_views.ExcelTemplateView.as_view()),
+    path('excel-templates/<int:pk>/', excel_template_views.ExcelTemplateDetailView.as_view()),
+    path('excel-templates/<int:pk>/draft-file/', excel_template_views.ExcelTemplateDraftFileView.as_view()),
+    path('excel-templates/<int:pk>/bindings/', excel_template_views.ExcelTemplateBindingsView.as_view()),
+    path('excel-templates/<int:pk>/pdf-params/', excel_template_views.ExcelTemplatePdfParamsView.as_view()),
+    path('excel-templates/<int:pk>/publish/', excel_template_views.ExcelTemplatePublishView.as_view()),
+    path('excel-templates/<int:pk>/versions/', excel_template_views.ExcelTemplateVersionListView.as_view()),
+    path('excel-templates/<int:pk>/versions/<int:version_no>/', excel_template_views.ExcelTemplateVersionDetailView.as_view()),
+    path('excel-templates/<int:pk>/preview/pdf/', excel_template_views.ExcelTemplatePdfPreviewView.as_view()),
+    # Excel 路线维护台账（created_from=excel_template；复核/退回/作废沿用既有 ledgers 端点）
+    path('excel-ledgers/', excel_ledger_views.ExcelLedgerView.as_view()),
+    path('excel-ledgers/<int:pk>/', excel_ledger_views.ExcelLedgerDetailView.as_view()),
+    path('excel-ledgers/<int:pk>/submit/', excel_ledger_views.ExcelLedgerSubmitView.as_view()),
+    path('excel-ledgers/<int:pk>/export/check/', excel_ledger_views.ExcelLedgerExportCheckView.as_view()),
+    path('excel-ledgers/<int:pk>/export/excel/', excel_ledger_views.ExcelLedgerExportView.as_view(), {'fmt': 'excel'}),
+    path('excel-ledgers/<int:pk>/export/pdf/', excel_ledger_views.ExcelLedgerExportView.as_view(), {'fmt': 'pdf'}),
     # 台账
     path('ledgers/', ledger_views.LedgerView.as_view()),
-    path('ledgers/preview/', ledger_views.LedgerPreviewView.as_view()),
     path('ledgers/abnormal-items/', ledger_views.LedgerAbnormalItemsView.as_view()),
     path('ledgers/export/', ledger_views.LedgerExportView.as_view()),
     path('ledgers/<int:pk>/', ledger_views.LedgerDetailView.as_view()),
-    # 矩阵台账行实例与单元格（第一阶段）
-    path('ledgers/<int:pk>/row-instances/', ledger_row_views.LedgerRowInstanceView.as_view()),
-    path('ledgers/<int:pk>/row-instances/<int:iid>/', ledger_row_views.LedgerRowInstanceDetailView.as_view()),
-    path('ledgers/<int:pk>/cells/', ledger_row_views.LedgerCellsView.as_view()),
     path('ledgers/<int:pk>/submit/', ledger_views.LedgerSubmitView.as_view()),
     path('ledgers/<int:pk>/return/', ledger_views.LedgerReturnView.as_view()),
     path('ledgers/<int:pk>/review/', ledger_views.LedgerReviewView.as_view()),
@@ -87,30 +93,12 @@ urlpatterns = [
     path('ledgers/<int:pk>/items/<int:item_pk>/attachments/<int:aid>/', ledger_views.LedgerItemAttachmentDetailView.as_view()),
     # 按系统查询台账明细（系统详情页台账 Tab）
     path('systems/<int:pk>/ledger-items/', ledger_views.SystemLedgerItemsView.as_view()),
-    # ==================== 工单管理与异常转单（步骤 3.3） ====================
-    # 工单
-    path('work-orders/', _na(work_order_views.WorkOrderView.as_view())),
-    path('work-orders/export/', work_order_views.WorkOrderExportView.as_view()),
-    path('work-orders/candidate-systems/', work_order_views.WorkOrderCandidateSystemsView.as_view()),
-    path('work-orders/candidate-users/', work_order_views.WorkOrderCandidateUsersView.as_view()),
-    path('work-orders/<int:pk>/', _na(work_order_views.WorkOrderDetailView.as_view())),
-    # 完成工单（单账号协同流程：执行中 → 已完成，无派发/接单/复核环节，
-    # 旧 dispatch/accept/start/submit-review/review-* 路由已删除）
-    path('work-orders/<int:pk>/complete/', _na(work_order_views.WorkOrderCompleteView.as_view())),
-    path('work-orders/<int:pk>/close/', _na(work_order_views.WorkOrderCloseView.as_view())),
-    path('work-orders/<int:pk>/cancel/', _na(work_order_views.WorkOrderCancelView.as_view())),
-    path('work-orders/<int:pk>/handling-records/', _na(work_order_views.WorkOrderHandlingRecordView.as_view())),
-    path('work-orders/<int:pk>/handling-records/<int:rid>/', _na(work_order_views.WorkOrderHandlingRecordDetailView.as_view())),
-    path('work-orders/<int:pk>/handling-records/<int:rid>/attachments/', _na(work_order_views.WorkOrderHandlingAttachmentView.as_view())),
-    path('work-orders/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/download/', work_order_views.WorkOrderHandlingAttachmentDownloadView.as_view()),
-    path('work-orders/<int:pk>/handling-records/<int:rid>/attachments/<int:aid>/', _na(work_order_views.WorkOrderHandlingAttachmentDetailView.as_view())),
-    # 来源与转单
-    path('faults/<int:pk>/work-orders/', work_order_views.FaultWorkOrdersView.as_view()),
-    path('faults/<int:pk>/create-work-order/', _na(work_order_views.FaultCreateWorkOrderView.as_view())),
-    path('ledgers/<int:ledger_pk>/items/<int:item_pk>/convert-to-fault/', _na(work_order_views.LedgerItemConvertToFaultView.as_view())),
-    path('ledgers/<int:ledger_pk>/items/<int:item_pk>/convert-to-work-order/', _na(work_order_views.LedgerItemConvertToWorkOrderView.as_view())),
-    # 按系统查询工单（目标/受影响）
-    path('systems/<int:pk>/work-orders/', work_order_views.SystemWorkOrdersView.as_view()),
+    # 候选人员（本租户有效账户；今日巡检值班人员登记等场景使用。
+    # 原路径 work-orders/candidate-users/ 已随工单功能删除，2026-09-30）
+    path('candidate-users/', views.CandidateUsersView.as_view()),
+    # 台账异常明细转故障（2026-09-30 工单下线，视图自 work_order_views 迁入
+    # fault_views；convert-to-work-order 路由一并删除）
+    path('ledgers/<int:ledger_pk>/items/<int:item_pk>/convert-to-fault/', _na(fault_views.LedgerItemConvertToFaultView.as_view())),
     # 按系统查询升级记录（系统详情"升级记录"页签，视图在 upgrade app）
     path('systems/<int:pk>/upgrade-records/', SystemUpgradeRecordsView.as_view()),
     # ==================== 值班巡检（今日巡检改造，独立巡检模型） ====================
@@ -119,7 +107,7 @@ urlpatterns = [
     path('inspection-templates/available/', inspection_views.InspectionTemplateAvailableView.as_view()),
     path('inspection-templates/<int:pk>/', inspection_views.InspectionTemplateDetailView.as_view()),
     path('inspection-templates/<int:pk>/active/', inspection_views.InspectionTemplateActiveView.as_view()),
-    # 值班巡检单（值班日 + 模板唯一；四轮固定；只记录结果与现场处理，不提供转故障/转工单接口）
+    # 值班巡检单（值班日 + 模板唯一；四轮固定；只记录结果与现场处理，不提供转故障接口）
     path('inspection-sheets/export/', inspection_views.InspectionSheetExportView.as_view()),
     path('inspection-sheets/batch-export/xlsx/', inspection_views.InspectionSheetBatchExportXlsxView.as_view()),
     path('inspection-sheets/batch-export/pdf/', inspection_views.InspectionSheetBatchExportPdfView.as_view()),

@@ -81,10 +81,10 @@ describe('来源跳转 buildSourceHref（跳转后由来源页面重新鉴权）
     expect(constants.buildSourceHref(baseEvent)).toBe('/el/faults?detail=9');
   });
 
-  it('工单来源跳转工单详情深链', () => {
+  it('工单来源已随工单功能删除，无跳转地址', () => {
     const {constants} = freshModule();
     const event = {...baseEvent, source_type: 'work_order'};
-    expect(constants.buildSourceHref(event)).toBe('/el/work-orders?detail=9');
+    expect(constants.buildSourceHref(event)).toBeNull();
   });
 
   it('台账异常来源按台账类型跳转台账详情深链', () => {

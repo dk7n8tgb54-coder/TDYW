@@ -3,7 +3,7 @@
 """值班巡检单导出模块（列表 Excel / 详情 Excel / 详情 PDF / 批量详情导出）。
 
 导出口径（与巡检单详情页一致）：
-- 四个固定轮次（当日 11:00 / 16:00 / 22:00 / 次日 06:30），第四轮归属前一值班日；
+- 四个固定轮次（11:00-11:20 / 16:00-16:20 / 22:00-22:20 / 次日 6:30-6:50），第四轮归属前一值班日；
 - 明细以巡检单已保存数据为准（全量快照），不根据当前时间推断轮次状态；
 - 各轮次完成情况读取 recorded_rounds 最终状态；
 - 不导出明细实际填写时间（created_at/updated_at 仅为系统审计字段，业务上
@@ -66,10 +66,10 @@ LIST_COLUMNS = [
     ('template_name', '巡检模板'),
     ('persons_text', '值班人员'),
     ('status_text', '状态'),
-    ('round_r1', '当日 11:00'),
-    ('round_r2', '当日 16:00'),
-    ('round_r3', '当日 22:00'),
-    ('round_r4', '次日 06:30'),
+    ('round_r1', '11:00-11:20'),
+    ('round_r2', '16:00-16:20'),
+    ('round_r3', '22:00-22:20'),
+    ('round_r4', '6:30-6:50'),
     ('abnormal_count', '异常数量'),
     ('submitted_at', '提交时间'),
     ('submitted_by_name', '提交人'),
@@ -214,8 +214,6 @@ def round_cell_lines(record):
     disposition = record.get('disposition') or {}
     if disposition.get('status') == 'converted_fault' and disposition.get('fault'):
         lines.append(f"已转故障：{disposition['fault'].get('fault_no')}")
-    elif disposition.get('status') == 'converted_work_order' and disposition.get('work_order'):
-        lines.append(f"已转工单：{disposition['work_order'].get('work_no')}")
     elif disposition.get('status') == 'target_cancelled':
         lines.append('转单目标已作废')
     return lines, state

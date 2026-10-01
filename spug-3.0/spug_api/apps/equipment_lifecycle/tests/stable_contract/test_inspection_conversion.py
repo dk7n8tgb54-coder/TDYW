@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
-"""巡检异常处置稳定契约（巡检转故障/转工单功能下线后）。
+"""巡检异常处置稳定契约（巡检转故障功能下线后）。
 
 覆盖行为契约：
-- 巡检单只负责记录巡检结果、异常内容和现场处理；巡检异常转故障/转工单接口
-  与转单目标系统候选端点已下线，请求返回 404 且不产生任何故障/工单记录；
+- 巡检单只负责记录巡检结果、异常内容和现场处理；巡检异常转故障接口
+  与转单目标系统候选端点已下线，请求返回 404 且不产生任何故障记录；
 - 故障统一在故障管理模块创建（正式创建服务真实可用），来源关系由该服务写入；
-- 历史来源数据（已转故障/已转工单）继续由来源关系动态推导、只读展示：
+- 历史来源数据（已转故障）继续由来源关系动态推导、只读展示：
   巡检单详情返回处置状态与目标单据号/ID，未处置明细保持"未处置"；
-- 巡检异常记录（结果/异常说明/现场处理）本身的记录与展示不受影响。
+- 巡检异常记录（结果/异常说明/现场处理）本身的记录与展示不受影响；
+- 转工单链路已随故障维修工单功能整体删除（2026-09-30）。
 
 全部通过真实 HTTP 路径 + 隔离测试数据库执行，验证数据库状态与真实副作用。
 """
@@ -15,11 +16,10 @@ from django.db import transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.equipment_lifecycle import fault_services, work_order_services
+from apps.equipment_lifecycle import fault_services
 from apps.equipment_lifecycle.models import (
     InspectionRecord,
     SystemFault,
-    SystemWorkOrder,
 )
 from apps.equipment_lifecycle.tests.base import make_client, make_system
 from apps.equipment_lifecycle.tests.stable_contract.inspection_base import (
@@ -81,28 +81,13 @@ class InspectionDisposeTestBase(TestCase):
                     system=self.system,
                     impact_status='',
                     occurred_at=timezone.now(),
-                    discovery=SystemFault.DISCOVERY_PATROL,
-                    level=SystemFault.LEVEL_MINOR,
                     phenomenon='历史巡检异常转入的故障',
                     source_type='inspection_record',
                     source_inspection_record=record)
 
-    def make_historical_work_order(self):
-        """构造历史"巡检异常转工单"来源数据（走正式工单创建服务同一代码路径）。"""
-        record = InspectionRecord.objects.get(pk=self.abnormal_record_id)
-        with fault_services.health_recalc_lock():
-            with transaction.atomic():
-                return work_order_services.create_work_order_record(
-                    tenant_id='tenant_a', created_by=self.admin,
-                    title='历史巡检异常维修', work_type=SystemWorkOrder.TYPE_REPAIR,
-                    system=self.system,
-                    source_type='inspection_record',
-                    source_inspection_record=record,
-                    source_no=self.sheet_no)
-
 
 class ConvertEndpointsRemovedTest(InspectionDisposeTestBase):
-    """巡检转故障/转工单接口下线：请求不落任何业务数据。"""
+    """巡检转故障接口下线：请求不落任何业务数据。"""
 
     def test_convert_to_fault_endpoint_removed(self):
         """转故障端点已移除（404），不产生故障记录，明细保持未处置。"""
@@ -112,20 +97,6 @@ class ConvertEndpointsRemovedTest(InspectionDisposeTestBase):
             {'system': self.system.id}, content_type='application/json')
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(SystemFault.objects.count(), 0)
-        self.assertEqual(SystemWorkOrder.objects.count(), 0)
-        disposition = self.sheet_records()[self.abnormal_record_id]['disposition']
-        self.assertEqual(disposition['status'], 'none')
-
-    def test_convert_to_work_order_endpoint_removed(self):
-        """转工单端点已移除（404），不产生工单记录，明细保持未处置。"""
-        resp = self.client.post(
-            f'{INS_URL}/{self.sheet_id}/records/{self.abnormal_record_id}/'
-            f'convert-to-work-order/',
-            {'system': self.system.id, 'client_token': 'tok-gone'},
-            content_type='application/json')
-        self.assertEqual(resp.status_code, 404)
-        self.assertEqual(SystemFault.objects.count(), 0)
-        self.assertEqual(SystemWorkOrder.objects.count(), 0)
         disposition = self.sheet_records()[self.abnormal_record_id]['disposition']
         self.assertEqual(disposition['status'], 'none')
 
@@ -156,14 +127,8 @@ class HistoricalDispositionReadonlyTest(InspectionDisposeTestBase):
         # 正常明细保持未处置
         normal = self.sheet_records()[self.normal_record_id]['disposition']
         self.assertEqual(normal['status'], 'none')
-
-    def test_historical_work_order_disposition_displayed(self):
-        """历史已转工单的明细在详情中显示工单号/ID（已转工单）。"""
-        order = self.make_historical_work_order()
-        disposition = self.sheet_records()[self.abnormal_record_id]['disposition']
-        self.assertEqual(disposition['status'], 'converted_work_order')
-        self.assertEqual(disposition['work_order']['id'], order.id)
-        self.assertEqual(disposition['work_order']['work_no'], order.work_no)
+        # 工单处置槽位已随工单功能删除
+        self.assertNotIn('work_order', disposition)
 
     def test_historical_disposition_is_readonly(self):
         """处置状态为推导结果：来源关系不因详情读取而变化，巡检明细本体不被修改。"""

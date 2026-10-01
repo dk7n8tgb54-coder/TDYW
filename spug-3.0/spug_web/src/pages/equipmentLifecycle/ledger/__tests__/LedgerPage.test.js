@@ -8,8 +8,8 @@
  * - 异常数量红色突出显示
  * - 页面不存在机房现场/离线/二维码/移动端入口
  *
- * 录入表单部分（2026-09 行对象树矩阵改造后）由 MatrixForm.test.js 覆盖
- * （旧 entries 模式表单已退役，旧契约测试随之移除，见 MatrixForm.test.js）。
+ * 旧可视化模板矩阵表单（LedgerForm/MatrixForm）已随旧可视化模板路线整体
+ * 删除（2026-10），正式新增台账统一走 Excel/WPS 模板路线，见 UnifiedLedgerEntry.test.js。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -97,7 +97,6 @@ const LEDGERS_PAYLOAD = {
 };
 
 const entriesModule = require('../entries');
-const ledgerFormModule = require('../LedgerForm');
 const storeModule = require('../store');
 
 describe('三类台账页面', () => {

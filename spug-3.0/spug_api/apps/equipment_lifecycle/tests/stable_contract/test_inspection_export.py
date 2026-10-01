@@ -3,8 +3,8 @@
 
 覆盖行为契约：
 - 列表导出复用列表筛选条件（值班日范围/状态/关键字），导出筛选范围内全部数据；
-- 详情导出内容与详情页一致：固定四轮矩阵（当日 11:00 / 16:00 / 22:00 /
-  次日 06:30，第四轮归属前一值班日）、异常说明、现场处理、转单去向；
+- 详情导出内容与详情页一致：固定四轮矩阵（11:00-11:20 / 16:00-16:20 /
+  22:00-22:20 / 次日 6:30-6:50，第四轮归属前一值班日）、异常说明、现场处理、转单去向；
 - 不导出明细实际填写时间，无迟填/逾期标记；未记录轮次以"未记录"呈现；
 - 独立权限 equipment_lifecycle.inspection.export（后端独立校验）；
 - 跨租户数据、不存在的巡检单不可导出；超量导出返回统一错误；
@@ -44,7 +44,7 @@ P_INS_EXPORT = 'equipment_lifecycle.inspection.export'
 
 INFO_SHEET = '巡查单信息'
 MATRIX_SHEET = '四轮巡检明细'
-ROUND_HEADERS = ['检查项目', '检查内容', '当日 11:00', '当日 16:00', '当日 22:00', '次日 06:30']
+ROUND_HEADERS = ['检查项目', '检查内容', '11:00-11:20', '16:00-16:20', '22:00-22:20', '6:30-6:50']
 
 
 def make_export_user(username, tenant_id='tenant_a', with_export=True):
@@ -136,13 +136,13 @@ class InspectionListExportTest(InspectionExportTestBase):
         self.assertEqual(len(rows), 1)
         row = dict(zip(
             ['值班日', '单号', '巡检模板', '值班人员', '状态',
-             '当日 11:00', '当日 16:00', '当日 22:00', '次日 06:30',
+             '11:00-11:20', '16:00-16:20', '22:00-22:20', '6:30-6:50',
              '异常数量', '提交时间', '提交人', '创建人'], rows[0]))
         self.assertEqual(row['单号'], self.submitted['sheet_no'])
         self.assertEqual(row['巡检模板'], '机房巡检模板')
         self.assertEqual(row['状态'], '已提交')
         self.assertEqual(row['异常数量'], 1)
-        for round_header in ('当日 11:00', '当日 16:00', '当日 22:00', '次日 06:30'):
+        for round_header in ('11:00-11:20', '16:00-16:20', '22:00-22:20', '6:30-6:50'):
             self.assertEqual(row[round_header], '已记录')
 
     def test_list_export_unrecorded_rounds_marked(self):
@@ -220,8 +220,6 @@ class InspectionDetailExcelExportTest(InspectionExportTestBase):
                     tenant_id='tenant_a', created_by=self.admin,
                     system=system, impact_status='',
                     occurred_at=timezone.now(),
-                    discovery=SystemFault.DISCOVERY_PATROL,
-                    level=SystemFault.LEVEL_MINOR,
                     phenomenon='历史巡检异常转入的故障',
                     source_type='inspection_record',
                     source_inspection_record=record)

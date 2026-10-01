@@ -77,7 +77,7 @@ const SHEET_DETAIL = {
     {id: 2, user: null, user_name: '', person_name: '外聘代班（无账号）'},
   ],
   records: [
-    {id: 31, sheet: 5, round_no: 'r1', round_text: '当日 11:00',
+    {id: 31, sheet: 5, round_no: 'r1', round_text: '11:00-11:20',
       template_item: 21, is_temporary: false, client_key: '',
       device_name: '1号收发信机', item_name: '面板指示灯', input_type: 'choice',
       choices: ['正常', '不正常'], is_required: true,
@@ -87,14 +87,14 @@ const SHEET_DETAIL = {
       disposition: {status: 'converted_fault',
         fault: {id: 9, fault_no: 'GZ20260924-0001', status: 'pending'},
         work_order: null}},
-    {id: 32, sheet: 5, round_no: 'r2', round_text: '当日 16:00',
+    {id: 32, sheet: 5, round_no: 'r2', round_text: '16:00-16:20',
       template_item: 22, is_temporary: false, client_key: '',
       device_name: '1号收发信机', item_name: '输出功率读数', input_type: 'text',
       choices: '', is_required: true,
       display_order: 1,
       value_text: '512', value_number: 512, result: 'normal',
       abnormal_desc: '', onsite_action: ''},
-    {id: 33, sheet: 5, round_no: 'r3', round_text: '当日 22:00',
+    {id: 33, sheet: 5, round_no: 'r3', round_text: '22:00-22:20',
       template_item: null, is_temporary: true, client_key: 'tmp-1',
       device_name: '', item_name: '机房温度', input_type: 'text',
       choices: '', is_required: false,
@@ -161,8 +161,8 @@ describe('巡检单记录列表页', () => {
     expect(text).toContain('值班员甲');
     expect(text).toContain('外聘代班（无账号）');
     // 四轮列头
-    expect(text).toContain('当日11:00');
-    expect(text).toContain('次日06:30');
+    expect(text).toContain('11:00-11:20');
+    expect(text).toContain('6:30-6:50');
     // 记录值与处置状态
     expect(text).toContain('不正常');
     expect(text).toContain('已转故障');
@@ -175,7 +175,7 @@ describe('巡检单记录列表页', () => {
       document.querySelectorAll('.ant-drawer table.el-ins-recap-table th'))
       .map(th => th.textContent.trim());
     expect(headers).toEqual(
-      ['检查项目', '检查内容', '当日 11:00', '当日 16:00', '当日 22:00', '次日 06:30']);
+      ['检查项目', '检查内容', '11:00-11:20', '16:00-16:20', '22:00-22:20', '6:30-6:50']);
     expect(text).toContain('1号收发信机');
     // 请求只指向巡检单详情端点
     const urls = mockHttpGet.mock.calls.map(call => call[0]);

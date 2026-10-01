@@ -2,7 +2,7 @@
  * 今日巡检工作台（合并矩阵表改造）测试。
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
- * - 页面只渲染一张四轮巡检矩阵表（检查项目 | 检查内容 | 当日 11:00/16:00/22:00、次日 06:30），
+ * - 页面只渲染一张四轮巡检矩阵表（检查项目 | 检查内容 | 11:00-11:20/16:00-16:20/22:00-22:20、次日 6:30-6:50），
  *   不再分"填写表格/记录回显表格"两套渲染；
  * - 每个轮次列表头吸顶展示：轮次名称 + 状态（未记录/已记录 + 有草稿）+ 该轮次
  *   专属"一键正常/记录本轮"按钮；页面无顶部轮次选择区（Radio）；
@@ -15,8 +15,7 @@
  * - 值班人员仅手输姓名回车添加（下拉不打开，历史草稿账号值仍映射姓名回显）；
  * - 不显示实际填写时间与迟填标记；页面无系统选择器；
  * - 已提交后异常记录仍展示（结果 + 现场处理），但不再出现"转故障""转工单"
- *   按钮与转换弹窗（转单功能已下线）；历史"已转故障/已转工单"处置状态
- *   以标签只读展示。
+ *   按钮与转换弹窗（转单功能已下线）；历史"已转故障"状态以标签只读展示。
  *
  * 注意：store 为模块级单例，每个用例渲染前必须 resetDetail；
  * 有 seed 的用例走 localStorage 恢复 → loadSheet 流程，无 seed 的用例直接预置 store。
@@ -28,8 +27,7 @@ import {message} from 'antd';
 
 const mockHttpGet = jest.fn();
 const mockHttpPost = jest.fn();
-const mockHttpPut = jest.fn();
-const mockHttpDelete = jest.fn();
+const mockHttpPut = jest.fn(); const mockHttpDelete = jest.fn();
 
 jest.mock('libs', () => ({
   http: {
@@ -59,8 +57,7 @@ let container = null;
 beforeEach(() => {
   container = document.createElement('div');
   document.body.appendChild(container);
-  sessionStorage.setItem('nickname', 'admin');
-  localStorage.clear();
+  sessionStorage.setItem('nickname', 'admin'); localStorage.clear();
   // 拦截 antd message（Portal 渲染跨用例残留且单例被清理后不再渲染，改为直接断言调用）
   jest.spyOn(message, 'success').mockImplementation(() => {});
   jest.spyOn(message, 'error').mockImplementation(() => {});
@@ -106,7 +103,7 @@ const USERS = [
 function record(round, itemId, valueText, extra = {}) {
   return {
     id: 100 + itemId, sheet: 5, round_no: round,
-    round_text: {r1: '当日 11:00', r2: '当日 16:00', r3: '当日 22:00', r4: '次日 06:30'}[round],
+    round_text: {r1: '11:00-11:20', r2: '16:00-16:20', r3: '22:00-22:20', r4: '6:30-6:50'}[round],
     template_item: itemId, is_temporary: false, client_key: '',
     device_name: '1号收发信机',
     item_name: {21: '面板指示灯', 22: '输出功率读数', 23: '驻波比检查'}[itemId],
@@ -273,7 +270,7 @@ describe('今日巡检工作台 · 单张四轮矩阵表', () => {
     expect(headers[1]).toBe('检查内容');
     // 四个轮次表头：名称 + 状态 + 每轮次独立的 一键正常/记录本轮
     const roundLabels = ['r1', 'r2', 'r3', 'r4'].map(roundRoundName);
-    expect(roundLabels).toEqual(['当日 11:00', '当日 16:00', '当日 22:00', '次日 06:30']);
+    expect(roundLabels).toEqual(['11:00-11:20', '16:00-16:20', '22:00-22:20', '6:30-6:50']);
     for (const r of ['r1', 'r2', 'r3', 'r4']) {
       expect(roundStatus(r)).toContain('未记录');
       expect(roundButton(r, '一键正常')).not.toBeUndefined();
@@ -531,7 +528,7 @@ describe('今日巡检工作台 · 记录本轮（按轮次提交）', () => {
     await act(async () => {roundButton('r3', '记录本轮').click();});
     await act(flush);
     await act(flush);
-    expect(message.success).toHaveBeenCalledWith('已记录 当日 22:00 轮次');
+    expect(message.success).toHaveBeenCalledWith('已记录 22:00-22:20 轮次');
     // 再记录 r2（版本号取自详情返回）
     mockHttpPut.mockResolvedValue(draftSheetDetail({
       recorded_rounds: ['r1', 'r2', 'r3'],
@@ -546,7 +543,7 @@ describe('今日巡检工作台 · 记录本轮（按轮次提交）', () => {
     expect(mockHttpPut.mock.calls[1][1].version).toBe(2);
     expect(mockHttpPut.mock.calls[1][1].records.every(
       r => r.round_no === 'r2')).toBe(true);
-    expect(message.success).toHaveBeenCalledWith('已记录 当日 16:00 轮次');
+    expect(message.success).toHaveBeenCalledWith('已记录 16:00-16:20 轮次');
   });
 
   it('记录成功后该轮次变只读、提示一次，并清理该轮次草稿（其他轮次草稿保留）', async () => {
@@ -568,7 +565,7 @@ describe('今日巡检工作台 · 记录本轮（按轮次提交）', () => {
     await act(flush);
     await act(flush);
     expect(message.success).toHaveBeenCalledTimes(1);
-    expect(message.success).toHaveBeenCalledWith('已记录 当日 16:00 轮次');
+    expect(message.success).toHaveBeenCalledWith('已记录 16:00-16:20 轮次');
     // r2 已记录：整列只读、按钮隐藏；r3 仍可编辑
     expect(roundCells('r2').filter(
       td => td.querySelector('input, .ant-select')).length).toBe(0);
@@ -624,7 +621,7 @@ describe('今日巡检工作台 · 记录本轮（加载与失败保护）', () 
     }));});
     await act(flush);
     await act(flush);
-    expect(message.success).toHaveBeenCalledWith('已记录 当日 11:00 轮次');
+    expect(message.success).toHaveBeenCalledWith('已记录 11:00-11:20 轮次');
     expect(roundTh('r1').querySelector('.ant-btn-loading')).toBeNull();
   });
 
@@ -923,7 +920,7 @@ describe('今日巡检工作台 · 已退回整改单', () => {
     expect(payload.records.map(r => r.round_no)).toEqual(['r1', 'r1', 'r1']);
     expect(payload.records[0]).toEqual(
       {template_item_id: 21, round_no: 'r1', value_text: '不正常', onsite_action: '已切换备用'});
-    expect(message.success).toHaveBeenCalledWith('已记录 当日 11:00 轮次');
+    expect(message.success).toHaveBeenCalledWith('已记录 11:00-11:20 轮次');
   });
 
   it('已退回单可重新提交：提交按钮 POST submit 端点并清理草稿', async () => {

@@ -6,7 +6,7 @@
 状态流转、幂等与回滚、处理进展（进展类型/时间默认/更正留痕）、
 故障登记人与进展记录人（实际操作人员，共用登录账号可区分）、权限、
 受控作废、无设备档案依赖、
-模块边界（device/upgrade 无关联、无台账/工单/履历）。
+模块边界（device/upgrade 无关联、无台账/履历）。
 
 全部通过真实 HTTP 路径 + 隔离测试数据库执行，验证数据库状态与真实副作用。
 """
@@ -50,12 +50,8 @@ def fault_payload(system_obj, **overrides):
         'affects_system_operation': True,
         'impact_status': 'degraded',
         'occurred_at': '2026-09-18 08:30',
-        'discovery': 'patrol',
-        'level': 'major',
         'phenomenon': '主用链路频繁丢包',
         'registrar_name': '登记人甲',
-        'impact_scope': '本站话音业务',
-        'fault_location': '机房A 01柜',
     }
     payload.update(overrides)
     return payload
@@ -109,6 +105,7 @@ class FaultTestBase(TestCase):
         self.assertFalse(r.json().get('error'), r.content)
         r = client.post(f'{FAULT_URL}/{fid}/recover/', {
             'recovered_at': '2026-09-18 10:00',
+            'recovered_by_name': '恢复确认人甲',
             'recover_confirm': '链路已切换主备，业务恢复正常',
         }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
@@ -159,7 +156,7 @@ class FaultCreateValidationTest(FaultTestBase):
         """故障 API 不再接受受影响系统（POST/PUT 均拒绝，不静默忽略）。"""
         self.create_fault(fault_payload(self.system_a, affected_systems=[
             {'system_id': self.system_a2.id, 'impact_status': 'fault'}]),
-            expect_error='受影响系统')
+            expect_error='affected_systems')
         self.assertEqual(SystemFault.objects.count(), 0)
         # 编辑同样拒绝
         body = self.create_fault(fault_payload(self.system_a))
@@ -167,11 +164,11 @@ class FaultCreateValidationTest(FaultTestBase):
         client = make_client(self.admin)
         detail = client.get(f'{FAULT_URL}/{fid}/').json()['data']
         payload = {k: detail[k] for k in (
-            'system', 'impact_status', 'occurred_at', 'discovery', 'level', 'phenomenon')}
+            'system', 'impact_status', 'occurred_at', 'phenomenon')}
         payload['affected_systems'] = [{'system_id': self.system_a2.id,
                                         'impact_status': 'fault'}]
         resp = client.put(f'{FAULT_URL}/{fid}/', payload, content_type='application/json')
-        self.assertIn('受影响系统', resp.json().get('error', ''))
+        self.assertIn('affected_systems', resp.json().get('error', ''))
         self.assertEqual(SystemFault.objects.get(pk=fid).system_id, self.system_a.id)
 
     def test_duplicate_submission_rejected(self):
@@ -208,53 +205,94 @@ class FaultCreateValidationTest(FaultTestBase):
         self.assertEqual(resp.status_code, 404)
 
 
-class FaultSimplifiedFirstReportTest(FaultTestBase):
-    """首报表单精简契约：发现方式/级别缺省化 + 历史数据兼容。
+class FaultFieldRetirementTest(FaultTestBase):
+    """字段退役契约（2026-09-29）：处置负责人/发现方式/级别/影响范围/故障位置
+    已整体删除，恢复确认人改为手输姓名。
 
-    产品规则（2026-09）：手工新增故障不传 discovery 默认"人工报告"、
-    不传 level 默认"一般"，两字段不再必填；编辑精简载荷（不携带
-    discovery/level/历史设备字段）保留原值，不静默清空历史数据；
-    详情展示、级别筛选与 CSV 导出仍返回 discovery/level 及旧设备字段。
+    产品规则：五个字段相关入参/筛选/导出列一并移除；创建/编辑/开始处置的
+    旧参数出现即拒绝（不静默忽略）；恢复确认人 recovered_by_name 手动输入
+    必填、不预填登录账号。
     """
 
-    def test_manual_create_without_discovery_and_level_defaults(self):
-        """手工新增不传 discovery/level：缺省人工报告 + 一般，详情正常返回。"""
-        payload = fault_payload(self.system_a, occurred_at=self.next_occurred_at())
-        payload.pop('discovery')
-        payload.pop('level')
-        body = self.create_fault(payload)
-        self.assertFalse(body.get('error'), body)
-        fault = SystemFault.objects.get(pk=body['data']['id'])
-        self.assertEqual(fault.discovery, 'report')
-        self.assertEqual(fault.level, 'minor')
-        detail = make_client(self.admin).get(f'{FAULT_URL}/{fault.id}/').json()['data']
-        self.assertEqual(detail['discovery'], 'report')
-        self.assertEqual(detail['discovery_text'], '人工报告')
-        self.assertEqual(detail['level'], 'minor')
-        self.assertEqual(detail['level_text'], '一般')
-
-    def test_manual_create_explicit_and_default_mix(self):
-        """只缺一项时：缺省项补默认值，显式项仍生效。"""
-        payload = fault_payload(self.system_a, occurred_at=self.next_occurred_at())
-        payload.pop('level')
-        body = self.create_fault(payload)
-        self.assertFalse(body.get('error'), body)
-        fault = SystemFault.objects.get(pk=body['data']['id'])
-        self.assertEqual(fault.discovery, 'patrol')
-        self.assertEqual(fault.level, 'minor')
-
-    def test_invalid_explicit_discovery_or_level_rejected(self):
-        """缺省不等于放弃校验：显式提交非法值仍被拒绝且不落库。"""
-        self.create_fault(fault_payload(self.system_a, occurred_at=self.next_occurred_at(),
-                                        discovery='bogus'),
-                          expect_error='故障发现方式不合法')
-        self.create_fault(fault_payload(self.system_a, occurred_at=self.next_occurred_at(),
-                                        level='bogus'),
-                          expect_error='故障级别不合法')
+    def test_removed_params_rejected_on_create(self):
+        """创建接口显式拒绝已删除字段参数且不落库。"""
+        base = fault_payload(self.system_a, occurred_at=self.next_occurred_at())
+        for key, value in (
+                ('discovery', 'patrol'), ('level', 'major'),
+                ('impact_scope', '话音业务'), ('fault_location', '机房A'),
+                ('handler_id', 1)):
+            payload = dict(base)
+            payload[key] = value
+            body = self.create_fault(payload)
+            self.assertIn('已不再支持参数', body.get('error', ''), body)
+            self.assertIn(key, body.get('error', ''), body)
         self.assertEqual(SystemFault.objects.count(), 0)
 
+    def test_removed_params_rejected_on_edit(self):
+        """编辑接口同样拒绝已删除字段参数，原数据不被改动。"""
+        fid = self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at()))['data']['id']
+        client = make_client(self.admin)
+        detail = client.get(f'{FAULT_URL}/{fid}/').json()['data']
+        edit = {k: detail[k] for k in ('system', 'impact_status', 'occurred_at', 'phenomenon')}
+        edit['discovery'] = 'patrol'
+        resp = client.put(f'{FAULT_URL}/{fid}/', edit, content_type='application/json')
+        self.assertIn('discovery', resp.json().get('error', ''))
+        fault = SystemFault.objects.get(pk=fid)
+        self.assertEqual(fault.phenomenon, '主用链路频繁丢包')
+
+    def test_start_rejects_handler_id(self):
+        """开始处置不再接受 handler_id（处置负责人字段已删除）。"""
+        fid = self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at()))['data']['id']
+        resp = make_client(self.admin).post(
+            f'{FAULT_URL}/{fid}/start/', {'handler_id': 1},
+            content_type='application/json')
+        self.assertIn('handler_id', resp.json().get('error', ''))
+        self.assertEqual(SystemFault.objects.get(pk=fid).status, 'pending')
+
+    def test_recover_requires_manual_recovered_by_name(self):
+        """确认恢复必须手动填写恢复确认人（不回落登录账号）。"""
+        fid = self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at()))['data']['id']
+        client = make_client(self.admin)
+        client.post(f'{FAULT_URL}/{fid}/start/', {}, content_type='application/json')
+        resp = client.post(f'{FAULT_URL}/{fid}/recover/', {
+            'recovered_at': '2026-09-18 10:00',
+            'recover_confirm': '业务验证恢复',
+        }, content_type='application/json')
+        self.assertIn('恢复确认人不能为空', resp.json().get('error', ''))
+        self.assertEqual(SystemFault.objects.get(pk=fid).status, 'handling')
+        # 手动填写后成功：姓名为手输文本（多人顿号分隔），与登录账号无关
+        resp = client.post(f'{FAULT_URL}/{fid}/recover/', {
+            'recovered_at': '2026-09-18 10:00',
+            'recovered_by_name': '确认人甲、确认人乙',
+            'recover_confirm': '业务验证恢复',
+        }, content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        fault = SystemFault.objects.get(pk=fid)
+        self.assertEqual(fault.status, 'recovered')
+        self.assertEqual(fault.recovered_by_name, '确认人甲、确认人乙')
+
+    def test_level_filter_and_export_columns_removed(self):
+        """级别筛选参数被忽略；CSV 导出不再包含发现方式/级别/处置负责人等列。"""
+        self.create_fault(fault_payload(self.system_a,
+                                        occurred_at=self.next_occurred_at()))
+        client = make_client(self.admin)
+        resp = client.get(f'{FAULT_URL}/', {'level': 'major'})
+        self.assertFalse(resp.json().get('error'), resp.content)
+        rows = resp.json()['data']['data']
+        self.assertEqual(len(rows), 1)
+        resp = client.get(f'{FAULT_URL}/export/')
+        self.assertEqual(resp.status_code, 200)
+        text = resp.content.decode('utf-8-sig')
+        self.assertIn('恢复确认人', text)
+        self.assertIn('主用链路频繁丢包', text)
+        for gone in ('发现方式', '故障级别', '处置负责人', '影响范围', '故障位置'):
+            self.assertNotIn(gone, text)
+
     def test_edit_minimal_payload_preserves_history(self):
-        """精简编辑载荷不携带 discovery/level/历史设备字段时保留原值。"""
+        """精简编辑载荷（不含对象型号/序列号）保留原值，不静默清空历史数据。"""
         payload = fault_payload(self.system_a, occurred_at=self.next_occurred_at(),
                                 fault_object_name='接入交换机01',
                                 fault_object_model='H3C-5120', fault_object_sn='SN001')
@@ -273,49 +311,8 @@ class FaultSimplifiedFirstReportTest(FaultTestBase):
         fault = SystemFault.objects.get(pk=fid)
         self.assertEqual(fault.phenomenon, '现象描述更新')
         self.assertEqual(fault.fault_object_name, '接入交换机02')
-        # 未提交字段全部保留原值（discovery/level + 旧设备字段）
-        self.assertEqual(fault.discovery, 'patrol')
-        self.assertEqual(fault.level, 'major')
-        self.assertEqual(fault.impact_scope, '本站话音业务')
-        self.assertEqual(fault.fault_location, '机房A 01柜')
         self.assertEqual(fault.fault_object_model, 'H3C-5120')
         self.assertEqual(fault.fault_object_sn, 'SN001')
-
-    def test_edit_still_accepts_explicit_discovery_and_level(self):
-        """旧客户端显式提交 discovery/level 仍校验并更新（接口兼容）。"""
-        fid = self.create_fault(fault_payload(
-            self.system_a, occurred_at=self.next_occurred_at()))['data']['id']
-        client = make_client(self.admin)
-        detail = client.get(f'{FAULT_URL}/{fid}/').json()['data']
-        edit = {k: detail[k] for k in (
-            'system', 'impact_status', 'occurred_at', 'discovery', 'level', 'phenomenon')}
-        edit['affects_system_operation'] = True
-        edit['discovery'] = 'alarm'
-        edit['level'] = 'critical'
-        resp = client.put(f'{FAULT_URL}/{fid}/', edit, content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
-        fault = SystemFault.objects.get(pk=fid)
-        self.assertEqual(fault.discovery, 'alarm')
-        self.assertEqual(fault.level, 'critical')
-
-    def test_list_level_filter_and_export_keep_historical_fields(self):
-        """级别列表筛选与 CSV 导出仍正常返回发现方式/级别等历史字段。"""
-        fid = self.create_fault(fault_payload(
-            self.system_a, occurred_at=self.next_occurred_at(),
-            fault_object_name='接入交换机01'))['data']['id']
-        client = make_client(self.admin)
-        resp = client.get(f'{FAULT_URL}/', {'level': 'major'})
-        self.assertFalse(resp.json().get('error'), resp.content)
-        rows = resp.json()['data']['data']
-        self.assertEqual([r['id'] for r in rows], [fid])
-        resp = client.get(f'{FAULT_URL}/export/')
-        self.assertEqual(resp.status_code, 200)
-        text = resp.content.decode('utf-8-sig')
-        self.assertIn('发现方式', text)
-        self.assertIn('故障级别', text)
-        self.assertIn('巡检发现', text)
-        self.assertIn('严重', text)
-        self.assertIn('主用链路频繁丢包', text)
 
 
 class FaultTenantIsolationTest(FaultTestBase):
@@ -436,7 +433,9 @@ class HealthStatusComputationTest(FaultTestBase):
         resp = client.post(f'{FAULT_URL}/{f1.id}/start/', {}, content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         resp = client.post(f'{FAULT_URL}/{f1.id}/recover/', {
-            'recovered_at': '2026-09-18 12:00', 'recover_confirm': '业务确认恢复'},
+            'recovered_at': '2026-09-18 12:00',
+            'recovered_by_name': '恢复确认人甲',
+            'recover_confirm': '业务确认恢复'},
             content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(self._refresh(self.system_a), 'normal')
@@ -458,8 +457,7 @@ class HealthStatusComputationTest(FaultTestBase):
         self.assertEqual(self._refresh(self.system_a2), 'normal')
         client = make_client(self.admin)
         detail = client.get(f'{FAULT_URL}/{fault.id}/').json()['data']
-        payload = {k: detail[k] for k in (
-            'impact_status', 'occurred_at', 'discovery', 'level', 'phenomenon')}
+        payload = {k: detail[k] for k in ('impact_status', 'occurred_at', 'phenomenon')}
         payload['system'] = self.system_a2.id
         resp = client.put(f'{FAULT_URL}/{fault.id}/', payload, content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -510,7 +508,8 @@ class FaultLifecycleTest(FaultTestBase):
         self.assertIn('才能关闭', resp.json().get('error', ''))
         # 已恢复但缺最终结果
         client.post(f'{FAULT_URL}/{fid}/recover/', {
-            'recovered_at': '2026-09-18 10:00', 'recover_confirm': '已恢复'},
+            'recovered_at': '2026-09-18 10:00', 'recover_confirm': '已恢复',
+            'recovered_by_name': '恢复确认人甲'},
             content_type='application/json')
         resp = client.post(f'{FAULT_URL}/{fid}/close/', {}, content_type='application/json')
         self.assertIn('最终结果', resp.json().get('error', ''))
@@ -526,8 +525,7 @@ class FaultLifecycleTest(FaultTestBase):
         client = make_client(self.admin)
         detail = client.get(f'{FAULT_URL}/{fault.id}/').json()['data']
         payload = {k: detail[k] for k in (
-            'system', 'impact_status', 'occurred_at', 'discovery',
-            'level', 'phenomenon')}
+            'system', 'impact_status', 'occurred_at', 'phenomenon')}
         payload['phenomenon'] = '试图篡改已关闭故障'
         resp = client.put(f'{FAULT_URL}/{fault.id}/', payload, content_type='application/json')
         self.assertIn('不能编辑', resp.json().get('error', ''))
@@ -544,7 +542,8 @@ class FaultLifecycleTest(FaultTestBase):
         fid = body['data']['id']
         client = make_client(self.admin)
         client.post(f'{FAULT_URL}/{fid}/start/', {}, content_type='application/json')
-        payload = {'recovered_at': '2026-09-18 10:00', 'recover_confirm': '已恢复'}
+        payload = {'recovered_at': '2026-09-18 10:00', 'recover_confirm': '已恢复',
+                   'recovered_by_name': '恢复确认人甲'}
         first = client.post(f'{FAULT_URL}/{fid}/recover/', payload,
                             content_type='application/json').json()
         self.assertFalse(first.get('error'), first)
@@ -639,10 +638,10 @@ class FaultLifecycleTest(FaultTestBase):
 
 
 class FaultHandlingProgressTest(FaultTestBase):
-    """处理进展契约（2026-09 改版）：类型结构化选填、时间默认、无工单可恢复。
+    """处理进展契约（2026-09 改版）：类型结构化选填、时间默认、可直接恢复。
 
     覆盖：本方维修、送厂维修、仅测试、暂未修复等场景均能保存进展；
-    进展类型可为空（历史记录兼容）；工单不是记录进展的前置条件；
+    进展类型可为空（历史记录兼容）；
     未恢复故障持续参与健康状态计算。
     """
 
@@ -772,15 +771,16 @@ class FaultHandlingProgressTest(FaultTestBase):
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'fault')
 
-    def test_fault_without_work_order_can_record_and_recover(self):
-        """全程无工单：仅测试通过后按原规则确认恢复并关闭。"""
+    def test_fault_can_record_progress_and_recover(self):
+        """仅凭处理进展即可闭环：测试通过后按原规则确认恢复并关闭。"""
         fault, client = self._create_started_fault(impact='degraded')
-        self.add_progress(fault.id, progress_type='test',
-                          content='更换备件后本方测试，各项指标正常')
-        self.assertFalse(
-            SystemFault.objects.get(pk=fault.id).generated_work_orders.exists())
+        body = self.add_progress(fault.id, progress_type='test',
+                                 content='更换备件后本方测试，各项指标正常',
+                                 work_hours=2.5)
+        self.assertFalse(body.get('error'), body)
         resp = client.post(f'{FAULT_URL}/{fault.id}/recover/', {
             'recovered_at': '2026-09-18 11:00',
+            'recovered_by_name': '恢复确认人甲',
             'recover_confirm': '本方测试通过，业务验证正常',
         }, content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -790,7 +790,10 @@ class FaultHandlingProgressTest(FaultTestBase):
         self.assertFalse(resp.json().get('error'), resp.content)
         fault.refresh_from_db()
         self.assertEqual(fault.status, 'closed')
-        self.assertFalse(fault.generated_work_orders.exists())
+        # 处理进展含工时（原工单处理记录的工时由进展承接）
+        records = SystemFaultHandlingRecord.objects.filter(fault=fault)
+        self.assertEqual(
+            [r.work_hours for r in records if r.work_hours is not None], [2.5])
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'normal')
 
@@ -963,7 +966,7 @@ class FaultRegistrarAndProgressRecorderTest(FaultTestBase):
     """故障登记人与进展记录人契约（2026-09 人员记录优化，手动输入姓名）。
 
     语义：两者均为手动输入的姓名文本，只表示"实际添加记录的人"，不代表
-    负责整个故障或承担维修责任（处置负责人 SystemFault.handler 独立存在，
+    负责整个故障或承担维修责任（处置负责人字段已删除，登记/确认均为手输姓名，
     能力不变）；姓名为文本快照、不关联 User——实际操作人可能没有系统账号
     （多人共用一个登录账号时，各条记录登记/记录实际操作人姓名）。
     登录账号仍通过审计字段（created_by / 进展.handler）独立留痕。
@@ -1128,8 +1131,6 @@ class FaultRegistrarAndProgressRecorderTest(FaultTestBase):
             system_name=self.system_a.name,
             system_location=self.system_a.install_location,
             occurred_at=datetime(2026, 1, 1, 8, 0),
-            discovery='patrol',
-            level='major',
             phenomenon='历史遗留故障（无登记人）',
             created_by=self.admin,
         )
@@ -1170,5 +1171,5 @@ class FaultRegistrarAndProgressRecorderTest(FaultTestBase):
         fault = SystemFault.objects.get(pk=fid)
         self.assertEqual(fault.status, 'handling')
         self.assertIsNone(fault.recovered_at)
-        self.assertIsNone(fault.recovered_by_id)
+        self.assertEqual(fault.recovered_by_name, '')
         self.assertNotEqual(fault.status, SystemFault.STATUS_CLOSED)

@@ -22,7 +22,6 @@ class FaultStore {
   // ========== 筛选条件 ==========
   @observable f_keyword = undefined;
   @observable f_status = undefined;
-  @observable f_level = undefined;
   @observable f_system = undefined;
   @observable f_occurred_range = undefined;
 
@@ -55,7 +54,6 @@ class FaultStore {
   @action resetFilter = () => {
     this.f_keyword = undefined;
     this.f_status = undefined;
-    this.f_level = undefined;
     this.f_system = undefined;
     this.f_occurred_range = undefined;
     this.page = 1;
@@ -66,7 +64,6 @@ class FaultStore {
     const params = {page: this.page, page_size: this.pageSize};
     if (this.f_keyword) params.keyword = this.f_keyword;
     if (this.f_status) params.status = this.f_status;
-    if (this.f_level) params.level = this.f_level;
     if (this.f_system) params.system = this.f_system;
     if (this.f_occurred_range && this.f_occurred_range.length === 2) {
       params.occurred_from = this.f_occurred_range[0].format('YYYY-MM-DD HH:mm');

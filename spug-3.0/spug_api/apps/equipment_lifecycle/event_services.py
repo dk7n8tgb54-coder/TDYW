@@ -4,15 +4,16 @@
 """统一系统履历服务（步骤 3.4，单系统简化）。
 
 职责：
-- record_system_event：履历事件写入唯一入口，故障、台账异常、工单、健康状态、
+- record_system_event：履历事件写入唯一入口，故障、台账异常、健康状态、
   升级与值班巡检共用同一事件模型（SystemEvent）；config_snapshot 类型仅
-  存量兼容展示（配置快照功能已下线，不再新增写入）；
+  存量兼容展示（配置快照功能已下线，不再新增写入）；工单事件类型已随
+  "故障维修工单"功能整体删除（2026-09-30），存量工单事件由迁移 0043 清理；
 - 按业务对象提供写入辅助：每条事件只关联业务对象所属的那一个系统，
   不再向其他系统（受影响/关联）分布写入事件。
 
 约定：
 - 须在业务保存的同一数据库事务内调用（业务回滚则履历一并回滚）；
-- 事件只追加、不改写：更正与受控撤销（故障作废、工单取消）以追加新事件表达；
+- 事件只追加、不改写：更正与受控撤销（故障作废）以追加新事件表达；
 - 重复业务请求由业务层状态机与幂等键（client_token、处置状态防重）拦截，
   业务对象不重复则事件不重复；
 - 事件为纯插入，不递归触发健康状态重算；
@@ -27,7 +28,6 @@ from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     SystemEvent,
     SystemFault,
-    SystemWorkOrder,
 )
 
 
@@ -63,16 +63,16 @@ def record_fault_lifecycle_events(fault, action, detail=None, occurred_at=None, 
     - create/recover/close/cancel 共用本写入；
     - occurred_at：create 用故障发生时间，recover 用恢复时间，其余取当前时间。
     """
+    # 故障级别字段已删除（2026-09）：履历标题与 detail 不再携带 level
     base_detail = {
         'fault_no': fault.fault_no,
-        'level': fault.level,
         'status': fault.status,
         'impact_status': fault.impact_status,
         'source_type': fault.source_type,
     }
     base_detail.update(detail or {})
     if action == 'create':
-        title = f'发生{SystemFault.LEVEL_TEXT_MAP.get(fault.level, fault.level)}故障'
+        title = '发生故障'
     else:
         title = {
             'recover': '故障恢复确认',
@@ -94,49 +94,12 @@ def record_fault_lifecycle_events(fault, action, detail=None, occurred_at=None, 
     )
 
 
-def record_work_order_lifecycle_events(order, action, detail=None, occurred_at=None,
-                                       created_by=None):
-    """工单生命周期事件：只落作业系统的履历（单系统简化）。
-
-    - create/complete/cancel 共用本写入；派发、接单、执行、复核、退回、关闭
-      归档属过程性操作，记录在处理记录与审计日志，不生成履历事件。
-    """
-    base_detail = {
-        'work_no': order.work_no,
-        'work_type': order.work_type,
-        'maintenance_subtype': order.maintenance_subtype,
-        'status': order.status,
-        'affects_system_operation': order.affects_system_operation,
-        'source_type': order.source_type,
-        'source_no': order.source_no,
-    }
-    base_detail.update(detail or {})
-    title = {
-        'create': '工单登记',
-        'complete': '工单处理完成',
-        'cancel': '工单取消',
-    }[action]
-    record_system_event(
-        tenant_id=order.tenant_id,
-        system=order.system,
-        event_type=SystemEvent.EVENT_WORK_ORDER,
-        action=action,
-        source_type='work_order',
-        source_id=order.id,
-        source_no=order.work_no,
-        title=title,
-        detail=base_detail,
-        occurred_at=occurred_at,
-        created_by=created_by,
-    )
-
-
 def record_ledger_convert_event(item, ledger, action, target_no='', detail=None,
                                 created_by=None):
-    """台账异常明细转故障/工单事件（落到明细所属系统的履历）。
+    """台账异常明细转故障事件（落到明细所属系统的履历）。
 
-    - action ∈ convert_to_fault / convert_to_work_order；
-    - target_no 为生成的故障号/工单号（来源关系双向可追溯）。
+    - action = convert_to_fault（转工单动作已随工单功能删除，2026-09-30）；
+    - target_no 为生成的故障号（来源关系双向可追溯）。
     """
     return record_system_event(
         tenant_id=item.tenant_id,
@@ -146,7 +109,7 @@ def record_ledger_convert_event(item, ledger, action, target_no='', detail=None,
         source_type='ledger_item',
         source_id=item.id,
         source_no=ledger.ledger_no,
-        title='台账异常转故障' if action == 'convert_to_fault' else '台账异常转工单',
+        title='台账异常转故障',
         detail={
             'ledger_id': ledger.id,
             'ledger_no': ledger.ledger_no,

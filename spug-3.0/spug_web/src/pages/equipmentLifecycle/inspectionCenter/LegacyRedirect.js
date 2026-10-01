@@ -7,7 +7,7 @@
  * /el/inspection-sheets、/el/inspection-templates 三条隐藏路由）。
  *
  * 挂载即替换到巡检中心对应页签，并保留旧 URL 上的其余查询参数——
- * 故障详情 / 工单详情 / 系统履历跳转来源巡检单携带的 detail=<巡检单ID>
+ * 故障详情 / 系统履历跳转来源巡检单携带的 detail=<巡检单ID>
  * 原样带入巡检中心，由巡检记录页签的既有挂载逻辑打开详情。
  */
 import React, {useEffect} from 'react';

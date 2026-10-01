@@ -8,15 +8,20 @@
 - 季维护（seasonal）；
 - 旧巡检台账（ledger_type=inspection）业务分支已删除（2026-09-24），
   巡检由独立模型（InspectionTemplate/InspectionDutySheet/InspectionRecord）承担，
-  旧类型请求一律显式拒绝。
+  旧类型请求一律显式拒绝；
+- 旧可视化模板路线（template 创建/矩阵台账/预览）已于 2026-10 整体删除，
+  正式台账统一走 Excel/WPS 模板路线（excel_ledger_services）；本模块保留
+  手工补录台账（created_from=manual）的创建/编辑/状态机与更正能力，
+  entries 携带 template_id/row_nodes 等旧参数时显式拒绝。
 
 核心约定：
 - 系统关联一律使用系统 ID，页面显示的名称/编号/地点均保存快照；
-- 模板生成台账时保存模板项目全量快照，模板后续修改不影响已生成台账；
+- 手工补录明细内容由用户填写、后端校验，全量快照落库；
 - 表头与全部明细在同一事务内写入，任一明细校验失败整体回滚；
 - 明细结果不再强制选择：未提交结果时按填写值派生默认
   （正常/不正常单选填"不正常"记 abnormal，其余一律 normal），异常说明选填；
-- 本模块只记录异常：不转故障/工单、不修改系统健康状态、不做计划提醒。
+- 本模块只记录异常：异常处置（转故障）见 fault_views；不修改系统健康状态、
+  不做计划提醒。
 """
 import json
 from datetime import datetime
@@ -34,7 +39,7 @@ from apps.equipment_lifecycle.models import (
     ITEM_RESULT_VALUES,
     LEGACY_LEDGER_TYPE_INSPECTION,
     LEDGER_FROM_MANUAL,
-    LEDGER_FROM_TEMPLATE,
+    LEDGER_FROM_EXCEL,
     LEDGER_FROM_VALUES,
     LEDGER_INPUT_TYPE_VALUES,
     LEDGER_NO_PREFIX_MAP,
@@ -50,15 +55,9 @@ from apps.equipment_lifecycle.models import (
     OperationLedger,
     OperationLedgerCorrection,
     OperationLedgerItem,
-    OperationLedgerTemplate,
-    OperationLedgerTemplateItem,
+    SystemFault,
 )
 
-# 编辑台账时允许更新的明细字段（模板快照字段生成后不可变）
-ITEM_EDITABLE_FIELDS = {
-    'value_text', 'value_number', 'value_bool', 'result', 'abnormal_desc',
-    'na_reason', 'onsite_action', 'executor_name', 'executed_at', 'display_order',
-}
 # 明细值/结果字段（快照映射展示用）
 ITEM_RESULT_TEXT_MAP = {
     ITEM_RESULT_NORMAL: '正常',
@@ -73,6 +72,18 @@ LEDGER_CHOICE_ABNORMAL = '不正常'
 # 所有针对旧类型的新建/编辑/写操作一律显式拒绝，不静默当作维护台账处理；
 # 周月维护/季维护台账不受影响。
 LEGACY_INSPECTION_ERROR = '旧巡检台账（历史）已删除，巡检类型不再支持该操作'
+
+# Excel 路线台账（created_from=excel_template）无普通明细，明细编辑与
+# 提交须走 /excel-ledgers/ 专用接口；复核/退回/作废沿用正式端点
+EXCEL_LEDGER_EDIT_ERROR = 'Excel 模板台账请通过 Excel 台账填写接口编辑'
+EXCEL_LEDGER_SUBMIT_ERROR = 'Excel 模板台账请通过 Excel 台账接口提交'
+
+
+def excel_ledger_write_error(ledger):
+    """Excel 路线台账误走普通明细编辑/提交接口时返回明确错误。"""
+    if ledger is not None and ledger.created_from == LEDGER_FROM_EXCEL:
+        return EXCEL_LEDGER_EDIT_ERROR
+    return None
 
 
 def legacy_inspection_error(ledger):
@@ -146,17 +157,8 @@ def get_systems_for_user(user, system_ids):
     return found
 
 
-def get_active_template(user, template_id, ledger_type):
-    """录入校验用模板：租户内存在、启用且类型匹配（不校验适用系统）。"""
-    template = apply_tenant_filter(
-        OperationLedgerTemplate.objects.all(), user).filter(pk=template_id).first()
-    if not template:
-        raise LedgerValidationError('台账模板不存在')
-    if not template.is_active:
-        raise LedgerValidationError('台账模板已停用，不能用于新台账：%s' % template.name)
-    if template.ledger_type != ledger_type:
-        raise LedgerValidationError('台账模板类型与台账类型不一致：%s' % template.name)
-    return template
+# 旧可视化模板路线已删除（2026-10）：entries 携带模板引用时统一报错文案
+TEMPLATE_ROUTE_REMOVED_ERROR = '可视化模板台账路线已下线，请使用 Excel/WPS 模板创建台账'
 
 
 def validate_item_value(input_type, payload):
@@ -254,22 +256,8 @@ def validate_item_result_rules(result, payload):
         raise LedgerValidationError('正常项不应填写异常说明')
 
 
-def build_template_snapshot(template, tpl_item):
-    """从模板项目构建明细快照字段（保存当时内容，不实时读模板）。"""
-    return {
-        'template_item': tpl_item,
-        'template_name_snapshot': template.name,
-        'item_name_snapshot': tpl_item.name,
-        'input_type': tpl_item.input_type,
-        'unit_snapshot': tpl_item.unit,
-        'choices_snapshot': json.dumps(tpl_item.get_choices(), ensure_ascii=False),
-        'is_required': tpl_item.is_required,
-        'abnormal_rule_snapshot': tpl_item.abnormal_rule,
-    }
-
-
 def build_manual_snapshot(payload):
-    """临时直接新建/临时增加项的快照字段（内容由用户填写，后端校验）。"""
+    """手工补录/临时增加项的快照字段（内容由用户填写，后端校验）。"""
     item_name = str(payload.get('item_name') or '').strip()
     if not item_name:
         raise LedgerValidationError('请填写检查或维护项目名称')
@@ -280,7 +268,6 @@ def build_manual_snapshot(payload):
     if input_type in ('choice', 'multi_choice') and not isinstance(choices, list):
         raise LedgerValidationError('候选项必须为数组')
     return {
-        'template_item': None,
         'template_name_snapshot': '',
         'item_name_snapshot': item_name,
         'input_type': input_type,
@@ -318,7 +305,8 @@ def _parse_header_payload(user, body, for_update=False):
 def _build_item_instances(user, ledger, systems_map, entries_payload):
     """校验 entries 并构建明细实例列表（不落库）。
 
-    entries_payload: [{system_id, template_id?, items: [{...}]}]
+    entries_payload: [{system_id, items: [{...}]}]——旧可视化模板路线已删除，
+    条目携带 template_id/row_nodes 等旧参数时显式拒绝。
     任一明细校验失败抛 LedgerValidationError（调用方整体回滚）。
     """
     items = []
@@ -326,14 +314,12 @@ def _build_item_instances(user, ledger, systems_map, entries_payload):
     for entry in entries_payload:
         if not isinstance(entry, dict):
             raise LedgerValidationError('台账系统条目格式不正确')
+        if entry.get('template_id') or entry.get('row_nodes'):
+            raise LedgerValidationError(TEMPLATE_ROUTE_REMOVED_ERROR)
         system = systems_map.get(entry.get('system_id'))
         if system is None:
             raise LedgerValidationError('明细必须关联正式系统')
         seen_system_ids.add(system.id)
-        template = None
-        if entry.get('template_id'):
-            template = get_active_template(
-                user, entry['template_id'], ledger.ledger_type)
         rows = entry.get('items')
         if not isinstance(rows, list) or not rows:
             raise LedgerValidationError('系统 %s 至少需要一条台账明细' % system.name)
@@ -342,29 +328,15 @@ def _build_item_instances(user, ledger, systems_map, entries_payload):
             if not isinstance(row, dict):
                 raise LedgerValidationError('台账明细格式不正确')
             order += 1
-            items.append(_build_item_instance(ledger, system, template, row, order))
+            items.append(_build_item_instance(ledger, system, row, order))
     if not seen_system_ids:
         raise LedgerValidationError('请选择系统')
     return items
 
 
-def _build_item_instance(ledger, system, template, row, order):
-    """校验单条明细并构建未落库的 OperationLedgerItem。"""
-    if template is not None and row.get('template_item_id'):
-        if template.row_nodes.filter(is_active=True).exists():
-            raise LedgerValidationError(
-                '模板 %s 已配置行结构，请通过矩阵方式生成台账明细' % template.name)
-        tpl_item = OperationLedgerTemplateItem.objects.filter(
-            pk=row['template_item_id'], template=template).first()
-        if not tpl_item:
-            raise LedgerValidationError('模板项目不存在或不属于所选模板')
-        if not tpl_item.is_active:
-            raise LedgerValidationError('模板项目已停用：%s' % tpl_item.name)
-        snapshot = build_template_snapshot(template, tpl_item)
-        is_temporary = False
-    else:
-        snapshot = build_manual_snapshot(row)
-        is_temporary = True
+def _build_item_instance(ledger, system, row, order):
+    """校验单条手工补录明细并构建未落库的 OperationLedgerItem。"""
+    snapshot = build_manual_snapshot(row)
     value_text, value_number, value_bool = validate_item_value(snapshot['input_type'], row)
     result = resolve_item_result(row)
     validate_item_result_rules(result, row)
@@ -384,7 +356,7 @@ def _build_item_instance(ledger, system, template, row, order):
         onsite_action=str(row.get('onsite_action') or '').strip(),
         executor_name=str(row.get('executor_name') or '').strip(),
         executed_at=parse_datetime_value(row.get('executed_at'), '明细实际执行时间', allow_empty=True),
-        is_temporary=is_temporary,
+        is_temporary=True,
         display_order=row.get('display_order') if isinstance(row.get('display_order'), int) else order,
     )
     for key, value in snapshot.items():
@@ -400,32 +372,18 @@ def _get_ledger_for_user(pk, user, for_update=False):
     return qs.filter(pk=pk).first()
 
 
-def _is_matrix_create_payload(body):
-    """矩阵创建载荷：表头 + system_id + template_id（无 entries 明细）。"""
-    return bool(body.get('template_id')) and bool(body.get('system_id')) \
-        and not body.get('entries')
-
-
 @transaction.atomic
 def create_ledger(user, body):
-    """创建台账：表头 + 全部明细 + 快照一次写入，任一明细失败整体回滚。
+    """创建手工补录台账：表头 + 全部明细 + 快照一次写入，任一明细失败整体回滚。
 
-    矩阵模式（第一阶段行对象树）：载荷为表头 + system_id + template_id
-    （+ row_instances 实例规格），行实例树与"行叶子实例 × 列项目"单元格
-    自动生成，委托 ledger_row_services 处理；
-    既有 entries 模式保留：临时补录项与旧平面模板条目（旧模板已受控停用，
-    配置了行结构的模板在 entries 模式下显式拒绝）。
+    旧可视化模板路线（矩阵台账/模板条目）已删除（2026-10）：created_from 只
+    接受 manual（缺省 manual），条目携带模板引用时显式拒绝；正式新增入口
+    统一走 Excel/WPS 模板路线（excel_ledger_services.create_ledger）。
     幂等：client_token 命中同租户已有台账时直接返回该台账。
     返回 (ledger, None) 或 (None, error_message)。
     """
-    if _is_matrix_create_payload(body):
-        from apps.equipment_lifecycle import ledger_row_services
-
-        return ledger_row_services.create_matrix_ledger(user, body)
     if not body.get('created_from'):
-        entries_raw = body.get('entries') or []
-        body['created_from'] = LEDGER_FROM_TEMPLATE if any(
-            isinstance(e, dict) and e.get('template_id') for e in entries_raw) else LEDGER_FROM_MANUAL
+        body['created_from'] = LEDGER_FROM_MANUAL
     try:
         header = _parse_header_payload(user, body)
     except LedgerValidationError as e:
@@ -478,10 +436,11 @@ def _validate_expected_version(ledger, version):
 
 @transaction.atomic
 def update_ledger(user, pk, body):
-    """编辑可编辑状态（草稿/已退回）的台账：区分新增、修改、移除并记录变化。
+    """编辑可编辑状态（草稿/已退回）的手工补录台账：区分新增、修改、移除并记录变化。
 
     - version 不匹配视为并发冲突，拒绝静默覆盖；
-    - 已有明细更新可编辑字段（模板快照不可变），新增明细按创建规则校验；
+    - Excel 路线台账（created_from=excel_template）拒绝走本接口；
+    - 已有明细更新可编辑字段，新增明细按创建规则校验；
     - 请求未包含的已有明细被移除（物理删除），变化写入审计 detail；
     返回 (ledger, changed, None) 或 (None, None, error_message)。
     """
@@ -491,10 +450,12 @@ def update_ledger(user, pk, body):
     error = legacy_inspection_error(ledger)
     if error:
         return None, None, error
+    # Excel 路线台账没有普通明细，编辑须走 Excel 填写值接口（2026-10 统一入口）
+    error = excel_ledger_write_error(ledger)
+    if error:
+        return None, None, error
     if ledger.status not in OperationLedger.EDITABLE_STATUSES:
         return None, None, '当前状态不允许编辑台账'
-    if ledger.row_instances.exists():
-        return None, None, '矩阵台账请通过单元格与行实例接口编辑明细'
     error = _validate_expected_version(ledger, body.get('version'))
     if error:
         return None, None, error
@@ -528,17 +489,18 @@ def update_ledger(user, pk, body):
 
 
 def _apply_entry_edits(user, ledger, entries, systems_map, changed):
-    """按条目应用明细修改/新增，返回本次请求保留的已有明细 id 集合。"""
+    """按条目应用明细修改/新增，返回本次请求保留的已有明细 id 集合。
+
+    旧可视化模板路线已删除：条目携带 template_id 时显式拒绝。
+    """
     keep_ids = set()
     order = 0
     for entry in entries:
+        if not isinstance(entry, dict) or entry.get('template_id') or entry.get('row_nodes'):
+            raise LedgerValidationError(TEMPLATE_ROUTE_REMOVED_ERROR)
         system = systems_map.get(entry.get('system_id'))
         if system is None:
             raise LedgerValidationError('明细必须关联正式系统')
-        template = None
-        if entry.get('template_id'):
-            template = get_active_template(
-                user, entry['template_id'], ledger.ledger_type)
         rows = entry.get('items')
         if not isinstance(rows, list) or not rows:
             raise LedgerValidationError('系统 %s 至少需要一条台账明细' % system.name)
@@ -553,7 +515,7 @@ def _apply_entry_edits(user, ledger, entries, systems_map, changed):
                 keep_ids.add(item.id)
                 changed['items_updated'] += 1
             else:
-                item = _build_item_instance(ledger, system, template, row, order)
+                item = _build_item_instance(ledger, system, row, order)
                 item.save()
                 keep_ids.add(item.id)
                 changed['items_added'] += 1
@@ -598,78 +560,6 @@ def _apply_item_edits(item, row, system):
     item.save()
 
 
-def _preview_system_entry(system, template):
-    """单个系统的预览条目（items 为启用的列项目视图）。
-
-    模板配置了行结构（第一阶段行对象树）时同时返回 row_nodes 树，
-    供录入端渲染"行路径 × 平面列项目"矩阵。
-    """
-    items = []
-    if template is not None:
-        for tpl_item in template.items.filter(is_active=True):
-            view = tpl_item.to_view()
-            view['client_key'] = '%s-%s' % (system.id, tpl_item.id)
-            items.append(view)
-    entry = {
-        'system': {
-            'id': system.id, 'system_code': system.system_code, 'name': system.name,
-            'install_location': system.install_location,
-        },
-        'template': {'id': template.id, 'name': template.name} if template else None,
-        'items': items,
-    }
-    if template is not None:
-        from apps.equipment_lifecycle import ledger_row_services
-
-        active_nodes = ledger_row_services.load_template_nodes(template, only_active=True)
-        entry['row_nodes'] = ledger_row_services.build_node_tree(active_nodes)
-        entry['is_matrix'] = bool(active_nodes)
-        # 行层级表头名称：录入端矩阵层级列头展示（与模板设计器一致）
-        entry['row_headers'] = template.get_row_headers()
-    else:
-        entry['row_nodes'] = []
-        entry['is_matrix'] = False
-    return entry
-
-
-def preview_entries(user, body):
-    """按 系统+模板 生成台账明细预览骨架（不落库，值/结果由填写人补充）。
-
-    条目形态：{system_id, template_id?}——系统必选；模板不绑定系统，
-    适用于任何系统。
-    """
-    ledger_type = body.get('ledger_type')
-    try:
-        validate_ledger_type(ledger_type)
-    except LedgerValidationError as e:
-        return None, str(e)
-    entries = body.get('entries')
-    if not isinstance(entries, list) or not entries:
-        return None, '请至少选择一个系统'
-    if not all(isinstance(e, dict) for e in entries):
-        return None, '台账系统条目格式不正确'
-    if any(not e.get('system_id') for e in entries):
-        return None, '请选择系统'
-    try:
-        systems_map = get_systems_for_user(
-            user, list({e.get('system_id') for e in entries}))
-        preview = []
-        for entry in entries:
-            system = systems_map.get(entry.get('system_id'))
-            if system is None:
-                raise LedgerValidationError('明细必须关联正式系统')
-            template = None
-            if entry.get('template_id'):
-                template = get_active_template(
-                    user, entry['template_id'], ledger_type)
-            preview.append(_preview_system_entry(system, template))
-    except LedgerValidationError as e:
-        return None, str(e)
-    if not preview:
-        return None, '请至少选择一个系统'
-    return preview, None
-
-
 @transaction.atomic
 def submit_ledger(user, pk):
     """提交台账：草稿/已退回 → 已提交（重复提交返回明确错误，无重复副作用）。"""
@@ -679,16 +569,13 @@ def submit_ledger(user, pk):
     error = legacy_inspection_error(ledger)
     if error:
         return None, error
+    # Excel 路线台账提交须走 /excel-ledgers/<pk>/submit/（含必填校验）
+    if ledger.created_from == LEDGER_FROM_EXCEL:
+        return None, EXCEL_LEDGER_SUBMIT_ERROR
     if not ledger.can_transition_to(LEDGER_STATUS_SUBMITTED):
         return None, '当前状态不允许提交（已提交或已复核台账请勿重复操作）'
     if not ledger.items.exists():
         return None, '台账没有明细，不能提交'
-    if ledger.row_instances.exists():
-        from apps.equipment_lifecycle import ledger_row_services
-
-        error = ledger_row_services.validate_matrix_submit(ledger)
-        if error:
-            return None, error
     ledger.status = LEDGER_STATUS_SUBMITTED
     ledger.submitted_at = timezone.now()
     ledger.submitted_by = user
@@ -856,10 +743,7 @@ def _correct_ledger_header(ledger, body, changes):
 
 @transaction.atomic
 def confirm_normal(user, pk, item_ids):
-    """批量确认正常：可编辑状态下将所选明细结果置为正常（不覆盖异常说明）。
-
-    矩阵台账：仅允许作用于"未填写"单元格，不能修改已有异常结果。
-    """
+    """批量确认正常：可编辑状态下将所选明细结果置为正常（不覆盖异常说明）。"""
     ledger = _get_ledger_for_user(pk, user, for_update=True)
     if not ledger:
         return None, '台账不存在'
@@ -870,14 +754,6 @@ def confirm_normal(user, pk, item_ids):
         return None, '当前状态不允许批量确认'
     if not isinstance(item_ids, list) or not item_ids:
         return None, '请选择需要确认的明细'
-    if ledger.row_instances.exists():
-        from apps.equipment_lifecycle import ledger_row_services
-
-        try:
-            ledger_row_services.confirm_normal_matrix(ledger, item_ids)
-        except LedgerValidationError as e:
-            return None, str(e)
-        return ledger, None
     items = ledger.items.filter(pk__in=item_ids)
     if items.count() != len(set(item_ids)):
         return None, '台账明细不存在或已移除'
@@ -887,3 +763,60 @@ def confirm_normal(user, pk, item_ids):
         item.result = ITEM_RESULT_NORMAL
         item.save(update_fields=['result'])
     return ledger, None
+
+
+# ======================================================================
+# 台账异常明细处置状态（2026-09-30 自 work_order_services 迁入并去工单化：
+# 仅保留"转故障"链路；由来源关系动态推导，不落库、不依赖前端）
+# ----------------------------------------------------------------------
+DISPOSITION_NONE = 'none'                      # 未处置
+DISPOSITION_CONVERTED_FAULT = 'converted_fault'  # 已转故障
+DISPOSITION_TARGET_CANCELLED = 'target_cancelled'  # 处置目标已取消或作废
+DISPOSITION_STATUS_VALUES = [
+    DISPOSITION_NONE, DISPOSITION_CONVERTED_FAULT, DISPOSITION_TARGET_CANCELLED,
+]
+
+
+def compute_item_disposition(tenant_id, item_ids):
+    """计算台账异常明细的处置状态（由来源故障关系动态推导，事实依据）。
+
+    返回 {item_id: {'status': ..., 'fault': {...} 或 None}}：
+    - status ∈ none / converted_fault / target_cancelled；
+    - 已取消/作废的来源故障仍保留关联（历史可追溯），仅体现为 target_cancelled；
+    - 台账明细本身不因转故障被修改。
+    """
+    item_ids = [int(i) for i in item_ids]
+    result = {
+        i: {'status': DISPOSITION_NONE, 'fault': None}
+        for i in item_ids
+    }
+    if not item_ids or not tenant_id:
+        return result
+
+    for fault in SystemFault.objects.filter(
+            tenant_id=tenant_id, source_ledger_item_id__in=item_ids).order_by('-id'):
+        slot = result.get(fault.source_ledger_item_id)
+        if slot is None:
+            continue
+        if slot['fault'] is None:
+            slot['fault'] = {
+                'id': fault.id, 'fault_no': fault.fault_no, 'status': fault.status}
+        if fault.status != SystemFault.STATUS_CANCELLED and slot['status'] == DISPOSITION_NONE:
+            slot['status'] = DISPOSITION_CONVERTED_FAULT
+
+    # 存在历史关联但目标均已取消/作废
+    for slot in result.values():
+        if slot['status'] == DISPOSITION_NONE and slot['fault']:
+            slot['status'] = DISPOSITION_TARGET_CANCELLED
+    return result
+
+
+def append_item_disposition(tenant_id, items):
+    """把处置状态批量并入台账明细序列化结果（items 为 to_view() 后的 dict 列表）。"""
+    ids = [item['id'] for item in items if isinstance(item, dict) and item.get('id')]
+    if not ids:
+        return items
+    disposition_map = compute_item_disposition(tenant_id, ids)
+    for item in items:
+        item['disposition'] = disposition_map.get(item.get('id'))
+    return items

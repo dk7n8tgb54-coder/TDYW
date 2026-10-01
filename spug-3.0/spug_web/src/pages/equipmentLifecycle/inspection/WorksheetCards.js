@@ -14,7 +14,7 @@
  * - 底色按列：有草稿的未记录轮次列浅黄、草稿单中已记录轮次列浅蓝、
  *   异常单元格浅红；已提交/已作废单无列底色（异常浅红保留）；
  * - 表格均为列式布局：第一列检查项目（连续同项目合并单元格）、第二列检查内容；
- * - 巡检单只记录巡检结果、异常内容和现场处理：历史已转故障/已转工单的
+ * - 巡检单只记录巡检结果、异常内容和现场处理：历史已转故障的
  *   处置状态以标签只读展示（转单功能已下线，无任何转单入口）。
  * 组件只读 props 不直接读取 store，保证 observable 读取发生在 observer 顶层组件。
  */
@@ -92,7 +92,7 @@ function ValueControl({item, value, onChange}) {
 
 function RecordValue({record, isSubmitted}) {
   const color = record.result === 'abnormal' ? 'red' : 'inherit';
-  // 历史处置状态只读展示：已转故障/已转工单/目标已作废（转单功能已下线）
+  // 历史处置状态只读展示：已转故障/目标已作废（转单功能已下线）
   const showDispositionTag = isSubmitted && record.result === 'abnormal' &&
     record.disposition && record.disposition.status !== 'none';
   return (
@@ -212,7 +212,7 @@ function HeaderCard({dutyDate, onDutyDateChange, templateId, onTemplateChange,
             allowClear={false}
             onChange={d => onDutyDateChange(d ? d.format('YYYY-MM-DD') : dutyDate)}
           />
-          <Tooltip title="第四轮（次日 06:30）发生在下一自然日，请回选前一值班日填写">
+          <Tooltip title="第四轮（6:30-6:50）发生在下一自然日，请回选前一值班日填写">
             <a style={{marginLeft: 6}}>跨夜说明</a>
           </Tooltip>
         </Col>

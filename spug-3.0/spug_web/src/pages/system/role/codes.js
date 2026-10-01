@@ -119,7 +119,7 @@ export default [{
       {key: 'review', label: '复核/退回台账'},
       {key: 'del', label: '作废台账（受控作废，非物理删除）'},
       {key: 'export', label: '导出台账'},
-      {key: 'handle_exception', label: '异常处置（周/月/季维护台账异常转故障/转工单；旧巡检台账已删除）'},
+      {key: 'handle_exception', label: '异常处置（周/月/季维护台账异常转故障；旧巡检台账已删除）'},
     ]
   }, {
     key: 'inspection',
@@ -142,18 +142,9 @@ export default [{
       {key: 'del', label: '删除/停用巡检模板'},
     ]
   }, {
-    key: 'work_order',
-    label: '工单管理',
-    perms: [
-      {key: 'view', label: '查看工单'},
-      {key: 'add', label: '新增工单/故障生成工单/异常转工单'},
-      {key: 'edit', label: '编辑执行中工单/更正处理记录'},
-      {key: 'execute', label: '完成工单/处理记录'},
-      {key: 'close', label: '关闭工单'},
-      {key: 'del', label: '取消工单（受控取消，非物理删除）'},
-      {key: 'export', label: '导出工单列表'},
-    ]
-  }, {
+    // work_order（工单管理）权限组已随故障维修工单功能整体删除（2026-09-30），
+    // 存量角色 JSON 中的工单权限码由迁移 0043 清洗。
+
     key: 'system_event',
     label: '系统履历',
     perms: [

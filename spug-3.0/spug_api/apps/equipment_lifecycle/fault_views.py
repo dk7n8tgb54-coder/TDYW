@@ -15,17 +15,22 @@
 - 所有改变有效故障影响的写操作在 health_recalc_lock 内 + 单事务中完成，
   系统健康状态由 fault_services 统一重算（同事务写入）；
 - 创建接口以业务字段窗口期查重 + 唯一编号约束防重复提交；
-- 首报表单精简（2026-09）：手工新增故障 discovery 缺省"人工报告"、level 缺省
-  "一般"，两字段不再必填；编辑未提交 discovery/level 及历史设备字段
-  （影响范围/故障位置/对象名称/型号/序列号）时保留原值，不静默清空历史数据；
-- 人员字段（2026-09）：新增故障登记人 registrar_name（手动输入的登记人姓名，
-  实际添加故障记录的人，手工新增必填、不预填当前用户，可与 created_by 登录
-  账号不同）；处理进展的进展记录人 recorder_name 同为手动输入姓名（见
-  fault_progress_views）。两者均只表示"谁登记/谁记录"，不代表负责整个故障或
-  承担维修责任；姓名为文本快照、不关联 User（实际操作人可能没有系统账号）；
-  台账异常转故障等程序化入口由服务层自动登记操作人姓名；
-  处置负责人（SystemFault.handler）能力保持不变；
+- 首报表单精简（2026-09）：手工新增只保留核心字段；编辑未提交对象名称/
+  型号/序列号等旧设备字段时保留原值，不静默清空历史数据；
+- 字段退役（2026-09-29）：处置负责人（handler）、发现方式（discovery）、
+  级别（level）、影响范围（impact_scope）、故障位置（fault_location）字段
+  已整体删除，相关入参/筛选/导出列一并移除；旧参数出现即拒绝，不静默忽略；
+- 人员字段（2026-09）：故障登记人 registrar_name 与恢复确认人
+  recovered_by_name 均为手动输入姓名（实际登记/确认的人，手工操作必填、
+  不预填当前用户，可与 created_by 登录账号不同）；处理进展的进展记录人
+  recorder_name 同为手动输入姓名（见 fault_progress_views）。均只表示
+  "谁登记/谁确认/谁记录"，姓名为文本快照、不关联 User（实际操作人可能
+  没有系统账号）；台账异常转故障等程序化入口由服务层自动登记操作人姓名；
 - 写操作记录业务审计（record_audit_event）。
+
+2026-09-30 工单功能整体删除：本模块自 work_order_views.py 接管
+"台账异常明细转故障"视图（LedgerItemConvertToFaultView，故障链路），
+故障生成维修工单/台账异常转工单等工单链路一并删除。
 """
 import csv
 import io
@@ -41,11 +46,17 @@ from django.views.generic import View
 from libs import JsonParser, Argument, json_response, auth
 from libs.idempotency import check_recent_duplicate
 from libs.tenant_utils import apply_tenant_filter
-from apps.account.models import User
 from apps.logs.audit import record_audit_event
 from apps.equipment_lifecycle import event_services, fault_services
 from apps.equipment_lifecycle.models import (
+    ITEM_RESULT_ABNORMAL,
+    LEDGER_STATUS_DRAFT,
+    LEDGER_STATUS_RETURNED,
+    LEDGER_STATUS_VOID,
+    LEGACY_LEDGER_TYPE_INSPECTION,
+    LEDGER_TYPE_TEXT,
     LifecycleSystem,
+    OperationLedgerItem,
     SystemFault,
 )
 
@@ -95,10 +106,18 @@ def _get_active_system_for_user(pk, user):
         pk=pk, is_active=True).first()
 
 
-def _validate_affected_systems_rejected(body):
-    """旧参数已随单系统简化删除：出现即拒绝，不静默忽略。"""
-    if 'affected_systems' in body:
-        return '故障已不再支持受影响系统，请只提交一个故障系统'
+# 已随字段删除下线的旧参数（单系统简化 + 2026-09 字段退役）：
+# 出现即拒绝，不静默忽略（避免旧客户端提交的字段被无声丢弃）
+REMOVED_FAULT_PARAMS = (
+    'affected_systems', 'discovery', 'level', 'impact_scope', 'fault_location', 'handler_id',
+)
+
+
+def _validate_removed_params_rejected(body):
+    """旧参数已随字段删除下线：出现即拒绝，不静默忽略。"""
+    present = [name for name in REMOVED_FAULT_PARAMS if name in body]
+    if present:
+        return '故障已不再支持参数：' + '、'.join(present) + '，请更新后重新提交'
     return None
 
 
@@ -122,28 +141,17 @@ def _validate_affects_and_impact(form, fallback_affects=False, fallback_impact='
     return affects, impact_status, None
 
 
-def _validate_fault_fields(form, request, for_update=False, fault=None):
-    """校验故障公共字段，返回 (occurred_at, handler, error)。
+def _validate_fault_fields(form):
+    """校验故障发生时间，返回 (occurred_at, error)。
 
-    discovery/level 允许缺省（None=编辑保留原值，创建由 JsonParser 补默认值），
-    仅显式提交时校验取值合法性。
+    发现方式/级别/处置负责人字段已删除（2026-09），仅校验发生时间。
     """
     occurred_at = _parse_dt(form.occurred_at)
     if not occurred_at:
-        return None, None, '故障发生时间格式不正确，应为 YYYY-MM-DD HH:MM'
+        return None, '故障发生时间格式不正确，应为 YYYY-MM-DD HH:MM'
     if occurred_at > timezone.now():
-        return None, None, '故障发生时间不能晚于当前时间'
-    if form.level is not None and form.level not in SystemFault.LEVEL_TEXT_MAP:
-        return None, None, '故障级别不合法'
-    if form.discovery is not None and form.discovery not in SystemFault.DISCOVERY_TEXT_MAP:
-        return None, None, '故障发现方式不合法'
-    handler = request.user
-    if form.handler_id:
-        handler = apply_tenant_filter(User.objects.all(), request.user).filter(
-            pk=form.handler_id).first()
-        if not handler:
-            return None, None, '处置负责人不存在或无权限'
-    return occurred_at, handler, None
+        return None, '故障发生时间不能晚于当前时间'
+    return occurred_at, None
 
 
 def _validate_fault_system(form, request, for_update=False, fault=None):
@@ -158,18 +166,6 @@ def _validate_fault_system(form, request, for_update=False, fault=None):
     return system, None
 
 
-def _generate_fault_no(tenant_id):
-    """生成租户内当日序号故障编号 GZ{yyyymmdd}-{seq:04d}（须在持锁事务内调用）。"""
-    # USE_TZ=False 下 timezone.localdate() 会对 naive now 抛错，直接取本地日期
-    prefix = 'GZ' + timezone.now().date().strftime('%Y%m%d') + '-'
-    existing = set(SystemFault.objects.filter(
-        tenant_id=tenant_id, fault_no__startswith=prefix).values_list('fault_no', flat=True))
-    index = len(existing) + 1
-    while f'{prefix}{index:04d}' in existing:
-        index += 1
-    return f'{prefix}{index:04d}'
-
-
 def _fault_audit_summary(fault):
     summary = {
         'fault_no': fault.fault_no,
@@ -177,7 +173,6 @@ def _fault_audit_summary(fault):
         'system': fault.system_name,
         'affects_system_operation': fault.affects_system_operation,
         'impact_status': fault.impact_status,
-        'level': fault.level,
     }
     if fault.status == SystemFault.STATUS_CANCELLED and fault.cancel_reason:
         summary['cancel_reason'] = fault.cancel_reason
@@ -187,8 +182,6 @@ def _fault_audit_summary(fault):
 def _fault_optional_fields(form):
     """故障可选文本字段规范化（strip 限长由创建服务统一处理）。"""
     return {
-        'impact_scope': form.impact_scope or '',
-        'fault_location': form.fault_location or '',
         'fault_object_name': form.fault_object_name or '',
         'fault_object_model': form.fault_object_model or '',
         'fault_object_sn': form.fault_object_sn or '',
@@ -199,13 +192,9 @@ def _fault_optional_fields(form):
 def _apply_fault_text_fields(fault, form):
     """编辑故障时写入可选文本字段（统一 strip 限长）。
 
-    未提交（None）的字段保留原值：精简后的表单不再携带影响范围/故障位置/
-    对象型号/序列号等历史字段，编辑旧故障时不得静默清空历史数据。
+    未提交（None）的字段保留原值：精简后的表单不再携带对象型号/序列号等
+    历史字段，编辑旧故障时不得静默清空历史数据。
     """
-    if form.impact_scope is not None:
-        fault.impact_scope = form.impact_scope.strip()[:1000]
-    if form.fault_location is not None:
-        fault.fault_location = form.fault_location.strip()[:200]
     if form.fault_object_name is not None:
         fault.fault_object_name = form.fault_object_name.strip()[:100]
     if form.fault_object_model is not None:
@@ -224,7 +213,6 @@ class FaultView(View):
         form, error = JsonParser(
             Argument('system', type=int, required=False),
             Argument('status', type=str, required=False),
-            Argument('level', type=str, required=False),
             Argument('keyword', type=str, required=False),
             Argument('occurred_from', type=str, required=False),
             Argument('occurred_to', type=str, required=False),
@@ -236,10 +224,6 @@ class FaultView(View):
             if form.status not in SystemFault.STATUS_TEXT_MAP:
                 return json_response(error='故障状态筛选值不合法')
             query = query.filter(status=form.status)
-        if form.level:
-            if form.level not in SystemFault.LEVEL_TEXT_MAP:
-                return json_response(error='故障级别筛选值不合法')
-            query = query.filter(level=form.level)
         if form.system:
             query = query.filter(system_id=form.system)
         if form.keyword:
@@ -279,32 +263,25 @@ class FaultView(View):
             Argument('impact_status', type=str, required=False, default='',
                      help='系统影响程度：影响系统运行时必填（降级/故障/中断）'),
             Argument('occurred_at', type=str, required=True, help='故障发生时间'),
-            Argument('discovery', type=str, required=False, default=SystemFault.DISCOVERY_REPORT,
-                     help='故障发现方式，缺省人工报告（首报表单不再必填）'),
-            Argument('level', type=str, required=False, default=SystemFault.LEVEL_MINOR,
-                     help='故障级别，缺省一般（首报表单不再必填）'),
             Argument('phenomenon', type=str, required=True, help='故障现象'),
-            Argument('impact_scope', type=str, required=False, default=''),
-            Argument('fault_location', type=str, required=False, default=''),
             Argument('fault_object_name', type=str, required=False, default=''),
             Argument('fault_object_model', type=str, required=False, default=''),
             Argument('fault_object_sn', type=str, required=False, default=''),
             Argument('reason_analysis', type=str, required=False, default=''),
-            Argument('handler_id', type=int, required=False, default=None),
             Argument('registrar_name', type=str, required=False, default=None,
                      help='故障登记人姓名（手动输入必填，不预填；实际添加本条故障记录的人，'
                           '多人以顿号分隔；与登录账号审计字段 created_by 独立）'),
         ).parse(body)
         if error:
             return json_response(error=error)
-        err = _validate_affected_systems_rejected(body)
+        err = _validate_removed_params_rejected(body)
         if err:
             return json_response(error=err)
 
         system, err = _validate_fault_system(form, request)
         if err:
             return json_response(error=err)
-        occurred_at, handler, err = _validate_fault_fields(form, request)
+        occurred_at, err = _validate_fault_fields(form)
         if err:
             return json_response(error=err)
         affects, impact_status, err = _validate_affects_and_impact(form)
@@ -337,10 +314,7 @@ class FaultView(View):
                         affects_system_operation=affects,
                         impact_status=impact_status,
                         occurred_at=occurred_at,
-                        discovery=form.discovery,
-                        level=form.level,
                         phenomenon=phenomenon,
-                        handler=handler,
                         registrar_name=registrar_name,
                         **_fault_optional_fields(form),
                         source_type=SystemFault.SOURCE_MANUAL,
@@ -348,7 +322,8 @@ class FaultView(View):
                     )
                     record_audit_event(request, 'create', AUDIT_TARGET_FAULT, fault.id,
                                        fault.fault_no, after_value=_fault_audit_summary(fault))
-        except fault_services.HealthRecalcLockTimeout as exc:
+        except (fault_services.HealthRecalcLockTimeout,
+                fault_services.FaultNoExhausted) as exc:
             return json_response(error=str(exc))
         return json_response(fault.to_detail_view())
 
@@ -375,22 +350,15 @@ class FaultDetailView(View):
             Argument('impact_status', type=str, required=False, default='',
                      help='系统影响程度：影响系统运行时必填（降级/故障/中断）'),
             Argument('occurred_at', type=str, required=True, help='故障发生时间'),
-            Argument('discovery', type=str, required=False, default=None,
-                     help='故障发现方式；编辑未提交时保留原值'),
-            Argument('level', type=str, required=False, default=None,
-                     help='故障级别；编辑未提交时保留原值'),
             Argument('phenomenon', type=str, required=True, help='故障现象'),
-            Argument('impact_scope', type=str, required=False, default=None),
-            Argument('fault_location', type=str, required=False, default=None),
             Argument('fault_object_name', type=str, required=False, default=None),
             Argument('fault_object_model', type=str, required=False, default=None),
             Argument('fault_object_sn', type=str, required=False, default=None),
             Argument('reason_analysis', type=str, required=False, default=None),
-            Argument('handler_id', type=int, required=False, default=None),
         ).parse(body)
         if error:
             return json_response(error=error)
-        err = _validate_affected_systems_rejected(body)
+        err = _validate_removed_params_rejected(body)
         if err:
             return json_response(error=err)
 
@@ -409,8 +377,7 @@ class FaultDetailView(View):
                         form, request, for_update=True, fault=fault)
                     if err:
                         return json_response(error=err)
-                    occurred_at, handler, err = _validate_fault_fields(
-                        form, request, for_update=True, fault=fault)
+                    occurred_at, err = _validate_fault_fields(form)
                     if err:
                         return json_response(error=err)
                     affects, impact_status, err = _validate_affects_and_impact(
@@ -431,14 +398,8 @@ class FaultDetailView(View):
                     fault.system_name = system.name
                     fault.system_location = system.install_location
                     fault.occurred_at = occurred_at
-                    # 未提交的发现方式/级别保留原值（精简表单编辑不携带）
-                    if form.discovery is not None:
-                        fault.discovery = form.discovery
-                    if form.level is not None:
-                        fault.level = form.level
                     fault.phenomenon = phenomenon[:2000]
                     _apply_fault_text_fields(fault, form)
-                    fault.handler = handler
                     fault.updated_at = timezone.now()
                     fault.updated_by = request.user
                     fault.save()
@@ -506,19 +467,13 @@ class FaultStartView(FaultActionBaseView):
         if fault.status != SystemFault.STATUS_PENDING:
             return '只有待处置的故障才能开始处置'
         body = _read_json_body(request) or {}
-        handler_id = body.get('handler_id')
+        # 处置负责人字段已删除（2026-09）：旧客户端提交 handler_id 显式拒绝
+        if 'handler_id' in body:
+            return '故障已不再支持参数：handler_id，请更新后重新提交'
         fault.status = SystemFault.STATUS_HANDLING
-        if handler_id:
-            handler = apply_tenant_filter(User.objects.all(), request.user).filter(
-                pk=handler_id).first()
-            if not handler:
-                return '处置负责人不存在或无权限'
-            fault.handler = handler
-        elif not fault.handler_id:
-            fault.handler = request.user
         fault.updated_at = timezone.now()
         fault.updated_by = request.user
-        fault.save(update_fields=['status', 'handler', 'updated_at', 'updated_by'])
+        fault.save(update_fields=['status', 'updated_at', 'updated_by'])
         self.recompute(request, fault, '开始处置 ' + fault.fault_no)
         return None
 
@@ -539,6 +494,9 @@ class FaultRecoverView(FaultActionBaseView):
         body = _read_json_body(request) or {}
         form, error = JsonParser(
             Argument('recovered_at', type=str, required=True, help='恢复时间'),
+            Argument('recovered_by_name', type=str, required=False, default=None,
+                     help='恢复确认人姓名（手动输入必填，不预填；实际确认恢复的人，'
+                          '多人以顿号分隔；与登录账号审计字段独立，不关联 User）'),
             Argument('recover_confirm', type=str, required=True, help='恢复确认信息'),
             Argument('final_result', type=str, required=False, default=''),
         ).parse(body)
@@ -549,12 +507,16 @@ class FaultRecoverView(FaultActionBaseView):
             return '恢复时间格式不正确，应为 YYYY-MM-DD HH:MM'
         if recovered_at < fault.occurred_at:
             return '恢复时间不能早于故障发生时间'
+        # 恢复确认人手动输入必填（不默认当前登录用户，参照故障登记人口径）
+        recovered_by_name = (form.recovered_by_name or '').strip()
+        if not recovered_by_name:
+            return '恢复确认人不能为空'
         if not form.recover_confirm.strip():
             return '恢复确认信息不能为空'
         fault.status = SystemFault.STATUS_RECOVERED
         fault.recovered_at = recovered_at
         fault.recover_confirm = form.recover_confirm.strip()[:1000]
-        fault.recovered_by = request.user
+        fault.recovered_by_name = recovered_by_name[:200]
         fault.recovered_confirmed_at = timezone.now()
         if form.final_result and form.final_result.strip():
             fault.final_result = form.final_result.strip()[:2000]
@@ -590,7 +552,8 @@ class FaultCloseView(FaultActionBaseView):
         final_result = (form.final_result or fault.final_result or '').strip()
         if not final_result:
             return '未填写最终结果，不能关闭'
-        if not fault.recovered_at or not fault.recovered_by or not fault.recover_confirm.strip():
+        if not fault.recovered_at or not fault.recovered_by_name.strip() \
+                or not fault.recover_confirm.strip():
             return '缺少恢复时间、恢复确认人或恢复确认信息，不能关闭'
         fault.final_result = final_result[:2000]
         fault.status = SystemFault.STATUS_CLOSED
@@ -685,12 +648,9 @@ class FaultExportView(View):
         status = request.GET.get('status')
         if status and status in SystemFault.STATUS_TEXT_MAP:
             query = query.filter(status=status)
-        level = request.GET.get('level')
-        if level and level in SystemFault.LEVEL_TEXT_MAP:
-            query = query.filter(level=level)
-        headers = ['故障编号', '故障系统', '系统编号', '影响状态', '故障级别', '状态',
-                   '发生时间', '发现方式', '故障现象', '恢复时间', '最终结果',
-                   '故障登记人', '处置负责人']
+        headers = ['故障编号', '故障系统', '系统编号', '影响状态', '状态',
+                   '发生时间', '故障现象', '恢复时间', '最终结果',
+                   '故障登记人', '恢复确认人']
         rows = []
         for item in query:
             rows.append([
@@ -698,15 +658,13 @@ class FaultExportView(View):
                 item.system_name,
                 item.system_code,
                 item.IMPACT_TEXT_MAP.get(item.impact_status, ''),
-                item.LEVEL_TEXT_MAP.get(item.level, item.level),
                 item.STATUS_TEXT_MAP.get(item.status, item.status),
                 item.occurred_at.strftime('%Y-%m-%d %H:%M') if item.occurred_at else '',
-                item.DISCOVERY_TEXT_MAP.get(item.discovery, item.discovery),
                 item.phenomenon,
                 item.recovered_at.strftime('%Y-%m-%d %H:%M') if item.recovered_at else '',
                 item.final_result,
                 item.registrar_name or '',
-                item.handler.username if item.handler_id else '',
+                item.recovered_by_name or '',
             ])
         buf = io.StringIO()
         writer = csv.writer(buf)
@@ -718,3 +676,197 @@ class FaultExportView(View):
         record_audit_event(request, 'export', AUDIT_TARGET_FAULT, '', '',
                            after_value={'total': len(rows)})
         return response
+
+
+# ======================================================================
+# 台账异常明细转故障（自 work_order_views.py 迁入，2026-09-30 工单下线）
+# ----------------------------------------------------------------------
+
+# 台账异常明细可转故障的台账状态（草稿/退回/作废不可转）
+CONVERTIBLE_LEDGER_STATUSES = ('submitted', 'reviewed')
+
+
+def _item_value_text(item):
+    """台账明细填写值文本（转入单据的现象描述用）。"""
+    if item.input_type == 'number' and item.value_number is not None:
+        unit = item.unit_snapshot or ''
+        return f'{item.value_number}{unit}'
+    if item.input_type == 'boolean' and item.value_bool is not None:
+        return '是' if item.value_bool else '否'
+    return item.value_text or ''
+
+
+def _get_ledger_item_for_convert(ledger_pk, item_pk, user, for_update=False):
+    """重新查询台账与明细并校验：URL 匹配、同租户、可转故障状态。
+
+    返回 (item, ledger, error)。转换前必须重新查询台账和明细状态，
+    不信任前端传来的状态。
+    """
+    qs = OperationLedgerItem.objects.select_related('ledger', 'system')
+    if for_update:
+        qs = qs.select_for_update()
+    if not getattr(user, 'is_supper', False):
+        qs = qs.filter(tenant_id=user.tenant_id)
+    item = qs.filter(pk=item_pk, ledger_id=ledger_pk).first()
+    if not item:
+        return None, None, '台账明细不存在'
+    ledger = item.ledger
+    # 旧巡检台账类型已删除（旧巡检台账下线改造）：异常转故障一律显式拒绝；
+    # 周月/季维护不受影响。
+    if ledger.ledger_type == LEGACY_LEDGER_TYPE_INSPECTION:
+        return None, None, '旧巡检台账（历史）已删除，不能转故障'
+    if ledger.status in (LEDGER_STATUS_DRAFT, LEDGER_STATUS_RETURNED, LEDGER_STATUS_VOID):
+        return None, None, '草稿、已退回或已作废的台账不能转故障'
+    if ledger.status not in CONVERTIBLE_LEDGER_STATUSES:
+        return None, None, '当前台账状态不能转故障'
+    if item.result != ITEM_RESULT_ABNORMAL:
+        return None, None, '只有结果为"异常"的明细可以转故障'
+    return item, ledger, None
+
+
+def _check_item_redispose(item, user, re_dispose_reason):
+    """异常明细再次转故障校验：拒绝或要求重新处置原因。
+
+    返回 error（None 表示允许）。规则：
+    - 已存在未取消故障 → 一律拒绝（不能静默重复创建）；
+    - 仅存在已取消故障 → 必须填写重新处置原因；
+    - 首次处置 → 直接放行。
+    （原"已转故障后再转工单"分支已随工单功能删除）
+    """
+    reason = (re_dispose_reason or '').strip()
+    existing = SystemFault.objects.filter(
+        tenant_id=user.tenant_id, source_ledger_item=item).order_by('-id')
+    active = existing.exclude(status=SystemFault.STATUS_CANCELLED).first()
+    latest = existing.first()
+    if active:
+        return f'该异常明细已转故障（{active.fault_no}），不能重复转换'
+    if latest and not reason:
+        return '该异常明细曾转故障（目标已作废）。如需重新处置请填写重新处置原因'
+    return None
+
+
+def _resolve_convert_payload(body, item, ledger):
+    """解析并校验台账异常转故障载荷，返回 (params, error)。
+
+    params 包含 occurred_at/affects_system_operation/impact_status/phenomenon。
+    """
+    # 发现方式/级别字段已删除（2026-09）：旧客户端提交显式拒绝
+    removed = [k for k in ('discovery', 'level') if k in body]
+    if removed:
+        return None, '故障已不再支持参数：' + '、'.join(removed) + '，请更新后重新提交'
+    form, error = JsonParser(
+        Argument('occurred_at', type=str, required=False, default=''),
+        Argument('affects_system_operation', type=bool, required=False, default=False,
+                 help='是否影响系统运行，默认不影响（部件故障）'),
+        Argument('impact_status', type=str, required=False, default='',
+                 help='系统影响程度：影响系统运行时必填（降级/故障/中断）'),
+        Argument('phenomenon', type=str, required=False, default=''),
+        Argument('re_dispose_reason', type=str, required=False, default=''),
+    ).parse(body)
+    if error:
+        return None, error
+
+    occurred_at = _parse_dt(form.occurred_at) if form.occurred_at else None
+    if form.occurred_at and not occurred_at:
+        return None, '故障发生时间格式不正确'
+    if not occurred_at:
+        occurred_at = item.executed_at
+    if not occurred_at:
+        # 明细无独立执行时间时取台账实际执行日期（USE_TZ=False 直接取本地 naive）
+        occurred_at = datetime.combine(ledger.executed_date, datetime.min.time())
+    if occurred_at > timezone.now():
+        return None, '故障发生时间不能晚于当前时间'
+    # 默认"部件故障但不影响系统运行"；仅明确选择影响运行时才要求影响程度
+    affects = bool(form.affects_system_operation)
+    if affects:
+        if form.impact_status not in SystemFault.IMPACT_TEXT_MAP:
+            return None, '影响系统运行时必须选择影响程度（降级/故障/中断）'
+        impact_status = form.impact_status
+    else:
+        impact_status = ''
+
+    phenomenon = (form.phenomenon or '').strip()
+    if not phenomenon:
+        phenomenon = _compose_phenomenon(item, ledger)
+    return {
+        'occurred_at': occurred_at,
+        'affects_system_operation': affects,
+        'impact_status': impact_status,
+        'phenomenon': phenomenon,
+    }, None
+
+
+def _compose_phenomenon(item, ledger):
+    """由台账明细组装默认故障现象：台账类型/编号 + 检查项 + 异常说明
+    + 实测值 + 现场处理内容。"""
+    ledger_label = f'{LEDGER_TYPE_TEXT.get(ledger.ledger_type, ledger.ledger_type)} {ledger.ledger_no}'
+    parts = [f'[{ledger_label}] {item.item_name_snapshot}']
+    parts.append(item.abnormal_desc or '发现异常')
+    value_text = _item_value_text(item)
+    if value_text:
+        parts.append(f'实测值：{value_text}')
+    if item.onsite_action:
+        parts.append(f'现场处理：{item.onsite_action}')
+    return '；'.join(parts)[:2000]
+
+
+class LedgerItemConvertToFaultView(View):
+    """台账异常明细转故障（台账详情"转故障"操作）。
+
+    - 只有结果为"异常"的明细可以转故障；草稿/退回/作废台账不能转；
+    - 故障系统固定为明细所属系统；
+    - 带入台账类型、编号、检查项、异常说明、实测值与现场处理内容；
+    - 必须调用步骤 3.1 的正式故障创建服务（fault_services.create_fault_record），
+      转换与来源关系保存处于同一事务；
+    - 同一异常明细默认只允许直接生成一张故障；目标已作废后重新处置须填写原因。
+    """
+
+    @auth('equipment_lifecycle.ledger.handle_exception')
+    def post(self, request, ledger_pk, item_pk):
+        if not request.user.has_perms(['equipment_lifecycle.fault.add']):
+            return json_response(error='权限拒绝')
+        body = _read_json_body(request) or {}
+        try:
+            with fault_services.health_recalc_lock():
+                with transaction.atomic():
+                    item, ledger, error = _get_ledger_item_for_convert(
+                        ledger_pk, item_pk, request.user, for_update=True)
+                    if error:
+                        return json_response(error=error)
+                    error = _check_item_redispose(
+                        item, request.user, body.get('re_dispose_reason'))
+                    if error:
+                        return json_response(error=error)
+                    params, error = _resolve_convert_payload(body, item, ledger)
+                    if error:
+                        return json_response(error=error)
+
+                    fault = fault_services.create_fault_record(
+                        tenant_id=request.user.tenant_id,
+                        created_by=request.user,
+                        system=item.system,
+                        source_type='ledger_item',
+                        source_ledger_item=item,
+                        request=request,
+                        **params,
+                    )
+                    # 步骤 3.4：台账异常处置履历（来源 ledger_item，与转换同一事务）
+                    event_services.record_ledger_convert_event(
+                        item, ledger, 'convert_to_fault', target_no=fault.fault_no,
+                        created_by=request.user)
+                    record_audit_event(request, 'create', AUDIT_TARGET_FAULT,
+                                       fault.id, fault.fault_no,
+                                       after_value={
+                                           'action': 'convert_from_ledger_item',
+                                           'ledger_no': ledger.ledger_no,
+                                           'ledger_item_id': item.id,
+                                           'item_name': item.item_name_snapshot,
+                                           'status': fault.status,
+                                           're_dispose_reason': (
+                                               body.get('re_dispose_reason') or '').strip()[:200],
+                                       })
+        except (fault_services.HealthRecalcLockTimeout,
+                fault_services.FaultNoExhausted) as exc:
+            return json_response(error=str(exc))
+        fault_data = SystemFault.objects.select_related('system').get(pk=fault.id)
+        return json_response(fault_data.to_detail_view())

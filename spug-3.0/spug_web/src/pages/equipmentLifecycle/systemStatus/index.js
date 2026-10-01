@@ -6,7 +6,7 @@
 /**
  * 设备全生命周期——当前运行状态页面（履历与状态）。
  * 只读聚合：按健康状态统计 + 系统状态列表；点击状态卡片即按该状态筛选列表。
- * 健康状态唯一来源为后端故障/工单统一计算（fault_services），本页不提供修改入口。
+ * 健康状态唯一来源为后端有效故障统一计算（fault_services），本页不提供修改入口。
  */
 import React, { useEffect } from 'react';
 import { observer } from 'mobx-react';

@@ -2,7 +2,7 @@
  * 运维台账（步骤 3.2）Store 行为测试。
  * 真实执行 Store 方法与请求参数组装，mock libs.http 返回真实响应格式。
  */
-import {LedgerStore, TemplateStore, getLedgerStore, templateStore} from '../store';
+import {LedgerStore, getLedgerStore} from '../store';
 import {LEDGER_TYPE} from '../constants';
 
 const mockHttpGet = jest.fn();
@@ -76,23 +76,10 @@ describe('LedgerStore', () => {
   });
 });
 
-describe('TemplateStore', () => {
-  beforeEach(() => {
-    [mockHttpGet, mockHttpPut].forEach(fn => fn.mockReset());
-  });
-
-  test('模板列表与停用启用请求', async () => {
-    mockHttpGet.mockResolvedValue({data: [], total: 0});
-    const store = new TemplateStore();
-    await store.fetchRecords();
-    expect(mockHttpGet.mock.calls[0][0]).toBe('/api/equipment-lifecycle/ledger-templates/');
-    mockHttpPut.mockResolvedValue({});
-    mockHttpGet.mockResolvedValue({data: []});
-    await store.toggleActive({id: 4}, false);
-    expect(mockHttpPut).toHaveBeenCalledWith('/api/equipment-lifecycle/ledger-templates/4/active/', {is_active: false});
-  });
-
-  test('全局单例导出存在（模板页共用）', () => {
-    expect(templateStore).toBeInstanceOf(TemplateStore);
+describe('TemplateStore（旧可视化模板）', () => {
+  test('旧可视化模板 TemplateStore 已随路线删除（2026-10）', () => {
+    const storeModule = require('../store');
+    expect(storeModule.TemplateStore).toBeUndefined();
+    expect(storeModule.templateStore).toBeUndefined();
   });
 });

@@ -36,9 +36,6 @@ from apps.logs.audit import record_audit_event
 from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     SystemFault,
-    SystemWorkOrder,
-    WORK_ORDER_STATUS_EXECUTING,
-    WORK_TYPE_REPAIR,
 )
 from apps.equipment_lifecycle import fault_services
 
@@ -47,17 +44,17 @@ AUDIT_TARGET_SYSTEM = 'el_system'
 # 本模块附件归属标识（module 常量，台账等附件场景共用；object_type 由各业务自定义）
 EL_ATTACHMENT_MODULE = 'equipment_lifecycle'
 
-COMPONENT_MAINTENANCE_EMPTY = {'fault_count': 0, 'repairing_count': 0}
+COMPONENT_MAINTENANCE_EMPTY = {'fault_count': 0}
 
 
 def _component_maintenance_rows(systems):
     """部件维护状态汇总（与系统运行健康状态分离展示）。
 
-    - fault_count：有效（待处置/处置中）且不影响系统运行的故障数（部件故障提示）；
-    - repairing_count：执行中且不影响系统运行的维修工单数（部件维修中提示）。
-    不影响运行的部件维修/部件故障不参与系统健康状态计算，只作独立提示展示；
+    - fault_count：有效（待处置/处置中）且不影响系统运行的故障数（部件故障提示）。
+    部件故障不参与系统健康状态计算，只作独立提示展示（"维修中"已随
+    故障维修工单功能整体删除，2026-09-30）；
     入参 systems 必须来自租户过滤后的查询结果，避免跨租户计数。
-    返回 {system_id: {'fault_count': n, 'repairing_count': n}}。
+    返回 {system_id: {'fault_count': n}}。
     """
     ids = [s.id for s in systems]
     if not ids:
@@ -70,17 +67,8 @@ def _component_maintenance_rows(systems):
                 affects_system_operation=False)
         .values_list('system_id')
         .annotate(total=models.Count('id')))
-    repairing_rows = (
-        SystemWorkOrder.objects
-        .filter(system_id__in=ids, work_type=WORK_TYPE_REPAIR,
-                status=WORK_ORDER_STATUS_EXECUTING,
-                affects_system_operation=False)
-        .values_list('system_id')
-        .annotate(total=models.Count('id')))
     for system_id, total in fault_rows:
         result[system_id]['fault_count'] = total
-    for system_id, total in repairing_rows:
-        result[system_id]['repairing_count'] = total
     return result
 
 
@@ -106,7 +94,7 @@ def _parse_date(value):
     return None
 
 # 系统固定字段的变更历史展示名（与模型 help_text 口径一致）
-# 注意：health_status 由故障/工单驱动统一计算（fault_services），不属于可编辑固定字段
+# 注意：health_status 由有效故障统一计算（fault_services），不属于可编辑固定字段
 FIXED_CHANGE_LABELS = {
     'name': '系统名称', 'system_model': '系统型号', 'install_location': '安装地点',
     'geo_coordinate': '安装经纬度', 'callsign': '呼号',
@@ -153,7 +141,7 @@ def _parse_system_fields(data):
 def _fixed_field_snapshot(item):
     """提取参与变更历史比对的系统固定字段快照。
 
-    health_status 不参与比对：它由故障/工单驱动统一计算（fault_services），
+    health_status 不参与比对：它由有效故障统一计算（fault_services），
     不是用户可编辑字段，其变化通过健康状态审计与系统履历记录。
     """
     return {
@@ -180,7 +168,7 @@ def _diff_fixed_changes(before, after):
 def _apply_fixed_fields(item, form, install_time, enable_time, user):
     """把校验通过的固定字段写入系统实例（不落库）。
 
-    health_status 不在此写入：普通系统编辑不能覆盖由故障和工单计算的健康状态
+    health_status 不在此写入：普通系统编辑不能覆盖由有效故障计算的健康状态
     （步骤 3.5 收口，新建系统初始化为 normal，后续变化只由重算服务写入）。
     """
     item.name = form.name.strip()
@@ -240,16 +228,15 @@ def _get_system_for_user(pk, user):
 def _collect_system_references(system):
     """删除保护：返回引用该系统的业务对象描述列表，非空则禁止物理删除。
 
-    步骤 3.1 起故障、步骤 3.2 起台账明细、步骤 3.3 起工单、步骤 3.4 起
-    履历事件均以系统 ID 建立业务关联（PROTECT）；升级管理挂接系统档案后，
-    升级记录同样以系统 ID 关联。历史记录必须继续可查，
-    存在关联的系统不得物理删除。fail-closed 语义。
+    步骤 3.1 起故障、步骤 3.2 起台账明细、步骤 3.4 起履历事件均以系统 ID
+    建立业务关联（PROTECT）；升级管理挂接系统档案后，升级记录同样以
+    系统 ID 关联。历史记录必须继续可查，存在关联的系统不得物理删除。
+    fail-closed 语义。（"工单"引用检查已随工单功能删除，2026-09-30）
     """
     from apps.equipment_lifecycle.models import (
         OperationLedgerItem,
         SystemEvent,
         SystemFault,
-        SystemWorkOrder,
     )
     from apps.upgrade.models import UpgradeRecord
     refs = []
@@ -259,9 +246,6 @@ def _collect_system_references(system):
     if OperationLedgerItem.objects.filter(
             tenant_id=system.tenant_id, system_id=system.id).exists():
         refs.append('运维台账明细')
-    if SystemWorkOrder.objects.filter(
-            tenant_id=system.tenant_id, system_id=system.id).exists():
-        refs.append('工单')
     if SystemEvent.objects.filter(
             tenant_id=system.tenant_id, system_id=system.id).exists():
         refs.append('系统履历事件')
@@ -614,3 +598,24 @@ def _csv_response(filename_prefix, headers, rows):
     stamp = timezone.now().strftime('%Y%m%d%H%M%S')
     response['Content-Disposition'] = f"attachment; filename={filename_prefix}_{stamp}.csv"
     return response
+
+
+class CandidateUsersView(View):
+    """候选人员：当前租户内有效账户（今日巡检值班人员登记等场景使用）。
+
+    2026-09-30 自 work_order_views.WorkOrderCandidateUsersView 迁入：
+    工单负责人/参与人概念已随工单功能删除，本端点保留给仍需要
+    "本租户有效账户清单"的业务（巡检值班人员登记）。
+    """
+
+    @auth('equipment_lifecycle.inspection.view')
+    def get(self, request):
+        from apps.account.models import User
+        users = User.objects.filter(
+            tenant_id=request.user.tenant_id, is_active=True,
+            deleted_at__isnull=True).order_by('username')
+        return json_response({'data': [{
+            'id': u.id,
+            'username': u.username,
+            'nickname': u.nickname or u.username,
+        } for u in users]})

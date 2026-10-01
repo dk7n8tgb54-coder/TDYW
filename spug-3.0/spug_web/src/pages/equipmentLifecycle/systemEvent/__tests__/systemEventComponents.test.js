@@ -106,10 +106,10 @@ const GROUPS_PAYLOAD = {
           detail: {},
         },
         {
-          source_type: 'work_order', source_id: '7', event_type: 'work_order',
-          event_type_text: '工单', item_no: 'WO20260925-0002',
-          title: '例行维护工单', level: '', level_text: '',
-          status: 'pending_dispatch', status_text: '待派发',
+          source_type: 'ledger_item', source_id: '51', event_type: 'ledger',
+          event_type_text: '台账异常', item_no: 'ZW20260925-0002',
+          title: '例行维护发现异常', level: '', level_text: '',
+          status: '', status_text: '',
           first_occurred_at: '2026-09-25T09:00:00',
           last_occurred_at: '2026-09-25T09:30:00',
           node_count: 1, ledger_sources: [], detail: {},
@@ -301,8 +301,9 @@ describe('事项表格（分组内）', () => {
     const text = bodyText();
     expect(text).toContain('GZ20260919-0001');
     expect(text).toContain('处置中');
-    expect(text).toContain('待派发');
-    expect(text).toContain('严重');
+    expect(text).toContain('例行维护发现异常');
+    // 故障级别字段已删除（2026-09）：事项摘要不再渲染级别标签
+    expect(text).not.toContain('严重');
     expect(text).toContain('2026-09-1908:00');
     expect(text).toContain('2026-09-1910:00');
     expect(text).toContain('来源台账');

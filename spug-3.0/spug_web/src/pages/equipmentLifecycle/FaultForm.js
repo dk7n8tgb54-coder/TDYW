@@ -8,15 +8,15 @@
  * - 普通用户只需要选择一个"故障系统"（提交系统 ID，显示名称+编号+安装地点）；
  * - 不再提供主故障系统与受影响系统；一次实际工作涉及多个系统时分别建立故障；
  * - 首报表单精简（2026-09）：只保留 故障系统/影响系统运行(+程度)/发生时间/
- *   故障部位/设备(选填)/故障现象；发现方式缺省"人工报告"、故障级别缺省
- *   "一般"由后端写入，不再出现在表单；
+ *   故障部位/设备(选填)/故障现象；发现方式/级别字段已删除（2026-09-29），
+ *   影响范围/故障位置/处置负责人同步退役，均不再出现在表单与详情；
  * - 故障登记人（2026-09）：手动输入的登记人姓名（与今日巡检值班人员同款
  *   输入：输入姓名后回车确认，可多个），实际添加这条故障记录的人，不代表
  *   负责后续跟进或维修责任（姓名为文本快照，不关联用户账号）；仅新增时
  *   必填，不预填任何默认姓名；编辑不出现在表单，后端保留原登记人
  *   （created_by 登录账号仅审计）；
- * - 历史设备字段（影响范围/故障位置/对象型号/序列号）仅详情展示：编辑提交
- *   不携带，后端保留原值；原因分析仅在编辑（处置阶段）可填；
+ * - 历史设备字段（对象名称/型号/序列号）编辑提交不携带时后端保留原值；
+ *   原因分析仅在编辑（处置阶段）可填；
  * - 默认"部件故障但不影响系统运行"：只有明确开启"影响系统运行"时才需要
  *   选择影响程度（降级/故障/中断），并参与系统健康状态计算。
  */
@@ -115,6 +115,9 @@ function OccurrenceFields() {
       >
         <DatePicker showTime={{format: 'HH:mm'}} format="YYYY-MM-DD HH:mm" style={{width: '100%'}}/>
       </Form.Item>
+      <Form.Item name="fault_object_name" label="故障部位/设备">
+        <Input placeholder="故障的部位或设备，如 信道机 / 天馈系统（选填）"/>
+      </Form.Item>
       <Form.Item
         name="phenomenon"
         label="故障现象"
@@ -123,7 +126,7 @@ function OccurrenceFields() {
           {max: 2000, message: '长度不能超过 2000'},
         ]}
       >
-        <TextArea rows={3} placeholder="描述观察到的故障现象，必要时可补充影响范围"/>
+        <TextArea rows={3} placeholder="描述观察到的故障现象"/>
       </Form.Item>
     </>
   );
@@ -151,19 +154,14 @@ function RegistrarFields({isEdit}) {
   );
 }
 
-function FaultObjectFields({isEdit}) {
+// 故障部位/设备展示在 OccurrenceFields 中（故障发生时间与故障现象之间）；
+// 这里只剩原因分析：不放在首报（新增）表单，保留处置阶段（编辑）填写
+function ReasonAnalysisField({isEdit}) {
+  if (!isEdit) return null;
   return (
-    <>
-      <Form.Item name="fault_object_name" label="故障部位/设备">
-        <Input placeholder="故障的部位或设备，如 信道机 / 天馈系统（选填）"/>
-      </Form.Item>
-      {/* 原因分析不放在首报（新增）表单，保留处置阶段（编辑）填写 */}
-      {isEdit && (
-        <Form.Item name="reason_analysis" label="原因分析">
-          <TextArea rows={2} placeholder="（选填，处置过程中可继续完善）"/>
-        </Form.Item>
-      )}
-    </>
+    <Form.Item name="reason_analysis" label="原因分析">
+      <TextArea rows={2} placeholder="（选填，处置过程中可继续完善）"/>
+    </Form.Item>
   );
 }
 
@@ -238,7 +236,7 @@ const FaultForm = observer(function FaultForm() {
         <SystemImpactFields systems={store.systems}/>
         <OccurrenceFields/>
         <RegistrarFields isEdit={isEdit}/>
-        <FaultObjectFields isEdit={isEdit}/>
+        <ReasonAnalysisField isEdit={isEdit}/>
       </Form>
     </Modal>
   );

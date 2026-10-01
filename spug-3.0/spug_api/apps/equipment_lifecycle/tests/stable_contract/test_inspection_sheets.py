@@ -2,7 +2,7 @@
 """值班巡检单稳定契约（今日巡检改造）。
 
 覆盖行为契约：
-- 四个固定轮次（r1 11:00 / r2 16:00 / r3 22:00 / r4 次日 06:30），
+- 四个固定轮次（r1 11:00-11:20 / r2 16:00-16:20 / r3 22:00-22:20 / r4 次日 6:30-6:50），
   第四轮虽发生在下一自然日仍归属前一值班日的巡检单；
 - 不记录实际填写时间作为巡检业务字段（无 executed_at/迟填标记）；
 - 巡检单唯一范围 = 值班日 + 巡检模板（多人登记在单上，姓名快照）；
@@ -69,7 +69,7 @@ class InspectionSheetTestBase(TestCase):
 
 
 class SheetRoundsContractTest(InspectionSheetTestBase):
-    """四个固定轮次与"次日 06:30 归属前一值班日"。"""
+    """四个固定轮次与"第四轮（6:30-6:50）归属前一值班日"。"""
 
     def _fill_all_rounds(self, sheet_id, version=1):
         items = self.items
@@ -81,18 +81,18 @@ class SheetRoundsContractTest(InspectionSheetTestBase):
                 {'template_item_id': items['面板指示灯'].id, 'round_no': round_no,
                  'value_text': '正常'},
             ])
-        # 第四轮：次日 06:30 填写，仍归属 duty_date 的巡检单
+        # 第四轮：6:30-6:50（次日早晨）填写，仍归属 duty_date 的巡检单
         return detail
 
     def test_four_fixed_rounds_r4_belongs_to_duty_date_sheet(self):
-        """四轮记录进入同一张单，r4 文案为"次日 06:30"且单仍归属前一值班日。"""
+        """四轮记录进入同一张单，r4 文案为"6:30-6:50"且单仍归属前一值班日。"""
         body = self.create_sheet()
         detail = self._fill_all_rounds(body['id'])
         by_round = {r['round_no']: r for r in detail['records']}
         self.assertEqual(set(by_round), {'r1', 'r2', 'r3', 'r4'})
         self.assertEqual(by_round['r4']['round_text'],
                          INSPECTION_ROUND_TEXT_MAP['r4'])
-        self.assertIn('06:30', by_round['r4']['round_text'])
+        self.assertIn('6:30', by_round['r4']['round_text'])
         sheet = InspectionDutySheet.objects.get(pk=body['id'])
         self.assertEqual(str(sheet.duty_date), self.duty_date)
         self.assertEqual(sheet.records.filter(round_no='r4').count(), 1)
