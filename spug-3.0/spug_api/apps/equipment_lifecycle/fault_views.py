@@ -1,7 +1,7 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——系统故障管理与系统健康状态联动视图（步骤 3.1，单系统简化）。
+"""设备全生命周期——系统故障处置与系统健康状态联动视图（步骤 3.1，单系统简化）。
 
 权限域（前后端一致，后端独立校验）：
 - equipment_lifecycle.fault.view|add|edit|handle|recover|close|del|export

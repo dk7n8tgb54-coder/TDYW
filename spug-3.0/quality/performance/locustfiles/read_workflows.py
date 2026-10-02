@@ -253,11 +253,6 @@ class ReadWorkflowUser(TokenPoolHttpUser):
         """Get upgrade records."""
         self._safe_get("/api/upgrade/records/")
 
-    @task(3)
-    def upgrade_statistics(self):
-        """Get upgrade statistics."""
-        self._safe_get("/api/upgrade/statistics/")
-
     @task(2)
     def upgrade_plans(self):
         """Get upgrade plans."""

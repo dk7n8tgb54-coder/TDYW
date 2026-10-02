@@ -16,73 +16,12 @@ import history from 'libs/history';
 import store from '../store';
 import PlanForm from './PlanForm';
 
-// 步骤详情查看弹窗
-function StepDetailModal({ visible, plan, onCancel }) {
-  if (!plan) return null;
-
-  const columns = [
-    {
-      title: '序号',
-      dataIndex: 'sequence',
-      key: 'sequence',
-      width: 60,
-      render: text => <span style={{ color: '#999' }}>{text}</span>,
-    },
-    { title: '步骤标题', dataIndex: 'title', key: 'title' },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-      render: text => text || '-',
-    },
-    {
-      title: '必执行',
-      dataIndex: 'is_required',
-      key: 'is_required',
-      width: 80,
-      render: v => v ? <Tag color="blue">必选</Tag> : <Tag>可选</Tag>,
-    },
-  ];
-
-  return (
-    <Modal
-      title={`方案详情 - ${plan.name}`}
-      visible={visible}
-      onCancel={onCancel}
-      footer={<Button onClick={onCancel}>关闭</Button>}
-      width={720}
-    >
-      {plan.description && (
-        <div style={{ marginBottom: 12, color: '#666' }}>{plan.description}</div>
-      )}
-      {plan.system_name || plan.upgrade_type ? (
-        <div style={{ marginBottom: 12 }}>
-          {plan.system_name && <Tag>{plan.system_name}</Tag>}
-          {plan.upgrade_type && <Tag color="cyan">{plan.upgrade_type}</Tag>}
-        </div>
-      ) : null}
-      <Table
-        dataSource={plan.steps || []}
-        columns={columns}
-        rowKey="id"
-        size="small"
-        pagination={false}
-      />
-    </Modal>
-  );
-}
-
-export default observer(function () {
+// 方案编辑区状态与动作（从主组件抽出，控制主组件函数长度）
+function usePlanEditor() {
   const [formVisible, setFormVisible] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailPlan, setDetailPlan] = useState(null);
-
-  useEffect(() => {
-    store.fetchPlans();
-    store.fetchFilterOptions();
-    store.fetchSystems();
-  }, []);
 
   function handleCreate() {
     setEditingPlan(null);
@@ -140,7 +79,7 @@ export default observer(function () {
           okText: '创建升级表单',
           cancelText: '稍后',
           onOk: () => {
-            history.push(`/upgrade?planId=${newPlanId}`);
+            history.push(`/upgrade?tab=records&planId=${newPlanId}`);
           },
         });
       }
@@ -149,13 +88,24 @@ export default observer(function () {
     });
   }
 
-  const columns = [
+  return {
+    formVisible, editingPlan, detailVisible, detailPlan,
+    handleCreate, handleViewDetail, handleEdit, handleDelete, handleSubmit,
+    closeForm: () => { setFormVisible(false); setEditingPlan(null); },
+    closeDetail: () => { setDetailVisible(false); setDetailPlan(null); },
+  };
+}
+
+// 方案表格列定义（模块级组装，控制主组件函数长度）
+function buildPlanColumns(actions) {
+  const {onViewDetail, onCreateForm, onEdit, onDelete} = actions;
+  return [
     {
       title: '方案名称',
       dataIndex: 'name',
       key: 'name',
       render: (text, record) => (
-        <a onClick={() => handleViewDetail(record)}>
+        <a onClick={() => onViewDetail(record)}>
           {text}
         </a>
       ),
@@ -201,18 +151,18 @@ export default observer(function () {
       width: 220,
       render: (_, record) => (
         <Space>
-          <Button type="link" size="small" onClick={() => handleViewDetail(record)}>
+          <Button type="link" size="small" onClick={() => onViewDetail(record)}>
             详情
           </Button>
-          <Button type="link" size="small" onClick={() => history.push(`/upgrade?planId=${record.id}`)}>
+          <Button type="link" size="small" onClick={() => onCreateForm(record)}>
             创建表单
           </Button>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => onEdit(record)}>
             编辑
           </Button>
           <Popconfirm
             title={`确定删除方案「${record.name}」？关联的预设步骤也将被删除。`}
-            onConfirm={() => handleDelete(record)}
+            onConfirm={() => onDelete(record)}
           >
             <Button type="link" size="small" danger icon={<DeleteOutlined />}>
               删除
@@ -222,6 +172,83 @@ export default observer(function () {
       ),
     },
   ];
+}
+
+// 步骤详情查看弹窗
+function StepDetailModal({ visible, plan, onCancel }) {
+  if (!plan) return null;
+
+  const columns = [
+    {
+      title: '序号',
+      dataIndex: 'sequence',
+      key: 'sequence',
+      width: 60,
+      render: text => <span style={{ color: '#999' }}>{text}</span>,
+    },
+    { title: '步骤标题', dataIndex: 'title', key: 'title' },
+    {
+      title: '描述',
+      dataIndex: 'description',
+      key: 'description',
+      render: text => text || '-',
+    },
+    {
+      title: '必执行',
+      dataIndex: 'is_required',
+      key: 'is_required',
+      width: 80,
+      render: v => v ? <Tag color="blue">必选</Tag> : <Tag>可选</Tag>,
+    },
+  ];
+
+  return (
+    <Modal
+      title={`方案详情 - ${plan.name}`}
+      visible={visible}
+      onCancel={onCancel}
+      footer={<Button onClick={onCancel}>关闭</Button>}
+      width={720}
+    >
+      {plan.description && (
+        <div style={{ marginBottom: 12, color: '#666' }}>{plan.description}</div>
+      )}
+      {plan.system_name || plan.upgrade_type ? (
+        <div style={{ marginBottom: 12 }}>
+          {plan.system_name && <Tag>{plan.system_name}</Tag>}
+          {plan.upgrade_type && <Tag color="cyan">{plan.upgrade_type}</Tag>}
+        </div>
+      ) : null}
+      <Table
+        dataSource={plan.steps || []}
+        columns={columns}
+        rowKey="id"
+        size="small"
+        pagination={false}
+      />
+    </Modal>
+  );
+}
+
+export default observer(function () {
+  const {
+    formVisible, editingPlan, detailVisible, detailPlan,
+    handleCreate, handleViewDetail, handleEdit, handleDelete, handleSubmit,
+    closeForm, closeDetail,
+  } = usePlanEditor();
+
+  useEffect(() => {
+    store.fetchPlans();
+    store.fetchFilterOptions();
+    store.fetchSystems();
+  }, []);
+
+  const columns = buildPlanColumns({
+    onViewDetail: handleViewDetail,
+    onCreateForm: (plan) => history.push(`/upgrade?tab=records&planId=${plan.id}`),
+    onEdit: handleEdit,
+    onDelete: handleDelete,
+  });
 
   return (
     <Card
@@ -248,13 +275,13 @@ export default observer(function () {
         title={editingPlan ? '编辑方案' : '新建方案'}
         initialValues={editingPlan}
         onSubmit={handleSubmit}
-        onCancel={() => { setFormVisible(false); setEditingPlan(null); }}
+        onCancel={closeForm}
       />
 
       <StepDetailModal
         visible={detailVisible}
         plan={detailPlan}
-        onCancel={() => { setDetailVisible(false); setDetailPlan(null); }}
+        onCancel={closeDetail}
       />
     </Card>
   );

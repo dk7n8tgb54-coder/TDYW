@@ -30,7 +30,7 @@ class TemplateIndex extends React.Component {
         {!this.props.embedded && (
           <Breadcrumb>
             <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
-            <Breadcrumb.Item>巡检与维护</Breadcrumb.Item>
+            <Breadcrumb.Item>巡视与维护</Breadcrumb.Item>
             <Breadcrumb.Item>巡检模板</Breadcrumb.Item>
           </Breadcrumb>
         )}

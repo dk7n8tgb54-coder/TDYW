@@ -4,7 +4,7 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——故障管理状态管理（MobX, legacy decorators）。
+ * 设备全生命周期——故障处置状态管理（MobX, legacy decorators）。
  * 业务关联一律使用系统 ID；成功提示等待后端真实成功（http.js 拦截器统一提示 error）。
  */
 import { observable, action } from 'mobx';

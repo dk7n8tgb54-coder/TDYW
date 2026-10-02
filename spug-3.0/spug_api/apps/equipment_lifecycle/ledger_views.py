@@ -19,7 +19,6 @@
 import csv
 import io
 
-from django.db.models import Count, Q
 from django.http import HttpResponse
 from django.views.generic import View
 
@@ -153,16 +152,13 @@ class LedgerView(View):
         executed_to = request.GET.get('executed_to')
         if executed_to:
             query = query.filter(executed_date__lte=executed_to)
-        query = query.select_related('excel_record__version').annotate(
-            items_count=Count('items', distinct=True),
-            abnormal_count=Count('items', filter=Q(items__result=ITEM_RESULT_ABNORMAL), distinct=True),
-        )
+        query = query.select_related('excel_record__version')
         page, page_size = paginate(request)
         total = query.count()
         records = query[(page - 1) * page_size: page * page_size] if total else []
         data = []
         for record in records:
-            view = record.to_view(with_counts=True)
+            view = record.to_view()
             view.update(_ledger_source_fields(record))
             data.append(view)
         return json_response({

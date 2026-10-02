@@ -186,8 +186,9 @@ def create_fault_record(*, tenant_id, created_by, system, impact_status,
                         fault_object_name='',
                         fault_object_model='', fault_object_sn='', reason_analysis='',
                         source_type=None, source_ledger_item=None,
-                        source_inspection_record=None, request=None):
-    """正式故障创建服务（单系统简化，台账异常转故障复用）。
+                        source_inspection_record=None,
+                        source_runtime_record=None, request=None):
+    """正式故障创建服务（单系统简化，台账异常/巡检异常/运行记录转故障复用）。
 
     须在 health_recalc_lock + transaction.atomic 内调用（调用方负责锁与事务）：
     - 创建故障主单（一个故障系统外键 + 发生时快照，无受影响系统）；
@@ -201,8 +202,8 @@ def create_fault_record(*, tenant_id, created_by, system, impact_status,
       不再是故障的组成部分；
     - 同事务生成故障发生履历事件（只落故障所属系统，步骤 3.4 统一履历）；
     - 同事务重算故障系统健康状态（request 透传以记录状态变化审计）；
-    - source_type/source_ledger_item/source_inspection_record 供异常转故障写入
-      来源关系，转换与来源关系保存处于同一事务；
+    - source_type/source_ledger_item/source_inspection_record/source_runtime_record
+      供异常转故障写入来源关系，转换与来源关系保存处于同一事务；
     - 故障编号由 generate_fault_no 在本事务内分配：日期取系统创建当天
       （不取用户填写的 occurred_at），当日序号全租户共享；当日序号用尽
       （9999）时抛出 FaultNoExhausted，整个事务回滚。
@@ -229,9 +230,11 @@ def create_fault_record(*, tenant_id, created_by, system, impact_status,
         status=SystemFault.STATUS_PENDING,
         source_type=source_type or SystemFault.SOURCE_MANUAL,
         source_id=str(source_ledger_item.id) if source_ledger_item else (
-            str(source_inspection_record.id) if source_inspection_record else ''),
+            str(source_inspection_record.id) if source_inspection_record else (
+                str(source_runtime_record.id) if source_runtime_record else '')),
         source_ledger_item=source_ledger_item,
         source_inspection_record=source_inspection_record,
+        source_runtime_record=source_runtime_record,
         created_by=created_by,
         registrar_name=(registrar_name or '').strip()[:200] or user_display_name(created_by),
     )

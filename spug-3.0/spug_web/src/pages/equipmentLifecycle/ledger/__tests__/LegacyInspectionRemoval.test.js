@@ -7,7 +7,7 @@
  * - ledger/entries 不再导出 InspectionLedgerIndex；
  * - 台账类型常量/文本/跳转映射均无 inspection 分支；
  * - 台账模板表单默认类型与类型选项不再包含"巡检"；
- * - 新巡检与维护入口组件仍可正常渲染。
+ * - 新巡视与维护入口组件仍可正常渲染。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -144,7 +144,7 @@ describe('旧巡检台账（历史）入口删除', () => {
   });
 });
 
-describe('新巡检与维护入口仍正常', () => {
+describe('新巡视与维护入口仍正常', () => {
   it('周月维护台账列表页渲染并按类型请求', async () => {
     mockHttpGet.mockResolvedValue({data: [], total: 0, page: 1, page_size: 20});
     const entries = require('../entries');

@@ -177,17 +177,6 @@ class Store {
     this.presetPlanId = null;
   };
 
-  // === 统计接口 ===
-  fetchStatistics = (filters = {}) => {
-    const params = {};
-    if (filters.system) params.system = filters.system;
-    if (filters.start_date && filters.end_date) {
-      params.start_date = filters.start_date;
-      params.end_date = filters.end_date;
-    }
-    return http.get('/api/upgrade/statistics/', {params});
-  };
-
   // === 升级方案接口（合并原模板+步骤清单）===
   fetchPlans = () => {
     return http.get('/api/upgrade/plans/')

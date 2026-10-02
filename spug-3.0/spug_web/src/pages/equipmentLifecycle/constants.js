@@ -24,6 +24,16 @@ export const PERM = {
   FAULT_DEL: 'equipment_lifecycle.fault.del',
   FAULT_EXPORT: 'equipment_lifecycle.fault.export',
   LEDGER_HANDLE_EXCEPTION: 'equipment_lifecycle.ledger.handle_exception',
+  // 运行记录（2026-10 第一版）
+  RUNTIME_VIEW: 'equipment_lifecycle.runtime_record.view',
+  RUNTIME_ADD: 'equipment_lifecycle.runtime_record.add',
+  RUNTIME_EDIT: 'equipment_lifecycle.runtime_record.edit',
+  RUNTIME_TRIAGE: 'equipment_lifecycle.runtime_record.triage',
+  RUNTIME_RESOLVE: 'equipment_lifecycle.runtime_record.resolve',
+  RUNTIME_CLOSE: 'equipment_lifecycle.runtime_record.close',
+  RUNTIME_CONVERT_FAULT: 'equipment_lifecycle.runtime_record.convert_fault',
+  RUNTIME_IMPORTANT: 'equipment_lifecycle.runtime_record.important',
+  RUNTIME_LINK: 'equipment_lifecycle.runtime_record.link',
 };
 
 // 工单权限码（WO_*）已随「故障维修工单」功能整体删除（2026-09-30）。
@@ -101,6 +111,65 @@ export const FAULT_PROGRESS_TYPE_OPTIONS = [
 ];
 
 export const FAULT_PROGRESS_TYPE_TEXT = FAULT_PROGRESS_TYPE_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
+
+// 运行记录状态（与后端 SystemRuntimeRecord.STATUS_* 一致）
+// 第二版（2026-10）新增：待研判 / 无需跟进
+export const RUNTIME_STATUS_OPTIONS = [
+  {value: 'recorded', label: '已记录'},
+  {value: 'pending_triage', label: '待研判'},
+  {value: 'no_follow_up', label: '无需跟进'},
+  {value: 'following_up', label: '跟进中'},
+  {value: 'resolved', label: '已处理'},
+  {value: 'converted_fault', label: '已转故障'},
+  {value: 'closed', label: '已关闭'},
+];
+
+export const RUNTIME_STATUS_TEXT = RUNTIME_STATUS_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
+export const RUNTIME_STATUS_COLOR = {
+  recorded: 'orange',
+  pending_triage: 'gold',
+  no_follow_up: 'default',
+  following_up: 'geekblue',
+  resolved: 'green',
+  converted_fault: 'purple',
+  closed: 'default',
+};
+
+// 运行记录异常类别（与后端 RUNTIME_CATEGORY_* 一致；空串=未选择）
+export const RUNTIME_CATEGORY_OPTIONS = [
+  {value: 'device', label: '设备异常'},
+  {value: 'signal', label: '信号异常'},
+  {value: 'link', label: '链路传输'},
+  {value: 'power', label: '供电异常'},
+  {value: 'environment', label: '机房环境'},
+  {value: 'software', label: '软件/数据'},
+  {value: 'other', label: '其他'},
+];
+
+export const RUNTIME_CATEGORY_TEXT = RUNTIME_CATEGORY_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
+// 运行记录影响程度复用故障影响语义（降级/故障/中断；不影响运行时为空）
+export const RUNTIME_IMPACT_TEXT = FAULT_IMPACT_TEXT;
+export const RUNTIME_IMPACT_COLOR = FAULT_IMPACT_COLOR;
+
+// 运行记录重要程度（与后端 SystemRuntimeRecord.IMPORTANCE_* 一致）
+export const RUNTIME_IMPORTANCE_OPTIONS = [
+  {value: 'normal', label: '普通'},
+  {value: 'important', label: '重要'},
+];
+
+export const RUNTIME_IMPORTANCE_TEXT = RUNTIME_IMPORTANCE_OPTIONS.reduce((acc, item) => {
   acc[item.value] = item.label;
   return acc;
 }, {});

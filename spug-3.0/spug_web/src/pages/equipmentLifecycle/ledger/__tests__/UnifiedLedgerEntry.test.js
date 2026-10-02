@@ -3,7 +3,7 @@
  * 路线删除后收口为 Excel 单一新增入口）。
  *
  * 真实渲染 LedgerIndex（ReactDOM + jsdom，mock libs.http 与公共组件壳）：
- * - 统一列表渲染来源标签（Excel模板/临时补录）与 Excel 模板列；
+ * - 统一列表渲染 Excel 模板列（来源标签列已删除，source_type 仅驱动详情路由）；
  * - 正式新增台账只提供 Excel/WPS 模板一种方式：点击"新增"直接打开
  *   Excel 创建弹窗，不再有"可视化表格"选项与录入方式选择弹窗；
  * - 周月/季维护入口各自只加载对应台账类型的已发布 Excel 模板版本；
@@ -115,14 +115,14 @@ const LIST_PAYLOAD = {
   data: [
     {id: 1, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month',
      executed_date: '2026-09-10', status: 'draft', executor_names: '王五',
-     items_count: 3, abnormal_count: 1, created_by_name: 'op1',
+     created_by_name: 'op1',
      created_at: '2026-09-11 09:00', created_from: 'manual',
      source_type: 'manual', source_template_name: '',
      source_version_no: null,
      detail_route: '/el/week-month-ledgers?detail=1&source=manual'},
     {id: 33, ledger_no: 'EL-WM-20260928-001', ledger_type: 'week_month',
      executed_date: '2026-09-28', status: 'draft', executor_names: '验收人',
-     items_count: 0, abnormal_count: 0, created_by_name: 'op1',
+     created_by_name: 'op1',
      created_at: '2026-09-28 10:00', created_from: 'excel_template',
      source_type: 'excel', source_template_name: '信道Excel维护台账',
      source_version_no: 2,
@@ -207,12 +207,15 @@ async function chooseSelectOption(modalRoot, matchText) {
   await flush();
 }
 
-test('统一列表渲染来源标签（临时补录/Excel模板）与 Excel 模板列', async () => {
+test('统一列表渲染 Excel 模板列，不渲染来源标签/明细数/异常数列', async () => {
   mockHttpGet.mockResolvedValue(LIST_PAYLOAD);
   await renderIndex();
-  expect(container.textContent).toContain('临时补录');
   expect(container.textContent).toContain('Excel模板');
   expect(container.textContent).toContain('信道Excel维护台账 v2');
+  // 来源/明细数/异常数列已删除（2026-10）
+  expect(container.textContent).not.toContain('临时补录');
+  expect(container.textContent).not.toContain('明细数');
+  expect(container.textContent).not.toContain('异常数');
   // 旧可视化模板来源已随路线删除
   expect(container.textContent).not.toContain('可视化模板');
   expect(container.textContent).not.toContain('可视化表格');

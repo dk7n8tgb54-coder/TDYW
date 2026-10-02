@@ -23,17 +23,6 @@ test.describe('System Upgrade - Technical Operations', () => {
     await result.context.dispose();
   });
 
-  test('UPG003 - Upgrade statistics page loads', async ({ page, request }) => {
-    const { apiLogin, injectAuth } = require('../../fixtures/auth.fixture');
-    const session = await apiLogin(request, 'admin');
-    await injectAuth(page, session);
-    await page.goto('/upgrade/statistics');
-    await page.waitForLoadState('networkidle');
-
-    const bodyText = await page.locator('body').innerText();
-    expect(bodyText.length).toBeGreaterThan(0);
-  });
-
   test('UPG004 - Upgrade plans page loads', async ({ page, request }) => {
     const { apiLogin, injectAuth } = require('../../fixtures/auth.fixture');
     const session = await apiLogin(request, 'admin');
@@ -48,13 +37,6 @@ test.describe('System Upgrade - Technical Operations', () => {
   test('UPG005 - Upgrade filter options API works', async ({}) => {
     const result = await loginAndCreateContext('admin');
     const data = await apiGet(result.context, '/api/upgrade/filter-options/');
-    expect(data).toBeDefined();
-    await result.context.dispose();
-  });
-
-  test('UPG006 - Upgrade statistics API works', async ({}) => {
-    const result = await loginAndCreateContext('admin');
-    const data = await apiGet(result.context, '/api/upgrade/statistics/');
     expect(data).toBeDefined();
     await result.context.dispose();
   });

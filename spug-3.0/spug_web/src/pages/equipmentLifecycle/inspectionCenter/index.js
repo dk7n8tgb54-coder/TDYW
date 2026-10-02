@@ -79,8 +79,8 @@ function InspectionCenter() {
     <AuthDiv>
       <Breadcrumb>
         <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
-        <Breadcrumb.Item>巡检与维护</Breadcrumb.Item>
-        <Breadcrumb.Item>巡检中心</Breadcrumb.Item>
+        <Breadcrumb.Item>巡视与维护</Breadcrumb.Item>
+        <Breadcrumb.Item>日巡视</Breadcrumb.Item>
       </Breadcrumb>
       {visibleTabs.length === 0 ? (
         <div style={{textAlign: 'center', padding: '60px 0', color: '#999'}}>

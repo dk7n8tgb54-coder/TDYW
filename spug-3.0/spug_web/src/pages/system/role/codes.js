@@ -88,7 +88,7 @@ export default [{
     ]
   }, {
     key: 'fault',
-    label: '故障管理',
+    label: '故障处置',
     perms: [
       {key: 'view', label: '查看故障'},
       {key: 'add', label: '新增故障'},
@@ -98,6 +98,22 @@ export default [{
       {key: 'close', label: '关闭故障'},
       {key: 'del', label: '作废故障（受控作废，非物理删除）'},
       {key: 'export', label: '导出故障列表'},
+    ]
+  }, {
+    // 运行记录（2026-10 第一版）：异常与运行情况统一录入入口
+    // 第二版（2026-10）：+triage 研判 / +link 重复问题关联
+    key: 'runtime_record',
+    label: '运行记录',
+    perms: [
+      {key: 'view', label: '查看运行记录'},
+      {key: 'add', label: '新增运行记录'},
+      {key: 'edit', label: '编辑运行记录/追加与更正处理进展/上传附件'},
+      {key: 'triage', label: '研判（跟进结论/影响判定/标记重要/转正式故障）'},
+      {key: 'resolve', label: '标记已处理'},
+      {key: 'close', label: '关闭运行记录'},
+      {key: 'convert_fault', label: '转为正式故障'},
+      {key: 'important', label: '标记重要（进入系统履历）'},
+      {key: 'link', label: '重复问题（关联相似记录/标记重复发生）'},
     ]
   }, {
     key: 'ledger_template',
@@ -200,13 +216,7 @@ export default [{
         {key: 'step_del', label: '删除步骤'},
         {key: 'step_reset', label: '重置步骤'},
       ]
-    }, {
-    key: 'statistics',
-    label: '统计报表',
-    perms: [
-      {key: 'view', label: '查看统计报表'},
-    ]
-  }]
+    }]
 }, {
   key: 'duty',
   label: '值班日志',

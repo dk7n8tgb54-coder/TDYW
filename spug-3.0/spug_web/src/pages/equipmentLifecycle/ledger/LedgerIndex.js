@@ -8,8 +8,8 @@
  * 旧巡检台账（历史）入口已删除（2026-09-24），巡检业务走独立巡检单。
  *
  * 统一维护台账列表（2026-10）：Excel 模板 / 手工补录路线台账一并展示，
- * 按后端 source_type 渲染来源标签；Excel 来源记录点击详情进入
- * ExcelLedgerDetail（版本快照版式回放），手工补录走既有明细详情。
+ * 按后端 source_type 区分详情路由（Excel 来源点击详情进入 ExcelLedgerDetail
+ * 版本快照版式回放）并渲染 Excel模板列；来源/明细数/异常数列已删除（2026-10）。
  * 正式新增台账入口（2026-10 收口）：不再提供"可视化表格 / Excel 模板"
  * 二选一，直接选择当前类型已发布的 Excel/WPS 模板版本创建 Excel 台账
  * （旧可视化模板路线已整体删除）。
@@ -26,8 +26,7 @@ import ExcelLedgerDetail from './excel/ExcelLedgerDetail';
 import {ExcelLedgerStore} from './excel/excelLedgerStore';
 import {getLedgerStore} from './store';
 import {
-  API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, SOURCE_TYPE_COLOR,
-  SOURCE_TYPE_TEXT, STATUS_COLOR, STATUS_TEXT,
+  API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_COLOR, STATUS_TEXT,
 } from './constants';
 
 /** 来源类型：优先取后端 source_type，兼容旧数据仅返回 created_from 的形态。 */
@@ -47,27 +46,9 @@ function buildColumns(store, ledgerType, openDetail) {
     },
     {title: '执行人', dataIndex: 'executor_names', width: 140, ellipsis: true},
     {
-      title: '来源', key: 'source_type', width: 100,
-      render: (v, record) => {
-        const key = sourceTypeOf(record);
-        return <Tag color={SOURCE_TYPE_COLOR[key]}>{SOURCE_TYPE_TEXT[key] || key}</Tag>;
-      },
-    },
-    {
       title: 'Excel模板', key: 'excel_template', width: 170, ellipsis: true,
       render: (v, record) => sourceTypeOf(record) === 'excel' && record.source_template_name
         ? `${record.source_template_name} v${record.source_version_no || ''}` : '—',
-    },
-    {
-      title: '明细数', dataIndex: 'items_count', width: 70, align: 'center',
-      render: (v, record) => sourceTypeOf(record) === 'excel' ? '—' : v,
-    },
-    {
-      title: '异常数', dataIndex: 'abnormal_count', width: 70, align: 'center',
-      render: (v, record) => {
-        if (sourceTypeOf(record) === 'excel') return '—';
-        return v > 0 ? <span style={{color: '#f5222d', fontWeight: 'bold'}}>{v}</span> : v;
-      },
     },
     {title: '录入人', dataIndex: 'created_by_name', width: 100},
     {title: '录入时间', dataIndex: 'created_at', width: 160},
@@ -188,7 +169,7 @@ function LedgerIndex({ledgerType, location}) {
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
         <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
-        <Breadcrumb.Item>巡检与维护</Breadcrumb.Item>
+        <Breadcrumb.Item>巡视与维护</Breadcrumb.Item>
         <Breadcrumb.Item>{LEDGER_TYPE_TEXT[ledgerType]}台账</Breadcrumb.Item>
       </Breadcrumb>
       {!excelDetailOpen && (

@@ -86,18 +86,4 @@ export const CREATED_FROM_TEXT = {
   excel_template: 'Excel模板',
 };
 
-// ==================== 统一列表来源（2026-10 Excel 台账接入正式列表） ====================
-// 后端 /ledgers/ 返回 source_type（由 created_from 派生），前端按此渲染来源标签；
-// Excel 来源记录点击详情进入 ExcelLedgerDetail，手工补录走既有明细详情。
-// 旧可视化模板来源（visual）已随路线删除（2026-10）。
-export const SOURCE_TYPE_TEXT = {
-  excel: 'Excel模板',
-  manual: '临时补录',
-};
-
-export const SOURCE_TYPE_COLOR = {
-  excel: 'green',
-  manual: 'default',
-};
-
 export const API_PREFIX_L = '/api/equipment-lifecycle';

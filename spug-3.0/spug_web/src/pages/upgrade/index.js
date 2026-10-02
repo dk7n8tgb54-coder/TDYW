@@ -7,6 +7,7 @@ import React, { useEffect } from 'react';
 import { observer } from 'mobx-react';
 import { Select, DatePicker, Breadcrumb, Button, Radio } from 'antd';
 import { SearchForm, AuthDiv } from 'components';
+import { history } from 'libs';
 import { CalendarOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import ComTable from './Table';
 import CalendarView from './CalendarView';
@@ -16,7 +17,7 @@ import moment from 'moment';
 
 const { Option } = Select;
 
-export default observer(function () {
+export default observer(function ({ embedded }) {
   useEffect(() => {
     store.fetchFilterOptions();
 
@@ -25,18 +26,23 @@ export default observer(function () {
     const planId = params.get('planId');
     if (planId) {
       store.showCreateForm(planId);
-      // 清除 URL 参数，避免刷新时重复打开
-      window.history.replaceState({}, '', '/upgrade');
+      // 清除一次性 planId 参数避免刷新时重复打开；保留页签状态
+      params.delete('planId');
+      params.set('tab', 'records');
+      history.replace(`/upgrade?${params.toString()}`);
     }
   }, []);
 
   return (
     <AuthDiv auth="upgrade.upgrade.view">
-      <Breadcrumb>
-        <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>系统升级管理</Breadcrumb.Item>
-        <Breadcrumb.Item>升级表单</Breadcrumb.Item>
-      </Breadcrumb>
+      {/* embedded：被升级中心页签嵌入时隐藏本页完整面包屑（由外壳统一显示） */}
+      {!embedded && (
+        <Breadcrumb>
+          <Breadcrumb.Item>首页</Breadcrumb.Item>
+          <Breadcrumb.Item>系统升级管理</Breadcrumb.Item>
+          <Breadcrumb.Item>升级表单</Breadcrumb.Item>
+        </Breadcrumb>
+      )}
       <SearchForm>
         <SearchForm.Item span={6} title="系统">
           <Select allowClear showSearch optionFilterProp="children" value={store.f_system} onChange={v => { store.f_system = v; store.page = 1; store.fetchRecords(); }} placeholder="请选择系统">

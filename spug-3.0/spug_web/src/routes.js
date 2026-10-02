@@ -38,9 +38,7 @@ import DocumentIndex from './pages/document';
 import PartyBuildingDocumentsIndex from './pages/document/PartyBuildingDocumentsIndex';
 import InterferenceEvents from './pages/interference/events';
 import InterferenceInvestigations from './pages/interference/investigations';
-import ExecUpgradeRecord from './pages/upgrade';
-import ExecUpgradeStatistics from './pages/upgrade/Statistics';
-import ExecUpgradePlan from './pages/upgrade/plan/PlanManager';
+import UpgradeCenter, {UpgradeCenterRedirect} from './pages/upgrade/UpgradeCenter';
 import UpgradeWorkbench from './pages/upgrade/Workbench';
 import ExecDutyRecord from './pages/duty';
 import DepartmentDutyLogIndex from './pages/departmentDutyLog';
@@ -53,6 +51,7 @@ import EquipmentSystemIndex from './pages/equipmentLifecycle';
 import EquipmentFaultIndex from './pages/equipmentLifecycle/FaultIndex';
 import EquipmentSystemEventIndex from './pages/equipmentLifecycle/systemEvent';
 import EquipmentSystemStatusIndex from './pages/equipmentLifecycle/systemStatus';
+import RuntimeRecordIndex from './pages/equipmentLifecycle/runtimeRecord';
 import {
   WeekMonthLedgerIndex, SeasonalLedgerIndex,
 } from './pages/equipmentLifecycle/ledger/entries';
@@ -84,14 +83,16 @@ export default [
     {title: '事件列表', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},
     {title: '统计概览', auth: 'runlog.runlog.view', path: '/runlog/statistics', component: RunLogStatistics},
   ]},
-  {icon: <ApartmentOutlined/>, title: '设备全生命周期管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.fault.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view|equipment_lifecycle.system_event.view|upgrade.upgrade.view|upgrade.statistics.view', child: [
+  {icon: <ApartmentOutlined/>, title: '设备全生命周期管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.fault.view|equipment_lifecycle.runtime_record.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view|equipment_lifecycle.system_event.view|upgrade.upgrade.view', child: [
     {title: '系统档案', auth: 'equipment_lifecycle.system.view', path: '/el/systems', component: EquipmentSystemIndex},
     {title: '当前运行状态', auth: 'equipment_lifecycle.system.view', path: '/el/system-status', component: EquipmentSystemStatusIndex},
-    {title: '运行处置', auth: 'equipment_lifecycle.fault.view', child: [
-      {title: '故障管理', auth: 'equipment_lifecycle.fault.view', path: '/el/faults', component: EquipmentFaultIndex},
+    {title: '运行处置', auth: 'equipment_lifecycle.fault.view|equipment_lifecycle.runtime_record.view', child: [
+      {title: '故障处置', auth: 'equipment_lifecycle.fault.view', path: '/el/faults', component: EquipmentFaultIndex},
+      // 运行记录（2026-10 第一版）：异常与运行情况统一录入入口
+      {title: '运行记录', auth: 'equipment_lifecycle.runtime_record.view', path: '/el/runtime-records', component: RuntimeRecordIndex},
     ]},
-    {title: '巡检与维护', auth: 'equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view', child: [
-      {title: '巡检中心', auth: 'equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view', path: '/el/inspection-center', component: InspectionCenter},
+    {title: '巡视与维护', auth: 'equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view', child: [
+      {title: '日巡视', auth: 'equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view', path: '/el/inspection-center', component: InspectionCenter},
       // 旧巡检独立路径兼容入口（菜单不再展示）：跳转到巡检中心对应页签，
       // 保留 detail 等查询参数，来源巡检单跳转（故障/系统履历）不受影响
       {path: '/el/inspection-today', auth: 'equipment_lifecycle.inspection.view', component: props => <InspectionCenterRedirect tab="today" {...props}/>},
@@ -108,12 +109,9 @@ export default [
       // 由正式台账页打开 Excel 台账详情）
       {path: '/el/excel-ledgers', auth: 'equipment_lifecycle.ledger.view', component: props => <ExcelLedgerRedirect {...props}/>},
     ]},
-    // 系统升级管理并入设备全生命周期管理（2026-09），升级记录/方案挂接系统档案
-    {title: '系统升级管理', auth: 'upgrade.upgrade.view|upgrade.statistics.view', child: [
-      {title: '升级表单', auth: 'upgrade.upgrade.view', path: '/upgrade', component: ExecUpgradeRecord},
-      {title: '升级方案', auth: 'upgrade.upgrade.view', path: '/upgrade/plans', component: ExecUpgradePlan},
-      {title: '统计报表', auth: 'upgrade.statistics.view', path: '/upgrade/statistics', component: ExecUpgradeStatistics},
-    ]},
+    // 系统升级管理并入设备全生命周期管理（2026-09），升级记录/方案挂接系统档案；
+    // 升级表单/升级方案融合为页签（2026-10，参照巡检中心），不再各占菜单项
+    {title: '系统升级管理', auth: 'upgrade.upgrade.view', path: '/upgrade', component: UpgradeCenter},
     {title: '履历与状态', auth: 'equipment_lifecycle.system_event.view', child: [
       {title: '系统履历', auth: 'equipment_lifecycle.system_event.view', path: '/el/system-events', component: EquipmentSystemEventIndex},
     ]},
@@ -148,6 +146,8 @@ export default [
   {path: '/welcome/info', component: WelcomeInfo},
   // 升级工作台全屏页面（新建走列表页弹窗，此处仅保留编辑/查看入口）
   {path: '/upgrade/workbench/:id', component: UpgradeWorkbench},
+  // 旧升级方案独立路径兼容入口（菜单不再展示）：跳转到升级中心方案页签
+  {path: '/upgrade/plans', auth: 'upgrade.upgrade.view', component: props => <UpgradeCenterRedirect tab="plans" {...props}/>},
   // 公告查询页（用户端，从首页“更多”进入，不在菜单展示）
   {path: '/announcement', component: AnnouncementList},
 ]

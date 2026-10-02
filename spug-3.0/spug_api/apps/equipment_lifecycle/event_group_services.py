@@ -31,19 +31,23 @@ from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     SystemEvent,
     SystemFault,
+    SystemRuntimeRecord,
 )
 
 # 参与主履历事项聚合的事件类型（排除健康状态/配置快照，二者不按事项聚合；
-# work_order 已随工单功能删除，存量工单事件由迁移 0043 清理）
-MAIN_EVENT_TYPES = ('fault', 'ledger', 'upgrade', 'inspection')
+# work_order 已随工单功能删除，存量工单事件由迁移 0043 清理；
+# runtime 运行记录 2026-10 纳入：影响运行/标记重要/转为故障时才写履历）
+MAIN_EVENT_TYPES = ('fault', 'ledger', 'upgrade', 'inspection', 'runtime')
 # 主列表事项的来源类型（健康状态/配置快照来源不参与）
-GROUP_SOURCE_TYPES = ('fault', 'ledger_item', 'upgrade', 'inspection_record')
+GROUP_SOURCE_TYPES = ('fault', 'ledger_item', 'upgrade', 'inspection_record',
+                      'runtime_record')
 
 SOURCE_TYPE_TO_EVENT_TYPE = {
     'fault': 'fault',
     'ledger_item': 'ledger',
     'upgrade': 'upgrade',
     'inspection_record': 'inspection',
+    'runtime_record': 'runtime',
 }
 
 # 未关闭故障（当前状态口径，不随列表筛选变化）
@@ -55,6 +59,10 @@ OPEN_FAULT_STATUSES = (
 _ACTION_STATUS_FALLBACK = {
     'fault': {'create': '待处置', 'recover': '已恢复', 'close': '已关闭', 'cancel': '已作废'},
     'upgrade': {'create': '处理中', 'complete': '已完成', 'rollback': '已回退'},
+    'runtime_record': {
+        'create': '已记录', 'mark_important': '已记录',
+        'convert_to_fault': '已转故障',
+    },
 }
 
 
@@ -149,16 +157,23 @@ def _item_title(item, business_map):
         if business is not None:
             if source_type == 'fault':
                 return (business.phenomenon or first.title)[:100]
+            if source_type == 'runtime_record':
+                return (business.title or first.title)[:200]
     if source_type == 'upgrade':
         return (first.get_detail().get('upgrade_title') or first.title)[:200]
     return first.title
 
 
-def _serialize_item(item, fault_map):
+def _serialize_item(item, fault_map, runtime_map):
     nodes = item['nodes']
     first, last = nodes[0], nodes[-1]
     # 业务表按来源类型取，避免不同业务主键撞号（升级/台账 id 不查业务表）
-    business_map = fault_map if item['source_type'] == 'fault' else {}
+    if item['source_type'] == 'fault':
+        business_map = fault_map
+    elif item['source_type'] == 'runtime_record':
+        business_map = runtime_map
+    else:
+        business_map = {}
     status, status_text = _item_status(item, business_map)
     item_view = {
         'source_type': item['source_type'],
@@ -188,17 +203,29 @@ def _serialize_item(item, fault_map):
 
 
 def _business_maps(user, items_by_system):
-    """批量取本页事项对应的故障业务对象（同 app 内，租户过滤）。"""
-    fault_ids = set()
+    """批量取本页事项对应的业务对象（同 app 内，租户过滤）。
+
+    返回 (fault_map, runtime_map)：故障与运行记录按各自业务主键取真实
+    状态/标题，其余来源（升级/台账）不查业务表。
+    """
+    fault_ids, runtime_ids = set(), set()
     for items in items_by_system.values():
         for item in items:
-            if item['source_id'].isdigit() and item['source_type'] == 'fault':
+            if not item['source_id'].isdigit():
+                continue
+            if item['source_type'] == 'fault':
                 fault_ids.add(int(item['source_id']))
+            elif item['source_type'] == 'runtime_record':
+                runtime_ids.add(int(item['source_id']))
     fault_map = {}
     if fault_ids:
         fault_map = {f.id: f for f in apply_tenant_filter(
             SystemFault.objects.all(), user).filter(pk__in=fault_ids)}
-    return fault_map
+    runtime_map = {}
+    if runtime_ids:
+        runtime_map = {r.id: r for r in apply_tenant_filter(
+            SystemRuntimeRecord.objects.all(), user).filter(pk__in=runtime_ids)}
+    return fault_map, runtime_map
 
 
 def _open_fault_counts(user, system_ids):
@@ -247,7 +274,7 @@ def _build_page_groups(user, base_queryset, system_ids, last_at_map):
             items.values(),
             key=lambda item: (item['nodes'][-1].occurred_at, item['nodes'][-1].id),
             reverse=True)
-    fault_map = _business_maps(user, items_by_system)
+    fault_map, runtime_map = _business_maps(user, items_by_system)
     open_faults = _open_fault_counts(user, system_ids)
     system_map = {s.id: s for s in apply_tenant_filter(
         LifecycleSystem.objects.all(), user).filter(pk__in=system_ids)}
@@ -260,7 +287,7 @@ def _build_page_groups(user, base_queryset, system_ids, last_at_map):
             'item_count': len(items),
             'open_fault_count': open_faults.get(system_id, 0),
             'last_event_at': last_at_map[system_id],
-            'items': [_serialize_item(item, fault_map) for item in items],
+            'items': [_serialize_item(item, fault_map, runtime_map) for item in items],
         })
     return groups
 

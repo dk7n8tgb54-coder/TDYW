@@ -18,6 +18,7 @@ import store from './store';
 import FaultRecordsTab from './FaultRecordsTab';
 import UpgradeRecordsTab from './UpgradeRecordsTab';
 import ComponentMaintenanceTags from './ComponentMaintenanceTags';
+import SystemRuntimeRecordsTab from './SystemRuntimeRecordsTab';
 import SystemLedgerTab from './ledger/SystemLedgerTab';
 import SystemEventsTab from './systemEvent/SystemEventsTab';
 
@@ -79,6 +80,10 @@ class SystemDetail extends React.Component {
             </TabPane>
             <TabPane tab="故障记录" key="faults">
               <FaultRecordsTab systemId={d.id}/>
+            </TabPane>
+            {/* 运行记录（2026-10 第一版）：本系统运行情况统一录入 */}
+            <TabPane tab="运行记录" key="runtime_records">
+              <SystemRuntimeRecordsTab systemId={d.id}/>
             </TabPane>
             <TabPane tab="升级记录" key="upgrade_records">
               <UpgradeRecordsTab systemId={d.id}/>

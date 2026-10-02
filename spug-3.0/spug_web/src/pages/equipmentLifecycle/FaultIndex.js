@@ -4,7 +4,7 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——运行处置/故障管理列表页（步骤 3.1）。
+ * 设备全生命周期——运行处置/故障处置列表页（步骤 3.1）。
  * 业务关联一律使用系统 ID，页面仅展示系统名称。
  */
 import React, { useEffect } from 'react';
@@ -140,7 +140,7 @@ function FaultIndex(props) {
         <Breadcrumb.Item>首页</Breadcrumb.Item>
         <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
         <Breadcrumb.Item>运行处置</Breadcrumb.Item>
-        <Breadcrumb.Item>故障管理</Breadcrumb.Item>
+        <Breadcrumb.Item>故障处置</Breadcrumb.Item>
       </Breadcrumb>
       <SearchForm>
         <SearchForm.Item span={6} title="故障编号/现象">

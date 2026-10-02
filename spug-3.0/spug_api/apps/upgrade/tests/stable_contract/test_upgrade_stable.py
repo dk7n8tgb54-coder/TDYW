@@ -100,7 +100,7 @@ class UpgradeCRUDTest(TestCase):
     def setUp(self):
         setup_test_env(self)
         self.user = make_user('upg_crud', ['upgrade.upgrade.view', 'upgrade.upgrade.add',
-            'upgrade.upgrade.edit', 'upgrade.upgrade.del', 'upgrade.statistics.view'])
+            'upgrade.upgrade.edit', 'upgrade.upgrade.del'])
         self.client = make_client(self.user)
         self.system = make_linked_system(self.user)
 
@@ -119,16 +119,6 @@ class UpgradeCRUDTest(TestCase):
         self.assertFalse(resp.json().get('error'))
         rec.refresh_from_db()
         self.assertTrue(rec.is_deleted)
-
-    def test_statistics_not_cross_tenant(self):
-        UpgradeRecord.objects.create(
-            tenant_id=self.user.tenant_id, title='Stat', system_name='S',
-            upgrade_type='功能升级', status='已完成', created_by=self.user)
-        UpgradeRecord.objects.create(
-            tenant_id='other', title='Other', system_name='S',
-            upgrade_type='功能升级', status='已完成', created_by=self.user)
-        resp = self.client.get('/upgrade/statistics/')
-        self.assertFalse(resp.json().get('error'))
 
 
 class UpgradeAuditTest(TestCase):

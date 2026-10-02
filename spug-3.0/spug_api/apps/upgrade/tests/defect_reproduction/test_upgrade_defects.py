@@ -63,7 +63,7 @@ from apps.equipment_lifecycle.tests.base import make_system
 PERMS = [
     'upgrade.upgrade.view', 'upgrade.upgrade.add', 'upgrade.upgrade.edit',
     'upgrade.upgrade.del', 'upgrade.upgrade.step_reset',
-    'upgrade.upgrade.step_del', 'upgrade.statistics.view',
+    'upgrade.upgrade.step_del',
 ]
 
 

@@ -19,7 +19,6 @@ from .views.record.delete import RecordDeleteView
 
 # === 新接口 - 辅助 ===
 from .views.filter_options import FilterOptionsView
-from .views.statistics import StatisticsView
 from .views.upload import (
     AttachmentListView,
     AttachmentDownloadView,
@@ -65,7 +64,6 @@ urlpatterns = [
 
     # === 辅助接口 ===
     path('filter-options/', FilterOptionsView.as_view()),          # GET 筛选选项
-    path('statistics/', StatisticsView.as_view()),                  # GET 统计数据
 
     # === 附件接口（写通用附件表 + 哈希 + 软删除 + kkFileView预览）===
     path('records/<int:record_id>/attachments/', AttachmentListView.as_view()),                    # GET 列表 / POST 上传
