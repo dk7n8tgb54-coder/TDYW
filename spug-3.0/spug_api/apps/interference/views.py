@@ -22,10 +22,8 @@ from apps.evidence.attachment_service import (
 from apps.evidence.models import EvidenceAttachment
 from apps.interference.models import (
     AirInterferenceDetail,
-    ALTITUDE_UNIT_CHOICES,
     AFFECTED_SYSTEM_CODE_CHOICES,
     CLASSIFICATION_STATUS_CHOICES,
-    DURATION_UNIT_CHOICES,
     GroundInterferenceDetail,
     INTERFERENCE_KIND_CODE_CHOICES,
     INVESTIGATION_STATUS_CHOICES,
@@ -311,6 +309,7 @@ def _event_payload(data, existing=None):
         if legacy_ground:
             ground = legacy_ground
     if 'air_detail' not in data:
+        # 单位字段已下线，但保留在收集清单里让旧参数流入 _normalise_air 显式报错
         legacy_air = {k: data[k] for k in (
             'route', 'alert_frequency', 'alert_altitude', 'alert_altitude_unit',
             'alert_segment', 'duration', 'duration_unit',
@@ -334,7 +333,7 @@ def _event_payload(data, existing=None):
         if scene == 'air' and air is None and existing is None:
             return None, None, None, '已确认的空中事件必须填写空中明细'
         if scene == 'cross' and ground is None and air is None and existing is None:
-            return None, None, None, '已确认的跨场景事件至少需要一类明细'
+            return None, None, None, '已确认的地面+空中事件至少需要一类明细'
     return values, ground, air, None
 
 
@@ -346,25 +345,20 @@ def _normalise_ground(data):
 
 def _normalise_air(data):
     data = data or {}
+    for legacy_key in ('alert_altitude_unit', 'duration_unit'):
+        if legacy_key in data:
+            raise ValueError('已下线字段 %s 不再接受' % legacy_key)
     try:
         altitude = _parse_decimal(data.get('alert_altitude'), '告警高度', positive=True)
         duration = _parse_decimal(data.get('duration'), '持续时间', positive=True)
     except ValueError as exc:
         raise ValueError(str(exc))
-    altitude_unit = data.get('alert_altitude_unit', 'm') or 'm'
-    duration_unit = data.get('duration_unit', 'min') or 'min'
-    if altitude_unit not in dict(ALTITUDE_UNIT_CHOICES):
-        raise ValueError('告警高度单位值无效')
-    if duration_unit not in dict(DURATION_UNIT_CHOICES):
-        raise ValueError('持续时间单位值无效')
     return {
         'route': data.get('route', '') or '',
         'alert_frequency': data.get('alert_frequency', '') or '',
         'alert_altitude': altitude,
-        'alert_altitude_unit': altitude_unit,
         'alert_segment': data.get('alert_segment', '') or '',
         'duration': duration,
-        'duration_unit': duration_unit,
     }
 
 
@@ -448,7 +442,7 @@ def _validate_detail_state(event):
         return '未知场景事件不能存在专属明细'
     if event.classification_status == 'confirmed' and event.scene_code == 'cross':
         if not ground_exists and not air_exists:
-            return '已确认的跨场景事件至少需要一类明细'
+            return '已确认的地面+空中事件至少需要一类明细'
     return None
 
 

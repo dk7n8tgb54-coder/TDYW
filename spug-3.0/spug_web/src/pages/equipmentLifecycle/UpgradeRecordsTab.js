@@ -36,6 +36,10 @@ class UpgradeRecordsTab extends React.Component {
   };
 
   columns = [{
+    title: '编号',
+    dataIndex: 'upgrade_no',
+    width: 140,
+  }, {
     title: '标题',
     dataIndex: 'title',
     width: 220,

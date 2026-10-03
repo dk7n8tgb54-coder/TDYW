@@ -12,7 +12,8 @@ import { observer } from 'mobx-react';
 import { Table, Tag, Empty } from 'antd';
 import { AuthDiv } from 'components';
 import store from './faultStore';
-import { PERM, FAULT_STATUS_TEXT, FAULT_STATUS_COLOR, FAULT_IMPACT_TEXT, FAULT_IMPACT_COLOR } from './constants';
+import FaultStatusTag from './FaultStatusTag';
+import { PERM, FAULT_IMPACT_TEXT, FAULT_IMPACT_COLOR } from './constants';
 
 @observer
 class FaultRecordsTab extends React.Component {
@@ -27,15 +28,20 @@ class FaultRecordsTab extends React.Component {
   }, {
     title: '影响状态',
     dataIndex: 'impact_status',
-    width: 90,
-    render: (text) => (
-      <Tag color={FAULT_IMPACT_COLOR[text]}>{FAULT_IMPACT_TEXT[text] || '-'}</Tag>
+    width: 110,
+    render: (text, record) => (
+      record.affects_system_operation ? (
+        <Tag color={FAULT_IMPACT_COLOR[text]}>{FAULT_IMPACT_TEXT[text] || text}</Tag>
+      ) : (
+        // 部件故障/离线维修：不影响系统对外服务，独立于系统运行状态展示
+        <Tag>不影响运行</Tag>
+      )
     ),
   }, {
     title: '状态',
     dataIndex: 'status',
     width: 90,
-    render: (text) => <Tag color={FAULT_STATUS_COLOR[text]}>{FAULT_STATUS_TEXT[text]}</Tag>,
+    render: (text) => <FaultStatusTag status={text}/>,
   }, {
     title: '发生时间',
     dataIndex: 'occurred_at',

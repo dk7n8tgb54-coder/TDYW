@@ -389,7 +389,7 @@ class LegacyPurgeCommandTest(TransactionTestCase):
             system_code=self.system_a.system_code, system_name=self.system_a.name,
             system_location=self.system_a.install_location,
             occurred_at='2026-09-01 10:00:00',
-            phenomenon='旧巡检发现的异常', status='pending',
+            phenomenon='旧巡检发现的异常', status='handling',
             source_type='ledger_item', source_id=str(self.legacy_item.id),
             source_ledger_item=self.legacy_item, created_by=self.user_a)
         # 系统履历事件（文本引用旧明细，须保留）

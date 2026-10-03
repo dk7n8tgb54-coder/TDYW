@@ -12,8 +12,21 @@
             self.client_auth = make_client(self.user)
 """
 import time
+import uuid
+
 from apps.account.models import User
 from django.test import Client
+
+
+def make_upgrade_no():
+    """升级记录直建夹具用的唯一编号。
+
+    SJ-TEST- 前缀不会命中 generate_upgrade_no 的当日前缀扫描（SJ+yyyymmdd-），
+    不污染真实编号序列；uuid 后缀保证同租户多条夹具不撞
+    (tenant_id, upgrade_no) 唯一约束。真实编号生成行为由
+    RecordService/视图层测试走正式入口覆盖。
+    """
+    return f'SJ-TEST-{uuid.uuid4().hex[:8]}'
 
 
 def make_user(username, perms=None, is_supper=False):

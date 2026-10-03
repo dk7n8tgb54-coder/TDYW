@@ -4,7 +4,7 @@ import json
 import uuid
 import unittest
 from django.test import TestCase, Client
-from apps.utils.test_helpers import make_user, make_client, setup_test_env
+from apps.utils.test_helpers import make_user, make_client, setup_test_env, make_upgrade_no
 from apps.upgrade.models import UpgradeRecord
 from apps.equipment_lifecycle.tests.base import make_system
 from apps.logs.models import AuditLog
@@ -52,6 +52,7 @@ class UpgradeAuthTest(TestCase):
 
     def test_view_can_list(self):
         UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.v.tenant_id, title='T', system_name='S',
             upgrade_type='软件升级', created_by=self.v)
         self.assertFalse(self.cv.get('/upgrade/records/').json().get('error'))
@@ -73,9 +74,11 @@ class UpgradeTenantTest(TestCase):
         self.ub.tenant_id = 'tenant_b'; self.ub.save()
         self.ca = make_client(self.ua); self.cb = make_client(self.ub)
         self.ra = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id='tenant_a', title='A', system_name='SA',
             upgrade_type='软件升级', created_by=self.ua)
         self.rb = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id='tenant_b', title='B', system_name='SB',
             upgrade_type='硬件升级', created_by=self.ub)
 
@@ -113,6 +116,7 @@ class UpgradeCRUDTest(TestCase):
 
     def test_delete_preserves_data(self):
         rec = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='Del', system_name='S',
             upgrade_type='软件升级', created_by=self.user)
         resp = self.client.delete(f'/upgrade/records/{rec.id}/delete/')
@@ -130,6 +134,7 @@ class UpgradeAuditTest(TestCase):
 
     def test_audit_log_records_delete(self):
         rec = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='AD', system_name='S',
             upgrade_type='功能升级', created_by=self.user)
         self.client.delete(f'/upgrade/records/{rec.id}/delete/')

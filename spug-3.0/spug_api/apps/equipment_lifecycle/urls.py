@@ -14,6 +14,7 @@ from django.db import transaction
 from django.urls import path
 
 from apps.equipment_lifecycle import (
+    config_attachment_views, config_views,
     event_views, excel_ledger_views, excel_template_views, fault_progress_views,
     fault_views, inspection_views, ledger_views,
     runtime_record_attachment_views, runtime_record_v2_views, runtime_record_views,
@@ -41,8 +42,13 @@ urlpatterns = [
     path('faults/export/', fault_views.FaultExportView.as_view()),
     path('faults/candidate-systems/', fault_views.FaultCandidateSystemsView.as_view()),
     path('faults/<int:pk>/', _na(fault_views.FaultDetailView.as_view())),
-    path('faults/<int:pk>/start/', _na(fault_views.FaultStartView.as_view())),
+    # start 路由已随"开始处置"步骤整体删除（2026-10 流程简化：新建即处置中，
+    # 存量 pending 由迁移 0050 转换；确认恢复并结案接口兼容 pending/recovered）
     path('faults/<int:pk>/recover/', _na(fault_views.FaultRecoverView.as_view())),
+    # 原因分析专用更新（2026-10）：详情页"补充原因分析/修改"弹窗保存出口，
+    # 只提交原因分析字段（fault.edit 权限 + 审计），仅处置中可修改
+    path('faults/<int:pk>/reason-analysis/', _na(fault_views.FaultReasonAnalysisView.as_view())),
+    # close 路由保留但已废弃：视图返回清晰业务错误（合并至 recover 单事务操作）
     path('faults/<int:pk>/close/', _na(fault_views.FaultCloseView.as_view())),
     path('faults/<int:pk>/cancel/', _na(fault_views.FaultCancelView.as_view())),
     path('faults/<int:pk>/handling-records/', _na(fault_progress_views.FaultHandlingRecordView.as_view())),
@@ -150,6 +156,24 @@ urlpatterns = [
     path('runtime-records/statistics/', runtime_record_v2_views.RuntimeRecordStatisticsView.as_view()),
     # 按系统查询运行记录（系统详情"运行记录"页签）
     path('systems/<int:pk>/runtime-records/', runtime_record_views.SystemRuntimeRecordsView.as_view()),
+    # ==================== 系统配置（2026-10：系统详情"配置"页签） ====================
+    # 只在系统详情内展示，不设独立菜单；配置值只经"创建草稿 → 应用生效"流程
+    # 写入；创建/回退持编号锁（non_atomic 装配），应用/验证/取消走请求级事务+行锁。
+    path('systems/<int:pk>/config/', config_views.SystemConfigView.as_view()),
+    path('systems/<int:pk>/config/param-options/', config_views.SystemConfigParamOptionsView.as_view()),
+    path('systems/<int:pk>/config/changes/', config_views.SystemConfigChangeListView.as_view()),
+    path('config-changes/', _na(config_views.ConfigChangeView.as_view())),
+    path('config-changes/<int:pk>/', config_views.ConfigChangeDetailView.as_view()),
+    path('config-changes/<int:pk>/apply/', config_views.ConfigChangeApplyView.as_view()),
+    path('config-changes/<int:pk>/verify/', config_views.ConfigChangeVerifyView.as_view()),
+    path('config-changes/<int:pk>/rollback/', _na(config_views.ConfigChangeRollbackView.as_view())),
+    path('config-changes/<int:pk>/cancel/', config_views.ConfigChangeCancelView.as_view()),
+    path('config-changes/<int:pk>/attachments/', config_attachment_views.ConfigChangeAttachmentView.as_view()),
+    path('config-changes/<int:pk>/attachments/<int:aid>/download/', config_attachment_views.ConfigChangeAttachmentDownloadView.as_view()),
+    path('config-changes/<int:pk>/attachments/<int:aid>/', config_attachment_views.ConfigChangeAttachmentDetailView.as_view()),
+    # 配置参数定义（view 查询 / template 维护；只新增编辑停用，无删除）
+    path('config-params/', config_views.ConfigParamView.as_view()),
+    path('config-params/<int:pk>/', config_views.ConfigParamDetailView.as_view()),
     # ==================== 统一系统履历（步骤 3.4，只读 append-only） ====================
     path('system-events/', event_views.SystemEventView.as_view()),
     path('system-events/export/', event_views.SystemEventExportView.as_view()),

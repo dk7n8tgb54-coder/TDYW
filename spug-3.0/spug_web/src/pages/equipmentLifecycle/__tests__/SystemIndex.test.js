@@ -3,7 +3,7 @@
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http 与公共组件壳，
  * 验证：
- * - 详情抽屉页签：基本信息 / 故障记录 / 升级记录 / 周月维护 / 季维护 / 履历
+ * - 详情窗口（居中 Modal）页签：基本信息 / 故障记录 / 升级记录 / 周月维护 / 季维护 / 履历
  *   （自定义字段机制已下线，「系统当前配置」页签一并移除；
  *   旧巡检台账（历史）页签已删除）
  * - 基本信息展示固定字段；扩展信息展示 呼号/安装经纬度/工作频率（选填）
@@ -82,7 +82,7 @@ const DETAIL_PAYLOAD = {
   is_active: true, remark: '', created_by_name: 'admin', created_at: '2026-09-18 10:00',
 };
 
-describe('系统详情抽屉', () => {
+describe('系统详情窗口', () => {
   function renderDetail() {
     const store = require('../store').default;
     const SystemDetail = require('../SystemDetail').default;

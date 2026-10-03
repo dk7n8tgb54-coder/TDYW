@@ -93,7 +93,7 @@ class FaultTestBase(TestCase):
         return body
 
     def run_lifecycle(self, system, impact='fault', user=None):
-        """走完 创建→开始处置→恢复→关闭 全流程，返回故障详情。"""
+        """走完 创建（即处置中）→确认恢复并结案 全流程，返回故障详情。"""
         user = user or self.admin
         body = self.create_fault(fault_payload(
             system, impact_status=impact,
@@ -101,15 +101,10 @@ class FaultTestBase(TestCase):
         self.assertFalse(body.get('error'), body)
         fid = body['data']['id']
         client = make_client(user)
-        r = client.post(f'{FAULT_URL}/{fid}/start/', {}, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
         r = client.post(f'{FAULT_URL}/{fid}/recover/', {
             'recovered_at': '2026-09-18 10:00',
             'recovered_by_name': '恢复确认人甲',
             'recover_confirm': '链路已切换主备，业务恢复正常',
-        }, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
-        r = client.post(f'{FAULT_URL}/{fid}/close/', {
             'final_result': '更换光模块并恢复主用链路',
         }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
@@ -189,7 +184,7 @@ class FaultCreateValidationTest(FaultTestBase):
         self.assertFalse(body.get('error'), body)
         fault = SystemFault.objects.get(pk=body['data']['id'])
         self.assertEqual(fault.fault_component_name, '')
-        self.assertEqual(fault.status, 'pending')
+        self.assertEqual(fault.status, 'handling')
 
     def test_inactive_system_cannot_create_new_fault(self):
         """已停用系统默认不能创建新故障。"""
@@ -241,38 +236,74 @@ class FaultFieldRetirementTest(FaultTestBase):
         fault = SystemFault.objects.get(pk=fid)
         self.assertEqual(fault.phenomenon, '主用链路频繁丢包')
 
-    def test_start_rejects_handler_id(self):
-        """开始处置不再接受 handler_id（处置负责人字段已删除）。"""
+    def test_start_endpoint_removed(self):
+        """开始处置接口已随流程简化整体删除（新建即处置中）。"""
         fid = self.create_fault(fault_payload(
             self.system_a, occurred_at=self.next_occurred_at()))['data']['id']
         resp = make_client(self.admin).post(
             f'{FAULT_URL}/{fid}/start/', {'handler_id': 1},
             content_type='application/json')
-        self.assertIn('handler_id', resp.json().get('error', ''))
-        self.assertEqual(SystemFault.objects.get(pk=fid).status, 'pending')
+        self.assertEqual(resp.status_code, 404)
+        # 新建故障即处置中，无需也不存在开始处置步骤
+        self.assertEqual(SystemFault.objects.get(pk=fid).status, 'handling')
 
-    def test_recover_requires_manual_recovered_by_name(self):
-        """确认恢复必须手动填写恢复确认人（不回落登录账号）。"""
+    def test_legacy_status_values_rejected_by_db(self):
+        """旧流程 pending/recovered 状态已删除：数据库层拒绝写入旧状态值。
+
+        模块未上线无历史包袱：迁移 0051 收紧 CHECK 约束后，
+        任何写入旧状态值的路径（含直接 SQL）都必须失败。
+        """
+        fid = self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at()))['data']['id']
+        with connection.cursor() as cursor:
+            for legacy in ('pending', 'recovered'):
+                with self.assertRaises(Exception):
+                    cursor.execute(
+                        'UPDATE tdyw_el_fault SET status = %s WHERE id = %s',
+                        [legacy, fid])
+        # 非法状态未被写入（保持处置中），合法状态仍可正常更新
+        self.assertEqual(SystemFault.objects.get(pk=fid).status, 'handling')
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'UPDATE tdyw_el_fault SET status = %s WHERE id = %s',
+                ['closed', fid])
+        self.assertEqual(SystemFault.objects.get(pk=fid).status, 'closed')
+
+    def test_recover_and_close_requires_all_four_fields(self):
+        """确认恢复并结案一次性校验：四项任一缺失即拒绝且不落库。"""
         fid = self.create_fault(fault_payload(
             self.system_a, occurred_at=self.next_occurred_at()))['data']['id']
         client = make_client(self.admin)
-        client.post(f'{FAULT_URL}/{fid}/start/', {}, content_type='application/json')
-        resp = client.post(f'{FAULT_URL}/{fid}/recover/', {
+        full = {
             'recovered_at': '2026-09-18 10:00',
+            'recovered_by_name': '确认人甲',
             'recover_confirm': '业务验证恢复',
-        }, content_type='application/json')
-        self.assertIn('恢复确认人不能为空', resp.json().get('error', ''))
+            'final_result': '更换备件并验证恢复',
+        }
+        # 缺恢复确认人 / 缺恢复确认信息 / 缺最终结果 / 缺恢复时间
+        for missing in ('recovered_by_name', 'recover_confirm', 'final_result',
+                        'recovered_at'):
+            payload = {k: v for k, v in full.items() if k != missing}
+            resp = client.post(f'{FAULT_URL}/{fid}/recover/', payload,
+                               content_type='application/json')
+            self.assertTrue(resp.json().get('error'), resp.content)
+            self.assertEqual(SystemFault.objects.get(pk=fid).status, 'handling')
+        # 恢复时间早于故障发生时间同样拒绝
+        resp = client.post(f'{FAULT_URL}/{fid}/recover/', dict(
+            full, recovered_at='2026-09-18 07:00'), content_type='application/json')
+        self.assertIn('恢复时间不能早于', resp.json().get('error', ''))
         self.assertEqual(SystemFault.objects.get(pk=fid).status, 'handling')
-        # 手动填写后成功：姓名为手输文本（多人顿号分隔），与登录账号无关
-        resp = client.post(f'{FAULT_URL}/{fid}/recover/', {
-            'recovered_at': '2026-09-18 10:00',
-            'recovered_by_name': '确认人甲、确认人乙',
-            'recover_confirm': '业务验证恢复',
-        }, content_type='application/json')
+        # 四项齐全：一次操作直接进入终态已关闭，恢复字段完整落库
+        resp = client.post(f'{FAULT_URL}/{fid}/recover/', full,
+                           content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         fault = SystemFault.objects.get(pk=fid)
-        self.assertEqual(fault.status, 'recovered')
-        self.assertEqual(fault.recovered_by_name, '确认人甲、确认人乙')
+        self.assertEqual(fault.status, 'closed')
+        self.assertEqual(str(fault.recovered_at), '2026-09-18 10:00:00')
+        self.assertEqual(fault.recovered_by_name, '确认人甲')
+        self.assertEqual(fault.recover_confirm, '业务验证恢复')
+        self.assertEqual(fault.final_result, '更换备件并验证恢复')
+        self.assertIsNotNone(fault.recovered_confirmed_at)
 
     def test_level_filter_and_export_columns_removed(self):
         """级别筛选参数被忽略；CSV 导出不再包含发现方式/级别/处置负责人等列。"""
@@ -331,11 +362,12 @@ class FaultTenantIsolationTest(FaultTestBase):
         # 租户A 不能查看租户B 的故障详情
         resp = make_client(self.admin).get(f'{FAULT_URL}/{fault_b.id}/')
         self.assertEqual(resp.json().get('error'), '故障记录不存在')
-        # 租户A 不能操作租户B 的故障
-        resp = make_client(self.admin).post(f'{FAULT_URL}/{fault_b.id}/start/',
-                                            {}, content_type='application/json')
+        # 租户A 不能操作租户B 的故障（动作接口同样租户隔离）
+        resp = make_client(self.admin).post(f'{FAULT_URL}/{fault_b.id}/recover/',
+                                            {'recovered_at': '2026-09-18 10:00'},
+                                            content_type='application/json')
         self.assertEqual(resp.json().get('error'), '故障记录不存在')
-        self.assertEqual(SystemFault.objects.get(pk=fault_b.id).status, 'pending')
+        self.assertEqual(SystemFault.objects.get(pk=fault_b.id).status, 'handling')
         # 租户内数据不交叉关联：租户A 的故障不能挂在租户B 系统上（校验拒绝）
         self.create_fault(fault_payload(self.system_b), expect_error='故障系统不存在')
 
@@ -387,7 +419,7 @@ class HealthStatusComputationTest(FaultTestBase):
         # 作废故障故障后回落到降级
         f2 = SystemFault.objects.filter(system=self.system_a,
                                         impact_status='fault',
-                                        status='pending').first()
+                                        status='handling').first()
         resp = client.post(f'{FAULT_URL}/{f2.id}/cancel/', {'cancel_reason': '误报'},
                            content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -395,7 +427,7 @@ class HealthStatusComputationTest(FaultTestBase):
         # 作废最后一张降级故障 → 正常
         f1 = SystemFault.objects.filter(system=self.system_a,
                                         impact_status='degraded',
-                                        status='pending').first()
+                                        status='handling').first()
         resp = client.post(f'{FAULT_URL}/{f1.id}/cancel/', {'cancel_reason': '误报'},
                            content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -408,7 +440,7 @@ class HealthStatusComputationTest(FaultTestBase):
         self.assertEqual(self._refresh(self.system_a2), 'normal')
         # 作废后系统A 恢复正常；系统B 始终不受影响
         client = make_client(self.admin)
-        f = SystemFault.objects.filter(system=self.system_a, status='pending').first()
+        f = SystemFault.objects.filter(system=self.system_a, status='handling').first()
         resp = client.post(f'{FAULT_URL}/{f.id}/cancel/', {'cancel_reason': '误报'},
                            content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -428,14 +460,13 @@ class HealthStatusComputationTest(FaultTestBase):
         f1 = self._create(self.system_a, 'degraded')
         self.run_lifecycle(self.system_a, impact='fault')
         self.assertEqual(self._refresh(self.system_a), 'degraded')
-        # 恢复最后一张降级故障 → 正常
+        # 确认恢复并结案最后一张降级故障 → 正常
         client = make_client(self.admin)
-        resp = client.post(f'{FAULT_URL}/{f1.id}/start/', {}, content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
         resp = client.post(f'{FAULT_URL}/{f1.id}/recover/', {
             'recovered_at': '2026-09-18 12:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务确认恢复'},
+            'recover_confirm': '业务确认恢复',
+            'final_result': '更换光模块恢复链路'},
             content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(self._refresh(self.system_a), 'normal')
@@ -492,29 +523,30 @@ class FaultLifecycleTest(FaultTestBase):
         self.assertEqual(detail['system'], self.system_a.id)
         self.assertEqual(detail['system_location'], '机房A')
 
-    def test_close_requires_recovery_confirmation(self):
-        """未恢复确认的故障不能关闭。"""
+    def test_close_endpoint_deprecated_merged_into_recover(self):
+        """旧单独关闭接口已废弃：返回清晰业务错误且不改状态、不写审计。"""
         body = self.create_fault(fault_payload(self.system_a))
         fid = body['data']['id']
         client = make_client(self.admin)
-        # 待处置直接关闭
+        before_audits = AuditLog.objects.filter(
+            tenant_id='tenant_a', target_type='el_system_fault',
+            target_id=str(fid)).count()
         resp = client.post(f'{FAULT_URL}/{fid}/close/', {'final_result': 'x'},
                            content_type='application/json')
-        self.assertIn('才能关闭', resp.json().get('error', ''))
-        # 处置中关闭
-        client.post(f'{FAULT_URL}/{fid}/start/', {}, content_type='application/json')
-        resp = client.post(f'{FAULT_URL}/{fid}/close/', {'final_result': 'x'},
-                           content_type='application/json')
-        self.assertIn('才能关闭', resp.json().get('error', ''))
-        # 已恢复但缺最终结果
-        client.post(f'{FAULT_URL}/{fid}/recover/', {
-            'recovered_at': '2026-09-18 10:00', 'recover_confirm': '已恢复',
-            'recovered_by_name': '恢复确认人甲'},
-            content_type='application/json')
-        resp = client.post(f'{FAULT_URL}/{fid}/close/', {}, content_type='application/json')
-        self.assertIn('最终结果', resp.json().get('error', ''))
-        self.assertEqual(SystemFault.objects.get(pk=fid).status, 'recovered')
-        resp = client.post(f'{FAULT_URL}/{fid}/close/', {'final_result': '更换板卡恢复'},
+        # 废弃接口返回明确指引，不执行任何状态变更
+        self.assertIn('确认恢复并结案', resp.json().get('error', ''))
+        self.assertEqual(SystemFault.objects.get(pk=fid).status, 'handling')
+        self.assertEqual(AuditLog.objects.filter(
+            tenant_id='tenant_a', target_type='el_system_fault',
+            target_id=str(fid)).count(), before_audits)
+        # 合并操作：确认恢复并结案一次事务完成（四项字段一次提交）
+        payload = {
+            'recovered_at': '2026-09-18 10:00',
+            'recovered_by_name': '恢复确认人甲',
+            'recover_confirm': '业务验证恢复',
+            'final_result': '更换备件并验证恢复',
+        }
+        resp = client.post(f'{FAULT_URL}/{fid}/recover/', payload,
                            content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(SystemFault.objects.get(pk=fid).status, 'closed')
@@ -534,36 +566,40 @@ class FaultLifecycleTest(FaultTestBase):
         # 状态也不能通过普通编辑接口修改（body 中带 status 被忽略）
         resp = client.post(f'{FAULT_URL}/{fault.id}/cancel/', {'cancel_reason': 'x'},
                            content_type='application/json')
-        self.assertIn('不能作废', resp.json().get('error', ''))
+        self.assertIn('已关闭的故障不能撤销', resp.json().get('error', ''))
 
     def test_repeated_recover_and_close_no_side_effects(self):
-        """重复恢复或关闭不会产生重复副作用。"""
+        """重复确认恢复并结案不产生重复副作用（终态保护 + 审计/履历只写一次）。"""
         body = self.create_fault(fault_payload(self.system_a))
         fid = body['data']['id']
         client = make_client(self.admin)
-        client.post(f'{FAULT_URL}/{fid}/start/', {}, content_type='application/json')
         payload = {'recovered_at': '2026-09-18 10:00', 'recover_confirm': '已恢复',
-                   'recovered_by_name': '恢复确认人甲'}
+                   'recovered_by_name': '恢复确认人甲',
+                   'final_result': '更换备件并验证恢复'}
         first = client.post(f'{FAULT_URL}/{fid}/recover/', payload,
                             content_type='application/json').json()
         self.assertFalse(first.get('error'), first)
+        # 已关闭为终态：重复确认恢复并结案必须失败
         second = client.post(f'{FAULT_URL}/{fid}/recover/', payload,
                              content_type='application/json').json()
         self.assertTrue(second.get('error'))
+        # 废弃的单独关闭接口同样失败（返回合并指引）
         third = client.post(f'{FAULT_URL}/{fid}/close/', {'final_result': 'ok'},
                             content_type='application/json').json()
-        self.assertFalse(third.get('error'), third)
-        fourth = client.post(f'{FAULT_URL}/{fid}/close/', {'final_result': 'ok'},
-                             content_type='application/json').json()
-        self.assertTrue(fourth.get('error'))
+        self.assertTrue(third.get('error'))
         fault = SystemFault.objects.get(pk=fid)
         self.assertEqual(fault.status, 'closed')
-        # 每个动作只产生一条成功审计：start/recover/close 各一条 update 审计，
-        # 重复调用的第二次失败不产生审计
+        # 成功操作只产生一条 update 审计；重复/废弃调用的失败不产生审计
         update_audits = AuditLog.objects.filter(
             tenant_id='tenant_a', target_type='el_system_fault',
             target_id=str(fid), action='update')
-        self.assertEqual(update_audits.count(), 3)
+        self.assertEqual(update_audits.count(), 1)
+        # 履历"故障恢复确认"与"故障关闭"两节点各恰好一条（同一事务写入）
+        from apps.equipment_lifecycle.models import SystemEvent
+        actions = list(SystemEvent.objects.filter(
+            tenant_id='tenant_a', source_type='fault',
+            source_id=str(fid)).values_list('action', flat=True))
+        self.assertEqual(sorted(actions), ['close', 'create', 'recover'])
 
     def test_failed_operation_rolls_back_health_status(self):
         """故障操作失败时系统状态同步回滚。"""
@@ -623,10 +659,9 @@ class FaultLifecycleTest(FaultTestBase):
             target_id=str(fault.id), action='delete').exists())
 
     def run_lifecycle_without_close(self, system):
+        """创建（即处置中）故障，不结案，返回故障详情。"""
         body = self.create_fault(fault_payload(system))
         fid = body['data']['id']
-        client = make_client(self.admin)
-        client.post(f'{FAULT_URL}/{fid}/start/', {}, content_type='application/json')
         return SystemFault.objects.get(pk=fid)
 
     def test_full_flow_without_device_archive(self):
@@ -658,14 +693,12 @@ class FaultHandlingProgressTest(FaultTestBase):
         return body
 
     def _create_started_fault(self, impact='fault'):
-        """创建并开始处置一张影响运行的有效故障，返回 (fault, client)。"""
+        """创建一张影响运行的有效故障（新建即处置中），返回 (fault, client)。"""
         body = self.create_fault(fault_payload(
             self.system_a, impact_status=impact, occurred_at=self.next_occurred_at()))
         self.assertFalse(body.get('error'), body)
         fid = body['data']['id']
         client = make_client(self.admin)
-        r = client.post(f'{FAULT_URL}/{fid}/start/', {}, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
         return SystemFault.objects.get(pk=fid), client
 
     def test_progress_type_saved_as_structured_field(self):
@@ -772,7 +805,7 @@ class FaultHandlingProgressTest(FaultTestBase):
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'fault')
 
     def test_fault_can_record_progress_and_recover(self):
-        """仅凭处理进展即可闭环：测试通过后按原规则确认恢复并关闭。"""
+        """仅凭处理进展即可闭环：测试通过后一次"确认恢复并结案"收尾。"""
         fault, client = self._create_started_fault(impact='degraded')
         body = self.add_progress(fault.id, progress_type='test',
                                  content='更换备件后本方测试，各项指标正常',
@@ -782,11 +815,8 @@ class FaultHandlingProgressTest(FaultTestBase):
             'recovered_at': '2026-09-18 11:00',
             'recovered_by_name': '恢复确认人甲',
             'recover_confirm': '本方测试通过，业务验证正常',
+            'final_result': '更换备件并测试通过',
         }, content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
-        resp = client.post(f'{FAULT_URL}/{fault.id}/close/', {
-            'final_result': '更换备件并测试通过'},
-            content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         fault.refresh_from_db()
         self.assertEqual(fault.status, 'closed')
@@ -820,7 +850,7 @@ class FaultPermissionTest(FaultTestBase):
     def test_action_permissions_enforced_independently(self):
         body = self.create_fault(fault_payload(self.system_a))
         fid = body['data']['id']
-        # 只有查看权限：不能新增/编辑/处置/恢复/关闭/作废/导出
+        # 只有查看权限：不能新增/编辑/恢复结案/关闭/作废/导出
         viewer = make_user('flt_viewer', ['equipment_lifecycle.fault.view'],
                            tenant_id='tenant_a')
         client = make_client(viewer)
@@ -830,7 +860,11 @@ class FaultPermissionTest(FaultTestBase):
         self.assertEqual(client.put(f'{FAULT_URL}/{fid}/', {},
                                     content_type='application/json').json().get('error'),
                          '权限拒绝')
-        for action in ('start', 'recover', 'close', 'cancel'):
+        # start 接口已删除（404）；recover/close/cancel 独立校验权限
+        self.assertEqual(
+            client.post(f'{FAULT_URL}/{fid}/start/', {},
+                        content_type='application/json').status_code, 404)
+        for action in ('recover', 'close', 'cancel'):
             self.assertEqual(
                 client.post(f'{FAULT_URL}/{fid}/{action}/', {},
                             content_type='application/json').json().get('error'),
@@ -840,7 +874,48 @@ class FaultPermissionTest(FaultTestBase):
                          '权限拒绝')
         self.assertEqual(client.get(f'{FAULT_URL}/export/').json().get('error'), '权限拒绝')
         # 状态未被无权限操作改变
-        self.assertEqual(SystemFault.objects.get(pk=fid).status, 'pending')
+        self.assertEqual(SystemFault.objects.get(pk=fid).status, 'handling')
+
+    def test_recover_and_close_requires_both_perms(self):
+        """合并操作须同时具备 recover 与 close 权限，缺一即后端拒绝。"""
+        body = self.create_fault(fault_payload(self.system_a))
+        fid = body['data']['id']
+        payload = {
+            'recovered_at': '2026-09-18 10:00',
+            'recovered_by_name': '恢复确认人甲',
+            'recover_confirm': '业务验证恢复',
+            'final_result': '更换备件并验证恢复',
+        }
+        # 只有 recover 权限：缺 close 权限，合并操作被后端独立拒绝
+        only_recover = make_user(
+            'flt_only_recover',
+            ['equipment_lifecycle.fault.view', 'equipment_lifecycle.fault.recover'],
+            tenant_id='tenant_a')
+        resp = make_client(only_recover).post(
+            f'{FAULT_URL}/{fid}/recover/', payload, content_type='application/json')
+        self.assertEqual(resp.json().get('error'), '权限拒绝')
+        # 只有 close 权限：缺 recover 权限，同样拒绝（@auth 层拦截）
+        only_close = make_user(
+            'flt_only_close',
+            ['equipment_lifecycle.fault.view', 'equipment_lifecycle.fault.close'],
+            tenant_id='tenant_a')
+        resp = make_client(only_close).post(
+            f'{FAULT_URL}/{fid}/recover/', payload, content_type='application/json')
+        self.assertEqual(resp.json().get('error'), '权限拒绝')
+        # 两种情况下状态均未改变、未写入恢复字段
+        fault = SystemFault.objects.get(pk=fid)
+        self.assertEqual(fault.status, 'handling')
+        self.assertIsNone(fault.recovered_at)
+        # 两权限齐备后同一载荷成功
+        both = make_user(
+            'flt_both_perms',
+            ['equipment_lifecycle.fault.view', 'equipment_lifecycle.fault.recover',
+             'equipment_lifecycle.fault.close'],
+            tenant_id='tenant_a')
+        resp = make_client(both).post(
+            f'{FAULT_URL}/{fid}/recover/', payload, content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        self.assertEqual(SystemFault.objects.get(pk=fid).status, 'closed')
 
 
 class FaultBoundaryTest(FaultTestBase):
@@ -1159,8 +1234,6 @@ class FaultRegistrarAndProgressRecorderTest(FaultTestBase):
             self.system_a, impact_status='fault',
             occurred_at=self.next_occurred_at()))
         fid = body['data']['id']
-        make_client(self.admin).post(f'{FAULT_URL}/{fid}/start/', {},
-                                     content_type='application/json')
         client = make_client(self.admin)
         resp = client.post(f'{FAULT_URL}/{fid}/handling-records/',
                            {'content': '主板返修中，暂未修复，下一步等待厂家寄回',

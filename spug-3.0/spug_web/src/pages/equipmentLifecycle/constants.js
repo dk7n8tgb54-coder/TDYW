@@ -34,6 +34,15 @@ export const PERM = {
   RUNTIME_CONVERT_FAULT: 'equipment_lifecycle.runtime_record.convert_fault',
   RUNTIME_IMPORTANT: 'equipment_lifecycle.runtime_record.important',
   RUNTIME_LINK: 'equipment_lifecycle.runtime_record.link',
+  // 系统配置（2026-10）：只在系统详情"配置"页签内使用，不设独立菜单
+  CONFIG_VIEW: 'equipment_lifecycle.config.view',
+  CONFIG_ADD: 'equipment_lifecycle.config.add',
+  CONFIG_EDIT: 'equipment_lifecycle.config.edit',
+  CONFIG_APPLY: 'equipment_lifecycle.config.apply',
+  CONFIG_VERIFY: 'equipment_lifecycle.config.verify',
+  CONFIG_ROLLBACK: 'equipment_lifecycle.config.rollback',
+  CONFIG_TEMPLATE: 'equipment_lifecycle.config.template',
+  CONFIG_ATTACHMENT: 'equipment_lifecycle.config.attachment',
 };
 
 // 工单权限码（WO_*）已随「故障维修工单」功能整体删除（2026-09-30）。
@@ -60,12 +69,16 @@ export const HEALTH_STATUS_COLOR = {
   unknown: 'default',
 };
 
+// 2026-10 流程简化：新建即处置中，确认恢复并结案后进入已关闭终态；
+// 旧 pending/recovered 过渡态已删除（模块未上线，无历史包袱）。
+// 2026-10-03 撤销登记改版：后端状态值 cancelled 保持不变（历史数据兼容），
+// 用户可见文案统一为"已撤销"——表示这条登记本身不再作为有效故障
+// （错误/重复/误报登记被撤销），历史记录保留可追溯；
+// 与"已关闭"（真实故障已恢复并完成结案）语义区分。
 export const FAULT_STATUS_OPTIONS = [
-  {value: 'pending', label: '待处置'},
   {value: 'handling', label: '处置中'},
-  {value: 'recovered', label: '已恢复'},
   {value: 'closed', label: '已关闭'},
-  {value: 'cancelled', label: '已作废'},
+  {value: 'cancelled', label: '已撤销'},
 ];
 
 export const FAULT_STATUS_TEXT = FAULT_STATUS_OPTIONS.reduce((acc, item) => {
@@ -73,10 +86,10 @@ export const FAULT_STATUS_TEXT = FAULT_STATUS_OPTIONS.reduce((acc, item) => {
   return acc;
 }, {});
 
+// 已撤销使用虚线边框的中性灰样式（renderCancelledStatusTag），与处置中
+// （geekblue 实色）和已关闭（灰实线）明显区分但克制，不使用红/橙等告警色
 export const FAULT_STATUS_COLOR = {
-  pending: 'orange',
   handling: 'geekblue',
-  recovered: 'green',
   closed: 'default',
   cancelled: 'default',
 };
@@ -99,8 +112,11 @@ export const FAULT_IMPACT_COLOR = {
 };
 
 // 故障处理进展类型（选填，与后端 SystemFaultHandlingRecord.PROGRESS_TYPE_CHOICES 一致）
+// 故障定位（fault_locate，2026-10）：记录原因判断的依据与过程，
+// 是形成"原因分析"结论的过程记录，不替代原因分析结论本身
 export const FAULT_PROGRESS_TYPE_OPTIONS = [
   {value: 'check', label: '检查'},
+  {value: 'fault_locate', label: '故障定位'},
   {value: 'self_fix', label: '本方处理'},
   {value: 'to_vendor', label: '送厂'},
   {value: 'vendor_feedback', label: '厂家反馈'},
@@ -176,3 +192,54 @@ export const RUNTIME_IMPORTANCE_TEXT = RUNTIME_IMPORTANCE_OPTIONS.reduce((acc, i
 
 
 export const API_PREFIX = '/api/equipment-lifecycle';
+
+// ==================== 系统配置（2026-10，与后端 config_models 一致） ====================
+
+// 配置变更状态
+export const CONFIG_CHANGE_STATUS_OPTIONS = [
+  {value: 'draft', label: '草稿'},
+  {value: 'applied', label: '已生效'},
+  {value: 'verified', label: '已验证'},
+  {value: 'rolled_back', label: '已回退'},
+  {value: 'cancelled', label: '已取消'},
+];
+
+export const CONFIG_CHANGE_STATUS_TEXT = CONFIG_CHANGE_STATUS_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
+export const CONFIG_CHANGE_STATUS_COLOR = {
+  draft: 'orange',
+  applied: 'geekblue',
+  verified: 'green',
+  rolled_back: 'default',
+  cancelled: 'default',
+};
+
+// 参数数据类型
+export const PARAM_TYPE_OPTIONS = [
+  {value: 'text', label: '文本'},
+  {value: 'number', label: '数字'},
+  {value: 'bool', label: '布尔'},
+  {value: 'date', label: '日期'},
+  {value: 'choice', label: '枚举'},
+];
+
+export const PARAM_TYPE_TEXT = PARAM_TYPE_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
+// 验证状态
+export const CONFIG_VERIFY_STATUS_TEXT = {
+  '': '未验证',
+  passed: '验证通过',
+  failed: '验证不通过',
+};
+
+export const CONFIG_VERIFY_STATUS_COLOR = {
+  '': 'default',
+  passed: 'green',
+  failed: 'red',
+};

@@ -33,17 +33,23 @@ class FaultStore {
   // ========== 系统候选项 ==========
   @observable systems = [];
 
-  // ========== 详情抽屉 ==========
+  // ========== 详情窗口 ==========
   @observable detailVisible = false;
   @observable detailId = null;
   @observable detail = {};
   @observable isDetailFetching = false;
+  // 当前激活页签（受控）：列表"处理进展"列点击直达处理进展页签，
+  // 基本信息"查看全部进展"同款跳转；showDetail 每次打开都会重置
+  @observable activeTab = 'basic';
   // 详情可能被多个入口并发刷新（打开详情、动作后的统一刷新、重开其他故障）；
   // 只接受最后一次响应：旧响应不覆盖新数据、不提前关闭 loading。
   detailRequestSeq = 0;
 
   // ========== 处理进展（原处置记录） ==========
   @observable handlingRecords = [];
+  // 总条数（取列表接口 total）：详情页签实时展示条数，停在基本信息页签
+  // 也能看出进展是否已登记；后端默认分页 100 条，不能用数组长度代替
+  @observable handlingTotal = 0;
   @observable isHandlingFetching = false;
   // 处理进展可能在详情初始请求尚未完成时再次刷新；只接受最后一次响应。
   handlingRequestSeq = 0;
@@ -114,16 +120,23 @@ class FaultStore {
       }));
   };
 
-  showDetail = action((recordOrId) => {
-    // 支持对象或纯 ID（跨页 ?detail= 跳转直达详情）。
+  showDetail = action((recordOrId, tab = 'basic') => {
+    // 支持对象或纯 ID（跨页 ?detail= 跳转直达详情）；
+    // 第二参数指定打开后定位的页签（列表"处理进展"列点击 → 'handling'）。
     // 详情与处理进展请求统一在此发起；FaultDetail 挂载时不再重复请求
     // （打开详情时的并发重复请求是旧响应覆盖新数据的竞态来源）。
     this.detailId = typeof recordOrId === 'object' ? recordOrId.id : recordOrId;
     this.detail = typeof recordOrId === 'object' ? recordOrId : {};
     this.detailVisible = true;
+    this.activeTab = tab === 'handling' ? 'handling' : 'basic';
     this.handlingRecords = [];
+    this.handlingTotal = 0;
     this.fetchDetail();
     this.fetchHandlingRecords();
+  });
+
+  setActiveTab = action((tab) => {
+    this.activeTab = tab === 'handling' ? 'handling' : 'basic';
   });
 
   closeDetail = action(() => {
@@ -131,9 +144,13 @@ class FaultStore {
     this.detailId = null;
   });
 
-  fetchDetail = () => {
+  fetchDetail = ({silent} = {}) => {
     const requestSeq = ++this.detailRequestSeq;
-    this.isDetailFetching = true;
+    // silent：动作后的伴随刷新（如添加处理进展后同步概览统计），
+    // 不让整个详情窗口进入全量 loading，只更新数据本身
+    if (!silent) {
+      this.isDetailFetching = true;
+    }
     return http.get(`${API_PREFIX}/faults/${this.detailId}/`)
       .then(action(res => {
         // http 拦截器已解包 json_response 的 data 层，res 即详情本体
@@ -143,7 +160,7 @@ class FaultStore {
       }))
       .catch(action(() => {}))
       .finally(action(() => {
-        if (requestSeq === this.detailRequestSeq) {
+        if (requestSeq === this.detailRequestSeq && !silent) {
           this.isDetailFetching = false;
         }
       }));
@@ -161,6 +178,7 @@ class FaultStore {
       .then(action(res => {
         if (requestSeq === this.handlingRequestSeq) {
           this.handlingRecords = res.data || [];
+          this.handlingTotal = res.total ?? (res.data || []).length;
         }
       }))
       .catch(action(() => {}))
@@ -172,16 +190,9 @@ class FaultStore {
   };
 
   // ========== 状态动作（成功后重新获取真实数据） ==========
-  startHandling = (extra = {}) => {
-    this.isActionSubmitting = true;
-    return http.post(`${API_PREFIX}/faults/${this.detailId}/start/`, extra)
-      .then(action(() => this._refreshAfterAction()))
-      .finally(action(() => {
-        this.isActionSubmitting = false;
-      }));
-  };
-
-  confirmRecover = (formData) => {
+  // 2026-10 流程简化：无"开始处置"步骤（新建即处置中）；确认恢复与关闭
+  // 故障合并为一次"确认恢复并结案"操作（recover 端点单事务）
+  confirmRecoverAndClose = (formData) => {
     this.isActionSubmitting = true;
     return http.post(`${API_PREFIX}/faults/${this.detailId}/recover/`, formData)
       .then(action(() => this._refreshAfterAction()))
@@ -190,10 +201,14 @@ class FaultStore {
       }));
   };
 
-  closeFault = (formData) => {
+  // 原因分析专用保存（2026-10）：详情页"补充原因分析/修改"弹窗出口，
+  // 只提交原因分析字段（后端 PUT faults/{id}/reason-analysis/），不重复提交
+  // 系统/发生时间等无关字段；成功后静默刷新详情（处置结果区块随新状态展示），
+  // 返回刷新 Promise 供调用方在真实完成后提示并关闭弹窗
+  saveReasonAnalysis = (formData) => {
     this.isActionSubmitting = true;
-    return http.post(`${API_PREFIX}/faults/${this.detailId}/close/`, formData)
-      .then(action(() => this._refreshAfterAction()))
+    return http.put(`${API_PREFIX}/faults/${this.detailId}/reason-analysis/`, formData)
+      .then(action(() => this.fetchDetail({silent: true})))
       .finally(action(() => {
         this.isActionSubmitting = false;
       }));
@@ -211,9 +226,14 @@ class FaultStore {
   addHandlingRecord = (formData) => {
     this.isActionSubmitting = true;
     return http.post(`${API_PREFIX}/faults/${this.detailId}/handling-records/`, formData)
-      // 添加处理进展只改变时间线；避免无关的详情请求让整个抽屉进入刷新态。
-      // 返回列表刷新 Promise，调用方在真实列表完成后再关闭弹窗。
-      .then(action(() => this.fetchHandlingRecords()))
+      // 添加处理进展改变时间线，同时静默刷新详情（基本信息"处理概览"的
+      // 条数/最近更新/最后记录由后端详情接口统计返回，须同步更新；
+      // silent 不触发整个详情窗口的全量 loading）。返回刷新 Promise，
+      // 调用方在真实刷新完成后再关闭弹窗。
+      .then(action(() => Promise.all([
+        this.fetchDetail({silent: true}),
+        this.fetchHandlingRecords(),
+      ])))
       .finally(action(() => {
         this.isActionSubmitting = false;
       }));
@@ -223,7 +243,11 @@ class FaultStore {
     this.isActionSubmitting = true;
     return http.put(
       `${API_PREFIX}/faults/${this.detailId}/handling-records/${recordId}/`, formData)
-      .then(action(() => this.fetchHandlingRecords()))
+      // 更正可能修改进展内容/时间（影响"最后记录"概览），同样静默刷新详情
+      .then(action(() => Promise.all([
+        this.fetchDetail({silent: true}),
+        this.fetchHandlingRecords(),
+      ])))
       .finally(action(() => {
         this.isActionSubmitting = false;
       }));

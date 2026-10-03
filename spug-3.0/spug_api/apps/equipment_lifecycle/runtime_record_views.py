@@ -57,7 +57,10 @@ from apps.equipment_lifecycle.models import (
     SystemRuntimeRecord,
     SystemRuntimeRecordProgress,
 )
-from apps.equipment_lifecycle.fault_views import _parse_dt, _read_json_body
+# 详情出口复用故障视图的统一响应（详情字段 + 处理进展概览统计）
+from apps.equipment_lifecycle.fault_views import (
+    _fault_detail_response, _parse_dt, _read_json_body,
+)
 
 AUDIT_TARGET_RUNTIME_RECORD = 'el_runtime_record'
 IDEMPOTENCY_WINDOW_SECONDS = 30
@@ -208,6 +211,34 @@ def _validate_category_value(category):
     return None
 
 
+def _validate_and_clean_create_fields(form):
+    """新建附加字段校验与清洗（登记人/重要程度/异常类别）。
+
+    返回 (error, cleaned)；cleaned 含清洗后的 registrar_name/importance/
+    importance_reason/category，error 非 None 时为 None。
+    登记人手动输入必填（不默认当前登录用户，参照故障登记人口径）。
+    """
+    registrar_name = (form.registrar_name or '').strip()
+    if not registrar_name:
+        return '登记人不能为空', None
+    importance = (form.importance or 'normal').strip()
+    if importance not in SystemRuntimeRecord.IMPORTANCE_TEXT_MAP:
+        return '重要程度取值不合法', None
+    importance_reason = (form.importance_reason or '').strip()
+    if importance == SystemRuntimeRecord.IMPORTANCE_IMPORTANT and not importance_reason:
+        return '标记重要时必须填写原因', None
+    category = (form.category or '').strip()
+    error = _validate_category_value(category)
+    if error:
+        return error, None
+    return None, {
+        'registrar_name': registrar_name,
+        'importance': importance,
+        'importance_reason': importance_reason,
+        'category': category,
+    }
+
+
 def _find_create_duplicate(request, client_token, system, occurred_at, title):
     """创建幂等检查：令牌命中返回 'duplicate:<id>'，窗口期查重返回错误消息，
     可创建返回 None。"""
@@ -247,6 +278,7 @@ def _record_audit_summary(record):
         'record_no': record.record_no,
         'status': record.status,
         'system': record.system_name,
+        'registrar_name': record.registrar_name,
         'affects_system_operation': record.affects_system_operation,
         'impact_status': record.impact_status,
         'importance': record.importance,
@@ -300,6 +332,9 @@ class RuntimeRecordView(View):
             Argument('occurred_at', type=str, required=True, help='发生时间'),
             Argument('title', type=str, required=True, help='标题'),
             Argument('description', type=str, required=True, help='情况描述'),
+            Argument('registrar_name', type=str, required=False, default='',
+                     help='登记人姓名（手动输入必填，多人以顿号分隔；'
+                          '实际添加本条运行记录的人，与登录账号独立）'),
             Argument('needs_follow_up', type=bool, required=False, default=False),
             Argument('affects_system_operation', type=bool, required=False, default=False),
             Argument('impact_status', type=str, required=False, default=''),
@@ -327,14 +362,7 @@ class RuntimeRecordView(View):
          affects, impact_status, err) = _validate_base_fields(form, request)
         if err:
             return json_response(error=err)
-        importance = (form.importance or 'normal').strip()
-        if importance not in SystemRuntimeRecord.IMPORTANCE_TEXT_MAP:
-            return json_response(error='重要程度取值不合法')
-        importance_reason = (form.importance_reason or '').strip()
-        if importance == SystemRuntimeRecord.IMPORTANCE_IMPORTANT and not importance_reason:
-            return json_response(error='标记重要时必须填写原因')
-        category = (form.category or '').strip()
-        error = _validate_category_value(category)
+        error, extra = _validate_and_clean_create_fields(form)
         if error:
             return json_response(error=error)
         client_token = (form.client_token or '').strip()[:64]
@@ -357,17 +385,18 @@ class RuntimeRecordView(View):
                         occurred_at=occurred_at,
                         title=title,
                         description=description,
+                        registrar_name=extra['registrar_name'],
                         client_token=client_token,
                         needs_follow_up=form.needs_follow_up,
                         affects_system_operation=affects,
                         impact_status=impact_status,
                         measures_taken=form.measures_taken,
                         handling_result=form.handling_result,
-                        importance=importance,
-                        importance_reason=importance_reason,
+                        importance=extra['importance'],
+                        importance_reason=extra['importance_reason'],
                         object_name=form.object_name,
                         object_model=form.object_model,
-                        category=category,
+                        category=extra['category'],
                         initial_reason=form.initial_reason,
                         impact_scope=form.impact_scope,
                         request=request,
@@ -848,7 +877,7 @@ class RuntimeRecordConvertToFaultView(View):
                 runtime_record_services.RuntimeRecordConvertError) as exc:
             return json_response(error=str(exc))
         fault_data = SystemFault.objects.select_related('system').get(pk=fault.id)
-        return json_response(fault_data.to_detail_view())
+        return _fault_detail_response(fault_data)
 
 
 class SystemRuntimeRecordsView(View):

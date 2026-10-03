@@ -77,7 +77,7 @@ def record_fault_lifecycle_events(fault, action, detail=None, occurred_at=None, 
         title = {
             'recover': '故障恢复确认',
             'close': '故障关闭',
-            'cancel': '故障作废',
+            'cancel': '故障撤销登记',
         }[action]
     record_system_event(
         tenant_id=fault.tenant_id,

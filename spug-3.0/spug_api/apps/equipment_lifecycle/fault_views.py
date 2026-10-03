@@ -11,7 +11,16 @@
   页面仅显示名称，不建设主/受影响系统等跨系统关系；
 - 故障系统提交时由后端重新查询校验（租户、可用性），
   不信任前端传来的名称或状态；
-- 状态流转只经动作接口（start/recover/close/cancel），普通编辑不允许改状态；
+- 状态流转（2026-10 简化）：新建即处置中（handling），无"开始处置"独立步骤；
+  恢复确认与结案合并为一次操作（recover 端点单事务：恢复时间/恢复确认人/
+  恢复确认信息/最终结果一次性校验写入，最终原因分析可随结案一并修改保存，
+  成功直接进入终态 closed）；
+  普通编辑不允许改状态；
+- 旧的单独关闭接口（close）已废弃：保留路由返回清晰业务错误，不执行任何
+  状态变更，避免旧客户端绕过合并后的恢复确认要求；
+- start 路由与视图已随"开始处置"步骤整体删除；旧 pending/recovered 过渡态
+  已整体删除（模块未上线无历史包袱，迁移 0051 清理存量并收紧 CHECK 约束，
+  数据库层拒绝旧状态值）；
 - 所有改变有效故障影响的写操作在 health_recalc_lock 内 + 单事务中完成，
   系统健康状态由 fault_services 统一重算（同事务写入）；
 - 创建接口以业务字段窗口期查重 + 唯一编号约束防重复提交；
@@ -27,6 +36,23 @@
   "谁登记/谁确认/谁记录"，姓名为文本快照、不关联 User（实际操作人可能
   没有系统账号）；台账异常转故障等程序化入口由服务层自动登记操作人姓名；
 - 写操作记录业务审计（record_audit_event）。
+- 处理进展概览（2026-10）：列表与详情响应统一附带后端聚合的只读统计
+  handling_record_count / latest_handled_at / latest_handling_content
+  （fault_services.handling_overview_map，单次 IN 聚合无 N+1，仅统计真实
+  处理进展记录行；更正留痕与系统履历不计入），不提供可编辑的"节点数"字段。
+- 撤销登记改版（2026-10-03）：原"作废"操作统一改称"撤销故障登记"
+  （用户可见文案为"已撤销"），用于撤销错误/重复/误报的登记，历史记录
+  保留可追溯（cancelled 状态值不变，历史数据兼容）；列表/系统页签/导出
+  默认只含有效故障（处置中/已关闭），已撤销记录仅在显式指定
+  status=cancelled 时返回；已撤销故障详情只读（编辑/进展/恢复结案/
+  重复撤销均后端拒绝），详情响应携带撤销原因/撤销人/撤销时间。
+- 原因分析状态化（2026-10）：原因分析是单一字段 reason_analysis，不同阶段
+  只是展示口径——新增=初步原因分析、处置中=初步判断、结案=最终原因；
+  "原因未明"以 reason_unknown 标记承载（未明说明仍存入 reason_analysis），
+  不新增第二个原因字段；详情页"补充原因分析/修改"弹窗走专用端点
+  PUT faults/{id}/reason-analysis/（只提交原因分析字段，fault.edit 权限 +
+  审计留痕）；处理进展新增"故障定位"类型记录原因判断的依据与过程，
+  原因分析（结论）与故障定位（过程依据）互不替代。
 
 2026-09-30 工单功能整体删除：本模块自 work_order_views.py 接管
 "台账异常明细转故障"视图（LedgerItemConvertToFaultView，故障链路），
@@ -63,12 +89,17 @@ from apps.equipment_lifecycle.models import (
 AUDIT_TARGET_FAULT = 'el_system_fault'
 AUDIT_TARGET_HEALTH = fault_services.AUDIT_TARGET_HEALTH
 
-# 允许普通编辑与追加处理进展的故障状态（closed/cancelled 均不允许）
-EDITABLE_FAULT_STATUSES = (
-    SystemFault.STATUS_PENDING, SystemFault.STATUS_HANDLING, SystemFault.STATUS_RECOVERED,
-)
-# 允许作废的状态（已关闭为终态，不可再作废）
+# 允许普通编辑、追加处理进展、撤销登记与确认恢复并结案的故障状态：
+# 处置中（唯一进行态）。已关闭为终态、已撤销均已封闭；
+# 旧 pending/recovered 过渡态已随 2026-10 流程简化整体删除（模块未上线）。
+EDITABLE_FAULT_STATUSES = (SystemFault.STATUS_HANDLING,)
 CANCELLABLE_FAULT_STATUSES = EDITABLE_FAULT_STATUSES
+RECOVERABLE_FAULT_STATUSES = EDITABLE_FAULT_STATUSES
+
+# 故障列表/导出的"有效故障"口径（2026-10 撤销登记改版）：默认只展示/导出
+# 有效故障（处置中 + 已关闭），已撤销（cancelled）记录退出日常主列表，
+# 仅在调用方显式指定 status=cancelled（或指定状态筛选）时返回，保证历史可查。
+DEFAULT_FAULT_STATUSES = (SystemFault.STATUS_HANDLING, SystemFault.STATUS_CLOSED)
 
 DATETIME_FORMATS = ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%dT%H:%M:%S',
                     '%Y-%m-%dT%H:%M', '%Y-%m-%d')
@@ -167,16 +198,32 @@ def _validate_fault_system(form, request, for_update=False, fault=None):
 
 
 def _fault_audit_summary(fault):
+    """故障审计摘要：原因分析属于业务结论，变更前后值（含全文与未明标记）
+    随状态一并留痕（reason_analysis 限 2000 字，审计 detail 为 TextField 可承载）。"""
     summary = {
         'fault_no': fault.fault_no,
         'status': fault.status,
         'system': fault.system_name,
         'affects_system_operation': fault.affects_system_operation,
         'impact_status': fault.impact_status,
+        'reason_unknown': fault.reason_unknown,
+        'reason_analysis': fault.reason_analysis,
     }
     if fault.status == SystemFault.STATUS_CANCELLED and fault.cancel_reason:
         summary['cancel_reason'] = fault.cancel_reason
     return summary
+
+
+def _fault_detail_response(fault):
+    """故障详情响应统一出口：详情字段 + 处理进展概览（后端统计口径）。
+
+    处理概览（handling_record_count / latest_handled_at /
+    latest_handling_content）由 fault_services 聚合真实处理进展记录得出，
+    前端只读展示，不提供任何可编辑的"节点数"字段。
+    """
+    data = fault.to_detail_view()
+    data.update(fault_services.handling_overview(fault))
+    return json_response(data)
 
 
 def _fault_optional_fields(form):
@@ -205,6 +252,24 @@ def _apply_fault_text_fields(fault, form):
         fault.reason_analysis = form.reason_analysis.strip()[:2000]
 
 
+def _apply_occurred_range(query, form):
+    """解析并应用发生时间范围筛选（__gte/__lt，项目禁用 __date 等查询）。
+
+    返回 (query, error)：格式不合法时返回业务错误提示。
+    """
+    occurred_from = _parse_dt(form.occurred_from) if form.occurred_from else None
+    occurred_to = _parse_dt(form.occurred_to) if form.occurred_to else None
+    if form.occurred_from and not occurred_from:
+        return query, '发生时间起始格式不正确'
+    if form.occurred_to and not occurred_to:
+        return query, '发生时间截止格式不正确'
+    if occurred_from:
+        query = query.filter(occurred_at__gte=occurred_from)
+    if occurred_to:
+        query = query.filter(occurred_at__lt=occurred_to)
+    return query, None
+
+
 class FaultView(View):
     """故障列表 / 新增。"""
 
@@ -219,35 +284,40 @@ class FaultView(View):
         ).parse(request.GET)
         if error:
             return json_response(error=error)
-        query = apply_tenant_filter(SystemFault.objects.all(), request.user)
+        # select_related(created_by)：列表行展示创建账号用户名，
+        # 逐行取值会产生 N+1（统计概览聚合已单次完成，不能让行查询拖累整体）
+        query = apply_tenant_filter(
+            SystemFault.objects.select_related('created_by'), request.user)
         if form.status:
             if form.status not in SystemFault.STATUS_TEXT_MAP:
                 return json_response(error='故障状态筛选值不合法')
             query = query.filter(status=form.status)
+        else:
+            # 默认只返回有效故障（处置中/已关闭）：已撤销记录退出日常主列表，
+            # 显式指定 status=cancelled 时才返回（后端排除，不依赖前端隐藏）
+            query = query.exclude(status=SystemFault.STATUS_CANCELLED)
         if form.system:
             query = query.filter(system_id=form.system)
         if form.keyword:
             query = query.filter(
                 Q(fault_no__icontains=form.keyword) | Q(phenomenon__icontains=form.keyword) |
                 Q(system_name__icontains=form.keyword))
-        # 时间筛选用 __gte/__lt（项目禁用 DateTimeField __date 等查询）
-        occurred_from = _parse_dt(form.occurred_from) if form.occurred_from else None
-        occurred_to = _parse_dt(form.occurred_to) if form.occurred_to else None
-        if form.occurred_from and not occurred_from:
-            return json_response(error='发生时间起始格式不正确')
-        if form.occurred_to and not occurred_to:
-            return json_response(error='发生时间截止格式不正确')
-        if occurred_from:
-            query = query.filter(occurred_at__gte=occurred_from)
-        if occurred_to:
-            query = query.filter(occurred_at__lt=occurred_to)
+        query, error = _apply_occurred_range(query, form)
+        if error:
+            return json_response(error=error)
 
         from libs.pagination import paginate
         page, page_size = paginate(request)
         total = query.count()
-        records = query[(page - 1) * page_size: page * page_size]
+        records = list(query[(page - 1) * page_size: page * page_size])
+        # 处理进展概览后端聚合（单次 IN 查询，随本页故障合并返回，
+        # 禁止前端对每条故障逐条请求处理进展）
+        overview_map = fault_services.handling_overview_map([r.id for r in records])
         return json_response({
-            'data': [r.to_view() for r in records],
+            'data': [
+                {**r.to_view(), **overview_map.get(r.id, {})}
+                for r in records
+            ],
             'total': total, 'page': page, 'page_size': page_size,
         })
 
@@ -325,7 +395,7 @@ class FaultView(View):
         except (fault_services.HealthRecalcLockTimeout,
                 fault_services.FaultNoExhausted) as exc:
             return json_response(error=str(exc))
-        return json_response(fault.to_detail_view())
+        return _fault_detail_response(fault)
 
 
 class FaultDetailView(View):
@@ -336,7 +406,7 @@ class FaultDetailView(View):
         fault = _get_fault_for_user(pk, request.user)
         if not fault:
             return json_response(error='故障记录不存在')
-        return json_response(fault.to_detail_view())
+        return _fault_detail_response(fault)
 
     @auth('equipment_lifecycle.fault.edit')
     def put(self, request, pk):
@@ -369,7 +439,7 @@ class FaultDetailView(View):
                     if not fault:
                         return json_response(error='故障记录不存在')
                     if fault.status not in EDITABLE_FAULT_STATUSES:
-                        return json_response(error='已关闭或已作废的故障不能编辑')
+                        return json_response(error='已关闭或已撤销的故障不能编辑')
                     # 修改前后的系统都需要重算（影响可能消失或新增）
                     related_ids = {fault.system_id}
 
@@ -414,7 +484,7 @@ class FaultDetailView(View):
                     fault.refresh_from_db()
         except fault_services.HealthRecalcLockTimeout as exc:
             return json_response(error=str(exc))
-        return json_response(fault.to_detail_view())
+        return _fault_detail_response(fault)
 
 
 class FaultActionBaseView(View):
@@ -433,17 +503,23 @@ class FaultActionBaseView(View):
                     if not fault:
                         return json_response(error='故障记录不存在')
                     before_status = fault.status
+                    before_reason_unknown = fault.reason_unknown
+                    before_reason_analysis = fault.reason_analysis
                     error = self.handle_locked(request, fault)
                     if error:
                         return json_response(error=error)
                     record_audit_event(request, self.audit_action, AUDIT_TARGET_FAULT,
                                        fault.id, fault.fault_no,
-                                       before_value={'status': before_status},
+                                       before_value={
+                                           'status': before_status,
+                                           'reason_unknown': before_reason_unknown,
+                                           'reason_analysis': before_reason_analysis,
+                                       },
                                        after_value=_fault_audit_summary(fault))
         except fault_services.HealthRecalcLockTimeout as exc:
             return json_response(error=str(exc))
         fault.refresh_from_db()
-        return json_response(fault.to_detail_view())
+        return _fault_detail_response(fault)
 
     def handle_locked(self, request, fault):
         raise NotImplementedError
@@ -453,44 +529,51 @@ class FaultActionBaseView(View):
             fault.tenant_id, [fault.system_id], request=request, audit_reason=reason)
 
 
-class FaultStartView(FaultActionBaseView):
-    """开始处置：待处置 → 处置中。"""
+def _resolve_final_reason(fault, form):
+    """结案最终原因解析（2026-10）：未提交时保留原值（旧客户端兼容）；
+    选择"原因未明"必须填写未明说明（不强迫用户填写虚假原因）。
 
-    ACTION_NAME = '开始处置'
-    audit_action = 'update'
-
-    @auth('equipment_lifecycle.fault.handle')
-    def post(self, request, pk):
-        return super().post(request, pk)
-
-    def handle_locked(self, request, fault):
-        if fault.status != SystemFault.STATUS_PENDING:
-            return '只有待处置的故障才能开始处置'
-        body = _read_json_body(request) or {}
-        # 处置负责人字段已删除（2026-09）：旧客户端提交 handler_id 显式拒绝
-        if 'handler_id' in body:
-            return '故障已不再支持参数：handler_id，请更新后重新提交'
-        fault.status = SystemFault.STATUS_HANDLING
-        fault.updated_at = timezone.now()
-        fault.updated_by = request.user
-        fault.save(update_fields=['status', 'updated_at', 'updated_by'])
-        self.recompute(request, fault, '开始处置 ' + fault.fault_no)
-        return None
+    返回 (reason_analysis, reason_unknown, error)。
+    """
+    final_reason = (form.reason_analysis if form.reason_analysis is not None
+                    else fault.reason_analysis) or ''
+    final_reason = final_reason.strip()[:2000]
+    final_unknown = (bool(form.reason_unknown)
+                     if form.reason_unknown is not None else fault.reason_unknown)
+    if final_unknown and not final_reason:
+        return '', False, '选择"原因未明"时请填写未明说明（目前排查情况）'
+    return final_reason, final_unknown, None
 
 
 class FaultRecoverView(FaultActionBaseView):
-    """确认恢复：处置中 → 已恢复（未恢复确认的故障不能关闭）。"""
+    """确认恢复并结案（2026-10 流程合并）：处置中 → 已关闭，单次事务。
 
-    ACTION_NAME = '确认恢复'
+    原"确认恢复"与"关闭故障"两步合并为一次操作：
+    - 恢复时间/恢复确认人/恢复确认信息/最终结果四项一次性校验写入；
+    - 最终原因分析（reason_analysis + reason_unknown）随结案一并提交：
+      默认回填处置中的原因分析，可修改或改为"原因未明"+未明说明
+      （后端独立校验未明必填说明）；未提交时保留原值；
+    - 成功后状态直接进入终态 closed，同事务写入"故障恢复确认"与
+      "故障关闭"两个履历节点；
+    - 健康状态重算在同一事务内只执行一次；
+    - 仅处置中的故障可结案：已关闭/已作废不能重复结案（终态保护），
+      旧 pending/recovered 过渡态已整体删除（模块未上线，不存在该状态）。
+    """
+
+    ACTION_NAME = '确认恢复并结案'
     audit_action = 'update'
 
     @auth('equipment_lifecycle.fault.recover')
     def post(self, request, pk):
+        # 合并操作须同时具备恢复确认与结案两项权限（与前端按钮双权限一致，
+        # 后端独立校验：不因按钮合并放宽原有权限边界）
+        if not request.user.has_perms(['equipment_lifecycle.fault.close']):
+            return json_response(error='权限拒绝')
         return super().post(request, pk)
 
     def handle_locked(self, request, fault):
         if fault.status != SystemFault.STATUS_HANDLING:
-            return '只有处置中的故障才能确认恢复'
+            return '只有处置中的故障才能确认恢复并结案'
         body = _read_json_body(request) or {}
         form, error = JsonParser(
             Argument('recovered_at', type=str, required=True, help='恢复时间'),
@@ -498,7 +581,12 @@ class FaultRecoverView(FaultActionBaseView):
                      help='恢复确认人姓名（手动输入必填，不预填；实际确认恢复的人，'
                           '多人以顿号分隔；与登录账号审计字段独立，不关联 User）'),
             Argument('recover_confirm', type=str, required=True, help='恢复确认信息'),
-            Argument('final_result', type=str, required=False, default=''),
+            Argument('final_result', type=str, required=True, help='最终结果（结案必填）'),
+            Argument('reason_analysis', type=str, required=False, default=None,
+                     help='最终原因分析（结案弹窗默认回填处置中的原因分析，可修改；'
+                          '未提交时保留原值，旧客户端不受影响）'),
+            Argument('reason_unknown', type=bool, required=False, default=None,
+                     help='原因未明：确实无法确定原因时为 True，未提交时保留原值'),
         ).parse(body)
         if error:
             return error
@@ -507,70 +595,126 @@ class FaultRecoverView(FaultActionBaseView):
             return '恢复时间格式不正确，应为 YYYY-MM-DD HH:MM'
         if recovered_at < fault.occurred_at:
             return '恢复时间不能早于故障发生时间'
+        if recovered_at > timezone.now():
+            return '恢复时间不能晚于当前时间'
         # 恢复确认人手动输入必填（不默认当前登录用户，参照故障登记人口径）
         recovered_by_name = (form.recovered_by_name or '').strip()
         if not recovered_by_name:
             return '恢复确认人不能为空'
         if not form.recover_confirm.strip():
             return '恢复确认信息不能为空'
-        fault.status = SystemFault.STATUS_RECOVERED
+        final_result = (form.final_result or '').strip()
+        if not final_result:
+            return '最终结果不能为空'
+        # 最终原因分析随结案写入（未提交保留原值；未明必填说明，后端独立校验）
+        final_reason, final_unknown, reason_error = _resolve_final_reason(fault, form)
+        if reason_error:
+            return reason_error
+        # 一次性写入恢复确认与结案全部字段（更新审计字段同步留痕）
         fault.recovered_at = recovered_at
         fault.recover_confirm = form.recover_confirm.strip()[:1000]
         fault.recovered_by_name = recovered_by_name[:200]
         fault.recovered_confirmed_at = timezone.now()
-        if form.final_result and form.final_result.strip():
-            fault.final_result = form.final_result.strip()[:2000]
+        fault.final_result = final_result[:2000]
+        fault.reason_analysis = final_reason
+        fault.reason_unknown = final_unknown
         fault.updated_at = timezone.now()
         fault.updated_by = request.user
         fault.save()
-        # 步骤 3.4：恢复确认履历（主体 + 受影响，同一事务）
+        # 履历保留"故障恢复确认"与"故障关闭"两个业务节点（同一事务写入）
         event_services.record_fault_lifecycle_events(
-            fault, 'recover', occurred_at=recovered_at, created_by=request.user)
-        self.recompute(request, fault, '故障恢复 ' + fault.fault_no)
+            fault, 'recover', occurred_at=recovered_at,
+            created_by=request.user)
+        fault.status = SystemFault.STATUS_CLOSED
+        fault.save(update_fields=['status'])
+        event_services.record_fault_lifecycle_events(
+            fault, 'close', created_by=request.user)
+        # 健康状态重算只执行一次（同事务，以全部有效影响的重新查询结果为准）
+        self.recompute(request, fault, '确认恢复并结案 ' + fault.fault_no)
         return None
 
 
-class FaultCloseView(FaultActionBaseView):
-    """关闭故障：已恢复 → 已关闭（须已填写恢复时间、确认人与最终结果）。"""
+class FaultReasonAnalysisView(View):
+    """原因分析专用更新（2026-10）：详情页"补充原因分析/修改"弹窗的保存出口。
 
-    ACTION_NAME = '关闭'
-    audit_action = 'update'
+    - 只处理原因分析（reason_analysis + reason_unknown），不要求重新提交
+      系统/发生时间/故障现象等无关字段，也不要求填写完整编辑载荷；
+    - 仅处置中的故障可修改：已关闭为终态（最终原因只读）、已作废封闭，
+      与普通编辑同口径（EDITABLE_FAULT_STATUSES）；
+    - "原因未明"不是第二个原因字段：勾选后未明说明仍存入 reason_analysis，
+      且必须填写说明（不强迫用户填写虚假原因，也不接受无说明的未明标记）；
+    - 允许提交空文本清空误录的原因（回到"尚未分析"状态）；
+    - 原因分析不影响系统健康状态，不触发重算；复用 fault.edit 权限与审计：
+      变更前后值（含原因全文与未明标记）写入业务审计。
+    """
+
+    @auth('equipment_lifecycle.fault.edit')
+    def put(self, request, pk):
+        body = _read_json_body(request)
+        if body is None:
+            return json_response(error='请求数据格式不正确')
+        form, error = JsonParser(
+            Argument('reason_analysis', type=str, required=False, default='',
+                     help='原因分析文本（原因未明时为未明说明）'),
+            Argument('reason_unknown', type=bool, required=False, default=False,
+                     help='原因未明：确实无法确定原因时为 True'),
+        ).parse(body)
+        if error:
+            return json_response(error=error)
+        err = _validate_removed_params_rejected(body)
+        if err:
+            return json_response(error=err)
+        reason_analysis = (form.reason_analysis or '').strip()[:2000]
+        reason_unknown = bool(form.reason_unknown)
+        if reason_unknown and not reason_analysis:
+            return json_response(error='选择"原因未明"时请填写未明说明（目前排查情况）')
+        with fault_services.health_recalc_lock():
+            with transaction.atomic():
+                fault = _get_fault_for_user(pk, request.user, for_update=True)
+                if not fault:
+                    return json_response(error='故障记录不存在')
+                if fault.status not in EDITABLE_FAULT_STATUSES:
+                    return json_response(error='已关闭或已撤销的故障不能修改原因分析')
+                before_summary = _fault_audit_summary(fault)
+                fault.reason_analysis = reason_analysis
+                fault.reason_unknown = reason_unknown
+                fault.updated_at = timezone.now()
+                fault.updated_by = request.user
+                fault.save(update_fields=['reason_analysis', 'reason_unknown',
+                                          'updated_at', 'updated_by'])
+                record_audit_event(request, 'update', AUDIT_TARGET_FAULT, fault.id,
+                                   fault.fault_no, before_value=before_summary,
+                                   after_value=_fault_audit_summary(fault))
+        fault.refresh_from_db()
+        return _fault_detail_response(fault)
+
+
+class FaultCloseView(View):
+    """旧的单独关闭接口已废弃（2026-10 流程合并）：保留路由返回清晰业务错误。
+
+    恢复确认与结案已合并为 recover 端点的单次事务操作（确认恢复并结案）。
+    本接口不执行任何状态变更、不产生审计：旧客户端不能再用它关闭故障，
+    也不能绕过合并后的恢复确认要求。
+    """
 
     @auth('equipment_lifecycle.fault.close')
     def post(self, request, pk):
-        return super().post(request, pk)
-
-    def handle_locked(self, request, fault):
-        if fault.status != SystemFault.STATUS_RECOVERED:
-            return '只有已恢复（完成恢复确认）的故障才能关闭'
-        body = _read_json_body(request) or {}
-        form, error = JsonParser(
-            Argument('final_result', type=str, required=False, default=''),
-        ).parse(body)
-        if error:
-            return error
-        final_result = (form.final_result or fault.final_result or '').strip()
-        if not final_result:
-            return '未填写最终结果，不能关闭'
-        if not fault.recovered_at or not fault.recovered_by_name.strip() \
-                or not fault.recover_confirm.strip():
-            return '缺少恢复时间、恢复确认人或恢复确认信息，不能关闭'
-        fault.final_result = final_result[:2000]
-        fault.status = SystemFault.STATUS_CLOSED
-        fault.updated_at = timezone.now()
-        fault.updated_by = request.user
-        fault.save()
-        # 步骤 3.4：故障关闭履历（主体 + 受影响，同一事务）
-        event_services.record_fault_lifecycle_events(
-            fault, 'close', created_by=request.user)
-        self.recompute(request, fault, '故障关闭 ' + fault.fault_no)
-        return None
+        return json_response(
+            error='关闭操作已合并至"确认恢复并结案"，请使用确认恢复并结案功能')
 
 
 class FaultCancelView(FaultActionBaseView):
-    """受控作废（del 权限）：不物理删除，已作废故障不参与健康状态计算。"""
+    """撤销故障登记（del 权限，2026-10 由"作废"改称）：不物理删除。
 
-    ACTION_NAME = '作废'
+    - 用于撤销错误或重复的故障登记：撤销后历史记录保留可追溯，
+      该记录退出有效故障统计与健康状态计算（recompute 以有效影响为准）；
+    - 仅处置中的故障可撤销：已关闭（真实故障已完成结案）不能撤销，
+      已撤销为终态不能重复撤销；
+    - 撤销原因必填（不能为空或纯空格），撤销人/撤销时间落库留痕；
+    - 同事务写入撤销履历事件（原事件保留）与业务审计。
+    """
+
+    ACTION_NAME = '撤销故障登记'
     audit_action = 'delete'
 
     @auth('equipment_lifecycle.fault.del')
@@ -578,26 +722,30 @@ class FaultCancelView(FaultActionBaseView):
         return super().post(request, pk)
 
     def handle_locked(self, request, fault):
+        if fault.status == SystemFault.STATUS_CLOSED:
+            return '已关闭的故障不能撤销：已关闭表示真实故障已完成结案'
         if fault.status not in CANCELLABLE_FAULT_STATUSES:
-            return '已关闭的故障不能作废'
+            return '该故障登记已撤销，不能重复撤销'
         body = _read_json_body(request) or {}
         form, error = JsonParser(
-            Argument('cancel_reason', type=str, required=True, help='作废原因'),
+            Argument('cancel_reason', type=str, required=True, help='撤销原因'),
         ).parse(body)
         if error:
             return error
         if not form.cancel_reason.strip():
-            return '作废原因不能为空'
+            return '撤销原因不能为空'
         fault.status = SystemFault.STATUS_CANCELLED
         fault.cancel_reason = form.cancel_reason.strip()[:200]
+        fault.cancelled_at = timezone.now()
+        fault.cancelled_by = request.user
         fault.updated_at = timezone.now()
         fault.updated_by = request.user
         fault.save()
-        # 步骤 3.4：受控作废履历（追加新事件，原事件保留；主体 + 受影响）
+        # 步骤 3.4：撤销登记履历（追加新事件，原事件保留；历史标题为"故障作废"）
         event_services.record_fault_lifecycle_events(
             fault, 'cancel', detail={'cancel_reason': fault.cancel_reason},
             created_by=request.user)
-        self.recompute(request, fault, '故障作废 ' + fault.fault_no)
+        self.recompute(request, fault, '故障撤销登记 ' + fault.fault_no)
         return None
 
 
@@ -621,6 +769,8 @@ class SystemFaultListView(View):
     """按系统查询故障（系统详情"故障记录"页签，单系统简化）。
 
     只返回故障系统为当前系统的故障，不再区分主体/受影响角色。
+    默认只返回有效故障（处置中/已关闭），已撤销记录不混入日常页签；
+    显式指定 status（含 cancelled）时按指定状态返回。
     """
 
     @auth('equipment_lifecycle.fault.view')
@@ -629,25 +779,45 @@ class SystemFaultListView(View):
             pk=pk).first()
         if not system:
             return json_response(error='系统不存在')
-        query = apply_tenant_filter(SystemFault.objects.all(), request.user).filter(
+        query = apply_tenant_filter(
+            SystemFault.objects.select_related('created_by'), request.user).filter(
             system=system)
+        status = request.GET.get('status')
+        if status:
+            if status not in SystemFault.STATUS_TEXT_MAP:
+                return json_response(error='故障状态筛选值不合法')
+            query = query.filter(status=status)
+        else:
+            query = query.exclude(status=SystemFault.STATUS_CANCELLED)
         from libs.pagination import paginate
         page, page_size = paginate(request)
         total = query.count()
-        records = query[(page - 1) * page_size: page * page_size]
+        records = list(query[(page - 1) * page_size: page * page_size])
+        # 处理进展概览后端聚合（与故障列表同口径）
+        overview_map = fault_services.handling_overview_map([r.id for r in records])
         return json_response({
-            'data': [r.to_view() for r in records],
+            'data': [
+                {**r.to_view(), **overview_map.get(r.id, {})}
+                for r in records
+            ],
             'total': total, 'page': page, 'page_size': page_size,
         })
 
 
 class FaultExportView(View):
+    """故障导出：默认只导出有效故障（处置中/已关闭），已撤销记录不混入
+    日常导出；显式指定 status=cancelled 时仅导出已撤销记录。"""
+
     @auth('equipment_lifecycle.fault.export')
     def get(self, request):
         query = apply_tenant_filter(SystemFault.objects.all(), request.user)
         status = request.GET.get('status')
-        if status and status in SystemFault.STATUS_TEXT_MAP:
+        if status:
+            if status not in SystemFault.STATUS_TEXT_MAP:
+                return json_response(error='故障状态筛选值不合法')
             query = query.filter(status=status)
+        else:
+            query = query.exclude(status=SystemFault.STATUS_CANCELLED)
         headers = ['故障编号', '故障系统', '系统编号', '影响状态', '状态',
                    '发生时间', '故障现象', '恢复时间', '最终结果',
                    '故障登记人', '恢复确认人']
@@ -741,7 +911,7 @@ def _check_item_redispose(item, user, re_dispose_reason):
     if active:
         return f'该异常明细已转故障（{active.fault_no}），不能重复转换'
     if latest and not reason:
-        return '该异常明细曾转故障（目标已作废）。如需重新处置请填写重新处置原因'
+        return '该异常明细曾转故障（目标已撤销）。如需重新处置请填写重新处置原因'
     return None
 
 
@@ -869,4 +1039,4 @@ class LedgerItemConvertToFaultView(View):
                 fault_services.FaultNoExhausted) as exc:
             return json_response(error=str(exc))
         fault_data = SystemFault.objects.select_related('system').get(pk=fault.id)
-        return json_response(fault_data.to_detail_view())
+        return _fault_detail_response(fault_data)

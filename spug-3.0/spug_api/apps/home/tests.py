@@ -6,7 +6,7 @@ from datetime import timedelta
 from django.test import TestCase, override_settings
 from django.core.cache import cache
 from django.utils import timezone
-from apps.utils.test_helpers import make_user, make_client, setup_test_env
+from apps.utils.test_helpers import make_user, make_client, setup_test_env, make_upgrade_no
 from apps.alert.models import Alert, AlertRead
 from apps.upgrade.models import UpgradeRecord
 from apps.upgrade.constants import UpgradeStatus
@@ -134,6 +134,7 @@ class StatisticUpgradeTest(TestCase):
 
     def _make_upgrade(self, **kwargs):
         defaults = dict(
+            upgrade_no=make_upgrade_no(),
             tenant_id='admin',
             title='测试升级',
             system='运维管理平台',

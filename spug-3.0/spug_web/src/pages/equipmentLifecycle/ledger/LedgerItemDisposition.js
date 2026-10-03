@@ -21,7 +21,7 @@ const API_PREFIX = '/api/equipment-lifecycle';
 const DISPOSITION_TEXT = {
   none: '未处置',
   converted_fault: '已转故障',
-  target_cancelled: '处置目标已取消或作废',
+  target_cancelled: '处置目标已撤销登记',
 };
 
 const DISPOSITION_COLOR = {
@@ -163,9 +163,9 @@ function ConvertToFaultModal({visible, ledger, item, needReason, onClose, onConv
           <Form.Item
             name="re_dispose_reason"
             label="重新处置原因"
-            rules={[{required: true, message: '该异常存在历史处置目标（已作废），必须填写重新处置原因'}]}
+            rules={[{required: true, message: '该异常存在历史处置目标（已撤销登记），必须填写重新处置原因'}]}
           >
-            <TextArea rows={2} maxLength={200} placeholder="历史处置目标已作废，重新转故障必须说明原因"/>
+            <TextArea rows={2} maxLength={200} placeholder="历史处置目标已撤销登记，重新转故障必须说明原因"/>
           </Form.Item>
         )}
       </Form>

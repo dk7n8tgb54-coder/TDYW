@@ -29,6 +29,7 @@ from apps.equipment_lifecycle.models import (
 from apps.equipment_lifecycle.tests.base import (
     ALL_SYSTEM_PERMS, URL_PREFIX, make_client, make_system, make_user,
 )
+from apps.utils.test_helpers import make_upgrade_no
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
     ALL_LEDGER_PERMS, ALL_TEMPLATE_PERMS, LEDGER_URL, create_ledger_ok,
     entry_payload, item_payload, ledger_payload,
@@ -108,15 +109,19 @@ class SystemEventGroupTestBase(TestCase):
         return payload['data'], items
 
     def run_fault(self, system, close=True, recover_at='2026-09-18 10:00', **overrides):
-        """创建→开始处置→恢复（→关闭），返回 (fault_id, fault_no)。"""
+        """创建（即处置中）→（close=False 时仅登记进展不结案），返回 (fault_id, fault_no)。"""
         body = self.client.post(
             f'{FAULT_URL}/', fault_payload(system, **overrides),
             content_type='application/json').json()
         self.assertFalse(body.get('error'), body)
         fid, fno = body['data']['id'], body['data']['fault_no']
-        r = self.client.post(f'{FAULT_URL}/{fid}/start/', {},
-                             content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
+        if not close:
+            # 保留处置中状态：仅追加一条处理进展，不确认恢复不结案
+            r = self.client.post(f'{FAULT_URL}/{fid}/handling-records/', {
+                'recorder_name': '进展记录人甲', 'content': '持续跟踪处理中',
+            }, content_type='application/json')
+            self.assertFalse(r.json().get('error'), r.content)
+            return fid, fno
         r = self.client.post(f'{FAULT_URL}/{fid}/recover/', {
             'recovered_at': recover_at,
             'recovered_by_name': '恢复确认人甲',
@@ -124,11 +129,6 @@ class SystemEventGroupTestBase(TestCase):
             'final_result': '更换备件并验证',
         }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
-        if close:
-            r = self.client.post(f'{FAULT_URL}/{fid}/close/', {
-                'final_result': '更换备件并验证',
-            }, content_type='application/json')
-            self.assertFalse(r.json().get('error'), r.content)
         return fid, fno
 
     def record_ledger_convert_to_fault(self, target_no):
@@ -161,6 +161,7 @@ class SystemEventGroupTestBase(TestCase):
         """经升级模块真实履历写入服务生成升级 create/complete 两个节点。"""
         from apps.upgrade.models import UpgradeRecord
         record = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             title=title, upgrade_type='software', status='处理中', owner='张三',
             system=system, tenant_id='tenant_a', created_by=self.admin)
         event_services.record_upgrade_lifecycle_events(record, 'create', created_by=self.admin)
@@ -443,5 +444,6 @@ class GroupPermissionExportTests(SystemEventGroupTestBase):
         self.assertEqual(rows[0][0], '大连导航系统')
         self.assertEqual(rows[1][0], '烟台通信系统')
         self.assertEqual(rows[1][0], rows[2][0])
-        # 未关闭（未走 close）的故障节点数 = create + recover = 2
-        self.assertEqual(rows[1][7], '2')
+        # 未结案故障只有 create 节点（2026-10 合并流程：恢复确认与结案
+        # 同事务写入，不结案即不写 recover 节点）
+        self.assertEqual(rows[1][7], '1')

@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 from django.test import TestCase
@@ -10,7 +11,7 @@ from apps.interference.models import (
     InterferenceInvestigation,
     SpectrumMeasurement,
 )
-from apps.utils.test_helpers import make_user
+from apps.utils.test_helpers import make_client, make_user, setup_test_env
 
 
 class InterferenceFinalModelTest(TestCase):
@@ -80,3 +81,67 @@ class InterferenceFinalModelTest(TestCase):
             measured_at=datetime.now(), location='机坪', created_by=self.user,
         )
         self.assertEqual(measurement.investigation_id, investigation.id)
+
+
+class InterferenceAirUnitRetiredTest(TestCase):
+    """高度/时间单位字段下线契约：旧参数拒绝，视图不再返回单位。"""
+
+    def setUp(self):
+        setup_test_env(self)
+        self.user = make_user('interference_air_unit', [
+            'interference.interference.view',
+            'interference.interference.add',
+        ])
+        self.client_auth = make_client(self.user)
+
+    def _payload(self, **extra_air):
+        air = {
+            'route': 'HFE-VVO',
+            'alert_frequency': '118.6',
+            'alert_altitude': 1200,
+            'alert_segment': '',
+            'duration': 45,
+        }
+        air.update(extra_air)
+        return {
+            'datetime': '2026-10-02 10:00:00',
+            'scene_code': 'air',
+            'air_detail': air,
+        }
+
+    def test_stale_unit_params_are_rejected(self):
+        for stale_key in ('alert_altitude_unit', 'duration_unit'):
+            response = self.client_auth.post(
+                '/interference/events/', self._payload(**{stale_key: 'ft'}),
+                content_type='application/json')
+            data = json.loads(response.content)
+            self.assertIn(stale_key, data.get('error', ''),
+                          '旧参数 %s 应被显式拒绝' % stale_key)
+
+    def test_legacy_flat_unit_params_are_rejected(self):
+        payload = self._payload()
+        payload.pop('air_detail')
+        payload['alert_altitude_unit'] = 'ft'
+        response = self.client_auth.post(
+            '/interference/events/', payload,
+            content_type='application/json')
+        data = json.loads(response.content)
+        self.assertIn('alert_altitude_unit', data.get('error', ''))
+
+    def test_air_detail_view_has_no_unit_fields(self):
+        event = InterferenceEvent.objects.create(
+            tenant_id=self.user.tenant_id,
+            datetime=datetime(2026, 10, 2, 10, 0),
+            scene_code='air', created_by=self.user,
+        )
+        air = AirInterferenceDetail.objects.create(
+            event=event, tenant_id=self.user.tenant_id,
+            alert_altitude=1200, duration=45,
+        )
+        view = air.to_view()
+        self.assertEqual(view['alert_altitude'], 1200)
+        self.assertEqual(view['duration'], 45)
+        self.assertNotIn('alert_altitude_unit', view)
+        self.assertNotIn('alert_altitude_text', view)
+        self.assertNotIn('duration_unit', view)
+        self.assertNotIn('duration_text', view)

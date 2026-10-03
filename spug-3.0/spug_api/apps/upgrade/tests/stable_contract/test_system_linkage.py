@@ -10,7 +10,7 @@ import uuid
 from django.test import TestCase
 from django.apps import apps as current_apps
 
-from apps.utils.test_helpers import make_user, make_client, setup_test_env
+from apps.utils.test_helpers import make_user, make_client, setup_test_env, make_upgrade_no
 from apps.upgrade.models import UpgradeRecord
 from apps.upgrade.models_template import UpgradeTemplate
 from apps.equipment_lifecycle.models import LifecycleSystem, SystemEvent
@@ -99,6 +99,7 @@ class RecordSystemLinkageTest(TestCase):
 
     def test_update_rebind_rewrites_snapshots(self):
         record = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='换绑',
             system=self.system, system_name=self.system.name,
             upgrade_type='功能升级', created_by=self.user)
@@ -114,6 +115,7 @@ class RecordSystemLinkageTest(TestCase):
 
     def test_update_rebind_rejects_inactive_system(self):
         record = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='换绑停用',
             system=self.system, system_name=self.system.name,
             upgrade_type='功能升级', created_by=self.user)
@@ -127,6 +129,7 @@ class RecordSystemLinkageTest(TestCase):
     def test_update_unchanged_keeps_inactive_system(self):
         """编辑未变更系统关联时，允许保留已停用系统（历史单据继续可查）"""
         record = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='停用保留',
             system=self.system, system_name=self.system.name,
             upgrade_type='功能升级', created_by=self.user)
@@ -141,6 +144,7 @@ class RecordSystemLinkageTest(TestCase):
     def test_update_unlinked_legacy_record_adopts_system(self):
         """历史未匹配记录（system 为空）可通过编辑补挂系统档案"""
         record = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='历史遗留',
             system_name='无法匹配的旧名', upgrade_type='功能升级',
             created_by=self.user)
@@ -162,6 +166,7 @@ class SystemEventOnStatusFlowTest(TestCase):
         self.client = make_client(self.user)
         self.system = make_linked_system(self.user, name='状态流系统')
         self.record = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='状态流验证单',
             system=self.system, system_name=self.system.name,
             upgrade_type='功能升级', status='处理中', created_by=self.user)
@@ -204,9 +209,11 @@ class MigrationBackfillTest(TestCase):
         system = make_linked_system(make_user('bf_sys', []), name='回填匹配系统')
         tenant = system.tenant_id
         matched = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=tenant, title='可匹配', system_name='回填匹配系统',
             upgrade_type='功能升级', created_by=system.created_by)
         unmatched = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=tenant, title='不可匹配', system_name='字典里的旧名字',
             upgrade_type='功能升级', created_by=system.created_by)
         template = UpgradeTemplate.objects.create(
@@ -258,10 +265,12 @@ class CandidateSystemsAndFilterOptionsTest(TestCase):
     def test_record_list_filter_by_system_id(self):
         other = make_linked_system(self.user, name='候选系统C')
         UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='命中',
             system=self.system, system_name=self.system.name,
             upgrade_type='功能升级', created_by=self.user)
         UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='不命中',
             system=other, system_name=other.name,
             upgrade_type='功能升级', created_by=self.user)
@@ -281,6 +290,7 @@ class SystemUpgradeRecordsEndpointTest(TestCase):
         self.client = make_client(self.user)
         self.system = make_linked_system(self.user, name='按系统查询')
         self.record = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='本系统记录',
             system=self.system, system_name=self.system.name,
             upgrade_type='功能升级', created_by=self.user)
@@ -288,6 +298,7 @@ class SystemUpgradeRecordsEndpointTest(TestCase):
     def test_returns_only_this_system_records(self):
         other = make_linked_system(self.user, name='别的系统')
         UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='别的记录',
             system=other, system_name=other.name,
             upgrade_type='功能升级', created_by=self.user)
@@ -334,6 +345,7 @@ class SystemDeleteProtectionTest(TestCase):
 
     def test_delete_blocked_with_upgrade_records(self):
         UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='引用记录',
             system=self.system, system_name=self.system.name,
             upgrade_type='功能升级', created_by=self.user)

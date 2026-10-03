@@ -18,7 +18,7 @@ from apps.home.models import Navigation
 from apps.interference.models import InterferenceEvent
 from apps.runlog.models import RunLog
 from apps.logs.models import AuditLog
-from apps.utils.test_helpers import make_user, make_client, setup_test_env
+from apps.utils.test_helpers import make_user, make_client, setup_test_env, make_upgrade_no
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +161,7 @@ class R8UpgradeLegacyParamFixedTest(TestCase):
         from apps.upgrade.services.record_service import RecordService
 
         record = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             title='测试legacy修复',
             system='测试系统', upgrade_type='常规升级', owner='测试人',
             created_by=self.admin_user, tenant_id='admin',
@@ -193,6 +194,7 @@ class R9UpgradeSubOpsAuditFixedTest(TestCase):
         from apps.upgrade.models_status_log import UpgradeStatusLog
 
         self.record = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             title='测试子操作审计修复',
             system='测试系统', upgrade_type='常规升级', owner='测试人',
             created_by=self.admin_user, tenant_id='admin',

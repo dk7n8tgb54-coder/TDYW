@@ -121,7 +121,7 @@ def _clean(value, limit):
 
 
 def create_runtime_record(*, tenant_id, created_by, system, occurred_at, title,
-                          description, client_token='',
+                          description, registrar_name='', client_token='',
                           needs_follow_up=False, affects_system_operation=False,
                           impact_status='', measures_taken='', handling_result='',
                           importance=SystemRuntimeRecord.IMPORTANCE_NORMAL,
@@ -130,7 +130,10 @@ def create_runtime_record(*, tenant_id, created_by, system, occurred_at, title,
                           initial_reason='', impact_scope=''):
     """运行记录创建服务（唯一创建入口，视图与潜在程序化入口共用）。
 
-    - 新建只要求 系统/发生时间/标题/情况描述，其余选填或默认值；
+    - 新建要求 系统/发生时间/标题/情况描述/登记人（视图层校验必填），
+      其余选填或默认值；
+    - registrar_name 为登记人（手动输入的登记人姓名，多人以顿号分隔，
+      参照故障登记人口径），与登录账号 created_by 独立；
     - 不影响系统运行时 impact_status 强制存空串（与故障口径一致）；
     - 新建默认状态 recorded；needs_follow_up 仅作表单标记，跟进状态由
       动作接口（follow-up）流转；
@@ -152,6 +155,7 @@ def create_runtime_record(*, tenant_id, created_by, system, occurred_at, title,
         occurred_at=occurred_at,
         title=_clean(title, 200),
         description=_clean(description, 2000),
+        registrar_name=_clean(registrar_name, 200),
         needs_follow_up=bool(needs_follow_up),
         affects_system_operation=bool(affects_system_operation),
         impact_status=impact_status,
@@ -224,7 +228,7 @@ def convert_runtime_record_to_fault(*, record, created_by, request=None,
     cancelled_fault = record.generated_faults.order_by('-id').first()
     if cancelled_fault and not (re_dispose_reason or '').strip():
         raise RuntimeRecordConvertError(
-            f'该运行记录曾转故障（{cancelled_fault.fault_no}，已作废）。'
+            f'该运行记录曾转故障（{cancelled_fault.fault_no}，已撤销）。'
             f'如需重新处置请填写重新处置原因')
 
     if occurred_at is None:

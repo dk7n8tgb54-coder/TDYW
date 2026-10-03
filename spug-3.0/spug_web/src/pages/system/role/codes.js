@@ -92,10 +92,13 @@ export default [{
     perms: [
       {key: 'view', label: '查看故障'},
       {key: 'add', label: '新增故障'},
-      {key: 'edit', label: '编辑故障/更正处置记录'},
-      {key: 'handle', label: '开始处置/添加处置记录'},
-      {key: 'recover', label: '确认恢复'},
-      {key: 'close', label: '关闭故障'},
+      {key: 'edit', label: '编辑故障/更正处理进展'},
+      // 2026-10 流程简化：无"开始处置"步骤（新建即处置中），handle 仅承载
+      // 追加处理进展与进展附件；确认恢复与关闭合并为"确认恢复并结案"，
+      // 需同时勾选 recover 与 close（前端按钮与后端双重独立校验）
+      {key: 'handle', label: '添加处理进展/上传进展附件'},
+      {key: 'recover', label: '确认恢复并结案（须同时勾选"结案"）'},
+      {key: 'close', label: '结案（"确认恢复并结案"须同时勾选本项）'},
       {key: 'del', label: '作废故障（受控作废，非物理删除）'},
       {key: 'export', label: '导出故障列表'},
     ]
@@ -114,6 +117,20 @@ export default [{
       {key: 'convert_fault', label: '转为正式故障'},
       {key: 'important', label: '标记重要（进入系统履历）'},
       {key: 'link', label: '重复问题（关联相似记录/标记重复发生）'},
+    ]
+  }, {
+    // 系统配置（2026-10）：只在系统详情"配置"页签内使用，不设独立菜单
+    key: 'config',
+    label: '系统配置',
+    perms: [
+      {key: 'view', label: '查看当前配置/变更历史/详情'},
+      {key: 'add', label: '记录配置变更（创建草稿）'},
+      {key: 'edit', label: '编辑/取消草稿变更'},
+      {key: 'apply', label: '应用变更（配置生效）'},
+      {key: 'verify', label: '验证变更'},
+      {key: 'rollback', label: '回退变更（生成反向变更）'},
+      {key: 'template', label: '参数定义维护（新增/编辑/停用）'},
+      {key: 'attachment', label: '变更附件上传/删除'},
     ]
   }, {
     key: 'ledger_template',

@@ -25,12 +25,14 @@
 from contextlib import contextmanager
 
 from django.db import connection
+from django.db.models import Count, OuterRef, Subquery
 from django.utils import timezone
 
 from apps.equipment_lifecycle import event_services
 from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     SystemFault,
+    SystemFaultHandlingRecord,
 )
 
 # 有效影响优先级（高 → 低）
@@ -40,9 +42,10 @@ HEALTH_IMPACT_PRIORITY = (
     SystemFault.IMPACT_DEGRADED,
 )
 
-# 仍会产生健康影响的故障状态：尚未完成恢复确认的故障。
-# recovered（已完成恢复确认）/closed/cancelled 均不再产生影响。
-ACTIVE_FAULT_STATUSES = (SystemFault.STATUS_PENDING, SystemFault.STATUS_HANDLING)
+# 仍会产生健康影响的故障状态：处置中（唯一未结案的进行态）。
+# closed/cancelled 均不再产生影响；旧 pending/recovered 过渡态已随
+# 2026-10 流程简化整体删除（模块未上线，迁移 0051 清理并收紧约束）。
+ACTIVE_FAULT_STATUSES = (SystemFault.STATUS_HANDLING,)
 
 HEALTH_RECALC_LOCK_NAME = 'el_health_recalc'
 HEALTH_RECALC_LOCK_TIMEOUT = 10
@@ -212,6 +215,8 @@ def create_fault_record(*, tenant_id, created_by, system, impact_status,
     """
     if not affects_system_operation:
         impact_status = ''
+    # 2026-10 流程简化：新建即处置中，不再有待处置过渡态
+    # （历史 pending 存量由迁移转换为 handling，恢复确认并结案接口保持兼容）
     fault = SystemFault.objects.create(
         tenant_id=tenant_id,
         fault_no=generate_fault_no(),
@@ -227,7 +232,7 @@ def create_fault_record(*, tenant_id, created_by, system, impact_status,
         fault_object_model=(fault_object_model or '').strip()[:100],
         fault_object_sn=(fault_object_sn or '').strip()[:100],
         reason_analysis=(reason_analysis or '').strip()[:2000],
-        status=SystemFault.STATUS_PENDING,
+        status=SystemFault.STATUS_HANDLING,
         source_type=source_type or SystemFault.SOURCE_MANUAL,
         source_id=str(source_ledger_item.id) if source_ledger_item else (
             str(source_inspection_record.id) if source_inspection_record else (
@@ -271,3 +276,55 @@ def generate_fault_no():
     if max_seq >= FAULT_NO_SEQ_LIMIT:
         raise FaultNoExhausted(f'当日故障编号已达上限（{prefix}9999），请明日再创建')
     return f'{prefix}{max_seq + 1:04d}'
+
+
+def handling_overview_map(fault_ids):
+    """批量统计故障的真实处理进展概览（列表聚合，单次查询，无 N+1）。
+
+    - handling_record_count：SystemFaultHandlingRecord 行数（追加式时间线）。
+      更正留痕保存在记录的 corrections JSON 内不产生独立行、系统履历为
+      SystemEvent 独立表，均天然不计入；已关闭/已作废故障保留历史数量。
+    - latest_handled_at / latest_handling_content：按（进展时间, id）最新
+      一条进展的时间与内容；无进展的故障返回零值（count=0、时间为 None、
+      内容为空串），调用方无需再补默认值。
+    - 故障 ID 由调用方先按租户过滤（apply_tenant_filter；跨租户可见的
+      超级管理员列表含多租户 ID），进展记录经 fault 外键唯一归属本故障，
+      按故障 ID 查询天然满足租户边界，不再叠加调用方租户条件。
+    返回 {fault_id: {'handling_record_count', 'latest_handled_at',
+    'latest_handling_content'}}。
+    """
+    fault_ids = [int(i) for i in fault_ids if i]
+    if not fault_ids:
+        return {}
+    latest_qs = SystemFaultHandlingRecord.objects.filter(
+        fault_id=OuterRef('fault_id')).order_by('-handled_at', '-id')
+    rows = (
+        SystemFaultHandlingRecord.objects
+        .filter(fault_id__in=fault_ids)
+        .values('fault_id')
+        .annotate(
+            handling_record_count=Count('id'),
+            latest_handled_at=Subquery(latest_qs.values('handled_at')[:1]),
+            latest_handling_content=Subquery(latest_qs.values('content')[:1]),
+        )
+    )
+    overview = {
+        fault_id: {
+            'handling_record_count': 0,
+            'latest_handled_at': None,
+            'latest_handling_content': '',
+        }
+        for fault_id in fault_ids
+    }
+    for row in rows:
+        overview[row['fault_id']] = row
+    return overview
+
+
+def handling_overview(fault):
+    """单张故障的处理进展概览（详情出口用），字段口径与列表聚合一致。"""
+    return handling_overview_map([fault.id]).get(fault.id) or {
+        'handling_record_count': 0,
+        'latest_handled_at': None,
+        'latest_handling_content': '',
+    }

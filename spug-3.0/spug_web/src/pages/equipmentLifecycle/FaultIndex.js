@@ -6,6 +6,10 @@
 /**
  * 设备全生命周期——运行处置/故障处置列表页（步骤 3.1）。
  * 业务关联一律使用系统 ID，页面仅展示系统名称。
+ * 撤销登记改版（2026-10-03）：默认列表只含有效故障（处置中/已关闭），
+ * 后端默认排除已撤销记录；通过"状态"筛选显式选择"已撤销"时才查询
+ * 已撤销记录（后端独立排除，前端不自行过滤）；已撤销状态使用虚线灰
+ * 标签（FaultStatusTag），明显区别于处置中/已关闭。
  */
 import React, { useEffect } from 'react';
 import { observer } from 'mobx-react';
@@ -14,9 +18,10 @@ import { PlusOutlined } from '@ant-design/icons';
 import { SearchForm, AuthDiv, AuthButton, Breadcrumb, ExportButton } from 'components';
 import ComForm from './FaultForm';
 import FaultDetail from './FaultDetail';
+import FaultStatusTag from './FaultStatusTag';
 import store from './faultStore';
 import {
-  API_PREFIX, PERM, FAULT_STATUS_OPTIONS, FAULT_STATUS_TEXT, FAULT_STATUS_COLOR,
+  API_PREFIX, PERM, FAULT_STATUS_OPTIONS,
   FAULT_IMPACT_TEXT, FAULT_IMPACT_COLOR,
 } from './constants';
 
@@ -54,9 +59,7 @@ class FaultTable extends React.Component {
     title: '状态',
     dataIndex: 'status',
     width: 90,
-    render: (text) => (
-      <Tag color={FAULT_STATUS_COLOR[text]}>{FAULT_STATUS_TEXT[text] || text}</Tag>
-    ),
+    render: (text) => <FaultStatusTag status={text}/>,
   }, {
     title: '发生时间',
     dataIndex: 'occurred_at',
@@ -71,6 +74,18 @@ class FaultTable extends React.Component {
     width: 100,
     render: (text) => text || '-',
   }, {
+    // 处理进展条数：后端列表聚合统计（handling_record_count，只读，不提供
+    // 可编辑的"节点数"字段）；已关闭/已撤销故障同样保留历史数量。
+    // 点击数量打开故障详情并定位到"处理进展"页签
+    title: '处理进展',
+    dataIndex: 'handling_record_count',
+    width: 100,
+    render: (text, record) => (
+      <a onClick={() => store.showDetail(record, 'handling')}>
+        {record.handling_record_count ?? 0} 条
+      </a>
+    ),
+  }, {
     title: '操作',
     width: 100,
     render: (text, record) => (
@@ -84,7 +99,8 @@ class FaultTable extends React.Component {
         >
           详情
         </AuthButton>
-        {record.status !== 'closed' && record.status !== 'cancelled' && (
+        {/* 处置中是唯一可编辑状态（已关闭/已撤销均只读，后端同样拒绝） */}
+        {record.status === 'handling' && (
           <AuthButton
             auth={PERM.FAULT_EDIT}
             type="link"
@@ -175,7 +191,7 @@ function FaultIndex(props) {
             style={{width: '100%'}}
             value={store.f_status}
             onChange={v => {store.f_status = v; store.page = 1; store.fetchRecords();}}
-            placeholder="请选择状态"
+            placeholder="默认不含已撤销"
           >
             {FAULT_STATUS_OPTIONS.map(item => (
               <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>

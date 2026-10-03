@@ -7,10 +7,10 @@
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
  * - 列表页渲染运行记录行（编号/系统/标题/状态）与"新增运行记录"入口
  * - 列表请求指向 runtime-records 端点，且不含巡视/维护/升级数据来源
- * - 新增表单第一屏只显示四个必填字段；"更多信息"展开可选字段；
- *   空表单提交被校验拦截（不发请求）
- * - 编辑模式回填后可提交（PUT 携带修改值，不携带重要程度键）
- * - 详情抽屉展示编号/状态/影响/关联故障入口；动作按钮随状态显隐
+ * - 新增表单第一屏只显示五个必填字段（含登记人，参照故障登记人手输姓名）；
+ *   "更多信息"展开可选字段；空表单提交被校验拦截（不发请求）
+ * - 编辑模式回填后可提交（PUT 携带修改值，不携带重要程度/登记人键）
+ * - 详情窗口展示编号/状态/影响/关联故障入口；动作按钮随状态显隐
  *   （终态无编辑/追加/标记按钮）
  * - 处理进展时间线展示与更正留痕可见
  * - 标记重要必须填原因（空原因客户端拦截），填写后提交 mark-important
@@ -85,7 +85,10 @@ function setInputValue(element, value) {
 }
 
 function buttonTexts() {
+  // 详情窗口（2026-10-02 改 Modal）底部的"关 闭"是外壳按钮，不属于业务动作，
+  // 按钮维度断言一律排除弹窗 footer，避免与动作"关闭"同名干扰
   return Array.from(document.querySelectorAll('button'))
+    .filter(b => !b.closest('.ant-modal-footer'))
     .map(b => b.textContent.replace(/\s+/g, ''));
 }
 
@@ -145,6 +148,7 @@ const RECORDS_PAGE = {
 const RECORD_DETAIL = {
   ...RECORDS_PAGE.data[0],
   description: '值班发现主用链路丢包约 3 分钟后自行恢复',
+  registrar_name: '张三',
   measures_taken: '切换备用链路观察',
   handling_result: '',
   importance_reason: '',
@@ -242,7 +246,7 @@ describe('运行记录列表页', () => {
 });
 
 describe('运行记录新增/编辑表单', () => {
-  it('第一屏只显示四个必填字段，更多信息展开可选字段', async () => {
+  it('第一屏只显示五个必填字段，更多信息展开可选字段', async () => {
     const store = require('../store').default;
     const RecordForm = require('../RecordForm').default;
     mockListApis();
@@ -252,7 +256,7 @@ describe('运行记录新增/编辑表单', () => {
     });
     await act(async () => {await flush();});
     let text = bodyText();
-    ['所属系统', '发生时间', '标题', '情况描述'].forEach(label => {
+    ['所属系统', '发生时间', '标题', '情况描述', '登记人'].forEach(label => {
       expect(text).toContain(label);
     });
     // 可选字段（仅在展开后出现；展开按钮文案不含这些标签词）
@@ -315,11 +319,13 @@ describe('运行记录新增/编辑表单', () => {
     const payload = mockHttpPut.mock.calls[0][1];
     expect(payload.importance).toBeUndefined();
     expect(payload.importance_reason).toBeUndefined();
+    // 登记人仅新增可填：编辑提交不携带该键，后端保留原登记人
+    expect(payload.registrar_name).toBeUndefined();
     expect(store.formVisible).toBe(false);
   });
 });
 
-describe('运行记录详情抽屉', () => {
+describe('运行记录详情窗口', () => {
   it('展示编号/状态/影响信息/关联故障入口与审计信息', async () => {
     await renderDetail();
     const text = bodyText();
@@ -328,6 +334,9 @@ describe('运行记录详情抽屉', () => {
     // bodyText 去空白：断言用去空格文本
     expect(text).toContain('值班发现主用链路丢包约3分钟后自行恢复');
     expect(text).toContain('切换备用链路观察');
+    // 登记人（手输姓名快照）在详情展示
+    expect(text).toContain('登记人');
+    expect(text).toContain('张三');
     // 可编辑状态动作齐备（按钮维度断言）
     const btns = buttonTexts();
     ['编辑', '标记需要跟进', '标记已处理', '标记重要', '转为故障', '关闭'].forEach(btn => {

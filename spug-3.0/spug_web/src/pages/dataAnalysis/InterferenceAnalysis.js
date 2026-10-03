@@ -53,7 +53,7 @@ export default observer(function InterferenceAnalysis() {
           <StatCard title="空中记录数" value={summary.air_count || 0} loading={loading} />
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <StatCard title="跨场景记录数" value={summary.cross_count || 0} loading={loading} />
+          <StatCard title="地面+空中记录数" value={summary.cross_count || 0} loading={loading} />
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <StatCard title="规律调查数" value={summary.investigation_count || 0} loading={loading} />

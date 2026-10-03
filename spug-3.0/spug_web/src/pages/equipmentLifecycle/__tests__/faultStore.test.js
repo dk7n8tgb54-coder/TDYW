@@ -5,8 +5,10 @@
  * - fetchRecords 组装分页与筛选参数（状态/系统 ID/发生时间；级别筛选已随字段退役删除）
  * - fetchSystems 拉取候选系统（供选择器展示名称、提交 ID）
  * - submitForm 新增走 POST、编辑走 PUT，payload 原样透传系统 ID
- * - 状态动作（开始处置/恢复/关闭/作废）调用明确动作端点，
- *   成功后重新获取详情、处理进展与列表（重新获取真实数据）
+ * - 状态动作（确认恢复并结案/作废）调用明确动作端点，
+ *   成功后重新获取详情、处理进展与列表（重新获取真实数据）；
+ *   2026-10 流程合并：无"开始处置"与单独关闭动作（新建即处置中，
+ *   确认恢复与结案一次提交）
  * - 处理进展添加与更正调用对应端点
  * - 后端业务错误（http reject）时不显示成功提示路径（Promise 拒绝，不关闭弹窗）
  */
@@ -104,25 +106,21 @@ describe('故障 Store · 表单提交', () => {
 });
 
 describe('故障 Store · 状态动作与处理进展', () => {
-  it('状态动作调用明确动作端点，成功后刷新详情/处理进展/列表', async () => {
+  it('确认恢复并结案调用 recover 端点，成功后刷新详情/处理进展/列表', async () => {
     const store = freshStore();
     store.detailId = 8;
     mockHttpPost.mockResolvedValue({});
     mockHttpGet.mockResolvedValue({data: [], total: 0});
-    await store.startHandling();
-    expect(mockHttpPost).toHaveBeenLastCalledWith(
-      '/api/equipment-lifecycle/faults/8/start/', {});
-    await store.confirmRecover({
+    // 2026-10 流程合并：确认恢复与关闭故障一次提交（四项字段一次事务）
+    await store.confirmRecoverAndClose({
       recovered_at: '2026-09-18 10:00',
       recovered_by_name: '确认人甲',
-      recover_confirm: '已恢复'});
+      recover_confirm: '已恢复',
+      final_result: '更换板卡'});
     expect(mockHttpPost).toHaveBeenLastCalledWith(
       '/api/equipment-lifecycle/faults/8/recover/',
       {recovered_at: '2026-09-18 10:00', recovered_by_name: '确认人甲',
-        recover_confirm: '已恢复'});
-    await store.closeFault({final_result: '更换板卡'});
-    expect(mockHttpPost).toHaveBeenLastCalledWith(
-      '/api/equipment-lifecycle/faults/8/close/', {final_result: '更换板卡'});
+        recover_confirm: '已恢复', final_result: '更换板卡'});
     await store.cancelFault({cancel_reason: '误报'});
     expect(mockHttpPost).toHaveBeenLastCalledWith(
       '/api/equipment-lifecycle/faults/8/cancel/', {cancel_reason: '误报'});
@@ -130,6 +128,22 @@ describe('故障 Store · 状态动作与处理进展', () => {
     expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/faults/8/');
     expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/faults/8/handling-records/');
     expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/faults/', {params: {page: 1, page_size: 20}});
+  });
+
+  it('不再提供开始处置与单独关闭动作（合并后无 start/close 调用路径）', async () => {
+    const store = freshStore();
+    store.detailId = 8;
+    mockHttpPost.mockResolvedValue({});
+    mockHttpGet.mockResolvedValue({data: [], total: 0});
+    expect(store.startHandling).toBeUndefined();
+    expect(store.closeFault).toBeUndefined();
+    await store.confirmRecoverAndClose({
+      recovered_at: '2026-09-18 10:00', recovered_by_name: '确认人甲',
+      recover_confirm: '已恢复', final_result: 'x'});
+    await store.cancelFault({cancel_reason: '误报'});
+    const posted = mockHttpPost.mock.calls.map(call => call[0]);
+    expect(posted).not.toContain('/api/equipment-lifecycle/faults/8/start/');
+    expect(posted).not.toContain('/api/equipment-lifecycle/faults/8/close/');
   });
 
   it('处理进展添加与更正调用对应端点并刷新时间线', async () => {

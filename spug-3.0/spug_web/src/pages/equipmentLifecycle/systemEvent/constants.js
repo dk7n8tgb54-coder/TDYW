@@ -78,12 +78,13 @@ export const HEALTH_COLOR = {
 };
 
 // 事项当前状态颜色（业务表状态码；升级/台账事项无状态码时用默认样式）
+// 故障 cancelled=已撤销：中性灰（该登记不再作为有效故障，非告警状态）
 export const ITEM_STATUS_COLOR = {
   pending: 'orange',
   handling: 'blue',
   recovered: 'green',
   closed: 'default',
-  cancelled: 'red',
+  cancelled: 'default',
   pending_dispatch: 'orange',
   pending_accept: 'gold',
   executing: 'blue',

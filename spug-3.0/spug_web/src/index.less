@@ -43,6 +43,135 @@ code {
   }
 }
 
+/* 设备全生命周期：巡检模板新增/编辑弹窗（el-tpl-form）排版样式 */
+.el-tpl-form {
+  .ant-modal-body {
+    max-height: calc(100vh - 220px);
+    overflow-y: auto;
+  }
+
+  .el-tpl-divider {
+    margin: 0 0 8px;
+  }
+
+  .el-tpl-tip {
+    margin-bottom: 12px;
+    color: #8c8c8c;
+    font-size: 12px;
+    line-height: 20px;
+  }
+
+  .el-tpl-device {
+    margin-bottom: 12px;
+    border: 1px solid #f0f0f0;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .el-tpl-device-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: #fafafa;
+    border-bottom: 1px solid #f0f0f0;
+
+    .el-tpl-device-no {
+      flex: none;
+      min-width: 22px;
+      height: 22px;
+      padding: 0 4px;
+      line-height: 20px;
+      box-sizing: border-box;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: #1890ff;
+      background: #e6f7ff;
+      border: 1px solid #91d5ff;
+      border-radius: 4px;
+    }
+
+    .ant-input {
+      flex: 1;
+      min-width: 0;
+    }
+  }
+
+  .el-tpl-device-body {
+    padding: 10px 12px 12px;
+  }
+
+  /* 检查内容表头与数据行共用同一网格列定义，保证纵向对齐 */
+  .el-tpl-items-head,
+  .el-tpl-item-row {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) 148px 64px 32px;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .el-tpl-items-head {
+    padding-bottom: 6px;
+    font-size: 12px;
+    color: #8c8c8c;
+
+    span:nth-child(4) {
+      text-align: center;
+    }
+
+    .anticon {
+      margin-left: 2px;
+      color: #bfbfbf;
+    }
+  }
+
+  .el-tpl-row-no {
+    font-size: 12px;
+    color: #bfbfbf;
+    text-align: center;
+  }
+
+  .el-tpl-item-row {
+    margin-bottom: 8px;
+
+    .ant-select {
+      width: 100%;
+    }
+  }
+
+  .el-tpl-item-required {
+    display: flex;
+    justify-content: center;
+  }
+
+  .el-tpl-items-empty {
+    margin-bottom: 8px;
+    padding: 12px 0;
+    font-size: 12px;
+    color: #bfbfbf;
+    text-align: center;
+    background: #fafafa;
+    border: 1px dashed #f0f0f0;
+    border-radius: 4px;
+  }
+
+  .el-tpl-del-btn.ant-btn {
+    color: #bfbfbf;
+
+    &:hover {
+      color: #ff4d4f;
+      background: #fff1f0;
+      border-color: transparent;
+    }
+  }
+
+  .el-tpl-item-del.ant-btn {
+    width: 24px;
+    padding: 0;
+  }
+}
+
 /* 打印样式：隐藏侧边栏和顶栏，只显示审计日志表格 */
 @media print {
   .ant-layout-sider,

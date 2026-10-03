@@ -32,7 +32,7 @@ describe('干扰事件表单载荷', () => {
     expect(payload.route).toBeUndefined();
   });
 
-  it('跨场景同时提交两类明细', () => {
+  it('地面+空中（cross）同时提交两类明细', () => {
     const payload = buildEventPayload({
       scene_code: 'cross',
       ground_location: '廊桥',
@@ -46,6 +46,10 @@ describe('干扰事件表单载荷', () => {
     expect(payload.ground_detail.location).toBe('廊桥');
     expect(payload.air_detail.route).toBe('HFE-VVO');
     expect(payload.air_detail.alert_altitude).toBe(1200);
+    expect(payload.air_detail).not.toHaveProperty('alert_altitude_unit');
+    expect(payload.air_detail).not.toHaveProperty('duration_unit');
+    expect(payload).not.toHaveProperty('alert_altitude_unit');
+    expect(payload).not.toHaveProperty('duration_unit');
   });
 });
 

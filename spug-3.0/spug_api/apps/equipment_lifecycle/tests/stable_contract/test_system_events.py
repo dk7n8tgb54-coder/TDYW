@@ -105,22 +105,16 @@ class SystemEventTestBase(TestCase):
         return list(qs)
 
     def run_fault_lifecycle(self, system, **overrides):
-        """创建→开始处置→恢复→关闭，返回 fault id。"""
+        """创建（即处置中）→确认恢复并结案，返回 fault id。"""
         body = self.client.post(
             f'{FAULT_URL}/', fault_payload(system, **overrides),
             content_type='application/json').json()
         self.assertFalse(body.get('error'), body)
         fid = body['data']['id']
-        r = self.client.post(f'{FAULT_URL}/{fid}/start/', {}, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
         r = self.client.post(f'{FAULT_URL}/{fid}/recover/', {
             'recovered_at': '2026-09-18 10:00',
             'recovered_by_name': '恢复确认人甲',
             'recover_confirm': '业务已恢复正常',
-            'final_result': '更换备件并验证',
-        }, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
-        r = self.client.post(f'{FAULT_URL}/{fid}/close/', {
             'final_result': '更换备件并验证',
         }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
@@ -423,7 +417,7 @@ class ViewWiringContractTests(SystemEventTestBase):
         """所有持健康重算锁的动作视图必须 non_atomic（锁释放晚于事务提交）。"""
         from django.db import transaction as db_transaction
         non_atomic_paths = {
-            'faults/', 'faults/<int:pk>/', 'faults/<int:pk>/start/',
+            'faults/', 'faults/<int:pk>/',
             'faults/<int:pk>/recover/', 'faults/<int:pk>/close/',
             'faults/<int:pk>/cancel/', 'faults/<int:pk>/handling-records/',
             'faults/<int:pk>/handling-records/<int:rid>/',

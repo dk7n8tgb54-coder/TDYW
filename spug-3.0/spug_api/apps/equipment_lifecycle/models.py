@@ -37,7 +37,7 @@ FAULT_IMPACT_VALUES = ['degraded', 'fault', 'interrupted']
 # 影响系统运行时的合法影响程度即 FAULT_IMPACT_VALUES；
 # 不影响系统运行（部件故障/离线维修）时 impact_status 统一存空串
 FAULT_IMPACT_DB_VALUES = [''] + FAULT_IMPACT_VALUES
-FAULT_STATUS_VALUES = ['pending', 'handling', 'recovered', 'closed', 'cancelled']
+FAULT_STATUS_VALUES = ['handling', 'closed', 'cancelled']
 
 
 def load_legacy_source_snapshot(raw):
@@ -160,23 +160,27 @@ class SystemFault(TenantModelMixin, models.Model):
       快照保留（配置组成项功能已下线）。
     一次实际工作涉及多个独立系统时分别建立故障，不允许一单关联多系统。
 
-    状态流转（后端校验，动作接口触发）：
-    pending →(start)→ handling →(recover)→ recovered →(close)→ closed；
-    pending/handling/recovered 可 →(cancel)→ cancelled（受控作废，del 权限）。
-    已关闭/已作废不参与健康状态计算。
+    状态流转（2026-10 流程简化，模块未上线无历史包袱）：
+    新建 → handling →(确认恢复并结案 recover，单次事务)→ closed；
+    handling 可 →(cancel)→ cancelled（受控撤销登记，del 权限）。
+    已关闭不可撤销；已撤销为终态，不可重复撤销或继续处理。
+
+    cancelled 状态语义（2026-10）：撤销错误/重复/误报的故障登记——
+    登记本身不再作为有效故障，但历史记录保留可追溯（不物理删除），
+    不参与有效故障统计与健康状态计算。历史数据沿用 cancelled 值保证兼容，
+    前端展示文案为"已撤销"。
+
+    旧流程的 pending（待处置）与 recovered（已恢复）过渡态已整体删除，
+    由迁移 0051 清理存量并收紧 CHECK 约束，数据库层拒绝旧状态值。
     """
 
-    STATUS_PENDING = 'pending'
     STATUS_HANDLING = 'handling'
-    STATUS_RECOVERED = 'recovered'
     STATUS_CLOSED = 'closed'
     STATUS_CANCELLED = 'cancelled'
     STATUS_CHOICES = (
-        (STATUS_PENDING, '待处置'),
         (STATUS_HANDLING, '处置中'),
-        (STATUS_RECOVERED, '已恢复'),
         (STATUS_CLOSED, '已关闭'),
-        (STATUS_CANCELLED, '已作废'),
+        (STATUS_CANCELLED, '已撤销'),
     )
     STATUS_TEXT_MAP = dict(STATUS_CHOICES)
 
@@ -222,7 +226,14 @@ class SystemFault(TenantModelMixin, models.Model):
     fault_component_name = models.CharField(max_length=100, default='', blank=True,
                                             help_text='配置组成项名称快照（组成项功能下线前历史数据，仅展示）')
 
-    reason_analysis = models.TextField(max_length=2000, default='', blank=True, help_text='原因分析')
+    # 原因分析是单一字段，不同阶段只是展示口径不同：新增=初步原因分析、
+    # 处置中=初步判断、结案=最终原因；"原因未明"不是第二个原因字段，
+    # 勾选后 reason_analysis 保存的是未明说明（不强迫用户填写虚假原因）。
+    reason_analysis = models.TextField(max_length=2000, default='', blank=True, help_text='原因分析（新增=初步原因分析；处置中展示为初步判断；结案时保存为最终原因；原因未明时保存未明说明）')
+    reason_unknown = models.BooleanField(
+        default=False,
+        help_text='原因未明标记（确实无法确定原因时为 True，reason_analysis 保存未明说明；'
+                  '历史数据为 False）')
     recovered_at = models.DateTimeField(null=True, blank=True, help_text='恢复时间')
     recover_confirm = models.TextField(max_length=1000, default='', blank=True, help_text='恢复确认信息')
     # 恢复确认人（2026-09）：手动输入的确认人姓名（多人顿号分隔），参照故障登记人
@@ -235,9 +246,16 @@ class SystemFault(TenantModelMixin, models.Model):
     recovered_confirmed_at = models.DateTimeField(null=True, blank=True, help_text='恢复确认时间')
     final_result = models.TextField(max_length=2000, default='', blank=True, help_text='最终结果')
     cancel_reason = models.CharField(max_length=200, default='', blank=True,
-                                     help_text='作废原因（受控作废时填写，审计与履历留痕）')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING,
-                              help_text='当前状态')
+                                     help_text='撤销原因（撤销错误/重复的故障登记时必填，审计与履历留痕）')
+    # 撤销人与撤销时间（2026-10）：撤销登记操作留痕（与 updated_at/updated_by
+    # 独立，语义明确）；历史已撤销数据由迁移 0053 从 updated 字段回填
+    cancelled_at = models.DateTimeField(null=True, blank=True,
+                                        help_text='撤销时间（撤销登记操作写入）')
+    cancelled_by = models.ForeignKey(
+        User, models.PROTECT, related_name='+', null=True, blank=True,
+        help_text='撤销人（执行撤销登记的登录账号，仅用于审计与展示）')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_HANDLING,
+                              help_text='当前状态（新建即处置中，恢复确认并结案后进入已关闭终态）')
     source_type = models.CharField(max_length=20, default=SOURCE_MANUAL, help_text='来源类型：manual 人工 / ledger_item 台账异常明细 / inspection_record 值班巡检明细 / runtime_record 运行记录（步骤 3.3；运行记录 2026-10）')
     source_id = models.CharField(max_length=50, default='', blank=True, help_text='来源对象 ID 冗余（与来源外键一致，便于追溯查询）')
     source_ledger_item = models.ForeignKey(
@@ -347,11 +365,16 @@ class SystemFault(TenantModelMixin, models.Model):
             'fault_object_sn': self.fault_object_sn,
             'fault_component_name': self.fault_component_name or '',
             'reason_analysis': self.reason_analysis,
+            'reason_unknown': self.reason_unknown,
             'recovered_at': self.recovered_at,
             'recover_confirm': self.recover_confirm,
             'recovered_by_name': self.recovered_by_name or '',
             'recovered_confirmed_at': self.recovered_confirmed_at,
             'final_result': self.final_result,
+            # 撤销登记留痕（2026-10）：已撤销详情回显撤销原因/时间/人，仅供历史追溯
+            'cancel_reason': self.cancel_reason or '',
+            'cancelled_at': self.cancelled_at,
+            'cancelled_by_name': self.cancelled_by.username if self.cancelled_by_id else '',
             'source_type': self.source_type,
             'source_id': self.source_id,
             # 台账来源追溯：跳回来源台账明细所需定位信息
@@ -405,8 +428,11 @@ class SystemFaultHandlingRecord(TenantModelMixin, models.Model):
     """
 
     # 进展类型（2026-09：本方维修/送厂/仅测试/暂未修复等真实跟进阶段，
-    # 结构化存储，选填；空串=未选择。历史记录类型为空，不通过文本解析反推类型）
+    # 结构化存储，选填；空串=未选择。历史记录类型为空，不通过文本解析反推类型。
+    # 故障定位（fault_locate，2026-10）：记录原因判断的依据与过程，
+    # 是形成"原因分析"结论的过程记录，不替代原因分析结论本身）
     PROGRESS_CHECK = 'check'
+    PROGRESS_LOCATE = 'fault_locate'
     PROGRESS_SELF_FIX = 'self_fix'
     PROGRESS_TO_VENDOR = 'to_vendor'
     PROGRESS_VENDOR_FEEDBACK = 'vendor_feedback'
@@ -416,6 +442,7 @@ class SystemFaultHandlingRecord(TenantModelMixin, models.Model):
     PROGRESS_OTHER = 'other'
     PROGRESS_TYPE_CHOICES = (
         (PROGRESS_CHECK, '检查'),
+        (PROGRESS_LOCATE, '故障定位'),
         (PROGRESS_SELF_FIX, '本方处理'),
         (PROGRESS_TO_VENDOR, '送厂'),
         (PROGRESS_VENDOR_FEEDBACK, '厂家反馈'),
@@ -443,9 +470,9 @@ class SystemFaultHandlingRecord(TenantModelMixin, models.Model):
     content = models.TextField(max_length=2000, help_text='进展内容')
     progress_type = models.CharField(
         max_length=20, choices=PROGRESS_TYPE_CHOICES, default='', blank=True,
-        help_text='进展类型（选填：check检查/self_fix本方处理/to_vendor送厂/'
-                  'vendor_feedback厂家反馈/return返还/test测试/watch持续观察/other其他；'
-                  '空串=未选择，历史记录为空）')
+        help_text='进展类型（选填：check检查/fault_locate故障定位/self_fix本方处理/'
+                  'to_vendor送厂/vendor_feedback厂家反馈/return返还/test测试/'
+                  'watch持续观察/other其他；空串=未选择，历史记录为空）')
     result = models.CharField(max_length=200, default='', blank=True, help_text='处理结果（选填）')
     # 工时（2026-09-30 工单下线后由处理进展统一承接，选填，小时）
     work_hours = models.FloatField(null=True, blank=True, help_text='本次工时（小时，选填）')
@@ -891,16 +918,18 @@ class OperationLedgerCorrection(TenantModelMixin, models.Model):
 # inspection：值班巡检异常转故障（2026-09），转换动作落目标系统履历
 # runtime：运行记录（2026-10）——仅影响系统运行/标记重要/转为故障时写入履历，
 # 普通小问题不进履历（运行记录第一版约定）
-EVENT_TYPE_VALUES = ['fault', 'ledger', 'health', 'config_snapshot', 'upgrade', 'inspection', 'runtime']
+# config：配置变更（2026-10）——仅重要配置变更（include_in_history）应用/回退
+# 时写入履历，普通配置变更不进履历；事件携带变更编号与来源链接
+EVENT_TYPE_VALUES = ['fault', 'ledger', 'health', 'config_snapshot', 'upgrade', 'inspection', 'runtime', 'config']
 EVENT_SOURCE_TYPE_VALUES = [
     'fault', 'ledger_item', 'health', 'config_snapshot', 'upgrade',
-    'inspection_record', 'runtime_record',
+    'inspection_record', 'runtime_record', 'config_change',
 ]
 EVENT_ACTION_VALUES = [
     'create', 'recover', 'close', 'cancel',
     'convert_to_fault',
     'complete', 'status_change', 'snapshot',
-    'rollback', 'mark_important',
+    'rollback', 'mark_important', 'apply',
 ]
 
 
@@ -928,6 +957,8 @@ class SystemEvent(TenantModelMixin, models.Model):
     EVENT_UPGRADE = 'upgrade'
     EVENT_INSPECTION = 'inspection'
     EVENT_RUNTIME = 'runtime'
+    # 配置变更（2026-10）：仅重要配置变更应用/回退时写入（普通变更只留变更历史与审计）
+    EVENT_CONFIG = 'config'
     EVENT_TYPE_CHOICES = (
         (EVENT_FAULT, '故障'),
         (EVENT_LEDGER, '台账异常'),
@@ -935,6 +966,7 @@ class SystemEvent(TenantModelMixin, models.Model):
         (EVENT_CONFIG_SNAPSHOT, '配置快照'),
         (EVENT_UPGRADE, '系统升级'),
         (EVENT_INSPECTION, '值班巡检'),
+        (EVENT_CONFIG, '配置变更'),
         (EVENT_RUNTIME, '运行记录'),
     )
     EVENT_TYPE_TEXT_MAP = dict(EVENT_TYPE_CHOICES)
@@ -1697,6 +1729,14 @@ class SystemRuntimeRecord(TenantModelMixin, models.Model):
     occurred_at = models.DateTimeField(help_text='发生时间')
     title = models.CharField(max_length=200, help_text='标题')
     description = models.TextField(max_length=2000, help_text='情况描述')
+    # 登记人（2026-10）：手动输入的登记人姓名，只表示"谁登记这条运行记录"，
+    # 与登录账号 created_by 独立（共用登录账号场景下实际登记人可能没有账号），
+    # 参照故障登记人 registrar_name 口径；历史数据为空（可空文本）
+    registrar_name = models.CharField(
+        max_length=200, default='', blank=True,
+        help_text='登记人（手动输入的登记人姓名，多人以顿号分隔；'
+                  '实际添加本条运行记录的人，与登录账号 created_by 独立，'
+                  '历史数据可为空）')
 
     needs_follow_up = models.BooleanField(
         default=False, help_text='是否需要跟进（标记跟进中状态时置 True）')
@@ -1823,6 +1863,7 @@ class SystemRuntimeRecord(TenantModelMixin, models.Model):
             'system_location': self.system_location,
             'occurred_at': self.occurred_at,
             'title': self.title,
+            'registrar_name': self.registrar_name or '',
             'status': self.status,
             'status_text': self.STATUS_TEXT_MAP.get(self.status, self.status),
             'needs_follow_up': self.needs_follow_up,
@@ -2019,4 +2060,13 @@ from apps.equipment_lifecycle.excel_models import (  # noqa: E402
     OperationLedgerExcelRecord,
     OperationLedgerExcelTemplate,
     OperationLedgerExcelTemplateVersion,
+)
+# 系统配置参数与配置变更（2026-10）：模型主体在 config_models.py（文件行数治理），
+# 底部导入完成模型注册，使 makemigrations/迁移状态一致。
+from apps.equipment_lifecycle.config_models import (  # noqa: E402
+    ConfigChangeItem,
+    ConfigChangeRecord,
+    ConfigParamDefinition,
+    ConfigParamSystemScope,
+    SystemParamValue,
 )

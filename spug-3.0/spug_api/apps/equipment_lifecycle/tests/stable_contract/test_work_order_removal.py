@@ -151,14 +151,11 @@ class ProgressReplacesWorkOrderTest(WorkOrderRemovalTestBase):
     """契约 2：处理进展承载处理人/时间/内容/结果/工时/更正历史。"""
 
     def _started_fault(self, **overrides):
+        """创建故障（新建即处置中），返回 fault id。"""
         body = self.client.post(f'{FAULT_URL}/', fault_payload(self.system_a, **overrides),
                                 content_type='application/json').json()
         self.assertFalse(body.get('error'), body)
-        fid = body['data']['id']
-        r = self.client.post(f'{FAULT_URL}/{fid}/start/', {},
-                             content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
-        return fid
+        return body['data']['id']
 
     def test_progress_records_handler_time_content_result_hours(self):
         """追加进展：记录人/时间/内容/结果/工时全部落库并回读。"""
@@ -219,8 +216,6 @@ class ProgressReplacesWorkOrderTest(WorkOrderRemovalTestBase):
             'recovered_at': '2026-09-30 11:00',
             'recovered_by_name': '确认人乙',
             'recover_confirm': '业务验证正常',
-        }, content_type='application/json')
-        self.client.post(f'{FAULT_URL}/{fid}/close/', {
             'final_result': '更换板卡并复测通过',
         }, content_type='application/json')
         resp = self.client.post(f'{FAULT_URL}/{fid}/handling-records/', {
@@ -239,23 +234,21 @@ class FaultClosureWithoutWorkOrderTest(WorkOrderRemovalTestBase):
         fid = body['data']['id']
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'degraded')
-        self.client.post(f'{FAULT_URL}/{fid}/start/', {}, content_type='application/json')
         self.client.post(f'{FAULT_URL}/{fid}/handling-records/', {
             'recorder_name': '张检测', 'content': '更换备件，本方测试通过',
             'work_hours': 3.0,
         }, content_type='application/json')
+        # 确认恢复并结案：恢复后健康状态即恢复正常，同事务直接进入终态
         self.client.post(f'{FAULT_URL}/{fid}/recover/', {
             'recovered_at': '2026-09-30 12:00',
             'recovered_by_name': '确认人乙',
             'recover_confirm': '业务验证正常',
-        }, content_type='application/json')
-        self.assertEqual(
-            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'normal')
-        self.client.post(f'{FAULT_URL}/{fid}/close/', {
             'final_result': '更换备件并复测通过',
         }, content_type='application/json')
         fault = SystemFault.objects.get(pk=fid)
         self.assertEqual(fault.status, 'closed')
+        self.assertEqual(
+            LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'normal')
         # 履历只含故障与健康事件，无任何工单事件
         types = {e.event_type for e in SystemEvent.objects.filter(
             tenant_id='tenant_a', system_id=self.system_a.id)}
@@ -319,28 +312,24 @@ class HealthComputedFromFaultsOnlyTest(WorkOrderRemovalTestBase):
         fid_closed = body['data']['id']
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'interrupted')
-        # 关闭中断故障 → 重算后回落到仍未恢复的降级故障，而不是 normal
-        self.client.post(f'{FAULT_URL}/{fid_closed}/start/', {},
-                         content_type='application/json')
+        # 结案中断故障 → 重算后回落到仍未恢复的降级故障，而不是 normal
         r = self.client.post(f'{FAULT_URL}/{fid_closed}/recover/', {
             'recovered_at': '2026-09-30 13:00',
             'recovered_by_name': '确认人乙',
             'recover_confirm': '链路已恢复',
-        }, content_type='application/json')
-        self.assertFalse(r.json().get('error'), r.content)
-        self.client.post(f'{FAULT_URL}/{fid_closed}/close/', {
             'final_result': '更换光模块',
         }, content_type='application/json')
+        self.assertFalse(r.json().get('error'), r.content)
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'degraded')
-        # 关闭剩余故障 → normal
-        self.client.post(f'{FAULT_URL}/{fid_kept}/start/', {},
-                         content_type='application/json')
-        self.client.post(f'{FAULT_URL}/{fid_kept}/recover/', {
+        # 结案剩余故障 → normal
+        r = self.client.post(f'{FAULT_URL}/{fid_kept}/recover/', {
             'recovered_at': '2026-09-30 14:00',
             'recovered_by_name': '确认人乙',
             'recover_confirm': '全部恢复',
+            'final_result': '更换备件并验证',
         }, content_type='application/json')
+        self.assertFalse(r.json().get('error'), r.content)
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'normal')
 
@@ -395,7 +384,6 @@ class IsolationPermissionAttachmentTest(WorkOrderRemovalTestBase):
         body = self.client.post(f'{FAULT_URL}/', fault_payload(self.system_a),
                                 content_type='application/json').json()
         fid = body['data']['id']
-        self.client.post(f'{FAULT_URL}/{fid}/start/', {}, content_type='application/json')
         record = self.client.post(f'{FAULT_URL}/{fid}/handling-records/', {
             'recorder_name': '张检测', 'content': '现场照片留档',
         }, content_type='application/json').json()['data']

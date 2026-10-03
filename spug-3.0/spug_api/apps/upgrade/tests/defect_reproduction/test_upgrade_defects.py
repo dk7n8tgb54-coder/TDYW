@@ -57,7 +57,7 @@ from apps.upgrade.models import UpgradeRecord
 from apps.upgrade.models_checklist import UpgradeRecordStep
 from apps.upgrade.models_status_log import UpgradeStatusLog
 from apps.upgrade.models_template import UpgradeTemplate, UpgradePlanStep
-from apps.utils.test_helpers import make_user, make_client, setup_test_env
+from apps.utils.test_helpers import make_user, make_client, setup_test_env, make_upgrade_no
 from apps.equipment_lifecycle.tests.base import make_system
 
 PERMS = [
@@ -79,6 +79,7 @@ class UpgradeDefectBase(TestCase):
             self.user, tenant_id=self.user.tenant_id,
             system_code=f'SYS-{uuid.uuid4().hex[:8]}')
         self.record = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='缺陷验证单',
             system=self.system, system_name=self.system.name,
             upgrade_type='功能升级', status='处理中',

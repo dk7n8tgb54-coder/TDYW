@@ -91,6 +91,7 @@ class ComTable extends React.Component {
             store.fetchRecords();
           },
         }}>
+        <Table.Column title="编号" dataIndex="upgrade_no" width={140}/>
         <Table.Column title="标题" dataIndex="title" width={200}/>
         <Table.Column title="系统" dataIndex="system_name" width={120}/>
         <Table.Column title="升级类型" dataIndex="upgrade_type" width={100}/>

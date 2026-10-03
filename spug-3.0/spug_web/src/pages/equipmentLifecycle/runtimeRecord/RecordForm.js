@@ -5,7 +5,8 @@
 /**
  * 设备全生命周期——运行记录新增/编辑弹窗（2026-10 第一版）。
  * - 统一录入入口：用户不需要先判断"故障/事件/其他类型"，只描述运行情况；
- * - 第一屏只显示 所属系统/发生时间/标题/情况描述 四项（最少必填）；
+ * - 第一屏显示 所属系统/发生时间/标题/情况描述/登记人 五项必填
+ *   （登记人 2026-10 新增，参照故障登记人：手输姓名、不预填登录账号）；
  * - 通过"更多信息"展开可选字段：需要跟进 / 影响系统运行(+程度) /
  *   已采取措施 / 处理结果 / 重要程度(+原因)；附件在详情页上传
  *   （新建阶段对象尚不存在，无临时附件回填模式）；
@@ -57,7 +58,7 @@ function applyDetailToForm(form, detail) {
   });
 }
 
-function RequiredFields({systems}) {
+function RequiredFields({systems, isEdit}) {
   return (
     <>
       <Form.Item
@@ -68,7 +69,7 @@ function RequiredFields({systems}) {
         <Select
           showSearch
           optionFilterProp="children"
-          placeholder="请选择所属系统（显示名称、编号、安装地点）"
+          placeholder="请选择所属系统（显示名称、安装地点）"
           allowClear
         >
           {systems.map(s => (
@@ -105,7 +106,30 @@ function RequiredFields({systems}) {
       >
         <TextArea rows={3} placeholder="描述观察到的运行情况（不必判断是否为故障）"/>
       </Form.Item>
+      <RegistrarFields isEdit={isEdit}/>
     </>
+  );
+}
+
+// 登记人：手动输入姓名（输入后回车确认，可多个，顿号分隔提交），只表示
+// 实际添加这条运行记录的人，与登录账号审计字段独立；
+// 必填、不预填默认姓名（参照故障登记人口径）。
+// 仅新增可填，编辑不渲染（后端保留原登记人）
+function RegistrarFields({isEdit}) {
+  if (isEdit) return null;
+  return (
+    <Form.Item
+      name="registrar_names"
+      label="登记人"
+      rules={[{required: true, type: 'array', message: '请输入姓名后回车确认'}]}
+    >
+      {/* open=false：仅手输姓名（回车/失焦添加），与故障登记人输入一致 */}
+      <Select
+        mode="tags"
+        open={false}
+        placeholder="输入姓名后回车确认（可多个）"
+      />
+    </Form.Item>
   );
 }
 
@@ -246,11 +270,16 @@ const RecordForm = observer(function RecordForm() {
       const payload = {
         ...values,
         occurred_at: values.occurred_at ? values.occurred_at.format('YYYY-MM-DD HH:mm') : null,
+        // 标签数组以顿号拼接为登记人姓名文本（多人）
+        registrar_name: (values.registrar_names || []).join('、'),
       };
+      delete payload.registrar_names;
       if (isEdit) {
         // 重要程度仅新增表单提供：编辑提交不携带该键，后端保留原值
         delete payload.importance;
         delete payload.importance_reason;
+        // 登记人仅新增可填：编辑不提交该键，后端保留原登记人
+        delete payload.registrar_name;
       } else {
         // 幂等令牌：同一表单提交多次只创建一条记录
         payload.client_token = makeClientToken();
@@ -283,7 +312,7 @@ const RecordForm = observer(function RecordForm() {
         wrapperCol={{span: 16}}
         initialValues={{affects_system_operation: false, needs_follow_up: false}}
       >
-        <RequiredFields systems={store.systems}/>
+        <RequiredFields systems={store.systems} isEdit={isEdit}/>
         {moreVisible ? (
           <OptionalFields isEdit={isEdit}/>
         ) : (

@@ -2,11 +2,18 @@
  * 设备全生命周期（步骤 3.1，单系统简化）故障组件渲染测试
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
- * - 故障详情抽屉展示故障系统（名称+安装地点快照）、影响程度、状态流转按钮随状态切换
+ * - 故障详情窗口展示故障系统（名称+安装地点快照）、影响程度、状态操作随状态切换
+ * - 2026-10 流程合并：无"开始处置"（新建即处置中）；确认恢复与关闭故障
+ *   合并为一次"确认恢复并结案"（四项必填一个弹窗，终态保护）
+ * - 基本信息三区块（2026-10：故障概况/处置结果/来源与登记），不展示创建人，
+ *   故障登记人/登记时间在"来源与登记"区块末行
  * - 详情不再提供"受影响系统"页签
  * - 处理进展时间线按时间展示，进展类型可见，更正留痕可见
+ * - "本次工时"录入已删除（2026-10）：存量工时仅时间线只读展示，
+ *   新增/更正弹窗无该字段、载荷不携带 work_hours（后端 PUT 未提交保留原值）
  * - 添加处理进展：时间默认当前时间、进展类型/处理结果选填、真实提交载荷
- * - 处理进展页签（关联工单页签已随工单功能删除）
+ * - 处理进展页签（关联工单页签已随工单功能删除）与页签条数展示（取列表 total）
+ * - 确认恢复并结案弹窗（2026-10 流程合并）测试拆至 faultRecoverClose.test.js
  * - 系统详情故障页签只展示本系统故障（不区分主体/受影响角色）
  * - 不使用旧 fault 页面/接口（所有请求只指向 equipment-lifecycle 前缀）
  */
@@ -84,6 +91,7 @@ const HANDLING_RECORDS = {
     {id: 2, fault: 11, handled_at: '2026-09-18 09:30', handler: 2, handler_name: 'operator',
       progress_type: 'to_vendor', progress_type_text: '送厂',
       content: '更换备用链路', result: '已切换', created_at: '2026-09-18 09:35',
+      work_hours: 1.5,
       corrections: [{old: '更换主用链路', new: '更换备用链路', reason: '笔误', by: 'operator',
         at: '2026-09-18 09:40'}]},
     {id: 3, fault: 11, handled_at: '2026-09-18 10:00', handler: 2, handler_name: 'operator',
@@ -93,13 +101,14 @@ const HANDLING_RECORDS = {
   total: 3, page: 1, page_size: 100,
 };
 
-async function renderDetail(status, overrides) {
+async function renderDetail(status, overrides, handlingResponse) {
   const store = require('../faultStore').default;
   const FaultDetail = require('../FaultDetail').default;
   const detail = {...FAULT_DETAIL, status, ...(overrides || {})};
+  const handling = handlingResponse || HANDLING_RECORDS;
   mockHttpGet.mockImplementation((url) => {
     if (url.includes('/handling-records')) {
-      return Promise.resolve(HANDLING_RECORDS);
+      return Promise.resolve(handling);
     }
     // 详情接口：后端 json_response(详情) 经 http 拦截器解包后 resolve 详情本体
     // （旧 mock 多包一层 data 会固化 fetchDetail 的双重解包缺陷）
@@ -125,7 +134,13 @@ function tabTexts() {
   return Array.from(document.querySelectorAll('.ant-tabs-tab')).map(t => t.textContent);
 }
 
-describe('故障详情抽屉（单系统简化）', () => {
+function buttonTexts() {
+  // antd 两字按钮渲染为"作 废"（自动空格），比较前统一去空白
+  return Array.from(document.querySelectorAll('button')).map(
+    b => b.textContent.replace(/\s+/g, ''));
+}
+
+describe('故障详情窗口（单系统简化）', () => {
   it('展示故障系统名称与地点快照、影响程度与现象', async () => {
     await renderDetail('handling');
     const text = bodyText();
@@ -134,9 +149,14 @@ describe('故障详情抽屉（单系统简化）', () => {
     expect(text).not.toContain('SYS-A1');
     expect(text).toContain('机房A');
     expect(text).toContain('主用链路频繁丢包');
-    // 故障登记人独立展示（不代表负责整个故障）
+    // 故障登记人展示（不代表负责整个故障）；创建人字段已从前端删除
     expect(text).toContain('故障登记人');
     expect(text).toContain('登记员甲');
+    expect(text).not.toContain('创建人');
+    // 登记时间取代创建时间展示（取记录创建时间）
+    expect(text).not.toContain('创建时间');
+    expect(text).toContain('登记时间');
+    // 登记人/登记时间位于"来源与登记"区块（区块结构见下方专属 describe）
     // 已退役字段不再出现在详情（处置负责人/发现方式/级别/影响范围/故障位置）
     ['处置负责人', '发现方式', '级别', '影响范围', '故障位置'].forEach(label => {
       expect(text).not.toContain(label);
@@ -147,26 +167,40 @@ describe('故障详情抽屉（单系统简化）', () => {
     await renderDetail('handling');
     const tabs = tabTexts();
     expect(tabs.some(t => t.includes('受影响系统'))).toBe(false);
-    expect(tabs).toEqual(expect.arrayContaining(['基本信息', '处理进展']));
+    expect(tabs).toContain('基本信息');
+    // 处理进展页签带条数（2026-10：停在基本信息页签即可看出进展是否已登记）
+    expect(tabs.some(t => t.includes('处理进展'))).toBe(true);
     // 关联工单页签已随工单功能删除（2026-09-30）
     expect(tabs.some(t => t.includes('关联工单'))).toBe(false);
   });
 
-  it('状态按钮随当前状态切换：处置中显示确认恢复与作废', async () => {
+  it('状态按钮随当前状态切换：处置中显示确认恢复并结案与撤销故障登记（2026-10 流程合并）', async () => {
     await renderDetail('handling');
     const text = bodyText();
-    expect(text).toContain('确认恢复');
-    expect(text).toContain('作废');
+    // 确认恢复与关闭故障合并为一次"确认恢复并结案"
+    expect(text).toContain('确认恢复并结案');
+    // 原"作废"操作改称"撤销故障登记"（2026-10-03 撤销登记改版）
+    expect(text).toContain('撤销故障登记');
     expect(text).not.toContain('开始处置');
     expect(text).not.toContain('关闭故障');
   });
 
-  it('待处置状态显示开始处置，已恢复状态显示关闭故障', async () => {
-    await renderDetail('pending');
-    expect(bodyText()).toContain('开始处置');
-    // 同一容器复用：重设 store 后再次渲染已恢复状态
-    await renderDetail('recovered');
-    expect(bodyText()).toContain('关闭故障');
+  it('已关闭/已撤销故障不显示任何继续处置操作（终态保护）', async () => {
+    await renderDetail('closed');
+    expect(bodyText()).not.toContain('确认恢复并结案');
+    expect(buttonTexts()).not.toContain('撤销故障登记');
+    expect(buttonTexts()).not.toContain('添加处理进展');
+    expect(buttonTexts()).not.toContain('更正');
+    // 已撤销同样无操作入口：顶部显示只读追溯横幅 + 撤销登记区块
+    await renderDetail('cancelled');
+    expect(bodyText()).not.toContain('确认恢复并结案');
+    expect(buttonTexts()).not.toContain('撤销故障登记');
+    expect(buttonTexts()).not.toContain('添加处理进展');
+    // 只读追溯提示与撤销信息（原因/时间/人）正常展示
+    expect(bodyText()).toContain('该登记已撤销，仅供历史追溯');
+    expect(bodyText()).toContain('撤销原因');
+    expect(bodyText()).toContain('撤销时间');
+    expect(bodyText()).toContain('撤销人');
   });
 
   it('处理进展时间线按时间展示、进展类型可见且更正留痕可见', async () => {
@@ -275,34 +309,47 @@ describe('处理进展刷新响应式（2026-09 添加进展后时间线不更�
   });
 });
 
-describe('系统详情故障页签（单系统简化）', () => {
-  it('只展示本系统故障，不再区分主体/受影响角色', async () => {
-    const FaultRecordsTab = require('../FaultRecordsTab').default;
-    mockHttpGet.mockResolvedValue({data: [
-      {id: 21, fault_no: 'GZ20260918-0002', system: 9,
-        impact_status: 'interrupted', status: 'pending',
-        occurred_at: '2026-09-18 07:00', phenomenon: '系统中断'},
-      {id: 23, fault_no: 'GZ20260918-0004', system: 9,
-        impact_status: 'degraded', status: 'handling',
-        occurred_at: '2026-09-18 06:00', phenomenon: '另一路链路降级'},
-    ]});
+describe('处理进展页签条数展示（2026-10：停在基本信息页签即可看出进展是否已登记）', () => {
+  it('打开详情不切页签即显示处理进展条数（showDetail 统一拉取进展列表）', async () => {
+    await renderDetail('handling');
+    const handlingTab = tabTexts().find(t => t.includes('处理进展'));
+    expect(handlingTab).toBe('处理进展（3）');
+  });
+
+  it('条数取列表接口 total，不受单页截断影响', async () => {
+    // 后端默认分页 100 条：本页仅返回 1 条但 total=7，页签应显示 7 而非 1
+    await renderDetail('handling', null,
+      {data: [HANDLING_RECORDS.data[0]], total: 7, page: 1, page_size: 100});
+    const handlingTab = tabTexts().find(t => t.includes('处理进展'));
+    expect(handlingTab).toBe('处理进展（7）');
+  });
+
+  it('追加进展重新拉取列表后条数随 total 同步更新', async () => {
+    const store = await renderDetail('handling');
+    expect(tabTexts().find(t => t.includes('处理进展'))).toBe('处理进展（3）');
+    mockHttpGet.mockImplementation((url) => {
+      if (url.includes('/handling-records')) {
+        return Promise.resolve({
+          data: [...HANDLING_RECORDS.data, {
+            id: 4, fault: 11, handled_at: '2026-09-18 11:00',
+            recorder_name: '记录员乙', progress_type: '', progress_type_text: '',
+            content: '持续观察，链路稳定', result: '', corrections: [],
+          }],
+          total: 4, page: 1, page_size: 100,
+        });
+      }
+      return Promise.resolve(FAULT_DETAIL);
+    });
     await act(async () => {
-      ReactDOM.render(<FaultRecordsTab systemId={9}/>, container);
+      await store.fetchHandlingRecords();
     });
     await act(async () => {await flush();});
-    const text = document.body.textContent;
-    expect(text).toContain('GZ20260918-0002');
-    expect(text).toContain('GZ20260918-0004');
-    expect(text).toContain('中断');
-    expect(text).toContain('降级');
-    // 不再出现角色标识
-    expect(text).not.toContain('主体故障');
-    expect(text).not.toContain('受影响故障');
-    // 请求不再携带 role 参数
-    expect(mockHttpGet).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/systems/9/faults/');
+    expect(tabTexts().find(t => t.includes('处理进展'))).toBe('处理进展（4）');
   });
 });
+
+// 系统详情故障页签测试（2026-10-03 文件超限拆出）：
+// 见 faultRecordsTab.test.js
 
 describe('故障影响系统运行开关（运行状态与部件维修分离）', () => {
   async function renderForm(record, detail) {
@@ -393,8 +440,10 @@ describe('故障首报表单精简（2026-09，字段退役后口径）', () => 
     const text = bodyText();
     expect(text).toContain('故障部位/设备');
     expect(text).toContain('故障现象');
+    // "原因分析"自 2026-10 起为"初步原因分析"子串（新增表单含初步判断区块），
+    // 该字面断言失效移除，改由 faultReasonAnalysis.test.js 正向覆盖
     ['发现方式', '故障级别', '影响范围', '故障位置', '故障对象名称',
-      '故障对象型号', '对象编号/序列号', '原因分析'].forEach(label => {
+      '故障对象型号', '对象编号/序列号'].forEach(label => {
       expect(text).not.toContain(label);
     });
   });
@@ -468,6 +517,91 @@ describe('故障详情字段顺序', () => {
   });
 });
 
+describe('基本信息三区块（2026-10 重组：故障概况/处置结果/来源与登记）', () => {
+  it('三区块依次展示；标题区不再重复系统/地点/发生时间/登记人（各只出现一次）', async () => {
+    await renderDetail('handling');
+    const text = bodyText();
+    const atProfile = text.indexOf('故障概况');
+    const atResult = text.indexOf('处置结果');
+    const atSource = text.indexOf('来源与登记');
+    const atOverview = text.indexOf('处理概览');
+    expect(atProfile).toBeGreaterThan(-1);
+    expect(atResult).toBeGreaterThan(atProfile);
+    expect(atSource).toBeGreaterThan(atResult);
+    expect(atOverview).toBeGreaterThan(atSource);
+    // 旧标题区事实行已删除：系统名/安装地点/发生时间/登记人姓名全页各只出现一次
+    // （bodyText 已折叠空白，日期按折叠后形态匹配）
+    expect(text.split('烟台通信系统').length - 1).toBe(1);
+    expect(text.split('机房A').length - 1).toBe(1);
+    expect(text.split('2026-09-1808:30').length - 1).toBe(1);
+    expect(text.split('登记员甲').length - 1).toBe(1);
+  });
+
+  it('处置中且无任何恢复数据：处置结果只显示"尚未完成恢复确认"，不铺空的恢复字段', async () => {
+    await renderDetail('handling');
+    const text = bodyText();
+    // 原因分析始终展示（无内容显示"-"）
+    expect(text).toContain('原因分析');
+    expect(text).toContain('尚未完成恢复确认');
+    ['恢复时间', '恢复确认人', '恢复确认信息', '最终结果'].forEach(label => {
+      expect(text).not.toContain(label);
+    });
+  });
+
+  it('处置中但已有部分恢复数据时正常展示恢复字段', async () => {
+    await renderDetail('handling', {recover_confirm: '已倒备用链路，等待备件'});
+    const text = bodyText();
+    expect(text).not.toContain('尚未完成恢复确认');
+    expect(text).toContain('恢复时间');
+    expect(text).toContain('恢复确认信息');
+  });
+
+  it('已关闭故障完整展示恢复时间/确认人/确认信息/最终结果（终态不丢恢复事实）', async () => {
+    await renderDetail('closed', {
+      recovered_at: '2026-09-18 12:00',
+      recovered_by_name: '确认人甲',
+      recovered_confirmed_at: '2026-09-18 12:10',
+      recover_confirm: '业务验证通过',
+      final_result: '更换备件并复测通过',
+    });
+    const text = bodyText();
+    expect(text).not.toContain('尚未完成恢复确认');
+    expect(text).toContain('恢复时间');
+    expect(text).toContain('2026-09-1812:00');
+    expect(text).toContain('确认人甲');
+    expect(text).toContain('业务验证通过');
+    expect(text).toContain('更换备件并复测通过');
+    // 处置结果区块在"来源与登记"之前：最终结果在故障登记人之前出现
+    expect(text.indexOf('最终结果')).toBeLessThan(text.indexOf('故障登记人'));
+  });
+
+  it('来源与登记区块按来源类型展示追溯入口，登记人/登记时间始终展示', async () => {
+    await renderDetail('handling', {
+      source_type: 'runtime_record', source_runtime_record: 33,
+      source_runtime_record_no: 'YX20261001-0001',
+    });
+    let text = bodyText();
+    expect(text).toContain('来源运行记录');
+    expect(text).toContain('YX20261001-0001');
+    expect(text).toContain('故障登记人');
+    expect(text).toContain('登记时间');
+    await renderDetail('handling', {
+      source_type: 'inspection_record', source_inspection_sheet: 8,
+      source_inspection_sheet_no: 'XJ20260918-01',
+    });
+    text = bodyText();
+    expect(text).toContain('来源巡检单');
+    expect(text).toContain('XJ20260918-01');
+    await renderDetail('handling', {
+      source_type: 'ledger_item', source_ledger: 5,
+      source_ledger_no: 'TZ20260901-001', source_ledger_type: 'week_month',
+    });
+    text = bodyText();
+    expect(text).toContain('来源台账');
+    expect(text).toContain('TZ20260901-001');
+  });
+});
+
 const moment = require('moment');
 
 async function openDetailHandlingTab() {
@@ -492,12 +626,19 @@ async function openAddModal() {
 }
 
 function modalText() {
-  const modal = document.querySelector('.ant-modal');
-  return modal ? modal.textContent : '';
+  // 详情已改为 Modal（2026-10-02）：动作弹窗挂载在后，取 DOM 中最后一个（顶层对话框）
+  const modals = document.querySelectorAll('.ant-modal');
+  return modals.length ? modals[modals.length - 1].textContent : '';
+}
+
+function topModal() {
+  const modals = document.querySelectorAll('.ant-modal');
+  return modals.length ? modals[modals.length - 1] : null;
 }
 
 function findFormItem(labelText) {
-  const items = Array.from(document.querySelectorAll('.ant-modal .ant-form-item'));
+  const scope = topModal() || document;
+  const items = Array.from(scope.querySelectorAll('.ant-form-item'));
   return items.find(n => {
     const label = n.querySelector('.ant-form-item-label');
     return label && label.textContent.includes(labelText);
@@ -551,6 +692,8 @@ describe('添加处理进展弹窗（时间默认当前时间、记录人必填�
     expect(text).toContain('进展类型');
     expect(text).toContain('进展内容');
     expect(text).toContain('处理结果');
+    // "本次工时"字段已删除（2026-10）：弹窗不再出现
+    expect(text).not.toContain('本次工时');
     // 时间默认当前时间（DatePicker input 已带格式化值）
     const timeInput = findFormItem('进展时间').querySelector('input');
     expect(timeInput.value).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
@@ -565,6 +708,8 @@ describe('添加处理进展弹窗（时间默认当前时间、记录人必填�
     expect(payload.recorder_name).toBe('记录人甲');
     expect(payload.progress_type).toBe('');
     expect(payload.result).toBe('');
+    // 新增进展不再提交工时（字段已删除，后端默认存 null）
+    expect(payload).not.toHaveProperty('work_hours');
     expect(payload.handled_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
     expect(Math.abs(moment(payload.handled_at, 'YYYY-MM-DD HH:mm').diff(moment(), 'minutes')))
       .toBeLessThanOrEqual(1);
@@ -609,6 +754,28 @@ describe('更正处理进展弹窗（进展类型回显与留痕提交）', () =
     expect(payload.progress_type).toBe('check');
     expect(payload.recorder_name).toBe('operator');
     expect(payload.correction_reason).toBeTruthy();
+  });
+
+  it('"本次工时"录入已删除：存量工时仅时间线只读展示，更正载荷不携带 work_hours', async () => {
+    await openDetailHandlingTab();
+    // 存量记录的工时仍在时间线只读展示（bodyText 折叠空白："工时 1.5h"）
+    expect(bodyText()).toContain('工时1.5h');
+    // 更正弹窗不再提供本次工时字段
+    const item = Array.from(document.querySelectorAll('.ant-timeline-item'))
+      .find(n => n.textContent.includes('更换备用链路'));
+    const correctButton = Array.from(item.querySelectorAll('button'))
+      .find(b => b.textContent.includes('更正'));
+    await act(async () => {
+      correctButton.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    });
+    await act(async () => {await flush();});
+    expect(modalText()).not.toContain('本次工时');
+    await setTextareaValue('更正原因', '补充更正说明');
+    await submitModal('put');
+    expect(mockHttpPut).toHaveBeenCalledTimes(1);
+    const [, payload] = mockHttpPut.mock.calls[0];
+    // 载荷不携带 work_hours：后端 PUT 未提交时保留原值，存量工时不被清除
+    expect(payload).not.toHaveProperty('work_hours');
   });
 });
 
@@ -781,40 +948,5 @@ describe('故障登记人与进展记录人（手动输入姓名，可多个）'
     expect(text).toContain('更早历史进展（无任何人员）');
     // 详情：历史故障无登记人显示"-"
     expect(text).toContain('故障登记人');
-  });
-});
-
-describe('恢复确认弹窗（恢复确认人手动输入，参考故障登记人）', () => {
-  async function openRecoverModal() {
-    await renderDetail('handling');
-    const recoverButton = Array.from(document.querySelectorAll('button'))
-      .find(b => b.textContent.replace(/\s+/g, '') === '确认恢复');
-    expect(recoverButton).toBeTruthy();
-    await act(async () => {
-      recoverButton.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-    });
-    await act(async () => {await flush();});
-  }
-
-  it('恢复确认人必填手输：不预填登录账号，多人顿号拼接提交', async () => {
-    await openRecoverModal();
-    const text = modalText();
-    expect(text).toContain('恢复确认人');
-    expect(text).toContain('输入姓名后回车确认');
-    expect(selectionTags('恢复确认人')).toEqual([]);
-    // 未填确认人提交：required 校验拦截，不发请求
-    await setTextareaValue('恢复确认信息', '业务验证已恢复');
-    await submitModal('post');
-    expect(mockHttpPost).toHaveBeenCalledTimes(0);
-    // 手输姓名（可多个）后真实提交
-    await typeAndEnter('恢复确认人', '确认人甲');
-    await typeAndEnter('恢复确认人', '确认人乙');
-    await submitModal('post');
-    expect(mockHttpPost).toHaveBeenCalledTimes(1);
-    const [url, payload] = mockHttpPost.mock.calls[0];
-    expect(url).toBe('/api/equipment-lifecycle/faults/11/recover/');
-    expect(payload.recovered_by_name).toBe('确认人甲、确认人乙');
-    expect(payload.recover_confirm).toBe('业务验证已恢复');
-    expect(payload.recovered_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   });
 });

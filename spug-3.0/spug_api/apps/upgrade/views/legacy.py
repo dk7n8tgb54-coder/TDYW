@@ -11,6 +11,7 @@
 - DELETE /api/upgrade/upgrade/        → 删除
 """
 import logging
+from django.db import transaction
 from django.views import View
 from libs import json_response, auth, Argument, JsonParser
 from libs.tenant_utils import apply_tenant_filter
@@ -104,15 +105,31 @@ class LegacyUpgradeView(View):
                 return json_response(error=error)
             return json_response()
 
-        UpgradeRecord.objects.create(
-            tenant_id=request.user.tenant_id,
-            system_name=system_text,
-            upgrade_type=form.upgrade_type,
-            upgrade_time=form.upgrade_time,
-            status=form.status,
-            owner=form.owner,
-            created_by=request.user,
+        # 兜底直建（旧前端传历史系统名）：编号同样在全局锁内分配。
+        # 本视图未按 non_atomic_requests 装配（PUT 依赖请求级事务），ATOMIC_REQUESTS
+        # 下锁释放早于请求事务提交存在理论撞号窗口，由 (tenant_id, upgrade_no)
+        # 唯一约束兜底（IntegrityError 上抛为业务错误，正式入口 records/create/ 无此窗口）。
+        from apps.upgrade.services.record_service import (
+            generate_upgrade_no, upgrade_no_lock,
+            UpgradeNoLockTimeout, UpgradeNoExhausted,
         )
+        try:
+            with upgrade_no_lock():
+                with transaction.atomic():
+                    UpgradeRecord.objects.create(
+                        tenant_id=request.user.tenant_id,
+                        upgrade_no=generate_upgrade_no(),
+                        system_name=system_text,
+                        upgrade_type=form.upgrade_type,
+                        upgrade_time=form.upgrade_time,
+                        status=form.status,
+                        owner=form.owner,
+                        created_by=request.user,
+                    )
+        except UpgradeNoLockTimeout as e:
+            return json_response(error=str(e))
+        except UpgradeNoExhausted as e:
+            return json_response(error=str(e))
         return json_response()
 
     @auth('upgrade.upgrade.edit')

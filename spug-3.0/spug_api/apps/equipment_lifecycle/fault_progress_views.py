@@ -151,7 +151,7 @@ class FaultHandlingRecordView(View):
                 if not fault:
                     return json_response(error='故障记录不存在')
                 if fault.status not in EDITABLE_FAULT_STATUSES:
-                    return json_response(error='已关闭或已作废的故障不能追加处理进展')
+                    return json_response(error='已关闭或已撤销的故障不能追加处理进展')
                 record = SystemFaultHandlingRecord.objects.create(
                     tenant_id=fault.tenant_id,
                     fault=fault,
@@ -208,7 +208,7 @@ class FaultHandlingRecordDetailView(View):
                 if not fault:
                     return json_response(error='故障记录不存在')
                 if fault.status not in EDITABLE_FAULT_STATUSES:
-                    return json_response(error='已关闭或已作废的故障不能更正处理进展')
+                    return json_response(error='已关闭或已撤销的故障不能更正处理进展')
                 record = _get_record_for_user(fault, rid, request.user, for_update=True)
                 if not record:
                     return json_response(error='处理进展不存在')
@@ -268,7 +268,7 @@ class FaultHandlingAttachmentView(View):
                 if not fault:
                     return json_response(error='故障记录不存在')
                 if fault.status not in EDITABLE_FAULT_STATUSES:
-                    return json_response(error='已关闭或已作废的故障不能上传进展附件')
+                    return json_response(error='已关闭或已撤销的故障不能上传进展附件')
                 record = _get_record_for_user(fault, rid, request.user)
                 if not record:
                     return json_response(error='处理进展不存在')
@@ -297,7 +297,7 @@ class FaultHandlingAttachmentDetailView(View):
                 if not fault:
                     return json_response(error='故障记录不存在')
                 if fault.status not in EDITABLE_FAULT_STATUSES:
-                    return json_response(error='已关闭或已作废的故障不能删除进展附件')
+                    return json_response(error='已关闭或已撤销的故障不能删除进展附件')
                 record = _get_record_for_user(fault, rid, request.user)
                 if not record:
                     return json_response(error='处理进展不存在')

@@ -62,6 +62,7 @@ def make_record_payload(**overrides):
         'occurred_at': '2026-10-01 08:30',
         'title': '主用链路短暂中断',
         'description': '值班发现主用链路丢包约 3 分钟后自行恢复',
+        'registrar_name': '张三',
     }
     payload.update(overrides)
     return payload
@@ -124,6 +125,8 @@ class MinimalCreateTests(RuntimeRecordTestBase):
         self.assertEqual(data['status'], 'recorded')
         self.assertEqual(data['status_text'], '已记录')
         self.assertEqual(data['importance'], 'normal')
+        # 登记人：手动输入姓名随创建写入并在详情返回
+        self.assertEqual(data['registrar_name'], '张三')
         # 快照：创建时点系统编号/名称/安装地点
         self.assertEqual(data['system_code'], self.system.system_code)
         self.assertEqual(data['system_name'], self.system.name)
@@ -133,15 +136,30 @@ class MinimalCreateTests(RuntimeRecordTestBase):
         self.assertEqual(record.tenant_id, 'tenant_a')
         self.assertEqual(record.created_by_id, self.admin.id)
         self.assertEqual(record.impact_status, '')
+        self.assertEqual(record.registrar_name, '张三')
 
     def test_required_fields_enforced(self):
-        for missing in ('system', 'occurred_at', 'title', 'description'):
+        for missing in ('system', 'occurred_at', 'title', 'description',
+                        'registrar_name'):
             payload = make_record_payload(system=self.system.id)
             payload.pop(missing)
             resp = self.client.post(RECORDS_URL + '/', payload,
                                     content_type='application/json')
             self.assertTrue(resp.json().get('error'), resp.content)
         self.assertEqual(SystemRuntimeRecord.objects.count(), 0)
+
+    def test_registrar_name_rules(self):
+        # 登记人为空白文本视同未填
+        resp = self.client.post(
+            RECORDS_URL + '/',
+            make_record_payload(system=self.system.id, registrar_name='   '),
+            content_type='application/json')
+        self.assertIn('登记人', resp.json().get('error', ''))
+        self.assertEqual(SystemRuntimeRecord.objects.count(), 0)
+        # 多人以顿号分隔提交，首尾空白清洗后原样保存
+        data = self.create_record(registrar_name='  张三 、李四  ')
+        record = SystemRuntimeRecord.objects.get(pk=data['id'])
+        self.assertEqual(record.registrar_name, '张三 、李四')
 
     def test_impact_requires_affect_flag(self):
         # 不影响运行时影响程度强制存空串；影响运行时必须选择影响程度
@@ -641,6 +659,8 @@ class EditRuleTests(RuntimeRecordTestBase):
         self.assertEqual(record.title, '更新后的标题')
         self.assertEqual(record.measures_taken, '已切换备用链路')
         self.assertEqual(record.updated_by_id, self.admin.id)
+        # 编辑接口不接收登记人：原登记人保持不变（仅新增可填）
+        self.assertEqual(record.registrar_name, data['registrar_name'])
 
     def test_closed_record_not_editable(self):
         data = self.create_record()

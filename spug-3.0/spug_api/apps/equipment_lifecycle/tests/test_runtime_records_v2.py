@@ -36,6 +36,7 @@ from apps.equipment_lifecycle.tests.base import (
 )
 from apps.logs.models import AuditLog
 from apps.upgrade.models import UpgradeRecord
+from apps.utils.test_helpers import make_upgrade_no
 
 P_VIEW = 'equipment_lifecycle.runtime_record.view'
 P_ADD = 'equipment_lifecycle.runtime_record.add'
@@ -61,6 +62,7 @@ def make_record_payload(**overrides):
         'occurred_at': '2026-10-01 08:30',
         'title': '主用链路丢包告警',
         'description': '值班发现主用链路丢包，十分钟后自行恢复',
+        'registrar_name': '张三',
     }
     payload.update(overrides)
     return payload
@@ -622,6 +624,7 @@ class RuntimeStatisticsTests(RuntimeRecordV2TestBase):
             uniq_key='2026-10-02|%d' % template.id, created_by=self.admin)
         # 系统升级记录
         UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id='tenant_a', title='软件升级', system=self.system,
             system_code=self.system.system_code, system_name=self.system.name,
             system_location=self.system.install_location,

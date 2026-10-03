@@ -3,7 +3,8 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——运行记录详情抽屉（2026-10 第一版 + 第二版闭环）。
+ * 设备全生命周期——运行记录详情窗口（2026-10-02 由侧边抽屉改为居中窗口，
+ * 与系统档案详情一致）。标题区直接呈现记录编号、状态、重要程度与跟进提示。
  * 基本信息 / 处理进展时间线（追加式、更正留痕）/ 重复问题（相似关联）/
  * 附件（AttachmentManager）。
  * 动作：编辑、提交研判（待研判）、研判（TriageModal）、标记需要跟进（可填
@@ -16,7 +17,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react';
-import { Drawer, Tabs, Descriptions, Tag, Spin, Button, Timeline, Modal, Form,
+import { Tabs, Descriptions, Tag, Spin, Button, Timeline, Modal, Form,
   Input, InputNumber, DatePicker, Select, Popconfirm, message, Empty } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import moment from 'moment';
@@ -60,6 +61,8 @@ class RecordDetail extends React.Component {
         </Descriptions.Item>
         <Descriptions.Item label="标题" span={2}>{d.title}</Descriptions.Item>
         <Descriptions.Item label="情况描述" span={2}>{d.description}</Descriptions.Item>
+        {/* 登记人为手输姓名快照（与故障登记人同口径），历史数据可为空 */}
+        <Descriptions.Item label="登记人" span={2}>{d.registrar_name || '-'}</Descriptions.Item>
         <Descriptions.Item label="系统影响程度">
           {d.affects_system_operation ? (
             <Tag color={RUNTIME_IMPACT_COLOR[d.impact_status]}>
@@ -93,7 +96,7 @@ class RecordDetail extends React.Component {
             >
               {d.converted_fault_no || '查看关联故障'}（后续处理以故障为准）
             </Button>
-          ) : (d.status === 'converted_fault' ? '关联故障已作废' : '-')}
+          ) : (d.status === 'converted_fault' ? '关联故障登记已撤销' : '-')}
         </Descriptions.Item>
         <Descriptions.Item label="创建人">{d.created_by_name}</Descriptions.Item>
         <Descriptions.Item label="创建时间">{d.created_at}</Descriptions.Item>
@@ -121,17 +124,60 @@ class RecordDetail extends React.Component {
     );
   }
 
+  renderTitle() {
+    const d = store.detail;
+    const facts = [
+      d.system_name ? `所属系统：${d.system_name}` : null,
+      d.system_location ? `安装地点：${d.system_location}` : null,
+      d.occurred_at ? `发生时间：${d.occurred_at}` : null,
+      d.registrar_name ? `登记人：${d.registrar_name}` : null,
+    ].filter(Boolean);
+    return (
+      <div>
+        <div style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap'}}>
+          <span
+            title={d.record_no}
+            style={{
+              fontSize: 16, fontWeight: 600, marginRight: 8, maxWidth: 420,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}
+          >
+            {d.record_no || '运行记录详情'}
+          </span>
+          <Tag color={RUNTIME_STATUS_COLOR[d.status]}>{RUNTIME_STATUS_TEXT[d.status]}</Tag>
+          {d.needs_follow_up && <Tag color="blue">需要跟进</Tag>}
+          <Tag color={d.importance === 'important' ? 'red' : 'default'}>
+            {d.importance === 'important' ? '重要' : '普通'}
+          </Tag>
+        </div>
+        {facts.length > 0 && (
+          <div style={{fontSize: 12, color: 'rgba(0, 0, 0, 0.45)', marginTop: 2, fontWeight: 400}}>
+            {facts.join('　')}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   render() {
     const d = store.detail;
     const editable = EDITABLE_STATUSES.includes(d.status);
     const triageable = d.status === 'recorded' || d.status === 'pending_triage';
     return (
-      <Drawer
-        title={`运行记录详情 - ${d.record_no || ''}`}
+      <Modal
+        title={this.renderTitle()}
         visible={store.detailVisible}
-        width={900}
-        onClose={() => store.closeDetail()}
+        width={1100}
+        centered
         destroyOnClose
+        onCancel={() => store.closeDetail()}
+        bodyStyle={{
+          height: 'calc(100vh - 180px)',
+          minHeight: 460,
+          overflow: 'auto',
+          paddingTop: 12,
+        }}
+        footer={<Button onClick={() => store.closeDetail()}>关 闭</Button>}
       >
         <Spin spinning={store.isDetailFetching}>
           <div style={{marginBottom: 12}}>
@@ -163,7 +209,7 @@ class RecordDetail extends React.Component {
             onClose={() => store.triageVisible = false}
           />
         </Spin>
-      </Drawer>
+      </Modal>
     );
   }
 }

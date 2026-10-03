@@ -8,7 +8,7 @@
 """
 from django.test import TestCase
 from django.db.models import ProtectedError
-from apps.utils.test_helpers import make_user, setup_test_env
+from apps.utils.test_helpers import make_user, setup_test_env, make_upgrade_no
 from apps.upgrade.models import UpgradeRecord
 from apps.equipment_lifecycle.models import LifecycleSystem
 from apps.equipment_lifecycle.tests.base import make_system
@@ -50,6 +50,7 @@ class UpgradeRecordLinkageFieldsTest(TestCase):
         """NEW: 系统档案改名后，已保存记录的名称快照不随动（快照仅用于历史展示）"""
         system = make_system(self.user, tenant_id=self.user.tenant_id, name='旧名')
         rec = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='升级',
             system=system, system_name=system.name,
             upgrade_type='软件升级', created_by=self.user)
@@ -64,6 +65,7 @@ class UpgradeRecordLinkageFieldsTest(TestCase):
         """NEW: 存在升级记录引用的系统不可物理删除（PROTECT）"""
         system = make_system(self.user, tenant_id=self.user.tenant_id)
         UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='升级',
             system=system, system_name=system.name,
             upgrade_type='软件升级', created_by=self.user)
@@ -73,6 +75,7 @@ class UpgradeRecordLinkageFieldsTest(TestCase):
     def test_unlinked_legacy_record_allowed(self):
         """NEW: 历史未匹配记录允许 system 外键为空，仅保留名称快照"""
         rec = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id, title='历史遗留',
             system_name='无法匹配的旧系统名',
             upgrade_type='软件升级', created_by=self.user)

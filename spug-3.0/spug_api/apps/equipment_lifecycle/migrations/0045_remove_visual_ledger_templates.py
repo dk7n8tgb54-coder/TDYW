@@ -133,6 +133,10 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('equipment_lifecycle', '0044_alter_inspectionrecord_round_no'),
+        # RunPython 中 apps.get_model('evidence', ...) 需要证据附件模型已进入
+        # 迁移状态；声明 evidence 迁移依赖，保证全新环境（空测试库）重放时
+        # 排序正确（已应用的库不受 dependencies 增补影响）。
+        ('evidence', '0007_evidenceevent_ev_event_type_valid'),
     ]
 
     operations = [

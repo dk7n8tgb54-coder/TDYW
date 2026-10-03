@@ -111,9 +111,9 @@ class LedgerItemConvertToFaultTest(ConversionTestBase):
         body = self.convert_to_fault(ledger_id, item_ids[0])
         self.assertFalse(body.get('error'), body)
         fault = SystemFault.objects.get(pk=body['data']['id'])
-        # 故障系统固定为明细所属系统
+        # 故障系统固定为明细所属系统；转故障即进入处置中（新建即处置中）
         self.assertEqual(fault.system_id, self.system_a.id)
-        self.assertEqual(fault.status, 'pending')
+        self.assertEqual(fault.status, 'handling')
         # 来源关系：真实外键 + 来源类型
         self.assertEqual(fault.source_type, 'ledger_item')
         self.assertEqual(fault.source_ledger_item_id, item_ids[0])

@@ -7,7 +7,6 @@
 """
 
 from collections import Counter
-from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -23,7 +22,8 @@ from libs.tenant_base_model import (
 SCENE_CODE_CHOICES = (
     ('ground', '地面'),
     ('air', '空中'),
-    ('cross', '跨场景'),
+    # 2026-10-02 用户定名：cross 场景显示为「地面+空中」（存储值不变）
+    ('cross', '地面+空中'),
     ('unknown', '未知'),
 )
 SCENE_CODE_TEXT = dict(SCENE_CODE_CHOICES)
@@ -75,31 +75,6 @@ INVESTIGATION_STATUS_CHOICES = (
     ('cancelled', '已取消'),
 )
 INVESTIGATION_STATUS_TEXT = dict(INVESTIGATION_STATUS_CHOICES)
-
-ALTITUDE_UNIT_CHOICES = (
-    ('m', '米'),
-    ('ft', '英尺'),
-)
-ALTITUDE_UNIT_TEXT = dict(ALTITUDE_UNIT_CHOICES)
-
-DURATION_UNIT_CHOICES = (
-    ('s', '秒'),
-    ('min', '分钟'),
-    ('h', '小时'),
-)
-DURATION_UNIT_TEXT = dict(DURATION_UNIT_CHOICES)
-
-
-def format_decimal(value):
-    """返回适合展示的十进制文本。"""
-    if value is None:
-        return ''
-    if not isinstance(value, Decimal):
-        value = Decimal(str(value))
-    value = format(value, 'f')
-    if '.' in value:
-        value = value.rstrip('0').rstrip('.')
-    return value or '0'
 
 
 class SoftDeleteTenantModel(models.Model, TenantModelMixin):
@@ -291,13 +266,9 @@ class AirInterferenceDetail(SoftDeleteTenantModel):
     alert_frequency = models.CharField(max_length=100, blank=True, default='')
     alert_altitude = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True)
-    alert_altitude_unit = models.CharField(
-        max_length=10, choices=ALTITUDE_UNIT_CHOICES, default='m')
     alert_segment = models.CharField(max_length=200, blank=True, default='')
     duration = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True)
-    duration_unit = models.CharField(
-        max_length=10, choices=DURATION_UNIT_CHOICES, default='min')
 
     def clean(self):
         if self.event_id and self.event.scene_code not in ('air', 'cross'):
@@ -312,20 +283,8 @@ class AirInterferenceDetail(SoftDeleteTenantModel):
             'route': self.route,
             'alert_frequency': self.alert_frequency,
             'alert_altitude': self.alert_altitude,
-            'alert_altitude_unit': self.alert_altitude_unit,
-            'alert_altitude_text': (
-                '%s%s' % (format_decimal(self.alert_altitude),
-                          ALTITUDE_UNIT_TEXT.get(self.alert_altitude_unit,
-                                                 self.alert_altitude_unit))
-                if self.alert_altitude is not None else ''),
             'alert_segment': self.alert_segment,
             'duration': self.duration,
-            'duration_unit': self.duration_unit,
-            'duration_text': (
-                '%s%s' % (format_decimal(self.duration),
-                          DURATION_UNIT_TEXT.get(self.duration_unit,
-                                                self.duration_unit))
-                if self.duration is not None else ''),
         }
 
     class Meta:
@@ -546,9 +505,7 @@ __all__ = [
     'SCENE_CODE_CHOICES', 'CLASSIFICATION_STATUS_CHOICES',
     'INTERFERENCE_KIND_CODE_CHOICES', 'AFFECTED_SYSTEM_CODE_CHOICES',
     'SOURCE_TYPE_CODE_CHOICES', 'INVESTIGATION_STATUS_CHOICES',
-    'ALTITUDE_UNIT_CHOICES', 'DURATION_UNIT_CHOICES',
     'SCENE_CODE_TEXT', 'CLASSIFICATION_STATUS_TEXT',
     'INTERFERENCE_KIND_CODE_TEXT', 'AFFECTED_SYSTEM_CODE_TEXT',
     'SOURCE_TYPE_CODE_TEXT', 'INVESTIGATION_STATUS_TEXT',
-    'ALTITUDE_UNIT_TEXT', 'DURATION_UNIT_TEXT', 'format_decimal',
 ]

@@ -50,14 +50,14 @@ SOURCE_TYPE_TO_EVENT_TYPE = {
     'runtime_record': 'runtime',
 }
 
-# 未关闭故障（当前状态口径，不随列表筛选变化）
-OPEN_FAULT_STATUSES = (
-    SystemFault.STATUS_PENDING, SystemFault.STATUS_HANDLING, SystemFault.STATUS_RECOVERED,
-)
+# 未关闭故障（当前状态口径，不随列表筛选变化）：
+# 处置中是唯一进行态（旧 pending/recovered 过渡态已随 2026-10 流程简化删除）
+OPEN_FAULT_STATUSES = (SystemFault.STATUS_HANDLING,)
 
 # 业务对象缺失时由最新节点动作派生状态文案（防御路径，正常数据取业务表）
 _ACTION_STATUS_FALLBACK = {
-    'fault': {'create': '待处置', 'recover': '已恢复', 'close': '已关闭', 'cancel': '已作废'},
+    # 2026-10 流程简化：新建故障即处置中（create 节点不再派生"待处置"）
+    'fault': {'create': '处置中', 'recover': '已恢复', 'close': '已关闭', 'cancel': '已撤销'},
     'upgrade': {'create': '处理中', 'complete': '已完成', 'rollback': '已回退'},
     'runtime_record': {
         'create': '已记录', 'mark_important': '已记录',

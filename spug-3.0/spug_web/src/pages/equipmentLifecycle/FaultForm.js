@@ -5,7 +5,7 @@
  */
 /**
  * 设备全生命周期——故障新增/编辑弹窗（步骤 3.1，单系统简化）。
- * - 普通用户只需要选择一个"故障系统"（提交系统 ID，显示名称+编号+安装地点）；
+ * - 普通用户只需要选择一个"故障系统"（提交系统 ID，显示名称+安装地点；
  * - 不再提供主故障系统与受影响系统；一次实际工作涉及多个系统时分别建立故障；
  * - 首报表单精简（2026-09）：只保留 故障系统/影响系统运行(+程度)/发生时间/
  *   故障部位/设备(选填)/故障现象；发现方式/级别字段已删除（2026-09-29），
@@ -16,7 +16,9 @@
  *   必填，不预填任何默认姓名；编辑不出现在表单，后端保留原登记人
  *   （created_by 登录账号仅审计）；
  * - 历史设备字段（对象名称/型号/序列号）编辑提交不携带时后端保留原值；
- *   原因分析仅在编辑（处置阶段）可填；
+ *   初步判断区块（2026-10）：新增表单提供非必填"初步原因分析"（紧随故障现象
+ *   之后，原因未知可留空正常创建）；编辑保留"原因分析"入口，详情页亦可
+ *   直接补充/修改；
  * - 默认"部件故障但不影响系统运行"：只有明确开启"影响系统运行"时才需要
  *   选择影响程度（降级/故障/中断），并参与系统健康状态计算。
  */
@@ -65,7 +67,7 @@ function SystemImpactFields({systems}) {
         <Select
           showSearch
           optionFilterProp="children"
-          placeholder="请选择故障系统（显示名称、编号、安装地点）"
+          placeholder="请选择故障系统（显示名称、安装地点）"
           allowClear
         >
           {systems.map(s => (
@@ -154,13 +156,35 @@ function RegistrarFields({isEdit}) {
   );
 }
 
-// 故障部位/设备展示在 OccurrenceFields 中（故障发生时间与故障现象之间）；
-// 这里只剩原因分析：不放在首报（新增）表单，保留处置阶段（编辑）填写
+// 初步判断区块（2026-10）：仅新增表单渲染，紧随"故障现象"之后。
+// 初步原因分析非必填：原因未知可留空正常创建（新增成功即进入处置中），
+// 处置过程中可在详情页"补充原因分析"或编辑表单继续完善，结案时定为最终原因
+function PreliminaryAnalysisField({isEdit}) {
+  if (isEdit) return null;
+  return (
+    <>
+      <div style={{
+        fontWeight: 600, margin: '4px 0 16px',
+        borderTop: '1px dashed #e8e8e8', paddingTop: 12,
+      }}>
+        初步判断
+      </div>
+      <Form.Item name="reason_analysis" label="初步原因分析">
+        <TextArea
+          rows={3}
+          placeholder="已知时填写，暂时无法判断可留空，处置过程中可继续补充"
+        />
+      </Form.Item>
+    </>
+  );
+}
+
+// 编辑（处置阶段）保留原因分析入口；详情页同样可直接补充/修改（FaultDetail）
 function ReasonAnalysisField({isEdit}) {
   if (!isEdit) return null;
   return (
     <Form.Item name="reason_analysis" label="原因分析">
-      <TextArea rows={2} placeholder="（选填，处置过程中可继续完善）"/>
+      <TextArea rows={2} placeholder="（选填，处置过程中可继续完善，结案时可修改为最终原因）"/>
     </Form.Item>
   );
 }
@@ -199,6 +223,9 @@ const FaultForm = observer(function FaultForm() {
         occurred_at: values.occurred_at ? values.occurred_at.format('YYYY-MM-DD HH:mm') : null,
         // 标签数组以顿号拼接为登记人姓名文本（多人）
         registrar_name: (values.registrar_names || []).join('、'),
+        // 初步原因分析（2026-10）：始终显式提交，未填写提交空串（非必填，
+        // 原因未知可留空正常创建；后端保存后故障进入处置中）
+        reason_analysis: values.reason_analysis || '',
       };
       delete payload.registrar_names;
       if (isEdit) {
@@ -235,6 +262,9 @@ const FaultForm = observer(function FaultForm() {
       >
         <SystemImpactFields systems={store.systems}/>
         <OccurrenceFields/>
+        {/* 初步判断区块（含初步原因分析）位于故障现象之后、故障登记人之前；
+            编辑模式两处 reason_analysis 字段互斥渲染（Preliminary 为空） */}
+        <PreliminaryAnalysisField isEdit={isEdit}/>
         <RegistrarFields isEdit={isEdit}/>
         <ReasonAnalysisField isEdit={isEdit}/>
       </Form>

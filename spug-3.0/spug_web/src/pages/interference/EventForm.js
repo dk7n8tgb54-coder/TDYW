@@ -1,14 +1,15 @@
 import React, {useEffect, useState} from 'react';
-import {Button, Col, DatePicker, Divider, Form, Input, InputNumber, Modal, Row, Select, message} from 'antd';
+import {Button, Col, DatePicker, Form, Input, InputNumber, Modal, Row, Select, message} from 'antd';
 import moment from 'moment';
 import {http, hasPermission} from 'libs';
 import {AttachmentManager} from 'components';
 import store from './store';
+import styles from './EventForm.module.less';
 
 const SCENE_OPTIONS = [
   {value: 'ground', label: '地面'},
   {value: 'air', label: '空中'},
-  {value: 'cross', label: '跨场景'},
+  {value: 'cross', label: '地面+空中'},
   {value: 'unknown', label: '未知'},
 ];
 const KIND_OPTIONS = [
@@ -54,10 +55,8 @@ export function buildEventPayload(values, eventId) {
     route: payload.route,
     alert_frequency: payload.alert_frequency,
     alert_altitude: payload.alert_altitude,
-    alert_altitude_unit: payload.alert_altitude_unit,
     alert_segment: payload.alert_segment,
     duration: payload.duration,
-    duration_unit: payload.duration_unit,
   };
   delete payload.ground_location;
   delete payload.ground_frequency;
@@ -66,10 +65,8 @@ export function buildEventPayload(values, eventId) {
   delete payload.route;
   delete payload.alert_frequency;
   delete payload.alert_altitude;
-  delete payload.alert_altitude_unit;
   delete payload.alert_segment;
   delete payload.duration;
-  delete payload.duration_unit;
   if (scene === 'ground' || scene === 'cross') payload.ground_detail = ground;
   if (scene === 'air' || scene === 'cross') payload.air_detail = air;
   if (eventId) payload.id = eventId;
@@ -89,10 +86,8 @@ function valuesFromEvent(event) {
     route: air.route,
     alert_frequency: air.alert_frequency,
     alert_altitude: air.alert_altitude,
-    alert_altitude_unit: air.alert_altitude_unit || 'm',
     alert_segment: air.alert_segment,
     duration: air.duration,
-    duration_unit: air.duration_unit || 'min',
   };
 }
 
@@ -104,36 +99,34 @@ function DetailFields({scene}) {
     return <AirFields/>;
   }
   if (scene === 'cross') {
-    return <><GroundFields/><Divider orientation="left">空中明细</Divider><AirFields/></>;
+    return <><GroundFields/><AirFields/></>;
   }
-  return <div style={{color: '#8c8c8c', marginBottom: 16}}>未知场景暂不要求专属明细。</div>;
+  return <div className={styles.emptyDetail}>未知场景暂不要求专属明细。</div>;
 }
 
 function GroundFields() {
-  return <>
-    <Divider orientation="left">地面明细</Divider>
-    <Row gutter={16}>
-      <Col span={12}><Form.Item name="ground_location" label="位置/机位"><Input/></Form.Item></Col>
-      <Col span={12}><Form.Item name="ground_frequency" label="频率"><Input/></Form.Item></Col>
-      <Col span={12}><Form.Item name="ground_equipment" label="地面设备"><Input/></Form.Item></Col>
-      <Col span={24}><Form.Item name="ground_remark" label="地面备注"><Input.TextArea rows={2}/></Form.Item></Col>
+  return <div className={styles.section}>
+    <div className={styles.sectionTitle}>地面明细</div>
+    <Row gutter={[20, 0]}>
+      <Col span={12} className={styles.halfField}><Form.Item name="ground_location" label="位置/机位"><Input/></Form.Item></Col>
+      <Col span={12} className={styles.halfField}><Form.Item name="ground_frequency" label="频率"><Input/></Form.Item></Col>
+      <Col span={12} className={styles.halfField}><Form.Item name="ground_equipment" label="地面设备"><Input/></Form.Item></Col>
+      <Col span={24}><Form.Item name="ground_remark" label="地面备注"><Input.TextArea rows={1}/></Form.Item></Col>
     </Row>
-  </>;
+  </div>;
 }
 
 function AirFields() {
-  return <>
-    <Divider orientation="left">空中明细</Divider>
-    <Row gutter={16}>
-      <Col span={12}><Form.Item name="route" label="航线"><Input/></Form.Item></Col>
-      <Col span={12}><Form.Item name="alert_frequency" label="被扰频率"><Input/></Form.Item></Col>
-      <Col span={12}><Form.Item name="alert_altitude" label="告警高度"><InputNumber min={0} style={{width: '65%'}}/></Form.Item></Col>
-      <Col span={12}><Form.Item name="alert_altitude_unit" label="高度单位"><Select options={[{value: 'm', label: '米'}, {value: 'ft', label: '英尺'}]}/></Form.Item></Col>
-      <Col span={12}><Form.Item name="alert_segment" label="告警航段"><Input/></Form.Item></Col>
-      <Col span={12}><Form.Item name="duration" label="持续时间"><InputNumber min={0} style={{width: '65%'}}/></Form.Item></Col>
-      <Col span={12}><Form.Item name="duration_unit" label="时间单位"><Select options={[{value: 's', label: '秒'}, {value: 'min', label: '分钟'}, {value: 'h', label: '小时'}]}/></Form.Item></Col>
+  return <div className={styles.section}>
+    <div className={styles.sectionTitle}>空中明细</div>
+    <Row gutter={[20, 0]}>
+      <Col span={12} className={styles.halfField}><Form.Item name="route" label="航线"><Input/></Form.Item></Col>
+      <Col span={12} className={styles.halfField}><Form.Item name="alert_frequency" label="被扰频率"><Input/></Form.Item></Col>
+      <Col span={12} className={styles.halfField}><Form.Item name="alert_altitude" label="告警高度"><InputNumber min={0} style={{width: '65%'}}/></Form.Item></Col>
+      <Col span={12} className={styles.halfField}><Form.Item name="alert_segment" label="告警航段"><Input/></Form.Item></Col>
+      <Col span={12} className={styles.halfField}><Form.Item name="duration" label="持续时间"><InputNumber min={0} style={{width: '65%'}}/></Form.Item></Col>
     </Row>
-  </>;
+  </div>;
 }
 
 export default function EventForm() {
@@ -180,6 +173,7 @@ export default function EventForm() {
   }
 
   return <Modal
+    className={styles.eventModal}
     visible={visible}
     width={960}
     title={info.isViewMode ? '干扰事件详情' : (info.id ? '编辑干扰事件' : '新建干扰事件')}
@@ -191,27 +185,45 @@ export default function EventForm() {
       <Button key="submit" type="primary" loading={loading} onClick={submit}>保存</Button>,
     ] : [<Button key="close" onClick={close}>关闭</Button>]}
   >
-    <Form form={form} labelCol={{span: 7}} wrapperCol={{span: 16}} disabled={!canEdit}>
-      <Row gutter={16}>
-        <Col span={12}><Form.Item name="datetime" label="发生时间" rules={[{required: true, message: '请选择发生时间'}]}><DatePicker showTime style={{width: '100%'}}/></Form.Item></Col>
-        <Col span={12}><Form.Item name="scene_code" label="发生场景" rules={[{required: true, message: '请选择发生场景'}]}><Select options={SCENE_OPTIONS}/></Form.Item></Col>
-        <Col span={12}><Form.Item name="classification_status" label="分类状态"><Select options={[{value: 'pending', label: '待分类'}, {value: 'confirmed', label: '已确认'}]}/></Form.Item></Col>
-        <Col span={12}><Form.Item name="interference_kind_code" label="具体干扰类型"><Select options={KIND_OPTIONS}/></Form.Item></Col>
-        <Col span={12}><Form.Item name="affected_system_code" label="受影响系统"><Select options={SYSTEM_OPTIONS}/></Form.Item></Col>
-        <Col span={12}><Form.Item name="source_type_code" label="疑似干扰源"><Select options={SOURCE_OPTIONS}/></Form.Item></Col>
-        <Col span={8}><Form.Item name="flight_number" label="航班号"><Input/></Form.Item></Col>
-        <Col span={8}><Form.Item name="aircraft_no" label="机号"><Input/></Form.Item></Col>
-        <Col span={8}><Form.Item name="aircraft_type" label="机型"><Input/></Form.Item></Col>
-        <Col span={24}><Form.Item name="phenomenon" label="现象"><Input.TextArea rows={3}/></Form.Item></Col>
-        <Col span={24}><Form.Item name="initial_assessment" label="初步判断"><Input.TextArea rows={2}/></Form.Item></Col>
-        <Col span={24}><Form.Item name="remark" label="备注"><Input.TextArea rows={2}/></Form.Item></Col>
-      </Row>
+    <Form form={form} layout="vertical" className={styles.form} disabled={!canEdit}>
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>基本信息</div>
+        <Row gutter={[20, 0]}>
+          <Col span={12} className={styles.halfField}><Form.Item name="datetime" label="发生时间" rules={[{required: true, message: '请选择发生时间'}]}><DatePicker showTime style={{width: '100%'}}/></Form.Item></Col>
+          <Col span={12} className={styles.halfField}><Form.Item name="scene_code" label="发生场景" rules={[{required: true, message: '请选择发生场景'}]}><Select options={SCENE_OPTIONS}/></Form.Item></Col>
+        </Row>
+      </div>
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>干扰分类</div>
+        <Row gutter={[20, 0]}>
+          <Col span={8} className={styles.thirdField}><Form.Item name="classification_status" label="分类状态"><Select options={[{value: 'pending', label: '待分类'}, {value: 'confirmed', label: '已确认'}]}/></Form.Item></Col>
+          <Col span={8} className={styles.thirdField}><Form.Item name="interference_kind_code" label="具体干扰类型"><Select options={KIND_OPTIONS}/></Form.Item></Col>
+          <Col span={8} className={styles.thirdField}><Form.Item name="affected_system_code" label="受影响系统"><Select options={SYSTEM_OPTIONS}/></Form.Item></Col>
+          <Col span={8} className={styles.thirdField}><Form.Item name="source_type_code" label="疑似干扰源"><Select options={SOURCE_OPTIONS}/></Form.Item></Col>
+        </Row>
+      </div>
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>航空信息</div>
+        <Row gutter={[20, 0]}>
+          <Col span={8} className={styles.thirdField}><Form.Item name="flight_number" label="航班号"><Input/></Form.Item></Col>
+          <Col span={8} className={styles.thirdField}><Form.Item name="aircraft_no" label="机号"><Input/></Form.Item></Col>
+          <Col span={8} className={styles.thirdField}><Form.Item name="aircraft_type" label="机型"><Input/></Form.Item></Col>
+        </Row>
+      </div>
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>现象与判断</div>
+        <Row gutter={[20, 0]}>
+          <Col span={24}><Form.Item name="phenomenon" label="现象"><Input.TextArea rows={2}/></Form.Item></Col>
+          <Col span={24}><Form.Item name="initial_assessment" label="初步判断"><Input.TextArea rows={1}/></Form.Item></Col>
+          <Col span={24}><Form.Item name="remark" label="备注"><Input.TextArea rows={1}/></Form.Item></Col>
+        </Row>
+      </div>
       <Form.Item noStyle shouldUpdate={(previous, current) => previous.scene_code !== current.scene_code}>
-        {({getFieldValue}) => <DetailFields scene={getFieldValue('scene_code')}/>} 
+        {({getFieldValue}) => <DetailFields scene={getFieldValue('scene_code')}/>}
       </Form.Item>
     </Form>
     {info.id && <>
-      <Divider orientation="left">附件</Divider>
+      <div className={styles.sectionTitle}>附件</div>
       <AttachmentManager
         module="interference"
         objectType="interference_event"

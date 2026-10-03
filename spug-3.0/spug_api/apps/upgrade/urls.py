@@ -8,6 +8,7 @@
 
 注意：原 templates/ 与 checklists/ 路由已合并为 plans/。
 """
+from django.db import transaction
 from django.urls import path
 
 # === 新接口 - 升级表单 ===
@@ -53,12 +54,23 @@ from .views.legacy import LegacyUpgradeView
 # === 导出 ===
 from .exporters import RecordExportView
 
+
+def _na(view):
+    """持编号锁视图装配：关闭请求级原子事务（ATOMIC_REQUESTS 下请求级事务会
+    延后到视图返回后才提交，锁在视图内先释放会出现"先释放后提交"窗口）。
+    关闭后视图内 transaction.atomic 即为真实事务，"锁 → 事务提交 → 释放锁"
+    顺序成立（同 equipment_lifecycle/urls.py 的 _na 约定）。
+    """
+    return transaction.non_atomic_requests(view)
+
+
 urlpatterns = [
     # === 升级表单 ===
     path('records/export/', RecordExportView.as_view()),            # GET 导出 Excel
     path('records/', RecordListView.as_view()),                     # GET 列表（分页）
     path('records/<int:pk>/', RecordDetailView.as_view()),          # GET 详情
-    path('records/create/', RecordCreateView.as_view()),            # POST 创建
+    # 创建持编号锁（upgrade_record_no GET_LOCK），_na 装配保证锁释放在提交后
+    path('records/create/', _na(RecordCreateView.as_view())),       # POST 创建
     path('records/<int:pk>/update/', RecordUpdateView.as_view()),   # PUT 更新
     path('records/<int:pk>/delete/', RecordDeleteView.as_view()),   # DELETE 删除
 

@@ -130,6 +130,10 @@ class LedgerBoundaryContractTests(TestCase):
             # Excel 上传版维护台账模板（2026-09-28 试点）：模板 + 不可变版本 + 台账填写记录
             'OperationLedgerExcelTemplate', 'OperationLedgerExcelTemplateVersion',
             'OperationLedgerExcelRecord',
+            # 系统配置（2026-10）：参数定义/适用系统/当前值 + 配置变更主表/明细
+            # （SystemParamValue 与 0023 已删除的旧自定义字段值表 SystemConfigValue 刻意区分命名）
+            'ConfigParamDefinition', 'ConfigParamSystemScope', 'SystemParamValue',
+            'ConfigChangeRecord', 'ConfigChangeItem',
         }
         self.assertEqual(model_names, expected)
 
@@ -139,12 +143,13 @@ class LedgerBoundaryContractTests(TestCase):
         upgrade_fields = {f.name for f in django_apps.get_model('upgrade', 'UpgradeRecord')._meta.get_fields()}
         self.assertIn('title', upgrade_fields)
         # 步骤 3.1 故障模型与状态计算入口未被本步骤修改
+        # （2026-10 流程简化：状态收敛为三值，旧 pending/recovered 已删除）
         from apps.equipment_lifecycle import fault_services
         from apps.equipment_lifecycle.models import SystemFault
         self.assertEqual(
-            {SystemFault.STATUS_PENDING, SystemFault.STATUS_HANDLING, SystemFault.STATUS_RECOVERED,
-             SystemFault.STATUS_CLOSED, SystemFault.STATUS_CANCELLED},
-            {'pending', 'handling', 'recovered', 'closed', 'cancelled'})
+            {SystemFault.STATUS_HANDLING, SystemFault.STATUS_CLOSED,
+             SystemFault.STATUS_CANCELLED},
+            {'handling', 'closed', 'cancelled'})
         self.assertTrue(callable(fault_services.compute_health_status))
         self.assertTrue(callable(fault_services.recompute_systems_health))
         self.assertTrue(callable(fault_services.collect_active_impacts))

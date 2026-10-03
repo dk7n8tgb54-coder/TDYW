@@ -27,7 +27,7 @@ from django.db import connection
 from django.conf import settings
 
 from apps.account.models import User, Role
-from apps.utils.test_helpers import make_user, make_client, setup_test_env
+from apps.utils.test_helpers import make_user, make_client, setup_test_env, make_upgrade_no
 
 
 # ============================================================
@@ -375,6 +375,7 @@ class AccessControlTests(TestCase):
         from apps.upgrade.models_checklist import UpgradeRecordStep
 
         record_a = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id='tenant_a',
             title='租户A的升级记录',
             system='系统A',
@@ -421,6 +422,7 @@ class AccessControlTests(TestCase):
         from apps.upgrade.models_status_log import UpgradeStatusLog
 
         record_a = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id='tenant_a',
             title='租户A的升级记录',
             system='系统A',

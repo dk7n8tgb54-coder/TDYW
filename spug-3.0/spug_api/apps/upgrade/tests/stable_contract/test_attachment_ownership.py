@@ -19,7 +19,7 @@ from django.test import TestCase
 
 from apps.evidence.models import EvidenceAttachment
 from apps.upgrade.models import UpgradeRecord
-from apps.utils.test_helpers import make_user, make_client, setup_test_env
+from apps.utils.test_helpers import make_user, make_client, setup_test_env, make_upgrade_no
 
 UPGRADE_MODULE = 'upgrade'
 UPGRADE_OBJECT_TYPE = 'record'
@@ -50,6 +50,7 @@ class UpgradeAttachmentOwnershipTest(TestCase):
         self.client_auth = make_client(self.user)
 
         self.record = UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id,
             title='升级附件归属测试',
             system_name='测试系统',

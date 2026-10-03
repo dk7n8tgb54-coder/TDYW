@@ -8,12 +8,13 @@
  * - 录入类型：choice（正常/不正常单选，候选项固定）与 text（数字/文本）；
  * - 编辑按数组顺序作为显示顺序；载荷中缺失的既有条目将被删除
  *   （历史巡检明细依靠快照，不受影响）。
+ * - 排版：设备卡片（序号徽标 + 灰色头部）+ 检查内容网格对齐行；
+ *   样式集中定义在 index.less 的 .el-tpl-form 作用域内。
  */
 import React, {useState, useEffect} from 'react';
-import {Modal, Form, Input, Select, Checkbox, Button, message} from 'antd';
-import {MinusCircleOutlined, PlusOutlined} from '@ant-design/icons';
+import {Modal, Form, Input, Select, Checkbox, Button, Divider, Tooltip, message} from 'antd';
+import {DeleteOutlined, PlusOutlined, QuestionCircleOutlined} from '@ant-design/icons';
 import store from './store';
-import {NORMAL_ABNORMAL_CHOICES} from './constants';
 
 const {TextArea} = Input;
 
@@ -72,69 +73,100 @@ function buildPayload(devices, values) {
   };
 }
 
-function ItemRow({item, onItemChange, onRemoveItem}) {
+function ItemRow({item, index, onItemChange, onRemoveItem}) {
   return (
-    <div style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 6}}>
+    <div className="el-tpl-item-row">
+      <span className="el-tpl-row-no">{index}</span>
       <Input
-        style={{width: 200}}
         maxLength={200}
         placeholder="检查内容"
         value={item.name}
         onChange={e => onItemChange(item.key, {name: e.target.value})}
       />
       <Select
-        style={{width: 150}}
         value={item.input_type}
         onChange={v => onItemChange(item.key, {input_type: v})}
       >
         <Select.Option value="choice">正常/不正常</Select.Option>
         <Select.Option value="text">数字/文本</Select.Option>
       </Select>
-      {item.input_type === 'choice' && (
-        <span style={{color: '#999'}}>候选项：{NORMAL_ABNORMAL_CHOICES.join(' / ')}</span>
-      )}
-      <Checkbox
-        checked={item.is_required}
-        onChange={e => onItemChange(item.key, {is_required: e.target.checked})}
-      >
-        必填
-      </Checkbox>
-      <a style={{color: 'red'}} onClick={() => onRemoveItem(item.key)}>删除</a>
+      <span className="el-tpl-item-required">
+        <Checkbox
+          checked={item.is_required}
+          onChange={e => onItemChange(item.key, {is_required: e.target.checked})}
+        >
+          必填
+        </Checkbox>
+      </span>
+      <Tooltip title="删除该检查内容">
+        <Button
+          className="el-tpl-del-btn el-tpl-item-del"
+          type="text"
+          size="small"
+          icon={<DeleteOutlined/>}
+          onClick={() => onRemoveItem(item.key)}
+        />
+      </Tooltip>
     </div>
   );
 }
 
-function DeviceBlock({device, removable, onDeviceChange, onRemoveDevice,
+function DeviceBlock({device, index, removable, onDeviceChange, onRemoveDevice,
                       onItemChange, onRemoveItem, onAddItem}) {
   return (
-    <div style={{border: '1px solid #f0f0f0', borderRadius: 4, padding: 12, marginBottom: 12}}>
-      <div style={{marginBottom: 8}}>
-        <span style={{fontWeight: 'bold'}}>设备名称：</span>
+    <div className="el-tpl-device">
+      <div className="el-tpl-device-head">
+        <span className="el-tpl-device-no">{index}</span>
         <Input
-          style={{width: 260}}
           maxLength={100}
           placeholder="如 1号收发信机（不关联系统）"
           value={device.device_name}
           onChange={e => onDeviceChange({device_name: e.target.value})}
         />
         {removable && (
-          <a style={{marginLeft: 12, color: 'red'}} onClick={onRemoveDevice}>
-            <MinusCircleOutlined/> 移除设备
-          </a>
+          <Button
+            className="el-tpl-del-btn"
+            type="text"
+            size="small"
+            icon={<DeleteOutlined/>}
+            onClick={onRemoveDevice}
+          >
+            移除设备
+          </Button>
         )}
       </div>
-      {device.items.map(item => (
-        <ItemRow key={item.key} item={item}
-                 onItemChange={onItemChange} onRemoveItem={onRemoveItem}/>
-      ))}
-      <Button
-        size="small"
-        type="dashed"
-        icon={<PlusOutlined/>}
-        onClick={onAddItem}
-      >
-        添加检查内容
-      </Button>
+      <div className="el-tpl-device-body">
+        <div className="el-tpl-items">
+          <div className="el-tpl-items-head">
+            <span/>
+            <span>检查内容</span>
+            <span>
+              录入类型
+              <Tooltip title="「正常/不正常」为勾选式填写；「数字/文本」为手工填写读数或情况说明">
+                <QuestionCircleOutlined/>
+              </Tooltip>
+            </span>
+            <span>必填</span>
+            <span/>
+          </div>
+          {device.items.length === 0 && (
+            <div className="el-tpl-items-empty">尚未配置检查内容，请点击下方按钮添加</div>
+          )}
+          {device.items.map((item, idx) => (
+            <ItemRow key={item.key} item={item} index={idx + 1}
+                     onItemChange={onItemChange} onRemoveItem={onRemoveItem}/>
+          ))}
+        </div>
+        <Button
+          size="small"
+          type="dashed"
+          block
+          icon={<PlusOutlined/>}
+          onClick={onAddItem}
+        >
+          添加检查内容
+        </Button>
+      </div>
     </div>
   );
 }
@@ -189,6 +221,7 @@ function TemplateForm() {
 
   return (
     <Modal
+      className="el-tpl-form"
       visible={store.tplFormVisible}
       title={isEdit ? '编辑巡检模板' : '新增巡检模板'}
       width={920}
@@ -209,8 +242,12 @@ function TemplateForm() {
           <TextArea rows={2} maxLength={500} placeholder="（选填）"/>
         </Form.Item>
       </Form>
-      {devices.map(d => (
-        <DeviceBlock key={d.key} device={d} removable={devices.length > 1}
+      <Divider className="el-tpl-divider" orientation="left" plain>模板结构</Divider>
+      <div className="el-tpl-tip">
+        模板由一台或多台设备及各设备下的检查内容组成；巡检单生成时保存全量快照，后续修改模板不影响历史巡检单。
+      </div>
+      {devices.map((d, idx) => (
+        <DeviceBlock key={d.key} device={d} index={idx + 1} removable={devices.length > 1}
                      onDeviceChange={patch => updateDevice(d.key, patch)}
                      onRemoveDevice={() => setDevices(devices.filter(x => x.key !== d.key))}
                      onItemChange={(itemKey, patch) => updateItem(d.key, itemKey, patch)}

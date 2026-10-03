@@ -23,6 +23,11 @@ class UpgradeRecord(models.Model, TenantModelMixin):
     """升级表单主表"""
     objects = TenantModelManager()
     tenant_id = make_tenant_id()
+    upgrade_no = models.CharField(
+        max_length=50,
+        help_text='升级编号（SJ+创建日期+当日四位序号，自动生成；当日序号跨租户共享，'
+                  '由 RecordService.create_record 等创建入口在 upgrade_record_no '
+                  '全局锁内分配，存量历史数据由迁移 0023 按创建日期回填）')
     title = models.CharField(max_length=200, default='', verbose_name='标题')
     system = models.ForeignKey(
         LifecycleSystem, models.PROTECT, related_name='upgrade_records',
@@ -58,6 +63,12 @@ class UpgradeRecord(models.Model, TenantModelMixin):
         verbose_name = '升级记录'
         verbose_name_plural = '升级记录'
         ordering = ('-upgrade_time', '-id',)
+        constraints = [
+            # 编号为创建入口自动分配；唯一约束仅作并发兜底（正常路径由
+            # upgrade_record_no 全局锁 + 跨租户当日序号保证唯一）
+            models.UniqueConstraint(fields=['tenant_id', 'upgrade_no'],
+                                    name='uniq_upgrade_tenant_no'),
+        ]
         indexes = [
             models.Index(fields=['tenant_id', 'status']),
             # 默认列表分页：tenant_id + 计划升级时间倒序 + id
