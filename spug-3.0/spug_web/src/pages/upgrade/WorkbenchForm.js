@@ -14,7 +14,7 @@
  * - 动作函数在 workbenchActions.js，存档打印在 archivePrint.js。
  * 子组件直接读 store（模块级单例），必须逐个包 observer 保持响应式。
  */
-import React, { useEffect, useState, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, forwardRef, useImperativeHandle } from 'react';
 import { observer } from 'mobx-react';
 import {
   Form, Input, Select, AutoComplete, DatePicker, Button, message, Progress, Tag, Popconfirm,
@@ -29,6 +29,7 @@ import { AttachmentManager } from 'components';
 import { hasPermission } from 'libs';
 import moment from 'moment';
 import store from './store';
+import { useSyncRecordToForm } from './hooks';
 import {
   getActionColor, computeStepFlowState, renderFlowNode, STATUS_TAG_COLOR, StepStatusTag,
   groupStepsByPhase,
@@ -532,17 +533,7 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
   }));
 
   // 同步 form 数据到 store.record（system 表单值为系统档案 ID）
-  useEffect(() => {
-    if (!isNew && store.record.id) {
-      form.setFieldsValue({
-        ...store.record,
-        system: store.record.system_id,
-        upgrade_time: store.record.upgrade_time ? moment(store.record.upgrade_time) : null,
-      });
-    }
-    // form 为 useForm 稳定实例；store.record 是 observable，
-    // 依赖 store.record 是刻意的 mobx 刷新模式（与仓库其他页面一致）
-  }, [store.record, isNew]);
+  useSyncRecordToForm(form, isNew);
 
   // 应用方案（新建模式）：预填基本信息，保存时自动应用步骤
   function handleApplyPlanPrefill(planId) {

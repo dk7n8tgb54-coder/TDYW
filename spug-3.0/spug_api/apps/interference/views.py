@@ -4,10 +4,8 @@ import csv
 import io
 import json
 from uuid import UUID
-from datetime import datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from datetime import timedelta
 
-from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import HttpResponse
@@ -33,6 +31,12 @@ from apps.interference.models import (
     SCENE_CODE_CHOICES,
     SOURCE_TYPE_CODE_CHOICES,
     SpectrumMeasurement,
+)
+from apps.interference.payloads import (
+    event_payload,
+    parse_datetime,
+    parse_decimal,
+    parse_optional_datetime,
 )
 from apps.logs.audit import record_audit_event
 from libs import Argument, JsonParser, auth, json_response
@@ -107,56 +111,6 @@ def _body(request):
     return value if isinstance(value, dict) else None
 
 
-def _parse_datetime(value, field='datetime'):
-    if isinstance(value, datetime):
-        parsed = value
-    elif isinstance(value, str) and value.strip():
-        text = value.strip().replace('T', ' ')
-        parsed = None
-        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
-            try:
-                parsed = datetime.strptime(text, fmt)
-                break
-            except ValueError:
-                continue
-        if parsed is None:
-            try:
-                parsed = datetime.fromisoformat(text)
-            except ValueError:
-                raise ValueError(f'{field}格式必须为 YYYY-MM-DD HH:MM[:SS]')
-    else:
-        raise ValueError(f'请输入{field}')
-    if settings.USE_TZ and timezone.is_naive(parsed):
-        parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
-    elif not settings.USE_TZ and timezone.is_aware(parsed):
-        parsed = timezone.make_naive(parsed, timezone.get_current_timezone())
-    return parsed
-
-
-def _parse_optional_datetime(value, field):
-    if value in (None, ''):
-        return None
-    return _parse_datetime(value, field)
-
-
-def _parse_decimal(value, field, positive=False):
-    if value in (None, ''):
-        return None
-    try:
-        result = Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError):
-        raise ValueError(f'{field}必须为数字')
-    if positive and result <= 0:
-        raise ValueError(f'{field}必须大于0')
-    return result
-
-
-def _choice_error(value, choices, field):
-    if value not in dict(choices):
-        return f'{field}值无效'
-    return None
-
-
 def _event_queryset(user):
     return apply_tenant_filter(
         InterferenceEvent.objects.filter(is_deleted=False), user)
@@ -215,9 +169,9 @@ def _filtered_event_queryset(request, user):
     end = request.GET.get('datetime_end') or request.GET.get('end_date')
     try:
         if start:
-            qs = qs.filter(datetime__gte=_parse_datetime(start, '开始时间'))
+            qs = qs.filter(datetime__gte=parse_datetime(start, '开始时间'))
         if end:
-            end_value = _parse_datetime(end, '结束时间')
+            end_value = parse_datetime(end, '结束时间')
             if len(str(end)) == 10:
                 end_value += timedelta(days=1)
             qs = qs.filter(datetime__lt=end_value)
@@ -256,87 +210,6 @@ def _filtered_event_queryset(request, user):
     return qs.distinct(), None
 
 
-def _event_payload(data, existing=None):
-    """清洗公共字段和明细，返回 ``(values, ground, air, error)``。"""
-    if not isinstance(data, dict):
-        return None, None, None, '请求体必须是 JSON 对象'
-    values = {}
-    public_fields = (
-        'datetime', 'scene_code', 'classification_status',
-        'interference_kind_code', 'affected_system_code', 'source_type_code',
-        'flight_number', 'aircraft_no', 'aircraft_type', 'phenomenon',
-        'initial_assessment', 'remark',
-    )
-    for field in public_fields:
-        if field in data:
-            values[field] = '' if data[field] is None and field not in ('datetime',) else data[field]
-    if existing is not None:
-        values.setdefault('scene_code', existing.scene_code)
-        values.setdefault('classification_status', existing.classification_status)
-        values.setdefault('interference_kind_code', existing.interference_kind_code)
-        values.setdefault('affected_system_code', existing.affected_system_code)
-        values.setdefault('source_type_code', existing.source_type_code)
-    else:
-        values.setdefault('scene_code', 'unknown')
-        values.setdefault('classification_status', 'pending')
-        values.setdefault('interference_kind_code', 'unknown')
-        values.setdefault('affected_system_code', 'other')
-        values.setdefault('source_type_code', 'unknown')
-    if 'datetime' in values:
-        try:
-            values['datetime'] = _parse_datetime(values['datetime'])
-        except ValueError as exc:
-            return None, None, None, str(exc)
-    elif existing is None:
-        return None, None, None, '请输入发生时间'
-    for field, choices, label in (
-        ('scene_code', SCENE_CODE_CHOICES, '发生场景'),
-        ('classification_status', CLASSIFICATION_STATUS_CHOICES, '分类状态'),
-        ('interference_kind_code', INTERFERENCE_KIND_CODE_CHOICES, '具体干扰类型'),
-        ('affected_system_code', AFFECTED_SYSTEM_CODE_CHOICES, '受影响系统'),
-        ('source_type_code', SOURCE_TYPE_CODE_CHOICES, '疑似干扰源'),
-    ):
-        error = _choice_error(values.get(field), choices, label)
-        if error:
-            return None, None, None, error
-
-    ground = data.get('ground_detail') if 'ground_detail' in data else None
-    air = data.get('air_detail') if 'air_detail' in data else None
-    if 'ground_detail' not in data:
-        legacy_ground = {k: data[k] for k in (
-            'location', 'frequency', 'ground_equipment',
-        ) if k in data}
-        if legacy_ground:
-            ground = legacy_ground
-    if 'air_detail' not in data:
-        # 单位字段已下线，但保留在收集清单里让旧参数流入 _normalise_air 显式报错
-        legacy_air = {k: data[k] for k in (
-            'route', 'alert_frequency', 'alert_altitude', 'alert_altitude_unit',
-            'alert_segment', 'duration', 'duration_unit',
-        ) if k in data}
-        if legacy_air:
-            air = legacy_air
-    if ground is not None and not isinstance(ground, dict):
-        return None, None, None, '地面明细必须是对象'
-    if air is not None and not isinstance(air, dict):
-        return None, None, None, '空中明细必须是对象'
-    scene = values['scene_code']
-    if scene == 'ground' and air is not None:
-        return None, None, None, '地面事件不能包含空中明细'
-    if scene == 'air' and ground is not None:
-        return None, None, None, '空中事件不能包含地面明细'
-    if scene == 'unknown' and (ground is not None or air is not None):
-        return None, None, None, '未知场景暂不能填写专属明细'
-    if values['classification_status'] == 'confirmed':
-        if scene == 'ground' and ground is None and existing is None:
-            return None, None, None, '已确认的地面事件必须填写地面明细'
-        if scene == 'air' and air is None and existing is None:
-            return None, None, None, '已确认的空中事件必须填写空中明细'
-        if scene == 'cross' and ground is None and air is None and existing is None:
-            return None, None, None, '已确认的地面+空中事件至少需要一类明细'
-    return values, ground, air, None
-
-
 def _normalise_ground(data):
     data = data or {}
     allowed = ('location', 'frequency', 'ground_equipment', 'remark')
@@ -349,8 +222,8 @@ def _normalise_air(data):
         if legacy_key in data:
             raise ValueError('已下线字段 %s 不再接受' % legacy_key)
     try:
-        altitude = _parse_decimal(data.get('alert_altitude'), '告警高度', positive=True)
-        duration = _parse_decimal(data.get('duration'), '持续时间', positive=True)
+        altitude = parse_decimal(data.get('alert_altitude'), '告警高度', positive=True)
+        duration = parse_decimal(data.get('duration'), '持续时间', positive=True)
     except ValueError as exc:
         raise ValueError(str(exc))
     return {
@@ -425,6 +298,19 @@ def _sync_event_details(event, ground_data, air_data, data, user, creating=False
             is_deleted=True, deleted_at=timezone.now())
 
 
+def _validate_confirmed_state(event, ground_exists, air_exists):
+    """已确认事件对已存在明细的要求。"""
+    if event.classification_status != 'confirmed':
+        return None
+    if event.scene_code == 'ground' and not ground_exists:
+        return '已确认的地面事件必须存在地面明细'
+    if event.scene_code == 'air' and not air_exists:
+        return '已确认的空中事件必须存在空中明细'
+    if event.scene_code == 'cross' and not ground_exists and not air_exists:
+        return '已确认的地面+空中事件至少需要一类明细'
+    return None
+
+
 def _validate_detail_state(event):
     ground_exists = GroundInterferenceDetail.objects.filter(
         event_id=event.id, is_deleted=False).exists()
@@ -434,16 +320,9 @@ def _validate_detail_state(event):
         return '地面事件不能存在空中明细'
     if event.scene_code == 'air' and ground_exists:
         return '空中事件不能存在地面明细'
-    if event.classification_status == 'confirmed' and event.scene_code == 'ground' and not ground_exists:
-        return '已确认的地面事件必须存在地面明细'
-    if event.classification_status == 'confirmed' and event.scene_code == 'air' and not air_exists:
-        return '已确认的空中事件必须存在空中明细'
     if event.scene_code == 'unknown' and (ground_exists or air_exists):
         return '未知场景事件不能存在专属明细'
-    if event.classification_status == 'confirmed' and event.scene_code == 'cross':
-        if not ground_exists and not air_exists:
-            return '已确认的地面+空中事件至少需要一类明细'
-    return None
+    return _validate_confirmed_state(event, ground_exists, air_exists)
 
 
 class EventListView(View):
@@ -498,7 +377,7 @@ class EventListView(View):
                 return json_response(error='事件不存在或无权限编辑')
         elif not request.user.has_perms({EVENT_ADD_PERMISSION}):
             return json_response(error='权限拒绝')
-        values, ground, air, error = _event_payload(data, existing)
+        values, ground, air, error = event_payload(data, existing)
         if error:
             return json_response(error=error)
         try:
@@ -598,6 +477,20 @@ class EventDetailView(View):
         return json_response()
 
 
+def _investigation_create_fields(data, start_at, end_at, status):
+    """收集调查建档字段（可选文本统一空值归一为空串）。"""
+    return {
+        'name': data.get('name', ''),
+        'scope': data.get('scope', '') or '',
+        'owner': data.get('owner', '') or '',
+        'trigger_reason': data.get('trigger_reason', '') or '',
+        'start_at': start_at, 'end_at': end_at, 'status': status,
+        'conclusion': data.get('conclusion', '') or '',
+        'follow_up_advice': data.get('follow_up_advice', '') or '',
+        'remark': data.get('remark', '') or '',
+    }
+
+
 class InvestigationListView(View):
     @auth(INVESTIGATION_VIEW_PERMISSION + '|' + EVENT_VIEW_PERMISSION)
     def get(self, request):
@@ -637,8 +530,8 @@ class InvestigationListView(View):
         if status not in dict(INVESTIGATION_STATUS_CHOICES):
             return json_response(error='调查状态值无效')
         try:
-            start_at = _parse_optional_datetime(data.get('start_at'), '开始时间')
-            end_at = _parse_optional_datetime(data.get('end_at'), '结束时间')
+            start_at = parse_optional_datetime(data.get('start_at'), '开始时间')
+            end_at = parse_optional_datetime(data.get('end_at'), '结束时间')
         except ValueError as exc:
             return json_response(error=str(exc))
         event_ids = data.get('event_ids', data.get('events', [])) or []
@@ -649,15 +542,10 @@ class InvestigationListView(View):
         except (TypeError, ValueError):
             return json_response(error='event_ids 必须是整数数组')
         with transaction.atomic():
+            fields = _investigation_create_fields(data, start_at, end_at, status)
             investigation = InterferenceInvestigation.objects.create(
                 tenant_id=getattr(request.user, 'tenant_id', 'admin'),
-                name=data.get('name', ''), scope=data.get('scope', '') or '',
-                owner=data.get('owner', '') or '',
-                trigger_reason=data.get('trigger_reason', '') or '',
-                start_at=start_at, end_at=end_at, status=status,
-                conclusion=data.get('conclusion', '') or '',
-                follow_up_advice=data.get('follow_up_advice', '') or '',
-                remark=data.get('remark', '') or '', created_by=request.user,
+                created_by=request.user, **fields,
             )
             error = _link_events(request, investigation, event_ids)
             if error:
@@ -746,10 +634,10 @@ class InvestigationDetailView(View):
                 return json_response(error='调查状态值无效')
             try:
                 if 'start_at' in data:
-                    investigation.start_at = _parse_optional_datetime(
+                    investigation.start_at = parse_optional_datetime(
                         data['start_at'], '开始时间')
                 if 'end_at' in data:
-                    investigation.end_at = _parse_optional_datetime(
+                    investigation.end_at = parse_optional_datetime(
                         data['end_at'], '结束时间')
             except ValueError as exc:
                 return json_response(error=str(exc))
@@ -889,9 +777,9 @@ def _measurement_values(data, existing=None):
         value = data[field]
         try:
             if field == 'measured_at':
-                value = _parse_datetime(value, '测量时间')
+                value = parse_datetime(value, '测量时间')
             elif field in MEASUREMENT_DECIMAL_FIELDS:
-                value = _parse_decimal(value, field)
+                value = parse_decimal(value, field)
             elif value is None:
                 value = ''
         except ValueError as exc:
@@ -1213,7 +1101,7 @@ class EventImportView(View):
         created = []
         errors = []
         for index, row in enumerate(rows, 1):
-            values, ground, air, error = _event_payload(row)
+            values, ground, air, error = event_payload(row)
             if error:
                 errors.append({'row': index, 'error': error})
                 continue
