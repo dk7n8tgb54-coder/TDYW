@@ -3,7 +3,7 @@
 
 覆盖任务要求的行为断言（HTTP 真实路径 + 数据库副作用，不使用源码字符串匹配）：
 1. 只填系统/时间/标题/描述即可创建；
-2. 普通记录可直接处理并关闭；
+2. 状态机：已记录可研判定论或直接关闭，但不得直接已处理/独立转故障绕过研判；
 3. 跟进记录可追加多条处理进展；
 4. 处理进展更正留痕，不能静默覆盖；
 5. 同一记录只能转为一条有效故障（含真实线程并发场景）；
@@ -43,12 +43,14 @@ from apps.equipment_lifecycle.tests.base import (
 P_VIEW = 'equipment_lifecycle.runtime_record.view'
 P_ADD = 'equipment_lifecycle.runtime_record.add'
 P_EDIT = 'equipment_lifecycle.runtime_record.edit'
+P_TRIAGE = 'equipment_lifecycle.runtime_record.triage'
 P_RESOLVE = 'equipment_lifecycle.runtime_record.resolve'
 P_CLOSE = 'equipment_lifecycle.runtime_record.close'
 P_CONVERT = 'equipment_lifecycle.runtime_record.convert_fault'
 P_IMPORTANT = 'equipment_lifecycle.runtime_record.important'
 
-ALL_RUNTIME_PERMS = [P_VIEW, P_ADD, P_EDIT, P_RESOLVE, P_CLOSE, P_CONVERT, P_IMPORTANT]
+ALL_RUNTIME_PERMS = [P_VIEW, P_ADD, P_EDIT, P_TRIAGE, P_RESOLVE, P_CLOSE,
+                     P_CONVERT, P_IMPORTANT]
 FAULT_ADD_PERM = 'equipment_lifecycle.fault.add'
 # 转故障目标作废（受控作废）需要故障 del 权限
 FAULT_DEL_PERM = 'equipment_lifecycle.fault.del'
@@ -113,6 +115,14 @@ class RuntimeRecordTestBase(TestCase):
         body = resp.json()
         self.assertFalse(body.get('error'), body)
         return body['data']
+
+    def conclude_triage(self, record_id, triage_payload, client=None):
+        """已记录直接研判定论（同一操作主体，无提交研判中转）。"""
+        client = client or self.client
+        resp = client.post(
+            RECORDS_URL + f'/{record_id}/triage/', triage_payload,
+            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
 
 
 class MinimalCreateTests(RuntimeRecordTestBase):
@@ -186,11 +196,14 @@ class MinimalCreateTests(RuntimeRecordTestBase):
 
 
 class SimpleResolveCloseTests(RuntimeRecordTestBase):
-    """2. 普通运行记录可以直接处理并关闭。"""
+    """2. 状态机：已记录可研判定论或直接关闭；不得直接已处理/独立转故障绕过研判。"""
 
     def test_resolve_then_close(self):
         data = self.create_record(handling_result='现场已处理')
         record_id = data['id']
+        # 已记录直接研判为跟进中 → 标记已处理 → 关闭
+        self.conclude_triage(record_id, {'needs_follow_up': True,
+                                         'follow_up_name': '王值班'})
         resp = self.client.post(
             RECORDS_URL + f'/{record_id}/resolve/',
             {'handling_result': '确认稳定运行'},
@@ -215,21 +228,85 @@ class SimpleResolveCloseTests(RuntimeRecordTestBase):
                                 content_type='application/json')
         self.assertIn('重复关闭', resp.json().get('error', ''))
 
-    def test_direct_close_from_recorded(self):
+    def test_recorded_can_close_directly(self):
+        """已记录可直接关闭（不要求先研判），关闭必经 close 端点与权限校验。"""
         data = self.create_record()
-        resp = self.client.post(RECORDS_URL + f'/{data["id"]}/close/', {},
-                                content_type='application/json')
+        record_id = data['id']
+        resp = self.client.post(
+            RECORDS_URL + f'/{record_id}/close/',
+            {'handling_result': '瞬时抖动已恢复，直接关闭'},
+            content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
-        record = SystemRuntimeRecord.objects.get(pk=data['id'])
+        self.assertEqual(resp.json()['data']['status'], 'closed')
+        record = SystemRuntimeRecord.objects.get(pk=record_id)
         self.assertEqual(record.status, 'closed')
+        self.assertEqual(record.handling_result, '瞬时抖动已恢复，直接关闭')
+        self.assertFalse(record.needs_follow_up)
+        # 关闭后进入终态：不能再次关闭，研判也随终态拒绝
+        resp = self.client.post(RECORDS_URL + f'/{record_id}/close/', {},
+                                content_type='application/json')
+        self.assertIn('重复关闭', resp.json().get('error', ''))
+        resp = self.client.post(
+            RECORDS_URL + f'/{record_id}/triage/',
+            {'needs_follow_up': False}, content_type='application/json')
+        self.assertIn('研判', resp.json().get('error', ''))
+
+    def test_recorded_stable_without_triage(self):
+        """已记录是合法稳定状态：不做任何动作即可长期保留，不产生错误或待办。"""
+        data = self.create_record()
+        record_id = data['id']
+        # 详情正常返回，状态保持已记录，无"待研判"提示字段
+        resp = self.client.get(RECORDS_URL + f'/{record_id}/')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        detail = resp.json()['data']
+        self.assertEqual(detail['status'], 'recorded')
+        self.assertEqual(detail['status_text'], '已记录')
+        # 列表同样以已记录呈现，不进入任何待办口径
+        resp = self.client.get(RECORDS_URL + '/', {'status': 'recorded'})
+        rows = resp.json()['data']['data']
+        self.assertIn(record_id, [r['id'] for r in rows])
+        record = SystemRuntimeRecord.objects.get(pk=record_id)
+        self.assertEqual(record.status, 'recorded')
+
+    def test_recorded_cannot_resolve_or_convert_directly(self):
+        """已记录禁止直接 已处理/独立转故障 绕过研判（关闭不受限）；可研判定论。"""
+        data = self.create_record()
+        record_id = data['id']
+        for path, payload in (
+                ('resolve/', {'handling_result': '直接处理'}),
+                ('convert-to-fault/', {}),
+        ):
+            resp = self.client.post(
+                RECORDS_URL + f'/{record_id}/{path}', payload,
+                content_type='application/json')
+            self.assertTrue(resp.json().get('error'), (path, resp.content))
+        record = SystemRuntimeRecord.objects.get(pk=record_id)
+        self.assertEqual(record.status, 'recorded')
+        # 同一操作主体：已记录直接研判定论（无需跟进）
+        self.conclude_triage(record_id, {'needs_follow_up': False,
+                                         'triage_note': '瞬时抖动，无需跟进'})
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'no_follow_up')
+
+    def test_no_transition_reaches_pending_triage(self):
+        """待研判仅历史兼容：状态机无任何入口，新建也不会进入待研判。"""
+        from apps.equipment_lifecycle.models import (
+            RUNTIME_RECORD_STATUS_PENDING_TRIAGE,
+            RUNTIME_RECORD_TRANSITIONS,
+        )
+        for source, targets in RUNTIME_RECORD_TRANSITIONS.items():
+            self.assertNotIn(
+                RUNTIME_RECORD_STATUS_PENDING_TRIAGE, targets,
+                '状态 %s 不应再允许流转为待研判' % source)
 
 
 class FollowUpProgressTests(RuntimeRecordTestBase):
-    """3. 需要跟进的记录可以追加多条处理进展。"""
+    """3. 跟进中的记录可以追加多条处理进展（跟进中由研判结论落地）。"""
 
     def test_follow_up_and_append_progress(self):
         data = self.create_record(needs_follow_up=True)
         record_id = data['id']
+        # 标记需要跟进（recorded → following_up，跟进安排可指定跟进人）
         resp = self.client.post(RECORDS_URL + f'/{record_id}/follow-up/', {},
                                 content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -282,6 +359,7 @@ class FollowUpProgressTests(RuntimeRecordTestBase):
 
     def test_progress_forbidden_after_terminal(self):
         data = self.create_record()
+        # 已记录留痕记录直接关闭（不要求先研判）
         self.client.post(RECORDS_URL + f'/{data["id"]}/close/', {},
                          content_type='application/json')
         resp = self.client.post(
@@ -298,6 +376,11 @@ class ConvertToFaultTests(RuntimeRecordTestBase):
         data = self.create_record(
             affects_system_operation=True, impact_status='degraded')
         record_id = data['id']
+        # 已记录不能直接转故障（须经研判），先研判定论后再独立转换
+        resp = self.client.post(RECORDS_URL + f'/{record_id}/convert-to-fault/', {},
+                                content_type='application/json')
+        self.assertIn('不能直接转为故障', resp.json().get('error', ''))
+        self.conclude_triage(record_id, {'needs_follow_up': False})
         resp = self.client.post(RECORDS_URL + f'/{record_id}/convert-to-fault/', {},
                                 content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -321,6 +404,7 @@ class ConvertToFaultTests(RuntimeRecordTestBase):
 
     def test_convert_twice_rejected(self):
         data = self.create_record()
+        self.conclude_triage(data['id'], {'needs_follow_up': False})
         resp = self.client.post(RECORDS_URL + f'/{data["id"]}/convert-to-fault/', {},
                                 content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -343,6 +427,7 @@ class ConvertToFaultTests(RuntimeRecordTestBase):
 
     def test_convert_after_cancelled_fault_requires_reason(self):
         data = self.create_record()
+        self.conclude_triage(data['id'], {'needs_follow_up': False})
         resp = self.client.post(RECORDS_URL + f'/{data["id"]}/convert-to-fault/', {},
                                 content_type='application/json')
         fault = SystemFault.objects.get(
@@ -464,6 +549,7 @@ class SystemEventRulesTests(RuntimeRecordTestBase):
         """转为故障的运行记录在履历事项聚合中可见且状态为已转故障。"""
         data = self.create_record(title='转故障进履历',
                                   occurred_at='2026-10-01 08:10')
+        self.conclude_triage(data['id'], {'needs_follow_up': False})
         resp = self.client.post(RECORDS_URL + f'/{data["id"]}/convert-to-fault/', {},
                                 content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -483,6 +569,7 @@ class SystemEventRulesTests(RuntimeRecordTestBase):
 
     def test_convert_generates_fault_and_runtime_events(self):
         data = self.create_record()
+        self.conclude_triage(data['id'], {'needs_follow_up': False})
         resp = self.client.post(RECORDS_URL + f'/{data["id"]}/convert-to-fault/', {},
                                 content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -581,6 +668,7 @@ class ConcurrencyConvertTests(TransactionTestCase):
             occurred_at='2026-10-01 08:00',
             title='并发转换记录',
             description='并发转故障行为测试',
+            status=SystemRuntimeRecord.STATUS_PENDING_TRIAGE,
             created_by=admin,
         )
         barrier = threading.Barrier(2)
@@ -664,6 +752,7 @@ class EditRuleTests(RuntimeRecordTestBase):
 
     def test_closed_record_not_editable(self):
         data = self.create_record()
+        # 已记录留痕记录直接关闭（不要求先研判）
         self.client.post(RECORDS_URL + f'/{data["id"]}/close/', {},
                          content_type='application/json')
         resp = self.client.put(
@@ -677,6 +766,7 @@ class EditRuleTests(RuntimeRecordTestBase):
 
     def test_converted_record_not_editable(self):
         data = self.create_record()
+        self.conclude_triage(data['id'], {'needs_follow_up': False})
         self.client.post(RECORDS_URL + f'/{data["id"]}/convert-to-fault/', {},
                          content_type='application/json')
         resp = self.client.put(

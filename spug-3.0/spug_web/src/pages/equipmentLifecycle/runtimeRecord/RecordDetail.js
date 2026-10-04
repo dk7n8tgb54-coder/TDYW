@@ -4,13 +4,35 @@
  */
 /**
  * 设备全生命周期——运行记录详情窗口（2026-10-02 由侧边抽屉改为居中窗口，
- * 与系统档案详情一致）。标题区直接呈现记录编号、状态、重要程度与跟进提示。
+ * 与系统档案详情一致）。标题区只保留摘要（2026-10-04 对齐故障详情）：
+ * 记录编号 / 当前状态 / 系统影响程度 / 重要程度，需要跟进标识仅在记录
+ * 确实需要跟进且状态标签无法表达（非跟进中）时展示；所属系统/安装地点/
+ * 发生时间/登记人等完整字段一律放入基本信息区块，不在标题区重复。
  * 基本信息 / 处理进展时间线（追加式、更正留痕）/ 重复问题（相似关联）/
  * 附件（AttachmentManager）。
- * 动作：编辑、提交研判（待研判）、研判（TriageModal）、标记需要跟进（可填
- * 跟进人/计划处理时间）、标记已处理、标记重要（必填原因）、转为故障、关闭；
- * - converted_fault/closed 为终态：正式处置以关联故障为准，详情提供故障入口；
- * - 标记重要只在普通 → 重要升级时由后端生成履历，重复标记后端拒绝；
+ * 基本信息分四区块（2026-10-04，区块小标题 + Descriptions，样式对齐故障
+ * 详情）：运行概况（只放发生事实：系统/地点/时间/类别/对象/标题/描述）/
+ * 研判与处置（初步原因/影响范围/已采取措施/处理结果/研判说明/研判人及
+ * 研判时间/跟进安排/重要原因；研判历史只读保留，已处理/已关闭/已转故障
+ * 仍展示；尚未研判与已转故障以区块提示行说明实际状态，不渲染成排空"-"；
+ * 跟进安排/重要原因/研判人及时间仅在存在数据时展示，重要程度本身只在
+ * 标题区展示）/ 关联与登记（关联故障链接或"关联故障登记已撤销"提示 +
+ * 登记人/登记时间 + 处理时间/标记重要等生命周期信息；统一"登记人/
+ * 登记时间"业务口径，不再重复展示创建人）/ 处理概览（只读紧凑信息条：
+ * 条数取进展列表接口 total——store 打开详情时已统一请求该列表，不额外
+ * 发请求、不逐条拼装；最近更新与最后记录仅在前端已取得完整进展列表时
+ * 展示；"查看全部进展"切换到处理进展页签，完整时间线不复制到本区块）。
+ * 顶部动作按状态收敛（2026-10-04，与后端状态机一致，防止绕过研判入口）：
+ * - recorded（已记录，合法稳定状态，可长期保留，不作为待办）：编辑、
+ *   研判（可选动作；登记与研判同一操作主体，一次提交完成结论，无
+ *   "提交研判"中转）、关闭（留痕记录可直接关闭，不要求先研判）；
+ * - pending_triage（待研判，历史数据兼容状态）：研判；
+ * - following_up（跟进中）：编辑、跟进安排、标记已处理、关闭；
+ * - resolved（已处理）：编辑、重新跟进（复用跟进弹窗，转回跟进中）、关闭；
+ * - no_follow_up（无需跟进）：重新研判（纠正结论，复用 TriageModal）；
+ * - converted_fault / closed：终态无业务按钮（已转故障保留关联故障入口）。
+ * - 标记重要 / 转为正式故障只在 TriageModal 研判结论中完成，顶部不再提供
+ *   独立入口（旧 store 方法与后端接口暂时保留）；
  * - 所有动作成功后重新获取真实数据；错误提示由 http 拦截器统一弹出，
  *   业务代码不重复提示。
  * 约束：凡在 render 中读取 store observable 的函数组件必须用 observer 包裹。
@@ -18,7 +40,7 @@
 import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react';
 import { Tabs, Descriptions, Tag, Spin, Button, Timeline, Modal, Form,
-  Input, InputNumber, DatePicker, Select, Popconfirm, message, Empty } from 'antd';
+  Input, InputNumber, DatePicker, Select, message, Empty } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import { AuthButton, AttachmentManager } from 'components';
@@ -42,119 +64,218 @@ const WORK_HOURS_RULE = [{
 
 @observer
 class RecordDetail extends React.Component {
+  // 页签受控于本地 state（组件随详情开关重新挂载，无需入 store）；
+  // 处理概览"查看全部进展"经此直达处理进展页签
+  state = {activeTab: 'basic'};
+
+  handleTabChange = (activeTab) => this.setState({activeTab});
+
+  // 区块标题：四区块与处理概览共用（与故障详情同款内联样式）
+  renderSectionTitle(text, style) {
+    return <div style={{fontWeight: 600, marginBottom: 8, ...style}}>{text}</div>;
+  }
+
+  // 基本信息（2026-10-04 重组为四区块）：运行概况 / 研判与处置 /
+  // 关联与登记 / 处理概览。编号、状态、影响程度、重要程度只在标题区
+  // 展示一次，区块内不再重复。
   renderBasic() {
+    return (
+      <div>
+        {this.renderSectionTitle('运行概况')}
+        {this.renderOverviewSection()}
+        {this.renderTriageSection()}
+        {this.renderRegistrySection()}
+        {this.renderHandlingOverview()}
+      </div>
+    );
+  }
+
+  // 一、运行概况：只展示记录发生时的事实（按发生顺序），不放研判结论、
+  // 跟进安排或处理结果；标题保持"标题"字样，不与故障模块"故障现象"混用
+  renderOverviewSection() {
     const d = store.detail;
     return (
       <Descriptions bordered size="small" column={2}>
-        <Descriptions.Item label="运行记录编号">{d.record_no}</Descriptions.Item>
-        <Descriptions.Item label="状态">
-          <Tag color={RUNTIME_STATUS_COLOR[d.status]}>{RUNTIME_STATUS_TEXT[d.status]}</Tag>
-          {d.needs_follow_up && <Tag color="blue">需要跟进</Tag>}
-        </Descriptions.Item>
         <Descriptions.Item label="所属系统">{d.system_name}</Descriptions.Item>
         <Descriptions.Item label="安装地点">{d.system_location || '-'}</Descriptions.Item>
         <Descriptions.Item label="发生时间">{d.occurred_at}</Descriptions.Item>
-        <Descriptions.Item label="重要程度">
-          <Tag color={d.importance === 'important' ? 'red' : 'default'}>
-            {d.importance === 'important' ? '重要' : '普通'}
-          </Tag>
-        </Descriptions.Item>
-        <Descriptions.Item label="标题" span={2}>{d.title}</Descriptions.Item>
-        <Descriptions.Item label="情况描述" span={2}>{d.description}</Descriptions.Item>
-        {/* 登记人为手输姓名快照（与故障登记人同口径），历史数据可为空 */}
-        <Descriptions.Item label="登记人" span={2}>{d.registrar_name || '-'}</Descriptions.Item>
-        <Descriptions.Item label="系统影响程度">
-          {d.affects_system_operation ? (
-            <Tag color={RUNTIME_IMPACT_COLOR[d.impact_status]}>
-              {RUNTIME_IMPACT_TEXT[d.impact_status] || d.impact_status}
-            </Tag>
-          ) : (
-            <Tag>不影响运行</Tag>
-          )}
-        </Descriptions.Item>
-        <Descriptions.Item label="重要原因">{d.importance_reason || '-'}</Descriptions.Item>
         <Descriptions.Item label="异常类别">
           {d.category ? (RUNTIME_CATEGORY_TEXT[d.category] || d.category) : '-'}
         </Descriptions.Item>
-        <Descriptions.Item label="具体对象/型号">
+        <Descriptions.Item label="具体对象/型号" span={2}>
           {[d.object_name, d.object_model].filter(Boolean).join(' / ') || '-'}
         </Descriptions.Item>
-        <Descriptions.Item label="初步原因" span={2}>{d.initial_reason || '-'}</Descriptions.Item>
-        <Descriptions.Item label="影响范围" span={2}>{d.impact_scope || '-'}</Descriptions.Item>
-        <Descriptions.Item label="已采取措施" span={2}>{d.measures_taken || '-'}</Descriptions.Item>
-        <Descriptions.Item label="处理结果" span={2}>{d.handling_result || '-'}</Descriptions.Item>
-        <Descriptions.Item label="关联故障" span={2}>
-          {d.converted_fault ? (
-            <Button
-              type="link"
-              size="small"
-              style={{padding: 0}}
-              onClick={() => {
-                store.closeDetail();
-                history.push(`/el/faults?detail=${d.converted_fault}`);
-              }}
-            >
-              {d.converted_fault_no || '查看关联故障'}（后续处理以故障为准）
-            </Button>
-          ) : (d.status === 'converted_fault' ? '关联故障登记已撤销' : '-')}
-        </Descriptions.Item>
-        <Descriptions.Item label="创建人">{d.created_by_name}</Descriptions.Item>
-        <Descriptions.Item label="创建时间">{d.created_at}</Descriptions.Item>
-        {d.importance_marked_at && (
-          <Descriptions.Item label="标记重要" span={2}>
-            {d.importance_marked_by_name
-              ? `${d.importance_marked_by_name}（${d.importance_marked_at}）`
-              : d.importance_marked_at}
-          </Descriptions.Item>
-        )}
-        {d.triaged_at && (
-          <Descriptions.Item label="研判" span={2}>
-            {d.triaged_by_name ? `${d.triaged_by_name}（${d.triaged_at}）` : d.triaged_at}
-            {d.triage_note ? `：${d.triage_note}` : ''}
-          </Descriptions.Item>
-        )}
-        {(d.follow_up_name || d.planned_handle_at) && (
-          <Descriptions.Item label="跟进安排" span={2}>
-            {d.follow_up_name ? `跟进人：${d.follow_up_name}` : ''}
-            {d.planned_handle_at
-              ? `${d.follow_up_name ? '，' : ''}计划处理：${d.planned_handle_at}` : ''}
-          </Descriptions.Item>
-        )}
+        <Descriptions.Item label="标题" span={2}>{d.title}</Descriptions.Item>
+        <Descriptions.Item label="情况描述" span={2}>{d.description}</Descriptions.Item>
       </Descriptions>
+    );
+  }
+
+  // 二、研判与处置：集中展示研判与处理字段；研判数据保留历史只读展示
+  // （已处理/已关闭/已转故障仍可见）。尚未研判（已记录/待研判且无研判
+  // 数据）与已转故障以提示行说明实际状态（对齐故障详情"尚未完成恢复
+  // 确认"的提示方式）；跟进安排/重要原因/研判人及时间仅在存在数据时
+  // 渲染，不为空值创建整行"-"。
+  renderTriageSection() {
+    const d = store.detail;
+    const hasTriage = Boolean(d.triaged_at || d.triaged_by_name || d.triage_note);
+    const notTriaged = !hasTriage &&
+      (d.status === 'recorded' || d.status === 'pending_triage');
+    const hasFollowUp = Boolean(d.follow_up_name || d.planned_handle_at);
+    const showImportanceReason = d.importance === 'important' || !!d.importance_reason;
+    let hint = null;
+    if (notTriaged) {
+      hint = '尚未完成研判';
+    } else if (d.status === 'converted_fault') {
+      hint = '该记录已转正式故障，后续处置以关联故障为准';
+    }
+    return (
+      <React.Fragment>
+        {this.renderSectionTitle('研判与处置', {marginTop: 16})}
+        {hint && (
+          <div style={{color: 'rgba(0, 0, 0, 0.45)', marginBottom: 8}}>{hint}</div>
+        )}
+        <Descriptions bordered size="small" column={2}>
+          <Descriptions.Item label="初步原因" span={2}>{d.initial_reason || '-'}</Descriptions.Item>
+          <Descriptions.Item label="影响范围" span={2}>{d.impact_scope || '-'}</Descriptions.Item>
+          <Descriptions.Item label="已采取措施" span={2}>{d.measures_taken || '-'}</Descriptions.Item>
+          <Descriptions.Item label="处理结果" span={2}>{d.handling_result || '-'}</Descriptions.Item>
+          {hasTriage && (
+            <React.Fragment>
+              <Descriptions.Item label="研判说明" span={2}>{d.triage_note || '-'}</Descriptions.Item>
+              <Descriptions.Item label="研判人及研判时间" span={2}>
+                {d.triaged_by_name
+                  ? `${d.triaged_by_name}（${d.triaged_at || ''}）`
+                  : (d.triaged_at || '-')}
+              </Descriptions.Item>
+            </React.Fragment>
+          )}
+          {hasFollowUp && (
+            <Descriptions.Item label="跟进安排" span={2}>
+              {d.follow_up_name ? `跟进人：${d.follow_up_name}` : ''}
+              {d.planned_handle_at
+                ? `${d.follow_up_name ? '，' : ''}计划处理：${d.planned_handle_at}` : ''}
+            </Descriptions.Item>
+          )}
+          {showImportanceReason && (
+            <Descriptions.Item label="重要原因" span={2}>
+              {d.importance_reason || '-'}
+            </Descriptions.Item>
+          )}
+        </Descriptions>
+      </React.Fragment>
+    );
+  }
+
+  // 三、关联与登记：记录来源与生命周期追溯。统一"登记人/登记时间"业务
+  // 口径（登记时间即创建时间，创建人不再重复展示）；已转故障显示可点击
+  // 关联故障（沿用现有跳转），关联故障已撤销时明确提示，无关联显示"-"、
+  // 不渲染空按钮；处理时间/标记重要属于生命周期状态变更信息，仅在存在
+  // 数据时展示。
+  renderRegistrySection() {
+    const d = store.detail;
+    return (
+      <React.Fragment>
+        {this.renderSectionTitle('关联与登记', {marginTop: 16})}
+        <Descriptions bordered size="small" column={2}>
+          <Descriptions.Item label="关联故障" span={2}>
+            {d.converted_fault ? (
+              <Button
+                type="link"
+                size="small"
+                style={{padding: 0}}
+                onClick={() => {
+                  store.closeDetail();
+                  history.push(`/el/faults?detail=${d.converted_fault}`);
+                }}
+              >
+                {d.converted_fault_no || '查看关联故障'}
+              </Button>
+            ) : (d.status === 'converted_fault' ? '关联故障登记已撤销' : '-')}
+          </Descriptions.Item>
+          <Descriptions.Item label="登记人">{d.registrar_name || '-'}</Descriptions.Item>
+          <Descriptions.Item label="登记时间">{d.created_at}</Descriptions.Item>
+          {d.resolved_at && (
+            <Descriptions.Item label="处理时间">{d.resolved_at}</Descriptions.Item>
+          )}
+          {d.importance_marked_at && (
+            <Descriptions.Item label="标记重要">
+              {d.importance_marked_by_name
+                ? `${d.importance_marked_by_name}（${d.importance_marked_at}）`
+                : d.importance_marked_at}
+            </Descriptions.Item>
+          )}
+        </Descriptions>
+      </React.Fragment>
+    );
+  }
+
+  // 四、处理概览（2026-10-04）：基本信息底部只读紧凑信息条（非边框表格，
+  // 与故障详情一致）。条数取进展列表接口 total（store.showDetail 打开详情
+  // 时已统一请求进展列表，不额外发请求）；进展按处理时间正序返回，前端
+  // 已取得完整列表（条数 ≤ 单页容量）时展示最近更新与最后记录摘要，超出
+  // 单页容量时不展示，避免以早期记录冒充最新；完整时间线仍在处理进展页签。
+  renderHandlingOverview() {
+    const count = store.progressTotal ?? store.progressRecords.length;
+    const complete = count > 0 && store.progressRecords.length >= count;
+    const latest = complete
+      ? store.progressRecords[store.progressRecords.length - 1] : null;
+    const goToProgress = () => this.setState({activeTab: 'progress'});
+    return (
+      <div style={{marginTop: 16}}>
+        {this.renderSectionTitle('处理概览')}
+        {count > 0 ? (
+          <div style={{fontSize: 13}}>
+            <a onClick={goToProgress}>处理进展 {count} 条</a>
+            {latest && (
+              <React.Fragment>
+                <span style={{marginLeft: 16}}>最近更新：{latest.handled_at}</span>
+                <span style={{marginLeft: 16}}>最后记录：{latest.content}</span>
+              </React.Fragment>
+            )}
+            <Button type="link" style={{padding: 0, marginLeft: 16}} onClick={goToProgress}>
+              查看全部进展
+            </Button>
+          </div>
+        ) : (
+          <div style={{color: 'rgba(0, 0, 0, 0.45)'}}>
+            {store.isProgressFetching ? '处理进展加载中…' : '暂无处理进展'}
+          </div>
+        )}
+      </div>
     );
   }
 
   renderTitle() {
     const d = store.detail;
-    const facts = [
-      d.system_name ? `所属系统：${d.system_name}` : null,
-      d.system_location ? `安装地点：${d.system_location}` : null,
-      d.occurred_at ? `发生时间：${d.occurred_at}` : null,
-      d.registrar_name ? `登记人：${d.registrar_name}` : null,
-    ].filter(Boolean);
+    // 标题区只保留摘要（2026-10-04 对齐故障详情）：编号/当前状态/系统影响
+    // 程度/重要程度；"需要跟进"仅在记录确实需要跟进且状态标签无法表达时
+    // 展示（跟进中状态本身已表达该含义，不重复标）。
     return (
-      <div>
-        <div style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap'}}>
-          <span
-            title={d.record_no}
-            style={{
-              fontSize: 16, fontWeight: 600, marginRight: 8, maxWidth: 420,
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}
-          >
-            {d.record_no || '运行记录详情'}
-          </span>
-          <Tag color={RUNTIME_STATUS_COLOR[d.status]}>{RUNTIME_STATUS_TEXT[d.status]}</Tag>
-          {d.needs_follow_up && <Tag color="blue">需要跟进</Tag>}
-          <Tag color={d.importance === 'important' ? 'red' : 'default'}>
-            {d.importance === 'important' ? '重要' : '普通'}
-          </Tag>
-        </div>
-        {facts.length > 0 && (
-          <div style={{fontSize: 12, color: 'rgba(0, 0, 0, 0.45)', marginTop: 2, fontWeight: 400}}>
-            {facts.join('　')}
-          </div>
+      <div style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap'}}>
+        <span
+          title={d.record_no}
+          style={{
+            fontSize: 16, fontWeight: 600, marginRight: 8, maxWidth: 420,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}
+        >
+          {d.record_no || '运行记录详情'}
+        </span>
+        <Tag color={RUNTIME_STATUS_COLOR[d.status]}>{RUNTIME_STATUS_TEXT[d.status]}</Tag>
+        {d.needs_follow_up && d.status !== 'following_up' && (
+          <Tag color="blue">需要跟进</Tag>
         )}
+        {d.affects_system_operation ? (
+          <Tag color={RUNTIME_IMPACT_COLOR[d.impact_status]}>
+            {RUNTIME_IMPACT_TEXT[d.impact_status] || d.impact_status}
+          </Tag>
+        ) : (
+          <Tag>不影响运行</Tag>
+        )}
+        <Tag color={d.importance === 'important' ? 'red' : 'default'}>
+          {d.importance === 'important' ? '重要' : '普通'}
+        </Tag>
       </div>
     );
   }
@@ -162,7 +283,7 @@ class RecordDetail extends React.Component {
   render() {
     const d = store.detail;
     const editable = EDITABLE_STATUSES.includes(d.status);
-    const triageable = d.status === 'recorded' || d.status === 'pending_triage';
+    const status = d.status;
     return (
       <Modal
         title={this.renderTitle()}
@@ -181,16 +302,21 @@ class RecordDetail extends React.Component {
       >
         <Spin spinning={store.isDetailFetching}>
           <div style={{marginBottom: 12}}>
-            <AuthEditButton editable={editable}/>
-            {d.status === 'recorded' && <AuthPendingTriageButton/>}
-            {triageable && <AuthTriageButton/>}
-            {editable && <AuthFollowUpButton/>}
-            {editable && <AuthResolveButton/>}
-            {editable && <AuthImportantButton important={d.importance === 'important'}/>}
-            {editable && <AuthConvertButton/>}
-            {editable && <AuthCloseButton/>}
+            {editable && <AuthEditButton/>}
+            {(status === 'recorded' || status === 'pending_triage') &&
+              <AuthTriageButton/>}
+            {(status === 'following_up' || status === 'resolved') &&
+              <AuthFollowUpButton/>}
+            {status === 'following_up' && <AuthResolveButton/>}
+            {/* 已记录可直接关闭（不要求先研判），与后端状态机一致 */}
+            {(status === 'recorded' || status === 'following_up' ||
+              status === 'resolved') &&
+              <AuthCloseButton/>}
+            {status === 'no_follow_up' && <AuthRetriageButton/>}
           </div>
-          <Tabs defaultActiveKey="basic">
+          {/* 页签受控（本地 state）：处理概览"查看全部进展"可直达处理进展
+              页签；组件随详情开关重新挂载，每次打开回到基本信息页签 */}
+          <Tabs activeKey={this.state.activeTab} onChange={this.handleTabChange}>
             <TabPane tab="基本信息" key="basic">
               {this.renderBasic()}
             </TabPane>
@@ -214,8 +340,7 @@ class RecordDetail extends React.Component {
   }
 }
 
-function AuthEditButton({editable}) {
-  if (!editable) return null;
+function AuthEditButton() {
   return (
     <AuthButton
       auth={PERM.RUNTIME_EDIT}
@@ -226,28 +351,8 @@ function AuthEditButton({editable}) {
   );
 }
 
-// 提交研判：已记录 → 待研判（结论由研判动作落地）
-const AuthPendingTriageButton = observer(function AuthPendingTriageButton() {
-  return (
-    <span style={{marginLeft: 8}}>
-      <Popconfirm
-        title="确定提交研判（待研判）吗？"
-        onConfirm={() => store.submitPendingTriage()
-          .then(() => message.success('已提交研判'))
-          .catch(() => {})}
-      >
-        <AuthButton
-          auth={PERM.RUNTIME_TRIAGE}
-          loading={store.isActionSubmitting}
-        >
-          提交研判
-        </AuthButton>
-      </Popconfirm>
-    </span>
-  );
-});
-
 // 研判：一次动作完成 跟进结论 / 影响判定 / 重要标记 / 转正式故障
+// （已记录/待研判为同一操作主体的主动作，无需"提交研判"中转）
 const AuthTriageButton = observer(function AuthTriageButton() {
   return (
     <span style={{marginLeft: 8}}>
@@ -262,6 +367,21 @@ const AuthTriageButton = observer(function AuthTriageButton() {
   );
 });
 
+// 重新研判：无需跟进结论纠偏（复用研判弹窗，可改判跟进中/转正式故障/维持结论）
+const AuthRetriageButton = observer(function AuthRetriageButton() {
+  return (
+    <span style={{marginLeft: 8}}>
+      <AuthButton
+        auth={PERM.RUNTIME_TRIAGE}
+        onClick={() => store.triageVisible = true}
+      >
+        重新研判
+      </AuthButton>
+    </span>
+  );
+});
+
+// 跟进中 → 跟进安排（更新跟进人/计划时间）；已处理 → 重新跟进（转回跟进中）
 const AuthFollowUpButton = observer(function AuthFollowUpButton() {
   const [visible, setVisible] = useState(false);
   const following = store.detail.status === 'following_up';
@@ -272,7 +392,7 @@ const AuthFollowUpButton = observer(function AuthFollowUpButton() {
         loading={store.isActionSubmitting}
         onClick={() => setVisible(true)}
       >
-        {following ? '跟进安排' : '标记需要跟进'}
+        {following ? '跟进安排' : '重新跟进'}
       </AuthButton>
       <FollowUpModal
         visible={visible}
@@ -283,14 +403,14 @@ const AuthFollowUpButton = observer(function AuthFollowUpButton() {
   );
 });
 
-// 标记需要跟进 / 更新跟进安排：跟进人与计划处理时间选填（待办视图按此展示筛选）
+// 跟进安排 / 重新跟进：跟进人与计划处理时间选填（待办视图按此展示筛选）
 const FollowUpModal = observer(function FollowUpModal({visible, following, onClose}) {
   const [followUpName, setFollowUpName] = useState('');
   const [plannedAt, setPlannedAt] = useState(null);
   return (
     <Modal
       visible={visible}
-      title={following ? '更新跟进安排' : '标记需要跟进（跟进中）'}
+      title={following ? '更新跟进安排' : '重新跟进'}
       confirmLoading={store.isActionSubmitting}
       onCancel={() => {
         onClose();
@@ -302,7 +422,7 @@ const FollowUpModal = observer(function FollowUpModal({visible, following, onClo
           follow_up_name: followUpName.trim(),
           planned_handle_at: plannedAt ? plannedAt.format('YYYY-MM-DD HH:mm') : '',
         }).then(() => {
-          message.success(following ? '跟进安排已更新' : '已标记为跟进中');
+          message.success(following ? '跟进安排已更新' : '已重新进入跟进中');
           onClose();
           setFollowUpName('');
           setPlannedAt(null);
@@ -312,7 +432,7 @@ const FollowUpModal = observer(function FollowUpModal({visible, following, onClo
       <p>
         {following
           ? '更新跟进人/计划处理时间；记录保持跟进中状态。'
-          : '标记为跟进中后进入待办视图，可持续记录处理进展。'}
+          : '重新进入跟进中后进入待办视图，可持续记录处理进展。'}
       </p>
       <Form layout="vertical">
         <Form.Item label="跟进人" style={{marginBottom: 12}}>
@@ -350,37 +470,6 @@ function AuthResolveButton() {
         action="resolve"
         onClose={() => setVisible(false)}
       />
-    </span>
-  );
-}
-
-// 标记重要：必须填写原因；仅普通 → 重要升级时后端生成履历
-function AuthImportantButton({important}) {
-  const [visible, setVisible] = useState(false);
-  if (important) return null;
-  return (
-    <span style={{marginLeft: 8}}>
-      <AuthButton auth={PERM.RUNTIME_IMPORTANT} onClick={() => setVisible(true)}>
-        标记重要
-      </AuthButton>
-      <ImportantModal visible={visible} onClose={() => setVisible(false)}/>
-    </span>
-  );
-}
-
-function AuthConvertButton() {
-  const [visible, setVisible] = useState(false);
-  return (
-    <span style={{marginLeft: 8}}>
-      <AuthButton
-        auth={PERM.RUNTIME_CONVERT_FAULT}
-        type="primary"
-        ghost
-        onClick={() => setVisible(true)}
-      >
-        转为故障
-      </AuthButton>
-      <ConvertModal visible={visible} onClose={() => setVisible(false)}/>
     </span>
   );
 }
@@ -437,73 +526,6 @@ const ResultModal = observer(function ResultModal({visible, title, action, onClo
         onChange={e => setResult(e.target.value)}
         placeholder="补填处理结果（选填）"
       />
-    </Modal>
-  );
-});
-
-const ImportantModal = observer(function ImportantModal({visible, onClose}) {
-  const [reason, setReason] = useState('');
-  return (
-    <Modal
-      visible={visible}
-      title="标记重要"
-      confirmLoading={store.isActionSubmitting}
-      onCancel={() => {
-        onClose();
-        setReason('');
-      }}
-      onOk={() => {
-        if (!reason.trim()) {
-          message.warning('标记重要时必须填写原因');
-          return;
-        }
-        store.markImportant({importance_reason: reason.trim()})
-          .then(() => {
-            message.success('已标记为重要');
-            onClose();
-            setReason('');
-          })
-          .catch(() => {});
-      }}
-    >
-      <p>重要运行记录会进入系统履历；从普通升级为重要时，履历从标记时刻开始记录。</p>
-      <Input.TextArea
-        rows={3}
-        value={reason}
-        onChange={e => setReason(e.target.value)}
-        placeholder="请填写标记为重要的原因（必填）"
-      />
-    </Modal>
-  );
-});
-
-// 转为故障：带入系统/发生时间/标题/描述等初始信息，事务中创建正式故障单；
-// 同一运行记录重复转换由后端拒绝（已转故障或目标故障仍有效时）
-const ConvertModal = observer(function ConvertModal({visible, onClose}) {
-  const d = store.detail;
-  return (
-    <Modal
-      visible={visible}
-      title="转为正式故障"
-      confirmLoading={store.isActionSubmitting}
-      onCancel={onClose}
-      onOk={() => {
-        store.convertToFault({})
-          .then(() => {
-            message.success('已转为正式故障，后续处理请在故障处置中进行');
-            onClose();
-          })
-          .catch(() => {});
-      }}
-    >
-      <p>
-        将依据运行记录「{d.record_no}」创建正式故障单：带入所属系统、发生时间、
-        标题与情况描述、影响程度等初始信息。
-      </p>
-      <p>
-        转换后本记录状态变为"已转故障"，后续处置、恢复确认与关闭以故障单为准，
-        本记录不再重复维护处理状态。
-      </p>
     </Modal>
   );
 });

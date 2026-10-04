@@ -199,7 +199,9 @@ def _validate_fault_system(form, request, for_update=False, fault=None):
 
 def _fault_audit_summary(fault):
     """故障审计摘要：原因分析属于业务结论，变更前后值（含全文与未明标记）
-    随状态一并留痕（reason_analysis 限 2000 字，审计 detail 为 TextField 可承载）。"""
+    随状态一并留痕（reason_analysis 限 2000 字，审计 detail 为 TextField 可承载）；
+    结案说明（recovery_close_note）为结案说明唯一字段，非空时留痕
+    （空值不作为主要业务信息写入审计）。"""
     summary = {
         'fault_no': fault.fault_no,
         'status': fault.status,
@@ -209,6 +211,8 @@ def _fault_audit_summary(fault):
         'reason_unknown': fault.reason_unknown,
         'reason_analysis': fault.reason_analysis,
     }
+    if fault.recovery_close_note:
+        summary['recovery_close_note'] = fault.recovery_close_note
     if fault.status == SystemFault.STATUS_CANCELLED and fault.cancel_reason:
         summary['cancel_reason'] = fault.cancel_reason
     return summary
@@ -505,6 +509,7 @@ class FaultActionBaseView(View):
                     before_status = fault.status
                     before_reason_unknown = fault.reason_unknown
                     before_reason_analysis = fault.reason_analysis
+                    before_recovery_close_note = fault.recovery_close_note
                     error = self.handle_locked(request, fault)
                     if error:
                         return json_response(error=error)
@@ -514,6 +519,7 @@ class FaultActionBaseView(View):
                                            'status': before_status,
                                            'reason_unknown': before_reason_unknown,
                                            'reason_analysis': before_reason_analysis,
+                                           'recovery_close_note': before_recovery_close_note,
                                        },
                                        after_value=_fault_audit_summary(fault))
         except fault_services.HealthRecalcLockTimeout as exc:
@@ -549,7 +555,10 @@ class FaultRecoverView(FaultActionBaseView):
     """确认恢复并结案（2026-10 流程合并）：处置中 → 已关闭，单次事务。
 
     原"确认恢复"与"关闭故障"两步合并为一次操作：
-    - 恢复时间/恢复确认人/恢复确认信息/最终结果四项一次性校验写入；
+    - 恢复时间/恢复确认人/结案说明三项一次性校验写入；
+      结案说明（recovery_close_note，展示名"结案说明"）为唯一结案说明字段
+      （2026-10 字段合并）：一次性说明采取的处理措施、恢复验证依据与最终
+      处理结果，原 recover_confirm/final_result 两字段已删除，旧参数出现即拒绝；
     - 最终原因分析（reason_analysis + reason_unknown）随结案一并提交：
       默认回填处置中的原因分析，可修改或改为"原因未明"+未明说明
       （后端独立校验未明必填说明）；未提交时保留原值；
@@ -563,6 +572,10 @@ class FaultRecoverView(FaultActionBaseView):
     ACTION_NAME = '确认恢复并结案'
     audit_action = 'update'
 
+    # 恢复确认信息/最终结果已合并为 recovery_close_note（字段删除随 0054）：
+    # 旧参数出现即拒绝，不静默忽略（避免旧客户端提交被无声丢弃）
+    REMOVED_RECOVER_PARAMS = ('recover_confirm', 'final_result')
+
     @auth('equipment_lifecycle.fault.recover')
     def post(self, request, pk):
         # 合并操作须同时具备恢复确认与结案两项权限（与前端按钮双权限一致，
@@ -575,13 +588,18 @@ class FaultRecoverView(FaultActionBaseView):
         if fault.status != SystemFault.STATUS_HANDLING:
             return '只有处置中的故障才能确认恢复并结案'
         body = _read_json_body(request) or {}
+        removed = [k for k in self.REMOVED_RECOVER_PARAMS if k in body]
+        if removed:
+            return ('故障已不再支持参数：' + '、'.join(removed) +
+                    '，请改用"结案说明"')
         form, error = JsonParser(
             Argument('recovered_at', type=str, required=True, help='恢复时间'),
             Argument('recovered_by_name', type=str, required=False, default=None,
                      help='恢复确认人姓名（手动输入必填，不预填；实际确认恢复的人，'
                           '多人以顿号分隔；与登录账号审计字段独立，不关联 User）'),
-            Argument('recover_confirm', type=str, required=True, help='恢复确认信息'),
-            Argument('final_result', type=str, required=True, help='最终结果（结案必填）'),
+            Argument('recovery_close_note', type=str, required=True,
+                     help='结案说明（采取的处理措施、恢复验证依据及最终处理结果，'
+                          '不能为空或纯空格）'),
             Argument('reason_analysis', type=str, required=False, default=None,
                      help='最终原因分析（结案弹窗默认回填处置中的原因分析，可修改；'
                           '未提交时保留原值，旧客户端不受影响）'),
@@ -601,29 +619,29 @@ class FaultRecoverView(FaultActionBaseView):
         recovered_by_name = (form.recovered_by_name or '').strip()
         if not recovered_by_name:
             return '恢复确认人不能为空'
-        if not form.recover_confirm.strip():
-            return '恢复确认信息不能为空'
-        final_result = (form.final_result or '').strip()
-        if not final_result:
-            return '最终结果不能为空'
+        # 结案说明必填且不能只填空格（统一结案说明字段）
+        recovery_close_note = (form.recovery_close_note or '').strip()
+        if not recovery_close_note:
+            return '结案说明不能为空'
         # 最终原因分析随结案写入（未提交保留原值；未明必填说明，后端独立校验）
         final_reason, final_unknown, reason_error = _resolve_final_reason(fault, form)
         if reason_error:
             return reason_error
         # 一次性写入恢复确认与结案全部字段（更新审计字段同步留痕）
         fault.recovered_at = recovered_at
-        fault.recover_confirm = form.recover_confirm.strip()[:1000]
+        fault.recovery_close_note = recovery_close_note[:3000]
         fault.recovered_by_name = recovered_by_name[:200]
         fault.recovered_confirmed_at = timezone.now()
-        fault.final_result = final_result[:2000]
         fault.reason_analysis = final_reason
         fault.reason_unknown = final_unknown
         fault.updated_at = timezone.now()
         fault.updated_by = request.user
         fault.save()
-        # 履历保留"故障恢复确认"与"故障关闭"两个业务节点（同一事务写入）
+        # 履历保留"故障恢复确认"与"故障关闭"两个业务节点（同一事务写入），
+        # 恢复确认节点详情携带统一的结案说明
         event_services.record_fault_lifecycle_events(
             fault, 'recover', occurred_at=recovered_at,
+            detail={'recovery_close_note': recovery_close_note},
             created_by=request.user)
         fault.status = SystemFault.STATUS_CLOSED
         fault.save(update_fields=['status'])
@@ -819,7 +837,7 @@ class FaultExportView(View):
         else:
             query = query.exclude(status=SystemFault.STATUS_CANCELLED)
         headers = ['故障编号', '故障系统', '系统编号', '影响状态', '状态',
-                   '发生时间', '故障现象', '恢复时间', '最终结果',
+                   '发生时间', '故障现象', '恢复时间', '结案说明',
                    '故障登记人', '恢复确认人']
         rows = []
         for item in query:
@@ -832,7 +850,7 @@ class FaultExportView(View):
                 item.occurred_at.strftime('%Y-%m-%d %H:%M') if item.occurred_at else '',
                 item.phenomenon,
                 item.recovered_at.strftime('%Y-%m-%d %H:%M') if item.recovered_at else '',
-                item.final_result,
+                item.recovery_close_note,
                 item.registrar_name or '',
                 item.recovered_by_name or '',
             ])

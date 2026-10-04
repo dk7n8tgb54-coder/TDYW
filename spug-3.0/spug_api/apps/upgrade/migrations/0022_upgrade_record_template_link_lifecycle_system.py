@@ -52,7 +52,9 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('upgrade', '0021_alter_upgraderecord_unique_together_and_more'),
-        ('equipment_lifecycle', '0014_remove_operationledger_collaborator_names_and_more'),
+        # 2026-10 el 迁移合并：0001-0054 已折叠为单个 0001_initial，
+        # 本迁移的历史数据回填（LifecycleSystem 名称匹配）依赖其表结构
+        ('equipment_lifecycle', '0001_initial'),
     ]
 
     operations = [

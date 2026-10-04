@@ -5,7 +5,7 @@
 /**
  * 运行记录第二版组件渲染测试（2026-10）。
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
- * - 详情按状态显示 提交研判/研判 按钮（终态不显示）
+ * - 详情按状态显示 研判 按钮（已记录/待研判；终态不显示）
  * - 研判弹窗：无需跟进/需要跟进/转正式故障三种结论的请求载荷；
  *   转故障缺研判说明被客户端校验拦截（不发请求）
  * - 待办视图：只展示跟进中记录，超期/排序筛选参数生效，超期警示可见
@@ -133,6 +133,13 @@ function clickPopconfirmOk() {
   ok.click();
 }
 
+// 顶部动作按钮（排除详情弹窗 footer 的"关 闭"外壳按钮）
+function topButtonTexts() {
+  return Array.from(document.querySelectorAll('button'))
+    .filter(b => !b.closest('.ant-modal-footer'))
+    .map(b => b.textContent.replace(/\s+/g, ''));
+}
+
 const SYSTEMS = [
   {id: 1, system_code: 'SYS-A1', name: '烟台通信系统', install_location: '机房A'},
 ];
@@ -153,6 +160,10 @@ const RECORD_DETAIL = {
   measures_taken: '', handling_result: '',
   created_by_name: 'admin', created_at: '2026-10-01 08:35', updated_at: null,
 };
+
+// 待研判详情（历史数据兼容状态：顶部同样只有 研判 按钮）
+const PENDING_TRIAGE_DETAIL = {...RECORD_DETAIL, status: 'pending_triage',
+  status_text: '待研判'};
 
 const TODO_PAGE = {
   data: [
@@ -217,19 +228,28 @@ async function renderDetail(detailResponse) {
 }
 
 describe('运行记录 V2 · 研判', () => {
-  it('已记录状态显示 提交研判/研判 按钮，已关闭状态不显示', async () => {
+  it('已记录显示 研判+关闭（可留痕直关）；待研判只显示 研判；已关闭无业务按钮', async () => {
     await renderDetail();
-    let text = bodyText();
-    expect(text).toContain('提交研判');
-    expect(text).toContain('研判');
+    let texts = topButtonTexts();
+    expect(texts).toContain('研判');
+    expect(texts).not.toContain('提交研判');
+    // 研判为可选动作：留痕记录可直接关闭，不要求先研判
+    expect(texts).toContain('关闭');
+    ReactDOM.unmountComponentAtNode(container);
+    await renderDetail(PENDING_TRIAGE_DETAIL);
+    texts = topButtonTexts();
+    expect(texts).toContain('研判');
+    expect(texts).not.toContain('提交研判');
+    expect(texts).not.toContain('编辑');
     ReactDOM.unmountComponentAtNode(container);
     await renderDetail({...RECORD_DETAIL, status: 'closed', status_text: '已关闭'});
-    text = bodyText();
-    expect(text).not.toContain('提交研判');
+    texts = topButtonTexts();
+    expect(texts).not.toContain('提交研判');
+    expect(texts).not.toContain('研判');
   });
 
   it('研判弹窗：默认无需跟进结论提交 triage 载荷', async () => {
-    const store = await renderDetail();
+    const store = await renderDetail(PENDING_TRIAGE_DETAIL);
     clickButtonByTextExact('研判');
     await act(async () => {await flush();});
     mockHttpPost.mockResolvedValue({});
@@ -248,7 +268,7 @@ describe('运行记录 V2 · 研判', () => {
   });
 
   it('研判弹窗：需要跟进结论携带跟进人', async () => {
-    await renderDetail();
+    await renderDetail(PENDING_TRIAGE_DETAIL);
     clickButtonByTextExact('研判');
     await act(async () => {await flush();});
     clickRadioByText('需要跟进');
@@ -269,7 +289,7 @@ describe('运行记录 V2 · 研判', () => {
   });
 
   it('研判弹窗：转故障缺研判说明被客户端拦截，不发请求', async () => {
-    await renderDetail();
+    await renderDetail(PENDING_TRIAGE_DETAIL);
     clickButtonByTextExact('研判');
     await act(async () => {await flush();});
     clickRadioByText('转为正式故障');
@@ -282,7 +302,7 @@ describe('运行记录 V2 · 研判', () => {
   });
 
   it('研判弹窗：转故障填写说明后提交 convert_to_fault', async () => {
-    await renderDetail();
+    await renderDetail(PENDING_TRIAGE_DETAIL);
     clickButtonByTextExact('研判');
     await act(async () => {await flush();});
     clickRadioByText('转为正式故障');
@@ -304,7 +324,7 @@ describe('运行记录 V2 · 研判', () => {
   });
 
   it('研判提交失败：不崩溃、弹窗保持打开等待修正', async () => {
-    const store = await renderDetail();
+    const store = await renderDetail(PENDING_TRIAGE_DETAIL);
     clickButtonByTextExact('研判');
     await act(async () => {await flush();});
     mockHttpPost.mockRejectedValue(new Error('系统繁忙，请稍后重试'));

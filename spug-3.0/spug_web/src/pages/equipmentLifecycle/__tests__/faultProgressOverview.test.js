@@ -104,9 +104,9 @@ const FAULT_DETAIL = {
   occurred_at: '2026-09-18 08:30', phenomenon: '主用链路频繁丢包',
   fault_object_name: '接入交换机01', fault_object_model: 'H3C-5120', fault_object_sn: '',
   fault_component_name: '接入交换机',
-  reason_analysis: '', recovered_at: null, recover_confirm: '',
+  reason_analysis: '', recovered_at: null,
+  recovery_close_note: '',
   recovered_by_name: '', recovered_confirmed_at: null,
-  final_result: '',
   registrar_name: '登记员甲',
   created_by_name: 'admin', created_at: '2026-09-18 08:40',
   // 后端详情聚合的处理进展概览（fault_services.handling_overview）

@@ -822,6 +822,7 @@ class RuntimeRecordConvertToFaultView(View):
     """运行记录转为正式故障。
 
     - 双权限：runtime_record.convert_fault + fault.add（生成正式故障单）；
+    - 已记录（recorded）状态不能直接转换（须通过研判转为故障，防绕过研判入口）；
     - 持健康重算锁 + 行锁，转换/状态流转/履历同一事务，防并发重复转换；
     - 已存在未作废故障拒绝；仅存在已作废故障须填重新处置原因；
     - 转换后记录状态为 converted_fault（终态），后续处理以 SystemFault 为准。
@@ -854,6 +855,10 @@ class RuntimeRecordConvertToFaultView(View):
                     record = _get_record_for_user(pk, request.user, for_update=True)
                     if not record:
                         return json_response(error='运行记录不存在')
+                    if record.status == RUNTIME_RECORD_STATUS_RECORDED:
+                        # 已记录须通过研判转为故障（前端入口在研判弹窗内）
+                        return json_response(error='已记录的运行记录不能直接转为故障，'
+                                                   '请通过研判确认后转换')
                     fault = runtime_record_services.convert_runtime_record_to_fault(
                         record=record,
                         created_by=request.user,

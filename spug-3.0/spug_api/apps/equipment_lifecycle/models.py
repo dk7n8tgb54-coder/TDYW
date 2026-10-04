@@ -235,7 +235,13 @@ class SystemFault(TenantModelMixin, models.Model):
         help_text='原因未明标记（确实无法确定原因时为 True，reason_analysis 保存未明说明；'
                   '历史数据为 False）')
     recovered_at = models.DateTimeField(null=True, blank=True, help_text='恢复时间')
-    recover_confirm = models.TextField(max_length=1000, default='', blank=True, help_text='恢复确认信息')
+    # 结案说明（2026-10 字段合并）：唯一读写来源，结案时一次性填写
+    # 采取的处理措施、恢复验证依据与最终处理结果；原 recover_confirm（恢复确认
+    # 信息）与 final_result（最终结果）语义重复，已删除，历史数据由迁移 0054
+    # 合并回填（两者都有时按"恢复确认信息：…；最终结果：…"格式拼接，不丢内容）
+    recovery_close_note = models.TextField(
+        max_length=3000, default='', blank=True,
+        help_text='结案说明（采取的处理措施、恢复验证依据及最终处理结果）')
     # 恢复确认人（2026-09）：手动输入的确认人姓名（多人顿号分隔），参照故障登记人
     # registrar_name 口径——实际执行恢复确认的人，不关联 User（可能无系统账号）；
     # 原外键 recovered_by 已删除，历史数据迁移时回填为登录账号用户名文本
@@ -244,7 +250,6 @@ class SystemFault(TenantModelMixin, models.Model):
         help_text='恢复确认人（手动输入的确认人姓名，多人以顿号分隔；'
                   '历史数据回填为确认操作账号用户名）')
     recovered_confirmed_at = models.DateTimeField(null=True, blank=True, help_text='恢复确认时间')
-    final_result = models.TextField(max_length=2000, default='', blank=True, help_text='最终结果')
     cancel_reason = models.CharField(max_length=200, default='', blank=True,
                                      help_text='撤销原因（撤销错误/重复的故障登记时必填，审计与履历留痕）')
     # 撤销人与撤销时间（2026-10）：撤销登记操作留痕（与 updated_at/updated_by
@@ -367,10 +372,9 @@ class SystemFault(TenantModelMixin, models.Model):
             'reason_analysis': self.reason_analysis,
             'reason_unknown': self.reason_unknown,
             'recovered_at': self.recovered_at,
-            'recover_confirm': self.recover_confirm,
+            'recovery_close_note': self.recovery_close_note,
             'recovered_by_name': self.recovered_by_name or '',
             'recovered_confirmed_at': self.recovered_confirmed_at,
-            'final_result': self.final_result,
             # 撤销登记留痕（2026-10）：已撤销详情回显撤销原因/时间/人，仅供历史追溯
             'cancel_reason': self.cancel_reason or '',
             'cancelled_at': self.cancelled_at,
@@ -1570,7 +1574,9 @@ RUNTIME_RECORD_NO_PREFIX = 'YX'
 RUNTIME_RECORD_NO_SEQ_LIMIT = 9999
 
 RUNTIME_RECORD_STATUS_RECORDED = 'recorded'
-# 第二版（2026-10）新增：待研判（研判已介入、结论待定）与无需跟进（研判结论：不需要跟进）
+# 第二版（2026-10）：无需跟进（研判结论：不需要跟进）；pending_triage（待研判）
+# 自 2026-10-04 起仅为历史兼容状态（新流程新建即 recorded，研判直接出结论，
+# 状态机无任何入口），枚举保留以防历史数据与旧接口报错。
 RUNTIME_RECORD_STATUS_PENDING_TRIAGE = 'pending_triage'
 RUNTIME_RECORD_STATUS_NO_FOLLOW_UP = 'no_follow_up'
 RUNTIME_RECORD_STATUS_FOLLOWING_UP = 'following_up'
@@ -1587,31 +1593,38 @@ RUNTIME_RECORD_STATUS_VALUES = [
     RUNTIME_RECORD_STATUS_CLOSED,
 ]
 
-# 研判可介入的状态（研判动作只对未定论/已研判但结论未落地的记录开放）
+# 研判可介入的状态：已记录/待研判直接出结论；无需跟进可重新研判纠正结论。
+# （同一操作主体登记+研判，无责任交接，已记录无需先进入待研判队列）
 TRIAGEABLE_RUNTIME_RECORD_STATUSES = (
     RUNTIME_RECORD_STATUS_RECORDED,
     RUNTIME_RECORD_STATUS_PENDING_TRIAGE,
+    RUNTIME_RECORD_STATUS_NO_FOLLOW_UP,
 )
 
 # 状态机（后端动作接口校验）：
-# recorded → pending_triage/no_follow_up/following_up/resolved/closed/converted_fault；
-# pending_triage → no_follow_up/following_up/resolved/closed/converted_fault；
-# no_follow_up → following_up/resolved/closed/converted_fault（研判后改判可重新跟进）；
+# recorded（已记录，合法稳定状态，可长期保留）→ no_follow_up/following_up/
+#   converted_fault/closed（研判可选：留痕记录无需研判即可保留或直接关闭；
+#   禁止直接 resolve/独立转故障绕过研判入口）；
+# pending_triage → no_follow_up/following_up/converted_fault（仅历史数据兼容，
+#   新流程不再产生该状态，状态机无任何入口）；
+# no_follow_up → no_follow_up（重新研判维持结论）/following_up/converted_fault；
+#   （resolved/closed 仅为兼容保留，详情页不再提供直接入口）；
 # following_up → resolved/closed/converted_fault；
-# resolved → following_up（已处理后重新跟进）/closed/converted_fault；
+# resolved → following_up（重新跟进）/closed/converted_fault；
 # converted_fault/closed 为终态：正式处置以 SystemFault 为准，不再双向同步状态。
 RUNTIME_RECORD_TRANSITIONS = {
     RUNTIME_RECORD_STATUS_RECORDED: {
-        RUNTIME_RECORD_STATUS_PENDING_TRIAGE, RUNTIME_RECORD_STATUS_NO_FOLLOW_UP,
-        RUNTIME_RECORD_STATUS_FOLLOWING_UP, RUNTIME_RECORD_STATUS_RESOLVED,
-        RUNTIME_RECORD_STATUS_CLOSED, RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
+        RUNTIME_RECORD_STATUS_NO_FOLLOW_UP,
+        RUNTIME_RECORD_STATUS_FOLLOWING_UP, RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
+        RUNTIME_RECORD_STATUS_CLOSED,
     },
     RUNTIME_RECORD_STATUS_PENDING_TRIAGE: {
         RUNTIME_RECORD_STATUS_NO_FOLLOW_UP, RUNTIME_RECORD_STATUS_FOLLOWING_UP,
-        RUNTIME_RECORD_STATUS_RESOLVED, RUNTIME_RECORD_STATUS_CLOSED,
         RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
     },
     RUNTIME_RECORD_STATUS_NO_FOLLOW_UP: {
+        # 重新研判维持"无需跟进"结论：仅更新研判人/时间/说明，不产生状态变化
+        RUNTIME_RECORD_STATUS_NO_FOLLOW_UP,
         RUNTIME_RECORD_STATUS_FOLLOWING_UP, RUNTIME_RECORD_STATUS_RESOLVED,
         RUNTIME_RECORD_STATUS_CLOSED, RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
     },
@@ -1676,7 +1689,10 @@ class SystemRuntimeRecord(TenantModelMixin, models.Model):
     """运行记录：异常与运行情况的统一录入入口（第一版）。
 
     - 新建只要求 系统/发生时间/标题/情况描述，其余字段选填或默认值；
-    - 普通小问题可直接标记已处理并关闭，不生成系统履历；
+    - 新建成功即 recorded（已记录，合法稳定状态，可长期保留，不作为待办）；
+      研判为可选动作（已记录/历史待研判/无需跟进可直接研判，一次动作完成
+      结论落地）；留痕记录可直接关闭，无需先研判；
+      普通小问题研判定论后处理并关闭，不生成系统履历；
     - 影响系统运行（affects_system_operation=True 且 impact_status 非空）的
       记录创建时写入一次系统履历；标记重要时写入"标记重要"履历（须填原因，
       重复标记拒绝，不伪造历史事件）；转为故障时记录侧写入"转为故障"履历

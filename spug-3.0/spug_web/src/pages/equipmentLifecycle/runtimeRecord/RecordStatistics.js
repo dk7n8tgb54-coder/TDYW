@@ -5,7 +5,8 @@
 /**
  * 设备全生命周期——运行记录只读统计视图（2026-10 第二版）。
  * 系统维度 / 状态维度 / 时间趋势 / 转故障数量 / 重复问题数量 / 重要记录 /
- * 长期未关闭 / 平均处理时长。统计只使用运行记录数据（巡视、维护、配置变更、
+ * 长期未关闭（仅统计跟进中：已记录留痕与无需跟进为合法稳定状态，不计入
+ * 积压）/ 平均处理时长。统计只使用运行记录数据（巡视、维护、配置变更、
  * 升级不进入本统计）；时间范围用发生时间起止筛选（后端 __gte/__lt）。
  */
 import React from 'react';
@@ -79,7 +80,7 @@ function TotalsCards({totals}) {
       <Col span={4}>
         <Card size="small">
           <Statistic
-            title="长期未关闭"
+            title="长期未关闭（跟进中）"
             value={totals.stale_open}
             suffix={`/ ${totals.stale_days || STATS_STALE_DAYS_DEFAULT}天`}
           />

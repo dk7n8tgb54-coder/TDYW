@@ -111,16 +111,15 @@ describe('故障 Store · 状态动作与处理进展', () => {
     store.detailId = 8;
     mockHttpPost.mockResolvedValue({});
     mockHttpGet.mockResolvedValue({data: [], total: 0});
-    // 2026-10 流程合并：确认恢复与关闭故障一次提交（四项字段一次事务）
+    // 2026-10 流程合并：确认恢复与关闭故障一次提交（统一结案说明一次事务）
     await store.confirmRecoverAndClose({
       recovered_at: '2026-09-18 10:00',
       recovered_by_name: '确认人甲',
-      recover_confirm: '已恢复',
-      final_result: '更换板卡'});
+      recovery_close_note: '更换板卡，已恢复'});
     expect(mockHttpPost).toHaveBeenLastCalledWith(
       '/api/equipment-lifecycle/faults/8/recover/',
       {recovered_at: '2026-09-18 10:00', recovered_by_name: '确认人甲',
-        recover_confirm: '已恢复', final_result: '更换板卡'});
+        recovery_close_note: '更换板卡，已恢复'});
     await store.cancelFault({cancel_reason: '误报'});
     expect(mockHttpPost).toHaveBeenLastCalledWith(
       '/api/equipment-lifecycle/faults/8/cancel/', {cancel_reason: '误报'});
@@ -139,7 +138,7 @@ describe('故障 Store · 状态动作与处理进展', () => {
     expect(store.closeFault).toBeUndefined();
     await store.confirmRecoverAndClose({
       recovered_at: '2026-09-18 10:00', recovered_by_name: '确认人甲',
-      recover_confirm: '已恢复', final_result: 'x'});
+      recovery_close_note: '已恢复'});
     await store.cancelFault({cancel_reason: '误报'});
     const posted = mockHttpPost.mock.calls.map(call => call[0]);
     expect(posted).not.toContain('/api/equipment-lifecycle/faults/8/start/');

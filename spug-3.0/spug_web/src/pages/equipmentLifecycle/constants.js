@@ -133,10 +133,12 @@ export const FAULT_PROGRESS_TYPE_TEXT = FAULT_PROGRESS_TYPE_OPTIONS.reduce((acc,
 
 
 // 运行记录状态（与后端 SystemRuntimeRecord.STATUS_* 一致）
-// 第二版（2026-10）新增：待研判 / 无需跟进
+// 第二版（2026-10）新增：无需跟进；待研判自 2026-10-04 起为历史兼容状态
+// （新流程新建即"已记录"，研判直接出结论，不再产生待研判）。
+// 研判为可选动作：已记录可留痕保留或直接关闭，不要求先研判。
 export const RUNTIME_STATUS_OPTIONS = [
   {value: 'recorded', label: '已记录'},
-  {value: 'pending_triage', label: '待研判'},
+  {value: 'pending_triage', label: '待研判（历史）'},
   {value: 'no_follow_up', label: '无需跟进'},
   {value: 'following_up', label: '跟进中'},
   {value: 'resolved', label: '已处理'},

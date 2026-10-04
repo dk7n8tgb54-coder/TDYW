@@ -76,9 +76,9 @@ const FAULT_DETAIL = {
   occurred_at: '2026-09-18 08:30', phenomenon: '主用链路频繁丢包',
   fault_object_name: '接入交换机01', fault_object_model: 'H3C-5120', fault_object_sn: '',
   fault_component_name: '接入交换机',
-  reason_analysis: '', recovered_at: null, recover_confirm: '',
+  reason_analysis: '', recovered_at: null,
+  recovery_close_note: '',
   recovered_by_name: '', recovered_confirmed_at: null,
-  final_result: '',
   registrar_name: '登记员甲',
   created_by_name: 'admin', created_at: '2026-09-18 08:40',
 };
@@ -543,36 +543,42 @@ describe('基本信息三区块（2026-10 重组：故障概况/处置结果/来
     // 原因分析始终展示（无内容显示"-"）
     expect(text).toContain('原因分析');
     expect(text).toContain('尚未完成恢复确认');
-    ['恢复时间', '恢复确认人', '恢复确认信息', '最终结果'].forEach(label => {
+    ['恢复时间', '恢复确认人', '结案说明'].forEach(label => {
       expect(text).not.toContain(label);
     });
   });
 
-  it('处置中但已有部分恢复数据时正常展示恢复字段', async () => {
-    await renderDetail('handling', {recover_confirm: '已倒备用链路，等待备件'});
+  it('处置中但已有部分恢复数据时正常展示恢复字段（含统一结案说明）', async () => {
+    await renderDetail('handling', {recovery_close_note: '已倒备用链路，等待备件'});
     const text = bodyText();
     expect(text).not.toContain('尚未完成恢复确认');
     expect(text).toContain('恢复时间');
-    expect(text).toContain('恢复确认信息');
+    expect(text).toContain('结案说明');
+    expect(text).toContain('已倒备用链路，等待备件');
+    // 旧两字段不再同时展示（统一为结案说明）
+    expect(text).not.toContain('恢复确认信息');
+    expect(text).not.toContain('最终结果');
   });
 
-  it('已关闭故障完整展示恢复时间/确认人/确认信息/最终结果（终态不丢恢复事实）', async () => {
+  it('已关闭故障完整展示恢复时间/确认人/结案说明（终态不丢恢复事实）', async () => {
     await renderDetail('closed', {
       recovered_at: '2026-09-18 12:00',
       recovered_by_name: '确认人甲',
       recovered_confirmed_at: '2026-09-18 12:10',
-      recover_confirm: '业务验证通过',
-      final_result: '更换备件并复测通过',
+      recovery_close_note: '更换备件并复测通过，业务验证通过',
     });
     const text = bodyText();
     expect(text).not.toContain('尚未完成恢复确认');
     expect(text).toContain('恢复时间');
     expect(text).toContain('2026-09-1812:00');
     expect(text).toContain('确认人甲');
-    expect(text).toContain('业务验证通过');
-    expect(text).toContain('更换备件并复测通过');
-    // 处置结果区块在"来源与登记"之前：最终结果在故障登记人之前出现
-    expect(text.indexOf('最终结果')).toBeLessThan(text.indexOf('故障登记人'));
+    expect(text).toContain('更换备件并复测通过，业务验证通过');
+    expect(text).not.toContain('恢复确认信息');
+    expect(text).not.toContain('最终结果');
+    // 结案说明位于原因分析（已关闭展示最终原因）之后、处置结果区块之内
+    expect(text.indexOf('原因分析')).toBeLessThan(text.indexOf('结案说明'));
+    // 处置结果区块在"来源与登记"之前：结案说明在故障登记人之前出现
+    expect(text.indexOf('结案说明')).toBeLessThan(text.indexOf('故障登记人'));
   });
 
   it('来源与登记区块按来源类型展示追溯入口，登记人/登记时间始终展示', async () => {

@@ -104,8 +104,7 @@ class FaultTestBase(TestCase):
         r = client.post(f'{FAULT_URL}/{fid}/recover/', {
             'recovered_at': '2026-09-18 10:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '链路已切换主备，业务恢复正常',
-            'final_result': '更换光模块并恢复主用链路',
+            'recovery_close_note': '更换光模块并恢复主用链路，业务验证恢复正常',
         }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
         return SystemFault.objects.get(pk=fid)
@@ -269,31 +268,42 @@ class FaultFieldRetirementTest(FaultTestBase):
                 ['closed', fid])
         self.assertEqual(SystemFault.objects.get(pk=fid).status, 'closed')
 
-    def test_recover_and_close_requires_all_four_fields(self):
-        """确认恢复并结案一次性校验：四项任一缺失即拒绝且不落库。"""
+    def test_recover_and_close_requires_all_fields(self):
+        """确认恢复并结案一次性校验：必填项缺失即拒绝且不落库，旧参数拒绝。"""
         fid = self.create_fault(fault_payload(
             self.system_a, occurred_at=self.next_occurred_at()))['data']['id']
         client = make_client(self.admin)
         full = {
             'recovered_at': '2026-09-18 10:00',
             'recovered_by_name': '确认人甲',
-            'recover_confirm': '业务验证恢复',
-            'final_result': '更换备件并验证恢复',
+            'recovery_close_note': '更换备件并验证恢复，业务验证正常',
         }
-        # 缺恢复确认人 / 缺恢复确认信息 / 缺最终结果 / 缺恢复时间
-        for missing in ('recovered_by_name', 'recover_confirm', 'final_result',
+        # 缺恢复确认人 / 缺恢复确认与结案说明 / 缺恢复时间
+        for missing in ('recovered_by_name', 'recovery_close_note',
                         'recovered_at'):
             payload = {k: v for k, v in full.items() if k != missing}
             resp = client.post(f'{FAULT_URL}/{fid}/recover/', payload,
                                content_type='application/json')
             self.assertTrue(resp.json().get('error'), resp.content)
             self.assertEqual(SystemFault.objects.get(pk=fid).status, 'handling')
+        # 结案说明只填空格同样拒绝（不能为空或纯空格）
+        resp = client.post(f'{FAULT_URL}/{fid}/recover/', dict(
+            full, recovery_close_note='   '), content_type='application/json')
+        self.assertIn('结案说明不能为空', resp.json().get('error', ''))
+        self.assertEqual(SystemFault.objects.get(pk=fid).status, 'handling')
+        # 旧参数（恢复确认信息/最终结果）已合并删除：出现即拒绝，不静默忽略
+        for old_param in ('recover_confirm', 'final_result'):
+            resp = client.post(f'{FAULT_URL}/{fid}/recover/', dict(
+                full, **{old_param: '旧字段内容'}),
+                content_type='application/json')
+            self.assertIn('不再支持参数', resp.json().get('error', ''), resp.content)
+            self.assertEqual(SystemFault.objects.get(pk=fid).status, 'handling')
         # 恢复时间早于故障发生时间同样拒绝
         resp = client.post(f'{FAULT_URL}/{fid}/recover/', dict(
             full, recovered_at='2026-09-18 07:00'), content_type='application/json')
         self.assertIn('恢复时间不能早于', resp.json().get('error', ''))
         self.assertEqual(SystemFault.objects.get(pk=fid).status, 'handling')
-        # 四项齐全：一次操作直接进入终态已关闭，恢复字段完整落库
+        # 必填项齐全：一次操作直接进入终态已关闭，恢复字段完整落库
         resp = client.post(f'{FAULT_URL}/{fid}/recover/', full,
                            content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -301,8 +311,8 @@ class FaultFieldRetirementTest(FaultTestBase):
         self.assertEqual(fault.status, 'closed')
         self.assertEqual(str(fault.recovered_at), '2026-09-18 10:00:00')
         self.assertEqual(fault.recovered_by_name, '确认人甲')
-        self.assertEqual(fault.recover_confirm, '业务验证恢复')
-        self.assertEqual(fault.final_result, '更换备件并验证恢复')
+        self.assertEqual(
+            fault.recovery_close_note, '更换备件并验证恢复，业务验证正常')
         self.assertIsNotNone(fault.recovered_confirmed_at)
 
     def test_level_filter_and_export_columns_removed(self):
@@ -321,6 +331,31 @@ class FaultFieldRetirementTest(FaultTestBase):
         self.assertIn('主用链路频繁丢包', text)
         for gone in ('发现方式', '故障级别', '处置负责人', '影响范围', '故障位置'):
             self.assertNotIn(gone, text)
+
+    def test_export_unified_close_note_and_excludes_cancelled(self):
+        """导出只含"结案说明"列（与详情一致），不再含两个旧字段；
+        已撤销故障默认仍不导出。"""
+        closed = self.run_lifecycle(self.system_a)
+        detail = make_client(self.admin).get(
+            f'{FAULT_URL}/{closed.id}/').json()['data']
+        client = make_client(self.admin)
+        text = client.get(f'{FAULT_URL}/export/').content.decode('utf-8-sig')
+        # 新列存在且内容与详情展示一致（详情接口同源字段）
+        self.assertIn('结案说明', text)
+        self.assertIn(detail['recovery_close_note'], text)
+        # 两个旧列不再出现（新列名不包含旧列名子串，可直接断言）
+        for gone in ('恢复确认信息', '最终结果'):
+            self.assertNotIn(gone, text)
+        # 已撤销故障不在默认导出中（撤销一张新故障后其编号不出现）
+        body = self.create_fault(fault_payload(
+            self.system_a, occurred_at=self.next_occurred_at()))
+        fid = body['data']['id']
+        resp = client.post(f'{FAULT_URL}/{fid}/cancel/', {'cancel_reason': '误报'},
+                           content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        rows_after = client.get(f'{FAULT_URL}/export/').content.decode('utf-8-sig')
+        cancelled_no = SystemFault.objects.get(pk=fid).fault_no
+        self.assertNotIn(cancelled_no, rows_after)
 
     def test_edit_minimal_payload_preserves_history(self):
         """精简编辑载荷（不含对象型号/序列号）保留原值，不静默清空历史数据。"""
@@ -465,8 +500,7 @@ class HealthStatusComputationTest(FaultTestBase):
         resp = client.post(f'{FAULT_URL}/{f1.id}/recover/', {
             'recovered_at': '2026-09-18 12:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务确认恢复',
-            'final_result': '更换光模块恢复链路'},
+            'recovery_close_note': '更换光模块恢复链路，业务确认恢复'},
             content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(self._refresh(self.system_a), 'normal')
@@ -539,12 +573,11 @@ class FaultLifecycleTest(FaultTestBase):
         self.assertEqual(AuditLog.objects.filter(
             tenant_id='tenant_a', target_type='el_system_fault',
             target_id=str(fid)).count(), before_audits)
-        # 合并操作：确认恢复并结案一次事务完成（四项字段一次提交）
+        # 合并操作：确认恢复并结案一次事务完成（必填字段一次提交）
         payload = {
             'recovered_at': '2026-09-18 10:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务验证恢复',
-            'final_result': '更换备件并验证恢复',
+            'recovery_close_note': '更换备件并验证恢复，业务验证正常',
         }
         resp = client.post(f'{FAULT_URL}/{fid}/recover/', payload,
                            content_type='application/json')
@@ -573,9 +606,9 @@ class FaultLifecycleTest(FaultTestBase):
         body = self.create_fault(fault_payload(self.system_a))
         fid = body['data']['id']
         client = make_client(self.admin)
-        payload = {'recovered_at': '2026-09-18 10:00', 'recover_confirm': '已恢复',
+        payload = {'recovered_at': '2026-09-18 10:00',
                    'recovered_by_name': '恢复确认人甲',
-                   'final_result': '更换备件并验证恢复'}
+                   'recovery_close_note': '更换备件并验证恢复'}
         first = client.post(f'{FAULT_URL}/{fid}/recover/', payload,
                             content_type='application/json').json()
         self.assertFalse(first.get('error'), first)
@@ -814,8 +847,7 @@ class FaultHandlingProgressTest(FaultTestBase):
         resp = client.post(f'{FAULT_URL}/{fault.id}/recover/', {
             'recovered_at': '2026-09-18 11:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '本方测试通过，业务验证正常',
-            'final_result': '更换备件并测试通过',
+            'recovery_close_note': '更换备件并测试通过，本方测试通过，业务验证正常',
         }, content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         fault.refresh_from_db()
@@ -883,8 +915,7 @@ class FaultPermissionTest(FaultTestBase):
         payload = {
             'recovered_at': '2026-09-18 10:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务验证恢复',
-            'final_result': '更换备件并验证恢复',
+            'recovery_close_note': '更换备件并验证恢复，业务验证正常',
         }
         # 只有 recover 权限：缺 close 权限，合并操作被后端独立拒绝
         only_recover = make_user(

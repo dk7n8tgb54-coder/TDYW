@@ -175,8 +175,7 @@ class HandlingOverviewFieldTest(HandlingOverviewTestBase):
             f'{FAULT_URL}/{closed.id}/recover/', {
                 'recovered_at': '2026-10-01 10:00',
                 'recovered_by_name': '确认人甲',
-                'recover_confirm': '业务验证恢复',
-                'final_result': '更换备件并复测通过',
+                'recovery_close_note': '业务验证恢复，更换备件并复测通过',
             }, content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(SystemFault.objects.get(pk=closed.id).status, 'closed')

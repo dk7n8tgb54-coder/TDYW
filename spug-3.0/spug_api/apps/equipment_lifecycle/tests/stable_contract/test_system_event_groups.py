@@ -125,8 +125,7 @@ class SystemEventGroupTestBase(TestCase):
         r = self.client.post(f'{FAULT_URL}/{fid}/recover/', {
             'recovered_at': recover_at,
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务已恢复正常',
-            'final_result': '更换备件并验证',
+            'recovery_close_note': '业务已恢复正常，更换备件并验证',
         }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
         return fid, fno

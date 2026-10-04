@@ -2,12 +2,14 @@
  * 确认恢复并结案弹窗测试（2026-10 流程合并，自 faultComponents.test.js 拆出）。
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
- * - 弹窗一次展示四个必填字段（恢复时间/恢复确认人/恢复确认信息/最终结果）
- * - 四项任一缺失提交被前端校验拦截（不发请求）；最终结果结案必填
+ * - 弹窗一次展示三个必填字段（恢复时间/恢复确认人/结案说明）
+ * - 结案说明字段合并（2026-10-04）：只展示"结案说明"一个文本框，
+ *   原"恢复确认信息"/"最终结果"两框不再同时出现，提交只携带统一字段
+ * - 结案说明缺失或纯空格提交被前端校验拦截（不发请求）
  * - 恢复确认人必填手输：不预填登录账号，多人顿号拼接提交
  * - 提交成功后重新拉取详情（确认恢复并结案 → 已关闭终态刷新）
  * - 后端业务错误时不进入成功路径（不刷新详情，弹窗保持可重试）
- * - 历史"已恢复"故障（旧流程过渡态）打开弹窗预填既有恢复确认数据
+ * - 存量带恢复数据的记录打开弹窗预填既有结案说明
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -68,9 +70,9 @@ const FAULT_DETAIL = {
   occurred_at: '2026-09-18 08:30', phenomenon: '主用链路频繁丢包',
   fault_object_name: '接入交换机01', fault_object_model: 'H3C-5120', fault_object_sn: '',
   fault_component_name: '接入交换机',
-  reason_analysis: '', recovered_at: null, recover_confirm: '',
+  reason_analysis: '', recovered_at: null,
+  recovery_close_note: '',
   recovered_by_name: '', recovered_confirmed_at: null,
-  final_result: '',
   registrar_name: '登记员甲',
   created_by_name: 'admin', created_at: '2026-09-18 08:40',
 };
@@ -182,7 +184,7 @@ async function submitModal(method) {
   await act(async () => {await flush();});
 }
 
-describe('确认恢复并结案弹窗（2026-10 流程合并：四项一次校验，直接进入终态）', () => {
+describe('确认恢复并结案弹窗（三项一次校验，直接进入终态）', () => {
   async function openRecoverModal(status = 'handling', overrides) {
     await renderDetail(status, overrides);
     const recoverButton = Array.from(document.querySelectorAll('button'))
@@ -194,46 +196,55 @@ describe('确认恢复并结案弹窗（2026-10 流程合并：四项一次校�
     await act(async () => {await flush();});
   }
 
-  it('弹窗一次展示四个必填字段（恢复时间/确认人/确认信息/最终结果）', async () => {
+  it('弹窗只展示"结案说明"一个结案文本框，旧两字段不再同时显示', async () => {
     await openRecoverModal();
     const text = modalText();
     expect(text).toContain('恢复时间');
     expect(text).toContain('恢复确认人');
-    expect(text).toContain('恢复确认信息');
-    expect(text).toContain('最终结果');
+    expect(text).toContain('结案说明');
+    // 原"恢复确认信息"/"最终结果"两个输入框已合并删除
+    expect(text).not.toContain('恢复确认信息');
+    expect(text).not.toContain('最终结果');
+    // 结案说明只有一个 TextArea（多行输入框）
+    const noteItem = findFormItem('结案说明');
+    expect(noteItem.querySelectorAll('textarea').length).toBe(1);
+    // 结案说明位于最终原因分析之下（用户指定排序）
+    expect(text.indexOf('最终原因分析')).toBeGreaterThan(-1);
+    expect(text.indexOf('最终原因分析')).toBeLessThan(text.indexOf('结案说明'));
     // 恢复时间默认当前时间
     const timeInput = findFormItem('恢复时间').querySelector('input');
     expect(timeInput.value).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
     expect(selectionTags('恢复确认人')).toEqual([]);
   });
 
-  it('四项任一缺失提交被前端校验拦截（不发请求）；最终结果为必填', async () => {
+  it('结案说明缺失或纯空格提交被拦截（不发请求）；填写后真实提交统一字段', async () => {
     await openRecoverModal();
-    // 仅填恢复确认信息：缺恢复确认人与最终结果 → required 拦截
-    await setTextareaValue('恢复确认信息', '业务验证已恢复');
-    await submitModal('post');
-    expect(mockHttpPost).toHaveBeenCalledTimes(0);
-    // 补齐确认人，仍缺最终结果 → 拦截
+    // 仅填恢复确认人：缺结案说明 → required 拦截
     await typeAndEnter('恢复确认人', '确认人甲');
     await submitModal('post');
     expect(mockHttpPost).toHaveBeenCalledTimes(0);
-    // 补齐最终结果 → 真实提交（一个弹窗一次事务完成恢复+结案）
-    await setTextareaValue('最终结果', '更换备件并复测通过');
+    // 结案说明只填空格 → whitespace 校验同样拦截（不能只填空格）
+    await setTextareaValue('结案说明', '   ');
+    await submitModal('post');
+    expect(mockHttpPost).toHaveBeenCalledTimes(0);
+    // 补齐结案说明 → 真实提交（一个弹窗一次事务完成恢复+结案）
+    await setTextareaValue('结案说明', '更换备件并复测通过，业务验证正常');
     await submitModal('post');
     expect(mockHttpPost).toHaveBeenCalledTimes(1);
     const [url, payload] = mockHttpPost.mock.calls[0];
     expect(url).toBe('/api/equipment-lifecycle/faults/11/recover/');
     expect(payload.recovered_by_name).toBe('确认人甲');
-    expect(payload.recover_confirm).toBe('业务验证已恢复');
-    expect(payload.final_result).toBe('更换备件并复测通过');
+    expect(payload.recovery_close_note).toBe('更换备件并复测通过，业务验证正常');
     expect(payload.recovered_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    // 前端只提交统一字段，不再发送新旧两套参数
+    expect(payload).not.toHaveProperty('recover_confirm');
+    expect(payload).not.toHaveProperty('final_result');
   });
 
   it('恢复确认人必填手输：不预填登录账号，多人顿号拼接提交', async () => {
     await openRecoverModal();
     expect(selectionTags('恢复确认人')).toEqual([]);
-    await setTextareaValue('恢复确认信息', '业务验证已恢复');
-    await setTextareaValue('最终结果', '更换备件并复测通过');
+    await setTextareaValue('结案说明', '更换备件并复测通过，业务验证正常');
     await typeAndEnter('恢复确认人', '确认人甲');
     await typeAndEnter('恢复确认人', '确认人乙');
     await submitModal('post');
@@ -245,8 +256,7 @@ describe('确认恢复并结案弹窗（2026-10 流程合并：四项一次校�
 
   it('提交成功后重新拉取详情并展示已关闭终态（成功提示一次）', async () => {
     await openRecoverModal();
-    await setTextareaValue('恢复确认信息', '业务验证已恢复');
-    await setTextareaValue('最终结果', '更换备件并复测通过');
+    await setTextareaValue('结案说明', '更换备件并复测通过，业务验证正常');
     await typeAndEnter('恢复确认人', '确认人甲');
     await submitModal('post');
     // 动作成功路径触发统一刷新：详情 + 处理进展 + 列表各一次
@@ -257,8 +267,7 @@ describe('确认恢复并结案弹窗（2026-10 流程合并：四项一次校�
 
   it('后端返回业务错误时不进入成功路径（不刷新详情，Promise 拒绝被吞）', async () => {
     await openRecoverModal();
-    await setTextareaValue('恢复确认信息', '业务验证已恢复');
-    await setTextareaValue('最终结果', '更换备件并复测通过');
+    await setTextareaValue('结案说明', '更换备件并复测通过，业务验证正常');
     await typeAndEnter('恢复确认人', '确认人甲');
     // http 拦截器对业务错误 reject：成功路径（重新拉取详情/弹窗关闭）不执行
     mockHttpPost.mockRejectedValueOnce(new Error('已关闭或已作废的故障不能重复确认恢复并结案'));
@@ -271,24 +280,21 @@ describe('确认恢复并结案弹窗（2026-10 流程合并：四项一次校�
       '/api/equipment-lifecycle/faults/11/recover/');
   });
 
-  it('存量带恢复数据的记录（迁移转为处置中）打开弹窗预填既有恢复确认数据', async () => {
-    // 迁移 0051 把旧流程 recovered 存量转为 handling，其恢复确认字段保留：
+  it('存量带恢复数据的记录（迁移转为处置中）打开弹窗预填既有结案说明', async () => {
+    // 迁移 0051 把旧流程 recovered 存量转为 handling，其结案说明字段保留：
     // 打开合并弹窗时预填既有值，重新确认后结案
     await openRecoverModal('handling', {
       recovered_at: '2026-09-18 10:00:00',
       recovered_by_name: '恢复确认人甲',
-      recover_confirm: '旧流程已完成恢复确认',
-      final_result: '更换备件并验证',
+      recovery_close_note: '旧流程已完成恢复确认，更换备件并验证',
     });
     const text = modalText();
     expect(text).toContain('确认恢复并结案');
-    // 预填：恢复时间/确认人/确认信息/最终结果取详情既有值
+    // 预填：恢复时间/确认人/结案说明取详情既有值
     const timeInput = findFormItem('恢复时间').querySelector('input');
     expect(timeInput.value).toBe('2026-09-18 10:00');
     expect(selectionTags('恢复确认人')).toEqual(['恢复确认人甲']);
-    const confirmArea = findFormItem('恢复确认信息').querySelector('textarea');
-    expect(confirmArea.value).toBe('旧流程已完成恢复确认');
-    const resultArea = findFormItem('最终结果').querySelector('textarea');
-    expect(resultArea.value).toBe('更换备件并验证');
+    const noteArea = findFormItem('结案说明').querySelector('textarea');
+    expect(noteArea.value).toBe('旧流程已完成恢复确认，更换备件并验证');
   });
 });

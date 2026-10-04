@@ -208,6 +208,8 @@ def convert_runtime_record_to_fault(*, record, created_by, request=None,
     """运行记录转正式故障（须在 health_recalc_lock + transaction.atomic 内调用）。
 
     - record 必须已加行锁（select_for_update），防并发重复转换；
+    - 已关闭不能转换；已记录（recorded）状态的独立转换拦截在视图层
+      （RuntimeRecordConvertToFaultView），研判转故障路径不受影响；
     - 已存在未作废故障 → 拒绝（不能静默重复创建）；仅存在已作废故障 →
       须填写重新处置原因（与台账异常转故障同一规则）；
     - 故障初始字段由运行记录带入：系统（外键+快照）、发生时间、标题+描述
@@ -290,17 +292,14 @@ def maybe_record_triage_affect_event(record, was_affecting, created_by=None):
     )
 
 
-# "长期未关闭"判定天数：创建超过该天数仍未进入终态（已关闭/已转故障）的记录
+# "长期未关闭"判定天数：创建超过该天数仍未关闭的跟进中记录
 RUNTIME_RECORD_STALE_DAYS = 7
 
-# 统计只反映运行记录本身；巡视/维护/配置变更/升级数据一律不进入本统计。
-# OPEN_STATUSES 已排除全部终态，长期未关闭查询无需再排除。
+# 长期未关闭口径与跟进待办一致：只统计"跟进中"（唯一需要用户持续处理的
+# 状态）。已记录（留痕）与无需跟进（研判已定论）同为合法稳定状态，可长期
+# 保留，不因未研判/未关闭计入积压；转故障/已关闭为终态。
 RUNTIME_STAT_OPEN_STATUSES = [
-    RUNTIME_RECORD_STATUS_RECORDED,
-    RUNTIME_RECORD_STATUS_PENDING_TRIAGE,
-    RUNTIME_RECORD_STATUS_NO_FOLLOW_UP,
     RUNTIME_RECORD_STATUS_FOLLOWING_UP,
-    RUNTIME_RECORD_STATUS_RESOLVED,
 ]
 
 
@@ -309,7 +308,7 @@ def compute_runtime_statistics(tenant_id, occurred_from, occurred_to,
     """运行记录只读统计（租户内，时间范围用 __gte/__lt）。
 
     返回：
-    - totals：总数/跟进中/转故障/重复问题/重要/长期未关闭/平均处理时长（小时）；
+    - totals：总数/跟进中/转故障/重复问题/重要/长期未关闭（跟进中超 7 天）/平均处理时长（小时）；
     - by_status：状态维度计数；
     - by_system：按系统计数（数量倒序，最多 50 个系统）；
     - trend：按自然日计数（total/converted），范围超过 trend_limit_days 天时为空。

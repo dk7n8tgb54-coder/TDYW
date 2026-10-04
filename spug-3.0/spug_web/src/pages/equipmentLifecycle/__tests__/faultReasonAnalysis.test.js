@@ -196,9 +196,9 @@ const FAULT_DETAIL = {
   fault_object_name: '接入交换机01', fault_object_model: 'H3C-5120', fault_object_sn: '',
   fault_component_name: '接入交换机',
   reason_analysis: '', reason_unknown: false,
-  recovered_at: null, recover_confirm: '',
+  recovered_at: null,
+  recovery_close_note: '',
   recovered_by_name: '', recovered_confirmed_at: null,
-  final_result: '',
   registrar_name: '登记员甲',
   created_by_name: 'admin', created_at: '2026-09-18 08:40',
 };
@@ -494,8 +494,7 @@ describe('结案弹窗"最终原因分析"（2026-10）', () => {
   }
 
   async function fillRecoveryRequiredFields() {
-    await setTextareaValue('恢复确认信息', '业务验证已恢复');
-    await setTextareaValue('最终结果', '更换备件并复测通过');
+    await setTextareaValue('结案说明', '更换备件并复测通过，业务验证已恢复');
     const input = findFormItem('恢复确认人').querySelector('.ant-select input');
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(

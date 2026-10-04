@@ -215,8 +215,7 @@ class ProgressReplacesWorkOrderTest(WorkOrderRemovalTestBase):
         self.client.post(f'{FAULT_URL}/{fid}/recover/', {
             'recovered_at': '2026-09-30 11:00',
             'recovered_by_name': '确认人乙',
-            'recover_confirm': '业务验证正常',
-            'final_result': '更换板卡并复测通过',
+            'recovery_close_note': '更换板卡并复测通过，业务验证正常',
         }, content_type='application/json')
         resp = self.client.post(f'{FAULT_URL}/{fid}/handling-records/', {
             'recorder_name': '张检测', 'content': '补记',
@@ -242,8 +241,7 @@ class FaultClosureWithoutWorkOrderTest(WorkOrderRemovalTestBase):
         self.client.post(f'{FAULT_URL}/{fid}/recover/', {
             'recovered_at': '2026-09-30 12:00',
             'recovered_by_name': '确认人乙',
-            'recover_confirm': '业务验证正常',
-            'final_result': '更换备件并复测通过',
+            'recovery_close_note': '更换备件并复测通过，业务验证正常',
         }, content_type='application/json')
         fault = SystemFault.objects.get(pk=fid)
         self.assertEqual(fault.status, 'closed')
@@ -316,8 +314,7 @@ class HealthComputedFromFaultsOnlyTest(WorkOrderRemovalTestBase):
         r = self.client.post(f'{FAULT_URL}/{fid_closed}/recover/', {
             'recovered_at': '2026-09-30 13:00',
             'recovered_by_name': '确认人乙',
-            'recover_confirm': '链路已恢复',
-            'final_result': '更换光模块',
+            'recovery_close_note': '更换光模块，链路已恢复',
         }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
         self.assertEqual(
@@ -326,8 +323,7 @@ class HealthComputedFromFaultsOnlyTest(WorkOrderRemovalTestBase):
         r = self.client.post(f'{FAULT_URL}/{fid_kept}/recover/', {
             'recovered_at': '2026-09-30 14:00',
             'recovered_by_name': '确认人乙',
-            'recover_confirm': '全部恢复',
-            'final_result': '更换备件并验证',
+            'recovery_close_note': '更换备件并验证，全部恢复',
         }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
         self.assertEqual(

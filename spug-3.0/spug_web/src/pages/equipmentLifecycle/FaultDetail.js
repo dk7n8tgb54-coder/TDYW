@@ -9,11 +9,15 @@
  * 基本信息 / 处理进展时间线（追加式，支持更正留痕）/ 确认恢复并结案 / 撤销登记。
  * 2026-10 流程简化：无"开始处置"独立步骤（新建故障即处置中）；
  * 原"确认恢复"与"关闭故障"合并为一次"确认恢复并结案"操作（恢复时间/
- * 恢复确认人/恢复确认信息/最终结果四项一个弹窗一次校验，成功后故障直接
+ * 恢复确认人/结案说明一次弹窗一次校验，成功后故障直接
  * 进入终态"已关闭"，健康状态随之重算且仍尊重其他未恢复故障的影响）；
+ * 结案说明字段合并（2026-10-04）：原"恢复确认信息"与"最终结果"语义重复，
+ * 合并为唯一字段"结案说明"（recovery_close_note），一次性说明
+ * 处理措施、恢复验证依据与最终结果，详情/弹窗/导出/履历/审计同源；
+ * 最终原因分析（reason_analysis）保持独立语义（根因或原因未明依据）；
  * 旧 pending/recovered 过渡态已整体删除（模块未上线）：状态只有
- * 处置中/已关闭/已撤销；迁移转出的存量记录若带恢复数据，打开合并弹窗
- * 仍预填既有恢复确认数据供重新确认。
+ * 处置中/已关闭/已撤销；存量恢复数据打开合并弹窗仍预填既有结案说明
+ * 供重新确认。
  * 撤销登记改版（2026-10-03）：原"作废"按钮改称"撤销故障登记"，用于撤销
  * 错误或重复的故障登记——撤销后不删除历史记录，该记录退出有效故障统计与
  * 健康状态计算（后端 cancelled 状态值不变，历史数据兼容）；已撤销详情
@@ -75,20 +79,24 @@ class FaultDetail extends React.Component {
     return <div style={{fontWeight: 600, marginBottom: 8, ...style}}>{text}</div>;
   }
 
-  // 处置结果区块：原因分析（状态化展示）+ 恢复结果（处置中未结案时以
-  // 简洁提示代替成排"-"字段；已撤销记录没有恢复语义，恢复结果行不展示，
-  // 由"撤销登记"区块承载撤销信息）。
+  // 处置结果区块（2026-10 字段合并）：沿用原布局——原因分析第一行，
+  // 恢复结果（恢复时间/恢复确认人/结案说明）在其后——已关闭时原因分析
+  // 即展示"最终原因"，不另设"最终原因分析"重复行；恢复确认信息与最终
+  // 结果两字段已合并为结案说明（recovery_close_note），详情不再展示两个
+  // 旧字段。处置中未结案时以简洁提示代替成排"-"字段；已撤销记录没有
+  // 恢复语义，恢复结果行不展示，由"撤销登记"区块承载撤销信息。
   renderResultSection(editable) {
     const d = store.detail;
     const hasRecoveryData = Boolean(
-      d.recovered_at || d.recovered_by_name || d.recover_confirm || d.final_result);
+      d.recovered_at || d.recovered_by_name || d.recovery_close_note);
     const awaitingRecovery = !hasRecoveryData && d.status === 'handling';
     return (
       <React.Fragment>
         {this.renderSectionTitle('处置结果', {marginTop: 16})}
         <Descriptions bordered size="small" column={2}>
           {/* 原因分析状态化（2026-10）：按数据状态展示尚未分析/初步判断/
-              最终原因/原因未明，处置中可直接补充或修改（不再只显示"-"） */}
+              最终原因/原因未明，处置中可直接补充或修改（不再只显示"-"）；
+              已关闭展示"最终原因：…"，即最终原因分析，不重复另设一行 */}
           <Descriptions.Item label="原因分析" span={2}>
             <ReasonAnalysisCell editable={editable}/>
           </Descriptions.Item>
@@ -102,8 +110,11 @@ class FaultDetail extends React.Component {
               <Descriptions.Item label="恢复确认人">
                 {d.recovered_by_name ? `${d.recovered_by_name}（${d.recovered_confirmed_at || ''}）` : '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="恢复确认信息" span={2}>{d.recover_confirm || '-'}</Descriptions.Item>
-              <Descriptions.Item label="最终结果" span={2}>{d.final_result || '-'}</Descriptions.Item>
+              {/* 结案说明（2026-10 字段合并）：与结案弹窗提交内容一致
+                  （recovery_close_note 同源） */}
+              <Descriptions.Item label="结案说明" span={2}>
+                {d.recovery_close_note || '-'}
+              </Descriptions.Item>
             </React.Fragment>
           )}
         </Descriptions>
@@ -531,21 +542,24 @@ function ReasonAnalysisModal({visible, onClose}) {
   );
 }
 
-// 确认恢复并结案弹窗：恢复时间/恢复确认人/恢复确认信息/最终结果四项
-// 一次填写一次校验，提交后故障直接进入终态"已关闭"。
-// 历史"已恢复"故障（旧流程恢复确认后未结案的过渡态）打开时预填既有
-// 恢复确认数据，重新确认后结案；destroyOnClose 保证每次打开取最新详情。
+// 确认恢复并结案弹窗：恢复时间/恢复确认人/最终原因分析（或未明说明）/
+// 结案说明一次填写一次校验，提交后故障直接进入终态"已关闭"。
+// 结案说明（recovery_close_note）为唯一结案说明字段（2026-10 字段合并）：
+// 一次性说明采取的处理措施、恢复验证依据与最终处理结果，位于最终原因
+// 分析之下；原"恢复确认信息"/"最终结果"两个输入框已删除；最终原因分析
+// 保持独立语义（说明根因或原因未明依据），不与结案说明合并。
+// 存量恢复数据（历史合并迁移回填或旧流程遗留）打开时预填既有说明，
+// 重新确认后结案；destroyOnClose 保证每次打开取最新详情。
 const RecoverModal = observer(function RecoverModal({visible, form, fault, onClose}) {
   const initialValues = {
-    // 恢复时间默认当前时间（历史已恢复故障预填既有恢复时间），可修改
+    // 恢复时间默认当前时间（存量数据预填既有恢复时间），可修改
     recovered_at: fault.recovered_at
       ? moment(fault.recovered_at, 'YYYY-MM-DD HH:mm') : moment(),
     // 恢复确认人：手动输入姓名（输入后回车确认，可多个，顿号分隔提交），
     // 只表示实际确认恢复的人；必填、不预填登录账号，与登录账号审计字段独立
     recovered_by_names: fault.recovered_by_name
       ? fault.recovered_by_name.split('、').filter(Boolean) : [],
-    recover_confirm: fault.recover_confirm || '',
-    final_result: fault.final_result || '',
+    recovery_close_note: fault.recovery_close_note || '',
     // 最终原因分析（2026-10）：默认回填详情中的原因分析，结案前可修改；
     // 原因未明勾选同步回填（存量未明数据结案时保持未明口径）
     reason_analysis: fault.reason_analysis || '',
@@ -564,8 +578,7 @@ const RecoverModal = observer(function RecoverModal({visible, form, fault, onClo
             recovered_at: values.recovered_at.format('YYYY-MM-DD HH:mm'),
             // 标签数组以顿号拼接为恢复确认人姓名文本（多人）
             recovered_by_name: (values.recovered_by_names || []).join('、'),
-            recover_confirm: values.recover_confirm,
-            final_result: values.final_result,
+            recovery_close_note: (values.recovery_close_note || '').trim(),
             // 最终原因分析随结案提交保存（后端独立校验未明必填说明）
             reason_analysis: values.reason_analysis || '',
             reason_unknown: !!values.reason_unknown,
@@ -600,13 +613,6 @@ const RecoverModal = observer(function RecoverModal({visible, form, fault, onClo
             placeholder="输入姓名后回车确认（可多个）"
           />
         </Form.Item>
-        <Form.Item
-          name="recover_confirm"
-          label="恢复确认信息"
-          rules={[{required: true, message: '请填写恢复确认信息'}]}
-        >
-          <TextArea rows={3} placeholder="确认系统已恢复的依据，如业务验证结果"/>
-        </Form.Item>
         {/* 最终原因分析（2026-10）：默认回填处置中的原因分析，结案前可修改；
             勾选"原因未明"时切换为必填未明说明，不强迫填写虚假原因；
             提交后保存为最终原因，已关闭后原因分析只读 */}
@@ -636,13 +642,19 @@ const RecoverModal = observer(function RecoverModal({visible, form, fault, onClo
             );
           }}
         </Form.Item>
-        {/* 最终结果结案必填（2026-10 合并流程，随恢复确认一次提交） */}
+        {/* 结案说明（2026-10 字段合并）：置于最终原因分析之下，必填且不能
+            只填空格（whitespace 校验 + 提交 trim），替代原恢复确认信息/
+            最终结果两框；与最终原因分析语义独立（说明怎么处理/如何验证/
+            结果如何，不写根因） */}
         <Form.Item
-          name="final_result"
-          label="最终结果"
-          rules={[{required: true, message: '请填写最终结果'}]}
+          name="recovery_close_note"
+          label="结案说明"
+          rules={[{required: true, whitespace: true, message: '请填写结案说明'}]}
         >
-          <TextArea rows={2} placeholder="故障处置的最终结论，如更换备件并复测通过"/>
+          <TextArea
+            rows={3}
+            placeholder="请说明采取的处理措施、恢复验证依据及最终结果，如：更换电源模块后设备重启，连续观察30分钟无异常，业务访问正常，故障已恢复"
+          />
         </Form.Item>
       </Form>
     </Modal>

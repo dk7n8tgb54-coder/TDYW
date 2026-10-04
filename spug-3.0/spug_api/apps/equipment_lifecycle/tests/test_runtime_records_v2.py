@@ -2,7 +2,9 @@
 """运行记录第二版（2026-10）真实行为测试：研判 / 转故障 / 重复问题 / 待办 / 统计。
 
 覆盖任务要求的行为断言（HTTP 真实路径 + 数据库副作用，不使用源码字符串匹配）：
-1. 运行记录可进入 待研判 → 无需跟进/跟进中/已处理/已关闭/已转故障；
+1. 状态机：新建即已记录（合法稳定状态，可留痕保留或直接关闭，不作为待办）；
+   研判为可选动作（已记录/历史待研判可直接研判定论：无需跟进/跟进中/已转故障）；
+   已记录不得直接已处理/独立转故障绕过研判；历史待研判仍可研判落地；
 2. 研判一次动作写入研判人/时间/说明并落审计；
 3. 研判转正式故障须填研判说明，转换建立正式外键并带入结构化字段；
 4. 同一记录只能成功转为一个正式故障（重复/并发不重复创建）；
@@ -112,6 +114,14 @@ class RuntimeRecordV2TestBase(TestCase):
         self.assertFalse(body.get('error'), body)
         return body['data']
 
+    def conclude_triage(self, record_id, triage_payload, client=None):
+        """已记录直接研判定论（同一操作主体，无提交研判中转）。"""
+        client = client or self.client
+        resp = client.post(
+            RECORDS_URL + f'/{record_id}/triage/', triage_payload,
+            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+
     def assert_runtime_events(self, record_id, actions):
         events = SystemEvent.objects.filter(
             source_type='runtime_record', source_id=str(record_id))
@@ -122,23 +132,34 @@ class RuntimeRecordV2TestBase(TestCase):
 
 
 class TriageStateFlowTests(RuntimeRecordV2TestBase):
-    """1. 状态闭环：待研判 → 无需跟进/跟进中 → 已处理 → 已关闭。"""
+    """1. 状态闭环：新建即已记录（可留痕/可关闭）；历史待研判仍可研判定论
+    （无需跟进/跟进中 → 已处理 → 已关闭）。"""
 
-    def test_pending_triage_then_triage_outcomes(self):
+    def test_created_record_is_recorded_and_pending_triage_endpoint_removed(self):
+        """新建成功即 recorded（合法稳定状态）；"提交研判"中转端点已下线。"""
+        data = self.create_record()
+        self.assertEqual(data['status'], 'recorded')
+        self.assertEqual(data['status_text'], '已记录')
+        record = SystemRuntimeRecord.objects.get(pk=data['id'])
+        self.assertEqual(record.status, 'recorded')
+        # 不做任何动作记录即稳定保留，状态不被自动推进
+        resp = self.client.get(RECORDS_URL + f'/{data["id"]}/')
+        self.assertEqual(resp.json()['data']['status'], 'recorded')
+        # 旧"提交研判"端点已删除（404），历史数据经研判端点出结论
+        resp = self.client.post(
+            RECORDS_URL + f'/{data["id"]}/pending-triage/', {},
+            content_type='application/json')
+        self.assertEqual(resp.status_code, 404)
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'recorded')
+
+    def test_legacy_pending_triage_still_triageable(self):
+        """历史 pending_triage 记录仍可打开研判定论（兼容入口只出不进）。"""
         data = self.create_record()
         record_id = data['id']
-        # 已记录 → 待研判
-        resp = self.client.post(
-            RECORDS_URL + f'/{record_id}/pending-triage/', {},
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
-        record = SystemRuntimeRecord.objects.get(pk=record_id)
-        self.assertEqual(record.status, 'pending_triage')
-        # 重复提交研判 → 拒绝
-        resp = self.client.post(
-            RECORDS_URL + f'/{record_id}/pending-triage/', {},
-            content_type='application/json')
-        self.assertIn('待研判', resp.json().get('error', ''))
+        # 模拟历史存量：直接落库为待研判（新流程不再产生该状态）
+        SystemRuntimeRecord.objects.filter(pk=record_id).update(
+            status='pending_triage')
         # 待研判 → 跟进中（研判结论：需要跟进）
         resp = self.client.post(
             RECORDS_URL + f'/{record_id}/triage/',
@@ -147,7 +168,7 @@ class TriageStateFlowTests(RuntimeRecordV2TestBase):
              'triage_note': '需要观察链路质量'},
             content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
-        record.refresh_from_db()
+        record = SystemRuntimeRecord.objects.get(pk=record_id)
         self.assertEqual(record.status, 'following_up')
         self.assertTrue(record.needs_follow_up)
         self.assertEqual(record.follow_up_name, '王值班')
@@ -175,15 +196,21 @@ class TriageStateFlowTests(RuntimeRecordV2TestBase):
     def test_triage_no_follow_up_and_reopen(self):
         data = self.create_record()
         record_id = data['id']
-        resp = self.client.post(
-            RECORDS_URL + f'/{record_id}/triage/',
-            {'needs_follow_up': False, 'triage_note': '瞬时抖动，无需跟进'},
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
+        self.conclude_triage(record_id, {'needs_follow_up': False,
+                                         'triage_note': '瞬时抖动，无需跟进'})
         record = SystemRuntimeRecord.objects.get(pk=record_id)
         self.assertEqual(record.status, 'no_follow_up')
         self.assertFalse(record.needs_follow_up)
-        # 无需跟进后改判：可重新跟进（研判后改判路径）
+        # 重新研判维持"无需跟进"结论：状态不变，研判说明刷新
+        resp = self.client.post(
+            RECORDS_URL + f'/{record_id}/triage/',
+            {'needs_follow_up': False, 'triage_note': '复核维持无需跟进'},
+            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'no_follow_up')
+        self.assertEqual(record.triage_note, '复核维持无需跟进')
+        # 无需跟进后改判：可重新跟进（重新跟进入口）
         resp = self.client.post(
             RECORDS_URL + f'/{record_id}/follow-up/', {},
             content_type='application/json')
@@ -192,18 +219,9 @@ class TriageStateFlowTests(RuntimeRecordV2TestBase):
         self.assertEqual(record.status, 'following_up')
 
     def test_triage_rejected_after_conclusion(self):
-        data = self.create_record()
-        record_id = data['id']
-        self.client.post(
-            RECORDS_URL + f'/{record_id}/triage/',
-            {'needs_follow_up': False}, content_type='application/json')
-        # 已有结论（无需跟进）的记录不能再研判
-        resp = self.client.post(
-            RECORDS_URL + f'/{record_id}/triage/',
-            {'needs_follow_up': True}, content_type='application/json')
-        self.assertIn('研判', resp.json().get('error', ''))
-        # 已关闭记录同样不能研判
+        # 已关闭记录不能研判（已记录可直接研判，见 test_triage_no_follow_up_and_reopen）
         data2 = self.create_record(occurred_at='2026-10-01 07:30')
+        self.conclude_triage(data2['id'], {'needs_follow_up': False})
         self.client.post(
             RECORDS_URL + f'/{data2["id"]}/close/', {},
             content_type='application/json')
@@ -212,15 +230,38 @@ class TriageStateFlowTests(RuntimeRecordV2TestBase):
             {'needs_follow_up': True}, content_type='application/json')
         self.assertIn('研判', resp.json().get('error', ''))
 
+    def test_pending_triage_cannot_resolve_or_close_directly(self):
+        """历史待研判不得绕过研判结论直接 已处理/关闭（必须经研判落地）。"""
+        data = self.create_record()
+        record_id = data['id']
+        # 模拟历史存量待研判记录
+        SystemRuntimeRecord.objects.filter(pk=record_id).update(
+            status='pending_triage')
+        for path, payload in (
+                ('resolve/', {'handling_result': '绕过研判'}),
+                ('close/', {}),
+        ):
+            resp = self.client.post(
+                RECORDS_URL + f'/{record_id}/{path}', payload,
+                content_type='application/json')
+            self.assertTrue(resp.json().get('error'), (path, resp.content))
+        record = SystemRuntimeRecord.objects.get(pk=record_id)
+        self.assertEqual(record.status, 'pending_triage')
+        # 研判结论仍可正常落地（无需跟进）
+        resp = self.client.post(
+            RECORDS_URL + f'/{record_id}/triage/',
+            {'needs_follow_up': False}, content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'no_follow_up')
+
     def test_triage_writes_audit_log(self):
         data = self.create_record()
         record_id = data['id']
         before = AuditLog.objects.filter(
             target_type='el_runtime_record', target_id=str(record_id)).count()
-        self.client.post(
-            RECORDS_URL + f'/{record_id}/triage/',
-            {'needs_follow_up': True, 'triage_note': '判定需要跟进'},
-            content_type='application/json')
+        self.conclude_triage(record_id, {'needs_follow_up': True,
+                                         'triage_note': '判定需要跟进'})
         after = AuditLog.objects.filter(
             target_type='el_runtime_record', target_id=str(record_id)).count()
         self.assertGreater(after, before)
@@ -346,11 +387,8 @@ class TriageConvertFaultTests(RuntimeRecordV2TestBase):
     def test_progress_after_convert_belongs_to_fault(self):
         data = self.create_record()
         record_id = data['id']
-        resp = self.client.post(
-            RECORDS_URL + f'/{record_id}/triage/',
-            {'convert_to_fault': True, 'triage_note': '转正式故障处置'},
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
+        self.conclude_triage(record_id, {'convert_to_fault': True,
+                                         'triage_note': '转正式故障处置'})
         fault_id = SystemRuntimeRecord.objects.get(pk=record_id).generated_faults.first().id
         # 运行记录侧：不允许再追加普通处理进展
         resp = self.client.post(
@@ -466,7 +504,8 @@ class DuplicateIssueTests(RuntimeRecordV2TestBase):
             {'duplicate_id': second['id']}, content_type='application/json')
         second_record = SystemRuntimeRecord.objects.get(pk=second['id'])
         self.assertFalse(second_record.is_repeated)
-        # 已关闭记录不能修改重复标记
+        # 已关闭记录不能修改重复标记（研判为无需跟进后关闭）
+        self.conclude_triage(record_id, {'needs_follow_up': False})
         self.client.post(RECORDS_URL + f'/{record_id}/close/', {},
                          content_type='application/json')
         resp = self.client.post(
@@ -499,22 +538,26 @@ class TodoListTests(RuntimeRecordV2TestBase):
 
     def setUp(self):
         super().setUp()
+        # 状态机：已记录经研判结论落地为跟进中
         self.following = self.create_record(title='跟进中问题')
-        self.client.post(
-            RECORDS_URL + f'/{self.following["id"]}/triage/',
-            {'needs_follow_up': True, 'follow_up_name': '王值班',
-             'planned_handle_at': '2020-01-01 09:00'},
-            content_type='application/json')
+        self.conclude_triage(self.following['id'],
+                             {'needs_follow_up': True, 'follow_up_name': '王值班',
+                              'planned_handle_at': '2020-01-01 09:00'})
         self.resolved = self.create_record(
             title='已处理问题', occurred_at='2026-10-01 09:00')
+        self.conclude_triage(self.resolved['id'], {'needs_follow_up': True})
         self.client.post(
             RECORDS_URL + f'/{self.resolved["id"]}/resolve/', {},
             content_type='application/json')
         self.closed = self.create_record(
             title='已关闭问题', occurred_at='2026-10-01 10:00')
+        self.conclude_triage(self.closed['id'], {'needs_follow_up': False})
         self.client.post(
             RECORDS_URL + f'/{self.closed["id"]}/close/', {},
             content_type='application/json')
+        # 未研判的留痕记录（已记录是合法稳定状态，不进入待办）
+        self.untouched = self.create_record(
+            title='未研判留痕记录', occurred_at='2026-10-01 11:00')
 
     def test_todo_only_following_up(self):
         resp = self.client.get(RECORDS_URL + '/todo/')
@@ -523,6 +566,8 @@ class TodoListTests(RuntimeRecordV2TestBase):
         self.assertIn(self.following['id'], ids)
         self.assertNotIn(self.resolved['id'], ids)
         self.assertNotIn(self.closed['id'], ids)
+        # 未研判的已记录不是待办事项
+        self.assertNotIn(self.untouched['id'], ids)
         # 已关闭/转故障的记录不会回到待办
         self.assertGreaterEqual(body['overdue_count'], 1)
 
@@ -568,11 +613,10 @@ class RuntimeStatisticsTests(RuntimeRecordV2TestBase):
         normal = self.create_record(title='普通情况')
         following = self.create_record(
             title='跟进情况', occurred_at='2026-10-01 09:00')
-        self.client.post(
-            RECORDS_URL + f'/{following["id"]}/triage/',
-            {'needs_follow_up': True}, content_type='application/json')
+        self.conclude_triage(following['id'], {'needs_follow_up': True})
         converted = self.create_record(
             title='转故障情况', occurred_at='2026-10-01 10:00')
+        self.conclude_triage(converted['id'], {'needs_follow_up': False})
         self.client.post(
             RECORDS_URL + f'/{converted["id"]}/convert-to-fault/', {},
             content_type='application/json')
@@ -637,6 +681,8 @@ class RuntimeStatisticsTests(RuntimeRecordV2TestBase):
 
     def test_statistics_time_range_and_avg_resolve(self):
         handled = self.create_record(title='已处理情况')
+        # 研判为跟进中后标记已处理（已记录不能直接 resolve）
+        self.conclude_triage(handled['id'], {'needs_follow_up': True})
         self.client.post(
             RECORDS_URL + f'/{handled["id"]}/resolve/', {},
             content_type='application/json')
@@ -657,10 +703,18 @@ class RuntimeStatisticsTests(RuntimeRecordV2TestBase):
         self.assertEqual(sum(d['total'] for d in trend), 1)
 
     def test_statistics_stale_open_records(self):
-        stale = self.create_record(title='长期未关闭')
+        """长期未关闭只统计跟进中（留痕/无需跟进为合法稳定状态，不计积压）。"""
+        stale = self.create_record(title='长期跟进未关闭')
+        self.conclude_triage(stale['id'],
+                             {'needs_follow_up': True, 'follow_up_name': '王值班'})
         SystemRuntimeRecord.objects.filter(pk=stale['id']).update(
             created_at=timezone.now() - timedelta(days=30))
-        fresh = self.create_record(title='新记录', occurred_at='2026-10-01 13:00')
+        # 未研判的已记录同样创建超过 30 天，但不计入长期未关闭
+        plain = self.create_record(title='长期留痕记录',
+                                   occurred_at='2026-10-01 13:00')
+        SystemRuntimeRecord.objects.filter(pk=plain['id']).update(
+            created_at=timezone.now() - timedelta(days=30))
+        fresh = self.create_record(title='新记录', occurred_at='2026-10-01 14:00')
         resp = self.client.get(RECORDS_URL + '/statistics/')
         totals = resp.json()['data']['totals']
         self.assertEqual(totals['stale_open'], 1)
@@ -743,10 +797,6 @@ class V2PermissionTests(RuntimeRecordV2TestBase):
                 {'needs_follow_up': True}, content_type='application/json')
             self.assertTrue(resp.json().get('error'))
             resp = client.post(
-                RECORDS_URL + f'/{data["id"]}/pending-triage/', {},
-                content_type='application/json')
-            self.assertTrue(resp.json().get('error'))
-            resp = client.post(
                 RECORDS_URL + f'/{data["id"]}/no-follow-up/', {},
                 content_type='application/json')
             self.assertTrue(resp.json().get('error'))
@@ -793,9 +843,7 @@ class V2PermissionTests(RuntimeRecordV2TestBase):
 
     def test_view_perm_user_can_read_todo_and_statistics(self):
         data = self.create_record()
-        self.client.post(
-            RECORDS_URL + f'/{data["id"]}/triage/',
-            {'needs_follow_up': True}, content_type='application/json')
+        self.conclude_triage(data['id'], {'needs_follow_up': True})
         for url in (RECORDS_URL + '/todo/', RECORDS_URL + '/statistics/'):
             resp = self.viewer_client.get(url)
             self.assertFalse(resp.json().get('error'), resp.content)

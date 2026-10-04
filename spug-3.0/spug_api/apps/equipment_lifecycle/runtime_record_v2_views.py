@@ -2,7 +2,8 @@
 # Released under the AGPL-3.0 License.
 """设备全生命周期——运行记录第二版视图（2026-10）：研判、重复问题、待办与统计。
 
-定位：用户先快速记录运行情况，再由研判决定是否跟进或转正式故障；
+定位：用户先快速记录运行情况（新建成功即"已记录"，可长期保留，不作为待办）；
+研判为可选动作，由其决定是否跟进或转正式故障；
 不把运行记录扩展为第二套故障处置系统（正式处置以 SystemFault 为准）。
 
 本文件承载第二版新增能力（与第一版 runtime_record_views 单向依赖，
@@ -43,7 +44,6 @@ from apps.equipment_lifecycle.models import (
     RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
     RUNTIME_RECORD_STATUS_FOLLOWING_UP,
     RUNTIME_RECORD_STATUS_NO_FOLLOW_UP,
-    RUNTIME_RECORD_STATUS_PENDING_TRIAGE,
     RUNTIME_CATEGORY_TEXT_MAP,
     TRIAGEABLE_RUNTIME_RECORD_STATUSES,
     SystemRuntimeRecord,
@@ -134,8 +134,10 @@ def _parse_triage_times(form):
 class RuntimeRecordTriageView(View):
     """研判：一次动作完成 影响判定 + 跟进结论 + 重要标记 + 转正式故障。
 
-    - 仅对 已记录/待研判 状态开放；结论直接落地为目标状态：
-      转正式故障（converted_fault）/ 跟进中（following_up）/ 无需跟进（no_follow_up）；
+    - 对 已记录/待研判/无需跟进（重新研判纠正结论）状态开放；结论直接落地为
+      目标状态：转正式故障（converted_fault）/ 跟进中（following_up）/
+      无需跟进（no_follow_up）；已记录状态禁止直接 resolve/独立转故障绕过
+      研判入口（可直接关闭，不要求先研判）；待研判仅历史数据持有；
     - 转正式故障时必须填写研判说明；标记重要必须填写原因（不生成重复履历）；
       普通小问题只需给出"是否需要跟进"，不强制填写复杂字段；
     - 研判把普通记录升级为影响系统运行时补写一次履历（不复写创建期事件）；
@@ -258,7 +260,8 @@ class RuntimeRecordTriageView(View):
         转故障时本方法只落研判/重要/影响字段，状态由转换服务流转为 converted_fault。
         """
         if record.status not in TRIAGEABLE_RUNTIME_RECORD_STATUSES:
-            return '当前状态不能进行研判（已研判定论的记录请使用对应状态动作）'
+            return ('当前状态不能进行研判'
+                    '（无需跟进的记录可重新研判纠正结论）')
         target = (
             RUNTIME_RECORD_STATUS_CONVERTED_FAULT if convert else
             (RUNTIME_RECORD_STATUS_FOLLOWING_UP if form.needs_follow_up
@@ -320,27 +323,8 @@ class RuntimeRecordTriageView(View):
         return None
 
 
-class RuntimeRecordPendingTriageView(RuntimeRecordActionBaseView):
-    """提交研判：已记录 → 待研判（研判已介入、结论待定；结论由研判动作落地）。"""
-
-    @auth('equipment_lifecycle.runtime_record.triage')
-    def post(self, request, pk):
-        return super().post(request, pk)
-
-    def handle_locked(self, request, record):
-        if record.status == RUNTIME_RECORD_STATUS_PENDING_TRIAGE:
-            return '运行记录已处于待研判状态'
-        if not record.can_transition_to(RUNTIME_RECORD_STATUS_PENDING_TRIAGE):
-            return '当前状态不能提交研判'
-        record.status = RUNTIME_RECORD_STATUS_PENDING_TRIAGE
-        record.updated_at = timezone.now()
-        record.updated_by = request.user
-        record.save(update_fields=['status', 'updated_at', 'updated_by'])
-        return None
-
-
 class RuntimeRecordNoFollowUpView(RuntimeRecordActionBaseView):
-    """标记无需跟进：已记录/待研判 → 无需跟进（研判结论的快捷动作）。"""
+    """标记无需跟进：已记录/待研判（历史）→ 无需跟进（研判结论的快捷动作）。"""
 
     @auth('equipment_lifecycle.runtime_record.triage')
     def post(self, request, pk):

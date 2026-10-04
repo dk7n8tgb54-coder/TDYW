@@ -144,8 +144,9 @@ urlpatterns = [
     path('runtime-records/<int:pk>/attachments/<int:aid>/', runtime_record_attachment_views.RuntimeRecordAttachmentDetailView.as_view()),
     # ==================== 运行记录第二版（2026-10）：研判/重复问题/待办/统计 ====================
     # 研判（结论可直接转为正式故障）：与转故障同持健康重算锁，non_atomic 装配
+    # （"提交研判"中转端点已随 2026-10-04 流程简化下线：新建即已记录，
+    #   待研判仅历史兼容状态，无任何产生入口）
     path('runtime-records/<int:pk>/triage/', _na(runtime_record_v2_views.RuntimeRecordTriageView.as_view())),
-    path('runtime-records/<int:pk>/pending-triage/', runtime_record_v2_views.RuntimeRecordPendingTriageView.as_view()),
     path('runtime-records/<int:pk>/no-follow-up/', runtime_record_v2_views.RuntimeRecordNoFollowUpView.as_view()),
     path('runtime-records/<int:pk>/similar/', runtime_record_v2_views.RuntimeRecordSimilarView.as_view()),
     path('runtime-records/<int:pk>/duplicate-links/', runtime_record_v2_views.RuntimeRecordDuplicateLinkView.as_view()),

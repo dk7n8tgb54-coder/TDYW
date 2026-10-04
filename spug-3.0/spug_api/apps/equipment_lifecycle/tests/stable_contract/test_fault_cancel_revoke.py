@@ -107,8 +107,7 @@ class FaultListDefaultExcludesCancelledTest(FaultCancelRevokeTestBase):
         resp = make_client(self.admin).post(f'{FAULT_URL}/{closed.id}/recover/', {
             'recovered_at': '2026-10-03 10:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务验证恢复',
-            'final_result': '更换备件并验证恢复',
+            'recovery_close_note': '更换备件并验证恢复，业务验证正常',
         }, content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         self.f_closed = SystemFault.objects.get(pk=closed.id)
@@ -214,8 +213,7 @@ class FaultCancelOperationTest(FaultCancelRevokeTestBase):
         resp = make_client(self.admin).post(f'{FAULT_URL}/{fault.id}/recover/', {
             'recovered_at': '2026-10-03 10:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务验证恢复',
-            'final_result': '更换备件并验证恢复',
+            'recovery_close_note': '更换备件并验证恢复，业务验证正常',
         }, content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         resp = self.cancel(fault)
@@ -259,8 +257,7 @@ class FaultCancelOperationTest(FaultCancelRevokeTestBase):
         resp = self.client.post(f'{FAULT_URL}/{fault.id}/recover/', {
             'recovered_at': '2026-10-03 10:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务验证恢复',
-            'final_result': '更换备件并验证恢复',
+            'recovery_close_note': '更换备件并验证恢复，业务验证正常',
         }, content_type='application/json')
         self.assertIn('只有处置中的故障', resp.json().get('error', ''))
         fault.refresh_from_db()

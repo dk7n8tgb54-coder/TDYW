@@ -118,9 +118,8 @@ class SingleSystemSimplificationTest(TestCase):
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'fault')
         # 2) 确认恢复并结案（新建即处置中，单次事务恢复+关闭，系统恢复正常）
         r = self.client.post(f'{FAULT_URL}/{fid}/recover/', {
-            'recovered_at': '2026-09-19 10:00', 'recover_confirm': '更换备件后业务恢复',
-            'recovered_by_name': '恢复确认人甲',
-            'final_result': '更换备件并验证恢复',
+            'recovered_at': '2026-09-19 10:00', 'recovered_by_name': '恢复确认人甲',
+            'recovery_close_note': '更换备件并验证恢复，业务恢复正常',
         }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
         self.assertEqual(

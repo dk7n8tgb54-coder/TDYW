@@ -114,8 +114,7 @@ class SystemEventTestBase(TestCase):
         r = self.client.post(f'{FAULT_URL}/{fid}/recover/', {
             'recovered_at': '2026-09-18 10:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务已恢复正常',
-            'final_result': '更换备件并验证',
+            'recovery_close_note': '业务已恢复正常，更换备件并验证',
         }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
         return fid
@@ -154,7 +153,8 @@ class FaultEventTests(SystemEventTestBase):
             [e.system_id for e in events if e.system_id == self.system_a2.id], [])
 
     def test_lifecycle_actions_generate_recover_and_close_events(self):
-        """恢复/关闭各生成一次事件；恢复事件业务时间取恢复确认时间。"""
+        """恢复/关闭各生成一次事件；恢复事件业务时间取恢复确认时间，
+        详情携带统一的"恢复确认与结案说明"（恢复确认与故障关闭两节点均保留）。"""
         fid = self.run_fault_lifecycle(self.system_a)
         actions = [(e.event_type, e.action) for e in self.events(self.system_a)]
         self.assertEqual(actions.count(('fault', 'create')), 1)
@@ -164,6 +164,16 @@ class FaultEventTests(SystemEventTestBase):
         self.assertEqual(recover_event.occurred_at.strftime('%Y-%m-%d %H:%M'), '2026-09-18 10:00')
         self.assertEqual(recover_event.source_no,
                          SystemFault.objects.get(pk=fid).fault_no)
+        # 恢复确认节点详情读取统一结案说明字段（不含已删除的旧字段）
+        recover_detail = recover_event.get_detail()
+        self.assertEqual(
+            recover_detail.get('recovery_close_note'),
+            '业务已恢复正常，更换备件并验证')
+        self.assertNotIn('recover_confirm', recover_detail)
+        self.assertNotIn('final_result', recover_detail)
+        # 关闭节点保留（状态变化事件），详情不含结案说明全文重复
+        close_event = [e for e in self.events(self.system_a) if e.action == 'close'][0]
+        self.assertEqual(close_event.get_detail().get('status'), 'closed')
 
     def test_cancel_appends_event_and_keeps_original_records(self):
         """受控作废：原事件保留，追加作废事件且原因落库（更正/撤销保留原记录）。"""

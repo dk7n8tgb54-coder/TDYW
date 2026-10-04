@@ -67,9 +67,10 @@ const FAULT_DETAIL = {
   impact_status: 'fault', impact_status_text: '故障',
   status: 'handling', status_text: '处置中',
   occurred_at: '2026-10-03 08:30', phenomenon: '主用链路频繁丢包',
-  reason_analysis: '', recovered_at: null, recover_confirm: '',
+  reason_analysis: '', recovered_at: null,
+  recovery_close_note: '',
   recovered_by_name: '', recovered_confirmed_at: null,
-  final_result: '', cancel_reason: '', cancelled_at: null, cancelled_by_name: '',
+  cancel_reason: '', cancelled_at: null, cancelled_by_name: '',
   registrar_name: '登记员甲',
   created_by_name: 'admin', created_at: '2026-10-03 08:40',
 };

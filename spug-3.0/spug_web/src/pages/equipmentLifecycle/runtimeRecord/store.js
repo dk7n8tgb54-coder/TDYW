@@ -48,6 +48,9 @@ class RuntimeRecordStore {
 
   // ========== 处理进展 ==========
   @observable progressRecords = [];
+  // 进展列表接口返回的 total（详情打开时已随列表一并请求，详情"处理概览"
+  // 直接复用，不额外发请求；未取到 total 时组件回落用已取到的列表长度）
+  @observable progressTotal = 0;
   @observable isProgressFetching = false;
   progressRequestSeq = 0;
 
@@ -143,6 +146,7 @@ class RuntimeRecordStore {
     this.detail = typeof recordOrId === 'object' ? recordOrId : {};
     this.detailVisible = true;
     this.progressRecords = [];
+    this.progressTotal = 0;
     this.attachments = [];
     this.duplicateLinks = [];
     this.similarRecords = [];
@@ -189,6 +193,7 @@ class RuntimeRecordStore {
       .then(action(res => {
         if (requestSeq === this.progressRequestSeq) {
           this.progressRecords = res.data || [];
+          this.progressTotal = res.total;
         }
       }))
       .catch(action(() => {}))
@@ -232,10 +237,8 @@ class RuntimeRecordStore {
 
   markImportant = (formData) => this._postAction('mark-important', formData);
 
-  // ========== 第二版：研判 / 待研判 / 无需跟进 / 重复标记 ==========
+  // ========== 第二版：研判 / 无需跟进 / 重复标记 ==========
   submitTriage = (formData) => this._postAction('triage', formData);
-
-  submitPendingTriage = () => this._postAction('pending-triage');
 
   markNoFollowUp = () => this._postAction('no-follow-up');
 

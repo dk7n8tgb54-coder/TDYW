@@ -203,8 +203,7 @@ class FaultReasonAnalysisUpdateTest(ReasonAnalysisTestBase):
         resp = client.post(f'{FAULT_URL}/{fault.id}/recover/', {
             'recovered_at': '2026-09-18 10:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务验证恢复',
-            'final_result': '更换备件并验证恢复',
+            'recovery_close_note': '业务验证恢复，更换备件并验证恢复',
         }, content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         resp = self.update_reason(fault.id, {'reason_analysis': '试图篡改最终原因'})
@@ -273,8 +272,7 @@ class FaultRecoverFinalReasonTest(ReasonAnalysisTestBase):
         body = self._recover(fault, {
             'recovered_at': '2026-09-18 10:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务验证恢复',
-            'final_result': '更换备件并验证恢复',
+            'recovery_close_note': '业务验证恢复，更换备件并验证恢复',
             'reason_analysis': '确认为光模块老化，已更换并复测',
             'reason_unknown': False,
         })
@@ -283,8 +281,12 @@ class FaultRecoverFinalReasonTest(ReasonAnalysisTestBase):
         self.assertEqual(fault.status, 'closed')
         self.assertEqual(fault.reason_analysis, '确认为光模块老化，已更换并复测')
         self.assertFalse(fault.reason_unknown)
-        # 详情响应同步返回最终原因
+        # 详情响应同步返回最终原因与统一结案说明
         self.assertEqual(body['data']['reason_analysis'], '确认为光模块老化，已更换并复测')
+        self.assertEqual(
+            body['data']['recovery_close_note'], '业务验证恢复，更换备件并验证恢复')
+        self.assertNotIn('recover_confirm', body['data'])
+        self.assertNotIn('final_result', body['data'])
 
     def test_recover_unknown_reason_with_explanation(self):
         """结案选择"原因未明"+说明可正常结案（不强迫填写虚假原因）。"""
@@ -292,8 +294,7 @@ class FaultRecoverFinalReasonTest(ReasonAnalysisTestBase):
         body = self._recover(fault, {
             'recovered_at': '2026-09-18 10:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务验证恢复',
-            'final_result': '系统已恢复正常',
+            'recovery_close_note': '业务验证恢复，系统已恢复正常',
             'reason_analysis': '现象未再复现，多方排查无法定位',
             'reason_unknown': True,
         })
@@ -309,8 +310,7 @@ class FaultRecoverFinalReasonTest(ReasonAnalysisTestBase):
         self._recover(fault, {
             'recovered_at': '2026-09-18 10:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务验证恢复',
-            'final_result': '系统已恢复正常',
+            'recovery_close_note': '业务验证恢复，系统已恢复正常',
             'reason_unknown': True,
         }, expect_error='原因未明')
         fault.refresh_from_db()
@@ -323,8 +323,7 @@ class FaultRecoverFinalReasonTest(ReasonAnalysisTestBase):
         body = self._recover(fault, {
             'recovered_at': '2026-09-18 10:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务验证恢复',
-            'final_result': '更换备件并验证恢复',
+            'recovery_close_note': '业务验证恢复，更换备件并验证恢复',
         })
         self.assertFalse(body.get('error'), body)
         fault.refresh_from_db()
@@ -337,8 +336,7 @@ class FaultRecoverFinalReasonTest(ReasonAnalysisTestBase):
         body = self._recover(fault, {
             'recovered_at': '2026-09-18 10:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务验证恢复',
-            'final_result': '更换备件并验证恢复',
+            'recovery_close_note': '业务验证恢复，更换备件并验证恢复',
             'reason_analysis': '更正为传输链路闪断，已恢复',
         })
         self.assertFalse(body.get('error'), body)
@@ -351,8 +349,7 @@ class FaultRecoverFinalReasonTest(ReasonAnalysisTestBase):
         body = self._recover(fault, {
             'recovered_at': '2026-09-18 10:00',
             'recovered_by_name': '恢复确认人甲',
-            'recover_confirm': '业务验证恢复',
-            'final_result': '更换备件并验证恢复',
+            'recovery_close_note': '业务验证恢复，更换备件并验证恢复',
             'reason_analysis': '最终原因：光模块老化',
         })
         self.assertFalse(body.get('error'), body)
@@ -363,6 +360,12 @@ class FaultRecoverFinalReasonTest(ReasonAnalysisTestBase):
         self.assertEqual(detail['before']['reason_analysis'], '初步判断：疑为链路问题')
         self.assertEqual(detail['after']['reason_analysis'], '最终原因：光模块老化')
         self.assertEqual(detail['after']['status'], 'closed')
+        # 审计前后值使用统一结案说明字段（before 为空、after 为提交内容）
+        self.assertEqual(detail['before']['recovery_close_note'], '')
+        self.assertEqual(
+            detail['after']['recovery_close_note'], '业务验证恢复，更换备件并验证恢复')
+        self.assertNotIn('recover_confirm', detail['after'])
+        self.assertNotIn('final_result', detail['after'])
 
 
 class FaultLocateProgressTypeTest(ReasonAnalysisTestBase):
