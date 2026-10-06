@@ -20,6 +20,115 @@ const { TextArea } = Input;
 
 const UPGRADE_TYPES = ['功能升级', 'Bug修复', '安全补丁', '性能优化'];
 
+/** 方案基本信息字段（渲染在父级 <Form> 上下文内） */
+function PlanBasicFields() {
+  return (
+    <>
+      <Form.Item
+        name="name"
+        label="方案名称"
+        rules={[{ required: true, message: '请输入方案名称' }]}
+      >
+        <Input placeholder="请输入方案名称" />
+      </Form.Item>
+      <Form.Item name="description" label="方案描述">
+        <TextArea rows={2} placeholder="方案用途描述（选填）" />
+      </Form.Item>
+      <Form.Item name="system" label="系统">
+        <SystemSelect placeholder="请选择升级系统（可选）" />
+      </Form.Item>
+      <Form.Item name="upgrade_type" label="升级类型">
+        <Select allowClear placeholder="请选择升级类型（可选）">
+          {UPGRADE_TYPES.map(t => (
+            <Option value={t} key={t}>{t}</Option>
+          ))}
+        </Select>
+      </Form.Item>
+    </>
+  );
+}
+
+/** 预设步骤工具栏（标题 + 添加按钮） */
+function PlanStepToolbar({onAdd}) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center' }}>
+      <span>
+        <strong>预设步骤</strong>
+        <span style={{ marginLeft: 8, color: '#999', fontSize: 12 }}>拖拽行手柄可调整顺序</span>
+      </span>
+      <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={onAdd}>
+        添加步骤
+      </Button>
+    </div>
+  );
+}
+
+/** 预设步骤行列表（原生 HTML5 拖拽排序） */
+function PlanStepRows({steps, dragIndex, phaseOptions, onStepChange, onStepRemove, onDragStart, onDrop}) {
+  if (steps.length === 0) {
+    return <Empty description="暂无步骤，点击上方按钮添加" image={Empty.PRESENTED_IMAGE_SIMPLE}/>;
+  }
+  return steps.map((step, index) => (
+    <div
+      key={index}
+      draggable
+      onDragStart={() => onDragStart(index)}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={() => onDrop(index)}
+      style={{
+        display: 'flex', alignItems: 'flex-start', marginBottom: 8, gap: 8,
+        padding: '4px 4px',
+        background: dragIndex === index ? '#e6f7ff' : 'transparent',
+        border: '1px dashed transparent',
+        borderRadius: 4,
+      }}
+    >
+      <Tooltip title="拖拽排序">
+        <HolderOutlined style={{ cursor: 'grab', lineHeight: '32px', color: '#999' }} />
+      </Tooltip>
+      <span style={{ lineHeight: '32px', color: '#999', minWidth: 24 }}>{index + 1}.</span>
+      <AutoComplete
+        value={step.phase || undefined}
+        onChange={v => onStepChange(index, {...step, phase: v || ''})}
+        options={phaseOptions.map(p => ({value: p}))}
+        placeholder="阶段"
+        allowClear
+        style={{ width: 140 }}
+        size="small"
+        filterOption={(input, option) =>
+          (option.value || '').toLowerCase().includes((input || '').toLowerCase())
+        }
+      />
+      <Input
+        placeholder="步骤标题"
+        value={step.title}
+        onChange={e => onStepChange(index, {...step, title: e.target.value})}
+        style={{ flex: 1 }}
+      />
+      <TextArea
+        placeholder="步骤描述（选填）"
+        value={step.description}
+        onChange={e => onStepChange(index, {...step, description: e.target.value})}
+        style={{ flex: 1, minHeight: 32 }}
+        autoSize={{ minRows: 1, maxRows: 3 }}
+      />
+      <Switch
+        checked={step.is_required}
+        onChange={v => onStepChange(index, {...step, is_required: v})}
+        checkedChildren="必选"
+        unCheckedChildren="可选"
+        style={{ minWidth: 56 }}
+      />
+      <Button
+        type="text"
+        danger
+        icon={<MinusCircleOutlined />}
+        onClick={() => onStepRemove(index)}
+      />
+    </div>
+  ));
+}
+
 /**
  * 方案编辑弹窗 - 基本信息 + 预设步骤（支持原生 HTML5 拖拽排序）
  *
@@ -79,10 +188,6 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
     setDragIndex(index);
   }
 
-  function handleDragOver(e) {
-    e.preventDefault(); // 允许 drop
-  }
-
   function handleDrop(index) {
     if (dragIndex === null || dragIndex === index) return;
     const newSteps = [...steps];
@@ -113,6 +218,8 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
       if (result && typeof result.then === 'function') {
         result.finally(() => setLoading(false));
       }
+    }).catch(() => {
+      // 校验拒绝无副作用；失败提示由 http 拦截器弹出，这里仅吞掉拒绝
     });
   }
 
@@ -127,101 +234,16 @@ function PlanForm({ visible, title, initialValues, onSubmit, onCancel }) {
       destroyOnClose
     >
       <Form form={form} labelCol={{ span: 4 }} wrapperCol={{ span: 18 }}>
-        <Form.Item
-          name="name"
-          label="方案名称"
-          rules={[{ required: true, message: '请输入方案名称' }]}
-        >
-          <Input placeholder="请输入方案名称" />
-        </Form.Item>
-        <Form.Item name="description" label="方案描述">
-          <TextArea rows={2} placeholder="方案用途描述（选填）" />
-        </Form.Item>
-        <Form.Item name="system" label="系统">
-          <SystemSelect placeholder="请选择升级系统（可选）" />
-        </Form.Item>
-        <Form.Item name="upgrade_type" label="升级类型">
-          <Select allowClear placeholder="请选择升级类型（可选）">
-            {UPGRADE_TYPES.map(t => (
-              <Option value={t} key={t}>{t}</Option>
-            ))}
-          </Select>
-        </Form.Item>
+        <PlanBasicFields/>
       </Form>
 
       <div style={{ marginTop: 16, borderTop: '1px solid #f0f0f0', paddingTop: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center' }}>
-          <span>
-            <strong>预设步骤</strong>
-            <span style={{ marginLeft: 8, color: '#999', fontSize: 12 }}>拖拽行手柄可调整顺序</span>
-          </span>
-          <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={handleAddStep}>
-            添加步骤
-          </Button>
-        </div>
-        {steps.length === 0 ? (
-          <Empty description="暂无步骤，点击上方按钮添加" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : (
-          steps.map((step, index) => (
-            <div
-              key={index}
-              draggable
-              onDragStart={() => handleDragStart(index)}
-              onDragOver={handleDragOver}
-              onDrop={() => handleDrop(index)}
-              style={{
-                display: 'flex', alignItems: 'flex-start', marginBottom: 8, gap: 8,
-                padding: '4px 4px',
-                background: dragIndex === index ? '#e6f7ff' : 'transparent',
-                border: '1px dashed transparent',
-                borderRadius: 4,
-              }}
-            >
-              <Tooltip title="拖拽排序">
-                <HolderOutlined style={{ cursor: 'grab', lineHeight: '32px', color: '#999' }} />
-              </Tooltip>
-              <span style={{ lineHeight: '32px', color: '#999', minWidth: 24 }}>{index + 1}.</span>
-              <AutoComplete
-                value={step.phase || undefined}
-                onChange={v => handleStepChange(index, { ...step, phase: v || '' })}
-                options={(store.filterOptions.phases || []).map(p => ({ value: p }))}
-                placeholder="阶段"
-                allowClear
-                style={{ width: 140 }}
-                size="small"
-                filterOption={(input, option) =>
-                  (option.value || '').toLowerCase().includes((input || '').toLowerCase())
-                }
-              />
-              <Input
-                placeholder="步骤标题"
-                value={step.title}
-                onChange={e => handleStepChange(index, { ...step, title: e.target.value })}
-                style={{ flex: 1 }}
-              />
-              <TextArea
-                placeholder="步骤描述（选填）"
-                value={step.description}
-                onChange={e => handleStepChange(index, { ...step, description: e.target.value })}
-                style={{ flex: 1, minHeight: 32 }}
-                autoSize={{ minRows: 1, maxRows: 3 }}
-              />
-              <Switch
-                checked={step.is_required}
-                onChange={v => handleStepChange(index, { ...step, is_required: v })}
-                checkedChildren="必选"
-                unCheckedChildren="可选"
-                style={{ minWidth: 56 }}
-              />
-              <Button
-                type="text"
-                danger
-                icon={<MinusCircleOutlined />}
-                onClick={() => handleStepRemove(index)}
-              />
-            </div>
-          ))
-        )}
+        <PlanStepToolbar onAdd={handleAddStep}/>
+        <PlanStepRows
+          steps={steps} dragIndex={dragIndex}
+          phaseOptions={store.filterOptions.phases || []}
+          onStepChange={handleStepChange} onStepRemove={handleStepRemove}
+          onDragStart={handleDragStart} onDrop={handleDrop}/>
       </div>
     </Modal>
   );

@@ -3,24 +3,28 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——运行记录新增/编辑弹窗（2026-10 第一版）。
+ * 设备全生命周期——运行异常记录新增/编辑弹窗（2026-10 第一版；2026-10-04 信息
+ * 分层收敛；2026-10-05 第四版研判不再是必经步骤）。
  * - 统一录入入口：用户不需要先判断"故障/事件/其他类型"，只描述运行情况；
- * - 第一屏显示 所属系统/发生时间/标题/情况描述/登记人 五项必填
- *   （登记人 2026-10 新增，参照故障登记人：手输姓名、不预填登录账号）；
- * - 通过"更多信息"展开可选字段：需要跟进 / 影响系统运行(+程度) /
- *   已采取措施 / 处理结果 / 重要程度(+原因)；附件在详情页上传
- *   （新建阶段对象尚不存在，无临时附件回填模式）；
+ * - 表单承载"运行事实"：所属系统/发生时间/标题/情况描述/登记人 五项必填 +
+ *   异常类别 选填（登记人 2026-10 新增，参照故障登记人：手输姓名、不预填
+ *   登录账号）；具体对象名称/对象型号/影响系统运行（含影响程度）已删除
+ *   （2026-10-06），不再出现在表单中；
+ * - "标记重要"已删除（2026-10-06）：新增/详情均不再提供重要程度设置；
+ * - 不再提供 跟进安排（跟进人/计划处理时间）与处理过程（已采取措施/
+ *   处理结果）、原因判断（初步原因/影响范围）录入——跟进由"开始跟进 +
+ *   首条跟进记录"触发，处理过程统一在处理进展时间线追加（历史字段后端
+ *   保留，详情页以"历史记录"只读展示，不在此编辑）；
+ * - 新增成功即"已记录"，用户可以直接离开，无需任何研判或关闭操作；
  * - 新增时生成 client_token 幂等令牌防重复提交；
- * - 标记重要必须填写原因（后端独立校验）；
  * - 不提供"故障/维护/配置变更/升级"类型选择——各业务由各自模块负责。
  */
 import React, { useState, useEffect, useRef } from 'react';
 import { observer } from 'mobx-react';
-import { Modal, Form, Select, Input, DatePicker, Switch, Button, message } from 'antd';
-import { DownOutlined, UpOutlined } from '@ant-design/icons';
+import { Modal, Form, Select, Input, DatePicker, message } from 'antd';
 import moment from 'moment';
 import store from './store';
-import { FAULT_IMPACT_OPTIONS, RUNTIME_CATEGORY_OPTIONS } from '../constants';
+import { RUNTIME_CATEGORY_OPTIONS } from '../constants';
 
 const {TextArea} = Input;
 
@@ -39,26 +43,19 @@ function SystemOptionLabel({system}) {
   );
 }
 
+// 编辑回填只带事实字段；跟进/处理等历史字段不进编辑表单
+// （后端对未提交字段保留原值，历史数据不受编辑影响）
 function applyDetailToForm(form, detail) {
   form.setFieldsValue({
     system: detail.system,
     occurred_at: detail.occurred_at ? moment(detail.occurred_at, 'YYYY-MM-DD HH:mm') : null,
     title: detail.title,
     description: detail.description,
-    needs_follow_up: !!detail.needs_follow_up,
-    affects_system_operation: !!detail.affects_system_operation,
-    impact_status: detail.impact_status || undefined,
-    measures_taken: detail.measures_taken,
-    handling_result: detail.handling_result,
-    object_name: detail.object_name,
-    object_model: detail.object_model,
     category: detail.category || undefined,
-    initial_reason: detail.initial_reason,
-    impact_scope: detail.impact_scope,
   });
 }
 
-function RequiredFields({systems, isEdit}) {
+function SystemFields({systems}) {
   return (
     <>
       <Form.Item
@@ -104,15 +101,14 @@ function RequiredFields({systems, isEdit}) {
           {max: 2000, message: '长度不能超过 2000'},
         ]}
       >
-        <TextArea rows={3} placeholder="描述观察到的运行情况（不必判断是否为故障）"/>
+        <TextArea rows={3} placeholder="只描述发生了什么、观察到了什么；原因判断与处理过程在处理进展中追加"/>
       </Form.Item>
-      <RegistrarFields isEdit={isEdit}/>
     </>
   );
 }
 
 // 登记人：手动输入姓名（输入后回车确认，可多个，顿号分隔提交），只表示
-// 实际添加这条运行记录的人，与登录账号审计字段独立；
+// 实际添加这条运行异常记录的人，与登录账号审计字段独立；
 // 必填、不预填默认姓名（参照故障登记人口径）。
 // 仅新增可填，编辑不渲染（后端保留原登记人）
 function RegistrarFields({isEdit}) {
@@ -133,113 +129,23 @@ function RegistrarFields({isEdit}) {
   );
 }
 
-function OptionalFields({isEdit}) {
+// 结构化事实字段（第二版）：全部选填，不增加录入负担；
+// 具体对象名称/对象型号/影响系统运行（含影响程度）已删除（2026-10-06）
+function FactFields() {
   return (
-    <>
-      <Form.Item
-        name="needs_follow_up"
-        label="需要跟进"
-        valuePropName="checked"
-        extra="开启后可在详情中标记为跟进中，持续记录处理进展"
-      >
-        <Switch checkedChildren="需要" unCheckedChildren="不需要"/>
-      </Form.Item>
-      <Form.Item
-        name="affects_system_operation"
-        label="影响系统运行"
-        valuePropName="checked"
-        extra="默认不影响运行；影响运行时请选择影响程度（该记录会进入系统履历）"
-      >
-        <Switch checkedChildren="影响" unCheckedChildren="不影响"/>
-      </Form.Item>
-      <Form.Item noStyle shouldUpdate={
-        (prev, cur) => prev.affects_system_operation !== cur.affects_system_operation
-      }>
-        {({getFieldValue}) => getFieldValue('affects_system_operation') ? (
-          <Form.Item
-            name="impact_status"
-            label="影响程度"
-            preserve={false}
-            rules={[{required: true, message: '请选择影响程度'}]}
-          >
-            <Select placeholder="降级 / 故障 / 中断">
-              {FAULT_IMPACT_OPTIONS.map(item => (
-                <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
-        ) : null}
-      </Form.Item>
-      <Form.Item name="measures_taken" label="已采取措施">
-        <TextArea rows={2} placeholder="（选填）已经采取的临时或正式措施"/>
-      </Form.Item>
-      <Form.Item name="handling_result" label="处理结果">
-        <TextArea rows={2} placeholder="（选填）当前处理结果，普通小问题可直接处理后关闭"/>
-      </Form.Item>
-      {/* 结构化补充字段（第二版）：全部选填，不增加录入负担；
-          转正式故障时随转换带入故障对象/原因字段 */}
-      <Form.Item name="category" label="异常类别">
-        <Select allowClear placeholder="（选填）设备/信号/链路/供电/环境/软件等">
-          {RUNTIME_CATEGORY_OPTIONS.map(item => (
-            <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
-          ))}
-        </Select>
-      </Form.Item>
-      <Form.Item name="object_name" label="具体对象名称">
-        <Input placeholder="（选填）如 DVOR 信标机"/>
-      </Form.Item>
-      <Form.Item name="object_model" label="对象型号/编号">
-        <Input placeholder="（选填）如 VR12 / 序列号"/>
-      </Form.Item>
-      <Form.Item name="initial_reason" label="初步原因">
-        <Input placeholder="（选填）如 疑为功放模块老化"/>
-      </Form.Item>
-      <Form.Item name="impact_scope" label="影响范围">
-        <Input placeholder="（选填）如 本场航路导航、通信指挥"/>
-      </Form.Item>
-      {!isEdit && <ImportanceFields/>}
-    </>
-  );
-}
-
-// 重要程度仅新增表单提供（创建时直接标记重要须填原因）；编辑不渲染——
-// 记录从普通升级为重要走详情页"标记重要"动作（履历只从升级时生成）。
-function ImportanceFields() {
-  return (
-    <>
-      <Form.Item
-        name="importance"
-        label="重要程度"
-        initialValue="normal"
-        extra="标记为重要的记录会进入系统履历"
-      >
-        <Select>
-          <Select.Option value="normal">普通</Select.Option>
-          <Select.Option value="important">重要</Select.Option>
-        </Select>
-      </Form.Item>
-      <Form.Item noStyle shouldUpdate={
-        (prev, cur) => prev.importance !== cur.importance
-      }>
-        {({getFieldValue}) => getFieldValue('importance') === 'important' ? (
-          <Form.Item
-            name="importance_reason"
-            label="重要原因"
-            preserve={false}
-            rules={[{required: true, message: '标记重要时必须填写原因'}]}
-          >
-            <Input placeholder="标记为重要的原因（必填）"/>
-          </Form.Item>
-        ) : null}
-      </Form.Item>
-    </>
+    <Form.Item name="category" label="异常类别">
+      <Select allowClear placeholder="（选填）设备/信号/链路/供电/环境/软件等">
+        {RUNTIME_CATEGORY_OPTIONS.map(item => (
+          <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
+        ))}
+      </Select>
+    </Form.Item>
   );
 }
 
 const RecordForm = observer(function RecordForm() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const [moreVisible, setMoreVisible] = useState(false);
   const mountedRef = useRef(true);
   const record = store.record;
   const isEdit = !!record.id;
@@ -256,7 +162,6 @@ const RecordForm = observer(function RecordForm() {
       .then(detail => {
         if (!mountedRef.current) return;
         applyDetailToForm(form, detail);
-        setMoreVisible(true);
       })
       .catch(() => {})
       .finally(() => {
@@ -275,11 +180,10 @@ const RecordForm = observer(function RecordForm() {
       };
       delete payload.registrar_names;
       if (isEdit) {
-        // 重要程度仅新增表单提供：编辑提交不携带该键，后端保留原值
-        delete payload.importance;
-        delete payload.importance_reason;
         // 登记人仅新增可填：编辑不提交该键，后端保留原登记人
         delete payload.registrar_name;
+        // 事实字段未提交时后端保留原值（措施/结果/原因等历史字段
+        // 不在编辑表单中，编辑不会触碰）
       } else {
         // 幂等令牌：同一表单提交多次只创建一条记录
         payload.client_token = makeClientToken();
@@ -287,7 +191,9 @@ const RecordForm = observer(function RecordForm() {
       setLoading(true);
       store.submitForm(payload)
         .then(() => {
-          if (mountedRef.current) message.success(isEdit ? '运行记录已更新' : '运行记录已创建');
+          if (mountedRef.current) {
+            message.success(isEdit ? '运行异常记录已更新' : '运行异常记录已创建（已记录），可直接离开或开始跟进');
+          }
         })
         .catch(() => {})
         .finally(() => {
@@ -299,44 +205,17 @@ const RecordForm = observer(function RecordForm() {
   return (
     <Modal
       visible={store.formVisible}
-      title={isEdit ? '编辑运行记录' : '新增运行记录'}
+      title={isEdit ? '编辑运行异常记录' : '新增运行异常记录'}
       width={760}
       maskClosable={false}
       confirmLoading={loading}
       onCancel={() => store.formVisible = false}
       onOk={handleSubmit}
     >
-      <Form
-        form={form}
-        labelCol={{span: 6}}
-        wrapperCol={{span: 16}}
-        initialValues={{affects_system_operation: false, needs_follow_up: false}}
-      >
-        <RequiredFields systems={store.systems} isEdit={isEdit}/>
-        {moreVisible ? (
-          <OptionalFields isEdit={isEdit}/>
-        ) : (
-          <Form.Item wrapperCol={{offset: 6, span: 16}}>
-            <Button
-              type="link"
-              icon={<DownOutlined/>}
-              onClick={() => setMoreVisible(true)}
-            >
-              需要跟进或更多信息（影响程度、措施、结果、重要程度）
-            </Button>
-          </Form.Item>
-        )}
-        {moreVisible && !isEdit && (
-          <Form.Item wrapperCol={{offset: 6, span: 16}}>
-            <Button
-              type="link"
-              icon={<UpOutlined/>}
-              onClick={() => setMoreVisible(false)}
-            >
-              收起更多信息
-            </Button>
-          </Form.Item>
-        )}
+      <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}>
+        <SystemFields systems={store.systems}/>
+        <RegistrarFields isEdit={isEdit}/>
+        <FactFields/>
       </Form>
     </Modal>
   );

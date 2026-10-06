@@ -568,27 +568,6 @@ class SystemExportView(View):
         return _csv_response('el_systems', headers, rows)
 
 
-class SystemStatusSummaryView(View):
-    """当前运行状态汇总（只读聚合，供"履历与状态→当前运行状态"页面）。
-
-    - 按健康状态统计本租户系统数量（含停用系统单独计数）；
-    - 健康状态唯一来源为 fault_services 计算（步骤 3.5 收口），本视图只读。
-    """
-
-    @auth('equipment_lifecycle.system.view')
-    def get(self, request):
-        query = apply_tenant_filter(LifecycleSystem.objects.all(), request.user)
-        summary = {status: 0 for status, _ in LifecycleSystem.HEALTH_STATUS_CHOICES}
-        for row in query.values('health_status').annotate(n=models.Count('id')):
-            summary[row['health_status']] = row['n']
-        return json_response({
-            'summary': summary,
-            'total': sum(summary.values()),
-            'active_total': query.filter(is_active=True).count(),
-            'inactive_total': query.filter(is_active=False).count(),
-        })
-
-
 def _csv_response(filename_prefix, headers, rows):
     buf = io.StringIO()
     writer = csv.writer(buf)

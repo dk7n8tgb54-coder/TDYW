@@ -3,11 +3,16 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——运行记录只读统计视图（2026-10 第二版）。
- * 系统维度 / 状态维度 / 时间趋势 / 转故障数量 / 重复问题数量 / 重要记录 /
- * 长期未关闭（仅统计跟进中：已记录留痕与无需跟进为合法稳定状态，不计入
- * 积压）/ 平均处理时长。统计只使用运行记录数据（巡视、维护、配置变更、
- * 升级不进入本统计）；时间范围用发生时间起止筛选（后端 __gte/__lt）。
+ * 设备全生命周期——运行异常记录只读统计视图（2026-10 第二版）。
+ * 系统维度 / 状态维度 / 时间趋势 / 转故障数量 /
+ * 长期未关闭（仅统计跟进中：已记录留痕为合法稳定状态，不计入积压）/
+ * 平均处理时长。统计只使用运行异常记录数据（巡视、维护、配置变更、升级不进入
+ * 本统计）；时间范围用发生时间起止筛选（后端 __gte/__lt）。
+ * 状态维度由后端返回四状态原值计数（已记录/跟进中/已完成/已转故障；
+ * 历史旧状态已由迁移 0007 归一）。
+ * "重复问题"统计卡片已于 2026-10-05 随重复问题功能下线移除，duplicated
+ * 统计键已随后端清理（2026-10-06）一并删除。"重要记录"卡片与系统维度
+ * "重要"列已随标记重要字段删除移除（2026-10-06）。
  */
 import React from 'react';
 import { observer } from 'mobx-react';
@@ -39,10 +44,6 @@ const systemColumns = [{
   title: '转故障',
   dataIndex: 'converted_fault',
   width: 90,
-}, {
-  title: '重要',
-  dataIndex: 'important',
-  width: 90,
 }];
 
 const trendColumns = [{
@@ -63,19 +64,13 @@ function TotalsCards({totals}) {
   return (
     <Row gutter={12}>
       <Col span={4}>
-        <Card size="small"><Statistic title="运行记录总数" value={totals.total}/></Card>
+        <Card size="small"><Statistic title="运行异常记录总数" value={totals.total}/></Card>
       </Col>
       <Col span={4}>
         <Card size="small"><Statistic title="跟进中" value={totals.following_up}/></Card>
       </Col>
       <Col span={4}>
         <Card size="small"><Statistic title="转故障" value={totals.converted_fault}/></Card>
-      </Col>
-      <Col span={4}>
-        <Card size="small"><Statistic title="重复问题" value={totals.duplicated}/></Card>
-      </Col>
-      <Col span={4}>
-        <Card size="small"><Statistic title="重要记录" value={totals.important}/></Card>
       </Col>
       <Col span={4}>
         <Card size="small">
@@ -89,7 +84,7 @@ function TotalsCards({totals}) {
       <Col span={24} style={{marginTop: 12}}>
         <Card size="small">
           <Statistic
-            title="平均处理时长（小时，录入到首次标记已处理）"
+            title="平均处理时长（小时，录入到首次完成跟进）"
             value={totals.avg_resolve_hours === null || totals.avg_resolve_hours === undefined
               ? '-' : totals.avg_resolve_hours}
           />
@@ -141,7 +136,7 @@ class RecordStatistics extends React.Component {
                 pagination={false}
                 dataSource={stats.by_system || []}
                 columns={systemColumns}
-                locale={{emptyText: '所选范围内无运行记录'}}
+                locale={{emptyText: '所选范围内无运行异常记录'}}
               />
             </Card>
             <Card size="small" title="时间趋势（按自然日）" style={{marginTop: 12}}>

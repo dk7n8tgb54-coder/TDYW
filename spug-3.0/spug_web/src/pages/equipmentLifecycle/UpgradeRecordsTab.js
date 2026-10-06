@@ -19,20 +19,31 @@ const UPGRADE_STATUS_COLOR = {
 };
 
 class UpgradeRecordsTab extends React.Component {
-  state = {records: [], loading: false};
+  // 服务端分页：后端 paginate() 默认 page_size=20，客户端分页会静默截断
+  state = {records: [], total: 0, page: 1, pageSize: 10, loading: false};
 
   componentDidMount() {
     this.fetchRecords();
   }
 
-  fetchRecords = () => {
+  fetchRecords = (page = this.state.page) => {
     this.setState({loading: true});
-    http.get(`/api/equipment-lifecycle/systems/${this.props.systemId}/upgrade-records/`)
+    http.get(`/api/equipment-lifecycle/systems/${this.props.systemId}/upgrade-records/`,
+      {params: {page, page_size: this.state.pageSize}})
       .then(res => {
-        this.setState({records: (res && res.data) || []});
+        const data = (res && res.data) || [];
+        this.setState({
+          records: data,
+          total: (res && res.total) || data.length,
+          page,
+        });
       })
       .catch(() => {})
       .finally(() => this.setState({loading: false}));
+  };
+
+  handlePageChange = (page) => {
+    this.fetchRecords(page);
   };
 
   columns = [{
@@ -70,7 +81,13 @@ class UpgradeRecordsTab extends React.Component {
           rowKey="id"
           size="small"
           loading={this.state.loading}
-          pagination={{pageSize: 10, showTotal: total => `共 ${total} 条`}}
+          pagination={{
+            current: this.state.page,
+            pageSize: this.state.pageSize,
+            total: this.state.total,
+            showTotal: total => `共 ${total} 条`,
+            onChange: this.handlePageChange,
+          }}
           dataSource={this.state.records}
           columns={this.columns}
           locale={{emptyText: <Empty description="当前系统暂无升级记录" image={Empty.PRESENTED_IMAGE_SIMPLE}/>}}

@@ -6,7 +6,7 @@
 /**
  * 设备全生命周期——故障详情窗口（2026-10-02 由侧边抽屉改为居中窗口，
  * 与系统档案详情一致）。标题区直接呈现故障编号、状态与系统影响程度，
- * 基本信息 / 处理进展时间线（追加式，支持更正留痕）/ 确认恢复并结案 / 撤销登记。
+ * 基本信息 / 处理处置时间线（追加式，支持更正留痕）/ 确认恢复并结案 / 撤销登记。
  * 2026-10 流程简化：无"开始处置"独立步骤（新建故障即处置中）；
  * 原"确认恢复"与"关闭故障"合并为一次"确认恢复并结案"操作（恢复时间/
  * 恢复确认人/结案说明一次弹窗一次校验，成功后故障直接
@@ -22,11 +22,11 @@
  * 错误或重复的故障登记——撤销后不删除历史记录，该记录退出有效故障统计与
  * 健康状态计算（后端 cancelled 状态值不变，历史数据兼容）；已撤销详情
  * 只读仅供历史追溯（顶部横幅提示 + 撤销登记区块展示撤销原因/时间/人），
- * 编辑/追加进展/恢复结案/重复撤销均不提供入口（后端同样拒绝）。
- * 处理进展记录故障整体跟进（检查、本方处理、送厂、厂家反馈、返还、测试、
+ * 编辑/追加处置记录/恢复结案/重复撤销均不提供入口（后端同样拒绝）。
+ * 处置记录用于记录故障整体跟进（检查、本方处理、送厂、厂家反馈、返还、测试、
  * 持续观察等）；"本次工时"录入已删除（2026-10），存量记录的工时仅在时间线
  * 只读展示、不再可填可改；关联工单/生成维修工单已随工单功能删除（2026-09-30）；
- * 人员展示口径：故障登记人/恢复确认人/进展记录人均为手动输入姓名（实际
+ * 人员展示口径：故障登记人/恢复确认人/处置人均为手动输入姓名（实际
  * 登记/确认/记录的人，不关联用户账号），均不代表负责整个故障；
  * 处置负责人/发现方式/级别/影响范围/故障位置字段已删除（2026-09）；
  * 不再提供"受影响系统"页签；所有动作成功后重新获取真实数据；
@@ -34,19 +34,19 @@
  * 当前状态与系统影响程度只在标题区展示一次，区块内不重复；处置中且无
  * 任何恢复数据时，处置结果区块以"尚未完成恢复确认"一条提示代替成排
  * 空的"-"字段（已恢复/已关闭或已有部分恢复数据时完整展示）；
- * 处理进展页签实时显示条数（取列表接口 total）：停在基本信息页签也能
- * 看出进展是否已登记；基本信息页签底部有只读"处理概览"紧凑信息条
- * （后端统计的条数/最近更新/最后记录 + 查看全部进展，非边框表格），
- * 完整时间线仍在处理进展页签；
+ * 处置记录页签实时显示条数（取列表接口 total）：停在基本信息页签也能
+ * 看出是否已有处置记录；基本信息页签底部有只读"处置记录概览"紧凑信息条
+ * （后端统计的条数/最近处置时间/最近处置措施 + 查看全部处置记录，非边框表格），
+ * 完整时间线仍在处置记录页签；
  * 原因分析状态化（2026-10）：原因分析是单一字段，处置结果区块按状态展示——
  * 未填写显示"尚未分析"、处置中显示"初步判断：{内容}"、已关闭显示
  * "最终原因：{内容}"、原因未明显示"原因未明：{未明说明}"（reason_unknown
  * 标记，说明仍存于 reason_analysis，不强迫用户填写虚假原因）；处置中且具备
  * fault.edit 权限时提供"补充原因分析/修改"按钮，打开只处理原因分析的专用
  * 弹窗（回填当前值、可勾选原因未明，保存后静默刷新详情）；结案弹窗提供
- * "最终原因分析"（默认回填）与"原因未明"勾选，随结案保存；处理进展新增
- * "故障定位"类型记录原因判断的依据与过程（结论在原因分析，过程在进展）；
- * 页签受控，列表"处理进展"列点击可直达处理进展页签；
+ * "最终原因分析"（默认回填）与"原因未明"勾选，随结案保存；处置类型/
+ * 处置结果字段已删除（2026-10-05），排查过程与依据直接作为处置措施记录；
+ * 页签受控，列表"处置记录"列点击可直达处置记录页签；
  * 错误提示由 http 拦截器统一弹出，不重复提示。
  * 约束：凡在 render 中读取 store observable 的函数组件必须用 observer 包裹
  * （MobX 只追踪 observer 组件自身的读取），否则对应区域不会随 store 更新。
@@ -62,19 +62,16 @@ import { history } from 'libs';
 import store from './faultStore';
 import FaultStatusTag from './FaultStatusTag';
 import { LEDGER_TYPE_PATH } from './ledger/constants';
-import {
-  PERM, FAULT_IMPACT_TEXT, FAULT_IMPACT_COLOR,
-  FAULT_PROGRESS_TYPE_OPTIONS,
-} from './constants';
+import {PERM, FAULT_IMPACT_TEXT, FAULT_IMPACT_COLOR} from './constants';
 
 const {TextArea} = Input;
 const {TabPane} = Tabs;
 
 @observer
 class FaultDetail extends React.Component {
-  // 详情与处理进展请求由 store.showDetail 统一发起，挂载时不再重复请求
+  // 详情与处置记录请求由 store.showDetail 统一发起，挂载时不再重复请求
 
-  // 区块标题：三区块与处理概览共用（沿用页面内联样式，不新增全局样式）
+  // 区块标题：三区块与处置记录概览共用（沿用页面内联样式，不新增全局样式）
   renderSectionTitle(text, style) {
     return <div style={{fontWeight: 600, marginBottom: 8, ...style}}>{text}</div>;
   }
@@ -192,9 +189,9 @@ class FaultDetail extends React.Component {
               </Button>
             </Descriptions.Item>
           )}
-          {/* 运行记录转故障（2026-10）：正式外键双向追溯，跳回运行记录详情 */}
+          {/* 运行异常记录转故障（2026-10）：正式外键双向追溯，跳回运行异常记录详情 */}
           {d.source_type === 'runtime_record' && d.source_runtime_record && (
-            <Descriptions.Item label="来源运行记录" span={2}>
+            <Descriptions.Item label="来源运行异常记录" span={2}>
               <Button
                 type="link"
                 size="small"
@@ -204,7 +201,7 @@ class FaultDetail extends React.Component {
                   history.push(`/el/runtime-records?detail=${d.source_runtime_record}`);
                 }}
               >
-                {d.source_runtime_record_no || '查看来源运行记录'}
+                {d.source_runtime_record_no || '查看来源运行异常记录'}
               </Button>
             </Descriptions.Item>
           )}
@@ -234,29 +231,29 @@ class FaultDetail extends React.Component {
     );
   }
 
-  // 处理概览（2026-10）：基本信息页签底部的只读紧凑信息条（非边框表格）。
-  // 条数/最近更新/最后记录取后端详情接口聚合统计的
+  // 处置记录概览（2026-10）：基本信息页签底部的只读紧凑信息条（非边框表格）。
+  // 条数/最近处置时间/最近处置措施取后端详情接口聚合统计的
   // handling_record_count / latest_handled_at / latest_handling_content，
-  // 不在前端逐条请求处理进展，也不提供可编辑的"节点数"字段；
-  // 完整时间线仍在"处理进展"页签，条数与"查看全部进展"只切换页签。
+  // 不在前端逐条请求处置记录，也不提供可编辑的"节点数"字段；
+  // 完整时间线仍在"处置记录"页签，条数与"查看全部处置记录"只切换页签。
   renderHandlingOverview() {
     const d = store.detail;
     const count = d.handling_record_count ?? 0;
     const goToHandling = () => store.setActiveTab('handling');
     return (
       <div style={{marginTop: 16}}>
-        {this.renderSectionTitle('处理概览')}
+        {this.renderSectionTitle('处置记录概览')}
         {count > 0 ? (
           <div style={{fontSize: 13}}>
-            <a onClick={goToHandling}>处理进展 {count} 条</a>
-            <span style={{marginLeft: 16}}>最近更新：{d.latest_handled_at || '-'}</span>
-            <span style={{marginLeft: 16}}>最后记录：{d.latest_handling_content || '-'}</span>
+            <a onClick={goToHandling}>处置记录 {count} 条</a>
+            <span style={{marginLeft: 16}}>最近处置时间：{d.latest_handled_at || '-'}</span>
+            <span style={{marginLeft: 16}}>最近处置措施：{d.latest_handling_content || '-'}</span>
             <Button type="link" style={{padding: 0, marginLeft: 16}} onClick={goToHandling}>
-              查看全部进展
+              查看全部处置记录
             </Button>
           </div>
         ) : (
-          <div style={{color: 'rgba(0, 0, 0, 0.45)'}}>暂无处理进展</div>
+          <div style={{color: 'rgba(0, 0, 0, 0.45)'}}>暂无处置记录</div>
         )}
       </div>
     );
@@ -293,14 +290,14 @@ class FaultDetail extends React.Component {
 
   render() {
     const d = store.detail;
-    // 处置中是唯一进行态：编辑/进展/撤销登记/确认恢复并结案仅此时可用
+    // 处置中是唯一进行态：编辑/处置记录/撤销登记/确认恢复并结案仅此时可用
     // （closed 终态、cancelled 已撤销均封闭；旧 pending/recovered 已删除）
     const editable = d.status === 'handling';
-    // 页签实时显示处理进展条数（store.showDetail 打开详情时即统一拉取进展列表）；
+    // 页签实时显示处置记录数（store.showDetail 打开详情时即统一拉取处置记录列表）；
     // 列表加载中不显示数字，避免闪现误导性的（0）
     const handlingTab = store.isHandlingFetching
-      ? '处理进展'
-      : `处理进展（${store.handlingTotal}）`;
+      ? '处置记录'
+      : `处置记录（${store.handlingTotal}）`;
     return (
       <Modal
         title={this.renderTitle()}
@@ -338,8 +335,8 @@ class FaultDetail extends React.Component {
               <AuthCancelButton fault={d}/>
             )}
           </div>
-          {/* 页签受控（store.activeTab）：列表"处理进展"列点击 /
-              基本信息"查看全部进展"均可直达处理进展页签，不重复开新窗口 */}
+          {/* 页签受控（store.activeTab）：列表"处置记录"列点击 /
+              基本信息"查看全部处置记录"均可直达处置记录页签，不重复开新窗口 */}
           <Tabs activeKey={store.activeTab} onChange={(key) => store.setActiveTab(key)}>
             <TabPane tab="基本信息" key="basic">
               {this.renderBasic()}
@@ -505,7 +502,7 @@ function ReasonAnalysisModal({visible, onClose}) {
       }}
     >
       <p style={{color: 'rgba(0, 0, 0, 0.45)', marginTop: 0}}>
-        原因分析是当前阶段的原因结论；排查过程与依据请通过"处理进展-故障定位"记录。
+        原因分析是当前阶段的原因结论；排查过程与依据请在"处置记录"中记录。
       </p>
       <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}>
         <Form.Item name="reason_unknown" valuePropName="checked" label="原因未明">
@@ -545,7 +542,7 @@ function ReasonAnalysisModal({visible, onClose}) {
 // 确认恢复并结案弹窗：恢复时间/恢复确认人/最终原因分析（或未明说明）/
 // 结案说明一次填写一次校验，提交后故障直接进入终态"已关闭"。
 // 结案说明（recovery_close_note）为唯一结案说明字段（2026-10 字段合并）：
-// 一次性说明采取的处理措施、恢复验证依据与最终处理结果，位于最终原因
+// 一次性说明采取的处理措施、恢复验证依据与最终处置结果，位于最终原因
 // 分析之下；原"恢复确认信息"/"最终结果"两个输入框已删除；最终原因分析
 // 保持独立语义（说明根因或原因未明依据），不与结案说明合并。
 // 存量恢复数据（历史合并迁移回填或旧流程遗留）打开时预填既有说明，
@@ -590,7 +587,7 @@ const RecoverModal = observer(function RecoverModal({visible, form, fault, onClo
       }}
     >
       <p style={{color: 'rgba(0, 0, 0, 0.45)', marginTop: 0}}>
-        提交后故障直接进入"已关闭"终态，不可再编辑或追加处理进展。
+        提交后故障直接进入"已关闭"终态，不可再编辑或追加处置记录。
       </p>
       <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}
         initialValues={initialValues}>
@@ -662,14 +659,15 @@ const RecoverModal = observer(function RecoverModal({visible, form, fault, onClo
 });
 
 // observer 必须包裹：时间线读取 handlingRecords/isHandlingFetching，
-// 未包裹时这两项变化不触发重渲染——添加进展后新记录不显示、Spin 状态冻结
+// 未包裹时这两项变化不触发重渲染——新增处置记录后新记录不显示、Spin 状态冻结
 const HandlingTimeline = observer(function HandlingTimeline({editable}) {
   return (
     <div>
       <p style={{color: '#999', marginTop: 0}}>
-        处理进展记录故障的整体跟进（检查、故障定位、本方处理、送厂、厂家反馈、
-        返还、测试、持续观察等）；"故障定位"记录原因判断的依据与过程，
-        原因结论请在基本信息"原因分析"中维护；无需再另行生成维修工单。
+        处置记录按时间追加故障从发现到结案的处置过程，每条记录
+        处置时间、处置人与处置措施；排查定位、措施执行、厂家反馈、
+        测试验证、持续观察等均写入处置措施。原因结论请在基本信息
+        "原因分析"中维护。
       </p>
       {editable && (
         <div style={{marginBottom: 12}}>
@@ -683,16 +681,12 @@ const HandlingTimeline = observer(function HandlingTimeline({editable}) {
               <Timeline.Item key={record.id}>
                 <div>
                   <b>{record.handled_at}</b>
-                  {/* 进展记录人优先手动姓名；历史记录无姓名时回落操作账号用户名 */}
+                  {/* 处置人优先手动姓名；历史记录无姓名时回落操作账号用户名 */}
                   <span style={{marginLeft: 8}}>
-                    进展记录人：{record.recorder_name || record.handler_name || '-'}
+                    处置人：{record.recorder_name || record.handler_name || '-'}
                   </span>
-                  {record.progress_type_text && (
-                    <Tag style={{marginLeft: 8}}>{record.progress_type_text}</Tag>
-                  )}
-                  {record.result && <Tag style={{marginLeft: 8}}>{record.result}</Tag>}
-                  {/* 本次工时录入已删除（2026-10）：仅存量记录仍只读展示工时，
-                      新增/更正不再携带该字段（后端 PUT 未提交时保留原值） */}
+                  {/* 处置类型/处置结果字段已删除（2026-10-05）：时间线不再展示
+                      类型与结果标签；存量工时仍只读展示 */}
                   {record.work_hours !== null && record.work_hours !== undefined && (
                     <Tag style={{marginLeft: 8}}>工时 {record.work_hours}h</Tag>
                   )}
@@ -710,7 +704,7 @@ const HandlingTimeline = observer(function HandlingTimeline({editable}) {
             ))}
           </Timeline>
         ) : (
-          <Empty description="暂无处理进展" image={Empty.PRESENTED_IMAGE_SIMPLE}/>
+          <Empty description="暂无处置记录" image={Empty.PRESENTED_IMAGE_SIMPLE}/>
         )}
       </Spin>
     </div>
@@ -727,7 +721,7 @@ function AddHandlingButton() {
         icon={<PlusOutlined/>}
         onClick={() => setVisible(true)}
       >
-        添加处理进展
+        新增处置记录
       </AuthButton>
       <HandlingModal visible={visible} onClose={() => setVisible(false)}/>
     </span>
@@ -764,18 +758,16 @@ function HandlingModal({visible, record, onClose}) {
     if (visible) {
       form.resetFields();
       if (isCorrect) {
-        // 更正时回显原进展记录人（历史记录无姓名回落操作账号用户名）
+        // 更正时回显原处置人（历史记录无姓名回落操作账号用户名）
         const prevRecorder = record.recorder_name || record.handler_name || '';
         form.setFieldsValue({
           handled_at: record.handled_at ? moment(record.handled_at, 'YYYY-MM-DD HH:mm') : null,
           recorder_names: prevRecorder ? prevRecorder.split('、').filter(Boolean) : [],
-          progress_type: record.progress_type || undefined,
           content: record.content,
-          result: record.result,
         });
       } else {
-        // 新增进展：时间默认当前时间；进展记录人为手动输入姓名（回车确认，
-        // 可多个），不预填默认姓名；进展类型/处理结果选填
+        // 新增处置记录：时间默认当前时间；处置人为手动输入姓名（回车确认，
+        // 可多个），不预填默认姓名（处置类型/处置结果字段已删除）
         form.setFieldsValue({
           handled_at: moment(),
           recorder_names: [],
@@ -787,7 +779,7 @@ function HandlingModal({visible, record, onClose}) {
   return (
     <Modal
       visible={visible}
-      title={isCorrect ? '更正处理进展' : '添加处理进展'}
+      title={isCorrect ? '更正处置记录' : '新增处置记录'}
       confirmLoading={loading}
       onCancel={onClose}
       onOk={() => {
@@ -795,18 +787,16 @@ function HandlingModal({visible, record, onClose}) {
           setLoading(true);
           const payload = {
             handled_at: values.handled_at.format('YYYY-MM-DD HH:mm'),
-            // 标签数组以顿号拼接为记录人姓名文本（多人）
+            // 标签数组以顿号拼接为处置人姓名文本（多人）
             recorder_name: (values.recorder_names || []).join('、'),
-            progress_type: values.progress_type || '',
             content: values.content,
-            result: values.result || '',
           };
           const request = isCorrect
             ? store.correctHandlingRecord(record.id, {...payload,
                 correction_reason: values.correction_reason})
             : store.addHandlingRecord(payload);
           request.then(() => {
-            message.success(isCorrect ? '处理进展已更正' : '处理进展已添加');
+            message.success(isCorrect ? '处置记录已更正' : '处置记录已新增');
             setLoading(false);
             onClose();
           }).catch(() => setLoading(false));
@@ -816,16 +806,16 @@ function HandlingModal({visible, record, onClose}) {
       <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}>
         <Form.Item
           name="handled_at"
-          label="进展时间"
-          rules={[{required: true, message: '请选择进展时间'}]}
+          label="处置时间"
+          rules={[{required: true, message: '请选择处置时间'}]}
         >
           <DatePicker showTime={{format: 'HH:mm'}} format="YYYY-MM-DD HH:mm" style={{width: '100%'}}/>
         </Form.Item>
-        {/* 进展记录人：手动输入姓名（输入后回车确认，可多个，顿号分隔提交），
-            只表示实际添加本条进展的人，不代表负责整个故障；必填、不预填 */}
+        {/* 处置人：手动输入姓名（输入后回车确认，可多个，顿号分隔提交），
+            只表示实际添加本条处置记录的人，不代表负责整个故障；必填、不预填 */}
         <Form.Item
           name="recorder_names"
-          label="进展记录人"
+          label="处置人"
           rules={[{required: true, type: 'array', message: '请输入姓名后回车确认'}]}
         >
           {/* open=false：仅手输姓名（回车/失焦添加），与今日巡检值班人员输入一致 */}
@@ -835,25 +825,14 @@ function HandlingModal({visible, record, onClose}) {
             placeholder="输入姓名后回车确认（可多个）"
           />
         </Form.Item>
-        <Form.Item name="progress_type" label="进展类型">
-          <Select
-            allowClear
-            placeholder="选填：检查 / 故障定位 / 本方处理 / 送厂 / 厂家反馈 / 返还 / 测试 / 持续观察 / 其他"
-          >
-            {FAULT_PROGRESS_TYPE_OPTIONS.map(item => (
-              <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
-            ))}
-          </Select>
-        </Form.Item>
+        {/* 处置类型/处置结果字段已删除（2026-10-05）：表单仅保留处置时间/
+            处置人/处置措施；后端对旧参数出现即拒绝 */}
         <Form.Item
           name="content"
-          label="进展内容"
-          rules={[{required: true, message: '请填写进展内容'}]}
+          label="处置措施"
+          rules={[{required: true, message: '请填写处置措施'}]}
         >
-          <TextArea rows={3} placeholder="如：现场检查情况、已采取的临时措施、送厂安排、厂家反馈、返还及复测、持续观察结论等"/>
-        </Form.Item>
-        <Form.Item name="result" label="处理结果">
-          <Input placeholder="选填，如：已临时保障 / 待厂家维修中 / 复测通过"/>
+          <TextArea rows={3} placeholder="填写本次采取的措施、排查过程或验证动作。"/>
         </Form.Item>
         {isCorrect && (
           <Form.Item

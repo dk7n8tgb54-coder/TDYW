@@ -346,10 +346,12 @@ class PlanService:
                     existing.update(is_deleted=True, deleted_at=_now)
                     start_seq = 1
                 else:
-                    # 追加模式：接在已有步骤之后
-                    start_seq = UpgradeRecordStep.objects.filter(
+                    # 追加模式：接在现存步骤最大序号之后（软删除步骤不参与，
+                    # 避免 count() 与现存序号撞号，与 add_manual_step 口径一致）
+                    from django.db.models import Max
+                    start_seq = (UpgradeRecordStep.objects.filter(
                         upgrade_id=upgrade_id
-                    ).count() + 1
+                    ).aggregate(max_seq=Max('sequence'))['max_seq'] or 0) + 1
 
                 created = []
                 for idx, step in enumerate(steps, start_seq):

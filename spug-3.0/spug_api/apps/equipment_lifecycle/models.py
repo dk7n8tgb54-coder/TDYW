@@ -31,7 +31,7 @@ from libs.tenant_base_model import TenantModelManager, TenantModelMixin, make_te
 
 # Meta/CheckConstraint 内无法访问类体常量（类作用域不形成闭包），枚举值提为模块级
 # repairing（维修中）已随"故障维修工单"功能整体删除（2026-09-30）：维修过程统一由
-# 故障处理进展承载，健康状态只由有效故障的影响程度驱动（fault_services）。
+# 故障处置记录承载，健康状态只由有效故障的影响程度驱动（fault_services）。
 HEALTH_STATUS_VALUES = ['normal', 'degraded', 'fault', 'interrupted', 'unknown']
 FAULT_IMPACT_VALUES = ['degraded', 'fault', 'interrupted']
 # 影响系统运行时的合法影响程度即 FAULT_IMPACT_VALUES；
@@ -195,7 +195,7 @@ class SystemFault(TenantModelMixin, models.Model):
     IMPACT_TEXT_MAP = dict(IMPACT_CHOICES)
 
     SOURCE_MANUAL = 'manual'
-    # 运行记录转故障来源类型（2026-10 运行记录第一版）
+    # 运行异常记录转故障来源类型（2026-10 运行异常记录第一版）
     SOURCE_RUNTIME_RECORD = 'runtime_record'
 
     fault_no = models.CharField(max_length=50, help_text='故障编号（GZ+创建日期+当日四位序号，自动生成；当日序号全租户共享，存量数据仅保证租户内唯一）')
@@ -408,7 +408,7 @@ class SystemFault(TenantModelMixin, models.Model):
             'source_inspection_item_name': (
                 self.source_inspection_record.item_name_snapshot
                 if self.source_inspection_record_id else ''),
-            # 运行记录来源追溯（2026-10 第二版）：正式外键双向可查，跳回运行记录详情
+            # 运行异常记录来源追溯（2026-10 第二版）：正式外键双向可查，跳回运行异常记录详情
             'source_runtime_record': self.source_runtime_record_id,
             'source_runtime_record_no': (
                 self.source_runtime_record.record_no
@@ -419,66 +419,35 @@ class SystemFault(TenantModelMixin, models.Model):
 
 
 class SystemFaultHandlingRecord(TenantModelMixin, models.Model):
-    """故障处理进展记录（原"处置记录"，2026-09 统一改名）：追加式时间线，
+    """故障处置记录（2026-10 用户文案定名"处置记录"；2026-09 曾统一改名
+    "处理进展"，内部字段与 API 保持兼容不改名）：追加式时间线，
     记录检查、临时措施、送厂、厂家反馈、返还、本方测试、持续观察等整体跟进，
     不把过程反复覆盖在一个文本字段中。
 
     - 已保存记录不得被普通用户静默覆盖：更正时把原内容、修改内容、更正原因
       追加保存到 corrections JSON 数组（[{old, new, reason, by, at}]）；
-    - progress_type 为选填的结构化进展类型（空串=未选择，历史记录为空），
-      故障恢复/关闭仍走原有状态流转，不依赖进展类型推断；
+    - 处置类型（progress_type）与处置结果（result）字段已删除（2026-10-05），
+      仅保留处置时间/处置人/处置措施；旧参数出现即拒绝，不静默忽略；
     - 附件使用项目现有 EvidenceAttachment 能力
       （module=equipment_lifecycle, object_type=el_fault_handling, object_id=记录ID）。
     """
 
-    # 进展类型（2026-09：本方维修/送厂/仅测试/暂未修复等真实跟进阶段，
-    # 结构化存储，选填；空串=未选择。历史记录类型为空，不通过文本解析反推类型。
-    # 故障定位（fault_locate，2026-10）：记录原因判断的依据与过程，
-    # 是形成"原因分析"结论的过程记录，不替代原因分析结论本身）
-    PROGRESS_CHECK = 'check'
-    PROGRESS_LOCATE = 'fault_locate'
-    PROGRESS_SELF_FIX = 'self_fix'
-    PROGRESS_TO_VENDOR = 'to_vendor'
-    PROGRESS_VENDOR_FEEDBACK = 'vendor_feedback'
-    PROGRESS_RETURN = 'return'
-    PROGRESS_TEST = 'test'
-    PROGRESS_WATCH = 'watch'
-    PROGRESS_OTHER = 'other'
-    PROGRESS_TYPE_CHOICES = (
-        (PROGRESS_CHECK, '检查'),
-        (PROGRESS_LOCATE, '故障定位'),
-        (PROGRESS_SELF_FIX, '本方处理'),
-        (PROGRESS_TO_VENDOR, '送厂'),
-        (PROGRESS_VENDOR_FEEDBACK, '厂家反馈'),
-        (PROGRESS_RETURN, '返还'),
-        (PROGRESS_TEST, '测试'),
-        (PROGRESS_WATCH, '持续观察'),
-        (PROGRESS_OTHER, '其他'),
-    )
-    PROGRESS_TYPE_TEXT_MAP = dict(PROGRESS_TYPE_CHOICES)
-
     fault = models.ForeignKey(SystemFault, models.CASCADE, related_name='handling_records',
                               help_text='所属故障')
-    handled_at = models.DateTimeField(help_text='进展时间')
+    handled_at = models.DateTimeField(help_text='处置时间')
     # handler 保留为审计字段（记录操作登录账号，历史数据不变）；
-    # 进展记录人为手动输入姓名（recorder_name，2026-09），不关联 User，
+    # 处置人为手动输入姓名（recorder_name，2026-09），不关联 User，
     # 历史记录无 recorder_name 时展示回落到 handler 的用户名
     handler = models.ForeignKey(
         User, models.PROTECT, related_name='+',
-        help_text='记录操作账号（审计字段；进展记录人姓名见 recorder_name）')
+        help_text='记录操作账号（审计字段；处置人姓名见 recorder_name）')
     recorder_name = models.CharField(
         max_length=200, default='', blank=True,
-        help_text='进展记录人（手动输入的记录人姓名，多人以顿号分隔；'
-                  '实际添加本条进展的人，不代表负责整个故障；'
+        help_text='处置人（手动输入的姓名，多人以顿号分隔；'
+                  '实际添加本条处置记录的人，不代表负责整个故障；'
                   '空串=历史记录，展示回落 handler 用户名）')
-    content = models.TextField(max_length=2000, help_text='进展内容')
-    progress_type = models.CharField(
-        max_length=20, choices=PROGRESS_TYPE_CHOICES, default='', blank=True,
-        help_text='进展类型（选填：check检查/fault_locate故障定位/self_fix本方处理/'
-                  'to_vendor送厂/vendor_feedback厂家反馈/return返还/test测试/'
-                  'watch持续观察/other其他；空串=未选择，历史记录为空）')
-    result = models.CharField(max_length=200, default='', blank=True, help_text='处理结果（选填）')
-    # 工时（2026-09-30 工单下线后由处理进展统一承接，选填，小时）
+    content = models.TextField(max_length=2000, help_text='处置措施')
+    # 工时（2026-09-30 工单下线后由处置记录统一承接，选填，小时）
     work_hours = models.FloatField(null=True, blank=True, help_text='本次工时（小时，选填）')
     corrections = models.TextField(default='', blank=True, help_text='更正历史 JSON 数组')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -488,8 +457,8 @@ class SystemFaultHandlingRecord(TenantModelMixin, models.Model):
 
     class Meta:
         db_table = 'tdyw_el_fault_handling_record'
-        verbose_name = '故障处理进展'
-        verbose_name_plural = '故障处理进展'
+        verbose_name = '故障处置记录'
+        verbose_name_plural = '故障处置记录'
         ordering = ('handled_at', 'id')
         indexes = [
             models.Index(fields=['tenant_id', 'fault', 'handled_at', 'id']),
@@ -515,10 +484,7 @@ class SystemFaultHandlingRecord(TenantModelMixin, models.Model):
             'handler': self.handler_id,
             'handler_name': self.handler.username if self.handler_id else '',
             'recorder_name': self.recorder_name or '',
-            'progress_type': self.progress_type,
-            'progress_type_text': self.PROGRESS_TYPE_TEXT_MAP.get(self.progress_type, ''),
             'content': self.content,
-            'result': self.result,
             'work_hours': self.work_hours,
             'corrections': self.get_corrections(),
             'created_at': self.created_at,
@@ -850,7 +816,7 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
 # 步骤 3.3（工单管理与异常转单）已于 2026-09-30 整体删除：故障维修工单下线，
 # SystemWorkOrder / SystemWorkOrderParticipant / SystemWorkOrderHandlingRecord
 # 三表及工单类型/状态/来源等常量一并移除（删除迁移见 migrations 0043）。
-# 故障处理统一走追加式"处理进展"（SystemFaultHandlingRecord，含 work_hours），
+# 故障处理统一走追加式"处置记录"（SystemFaultHandlingRecord，含 work_hours），
 # 非故障的计划性维护、校准、现场测试等统一由运维台账承载；
 # 台账异常明细处置状态常量与计算见 ledger_services.py
 # （仅保留 未处置/已转故障/目标已取消，工单处置枚举一并删除）。
@@ -920,8 +886,8 @@ class OperationLedgerCorrection(TenantModelMixin, models.Model):
 # upgrade：系统升级管理挂接系统档案（2026-09），升级登记/完成/回退写入履历
 # work_order 事件类型已随工单功能删除（2026-09-30），存量工单事件由迁移 0043 清理
 # inspection：值班巡检异常转故障（2026-09），转换动作落目标系统履历
-# runtime：运行记录（2026-10）——仅影响系统运行/标记重要/转为故障时写入履历，
-# 普通小问题不进履历（运行记录第一版约定）
+# runtime：运行异常记录（2026-10）——2026-10-05 第四版起运行异常记录不再写入履历，
+# 该类型仅为历史已生成事件保留（回溯展示，不产生新数据）
 # config：配置变更（2026-10）——仅重要配置变更（include_in_history）应用/回退
 # 时写入履历，普通配置变更不进履历；事件携带变更编号与来源链接
 EVENT_TYPE_VALUES = ['fault', 'ledger', 'health', 'config_snapshot', 'upgrade', 'inspection', 'runtime', 'config']
@@ -1558,15 +1524,15 @@ class InspectionRecord(TenantModelMixin, models.Model):
         }
 
 # ======================================================================
-# 运行记录（2026-10，第一版）：面向用户的统一运行情况录入入口
+# 运行异常记录（2026-10，第一版）：面向用户的统一运行情况录入入口
 # ----------------------------------------------------------------------
 # 定位：异常与运行情况的统一录入，用户不必先判断"故障/事件/其他类型"；
 # 适用于用户反馈、值班发现的运行异常、短暂中断或恢复、已处理的小问题、
 # 需要后续跟进的运行情况。
 # 边界（明确不纳入）：周期巡视与维护（巡检单/运维台账）、临时维护保养校准、
 # 系统升级（upgrade 模块）、单项配置变更、系统事件手工录入——各自模块负责。
-# 履历规则：普通记录不生成 SystemEvent；仅影响系统运行（含降级/故障/中断）、
-# 被标记重要、转为故障时写入履历（服务层控制，无手工履历接口）。
+# 履历规则（2026-10-05 第四版）：运行异常记录不再生成 SystemEvent（历史已写入
+# 的事件保留供回溯）；正式故障进入系统履历，由故障服务层控制。
 # ======================================================================
 
 # 编号前缀 YX{yyyymmdd}-{seq:04d}（当日序号口径与故障编号一致：全租户共享）
@@ -1574,89 +1540,44 @@ RUNTIME_RECORD_NO_PREFIX = 'YX'
 RUNTIME_RECORD_NO_SEQ_LIMIT = 9999
 
 RUNTIME_RECORD_STATUS_RECORDED = 'recorded'
-# 第二版（2026-10）：无需跟进（研判结论：不需要跟进）；pending_triage（待研判）
-# 自 2026-10-04 起仅为历史兼容状态（新流程新建即 recorded，研判直接出结论，
-# 状态机无任何入口），枚举保留以防历史数据与旧接口报错。
-RUNTIME_RECORD_STATUS_PENDING_TRIAGE = 'pending_triage'
-RUNTIME_RECORD_STATUS_NO_FOLLOW_UP = 'no_follow_up'
+# 2026-10-06 旧状态归一（迁移 0007）：历史 pending_triage/no_follow_up 已按
+# "已记录"、resolved/closed 已按"已完成"归一为正式状态，枚举与 CHECK 约束
+# 同步收紧为四状态，旧值不再可写入。
 RUNTIME_RECORD_STATUS_FOLLOWING_UP = 'following_up'
-RUNTIME_RECORD_STATUS_RESOLVED = 'resolved'
+RUNTIME_RECORD_STATUS_COMPLETED = 'completed'
 RUNTIME_RECORD_STATUS_CONVERTED_FAULT = 'converted_fault'
-RUNTIME_RECORD_STATUS_CLOSED = 'closed'
 RUNTIME_RECORD_STATUS_VALUES = [
     RUNTIME_RECORD_STATUS_RECORDED,
-    RUNTIME_RECORD_STATUS_PENDING_TRIAGE,
-    RUNTIME_RECORD_STATUS_NO_FOLLOW_UP,
     RUNTIME_RECORD_STATUS_FOLLOWING_UP,
-    RUNTIME_RECORD_STATUS_RESOLVED,
+    RUNTIME_RECORD_STATUS_COMPLETED,
     RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
-    RUNTIME_RECORD_STATUS_CLOSED,
 ]
 
-# 研判可介入的状态：已记录/待研判直接出结论；无需跟进可重新研判纠正结论。
-# （同一操作主体登记+研判，无责任交接，已记录无需先进入待研判队列）
-TRIAGEABLE_RUNTIME_RECORD_STATUSES = (
-    RUNTIME_RECORD_STATUS_RECORDED,
-    RUNTIME_RECORD_STATUS_PENDING_TRIAGE,
-    RUNTIME_RECORD_STATUS_NO_FOLLOW_UP,
-)
-
 # 状态机（后端动作接口校验）：
-# recorded（已记录，合法稳定状态，可长期保留）→ no_follow_up/following_up/
-#   converted_fault/closed（研判可选：留痕记录无需研判即可保留或直接关闭；
-#   禁止直接 resolve/独立转故障绕过研判入口）；
-# pending_triage → no_follow_up/following_up/converted_fault（仅历史数据兼容，
-#   新流程不再产生该状态，状态机无任何入口）；
-# no_follow_up → no_follow_up（重新研判维持结论）/following_up/converted_fault；
-#   （resolved/closed 仅为兼容保留，详情页不再提供直接入口）；
-# following_up → resolved/closed/converted_fault；
-# resolved → following_up（重新跟进）/closed/converted_fault；
-# converted_fault/closed 为终态：正式处置以 SystemFault 为准，不再双向同步状态。
+# recorded（已记录，登记已完成的合法稳定状态，可长期保留，不进待办）→
+#   following_up（追加首条处理进展）/converted_fault（独立转故障）；
+# following_up → completed（完成跟进）/converted_fault；
+# completed（已完成）→ following_up（重新跟进）；不提供普通关闭动作；
+# converted_fault 为终态：正式处置以 SystemFault 为准，不再双向同步状态。
 RUNTIME_RECORD_TRANSITIONS = {
     RUNTIME_RECORD_STATUS_RECORDED: {
-        RUNTIME_RECORD_STATUS_NO_FOLLOW_UP,
         RUNTIME_RECORD_STATUS_FOLLOWING_UP, RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
-        RUNTIME_RECORD_STATUS_CLOSED,
-    },
-    RUNTIME_RECORD_STATUS_PENDING_TRIAGE: {
-        RUNTIME_RECORD_STATUS_NO_FOLLOW_UP, RUNTIME_RECORD_STATUS_FOLLOWING_UP,
-        RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
-    },
-    RUNTIME_RECORD_STATUS_NO_FOLLOW_UP: {
-        # 重新研判维持"无需跟进"结论：仅更新研判人/时间/说明，不产生状态变化
-        RUNTIME_RECORD_STATUS_NO_FOLLOW_UP,
-        RUNTIME_RECORD_STATUS_FOLLOWING_UP, RUNTIME_RECORD_STATUS_RESOLVED,
-        RUNTIME_RECORD_STATUS_CLOSED, RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
     },
     RUNTIME_RECORD_STATUS_FOLLOWING_UP: {
-        RUNTIME_RECORD_STATUS_RESOLVED, RUNTIME_RECORD_STATUS_CLOSED,
-        RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
+        RUNTIME_RECORD_STATUS_COMPLETED, RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
     },
-    RUNTIME_RECORD_STATUS_RESOLVED: {
-        RUNTIME_RECORD_STATUS_FOLLOWING_UP, RUNTIME_RECORD_STATUS_CLOSED,
-        RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
+    RUNTIME_RECORD_STATUS_COMPLETED: {
+        RUNTIME_RECORD_STATUS_FOLLOWING_UP,
     },
     RUNTIME_RECORD_STATUS_CONVERTED_FAULT: set(),
-    RUNTIME_RECORD_STATUS_CLOSED: set(),
 }
 
-# 允许普通编辑与追加处理进展的状态（已转故障/已关闭为终态）
+# 允许普通编辑与追加处理进展的状态（已完成仍可补录；已转故障为终态）
 EDITABLE_RUNTIME_RECORD_STATUSES = (
     RUNTIME_RECORD_STATUS_RECORDED,
-    RUNTIME_RECORD_STATUS_PENDING_TRIAGE,
-    RUNTIME_RECORD_STATUS_NO_FOLLOW_UP,
     RUNTIME_RECORD_STATUS_FOLLOWING_UP,
-    RUNTIME_RECORD_STATUS_RESOLVED,
+    RUNTIME_RECORD_STATUS_COMPLETED,
 )
-
-# 影响程度复用故障影响语义（降级/故障/中断；不影响运行时强制空串）
-RUNTIME_IMPACT_VALUES = FAULT_IMPACT_VALUES
-RUNTIME_IMPACT_DB_VALUES = FAULT_IMPACT_DB_VALUES
-RUNTIME_IMPACT_TEXT_MAP = SystemFault.IMPACT_TEXT_MAP
-
-RUNTIME_IMPORTANCE_NORMAL = 'normal'
-RUNTIME_IMPORTANCE_IMPORTANT = 'important'
-RUNTIME_IMPORTANCE_VALUES = [RUNTIME_IMPORTANCE_NORMAL, RUNTIME_IMPORTANCE_IMPORTANT]
 
 # 异常类别（2026-10 第二版，结构化补充字段）：固定枚举，新建选填（空串=未选择）；
 # 仅用于筛选与统计归类，不参与任何状态机与履历判定
@@ -1686,52 +1607,40 @@ RUNTIME_CATEGORY_TEXT_MAP = dict(RUNTIME_CATEGORY_CHOICES)
 
 
 class SystemRuntimeRecord(TenantModelMixin, models.Model):
-    """运行记录：异常与运行情况的统一录入入口（第一版）。
+    """运行异常记录：异常与运行情况的统一录入入口（第一版）。
 
     - 新建只要求 系统/发生时间/标题/情况描述，其余字段选填或默认值；
-    - 新建成功即 recorded（已记录，合法稳定状态，可长期保留，不作为待办）；
-      研判为可选动作（已记录/历史待研判/无需跟进可直接研判，一次动作完成
-      结论落地）；留痕记录可直接关闭，无需先研判；
-      普通小问题研判定论后处理并关闭，不生成系统履历；
-    - 影响系统运行（affects_system_operation=True 且 impact_status 非空）的
-      记录创建时写入一次系统履历；标记重要时写入"标记重要"履历（须填原因，
-      重复标记拒绝，不伪造历史事件）；转为故障时记录侧写入"转为故障"履历
-      （故障侧"发生故障"履历由 create_fault_record 生成，两者同一事务）；
+    - 新建成功即 recorded（已记录，登记已完成、暂不需要后续处理的合法稳定
+      状态，可长期保留，不作为待办）；研判不再是必经步骤（第四版
+      2026-10-05，旧 triage/close 兼容端点已随 2026-10-06 状态归一整体删除）：
+      追加首条处理进展即进入跟进中，转正式故障为独立动作（recorded/
+      following_up 均可直接转换），前端不提供业务"关闭"入口；
+    - 用户可见状态即全部状态：已记录/跟进中/已完成/已转故障；完成跟进入
+      completed（已完成，可重新跟进）；历史 pending_triage/no_follow_up/
+      resolved/closed 已由迁移 0007 按语义归一（→recorded / →completed）；
+    - 运行异常记录不纳入系统履历（2026-10-05 第四版起，创建/研判升级影响/转为故障
+      均不再生成 SystemEvent；历史已写入的事件保留仅供回溯）；
+      具体对象名称/对象型号/影响系统运行（含影响程度）/标记重要四组字段已于
+      2026-10-06 整体删除（迁移 0006），历史数据随列删除不再保留；正式故障
+      进入系统履历（"发生故障"履历由 create_fault_record 生成）；
     - 转为故障后记录状态为 converted_fault（终态），后续处理/恢复确认/关闭
-      以 SystemFault 为准，运行记录不维护第二套处理状态；
+      以 SystemFault 为准，运行异常记录不维护第二套处理状态；
     - 系统快照仅用于历史展示，正式关联一律用 system 外键（PROTECT）。
     """
 
     STATUS_RECORDED = RUNTIME_RECORD_STATUS_RECORDED
-    STATUS_PENDING_TRIAGE = RUNTIME_RECORD_STATUS_PENDING_TRIAGE
-    STATUS_NO_FOLLOW_UP = RUNTIME_RECORD_STATUS_NO_FOLLOW_UP
     STATUS_FOLLOWING_UP = RUNTIME_RECORD_STATUS_FOLLOWING_UP
-    STATUS_RESOLVED = RUNTIME_RECORD_STATUS_RESOLVED
+    STATUS_COMPLETED = RUNTIME_RECORD_STATUS_COMPLETED
     STATUS_CONVERTED_FAULT = RUNTIME_RECORD_STATUS_CONVERTED_FAULT
-    STATUS_CLOSED = RUNTIME_RECORD_STATUS_CLOSED
     STATUS_CHOICES = (
         (STATUS_RECORDED, '已记录'),
-        (STATUS_PENDING_TRIAGE, '待研判'),
-        (STATUS_NO_FOLLOW_UP, '无需跟进'),
         (STATUS_FOLLOWING_UP, '跟进中'),
-        (STATUS_RESOLVED, '已处理'),
+        (STATUS_COMPLETED, '已完成'),
         (STATUS_CONVERTED_FAULT, '已转故障'),
-        (STATUS_CLOSED, '已关闭'),
     )
     STATUS_TEXT_MAP = dict(STATUS_CHOICES)
 
     CATEGORY_TEXT_MAP = RUNTIME_CATEGORY_TEXT_MAP
-
-    IMPORTANCE_NORMAL = RUNTIME_IMPORTANCE_NORMAL
-    IMPORTANCE_IMPORTANT = RUNTIME_IMPORTANCE_IMPORTANT
-    IMPORTANCE_CHOICES = (
-        (IMPORTANCE_NORMAL, '普通'),
-        (IMPORTANCE_IMPORTANT, '重要'),
-    )
-    IMPORTANCE_TEXT_MAP = dict(IMPORTANCE_CHOICES)
-
-    # 影响程度复用故障影响枚举（choices 字段直接引用 SystemFault.IMPACT_CHOICES）
-    IMPACT_TEXT_MAP = SystemFault.IMPACT_TEXT_MAP
 
     record_no = models.CharField(max_length=50, help_text='运行记录编号（YX+创建日期+当日四位序号，自动生成；当日序号全租户共享）')
     system = models.ForeignKey(
@@ -1745,7 +1654,7 @@ class SystemRuntimeRecord(TenantModelMixin, models.Model):
     occurred_at = models.DateTimeField(help_text='发生时间')
     title = models.CharField(max_length=200, help_text='标题')
     description = models.TextField(max_length=2000, help_text='情况描述')
-    # 登记人（2026-10）：手动输入的登记人姓名，只表示"谁登记这条运行记录"，
+    # 登记人（2026-10）：手动输入的登记人姓名，只表示"谁登记这条运行异常记录"，
     # 与登录账号 created_by 独立（共用登录账号场景下实际登记人可能没有账号），
     # 参照故障登记人 registrar_name 口径；历史数据为空（可空文本）
     registrar_name = models.CharField(
@@ -1756,16 +1665,10 @@ class SystemRuntimeRecord(TenantModelMixin, models.Model):
 
     needs_follow_up = models.BooleanField(
         default=False, help_text='是否需要跟进（标记跟进中状态时置 True）')
-    affects_system_operation = models.BooleanField(
-        default=False, help_text='是否影响系统运行（默认不影响；影响运行时按 impact_status 记录程度并写履历）')
-    impact_status = models.CharField(
-        max_length=20, choices=SystemFault.IMPACT_CHOICES, default='', blank=True,
-        help_text='影响程度：影响系统运行时必填（degraded降级/fault故障/interrupted中断）；'
-                  '不影响系统运行时后端强制存空串')
     measures_taken = models.TextField(
         max_length=1000, default='', blank=True, help_text='已采取措施（选填）')
     handling_result = models.TextField(
-        max_length=1000, default='', blank=True, help_text='处理结果（选填，标记已处理/关闭时可补填）')
+        max_length=1000, default='', blank=True, help_text='处理结果（选填，完成跟随时可补填）')
 
     # —— 研判（2026-10 第二版）：研判动作写入，一次研判一组快照字段 ——
     triaged_at = models.DateTimeField(
@@ -1787,13 +1690,10 @@ class SystemRuntimeRecord(TenantModelMixin, models.Model):
     planned_handle_at = models.DateTimeField(
         null=True, blank=True, help_text='计划处理时间（待办超期判定依据）')
     resolved_at = models.DateTimeField(
-        null=True, blank=True, help_text='首次标记已处理时间（统计平均处理时长用，不随重新跟进/再次处理覆盖）')
+        null=True, blank=True, help_text='首次完成跟进时间（原"标记已处理"；统计平均处理时长用，不随重新跟进/再次完成覆盖）')
 
     # —— 结构化补充字段（2026-10 第二版）：全部选填，不增加录入负担 ——
-    object_name = models.CharField(
-        max_length=100, default='', blank=True, help_text='具体对象名称（选填）')
-    object_model = models.CharField(
-        max_length=100, default='', blank=True, help_text='对象型号或编号（选填）')
+    # 具体对象名称/对象型号两列已删除（2026-10-06 迁移 0006），历史数据随列删除
     category = models.CharField(
         max_length=20, choices=RUNTIME_CATEGORY_CHOICES, default='', blank=True,
         help_text='异常类别（选填：device设备异常/signal信号异常/link链路传输/'
@@ -1802,18 +1702,7 @@ class SystemRuntimeRecord(TenantModelMixin, models.Model):
         max_length=500, default='', blank=True, help_text='初步原因（选填）')
     impact_scope = models.CharField(
         max_length=200, default='', blank=True, help_text='影响范围（选填，文本描述）')
-    is_repeated = models.BooleanField(
-        default=False, help_text='是否重复发生（手动标记；关联相似记录不自动置位）')
-
-    importance = models.CharField(
-        max_length=20, choices=IMPORTANCE_CHOICES, default=IMPORTANCE_NORMAL,
-        help_text='重要程度：normal 普通 / important 重要（标记重要须填原因并写履历）')
-    importance_reason = models.CharField(
-        max_length=500, default='', blank=True, help_text='重要标记原因（标记重要时必填）')
-    importance_marked_at = models.DateTimeField(null=True, blank=True, help_text='标记重要时间')
-    importance_marked_by = models.ForeignKey(
-        User, models.PROTECT, related_name='+', null=True, blank=True,
-        help_text='标记重要操作账号')
+    # is_repeated 与重复问题关联表已随功能下线删除（2026-10-06 迁移 0008）
 
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default=STATUS_RECORDED,
@@ -1840,14 +1729,6 @@ class SystemRuntimeRecord(TenantModelMixin, models.Model):
             models.CheckConstraint(
                 check=models.Q(status__in=RUNTIME_RECORD_STATUS_VALUES),
                 name='el_runtime_record_status_valid',
-            ),
-            models.CheckConstraint(
-                check=models.Q(impact_status__in=RUNTIME_IMPACT_DB_VALUES),
-                name='el_runtime_record_impact_valid',
-            ),
-            models.CheckConstraint(
-                check=models.Q(importance__in=RUNTIME_IMPORTANCE_VALUES),
-                name='el_runtime_record_importance_valid',
             ),
             models.CheckConstraint(
                 check=models.Q(category__in=RUNTIME_CATEGORY_DB_VALUES),
@@ -1883,15 +1764,9 @@ class SystemRuntimeRecord(TenantModelMixin, models.Model):
             'status': self.status,
             'status_text': self.STATUS_TEXT_MAP.get(self.status, self.status),
             'needs_follow_up': self.needs_follow_up,
-            'affects_system_operation': self.affects_system_operation,
-            'impact_status': self.impact_status,
-            'impact_status_text': self.IMPACT_TEXT_MAP.get(self.impact_status, '') if self.impact_status else '',
-            'importance': self.importance,
-            'importance_text': self.IMPORTANCE_TEXT_MAP.get(self.importance, self.importance),
-            # —— 第二版：列表即可见的重复问题与跟进信息 ——
+            # —— 第二版：列表即可见的跟进信息 ——
             'category': self.category,
             'category_text': self.CATEGORY_TEXT_MAP.get(self.category, '') if self.category else '',
-            'is_repeated': self.is_repeated,
             'follow_up_name': self.follow_up_name,
             'planned_handle_at': self.planned_handle_at,
             'converted_fault': converted_fault.id if converted_fault else None,
@@ -1899,10 +1774,6 @@ class SystemRuntimeRecord(TenantModelMixin, models.Model):
             'created_by_name': self.created_by.username if self.created_by_id else '',
             'created_at': self.created_at,
         }
-        # 重复关联数量由列表查询 annotate 后自然带上；未 annotate 的场景不输出
-        duplicate_count = getattr(self, 'duplicate_count', None)
-        if duplicate_count is not None:
-            data['duplicate_count'] = duplicate_count
         return data
 
     def to_detail_view(self):
@@ -1911,10 +1782,6 @@ class SystemRuntimeRecord(TenantModelMixin, models.Model):
             'description': self.description,
             'measures_taken': self.measures_taken,
             'handling_result': self.handling_result,
-            'importance_reason': self.importance_reason,
-            'importance_marked_at': self.importance_marked_at,
-            'importance_marked_by_name': (
-                self.importance_marked_by.username if self.importance_marked_by_id else ''),
             # —— 研判（第二版）——
             'triaged_at': self.triaged_at,
             'triaged_by_name': self.triaged_by_name,
@@ -1922,8 +1789,6 @@ class SystemRuntimeRecord(TenantModelMixin, models.Model):
             # —— 跟进与待办（第二版）——
             'resolved_at': self.resolved_at,
             # —— 结构化补充字段（第二版）——
-            'object_name': self.object_name,
-            'object_model': self.object_model,
             'initial_reason': self.initial_reason,
             'impact_scope': self.impact_scope,
             'client_token': self.client_token,
@@ -1934,14 +1799,14 @@ class SystemRuntimeRecord(TenantModelMixin, models.Model):
 
 
 class SystemRuntimeRecordProgress(TenantModelMixin, models.Model):
-    """运行记录处理进展：追加式时间线（第一版轻量模型）。
+    """运行异常记录处理进展：追加式时间线（第一版轻量模型）。
 
     - 追加式记录，普通用户不能静默覆盖：更正把原内容、新内容与更正原因
       追加保存到 corrections JSON 数组（[{old, new, reason, by, at}]），
       与故障处理进展（SystemFaultHandlingRecord）同一约定；
     - 处理人 handler_name 为手动输入姓名快照（实际处理的人可能无系统账号），
       handler 保留操作账号审计字段；历史/缺省展示回落 handler 用户名；
-    - 已关闭/已转故障的运行记录不允许继续追加普通处理进展（视图层校验）。
+    - 已转故障的运行异常记录不允许继续追加普通处理进展（视图层校验）。
     """
 
     record = models.ForeignKey(
@@ -1997,69 +1862,6 @@ class SystemRuntimeRecordProgress(TenantModelMixin, models.Model):
             'result': self.result,
             'work_hours': self.work_hours,
             'corrections': self.get_corrections(),
-            'created_at': self.created_at,
-        }
-
-
-class SystemRuntimeRecordDuplicateLink(TenantModelMixin, models.Model):
-    """运行记录重复问题关联（2026-10 第二版，轻量能力）。
-
-    - 有向边：record（本记录）→ duplicate（被关联的相似/重复记录）；
-      详情视图同时展示出边与入边（"被关联到"），列表侧展示双向合计数量；
-    - 仅建立关联，不合并记录、不自动生成故障或履历（相似文本不触发任何自动动作）；
-    - 原始记录保留原样；两端任一侧均可解除关联；
-    - 关联操作必须经过租户与权限校验（link 权限 + 租户过滤，视图层实现）。
-    """
-
-    record = models.ForeignKey(
-        SystemRuntimeRecord, models.CASCADE, related_name='duplicate_links',
-        help_text='关联发起方记录（在本记录详情中关联相似记录）')
-    duplicate = models.ForeignKey(
-        SystemRuntimeRecord, models.CASCADE, related_name='inbound_duplicate_links',
-        help_text='被关联的相似/重复记录')
-    note = models.CharField(
-        max_length=200, default='', blank=True, help_text='关联说明（选填）')
-    created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-
-    class Meta:
-        db_table = 'tdyw_el_runtime_record_link'
-        verbose_name = '运行记录重复关联'
-        verbose_name_plural = '运行记录重复关联'
-        ordering = ('-created_at', '-id')
-        constraints = [
-            models.UniqueConstraint(
-                fields=['tenant_id', 'record', 'duplicate'],
-                name='uniq_el_runtime_link_pair'),
-            models.CheckConstraint(
-                check=~models.Q(record=models.F('duplicate')),
-                name='el_runtime_link_not_self'),
-        ]
-        indexes = [
-            models.Index(fields=['tenant_id', 'record']),
-            models.Index(fields=['tenant_id', 'duplicate']),
-        ]
-
-    def __repr__(self):
-        return '<SystemRuntimeRecordDuplicateLink %s->%s>' % (
-            self.record_id, self.duplicate_id)
-
-    def to_view(self, viewer_record_id):
-        """按查看方记录输出：other 为对端记录摘要，direction 标明方向。"""
-        if self.record_id == viewer_record_id:
-            other, direction = self.duplicate, 'outbound'
-        else:
-            other, direction = self.record, 'inbound'
-        return {
-            'id': self.id,
-            'direction': direction,
-            'direction_text': '关联记录' if direction == 'outbound' else '被关联到',
-            'other_record': other.to_view(),
-            'note': self.note,
-            'created_by_name': self.created_by.username if self.created_by_id else '',
             'created_at': self.created_at,
         }
 

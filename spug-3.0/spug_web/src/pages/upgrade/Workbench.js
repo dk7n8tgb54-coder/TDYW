@@ -5,7 +5,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { observer } from 'mobx-react';
-import { Layout, Button, Space, message } from 'antd';
+import { Layout, Button, Space } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined } from '@ant-design/icons';
 import { Breadcrumb } from 'components';
 import history from 'libs/history';
@@ -15,6 +15,59 @@ import WorkbenchForm from './WorkbenchForm';
 import styles from './Workbench.module.less';
 
 const { Header, Content } = Layout;
+
+/** 记录加载完成前的占位视图 */
+function WorkbenchLoading({onBack}) {
+  return (
+    <Layout className={styles.layout}>
+      <Header className={styles.header}>
+        <div className={styles.headerLeft}>
+          <Button icon={<ArrowLeftOutlined />} onClick={onBack}>返回列表</Button>
+        </div>
+        <div className={styles.headerTitle}>加载中...</div>
+        <div className={styles.headerRight} />
+      </Header>
+      <Content className={styles.content}>
+        <div style={{ textAlign: 'center', padding: 50 }}>正在加载...</div>
+      </Content>
+    </Layout>
+  );
+}
+
+/** 工作台顶栏：返回/标题/保存动作（新建走 add 权限，编辑走 edit 权限） */
+function WorkbenchHeaderBar({isNew, loading, onBack, onSaveList, onSaveWorkbench, onSaveEdit}) {
+  return (
+    <Header className={styles.header}>
+      <div className={styles.headerLeft}>
+        <Button icon={<ArrowLeftOutlined />} onClick={onBack}>返回列表</Button>
+      </div>
+      <div className={styles.headerTitle}>
+        {isNew ? '新建升级申请' : `升级工作台 - ${store.record.title || ''}`}
+      </div>
+      <div className={styles.headerRight}>
+        <Space>
+          {isNew ? (
+            hasPermission('upgrade.upgrade.add') && (
+              <>
+                <Button onClick={onSaveList} loading={loading}>保存</Button>
+                <Button type="primary" icon={<SaveOutlined />}
+                  onClick={onSaveWorkbench} loading={loading}>
+                  保存并进入工作台
+                </Button>
+              </>
+            )
+          ) : (
+            hasPermission('upgrade.upgrade.edit') && (
+              <Button type="primary" icon={<SaveOutlined />} onClick={onSaveEdit} loading={loading}>
+                保存
+              </Button>
+            )
+          )}
+        </Space>
+      </div>
+    </Header>
+  );
+}
 
 export default observer(function Workbench(props) {
   const recordId = props.match?.params?.id;
@@ -48,7 +101,7 @@ export default observer(function Workbench(props) {
       ]).then(() => {
         setInitialized(true);
       }).catch(() => {
-        message.error('加载数据失败');
+        // 失败提示已由 http 拦截器弹出；记录加载失败只能退回列表
         history.push('/upgrade');
       });
     }
@@ -77,57 +130,16 @@ export default observer(function Workbench(props) {
   };
 
   if (!initialized) {
-    return (
-      <Layout className={styles.layout}>
-        <Header className={styles.header}>
-          <div className={styles.headerLeft}>
-            <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>返回列表</Button>
-          </div>
-          <div className={styles.headerTitle}>加载中...</div>
-          <div className={styles.headerRight} />
-        </Header>
-        <Content className={styles.content}>
-          <div style={{ textAlign: 'center', padding: 50 }}>正在加载...</div>
-        </Content>
-      </Layout>
-    );
+    return <WorkbenchLoading onBack={handleBack}/>;
   }
-
-  const canEdit = hasPermission('upgrade.upgrade.edit');
 
   return (
     <Layout className={styles.layout}>
-      <Header className={styles.header}>
-        <div className={styles.headerLeft}>
-          <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>返回列表</Button>
-        </div>
-        <div className={styles.headerTitle}>
-          {isNew ? '新建升级申请' : `升级工作台 - ${store.record.title || ''}`}
-        </div>
-        <div className={styles.headerRight}>
-          <Space>
-            {isNew ? (
-              hasPermission('upgrade.upgrade.add') && (
-                <>
-                  <Button onClick={() => formRef.current && formRef.current.submit('list')} loading={loading}>
-                    保存
-                  </Button>
-                  <Button type="primary" icon={<SaveOutlined />}
-                    onClick={() => formRef.current && formRef.current.submit('workbench')} loading={loading}>
-                    保存并进入工作台
-                  </Button>
-                </>
-              )
-            ) : (
-              canEdit && (
-                <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={loading}>
-                  保存
-                </Button>
-              )
-            )}
-          </Space>
-        </div>
-      </Header>
+      <WorkbenchHeaderBar
+        isNew={isNew} loading={loading} onBack={handleBack}
+        onSaveList={() => formRef.current && formRef.current.submit('list')}
+        onSaveWorkbench={() => formRef.current && formRef.current.submit('workbench')}
+        onSaveEdit={handleSave}/>
       <Content className={styles.content}>
         <div className={styles.breadcrumb}>
           <Breadcrumb>

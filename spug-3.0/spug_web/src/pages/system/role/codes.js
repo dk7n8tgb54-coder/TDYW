@@ -92,31 +92,29 @@ export default [{
     perms: [
       {key: 'view', label: '查看故障'},
       {key: 'add', label: '新增故障'},
-      {key: 'edit', label: '编辑故障/更正处理进展'},
+      {key: 'edit', label: '编辑故障/更正处置记录'},
       // 2026-10 流程简化：无"开始处置"步骤（新建即处置中），handle 仅承载
-      // 追加处理进展与进展附件；确认恢复与关闭合并为"确认恢复并结案"，
+      // 新增处置记录与处置记录附件；确认恢复与关闭合并为"确认恢复并结案"，
       // 需同时勾选 recover 与 close（前端按钮与后端双重独立校验）
-      {key: 'handle', label: '添加处理进展/上传进展附件'},
+      {key: 'handle', label: '新增处置记录/上传处置记录附件'},
       {key: 'recover', label: '确认恢复并结案（须同时勾选"结案"）'},
       {key: 'close', label: '结案（"确认恢复并结案"须同时勾选本项）'},
       {key: 'del', label: '作废故障（受控作废，非物理删除）'},
       {key: 'export', label: '导出故障列表'},
     ]
   }, {
-    // 运行记录（2026-10 第一版）：异常与运行情况统一录入入口
-    // 第二版（2026-10）：+triage 研判 / +link 重复问题关联
+    // 运行异常记录（2026-10 第一版）：异常与运行情况统一录入入口
+    // 2026-10-06 状态归一清理：triage/close 权限码与重复问题 link 权限码
+    // 已随对应端点退役删除（角色 JSON 中的残留码惰性失效，无需清洗）
     key: 'runtime_record',
-    label: '运行记录',
+    label: '运行异常记录',
     perms: [
-      {key: 'view', label: '查看运行记录'},
-      {key: 'add', label: '新增运行记录'},
-      {key: 'edit', label: '编辑运行记录/追加与更正处理进展/上传附件'},
-      {key: 'triage', label: '研判（跟进结论/影响判定/标记重要/转正式故障）'},
-      {key: 'resolve', label: '标记已处理'},
-      {key: 'close', label: '关闭运行记录'},
+      {key: 'view', label: '查看运行异常记录'},
+      {key: 'add', label: '新增运行异常记录'},
+      {key: 'edit', label: '编辑运行异常记录/追加与更正处理进展/上传附件'},
+      {key: 'resolve', label: '完成跟进'},
       {key: 'convert_fault', label: '转为正式故障'},
       {key: 'important', label: '标记重要（进入系统履历）'},
-      {key: 'link', label: '重复问题（关联相似记录/标记重复发生）'},
     ]
   }, {
     // 系统配置（2026-10）：只在系统详情"配置"页签内使用，不设独立菜单

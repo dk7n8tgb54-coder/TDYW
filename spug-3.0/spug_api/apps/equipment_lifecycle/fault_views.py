@@ -31,28 +31,29 @@
   已整体删除，相关入参/筛选/导出列一并移除；旧参数出现即拒绝，不静默忽略；
 - 人员字段（2026-09）：故障登记人 registrar_name 与恢复确认人
   recovered_by_name 均为手动输入姓名（实际登记/确认的人，手工操作必填、
-  不预填当前用户，可与 created_by 登录账号不同）；处理进展的进展记录人
+  不预填当前用户，可与 created_by 登录账号不同）；处置记录的处置人
   recorder_name 同为手动输入姓名（见 fault_progress_views）。均只表示
   "谁登记/谁确认/谁记录"，姓名为文本快照、不关联 User（实际操作人可能
   没有系统账号）；台账异常转故障等程序化入口由服务层自动登记操作人姓名；
 - 写操作记录业务审计（record_audit_event）。
-- 处理进展概览（2026-10）：列表与详情响应统一附带后端聚合的只读统计
+- 处置记录概览（2026-10）：列表与详情响应统一附带后端聚合的只读统计
   handling_record_count / latest_handled_at / latest_handling_content
   （fault_services.handling_overview_map，单次 IN 聚合无 N+1，仅统计真实
-  处理进展记录行；更正留痕与系统履历不计入），不提供可编辑的"节点数"字段。
+  处置记录行；更正留痕与系统履历不计入），不提供可编辑的"节点数"字段。
 - 撤销登记改版（2026-10-03）：原"作废"操作统一改称"撤销故障登记"
   （用户可见文案为"已撤销"），用于撤销错误/重复/误报的登记，历史记录
   保留可追溯（cancelled 状态值不变，历史数据兼容）；列表/系统页签/导出
   默认只含有效故障（处置中/已关闭），已撤销记录仅在显式指定
-  status=cancelled 时返回；已撤销故障详情只读（编辑/进展/恢复结案/
+  status=cancelled 时返回；已撤销故障详情只读（编辑/处置记录/恢复结案/
   重复撤销均后端拒绝），详情响应携带撤销原因/撤销人/撤销时间。
 - 原因分析状态化（2026-10）：原因分析是单一字段 reason_analysis，不同阶段
   只是展示口径——新增=初步原因分析、处置中=初步判断、结案=最终原因；
   "原因未明"以 reason_unknown 标记承载（未明说明仍存入 reason_analysis），
   不新增第二个原因字段；详情页"补充原因分析/修改"弹窗走专用端点
   PUT faults/{id}/reason-analysis/（只提交原因分析字段，fault.edit 权限 +
-  审计留痕）；处理进展新增"故障定位"类型记录原因判断的依据与过程，
-  原因分析（结论）与故障定位（过程依据）互不替代。
+  审计留痕）；排查过程与依据直接作为处置记录的处置措施记录（2026-10-05
+  处置类型字段退役，"故障定位"结构化类型随之删除，旧参数出现即拒绝），
+  原因分析（结论）与处置记录（过程依据）互不替代。
 
 2026-09-30 工单功能整体删除：本模块自 work_order_views.py 接管
 "台账异常明细转故障"视图（LedgerItemConvertToFaultView，故障链路），
@@ -89,7 +90,7 @@ from apps.equipment_lifecycle.models import (
 AUDIT_TARGET_FAULT = 'el_system_fault'
 AUDIT_TARGET_HEALTH = fault_services.AUDIT_TARGET_HEALTH
 
-# 允许普通编辑、追加处理进展、撤销登记与确认恢复并结案的故障状态：
+# 允许普通编辑、追加处置记录、撤销登记与确认恢复并结案的故障状态：
 # 处置中（唯一进行态）。已关闭为终态、已撤销均已封闭；
 # 旧 pending/recovered 过渡态已随 2026-10 流程简化整体删除（模块未上线）。
 EDITABLE_FAULT_STATUSES = (SystemFault.STATUS_HANDLING,)
@@ -219,10 +220,10 @@ def _fault_audit_summary(fault):
 
 
 def _fault_detail_response(fault):
-    """故障详情响应统一出口：详情字段 + 处理进展概览（后端统计口径）。
+    """故障详情响应统一出口：详情字段 + 处置记录概览（后端统计口径）。
 
-    处理概览（handling_record_count / latest_handled_at /
-    latest_handling_content）由 fault_services 聚合真实处理进展记录得出，
+    处置记录概览（handling_record_count / latest_handled_at /
+    latest_handling_content）由 fault_services 聚合真实处置记录得出，
     前端只读展示，不提供任何可编辑的"节点数"字段。
     """
     data = fault.to_detail_view()
@@ -314,8 +315,8 @@ class FaultView(View):
         page, page_size = paginate(request)
         total = query.count()
         records = list(query[(page - 1) * page_size: page * page_size])
-        # 处理进展概览后端聚合（单次 IN 查询，随本页故障合并返回，
-        # 禁止前端对每条故障逐条请求处理进展）
+        # 处置记录概览后端聚合（单次 IN 查询，随本页故障合并返回，
+        # 禁止前端对每条故障逐条请求处置记录）
         overview_map = fault_services.handling_overview_map([r.id for r in records])
         return json_response({
             'data': [
@@ -811,7 +812,7 @@ class SystemFaultListView(View):
         page, page_size = paginate(request)
         total = query.count()
         records = list(query[(page - 1) * page_size: page * page_size])
-        # 处理进展概览后端聚合（与故障列表同口径）
+        # 处置记录概览后端聚合（与故障列表同口径）
         overview_map = fault_services.handling_overview_map([r.id for r in records])
         return json_response({
             'data': [
@@ -836,7 +837,7 @@ class FaultExportView(View):
             query = query.filter(status=status)
         else:
             query = query.exclude(status=SystemFault.STATUS_CANCELLED)
-        headers = ['故障编号', '故障系统', '系统编号', '影响状态', '状态',
+        headers = ['故障编号', '故障系统', '系统编号', '系统影响程度', '处置状态',
                    '发生时间', '故障现象', '恢复时间', '结案说明',
                    '故障登记人', '恢复确认人']
         rows = []

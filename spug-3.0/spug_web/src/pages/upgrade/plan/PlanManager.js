@@ -30,10 +30,8 @@ function usePlanEditor() {
 
   function handleViewDetail(plan) {
     store.fetchPlanDetail(plan.id).then(data => {
-      if (!data) {
-        message.error('获取详情失败');
-        return;
-      }
+      // 获取失败时提示已由 http 拦截器弹出，data 为 null 直接返回
+      if (!data) return;
       setDetailPlan(data);
       setDetailVisible(true);
     });
@@ -42,10 +40,7 @@ function usePlanEditor() {
   function handleEdit(plan) {
     // 先获取详情以拿到完整步骤列表
     store.fetchPlanDetail(plan.id).then(data => {
-      if (!data) {
-        message.error('获取详情失败');
-        return;
-      }
+      if (!data) return;
       setEditingPlan(data);
       setFormVisible(true);
     });
@@ -55,6 +50,8 @@ function usePlanEditor() {
     store.deletePlan(plan.id).then(() => {
       message.success('删除成功');
       store.fetchPlans();
+    }).catch(() => {
+      // 失败提示已由 http 拦截器弹出，这里仅吞掉拒绝避免 unhandled rejection
     });
   }
 
@@ -84,7 +81,7 @@ function usePlanEditor() {
         });
       }
     }).catch(() => {
-      message.error('操作失败');
+      // 失败提示已由 http 拦截器弹出，这里仅吞掉拒绝避免 unhandled rejection
     });
   }
 

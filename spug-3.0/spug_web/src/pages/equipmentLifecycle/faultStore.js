@@ -38,20 +38,20 @@ class FaultStore {
   @observable detailId = null;
   @observable detail = {};
   @observable isDetailFetching = false;
-  // 当前激活页签（受控）：列表"处理进展"列点击直达处理进展页签，
-  // 基本信息"查看全部进展"同款跳转；showDetail 每次打开都会重置
+  // 当前激活页签（受控）：列表"处置记录"列点击直达处置记录页签，
+  // 基本信息"查看全部处置记录"同款跳转；showDetail 每次打开都会重置
   @observable activeTab = 'basic';
   // 详情可能被多个入口并发刷新（打开详情、动作后的统一刷新、重开其他故障）；
   // 只接受最后一次响应：旧响应不覆盖新数据、不提前关闭 loading。
   detailRequestSeq = 0;
 
-  // ========== 处理进展（原处置记录） ==========
+  // ========== 处置记录（2026-10 用户文案定名，2026-09 曾名"处理进展"） ==========
   @observable handlingRecords = [];
   // 总条数（取列表接口 total）：详情页签实时展示条数，停在基本信息页签
-  // 也能看出进展是否已登记；后端默认分页 100 条，不能用数组长度代替
+  // 也能看出是否已有处置记录；后端默认分页 100 条，不能用数组长度代替
   @observable handlingTotal = 0;
   @observable isHandlingFetching = false;
-  // 处理进展可能在详情初始请求尚未完成时再次刷新；只接受最后一次响应。
+  // 处置记录可能在详情初始请求尚未完成时再次刷新；只接受最后一次响应。
   handlingRequestSeq = 0;
 
   // ========== 动作执行中 ==========
@@ -122,8 +122,8 @@ class FaultStore {
 
   showDetail = action((recordOrId, tab = 'basic') => {
     // 支持对象或纯 ID（跨页 ?detail= 跳转直达详情）；
-    // 第二参数指定打开后定位的页签（列表"处理进展"列点击 → 'handling'）。
-    // 详情与处理进展请求统一在此发起；FaultDetail 挂载时不再重复请求
+    // 第二参数指定打开后定位的页签（列表"处置记录"列点击 → 'handling'）。
+    // 详情与处置记录请求统一在此发起；FaultDetail 挂载时不再重复请求
     // （打开详情时的并发重复请求是旧响应覆盖新数据的竞态来源）。
     this.detailId = typeof recordOrId === 'object' ? recordOrId.id : recordOrId;
     this.detail = typeof recordOrId === 'object' ? recordOrId : {};
@@ -146,7 +146,7 @@ class FaultStore {
 
   fetchDetail = ({silent} = {}) => {
     const requestSeq = ++this.detailRequestSeq;
-    // silent：动作后的伴随刷新（如添加处理进展后同步概览统计），
+    // silent：动作后的伴随刷新（如新增处置记录后同步概览统计），
     // 不让整个详情窗口进入全量 loading，只更新数据本身
     if (!silent) {
       this.isDetailFetching = true;
@@ -226,8 +226,8 @@ class FaultStore {
   addHandlingRecord = (formData) => {
     this.isActionSubmitting = true;
     return http.post(`${API_PREFIX}/faults/${this.detailId}/handling-records/`, formData)
-      // 添加处理进展改变时间线，同时静默刷新详情（基本信息"处理概览"的
-      // 条数/最近更新/最后记录由后端详情接口统计返回，须同步更新；
+      // 新增处置记录改变时间线，同时静默刷新详情（基本信息"处置记录概览"的
+      // 条数/最近处置时间/最近处置措施由后端详情接口统计返回，须同步更新；
       // silent 不触发整个详情窗口的全量 loading）。返回刷新 Promise，
       // 调用方在真实刷新完成后再关闭弹窗。
       .then(action(() => Promise.all([
@@ -243,7 +243,7 @@ class FaultStore {
     this.isActionSubmitting = true;
     return http.put(
       `${API_PREFIX}/faults/${this.detailId}/handling-records/${recordId}/`, formData)
-      // 更正可能修改进展内容/时间（影响"最后记录"概览），同样静默刷新详情
+      // 更正可能修改处置措施/时间（影响"最近处置措施"概览），同样静默刷新详情
       .then(action(() => Promise.all([
         this.fetchDetail({silent: true}),
         this.fetchHandlingRecords(),

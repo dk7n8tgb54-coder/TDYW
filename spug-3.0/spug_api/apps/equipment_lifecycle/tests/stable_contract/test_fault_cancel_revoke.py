@@ -9,7 +9,7 @@
 2. 显式 status=cancelled 筛选/导出时返回已撤销记录；
 3. 撤销操作：仅处置中可撤销、原因必填（空/纯空格拒绝）、不物理删除、
    撤销原因/撤销人/撤销时间落库；
-4. 已关闭不能撤销；已撤销不能重复撤销、不能编辑、不能追加处理进展、
+4. 已关闭不能撤销；已撤销不能重复撤销、不能编辑、不能新增处置记录、
    不能确认恢复并结案（后端拒绝，前端隐藏按钮不作为边界）；
 5. 撤销后业务审计日志与故障生命周期履历（SystemEvent cancel）均存在；
 6. 撤销后系统健康状态回落（已撤销不参与健康状态计算）；
@@ -230,7 +230,7 @@ class FaultCancelOperationTest(FaultCancelRevokeTestBase):
         self.assertIn('不能重复撤销', second.json().get('error', ''))
 
     def test_cancelled_fault_rejects_write_operations(self):
-        """已撤销详情只读：编辑/原因分析/追加进展/恢复结案均后端拒绝。"""
+        """已撤销详情只读：编辑/原因分析/追加处置记录/恢复结案均后端拒绝。"""
         fault = self.create_fault()
         resp = self.cancel(fault, '重复登记')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -246,10 +246,10 @@ class FaultCancelOperationTest(FaultCancelRevokeTestBase):
                                {'reason_analysis': '试图修改'},
                                content_type='application/json')
         self.assertIn('已撤销', resp.json().get('error', ''))
-        # 追加处理进展拒绝（权限齐备仍被状态校验拦截）
+        # 追加处置记录拒绝（权限齐备仍被状态校验拦截）
         resp = self.client.post(
             f'{FAULT_URL}/{fault.id}/handling-records/',
-            {'content': '试图追加进展', 'recorder_name': '记录员甲'},
+            {'content': '试图追加处置记录', 'recorder_name': '记录员甲'},
             content_type='application/json')
         self.assertIn('已撤销', resp.json().get('error', ''))
         self.assertEqual(fault.handling_records.count(), 0)

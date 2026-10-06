@@ -3,13 +3,17 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 运行记录 Store 测试（2026-10 第一版）。
- * 真实 import store（MobX 装饰器经 babel 编译），mock libs.http，验证：
- * - fetchRecords 组装分页与全部筛选参数（系统/状态/需要跟进/重要程度/影响程度/时间范围）
+ * 运行异常记录 Store 测试（2026-10 第一版；2026-10-05 第四版：研判不再是
+ * 必经步骤）。真实 import store（MobX 装饰器经 babel 编译），mock libs.http，验证：
+ * - fetchRecords 组装分页与全部筛选参数（系统/状态/需要跟进/异常类别/时间范围；
+ *   重要程度/影响程度筛选已随字段删除移除 2026-10-06）
  * - submitForm 新增走 POST、编辑走 PUT
- * - 状态动作（跟进/已处理/关闭/标记重要/转故障）调用明确动作端点，
- *   成功后重新获取详情、进展与列表
- * - 处理进展追加与更正调用对应端点，业务错误时 Promise 拒绝
+ * - 状态动作（修改跟进计划/完成跟进/转故障）调用明确动作端点，
+ *   成功后重新获取详情、进展与列表；研判（triage）/close/no-follow-up/
+ *   标记重要（mark-important）已从 store 删除（研判弹窗整体下线，
+ *   标记重要字段 2026-10-06 删除）
+ * - 处理进展追加（即"跟进"动作，成功后全量刷新）与更正调用对应端点，
+ *   业务错误时 Promise 拒绝
  * - 系统详情页签数据源独立（systems/<id>/runtime-records/）
  */
 const mockHttpGet = jest.fn();
@@ -37,7 +41,7 @@ afterEach(() => {
   [mockHttpGet, mockHttpPost, mockHttpPut, mockHttpDelete].forEach(fn => fn.mockReset());
 });
 
-describe('运行记录 Store · 列表筛选', () => {
+describe('运行异常记录 Store · 列表筛选', () => {
   it('fetchRecords 组装分页与全部筛选参数', () => {
     const store = freshStore();
     store.page = 2;
@@ -46,14 +50,12 @@ describe('运行记录 Store · 列表筛选', () => {
     store.f_status = 'following_up';
     store.f_system = 9;
     store.f_follow = true;
-    store.f_importance = 'important';
-    store.f_impact = 'degraded';
     mockHttpGet.mockReturnValue(new Promise(() => {}));
     store.fetchRecords();
     expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/runtime-records/', {
       params: {
         page: 2, page_size: 15, keyword: '中断', status: 'following_up',
-        system: 9, needs_follow_up: 'yes', importance: 'important', impact: 'degraded',
+        system: 9, needs_follow_up: 'yes',
       },
     });
   });
@@ -71,7 +73,7 @@ describe('运行记录 Store · 列表筛选', () => {
   });
 });
 
-describe('运行记录 Store · 表单提交', () => {
+describe('运行异常记录 Store · 表单提交', () => {
   it('submitForm 新增走 POST、编辑走 PUT，成功后关闭弹窗并刷新列表', async () => {
     const store = freshStore();
     const payload = {system: 7, title: '标题', description: '描述',
@@ -103,9 +105,30 @@ describe('运行记录 Store · 表单提交', () => {
     expect(store.formVisible).toBe(true);
     expect(store.isSubmitting).toBe(false);
   });
+
+  it('新建提交成功后不自动打开详情、不调用 close 接口（只记录场景）', async () => {
+    const store = freshStore();
+    mockHttpPost.mockResolvedValue({});
+    mockHttpGet.mockResolvedValue({data: [], total: 0});
+    store.showForm();
+    await store.submitForm({
+      system: 7, title: '短暂中断', description: '已自行恢复',
+      occurred_at: '2026-10-04 08:30', client_token: 'rt-only-record',
+    });
+    // 只有一次创建请求，全程没有 close 调用
+    expect(mockHttpPost).toHaveBeenCalledTimes(1);
+    expect(mockHttpPost).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/runtime-records/',
+      expect.objectContaining({title: '短暂中断'}));
+    // 表单关闭、列表刷新，且不自动打开详情窗口
+    expect(store.formVisible).toBe(false);
+    expect(store.detailVisible).toBe(false);
+    expect(mockHttpGet.mock.calls.map(call => call[0]))
+      .toContain('/api/equipment-lifecycle/runtime-records/');
+  });
 });
 
-describe('运行记录 Store · 状态动作与处理进展', () => {
+describe('运行异常记录 Store · 状态动作与处理进展', () => {
   const RECORD_BASE = '/api/equipment-lifecycle/runtime-records/11';
 
   function setupDetail(store) {
@@ -122,14 +145,12 @@ describe('运行记录 Store · 状态动作与处理进展', () => {
 
   it.each([
     ['markFollowUp', 'follow-up'],
-    ['resolveRecord', 'resolve'],
-    ['closeRecord', 'close'],
-    ['markImportant', 'mark-important'],
+    ['completeFollowUp', 'resolve'],
     ['convertToFault', 'convert-to-fault'],
   ])('%s 调用对应动作端点并刷新详情/进展/列表', async (action, path) => {
     const store = freshStore();
     setupDetail(store);
-    await store[action]({importance_reason: '原因'});
+    await store[action]({});
     expect(mockHttpPost).toHaveBeenCalledWith(`${RECORD_BASE}/${path}/`,
       expect.objectContaining({}));
     // 动作成功后刷新：详情 + 进展 + 列表
@@ -139,16 +160,49 @@ describe('运行记录 Store · 状态动作与处理进展', () => {
     expect(urls).toContain('/api/equipment-lifecycle/runtime-records/');
   });
 
-  it('addProgressRecord 提交进展载荷并返回列表刷新 Promise', async () => {
+  it('标记重要字段删除后 store 不再提供 triage/close/no-follow-up/markImportant 入口', () => {
+    const store = freshStore();
+    // 研判弹窗整体下线：旧研判入口与弹窗状态不再存在
+    expect(store.submitTriage).toBeUndefined();
+    expect(store.closeRecord).toBeUndefined();
+    expect(store.markNoFollowUp).toBeUndefined();
+    expect(store.triageVisible).toBeUndefined();
+    // 标记重要已随字段删除移除（2026-10-06）
+    expect(store.markImportant).toBeUndefined();
+  });
+
+  it('addProgressRecord（跟进动作）成功后全量刷新详情/进展/列表', async () => {
     const store = freshStore();
     setupDetail(store);
     mockHttpGet.mockClear();
-    mockHttpGet.mockResolvedValue({data: [{id: 1, content: '已处理'}], total: 1});
+    mockHttpGet.mockImplementation((url) => {
+      if (url.endsWith('/progress/')) {
+        return Promise.resolve({data: [{id: 1, content: '已处理'}], total: 1});
+      }
+      return Promise.resolve({id: 11, status: 'following_up'});
+    });
     const payload = {handled_at: '2026-10-01 09:00', handler_name: '值班员甲',
       content: '现场确认恢复', result: '', work_hours: null};
     await store.addProgressRecord(payload);
     expect(mockHttpPost).toHaveBeenCalledWith(`${RECORD_BASE}/progress/`, payload);
+    // 已记录保存首条跟进记录后后端流转跟进中：全量刷新真实数据
+    const urls = mockHttpGet.mock.calls.map(c => c[0]);
+    expect(urls).toContain(`${RECORD_BASE}/`);
+    expect(urls).toContain(`${RECORD_BASE}/progress/`);
+    expect(urls).toContain('/api/equipment-lifecycle/runtime-records/');
     expect(store.progressRecords).toHaveLength(1);
+  });
+
+  it('重复问题功能下线后 store 不再提供相似/关联/标记重复入口', () => {
+    // 2026-10-05 重复问题下线：旧接口后端保留，前端调用入口整体移除
+    const store = freshStore();
+    expect(store.fetchDuplicateLinks).toBeUndefined();
+    expect(store.linkDuplicate).toBeUndefined();
+    expect(store.unlinkDuplicate).toBeUndefined();
+    expect(store.fetchSimilarRecords).toBeUndefined();
+    expect(store.markRepeated).toBeUndefined();
+    expect(store.duplicateLinks).toBeUndefined();
+    expect(store.similarRecords).toBeUndefined();
   });
 
   it('correctProgressRecord 走 PUT 更正端点并携带更正原因', async () => {
@@ -189,7 +243,7 @@ describe('运行记录 Store · 状态动作与处理进展', () => {
   });
 });
 
-describe('运行记录 Store · 系统详情页签', () => {
+describe('运行异常记录 Store · 系统详情页签', () => {
   it('fetchSystemRecords 按系统查询且数据源独立', async () => {
     const store = freshStore();
     const rows = [{id: 1, record_no: 'YX20261001-0001'}];

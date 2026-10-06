@@ -1,14 +1,14 @@
 /**
- * 故障"处理进展概览"三层展示测试（2026-10 流程简化配套）
+ * 故障"处置记录概览"三层展示测试（2026-10 流程简化配套）
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
- * - 故障列表"处理进展"列：显示后端聚合的条数（3 条 / 0 条），
+ * - 故障列表"处置记录"列：显示后端聚合的条数（3 条 / 0 条），
  *   已关闭/已作废故障保留历史数量；数字为链接样式（非大按钮）
- * - 点击列表数量打开故障详情并自动定位到"处理进展"页签（受控页签）
- * - 基本信息页签底部只读"处理概览"紧凑信息条（非边框表格）：条数/最近更新/
- *   最后记录 + 查看全部进展；无进展时展示"暂无处理进展"
- * - "查看全部进展"只切换页签，不重复打开新的详情窗口
- * - 添加/更正处理进展成功后：处理概览（后端详情统计）与页签条数立即刷新
+ * - 点击列表数量打开故障详情并自动定位到"处置记录"页签（受控页签）
+ * - 基本信息页签底部只读"处置记录概览"紧凑信息条（非边框表格）：条数/最近处置时间/
+ *   最近处置措施 + 查看全部处置记录；无处置记录时展示"暂无处置记录"
+ * - "查看全部处置记录"只切换页签，不重复打开新的详情窗口
+ * - 添加/更正处置记录成功后：处置记录概览（后端详情统计）与页签条数立即刷新
  * - 后端业务错误（Promise 拒绝）不进入成功提示路径
  * （已关闭/已作废终态不显示继续处置操作由 faultComponents.test.js 覆盖；
  *   后端统计口径由 stable_contract/test_fault_handling_overview.py 覆盖）
@@ -109,7 +109,7 @@ const FAULT_DETAIL = {
   recovered_by_name: '', recovered_confirmed_at: null,
   registrar_name: '登记员甲',
   created_by_name: 'admin', created_at: '2026-09-18 08:40',
-  // 后端详情聚合的处理进展概览（fault_services.handling_overview）
+  // 后端详情聚合的处置记录概览（fault_services.handling_overview）
   handling_record_count: 2,
   latest_handled_at: '2026-09-18 09:30:00',
   latest_handling_content: '更换备用链路',
@@ -118,12 +118,10 @@ const FAULT_DETAIL = {
 const HANDLING_RECORDS = {
   data: [
     {id: 1, fault: 11, handled_at: '2026-09-18 09:00', handler: 2, handler_name: 'operator',
-      progress_type: 'check', progress_type_text: '检查',
-      content: '现场检查，确认光模块告警', result: '处理中', corrections: [],
+      content: '现场检查，确认光模块告警', corrections: [],
       recorder_name: '记录员甲', created_at: '2026-09-18 09:05'},
     {id: 2, fault: 11, handled_at: '2026-09-18 09:30', handler: 2, handler_name: 'operator',
-      progress_type: 'watch', progress_type_text: '持续观察',
-      content: '更换备用链路', result: '已切换', corrections: [],
+      content: '更换备用链路', corrections: [],
       recorder_name: '记录员乙', created_at: '2026-09-18 09:35'},
   ],
   total: 2, page: 1, page_size: 100,
@@ -190,7 +188,7 @@ async function renderFaultList() {
     if (/\/faults\/\d+\/?$/.test(url)) {
       return Promise.resolve(FAULT_DETAIL);
     }
-    // 故障列表：json_response 分页载荷，行内含后端聚合的处理进展概览
+    // 故障列表：json_response 分页载荷，行内含后端聚合的处置记录概览
     return Promise.resolve({data: LIST_ROWS, total: 3, page: 1, page_size: 20});
   });
   ReactDOM.unmountComponentAtNode(container);
@@ -261,7 +259,7 @@ async function submitModal(method, autoResolve = true) {
 
 // ===== 用例 =====
 
-describe('故障列表"处理进展"列（后端聚合数量，只读链接样式）', () => {
+describe('故障列表"处置记录"列（后端聚合数量，只读链接样式）', () => {
   it('有记录显示"N 条"、无记录显示"0 条"，已关闭/已作废保留历史数量', async () => {
     await renderFaultList();
     const text = bodyText();
@@ -271,7 +269,7 @@ describe('故障列表"处理进展"列（后端聚合数量，只读链接样�
     expect(text).toContain('2条');
   });
 
-  it('点击数量打开故障详情并定位到"处理进展"页签（不开第二个窗口）', async () => {
+  it('点击数量打开故障详情并定位到"处置记录"页签（不开第二个窗口）', async () => {
     const store = await renderFaultList();
     const countLink = Array.from(document.querySelectorAll('a'))
       .find(a => a.textContent.replace(/\s+/g, '') === '3条');
@@ -282,50 +280,50 @@ describe('故障列表"处理进展"列（后端聚合数量，只读链接样�
     await act(async () => {await flush();});
     expect(store.detailVisible).toBe(true);
     expect(store.detailId).toBe(11);
-    // 受控页签直接停在"处理进展"，基本信息非激活
-    expect(activeTabText()).toContain('处理进展');
+    // 受控页签直接停在"处置记录"，基本信息非激活
+    expect(activeTabText()).toContain('处置记录');
     expect(activeTabText()).not.toContain('基本信息');
-    // 时间线内容可见（处理进展页签已挂载）
+    // 时间线内容可见（处置记录页签已挂载）
     expect(bodyText()).toContain('现场检查，确认光模块告警');
   });
 });
 
-describe('基本信息"处理概览"（只读摘要，数据来自后端详情统计）', () => {
-  it('有进展时展示条数/最近更新/最后记录与查看全部进展', async () => {
+describe('基本信息"处置记录概览"（只读摘要，数据来自后端详情统计）', () => {
+  it('有处置记录时展示条数/最近处置时间/最近处置措施与查看全部处置记录', async () => {
     await renderDetail();
     const text = bodyText();
-    expect(text).toContain('处理概览');
+    expect(text).toContain('处置记录概览');
     expect(text).toContain('2条');
-    expect(text).toContain('最近更新');
+    expect(text).toContain('最近处置时间');
     expect(rawText()).toContain('2026-09-18 09:30:00');
-    expect(text).toContain('最后记录');
+    expect(text).toContain('最近处置措施');
     expect(text).toContain('更换备用链路');
-    expect(text).toContain('查看全部进展');
+    expect(text).toContain('查看全部处置记录');
   });
 
-  it('无进展时展示"暂无处理进展"，不显示条数/最近更新/最后记录/查看全部进展', async () => {
+  it('无处置记录时展示"暂无处置记录"，不显示条数/最近处置时间/最近处置措施/查看全部处置记录', async () => {
     await renderDetail({
       handling_record_count: 0, latest_handled_at: null, latest_handling_content: '',
     });
     const text = bodyText();
-    expect(text).toContain('暂无处理进展');
+    expect(text).toContain('暂无处置记录');
     expect(text).not.toContain('条');
-    expect(text).not.toContain('查看全部进展');
-    expect(text).not.toContain('最近更新');
-    expect(text).not.toContain('最后记录');
+    expect(text).not.toContain('查看全部处置记录');
+    expect(text).not.toContain('最近处置时间');
+    expect(text).not.toContain('最近处置措施');
   });
 
-  it('"查看全部进展"只切换页签（同一详情窗口内），时间线变为可见', async () => {
+  it('"查看全部处置记录"只切换页签（同一详情窗口内），时间线变为可见', async () => {
     await renderDetail();
-    // 查看全部进展为 link 样式按钮（渲染为 <button>，非 <a>）
+    // 查看全部处置记录为 link 样式按钮（渲染为 <button>，非 <a>）
     const link = Array.from(document.querySelectorAll('a, button'))
-      .find(n => n.textContent.replace(/\s+/g, '') === '查看全部进展');
+      .find(n => n.textContent.replace(/\s+/g, '') === '查看全部处置记录');
     expect(link).toBeTruthy();
     await act(async () => {
       link.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });
     await act(async () => {await flush();});
-    expect(activeTabText()).toContain('处理进展');
+    expect(activeTabText()).toContain('处置记录');
     // 仍是同一个详情窗口（未重新打开）
     expect(document.querySelectorAll('.ant-modal').length).toBe(1);
     // 时间线记录可见
@@ -333,35 +331,35 @@ describe('基本信息"处理概览"（只读摘要，数据来自后端详情�
   });
 });
 
-describe('添加/更正进展后摘要与页签数量立即刷新（后端统计静默同步）', () => {
-  it('添加进展成功后处理概览与页签条数随最新统计刷新', async () => {
+describe('新增/更正处置记录后摘要与页签数量立即刷新（后端统计静默同步）', () => {
+  it('新增处置记录成功后处置记录概览与页签条数随最新统计刷新', async () => {
     const store = await renderDetail({
       handling_record_count: 0, latest_handled_at: null, latest_handling_content: '',
     });
-    expect(bodyText()).toContain('暂无处理进展');
-    // 打开处理进展页签并点击添加
+    expect(bodyText()).toContain('暂无处置记录');
+    // 打开处置记录页签并点击添加
     await act(async () => {
       store.setActiveTab('handling');
     });
     await act(async () => {await flush();});
     const addButton = Array.from(document.querySelectorAll('button'))
-      .find(b => b.textContent.replace(/\s+/g, '').includes('添加处理进展'));
+      .find(b => b.textContent.replace(/\s+/g, '').includes('新增处置记录'));
     expect(addButton).toBeTruthy();
     await act(async () => {
       addButton.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });
     await act(async () => {await flush();});
-    await typeAndEnter('进展记录人', '记录员丙');
-    await setTextareaValue('进展内容', '更换备件后完成业务验证');
-    // 提交成功后，详情与进展列表返回包含新记录的最新统计数据
+    await typeAndEnter('处置人', '记录员丙');
+    await setTextareaValue('处置措施', '更换备件后完成业务验证');
+    // 提交成功后，详情与处置记录列表返回包含新记录的最新统计数据
     const currentDetail = {...FAULT_DETAIL,
       handling_record_count: 1, latest_handled_at: '2026-09-18 09:50:00',
       latest_handling_content: '更换备件后完成业务验证'};
     const currentHandling = {
       data: [...HANDLING_RECORDS.data,
         {id: 9, fault: 11, handled_at: '2026-09-18 09:50', handler: 2,
-          handler_name: 'operator', progress_type: 'test', progress_type_text: '测试',
-          content: '更换备件后完成业务验证', result: '复测通过', corrections: [],
+          handler_name: 'operator',
+          content: '更换备件后完成业务验证', corrections: [],
           recorder_name: '记录员丙', created_at: '2026-09-18 09:55'}],
       total: 1, page: 1, page_size: 100,
     };
@@ -376,21 +374,21 @@ describe('添加/更正进展后摘要与页签数量立即刷新（后端统计
     expect(mockHttpPost).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/faults/11/handling-records/',
       expect.objectContaining({content: '更换备件后完成业务验证'}));
-    // 处理概览（详情统计）与页签条数均已刷新
+    // 处置记录概览（详情统计）与页签条数均已刷新
     const text = bodyText();
     expect(text).toContain('1条');
     expect(text).toContain('更换备件后完成业务验证');
-    expect(tabTexts().some(t => t.replace(/\s+/g, '').includes('处理进展（1）'))).toBe(true);
+    expect(tabTexts().some(t => t.replace(/\s+/g, '').includes('处置记录（1）'))).toBe(true);
     expect(store.detail.handling_record_count).toBe(1);
   });
 
-  it('更正进展内容后"最后记录"随最新统计更新且数量不变', async () => {
+  it('更正处置措施后"最近处置措施"随最新统计更新且数量不变', async () => {
     const store = await renderDetail();
     await act(async () => {
       store.setActiveTab('handling');
     });
     await act(async () => {await flush();});
-    // 更正"更换备用链路"这条进展
+    // 更正"更换备用链路"这条处置记录
     const item = Array.from(document.querySelectorAll('.ant-timeline-item'))
       .find(n => n.textContent.includes('更换备用链路'));
     const correctButton = Array.from(item.querySelectorAll('button'))
@@ -399,9 +397,9 @@ describe('添加/更正进展后摘要与页签数量立即刷新（后端统计
       correctButton.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });
     await act(async () => {await flush();});
-    await setTextareaValue('进展内容', '更换备用链路并复测通过');
+    await setTextareaValue('处置措施', '更换备用链路并复测通过');
     await setTextareaValue('更正原因', '补充复测结论');
-    // 更正不产生新的进展行：统计数量保持 2，最后记录为更正后内容
+    // 更正不产生新的处置记录行：统计数量保持 2，最近处置措施为更正后内容
     const currentDetail = {...FAULT_DETAIL,
       latest_handled_at: '2026-09-18 09:30:00',
       latest_handling_content: '更换备用链路并复测通过'};
@@ -428,14 +426,14 @@ describe('添加/更正进展后摘要与页签数量立即刷新（后端统计
     });
     await act(async () => {await flush();});
     const addButton = Array.from(document.querySelectorAll('button'))
-      .find(b => b.textContent.replace(/\s+/g, '').includes('添加处理进展'));
+      .find(b => b.textContent.replace(/\s+/g, '').includes('新增处置记录'));
     await act(async () => {
       addButton.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });
     await act(async () => {await flush();});
-    await typeAndEnter('进展记录人', '记录员丙');
-    await setTextareaValue('进展内容', '不应保存的内容');
-    mockHttpPost.mockRejectedValue(new Error('进展类型不合法'));
+    await typeAndEnter('处置人', '记录员丙');
+    await setTextareaValue('处置措施', '不应保存的内容');
+    mockHttpPost.mockRejectedValue(new Error('处置措施不能为空'));
     await submitModal('post', false);
     expect(mockHttpPost).toHaveBeenCalledTimes(1);
     // 不显示成功提示，弹窗保持打开（可修正后重试）

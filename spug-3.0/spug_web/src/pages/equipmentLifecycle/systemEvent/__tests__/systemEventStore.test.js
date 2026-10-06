@@ -94,7 +94,7 @@ describe('来源跳转 buildSourceHref（跳转后由来源页面重新鉴权）
     expect(constants.buildSourceHref(event)).toBe('/el/week-month-ledgers?detail=33');
   });
 
-  it('运行记录来源跳转运行记录详情深链（2026-10）', () => {
+  it('运行异常记录来源跳转运行异常记录详情深链（2026-10）', () => {
     const {constants} = freshModule();
     const event = {...baseEvent, source_type: 'runtime_record', source_id: '11'};
     expect(constants.buildSourceHref(event)).toBe('/el/runtime-records?detail=11');

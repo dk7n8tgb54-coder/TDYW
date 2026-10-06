@@ -10,7 +10,7 @@
   填写未明说明，允许清空误录内容；
 - 确认恢复并结案接收最终原因分析：可修改、可选"原因未明"（后端独立校验
   未明必填说明）、未提交时保留原值（旧客户端兼容）；
-- 处理进展新增"故障定位"类型（fault_locate，结构化存储）；
+- 处置类型字段已删除（2026-10-05）：排查过程作为处置措施文本记录，旧参数出现即拒绝；
 - 历史数据兼容：reason_unknown 缺省 False，历史无原因分析故障正常查看。
 
 原因分析是单一字段 reason_analysis：新增=初步原因分析、处置中=初步判断、
@@ -131,7 +131,7 @@ class FaultReasonAnalysisUpdateTest(ReasonAnalysisTestBase):
         fault.refresh_from_db()
         self.assertEqual(fault.reason_analysis, '经排查确认为光模块老化')
         self.assertFalse(fault.reason_unknown)
-        # 响应为完整详情（含处理概览统计），供前端保存后直接刷新
+        # 响应为完整详情（含处置记录概览统计），供前端保存后直接刷新
         self.assertEqual(resp.json()['data']['reason_analysis'], '经排查确认为光模块老化')
         self.assertIn('handling_record_count', resp.json()['data'])
         # 更新人/更新时间留痕
@@ -368,16 +368,11 @@ class FaultRecoverFinalReasonTest(ReasonAnalysisTestBase):
         self.assertNotIn('final_result', detail['after'])
 
 
-class FaultLocateProgressTypeTest(ReasonAnalysisTestBase):
-    """处理进展"故障定位"类型契约（原因判断的依据与过程）。"""
+class FaultProgressTypeRetiredTest(ReasonAnalysisTestBase):
+    """处置类型字段退役契约（2026-10-05）：排查过程直接作为处置措施记录。"""
 
-    def test_fault_locate_in_formal_choices(self):
-        """fault_locate 为正式结构化选项（文本"故障定位"）。"""
-        choices = dict(SystemFaultHandlingRecord.PROGRESS_TYPE_CHOICES)
-        self.assertEqual(choices.get('fault_locate'), '故障定位')
-
-    def test_fault_locate_progress_saved_and_listed(self):
-        """"故障定位"进展可新增、入库并按结构化文本返回。"""
+    def test_fault_locate_param_rejected(self):
+        """已删除的处置类型旧参数出现即拒绝且不落库。"""
         body = self.create_fault(fault_payload(
             self.system_a, occurred_at=self.next_occurred_at()))
         fid = body['data']['id']
@@ -387,17 +382,12 @@ class FaultLocateProgressTypeTest(ReasonAnalysisTestBase):
             'progress_type': 'fault_locate',
             'recorder_name': '记录人甲',
         }, content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
-        record = SystemFaultHandlingRecord.objects.get(pk=resp.json()['data']['id'])
-        self.assertEqual(record.progress_type, 'fault_locate')
-        self.assertEqual(record.to_view()['progress_type_text'], '故障定位')
-        rows = client.get(f'{FAULT_URL}/{fid}/handling-records/').json()['data']['data']
-        target = [r for r in rows if r['id'] == record.id][0]
-        self.assertEqual(target['progress_type'], 'fault_locate')
-        self.assertEqual(target['progress_type_text'], '故障定位')
+        self.assertIn('处置记录已不再支持参数', resp.json().get('error', ''))
+        self.assertEqual(
+            SystemFaultHandlingRecord.objects.filter(fault_id=fid).count(), 0)
 
-    def test_locate_progress_does_not_change_fault_status(self):
-        """"故障定位"进展不改变故障状态与健康影响（追加进展既有口径不变）。"""
+    def test_plain_progress_still_works_without_type(self):
+        """不带处置类型的普通处置措施仍可入库，故障状态与健康影响不变。"""
         body = self.create_fault(fault_payload(
             self.system_a, impact_status='fault',
             occurred_at=self.next_occurred_at()))
@@ -405,14 +395,15 @@ class FaultLocateProgressTypeTest(ReasonAnalysisTestBase):
         client = make_client(self.admin)
         resp = client.post(f'{FAULT_URL}/{fid}/handling-records/', {
             'content': '现场复测定位中',
-            'progress_type': 'fault_locate',
             'recorder_name': '记录人甲',
         }, content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
+        record = SystemFaultHandlingRecord.objects.get(pk=resp.json()['data']['id'])
+        self.assertEqual(record.content, '现场复测定位中')
         fault = SystemFault.objects.get(pk=fid)
         self.assertEqual(fault.status, 'handling')
         self.assertIsNone(fault.recovered_at)
-        # 审计仍记录进展追加（既有机制无回归）
+        # 审计仍记录处置记录追加（既有机制无回归）
         self.assertTrue(AuditLog.objects.filter(
             tenant_id='tenant_a', target_type='el_system_fault',
             target_id=str(fid),

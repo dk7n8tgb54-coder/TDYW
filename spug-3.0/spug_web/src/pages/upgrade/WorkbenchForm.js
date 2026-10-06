@@ -264,6 +264,38 @@ const WorkbenchHeaderBar = observer(function WorkbenchHeaderBar({canEdit, form, 
   );
 });
 
+/** 添加步骤弹窗：提交成功才由 onOk 链关闭，失败保留现场 */
+function AddStepModal({visible, form, phases, onCancel, onOk}) {
+  return (
+    <Modal title="添加步骤" visible={visible}
+      onCancel={onCancel}
+      onOk={() => form.validateFields().then(onOk).catch(() => {})}
+      width={500}>
+      <Form form={form} labelCol={{ span: 5 }} wrapperCol={{ span: 17 }}>
+        <Form.Item name="phase" label="所属阶段">
+          <AutoComplete
+            options={phases.map(p => ({ value: p }))}
+            allowClear
+            placeholder="输入或选择步骤所属阶段（选填）"
+            filterOption={(input, option) =>
+              (option.value || '').toLowerCase().includes((input || '').toLowerCase())
+            }
+          />
+        </Form.Item>
+        <Form.Item name="title" label="步骤标题" rules={[{ required: true, message: '请输入步骤标题' }]}>
+          <Input placeholder="请输入步骤标题" />
+        </Form.Item>
+        <Form.Item name="description" label="步骤描述">
+          <TextArea rows={3} placeholder="步骤描述（选填）" />
+        </Form.Item>
+        <Form.Item name="is_required" label="是否必执行" valuePropName="checked" initialValue={true}>
+          <Switch checkedChildren="必选" unCheckedChildren="可选" />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+}
+
 /** 步骤清单面板：应用方案/添加步骤/逐项操作 + 添加步骤弹窗 */
 const WorkbenchStepsPanel = observer(function WorkbenchStepsPanel({recordId, canEdit}) {
   const [addStepVisible, setAddStepVisible] = useState(false);
@@ -271,8 +303,11 @@ const WorkbenchStepsPanel = observer(function WorkbenchStepsPanel({recordId, can
   // 编辑模式下方案下拉框受控值（操作后重置）
   const [planSelectValue, setPlanSelectValue] = useState(undefined);
 
+  // 应用方案/添加步骤走后端 add 权限（与 RecordStepAddView/PlanApplyView 一致）
+  const canAdd = hasPermission('upgrade.upgrade.add');
+
   const phases = store.filterOptions.phases || [];
-  const { groups, ungrouped } = groupStepsByPhase(store.recordSteps, phases);
+  const {groups, ungrouped} = groupStepsByPhase(store.recordSteps, phases);
 
   const stepStats = store.recordStepStats || {};
   const total = stepStats.total || store.recordSteps.length;
@@ -280,10 +315,14 @@ const WorkbenchStepsPanel = observer(function WorkbenchStepsPanel({recordId, can
   const doneCount = (stepStats.completed || 0) + (stepStats.skipped || 0);
   const progress = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
+  // 提交成功才关闭弹窗并清空输入；失败保留现场（错误提示由 http 拦截器弹出）。
+  // 返回 promise 交给 onOk 链的 .catch 统一吸收，避免 unhandled rejection。
   function handleAddStep(values) {
-    addStep(recordId, values);
-    setAddStepVisible(false);
-    addStepForm.resetFields();
+    return addStep(recordId, values)
+      .then(() => {
+        setAddStepVisible(false);
+        addStepForm.resetFields();
+      });
   }
 
   function handleApplyPlan(planId) {
@@ -298,9 +337,9 @@ const WorkbenchStepsPanel = observer(function WorkbenchStepsPanel({recordId, can
         </span>
         {canEdit && (
           <Space size={4}>
-            {store.plans.length > 0 && (
+            {canAdd && store.plans.length > 0 && (
               <Select
-                size="small" style={{ width: 200 }} placeholder="应用方案" allowClear
+                size="small" style={{width: 200}} placeholder="应用方案" allowClear
                 value={planSelectValue}
                 onChange={(v) => v && handleApplyPlan(v)}
               >
@@ -309,7 +348,9 @@ const WorkbenchStepsPanel = observer(function WorkbenchStepsPanel({recordId, can
                 ))}
               </Select>
             )}
-            <Button size="small" icon={<PlusOutlined />} onClick={() => setAddStepVisible(true)}>添加步骤</Button>
+            {canAdd && (
+              <Button size="small" icon={<PlusOutlined />} onClick={() => setAddStepVisible(true)}>添加步骤</Button>
+            )}
             {store.recordSteps.length > 0 && hasPermission('upgrade.upgrade.step_del') && (
               <Popconfirm title="确定清空所有步骤？" onConfirm={() => clearSteps(recordId)}>
                 <Button size="small" danger>清空</Button>
@@ -350,36 +391,15 @@ const WorkbenchStepsPanel = observer(function WorkbenchStepsPanel({recordId, can
         )}
         {store.recordSteps.length === 0 && (
           <div style={{ textAlign: 'center', color: '#999', padding: 32, fontSize: 13 }}>
-            暂无步骤{canEdit ? '，可通过上方应用方案或手动添加' : ''}
+            暂无步骤{canAdd ? '，可通过上方应用方案或手动添加' : ''}
           </div>
         )}
       </div>
 
-      <Modal title="添加步骤" visible={addStepVisible}
+      <AddStepModal
+        visible={addStepVisible} form={addStepForm} phases={phases}
         onCancel={() => { setAddStepVisible(false); addStepForm.resetFields(); }}
-        onOk={() => addStepForm.validateFields().then(handleAddStep)} width={500}>
-        <Form form={addStepForm} labelCol={{ span: 5 }} wrapperCol={{ span: 17 }}>
-          <Form.Item name="phase" label="所属阶段">
-            <AutoComplete
-              options={phases.map(p => ({ value: p }))}
-              allowClear
-              placeholder="输入或选择步骤所属阶段（选填）"
-              filterOption={(input, option) =>
-                (option.value || '').toLowerCase().includes((input || '').toLowerCase())
-              }
-            />
-          </Form.Item>
-          <Form.Item name="title" label="步骤标题" rules={[{ required: true, message: '请输入步骤标题' }]}>
-            <Input placeholder="请输入步骤标题" />
-          </Form.Item>
-          <Form.Item name="description" label="步骤描述">
-            <TextArea rows={3} placeholder="步骤描述（选填）" />
-          </Form.Item>
-          <Form.Item name="is_required" label="是否必执行" valuePropName="checked" initialValue={true}>
-            <Switch checkedChildren="必选" unCheckedChildren="可选" />
-          </Form.Item>
-        </Form>
-      </Modal>
+        onOk={handleAddStep}/>
     </Col>
   );
 });
@@ -538,7 +558,8 @@ const WorkbenchForm = forwardRef(function WorkbenchForm({ isNew, recordId, onSav
   // 应用方案（新建模式）：预填基本信息，保存时自动应用步骤
   function handleApplyPlanPrefill(planId) {
     store.fetchPlanDetail(planId).then(plan => {
-      if (!plan) { message.error('获取方案失败'); return; }
+      // 获取失败时提示已由 http 拦截器弹出，plan 为 null 直接返回
+      if (!plan) return;
       setSelectedPlan(plan);
       const values = {};
       if (plan.system_id) values.system = plan.system_id;

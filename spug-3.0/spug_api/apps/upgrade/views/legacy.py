@@ -78,7 +78,7 @@ class LegacyUpgradeView(View):
         """创建升级表单（兼容旧前端，system 为纯文本）"""
         from apps.upgrade.models import UpgradeRecord
         from apps.equipment_lifecycle.models import LifecycleSystem
-        from apps.upgrade.services.record_service import RecordService
+        from apps.equipment_lifecycle.event_services import record_upgrade_lifecycle_events
 
         form, error = JsonParser(
             Argument('system', help='请输入系统'),
@@ -92,18 +92,14 @@ class LegacyUpgradeView(View):
         if error:
             return json_response(error=error)
 
-        # 旧契约 system 为纯文本：能按名称匹配到系统档案则走新链路（写外键+快照），
-        # 匹配不到则保留旧语义以纯文本落库（仅名称快照，不建系统关联）
+        # 旧契约 system 为纯文本且不带 title/upgrade_content，不能走新链路
+        # 必填校验（否则匹配到系统档案反而创建失败）；统一走直建兜底：
+        # 能按名称匹配到系统档案则一并写外键+快照+履历，匹配不到保留旧语义
+        # 纯文本落库（仅名称快照，不建系统关联）。version 字段已随旧模型退役。
         system_text = (form.system or '').strip()
         system_obj = apply_tenant_filter(
             LifecycleSystem.objects.filter(is_active=True), request.user
         ).filter(name__iexact=system_text).first() if system_text else None
-        if system_obj:
-            form.system = system_obj.id
-            record, error = RecordService.create_record(user=request.user, record_data=form)
-            if error:
-                return json_response(error=error)
-            return json_response()
 
         # 兜底直建（旧前端传历史系统名）：编号同样在全局锁内分配。
         # 本视图未按 non_atomic_requests 装配（PUT 依赖请求级事务），ATOMIC_REQUESTS
@@ -116,16 +112,22 @@ class LegacyUpgradeView(View):
         try:
             with upgrade_no_lock():
                 with transaction.atomic():
-                    UpgradeRecord.objects.create(
+                    record = UpgradeRecord.objects.create(
                         tenant_id=request.user.tenant_id,
                         upgrade_no=generate_upgrade_no(),
-                        system_name=system_text,
+                        system=system_obj,
+                        system_code=system_obj.system_code if system_obj else '',
+                        system_name=system_obj.name if system_obj else system_text,
+                        system_location=system_obj.install_location if system_obj else '',
                         upgrade_type=form.upgrade_type,
                         upgrade_time=form.upgrade_time,
                         status=form.status,
                         owner=form.owner,
                         created_by=request.user,
                     )
+                    if system_obj:
+                        record_upgrade_lifecycle_events(
+                            record, 'create', created_by=request.user)
         except UpgradeNoLockTimeout as e:
             return json_response(error=str(e))
         except UpgradeNoExhausted as e:

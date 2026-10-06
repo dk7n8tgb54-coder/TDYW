@@ -32,7 +32,6 @@ urlpatterns = [
     # 系统主数据
     path('systems/', views.SystemView.as_view()),
     path('systems/export/', views.SystemExportView.as_view()),
-    path('systems/status-summary/', views.SystemStatusSummaryView.as_view()),
     path('systems/<int:pk>/', views.SystemDetailView.as_view()),
     path('systems/<int:pk>/active/', views.SystemActiveView.as_view()),
     # 按系统查询故障（主体/受影响）
@@ -127,35 +126,27 @@ urlpatterns = [
     path('inspection-sheets/<int:pk>/void/', inspection_views.InspectionSheetVoidView.as_view()),
     # 超级管理员退回整改（仅 submitted → returned，后端显式校验 is_supper）
     path('inspection-sheets/<int:pk>/return/', inspection_views.InspectionSheetReturnView.as_view()),
-    # ==================== 运行记录（2026-10，第一版） ====================
+    # ==================== 运行异常记录（2026-10，第一版） ====================
     # 异常与运行情况统一录入入口；创建（编号锁）与转故障（健康重算锁）动作
     # 以 non_atomic_requests 装配（锁 → 事务提交 → 释放锁 顺序成立）。
+    # 旧 triage/close 兼容端点已随 2026-10-06 旧状态归一（迁移 0007）删除；
+    # 旧 similar/duplicate-links/mark-repeated 端点已随重复问题功能退役
+    # （迁移 0008）删除。
     path('runtime-records/', _na(runtime_record_views.RuntimeRecordView.as_view())),
     path('runtime-records/<int:pk>/', runtime_record_views.RuntimeRecordDetailView.as_view()),
     path('runtime-records/<int:pk>/progress/', runtime_record_views.RuntimeRecordProgressView.as_view()),
     path('runtime-records/<int:pk>/progress/<int:rid>/', runtime_record_views.RuntimeRecordProgressDetailView.as_view()),
     path('runtime-records/<int:pk>/convert-to-fault/', _na(runtime_record_views.RuntimeRecordConvertToFaultView.as_view())),
-    path('runtime-records/<int:pk>/mark-important/', runtime_record_views.RuntimeRecordMarkImportantView.as_view()),
     path('runtime-records/<int:pk>/follow-up/', runtime_record_views.RuntimeRecordFollowUpView.as_view()),
     path('runtime-records/<int:pk>/resolve/', runtime_record_views.RuntimeRecordResolveView.as_view()),
-    path('runtime-records/<int:pk>/close/', runtime_record_views.RuntimeRecordCloseView.as_view()),
     path('runtime-records/<int:pk>/attachments/', runtime_record_attachment_views.RuntimeRecordAttachmentView.as_view()),
     path('runtime-records/<int:pk>/attachments/<int:aid>/download/', runtime_record_attachment_views.RuntimeRecordAttachmentDownloadView.as_view()),
     path('runtime-records/<int:pk>/attachments/<int:aid>/', runtime_record_attachment_views.RuntimeRecordAttachmentDetailView.as_view()),
-    # ==================== 运行记录第二版（2026-10）：研判/重复问题/待办/统计 ====================
-    # 研判（结论可直接转为正式故障）：与转故障同持健康重算锁，non_atomic 装配
-    # （"提交研判"中转端点已随 2026-10-04 流程简化下线：新建即已记录，
-    #   待研判仅历史兼容状态，无任何产生入口）
-    path('runtime-records/<int:pk>/triage/', _na(runtime_record_v2_views.RuntimeRecordTriageView.as_view())),
-    path('runtime-records/<int:pk>/no-follow-up/', runtime_record_v2_views.RuntimeRecordNoFollowUpView.as_view()),
-    path('runtime-records/<int:pk>/similar/', runtime_record_v2_views.RuntimeRecordSimilarView.as_view()),
-    path('runtime-records/<int:pk>/duplicate-links/', runtime_record_v2_views.RuntimeRecordDuplicateLinkView.as_view()),
-    path('runtime-records/<int:pk>/duplicate-links/<int:lid>/', runtime_record_v2_views.RuntimeRecordDuplicateLinkDetailView.as_view()),
-    path('runtime-records/<int:pk>/mark-repeated/', runtime_record_v2_views.RuntimeRecordMarkRepeatedView.as_view()),
-    # 待办（仅跟进中）与只读统计（仅运行记录数据）
+    # ==================== 运行异常记录第二版（2026-10）：待办/统计 ====================
+    # 待办（仅跟进中）与只读统计（仅运行异常记录数据）
     path('runtime-records/todo/', runtime_record_v2_views.RuntimeRecordTodoView.as_view()),
     path('runtime-records/statistics/', runtime_record_v2_views.RuntimeRecordStatisticsView.as_view()),
-    # 按系统查询运行记录（系统详情"运行记录"页签）
+    # 按系统查询运行异常记录（系统详情"运行异常记录"页签）
     path('systems/<int:pk>/runtime-records/', runtime_record_views.SystemRuntimeRecordsView.as_view()),
     # ==================== 系统配置（2026-10：系统详情"配置"页签） ====================
     # 只在系统详情内展示，不设独立菜单；配置值只经"创建草稿 → 应用生效"流程

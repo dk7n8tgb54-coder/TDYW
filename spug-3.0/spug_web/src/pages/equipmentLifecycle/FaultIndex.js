@@ -44,9 +44,9 @@ class FaultTable extends React.Component {
     width: 200,
     ellipsis: true,
   }, {
-    title: '影响状态',
+    title: '系统影响程度',
     dataIndex: 'impact_status',
-    width: 110,
+    width: 130,
     render: (text, record) => (
       record.affects_system_operation ? (
         <Tag color={FAULT_IMPACT_COLOR[text]}>{FAULT_IMPACT_TEXT[text] || text}</Tag>
@@ -56,7 +56,7 @@ class FaultTable extends React.Component {
       )
     ),
   }, {
-    title: '状态',
+    title: '处置状态',
     dataIndex: 'status',
     width: 90,
     render: (text) => <FaultStatusTag status={text}/>,
@@ -74,10 +74,10 @@ class FaultTable extends React.Component {
     width: 100,
     render: (text) => text || '-',
   }, {
-    // 处理进展条数：后端列表聚合统计（handling_record_count，只读，不提供
+    // 处置记录数：后端列表聚合统计（handling_record_count，只读，不提供
     // 可编辑的"节点数"字段）；已关闭/已撤销故障同样保留历史数量。
-    // 点击数量打开故障详情并定位到"处理进展"页签
-    title: '处理进展',
+    // 点击数量打开故障详情并定位到"处置记录"页签
+    title: '处置记录数',
     dataIndex: 'handling_record_count',
     width: 100,
     render: (text, record) => (

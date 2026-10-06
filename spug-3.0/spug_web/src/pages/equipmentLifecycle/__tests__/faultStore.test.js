@@ -6,10 +6,10 @@
  * - fetchSystems 拉取候选系统（供选择器展示名称、提交 ID）
  * - submitForm 新增走 POST、编辑走 PUT，payload 原样透传系统 ID
  * - 状态动作（确认恢复并结案/作废）调用明确动作端点，
- *   成功后重新获取详情、处理进展与列表（重新获取真实数据）；
+ *   成功后重新获取详情、处置记录与列表（重新获取真实数据）；
  *   2026-10 流程合并：无"开始处置"与单独关闭动作（新建即处置中，
  *   确认恢复与结案一次提交）
- * - 处理进展添加与更正调用对应端点
+ * - 处置记录添加与更正调用对应端点
  * - 后端业务错误（http reject）时不显示成功提示路径（Promise 拒绝，不关闭弹窗）
  */
 const mockHttpGet = jest.fn();
@@ -105,8 +105,8 @@ describe('故障 Store · 表单提交', () => {
 
 });
 
-describe('故障 Store · 状态动作与处理进展', () => {
-  it('确认恢复并结案调用 recover 端点，成功后刷新详情/处理进展/列表', async () => {
+describe('故障 Store · 状态动作与处置记录', () => {
+  it('确认恢复并结案调用 recover 端点，成功后刷新详情/处置记录/列表', async () => {
     const store = freshStore();
     store.detailId = 8;
     mockHttpPost.mockResolvedValue({});
@@ -145,7 +145,7 @@ describe('故障 Store · 状态动作与处理进展', () => {
     expect(posted).not.toContain('/api/equipment-lifecycle/faults/8/close/');
   });
 
-  it('处理进展添加与更正调用对应端点并刷新时间线', async () => {
+  it('处置记录添加与更正调用对应端点并刷新时间线', async () => {
     const store = freshStore();
     store.detailId = 8;
     mockHttpPost.mockResolvedValue({});
@@ -201,7 +201,7 @@ describe('故障 Store · 详情查询', () => {
   });
 });
 
-describe('故障 Store · 请求竞态守卫（2026-09 添加进展后刷新状态异常缺陷）', () => {
+describe('故障 Store · 请求竞态守卫（2026-09 新增处置记录后刷新状态异常缺陷）', () => {
   function deferred() {
     let resolve;
     return {promise: new Promise(r => {resolve = r;}), resolve};
@@ -249,7 +249,7 @@ describe('故障 Store · 请求竞态守卫（2026-09 添加进展后刷新状�
     expect(store.isHandlingFetching).toBe(false);
   });
 
-  it('添加处理进展成功后等待列表刷新完成，动作 loading 不提前结束', async () => {
+  it('新增处置记录成功后等待列表刷新完成，动作 loading 不提前结束', async () => {
     const store = freshStore();
     store.detailId = 8;
     const listFetch = deferred();

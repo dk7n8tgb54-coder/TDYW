@@ -26,9 +26,9 @@ class FaultRecordsTab extends React.Component {
     dataIndex: 'fault_no',
     width: 150,
   }, {
-    title: '影响状态',
+    title: '系统影响程度',
     dataIndex: 'impact_status',
-    width: 110,
+    width: 130,
     render: (text, record) => (
       record.affects_system_operation ? (
         <Tag color={FAULT_IMPACT_COLOR[text]}>{FAULT_IMPACT_TEXT[text] || text}</Tag>
@@ -38,7 +38,7 @@ class FaultRecordsTab extends React.Component {
       )
     ),
   }, {
-    title: '状态',
+    title: '处置状态',
     dataIndex: 'status',
     width: 90,
     render: (text) => <FaultStatusTag status={text}/>,

@@ -219,6 +219,15 @@ class RecordStepService:
         """
         from ..models_checklist import UpgradeRecordStep
         from ..services.status_log_service import StatusLogService
+
+        # 预校验：任一无效 action 直接拒绝（与单步接口一致），不产生部分变更
+        valid_actions = ('complete', 'skip', 'reset')
+        for item in steps_data:
+            action = (item or {}).get('action')
+            if action not in valid_actions:
+                return (f'批量更新失败: 无效操作 [{action}]，'
+                        f'支持: {"/".join(valid_actions)}')
+
         affected = []  # [(phase, is_reset), ...]
         try:
             with transaction.atomic():

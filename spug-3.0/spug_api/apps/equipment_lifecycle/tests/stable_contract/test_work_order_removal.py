@@ -4,16 +4,16 @@
 覆盖验收要求的真实行为契约：
 1. 工单 API 不再注册（列表/创建/详情/动作/处理记录/导出/按系统/按故障
    与台账异常转工单全部 404；模型三表随迁移 0043 删除）；
-2. 故障处理进展承载处理人（进展记录人）、时间、内容、结果、工时与
+2. 故障处置记录承载处理人（处置人）、时间、内容、结果、工时与
    更正历史（原工单处理记录职责）；
-3. 故障状态闭环不依赖工单（登记→进展→恢复确认→关闭全程无工单参与，
+3. 故障状态闭环不依赖工单（登记→处置记录→恢复确认→关闭全程无工单参与，
    健康状态随之恢复 normal）；
 4. 台账/巡检异常转故障链路仍然有效（转工单端点已删除）；
 5. 系统健康状态不读取工单数据：collect_active_impacts 只查故障，
    derive_health_status 优先级 中断>故障>降级，关闭一张故障不覆盖
    其他未恢复故障的影响，且不存在 repairing 状态；
 6. 租户隔离、权限与附件访问仍然有效（转故障双权限、跨租户拒绝、
-   处理进展附件归属校验）。
+   处理处置记录附件归属校验）。
 
 全部通过真实 HTTP 路径 + 隔离测试数据库执行，验证数据库状态与真实副作用。
 """
@@ -148,7 +148,7 @@ class WorkOrderApiRemovedTest(WorkOrderRemovalTestBase):
 
 
 class ProgressReplacesWorkOrderTest(WorkOrderRemovalTestBase):
-    """契约 2：处理进展承载处理人/时间/内容/结果/工时/更正历史。"""
+    """契约 2：处置记录承载处置人/时间/处置措施/工时/更正历史。"""
 
     def _started_fault(self, **overrides):
         """创建故障（新建即处置中），返回 fault id。"""
@@ -157,15 +157,13 @@ class ProgressReplacesWorkOrderTest(WorkOrderRemovalTestBase):
         self.assertFalse(body.get('error'), body)
         return body['data']['id']
 
-    def test_progress_records_handler_time_content_result_hours(self):
-        """追加进展：记录人/时间/内容/结果/工时全部落库并回读。"""
+    def test_progress_records_recorder_time_content_hours(self):
+        """追加处置记录：处置人/时间/处置措施/工时全部落库并回读。"""
         fid = self._started_fault()
         resp = self.client.post(f'{FAULT_URL}/{fid}/handling-records/', {
             'handled_at': '2026-09-30 09:30',
             'recorder_name': '张检测',
-            'progress_type': 'to_vendor',
             'content': '发射机板卡拆下送厂',
-            'result': '送厂维修中',
             'work_hours': 1.5,
         }, content_type='application/json')
         body = resp.json()
@@ -174,17 +172,17 @@ class ProgressReplacesWorkOrderTest(WorkOrderRemovalTestBase):
         self.assertEqual(record.recorder_name, '张检测')
         self.assertEqual(record.handled_at.strftime('%Y-%m-%d %H:%M'), '2026-09-30 09:30')
         self.assertEqual(record.content, '发射机板卡拆下送厂')
-        self.assertEqual(record.result, '送厂维修中')
         self.assertEqual(record.work_hours, 1.5)
-        self.assertEqual(record.progress_type, 'to_vendor')
-        # 时间线接口返回同样数据（含工时）
+        # 时间线接口返回同样数据（含工时），不再返回已删除的处置类型/处置结果
         listing = self.client.get(f'{FAULT_URL}/{fid}/handling-records/').json()
         row = listing['data']['data'][0]
         self.assertEqual(row['work_hours'], 1.5)
         self.assertEqual(row['recorder_name'], '张检测')
+        self.assertNotIn('result', row)
+        self.assertNotIn('progress_type', row)
 
     def test_progress_correction_keeps_history(self):
-        """更正进展：原内容/新内容/原因/操作人追加进 corrections，不静默覆盖。"""
+        """更正处置记录：原内容/新内容/原因/操作人追加进 corrections，不静默覆盖。"""
         fid = self._started_fault()
         body = self.client.post(f'{FAULT_URL}/{fid}/handling-records/', {
             'handled_at': '2026-09-30 10:00',
@@ -210,7 +208,7 @@ class ProgressReplacesWorkOrderTest(WorkOrderRemovalTestBase):
         self.assertEqual(corrections[0]['by'], self.admin.username)
 
     def test_progress_rejected_after_terminal_state(self):
-        """已关闭/已作废故障不能追加进展（终态保护，闭环语义保持）。"""
+        """已关闭/已作废故障不能追加处置记录（终态保护，闭环语义保持）。"""
         fid = self._started_fault()
         self.client.post(f'{FAULT_URL}/{fid}/recover/', {
             'recovered_at': '2026-09-30 11:00',
@@ -220,14 +218,14 @@ class ProgressReplacesWorkOrderTest(WorkOrderRemovalTestBase):
         resp = self.client.post(f'{FAULT_URL}/{fid}/handling-records/', {
             'recorder_name': '张检测', 'content': '补记',
         }, content_type='application/json')
-        self.assertIn('不能追加处理进展', resp.json().get('error', ''))
+        self.assertIn('不能新增处置记录', resp.json().get('error', ''))
 
 
 class FaultClosureWithoutWorkOrderTest(WorkOrderRemovalTestBase):
     """契约 3：故障状态闭环不依赖工单。"""
 
     def test_full_loop_without_work_order_restores_health(self):
-        """登记→处理进展→恢复确认→关闭：健康状态 degraded→normal，无工单事件。"""
+        """登记→处置记录→恢复确认→关闭：健康状态 degraded→normal，无工单事件。"""
         body = self.client.post(f'{FAULT_URL}/', fault_payload(self.system_a),
                                 content_type='application/json').json()
         fid = body['data']['id']
@@ -375,7 +373,7 @@ class IsolationPermissionAttachmentTest(WorkOrderRemovalTestBase):
         self.assertIn('不存在', resp.json().get('error', ''))
 
     def test_progress_attachment_access_control(self):
-        """处理进展附件：上传后可列表/下载，跨模块对象类型不可见（归属校验）。"""
+        """处理处置记录附件：上传后可列表/下载，跨模块对象类型不可见（归属校验）。"""
         from apps.evidence.models import EvidenceAttachment
         body = self.client.post(f'{FAULT_URL}/', fault_payload(self.system_a),
                                 content_type='application/json').json()
@@ -392,7 +390,7 @@ class IsolationPermissionAttachmentTest(WorkOrderRemovalTestBase):
         listing = self.client.get(
             f'{FAULT_URL}/{fid}/handling-records/{record["id"]}/attachments/').json()
         self.assertIn(att_id, [a['id'] for a in listing['data']['data']])
-        # 伪造 object_type（工单处理记录类型已下线）查询不到：归属校验按故障进展类型
+        # 伪造 object_type（工单处理记录类型已下线）查询不到：归属校验按故障处置记录对象类型
         self.assertFalse(EvidenceAttachment.objects.filter(
             module='equipment_lifecycle',
             object_type='el_work_order_handling').exists())

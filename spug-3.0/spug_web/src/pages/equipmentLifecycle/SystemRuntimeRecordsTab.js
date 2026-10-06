@@ -3,19 +3,22 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 系统详情——运行记录页签（2026-10 第一版 + 第二版）。
- * 只展示所属系统为当前系统的运行记录；不含故障/台账/升级/履历。
- * 第二版：支持按 标题/对象名称关键词、异常类别、发生时间范围 筛选历史记录，
- * 每行显示重复关联数量，并展示该系统最近一次运行情况发生时间。
+ * 系统详情——运行异常记录页签（2026-10 第一版 + 第二版）。
+ * 只展示所属系统为当前系统的运行异常记录；不含故障/台账/升级/履历。
+ * 第二版：支持按 标题/编号关键词、异常类别、发生时间范围 筛选历史记录，
+ * 并展示该系统最近一次运行情况发生时间。
+ * 重复问题功能已于 2026-10-05 下线：原"关联"数量列与"重复"标记已随
+ * 重复功能退役移除（2026-10-06，后端模型与字段同迁移 0008 删除）。
+ * 系统影响程度列与重要标记已随字段删除移除（2026-10-06）。
  */
 import React, { useState } from 'react';
 import { observer } from 'mobx-react';
-import { Table, Tag, Empty, Input, Select, DatePicker, Button, Tooltip } from 'antd';
+import { Table, Tag, Empty, Input, Select, DatePicker, Button } from 'antd';
 import { AuthDiv } from 'components';
 import runtimeStore from './runtimeRecord/store';
 import {
   PERM, RUNTIME_STATUS_TEXT, RUNTIME_STATUS_COLOR,
-  RUNTIME_IMPORTANCE_TEXT, RUNTIME_CATEGORY_OPTIONS,
+  RUNTIME_CATEGORY_OPTIONS,
 } from './constants';
 
 const {RangePicker} = DatePicker;
@@ -49,44 +52,18 @@ class SystemRuntimeRecordsTab extends React.Component {
     dataIndex: 'title',
     width: 200,
     ellipsis: true,
-    render: (text, record) => (
-      <span>
-        {record.importance === 'important' && (
-          <Tag color="red" style={{marginRight: 4}}>{RUNTIME_IMPORTANCE_TEXT[record.importance]}</Tag>
-        )}
-        {record.is_repeated && <Tag color="volcano" style={{marginRight: 4}}>重复</Tag>}
-        {text}
-      </span>
-    ),
   }, {
     title: '异常类别',
     dataIndex: 'category_text',
     width: 90,
     render: text => text || <Tag>未归类</Tag>,
   }, {
-    title: '影响状态',
-    dataIndex: 'impact_status',
-    width: 90,
-    render: (text, record) => (
-      record.affects_system_operation
-        ? <Tag color="orange">{record.impact_status_text || text}</Tag>
-        : <Tag>不影响运行</Tag>
-    ),
-  }, {
     title: '状态',
     dataIndex: 'status',
     width: 90,
     render: (text) => <Tag color={RUNTIME_STATUS_COLOR[text]}>{RUNTIME_STATUS_TEXT[text]}</Tag>,
   }, {
-    title: '关联',
-    dataIndex: 'duplicate_count',
-    width: 70,
-    render: (text) => (text ? (
-      <Tooltip title="关联的相似/重复记录数量（双向合计）">
-        <Tag color="volcano">{text}</Tag>
-      </Tooltip>
-    ) : '-'),
-  }, {
+    // "关联"（重复关联数量）列已于 2026-10-05 随重复问题功能下线移除
     title: '发生时间',
     dataIndex: 'occurred_at',
     width: 140,
@@ -110,7 +87,7 @@ class SystemRuntimeRecordsTab extends React.Component {
           <Input.Search
             allowClear
             style={{width: 200, marginRight: 8}}
-            placeholder="编号/标题/对象名称"
+            placeholder="编号/标题"
             value={this.state.keyword}
             onChange={e => this.setState({keyword: e.target.value})}
             onSearch={() => this.fetchWithFilters()}
@@ -150,7 +127,7 @@ class SystemRuntimeRecordsTab extends React.Component {
           pagination={{pageSize: 10, showTotal: total => `共 ${total} 条`}}
           dataSource={runtimeStore.systemRecords}
           columns={this.columns}
-          locale={{emptyText: <Empty description="当前系统暂无运行记录" image={Empty.PRESENTED_IMAGE_SIMPLE}/>}}
+          locale={{emptyText: <Empty description="当前系统暂无运行异常记录" image={Empty.PRESENTED_IMAGE_SIMPLE}/>}}
         />
       </AuthDiv>
     );

@@ -4,7 +4,7 @@
 """系统配置变更服务层（2026-10）。
 
 职责：
-- generate_config_change_no：变更编号生成（PZ+日期+当日序号，口径同故障/运行记录）；
+- generate_config_change_no：变更编号生成（PZ+日期+当日序号，口径同故障/运行异常记录）；
 - normalize_param_value / canonical_value_text：按参数定义校验并规范化输入值、
   生成类型无关的规范文本（当前值对比与快照的唯一口径）；
 - create_config_change / update_draft_change：草稿创建与编辑（后端重新查询
@@ -104,7 +104,7 @@ def config_change_no_lock():
 
     用法（视图层）：事务外取锁 → 事务内完成编号生成 + 写库 → 提交 → 放锁。
     ATOMIC_REQUESTS 下持锁视图以 non_atomic_requests 装配并显式开启事务
-    （与故障/运行记录视图的锁提交顺序约定一致）。
+    （与故障/运行异常记录视图的锁提交顺序约定一致）。
     """
     cursor = connection.cursor()
     try:

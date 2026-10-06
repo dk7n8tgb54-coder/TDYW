@@ -3,7 +3,7 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——运行记录待办视图（2026-10 第二版）。
+ * 设备全生命周期——运行异常记录待办视图（2026-10 第二版）。
  * 只展示"跟进中"记录（关闭或转故障后由后端状态机自然移出待办）；
  * 支持超期（计划处理时间早于当前时间）、指定跟进人、最近更新筛选。
  * 不做周期轮询、不为普通记录发提醒：仅在打开本页签或调整筛选时查询。
@@ -14,7 +14,7 @@ import { Input, Select, Tag, Table, Button, Alert } from 'antd';
 import moment from 'moment';
 import store from './store';
 import {
-  RUNTIME_STATUS_TEXT, RUNTIME_STATUS_COLOR, RUNTIME_IMPACT_TEXT, RUNTIME_IMPACT_COLOR,
+  RUNTIME_STATUS_TEXT, RUNTIME_STATUS_COLOR,
 } from '../constants';
 
 function TodoFilters() {
@@ -93,15 +93,6 @@ class RecordTodo extends React.Component {
         : <Tag color="blue">{text}</Tag>;
     },
   }, {
-    title: '影响状态',
-    dataIndex: 'impact_status',
-    width: 100,
-    render: (text, record) => (
-      record.affects_system_operation
-        ? <Tag color={RUNTIME_IMPACT_COLOR[text]}>{RUNTIME_IMPACT_TEXT[text] || text}</Tag>
-        : <Tag>不影响运行</Tag>
-    ),
-  }, {
     title: '状态',
     dataIndex: 'status',
     width: 90,
@@ -132,7 +123,7 @@ class RecordTodo extends React.Component {
           pagination={false}
           dataSource={store.todoRecords}
           columns={this.columns}
-          locale={{emptyText: '暂无待办：没有处于跟进中的运行记录'}}
+          locale={{emptyText: '暂无待办：没有处于跟进中的运行异常记录'}}
         />
       </div>
     );

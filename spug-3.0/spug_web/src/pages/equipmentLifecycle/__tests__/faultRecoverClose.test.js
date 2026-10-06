@@ -80,8 +80,7 @@ const FAULT_DETAIL = {
 const HANDLING_RECORDS = {
   data: [
     {id: 1, fault: 11, handled_at: '2026-09-18 09:00', handler: 2, handler_name: 'operator',
-      progress_type: 'check', progress_type_text: '检查',
-      content: '现场检查，确认光模块告警', result: '处理中', corrections: [], created_at: '2026-09-18 09:05'},
+      content: '现场检查，确认光模块告警', corrections: [], created_at: '2026-09-18 09:05'},
   ],
   total: 1, page: 1, page_size: 100,
 };
@@ -259,7 +258,7 @@ describe('确认恢复并结案弹窗（三项一次校验，直接进入终态�
     await setTextareaValue('结案说明', '更换备件并复测通过，业务验证正常');
     await typeAndEnter('恢复确认人', '确认人甲');
     await submitModal('post');
-    // 动作成功路径触发统一刷新：详情 + 处理进展 + 列表各一次
+    // 动作成功路径触发统一刷新：详情 + 处置记录 + 列表各一次
     const gets = mockHttpGet.mock.calls.map(call => call[0]);
     expect(gets.filter(u => u === '/api/equipment-lifecycle/faults/11/').length)
       .toBeGreaterThanOrEqual(2);

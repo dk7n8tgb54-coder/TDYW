@@ -8,11 +8,11 @@
  * - 基本信息三区块（2026-10：故障概况/处置结果/来源与登记），不展示创建人，
  *   故障登记人/登记时间在"来源与登记"区块末行
  * - 详情不再提供"受影响系统"页签
- * - 处理进展时间线按时间展示，进展类型可见，更正留痕可见
+ * - 处理处置时间线按时间展示，处置类型可见，更正留痕可见
  * - "本次工时"录入已删除（2026-10）：存量工时仅时间线只读展示，
  *   新增/更正弹窗无该字段、载荷不携带 work_hours（后端 PUT 未提交保留原值）
- * - 添加处理进展：时间默认当前时间、进展类型/处理结果选填、真实提交载荷
- * - 处理进展页签（关联工单页签已随工单功能删除）与页签条数展示（取列表 total）
+ * - 新增处置记录：时间默认当前时间、处置类型/处置结果选填、真实提交载荷
+ * - 处置记录页签（关联工单页签已随工单功能删除）与页签条数展示（取列表 total）
  * - 确认恢复并结案弹窗（2026-10 流程合并）测试拆至 faultRecoverClose.test.js
  * - 系统详情故障页签只展示本系统故障（不区分主体/受影响角色）
  * - 不使用旧 fault 页面/接口（所有请求只指向 equipment-lifecycle 前缀）
@@ -86,17 +86,14 @@ const FAULT_DETAIL = {
 const HANDLING_RECORDS = {
   data: [
     {id: 1, fault: 11, handled_at: '2026-09-18 09:00', handler: 2, handler_name: 'operator',
-      progress_type: 'check', progress_type_text: '检查',
-      content: '现场检查，确认光模块告警', result: '处理中', corrections: [], created_at: '2026-09-18 09:05'},
+      content: '现场检查，确认光模块告警', corrections: [], created_at: '2026-09-18 09:05'},
     {id: 2, fault: 11, handled_at: '2026-09-18 09:30', handler: 2, handler_name: 'operator',
-      progress_type: 'to_vendor', progress_type_text: '送厂',
-      content: '更换备用链路', result: '已切换', created_at: '2026-09-18 09:35',
+      content: '更换备用链路', created_at: '2026-09-18 09:35',
       work_hours: 1.5,
       corrections: [{old: '更换主用链路', new: '更换备用链路', reason: '笔误', by: 'operator',
         at: '2026-09-18 09:40'}]},
     {id: 3, fault: 11, handled_at: '2026-09-18 10:00', handler: 2, handler_name: 'operator',
-      progress_type: '', progress_type_text: '',
-      content: '历史记录：未选择进展类型', result: '', corrections: [], created_at: '2026-09-18 10:05'},
+      content: '历史记录：仅登记处置措施', corrections: [], created_at: '2026-09-18 10:05'},
   ],
   total: 3, page: 1, page_size: 100,
 };
@@ -117,7 +114,7 @@ async function renderDetail(status, overrides, handlingResponse) {
   ReactDOM.unmountComponentAtNode(container);
   await act(async () => {
     // 真实打开路径：列表行与 ?detail= 深链接均经 showDetail 进入，
-    // 详情与处理进展请求由 showDetail 统一发起
+    // 详情与处置记录请求由 showDetail 统一发起
     store.showDetail(detail);
     ReactDOM.render(<FaultDetail/>, container);
   });
@@ -168,8 +165,8 @@ describe('故障详情窗口（单系统简化）', () => {
     const tabs = tabTexts();
     expect(tabs.some(t => t.includes('受影响系统'))).toBe(false);
     expect(tabs).toContain('基本信息');
-    // 处理进展页签带条数（2026-10：停在基本信息页签即可看出进展是否已登记）
-    expect(tabs.some(t => t.includes('处理进展'))).toBe(true);
+    // 处置记录页签带条数（2026-10：停在基本信息页签即可看出是否已有处置记录）
+    expect(tabs.some(t => t.includes('处置记录'))).toBe(true);
     // 关联工单页签已随工单功能删除（2026-09-30）
     expect(tabs.some(t => t.includes('关联工单'))).toBe(false);
   });
@@ -189,13 +186,13 @@ describe('故障详情窗口（单系统简化）', () => {
     await renderDetail('closed');
     expect(bodyText()).not.toContain('确认恢复并结案');
     expect(buttonTexts()).not.toContain('撤销故障登记');
-    expect(buttonTexts()).not.toContain('添加处理进展');
+    expect(buttonTexts()).not.toContain('新增处置记录');
     expect(buttonTexts()).not.toContain('更正');
     // 已撤销同样无操作入口：顶部显示只读追溯横幅 + 撤销登记区块
     await renderDetail('cancelled');
     expect(bodyText()).not.toContain('确认恢复并结案');
     expect(buttonTexts()).not.toContain('撤销故障登记');
-    expect(buttonTexts()).not.toContain('添加处理进展');
+    expect(buttonTexts()).not.toContain('新增处置记录');
     // 只读追溯提示与撤销信息（原因/时间/人）正常展示
     expect(bodyText()).toContain('该登记已撤销，仅供历史追溯');
     expect(bodyText()).toContain('撤销原因');
@@ -203,10 +200,10 @@ describe('故障详情窗口（单系统简化）', () => {
     expect(bodyText()).toContain('撤销人');
   });
 
-  it('处理进展时间线按时间展示、进展类型可见且更正留痕可见', async () => {
+  it('处置时间线按时间展示、处置人与更正留痕可见', async () => {
     await renderDetail('handling');
     const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'));
-    const handlingTab = tabs.find(t => t.textContent.includes('处理进展'));
+    const handlingTab = tabs.find(t => t.textContent.includes('处置记录'));
     await act(async () => {
       handlingTab.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });
@@ -214,22 +211,20 @@ describe('故障详情窗口（单系统简化）', () => {
     const text = bodyText();
     expect(text).toContain('现场检查，确认光模块告警');
     expect(text).toContain('更换备用链路');
-    // 进展类型结构化展示（含历史空类型记录仍可见）
-    expect(text).toContain('检查');
-    expect(text).toContain('送厂');
-    expect(text).toContain('历史记录：未选择进展类型');
-    // 记录人（语义为"进展记录人"：实际添加本条进展的人）
-    expect(text).toContain('进展记录人：operator');
-    expect(text).not.toContain('处置人');
+    expect(text).toContain('历史记录：仅登记处置措施');
+    // 处置人（2026-10 用户文案定名；2026-09 曾用"进展记录人"，旧标签不再出现）
+    expect(text).toContain('处置人：operator');
+    expect(text).not.toContain('进展记录人');
     // 更正留痕：原内容与原因
     expect(text).toContain('笔误');
     expect(text).toContain('由operator更正');
     // 更正按钮可见（可编辑状态）
     expect(text).toContain('更正');
-    // 添加处理进展入口可见
-    expect(text).toContain('添加处理进展');
-    // 页签说明明确无需再生成维修工单（工单功能已删除）
-    expect(text).toContain('无需再另行生成维修工单');
+    // 新增处置记录入口可见
+    expect(text).toContain('新增处置记录');
+    // 页签说明按现行字段口径描述（处置时间/处置人/处置措施）；
+    // 工单功能已删除、处置类型字段已退役（2026-10-05），旧提示不再保留
+    expect(text).toContain('每条记录处置时间、处置人与处置措施');
   });
 
   it('所有请求只指向 equipment-lifecycle 前缀（不使用旧 fault 接口）', async () => {
@@ -243,14 +238,14 @@ describe('故障详情窗口（单系统简化）', () => {
   });
 });
 
-describe('处理进展刷新响应式（2026-09 添加进展后时间线不更新缺陷回归）', () => {
-  it('仅更新 handlingRecords（不动 isDetailFetching）时间线立即显示新进展', async () => {
+describe('处置记录刷新响应式（2026-09 新增处置记录后时间线不更新缺陷回归）', () => {
+  it('仅更新 handlingRecords（不动 isDetailFetching）时间线立即显示新记录', async () => {
     // 缺陷机理：HandlingTimeline 未包 observer 时，读取的 handlingRecords
     // 不被 MobX 追踪，时间线只能靠父组件因 isDetailFetching/detail 变化
-    // 重渲染"搭车"刷新；添加进展成功后若无人触发详情刷新，新记录不显示。
+    // 重渲染"搭车"刷新；新增处置记录成功后若无人触发详情刷新，新记录不显示。
     const store = await renderDetail('handling');
     const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'));
-    const handlingTab = tabs.find(t => t.textContent.includes('处理进展'));
+    const handlingTab = tabs.find(t => t.textContent.includes('处置记录'));
     await act(async () => {
       handlingTab.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });
@@ -262,20 +257,19 @@ describe('处理进展刷新响应式（2026-09 添加进展后时间线不更�
       store.handlingRecords = [...store.handlingRecords, {
         id: 99, fault: 11, handled_at: '2026-09-18 11:00', handler: 2,
         handler_name: 'operator', recorder_name: '记录员乙',
-        progress_type: 'self_fix', progress_type_text: '本方处理',
-        content: '新添加的进展内容XYZ', result: '', corrections: [],
+        content: '新添加的处置措施XYZ', corrections: [],
       }];
     });
     await act(async () => {await flush();});
-    expect(bodyText()).toContain('新添加的进展内容XYZ');
+    expect(bodyText()).toContain('新添加的处置措施XYZ');
     expect(bodyText()).toContain('记录员乙');
   });
 
   it('仅结束 isHandlingFetching 时时间线 Spin 同步停止（不冻结转圈）', async () => {
     const store = await renderDetail('handling');
-    // antd Tabs 未激活页签不渲染内容：先切到处理进展页签
+    // antd Tabs 未激活页签不渲染内容：先切到处置记录页签
     const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'));
-    const handlingTab = tabs.find(t => t.textContent.includes('处理进展'));
+    const handlingTab = tabs.find(t => t.textContent.includes('处置记录'));
     await act(async () => {
       handlingTab.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });
@@ -298,7 +292,7 @@ describe('处理进展刷新响应式（2026-09 添加进展后时间线不更�
     expect(spinCountAfterFetch).toBe(0);
   });
 
-  it('打开详情只发起一次详情请求与一次处理进展请求（无重复并发）', async () => {
+  it('打开详情只发起一次详情请求与一次处置记录请求（无重复并发）', async () => {
     await renderDetail('handling');
     const detailCalls = mockHttpGet.mock.calls
       .filter(call => call[0] === '/api/equipment-lifecycle/faults/11/').length;
@@ -309,31 +303,31 @@ describe('处理进展刷新响应式（2026-09 添加进展后时间线不更�
   });
 });
 
-describe('处理进展页签条数展示（2026-10：停在基本信息页签即可看出进展是否已登记）', () => {
-  it('打开详情不切页签即显示处理进展条数（showDetail 统一拉取进展列表）', async () => {
+describe('处置记录页签条数展示（2026-10：停在基本信息页签即可看出是否已有处置记录）', () => {
+  it('打开详情不切页签即显示处置记录数（showDetail 统一拉取处置记录列表）', async () => {
     await renderDetail('handling');
-    const handlingTab = tabTexts().find(t => t.includes('处理进展'));
-    expect(handlingTab).toBe('处理进展（3）');
+    const handlingTab = tabTexts().find(t => t.includes('处置记录'));
+    expect(handlingTab).toBe('处置记录（3）');
   });
 
   it('条数取列表接口 total，不受单页截断影响', async () => {
     // 后端默认分页 100 条：本页仅返回 1 条但 total=7，页签应显示 7 而非 1
     await renderDetail('handling', null,
       {data: [HANDLING_RECORDS.data[0]], total: 7, page: 1, page_size: 100});
-    const handlingTab = tabTexts().find(t => t.includes('处理进展'));
-    expect(handlingTab).toBe('处理进展（7）');
+    const handlingTab = tabTexts().find(t => t.includes('处置记录'));
+    expect(handlingTab).toBe('处置记录（7）');
   });
 
-  it('追加进展重新拉取列表后条数随 total 同步更新', async () => {
+  it('追加处置记录重新拉取列表后条数随 total 同步更新', async () => {
     const store = await renderDetail('handling');
-    expect(tabTexts().find(t => t.includes('处理进展'))).toBe('处理进展（3）');
+    expect(tabTexts().find(t => t.includes('处置记录'))).toBe('处置记录（3）');
     mockHttpGet.mockImplementation((url) => {
       if (url.includes('/handling-records')) {
         return Promise.resolve({
           data: [...HANDLING_RECORDS.data, {
             id: 4, fault: 11, handled_at: '2026-09-18 11:00',
-            recorder_name: '记录员乙', progress_type: '', progress_type_text: '',
-            content: '持续观察，链路稳定', result: '', corrections: [],
+            recorder_name: '记录员乙',
+            content: '持续观察，链路稳定', corrections: [],
           }],
           total: 4, page: 1, page_size: 100,
         });
@@ -344,7 +338,7 @@ describe('处理进展页签条数展示（2026-10：停在基本信息页签即
       await store.fetchHandlingRecords();
     });
     await act(async () => {await flush();});
-    expect(tabTexts().find(t => t.includes('处理进展'))).toBe('处理进展（4）');
+    expect(tabTexts().find(t => t.includes('处置记录'))).toBe('处置记录（4）');
   });
 });
 
@@ -494,7 +488,7 @@ describe('故障首报表单精简（2026-09，字段退役后口径）', () => 
   });
 });
 
-describe('故障详情影响状态展示（运行状态与部件维修分离）', () => {
+describe('故障详情系统影响程度展示（运行状态与部件维修分离）', () => {
   it('影响运行的故障展示影响程度标签，部件故障展示"不影响运行"', async () => {
     await renderDetail('handling', {affects_system_operation: true});
     let text = bodyText();
@@ -524,7 +518,7 @@ describe('基本信息三区块（2026-10 重组：故障概况/处置结果/来
     const atProfile = text.indexOf('故障概况');
     const atResult = text.indexOf('处置结果');
     const atSource = text.indexOf('来源与登记');
-    const atOverview = text.indexOf('处理概览');
+    const atOverview = text.indexOf('处置记录概览');
     expect(atProfile).toBeGreaterThan(-1);
     expect(atResult).toBeGreaterThan(atProfile);
     expect(atSource).toBeGreaterThan(atResult);
@@ -587,7 +581,7 @@ describe('基本信息三区块（2026-10 重组：故障概况/处置结果/来
       source_runtime_record_no: 'YX20261001-0001',
     });
     let text = bodyText();
-    expect(text).toContain('来源运行记录');
+    expect(text).toContain('来源运行异常记录');
     expect(text).toContain('YX20261001-0001');
     expect(text).toContain('故障登记人');
     expect(text).toContain('登记时间');
@@ -613,7 +607,7 @@ const moment = require('moment');
 async function openDetailHandlingTab() {
   await renderDetail('handling');
   const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'));
-  const handlingTab = tabs.find(t => t.textContent.includes('处理进展'));
+  const handlingTab = tabs.find(t => t.textContent.includes('处置记录'));
   await act(async () => {
     handlingTab.dispatchEvent(new MouseEvent('click', {bubbles: true}));
   });
@@ -623,7 +617,7 @@ async function openDetailHandlingTab() {
 async function openAddModal() {
   await openDetailHandlingTab();
   const addButton = Array.from(document.querySelectorAll('button'))
-    .find(b => b.textContent.replace(/\s+/g, '').includes('添加处理进展'));
+    .find(b => b.textContent.replace(/\s+/g, '').includes('新增处置记录'));
   expect(addButton).toBeTruthy();
   await act(async () => {
     addButton.dispatchEvent(new MouseEvent('click', {bubbles: true}));
@@ -662,23 +656,6 @@ async function setTextareaValue(label, value) {
   await act(async () => {await flush();});
 }
 
-async function chooseProgressType(label) {
-  const selectSelector = findFormItem('进展类型').querySelector('.ant-select-selector');
-  await act(async () => {
-    selectSelector.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
-  });
-  await act(async () => {await flush();});
-  const option = Array.from(document.querySelectorAll(
-    '.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option'))
-    .find(o => o.title === label || o.textContent.includes(label));
-  expect(option).toBeTruthy();
-  await act(async () => {
-    option.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
-    option.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-  });
-  await act(async () => {await flush();});
-}
-
 async function submitModal(method) {
   const mock = method === 'put' ? mockHttpPut : mockHttpPost;
   mock.mockResolvedValue({});
@@ -690,54 +667,43 @@ async function submitModal(method) {
   await act(async () => {await flush();});
 }
 
-describe('添加处理进展弹窗（时间默认当前时间、记录人必填手输、选填项、真实提交）', () => {
-  it('弹窗强制时间/进展内容/进展记录人，类型/结果选填，时间默认当前时间', async () => {
+describe('新增处置记录弹窗（时间默认当前时间、记录人必填手输、真实提交）', () => {
+  it('弹窗强制时间/处置措施/处置人，时间默认当前时间，已删除字段不再出现', async () => {
     await openAddModal();
     const text = modalText();
-    expect(text).toContain('进展时间');
-    expect(text).toContain('进展类型');
-    expect(text).toContain('进展内容');
-    expect(text).toContain('处理结果');
+    expect(text).toContain('处置时间');
+    expect(text).toContain('处置措施');
     // "本次工时"字段已删除（2026-10）：弹窗不再出现
     expect(text).not.toContain('本次工时');
+    // 处置类型/处置结果字段已删除（2026-10-05）：弹窗不再出现
+    expect(text).not.toContain('处置类型');
+    expect(text).not.toContain('处置结果');
     // 时间默认当前时间（DatePicker input 已带格式化值）
-    const timeInput = findFormItem('进展时间').querySelector('input');
+    const timeInput = findFormItem('处置时间').querySelector('input');
     expect(timeInput.value).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
-    // 未选类型时提交：payload.progress_type 为空串（未选择），时间取默认值
-    await typeAndEnter('进展记录人', '记录人甲');
-    await setTextareaValue('进展内容', '发信机告警，现场检查中');
+    await typeAndEnter('处置人', '记录人甲');
+    await setTextareaValue('处置措施', '发信机告警，现场检查中');
     await submitModal('post');
     expect(mockHttpPost).toHaveBeenCalledTimes(1);
     const [url, payload] = mockHttpPost.mock.calls[0];
     expect(url).toBe('/api/equipment-lifecycle/faults/11/handling-records/');
     expect(payload.content).toBe('发信机告警，现场检查中');
     expect(payload.recorder_name).toBe('记录人甲');
-    expect(payload.progress_type).toBe('');
-    expect(payload.result).toBe('');
-    // 新增进展不再提交工时（字段已删除，后端默认存 null）
+    // 处置类型/处置结果已删除：payload 不再携带
+    expect(payload).not.toHaveProperty('progress_type');
+    expect(payload).not.toHaveProperty('result');
+    // 新增处置记录不再提交工时（字段已删除，后端默认存 null）
     expect(payload).not.toHaveProperty('work_hours');
     expect(payload.handled_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
     expect(Math.abs(moment(payload.handled_at, 'YYYY-MM-DD HH:mm').diff(moment(), 'minutes')))
       .toBeLessThanOrEqual(1);
   });
-
-  it('选择进展类型后提交，payload 携带所选类型的正式编码', async () => {
-    await openAddModal();
-    await chooseProgressType('送厂');
-    await typeAndEnter('进展记录人', '记录人甲');
-    await setTextareaValue('进展内容', '故障部件拆下送厂家维修，系统已倒备用');
-    await submitModal('post');
-    expect(mockHttpPost).toHaveBeenCalledTimes(1);
-    const [, payload] = mockHttpPost.mock.calls[0];
-    expect(payload.progress_type).toBe('to_vendor');
-    expect(payload.result).toBe('');
-  });
 });
 
-describe('更正处理进展弹窗（进展类型回显与留痕提交）', () => {
-  it('更正进展回显原进展类型，提交保留类型', async () => {
+describe('更正处置记录弹窗（回显与留痕提交）', () => {
+  it('更正处置记录回显原处置人，payload 不携带已删除字段，留痕提交', async () => {
     await openDetailHandlingTab();
-    // 点击第一条记录（含 progress_type=check）的"更正"
+    // 点击第一条存量记录的"更正"
     const firstItem = Array.from(document.querySelectorAll('.ant-timeline-item'))
       .find(n => n.textContent.includes('现场检查，确认光模块告警'));
     const correctButton = Array.from(firstItem.querySelectorAll('button'))
@@ -746,19 +712,20 @@ describe('更正处理进展弹窗（进展类型回显与留痕提交）', () =
       correctButton.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });
     await act(async () => {await flush();});
-    // 回显进展类型"检查"
-    const selection = findFormItem('进展类型').querySelector('.ant-select-selection-item');
-    expect(selection && selection.textContent).toContain('检查');
-    // 回显原进展记录人（历史记录无姓名时回落操作账号用户名）
-    expect(selectionTags('进展记录人')).toEqual(['operator']);
+    // 回显原处置人（历史记录无姓名时回落操作账号用户名）
+    expect(selectionTags('处置人')).toEqual(['operator']);
+    // 已删除字段（处置类型/处置结果）不再出现在弹窗
+    expect(modalText()).not.toContain('处置类型');
+    expect(modalText()).not.toContain('处置结果');
     // 更正必须填写原因
-    await setTextareaValue('更正原因', '类型补录更正');
+    await setTextareaValue('更正原因', '文字修订更正');
     await submitModal('put');
     expect(mockHttpPut).toHaveBeenCalledTimes(1);
     const [url, payload] = mockHttpPut.mock.calls[0];
     expect(url).toBe('/api/equipment-lifecycle/faults/11/handling-records/1/');
-    expect(payload.progress_type).toBe('check');
     expect(payload.recorder_name).toBe('operator');
+    expect(payload).not.toHaveProperty('progress_type');
+    expect(payload).not.toHaveProperty('result');
     expect(payload.correction_reason).toBeTruthy();
   });
 
@@ -785,7 +752,7 @@ describe('更正处理进展弹窗（进展类型回显与留痕提交）', () =
   });
 });
 
-// ===== 故障登记人与进展记录人（2026-09 人员记录优化，手动输入姓名，可多个） =====
+// ===== 故障登记人与处置人（2026-09 人员记录优化，手动输入姓名，可多个） =====
 
 async function renderFaultForm({record = {}, detail = null} = {}) {
   const store = require('../faultStore').default;
@@ -853,17 +820,17 @@ async function renderDetailCustom({detail, records}) {
   return store;
 }
 
-// 在自定义详情上打开"添加处理进展"弹窗（不经过公共 renderDetail，避免详情被重置）
+// 在自定义详情上打开"新增处置记录"弹窗（不经过公共 renderDetail，避免详情被重置）
 async function openAddModalOn(detail) {
   await renderDetailCustom({detail, records: HANDLING_RECORDS.data});
   const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'));
-  const handlingTab = tabs.find(t => t.textContent.includes('处理进展'));
+  const handlingTab = tabs.find(t => t.textContent.includes('处置记录'));
   await act(async () => {
     handlingTab.dispatchEvent(new MouseEvent('click', {bubbles: true}));
   });
   await act(async () => {await flush();});
   const addButton = Array.from(document.querySelectorAll('button'))
-    .find(b => b.textContent.replace(/\s+/g, '').includes('添加处理进展'));
+    .find(b => b.textContent.replace(/\s+/g, '').includes('新增处置记录'));
   expect(addButton).toBeTruthy();
   await act(async () => {
     addButton.dispatchEvent(new MouseEvent('click', {bubbles: true}));
@@ -871,7 +838,7 @@ async function openAddModalOn(detail) {
   await act(async () => {await flush();});
 }
 
-describe('故障登记人与进展记录人（手动输入姓名，可多个）', () => {
+describe('故障登记人与处置人（手动输入姓名，可多个）', () => {
   it('新增故障表单显示"故障登记人"，不预填任何默认姓名，输入姓名回车可添加多人', async () => {
     await renderFaultForm();
     const text = bodyText();
@@ -890,14 +857,14 @@ describe('故障登记人与进展记录人（手动输入姓名，可多个）'
     expect(bodyText()).not.toContain('故障登记人');
   });
 
-  it('添加处理进展表单显示"进展记录人"，不预填（登记人/当前用户均不默认），手输回车后真实提交', async () => {
+  it('新增处置记录表单显示"处置人"，不预填（登记人/当前用户均不默认），手输回车后真实提交', async () => {
     // 故障已登记登记人姓名也不联动预填
     await openAddModalOn({...FAULT_DETAIL, registrar_name: '值班甲、值班乙'});
-    expect(modalText()).toContain('进展记录人');
-    expect(selectionTags('进展记录人')).toEqual([]);
+    expect(modalText()).toContain('处置人');
+    expect(selectionTags('处置人')).toEqual([]);
     // 手输姓名回车添加后真实提交（顿号拼接）
-    await typeAndEnter('进展记录人', '实际记录人李四');
-    await setTextareaValue('进展内容', '更换主板后本方测试正常');
+    await typeAndEnter('处置人', '实际记录人李四');
+    await setTextareaValue('处置措施', '更换主板后本方测试正常');
     await submitModal('post');
     expect(mockHttpPost).toHaveBeenCalledTimes(1);
     const [url, payload] = mockHttpPost.mock.calls[0];
@@ -906,52 +873,30 @@ describe('故障登记人与进展记录人（手动输入姓名，可多个）'
     expect(payload.content).toBe('更换主板后本方测试正常');
   });
 
-  it('进展类型"厂家反馈/返还/测试"可正常提交', async () => {
-    for (const [label, code] of [['厂家反馈', 'vendor_feedback'], ['返还', 'return'],
-      ['测试', 'test']]) {
-      // eslint-disable-next-line no-await-in-loop
-      await openAddModalOn(FAULT_DETAIL);
-      // eslint-disable-next-line no-await-in-loop
-      await chooseProgressType(label);
-      // eslint-disable-next-line no-await-in-loop
-      await typeAndEnter('进展记录人', '记录人甲');
-      // eslint-disable-next-line no-await-in-loop
-      await setTextareaValue('进展内容', `${label}：内容记录`);
-      // eslint-disable-next-line no-await-in-loop
-      await submitModal('post');
-      expect(mockHttpPost).toHaveBeenCalledTimes(1);
-      const [, payload] = mockHttpPost.mock.calls[0];
-      expect(payload.progress_type).toBe(code);
-      mockHttpPost.mockReset();
-    }
-  });
-
-  it('历史进展缺记录人姓名时回落操作账号用户名，两者皆无显示"-"', async () => {
+  it('历史记录缺处置人姓名时回落操作账号用户名，两者皆无显示"-"', async () => {
     await renderDetailCustom({
       detail: {...FAULT_DETAIL, registrar_name: ''},
       records: [
         {id: 9, fault: 11, handled_at: '2026-01-05 09:00',
           handler: 2, handler_name: 'operator', recorder_name: '',
-          progress_type: '', progress_type_text: '',
-          content: '历史进展记录（有操作账号）', result: '', corrections: []},
+          content: '历史记录（有操作账号）', corrections: []},
         {id: 10, fault: 11, handled_at: '2026-01-05 10:00',
           handler: null, handler_name: '', recorder_name: '',
-          progress_type: '', progress_type_text: '',
-          content: '更早历史进展（无任何人员）', result: '', corrections: []},
+          content: '更早历史记录（无任何人员）', corrections: []},
       ],
     });
     const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'));
-    const handlingTab = tabs.find(t => t.textContent.includes('处理进展'));
+    const handlingTab = tabs.find(t => t.textContent.includes('处置记录'));
     await act(async () => {
       handlingTab.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });
     await act(async () => {await flush();});
     const text = bodyText();
     // 历史记录回落操作账号用户名；无任何人员显示"-"；不渲染报错
-    expect(text).toContain('进展记录人：operator');
-    expect(text).toContain('进展记录人：-');
-    expect(text).toContain('历史进展记录（有操作账号）');
-    expect(text).toContain('更早历史进展（无任何人员）');
+    expect(text).toContain('处置人：operator');
+    expect(text).toContain('处置人：-');
+    expect(text).toContain('历史记录（有操作账号）');
+    expect(text).toContain('更早历史记录（无任何人员）');
     // 详情：历史故障无登记人显示"-"
     expect(text).toContain('故障登记人');
   });

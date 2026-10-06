@@ -117,10 +117,10 @@ class LedgerBoundaryContractTests(TestCase):
             # 旧可视化模板四表已随路线整体删除（2026-10，迁移 0045）
             'OperationLedger', 'OperationLedgerItem', 'OperationLedgerCorrection',
             'SystemEvent',
-            # 运行记录（2026-10 第一版）：统一运行情况录入 + 追加式处理进展
-            # 第二版新增：重复问题关联（SystemRuntimeRecordDuplicateLink）
+            # 运行异常记录（2026-10 第一版）：统一运行情况录入 + 追加式处理进展
+            # （重复问题关联表 SystemRuntimeRecordDuplicateLink 已随重复功能
+            #  退役删除，2026-10-06 迁移 0008）
             'SystemRuntimeRecord', 'SystemRuntimeRecordProgress',
-            'SystemRuntimeRecordDuplicateLink',
             # 值班巡检（今日巡检改造）：模板两级结构 + 值班巡检单/人员/明细
             'InspectionTemplate', 'InspectionTemplateDevice', 'InspectionTemplateItem',
             'InspectionDutySheet', 'InspectionDutyPerson', 'InspectionRecord',

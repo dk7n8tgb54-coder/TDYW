@@ -50,7 +50,6 @@ import RegulationIndex from './pages/regulation';
 import EquipmentSystemIndex from './pages/equipmentLifecycle';
 import EquipmentFaultIndex from './pages/equipmentLifecycle/FaultIndex';
 import EquipmentSystemEventIndex from './pages/equipmentLifecycle/systemEvent';
-import EquipmentSystemStatusIndex from './pages/equipmentLifecycle/systemStatus';
 import RuntimeRecordIndex from './pages/equipmentLifecycle/runtimeRecord';
 import {
   WeekMonthLedgerIndex, SeasonalLedgerIndex,
@@ -85,11 +84,10 @@ export default [
   ]},
   {icon: <ApartmentOutlined/>, title: '设备全生命周期管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.fault.view|equipment_lifecycle.runtime_record.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view|equipment_lifecycle.system_event.view|upgrade.upgrade.view', child: [
     {title: '系统档案', auth: 'equipment_lifecycle.system.view', path: '/el/systems', component: EquipmentSystemIndex},
-    {title: '当前运行状态', auth: 'equipment_lifecycle.system.view', path: '/el/system-status', component: EquipmentSystemStatusIndex},
     {title: '运行处置', auth: 'equipment_lifecycle.fault.view|equipment_lifecycle.runtime_record.view', child: [
       {title: '故障处置', auth: 'equipment_lifecycle.fault.view', path: '/el/faults', component: EquipmentFaultIndex},
-      // 运行记录（2026-10 第一版）：异常与运行情况统一录入入口
-      {title: '运行记录', auth: 'equipment_lifecycle.runtime_record.view', path: '/el/runtime-records', component: RuntimeRecordIndex},
+      // 运行异常记录（2026-10 第一版）：异常与运行情况统一录入入口
+      {title: '运行异常记录', auth: 'equipment_lifecycle.runtime_record.view', path: '/el/runtime-records', component: RuntimeRecordIndex},
     ]},
     {title: '巡视与维护', auth: 'equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view', child: [
       {title: '日巡视', auth: 'equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view', path: '/el/inspection-center', component: InspectionCenter},
@@ -112,9 +110,7 @@ export default [
     // 系统升级管理并入设备全生命周期管理（2026-09），升级记录/方案挂接系统档案；
     // 升级表单/升级方案融合为页签（2026-10，参照巡检中心），不再各占菜单项
     {title: '系统升级管理', auth: 'upgrade.upgrade.view', path: '/upgrade', component: UpgradeCenter},
-    {title: '履历与状态', auth: 'equipment_lifecycle.system_event.view', child: [
-      {title: '系统履历', auth: 'equipment_lifecycle.system_event.view', path: '/el/system-events', component: EquipmentSystemEventIndex},
-    ]},
+    {title: '系统履历', auth: 'equipment_lifecycle.system_event.view', path: '/el/system-events', component: EquipmentSystemEventIndex},
   ]},
   {icon: <ExceptionOutlined/>, title: '干扰管理', auth: 'interference.interference.view|interference.investigation.view', child: [
     {title: '干扰记录', auth: 'interference.interference.view', path: '/interference/events', component: InterferenceEvents},

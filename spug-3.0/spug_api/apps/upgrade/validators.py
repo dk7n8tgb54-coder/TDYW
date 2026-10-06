@@ -19,8 +19,9 @@ def validate_upgrade_time(value):
     """校验计划升级时间格式
 
     Args:
-        value: 待校验值（None 表示未提供，直接通过；datetime 对象直接通过；
-               字符串按支持的格式解析，空字符串视为非法——清空请传 null）
+        value: 待校验值（None 表示未提供，直接通过——更新接口对 null 保留
+               原值；datetime 对象直接通过；字符串按支持的格式解析，
+               空字符串视为非法。该字段为建单必填项，不支持清空）
 
     Returns:
         str: 错误消息，None 表示合法

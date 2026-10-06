@@ -12,7 +12,8 @@
  * - 详情页直接补充/修改：专用弹窗只处理原因分析（回填当前值），保存走
  *   PUT reason-analysis 端点并静默刷新详情，真实成功后提示一次
  * - 结案弹窗"最终原因分析"默认回填、可修改、可选"原因未明"随结案保存
- * - 处理进展"故障定位"类型可选、提交正式编码 fault_locate、时间线展示
+ * - 处置类型字段退役（2026-10-05）：弹窗无"处置类型"字段，
+ *   排查过程与依据直接作为处置措施记录，时间线按内容展示
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -206,8 +207,8 @@ const FAULT_DETAIL = {
 const HANDLING_RECORDS = {
   data: [
     {id: 1, fault: 11, handled_at: '2026-09-18 09:00', handler: 2, handler_name: 'operator',
-      recorder_name: '记录员甲', progress_type: 'check', progress_type_text: '检查',
-      content: '现场检查，确认光模块告警', result: '处理中', corrections: [],
+      recorder_name: '记录员甲',
+      content: '现场检查，确认光模块告警', corrections: [],
       created_at: '2026-09-18 09:05'},
   ],
   total: 1, page: 1, page_size: 100,
@@ -556,16 +557,16 @@ describe('结案弹窗"最终原因分析"（2026-10）', () => {
   });
 });
 
-describe('处理进展"故障定位"类型（2026-10）', () => {
+describe('处置类型字段退役（2026-10-05）', () => {
   async function openAddModal() {
     await renderDetail('handling');
     const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'));
-    const handlingTab = tabs.find(t => t.textContent.includes('处理进展'));
+    const handlingTab = tabs.find(t => t.textContent.includes('处置记录'));
     await act(async () => {
       handlingTab.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });
     await act(async () => {await flush();});
-    const addButton = findButton('添加处理进展');
+    const addButton = findButton('新增处置记录');
     expect(addButton).toBeTruthy();
     await act(async () => {
       addButton.dispatchEvent(new MouseEvent('click', {bubbles: true}));
@@ -573,58 +574,20 @@ describe('处理进展"故障定位"类型（2026-10）', () => {
     await act(async () => {await flush();});
   }
 
-  async function chooseProgressType(label) {
-    const selectSelector = findFormItem('进展类型').querySelector('.ant-select-selector');
-    await act(async () => {
-      selectSelector.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
-    });
-    await act(async () => {await flush();});
-    const option = Array.from(document.querySelectorAll(
-      '.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option'))
-      .find(o => o.title === label || o.textContent.includes(label));
-    expect(option).toBeTruthy();
-    await act(async () => {
-      option.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
-      option.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-    });
-    await act(async () => {await flush();});
-  }
-
-  it('"故障定位"可选并随进展提交正式编码 fault_locate', async () => {
+  it('新增弹窗不再提供"处置类型"字段（含"故障定位"在内的类型选项已删除）', async () => {
     await openAddModal();
-    await chooseProgressType('故障定位');
-    const input = findFormItem('进展记录人').querySelector('.ant-select input');
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(
-        window.HTMLInputElement.prototype, 'value').set;
-      setter.call(input, '记录员甲');
-      input.dispatchEvent(new Event('input', {bubbles: true}));
-    });
-    await act(async () => {await flush();});
-    await act(async () => {
-      const ev = new KeyboardEvent('keydown', {key: 'Enter', bubbles: true});
-      Object.defineProperty(ev, 'keyCode', {get: () => 13});
-      Object.defineProperty(ev, 'which', {get: () => 13});
-      input.dispatchEvent(ev);
-    });
-    await act(async () => {await flush();});
-    await setTextareaValue('进展内容', '更换备件前后对比测试，定位为光模块老化');
-    await submitModal();
-    expect(mockHttpPost).toHaveBeenCalledTimes(1);
-    const [url, payload] = mockHttpPost.mock.calls[0];
-    expect(url).toBe('/api/equipment-lifecycle/faults/11/handling-records/');
-    expect(payload.progress_type).toBe('fault_locate');
+    expect(modalText()).not.toContain('处置类型');
+    expect(findFormItem('处置类型')).toBeNull();
   });
 
-  it('时间线展示"故障定位"类型标签（历史数据兼容：仅按后端文本渲染）', async () => {
+  it('排查过程直接作为处置措施记录（不携带处置类型），时间线按内容展示', async () => {
     await renderDetail('handling', null);
     mockHttpGet.mockImplementation((url) => {
       if (url.includes('/handling-records')) {
         return Promise.resolve({data: [
           {id: 2, fault: 11, handled_at: '2026-09-18 09:30', handler: 2,
             handler_name: 'operator', recorder_name: '记录员乙',
-            progress_type: 'fault_locate', progress_type_text: '故障定位',
-            content: '定位过程：更换备件前后对比测试', result: '', corrections: [],
+            content: '定位过程：更换备件前后对比测试', corrections: [],
             created_at: '2026-09-18 09:35'},
         ], total: 1, page: 1, page_size: 100});
       }
@@ -636,7 +599,6 @@ describe('处理进展"故障定位"类型（2026-10）', () => {
       await store.fetchHandlingRecords();
     });
     await act(async () => {await flush();});
-    expect(bodyText()).toContain('故障定位');
     expect(bodyText()).toContain('定位过程：更换备件前后对比测试');
   });
 });

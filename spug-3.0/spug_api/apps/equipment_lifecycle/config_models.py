@@ -80,7 +80,7 @@ CONFIG_VERIFY_PASSED = 'passed'
 CONFIG_VERIFY_FAILED = 'failed'
 CONFIG_VERIFY_STATUS_DB_VALUES = ['', CONFIG_VERIFY_PASSED, CONFIG_VERIFY_FAILED]
 
-# 变更编号前缀：PZ{yyyymmdd}-{seq:04d}，当日序号全租户共享（口径同故障/运行记录）
+# 变更编号前缀：PZ{yyyymmdd}-{seq:04d}，当日序号全租户共享（口径同故障/运行异常记录）
 CONFIG_CHANGE_NO_PREFIX = 'PZ'
 CONFIG_CHANGE_NO_SEQ_LIMIT = 9999
 

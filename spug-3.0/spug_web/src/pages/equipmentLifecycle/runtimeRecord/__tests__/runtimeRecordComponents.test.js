@@ -3,24 +3,27 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 运行记录组件渲染测试（2026-10 第一版）。
+ * 运行异常记录组件渲染测试（2026-10 第一版；2026-10-04 信息分层收敛；
+ * 2026-10-05 第四版研判不再是必经步骤）。
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
- * - 列表页渲染运行记录行（编号/系统/标题/状态）与"新增运行记录"入口
+ * - 列表页渲染运行异常记录行（编号/系统/标题/状态）与"新增运行异常记录"入口
  * - 列表请求指向 runtime-records 端点，且不含巡视/维护/升级数据来源
- * - 新增表单第一屏只显示五个必填字段（含登记人，参照故障登记人手输姓名）；
- *   "更多信息"展开可选字段；空表单提交被校验拦截（不发请求）
+ * - 新增表单承载运行事实（五个必填 + 异常类别选填）；具体对象名称/对象型号/
+ *   影响系统运行/影响程度/标记重要已删除（2026-10-06），不再出现在表单；
+ *   跟进安排与处理字段（已采取措施/处理结果/初步原因/影响范围/研判说明/
+ *   跟进人/计划处理时间）不出现；空表单提交被校验拦截（不发请求）
  * - 编辑模式回填后可提交（PUT 携带修改值，不携带重要程度/登记人键）
- * - 详情窗口展示编号/状态/影响/关联故障入口；动作按钮随状态显隐
- *   （终态无编辑/追加/标记按钮）
- * - 详情基本信息四区块分区（2026-10-04）：运行概况/研判与处置/关联与登记/
- *   处理概览；标题区只保留编号/状态/影响/重要摘要；完整字段各归其区块且
- *   不重复（所属系统/地点/时间→运行概况，研判/跟进→研判与处置，
- *   登记人/时间→关联与登记）；空的跟进安排/重要原因/研判说明不产生空行；
- *   关联故障链接跳转沿用 /el/faults?detail= 实现；处理概览条数/最近更新/
- *   最后记录取自已请求的进展列表（含 total），查看全部进展直达页签
- * - 处理进展时间线展示与更正留痕可见
- * - 关闭弹窗提交 close
- * - 系统详情"运行记录"页签只展示本系统记录
+ * - 详情窗口展示编号/状态/关联故障入口；顶部动作按第四版状态收敛：
+ *   已记录族 = 编辑/开始跟进/转为正式故障（无研判/关闭/标记重要）；
+ *   跟进中 = 新增跟进记录/修改跟进计划/完成跟进/转为正式故障；历史已关闭/
+ *   已转故障终态无编辑/追加/标记按钮；历史状态展示文案归并：closed→已完成
+ * - 详情基本信息分区（2026-10-04 信息分层）：运行概况/关联与登记/处理概览
+ *   （研判结论仅历史数据存在时渲染）；标题区只保留编号/状态摘要；
+ *   处理措施/处理结果/初步原因/影响范围以"历史记录"只读区块展示
+ * - 处理进展页签统一工作区：当前跟进计划/新增处理进展/历史处理进展时间线
+ * - 跟进中动作（完成跟进/转为正式故障）走 resolve/convert-to-fault 端点
+ *   （矩阵与端点细节见 runtimeRecordDetailActions 套件）
+ * - 系统详情"运行异常记录"页签只展示本系统记录
  * - 所有请求只指向 equipment-lifecycle 前缀
  */
 import React from 'react';
@@ -133,9 +136,7 @@ const RECORDS_PAGE = {
       system_name: '烟台通信系统', system_code: 'SYS-A1', system_location: '机房A',
       occurred_at: '2026-10-01 08:30', title: '主用链路短暂中断',
       status: 'recorded', status_text: '已记录',
-      needs_follow_up: false, affects_system_operation: true,
-      impact_status: 'interrupted', impact_status_text: '中断',
-      importance: 'normal', importance_text: '普通',
+      needs_follow_up: false,
       converted_fault: null, converted_fault_no: '',
       created_by_name: 'admin', created_at: '2026-10-01 08:35',
     },
@@ -143,10 +144,8 @@ const RECORDS_PAGE = {
       id: 12, record_no: 'YX20261001-0002', system: 2,
       system_name: '导航系统B', system_code: 'SYS-B1', system_location: '机房B',
       occurred_at: '2026-10-01 09:00', title: '席位显示器闪烁',
-      status: 'closed', status_text: '已关闭',
-      needs_follow_up: false, affects_system_operation: false,
-      impact_status: '', impact_status_text: '',
-      importance: 'normal', importance_text: '普通',
+      status: 'completed', status_text: '已完成',
+      needs_follow_up: false,
       converted_fault: null, converted_fault_no: '',
       created_by_name: 'admin', created_at: '2026-10-01 09:10',
     },
@@ -160,9 +159,6 @@ const RECORD_DETAIL = {
   registrar_name: '张三',
   measures_taken: '切换备用链路观察',
   handling_result: '',
-  importance_reason: '',
-  importance_marked_at: null,
-  importance_marked_by_name: '',
   converted_fault: 88, converted_fault_no: 'GZ20261001-0007',
   updated_at: null,
 };
@@ -179,10 +175,10 @@ const PROGRESS_PAGE = {
   total: 1, page: 1, page_size: 100,
 };
 
-// 已处理且带完整研判/跟进历史：研判与处置区块应只读保留历史数据
-const TRIAGED_RESOLVED_DETAIL = {
+// 已完成且带完整研判/跟进历史：研判结论只读保留历史数据
+const TRIAGED_COMPLETED_DETAIL = {
   ...RECORD_DETAIL,
-  status: 'resolved', status_text: '已处理',
+  status: 'completed', status_text: '已完成',
   converted_fault: null, converted_fault_no: '',
   triaged_at: '2026-10-02 09:00', triaged_by_name: '李四',
   triage_note: '判断为链路抖动，需持续跟进',
@@ -239,8 +235,8 @@ async function openTab(tabText) {
   await act(async () => {await flush();});
 }
 
-describe('运行记录列表页', () => {
-  it('渲染运行记录行：编号/系统/标题/状态与影响，且提供新增入口', async () => {
+describe('运行异常记录列表页', () => {
+  it('渲染运行异常记录行：编号/系统/标题/状态，且提供新增入口', async () => {
     await renderListPage();
     const text = bodyText();
     expect(text).toContain('YX20261001-0001');
@@ -248,10 +244,14 @@ describe('运行记录列表页', () => {
     expect(text).toContain('烟台通信系统');
     expect(text).toContain('主用链路短暂中断');
     expect(text).toContain('已记录');
-    expect(text).toContain('已关闭');
-    expect(text).toContain('中断');
-    expect(text).toContain('不影响运行');
-    expect(text).toContain('新增运行记录');
+    expect(text).toContain('已完成');
+    expect(text).toContain('新增运行异常记录');
+    // "关联"（重复关联数量）列已随重复问题功能下线（2026-10-05）移除；
+    // "影响状态"列已随影响字段删除（2026-10-06）移除
+    const headers = Array.from(document.querySelectorAll('.ant-table-thead th'))
+      .map(th => th.textContent.replace(/\s+/g, ''));
+    expect(headers).not.toContain('关联');
+    expect(headers).not.toContain('影响状态');
   });
 
   it('列表请求指向 runtime-records 端点（不混入巡视/维护/升级数据来源）', async () => {
@@ -261,15 +261,15 @@ describe('运行记录列表页', () => {
     expect(listCalls.length).toBeGreaterThan(0);
     for (const url of urls) {
       expect(url.startsWith('/api/equipment-lifecycle/')).toBe(true);
-      // 运行记录页面不请求 巡检/台账/升级 业务列表
+      // 运行异常记录页面不请求 巡检/台账/升级 业务列表
       expect(url.includes('/inspection-sheets') || url.includes('/ledgers/')
         || url.includes('/upgrade')).toBe(false);
     }
   });
 });
 
-describe('运行记录新增/编辑表单', () => {
-  it('第一屏只显示五个必填字段，更多信息展开可选字段', async () => {
+describe('运行异常记录新增/编辑表单', () => {
+  it('新增表单只承载运行事实：具体对象/影响/标记重要已删除，无研判/跟进/处理字段', async () => {
     const store = require('../store').default;
     const RecordForm = require('../RecordForm').default;
     mockListApis();
@@ -278,24 +278,17 @@ describe('运行记录新增/编辑表单', () => {
       ReactDOM.render(<RecordForm/>, container);
     });
     await act(async () => {await flush();});
-    let text = bodyText();
-    ['所属系统', '发生时间', '标题', '情况描述', '登记人'].forEach(label => {
+    const text = bodyText();
+    // 事实字段：五个必填 + 异常类别选填
+    ['所属系统', '发生时间', '标题', '情况描述', '登记人', '异常类别'].forEach(label => {
       expect(text).toContain(label);
     });
-    // 可选字段（仅在展开后出现；展开按钮文案不含这些标签词）
-    expect(text).not.toContain('影响系统运行');
-    expect(text).not.toContain('已采取措施');
-    expect(text).toContain('需要跟进或更多信息');
-    // 展开更多信息
-    await act(async () => {
-      clickButtonByText('需要跟进或更多信息');
+    // 已删除字段（2026-10-06）与跟进/处理/研判字段均不在录入表单
+    ['具体对象名称', '对象型号/编号', '影响系统运行', '影响程度', '标记重要',
+      '已采取措施', '处理结果', '初步原因', '影响范围', '研判说明', '跟进人',
+      '计划处理时间', '需要跟进'].forEach(label => {
+      expect(text).not.toContain(label);
     });
-    await act(async () => {await flush();});
-    text = bodyText();
-    expect(text).toContain('影响系统运行');
-    expect(text).toContain('已采取措施');
-    expect(text).toContain('处理结果');
-    expect(text).toContain('重要程度');
   });
 
   it('空表单提交被校验拦截，不发起请求', async () => {
@@ -315,7 +308,7 @@ describe('运行记录新增/编辑表单', () => {
     expect(store.formVisible).toBe(true);
   });
 
-  it('编辑模式回填详情后提交 PUT，且不携带重要程度键', async () => {
+  it('编辑模式回填详情后提交 PUT，且不携带重要程度/登记人键', async () => {
     const store = require('../store').default;
     const RecordForm = require('../RecordForm').default;
     mockListApis();
@@ -325,7 +318,7 @@ describe('运行记录新增/编辑表单', () => {
       ReactDOM.render(<RecordForm/>, container);
     });
     await act(async () => {await flush();});
-    // 回填后标题可见且更多信息已展开
+    // 回填后标题可见（编辑表单只回填事实字段，历史字段不进编辑表单）
     const inputs = Array.from(document.querySelectorAll('.ant-modal input'));
     const titleInput = inputs.find(i => i.value === RECORD_DETAIL.title);
     expect(titleInput).toBeTruthy();
@@ -348,38 +341,40 @@ describe('运行记录新增/编辑表单', () => {
   });
 });
 
-describe('运行记录详情窗口', () => {
-  it('展示编号/状态/影响信息/关联故障入口与审计信息', async () => {
+describe('运行异常记录详情窗口', () => {
+  it('展示编号/状态/关联故障入口与登记信息', async () => {
     await renderDetail();
     const text = bodyText();
     expect(text).toContain('YX20261001-0001');
     expect(text).toContain('已记录');
     // bodyText 去空白：断言用去空格文本
     expect(text).toContain('值班发现主用链路丢包约3分钟后自行恢复');
-    expect(text).toContain('切换备用链路观察');
     // 登记人（手输姓名快照）在详情展示
     expect(text).toContain('登记人');
     expect(text).toContain('张三');
-    // 已记录状态：编辑 + 研判（一次提交完成结论，无提交研判中转）+ 关闭
-    // （留痕记录可直接关闭，不要求先研判，与后端状态机一致）
+    // 已记录状态（第四版）：编辑/开始跟进/转为正式故障；
+    // 无研判入口与业务"关闭记录"（留痕场景以新建提交为完成）；
+    // 标记重要已随字段删除移除（2026-10-06）
     const btns = buttonTexts();
-    ['编辑', '研判', '关闭'].forEach(btn => {
+    ['编辑', '开始跟进', '转为正式故障'].forEach(btn => {
       expect(btns.some(t => t === btn)).toBe(true);
     });
-    ['提交研判', '标记需要跟进', '标记已处理', '标记重要', '转为故障'].forEach(btn => {
+    ['关闭', '研判', '提交研判', '标记需要跟进', '标记已处理', '转为故障',
+      '标记重要', '完成跟进', '添加处理进展', '重新跟进'].forEach(btn => {
       expect(btns.some(t => t === btn)).toBe(false);
     });
     // 关联故障入口（已转故障号可见）
     expect(text).toContain('GZ20261001-0007');
   });
 
-  it('已关闭（终态）记录不显示编辑/追加/标记动作', async () => {
-    const closedDetail = {...RECORD_DETAIL, status: 'closed', converted_fault: null,
-      converted_fault_no: ''};
-    await renderDetail(closedDetail, closedDetail);
+  it('已转故障（终态，关联已撤销）记录不显示编辑/追加/标记动作', async () => {
+    const convertedDetail = {...RECORD_DETAIL, status: 'converted_fault',
+      converted_fault: null, converted_fault_no: ''};
+    await renderDetail(convertedDetail, convertedDetail);
     const btns = buttonTexts();
-    ['编辑', '提交研判', '研判', '标记需要跟进', '标记已处理', '标记重要',
-      '转为故障', '关闭', '重新研判'].forEach(btn => {
+    ['编辑', '研判', '开始跟进', '新增跟进记录', '标记需要跟进', '标记已处理',
+      '标记重要', '转为故障', '转为正式故障', '完成跟进', '重新跟进',
+      '关闭', '重新研判'].forEach(btn => {
       expect(btns.some(t => t === btn)).toBe(false);
     });
   });
@@ -401,27 +396,28 @@ describe('运行记录详情窗口', () => {
     expect(buttonTexts().some(t => t === '更正')).toBe(false);
   });
 
-  it('顶部不再提供独立的 标记重要 / 转为故障 入口（只能在研判弹窗完成）', async () => {
-    // 跟进中（可编辑状态）也不得出现这两个独立入口
+  it('跟进中顶部提供 转为正式故障 入口（独立动作，不依赖研判）', async () => {
     const followingDetail = {...RECORD_DETAIL, status: 'following_up',
       converted_fault: null, converted_fault_no: ''};
     await renderDetail(followingDetail, followingDetail);
     const btns = buttonTexts();
-    expect(btns.some(t => t === '标记重要')).toBe(false);
+    expect(btns.some(t => t === '转为正式故障')).toBe(true);
     expect(btns.some(t => t === '转为故障')).toBe(false);
-    // 标记重要/转为故障不渲染对应弹窗：整页不存在其确认文案
-    const text = bodyText();
-    expect(text).not.toContain('标记为重要运行记录');
-    expect(text).not.toContain('转为正式故障');
+    // 跟进中不显示标记重要（仅已记录族独立动作）
+    expect(btns.some(t => t === '标记重要')).toBe(false);
+    // 新流程动作齐备
+    ['新增跟进记录', '修改跟进计划', '完成跟进'].forEach(btn => {
+      expect(btns.some(t => t === btn)).toBe(true);
+    });
   });
 
-  it('关闭：提交 close 端点（跟进中状态）', async () => {
+  it('完成跟进：提交 resolve 端点（纯确认动作，不携带处理结果字段）', async () => {
     const followingDetail = {...RECORD_DETAIL, status: 'following_up',
       converted_fault: null, converted_fault_no: ''};
     await renderDetail(followingDetail, followingDetail);
     mockHttpPost.mockResolvedValue({});
     await act(async () => {
-      clickButtonByText('关闭');
+      clickButtonByText('完成跟进');
     });
     await act(async () => {await flush();});
     await act(async () => {
@@ -429,37 +425,49 @@ describe('运行记录详情窗口', () => {
     });
     await act(async () => {await flush();});
     expect(mockHttpPost).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/runtime-records/11/close/',
-      {handling_result: ''});
+      '/api/equipment-lifecycle/runtime-records/11/resolve/',
+      {});
+    // 完成跟进确认弹窗不再提供处理结果输入
+    expect(document.body.textContent).not.toContain('补填处理结果');
   });
 });
 
-describe('运行记录详情基本信息分区', () => {
-  it('按 运行概况/研判与处置/关联与登记/处理概览 四区块展示', async () => {
-    const detail = {...RECORD_DETAIL, converted_fault: null, converted_fault_no: ''};
+describe('运行异常记录详情基本信息分区', () => {
+  it('按 运行概况/关联与登记/处理概览 分区；无历史研判数据时不渲染研判结论区', async () => {
+    const detail = {...RECORD_DETAIL, converted_fault: null, converted_fault_no: '',
+      measures_taken: '', initial_reason: '', impact_scope: '', handling_result: ''};
     await renderDetail(detail, detail);
     const text = bodyText();
-    ['运行概况', '研判与处置', '关联与登记', '处理概览'].forEach(title => {
+    // 第四版：研判不再是必经步骤，新记录无研判数据，研判结论区不渲染
+    ['运行概况', '关联与登记', '处理概览'].forEach(title => {
       expect(text).toContain(title);
     });
-    // 尚未研判以提示行说明，不渲染空的研判说明行
-    expect(text).toContain('尚未完成研判');
-    expect(text).not.toContain('研判说明');
-    // 未关联故障显示"-"；空的跟进安排/重要原因/标记重要/处理时间不产生空行
+    expect(text).not.toContain('研判结论');
+    expect(text).not.toContain('尚未完成研判');
+    // 信息分层：处理过程只进处理进展时间线，基本信息不重复展示
+    expect(text).not.toContain('已采取措施');
+    expect(text).not.toContain('处理结果');
+    expect(text).not.toContain('初步原因');
+    expect(text).not.toContain('影响范围');
+    // 无历史字段数据时不渲染"历史记录"区块
+    expect(text).not.toContain('历史记录');
+    // 未关联故障显示"-"；跟进安排已移出基本信息，重要原因/处理时间不产生空行
     expect(text).toMatch(/关联故障:?-/);
     expect(text).not.toContain('跟进安排');
     expect(text).not.toContain('重要原因');
-    expect(text).not.toContain('标记重要');
     expect(text).not.toContain('处理时间');
   });
 
-  it('标题区只保留编号/状态/影响/重要摘要，完整字段不再堆在标题区', async () => {
+  it('标题区只保留编号/状态摘要，影响/重要标签与完整字段不再出现', async () => {
     await renderDetail();
     const header = document.querySelector('.ant-modal-header').textContent;
     expect(header).toContain('YX20261001-0001');
     expect(header).toContain('已记录');
-    expect(header).toContain('中断');
-    expect(header).toContain('普通');
+    // 影响程度/重要程度标签已随字段删除移除（2026-10-06）
+    expect(header).not.toContain('中断');
+    expect(header).not.toContain('普通');
+    expect(header).not.toContain('重要');
+    expect(header).not.toContain('不影响运行');
     // 所属系统/安装地点/发生时间/登记人不进标题区，只在基本信息区块展示
     expect(header).not.toContain('所属系统');
     expect(header).not.toContain('安装地点');
@@ -478,23 +486,40 @@ describe('运行记录详情基本信息分区', () => {
     expect(countOccurrences(text, '情况描述')).toBe(1);
   });
 
-  it('研判/跟进历史在已处理状态仍只读展示，且只在研判与处置区出现', async () => {
-    await renderDetail(TRIAGED_RESOLVED_DETAIL, TRIAGED_RESOLVED_DETAIL);
+  it('已采取措施/处理结果/初步原因/影响范围已不再在任何区块展示（历史记录区块删除）', async () => {
+    const legacy = {...RECORD_DETAIL, converted_fault: null, converted_fault_no: '',
+      initial_reason: '疑为功放模块老化', impact_scope: '本场航路导航',
+      measures_taken: '切换备用链路观察', handling_result: '链路稳定，连续三天无丢包'};
+    await renderDetail(legacy, legacy);
+    const text = bodyText();
+    // 历史字段只读展示区块已整体移除（2026-10-06 状态/信息收敛）：旧字段
+    // 数据即使接口返回也不再渲染
+    ['历史记录', '以下为历史版本字段数据', '初步原因', '疑为功放模块老化',
+      '影响范围', '本场航路导航', '已采取措施', '切换备用链路观察',
+      '链路稳定，连续三天无丢包'].forEach(sub => {
+      expect(text).not.toContain(sub);
+    });
+  });
+
+  it('已完成记录的历史研判数据只读保留；跟进安排不再出现在基本信息', async () => {
+    await renderDetail(TRIAGED_COMPLETED_DETAIL, TRIAGED_COMPLETED_DETAIL);
     const text = bodyText();
     expect(countOccurrences(text, '研判说明')).toBe(1);
     expect(countOccurrences(text, '研判人及研判时间')).toBe(1);
     expect(text).toContain('判断为链路抖动，需持续跟进');
     expect(text).toContain('李四（2026-10-0209:00）');
-    expect(countOccurrences(text, '跟进安排')).toBe(1);
-    expect(text).toContain('跟进人：王值班');
-    expect(text).toContain('计划处理：');
-    expect(text).toContain('链路稳定，连续三天无丢包');
+    // 跟进安排移出基本信息（跟进人/计划时间在处理进展页签"当前跟进计划"展示）
+    expect(text).not.toContain('跟进安排');
+    expect(text).not.toContain('跟进人：王值班');
     expect(text).toContain('处理时间');
     expect(text).not.toContain('尚未完成研判');
+    // 处理进展页签：当前跟进计划区块提示已完成
+    await openTab('处理进展');
+    expect(bodyText()).toContain('跟进已完成');
   });
 
   it('登记人/登记时间只在关联与登记区，不再重复展示创建人', async () => {
-    await renderDetail(TRIAGED_RESOLVED_DETAIL, TRIAGED_RESOLVED_DETAIL);
+    await renderDetail(TRIAGED_COMPLETED_DETAIL, TRIAGED_COMPLETED_DETAIL);
     const text = bodyText();
     expect(countOccurrences(text, '登记人')).toBe(1);
     expect(countOccurrences(text, '登记时间')).toBe(1);
@@ -518,7 +543,7 @@ describe('运行记录详情基本信息分区', () => {
   });
 });
 
-describe('运行记录详情关联跳转与处理概览', () => {
+describe('运行异常记录详情关联跳转与处理概览', () => {
   it('已转正式故障：区块提示+链接跳转沿用现有实现，终态只读无编辑控件', async () => {
     const converted = {...RECORD_DETAIL, status: 'converted_fault'};
     await renderDetail(converted, converted);
@@ -568,8 +593,64 @@ describe('运行记录详情关联跳转与处理概览', () => {
   });
 });
 
-describe('系统详情运行记录页签', () => {
-  it('只展示本系统运行记录（系统详情页签数据源）', async () => {
+describe('运行异常记录详情处理进展页签（统一处理工作区）', () => {
+  const FOLLOWING_DETAIL = {...RECORD_DETAIL, status: 'following_up',
+    status_text: '跟进中', converted_fault: null, converted_fault_no: '',
+    follow_up_name: '王值班', planned_handle_at: '2026-10-05 09:00'};
+
+  it('跟进中：页签顶部依次为 当前跟进计划/新增处理进展/历史处理进展时间线，计划修改在顶部"修改跟进计划"', async () => {
+    await renderDetail(FOLLOWING_DETAIL, FOLLOWING_DETAIL);
+    // 顶部按钮：新增跟进记录/修改跟进计划/完成跟进/转为正式故障
+    expect(buttonTexts().some(t => t === '修改跟进计划')).toBe(true);
+    await openTab('处理进展');
+    const text = bodyText();
+    expect(text).toContain('当前跟进计划');
+    expect(text).toContain('新增处理进展');
+    expect(text).toContain('历史处理进展时间线');
+    expect(text).toContain('跟进人：王值班');
+    expect(text).toContain('计划处理：2026-10-0509:00');
+    expect(buttonTexts().some(t => t === '追加处理进展')).toBe(true);
+    // 页签内不再有独立"修改计划"按钮（统一在顶部"修改跟进计划"）
+    expect(buttonTexts().some(t => t === '修改计划')).toBe(false);
+  });
+
+  it('修改跟进计划：回填当前值，提交 follow-up 端点且只携带计划字段', async () => {
+    await renderDetail(FOLLOWING_DETAIL, FOLLOWING_DETAIL);
+    mockHttpPost.mockResolvedValue({});
+    await act(async () => {
+      clickButtonByText('修改跟进计划');
+    });
+    await act(async () => {await flush();});
+    const modalTitles = Array.from(document.querySelectorAll('.ant-modal-title'))
+      .map(el => el.textContent);
+    expect(modalTitles).toContain('修改跟进计划');
+    await act(async () => {
+      clickModalOk();
+    });
+    await act(async () => {await flush();});
+    expect(mockHttpPost).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/runtime-records/11/follow-up/',
+      {follow_up_name: '王值班', planned_handle_at: '2026-10-05 09:00'});
+  });
+
+  it('未开始跟进的记录提示点击顶部"开始跟进"；已完成记录提示使用重新跟进', async () => {
+    await renderDetail({...RECORD_DETAIL, converted_fault: null, converted_fault_no: ''});
+    await openTab('处理进展');
+    expect(bodyText()).toContain('尚未开始跟进');
+    expect(bodyText()).toContain('开始跟进');
+    expect(bodyText()).not.toContain('研判');
+    ReactDOM.unmountComponentAtNode(container);
+    await renderDetail(TRIAGED_COMPLETED_DETAIL, TRIAGED_COMPLETED_DETAIL);
+    await openTab('处理进展');
+    expect(bodyText()).toContain('跟进已完成');
+    // 已完成可重新跟进，但顶部无编辑/完成跟进入口
+    expect(buttonTexts().some(t => t === '重新跟进')).toBe(true);
+    expect(buttonTexts().some(t => t === '完成跟进')).toBe(false);
+  });
+});
+
+describe('系统详情运行异常记录页签', () => {
+  it('只展示本系统运行异常记录（系统详情页签数据源）', async () => {
     const SystemRuntimeRecordsTab = require('../../SystemRuntimeRecordsTab').default;
     mockListApis();
     await act(async () => {
@@ -581,5 +662,9 @@ describe('系统详情运行记录页签', () => {
     expect(text).toContain('主用链路短暂中断');
     expect(mockHttpGet).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/systems/1/runtime-records/');
+    // "关联"（重复关联数量）列已随重复问题功能下线（2026-10-05）移除
+    const headers = Array.from(document.querySelectorAll('.ant-table-thead th'))
+      .map(th => th.textContent.replace(/\s+/g, ''));
+    expect(headers).not.toContain('关联');
   });
 });

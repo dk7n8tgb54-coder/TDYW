@@ -65,7 +65,7 @@ export function submitUpgradeForm({form, isNew, recordId, redirectMode, selected
   });
 }
 
-/** 步骤操作（完成/跳过/重置），成功后刷新步骤与状态时间线 */
+/** 步骤操作（完成/跳过/重置），成功后刷新步骤、状态时间线与主记录 */
 export function postStepAction(recordId, step, action) {
   http.put(`/api/upgrade/record-steps/${step.id}/update/`, {action})
     .then(() => {
@@ -74,7 +74,10 @@ export function postStepAction(recordId, step, action) {
       store.fetchRecordSteps(recordId);
       store.fetchStatusLogs(recordId);
       store.fetchRecords();
-    });
+      // 后端步骤联动会自动更新主表 status（全部完成→已完成等），同步刷新
+      store.fetchRecord(recordId).catch(() => {});
+    })
+    .catch(() => {});
 }
 
 /** 删除单个步骤 */
@@ -84,15 +87,20 @@ export function deleteStep(recordId, step) {
       message.success('步骤已删除');
       store.fetchRecordSteps(recordId);
       store.fetchRecords();
-    });
+      // 删除步骤后后端会重算主表状态，同步刷新
+      store.fetchRecord(recordId).catch(() => {});
+    })
+    .catch(() => {});
 }
 
-/** 手动添加步骤 */
+/** 手动添加步骤；返回 promise 供弹窗在成功后再关闭 */
 export function addStep(recordId, values) {
-  http.post(`/api/upgrade/records/${recordId}/steps/add/`, values)
+  return http.post(`/api/upgrade/records/${recordId}/steps/add/`, values)
     .then(() => {
       message.success('步骤添加成功');
       store.fetchRecordSteps(recordId);
+      // 新增待执行步骤可能触发主表状态回退（已完成→处理中），同步刷新
+      store.fetchRecord(recordId).catch(() => {});
     });
 }
 
@@ -102,7 +110,8 @@ export function clearSteps(recordId) {
     .then(() => {
       message.success('已清空所有步骤');
       store.fetchRecordSteps(recordId);
-    });
+    })
+    .catch(() => {});
 }
 
 /** 应用方案步骤到升级记录；replace=true 时先删除现有步骤 */
@@ -119,7 +128,7 @@ function applyPlanSteps(recordId, planId, replace) {
       store.fetchRecordSteps(recordId);
     })
     .catch(() => {
-      message.error('应用方案失败');
+      // 失败提示由 http 拦截器统一弹出，这里仅吞掉拒绝避免 unhandled rejection
     });
 }
 
@@ -189,7 +198,8 @@ export function postNodeAction(recordId, action, node) {
         store.fetchRecordSteps(recordId);
       }
       store.fetchRecords();
-    });
+    })
+    .catch(() => {});
 }
 
 /** 删除状态日志并同步刷新主表状态 */

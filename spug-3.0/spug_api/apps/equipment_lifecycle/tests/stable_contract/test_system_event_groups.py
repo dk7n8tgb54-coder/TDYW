@@ -109,16 +109,16 @@ class SystemEventGroupTestBase(TestCase):
         return payload['data'], items
 
     def run_fault(self, system, close=True, recover_at='2026-09-18 10:00', **overrides):
-        """创建（即处置中）→（close=False 时仅登记进展不结案），返回 (fault_id, fault_no)。"""
+        """创建（即处置中）→（close=False 时仅登记处置记录不结案），返回 (fault_id, fault_no)。"""
         body = self.client.post(
             f'{FAULT_URL}/', fault_payload(system, **overrides),
             content_type='application/json').json()
         self.assertFalse(body.get('error'), body)
         fid, fno = body['data']['id'], body['data']['fault_no']
         if not close:
-            # 保留处置中状态：仅追加一条处理进展，不确认恢复不结案
+            # 保留处置中状态：仅追加一条处置记录，不确认恢复不结案
             r = self.client.post(f'{FAULT_URL}/{fid}/handling-records/', {
-                'recorder_name': '进展记录人甲', 'content': '持续跟踪处理中',
+                'recorder_name': '处置人甲', 'content': '持续跟踪处理中',
             }, content_type='application/json')
             self.assertFalse(r.json().get('error'), r.content)
             return fid, fno
@@ -377,7 +377,7 @@ class GroupPaginationFilterTests(SystemEventGroupTestBase):
         page2 = self.groups('?page=2&page_size=2')
         self.assertEqual([g['system']['system_code'] for g in page2['data']],
                          ['SYS-A2'])
-        # 同一系统内事项按最近更新时间倒序
+        # 同一系统内事项按最近处置时间时间倒序
         items = page1['data'][1]['items']
         firsts = [item['first_occurred_at'] for item in items]
         self.assertEqual(sorted(firsts, reverse=True), firsts)
@@ -420,7 +420,7 @@ class GroupPermissionExportTests(SystemEventGroupTestBase):
         self.assertIn('不存在', resp.json().get('error', ''))
 
     def test_export_orders_by_system_and_item(self):
-        """导出按系统分组连续输出，组内按事项最近更新倒序，列序符合契约。"""
+        """导出按系统分组连续输出，组内按事项最近处置时间倒序，列序符合契约。"""
         self.record_upgrade_events(self.system_a3, title='ADS-B 软件升级')
         fid1, fno1 = self.run_fault(self.system_a, close=False,
                                     occurred_at='2026-09-18 08:00',

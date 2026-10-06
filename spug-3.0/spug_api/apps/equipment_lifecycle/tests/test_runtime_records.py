@@ -1,22 +1,35 @@
 # -*- coding: utf-8 -*-
-"""运行记录（2026-10 第一版）真实行为测试。
+"""运行异常记录（2026-10 第一版）真实行为测试。
 
 覆盖任务要求的行为断言（HTTP 真实路径 + 数据库副作用，不使用源码字符串匹配）：
 1. 只填系统/时间/标题/描述即可创建；
-2. 状态机：已记录可研判定论或直接关闭，但不得直接已处理/独立转故障绕过研判；
+2. 状态机（2026-10-05 第四版，研判不再是必经步骤）：用户可见状态只有
+   已记录/跟进中/已完成/已转故障；已记录为登记已完成的合法稳定状态
+   （可长期保留，不进待办，无需研判）；追加首条跟进记录即进入跟进中；
+   转故障为独立动作（recorded/following_up 均可直接转换）；已记录不能
+   直接完成跟进；旧 close/triage 兼容端点已随 2026-10-06 状态归一删除
+   （404），旧状态值由 CHECK 约束拒绝写入；
 3. 跟进记录可追加多条处理进展；
 4. 处理进展更正留痕，不能静默覆盖；
 5. 同一记录只能转为一条有效故障（含真实线程并发场景）；
 6. 转故障建立正式外键，记录状态正确变化；
-7. 普通小问题不自动生成 SystemEvent；
-8. 标记重要按规则生成履历，重复操作不重复生成；
+7. 运行异常记录一律不写系统履历（2026-10-05 第四版：普通/转为故障均不生成
+   SystemEvent，历史事件保留）；
+8. 具体对象名称/对象型号/影响系统运行（含影响程度）/标记重要已删除
+   （2026-10-06）：创建/编辑请求携带旧参数即拒绝，mark-important 端点
+   不再存在（404）；
 9. 租户之间互不可见；
-10. 无权限用户不能创建、查看、转故障或关闭；
+10. 无权限用户不能创建、查看、转故障或完成跟进；
 11. 附件访问必须先校验父对象与租户；
 12. 幂等令牌不能创建重复记录；
 13. 并发转故障只能成功一次；
-14. 运行记录不含巡视、维护、升级和配置变更数据；
-15. 关闭后的记录不能继续被普通编辑。
+14. 运行异常记录不含巡视、维护、升级和配置变更数据；
+15. 已转故障的记录不能继续被普通编辑；
+16. 旧状态（待研判/无需跟进/已处理/已关闭）已由迁移 0007 归一：数据库
+    CHECK 约束拒绝旧值，状态筛选只接受四状态，旧接口路由 404；
+17. 信息分层收敛（2026-10-04）：事实/研判/处理三类信息各归其位，新数据
+    不再写入 已采取措施/处理结果/初步原因/影响范围，修改跟进计划不产生
+    处理进展，处理进展追加式不覆盖。
 """
 import shutil
 import tempfile
@@ -43,14 +56,12 @@ from apps.equipment_lifecycle.tests.base import (
 P_VIEW = 'equipment_lifecycle.runtime_record.view'
 P_ADD = 'equipment_lifecycle.runtime_record.add'
 P_EDIT = 'equipment_lifecycle.runtime_record.edit'
-P_TRIAGE = 'equipment_lifecycle.runtime_record.triage'
 P_RESOLVE = 'equipment_lifecycle.runtime_record.resolve'
-P_CLOSE = 'equipment_lifecycle.runtime_record.close'
 P_CONVERT = 'equipment_lifecycle.runtime_record.convert_fault'
-P_IMPORTANT = 'equipment_lifecycle.runtime_record.important'
 
-ALL_RUNTIME_PERMS = [P_VIEW, P_ADD, P_EDIT, P_TRIAGE, P_RESOLVE, P_CLOSE,
-                     P_CONVERT, P_IMPORTANT]
+# important 权限码已随"标记重要"功能删除（2026-10-06），不再参与授权；
+# triage/close 权限码已随旧端点删除（2026-10-06 状态归一清理）
+ALL_RUNTIME_PERMS = [P_VIEW, P_ADD, P_EDIT, P_RESOLVE, P_CONVERT]
 FAULT_ADD_PERM = 'equipment_lifecycle.fault.add'
 # 转故障目标作废（受控作废）需要故障 del 权限
 FAULT_DEL_PERM = 'equipment_lifecycle.fault.del'
@@ -90,7 +101,7 @@ class RuntimeRecordTestBase(TestCase):
             'rt_other_%s' % uuid.uuid4().hex[:8],
             ALL_RUNTIME_PERMS + [FAULT_ADD_PERM],
             tenant_id='tenant_b')
-        # 履历查看用户（同租户）：验证运行记录事件进入系统履历页面
+        # 履历查看用户（同租户）：验证运行异常记录事件进入系统履历页面
         cls.event_viewer = make_user(
             'rt_viewer_%s' % uuid.uuid4().hex[:8],
             [P_VIEW, 'equipment_lifecycle.system_event.view'],
@@ -116,11 +127,12 @@ class RuntimeRecordTestBase(TestCase):
         self.assertFalse(body.get('error'), body)
         return body['data']
 
-    def conclude_triage(self, record_id, triage_payload, client=None):
-        """已记录直接研判定论（同一操作主体，无提交研判中转）。"""
+    def start_follow_up(self, record_id, content='现场跟进处理', client=None):
+        """已记录 → 跟进中：追加首条处理进展（第四版流程，无研判中转）。"""
         client = client or self.client
         resp = client.post(
-            RECORDS_URL + f'/{record_id}/triage/', triage_payload,
+            RECORDS_URL + f'/{record_id}/progress/',
+            {'content': content},
             content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
 
@@ -134,7 +146,6 @@ class MinimalCreateTests(RuntimeRecordTestBase):
         self.assertRegex(data['record_no'], r'^YX\d{8}-\d{4}$')
         self.assertEqual(data['status'], 'recorded')
         self.assertEqual(data['status_text'], '已记录')
-        self.assertEqual(data['importance'], 'normal')
         # 登记人：手动输入姓名随创建写入并在详情返回
         self.assertEqual(data['registrar_name'], '张三')
         # 快照：创建时点系统编号/名称/安装地点
@@ -145,7 +156,6 @@ class MinimalCreateTests(RuntimeRecordTestBase):
         record = SystemRuntimeRecord.objects.get(pk=data['id'])
         self.assertEqual(record.tenant_id, 'tenant_a')
         self.assertEqual(record.created_by_id, self.admin.id)
-        self.assertEqual(record.impact_status, '')
         self.assertEqual(record.registrar_name, '张三')
 
     def test_required_fields_enforced(self):
@@ -171,21 +181,21 @@ class MinimalCreateTests(RuntimeRecordTestBase):
         record = SystemRuntimeRecord.objects.get(pk=data['id'])
         self.assertEqual(record.registrar_name, '张三 、李四')
 
-    def test_impact_requires_affect_flag(self):
-        # 不影响运行时影响程度强制存空串；影响运行时必须选择影响程度
-        data = self.create_record(
-            title='不影响运行的情况', affects_system_operation=False,
-            impact_status='degraded')
-        self.assertEqual(data['impact_status'], '')
-        resp = self.client.post(RECORDS_URL + '/', make_record_payload(
-            system=self.system.id, title='影响但未选程度',
-            affects_system_operation=True),
-            content_type='application/json')
-        self.assertIn('影响程度', resp.json().get('error', ''))
-        data = self.create_record(
-            title='影响运行的情况', occurred_at='2026-10-01 08:40',
-            affects_system_operation=True, impact_status='interrupted')
-        self.assertEqual(data['impact_status'], 'interrupted')
+    def test_retired_params_rejected_on_create(self):
+        """具体对象名称/对象型号/影响系统运行/影响程度/重要程度已删除
+        （2026-10-06）：创建请求携带任一旧参数即拒绝，不静默忽略。"""
+        for key, value in (
+                ('affects_system_operation', True),
+                ('impact_status', 'degraded'),
+                ('object_name', '交换机'),
+                ('object_model', 'S5700'),
+                ('importance', 'important'),
+                ('importance_reason', '原因')):
+            payload = make_record_payload(system=self.system.id, **{key: value})
+            resp = self.client.post(RECORDS_URL + '/', payload,
+                                    content_type='application/json')
+            self.assertIn('已删除', resp.json().get('error', ''), key)
+        self.assertEqual(SystemRuntimeRecord.objects.count(), 0)
 
     def test_created_by_user_without_add_perm_rejected(self):
         resp = self.noperm_client.post(
@@ -196,66 +206,70 @@ class MinimalCreateTests(RuntimeRecordTestBase):
 
 
 class SimpleResolveCloseTests(RuntimeRecordTestBase):
-    """2. 状态机：已记录可研判定论或直接关闭；不得直接已处理/独立转故障绕过研判。"""
+    """2. 状态机（四状态收敛）：已记录是登记已完成的合法稳定状态（可长期
+    保留，不进待办）；完成跟进 = following_up → completed（已完成，可重新
+    跟进）；已记录不能直接完成跟进；旧 close/triage 端点已删除（404）。"""
 
-    def test_resolve_then_close(self):
+    def test_complete_follow_up_then_reopen(self):
+        """完成跟进入已完成（不要求再关闭），已完成可重新跟进。"""
         data = self.create_record(handling_result='现场已处理')
         record_id = data['id']
-        # 已记录直接研判为跟进中 → 标记已处理 → 关闭
-        self.conclude_triage(record_id, {'needs_follow_up': True,
-                                         'follow_up_name': '王值班'})
+        # 已记录追加首条跟进记录进入跟进中 → 完成跟进
+        self.start_follow_up(record_id)
         resp = self.client.post(
             RECORDS_URL + f'/{record_id}/resolve/',
             {'handling_result': '确认稳定运行'},
             content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
-        self.assertEqual(resp.json()['data']['status'], 'resolved')
+        self.assertEqual(resp.json()['data']['status'], 'completed')
+        self.assertEqual(resp.json()['data']['status_text'], '已完成')
         record = SystemRuntimeRecord.objects.get(pk=record_id)
+        self.assertEqual(record.status, 'completed')
         self.assertEqual(record.handling_result, '确认稳定运行')
         self.assertFalse(record.needs_follow_up)
-        resp = self.client.post(RECORDS_URL + f'/{record_id}/close/', {},
+        # 首次完成跟进时间落库（统计平均处理时长用）
+        self.assertIsNotNone(record.resolved_at)
+        # 已完成不能重复完成跟进
+        resp = self.client.post(RECORDS_URL + f'/{record_id}/resolve/', {},
+                                content_type='application/json')
+        self.assertIn('不能重复完成跟进', resp.json().get('error', ''))
+        # 已完成不要求关闭：重新跟进直接回跟进中
+        resp = self.client.post(RECORDS_URL + f'/{record_id}/follow-up/', {},
                                 content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         record.refresh_from_db()
-        self.assertEqual(record.status, 'closed')
-        # 关闭后不能追加进展 / 不能再次关闭
-        resp = self.client.post(
-            RECORDS_URL + f'/{record_id}/progress/',
-            {'content': '补充进展', 'handler_name': '张三'},
-            content_type='application/json')
-        self.assertTrue(resp.json().get('error'))
-        resp = self.client.post(RECORDS_URL + f'/{record_id}/close/', {},
-                                content_type='application/json')
-        self.assertIn('重复关闭', resp.json().get('error', ''))
+        self.assertEqual(record.status, 'following_up')
+        self.assertTrue(record.needs_follow_up)
 
-    def test_recorded_can_close_directly(self):
-        """已记录可直接关闭（不要求先研判），关闭必经 close 端点与权限校验。"""
+    def test_recorded_cannot_complete_follow_up(self):
+        """已记录不能直接完成跟进（留痕记录不经过跟进流程）。"""
         data = self.create_record()
         record_id = data['id']
-        resp = self.client.post(
-            RECORDS_URL + f'/{record_id}/close/',
-            {'handling_result': '瞬时抖动已恢复，直接关闭'},
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
-        self.assertEqual(resp.json()['data']['status'], 'closed')
-        record = SystemRuntimeRecord.objects.get(pk=record_id)
-        self.assertEqual(record.status, 'closed')
-        self.assertEqual(record.handling_result, '瞬时抖动已恢复，直接关闭')
-        self.assertFalse(record.needs_follow_up)
-        # 关闭后进入终态：不能再次关闭，研判也随终态拒绝
-        resp = self.client.post(RECORDS_URL + f'/{record_id}/close/', {},
+        resp = self.client.post(RECORDS_URL + f'/{record_id}/resolve/', {},
                                 content_type='application/json')
-        self.assertIn('重复关闭', resp.json().get('error', ''))
-        resp = self.client.post(
-            RECORDS_URL + f'/{record_id}/triage/',
-            {'needs_follow_up': False}, content_type='application/json')
-        self.assertIn('研判', resp.json().get('error', ''))
+        self.assertIn('完成跟进', resp.json().get('error', ''))
+        record = SystemRuntimeRecord.objects.get(pk=record_id)
+        self.assertEqual(record.status, 'recorded')
+
+    def test_legacy_close_and_triage_routes_removed(self):
+        """旧 close/triage 兼容端点已随状态归一整体删除：路由不存在（404）。"""
+        data = self.create_record()
+        record_id = data['id']
+        for suffix, payload in (
+                ('/close/', {'handling_result': '直接关闭'}),
+                ('/triage/', {'needs_follow_up': True})):
+            resp = self.client.post(
+                RECORDS_URL + f'/{record_id}{suffix}', payload,
+                content_type='application/json')
+            self.assertEqual(resp.status_code, 404, suffix)
+        record = SystemRuntimeRecord.objects.get(pk=record_id)
+        self.assertEqual(record.status, 'recorded')
 
     def test_recorded_stable_without_triage(self):
         """已记录是合法稳定状态：不做任何动作即可长期保留，不产生错误或待办。"""
         data = self.create_record()
         record_id = data['id']
-        # 详情正常返回，状态保持已记录，无"待研判"提示字段
+        # 详情正常返回，状态保持已记录
         resp = self.client.get(RECORDS_URL + f'/{record_id}/')
         self.assertFalse(resp.json().get('error'), resp.content)
         detail = resp.json()['data']
@@ -268,37 +282,111 @@ class SimpleResolveCloseTests(RuntimeRecordTestBase):
         record = SystemRuntimeRecord.objects.get(pk=record_id)
         self.assertEqual(record.status, 'recorded')
 
-    def test_recorded_cannot_resolve_or_convert_directly(self):
-        """已记录禁止直接 已处理/独立转故障 绕过研判（关闭不受限）；可研判定论。"""
+    def test_recorded_cannot_resolve_directly(self):
+        """已记录不能直接完成跟进（完成跟进仅针对跟进中的记录）。"""
         data = self.create_record()
         record_id = data['id']
-        for path, payload in (
-                ('resolve/', {'handling_result': '直接处理'}),
-                ('convert-to-fault/', {}),
-        ):
-            resp = self.client.post(
-                RECORDS_URL + f'/{record_id}/{path}', payload,
-                content_type='application/json')
-            self.assertTrue(resp.json().get('error'), (path, resp.content))
+        resp = self.client.post(RECORDS_URL + f'/{record_id}/resolve/', {},
+                                content_type='application/json')
+        self.assertIn('完成跟进', resp.json().get('error', ''))
         record = SystemRuntimeRecord.objects.get(pk=record_id)
         self.assertEqual(record.status, 'recorded')
-        # 同一操作主体：已记录直接研判定论（无需跟进）
-        self.conclude_triage(record_id, {'needs_follow_up': False,
-                                         'triage_note': '瞬时抖动，无需跟进'})
-        record.refresh_from_db()
-        self.assertEqual(record.status, 'no_follow_up')
 
-    def test_no_transition_reaches_pending_triage(self):
-        """待研判仅历史兼容：状态机无任何入口，新建也不会进入待研判。"""
+    def test_legacy_statuses_absent_from_state_machine(self):
+        """旧状态已随迁移 0007 归一：状态机与合法枚举不再包含旧值。"""
         from apps.equipment_lifecycle.models import (
-            RUNTIME_RECORD_STATUS_PENDING_TRIAGE,
+            RUNTIME_RECORD_STATUS_VALUES,
             RUNTIME_RECORD_TRANSITIONS,
         )
+        legacy = ('pending_triage', 'no_follow_up', 'resolved', 'closed')
+        for value in legacy:
+            self.assertNotIn(value, RUNTIME_RECORD_STATUS_VALUES)
         for source, targets in RUNTIME_RECORD_TRANSITIONS.items():
-            self.assertNotIn(
-                RUNTIME_RECORD_STATUS_PENDING_TRIAGE, targets,
-                '状态 %s 不应再允许流转为待研判' % source)
+            self.assertNotIn(source, legacy)
+            for value in legacy:
+                self.assertNotIn(value, targets,
+                                 '状态 %s 不应再允许流转为 %s' % (source, value))
 
+    def test_converted_fault_is_terminal(self):
+        """converted_fault 为终态：不允许再次流转，旧研判端点已删除（404）。"""
+        data = self.create_record()
+        record_id = data['id']
+        # 已记录经首条跟进记录进入跟进中，再经独立转换端点转故障
+        self.start_follow_up(record_id)
+        resp = self.client.post(
+            RECORDS_URL + f'/{record_id}/convert-to-fault/', {},
+            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        self.assertEqual(
+            SystemRuntimeRecord.objects.get(pk=record_id).status,
+            'converted_fault')
+        resp = self.client.post(
+            RECORDS_URL + f'/{record_id}/triage/',
+            {'needs_follow_up': False}, content_type='application/json')
+        self.assertEqual(resp.status_code, 404)
+        record = SystemRuntimeRecord.objects.get(pk=record_id)
+        self.assertEqual(record.status, 'converted_fault')
+
+
+class HistoricalStatusBackfillTests(RuntimeRecordTestBase):
+    """16. 旧状态归一（迁移 0007）：数据库 CHECK 约束拒绝旧值写入，状态
+    筛选只接受四状态，已完成可重新跟进。"""
+
+    def test_legacy_status_rejected_by_check_constraint(self):
+        """旧状态值不在 CHECK 约束合法集合内：直接写库被数据库拒绝。"""
+        from django.db import IntegrityError, transaction as db_transaction
+        data = self.create_record(
+            title='旧状态约束-%s' % uuid.uuid4().hex[:6])
+        for legacy in ('pending_triage', 'no_follow_up', 'resolved', 'closed'):
+            with self.subTest(status=legacy):
+                with self.assertRaises(IntegrityError):
+                    with db_transaction.atomic():
+                        SystemRuntimeRecord.objects.filter(
+                            pk=data['id']).update(status=legacy)
+        data = SystemRuntimeRecord.objects.get(pk=data['id'])
+        self.assertEqual(data.status, 'recorded')
+
+    def test_status_filter_accepts_only_four_states(self):
+        """状态筛选取值为四状态原值；旧状态值被校验拒绝。"""
+        recorded = self.create_record(
+            title='留痕记录', occurred_at='2026-10-01 08:00')
+        self.start_follow_up(recorded['id'])
+        completed = self.create_record(
+            title='已完成记录', occurred_at='2026-10-01 08:05')
+        self.start_follow_up(completed['id'])
+        resp = self.client.post(
+            RECORDS_URL + f'/{completed["id"]}/resolve/', {},
+            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        # 跟进中筛选只命中跟进中记录
+        resp = self.client.get(RECORDS_URL + '/', {'status': 'following_up'})
+        ids = [r['id'] for r in resp.json()['data']['data']]
+        self.assertIn(recorded['id'], ids)
+        self.assertNotIn(completed['id'], ids)
+        # 已完成筛选只命中已完成记录
+        resp = self.client.get(RECORDS_URL + '/', {'status': 'completed'})
+        ids = [r['id'] for r in resp.json()['data']['data']]
+        self.assertIn(completed['id'], ids)
+        self.assertNotIn(recorded['id'], ids)
+        # 旧状态值不再是合法筛选参数
+        for legacy in ('pending_triage', 'no_follow_up', 'resolved', 'closed'):
+            resp = self.client.get(RECORDS_URL + '/', {'status': legacy})
+            self.assertIn('状态筛选值不合法', resp.json().get('error', ''), legacy)
+
+    def test_completed_can_reopen(self):
+        """已完成可重新跟进。"""
+        data = self.create_record()
+        self.start_follow_up(data['id'])
+        resp = self.client.post(
+            RECORDS_URL + f'/{data["id"]}/resolve/', {},
+            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        resp = self.client.post(
+            RECORDS_URL + f'/{data["id"]}/follow-up/', {},
+            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        record = SystemRuntimeRecord.objects.get(pk=data['id'])
+        self.assertEqual(record.status, 'following_up')
 
 class FollowUpProgressTests(RuntimeRecordTestBase):
     """3. 跟进中的记录可以追加多条处理进展（跟进中由研判结论落地）。"""
@@ -359,28 +447,127 @@ class FollowUpProgressTests(RuntimeRecordTestBase):
 
     def test_progress_forbidden_after_terminal(self):
         data = self.create_record()
-        # 已记录留痕记录直接关闭（不要求先研判）
-        self.client.post(RECORDS_URL + f'/{data["id"]}/close/', {},
-                         content_type='application/json')
+        # 已转故障为终态：经首条跟进记录进入跟进中后转故障
+        self.start_follow_up(data['id'])
+        resp = self.client.post(
+            RECORDS_URL + f'/{data["id"]}/convert-to-fault/', {},
+            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
         resp = self.client.post(
             RECORDS_URL + f'/{data["id"]}/progress/',
-            {'content': '关闭后补录', 'handler_name': '值班员甲'},
+            {'content': '转故障后补录', 'handler_name': '值班员甲'},
             content_type='application/json')
-        self.assertIn('已关闭或已转故障', resp.json().get('error', ''))
+        self.assertIn('已转故障', resp.json().get('error', ''))
+
+
+class InfoLayeringTests(RuntimeRecordTestBase):
+    """17. 信息分层收敛（2026-10-04）：运行事实/研判结论/处理过程三类信息
+    各归其位——新增表单只提交事实字段；研判说明只作为历史快照保留；跟进人/
+    计划处理时间只保存当前计划；处理进展是处理过程唯一入口且追加式；
+    新数据不再写入 已采取措施/处理结果/初步原因/影响范围（历史字段后端列
+    保留，历史值不删）。"""
+
+    def test_facts_only_create_leaves_judgement_and_handling_fields_empty(self):
+        """只提交事实字段创建：成功即已记录，判断/处理/计划字段全部为空。"""
+        data = self.create_record(category='link')
+        record = SystemRuntimeRecord.objects.get(pk=data['id'])
+        self.assertEqual(record.status, 'recorded')
+        self.assertEqual(record.category, 'link')
+        for empty in ('measures_taken', 'handling_result', 'initial_reason',
+                      'impact_scope', 'follow_up_name', 'triage_note'):
+            self.assertEqual(getattr(record, empty), '', empty)
+        self.assertFalse(record.needs_follow_up)
+        self.assertIsNone(record.planned_handle_at)
+
+    def test_triage_snapshot_fields_absent_from_new_flow(self):
+        """研判快照字段仅历史数据保留：新流程（首条跟进记录进入跟进中）
+        不写研判字段，历史字段保持为空。"""
+        data = self.create_record()
+        record_id = data['id']
+        self.start_follow_up(record_id)
+        record = SystemRuntimeRecord.objects.get(pk=record_id)
+        self.assertEqual(record.status, 'following_up')
+        self.assertEqual(record.triage_note, '')
+        self.assertEqual(record.triaged_by_name, '')
+        self.assertIsNone(record.triaged_at)
+        self.assertEqual(record.measures_taken, '')
+        self.assertEqual(record.handling_result, '')
+        self.assertEqual(record.initial_reason, '')
+        self.assertEqual(record.impact_scope, '')
+
+    def test_follow_up_plan_update_does_not_create_progress(self):
+        """跟进人/计划处理时间只保存当前计划：跟进中修改计划只更新计划字段，
+        不新增处理进展、不写处理结果。"""
+        data = self.create_record()
+        record_id = data['id']
+        # 首条跟进记录进入跟进中（当前计划先置空，由 follow-up 维护）
+        self.start_follow_up(record_id)
+        record = SystemRuntimeRecord.objects.get(pk=record_id)
+        self.assertEqual(record.status, 'following_up')
+        # 追加一条处理进展作为基线后修改跟进计划
+        resp = self.client.post(
+            RECORDS_URL + f'/{record_id}/progress/',
+            {'content': '现场检查，继续观察', 'handler_name': '值班员甲'},
+            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        resp = self.client.post(
+            RECORDS_URL + f'/{record_id}/follow-up/',
+            {'follow_up_name': '李值班', 'planned_handle_at': '2026-10-07 15:00'},
+            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        record.refresh_from_db()
+        self.assertEqual(record.follow_up_name, '李值班')
+        self.assertEqual(
+            record.planned_handle_at.strftime('%Y-%m-%d %H:%M'), '2026-10-07 15:00')
+        self.assertEqual(record.status, 'following_up')
+        # 修改计划不产生处理进展，也不写处理字段
+        self.assertEqual(
+            SystemRuntimeRecordProgress.objects.filter(record_id=record_id).count(), 2)
+        self.assertEqual(record.measures_taken, '')
+        self.assertEqual(record.handling_result, '')
+
+    def test_progress_append_does_not_overwrite(self):
+        """处理进展追加式：多条进展并存互不覆盖，处理过程不写全局处理字段。"""
+        data = self.create_record()
+        record_id = data['id']
+        for content in ('第一次检查：现场确认告警', '第二次处理：更换备件'):
+            resp = self.client.post(
+                RECORDS_URL + f'/{record_id}/progress/',
+                {'content': content, 'handler_name': '值班员甲'},
+                content_type='application/json')
+            self.assertFalse(resp.json().get('error'), resp.content)
+        rows = SystemRuntimeRecordProgress.objects.filter(
+            record_id=record_id).order_by('handled_at', 'id')
+        self.assertEqual(
+            [r.content for r in rows],
+            ['第一次检查：现场确认告警', '第二次处理：更换备件'])
+        record = SystemRuntimeRecord.objects.get(pk=record_id)
+        self.assertEqual(record.measures_taken, '')
+        self.assertEqual(record.handling_result, '')
+
+    def test_complete_follow_up_without_result_fields(self):
+        """完成跟进为纯状态动作：不携带处理字段时进入已完成且不写处理结果
+        （最终说明走处理进展，不写入全局结果字段）。"""
+        data = self.create_record()
+        record_id = data['id']
+        self.start_follow_up(record_id)
+        resp = self.client.post(
+            RECORDS_URL + f'/{record_id}/resolve/', {},
+            content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        record = SystemRuntimeRecord.objects.get(pk=record_id)
+        self.assertEqual(record.status, 'completed')
+        self.assertEqual(record.handling_result, '')
+        self.assertEqual(record.measures_taken, '')
 
 
 class ConvertToFaultTests(RuntimeRecordTestBase):
     """5/6. 转为正式故障：一次转换 + 正式外键 + 状态变化。"""
 
     def test_convert_creates_fault_with_fk(self):
-        data = self.create_record(
-            affects_system_operation=True, impact_status='degraded')
+        data = self.create_record()
         record_id = data['id']
-        # 已记录不能直接转故障（须经研判），先研判定论后再独立转换
-        resp = self.client.post(RECORDS_URL + f'/{record_id}/convert-to-fault/', {},
-                                content_type='application/json')
-        self.assertIn('不能直接转为故障', resp.json().get('error', ''))
-        self.conclude_triage(record_id, {'needs_follow_up': False})
+        # 转故障为独立动作：已记录可直接转换（不依赖研判，第四版）
         resp = self.client.post(RECORDS_URL + f'/{record_id}/convert-to-fault/', {},
                                 content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -392,19 +579,29 @@ class ConvertToFaultTests(RuntimeRecordTestBase):
         self.assertEqual(fault.source_runtime_record_id, record_id)
         self.assertEqual(fault.source_type, 'runtime_record')
         self.assertEqual(fault.source_id, str(record_id))
-        # 初始字段由记录带入：系统/影响/标题+描述组装现象
+        # 初始字段由记录带入：系统/标题+描述组装现象；影响属性按故障默认
+        # （不影响系统运行；具体对象/影响字段已随记录字段删除不再带入）
         self.assertEqual(fault.system_id, self.system.id)
-        self.assertEqual(fault.affects_system_operation, True)
-        self.assertEqual(fault.impact_status, 'degraded')
+        self.assertFalse(fault.affects_system_operation)
+        self.assertEqual(fault.impact_status, '')
         self.assertIn(record.title, fault.phenomenon)
         self.assertIn(record.description, fault.phenomenon)
         # 记录详情可见关联故障
         resp = self.client.get(RECORDS_URL + f'/{record_id}/')
         self.assertEqual(resp.json()['data']['converted_fault'], fault.id)
 
+    def test_convert_retired_params_rejected(self):
+        """转故障请求携带已删除的影响字段旧参数即拒绝（2026-10-06）。"""
+        data = self.create_record()
+        resp = self.client.post(
+            RECORDS_URL + f'/{data["id"]}/convert-to-fault/',
+            {'affects_system_operation': True, 'impact_status': 'fault'},
+            content_type='application/json')
+        self.assertIn('已删除', resp.json().get('error', ''))
+        self.assertEqual(SystemFault.objects.count(), 0)
+
     def test_convert_twice_rejected(self):
         data = self.create_record()
-        self.conclude_triage(data['id'], {'needs_follow_up': False})
         resp = self.client.post(RECORDS_URL + f'/{data["id"]}/convert-to-fault/', {},
                                 content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
@@ -427,9 +624,9 @@ class ConvertToFaultTests(RuntimeRecordTestBase):
 
     def test_convert_after_cancelled_fault_requires_reason(self):
         data = self.create_record()
-        self.conclude_triage(data['id'], {'needs_follow_up': False})
         resp = self.client.post(RECORDS_URL + f'/{data["id"]}/convert-to-fault/', {},
                                 content_type='application/json')
+        self.assertFalse(resp.json().get('error'), resp.content)
         fault = SystemFault.objects.get(
             source_runtime_record_id=data['id'])
         # 受控作废首张故障
@@ -452,7 +649,9 @@ class ConvertToFaultTests(RuntimeRecordTestBase):
 
 
 class SystemEventRulesTests(RuntimeRecordTestBase):
-    """7/8. 履历规则：普通记录不生成；影响运行/标记重要按规则生成且不重复。"""
+    """7/8. 履历规则（2026-10-05 第四版）：运行异常记录一律不写系统履历——
+    普通记录、转为故障均不生成 SystemEvent（历史已写入的事件保留）；
+    正式故障的履历由故障服务生成。标记重要端点已随字段删除移除。"""
 
     def assert_runtime_events(self, record_id, actions):
         events = SystemEvent.objects.filter(
@@ -470,58 +669,27 @@ class SystemEventRulesTests(RuntimeRecordTestBase):
         self.assert_runtime_events(first['id'], [])
         self.assert_runtime_events(second['id'], [])
 
-    def test_affecting_record_creates_event_once(self):
-        data = self.create_record(
-            affects_system_operation=True, impact_status='interrupted')
-        events = self.assert_runtime_events(data['id'], ['create'])
-        event = events.first()
-        self.assertEqual(event.event_type, 'runtime')
-        self.assertEqual(event.source_no, data['record_no'])
-        self.assertEqual(event.system_id, self.system.id)
-
-    def test_mark_important_requires_reason_and_generates_event_once(self):
+    def test_mark_important_endpoint_removed(self):
+        """mark-important 端点已随标记重要字段删除移除（404）。"""
         data = self.create_record()
         record_id = data['id']
-        # 缺原因 → 拒绝
-        resp = self.client.post(
-            RECORDS_URL + f'/{record_id}/mark-important/', {},
-            content_type='application/json')
-        self.assertTrue(resp.json().get('error'))
-        self.assert_runtime_events(record_id, [])
-        # 首次标记 → 一条 mark_important 履历
         resp = self.client.post(
             RECORDS_URL + f'/{record_id}/mark-important/',
             {'importance_reason': '造成业务中断影响值班'},
             content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
-        self.assertEqual(resp.json()['data']['importance'], 'important')
-        events = self.assert_runtime_events(record_id, ['mark_important'])
-        self.assertIn('造成业务中断', events.first().get_detail().get('importance_reason', ''))
-        # 重复标记 → 拒绝且不重复生成履历
-        resp = self.client.post(
-            RECORDS_URL + f'/{record_id}/mark-important/',
-            {'importance_reason': '再次标记'},
-            content_type='application/json')
-        self.assertIn('已标记为重要', resp.json().get('error', ''))
-        self.assert_runtime_events(record_id, ['mark_important'])
-        record = SystemRuntimeRecord.objects.get(pk=record_id)
-        self.assertEqual(record.importance_reason, '造成业务中断影响值班')
+        self.assertEqual(resp.status_code, 404)
+        self.assert_runtime_events(record_id, [])
 
-    def test_important_record_visible_in_event_groups(self):
-        """标记重要的运行记录进入系统履历事项聚合（2026-10-01 缺陷回归）。
+    def test_runtime_record_absent_from_event_groups(self):
+        """运行异常记录不进入系统履历事项聚合（第四版退出履历）。
 
-        缺陷：履历聚合白名单（MAIN_EVENT_TYPES/GROUP_SOURCE_TYPES）未纳入
-        runtime/runtime_record，标记重要的记录在履历页面不可见。
+        2026-10-05 起运行异常记录整体退出履历，聚合中不再出现 runtime_record
+        事项（历史已写入的事件仍按原样展示）。
         """
-        data = self.create_record(title='需要进入履历的情况',
+        data = self.create_record(title='仅作留痕的情况',
                                   occurred_at='2026-10-01 08:00')
         record_id = data['id']
-        resp = self.client.post(
-            RECORDS_URL + f'/{record_id}/mark-important/',
-            {'importance_reason': '影响值班业务'},
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
-        # 履历事项聚合主列表：运行记录事项可见（真实状态/标题取业务表）
+        # 履历事项聚合主列表：本系统不出现 runtime_record 事项
         resp = self.viewer_client.get(URL_PREFIX + '/system-event-groups/')
         self.assertFalse(resp.json().get('error'), resp.content)
         items = []
@@ -529,60 +697,41 @@ class SystemEventRulesTests(RuntimeRecordTestBase):
             if group['system']['id'] == self.system.id:
                 items = group['items']
         runtime_items = [i for i in items if i['source_type'] == 'runtime_record']
-        self.assertEqual(len(runtime_items), 1, items)
-        item = runtime_items[0]
-        self.assertEqual(item['event_type'], 'runtime')
-        self.assertEqual(item['item_no'], data['record_no'])
-        self.assertEqual(item['source_id'], str(record_id))
-        self.assertEqual(item['status'], 'recorded')
-        self.assertEqual(item['status_text'], '已记录')
-        self.assertEqual(item['title'], '需要进入履历的情况')
-        # 节点时间线接口：普通记录创建不写履历，仅 mark_important 一条
-        resp = self.viewer_client.get(
-            URL_PREFIX + '/system-event-groups/nodes/'
-            f'?system={self.system.id}&source_type=runtime_record&source_id={record_id}')
-        self.assertFalse(resp.json().get('error'), resp.content)
-        actions = {n['action'] for n in resp.json()['data']['data']}
-        self.assertEqual(actions, {'mark_important'})
+        self.assertEqual(runtime_items, [], items)
+        self.assertTrue(SystemRuntimeRecord.objects.filter(pk=record_id).exists())
 
-    def test_converted_record_visible_in_event_groups(self):
-        """转为故障的运行记录在履历事项聚合中可见且状态为已转故障。"""
-        data = self.create_record(title='转故障进履历',
+    def test_converted_record_absent_from_event_groups_fault_visible(self):
+        """转故障后：运行异常记录事项不出现在履历聚合，正式故障事项可见。"""
+        data = self.create_record(title='转故障后故障进履历',
                                   occurred_at='2026-10-01 08:10')
-        self.conclude_triage(data['id'], {'needs_follow_up': False})
+        self.start_follow_up(data['id'])
         resp = self.client.post(RECORDS_URL + f'/{data["id"]}/convert-to-fault/', {},
                                 content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
+        self.assert_runtime_events(data['id'], [])
         resp = self.viewer_client.get(URL_PREFIX + '/system-event-groups/')
         groups = resp.json()['data']['data']
         runtime_items = [
             item for group in groups if group['system']['id'] == self.system.id
             for item in group['items'] if item['source_type'] == 'runtime_record']
-        self.assertEqual(len(runtime_items), 1)
-        self.assertEqual(runtime_items[0]['status'], 'converted_fault')
-        self.assertEqual(runtime_items[0]['status_text'], '已转故障')
-        # 同系统同时存在故障事项（来源 fault）与运行记录事项，互不归并
+        self.assertEqual(runtime_items, [])
         fault_items = [
             item for group in groups if group['system']['id'] == self.system.id
             for item in group['items'] if item['source_type'] == 'fault']
         self.assertEqual(len(fault_items), 1)
 
-    def test_convert_generates_fault_and_runtime_events(self):
+    def test_convert_generates_fault_event_only(self):
         data = self.create_record()
-        self.conclude_triage(data['id'], {'needs_follow_up': False})
+        self.start_follow_up(data['id'])
         resp = self.client.post(RECORDS_URL + f'/{data["id"]}/convert-to-fault/', {},
                                 content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
-        # 记录侧 convert_to_fault 履历 + 故障侧 create 履历（source_type=fault）
-        self.assert_runtime_events(data['id'], ['convert_to_fault'])
+        # 记录侧不再写履历；故障侧 create 履历（source_type=fault）正常生成
+        self.assert_runtime_events(data['id'], [])
         fault = SystemFault.objects.get(
             source_runtime_record_id=data['id'])
         self.assertTrue(SystemEvent.objects.filter(
             source_type='fault', source_id=str(fault.id), action='create').exists())
-        # 履历事件保留运行记录编号与来源链接
-        event = SystemEvent.objects.get(
-            source_type='runtime_record', source_id=str(data['id']))
-        self.assertEqual(event.source_no, data['record_no'])
 
 
 class TenantAndPermissionTests(RuntimeRecordTestBase):
@@ -594,17 +743,21 @@ class TenantAndPermissionTests(RuntimeRecordTestBase):
         resp = self.other_client.get(RECORDS_URL + '/')
         ids = [r['id'] for r in resp.json()['data']['data']]
         self.assertNotIn(data['id'], ids)
-        # 详情/编辑/转故障/关闭一律拒绝
+        # 详情/转故障/完成跟进/重新跟进一律拒绝
         resp = self.other_client.get(RECORDS_URL + f'/{data["id"]}/')
-        self.assertEqual(resp.json().get('error'), '运行记录不存在')
+        self.assertEqual(resp.json().get('error'), '运行异常记录不存在')
         resp = self.other_client.post(
             RECORDS_URL + f'/{data["id"]}/convert-to-fault/', {},
             content_type='application/json')
-        self.assertEqual(resp.json().get('error'), '运行记录不存在')
+        self.assertEqual(resp.json().get('error'), '运行异常记录不存在')
         resp = self.other_client.post(
-            RECORDS_URL + f'/{data["id"]}/close/', {},
+            RECORDS_URL + f'/{data["id"]}/resolve/', {},
             content_type='application/json')
-        self.assertEqual(resp.json().get('error'), '运行记录不存在')
+        self.assertEqual(resp.json().get('error'), '运行异常记录不存在')
+        resp = self.other_client.post(
+            RECORDS_URL + f'/{data["id"]}/follow-up/', {},
+            content_type='application/json')
+        self.assertEqual(resp.json().get('error'), '运行异常记录不存在')
         self.assertEqual(
             SystemRuntimeRecord.objects.filter(pk=data['id']).count(), 1)
 
@@ -616,7 +769,7 @@ class TenantAndPermissionTests(RuntimeRecordTestBase):
                                          'occurred_at': '2026-10-01 08:30',
                                          'title': '无权限标题', 'description': 'x'}),
             ('get', RECORDS_URL + f'/{record_id}/', None),
-            ('post', RECORDS_URL + f'/{record_id}/close/', {}),
+            ('post', RECORDS_URL + f'/{record_id}/follow-up/', {}),
             ('post', RECORDS_URL + f'/{record_id}/resolve/', {}),
         ]
         for method, url, payload in cases:
@@ -644,7 +797,7 @@ class IdempotencyTests(RuntimeRecordTestBase):
         resp = self.client.post(RECORDS_URL + '/', make_record_payload(
             system=self.system.id),
             content_type='application/json')
-        self.assertIn('请勿重复提交相同运行记录', resp.json().get('error', ''))
+        self.assertIn('请勿重复提交相同运行异常记录', resp.json().get('error', ''))
         self.assertEqual(SystemRuntimeRecord.objects.count(), 1)
 
 
@@ -668,7 +821,7 @@ class ConcurrencyConvertTests(TransactionTestCase):
             occurred_at='2026-10-01 08:00',
             title='并发转换记录',
             description='并发转故障行为测试',
-            status=SystemRuntimeRecord.STATUS_PENDING_TRIAGE,
+            status=SystemRuntimeRecord.STATUS_RECORDED,
             created_by=admin,
         )
         barrier = threading.Barrier(2)
@@ -712,7 +865,7 @@ class ConcurrencyConvertTests(TransactionTestCase):
 
 
 class ModuleBoundaryTests(RuntimeRecordTestBase):
-    """14. 运行记录不含巡视、维护、升级和配置变更数据。"""
+    """14. 运行异常记录不含巡视、维护、升级和配置变更数据。"""
 
     def test_list_only_contains_runtime_records(self):
         data = self.create_record()
@@ -725,14 +878,14 @@ class ModuleBoundaryTests(RuntimeRecordTestBase):
         rows = resp.json()['data']['data']
         self.assertEqual([r['id'] for r in rows], [data['id']])
         self.assertTrue(all(r['record_no'].startswith('YX') for r in rows))
-        # 系统详情运行记录页签同样只含运行记录
+        # 系统详情运行异常记录页签同样只含运行异常记录
         resp = self.client.get(URL_PREFIX + f'/systems/{self.system.id}/runtime-records/')
         rows = resp.json()['data']['data']
         self.assertEqual([r['id'] for r in rows], [data['id']])
 
 
 class EditRuleTests(RuntimeRecordTestBase):
-    """15. 关闭后的运行记录不能继续被普通编辑；编辑未关闭记录正常。"""
+    """15. 已转故障的运行异常记录不能继续被普通编辑；编辑未终态记录正常。"""
 
     def test_edit_open_record(self):
         data = self.create_record()
@@ -747,26 +900,14 @@ class EditRuleTests(RuntimeRecordTestBase):
         self.assertEqual(record.title, '更新后的标题')
         self.assertEqual(record.measures_taken, '已切换备用链路')
         self.assertEqual(record.updated_by_id, self.admin.id)
+        # 普通编辑不得改变状态：已记录编辑后仍是已记录
+        self.assertEqual(record.status, 'recorded')
         # 编辑接口不接收登记人：原登记人保持不变（仅新增可填）
         self.assertEqual(record.registrar_name, data['registrar_name'])
 
-    def test_closed_record_not_editable(self):
-        data = self.create_record()
-        # 已记录留痕记录直接关闭（不要求先研判）
-        self.client.post(RECORDS_URL + f'/{data["id"]}/close/', {},
-                         content_type='application/json')
-        resp = self.client.put(
-            RECORDS_URL + f'/{data["id"]}/',
-            {'system': self.system.id, 'occurred_at': '2026-10-01 09:00',
-             'title': '关闭后编辑', 'description': '不应生效'},
-            content_type='application/json')
-        self.assertIn('已关闭或已转故障', resp.json().get('error', ''))
-        record = SystemRuntimeRecord.objects.get(pk=data['id'])
-        self.assertEqual(record.title, data['title'])
-
     def test_converted_record_not_editable(self):
         data = self.create_record()
-        self.conclude_triage(data['id'], {'needs_follow_up': False})
+        self.start_follow_up(data['id'])
         self.client.post(RECORDS_URL + f'/{data["id"]}/convert-to-fault/', {},
                          content_type='application/json')
         resp = self.client.put(
@@ -774,11 +915,13 @@ class EditRuleTests(RuntimeRecordTestBase):
             {'system': self.system.id, 'occurred_at': '2026-10-01 09:00',
              'title': '转换后编辑', 'description': '不应生效'},
             content_type='application/json')
-        self.assertIn('已关闭或已转故障', resp.json().get('error', ''))
+        self.assertIn('已转故障', resp.json().get('error', ''))
+        record = SystemRuntimeRecord.objects.get(pk=data['id'])
+        self.assertEqual(record.title, data['title'])
 
 
 class AttachmentAccessTests(RuntimeRecordTestBase):
-    """11. 附件访问必须先校验运行记录父对象和租户。"""
+    """11. 附件访问必须先校验运行异常记录父对象和租户。"""
 
     def setUp(self):
         super().setUp()
@@ -826,7 +969,7 @@ class AttachmentAccessTests(RuntimeRecordTestBase):
         resp = self.other_client.get(
             RECORDS_URL + f'/{data_a["id"]}/attachments/{att_id}/download/')
         self.assertTrue(resp.json().get('error'))
-        # 跨模块附件（故障进展附件）挂到运行记录路由 → 拒绝
+        # 跨模块附件（故障进展附件）挂到运行异常记录路由 → 拒绝
         fault_services.create_fault_record(
             tenant_id='tenant_a', created_by=self.admin, system=self.system,
             affects_system_operation=False, impact_status='',

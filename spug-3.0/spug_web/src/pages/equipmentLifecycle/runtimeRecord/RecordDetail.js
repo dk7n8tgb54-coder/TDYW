@@ -3,36 +3,49 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——运行记录详情窗口（2026-10-02 由侧边抽屉改为居中窗口，
+ * 设备全生命周期——运行异常记录详情窗口（2026-10-02 由侧边抽屉改为居中窗口，
  * 与系统档案详情一致）。标题区只保留摘要（2026-10-04 对齐故障详情）：
- * 记录编号 / 当前状态 / 系统影响程度 / 重要程度，需要跟进标识仅在记录
- * 确实需要跟进且状态标签无法表达（非跟进中）时展示；所属系统/安装地点/
- * 发生时间/登记人等完整字段一律放入基本信息区块，不在标题区重复。
- * 基本信息 / 处理进展时间线（追加式、更正留痕）/ 重复问题（相似关联）/
- * 附件（AttachmentManager）。
- * 基本信息分四区块（2026-10-04，区块小标题 + Descriptions，样式对齐故障
- * 详情）：运行概况（只放发生事实：系统/地点/时间/类别/对象/标题/描述）/
- * 研判与处置（初步原因/影响范围/已采取措施/处理结果/研判说明/研判人及
- * 研判时间/跟进安排/重要原因；研判历史只读保留，已处理/已关闭/已转故障
- * 仍展示；尚未研判与已转故障以区块提示行说明实际状态，不渲染成排空"-"；
- * 跟进安排/重要原因/研判人及时间仅在存在数据时展示，重要程度本身只在
- * 标题区展示）/ 关联与登记（关联故障链接或"关联故障登记已撤销"提示 +
- * 登记人/登记时间 + 处理时间/标记重要等生命周期信息；统一"登记人/
- * 登记时间"业务口径，不再重复展示创建人）/ 处理概览（只读紧凑信息条：
- * 条数取进展列表接口 total——store 打开详情时已统一请求该列表，不额外
- * 发请求、不逐条拼装；最近更新与最后记录仅在前端已取得完整进展列表时
- * 展示；"查看全部进展"切换到处理进展页签，完整时间线不复制到本区块）。
- * 顶部动作按状态收敛（2026-10-04，与后端状态机一致，防止绕过研判入口）：
- * - recorded（已记录，合法稳定状态，可长期保留，不作为待办）：编辑、
- *   研判（可选动作；登记与研判同一操作主体，一次提交完成结论，无
- *   "提交研判"中转）、关闭（留痕记录可直接关闭，不要求先研判）；
- * - pending_triage（待研判，历史数据兼容状态）：研判；
- * - following_up（跟进中）：编辑、跟进安排、标记已处理、关闭；
- * - resolved（已处理）：编辑、重新跟进（复用跟进弹窗，转回跟进中）、关闭；
- * - no_follow_up（无需跟进）：重新研判（纠正结论，复用 TriageModal）；
- * - converted_fault / closed：终态无业务按钮（已转故障保留关联故障入口）。
- * - 标记重要 / 转为正式故障只在 TriageModal 研判结论中完成，顶部不再提供
- *   独立入口（旧 store 方法与后端接口暂时保留）；
+ * 记录编号 / 当前状态，需要跟进标识仅在记录确实需要跟进且状态标签无法表达
+ * （非跟进中）时展示；系统影响程度/重要程度标签已随字段删除移除
+ * （2026-10-06）；所属系统/安装地点/发生时间/登记人等完整字段一律放入
+ * 基本信息区块，不在标题区重复。
+ * 基本信息 / 处理进展时间线（追加式、更正留痕）/ 附件（AttachmentManager）。
+ * 重复问题（相似关联）页签已于 2026-10-05 下线：相似记录查询/双向关联/
+ * 取消关联/重复发生标记入口整体移除（"相似"无内容相似度依据、时间窗口
+ * 规则无业务依据，且核心流程不依赖重复分析）；后端旧接口、模型字段与
+ * is_repeated 已随 2026-10-06 重复功能退役（迁移 0008）整体删除。
+ * 基本信息四区块（2026-10-04 信息分层收敛，区块小标题 + Descriptions，样式
+ * 对齐故障详情）：运行概况（只放发生事实：系统/地点/时间/类别/标题/描述）/
+ * 研判结论（历史数据只读展示：研判说明/研判人及研判时间；第四版
+ * （2026-10-05）起研判不再是必经步骤，新记录不产生研判数据，本区块仅在
+ * 存在历史研判数据时渲染；重要原因展示已随标记重要删除移除 2026-10-06）/
+ * 关联与登记（关联故障链接或"关联故障登记已撤销"提示 + 登记人/登记时间 +
+ * 处理时间等生命周期信息；统一"登记人/登记时间"业务口径，不再重复展示
+ * 创建人）/ 处理概览（只读紧凑信息条：条数取进展列表接口 total——store 打开
+ * 详情时已统一请求该列表，不额外发请求、不逐条拼装；最近更新与最后记录仅在
+ * 前端已取得完整进展列表时展示；"查看全部进展"切换到处理进展页签，
+ * 完整时间线不复制到本区块）。
+ * 已采取措施/处理结果等历史字段已从录入与研判中退役：新数据不再写入，
+ * 详情页不再展示（2026-10-06 "历史记录"只读区块随本次清理移除；后端
+ * 字段与数据库列保留，历史值不删）。
+ * 顶部动作按状态收敛（2026-10-05 第四版：研判不再是必经步骤，TriageModal
+ * 整体删除，研判转为故障/跟进结论/影响判定/重要标记不再作为统一弹窗入口）。
+ * 用户可见状态只有 已记录/跟进中/已完成/已转故障（历史旧状态已由后端
+ * 迁移 0007 归一，前端不再保留别名）：
+ * - recorded（已记录，登记完成的合法稳定状态，可长期保留，不作为待办）：
+ *   编辑、开始跟进（打开处理进展录入界面，保存首条跟进记录后进入跟进中）、
+ *   转为正式故障（独立动作，不依赖研判）；
+ * - following_up（跟进中）：新增跟进记录（打开处理进展录入界面）、修改
+ *   跟进计划（只更新跟进人/计划处理时间，不产生处理进展）、完成跟进、
+ *   转为正式故障；
+ * - completed（已完成）：重新跟进；
+ * - converted_fault（已转故障）：查看关联故障（后续处置以故障模块为准），
+ *   终态无其他业务按钮。
+ * - 已删除入口：提交研判/研判/重新研判/无需跟进/关闭运行异常记录/研判中的
+ *   跟进安排/影响判定/重要标记/转故障入口/标记重要（2026-10-06 字段删除）；
+ * - 处理进展页签 = 统一处理工作区：当前跟进计划（仅跟进中可改）→ 新增
+ *   处理进展 → 历史处理进展时间线（追加式）；完成跟进为纯确认动作，不再
+ *   补填处理结果（最终说明应作为最后一条处理进展保存，不写入全局结果字段）；
  * - 所有动作成功后重新获取真实数据；错误提示由 http 拦截器统一弹出，
  *   业务代码不重复提示。
  * 约束：凡在 render 中读取 store observable 的函数组件必须用 observer 包裹。
@@ -47,20 +60,27 @@ import { AuthButton, AttachmentManager } from 'components';
 import { http } from 'libs';
 import { history } from 'libs';
 import store from './store';
-import TriageModal from './TriageModal';
-import DuplicatePanel from './DuplicatePanel';
 import { API_PREFIX, PERM, RUNTIME_STATUS_TEXT, RUNTIME_STATUS_COLOR,
-  RUNTIME_IMPACT_TEXT, RUNTIME_IMPACT_COLOR, RUNTIME_CATEGORY_TEXT } from '../constants';
+  RUNTIME_CATEGORY_TEXT } from '../constants';
 
 const {TextArea} = Input;
 const {TabPane} = Tabs;
 
-const EDITABLE_STATUSES = ['recorded', 'following_up', 'resolved'];
+// 页签内可编辑（追加进展/更正/附件上传）的状态：已完成仍可补录；
+// 已转故障为终态。
+const EDITABLE_STATUSES = ['recorded', 'following_up', 'completed'];
+// 已记录：新建成功即已记录（可长期保留，不作为待办），享有同一组顶部动作
+const RECORDED_LIKE_STATUSES = ['recorded'];
 const WORK_HOURS_RULE = [{
   validator: (_, value) => (
     value === undefined || value === null || (typeof value === 'number' && value >= 0)
       ? Promise.resolve() : Promise.reject(new Error('工时不能为负数'))),
 }];
+
+// 区块标题（基本信息四区块与处理进展工作区共用，与故障详情同款内联样式）
+function sectionTitle(text, style) {
+  return <div style={{fontWeight: 600, marginBottom: 8, ...style}}>{text}</div>;
+}
 
 @observer
 class RecordDetail extends React.Component {
@@ -72,12 +92,11 @@ class RecordDetail extends React.Component {
 
   // 区块标题：四区块与处理概览共用（与故障详情同款内联样式）
   renderSectionTitle(text, style) {
-    return <div style={{fontWeight: 600, marginBottom: 8, ...style}}>{text}</div>;
+    return sectionTitle(text, style);
   }
 
-  // 基本信息（2026-10-04 重组为四区块）：运行概况 / 研判与处置 /
-  // 关联与登记 / 处理概览。编号、状态、影响程度、重要程度只在标题区
-  // 展示一次，区块内不再重复。
+  // 基本信息（2026-10-04 信息分层收敛）：运行概况 / 研判结论 /
+  // 关联与登记 / 处理概览。编号、状态只在标题区展示一次，区块内不再重复。
   renderBasic() {
     return (
       <div>
@@ -91,7 +110,8 @@ class RecordDetail extends React.Component {
   }
 
   // 一、运行概况：只展示记录发生时的事实（按发生顺序），不放研判结论、
-  // 跟进安排或处理结果；标题保持"标题"字样，不与故障模块"故障现象"混用
+  // 跟进安排或处理结果；标题保持"标题"字样，不与故障模块"故障现象"混用；
+  // 具体对象/型号行已随字段删除移除（2026-10-06）
   renderOverviewSection() {
     const d = store.detail;
     return (
@@ -102,67 +122,44 @@ class RecordDetail extends React.Component {
         <Descriptions.Item label="异常类别">
           {d.category ? (RUNTIME_CATEGORY_TEXT[d.category] || d.category) : '-'}
         </Descriptions.Item>
-        <Descriptions.Item label="具体对象/型号" span={2}>
-          {[d.object_name, d.object_model].filter(Boolean).join(' / ') || '-'}
-        </Descriptions.Item>
         <Descriptions.Item label="标题" span={2}>{d.title}</Descriptions.Item>
         <Descriptions.Item label="情况描述" span={2}>{d.description}</Descriptions.Item>
       </Descriptions>
     );
   }
 
-  // 二、研判与处置：集中展示研判与处理字段；研判数据保留历史只读展示
-  // （已处理/已关闭/已转故障仍可见）。尚未研判（已记录/待研判且无研判
-  // 数据）与已转故障以提示行说明实际状态（对齐故障详情"尚未完成恢复
-  // 确认"的提示方式）；跟进安排/重要原因/研判人及时间仅在存在数据时
-  // 渲染，不为空值创建整行"-"。
+  // 二、研判结论（2026-10-05 第四版起仅作历史数据只读展示）：研判不再是
+  // 必经步骤，新记录不产生研判数据，本区块仅在存在历史研判数据时渲染；
+  // 说明只记录判断依据与结论，处理过程一律在处理进展时间线；
+  // 已转故障以提示行说明实际状态（对齐故障详情的提示方式），不为空值
+  // 创建整行"-"。
   renderTriageSection() {
     const d = store.detail;
     const hasTriage = Boolean(d.triaged_at || d.triaged_by_name || d.triage_note);
-    const notTriaged = !hasTriage &&
-      (d.status === 'recorded' || d.status === 'pending_triage');
-    const hasFollowUp = Boolean(d.follow_up_name || d.planned_handle_at);
-    const showImportanceReason = d.importance === 'important' || !!d.importance_reason;
+    const converted = d.status === 'converted_fault';
+    if (!hasTriage && !converted) {
+      return null;
+    }
     let hint = null;
-    if (notTriaged) {
-      hint = '尚未完成研判';
-    } else if (d.status === 'converted_fault') {
+    if (converted) {
       hint = '该记录已转正式故障，后续处置以关联故障为准';
     }
     return (
       <React.Fragment>
-        {this.renderSectionTitle('研判与处置', {marginTop: 16})}
+        {this.renderSectionTitle('研判结论', {marginTop: 16})}
         {hint && (
           <div style={{color: 'rgba(0, 0, 0, 0.45)', marginBottom: 8}}>{hint}</div>
         )}
-        <Descriptions bordered size="small" column={2}>
-          <Descriptions.Item label="初步原因" span={2}>{d.initial_reason || '-'}</Descriptions.Item>
-          <Descriptions.Item label="影响范围" span={2}>{d.impact_scope || '-'}</Descriptions.Item>
-          <Descriptions.Item label="已采取措施" span={2}>{d.measures_taken || '-'}</Descriptions.Item>
-          <Descriptions.Item label="处理结果" span={2}>{d.handling_result || '-'}</Descriptions.Item>
-          {hasTriage && (
-            <React.Fragment>
-              <Descriptions.Item label="研判说明" span={2}>{d.triage_note || '-'}</Descriptions.Item>
-              <Descriptions.Item label="研判人及研判时间" span={2}>
-                {d.triaged_by_name
-                  ? `${d.triaged_by_name}（${d.triaged_at || ''}）`
-                  : (d.triaged_at || '-')}
-              </Descriptions.Item>
-            </React.Fragment>
-          )}
-          {hasFollowUp && (
-            <Descriptions.Item label="跟进安排" span={2}>
-              {d.follow_up_name ? `跟进人：${d.follow_up_name}` : ''}
-              {d.planned_handle_at
-                ? `${d.follow_up_name ? '，' : ''}计划处理：${d.planned_handle_at}` : ''}
+        {hasTriage && (
+          <Descriptions bordered size="small" column={2}>
+            <Descriptions.Item label="研判说明" span={2}>{d.triage_note || '-'}</Descriptions.Item>
+            <Descriptions.Item label="研判人及研判时间" span={2}>
+              {d.triaged_by_name
+                ? `${d.triaged_by_name}（${d.triaged_at || ''}）`
+                : (d.triaged_at || '-')}
             </Descriptions.Item>
-          )}
-          {showImportanceReason && (
-            <Descriptions.Item label="重要原因" span={2}>
-              {d.importance_reason || '-'}
-            </Descriptions.Item>
-          )}
-        </Descriptions>
+          </Descriptions>
+        )}
       </React.Fragment>
     );
   }
@@ -170,8 +167,8 @@ class RecordDetail extends React.Component {
   // 三、关联与登记：记录来源与生命周期追溯。统一"登记人/登记时间"业务
   // 口径（登记时间即创建时间，创建人不再重复展示）；已转故障显示可点击
   // 关联故障（沿用现有跳转），关联故障已撤销时明确提示，无关联显示"-"、
-  // 不渲染空按钮；处理时间/标记重要属于生命周期状态变更信息，仅在存在
-  // 数据时展示。
+  // 不渲染空按钮；处理时间属于生命周期状态变更信息，仅在存在数据时展示
+  // （标记重要行已随字段删除移除，2026-10-06）。
   renderRegistrySection() {
     const d = store.detail;
     return (
@@ -197,13 +194,6 @@ class RecordDetail extends React.Component {
           <Descriptions.Item label="登记时间">{d.created_at}</Descriptions.Item>
           {d.resolved_at && (
             <Descriptions.Item label="处理时间">{d.resolved_at}</Descriptions.Item>
-          )}
-          {d.importance_marked_at && (
-            <Descriptions.Item label="标记重要">
-              {d.importance_marked_by_name
-                ? `${d.importance_marked_by_name}（${d.importance_marked_at}）`
-                : d.importance_marked_at}
-            </Descriptions.Item>
           )}
         </Descriptions>
       </React.Fragment>
@@ -248,9 +238,10 @@ class RecordDetail extends React.Component {
 
   renderTitle() {
     const d = store.detail;
-    // 标题区只保留摘要（2026-10-04 对齐故障详情）：编号/当前状态/系统影响
-    // 程度/重要程度；"需要跟进"仅在记录确实需要跟进且状态标签无法表达时
-    // 展示（跟进中状态本身已表达该含义，不重复标）。
+    // 标题区只保留摘要（2026-10-04 对齐故障详情）：编号/当前状态；
+    // "需要跟进"仅在记录确实需要跟进且状态标签无法表达时展示（跟进中状态
+    // 本身已表达该含义，不重复标）；系统影响程度/重要程度标签已随字段
+    // 删除移除（2026-10-06）。
     return (
       <div style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap'}}>
         <span
@@ -260,22 +251,12 @@ class RecordDetail extends React.Component {
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}
         >
-          {d.record_no || '运行记录详情'}
+          {d.record_no || '运行异常记录详情'}
         </span>
         <Tag color={RUNTIME_STATUS_COLOR[d.status]}>{RUNTIME_STATUS_TEXT[d.status]}</Tag>
         {d.needs_follow_up && d.status !== 'following_up' && (
           <Tag color="blue">需要跟进</Tag>
         )}
-        {d.affects_system_operation ? (
-          <Tag color={RUNTIME_IMPACT_COLOR[d.impact_status]}>
-            {RUNTIME_IMPACT_TEXT[d.impact_status] || d.impact_status}
-          </Tag>
-        ) : (
-          <Tag>不影响运行</Tag>
-        )}
-        <Tag color={d.importance === 'important' ? 'red' : 'default'}>
-          {d.importance === 'important' ? '重要' : '普通'}
-        </Tag>
       </div>
     );
   }
@@ -284,6 +265,9 @@ class RecordDetail extends React.Component {
     const d = store.detail;
     const editable = EDITABLE_STATUSES.includes(d.status);
     const status = d.status;
+    const recordedLike = RECORDED_LIKE_STATUSES.includes(status);
+    const following = status === 'following_up';
+    const doneLike = status === 'completed';
     return (
       <Modal
         title={this.renderTitle()}
@@ -298,21 +282,32 @@ class RecordDetail extends React.Component {
           overflow: 'auto',
           paddingTop: 12,
         }}
+        /* 底部按钮只关闭详情窗口，不改业务状态；业务动作（完成跟进/转故障）
+           是顶部按钮，两者语义不同 */
         footer={<Button onClick={() => store.closeDetail()}>关 闭</Button>}
       >
         <Spin spinning={store.isDetailFetching}>
           <div style={{marginBottom: 12}}>
-            {editable && <AuthEditButton/>}
-            {(status === 'recorded' || status === 'pending_triage') &&
-              <AuthTriageButton/>}
-            {(status === 'following_up' || status === 'resolved') &&
-              <AuthFollowUpButton/>}
-            {status === 'following_up' && <AuthResolveButton/>}
-            {/* 已记录可直接关闭（不要求先研判），与后端状态机一致 */}
-            {(status === 'recorded' || status === 'following_up' ||
-              status === 'resolved') &&
-              <AuthCloseButton/>}
-            {status === 'no_follow_up' && <AuthRetriageButton/>}
+            {recordedLike && <AuthEditButton/>}
+            {recordedLike && (
+              <AuthPrimaryActionButton
+                auth={PERM.RUNTIME_EDIT}
+                text="开始跟进"
+                onClick={() => this.setState({activeTab: 'progress', addProgressVisible: true})}
+              />
+            )}
+            {following && (
+              <AuthPrimaryActionButton
+                auth={PERM.RUNTIME_EDIT}
+                text="新增跟进记录"
+                onClick={() => this.setState({activeTab: 'progress', addProgressVisible: true})}
+              />
+            )}
+            {following && <AuthEditPlanButton/>}
+            {following && <AuthCompleteButton/>}
+            {(recordedLike || following) && <AuthConvertButton/>}
+            {doneLike && <AuthFollowUpButton/>}
+            {status === 'converted_fault' && d.converted_fault && <AuthViewFaultButton/>}
           </div>
           {/* 页签受控（本地 state）：处理概览"查看全部进展"可直达处理进展
               页签；组件随详情开关重新挂载，每次打开回到基本信息页签 */}
@@ -321,19 +316,20 @@ class RecordDetail extends React.Component {
               {this.renderBasic()}
             </TabPane>
             <TabPane tab="处理进展" key="progress">
-              <ProgressTimeline editable={editable}/>
-            </TabPane>
-            <TabPane tab="重复问题" key="duplicates">
-              <DuplicatePanel editable={editable}/>
+              <ProgressTimeline
+                editable={editable}
+                onAdd={() => this.setState({addProgressVisible: true})}/>
             </TabPane>
             <TabPane tab="附件" key="attachments">
               <AttachmentTab editable={editable}/>
             </TabPane>
           </Tabs>
-          <TriageModal
-            visible={store.triageVisible}
-            onClose={() => store.triageVisible = false}
-          />
+          {/* 新增处理进展录入弹窗（现有处理进展界面）提升到详情层：
+              顶部"开始跟进/新增跟进记录"与处理进展页签共用同一入口；
+              已记录保存首条跟进记录后由后端流转为跟进中 */}
+          <ProgressModal
+            visible={this.state.addProgressVisible}
+            onClose={() => this.setState({addProgressVisible: false})}/>
         </Spin>
       </Modal>
     );
@@ -351,40 +347,40 @@ function AuthEditButton() {
   );
 }
 
-// 研判：一次动作完成 跟进结论 / 影响判定 / 重要标记 / 转正式故障
-// （已记录/待研判为同一操作主体的主动作，无需"提交研判"中转）
-const AuthTriageButton = observer(function AuthTriageButton() {
+// 顶部主行动按钮（开始跟进/新增跟进记录等）统一外壳
+function AuthPrimaryActionButton({auth, text, onClick}) {
   return (
     <span style={{marginLeft: 8}}>
-      <AuthButton
-        auth={PERM.RUNTIME_TRIAGE}
-        type="primary"
-        onClick={() => store.triageVisible = true}
-      >
-        研判
-      </AuthButton>
+      <AuthButton auth={auth} type="primary" onClick={onClick}>{text}</AuthButton>
     </span>
   );
-});
+}
 
-// 重新研判：无需跟进结论纠偏（复用研判弹窗，可改判跟进中/转正式故障/维持结论）
-const AuthRetriageButton = observer(function AuthRetriageButton() {
+// 修改当前跟进计划（仅跟进中顶部入口）：复用跟进计划弹窗，回填当前值，
+// 只修改 跟进人/计划处理时间 两个计划字段，不写处理结果、不产生处理进展
+function AuthEditPlanButton() {
+  const [visible, setVisible] = useState(false);
+  const d = store.detail;
   return (
     <span style={{marginLeft: 8}}>
-      <AuthButton
-        auth={PERM.RUNTIME_TRIAGE}
-        onClick={() => store.triageVisible = true}
-      >
-        重新研判
+      <AuthButton auth={PERM.RUNTIME_EDIT} onClick={() => setVisible(true)}>
+        修改跟进计划
       </AuthButton>
+      <FollowUpModal
+        visible={visible}
+        initial={{
+          follow_up_name: d.follow_up_name || '',
+          planned_handle_at: d.planned_handle_at || null,
+        }}
+        onClose={() => setVisible(false)}
+      />
     </span>
   );
-});
+}
 
-// 跟进中 → 跟进安排（更新跟进人/计划时间）；已处理 → 重新跟进（转回跟进中）
+// 已完成（含历史已处理）→ 重新跟进（转回跟进中，进入待办视图）
 const AuthFollowUpButton = observer(function AuthFollowUpButton() {
   const [visible, setVisible] = useState(false);
-  const following = store.detail.status === 'following_up';
   return (
     <span style={{marginLeft: 8}}>
       <AuthButton
@@ -392,25 +388,31 @@ const AuthFollowUpButton = observer(function AuthFollowUpButton() {
         loading={store.isActionSubmitting}
         onClick={() => setVisible(true)}
       >
-        {following ? '跟进安排' : '重新跟进'}
+        重新跟进
       </AuthButton>
-      <FollowUpModal
-        visible={visible}
-        following={following}
-        onClose={() => setVisible(false)}
-      />
+      <FollowUpModal visible={visible} onClose={() => setVisible(false)}/>
     </span>
   );
 });
 
-// 跟进安排 / 重新跟进：跟进人与计划处理时间选填（待办视图按此展示筛选）
-const FollowUpModal = observer(function FollowUpModal({visible, following, onClose}) {
+// 重新跟进 / 修改当前跟进计划：只修改 跟进人/计划处理时间 两个当前计划
+// 字段，不写处理结果、不产生处理进展；修改计划时以 initial 回填当前值
+const FollowUpModal = observer(function FollowUpModal({visible, initial, onClose}) {
   const [followUpName, setFollowUpName] = useState('');
   const [plannedAt, setPlannedAt] = useState(null);
+  const editing = !!initial;
+  useEffect(() => {
+    if (visible) {
+      setFollowUpName((initial && initial.follow_up_name) || '');
+      setPlannedAt(initial && initial.planned_handle_at
+        ? moment(initial.planned_handle_at, 'YYYY-MM-DD HH:mm') : null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
   return (
     <Modal
       visible={visible}
-      title={following ? '更新跟进安排' : '重新跟进'}
+      title={editing ? '修改跟进计划' : '重新跟进'}
       confirmLoading={store.isActionSubmitting}
       onCancel={() => {
         onClose();
@@ -422,7 +424,7 @@ const FollowUpModal = observer(function FollowUpModal({visible, following, onClo
           follow_up_name: followUpName.trim(),
           planned_handle_at: plannedAt ? plannedAt.format('YYYY-MM-DD HH:mm') : '',
         }).then(() => {
-          message.success(following ? '跟进安排已更新' : '已重新进入跟进中');
+          message.success(editing ? '跟进计划已更新' : '已重新进入跟进中');
           onClose();
           setFollowUpName('');
           setPlannedAt(null);
@@ -430,8 +432,8 @@ const FollowUpModal = observer(function FollowUpModal({visible, following, onClo
       }}
     >
       <p>
-        {following
-          ? '更新跟进人/计划处理时间；记录保持跟进中状态。'
+        {editing
+          ? '更新当前跟进人/计划处理时间；记录保持跟进中，修改计划不产生处理进展。'
           : '重新进入跟进中后进入待办视图，可持续记录处理进展。'}
       </p>
       <Form layout="vertical">
@@ -457,92 +459,169 @@ const FollowUpModal = observer(function FollowUpModal({visible, following, onClo
   );
 });
 
-function AuthResolveButton() {
+// 完成跟进：跟进中 → 已完成（纯确认动作，完成后可直接重新跟进，不要求
+// 再次关闭）
+function AuthCompleteButton() {
   const [visible, setVisible] = useState(false);
   return (
     <span style={{marginLeft: 8}}>
       <AuthButton auth={PERM.RUNTIME_RESOLVE} onClick={() => setVisible(true)}>
-        标记已处理
+        完成跟进
       </AuthButton>
-      <ResultModal
-        visible={visible}
-        title="标记已处理"
-        action="resolve"
-        onClose={() => setVisible(false)}
-      />
+      <CompleteModal visible={visible} onClose={() => setVisible(false)}/>
     </span>
   );
 }
 
-function AuthCloseButton() {
-  const [visible, setVisible] = useState(false);
-  return (
-    <span style={{marginLeft: 8}}>
-      <AuthButton auth={PERM.RUNTIME_CLOSE} danger onClick={() => setVisible(true)}>
-        关闭
-      </AuthButton>
-      <ResultModal
-        visible={visible}
-        title="关闭运行记录"
-        action="close"
-        onClose={() => setVisible(false)}
-      />
-    </span>
-  );
-}
-
-// 标记已处理 / 关闭共用：可选补填处理结果
-const ResultModal = observer(function ResultModal({visible, title, action, onClose}) {
-  const [result, setResult] = useState('');
-  const d = store.detail;
+// 完成跟进确认：不再补填处理结果——处理过程/最终说明的唯一入口是处理
+// 进展时间线（最终说明应作为最后一条处理进展保存，不写入全局结果字段）
+const CompleteModal = observer(function CompleteModal({visible, onClose}) {
   return (
     <Modal
       visible={visible}
-      title={title}
+      title="完成跟进"
       confirmLoading={store.isActionSubmitting}
-      onCancel={() => {
-        onClose();
-        setResult('');
-      }}
+      onCancel={onClose}
       onOk={() => {
-        const request = action === 'resolve'
-          ? store.resolveRecord({handling_result: result.trim()})
-          : store.closeRecord({handling_result: result.trim()});
-        request.then(() => {
-          message.success(action === 'resolve' ? '已标记为已处理' : '运行记录已关闭');
-          onClose();
-          setResult('');
-        }).catch(() => {});
+        store.completeFollowUp()
+          .then(() => {
+            message.success('已完成跟进');
+            onClose();
+          }).catch(() => {});
       }}
     >
-      <p>
-        {action === 'resolve'
-          ? '标记为已处理后仍可继续关闭或重新跟进。'
-          : `关闭后运行记录进入终态，不可再编辑或追加进展。当前处理结果：${d.handling_result || '（空）'}`}
+      <p>完成后记录进入"已完成"，可随时重新跟进，无需关闭。</p>
+      <p style={{color: 'rgba(0, 0, 0, 0.45)', marginBottom: 0}}>
+        如需留档最终说明，请先在处理进展中追加一条收尾进展。
       </p>
-      <Input.TextArea
-        rows={3}
-        value={result}
-        onChange={e => setResult(e.target.value)}
-        placeholder="补填处理结果（选填）"
-      />
     </Modal>
   );
 });
 
-// observer 必须包裹：时间线读取 progressRecords/isProgressFetching
-const ProgressTimeline = observer(function ProgressTimeline({editable}) {
+// 转为正式故障（跟进中顶部入口）：创建并关联正式故障，后续处置以故障模块为准
+function AuthConvertButton() {
+  const [visible, setVisible] = useState(false);
+  return (
+    <span style={{marginLeft: 8}}>
+      <AuthButton auth={PERM.RUNTIME_CONVERT_FAULT} onClick={() => setVisible(true)}>
+        转为正式故障
+      </AuthButton>
+      <ConvertFaultModal visible={visible} onClose={() => setVisible(false)}/>
+    </span>
+  );
+}
+
+// 转正式故障确认：现象缺省由后端带入运行异常记录标题与描述；仅当该记录曾转
+// 故障后被撤销时才需要填写重新处置原因
+const ConvertFaultModal = observer(function ConvertFaultModal({visible, onClose}) {
+  const [phenomenon, setPhenomenon] = useState('');
+  const [reDisposeReason, setReDisposeReason] = useState('');
+  return (
+    <Modal
+      visible={visible}
+      title="转为正式故障"
+      confirmLoading={store.isActionSubmitting}
+      onCancel={() => {
+        onClose();
+        setPhenomenon('');
+        setReDisposeReason('');
+      }}
+      onOk={() => {
+        store.convertToFault({
+          phenomenon: phenomenon.trim(),
+          re_dispose_reason: reDisposeReason.trim(),
+        }).then(() => {
+          message.success('已转为正式故障，后续处置以故障模块为准');
+          onClose();
+          setPhenomenon('');
+          setReDisposeReason('');
+        }).catch(() => {});
+      }}
+    >
+      <p>
+        将创建一条正式故障并关联本运行异常记录，记录进入"已转故障"；
+        后续处理/恢复确认/关闭全部在故障模块完成。
+      </p>
+      <Form layout="vertical">
+        <Form.Item label="故障现象" style={{marginBottom: 12}}>
+          <TextArea
+            rows={3}
+            value={phenomenon}
+            onChange={e => setPhenomenon(e.target.value)}
+            placeholder="选填，缺省带入运行异常记录标题与情况描述"
+          />
+        </Form.Item>
+        <Form.Item label="重新处置原因" style={{marginBottom: 0}}>
+          <Input
+            value={reDisposeReason}
+            onChange={e => setReDisposeReason(e.target.value)}
+            placeholder="仅当本记录曾转故障后又被撤销时必填"
+          />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+});
+
+// 查看关联故障（已转故障唯一入口）：跳转故障详情，后续处置以故障模块为准
+const AuthViewFaultButton = observer(function AuthViewFaultButton() {
+  const d = store.detail;
+  return (
+    <AuthButton
+      auth={PERM.RUNTIME_VIEW}
+      type="primary"
+      onClick={() => {
+        store.closeDetail();
+        history.push(`/el/faults?detail=${d.converted_fault}`);
+      }}
+    >
+      查看关联故障
+    </AuthButton>
+  );
+});
+
+// observer 必须包裹：时间线读取 progressRecords/isProgressFetching。
+// 统一处理工作区（2026-10-04 信息分层收敛）：当前跟进计划（仅跟进中，
+// 计划修改走顶部"修改跟进计划"）→ 新增处理进展（追加式，处理过程的唯一
+// 记录入口，已记录保存首条跟进记录后进入跟进中）→ 历史处理进展时间线；
+// 终态（已转故障/已关闭）只读查看时间线。
+const ProgressTimeline = observer(function ProgressTimeline({editable, onAdd}) {
+  const d = store.detail;
+  const following = d.status === 'following_up';
+  const doneLike = d.status === 'completed';
+  const hasPlan = Boolean(d.follow_up_name || d.planned_handle_at);
   return (
     <div>
+      {editable && (
+        <React.Fragment>
+          {sectionTitle('当前跟进计划')}
+          <div style={{marginBottom: 12}}>
+            {following ? (
+              hasPlan ? (
+                <span>
+                  跟进人：{d.follow_up_name || '-'}
+                  <span style={{marginLeft: 16}}>计划处理：{d.planned_handle_at || '-'}</span>
+                </span>
+              ) : '暂无跟进计划（可在顶部"修改跟进计划"中填写）'
+            ) : (
+              <span style={{color: 'rgba(0, 0, 0, 0.45)'}}>
+                {doneLike
+                  ? '跟进已完成；如需继续处理，请使用顶部"重新跟进"。'
+                  : '尚未开始跟进；点击顶部"开始跟进"并保存第一条跟进记录后进入跟进中。'}
+              </span>
+            )}
+          </div>
+          {sectionTitle('新增处理进展')}
+          <div style={{marginBottom: 12}}>
+            <AddProgressButton onAdd={onAdd}/>
+          </div>
+        </React.Fragment>
+      )}
+      {sectionTitle('历史处理进展时间线')}
       <p style={{color: '#999', marginTop: 0}}>
-        处理进展按时间追加记录；更正不会覆盖原内容（原内容、修改内容与更正原因一并留痕）。
+        处理进展是实际处理过程的唯一记录入口，按时间追加；更正不会覆盖原内容（原内容、修改内容与更正原因一并留痕）。
         已关闭或已转故障的记录不再追加普通处理进展。
       </p>
-      {editable && (
-        <div style={{marginBottom: 12}}>
-          <AddProgressButton/>
-        </div>
-      )}
       <Spin spinning={store.isProgressFetching}>
         {store.progressRecords.length ? (
           <Timeline style={{marginTop: 8}}>
@@ -574,20 +653,16 @@ const ProgressTimeline = observer(function ProgressTimeline({editable}) {
   );
 });
 
-function AddProgressButton() {
-  const [visible, setVisible] = useState(false);
+function AddProgressButton({label, onAdd}) {
   return (
-    <span>
-      <AuthButton
-        auth={PERM.RUNTIME_EDIT}
-        type="primary"
-        icon={<PlusOutlined/>}
-        onClick={() => setVisible(true)}
-      >
-        追加处理进展
-      </AuthButton>
-      <ProgressModal visible={visible} onClose={() => setVisible(false)}/>
-    </span>
+    <AuthButton
+      auth={PERM.RUNTIME_EDIT}
+      type="primary"
+      icon={<PlusOutlined/>}
+      onClick={onAdd}
+    >
+      {label || '追加处理进展'}
+    </AuthButton>
   );
 }
 
@@ -617,29 +692,26 @@ function ProgressModal({visible, record, onClose}) {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const isCorrect = !!record;
-  useEffect(() => {
-    if (visible) {
-      form.resetFields();
-      if (isCorrect) {
-        form.setFieldsValue({
-          handled_at: record.handled_at ? moment(record.handled_at, 'YYYY-MM-DD HH:mm') : null,
-          handler_names: (record.handler_name || '').split('、').filter(Boolean),
-          content: record.content,
-          result: record.result,
-          work_hours: record.work_hours ?? undefined,
-        });
-      } else {
-        // 新增进展：时间默认当前时间；处理人为手动输入姓名（回车确认，可多个），
-        // 不预填默认姓名
-        form.setFieldsValue({handled_at: moment(), handler_names: []});
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
+  // initialValues + destroyOnClose（与故障确认恢复弹窗同一模式）：每次打开
+  // 重新挂载表单取最新值，避免 Modal 惰性挂载下 setFieldsValue 与字段注册
+  // 时序错位导致受控失效
+  const initialValues = isCorrect ? {
+    handled_at: record.handled_at ? moment(record.handled_at, 'YYYY-MM-DD HH:mm') : null,
+    handler_names: (record.handler_name || '').split('、').filter(Boolean),
+    content: record.content,
+    result: record.result,
+    work_hours: record.work_hours ?? undefined,
+  } : {
+    // 新增进展：时间默认当前时间；处理人为手动输入姓名（回车确认，可多个），
+    // 不预填默认姓名
+    handled_at: moment(),
+    handler_names: [],
+  };
   return (
     <Modal
       visible={visible}
       title={isCorrect ? '更正处理进展' : '追加处理进展'}
+      destroyOnClose
       confirmLoading={loading}
       onCancel={onClose}
       onOk={() => {
@@ -665,7 +737,8 @@ function ProgressModal({visible, record, onClose}) {
         }).catch(() => {});
       }}
     >
-      <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}>
+      <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}
+        initialValues={initialValues}>
         <Form.Item
           name="handled_at"
           label="处理时间"
@@ -678,8 +751,14 @@ function ProgressModal({visible, record, onClose}) {
           label="处理人"
           rules={[{required: true, type: 'array', message: '请输入姓名后回车确认'}]}
         >
-          {/* open=false：仅手输姓名（回车/失焦添加），与故障登记人输入一致 */}
-          <SelectTagsPlaceholder/>
+          {/* open=false：仅手输姓名（回车/失焦添加），与故障登记人输入一致。
+              必须内联（不得包装转发）：Form.Item 以 cloneElement 注入
+              value/onChange，包装组件若不透传会使表单收不到变更 */}
+          <Select
+            mode="tags"
+            open={false}
+            placeholder="输入姓名后回车确认（可多个）"
+          />
         </Form.Item>
         <Form.Item
           name="content"
@@ -708,19 +787,8 @@ function ProgressModal({visible, record, onClose}) {
   );
 }
 
-// mode="tags" open=false 的手输姓名输入（与故障登记人输入一致）
-function SelectTagsPlaceholder() {
-  return (
-    <Select
-      mode="tags"
-      open={false}
-      placeholder="输入姓名后回车确认（可多个）"
-    />
-  );
-}
-
 // 附件区：复用公共 AttachmentManager（evidence 附件体系）；
-// 删除走运行记录自己的 DELETE 路由（deleteRequest），下载前缀拼接记录级路由；
+// 删除走运行异常记录自己的 DELETE 路由（deleteRequest），下载前缀拼接记录级路由；
 // 终态记录 readOnly（不可上传/删除，仍可下载）
 function AttachmentTab({editable}) {
   const d = store.detail;

@@ -5,7 +5,7 @@
  */
 /**
  * 设备全生命周期——系统列表页（步骤二）。
- * 支持跨页跳转直达详情：/el/systems?detail=<系统ID>（当前运行状态/履历页跳入）。
+ * 支持跨页跳转直达详情：/el/systems?detail=<系统ID>（履历页跳入）。
  */
 import React, { useEffect } from 'react';
 import { observer } from 'mobx-react';
@@ -20,7 +20,7 @@ import { API_PREFIX, HEALTH_STATUS_OPTIONS, PERM } from './constants';
 
 function SystemIndex(props) {
   useEffect(() => {
-    // 跨页跳转直达详情（当前运行状态/履历页跳入：?detail=<系统ID>）
+    // 跨页跳转直达详情（履历页跳入：?detail=<系统ID>）
     const params = new URLSearchParams(props.location ? props.location.search : '');
     const detailId = params.get('detail');
     if (detailId && /^\d+$/.test(detailId)) {

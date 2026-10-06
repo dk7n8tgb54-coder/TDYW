@@ -158,31 +158,6 @@ def record_upgrade_lifecycle_events(record, action, detail=None, created_by=None
     )
 
 
-def record_runtime_record_event(record, action, title, detail=None,
-                                occurred_at=None, created_by=None):
-    """运行记录履历事件（2026-10 运行记录第一版）。
-
-    只在满足履历条件时由服务层调用（影响系统运行 / 标记重要 / 转为故障），
-    普通小问题不写履历；无手工创建履历接口。
-    - action：create（影响系统运行的记录创建时）/ mark_important（标记重要，
-      只在普通→重要升级时生成一次，不伪造历史事件）/ convert_to_fault；
-    - 事件保留运行记录编号（source_no）与来源链接（source_type+source_id）。
-    """
-    return record_system_event(
-        tenant_id=record.tenant_id,
-        system=record.system,
-        event_type=SystemEvent.EVENT_RUNTIME,
-        action=action,
-        source_type='runtime_record',
-        source_id=record.id,
-        source_no=record.record_no,
-        title=title,
-        detail=detail,
-        occurred_at=occurred_at,
-        created_by=created_by,
-    )
-
-
 def record_health_change_event(system, old_status, new_status, reason='', created_by=None):
     """健康状态变化事件（仅状态实际变化时由重算服务调用，纯追加）。"""
     return record_system_event(

@@ -46,7 +46,7 @@ SOURCE_TYPE_TEXT = {
     'ledger_item': '台账异常',
     'health': '健康状态',
     'config_snapshot': '配置快照',
-    'runtime_record': '运行记录',
+    'runtime_record': '运行异常记录',
 }
 
 DATETIME_FORMATS = ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%dT%H:%M:%S',

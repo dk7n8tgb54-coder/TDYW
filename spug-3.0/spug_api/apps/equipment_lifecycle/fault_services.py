@@ -8,7 +8,7 @@
 - 计算范围只看本系统自己的业务记录（不查询任何跨系统关联表）：
   本系统的有效故障（排除已恢复确认/已关闭与已作废，且仅限明确选择
   "影响系统运行"的故障；部件故障/离线维修默认不影响运行，不参与计算）；
-  "故障维修工单"已整体删除（2026-09-30），维修过程由故障处理进展承载，
+  "故障维修工单"已整体删除（2026-09-30），维修过程由故障处置记录承载，
   健康状态计算不读取任何工单数据；
 - 优先级：中断 > 故障 > 降级（多张故障并存时取最高影响，一张故障关闭
   不会覆盖本系统其他未恢复故障的影响）；
@@ -191,7 +191,7 @@ def create_fault_record(*, tenant_id, created_by, system, impact_status,
                         source_type=None, source_ledger_item=None,
                         source_inspection_record=None,
                         source_runtime_record=None, request=None):
-    """正式故障创建服务（单系统简化，台账异常/巡检异常/运行记录转故障复用）。
+    """正式故障创建服务（单系统简化，台账异常/巡检异常/运行异常记录转故障复用）。
 
     须在 health_recalc_lock + transaction.atomic 内调用（调用方负责锁与事务）：
     - 创建故障主单（一个故障系统外键 + 发生时快照，无受影响系统）；
@@ -279,16 +279,16 @@ def generate_fault_no():
 
 
 def handling_overview_map(fault_ids):
-    """批量统计故障的真实处理进展概览（列表聚合，单次查询，无 N+1）。
+    """批量统计故障的真实处置记录概览（列表聚合，单次查询，无 N+1）。
 
     - handling_record_count：SystemFaultHandlingRecord 行数（追加式时间线）。
       更正留痕保存在记录的 corrections JSON 内不产生独立行、系统履历为
       SystemEvent 独立表，均天然不计入；已关闭/已作废故障保留历史数量。
-    - latest_handled_at / latest_handling_content：按（进展时间, id）最新
-      一条进展的时间与内容；无进展的故障返回零值（count=0、时间为 None、
-      内容为空串），调用方无需再补默认值。
+    - latest_handled_at / latest_handling_content：按（处置时间, id）最新
+      一条处置记录的时间与内容；无处置记录的故障返回零值（count=0、时间为
+      None、内容为空串），调用方无需再补默认值。
     - 故障 ID 由调用方先按租户过滤（apply_tenant_filter；跨租户可见的
-      超级管理员列表含多租户 ID），进展记录经 fault 外键唯一归属本故障，
+      超级管理员列表含多租户 ID），处置记录经 fault 外键唯一归属本故障，
       按故障 ID 查询天然满足租户边界，不再叠加调用方租户条件。
     返回 {fault_id: {'handling_record_count', 'latest_handled_at',
     'latest_handling_content'}}。
@@ -322,7 +322,7 @@ def handling_overview_map(fault_ids):
 
 
 def handling_overview(fault):
-    """单张故障的处理进展概览（详情出口用），字段口径与列表聚合一致。"""
+    """单张故障的处置记录概览（详情出口用），字段口径与列表聚合一致。"""
     return handling_overview_map([fault.id]).get(fault.id) or {
         'handling_record_count': 0,
         'latest_handled_at': None,

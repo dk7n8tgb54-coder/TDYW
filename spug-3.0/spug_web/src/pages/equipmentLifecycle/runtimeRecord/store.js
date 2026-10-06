@@ -3,7 +3,7 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——运行记录状态管理（MobX, legacy decorators）。
+ * 设备全生命周期——运行异常记录状态管理（MobX, legacy decorators）。
  * 业务关联一律使用系统 ID；成功提示等待后端真实成功（http.js 拦截器统一提示 error，
  * 业务代码不重复提示）。
  */
@@ -24,10 +24,7 @@ class RuntimeRecordStore {
   @observable f_status = undefined;
   @observable f_system = undefined;
   @observable f_follow = undefined;
-  @observable f_importance = undefined;
-  @observable f_impact = undefined;
   @observable f_category = undefined;
-  @observable f_repeated = undefined;
   @observable f_occurred_range = undefined;
 
   // ========== 表单 ==========
@@ -60,18 +57,12 @@ class RuntimeRecordStore {
   // ========== 动作执行中 ==========
   @observable isActionSubmitting = false;
 
-  // ========== 第二版：研判弹窗 ==========
-  @observable triageVisible = false;
-
   @action resetFilter = () => {
     this.f_keyword = undefined;
     this.f_status = undefined;
     this.f_system = undefined;
     this.f_follow = undefined;
-    this.f_importance = undefined;
-    this.f_impact = undefined;
     this.f_category = undefined;
-    this.f_repeated = undefined;
     this.f_occurred_range = undefined;
     this.page = 1;
   };
@@ -85,12 +76,7 @@ class RuntimeRecordStore {
     if (this.f_follow !== undefined && this.f_follow !== null) {
       params.needs_follow_up = this.f_follow ? 'yes' : 'no';
     }
-    if (this.f_importance) params.importance = this.f_importance;
-    if (this.f_impact) params.impact = this.f_impact;
     if (this.f_category) params.category = this.f_category;
-    if (this.f_repeated !== undefined && this.f_repeated !== null) {
-      params.repeated = this.f_repeated ? 'yes' : 'no';
-    }
     if (this.f_occurred_range && this.f_occurred_range.length === 2) {
       params.occurred_from = this.f_occurred_range[0].format('YYYY-MM-DD HH:mm');
       params.occurred_to = this.f_occurred_range[1].format('YYYY-MM-DD HH:mm');
@@ -148,13 +134,11 @@ class RuntimeRecordStore {
     this.progressRecords = [];
     this.progressTotal = 0;
     this.attachments = [];
-    this.duplicateLinks = [];
-    this.similarRecords = [];
+    // 重复问题（相似记录/重复关联）已随功能退役整体删除（2026-10-06）：
+    // 打开详情只请求详情/处理进展/附件三项。
     this.fetchDetail();
     this.fetchProgressRecords();
     this.fetchAttachments();
-    this.fetchDuplicateLinks();
-    this.fetchSimilarRecords();
   });
 
   closeDetail = action(() => {
@@ -231,83 +215,8 @@ class RuntimeRecordStore {
 
   markFollowUp = (extra) => this._postAction('follow-up', extra);
 
-  resolveRecord = (formData) => this._postAction('resolve', formData);
-
-  closeRecord = (formData) => this._postAction('close', formData);
-
-  markImportant = (formData) => this._postAction('mark-important', formData);
-
-  // ========== 第二版：研判 / 无需跟进 / 重复标记 ==========
-  submitTriage = (formData) => this._postAction('triage', formData);
-
-  markNoFollowUp = () => this._postAction('no-follow-up');
-
-  markRepeated = (isRepeated) => this._postAction('mark-repeated', {is_repeated: isRepeated});
-
-  // ========== 第二版：重复问题关联 ==========
-  @observable duplicateLinks = [];
-  @observable isLinksFetching = false;
-  linksRequestSeq = 0;
-
-  // 相似记录查询
-  @observable similarRecords = [];
-  @observable isSimilarFetching = false;
-  similarRequestSeq = 0;
-
-  fetchDuplicateLinks = () => {
-    if (!this.detailId) return Promise.resolve();
-    const requestSeq = ++this.linksRequestSeq;
-    this.isLinksFetching = true;
-    return http.get(`${API_PREFIX}/runtime-records/${this.detailId}/duplicate-links/`)
-      .then(action(res => {
-        if (requestSeq === this.linksRequestSeq) {
-          this.duplicateLinks = res.data || [];
-        }
-      }))
-      .catch(action(() => {}))
-      .finally(action(() => {
-        if (requestSeq === this.linksRequestSeq) {
-          this.isLinksFetching = false;
-        }
-      }));
-  };
-
-  linkDuplicate = (duplicateId, note) => {
-    this.isActionSubmitting = true;
-    return http.post(`${API_PREFIX}/runtime-records/${this.detailId}/duplicate-links/`,
-      {duplicate_id: duplicateId, note: note || ''})
-      .then(action(() => this.fetchDuplicateLinks()))
-      .finally(action(() => {
-        this.isActionSubmitting = false;
-      }));
-  };
-
-  unlinkDuplicate = (linkId) => {
-    this.isActionSubmitting = true;
-    return http.delete(`${API_PREFIX}/runtime-records/${this.detailId}/duplicate-links/${linkId}/`)
-      .then(action(() => this.fetchDuplicateLinks()))
-      .finally(action(() => {
-        this.isActionSubmitting = false;
-      }));
-  };
-
-  fetchSimilarRecords = () => {
-    if (!this.detailId) return Promise.resolve();
-    const requestSeq = ++this.similarRequestSeq;
-    this.isSimilarFetching = true;
-    return http.get(`${API_PREFIX}/runtime-records/${this.detailId}/similar/`)
-      .then(action(res => {
-        if (requestSeq === this.similarRequestSeq) {
-          this.similarRecords = res.data || [];
-        }
-      }))
-      .catch(action(() => {}))
-      .finally(action(() => {
-        if (requestSeq === this.similarRequestSeq) {
-          this.isSimilarFetching = false;
-        }
-      }));
-  };
+  // 完成跟进：跟进中 → 已完成（resolve 端点，可重新跟进）
+  completeFollowUp = (formData) => this._postAction('resolve', formData);
 
   convertToFault = (formData) => {
     this.isActionSubmitting = true;
@@ -321,8 +230,9 @@ class RuntimeRecordStore {
   addProgressRecord = (formData) => {
     this.isActionSubmitting = true;
     return http.post(`${API_PREFIX}/runtime-records/${this.detailId}/progress/`, formData)
-      // 追加进展只改变时间线；返回列表刷新 Promise，调用方在真实列表完成后再关闭弹窗。
-      .then(action(() => this.fetchProgressRecords()))
+      // 追加进展即"跟进"动作：已记录保存首条跟进记录后后端流转为跟进中，
+      // 因此成功后全量刷新详情/进展/列表真实数据，调用方在完成后关闭弹窗。
+      .then(action(() => this._refreshAfterAction()))
       .finally(action(() => {
         this.isActionSubmitting = false;
       }));
@@ -338,7 +248,7 @@ class RuntimeRecordStore {
       }));
   };
 
-  // ========== 系统详情运行记录页签 ==========
+  // ========== 系统详情运行异常记录页签 ==========
   @observable systemRecords = [];
   @observable systemRecordsTotal = 0;
   @observable systemLatestOccurredAt = null;

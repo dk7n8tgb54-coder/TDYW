@@ -122,36 +122,40 @@ function InitConfigFields({ selectedPlan, onApplyPlan, onClearPlan }) {
   );
 }
 
+// 标题自动生成（system 为系统档案 ID，标题取系统名称）
+function buildTitle(allValues) {
+  const parts = [];
+  const sys = store.systems.find(s => s.id === allValues.system);
+  if (sys) parts.push(sys.name);
+  if (allValues.upgrade_type) parts.push(allValues.upgrade_type);
+  if (allValues.upgrade_time) {
+    const t = allValues.upgrade_time;
+    parts.push(t && t.format ? t.format('YYYY-MM-DD') : String(t));
+  }
+  return parts.filter(Boolean).join(' - ');
+}
+
+// 挂载时加载建单所需数据；从升级方案页跳转而来时自动应用预设方案
+function useInitCreateModal(onApplyPreset) {
+  useEffect(() => {
+    store.fetchPlans();
+    store.fetchSystems();
+    store.fetchFilterOptions();
+    if (store.presetPlanId) {
+      onApplyPreset(store.presetPlanId);
+    }
+    // 仅在弹窗挂载时执行一次（presetPlanId 取打开时刻的值）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
 export default observer(function CreateUpgradeModal() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [titleTouched, setTitleTouched] = useState(false);
 
-  useEffect(() => {
-    // 打开时加载建单所需数据
-    store.fetchPlans();
-    store.fetchSystems();
-    store.fetchFilterOptions();
-
-    // 如果从升级方案页面跳转而来，自动应用预设方案
-    if (store.presetPlanId) {
-      handleApplyPlan(store.presetPlanId);
-    }
-  }, []);
-
-  // 标题自动生成（system 为系统档案 ID，标题取系统名称）
-  function buildTitle(allValues) {
-    const parts = [];
-    const sys = store.systems.find(s => s.id === allValues.system);
-    if (sys) parts.push(sys.name);
-    if (allValues.upgrade_type) parts.push(allValues.upgrade_type);
-    if (allValues.upgrade_time) {
-      const t = allValues.upgrade_time;
-      parts.push(t && t.format ? t.format('YYYY-MM-DD') : String(t));
-    }
-    return parts.filter(Boolean).join(' - ');
-  }
+  useInitCreateModal((planId) => handleApplyPlan(planId));
 
   function onValuesChange(changed, all) {
     if ('title' in changed) {
@@ -172,7 +176,8 @@ export default observer(function CreateUpgradeModal() {
 
   function handleApplyPlan(planId) {
     store.fetchPlanDetail(planId).then(plan => {
-      if (!plan) { message.error('获取方案失败'); return; }
+      // 获取失败时提示已由 http 拦截器弹出，plan 为 null 直接返回
+      if (!plan) return;
       setSelectedPlan(plan);
       const values = {};
       if (plan.system_id) values.system = plan.system_id;

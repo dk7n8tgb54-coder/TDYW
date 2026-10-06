@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""故障"处理进展概览"统计契约测试（2026-10 流程简化配套）。
+"""故障"处置记录概览"统计契约测试（2026-10 流程简化配套）。
 
 覆盖行为契约：
 - 列表与详情接口返回后端聚合的只读统计字段
   handling_record_count / latest_handled_at / latest_handling_content；
-- 数量只统计真实处理进展记录（SystemFaultHandlingRecord 行）：更正留痕
+- 数量只统计真实处置记录（SystemFaultHandlingRecord 行）：更正留痕
   （corrections JSON）与系统履历节点均不计入；已关闭/已作废故障保留
-  历史数量；无进展返回 0；
+  历史数量；无处置记录返回 0；
 - 列表聚合单次 IN 查询完成，查询数不随故障行数增长（无 N+1）；
 - 多故障统计互不串数（不重复计数）；
 - 统计遵守租户过滤与权限边界（跨租户不可见、无权限拒绝）。
@@ -81,7 +81,7 @@ class HandlingOverviewTestBase(TestCase):
         return SystemFault.objects.get(pk=body['data']['id'])
 
     def add_progress(self, fault, handled_at, content, user=None, **overrides):
-        """追加一条处理进展，返回响应体。"""
+        """追加一条处置记录，返回响应体。"""
         payload = {'handled_at': handled_at, 'content': content,
                    'recorder_name': '记录人甲'}
         payload.update(overrides)
@@ -106,7 +106,7 @@ class HandlingOverviewTestBase(TestCase):
 
 
 class HandlingOverviewFieldTest(HandlingOverviewTestBase):
-    """统计字段口径：数量、最新时间、最后记录内容。"""
+    """统计字段口径：数量、最新时间、最近处置措施内容。"""
 
     def test_create_fault_status_handling_and_zero_overview(self):
         """新建故障即处置中；列表与详情均返回 handling_record_count=0。"""
@@ -122,7 +122,7 @@ class HandlingOverviewFieldTest(HandlingOverviewTestBase):
         self.assertEqual(detail['latest_handling_content'], '')
 
     def test_two_progress_records_counted_in_list_and_detail(self):
-        """新增两条进展后列表与详情都返回数量 2 与最新一条的时间/内容。"""
+        """新增两条处置记录后列表与详情都返回数量 2 与最新一条的时间/内容。"""
         fault = self.create_fault(self.system_a)
         self.add_progress(fault, '2026-10-01 09:00', '现场检查，确认链路异常')
         self.add_progress(fault, '2026-10-01 09:30', '更换备件后完成业务验证')
@@ -137,7 +137,7 @@ class HandlingOverviewFieldTest(HandlingOverviewTestBase):
         self.assertEqual(detail['latest_handling_content'], '更换备件后完成业务验证')
 
     def test_same_handled_at_takes_latest_created_record(self):
-        """进展时间并列时取后创建（id 更大）的一条作为最后记录。"""
+        """处置时间并列时取后创建（id 更大）的一条作为最近处置措施。"""
         fault = self.create_fault(self.system_a)
         self.add_progress(fault, '2026-10-01 09:00', '先登记的观察记录')
         self.add_progress(fault, '2026-10-01 09:00', '后登记的补充结论')
@@ -146,7 +146,7 @@ class HandlingOverviewFieldTest(HandlingOverviewTestBase):
         self.assertEqual(by_id[fault.id]['latest_handling_content'], '后登记的补充结论')
 
     def test_correction_keeps_count_and_updates_latest_content(self):
-        """更正进展内容不增加数量，"最后记录"同步为更正后的内容。"""
+        """更正处置措施不增加数量，"最近处置措施"同步为更正后的内容。"""
         fault = self.create_fault(self.system_a)
         self.add_progress(fault, '2026-10-01 09:00', '初步检查（笔误）')
         record = SystemFaultHandlingRecord.objects.filter(fault=fault).first()
@@ -155,7 +155,7 @@ class HandlingOverviewFieldTest(HandlingOverviewTestBase):
             {'content': '初步检查（已更正）', 'correction_reason': '笔误更正'},
             content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
-        # 更正留痕保存在 corrections JSON 内，不产生新的进展行
+        # 更正留痕保存在 corrections JSON 内，不产生新的处置记录行
         self.assertEqual(SystemFaultHandlingRecord.objects.filter(fault=fault).count(), 1)
         rows, by_id = self.list_rows()
         self.assertEqual(by_id[fault.id]['handling_record_count'], 1)
@@ -165,7 +165,7 @@ class HandlingOverviewFieldTest(HandlingOverviewTestBase):
         self.assertEqual(detail['latest_handling_content'], '初步检查（已更正）')
 
     def test_closed_and_cancelled_faults_keep_history_counts(self):
-        """已关闭/已撤销故障仍保留历史处理进展数量（已撤销经显式筛选查询）。
+        """已关闭/已撤销故障仍保留历史处置记录数量（已撤销经显式筛选查询）。
         2026-10-03 撤销登记改版：默认列表只含有效故障，已撤销记录退出主列表，
         详情与显式 status=cancelled 筛选仍返回历史统计。"""
         closed = self.create_fault(self.system_a, occurred_at='2026-10-01 08:00')
@@ -244,7 +244,7 @@ class HandlingOverviewAggregationTest(HandlingOverviewTestBase):
         with CaptureQueriesContext(connection) as ctx_small:
             resp = client.get(f'{FAULT_URL}/', {'page': 1, 'page_size': 20})
             self.assertFalse(resp.json().get('error'), resp.content)
-        # 再造 5 张有进展的故障后，同页大小的列表查询数不得增长
+        # 再造 5 张有处置记录的故障后，同页大小的列表查询数不得增长
         for seq in range(4, 9):
             self.create_fault(self.system_a, occurred_at=f'2026-09-{seq:02d} 08:00',
                               phenomenon=f'故障现象-{seq}')
