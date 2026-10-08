@@ -125,15 +125,15 @@ class SystemDetail extends React.Component {
             <TabPane tab="故障记录" key="faults">
               <FaultRecordsTab systemId={d.id}/>
             </TabPane>
-            {/* 运行异常记录（2026-10 第一版）：本系统运行情况统一录入 */}
-            <TabPane tab="运行异常记录" key="runtime_records">
+            {/* 运行记录（2026-10 第一版）：本系统运行情况统一录入 */}
+            <TabPane tab="运行记录" key="runtime_records">
               <SystemRuntimeRecordsTab systemId={d.id}/>
             </TabPane>
             <TabPane tab="升级记录" key="upgrade_records">
               <UpgradeRecordsTab systemId={d.id}/>
             </TabPane>
             {/* 系统配置（2026-10）：当前配置 + 配置变更历史 + 记录配置变更（Modal），
-                只在系统详情内展示，不设独立菜单，也不与运行异常记录/巡视维护/系统升级混淆 */}
+                只在系统详情内展示，不设独立菜单，也不与运行记录/巡视维护/系统升级混淆 */}
             <TabPane tab="配置" key="config">
               <SystemConfigTab systemId={d.id}/>
             </TabPane>

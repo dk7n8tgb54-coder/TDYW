@@ -3,7 +3,7 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——运行异常记录状态管理（MobX, legacy decorators）。
+ * 设备全生命周期——运行记录状态管理（MobX, legacy decorators）。
  * 业务关联一律使用系统 ID；成功提示等待后端真实成功（http.js 拦截器统一提示 error，
  * 业务代码不重复提示）。
  */
@@ -25,6 +25,7 @@ class RuntimeRecordStore {
   @observable f_system = undefined;
   @observable f_follow = undefined;
   @observable f_category = undefined;
+  @observable f_record_type = undefined;
   @observable f_occurred_range = undefined;
 
   // ========== 表单 ==========
@@ -63,6 +64,7 @@ class RuntimeRecordStore {
     this.f_system = undefined;
     this.f_follow = undefined;
     this.f_category = undefined;
+    this.f_record_type = undefined;
     this.f_occurred_range = undefined;
     this.page = 1;
   };
@@ -77,6 +79,7 @@ class RuntimeRecordStore {
       params.needs_follow_up = this.f_follow ? 'yes' : 'no';
     }
     if (this.f_category) params.category = this.f_category;
+    if (this.f_record_type) params.record_type = this.f_record_type;
     if (this.f_occurred_range && this.f_occurred_range.length === 2) {
       params.occurred_from = this.f_occurred_range[0].format('YYYY-MM-DD HH:mm');
       params.occurred_to = this.f_occurred_range[1].format('YYYY-MM-DD HH:mm');
@@ -213,10 +216,21 @@ class RuntimeRecordStore {
       }));
   };
 
-  markFollowUp = (extra) => this._postAction('follow-up', extra);
-
   // 完成跟进：跟进中 → 已完成（resolve 端点，可重新跟进）
   completeFollowUp = (formData) => this._postAction('resolve', formData);
+
+  // 删除运行记录（仅日常运行记录；成功后关闭详情并刷新列表真实数据）
+  deleteRecord = () => {
+    this.isActionSubmitting = true;
+    return http.delete(`${API_PREFIX}/runtime-records/${this.detailId}/`)
+      .then(action(() => {
+        this.closeDetail();
+        this.fetchRecords();
+      }))
+      .finally(action(() => {
+        this.isActionSubmitting = false;
+      }));
+  };
 
   convertToFault = (formData) => {
     this.isActionSubmitting = true;
@@ -230,8 +244,9 @@ class RuntimeRecordStore {
   addProgressRecord = (formData) => {
     this.isActionSubmitting = true;
     return http.post(`${API_PREFIX}/runtime-records/${this.detailId}/progress/`, formData)
-      // 追加进展即"跟进"动作：已记录保存首条跟进记录后后端流转为跟进中，
-      // 因此成功后全量刷新详情/进展/列表真实数据，调用方在完成后关闭弹窗。
+      // 追加进展即"跟进"动作：已记录保存首条跟进记录后、已完成追加进展
+      // 重新跟进，后端流转为跟进中，成功后全量刷新详情/进展/列表真实数据，
+      // 调用方在完成后关闭弹窗
       .then(action(() => this._refreshAfterAction()))
       .finally(action(() => {
         this.isActionSubmitting = false;
@@ -248,7 +263,7 @@ class RuntimeRecordStore {
       }));
   };
 
-  // ========== 系统详情运行异常记录页签 ==========
+  // ========== 系统详情运行记录页签 ==========
   @observable systemRecords = [];
   @observable systemRecordsTotal = 0;
   @observable systemLatestOccurredAt = null;
@@ -273,33 +288,19 @@ class RuntimeRecordStore {
   };
 
   // ========== 第二版：待办列表 ==========
+  // 只含跟进中记录，按最近更新优先（跟进人/计划处理时间/超期维度已随
+  // 跟进计划删除移除 2026-10-06）
   @observable todoRecords = [];
-  @observable todoOverdueCount = 0;
   @observable isTodoFetching = false;
   todoRequestSeq = 0;
-  // 待办筛选：overdue 超期 / follow_up_name 指定跟进人 / order=planned|recent
-  @observable f_todo_overdue = undefined;
-  @observable f_todo_follow_up_name = undefined;
-  @observable f_todo_order = 'planned';
-
-  @action resetTodoFilter = () => {
-    this.f_todo_overdue = undefined;
-    this.f_todo_follow_up_name = undefined;
-    this.f_todo_order = 'planned';
-  };
 
   fetchTodoRecords = () => {
     const requestSeq = ++this.todoRequestSeq;
     this.isTodoFetching = true;
-    const params = {};
-    if (this.f_todo_overdue) params.overdue = 'yes';
-    if (this.f_todo_follow_up_name) params.follow_up_name = this.f_todo_follow_up_name;
-    if (this.f_todo_order) params.order = this.f_todo_order;
-    return http.get(`${API_PREFIX}/runtime-records/todo/`, {params})
+    return http.get(`${API_PREFIX}/runtime-records/todo/`)
       .then(action(res => {
         if (requestSeq === this.todoRequestSeq) {
           this.todoRecords = res.data || [];
-          this.todoOverdueCount = res.overdue_count || 0;
         }
       }))
       .catch(action(() => {}))
@@ -315,11 +316,14 @@ class RuntimeRecordStore {
   @observable isStatisticsFetching = false;
   statisticsRequestSeq = 0;
   @observable f_stats_range = undefined;
+  // 统计口径按记录类型筛选（未传时后端默认 abnormal，异常统计口径不变）
+  @observable f_stats_record_type = undefined;
 
   fetchStatistics = () => {
     const requestSeq = ++this.statisticsRequestSeq;
     this.isStatisticsFetching = true;
     const params = {};
+    if (this.f_stats_record_type) params.record_type = this.f_stats_record_type;
     if (this.f_stats_range && this.f_stats_range.length === 2) {
       params.occurred_from = this.f_stats_range[0].format('YYYY-MM-DD HH:mm');
       params.occurred_to = this.f_stats_range[1].format('YYYY-MM-DD HH:mm');

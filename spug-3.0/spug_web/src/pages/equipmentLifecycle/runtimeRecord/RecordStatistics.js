@@ -3,10 +3,12 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——运行异常记录只读统计视图（2026-10 第二版）。
+ * 设备全生命周期——运行记录只读统计视图（2026-10 第二版；2026-10-07
+ * 起支持按记录类型筛选：未选择时后端默认统计 abnormal（原有异常统计
+ * 口径保持不变），可选择日常运行查看 routine 口径。
  * 系统维度 / 状态维度 / 时间趋势 / 转故障数量 /
  * 长期未关闭（仅统计跟进中：已记录留痕为合法稳定状态，不计入积压）/
- * 平均处理时长。统计只使用运行异常记录数据（巡视、维护、配置变更、升级不进入
+ * 平均处理时长。统计只使用运行记录数据（巡视、维护、配置变更、升级不进入
  * 本统计）；时间范围用发生时间起止筛选（后端 __gte/__lt）。
  * 状态维度由后端返回四状态原值计数（已记录/跟进中/已完成/已转故障；
  * 历史旧状态已由迁移 0007 归一）。
@@ -16,10 +18,11 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { DatePicker, Table, Tag, Card, Spin, Statistic, Row, Col, Empty, Button } from 'antd';
+import { DatePicker, Table, Tag, Card, Spin, Statistic, Row, Col, Empty, Button, Select } from 'antd';
 import store from './store';
 import {
   RUNTIME_STATUS_TEXT, RUNTIME_STATUS_COLOR,
+  RUNTIME_RECORD_TYPE_OPTIONS,
 } from '../constants';
 
 const {RangePicker} = DatePicker;
@@ -64,7 +67,7 @@ function TotalsCards({totals}) {
   return (
     <Row gutter={12}>
       <Col span={4}>
-        <Card size="small"><Statistic title="运行异常记录总数" value={totals.total}/></Card>
+        <Card size="small"><Statistic title="运行记录总数" value={totals.total}/></Card>
       </Col>
       <Col span={4}>
         <Card size="small"><Statistic title="跟进中" value={totals.following_up}/></Card>
@@ -105,6 +108,20 @@ class RecordStatistics extends React.Component {
     return (
       <Spin spinning={store.isStatisticsFetching}>
         <div style={{marginBottom: 12}}>
+          <Select
+            allowClear
+            placeholder="记录类型（默认异常事件）"
+            style={{width: 180, marginRight: 8}}
+            value={store.f_stats_record_type}
+            onChange={v => {
+              store.f_stats_record_type = v;
+              store.fetchStatistics();
+            }}
+          >
+            {RUNTIME_RECORD_TYPE_OPTIONS.map(item => (
+              <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
+            ))}
+          </Select>
           <RangePicker
             showTime={{format: 'HH:mm'}}
             format="YYYY-MM-DD HH:mm"
@@ -136,7 +153,7 @@ class RecordStatistics extends React.Component {
                 pagination={false}
                 dataSource={stats.by_system || []}
                 columns={systemColumns}
-                locale={{emptyText: '所选范围内无运行异常记录'}}
+                locale={{emptyText: '所选范围内无运行记录'}}
               />
             </Card>
             <Card size="small" title="时间趋势（按自然日）" style={{marginTop: 12}}>

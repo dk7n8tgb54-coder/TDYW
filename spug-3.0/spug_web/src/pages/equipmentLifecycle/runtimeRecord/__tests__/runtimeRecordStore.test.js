@@ -3,15 +3,16 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 运行异常记录 Store 测试（2026-10 第一版；2026-10-05 第四版：研判不再是
+ * 运行记录 Store 测试（2026-10 第一版；2026-10-05 第四版：研判不再是
  * 必经步骤）。真实 import store（MobX 装饰器经 babel 编译），mock libs.http，验证：
  * - fetchRecords 组装分页与全部筛选参数（系统/状态/需要跟进/异常类别/时间范围；
  *   重要程度/影响程度筛选已随字段删除移除 2026-10-06）
  * - submitForm 新增走 POST、编辑走 PUT
- * - 状态动作（修改跟进计划/完成跟进/转故障）调用明确动作端点，
+ * - 状态动作（完成跟进/转故障）调用明确动作端点，
  *   成功后重新获取详情、进展与列表；研判（triage）/close/no-follow-up/
- *   标记重要（mark-important）已从 store 删除（研判弹窗整体下线，
- *   标记重要字段 2026-10-06 删除）
+ *   标记重要（mark-important）/跟进计划（follow-up）已从 store 删除
+ *   （研判弹窗整体下线，标记重要/跟进计划字段 2026-10-06 删除，
+ *   重新跟进由追加处理进展触发）
  * - 处理进展追加（即"跟进"动作，成功后全量刷新）与更正调用对应端点，
  *   业务错误时 Promise 拒绝
  * - 系统详情页签数据源独立（systems/<id>/runtime-records/）
@@ -41,7 +42,7 @@ afterEach(() => {
   [mockHttpGet, mockHttpPost, mockHttpPut, mockHttpDelete].forEach(fn => fn.mockReset());
 });
 
-describe('运行异常记录 Store · 列表筛选', () => {
+describe('运行记录 Store · 列表筛选', () => {
   it('fetchRecords 组装分页与全部筛选参数', () => {
     const store = freshStore();
     store.page = 2;
@@ -73,7 +74,7 @@ describe('运行异常记录 Store · 列表筛选', () => {
   });
 });
 
-describe('运行异常记录 Store · 表单提交', () => {
+describe('运行记录 Store · 表单提交', () => {
   it('submitForm 新增走 POST、编辑走 PUT，成功后关闭弹窗并刷新列表', async () => {
     const store = freshStore();
     const payload = {system: 7, title: '标题', description: '描述',
@@ -128,7 +129,7 @@ describe('运行异常记录 Store · 表单提交', () => {
   });
 });
 
-describe('运行异常记录 Store · 状态动作与处理进展', () => {
+describe('运行记录 Store · 状态动作与处理进展', () => {
   const RECORD_BASE = '/api/equipment-lifecycle/runtime-records/11';
 
   function setupDetail(store) {
@@ -144,7 +145,6 @@ describe('运行异常记录 Store · 状态动作与处理进展', () => {
   }
 
   it.each([
-    ['markFollowUp', 'follow-up'],
     ['completeFollowUp', 'resolve'],
     ['convertToFault', 'convert-to-fault'],
   ])('%s 调用对应动作端点并刷新详情/进展/列表', async (action, path) => {
@@ -160,7 +160,7 @@ describe('运行异常记录 Store · 状态动作与处理进展', () => {
     expect(urls).toContain('/api/equipment-lifecycle/runtime-records/');
   });
 
-  it('标记重要字段删除后 store 不再提供 triage/close/no-follow-up/markImportant 入口', () => {
+  it('标记重要/跟进计划字段删除后 store 不再提供 triage/close/no-follow-up/markImportant/markFollowUp 入口', () => {
     const store = freshStore();
     // 研判弹窗整体下线：旧研判入口与弹窗状态不再存在
     expect(store.submitTriage).toBeUndefined();
@@ -169,9 +169,12 @@ describe('运行异常记录 Store · 状态动作与处理进展', () => {
     expect(store.triageVisible).toBeUndefined();
     // 标记重要已随字段删除移除（2026-10-06）
     expect(store.markImportant).toBeUndefined();
+    // 跟进计划已删除（2026-10-06 迁移 0009）：follow-up 端点入口移除，
+    // 重新跟进由追加处理进展触发
+    expect(store.markFollowUp).toBeUndefined();
   });
 
-  it('addProgressRecord（跟进动作）成功后全量刷新详情/进展/列表', async () => {
+  it('addProgressRecord（跟进/重新跟进动作）成功后全量刷新详情/进展/列表', async () => {
     const store = freshStore();
     setupDetail(store);
     mockHttpGet.mockClear();
@@ -182,10 +185,10 @@ describe('运行异常记录 Store · 状态动作与处理进展', () => {
       return Promise.resolve({id: 11, status: 'following_up'});
     });
     const payload = {handled_at: '2026-10-01 09:00', handler_name: '值班员甲',
-      content: '现场确认恢复', result: '', work_hours: null};
+      content: '现场确认恢复'};
     await store.addProgressRecord(payload);
     expect(mockHttpPost).toHaveBeenCalledWith(`${RECORD_BASE}/progress/`, payload);
-    // 已记录保存首条跟进记录后后端流转跟进中：全量刷新真实数据
+    // 已记录保存首条跟进记录后、已完成追加进展重新跟进：全量刷新真实数据
     const urls = mockHttpGet.mock.calls.map(c => c[0]);
     expect(urls).toContain(`${RECORD_BASE}/`);
     expect(urls).toContain(`${RECORD_BASE}/progress/`);
@@ -243,7 +246,7 @@ describe('运行异常记录 Store · 状态动作与处理进展', () => {
   });
 });
 
-describe('运行异常记录 Store · 系统详情页签', () => {
+describe('运行记录 Store · 系统详情页签', () => {
   it('fetchSystemRecords 按系统查询且数据源独立', async () => {
     const store = freshStore();
     const rows = [{id: 1, record_no: 'YX20261001-0001'}];

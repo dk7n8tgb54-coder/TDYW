@@ -3,8 +3,9 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 系统详情——运行异常记录页签（2026-10 第一版 + 第二版）。
- * 只展示所属系统为当前系统的运行异常记录；不含故障/台账/升级/履历。
+ * 系统详情——运行记录页签（2026-10 第一版 + 第二版；2026-10-07 模块更名
+ * 并增加记录类型列/筛选）。
+ * 只展示所属系统为当前系统的运行记录；不含故障/台账/升级/履历。
  * 第二版：支持按 标题/编号关键词、异常类别、发生时间范围 筛选历史记录，
  * 并展示该系统最近一次运行情况发生时间。
  * 重复问题功能已于 2026-10-05 下线：原"关联"数量列与"重复"标记已随
@@ -18,14 +19,15 @@ import { AuthDiv } from 'components';
 import runtimeStore from './runtimeRecord/store';
 import {
   PERM, RUNTIME_STATUS_TEXT, RUNTIME_STATUS_COLOR,
-  RUNTIME_CATEGORY_OPTIONS,
+  RUNTIME_CATEGORY_OPTIONS, RUNTIME_RECORD_TYPE_OPTIONS,
+  RUNTIME_RECORD_TYPE_TEXT, RUNTIME_RECORD_TYPE_COLOR,
 } from './constants';
 
 const {RangePicker} = DatePicker;
 
 @observer
 class SystemRuntimeRecordsTab extends React.Component {
-  state = {keyword: undefined, category: undefined, occurredRange: null};
+  state = {keyword: undefined, category: undefined, recordType: undefined, occurredRange: null};
 
   componentDidMount() {
     runtimeStore.fetchSystemRecords(this.props.systemId);
@@ -36,6 +38,7 @@ class SystemRuntimeRecordsTab extends React.Component {
     const params = {};
     if (filters.keyword) params.keyword = filters.keyword;
     if (filters.category) params.category = filters.category;
+    if (filters.recordType) params.record_type = filters.recordType;
     if (filters.occurredRange && filters.occurredRange.length === 2) {
       params.occurred_from = filters.occurredRange[0].format('YYYY-MM-DD HH:mm');
       params.occurred_to = filters.occurredRange[1].format('YYYY-MM-DD HH:mm');
@@ -47,6 +50,13 @@ class SystemRuntimeRecordsTab extends React.Component {
     title: '编号',
     dataIndex: 'record_no',
     width: 140,
+  }, {
+    title: '记录类型',
+    dataIndex: 'record_type',
+    width: 90,
+    render: text => (
+      <Tag color={RUNTIME_RECORD_TYPE_COLOR[text]}>{RUNTIME_RECORD_TYPE_TEXT[text] || text}</Tag>
+    ),
   }, {
     title: '标题',
     dataIndex: 'title',
@@ -94,6 +104,19 @@ class SystemRuntimeRecordsTab extends React.Component {
           />
           <Select
             allowClear
+            placeholder="记录类型"
+            style={{width: 120, marginRight: 8}}
+            value={this.state.recordType}
+            onChange={v => {
+              this.setState({recordType: v}, () => this.fetchWithFilters({recordType: v}));
+            }}
+          >
+            {RUNTIME_RECORD_TYPE_OPTIONS.map(item => (
+              <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
+            ))}
+          </Select>
+          <Select
+            allowClear
             placeholder="异常类别"
             style={{width: 130, marginRight: 8}}
             value={this.state.category}
@@ -127,7 +150,7 @@ class SystemRuntimeRecordsTab extends React.Component {
           pagination={{pageSize: 10, showTotal: total => `共 ${total} 条`}}
           dataSource={runtimeStore.systemRecords}
           columns={this.columns}
-          locale={{emptyText: <Empty description="当前系统暂无运行异常记录" image={Empty.PRESENTED_IMAGE_SIMPLE}/>}}
+          locale={{emptyText: <Empty description="当前系统暂无运行记录" image={Empty.PRESENTED_IMAGE_SIMPLE}/>}}
         />
       </AuthDiv>
     );

@@ -3,10 +3,10 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 运行异常记录组件渲染测试（2026-10 第一版；2026-10-04 信息分层收敛；
+ * 运行记录组件渲染测试（2026-10 第一版；2026-10-04 信息分层收敛；
  * 2026-10-05 第四版研判不再是必经步骤）。
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
- * - 列表页渲染运行异常记录行（编号/系统/标题/状态）与"新增运行异常记录"入口
+ * - 列表页渲染运行记录行（编号/系统/标题/状态）与"新增运行记录"入口
  * - 列表请求指向 runtime-records 端点，且不含巡视/维护/升级数据来源
  * - 新增表单承载运行事实（五个必填 + 异常类别选填）；具体对象名称/对象型号/
  *   影响系统运行/影响程度/标记重要已删除（2026-10-06），不再出现在表单；
@@ -15,15 +15,16 @@
  * - 编辑模式回填后可提交（PUT 携带修改值，不携带重要程度/登记人键）
  * - 详情窗口展示编号/状态/关联故障入口；顶部动作按第四版状态收敛：
  *   已记录族 = 编辑/开始跟进/转为正式故障（无研判/关闭/标记重要）；
- *   跟进中 = 新增跟进记录/修改跟进计划/完成跟进/转为正式故障；历史已关闭/
- *   已转故障终态无编辑/追加/标记按钮；历史状态展示文案归并：closed→已完成
+ *   跟进中 = 新增跟进记录/完成跟进/转为正式故障（修改跟进计划已随跟进
+ *   计划删除移除 2026-10-06）；已转故障终态无编辑/追加/标记按钮
  * - 详情基本信息分区（2026-10-04 信息分层）：运行概况/关联与登记/处理概览
- *   （研判结论仅历史数据存在时渲染）；标题区只保留编号/状态摘要；
- *   处理措施/处理结果/初步原因/影响范围以"历史记录"只读区块展示
- * - 处理进展页签统一工作区：当前跟进计划/新增处理进展/历史处理进展时间线
+ *   （研判结论区块已随研判快照字段删除移除 2026-10-07）；标题区只保留
+ *   编号/状态摘要
+ * - 处理进展页签统一工作区（2026-10-06 优化）：新增处理进展（内联表单）/
+ *   处理进展时间线；处理结果/本次工时字段已删除
  * - 跟进中动作（完成跟进/转为正式故障）走 resolve/convert-to-fault 端点
  *   （矩阵与端点细节见 runtimeRecordDetailActions 套件）
- * - 系统详情"运行异常记录"页签只展示本系统记录
+ * - 系统详情"运行记录"页签只展示本系统记录
  * - 所有请求只指向 equipment-lifecycle 前缀
  */
 import React from 'react';
@@ -133,6 +134,7 @@ const RECORDS_PAGE = {
   data: [
     {
       id: 11, record_no: 'YX20261001-0001', system: 1,
+      record_type: 'abnormal', record_type_text: '异常事件',
       system_name: '烟台通信系统', system_code: 'SYS-A1', system_location: '机房A',
       occurred_at: '2026-10-01 08:30', title: '主用链路短暂中断',
       status: 'recorded', status_text: '已记录',
@@ -142,6 +144,7 @@ const RECORDS_PAGE = {
     },
     {
       id: 12, record_no: 'YX20261001-0002', system: 2,
+      record_type: 'routine', record_type_text: '日常运行',
       system_name: '导航系统B', system_code: 'SYS-B1', system_location: '机房B',
       occurred_at: '2026-10-01 09:00', title: '席位显示器闪烁',
       status: 'completed', status_text: '已完成',
@@ -167,7 +170,6 @@ const PROGRESS_PAGE = {
   data: [
     {id: 1, record: 11, handled_at: '2026-10-01 09:00', handler: 2,
       handler_name: '值班员甲', content: '现场检查，确认交换机告警',
-      result: '观察中', work_hours: 0.5,
       corrections: [{old: '现场检查', new: '现场检查，确认交换机告警',
         reason: '补充细节', by: 'admin', at: '2026-10-01 09:10'}],
       created_at: '2026-10-01 09:05'},
@@ -175,14 +177,14 @@ const PROGRESS_PAGE = {
   total: 1, page: 1, page_size: 100,
 };
 
-// 已完成且带完整研判/跟进历史：研判结论只读保留历史数据
+// 已完成且带遗留研判字段：研判快照字段已删除（2026-10-07），即使接口
+// 返回旧字段值也不再渲染
 const TRIAGED_COMPLETED_DETAIL = {
   ...RECORD_DETAIL,
   status: 'completed', status_text: '已完成',
   converted_fault: null, converted_fault_no: '',
   triaged_at: '2026-10-02 09:00', triaged_by_name: '李四',
   triage_note: '判断为链路抖动，需持续跟进',
-  follow_up_name: '王值班', planned_handle_at: '2026-10-05 09:00',
   handling_result: '链路稳定，连续三天无丢包',
   resolved_at: '2026-10-04 10:00',
 };
@@ -235,8 +237,8 @@ async function openTab(tabText) {
   await act(async () => {await flush();});
 }
 
-describe('运行异常记录列表页', () => {
-  it('渲染运行异常记录行：编号/系统/标题/状态，且提供新增入口', async () => {
+describe('运行记录列表页', () => {
+  it('渲染运行记录行：编号/系统/标题/状态，且提供新增入口', async () => {
     await renderListPage();
     const text = bodyText();
     expect(text).toContain('YX20261001-0001');
@@ -245,7 +247,7 @@ describe('运行异常记录列表页', () => {
     expect(text).toContain('主用链路短暂中断');
     expect(text).toContain('已记录');
     expect(text).toContain('已完成');
-    expect(text).toContain('新增运行异常记录');
+    expect(text).toContain('新增运行记录');
     // "关联"（重复关联数量）列已随重复问题功能下线（2026-10-05）移除；
     // "影响状态"列已随影响字段删除（2026-10-06）移除
     const headers = Array.from(document.querySelectorAll('.ant-table-thead th'))
@@ -261,15 +263,15 @@ describe('运行异常记录列表页', () => {
     expect(listCalls.length).toBeGreaterThan(0);
     for (const url of urls) {
       expect(url.startsWith('/api/equipment-lifecycle/')).toBe(true);
-      // 运行异常记录页面不请求 巡检/台账/升级 业务列表
+      // 运行记录页面不请求 巡检/台账/升级 业务列表
       expect(url.includes('/inspection-sheets') || url.includes('/ledgers/')
         || url.includes('/upgrade')).toBe(false);
     }
   });
 });
 
-describe('运行异常记录新增/编辑表单', () => {
-  it('新增表单只承载运行事实：具体对象/影响/标记重要已删除，无研判/跟进/处理字段', async () => {
+describe('运行记录新增/编辑表单', () => {
+  it('新增默认日常运行：记录类型选择 + 作业内容/操作结果字段，异常专属字段不出现', async () => {
     const store = require('../store').default;
     const RecordForm = require('../RecordForm').default;
     mockListApis();
@@ -279,14 +281,15 @@ describe('运行异常记录新增/编辑表单', () => {
     });
     await act(async () => {await flush();});
     const text = bodyText();
-    // 事实字段：五个必填 + 异常类别选填
-    ['所属系统', '发生时间', '标题', '情况描述', '登记人', '异常类别'].forEach(label => {
+    // 记录类型（2026-10-07）默认日常运行：类型选择 + 公共字段 + 日常专属字段
+    ['记录类型', '日常运行', '异常事件', '所属系统', '发生时间', '标题',
+      '情况描述', '登记人', '记录类别', '作业内容', '操作结果/检查结果'].forEach(label => {
       expect(text).toContain(label);
     });
-    // 已删除字段（2026-10-06）与跟进/处理/研判字段均不在录入表单
-    ['具体对象名称', '对象型号/编号', '影响系统运行', '影响程度', '标记重要',
-      '已采取措施', '处理结果', '初步原因', '影响范围', '研判说明', '跟进人',
-      '计划处理时间', '需要跟进'].forEach(label => {
+    // 日常运行不出现异常类别口径与异常专属/已删除字段
+    ['异常类别', '关联日常运行', '具体对象名称', '对象型号/编号', '影响系统运行',
+      '影响程度', '标记重要', '已采取措施', '处理结果', '初步原因', '影响范围',
+      '研判说明', '跟进人', '计划处理时间', '需要跟进'].forEach(label => {
       expect(text).not.toContain(label);
     });
   });
@@ -308,13 +311,13 @@ describe('运行异常记录新增/编辑表单', () => {
     expect(store.formVisible).toBe(true);
   });
 
-  it('编辑模式回填详情后提交 PUT，且不携带重要程度/登记人键', async () => {
+  it('编辑模式回填详情后提交 PUT，且不携带重要程度/登记人键/记录类型键', async () => {
     const store = require('../store').default;
     const RecordForm = require('../RecordForm').default;
     mockListApis();
     mockHttpPut.mockResolvedValue({});
     await act(async () => {
-      store.showForm({...RECORD_DETAIL, status: 'resolved'});
+      store.showForm({...RECORD_DETAIL, status: 'recorded'});
       ReactDOM.render(<RecordForm/>, container);
     });
     await act(async () => {await flush();});
@@ -337,11 +340,13 @@ describe('运行异常记录新增/编辑表单', () => {
     expect(payload.importance_reason).toBeUndefined();
     // 登记人仅新增可填：编辑提交不携带该键，后端保留原登记人
     expect(payload.registrar_name).toBeUndefined();
+    // record_type 创建后不可修改：编辑提交不携带该键
+    expect(payload.record_type).toBeUndefined();
     expect(store.formVisible).toBe(false);
   });
 });
 
-describe('运行异常记录详情窗口', () => {
+describe('运行记录详情窗口', () => {
   it('展示编号/状态/关联故障入口与登记信息', async () => {
     await renderDetail();
     const text = bodyText();
@@ -379,7 +384,7 @@ describe('运行异常记录详情窗口', () => {
     });
   });
 
-  it('处理进展时间线展示内容与更正留痕；已转故障不提供追加入口', async () => {
+  it('处理进展页签：时间线展示内容与更正留痕，内联录入表单可见；已转故障只读', async () => {
     await renderDetail({...RECORD_DETAIL, status: 'recorded', converted_fault: null});
     await openTab('处理进展');
     const text = bodyText();
@@ -387,12 +392,20 @@ describe('运行异常记录详情窗口', () => {
     expect(text).toContain('值班员甲');
     expect(text).toContain('补充细节');
     expect(text).toContain('由admin更正');
-    expect(buttonTexts().some(t => t === '追加处理进展')).toBe(true);
-    // 已转故障（终态）：无追加与更正按钮
+    // 内联录入表单（处理时间/处理人/处理内容）+ 追加进展按钮
+    expect(text).toContain('新增处理进展');
+    expect(text).toContain('处理时间');
+    expect(text).toContain('处理人');
+    expect(text).toContain('处理内容');
+    expect(buttonTexts().some(t => t === '追加进展')).toBe(true);
+    // 处理结果/本次工时已删除：表单与时间线均不再出现
+    expect(text).not.toContain('处理结果');
+    expect(text).not.toContain('本次工时');
+    // 已转故障（终态）：无内联表单与更正按钮
     const convertedDetail = {...RECORD_DETAIL, status: 'converted_fault'};
     await renderDetail(convertedDetail, convertedDetail);
     await openTab('处理进展');
-    expect(buttonTexts().some(t => t === '追加处理进展')).toBe(false);
+    expect(buttonTexts().some(t => t === '追加进展')).toBe(false);
     expect(buttonTexts().some(t => t === '更正')).toBe(false);
   });
 
@@ -405,10 +418,11 @@ describe('运行异常记录详情窗口', () => {
     expect(btns.some(t => t === '转为故障')).toBe(false);
     // 跟进中不显示标记重要（仅已记录族独立动作）
     expect(btns.some(t => t === '标记重要')).toBe(false);
-    // 新流程动作齐备
-    ['新增跟进记录', '修改跟进计划', '完成跟进'].forEach(btn => {
+    // 新流程动作齐备（修改跟进计划已随跟进计划删除移除）
+    ['新增跟进记录', '完成跟进'].forEach(btn => {
       expect(btns.some(t => t === btn)).toBe(true);
     });
+    expect(btns.some(t => t === '修改跟进计划')).toBe(false);
   });
 
   it('完成跟进：提交 resolve 端点（纯确认动作，不携带处理结果字段）', async () => {
@@ -432,7 +446,7 @@ describe('运行异常记录详情窗口', () => {
   });
 });
 
-describe('运行异常记录详情基本信息分区', () => {
+describe('运行记录详情基本信息分区', () => {
   it('按 运行概况/关联与登记/处理概览 分区；无历史研判数据时不渲染研判结论区', async () => {
     const detail = {...RECORD_DETAIL, converted_fault: null, converted_fault_no: '',
       measures_taken: '', initial_reason: '', impact_scope: '', handling_result: ''};
@@ -501,19 +515,18 @@ describe('运行异常记录详情基本信息分区', () => {
     });
   });
 
-  it('已完成记录的历史研判数据只读保留；跟进安排不再出现在基本信息', async () => {
+  it('遗留研判字段即使接口返回也不再渲染（研判结论区块已删除）；处理时间保留', async () => {
     await renderDetail(TRIAGED_COMPLETED_DETAIL, TRIAGED_COMPLETED_DETAIL);
     const text = bodyText();
-    expect(countOccurrences(text, '研判说明')).toBe(1);
-    expect(countOccurrences(text, '研判人及研判时间')).toBe(1);
-    expect(text).toContain('判断为链路抖动，需持续跟进');
-    expect(text).toContain('李四（2026-10-0209:00）');
-    // 跟进安排移出基本信息（跟进人/计划时间在处理进展页签"当前跟进计划"展示）
-    expect(text).not.toContain('跟进安排');
-    expect(text).not.toContain('跟进人：王值班');
+    // 研判快照字段已彻底删除（2026-10-07 迁移 0010）：详情不再有研判结论
+    // 区块，接口遗留的旧字段值也不渲染
+    ['研判结论', '研判说明', '研判人及研判时间', '判断为链路抖动，需持续跟进',
+      '李四（2026-10-0209:00）', '尚未完成研判'].forEach(sub => {
+      expect(text).not.toContain(sub);
+    });
+    // 已完成记录的生命周期信息（处理时间）正常展示
     expect(text).toContain('处理时间');
-    expect(text).not.toContain('尚未完成研判');
-    // 处理进展页签：当前跟进计划区块提示已完成
+    // 处理进展页签：已完成提示追加进展将重新进入跟进中
     await openTab('处理进展');
     expect(bodyText()).toContain('跟进已完成');
   });
@@ -543,7 +556,7 @@ describe('运行异常记录详情基本信息分区', () => {
   });
 });
 
-describe('运行异常记录详情关联跳转与处理概览', () => {
+describe('运行记录详情关联跳转与处理概览', () => {
   it('已转正式故障：区块提示+链接跳转沿用现有实现，终态只读无编辑控件', async () => {
     const converted = {...RECORD_DETAIL, status: 'converted_fault'};
     await renderDetail(converted, converted);
@@ -593,64 +606,49 @@ describe('运行异常记录详情关联跳转与处理概览', () => {
   });
 });
 
-describe('运行异常记录详情处理进展页签（统一处理工作区）', () => {
+describe('运行记录详情处理进展页签（统一处理工作区）', () => {
   const FOLLOWING_DETAIL = {...RECORD_DETAIL, status: 'following_up',
-    status_text: '跟进中', converted_fault: null, converted_fault_no: '',
-    follow_up_name: '王值班', planned_handle_at: '2026-10-05 09:00'};
+    status_text: '跟进中', converted_fault: null, converted_fault_no: ''};
 
-  it('跟进中：页签顶部依次为 当前跟进计划/新增处理进展/历史处理进展时间线，计划修改在顶部"修改跟进计划"', async () => {
+  it('跟进中：页签为 新增处理进展（内联表单）+ 处理进展时间线，无跟进计划区块', async () => {
     await renderDetail(FOLLOWING_DETAIL, FOLLOWING_DETAIL);
-    // 顶部按钮：新增跟进记录/修改跟进计划/完成跟进/转为正式故障
-    expect(buttonTexts().some(t => t === '修改跟进计划')).toBe(true);
+    // 顶部按钮：新增跟进记录/完成跟进/转为正式故障（无修改跟进计划）
+    expect(buttonTexts().some(t => t === '新增跟进记录')).toBe(true);
+    expect(buttonTexts().some(t => t === '修改跟进计划')).toBe(false);
     await openTab('处理进展');
     const text = bodyText();
-    expect(text).toContain('当前跟进计划');
+    // 跟进计划区块已删除（2026-10-06）
+    expect(text).not.toContain('当前跟进计划');
+    expect(text).not.toContain('跟进人：');
     expect(text).toContain('新增处理进展');
-    expect(text).toContain('历史处理进展时间线');
-    expect(text).toContain('跟进人：王值班');
-    expect(text).toContain('计划处理：2026-10-0509:00');
-    expect(buttonTexts().some(t => t === '追加处理进展')).toBe(true);
-    // 页签内不再有独立"修改计划"按钮（统一在顶部"修改跟进计划"）
-    expect(buttonTexts().some(t => t === '修改计划')).toBe(false);
+    expect(text).toContain('处理进展时间线');
+    // 内联表单：处理时间/处理人/处理内容（处理结果/本次工时已删除）
+    ['处理时间', '处理人', '处理内容'].forEach(label => {
+      expect(text).toContain(label);
+    });
+    expect(text).not.toContain('本次工时');
+    expect(buttonTexts().some(t => t === '追加进展')).toBe(true);
   });
 
-  it('修改跟进计划：回填当前值，提交 follow-up 端点且只携带计划字段', async () => {
-    await renderDetail(FOLLOWING_DETAIL, FOLLOWING_DETAIL);
-    mockHttpPost.mockResolvedValue({});
-    await act(async () => {
-      clickButtonByText('修改跟进计划');
-    });
-    await act(async () => {await flush();});
-    const modalTitles = Array.from(document.querySelectorAll('.ant-modal-title'))
-      .map(el => el.textContent);
-    expect(modalTitles).toContain('修改跟进计划');
-    await act(async () => {
-      clickModalOk();
-    });
-    await act(async () => {await flush();});
-    expect(mockHttpPost).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/runtime-records/11/follow-up/',
-      {follow_up_name: '王值班', planned_handle_at: '2026-10-05 09:00'});
-  });
-
-  it('未开始跟进的记录提示点击顶部"开始跟进"；已完成记录提示使用重新跟进', async () => {
+  it('未开始跟进的记录提示保存首条进展后进入跟进中；已完成提示追加进展将重新跟进', async () => {
     await renderDetail({...RECORD_DETAIL, converted_fault: null, converted_fault_no: ''});
     await openTab('处理进展');
     expect(bodyText()).toContain('尚未开始跟进');
-    expect(bodyText()).toContain('开始跟进');
+    expect(bodyText()).toContain('保存第一条处理进展后进入跟进中');
     expect(bodyText()).not.toContain('研判');
     ReactDOM.unmountComponentAtNode(container);
     await renderDetail(TRIAGED_COMPLETED_DETAIL, TRIAGED_COMPLETED_DETAIL);
     await openTab('处理进展');
     expect(bodyText()).toContain('跟进已完成');
-    // 已完成可重新跟进，但顶部无编辑/完成跟进入口
+    expect(bodyText()).toContain('追加新的处理进展将重新进入跟进中');
+    // 已完成可重新跟进（跳到处理进展工作区），但顶部无编辑/完成跟进入口
     expect(buttonTexts().some(t => t === '重新跟进')).toBe(true);
     expect(buttonTexts().some(t => t === '完成跟进')).toBe(false);
   });
 });
 
-describe('系统详情运行异常记录页签', () => {
-  it('只展示本系统运行异常记录（系统详情页签数据源）', async () => {
+describe('系统详情运行记录页签', () => {
+  it('只展示本系统运行记录（系统详情页签数据源）', async () => {
     const SystemRuntimeRecordsTab = require('../../SystemRuntimeRecordsTab').default;
     mockListApis();
     await act(async () => {

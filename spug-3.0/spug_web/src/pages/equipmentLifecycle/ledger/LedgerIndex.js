@@ -168,7 +168,7 @@ function LedgerIndex({ledgerType, location}) {
     <AuthDiv auth={PERM_L.LED_VIEW}>
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
+        <Breadcrumb.Item>设备运行维护管理</Breadcrumb.Item>
         <Breadcrumb.Item>巡视与维护</Breadcrumb.Item>
         <Breadcrumb.Item>{LEDGER_TYPE_TEXT[ledgerType]}台账</Breadcrumb.Item>
       </Breadcrumb>

@@ -34,7 +34,7 @@ class UpgradeNoLockTimeout(Exception):
     """升级编号锁获取超时：并发过高时 fail-closed，避免并发撞号。"""
 
 
-# 升级编号规则（对齐故障编号 GZ/运行异常记录编号 YX 的跨租户当日序号方案）：
+# 升级编号规则（对齐故障编号 GZ/运行记录编号 YX 的跨租户当日序号方案）：
 # SJ + 创建日期 + '-' + 当日四位序号，序号全租户共享、按最大有效后缀 +1（缺口不回填）。
 UPGRADE_NO_PREFIX = 'SJ'
 UPGRADE_NO_SEQ_LIMIT = 9999
@@ -74,7 +74,7 @@ def upgrade_no_lock():
 def generate_upgrade_no():
     """生成升级编号 SJ{yyyymmdd}-{seq:04d}（须在 upgrade_no_lock 持锁事务内调用）。
 
-    编号规则与故障编号（generate_fault_no）/运行异常记录编号（generate_runtime_record_no）
+    编号规则与故障编号（generate_fault_no）/运行记录编号（generate_runtime_record_no）
     一致：
     - 日期取创建当天（不取用户填写的计划升级时间 upgrade_time）；
     - 当日序号跨租户共享：扫描全部记录（含软删除，编号不回收复用），

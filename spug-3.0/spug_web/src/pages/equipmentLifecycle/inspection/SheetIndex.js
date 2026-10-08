@@ -429,7 +429,7 @@ class SheetIndex extends React.Component {
         {/* embedded：被巡检中心页签嵌入时隐藏本页完整面包屑（由外壳统一显示） */}
         {!this.props.embedded && (
           <Breadcrumb>
-            <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
+            <Breadcrumb.Item>设备运行维护管理</Breadcrumb.Item>
             <Breadcrumb.Item>巡视与维护</Breadcrumb.Item>
             <Breadcrumb.Item>巡检单记录</Breadcrumb.Item>
           </Breadcrumb>

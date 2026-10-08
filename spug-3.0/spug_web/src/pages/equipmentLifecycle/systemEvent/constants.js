@@ -26,8 +26,8 @@ export const EVENT_TYPE_OPTIONS = [
   {value: 'health', label: '健康状态'},
   {value: 'config_snapshot', label: '配置快照'},
   {value: 'upgrade', label: '系统升级'},
-  // 运行异常记录（2026-10）：仅影响运行/标记重要/转为故障时进入履历
-  {value: 'runtime', label: '运行异常记录'},
+  // 运行记录（2026-10）：仅影响运行/标记重要/转为故障时进入履历
+  {value: 'runtime', label: '运行记录'},
 ];
 
 export const EVENT_TYPE_TEXT = EVENT_TYPE_OPTIONS.reduce((acc, item) => {
@@ -53,7 +53,7 @@ export const SOURCE_TYPE_TEXT = {
   health: '健康状态',
   config_snapshot: '配置快照',
   upgrade: '系统升级',
-  runtime_record: '运行异常记录',
+  runtime_record: '运行记录',
 };
 
 /**
@@ -90,7 +90,7 @@ export const ITEM_STATUS_COLOR = {
   executing: 'blue',
   pending_review: 'purple',
   completed: 'green',
-  // 运行异常记录状态
+  // 运行记录状态
   recorded: 'orange',
   following_up: 'geekblue',
   resolved: 'green',
@@ -148,7 +148,7 @@ export function buildSourceHref(event) {
       return hasPermission('upgrade.upgrade.view') && id
         ? `/upgrade/workbench/${id}` : null;
     case 'runtime_record':
-      // 运行异常记录（2026-10）：跳运行异常记录列表打开来源记录
+      // 运行记录（2026-10）：跳运行记录列表打开来源记录
       return hasPermission('equipment_lifecycle.runtime_record.view') && id
         ? `/el/runtime-records?detail=${id}` : null;
     default:

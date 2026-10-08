@@ -82,12 +82,12 @@ export default [
     {title: '事件列表', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},
     {title: '统计概览', auth: 'runlog.runlog.view', path: '/runlog/statistics', component: RunLogStatistics},
   ]},
-  {icon: <ApartmentOutlined/>, title: '设备全生命周期管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.fault.view|equipment_lifecycle.runtime_record.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view|equipment_lifecycle.system_event.view|upgrade.upgrade.view', child: [
+  {icon: <ApartmentOutlined/>, title: '设备运行维护管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.fault.view|equipment_lifecycle.runtime_record.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view|equipment_lifecycle.system_event.view|upgrade.upgrade.view', child: [
     {title: '系统档案', auth: 'equipment_lifecycle.system.view', path: '/el/systems', component: EquipmentSystemIndex},
     {title: '运行处置', auth: 'equipment_lifecycle.fault.view|equipment_lifecycle.runtime_record.view', child: [
       {title: '故障处置', auth: 'equipment_lifecycle.fault.view', path: '/el/faults', component: EquipmentFaultIndex},
-      // 运行异常记录（2026-10 第一版）：异常与运行情况统一录入入口
-      {title: '运行异常记录', auth: 'equipment_lifecycle.runtime_record.view', path: '/el/runtime-records', component: RuntimeRecordIndex},
+      // 运行记录（2026-10 第一版；2026-10-07 更名并兼容日常运行/异常事件两类）
+      {title: '运行记录', auth: 'equipment_lifecycle.runtime_record.view', path: '/el/runtime-records', component: RuntimeRecordIndex},
     ]},
     {title: '巡视与维护', auth: 'equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view', child: [
       {title: '日巡视', auth: 'equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view', path: '/el/inspection-center', component: InspectionCenter},

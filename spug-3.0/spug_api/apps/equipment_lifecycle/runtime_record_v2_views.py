@@ -1,17 +1,17 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——运行异常记录第二版视图（2026-10）：待办与统计。
+"""设备全生命周期——运行记录第二版视图（2026-10）：待办与统计。
 
 定位：用户先快速记录运行情况（新建成功即"已记录"，可长期保留，不作为待办）；
 第四版（2026-10-05）研判不再是必经步骤：跟进由"追加首条处理进展"触发
 （第一版 progress 端点），转故障由独立 convert-to-fault 端点完成；
-不把运行异常记录扩展为第二套故障处置系统（正式处置以 SystemFault 为准）。
+不把运行记录扩展为第二套故障处置系统（正式处置以 SystemFault 为准）。
 
 本文件承载第二版能力（与第一版 runtime_record_views 单向依赖，复用其取数/
 校验助手；fault_views._parse_dt 沿用第一版引入）：
-- 待办列表：只含跟进中记录（超期/跟进人/计划时间筛选），完成跟进或转故障
+- 待办列表：只含跟进中记录（最近更新优先排序），完成跟进或转故障
   自然移出；
-- 统计查询：只读，仅使用运行异常记录数据（巡视/维护/配置变更/升级不混入）。
+- 统计查询：只读，仅使用运行记录数据（巡视/维护/配置变更/升级不混入）。
 
 旧端点（2026-10-06 随状态归一/重复功能退役整体删除，路由同步移除）：
 - 研判（triage）：研判不再是必经步骤，历史研判字段仅作快照保留；
@@ -35,79 +35,40 @@ from apps.equipment_lifecycle.models import (
     SystemRuntimeRecord,
 )
 from apps.equipment_lifecycle.fault_views import _parse_dt
+from apps.equipment_lifecycle.runtime_record_views import _validate_record_type
 
 # 待办列表单次返回上限（跟进中记录量级小，超出说明积压，应先处置再查看）
 TODO_LIST_LIMIT = 200
 
 
 class RuntimeRecordTodoView(View):
-    """运行异常记录待办列表：只含"跟进中"记录，完成跟进或转故障后自然移出。
+    """运行记录待办列表：只含"跟进中"记录，完成跟进或转故障后自然移出。
 
     - 不为普通记录发送提醒，也不做周期轮询；本端点只做条件查询，
-      由前端进入待办页签时触发（超期 = 计划处理时间早于当前时间）；
-    - order=planned（默认）：按计划处理时间升序、未排期在后；order=recent：最近更新优先。
+      由前端进入待办页签时触发；
+    - 按最近更新优先排序（updated_at/created_at 降序；2026-10-06 跟进计划
+      删除后不再有计划处理时间/超期/跟进人维度）。
     """
-
-    def _filter_todo_query(self, query, form):
-        """待办筛选（超期/跟进人/计划时间范围），返回 (query, error)。"""
-        now = timezone.now()
-        overdue_only = (form.overdue or '').strip().lower() == 'yes'
-        if overdue_only:
-            query = query.filter(planned_handle_at__lt=now)
-        follow_up_name = (form.follow_up_name or '').strip()
-        if follow_up_name:
-            query = query.filter(follow_up_name__icontains=follow_up_name)
-        planned_from = _parse_dt(form.planned_from) if form.planned_from else None
-        planned_to = _parse_dt(form.planned_to) if form.planned_to else None
-        if form.planned_from and not planned_from:
-            return None, '计划处理时间起始格式不正确'
-        if form.planned_to and not planned_to:
-            return None, '计划处理时间截止格式不正确'
-        if planned_from:
-            query = query.filter(planned_handle_at__gte=planned_from)
-        if planned_to:
-            query = query.filter(planned_handle_at__lt=planned_to)
-        return query, None
 
     @auth('equipment_lifecycle.runtime_record.view')
     def get(self, request):
-        form, error = JsonParser(
-            Argument('overdue', type=str, required=False, default=''),
-            Argument('follow_up_name', type=str, required=False, default=''),
-            Argument('planned_from', type=str, required=False, default=''),
-            Argument('planned_to', type=str, required=False, default=''),
-            Argument('order', type=str, required=False, default='planned'),
-        ).parse(request.GET)
-        if error:
-            return json_response(error=error)
         query = apply_tenant_filter(
             SystemRuntimeRecord.objects.all(), request.user
         ).filter(status=RUNTIME_RECORD_STATUS_FOLLOWING_UP)
-        query, error = self._filter_todo_query(query, form)
-        if error:
-            return json_response(error=error)
-        now = timezone.now()
         rows = list(query[:TODO_LIST_LIMIT])
-        if (form.order or 'planned') == 'recent':
-            rows.sort(key=lambda r: (r.updated_at or r.created_at or '', r.id), reverse=True)
-        else:
-            # 未排期记录排在有计划时间的记录之后（None 组共用同一哨兵值即可）
-            rows.sort(key=lambda r: (
-                r.planned_handle_at is None, r.planned_handle_at or now, r.id))
-        overdue_count = sum(
-            1 for r in rows if r.planned_handle_at and r.planned_handle_at < now)
+        rows.sort(key=lambda r: (r.updated_at or r.created_at or '', r.id), reverse=True)
         return json_response({
             'data': [r.to_view() for r in rows],
             'total': len(rows),
-            'overdue_count': overdue_count,
-            'now': now,
         })
 
 
 class RuntimeRecordStatisticsView(View):
-    """运行异常记录只读统计（默认近 30 天，时间范围 __gte/__lt）。
+    """运行记录只读统计（默认近 30 天，时间范围 __gte/__lt）。
 
-    只使用运行异常记录数据；巡视/维护/配置变更/升级不进入统计。
+    record_type 统计口径筛选：未传时默认 abnormal——原有异常统计口径保持
+    不变；routine 统计日常运行记录；只使用运行记录数据（巡视/维护/配置
+    变更/升级不混入）。
     """
 
     @auth('equipment_lifecycle.runtime_record.view')
@@ -115,9 +76,15 @@ class RuntimeRecordStatisticsView(View):
         form, error = JsonParser(
             Argument('occurred_from', type=str, required=False, default=''),
             Argument('occurred_to', type=str, required=False, default=''),
+            Argument('record_type', type=str, required=False, default='',
+                     help='记录类型筛选（routine日常运行/abnormal异常事件；'
+                          '未传默认abnormal）'),
         ).parse(request.GET)
         if error:
             return json_response(error=error)
+        record_type, err = _validate_record_type(form.record_type)
+        if err:
+            return json_response(error=err)
         now = timezone.now()
         occurred_to = now + timedelta(days=1)
         occurred_from = now - timedelta(days=30)
@@ -132,8 +99,10 @@ class RuntimeRecordStatisticsView(View):
         if occurred_from >= occurred_to:
             return json_response(error='统计开始时间必须早于截止时间')
         stats = runtime_record_services.compute_runtime_statistics(
-            request.user.tenant_id, occurred_from, occurred_to)
+            request.user.tenant_id, occurred_from, occurred_to,
+            record_type=record_type)
         stats['occurred_from'] = occurred_from
         stats['occurred_to'] = occurred_to
+        stats['record_type'] = record_type
         stats['stale_days'] = runtime_record_services.RUNTIME_RECORD_STALE_DAYS
         return json_response(stats)

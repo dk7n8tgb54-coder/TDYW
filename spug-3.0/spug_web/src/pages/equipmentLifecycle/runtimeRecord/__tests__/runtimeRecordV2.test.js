@@ -3,12 +3,13 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 运行异常记录第二版组件渲染测试（2026-10；2026-10-05 第四版：研判不再是
+ * 运行记录第二版组件渲染测试（2026-10；2026-10-05 第四版：研判不再是
  * 必经步骤）。真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http，验证：
  * - 详情按状态显示新流程按钮（已记录族 = 编辑/开始跟进/转为正式故障；
  *   终态不显示；标记重要已随字段删除移除 2026-10-06）；
  *   TriageModal 整体删除，页面不再出现研判弹窗
- * - 待办视图：只展示跟进中记录，超期/排序筛选参数生效，超期警示可见
+ * - 待办视图：只展示跟进中记录，按最近更新优先（跟进人/计划时间/超期
+ *   维度已随跟进计划删除移除 2026-10-06）
  * - 统计视图：总数/状态维度（后端按可见四状态归并）/系统维度/趋势渲染；
  *   "重要记录"卡片与系统维度"重要"列已随字段删除移除（2026-10-06）
  * - 重复问题功能下线（2026-10-05）：详情无"重复问题"页签，打开详情不再
@@ -89,7 +90,7 @@ const RECORD_DETAIL = {
   needs_follow_up: false,
   converted_fault: null, converted_fault_no: '',
   category: '', category_text: '', is_repeated: false,
-  follow_up_name: '', planned_handle_at: null, resolved_at: null,
+  resolved_at: null,
   triaged_at: null, triaged_by_name: '', triage_note: '',
   initial_reason: '', impact_scope: '',
   measures_taken: '', handling_result: '',
@@ -104,12 +105,12 @@ const TODO_PAGE = {
     {id: 21, record_no: 'YX20261001-0003', system: 1, system_name: '烟台通信系统',
      title: '链路质量待观察', status: 'following_up', status_text: '跟进中',
      needs_follow_up: true,
-     category: '', category_text: '', is_repeated: false,
-     follow_up_name: '王值班', planned_handle_at: '2020-01-01 09:00',
+     occurred_at: '2026-10-01 09:00',
+     category: '', category_text: '',
      converted_fault: null, converted_fault_no: '',
      created_by_name: 'admin', created_at: '2026-10-01 09:00'},
   ],
-  total: 1, overdue_count: 1, now: '2026-10-01 10:00',
+  total: 1,
 };
 
 const STATISTICS = {
@@ -148,7 +149,7 @@ async function renderDetail(detailResponse) {
   return store;
 }
 
-describe('运行异常记录 V2 · 新流程按钮（研判不再是必经步骤）', () => {
+describe('运行记录 V2 · 新流程按钮（研判不再是必经步骤）', () => {
   it('已记录显示 编辑/开始跟进/转为正式故障；页面无研判弹窗与标记重要', async () => {
     await renderDetail();
     const texts = topButtonTexts();
@@ -163,15 +164,17 @@ describe('运行异常记录 V2 · 新流程按钮（研判不再是必经步骤
     expect(texts).not.toContain('关闭');
   });
 
-  it('跟进中显示 新增跟进记录/修改跟进计划/完成跟进/转为正式故障，无研判入口', async () => {
+  it('跟进中显示 新增跟进记录/完成跟进/转为正式故障，无研判入口与跟进计划入口', async () => {
     await renderDetail({...RECORD_DETAIL, status: 'following_up',
       status_text: '跟进中'});
     const texts = topButtonTexts();
-    ['新增跟进记录', '修改跟进计划', '完成跟进', '转为正式故障'].forEach(btn => {
+    ['新增跟进记录', '完成跟进', '转为正式故障'].forEach(btn => {
       expect(texts).toContain(btn);
     });
     expect(texts).not.toContain('研判');
     expect(texts).not.toContain('提交研判');
+    // 跟进计划已删除（2026-10-06）：无修改跟进计划入口
+    expect(texts).not.toContain('修改跟进计划');
   });
 
   it('打开详情不请求 triage 相关接口（前端不再调用旧研判端点）', async () => {
@@ -183,36 +186,34 @@ describe('运行异常记录 V2 · 新流程按钮（研判不再是必经步骤
   });
 });
 
-describe('运行异常记录 V2 · 待办视图', () => {
-  it('只展示跟进中记录，超期/排序筛选参数生效，超期提示可见', async () => {
-    const store = require('../store').default;
+describe('运行记录 V2 · 待办视图', () => {
+  it('只展示跟进中记录，请求不带跟进计划筛选参数（该维度已删除）', async () => {
     const RecordTodo = require('../RecordTodo').default;
     mockHttpGet.mockImplementation((url, config) => {
       expect(url).toBe('/api/equipment-lifecycle/runtime-records/todo/');
       return Promise.resolve(TODO_PAGE);
     });
-    store.f_todo_overdue = true;
-    store.f_todo_order = 'recent';
     await act(async () => {
       ReactDOM.render(<RecordTodo/>, container);
     });
     await act(async () => {await flush();});
+    // 无筛选参数（overdue/follow_up_name/order 已随跟进计划删除）
     expect(mockHttpGet).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/runtime-records/todo/',
-      expect.objectContaining({params: expect.objectContaining({
-        overdue: 'yes', order: 'recent',
-      })}),
-    );
+      '/api/equipment-lifecycle/runtime-records/todo/');
     const text = bodyText();
     expect(text).toContain('YX20261001-0003');
-    expect(text).toContain('王值班');
-    expect(text).toContain('超期');
-    expect(text).toContain('当前有1条跟进中记录已超过计划处理时间');
+    // 跟进人/计划处理时间列已删除，不再出现超期告警
+    const headers = Array.from(document.querySelectorAll('.ant-table-thead th'))
+      .map(th => th.textContent.replace(/\s+/g, ''));
+    expect(headers).not.toContain('跟进人');
+    expect(headers).not.toContain('计划处理时间');
+    expect(text).not.toContain('超期');
+    expect(text).not.toContain('王值班');
   });
 
   it('无待办时展示空态文案', async () => {
     const RecordTodo = require('../RecordTodo').default;
-    mockHttpGet.mockResolvedValue({data: [], total: 0, overdue_count: 0});
+    mockHttpGet.mockResolvedValue({data: [], total: 0});
     await act(async () => {
       ReactDOM.render(<RecordTodo/>, container);
     });
@@ -221,7 +222,7 @@ describe('运行异常记录 V2 · 待办视图', () => {
   });
 });
 
-describe('运行异常记录 V2 · 统计视图', () => {
+describe('运行记录 V2 · 统计视图', () => {
   it('渲染总数卡片/状态维度/系统维度/时间趋势', async () => {
     const RecordStatistics = require('../RecordStatistics').default;
     mockHttpGet.mockImplementation((url) => {
@@ -233,7 +234,7 @@ describe('运行异常记录 V2 · 统计视图', () => {
     });
     await act(async () => {await flush();});
     const text = bodyText();
-    expect(text).toContain('运行异常记录总数');
+    expect(text).toContain('运行记录总数');
     expect(text).toContain('跟进中');
     expect(text).toContain('转故障');
     // "重复问题"卡片已下线：夹具仍保留 duplicated 字段（历史统计接口
@@ -250,7 +251,7 @@ describe('运行异常记录 V2 · 统计视图', () => {
   });
 });
 
-describe('运行异常记录 V2 · 重复问题功能下线（2026-10-05）', () => {
+describe('运行记录 V2 · 重复问题功能下线（2026-10-05）', () => {
   it('详情页签只剩 基本信息/处理进展/附件，不显示"重复问题"页签', async () => {
     await renderDetail();
     const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'))

@@ -1,9 +1,9 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——运行异常记录附件视图（复用 EvidenceAttachment 能力）。
+"""设备全生命周期——运行记录附件视图（复用 EvidenceAttachment 能力）。
 
 从 runtime_record_views 拆出（文件行数治理）：附件上传/列表/删除/下载。
-- 访问前先校验运行异常记录存在且属于当前租户（父对象校验），再校验附件归属
+- 访问前先校验运行记录存在且属于当前租户（父对象校验），再校验附件归属
   （附件存在、未软删除、归属本模块与父记录、租户可见）；
 - 终态（已关闭/已转故障）记录不允许上传/删除附件，仍可下载；
 - 单向依赖 runtime_record_views 的取数助手（不回引本模块）。
@@ -41,16 +41,16 @@ def _get_record_attachment_for_user(record, attachment_id, user):
 
 
 class RuntimeRecordAttachmentView(View):
-    """运行异常记录附件（复用 EvidenceAttachment 能力）。
+    """运行记录附件（复用 EvidenceAttachment 能力）。
 
-    访问前先校验运行异常记录存在且属于当前租户（父对象校验）。
+    访问前先校验运行记录存在且属于当前租户（父对象校验）。
     """
 
     @auth('equipment_lifecycle.runtime_record.view')
     def get(self, request, pk):
         record = _get_record_for_user(pk, request.user)
         if not record:
-            return json_response(error='运行异常记录不存在')
+            return json_response(error='运行记录不存在')
         attachments = AttachmentService.list(
             request.user, RUNTIME_ATTACHMENT_MODULE, RUNTIME_ATTACHMENT_OBJECT_TYPE, record.id)
         return json_response({'data': attachments})
@@ -60,9 +60,9 @@ class RuntimeRecordAttachmentView(View):
         with transaction.atomic():
             record = _get_record_for_user(pk, request.user, for_update=True)
             if not record:
-                return json_response(error='运行异常记录不存在')
+                return json_response(error='运行记录不存在')
             if record.status not in EDITABLE_RUNTIME_RECORD_STATUSES:
-                return json_response(error='已关闭或已转故障的运行异常记录不能上传附件')
+                return json_response(error='已关闭或已转故障的运行记录不能上传附件')
             file = request.FILES.get('file')
             if not file:
                 return json_response(error='缺少上传文件')
@@ -85,15 +85,15 @@ class RuntimeRecordAttachmentDetailView(View):
         with transaction.atomic():
             record = _get_record_for_user(pk, request.user, for_update=True)
             if not record:
-                return json_response(error='运行异常记录不存在')
+                return json_response(error='运行记录不存在')
             if record.status not in EDITABLE_RUNTIME_RECORD_STATUSES:
-                return json_response(error='已关闭或已转故障的运行异常记录不能删除附件')
+                return json_response(error='已关闭或已转故障的运行记录不能删除附件')
             att = _get_record_attachment_for_user(record, aid, request.user)
             if not att:
                 return json_response(error=ATTACHMENT_DELETE_DENIED_ERROR)
             error = AttachmentService.soft_delete(
                 request.user, aid, RUNTIME_ATTACHMENT_MODULE,
-                RUNTIME_ATTACHMENT_OBJECT_TYPE, reason='运行异常记录附件删除')
+                RUNTIME_ATTACHMENT_OBJECT_TYPE, reason='运行记录附件删除')
             if error:
                 return json_response(error=error)
             record_audit_event(request, 'delete', AUDIT_TARGET_RUNTIME_RECORD,
@@ -108,7 +108,7 @@ class RuntimeRecordAttachmentDownloadView(View):
     def get(self, request, pk, aid):
         record = _get_record_for_user(pk, request.user)
         if not record:
-            return json_response(error='运行异常记录不存在')
+            return json_response(error='运行记录不存在')
         att = _get_record_attachment_for_user(record, aid, request.user)
         if not att:
             return json_response(error='附件不存在或无权限访问')

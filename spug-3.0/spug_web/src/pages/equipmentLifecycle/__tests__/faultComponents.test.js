@@ -581,7 +581,7 @@ describe('基本信息三区块（2026-10 重组：故障概况/处置结果/来
       source_runtime_record_no: 'YX20261001-0001',
     });
     let text = bodyText();
-    expect(text).toContain('来源运行异常记录');
+    expect(text).toContain('来源运行记录');
     expect(text).toContain('YX20261001-0001');
     expect(text).toContain('故障登记人');
     expect(text).toContain('登记时间');

@@ -3,7 +3,8 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——运行异常记录中心页（2026-10 第一版 + 第二版）。
+ * 设备全生命周期——运行记录中心页（2026-10 第一版 + 第二版；2026-10-07
+ * 模块更名"运行记录"并扩展 record_type，兼容日常运行记录与异常事件记录）。
  * 异常与运行情况的统一录入入口：用户反馈、值班发现、短暂中断或恢复、
  * 已处理的小问题、需要后续跟进的运行情况。
  * 页签：全部记录 / 待办（跟进中）/ 统计（只读）。
@@ -24,13 +25,33 @@ import RecordStatistics from './RecordStatistics';
 import store from './store';
 import {
   PERM, RUNTIME_STATUS_OPTIONS, RUNTIME_STATUS_TEXT, RUNTIME_STATUS_COLOR,
-  RUNTIME_CATEGORY_OPTIONS,
+  RUNTIME_CATEGORY_OPTIONS, RUNTIME_RECORD_TYPE_OPTIONS,
+  RUNTIME_RECORD_TYPE_TEXT, RUNTIME_RECORD_TYPE_COLOR,
 } from '../constants';
 
 const { RangePicker } = DatePicker;
 const { TabPane } = Tabs;
 
-// 异常类别筛选（独立小组件避免筛选区过长）
+// 记录类型筛选（2026-10-07：日常运行/异常事件，独立小组件避免筛选区过长）
+function RecordTypeFilter() {
+  return (
+    <SearchForm.Item span={4} title="记录类型">
+      <Select
+        allowClear
+        style={{width: '100%'}}
+        value={store.f_record_type}
+        onChange={v => {store.f_record_type = v; store.page = 1; store.fetchRecords();}}
+        placeholder="请选择"
+      >
+        {RUNTIME_RECORD_TYPE_OPTIONS.map(item => (
+          <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
+        ))}
+      </Select>
+    </SearchForm.Item>
+  );
+}
+
+// 异常类别筛选（独立小组件避免筛选区过长)
 function CategoryFilter() {
   return (
     <SearchForm.Item span={4} title="异常类别">
@@ -104,6 +125,7 @@ function RuntimeRecordFilters() {
           <Select.Option value={false}>不需要</Select.Option>
         </Select>
       </SearchForm.Item>
+      <RecordTypeFilter/>
       <CategoryFilter/>
       <SearchForm.Item span={6} title="发生时间">
         <RangePicker
@@ -136,6 +158,13 @@ class RuntimeRecordTable extends React.Component {
     title: '编号',
     dataIndex: 'record_no',
     width: 150,
+  }, {
+    title: '记录类型',
+    dataIndex: 'record_type',
+    width: 90,
+    render: text => (
+      <Tag color={RUNTIME_RECORD_TYPE_COLOR[text]}>{RUNTIME_RECORD_TYPE_TEXT[text] || text}</Tag>
+    ),
   }, {
     title: '所属系统',
     dataIndex: 'system_name',
@@ -198,7 +227,7 @@ class RuntimeRecordTable extends React.Component {
         }}
         dataSource={store.records}
         columns={this.columns}
-        locale={{emptyText: '暂无运行异常记录'}}
+        locale={{emptyText: '暂无运行记录'}}
       />
     );
   }
@@ -217,9 +246,9 @@ function RuntimeRecordIndex() {
     <AuthDiv auth={PERM.RUNTIME_VIEW}>
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
+        <Breadcrumb.Item>设备运行维护管理</Breadcrumb.Item>
         <Breadcrumb.Item>运行处置</Breadcrumb.Item>
-        <Breadcrumb.Item>运行异常记录</Breadcrumb.Item>
+        <Breadcrumb.Item>运行记录</Breadcrumb.Item>
       </Breadcrumb>
       <Tabs defaultActiveKey="records">
         <TabPane tab="全部记录" key="records">
@@ -231,7 +260,7 @@ function RuntimeRecordIndex() {
               icon={<PlusOutlined/>}
               onClick={() => store.showForm()}
             >
-              新增运行异常记录
+              新增运行记录
             </AuthButton>
           </div>
           <RuntimeRecordTable/>

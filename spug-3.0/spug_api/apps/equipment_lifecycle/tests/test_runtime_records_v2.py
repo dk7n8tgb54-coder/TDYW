@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""运行异常记录第二版（2026-10）真实行为测试：状态闭环 / 转故障 / 待办 / 统计。
+"""运行记录第二版（2026-10）真实行为测试：状态闭环 / 转故障 / 待办 / 统计。
 
 覆盖任务要求的行为断言（HTTP 真实路径 + 数据库副作用，不使用源码字符串匹配）：
 1. 状态机（2026-10-05 第四版，研判不再是必经步骤）：新建即已记录（登记
@@ -10,12 +10,13 @@
    duplicate-links/mark-repeated/pending-triage/no-follow-up/mark-important
    路由一律 404；
 3. 转正式故障建立正式外键并带入结构化字段；重复/并发转换不重复创建；
-4. 转故障后的处理进展进入故障模块，运行异常记录侧被拒绝；
+4. 转故障后的处理进展进入故障模块，运行记录侧被拒绝；
 5. 动作写业务审计（record_audit_event），新流程不写系统履历；
-6. 待办列表只显示跟进中记录（超期/跟进人/计划时间筛选）；
+6. 待办列表只显示跟进中记录（最近更新优先；跟进人/计划时间/超期维度已随
+   跟进计划删除移除）；
 7. 统计遵守租户隔离，状态维度为四状态原值计数（无 duplicated/important
-   键），巡视/维护/配置变更/升级数据不进入运行异常记录统计；
-8. 无权限用户不能追加进展/完成跟进/重新跟进；只读用户可看待办与统计；
+   键），巡视/维护/配置变更/升级数据不进入运行记录统计；
+8. 无权限用户不能追加进展/完成跟进；只读用户可看待办与统计；
 9. 系统详情页签筛选（异常类别/关键词）与最近发生时间摘要。
 """
 import threading
@@ -59,7 +60,7 @@ RECORDS_URL = URL_PREFIX + '/runtime-records'
 REMOVED_ACTION_ROUTES = (
     'triage/', 'close/', 'similar/', 'duplicate-links/',
     'duplicate-links/1/', 'mark-repeated/', 'mark-important/',
-    'pending-triage/', 'no-follow-up/',
+    'pending-triage/', 'no-follow-up/', 'follow-up/',
 )
 
 
@@ -168,8 +169,8 @@ class StateFlowTests(RuntimeRecordV2TestBase):
         record = SystemRuntimeRecord.objects.get(pk=record_id)
         self.assertEqual(record.status, 'following_up')
         self.assertTrue(record.needs_follow_up)
-        # 研判不再是必经步骤：新流程不写研判字段
-        self.assertIsNone(record.triaged_at)
+        # 研判快照字段已彻底删除（2026-10-07 迁移 0010）
+        self.assertFalse(hasattr(record, 'triaged_at'))
         # 跟进中 → 完成跟进（已完成，resolved_at 记录首次完成时间）
         resp = self.client.post(
             RECORDS_URL + f'/{record_id}/resolve/',
@@ -180,9 +181,11 @@ class StateFlowTests(RuntimeRecordV2TestBase):
         self.assertEqual(record.status, 'completed')
         first_resolved_at = record.resolved_at
         self.assertIsNotNone(first_resolved_at)
-        # 已完成重新跟进直接回跟进中（不要求关闭，closed 状态已退役）
-        resp = self.client.post(RECORDS_URL + f'/{record_id}/follow-up/', {},
-                                content_type='application/json')
+        # 已完成重新跟进 = 追加一条处理进展（follow-up 端点已随跟进计划删除）
+        resp = self.client.post(
+            RECORDS_URL + f'/{record_id}/progress/',
+            {'content': '问题复发，重新跟进'},
+            content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
         record.refresh_from_db()
         self.assertEqual(record.status, 'following_up')
@@ -193,7 +196,7 @@ class StateFlowTests(RuntimeRecordV2TestBase):
         self.assertEqual(record.resolved_at, first_resolved_at)
 
     def test_actions_write_audit_log(self):
-        """处理进展/完成跟进/重新跟进动作写业务审计。"""
+        """处理进展/完成跟进动作写业务审计。"""
         data = self.create_record()
         record_id = data['id']
         before = AuditLog.objects.filter(
@@ -201,21 +204,25 @@ class StateFlowTests(RuntimeRecordV2TestBase):
         self.start_follow_up(record_id)
         self.client.post(RECORDS_URL + f'/{record_id}/resolve/', {},
                          content_type='application/json')
-        self.client.post(RECORDS_URL + f'/{record_id}/follow-up/', {},
-                         content_type='application/json')
+        self.client.post(
+            RECORDS_URL + f'/{record_id}/progress/',
+            {'content': '重新跟进：继续观察'},
+            content_type='application/json')
         after = AuditLog.objects.filter(
             target_type='el_runtime_record', target_id=str(record_id)).count()
         self.assertGreater(after, before)
 
     def test_new_flow_writes_no_system_event(self):
-        """运行异常记录不写系统履历（第四版起，历史事件保留仅供回溯）。"""
+        """运行记录不写系统履历（第四版起，历史事件保留仅供回溯）。"""
         data = self.create_record()
         record_id = data['id']
         self.start_follow_up(record_id)
         self.client.post(RECORDS_URL + f'/{record_id}/resolve/', {},
                          content_type='application/json')
-        self.client.post(RECORDS_URL + f'/{record_id}/follow-up/', {},
-                         content_type='application/json')
+        self.client.post(
+            RECORDS_URL + f'/{record_id}/progress/',
+            {'content': '重新跟进：继续观察'},
+            content_type='application/json')
         self.assert_runtime_events(record_id, [])
 
 
@@ -245,7 +252,7 @@ class ConvertFaultTests(RuntimeRecordV2TestBase):
         self.assertEqual(fault.reason_analysis, '疑为功放模块老化')
         self.assertFalse(fault.affects_system_operation)
         self.assertEqual(fault.impact_status, '')
-        # 故障详情暴露来源运行异常记录（双向追溯）
+        # 故障详情暴露来源运行记录（双向追溯）
         resp = self.client.get(URL_PREFIX + f'/faults/{fault.id}/')
         self.assertFalse(resp.json().get('error'), resp.content)
         detail = resp.json()['data']
@@ -276,7 +283,7 @@ class ConvertFaultTests(RuntimeRecordV2TestBase):
         self.assertFalse(resp.json().get('error'), resp.content)
         fault_id = SystemRuntimeRecord.objects.get(
             pk=record_id).generated_faults.first().id
-        # 运行异常记录侧：不允许再追加普通处理进展
+        # 运行记录侧：不允许再追加普通处理进展
         resp = self.client.post(
             RECORDS_URL + f'/{record_id}/progress/',
             {'content': '记录侧进展', 'handler_name': '张三'},
@@ -295,17 +302,14 @@ class ConvertFaultTests(RuntimeRecordV2TestBase):
 
 
 class TodoListTests(RuntimeRecordV2TestBase):
-    """6. 待办列表只显示跟进中记录，支持超期/跟进人/计划时间筛选。"""
+    """6. 待办列表只显示跟进中记录，按最近更新优先排序（跟进人/计划时间/
+    超期维度已随跟进计划删除移除）。"""
 
     def setUp(self):
         super().setUp()
         # 状态机：已记录经首条跟进记录进入跟进中
         self.following = self.create_record(title='跟进中问题')
         self.start_follow_up(self.following['id'])
-        self.client.post(
-            RECORDS_URL + f'/{self.following["id"]}/follow-up/',
-            {'follow_up_name': '王值班', 'planned_handle_at': '2020-01-01 09:00'},
-            content_type='application/json')
         self.resolved = self.create_record(
             title='已完成问题', occurred_at='2026-10-01 09:00')
         self.start_follow_up(self.resolved['id'])
@@ -330,7 +334,8 @@ class TodoListTests(RuntimeRecordV2TestBase):
         self.assertNotIn(self.converted['id'], ids)
         # 留痕的已记录不是待办事项
         self.assertNotIn(self.untouched['id'], ids)
-        self.assertGreaterEqual(body['overdue_count'], 1)
+        # 跟进计划已删除：响应不再携带超期计数
+        self.assertNotIn('overdue_count', body)
 
     def test_created_with_follow_up_flag_stays_recorded_and_not_todo(self):
         """新建表单勾选"需要跟进"只作标记：状态仍为已记录，不进跟进待办
@@ -352,43 +357,22 @@ class TodoListTests(RuntimeRecordV2TestBase):
         self.assertIn(data['id'],
                       [r['id'] for r in resp.json()['data']['data']])
 
-    def test_todo_filters(self):
-        resp = self.client.get(RECORDS_URL + '/todo/', {'overdue': 'yes'})
-        self.assertIn(self.following['id'],
-                      [r['id'] for r in resp.json()['data']['data']])
-        resp = self.client.get(RECORDS_URL + '/todo/', {'follow_up_name': '王值班'})
-        self.assertIn(self.following['id'],
-                      [r['id'] for r in resp.json()['data']['data']])
-        resp = self.client.get(RECORDS_URL + '/todo/', {'follow_up_name': '不存在的人'})
-        self.assertEqual(resp.json()['data']['total'], 0)
-        # 计划处理时间范围筛选（__gte/__lt）
-        resp = self.client.get(RECORDS_URL + '/todo/', {
-            'planned_from': '2019-01-01 00:00', 'planned_to': '2021-01-01 00:00'})
-        self.assertIn(self.following['id'],
-                      [r['id'] for r in resp.json()['data']['data']])
-        resp = self.client.get(RECORDS_URL + '/todo/', {
-            'planned_from': '2030-01-01 00:00', 'planned_to': '2031-01-01 00:00'})
-        self.assertEqual(resp.json()['data']['total'], 0)
-
-    def test_follow_up_updates_assignee_when_already_following(self):
-        # 已跟进中记录携带跟进字段 → 仅更新跟进安排，不报"重复标记"
-        resp = self.client.post(
-            RECORDS_URL + f'/{self.following["id"]}/follow-up/',
-            {'follow_up_name': '李值班', 'planned_handle_at': '2026-10-05 09:00'},
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.content)
-        record = SystemRuntimeRecord.objects.get(pk=self.following['id'])
-        self.assertEqual(record.follow_up_name, '李值班')
-        self.assertEqual(record.status, 'following_up')
-        # 无字段重复标记 → 维持拒绝
-        resp = self.client.post(
-            RECORDS_URL + f'/{self.following["id"]}/follow-up/', {},
-            content_type='application/json')
-        self.assertIn('已处于跟进中', resp.json().get('error', ''))
+    def test_todo_orders_by_recent_update(self):
+        """待办按最近更新优先排序（updated_at/created_at 降序）。"""
+        older = self.create_record(title='较早更新的跟进')
+        self.start_follow_up(older['id'])
+        newer = self.create_record(title='较新创建的跟进')
+        self.start_follow_up(newer['id'])
+        # 人为把 older 的更新时间拨回过去，保证时序确定
+        SystemRuntimeRecord.objects.filter(pk=older['id']).update(
+            updated_at=timezone.now() - timedelta(days=1))
+        resp = self.client.get(RECORDS_URL + '/todo/')
+        ids = [r['id'] for r in resp.json()['data']['data']]
+        self.assertLess(ids.index(newer['id']), ids.index(older['id']))
 
 
 class RuntimeStatisticsTests(RuntimeRecordV2TestBase):
-    """7. 统计：租户隔离、只统计运行异常记录、状态维度为四状态原值计数。"""
+    """7. 统计：租户隔离、只统计运行记录、状态维度为四状态原值计数。"""
 
     def test_statistics_counts_and_tenant_isolation(self):
         normal = self.create_record(title='普通情况')
@@ -434,8 +418,8 @@ class RuntimeStatisticsTests(RuntimeRecordV2TestBase):
         self.assertNotIn('important', system_rows[0])
 
     def test_statistics_excludes_other_business_data(self):
-        """巡视、维护、升级数据不进入运行异常记录统计。"""
-        self.create_record(title='唯一的运行异常记录')
+        """巡视、维护、升级数据不进入运行记录统计。"""
+        self.create_record(title='唯一的运行记录')
         # 周月维护台账
         OperationLedger.objects.create(
             tenant_id='tenant_a', ledger_no='EL-WM-TEST-0001',
@@ -488,9 +472,6 @@ class RuntimeStatisticsTests(RuntimeRecordV2TestBase):
         """长期未关闭只统计跟进中（留痕为合法稳定状态，不计积压）。"""
         stale = self.create_record(title='长期跟进未关闭')
         self.start_follow_up(stale['id'])
-        self.client.post(
-            RECORDS_URL + f'/{stale["id"]}/follow-up/',
-            {'follow_up_name': '王值班'}, content_type='application/json')
         SystemRuntimeRecord.objects.filter(pk=stale['id']).update(
             created_at=timezone.now() - timedelta(days=30))
         # 留痕的已记录同样创建超过 30 天，但不计入长期未关闭
@@ -570,7 +551,7 @@ class ConcurrencyConvertTests(TransactionTestCase):
 
 
 class V2PermissionTests(RuntimeRecordV2TestBase):
-    """8. 无权限用户不能追加进展/完成跟进/重新跟进；只读用户可看待办与统计。"""
+    """8. 无权限用户不能追加进展/完成跟进；只读用户可看待办与统计。"""
 
     def test_progress_and_resolve_require_permission(self):
         data = self.create_record()
@@ -581,10 +562,6 @@ class V2PermissionTests(RuntimeRecordV2TestBase):
             self.assertTrue(resp.json().get('error'))
             resp = client.post(
                 RECORDS_URL + f'/{data["id"]}/resolve/', {},
-                content_type='application/json')
-            self.assertTrue(resp.json().get('error'))
-            resp = client.post(
-                RECORDS_URL + f'/{data["id"]}/follow-up/', {},
                 content_type='application/json')
             self.assertTrue(resp.json().get('error'))
         record = SystemRuntimeRecord.objects.get(pk=data['id'])
@@ -625,7 +602,7 @@ class SystemHistoryFilterTests(RuntimeRecordV2TestBase):
             occurred_at='2026-10-01 08:00')
         self.create_record(
             title='供电波动', category='power', occurred_at='2026-10-01 08:00')
-        # 按异常类别筛选系统历史运行异常记录
+        # 按异常类别筛选系统历史运行记录
         resp = self.client.get(
             URL_PREFIX + f'/systems/{self.system.id}/runtime-records/',
             {'category': 'device'})

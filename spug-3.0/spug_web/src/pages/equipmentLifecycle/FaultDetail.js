@@ -189,9 +189,9 @@ class FaultDetail extends React.Component {
               </Button>
             </Descriptions.Item>
           )}
-          {/* 运行异常记录转故障（2026-10）：正式外键双向追溯，跳回运行异常记录详情 */}
+          {/* 运行记录转故障（2026-10）：正式外键双向追溯，跳回运行记录详情 */}
           {d.source_type === 'runtime_record' && d.source_runtime_record && (
-            <Descriptions.Item label="来源运行异常记录" span={2}>
+            <Descriptions.Item label="来源运行记录" span={2}>
               <Button
                 type="link"
                 size="small"
@@ -201,7 +201,7 @@ class FaultDetail extends React.Component {
                   history.push(`/el/runtime-records?detail=${d.source_runtime_record}`);
                 }}
               >
-                {d.source_runtime_record_no || '查看来源运行异常记录'}
+                {d.source_runtime_record_no || '查看来源运行记录'}
               </Button>
             </Descriptions.Item>
           )}

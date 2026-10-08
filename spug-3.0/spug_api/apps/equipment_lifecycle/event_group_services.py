@@ -36,7 +36,7 @@ from apps.equipment_lifecycle.models import (
 
 # 参与主履历事项聚合的事件类型（排除健康状态/配置快照，二者不按事项聚合；
 # work_order 已随工单功能删除，存量工单事件由迁移 0043 清理；
-# runtime 运行异常记录 2026-10 纳入：影响运行/标记重要/转为故障时才写履历）
+# runtime 运行记录 2026-10 纳入：影响运行/标记重要/转为故障时才写履历）
 MAIN_EVENT_TYPES = ('fault', 'ledger', 'upgrade', 'inspection', 'runtime')
 # 主列表事项的来源类型（健康状态/配置快照来源不参与）
 GROUP_SOURCE_TYPES = ('fault', 'ledger_item', 'upgrade', 'inspection_record',
@@ -205,7 +205,7 @@ def _serialize_item(item, fault_map, runtime_map):
 def _business_maps(user, items_by_system):
     """批量取本页事项对应的业务对象（同 app 内，租户过滤）。
 
-    返回 (fault_map, runtime_map)：故障与运行异常记录按各自业务主键取真实
+    返回 (fault_map, runtime_map)：故障与运行记录按各自业务主键取真实
     状态/标题，其余来源（升级/台账）不查业务表。
     """
     fault_ids, runtime_ids = set(), set()

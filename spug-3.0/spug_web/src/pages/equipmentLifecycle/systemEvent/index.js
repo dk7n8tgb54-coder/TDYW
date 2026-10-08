@@ -27,7 +27,7 @@ function SystemEventIndex() {
     <AuthDiv auth={PERM.EVENT_VIEW}>
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
+        <Breadcrumb.Item>设备运行维护管理</Breadcrumb.Item>
         <Breadcrumb.Item>系统履历</Breadcrumb.Item>
       </Breadcrumb>
       <SearchForm>

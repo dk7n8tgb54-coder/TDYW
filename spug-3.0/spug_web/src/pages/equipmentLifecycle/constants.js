@@ -24,12 +24,13 @@ export const PERM = {
   FAULT_DEL: 'equipment_lifecycle.fault.del',
   FAULT_EXPORT: 'equipment_lifecycle.fault.export',
   LEDGER_HANDLE_EXCEPTION: 'equipment_lifecycle.ledger.handle_exception',
-  // 运行异常记录（2026-10 第一版）
+  // 运行记录（2026-10 第一版；2026-10-07 模块更名 + record_type 扩展）
   RUNTIME_VIEW: 'equipment_lifecycle.runtime_record.view',
   RUNTIME_ADD: 'equipment_lifecycle.runtime_record.add',
   RUNTIME_EDIT: 'equipment_lifecycle.runtime_record.edit',
   RUNTIME_RESOLVE: 'equipment_lifecycle.runtime_record.resolve',
   RUNTIME_CONVERT_FAULT: 'equipment_lifecycle.runtime_record.convert_fault',
+  RUNTIME_DEL: 'equipment_lifecycle.runtime_record.del',
   // 系统配置（2026-10）：只在系统详情"配置"页签内使用，不设独立菜单
   CONFIG_VIEW: 'equipment_lifecycle.config.view',
   CONFIG_ADD: 'equipment_lifecycle.config.add',
@@ -112,19 +113,22 @@ export const FAULT_IMPACT_COLOR = {
 // 处置时间/处置人/处置措施；排查过程与依据直接作为处置措施文本记录。
 
 
-// 运行异常记录状态（与后端 SystemRuntimeRecord.STATUS_* 一致）
+// 运行记录状态（与后端 SystemRuntimeRecord.STATUS_* 一致）
 // 用户可见状态只有四个（2026-10-05 第四版起研判不再是必经步骤，
 // TriageModal 已整体删除）：
 // - recorded 已记录：新建成功即已记录，留痕稳定态，可长期保留，不进待办，
 //   无需任何研判或关闭操作；顶部动作 = 编辑/开始跟进/转为正式故障；
 // - following_up 跟进中：保存首条跟进记录（追加处理进展）后进入，进入待办；
-//   跟进人/计划处理时间为当前计划（顶部"修改跟进计划"维护，修改计划不产生
-//   处理进展）；可新增跟进记录/修改跟进计划/完成跟进/转为正式故障；
-// - completed 已完成：完成跟进后进入，可重新跟进，不提供普通关闭动作；
+//   跟进人/计划处理时间（跟进计划）已删除（2026-10-06），跟进动作统一为
+//   追加处理进展；可新增跟进记录/完成跟进/转为正式故障；
+// - completed 已完成：完成跟进后进入，追加处理进展即重新跟进，
+//   不提供普通关闭动作；
 // - converted_fault 已转故障：后续处置以故障模块为准，只保留查看关联故障
 //   （转故障为独立动作，recorded/following_up 均可直接转换，不依赖研判）。
 // 历史兼容值 pending_triage/no_follow_up/resolved/closed 已由后端迁移 0007
 // 归一为正式状态，前端不再保留别名映射。
+// 2026-10-07 record_type 扩展：routine（日常运行）状态恒为 recorded
+// （"已记录"），不显示任何异常状态；异常状态仅用于 abnormal（异常事件）。
 export const RUNTIME_STATUS_OPTIONS = [
   {value: 'recorded', label: '已记录'},
   {value: 'following_up', label: '跟进中'},
@@ -144,7 +148,26 @@ export const RUNTIME_STATUS_COLOR = {
   converted_fault: 'purple',
 };
 
-// 运行异常记录异常类别（与后端 RUNTIME_CATEGORY_* 一致；空串=未选择）
+// 记录类型（2026-10-07，与后端 SystemRuntimeRecord.record_type 一致）：
+// routine 日常运行（不进入异常研判/跟进/转故障流程）/
+// abnormal 异常事件（沿用原运行异常记录全部字段与状态机）；
+// 历史数据已由迁移 0011 回填为 abnormal，旧请求未传按 abnormal 兼容
+export const RUNTIME_RECORD_TYPE_OPTIONS = [
+  {value: 'routine', label: '日常运行'},
+  {value: 'abnormal', label: '异常事件'},
+];
+
+export const RUNTIME_RECORD_TYPE_TEXT = RUNTIME_RECORD_TYPE_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
+export const RUNTIME_RECORD_TYPE_COLOR = {
+  routine: 'blue',
+  abnormal: 'volcano',
+};
+
+// 运行记录异常类别（与后端 RUNTIME_CATEGORY_* 一致；空串=未选择）
 export const RUNTIME_CATEGORY_OPTIONS = [
   {value: 'device', label: '设备异常'},
   {value: 'signal', label: '信号异常'},
@@ -160,7 +183,7 @@ export const RUNTIME_CATEGORY_TEXT = RUNTIME_CATEGORY_OPTIONS.reduce((acc, item)
   return acc;
 }, {});
 
-// 运行异常记录的影响程度/重要程度常量已随字段删除移除（2026-10-06）；
+// 运行记录的影响程度/重要程度常量已随字段删除移除（2026-10-06）；
 // 故障模块影响语义常量（FAULT_IMPACT_*）继续由故障模块使用。
 
 

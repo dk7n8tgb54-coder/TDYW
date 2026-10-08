@@ -191,7 +191,7 @@ def create_fault_record(*, tenant_id, created_by, system, impact_status,
                         source_type=None, source_ledger_item=None,
                         source_inspection_record=None,
                         source_runtime_record=None, request=None):
-    """正式故障创建服务（单系统简化，台账异常/巡检异常/运行异常记录转故障复用）。
+    """正式故障创建服务（单系统简化，台账异常/巡检异常/运行记录转故障复用）。
 
     须在 health_recalc_lock + transaction.atomic 内调用（调用方负责锁与事务）：
     - 创建故障主单（一个故障系统外键 + 发生时快照，无受影响系统）；

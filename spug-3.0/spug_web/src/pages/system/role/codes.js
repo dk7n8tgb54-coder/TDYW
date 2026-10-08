@@ -74,7 +74,7 @@ export default [{
   }]
 }, {
   key: 'equipment_lifecycle',
-  label: '设备全生命周期',
+  label: '设备运行维护管理',
   pages: [{
     key: 'system',
     label: '系统主数据',
@@ -103,17 +103,19 @@ export default [{
       {key: 'export', label: '导出故障列表'},
     ]
   }, {
-    // 运行异常记录（2026-10 第一版）：异常与运行情况统一录入入口
+    // 运行记录（2026-10 第一版；2026-10-07 更名"运行记录"并兼容
+    // 日常运行/异常事件两类记录）
     // 2026-10-06 状态归一清理：triage/close 权限码与重复问题 link 权限码
     // 已随对应端点退役删除（角色 JSON 中的残留码惰性失效，无需清洗）
     key: 'runtime_record',
-    label: '运行异常记录',
+    label: '运行记录',
     perms: [
-      {key: 'view', label: '查看运行异常记录'},
-      {key: 'add', label: '新增运行异常记录'},
-      {key: 'edit', label: '编辑运行异常记录/追加与更正处理进展/上传附件'},
-      {key: 'resolve', label: '完成跟进'},
-      {key: 'convert_fault', label: '转为正式故障'},
+      {key: 'view', label: '查看运行记录'},
+      {key: 'add', label: '新增运行记录'},
+      {key: 'edit', label: '编辑运行记录/追加与更正处理进展/上传附件（异常事件）'},
+      {key: 'resolve', label: '完成跟进（异常事件）'},
+      {key: 'convert_fault', label: '转为正式故障（异常事件）'},
+      {key: 'del', label: '删除运行记录（仅日常运行）'},
       {key: 'important', label: '标记重要（进入系统履历）'},
     ]
   }, {

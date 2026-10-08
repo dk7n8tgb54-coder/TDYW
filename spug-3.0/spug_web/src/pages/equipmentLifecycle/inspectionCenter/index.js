@@ -78,7 +78,7 @@ function InspectionCenter() {
   return (
     <AuthDiv>
       <Breadcrumb>
-        <Breadcrumb.Item>设备全生命周期管理</Breadcrumb.Item>
+        <Breadcrumb.Item>设备运行维护管理</Breadcrumb.Item>
         <Breadcrumb.Item>巡视与维护</Breadcrumb.Item>
         <Breadcrumb.Item>日巡视</Breadcrumb.Item>
       </Breadcrumb>

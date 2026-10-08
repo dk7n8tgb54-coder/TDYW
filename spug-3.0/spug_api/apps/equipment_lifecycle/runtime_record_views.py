@@ -1,18 +1,18 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——运行异常记录视图（2026-10，第一版）。
+"""设备全生命周期——运行记录视图（2026-10，第一版）。
 
 定位：异常与运行情况的统一录入入口，用户不必先判断"故障/事件/其他类型"。
-巡视与维护、系统升级、配置变更仍由各自模块负责，不进入运行异常记录。
+巡视与维护、系统升级、配置变更仍由各自模块负责，不进入运行记录。
 
 权限域（前后端一致，后端独立校验）：
 - equipment_lifecycle.runtime_record.view|add|edit|resolve|convert_fault
 
 设计要点：
 - 新建只要求 系统/发生时间/标题/情况描述；其余字段选填或默认值；
-- 状态流转只经动作接口（follow-up/resolve/convert-to-fault）与首条跟进
-  记录（追加处理进展），普通编辑不允许改状态；converted_fault 为终态
-  （正式处置以 SystemFault 为准）；
+- 状态流转只经动作接口（resolve/convert-to-fault）与追加处理进展（首条
+  跟进记录进入跟进中；已完成追加进展即重新跟进），普通编辑不允许改状态；
+  converted_fault 为终态（正式处置以 SystemFault 为准）；
 - 第四版（2026-10-05）研判不再是必经步骤，用户可见状态只有 已记录/
   跟进中/已完成/已转故障：新建成功即已记录（可长期保留，不作为待办），
   追加首条处理进展即进入跟进中，resolve 端点即"完成跟进"（following_up
@@ -58,6 +58,9 @@ from apps.equipment_lifecycle.models import (
     RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
     RUNTIME_RECORD_STATUS_FOLLOWING_UP,
     RUNTIME_RECORD_STATUS_RECORDED,
+    RUNTIME_RECORD_TYPE_ABNORMAL,
+    RUNTIME_RECORD_TYPE_ROUTINE,
+    RUNTIME_RECORD_TYPE_TEXT_MAP,
     RUNTIME_CATEGORY_TEXT_MAP,
     LifecycleSystem,
     SystemFault,
@@ -72,7 +75,7 @@ from apps.equipment_lifecycle.fault_views import (
 AUDIT_TARGET_RUNTIME_RECORD = 'el_runtime_record'
 IDEMPOTENCY_WINDOW_SECONDS = 30
 
-# 运行异常记录附件归属标识（复用 EvidenceAttachment 体系，不新建文件存储）
+# 运行记录附件归属标识（复用 EvidenceAttachment 体系，不新建文件存储）
 RUNTIME_ATTACHMENT_MODULE = 'equipment_lifecycle'
 RUNTIME_ATTACHMENT_OBJECT_TYPE = 'el_runtime_record'
 
@@ -80,11 +83,16 @@ RUNTIME_ATTACHMENT_OBJECT_TYPE = 'el_runtime_record'
 BOOL_FILTER_MAP = {'yes': True, 'true': True, 'no': False, 'false': False}
 
 # 已删除字段（2026-10-06 迁移 0006：具体对象名称/对象型号编号/影响系统运行/
-# 影响程度/重要程度）。请求体出现任一旧参数即拒绝，不静默忽略。
+# 影响程度/重要程度；迁移 0009：跟进人/计划处理时间（跟进计划）与处理进展的
+# 处理结果/本次工时；迁移 0010：研判快照字段）。请求体出现任一旧参数即拒绝，
+# 不静默忽略。
 RETIRED_RUNTIME_RECORD_PARAMS = (
     'affects_system_operation', 'impact_status',
     'object_name', 'object_model',
     'importance', 'importance_reason',
+    'follow_up_name', 'planned_handle_at',
+    'result', 'work_hours',
+    'triaged_at', 'triaged_by_name', 'triage_note',
 )
 
 
@@ -147,8 +155,9 @@ def _validate_base_fields(form, request, for_update=False, record=None):
 
 ENUM_FILTER_DEFS = (
     # (参数名, 合法值集合, 错误消息)
-    ('status', SystemRuntimeRecord.STATUS_TEXT_MAP, '运行异常记录状态筛选值不合法'),
+    ('status', SystemRuntimeRecord.STATUS_TEXT_MAP, '运行记录状态筛选值不合法'),
     ('category', RUNTIME_CATEGORY_TEXT_MAP, '异常类别筛选值不合法'),
+    ('record_type', RUNTIME_RECORD_TYPE_TEXT_MAP, '记录类型筛选值不合法'),
 )
 
 
@@ -202,6 +211,72 @@ def _validate_category_value(category):
     return None
 
 
+def _validate_record_type(value):
+    """记录类型取值校验，返回 (record_type, error)。
+
+    空串/None 按 abnormal 兼容（旧请求未传 record_type 的历史口径）。
+    """
+    if not value:
+        return RUNTIME_RECORD_TYPE_ABNORMAL, None
+    if value not in RUNTIME_RECORD_TYPE_TEXT_MAP:
+        return None, '记录类型取值不合法'
+    return value, None
+
+
+def _reject_routine_only_field(record_type, form, name, error):
+    """routine 记录携带异常专属字段时拒绝（后端独立校验，不依赖前端隐藏）。"""
+    if record_type == RUNTIME_RECORD_TYPE_ROUTINE and form and getattr(form, name, None):
+        return error
+    return None
+
+
+def _reject_routine_extra_fields(record_type, form):
+    """routine 记录携带异常专属入参（初步原因/影响范围/跟进标记）时校验，
+    返回错误消息或 None。"""
+    error = _reject_routine_only_field(
+        record_type, form, 'initial_reason', '日常运行记录不支持填写初步原因')
+    if not error:
+        error = _reject_routine_only_field(
+            record_type, form, 'impact_scope', '日常运行记录不支持填写影响范围')
+    if not error and getattr(form, 'needs_follow_up', None):
+        error = '日常运行记录不支持跟进标记'
+    return error
+
+
+def _validate_create_type_fields(form):
+    """创建时的记录类型校验，返回 (error, record_type)。"""
+    record_type, err = _validate_record_type(form.record_type)
+    if err:
+        return err, None
+    if record_type == RUNTIME_RECORD_TYPE_ROUTINE:
+        # 日常运行记录不进入异常流程：异常研判字段与跟进标记一律拒绝
+        # （后端独立校验，不依赖前端隐藏；旧请求不传 record_type 不受影响）
+        error = _reject_routine_extra_fields(record_type, form)
+        if error:
+            return error, None
+    return None, record_type
+
+
+def _validate_update_type_fields(record, form):
+    """编辑时的记录类型校验，返回错误消息或 None。
+
+    - record_type 创建后不可修改（提交不一致值即拒绝，避免日常记录与
+      异常记录的状态语义互相污染）；
+    - routine 记录拒绝异常研判字段与跟进标记。
+    """
+    if form.record_type:
+        if form.record_type != record.record_type:
+            return '记录类型创建后不可修改'
+        err = _validate_record_type(form.record_type)[1]
+        if err:
+            return err
+    if record.record_type == RUNTIME_RECORD_TYPE_ROUTINE:
+        error = _reject_routine_extra_fields(record.record_type, form)
+        if error:
+            return error
+    return None
+
+
 def _validate_and_clean_create_fields(form):
     """新建附加字段校验与清洗（登记人/异常类别）。
 
@@ -238,7 +313,7 @@ def _find_create_duplicate(request, client_token, system, occurred_at, title):
         'occurred_at': occurred_at,
         'title': title,
     }, window_seconds=IDEMPOTENCY_WINDOW_SECONDS):
-        return '请勿重复提交相同运行异常记录'
+        return '请勿重复提交相同运行记录'
     return None
 
 
@@ -262,7 +337,7 @@ def _record_audit_summary(record):
 
 
 class RuntimeRecordView(View):
-    """运行异常记录列表 / 新增。"""
+    """运行记录列表 / 新增。"""
 
     @auth('equipment_lifecycle.runtime_record.view')
     def get(self, request):
@@ -271,6 +346,7 @@ class RuntimeRecordView(View):
             Argument('status', type=str, required=False),
             Argument('needs_follow_up', type=str, required=False),
             Argument('category', type=str, required=False),
+            Argument('record_type', type=str, required=False),
             Argument('keyword', type=str, required=False),
             Argument('occurred_from', type=str, required=False),
             Argument('occurred_to', type=str, required=False),
@@ -306,7 +382,7 @@ class RuntimeRecordView(View):
             Argument('description', type=str, required=True, help='情况描述'),
             Argument('registrar_name', type=str, required=False, default='',
                      help='登记人姓名（手动输入必填，多人以顿号分隔；'
-                          '实际添加本条运行异常记录的人，与登录账号独立）'),
+                          '实际添加本条运行记录的人，与登录账号独立）'),
             Argument('needs_follow_up', type=bool, required=False, default=False),
             Argument('measures_taken', type=str, required=False, default=''),
             Argument('handling_result', type=str, required=False, default=''),
@@ -316,6 +392,9 @@ class RuntimeRecordView(View):
                      help='初步原因（选填）'),
             Argument('impact_scope', type=str, required=False, default='',
                      help='影响范围（选填）'),
+            Argument('record_type', type=str, required=False, default='',
+                     help='记录类型（routine日常运行/abnormal异常事件；'
+                          '未传时按abnormal兼容处理）'),
             Argument('client_token', type=str, required=False, default=''),
         ).parse(body)
         if error:
@@ -326,6 +405,9 @@ class RuntimeRecordView(View):
         if err:
             return json_response(error=err)
         error, extra = _validate_and_clean_create_fields(form)
+        if error:
+            return json_response(error=error)
+        error, record_type = _validate_create_type_fields(form)
         if error:
             return json_response(error=error)
         client_token = (form.client_token or '').strip()[:64]
@@ -356,6 +438,7 @@ class RuntimeRecordView(View):
                         category=extra['category'],
                         initial_reason=form.initial_reason,
                         impact_scope=form.impact_scope,
+                        record_type=record_type,
                         request=request,
                     )
                     record_audit_event(request, 'create', AUDIT_TARGET_RUNTIME_RECORD,
@@ -368,13 +451,13 @@ class RuntimeRecordView(View):
 
 
 class RuntimeRecordDetailView(View):
-    """运行异常记录详情 / 编辑尚未关闭的记录。"""
+    """运行记录详情 / 编辑尚未关闭的记录。"""
 
     @auth('equipment_lifecycle.runtime_record.view')
     def get(self, request, pk):
         record = _get_record_for_user(pk, request.user)
         if not record:
-            return json_response(error='运行异常记录不存在')
+            return json_response(error='运行记录不存在')
         return json_response(record.to_detail_view())
 
     @auth('equipment_lifecycle.runtime_record.edit')
@@ -400,6 +483,8 @@ class RuntimeRecordDetailView(View):
                      help='初步原因；未提交时保留原值'),
             Argument('impact_scope', type=str, required=False, default=None,
                      help='影响范围；未提交时保留原值'),
+            Argument('record_type', type=str, required=False, default=None,
+                     help='记录类型；创建后不可修改，提交不一致值即拒绝'),
         ).parse(body)
         if error:
             return json_response(error=error)
@@ -407,9 +492,9 @@ class RuntimeRecordDetailView(View):
         with transaction.atomic():
             record = _get_record_for_user(pk, request.user, for_update=True)
             if not record:
-                return json_response(error='运行异常记录不存在')
+                return json_response(error='运行记录不存在')
             if record.status not in EDITABLE_RUNTIME_RECORD_STATUSES:
-                return json_response(error='已转故障的运行异常记录不能编辑')
+                return json_response(error='已转故障的运行记录不能编辑')
             (system, occurred_at, title, description, err) = _validate_base_fields(
                 form, request, for_update=True, record=record)
             if err:
@@ -418,6 +503,10 @@ class RuntimeRecordDetailView(View):
                 error = _validate_category_value((form.category or '').strip())
                 if error:
                     return json_response(error=error)
+            # 记录类型不可变 + routine 专属字段拒绝
+            error = _validate_update_type_fields(record, form)
+            if error:
+                return json_response(error=error)
 
             before_summary = _record_audit_summary(record)
             record.system = system
@@ -444,13 +533,41 @@ class RuntimeRecordDetailView(View):
             record.refresh_from_db()
         return json_response(record.to_detail_view())
 
+    @auth('equipment_lifecycle.runtime_record.del')
+    def delete(self, request, pk):
+        """删除运行记录（2026-10-07）：仅日常运行记录可删除。
+
+        - 异常事件记录不提供删除（处置留痕要求，与既有口径一致）；
+        - 物理删除 + 审计留痕（业务主表默认删除语义）；附件走
+          AttachmentService.soft_delete_by_object 软删留痕，物理文件在
+          事务提交后异步清理（失败仅留孤儿文件，不回滚数据库）。
+        """
+        with transaction.atomic():
+            record = _get_record_for_user(pk, request.user, for_update=True)
+            if not record:
+                return json_response(error='运行记录不存在')
+            if record.record_type != RUNTIME_RECORD_TYPE_ROUTINE:
+                return json_response(error='仅日常运行记录支持删除')
+            before_summary = _record_audit_summary(record)
+            # Model.delete() 后实例 pk 被清空：审计与附件归属用的记录 ID 先取
+            record_id = record.id
+            AttachmentService.soft_delete_by_object(
+                request.user, RUNTIME_ATTACHMENT_MODULE, RUNTIME_ATTACHMENT_OBJECT_TYPE,
+                record_id, reason='运行记录删除联动清理', delete_file=True)
+            record.delete()
+            record_audit_event(request, 'delete', AUDIT_TARGET_RUNTIME_RECORD,
+                               record_id, before_summary.get('record_no'),
+                               before_value=before_summary)
+        return json_response({'id': int(pk)})
+
 
 class RuntimeRecordProgressView(View):
-    """运行异常记录处理进展：按处理时间正序的时间线 / 追加进展。
+    """运行记录处理进展：按处理时间正序的时间线 / 追加进展。
 
     追加进展即"跟进"动作本身（第四版 2026-10-05，研判不再是必经步骤）：
     已记录的记录保存第一条跟进记录后自动进入跟进中（following_up）；
-    已完成（completed）追加进展仍为补录，不改变状态；终态（已转故障）
+    已完成（completed）追加进展即重新跟进，重新进入跟进中（2026-10-06
+    跟进计划删除后"追加进展"是唯一的跟进/重新跟进入口）；终态（已转故障）
     拒绝追加。
     """
 
@@ -458,7 +575,7 @@ class RuntimeRecordProgressView(View):
     def get(self, request, pk):
         record = _get_record_for_user(pk, request.user)
         if not record:
-            return json_response(error='运行异常记录不存在')
+            return json_response(error='运行记录不存在')
         query = apply_tenant_filter(
             SystemRuntimeRecordProgress.objects.all(), request.user).filter(record=record)
         from libs.pagination import paginate
@@ -472,13 +589,16 @@ class RuntimeRecordProgressView(View):
 
     @auth('equipment_lifecycle.runtime_record.edit')
     def post(self, request, pk):
+        body = _read_json_body(request)
+        if body is None:
+            return json_response(error='请求数据格式不正确')
+        error = _reject_retired_params(body)
+        if error:
+            return json_response(error=error)
         form, error = JsonParser(
             Argument('handled_at', type=str, required=False, default=None,
                      help='处理时间，缺省为当前时间'),
             Argument('content', type=str, required=True, help='处理内容'),
-            Argument('result', type=str, required=False, default=''),
-            Argument('work_hours', type=float, required=False, default=None,
-                     help='本次工时（小时，选填）'),
             Argument('handler_name', type=str, required=False, default=None,
                      help='处理人姓名（手动输入，实际处理的人；缺省当前登录用户显示姓名）'),
         ).parse(request.body)
@@ -492,17 +612,18 @@ class RuntimeRecordProgressView(View):
         content = form.content.strip()
         if not content:
             return json_response(error='处理内容不能为空')
-        if form.work_hours is not None and form.work_hours < 0:
-            return json_response(error='工时不能为负数')
         handler_name = (form.handler_name or '').strip()[:200]
         if not handler_name:
             handler_name = fault_services.user_display_name(request.user)
         with transaction.atomic():
             record = _get_record_for_user(pk, request.user, for_update=True)
             if not record:
-                return json_response(error='运行异常记录不存在')
+                return json_response(error='运行记录不存在')
+            if record.record_type == RUNTIME_RECORD_TYPE_ROUTINE:
+                # 后端独立校验记录类型：日常运行记录不进入跟进流程
+                return json_response(error='日常运行记录不支持追加处理进展')
             if record.status not in EDITABLE_RUNTIME_RECORD_STATUSES:
-                return json_response(error='已转故障的运行异常记录不能追加处理进展')
+                return json_response(error='已转故障的运行记录不能追加处理进展')
             progress = SystemRuntimeRecordProgress.objects.create(
                 tenant_id=record.tenant_id,
                 record=record,
@@ -510,12 +631,12 @@ class RuntimeRecordProgressView(View):
                 handler=request.user,
                 handler_name=handler_name,
                 content=content[:2000],
-                result=(form.result or '').strip()[:200],
-                work_hours=form.work_hours,
             )
             # 首条跟进记录即进入跟进中（recorded → following_up）；
-            # 已完成的补录不改状态，终态已被上方可编辑校验拒绝
-            if record.status == RUNTIME_RECORD_STATUS_RECORDED:
+            # 已完成追加进展即重新跟进（completed → following_up，可再次完成），
+            # 终态已被上方可编辑校验拒绝
+            if record.status in (RUNTIME_RECORD_STATUS_RECORDED,
+                                 RUNTIME_RECORD_STATUS_COMPLETED):
                 record.status = RUNTIME_RECORD_STATUS_FOLLOWING_UP
                 record.needs_follow_up = True
                 record.updated_at = timezone.now()
@@ -538,12 +659,15 @@ class RuntimeRecordProgressDetailView(View):
 
     @auth('equipment_lifecycle.runtime_record.edit')
     def put(self, request, pk, rid):
+        body = _read_json_body(request)
+        if body is None:
+            return json_response(error='请求数据格式不正确')
+        error = _reject_retired_params(body)
+        if error:
+            return json_response(error=error)
         form, error = JsonParser(
             Argument('handled_at', type=str, required=False, default=None),
             Argument('content', type=str, required=True, help='处理内容'),
-            Argument('result', type=str, required=False, default=''),
-            Argument('work_hours', type=float, required=False, default=None,
-                     help='本次工时（小时）；未提交时保留原值'),
             Argument('handler_name', type=str, required=False, default=None,
                      help='处理人姓名（手动输入）；未提交时保留原值'),
             Argument('correction_reason', type=str, required=True, help='更正原因'),
@@ -564,9 +688,9 @@ class RuntimeRecordProgressDetailView(View):
         with transaction.atomic():
             record = _get_record_for_user(pk, request.user, for_update=True)
             if not record:
-                return json_response(error='运行异常记录不存在')
+                return json_response(error='运行记录不存在')
             if record.status not in EDITABLE_RUNTIME_RECORD_STATUSES:
-                return json_response(error='已转故障的运行异常记录不能更正处理进展')
+                return json_response(error='已转故障的运行记录不能更正处理进展')
             progress = apply_tenant_filter(
                 SystemRuntimeRecordProgress.objects.all(), request.user
             ).filter(pk=rid, record=record).first()
@@ -586,11 +710,6 @@ class RuntimeRecordProgressDetailView(View):
                 if not handler_name:
                     return json_response(error='处理人不能为空')
                 progress.handler_name = handler_name
-            progress.result = (form.result or '').strip()[:200]
-            if form.work_hours is not None:
-                if form.work_hours < 0:
-                    return json_response(error='工时不能为负数')
-                progress.work_hours = form.work_hours
             if handled_at:
                 progress.handled_at = handled_at
             progress.corrections = json.dumps(corrections, ensure_ascii=False)
@@ -606,7 +725,7 @@ class RuntimeRecordProgressDetailView(View):
 class RuntimeRecordActionBaseView(View):
     """状态动作视图公共流程：行锁 + 状态校验 + 审计。"""
 
-    ERROR_NOT_FOUND = '运行异常记录不存在'
+    ERROR_NOT_FOUND = '运行记录不存在'
 
     def get_record_locked(self, request, pk):
         return _get_record_for_user(pk, request.user, for_update=True)
@@ -631,57 +750,12 @@ class RuntimeRecordActionBaseView(View):
         raise NotImplementedError
 
 
-class RuntimeRecordFollowUpView(RuntimeRecordActionBaseView):
-    """跟进计划维护 / 重新跟进（第四版 2026-10-05）。
-
-    - 已记录 → 跟进中由"追加首条处理进展"触发（progress 端点），本端点
-      不再是新流程进入跟进中的入口；
-    - 跟进中携带 follow_up_name/planned_handle_at 时仅更新当前跟进计划
-      （修改计划不重复流转状态、不产生处理进展）；
-    - 已完成（completed）经本端点重新进入跟进中。
-    """
-
-    @auth('equipment_lifecycle.runtime_record.edit')
-    def post(self, request, pk):
-        return super().post(request, pk)
-
-    def handle_locked(self, request, record):
-        body = _read_json_body(request) or {}
-        form, error = JsonParser(
-            Argument('follow_up_name', type=str, required=False, default=''),
-            Argument('planned_handle_at', type=str, required=False, default=''),
-        ).parse(body)
-        if error:
-            return error
-        follow_up_name = (form.follow_up_name or '').strip()
-        planned_handle_at = None
-        if form.planned_handle_at:
-            planned_handle_at = _parse_dt(form.planned_handle_at)
-            if not planned_handle_at:
-                return '计划处理时间格式不正确，应为 YYYY-MM-DD HH:MM'
-        if record.status == RUNTIME_RECORD_STATUS_FOLLOWING_UP:
-            if not follow_up_name and not form.planned_handle_at:
-                return '运行异常记录已处于跟进中状态'
-        else:
-            if not record.can_transition_to(RUNTIME_RECORD_STATUS_FOLLOWING_UP):
-                return '当前状态不能标记为需要跟进'
-            record.status = RUNTIME_RECORD_STATUS_FOLLOWING_UP
-            record.needs_follow_up = True
-        if follow_up_name:
-            record.follow_up_name = follow_up_name[:100]
-        if form.planned_handle_at:
-            record.planned_handle_at = planned_handle_at
-        record.updated_at = timezone.now()
-        record.updated_by = request.user
-        record.save(update_fields=['status', 'needs_follow_up', 'follow_up_name',
-                                   'planned_handle_at', 'updated_at', 'updated_by'])
-        return None
-
-
 class RuntimeRecordResolveView(RuntimeRecordActionBaseView):
     """完成跟进：following_up → completed（已完成，可重新跟进；可选补填处理结果）。
 
     resolve 端点即"完成跟进"，直接进入已完成，不提供普通关闭动作。
+    重新跟进（completed → following_up）不设独立端点：追加处理进展即
+    重新跟进（RuntimeRecordProgressView，2026-10-06 跟进计划删除）。
     """
 
     @auth('equipment_lifecycle.runtime_record.resolve')
@@ -689,8 +763,10 @@ class RuntimeRecordResolveView(RuntimeRecordActionBaseView):
         return super().post(request, pk)
 
     def handle_locked(self, request, record):
+        if record.record_type == RUNTIME_RECORD_TYPE_ROUTINE:
+            return '日常运行记录不支持完成跟进'
         if record.status == RUNTIME_RECORD_STATUS_COMPLETED:
-            return '运行异常记录已完成，不能重复完成跟进'
+            return '运行记录已完成，不能重复完成跟进'
         if not record.can_transition_to(RUNTIME_RECORD_STATUS_COMPLETED):
             return '当前状态不能完成跟进（仅跟进中的记录可完成跟进）'
         body = _read_json_body(request) or {}
@@ -718,7 +794,7 @@ class RuntimeRecordResolveView(RuntimeRecordActionBaseView):
 
 
 class RuntimeRecordConvertToFaultView(View):
-    """运行异常记录转为正式故障（独立业务动作，第四版 2026-10-05）。
+    """运行记录转为正式故障（独立业务动作，第四版 2026-10-05）。
 
     - 转故障不依赖研判：已记录（recorded）与跟进中（following_up）均可直接
       转换（旧研判弹窗内联转换端点已随 2026-10-06 状态归一整体删除）；
@@ -755,7 +831,10 @@ class RuntimeRecordConvertToFaultView(View):
                 with transaction.atomic():
                     record = _get_record_for_user(pk, request.user, for_update=True)
                     if not record:
-                        return json_response(error='运行异常记录不存在')
+                        return json_response(error='运行记录不存在')
+                    if record.record_type == RUNTIME_RECORD_TYPE_ROUTINE:
+                        # 后端独立校验记录类型：日常运行记录不能转正式故障
+                        return json_response(error='日常运行记录不能转为正式故障')
                     fault = runtime_record_services.convert_runtime_record_to_fault(
                         record=record,
                         created_by=request.user,
@@ -781,9 +860,9 @@ class RuntimeRecordConvertToFaultView(View):
 
 
 class SystemRuntimeRecordsView(View):
-    """按系统查询运行异常记录（系统详情"运行异常记录"页签，支持筛选）。
+    """按系统查询运行记录（系统详情"运行记录"页签，支持筛选）。
 
-    - 可按标题/编号关键词、异常类别与发生时间范围筛选历史运行异常记录；
+    - 可按标题/编号关键词、异常类别与发生时间范围筛选历史运行记录；
     - 返回最近发生时间摘要。
     """
 
@@ -796,6 +875,7 @@ class SystemRuntimeRecordsView(View):
         form, error = JsonParser(
             Argument('keyword', type=str, required=False),
             Argument('category', type=str, required=False),
+            Argument('record_type', type=str, required=False),
             Argument('occurred_from', type=str, required=False),
             Argument('occurred_to', type=str, required=False),
         ).parse(request.GET)
@@ -803,6 +883,10 @@ class SystemRuntimeRecordsView(View):
             return json_response(error=error)
         query = apply_tenant_filter(SystemRuntimeRecord.objects.all(), request.user).filter(
             system=system)
+        if form.record_type:
+            if form.record_type not in RUNTIME_RECORD_TYPE_TEXT_MAP:
+                return json_response(error='记录类型筛选值不合法')
+            query = query.filter(record_type=form.record_type)
         if form.category:
             if form.category not in RUNTIME_CATEGORY_TEXT_MAP:
                 return json_response(error='异常类别筛选值不合法')

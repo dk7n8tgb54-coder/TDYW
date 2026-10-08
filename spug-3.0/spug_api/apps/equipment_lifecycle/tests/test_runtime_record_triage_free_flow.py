@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""运行异常记录第四版流程测试（2026-10-05）：研判不再是必经步骤。
+"""运行记录第四版流程测试（2026-10-05）：研判不再是必经步骤。
 
 覆盖任务要求的验收场景（HTTP 真实路径 + 数据库副作用，不使用源码字符串匹配）：
 1. 新建后状态为"已记录"（recorded），不产生任何研判要求；
@@ -12,7 +12,7 @@
    （2026-10-06）：创建/编辑携带旧参数即拒绝，mark-important 端点 404；
 8. "已记录"可以直接转为正式故障（故障单带入事实字段；影响属性按故障
    默认"不影响系统运行"）；
-9. 转故障后运行异常记录只读（编辑/追加进展/重新跟进全部拒绝，
+9. 转故障后运行记录只读（编辑/追加进展/重新跟进全部拒绝，
    mark-important 端点 404）；
 10. 历史待研判/无需跟进/已关闭数据可以正常展示（文案归并 + 筛选命中 +
     待办排除 + 按已记录处理可继续流转）。
@@ -115,8 +115,9 @@ class RecordedWithoutTriageTests(TriageFreeFlowTestBase):
         record = SystemRuntimeRecord.objects.get(pk=data['id'])
         self.assertEqual(record.status, 'recorded')
         self.assertFalse(record.needs_follow_up)
-        self.assertIsNone(record.triaged_at)
-        self.assertEqual(record.triage_note, '')
+        # 研判快照字段已彻底删除（2026-10-07 迁移 0010）
+        self.assertFalse(hasattr(record, 'triaged_at'))
+        self.assertFalse(hasattr(record, 'triage_note'))
 
     def test_record_can_be_left_alone_after_create(self):
         """新建后不做任何动作即可离开：详情/列表正常，无待办、无积压计数。"""
@@ -183,18 +184,22 @@ class FirstProgressTransitionsTests(TriageFreeFlowTestBase):
         self.assertEqual(
             [r.content for r in rows], ['第一次跟进', '第二次跟进', '第三次跟进'])
 
-    def test_completed_progress_append_does_not_reopen(self):
-        """已完成的补录不改状态（补录 ≠ 重新跟进，重新跟进走 follow-up 端点）。"""
+    def test_completed_reopens_via_progress_append(self):
+        """已完成追加处理进展即重新跟进（completed → following_up）；
+        follow-up 端点已随跟进计划删除，追加进展是唯一重新跟进入口。"""
         data = self.create_record()
         record_id = data['id']
         self.add_progress(record_id)
         resp = self.client.post(RECORDS_URL + f'/{record_id}/resolve/', {},
                                 content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.content)
-        resp = self.add_progress(record_id, '补录一条收尾说明')
-        self.assertFalse(resp.json().get('error'), resp.content)
         record = SystemRuntimeRecord.objects.get(pk=record_id)
         self.assertEqual(record.status, 'completed')
+        resp = self.add_progress(record_id, '问题复发，重新跟进')
+        self.assertFalse(resp.json().get('error'), resp.content)
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'following_up')
+        self.assertTrue(record.needs_follow_up)
 
 
 class RetiredFieldsContractTests(TriageFreeFlowTestBase):
@@ -283,7 +288,7 @@ class DirectConvertTests(TriageFreeFlowTestBase):
         self.assertEqual(record.status, 'converted_fault')
 
     def test_record_read_only_after_convert(self):
-        """转故障后运行异常记录只读：编辑/追加进展/标记重要/重新跟进全部拒绝
+        """转故障后运行记录只读：编辑/追加进展/标记重要/重新跟进全部拒绝
         （mark-important 端点已随字段删除移除，直接 404）。"""
         data = self.create_record()
         record_id = data['id']
@@ -305,10 +310,10 @@ class DirectConvertTests(TriageFreeFlowTestBase):
             RECORDS_URL + f'/{record_id}/mark-important/',
             {'importance_reason': '补标记'}, content_type='application/json')
         self.assertEqual(resp.status_code, 404)
-        # 重新跟进拒绝（终态无任何出口）
+        # 重新跟进端点已随跟进计划删除（404，终态无任何出口）
         resp = self.client.post(RECORDS_URL + f'/{record_id}/follow-up/', {},
                                 content_type='application/json')
-        self.assertTrue(resp.json().get('error'))
+        self.assertEqual(resp.status_code, 404)
         # 待办不可见；详情返回关联故障
         resp = self.client.get(RECORDS_URL + '/todo/')
         self.assertNotIn(record_id, [r['id'] for r in resp.json()['data']['data']])

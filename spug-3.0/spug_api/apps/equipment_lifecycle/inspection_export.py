@@ -602,7 +602,7 @@ def generate_sheet_pdf(detail):
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
         leftMargin=1.5 * cm, rightMargin=1.5 * cm, topMargin=1.6 * cm, bottomMargin=1.8 * cm,
-        title=f"值班巡检单 {detail.get('sheet_no')}", author='设备全生命周期管理')
+        title=f"值班巡检单 {detail.get('sheet_no')}", author='设备运行维护管理')
     doc.build(build_detail_story(detail),
               onFirstPage=_pdf_footer(detail), onLaterPages=_pdf_footer(detail))
     return buf.getvalue()
@@ -649,7 +649,7 @@ def generate_batch_pdf(details):
     doc = _BatchPdfDocTemplate(
         buf, pagesize=A4,
         leftMargin=1.5 * cm, rightMargin=1.5 * cm, topMargin=1.6 * cm, bottomMargin=1.8 * cm,
-        title='值班巡检单批量导出', author='设备全生命周期管理')
+        title='值班巡检单批量导出', author='设备运行维护管理')
     left_margin, right_margin = doc.leftMargin, doc.rightMargin
     exported_at = datetime.now().strftime('%Y-%m-%d %H:%M')
 
