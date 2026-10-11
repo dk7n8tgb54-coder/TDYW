@@ -8,7 +8,7 @@
  * 异常与运行情况的统一录入入口：用户反馈、值班发现、短暂中断或恢复、
  * 已处理的小问题、需要后续跟进的运行情况。
  * 页签：全部记录 / 待办（跟进中）/ 统计（只读）。
- * 不混入巡视与维护、系统升级、配置变更记录（各自模块负责）；
+ * 不混入维护台账、系统升级、配置变更记录（各自模块负责）；
  * 支持按系统/状态/需要跟进/异常类别/时间范围筛选
  * （重要程度/影响程度筛选已随字段删除移除，重复发生筛选已随重复问题
  * 功能退役移除，2026-10-06）。
@@ -246,7 +246,7 @@ function RuntimeRecordIndex() {
     <AuthDiv auth={PERM.RUNTIME_VIEW}>
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>设备运行维护管理</Breadcrumb.Item>
+        <Breadcrumb.Item>设备管理</Breadcrumb.Item>
         <Breadcrumb.Item>运行处置</Breadcrumb.Item>
         <Breadcrumb.Item>运行记录</Breadcrumb.Item>
       </Breadcrumb>

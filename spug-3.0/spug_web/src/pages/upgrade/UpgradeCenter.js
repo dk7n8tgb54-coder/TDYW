@@ -62,7 +62,7 @@ function UpgradeCenter() {
   return (
     <AuthDiv auth="upgrade.upgrade.view">
       <Breadcrumb>
-        <Breadcrumb.Item>设备运行维护管理</Breadcrumb.Item>
+        <Breadcrumb.Item>设备管理</Breadcrumb.Item>
         <Breadcrumb.Item>系统升级管理</Breadcrumb.Item>
       </Breadcrumb>
       <div>

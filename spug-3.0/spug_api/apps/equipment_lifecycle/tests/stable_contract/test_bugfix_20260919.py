@@ -2,9 +2,10 @@
 """2026-09-19 设备全生命周期模块缺陷排查回归（稳定契约）。
 
 本轮排查确认的四类后端缺陷及对应用例：
-1. 台账三处列表接口分页切片错误：query[page-1: page*page_size] 少乘
+1. 台账列表接口分页切片错误：query[page-1: page*page_size] 少乘
    page_size，第 2 页起数据错乱且超出页长（LedgerView /
-   LedgerAbnormalItemsView / SystemLedgerItemsView）；
+   LedgerAbnormalItemsView；原 SystemLedgerItemsView 同缺陷已修复，
+   该端点已随系统详情台账页签下线删除，2026-10-11）；
 2. 系统列表 health_status 筛选参数声明为 list，前端单选以标量字符串
    提交（axios 不做 JSON 编码），JsonParser 对字符串执行 json.loads
    必然失败，健康状态筛选永远报错；
@@ -83,21 +84,6 @@ class LedgerPaginationContractTests(TestCase):
         self.assertEqual(
             [row['id'] for row in data['data']], all_ids[3:6],
             '第 2 页必须返回全局第 4-6 条，不得与第 1 页重叠或错位')
-
-    def test_system_ledger_items_page2_offset(self):
-        """系统详情台账明细第 2 页偏移正确。"""
-        self._create_ledger([make_abnormal_item(i) for i in range(7)], 'tok-sli')
-        url = '%s/%d/ledger-items/' % (SYSTEM_URL, self.system.id)
-        full = self.client.get(url, {'page': 1, 'page_size': 50}).json()
-        all_ids = [row['id'] for row in full['data']['data']]
-        self.assertEqual(len(all_ids), 7)
-
-        resp = self.client.get(url, {'page': 2, 'page_size': 3})
-        data = resp.json()['data']
-        self.assertFalse(resp.json().get('error'))
-        self.assertEqual(data['total'], 7)
-        self.assertEqual(len(data['data']), 3)
-        self.assertEqual([row['id'] for row in data['data']], all_ids[3:6])
 
     def test_abnormal_items_page2_offset(self):
         """异常明细查询第 2 页偏移正确。"""

@@ -51,7 +51,6 @@ from apps.equipment_lifecycle.models import (
 )
 from apps.equipment_lifecycle.views import (
     EL_ATTACHMENT_MODULE,
-    _get_system_for_user,
     _read_json_body,
 )
 
@@ -318,48 +317,6 @@ class LedgerAbnormalItemsView(View):
             data.append(view)
         # 异常明细处置状态：由来源故障关系动态计算
         append_item_disposition(request.user.tenant_id, data)
-        return json_response({'data': data, 'total': total, 'page': page, 'page_size': page_size})
-
-
-class SystemLedgerItemsView(View):
-    """系统详情台账明细查询：仅当前系统（租户内）的台账明细，排除已作废台账。
-
-    一张台账可能包含其他系统，本端点只返回当前系统对应的明细，
-    不泄露无权限系统的数据。
-    """
-
-    @auth('equipment_lifecycle.ledger.view')
-    def get(self, request, pk):
-        system = _get_system_for_user(pk, request.user)
-        if not system:
-            return json_response(error='系统不存在')
-        query = OperationLedgerItem.objects.filter(
-            tenant_id=request.user.tenant_id, system=system,
-            ledger__isnull=False).exclude(ledger__status=LEDGER_STATUS_VOID)
-        ledger_type = request.GET.get('ledger_type')
-        if ledger_type:
-            query = query.filter(ledger__ledger_type=ledger_type)
-        result = request.GET.get('result')
-        if result:
-            query = query.filter(result=result)
-        date_from = request.GET.get('date_from')
-        if date_from:
-            query = query.filter(ledger__executed_date__gte=date_from)
-        date_to = request.GET.get('date_to')
-        if date_to:
-            query = query.filter(ledger__executed_date__lte=date_to)
-        query = query.select_related('ledger').order_by('-ledger__executed_date', '-id')
-        page, page_size = paginate(request)
-        total = query.count()
-        records = query[(page - 1) * page_size: page * page_size] if total else []
-        data = []
-        for item in records:
-            view = item.to_view()
-            view['ledger_no'] = item.ledger.ledger_no
-            view['ledger_type'] = item.ledger.ledger_type
-            view['ledger_status'] = item.ledger.status
-            view['ledger_executed_date'] = item.ledger.executed_date
-            data.append(view)
         return json_response({'data': data, 'total': total, 'page': page, 'page_size': page_size})
 
 

@@ -588,10 +588,22 @@ describe('基本信息三区块（2026-10 重组：故障概况/处置结果/来
     await renderDetail('handling', {
       source_type: 'inspection_record', source_inspection_sheet: 8,
       source_inspection_sheet_no: 'XJ20260918-01',
+      source_inspection_duty_date: '2026-09-18',
+      source_inspection_round_text: '11:00-11:20',
+      source_inspection_item_name: '输出功率',
     });
     text = bodyText();
+    // 日巡视已下线（2026-10-11）：来源巡检单仅展示追溯文本（单号/值班日期/
+    // 轮次/检查项），不再渲染跳转按钮
     expect(text).toContain('来源巡检单');
     expect(text).toContain('XJ20260918-01');
+    expect(text).toContain('2026-09-18');
+    expect(text).toContain('11:00-11:20');
+    expect(text).toContain('输出功率');
+    expect(text).toContain('日巡视功能已下线');
+    const inspectionButtons = Array.from(container.querySelectorAll('button'))
+      .filter(b => b.textContent.includes('XJ20260918-01'));
+    expect(inspectionButtons).toHaveLength(0);
     await renderDetail('handling', {
       source_type: 'ledger_item', source_ledger: 5,
       source_ledger_no: 'TZ20260901-001', source_ledger_type: 'week_month',

@@ -173,20 +173,17 @@ class FaultDetail extends React.Component {
               {d.source_ledger_no}（旧巡检台账（历史）已删除，来源为历史台账明细）
             </Descriptions.Item>
           )}
-          {/* 值班巡检改造：新巡检异常转故障跳转到来源巡检单（与旧台账来源互不影响） */}
+          {/* 日巡视已下线（2026-10-11）：来源巡检单页面已删除，历史故障的
+              巡检来源仅展示追溯信息文本（单号/值班日期/轮次/检查项），不做跳转 */}
           {d.source_type === 'inspection_record' && d.source_inspection_sheet && (
             <Descriptions.Item label="来源巡检单" span={2}>
-              <Button
-                type="link"
-                size="small"
-                style={{padding: 0}}
-                onClick={() => {
-                  store.closeDetail();
-                  history.push(`/el/inspection-sheets?detail=${d.source_inspection_sheet}`);
-                }}
-              >
-                {d.source_inspection_sheet_no || '查看来源巡检单'}
-              </Button>
+              {[
+                d.source_inspection_sheet_no,
+                d.source_inspection_duty_date,
+                d.source_inspection_round_text,
+                d.source_inspection_item_name,
+              ].filter(Boolean).join(' / ')}
+              （日巡视功能已下线，来源为历史巡检单）
             </Descriptions.Item>
           )}
           {/* 运行记录转故障（2026-10）：正式外键双向追溯，跳回运行记录详情 */}

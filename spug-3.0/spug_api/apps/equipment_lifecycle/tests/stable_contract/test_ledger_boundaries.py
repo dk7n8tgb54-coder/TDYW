@@ -45,25 +45,6 @@ class LedgerIsolationContractTests(TestCase):
         resp = post_json(self.client_b, '%s/%s/submit/' % (LEDGER_URL, ledger['id']), {})
         self.assertTrue(resp.json().get('error'))
 
-    def test_system_detail_items_scoped_to_current_system(self):
-        """30. 系统详情只能读取有权限查看的当前系统明细。"""
-        system_b_tenant_a = make_system(
-            self.admin_a, tenant_id='tenant-a',
-            system_code='SYS-A2', name='A租户第二系统')
-        ledger = create_ledger_ok(self.client_a, ledger_payload([
-            entry_payload(self.system_a.id, [item_payload(item_name='A系统项')]),
-            entry_payload(system_b_tenant_a.id, [item_payload(item_name='第二系统项')]),
-        ]))
-        # 一张台账包含两个系统，但按系统查询只返回当前系统明细
-        resp = self.client_a.get('/equipment-lifecycle/systems/%s/ledger-items/' % self.system_a.id)
-        self.assertFalse(resp.json().get('error'))
-        names = [i['item_name'] for i in resp.json()['data']['data']]
-        self.assertIn('A系统项', names)
-        self.assertNotIn('第二系统项', names)
-        # 无权限（其他租户）访问该系统 → 拒绝
-        resp = self.client_b.get('/equipment-lifecycle/systems/%s/ledger-items/' % self.system_a.id)
-        self.assertTrue(resp.json().get('error'))
-
     def test_entry_channel_fixed_to_web(self):
         """24. entry_channel 当前只能为 WEB。"""
         ledger = create_ledger_ok(self.client_a, ledger_payload(

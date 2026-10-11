@@ -16,7 +16,7 @@ const { Option } = Select;
  * （equipment_lifecycle LifecycleSystem）的正式外键：候选来源为
  * store.systems（/api/upgrade/candidate-systems/，本租户可用系统），
  * 表单值与提交一律为系统 ID，页面显示 编号｜名称｜安装地点。
- * 新增/停用系统请到「设备运行维护管理 → 系统档案」维护。
+ * 新增/停用系统请到「设备管理 → 系统档案」维护。
  */
 function SystemSelect({ placeholder = '请选择升级系统', disabled, style, ...rest }) {
   useEffect(() => {

@@ -16,7 +16,7 @@ from django.urls import path
 from apps.equipment_lifecycle import (
     config_attachment_views, config_views,
     event_views, excel_ledger_views, excel_template_views, fault_progress_views,
-    fault_views, inspection_views, ledger_views,
+    fault_views, ledger_views,
     runtime_record_attachment_views, runtime_record_v2_views, runtime_record_views,
     views,
 )
@@ -98,34 +98,21 @@ urlpatterns = [
     path('ledgers/<int:pk>/items/<int:item_pk>/attachments/', ledger_views.LedgerItemAttachmentView.as_view()),
     path('ledgers/<int:pk>/items/<int:item_pk>/attachments/<int:aid>/download/', ledger_views.LedgerItemAttachmentDownloadView.as_view()),
     path('ledgers/<int:pk>/items/<int:item_pk>/attachments/<int:aid>/', ledger_views.LedgerItemAttachmentDetailView.as_view()),
-    # 按系统查询台账明细（系统详情页台账 Tab）
-    path('systems/<int:pk>/ledger-items/', ledger_views.SystemLedgerItemsView.as_view()),
-    # 候选人员（本租户有效账户；今日巡检值班人员登记等场景使用。
-    # 原路径 work-orders/candidate-users/ 已随工单功能删除，2026-09-30）
-    path('candidate-users/', views.CandidateUsersView.as_view()),
+    # 按系统查询台账明细端点已随系统详情"周月/季维护台账"页签下线删除
+    # （2026-10-11，页签专用端点无其他调用方；周月/季维护台账仍由独立
+    # 菜单 /el/week-month-ledgers、/el/seasonal-ledgers 与 ledgers 接口承载）
+    # 候选人员端点已随"日巡视"功能下线删除（2026-10-11）：原服务
+    # 今日巡检值班人员登记场景，工单下线后无其他调用方。
     # 台账异常明细转故障（2026-09-30 工单下线，视图自 work_order_views 迁入
     # fault_views；convert-to-work-order 路由一并删除）
     path('ledgers/<int:ledger_pk>/items/<int:item_pk>/convert-to-fault/', _na(fault_views.LedgerItemConvertToFaultView.as_view())),
     # 按系统查询升级记录（系统详情"升级记录"页签，视图在 upgrade app）
     path('systems/<int:pk>/upgrade-records/', SystemUpgradeRecordsView.as_view()),
-    # ==================== 值班巡检（今日巡检改造，独立巡检模型） ====================
-    # 巡检模板（模板 → 设备名称 → 检查内容，设备名称不关联系统）
-    path('inspection-templates/', inspection_views.InspectionTemplateView.as_view()),
-    path('inspection-templates/available/', inspection_views.InspectionTemplateAvailableView.as_view()),
-    path('inspection-templates/<int:pk>/', inspection_views.InspectionTemplateDetailView.as_view()),
-    path('inspection-templates/<int:pk>/active/', inspection_views.InspectionTemplateActiveView.as_view()),
-    # 值班巡检单（值班日 + 模板唯一；四轮固定；只记录结果与现场处理，不提供转故障接口）
-    path('inspection-sheets/export/', inspection_views.InspectionSheetExportView.as_view()),
-    path('inspection-sheets/batch-export/xlsx/', inspection_views.InspectionSheetBatchExportXlsxView.as_view()),
-    path('inspection-sheets/batch-export/pdf/', inspection_views.InspectionSheetBatchExportPdfView.as_view()),
-    path('inspection-sheets/', inspection_views.InspectionSheetView.as_view()),
-    path('inspection-sheets/<int:pk>/export/xlsx/', inspection_views.InspectionSheetDetailExportXlsxView.as_view()),
-    path('inspection-sheets/<int:pk>/export/pdf/', inspection_views.InspectionSheetDetailExportPdfView.as_view()),
-    path('inspection-sheets/<int:pk>/', inspection_views.InspectionSheetDetailView.as_view()),
-    path('inspection-sheets/<int:pk>/submit/', inspection_views.InspectionSheetSubmitView.as_view()),
-    path('inspection-sheets/<int:pk>/void/', inspection_views.InspectionSheetVoidView.as_view()),
-    # 超级管理员退回整改（仅 submitted → returned，后端显式校验 is_supper）
-    path('inspection-sheets/<int:pk>/return/', inspection_views.InspectionSheetReturnView.as_view()),
+    # ==================== 值班巡检（日巡视）已整体下线（2026-10-11） ====================
+    # 巡检模板/巡检单/导出全部端点已删除（活跃功能下线，前端页面同步移除）；
+    # 巡检数据模型与历史数据保留（tdyw_el_inspection_* 五表不删），
+    # 历史故障通过 SystemFault.source_inspection_record 外键继续可追溯，
+    # 历史系统履历事件（event_type=inspection）仍可查询展示。
     # ==================== 运行记录（2026-10，第一版） ====================
     # 异常与运行情况统一录入入口；创建（编号锁）与转故障（健康重算锁）动作
     # 以 non_atomic_requests 装配（锁 → 事务提交 → 释放锁 顺序成立）。

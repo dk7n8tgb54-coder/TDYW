@@ -74,7 +74,7 @@ export default [{
   }]
 }, {
   key: 'equipment_lifecycle',
-  label: '设备运行维护管理',
+  label: '设备管理',
   pages: [{
     key: 'system',
     label: '系统主数据',
@@ -143,7 +143,7 @@ export default [{
     ]
   }, {
     key: 'ledger',
-    label: '运行维护台账',
+    label: '维护台账',
     perms: [
       {key: 'view', label: '查看台账'},
       {key: 'add', label: '新增台账'},
@@ -155,26 +155,9 @@ export default [{
       {key: 'handle_exception', label: '异常处置（周/月/季维护台账异常转故障；旧巡检台账已删除）'},
     ]
   }, {
-    key: 'inspection',
-    label: '值班巡检（今日巡检）',
-    perms: [
-      {key: 'view', label: '查看巡检单'},
-      {key: 'add', label: '新增巡检单'},
-      {key: 'edit', label: '编辑草稿巡检单'},
-      {key: 'submit', label: '提交巡检单'},
-      {key: 'del', label: '作废巡检单（受控作废，非物理删除）'},
-      {key: 'export', label: '导出巡检单（列表/详情 Excel/PDF）'},
-    ]
-  }, {
-    key: 'inspection_template',
-    label: '巡检模板',
-    perms: [
-      {key: 'view', label: '查看巡检模板'},
-      {key: 'add', label: '新增巡检模板'},
-      {key: 'edit', label: '编辑巡检模板'},
-      {key: 'del', label: '删除/停用巡检模板'},
-    ]
-  }, {
+    // inspection（值班巡检）与 inspection_template（巡检模板）权限组已随
+    // "日巡视"活跃功能整体下线删除（2026-10-11），巡检专属权限码退役；
+    // 存量角色 JSON 中的巡检权限码惰性失效，无需清洗。
     // work_order（工单管理）权限组已随故障维修工单功能整体删除（2026-09-30），
     // 存量角色 JSON 中的工单权限码由迁移 0043 清洗。
 

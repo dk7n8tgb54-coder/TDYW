@@ -9,8 +9,9 @@
  * 基本信息展示固定字段；扩展信息展示 呼号 / 安装经纬度 / 工作频率（选填）。
  * （自定义字段机制已下线，原「系统当前配置」页签一并移除。）
  * 步骤 3.1 新增"故障记录"页签（单系统简化：只显示本系统故障）；
- * 步骤 3.3 新增"工单"页签（单系统简化：只显示本系统工单）；
- * 步骤 3.4 新增"系统履历"页签（统一履历事件，单系统简化：只显示本系统事件）。
+ * 步骤 3.3 新增"工单"页签（单系统简化：只显示本系统工单）。
+ * 2026-10-11："周月维护台账""季维护台账""系统履历"三个页签移除，
+ * 三项业务仍由各自独立菜单页面承载（周月/季维护台账、系统履历）。
  */
 import React from 'react';
 import { observer } from 'mobx-react';
@@ -21,8 +22,6 @@ import FaultRecordsTab from './FaultRecordsTab';
 import UpgradeRecordsTab from './UpgradeRecordsTab';
 import ComponentMaintenanceTags from './ComponentMaintenanceTags';
 import SystemRuntimeRecordsTab from './SystemRuntimeRecordsTab';
-import SystemLedgerTab from './ledger/SystemLedgerTab';
-import SystemEventsTab from './systemEvent/SystemEventsTab';
 import SystemConfigTab from './systemConfig/SystemConfigTab';
 
 const { TabPane } = Tabs;
@@ -133,19 +132,12 @@ class SystemDetail extends React.Component {
               <UpgradeRecordsTab systemId={d.id}/>
             </TabPane>
             {/* 系统配置（2026-10）：当前配置 + 配置变更历史 + 记录配置变更（Modal），
-                只在系统详情内展示，不设独立菜单，也不与运行记录/巡视维护/系统升级混淆 */}
+                只在系统详情内展示，不设独立菜单，也不与运行记录/系统升级混淆 */}
             <TabPane tab="配置" key="config">
               <SystemConfigTab systemId={d.id}/>
             </TabPane>
-            <TabPane tab="周月维护台账" key="week_month_ledger">
-              <SystemLedgerTab systemId={d.id} ledgerType="week_month"/>
-            </TabPane>
-            <TabPane tab="季维护台账" key="seasonal_ledger">
-              <SystemLedgerTab systemId={d.id} ledgerType="seasonal"/>
-            </TabPane>
-            <TabPane tab="系统履历" key="system_events">
-              <SystemEventsTab systemId={d.id}/>
-            </TabPane>
+            {/* 周月维护台账/季维护台账/系统履历页签已下线（2026-10-11）：
+                三项业务由各自独立菜单页面承载，不再在详情弹窗内嵌展示 */}
           </Tabs>
         </Spin>
       </Modal>

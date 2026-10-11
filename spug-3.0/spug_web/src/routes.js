@@ -56,8 +56,6 @@ import {
 } from './pages/equipmentLifecycle/ledger/entries';
 import ExcelTemplatePage from './pages/equipmentLifecycle/ledger/excel/ExcelTemplatePage';
 import ExcelLedgerRedirect from './pages/equipmentLifecycle/ledger/excel/ExcelLedgerRedirect';
-import InspectionCenter from './pages/equipmentLifecycle/inspectionCenter';
-import InspectionCenterRedirect from './pages/equipmentLifecycle/inspectionCenter/LegacyRedirect';
 import AnnouncementList from './pages/home/AnnouncementList';
 import AnnouncementAdmin from './pages/system/announcement';
 import ReminderAdmin from './pages/reminder';
@@ -82,20 +80,17 @@ export default [
     {title: '事件列表', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},
     {title: '统计概览', auth: 'runlog.runlog.view', path: '/runlog/statistics', component: RunLogStatistics},
   ]},
-  {icon: <ApartmentOutlined/>, title: '设备运行维护管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.fault.view|equipment_lifecycle.runtime_record.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view|equipment_lifecycle.system_event.view|upgrade.upgrade.view', child: [
+  {icon: <ApartmentOutlined/>, title: '设备管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.fault.view|equipment_lifecycle.runtime_record.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.system_event.view|upgrade.upgrade.view', child: [
     {title: '系统档案', auth: 'equipment_lifecycle.system.view', path: '/el/systems', component: EquipmentSystemIndex},
     {title: '运行处置', auth: 'equipment_lifecycle.fault.view|equipment_lifecycle.runtime_record.view', child: [
       {title: '故障处置', auth: 'equipment_lifecycle.fault.view', path: '/el/faults', component: EquipmentFaultIndex},
       // 运行记录（2026-10 第一版；2026-10-07 更名并兼容日常运行/异常事件两类）
       {title: '运行记录', auth: 'equipment_lifecycle.runtime_record.view', path: '/el/runtime-records', component: RuntimeRecordIndex},
     ]},
-    {title: '巡视与维护', auth: 'equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view', child: [
-      {title: '日巡视', auth: 'equipment_lifecycle.inspection.view|equipment_lifecycle.inspection_template.view', path: '/el/inspection-center', component: InspectionCenter},
-      // 旧巡检独立路径兼容入口（菜单不再展示）：跳转到巡检中心对应页签，
-      // 保留 detail 等查询参数，来源巡检单跳转（故障/系统履历）不受影响
-      {path: '/el/inspection-today', auth: 'equipment_lifecycle.inspection.view', component: props => <InspectionCenterRedirect tab="today" {...props}/>},
-      {path: '/el/inspection-sheets', auth: 'equipment_lifecycle.inspection.view', component: props => <InspectionCenterRedirect tab="history" {...props}/>},
-      {path: '/el/inspection-templates', auth: 'equipment_lifecycle.inspection_template.view', component: props => <InspectionCenterRedirect tab="templates" {...props}/>},
+    // "巡视与维护"更名"维护台账"（2026-10-11）：日巡视活跃功能已整体下线
+    // （前端页面/Store/路由与后端巡检 API 同步移除，权限码退役），
+    // 本组只保留周月维护台账、季维护台账与 Excel 台账模板。
+    {title: '维护台账', auth: 'equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view', child: [
       {title: '周月维护台账', auth: 'equipment_lifecycle.ledger.view', path: '/el/week-month-ledgers', component: WeekMonthLedgerIndex},
       {title: '季维护台账', auth: 'equipment_lifecycle.ledger.view', path: '/el/seasonal-ledgers', component: SeasonalLedgerIndex},
       // 旧可视化"台账模板"入口已随旧可视化模板路线整体删除（2026-10），

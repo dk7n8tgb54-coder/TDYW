@@ -10,7 +10,8 @@
 8-9. 维护台账转故障仍正常（转工单已随工单功能删除，2026-09-30）；
 10. 旧巡检关联故障不会被删除；
 11. 外部引用迁移后来源信息仍可查看（legacy 快照）；
-12. 新巡检创建、提交、详情、导出仍正常；
+12.（原"新巡检创建、提交、详情、导出仍正常"已随日巡视活跃功能下线移除，
+    由 test_daily_inspection_removal.py 承接）；
 13. 租户隔离仍然有效；
 14-15. dry-run / 未提供 --confirm 不修改数据库；
 16. 删除过程异常时事务回滚；
@@ -51,19 +52,6 @@ from apps.equipment_lifecycle.models import (
 )
 from apps.equipment_lifecycle.tests.base import (
     ALL_SYSTEM_PERMS, URL_PREFIX, make_client, make_system, make_user)
-from apps.equipment_lifecycle.tests.stable_contract.inspection_base import (
-    INS_URL,
-    create_sheet_ok,
-    get_abnormal_record_ids,
-    get_sheet_detail,
-    get_template_items,
-    make_inspection_template,
-    make_inspection_user,
-    put_records_ok,
-    record_spec,
-    sheet_payload,
-    submit_sheet_ok,
-)
 from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
     ALL_LEDGER_PERMS,
     ALL_TEMPLATE_PERMS,
@@ -308,47 +296,10 @@ class MaintenanceConvertStillWorksTest(TestCase):
         self.assertEqual(SystemFault.objects.count(), 0)
 
 
-class NewInspectionChainStillWorksTest(TestCase):
-    """12：新巡检创建、提交、详情、导出仍正常；转故障接口已下线。"""
-
-    def setUp(self):
-        perms = ALL_SYSTEM_PERMS + [
-            'equipment_lifecycle.inspection.export',
-            'equipment_lifecycle.fault.view', 'equipment_lifecycle.fault.add',
-        ]
-        self.user = make_inspection_user(
-            'new_ins_op', tenant_id='tenant_a', extra_perms=perms)
-        self.system = make_system(self.user, tenant_id='tenant_a')
-        self.client_ = make_client(self.user)
-
-    def test_new_inspection_chain_untouched(self):
-        template = make_inspection_template(
-            tenant_id='tenant_a', created_by=self.user, name='巡检模板-删旧改造')
-        items = get_template_items(template)
-        sheet = create_sheet_ok(self.client_, sheet_payload(
-            template.id, client_token='tok-legacy-removal'))
-        abnormal_spec = record_spec(
-            items['面板指示灯'].id, 'r1', value_text='不正常')
-        normal_spec = record_spec(items['驻波比检查'].id, 'r1', value_text='正常')
-        put_records_ok(self.client_, sheet['id'], sheet['version'],
-                       records=[abnormal_spec, normal_spec])
-        detail = submit_sheet_ok(self.client_, sheet['id'])
-        self.assertEqual(detail['status'], 'submitted')
-        # 详情仍可查
-        detail = get_sheet_detail(self.client_, sheet['id'])
-        abnormal_ids = get_abnormal_record_ids(detail)
-        self.assertEqual(len(abnormal_ids), 1)
-        # 导出仍可用
-        resp = self.client_.get('%s/%s/export/xlsx/' % (INS_URL, sheet['id']))
-        self.assertEqual(resp.status_code, 200)
-        self.assertIn('spreadsheet', resp.get('Content-Type', ''))
-        # 巡检转故障接口已下线：请求 404 且不产生故障记录
-        convert_fault_url = (
-            '%s/%s/records/%s/convert-to-fault/' % (INS_URL, sheet['id'], abnormal_ids[0]))
-        resp = self.client_.post(convert_fault_url, {'system': self.system.id},
-                                 content_type='application/json')
-        self.assertEqual(resp.status_code, 404)
-        self.assertEqual(SystemFault.objects.count(), 0)
+# 契约 12（新巡检创建、提交、详情、导出仍正常）已随"日巡视"活跃功能整体
+# 下线（2026-10-11）移除，由 test_daily_inspection_removal.py 的下线契约
+# （端点 404 + 历史数据/故障来源/履历展示兼容）承接；本文件继续覆盖
+# 旧巡检台账（历史）的历史兼容保护契约，保持不变。
 
 
 class LegacyPurgeCommandTest(TransactionTestCase):

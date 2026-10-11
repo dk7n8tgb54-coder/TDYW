@@ -138,10 +138,9 @@ export function buildSourceHref(event) {
         ? `${path}?detail=${detail.ledger_id}` : null;
     }
     case 'inspection_record': {
-      // 值班巡检异常转单事件：跳到巡检单记录页打开来源巡检单
-      const detail = event.detail || {};
-      return hasPermission('equipment_lifecycle.inspection.view') && detail.sheet_id
-        ? `/el/inspection-sheets?detail=${detail.sheet_id}` : null;
+      // 日巡视已下线（2026-10-11）：来源巡检单页面已删除，历史巡检转单事件
+      // 仅展示来源文本（巡检单号/摘要），不再提供跳转
+      return null;
     }
     case 'upgrade':
       // 升级记录工作台为全屏页，按升级表单查看权限跳转

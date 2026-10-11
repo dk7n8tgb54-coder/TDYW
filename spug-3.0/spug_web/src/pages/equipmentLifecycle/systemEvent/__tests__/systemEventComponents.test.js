@@ -388,26 +388,18 @@ describe('系统履历页面入口', () => {
     expect(text).toContain('事项类型');
     expect(text).toContain('来源类型');
   });
-});
 
-describe('系统详情——系统履历页签（平铺接口保持不变）', () => {
-  it('按系统查询本系统事件（原接口契约不变，含健康状态事件）', async () => {
-    mockHttpGet.mockResolvedValue({data: [{
-      id: 2, event_type: 'health', event_type_text: '健康状态',
-      source_type: 'health', source_id: '', source_no: '',
-      title: '运行健康状态由「正常」变为「故障」', occurred_at: '2026-09-19T08:00:00',
-    }], total: 1});
-    // eslint-disable-next-line global-require
-    const SystemEventsTab = require('../SystemEventsTab').default;
-    await act(async () => {
-      ReactDOM.render(<SystemEventsTab systemId={5}/>, container);
-    });
-    await act(flush);
-    expect(mockHttpGet).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/systems/5/system-events/',
-      {params: {page: 1, page_size: 20}});
-    expect(bodyText()).toContain('「故障」');
-    // 履历 append-only：无"新增/删除"操作文案
-    expect(bodyText()).not.toContain('新增');
+  it('来源跳转：日巡视已下线，巡检来源事件不再生成跳转链接（仍展示来源文本）', () => {
+    const {buildSourceHref, SOURCE_TYPE_TEXT} = require('../constants');
+    // 历史巡检转单事件：无跳转（页面已删除），但来源类型文本保留可展示
+    expect(buildSourceHref({
+      source_type: 'inspection_record', source_id: '99',
+      detail: {sheet_id: 8},
+    })).toBeNull();
+    expect(SOURCE_TYPE_TEXT.inspection_record).toBe('巡检异常');
   });
 });
+
+// 系统详情"系统履历"页签已下线（2026-10-11）：SystemEventsTab 组件删除，
+// systems/<pk>/system-events/ 端点仍由履历分组视图"状态变化"面板使用
+// （见"分组表格——健康状态面板与异常状态"用例与后端下线契约测试）。

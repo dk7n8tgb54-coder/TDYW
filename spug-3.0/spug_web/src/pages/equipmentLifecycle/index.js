@@ -33,7 +33,7 @@ function SystemIndex(props) {
     <AuthDiv auth={PERM.SYS_VIEW}>
       <Breadcrumb>
         <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>设备运行维护管理</Breadcrumb.Item>
+        <Breadcrumb.Item>设备管理</Breadcrumb.Item>
         <Breadcrumb.Item>系统档案</Breadcrumb.Item>
       </Breadcrumb>
       <SearchForm>

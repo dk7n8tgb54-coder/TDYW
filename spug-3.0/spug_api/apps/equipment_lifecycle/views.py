@@ -577,24 +577,3 @@ def _csv_response(filename_prefix, headers, rows):
     stamp = timezone.now().strftime('%Y%m%d%H%M%S')
     response['Content-Disposition'] = f"attachment; filename={filename_prefix}_{stamp}.csv"
     return response
-
-
-class CandidateUsersView(View):
-    """候选人员：当前租户内有效账户（今日巡检值班人员登记等场景使用）。
-
-    2026-09-30 自 work_order_views.WorkOrderCandidateUsersView 迁入：
-    工单负责人/参与人概念已随工单功能删除，本端点保留给仍需要
-    "本租户有效账户清单"的业务（巡检值班人员登记）。
-    """
-
-    @auth('equipment_lifecycle.inspection.view')
-    def get(self, request):
-        from apps.account.models import User
-        users = User.objects.filter(
-            tenant_id=request.user.tenant_id, is_active=True,
-            deleted_at__isnull=True).order_by('username')
-        return json_response({'data': [{
-            'id': u.id,
-            'username': u.username,
-            'nickname': u.nickname or u.username,
-        } for u in users]})

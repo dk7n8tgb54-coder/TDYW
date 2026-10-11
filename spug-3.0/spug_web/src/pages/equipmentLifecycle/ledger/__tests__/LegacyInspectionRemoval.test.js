@@ -3,11 +3,12 @@
  *
  * 真实导入路由表与页面模块（ReactDOM + jsdom，仓库惯例），验证：
  * - routes.js 不再注册 /el/inspection-ledgers 路由（旧巡检菜单已删除）；
- * - 同模块其他入口不受影响：今日巡检/巡检单记录/巡检模板/周月维护/季维护/台账模板仍在；
- * - ledger/entries 不再导出 InspectionLedgerIndex；
+ * - 同模块维护入口不受影响：周月维护/季维护/Excel台账模板仍在；
+ *   日巡视活跃入口已整体下线（2026-10-11），巡检中心及其旧路径兼容路由注销；
+ * - ledger/entries 不再导出 InspectionLedgerIndex 与任何巡检入口；
  * - 台账类型常量/文本/跳转映射均无 inspection 分支；
  * - 台账模板表单默认类型与类型选项不再包含"巡检"；
- * - 新巡视与维护入口组件仍可正常渲染。
+ * - 维护台账入口组件仍可正常渲染。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -100,26 +101,31 @@ describe('旧巡检台账（历史）入口删除', () => {
     expect(all.some(r => r.title === '巡检台账（历史）')).toBe(false);
   });
 
-  it('同模块其他入口不受影响：新巡检/周月/季/Excel台账模板路由仍在', () => {
+  it('同模块其他入口不受影响：周月/季/Excel台账模板路由仍在', () => {
     const all = flattenRoutes(routes);
     const paths = all.map(r => r.path);
-    ['/el/inspection-today', '/el/inspection-sheets', '/el/inspection-templates',
-      '/el/week-month-ledgers', '/el/seasonal-ledgers', '/el/excel-ledger-templates',
+    ['/el/week-month-ledgers', '/el/seasonal-ledgers', '/el/excel-ledger-templates',
       '/el/systems', '/el/faults',
     ].forEach(path => expect(paths).toContain(path));
     // 工单路由已随故障维修工单功能整体删除（2026-09-30）
     expect(paths).not.toContain('/el/work-orders');
     // 旧可视化台账模板入口已随旧可视化模板路线整体删除（2026-10）
     expect(paths).not.toContain('/el/ledger-templates');
+    // 日巡视活跃功能已整体下线（2026-10-11）：巡检中心与其旧独立路径
+    // 兼容路由全部注销（历史数据保留在后端，见下线契约测试）
+    ['/el/inspection-center', '/el/inspection-today',
+      '/el/inspection-sheets', '/el/inspection-templates',
+    ].forEach(path => expect(paths).not.toContain(path));
   });
 
-  it('ledger/entries 不再导出 InspectionLedgerIndex，维护与新巡检入口仍导出', () => {
+  it('ledger/entries 只导出维护台账入口（新旧巡检入口均已删除）', () => {
     expect(entries.InspectionLedgerIndex).toBeUndefined();
     expect(entries.WeekMonthLedgerIndex).toBeDefined();
     expect(entries.SeasonalLedgerIndex).toBeDefined();
-    expect(entries.InspectionToday).toBeDefined();
-    expect(entries.InspectionTemplateIndex).toBeDefined();
-    expect(entries.InspectionSheetIndex).toBeDefined();
+    // 日巡视活跃功能下线（2026-10-11）：巡检入口导出一并删除
+    expect(entries.InspectionToday).toBeUndefined();
+    expect(entries.InspectionTemplateIndex).toBeUndefined();
+    expect(entries.InspectionSheetIndex).toBeUndefined();
   });
 
   it('台账类型常量/文本/来源跳转映射均无 inspection 分支', () => {
@@ -144,7 +150,7 @@ describe('旧巡检台账（历史）入口删除', () => {
   });
 });
 
-describe('新巡视与维护入口仍正常', () => {
+describe('维护台账入口仍正常', () => {
   it('周月维护台账列表页渲染并按类型请求', async () => {
     mockHttpGet.mockResolvedValue({data: [], total: 0, page: 1, page_size: 20});
     const entries = require('../entries');
@@ -157,14 +163,13 @@ describe('新巡视与维护入口仍正常', () => {
     expect(call[1].params.ledger_type).toBe('week_month');
   });
 
-  it('今日巡检工作台入口组件可挂载', async () => {
-    mockHttpGet.mockResolvedValue({data: []});
-    const entries = require('../entries');
-    await act(async () => {
-      ReactDOM.render(h(entries.InspectionToday), container);
-    });
-    await act(async () => {});
-    await flush();
-    expect(mockHttpGet).toHaveBeenCalled();
+  it('日巡视入口组件已整体删除（2026-10-11）', () => {
+    let deleted = false;
+    try {
+      jest.isolateModules(() => require('../../inspection/InspectionWorksheet'));
+    } catch (e) {
+      deleted = true;
+    }
+    expect(deleted).toBe(true);
   });
 });

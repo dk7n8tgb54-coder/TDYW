@@ -3,7 +3,8 @@
  *
  * 真实渲染组件（ReactDOM + jsdom，仓库惯例），mock libs.http 与公共组件壳，
  * 验证：
- * - 详情窗口（居中 Modal）页签：基本信息 / 故障记录 / 升级记录 / 周月维护 / 季维护 / 履历
+ * - 详情窗口（居中 Modal）页签：基本信息 / 故障记录 / 运行记录 / 升级记录 / 配置
+ *   （周月维护台账/季维护台账/系统履历页签已于 2026-10-11 下线，独立菜单页面保留）
  *   （自定义字段机制已下线，「系统当前配置」页签一并移除；
  *   旧巡检台账（历史）页签已删除）
  * - 基本信息展示固定字段；扩展信息展示 呼号/安装经纬度/工作频率（选填）
@@ -97,7 +98,7 @@ describe('系统详情窗口', () => {
     return store;
   }
 
-  it('页签随步骤演进：基础页签 + 故障记录（3.1） + 三类运维台账（3.2） + 系统履历（3.4）；工单页签已删除', () => {
+  it('页签随演进收敛：基础 + 故障记录 + 运行记录 + 升级记录 + 配置；台账/履历页签已下线', () => {
     renderDetail();
     const text = document.body.textContent;
     expect(text).toContain('基本信息');
@@ -109,14 +110,15 @@ describe('系统详情窗口', () => {
     expect(text).not.toContain('配置快照');
     // 步骤 3.1：故障记录页签
     expect(text).toContain('故障记录');
-    // 步骤 3.2：周月维护/季维护台账页签；旧巡检台账（历史）页签已删除
+    // 三页签已下线（2026-10-11）：周月维护台账/季维护台账/系统履历由
+    // 各自独立菜单页面承载，详情弹窗不再嵌展示；旧巡检台账页签也已删除
     expect(text).not.toContain('巡检台账');
-    expect(text).toContain('周月维护台账');
-    expect(text).toContain('季维护台账');
+    expect(text).not.toContain('周月维护台账');
+    expect(text).not.toContain('季维护台账');
     // 工单页签已随故障维修工单功能整体删除（2026-09-30）
     expect(text).not.toContain('工单');
-    // 步骤 3.4：系统履历页签（统一履历；角色筛选断言见 systemEvent 组件测试）
-    expect(text).toContain('系统履历');
+    // 系统履历页签已下线（2026-10-11）：独立菜单页面仍保留
+    expect(text).not.toContain('系统履历');
     // 边界：不出现离线/二维码/移动端与系统升级入口
     expect(text).not.toContain('二维码');
     expect(text).not.toContain('离线');
