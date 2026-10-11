@@ -19,17 +19,6 @@ def make_reminder(tenant_id, user, label='A'):
     )
 
 
-def make_runlog(tenant_id, user, label='A'):
-    """创建跨日事项"""
-    from apps.runlog.models import RunLog
-    return RunLog.objects.create(
-        event_title=f'L{label}_{_uid()}', event_type='运行异常',
-        system_name=f'S{label}', severity='P2', status='in_progress',
-        created_by=user, tenant_id=tenant_id,
-    )
-
-
-
 def make_regulation_category(bootstrap_user):
     """创建规章分类（全局，无租户字段）"""
     from apps.regulation.models import RegulationCategory
@@ -65,20 +54,15 @@ def make_all_business_objects(tenants, users):
     # Reminder
     data['rem_a'] = make_reminder(tid_a, ua, 'A')
     data['rem_b'] = make_reminder(tid_b, ub, 'B')
-    # RunLog
-    data['rl_a'] = make_runlog(tid_a, ua, 'A')
-    data['rl_b'] = make_runlog(tid_b, ub, 'B')
     return data
 
 
 def cleanup_business_objects(data, tid_a, tid_b):
     """清理所有业务对象"""
     from apps.reminder.models import Reminder
-    from apps.runlog.models import RunLog
     from apps.regulation.models import Regulation, RegulationCategory
 
-    for model in [Reminder, RunLog]:
-        model.objects.filter(tenant_id__in=[tid_a, tid_b]).delete()
+    Reminder.objects.filter(tenant_id__in=[tid_a, tid_b]).delete()
 
     if 'reg' in data:
         Regulation.objects.filter(pk=data['reg'].pk).delete()

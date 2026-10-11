@@ -1,7 +1,7 @@
 import py_compile, os
 
-APPS = ['account', 'device', 'document', 'duty', 'evidence', 'interference',
-        'logs', 'runlog', 'signature', 'setting', 'department_duty_log']
+APPS = ['account', 'document', 'evidence', 'interference',
+        'logs', 'signature', 'setting', 'department_duty_log']
 
 base = '/data/spug/spug_api/apps'
 for app in APPS:

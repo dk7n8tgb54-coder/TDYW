@@ -10,7 +10,7 @@
  * - 已转故障的异常不再显示可用转换操作；处置目标可跳转。
  */
 import React, { useState } from 'react';
-import { Modal, Form, Input, Select, DatePicker, Tag, Button, message } from 'antd';
+import { Modal, Form, Input, Select, DatePicker, Tag, Button, Checkbox, message } from 'antd';
 import { history } from 'libs';
 import { AuthButton } from 'components';
 import { http } from 'libs';
@@ -23,6 +23,8 @@ const DISPOSITION_TEXT = {
   converted_fault: '已转故障',
   target_cancelled: '处置目标已撤销登记',
 };
+// 2026-10-11 合并改造：处置目标为统一主表正式故障记录（record_no 统一编号），
+// 跳转目标改为 /el/records（运行与故障记录）
 
 const DISPOSITION_COLOR = {
   none: 'default',
@@ -43,7 +45,7 @@ export function DispositionTag({item}) {
 
 export function DispositionTargets({item}) {
   const d = item.disposition;
-  if (!d || !d.fault) return null;
+  if (!d || !d.target) return null;
   return (
     <span style={{marginLeft: 8}}>
       <Button
@@ -51,10 +53,10 @@ export function DispositionTargets({item}) {
         size="small"
         style={{padding: 0}}
         onClick={() => {
-          history.push(`/el/faults?detail=${d.fault.id}`);
+          history.push(`/el/records?detail=${d.target.id}`);
         }}
       >
-        {d.fault.fault_no}
+        {d.target.record_no}
       </Button>
     </span>
   );
@@ -105,8 +107,9 @@ function ConvertToFaultModal({visible, ledger, item, needReason, onClose, onConv
         `${API_PREFIX}/ledgers/${ledger.id}/items/${item.id}/convert-to-fault/`,
         {
           occurred_at: values.occurred_at ? values.occurred_at.format('YYYY-MM-DD HH:mm') : '',
-          impact_status: values.impact_status,
-          phenomenon: values.phenomenon || '',
+          affects_system_operation: !!values.affects_system_operation,
+          impact_status: values.affects_system_operation ? values.impact_status : '',
+          description: values.phenomenon || '',
           re_dispose_reason: values.re_dispose_reason || '',
         })
         .then(() => {
@@ -129,16 +132,17 @@ function ConvertToFaultModal({visible, ledger, item, needReason, onClose, onConv
       destroyOnClose
     >
       <p style={{color: '#999', marginTop: 0}}>
-        故障系统固定为明细所属系统「{item.system_name}」；
-        将带入台账类型、编号、检查项、位置、异常说明、实测值与现场处理内容。
+        在明细所属系统「{item.system_name}」创建一条正式故障记录（统一主表，
+        创建即处置中）；将带入台账类型、编号、检查项、异常说明、实测值与
+        现场处理内容。
       </p>
       <Form
         form={form}
         labelCol={{span: 6}}
         wrapperCol={{span: 16}}
         initialValues={{
+          affects_system_operation: true,
           impact_status: 'degraded',
-          phenomenon: '',
         }}
       >
         <Form.Item name="occurred_at" label="发生时间">
@@ -149,14 +153,27 @@ function ConvertToFaultModal({visible, ledger, item, needReason, onClose, onConv
             placeholder="默认取明细执行时间"
           />
         </Form.Item>
-        <Form.Item name="impact_status" label="系统影响程度">
-          <Select>
-            <Select.Option value="degraded">降级</Select.Option>
-            <Select.Option value="fault">故障</Select.Option>
-            <Select.Option value="interrupted">中断</Select.Option>
-          </Select>
+        <Form.Item
+          name="affects_system_operation"
+          label="影响系统运行"
+          valuePropName="checked"
+          extra="勾选后按影响程度参与系统健康状态计算；部件故障/离线维修可不勾选"
+        >
+          <Checkbox>影响系统运行</Checkbox>
         </Form.Item>
-        <Form.Item name="phenomenon" label="故障现象">
+        <Form.Item noStyle shouldUpdate={(prev, cur) =>
+          prev.affects_system_operation !== cur.affects_system_operation}>
+          {({getFieldValue}) => getFieldValue('affects_system_operation') ? (
+            <Form.Item name="impact_status" label="系统影响程度" preserve={false}>
+              <Select>
+                <Select.Option value="degraded">降级</Select.Option>
+                <Select.Option value="fault">故障</Select.Option>
+                <Select.Option value="interrupted">中断</Select.Option>
+              </Select>
+            </Form.Item>
+          ) : null}
+        </Form.Item>
+        <Form.Item name="phenomenon" label="情况描述">
           <TextArea rows={3} maxLength={2000} placeholder="默认由异常说明等自动组装，可编辑"/>
         </Form.Item>
         {needReason && (

@@ -42,7 +42,7 @@ class MixedWorkflowUser(TokenPoolHttpUser):
 
     Task distribution (~70% read, ~20% write, ~10% file):
     - Read: navigation, notices, lists, dashboards
-    - Write: create reminders, runlogs, duty logs
+    - Write: create reminders
     - File: upload small files, list documents
     """
 
@@ -119,16 +119,6 @@ class MixedWorkflowUser(TokenPoolHttpUser):
         self._safe_get("/api/home/navigation/")
         self._safe_get("/api/home/statistic/")
 
-    @task(8)
-    def browse_runlog(self):
-        """Browse runlog list."""
-        self._safe_get("/api/runlog/")
-
-    @task(6)
-    def browse_duty(self):
-        """Browse duty logs."""
-        self._safe_get("/api/duty/duty/")
-
     @task(6)
     def browse_reminders(self):
         """Browse reminders."""
@@ -202,38 +192,6 @@ class MixedWorkflowUser(TokenPoolHttpUser):
         data = self._safe_post("/api/reminder/", send_data)
         if data and data.get("id"):
             registry.register("reminder", data["id"])
-
-    @task(3)
-    def create_runlog(self):
-        """Create a runlog entry."""
-        gen = get_generator()
-        registry = get_registry()
-
-        try:
-            record = gen.make_record("runlog")
-        except ValueError:
-            return
-
-        send_data = {k: v for k, v in record.items() if not k.startswith("_")}
-        data = self._safe_post("/api/runlog/", send_data)
-        if data and data.get("id"):
-            registry.register("runlog", data["id"])
-
-    @task(3)
-    def create_duty_log(self):
-        """Create a duty log entry."""
-        gen = get_generator()
-        registry = get_registry()
-
-        try:
-            record = gen.make_record("duty_log")
-        except ValueError:
-            return
-
-        send_data = {k: v for k, v in record.items() if not k.startswith("_")}
-        data = self._safe_post("/api/duty/duty/", send_data)
-        if data and data.get("id"):
-            registry.register("duty_log", data["id"])
 
     @task(2)
     def create_interference(self):

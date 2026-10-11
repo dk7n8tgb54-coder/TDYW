@@ -143,41 +143,6 @@ class WriteWorkflowUser(TokenPoolHttpUser):
 
     # === Write tasks ===
 
-    @task(10)
-    def create_runlog(self):
-        """Create a test runlog record."""
-        gen = get_generator()
-        registry = get_registry()
-
-        try:
-            record = gen.make_record("runlog")
-        except ValueError:
-            return  # Max limit reached
-
-        # Remove internal fields before sending
-        send_data = {k: v for k, v in record.items() if not k.startswith("_")}
-
-        data = self._safe_post("/api/runlog/", send_data)
-        if data and data.get("id"):
-            registry.register("runlog", data["id"])
-
-    @task(8)
-    def create_duty_log(self):
-        """Create a test duty log record."""
-        gen = get_generator()
-        registry = get_registry()
-
-        try:
-            record = gen.make_record("duty_log")
-        except ValueError:
-            return
-
-        send_data = {k: v for k, v in record.items() if not k.startswith("_")}
-
-        data = self._safe_post("/api/duty/duty/", send_data)
-        if data and data.get("id"):
-            registry.register("duty_log", data["id"])
-
     @task(6)
     def create_reminder(self):
         """Create a test reminder."""
@@ -274,19 +239,17 @@ class WriteWorkflowUser(TokenPoolHttpUser):
         all_created = gen.get_all_created()
         if not all_created:
             # No data created yet, read general lists
-            self._safe_get("/api/runlog/")
+            self._safe_get("/api/reminder/")
             return
 
         # Pick a random entity type that has created records
         entity_types = [k for k, ids in all_created.items() if ids]
         if not entity_types:
-            self._safe_get("/api/runlog/")
+            self._safe_get("/api/reminder/")
             return
 
         entity_type = random.choice(entity_types)
         endpoint_map = {
-            "runlog": "/api/runlog/",
-            "duty_log": "/api/duty/duty/",
             "reminder": "/api/reminder/",
             "interference": "/api/interference/events/",
             "upgrade": "/api/upgrade/records/",
@@ -294,7 +257,7 @@ class WriteWorkflowUser(TokenPoolHttpUser):
             "contract_agreement": "/api/contract-agreement/",
         }
 
-        endpoint = endpoint_map.get(entity_type, "/api/runlog/")
+        endpoint = endpoint_map.get(entity_type, "/api/reminder/")
         self._safe_get(endpoint)
 
 

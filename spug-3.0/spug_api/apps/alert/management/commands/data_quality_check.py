@@ -329,12 +329,10 @@ class Command(BaseCommand):
 
         # (表名, 显示名, 记录名列)
         modules = [
-            ('tdyw_run_logs', '运行日志', 'event_title'),
             ('tdyw_interference_events', '干扰事件', 'phenomenon'),
             ('tdyw_interference_investigations', '规律调查', 'name'),
             ('tdyw_spectrum_measurements', '频谱测量', 'location'),
             ('tdyw_upgrade_records', '升级记录', 'title'),
-            ('tdyw_duty_records', '值班日志', 'duty_person'),
         ]
 
         for table, model_name, name_col in modules:

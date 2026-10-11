@@ -6,7 +6,7 @@
 为所有需要租户隔离的业务模型提供统一的 tenant_id 字段和 TENANT_TYPE 常量
 
 子类模型使用方式：
-    class DutyRecord(models.Model, TenantModelMixin):
+    class MyBizModel(models.Model, TenantModelMixin):
         objects = TenantModelManager()
         tenant_id = make_tenant_id()
         ...

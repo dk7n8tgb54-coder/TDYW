@@ -60,16 +60,6 @@ class TestDataGenerator:
             "party_b": "PERF乙方",
             "amount": "10000",
         },
-        "runlog": {
-            "title": "PERF测试跨日事项{seq}",
-            "content": "PERF自动化测试创建的跨日事项记录",
-            "duty_person": "PERF测试人",
-        },
-        "duty_log": {
-            "title": "PERF测试值班日志{seq}",
-            "content": "PERF自动化测试创建的值班日志",
-            "shift": "day",
-        },
         "dept_duty_log": {
             "department": "PERF测试部门",
             "content": "PERF自动化测试创建的部门值班日志",

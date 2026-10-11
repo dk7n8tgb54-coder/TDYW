@@ -9,8 +9,9 @@
  * - 页签同时渲染当前配置与配置变更历史两个信息区域，无独立页面入口；
  * - 当前配置表格展示 参数名称/当前值/单位/数据类型/最后生效时间/最后变更人；
  * - 变更历史请求指向 systems/<id>/config/changes/，筛选参数（状态/时间）生效；
- * - 记录配置变更 Modal 提交真实 payload（system/reason/items/纳入履历/client_token），
- *   成功后刷新当前配置与历史；纳入履历必须填原因（客户端拦截不发请求）；
+ * - 记录配置变更 Modal 提交真实 payload（system/reason/items/verify_note/
+ *   client_token；系统履历已随 2026-10-11 合并改造退役，不再有"纳入履历"
+ *   选项与校验），成功后刷新当前配置与历史；
  * - 变更详情抽屉展示前后值快照，动作按钮随状态与权限显隐，
  *   应用/验证/回退/取消调用对应动作端点；
  * - 业务错误（HTTP 200 + error）时 Promise 拒绝，不提示成功；
@@ -177,7 +178,6 @@ describe('系统配置页签 · 渲染与筛选', () => {
     expect(text).toContain('功率校准');
     expect(text).toContain('已生效');
     expect(text).toContain('未验证');
-    expect(text).toContain('未纳入');
     // 记录配置变更只是 Modal 操作入口（按钮，不存在独立页面链接）
     const addBtn = Array.from(container.querySelectorAll('button'))
       .find(b => b.textContent.includes('记录配置变更'));
@@ -275,33 +275,21 @@ describe('系统配置页签 · 记录配置变更 Modal', () => {
     expect(payload.system).toBe(7);
     expect(payload.reason).toBe('功率校准调整');
     expect(payload.items).toEqual([{param: 11, new_value: 45, remark: ''}]);
-    expect(payload.include_in_history).toBe(false);
+    // 系统履历已退役：payload 不再包含纳入履历字段
+    expect(payload).not.toHaveProperty('include_in_history');
+    expect(payload).not.toHaveProperty('history_reason');
     expect(payload.client_token).toBeTruthy();
     // 成功后刷新当前配置与变更历史
     const refreshCalls = mockHttpGet.mock.calls.filter(c => String(c[0]).includes('/systems/7/'));
     expect(refreshCalls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('纳入系统履历必须填写原因，缺原因被校验拦截不发请求', async () => {
+  it('履历退役后表单不再提供"纳入系统履历"选项', async () => {
     await openModal();
     const modal = document.querySelector('.ant-modal');
-    // 开启"纳入系统履历"开关
-    const switchBtn = modal.querySelector('button.ant-switch');
-    expect(switchBtn).toBeTruthy();
-    act(() => {
-      switchBtn.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-    });
-    await flush();
-    // 不填纳入原因 → 提交被 antd 校验拦截（表单 error），不发 POST
-    mockHttpPost.mockResolvedValue({});
-    const submitBtn = Array.from(modal.querySelectorAll('.ant-modal-footer button'))
-      .find(b => b.textContent.includes('提 交'));
-    await act(async () => {
-      submitBtn.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-      await flush();
-    });
-    expect(mockHttpPost).not.toHaveBeenCalled();
-    expect(modal.textContent).toContain('纳入系统履历的重要变更必须填写原因');
+    const text = modal.textContent;
+    expect(text).not.toContain('纳入系统履历');
+    expect(modal.querySelector('button.ant-switch')).toBeFalsy();
   });
 });
 

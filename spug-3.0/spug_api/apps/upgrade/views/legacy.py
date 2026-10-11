@@ -78,7 +78,6 @@ class LegacyUpgradeView(View):
         """创建升级表单（兼容旧前端，system 为纯文本）"""
         from apps.upgrade.models import UpgradeRecord
         from apps.equipment_lifecycle.models import LifecycleSystem
-        from apps.equipment_lifecycle.event_services import record_upgrade_lifecycle_events
 
         form, error = JsonParser(
             Argument('system', help='请输入系统'),
@@ -94,8 +93,9 @@ class LegacyUpgradeView(View):
 
         # 旧契约 system 为纯文本且不带 title/upgrade_content，不能走新链路
         # 必填校验（否则匹配到系统档案反而创建失败）；统一走直建兜底：
-        # 能按名称匹配到系统档案则一并写外键+快照+履历，匹配不到保留旧语义
+        # 能按名称匹配到系统档案则一并写外键+快照，匹配不到保留旧语义
         # 纯文本落库（仅名称快照，不建系统关联）。version 字段已随旧模型退役。
+        # （系统履历已退役 2026-10-11：升级登记不再写履历事件）
         system_text = (form.system or '').strip()
         system_obj = apply_tenant_filter(
             LifecycleSystem.objects.filter(is_active=True), request.user
@@ -125,9 +125,6 @@ class LegacyUpgradeView(View):
                         owner=form.owner,
                         created_by=request.user,
                     )
-                    if system_obj:
-                        record_upgrade_lifecycle_events(
-                            record, 'create', created_by=request.user)
         except UpgradeNoLockTimeout as e:
             return json_response(error=str(e))
         except UpgradeNoExhausted as e:

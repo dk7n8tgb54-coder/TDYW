@@ -19,6 +19,7 @@
 import csv
 import io
 
+from django.db.models import Q
 from django.http import HttpResponse
 from django.views.generic import View
 
@@ -141,7 +142,9 @@ class LedgerView(View):
             query = query.filter(status=status)
         system_id = request.GET.get('system')
         if system_id and str(system_id).isdigit():
-            query = query.filter(items__system_id=system_id).distinct()
+            # 表头级系统（周期批量台账）与明细系统（手工/历史台账）均命中
+            query = query.filter(
+                Q(items__system_id=system_id) | Q(system_id=system_id)).distinct()
         keyword = request.GET.get('keyword')
         if keyword:
             query = query.filter(ledger_no__icontains=keyword)
@@ -151,7 +154,7 @@ class LedgerView(View):
         executed_to = request.GET.get('executed_to')
         if executed_to:
             query = query.filter(executed_date__lte=executed_to)
-        query = query.select_related('excel_record__version')
+        query = query.select_related('system', 'excel_record__version')
         page, page_size = paginate(request)
         total = query.count()
         records = query[(page - 1) * page_size: page * page_size] if total else []
@@ -178,6 +181,60 @@ class LedgerView(View):
                                         'created_from': ledger.created_from,
                                         'items_count': ledger.items.count()})
         return json_response(_ledger_detail(ledger, request.user))
+
+
+class LedgerBatchCreateView(View):
+    """周期台账一键新增：GET 返回本租户系统范围，POST 按类型+周期批量创建草稿台账。
+
+    - 范围依据本租户在用系统（后端独立查询，不信任前端传入名单）；
+    - 幂等：同类型+同周期+同系统已存在有效台账时跳过（作废不占名额）；
+    - 成功响应携带 created/existed，由前端如实展示"实际新增/已存在"。
+    """
+
+    @auth('equipment_lifecycle.ledger.view')
+    def get(self, request):
+        systems = apply_tenant_filter(LifecycleSystem.objects.all(), request.user).order_by(
+            '-is_active', 'system_code', 'id')
+        return json_response({'data': [{
+            'id': s.id,
+            'system_code': s.system_code,
+            'name': s.name,
+            'install_location': s.install_location,
+            'is_active': s.is_active,
+        } for s in systems]})
+
+    @auth('equipment_lifecycle.ledger.add')
+    def post(self, request):
+        body = _read_json_body(request)
+        if body is None:
+            return json_response(error='请求体格式不正确')
+        result, error = ledger_services.batch_create_period_ledgers(request.user, body)
+        if error:
+            return json_response(error=error)
+        record_audit_event(request, 'create', AUDIT_TARGET_LEDGER, None,
+                           '周期批量新增%s台账' % result['period_text'],
+                           after_value={'ledger_type': result['ledger_type'],
+                                        'maintenance_period': result['maintenance_period'],
+                                        'created': result['created'],
+                                        'existed': result['existed'],
+                                        'existed_systems': result['existed_systems']})
+        return json_response(result)
+
+
+class LedgerPeriodGroupsView(View):
+    """按 维护类型+周期 分组的台账列表：组内含各系统台账、来源与填写状态。"""
+
+    @auth('equipment_lifecycle.ledger.view')
+    def get(self, request):
+        try:
+            data = ledger_services.list_period_groups(
+                request.user, request.GET.get('ledger_type'),
+                status=request.GET.get('status') or '',
+                system_id=request.GET.get('system'),
+                row_serializer=_ledger_source_fields)
+        except LedgerValidationError as e:
+            return json_response(error=str(e))
+        return json_response({'data': data})
 
 
 class LedgerDetailView(View):

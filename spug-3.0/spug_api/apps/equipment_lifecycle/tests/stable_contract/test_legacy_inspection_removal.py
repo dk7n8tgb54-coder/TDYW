@@ -35,6 +35,7 @@ from apps.equipment_lifecycle.ledger_services import (
     LEGACY_INSPECTION_ERROR,
     legacy_inspection_error,
 )
+from apps.equipment_lifecycle.operation_models import SystemOperationRecord
 from apps.equipment_lifecycle.models import (
     LEGACY_LEDGER_TYPE_INSPECTION,
     LEDGER_NO_PREFIX_MAP,
@@ -47,8 +48,6 @@ from apps.equipment_lifecycle.models import (
     OperationLedger,
     OperationLedgerCorrection,
     OperationLedgerItem,
-    SystemEvent,
-    SystemFault,
 )
 from apps.equipment_lifecycle.tests.base import (
     ALL_SYSTEM_PERMS, URL_PREFIX, make_client, make_system, make_user)
@@ -86,9 +85,10 @@ def _drop_ledger_type_checks():
 def _restore_ledger_type_checks():
     """先清掉本测试残留的旧巡检行（否则 ADD CHECK 校验存量行会失败），再恢复约束。"""
     with connection.cursor() as cur:
-        # 先删夹具创建的故障（ledger_item 来源 CHECK 要求外键在位，不能只置空）
+        # 先删统一记录（source_ledger_item 外键 PROTECT，须先于明细删除）；
+        # 旧故障表已随 2026-10-11 合并改造删除
         cur.execute(
-            'DELETE FROM tdyw_el_fault WHERE tenant_id IN (%s, %s)',
+            'DELETE FROM tdyw_el_operation_record WHERE tenant_id IN (%s, %s)',
             ['tenant_a', 'tenant_b'])
         cur.execute(
             'DELETE FROM tdyw_el_ledger_correction WHERE ledger_id IN ('
@@ -254,7 +254,8 @@ class MaintenanceConvertStillWorksTest(TestCase):
     def setUp(self):
         perms = ALL_LEDGER_PERMS + ALL_SYSTEM_PERMS + [
             'equipment_lifecycle.ledger.handle_exception',
-            'equipment_lifecycle.fault.view', 'equipment_lifecycle.fault.add',
+            'equipment_lifecycle.operation_record.view',
+            'equipment_lifecycle.operation_record.add_fault',
         ]
         self.user = make_user('maint_convert_op', perms=perms, tenant_id='default')
         self.system = make_system(self.user)
@@ -281,9 +282,11 @@ class MaintenanceConvertStillWorksTest(TestCase):
                              ledger_id, item_id), {})
         body = resp.json()
         self.assertFalse(body.get('error'), body)
-        fault = SystemFault.objects.get(pk=body['data']['id'])
-        self.assertEqual(fault.source_type, 'ledger_item')
-        self.assertEqual(fault.source_ledger_item_id, item_id)
+        record = SystemOperationRecord.objects.get(pk=body['data']['id'])
+        self.assertEqual(record.record_type, 'fault')
+        self.assertEqual(record.status, 'handling')
+        self.assertEqual(record.source_type, 'ledger_item')
+        self.assertEqual(record.source_ledger_item_id, item_id)
 
     def test_week_month_item_convert_to_work_order_removed(self):
         """9：台账异常转工单端点已随工单功能删除（404），不产生工单或故障。"""
@@ -293,7 +296,7 @@ class MaintenanceConvertStillWorksTest(TestCase):
                              ledger_id, item_id),
                          {'work_type': 'special_maintenance', 'client_token': 'tok-maint-wo'})
         self.assertEqual(resp.status_code, 404)
-        self.assertEqual(SystemFault.objects.count(), 0)
+        self.assertEqual(SystemOperationRecord.objects.count(), 0)
 
 
 # 契约 12（新巡检创建、提交、详情、导出仍正常）已随"日巡视"活跃功能整体
@@ -310,7 +313,7 @@ class LegacyPurgeCommandTest(TransactionTestCase):
         _drop_ledger_type_checks()
         self.addCleanup(_restore_ledger_type_checks)
         perms = ALL_LEDGER_PERMS + ALL_SYSTEM_PERMS + [
-            'equipment_lifecycle.fault.view']
+            'equipment_lifecycle.operation_record.view']
         self.user_a = make_user('purge_admin_a', perms=perms, tenant_id='tenant_a')
         self.user_b = make_user('purge_admin_b', perms=perms, tenant_id='tenant_b')
         self.system_a = make_system(self.user_a, tenant_id='tenant_a')
@@ -333,25 +336,20 @@ class LegacyPurgeCommandTest(TransactionTestCase):
         # tenant_b 旧巡检台账（验证 --tenant 范围）
         self.legacy_ledger_b = self._make_ledger(
             self.system_b, 'inspection', ledger_no='EL-INS-20260902-0001')
-        # 外部引用：故障（引用 tenant_a 旧巡检异常明细，不得删除）
-        self.fault = SystemFault.objects.create(
-            tenant_id='tenant_a', fault_no='GZ20260901-0001',
-            system=self.system_a, impact_status='',
+        # 外部引用：统一记录（引用 tenant_a 旧巡检异常明细，不得删除；
+        # 2026-10-11 合并改造后故障旧表已删，目标为统一主表正式故障记录；
+        # 系统履历已退役，不再构造履历事件夹具）
+        self.record = SystemOperationRecord.objects.create(
+            tenant_id='tenant_a', record_no='JL20260901-0001',
+            record_type='fault', system=self.system_a, impact_status='',
+            affects_system_operation=False,
             system_code=self.system_a.system_code, system_name=self.system_a.name,
             system_location=self.system_a.install_location,
             occurred_at='2026-09-01 10:00:00',
-            phenomenon='旧巡检发现的异常', status='handling',
-            source_type='ledger_item', source_id=str(self.legacy_item.id),
-            source_ledger_item=self.legacy_item, created_by=self.user_a)
-        # 系统履历事件（文本引用旧明细，须保留）
-        self.event = SystemEvent.objects.create(
-            tenant_id='tenant_a', system=self.system_a, event_type='ledger',
-            action='convert_to_fault', source_type='ledger_item',
+            title='旧巡检异常转故障', description='旧巡检发现的异常',
+            status='handling', source_type='ledger_item',
             source_id=str(self.legacy_item.id),
-            source_no=self.legacy_ledger.ledger_no, title='台账异常转故障',
-            detail='{}', system_code=self.system_a.system_code,
-            system_name=self.system_a.name, occurred_at='2026-09-01 10:00:00',
-            created_by=self.user_a)
+            source_ledger_item=self.legacy_item, created_by=self.user_a)
 
     def _make_ledger(self, system, ledger_type, ledger_no=None):
         ledger = OperationLedger.objects.create(
@@ -399,7 +397,7 @@ class LegacyPurgeCommandTest(TransactionTestCase):
         out = call_purge('--dry-run')
         self.assertIn('DRY-RUN', out)
         self.assertEqual(self._legacy_counts(), before)
-        self.assertEqual(SystemFault.objects.count(), 1)
+        self.assertEqual(SystemOperationRecord.objects.count(), 1)
 
     def test_without_confirm_does_not_delete(self):
         """15. 未提供 --confirm 时不删除。"""
@@ -424,29 +422,28 @@ class LegacyPurgeCommandTest(TransactionTestCase):
                 ledger_type=LEDGER_TYPE_SEASONAL).count(), 1)
         # 共享模型仍完整可用：更正记录随旧台账删除，但表本身可继续写入
         self.assertEqual(OperationLedgerCorrection.objects.count(), 0)
-        # 履历事件与审计（此处验证履历）不被删除
-        self.assertTrue(SystemEvent.objects.filter(pk=self.event.id).exists())
+        # 统一记录（外部引用）不被删除
+        self.assertTrue(
+            SystemOperationRecord.objects.filter(pk=self.record.id).exists())
 
-    def test_referenced_fault_survives_with_snapshot(self):
-        """10/11：被引用的故障不删除，来源信息迁移后仍可查看。"""
+    def test_referenced_record_survives_with_unbound_source(self):
+        """10/11：被引用的统一记录不删除，来源外键解除后记录仍可查看。
+
+        （2026-10-11 合并改造：统一主表无 legacy 快照字段，来源语义由
+        记录的情况描述文本与审计日志承载；旧快照断言随 SystemFault 删除。）
+        """
         call_purge('--confirm')
-        fault = SystemFault.objects.get(pk=self.fault.id)
-        # 故障保留，来源外键解除
-        self.assertIsNone(fault.source_ledger_item_id)
+        record = SystemOperationRecord.objects.get(pk=self.record.id)
+        # 记录保留，来源外键解除
+        self.assertIsNone(record.source_ledger_item_id)
+        self.assertEqual(record.source_id, '')
         # 来源类型不丢失历史语义（仍是 ledger_item，非人工）
-        self.assertEqual(fault.source_type, 'ledger_item')
-        # legacy 快照保留旧巡检来源信息
-        snapshot = json.loads(fault.source_ledger_legacy)
-        self.assertEqual(snapshot['ledger_no'], 'EL-INS-20260901-0001')
-        self.assertEqual(snapshot['ledger_type'], 'inspection')
-        self.assertEqual(snapshot['ledger_item_id'], self.legacy_item.id)
-        self.assertIn('已删除', snapshot['legacy_note'])
-        # 详情接口仍可看到来源信息（不再可跳转）
+        self.assertEqual(record.source_type, 'ledger_item')
+        # 详情接口仍可正常打开
         detail = make_client(self.user_a).get(
-            '/equipment-lifecycle/faults/%s/' % self.fault.id).json()['data']
-        self.assertEqual(detail['source_ledger_no'], 'EL-INS-20260901-0001')
-        self.assertEqual(detail['source_ledger_type'], 'inspection')
-        self.assertTrue(detail['source_ledger_legacy'])
+            '/equipment-lifecycle/records/%s/' % self.record.id).json()['data']
+        self.assertEqual(detail['record_no'], 'JL20260901-0001')
+        self.assertEqual(detail['source_type'], 'ledger_item')
         self.assertIsNone(detail['source_ledger'])
 
     def test_tenant_scoped_deletion(self):
@@ -470,8 +467,7 @@ class LegacyPurgeCommandTest(TransactionTestCase):
                 side_effect=RuntimeError('模拟附件删除失败')):
             with self.assertRaises(CommandError):
                 call_purge('--confirm')
-        # 全部数据原样保留（含故障的外键引用）
+        # 全部数据原样保留（含统一记录的外键引用）
         self.assertEqual(self._legacy_counts(), before)
-        fault = SystemFault.objects.get(pk=self.fault.id)
-        self.assertEqual(fault.source_ledger_item_id, self.legacy_item.id)
-        self.assertEqual(fault.source_ledger_legacy, '')
+        record = SystemOperationRecord.objects.get(pk=self.record.id)
+        self.assertEqual(record.source_ledger_item_id, self.legacy_item.id)

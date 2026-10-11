@@ -22,7 +22,6 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('account/', include('apps.account.urls')),
-    path('duty/', include('apps.duty.urls')),
     path('setting/', include('apps.setting.urls')),
     path('interference/', include('apps.interference.urls')),
     path('home/', include('apps.home.urls')),
@@ -30,7 +29,6 @@ urlpatterns = [
     path('alert/', include('apps.alert.urls')),
     path('apis/', include('apps.apis.urls')),
     path('document/', include('apps.document.urls')),
-    path('runlog/', include('apps.runlog.urls')),
     path('upgrade/', include('apps.upgrade.urls')),
     path('logs/', include('apps.logs.urls')),
     path('radio-license/', include('apps.radio_license.urls')),

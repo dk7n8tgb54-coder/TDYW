@@ -129,13 +129,6 @@
       "name": "render"
     },
     {
-      "file": "spug_web/src/pages/duty/Form.js",
-      "line": 60,
-      "kind": "javascript",
-      "code_lines": 220,
-      "complexity": null
-    },
-    {
       "file": "spug_web/src/pages/equipmentLifecycle/ConfigArchiveTab.js",
       "line": 175,
       "kind": "javascript",
@@ -227,29 +220,6 @@
       "code_lines": 126,
       "complexity": null,
       "name": "ReminderFormModal"
-    },
-    {
-      "file": "spug_web/src/pages/runlog/EventTypeModal.js",
-      "line": 12,
-      "kind": "javascript",
-      "code_lines": 139,
-      "complexity": null,
-      "name": "EventTypeModal"
-    },
-    {
-      "file": "spug_web/src/pages/runlog/Form.js",
-      "line": 17,
-      "kind": "javascript",
-      "code_lines": 523,
-      "complexity": null
-    },
-    {
-      "file": "spug_web/src/pages/runlog/Statistics.js",
-      "line": 167,
-      "kind": "javascript",
-      "code_lines": 147,
-      "complexity": null,
-      "name": "Statistics"
     },
     {
       "file": "spug_web/src/pages/stationFrequencyApproval/Form.js",
@@ -823,22 +793,6 @@
       "kind": "python",
       "code_lines": 124,
       "complexity": 14,
-      "name": "export_pdf"
-    },
-    {
-      "file": "spug_api/apps/duty/pdf_export.py",
-      "line": 118,
-      "kind": "python",
-      "code_lines": 122,
-      "complexity": 9,
-      "name": "generate_duty_log_pdf"
-    },
-    {
-      "file": "spug_api/apps/duty/views.py",
-      "line": 186,
-      "kind": "python",
-      "code_lines": 93,
-      "complexity": 17,
       "name": "export_pdf"
     },
     {

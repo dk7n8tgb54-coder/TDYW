@@ -15,9 +15,9 @@
 历史快照原则：明细保存参数编码/名称/类型/单位与变更前后值的规范化文本
 快照，参数定义后续修改/停用不改变历史含义；参数定义不提供删除接口
 （只有启用/停用），停用后当前值与历史记录全部保留。
-配置值只经「配置变更」流程修改（创建草稿 → 应用生效），不提供散改接口；
-普通配置变更不写系统履历，重要配置变更（include_in_history）由服务层在
-应用时经 event_services 写入履历（须填原因）。
+配置值只经「配置变更」流程修改（创建草稿 → 应用生效），不提供散改接口。
+（系统履历已于 2026-10-11 整体退役：配置变更不再写履历事件，变更历史与
+审计留痕承载追溯需求。）
 """
 import json
 
@@ -292,8 +292,6 @@ class ConfigChangeRecord(TenantModelMixin, models.Model):
       （回退生成一条新的反向变更，原记录内容不改写只改状态）；
       draft → cancelled；终态不可再操作；
     - 已生效（applied 及之后）变更不允许普通编辑（PUT 仅 draft 放行）；
-    - include_in_history=True（重要变更）须填 history_reason，应用时由
-      服务层同事务写入系统履历（普通变更默认不写履历）；
     - rollback_of 指向被回退的原变更（"回退记录关联"双向可查）。
     """
 
@@ -319,8 +317,6 @@ class ConfigChangeRecord(TenantModelMixin, models.Model):
         User, models.PROTECT, related_name='+', null=True, blank=True,
         help_text='验证操作账号')
     verified_at = models.DateTimeField(null=True, blank=True, help_text='验证时间')
-    include_in_history = models.BooleanField(default=False, help_text='是否纳入系统履历（重要配置变更，须填原因）')
-    history_reason = models.CharField(max_length=500, default='', blank=True, help_text='纳入履历原因（include_in_history 时必填）')
     rollback_of = models.ForeignKey(
         'self', models.PROTECT, related_name='rollback_changes', null=True, blank=True,
         help_text='被回退的原变更（回退生成的反向变更填写）')
@@ -379,8 +375,6 @@ class ConfigChangeRecord(TenantModelMixin, models.Model):
             'verify_note': self.verify_note,
             'verified_at': self.verified_at,
             'verified_by_name': self.verified_by.username if self.verified_by_id else '',
-            'include_in_history': self.include_in_history,
-            'history_reason': self.history_reason,
             'rollback_of': self.rollback_of_id,
             'rollback_of_no': self.rollback_of.change_no if self.rollback_of_id else '',
             'created_by_name': self.created_by.username if self.created_by_id else '',

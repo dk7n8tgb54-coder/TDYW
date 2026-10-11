@@ -1,38 +1,9 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-from django.db import models
-from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
-from apps.account.models import User
-import logging
+"""值班日志（duty）模块已下线（2026-10-11）。
 
-logger = logging.getLogger(__name__)
-
-
-class DutyRecord(models.Model, TenantModelMixin):
-    """值班日志"""
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-    duty_person = models.CharField(max_length=100, help_text='值班人员')
-    reporter = models.CharField(max_length=100, help_text='填报人')
-    department = models.CharField(max_length=100, help_text='所属科室')
-    duty_date = models.DateTimeField(null=True, blank=True, help_text='值班日期')
-    duty_situation = models.TextField(blank=True, help_text='值班情况', default='')
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey(User, models.PROTECT, related_name='+')
-    updated_at = models.DateTimeField(null=True, blank=True)
-    updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
-    is_deleted = models.BooleanField(default=False, db_index=True)
-    deleted_at = models.DateTimeField(null=True, blank=True)
-
-    def __repr__(self):
-        return '<DutyRecord %r>' % self.duty_person
-
-    def to_view(self):
-        return self.to_dict()
-
-    class Meta:
-        db_table = 'tdyw_duty_records'
-        verbose_name = '值班日志'
-        verbose_name_plural = '值班日志'
-        ordering = ('-duty_date', '-id',)
+DutyRecord 模型及全部业务代码已移除，表结构由本 app 的删除迁移落库；
+"部门值班日志"（apps.department_duty_log）为独立模块，不受影响。
+app 暂保留在 INSTALLED_APPS 中以保证历史迁移链可用（后续发布再摘除 app 壳）。
+"""

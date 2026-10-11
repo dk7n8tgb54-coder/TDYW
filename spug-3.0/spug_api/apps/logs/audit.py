@@ -58,9 +58,7 @@ TARGET_MAP = {
     '/account/logout': {'type': 'auth', 'name': '认证'},
     # 业务模块
     '/document/': {'type': 'document', 'name': '文档'},
-    '/duty/': {'type': 'duty', 'name': '值班'},
     '/interference/': {'type': 'interference', 'name': '干扰'},
-    '/runlog/': {'type': 'runlog', 'name': '运行日志'},
     '/radio-license/': {'type': 'radio_license', 'name': '无线电台执照'},
     '/contract-agreement/': {'type': 'contract_agreement', 'name': '合同协议'},
     '/coop-task/': {'type': 'coop_task', 'name': '协作任务'},
@@ -86,7 +84,7 @@ METHOD_ACTION_MAP = {
 }
 
 # 请求体 action 字段 -> 审计动作映射
-# 用于 POST 携带 action 字段表达真实业务动作的场景（如值班日志 POST {action: 'delete'}）
+# 用于 POST 携带 action 字段表达真实业务动作的场景（如导出 POST {action: 'export'}）
 BODY_ACTION_MAP = {
     'delete': 'delete',
     'export': 'export',
@@ -111,7 +109,6 @@ TARGET_TABLE_MAP = {
     'interference_event': 'tdyw_interference_events',
     'interference_investigation': 'tdyw_interference_investigations',
     'interference_measurement': 'tdyw_spectrum_measurements',
-    'runlog': 'tdyw_run_logs',
     'department_duty_log': 'tdyw_department_duty_log',
     'radio_license': 'tdyw_radio_license',
     'contract_agreement': 'tdyw_contract_agreement',

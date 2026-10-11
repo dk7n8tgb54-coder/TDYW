@@ -58,7 +58,6 @@ docker ps  →  tdyw / tdyw-db / kkfileview
 | 文件 | 作用 |
 |---|---|
 | `locustfile_interference.py` | 干扰记录 CRUD |
-| `locustfile_runlog.py` | 运行日志 CRUD |
 | `locustfile_pagination.py` | 通用分页 |
 
 ### 已删除的旧脚本（2026-07-20）

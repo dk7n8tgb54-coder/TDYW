@@ -55,7 +55,7 @@ from apps.equipment_lifecycle.config_models import (
     ConfigParamSystemScope,
 )
 from apps.equipment_lifecycle.models import LifecycleSystem
-from apps.equipment_lifecycle.fault_views import _parse_dt, _read_json_body
+from apps.equipment_lifecycle.operation_views import _parse_dt, _read_json_body
 
 AUDIT_TARGET_CONFIG_CHANGE = 'el_config_change'
 AUDIT_TARGET_CONFIG_PARAM = 'el_config_param'
@@ -94,7 +94,6 @@ def _audit_summary(change):
         'change_no': change.change_no,
         'system': change.system_name,
         'status': change.status,
-        'include_in_history': change.include_in_history,
     }
 
 
@@ -175,12 +174,6 @@ class SystemConfigChangeListView(View):
         return json_response(data)
 
 
-def _validate_history_flags(include_in_history, history_reason):
-    if include_in_history and not history_reason:
-        return '纳入系统履历的重要变更必须填写纳入原因'
-    return None
-
-
 def _extract_change_payload(body, request):
     """创建/编辑配置变更的入参提取与校验。
 
@@ -195,17 +188,10 @@ def _extract_change_payload(body, request):
     items = body.get('items')
     if not isinstance(items, list) or not items:
         return None, '至少选择一个配置参数'
-    include_in_history = bool(body.get('include_in_history'))
-    history_reason = (body.get('history_reason') or '').strip()
-    error = _validate_history_flags(include_in_history, history_reason)
-    if error:
-        return None, error
     fields = {
         'system': system,
         'reason': reason,
         'items': items,
-        'include_in_history': include_in_history,
-        'history_reason': history_reason,
         'verify_note': (body.get('verify_note') or '').strip(),
         'client_token': (body.get('client_token') or '').strip(),
     }
@@ -323,7 +309,6 @@ class ConfigChangeView(View):
                         after_value={
                             'action': 'create_draft',
                             'items_count': change.items.count(),
-                            'include_in_history': change.include_in_history,
                             **_audit_summary(change),
                         })
         except config_services.ConfigChangeLockTimeout as exc:
@@ -383,8 +368,6 @@ class ConfigChangeDetailView(View):
                     updated_by=request.user,
                     reason=reason,
                     items=items,
-                    include_in_history=body.get('include_in_history'),
-                    history_reason=body.get('history_reason'),
                     verify_note=body.get('verify_note'),
                 )
             except (config_services.ConfigValueError,

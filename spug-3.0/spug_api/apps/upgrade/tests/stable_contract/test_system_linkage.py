@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """升级管理挂接系统档案（upgrade 0022）stable_contract 测试
 
-覆盖：系统外键 + 快照写入、可用性校验、迁移数据回填、系统履历事件、
-候选系统/筛选选项、按系统查询端点、系统删除保护、升级方案挂接。
+覆盖：系统外键 + 快照写入、可用性校验、迁移数据回填、候选系统/筛选选项、
+按系统查询端点、系统删除保护、升级方案挂接。
+
+（2026-10-11 合并改造：系统履历（SystemEvent）整体退役，升级登记/完成/
+回退不再写履历事件，原履历事件契约改写为"动作执行成功且无履历路径"。）
 """
 import json
 import uuid
@@ -13,7 +16,7 @@ from django.apps import apps as current_apps
 from apps.utils.test_helpers import make_user, make_client, setup_test_env, make_upgrade_no
 from apps.upgrade.models import UpgradeRecord
 from apps.upgrade.models_template import UpgradeTemplate
-from apps.equipment_lifecycle.models import LifecycleSystem, SystemEvent
+from apps.equipment_lifecycle.models import LifecycleSystem
 from apps.equipment_lifecycle.tests.base import make_system
 
 UPGRADE_PERMS = ['upgrade.upgrade.view', 'upgrade.upgrade.add',
@@ -64,17 +67,16 @@ class RecordSystemLinkageTest(TestCase):
         self.assertEqual(record.system_name, self.system.name)
         self.assertEqual(record.system_location, self.system.install_location)
 
-    def test_create_writes_system_event(self):
+    def test_create_succeeds_without_event_path(self):
+        """创建升级记录成功且不再写系统履历（履历模型已整体退役）。"""
+        from django.apps import apps as django_apps
         resp = self.client.post('/upgrade/records/create/',
             data=json.dumps(self._create_payload()), content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.json())
-        record = UpgradeRecord.objects.get(system_id=self.system.id)
-        event = SystemEvent.objects.filter(
-            event_type='upgrade', source_type='upgrade',
-            source_id=str(record.id)).first()
-        self.assertIsNotNone(event, '创建升级记录应写系统履历事件')
-        self.assertEqual(event.action, 'create')
-        self.assertEqual(event.system_id, self.system.id)
+        self.assertTrue(
+            UpgradeRecord.objects.filter(system_id=self.system.id).exists())
+        with self.assertRaises(LookupError):
+            django_apps.get_model('equipment_lifecycle', 'SystemEvent')
 
     def test_create_rejects_inactive_system(self):
         self.system.is_active = False
@@ -157,8 +159,8 @@ class RecordSystemLinkageTest(TestCase):
         self.assertEqual(record.system_name, self.system.name)
 
 
-class SystemEventOnStatusFlowTest(TestCase):
-    """升级完成/回退写系统履历事件"""
+class StatusFlowWithoutEventTest(TestCase):
+    """升级完成/回退状态流正常（2026-10-11 起不再写系统履历事件）"""
 
     def setUp(self):
         setup_test_env(self)
@@ -171,35 +173,18 @@ class SystemEventOnStatusFlowTest(TestCase):
             system=self.system, system_name=self.system.name,
             upgrade_type='功能升级', status='处理中', created_by=self.user)
 
-    def _events(self, action):
-        return SystemEvent.objects.filter(
-            event_type='upgrade', source_type='upgrade',
-            source_id=str(self.record.id), action=action)
-
-    def test_complete_writes_event(self):
+    def test_complete_flow_succeeds(self):
         resp = self.client.post(f'/upgrade/records/{self.record.id}/status-logs/',
             data=json.dumps({'action': 'complete', 'remark': '完成'}),
             content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.json())
-        self.assertEqual(self._events('complete').count(), 1)
 
-    def test_rollback_writes_event(self):
+    def test_rollback_flow_succeeds(self):
         resp = self.client.post(f'/upgrade/records/{self.record.id}/status-logs/',
             data=json.dumps({'action': 'rollback', 'remark': '回退',
                              'target_action': '开始'}),
             content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.json())
-        self.assertEqual(self._events('rollback').count(), 1)
-
-    def test_unlinked_record_writes_no_event(self):
-        self.record.system = None
-        self.record.save()
-        resp = self.client.post(f'/upgrade/records/{self.record.id}/status-logs/',
-            data=json.dumps({'action': 'complete', 'remark': '完成'}),
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.json())
-        self.assertEqual(
-            SystemEvent.objects.filter(source_id=str(self.record.id)).count(), 0)
 
 
 class MigrationBackfillTest(TestCase):

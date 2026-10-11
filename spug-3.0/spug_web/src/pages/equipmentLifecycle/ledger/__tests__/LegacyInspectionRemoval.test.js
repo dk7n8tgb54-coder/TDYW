@@ -105,7 +105,8 @@ describe('旧巡检台账（历史）入口删除', () => {
     const all = flattenRoutes(routes);
     const paths = all.map(r => r.path);
     ['/el/week-month-ledgers', '/el/seasonal-ledgers', '/el/excel-ledger-templates',
-      '/el/systems', '/el/faults',
+      // 2026-10-11 合并改造：/el/faults 与 /el/runtime-records 合并为 /el/records
+      '/el/systems', '/el/records',
     ].forEach(path => expect(paths).toContain(path));
     // 工单路由已随故障维修工单功能整体删除（2026-09-30）
     expect(paths).not.toContain('/el/work-orders');
@@ -159,7 +160,8 @@ describe('维护台账入口仍正常', () => {
     });
     await act(async () => {});
     expect(container.textContent).toContain('周月维护台账');
-    const call = mockHttpGet.mock.calls.find(c => c[0].endsWith('/ledgers/'));
+    // 周期分组视图（2026-10-11）：列表按维护类型+周期分组拉取
+    const call = mockHttpGet.mock.calls.find(c => c[0].endsWith('/ledgers/period-groups/'));
     expect(call[1].params.ledger_type).toBe('week_month');
   });
 

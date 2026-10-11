@@ -95,3 +95,62 @@ def system_payload(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+# ==================== 运行与故障记录（2026-10-11 合并改造） ====================
+P_OP_VIEW = 'equipment_lifecycle.operation_record.view'
+P_OP_ADD = 'equipment_lifecycle.operation_record.add'
+P_OP_ADD_FAULT = 'equipment_lifecycle.operation_record.add_fault'
+P_OP_EDIT = 'equipment_lifecycle.operation_record.edit'
+P_OP_PROGRESS = 'equipment_lifecycle.operation_record.progress'
+P_OP_COMPLETE = 'equipment_lifecycle.operation_record.complete'
+P_OP_IDENTIFY_FAULT = 'equipment_lifecycle.operation_record.identify_fault'
+P_OP_RECOVER = 'equipment_lifecycle.operation_record.recover'
+P_OP_CLOSE = 'equipment_lifecycle.operation_record.close'
+P_OP_CANCEL = 'equipment_lifecycle.operation_record.cancel'
+P_OP_DEL = 'equipment_lifecycle.operation_record.del'
+P_OP_EXPORT = 'equipment_lifecycle.operation_record.export'
+
+ALL_OPERATION_PERMS = [
+    P_OP_VIEW, P_OP_ADD, P_OP_ADD_FAULT, P_OP_EDIT, P_OP_PROGRESS,
+    P_OP_COMPLETE, P_OP_IDENTIFY_FAULT, P_OP_RECOVER, P_OP_CLOSE,
+    P_OP_CANCEL, P_OP_DEL, P_OP_EXPORT,
+]
+
+RECORDS_URL = URL_PREFIX + '/records'
+RECORD_DETAIL_URL = RECORDS_URL + '/%d'
+SYSTEM_RECORDS_URL = URL_PREFIX + '/systems/%d/records/'
+
+
+def make_record(created_by, system, record_type='abnormal', tenant_id='default',
+                occurred_at='2026-10-11 08:00:00', **overrides):
+    """创建统一记录测试夹具（绕过视图，直接走 ORM；编号手动给定）。"""
+    import itertools
+    from apps.equipment_lifecycle.operation_models import SystemOperationRecord
+
+    defaults = dict(
+        record_no='JL20261011-%04d' % next(_record_no_counter()),
+        record_type=record_type,
+        system=system,
+        system_code=system.system_code,
+        system_name=system.name,
+        system_location=system.install_location,
+        occurred_at=occurred_at,
+        title='测试记录',
+        description='测试情况描述',
+        registrar_name='张三',
+        status='recorded',
+        created_by=created_by,
+        tenant_id=tenant_id,
+    )
+    if record_type == 'fault':
+        defaults.update(status='handling')
+    defaults.update(overrides)
+    return SystemOperationRecord.objects.create(**defaults)
+
+
+def _record_no_counter():
+    import itertools
+    if not hasattr(_record_no_counter, 'counter'):
+        _record_no_counter.counter = itertools.count(1)
+    return _record_no_counter.counter

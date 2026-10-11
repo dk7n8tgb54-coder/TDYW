@@ -31,7 +31,7 @@
 |---|---|---|
 | `home/`、`system/`、`reminder/` | `home/`、`account/`、`setting/` | 工作台、系统管理和提醒 |
 | `dataAnalysis/` | `data_analysis/` | 只读聚合，使用租户隔离缓存 |
-| `departmentDutyLog/`、`duty/`、`runlog/` | 同名应用 | 日志和值班业务 |
+| `departmentDutyLog/` | `department_duty_log/` | 部门值班日志（"值班日志" duty 与"事件管理" runlog 两模块已于 2026-10-11 整体下线，前后端、权限码与数据表同步移除） |
 | `radioLicense/`、`stationFrequencyApproval/` | `radio_license/` | 执照和批复；批复例外见模块规则 |
 | `contractAgreement/` | `contract_agreement/` | 合同协议 |
 | `coopTask/` | `coop_task/` | 协作任务及附件清理 |

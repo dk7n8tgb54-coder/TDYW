@@ -109,16 +109,14 @@ class Finding2TenantDeletionDataResidualTest(TestCase):
 
     def test_delete_and_recreate_tenant_inherits_old_data(self):
         """删除租户后重建同名租户，旧业务数据被新租户继承"""
-        from apps.runlog.models import RunLog
-        from datetime import datetime
+        from apps.interference.models import InterferenceEvent
 
-        # 1. 创建业务数据（运行日志），tenant_id = 'recyclable_tenant'
-        runlog = RunLog.objects.create(
-            event_title='测试事项',
-            event_type='运行异常',
-            system_name='测试系统',
-            severity='P2',
-            status='in_progress',
+        # 1. 创建业务数据（干扰事件），tenant_id = 'recyclable_tenant'
+        interference = InterferenceEvent.objects.create(
+            datetime='2024-01-15 10:00:00',
+            scene_code='unknown', classification_status='pending',
+            interference_kind_code='other', affected_system_code='other',
+            source_type_code='unknown', phenomenon='测试事项',
             tenant_id='recyclable_tenant',
             created_by=self.user,
         )
@@ -131,14 +129,14 @@ class Finding2TenantDeletionDataResidualTest(TestCase):
         self.tenant.delete()
 
         # 4. 验证旧数据仍然存在（tenant_id 未被清理）
-        runlog.refresh_from_db()
-        self.assertEqual(runlog.tenant_id, 'recyclable_tenant')
+        interference.refresh_from_db()
+        self.assertEqual(interference.tenant_id, 'recyclable_tenant')
 
         # 5. 重建同名租户
         _make_tenant('recyclable_tenant', name='新租户')
 
         # 6. 查询旧数据
-        old_data = RunLog.objects.filter(tenant_id='recyclable_tenant')
+        old_data = InterferenceEvent.objects.filter(tenant_id='recyclable_tenant')
         if not old_data.exists():
             # 修复后旧数据应被清理或不可访问
             return
@@ -146,9 +144,9 @@ class Finding2TenantDeletionDataResidualTest(TestCase):
         # 7. 新租户用户能查到旧数据（通过 apply_tenant_filter）- 这是正确行为
         new_user = _make_user('new_tenant_user', tenant_id='recyclable_tenant')
         from libs.tenant_utils import apply_tenant_filter
-        qs = apply_tenant_filter(RunLog.objects.all(), new_user)
+        qs = apply_tenant_filter(InterferenceEvent.objects.all(), new_user)
         self.assertTrue(
-            qs.filter(id=runlog.id).exists(),
+            qs.filter(id=interference.id).exists(),
             "数据继承验证：删除租户 'recyclable_tenant' 后重建同名租户，"
             "新租户用户应能通过 apply_tenant_filter 查到旧租户的历史数据（正确行为）。"
         )

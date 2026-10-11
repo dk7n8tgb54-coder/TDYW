@@ -15,7 +15,6 @@ from django.test import TestCase
 from apps.equipment_lifecycle.models import (
     LifecycleSystem,
     OperationLedgerItem,
-    SystemEvent,
 )
 
 from apps.equipment_lifecycle.tests.base import (
@@ -27,6 +26,7 @@ from apps.equipment_lifecycle.tests.stable_contract.ledger_base import (
 )
 
 FAULT_URL = '/equipment-lifecycle/faults'
+RECORDS_URL = '/equipment-lifecycle/records'
 LEDGER_URL = '/equipment-lifecycle/ledgers'
 
 ALL_FAULT_PERMS = [
@@ -43,6 +43,11 @@ class SingleSystemSimplificationTest(TestCase):
 
     def setUp(self):
         perms = (ALL_SYSTEM_PERMS + ALL_FAULT_PERMS +
+                 ['equipment_lifecycle.operation_record.view',
+                  'equipment_lifecycle.operation_record.add',
+                  'equipment_lifecycle.operation_record.add_fault',
+                  'equipment_lifecycle.operation_record.recover',
+                  'equipment_lifecycle.operation_record.close'] +
                  ALL_LEDGER_PERMS + ALL_TEMPLATE_PERMS + [P_HANDLE_EXCEPTION])
         self.admin = make_user('ss_admin', perms, tenant_id='tenant_a')
         self.client = make_client(self.admin)
@@ -67,9 +72,10 @@ class SingleSystemSimplificationTest(TestCase):
             self.assertIsNone(cursor.fetchone())
             cursor.execute("SHOW TABLES LIKE 'tdyw_el_work_order_handling_record'")
             self.assertIsNone(cursor.fetchone())
-            cursor.execute("SHOW COLUMNS FROM tdyw_el_fault LIKE 'primary_system%'")
+            # 旧故障主表与系统履历事件表已随 2026-10-11 合并改造整体删除
+            cursor.execute("SHOW TABLES LIKE 'tdyw_el_fault'")
             self.assertIsNone(cursor.fetchone())
-            cursor.execute("SHOW COLUMNS FROM tdyw_el_system_event LIKE 'role'")
+            cursor.execute("SHOW TABLES LIKE 'tdyw_el_system_event'")
             self.assertIsNone(cursor.fetchone())
 
     # ---------- 台账多系统汇总 ----------
@@ -93,40 +99,46 @@ class SingleSystemSimplificationTest(TestCase):
         self.assertEqual(items.count(), 2)
         systems = {i.system_id for i in items}
         self.assertEqual(systems, {self.system_a.id, self.system_a2.id})
-        # 台账表头不属于任何单一系统：序列化无系统字段
-        self.assertNotIn('system', ledger)
+        # 台账表头不属于任何单一系统：序列化中表头 system 恒为空
+        # （2026-10-11 并行新增表头级 system 字段仅服务"周期批量新增"，聚合台账为 NULL）
         self.assertNotIn('system_id', ledger)
+        self.assertIsNone(ledger.get('system'))
         for item in ledger['items']:
             self.assertIn(item['system'], (self.system_a.id, self.system_a2.id))
 
     # ---------- 故障恢复后健康状态只依据本系统故障 ----------
 
-    def test_recovery_restores_health_and_events_single_system(self):
-        """故障恢复后系统恢复正常；履历只有故障系统的事件，无跨系统事件。"""
-        # 1) 故障发生 → 系统故障
-        body = self.client.post(f'{FAULT_URL}/', {
+    def test_recovery_restores_health_single_system(self):
+        """故障恢复后系统恢复正常（统一记录单系统模型，无跨系统影响写入）。
+
+        （2026-10-11 合并改造：原"履历只有故障系统的事件"断言随系统履历
+        退役删除——SystemEvent 表已由迁移 0013 删除，追溯由业务审计承载。）
+        """
+        from apps.equipment_lifecycle.operation_models import SystemOperationRecord
+        # 1) 直接登记正式故障 → 系统故障
+        body = self.client.post(f'{RECORDS_URL}/', {
+            'record_type': 'fault',
             'system': self.system_a.id,
             'affects_system_operation': True,
             'impact_status': 'fault',
             'occurred_at': '2026-09-19 08:00',
-            'phenomenon': '发射机告警，无法正常工作',
+            'title': '发射机告警',
+            'description': '发射机告警，无法正常工作',
             'registrar_name': '登记人甲',
         }, content_type='application/json').json()
         self.assertFalse(body.get('error'), body)
-        fid = body['data']['id']
+        rid = body['data']['id']
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'fault')
-        # 2) 确认恢复并结案（新建即处置中，单次事务恢复+关闭，系统恢复正常）
-        r = self.client.post(f'{FAULT_URL}/{fid}/recover/', {
+        # 2) 确认恢复并结案（单次事务恢复+关闭，系统恢复正常）
+        r = self.client.post(f'{RECORDS_URL}/{rid}/recover/', {
             'recovered_at': '2026-09-19 10:00', 'recovered_by_name': '恢复确认人甲',
             'recovery_close_note': '更换备件并验证恢复，业务恢复正常',
         }, content_type='application/json')
         self.assertFalse(r.json().get('error'), r.content)
         self.assertEqual(
             LifecycleSystem.objects.get(pk=self.system_a.id).health_status, 'normal')
-        # 3) 履历只有故障系统的事件，无跨系统事件、无工单事件
-        events = SystemEvent.objects.filter(tenant_id='tenant_a')
-        self.assertEqual(
-            {e.system_id for e in events}, {self.system_a.id})
-        self.assertFalse(
-            events.filter(event_type='work_order').exists())
+        # 3) 单系统模型：一条记录只关联一个系统，健康状态只依据本系统记录
+        record = SystemOperationRecord.objects.get(pk=rid)
+        self.assertEqual(record.system_id, self.system_a.id)
+        self.assertEqual(record.status, 'closed')

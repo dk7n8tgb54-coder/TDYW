@@ -131,10 +131,9 @@ class Finding3PaginationTest(TestCase):
 # 发现 4：前端表单校验缺失 - 后端兜底验证
 # ===========================================================================
 class Finding4FormValidationBackendCheckTest(TestCase):
-    """发现 4：3 个前端表单缺 rules + validateFields
+    """发现 4：前端表单缺 rules + validateFields
 
     受影响表单：
-    - runlog/Form.js - 7 个必填字段
     - system/account/Form.js - 3 个必填字段
 
     antd 的 required 属性仅显示星号，不触发验证。
@@ -150,26 +149,6 @@ class Finding4FormValidationBackendCheckTest(TestCase):
 
         self.super_user = _make_user('super_form', is_supper=True, tenant_id='admin')
         self.client = Client()
-
-    def test_runlog_empty_fields_blocked_by_backend(self):
-        """运行日志表单：空值提交被后端拦截"""
-        resp = self.client.post(
-            '/runlog/',
-            data=json.dumps({
-                'event_title': '',
-                'event_type': '',
-                'system_name': '',
-                'detail_content': '',
-            }),
-            content_type='application/json',
-            HTTP_X_TOKEN=self.super_user.access_token,
-        )
-        body = resp.json()
-        self.assertTrue(
-            body.get('error'),
-            "前端缺校验 + 后端未兜底 = 空值被存入数据库。"
-            "后端应通过 JsonParser required 拦截空值，但返回了：{}".format(body)
-        )
 
     def test_account_empty_fields_blocked_by_backend(self):
         """用户创建表单：空值提交被后端拦截"""

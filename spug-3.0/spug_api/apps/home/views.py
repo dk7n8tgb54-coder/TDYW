@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 @auth('dashboard.dashboard.view')
 def get_statistic(request):
     from datetime import timedelta
-    from django.db.models import Count
     from django.utils import timezone
     from django.core.cache import cache
 
@@ -30,35 +29,7 @@ def get_statistic(request):
     month_start, next_month_start = month_range(now)
     data = {}
 
-    # 1. 运行日志统计
-    try:
-        from apps.runlog.models import RunLog
-        runlog_qs = apply_tenant_filter(RunLog.objects, request.user)
-        today_events = runlog_qs.filter(created_at__gte=today_start, created_at__lt=today_end)
-        data['runlog'] = {
-            'today_total': today_events.count(),
-            'today_resolved': runlog_qs.filter(
-                status='resolved',
-                updated_at__gte=today_start,
-                updated_at__lt=today_end,
-            ).count(),
-            'in_progress_total': runlog_qs.filter(status='in_progress').count(),
-            'severity_stats': list(
-                runlog_qs.filter(status='in_progress')
-                .values('severity')
-                .annotate(count=Count('id'))
-            ),
-            'recent_pending': list(
-                runlog_qs.filter(status='in_progress')
-                .values('id', 'event_title', 'severity', 'created_at')
-                .order_by('-created_at')[:8]
-            ),
-        }
-    except Exception:
-        logger.exception('[dashboard] runlog 统计失败')
-        data['runlog'] = {}
-
-    # 2. 进行中的系统升级
+    # 1. 进行中的系统升级
     try:
         from apps.upgrade.models import UpgradeRecord
         from apps.upgrade.constants import UpgradeStatus
@@ -78,7 +49,7 @@ def get_statistic(request):
         logger.exception('[dashboard] upgrade 统计失败')
         data['upgrade'] = {}
 
-    # 3. 干扰信息今日统计（统一从事件主表聚合）
+    # 2. 干扰信息今日统计（统一从事件主表聚合）
     try:
         from apps.interference.models import InterferenceEvent
         event_today = apply_tenant_filter(
@@ -94,7 +65,7 @@ def get_statistic(request):
         logger.exception('[dashboard] interference 统计失败')
         data['interference'] = {}
 
-    # 4. 资料库今日新增文件
+    # 3. 资料库今日新增文件
     try:
         from apps.document.models import DocumentFilePrivate, DocumentFilePublic
         private_files = apply_tenant_filter(DocumentFilePrivate.objects, request.user)

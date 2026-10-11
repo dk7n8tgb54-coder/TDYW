@@ -4,12 +4,12 @@
 系统详情弹窗移除"周月维护台账""季维护台账""系统履历"三个页签后：
 1. 页签专用端点 systems/<pk>/ledger-items/ 不再注册（认证用户真实请求
    404；原为详情弹窗台账页签专用，页签移除后无其他调用方）；
-2. 三项业务的独立入口不受影响：
+2. 三项业务的独立入口状态（2026-10-11 合并改造更新）：
    - 周月/季维护台账仍由独立菜单页面 + ledgers 列表接口承载；
-   - 系统履历仍由独立菜单页面（system-events）与事项聚合接口承载，
-     按系统查询履历端点 systems/<pk>/system-events/ 仍注册可用
-     （履历分组视图"状态变化"面板等场景使用）；
-3. 历史数据与既有接口零迁移（模型零改动）。
+   - 系统履历已整体退役（合并改造）：独立菜单页面、全部 system-events/
+     system-event-groups 端点与 SystemEvent 模型一并删除，系统档案改为
+     直接查询统一记录（systems/<pk>/records/），按系统履历端点 404；
+3. 历史数据与既有接口零迁移（除合并改造迁移 0013 外）。
 
 全部通过真实 HTTP 路径 + 隔离测试数据库执行。
 """
@@ -30,7 +30,7 @@ class SystemDetailTabsRemovalTest(TestCase):
             'tabs_removed_op',
             ['equipment_lifecycle.system.view',
              'equipment_lifecycle.ledger.view',
-             'equipment_lifecycle.system_event.view'])
+             'equipment_lifecycle.operation_record.view'])
         self.client = make_client(self.user)
         self.system = make_system(self.user, tenant_id='default')
 
@@ -40,10 +40,16 @@ class SystemDetailTabsRemovalTest(TestCase):
             f'{URL_PREFIX}/systems/{self.system.id}/ledger-items/')
         self.assertEqual(resp.status_code, 404, resp.content)
 
-    def test_system_events_endpoint_still_alive(self):
-        """按系统查询履历端点仍注册（独立系统履历页/分组视图使用）。"""
+    def test_system_events_endpoint_removed(self):
+        """按系统查询履历端点随系统履历退役删除（404）。"""
+        resp = self.client.get(
+            f'{URL_PREFIX}/systems/{self.system.id}/system-events/')
+        self.assertEqual(resp.status_code, 404, resp.content)
+
+    def test_system_records_endpoint_alive(self):
+        """按系统查询统一记录端点在位（系统档案直接查询业务表）。"""
         body = self.client.get(
-            f'{URL_PREFIX}/systems/{self.system.id}/system-events/').json()
+            f'{URL_PREFIX}/systems/{self.system.id}/records/').json()
         self.assertFalse(body.get('error'), body)
         self.assertEqual(body['data']['data'], [])
 

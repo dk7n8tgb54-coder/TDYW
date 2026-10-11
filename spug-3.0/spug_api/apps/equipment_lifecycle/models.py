@@ -1,7 +1,11 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——系统主数据模型（步骤二）。
+"""设备全生命周期——系统主数据模型（步骤二）与维护台账/巡检历史模型。
+
+2026-10-11 合并改造：原"故障处置"与"运行记录"合并为"运行与故障记录"
+（SystemOperationRecord/SystemOperationProgress，见 operation_models.py），
+"系统履历"（SystemEvent）整体下线；本文件不再包含这五个旧模型。
 
 按《设备与系统全生命周期管理总体方案 v2.0》步骤二建设：
 
@@ -31,24 +35,11 @@ from libs.tenant_base_model import TenantModelManager, TenantModelMixin, make_te
 
 # Meta/CheckConstraint 内无法访问类体常量（类作用域不形成闭包），枚举值提为模块级
 # repairing（维修中）已随"故障维修工单"功能整体删除（2026-09-30）：维修过程统一由
-# 故障处置记录承载，健康状态只由有效故障的影响程度驱动（fault_services）。
+# 运行与故障记录承载，健康状态只由有效正式故障的影响程度驱动（operation_services）。
+# 2026-10-11 合并改造：SystemFault/SystemFaultHandlingRecord/SystemRuntimeRecord/
+# SystemRuntimeRecordProgress/SystemEvent 五个模型已整体退役（迁移 0013 删表），
+# 统一主表/进展表见 operation_models.py（运行与故障记录），系统履历功能整体下线。
 HEALTH_STATUS_VALUES = ['normal', 'degraded', 'fault', 'interrupted', 'unknown']
-FAULT_IMPACT_VALUES = ['degraded', 'fault', 'interrupted']
-# 影响系统运行时的合法影响程度即 FAULT_IMPACT_VALUES；
-# 不影响系统运行（部件故障/离线维修）时 impact_status 统一存空串
-FAULT_IMPACT_DB_VALUES = [''] + FAULT_IMPACT_VALUES
-FAULT_STATUS_VALUES = ['handling', 'closed', 'cancelled']
-
-
-def load_legacy_source_snapshot(raw):
-    """解析旧巡检台账来源快照 JSON（字段为空或非法时返回空 dict）。"""
-    if not raw:
-        return {}
-    try:
-        data = json.loads(raw)
-        return data if isinstance(data, dict) else {}
-    except (ValueError, TypeError):
-        return {}
 
 
 class LifecycleSystem(TenantModelMixin, models.Model):
@@ -146,351 +137,6 @@ class LifecycleSystem(TenantModelMixin, models.Model):
         }
 
 
-class SystemFault(TenantModelMixin, models.Model):
-    """系统故障主表（步骤 3.1，单系统简化）。
-
-    与步骤一删除的旧故障表（tdyw_fault_records/tdyw_fault_parts）无关，不复用旧表名。
-
-    关联规则（一个故障单只关联一个故障系统，不建设跨系统影响关系）：
-    - 故障系统必须通过外键关联系统主数据（请求与存储一律用系统 ID，页面只显示名称）；
-    - 故障发生时保存系统快照（编号/名称/安装地点），系统改名后历史详情仍显示当时名称；
-      快照仅用于历史展示，不替代正式外键；
-    - 具体故障对象以快照文本（名称/型号/编号）记录，不建立单台设备外键、
-      不关联 DeviceResume；历史故障的组成项名称以 fault_component_name 文本
-      快照保留（配置组成项功能已下线）。
-    一次实际工作涉及多个独立系统时分别建立故障，不允许一单关联多系统。
-
-    状态流转（2026-10 流程简化，模块未上线无历史包袱）：
-    新建 → handling →(确认恢复并结案 recover，单次事务)→ closed；
-    handling 可 →(cancel)→ cancelled（受控撤销登记，del 权限）。
-    已关闭不可撤销；已撤销为终态，不可重复撤销或继续处理。
-
-    cancelled 状态语义（2026-10）：撤销错误/重复/误报的故障登记——
-    登记本身不再作为有效故障，但历史记录保留可追溯（不物理删除），
-    不参与有效故障统计与健康状态计算。历史数据沿用 cancelled 值保证兼容，
-    前端展示文案为"已撤销"。
-
-    旧流程的 pending（待处置）与 recovered（已恢复）过渡态已整体删除，
-    由迁移 0051 清理存量并收紧 CHECK 约束，数据库层拒绝旧状态值。
-    """
-
-    STATUS_HANDLING = 'handling'
-    STATUS_CLOSED = 'closed'
-    STATUS_CANCELLED = 'cancelled'
-    STATUS_CHOICES = (
-        (STATUS_HANDLING, '处置中'),
-        (STATUS_CLOSED, '已关闭'),
-        (STATUS_CANCELLED, '已撤销'),
-    )
-    STATUS_TEXT_MAP = dict(STATUS_CHOICES)
-
-    IMPACT_DEGRADED = 'degraded'
-    IMPACT_FAULT = 'fault'
-    IMPACT_INTERRUPTED = 'interrupted'
-    IMPACT_CHOICES = (
-        (IMPACT_DEGRADED, '降级'),
-        (IMPACT_FAULT, '故障'),
-        (IMPACT_INTERRUPTED, '中断'),
-    )
-    IMPACT_TEXT_MAP = dict(IMPACT_CHOICES)
-
-    SOURCE_MANUAL = 'manual'
-    # 运行记录转故障来源类型（2026-10 运行记录第一版）
-    SOURCE_RUNTIME_RECORD = 'runtime_record'
-
-    fault_no = models.CharField(max_length=50, help_text='故障编号（GZ+创建日期+当日四位序号，自动生成；当日序号全租户共享，存量数据仅保证租户内唯一）')
-    system = models.ForeignKey(
-        LifecycleSystem, models.PROTECT, related_name='faults',
-        help_text='故障系统（外键关联系统主数据，一个故障单只关联一个系统）')
-    impact_status = models.CharField(
-        max_length=20, choices=IMPACT_CHOICES, default='', blank=True,
-        help_text='系统影响程度：影响系统运行时必填（degraded降级/fault故障/interrupted中断）；'
-                  '不影响系统运行时后端强制存空串')
-    affects_system_operation = models.BooleanField(
-        default=False,
-        help_text='是否影响系统运行（False=部件故障/离线维修，默认不影响，不参与健康状态计算；'
-                  'True=影响运行，按 impact_status 参与健康状态计算）')
-    # 故障系统故障发生时快照
-    system_code = models.CharField(max_length=50, help_text='故障系统编号快照')
-    system_name = models.CharField(max_length=100, help_text='故障系统名称快照')
-    system_location = models.CharField(max_length=200, help_text='故障系统安装地点快照')
-
-    occurred_at = models.DateTimeField(help_text='故障发生时间')
-    phenomenon = models.TextField(max_length=2000, help_text='故障现象')
-    fault_object_name = models.CharField(max_length=100, default='', blank=True,
-                                         help_text='具体故障对象名称快照')
-    fault_object_model = models.CharField(max_length=100, default='', blank=True,
-                                          help_text='具体故障对象型号快照')
-    fault_object_sn = models.CharField(max_length=100, default='', blank=True,
-                                       help_text='具体故障对象编号/序列号快照')
-    fault_component_name = models.CharField(max_length=100, default='', blank=True,
-                                            help_text='配置组成项名称快照（组成项功能下线前历史数据，仅展示）')
-
-    # 原因分析是单一字段，不同阶段只是展示口径不同：新增=初步原因分析、
-    # 处置中=初步判断、结案=最终原因；"原因未明"不是第二个原因字段，
-    # 勾选后 reason_analysis 保存的是未明说明（不强迫用户填写虚假原因）。
-    reason_analysis = models.TextField(max_length=2000, default='', blank=True, help_text='原因分析（新增=初步原因分析；处置中展示为初步判断；结案时保存为最终原因；原因未明时保存未明说明）')
-    reason_unknown = models.BooleanField(
-        default=False,
-        help_text='原因未明标记（确实无法确定原因时为 True，reason_analysis 保存未明说明；'
-                  '历史数据为 False）')
-    recovered_at = models.DateTimeField(null=True, blank=True, help_text='恢复时间')
-    # 结案说明（2026-10 字段合并）：唯一读写来源，结案时一次性填写
-    # 采取的处理措施、恢复验证依据与最终处理结果；原 recover_confirm（恢复确认
-    # 信息）与 final_result（最终结果）语义重复，已删除，历史数据由迁移 0054
-    # 合并回填（两者都有时按"恢复确认信息：…；最终结果：…"格式拼接，不丢内容）
-    recovery_close_note = models.TextField(
-        max_length=3000, default='', blank=True,
-        help_text='结案说明（采取的处理措施、恢复验证依据及最终处理结果）')
-    # 恢复确认人（2026-09）：手动输入的确认人姓名（多人顿号分隔），参照故障登记人
-    # registrar_name 口径——实际执行恢复确认的人，不关联 User（可能无系统账号）；
-    # 原外键 recovered_by 已删除，历史数据迁移时回填为登录账号用户名文本
-    recovered_by_name = models.CharField(
-        max_length=200, default='', blank=True,
-        help_text='恢复确认人（手动输入的确认人姓名，多人以顿号分隔；'
-                  '历史数据回填为确认操作账号用户名）')
-    recovered_confirmed_at = models.DateTimeField(null=True, blank=True, help_text='恢复确认时间')
-    cancel_reason = models.CharField(max_length=200, default='', blank=True,
-                                     help_text='撤销原因（撤销错误/重复的故障登记时必填，审计与履历留痕）')
-    # 撤销人与撤销时间（2026-10）：撤销登记操作留痕（与 updated_at/updated_by
-    # 独立，语义明确）；历史已撤销数据由迁移 0053 从 updated 字段回填
-    cancelled_at = models.DateTimeField(null=True, blank=True,
-                                        help_text='撤销时间（撤销登记操作写入）')
-    cancelled_by = models.ForeignKey(
-        User, models.PROTECT, related_name='+', null=True, blank=True,
-        help_text='撤销人（执行撤销登记的登录账号，仅用于审计与展示）')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_HANDLING,
-                              help_text='当前状态（新建即处置中，恢复确认并结案后进入已关闭终态）')
-    source_type = models.CharField(max_length=20, default=SOURCE_MANUAL, help_text='来源类型：manual 人工 / ledger_item 台账异常明细 / inspection_record 值班巡检明细 / runtime_record 运行记录（步骤 3.3；运行记录 2026-10）')
-    source_id = models.CharField(max_length=50, default='', blank=True, help_text='来源对象 ID 冗余（与来源外键一致，便于追溯查询）')
-    source_ledger_item = models.ForeignKey(
-        'equipment_lifecycle.OperationLedgerItem', models.PROTECT,
-        related_name='generated_faults', null=True, blank=True,
-        help_text='来源台账异常明细（台账异常转故障时写入，真实外键保证可追溯）')
-    source_inspection_record = models.ForeignKey(
-        'equipment_lifecycle.InspectionRecord', models.PROTECT,
-        related_name='generated_faults', null=True, blank=True,
-        help_text='来源巡检异常明细（巡检异常转故障时写入，双向追溯）')
-    source_runtime_record = models.ForeignKey(
-        'equipment_lifecycle.SystemRuntimeRecord', models.PROTECT,
-        related_name='generated_faults', null=True, blank=True,
-        help_text='来源运行记录（运行记录转故障时写入，正式外键双向追溯；'
-                  '一条运行记录同一时间最多一张有效故障，防重复转换）')
-    # 旧巡检台账来源快照：来源明细物理删除后保留历史语义（来源类型仍为 ledger_item）
-    source_ledger_legacy = models.TextField(
-        default='', blank=True,
-        help_text='旧巡检台账来源快照 JSON（台账号/类型/项目名/系统快照等；'
-                  '来源明细随旧巡检台账受控删除后，据此展示历史来源，不做跳转）')
-
-    created_by = models.ForeignKey(
-        User, models.PROTECT, related_name='+',
-        help_text='创建人（实际登录账号，仅用于审计）')
-    # 故障登记人（2026-09）：手动输入的登记人姓名，只表示"谁登记"，
-    # 不代表其负责后续跟进、不承担维修责任（处置负责人字段已于 2026-09 删除）；
-    # 不关联 User——实际登记人可能没有系统账号（共用登录账号场景），
-    # 参照系统档案 responsible_user_name 的姓名快照口径。
-    # 历史故障登记人为空（可空文本），新增时由视图层写入（缺省当前登录用户姓名）。
-    registrar_name = models.CharField(
-        max_length=200, default='', blank=True,
-        help_text='故障登记人（手动输入的登记人姓名，多人以顿号分隔；'
-                  '实际添加本条故障记录的人，不代表后续跟进与维修责任；'
-                  '与登录账号 created_by 独立，历史数据可为空）')
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(null=True, blank=True)
-    updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True)
-
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-
-    class Meta:
-        db_table = 'tdyw_el_fault'
-        verbose_name = '系统故障'
-        verbose_name_plural = '系统故障'
-        ordering = ('-occurred_at', '-id')
-        constraints = [
-            models.UniqueConstraint(fields=['tenant_id', 'fault_no'], name='uniq_el_fault_tenant_no'),
-            models.CheckConstraint(
-                check=models.Q(status__in=FAULT_STATUS_VALUES),
-                name='el_fault_status_valid',
-            ),
-            models.CheckConstraint(
-                check=models.Q(impact_status__in=FAULT_IMPACT_DB_VALUES),
-                name='el_fault_impact_valid',
-            ),
-        ]
-        indexes = [
-            models.Index(fields=['tenant_id', 'status']),
-            models.Index(fields=['tenant_id', 'system', '-occurred_at', '-id']),
-            models.Index(fields=['tenant_id', '-occurred_at', '-id']),
-        ]
-
-    def __repr__(self):
-        return '<SystemFault %r>' % self.fault_no
-
-    def to_view(self):
-        """列表行摘要。"""
-        return {
-            'id': self.id,
-            'fault_no': self.fault_no,
-            'system': self.system_id,
-            'system_name': self.system_name,
-            'system_code': self.system_code,
-            'system_location': self.system_location,
-            'impact_status': self.impact_status,
-            'impact_status_text': self.IMPACT_TEXT_MAP.get(self.impact_status, ''),
-            'affects_system_operation': self.affects_system_operation,
-            'occurred_at': self.occurred_at,
-            'phenomenon': self.phenomenon,
-            'status': self.status,
-            'status_text': self.STATUS_TEXT_MAP.get(self.status, self.status),
-            'registrar_name': self.registrar_name or '',
-            'created_by_name': self.created_by.username if self.created_by_id else '',
-            'created_at': self.created_at,
-        }
-
-    def _source_ledger_field(self, key):
-        """台账来源定位字段：真实外键在位时实时读取，否则回落 legacy 快照。"""
-        if self.source_ledger_item_id:
-            if key == 'ledger_no':
-                return self.source_ledger_item.ledger.ledger_no
-            if key == 'ledger_type':
-                return self.source_ledger_item.ledger.ledger_type
-            if key == 'item_name':
-                return self.source_ledger_item.item_name_snapshot
-            return ''
-        return load_legacy_source_snapshot(self.source_ledger_legacy).get(key, '')
-
-    def to_detail_view(self):
-        """详情：全字段（单系统简化，无受影响系统）。"""
-        data = self.to_view()
-        data.update({
-            'fault_object_name': self.fault_object_name,
-            'fault_object_model': self.fault_object_model,
-            'fault_object_sn': self.fault_object_sn,
-            'fault_component_name': self.fault_component_name or '',
-            'reason_analysis': self.reason_analysis,
-            'reason_unknown': self.reason_unknown,
-            'recovered_at': self.recovered_at,
-            'recovery_close_note': self.recovery_close_note,
-            'recovered_by_name': self.recovered_by_name or '',
-            'recovered_confirmed_at': self.recovered_confirmed_at,
-            # 撤销登记留痕（2026-10）：已撤销详情回显撤销原因/时间/人，仅供历史追溯
-            'cancel_reason': self.cancel_reason or '',
-            'cancelled_at': self.cancelled_at,
-            'cancelled_by_name': self.cancelled_by.username if self.cancelled_by_id else '',
-            'source_type': self.source_type,
-            'source_id': self.source_id,
-            # 台账来源追溯：跳回来源台账明细所需定位信息
-            # （旧巡检台账明细已删除时回落到 legacy 快照，仅展示不做跳转）
-            'source_ledger_item': self.source_ledger_item_id,
-            'source_ledger': (
-                self.source_ledger_item.ledger_id if self.source_ledger_item_id else None),
-            'source_ledger_no': self._source_ledger_field('ledger_no'),
-            'source_ledger_type': self._source_ledger_field('ledger_type'),
-            'source_ledger_item_name': self._source_ledger_field('item_name'),
-            'source_ledger_legacy': bool(
-                not self.source_ledger_item_id and self.source_ledger_legacy),
-            # 巡检来源追溯：值班巡检单与轮次定位信息（转单后双向可查）
-            'source_inspection_record': self.source_inspection_record_id,
-            'source_inspection_sheet': (
-                self.source_inspection_record.sheet_id
-                if self.source_inspection_record_id else None),
-            'source_inspection_sheet_no': (
-                self.source_inspection_record.sheet.sheet_no
-                if self.source_inspection_record_id else ''),
-            'source_inspection_duty_date': (
-                str(self.source_inspection_record.sheet.duty_date)
-                if self.source_inspection_record_id else ''),
-            'source_inspection_round_text': (
-                self.source_inspection_record.ROUND_TEXT_MAP.get(self.source_inspection_record.round_no, '')
-                if self.source_inspection_record_id else ''),
-            'source_inspection_item_name': (
-                self.source_inspection_record.item_name_snapshot
-                if self.source_inspection_record_id else ''),
-            # 运行记录来源追溯（2026-10 第二版）：正式外键双向可查，跳回运行记录详情
-            'source_runtime_record': self.source_runtime_record_id,
-            'source_runtime_record_no': (
-                self.source_runtime_record.record_no
-                if self.source_runtime_record_id else ''),
-            'updated_at': self.updated_at,
-        })
-        return data
-
-
-class SystemFaultHandlingRecord(TenantModelMixin, models.Model):
-    """故障处置记录（2026-10 用户文案定名"处置记录"；2026-09 曾统一改名
-    "处理进展"，内部字段与 API 保持兼容不改名）：追加式时间线，
-    记录检查、临时措施、送厂、厂家反馈、返还、本方测试、持续观察等整体跟进，
-    不把过程反复覆盖在一个文本字段中。
-
-    - 已保存记录不得被普通用户静默覆盖：更正时把原内容、修改内容、更正原因
-      追加保存到 corrections JSON 数组（[{old, new, reason, by, at}]）；
-    - 处置类型（progress_type）与处置结果（result）字段已删除（2026-10-05），
-      仅保留处置时间/处置人/处置措施；旧参数出现即拒绝，不静默忽略；
-    - 附件使用项目现有 EvidenceAttachment 能力
-      （module=equipment_lifecycle, object_type=el_fault_handling, object_id=记录ID）。
-    """
-
-    fault = models.ForeignKey(SystemFault, models.CASCADE, related_name='handling_records',
-                              help_text='所属故障')
-    handled_at = models.DateTimeField(help_text='处置时间')
-    # handler 保留为审计字段（记录操作登录账号，历史数据不变）；
-    # 处置人为手动输入姓名（recorder_name，2026-09），不关联 User，
-    # 历史记录无 recorder_name 时展示回落到 handler 的用户名
-    handler = models.ForeignKey(
-        User, models.PROTECT, related_name='+',
-        help_text='记录操作账号（审计字段；处置人姓名见 recorder_name）')
-    recorder_name = models.CharField(
-        max_length=200, default='', blank=True,
-        help_text='处置人（手动输入的姓名，多人以顿号分隔；'
-                  '实际添加本条处置记录的人，不代表负责整个故障；'
-                  '空串=历史记录，展示回落 handler 用户名）')
-    content = models.TextField(max_length=2000, help_text='处置措施')
-    # 工时（2026-09-30 工单下线后由处置记录统一承接，选填，小时）
-    work_hours = models.FloatField(null=True, blank=True, help_text='本次工时（小时，选填）')
-    corrections = models.TextField(default='', blank=True, help_text='更正历史 JSON 数组')
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-
-    class Meta:
-        db_table = 'tdyw_el_fault_handling_record'
-        verbose_name = '故障处置记录'
-        verbose_name_plural = '故障处置记录'
-        ordering = ('handled_at', 'id')
-        indexes = [
-            models.Index(fields=['tenant_id', 'fault', 'handled_at', 'id']),
-        ]
-
-    def __repr__(self):
-        return '<SystemFaultHandlingRecord fault=%s at=%s>' % (self.fault_id, self.handled_at)
-
-    def get_corrections(self):
-        if not self.corrections:
-            return []
-        try:
-            data = json.loads(self.corrections)
-            return data if isinstance(data, list) else []
-        except (ValueError, TypeError):
-            return []
-
-    def to_view(self):
-        return {
-            'id': self.id,
-            'fault': self.fault_id,
-            'handled_at': self.handled_at,
-            'handler': self.handler_id,
-            'handler_name': self.handler.username if self.handler_id else '',
-            'recorder_name': self.recorder_name or '',
-            'content': self.content,
-            'work_hours': self.work_hours,
-            'corrections': self.get_corrections(),
-            'created_at': self.created_at,
-        }
-
-
 # ======================================================================
 # 步骤 3.2：周月维护 / 季维护台账
 # ----------------------------------------------------------------------
@@ -579,6 +225,8 @@ class OperationLedger(TenantModelMixin, models.Model):
     """运维台账表头：周月维护/季维护共用，一张台账可汇总多个系统的明细。
 
     - 系统不是整张台账的边界，而是每条明细（OperationLedgerItem）的归属；
+      例外：周期批量新增的台账（2026-10-11）为"一系统一台账"草稿壳，
+      表头 system/maintenance_period 标记归属，明细由用户后续补录；
     - 实际执行时间（executed_date/executed_start/executed_end）与平台录入
       时间（created_at）分别保存，录入时间不冒充实际执行时间；
     - entry_channel 当前固定 web；状态流转由后端校验（STATE_TRANSITIONS）；
@@ -593,7 +241,14 @@ class OperationLedger(TenantModelMixin, models.Model):
     status = models.CharField(max_length=20, default=LEDGER_STATUS_DRAFT, help_text='台账状态')
     executed_start = models.DateTimeField(null=True, blank=True, help_text='实际执行开始时间')
     executed_end = models.DateTimeField(null=True, blank=True, help_text='实际执行结束时间')
+    system = models.ForeignKey(
+        LifecycleSystem, models.PROTECT, related_name='operation_ledgers', null=True, blank=True,
+        help_text='表头级系统（周期批量新增的按系统台账；历史聚合台账与Excel路线为空）')
     entry_channel = models.CharField(max_length=20, default=ENTRY_CHANNEL_WEB, help_text='录入渠道（当前固定 web）')
+    maintenance_period = models.CharField(
+        max_length=10, default='', blank=True,
+        help_text='维护周期标记（week_month: YYYY-MM；seasonal: YYYY-夏秋/YYYY-冬春；'
+                  '历史台账为空），仅用于周期分组与批量新增去重，不表达周/月维护拆分')
     created_from = models.CharField(max_length=20, default=LEDGER_FROM_MANUAL, help_text='创建方式（manual 临时补录 / excel_template Excel模板）')
     client_token = models.CharField(max_length=64, default='', blank=True, help_text='客户端幂等令牌（创建防重复）')
     version = models.IntegerField(default=1, help_text='并发编辑版本号')
@@ -654,6 +309,8 @@ class OperationLedger(TenantModelMixin, models.Model):
             models.Index(fields=['tenant_id', 'ledger_type', 'status']),
             models.Index(fields=['tenant_id', 'executed_date']),
             models.Index(fields=['tenant_id', 'client_token']),
+            models.Index(fields=['tenant_id', 'ledger_type', 'maintenance_period'],
+                         name='el_ledger_type_period_idx'),
         ]
 
     def __repr__(self):
@@ -672,6 +329,9 @@ class OperationLedger(TenantModelMixin, models.Model):
             'status': self.status,
             'executed_start': self.executed_start,
             'executed_end': self.executed_end,
+            'system': self.system_id,
+            'system_name': self.system.name if self.system_id else '',
+            'maintenance_period': self.maintenance_period,
             'entry_channel': self.entry_channel,
             'created_from': self.created_from,
             'version': self.version,
@@ -878,146 +538,6 @@ class OperationLedgerCorrection(TenantModelMixin, models.Model):
             'corrected_by': self.corrected_by_id,
             'corrected_by_name': self.corrected_by.username if self.corrected_by_id else '',
             'corrected_at': self.corrected_at,
-        }
-
-
-# 统一系统履历事件枚举（步骤 3.4；Meta 约束访问不到类作用域，提为模块级）
-# 单系统简化：一条事件只关联一个系统，不再有跨系统角色（primary/affected/related 已删）
-# upgrade：系统升级管理挂接系统档案（2026-09），升级登记/完成/回退写入履历
-# work_order 事件类型已随工单功能删除（2026-09-30），存量工单事件由迁移 0043 清理
-# inspection：值班巡检异常转故障（2026-09），转换动作落目标系统履历
-# runtime：运行记录（2026-10）——2026-10-05 第四版起运行记录不再写入履历，
-# 该类型仅为历史已生成事件保留（回溯展示，不产生新数据）
-# config：配置变更（2026-10）——仅重要配置变更（include_in_history）应用/回退
-# 时写入履历，普通配置变更不进履历；事件携带变更编号与来源链接
-EVENT_TYPE_VALUES = ['fault', 'ledger', 'health', 'config_snapshot', 'upgrade', 'inspection', 'runtime', 'config']
-EVENT_SOURCE_TYPE_VALUES = [
-    'fault', 'ledger_item', 'health', 'config_snapshot', 'upgrade',
-    'inspection_record', 'runtime_record', 'config_change',
-]
-EVENT_ACTION_VALUES = [
-    'create', 'recover', 'close', 'cancel',
-    'convert_to_fault',
-    'complete', 'status_change', 'snapshot',
-    'rollback', 'mark_important', 'apply',
-]
-
-
-class SystemEvent(TenantModelMixin, models.Model):
-    """统一系统履历事件（步骤 3.4，单系统简化）。
-
-    - 由业务动作经 event_services.record_system_event 自动生成，与业务保存
-      处于同一事务；普通用户不能手工新增，不提供普通修改与物理删除接口；
-    - 故障、台账异常、健康状态与配置快照共用同一事件模型，
-      每条事件有明确主要来源（source_type + source_id）；
-    - 一条事件只通过正式系统 ID 外键关联一个系统（PROTECT），保存系统
-      编号/名称快照，系统改名后历史事件仍显示保存时的名称；
-      不再建立跨系统事件角色（primary/affected/related 已随受影响系统
-      结构一并移除），系统名称只用于事件快照，不替代正式外键；
-    - 更正与受控撤销以追加新事件表达（如故障作废），
-      已生成事件原样保留；来源对象作废后事件与关联继续保留；
-    - 事件纯插入，不递归触发健康状态重算；重复业务请求由业务层
-      状态机与幂等键拦截，不产生重复事件。
-    """
-
-    EVENT_FAULT = 'fault'
-    EVENT_LEDGER = 'ledger'
-    EVENT_HEALTH = 'health'
-    EVENT_CONFIG_SNAPSHOT = 'config_snapshot'
-    EVENT_UPGRADE = 'upgrade'
-    EVENT_INSPECTION = 'inspection'
-    EVENT_RUNTIME = 'runtime'
-    # 配置变更（2026-10）：仅重要配置变更应用/回退时写入（普通变更只留变更历史与审计）
-    EVENT_CONFIG = 'config'
-    EVENT_TYPE_CHOICES = (
-        (EVENT_FAULT, '故障'),
-        (EVENT_LEDGER, '台账异常'),
-        (EVENT_HEALTH, '健康状态'),
-        (EVENT_CONFIG_SNAPSHOT, '配置快照'),
-        (EVENT_UPGRADE, '系统升级'),
-        (EVENT_INSPECTION, '值班巡检'),
-        (EVENT_CONFIG, '配置变更'),
-        (EVENT_RUNTIME, '运行记录'),
-    )
-    EVENT_TYPE_TEXT_MAP = dict(EVENT_TYPE_CHOICES)
-
-    system = models.ForeignKey(
-        LifecycleSystem, models.PROTECT, related_name='system_events',
-        help_text='关联系统（正式系统 ID，一条事件只关联一个系统）')
-    event_type = models.CharField(max_length=20, choices=EVENT_TYPE_CHOICES, help_text='事件类型')
-    action = models.CharField(max_length=30, help_text='事件动作')
-    source_type = models.CharField(max_length=20, help_text='主要来源类型')
-    source_id = models.CharField(
-        max_length=32, default='', blank=True, help_text='来源对象ID（健康状态事件为空）')
-    source_no = models.CharField(
-        max_length=50, default='', blank=True, help_text='来源编号快照（故障号/台账号/快照名）')
-    title = models.CharField(max_length=200, help_text='事件摘要（保存时点快照）')
-    detail = models.TextField(default='', blank=True, help_text='受控结构化详情 JSON')
-    system_code = models.CharField(max_length=50, help_text='系统编号快照')
-    system_name = models.CharField(max_length=100, help_text='系统名称快照')
-    occurred_at = models.DateTimeField(help_text='业务事实时间')
-    created_by = models.ForeignKey(
-        User, models.PROTECT, related_name='+', null=True, blank=True,
-        help_text='触发业务动作的用户（服务内部触发可为空）')
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-
-    class Meta:
-        db_table = 'tdyw_el_system_event'
-        verbose_name = '系统履历事件'
-        verbose_name_plural = '系统履历事件'
-        ordering = ('-occurred_at', '-id')
-        constraints = [
-            models.CheckConstraint(
-                check=models.Q(event_type__in=EVENT_TYPE_VALUES),
-                name='el_system_event_type_valid',
-            ),
-            models.CheckConstraint(
-                check=models.Q(source_type__in=EVENT_SOURCE_TYPE_VALUES),
-                name='el_system_event_source_type_valid',
-            ),
-            models.CheckConstraint(
-                check=models.Q(action__in=EVENT_ACTION_VALUES),
-                name='el_system_event_action_valid',
-            ),
-        ]
-        indexes = [
-            models.Index(fields=['tenant_id', 'system', '-occurred_at', '-id']),
-            models.Index(fields=['tenant_id', 'event_type']),
-            models.Index(fields=['tenant_id', 'source_type', 'source_id']),
-        ]
-
-    def __repr__(self):
-        return '<SystemEvent %s %s>' % (self.event_type, self.title[:30])
-
-    def get_detail(self):
-        if not self.detail:
-            return {}
-        try:
-            data = json.loads(self.detail)
-            return data if isinstance(data, dict) else {}
-        except (ValueError, TypeError):
-            return {}
-
-    def to_view(self):
-        return {
-            'id': self.id,
-            'system': self.system_id,
-            'system_code': self.system_code,
-            'system_name': self.system_name,
-            'event_type': self.event_type,
-            'event_type_text': self.EVENT_TYPE_TEXT_MAP.get(self.event_type, self.event_type),
-            'action': self.action,
-            'source_type': self.source_type,
-            'source_id': self.source_id,
-            'source_no': self.source_no,
-            'title': self.title,
-            'detail': self.get_detail(),
-            'occurred_at': self.occurred_at,
-            'created_by_name': self.created_by.username if self.created_by_id else '',
-            'created_at': self.created_at,
         }
 
 
@@ -1523,366 +1043,6 @@ class InspectionRecord(TenantModelMixin, models.Model):
             'updated_at': self.updated_at,
         }
 
-# ======================================================================
-# 运行记录（2026-10，第一版）：面向用户的统一运行情况录入入口
-# ----------------------------------------------------------------------
-# 定位：异常与运行情况的统一录入，用户不必先判断"故障/事件/其他类型"；
-# 适用于用户反馈、值班发现的运行异常、短暂中断或恢复、已处理的小问题、
-# 需要后续跟进的运行情况。
-# 边界（明确不纳入）：周期巡视与维护（巡检单/运维台账）、临时维护保养校准、
-# 系统升级（upgrade 模块）、单项配置变更、系统事件手工录入——各自模块负责。
-# 履历规则（2026-10-05 第四版）：运行记录不再生成 SystemEvent（历史已写入
-# 的事件保留供回溯）；正式故障进入系统履历，由故障服务层控制。
-# ======================================================================
-
-# 编号前缀 YX{yyyymmdd}-{seq:04d}（当日序号口径与故障编号一致：全租户共享）
-RUNTIME_RECORD_NO_PREFIX = 'YX'
-RUNTIME_RECORD_NO_SEQ_LIMIT = 9999
-
-RUNTIME_RECORD_STATUS_RECORDED = 'recorded'
-# 2026-10-06 旧状态归一（迁移 0007）：历史 pending_triage/no_follow_up 已按
-# "已记录"、resolved/closed 已按"已完成"归一为正式状态，枚举与 CHECK 约束
-# 同步收紧为四状态，旧值不再可写入。
-RUNTIME_RECORD_STATUS_FOLLOWING_UP = 'following_up'
-RUNTIME_RECORD_STATUS_COMPLETED = 'completed'
-RUNTIME_RECORD_STATUS_CONVERTED_FAULT = 'converted_fault'
-RUNTIME_RECORD_STATUS_VALUES = [
-    RUNTIME_RECORD_STATUS_RECORDED,
-    RUNTIME_RECORD_STATUS_FOLLOWING_UP,
-    RUNTIME_RECORD_STATUS_COMPLETED,
-    RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
-]
-
-# 状态机（后端动作接口校验）：
-# recorded（已记录，登记已完成的合法稳定状态，可长期保留，不进待办）→
-#   following_up（追加首条处理进展）/converted_fault（独立转故障）；
-# following_up → completed（完成跟进）/converted_fault；
-# completed（已完成）→ following_up（重新跟进）；不提供普通关闭动作；
-# converted_fault 为终态：正式处置以 SystemFault 为准，不再双向同步状态。
-RUNTIME_RECORD_TRANSITIONS = {
-    RUNTIME_RECORD_STATUS_RECORDED: {
-        RUNTIME_RECORD_STATUS_FOLLOWING_UP, RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
-    },
-    RUNTIME_RECORD_STATUS_FOLLOWING_UP: {
-        RUNTIME_RECORD_STATUS_COMPLETED, RUNTIME_RECORD_STATUS_CONVERTED_FAULT,
-    },
-    RUNTIME_RECORD_STATUS_COMPLETED: {
-        RUNTIME_RECORD_STATUS_FOLLOWING_UP,
-    },
-    RUNTIME_RECORD_STATUS_CONVERTED_FAULT: set(),
-}
-
-# 允许普通编辑与追加处理进展的状态（已完成仍可补录；已转故障为终态）
-EDITABLE_RUNTIME_RECORD_STATUSES = (
-    RUNTIME_RECORD_STATUS_RECORDED,
-    RUNTIME_RECORD_STATUS_FOLLOWING_UP,
-    RUNTIME_RECORD_STATUS_COMPLETED,
-)
-
-# 异常类别（2026-10 第二版，结构化补充字段）：固定枚举，新建选填（空串=未选择）；
-# 仅用于筛选与统计归类，不参与任何状态机与履历判定
-RUNTIME_CATEGORY_DEVICE = 'device'
-RUNTIME_CATEGORY_SIGNAL = 'signal'
-RUNTIME_CATEGORY_LINK = 'link'
-RUNTIME_CATEGORY_POWER = 'power'
-RUNTIME_CATEGORY_ENVIRONMENT = 'environment'
-RUNTIME_CATEGORY_SOFTWARE = 'software'
-RUNTIME_CATEGORY_OTHER = 'other'
-RUNTIME_CATEGORY_VALUES = [
-    RUNTIME_CATEGORY_DEVICE, RUNTIME_CATEGORY_SIGNAL, RUNTIME_CATEGORY_LINK,
-    RUNTIME_CATEGORY_POWER, RUNTIME_CATEGORY_ENVIRONMENT,
-    RUNTIME_CATEGORY_SOFTWARE, RUNTIME_CATEGORY_OTHER,
-]
-RUNTIME_CATEGORY_DB_VALUES = [''] + RUNTIME_CATEGORY_VALUES
-RUNTIME_CATEGORY_CHOICES = (
-    (RUNTIME_CATEGORY_DEVICE, '设备异常'),
-    (RUNTIME_CATEGORY_SIGNAL, '信号异常'),
-    (RUNTIME_CATEGORY_LINK, '链路传输'),
-    (RUNTIME_CATEGORY_POWER, '供电异常'),
-    (RUNTIME_CATEGORY_ENVIRONMENT, '机房环境'),
-    (RUNTIME_CATEGORY_SOFTWARE, '软件/数据'),
-    (RUNTIME_CATEGORY_OTHER, '其他'),
-)
-RUNTIME_CATEGORY_TEXT_MAP = dict(RUNTIME_CATEGORY_CHOICES)
-
-# 记录类型（2026-10-07）：运行记录模块兼容"日常运行记录"与"异常事件记录"两类。
-# - routine 日常运行：常规作业留痕（作业内容/操作结果或检查结果），不进入
-#   异常研判、跟进、完成跟进、转正式故障流程，页面状态恒为"已记录"；
-# - abnormal 异常事件：沿用原运行记录的全部字段与状态机；
-# - 历史数据统一回填为 abnormal（迁移 0011），旧请求未传 record_type 时
-#   后端按 abnormal 兼容处理；record_type 创建后不可修改。
-RUNTIME_RECORD_TYPE_ROUTINE = 'routine'
-RUNTIME_RECORD_TYPE_ABNORMAL = 'abnormal'
-RUNTIME_RECORD_TYPE_VALUES = [
-    RUNTIME_RECORD_TYPE_ROUTINE,
-    RUNTIME_RECORD_TYPE_ABNORMAL,
-]
-RUNTIME_RECORD_TYPE_CHOICES = (
-    (RUNTIME_RECORD_TYPE_ROUTINE, '日常运行'),
-    (RUNTIME_RECORD_TYPE_ABNORMAL, '异常事件'),
-)
-RUNTIME_RECORD_TYPE_TEXT_MAP = dict(RUNTIME_RECORD_TYPE_CHOICES)
-
-
-class SystemRuntimeRecord(TenantModelMixin, models.Model):
-    """运行记录：异常与运行情况的统一录入入口（第一版）。
-
-    - 新建只要求 系统/发生时间/标题/情况描述，其余字段选填或默认值；
-    - 新建成功即 recorded（已记录，登记已完成、暂不需要后续处理的合法稳定
-      状态，可长期保留，不作为待办）；研判不再是必经步骤（第四版
-      2026-10-05，旧 triage/close 兼容端点已随 2026-10-06 状态归一整体删除）：
-      追加首条处理进展即进入跟进中，转正式故障为独立动作（recorded/
-      following_up 均可直接转换），前端不提供业务"关闭"入口；
-    - 用户可见状态即全部状态：已记录/跟进中/已完成/已转故障；完成跟进入
-      completed（已完成，可重新跟进）；历史 pending_triage/no_follow_up/
-      resolved/closed 已由迁移 0007 按语义归一（→recorded / →completed）；
-    - 运行记录不纳入系统履历（2026-10-05 第四版起，创建/研判升级影响/转为故障
-      均不再生成 SystemEvent；历史已写入的事件保留仅供回溯）；
-      具体对象名称/对象型号/影响系统运行（含影响程度）/标记重要四组字段已于
-      2026-10-06 整体删除（迁移 0006），历史数据随列删除不再保留；跟进人/
-      计划处理时间（跟进计划）与处理进展的处理结果/本次工时已于同日删除
-      （迁移 0009）：跟进动作统一为"追加处理进展"，已完成记录追加进展即
-      重新进入跟进中；研判快照字段（研判时间/研判人/研判说明）已于
-      2026-10-07 彻底删除（迁移 0010，存量历史值随列删除）；正式故障
-      进入系统履历（"发生故障"履历由 create_fault_record 生成）；
-    - 转为故障后记录状态为 converted_fault（终态），后续处理/恢复确认/关闭
-      以 SystemFault 为准，运行记录不维护第二套处理状态；
-    - 系统快照仅用于历史展示，正式关联一律用 system 外键（PROTECT）。
-    """
-
-    STATUS_RECORDED = RUNTIME_RECORD_STATUS_RECORDED
-    STATUS_FOLLOWING_UP = RUNTIME_RECORD_STATUS_FOLLOWING_UP
-    STATUS_COMPLETED = RUNTIME_RECORD_STATUS_COMPLETED
-    STATUS_CONVERTED_FAULT = RUNTIME_RECORD_STATUS_CONVERTED_FAULT
-    STATUS_CHOICES = (
-        (STATUS_RECORDED, '已记录'),
-        (STATUS_FOLLOWING_UP, '跟进中'),
-        (STATUS_COMPLETED, '已完成'),
-        (STATUS_CONVERTED_FAULT, '已转故障'),
-    )
-    STATUS_TEXT_MAP = dict(STATUS_CHOICES)
-
-    CATEGORY_TEXT_MAP = RUNTIME_CATEGORY_TEXT_MAP
-
-    record_no = models.CharField(max_length=50, help_text='运行记录编号（YX+创建日期+当日四位序号，自动生成；当日序号全租户共享）')
-    # 记录类型（2026-10-07）：routine 日常运行 / abnormal 异常事件；
-    # default 即历史数据回填口径（迁移 0011），创建后不可修改
-    record_type = models.CharField(
-        max_length=20, choices=RUNTIME_RECORD_TYPE_CHOICES,
-        default=RUNTIME_RECORD_TYPE_ABNORMAL,
-        help_text='记录类型（routine日常运行/abnormal异常事件；历史数据已回填为'
-                  'abnormal，旧请求未传时按abnormal兼容处理；创建后不可修改）')
-    system = models.ForeignKey(
-        LifecycleSystem, models.PROTECT, related_name='runtime_records',
-        help_text='所属系统（正式系统 ID 外键）')
-    # —— 系统快照（创建时点，仅历史展示） ——
-    system_code = models.CharField(max_length=50, help_text='系统编号快照')
-    system_name = models.CharField(max_length=100, help_text='系统名称快照')
-    system_location = models.CharField(max_length=200, help_text='系统安装地点快照')
-
-    occurred_at = models.DateTimeField(help_text='发生时间')
-    title = models.CharField(max_length=200, help_text='标题')
-    description = models.TextField(max_length=2000, help_text='情况描述')
-    # 登记人（2026-10）：手动输入的登记人姓名，只表示"谁登记这条运行记录"，
-    # 与登录账号 created_by 独立（共用登录账号场景下实际登记人可能没有账号），
-    # 参照故障登记人 registrar_name 口径；历史数据为空（可空文本）
-    registrar_name = models.CharField(
-        max_length=200, default='', blank=True,
-        help_text='登记人（手动输入的登记人姓名，多人以顿号分隔；'
-                  '实际添加本条运行记录的人，与登录账号 created_by 独立，'
-                  '历史数据可为空）')
-
-    needs_follow_up = models.BooleanField(
-        default=False, help_text='是否需要跟进（进入跟进中状态时置 True）')
-    # 跟进人/计划处理时间（跟进计划）已随跟进计划功能删除（2026-10-06 迁移 0009）：
-    # 跟进动作统一为"追加处理进展"，不再维护独立计划字段
-    measures_taken = models.TextField(
-        max_length=1000, default='', blank=True, help_text='已采取措施（选填）')
-    handling_result = models.TextField(
-        max_length=1000, default='', blank=True, help_text='处理结果（选填，完成跟随时可补填）')
-
-    # 研判快照字段（triaged_at/triaged_by/triaged_by_name/triage_note）已随
-    # 研判功能彻底退役删除（2026-10-07 迁移 0010）：研判不再是必经步骤
-    # （2026-10-05），新记录不产生研判数据，存量 3 条历史值随列删除不再保留
-
-    # —— 跟进与待办：仅"跟进中"记录参与待办视图 ——
-    resolved_at = models.DateTimeField(
-        null=True, blank=True, help_text='首次完成跟进时间（原"标记已处理"；统计平均处理时长用，不随重新跟进/再次完成覆盖）')
-
-    # —— 结构化补充字段（2026-10 第二版）：全部选填，不增加录入负担 ——
-    # 具体对象名称/对象型号两列已删除（2026-10-06 迁移 0006），历史数据随列删除
-    category = models.CharField(
-        max_length=20, choices=RUNTIME_CATEGORY_CHOICES, default='', blank=True,
-        help_text='异常类别（选填：device设备异常/signal信号异常/link链路传输/'
-                  'power供电异常/environment机房环境/software软件数据/other其他；空串=未选择）')
-    initial_reason = models.CharField(
-        max_length=500, default='', blank=True, help_text='初步原因（选填）')
-    impact_scope = models.CharField(
-        max_length=200, default='', blank=True, help_text='影响范围（选填，文本描述）')
-    # is_repeated 与重复问题关联表已随功能下线删除（2026-10-06 迁移 0008）
-
-    status = models.CharField(
-        max_length=20, choices=STATUS_CHOICES, default=STATUS_RECORDED,
-        help_text='当前状态')
-    client_token = models.CharField(
-        max_length=64, default='', blank=True, help_text='客户端幂等令牌（创建防重复）')
-
-    created_by = models.ForeignKey(User, models.PROTECT, related_name='+', help_text='创建人')
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(null=True, blank=True)
-    updated_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True)
-
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-
-    class Meta:
-        db_table = 'tdyw_el_runtime_record'
-        verbose_name = '运行记录'
-        verbose_name_plural = '运行记录'
-        ordering = ('-occurred_at', '-id')
-        constraints = [
-            models.UniqueConstraint(
-                fields=['tenant_id', 'record_no'], name='uniq_el_runtime_record_tenant_no'),
-            models.CheckConstraint(
-                check=models.Q(status__in=RUNTIME_RECORD_STATUS_VALUES),
-                name='el_runtime_record_status_valid',
-            ),
-            models.CheckConstraint(
-                check=models.Q(category__in=RUNTIME_CATEGORY_DB_VALUES),
-                name='el_runtime_record_category_valid',
-            ),
-            models.CheckConstraint(
-                check=models.Q(record_type__in=RUNTIME_RECORD_TYPE_VALUES),
-                name='el_runtime_record_record_type_valid',
-            ),
-        ]
-        indexes = [
-            models.Index(fields=['tenant_id', 'status']),
-            models.Index(fields=['tenant_id', 'record_type', '-occurred_at', '-id'],
-                         name='el_runtime_record_type_occ_idx'),
-            models.Index(fields=['tenant_id', 'system', '-occurred_at', '-id']),
-            models.Index(fields=['tenant_id', '-occurred_at', '-id']),
-            models.Index(fields=['tenant_id', 'client_token']),
-        ]
-
-    def __repr__(self):
-        return '<SystemRuntimeRecord %r>' % self.record_no
-
-    def can_transition_to(self, new_status):
-        return new_status in RUNTIME_RECORD_TRANSITIONS.get(self.status, set())
-
-    def to_view(self):
-        converted_fault = self.generated_faults.exclude(
-            status=SystemFault.STATUS_CANCELLED).order_by('-id').first()
-        data = {
-            'id': self.id,
-            'record_no': self.record_no,
-            'record_type': self.record_type,
-            'record_type_text': RUNTIME_RECORD_TYPE_TEXT_MAP.get(self.record_type, self.record_type),
-            'system': self.system_id,
-            'system_name': self.system_name,
-            'system_code': self.system_code,
-            'system_location': self.system_location,
-            'occurred_at': self.occurred_at,
-            'title': self.title,
-            'registrar_name': self.registrar_name or '',
-            'status': self.status,
-            'status_text': self.STATUS_TEXT_MAP.get(self.status, self.status),
-            'needs_follow_up': self.needs_follow_up,
-            # —— 列表即可见的跟进信息 ——
-            'category': self.category,
-            'category_text': self.CATEGORY_TEXT_MAP.get(self.category, '') if self.category else '',
-            'converted_fault': converted_fault.id if converted_fault else None,
-            'converted_fault_no': converted_fault.fault_no if converted_fault else '',
-            'created_by_name': self.created_by.username if self.created_by_id else '',
-            'created_at': self.created_at,
-        }
-        return data
-
-    def to_detail_view(self):
-        data = self.to_view()
-        data.update({
-            'description': self.description,
-            'measures_taken': self.measures_taken,
-            'handling_result': self.handling_result,
-            # —— 跟进与待办 ——
-            'resolved_at': self.resolved_at,
-            # —— 结构化补充字段（第二版）——
-            'initial_reason': self.initial_reason,
-            'impact_scope': self.impact_scope,
-            'client_token': self.client_token,
-            'created_at': self.created_at,
-            'updated_at': self.updated_at,
-        })
-        return data
-
-
-class SystemRuntimeRecordProgress(TenantModelMixin, models.Model):
-    """运行记录处理进展：追加式时间线（第一版轻量模型）。
-
-    - 追加式记录，普通用户不能静默覆盖：更正把原内容、新内容与更正原因
-      追加保存到 corrections JSON 数组（[{old, new, reason, by, at}]），
-      与故障处理进展（SystemFaultHandlingRecord）同一约定；
-    - 处理人 handler_name 为手动输入姓名快照（实际处理的人可能无系统账号），
-      handler 保留操作账号审计字段；历史/缺省展示回落 handler 用户名；
-    - 已转故障的运行记录不允许继续追加普通处理进展（视图层校验）。
-    """
-
-    record = models.ForeignKey(
-        SystemRuntimeRecord, models.CASCADE, related_name='progress_records',
-        help_text='所属运行记录')
-    handled_at = models.DateTimeField(help_text='处理时间')
-    handler = models.ForeignKey(
-        User, models.PROTECT, related_name='+',
-        help_text='记录操作账号（审计字段；处理人姓名见 handler_name）')
-    handler_name = models.CharField(
-        max_length=200, default='', blank=True,
-        help_text='处理人（手动输入的姓名，多人以顿号分隔；空串展示回落 handler 用户名）')
-    content = models.TextField(max_length=2000, help_text='处理内容')
-    # 处理结果（result）/本次工时（work_hours）已删除（2026-10-06 迁移 0009）：
-    # 处理进展只记录 处理时间/处理人/处理内容，结果性描述写入处理内容
-    corrections = models.TextField(default='', blank=True, help_text='更正历史 JSON 数组')
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-
-    class Meta:
-        db_table = 'tdyw_el_runtime_record_progress'
-        verbose_name = '运行记录处理进展'
-        verbose_name_plural = '运行记录处理进展'
-        ordering = ('handled_at', 'id')
-        indexes = [
-            models.Index(fields=['tenant_id', 'record', 'handled_at', 'id']),
-        ]
-
-    def __repr__(self):
-        return '<SystemRuntimeRecordProgress record=%s at=%s>' % (
-            self.record_id, self.handled_at)
-
-    def get_corrections(self):
-        if not self.corrections:
-            return []
-        try:
-            data = json.loads(self.corrections)
-            return data if isinstance(data, list) else []
-        except (ValueError, TypeError):
-            return []
-
-    def to_view(self):
-        return {
-            'id': self.id,
-            'record': self.record_id,
-            'handled_at': self.handled_at,
-            'handler': self.handler_id,
-            'handler_name': self.handler_name or (
-                self.handler.username if self.handler_id else ''),
-            'content': self.content,
-            'corrections': self.get_corrections(),
-            'created_at': self.created_at,
-        }
-
-
 # 设计器维护台账模板（已下线，休眠保留）：模型主体在 layout_models.py，
 # 其视图/服务/路由均已删除，业务代码不访问；保持注册仅使模型状态与 0039
 # 迁移一致（注销会触发 DeleteModel 删历史表），LongTextField 供 0039
@@ -1904,4 +1064,12 @@ from apps.equipment_lifecycle.config_models import (  # noqa: E402
     ConfigParamDefinition,
     ConfigParamSystemScope,
     SystemParamValue,
+)
+# 运行与故障记录（2026-10-11 合并改造）：统一主表/进展表模型主体在
+# operation_models.py（文件行数治理），底部导入完成模型注册，
+# 使 makemigrations/迁移状态一致；旧 SystemFault/SystemFaultHandlingRecord/
+# SystemRuntimeRecord/SystemRuntimeRecordProgress/SystemEvent 五模型已退役。
+from apps.equipment_lifecycle.operation_models import (  # noqa: E402
+    SystemOperationProgress,
+    SystemOperationRecord,
 )

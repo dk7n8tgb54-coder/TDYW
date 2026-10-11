@@ -1,6 +1,6 @@
 """跨租户 CRUD 测试
 
-覆盖模块: reminder, runlog, account
+覆盖模块: reminder, account
 覆盖操作: 列表查询、详情、修改、删除、租户字段伪造
 """
 import json
@@ -42,7 +42,6 @@ def run(context):
     try:
         _test_navigation_removed(results, tk_ua)
         _test_reminder(results, tk_ua, tid_b, ua, biz)
-        _test_runlog(results, tk_ua, biz)
         _test_account(results, tk_ua, biz, ub)
     finally:
         cleanup_business_objects(biz, tid_a, tid_b)
@@ -133,51 +132,6 @@ def _test_reminder(results, tk_ua, tid_b, ua, biz):
         obj.delete()
     else:
         _rec(results, 'reminder', 'Reminder租户伪造', True, f'创建失败: {body}')
-
-
-# ==================== RunLog ====================
-
-def _test_runlog(results, tk_ua, biz):
-    """RunLogView 跨租户测试"""
-    c = Client()
-
-    # 列表
-    r = c.get('/runlog/', **{'HTTP_X_TOKEN': tk_ua})
-    body = get_body(r)
-    if isinstance(body, dict) and body.get('error'):
-        _rec(results, 'runlog', 'RunLog列表跨租户', True, f'错误: {body}')
-    else:
-        items = get_items(body)
-        passed, msg = assert_no_cross_tenant(items, 'LB_', 'event_title')
-        _rec(results, 'runlog', 'RunLog列表跨租户', passed, msg,
-             'high' if not passed else 'info')
-
-    # 详情
-    bid = biz['rl_b'].id
-    r = c.get(f'/runlog/detail/?id={bid}', **{'HTTP_X_TOKEN': tk_ua})
-    body = get_body(r)
-    leaked = not body.get('error') and body.get('id') == bid
-    _rec(results, 'runlog', 'RunLog详情跨租户', not leaked,
-         f'resp={body}', 'high' if leaked else 'info')
-
-    # 修改
-    bid = biz['rl_b'].id
-    c.post('/runlog/', data=json.dumps({'id': bid, 'event_title': 'HACKED'}),
-           content_type='application/json', **{'HTTP_X_TOKEN': tk_ua})
-    from apps.runlog.models import RunLog
-    rl_b = RunLog.objects.get(pk=bid)
-    passed, msg = assert_object_not_modified(rl_b, 'event_title', 'HACKED')
-    _rec(results, 'runlog', 'RunLog修改跨租户', passed, msg,
-         'high' if not passed else 'info')
-
-    # 删除
-    bid = biz['rl_b'].id
-    c.delete(f'/runlog/?id={bid}', **{'HTTP_X_TOKEN': tk_ua})
-    passed, msg = assert_object_exists(RunLog, bid)
-    _rec(results, 'runlog', 'RunLog删除跨租户', passed, msg,
-         'high' if not passed else 'info')
-    if not passed:
-        RunLog.objects.filter(pk=bid).update(is_deleted=False)
 
 
 def _test_account(results, tk_ua, biz, ub):

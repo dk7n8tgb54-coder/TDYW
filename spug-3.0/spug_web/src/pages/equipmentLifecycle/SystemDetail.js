@@ -8,20 +8,20 @@
  * 标题区直接呈现系统名称、运行健康状态、可用性与部件维护提示，副标题展示关键档案摘要。
  * 基本信息展示固定字段；扩展信息展示 呼号 / 安装经纬度 / 工作频率（选填）。
  * （自定义字段机制已下线，原「系统当前配置」页签一并移除。）
- * 步骤 3.1 新增"故障记录"页签（单系统简化：只显示本系统故障）；
- * 步骤 3.3 新增"工单"页签（单系统简化：只显示本系统工单）。
- * 2026-10-11："周月维护台账""季维护台账""系统履历"三个页签移除，
- * 三项业务仍由各自独立菜单页面承载（周月/季维护台账、系统履历）。
+ * 步骤 3.1 新增"故障记录"页签（单系统简化：只显示本系统故障）。
+ * 2026-10-11 合并改造：原"故障记录""运行记录"两页签合并为"运行与故障记录"
+ * 页签（systems/<pk>/records/ 直接查询统一主表，可筛选记录类型）；
+ * "周月维护台账""季维护台账""系统履历"页签移除（系统履历整体退役，
+ * 按系统记录直接查询业务表）。
  */
 import React from 'react';
 import { observer } from 'mobx-react';
 import { Modal, Tabs, Descriptions, Tag, Spin, Divider, Button } from 'antd';
 import store from './store';
 import { HEALTH_STATUS_COLOR } from './constants';
-import FaultRecordsTab from './FaultRecordsTab';
 import UpgradeRecordsTab from './UpgradeRecordsTab';
 import ComponentMaintenanceTags from './ComponentMaintenanceTags';
-import SystemRuntimeRecordsTab from './SystemRuntimeRecordsTab';
+import SystemOperationRecordsTab from './operationRecord/SystemOperationRecordsTab';
 import SystemConfigTab from './systemConfig/SystemConfigTab';
 
 const { TabPane } = Tabs;
@@ -121,12 +121,10 @@ class SystemDetail extends React.Component {
             <TabPane tab="基本信息" key="basic">
               {this.renderBasic()}
             </TabPane>
-            <TabPane tab="故障记录" key="faults">
-              <FaultRecordsTab systemId={d.id}/>
-            </TabPane>
-            {/* 运行记录（2026-10 第一版）：本系统运行情况统一录入 */}
-            <TabPane tab="运行记录" key="runtime_records">
-              <SystemRuntimeRecordsTab systemId={d.id}/>
+            {/* 运行与故障记录（2026-10-11 合并改造）：本系统全部统一记录，
+                可按记录类型（日常运行/异常事件/正式故障）筛选 */}
+            <TabPane tab="运行与故障记录" key="operation_records">
+              <SystemOperationRecordsTab systemId={d.id}/>
             </TabPane>
             <TabPane tab="升级记录" key="upgrade_records">
               <UpgradeRecordsTab systemId={d.id}/>
@@ -136,8 +134,9 @@ class SystemDetail extends React.Component {
             <TabPane tab="配置" key="config">
               <SystemConfigTab systemId={d.id}/>
             </TabPane>
-            {/* 周月维护台账/季维护台账/系统履历页签已下线（2026-10-11）：
-                三项业务由各自独立菜单页面承载，不再在详情弹窗内嵌展示 */}
+            {/* 周月维护台账/季维护台账页签已下线（2026-10-11）：由独立菜单
+                页面承载；系统履历已整体退役（合并改造），按系统记录直接查询
+                统一主表，不再经过履历事件表 */}
           </Tabs>
         </Spin>
       </Modal>

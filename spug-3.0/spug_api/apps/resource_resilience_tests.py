@@ -182,9 +182,7 @@ class R4ExportSyncBlockingTests(TestCase):
         export_files = [
             'device/exporters.py',
             'interference/exporters.py',
-            'runlog/exporters.py',
             'upgrade/exporters.py',
-            'duty/views.py',
             'logs/views.py',
         ]
 

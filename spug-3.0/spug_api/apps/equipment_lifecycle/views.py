@@ -35,9 +35,9 @@ from apps.logs.audit import record_audit_event
 
 from apps.equipment_lifecycle.models import (
     LifecycleSystem,
-    SystemFault,
 )
-from apps.equipment_lifecycle import fault_services
+from apps.equipment_lifecycle import operation_services
+from apps.equipment_lifecycle.operation_models import SystemOperationRecord
 
 AUDIT_TARGET_SYSTEM = 'el_system'
 
@@ -50,9 +50,10 @@ COMPONENT_MAINTENANCE_EMPTY = {'fault_count': 0}
 def _component_maintenance_rows(systems):
     """部件维护状态汇总（与系统运行健康状态分离展示）。
 
-    - fault_count：有效（待处置/处置中）且不影响系统运行的故障数（部件故障提示）。
+    - fault_count：有效（处置中）且不影响系统运行的正式故障数（部件故障提示）。
     部件故障不参与系统健康状态计算，只作独立提示展示（"维修中"已随
-    故障维修工单功能整体删除，2026-09-30）；
+    故障维修工单功能整体删除，2026-09-30；合并改造后只统计统一主表内
+    record_type=fault 的处置中记录）；
     入参 systems 必须来自租户过滤后的查询结果，避免跨租户计数。
     返回 {system_id: {'fault_count': n}}。
     """
@@ -61,9 +62,10 @@ def _component_maintenance_rows(systems):
         return {}
     result = {i: dict(COMPONENT_MAINTENANCE_EMPTY) for i in ids}
     fault_rows = (
-        SystemFault.objects
+        SystemOperationRecord.objects
         .filter(system_id__in=ids,
-                status__in=fault_services.ACTIVE_FAULT_STATUSES,
+                record_type='fault',
+                status__in=operation_services.ACTIVE_FAULT_STATUSES,
                 affects_system_operation=False)
         .values_list('system_id')
         .annotate(total=models.Count('id')))
@@ -94,7 +96,7 @@ def _parse_date(value):
     return None
 
 # 系统固定字段的变更历史展示名（与模型 help_text 口径一致）
-# 注意：health_status 由有效故障统一计算（fault_services），不属于可编辑固定字段
+# 注意：health_status 由有效正式故障统一计算（operation_services），不属于可编辑固定字段
 FIXED_CHANGE_LABELS = {
     'name': '系统名称', 'system_model': '系统型号', 'install_location': '安装地点',
     'geo_coordinate': '安装经纬度', 'callsign': '呼号',
@@ -141,8 +143,8 @@ def _parse_system_fields(data):
 def _fixed_field_snapshot(item):
     """提取参与变更历史比对的系统固定字段快照。
 
-    health_status 不参与比对：它由有效故障统一计算（fault_services），
-    不是用户可编辑字段，其变化通过健康状态审计与系统履历记录。
+    health_status 不参与比对：它由有效正式故障统一计算（operation_services），
+    不是用户可编辑字段，其变化通过健康状态审计留痕（系统履历已退役）。
     """
     return {
         'name': item.name, 'system_model': item.system_model,
@@ -228,27 +230,21 @@ def _get_system_for_user(pk, user):
 def _collect_system_references(system):
     """删除保护：返回引用该系统的业务对象描述列表，非空则禁止物理删除。
 
-    步骤 3.1 起故障、步骤 3.2 起台账明细、步骤 3.4 起履历事件均以系统 ID
-    建立业务关联（PROTECT）；升级管理挂接系统档案后，升级记录同样以
-    系统 ID 关联。历史记录必须继续可查，存在关联的系统不得物理删除。
-    fail-closed 语义。（"工单"引用检查已随工单功能删除，2026-09-30）
+    运行与故障记录、运维台账明细与升级记录均以系统 ID 建立业务关联
+    （PROTECT）。历史记录必须继续可查，存在关联的系统不得物理删除。
+    fail-closed 语义。（"工单"引用检查已随工单功能删除，2026-09-30；
+    "系统履历事件"检查已随系统履历整体退役删除，2026-10-11）
     """
-    from apps.equipment_lifecycle.models import (
-        OperationLedgerItem,
-        SystemEvent,
-        SystemFault,
-    )
+    from apps.equipment_lifecycle.models import OperationLedgerItem
+    from apps.equipment_lifecycle.operation_models import SystemOperationRecord
     from apps.upgrade.models import UpgradeRecord
     refs = []
-    if SystemFault.objects.filter(
+    if SystemOperationRecord.objects.filter(
             tenant_id=system.tenant_id, system_id=system.id).exists():
-        refs.append('故障记录')
+        refs.append('运行与故障记录')
     if OperationLedgerItem.objects.filter(
             tenant_id=system.tenant_id, system_id=system.id).exists():
         refs.append('运维台账明细')
-    if SystemEvent.objects.filter(
-            tenant_id=system.tenant_id, system_id=system.id).exists():
-        refs.append('系统履历事件')
     if UpgradeRecord.objects.filter(
             tenant_id=system.tenant_id, system_id=system.id,
             is_deleted=False).exists():

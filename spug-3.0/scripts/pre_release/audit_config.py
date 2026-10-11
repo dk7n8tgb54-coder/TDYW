@@ -360,8 +360,8 @@ except Exception as e:
 # ====================================================================
 cat = '7. 业务模块'
 expected_apps = [
-    'apps.account', 'apps.setting', 'apps.duty',
-    'apps.interference', 'apps.home', 'apps.runlog',
+    'apps.account', 'apps.setting',
+    'apps.interference', 'apps.home',
     'apps.document', 'apps.upgrade', 'apps.checksheet', 'apps.logs',
     'apps.radio_license', 'apps.contract_agreement', 'apps.evidence',
     'apps.regulation', 'apps.signature', 'apps.department_duty_log',

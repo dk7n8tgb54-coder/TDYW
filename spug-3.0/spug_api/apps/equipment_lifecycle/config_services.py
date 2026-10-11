@@ -24,7 +24,6 @@
   接口管理，走系统主数据公开 Service，与本服务无关）；
 - 敏感配置（密码/令牌/密钥/私钥）在参数定义层拒绝保存，必要时以外部密钥
   系统的引用编号作为普通文本参数保存；
-- 履历规则：普通配置变更不写系统履历；include_in_history=True 的重要变更
   须填原因，应用时写入一次履历，回退生成的反向变更继承该标记再写一次
   （回退本身也是一次重要配置变更）；重复动作被状态机拦截，事件不重复；
 - 行锁约定：应用/回退对 LifecycleSystem 行 select_for_update 串行化同一
@@ -39,7 +38,6 @@ from decimal import Decimal, InvalidOperation
 from django.db import connection
 from django.utils import timezone
 
-from apps.equipment_lifecycle import event_services
 from apps.equipment_lifecycle.config_models import (
     CONFIG_CHANGE_APPLIED,
     CONFIG_CHANGE_CANCELLED,
@@ -410,21 +408,14 @@ def build_change_items(system, raw_items):
     return items
 
 
-def _check_history_flags(include_in_history, history_reason):
-    if include_in_history and not (history_reason or '').strip():
-        raise ConfigValueError('纳入系统履历的重要变更必须填写纳入原因')
-
-
 def create_config_change(*, tenant_id, created_by, system, reason, items,
-                         include_in_history=False, history_reason='',
                          verify_note='', client_token=''):
     """创建草稿配置变更（须在编号锁 + 事务内调用）。
 
     明细由 build_change_items 以后端数据为准构建；只落变更记录，不写当前
-    配置值、不写系统履历（应用时才生效/写履历）。
+    配置值（应用时才生效）。
     """
     change_items = build_change_items(system, items)
-    _check_history_flags(include_in_history, history_reason)
     change = ConfigChangeRecord.objects.create(
         tenant_id=tenant_id,
         change_no=generate_config_change_no(),
@@ -433,8 +424,6 @@ def create_config_change(*, tenant_id, created_by, system, reason, items,
         system_name=system.name,
         reason=_clean(reason, 500),
         status=CONFIG_CHANGE_DRAFT,
-        include_in_history=bool(include_in_history),
-        history_reason=_clean(history_reason, 500) if include_in_history else '',
         verify_note=_clean(verify_note, 500),
         client_token=_clean(client_token, 64),
         created_by=created_by,
@@ -445,8 +434,7 @@ def create_config_change(*, tenant_id, created_by, system, reason, items,
     return change
 
 
-def update_draft_change(*, change, updated_by, reason, items,
-                        include_in_history=None, history_reason=None, verify_note=None):
+def update_draft_change(*, change, updated_by, reason, items, verify_note=None):
     """编辑草稿变更（仅 draft 可编辑；明细全量替换并按当前库值重算快照）。
 
     已生效/已验证/已回退/已取消的变更拒绝普通编辑（不静默覆盖）。
@@ -454,18 +442,12 @@ def update_draft_change(*, change, updated_by, reason, items,
     if change.status != CONFIG_CHANGE_DRAFT:
         raise ConfigChangeError('只有草稿状态的配置变更可以编辑')
     change_items = build_change_items(change.system, items)
-    include = change.include_in_history if include_in_history is None else bool(include_in_history)
-    hist_reason = change.history_reason if history_reason is None else _clean(history_reason, 500)
-    _check_history_flags(include, hist_reason)
     change.reason = _clean(reason, 500)
-    change.include_in_history = include
-    change.history_reason = hist_reason if include else ''
     if verify_note is not None:
         change.verify_note = _clean(verify_note, 500)
     change.updated_at = timezone.now()
     change.updated_by = updated_by
-    change.save(update_fields=['reason', 'include_in_history', 'history_reason',
-                               'verify_note', 'updated_at', 'updated_by'])
+    change.save(update_fields=['reason', 'verify_note', 'updated_at', 'updated_by'])
     change.items.all().delete()
     for item in change_items:
         item.change = change
@@ -504,42 +486,6 @@ def _upsert_current_value(*, system, param, fields, change, applied_by, applied_
             created_by=created_by or applied_by,
             **fields,
         )
-
-
-def maybe_record_config_history_event(change, action, created_by=None):
-    """重要配置变更写系统履历（应用/回退各一次；普通变更不写）。
-
-    事件携带变更编号（source_no）与来源链接（source_type+source_id），
-    detail 保留纳入原因与逐参数前后值。
-    """
-    if not change.include_in_history:
-        return None
-    items_detail = [
-        {
-            'param_code': item.param_code,
-            'param_name': item.param_name,
-            'old_value': item.old_value,
-            'new_value': item.new_value,
-        }
-        for item in change.items.all()
-    ]
-    title = f'{"回退" if action == "rollback" else "应用"}配置变更 {change.change_no}'
-    return event_services.record_system_event(
-        tenant_id=change.tenant_id,
-        system=change.system,
-        event_type=event_services.SystemEvent.EVENT_CONFIG,
-        action=action,
-        source_type='config_change',
-        source_id=change.id,
-        source_no=change.change_no,
-        title=title,
-        detail={
-            'reason': change.reason,
-            'history_reason': change.history_reason,
-            'items': items_detail,
-        },
-        created_by=created_by,
-    )
 
 
 def apply_config_change(*, change, applied_by, request=None):
@@ -582,7 +528,6 @@ def apply_config_change(*, change, applied_by, request=None):
     change.applied_at = applied_at
     change.applied_by = applied_by
     change.save(update_fields=['status', 'applied_at', 'applied_by'])
-    maybe_record_config_history_event(change, 'apply', created_by=change.created_by)
     return change
 
 
@@ -657,8 +602,6 @@ def rollback_config_change(*, change, created_by):
         status=CONFIG_CHANGE_APPLIED,
         applied_at=rolled_at,
         applied_by=created_by,
-        include_in_history=change.include_in_history,
-        history_reason=change.history_reason,
         rollback_of=change,
         created_by=created_by,
     )
@@ -680,7 +623,6 @@ def rollback_config_change(*, change, created_by):
         )
     change.status = CONFIG_CHANGE_ROLLED_BACK
     change.save(update_fields=['status'])
-    maybe_record_config_history_event(rollback_change, 'rollback', created_by=created_by)
     return rollback_change
 
 

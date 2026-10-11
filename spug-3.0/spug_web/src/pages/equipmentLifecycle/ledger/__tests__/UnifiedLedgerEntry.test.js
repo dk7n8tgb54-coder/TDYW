@@ -131,6 +131,16 @@ const LIST_PAYLOAD = {
   total: 2, page: 1, page_size: 20,
 };
 
+// 周期分组视图（2026-10-11）：页面列表改拉 /ledgers/period-groups/，
+// 组内行复用原列表行（Excel模板列/详情路由断言保持不变）
+const GROUPS_FROM_LIST = {
+  data: [{
+    maintenance_period: '2026-09', period_text: '2026年9月',
+    total: LIST_PAYLOAD.data.length, pending: 0, filled: LIST_PAYLOAD.data.length,
+    ledgers: LIST_PAYLOAD.data,
+  }],
+};
+
 const AVAILABLE_EXCEL_PAYLOAD = [{id: 11, name: '信道Excel维护台账', ledger_type: 'week_month',
   description: '',
   versions: [{id: 5, version_no: 2, field_count: 1,
@@ -208,7 +218,10 @@ async function chooseSelectOption(modalRoot, matchText) {
 }
 
 test('统一列表渲染 Excel 模板列，不渲染来源标签/明细数/异常数列', async () => {
-  mockHttpGet.mockResolvedValue(LIST_PAYLOAD);
+  mockHttpGet.mockImplementation(url => {
+    if (url.includes('/ledgers/period-groups/')) return Promise.resolve(GROUPS_FROM_LIST);
+    return Promise.resolve(LIST_PAYLOAD);
+  });
   await renderIndex();
   expect(container.textContent).toContain('Excel模板');
   expect(container.textContent).toContain('信道Excel维护台账 v2');
@@ -223,6 +236,7 @@ test('统一列表渲染 Excel 模板列，不渲染来源标签/明细数/异�
 
 test('正式新增台账只提供 Excel 模板：点击新增直接打开 Excel 创建弹窗', async () => {
   mockHttpGet.mockImplementation(url => {
+    if (url.includes('/ledgers/period-groups/')) return Promise.resolve(GROUPS_FROM_LIST);
     if (url.includes('/ledgers/')) return Promise.resolve(LIST_PAYLOAD);
     if (url.includes('excel-templates/available')) {
       return Promise.resolve({data: AVAILABLE_EXCEL_PAYLOAD});
@@ -246,6 +260,7 @@ test('正式新增台账只提供 Excel 模板：点击新增直接打开 Excel 
 
 test('周月维护入口只加载周月类型的已发布 Excel 模板版本', async () => {
   mockHttpGet.mockImplementation(url => {
+    if (url.includes('/ledgers/period-groups/')) return Promise.resolve(GROUPS_FROM_LIST);
     if (url.includes('/ledgers/')) return Promise.resolve(LIST_PAYLOAD);
     if (url.includes('excel-templates/available')) {
       return Promise.resolve({data: AVAILABLE_EXCEL_PAYLOAD});
@@ -290,6 +305,7 @@ test('季维护入口只加载季维护类型的已发布 Excel 模板版本', a
 
 test('Excel 创建成功后进入 Excel 台账详情', async () => {
   mockHttpGet.mockImplementation(url => {
+    if (url.includes('/ledgers/period-groups/')) return Promise.resolve(GROUPS_FROM_LIST);
     if (url.includes('/ledgers/')) return Promise.resolve(LIST_PAYLOAD);
     if (url.includes('excel-templates/available')) {
       return Promise.resolve({data: AVAILABLE_EXCEL_PAYLOAD});
@@ -325,6 +341,7 @@ test('列表点击详情按来源路由：Excel 行走 Excel 详情，手工补�
     if (url.includes('/ledgers/1/')) {
       return Promise.resolve(makeManualDetail());
     }
+    if (url.includes('/ledgers/period-groups/')) return Promise.resolve(GROUPS_FROM_LIST);
     if (url.includes('/ledgers/')) return Promise.resolve(LIST_PAYLOAD);
     return Promise.resolve({data: []});
   });
@@ -357,6 +374,7 @@ test('跨页跳转 ?detail=33&source=excel 直达 Excel 详情', async () => {
     if (url.includes('/excel-ledgers/33/')) {
       return Promise.resolve({data: makeExcelDetail()});
     }
+    if (url.includes('/ledgers/period-groups/')) return Promise.resolve(GROUPS_FROM_LIST);
     if (url.includes('/ledgers/')) return Promise.resolve(LIST_PAYLOAD);
     return Promise.resolve({data: []});
   });

@@ -56,23 +56,9 @@ export default [{
     ]
   }]
 }, {
-  key: 'runlog',
-  label: '事件管理',
-  pages: [{
-    key: 'runlog',
-    label: '事件管理',
-    perms: [
-      {key: 'view', label: '查看事件'},
-      {key: 'add', label: '新建事件'},
-      {key: 'edit', label: '编辑事件'},
-      {key: 'del', label: '删除事件'},
-      {key: 'update_view', label: '查看动态'},
-      {key: 'update_add', label: '添加动态'},
-      {key: 'update_edit', label: '编辑动态'},
-      {key: 'update_del', label: '删除动态'},
-    ]
-  }]
-}, {
+  // runlog（事件管理）与 duty（值班日志）权限组已随两模块 2026-10-11 整体下线删除，
+  // 权限码退役；存量角色 JSON 中的 runlog./duty. 权限码惰性失效（无任何后端校验
+  // 引用），无需清洗，角色保存时会自然剪除；"部门值班日志"为独立模块继续保留。
   key: 'equipment_lifecycle',
   label: '设备管理',
   pages: [{
@@ -87,36 +73,24 @@ export default [{
       {key: 'export', label: '导出系统列表'},
     ]
   }, {
-    key: 'fault',
-    label: '故障处置',
+    // 运行与故障记录（2026-10-11 合并改造）：原 fault（故障处置）与
+    // runtime_record（运行记录）权限组合并换发为本组权限码，system_event
+    //（系统履历）权限随履历退役删除；存量角色 JSON 由迁移 0013 清洗换发。
+    key: 'operation_record',
+    label: '运行与故障记录',
     perms: [
-      {key: 'view', label: '查看故障'},
-      {key: 'add', label: '新增故障'},
-      {key: 'edit', label: '编辑故障/更正处置记录'},
-      // 2026-10 流程简化：无"开始处置"步骤（新建即处置中），handle 仅承载
-      // 新增处置记录与处置记录附件；确认恢复与关闭合并为"确认恢复并结案"，
-      // 需同时勾选 recover 与 close（前端按钮与后端双重独立校验）
-      {key: 'handle', label: '新增处置记录/上传处置记录附件'},
+      {key: 'view', label: '查看记录'},
+      {key: 'add', label: '新增记录（日常运行/异常事件）'},
+      {key: 'add_fault', label: '登记正式故障（含台账异常转故障）'},
+      {key: 'edit', label: '编辑记录/更正统一进展/原因分析/记录附件'},
+      {key: 'progress', label: '追加统一进展/上传进展附件'},
+      {key: 'complete', label: '完成跟进（异常事件）'},
+      {key: 'identify_fault', label: '认定正式故障（异常事件原记录认定）'},
       {key: 'recover', label: '确认恢复并结案（须同时勾选"结案"）'},
       {key: 'close', label: '结案（"确认恢复并结案"须同时勾选本项）'},
-      {key: 'del', label: '作废故障（受控作废，非物理删除）'},
-      {key: 'export', label: '导出故障列表'},
-    ]
-  }, {
-    // 运行记录（2026-10 第一版；2026-10-07 更名"运行记录"并兼容
-    // 日常运行/异常事件两类记录）
-    // 2026-10-06 状态归一清理：triage/close 权限码与重复问题 link 权限码
-    // 已随对应端点退役删除（角色 JSON 中的残留码惰性失效，无需清洗）
-    key: 'runtime_record',
-    label: '运行记录',
-    perms: [
-      {key: 'view', label: '查看运行记录'},
-      {key: 'add', label: '新增运行记录'},
-      {key: 'edit', label: '编辑运行记录/追加与更正处理进展/上传附件（异常事件）'},
-      {key: 'resolve', label: '完成跟进（异常事件）'},
-      {key: 'convert_fault', label: '转为正式故障（异常事件）'},
-      {key: 'del', label: '删除运行记录（仅日常运行）'},
-      {key: 'important', label: '标记重要（进入系统履历）'},
+      {key: 'cancel', label: '撤销故障登记（受控撤销，非物理删除）'},
+      {key: 'del', label: '删除记录（仅日常运行）'},
+      {key: 'export', label: '导出记录列表'},
     ]
   }, {
     // 系统配置（2026-10）：只在系统详情"配置"页签内使用，不设独立菜单
@@ -154,19 +128,13 @@ export default [{
       {key: 'export', label: '导出台账'},
       {key: 'handle_exception', label: '异常处置（周/月/季维护台账异常转故障；旧巡检台账已删除）'},
     ]
-  }, {
     // inspection（值班巡检）与 inspection_template（巡检模板）权限组已随
     // "日巡视"活跃功能整体下线删除（2026-10-11），巡检专属权限码退役；
     // 存量角色 JSON 中的巡检权限码惰性失效，无需清洗。
     // work_order（工单管理）权限组已随故障维修工单功能整体删除（2026-09-30），
     // 存量角色 JSON 中的工单权限码由迁移 0043 清洗。
-
-    key: 'system_event',
-    label: '系统履历',
-    perms: [
-      {key: 'view', label: '查看系统履历'},
-      {key: 'export', label: '导出系统履历'},
-    ]
+    // system_event（系统履历）权限组已随系统履历整体退役删除（2026-10-11，
+    // 存量角色 JSON 中的履历权限码由迁移 0013 清洗删除）。
   }]
 }, {
   key: 'interference',
@@ -217,19 +185,6 @@ export default [{
         {key: 'step_reset', label: '重置步骤'},
       ]
     }]
-}, {
-  key: 'duty',
-  label: '值班日志',
-  pages: [{
-    key: 'duty',
-    label: '值班日志',
-    perms: [
-      {key: 'view', label: '查看值班日志'},
-      {key: 'add', label: '新建值班日志'},
-      {key: 'edit', label: '编辑值班日志'},
-      {key: 'del', label: '删除值班日志'},
-    ]
-  }]
 }, {
   key: 'department_duty_log',
   label: '部门值班日志',

@@ -7,7 +7,8 @@
  * 系统详情 → 配置页签（2026-10）。
  * 一个页签、两个信息区域：当前配置 + 配置变更历史；"记录配置变更"只是
  * Modal 操作，变更详情是 Drawer——不新增任何一级菜单或独立页面。
- * 普通配置变更只留变更历史与审计；重要变更由后端在应用时写入系统履历。
+ * 普通配置变更只留变更历史与审计（系统履历已随 2026-10-11 合并改造退役，
+ * 不再区分"重要变更纳入履历"）。
  */
 import React from 'react';
 import {observer} from 'mobx-react';
@@ -126,11 +127,6 @@ class SystemConfigTab extends React.Component {
         {CONFIG_VERIFY_STATUS_TEXT[text || ''] || '未验证'}
       </Tag>
     ),
-  }, {
-    title: '系统履历',
-    dataIndex: 'include_in_history',
-    width: 80,
-    render: value => (value ? <Tag color="red">已纳入</Tag> : <Tag>未纳入</Tag>),
   }, {
     title: '操作人',
     dataIndex: 'created_by_name',

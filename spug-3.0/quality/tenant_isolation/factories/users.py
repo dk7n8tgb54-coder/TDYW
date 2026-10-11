@@ -9,10 +9,6 @@ ALL_PERMS = json.dumps({
     "home": {
         "reminder": ["view", "add", "edit", "delete"],
     },
-    "runlog": {
-        "runlog": ["view", "add", "edit", "del",
-                   "update_view", "update_add", "update_edit", "update_del"],
-    },
     "regulation": {
         "regulation": ["view", "add", "edit", "del"],
     },

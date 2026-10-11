@@ -72,14 +72,14 @@ class LedgerBoundaryContractTests(TestCase):
         self.system.refresh_from_db()
         self.assertEqual(self.system.health_status, 'normal')
 
-    def test_abnormal_ledger_does_not_create_fault(self):
-        """34. 台账异常不会自动创建故障（步骤 3.1 SystemFault 数量不变）。"""
-        from apps.equipment_lifecycle.models import SystemFault
-        before = SystemFault.objects.count()
+    def test_abnormal_ledger_does_not_create_record(self):
+        """34. 台账异常不会自动创建统一记录（只有显式转故障动作才创建）。"""
+        from apps.equipment_lifecycle.operation_models import SystemOperationRecord
+        before = SystemOperationRecord.objects.count()
         create_ledger_ok(self.client_, ledger_payload(
             [entry_payload(self.system.id, [
                 item_payload(result='abnormal', abnormal_desc='疑似硬件异常')])]))
-        self.assertEqual(SystemFault.objects.count(), before)
+        self.assertEqual(SystemOperationRecord.objects.count(), before)
 
     def test_no_offline_or_mobile_models(self):
         """35. 没有二维码、移动端或离线同步模型。"""
@@ -87,21 +87,16 @@ class LedgerBoundaryContractTests(TestCase):
         forbidden = {'QrCode', 'MobileTask', 'OfflineTask', 'OfflineSyncQueue', 'SyncQueue',
                      'FieldTerminal', 'SiteCollection'}
         self.assertEqual(forbidden & model_names, set())
-        # 台账模型集合精确可控：仅允许步骤二 + 3.1 + 3.2 + 3.4（统一系统履历）
-        # + 值班巡检（今日巡检改造，6 表）的模型
+        # 台账模型集合精确可控：步骤二 + 运行与故障记录（2026-10-11 合并改造，
+        # 统一主表/进展表）+ 值班巡检（今日巡检改造，5 表，历史保留）的模型
         # （类型主数据模型已随机制移除删除；工单三表已随工单功能删除 2026-09-30；
-        # 单系统简化删除受影响系统关联两表；
-        # 自定义字段机制下线删除字段定义/字段值两表，扩展信息转固定字段）
+        # 单系统简化删除受影响系统关联两表；自定义字段机制下线删除字段定义/
+        # 字段值两表；旧故障四表与 SystemEvent 已随合并改造退役删除 2026-10-11）
         expected = {
             'LifecycleSystem',
-            'SystemFault', 'SystemFaultHandlingRecord',
+            'SystemOperationRecord', 'SystemOperationProgress',
             # 旧可视化模板四表已随路线整体删除（2026-10，迁移 0045）
             'OperationLedger', 'OperationLedgerItem', 'OperationLedgerCorrection',
-            'SystemEvent',
-            # 运行记录（2026-10 第一版）：统一运行情况录入 + 追加式处理进展
-            # （重复问题关联表 SystemRuntimeRecordDuplicateLink 已随重复功能
-            #  退役删除，2026-10-06 迁移 0008）
-            'SystemRuntimeRecord', 'SystemRuntimeRecordProgress',
             # 值班巡检（今日巡检改造）：模板两级结构 + 值班巡检单/人员/明细
             'InspectionTemplate', 'InspectionTemplateDevice', 'InspectionTemplateItem',
             'InspectionDutySheet', 'InspectionDutyPerson', 'InspectionRecord',
@@ -118,22 +113,28 @@ class LedgerBoundaryContractTests(TestCase):
         }
         self.assertEqual(model_names, expected)
 
-    def test_upgrade_and_fault_logic_untouched(self):
-        """36. upgrade 和步骤 3.1 故障状态逻辑未发生无关变化。"""
+    def test_upgrade_and_operation_logic_untouched(self):
+        """36. upgrade 和运行与故障记录的状态/健康逻辑未发生无关变化。"""
         # upgrade 模型关键字段仍然在位
         upgrade_fields = {f.name for f in django_apps.get_model('upgrade', 'UpgradeRecord')._meta.get_fields()}
         self.assertIn('title', upgrade_fields)
-        # 步骤 3.1 故障模型与状态计算入口未被本步骤修改
-        # （2026-10 流程简化：状态收敛为三值，旧 pending/recovered 已删除）
-        from apps.equipment_lifecycle import fault_services
-        from apps.equipment_lifecycle.models import SystemFault
+        # 统一记录状态枚举与健康计算入口在位
+        # （2026-10-11 合并改造：统一六状态，健康重算迁至 operation_services）
+        from apps.equipment_lifecycle import operation_services
+        from apps.equipment_lifecycle.operation_models import (
+            RECORD_STATUS_VALUES, SystemOperationRecord,
+        )
         self.assertEqual(
-            {SystemFault.STATUS_HANDLING, SystemFault.STATUS_CLOSED,
-             SystemFault.STATUS_CANCELLED},
-            {'handling', 'closed', 'cancelled'})
-        self.assertTrue(callable(fault_services.compute_health_status))
-        self.assertTrue(callable(fault_services.recompute_systems_health))
-        self.assertTrue(callable(fault_services.collect_active_impacts))
+            set(RECORD_STATUS_VALUES),
+            {'recorded', 'following_up', 'completed',
+             'handling', 'closed', 'cancelled'})
+        self.assertTrue(callable(operation_services.compute_health_status))
+        self.assertTrue(callable(operation_services.recompute_systems_health))
+        self.assertTrue(callable(operation_services.collect_active_impacts))
+        # 旧故障编号生成已随合并退役（统一编号 JL）
+        self.assertFalse(hasattr(operation_services, 'generate_fault_no'))
+        self.assertTrue(callable(operation_services.generate_record_no))
+        self.assertEqual(SystemOperationRecord._meta.db_table, 'tdyw_el_operation_record')
         # 本步骤新增表均使用 tdyw_el_* 新表名，不复用步骤一删除的旧表
         for model_name in ('OperationLedger', 'OperationLedgerItem',
                            'OperationLedgerCorrection'):

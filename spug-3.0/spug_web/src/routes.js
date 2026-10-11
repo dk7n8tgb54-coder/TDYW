@@ -12,7 +12,6 @@ import {
   FolderOpenOutlined,
   FileTextOutlined,
   ExceptionOutlined,
-  ClockCircleOutlined,
   ApartmentOutlined,
   SafetyCertificateOutlined,
   NotificationOutlined,
@@ -22,8 +21,6 @@ import {
 
 import HomeIndex from './pages/home';
 import DataAnalysisIndex from './pages/dataAnalysis';
-import RunLogIndex from './pages/runlog';
-import RunLogStatistics from './pages/runlog/Statistics';
 import SystemAccount from './pages/system/account';
 import SystemRole from './pages/system/role';
 import SystemSetting from './pages/system/setting';
@@ -40,7 +37,6 @@ import InterferenceEvents from './pages/interference/events';
 import InterferenceInvestigations from './pages/interference/investigations';
 import UpgradeCenter, {UpgradeCenterRedirect} from './pages/upgrade/UpgradeCenter';
 import UpgradeWorkbench from './pages/upgrade/Workbench';
-import ExecDutyRecord from './pages/duty';
 import DepartmentDutyLogIndex from './pages/departmentDutyLog';
 import RadioLicenseIndex from './pages/radioLicense';
 import StationFrequencyApproval from './pages/stationFrequencyApproval';
@@ -48,9 +44,7 @@ import ContractAgreementIndex from './pages/contractAgreement';
 import CoopTaskIndex from './pages/coopTask';
 import RegulationIndex from './pages/regulation';
 import EquipmentSystemIndex from './pages/equipmentLifecycle';
-import EquipmentFaultIndex from './pages/equipmentLifecycle/FaultIndex';
-import EquipmentSystemEventIndex from './pages/equipmentLifecycle/systemEvent';
-import RuntimeRecordIndex from './pages/equipmentLifecycle/runtimeRecord';
+import EquipmentOperationRecordIndex from './pages/equipmentLifecycle/operationRecord';
 import {
   WeekMonthLedgerIndex, SeasonalLedgerIndex,
 } from './pages/equipmentLifecycle/ledger/entries';
@@ -76,17 +70,16 @@ export default [
     {title: '党建工作', auth: 'document.party_building_document.view', path: '/document/party-building-documents', component: PartyBuildingDocumentsIndex},
     {title: '规章管理', auth: 'document.regulation.view', path: '/regulation', component: RegulationIndex},
   ]},
-  {icon: <FileTextOutlined/>, title: '事件管理', auth: 'runlog.runlog.view', child: [
-    {title: '事件列表', auth: 'runlog.runlog.view', path: '/runlog', component: RunLogIndex},
-    {title: '统计概览', auth: 'runlog.runlog.view', path: '/runlog/statistics', component: RunLogStatistics},
-  ]},
-  {icon: <ApartmentOutlined/>, title: '设备管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.fault.view|equipment_lifecycle.runtime_record.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.system_event.view|upgrade.upgrade.view', child: [
+  // "事件管理"（runlog）与"值班日志"（duty）菜单已随 2026-10-11 模块下线
+  // 整体删除（前端页面/路由/权限码与后端 API、数据表同步移除），
+  // "部门值班日志"（department_duty_log）为独立模块，继续保留。
+  {icon: <ApartmentOutlined/>, title: '设备管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.operation_record.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|upgrade.upgrade.view', child: [
     {title: '系统档案', auth: 'equipment_lifecycle.system.view', path: '/el/systems', component: EquipmentSystemIndex},
-    {title: '运行处置', auth: 'equipment_lifecycle.fault.view|equipment_lifecycle.runtime_record.view', child: [
-      {title: '故障处置', auth: 'equipment_lifecycle.fault.view', path: '/el/faults', component: EquipmentFaultIndex},
-      // 运行记录（2026-10 第一版；2026-10-07 更名并兼容日常运行/异常事件两类）
-      {title: '运行记录', auth: 'equipment_lifecycle.runtime_record.view', path: '/el/runtime-records', component: RuntimeRecordIndex},
-    ]},
+    // 运行与故障记录（2026-10-11 合并改造）：原"运行处置"分组下的
+    // "故障处置""运行记录"两菜单合并为统一入口，承载日常运行/异常事件/
+    // 正式故障三类记录；旧 /el/faults、/el/runtime-records 路由删除，
+    // 不保留旧页面链接兼容层
+    {title: '运行与故障记录', auth: 'equipment_lifecycle.operation_record.view', path: '/el/records', component: EquipmentOperationRecordIndex},
     // "巡视与维护"更名"维护台账"（2026-10-11）：日巡视活跃功能已整体下线
     // （前端页面/Store/路由与后端巡检 API 同步移除，权限码退役），
     // 本组只保留周月维护台账、季维护台账与 Excel 台账模板。
@@ -104,14 +97,14 @@ export default [
     ]},
     // 系统升级管理并入设备全生命周期管理（2026-09），升级记录/方案挂接系统档案；
     // 升级表单/升级方案融合为页签（2026-10，参照巡检中心），不再各占菜单项
+    // "系统履历"菜单已随 2026-10-11 合并改造整体下线（模型/接口/权限退役，
+    // 系统档案按系统直接查询统一记录等业务表）
     {title: '系统升级管理', auth: 'upgrade.upgrade.view', path: '/upgrade', component: UpgradeCenter},
-    {title: '系统履历', auth: 'equipment_lifecycle.system_event.view', path: '/el/system-events', component: EquipmentSystemEventIndex},
   ]},
   {icon: <ExceptionOutlined/>, title: '干扰管理', auth: 'interference.interference.view|interference.investigation.view', child: [
     {title: '干扰记录', auth: 'interference.interference.view', path: '/interference/events', component: InterferenceEvents},
     {title: '规律调查', auth: 'interference.investigation.view', path: '/interference/investigations', component: InterferenceInvestigations},
   ]},
-  {icon: <ClockCircleOutlined/>, title: '值班日志', auth: 'duty.duty.view', path: '/duty', component: ExecDutyRecord},
   {icon: <NotificationOutlined/>, title: '公告与提醒', auth: 'home.announcement.view|home.reminder.view', child: [
     {title: '发布公告', auth: 'home.announcement.view', path: '/system/announcement', component: AnnouncementAdmin},
     {title: '提醒事项', auth: 'home.reminder.view', path: '/reminder', component: ReminderAdmin},

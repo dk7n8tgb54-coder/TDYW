@@ -41,18 +41,6 @@ const TEST_DATA = {
     department: 'E2E测试部门',
   },
 
-  // Duty log
-  duty: {
-    title: () => `E2E_值班日志_${Date.now()}`,
-    content: 'E2E TEST DATA - Automated test content',
-  },
-
-  // Run log (cross-day items)
-  runlog: {
-    title: () => `E2E_跨日事项_${Date.now()}`,
-    content: 'E2E TEST DATA - Automated test content',
-  },
-
   // Reminder
   reminder: {
     title: () => `E2E_提醒事项_${Date.now()}`,

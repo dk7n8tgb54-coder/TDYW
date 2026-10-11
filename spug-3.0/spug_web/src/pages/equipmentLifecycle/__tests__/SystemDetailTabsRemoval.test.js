@@ -3,7 +3,8 @@
  *
  * 真实渲染 SystemDetail（ReactDOM + jsdom，仓库惯例），验证：
  * - 详情弹窗不再包含"周月维护台账""季维护台账""系统履历"三个页签；
- * - 其余页签（基本信息/故障记录/运行记录/升级记录/配置）保留可用；
+ * - 其余页签随 2026-10-11 合并改造收敛：基本信息 / 运行与故障记录 /
+ *   升级记录 / 配置（原"故障记录""运行记录"两页签合并）；
  * - 页签专用组件 SystemLedgerTab / SystemEventsTab 已删除。
  */
 import React from 'react';
@@ -93,14 +94,15 @@ describe('系统档案详情弹窗三页签下线', () => {
     const labels = Array.from(document.querySelectorAll('.ant-tabs-tab'))
       .map(tab => tab.textContent);
     expect(labels).toEqual(
-      expect.arrayContaining(['基本信息', '故障记录', '运行记录', '升级记录', '配置']));
-    ['周月维护台账', '季维护台账', '系统履历'].forEach(label => {
+      expect.arrayContaining(['基本信息', '运行与故障记录', '升级记录', '配置']));
+    ['周月维护台账', '季维护台账', '系统履历', '故障记录', '运行记录'].forEach(label => {
       expect(labels).not.toContain(label);
     });
   });
 
-  it('页签专用组件 SystemLedgerTab / SystemEventsTab 已整体删除', () => {
+  it('页签专用组件 SystemLedgerTab / SystemEventsTab / FaultRecordsTab / SystemRuntimeRecordsTab 已整体删除', () => {
     [ '../ledger/SystemLedgerTab', '../systemEvent/SystemEventsTab',
+      '../FaultRecordsTab', '../SystemRuntimeRecordsTab',
     ].forEach(modulePath => {
       let deleted = false;
       try {

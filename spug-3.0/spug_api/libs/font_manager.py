@@ -2,8 +2,8 @@
 字体管理模块
 处理 PDF 生成时的中文字体注册。
 
-字体文件位于 libs/fonts/，被 runlog/duty/device/department_duty_log 等
-PDF 导出模块共享复用，避免各模块重复实现注册逻辑。
+字体文件位于 libs/fonts/，被 department_duty_log 等模块的
+PDF 导出功能共享复用，避免各模块重复实现注册逻辑。
 
 注册优先级：容器内嵌字体 → 项目内嵌字体 → 系统字体。
 """

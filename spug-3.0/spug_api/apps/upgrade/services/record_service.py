@@ -17,7 +17,6 @@ from django.utils import timezone
 from libs.tenant_utils import apply_tenant_filter
 from libs.idempotency import check_recent_duplicate
 from apps.equipment_lifecycle.models import LifecycleSystem
-from apps.equipment_lifecycle.event_services import record_upgrade_lifecycle_events
 from ..validators import RecordValidator
 from ..serializers import UpgradeRecordSerializer
 from ..constants import UPGRADE_PHASES, RESULT_MILESTONES, STANDARD_FLOW_ORDER
@@ -172,8 +171,6 @@ class RecordService:
                         created_by=user,
                     )
 
-                    # 3. 同事务写系统履历（升级登记）
-                    record_upgrade_lifecycle_events(record, 'create', created_by=user)
 
             return record, None
 

@@ -94,6 +94,22 @@ const LEDGERS_PAYLOAD = {
   total: 1, page: 1, page_size: 20,
 };
 
+// 周期分组载荷（2026-10-11）：外层=维护周期分组，组内=各系统台账及填写状态
+const GROUPS_PAYLOAD = [
+  {
+    maintenance_period: '2026-10', period_text: '2026年10月',
+    total: 2, pending: 2, filled: 0,
+    ledgers: [
+      {id: 11, ledger_no: 'EL-WM-20261011-0001', ledger_type: 'week_month',
+       system: 3, system_name: 'DVOR系统', executed_date: '2026-10-11',
+       status: 'draft', created_by_name: 'op1', created_at: '2026-10-11 09:00'},
+      {id: 12, ledger_no: 'EL-WM-20261011-0002', ledger_type: 'week_month',
+       system: 4, system_name: 'ILS系统', executed_date: '2026-10-11',
+       status: 'draft', created_by_name: 'op1', created_at: '2026-10-11 09:00'},
+    ],
+  },
+];
+
 const entriesModule = require('../entries');
 const storeModule = require('../store');
 
@@ -108,13 +124,19 @@ describe('三类台账页面', () => {
     [entriesModule.WeekMonthLedgerIndex, 'week_month', '周月维护台账'],
     [entriesModule.SeasonalLedgerIndex, 'seasonal', '季维护台账'],
   ])('%s 入口渲染正确的页面名称与请求类型', async (Component, type, label) => {
-    mockHttpGet.mockResolvedValue(LEDGERS_PAYLOAD);
+    mockHttpGet.mockImplementation(url => {
+      // 周期分组视图（2026-10-11）：列表走 /ledgers/period-groups/，系统筛选走 /ledgers/batch-create/
+      if (url.endsWith('/ledgers/period-groups/')) {
+        return Promise.resolve({data: GROUPS_PAYLOAD});
+      }
+      return Promise.resolve({data: [], total: 0});
+    });
     await act(async () => {
       ReactDOM.render(h(Component), container);
     });
     await act(async () => {});
     expect(container.textContent).toContain(label);
-    const call = mockHttpGet.mock.calls.find(c => c[0].endsWith('/ledgers/'));
+    const call = mockHttpGet.mock.calls.find(c => c[0].endsWith('/ledgers/period-groups/'));
     expect(call[1].params.ledger_type).toBe(type);
   });
 

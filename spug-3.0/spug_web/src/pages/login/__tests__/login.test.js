@@ -42,7 +42,7 @@ jest.mock('libs/history', () => ({
 jest.mock('../../../routes', () => ([
   {title: '工作台', path: '/home', auth: 'dashboard.dashboard.view'},
   {title: '业务', child: [
-    {title: '值班日志', path: '/duty', auth: 'duty.duty.view'},
+    {title: '干扰记录', path: '/interference/events', auth: 'interference.interference.view'},
     {title: '资料库', path: '/document', auth: 'document.document.view'},
   ]},
   {title: '个人中心', child: [{title: '信息', path: '/welcome/info'}]},
@@ -162,21 +162,21 @@ describe('登录提交', () => {
   });
 
   it('location.state.from 优先于默认路由', async () => {
-    history.location.state = {from: '/duty/detail'};
+    history.location.state = {from: '/interference/events/detail'};
     await renderLogin();
     fillCredentials();
     mockHttpPost.mockResolvedValue(LOGIN_OK);
     await clickLogin();
-    expect(mockHistoryPush).toHaveBeenCalledWith('/duty/detail');
+    expect(mockHistoryPush).toHaveBeenCalledWith('/interference/events/detail');
   });
 
   it('无工作台权限时跳转第一个有权限的菜单', async () => {
-    mockHasPermission.mockImplementation(perm => perm === 'duty.duty.view');
+    mockHasPermission.mockImplementation(perm => perm === 'interference.interference.view');
     await renderLogin();
     fillCredentials();
     mockHttpPost.mockResolvedValue(LOGIN_OK);
     await clickLogin();
-    expect(mockHistoryPush).toHaveBeenCalledWith('/duty');
+    expect(mockHistoryPush).toHaveBeenCalledWith('/interference/events');
   });
 
   it('有工作台权限时优先跳转工作台', async () => {

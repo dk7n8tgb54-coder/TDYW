@@ -3,8 +3,8 @@
 from django.test import TestCase, Client
 from apps.account.models import User
 from apps.upgrade.models import UpgradeRecord
-from apps.runlog.models import RunLog
 from apps.setting.utils import AppSetting
+from apps.utils.test_helpers import make_upgrade_no
 import time
 
 
@@ -32,27 +32,13 @@ class ExecAPITest(TestCase):
         self.client.defaults['HTTP_X_FORWARDED_FOR'] = '127.0.0.1'
         AppSetting.set('bind_ip', False)
 
-    def test_get_run_logs(self):
-        """Test getting run logs"""
-        RunLog.objects.create(
-            tenant_id=self.user.tenant_id,
-            system_name='System1',
-            event_title='Test Log',
-            event_type='运行异常',
-            created_by=self.user
-        )
-
-        response = self.client.get('/runlog/')
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertIn('data', data)
-
     def test_get_upgrade_records(self):
         """Test getting upgrade records"""
         UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id,
-            system='System1',
-            version='v2.0.0',
+            system_name='System1',
+            upgrade_type='常规升级',
             upgrade_time='2026-01-01',
             owner='User1',
             created_by=self.user
@@ -79,15 +65,17 @@ class ExecAPITest(TestCase):
             type='default'
         )
 
-        RunLog.objects.create(
+        UpgradeRecord.objects.create(
+            upgrade_no=make_upgrade_no(),
             tenant_id=self.user.tenant_id,
             system_name='System1',
-            event_title='User 1 log',
-            event_type='运行异常',
+            upgrade_type='常规升级',
+            upgrade_time='2026-01-01',
+            owner='User1',
             created_by=self.user
         )
 
-        response = self.client.get('/runlog/')
+        response = self.client.get('/upgrade/upgrade/')
         self.assertEqual(response.status_code, 200)
         data = response.json()
         # Supper user should see all data

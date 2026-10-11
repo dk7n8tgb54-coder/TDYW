@@ -35,8 +35,7 @@ class ReadWorkflowUser(TokenPoolHttpUser):
     Simulates a user browsing through various modules:
     - Dashboard / Home
     - Data Analysis
-    - Duty Logs
-    - Run Logs
+    - Department Duty Log
     - Radio License
     - Contract Agreement
     - Documents
@@ -154,30 +153,6 @@ class ReadWorkflowUser(TokenPoolHttpUser):
     def dept_duty_log_options(self):
         """Get department duty log options."""
         self._safe_get("/api/department-duty-log/options/")
-
-    # === Duty Log ===
-
-    @task(4)
-    def duty_records(self):
-        """Get duty records."""
-        self._safe_get("/api/duty/duty/")
-
-    # === RunLog ===
-
-    @task(4)
-    def runlog_records(self):
-        """Get runlog records."""
-        self._safe_get("/api/runlog/")
-
-    @task(2)
-    def runlog_overview(self):
-        """Get runlog overview."""
-        self._safe_get("/api/runlog/overview/")
-
-    @task(2)
-    def runlog_statistics(self):
-        """Get runlog statistics."""
-        self._safe_get("/api/runlog/statistics/")
 
     # === Reminder ===
 

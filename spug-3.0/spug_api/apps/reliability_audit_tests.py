@@ -14,31 +14,11 @@ import logging
 
 from django.test import TestCase, RequestFactory
 from apps.account.models import User
-from apps.home.models import Navigation
 from apps.interference.models import InterferenceEvent
-from apps.runlog.models import RunLog
 from apps.logs.models import AuditLog
 from apps.utils.test_helpers import make_user, make_client, setup_test_env, make_upgrade_no
 
 logger = logging.getLogger(__name__)
-
-
-class R2NavViewAuthFixedTest(TestCase):
-    """R2 修复验证：无权限用户不能删除导航"""
-
-    def setUp(self):
-        setup_test_env(self)
-        self.no_perm_user = make_user('noperm_nav_f2', perms=[])
-        self.client_no_perm = make_client(self.no_perm_user)
-        self.nav = Navigation.objects.create(
-            title='测试导航', desc='描述', logo='[]', links='[]'
-        )
-
-    def test_no_perm_user_cannot_delete_navigation(self):
-        nav_id = self.nav.id
-        self.client_no_perm.delete(f'/home/navigation/?id={nav_id}')
-        self.assertTrue(Navigation.objects.filter(pk=nav_id).exists(),
-                        'R2 修复验证失败：无权限用户仍能删除导航')
 
 
 class R4InterferenceSoftDeleteFixedTest(TestCase):
@@ -70,31 +50,6 @@ class R4InterferenceSoftDeleteFixedTest(TestCase):
         self.assertTrue(record.is_deleted)
 
 
-class R5RunLogSoftDeleteFixedTest(TestCase):
-    """R5 修复验证：RunLog 有 is_deleted 字段，逻辑删除"""
-
-    def test_runlog_has_soft_delete_field(self):
-        field_names = [f.name for f in RunLog._meta.get_fields()]
-        self.assertIn('is_deleted', field_names,
-                      'R5 修复验证失败：RunLog 仍无 is_deleted 字段')
-
-    def test_runlog_logical_delete(self):
-        setup_test_env(self)
-        admin_user = make_user('admin_runlog_f5', is_supper=True)
-        log = RunLog.objects.create(
-            event_title='修复验证', event_type='运行异常',
-            system_name='验证系统', severity='P1', status='in_progress',
-            created_by=admin_user, tenant_id='admin',
-        )
-        log_id = log.id
-        log.is_deleted = True
-        log.deleted_at = log.created_at
-        log.save()
-        self.assertTrue(RunLog.objects.filter(pk=log_id).exists())
-        log.refresh_from_db()
-        self.assertTrue(log.is_deleted)
-
-
 class R6InterferenceAuditFixedTest(TestCase):
     """R6 修复验证：InterferenceEvent 删除后有业务级审计日志"""
 
@@ -123,32 +78,6 @@ class R6InterferenceAuditFixedTest(TestCase):
                         'R6 修复验证失败：删除操作仍无业务级审计')
 
 
-class R7RunLogAuditFixedTest(TestCase):
-    """R7 修复验证：RunLog 删除后有业务级审计日志"""
-
-    def setUp(self):
-        setup_test_env(self)
-        self.admin_user = make_user('admin_runlog_f7', is_supper=True)
-        self.client_admin = make_client(self.admin_user)
-        self.runlog = RunLog.objects.create(
-            event_title='审计验证事件', event_type='运行异常',
-            system_name='验证系统', severity='P1', status='in_progress',
-            created_by=self.admin_user, tenant_id='admin',
-        )
-
-    def test_runlog_delete_has_business_audit(self):
-        record_id = self.runlog.id
-        self.client_admin.delete(f'/runlog/?id={record_id}')
-        audit_logs = AuditLog.objects.filter(
-            action='delete', target_type='runlog',
-        )
-        has_business_audit = audit_logs.filter(
-            target_name__isnull=False
-        ).exclude(target_name='').exists()
-        self.assertTrue(has_business_audit,
-                        'R7 修复验证失败：删除操作仍无业务级审计')
-
-
 class R8UpgradeLegacyParamFixedTest(TestCase):
     """R8 修复验证：legacy delete 正确传 request"""
 
@@ -163,7 +92,7 @@ class R8UpgradeLegacyParamFixedTest(TestCase):
         record = UpgradeRecord.objects.create(
             upgrade_no=make_upgrade_no(),
             title='测试legacy修复',
-            system='测试系统', upgrade_type='常规升级', owner='测试人',
+            system_name='测试系统', upgrade_type='常规升级', owner='测试人',
             created_by=self.admin_user, tenant_id='admin',
         )
         rf = RequestFactory()
@@ -196,7 +125,7 @@ class R9UpgradeSubOpsAuditFixedTest(TestCase):
         self.record = UpgradeRecord.objects.create(
             upgrade_no=make_upgrade_no(),
             title='测试子操作审计修复',
-            system='测试系统', upgrade_type='常规升级', owner='测试人',
+            system_name='测试系统', upgrade_type='常规升级', owner='测试人',
             created_by=self.admin_user, tenant_id='admin',
         )
         self.step = UpgradeRecordStep.objects.create(
@@ -205,7 +134,7 @@ class R9UpgradeSubOpsAuditFixedTest(TestCase):
         )
         self.plan = UpgradeTemplate.objects.create(
             tenant_id='admin', name='测试方案f9',
-            system='测试系统', upgrade_type='常规升级',
+            system_name='测试系统', upgrade_type='常规升级',
             created_by=self.admin_user,
         )
         self.status_log = UpgradeStatusLog.objects.create(
@@ -260,23 +189,6 @@ class R10SettingAuditFixedTest(TestCase):
                            'R10 修复验证失败：传 request 时仍无审计日志')
 
 
-class R11HomeModelsSoftDeleteFixedTest(TestCase):
-    """R11 修复验证：Navigation 有 is_deleted 字段"""
-
-    def test_navigation_has_soft_delete_field(self):
-        field_names = [f.name for f in Navigation._meta.get_fields()]
-        self.assertIn('is_deleted', field_names,
-                      'R11 修复验证失败：Navigation 仍无 is_deleted 字段')
-
-    def test_navigation_logical_delete(self):
-        setup_test_env(self)
-        nav = Navigation.objects.create(title='测试', desc='d', logo='[]', links='[]')
-        nav_id = nav.id
-        nav.is_deleted = True
-        nav.save()
-        self.assertTrue(Navigation.objects.filter(pk=nav_id).exists())
-
-
 class R12UpgradeModelsSoftDeleteFixedTest(TestCase):
     """R12 修复验证：UpgradeRecord/Step 有 is_deleted 字段
 
@@ -296,12 +208,3 @@ class R12UpgradeModelsSoftDeleteFixedTest(TestCase):
         field_names = [f.name for f in UpgradeRecordStep._meta.get_fields()]
         self.assertIn('is_deleted', field_names,
                       'R12 修复验证失败：UpgradeRecordStep 仍无 is_deleted 字段')
-
-
-class R13HomeModelsTenantIsolationFixedTest(TestCase):
-    """R13 修复验证：Navigation 有 tenant_id 字段"""
-
-    def test_navigation_has_tenant_id(self):
-        field_names = [f.name for f in Navigation._meta.get_fields()]
-        self.assertIn('tenant_id', field_names,
-                      'R13 修复验证失败：Navigation 仍无 tenant_id 字段')

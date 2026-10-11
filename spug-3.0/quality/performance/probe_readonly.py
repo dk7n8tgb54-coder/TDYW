@@ -116,8 +116,6 @@ def run_probes(base_url, token, iterations=3):
         ("GET", "/api/data-analysis/overview/", {}, "data_analysis"),
         # Daily business
         ("GET", "/api/department-duty-log/records/", {"page": 1, "page_size": 5}, "dept_duty_logs"),
-        ("GET", "/api/duty/duty/", {"page": 1, "page_size": 5}, "duty_records"),
-        ("GET", "/api/runlog/", {"page": 1, "page_size": 5}, "runlogs"),
         ("GET", "/api/reminder/", {"page": 1, "page_size": 5}, "reminders"),
         # Documents & administration
         ("GET", "/api/radio-license/", {"page": 1, "page_size": 5}, "radio_licenses"),

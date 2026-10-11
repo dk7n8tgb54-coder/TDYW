@@ -175,12 +175,6 @@ class SystemConfigChangeDetail extends React.Component {
         </Descriptions.Item>
         <Descriptions.Item label="验证时间">{d.verified_at || '-'}</Descriptions.Item>
         <Descriptions.Item label="验证说明" span={2}>{d.verify_note || '-'}</Descriptions.Item>
-        <Descriptions.Item label="纳入系统履历">
-          {d.include_in_history
-            ? <Tag color="red">是</Tag>
-            : <Tag>否</Tag>}
-        </Descriptions.Item>
-        <Descriptions.Item label="纳入原因">{d.history_reason || '-'}</Descriptions.Item>
         {d.rollback_of_no && (
           <Descriptions.Item label="回退自" span={2}>{d.rollback_of_no}</Descriptions.Item>
         )}

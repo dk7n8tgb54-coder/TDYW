@@ -6,7 +6,7 @@
 /**
  * 系统详情 → 配置页签 —— 记录配置变更（Modal，非独立页面）。
  * - 选择一个或多个配置参数，自动显示当前值，填写变更后值；
- * - 变更原因必填；可填写验证说明；可选是否纳入重要系统履历（须填原因）；
+ * - 变更原因必填；可填写验证说明（系统履历已退役，不再提供"纳入履历"选项）。
  * - 附件在变更创建成功后按收集到的文件依次上传到该变更下；
  * - 提交成功等待后端真实结果（先创建变更拿到编号，再传附件），不乐观更新。
  */
@@ -83,8 +83,6 @@ function buildChangePayload(systemId, values, rows, configItems) {
       system: systemId,
       reason: values.reason,
       items,
-      include_in_history: !!values.include_in_history,
-      history_reason: values.include_in_history ? values.history_reason : '',
       verify_note: values.verify_note || '',
       client_token: makeClientToken(),
     },
@@ -95,9 +93,6 @@ const SystemConfigChangeModal = observer(function SystemConfigChangeModal({syste
   const [form] = Form.useForm();
   const [rows, setRows] = useState([{param: undefined, new_value: undefined, remark: ''}]);
   const [files, setFiles] = useState([]);
-  const includeHistory = Form.useWatch('include_in_history', form) ||
-    form.getFieldValue('include_in_history');
-
   useEffect(() => {
     if (store.formVisible) {
       form.resetFields();
@@ -180,7 +175,6 @@ const SystemConfigChangeModal = observer(function SystemConfigChangeModal({syste
       </Button>
       <Form form={form} labelCol={{span: 5}} wrapperCol={{span: 18}}>
         <ChangeFormFields
-          includeHistory={includeHistory}
           files={files}
           onCollectFiles={collectFiles}
           onRemoveFile={removeFile}
@@ -232,7 +226,7 @@ function ParamRow({row, configItems, onParamChange, onValueChange, onRemarkChang
 }
 
 // 变更表单字段区（渲染在 Form 上下文内；经 name 属性与 form 关联）
-function ChangeFormFields({includeHistory, files, onCollectFiles, onRemoveFile}) {
+function ChangeFormFields({files, onCollectFiles, onRemoveFile}) {
   return (
     <Fragment>
       <Form.Item label="变更原因" name="reason"
@@ -242,16 +236,6 @@ function ChangeFormFields({includeHistory, files, onCollectFiles, onRemoveFile})
       <Form.Item label="验证说明" name="verify_note">
         <Input maxLength={500} placeholder="选填，如预期验证方式或说明"/>
       </Form.Item>
-      <Form.Item label="纳入系统履历" name="include_in_history" valuePropName="checked"
-        extra="重要配置变更可纳入系统履历">
-        <Switch/>
-      </Form.Item>
-      {includeHistory && (
-        <Form.Item label="纳入原因" name="history_reason"
-          rules={[{required: true, message: '纳入系统履历的重要变更必须填写原因'}]}>
-          <Input maxLength={500} placeholder="请说明纳入系统履历的原因"/>
-        </Form.Item>
-      )}
       <Form.Item label="附件">
         <Upload
           multiple

@@ -54,13 +54,6 @@ test.describe('Cross-Module Integration Tests', () => {
     await result.context.dispose();
   });
 
-  test('X008 - Runlog in-progress items appear on home page', async ({}) => {
-    const result = await loginAndCreateContext('admin');
-    const data = await apiGet(result.context, '/api/runlog/?status=in_progress&page_size=5');
-    expect(data).toBeDefined();
-    await result.context.dispose();
-  });
-
   test('X009 - Home page loads all overview panels', async ({ page, request }) => {
     const { apiLogin, injectAuth } = require('../../fixtures/auth.fixture');
     const session = await apiLogin(request, 'admin');

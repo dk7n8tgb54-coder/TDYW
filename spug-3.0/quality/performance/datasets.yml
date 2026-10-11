@@ -31,8 +31,6 @@ datasets:
     prefix: "PERF_"
     max_records: 50
     categories:
-      - duty_logs
-      - runlogs
       - reminders
       - interferences
     cleanup: "Automatic via cleanup helper, matching PERF_ prefix"

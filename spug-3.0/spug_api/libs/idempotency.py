@@ -8,12 +8,11 @@
 使用方式：
     from libs.idempotency import check_recent_duplicate, IdempotencyError
 
-    if check_recent_duplicate(DutyRecord, {
-        'duty_person': form['duty_person'],
-        'department': form['department'],
-        'duty_date': form['duty_date'],
+    if check_recent_duplicate(InterferenceEvent, {
+        'phenomenon': form['phenomenon'],
+        'datetime': form['datetime'],
     }):
-        raise IdempotencyError('值班日志')
+        raise IdempotencyError('干扰记录')
 """
 from datetime import timedelta
 from django.utils import timezone

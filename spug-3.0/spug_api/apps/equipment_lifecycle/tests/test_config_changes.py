@@ -31,7 +31,6 @@ from apps.equipment_lifecycle.config_models import (
     ConfigParamDefinition,
     SystemParamValue,
 )
-from apps.equipment_lifecycle.models import SystemEvent
 from apps.equipment_lifecycle.tests.base import (
     URL_PREFIX,
     make_client, make_system, make_user,
@@ -111,8 +110,6 @@ class ConfigTestBase:
             'system': system.id,
             'reason': overrides.pop('reason', '例行参数调整 %s' % uuid.uuid4().hex[:6]),
             'items': items or [],
-            'include_in_history': False,
-            'history_reason': '',
             'verify_note': '',
             'client_token': 'tok-%s' % uuid.uuid4().hex,
         }
@@ -444,55 +441,40 @@ class StateMachineTests(ConfigTestBase, TestCase):
         self.assertTrue(resp.json().get('error'))
 
 
-class HistoryEventTests(ConfigTestBase, TestCase):
-    """场景 9/10：普通变更不进履历；重要变更进履历且只生成一次。"""
+class HistoryRetirementTests(ConfigTestBase, TestCase):
+    """场景 9/10（2026-10-11 合并改造改写）：系统履历退役后配置变更不再写履历。
 
-    def test_normal_change_writes_no_history_event(self):
-        param = self.create_param(param_code='tx_power', data_type='number')
-        change = self.create_change(items=[{'param': param.id, 'new_value': '41', 'remark': ''}])
-        self.apply_change(change['id'])
-        self.assertFalse(SystemEvent.objects.filter(
-            event_type='config', source_id=str(change['id'])).exists())
+    原"重要变更写履历事件"契约随 SystemEvent 整体退役删除；配置变更的
+    追溯由变更历史（ConfigChangeRecord/ConfigChangeItem）与业务审计承载。
+    """
 
-    def test_important_change_writes_event_once(self):
+    def test_apply_and_rollback_without_history_flags(self):
         param = self.create_param(param_code='tx_power', data_type='number')
         change = self.create_change(
-            items=[{'param': param.id, 'new_value': '45', 'remark': ''}],
-            include_in_history=True, history_reason='影响覆盖范围的功率调整')
+            items=[{'param': param.id, 'new_value': '45', 'remark': ''}])
         self.apply_change(change['id'])
-        events = SystemEvent.objects.filter(event_type='config', source_id=str(change['id']))
-        self.assertEqual(events.count(), 1)
-        event = events.first()
-        self.assertEqual(event.source_type, 'config_change')
-        self.assertEqual(event.source_no, change['change_no'])
-        self.assertEqual(event.action, 'apply')
-        self.assertIn('配置变更', event.title)
-        detail = event.get_detail()
-        self.assertEqual(detail['history_reason'], '影响覆盖范围的功率调整')
-        self.assertEqual(detail['items'][0]['param_code'], 'tx_power')
-        # 重复应用被状态机拒绝 → 事件不会重复生成
-        resp = self.client.post(
-            URL_PREFIX + '/config-changes/%s/apply/' % change['id'], {},
-            content_type='application/json')
-        self.assertTrue(resp.json().get('error'))
-        self.assertEqual(
-            SystemEvent.objects.filter(event_type='config', source_id=str(change['id'])).count(), 1)
-
-    def test_rollback_of_important_change_also_in_history(self):
-        param = self.create_param(param_code='tx_power', data_type='number')
-        change = self.create_change(
-            items=[{'param': param.id, 'new_value': '45', 'remark': ''}],
-            include_in_history=True, history_reason='重要调整')
-        self.apply_change(change['id'])
+        # 回退生成反向变更并回写当前值
         resp = self.client.post(
             URL_PREFIX + '/config-changes/%s/rollback/' % change['id'], {},
             content_type='application/json')
         rollback = resp.json()['data']
-        events = SystemEvent.objects.filter(event_type='config')
-        self.assertEqual(events.count(), 2)
-        rollback_event = events.filter(source_no=rollback['change_no']).first()
-        self.assertIsNotNone(rollback_event)
-        self.assertEqual(rollback_event.action, 'rollback')
+        self.assertTrue(rollback['change_no'].startswith('PZ'))
+        self.assertEqual(rollback['rollback_of'], change['id'])
+        # 履历模型已删除：不存在任何履历写入路径
+        from django.apps import apps as django_apps
+        with self.assertRaises(LookupError):
+            django_apps.get_model('equipment_lifecycle', 'SystemEvent')
+
+    def test_change_payload_rejects_nothing_on_history_flags(self):
+        """旧载荷携带 include_in_history 时不再生效（字段已删除，静默忽略）。"""
+        param = self.create_param(param_code='tx_power', data_type='number')
+        change = self.create_change(
+            items=[{'param': param.id, 'new_value': '41', 'remark': ''}],
+            include_in_history=True, history_reason='历史遗留字段')
+        detail = self.client.get(
+            URL_PREFIX + '/config-changes/%s/' % change['id']).json()['data']
+        self.assertNotIn('include_in_history', detail)
+        self.assertNotIn('history_reason', detail)
 
 
 class TenantIsolationTests(ConfigTestBase, TestCase):

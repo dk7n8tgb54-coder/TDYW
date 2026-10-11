@@ -236,9 +236,7 @@ def migrate_existing_data(tenant_id_map):
     用于初始化时给现有数据分配租户ID
     """
     from apps.account.models import User
-    from apps.duty.models import DutyRecord
     from apps.interference.models import InterferenceEvent, InterferenceInvestigation, SpectrumMeasurement
-    from apps.runlog.models import RunLog
     from apps.upgrade.models import UpgradeRecord
 
     # 为用户分配租户
@@ -248,9 +246,8 @@ def migrate_existing_data(tenant_id_map):
 
     # 为现有数据分配租户(根据created_by的用户租户)
     models_to_migrate = [
-        RunLog, InterferenceEvent,
+        InterferenceEvent,
         InterferenceInvestigation, SpectrumMeasurement, UpgradeRecord,
-        DutyRecord
     ]
 
     for model in models_to_migrate:

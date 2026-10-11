@@ -57,9 +57,12 @@ describe('角色权限码目录结构', () => {
     expect(codes.has('document.document.view')).toBe(true);
     expect(codes.has('document.party_building_document.view')).toBe(true);
     expect(codes.has('document.regulation.category_manage')).toBe(true);
-    // 值班日志 / 跨日事项 / 提醒事项（home.reminder.*）
-    expect(codes.has('duty.duty.view')).toBe(true);
+    // 部门值班日志 / 提醒事项（home.reminder.*）
+    expect(codes.has('department_duty_log.department_duty_log.view')).toBe(true);
     expect(codes.has('home.reminder.view')).toBe(true);
+    // 已下线模块的权限码不得回潜（runlog 事件管理 / duty 值班日志）
+    expect(codes.has('runlog.runlog.view')).toBe(false);
+    expect(codes.has('duty.duty.view')).toBe(false);
     // 操作日志与系统告警（system.audit / system.alert）
     expect(codes.has('system.audit.view')).toBe(true);
     expect(codes.has('system.alert.view')).toBe(true);
