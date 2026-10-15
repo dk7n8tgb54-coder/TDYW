@@ -1,7 +1,7 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Copyright: (c) <spug.dev@gmail.com>
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——运行与故障记录统一模型（2026-10-11 合并改造）。
+"""设备全生命周期——运行处置记录统一模型（2026-10-11 合并改造）。
 
 将原"故障处置"（SystemFault/SystemFaultHandlingRecord）与"运行记录"
 （SystemRuntimeRecord/SystemRuntimeRecordProgress）合并为一张统一主表 +
@@ -9,14 +9,14 @@
 整体删除，系统档案直接查询各业务表）。
 
 统一记录类型（record_type，创建后除"异常事件认定故障"外不可修改）：
-- routine   日常运行：常规作业留痕，创建后恒为"已记录"，允许补充进展，
+- routine   一般记录：常规作业留痕，创建后恒为"已记录"，允许补充进展，
   不进入故障状态机，不影响系统健康状态；
-- abnormal  异常事件：临时异常或尚未认定为正式故障的问题，
-  已记录 → 跟进中 → 已完成；允许在原记录上认定为正式故障；
-- fault     正式故障：直接登记或由异常事件认定，处置中 →（确认恢复并结案）
+- abnormal  异常事件：临时异常或尚未认定为设备故障的问题，
+  已记录 → 跟进中 → 已完成；允许在原记录上认定为设备故障；
+- fault     设备故障：直接登记或由异常事件认定，处置中 →（确认恢复并结案）
   已关闭，错误/重复登记可填写原因受控撤销（已撤销）。
 
-健康状态：只有 正式故障 + 处置中（有效未关闭）+ 明确影响系统运行 的记录
+健康状态：只有 设备故障 + 处置中（有效未关闭）+ 明确影响系统运行 的记录
 参与系统健康状态计算（operation_services 统一重算）。
 
 约束：
@@ -53,19 +53,19 @@ RECORD_TYPE_ABNORMAL = 'abnormal'
 RECORD_TYPE_FAULT = 'fault'
 RECORD_TYPE_VALUES = [RECORD_TYPE_ROUTINE, RECORD_TYPE_ABNORMAL, RECORD_TYPE_FAULT]
 RECORD_TYPE_CHOICES = (
-    (RECORD_TYPE_ROUTINE, '日常运行'),
+    (RECORD_TYPE_ROUTINE, '一般记录'),
     (RECORD_TYPE_ABNORMAL, '异常事件'),
-    (RECORD_TYPE_FAULT, '正式故障'),
+    (RECORD_TYPE_FAULT, '设备故障'),
 )
 RECORD_TYPE_TEXT_MAP = dict(RECORD_TYPE_CHOICES)
 
 # 统一状态（三类型各有合法子集，DB CHECK 强制 record_type 与 status 匹配）
-RECORD_STATUS_RECORDED = 'recorded'            # 已记录（日常运行/异常事件）
+RECORD_STATUS_RECORDED = 'recorded'            # 已记录（一般记录/异常事件）
 RECORD_STATUS_FOLLOWING_UP = 'following_up'    # 跟进中（异常事件）
 RECORD_STATUS_COMPLETED = 'completed'          # 已完成（异常事件）
-RECORD_STATUS_HANDLING = 'handling'            # 处置中（正式故障）
-RECORD_STATUS_CLOSED = 'closed'                # 已关闭（正式故障终态）
-RECORD_STATUS_CANCELLED = 'cancelled'          # 已撤销（正式故障终态，登记不再有效）
+RECORD_STATUS_HANDLING = 'handling'            # 处置中（设备故障）
+RECORD_STATUS_CLOSED = 'closed'                # 已关闭（设备故障终态）
+RECORD_STATUS_CANCELLED = 'cancelled'          # 已撤销（设备故障终态，登记不再有效）
 RECORD_STATUS_VALUES = [
     RECORD_STATUS_RECORDED, RECORD_STATUS_FOLLOWING_UP, RECORD_STATUS_COMPLETED,
     RECORD_STATUS_HANDLING, RECORD_STATUS_CLOSED, RECORD_STATUS_CANCELLED,
@@ -141,24 +141,24 @@ RECORD_NO_PREFIX = 'JL'
 RECORD_NO_SEQ_LIMIT = 9999
 
 # 附件归属标识（复用 EvidenceAttachment 体系，不新建文件存储）：
-# 主记录级 el_operation_record / 统一进展级 el_operation_progress
+# 主记录级 el_operation_record（进展级 el_operation_progress 已于 2026-10-13
+# 退役，存量行经迁移 0016 重指到主记录级）
 OPERATION_ATTACHMENT_OBJECT_TYPE = 'el_operation_record'
-PROGRESS_ATTACHMENT_OBJECT_TYPE = 'el_operation_progress'
 
 
 class SystemOperationRecord(TenantModelMixin, models.Model):
-    """运行与故障记录统一主表（2026-10-11 合并故障处置与运行记录）。
+    """运行处置记录统一主表（2026-10-11 合并故障处置与运行记录）。
 
     - 新建只要求 系统/发生时间/标题/情况描述/登记人，其余选填或默认值；
-      正式故障可径直创建（add_fault 权限），异常事件可在原记录上认定为
-      正式故障（identify-fault 动作：更新同一条主记录的类型与状态，
+      设备故障可径直创建（add_fault 权限），异常事件可在原记录上认定为
+      设备故障（identify-fault 动作：更新同一条主记录的类型与状态，
       保留原描述、登记人、附件与全部进展，不创建第二张单）；
     - 系统快照（编号/名称/安装地点）仅用于历史展示，正式关联一律用
       system 外键（PROTECT）；切换系统由编辑动作完成并重算健康状态；
     - 故障专用字段（影响系统运行/影响程度/原因分析/原因未明/恢复信息/
-      结案说明）仅正式故障使用，日常运行与异常事件恒为默认值；
+      结案说明）仅设备故障使用，一般记录与异常事件恒为默认值；
     - 取消语义：cancel_reason/cancelled_at/cancelled_by 为撤销留痕，
-      仅正式故障可撤销，历史记录保留可追溯（不物理删除）；
+      仅设备故障可撤销，历史记录保留可追溯（不物理删除）；
     - 来源信息：台账异常转故障写入 source_ledger_item 正式外键 +
       source_type/source_id 冗余，双向可追溯；
     - resolved_at 为异常事件首次完成跟进时间（统计平均处理时长用，
@@ -170,7 +170,7 @@ class SystemOperationRecord(TenantModelMixin, models.Model):
     record_no = models.CharField(max_length=50, help_text='统一记录编号（JL+创建日期+当日四位序号，自动生成、不可变；当日序号全租户共享）')
     record_type = models.CharField(
         max_length=20, choices=RECORD_TYPE_CHOICES,
-        help_text='记录类型（routine日常运行/abnormal异常事件/fault正式故障；'
+        help_text='记录类型（routine一般记录/abnormal异常事件/fault设备故障；'
                   '异常事件认定故障后原地变更为 fault，其余场景创建后不可修改）')
     system = models.ForeignKey(
         LifecycleSystem, models.PROTECT, related_name='operation_records',
@@ -182,7 +182,7 @@ class SystemOperationRecord(TenantModelMixin, models.Model):
 
     occurred_at = models.DateTimeField(help_text='发生时间')
     title = models.CharField(max_length=200, help_text='标题')
-    description = models.TextField(max_length=2000, help_text='情况描述（正式故障时即故障现象）')
+    description = models.TextField(max_length=2000, help_text='情况描述（设备故障时即故障现象）')
     registrar_name = models.CharField(
         max_length=200, default='', blank=True,
         help_text='登记人（手动输入的登记人姓名，多人以顿号分隔；'
@@ -197,13 +197,13 @@ class SystemOperationRecord(TenantModelMixin, models.Model):
         help_text='异常类别（选填：device设备异常/signal信号异常/link链路传输/'
                   'power供电异常/environment机房环境/software软件数据/other其他；空串=未选择）')
 
-    # —— 正式故障专用字段 ——
+    # —— 设备故障专用字段 ——
     fault_object_name = models.CharField(max_length=100, default='', blank=True,
-                                         help_text='具体故障对象名称快照（正式故障）')
+                                         help_text='具体故障对象名称快照（设备故障）')
     fault_object_model = models.CharField(max_length=100, default='', blank=True,
-                                          help_text='具体故障对象型号快照（正式故障）')
+                                          help_text='具体故障对象型号快照（设备故障）')
     fault_object_sn = models.CharField(max_length=100, default='', blank=True,
-                                       help_text='具体故障对象编号/序列号快照（正式故障）')
+                                       help_text='具体故障对象编号/序列号快照（设备故障）')
     affects_system_operation = models.BooleanField(
         default=False,
         help_text='是否影响系统运行（False=部件故障/离线维修，默认不影响，不参与健康状态计算；'
@@ -217,12 +217,12 @@ class SystemOperationRecord(TenantModelMixin, models.Model):
     # 勾选后 reason_analysis 保存的是未明说明（不强迫用户填写虚假原因）
     reason_analysis = models.TextField(
         max_length=2000, default='', blank=True,
-        help_text='原因分析（正式故障；新增=初步原因分析，处置中=初步判断，结案=最终原因；'
+        help_text='原因分析（设备故障；新增=初步原因分析，处置中=初步判断，结案=最终原因；'
                   '原因未明时保存未明说明）')
     reason_unknown = models.BooleanField(
         default=False,
         help_text='原因未明标记（确实无法确定原因时为 True，reason_analysis 保存未明说明）')
-    recovered_at = models.DateTimeField(null=True, blank=True, help_text='恢复时间（正式故障结案时写入）')
+    recovered_at = models.DateTimeField(null=True, blank=True, help_text='恢复时间（设备故障结案时写入）')
     recovered_confirmed_at = models.DateTimeField(null=True, blank=True, help_text='恢复确认时间（结案操作写入）')
     recovered_by_name = models.CharField(
         max_length=200, default='', blank=True,
@@ -267,8 +267,8 @@ class SystemOperationRecord(TenantModelMixin, models.Model):
 
     class Meta:
         db_table = 'tdyw_el_operation_record'
-        verbose_name = '运行与故障记录'
-        verbose_name_plural = '运行与故障记录'
+        verbose_name = '运行处置记录'
+        verbose_name_plural = '运行处置记录'
         ordering = ('-occurred_at', '-id')
         constraints = [
             models.UniqueConstraint(
@@ -404,17 +404,17 @@ class SystemOperationRecord(TenantModelMixin, models.Model):
 class SystemOperationProgress(TenantModelMixin, models.Model):
     """统一处理进展：追加式时间线（合并原故障处置记录与运行记录处理进展）。
 
-    - 三种记录类型共用本表：日常运行允许补充进展（不改变状态），
+    - 三种记录类型共用本表：一般记录允许补充进展（不改变状态），
       异常事件首条进展即进入跟进中、已完成追加进展即重新跟进，
-      正式故障仅处置中可追加（已关闭/已撤销封闭，视图层校验）；
+      设备故障仅处置中可追加（已关闭/已撤销封闭，视图层校验）；
     - 处理人 handler_name 为手动输入姓名快照（实际处理的人可能无系统账号），
       handler 保留操作账号审计字段；历史/缺省展示回落 handler 用户名；
     - 工时选填（小时）；厂家送修、厂家反馈、外委处理等暂以进展内容记录，
       不设进展分类前置，也不建设厂家维修模块；
     - 已保存进展不得被普通用户静默覆盖：更正时把原内容、修改内容、更正原因
       追加保存到 corrections JSON 数组（[{old, new, reason, by, at}]）；
-    - 附件使用 EvidenceAttachment（module=equipment_lifecycle,
-      object_type=el_operation_progress, object_id=进展ID）。
+    - 进展不再直接挂附件：材料统一记录级附件（object_type=el_operation_record），
+      原进展级附件（el_operation_progress）已退役。
     """
 
     record = models.ForeignKey(

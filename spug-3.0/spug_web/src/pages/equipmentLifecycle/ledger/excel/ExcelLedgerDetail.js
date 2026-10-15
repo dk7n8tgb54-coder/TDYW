@@ -17,9 +17,10 @@
 import React, {useState} from 'react';
 import {observer} from 'mobx-react';
 import {
-  Button, Card, Descriptions, Dropdown, Input, Menu, Modal,
+  Button, Card, DatePicker, Descriptions, Dropdown, Input, Menu, Modal,
   Popconfirm, Space, Spin, Tag, message,
 } from 'antd';
+import moment from 'moment';
 import {
   ArrowLeftOutlined, FileExcelOutlined, FilePdfOutlined, SettingOutlined,
 } from '@ant-design/icons';
@@ -38,8 +39,14 @@ export const STATUS_COLOR = {
   reviewed: 'success', void: 'error',
 };
 
-/** 表头信息（状态/类型/执行日期/模板/版本/源文件/哈希）。 */
-function DetailDescriptions({detail, version}) {
+/** 表头信息（状态/类型/计划期次/执行日期/执行人/模板/版本/源文件/哈希）。
+ * 实际执行日期在可编辑状态由填写人录入（周期生成的应填台账生成时留空，
+ * 创建时间不冒充执行日期）。 */
+function DetailDescriptions({detail, version, editable, saving, onSaveHeader}) {
+  const [executedDate, setExecutedDate] = useState(null);
+  const handleSaveDate = () => {
+    onSaveHeader({executed_date: executedDate ? executedDate.format('YYYY-MM-DD') : ''});
+  };
   return (
     <Descriptions size="small" bordered column={4} style={{marginBottom: 12}}>
       <Descriptions.Item label="状态">
@@ -48,7 +55,26 @@ function DetailDescriptions({detail, version}) {
       <Descriptions.Item label="类型">
         {LEDGER_TYPE_TEXT[detail.ledger_type] || detail.ledger_type}
       </Descriptions.Item>
-      <Descriptions.Item label="执行日期">{String(detail.executed_date).slice(0, 10)}</Descriptions.Item>
+      <Descriptions.Item label="计划期次">
+        {detail.maintenance_period || '—'}
+      </Descriptions.Item>
+      <Descriptions.Item label="实际执行日期">
+        {editable ? (
+          <Space size={4}>
+            <DatePicker
+              data-testid="excel-executed-date"
+              size="small"
+              style={{width: 130}}
+              placeholder="执行后录入"
+              value={executedDate || (detail.executed_date ? moment(String(detail.executed_date).slice(0, 10)) : null)}
+              onChange={value => setExecutedDate(value)}/>
+            <Button data-testid="excel-save-executed-date" size="small"
+                    loading={saving} onClick={handleSaveDate}>保存</Button>
+          </Space>
+        ) : (
+          detail.executed_date ? String(detail.executed_date).slice(0, 10) : '—'
+        )}
+      </Descriptions.Item>
       <Descriptions.Item label="执行人">{detail.executor_names || '—'}</Descriptions.Item>
       <Descriptions.Item label="模板">{version ? version.template_name : '—'}</Descriptions.Item>
       <Descriptions.Item label="版本">{version ? `v${version.version_no}` : '—'}</Descriptions.Item>
@@ -269,7 +295,9 @@ const ExcelLedgerDetail = React.forwardRef(function ExcelLedgerDetail({store, on
                 onOpenPdfAdvanced: pdfExport.openAdvanced,
               }}/>
           }>
-      <DetailDescriptions detail={detail} version={version}/>
+      <DetailDescriptions key={detail.id} detail={detail} version={version}
+                          editable={store.editable} saving={store.saving}
+                          onSaveHeader={header => store.saveHeader(header).catch(() => {})}/>
       <Spin spinning={store.loading}>
         {sheet ? (
           <LayoutTable

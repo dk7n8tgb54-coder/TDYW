@@ -122,12 +122,6 @@ const flush = async () => {
   });
 };
 
-function buttonByText(text, root) {
-  const scope = root || container;
-  return Array.from(scope.querySelectorAll('button'))
-    .find(node => node.textContent.replace(/\s/g, '') === text.replace(/\s/g, ''));
-}
-
 beforeEach(() => {
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -295,7 +289,7 @@ test('模板 PDF 参数：手动分页行非法时 warning 且不发请求', asy
   expect(store.pdfDrawerVisible).toBe(true);
 });
 
-test('模板工作区：PDF参数 按钮打开抽屉并渲染表单', async () => {
+test('模板工作区：「更多操作 → 打印设置」打开抽屉并渲染表单', async () => {
   const ExcelTemplatePage = require('../ExcelTemplatePage').default;
   const store = new ExcelTemplateStore();
   store.applyDetail({data: makeTplDetail()});
@@ -304,10 +298,18 @@ test('模板工作区：PDF参数 按钮打开抽屉并渲染表单', async () =
     ReactDOM.render(<ExcelTemplatePage store={store}/>, container);
   });
   await flush();
-  const button = buttonByText('PDF参数');
-  expect(button).toBeTruthy();
+  // 打印设置已收进「更多操作」菜单（2026-10-14 交互改造）
+  const trigger = container.querySelector('[data-testid="tpl-more-actions"]');
+  expect(trigger).toBeTruthy();
   await act(async () => {
-    button.click();
+    trigger.click();
+  });
+  await flush();
+  const dropdown = document.body.querySelector('.ant-dropdown:not(.ant-dropdown-hidden)');
+  const menuItem = dropdown.querySelector('[data-testid="tpl-pdf-params"]');
+  expect(menuItem.textContent).toContain('打印设置');
+  await act(async () => {
+    menuItem.click();
   });
   await flush();
   expect(store.pdfDrawerVisible).toBe(true);

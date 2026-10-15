@@ -1,19 +1,23 @@
 # -*- coding: utf-8 -*-
-"""运行与故障记录——统一记录 CRUD 契约测试（2026-10-11 合并改造）。
+"""运行处置记录——统一记录 CRUD 契约测试（2026-10-11 合并改造）。
 
 覆盖真实行为契约（真实 HTTP + 隔离测试数据库 + 数据库状态断言）：
-1. 三种记录类型（日常运行/异常事件/正式故障）的创建/列表/详情/编辑/删除；
-2. 权限边界：view/add/add_fault/edit/del 后端独立校验（直接登记正式故障
+1. 三种记录类型（一般记录/异常事件/设备故障）的创建/列表/详情/编辑/删除；
+2. 权限边界：view/add/add_fault/edit/del 后端独立校验（直接登记设备故障
    须单独授权）；台账异常转故障的故障add复用见 test_operation_ledger_source；
-3. 类型约束：日常运行拒绝故障专用字段、正式故障拒绝异常类别、记录类型
+3. 类型约束：一般记录拒绝故障专用字段、设备故障拒绝异常类别、记录类型
    创建后不可修改、旧参数出现即拒绝；
 4. 列表筛选：类型/状态/系统/类别/关键词/时间范围；已撤销默认退出列表；
 5. 幂等：client_token 命中返回既有记录 + 窗口期业务查重；
-6. 租户隔离与删除语义（仅日常运行可物理删除 + 附件联动软删）。
+6. 租户隔离与删除语义（仅一般记录可物理删除 + 附件联动软删）。
 """
+import io
 import json
+from datetime import datetime, timedelta
 
 from django.test import TestCase
+
+from openpyxl import load_workbook
 
 from apps.equipment_lifecycle.models import LifecycleSystem
 from apps.equipment_lifecycle.operation_models import (
@@ -127,8 +131,8 @@ class OperationRecordCreateTest(TestCase):
             record_type='routine', affects_system_operation=True,
             impact_status='fault'),
             content_type='application/json')
-        # 日常运行不携带故障字段：即使提交也按默认值处理（服务层强制清空），
-        # 不应产生影响系统运行的日常运行记录
+        # 一般记录不携带故障字段：即使提交也按默认值处理（服务层强制清空），
+        # 不应产生影响系统运行的一般记录
         data = res.json()
         if not data.get('error'):
             record = SystemOperationRecord.objects.get(pk=data['data']['id'])
@@ -401,13 +405,13 @@ class OperationRecordDetailEditDeleteTest(TestCase):
 
     def test_delete_abnormal_rejected(self):
         res = self.client.delete(RECORDS_URL + '/%d/' % self.abnormal.id)
-        self.assertIn('仅日常运行记录支持删除', res.json().get('error', ''))
+        self.assertIn('仅一般记录支持删除', res.json().get('error', ''))
         self.assertTrue(SystemOperationRecord.objects.filter(pk=self.abnormal.id).exists())
 
     def test_delete_fault_rejected(self):
         fault = make_record(self.user, self.system, record_type='fault')
         res = self.client.delete(RECORDS_URL + '/%d/' % fault.id)
-        self.assertIn('仅日常运行记录支持删除', res.json().get('error', ''))
+        self.assertIn('仅一般记录支持删除', res.json().get('error', ''))
 
     def test_delete_requires_del_perm(self):
         user = make_user('no_del', perms=[P_OP_VIEW, P_OP_EDIT])
@@ -468,32 +472,118 @@ class OperationRecordPermissionTest(TestCase):
         self.assertIn('权限拒绝', res.json().get('error', ''))
         res = self.admin_client.get(RECORDS_URL + '/export/')
         self.assertEqual(res.status_code, 200)
-        self.assertIn('text/csv', res['Content-Type'])
+        self.assertIn('spreadsheetml.sheet', res['Content-Type'])
 
 
 class OperationRecordExportTest(TestCase):
-    """导出契约：默认排除已撤销、显式状态筛选生效。"""
+    """导出契约（xlsx 单工作表展平排版）。
+
+    - 默认排除已撤销、显式状态/类型筛选生效；
+    - 记录基础列纵向合并、进展逐行展平（处理时间/处理人/处理内容），
+      无进展记录占一行显示"—"；工时已退役不出现在表头。
+    """
 
     def setUp(self):
         self.user = make_user('export_user', perms=ALL_OPERATION_PERMS)
         self.client = make_client(self.user)
         self.system = make_system(self.user)
-        self.record = make_record(self.user, self.system, record_type='fault')
+        self.record = make_record(self.user, self.system, record_type='fault',
+                                  title='主控板异常')
         self.cancelled = make_record(self.user, self.system, record_type='fault',
                                      title='重复登记', status='cancelled')
+        self.routine = make_record(self.user, self.system, record_type='routine',
+                                   title='例行检查')
+        for handled_at, handler_name, content in (
+                ('2026-10-11 10:30:00', '李四', '更换主控板'),
+                ('2026-10-11 16:00:00', '王五', '恢复正常，观察两小时')):
+            SystemOperationProgress.objects.create(
+                tenant_id=self.record.tenant_id, record=self.record,
+                handled_at=handled_at, handler=self.user,
+                handler_name=handler_name, content=content)
+
+    def _load_sheet(self, **params):
+        res = self.client.get(RECORDS_URL + '/export/', params)
+        self.assertEqual(res.status_code, 200)
+        self.assertIn(
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            res['Content-Type'])
+        self.assertIn('.xlsx', res['Content-Disposition'])
+        wb = load_workbook(io.BytesIO(res.content))
+        return wb.active
+
+    @staticmethod
+    def _record_nos(ws):
+        return [ws.cell(row=row, column=1).value
+                for row in range(2, ws.max_row + 1)]
+
+    @staticmethod
+    def _find_row(ws, record_no):
+        rows = [row for row in range(2, ws.max_row + 1)
+                if ws.cell(row=row, column=1).value == record_no]
+        assert rows, '导出中未找到记录 %r' % record_no
+        return rows[0]
+
+    @staticmethod
+    def _assert_progress_at(ws, row, expected):
+        value = ws.cell(row=row, column=16).value
+        assert isinstance(value, datetime), '处理时间列应为日期单元格: %r' % value
+        assert abs(value - expected) < timedelta(seconds=1), (value, expected)
+
+    def test_export_headers_frozen_and_no_workhours(self):
+        res = self.client.get(RECORDS_URL + '/export/')
+        wb = load_workbook(io.BytesIO(res.content))
+        ws = wb.active
+        self.assertEqual(ws.title, '运行处置记录')
+        self.assertEqual(ws.freeze_panes, 'A2')
+        self.assertEqual(ws.cell(row=1, column=1).value, '记录编号')
+        self.assertEqual(ws.cell(row=1, column=16).value, '处理时间')
+        self.assertEqual(ws.cell(row=1, column=17).value, '处理人')
+        self.assertEqual(ws.cell(row=1, column=18).value, '处理内容')
+        headers = [ws.cell(row=1, column=col).value for col in range(1, 19)]
+        self.assertNotIn('工时', headers)
+
+    def test_export_progress_flattened_with_merged_base_columns(self):
+        res = self.client.get(RECORDS_URL + '/export/')
+        ws = load_workbook(io.BytesIO(res.content)).active
+        first = self._find_row(ws, self.record.record_no)
+        # 两条进展两行：处理时间按时间线正序，处理人与内容对应。
+        # openpyxl 读回 Excel 串行日期存在亚秒级浮点误差，按 1 秒容差断言。
+        self._assert_progress_at(ws, first, datetime(2026, 10, 11, 10, 30))
+        self.assertEqual(ws.cell(row=first, column=17).value, '李四')
+        self.assertEqual(ws.cell(row=first, column=18).value, '更换主控板')
+        self._assert_progress_at(ws, first + 1, datetime(2026, 10, 11, 16, 0))
+        self.assertEqual(ws.cell(row=first + 1, column=18).value,
+                         '恢复正常，观察两小时')
+        self.assertEqual(ws.cell(row=first + 1, column=18).value,
+                         '恢复正常，观察两小时')
+        # 记录基础列在两行间纵向合并（编号列与类型列），进展列不合并
+        merged = [(r.min_row, r.max_row, r.min_col, r.max_col)
+                  for r in ws.merged_cells.ranges]
+        self.assertIn((first, first + 1, 1, 1), merged)
+        self.assertIn((first, first + 1, 2, 2), merged)
+        self.assertNotIn((first, first + 1, 18, 18), merged)
+
+    def test_export_record_without_progress_single_row(self):
+        res = self.client.get(RECORDS_URL + '/export/')
+        ws = load_workbook(io.BytesIO(res.content)).active
+        row = self._find_row(ws, self.routine.record_no)
+        self.assertEqual(ws.cell(row=row, column=18).value, '—')
 
     def test_export_default_excludes_cancelled(self):
-        res = self.client.get(RECORDS_URL + '/export/')
-        self.assertEqual(res.status_code, 200)
-        body = res.content.decode('utf-8-sig')
-        self.assertIn(self.record.record_no, body)
-        self.assertNotIn(self.cancelled.record_no, body)
+        ws = self._load_sheet()
+        nos = self._record_nos(ws)
+        self.assertIn(self.record.record_no, nos)
+        self.assertNotIn(self.cancelled.record_no, nos)
 
     def test_export_cancelled_only_by_explicit_status(self):
-        res = self.client.get(RECORDS_URL + '/export/', {'status': 'cancelled'})
-        body = res.content.decode('utf-8-sig')
-        self.assertIn(self.cancelled.record_no, body)
-        self.assertNotIn(self.record.record_no, body)
+        ws = self._load_sheet(status='cancelled')
+        nos = self._record_nos(ws)
+        self.assertIn(self.cancelled.record_no, nos)
+        self.assertNotIn(self.record.record_no, nos)
+
+    def test_export_filter_record_type(self):
+        ws = self._load_sheet(record_type='routine')
+        self.assertEqual(self._record_nos(ws), [self.routine.record_no])
 
 
 class SystemRecordListTest(TestCase):

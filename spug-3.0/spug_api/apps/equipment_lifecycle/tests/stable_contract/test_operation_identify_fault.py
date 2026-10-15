@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""运行与故障记录——异常事件原记录认定正式故障契约测试（2026-10-11）。
+"""运行处置记录——异常事件原记录认定设备故障契约测试（2026-10-11）。
 
 覆盖真实行为契约（真实 HTTP + 隔离测试数据库 + 数据库状态断言）：
 1. 认定后仍是同一条记录（主键不变），不创建第二张单；
 2. 记录类型 abnormal → fault、状态 → 处置中，故障所需字段补充生效；
-3. 原描述、登记人、附件与全部进展原样保留（含进展附件归属不变）；
+3. 原描述、登记人、记录附件与全部进展原样保留；
 4. 认定触发系统健康状态重算（影响运行时生效）；
-5. 校验：日常运行/已完成/已是正式故障拒绝认定；影响运行时影响程度必填。
+5. 校验：一般记录/已完成/已是设备故障拒绝认定；影响运行时影响程度必填。
 """
 import json
 
@@ -32,7 +32,7 @@ def _identify_url(pk):
 
 
 class IdentifyFaultTest(TestCase):
-    """异常事件认定正式故障契约。"""
+    """异常事件认定设备故障契约。"""
 
     def setUp(self):
         self.user = make_user('identify_user', perms=ALL_OPERATION_PERMS)
@@ -42,7 +42,7 @@ class IdentifyFaultTest(TestCase):
             self.user, self.system, record_type='abnormal',
             title='信号异常', description='16:00 发现 DVOR 监视信号波动。',
             registrar_name='李四')
-        # 预置：两条进展 + 记录级附件 + 进展级附件
+        # 预置：两条进展 + 记录级附件（进展级附件已退役，材料统一记录级）
         self.progress_a = SystemOperationProgress.objects.create(
             tenant_id=self.record.tenant_id, record=self.record,
             handled_at='2026-10-11 09:00:00', handler=self.user,
@@ -57,12 +57,6 @@ class IdentifyFaultTest(TestCase):
             self.record.id, owner_tenant_id=self.record.tenant_id)
         assert not error, error
         self.record_attachment = att
-        att2, error = AttachmentService.upload(
-            SimpleUploadedFile('shot.png', b'png-bytes'),
-            self.user, 'equipment_lifecycle', 'el_operation_progress',
-            self.progress_a.id, owner_tenant_id=self.record.tenant_id)
-        assert not error, error
-        self.progress_attachment = att2
 
     def _identify(self, **overrides):
         payload = {
@@ -103,13 +97,10 @@ class IdentifyFaultTest(TestCase):
         self.assertEqual(len(progress), 2)
         self.assertEqual(progress[0].content, '初步排查，未定位')
         self.assertEqual(progress[1].content, '波动持续，升级观察')
-        # 记录级与进展级附件归属不变、未删除
+        # 记录级附件归属不变、未删除
         self.assertTrue(EvidenceAttachment.objects.filter(
             pk=self.record_attachment.id, is_deleted=False,
             object_id=str(record.id)).exists())
-        self.assertTrue(EvidenceAttachment.objects.filter(
-            pk=self.progress_attachment.id, is_deleted=False,
-            object_id=str(self.progress_a.id)).exists())
 
     def test_identify_triggers_health_recompute(self):
         self.system.refresh_from_db()

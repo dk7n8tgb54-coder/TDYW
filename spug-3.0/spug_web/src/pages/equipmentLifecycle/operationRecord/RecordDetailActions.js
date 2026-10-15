@@ -3,10 +3,14 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 运行与故障记录——详情顶部动作按钮与动作弹窗（2026-10-11 合并改造）。
- * 自 RecordDetail 拆出（文件行数治理）：编辑/删除/完成跟进/认定正式故障/
+ * 运行处置记录——详情顶部动作按钮与动作弹窗（2026-10-11 合并改造）。
+ * 自 RecordDetail 拆出（文件行数治理）：编辑/删除/完成跟进/认定设备故障/
  * 确认恢复并结案/撤销故障登记；动作成功后由 store 统一刷新真实数据，
  * 错误提示由 http 拦截器统一弹出。
+ * 2026-10-14 添加跟进/补充/处置记录入口迁入顶部动作区（弹窗承载，原为
+ * 进展页签内联表单）：按钮按记录类型命名，权限=operation_record.progress；
+ * 异常事件第一条跟进记录即进入"跟进中"、已完成追加即重新跟进（后端驱动，
+ * 弹窗内以提示说明），原"开始跟进/新增跟进记录/重新跟进"跳页签按钮退役。
  * 约束：读取 store observable 的函数组件必须用 observer 包裹。
  */
 import React, {useState} from 'react';
@@ -16,6 +20,7 @@ import moment from 'moment';
 import {AuthButton} from 'components';
 import store from './store';
 import {PERM, FAULT_IMPACT_TEXT} from '../constants';
+import {PROGRESS_TAB_TEXT} from './shared';
 
 const {TextArea} = Input;
 
@@ -23,6 +28,8 @@ export function AuthEditButton() {
   return (
     <AuthButton
       auth={PERM.OP_EDIT}
+      type="link"
+      style={{marginLeft: 8, padding: 0}}
       onClick={() => store.showForm(store.detail)}
     >
       编辑
@@ -30,15 +37,17 @@ export function AuthEditButton() {
   );
 }
 
-// 删除记录（仅日常运行；后端独立校验记录类型）：确认后物理删除并联动清理附件
+// 删除记录（仅一般记录；后端独立校验记录类型）：确认后物理删除并联动清理附件。
+// 删除是低频操作：链接样式降低视觉权重（2026-10-14），确认弹窗防重复提交
 export function AuthDeleteButton() {
   const [visible, setVisible] = useState(false);
   return (
     <span style={{marginLeft: 8}}>
       <AuthButton
         auth={PERM.OP_DEL}
-        type="danger"
-        ghost
+        type="link"
+        danger
+        style={{padding: 0}}
         onClick={() => setVisible(true)}
       >
         删除
@@ -49,6 +58,7 @@ export function AuthDeleteButton() {
         confirmLoading={store.isActionSubmitting}
         onCancel={() => setVisible(false)}
         onOk={() => {
+          if (store.isActionSubmitting) return;
           store.deleteRecord()
             .then(() => {
               message.success('运行记录已删除');
@@ -57,7 +67,7 @@ export function AuthDeleteButton() {
             .catch(() => {});
         }}
       >
-        <p>确认删除该日常运行记录？删除后不可恢复。</p>
+        <p>确认删除该一般记录？删除后不可恢复。</p>
         <p style={{color: 'rgba(0, 0, 0, 0.45)', marginBottom: 0}}>
           记录附件将一并清理。
         </p>
@@ -66,14 +76,106 @@ export function AuthDeleteButton() {
   );
 }
 
-// 顶部主行动按钮（开始跟进/新增跟进记录/重新跟进）统一外壳
-export function AuthPrimaryActionButton({auth, text, onClick}) {
+// 添加跟进/补充/处置记录（2026-10-14 自进展页签内联表单迁入顶部动作区）：
+// 按钮文本随记录类型（跟进记录/补充记录/处置记录），权限与后端进展追加
+// 端点一致（operation_record.progress）；字段与口径同原内联表单
+export const AuthAddProgressButton = observer(function AuthAddProgressButton() {
+  const [visible, setVisible] = useState(false);
+  const d = store.detail;
+  const typeLabel = PROGRESS_TAB_TEXT[d.record_type] || '处理进展';
   return (
-    <span style={{marginLeft: 8}}>
-      <AuthButton auth={auth} type="primary" onClick={onClick}>{text}</AuthButton>
+    <span>
+      <AuthButton
+        auth={PERM.OP_PROGRESS}
+        type="primary"
+        onClick={() => setVisible(true)}
+      >
+        添加{typeLabel}
+      </AuthButton>
+      <AddProgressModal
+        visible={visible}
+        typeLabel={typeLabel}
+        recordType={d.record_type}
+        status={d.status}
+        onClose={() => setVisible(false)}
+      />
     </span>
   );
-}
+});
+
+// 添加进展弹窗：处理时间缺省当前时间；处理人为手动输入姓名（回车确认可
+// 多个，顿号拼接提交）；成功后由 store.addProgressRecord 全量刷新
+// 详情/进展/列表真实数据。异常事件的状态变化（首条跟进=开始跟进、已完成
+// 追加=重新跟进）由后端驱动，这里以提示说明。
+const AddProgressModal = function AddProgressModal(
+    {visible, typeLabel, recordType, status, onClose}) {
+  const [form] = Form.useForm();
+  let statusHint = null;
+  if (recordType === 'abnormal') {
+    if (status === 'recorded') {
+      statusHint = '提交第一条跟进记录后，本事件将进入"跟进中"。';
+    } else if (status === 'completed') {
+      statusHint = '提交后本事件将回到"跟进中"（重新跟进）。';
+    }
+  }
+  return (
+    <Modal
+      visible={visible}
+      title={`添加${typeLabel}`}
+      destroyOnClose
+      confirmLoading={store.isActionSubmitting}
+      onCancel={onClose}
+      onOk={() => {
+        if (store.isActionSubmitting) return;
+        form.validateFields().then(values => {
+          store.addProgressRecord({
+            handled_at: values.handled_at.format('YYYY-MM-DD HH:mm'),
+            handler_name: (values.handler_names || []).join('、'),
+            content: values.content,
+          }).then(() => {
+            message.success('处理进展已追加');
+            onClose();
+          }).catch(() => {});
+        }).catch(() => {});
+      }}
+    >
+      {statusHint && (
+        <p style={{color: 'rgba(0, 0, 0, 0.45)', marginTop: 0}}>{statusHint}</p>
+      )}
+      <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}
+        initialValues={{handled_at: moment()}}>
+        <Form.Item
+          name="handled_at"
+          label="处理时间"
+          rules={[{required: true, message: '请选择处理时间'}]}
+        >
+          <DatePicker showTime={{format: 'HH:mm'}} format="YYYY-MM-DD HH:mm"
+            style={{width: '100%'}}/>
+        </Form.Item>
+        <Form.Item
+          name="handler_names"
+          label="处理人"
+          rules={[{required: true, type: 'array', message: '请输入姓名后回车确认'}]}
+        >
+          {/* open=false：仅手输姓名（回车/失焦添加）；必须内联不得包装转发：
+              Form.Item 以 cloneElement 注入 value/onChange */}
+          <Select
+            mode="tags"
+            open={false}
+            placeholder="输入姓名后回车确认（可多个）"
+          />
+        </Form.Item>
+        <Form.Item
+          name="content"
+          label="处理内容"
+          rules={[{required: true, message: '请填写处理内容'}]}
+        >
+          <TextArea rows={3} placeholder="如：现场检查情况、已采取的措施、厂家反馈、跟进结论等"/>
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+};
 
 // 完成跟进：跟进中 → 已完成（纯确认动作，完成后可重新跟进）
 export function AuthCompleteButton() {
@@ -89,6 +191,7 @@ export function AuthCompleteButton() {
         confirmLoading={store.isActionSubmitting}
         onCancel={() => setVisible(false)}
         onOk={() => {
+          if (store.isActionSubmitting) return;
           store.completeFollowUp()
             .then(() => {
               message.success('已完成跟进');
@@ -98,21 +201,21 @@ export function AuthCompleteButton() {
       >
         <p>完成后记录进入"已完成"，可随时重新跟进，无需关闭。</p>
         <p style={{color: 'rgba(0, 0, 0, 0.45)', marginBottom: 0}}>
-          如需留档最终说明，请先在统一进展中追加一条收尾进展。
+          如需留档最终说明，请先通过顶部"添加跟进记录"追加一条收尾记录。
         </p>
       </Modal>
     </span>
   );
 }
 
-// 认定正式故障（异常事件原记录原地变更）：补充故障所需字段，一次弹窗一次提交
+// 认定设备故障（异常事件原记录原地变更）：补充故障所需字段，一次弹窗一次提交
 export function AuthIdentifyFaultButton() {
   const [visible, setVisible] = useState(false);
   return (
     <span style={{marginLeft: 8}}>
       <AuthButton auth={PERM.OP_IDENTIFY_FAULT} type="primary" danger
         onClick={() => setVisible(true)}>
-        认定正式故障
+        认定设备故障
       </AuthButton>
       <IdentifyFaultModal visible={visible} onClose={() => setVisible(false)}/>
     </span>
@@ -124,10 +227,11 @@ const IdentifyFaultModal = observer(function IdentifyFaultModal({visible, onClos
   return (
     <Modal
       visible={visible}
-      title="认定正式故障"
+      title="认定设备故障"
       confirmLoading={store.isActionSubmitting}
       onCancel={onClose}
       onOk={() => {
+        if (store.isActionSubmitting) return;
         form.validateFields().then(values => {
           store.identifyFault({
             affects_system_operation: !!values.affects_system_operation,
@@ -135,14 +239,14 @@ const IdentifyFaultModal = observer(function IdentifyFaultModal({visible, onClos
             reason_analysis: values.reason_analysis || '',
             fault_object_name: values.fault_object_name || '',
           }).then(() => {
-            message.success('已认定为正式故障（同一条记录，进展与附件保留）');
+            message.success('已认定为设备故障（同一条记录，进展与附件保留）');
             onClose();
           }).catch(() => {});
         }).catch(() => {});
       }}
     >
       <p style={{color: 'rgba(0, 0, 0, 0.45)', marginTop: 0}}>
-        在本条记录上认定为正式故障：类型变更为"正式故障"、状态进入"处置中"，
+        在本条记录上认定为设备故障：类型变更为"设备故障"、状态进入"处置中"，
         原描述、登记人、附件与全部进展原样保留，不会创建第二张故障单。
       </p>
       <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}
@@ -186,7 +290,7 @@ const IdentifyFaultModal = observer(function IdentifyFaultModal({visible, onClos
   );
 });
 
-// 确认恢复并结案（正式故障）：恢复时间/恢复确认人/最终原因分析/结案说明
+// 确认恢复并结案（设备故障）：恢复时间/恢复确认人/最终原因分析/结案说明
 // 一次填写一次校验，提交后直接进入终态"已关闭"。
 // 合并操作须同时具备 recover 与 close 两项权限（AuthButton 以 & 表达 AND，
 // 后端独立校验，不因按钮合并放宽权限边界）。
@@ -194,7 +298,7 @@ export function AuthRecoverAndCloseButton({record}) {
   const [visible, setVisible] = useState(false);
   const [form] = Form.useForm();
   return (
-    <span>
+    <span style={{marginLeft: 8}}>
       <AuthButton
         auth={`${PERM.OP_RECOVER}&${PERM.OP_CLOSE}`}
         type="primary"
@@ -230,6 +334,7 @@ const RecoverModal = observer(function RecoverModal({visible, form, record, onCl
       confirmLoading={store.isActionSubmitting}
       onCancel={onClose}
       onOk={() => {
+        if (store.isActionSubmitting) return;
         form.validateFields().then(values => {
           store.confirmRecoverAndClose({
             recovered_at: values.recovered_at.format('YYYY-MM-DD HH:mm'),
@@ -310,13 +415,20 @@ const RecoverModal = observer(function RecoverModal({visible, form, record, onCl
   );
 });
 
-// 撤销故障登记（正式故障处置中）：错误/重复登记受控撤销，原因必填留痕
+// 撤销故障登记（设备故障处置中）：错误/重复登记受控撤销，原因必填留痕。
+// 撤销是低频操作：链接样式降低视觉权重（2026-10-14）
 export const AuthCancelButton = observer(function AuthCancelButton({record}) {
   const [visible, setVisible] = useState(false);
   const [reason, setReason] = useState('');
   return (
     <span style={{marginLeft: 8}}>
-      <AuthButton auth={PERM.OP_CANCEL} danger onClick={() => setVisible(true)}>
+      <AuthButton
+        auth={PERM.OP_CANCEL}
+        type="link"
+        danger
+        style={{padding: 0}}
+        onClick={() => setVisible(true)}
+      >
         撤销故障登记
       </AuthButton>
       <Modal
@@ -325,6 +437,7 @@ export const AuthCancelButton = observer(function AuthCancelButton({record}) {
         confirmLoading={store.isActionSubmitting}
         onCancel={() => setVisible(false)}
         onOk={() => {
+          if (store.isActionSubmitting) return;
           if (!reason.trim()) {
             message.warning('请填写撤销原因');
             return;

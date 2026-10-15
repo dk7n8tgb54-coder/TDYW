@@ -73,23 +73,23 @@ export default [{
       {key: 'export', label: '导出系统列表'},
     ]
   }, {
-    // 运行与故障记录（2026-10-11 合并改造）：原 fault（故障处置）与
+    // 运行处置记录（2026-10-11 合并改造）：原 fault（故障处置）与
     // runtime_record（运行记录）权限组合并换发为本组权限码，system_event
     //（系统履历）权限随履历退役删除；存量角色 JSON 由迁移 0013 清洗换发。
     key: 'operation_record',
-    label: '运行与故障记录',
+    label: '运行处置记录',
     perms: [
       {key: 'view', label: '查看记录'},
-      {key: 'add', label: '新增记录（日常运行/异常事件）'},
-      {key: 'add_fault', label: '登记正式故障（含台账异常转故障）'},
-      {key: 'edit', label: '编辑记录/更正统一进展/原因分析/记录附件'},
-      {key: 'progress', label: '追加统一进展/上传进展附件'},
+      {key: 'add', label: '新增记录（一般记录/异常事件）'},
+      {key: 'add_fault', label: '登记设备故障（含台账异常转故障）'},
+      {key: 'edit', label: '编辑记录/更正进展/原因分析/记录附件'},
+      {key: 'progress', label: '追加进展'},
       {key: 'complete', label: '完成跟进（异常事件）'},
-      {key: 'identify_fault', label: '认定正式故障（异常事件原记录认定）'},
+      {key: 'identify_fault', label: '认定设备故障（异常事件原记录认定）'},
       {key: 'recover', label: '确认恢复并结案（须同时勾选"结案"）'},
       {key: 'close', label: '结案（"确认恢复并结案"须同时勾选本项）'},
       {key: 'cancel', label: '撤销故障登记（受控撤销，非物理删除）'},
-      {key: 'del', label: '删除记录（仅日常运行）'},
+      {key: 'del', label: '删除记录（仅一般记录）'},
       {key: 'export', label: '导出记录列表'},
     ]
   }, {

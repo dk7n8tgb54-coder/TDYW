@@ -97,7 +97,7 @@ def system_payload(**overrides):
     return payload
 
 
-# ==================== 运行与故障记录（2026-10-11 合并改造） ====================
+# ==================== 运行处置记录（2026-10-11 合并改造） ====================
 P_OP_VIEW = 'equipment_lifecycle.operation_record.view'
 P_OP_ADD = 'equipment_lifecycle.operation_record.add'
 P_OP_ADD_FAULT = 'equipment_lifecycle.operation_record.add_fault'

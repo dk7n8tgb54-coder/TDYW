@@ -10,7 +10,7 @@
 2. 退役模型与表：SystemEvent/SystemFault/SystemFaultHandlingRecord/
    SystemRuntimeRecord/SystemRuntimeRecordProgress 不再注册，
    对应五张旧表与状态归一备份表已由迁移删除，新统一表在位；
-3. 履历不再产生新数据：正式故障创建、台账异常转故障、升级记录创建/
+3. 履历不再产生新数据：设备故障创建、台账异常转故障、升级记录创建/
    完成回退、配置变更应用/回退后，无任何履历写入路径
    （SystemEvent 模型已不存在，无法写入——以路由与模型注册断言收口）；
 4. 统一记录不写任何履历表（新表 only：写路径只落 tdyw_el_operation_record）；
@@ -185,7 +185,7 @@ class NoEventWritesTest(TestCase):
                 ledger.id, item.id),
             b'{}', content_type='application/json')
         self.assertFalse(res.json().get('error'), res.json())
-        # 转换产物为统一主表正式故障，履历模型不存在
+        # 转换产物为统一主表设备故障，履历模型不存在
         self.assertTrue(SystemOperationRecordExists(res.json()['data']['id']))
         self.assertNotIn('systemevent', {
             m.__name__.lower()

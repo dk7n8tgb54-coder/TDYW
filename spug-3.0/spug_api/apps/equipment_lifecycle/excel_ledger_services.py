@@ -19,6 +19,7 @@
 业务错误统一抛 ExcelLedgerError，View 层转 json_response(error=...)。
 """
 import json
+from datetime import datetime
 
 from django.db import transaction
 from django.utils import timezone
@@ -113,7 +114,6 @@ def _type_label(ledger_type):
 
 
 def _parse_executed_date(raw):
-    from datetime import datetime
     if not raw:
         _fail('请填写实际执行日期')
     try:
@@ -169,6 +169,39 @@ def update_values(user, ledger, values):
     record.updated_at = timezone.now()
     record.save(update_fields=['values', 'updated_at'])
     return record
+
+
+def update_header(user, ledger, header):
+    """录入/修正表头执行信息（实际执行日期/执行人；可编辑状态限定草稿/已退回）。
+
+    - 周期生成的应填台账 executed_date 为空，由填写人在执行后录入；提前
+      生成不把创建当天伪装成实际维护日期（计划填写期次见 maintenance_period）；
+    - 字段缺省表示不修改；executed_date 传空串显式清空（回退未录入）；
+    - 台账编号创建后不变，不随执行日期重算。
+    """
+    if ledger.status not in EDITABLE_STATUSES:
+        _fail('当前状态不允许修改表头信息')
+    if not isinstance(header, dict):
+        _fail('表头参数格式不正确')
+    updates = {}
+    if 'executed_date' in header:
+        raw = header.get('executed_date')
+        if raw in (None, ''):
+            updates['executed_date'] = None
+        else:
+            try:
+                updates['executed_date'] = datetime.strptime(
+                    str(raw)[:10], '%Y-%m-%d').date()
+            except ValueError:
+                _fail('实际执行日期格式不正确')
+    if 'executor_names' in header:
+        updates['executor_names'] = str(header.get('executor_names') or '').strip()
+    if not updates:
+        return ledger
+    for field, value in updates.items():
+        setattr(ledger, field, value)
+    ledger.save(update_fields=list(updates.keys()))
+    return ledger
 
 
 @transaction.atomic

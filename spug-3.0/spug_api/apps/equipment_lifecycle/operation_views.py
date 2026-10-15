@@ -1,10 +1,10 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——运行与故障记录视图（2026-10-11 合并改造）。
+"""设备全生命周期——运行处置记录视图（2026-10-11 合并改造）。
 
 合并原"故障处置"（fault_views）与"运行记录"（runtime_record_views）为统一
-模块"运行与故障记录"：一张统一主表（SystemOperationRecord）承载
-日常运行（routine）/ 异常事件（abnormal）/ 正式故障（fault）三类记录，
+模块"运行处置记录"：一张统一主表（SystemOperationRecord）承载
+一般记录（routine）/ 异常事件（abnormal）/ 设备故障（fault）三类记录，
 一张统一进展表（SystemOperationProgress）承载全部处理进展。
 
 权限域（前后端一致，后端独立校验）：
@@ -13,18 +13,18 @@
   cancel|del|export
 
 设计要点：
-- 新建只要求 系统/发生时间/标题/情况描述/登记人；正式故障另有故障专用
+- 新建只要求 系统/发生时间/标题/情况描述/登记人；设备故障另有故障专用
   字段（影响系统运行/影响程度/对象快照/原因分析），仅在直接登记故障或
   异常事件认定故障时提交；
 - 状态流转只经动作接口（complete/identify-fault/recover/cancel）与追加
   统一进展（首条进展进入跟进中等，见 operation_progress_views），普通编辑
   不允许改状态与记录类型；
-- 日常运行：创建后恒为"已记录"，允许补充进展但不进入故障状态机，可删除
+- 一般记录：创建后恒为"已记录"，允许补充进展但不进入故障状态机，可删除
   （物理删除 + 审计留痕 + 附件联动软删）；
-- 正式故障：创建或认定后进入"处置中"；确认恢复并结案（recover，须同时
+- 设备故障：创建或认定后进入"处置中"；确认恢复并结案（recover，须同时
   具备 recover 与 close 权限）后为"已关闭"；错误/重复登记可填写原因
   受控撤销（cancel）；
-- 只有正式故障且处置中、并明确影响系统运行时才参与系统健康状态计算
+- 只有设备故障且处置中、并明确影响系统运行时才参与系统健康状态计算
   （operation_services 统一重算，健康锁 + 单事务）；
 - 创建幂等：client_token 命中同租户已有记录直接返回 + 业务字段窗口期查重；
   编号在 el_operation_record_no 全局锁内生成；
@@ -35,13 +35,11 @@
 - 写操作记录业务审计（record_audit_event）。
 - 原"系统履历"（SystemEvent）已整体退役：本模块不写任何履历事件。
 """
-import csv
-import io
 import json
 from datetime import datetime, timedelta
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import HttpResponse
 from django.utils import timezone
 from django.views.generic import View
@@ -57,6 +55,7 @@ from apps.equipment_lifecycle.operation_models import (
     FAULT_IMPACT_TEXT_MAP,
     RECORD_CATEGORY_TEXT_MAP,
     RECORD_STATUS_CANCELLED,
+    RECORD_STATUS_FOLLOWING_UP,
     RECORD_STATUS_HANDLING,
     RECORD_STATUS_TEXT_MAP,
     RECORD_TYPE_ABNORMAL,
@@ -108,6 +107,30 @@ def _parse_dt(value):
         except (TypeError, ValueError):
             continue
     return None
+
+
+def _parse_dt_end_inclusive(value):
+    """解析时间范围"截止"取值并包含所选整分钟，返回用于 __lt 的排他边界。
+
+    用户按分钟粒度选择（YYYY-MM-DD HH:MM / YYYY-MM-DDTHH:MM）时，期望
+    截止时间当分钟的记录（XX:XX:00 - XX:XX:59.999）全部包含在结果内：
+    边界右移一分钟；显式携带秒的取值保持原样；仅日期（YYYY-MM-DD）按
+    当天结束（右移一天）处理，与"包含该日"的直觉一致。解析失败返回 None。
+    """
+    parsed = _parse_dt(value) if value else None
+    if parsed is None:
+        return None
+    for fmt in DATETIME_FORMATS:
+        try:
+            datetime.strptime(value, fmt)
+        except (TypeError, ValueError):
+            continue
+        if fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%dT%H:%M'):
+            return parsed + timedelta(minutes=1)
+        if fmt == '%Y-%m-%d':
+            return parsed + timedelta(days=1)
+        return parsed
+    return parsed
 
 
 def _reject_retired_params(body):
@@ -186,9 +209,12 @@ def _validate_registrar_name(form):
 
 
 def _apply_occurred_range(query, form):
-    """解析并应用发生时间范围筛选（__gte/__lt），返回 (query, error)。"""
+    """解析并应用发生时间范围筛选（__gte/__lt），返回 (query, error)。
+
+    截止时间按用户所选整分钟包含该分钟记录（_parse_dt_end_inclusive）。
+    """
     occurred_from = _parse_dt(form.occurred_from) if form.occurred_from else None
-    occurred_to = _parse_dt(form.occurred_to) if form.occurred_to else None
+    occurred_to = _parse_dt_end_inclusive(form.occurred_to) if form.occurred_to else None
     if form.occurred_from and not occurred_from:
         return query, '发生时间起始格式不正确'
     if form.occurred_to and not occurred_to:
@@ -239,17 +265,42 @@ def _record_audit_summary(record):
 
 
 def _record_detail_response(record):
-    """详情响应统一出口：详情字段 + 统一进展概览（后端统计口径）。"""
+    """详情响应统一出口：详情字段 + 统一进展概览（后端统计口径）。
+
+    duration_seconds 随详情返回（2026-10-14 起"持续时间"由列表展示移至
+    详情展示）：口径与列表行一致 = 最新进展时间 - 发生时间，无进展或
+    差值为负时为 None（前端显示"-"）。
+    """
     data = record.to_detail_view()
-    data.update(operation_services.progress_overview(record))
+    overview = operation_services.progress_overview(record)
+    overview['duration_seconds'] = operation_services.duration_seconds(
+        record.occurred_at, overview.get('latest_progress_at'))
+    data.update(overview)
     return json_response(data)
 
 
+def _record_list_rows(records, overview_map):
+    """列表行序列化统一出口：主表摘要 + 进展概览 + 持续时间（计算展示字段）。
+
+    latest_progress_at 为全部进展处理时间的最大值（progress_overview_map
+    单次聚合，非创建时间/ID 口径）；duration_seconds = 最新进展时间 -
+    发生时间（operation_services.duration_seconds），无进展或为负时为
+    None（前端显示"-"）。不新增数据库字段。
+    """
+    rows = []
+    for r in records:
+        overview = dict(overview_map.get(r.id, {}))
+        overview['duration_seconds'] = operation_services.duration_seconds(
+            r.occurred_at, overview.get('latest_progress_at'))
+        rows.append({**r.to_view(), **overview})
+    return rows
+
+
 def _validate_create_category(record_type, category):
-    """创建时异常类别校验：正式故障不支持填写（强制空串），其余类型值域校验。"""
+    """创建时异常类别校验：设备故障不支持填写（强制空串），其余类型值域校验。"""
     if record_type == RECORD_TYPE_FAULT:
         if category:
-            return None, '正式故障不支持填写异常类别'
+            return None, '设备故障不支持填写异常类别'
         return '', None
     category, err = category, _validate_category_value(category)
     return (None, err) if err else (category, None)
@@ -258,8 +309,8 @@ def _validate_create_category(record_type, category):
 def _validate_create_payload(request, form):
     """创建载荷统一校验，返回 (error, params)。
 
-    权限边界：直接登记正式故障须单独授权（后端独立校验，不依赖前端隐藏）；
-    正式故障不支持异常类别；不影响系统运行时影响程度强制空串。
+    权限边界：直接登记设备故障须单独授权（后端独立校验，不依赖前端隐藏）；
+    设备故障不支持异常类别；不影响系统运行时影响程度强制空串。
     """
     record_type, err = _validate_record_type(form.record_type)
     if err:
@@ -314,11 +365,11 @@ class RecordView(View):
         Argument('registrar_name', type=str, required=False, default='',
                  help='登记人姓名（手动输入必填，多人以顿号分隔）'),
         Argument('category', type=str, required=False, default='',
-                 help='异常类别（日常运行/异常事件选填）'),
+                 help='异常类别（一般记录/异常事件选填）'),
         Argument('affects_system_operation', type=bool, required=False, default=False,
-                 help='是否影响系统运行（仅正式故障）'),
+                 help='是否影响系统运行（仅设备故障）'),
         Argument('impact_status', type=str, required=False, default='',
-                 help='系统影响程度（仅正式故障）'),
+                 help='系统影响程度（仅设备故障）'),
         Argument('fault_object_name', type=str, required=False, default=''),
         Argument('fault_object_model', type=str, required=False, default=''),
         Argument('fault_object_sn', type=str, required=False, default=''),
@@ -349,13 +400,10 @@ class RecordView(View):
         page, page_size = paginate(request)
         total = query.count()
         records = list(query[(page - 1) * page_size: page * page_size])
-        # 进展概览后端聚合（单次 IN 查询，随本页记录合并返回）
+        # 进展概览后端聚合（单次 IN 查询，随本页记录合并返回，附持续时间）
         overview_map = operation_services.progress_overview_map([r.id for r in records])
         return json_response({
-            'data': [
-                {**r.to_view(), **overview_map.get(r.id, {})}
-                for r in records
-            ],
+            'data': _record_list_rows(records, overview_map),
             'total': total, 'page': page, 'page_size': page_size,
         })
 
@@ -444,7 +492,7 @@ class RecordView(View):
 
 
 class RecordDetailView(View):
-    """统一记录详情 / 编辑 / 删除（仅日常运行）。"""
+    """统一记录详情 / 编辑 / 删除（仅一般记录）。"""
 
     @auth('equipment_lifecycle.operation_record.view')
     def get(self, request, pk):
@@ -469,9 +517,9 @@ class RecordDetailView(View):
             Argument('category', type=str, required=False, default=None,
                      help='异常类别；未提交时保留原值'),
             Argument('affects_system_operation', type=bool, required=False, default=None,
-                     help='是否影响系统运行（仅正式故障）；未提交时保留原值'),
+                     help='是否影响系统运行（仅设备故障）；未提交时保留原值'),
             Argument('impact_status', type=str, required=False, default='',
-                     help='系统影响程度（仅正式故障）'),
+                     help='系统影响程度（仅设备故障）'),
             Argument('fault_object_name', type=str, required=False, default=None),
             Argument('fault_object_model', type=str, required=False, default=None),
             Argument('fault_object_sn', type=str, required=False, default=None),
@@ -524,7 +572,7 @@ class RecordDetailView(View):
 
     @auth('equipment_lifecycle.operation_record.del')
     def delete(self, request, pk):
-        """删除记录：仅日常运行记录可删除（异常事件处置留痕，正式故障走撤销）。
+        """删除记录：仅一般记录可删除（异常事件处置留痕，设备故障走撤销）。
 
         物理删除 + 审计留痕；附件走 AttachmentService.soft_delete_by_object
         软删留痕，物理文件在事务提交后异步清理。
@@ -534,13 +582,13 @@ class RecordDetailView(View):
             if not record:
                 return json_response(error='记录不存在')
             if record.record_type != RECORD_TYPE_ROUTINE:
-                return json_response(error='仅日常运行记录支持删除')
+                return json_response(error='仅一般记录支持删除')
             before_summary = _record_audit_summary(record)
             # Model.delete() 后实例 pk 被清空：审计与附件归属用的记录 ID 先取
             record_id = record.id
             AttachmentService.soft_delete_by_object(
                 request.user, RECORD_ATTACHMENT_MODULE, RECORD_ATTACHMENT_OBJECT_TYPE,
-                record_id, reason='运行与故障记录删除联动清理', delete_file=True)
+                record_id, reason='运行处置记录删除联动清理', delete_file=True)
             record.delete()
             record_audit_event(request, 'delete', AUDIT_TARGET_RECORD,
                                record_id, before_summary.get('record_no'),
@@ -661,91 +709,104 @@ class SystemRecordListView(View):
         records = list(query[(page - 1) * page_size: page * page_size])
         overview_map = operation_services.progress_overview_map([r.id for r in records])
         return json_response({
-            'data': [
-                {**r.to_view(), **overview_map.get(r.id, {})}
-                for r in records
-            ],
+            'data': _record_list_rows(records, overview_map),
             'total': total, 'page': page, 'page_size': page_size,
             'latest_occurred_at': latest_occurred_at,
         })
 
 
 class RecordExportView(View):
-    """统一记录导出：默认只导出未撤销记录；显式指定 status 时按指定状态导出。"""
+    """统一记录导出（xlsx）：单工作表，记录基础列纵向合并、进展逐行展平。
 
-    EXPORT_HEADERS = [
-        '记录编号', '记录类型', '所属系统', '系统编号', '状态',
-        '影响系统运行', '系统影响程度', '发生时间', '标题', '情况描述',
-        '登记人', '恢复时间', '结案说明', '恢复确认人', '来源类型',
-    ]
+    导出范围与列表筛选完全一致：记录类型/状态/系统/异常类别/关键词/
+    发生时间范围全部生效（与主列表同一 _filter_records 口径，截止时间
+    同样包含所选整分钟）；默认只导出未撤销记录，显式指定 status 时按
+    指定状态导出。进展列（处理时间/处理人/处理内容）跟随记录，工作簿
+    构建见 operation_services（build_record_export_workbook）。
+    """
 
     @auth('equipment_lifecycle.operation_record.export')
     def get(self, request):
-        query = apply_tenant_filter(SystemOperationRecord.objects.all(), request.user)
-        status = request.GET.get('status')
-        record_type = request.GET.get('record_type')
-        if status:
-            if status not in RECORD_STATUS_TEXT_MAP:
-                return json_response(error='记录状态筛选值不合法')
-            query = query.filter(status=status)
-        else:
-            query = query.exclude(status=RECORD_STATUS_CANCELLED)
-        if record_type:
-            if record_type not in RECORD_TYPE_TEXT_MAP:
-                return json_response(error='记录类型筛选值不合法')
-            query = query.filter(record_type=record_type)
-        rows = []
-        for item in query:
-            rows.append([
-                item.record_no,
-                RECORD_TYPE_TEXT_MAP.get(item.record_type, item.record_type),
-                item.system_name,
-                item.system_code,
-                RECORD_STATUS_TEXT_MAP.get(item.status, item.status),
-                '是' if item.affects_system_operation else '否',
-                FAULT_IMPACT_TEXT_MAP.get(item.impact_status, ''),
-                item.occurred_at.strftime('%Y-%m-%d %H:%M') if item.occurred_at else '',
-                item.title,
-                item.description,
-                item.registrar_name or '',
-                item.recovered_at.strftime('%Y-%m-%d %H:%M') if item.recovered_at else '',
-                item.recovery_close_note,
-                item.recovered_by_name or '',
-                item.source_type,
-            ])
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        writer.writerow(self.EXPORT_HEADERS)
-        writer.writerows(rows)
-        response = HttpResponse('\ufeff' + buf.getvalue(), content_type='text/csv; charset=utf-8')
+        form, error = JsonParser(
+            Argument('system', type=int, required=False),
+            Argument('status', type=str, required=False),
+            Argument('category', type=str, required=False),
+            Argument('record_type', type=str, required=False),
+            Argument('keyword', type=str, required=False),
+            Argument('occurred_from', type=str, required=False),
+            Argument('occurred_to', type=str, required=False),
+        ).parse(request.GET)
+        if error:
+            return json_response(error=error)
+        query, error = _filter_records(
+            apply_tenant_filter(SystemOperationRecord.objects.all(), request.user),
+            form)
+        if error:
+            return json_response(error=error)
+        records = list(query)
+        content, progress_rows = operation_services.build_record_export_workbook(
+            records)
+        response = HttpResponse(
+            content, content_type=operation_services.RECORD_EXPORT_CONTENT_TYPE)
         stamp = timezone.now().strftime('%Y%m%d%H%M%S')
-        response['Content-Disposition'] = f'attachment; filename=el_records_{stamp}.csv'
+        response['Content-Disposition'] = f'attachment; filename=el_records_{stamp}.xlsx'
         record_audit_event(request, 'export', AUDIT_TARGET_RECORD, '', '',
-                           after_value={'total': len(rows)})
+                           after_value={'total': len(records),
+                                        'progress_rows': progress_rows})
         return response
 
 
-# 待办列表单次返回上限（跟进中记录量级小，超出说明积压，应先处置再查看）
-TODO_LIST_LIMIT = 200
+# 待办口径：真正需要用户持续处理的两类记录——跟进中的异常事件与
+# 处置中的设备故障；完成跟进/认定故障/确认恢复并结案/撤销后自然移出。
+TODO_OPEN_STATUSES = (RECORD_STATUS_FOLLOWING_UP, RECORD_STATUS_HANDLING)
 
 
 class RecordTodoView(View):
-    """统一记录待办列表：只含异常事件"跟进中"记录，完成跟进或认定故障后移出。
+    """统一记录待办列表：跟进中异常事件 + 处置中设备故障。
 
-    按最近更新优先排序（updated_at/created_at 降序）；只做条件查询，
-    由前端进入待办页签时触发，不做周期轮询。
+    - 分页返回（page/page_size，单页上限 100），不做静默截断：
+      全量可翻页，页外数据通过分页可达；
+    - 附带全量分组计数 counts（跟进中异常事件/处置中故障，不随
+      record_type 筛选变化），供前端展示分组数量；
+    - 按最近更新优先排序（updated_at/created_at/id 降序，MariaDB DESC
+      时 NULL 最后，未更新过的记录按创建时间兜底）；
+    - record_type 可选筛选（abnormal/fault），前端分组视图复用；
+    - 只做条件查询，由前端进入待办页签时触发，不做周期轮询。
     """
 
     @auth('equipment_lifecycle.operation_record.view')
     def get(self, request):
+        form, error = JsonParser(
+            Argument('record_type', type=str, required=False, default=''),
+        ).parse(request.GET)
+        if error:
+            return json_response(error=error)
+        record_type = form.record_type or ''
+        if record_type and record_type not in RECORD_TYPE_TEXT_MAP:
+            return json_response(error='记录类型筛选值不合法')
         query = apply_tenant_filter(
             SystemOperationRecord.objects.all(), request.user
-        ).filter(status='following_up')
-        rows = list(query[:TODO_LIST_LIMIT])
-        rows.sort(key=lambda r: (r.updated_at or r.created_at or '', r.id), reverse=True)
+        ).filter(status__in=TODO_OPEN_STATUSES)
+        # 分组计数在整个待办范围上统计（不随 record_type 筛选变化），
+        # 前端始终能展示"跟进中异常事件 X 条 / 处置中故障 Y 条"
+        counts_map = dict(
+            query.values_list('status').annotate(total=Count('id')).order_by())
+        counts = {
+            'following_up': counts_map.get(RECORD_STATUS_FOLLOWING_UP, 0),
+            'handling': counts_map.get(RECORD_STATUS_HANDLING, 0),
+        }
+        counts['total'] = counts['following_up'] + counts['handling']
+        if record_type:
+            query = query.filter(record_type=record_type)
+        from libs.pagination import paginate
+        page, page_size = paginate(request, default_page_size=20, max_page_size=100)
+        total = query.count()
+        rows = list(query.order_by('-updated_at', '-created_at', '-id')[
+            (page - 1) * page_size: page * page_size])
         return json_response({
             'data': [r.to_view() for r in rows],
-            'total': len(rows),
+            'total': total, 'page': page, 'page_size': page_size,
+            'counts': counts,
         })
 
 
@@ -772,14 +833,15 @@ class RecordStatisticsView(View):
             if err:
                 return json_response(error=err)
         now = timezone.now()
-        occurred_to = now + datetime.timedelta(days=1)
-        occurred_from = now - datetime.timedelta(days=30)
+        occurred_to = now + timedelta(days=1)
+        occurred_from = now - timedelta(days=30)
         if form.occurred_from:
             occurred_from = _parse_dt(form.occurred_from)
             if not occurred_from:
                 return json_response(error='发生时间起始格式不正确')
         if form.occurred_to:
-            occurred_to = _parse_dt(form.occurred_to)
+            # 与列表筛选同口径：截止时间按所选整分钟包含该分钟记录
+            occurred_to = _parse_dt_end_inclusive(form.occurred_to)
             if not occurred_to:
                 return json_response(error='发生时间截止格式不正确')
         if occurred_from >= occurred_to:

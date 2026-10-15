@@ -337,7 +337,7 @@ class LegacyPurgeCommandTest(TransactionTestCase):
         self.legacy_ledger_b = self._make_ledger(
             self.system_b, 'inspection', ledger_no='EL-INS-20260902-0001')
         # 外部引用：统一记录（引用 tenant_a 旧巡检异常明细，不得删除；
-        # 2026-10-11 合并改造后故障旧表已删，目标为统一主表正式故障记录；
+        # 2026-10-11 合并改造后故障旧表已删，目标为统一主表设备故障记录；
         # 系统履历已退役，不再构造履历事件夹具）
         self.record = SystemOperationRecord.objects.create(
             tenant_id='tenant_a', record_no='JL20260901-0001',

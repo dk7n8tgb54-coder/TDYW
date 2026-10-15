@@ -26,6 +26,10 @@
   创建时版本参数；导出接口可显式传入覆盖参数（仅当次生效）；
 - 模板四态（2026-09-30）：draft/published/used/deleted 由
   is_active + 已发布版本 + 引用台账数推导，列表与详情统一返回；
+- 生成配置（2026-10-14）：适用系统（一模板一系统）+ 生成周期（按台账
+  类型收敛）整体校验后落库；空值显式清空回"待配置"，不做自动推断；
+  配置只影响本期应填台账自动生成（ledger_period_services），不影响
+  手工创建，已生成台账不回溯；
 - 历史台账经 OperationLedgerExcelRecord 继续引用创建时版本。
 
 业务错误统一抛 ExcelTemplateError，View 层转 json_response(error=...)。
@@ -42,6 +46,11 @@ from libs.tenant_utils import apply_tenant_filter
 
 from apps.equipment_lifecycle import excel_pdf_service, excel_template_storage
 from apps.equipment_lifecycle.excel_models import (
+    TEMPLATE_PERIOD_BY_LEDGER_TYPE,
+    TEMPLATE_PERIOD_MONTHLY,
+    TEMPLATE_PERIOD_SEASONAL,
+    TEMPLATE_PERIOD_TEXT,
+    TEMPLATE_PERIOD_WEEKLY,
     OperationLedgerExcelTemplate,
     OperationLedgerExcelTemplateVersion,
 )
@@ -479,6 +488,65 @@ def available_templates(user, ledger_type=None):
             'versions': versions,
         })
     return items
+
+
+def generation_config_options(user):
+    """生成周期配置选项：本租户系统清单（模板配置弹窗数据源，专用接口
+    避免依赖 system.view 权限）。"""
+    from apps.equipment_lifecycle.models import LifecycleSystem
+    systems = apply_tenant_filter(LifecycleSystem.objects.all(), user).order_by(
+        '-is_active', 'system_code', 'id')
+    return {
+        'systems': [
+            {'id': s.id, 'system_code': s.system_code, 'name': s.name,
+             'is_active': s.is_active}
+            for s in systems
+        ],
+        'periods': {
+            'week_month': [
+                {'value': TEMPLATE_PERIOD_WEEKLY, 'label': TEMPLATE_PERIOD_TEXT[TEMPLATE_PERIOD_WEEKLY]},
+                {'value': TEMPLATE_PERIOD_MONTHLY, 'label': TEMPLATE_PERIOD_TEXT[TEMPLATE_PERIOD_MONTHLY]},
+            ],
+            'seasonal': [
+                {'value': TEMPLATE_PERIOD_SEASONAL, 'label': TEMPLATE_PERIOD_TEXT[TEMPLATE_PERIOD_SEASONAL]},
+            ],
+        },
+    }
+
+
+def save_generation_config(user, template, body):
+    """保存模板生成配置（适用系统 + 生成周期，整体校验后落库）。
+
+    - 一模板只对应一个系统；生成周期按台账类型收敛（周月维护=每周/每月，
+      季维护=每航季）；空值显式清空回"待配置"（不猜测历史模板配置）；
+    - 配置只影响自动生成，不影响手工创建；已生成台账不回溯。
+    """
+    if not template.is_active:
+        _fail('模板已删除（停用），不能修改生成配置')
+    system_id = body.get('system')
+    generation_period = str(body.get('generation_period') or '').strip()
+    system = None
+    if system_id not in (None, '', 0, '0'):
+        from apps.equipment_lifecycle.models import LifecycleSystem
+        if not str(system_id).isdigit():
+            _fail('适用系统参数不合法')
+        system = apply_tenant_filter(LifecycleSystem.objects.all(), user).filter(
+            pk=int(system_id)).first()
+        if system is None:
+            _fail('适用系统不存在或无权限访问')
+    if generation_period:
+        allowed = TEMPLATE_PERIOD_BY_LEDGER_TYPE.get(template.ledger_type) or []
+        if generation_period not in allowed:
+            _fail('该台账类型的生成周期应为：%s'
+                  % '、'.join(TEMPLATE_PERIOD_TEXT.get(v, v) for v in allowed))
+    with transaction.atomic():
+        template.system = system
+        template.generation_period = generation_period
+        template.updated_at = timezone.now()
+        template.updated_by = user
+        template.save(update_fields=[
+            'system', 'generation_period', 'updated_at', 'updated_by'])
+    return template
 
 
 def template_detail(template):

@@ -186,6 +186,24 @@ export class ExcelLedgerStore {
     }
   }
 
+  /**
+   * 保存表头执行信息（实际执行日期/执行人；可编辑状态）。
+   * 周期生成的应填台账执行日期为空，由填写人在执行后录入；
+   * 提前生成不把创建当天伪装成实际维护日期。
+   */
+  async saveHeader(header) {
+    if (!this.detail) return;
+    this.saving = true;
+    try {
+      const res = await http.put(`${API}/${this.detail.id}/`, {header});
+      this.applyDetail(res);
+      message.success('执行信息已保存');
+      return this.detail;
+    } finally {
+      this.saving = false;
+    }
+  }
+
   requiredMissing() {
     return this.bindings
       .filter(b => b.is_required)

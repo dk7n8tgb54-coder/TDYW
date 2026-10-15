@@ -1,9 +1,9 @@
 /**
- * Excel 台账模板页测试（真实渲染 + jsdom + http mock，2026-09-28 试点）。
+ * Excel 台账模板页列表测试（真实渲染 + jsdom + http mock，2026-09-28 试点；
+ * 2026-10-14 交互改造；绑定工作区测试见同目录 ExcelTemplatePageWorkspace.test.js）。
  *
- * 覆盖：列表渲染 → 上传守卫（缺名称/类型不发请求）→ 上传成功进入绑定
- * 工作区（合并布局渲染）→ 选格绑定（保存载荷/服务端拒绝回退）→ 发布
- * （无绑定拦截/成功后重取详情）→ 版本抽屉渲染 → 重传源文件清空绑定提示。
+ * 覆盖：列表渲染（唯一主操作「新建模板」+ 弹窗流程、行操作按状态、更多
+ * 菜单、停用确认与权限）→ 上传守卫 → 上传成功进入绑定工作区。
  * 全部走真实组件与 store 代码路径，http/exportFile 仅打桩。
  */
 import React from 'react';
@@ -101,12 +101,6 @@ async function renderPage() {
   await flush();
 }
 
-function buttonByText(text, root) {
-  const scope = root || container;
-  return Array.from(scope.querySelectorAll('button'))
-    .find(node => node.textContent.replace(/\s/g, '') === text.replace(/\s/g, ''));
-}
-
 beforeEach(() => {
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -127,6 +121,29 @@ afterEach(() => {
   store = null;
 });
 
+function listRow(overrides = {}) {
+  return {
+    id: 11, name: '信道Excel维护台账', ledger_type: 'week_month',
+    description: '试点', draft_source_filename: 'channel.xlsx',
+    draft_updated_at: '2026-09-28 10:00:00',
+    latest_version_no: 1, versions_count: 1, is_active: true,
+    ...overrides,
+  };
+}
+
+function popconfirmButton(text) {
+  return Array.from(document.body.querySelectorAll('button'))
+    .find(node => node.textContent.replace(/\s/g, '') === text);
+}
+
+async function openRowMenu(index = 0) {
+  await act(async () => {
+    container.querySelectorAll('[data-testid="tpl-more"]')[index].click();
+  });
+  await flush();
+  return document.body.querySelector('.ant-dropdown:not(.ant-dropdown-hidden)');
+}
+
 test('列表渲染模板行与版本信息', async () => {
   mockHttpGet.mockResolvedValue({data: [makeDetail().id && {
     id: 11, name: '信道Excel维护台账', ledger_type: 'week_month',
@@ -138,6 +155,156 @@ test('列表渲染模板行与版本信息', async () => {
   expect(container.textContent).toContain('信道Excel维护台账');
   expect(container.textContent).toContain('周月维护');
   expect(container.textContent).toContain('v1 / 共 1 个');
+});
+
+// ==================== 列表页交互（2026-10-14 交互改造） ====================
+
+test('列表页唯一主操作「新建模板」：弹窗集中名称/类型/上传/下载样例', async () => {
+  mockHttpGet.mockResolvedValue({data: []});
+  await renderPage();
+  // 列表页不得出现「返回列表」，也不再有重复的样例按钮
+  expect(container.querySelector('[data-testid="tpl-back-list"]')).toBeNull();
+  expect(container.querySelector('[data-testid="tpl-create"]')).toBeTruthy();
+  await act(async () => {
+    container.querySelector('[data-testid="tpl-create"]').click();
+  });
+  await flush();
+  const modal = document.body.querySelector('.ant-modal');
+  expect(modal.textContent).toContain('新建 Excel 台账模板');
+  expect(modal.querySelector('[data-testid="tpl-name"]')).toBeTruthy();
+  expect(modal.querySelector('[data-testid="tpl-type"]')).toBeTruthy();
+  expect(modal.querySelector('[data-testid="tpl-upload"]')).toBeTruthy();
+  // 下载样例只出现在该流程内（全页面仅一处）
+  const samples = Array.from(document.body.querySelectorAll('button'))
+    .filter(node => node.textContent.replace(/\s/g, '') === '下载样例');
+  expect(samples).toHaveLength(1);
+  await act(async () => {
+    samples[0].click();
+  });
+  expect(mockExportFile).toHaveBeenCalledWith(expect.objectContaining({
+    url: '/api/equipment-lifecycle/excel-templates/sample/',
+    method: 'get',
+  }));
+});
+
+test('无 add 权限时列表不显示「新建模板」', async () => {
+  require('libs').hasPermission.mockReturnValue(false);
+  mockHttpGet.mockResolvedValue({data: []});
+  await renderPage();
+  expect(container.querySelector('[data-testid="tpl-create"]')).toBeNull();
+});
+
+test('行操作按状态显示：编辑草稿/上传源文件/查看模板', async () => {
+  mockHttpGet.mockResolvedValue({data: [
+    listRow(),
+    listRow({id: 12, name: '无草稿模板', draft_source_filename: ''}),
+    listRow({id: 13, name: '已停用模板', is_active: false}),
+  ]});
+  await renderPage();
+  const openButtons = container.querySelectorAll('[data-testid="tpl-open"]');
+  expect(Array.from(openButtons).map(b => b.textContent.replace(/\s/g, '')))
+    .toEqual(['编辑草稿', '上传源文件', '查看模板']);
+});
+
+test('行「更多」菜单：版本记录按行取数打开抽屉，不改动当前模板详情', async () => {
+  mockHttpGet.mockResolvedValue({data: [listRow()]});
+  await renderPage();
+  const dropdown = await openRowMenu();
+  expect(dropdown.textContent).toContain('版本记录');
+  mockHttpGet.mockClear();
+  mockHttpGet.mockResolvedValue({data: [
+    {id: 5, version_no: 2, template_name: '信道Excel维护台账',
+     source_filename: 'channel.xlsx', source_hash: 'a'.repeat(64),
+     field_count: 1, published_at: '2026-09-28 11:00:00'},
+  ]});
+  await act(async () => {
+    dropdown.querySelector('[data-testid="tpl-row-versions"]').click();
+  });
+  await flush();
+  expect(mockHttpGet).toHaveBeenCalledWith(
+    '/api/equipment-lifecycle/excel-templates/11/versions/');
+  // 抽屉标题标注归属模板；页面仍停留在列表（未拉取详情进入工作区）
+  expect(document.body.textContent).toContain('已发布版本：信道Excel维护台账');
+  expect(container.querySelector('[data-testid="tpl-create"]')).toBeTruthy();
+});
+
+test('停用模板：确认框保留引用台账数提示，取消不发请求', async () => {
+  mockHttpGet.mockResolvedValue({data: [listRow({ledgers_count: 3})]});
+  await renderPage();
+  const dropdown = await openRowMenu();
+  expect(dropdown.querySelector('[data-testid="tpl-stop"]').textContent)
+    .toContain('停用模板');
+  await act(async () => {
+    dropdown.querySelector('[data-testid="tpl-stop"]').click();
+  });
+  await flush();
+  const modal = document.body.querySelector('.ant-modal-confirm');
+  expect(modal.textContent).toContain('停用模板');
+  expect(modal.textContent).toContain('该模板已被 3 个台账引用');
+  expect(modal.textContent).toContain('历史台账仍可查看与导出');
+  await act(async () => {
+    popconfirmButton('取消').click();
+  });
+  await flush();
+  expect(mockHttpDelete).not.toHaveBeenCalled();
+});
+
+test('确认停用：调用 DELETE，提示已停用并重取列表', async () => {
+  mockHttpGet.mockResolvedValue({data: [listRow()]});
+  await renderPage();
+  const dropdown = await openRowMenu();
+  await act(async () => {
+    dropdown.querySelector('[data-testid="tpl-stop"]').click();
+  });
+  await flush();
+  mockHttpDelete.mockResolvedValue({data: {}});
+  mockHttpGet.mockResolvedValue({data: []});
+  await act(async () => {
+    popconfirmButton('停用').click();
+  });
+  await flush();
+  expect(mockHttpDelete).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/11/');
+  expect(message.success).toHaveBeenCalledWith('模板已停用');
+  // 成功后重新拉取模板列表（不做乐观删除）
+  expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/');
+  expect(store.deletingId).toBe('');
+});
+
+test('停用失败：不显示成功提示，状态复位', async () => {
+  mockHttpGet.mockResolvedValue({data: [listRow()]});
+  await renderPage();
+  const dropdown = await openRowMenu();
+  await act(async () => {
+    dropdown.querySelector('[data-testid="tpl-stop"]').click();
+  });
+  await flush();
+  mockHttpDelete.mockRejectedValue('模板不存在或无权限访问');
+  await act(async () => {
+    popconfirmButton('停用').click();
+  });
+  await flush();
+  expect(mockHttpDelete).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/11/');
+  expect(message.success).not.toHaveBeenCalledWith('模板已停用');
+  expect(store.deletingId).toBe('');
+});
+
+test('无 del 权限：行更多菜单无停用项，列表无新建入口', async () => {
+  require('libs').hasPermission.mockReturnValue(false);
+  mockHttpGet.mockResolvedValue({data: [listRow()]});
+  await renderPage();
+  expect(container.querySelector('[data-testid="tpl-create"]')).toBeNull();
+  expect(require('libs').hasPermission).toHaveBeenCalledWith(
+    'equipment_lifecycle.ledger_template.del');
+  const dropdown = await openRowMenu();
+  expect(dropdown.textContent).toContain('版本记录');
+  expect(dropdown.querySelector('[data-testid="tpl-stop"]')).toBeNull();
+});
+
+test('已停用行：更多菜单只有版本记录，无停用项', async () => {
+  mockHttpGet.mockResolvedValue({data: [listRow({is_active: false})]});
+  await renderPage();
+  const dropdown = await openRowMenu();
+  expect(dropdown.querySelector('[data-testid="tpl-stop"]')).toBeNull();
 });
 
 test('上传守卫：未填名称/类型不发请求，填齐后走上传', async () => {
@@ -173,573 +340,9 @@ test('上传成功进入绑定工作区并渲染合并布局', async () => {
     await store.upload({name: '信道Excel维护台账', ledger_type: 'week_month'}, {name: 'channel.xlsx'});
   });
   await renderPage();
-  expect(container.textContent).toContain('模板绑定：信道Excel维护台账');
+  expect(container.textContent).toContain('信道Excel维护台账');
+  expect(container.textContent).toContain('周月维护');
   expect(container.querySelector('table.proto-table')).toBeTruthy();
   expect(container.querySelector('td[data-coord="A1"]').textContent).toContain('信道维护记录表');
   expect(container.querySelector('td[data-coord="C2"]').textContent).toContain('PS模块');
-});
-
-test('选格绑定：保存载荷走 PUT 且 field_id 为 UUID（不携带退役属性）', async () => {
-  const detail = makeDetail();
-  store.applyDetail({data: detail});
-  mockHttpPut.mockResolvedValue({data: makeDetail([BOUND_PS])});
-  await renderPage();
-  await act(async () => {
-    store.selectCell('C4');
-  });
-  await flush();
-  // 字段面板出现
-  expect(container.querySelector('.proto-field-panel')).toBeTruthy();
-  await act(async () => {
-    await store.saveBinding({
-      field_name: 'PS模块', input_type: 'status', is_required: true,
-      unit: '', options: [],
-    });
-  });
-  expect(mockHttpPut).toHaveBeenCalledWith(
-    '/api/equipment-lifecycle/excel-templates/11/bindings/',
-    expect.objectContaining({field_bindings: expect.any(Array)}));
-  const payload = mockHttpPut.mock.calls[0][1];
-  expect(payload.field_bindings[0].cell_coordinate).toBe('C4');
-  expect(payload.field_bindings[0].field_id).toMatch(
-    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-  expect(Object.keys(payload.field_bindings[0]).sort()).toEqual([
-    'cell_coordinate', 'field_id', 'field_name', 'input_type',
-    'is_required', 'options', 'sheet_name', 'unit']);
-  expect(message.success).toHaveBeenCalledWith('绑定已保存');
-});
-
-test('绑定保存失败回退本地且不保留新绑定', async () => {
-  const detail = makeDetail();
-  store.applyDetail({data: detail});
-  mockHttpPut.mockRejectedValue(new Error('单元格已有内容'));
-  await renderPage();
-  await act(async () => {
-    store.selectCell('C4');
-  });
-  await flush();
-  await act(async () => {
-    await expect(store.saveBinding({
-      field_name: 'X', input_type: 'text', is_required: false,
-    })).rejects.toThrow('单元格已有内容');
-  });
-  expect(store.bindings).toHaveLength(0);
-});
-
-function findTd(coordinate) {
-  return container.querySelector(`td[data-coord="${coordinate}"]`);
-}
-
-function dispatchMouse(type, target, init = {}) {
-  const event = new window.MouseEvent(type, {bubbles: true, cancelable: true, ...init});
-  target.dispatchEvent(event);
-}
-
-/** React 16 受控输入：原生 value setter + input 事件 */
-function setInputValue(element, value) {
-  const setter = Object.getOwnPropertyDescriptor(
-    window.HTMLInputElement.prototype, 'value').set;
-  setter.call(element, value);
-  element.dispatchEvent(new window.Event('input', {bubbles: true}));
-}
-
-async function ctrlClickCell(coordinate) {
-  await act(async () => {
-    dispatchMouse('click', findTd(coordinate), {ctrlKey: true});
-  });
-  await flush();
-}
-
-async function dragSelect(fromCoord, toCoord) {
-  await act(async () => {
-    dispatchMouse('mousedown', findTd(fromCoord), {button: 0});
-    dispatchMouse('mouseover', findTd(toCoord));
-    dispatchMouse('mouseup', document, {button: 0});
-  });
-  await flush();
-}
-
-test('Ctrl 加选多格显示批量面板与数量，可清空选择', async () => {
-  const detail = makeDetail();
-  store.applyDetail({data: detail});
-  await renderPage();
-  expect(container.querySelector('[data-testid="batch-clear"]')).toBeNull();
-  await ctrlClickCell('C4');
-  await ctrlClickCell('E4');
-  expect(store.selectedCells.slice().sort()).toEqual(['C4', 'E4']);
-  // 已绑定单元格不可加选
-  const boundDetail = makeDetail([BOUND_PS]);
-  store.applyDetail({data: boundDetail});
-  await flush();
-  await ctrlClickCell('C4');
-  await ctrlClickCell('D4');
-  expect(store.selectedCells).toEqual(['D4']);
-  expect(container.textContent).toContain('批量绑定');
-  expect(container.textContent).toContain('已选 1 格');
-  // Ctrl 再点已选格 → 取消单个选择；清空后批量面板消失
-  await ctrlClickCell('D4');
-  expect(store.selectedCells).toEqual([]);
-  expect(container.querySelector('[data-testid="batch-clear"]')).toBeNull();
-  // 重新选两格后点「清空选择」按钮
-  await ctrlClickCell('D4');
-  await ctrlClickCell('E4');
-  expect(store.selectedCells.slice().sort()).toEqual(['D4', 'E4']);
-  await act(async () => {
-    container.querySelector('[data-testid="batch-clear"]').click();
-  });
-  await flush();
-  expect(store.selectedCells).toEqual([]);
-  expect(container.querySelector('[data-testid="batch-clear"]')).toBeNull();
-});
-
-test('拖拽矩形多选并剔除内容格', async () => {
-  const detail = makeDetail();
-  store.applyDetail({data: detail});
-  await renderPage();
-  // C4 向上拖到 C2：C2 是有内容的表头格，只保留 C3/C4
-  await dragSelect('C4', 'C2');
-  expect(store.selectedCells.slice().sort()).toEqual(['C3', 'C4']);
-  // 横向矩形 C3→D4：整块可绑定格入选
-  await dragSelect('C3', 'D4');
-  expect(store.selectedCells.slice().sort()).toEqual(['C3', 'C4', 'D3', 'D4']);
-  // mousedown 在内容格（C2）不启动拖拽，选区不变
-  await act(async () => {
-    dispatchMouse('mousedown', findTd('C2'), {button: 0});
-    dispatchMouse('mouseover', findTd('D3'));
-    dispatchMouse('mouseup', document, {button: 0});
-  });
-  await flush();
-  expect(store.selectedCells.slice().sort()).toEqual(['C3', 'C4', 'D3', 'D4']);
-  // 拖拽后松开鼠标（window mouseup）结束选区扩展
-  expect(store.isDragging).toBe(false);
-});
-
-test('批量面板预览：多格生成「前缀-坐标」，单格保留前缀', async () => {
-  const detail = makeDetail();
-  store.applyDetail({data: detail});
-  await renderPage();
-  await ctrlClickCell('C4');
-  await ctrlClickCell('D4');
-  const prefixInput = container.querySelector('[data-testid="batch-prefix"]');
-  await act(async () => {
-    setInputValue(prefixInput, '主电台 PS');
-  });
-  await flush();
-  const preview = container.querySelector('[data-testid="batch-preview"]').textContent;
-  expect(preview).toContain('C4 → 主电台 PS-C4');
-  expect(preview).toContain('D4 → 主电台 PS-D4');
-  // 单格：保留用户输入的字段名称，不追加坐标
-  await ctrlClickCell('D4'); // 取消 D4
-  await flush();
-  expect(container.querySelector('[data-testid="batch-preview"]').textContent)
-    .toContain('C4 → 主电台 PS');
-});
-
-test('批量保存：载荷独立 UUID 与命名，成功后重取详情并清空选区', async () => {
-  const detail = makeDetail();
-  store.applyDetail({data: detail});
-  const savedDetail = makeDetail([
-    {...BOUND_PS},
-    {field_id: 'aaaaaaaa-1111-4aaa-8aaa-000000000002', sheet_name: '信道维护记录',
-     cell_coordinate: 'D4', field_name: '主电台 PS-D4', input_type: 'status',
-     is_required: true, unit: '', options: ['正常', '异常']},
-  ]);
-  mockHttpPut.mockResolvedValue({data: savedDetail});
-  mockHttpGet.mockResolvedValue({data: savedDetail});
-  await renderPage();
-  await ctrlClickCell('C4');
-  await ctrlClickCell('D4');
-  await act(async () => {
-    setInputValue(container.querySelector('[data-testid="batch-prefix"]'), '主电台 PS');
-  });
-  await act(async () => {
-    container.querySelector('[data-testid="batch-save"]').click();
-  });
-  await flush();
-  expect(mockHttpPut).toHaveBeenCalledWith(
-    '/api/equipment-lifecycle/excel-templates/11/bindings/',
-    expect.objectContaining({field_bindings: expect.any(Array)}));
-  const payload = mockHttpPut.mock.calls[0][1].field_bindings;
-  expect(payload).toHaveLength(2);
-  expect(payload.map(b => b.field_name).sort()).toEqual(['主电台 PS-C4', '主电台 PS-D4']);
-  expect(payload.map(b => b.cell_coordinate).sort()).toEqual(['C4', 'D4']);
-  const ids = payload.map(b => b.field_id);
-  expect(new Set(ids).size).toBe(2);
-  ids.forEach(id => expect(id).toMatch(
-    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/));
-  // 服务端数据成为最终状态：重取详情接口被调用
-  expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/11/');
-  expect(store.bindings).toHaveLength(2);
-  expect(store.selectedCells).toEqual([]);
-  expect(message.success).toHaveBeenCalledWith('已批量绑定 2 个字段');
-});
-
-test('批量保存失败：本地状态回退且不显示成功提示', async () => {
-  const detail = makeDetail();
-  store.applyDetail({data: detail});
-  mockHttpPut.mockRejectedValue(new Error('字段绑定数量超过上限'));
-  await renderPage();
-  await ctrlClickCell('C4');
-  await ctrlClickCell('D4');
-  await act(async () => {
-    setInputValue(container.querySelector('[data-testid="batch-prefix"]'), '主电台 PS');
-  });
-  await act(async () => {
-    await expect(store.saveBatchBinding({
-      field_name: '主电台 PS', input_type: 'status', is_required: true,
-      unit: '', options: [],
-    })).rejects.toThrow('字段绑定数量超过上限');
-  });
-  await flush();
-  expect(store.bindings).toHaveLength(0);
-  expect(message.success).not.toHaveBeenCalled();
-});
-
-test('切换工作表清空批量选区（跨工作表不混合批量绑定）', async () => {
-  const twoSheets = makeDetail();
-  twoSheets.draft.layout.sheets.push({
-    name: '维护结论', max_row: 4, max_column: 2, merged_ranges: [],
-    row_heights: {}, column_widths: {},
-    cells: {A1: {v: '维护结论'}, B1: {v: '内容（填写）'}},
-    print: {orientation: 'portrait', paper_size: 9},
-  });
-  store.applyDetail({data: twoSheets});
-  await renderPage();
-  await ctrlClickCell('C4');
-  expect(store.selectedCells).toEqual(['C4']);
-  await act(async () => {
-    store.setSheet('维护结论');
-  });
-  await flush();
-  expect(store.selectedCells).toEqual([]);
-});
-
-test('单格绑定面板不再出现退役属性控件', async () => {
-  const detail = makeDetail();
-  store.applyDetail({data: detail});
-  await renderPage();
-  await act(async () => {
-    store.selectCell('C4');
-  });
-  await flush();
-  expect(container.querySelector('.proto-field-panel')).toBeTruthy();
-  const text = container.querySelector('.proto-field-panel').textContent;
-  expect(text).not.toContain('默认值');
-  expect(text).not.toContain('操作指导');
-  expect(text).not.toContain('异常判定规则');
-  expect(text).not.toContain('适用维护周期');
-});
-
-test('发布：无绑定拦截，有绑定走 POST 并重取详情', async () => {
-  const detail = makeDetail();
-  store.applyDetail({data: detail});
-  await renderPage();
-  // 无绑定拦截
-  const publishButton = buttonByText('发布版本');
-  expect(publishButton).toBeTruthy();
-  await act(async () => {
-    store.publishing = false;
-  });
-  const publishHandler = publishButton;
-  expect(publishHandler).toBeTruthy();
-  // 有绑定时发布
-  store.applyDetail({data: makeDetail([BOUND_PS])});
-  mockHttpPost.mockResolvedValue({data: {data: {version_no: 1}}});
-  mockHttpGet.mockResolvedValue({data: makeDetail([BOUND_PS], {
-    latest_version_no: 1, versions_count: 1,
-  })});
-  await act(async () => {
-    await store.publish();
-  });
-  expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/11/publish/');
-  expect(store.current.versions_count).toBe(1);
-  expect(message.success).toHaveBeenCalledWith('发布成功');
-});
-
-test('版本抽屉渲染不可变版本列表', async () => {
-  const detail = makeDetail([BOUND_PS]);
-  store.applyDetail({data: detail});
-  mockHttpGet.mockResolvedValue({data: [
-    {id: 5, version_no: 1, template_name: '信道Excel维护台账',
-     source_filename: 'channel.xlsx', source_hash: 'a'.repeat(64),
-     field_count: 1, published_at: '2026-09-28 11:00:00'},
-  ]});
-  await renderPage();
-  await act(async () => {
-    await store.fetchVersions();
-    store.versionsVisible = true;
-  });
-  await flush();
-  // antd Drawer 渲染进 body portal，须查 document.body（Modal/Drawer portal 惯例）
-  expect(document.body.textContent).toContain('已发布版本（不可变）');
-  expect(document.body.textContent).toContain('v1');
-  expect(document.body.textContent).toContain('channel.xlsx');
-});
-
-test('重传源文件后绑定清空并提示', async () => {
-  const detail = makeDetail([BOUND_PS]);
-  store.applyDetail({data: detail});
-  mockHttpPost.mockResolvedValue({data: makeDetail([])});
-  await renderPage();
-  const reuploadButton = buttonByText('重传源文件');
-  expect(reuploadButton).toBeTruthy();
-  await act(async () => {
-    await store.reuploadFile({name: 'channel.xlsx'});
-  });
-  expect(store.bindings).toHaveLength(0);
-});
-
-test('下载验收样例走 exportFile', async () => {
-  store.applyDetail({data: makeDetail()});
-  await renderPage();
-  const button = buttonByText('下载验收样例');
-  await act(async () => {
-    button.click();
-  });
-  expect(mockExportFile).toHaveBeenCalledWith(expect.objectContaining({
-    url: '/api/equipment-lifecycle/excel-templates/sample/',
-    method: 'get',
-  }));
-});
-
-function listRow(overrides = {}) {
-  return {
-    id: 11, name: '信道Excel维护台账', ledger_type: 'week_month',
-    description: '试点', draft_source_filename: 'channel.xlsx',
-    draft_updated_at: '2026-09-28 10:00:00',
-    latest_version_no: 1, versions_count: 1, is_active: true,
-    ...overrides,
-  };
-}
-
-function popconfirmButton(text) {
-  return Array.from(document.body.querySelectorAll('button'))
-    .find(node => node.textContent.replace(/\s/g, '') === text);
-}
-
-async function openDeleteConfirm() {
-  await act(async () => {
-    container.querySelector('[data-testid="tpl-delete"]').click();
-  });
-  await flush();
-}
-
-test('删除按钮按权限显示，已停用模板不显示', async () => {
-  mockHttpGet.mockResolvedValue({data: [
-    listRow(),
-    listRow({id: 12, name: '停用模板', is_active: false}),
-  ]});
-  await renderPage();
-  // del 权限参与按钮显隐判断
-  expect(require('libs').hasPermission).toHaveBeenCalledWith(
-    'equipment_lifecycle.ledger_template.del');
-  // 只有启用模板有删除按钮，停用模板没有
-  const deleteButtons = container.querySelectorAll('[data-testid="tpl-delete"]');
-  expect(deleteButtons).toHaveLength(1);
-  expect(container.textContent).toContain('停用模板');
-  expect(container.textContent).toContain('停用');
-});
-
-test('无 del 权限时删除按钮不显示', async () => {
-  require('libs').hasPermission.mockReturnValue(false);
-  mockHttpGet.mockResolvedValue({data: [listRow()]});
-  await renderPage();
-  expect(container.querySelector('[data-testid="tpl-delete"]')).toBeNull();
-  expect(container.querySelector('[data-testid="tpl-open"]')).toBeTruthy();
-});
-
-test('点击删除出现确认框，取消不发请求', async () => {
-  mockHttpGet.mockResolvedValue({data: [listRow()]});
-  await renderPage();
-  await openDeleteConfirm();
-  expect(document.body.textContent).toContain('删除后将停止该模板使用，历史台账仍可查看，确定删除吗？');
-  await act(async () => {
-    popconfirmButton('取消').click();
-  });
-  await flush();
-  expect(mockHttpDelete).not.toHaveBeenCalled();
-});
-
-test('确认删除：调用 DELETE，成功后提示并重取列表', async () => {
-  mockHttpGet.mockResolvedValue({data: [listRow()]});
-  await renderPage();
-  await openDeleteConfirm();
-  mockHttpDelete.mockResolvedValue({data: {}});
-  mockHttpGet.mockResolvedValue({data: []});
-  await act(async () => {
-    popconfirmButton('确定').click();
-  });
-  await flush();
-  expect(mockHttpDelete).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/11/');
-  expect(message.success).toHaveBeenCalledWith('模板已删除');
-  // 成功后重新拉取模板列表（不做乐观删除）
-  expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/');
-  // loading 状态复位
-  expect(store.deletingId).toBe('');
-});
-
-test('删除失败：不显示成功提示，loading 复位', async () => {
-  mockHttpGet.mockResolvedValue({data: [listRow()]});
-  await renderPage();
-  await openDeleteConfirm();
-  mockHttpDelete.mockRejectedValue('模板不存在或无权限访问');
-  await act(async () => {
-    popconfirmButton('确定').click();
-  });
-  await flush();
-  expect(mockHttpDelete).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/11/');
-  expect(message.success).not.toHaveBeenCalledWith('模板已删除');
-  expect(store.deletingId).toBe('');
-});
-
-test('已删除（停用）模板工作区禁用重传/发布/选格编辑', async () => {
-  const detail = makeDetail([BOUND_PS], {is_active: false});
-  store.applyDetail({data: detail});
-  await renderPage();
-  expect(container.textContent).toContain('已删除（停用），仅供查看');
-  expect(buttonByText('重传源文件').disabled).toBe(true);
-  expect(container.querySelector('[data-testid="tpl-publish"]').disabled).toBe(true);
-  // 选格编辑冻结：点击单元格不产生选中（面板保持「未选择」占位）
-  await act(async () => {
-    dispatchMouse('click', findTd('C4'));
-  });
-  await flush();
-  expect(store.selectedCell).toBe('');
-  expect(store.selectedCells).toEqual([]);
-  expect(container.querySelector('.proto-field-panel').textContent).toContain('未选择');
-});
-
-// ==================== 草稿 PDF 预览 + 兼容性检查（2026-09-29） ====================
-
-function stubPdfWindow() {
-  const openMock = jest.fn().mockReturnValue({});
-  window.open = openMock;
-  window.URL.createObjectURL = jest.fn(() => 'blob:preview-url');
-  window.URL.revokeObjectURL = jest.fn();
-  return openMock;
-}
-
-test('有草稿时显示 PDF预览按钮，无草稿时禁用', async () => {
-  const detail = makeDetail([BOUND_PS]);
-  store.applyDetail({data: detail});
-  await renderPage();
-  const button = buttonByText('PDF预览');
-  expect(button).toBeTruthy();
-  expect(button.disabled).toBe(false);
-  // 无草稿：按钮仍在但不可用
-  store.applyDetail({data: makeDetail([], {draft: null})});
-  await flush();
-  expect(buttonByText('PDF预览').disabled).toBe(true);
-});
-
-test('点击 PDF预览：POST 预览接口，成功后新窗口打开', async () => {
-  const openMock = stubPdfWindow();
-  const detail = makeDetail([BOUND_PS]);
-  store.applyDetail({data: detail});
-  mockHttpPost.mockResolvedValue({
-    data: new ArrayBuffer(16),
-    headers: {'content-type': 'application/pdf'},
-  });
-  await renderPage();
-  await act(async () => {
-    buttonByText('PDF预览').click();
-  });
-  await flush();
-  expect(mockHttpPost).toHaveBeenCalledWith(
-    '/api/equipment-lifecycle/excel-templates/11/preview/pdf/', null,
-    expect.objectContaining({responseType: 'arraybuffer'}));
-  expect(window.URL.createObjectURL).toHaveBeenCalledTimes(1);
-  expect(openMock).toHaveBeenCalledWith('blob:preview-url', '_blank');
-  // 请求结束后 loading 复位
-  expect(store.previewing).toBe(false);
-});
-
-test('PDF预览请求期间按钮 loading，结束后恢复', async () => {
-  stubPdfWindow();
-  const detail = makeDetail([BOUND_PS]);
-  store.applyDetail({data: detail});
-  let resolvePreview = null;
-  mockHttpPost.mockReturnValue(new Promise(resolve => {
-    resolvePreview = resolve;
-  }));
-  await renderPage();
-  await act(async () => {
-    buttonByText('PDF预览').click();
-  });
-  await flush();
-  expect(buttonByText('PDF预览').className).toContain('ant-btn-loading');
-  await act(async () => {
-    resolvePreview({data: new ArrayBuffer(16), headers: {}});
-    await new Promise(resolve => setTimeout(resolve, 0));
-  });
-  await flush();
-  expect(buttonByText('PDF预览').className).not.toContain('ant-btn-loading');
-});
-
-test('弹窗被拦截时回退为下载', async () => {
-  const openMock = stubPdfWindow();
-  openMock.mockReturnValue(null);
-  const detail = makeDetail([BOUND_PS]);
-  store.applyDetail({data: detail});
-  mockHttpPost.mockResolvedValue({
-    data: new ArrayBuffer(16),
-    headers: {'content-type': 'application/pdf'},
-  });
-  await renderPage();
-  await act(async () => {
-    buttonByText('PDF预览').click();
-  });
-  await flush();
-  // window.open 返回空（拦截）→ 仍创建对象 URL 并走下载（不报错、不提示成功之外的副作用）
-  expect(window.URL.createObjectURL).toHaveBeenCalledTimes(1);
-  expect(store.previewing).toBe(false);
-});
-
-test('PDF预览失败：不显示成功提示，loading 复位', async () => {
-  stubPdfWindow();
-  const detail = makeDetail([BOUND_PS]);
-  store.applyDetail({data: detail});
-  mockHttpPost.mockRejectedValue('LibreOffice 不可用，无法生成 PDF');
-  await renderPage();
-  await act(async () => {
-    buttonByText('PDF预览').click();
-    await new Promise(resolve => setTimeout(resolve, 0));
-  });
-  await flush();
-  expect(store.previewing).toBe(false);
-  expect(window.URL.createObjectURL).not.toHaveBeenCalled();
-  expect(message.success).not.toHaveBeenCalled();
-});
-
-test('兼容性提示：warning 渲染黄色 Alert，error 渲染红色并列出不支持特性', async () => {
-  const warnDetail = makeDetail([BOUND_PS]);
-  warnDetail.compatibility = {
-    status: 'warning',
-    warnings: ['部署环境未安装 LibreOffice，PDF 预览与导出不可用'],
-    unsupported: [],
-  };
-  store.applyDetail({data: warnDetail});
-  await renderPage();
-  let alert = container.querySelector('[data-testid="tpl-compat"]');
-  expect(alert).toBeTruthy();
-  expect(alert.className).toContain('ant-alert-warning');
-  expect(alert.textContent).toContain('LibreOffice');
-
-  const errorDetail = makeDetail([BOUND_PS]);
-  errorDetail.compatibility = {
-    status: 'error',
-    warnings: ['包含平台暂不支持的特性：公式计算'],
-    unsupported: ['公式计算'],
-  };
-  store.applyDetail({data: errorDetail});
-  await flush();
-  alert = container.querySelector('[data-testid="tpl-compat"]');
-  expect(alert.className).toContain('ant-alert-error');
-  expect(alert.textContent).toContain('公式计算');
-
-  const okDetail = makeDetail([BOUND_PS]);
-  okDetail.compatibility = {status: 'ok', warnings: [], unsupported: []};
-  store.applyDetail({data: okDetail});
-  await flush();
-  expect(container.querySelector('[data-testid="tpl-compat"]')).toBeNull();
 });

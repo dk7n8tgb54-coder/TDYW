@@ -3,7 +3,7 @@
 """设备全生命周期——统一记录主记录附件视图（复用 EvidenceAttachment 能力）。
 
 从原运行记录附件视图改造（2026-10-11 合并改造）：三种记录类型均可在
-主记录级上传/管理附件；正式故障已关闭/已撤销后只读（不可上传/删除，
+主记录级上传/管理附件；设备故障已关闭/已撤销后只读（不可上传/删除，
 仍可下载）。访问前先校验记录存在且属于当前租户（父对象校验），再校验
 附件归属（附件存在、未软删除、归属本模块与父记录、租户可见）。
 """
@@ -46,7 +46,9 @@ class RecordAttachmentView(View):
         attachments = AttachmentService.list(
             request.user, RECORD_ATTACHMENT_MODULE, RECORD_ATTACHMENT_OBJECT_TYPE,
             record.id)
-        return json_response({'data': attachments})
+        # 裸数组（与 contract/interference 附件端点一致）：前端 http 拦截器剥一层
+        # 后 AttachmentManager 直接拿数组渲染，多包一层会导致列表解析失败显示为空
+        return json_response(attachments)
 
     @auth('equipment_lifecycle.operation_record.edit')
     def post(self, request, pk):
@@ -86,7 +88,7 @@ class RecordAttachmentDetailView(View):
                 return json_response(error=ATTACHMENT_DELETE_DENIED_ERROR)
             error = AttachmentService.soft_delete(
                 request.user, aid, RECORD_ATTACHMENT_MODULE,
-                RECORD_ATTACHMENT_OBJECT_TYPE, reason='运行与故障记录附件删除')
+                RECORD_ATTACHMENT_OBJECT_TYPE, reason='运行处置记录附件删除')
             if error:
                 return json_response(error=error)
             record_audit_event(request, 'delete', AUDIT_TARGET_RECORD,

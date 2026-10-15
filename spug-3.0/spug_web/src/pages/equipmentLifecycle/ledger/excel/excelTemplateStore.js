@@ -21,6 +21,15 @@
  * - 兼容性检查：详情接口返回的草稿/环境检查结果原样透传给页面展示；
  * - PDF 参数（2026-09-30）：模板级参数抽屉配置（草稿布局 JSON 内），
  *   PUT pdf-params/ 整体校验保存，发布随版本快照固定；
+ * - 替换源文件（2026-10-14 交互改造）：选定文件先进入确认弹窗（提示将
+ *   清空的绑定数），确认后才调用 draft-file/；取消不产生任何请求；
+ * - 新建模板弹窗（2026-10-14）：列表页主操作，名称/类型/上传集中在
+ *   弹窗内完成（下载样例随流程内提供），成功后进入绑定工作区；
+ * - 生成配置（2026-10-14）：适用系统（一模板一系统）+ 生成周期
+ *   （按台账类型收敛）经 generation-config 接口保存；空值显式清空回
+ *   "待配置"（历史模板不自动推断），只影响自动生成，不影响手工创建；
+ * - 版本记录支持列表页按行查看（fetchVersions 按 templateId 取数，
+ *   不影响当前模板详情），抽屉标题标注归属模板；
  * - default_value/operation_guide/abnormal_rule/maintenance_cycles 已
  *   退役，绑定载荷不再携带（历史数据由服务端原样兼容）。
  */
@@ -64,14 +73,26 @@ export class ExcelTemplateStore {
   @observable deletingId = '';      // 正在删除的模板 id（按钮 loading 防重复点击）
   @observable versions = [];
   @observable versionsVisible = false;
+  @observable versionsOwner = '';        // 版本抽屉归属模板名（列表行/工作区共用）
+  @observable createVisible = false;     // 新建模板弹窗（列表页主操作流程）
+  @observable reuploadConfirmVisible = false; // 替换源文件确认弹窗
   @observable pdfDrawerVisible = false;  // PDF 参数抽屉
   @observable pdfForm = null;            // PDF 参数表单态（null=抽屉未打开）
   @observable savingPdfParams = false;   // PDF 参数保存进行中
   @observable uploadName = '';      // 上传面板：模板名称
   @observable uploadType = undefined; // 上传面板：维护类型
+  // 生成配置弹窗（适用系统 + 生成周期，2026-10-14 本期应填台账生成）
+  @observable configVisible = false;
+  @observable configSaving = false;
+  @observable configSystem = undefined;   // 表单态：适用系统 id
+  @observable configPeriod = '';          // 表单态：生成周期
+  @observable configSystems = [];         // 可选系统（后端专用接口返回）
+  @observable configPeriodOptions = [];   // 按台账类型收敛的周期候选
   // 拖拽内部状态（不驱动渲染，不设 observable）
   dragAnchor = '';
   dragMoved = false;
+  // 待确认替换的源文件（弹窗确认前不发起请求，不驱动渲染）
+  pendingReuploadFile = null;
 
   @computed get draft() {
     return this.current ? this.current.draft : null;
@@ -126,6 +147,87 @@ export class ExcelTemplateStore {
 
   @action setUploadField(key, value) {
     this[key] = value;
+  }
+
+  // ==================== 生成配置（适用系统 + 生成周期，2026-10-14） ====================
+
+  /** 打开配置弹窗：拉取当前配置与选项（系统清单/周期候选），失败由公共拦截器提示。 */
+  @action async openConfigModal() {
+    if (!this.current) return;
+    this.configVisible = true;
+    this.configSystem = this.current.system || undefined;
+    this.configPeriod = this.current.generation_period || '';
+    this.configSystems = [];
+    this.configPeriodOptions = [];
+    const res = await http.get(`${API}/${this.current.id}/generation-config/`);
+    const payload = res && res.data ? res.data : res;
+    this.configSystems = (payload && payload.systems) || [];
+    const periods = (payload && payload.periods) || {};
+    this.configPeriodOptions = periods[this.current.ledger_type] || [];
+  }
+
+  @action closeConfigModal() {
+    this.configVisible = false;
+  }
+
+  @action setConfigField(key, value) {
+    this[key] = value;
+  }
+
+  /**
+   * 保存生成配置（整体校验后落库）；空值显式清空回"待配置"。
+   * 成功后重取详情以服务端数据为最终状态。
+   */
+  @action async saveGenerationConfig() {
+    if (!this.current) return;
+    this.configSaving = true;
+    try {
+      const res = await http.put(`${API}/${this.current.id}/generation-config/`, {
+        system: this.configSystem || '',
+        generation_period: this.configPeriod || '',
+      });
+      this.applyDetail(res);
+      this.configVisible = false;
+      message.success('生成配置已保存');
+      await this.fetchList();
+      return this.current;
+    } finally {
+      this.configSaving = false;
+    }
+  }
+
+  // ==================== 新建模板弹窗 / 替换源文件确认（2026-10-14） ====================
+
+  @action openCreateModal() {
+    this.createVisible = true;
+  }
+
+  @action closeCreateModal() {
+    this.createVisible = false;
+  }
+
+  /** 选定待替换文件：只登记并弹确认框，不发起任何请求。 */
+  @action requestReupload(file) {
+    this.pendingReuploadFile = file;
+    this.reuploadConfirmVisible = true;
+  }
+
+  @action cancelReupload() {
+    this.reuploadConfirmVisible = false;
+    this.pendingReuploadFile = null;
+  }
+
+  /**
+   * 确认替换源文件：此时才真正上传。返回 promise 供 Modal onOk 使用
+   * （失败时弹窗保持打开，错误由公共拦截器提示）。
+   */
+  @action async confirmReupload() {
+    const file = this.pendingReuploadFile;
+    if (!this.current || !file) return;
+    this.reuploadConfirmVisible = false;
+    this.pendingReuploadFile = null;
+    await this.reuploadFile(file);
+    message.success('源文件已替换，原绑定已清空，请重新绑定');
   }
 
   async fetchList() {
@@ -428,14 +530,14 @@ export class ExcelTemplateStore {
   }
 
   /**
-   * 删除模板（逻辑删除/停用，幂等）：成功提示后重取列表（不做乐观删除）。
+   * 停用模板（逻辑删除/停用，幂等）：成功提示后重取列表（不做乐观删除）。
    * 失败由公共拦截器统一提示业务错误，这里不再重复弹窗，只向上传递拒绝。
    */
   async deleteTemplate(templateId) {
     this.deletingId = templateId;
     try {
       await http.delete(`${API}/${templateId}/`);
-      message.success('模板已删除');
+      message.success('模板已停用');
       await this.fetchList();
     } finally {
       this.deletingId = '';
@@ -485,8 +587,19 @@ export class ExcelTemplateStore {
     document.body.removeChild(link);
   }
 
-  async fetchVersions() {
-    const res = await http.get(`${API}/${this.current.id}/versions/`);
+  /**
+   * 拉取版本列表：默认当前模板，也支持列表页按行指定 templateId
+   * （不改动当前模板详情）；成功后打开版本抽屉并标注归属模板。
+   */
+  @action async showVersionsFor(record) {
+    this.versionsOwner = record && record.name ? record.name : '';
+    await this.fetchVersions(record ? record.id : undefined);
+    this.versionsVisible = true;
+  }
+
+  async fetchVersions(templateId) {
+    const id = templateId || (this.current && this.current.id);
+    const res = await http.get(`${API}/${id}/versions/`);
     const payload = res && res.data ? res.data : res;
     this.versions = Array.isArray(payload) ? payload : [];
   }

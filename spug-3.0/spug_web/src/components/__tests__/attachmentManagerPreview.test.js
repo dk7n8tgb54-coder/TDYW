@@ -52,7 +52,7 @@ const BASE_ATTACHMENT = {
   file_name: 'a.png',
   file_size: 1024,
   uploaded_by_name: 'u1',
-  created_at: '2026-09-14',
+  uploaded_at: '2026-09-14',
 };
 
 // 各用例通过替换 currentRecord 决定列表返回的附件（扩展名决定旧链路分支）

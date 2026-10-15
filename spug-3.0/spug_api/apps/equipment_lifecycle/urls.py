@@ -11,7 +11,7 @@
 
 2026-10-11 合并改造：
 - 原"故障处置"（/faults/*）与"运行记录"（/runtime-records/*）合并为统一
-  模块"运行与故障记录"（/records/*，SystemOperationRecord/SystemOperationProgress），
+  模块"运行处置记录"（/records/*，SystemOperationRecord/SystemOperationProgress），
   旧路由整体删除，不保留兼容层；
 - 原"系统履历"（/system-events/*、/system-event-groups/*、
   /systems/<pk>/system-events/）整体下线，模型/写入/查询一并退役。
@@ -41,8 +41,8 @@ urlpatterns = [
     path('systems/<int:pk>/', views.SystemDetailView.as_view()),
     path('systems/<int:pk>/active/', views.SystemActiveView.as_view()),
     path('systems/<int:pk>/upgrade-records/', SystemUpgradeRecordsView.as_view()),
-    # ==================== 运行与故障记录（2026-10-11 合并改造） ====================
-    # 统一主表承载 日常运行/异常事件/正式故障 三类记录；创建（编号锁，故障另叠
+    # ==================== 运行处置记录（2026-10-11 合并改造） ====================
+    # 统一主表承载 一般记录/异常事件/设备故障 三类记录；创建（编号锁，故障另叠
     # 健康锁）与 认定故障/恢复结案/撤销/编辑（健康锁）动作以 non_atomic 装配
     # （锁 → 事务提交 → 释放锁 顺序成立）。
     path('records/', _na(operation_views.RecordView.as_view())),
@@ -58,10 +58,7 @@ urlpatterns = [
     # 统一进展（不持健康锁：追加/更正进展不改健康状态，普通请求级事务即可）
     path('records/<int:pk>/progress/', operation_progress_views.RecordProgressView.as_view()),
     path('records/<int:pk>/progress/<int:rid>/', operation_progress_views.RecordProgressDetailView.as_view()),
-    path('records/<int:pk>/progress/<int:rid>/attachments/', operation_progress_views.RecordProgressAttachmentView.as_view()),
-    path('records/<int:pk>/progress/<int:rid>/attachments/<int:aid>/download/', operation_progress_views.RecordProgressAttachmentDownloadView.as_view()),
-    path('records/<int:pk>/progress/<int:rid>/attachments/<int:aid>/', operation_progress_views.RecordProgressAttachmentDetailView.as_view()),
-    # 状态动作（异常事件：完成跟进/认定正式故障；正式故障：恢复结案/撤销/原因分析）
+    # 状态动作（异常事件：完成跟进/认定设备故障；设备故障：恢复结案/撤销/原因分析）
     path('records/<int:pk>/complete/', _na(operation_action_views.RecordCompleteView.as_view())),
     path('records/<int:pk>/identify-fault/', _na(operation_action_views.RecordIdentifyFaultView.as_view())),
     path('records/<int:pk>/recover/', _na(operation_action_views.RecordRecoverView.as_view())),
@@ -78,6 +75,7 @@ urlpatterns = [
     path('excel-templates/<int:pk>/', excel_template_views.ExcelTemplateDetailView.as_view()),
     path('excel-templates/<int:pk>/draft-file/', excel_template_views.ExcelTemplateDraftFileView.as_view()),
     path('excel-templates/<int:pk>/bindings/', excel_template_views.ExcelTemplateBindingsView.as_view()),
+    path('excel-templates/<int:pk>/generation-config/', excel_template_views.ExcelTemplateGenerationConfigView.as_view()),
     path('excel-templates/<int:pk>/pdf-params/', excel_template_views.ExcelTemplatePdfParamsView.as_view()),
     path('excel-templates/<int:pk>/publish/', excel_template_views.ExcelTemplatePublishView.as_view()),
     path('excel-templates/<int:pk>/versions/', excel_template_views.ExcelTemplateVersionListView.as_view()),
@@ -94,10 +92,22 @@ urlpatterns = [
     path('ledgers/', ledger_views.LedgerView.as_view()),
     path('ledgers/abnormal-items/', ledger_views.LedgerAbnormalItemsView.as_view()),
     path('ledgers/export/', ledger_views.LedgerExportView.as_view()),
-    # 周期批量新增（2026-10-11）：GET 系统范围 / POST 按类型+周期一键建草稿台账
+    # 系统选项（"按系统查看"筛选等；原批量创建手工壳 POST 已下线）
     path('ledgers/batch-create/', ledger_views.LedgerBatchCreateView.as_view()),
+    # 本期应填台账生成（2026-10-14）：GET 预览 / POST 确认生成（按 Excel 模板）
+    path('ledgers/period-generate/', ledger_views.LedgerPeriodGenerateView.as_view()),
+    # 本期工作概览（2026-10-14）：本周/本月或本航季应填情况真实统计
+    path('ledgers/period-overview/', ledger_views.LedgerPeriodOverviewView.as_view()),
     # 按维护类型+周期分组的台账列表（组内含各系统台账与填写状态）
     path('ledgers/period-groups/', ledger_views.LedgerPeriodGroupsView.as_view()),
+    # 按模板身份分组的台账统计 + 组内台账分页列表（"按模板查看"，2026-10-11；
+    # group_key=模板主键，manual=无模板/临时补录组）
+    path('ledgers/template-groups/', ledger_views.LedgerTemplateGroupsView.as_view()),
+    path('ledgers/template-groups/<str:group_key>/ledgers/',
+         ledger_views.LedgerTemplateGroupLedgersView.as_view()),
+    # 模板组内批量 PDF 导出（2026-10-11）：GET 确认数据 / POST 生成合并 PDF
+    path('ledgers/template-groups/<str:group_key>/export-pdf/',
+         excel_ledger_views.LedgerTemplateGroupPdfExportView.as_view()),
     path('ledgers/<int:pk>/', ledger_views.LedgerDetailView.as_view()),
     path('ledgers/<int:pk>/submit/', ledger_views.LedgerSubmitView.as_view()),
     path('ledgers/<int:pk>/return/', ledger_views.LedgerReturnView.as_view()),
@@ -113,7 +123,7 @@ urlpatterns = [
     path('ledgers/<int:pk>/items/<int:item_pk>/attachments/', ledger_views.LedgerItemAttachmentView.as_view()),
     path('ledgers/<int:pk>/items/<int:item_pk>/attachments/<int:aid>/download/', ledger_views.LedgerItemAttachmentDownloadView.as_view()),
     path('ledgers/<int:pk>/items/<int:item_pk>/attachments/<int:aid>/', ledger_views.LedgerItemAttachmentDetailView.as_view()),
-    # 台账异常明细转统一记录（正式故障；视图自原 fault_views 迁入
+    # 台账异常明细转统一记录（设备故障；视图自原 fault_views 迁入
     # operation_ledger_convert，转换目标改为统一主表，不再创建第二张单）
     path('ledgers/<int:ledger_pk>/items/<int:item_pk>/convert-to-fault/', _na(operation_ledger_convert.LedgerItemConvertToFaultView.as_view())),
     # ==================== 系统配置（系统详情"配置"页签） ====================

@@ -115,7 +115,7 @@ class SingleSystemSimplificationTest(TestCase):
         退役删除——SystemEvent 表已由迁移 0013 删除，追溯由业务审计承载。）
         """
         from apps.equipment_lifecycle.operation_models import SystemOperationRecord
-        # 1) 直接登记正式故障 → 系统故障
+        # 1) 直接登记设备故障 → 系统故障
         body = self.client.post(f'{RECORDS_URL}/', {
             'record_type': 'fault',
             'system': self.system_a.id,

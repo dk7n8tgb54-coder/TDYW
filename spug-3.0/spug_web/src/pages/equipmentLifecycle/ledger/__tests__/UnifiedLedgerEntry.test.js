@@ -131,14 +131,20 @@ const LIST_PAYLOAD = {
   total: 2, page: 1, page_size: 20,
 };
 
-// 周期分组视图（2026-10-11）：页面列表改拉 /ledgers/period-groups/，
-// 组内行复用原列表行（Excel模板列/详情路由断言保持不变）
+// 周期分组视图（2026-10-11）：页面列表改拉 /ledgers/period-groups/；
+// 2026-10-14 起为分页形态 {data: {data, total}}，is_current=true 的组默认展开，
+// 组内行复用原列表行（模板名称列/详情路由断言保持不变）
 const GROUPS_FROM_LIST = {
-  data: [{
-    maintenance_period: '2026-09', period_text: '2026年9月',
-    total: LIST_PAYLOAD.data.length, pending: 0, filled: LIST_PAYLOAD.data.length,
-    ledgers: LIST_PAYLOAD.data,
-  }],
+  data: {
+    data: [{
+      maintenance_period: '2026-09', period_text: '每月｜2026年9月',
+      is_current: true,
+      total: LIST_PAYLOAD.data.length, draft: LIST_PAYLOAD.data.length,
+      returned: 0, submitted: 0, reviewed: 0, void: 0,
+      ledgers: LIST_PAYLOAD.data,
+    }],
+    total: 1,
+  },
 };
 
 const AVAILABLE_EXCEL_PAYLOAD = [{id: 11, name: '信道Excel维护台账', ledger_type: 'week_month',
@@ -223,8 +229,10 @@ test('统一列表渲染 Excel 模板列，不渲染来源标签/明细数/异�
     return Promise.resolve(LIST_PAYLOAD);
   });
   await renderIndex();
-  expect(container.textContent).toContain('Excel模板');
-  expect(container.textContent).toContain('信道Excel维护台账 v2');
+  // 2026-10-14 列改版：模板名称列在前，版本不再拼进同一单元格
+  expect(container.textContent).toContain('模板名称');
+  expect(container.textContent).toContain('信道Excel维护台账');
+  expect(container.textContent).toContain('每月｜'); // 分组期次为完整标签（2026-10-14）
   // 来源/明细数/异常数列已删除（2026-10）
   expect(container.textContent).not.toContain('临时补录');
   expect(container.textContent).not.toContain('明细数');
@@ -349,7 +357,7 @@ test('列表点击详情按来源路由：Excel 行走 Excel 详情，手工补�
   // Excel 来源行
   await act(async () => {
     Array.from(container.querySelectorAll('a'))
-      .find(a => a.textContent === '详情' && a.closest('tr').textContent.includes('EL-WM-20260928-001'))
+      .find(a => a.textContent === '继续填写' && a.closest('tr').textContent.includes('EL-WM-20260928-001'))
       .click();
   });
   await flush();
@@ -362,7 +370,7 @@ test('列表点击详情按来源路由：Excel 行走 Excel 详情，手工补�
   await flush();
   await act(async () => {
     Array.from(container.querySelectorAll('a'))
-      .find(a => a.textContent === '详情' && a.closest('tr').textContent.includes('EL-WM-20260910-0001'))
+      .find(a => a.textContent === '继续填写' && a.closest('tr').textContent.includes('EL-WM-20260910-0001'))
       .click();
   });
   await flush();

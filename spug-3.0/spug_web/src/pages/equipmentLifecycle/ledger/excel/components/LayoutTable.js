@@ -10,8 +10,10 @@
  * 零宽收起（保持坐标网格与跨行列合并完整）。设计绑定模式下标记已绑定
  * 单元格，填写预览模式下在绑定单元格内渲染 antd 输入控件（选项=Select、
  * 填空=Input，控件风格与巡检中心一致；宽度撑满单元格以保持 Excel 版式）。
- * 不做 Excel 完整复刻，以确认合并关系与布局还原为准；最终打印效果以
- * 导出 Excel/PDF 为准。
+ * 文本填写格的纵向空间达到两行默认行高（跨行合并或显式大行高，横向
+ * 合并不算高度）时改用多行文本域填满单元格；控件绝对定位，不参与行高
+ * 计算，不撑乱表格版式。不做 Excel 完整复刻，以确认合并关系与布局还原
+ * 为准；最终打印效果以导出 Excel/PDF 为准。
  *
  * 多选（批量绑定）：传入 selectedCells 渲染选区高亮；onSelectCell 追加
  * event 参数供父级识别 Ctrl/Cmd 加选；onCellMouseDown/onCellMouseEnter
@@ -20,27 +22,14 @@
 import React from 'react';
 import {Input, Select} from 'antd';
 
-export function colLetter(col) {
-  let letters = '';
-  while (col > 0) {
-    const rest = (col - 1) % 26;
-    letters = String.fromCharCode(65 + rest) + letters;
-    col = Math.floor((col - 1) / 26);
-  }
-  return letters;
-}
+import {
+  TALL_FILL_THRESHOLD_PT, colLetter, coordName, effectiveFillHeightPt,
+  effectiveFillHeightPx, parseCoord,
+} from '../utils';
 
-export function parseCoord(name) {
-  const match = /^([A-Z]+)([0-9]+)$/.exec(String(name).toUpperCase());
-  if (!match) return {row: 0, col: 0};
-  let col = 0;
-  for (const ch of match[1]) col = col * 26 + (ch.charCodeAt(0) - 64);
-  return {row: parseInt(match[2], 10), col};
-}
-
-export function coordName(row, col) {
-  return colLetter(col) + row;
-}
+// 坐标解析纯函数下沉到 ../utils（2026-10-14，供几何计算共用）；
+// 这里原样再导出，保持既有导入路径（excelTemplateStore 等）不变。
+export {colLetter, parseCoord, coordName};
 
 /** 解析合并区域：anchors[锚点] = {rowSpan, colSpan}；covered[覆盖格] = 锚点 */
 export function buildMergeInfo(ranges) {
@@ -135,8 +124,11 @@ function cellCss(style) {
  * 正常/异常与单选用 antd Select（allowClear + 占位提示），文本/数值/日期
  * 用 antd Input；宽度一律撑满单元格，保持 Excel 解析出的列宽版式不被
  * 固定控件宽度撑破（巡检中心列宽充裕用固定宽度，本表为版式回放）。
+ * 文本类型且纵向空间足够（tallFill，含 px 高度 fillHeightPx）时改用
+ * 多行文本域：绝对定位填满单元格（不含内边距），与模板合并区域/行高
+ * 尺寸相符；不参与行高计算，行高稳定的版式不被控件撑乱。
  */
-function CellInput({binding, value, onValueChange}) {
+function CellInput({binding, value, onValueChange, tallFill, fillHeightPx}) {
   const raw = value === undefined || value === null ? '' : String(value);
   const handleChange = event => onValueChange(binding.field_id, event.target.value);
   if (binding.input_type === 'status' || binding.input_type === 'choice') {
@@ -152,6 +144,18 @@ function CellInput({binding, value, onValueChange}) {
           <Select.Option key={option} value={option}>{option}</Select.Option>
         ))}
       </Select>
+    );
+  }
+  if (binding.input_type === 'text' && tallFill) {
+    return (
+      <Input.TextArea
+        className="proto-cell-input proto-cell-textarea"
+        data-field={binding.field_name}
+        placeholder="请输入"
+        value={raw}
+        onChange={handleChange}
+        style={{position: 'absolute', top: 2, left: 4, right: 4,
+                height: Math.max(fillHeightPx - 4, 24), resize: 'none'}}/>
     );
   }
   const type = binding.input_type === 'number' ? 'number'
@@ -234,9 +238,13 @@ export default class LayoutTable extends React.Component {
     }
     const classNames = ['proto-cell'];
     if (binding) classNames.push(fillMode ? 'proto-cell-filling' : 'proto-cell-bound');
-    if (selectedCell === coordinate) classNames.push('proto-cell-selected');
+    // 单击选中（selectedCell）与拖拽/Ctrl 批量选区（selectedCells）显示
+    // 同样的蓝框：selectedCell 此前只加无样式的 class，单击没有任何
+    // 视觉反馈
+    const singleSelected = selectedCell === coordinate;
+    if (singleSelected) classNames.push('proto-cell-selected');
     const inSelection = (selectedCells || []).indexOf(coordinate) !== -1;
-    if (inSelection) {
+    if (inSelection || singleSelected) {
       classNames.push('proto-cell-in-selection');
       css.boxShadow = 'inset 0 0 0 2px #1890ff';
     }
@@ -261,6 +269,12 @@ export default class LayoutTable extends React.Component {
     const displayText = fillMode && binding
       ? (fillValue === undefined || fillValue === null ? '' : String(fillValue))
       : text;
+    // 文本填写格纵向空间足够（跨行合并或显式大行高；横向合并不算高度）
+    // 时改用多行文本域填满单元格，与模板中的填写区域尺寸相符
+    const tallFill = !!(fillMode && binding && !readOnly
+      && binding.input_type === 'text'
+      && effectiveFillHeightPt(sheet, coordinate) >= TALL_FILL_THRESHOLD_PT);
+    const fillHeightPx = tallFill ? effectiveFillHeightPx(sheet, coordinate) : 0;
     return (
       <td key={coordinate}
           className={classNames.join(' ')}
@@ -273,6 +287,7 @@ export default class LayoutTable extends React.Component {
           data-coord={coordinate}>
         {fillMode && binding && !readOnly
           ? <CellInput binding={binding} value={fillValue}
+                       tallFill={tallFill} fillHeightPx={fillHeightPx}
                        onValueChange={this.props.onValueChange}/>
           : displayText}
         {!fillMode && binding && (
@@ -280,7 +295,10 @@ export default class LayoutTable extends React.Component {
                 title={`已绑定：${binding.field_name}（${coordinate}）`}/>
         )}
         {fillMode && binding && binding.is_required && !readOnly && (
-          <span className="proto-required-mark">*</span>
+          <span className="proto-required-mark"
+                style={tallFill ? {position: 'absolute', top: 2, right: 6, zIndex: 1} : undefined}>
+            *
+          </span>
         )}
       </td>
     );

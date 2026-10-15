@@ -32,12 +32,17 @@
 16. 兼容性检查（2026-09-29）：模板详情返回 status/warnings/unsupported
     （文件缺失/哈希不一致/不支持特性=error；LO 缺失/空打印区域=warning）；
 17. 布局元数据（2026-09-29）：边框/填充/字体（下划线/删除线）/行高
-    列宽/隐藏行列/打印方向在上传解析时捕获并落库。
+    列宽/隐藏行列/打印方向在上传解析时捕获并落库；
+18. 填写区尺寸契约（2026-10-14）：横向合并多列/纵向合并多行/显式行高
+    三种典型签名填写格，合并区域与行高在上传解析、填写保存、导出
+    Excel 与 LibreOffice 真实转换 PDF 的全链路保持，填写姓名落在
+    合并锚点且在 PDF 文本层可见（poppler 可用时提取验证）。
 """
 import io
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import uuid
 from unittest import mock, skipUnless
@@ -1094,3 +1099,116 @@ class TemplateCompatibilityTests(ExcelLedgerContractBase):
         compat = self._detail(template['id'], detect='/usr/bin/soffice')['compatibility']
         self.assertEqual(compat['status'], 'warning')
         self.assertTrue(any('打印区域' in w for w in compat['warnings']))
+
+
+def _build_fill_area_xlsx():
+    """三种典型签名填写格模板：横向合并 B3:D3（默认行高）/纵向合并
+    B5:B7/显式行高 45pt 的单格 B9，均加边框便于 PDF 版式辨识。"""
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = '维护记录'
+    thin = Side(style='thin', color='000000')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    worksheet['A1'] = '维护记录'
+    worksheet.merge_cells('A1:E1')
+    worksheet['B2'] = '签名'
+    worksheet['A3'] = '横向合并格'
+    worksheet.merge_cells('B3:D3')
+    worksheet['A5'] = '纵向合并格'
+    worksheet.merge_cells('B5:B7')
+    worksheet['A9'] = '显式行高格'
+    worksheet.row_dimensions[9].height = 45
+    for row in range(3, 10):
+        for col in range(1, 6):
+            worksheet.cell(row=row, column=col).border = border
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+class FillAreaSizeContractTests(ExcelLedgerContractBase):
+    """填写区尺寸契约：合并区域与行高全链路保持（2026-10-14）。
+
+    模板解析保留合并/行高（前端据此渲染填写区域），填写值写入合并
+    锚点，导出 Excel 逐项保持合并关系与显式行高，LibreOffice 真实
+    转换的 PDF 中填写姓名文本层可见。
+    """
+
+    def _publish_fill_area_template(self):
+        """上传三种填写格模板 → 解析断言 → 绑定三个文本签名格 → 发布。"""
+        response = self.owner_client.post(TPL_URL + '/', {
+            'file': SimpleUploadedFile('fill_area.xlsx', _build_fill_area_xlsx()),
+            'name': '签名填写区模板',
+            'ledger_type': 'week_month',
+        })
+        template = response.json()['data']['data']
+        sheet = template['draft']['layout']['sheets'][0]
+        # 解析层保留三种情况的布局事实（横向/纵向合并 + 显式行高）
+        self.assertEqual(sheet['merged_ranges'], ['A1:E1', 'B3:D3', 'B5:B7'])
+        self.assertEqual(sheet['row_heights'], {'9': 45.0})
+        bindings = [
+            self.make_binding('B3', '负责人签名', sheet='维护记录',
+                              input_type='text', is_required=False),
+            self.make_binding('B5', '值班人签名', sheet='维护记录',
+                              input_type='text', is_required=False),
+            self.make_binding('B9', '复核签名', sheet='维护记录',
+                              input_type='text', is_required=False),
+        ]
+        response = self.save_bindings(template['id'], bindings)
+        self.assertEqual(response.json().get('error', ''), '')
+        return template, self.publish(template['id']), bindings
+
+    def _create_filled_ledger(self, version, bindings):
+        """创建台账并保存三个姓名填写值，返回台账 id。"""
+        values = {bindings[0]['field_id']: '张三',
+                  bindings[1]['field_id']: '李四',
+                  bindings[2]['field_id']: '王五'}
+        response = self.owner_client.post(LEDGER_URL + '/', json.dumps({
+            'version_id': version['id'], 'executed_date': '2026-10-14',
+            'executor_names': '验收人', 'ledger_type': 'week_month',
+        }), content_type='application/json')
+        ledger_id = response.json()['data']['data']['id']
+        response = self.owner_client.put(
+            '%s/%s/' % (LEDGER_URL, ledger_id),
+            json.dumps({'values': values}), content_type='application/json')
+        self.assertEqual(response.json().get('error', ''), '')
+        return ledger_id
+
+    def test_export_excel_keeps_merges_row_height_and_anchor_values(self):
+        """导出 Excel：合并关系与显式行高逐项保持，姓名写在合并锚点。"""
+        _template, version, bindings = self._publish_fill_area_template()
+        ledger_id = self._create_filled_ledger(version, bindings)
+        response = self.owner_client.post(
+            '%s/%s/export/excel/' % (LEDGER_URL, ledger_id))
+        self.assertIn('application/vnd.openxmlformats', response['Content-Type'])
+        workbook = load_workbook(filename=io.BytesIO(response.content))
+        main = workbook['维护记录']
+        self.assertEqual(sorted(str(rng) for rng in main.merged_cells.ranges),
+                         ['A1:E1', 'B3:D3', 'B5:B7'])
+        self.assertEqual(main.row_dimensions[9].height, 45)
+        self.assertEqual(main['B3'].value, '张三')
+        self.assertEqual(main['B5'].value, '李四')
+        self.assertEqual(main['B9'].value, '王五')
+
+    @skipUnless(detect_soffice(), 'LibreOffice 不可用，PDF 导出用例 NOT_RUN（环境限制）')
+    def test_export_pdf_visible_names_in_tall_fill_cells(self):
+        """导出 PDF：LibreOffice 真实转换，合并/行高版式下姓名文本可见。"""
+        _template, version, bindings = self._publish_fill_area_template()
+        ledger_id = self._create_filled_ledger(version, bindings)
+        response = self.owner_client.post(
+            '%s/%s/export/pdf/' % (LEDGER_URL, ledger_id))
+        self.assertIn('application/pdf', response['Content-Type'])
+        self.assertTrue(response.content.startswith(b'%PDF-'))
+        self.assertGreater(len(response.content), 1000)
+        if not shutil.which('pdftotext'):
+            return
+        with tempfile.TemporaryDirectory(prefix='el_fill_area_') as tmp_dir:
+            pdf_path = os.path.join(tmp_dir, 'filled.pdf')
+            with open(pdf_path, 'wb') as f:
+                f.write(response.content)
+            text = subprocess.run(['pdftotext', pdf_path, '-'],
+                                  capture_output=True, check=True).stdout.decode('utf-8')
+        compact = ''.join(text.split())
+        self.assertIn('张三', compact)
+        self.assertIn('李四', compact)
+        self.assertIn('王五', compact)

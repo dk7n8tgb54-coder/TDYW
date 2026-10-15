@@ -19,6 +19,26 @@ from apps.account.models import User
 from apps.equipment_lifecycle.excel_field_types import LongTextField
 from libs.tenant_base_model import TenantModelManager, TenantModelMixin, make_tenant_id
 
+# 模板生成周期（2026-10-14 周期生成配置）：显式配置，不从名称/内容推断；
+# 空串=待配置（历史模板兼容，不参与自动生成）
+TEMPLATE_PERIOD_WEEKLY = 'weekly'      # 每周（周月维护模板）
+TEMPLATE_PERIOD_MONTHLY = 'monthly'    # 每月（周月维护模板）
+TEMPLATE_PERIOD_SEASONAL = 'seasonal'  # 每航季（季维护模板，固定值）
+TEMPLATE_PERIOD_VALUES = [
+    TEMPLATE_PERIOD_WEEKLY, TEMPLATE_PERIOD_MONTHLY, TEMPLATE_PERIOD_SEASONAL,
+]
+# 按台账类型收敛的合法生成周期
+TEMPLATE_PERIOD_BY_LEDGER_TYPE = {
+    'week_month': [TEMPLATE_PERIOD_WEEKLY, TEMPLATE_PERIOD_MONTHLY],
+    'seasonal': [TEMPLATE_PERIOD_SEASONAL],
+}
+TEMPLATE_PERIOD_TEXT = {
+    TEMPLATE_PERIOD_WEEKLY: '每周',
+    TEMPLATE_PERIOD_MONTHLY: '每月',
+    TEMPLATE_PERIOD_SEASONAL: '每航季',
+    '': '待配置',
+}
+
 
 class OperationLedgerExcelTemplate(TenantModelMixin, models.Model):
     """Excel 上传版维护台账模板：草稿容器 + 不可变发布版本。
@@ -26,12 +46,24 @@ class OperationLedgerExcelTemplate(TenantModelMixin, models.Model):
     - ledger_type 复用台账类型枚举（周月维护/季维护），创建后不可修改；
     - 草稿 = 当前上传的源文件（存储按模板 id 定位）+ 布局 meta + 字段绑定；
       重新上传源文件后布局重建、原绑定清空（坐标可能已失效）；
-    - 发布版本见 OperationLedgerExcelTemplateVersion，本表不冗余版本内容。
+    - 发布版本见 OperationLedgerExcelTemplateVersion，本表不冗余版本内容；
+    - 周期生成配置（2026-10-14）：system 固定唯一适用系统（一模板一系统，
+      同系统可多模板），generation_period 显式声明生成周期（周月维护=
+      weekly/monthly，季维护=seasonal 每航季），两者均不从名称或表格内容
+      推断；历史模板为空时标记"待配置"，不参与自动生成。
     """
 
     name = models.CharField(max_length=100, help_text='模板名称')
     ledger_type = models.CharField(max_length=20, help_text='台账类型（创建后不可修改）')
     description = models.CharField(max_length=500, default='', blank=True, help_text='说明')
+    system = models.ForeignKey(
+        'LifecycleSystem', models.PROTECT, related_name='excel_ledger_templates',
+        null=True, blank=True,
+        help_text='唯一适用系统（空=待配置；一模板只对应一个系统，同系统可多模板）')
+    generation_period = models.CharField(
+        max_length=10, default='', blank=True,
+        help_text='生成周期（week_month: weekly 每周 / monthly 每月；seasonal: seasonal 每航季；'
+                  '空=待配置，仅用于本期应填台账自动生成，不影响手工创建')
     draft_source_filename = models.CharField(
         max_length=200, default='', blank=True, help_text='当前草稿源文件名（空为无草稿）')
     draft_source_hash = models.CharField(
@@ -77,6 +109,12 @@ class OperationLedgerExcelTemplate(TenantModelMixin, models.Model):
             'name': self.name,
             'ledger_type': self.ledger_type,
             'description': self.description,
+            'system': self.system_id,
+            'system_name': self.system.name if self.system_id else '',
+            'system_code': self.system.system_code if self.system_id else '',
+            'generation_period': self.generation_period,
+            'generation_period_text': TEMPLATE_PERIOD_TEXT.get(
+                self.generation_period, self.generation_period),
             'is_active': self.is_active,
             'draft_source_filename': self.draft_source_filename,
             'draft_source_hash': self.draft_source_hash,

@@ -22,6 +22,7 @@
 高保真引擎扩展位：settings.EXCEL_PDF_ENGINE（缺省/当前唯一支持
 'libreoffice'；配置为其他值时显式报错，不静默回退）。
 """
+import io
 import os
 import shutil
 import subprocess
@@ -74,3 +75,28 @@ def convert_xlsx_to_pdf(xlsx_path, out_dir, timeout=CONVERT_TIMEOUT_SECONDS, det
         detail = (process.stderr or b'').decode('utf-8', 'replace').strip()
         raise PdfConversionError('PDF 转换失败：%s' % (detail[-300:] or '未知错误'))
     return pdf_path
+
+
+def merge_pdf_bytes(pdf_contents):
+    """按给定顺序合并多份 PDF 字节，返回合并后的 PDF 字节。
+
+    批量导出用（模板组"导出本模板台账"）：逐页原样并入（pypdf），不缩放、
+    不重排，各份 PDF 的纸张尺寸、方向、边距与分页全部保留。pypdf 延迟
+    导入：组件缺失时抛 PdfConversionError，不影响既有单条转换链路。
+    """
+    if not pdf_contents:
+        raise PdfConversionError('没有可合并的 PDF 内容')
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except ImportError:
+        raise PdfConversionError('PDF 合并组件 pypdf 不可用（请在部署环境安装 pypdf）')
+    writer = PdfWriter()
+    for index, content in enumerate(pdf_contents):
+        try:
+            for page in PdfReader(io.BytesIO(content)).pages:
+                writer.add_page(page)
+        except Exception as e:
+            raise PdfConversionError('第 %d 份 PDF 读取失败：%s' % (index + 1, e))
+    output = io.BytesIO()
+    writer.write(output)
+    return output.getvalue()

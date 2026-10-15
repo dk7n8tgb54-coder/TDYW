@@ -104,7 +104,8 @@ class WorkOrderApiRemovedTest(WorkOrderRemovalTestBase):
         """工单处理记录附件对象类型已下线：现行统一进展对象类型收口。"""
         from apps.evidence.models import EvidenceAttachment
         # 工单处置记录附件对象类型不再有任何附件行（迁移 0043/0013 清理后，
-        # 新写入路径只使用 el_operation_progress / el_operation_record）
+        # 新写入路径只使用 el_operation_record；进展级 el_operation_progress
+        # 亦已随 0016 重指退役）
         self.assertFalse(EvidenceAttachment.objects.filter(
             module='equipment_lifecycle',
             object_type='el_work_order_handling').exists())

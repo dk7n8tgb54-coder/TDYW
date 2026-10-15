@@ -23,13 +23,14 @@ from django.views.generic import View
 from libs import auth, json_response
 
 from apps.logs.audit import record_audit_event
-from apps.equipment_lifecycle import excel_ledger_services
+from apps.equipment_lifecycle import excel_ledger_services, ledger_template_group_services
 from apps.equipment_lifecycle.excel_ledger_services import ExcelLedgerError
 from apps.equipment_lifecycle.excel_template_views import (
     XLSX_CONTENT_TYPE,
     _na,
     file_response,
 )
+from apps.equipment_lifecycle.ledger_services import LedgerValidationError
 from apps.equipment_lifecycle.ledger_views import (
     AUDIT_TARGET_LEDGER,
     _read_json_body,
@@ -85,14 +86,22 @@ class ExcelLedgerDetailView(View):
         ledger = excel_ledger_services.get_ledger(pk, request.user)
         if not ledger:
             return json_response(error='台账不存在')
+        header_updated = False
         try:
-            excel_ledger_services.update_values(request.user, ledger, body.get('values'))
+            # 表头执行信息（实际执行日期/执行人）与填写值可同请求分别提交
+            if isinstance(body.get('header'), dict):
+                excel_ledger_services.update_header(request.user, ledger, body['header'])
+                header_updated = True
+            if 'values' in body:
+                excel_ledger_services.update_values(request.user, ledger, body.get('values'))
         except ExcelLedgerError as e:
             return json_response(error=str(e))
         record_audit_event(
             request, 'update', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
-            after_value={'action_kind': 'save_excel_values',
-                         'version_id': ledger.excel_record.version_id})
+            after_value={'action_kind': 'save_excel_values' if not header_updated
+                         else 'save_excel_header',
+                         'version_id': ledger.excel_record.version_id,
+                         'executed_date': str(ledger.executed_date or '')})
         return json_response({'data': excel_ledger_services.ledger_detail(ledger)})
 
 
@@ -180,3 +189,56 @@ class ExcelLedgerExportCheckView(View):
         except ExcelLedgerError as e:
             return json_response(error=str(e))
         return json_response({'data': {'warnings': warnings}})
+
+
+class LedgerTemplateGroupPdfExportView(View):
+    """模板组内批量 PDF 导出（"按模板查看 → 导出本模板台账"，2026-10-11）。
+
+    URL：/ledgers/template-groups/<group_key>/export-pdf/，筛选参数经
+    query string 传入（与组内列表同口径：status/keyword/executed_from/
+    executed_to/ledger_type）：
+    - GET：确认框数据（模板名/匹配数/实际日期范围/状态范围/涉及版本），
+      状态未显式筛选时返回默认有效状态范围（不含草稿/已作废）；
+    - POST：实际导出。后端按同口径重新查询并固定 ID 清单（不信任前端
+      台账 ID/数量），每条台账用创建时模板版本生成 PDF 后依序合并下发，
+      任一条失败整体失败；成功文件名含模板名与导出日期（非法字符净化）。
+    导出为文件副作用视图，使用 transaction.non_atomic_requests。
+    """
+
+    def _filters(self, request):
+        params = request.GET
+        return dict(
+            ledger_type=params.get('ledger_type') or '',
+            status=params.get('status') or '',
+            keyword=params.get('keyword') or '',
+            executed_from=params.get('executed_from') or '',
+            executed_to=params.get('executed_to') or '',
+        )
+
+    @_na
+    @auth('equipment_lifecycle.ledger.export')
+    def get(self, request, group_key):
+        try:
+            data = ledger_template_group_services.preview_group_pdf_export(
+                request.user, group_key, **self._filters(request))
+        except LedgerValidationError as e:
+            return json_response(error=str(e))
+        return json_response({'data': data})
+
+    @_na
+    @auth('equipment_lifecycle.ledger.export')
+    def post(self, request, group_key):
+        filters = self._filters(request)
+        try:
+            filename, content, count = ledger_template_group_services.export_group_pdfs(
+                request.user, group_key, **filters)
+        except LedgerValidationError as e:
+            return json_response(error=str(e))
+        record_audit_event(
+            request, 'export', AUDIT_TARGET_LEDGER, None, filename,
+            after_value={'action_kind': 'batch_template_pdf',
+                         'group_key': str(group_key), 'count': count,
+                         'status': filters['status'],
+                         'executed_from': filters['executed_from'],
+                         'executed_to': filters['executed_to']})
+        return file_response(filename, content, PDF_CONTENT_TYPE)

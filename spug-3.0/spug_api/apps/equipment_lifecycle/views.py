@@ -50,7 +50,7 @@ COMPONENT_MAINTENANCE_EMPTY = {'fault_count': 0}
 def _component_maintenance_rows(systems):
     """部件维护状态汇总（与系统运行健康状态分离展示）。
 
-    - fault_count：有效（处置中）且不影响系统运行的正式故障数（部件故障提示）。
+    - fault_count：有效（处置中）且不影响系统运行的设备故障数（部件故障提示）。
     部件故障不参与系统健康状态计算，只作独立提示展示（"维修中"已随
     故障维修工单功能整体删除，2026-09-30；合并改造后只统计统一主表内
     record_type=fault 的处置中记录）；
@@ -96,7 +96,7 @@ def _parse_date(value):
     return None
 
 # 系统固定字段的变更历史展示名（与模型 help_text 口径一致）
-# 注意：health_status 由有效正式故障统一计算（operation_services），不属于可编辑固定字段
+# 注意：health_status 由有效设备故障统一计算（operation_services），不属于可编辑固定字段
 FIXED_CHANGE_LABELS = {
     'name': '系统名称', 'system_model': '系统型号', 'install_location': '安装地点',
     'geo_coordinate': '安装经纬度', 'callsign': '呼号',
@@ -143,7 +143,7 @@ def _parse_system_fields(data):
 def _fixed_field_snapshot(item):
     """提取参与变更历史比对的系统固定字段快照。
 
-    health_status 不参与比对：它由有效正式故障统一计算（operation_services），
+    health_status 不参与比对：它由有效设备故障统一计算（operation_services），
     不是用户可编辑字段，其变化通过健康状态审计留痕（系统履历已退役）。
     """
     return {
@@ -230,7 +230,7 @@ def _get_system_for_user(pk, user):
 def _collect_system_references(system):
     """删除保护：返回引用该系统的业务对象描述列表，非空则禁止物理删除。
 
-    运行与故障记录、运维台账明细与升级记录均以系统 ID 建立业务关联
+    运行处置记录、运维台账明细与升级记录均以系统 ID 建立业务关联
     （PROTECT）。历史记录必须继续可查，存在关联的系统不得物理删除。
     fail-closed 语义。（"工单"引用检查已随工单功能删除，2026-09-30；
     "系统履历事件"检查已随系统履历整体退役删除，2026-10-11）
@@ -241,7 +241,7 @@ def _collect_system_references(system):
     refs = []
     if SystemOperationRecord.objects.filter(
             tenant_id=system.tenant_id, system_id=system.id).exists():
-        refs.append('运行与故障记录')
+        refs.append('运行处置记录')
     if OperationLedgerItem.objects.filter(
             tenant_id=system.tenant_id, system_id=system.id).exists():
         refs.append('运维台账明细')

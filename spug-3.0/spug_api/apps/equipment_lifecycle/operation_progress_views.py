@@ -3,18 +3,17 @@
 """设备全生命周期——统一处理进展视图（2026-10-11 合并改造）。
 
 三种记录类型共用的统一进展（SystemOperationProgress）：
-- 日常运行：允许补充进展（不改变状态，恒为"已记录"）；
+- 一般记录：允许补充进展（不改变状态，恒为"已记录"）；
 - 异常事件：追加首条进展即进入跟进中（recorded → following_up），
   已完成追加进展即重新跟进（completed → following_up）；
-- 正式故障：仅处置中可追加/更正/传附件（已关闭/已撤销封闭）；
+- 设备故障：仅处置中可追加/更正（已关闭/已撤销封闭）；
 - 处理人 handler_name 为手动输入姓名（多人顿号分隔，缺省当前登录用户
   显示姓名），handler 外键保留操作账号审计字段；
 - 更正不静默覆盖：原内容、修改内容与更正原因追加保存到 corrections；
 - 工时选填（小时）；厂家送修/厂家反馈/外委处理等以进展内容记录，
   不设进展分类前置条件；
-- 进展附件复用 EvidenceAttachment（module=equipment_lifecycle,
-  object_type=el_operation_progress, object_id=进展ID），访问前先校验
-  父记录与进展归属。
+- 进展级附件已退役（2026-10-13）：材料统一挂主记录级附件
+  （object_type=el_operation_record），存量进展附件经迁移 0016 重指。
 """
 import json
 
@@ -24,26 +23,16 @@ from django.views.generic import View
 
 from libs import JsonParser, Argument, json_response, auth
 from libs.tenant_utils import apply_tenant_filter
-from apps.evidence.attachment_service import (
-    AttachmentService, DefaultAttachmentConfig, ATTACHMENT_DELETE_DENIED_ERROR,
-)
-from apps.evidence.models import EvidenceAttachment
 from apps.logs.audit import record_audit_event
 
 from apps.equipment_lifecycle import operation_services
-from apps.equipment_lifecycle.operation_models import (
-    PROGRESS_ATTACHMENT_OBJECT_TYPE,
-    SystemOperationProgress,
-)
+from apps.equipment_lifecycle.operation_models import SystemOperationProgress
 from apps.equipment_lifecycle.operation_views import (
     AUDIT_TARGET_RECORD,
     _get_record_for_user,
     _parse_dt,
     _read_json_body,
 )
-
-# 统一进展附件归属标识（复用 EvidenceAttachment 体系，不新建文件存储）
-PROGRESS_ATTACHMENT_MODULE = 'equipment_lifecycle'
 
 # 已随字段删除下线的旧参数（原进展的处置类型/处理结果字段）：
 # 出现即拒绝，不静默忽略
@@ -124,8 +113,8 @@ class RecordProgressView(View):
     """统一进展：按处理时间正序的时间线 / 追加进展。
 
     追加进展即"跟进"动作本身：异常事件已记录保存第一条进展后自动进入
-    跟进中，已完成追加进展即重新跟进；日常运行允许补充进展但不改变状态；
-    正式故障仅处置中可追加（已关闭/已撤销拒绝）。
+    跟进中，已完成追加进展即重新跟进；一般记录允许补充进展但不改变状态；
+    设备故障仅处置中可追加（已关闭/已撤销拒绝）。
     """
 
     @auth('equipment_lifecycle.operation_record.view')
@@ -172,7 +161,7 @@ class RecordProgressView(View):
                 work_hours=params['work_hours'],
             )
             # 异常事件：首条进展进入跟进中 / 已完成追加进展即重新跟进；
-            # 日常运行不改变状态；正式故障处置中状态不变（其余状态已被
+            # 一般记录不改变状态；设备故障处置中状态不变（其余状态已被
             # 上方 editable 校验拒绝）
             if record.record_type == 'abnormal' and record.status in ('recorded', 'completed'):
                 record.status = 'following_up'
@@ -234,104 +223,3 @@ class RecordProgressDetailView(View):
                                             'progress_id': progress.id,
                                             'reason': params['correction_reason'][:200]})
         return json_response(progress.to_view())
-
-
-def _get_progress_attachment_for_user(record, progress, attachment_id, user):
-    """进展附件归属校验：附件存在、未软删除、归属本模块与父进展、租户可见。"""
-    return apply_tenant_filter(
-        EvidenceAttachment.objects.filter(is_deleted=False), user
-    ).filter(pk=attachment_id, module=PROGRESS_ATTACHMENT_MODULE,
-             object_type=PROGRESS_ATTACHMENT_OBJECT_TYPE,
-             object_id=str(progress.id)).first()
-
-
-class RecordProgressAttachmentView(View):
-    """统一进展附件（复用 EvidenceAttachment 能力）。
-
-    访问前先校验记录与进展存在且属于当前租户（父对象校验）。
-    """
-
-    @auth('equipment_lifecycle.operation_record.view')
-    def get(self, request, pk, rid):
-        record = _get_record_for_user(pk, request.user)
-        if not record:
-            return json_response(error='记录不存在')
-        progress = _get_progress_for_user(record, rid, request.user)
-        if not progress:
-            return json_response(error='处理进展不存在')
-        attachments = AttachmentService.list(
-            request.user, PROGRESS_ATTACHMENT_MODULE,
-            PROGRESS_ATTACHMENT_OBJECT_TYPE, progress.id)
-        return json_response({'data': attachments})
-
-    @auth('equipment_lifecycle.operation_record.progress')
-    def post(self, request, pk, rid):
-        with transaction.atomic():
-            record = _get_record_for_user(pk, request.user, for_update=True)
-            if not record:
-                return json_response(error='记录不存在')
-            if record.status not in record.editable_statuses:
-                return json_response(error='当前状态的记录不能上传进展附件')
-            progress = _get_progress_for_user(record, rid, request.user)
-            if not progress:
-                return json_response(error='处理进展不存在')
-            file = request.FILES.get('file')
-            if not file:
-                return json_response(error='缺少上传文件')
-            att, error = AttachmentService.upload(
-                file, request.user, PROGRESS_ATTACHMENT_MODULE,
-                PROGRESS_ATTACHMENT_OBJECT_TYPE, progress.id,
-                config=DefaultAttachmentConfig, owner_tenant_id=record.tenant_id)
-            if error:
-                return json_response(error=error)
-            record_audit_event(request, 'create', AUDIT_TARGET_RECORD, record.id,
-                               record.record_no,
-                               after_value={'action': 'upload_progress_attachment',
-                                            'progress_id': progress.id,
-                                            'file_name': att.file_name})
-        return json_response(att.to_view())
-
-
-class RecordProgressAttachmentDetailView(View):
-    @auth('equipment_lifecycle.operation_record.edit')
-    def delete(self, request, pk, rid, aid):
-        with transaction.atomic():
-            record = _get_record_for_user(pk, request.user, for_update=True)
-            if not record:
-                return json_response(error='记录不存在')
-            if record.status not in record.editable_statuses:
-                return json_response(error='当前状态的记录不能删除进展附件')
-            progress = _get_progress_for_user(record, rid, request.user)
-            if not progress:
-                return json_response(error='处理进展不存在')
-            att = _get_progress_attachment_for_user(record, progress, aid, request.user)
-            if not att:
-                return json_response(error=ATTACHMENT_DELETE_DENIED_ERROR)
-            error = AttachmentService.soft_delete(
-                request.user, aid, PROGRESS_ATTACHMENT_MODULE,
-                PROGRESS_ATTACHMENT_OBJECT_TYPE, reason='统一进展附件删除')
-            if error:
-                return json_response(error=error)
-            record_audit_event(request, 'delete', AUDIT_TARGET_RECORD, record.id,
-                               record.record_no,
-                               after_value={'action': 'delete_progress_attachment',
-                                            'progress_id': progress.id,
-                                            'file_name': att.file_name})
-        return json_response({})
-
-
-class RecordProgressAttachmentDownloadView(View):
-    @auth('equipment_lifecycle.operation_record.view')
-    def get(self, request, pk, rid, aid):
-        record = _get_record_for_user(pk, request.user)
-        if not record:
-            return json_response(error='记录不存在')
-        progress = _get_progress_for_user(record, rid, request.user)
-        if not progress:
-            return json_response(error='处理进展不存在')
-        response, error = AttachmentService.download_response(
-            request.user, aid, PROGRESS_ATTACHMENT_MODULE,
-            PROGRESS_ATTACHMENT_OBJECT_TYPE)
-        if error:
-            return json_response(error=error)
-        return response

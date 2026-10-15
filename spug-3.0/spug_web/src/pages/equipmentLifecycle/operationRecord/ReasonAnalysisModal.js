@@ -3,7 +3,7 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 运行与故障记录——原因分析状态化单元格与专用弹窗（2026-10-11 合并改造）。
+ * 运行处置记录——原因分析状态化单元格与专用弹窗（2026-10-11 合并改造）。
  * 自 RecordDetail 拆出：尚未分析/初步判断/最终原因/原因未明四态展示；
  * 保存走 reason-analysis 专用端点并静默刷新详情。
  */
@@ -87,7 +87,7 @@ function ReasonAnalysisModal({visible, onClose}) {
       }}
     >
       <p style={{color: 'rgba(0, 0, 0, 0.45)', marginTop: 0}}>
-        原因分析是当前阶段的原因结论；排查过程与依据请在"统一进展"中记录。
+        原因分析是当前阶段的原因结论；排查过程与依据请在"处置记录"中记录。
       </p>
       <Form form={form} labelCol={{span: 6}} wrapperCol={{span: 16}}>
         <Form.Item name="reason_unknown" valuePropName="checked" label="原因未明">
@@ -125,6 +125,6 @@ function ReasonAnalysisModal({visible, onClose}) {
 }
 
 // observer 必须包裹：时间线读取 progressRecords/isProgressFetching。
-// 统一进展工作区（内联录入）：新增进展（处理时间/处理人/处理内容/可选工时）
+// 进展工作区（内联录入）：新增进展（处理时间/处理人/处理内容）
 
 export default ReasonAnalysisCell;

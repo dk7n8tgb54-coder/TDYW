@@ -16,12 +16,14 @@ export const PERM = {
   SYS_DEACTIVATE: 'equipment_lifecycle.system.deactivate',
   SYS_EXPORT: 'equipment_lifecycle.system.export',
   LEDGER_HANDLE_EXCEPTION: 'equipment_lifecycle.ledger.handle_exception',
-  // 运行与故障记录（2026-10-11 合并改造：原 fault.* 与 runtime_record.*
+  // 运行处置记录（2026-10-11 合并改造：原 fault.* 与 runtime_record.*
   // 权限域合并换发为 operation_record.*，由迁移 0013 清洗角色权限）
   OP_VIEW: 'equipment_lifecycle.operation_record.view',
   OP_ADD: 'equipment_lifecycle.operation_record.add',
   OP_ADD_FAULT: 'equipment_lifecycle.operation_record.add_fault',
   OP_EDIT: 'equipment_lifecycle.operation_record.edit',
+  // OP_PROGRESS：进展追加端点权限（详情顶部"添加跟进/补充/处置记录"按钮
+  // 与后端 @auth 一致；2026-10-14 起成为新增进展的按钮级控制）
   OP_PROGRESS: 'equipment_lifecycle.operation_record.progress',
   OP_COMPLETE: 'equipment_lifecycle.operation_record.complete',
   OP_IDENTIFY_FAULT: 'equipment_lifecycle.operation_record.identify_fault',
@@ -65,9 +67,9 @@ export const HEALTH_STATUS_COLOR = {
   unknown: 'default',
 };
 
-// ==================== 运行与故障记录统一状态/类型（2026-10-11 合并改造） ====================
-// 统一六状态：日常运行恒为已记录；异常事件 已记录→跟进中→已完成；
-// 正式故障 处置中→已关闭 / 处置中→已撤销（错误/重复登记受控撤销）。
+// ==================== 运行处置记录统一状态/类型（2026-10-11 合并改造） ====================
+// 统一六状态：一般记录恒为已记录；异常事件 已记录→跟进中→已完成；
+// 设备故障 处置中→已关闭 / 处置中→已撤销（错误/重复登记受控撤销）。
 // 已撤销使用虚线边框的中性灰样式（RecordStatusTag），与进行态明显区分。
 export const RECORD_STATUS_OPTIONS = [
   {value: 'recorded', label: '已记录'},
@@ -92,13 +94,13 @@ export const RECORD_STATUS_COLOR = {
   cancelled: 'default',
 };
 
-// 记录类型（2026-10-11 合并改造，与后端 SystemOperationRecord.record_type 一致）：
-// routine 日常运行 / abnormal 异常事件 / fault 正式故障。
-// 异常事件可在原记录上认定为正式故障（类型原地变更，不创建第二张单）。
+// 记录类型（2026-10-12 显示名调整，与后端 SystemOperationRecord.record_type 一致）：
+// routine 一般记录 / abnormal 异常事件 / fault 设备故障。
+// 异常事件可在原记录上认定为设备故障（类型原地变更，不创建第二张单）。
 export const RECORD_TYPE_OPTIONS = [
-  {value: 'routine', label: '日常运行'},
+  {value: 'routine', label: '一般记录'},
   {value: 'abnormal', label: '异常事件'},
-  {value: 'fault', label: '正式故障'},
+  {value: 'fault', label: '设备故障'},
 ];
 
 export const RECORD_TYPE_TEXT = RECORD_TYPE_OPTIONS.reduce((acc, item) => {
@@ -112,7 +114,17 @@ export const RECORD_TYPE_COLOR = {
   fault: 'red',
 };
 
-// 正式故障影响程度（正式故障专用字段；不影响运行时无程度）
+// 三类记录的用途说明（新增表单选项说明/详情下一步提示共用一套口径，
+// 与后端 operation_models.record_type 帮助文本一致）：
+// - 一般记录不进入故障流程；- 异常事件可跟进、可认定故障；
+// - 设备故障直接登记后进入处置中，须完成恢复确认并结案
+export const RECORD_TYPE_HINTS = {
+  routine: '常规作业与运行情况留痕：不进入故障流程，不影响系统健康状态，可随时补充记录。',
+  abnormal: '需要跟进确认的异常或疑问：先记录再跟进，必要时可在详情中认定为设备故障。',
+  fault: '设备故障登记（需 add_fault 授权）：登记即进入"处置中"，恢复后须确认恢复并结案。',
+};
+
+// 设备故障影响程度（设备故障专用字段；不影响运行时无程度）
 export const FAULT_IMPACT_OPTIONS = [
   {value: 'degraded', label: '降级'},
   {value: 'fault', label: '故障'},
@@ -131,7 +143,7 @@ export const FAULT_IMPACT_COLOR = {
 };
 
 // 异常类别（2026-10-11 合并改造，与后端 RECORD_CATEGORY_* 一致；空串=未选择；
-// 仅日常运行与异常事件使用，正式故障不适用）
+// 仅一般记录与异常事件使用，设备故障不适用）
 export const RECORD_CATEGORY_OPTIONS = [
   {value: 'device', label: '设备异常'},
   {value: 'signal', label: '信号异常'},

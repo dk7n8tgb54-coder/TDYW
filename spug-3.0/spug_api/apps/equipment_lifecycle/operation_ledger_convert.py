@@ -1,9 +1,9 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""维护台账异常明细转统一记录（正式故障）视图（2026-10-11 合并改造）。
+"""维护台账异常明细转统一记录（设备故障）视图（2026-10-11 合并改造）。
 
 原 fault_views.LedgerItemConvertToFaultView 迁入并改目标：转换创建统一主表
-正式故障记录（SystemOperationRecord，record_type=fault、处置中），
+设备故障记录（SystemOperationRecord，record_type=fault、处置中），
 不再创建独立故障单；来源关系（source_type=ledger_item +
 source_ledger_item 正式外键 + source_id 冗余）保持双向可追溯。
 
@@ -124,10 +124,10 @@ def _compose_description(item, ledger):
 
 
 class LedgerItemConvertToFaultView(View):
-    """台账异常明细转统一记录（正式故障）（台账详情"转故障"操作）。
+    """台账异常明细转统一记录（设备故障）（台账详情"转故障"操作）。
 
     - 只有结果为"异常"的明细可以转故障；草稿/退回/作废台账不能转；
-    - 目标为统一主表的正式故障记录（创建即处置中），不再创建第二张单；
+    - 目标为统一主表的设备故障记录（创建即处置中），不再创建第二张单；
     - 必须调用 operation_services.create_operation_record（统一创建服务），
       转换与来源关系保存处于同一事务，同事务重算系统健康状态。
     """

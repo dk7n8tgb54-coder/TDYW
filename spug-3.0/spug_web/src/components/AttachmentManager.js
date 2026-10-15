@@ -124,10 +124,10 @@ function buildAttachmentColumns(options) {
   const {
     canDelete, canPreview, canDownload, hasPreviewCapability,
     previewableExtensions, onDelete, onDownload, onPreview,
-    onFileNameClick, renderExtraActions, extraActionsContext,
+    onFileNameClick, renderExtraActions, extraActionsContext, hiddenColumns,
   } = options;
 
-  return [
+  const all = [
     {
       title: '文件名',
       dataIndex: 'file_name',
@@ -154,7 +154,8 @@ function buildAttachmentColumns(options) {
     },
     { title: '大小', dataIndex: 'file_size', key: 'file_size', width: 100, render: size => formatFileSize(size) },
     { title: '上传人', dataIndex: 'uploaded_by_name', key: 'uploaded_by_name', width: 100 },
-    { title: '上传时间', dataIndex: 'created_at', key: 'created_at', width: 160 },
+    // EvidenceAttachment 的时间字段为 uploaded_at（to_view 原样输出模型字段名）
+    { title: '上传时间', dataIndex: 'uploaded_at', key: 'uploaded_at', width: 160 },
     {
       title: '操作',
       key: 'action',
@@ -186,6 +187,12 @@ function buildAttachmentColumns(options) {
       },
     },
   ];
+  if (!hiddenColumns || hiddenColumns.length === 0) return all;
+  // 上传时间列字段为 uploaded_at（EvidenceAttachment 实际字段名）；存量调用方
+  // hiddenColumns 传旧名 'created_at' 时同样视为隐藏该列（新代码请用 uploaded_at）
+  return all.filter(col => !(
+    (col.dataIndex && hiddenColumns.includes(col.dataIndex)) ||
+    (col.dataIndex === 'uploaded_at' && hiddenColumns.includes('created_at'))));
 }
 
 /**
@@ -435,14 +442,13 @@ export default function AttachmentManager(props) {
   }, [previewableExtensions, canPreview, canDownload, hasPreviewCapability, handlePreview, handleDownload]);
 
   const columns = useMemo(() => {
-    const all = buildAttachmentColumns({
+    return buildAttachmentColumns({
       canDelete, canPreview, canDownload, hasPreviewCapability, previewableExtensions,
       onDelete: handleDelete, onDownload: handleDownload, onPreview: handlePreview,
       onFileNameClick: handleFileNameClick, renderExtraActions,
       extraActionsContext: { attachments },
+      hiddenColumns,
     });
-    if (!hiddenColumns || hiddenColumns.length === 0) return all;
-    return all.filter(col => !(col.dataIndex && hiddenColumns.includes(col.dataIndex)));
   }, [
     canDelete, canPreview, canDownload, hasPreviewCapability, previewableExtensions,
     handleDelete, handleDownload, handlePreview, handleFileNameClick,

@@ -4,10 +4,10 @@
 
 权限域（复用既有台账模板权限码，不新增）：
 - equipment_lifecycle.ledger_template.view：列表 / 详情 / 版本 / 可用模板 /
-  验收样例下载 / 草稿 PDF 预览
+  验收样例下载 / 草稿 PDF 预览 / 生成配置查看
 - equipment_lifecycle.ledger_template.add：上传创建模板（含重新上传草稿）
 - equipment_lifecycle.ledger_template.edit：保存绑定 / 发布版本 /
-  保存 PDF 打印参数
+  保存 PDF 打印参数 / 保存生成配置（适用系统+生成周期，2026-10-14）
 - equipment_lifecycle.ledger_template.del：删除模板（逻辑删除/停用，幂等）
 
 约定：
@@ -174,6 +174,49 @@ class ExcelTemplateBindingsView(View):
             request, 'update', AUDIT_TARGET, template.pk, template.name,
             after_value={'action_kind': 'save_bindings',
                          'binding_count': _binding_count(template)})
+        return json_response({'data': excel_template_manage.template_detail(template)})
+
+
+class ExcelTemplateGenerationConfigView(View):
+    """模板生成配置（适用系统 + 生成周期，2026-10-14 本期应填台账生成）。
+
+    - GET /excel-templates/<pk>/generation-config/：当前配置 + 可选项
+      （本租户系统清单、按台账类型收敛的生成周期候选）；
+    - PUT：整体校验后保存（空值显式清空回"待配置"）；配置只影响自动
+      生成，不影响手工创建，已生成台账不回溯。
+    """
+
+    @auth(PERM_TPL_VIEW)
+    def get(self, request, pk):
+        template = _get_template_or_none(pk, request.user)
+        if not template:
+            return json_response(error='Excel台账模板不存在')
+        options = excel_template_manage.generation_config_options(request.user)
+        return json_response({'data': {
+            'template_id': template.id,
+            'system': template.system_id,
+            'generation_period': template.generation_period,
+            'systems': options['systems'],
+            'periods': options['periods'],
+        }})
+
+    @auth(PERM_TPL_EDIT)
+    def put(self, request, pk):
+        body = _read_json_body(request)
+        if body is None:
+            return json_response(error='请求体格式不正确')
+        template = _get_template_or_none(pk, request.user)
+        if not template:
+            return json_response(error='Excel台账模板不存在')
+        try:
+            excel_template_manage.save_generation_config(request.user, template, body)
+        except ExcelTemplateError as e:
+            return json_response(error=str(e))
+        record_audit_event(
+            request, 'update', AUDIT_TARGET, template.pk, template.name,
+            after_value={'action_kind': 'save_generation_config',
+                         'system': template.system_id,
+                         'generation_period': template.generation_period})
         return json_response({'data': excel_template_manage.template_detail(template)})
 
 

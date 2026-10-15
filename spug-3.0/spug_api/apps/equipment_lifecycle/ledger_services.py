@@ -6,10 +6,11 @@
 两类维护台账共用统一模型，通过 ledger_type 区分：
 - 周月维护（week_month）：周表/月表合一，不拆分周维护/月维护（2026-09-26）；
 - 季维护（seasonal）；
-- 周期批量新增（2026-10-11）：按 维护类型+周期 一键生成各在用系统的草稿
-  台账并按周期分组查看，周期仅作分组/去重标记（见文件尾部同名章节）；
+- 本期应填台账生成（2026-10-14 重构原周期批量新增）：按模板显式配置的
+  适用系统+生成周期，生成本周/本月/本航季的 Excel 应填台账；服务实现
+  与周期分组一并迁至 ledger_period_services；
 - 旧巡检台账（ledger_type=inspection）业务分支已删除（2026-09-24），
-  巡检由独立模型（InspectionTemplate/InspectionDutySheet/InspectionRecord）承担，
+  值班巡检独立模型与历史表已随日巡视下线退役（2026-10-14，迁移 0017），
   旧类型请求一律显式拒绝；
 - 旧可视化模板路线（template 创建/矩阵台账/预览）已于 2026-10 整体删除，
   正式台账统一走 Excel/WPS 模板路线（excel_ledger_services）；本模块保留
@@ -26,8 +27,7 @@
   不做计划提醒。
 """
 import json
-import re
-from datetime import date, datetime, timedelta
+from datetime import datetime
 
 from django.db import transaction
 from django.db.models import Count, Q
@@ -53,7 +53,6 @@ from apps.equipment_lifecycle.models import (
     LEDGER_STATUS_SUBMITTED,
     LEDGER_STATUS_VOID,
     LEDGER_STATUS_VALUES,
-    LEDGER_TYPE_SEASONAL,
     LEDGER_TYPE_VALUES,
     LEDGER_TYPE_WEEK_MONTH,
     ENTRY_CHANNEL_WEB,
@@ -788,7 +787,7 @@ def compute_item_disposition(tenant_id, item_ids):
 
     返回 {item_id: {'status': ..., 'target': {...} 或 None}}：
     - status ∈ none / converted_fault / target_cancelled；
-    - target 为来源统一记录摘要（id/record_no/status，正式故障单）；
+    - target 为来源统一记录摘要（id/record_no/status，设备故障单）；
     - 已撤销的来源记录仍保留关联（历史可追溯），仅体现为 target_cancelled；
     - 台账明细本身不因转故障被修改。
     """
@@ -827,206 +826,3 @@ def append_item_disposition(tenant_id, items):
     for item in items:
         item['disposition'] = disposition_map.get(item.get('id'))
     return items
-
-
-# ======================================================================
-# 周期批量新增与周期分组（2026-10-11 最小实现）
-# ----------------------------------------------------------------------
-# - 维护类型只有周月维护/季维护两类：周月维护按"月"（YYYY-MM）组织，
-#   不拆分周维护/月维护；季维护按民航航季组织，分"夏秋季"与"冬春季"
-#   两季（YYYY-夏秋 / YYYY-冬春，YYYY 为航季开始年份）：
-#   夏秋季 = 3月最后一个周日 起，至 10月最后一个周日 前；
-#   冬春季 = 10月最后一个周日 起，至次年3月最后一个周日 前；
-# - 一键新增范围 = 本租户在用系统（LifecycleSystem.is_active=True），
-#   一系统一张草稿台账（表头 system/maintenance_period 标记），明细由
-#   用户后续补录，不预填、不编造内容；
-# - 幂等去重：同类型+同周期+同系统已存在有效台账（含历史台账实际执行
-#   日期落在该周期内）时跳过；作废台账不占用周期名额；
-# - 历史台账无周期标记，分组展示按实际执行日期推导周期。
-# ======================================================================
-
-PERIOD_MONTH_RE = re.compile(r'^(\d{4})-(0[1-9]|1[0-2])$')
-PERIOD_SEASON_RE = re.compile(r'^(\d{4})-(夏秋|冬春)$')
-
-
-def _last_weekday_of_month(year, month, weekday):
-    """某月最后一个指定星期几（weekday: 周一=0 … 周日=6）。"""
-    if month == 12:
-        last_day = date(year + 1, 1, 1) - timedelta(days=1)
-    else:
-        last_day = date(year, month + 1, 1) - timedelta(days=1)
-    return last_day - timedelta(days=(last_day.weekday() - weekday) % 7)
-
-
-def parse_maintenance_period(ledger_type, period):
-    """校验并解析维护周期，返回 (period, start_date, end_date_exclusive)。"""
-    validate_ledger_type(ledger_type)
-    period = str(period or '').strip()
-    if ledger_type == LEDGER_TYPE_WEEK_MONTH:
-        matched = PERIOD_MONTH_RE.match(period)
-        if not matched:
-            raise LedgerValidationError('周月维护周期格式应为 YYYY-MM，如 2026-10')
-        year, month = int(matched.group(1)), int(matched.group(2))
-        start = date(year, month, 1)
-        end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
-    else:
-        matched = PERIOD_SEASON_RE.match(period)
-        if not matched:
-            raise LedgerValidationError('季维护周期应为航季：YYYY-夏秋 或 YYYY-冬春，如 2026-夏秋')
-        year, season = int(matched.group(1)), matched.group(2)
-        if season == '夏秋':
-            start = _last_weekday_of_month(year, 3, 6)      # 夏秋航季开始（3月末周日）
-            end = _last_weekday_of_month(year, 10, 6)       # 冬春航季开始（10月末周日，开区间）
-        else:
-            start = _last_weekday_of_month(year, 10, 6)     # 冬春航季开始（10月末周日）
-            end = _last_weekday_of_month(year + 1, 3, 6)    # 次年夏秋开始（次年3月末周日，开区间）
-    return period, start, end
-
-
-SEASON_TEXT_MAP = {'夏秋': '夏秋季', '冬春': '冬春季'}
-
-
-def maintenance_period_text(ledger_type, period):
-    """周期展示文本：2026-10 → 2026年10月；2026-夏秋 → 2026年夏秋季。"""
-    if ledger_type == LEDGER_TYPE_SEASONAL:
-        year, season = period.split('-')
-        return '%s年%s' % (year, SEASON_TEXT_MAP.get(season, season))
-    year, month = period.split('-')
-    return '%s年%d月' % (year, int(month))
-
-
-def ledger_period_key(ledger):
-    """台账归属周期：优先表头维护周期标记，历史台账按实际执行日期推导。"""
-    if ledger.maintenance_period:
-        return ledger.maintenance_period
-    executed = ledger.executed_date
-    if ledger.ledger_type == LEDGER_TYPE_SEASONAL:
-        # 按航季边界推导：夏秋=3月末周日~10月末周日；冬春=10月末周日~次年3月末周日
-        summer_start = _last_weekday_of_month(executed.year, 3, 6)
-        winter_start = _last_weekday_of_month(executed.year, 10, 6)
-        if summer_start <= executed < winter_start:
-            return '%04d-夏秋' % executed.year
-        if executed >= winter_start:
-            return '%04d-冬春' % executed.year
-        # 1~3月中属于上一年10月末开始的冬春航季
-        return '%04d-冬春' % (executed.year - 1)
-    return executed.strftime('%Y-%m')
-
-
-def _system_has_period_ledger(user, ledger_type, system_id, period, start, end):
-    """同类型同周期同系统是否已存在有效台账（作废不占名额）。
-
-    两条命中路径：
-    - 周期标记命中：表头 system + maintenance_period 完全一致（批量新增的草稿壳）；
-    - 历史台账命中：表头 system 或明细 system 关联该系统，且实际执行日期
-      落在周期范围内（历史台账无周期标记，按执行日期保守判定）。
-    """
-    query = apply_tenant_filter(OperationLedger.objects.all(), user).filter(
-        ledger_type=ledger_type,
-    ).exclude(status=LEDGER_STATUS_VOID)
-    in_range = Q(executed_date__gte=start, executed_date__lt=end)
-    linked_system = Q(system_id=system_id) | Q(items__system_id=system_id)
-    return query.filter(
-        Q(system_id=system_id, maintenance_period=period)
-        | (Q(maintenance_period='') & in_range & linked_system)
-    ).exists()
-
-
-@transaction.atomic
-def batch_create_period_ledgers(user, body):
-    """一键新增某类型某周期的全部在用系统台账，返回 (result, None) 或 (None, error)。
-
-    每个在用系统创建一张表头级草稿台账（无明细，补录走既有编辑入口）；
-    已存在有效台账的系统跳过。created/existed 由调用方原样展示。
-    """
-    try:
-        period, start, end = parse_maintenance_period(
-            body.get('ledger_type'), body.get('period'))
-    except LedgerValidationError as e:
-        return None, str(e)
-    ledger_type = body['ledger_type']
-    systems = list(apply_tenant_filter(LifecycleSystem.objects.all(), user).filter(
-        is_active=True).order_by('system_code', 'id'))
-    if not systems:
-        return None, '没有在用系统，无法批量新增台账'
-    executed_date = timezone.now().date()
-    created, existed_systems = [], []
-    for system in systems:
-        if _system_has_period_ledger(user, ledger_type, system.id, period, start, end):
-            existed_systems.append(system.name)
-            continue
-        ledger = OperationLedger(
-            tenant_id=user.tenant_id,
-            ledger_no=generate_ledger_no(user.tenant_id, ledger_type, executed_date),
-            ledger_type=ledger_type,
-            executed_date=executed_date,
-            status=LEDGER_STATUS_DRAFT,
-            entry_channel=ENTRY_CHANNEL_WEB,
-            created_from=LEDGER_FROM_MANUAL,
-            system=system,
-            maintenance_period=period,
-            created_by=user,
-        )
-        ledger.save()
-        created.append(ledger)
-    return {
-        'ledger_type': ledger_type,
-        'maintenance_period': period,
-        'period_text': maintenance_period_text(ledger_type, period),
-        'created': len(created),
-        'existed': len(existed_systems),
-        'created_ledgers': [
-            {'id': item.id, 'ledger_no': item.ledger_no,
-             'system_id': item.system_id, 'system_name': item.system.name}
-            for item in created],
-        'existed_systems': existed_systems,
-    }, None
-
-
-def list_period_groups(user, ledger_type, status='', system_id=None, row_serializer=None):
-    """按周期分组返回台账列表（组内含各系统台账与填写状态）。
-
-    - 分组键 = 维护类型 + 周期（周期优先取表头标记，历史台账按执行日期推导）；
-    - status/system 支持筛选；system 命中表头级系统或明细系统；
-    - row_serializer(ledger) 由视图层注入（来源字段等展示附加信息）；
-    - 组按周期倒序，组内按系统名（空系统靠后）+ID 排序。
-    """
-    validate_ledger_type(ledger_type)
-    query = apply_tenant_filter(OperationLedger.objects.all(), user).filter(
-        ledger_type=ledger_type).select_related('system', 'excel_record__version')
-    if status:
-        query = query.filter(status=status)
-    if system_id and str(system_id).isdigit():
-        query = query.filter(
-            Q(items__system_id=system_id) | Q(system_id=system_id)).distinct()
-    ledgers = list(query)
-    count_map = {
-        row['ledger_id']: row for row in OperationLedgerItem.objects.filter(
-            ledger_id__in=[item.id for item in ledgers],
-        ).values('ledger_id').annotate(
-            items_count=Count('id'),
-            abnormal_count=Count('id', filter=Q(result=ITEM_RESULT_ABNORMAL)),
-        )
-    } if ledgers else {}
-    grouped = {}
-    for ledger in ledgers:
-        view = ledger.to_view()
-        count = count_map.get(ledger.id)
-        view['items_count'] = count['items_count'] if count else 0
-        view['abnormal_count'] = count['abnormal_count'] if count else 0
-        if row_serializer is not None:
-            view.update(row_serializer(ledger))
-        grouped.setdefault(ledger_period_key(ledger), []).append(view)
-    data = []
-    for key in sorted(grouped, reverse=True):
-        rows = grouped[key]
-        rows.sort(key=lambda r: (not r['system_name'], r['system_name'], r['id']))
-        data.append({
-            'maintenance_period': key,
-            'period_text': maintenance_period_text(ledger_type, key),
-            'total': len(rows),
-            'pending': sum(1 for r in rows if r['status'] == LEDGER_STATUS_DRAFT),
-            'filled': sum(1 for r in rows if r['status'] in (LEDGER_STATUS_SUBMITTED, LEDGER_STATUS_REVIEWED)),
-            'ledgers': rows,
-        })
-    return data

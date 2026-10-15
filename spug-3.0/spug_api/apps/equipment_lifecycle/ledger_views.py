@@ -34,7 +34,7 @@ from apps.evidence.attachment_service import (
 )
 from apps.evidence.models import EvidenceAttachment
 
-from apps.equipment_lifecycle import ledger_services
+from apps.equipment_lifecycle import ledger_period_services, ledger_services, ledger_template_group_services
 from apps.equipment_lifecycle.ledger_services import (
     LedgerValidationError, legacy_inspection_error,
     append_item_disposition,
@@ -128,6 +128,17 @@ def _ledger_source_fields(ledger):
     return fields
 
 
+def _ledger_row_fields(ledger):
+    """统一列表行附加字段：来源（source_type/模板/版本/详情路由）+ 期次展示。
+
+    期次展示字段（period_label/period_is_derived/period_source_text）由
+    ledger_period_services.ledger_period_display 提供，历史台账兼容标注来源。
+    """
+    fields = _ledger_source_fields(ledger)
+    fields.update(ledger_period_services.ledger_period_display(ledger))
+    return fields
+
+
 class LedgerView(View):
     @auth('equipment_lifecycle.ledger.view')
     def get(self, request):
@@ -161,7 +172,7 @@ class LedgerView(View):
         data = []
         for record in records:
             view = record.to_view()
-            view.update(_ledger_source_fields(record))
+            view.update(_ledger_row_fields(record))
             data.append(view)
         return json_response({
             'data': data,
@@ -184,11 +195,10 @@ class LedgerView(View):
 
 
 class LedgerBatchCreateView(View):
-    """周期台账一键新增：GET 返回本租户系统范围，POST 按类型+周期批量创建草稿台账。
+    """本租户系统选项（"按系统查看"筛选与模板配置共用，仅 GET）。
 
-    - 范围依据本租户在用系统（后端独立查询，不信任前端传入名单）；
-    - 幂等：同类型+同周期+同系统已存在有效台账时跳过（作废不占名额）；
-    - 成功响应携带 created/existed，由前端如实展示"实际新增/已存在"。
+    原按类型+周期批量创建手工壳的 POST 已下线（2026-10-14）：批量生成
+    统一走 /ledgers/period-generate/（按 Excel 模板生成可填写的应填台账）。
     """
 
     @auth('equipment_lifecycle.ledger.view')
@@ -203,38 +213,129 @@ class LedgerBatchCreateView(View):
             'is_active': s.is_active,
         } for s in systems]})
 
-    @auth('equipment_lifecycle.ledger.add')
-    def post(self, request):
-        body = _read_json_body(request)
-        if body is None:
-            return json_response(error='请求体格式不正确')
-        result, error = ledger_services.batch_create_period_ledgers(request.user, body)
+
+class LedgerPeriodGenerateView(View):
+    """本期应填台账生成（2026-10-14）：
+
+    - GET 预览：按当前日期逐模板判定 将新建/已存在跳过/缺少可用版本/
+      需人工处理（待配置/系统停用/作废或历史草稿占用），含期次与版本；
+    - POST 确认生成：按预览同口径重算并创建缺项，返回实际新增/跳过/
+      失败（不以预览数量冒充实际结果）。
+    """
+
+    @auth('equipment_lifecycle.ledger.view')
+    def get(self, request):
+        result, error = ledger_period_services.period_generate_preview(
+            request.user, request.GET.get('ledger_type'))
         if error:
             return json_response(error=error)
-        record_audit_event(request, 'create', AUDIT_TARGET_LEDGER, None,
-                           '周期批量新增%s台账' % result['period_text'],
-                           after_value={'ledger_type': result['ledger_type'],
-                                        'maintenance_period': result['maintenance_period'],
-                                        'created': result['created'],
-                                        'existed': result['existed'],
-                                        'existed_systems': result['existed_systems']})
+        return json_response(result)
+
+    @auth('equipment_lifecycle.ledger.add')
+    def post(self, request):
+        body = _read_json_body(request) or {}
+        result, error = ledger_period_services.period_generate(request.user, body.get('ledger_type'))
+        if error:
+            return json_response(error=error)
+        record_audit_event(
+            request, 'create', AUDIT_TARGET_LEDGER, None,
+            '生成本期应填台账（%s）' % result['ledger_type'],
+            after_value={
+                'action_kind': 'period_generate',
+                'created': [row['ledger_no'] for row in result['created']],
+                'skipped': len(result['skipped']),
+                'failed': len(result['failed']),
+            })
+        return json_response(result)
+
+
+class LedgerPeriodOverviewView(View):
+    """本期工作概览（2026-10-14）：周月维护展示 本周+本月，季维护展示本航季。
+
+    返回 应填/待生成/待填写/已退回/已完成 等真实数量；待生成依据模板生成
+    规则计算（与 period-generate 预览同口径），不统计已有台账冒充、不在
+    前端伪造数字。
+    """
+
+    @auth('equipment_lifecycle.ledger.view')
+    def get(self, request):
+        result, error = ledger_period_services.period_overview(
+            request.user, request.GET.get('ledger_type'))
+        if error:
+            return json_response(error=error)
         return json_response(result)
 
 
 class LedgerPeriodGroupsView(View):
-    """按 维护类型+周期 分组的台账列表：组内含各系统台账、来源与填写状态。"""
+    """按 维护类型+周期 分组的台账列表：组内含各系统台账、来源与填写状态。
+
+    - keyword 按台账编号模糊筛选（此前前端已发送但本视图未读取，导致
+      "按周期查看"搜索无效，2026-10-14 修复）；
+    - 分页按期次组切片，组内统计与可见行一致。
+    """
 
     @auth('equipment_lifecycle.ledger.view')
     def get(self, request):
+        page, page_size = paginate(request)
         try:
-            data = ledger_services.list_period_groups(
+            data = ledger_period_services.list_period_groups(
                 request.user, request.GET.get('ledger_type'),
                 status=request.GET.get('status') or '',
                 system_id=request.GET.get('system'),
-                row_serializer=_ledger_source_fields)
+                keyword=request.GET.get('keyword') or '',
+                page=page, page_size=page_size,
+                row_serializer=_ledger_row_fields)
         except LedgerValidationError as e:
             return json_response(error=str(e))
-        return json_response({'data': data})
+        return json_response(data)
+
+
+class LedgerTemplateGroupsView(View):
+    """按模板身份分组的台账统计（"按模板查看"视图，2026-10-11）。
+
+    - 组 = Excel 模板组（模板主键为组键）+ 无模板/临时补录组（manual）；
+    - 统计（总数/各状态/最近执行日期）在数据库端按组聚合，不受组内分页影响；
+    - 仅返回有历史台账的组；支持与组内列表同口径的筛选参数。
+    """
+
+    @auth('equipment_lifecycle.ledger.view')
+    def get(self, request):
+        page, page_size = paginate(request)
+        try:
+            data = ledger_template_group_services.list_template_groups(
+                request.user, request.GET.get('ledger_type'),
+                status=request.GET.get('status') or '',
+                keyword=request.GET.get('keyword') or '',
+                executed_from=request.GET.get('executed_from') or '',
+                executed_to=request.GET.get('executed_to') or '',
+                page=page, page_size=page_size)
+        except LedgerValidationError as e:
+            return json_response(error=str(e))
+        return json_response(data)
+
+
+class LedgerTemplateGroupLedgersView(View):
+    """模板组内台账分页列表（group_key=模板主键 或 manual）。
+
+    行结构与统一列表一致并携带来源字段（source_version_no 为创建时版本）；
+    模板归属与台账类型由后端独立校验，跨租户组键一律拒绝。
+    """
+
+    @auth('equipment_lifecycle.ledger.view')
+    def get(self, request, group_key):
+        page, page_size = paginate(request)
+        try:
+            data = ledger_template_group_services.list_group_ledgers(
+                request.user, group_key, request.GET.get('ledger_type'),
+                status=request.GET.get('status') or '',
+                keyword=request.GET.get('keyword') or '',
+                executed_from=request.GET.get('executed_from') or '',
+                executed_to=request.GET.get('executed_to') or '',
+                page=page, page_size=page_size,
+                row_serializer=_ledger_row_fields)
+        except LedgerValidationError as e:
+            return json_response(error=str(e))
+        return json_response(data)
 
 
 class LedgerDetailView(View):

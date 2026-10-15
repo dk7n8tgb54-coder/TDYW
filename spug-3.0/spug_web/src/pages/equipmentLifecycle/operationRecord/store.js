@@ -3,9 +3,9 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 设备全生命周期——运行与故障记录状态管理（MobX, legacy decorators）。
+ * 设备全生命周期——运行处置记录状态管理（MobX, legacy decorators）。
  * 2026-10-11 合并改造：原 faultStore 与 runtimeRecord/store 合并为统一 Store，
- * 一张统一主表承载 日常运行/异常事件/正式故障 三类记录。
+ * 一张统一主表承载 一般记录/异常事件/设备故障 三类记录。
  * 业务关联一律使用系统 ID；成功提示等待后端真实成功（http.js 拦截器统一提示
  * error，业务代码不重复提示）。
  */
@@ -20,6 +20,9 @@ class OperationRecordStore {
   @observable page = 1;
   @observable pageSize = 20;
   @observable isFetching = false;
+  // 列表加载失败标记：失败时保留旧数据但显式提示（不把旧结果冒充新查询结果），
+  // 页面据此渲染"加载失败 + 重试"横幅；错误 toast 由 http 拦截器统一弹出
+  @observable fetchError = false;
 
   // ========== 筛选条件 ==========
   @observable f_keyword = undefined;
@@ -87,12 +90,40 @@ class OperationRecordStore {
       .then(action(res => {
         this.records = res.data;
         this.total = res.total;
+        this.fetchError = false;
       }))
-      .catch(action(() => {}))
+      .catch(action(() => {
+        // 保留旧数据供参考，置失败标记由页面提示"加载失败可重试"
+        this.fetchError = true;
+      }))
       .finally(action(() => {
         this.isFetching = false;
       }));
   };
+
+  // 导出参数与列表筛选完全一致（后端导出接口接受同一组筛选；
+  // 结束时间由后端按所选整分钟包含该分钟记录）
+  getExportParams = () => {
+    const params = {};
+    if (this.f_keyword) params.keyword = this.f_keyword;
+    if (this.f_status) params.status = this.f_status;
+    if (this.f_system) params.system = this.f_system;
+    if (this.f_category) params.category = this.f_category;
+    if (this.f_record_type) params.record_type = this.f_record_type;
+    if (this.f_occurred_range && this.f_occurred_range.length === 2) {
+      params.occurred_from = this.f_occurred_range[0].format('YYYY-MM-DD HH:mm');
+      params.occurred_to = this.f_occurred_range[1].format('YYYY-MM-DD HH:mm');
+    }
+    return params;
+  };
+
+  // 当前是否带有任一筛选条件（导出旁提示与筛选分层折叠计数用）
+  get hasActiveFilter() {
+    return Boolean(
+      this.f_keyword || this.f_status || this.f_system || this.f_category ||
+      this.f_record_type ||
+      (this.f_occurred_range && this.f_occurred_range.length === 2));
+  }
 
   fetchSystems = () => {
     return http.get(`${API_PREFIX}/records/candidate-systems/`)
@@ -221,16 +252,16 @@ class OperationRecordStore {
   // 完成跟进：跟进中 → 已完成（异常事件，可重新跟进）
   completeFollowUp = (formData) => this._postAction('complete', formData);
 
-  // 认定正式故障：异常事件在原记录上认定（类型原地变更，不创建第二张单）
+  // 认定设备故障：异常事件在原记录上认定（类型原地变更，不创建第二张单）
   identifyFault = (formData) => this._postAction('identify-fault', formData);
 
-  // 确认恢复并结案：处置中 → 已关闭（正式故障，须同时具备 recover+close 权限）
+  // 确认恢复并结案：处置中 → 已关闭（设备故障，须同时具备 recover+close 权限）
   confirmRecoverAndClose = (formData) => this._postAction('recover', formData);
 
   // 撤销故障登记：处置中 → 已撤销（原因必填留痕）
   cancelRecord = (formData) => this._postAction('cancel', formData);
 
-  // 原因分析专用保存（正式故障处置中）
+  // 原因分析专用保存（设备故障处置中）
   saveReasonAnalysis = (formData) => {
     this.isActionSubmitting = true;
     return http.put(`${API_PREFIX}/records/${this.detailId}/reason-analysis/`, formData)
@@ -240,7 +271,7 @@ class OperationRecordStore {
       }));
   };
 
-  // 删除记录（仅日常运行；成功后关闭详情并刷新列表真实数据）
+  // 删除记录（仅一般记录；成功后关闭详情并刷新列表真实数据）
   deleteRecord = () => {
     this.isActionSubmitting = true;
     return http.delete(`${API_PREFIX}/records/${this.detailId}/`)
@@ -257,7 +288,7 @@ class OperationRecordStore {
     this.isActionSubmitting = true;
     return http.post(`${API_PREFIX}/records/${this.detailId}/progress/`, formData)
       // 追加进展即"跟进"动作：异常事件保存首条进展后进入跟进中、已完成追加
-      // 进展重新跟进；日常运行仅补充留痕不改状态，成功后全量刷新详情/进展/
+      // 进展重新跟进；一般记录仅补充留痕不改状态，成功后全量刷新详情/进展/
       // 列表真实数据，调用方在完成后关闭弹窗
       .then(action(() => this._refreshAfterAction()))
       .finally(action(() => {
@@ -269,17 +300,21 @@ class OperationRecordStore {
     this.isActionSubmitting = true;
     return http.put(
       `${API_PREFIX}/records/${this.detailId}/progress/${recordId}/`, formData)
-      .then(action(() => this.fetchProgressRecords()))
+      // 更正可能修改处理时间：最新进展时间/持续时间随详情与列表重算，
+      // 与追加进展同样全量刷新真实数据
+      .then(action(() => this._refreshAfterAction()))
       .finally(action(() => {
         this.isActionSubmitting = false;
       }));
   };
 
-  // ========== 系统详情"运行与故障记录"页签 ==========
+  // ========== 系统详情"运行处置记录"页签 ==========
   @observable systemRecords = [];
   @observable systemRecordsTotal = 0;
   @observable systemLatestOccurredAt = null;
   @observable isSystemRecordsFetching = false;
+  // 页签加载失败标记：失败时保留旧数据并显式提示重试
+  @observable systemRecordsError = false;
 
   fetchSystemRecords = (systemId, params) => {
     this.isSystemRecordsFetching = true;
@@ -291,37 +326,65 @@ class OperationRecordStore {
         this.systemRecords = res.data || [];
         this.systemRecordsTotal = res.total || 0;
         this.systemLatestOccurredAt = res.latest_occurred_at;
+        this.systemRecordsError = false;
       }))
-      .catch(action(() => {}))
+      .catch(action(() => {
+        this.systemRecordsError = true;
+      }))
       .finally(action(() => {
         this.isSystemRecordsFetching = false;
       }));
   };
 
   // ========== 待办列表 ==========
-  // 只含跟进中的异常事件记录，按最近更新优先
+  // 跟进中的异常事件 + 处置中的设备故障（真正需要持续处理的两类记录），
+  // 后端分页返回；counts 为全量分组计数（不随类型筛选变化）
   @observable todoRecords = [];
+  @observable todoTotal = 0;
+  @observable todoPage = 1;
+  @observable todoPageSize = 20;
+  @observable todoCounts = null;
+  @observable f_todo_record_type = undefined;
   @observable isTodoFetching = false;
+  @observable todoError = false;
   todoRequestSeq = 0;
 
   fetchTodoRecords = () => {
     const requestSeq = ++this.todoRequestSeq;
     this.isTodoFetching = true;
-    return http.get(`${API_PREFIX}/records/todo/`)
+    const params = {page: this.todoPage, page_size: this.todoPageSize};
+    if (this.f_todo_record_type) params.record_type = this.f_todo_record_type;
+    return http.get(`${API_PREFIX}/records/todo/`, {params})
       .then(action(res => {
         if (requestSeq === this.todoRequestSeq) {
           this.todoRecords = res.data || [];
+          this.todoTotal = res.total || 0;
+          this.todoCounts = res.counts || null;
+          this.todoError = false;
         }
       }))
-      .catch(action(() => {}))
+      .catch(action(() => {
+        if (requestSeq === this.todoRequestSeq) {
+          this.todoError = true;
+        }
+      }))
       .finally(action(() => {
-        this.isTodoFetching = false;
+        if (requestSeq === this.todoRequestSeq) {
+          this.isTodoFetching = false;
+        }
       }));
   };
+
+  setTodoRecordType = action((value) => {
+    this.f_todo_record_type = value;
+    this.todoPage = 1;
+    return this.fetchTodoRecords();
+  });
 
   // ========== 统计 ==========
   @observable statistics = null;
   @observable isStatisticsFetching = false;
+  @observable statsError = false;
   statisticsRequestSeq = 0;
   @observable f_stats_range = undefined;
   // 统计口径按记录类型筛选（未传时后端统计全部类型）
@@ -341,11 +404,18 @@ class OperationRecordStore {
         if (requestSeq === this.statisticsRequestSeq) {
           // http 拦截器已剥外层 data：res 即统计对象本体
           this.statistics = res;
+          this.statsError = false;
         }
       }))
-      .catch(action(() => {}))
+      .catch(action(() => {
+        if (requestSeq === this.statisticsRequestSeq) {
+          this.statsError = true;
+        }
+      }))
       .finally(action(() => {
-        this.isStatisticsFetching = false;
+        if (requestSeq === this.statisticsRequestSeq) {
+          this.isStatisticsFetching = false;
+        }
       }));
   };
 }

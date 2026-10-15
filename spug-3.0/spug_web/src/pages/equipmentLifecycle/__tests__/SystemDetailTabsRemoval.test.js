@@ -3,7 +3,7 @@
  *
  * 真实渲染 SystemDetail（ReactDOM + jsdom，仓库惯例），验证：
  * - 详情弹窗不再包含"周月维护台账""季维护台账""系统履历"三个页签；
- * - 其余页签随 2026-10-11 合并改造收敛：基本信息 / 运行与故障记录 /
+ * - 其余页签随 2026-10-11 合并改造收敛：基本信息 / 运行处置记录 /
  *   升级记录 / 配置（原"故障记录""运行记录"两页签合并）；
  * - 页签专用组件 SystemLedgerTab / SystemEventsTab 已删除。
  */
@@ -94,7 +94,7 @@ describe('系统档案详情弹窗三页签下线', () => {
     const labels = Array.from(document.querySelectorAll('.ant-tabs-tab'))
       .map(tab => tab.textContent);
     expect(labels).toEqual(
-      expect.arrayContaining(['基本信息', '运行与故障记录', '升级记录', '配置']));
+      expect.arrayContaining(['基本信息', '运行处置记录', '升级记录', '配置']));
     ['周月维护台账', '季维护台账', '系统履历', '故障记录', '运行记录'].forEach(label => {
       expect(labels).not.toContain(label);
     });

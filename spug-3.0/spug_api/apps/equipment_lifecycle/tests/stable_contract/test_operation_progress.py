@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
-"""运行与故障记录——统一处理进展契约测试（2026-10-11 合并改造）。
+"""运行处置记录——统一处理进展契约测试（2026-10-11 合并改造）。
 
 覆盖真实行为契约（真实 HTTP + 隔离测试数据库 + 数据库状态断言）：
 1. 统一进展追加式时间线（处理时间/处理人/处理内容/可选工时/更正历史）；
 2. 类型差异：
-   - 日常运行允许补充进展但不改变状态（恒为"已记录"，不进故障状态机）；
+   - 一般记录允许补充进展但不改变状态（恒为"已记录"，不进故障状态机）；
    - 异常事件首条进展即进入跟进中、已完成追加进展即重新跟进、完成跟进
      resolved_at 首次生效；
-   - 正式故障仅处置中可追加（已关闭/已撤销拒绝）；
+   - 设备故障仅处置中可追加（已关闭/已撤销拒绝）；
 3. 更正留痕（原内容/新内容/更正原因），无原因拒绝；
-4. 进展附件上传/列表/下载/删除与权限（progress 上传 / edit 更正）；
+4. 主记录级附件上传/列表/删除契约；进展级附件端点已退役（请求 404）；
 5. 旧参数（progress_type/result）出现即拒绝。
 """
 import json
@@ -17,7 +17,6 @@ import json
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 
-from apps.evidence.attachment_service import AttachmentService
 from apps.evidence.models import EvidenceAttachment
 
 from apps.equipment_lifecycle.operation_models import (
@@ -93,7 +92,7 @@ class ProgressAddTest(TestCase):
         self.assertEqual(record.status, 'recorded')
 
     def test_routine_progress_keeps_recorded_status(self):
-        """日常运行允许补充进展，但不进入故障/跟进状态机。"""
+        """一般记录允许补充进展，但不进入故障/跟进状态机。"""
         record = make_record(self.user, self.system, record_type='routine')
         res = self._add_progress(record, content='作业完成情况补充')
         self.assertFalse(res.json().get('error'), res.json())
@@ -233,78 +232,24 @@ class ProgressCorrectTest(TestCase):
         self.assertIn('不存在', res.json().get('error', ''))
 
 
-class ProgressAttachmentTest(TestCase):
-    """统一进展附件契约。"""
+class RecordAttachmentTest(TestCase):
+    """主记录级附件契约（进展级附件已于 2026-10-13 退役，端点与路由已删）。"""
 
     def setUp(self):
         self.user = make_user('att_user', perms=ALL_OPERATION_PERMS)
         self.client = make_client(self.user)
         self.system = make_system(self.user)
         self.record = make_record(self.user, self.system, record_type='abnormal')
-        self.progress = SystemOperationProgress.objects.create(
-            tenant_id=self.record.tenant_id, record=self.record,
-            handled_at='2026-10-11 09:00:00', handler=self.user,
-            handler_name='李四', content='排查中')
 
-    def _upload(self, record_id=None, progress_id=None):
-        record_id = record_id or self.record.id
-        progress_id = progress_id or self.progress.id
-        return self.client.post(
-            RECORDS_URL + '/%d/progress/%d/attachments/' % (record_id, progress_id),
-            {'file': SimpleUploadedFile('note.txt', b'progress note')})
-
-    def test_upload_list_download_delete(self):
-        res = self._upload()
-        self.assertFalse(res.json().get('error'), res.json())
-        att = res.json()['data']
-        self.assertTrue(EvidenceAttachment.objects.filter(
-            pk=att['id'], is_deleted=False,
-            object_type='el_operation_progress').exists())
-        # 列表
+    def test_progress_attachment_routes_retired(self):
+        """进展级附件端点已整体下线：任何请求返回 404，不存在可用入口。"""
         res = self.client.get(
-            RECORDS_URL + '/%d/progress/%d/attachments/' % (self.record.id, self.progress.id))
-        self.assertEqual(len(res.json()['data']), 1)
-        # 下载
-        res = self.client.get(
-            RECORDS_URL + '/%d/progress/%d/attachments/%d/download/' % (
-                self.record.id, self.progress.id, att['id']))
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(b''.join(res.streaming_content), b'progress note')
-        # 删除（软删）
-        res = self.client.delete(
-            RECORDS_URL + '/%d/progress/%d/attachments/%d/' % (
-                self.record.id, self.progress.id, att['id']))
-        self.assertFalse(res.json().get('error'), res.json())
-        # 默认 Manager 过滤软删行：全量查询断言软删落库
-        self.assertTrue(EvidenceAttachment.objects.all_with_deleted().filter(
-            pk=att['id'], is_deleted=True).exists())
-
-    def test_upload_requires_progress_perm(self):
-        user = make_user('no_progress_att', perms=[P_OP_VIEW, P_OP_EDIT])
-        client = make_client(user)
-        res = client.post(
-            RECORDS_URL + '/%d/progress/%d/attachments/' % (self.record.id, self.progress.id),
+            RECORDS_URL + '/%d/progress/%d/attachments/' % (self.record.id, 1))
+        self.assertEqual(res.status_code, 404)
+        res = self.client.post(
+            RECORDS_URL + '/%d/progress/%d/attachments/' % (self.record.id, 1),
             {'file': SimpleUploadedFile('a.txt', b'x')})
-        self.assertIn('权限拒绝', res.json().get('error', ''))
-
-    def test_attachment_scoped_to_progress_and_tenant(self):
-        """跨记录/跨租户附件访问被拒绝。"""
-        att, error = AttachmentService.upload(
-            SimpleUploadedFile('a.txt', b'x'), self.user,
-            'equipment_lifecycle', 'el_operation_progress', self.progress.id,
-            owner_tenant_id=self.record.tenant_id)
-        assert not error, error
-        other_record = make_record(self.user, self.system, record_type='abnormal',
-                                   title='其他记录')
-        res = self.client.get(
-            RECORDS_URL + '/%d/progress/%d/attachments/' % (other_record.id, self.progress.id))
-        self.assertIn('不存在', res.json().get('error', ''))
-        # 其他租户不可见
-        other_user = make_user('t2_att', perms=ALL_OPERATION_PERMS, tenant_id='tenant_2')
-        client = make_client(other_user)
-        res = client.get(
-            RECORDS_URL + '/%d/progress/%d/attachments/' % (self.record.id, self.progress.id))
-        self.assertIn('不存在', res.json().get('error', ''))
+        self.assertEqual(res.status_code, 404)
 
     def test_record_level_attachment_crud(self):
         """主记录级附件：三类记录均可上传；删除走记录附件路由。"""
@@ -316,9 +261,11 @@ class ProgressAttachmentTest(TestCase):
         self.assertTrue(EvidenceAttachment.objects.filter(
             pk=att['id'], object_type='el_operation_record',
             object_id=str(self.record.id)).exists())
-        # 列表
+        # 列表（裸数组契约，同 contract/interference 附件列表）
         res = self.client.get(RECORDS_URL + '/%d/attachments/' % self.record.id)
-        self.assertEqual(len(res.json()['data']), 1)
+        rows = res.json()['data']
+        self.assertIsInstance(rows, list)
+        self.assertEqual([row['file_name'] for row in rows], ['rec.txt'])
         # 删除
         res = self.client.delete(RECORDS_URL + '/%d/attachments/%d/' % (
             self.record.id, att['id']))

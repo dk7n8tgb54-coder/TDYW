@@ -75,11 +75,11 @@ export default [
   // "部门值班日志"（department_duty_log）为独立模块，继续保留。
   {icon: <ApartmentOutlined/>, title: '设备管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.operation_record.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|upgrade.upgrade.view', child: [
     {title: '系统档案', auth: 'equipment_lifecycle.system.view', path: '/el/systems', component: EquipmentSystemIndex},
-    // 运行与故障记录（2026-10-11 合并改造）：原"运行处置"分组下的
-    // "故障处置""运行记录"两菜单合并为统一入口，承载日常运行/异常事件/
-    // 正式故障三类记录；旧 /el/faults、/el/runtime-records 路由删除，
-    // 不保留旧页面链接兼容层
-    {title: '运行与故障记录', auth: 'equipment_lifecycle.operation_record.view', path: '/el/records', component: EquipmentOperationRecordIndex},
+    // 运行处置记录（2026-10-11 合并改造；2026-10-14 由"运行与故障记录"更名）：
+    // 原"运行处置"分组下的"故障处置""运行记录"两菜单合并为统一入口，
+    // 承载一般记录/异常事件/设备故障三类记录；旧 /el/faults、
+    // /el/runtime-records 路由删除，不保留旧页面链接兼容层
+    {title: '运行处置记录', auth: 'equipment_lifecycle.operation_record.view', path: '/el/records', component: EquipmentOperationRecordIndex},
     // "巡视与维护"更名"维护台账"（2026-10-11）：日巡视活跃功能已整体下线
     // （前端页面/Store/路由与后端巡检 API 同步移除，权限码退役），
     // 本组只保留周月维护台账、季维护台账与 Excel 台账模板。

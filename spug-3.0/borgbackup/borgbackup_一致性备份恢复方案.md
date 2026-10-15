@@ -415,32 +415,33 @@ tar czf /mnt/usb/tdyw-db-$(date +%Y%m%d).tar.gz database.sql.gz
 
 ## 7. 保留策略（borg prune）
 
-GFS（Grandfather-Father-Son）策略。保留参数集中在 `borg.env` 中配置（脚本内置同值默认，未配置时自动生效）：
+保留参数集中在 `borg.env` 中配置（脚本内置同值默认，未配置时自动生效）。当前策略：最近 3 天全保留，另留长期锚点——每周最后 1 份留 4 周、每月最后 1 份留 3 个月（各规则并集生效），本地与远程一致；日计数为 0，近期逐日备份由 3 天窗口覆盖：
 
 ```bash
 # borg.env ---- 保留策略 ----
-PRUNE_KEEP_WITHIN=2d      # 本地：最近 2 天全保留（误删快速回滚）
-PRUNE_KEEP_DAILY=7        # 本地：每天 1 份，留 7 天
-PRUNE_KEEP_WEEKLY=4       # 本地：每周 1 份，留 4 周
-PRUNE_KEEP_MONTHLY=6      # 本地：每月 1 份，留 6 个月
-REMOTE_PRUNE_KEEP_WITHIN=7d    # 远程：最近 7 天全保留
-REMOTE_PRUNE_KEEP_DAILY=14     # 远程：每天 1 份，留 14 天
-REMOTE_PRUNE_KEEP_WEEKLY=8     # 远程：每周 1 份，留 8 周
-REMOTE_PRUNE_KEEP_MONTHLY=12   # 远程：每月 1 份，留 12 个月
+PRUNE_KEEP_WITHIN=3d
+PRUNE_KEEP_DAILY=0
+PRUNE_KEEP_WEEKLY=4
+PRUNE_KEEP_MONTHLY=3
+REMOTE_PRUNE_KEEP_WITHIN=3d
+REMOTE_PRUNE_KEEP_DAILY=0
+REMOTE_PRUNE_KEEP_WEEKLY=4
+REMOTE_PRUNE_KEEP_MONTHLY=3
 ```
 
 ```bash
-# 本地 repo（快速恢复源，保留短）——脚本自动带入 borg.env 的值
+# 本地 repo——脚本自动带入 borg.env 的值
 borg prune --list "${BORG_REPO}" --prefix 'tdyw-' \
     --keep-within=${PRUNE_KEEP_WITHIN} --keep-daily=${PRUNE_KEEP_DAILY} \
     --keep-weekly=${PRUNE_KEEP_WEEKLY} --keep-monthly=${PRUNE_KEEP_MONTHLY}
 
-# 远程 repo（异地容灾，保留长）
+# 远程 repo——脚本自动带入 REMOTE_* 变量的值
 borg prune --list "${BORG_REMOTE_REPO}" --prefix 'tdyw-' \
-    --keep-within=7d --keep-daily=14 --keep-weekly=8 --keep-monthly=12
+    --keep-within=${REMOTE_PRUNE_KEEP_WITHIN} --keep-daily=${REMOTE_PRUNE_KEEP_DAILY} \
+    --keep-weekly=${REMOTE_PRUNE_KEEP_WEEKLY} --keep-monthly=${REMOTE_PRUNE_KEEP_MONTHLY}
 ```
 
-- `--keep-within=2d` 防当天多次备份被 prune 误删；
+- `--keep-within=3d` 防当天多次备份被 prune 误删；
 - **prune 只标记删除，不立即释放空间**，需 `borg compact` 才回收孤儿段；
 - U 盘 tar 导出按文件名日期手动清理（`find /mnt/usb -name 'tdyw-*.tar.gz' -mtime +90 -delete`）。
 
@@ -607,9 +608,9 @@ borg check --repository-only ${BORG_REPO}
 # 仓库完整性校验（慢，检测位腐烂）
 borg check --verify-data ${BORG_REPO}
 
-# 保留策略裁剪
+# 保留策略裁剪（3 天窗口 + 4 周锚点 + 3 个月锚点）
 borg prune --list ${BORG_REPO} --prefix 'tdyw-' \
-    --keep-within=2d --keep-daily=7 --keep-weekly=4 --keep-monthly=6
+    --keep-within=3d --keep-daily=0 --keep-weekly=4 --keep-monthly=3
 
 # 回收空间
 borg compact ${BORG_REPO}

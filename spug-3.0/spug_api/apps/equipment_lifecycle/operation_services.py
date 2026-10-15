@@ -1,23 +1,27 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""运行与故障记录统一服务层（2026-10-11 合并改造）。
+"""运行处置记录统一服务层（2026-10-11 合并改造）。
 
 职责：
 - 统一记录编号生成（JL+日期+当日序号，全局锁防撞号）；
-- create_operation_record：三种记录类型的唯一创建入口（正式故障可直接登记）；
-- identify_record_as_fault：异常事件在原记录上认定为正式故障
+- create_operation_record：三种记录类型的唯一创建入口（设备故障可直接登记）；
+- identify_record_as_fault：异常事件在原记录上认定为设备故障
   （更新同一条主记录的类型与状态，保留描述/登记人/附件/全部进展，
   不创建第二张单）；
 - 系统健康状态统一计算（原 fault_services 口径收窄为统一主表）：
-  只有 正式故障 + 处置中（有效未关闭）+ 明确影响系统运行 的记录参与计算；
-  日常运行/异常事件/已关闭/已撤销一律不影响健康状态；
+  只有 设备故障 + 处置中（有效未关闭）+ 明确影响系统运行 的记录参与计算；
+  一般记录/异常事件/已关闭/已撤销一律不影响健康状态；
 - progress_overview_map：列表聚合统一进展概览（单次查询，无 N+1）；
+- build_record_export_workbook：统一记录列表导出 xlsx 构建（单工作表，
+  记录基础列纵向合并、进展逐行展平）；
 - compute_operation_statistics：只读统计。
 
 履历说明：原 SystemEvent 系统履历已整体退役（2026-10-11），本服务不再写任何
 履历事件；系统档案直接查询统一主表等业务表。健康状态变化留痕由业务审计
 （record_audit_event）承载。
 """
+import io
+import math
 from contextlib import contextmanager
 from datetime import timedelta
 
@@ -25,16 +29,23 @@ from django.db import connection
 from django.db.models import Count, OuterRef, Q, Subquery
 from django.utils import timezone
 
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+
 from apps.equipment_lifecycle.models import LifecycleSystem
 from apps.equipment_lifecycle.operation_models import (
+    FAULT_IMPACT_TEXT_MAP,
     FAULT_IMPACT_VALUES,
     RECORD_NO_PREFIX,
     RECORD_NO_SEQ_LIMIT,
     RECORD_STATUS_FOLLOWING_UP,
     RECORD_STATUS_HANDLING,
     RECORD_STATUS_RECORDED,
+    RECORD_STATUS_TEXT_MAP,
     RECORD_TYPE_ABNORMAL,
     RECORD_TYPE_FAULT,
+    RECORD_TYPE_TEXT_MAP,
     RECORD_TYPE_VALUES,
     SystemOperationProgress,
     SystemOperationRecord,
@@ -43,8 +54,8 @@ from apps.equipment_lifecycle.operation_models import (
 # 有效影响优先级（高 → 低）：中断 > 故障 > 降级
 HEALTH_IMPACT_PRIORITY = tuple(reversed(FAULT_IMPACT_VALUES))
 
-# 仍会产生健康影响的记录状态：正式故障的处置中（唯一未结案的进行态）。
-# closed/cancelled 不再产生影响；日常运行与异常事件不参与健康状态计算。
+# 仍会产生健康影响的记录状态：设备故障的处置中（唯一未结案的进行态）。
+# closed/cancelled 不再产生影响；一般记录与异常事件不参与健康状态计算。
 ACTIVE_FAULT_STATUSES = (RECORD_STATUS_HANDLING,)
 
 HEALTH_RECALC_LOCK_NAME = 'el_health_recalc'
@@ -71,7 +82,7 @@ class RecordLockTimeout(Exception):
 
 
 class IdentifyFaultError(Exception):
-    """异常事件认定正式故障业务校验失败（类型/状态不满足等）。"""
+    """异常事件认定设备故障业务校验失败（类型/状态不满足等）。"""
 
 
 @contextmanager
@@ -167,7 +178,7 @@ def collect_active_impacts(tenant_id, system_ids):
     """查询系统自身的有效故障影响，返回 {system_id: set(impact)}。
 
     只按本系统 ID 查询统一主表（record_type=fault、status=处置中、
-    affects_system_operation=True）；日常运行/异常事件/已关闭/已撤销
+    affects_system_operation=True）；一般记录/异常事件/已关闭/已撤销
     一律不参与系统健康状态计算。
     """
     system_ids = [int(i) for i in system_ids]
@@ -255,7 +266,7 @@ def create_operation_record(*, tenant_id, created_by, system, record_type,
     - source_type/source_ledger_item 供台账异常转故障写入来源关系，
       转换与来源关系保存处于同一事务；
     - 编号由 generate_record_no 在编号锁 + 本事务内分配；
-    - 正式故障创建后同事务重算系统健康状态（request 透传以记录审计）。
+    - 设备故障创建后同事务重算系统健康状态（request 透传以记录审计）。
 
     返回 SystemOperationRecord 实例。
     """
@@ -306,7 +317,7 @@ def identify_record_as_fault(*, record, created_by, occurred_at=None,
                              reason_analysis='', fault_object_name='',
                              fault_object_model='', fault_object_sn='',
                              request=None):
-    """异常事件在原记录上认定为正式故障（须在健康锁+事务内调用，行锁已加）。
+    """异常事件在原记录上认定为设备故障（须在健康锁+事务内调用，行锁已加）。
 
     - 仅异常事件（abnormal）且处于 已记录/跟进中 可认定；
     - 更新同一条主记录：record_type→fault、status→处置中，补充故障所需字段
@@ -318,9 +329,9 @@ def identify_record_as_fault(*, record, created_by, occurred_at=None,
     返回更新后的 record。
     """
     if record.record_type != RECORD_TYPE_ABNORMAL:
-        raise IdentifyFaultError('只有异常事件记录可以认定为正式故障')
+        raise IdentifyFaultError('只有异常事件记录可以认定为设备故障')
     if record.status not in (RECORD_STATUS_RECORDED, RECORD_STATUS_FOLLOWING_UP):
-        raise IdentifyFaultError('已完成或其他状态的异常事件不能认定为正式故障')
+        raise IdentifyFaultError('已完成或其他状态的异常事件不能认定为设备故障')
     if affects_system_operation:
         if impact_status not in FAULT_IMPACT_VALUES:
             raise IdentifyFaultError('影响系统运行时必须选择影响程度（降级/故障/中断）')
@@ -389,11 +400,28 @@ def progress_overview(record):
     }
 
 
+def duration_seconds(occurred_at, latest_progress_at):
+    """持续时间（秒）= 最新进展时间 - 主记录发生时间，三种记录类型同一口径。
+
+    - 最新进展时间为全部进展处理时间的最大值（progress_overview_map 聚合），
+      不使用主记录 updated_at、附件更新时间或当前时间，也不随当前时间递增；
+    - 无进展（latest_progress_at 为空）返回 None（前端显示"-"）；
+    - 最新进展早于发生时间（时间更正等）返回 None：不取绝对值、不静默归零；
+    - 差值为 0 返回 0（前端显示"0分钟"）。
+    """
+    if not occurred_at or not latest_progress_at:
+        return None
+    seconds = (latest_progress_at - occurred_at).total_seconds()
+    if seconds < 0:
+        return None
+    return int(seconds)
+
+
 # "长期未关闭"判定天数：创建超过该天数仍未关闭的跟进中记录
 STALE_OPEN_DAYS = 7
 
 # 待办/积压口径：只统计"跟进中"（异常事件唯一需要用户持续处理的状态）。
-# 已记录（留痕）同为合法稳定状态；正式故障的处置中由健康状态与故障列表暴露，
+# 已记录（留痕）同为合法稳定状态；设备故障的处置中由健康状态与故障列表暴露，
 # 不混入跟进待办。
 STAT_OPEN_STATUSES = [RECORD_STATUS_FOLLOWING_UP]
 
@@ -401,7 +429,7 @@ STAT_OPEN_STATUSES = [RECORD_STATUS_FOLLOWING_UP]
 def compute_operation_statistics(tenant_id, occurred_from, occurred_to,
                                  now=None, with_trend=True, trend_limit_days=62,
                                  record_type=None):
-    """运行与故障记录只读统计（租户内，时间范围用 __gte/__lt）。
+    """运行处置记录只读统计（租户内，时间范围用 __gte/__lt）。
 
     record_type 统计口径筛选：None（默认，全部类型）/ routine / abnormal /
     fault。返回：
@@ -494,3 +522,185 @@ def compute_operation_statistics(tenant_id, occurred_from, occurred_to,
         'by_system': by_system,
         'trend': trend,
     }
+
+
+# ==================== 统一记录导出（xlsx） ====================
+#
+# 单工作表排版：记录基础列（前 EXPORT_RECORD_COLUMN_COUNT 列）纵向合并为一格，
+# 进展列（处理时间/处理人/处理内容）一条进展一行展平在其右侧，无进展记录占
+# 一行（处理内容显示"—"）；相邻记录组交替底色、组间中粗分隔线、表头冻结。
+# 合并单元格 Excel 不做自动行高，行高按文本显示宽度预估后显式固定。
+# 工时（work_hours）已退役，不再导出。
+
+RECORD_EXPORT_CONTENT_TYPE = (
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+RECORD_EXPORT_SHEET_NAME = '运行处置记录'
+
+# 列规格：(表头, 列宽, 是否自动换行)；前 EXPORT_RECORD_COLUMN_COUNT 列随记录
+# 合并，其余为进展列（逐行）。
+EXPORT_RECORD_COLUMN_COUNT = 15
+RECORD_EXPORT_COLUMN_SPECS = [
+    ('记录编号', 16, False), ('记录类型', 10, False), ('所属系统', 14, False),
+    ('系统编号', 12, False), ('状态', 9, False), ('影响系统运行', 12, False),
+    ('系统影响程度', 12, False), ('发生时间', 17, False), ('标题', 22, True),
+    ('情况描述', 40, True), ('登记人', 10, False), ('恢复时间', 17, False),
+    ('结案说明', 24, True), ('恢复确认人', 12, False), ('来源类型', 11, False),
+    ('处理时间', 17, False), ('处理人', 10, False), ('处理内容', 40, True),
+]
+# 记录基础列中需要自动换行的列（0 基下标：标题/情况描述/结案说明）
+RECORD_EXPORT_WRAP_COLUMNS = (8, 9, 12)
+# 记录基础列中的时间列（0 基下标：发生时间/恢复时间）
+RECORD_EXPORT_DATETIME_COLUMNS = (7, 11)
+RECORD_EXPORT_DATETIME_FORMAT = 'YYYY-MM-DD HH:MM'
+# 每行文本行数折算行高（pt）与最小行高
+RECORD_EXPORT_LINE_HEIGHT = 14
+RECORD_EXPORT_MIN_ROW_HEIGHT = 20
+
+
+def _export_text_lines(text, col_width):
+    """按显示宽度估算自动换行行数（全角字符按 2 计）。"""
+    if not text:
+        return 1
+    display_width = sum(2 if ord(ch) > 127 else 1 for ch in str(text))
+    return max(1, math.ceil(display_width / max(col_width - 2, 1)))
+
+
+def _export_base_values(item):
+    """记录基础列取值（时间列写 datetime 对象，显示由数字格式控制）。"""
+    return [
+        item.record_no,
+        RECORD_TYPE_TEXT_MAP.get(item.record_type, item.record_type),
+        item.system_name,
+        item.system_code,
+        RECORD_STATUS_TEXT_MAP.get(item.status, item.status),
+        '是' if item.affects_system_operation else '否',
+        FAULT_IMPACT_TEXT_MAP.get(item.impact_status, ''),
+        item.occurred_at,
+        item.title,
+        item.description,
+        item.registrar_name or '',
+        item.recovered_at,
+        item.recovery_close_note,
+        item.recovered_by_name or '',
+        item.source_type,
+    ]
+
+
+def _export_progress_values(progress):
+    """进展列取值：处理时间 / 处理人（手输名，空回落操作账号）/ 处理内容。"""
+    return [
+        progress.handled_at,
+        progress.handler_name or (
+            progress.handler.username if progress.handler_id else ''),
+        progress.content,
+    ]
+
+
+def build_record_progress_map(records):
+    """单次查询批量取进展并按记录分桶（桶内按处理时间正序，即时间线顺序）。"""
+    record_ids = [item.id for item in records]
+    if not record_ids:
+        return {}
+    rows = SystemOperationProgress.objects.filter(
+        record_id__in=record_ids).order_by('record_id', 'handled_at', 'id')
+    progress_map = {}
+    for progress in rows:
+        progress_map.setdefault(progress.record_id, []).append(progress)
+    return progress_map
+
+
+def _export_write_header(ws):
+    """表头行：加粗底色、列宽预设、冻结首行。"""
+    header_fill = PatternFill('solid', fgColor='D9E2F3')
+    for col, (name, width, _) in enumerate(RECORD_EXPORT_COLUMN_SPECS, start=1):
+        cell = ws.cell(row=1, column=col, value=name)
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        ws.column_dimensions[get_column_letter(col)].width = width
+    ws.row_dimensions[1].height = 24
+    ws.freeze_panes = 'A2'
+
+
+def _export_style_group(ws, first_row, last_row, group_idx):
+    """记录组样式：基础列纵向合并、交替底色、组框线（合并区边框需逐格设置）。"""
+    total_cols = len(RECORD_EXPORT_COLUMN_SPECS)
+    fill = PatternFill('solid', fgColor='F2F6FA') if group_idx % 2 else None
+    thin = Side(style='thin', color='BFBFBF')
+    medium = Side(style='medium', color='595959')
+    for row in range(first_row, last_row + 1):
+        for col in range(1, total_cols + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.border = Border(
+                left=medium if col == 1 else thin,
+                right=medium if col == total_cols else thin,
+                top=medium if row == first_row else thin,
+                bottom=medium if row == last_row else thin)
+            cell.alignment = Alignment(
+                horizontal='left', vertical='center',
+                wrap_text=RECORD_EXPORT_COLUMN_SPECS[col - 1][2])
+            if fill is not None:
+                cell.fill = fill
+    if last_row > first_row:
+        for col in range(1, EXPORT_RECORD_COLUMN_COUNT + 1):
+            ws.merge_cells(
+                start_row=first_row, start_column=col,
+                end_row=last_row, end_column=col)
+
+
+def _export_set_row_heights(ws, first_row, base_values, progress_values_list):
+    """按文本预估行高并固定（合并跨行文本所需高度平摊到组内各行）。"""
+    row_count = max(len(progress_values_list), 1)
+    merged_lines = 1
+    for idx in RECORD_EXPORT_WRAP_COLUMNS:
+        width = RECORD_EXPORT_COLUMN_SPECS[idx][1]
+        merged_lines = max(
+            merged_lines, _export_text_lines(base_values[idx], width))
+    content_width = RECORD_EXPORT_COLUMN_SPECS[-1][1]
+    progress_height = RECORD_EXPORT_MIN_ROW_HEIGHT
+    for values in progress_values_list:
+        lines = _export_text_lines(values[-1], content_width)
+        progress_height = max(
+            progress_height, lines * RECORD_EXPORT_LINE_HEIGHT + 6)
+    merged_height = math.ceil(
+        (merged_lines * RECORD_EXPORT_LINE_HEIGHT + 6) / row_count)
+    height = max(RECORD_EXPORT_MIN_ROW_HEIGHT, progress_height, merged_height)
+    for offset in range(row_count):
+        ws.row_dimensions[first_row + offset].height = height
+
+
+def build_record_export_workbook(records):
+    """构建统一记录导出 xlsx（单工作表展平排版），返回 (文件字节, 进展行数)。"""
+    progress_map = build_record_progress_map(records)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = RECORD_EXPORT_SHEET_NAME
+    _export_write_header(ws)
+    progress_rows = 0
+    row = 2
+    for group_idx, item in enumerate(records):
+        values_list = [
+            _export_progress_values(progress)
+            for progress in progress_map.get(item.id, [])]
+        if not values_list:
+            values_list = [['', '', '—']]
+        base_values = _export_base_values(item)
+        first_row = row
+        for values in values_list:
+            for offset, value in enumerate(values):
+                cell = ws.cell(
+                    row=row, column=EXPORT_RECORD_COLUMN_COUNT + 1 + offset,
+                    value=value)
+                if offset == 0 and value:
+                    cell.number_format = RECORD_EXPORT_DATETIME_FORMAT
+            row += 1
+        for col, value in enumerate(base_values, start=1):
+            cell = ws.cell(row=first_row, column=col, value=value)
+            if (col - 1) in RECORD_EXPORT_DATETIME_COLUMNS and value:
+                cell.number_format = RECORD_EXPORT_DATETIME_FORMAT
+        _export_style_group(ws, first_row, row - 1, group_idx)
+        _export_set_row_heights(ws, first_row, base_values, values_list)
+        progress_rows += len(values_list)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue(), progress_rows

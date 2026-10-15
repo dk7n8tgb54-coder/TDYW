@@ -23,8 +23,8 @@ const DISPOSITION_TEXT = {
   converted_fault: '已转故障',
   target_cancelled: '处置目标已撤销登记',
 };
-// 2026-10-11 合并改造：处置目标为统一主表正式故障记录（record_no 统一编号），
-// 跳转目标改为 /el/records（运行与故障记录）
+// 2026-10-11 合并改造：处置目标为统一主表设备故障记录（record_no 统一编号），
+// 跳转目标改为 /el/records（运行处置记录）
 
 const DISPOSITION_COLOR = {
   none: 'default',
@@ -132,7 +132,7 @@ function ConvertToFaultModal({visible, ledger, item, needReason, onClose, onConv
       destroyOnClose
     >
       <p style={{color: '#999', marginTop: 0}}>
-        在明细所属系统「{item.system_name}」创建一条正式故障记录（统一主表，
+        在明细所属系统「{item.system_name}」创建一条设备故障记录（统一主表，
         创建即处置中）；将带入台账类型、编号、检查项、异常说明、实测值与
         现场处理内容。
       </p>

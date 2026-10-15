@@ -9,149 +9,36 @@
  *
  * 统一维护台账列表（2026-10）：Excel 模板 / 手工补录路线台账一并展示，
  * 按后端 source_type 区分详情路由（Excel 来源点击详情进入 ExcelLedgerDetail
- * 版本快照版式回放）并渲染 Excel模板列；来源/明细数/异常数列已删除（2026-10）。
- * 正式新增台账入口（2026-10 收口）：不再提供"可视化表格 / Excel 模板"
- * 二选一，直接选择当前类型已发布的 Excel/WPS 模板版本创建 Excel 台账
+ * 版本快照版式回放）；正式新增台账统一走 Excel/WPS 模板路线
  * （旧可视化模板路线已整体删除）。
  *
- * 周期分组视图（2026-10-11）：列表默认按"维护类型＋周期"分组展示，
- * 组内为各系统台账及填写状态；顶部提供"一键新增本周期台账"（批量创建
- * 草稿，后端幂等去重）与"按系统查看"筛选（复用现有列表与字段）。
+ * 视图切换（2026-10-11，默认"按维护周期"）：
+ * - 按维护周期：LedgerPeriodView（维护类型＋周期分组，组内各系统台账）；
+ * - 按模板查看：LedgerTemplateView（模板身份分组统计 → 组内台账分页列表，
+ *   组内不混手工补录）；refresh 按当前视图分发刷新，返回/详情返回后
+ *   视图与筛选状态保留。
  */
 import React, {useEffect, useState} from 'react';
 import {observer} from 'mobx-react';
-import {Input, Select, Button, Tag, Popconfirm} from 'antd';
-import {PlusOutlined, AppstoreAddOutlined} from '@ant-design/icons';
-import {SearchForm, AuthDiv, Breadcrumb, AuthButton, ExportButton} from 'components';
-import LedgerGroupTable from './LedgerGroupTable';
+import {Radio} from 'antd';
+import {AuthDiv, Breadcrumb} from 'components';
+import LedgerPeriodView from './LedgerPeriodView';
+import LedgerTemplateView from './LedgerTemplateView';
 import LedgerDetail from './LedgerDetail';
-import LedgerBatchCreateModal from './LedgerBatchCreateModal';
+import LedgerPeriodGenerateModal from './LedgerPeriodGenerateModal';
 import ExcelLedgerCreateModal from './excel/ExcelLedgerCreateModal';
 import ExcelLedgerDetail from './excel/ExcelLedgerDetail';
 import {ExcelLedgerStore} from './excel/excelLedgerStore';
 import {getLedgerStore} from './store';
-import {
-  API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_COLOR, STATUS_TEXT,
-} from './constants';
-
-/** 来源类型：优先取后端 source_type，兼容旧数据仅返回 created_from 的形态。 */
-function sourceTypeOf(record) {
-  if (record.source_type) return record.source_type;
-  if (record.created_from === 'excel_template') return 'excel';
-  return 'manual';
-}
-
-function buildColumns(store, ledgerType, openDetail) {
-  return [
-    {title: '台账编号', dataIndex: 'ledger_no', width: 190},
-    {
-      title: '系统', dataIndex: 'system_name', width: 170, ellipsis: true,
-      render: v => v || '—',
-    },
-    {title: '实际执行日期', dataIndex: 'executed_date', width: 110},
-    {
-      title: '状态', dataIndex: 'status', width: 90,
-      render: v => <Tag color={STATUS_COLOR[v]}>{STATUS_TEXT[v] || v}</Tag>,
-    },
-    {title: '执行人', dataIndex: 'executor_names', width: 140, ellipsis: true},
-    {
-      title: 'Excel模板', key: 'excel_template', width: 170, ellipsis: true,
-      render: (v, record) => sourceTypeOf(record) === 'excel' && record.source_template_name
-        ? `${record.source_template_name} v${record.source_version_no || ''}` : '—',
-    },
-    {title: '录入人', dataIndex: 'created_by_name', width: 100},
-    {title: '录入时间', dataIndex: 'created_at', width: 160},
-    {
-      title: '操作', width: 150, align: 'center',
-      render: (text, record) => {
-        const isExcel = sourceTypeOf(record) === 'excel';
-        return (
-          <span>
-            <a onClick={() => openDetail(record)}>详情</a>
-            {!isExcel && record.status === 'draft' && (
-              <AuthButton auth={PERM_L.LED_SUBMIT}>
-                <Popconfirm
-                  title={`确定提交${LEDGER_TYPE_TEXT[ledgerType]}台账？`}
-                  onConfirm={() => store.submitLedger(record.id)}>
-                  <a style={{marginLeft: 8}}>提交</a>
-                </Popconfirm>
-              </AuthButton>
-            )}
-            {record.status !== 'void' && (
-              <AuthButton auth={PERM_L.LED_DEL}>
-                <Popconfirm
-                  title="作废后台账不参与统计，确定作废？"
-                  onConfirm={() => store.voidLedger(record.id, '列表受控作废')}>
-                  <a style={{marginLeft: 8, color: '#f5222d'}}>作废</a>
-                </Popconfirm>
-              </AuthButton>
-            )}
-          </span>
-        );
-      },
-    },
-  ];
-}
-
-// observer：筛选控件直接读取 store.f_keyword / f_status / f_system，输入后需触发重渲染
-const LedgerSearchForm = observer(function LedgerSearchForm({store}) {
-  return (
-    <SearchForm>
-      <SearchForm.Item span={6} title="台账编号">
-        <Input
-          allowClear
-          value={store.f_keyword}
-          onChange={e => store.f_keyword = e.target.value}
-          placeholder="请输入台账编号"
-          onPressEnter={() => {
-            store.fetchGroups();
-          }}
-        />
-      </SearchForm.Item>
-      <SearchForm.Item span={6} title="状态">
-        <Select
-          allowClear
-          style={{width: '100%'}}
-          value={store.f_status}
-          onChange={v => {
-            store.f_status = v;
-            store.fetchGroups();
-          }}
-          placeholder="请选择状态">
-          {Object.keys(STATUS_TEXT).map(key => (
-            <Select.Option value={key} key={key}>{STATUS_TEXT[key]}</Select.Option>
-          ))}
-        </Select>
-      </SearchForm.Item>
-      <SearchForm.Item span={6} title="按系统查看">
-        <Select
-          allowClear
-          showSearch
-          optionFilterProp="children"
-          style={{width: '100%'}}
-          value={store.f_system}
-          onChange={v => {
-            store.f_system = v;
-            store.fetchGroups();
-          }}
-          placeholder="查看某个系统下的台账">
-          {store.systemOptions.map(s => (
-            <Select.Option value={s.id} key={s.id}>
-              {`${s.name}（${s.system_code}）${s.is_active ? '' : ' [已停用]'}`}
-            </Select.Option>
-          ))}
-        </Select>
-      </SearchForm.Item>
-    </SearchForm>
-  );
-});
+import {buildColumns, sourceTypeOf} from './LedgerColumns';
+import {LEDGER_TYPE_TEXT, PERM_L} from './constants';
 
 function LedgerIndex({ledgerType, location}) {
   const store = getLedgerStore(ledgerType);
   // Excel 路线详情独立 Store（与试点页单例隔离，互不干扰）
   const [excelStore] = useState(() => new ExcelLedgerStore());
   const [excelCreateVisible, setExcelCreateVisible] = useState(false);
-  const [batchCreateVisible, setBatchCreateVisible] = useState(false);
+  const [generateVisible, setGenerateVisible] = useState(false);
 
   useEffect(() => {
     // 跨页跳转直达详情（故障详情跳入：?detail=<台账ID>；
@@ -165,7 +52,7 @@ function LedgerIndex({ledgerType, location}) {
         store.fetchDetail(parseInt(detailId, 10));
       }
     }
-    store.fetchGroups();
+    store.refresh();
     store.fetchSystemOptions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -186,7 +73,7 @@ function LedgerIndex({ledgerType, location}) {
 
   const handleExcelDetailBack = () => {
     excelStore.applyDetail(null);
-    store.fetchGroups();
+    store.refresh();
   };
 
   const columns = buildColumns(store, ledgerType, openDetail);
@@ -199,34 +86,41 @@ function LedgerIndex({ledgerType, location}) {
         <Breadcrumb.Item>设备管理</Breadcrumb.Item>
         <Breadcrumb.Item>维护台账</Breadcrumb.Item>
         <Breadcrumb.Item>{LEDGER_TYPE_TEXT[ledgerType]}台账</Breadcrumb.Item>
+        {store.viewMode === 'template' && (
+          <Breadcrumb.Item>按模板查看</Breadcrumb.Item>
+        )}
+        {store.viewMode === 'template' && !!store.activeGroup && (
+          <Breadcrumb.Item>{store.activeGroup.group_name}</Breadcrumb.Item>
+        )}
       </Breadcrumb>
       {!excelDetailOpen && (
         <React.Fragment>
-          <LedgerSearchForm store={store}/>
           <div style={{marginBottom: 12}}>
-            <AuthButton
-              auth={PERM_L.LED_ADD}
-              type="primary"
-              icon={<AppstoreAddOutlined/>}
-              onClick={() => setBatchCreateVisible(true)}>
-              一键新增本周期台账
-            </AuthButton>
-            <AuthButton
-              auth={PERM_L.LED_ADD}
-              style={{marginLeft: 8}}
-              icon={<PlusOutlined/>}
-              onClick={() => setExcelCreateVisible(true)}>
-              新增{LEDGER_TYPE_TEXT[ledgerType]}台账
-            </AuthButton>
-            <ExportButton
-              auth={PERM_L.LED_EXPORT}
-              style={{marginLeft: 8}}
-              url={`${API_PREFIX_L}/ledgers/export/?ledger_type=${ledgerType}`}
-              filename={`${LEDGER_TYPE_TEXT[ledgerType]}台账.csv`}>
-              导出
-            </ExportButton>
+            <Radio.Group
+              value={store.viewMode}
+              onChange={e => store.setViewMode(e.target.value)}
+              optionType="button"
+              buttonStyle="solid">
+              <Radio.Button value="period">按维护周期</Radio.Button>
+              <Radio.Button value="template">按模板查看</Radio.Button>
+            </Radio.Group>
           </div>
-          <LedgerGroupTable store={store} columns={columns}/>
+          {store.viewMode === 'period' && (
+            <LedgerPeriodView
+              store={store}
+              ledgerType={ledgerType}
+              columns={columns}
+              onGenerate={() => setGenerateVisible(true)}
+              onExcelCreate={() => setExcelCreateVisible(true)}/>
+          )}
+          {store.viewMode === 'template' && (
+            <LedgerTemplateView
+              store={store}
+              ledgerType={ledgerType}
+              openDetail={openDetail}
+              onGenerate={() => setGenerateVisible(true)}
+              onOpenExcelCreate={() => setExcelCreateVisible(true)}/>
+          )}
         </React.Fragment>
       )}
       {excelDetailOpen && (
@@ -239,11 +133,11 @@ function LedgerIndex({ledgerType, location}) {
         store={excelStore}
         onCancel={() => setExcelCreateVisible(false)}
         onCreated={handleExcelCreated}/>
-      <LedgerBatchCreateModal
-        visible={batchCreateVisible}
+      <LedgerPeriodGenerateModal
+        visible={generateVisible}
         ledgerType={ledgerType}
         store={store}
-        onCancel={() => setBatchCreateVisible(false)}/>
+        onCancel={() => setGenerateVisible(false)}/>
     </AuthDiv>
   );
 }

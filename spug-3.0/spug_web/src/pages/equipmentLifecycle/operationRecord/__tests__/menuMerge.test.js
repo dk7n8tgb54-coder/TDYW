@@ -1,7 +1,7 @@
 /**
- * 运行与故障记录——菜单/路由/权限树合并退役契约测试（2026-10-11 合并改造）。
+ * 运行处置记录——菜单/路由/权限树合并退役契约测试（2026-10-11 合并改造）。
  * 真实导入路由表与权限树，验证：
- * - 菜单只提供一个"运行与故障记录"入口（/el/records，
+ * - 菜单只提供一个"运行处置记录"入口（/el/records，
  *   equipment_lifecycle.operation_record.view），不再提供"故障处置"
  *   "运行记录""运行处置"分组与"系统履历"入口；
  * - 旧路由 /el/faults、/el/runtime-records、/el/system-events、
@@ -45,7 +45,7 @@ function expectModuleDeleted(modulePath) {
   expect(deleted).toBe(true);
 }
 
-describe('运行与故障记录菜单合并', () => {
+describe('运行处置记录菜单合并', () => {
   const routes = require('../../../../routes').default;
   const codes = require('../../../system/role/codes').default;
 
@@ -53,7 +53,7 @@ describe('运行与故障记录菜单合并', () => {
     const all = flattenRoutes(routes);
     const records = all.filter(r => r.path === '/el/records');
     expect(records.length).toBe(1);
-    expect(records[0].title).toBe('运行与故障记录');
+    expect(records[0].title).toBe('运行处置记录');
     expect(records[0].auth).toBe('equipment_lifecycle.operation_record.view');
     // 分组标题与权限串
     const group = routes.find(r => r.title === '设备管理');
@@ -61,11 +61,11 @@ describe('运行与故障记录菜单合并', () => {
     expect(group.auth).not.toContain('equipment_lifecycle.fault.');
     expect(group.auth).not.toContain('equipment_lifecycle.runtime_record.');
     expect(group.auth).not.toContain('equipment_lifecycle.system_event.');
-    // 旧菜单标题不再出现
+    // 旧菜单标题不再出现（"运行处置"为精确比较：避免误伤现名"运行处置记录"）
     const titles = all.map(r => r.title);
     expect(titles).not.toContain('故障处置');
     expect(titles).not.toContain('运行记录');
-    expect(titles).not.toContain('运行处置');
+    expect(titles.some(t => t === '运行处置')).toBe(false);
     expect(titles).not.toContain('系统履历');
   });
 

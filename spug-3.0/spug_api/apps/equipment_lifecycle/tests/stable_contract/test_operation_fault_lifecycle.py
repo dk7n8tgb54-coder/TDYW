@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""运行与故障记录——正式故障生命周期与系统健康状态契约测试（2026-10-11）。
+"""运行处置记录——设备故障生命周期与系统健康状态契约测试（2026-10-11）。
 
 覆盖真实行为契约（真实 HTTP + 隔离测试数据库 + 健康状态落库断言）：
-1. 健康状态只受"正式故障 + 处置中 + 影响系统运行"的记录影响：
+1. 健康状态只受"设备故障 + 处置中 + 影响系统运行"的记录影响：
    创建/编辑影响程度/切换系统/认定/恢复结案/撤销时重算；
-   日常运行与异常事件（含影响范围描述）一律不改变健康状态；
+   一般记录与异常事件（含影响范围描述）一律不改变健康状态；
 2. 确认恢复并结案：字段校验（恢复时间/确认人/结案说明/原因未明）、
    终态保护、双权限（recover 且 close）、健康重算；
 3. 撤销登记：原因必填、终态保护、退出健康计算；
@@ -27,7 +27,7 @@ from apps.equipment_lifecycle.tests.base import (
 
 
 class HealthImpactTest(TestCase):
-    """健康状态只受有效正式故障影响的契约。"""
+    """健康状态只受有效设备故障影响的契约。"""
 
     def setUp(self):
         self.user = make_user('health_user', perms=ALL_OPERATION_PERMS)
@@ -257,7 +257,7 @@ class RecoverAndCloseValidationTest(TestCase):
 
 
 class CancelValidationTest(TestCase):
-    """撤销登记契约（仅正式故障、原因必填、终态保护）。"""
+    """撤销登记契约（仅设备故障、原因必填、终态保护）。"""
 
     def setUp(self):
         self.user = make_user('cancel_user', perms=ALL_OPERATION_PERMS)
@@ -312,7 +312,7 @@ class CancelValidationTest(TestCase):
         res = self.client.post(RECORDS_URL + '/%d/cancel/' % abnormal.id,
                                json.dumps({'cancel_reason': 'x'}),
                                content_type='application/json')
-        self.assertIn('只有正式故障', res.json().get('error', ''))
+        self.assertIn('只有设备故障', res.json().get('error', ''))
 
 
 class ReasonAnalysisTest(TestCase):
@@ -361,7 +361,7 @@ class ReasonAnalysisTest(TestCase):
         res = self.client.put(RECORDS_URL + '/%d/reason-analysis/' % abnormal.id,
                               json.dumps({'reason_analysis': 'x'}),
                               content_type='application/json')
-        self.assertIn('只有正式故障', res.json().get('error', ''))
+        self.assertIn('只有设备故障', res.json().get('error', ''))
 
 
 class FaultEditabilityTest(TestCase):

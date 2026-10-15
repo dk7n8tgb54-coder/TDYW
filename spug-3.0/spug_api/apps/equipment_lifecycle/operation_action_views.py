@@ -1,19 +1,19 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——运行与故障记录状态动作视图（2026-10-11 合并改造）。
+"""设备全生命周期——运行处置记录状态动作视图（2026-10-11 合并改造）。
 
 承载与状态机/健康重算绑定的动作接口（均行锁 + 状态校验 + 审计，涉及健康
 重算的动作在 health_recalc_lock 内 + 单事务完成）：
 - complete          异常事件"完成跟进"：跟进中 → 已完成（可重新跟进）；
-- identify-fault    异常事件"认定正式故障"：原记录类型变更为 fault、状态进入
+- identify-fault    异常事件"认定设备故障"：原记录类型变更为 fault、状态进入
                     处置中，保留描述/登记人/附件/全部进展，不创建第二张单；
-- recover           正式故障"确认恢复并结案"：处置中 → 已关闭，恢复时间/
+- recover           设备故障"确认恢复并结案"：处置中 → 已关闭，恢复时间/
                     恢复确认人/结案说明/最终原因分析一次性校验写入；
-- cancel            正式故障"撤销登记"：处置中 → 已撤销（原因必填留痕），
+- cancel            设备故障"撤销登记"：处置中 → 已撤销（原因必填留痕），
                     退出有效统计与健康状态计算；
-- reason-analysis   正式故障原因分析专用更新（处置中可修改，已关闭只读）。
+- reason-analysis   设备故障原因分析专用更新（处置中可修改，已关闭只读）。
 
-日常运行不提供任何状态动作（恒为已记录，后端独立拒绝）。
+一般记录不提供任何状态动作（恒为已记录，后端独立拒绝）。
 权限（后端独立校验）：
 - complete          operation_record.complete
 - identify-fault    operation_record.identify_fault
@@ -113,7 +113,7 @@ class RecordCompleteView(RecordActionBaseView):
 
 
 class RecordIdentifyFaultView(View):
-    """异常事件认定正式故障（原记录原地变更，不创建第二张单）。
+    """异常事件认定设备故障（原记录原地变更，不创建第二张单）。
 
     - 仅异常事件且处于 已记录/跟进中 可认定；
     - 认定时补充故障所需字段：是否影响系统运行（默认不影响）、影响程度
@@ -207,7 +207,7 @@ def _resolve_final_reason(record, form):
 
 
 class RecordRecoverView(View):
-    """确认恢复并结案（正式故障）：处置中 → 已关闭，单次事务。
+    """确认恢复并结案（设备故障）：处置中 → 已关闭，单次事务。
 
     - 恢复时间/恢复确认人/结案说明一次性校验写入（结案说明必填）；
     - 最终原因分析随结案一并提交：默认回填处置中的原因分析，可修改或改为
@@ -266,7 +266,7 @@ class RecordRecoverView(View):
         if error:
             return error
         if record.record_type != 'fault' or record.status != RECORD_STATUS_HANDLING:
-            return '只有处置中的正式故障才能确认恢复并结案'
+            return '只有处置中的设备故障才能确认恢复并结案'
         recovered_at = _parse_dt(form.recovered_at)
         if not recovered_at:
             return '恢复时间格式不正确，应为 YYYY-MM-DD HH:MM'
@@ -301,7 +301,7 @@ class RecordRecoverView(View):
 
 
 class RecordCancelView(View):
-    """撤销故障登记（正式故障）：处置中 → 已撤销，不物理删除。
+    """撤销故障登记（设备故障）：处置中 → 已撤销，不物理删除。
 
     - 用于撤销错误或重复的故障登记：撤销后历史记录保留可追溯，
       该记录退出有效统计与健康状态计算；
@@ -329,7 +329,7 @@ class RecordCancelView(View):
                     if not form.cancel_reason.strip():
                         return json_response(error='撤销原因不能为空')
                     if record.record_type != 'fault':
-                        return json_response(error='只有正式故障支持撤销登记')
+                        return json_response(error='只有设备故障支持撤销登记')
                     if record.status == RECORD_STATUS_CLOSED:
                         return json_response(error='已关闭的故障不能撤销：已关闭表示真实故障已完成结案')
                     if record.status != RECORD_STATUS_HANDLING:
@@ -357,7 +357,7 @@ class RecordCancelView(View):
 
 
 class RecordReasonAnalysisView(View):
-    """原因分析专用更新（正式故障）：详情页"补充原因分析/修改"弹窗保存出口。
+    """原因分析专用更新（设备故障）：详情页"补充原因分析/修改"弹窗保存出口。
 
     - 只处理原因分析（reason_analysis + reason_unknown），不要求重新提交
       系统/发生时间等无关字段；
@@ -391,7 +391,7 @@ class RecordReasonAnalysisView(View):
             if not record:
                 return json_response(error='记录不存在')
             if record.record_type == RECORD_TYPE_ROUTINE or not record.is_fault:
-                return json_response(error='只有正式故障支持原因分析')
+                return json_response(error='只有设备故障支持原因分析')
             if record.status != RECORD_STATUS_HANDLING:
                 return json_response(error='已关闭或已撤销的故障不能修改原因分析')
             before_summary = _record_audit_summary(record)

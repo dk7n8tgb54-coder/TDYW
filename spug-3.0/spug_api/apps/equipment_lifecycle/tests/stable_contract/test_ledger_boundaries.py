@@ -87,22 +87,17 @@ class LedgerBoundaryContractTests(TestCase):
         forbidden = {'QrCode', 'MobileTask', 'OfflineTask', 'OfflineSyncQueue', 'SyncQueue',
                      'FieldTerminal', 'SiteCollection'}
         self.assertEqual(forbidden & model_names, set())
-        # 台账模型集合精确可控：步骤二 + 运行与故障记录（2026-10-11 合并改造，
-        # 统一主表/进展表）+ 值班巡检（今日巡检改造，5 表，历史保留）的模型
+        # 台账模型集合精确可控：步骤二 + 运行处置记录（2026-10-11 合并改造，
+        # 统一主表/进展表）的模型
         # （类型主数据模型已随机制移除删除；工单三表已随工单功能删除 2026-09-30；
         # 单系统简化删除受影响系统关联两表；自定义字段机制下线删除字段定义/
-        # 字段值两表；旧故障四表与 SystemEvent 已随合并改造退役删除 2026-10-11）
+        # 字段值两表；旧故障四表与 SystemEvent 已随合并改造退役删除 2026-10-11；
+        # 值班巡检六模型与旧设计器两模型已随迁移 0017 退役删除 2026-10-14）
         expected = {
             'LifecycleSystem',
             'SystemOperationRecord', 'SystemOperationProgress',
             # 旧可视化模板四表已随路线整体删除（2026-10，迁移 0045）
             'OperationLedger', 'OperationLedgerItem', 'OperationLedgerCorrection',
-            # 值班巡检（今日巡检改造）：模板两级结构 + 值班巡检单/人员/明细
-            'InspectionTemplate', 'InspectionTemplateDevice', 'InspectionTemplateItem',
-            'InspectionDutySheet', 'InspectionDutyPerson', 'InspectionRecord',
-            # 设计器台账模板（2026-09-29 路线下线）：模型与历史表休眠保留，
-            # 视图/服务/路由均已删除，所有 layout-templates 端点应 404
-            'OperationLedgerLayoutTemplate', 'OperationLedgerLayoutVersion',
             # Excel 上传版维护台账模板（2026-09-28 试点）：模板 + 不可变版本 + 台账填写记录
             'OperationLedgerExcelTemplate', 'OperationLedgerExcelTemplateVersion',
             'OperationLedgerExcelRecord',
@@ -114,7 +109,7 @@ class LedgerBoundaryContractTests(TestCase):
         self.assertEqual(model_names, expected)
 
     def test_upgrade_and_operation_logic_untouched(self):
-        """36. upgrade 和运行与故障记录的状态/健康逻辑未发生无关变化。"""
+        """36. upgrade 和运行处置记录的状态/健康逻辑未发生无关变化。"""
         # upgrade 模型关键字段仍然在位
         upgrade_fields = {f.name for f in django_apps.get_model('upgrade', 'UpgradeRecord')._meta.get_fields()}
         self.assertIn('title', upgrade_fields)
