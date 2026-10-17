@@ -43,7 +43,7 @@ from apps.equipment_lifecycle.models import (
     LEDGER_TYPE_TEXT,
     LEDGER_TYPE_VALUES,
     LEDGER_TYPE_WEEK_MONTH,
-    LEDGER_STATUS_REVIEWED,
+    LEDGER_STATUS_COMPLETED,
     LEDGER_STATUS_VOID,
     OperationLedger,
     OperationLedgerCorrection,
@@ -189,7 +189,7 @@ class MaintenanceLedgerStillWorksTest(TestCase):
         return create_ledger_ok(self.client_, payload)
 
     def test_full_maintenance_workflow(self):
-        """新增→编辑→提交→退回→再提交→复核→更正→作废 全链路可用。"""
+        """新增→编辑→完成填写→更正→作废 全链路可用（2026-10-16 流程简化）。"""
         data = self._create_ledger()
         ledger_id = data['id']
         # 编辑：version 并发控制 + 明细新增
@@ -201,22 +201,16 @@ class MaintenanceLedgerStillWorksTest(TestCase):
         resp = put_json(self.client_, '%s/%s/' % (LEDGER_URL, ledger_id), payload)
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(resp.json()['data']['version'], 2)
-        # 提交
-        resp = post_json(self.client_, '%s/%s/submit/' % (LEDGER_URL, ledger_id), {})
+        # 完成填写（流程终点：草稿 → 已完成）
+        resp = post_json(self.client_, '%s/%s/complete/' % (LEDGER_URL, ledger_id), {})
         self.assertFalse(resp.json().get('error'), resp.content)
-        # 退回（需要退回原因）
-        resp = post_json(self.client_, '%s/%s/return/' % (LEDGER_URL, ledger_id),
-                         {'reason': '数据待补充'})
-        self.assertFalse(resp.json().get('error'), resp.content)
-        self.assertEqual(resp.json()['data']['status'], 'returned')
-        # 再提交 → 复核
-        post_json(self.client_, '%s/%s/submit/' % (LEDGER_URL, ledger_id), {})
-        resp = post_json(self.client_, '%s/%s/review/' % (LEDGER_URL, ledger_id), {})
-        self.assertFalse(resp.json().get('error'), resp.content)
-        self.assertEqual(resp.json()['data']['status'], LEDGER_STATUS_REVIEWED)
-        # 复核后更正
+        self.assertEqual(resp.json()['data']['status'], LEDGER_STATUS_COMPLETED)
+        # 已完成后更正（表头更正随执行人字段退役，改走明细级更正）
+        resp = self.client_.get('%s/%s/' % (LEDGER_URL, ledger_id))
+        item_id = resp.json()['data']['items'][0]['id']
         resp = post_json(self.client_, '%s/%s/correct/' % (LEDGER_URL, ledger_id),
-                         {'reason': '笔误更正', 'executor_names': '王五'})
+                         {'reason': '笔误更正', 'item_id': item_id,
+                          'value_text': '完成后更正值'})
         self.assertFalse(resp.json().get('error'), resp.content)
         # 查询（列表 + 详情）
         resp = self.client_.get(LEDGER_URL + '/?ledger_type=week_month')
@@ -270,7 +264,7 @@ class MaintenanceConvertStillWorksTest(TestCase):
             ])],
             ledger_type=LEDGER_TYPE_WEEK_MONTH)
         data = create_ledger_ok(self.client_, payload)
-        resp = post_json(self.client_, '%s/%s/submit/' % (LEDGER_URL, data['id']), {})
+        resp = post_json(self.client_, '%s/%s/complete/' % (LEDGER_URL, data['id']), {})
         self.assertFalse(resp.json().get('error'), resp.content)
         item = OperationLedgerItem.objects.get(ledger_id=data['id'], result='abnormal')
         return data['id'], item.id

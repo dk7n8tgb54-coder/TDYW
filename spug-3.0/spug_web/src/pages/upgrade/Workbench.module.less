@@ -47,3 +47,454 @@
     margin-bottom: 16px;
   }
 }
+
+// ===== 顶部信息栏（紧凑两行） =====
+.infoBar {
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 4px;
+  padding: 10px 16px;
+  margin-bottom: 12px;
+}
+
+.infoRowMain {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.infoTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: #262626;
+}
+
+.infoActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.infoRowSub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 20px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: #262626;
+}
+
+.infoLabel {
+  color: #8c8c8c;
+  margin-right: 4px;
+  font-size: 12px;
+}
+
+.infoMinor {
+  color: #8c8c8c;
+  font-size: 12px;
+
+  .infoLabel {
+    color: #bfbfbf;
+  }
+}
+
+.detailToggle {
+  padding: 0 0 0 4px;
+  font-size: 12px;
+}
+
+.detailBlocks {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #e8e8e8;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detailBlockTitle {
+  font-size: 12px;
+  color: #8c8c8c;
+  margin-bottom: 2px;
+}
+
+.detailBlockBody {
+  font-size: 13px;
+  color: #262626;
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+.editPanel {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e8e8e8;
+}
+
+.editActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+// ===== 左右两栏工作台（约六四开，等高对齐，各自内部滚动） =====
+// 注意：antd Row 默认 flex-wrap: wrap，多行容器的 stretch 只到行高（内容高），
+// 不填满容器高度——必须 nowrap 才能让两栏被容器高度约束、内部滚动生效。
+.panelsRow {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  height: calc(100vh - 350px);
+  min-height: 420px;
+  margin-bottom: 4px;
+}
+
+.panelCol {
+  display: flex;
+}
+
+.panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid #f0f0f0;
+  border-radius: 4px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  min-height: 40px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.panelTitle {
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.panelSub {
+  color: #999;
+  font-size: 12px;
+  font-weight: normal;
+}
+
+.panelHeaderActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+// ===== 左侧步骤清单 =====
+.stepProgress {
+  padding: 0 12px;
+  margin-top: 8px;
+}
+
+.stepList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid #f0f0f0;
+  margin-top: 8px;
+}
+
+.stepGroupHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fafafa;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #555;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stepGroupHeaderCurrent {
+  background: #e6f7ff;
+  color: #1890ff;
+}
+
+.stepGroupCount {
+  color: #999;
+  font-weight: normal;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.currentPhaseTag {
+  background: #1890ff;
+  color: #fff;
+  font-size: 10px;
+  padding: 0 6px;
+  border-radius: 8px;
+  line-height: 16px;
+  font-weight: normal;
+}
+
+.stepGroupCurrent {
+  background: #f7fcff;
+}
+
+.stepRowTodo,
+.stepRowDone {
+  padding: 6px 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.stepMain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stepSeq {
+  color: #999;
+  min-width: 20px;
+  font-weight: bold;
+  font-size: 12px;
+}
+
+.stepTitleTodo {
+  flex: 1;
+  color: #262626;
+  font-size: 13px;
+}
+
+.stepTitleDone {
+  flex: 1;
+  color: #8c8c8c;
+  font-size: 13px;
+}
+
+.miniTag {
+  margin: 0;
+}
+
+.descToggle {
+  padding: 0;
+  font-size: 12px;
+}
+
+.stepMeta {
+  color: #8c8c8c;
+  font-size: 11px;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.completeBtn {
+  padding: 0 4px;
+}
+
+.moreBtn {
+  padding: 0 4px;
+  color: #999;
+}
+
+.stepDesc {
+  padding: 4px 12px 8px 28px;
+  color: #595959;
+  font-size: 12px;
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+.stepEmpty {
+  text-align: center;
+  color: #999;
+  padding: 32px;
+  font-size: 13px;
+}
+
+.locateBtn {
+  padding: 0 4px;
+  font-size: 12px;
+}
+
+// ===== 右侧流程区与状态时间线 =====
+.flowArea {
+  background: #f6f8fa;
+  border-bottom: 1px solid #e8e8e8;
+  padding: 8px 10px;
+}
+
+.flowHeadline {
+  font-size: 12px;
+  color: #1890ff;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.flowNodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.flowEmpty {
+  color: #bbb;
+  font-size: 11px;
+}
+
+.nodeClickable {
+  cursor: pointer;
+}
+
+.nodeClickable:focus-visible {
+  outline: 2px solid #1890ff;
+  outline-offset: 1px;
+  border-radius: 10px;
+}
+
+.timelineWrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+}
+
+.timelineScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  // antd Timeline 内容自带 top:-5px 相对偏移（与圆点光学对齐），
+  // 顶部不留内边距时首条（最新）日志会被 overflow 裁掉上半截
+  padding-top: 8px;
+}
+
+.newLogBadge {
+  position: absolute;
+  top: 8px;
+  right: 20px;
+  z-index: 3;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.logRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.logItem {
+  flex: 1;
+  min-width: 0;
+  border-radius: 4px;
+  padding: 2px 4px;
+  transition: background-color 0.6s;
+}
+
+.logItemHighlight {
+  background: #e6f7ff;
+}
+
+.logMain {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.logTag {
+  margin-right: 0;
+}
+
+.logWarnText {
+  color: #ff4d4f;
+  font-size: 11px;
+}
+
+.logStatusText {
+  color: #999;
+  font-size: 11px;
+}
+
+.logMeta {
+  color: #999;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.logRemark {
+  color: #555;
+  margin-top: 4px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+// ===== 窄屏：上下排列，保证控件可用 =====
+@media (max-width: 768px) {
+  .header {
+    padding: 0 12px;
+
+    .headerLeft,
+    .headerRight {
+      min-width: 0;
+    }
+
+    .headerTitle {
+      font-size: 14px;
+      white-space: nowrap;
+    }
+  }
+
+  .panelsRow {
+    height: auto;
+    display: block;
+  }
+
+  .panelCol {
+    width: 100% !important;
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    margin-bottom: 16px;
+  }
+
+  .panel {
+    min-height: 320px;
+    max-height: 72vh;
+  }
+
+  .infoActions {
+    margin-left: 0;
+  }
+
+  // 步骤行允许换行：操作人/时间独立成行，标题不再被挤成一字一行
+  .stepMain {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .stepTitleTodo,
+  .stepTitleDone {
+    flex: 1 1 auto;
+    min-width: 120px;
+  }
+
+  .stepMeta {
+    flex-basis: 100%;
+    margin-left: 0;
+    order: 10;
+    white-space: normal;
+  }
+}

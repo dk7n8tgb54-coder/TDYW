@@ -7,12 +7,18 @@
  * 只封装 http 调用 + store 刷新 + 消息提示的纯动作函数，
  * 不持有组件状态；组件层（WorkbenchForm 及其子组件）负责编排。
  */
+import React from 'react';
 import { http } from 'libs';
 import { message, Modal } from 'antd';
 import store from './store';
+import { computeRollbackImpact } from './shared';
 
 const STEP_ACTION_TEXT = {complete: '完成', skip: '已跳过', reset: '待执行'};
 const NODE_ACTION_TEXT = {pause: '已暂停', resume: '已继续', test_fail: '已标记失败', rollback: '已回退'};
+
+// 在途请求守卫：同一目标的相同动作在请求返回前不重复提交（jsdom/弱网双击防护）
+const pendingStepKeys = new Set();
+const pendingNodeKeys = new Set();
 
 /**
  * 提交升级表单（新建/编辑共用）：经 formRef.current.submit(redirectMode) 触发，
@@ -67,6 +73,9 @@ export function submitUpgradeForm({form, isNew, recordId, redirectMode, selected
 
 /** 步骤操作（完成/跳过/重置），成功后刷新步骤、状态时间线与主记录 */
 export function postStepAction(recordId, step, action) {
+  const guardKey = `${step.id}::${action}`;
+  if (pendingStepKeys.has(guardKey)) return;
+  pendingStepKeys.add(guardKey);
   http.put(`/api/upgrade/record-steps/${step.id}/update/`, {action})
     .then(() => {
       const actionText = STEP_ACTION_TEXT[action] || '处理';
@@ -77,7 +86,8 @@ export function postStepAction(recordId, step, action) {
       // 后端步骤联动会自动更新主表 status（全部完成→已完成等），同步刷新
       store.fetchRecord(recordId).catch(() => {});
     })
-    .catch(() => {});
+    .catch(() => {})
+    .finally(() => pendingStepKeys.delete(guardKey));
 }
 
 /** 删除单个步骤 */
@@ -174,8 +184,38 @@ export function applyPlanToRecord(recordId, planId, onSettled) {
   });
 }
 
+/**
+ * 回退确认（阶段节点点击与"阶段操作"菜单共用）：
+ * 预览基于真实步骤数据（store.recordSteps）计算，口径与后端
+ * _reset_steps_for_rollback 一致——目标阶段及其后所有阶段的步骤全部重置。
+ */
+export function confirmRollback(recordId, node) {
+  const impact = computeRollbackImpact(store.recordSteps, node.label);
+  const content = impact.found ? (
+    <div>
+      <div>将回退到阶段：<strong>{node.label}</strong></div>
+      <div>
+        将被重置的阶段（{impact.phases.length}个）：
+        {impact.phases.join('、')}
+      </div>
+      <div>共 {impact.stepCount} 个步骤将重置为待执行</div>
+    </div>
+  ) : `确定回退到【${node.label}】？该阶段及之后的步骤将重置为待执行`;
+  Modal.confirm({
+    title: `回退到【${node.label}】`,
+    content,
+    okText: '确认回退',
+    cancelText: '取消',
+    okButtonProps: {danger: true},
+    onOk: () => postNodeAction(recordId, 'rollback', node),
+  });
+}
+
 /** 流程节点操作（暂停/继续/标记失败/回退），回退需刷新步骤清单 */
 export function postNodeAction(recordId, action, node) {
+  const guardKey = `${action}::${node.label}`;
+  if (pendingNodeKeys.has(guardKey)) return;
+  pendingNodeKeys.add(guardKey);
   const payload = {
     action,
     remark: '',
@@ -199,7 +239,8 @@ export function postNodeAction(recordId, action, node) {
       }
       store.fetchRecords();
     })
-    .catch(() => {});
+    .catch(() => {})
+    .finally(() => pendingNodeKeys.delete(guardKey));
 }
 
 /** 删除状态日志并同步刷新主表状态 */

@@ -159,10 +159,9 @@ class TemplateGroupingTests(TemplateGroupTestBase):
         group = self.fetch_group_rows(ledger_type=LEDGER_TYPE_WEEK_MONTH)[0]
         self.assertEqual(group['total'], 4)
         self.assertEqual(group['draft'], 1)
-        self.assertEqual(group['submitted'], 1)
-        self.assertEqual(group['reviewed'], 1)
+        # completed 为完成口径：旧流程已提交/已复核历史状态一并计入
+        self.assertEqual(group['completed'], 2)
         self.assertEqual(group['void'], 1)
-        self.assertEqual(group['returned'], 0)
         self.assertEqual(str(group['last_executed_date']), '2026-10-08')
 
 

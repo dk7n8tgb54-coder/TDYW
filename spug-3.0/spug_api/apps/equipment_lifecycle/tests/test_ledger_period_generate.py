@@ -540,13 +540,11 @@ class ActualExecutionDateTests(PeriodGenerateTestBase):
         ledger_no = data['created'][0]['ledger_no']
         resp = self.client.put(
             '%s/%d/' % (EXCEL_LEDGERS_URL, ledger_id),
-            json.dumps({'header': {'executed_date': '2026-10-16',
-                                   'executor_names': '王五'}}),
+            json.dumps({'header': {'executed_date': '2026-10-16'}}),
             content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.json())
         detail = resp.json()['data']['data']
         self.assertEqual(str(detail['executed_date'])[:10], '2026-10-16')
-        self.assertEqual(detail['executor_names'], '王五')
         ledger = OperationLedger.objects.get(pk=ledger_id)
         self.assertEqual(ledger.ledger_no, ledger_no)  # 编号不变
         # 录入后预览仍为已存在（日期不影响去重）
@@ -574,17 +572,22 @@ class ActualExecutionDateTests(PeriodGenerateTestBase):
         self.assertFalse(resp.json().get('error'), resp.json())
         self.assertIsNone(resp.json()['data']['data']['executed_date'])
 
-    def test_header_update_rejected_after_submit(self):
+    def test_header_update_rejected_after_complete(self):
         data = self.generate(today=(2026, 10, 14))
         ledger_id = data['created'][0]['id']
         record = OperationLedgerExcelRecord.objects.get(ledger_id=ledger_id)
         values = {b['field_id']: '正常' for b in record.version.get_bindings()
                   if b.get('is_required')}
+        # 周期生成的应填台账 executed_date 为空，完成填写前须先录入执行日期
+        resp = post_json(self.client, '%s/%d/complete/' % (EXCEL_LEDGERS_URL, ledger_id), {})
+        self.assertIn('实际执行日期', resp.json()['error'])
         resp = self.client.put(
             '%s/%d/' % (EXCEL_LEDGERS_URL, ledger_id),
-            json.dumps({'values': values}), content_type='application/json')
+            json.dumps({'values': values,
+                        'header': {'executed_date': '2026-10-16'}}),
+            content_type='application/json')
         self.assertFalse(resp.json().get('error'), resp.json())
-        resp = post_json(self.client, '%s/%d/submit/' % (EXCEL_LEDGERS_URL, ledger_id), {})
+        resp = post_json(self.client, '%s/%d/complete/' % (EXCEL_LEDGERS_URL, ledger_id), {})
         self.assertFalse(resp.json().get('error'), resp.json())
         resp = self.client.put(
             '%s/%d/' % (EXCEL_LEDGERS_URL, ledger_id),

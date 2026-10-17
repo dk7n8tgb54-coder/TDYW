@@ -117,6 +117,9 @@ afterEach(() => {
     ReactDOM.unmountComponentAtNode(container);
     document.body.removeChild(container);
   }
+  // Modal.confirm 渲染在 body 门户下且 onOk 拒绝时不自动关闭，逐用例清理
+  document.body.querySelectorAll('.ant-modal-root, .ant-modal-mask')
+    .forEach(node => node.remove());
   container = null;
   store = null;
 });
@@ -249,7 +252,7 @@ test('停用模板：确认框保留引用台账数提示，取消不发请求',
   expect(mockHttpDelete).not.toHaveBeenCalled();
 });
 
-test('确认停用：调用 DELETE，提示已停用并重取列表', async () => {
+test('确认停用：调用停用端点，提示已停用并重取列表', async () => {
   mockHttpGet.mockResolvedValue({data: [listRow()]});
   await renderPage();
   const dropdown = await openRowMenu();
@@ -257,15 +260,15 @@ test('确认停用：调用 DELETE，提示已停用并重取列表', async () =
     dropdown.querySelector('[data-testid="tpl-stop"]').click();
   });
   await flush();
-  mockHttpDelete.mockResolvedValue({data: {}});
+  mockHttpPost.mockResolvedValue({data: {}});
   mockHttpGet.mockResolvedValue({data: []});
   await act(async () => {
     popconfirmButton('停用').click();
   });
   await flush();
-  expect(mockHttpDelete).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/11/');
+  expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/11/deactivate/');
   expect(message.success).toHaveBeenCalledWith('模板已停用');
-  // 成功后重新拉取模板列表（不做乐观删除）
+  // 成功后重新拉取模板列表（不做乐观停用）
   expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/');
   expect(store.deletingId).toBe('');
 });
@@ -278,14 +281,51 @@ test('停用失败：不显示成功提示，状态复位', async () => {
     dropdown.querySelector('[data-testid="tpl-stop"]').click();
   });
   await flush();
-  mockHttpDelete.mockRejectedValue('模板不存在或无权限访问');
+  mockHttpPost.mockRejectedValue('模板不存在或无权限访问');
   await act(async () => {
     popconfirmButton('停用').click();
   });
   await flush();
-  expect(mockHttpDelete).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/11/');
+  expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/11/deactivate/');
   expect(message.success).not.toHaveBeenCalledWith('模板已停用');
   expect(store.deletingId).toBe('');
+});
+
+test('删除模板（2026-10-16 拆分）：无引用模板提供删除项，确认后物理删除', async () => {
+  // 清理上一用例遗留的确认框（停用失败时 Modal 不自动关闭）
+  document.body.querySelectorAll('.ant-modal-root, .ant-modal-mask')
+    .forEach(node => node.remove());
+  mockHttpGet.mockResolvedValue({data: [listRow()]});
+  await renderPage();
+  const dropdown = await openRowMenu();
+  // 无引用（ledgers_count 空）：停用 + 删除同时提供
+  expect(dropdown.querySelector('[data-testid="tpl-destroy"]')).toBeTruthy();
+  await act(async () => {
+    dropdown.querySelector('[data-testid="tpl-destroy"]').click();
+  });
+  await flush();
+  const modal = document.body.querySelector('.ant-modal-confirm');
+  expect(modal.textContent).toContain('删除模板');
+  expect(modal.textContent).toContain('不可恢复');
+  // 无引用模板确认框不含引用台账提示
+  expect(modal.textContent).not.toContain('个台账引用');
+  mockHttpDelete.mockResolvedValue({data: {}});
+  mockHttpGet.mockResolvedValue({data: []});
+  await act(async () => {
+    popconfirmButton('删除').click();
+  });
+  await flush();
+  expect(mockHttpDelete).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/11/');
+  expect(message.success).toHaveBeenCalledWith('模板已删除');
+  expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/');
+});
+
+test('被引用模板：只能停用，无删除项（引用检查以后端为准）', async () => {
+  mockHttpGet.mockResolvedValue({data: [listRow({ledgers_count: 3})]});
+  await renderPage();
+  const dropdown = await openRowMenu();
+  expect(dropdown.querySelector('[data-testid="tpl-stop"]')).toBeTruthy();
+  expect(dropdown.querySelector('[data-testid="tpl-destroy"]')).toBeNull();
 });
 
 test('无 del 权限：行更多菜单无停用项，列表无新建入口', async () => {

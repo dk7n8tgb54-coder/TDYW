@@ -10,14 +10,14 @@
  *
  * 三种视图：
  * - 列表：Excel 路线台账（created_from=excel_template），按类型/状态筛选；
- * - 创建：选择已发布 Excel 模板版本 + 执行日期 + 执行人（周月/季类型边界
+ * - 创建：选择已发布 Excel 模板版本 + 执行日期（周月/季类型边界
  *   由后端校验，前端按模板类型回显）；
  * - 详情：委托 ExcelLedgerDetail（版式回放/保存/提交/复核/作废/导出）。
  */
 import React from 'react';
 import {observer} from 'mobx-react';
 import {
-  Button, Card, DatePicker, Input, Modal,
+  Button, Card, DatePicker, Modal,
   Select, Table, Tag, message,
 } from 'antd';
 import {PlusOutlined} from '@ant-design/icons';
@@ -38,7 +38,7 @@ class ExcelLedgerPage extends React.Component {
 
   state = {
     createVisible: false,
-    form: {ledger_type: undefined, version_id: undefined, executed_date: moment(), executor_names: ''},
+    form: {ledger_type: undefined, version_id: undefined, executed_date: moment()},
   };
 
   componentDidMount() {
@@ -54,7 +54,6 @@ class ExcelLedgerPage extends React.Component {
     this.store.createLedger({
       version_id: form.version_id,
       executed_date: form.executed_date.format('YYYY-MM-DD'),
-      executor_names: form.executor_names,
       ledger_type: form.ledger_type || '',
       client_token: `excel-${form.version_id}-${form.executed_date.format('YYYYMMDD')}`,
     }).then(detail => {
@@ -119,10 +118,6 @@ class ExcelLedgerPage extends React.Component {
         <DatePicker data-testid="ledger-date" style={{width: '100%'}}
                     value={form.executed_date}
                     onChange={value => this.setState({form: {...form, executed_date: value}})}/>
-        <div style={{marginBottom: 10, marginTop: 12}}>执行人</div>
-        <Input data-testid="ledger-executor" maxLength={200} placeholder="多人以顿号分隔"
-               value={form.executor_names}
-               onChange={e => this.setState({form: {...form, executor_names: e.target.value}})}/>
       </Modal>
     );
   }
@@ -138,7 +133,6 @@ class ExcelLedgerPage extends React.Component {
          ? `${record.excel.template_name} v${record.excel.version_no}` : '—'},
       {title: '执行日期', dataIndex: 'executed_date',
        render: value => String(value).slice(0, 10)},
-      {title: '执行人', dataIndex: 'executor_names'},
       {title: '状态', dataIndex: 'status',
        render: value => <Tag color={STATUS_COLOR[value]}>{STATUS_TEXT[value] || value}</Tag>},
       {title: '操作', key: 'actions', render: (_, record) => (

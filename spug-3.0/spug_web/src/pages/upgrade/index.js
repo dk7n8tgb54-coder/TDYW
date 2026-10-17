@@ -65,7 +65,7 @@ export default observer(function ({ embedded }) {
             ))}
           </Select>
         </SearchForm.Item>
-        <SearchForm.Item span={6} title="时间范围">
+        <SearchForm.Item span={6} title="计划升级时间">
           <DatePicker.RangePicker
             value={store.f_start_date && store.f_end_date ? [moment(store.f_start_date), moment(store.f_end_date)] : null}
             onChange={(dates) => {

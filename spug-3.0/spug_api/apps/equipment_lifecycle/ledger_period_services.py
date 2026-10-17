@@ -30,6 +30,7 @@ from apps.equipment_lifecycle.models import (
     ITEM_RESULT_ABNORMAL,
     LEDGER_FROM_EXCEL,
     LEDGER_FROM_MANUAL,
+    LEDGER_STATUS_COMPLETED,
     LEDGER_STATUS_DRAFT,
     LEDGER_STATUS_RETURNED,
     LEDGER_STATUS_REVIEWED,
@@ -58,9 +59,10 @@ from apps.equipment_lifecycle.ledger_services import (
 #   · 每月模板：YYYY-MM（自然月）；
 #   · 季维护模板：YYYY-夏秋 / YYYY-冬春（民航航季边界）；
 # - 本期 = 以当前日期为基准的当前周/当前月/当前航季，不预建未来期次；
-# - 去重：同租户+模板+系统+期次仅一张台账（唯一约束 uniq_el_ledger_tpl_period，
-#   MariaDB 无部分唯一索引，非生成路线 source_template 为 NULL 天然豁免；
-#   含已作废——作废台账不在一键生成中悄悄重建，预览标记需人工处理）；
+# - 去重：同租户+模板+系统+期次仅一张有效台账（唯一约束
+#   uniq_el_ledger_tpl_period，以 slot_active 参与：非作废=True、作废=NULL
+#   豁免；作废台账不在一键生成中悄悄重建，预览标记需人工处理，确需重做
+#   走明确补建 period_generate_rebuild）；
 #   模板行锁串行化并发，发布新版本/重复点击/并发请求都不重复生成；
 # - 生成物 = created_from=excel_template 的正式台账，创建即固定引用模板
 #   最新已发布版本快照（OperationLedgerExcelRecord），可直接进入 Excel
@@ -355,7 +357,7 @@ def _classify_slot(template, slot_ledgers, period):
     if voided:
         ledger = sorted(voided, key=lambda x: -x.id)[0]
         return (GENERATE_MANUAL_NEEDED,
-                '该期次已存在已作废台账 %s，不在一键生成中重建，请通过受控操作处理' % ledger.ledger_no,
+                '该期次已存在已作废台账 %s，不在一键生成中重建；确需重做请使用补建操作' % ledger.ledger_no,
                 ledger)
     return GENERATE_CREATE, '', None
 
@@ -411,6 +413,10 @@ def _generation_entry(user, template, ledger_type, today, latest, slot_ledgers):
     if existing is not None:
         entry['existing_ledger'] = {
             'id': existing.id, 'ledger_no': existing.ledger_no, 'status': existing.status}
+    # 作废占用的槽位提供明确补建入口（前端在预览行内展示"补建"按钮）
+    entry['rebuildable'] = bool(
+        status == GENERATE_MANUAL_NEEDED and existing is not None
+        and existing.status == LEDGER_STATUS_VOID)
     return entry
 
 
@@ -519,6 +525,56 @@ def period_generate(user, ledger_type):
     }, None
 
 
+@transaction.atomic
+def period_generate_rebuild(user, template_id):
+    """明确补建（2026-10-16）：为"已作废占用"的本期槽位重新生成应填台账。
+
+    - 仅处理当期（本期）槽位：模板行锁内重算判定；本期已存在有效台账
+      （草稿/已完成/旧流程状态）时拒绝；已作废占用或槽位为空时创建；
+    - 作废台账保留不动（不删除、不改写），新旧台账并存；
+    - 槽位唯一约束以 slot_active 豁免作废行，补建不再被作废记录阻塞。
+    返回 (created_row, None) 或 (None, error_message)。
+    """
+    if not str(template_id or '').isdigit():
+        return None, '模板参数不合法'
+    today = timezone.now().date()
+    templates = apply_tenant_filter(
+        OperationLedgerExcelTemplate.objects.filter(is_active=True, pk=int(template_id)),
+        user).select_related('system').select_for_update()
+    template = templates.first()
+    if template is None:
+        return None, '模板不存在或已停用'
+    period, start, _ = _template_slot(template, template.ledger_type, today)
+    if period is None:
+        return None, '模板待配置适用系统/生成周期，请先在模板管理中配置'
+    latest = _latest_versions([template.id])
+    version = latest.get(template.id)
+    if version is None:
+        return None, '缺少可用版本：模板尚未发布任何版本'
+    if template.system_id and not template.system.is_active:
+        return None, '适用系统已停用，不能用于新台账'
+    slot_ledgers = _generation_slot_ledgers(user, template.ledger_type, [
+        (template.id, template.system_id, period)])
+    status, _, existing = _classify_slot(template, slot_ledgers, period)
+    if status == GENERATE_EXISTS:
+        return None, '本期已存在有效台账 %s，无需补建' % existing.ledger_no
+    try:
+        ledger = _create_generated_ledger(user, template, version, {
+            'period_start': start,
+            'maintenance_period': period,
+        })
+    except LedgerValidationError as e:
+        return None, str(e)
+    return {
+        'id': ledger.id, 'ledger_no': ledger.ledger_no,
+        'template_id': template.id, 'template_name': template.name,
+        'system_id': ledger.system_id, 'system_name': template.system.name if template.system_id else '',
+        'maintenance_period': period,
+        'period_text': maintenance_period_text(template.ledger_type, period),
+        'version_no': version.version_no,
+    }, None
+
+
 def _create_generated_ledger(user, template, version, entry):
     """创建一张周期生成的 Excel 应填台账（表头 + 填写记录，固定版本快照）。
 
@@ -608,7 +664,11 @@ def _period_group_sort_key(ledger_type, key):
 
 
 def _period_group_entry(ledger_type, key, rows, current_keys):
-    """单期次组条目：完整期次标签 + 本期标记 + 五状态统计（与可见行一致）。"""
+    """单期次组条目：完整期次标签 + 本期标记 + 状态统计（与可见行一致）。
+
+    completed 为业务完成口径：新流程已完成 + 旧流程已提交/已复核（历史）；
+    draft/returned/submitted/reviewed/void 为原始状态计数（历史兼容）。
+    """
     rows.sort(key=lambda r: (not r['system_name'], r['system_name'], r['id']))
     return {
         'maintenance_period': key,
@@ -616,9 +676,8 @@ def _period_group_entry(ledger_type, key, rows, current_keys):
         'is_current': key in current_keys,
         'total': len(rows),
         'draft': sum(1 for r in rows if r['status'] == LEDGER_STATUS_DRAFT),
-        'returned': sum(1 for r in rows if r['status'] == LEDGER_STATUS_RETURNED),
-        'submitted': sum(1 for r in rows if r['status'] == LEDGER_STATUS_SUBMITTED),
-        'reviewed': sum(1 for r in rows if r['status'] == LEDGER_STATUS_REVIEWED),
+        'completed': sum(1 for r in rows if r['status'] in (
+            LEDGER_STATUS_COMPLETED, LEDGER_STATUS_SUBMITTED, LEDGER_STATUS_REVIEWED)),
         'void': sum(1 for r in rows if r['status'] == LEDGER_STATUS_VOID),
         'ledgers': rows,
     }
@@ -677,6 +736,8 @@ def _period_ledger_counts(user, ledger_type, period, start, end):
              & Q(executed_date__lt=end)))
     return query.aggregate(
         draft=Count('id', filter=Q(status=LEDGER_STATUS_DRAFT)),
+        completed=Count('id', filter=Q(status__in=[
+            LEDGER_STATUS_COMPLETED, LEDGER_STATUS_SUBMITTED, LEDGER_STATUS_REVIEWED])),
         returned=Count('id', filter=Q(status=LEDGER_STATUS_RETURNED)),
         submitted=Count('id', filter=Q(status=LEDGER_STATUS_SUBMITTED)),
         reviewed=Count('id', filter=Q(status=LEDGER_STATUS_REVIEWED)),
@@ -692,8 +753,9 @@ def period_overview(user, ledger_type):
       即 可自动生成 + 已存在台账 的槽位之和；
     - to_generate 待生成 = 其中尚未生成且可自动生成的槽位（依据模板生成
       规则计算，与 period_generate_preview 同口径）；
-    - drafting/returned/completed/void = 本期已有台账的真实状态数量
-      （completed = 已提交 + 已复核；与周期分组同口径，含历史归档台账）；
+    - drafting/completed/void = 本期已有台账的真实状态数量
+      （completed = 已完成 + 旧流程已提交/已复核历史状态；与周期分组
+      同口径，含历史归档台账；returned 一并返回供历史兼容展示）；
     - attention 需处理 = 缺少版本/系统停用/作废或历史草稿占用的槽位数；
     - unconfigured_templates = 适用系统或生成周期待配置的模板数。
     """
@@ -745,7 +807,7 @@ def period_overview(user, ledger_type):
             'to_generate': sum(1 for s in slot_statuses if s == GENERATE_CREATE),
             'drafting': counts['draft'],
             'returned': counts['returned'],
-            'completed': counts['submitted'] + counts['reviewed'],
+            'completed': counts['completed'],
             'voided': counts['void'],
             'attention': sum(1 for s in slot_statuses
                              if s in (GENERATE_NO_VERSION, GENERATE_MANUAL_NEEDED)),

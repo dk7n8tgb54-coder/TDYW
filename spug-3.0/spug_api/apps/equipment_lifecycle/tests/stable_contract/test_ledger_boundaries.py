@@ -41,8 +41,8 @@ class LedgerIsolationContractTests(TestCase):
         # 租户B 详情拿不到
         resp = self.client_b.get('%s/%s/' % (LEDGER_URL, ledger['id']))
         self.assertTrue(resp.json().get('error'))
-        # 租户B 不能提交/作废他人台账
-        resp = post_json(self.client_b, '%s/%s/submit/' % (LEDGER_URL, ledger['id']), {})
+        # 租户B 不能完成填写/作废他人台账
+        resp = post_json(self.client_b, '%s/%s/complete/' % (LEDGER_URL, ledger['id']), {})
         self.assertTrue(resp.json().get('error'))
 
     def test_entry_channel_fixed_to_web(self):

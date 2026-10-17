@@ -159,10 +159,12 @@ class PdfParamsContractTests(ExcelLedgerContractBase):
             'portrait')
 
     def _delete_template(self, template_id):
-        """del 权限独立校验：owner 无 del 权限，用专门的删除用户执行。"""
+        """del 权限独立校验：owner 无 del 权限，用专门的停用用户执行
+        （2026-10-16 拆分：停用=逻辑停用；DELETE 为物理删除且复查引用）。"""
         deleter = make_user('excel_del_%s' % uuid.uuid4().hex[:8],
                             perms=P_TPL + ['equipment_lifecycle.ledger_template.del'])
-        response = make_client(deleter).delete('%s/%s/' % (TPL_URL, template_id))
+        response = make_client(deleter).post(
+            '%s/%s/deactivate/' % (TPL_URL, template_id))
         self.assertEqual(response.json().get('error', ''), '')
         return response
 

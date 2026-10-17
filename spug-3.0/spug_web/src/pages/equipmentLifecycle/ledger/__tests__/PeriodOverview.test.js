@@ -3,15 +3,16 @@
  *
  * 真实渲染（ReactDOM + jsdom）+ mock libs.http，验证：
  * - LedgerPeriodOverviewCard：拉取 /ledgers/period-overview/（携带台账类型），
- *   渲染 本周/本月（或本航季）的 应填/待生成/待填写/已退回/已完成 真实数量
+ *   渲染 本周/本月（或本航季）的 应填/待生成/待填写/已完成/已作废 真实数量
  *   与待配置提示；无数据时不渲染占位；
  * - LedgerGroupTable：默认只展开本期组（is_current），历史期次折叠；组头
- *   五状态统计与"本期"徽标可见；点击展开历史组后状态持久化（localStorage）；
+ *   状态统计与"本期"徽标可见；点击展开历史组后状态持久化（localStorage）；
  *   分页切换携带 page 参数重新请求；
- * - 列操作（buildColumns）：草稿 Excel 行主操作"继续填写"发起详情请求；
- *   已退回手工行"处理退回"并可"提交"（Popconfirm 确认后 POST submit）；
- *   已复核行"查看"；作废收进"更多"菜单，弹窗必须填写作废原因才可确认
- *   （POST void 携带原因），空原因时确认按钮禁用；
+ * - 列操作（buildColumns 2026-10-16 流程简化）：草稿 Excel 行主操作
+ *   "继续填写"发起详情请求；旧流程历史行（已退回）"查看"并可删除
+ *   （Modal 确认后 DELETE）；已复核行"查看"；作废收进"更多"菜单，
+ *   弹窗必须填写作废原因才可确认（POST void 携带原因），空原因时确认
+ *   按钮禁用；
  * - 两个填写列表隔离：概览请求按各自 ledger_type 发送，互不串扰。
  */
 import React from 'react';
@@ -22,13 +23,14 @@ const h = React.createElement;
 
 const mockHttpGet = jest.fn();
 const mockHttpPost = jest.fn();
+const mockHttpDelete = jest.fn();
 
 jest.mock('libs', () => ({
   http: {
     get: (...args) => mockHttpGet(...args),
     post: (...args) => mockHttpPost(...args),
     put: jest.fn(),
-    delete: jest.fn(),
+    delete: (...args) => mockHttpDelete(...args),
   },
   hasPermission: jest.fn(() => true),
   Permission: {isSuper: true},
@@ -115,7 +117,7 @@ const GROUPS_PAYLOAD = (groups) => ({data: {data: groups, total: groups.length}}
 
 const GROUPS = [
   {maintenance_period: '2026-10-12', period_text: '每周｜2026-10-12 ~ 2026-10-18',
-   is_current: true, total: 2, draft: 1, returned: 1, submitted: 0, reviewed: 0,
+   is_current: true, total: 2, draft: 1, completed: 1,
    void: 0, ledgers: [
      {id: 11, ledger_no: 'EL-WM-20261012-0001', ledger_type: 'week_month',
       status: 'draft', system_name: 'DVOR系统', created_from: 'excel_template',
@@ -129,8 +131,8 @@ const GROUPS = [
       period_source_text: ''},
    ]},
   {maintenance_period: '2026-09', period_text: '每月｜2026年9月',
-   is_current: false, total: 1, draft: 0, returned: 0, submitted: 1,
-   reviewed: 0, void: 0, ledgers: [
+   is_current: false, total: 1, draft: 0, completed: 1,
+   void: 0, ledgers: [
      {id: 21, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month',
       status: 'reviewed', system_name: 'DVOR系统', created_from: 'manual',
       source_type: 'manual',
@@ -147,6 +149,7 @@ function rowByNo(no) {
 beforeEach(() => {
   mockHttpGet.mockReset();
   mockHttpPost.mockReset();
+  mockHttpDelete.mockReset();
   window.localStorage.clear();
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -169,10 +172,11 @@ describe('LedgerPeriodOverviewCard 本期工作概览', () => {
     expect(card.textContent).toContain('每周｜2026-10-12 ~ 2026-10-18');
     expect(card.textContent).toContain('本月');
     expect(card.textContent).toContain('每月｜2026年10月');
-    // 真实数量来自后端响应，前端不伪造
+    // 真实数量来自后端响应，前端不伪造（三状态口径：草稿/已完成/已作废）
     expect(card.textContent).toContain('应填');
     expect(card.textContent).toContain('待生成');
-    expect(card.textContent).toContain('已退回');
+    expect(card.textContent).toContain('已完成');
+    expect(card.textContent).toContain('已作废');
     expect(card.textContent).toContain('需处理');
     expect(card.textContent).toContain('另有 2 个模板待配置');
     const blocks = container.querySelectorAll('[data-testid^="overview-block-"]');
@@ -213,8 +217,8 @@ describe('LedgerGroupTable 周期分组展开与分页', () => {
     // 本期组行与"本期"徽标可见
     expect(container.textContent).toContain('本期');
     expect(container.textContent).toContain('每周｜2026-10-12 ~ 2026-10-18');
-    // 五状态统计列可见（草稿1 已退回1；9月组 已提交1）
-    expect(container.textContent).toContain('已退回');
+    // 状态统计列可见（草稿1 已完成1；9月组 已完成1）
+    expect(container.textContent).toContain('已完成');
     // 本期组内台账行已展开（行号 11 可见），历史组行（21）不可见
     expect(rowByNo('EL-WM-20261012-0001')).toBeTruthy();
     expect(rowByNo('EL-WM-20260910-0001')).toBeFalsy();
@@ -295,37 +299,41 @@ describe('台账行操作（buildColumns 2026-10-14）', () => {
     expect(row.textContent).not.toContain('提交');
   });
 
-  test('已退回手工行："处理退回"突出后续处理，提交需 Popconfirm 确认', async () => {
-    mockHttpPost.mockResolvedValue({});
+  test('旧流程历史已退回行：主操作"查看"，更多菜单提供删除（确认后 DELETE）', async () => {
+    mockHttpDelete.mockResolvedValue({});
     const rows = [{id: 12, ledger_no: 'EL-WM-20261012-0002', status: 'returned',
       created_from: 'manual', source_type: 'manual', ledger_type: 'week_month',
       return_reason: '明细填写不完整'}];
     const {store} = renderRows(rows);
     const row = rowByNo('EL-WM-20261012-0002');
     const primary = row.querySelector('[data-testid="row-primary-action"]');
-    expect(primary.textContent).toBe('处理退回');
-    // 提交操作存在（手工台账可在列表提交），点击后出现 Popconfirm
-    const submitAnchor = Array.from(row.querySelectorAll('a'))
-      .find(a => a.textContent === '提交');
-    expect(submitAnchor).toBeTruthy();
+    // 旧流程历史状态不再提供编辑/提交，仅查看
+    expect(primary.textContent).toBe('查看');
+    expect(row.textContent).not.toContain('提交');
+    // 更多菜单 → 删除（Modal 确认）
     await act(async () => {
-      submitAnchor.click();
+      row.querySelector('[data-testid="row-more"]').click();
     });
     await act(flush);
-    await act(flush);
-    const popover = document.body.querySelector('.ant-popover:not(.ant-popover-hidden)');
-    expect(popover).toBeTruthy();
-    // 测试环境 antd 默认 locale 为 en_US，确认按钮文案为 OK（Modal 同理）
-    const confirmBtn = Array.from(popover.querySelectorAll('button'))
-      .find(b => ['OK', '确定'].includes(b.textContent.replace(/\s/g, '')));
-    expect(confirmBtn).toBeTruthy();
+    const dropdown = document.body.querySelector('.ant-dropdown:not(.ant-dropdown-hidden)');
+    expect(dropdown).toBeTruthy();
+    const deleteItem = Array.from(dropdown.querySelectorAll('.ant-dropdown-menu-item'))
+      .find(item => item.textContent.includes('删除'));
+    expect(deleteItem).toBeTruthy();
     await act(async () => {
-      confirmBtn.click();
+      deleteItem.click();
     });
     await act(flush);
-    expect(mockHttpPost).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/ledgers/12/submit/', {});
+    const modal = document.body.querySelector('.ant-modal');
+    expect(modal.textContent).toContain('删除台账');
+    const okBtn = Array.from(modal.querySelectorAll('button'))
+      .find(b => b.textContent.includes('确认删除'));
+    await act(async () => {
+      okBtn.click();
+    });
     await act(flush);
+    expect(mockHttpDelete).toHaveBeenCalledWith('/api/equipment-lifecycle/ledgers/12/');
+    expect(store.isDeleting).toBe(false);
   });
 
   test('已复核行主操作"查看"；作废收进更多菜单且必须填写原因', async () => {

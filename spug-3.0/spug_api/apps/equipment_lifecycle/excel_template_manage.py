@@ -13,9 +13,11 @@
   (template, version_no) 唯一约束兜底；版本文件与绑定不可变（无修改/
   删除路径）；孤儿版本文件（写文件成功后事务回滚）以「同号同哈希幂等
   复用」消化，不阻塞重试发布；
-- 删除：逻辑删除（is_active=False），不删任何记录与文件；可用模板接口
-  不再返回、新台账拒绝使用、草稿重传/绑定/发布入口拦截；历史版本、
-  历史台账、绑定与源文件全部保留（幂等，重复删除直接返回成功）；
+- 停用/删除（2026-10-16 拆分）：停用=逻辑停用（is_active=False），不删
+  任何记录与文件，可用模板接口不再返回、新台账拒绝使用，历史版本与
+  历史台账全部保留（幂等）；删除=物理删除（未发布模板、已发布且所有
+  版本均未被台账引用的模板），删除时在行锁内重新检查引用关系，版本
+  文件随行删除；被引用（含已作废台账引用）的模板只能停用；
 - 草稿 PDF 预览：以草稿源文件为事实生成空白预览（未填写字段留空），
   只读不改草稿、不创建版本；LibreOffice 不可用时明确业务错误；
 - 兼容性检查：模板详情返回草稿文件/哈希/不支持特性/打印区域/LibreOffice
@@ -328,15 +330,15 @@ def publish_version(user, template):
     return version
 
 
-def delete_template(user, template):
-    """逻辑删除（停用）：is_active=False，不删任何记录与物理文件。
+def deactivate_template(user, template):
+    """停用模板（逻辑停用）：is_active=False，不删任何记录与物理文件。
 
-    - 删除后：可用模板接口不再返回、新台账拒绝使用、草稿重传/绑定/
+    - 停用后：可用模板接口不再返回、新台账拒绝使用、草稿重传/绑定/
       发布入口被拦截；版本快照、版本源文件、字段绑定与历史台账全部
-      保留（历史台账继续可查看与导出）；
-    - 幂等：已删除（is_active=False）再次调用直接返回，不重复变更；
-    - 返回 (template, deleted_now)，deleted_now 标记本次是否实际发生变更
-      （View 层据此决定是否记录审计事件）。
+      保留（历史台账继续按创建时版本查看与导出）；
+    - 幂等：已停用再次调用直接返回，不重复变更；
+    - 返回 (template, deactivated_now)，deactivated_now 标记本次是否实际
+      发生变更（View 层据此决定是否记录审计事件）。
     """
     if not template.is_active:
         return template, False
@@ -345,6 +347,59 @@ def delete_template(user, template):
     template.updated_by = user
     template.save(update_fields=['is_active', 'updated_at', 'updated_by'])
     return template, True
+
+
+def template_ledger_reference_count(template):
+    """统计引用模板任意版本的台账数（含已作废——作废台账仍需查看/导出，
+    其版本快照不可消失，因此同样阻止物理删除）。"""
+    return template.versions.aggregate(
+        total=Count('ledger_records', distinct=True))['total'] or 0
+
+
+@transaction.atomic
+def destroy_template(user, template):
+    """物理删除模板（含版本与文件）：删除时重新检查引用关系。
+
+    - 引用检查在行锁内重新执行，不依赖前端隐藏按钮：任一版本仍被台账
+      填写记录（OperationLedgerExcelRecord）引用（含已作废台账）时拒绝，
+      避免历史台账详情/导出因版本消失而损坏；
+    - 未发布模板（无版本）与已发布但无引用的模板可删除；
+    - 数据库行删除（版本级联）提交后再删除物理文件（草稿 + 各版本），
+      文件删除失败仅遗留磁盘孤儿文件，不产生悬挂数据库引用；
+    - 幂等保护：传入已不存在的模板由 View 层"模板不存在"拦截。
+    返回 (template, version_count)。
+    """
+    locked = get_excel_template(template.pk, user, for_update=True)
+    if locked is None:
+        _fail('Excel台账模板不存在')
+    refs = template_ledger_reference_count(locked)
+    if refs:
+        _fail('模板已被 %s 个台账引用（含已作废），不能删除；如需停止使用请改为停用'
+              % refs)
+    version_count = locked.versions.count()
+    info = {'id': locked.pk, 'name': locked.name, 'versions_count': version_count}
+    draft_path = excel_template_storage.draft_path(locked.pk) \
+        if locked.draft_source_filename else None
+    version_paths = [
+        excel_template_storage.version_path(locked.pk, v.version_no)
+        for v in locked.versions.all()]
+    locked.delete()
+    transaction.on_commit(lambda: _remove_template_files(draft_path, version_paths))
+    return info
+
+
+def _remove_template_files(draft_path, version_paths):
+    """物理删除模板草稿与版本文件（尽力而为；文件缺失视为已清理）。
+
+    数据库行已提交删除后执行：失败仅遗留磁盘孤儿文件（无引用、无危害），
+    不产生"数据库记录指向已删除文件"的悬挂状态。
+    """
+    for path in ([draft_path] if draft_path else []) + version_paths:
+        try:
+            if path and os.path.isfile(path):
+                os.remove(path)
+        except OSError:
+            continue
 
 
 def preview_draft_pdf(template):

@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
-"""步骤 3.2 稳定契约：状态流转、幂等与并发（提示词二十三 第 25-28、31-32 项）。"""
+"""步骤 3.2 稳定契约：状态流转、幂等与并发（2026-10-16 流程简化版）。
+
+新流程只用 草稿/已完成/已作废 三状态：完成填写为流程终点（重复完成被
+状态机拦截）；已完成台账只允许 查看/导出/更正/作废；作废为受控终态。
+旧 submit/return/review 端点已删除（404），历史状态行仍可查看。
+"""
 from django.test import TestCase
 
 from apps.equipment_lifecycle.models import (
+    LEDGER_STATUS_COMPLETED,
     LEDGER_STATUS_DRAFT,
-    LEDGER_STATUS_REVIEWED,
-    LEDGER_STATUS_RETURNED,
-    LEDGER_STATUS_SUBMITTED,
     LEDGER_STATUS_VOID,
     OperationLedger,
     OperationLedgerCorrection,
@@ -34,15 +37,16 @@ class LedgerWorkflowContractTests(TestCase):
             [entry_payload(self.system.id, [item_payload()])],
             client_token='token-flow-1'))
 
-    def _submit(self):
-        resp = post_json(self.client_, '%s/%s/submit/' % (LEDGER_URL, self.ledger['id']), {})
+    def _complete(self):
+        resp = post_json(self.client_, '%s/%s/complete/' % (LEDGER_URL, self.ledger['id']), {})
         self.assertFalse(resp.json().get('error'))
         return resp.json()['data']
 
-    def test_submitted_ledger_not_editable_by_filler(self):
-        """25. 已提交台账不能由普通填写人直接修改。"""
-        data = self._submit()
-        self.assertEqual(data['status'], LEDGER_STATUS_SUBMITTED)
+    def test_completed_ledger_not_editable_by_filler(self):
+        """25a. 已完成台账不能直接修改（流程终点，修改须走更正）。"""
+        data = self._complete()
+        self.assertEqual(data['status'], LEDGER_STATUS_COMPLETED)
+        self.assertIsNotNone(data.get('completed_at'))
         payload = ledger_payload([entry_payload(self.system.id, [item_payload(item_name='试图修改')])],
                                  version=data['version'])
         resp = put_json(self.client_, '%s/%s/' % (LEDGER_URL, self.ledger['id']), payload)
@@ -50,26 +54,36 @@ class LedgerWorkflowContractTests(TestCase):
         item = OperationLedgerItem.objects.filter(ledger_id=self.ledger['id']).first()
         self.assertNotEqual(item.item_name_snapshot, '试图修改')
 
-    def test_return_requires_reason(self):
-        """26. 退回必须填写原因。"""
-        self._submit()
-        resp = post_json(self.client_, '%s/%s/return/' % (LEDGER_URL, self.ledger['id']), {})
+    def test_complete_rejected_without_required_value(self):
+        """25b. 完成填写校验必填项：必填明细未填时拒绝且状态不变。"""
+        ledger_id = self.ledger['id']
+        item = OperationLedgerItem.objects.filter(ledger_id=ledger_id).first()
+        item.is_required = True
+        item.value_text = ''
+        item.save(update_fields=['is_required', 'value_text'])
+        resp = post_json(self.client_, '%s/%s/complete/' % (LEDGER_URL, ledger_id), {})
         self.assertTrue(resp.json().get('error'))
-        resp = post_json(self.client_, '%s/%s/return/' % (LEDGER_URL, self.ledger['id']),
-                         {'reason': '第三项数据存疑'})
-        data = resp.json()['data']
-        self.assertEqual(data['status'], LEDGER_STATUS_RETURNED)
-        self.assertEqual(data['return_reason'], '第三项数据存疑')
-        # 退回后可重新提交
-        resp = post_json(self.client_, '%s/%s/submit/' % (LEDGER_URL, self.ledger['id']), {})
-        self.assertEqual(resp.json()['data']['status'], LEDGER_STATUS_SUBMITTED)
-
-    def test_reviewed_ledger_no_silent_modification(self):
-        """27. 已复核台账不能静默修改；更正必须保存原因与前后值。"""
-        self._submit()
-        resp = post_json(self.client_, '%s/%s/review/' % (LEDGER_URL, self.ledger['id']), {})
+        self.assertIn('必填项未填写', resp.json()['error'])
+        self.assertEqual(OperationLedger.objects.get(pk=ledger_id).status, LEDGER_STATUS_DRAFT)
+        # 填写后完成成功；重复完成被状态机拦截（无重复副作用）
+        item.value_text = '正常'
+        item.save(update_fields=['value_text'])
+        resp = post_json(self.client_, '%s/%s/complete/' % (LEDGER_URL, ledger_id), {})
         self.assertFalse(resp.json().get('error'))
-        self.assertEqual(resp.json()['data']['status'], LEDGER_STATUS_REVIEWED)
+        resp = post_json(self.client_, '%s/%s/complete/' % (LEDGER_URL, ledger_id), {})
+        self.assertTrue(resp.json().get('error'))
+
+    def test_old_action_endpoints_removed(self):
+        """25c. 旧 submit/return/review 端点已随复核流程下线（不保留兼容层）。"""
+        for action in ('submit', 'return', 'review'):
+            resp = post_json(self.client_, '%s/%s/%s/' % (LEDGER_URL, self.ledger['id'], action), {})
+            self.assertEqual(resp.status_code, 404, action)
+        self.assertEqual(OperationLedger.objects.get(pk=self.ledger['id']).status,
+                         LEDGER_STATUS_DRAFT)
+
+    def test_completed_ledger_no_silent_modification(self):
+        """27. 已完成台账不能静默修改；更正必须保存原因与前后值。"""
+        self._complete()
         # PUT 编辑被拒绝
         payload = ledger_payload([entry_payload(self.system.id, [item_payload()])])
         self.assertTrue(put_json(
@@ -79,16 +93,20 @@ class LedgerWorkflowContractTests(TestCase):
         resp = post_json(self.client_, '%s/%s/correct/' % (LEDGER_URL, self.ledger['id']),
                          {'item_id': item.id, 'result': 'abnormal', 'abnormal_desc': 'x'})
         self.assertTrue(resp.json().get('error'))
-        # 带原因更正：保存前后值
+        # 带原因更正：保存前后值（未显式提交 result 时按新填写值派生）
         resp = post_json(self.client_, '%s/%s/correct/' % (LEDGER_URL, self.ledger['id']),
-                         {'item_id': item.id, 'result': 'abnormal',
-                          'abnormal_desc': '复核发现数据录入有误',
-                          'reason': '复核更正'})
+                         {'item_id': item.id, 'value_text': '不正常',
+                          'abnormal_desc': '完成填写后发现数据录入有误',
+                          'reason': '完成填写后更正'})
         self.assertFalse(resp.json().get('error'))
         correction = OperationLedgerCorrection.objects.filter(ledger_id=self.ledger['id']).first()
         self.assertIsNotNone(correction)
-        self.assertEqual(correction.reason, '复核更正')
+        self.assertEqual(correction.reason, '完成填写后更正')
+        self.assertIsNotNone(correction.corrected_by)
         changes = {c['field']: c for c in correction.get_corrections()}
+        self.assertIn('value_text', changes)
+        self.assertEqual(changes['value_text']['old'], '正常')
+        self.assertEqual(changes['value_text']['new'], '不正常')
         self.assertIn('result', changes)
         self.assertEqual(changes['result']['old'], 'normal')
         self.assertEqual(changes['result']['new'], 'abnormal')
@@ -96,8 +114,10 @@ class LedgerWorkflowContractTests(TestCase):
         self.assertEqual(item.result, 'abnormal')
 
     def test_void_is_controlled_not_physical_delete(self):
-        """28. 作废不执行物理删除（受控终态）。"""
-        self._submit()
+        """28. 作废不执行物理删除（受控终态）；作废必须填写原因。"""
+        self._complete()
+        resp = post_json(self.client_, '%s/%s/void/' % (LEDGER_URL, self.ledger['id']), {})
+        self.assertTrue(resp.json().get('error'))
         resp = post_json(self.client_, '%s/%s/void/' % (LEDGER_URL, self.ledger['id']),
                          {'reason': '录入对象错误'})
         data = resp.json()['data']
@@ -105,7 +125,7 @@ class LedgerWorkflowContractTests(TestCase):
         self.assertTrue(OperationLedger.objects.filter(pk=self.ledger['id']).exists())
         self.assertTrue(OperationLedgerItem.objects.filter(ledger_id=self.ledger['id']).exists())
         # 已作废不能再流转
-        resp = post_json(self.client_, '%s/%s/submit/' % (LEDGER_URL, self.ledger['id']), {})
+        resp = post_json(self.client_, '%s/%s/complete/' % (LEDGER_URL, self.ledger['id']), {})
         self.assertTrue(resp.json().get('error'))
 
     def test_duplicate_request_creates_single_ledger(self):
@@ -136,12 +156,11 @@ class LedgerWorkflowContractTests(TestCase):
         self.assertEqual(item.item_name_snapshot, '甲的修改')
         self.assertEqual(OperationLedger.objects.get(pk=ledger_id).version, new_version)
 
-    def test_review_permission_required(self):
-        """复核/退回动作必须持有 review 权限（后端独立校验）。"""
+    def test_complete_permission_required(self):
+        """完成填写动作必须持有 submit 权限（后端独立校验）。"""
         filler = make_ledger_user('plain_filler', perms=['equipment_lifecycle.ledger.view'])
-        self._submit()
         client = make_client(filler)
-        resp = post_json(client, '%s/%s/review/' % (LEDGER_URL, self.ledger['id']), {})
+        resp = post_json(client, '%s/%s/complete/' % (LEDGER_URL, self.ledger['id']), {})
         self.assertTrue(resp.json().get('error'))
         ledger = OperationLedger.objects.get(pk=self.ledger['id'])
-        self.assertEqual(ledger.status, LEDGER_STATUS_SUBMITTED)
+        self.assertEqual(ledger.status, LEDGER_STATUS_DRAFT)

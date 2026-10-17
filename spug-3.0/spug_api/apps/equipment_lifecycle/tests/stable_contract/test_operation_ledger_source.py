@@ -82,8 +82,8 @@ class LedgerConvertToFaultTest(TestCase):
         items = list(self.ledger.items.order_by('id'))
         self.normal_item = items[0]
         self.abnormal_item = items[1]
-        # 提交台账（草稿不可转）
-        res = self.client.post(LEDGER_URL + '/%d/submit/' % self.ledger.id,
+        # 完成填写（草稿不可转）
+        res = self.client.post(LEDGER_URL + '/%d/complete/' % self.ledger.id,
                                json.dumps({}), content_type='application/json')
         self.assertFalse(res.json().get('error'), res.json())
 
@@ -190,7 +190,7 @@ class LedgerDispositionTest(TestCase):
         detail, _ = make_full_ledger(self.user, system=self.system)
         self.ledger = OperationLedger.objects.get(pk=detail['id'])
         self.item = self.ledger.items.filter(result='abnormal').first()
-        self.client.post(LEDGER_URL + '/%d/submit/' % self.ledger.id,
+        self.client.post(LEDGER_URL + '/%d/complete/' % self.ledger.id,
                          json.dumps({}), content_type='application/json')
 
     def _abnormal_items_api(self):

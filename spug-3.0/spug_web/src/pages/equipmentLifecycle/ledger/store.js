@@ -107,6 +107,8 @@ export class LedgerStore {
   @observable detailVisible = false;
   @observable detail = {};
   @observable isDetailFetching = false;
+  @observable isDeleting = false; // 台账物理删除请求进行中（删除确认按钮 loading）
+  @observable isCorrecting = false; // 更正已完成台账明细请求进行中
 
   // 首次周期分组加载前是否已有持久化展开状态（无则默认只展开本期）
   _expandedInitialized = false;
@@ -305,6 +307,15 @@ export class LedgerStore {
     return {ledger_type: this.ledgerType, ...this.templateFilterParams()};
   }
 
+  /** 明细 CSV 导出参数：与周期视图当前筛选同口径（编号/状态/按系统查看）。 */
+  periodExportParams() {
+    const params = {ledger_type: this.ledgerType};
+    if (this.f_keyword) params.keyword = this.f_keyword;
+    if (this.f_status) params.status = this.f_status;
+    if (this.f_system) params.system = this.f_system;
+    return params;
+  }
+
   /** 点击"导出本模板台账"：先取后端确认数据（模板名/数量/日期范围/状态范围/版本）。 */
   openBatchExport = () => {
     if (!this.activeGroup) return Promise.resolve();
@@ -338,7 +349,7 @@ export class LedgerStore {
     });
   };
 
-  /** 按当前视图与层级刷新（提交/作废/详情返回共用，避免跨视图错刷）。
+  /** 按当前视图与层级刷新（完成/作废/删除/详情返回共用，避免跨视图错刷）。
    *
    * 周期视图同时刷新本期工作概览（数量与列表保持一致）。
    */
@@ -397,17 +408,56 @@ export class LedgerStore {
       }));
   };
 
-  submitLedger = (id) => {
-    return http.post(`${API_PREFIX_L}/ledgers/${id}/submit/`, {})
+  /**
+   * 明确补建（2026-10-16）：为"已作废占用"的本期槽位重新生成应填台账。
+   * 成功后强制展开本期组并刷新当前视图。
+   */
+  rebuildPeriodLedger = (templateId) => {
+    this.isGenerating = true;
+    return http.post(`${API_PREFIX_L}/ledgers/period-generate/rebuild/`, {
+      template_id: templateId})
+      .then(action(res => {
+        const row = res && res.data ? res.data : res;
+        this._ensureCurrentExpanded = true;
+        this.refresh();
+        return row;
+      }))
+      .finally(action(() => {
+        this.isGenerating = false;
+      }));
+  };
+
+  /** 作废（受控，须填原因）；成功后按当前视图刷新。 */
+  voidLedger = (id, reason) => {
+    return http.post(`${API_PREFIX_L}/ledgers/${id}/void/`, {reason})
       .then(action(() => {
         this.refresh();
       }));
   };
 
-  voidLedger = (id, reason) => {
-    return http.post(`${API_PREFIX_L}/ledgers/${id}/void/`, {reason})
+  /** 物理删除台账（草稿/旧流程历史状态；已完成与已作废由后端拒绝）。 */
+  deleteLedger = (id) => {
+    this.isDeleting = true;
+    return http.delete(`${API_PREFIX_L}/ledgers/${id}/`)
       .then(action(() => {
         this.refresh();
+      }))
+      .finally(action(() => {
+        this.isDeleting = false;
+      }));
+  };
+
+  /** 更正已完成台账的单条明细（须填原因；后端记录修改人/时间/前后值）。 */
+  correctLedgerItem = (itemId, body) => {
+    this.isCorrecting = true;
+    return http.post(`${API_PREFIX_L}/ledgers/${this.detail.id}/correct/`, {
+      item_id: itemId, ...body})
+      .then(action(() => {
+        this.refresh();
+        return this.fetchDetail(this.detail.id);
+      }))
+      .finally(action(() => {
+        this.isCorrecting = false;
       }));
   };
 

@@ -177,7 +177,7 @@ class NoEventWritesTest(TestCase):
         detail, system = make_full_ledger(self.user, system=self.system)
         from apps.equipment_lifecycle.models import OperationLedger
         ledger = OperationLedger.objects.get(pk=detail['id'])
-        client.post('/equipment-lifecycle/ledgers/%d/submit/' % ledger.id,
+        client.post('/equipment-lifecycle/ledgers/%d/complete/' % ledger.id,
                     b'{}', content_type='application/json')
         item = ledger.items.filter(result='abnormal').first()
         res = client.post(

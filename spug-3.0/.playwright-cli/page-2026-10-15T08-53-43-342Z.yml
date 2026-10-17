@@ -1,0 +1,19 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - img "logo" [ref=e9]
+        - generic [ref=e10]: 空管综合运维管理平台
+        - generic [ref=e11]: Air Traffic Control O&M Platform
+      - generic [ref=e12]:
+        - generic [ref=e17]:
+          - img "user" [ref=e19]
+          - textbox "请输入账户" [ref=e22]
+        - generic [ref=e27]:
+          - img "lock" [ref=e29]
+          - textbox "请输入密码" [ref=e32]
+      - button "登 录" [ref=e33] [cursor=pointer]
+    - generic [ref=e35]: © 2026 ZSYT
+  - generic [ref=e38]:
+    - img "close-circle" [ref=e39]
+    - text: 会话过期，请重新登录

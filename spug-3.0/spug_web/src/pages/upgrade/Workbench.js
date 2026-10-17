@@ -34,34 +34,28 @@ function WorkbenchLoading({onBack}) {
   );
 }
 
-/** 工作台顶栏：返回/标题/保存动作（新建走 add 权限，编辑走 edit 权限） */
-function WorkbenchHeaderBar({isNew, loading, onBack, onSaveList, onSaveWorkbench, onSaveEdit}) {
+/**
+ * 工作台顶栏：返回/页面名/保存动作。
+ * 新建走 add 权限保留两个保存入口；查看/编辑模式不设全局保存按钮，
+ * 基本信息编辑在工作台信息栏内的编辑面板完成（避免与步骤独立提交混淆）。
+ */
+function WorkbenchHeaderBar({isNew, loading, onBack, onSaveList, onSaveWorkbench}) {
   return (
     <Header className={styles.header}>
       <div className={styles.headerLeft}>
         <Button icon={<ArrowLeftOutlined />} onClick={onBack}>返回列表</Button>
       </div>
-      <div className={styles.headerTitle}>
-        {isNew ? '新建升级申请' : `升级工作台 - ${store.record.title || ''}`}
-      </div>
+      <div className={styles.headerTitle}>{isNew ? '新建升级申请' : '升级工作台'}</div>
       <div className={styles.headerRight}>
         <Space>
-          {isNew ? (
-            hasPermission('upgrade.upgrade.add') && (
-              <>
-                <Button onClick={onSaveList} loading={loading}>保存</Button>
-                <Button type="primary" icon={<SaveOutlined />}
-                  onClick={onSaveWorkbench} loading={loading}>
-                  保存并进入工作台
-                </Button>
-              </>
-            )
-          ) : (
-            hasPermission('upgrade.upgrade.edit') && (
-              <Button type="primary" icon={<SaveOutlined />} onClick={onSaveEdit} loading={loading}>
-                保存
+          {isNew && hasPermission('upgrade.upgrade.add') && (
+            <>
+              <Button onClick={onSaveList} loading={loading}>保存</Button>
+              <Button type="primary" icon={<SaveOutlined />}
+                onClick={onSaveWorkbench} loading={loading}>
+                保存并进入工作台
               </Button>
-            )
+            </>
           )}
         </Space>
       </div>
@@ -119,11 +113,6 @@ export default observer(function Workbench(props) {
   }, [recordId]);
 
   const formRef = useRef(null);
-  const handleSave = () => {
-    if (formRef.current) {
-      formRef.current.submit();
-    }
-  };
 
   const handleBack = () => {
     history.push('/upgrade');
@@ -138,8 +127,7 @@ export default observer(function Workbench(props) {
       <WorkbenchHeaderBar
         isNew={isNew} loading={loading} onBack={handleBack}
         onSaveList={() => formRef.current && formRef.current.submit('list')}
-        onSaveWorkbench={() => formRef.current && formRef.current.submit('workbench')}
-        onSaveEdit={handleSave}/>
+        onSaveWorkbench={() => formRef.current && formRef.current.submit('workbench')}/>
       <Content className={styles.content}>
         <div className={styles.breadcrumb}>
           <Breadcrumb>
@@ -148,7 +136,7 @@ export default observer(function Workbench(props) {
             <Breadcrumb.Item>
               <Button type="link" style={{padding: 0}} onClick={() => history.push('/upgrade')}>升级表单</Button>
             </Breadcrumb.Item>
-            <Breadcrumb.Item>{isNew ? '新建' : (store.record.title || '')}</Breadcrumb.Item>
+            <Breadcrumb.Item>{isNew ? '新建' : '工作台'}</Breadcrumb.Item>
           </Breadcrumb>
         </div>
         <WorkbenchForm
@@ -157,13 +145,9 @@ export default observer(function Workbench(props) {
           recordId={recordId}
           onSaveStart={() => setLoading(true)}
           onSaveEnd={() => setLoading(false)}
-          onSaveSuccess={(recordId, redirectMode) => {
-            if (isNew) {
-              if (redirectMode === 'workbench' && recordId) {
-                history.push(`/upgrade/workbench/${recordId}`);
-              } else {
-                history.push('/upgrade');
-              }
+          onSaveSuccess={(newRecordId, redirectMode) => {
+            if (newRecordId && redirectMode === 'workbench') {
+              history.push(`/upgrade/workbench/${newRecordId}`);
             } else {
               history.push('/upgrade');
             }

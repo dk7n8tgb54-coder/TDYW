@@ -29,13 +29,16 @@
  * "添加跟进记录/补充记录/处置记录"入口在顶部动作区（弹窗录入，按记录类型
  * 命名），页签不再放内联表单。材料统一在"附件"页签以记录级管理。
  * 错误提示由 http 拦截器统一弹出，业务代码不重复提示。
+ * 详情加载失败（2026-10-15）：显式失败态 + 重试入口（重试保持当前记录与
+ * 目标页签，成功后恢复正常显示）；失败时不渲染依赖完整详情的状态操作与
+ * 页签，不把列表行旧数据冒充完整详情。
  * 约束：凡在 render 中读取 store observable 的函数组件必须用 observer 包裹。
  */
 import React, {useState, useEffect} from 'react';
 import {observer} from 'mobx-react';
 import {Tabs, Descriptions, Tag, Spin, Button, Timeline, Modal, Form,
   Input, DatePicker, Select, Checkbox, InputNumber, Row, Col, message,
-  Empty, Alert, Tooltip} from 'antd';
+  Empty, Alert, Tooltip, Result} from 'antd';
 import {PlusOutlined, QuestionCircleOutlined} from '@ant-design/icons';
 import moment from 'moment';
 import {AttachmentManager} from 'components';
@@ -265,6 +268,20 @@ class RecordDetail extends React.Component {
 
   renderTitle() {
     const d = store.detail;
+    // 失败态标题只标识目标记录，不渲染来自列表行的类型/状态标签（可能过期）
+    if (store.detailError) {
+      return (
+        <span style={{fontSize: 16, fontWeight: 600}}>
+          {d.record_no || '记录详情'}
+          <span style={{
+            marginLeft: 8, fontSize: 13, fontWeight: 400,
+            color: 'rgba(0, 0, 0, 0.45)',
+          }}>
+            加载失败
+          </span>
+        </span>
+      );
+    }
     // 标题区只保留摘要：编号/记录类型/当前状态；设备故障附加影响程度标签
     // （不影响运行展示中性标签）；已撤销使用虚线灰样式明显区别
     return (
@@ -306,6 +323,34 @@ class RecordDetail extends React.Component {
     );
   }
 
+  // 详情加载失败态（2026-10-15）：显式失败提示 + 重试入口（重试保持当前
+  // 记录与目标页签，成功后恢复正常显示）。失败时不渲染依赖完整详情的
+  // 状态操作与页签，避免基于列表行旧数据误操作；错误 toast 已由 http
+  // 拦截器弹出，此处不重复提示
+  renderErrorState() {
+    const d = store.detail;
+    return (
+      <div style={{padding: '40px 0'}}>
+        <Result
+          status="warning"
+          title="详情加载失败"
+          subTitle={d.record_no
+            ? `记录「${d.record_no}」的详情未能加载，请重试；若持续失败请联系管理员。`
+            : '详情未能加载，请重试；若持续失败请联系管理员。'}
+          extra={(
+            <Button
+              type="primary"
+              loading={store.isDetailFetching}
+              onClick={() => store.retryDetailLoad()}
+            >
+              重试
+            </Button>
+          )}
+        />
+      </div>
+    );
+  }
+
   render() {
     const d = store.detail;
     const editable = EDITABLE_STATUSES.includes(d.status);
@@ -336,50 +381,55 @@ class RecordDetail extends React.Component {
         footer={<Button onClick={() => store.closeDetail()}>关 闭</Button>}
       >
         <Spin spinning={store.isDetailFetching}>
-          {/* 已撤销登记：顶部明确提示只读仅供历史追溯（后端同样拒绝一切写操作） */}
-          {d.status === 'cancelled' && (
-            <Alert
-              type="warning"
-              showIcon
-              message="该登记已撤销，仅供历史追溯"
-              description="这条故障登记已撤销，不再作为有效故障参与统计与健康状态计算；历史记录保留，可查看但无法继续处理。"
-              style={{marginBottom: 12}}
-            />
+          {/* 加载失败显式呈现（含重试入口），不渲染依赖完整详情的正文与动作 */}
+          {store.detailError ? this.renderErrorState() : (
+            <React.Fragment>
+              {/* 已撤销登记：顶部明确提示只读仅供历史追溯（后端同样拒绝一切写操作） */}
+              {d.status === 'cancelled' && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="该登记已撤销，仅供历史追溯"
+                  description="这条故障登记已撤销，不再作为有效故障参与统计与健康状态计算；历史记录保留，可查看但无法继续处理。"
+                  style={{marginBottom: 12}}
+                />
+              )}
+              {/* 当前状态下最重要的"下一步"指引（与可用动作一致；已撤销由上方
+                  横幅承载，nextStepHint 不再重复提示） */}
+              {nextStepHint(d) && (
+                <Alert type="info" showIcon message={nextStepHint(d)} style={{marginBottom: 12}}/>
+              )}
+              <div style={{marginBottom: 12}}>
+                {/* 添加跟进/补充/处置记录（2026-10-14 自进展页签迁入顶部动作区，
+                    弹窗录入）：可编辑状态（非终态）即可追加；权限=operation_record.
+                    progress。异常事件不再单独提供"开始跟进/重新跟进"跳页签按钮，
+                    首条跟进记录提交后由后端驱动状态变化 */}
+                {EDITABLE_STATUSES.includes(status) && <AuthAddProgressButton/>}
+                {isRoutine && <AuthEditButton/>}
+                {isRoutine && <AuthDeleteButton/>}
+                {isAbnormal && (status === 'recorded' || status === 'following_up'
+                  || status === 'completed') && <AuthEditButton/>}
+                {isAbnormal && status === 'following_up' && <AuthCompleteButton/>}
+                {isAbnormal && (status === 'recorded' || status === 'following_up') && (
+                  <AuthIdentifyFaultButton/>
+                )}
+                {isFault && handling && <AuthRecoverAndCloseButton record={d}/>}
+                {isFault && handling && <AuthCancelButton record={d}/>}
+              </div>
+              {/* 页签受控（store.activeTab）：进展概览可直达进展页签 */}
+              <Tabs activeKey={store.activeTab} onChange={(key) => store.setActiveTab(key)}>
+                <TabPane tab="基本信息" key="basic">
+                  {this.renderBasic()}
+                </TabPane>
+                <TabPane tab={progressTab} key="progress">
+                  <ProgressTimeline editable={editable}/>
+                </TabPane>
+                <TabPane tab="附件" key="attachments">
+                  <AttachmentTab editable={editable}/>
+                </TabPane>
+              </Tabs>
+            </React.Fragment>
           )}
-          {/* 当前状态下最重要的"下一步"指引（与可用动作一致；已撤销由上方
-              横幅承载，nextStepHint 不再重复提示） */}
-          {nextStepHint(d) && (
-            <Alert type="info" showIcon message={nextStepHint(d)} style={{marginBottom: 12}}/>
-          )}
-          <div style={{marginBottom: 12}}>
-            {/* 添加跟进/补充/处置记录（2026-10-14 自进展页签迁入顶部动作区，
-                弹窗录入）：可编辑状态（非终态）即可追加；权限=operation_record.
-                progress。异常事件不再单独提供"开始跟进/重新跟进"跳页签按钮，
-                首条跟进记录提交后由后端驱动状态变化 */}
-            {EDITABLE_STATUSES.includes(status) && <AuthAddProgressButton/>}
-            {isRoutine && <AuthEditButton/>}
-            {isRoutine && <AuthDeleteButton/>}
-            {isAbnormal && (status === 'recorded' || status === 'following_up'
-              || status === 'completed') && <AuthEditButton/>}
-            {isAbnormal && status === 'following_up' && <AuthCompleteButton/>}
-            {isAbnormal && (status === 'recorded' || status === 'following_up') && (
-              <AuthIdentifyFaultButton/>
-            )}
-            {isFault && handling && <AuthRecoverAndCloseButton record={d}/>}
-            {isFault && handling && <AuthCancelButton record={d}/>}
-          </div>
-          {/* 页签受控（store.activeTab）：进展概览可直达进展页签 */}
-          <Tabs activeKey={store.activeTab} onChange={(key) => store.setActiveTab(key)}>
-            <TabPane tab="基本信息" key="basic">
-              {this.renderBasic()}
-            </TabPane>
-            <TabPane tab={progressTab} key="progress">
-              <ProgressTimeline editable={editable}/>
-            </TabPane>
-            <TabPane tab="附件" key="attachments">
-              <AttachmentTab editable={editable}/>
-            </TabPane>
-          </Tabs>
         </Spin>
       </Modal>
     );

@@ -62,7 +62,7 @@ function makeDetail(overrides = {}) {
     ledger_no: 'EL-WM-20261012-0001',
     ledger_type: 'week_month',
     executed_date: null,
-    executor_names: '',
+    created_by_name: '王五',
     maintenance_period: '2026-10-12',
     status: 'draft',
     created_from: 'excel_template',
@@ -131,7 +131,7 @@ describe('ExcelLedgerDetail 表头执行信息', () => {
   test('保存执行日期经 PUT header 提交并以详情回显', async () => {
     await renderDetail(makeDetail());
     mockHttpPut.mockResolvedValue({data: makeDetail({
-      executed_date: '2026-10-16', executor_names: '王五',
+      executed_date: '2026-10-16', created_by_name: '王五',
     })});
     const save = document.body.querySelector('[data-testid="excel-save-executed-date"]');
     await act(async () => {
@@ -142,7 +142,7 @@ describe('ExcelLedgerDetail 表头执行信息', () => {
     expect(mockHttpPut).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/excel-ledgers/101/',
       {header: {executed_date: ''}});
-    // 回显：执行日期经 DatePicker input value 展示（不在 textContent），执行人入文本
+    // 回显：执行日期经 DatePicker input value 展示（不在 textContent），录入人入文本
     const pickerNode = document.body.querySelector('[data-testid="excel-executed-date"]');
     const pickerInput = pickerNode.tagName === 'INPUT'
       ? pickerNode : pickerNode.querySelector('input');

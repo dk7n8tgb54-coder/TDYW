@@ -10,12 +10,12 @@
  */
 import React from 'react';
 import {observer} from 'mobx-react';
-import {Input, Select} from 'antd';
+import {Input, Select, Tooltip} from 'antd';
 import {AppstoreAddOutlined, PlusOutlined} from '@ant-design/icons';
 import {AuthButton, ExportButton, SearchForm} from 'components';
 import LedgerPeriodOverviewCard from './LedgerPeriodOverviewCard';
 import LedgerGroupTable from './LedgerGroupTable';
-import {API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_TEXT} from './constants';
+import {API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_FILTER_OPTIONS, STATUS_TEXT} from './constants';
 
 // observer：筛选控件直接读取 store.f_keyword / f_status / f_system，输入后需触发重渲染
 const PeriodSearchForm = observer(function PeriodSearchForm({store}) {
@@ -41,7 +41,7 @@ const PeriodSearchForm = observer(function PeriodSearchForm({store}) {
             refresh();
           }}
           placeholder="请选择状态">
-          {Object.keys(STATUS_TEXT).map(key => (
+          {STATUS_FILTER_OPTIONS.map(key => (
             <Select.Option value={key} key={key}>{STATUS_TEXT[key]}</Select.Option>
           ))}
         </Select>
@@ -90,13 +90,16 @@ function LedgerPeriodView({store, ledgerType, columns, onGenerate, onExcelCreate
           onClick={onExcelCreate}>
           新增{LEDGER_TYPE_TEXT[ledgerType]}台账
         </AuthButton>
-        <ExportButton
-          auth={PERM_L.LED_EXPORT}
-          style={{marginLeft: 8}}
-          url={`${API_PREFIX_L}/ledgers/export/?ledger_type=${ledgerType}`}
-          filename={`${LEDGER_TYPE_TEXT[ledgerType]}台账.csv`}>
-          导出
-        </ExportButton>
+        <Tooltip title="导出台账明细数据（手工补录台账的检查项目明细行，携带当前筛选）；Excel 模板台账请在台账详情中导出填写完整的 Excel/PDF。">
+          <ExportButton
+            auth={PERM_L.LED_EXPORT}
+            style={{marginLeft: 8}}
+            url={`${API_PREFIX_L}/ledgers/export/`}
+            params={store.periodExportParams()}
+            filename={`${LEDGER_TYPE_TEXT[ledgerType]}台账明细.csv`}>
+            导出明细 CSV
+          </ExportButton>
+        </Tooltip>
       </div>
       <LedgerGroupTable store={store} columns={columns}/>
     </React.Fragment>

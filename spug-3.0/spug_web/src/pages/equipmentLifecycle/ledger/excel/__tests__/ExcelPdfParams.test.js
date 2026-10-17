@@ -93,7 +93,6 @@ function makeLedgerDetail() {
     ledger_no: 'EL-WM-20260930-001',
     ledger_type: 'week_month',
     executed_date: '2026-09-30',
-    executor_names: '验收人',
     status: 'draft',
     created_from: 'excel_template',
     excel: {

@@ -14,12 +14,18 @@
  * 列表（2026-10-14 体验二轮）：标题置首可直接打开详情（前置类型标签），
  * 编号可一键复制；故障影响程度并入状态列；登记人/持续时间收敛到详情，
  * 减少横向滚动。加载失败显式提示并可重试，不把旧结果冒充新查询结果。
- * 跨页跳转：?detail=<ID> 直达详情（系统档案页签、台账来源跳转入口）。
+ * 跨页跳转：?detail=<ID> 直达详情（系统档案页签、台账来源跳转入口）；
+ * ?system=<系统ID> 预设所属系统筛选（系统档案页签"查看该系统全部记录"
+ * 跳入，2026-10-15）。列表展示单元（状态/故障影响标签、标题、编号复制）
+ * 与系统档案页签共用 shared.js 实现，避免两处复制展示规则。
+ * 导出与查询口径（2026-10-15）：关键词输入为草稿（input_keyword），查询
+ * 按钮/回车提交后才成为已执行条件（f_keyword）；导出参数与"导出范围"
+ * 文案一律使用已执行条件，保证与表格所见一致（输入未查询/查询后/重置后/
+ * 翻页均成立）。
  */
 import React, {useEffect, useState} from 'react';
 import {observer} from 'mobx-react';
-import {Input, Select, Button, Tag, Table, DatePicker, Tabs, Alert,
-  Typography} from 'antd';
+import {Input, Select, Button, Table, DatePicker, Tabs, Alert} from 'antd';
 import {PlusOutlined, DownOutlined, UpOutlined} from '@ant-design/icons';
 import {SearchForm, AuthDiv, AuthButton, Breadcrumb, ExportButton} from 'components';
 import RecordForm from './RecordForm';
@@ -28,33 +34,26 @@ import RecordTodo from './RecordTodo';
 import RecordStatistics from './RecordStatistics';
 import store from './store';
 import {
-  PERM, RECORD_STATUS_OPTIONS, RECORD_STATUS_TEXT, RECORD_STATUS_COLOR,
+  RecordStatusTag, FaultImpactTag, RecordTitleCell, RecordNoCell,
+} from './shared';
+import {
+  PERM, RECORD_STATUS_OPTIONS,
   RECORD_CATEGORY_OPTIONS, RECORD_TYPE_OPTIONS,
-  RECORD_TYPE_TEXT, RECORD_TYPE_COLOR,
-  FAULT_IMPACT_TEXT, FAULT_IMPACT_COLOR, API_PREFIX,
+  API_PREFIX,
 } from '../constants';
 
 const {RangePicker} = DatePicker;
 const {TabPane} = Tabs;
 
-// 状态标签（已撤销使用虚线灰样式，与进行态明显区分）
-function StatusTag({status}) {
-  if (status === 'cancelled') {
-    return (
-      <Tag
-        color="default"
-        style={{borderStyle: 'dashed', color: 'rgba(0, 0, 0, 0.45)'}}
-      >
-        {RECORD_STATUS_TEXT[status] || status}
-      </Tag>
-    );
-  }
-  return <Tag color={RECORD_STATUS_COLOR[status]}>{RECORD_STATUS_TEXT[status] || status}</Tag>;
-}
-
 @observer
 class RecordTable extends React.Component {
   componentDidMount() {
+    // 系统档案页签"查看该系统全部记录"跳入（?system=<ID>）：先应用系统
+    // 筛选并回到第 1 页再首次取数，首屏即为本系统视图（不先拉全量再过滤）
+    if (this.props.initialSystem) {
+      store.f_system = this.props.initialSystem;
+      store.page = 1;
+    }
     store.fetchSystems();
     store.fetchRecords();
   }
@@ -62,22 +61,15 @@ class RecordTable extends React.Component {
   // 列序（2026-10-14 体验二轮）：标题置首可直接打开详情（前置类型标签）；
   // 编号紧跟其后可一键复制（引用字段可查找、可复制，不挡在扫描列前）；
   // 设备故障影响程度并入状态列；登记人/持续时间收敛到详情展示，
-  // 降低横向滚动宽度（1380 → 1140）
+  // 降低横向滚动宽度（1380 → 1140）。
+  // 展示单元（2026-10-15）与系统档案页签共用 shared.js 同一实现
   columns = [{
     title: '标题',
     dataIndex: 'title',
     width: 250,
     ellipsis: true,
     render: (text, record) => (
-      <span>
-        <Tag
-          color={RECORD_TYPE_COLOR[record.record_type]}
-          style={{marginRight: 4}}
-        >
-          {RECORD_TYPE_TEXT[record.record_type] || record.record_type}
-        </Tag>
-        <a onClick={() => store.showDetail(record)} title={text}>{text}</a>
-      </span>
+      <RecordTitleCell record={record} onOpen={r => store.showDetail(r)}/>
     ),
   }, {
     title: '所属系统',
@@ -88,31 +80,15 @@ class RecordTable extends React.Component {
     title: '编号',
     dataIndex: 'record_no',
     width: 170,
-    render: (text) => (
-      <Typography.Text
-        copyable={{tooltips: ['复制编号', '已复制']}}
-        style={{maxWidth: 140}}
-      >
-        {text}
-      </Typography.Text>
-    ),
+    render: (text) => <RecordNoCell value={text}/>,
   }, {
     title: '状态',
     dataIndex: 'status',
     width: 130,
     render: (text, record) => (
       <span>
-        <StatusTag status={text}/>
-        {/* 设备故障影响程度并入状态列（不影响运行展示中性标签） */}
-        {record.record_type === 'fault' && (
-          record.affects_system_operation ? (
-            <Tag color={FAULT_IMPACT_COLOR[record.impact_status]} style={{marginLeft: 4}}>
-              {FAULT_IMPACT_TEXT[record.impact_status] || record.impact_status}
-            </Tag>
-          ) : (
-            <Tag style={{marginLeft: 4}}>不影响运行</Tag>
-          )
-        )}
+        <RecordStatusTag status={text}/>
+        <FaultImpactTag record={record}/>
       </span>
     ),
   }, {
@@ -232,12 +208,13 @@ const RecordFilters = observer(function RecordFilters() {
   return (
     <SearchForm>
       <SearchForm.Item span={7} title="关键词">
+        {/* 输入只写草稿（不触发查询）：查询按钮/回车提交后才成为已执行条件 */}
         <Input
           allowClear
-          value={store.f_keyword}
-          onChange={e => store.f_keyword = e.target.value}
+          value={store.input_keyword}
+          onChange={e => store.setKeywordInput(e.target.value)}
           placeholder="编号/标题/描述/系统名称"
-          onPressEnter={() => {store.page = 1; store.fetchRecords();}}
+          onPressEnter={() => store.commitKeyword()}
         />
       </SearchForm.Item>
       <SearchForm.Item span={7} title="所属系统">
@@ -271,7 +248,8 @@ const RecordFilters = observer(function RecordFilters() {
         </Select>
       </SearchForm.Item>
       <SearchForm.Item span={6}>
-        <Button type="primary" onClick={() => {store.page = 1; store.fetchRecords();}}>查询</Button>
+        {/* 查询/回车提交关键词草稿并刷新；其余筛选变更即刷新但不代提交草稿 */}
+        <Button type="primary" onClick={() => store.commitKeyword()}>查询</Button>
         <Button style={{marginLeft: 8}} onClick={() => {store.resetFilter(); store.fetchRecords();}}>
           重置
         </Button>
@@ -328,8 +306,9 @@ const RecordFilters = observer(function RecordFilters() {
   );
 });
 
-// 操作区：新增记录 + 导出。导出请求携带与列表完全一致的筛选参数
-// （后端导出接口同一筛选口径），导出范围在按钮旁明确说明
+// 操作区：新增记录 + 导出。导出请求携带与列表"已执行"完全一致的筛选参数
+// （关键词草稿不参与；后端导出接口同一筛选口径），导出范围在按钮旁按
+// 已执行条件逐项说明
 const ActionBar = observer(function ActionBar() {
   return (
     <div style={{marginBottom: 12}}>
@@ -353,9 +332,7 @@ const ActionBar = observer(function ActionBar() {
         导出
       </ExportButton>
       <span style={{marginLeft: 8, color: 'rgba(0, 0, 0, 0.45)', fontSize: 12}}>
-        {store.hasActiveFilter
-          ? '导出范围：当前筛选条件命中的全部记录（分页不影响）'
-          : '导出范围：全部未撤销记录'}
+        {store.exportScopeText}
       </span>
     </div>
   );
@@ -372,9 +349,20 @@ function handleTabChange(key) {
 }
 
 function RecordIndex(props) {
+  // 跨页跳转参数（渲染期解析一次，供首次取数前生效）：
+  // ?detail=<记录ID> 直达详情（系统档案页签、台账来源跳转入口）；
+  // ?system=<系统ID> 预设"所属系统"筛选（系统档案页签"查看该系统全部
+  // 记录"跳入），由 RecordTable 挂载时在首次请求前应用
+  const search = props.location ? props.location.search : '';
+  const initialSystem = React.useMemo(() => {
+    const params = new URLSearchParams(search);
+    const value = params.get('system');
+    return value && /^\d+$/.test(value) ? parseInt(value, 10) : undefined;
+    // 仅按挂载时的初始 URL 解析，后续导航不重复应用
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
-    // 跨页跳转直达详情（系统档案页签/台账详情跳入）
-    const params = new URLSearchParams(props.location ? props.location.search : '');
+    const params = new URLSearchParams(search);
     const detailId = params.get('detail');
     if (detailId && /^\d+$/.test(detailId)) {
       store.showDetail(parseInt(detailId, 10));
@@ -392,7 +380,7 @@ function RecordIndex(props) {
         <TabPane tab="全部记录" key="records">
           <RecordFilters/>
           <ActionBar/>
-          <RecordTable/>
+          <RecordTable initialSystem={initialSystem}/>
         </TabPane>
         <TabPane tab="待办（跟进中+处置中）" key="todo">
           <RecordTodo/>

@@ -15,7 +15,7 @@
  */
 import React from 'react';
 import {observer} from 'mobx-react';
-import {Button, Input, Select, Table, DatePicker} from 'antd';
+import {Button, Input, Select, Table, DatePicker, Tooltip} from 'antd';
 import {
   AppstoreAddOutlined, ArrowLeftOutlined, FilePdfOutlined, PlusOutlined,
 } from '@ant-design/icons';
@@ -23,7 +23,7 @@ import {AuthButton, ExportButton, SearchForm} from 'components';
 import LedgerTemplateGroupTable from './LedgerTemplateGroupTable';
 import LedgerBatchExportModal from './LedgerBatchExportModal';
 import {buildColumns} from './LedgerColumns';
-import {API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_TEXT} from './constants';
+import {API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_FILTER_OPTIONS, STATUS_TEXT} from './constants';
 
 // observer：筛选控件直接读取 store 可观察字段，输入后需触发重渲染。
 // 模板视图使用独立筛选字段（t_keyword/t_status/t_date_range），与周期视图
@@ -51,7 +51,7 @@ const TemplateSearchForm = observer(function TemplateSearchForm({store}) {
             refresh();
           }}
           placeholder="请选择状态">
-          {Object.keys(STATUS_TEXT).map(key => (
+          {STATUS_FILTER_OPTIONS.map(key => (
             <Select.Option value={key} key={key}>{STATUS_TEXT[key]}</Select.Option>
           ))}
         </Select>
@@ -115,13 +115,16 @@ function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenEx
           </AuthButton>
         )}
         {!inGroup && (
-          <ExportButton
-            auth={PERM_L.LED_EXPORT}
-            style={{marginLeft: 8}}
-            url={`${API_PREFIX_L}/ledgers/export/?ledger_type=${ledgerType}`}
-            filename={`${LEDGER_TYPE_TEXT[ledgerType]}台账.csv`}>
-            导出
-          </ExportButton>
+          <Tooltip title="导出台账明细数据（手工补录台账的检查项目明细行，携带当前筛选）；Excel 模板台账请在台账详情中导出填写完整的 Excel/PDF。">
+            <ExportButton
+              auth={PERM_L.LED_EXPORT}
+              style={{marginLeft: 8}}
+              url={`${API_PREFIX_L}/ledgers/export/`}
+              params={{ledger_type: ledgerType, ...store.templateFilterParams()}}
+              filename={`${LEDGER_TYPE_TEXT[ledgerType]}台账明细.csv`}>
+              导出明细 CSV
+            </ExportButton>
+          </Tooltip>
         )}
       </div>
       {inGroup ? (

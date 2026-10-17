@@ -113,7 +113,7 @@ export default [{
       {key: 'view', label: '查看台账模板'},
       {key: 'add', label: '新增台账模板'},
       {key: 'edit', label: '编辑台账模板/项目'},
-      {key: 'del', label: '停用/启用台账模板'},
+      {key: 'del', label: '停用/删除台账模板'},
     ]
   }, {
     key: 'ledger',
@@ -122,12 +122,14 @@ export default [{
       {key: 'view', label: '查看台账'},
       {key: 'add', label: '新增台账'},
       {key: 'edit', label: '编辑草稿/批量确认/更正'},
-      {key: 'submit', label: '提交台账'},
-      {key: 'review', label: '复核/退回台账'},
-      {key: 'del', label: '作废台账（受控作废，非物理删除）'},
+      {key: 'submit', label: '完成填写台账'},
+      {key: 'del', label: '作废/删除台账'},
       {key: 'export', label: '导出台账'},
       {key: 'handle_exception', label: '异常处置（周/月/季维护台账异常转故障；旧巡检台账已删除）'},
     ]
+    // review（复核/退回台账）权限码已随复核流程下线退役（2026-10-16 流程简化：
+    // 新流程只用 草稿/已完成/已作废 三状态），存量角色 JSON 中的该权限码惰性失效，
+    // 无需清洗；inspection/work_order/system_event 权限组退役记录见下。
     // inspection（值班巡检）与 inspection_template（巡检模板）权限组已随
     // "日巡视"活跃功能整体下线删除（2026-10-11），巡检专属权限码退役；
     // 存量角色 JSON 中的巡检权限码惰性失效，无需清洗。

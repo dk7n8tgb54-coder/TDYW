@@ -7,9 +7,10 @@
  * 两种视图：
  * - 列表：唯一主操作「新建模板」——名称/类型/上传集中在弹窗内完成
  *   （下载样例随流程内提供，页面不再重复出现）；行操作按状态显示
- *   「编辑草稿 / 上传源文件 / 查看模板」，版本记录与停用收进行内
- *   「更多」菜单（停用=逻辑删除，del 权限 + 启用状态才显示，
- *   Modal.confirm 二次确认并保留引用台账数提示）；列表展示适用系统与
+ *   「编辑草稿 / 上传源文件 / 查看模板」，版本记录与停用/删除收进行内
+ *   「更多」菜单（2026-10-16 拆分：停用=逻辑停用，启用模板可用；
+ *   删除=物理删除，无台账引用的模板可用，引用关系后端删除时复查，
+ *   del 权限门禁，Modal.confirm 二次确认）；列表展示适用系统与
  *   生成周期（2026-10-14，未配置显示"待配置"，不自动推断历史模板）；
  *   页面底部提供前往正式周月/季维护台账的填写入口；
  * - 绑定工作区：左侧「返回模板列表」入口；标题区展示名称/类型/状态，
@@ -35,7 +36,7 @@ import {
   Popconfirm, Select, Space, Spin, Table, Tabs, Tag, Upload, message,
 } from 'antd';
 import {
-  ArrowLeftOutlined, DownOutlined, DownloadOutlined, FilePdfOutlined,
+  ArrowLeftOutlined, DeleteOutlined, DownOutlined, DownloadOutlined, FilePdfOutlined,
   HistoryOutlined, PrinterOutlined, StopOutlined, UploadOutlined,
 } from '@ant-design/icons';
 import {hasPermission, history} from 'libs';
@@ -149,7 +150,27 @@ class ExcelTemplatePage extends React.Component {
         ? `该模板已被 ${record.ledgers_count} 个台账引用：停用后将停止新台账使用，历史台账仍可查看与导出。确定停用吗？`
         : '停用后将停止该模板使用，历史台账仍可查看，确定停用吗？',
       okText: '停用', okType: 'danger', cancelText: '取消',
-      onOk: () => this.store.deleteTemplate(record.id),
+      onOk: () => this.store.deactivateTemplate(record.id),
+    });
+  };
+
+  /** 行删除确认（2026-10-16 拆分）：物理删除模板与全部版本；
+   * 引用关系由后端删除时重新检查（被引用时拒绝）。 */
+  confirmDestroyTemplate = record => {
+    Modal.confirm({
+      title: '删除模板',
+      content: (
+        <div>
+          <p style={{color: '#f5222d'}}>
+            删除后模板、全部已发布版本与源文件将被移除，且不可恢复。
+          </p>
+          {record.ledgers_count > 0 && (
+            <p>该模板已被 {record.ledgers_count} 个台账引用，删除将被拒绝；如需停止使用请改为停用。</p>
+          )}
+        </div>
+      ),
+      okText: '删除', okType: 'danger', cancelText: '取消',
+      onOk: () => this.store.destroyTemplate(record.id),
     });
   };
 
@@ -503,21 +524,32 @@ class ExcelTemplatePage extends React.Component {
     );
   }
 
-  /** 行操作：主入口按状态（编辑草稿/上传源文件/查看模板）+「更多」菜单。 */
+  /**
+   * 行操作可见性（2026-10-16 停用/删除拆分）：
+   * - 停用：启用中的模板（del 权限）——停用后不可用于新台账，历史台账不受影响；
+   * - 删除：无任何台账引用的模板（未发布或已发布无引用，含已停用无引用）；
+   *   被引用的模板只能停用（后端删除时仍会重新检查）。
+   */
   _renderRowActions(record) {
     const openText = !record.is_active ? '查看模板'
       : (record.draft_source_filename ? '编辑草稿' : '上传源文件');
     const canStop = record.is_active && hasPermission(PERM_L.TPL_DEL);
+    const canDestroy = hasPermission(PERM_L.TPL_DEL) && !record.ledgers_count;
     const menu = (
       <Menu onClick={({key}) => {
         if (key === 'versions') this.showRowVersions(record);
         if (key === 'stop') this.confirmStopTemplate(record);
+        if (key === 'destroy') this.confirmDestroyTemplate(record);
       }}>
         <Menu.Item key="versions" data-testid="tpl-row-versions"
                    icon={<HistoryOutlined/>}>版本记录</Menu.Item>
         {canStop && (
           <Menu.Item key="stop" data-testid="tpl-stop" danger
                      icon={<StopOutlined/>}>停用模板</Menu.Item>
+        )}
+        {canDestroy && (
+          <Menu.Item key="destroy" data-testid="tpl-destroy" danger
+                     icon={<DeleteOutlined/>}>删除模板</Menu.Item>
         )}
       </Menu>
     );

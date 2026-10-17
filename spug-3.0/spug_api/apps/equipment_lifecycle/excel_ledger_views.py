@@ -1,18 +1,20 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——Excel 路线维护台账视图（创建/填写/提交/历史/导出，2026-09-28 试点）。
+"""设备全生命周期——Excel 路线维护台账视图（创建/填写/完成/更正/历史/导出）。
 
 权限域（复用既有台账权限码，不新增）：
 - equipment_lifecycle.ledger.view：列表 / 详情
 - equipment_lifecycle.ledger.add：按模板版本创建台账
-- equipment_lifecycle.ledger.edit：保存填写值
-- equipment_lifecycle.ledger.submit：提交
+- equipment_lifecycle.ledger.edit：保存填写值 / 完成后更正
+- equipment_lifecycle.ledger.submit：完成填写（流程终点）
 - equipment_lifecycle.ledger.export：导出 Excel / PDF
 
 约定：
-- Excel 路线台账 created_from='excel_template'，由本组视图接入；正式台账
-  列表（LedgerView）不返回该类台账，两路互不干扰；
-- 复核/退回/作废沿用既有 /ledgers/<pk>/ 端点（不涉及明细，天然兼容）；
+- Excel 路线台账 created_from='excel_template'，由本组视图接入；
+- 流程简化（2026-10-16）：完成填写（complete，草稿 → 已完成）替代原
+  "提交"；已完成台账修改走 correct/ 更正（须填原因，记录前后值）；
+  作废/删除沿用既有 /ledgers/<pk>/ 端点（作废须填原因，删除仅草稿与
+  旧流程历史状态）；
 - 导出为文件副作用视图，使用 transaction.non_atomic_requests；
 - 导出文件名取版本源文件名（去扩展名）+ 状态后缀，二进制直接下发。
 """
@@ -36,10 +38,11 @@ from apps.equipment_lifecycle.ledger_views import (
     _read_json_body,
 )
 
-# 导出文件名后缀（与前端 constants.js 的状态文案一致）
+# 导出文件名后缀（与前端 constants.js 的状态文案一致；submitted/returned/
+# reviewed 为旧流程历史状态，仅存量台账导出时出现）
 LEDGER_STATUS_SUFFIX = {
-    'draft': '草稿', 'submitted': '已提交', 'returned': '已退回',
-    'reviewed': '已复核', 'void': '已作废',
+    'draft': '草稿', 'completed': '已完成', 'void': '已作废',
+    'submitted': '已提交', 'returned': '已退回', 'reviewed': '已复核',
 }
 
 PDF_CONTENT_TYPE = 'application/pdf'
@@ -88,7 +91,7 @@ class ExcelLedgerDetailView(View):
             return json_response(error='台账不存在')
         header_updated = False
         try:
-            # 表头执行信息（实际执行日期/执行人）与填写值可同请求分别提交
+            # 表头执行信息（实际执行日期）与填写值可同请求分别提交
             if isinstance(body.get('header'), dict):
                 excel_ledger_services.update_header(request.user, ledger, body['header'])
                 header_updated = True
@@ -105,18 +108,44 @@ class ExcelLedgerDetailView(View):
         return json_response({'data': excel_ledger_services.ledger_detail(ledger)})
 
 
-class ExcelLedgerSubmitView(View):
-    """提交：必填校验通过后 草稿/已退回 → 已提交。"""
+class ExcelLedgerCompleteView(View):
+    """完成填写（流程终点）：必填校验通过后 草稿 → 已完成。"""
 
     @auth('equipment_lifecycle.ledger.submit')
     def post(self, request, pk):
-        ledger, error = excel_ledger_services.submit_ledger(request.user, pk)
+        ledger, error = excel_ledger_services.complete_ledger(request.user, pk)
         if error:
             return json_response(error=error)
         record_audit_event(
             request, 'update', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
-            after_value={'action_kind': 'submit_excel_ledger',
+            after_value={'action_kind': 'complete_excel_ledger',
                          'status': ledger.status})
+        return json_response({'data': excel_ledger_services.ledger_detail(ledger)})
+
+
+class ExcelLedgerCorrectView(View):
+    """已完成台账更正：POST /excel-ledgers/<pk>/correct/。
+
+    body: {"reason": 必填原因, "values"?: 整体填写值, "header"?: {executed_date}}。
+    变更前后值逐项写入更正记录（修改人/时间由更正记录承载），无实际变更拒绝。
+    """
+
+    @auth('equipment_lifecycle.ledger.edit')
+    def post(self, request, pk):
+        body = _read_json_body(request)
+        if body is None:
+            return json_response(error='请求体格式不正确')
+        ledger = excel_ledger_services.get_ledger(pk, request.user)
+        if not ledger:
+            return json_response(error='台账不存在')
+        ledger, correction, changes, error = excel_ledger_services.correct_completed_ledger(
+            request.user, ledger, body)
+        if error:
+            return json_response(error=error)
+        record_audit_event(
+            request, 'update', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
+            after_value={'action_kind': 'correct_excel_ledger',
+                         'reason': correction.reason, 'changes': changes})
         return json_response({'data': excel_ledger_services.ledger_detail(ledger)})
 
 

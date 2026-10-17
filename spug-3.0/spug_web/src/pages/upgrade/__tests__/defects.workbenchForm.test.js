@@ -235,12 +235,8 @@ describe('W4：删除状态日志不冲掉未保存草稿', () => {
     renderForm();
     await act(async () => { await flush(); });
 
-    // 展开编辑基本信息折叠面板
-    const header = document.querySelector('.ant-collapse-header');
-    expect(header).not.toBeNull();
-    act(() => {
-      header.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
-    });
+    // 点击"编辑基本信息"展开编辑面板
+    clickButtonByText('编辑基本信息');
 
     const input = document.querySelector('input[placeholder="标题"]');
     expect(input.value).toBe('DVOR 软件升级');

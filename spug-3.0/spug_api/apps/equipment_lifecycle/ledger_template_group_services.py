@@ -31,6 +31,7 @@ from apps.equipment_lifecycle.ledger_services import LedgerValidationError, vali
 from apps.equipment_lifecycle.models import (
     LEDGER_FROM_EXCEL,
     LEDGER_FROM_MANUAL,
+    LEDGER_STATUS_COMPLETED,
     LEDGER_STATUS_DRAFT,
     LEDGER_STATUS_RETURNED,
     LEDGER_STATUS_REVIEWED,
@@ -43,13 +44,13 @@ from apps.equipment_lifecycle.models import (
 MANUAL_GROUP_KEY = 'manual'
 MANUAL_GROUP_NAME = '无模板/临时补录'
 
-# 组统计口径：total + 各状态数量（项目现有五状态）+ 最近执行日期
+# 组统计口径：total + 已完成口径（新流程 completed + 旧流程已提交/已复核）
+# + 各原始状态数量 + 最近执行日期
 _GROUP_ANNOTATIONS = dict(
     total=Count('id'),
     draft=Count('id', filter=Q(status=LEDGER_STATUS_DRAFT)),
-    submitted=Count('id', filter=Q(status=LEDGER_STATUS_SUBMITTED)),
-    returned=Count('id', filter=Q(status=LEDGER_STATUS_RETURNED)),
-    reviewed=Count('id', filter=Q(status=LEDGER_STATUS_REVIEWED)),
+    completed=Count('id', filter=Q(status__in=[
+        LEDGER_STATUS_COMPLETED, LEDGER_STATUS_SUBMITTED, LEDGER_STATUS_REVIEWED])),
     void=Count('id', filter=Q(status=LEDGER_STATUS_VOID)),
     last_executed_date=Max('executed_date'),
 )
@@ -80,9 +81,7 @@ def _group_view(group_key, source_type, template, counts):
         'ledger_type': template.ledger_type if template is not None else '',
         'total': counts['total'],
         'draft': counts['draft'],
-        'submitted': counts['submitted'],
-        'returned': counts['returned'],
-        'reviewed': counts['reviewed'],
+        'completed': counts['completed'],
         'void': counts['void'],
         'last_executed_date': counts['last_executed_date'],
     }
@@ -189,18 +188,19 @@ def list_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
 # 组内批量 PDF 导出（"导出本模板台账"，2026-10-11）
 # ======================================================================
 
-# 默认导出状态范围：已提交及后续有效状态（草稿/已作废不默认纳入；
+# 默认导出状态范围：已完成及旧流程历史有效状态（草稿/已作废不默认纳入；
 # 用户可通过组内状态筛选显式调整到业务允许的范围，与单条导出一致）
 DEFAULT_EXPORT_STATUSES = [
-    LEDGER_STATUS_SUBMITTED, LEDGER_STATUS_RETURNED, LEDGER_STATUS_REVIEWED]
+    LEDGER_STATUS_COMPLETED, LEDGER_STATUS_SUBMITTED, LEDGER_STATUS_RETURNED,
+    LEDGER_STATUS_REVIEWED]
 
 # 单次批量导出条数上限：每条台账一次 LibreOffice 转换（约 2~5 秒），
 # 50 条在 gunicorn 300 秒超时内可同步完成，超过时提示缩小筛选范围
 MAX_BATCH_EXPORT_RECORDS = 50
 
 LEDGER_STATUS_LABELS = {
-    'draft': '草稿', 'submitted': '已提交', 'returned': '已退回',
-    'reviewed': '已复核', 'void': '已作废',
+    'draft': '草稿', 'completed': '已完成', 'submitted': '已提交',
+    'returned': '已退回', 'reviewed': '已复核', 'void': '已作废',
 }
 
 _FILE_NAME_ILLEGAL = re.compile(r'[\\/:*?"<>|\r\n]')

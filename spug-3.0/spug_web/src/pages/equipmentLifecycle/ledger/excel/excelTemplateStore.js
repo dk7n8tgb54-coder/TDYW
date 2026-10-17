@@ -7,8 +7,8 @@
  * 职责边界：
  * - 只对接 /api/equipment-lifecycle/excel-templates 正式试点接口；
  * - 状态：模板列表、当前模板草稿（布局/绑定）、发布版本列表；
- * - 删除：逻辑删除（后端 is_active=False），成功后重取列表，失败由
- *   公共拦截器提示（不重复弹窗）；
+ * - 删除：物理删除（后端删除时重新检查引用关系），停用=逻辑停用
+ *   （2026-10-16 拆分），成功后重取列表，失败由公共拦截器提示（不重复弹窗）；
  * - 绑定保存失败回退本地并依赖公共拦截器提示（不重复弹错、不吞拒绝）；
  * - field_id 由前端生成 UUID（不经坐标派生），服务端全量校验；
  * - 批量绑定：单选/Ctrl 加选/拖拽矩形多选可绑定单元格后，用同一组字段
@@ -530,14 +530,30 @@ export class ExcelTemplateStore {
   }
 
   /**
-   * 停用模板（逻辑删除/停用，幂等）：成功提示后重取列表（不做乐观删除）。
+   * 停用模板（逻辑停用，幂等）：停用后不可用于新台账，历史台账继续按
+   * 创建时版本查看与导出；成功提示后重取列表（不做乐观停用）。
    * 失败由公共拦截器统一提示业务错误，这里不再重复弹窗，只向上传递拒绝。
    */
-  async deleteTemplate(templateId) {
+  async deactivateTemplate(templateId) {
+    this.deletingId = templateId;
+    try {
+      await http.post(`${API}/${templateId}/deactivate/`);
+      message.success('模板已停用');
+      await this.fetchList();
+    } finally {
+      this.deletingId = '';
+    }
+  }
+
+  /**
+   * 删除模板（物理删除）：后端在删除时重新检查引用关系（任一版本仍被
+   * 台账引用时拒绝并提示）。成功后重取列表（被删除模板从列表消失）。
+   */
+  async destroyTemplate(templateId) {
     this.deletingId = templateId;
     try {
       await http.delete(`${API}/${templateId}/`);
-      message.success('模板已停用');
+      message.success('模板已删除');
       await this.fetchList();
     } finally {
       this.deletingId = '';

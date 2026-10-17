@@ -8,10 +8,20 @@
  * 一张统一主表承载 一般记录/异常事件/设备故障 三类记录。
  * 业务关联一律使用系统 ID；成功提示等待后端真实成功（http.js 拦截器统一提示
  * error，业务代码不重复提示）。
+ * 2026-10-15 体验四轮：关键词输入草稿（input_keyword/sf_input_keyword）与
+ * 已执行条件（f_keyword/sf_keyword）分离，查询按钮/回车提交草稿，列表取数/
+ * 导出参数/联动刷新/导出范围文案一律只用已执行条件；详情加载失败置
+ * detailError 显式呈现并可重试（保持当前记录与页签），详情与附件请求的
+ * 旧响应/迟到失败由请求序号防护拦截，不覆盖新记录。
  */
 import { observable, action } from 'mobx';
 import { http } from 'libs';
-import { API_PREFIX } from '../constants';
+import {
+  API_PREFIX, RECORD_STATUS_TEXT, RECORD_TYPE_TEXT, RECORD_CATEGORY_TEXT,
+} from '../constants';
+
+// 系统详情"运行处置记录"页签固定每页条数（1100px 系统详情弹窗内紧凑分页）
+export const SYSTEM_RECORDS_PAGE_SIZE = 10;
 
 class OperationRecordStore {
   // ========== 列表 ==========
@@ -25,12 +35,16 @@ class OperationRecordStore {
   @observable fetchError = false;
 
   // ========== 筛选条件 ==========
+  // f_* 为"已执行"的查询条件：列表取数、导出参数与联动刷新一律以此为准
   @observable f_keyword = undefined;
   @observable f_status = undefined;
   @observable f_system = undefined;
   @observable f_category = undefined;
   @observable f_record_type = undefined;
   @observable f_occurred_range = undefined;
+  // 关键词输入草稿（输入中、未执行）：Input 绑定草稿，查询按钮/回车提交后
+  // 才转正为 f_keyword，避免"输入未查询"的条件混入导出与联动刷新
+  @observable input_keyword = '';
 
   // ========== 表单 ==========
   @observable formVisible = false;
@@ -45,6 +59,9 @@ class OperationRecordStore {
   @observable detailId = null;
   @observable detail = {};
   @observable isDetailFetching = false;
+  // 详情加载失败标记：失败时页面渲染显式失败态与重试入口，不把列表行
+  // 旧数据或空对象冒充完整详情；错误 toast 由 http 拦截器统一弹出
+  @observable detailError = false;
   // 详情可能被多个入口并发刷新；只接受最后一次响应。
   detailRequestSeq = 0;
   // 详情页签受控（列表"进展数"列点击可直达进展页签）
@@ -60,11 +77,14 @@ class OperationRecordStore {
 
   // ========== 附件 ==========
   @observable attachments = [];
+  // 附件请求序号：快速切换记录时旧记录的迟到响应不覆盖新记录附件
+  attachmentRequestSeq = 0;
 
   // ========== 动作执行中 ==========
   @observable isActionSubmitting = false;
 
   @action resetFilter = () => {
+    this.input_keyword = '';
     this.f_keyword = undefined;
     this.f_status = undefined;
     this.f_system = undefined;
@@ -72,6 +92,17 @@ class OperationRecordStore {
     this.f_record_type = undefined;
     this.f_occurred_range = undefined;
     this.page = 1;
+  };
+
+  @action setKeywordInput = (value) => {
+    this.input_keyword = value;
+  };
+
+  // 提交关键词草稿为已执行条件（查询按钮/回车共用）：任何提交都回到第 1 页
+  commitKeyword = () => {
+    this.f_keyword = this.input_keyword || undefined;
+    this.page = 1;
+    return this.fetchRecords();
   };
 
   fetchRecords = () => {
@@ -101,8 +132,8 @@ class OperationRecordStore {
       }));
   };
 
-  // 导出参数与列表筛选完全一致（后端导出接口接受同一组筛选；
-  // 结束时间由后端按所选整分钟包含该分钟记录）
+  // 导出参数与列表"已执行"筛选完全一致（f_* 为唯一口径，关键词草稿不参与；
+  // 后端导出接口接受同一组筛选，结束时间由后端按所选整分钟包含该分钟记录）
   getExportParams = () => {
     const params = {};
     if (this.f_keyword) params.keyword = this.f_keyword;
@@ -117,12 +148,38 @@ class OperationRecordStore {
     return params;
   };
 
-  // 当前是否带有任一筛选条件（导出旁提示与筛选分层折叠计数用）
+  // 当前是否带有任一筛选条件（筛选分层折叠计数用；导出口径见 exportScopeText）
   get hasActiveFilter() {
     return Boolean(
       this.f_keyword || this.f_status || this.f_system || this.f_category ||
       this.f_record_type ||
       (this.f_occurred_range && this.f_occurred_range.length === 2));
+  }
+
+  // 导出范围文案：与 getExportParams 同一已执行口径逐项列出，保证"导出范围"
+  // 提示与真实导出内容一致（输入中的关键词草稿不出现在文案里）
+  get exportScopeText() {
+    const parts = [];
+    if (this.f_keyword) parts.push(`关键词「${this.f_keyword}」`);
+    if (this.f_system) {
+      const option = this.systemOption(this.f_system);
+      parts.push(`系统「${option ? option.name : this.f_system}」`);
+    }
+    if (this.f_status) {
+      parts.push(`状态「${RECORD_STATUS_TEXT[this.f_status] || this.f_status}」`);
+    }
+    if (this.f_record_type) {
+      parts.push(`类型「${RECORD_TYPE_TEXT[this.f_record_type] || this.f_record_type}」`);
+    }
+    if (this.f_category) {
+      parts.push(`异常类别「${RECORD_CATEGORY_TEXT[this.f_category] || this.f_category}」`);
+    }
+    if (this.f_occurred_range && this.f_occurred_range.length === 2) {
+      parts.push(`发生时间 ${this.f_occurred_range[0].format('YYYY-MM-DD HH:mm')}` +
+        ` 至 ${this.f_occurred_range[1].format('YYYY-MM-DD HH:mm')}`);
+    }
+    if (!parts.length) return '导出范围：全部未撤销记录';
+    return `导出范围：当前查询条件（${parts.join('、')}）命中的全部记录，分页不影响`;
   }
 
   fetchSystems = () => {
@@ -153,6 +210,8 @@ class OperationRecordStore {
       .then(action(() => {
         this.formVisible = false;
         this.fetchRecords();
+        // 新增/编辑可能改变行归属或字段值：系统页签在位时同步刷新
+        this.refreshSystemRecordsIfActive();
       }))
       .finally(action(() => {
         this.isSubmitting = false;
@@ -169,6 +228,8 @@ class OperationRecordStore {
     this.detail = typeof recordOrId === 'object' ? recordOrId : {};
     this.detailVisible = true;
     this.activeTab = tab;
+    // 新记录重新加载：清失败标记（是否失败由本次请求结果决定）
+    this.detailError = false;
     this.progressRecords = [];
     this.progressTotal = 0;
     this.attachments = [];
@@ -190,9 +251,15 @@ class OperationRecordStore {
         // http 拦截器已解包 json_response 的 data 层，res 即详情本体
         if (requestSeq === this.detailRequestSeq) {
           this.detail = res;
+          this.detailError = false;
         }
       }))
-      .catch(action(() => {}))
+      .catch(action(() => {
+        // 快速切换记录时旧请求的迟到失败不置失败标记（序号防护）
+        if (requestSeq === this.detailRequestSeq) {
+          this.detailError = true;
+        }
+      }))
       .finally(action(() => {
         if (requestSeq === this.detailRequestSeq) {
           this.isDetailFetching = false;
@@ -203,6 +270,15 @@ class OperationRecordStore {
   fetchDetailById = (id) => {
     // 与 fetchDetail 一致：resolve 详情本体，供编辑表单回填
     return http.get(`${API_PREFIX}/records/${id}/`);
+  };
+
+  // 详情加载失败重试（详情失败态入口）：保持当前 detailId 与目标页签，
+  // 重发详情/进展/附件三个请求（失败可能发生在任一请求），成功后由各自
+  // 响应恢复正常显示
+  retryDetailLoad = () => {
+    this.fetchDetail();
+    this.fetchProgressRecords();
+    this.fetchAttachments();
   };
 
   fetchProgressRecords = () => {
@@ -226,9 +302,12 @@ class OperationRecordStore {
 
   fetchAttachments = () => {
     if (!this.detailId) return Promise.resolve();
+    const requestSeq = ++this.attachmentRequestSeq;
     return http.get(`${API_PREFIX}/records/${this.detailId}/attachments/`)
       .then(action(res => {
-        this.attachments = res.data || [];
+        if (requestSeq === this.attachmentRequestSeq) {
+          this.attachments = res.data || [];
+        }
       }))
       .catch(action(() => {}));
   };
@@ -238,6 +317,9 @@ class OperationRecordStore {
     this.fetchDetail();
     this.fetchProgressRecords();
     this.fetchRecords();
+    // 完成跟进/认定故障/结案/撤销/追加进展等改变行状态或最新进展：
+    // 系统页签在位时以同一组筛选联动刷新
+    this.refreshSystemRecordsIfActive();
   };
 
   _postAction = (path, formData) => {
@@ -278,6 +360,8 @@ class OperationRecordStore {
       .then(action(() => {
         this.closeDetail();
         this.fetchRecords();
+        // 系统页签在位时同步移除已删除行
+        this.refreshSystemRecordsIfActive();
       }))
       .finally(action(() => {
         this.isActionSubmitting = false;
@@ -315,26 +399,119 @@ class OperationRecordStore {
   @observable isSystemRecordsFetching = false;
   // 页签加载失败标记：失败时保留旧数据并显式提示重试
   @observable systemRecordsError = false;
+  // 页签当前查看的系统 ID：页签挂载随首次取数设置、卸载清空；
+  // 详情动作后的联动刷新（refreshSystemRecordsIfActive）以此判断页签在位
+  @observable systemRecordsSystemId = null;
+  // 页签请求序号：换系统/快速翻页时只接受最后一次响应，避免旧结果回写
+  systemRecordsRequestSeq = 0;
+  // 页签筛选（语义与主列表一致；系统由档案固定，不设系统条件）。
+  // 收进 store 使查询/重置/翻页/失败重试与详情动作后的联动刷新
+  // 始终使用同一组条件
+  @observable sf_keyword = undefined;
+  // 页签关键词输入草稿（输入中、未执行）：语义与主列表 input_keyword 一致，
+  // 查询按钮/回车提交后才转正为 sf_keyword
+  @observable sf_input_keyword = '';
+  @observable sf_status = undefined;
+  @observable sf_category = undefined;
+  @observable sf_record_type = undefined;
+  @observable sf_occurred_range = undefined;
+  @observable systemRecordsPage = 1;
 
-  fetchSystemRecords = (systemId, params) => {
+  resetSystemFilter = action(() => {
+    this.sf_input_keyword = '';
+    this.sf_keyword = undefined;
+    this.sf_status = undefined;
+    this.sf_category = undefined;
+    this.sf_record_type = undefined;
+    this.sf_occurred_range = undefined;
+    this.systemRecordsPage = 1;
+  });
+
+  // 页签是否带有任一筛选条件（空态区分"系统无记录"与"筛选后无匹配"）
+  get systemHasActiveFilter() {
+    return Boolean(
+      this.sf_keyword || this.sf_status || this.sf_category ||
+      this.sf_record_type ||
+      (this.sf_occurred_range && this.sf_occurred_range.length === 2));
+  }
+
+  // 页签系统上下文：systemId 变化即重置筛选/页码与关键词草稿（换系统不带入
+  // 上一系统的条件）。fetchSystemRecords 与 querySystemRecords 共用同一判定
+  _ensureSystemContext = (systemId) => {
+    if (systemId !== undefined && systemId !== null
+        && systemId !== this.systemRecordsSystemId) {
+      this.resetSystemFilter();
+      this.systemRecordsSystemId = systemId;
+    }
+  };
+
+  @action setSystemKeywordInput = (value) => {
+    this.sf_input_keyword = value;
+  };
+
+  // 页签查询提交（查询按钮/回车共用）：先走换系统重置判定，再提交关键词
+  // 草稿并取数，保证取数参数与提交后的已执行条件一致；任何提交都回到第 1 页
+  querySystemRecords = (systemId) => {
+    this._ensureSystemContext(systemId);
+    this.sf_keyword = this.sf_input_keyword || undefined;
+    return this.fetchSystemRecords(systemId, 1);
+  };
+
+  // systemId 变化即重置筛选与页码（换系统不带入上一系统的条件）；
+  // page 传入时切换页码。不传 systemId 时沿用当前在位系统（重试/联动刷新）
+  fetchSystemRecords = (systemId, page) => {
+    this._ensureSystemContext(systemId);
+    if (page !== undefined) this.systemRecordsPage = page;
+    const targetSystemId = this.systemRecordsSystemId;
+    if (!targetSystemId) return Promise.resolve();
+    const params = {page: this.systemRecordsPage, page_size: SYSTEM_RECORDS_PAGE_SIZE};
+    if (this.sf_keyword) params.keyword = this.sf_keyword;
+    if (this.sf_status) params.status = this.sf_status;
+    if (this.sf_category) params.category = this.sf_category;
+    if (this.sf_record_type) params.record_type = this.sf_record_type;
+    if (this.sf_occurred_range && this.sf_occurred_range.length === 2) {
+      params.occurred_from = this.sf_occurred_range[0].format('YYYY-MM-DD HH:mm');
+      params.occurred_to = this.sf_occurred_range[1].format('YYYY-MM-DD HH:mm');
+    }
+    const requestSeq = ++this.systemRecordsRequestSeq;
     this.isSystemRecordsFetching = true;
-    const request = params && Object.keys(params).length
-      ? http.get(`${API_PREFIX}/systems/${systemId}/records/`, {params})
-      : http.get(`${API_PREFIX}/systems/${systemId}/records/`);
-    return request
+    return http.get(`${API_PREFIX}/systems/${targetSystemId}/records/`, {params})
       .then(action(res => {
+        if (requestSeq !== this.systemRecordsRequestSeq) return;
         this.systemRecords = res.data || [];
         this.systemRecordsTotal = res.total || 0;
         this.systemLatestOccurredAt = res.latest_occurred_at;
         this.systemRecordsError = false;
       }))
       .catch(action(() => {
+        if (requestSeq !== this.systemRecordsRequestSeq) return;
         this.systemRecordsError = true;
       }))
       .finally(action(() => {
-        this.isSystemRecordsFetching = false;
+        if (requestSeq === this.systemRecordsRequestSeq) {
+          this.isSystemRecordsFetching = false;
+        }
       }));
   };
+
+  // 详情内新增/编辑/删除/状态动作成功后联动刷新系统页签（页签在位时以
+  // 同一组筛选与页码重新取数，不显示过期行；换系统场景行归属已变化同样
+  // 由服务端筛选结果修正）
+  refreshSystemRecordsIfActive = () => {
+    if (this.systemRecordsSystemId) {
+      return this.fetchSystemRecords();
+    }
+    return Promise.resolve();
+  };
+
+  // 页签卸载（关闭系统详情/离开系统档案页）时清空数据与在位标记
+  clearSystemRecords = action(() => {
+    this.systemRecordsSystemId = null;
+    this.systemRecords = [];
+    this.systemRecordsTotal = 0;
+    this.systemLatestOccurredAt = null;
+    this.systemRecordsError = false;
+  });
 
   // ========== 待办列表 ==========
   // 跟进中的异常事件 + 处置中的设备故障（真正需要持续处理的两类记录），

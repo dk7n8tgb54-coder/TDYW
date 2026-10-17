@@ -68,7 +68,6 @@ function makeDetail(status = 'draft', values = {}, editable = status === 'draft'
     ledger_no: 'EL-WM-20260928-001',
     ledger_type: 'week_month',
     executed_date: '2026-09-28',
-    executor_names: '验收人',
     status,
     created_from: 'excel_template',
     excel: {
@@ -145,7 +144,7 @@ afterEach(() => {
 test('列表渲染 Excel 台账与模板版本信息', async () => {
   mockHttpGet.mockResolvedValue({data: {
     data: [{id: 33, ledger_no: 'EL-WM-20260928-001', ledger_type: 'week_month',
-            executed_date: '2026-09-28', executor_names: '验收人', status: 'draft',
+            executed_date: '2026-09-28', status: 'draft',
             excel: {version_no: 1, template_name: '信道Excel维护台账'}}],
     total: 1, page: 1, page_size: 20,
   }});
@@ -177,12 +176,12 @@ test('创建台账：加载可用版本并提交正确载荷', async () => {
   await act(async () => {
     await store.createLedger({
       version_id: 5, executed_date: '2026-09-28',
-      executor_names: '验收人', ledger_type: 'week_month',
+      ledger_type: 'week_month',
       client_token: 'excel-5-20260928',
     });
   });
   expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-ledgers/', {
-    version_id: 5, executed_date: '2026-09-28', executor_names: '验收人',
+    version_id: 5, executed_date: '2026-09-28',
     ledger_type: 'week_month', client_token: 'excel-5-20260928',
   });
 });
@@ -210,24 +209,24 @@ test('草稿详情：绑定单元格渲染输入控件并保存填写值', async
   expect(message.success).toHaveBeenCalledWith('填写值已保存');
 });
 
-test('提交：必填未填拦截不发请求，填写齐全后提交成功', async () => {
+test('完成填写：必填未填拦截不发请求，填写齐全后完成成功', async () => {
   mockHttpGet.mockResolvedValue({data: makeDetail('draft')});
   store.applyDetail({data: makeDetail('draft')});
   await renderPage();
-  // 必填未填 → warning，无请求
+  // 必填未填 → warning，无请求（主操作按钮为"完成填写"）
   await act(async () => {
-    buttonByText('提交').click();
+    buttonByText('完成填写').click();
   });
   expect(message.warning).toHaveBeenCalledWith(expect.stringContaining('必填字段未填写'));
   expect(mockHttpPost).not.toHaveBeenCalled();
-  // 填齐后提交
+  // 填齐后完成填写
   store.applyDetail({data: makeDetail('draft', {[FIELD_PS]: '正常'})});
-  mockHttpPost.mockResolvedValue({data: makeDetail('submitted', {[FIELD_PS]: '正常'}, false)});
+  mockHttpPost.mockResolvedValue({data: makeDetail('completed', {[FIELD_PS]: '正常'}, false)});
   await act(async () => {
-    await store.submit();
+    await store.complete();
   });
-  expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-ledgers/33/submit/');
-  expect(message.success).toHaveBeenCalledWith('台账已提交');
+  expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-ledgers/33/complete/');
+  expect(message.success).toHaveBeenCalledWith('已完成填写');
 });
 
 test('历史详情只读回放：无输入控件、展示当时填写值', async () => {
@@ -238,9 +237,9 @@ test('历史详情只读回放：无输入控件、展示当时填写值', async
   expect(container.querySelector('td[data-coord="H3"] input')).toBeNull();
   expect(container.querySelector('td[data-coord="C3"]').textContent).toContain('正常');
   expect(container.querySelector('td[data-coord="H3"]').textContent).toContain('测试完成');
-  // 只读态没有保存/提交按钮
-  expect(buttonByText('保存填写值')).toBeUndefined();
-  expect(buttonByText('提交')).toBeUndefined();
+  // 只读态没有保存/完成按钮
+  expect(buttonByText('保存草稿')).toBeUndefined();
+  expect(buttonByText('完成填写')).toBeUndefined();
   expect(buttonByText('复核')).toBeUndefined();
 });
 
@@ -310,17 +309,18 @@ test('导出 PDF 预检有提示时先确认，确认后继续导出', async () 
   }));
 });
 
-test('复核沿用既有台账端点并重取 Excel 详情', async () => {
-  store.applyDetail({data: makeDetail('submitted', {[FIELD_PS]: '正常'}, false)});
+test('已完成台账作废沿用既有台账端点并重取 Excel 详情', async () => {
+  store.applyDetail({data: makeDetail('completed', {[FIELD_PS]: '正常'}, false)});
   await renderPage();
   mockHttpPost.mockResolvedValue({data: {data: {id: 33}}});
-  mockHttpGet.mockResolvedValue({data: makeDetail('reviewed', {[FIELD_PS]: '正常'}, false)});
+  mockHttpGet.mockResolvedValue({data: makeDetail('void', {[FIELD_PS]: '正常'}, false)});
   await act(async () => {
-    await store.review();
+    await store.voidLedger('数据有误需重做');
   });
-  expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/ledgers/33/review/');
+  expect(mockHttpPost).toHaveBeenCalledWith(
+    '/api/equipment-lifecycle/ledgers/33/void/', {reason: '数据有误需重做'});
   expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-ledgers/33/');
-  expect(store.detail.status).toBe('reviewed');
+  expect(store.detail.status).toBe('void');
 });
 
 test('一键正常：仅填充未填写的正常/异常格，文本格不参与', async () => {

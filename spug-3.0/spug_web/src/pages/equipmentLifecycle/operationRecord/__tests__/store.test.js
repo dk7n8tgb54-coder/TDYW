@@ -9,6 +9,12 @@
  * 2026-10-14 体验二轮：列表/待办/统计失败置失败标记（页面据此提示重试，
  * 不把旧结果冒充新查询结果）；待办带分页与分组筛选参数；导出参数与
  * 列表筛选完全一致。
+ * 2026-10-15 体验三轮：系统页签筛选收进 store（查询/重置/翻页/重试同一组
+ * 条件），换系统重置条件；详情动作/删除后页签在位时联动刷新不显示过期行。
+ * 2026-10-15 体验四轮：关键词输入草稿与已执行条件分离（列表/导出/联动刷新
+ * 只用已执行条件，导出范围文案按已执行条件逐项列出）；详情加载失败置
+ * detailError、重试保持当前记录与页签；快速切换记录时旧详情/旧附件的迟到
+ * 响应与迟到失败不覆盖新记录。
  */
 const mockHttpGet = jest.fn();
 const mockHttpPost = jest.fn();
@@ -45,6 +51,11 @@ function loadStore() {
     store = require('../store').default;
   });
   return store;
+}
+
+// 等待在途微任务/宏任务（showDetail 派发的并发请求等）
+function flush() {
+  return new Promise(resolve => setTimeout(resolve, 0));
 }
 
 describe('运行处置记录 Store——列表/表单/动作端点', () => {
@@ -128,11 +139,112 @@ describe('运行处置记录 Store——列表/表单/动作端点', () => {
     expect(mockHttpDelete).toHaveBeenCalledWith('/api/equipment-lifecycle/records/9/');
   });
 
-  it('系统详情页签请求 systems/<id>/records/ 并透传筛选', async () => {
+  it('删除成功后系统页签在位时联动刷新（不显示过期行）', async () => {
     const store = loadStore();
-    await store.fetchSystemRecords(7, {record_type: 'abnormal'});
+    store.detailId = 9;
+    store.systemRecordsSystemId = 7;
+    await store.deleteRecord();
     expect(mockHttpGet).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/systems/7/records/', {params: {record_type: 'abnormal'}});
+      '/api/equipment-lifecycle/systems/7/records/', expect.anything());
+  });
+});
+
+describe('运行处置记录 Store——系统页签筛选与联动刷新（2026-10-15）', () => {
+  it('请求 systems/<id>/records/ 携带筛选/分页，失败置标记成功清除', async () => {
+    const store = loadStore();
+    // 首次进入系统 7（换系统重置）：只携带分页参数
+    await store.fetchSystemRecords(7, 2);
+    expect(mockHttpGet).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/systems/7/records/',
+      {params: {page: 2, page_size: 10}});
+    // 同一系统内设置筛选后刷新（无参调用）：全量筛选参数生效
+    store.sf_keyword = 'UPS';
+    store.sf_status = 'handling';
+    store.sf_record_type = 'fault';
+    store.sf_category = 'signal';
+    store.sf_occurred_range = [
+      moment('2026-10-01 00:00'), moment('2026-10-14 10:30')];
+    await store.fetchSystemRecords();
+    expect(mockHttpGet).toHaveBeenLastCalledWith(
+      '/api/equipment-lifecycle/systems/7/records/',
+      {params: {
+        page: 2, page_size: 10, keyword: 'UPS', status: 'handling',
+        record_type: 'fault', category: 'signal',
+        occurred_from: '2026-10-01 00:00', occurred_to: '2026-10-14 10:30',
+      }});
+    mockHttpGet.mockRejectedValueOnce('boom');
+    await store.fetchSystemRecords();
+    expect(store.systemRecordsError).toBe(true);
+    await store.fetchSystemRecords();
+    expect(store.systemRecordsError).toBe(false);
+  });
+
+  it('换系统进入重置筛选与页码；重试/联动刷新沿用同一组条件', async () => {
+    const store = loadStore();
+    store.sf_keyword = 'UPS';
+    store.systemRecordsPage = 3;
+    // 首次进入系统 7（从无到有）：重置筛选与页码
+    await store.fetchSystemRecords(7);
+    expect(mockHttpGet).toHaveBeenLastCalledWith(
+      '/api/equipment-lifecycle/systems/7/records/',
+      {params: {page: 1, page_size: 10}});
+    // 同一系统内设置条件后翻页，重试（无参调用）沿用同组条件与页码
+    store.sf_status = 'handling';
+    await store.fetchSystemRecords(undefined, 2);
+    expect(mockHttpGet).toHaveBeenLastCalledWith(
+      '/api/equipment-lifecycle/systems/7/records/',
+      {params: {page: 2, page_size: 10, status: 'handling'}});
+    await store.fetchSystemRecords();
+    expect(mockHttpGet).toHaveBeenLastCalledWith(
+      '/api/equipment-lifecycle/systems/7/records/',
+      {params: {page: 2, page_size: 10, status: 'handling'}});
+    // 换到系统 8：筛选与页码全部重置
+    await store.fetchSystemRecords(8);
+    expect(mockHttpGet).toHaveBeenLastCalledWith(
+      '/api/equipment-lifecycle/systems/8/records/',
+      {params: {page: 1, page_size: 10}});
+  });
+
+  it('refreshSystemRecordsIfActive：页签在位时以当前条件刷新，未在位不请求', async () => {
+    const store = loadStore();
+    await store.refreshSystemRecordsIfActive();
+    expect(mockHttpGet).not.toHaveBeenCalled();
+    // 进入系统 7 后设置条件，联动刷新沿用同组条件与页码
+    await store.fetchSystemRecords(7, 1);
+    store.sf_keyword = 'UPS';
+    mockHttpGet.mockClear();
+    await store.refreshSystemRecordsIfActive();
+    expect(mockHttpGet).toHaveBeenCalledTimes(1);
+    expect(mockHttpGet).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/systems/7/records/',
+      {params: {page: 1, page_size: 10, keyword: 'UPS'}});
+    store.clearSystemRecords();
+    expect(store.systemRecordsSystemId).toBe(null);
+    expect(store.systemRecords).toEqual([]);
+    mockHttpGet.mockClear();
+    await store.refreshSystemRecordsIfActive();
+    expect(mockHttpGet).not.toHaveBeenCalled();
+  });
+
+  it('详情状态动作成功后系统页签在位时联动刷新', async () => {
+    const store = loadStore();
+    store.detailId = 9;
+    store.systemRecordsSystemId = 7;
+    await store.completeFollowUp({});
+    expect(mockHttpPost).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/records/9/complete/', {});
+    expect(mockHttpGet).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/systems/7/records/', expect.anything());
+  });
+
+  it('systemHasActiveFilter 区分系统无记录与筛选后无匹配', async () => {
+    const store = loadStore();
+    expect(store.systemHasActiveFilter).toBe(false);
+    store.sf_keyword = 'UPS';
+    expect(store.systemHasActiveFilter).toBe(true);
+    store.resetSystemFilter();
+    expect(store.systemHasActiveFilter).toBe(false);
+    expect(store.systemRecordsPage).toBe(1);
   });
 });
 
@@ -192,5 +304,208 @@ describe('运行处置记录 Store——待办分页/失败标记/导出参数�
     store.resetFilter();
     expect(store.hasActiveFilter).toBe(false);
     expect(store.getExportParams()).toEqual({});
+  });
+});
+
+describe('运行处置记录 Store——关键词草稿与已执行条件分离（2026-10-15）', () => {
+  it('输入未查询不进列表/导出；查询提交后转正并回第 1 页；翻页不改导出条件', async () => {
+    const store = loadStore();
+    // 输入未查询：草稿与已执行条件分离，列表与导出均不使用
+    store.setKeywordInput('UPS');
+    expect(store.input_keyword).toBe('UPS');
+    expect(store.f_keyword).toBeUndefined();
+    await store.fetchRecords();
+    expect(mockHttpGet.mock.calls[0][1].params).not.toHaveProperty('keyword');
+    expect(store.getExportParams()).toEqual({});
+    expect(store.exportScopeText).toBe('导出范围：全部未撤销记录');
+    // 查询提交（查询按钮/回车共用）：草稿转正，列表与导出同一关键词
+    store.page = 3;
+    await store.commitKeyword();
+    expect(store.f_keyword).toBe('UPS');
+    expect(store.page).toBe(1);
+    expect(mockHttpGet).toHaveBeenLastCalledWith(
+      '/api/equipment-lifecycle/records/',
+      {params: {page: 1, page_size: 20, keyword: 'UPS'}});
+    expect(store.getExportParams()).toMatchObject({keyword: 'UPS'});
+    // 翻页不改变导出条件（分页不参与导出参数）
+    store.page = 2;
+    expect(store.getExportParams()).toMatchObject({keyword: 'UPS'});
+    expect(store.getExportParams()).not.toHaveProperty('page');
+    // 清空输入后提交：已执行关键词随之清除
+    store.setKeywordInput('');
+    await store.commitKeyword();
+    expect(store.f_keyword).toBeUndefined();
+    expect(store.getExportParams()).toEqual({});
+  });
+
+  it('重置同时清除关键词草稿与已执行条件', () => {
+    const store = loadStore();
+    store.setKeywordInput('UPS');
+    store.f_keyword = 'UPS';
+    store.page = 2;
+    store.resetFilter();
+    expect(store.input_keyword).toBe('');
+    expect(store.f_keyword).toBeUndefined();
+    expect(store.page).toBe(1);
+  });
+
+  it('导出范围文案逐项列出已执行条件，不含输入中的草稿', () => {
+    const store = loadStore();
+    expect(store.exportScopeText).toBe('导出范围：全部未撤销记录');
+    store.f_system = 7;
+    store.systems = [{id: 7, name: 'DVOR系统'}];
+    store.f_keyword = 'UPS';
+    store.f_status = 'handling';
+    store.f_record_type = 'fault';
+    store.f_category = 'signal';
+    store.f_occurred_range = [
+      moment('2026-10-01 00:00'), moment('2026-10-14 10:30')];
+    const text = store.exportScopeText;
+    expect(text).toContain('当前查询条件');
+    expect(text).toContain('关键词「UPS」');
+    expect(text).toContain('系统「DVOR系统」');
+    expect(text).toContain('状态「处置中」');
+    expect(text).toContain('类型「设备故障」');
+    expect(text).toContain('异常类别「信号异常」');
+    expect(text).toContain('2026-10-01 00:00');
+    expect(text).toContain('2026-10-14 10:30');
+    expect(text).toContain('分页不影响');
+    // 输入中的草稿不出现在文案里
+    store.setKeywordInput('未查询草稿');
+    expect(store.exportScopeText).not.toContain('未查询草稿');
+  });
+
+  it('系统页签关键词草稿与已执行条件分离；换系统连草稿一并重置', async () => {
+    const store = loadStore();
+    // 页签挂载先建立系统上下文（componentDidMount 路径）
+    await store.fetchSystemRecords(7);
+    store.setSystemKeywordInput('UPS');
+    expect(store.sf_input_keyword).toBe('UPS');
+    expect(store.sf_keyword).toBeUndefined();
+    // 查询提交：草稿转正并回第 1 页
+    await store.querySystemRecords(7);
+    expect(store.sf_keyword).toBe('UPS');
+    expect(store.systemRecordsPage).toBe(1);
+    expect(mockHttpGet).toHaveBeenLastCalledWith(
+      '/api/equipment-lifecycle/systems/7/records/',
+      {params: {page: 1, page_size: 10, keyword: 'UPS'}});
+    // 输入未查询：联动刷新（无参取数）只用已执行条件
+    store.setSystemKeywordInput('未查询');
+    mockHttpGet.mockClear();
+    await store.fetchSystemRecords();
+    expect(mockHttpGet).toHaveBeenLastCalledWith(
+      '/api/equipment-lifecycle/systems/7/records/',
+      {params: {page: 1, page_size: 10, keyword: 'UPS'}});
+    // 换系统：条件与草稿一并重置
+    await store.fetchSystemRecords(8);
+    expect(store.sf_input_keyword).toBe('');
+    expect(store.sf_keyword).toBeUndefined();
+  });
+});
+
+describe('运行处置记录 Store——详情加载失败/重试/竞态（2026-10-15）', () => {
+  it('详情加载失败置 detailError、重试成功清除并写入详情本体', async () => {
+    const store = loadStore();
+    mockHttpGet.mockRejectedValueOnce('boom');
+    await store.showDetail(11);
+    await flush();
+    expect(store.detailError).toBe(true);
+    expect(store.isDetailFetching).toBe(false);
+    expect(store.detailId).toBe(11);
+    // 重试成功：清除失败标记并写入详情本体
+    mockHttpGet.mockResolvedValueOnce({id: 11, record_no: 'JL-11'});
+    await store.retryDetailLoad();
+    expect(store.detailError).toBe(false);
+    expect(store.detail).toMatchObject({id: 11, record_no: 'JL-11'});
+  });
+
+  it('重试保持当前记录与目标页签，重发详情/进展/附件请求', async () => {
+    const store = loadStore();
+    await store.showDetail(11);
+    await flush();
+    store.setActiveTab('progress');
+    mockHttpGet.mockClear();
+    mockHttpGet.mockResolvedValue({id: 11, record_no: 'JL-11'});
+    await store.retryDetailLoad();
+    expect(store.detailId).toBe(11);
+    expect(store.activeTab).toBe('progress');
+    expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/records/11/');
+    expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/records/11/progress/');
+    expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/records/11/attachments/');
+  });
+
+  it('切换记录重开详情时重置失败标记', async () => {
+    const store = loadStore();
+    mockHttpGet.mockRejectedValueOnce('boom');
+    await store.showDetail(11);
+    await flush();
+    expect(store.detailError).toBe(true);
+    await store.showDetail(12);
+    await flush();
+    expect(store.detailError).toBe(false);
+    expect(store.detailId).toBe(12);
+  });
+
+  it('快速切换记录：旧详情迟到成功响应不覆盖新详情', async () => {
+    const store = loadStore();
+    let resolveA;
+    mockHttpGet.mockImplementation((url) => {
+      if (url.endsWith('/progress/') || url.endsWith('/attachments/')) {
+        return Promise.resolve({data: [], total: 0});
+      }
+      if (url.endsWith('/records/11/')) {
+        return new Promise((resolve) => { resolveA = resolve; });
+      }
+      return Promise.resolve({id: 12, record_no: 'JL-12'});
+    });
+    await store.showDetail(11);
+    await store.showDetail(12);
+    await flush();
+    expect(store.detail.record_no).toBe('JL-12');
+    resolveA({id: 11, record_no: 'JL-11'});
+    await flush();
+    expect(store.detail.record_no).toBe('JL-12');
+    expect(store.detailError).toBe(false);
+  });
+
+  it('快速切换记录：旧详情迟到失败不置失败标记、不覆盖新详情', async () => {
+    const store = loadStore();
+    let rejectA;
+    mockHttpGet.mockImplementation((url) => {
+      if (url.endsWith('/progress/') || url.endsWith('/attachments/')) {
+        return Promise.resolve({data: [], total: 0});
+      }
+      if (url.endsWith('/records/11/')) {
+        return new Promise((_, reject) => { rejectA = reject; });
+      }
+      return Promise.resolve({id: 12, record_no: 'JL-12'});
+    });
+    await store.showDetail(11);
+    await store.showDetail(12);
+    await flush();
+    rejectA(new Error('late boom'));
+    await flush();
+    expect(store.detailError).toBe(false);
+    expect(store.detail.record_no).toBe('JL-12');
+  });
+
+  it('快速切换记录：旧记录附件迟到响应不覆盖新记录附件', async () => {
+    const store = loadStore();
+    let resolveOld;
+    mockHttpGet.mockImplementation((url) => {
+      if (url.endsWith('/records/11/attachments/')) {
+        return new Promise((resolve) => { resolveOld = resolve; });
+      }
+      if (url.endsWith('/records/12/attachments/')) {
+        return Promise.resolve({data: [{id: 2, file_name: '新附件'}]});
+      }
+      return Promise.resolve({data: [], total: 0});
+    });
+    await store.showDetail(11);
+    await store.showDetail(12);
+    await flush();
+    resolveOld({data: [{id: 1, file_name: '旧附件'}]});
+    await flush();
+    expect(store.attachments).toEqual([{id: 2, file_name: '新附件'}]);
   });
 });

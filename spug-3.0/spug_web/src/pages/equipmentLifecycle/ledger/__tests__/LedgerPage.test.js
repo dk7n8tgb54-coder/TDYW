@@ -88,7 +88,7 @@ const LEDGERS_PAYLOAD = {
     {
       id: 1, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month',
       executed_date: '2026-09-10', status: 'submitted',
-      executor_names: '王五', created_by_name: 'op1', created_at: '2026-09-11 09:00',
+      created_by_name: 'op1', created_at: '2026-09-11 09:00',
     },
   ],
   total: 1, page: 1, page_size: 20,

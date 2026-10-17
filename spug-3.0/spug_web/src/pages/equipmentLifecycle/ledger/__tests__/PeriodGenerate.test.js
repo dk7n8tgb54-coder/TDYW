@@ -100,9 +100,17 @@ const PREVIEW_PAYLOAD = {
      system_code: '', generation_period: '', generation_period_text: '待配置',
      maintenance_period: '', period_text: '', version_id: null, version_no: null,
      status: 'manual_needed', reason: '模板待配置：适用系统、生成周期'
-       + '（历史模板不自动推断，请在模板管理中配置）', existing_ledger: null},
+       + '（历史模板不自动推断，请在模板管理中配置）', existing_ledger: null,
+     rebuildable: false},
+    {template_id: 12, template_name: '作废占用模板', system_id: 5, system_name: 'VOR系统',
+     system_code: 'SYS-5', generation_period: 'weekly', generation_period_text: '每周',
+     maintenance_period: '2026-10-12', period_text: '2026-10-12 ~ 2026-10-18',
+     version_id: 17, version_no: 1, status: 'manual_needed',
+     reason: '该期次已存在已作废台账 EL-WM-20261012-0009，不在一键生成中重建；确需重做请使用补建操作',
+     existing_ledger: {id: 95, ledger_no: 'EL-WM-20261012-0009', status: 'void'},
+     rebuildable: true},
   ],
-  summary: {create: 1, exists: 1, no_version: 1, manual_needed: 1},
+  summary: {create: 1, exists: 1, no_version: 1, manual_needed: 2},
 };
 
 const GENERATE_RESULT = {
@@ -159,8 +167,8 @@ describe('LedgerStore 生成预览与生成', () => {
     expect(mockHttpGet).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/ledgers/period-generate/',
       {params: {ledger_type: 'week_month'}});
-    expect(preview.summary).toEqual({create: 1, exists: 1, no_version: 1, manual_needed: 1});
-    expect(store.generatePreview.entries).toHaveLength(4);
+    expect(preview.summary).toEqual({create: 1, exists: 1, no_version: 1, manual_needed: 2});
+    expect(store.generatePreview.entries).toHaveLength(5);
     expect(store.isGenerateFetching).toBe(false);
   });
 
@@ -241,6 +249,28 @@ describe('LedgerPeriodGenerateModal 预览与生成弹窗', () => {
     expect(text).toContain('缺少可用版本：模板尚未发布任何版本');
     expect(mockHttpPost).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/ledgers/period-generate/', {ledger_type: 'week_month'});
+  });
+
+  test('作废占用的槽位提供"补建"（2026-10-16），补建后重拉预览刷新判定', async () => {
+    mockHttpGet.mockResolvedValue({data: PREVIEW_PAYLOAD});
+    const store = new LedgerStore('week_month');
+    await renderModal(store);
+    // 待配置条目不可补建；作废占用条目提供补建按钮
+    const rebuild = document.body.querySelector('[data-testid="period-rebuild"]');
+    expect(rebuild).toBeTruthy();
+    mockHttpPost.mockResolvedValue({data: {id: 102, ledger_no: 'EL-WM-20261012-0010'}});
+    // 补建成功后重拉预览（返回已无作废占用的口径）
+    mockHttpGet.mockResolvedValue({data: {...PREVIEW_PAYLOAD, entries:
+      PREVIEW_PAYLOAD.entries.filter(e => !e.rebuildable),
+      summary: {create: 1, exists: 1, no_version: 1, manual_needed: 1}}});
+    await act(async () => {
+      rebuild.click();
+    });
+    await act(flush);
+    expect(mockHttpPost).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/ledgers/period-generate/rebuild/', {template_id: 12});
+    // 预览重拉后补建按钮消失（该槽位已重建）
+    expect(document.body.querySelector('[data-testid="period-rebuild"]')).toBeNull();
   });
 });
 

@@ -49,12 +49,12 @@ describe('LedgerStore', () => {
     expect(store.total).toBe(1);
   });
 
-  test('submitLedger 调用提交动作接口并在成功后重新获取列表', async () => {
-    mockHttpPost.mockResolvedValue({});
+  test('deleteLedger 调用物理删除接口并在成功后重新获取列表', async () => {
+    mockHttpDelete.mockResolvedValue({});
     mockHttpGet.mockResolvedValue({data: [], total: 0});
     const store = new LedgerStore(LEDGER_TYPE.SEASONAL);
-    await store.submitLedger(9);
-    expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/ledgers/9/submit/', {});
+    await store.deleteLedger(9);
+    expect(mockHttpDelete).toHaveBeenCalledWith('/api/equipment-lifecycle/ledgers/9/');
     await flush();
     expect(mockHttpGet).toHaveBeenCalled();
   });
@@ -181,14 +181,14 @@ describe('LedgerStore 模板分组视图（2026-10-11）', () => {
     expect(mockHttpGet.mock.calls[3][0]).toBe(GROUPS_URL + '7/ledgers/');
   });
 
-  test('组内视图提交台账后刷新组内列表而非周期分组', async () => {
-    mockHttpPost.mockResolvedValue({});
+  test('组内视图删除台账后刷新组内列表而非周期分组', async () => {
+    mockHttpDelete.mockResolvedValue({});
     const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
     store.viewMode = 'template';
     store.activeGroup = {group_key: '7', group_name: 'T'};
-    await store.submitLedger(5);
-    expect(mockHttpPost.mock.calls[0][0]).toBe(
-      '/api/equipment-lifecycle/ledgers/5/submit/');
+    await store.deleteLedger(5);
+    expect(mockHttpDelete.mock.calls[0][0]).toBe(
+      '/api/equipment-lifecycle/ledgers/5/');
     expect(mockHttpGet.mock.calls[0][0]).toBe(GROUPS_URL + '7/ledgers/');
   });
 

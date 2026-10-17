@@ -47,8 +47,9 @@ from apps.equipment_lifecycle.operation_views import (
     _record_detail_response,
 )
 
-# 台账异常明细可转故障的台账状态（草稿/退回/作废不可转）
-CONVERTIBLE_LEDGER_STATUSES = ('submitted', 'reviewed')
+# 台账异常明细可转故障的台账状态（新流程=已完成；草稿/退回/作废不可转；
+# 旧流程历史状态 已提交/已复核 存量兼容）
+CONVERTIBLE_LEDGER_STATUSES = ('completed', 'submitted', 'reviewed')
 
 
 def _item_value_text(item):

@@ -20,16 +20,15 @@ const COUNT_ITEMS = [
   ['expected', '应填', '本期按模板配置应填写的台账数（可生成 + 已存在）'],
   ['to_generate', '待生成', '尚未生成、可一键生成的数量（依据模板生成规则计算）'],
   ['drafting', '待填写', '本期已有台账中处于草稿的数量'],
-  ['returned', '已退回', '本期已有台账中被退回待处理的数量'],
-  ['completed', '已完成', '本期已提交与已复核的数量'],
-  ['voided', '已作废', '本期已作废的数量'],
+  ['completed', '已完成', '本期已完成填写（含旧流程已提交/已复核历史台账）的数量'],
+  ['voided', '已作废', '本期已作废的数量（不自动重建，需人工处理或补建）'],
   ['attention', '需处理', '缺少版本/系统停用/作废或历史草稿占用，需人工处理的槽位'],
 ];
 
 function countColor(key, value) {
   if (!value) return '#999';
   if (key === 'to_generate') return '#1890ff';
-  if (key === 'returned' || key === 'attention') return '#fa8c16';
+  if (key === 'attention') return '#fa8c16';
   return '#333';
 }
 

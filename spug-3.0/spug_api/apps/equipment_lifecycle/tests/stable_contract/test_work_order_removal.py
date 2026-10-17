@@ -77,7 +77,7 @@ class WorkOrderApiRemovedTest(WorkOrderRemovalTestBase):
             ]),
         ]))
         ledger_id, item_id = body['id'], body['items'][0]['id']
-        self.client.post(f'{LEDGER_URL}/{ledger_id}/submit/', {},
+        self.client.post(f'{LEDGER_URL}/{ledger_id}/complete/', {},
                          content_type='application/json')
         resp = self.client.post(
             f'{LEDGER_URL}/{ledger_id}/items/{item_id}/convert-to-work-order/',

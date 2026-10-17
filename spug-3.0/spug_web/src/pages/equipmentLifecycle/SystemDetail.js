@@ -105,6 +105,8 @@ class SystemDetail extends React.Component {
         title={this.renderTitle()}
         visible={store.detailVisible}
         width={1100}
+        /* 窄屏不超出视口（与运行处置记录统一详情窗口同款约束） */
+        style={{maxWidth: 'calc(100vw - 24px)'}}
         centered
         destroyOnClose
         onCancel={() => store.closeDetail()}

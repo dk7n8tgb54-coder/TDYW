@@ -191,8 +191,8 @@ describe('升级中心页签外壳', () => {
     });
     expect(activeTabLabel()).toBe('升级方案');
     expect(container.textContent).toContain('升级方案管理');
-    // 升级表单页搜索区（"时间范围"）已随页签卸载
-    expect(container.textContent).not.toContain('时间范围');
+    // 升级表单页搜索区（"计划升级时间"筛选）已随页签卸载
+    expect(container.textContent).not.toContain('计划升级时间');
     // 页签状态写入 URL
     expect(mockHistoryReplace).toHaveBeenCalledWith('/upgrade?tab=plans');
 
@@ -201,7 +201,7 @@ describe('升级中心页签外壳', () => {
       await flush();
     });
     expect(activeTabLabel()).toBe('升级表单');
-    expect(container.textContent).toContain('时间范围');
+    expect(container.textContent).toContain('计划升级时间');
     expect(mockHistoryReplace).toHaveBeenCalledWith('/upgrade?tab=records');
     // 切回后升级表单页重新挂载并请求列表
     const called = mockHttpGet.mock.calls.map(c => c[0]);

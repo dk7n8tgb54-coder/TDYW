@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Table, Modal, message, DatePicker, Badge } from 'antd';
+import { Table, Modal, message, DatePicker, Badge, Tooltip, Button } from 'antd';
 import { PlusOutlined, PaperClipOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
 import { Action, TableCard, AuthButton, ExportButton } from "components";
@@ -63,12 +63,14 @@ class ComTable extends React.Component {
             type="primary"
             icon={<PlusOutlined/>}
             onClick={() => store.showCreateForm()}>新建</AuthButton>,
-          <span key="date-range-picker" style={{ marginRight: 8 }}>
+          // 导出专用日期范围（独立于列表筛选时间，语义见 store.getExportParams）
+          <span key="date-range-picker" style={{ marginRight: 8, display: 'inline-flex', alignItems: 'center' }}>
+            <span style={{ color: '#666', fontSize: 13, marginRight: 6 }}>导出日期</span>
             <DatePicker.RangePicker
               placeholder={['开始日期', '结束日期']}
               value={store.f_export_date_range}
               onChange={(dates) => store.f_export_date_range = dates}
-              style={{ width: 280 }}
+              style={{ width: 260 }}
             />
           </span>,
           <ExportButton
@@ -92,10 +94,23 @@ class ComTable extends React.Component {
           },
         }}>
         <Table.Column title="编号" dataIndex="upgrade_no" width={140}/>
-        <Table.Column title="标题" dataIndex="title" width={200}/>
+        <Table.Column title="标题" dataIndex="title" width={220}
+          ellipsis={{showTitle: false}}
+          render={(text, record) => (
+            <Tooltip title={text} placement="topLeft">
+              {/* 单击标题进入工作台（查看用户可用）；行双击入口保留 */}
+              <Button type="link" style={{padding: 0, maxWidth: '100%', verticalAlign: 'bottom'}}
+                onClick={() => history.push(`/upgrade/workbench/${record.id}`)}>
+                <span style={{
+                  display: 'inline-block', maxWidth: '100%', overflow: 'hidden',
+                  textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'bottom',
+                }}>{text}</span>
+              </Button>
+            </Tooltip>
+          )}/>
         <Table.Column title="系统" dataIndex="system_name" width={120}/>
         <Table.Column title="升级类型" dataIndex="upgrade_type" width={100}/>
-        <Table.Column title="升级时间" dataIndex="upgrade_time" width={180}/>
+        <Table.Column title="计划升级时间" dataIndex="upgrade_time" width={160}/>
         <Table.Column title="状态" dataIndex="status" width={100} render={(text) => <StatusTag status={text}/>}/>
         <Table.Column title="负责人" dataIndex="owner" width={100}/>
         <Table.Column title="附件" width={60} render={this.renderAttachmentCount}/>

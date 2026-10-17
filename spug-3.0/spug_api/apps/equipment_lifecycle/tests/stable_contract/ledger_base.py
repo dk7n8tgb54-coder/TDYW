@@ -60,7 +60,6 @@ def ledger_payload(entries, **kwargs):
         'executed_date': '2026-09-10',
         'executed_start': '2026-09-10 09:00',
         'executed_end': '2026-09-10 11:00',
-        'executor_names': '王五、赵六',
         'created_from': 'manual',
         'client_token': '',
         'entries': entries,

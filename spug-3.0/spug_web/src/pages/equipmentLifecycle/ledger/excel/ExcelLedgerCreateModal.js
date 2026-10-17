@@ -8,21 +8,20 @@
  * - 只加载当前台账类型对应的已发布 Excel 模板版本（available 接口已过滤
  *   停用模板与无发布版本模板），前端按 ledger_type 再过滤一道；
  * - 展示模板名称、版本号、字段数量、源文件名；选择版本后填写实际执行
- *   日期与执行人，经 excelLedgerStore.createLedger 调用既有
+ *   日期，经 excelLedgerStore.createLedger 调用既有
  *   POST /excel-ledgers/ 创建（client_token 幂等，后端二次校验模板
  *   类型/发布状态/启用状态/权限/租户归属）；
  * - 创建成功回调 onCreated（store 已持有详情，调用方切换到详情视图）。
  */
 import React, {useEffect, useState} from 'react';
 import {observer} from 'mobx-react';
-import {DatePicker, Input, Modal, Select, message} from 'antd';
+import {DatePicker, Modal, Select, message} from 'antd';
 import moment from 'moment';
 import {LEDGER_TYPE_TEXT} from '../constants';
 
 function ExcelLedgerCreateModal({visible, ledgerType, store, onCancel, onCreated}) {
   const [versionId, setVersionId] = useState(undefined);
   const [executedDate, setExecutedDate] = useState(moment());
-  const [executorNames, setExecutorNames] = useState('');
   const [clientToken, setClientToken] = useState('');
 
   useEffect(() => {
@@ -30,7 +29,6 @@ function ExcelLedgerCreateModal({visible, ledgerType, store, onCancel, onCreated
     if (!visible) return;
     setVersionId(undefined);
     setExecutedDate(moment());
-    setExecutorNames('');
     setClientToken(`elf_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
     store.fetchAvailable(ledgerType).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -54,7 +52,6 @@ function ExcelLedgerCreateModal({visible, ledgerType, store, onCancel, onCreated
     store.createLedger({
       version_id: versionId,
       executed_date: executedDate.format('YYYY-MM-DD'),
-      executor_names: executorNames,
       ledger_type: ledgerType,
       client_token: clientToken,
     }).then(() => {
@@ -88,10 +85,6 @@ function ExcelLedgerCreateModal({visible, ledgerType, store, onCancel, onCreated
       <DatePicker data-testid="excel-create-date" style={{width: '100%'}}
                   value={executedDate}
                   onChange={value => setExecutedDate(value)}/>
-      <div style={{marginBottom: 10, marginTop: 12}}>执行人</div>
-      <Input data-testid="excel-create-executor" maxLength={200} placeholder="多人以顿号分隔"
-             value={executorNames}
-             onChange={e => setExecutorNames(e.target.value)}/>
     </Modal>
   );
 }

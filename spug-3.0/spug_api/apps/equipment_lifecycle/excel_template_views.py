@@ -8,7 +8,8 @@
 - equipment_lifecycle.ledger_template.add：上传创建模板（含重新上传草稿）
 - equipment_lifecycle.ledger_template.edit：保存绑定 / 发布版本 /
   保存 PDF 打印参数 / 保存生成配置（适用系统+生成周期，2026-10-14）
-- equipment_lifecycle.ledger_template.del：删除模板（逻辑删除/停用，幂等）
+- equipment_lifecycle.ledger_template.del：停用模板 / 删除模板（删除时
+  后端重新检查引用关系）
 
 约定：
 - View 层只做参数解析、权限检查、调用 Service、组装响应；解析/校验/
@@ -102,7 +103,7 @@ class ExcelTemplateView(View):
 
 
 class ExcelTemplateDetailView(View):
-    """模板详情（含草稿布局与绑定，供绑定工作区恢复）；DELETE 为逻辑删除。"""
+    """模板详情（含草稿布局与绑定，供绑定工作区恢复）；DELETE 为物理删除。"""
 
     @auth(PERM_TPL_VIEW)
     def get(self, request, pk):
@@ -111,22 +112,48 @@ class ExcelTemplateDetailView(View):
             return json_response(error='Excel台账模板不存在')
         return json_response({'data': excel_template_manage.template_detail(template)})
 
+    @_na
     @auth(PERM_TPL_DEL)
     def delete(self, request, pk):
-        """删除模板（逻辑删除/停用，幂等）；版本与历史台账全部保留。
+        """物理删除模板（未发布模板、已发布且无台账引用的模板可删除）。
 
-        不存在与跨租户统一返回"模板不存在或无权限访问"；重复删除不报错、
-        不重复记审计（仅实际发生停用变更时记录 delete 事件）。
+        引用关系在服务层行锁内重新检查（不依赖前端隐藏按钮）：任一版本
+        仍被台账引用（含已作废台账）时返回业务错误；数据库行删除提交后
+        清理草稿与版本物理文件。不存在与跨租户统一返回
+        "模板不存在或无权限访问"。
         """
         template = _get_template_or_none(pk, request.user)
         if not template:
             return json_response(error='模板不存在或无权限访问')
-        template, deleted_now = excel_template_manage.delete_template(
+        try:
+            info = excel_template_manage.destroy_template(request.user, template)
+        except ExcelTemplateError as e:
+            return json_response(error=str(e))
+        record_audit_event(
+            request, 'delete', AUDIT_TARGET, info['id'], info['name'],
+            after_value={'action_kind': 'destroy_template',
+                         'versions_count': info['versions_count']})
+        return json_response({})
+
+
+class ExcelTemplateDeactivateView(View):
+    """停用模板：POST /excel-templates/<pk>/deactivate/（逻辑停用，幂等）。
+
+    停用后不可用于新台账；历史台账继续使用创建时固定的版本查看与导出；
+    版本快照、绑定与源文件全部保留。重复停用不报错、不重复记审计。
+    """
+
+    @auth(PERM_TPL_DEL)
+    def post(self, request, pk):
+        template = _get_template_or_none(pk, request.user)
+        if not template:
+            return json_response(error='模板不存在或无权限访问')
+        template, deactivated_now = excel_template_manage.deactivate_template(
             request.user, template)
-        if deleted_now:
+        if deactivated_now:
             record_audit_event(
                 request, 'delete', AUDIT_TARGET, template.pk, template.name,
-                after_value={'action_kind': 'delete_template', 'is_active': False})
+                after_value={'action_kind': 'deactivate_template', 'is_active': False})
         return json_response({'data': excel_template_manage.template_detail(template)})
 
 

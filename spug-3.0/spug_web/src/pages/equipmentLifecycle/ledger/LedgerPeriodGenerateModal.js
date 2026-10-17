@@ -11,14 +11,16 @@
  *   周一所在月份）；
  * - 确认后按预览口径重新计算并创建缺项，结果如实展示实际新增/跳过/
  *   未处理（不以预览数量冒充实际结果），成功后刷新当前填写列表；
- * - 已作废台账不在一键生成中重建（预览标记需人工处理）；未配置适用
- *   系统/生成周期的历史模板标记待配置（在 Excel 模板管理页配置）；
+ * - 已作废台账不在一键生成中重建（预览标记需人工处理，行内提供"补建"
+ *   明确补建操作，2026-10-16）；未配置适用系统/生成周期的历史模板标记
+ *   待配置（在 Excel 模板管理页配置）；
  * - antd 4.21.5：Modal 用 visible；错误提示由 http 拦截器统一弹出。
  */
 import React, {useEffect} from 'react';
 import {observer} from 'mobx-react';
-import {Alert, Modal, Table, Tag} from 'antd';
-import {LEDGER_TYPE_TEXT} from './constants';
+import {Alert, Button, Modal, Table, Tag} from 'antd';
+import {AuthButton} from 'components';
+import {LEDGER_TYPE_TEXT, PERM_L} from './constants';
 
 const GENERATE_STATUS = {
   create: {text: '将新建', color: 'processing'},
@@ -62,6 +64,13 @@ function LedgerPeriodGenerateModal({visible, ledgerType, store, onCancel}) {
     store.generatePeriodLedgers(ledgerType).catch(() => {});
   };
 
+  /** 明确补建（已作废占用的本期槽位）：成功后重拉预览刷新判定结果。 */
+  const handleRebuild = (entry) => {
+    store.rebuildPeriodLedger(entry.template_id, ledgerType)
+      .then(() => store.fetchGeneratePreview(ledgerType))
+      .catch(() => {});
+  };
+
   const columns = [
     {title: '模板名称', dataIndex: 'template_name', ellipsis: true},
     {title: '适用系统', key: 'system', width: 150, ellipsis: true,
@@ -73,7 +82,7 @@ function LedgerPeriodGenerateModal({visible, ledgerType, store, onCancel}) {
      render: (v, entry) => entry.period_text || '—'},
     {title: '使用版本', key: 'version', width: 80, align: 'center',
      render: (v, entry) => entry.version_no ? `v${entry.version_no}` : '—'},
-    {title: '判定', key: 'status', width: 220,
+    {title: '判定', key: 'status', width: 300,
      render: (v, entry) => {
        const conf = GENERATE_STATUS[entry.status] || {text: entry.status};
        return (
@@ -81,6 +90,16 @@ function LedgerPeriodGenerateModal({visible, ledgerType, store, onCancel}) {
            <Tag color={conf.color}>{conf.text}</Tag>
            {entry.reason && (
              <span style={{color: '#999', fontSize: 12}}>{entry.reason}</span>
+           )}
+           {entry.rebuildable && (
+             <AuthButton
+               auth={PERM_L.LED_ADD}
+               data-testid="period-rebuild"
+               type="link" size="small"
+               disabled={store.isGenerating}
+               onClick={() => handleRebuild(entry)}>
+               补建
+             </AuthButton>
            )}
          </span>
        );

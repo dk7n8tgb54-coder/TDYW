@@ -34,15 +34,8 @@ const GROUP_COLUMNS = [
     render: v => v || 0,
   },
   {
-    title: '已退回', dataIndex: 'returned', width: 80, align: 'center',
-    render: v => v || 0,
-  },
-  {
-    title: '已提交', dataIndex: 'submitted', width: 80, align: 'center',
-    render: v => v || 0,
-  },
-  {
-    title: '已复核', dataIndex: 'reviewed', width: 80, align: 'center',
+    // 已完成口径：新流程已完成 + 旧流程已提交/已复核历史状态（后端聚合）
+    title: '已完成', dataIndex: 'completed', width: 80, align: 'center',
     render: v => v || 0,
   },
   {

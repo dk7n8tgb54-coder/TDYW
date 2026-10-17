@@ -4,7 +4,8 @@
 """设备全生命周期——周月维护/季维护台账视图（步骤 3.2）。
 
 权限域（前后端一致，后端独立校验）：
-- equipment_lifecycle.ledger.view|add|edit|submit|review|del|export
+- equipment_lifecycle.ledger.view|add|edit|submit|del|export
+  （submit=完成填写；del=作废/删除；历史 review 码随复核流程下线退役）
 - Excel 模板管理使用 equipment_lifecycle.ledger_template.view|add|edit|del
   （见 excel_template_views），旧可视化模板台账路线已删除（2026-10）
 
@@ -12,12 +13,16 @@
 - 台账系统关联通过系统 ID，后端重新查询系统，不信任前端传来的名称；
 - 正式新增台账统一走 Excel/WPS 模板路线（/excel-ledgers/），
   POST /ledgers/ 仅保留手工补录（created_from=manual）能力；
-- 台账创建/提交/复核/退回/作废均考虑重复请求（状态机 + client_token）；
+- 流程简化（2026-10-16）：完成填写（complete）为流程终点，旧
+  submit/return/review 端点已删除；删除为物理删除（草稿与旧流程历史
+  状态，审计留痕）；台账创建/完成/作废/删除均考虑重复请求（状态机 +
+  client_token）；
 - HTTP 200 + error 为业务失败；写操作记录业务审计并使用状态动作接口；
 - 附件走 evidence 体系，访问前校验所属台账/明细与租户归属。
 """
 import csv
 import io
+from urllib.parse import quote
 
 from django.db.models import Q
 from django.http import HttpResponse
@@ -249,6 +254,30 @@ class LedgerPeriodGenerateView(View):
         return json_response(result)
 
 
+class LedgerPeriodGenerateRebuildView(View):
+    """明确补建（2026-10-16）：POST /ledgers/period-generate/rebuild/。
+
+    body: {"template_id": <id>}——为"已作废占用"的本期槽位重新生成应填
+    台账（作废台账保留不动）；本期已存在有效台账时拒绝。
+    """
+
+    @auth('equipment_lifecycle.ledger.add')
+    def post(self, request):
+        body = _read_json_body(request) or {}
+        row, error = ledger_period_services.period_generate_rebuild(
+            request.user, body.get('template_id'))
+        if error:
+            return json_response(error=error)
+        record_audit_event(
+            request, 'create', AUDIT_TARGET_LEDGER, row['id'], row['ledger_no'],
+            after_value={
+                'action_kind': 'period_generate_rebuild',
+                'template_id': row['template_id'],
+                'maintenance_period': row['maintenance_period'],
+            })
+        return json_response(row)
+
+
 class LedgerPeriodOverviewView(View):
     """本期工作概览（2026-10-14）：周月维护展示 本周+本月，季维护展示本航季。
 
@@ -359,40 +388,44 @@ class LedgerDetailView(View):
                            after_value={'version': ledger.version, 'changes': changed})
         return json_response(_ledger_detail(ledger, request.user))
 
+    @auth('equipment_lifecycle.ledger.del')
+    def delete(self, request, pk):
+        """物理删除台账（草稿/旧流程历史状态；已完成与已作废拒绝）。
 
-class LedgerSubmitView(View):
+        删除与审计事件同事务写入；附件走 evidence 软删除留痕。
+        """
+        info, error = ledger_services.delete_ledger(request.user, pk)
+        if error:
+            return json_response(error=error)
+        record_audit_event(request, 'delete', AUDIT_TARGET_LEDGER, info['id'], info['ledger_no'],
+                           before_value={'status': info['status'],
+                                         'ledger_type': info['ledger_type'],
+                                         'created_from': info['created_from']},
+                           after_value={'action_kind': 'delete_ledger'})
+        return json_response({})
+
+
+class LedgerCompleteView(View):
+    """完成填写（流程终点）：先保存未保存内容（前端保证），后端校验必填后
+    草稿 → 已完成。Excel 路线台账在服务层内委派 Excel 专用校验。"""
+
     @auth('equipment_lifecycle.ledger.submit')
     def post(self, request, pk):
-        ledger, error = ledger_services.submit_ledger(request.user, pk)
-        if error:
-            return json_response(error=error)
-        record_audit_event(request, 'update', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
-                           after_value={'action_kind': 'submit', 'status': ledger.status})
-        return json_response(_ledger_detail(ledger, request.user))
-
-
-class LedgerReturnView(View):
-    @auth('equipment_lifecycle.ledger.review')
-    def post(self, request, pk):
         body = _read_json_body(request) or {}
-        ledger, error = ledger_services.return_ledger(request.user, pk, body.get('reason'))
+        ledger = _get_ledger_for_user(pk, request.user)
+        if not ledger:
+            return json_response(error='台账不存在')
+        if ledger.created_from == LEDGER_FROM_EXCEL:
+            from apps.equipment_lifecycle import excel_ledger_services
+            ledger, error = excel_ledger_services.complete_ledger(request.user, pk)
+        else:
+            ledger, error = ledger_services.complete_ledger(request.user, pk)
         if error:
             return json_response(error=error)
         record_audit_event(request, 'update', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
-                           after_value={'action_kind': 'return', 'status': ledger.status,
-                                        'reason': ledger.return_reason})
-        return json_response(_ledger_detail(ledger, request.user))
-
-
-class LedgerReviewView(View):
-    @auth('equipment_lifecycle.ledger.review')
-    def post(self, request, pk):
-        ledger, error = ledger_services.review_ledger(request.user, pk)
-        if error:
-            return json_response(error=error)
-        record_audit_event(request, 'approve', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
-                           after_value={'action_kind': 'review', 'status': ledger.status,
-                                        'reviewer_name': ledger.reviewer_name})
+                           after_value={'action_kind': 'complete_ledger',
+                                        'status': ledger.status,
+                                        'source': body.get('source') or ''})
         return json_response(_ledger_detail(ledger, request.user))
 
 
@@ -479,26 +512,37 @@ class LedgerAbnormalItemsView(View):
 
 
 def _apply_ledger_item_filters(query, params):
-    """导出/明细查询共用过滤（GET 参数 → ORM 条件，日期用范围查询）。"""
+    """导出/明细查询共用过滤（GET 参数 → ORM 条件，日期用范围查询）。
+
+    返回 (query, applied_filters)：applied_filters 只记录实际生效的筛选
+    （system 仅在为数字时生效），供导出审计如实记录真实筛选范围。
+    """
+    applied = {}
     ledger_type = params.get('ledger_type')
     if ledger_type:
         query = query.filter(ledger__ledger_type=ledger_type)
+        applied['ledger_type'] = ledger_type
     status = params.get('status')
     if status:
         query = query.filter(ledger__status=status)
+        applied['status'] = status
     system_id = params.get('system')
     if system_id and str(system_id).isdigit():
         query = query.filter(system_id=system_id)
+        applied['system'] = system_id
     date_from = params.get('executed_from')
     if date_from:
         query = query.filter(ledger__executed_date__gte=date_from)
+        applied['executed_from'] = date_from
     date_to = params.get('executed_to')
     if date_to:
         query = query.filter(ledger__executed_date__lte=date_to)
+        applied['executed_to'] = date_to
     keyword = params.get('keyword')
     if keyword:
         query = query.filter(ledger__ledger_no__icontains=keyword)
-    return query
+        applied['keyword'] = keyword
+    return query, applied
 
 
 def _format_ledger_item_value(item):
@@ -515,11 +559,18 @@ def _format_ledger_item_value(item):
 
 
 class LedgerExportView(View):
-    """台账明细级 CSV 导出：重新执行查询与租户过滤，不信任前端明细 ID。"""
+    """台账明细级 CSV 导出：重新执行查询与租户过滤，不信任前端明细 ID。
+
+    - 带签名的筛选参数（ledger_type/status/system/日期范围/keyword）原样
+      重新执行 ORM 过滤，租户边界由 tenant_id 过滤独立保证；
+    - 审计记录真实生效的筛选范围与导出行数；
+    - Excel 模板路线台账没有普通明细行，天然不出现在本导出中（其完整
+      填写内容走详情内导出 Excel/PDF）。
+    """
 
     @auth('equipment_lifecycle.ledger.export')
     def get(self, request):
-        query = _apply_ledger_item_filters(
+        query, applied_filters = _apply_ledger_item_filters(
             OperationLedgerItem.objects.filter(
                 tenant_id=request.user.tenant_id, ledger__isnull=False),
             request.GET)
@@ -529,7 +580,7 @@ class LedgerExportView(View):
         writer.writerow([
             '台账编号', '台账类型', '实际执行日期', '状态', '系统编号', '系统名称',
             '项目名称', '录入类型', '填写值', '单位',
-            '结果', '异常说明', '不适用原因', '现场处理内容', '明细执行人',
+            '结果', '异常说明', '不适用原因', '现场处理内容',
             '明细执行时间', '录入渠道', '录入时间'])
         count = 0
         for item in rows:
@@ -542,14 +593,16 @@ class LedgerExportView(View):
                 item.item_name_snapshot,
                 item.input_type, value, item.unit_snapshot,
                 ITEM_RESULT_TEXT_MAP_FULL.get(item.result, item.result),
-                item.abnormal_desc, item.na_reason, item.onsite_action, item.executor_name,
+                item.abnormal_desc, item.na_reason, item.onsite_action,
                 item.executed_at or '', ledger.entry_channel,
                 ledger.created_at])
             count += 1
+        type_label = LEDGER_TYPE_TEXT.get(request.GET.get('ledger_type'))
+        filename = ('%s台账明细.csv' % type_label) if type_label else '维护台账明细.csv'
         response = HttpResponse(buffer.getvalue().encode('utf-8-sig'), content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename=operation_ledgers.csv'
+        response['Content-Disposition'] = "attachment; filename*=UTF-8''%s" % quote(filename)
         record_audit_event(request, 'export', AUDIT_TARGET_LEDGER, None, '运维台账明细',
-                           after_value={'rows': count, 'ledger_type': ledger_type or 'all'})
+                           after_value={'rows': count, 'filters': applied_filters})
         return response
 
 

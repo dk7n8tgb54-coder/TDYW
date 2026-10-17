@@ -158,13 +158,19 @@ LEDGER_TYPE_WEEK_MONTH = 'week_month'    # 周月维护（周表/月表合一）
 LEDGER_TYPE_SEASONAL = 'seasonal'        # 季维护（正式名称，不用"季度维护"）
 LEDGER_TYPE_VALUES = ['week_month', 'seasonal']
 
-# 台账状态
+# 台账状态（2026-10-16 流程简化）：新流程只用 草稿/已完成/已作废 三状态，
+# 不再提交其他账号复核；submitted/returned/reviewed 为旧流程历史状态，
+# 仅存量数据保留（可查看/导出/作废/删除，不产生新流转），不得从值域删除
 LEDGER_STATUS_DRAFT = 'draft'
-LEDGER_STATUS_SUBMITTED = 'submitted'
-LEDGER_STATUS_RETURNED = 'returned'
-LEDGER_STATUS_REVIEWED = 'reviewed'
+LEDGER_STATUS_COMPLETED = 'completed'
+LEDGER_STATUS_SUBMITTED = 'submitted'   # 旧流程历史状态（存量兼容）
+LEDGER_STATUS_RETURNED = 'returned'     # 旧流程历史状态（存量兼容）
+LEDGER_STATUS_REVIEWED = 'reviewed'     # 旧流程历史状态（存量兼容）
 LEDGER_STATUS_VOID = 'void'
-LEDGER_STATUS_VALUES = ['draft', 'submitted', 'returned', 'reviewed', 'void']
+LEDGER_STATUS_VALUES = [
+    'draft', 'completed', 'submitted', 'returned', 'reviewed', 'void']
+# 新流程状态（前端筛选项/新建流程展示）；历史状态仅详情与列表展示
+LEDGER_ACTIVE_STATUS_VALUES = ['draft', 'completed', 'void']
 
 # 台账明细结果
 ITEM_RESULT_NORMAL = 'normal'
@@ -244,7 +250,6 @@ class OperationLedger(TenantModelMixin, models.Model):
     # 周期生成的应填台账在填写人录入执行情况前为空（创建时间不冒充实际执行日期；
     # 手工补录/单条新增仍必填），填写入口见 excel_ledger_services.update_header
     executed_date = models.DateField(null=True, blank=True, help_text='实际执行日期（周期生成草稿为空，填写人执行后录入）')
-    executor_names = models.CharField(max_length=200, default='', blank=True, help_text='执行人（多人以顿号或逗号分隔）')
     status = models.CharField(max_length=20, default=LEDGER_STATUS_DRAFT, help_text='台账状态')
     executed_start = models.DateTimeField(null=True, blank=True, help_text='实际执行开始时间')
     executed_end = models.DateTimeField(null=True, blank=True, help_text='实际执行结束时间')
@@ -265,6 +270,14 @@ class OperationLedger(TenantModelMixin, models.Model):
     created_from = models.CharField(max_length=20, default=LEDGER_FROM_MANUAL, help_text='创建方式（manual 临时补录 / excel_template Excel模板）')
     client_token = models.CharField(max_length=64, default='', blank=True, help_text='客户端幂等令牌（创建防重复）')
     version = models.IntegerField(default=1, help_text='并发编辑版本号')
+    completed_at = models.DateTimeField(null=True, blank=True, help_text='完成填写时间（2026-10-16 新流程终点）')
+    completed_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True, blank=True,
+                                     help_text='完成填写人')
+    # 期次唯一约束参与标记：非作废=True，作废=NULL（MariaDB 唯一索引对 NULL
+    # 行互不冲突）——作废台账不再占用生成槽位，支持"需人工处理"后的明确补建；
+    # 自动生成仍由分类判定拦截（作废槽位不自动重建）
+    slot_active = models.BooleanField(null=True, blank=True, default=True,
+                                      help_text='期次槽位占用标记（作废置 NULL 以支持补建）')
     submitted_at = models.DateTimeField(null=True, blank=True)
     submitted_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
@@ -282,16 +295,21 @@ class OperationLedger(TenantModelMixin, models.Model):
     objects = TenantModelManager()
     tenant_id = make_tenant_id()
 
-    # 状态机：允许的流转（后端强制校验）
+    # 状态机：允许的流转（后端强制校验；2026-10-16 流程简化）
+    # - 新流程：草稿 →（完成填写）已完成 →（受控作废）已作废；作废为受控终态；
+    # - 旧流程历史状态（submitted/returned/reviewed）无前向流转，仅允许作废收尾；
+    # - 删除不走状态机：draft 与历史状态可物理删除（completed/void 不可，
+    #   见 ledger_services.delete_ledger）。
     STATE_TRANSITIONS = {
-        LEDGER_STATUS_DRAFT: {LEDGER_STATUS_SUBMITTED, LEDGER_STATUS_VOID},
-        LEDGER_STATUS_SUBMITTED: {LEDGER_STATUS_REVIEWED, LEDGER_STATUS_RETURNED, LEDGER_STATUS_VOID},
-        LEDGER_STATUS_RETURNED: {LEDGER_STATUS_SUBMITTED, LEDGER_STATUS_VOID},
+        LEDGER_STATUS_DRAFT: {LEDGER_STATUS_COMPLETED, LEDGER_STATUS_VOID},
+        LEDGER_STATUS_COMPLETED: {LEDGER_STATUS_VOID},
+        LEDGER_STATUS_SUBMITTED: {LEDGER_STATUS_VOID},
+        LEDGER_STATUS_RETURNED: {LEDGER_STATUS_VOID},
         LEDGER_STATUS_REVIEWED: {LEDGER_STATUS_VOID},
         LEDGER_STATUS_VOID: set(),
     }
-    # 允许编辑明细的状态（草稿与被退回）
-    EDITABLE_STATUSES = {LEDGER_STATUS_DRAFT, LEDGER_STATUS_RETURNED}
+    # 允许编辑明细/填写值的状态（仅草稿；已退回为历史状态，不再开放编辑）
+    EDITABLE_STATUSES = {LEDGER_STATUS_DRAFT}
 
     class Meta:
         db_table = 'tdyw_el_operation_ledger'
@@ -301,12 +319,14 @@ class OperationLedger(TenantModelMixin, models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=['tenant_id', 'ledger_no'], name='uniq_el_operation_ledger_no'),
-            # 周期生成去重（2026-10-14）：同租户+模板+系统+期次仅一张台账
-            # （含已作废，作废不自动重建）；非生成路线 source_template 为空，
-            # MariaDB 唯一索引对含 NULL 行互不冲突，历史数据不受约束。
-            # MariaDB 10.8 不支持部分唯一索引，故用全表唯一 + NULL 豁免。
+            # 周期生成去重（2026-10-14）：同租户+模板+系统+期次仅一张有效台账。
+            # 2026-10-16 起以 slot_active 参与唯一约束：非作废=True，作废=NULL
+            # （MariaDB 无部分唯一索引，用 NULL 行豁免实现"作废不占槽位"），
+            # 支持作废后通过明确补建操作重建；自动生成仍由分类判定拦截。
+            # 非生成路线 source_template 为 NULL，天然豁免，历史数据不受约束。
             models.UniqueConstraint(
-                fields=['tenant_id', 'source_template', 'system', 'maintenance_period'],
+                fields=['tenant_id', 'source_template', 'system', 'maintenance_period',
+                        'slot_active'],
                 name='uniq_el_ledger_tpl_period'),
             models.CheckConstraint(
                 check=models.Q(ledger_type__in=LEDGER_TYPE_VALUES),
@@ -345,7 +365,6 @@ class OperationLedger(TenantModelMixin, models.Model):
             'ledger_no': self.ledger_no,
             'ledger_type': self.ledger_type,
             'executed_date': self.executed_date,
-            'executor_names': self.executor_names,
             'status': self.status,
             'executed_start': self.executed_start,
             'executed_end': self.executed_end,
@@ -355,6 +374,8 @@ class OperationLedger(TenantModelMixin, models.Model):
             'entry_channel': self.entry_channel,
             'created_from': self.created_from,
             'version': self.version,
+            'completed_at': self.completed_at,
+            'completed_by_name': self.completed_by.username if self.completed_by_id else '',
             'submitted_at': self.submitted_at,
             'reviewed_at': self.reviewed_at,
             'reviewer_name': self.reviewer_name,
@@ -409,7 +430,6 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
     abnormal_desc = models.CharField(max_length=500, default='', blank=True, help_text='异常说明（异常项必填）')
     na_reason = models.CharField(max_length=200, default='', blank=True, help_text='不适用原因')
     onsite_action = models.CharField(max_length=500, default='', blank=True, help_text='现场处理内容')
-    executor_name = models.CharField(max_length=100, default='', blank=True, help_text='明细执行人')
     executed_at = models.DateTimeField(null=True, blank=True, help_text='明细实际执行时间')
     is_temporary = models.BooleanField(default=False, help_text='是否临时增加项（只属于当前台账，不写回模板）')
     display_order = models.IntegerField(default=0, help_text='显示顺序，小者靠前')
@@ -485,7 +505,6 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
             'abnormal_desc': self.abnormal_desc,
             'na_reason': self.na_reason,
             'onsite_action': self.onsite_action,
-            'executor_name': self.executor_name,
             'executed_at': self.executed_at,
             'is_temporary': self.is_temporary,
             'display_order': self.display_order,
@@ -504,7 +523,11 @@ class OperationLedgerItem(TenantModelMixin, models.Model):
 
 
 class OperationLedgerCorrection(TenantModelMixin, models.Model):
-    """复核后台账更正记录：保存更正原因与字段前后值（不静默修改）。"""
+    """已完成台账更正记录：保存更正原因与字段前后值（不静默修改）。
+
+    Excel 路线台账的更正为表头级（item 为空，changes 记录填写值/执行日期
+    前后值），见 excel_ledger_services.correct_completed_ledger。
+    """
 
     ledger = models.ForeignKey(
         OperationLedger, models.PROTECT, related_name='corrections', help_text='所属台账')

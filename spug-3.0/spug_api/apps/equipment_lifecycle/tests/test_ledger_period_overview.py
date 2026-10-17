@@ -187,19 +187,20 @@ class PeriodGroupsEnhancementTests(OverviewTestBase):
         data = self.groups({'ledger_type': LEDGER_TYPE_WEEK_MONTH})['data']
         by_period = {g['maintenance_period']: g for g in data}
         week = by_period['2026-10-12']
+        # completed 为完成口径：旧流程已提交/已退回历史状态一并计入
         self.assertEqual(
-            {k: week[k] for k in ('total', 'draft', 'returned', 'submitted', 'reviewed', 'void')},
-            {'total': 2, 'draft': 1, 'returned': 1, 'submitted': 0, 'reviewed': 0, 'void': 0})
+            {k: week[k] for k in ('total', 'draft', 'completed', 'void')},
+            {'total': 2, 'draft': 1, 'completed': 0, 'void': 0})
         month = by_period['2026-10']
         self.assertEqual(
-            {k: month[k] for k in ('total', 'draft', 'submitted', 'reviewed', 'void')},
-            {'total': 3, 'draft': 0, 'submitted': 1, 'reviewed': 1, 'void': 1})
+            {k: month[k] for k in ('total', 'draft', 'completed', 'void')},
+            {'total': 3, 'draft': 0, 'completed': 2, 'void': 1})
         # 状态筛选后组内统计与可见行一致
         data = self.groups({'ledger_type': LEDGER_TYPE_WEEK_MONTH,
                             'status': 'submitted'})['data']
         self.assertEqual([g['maintenance_period'] for g in data], ['2026-10'])
         self.assertEqual(data[0]['total'], 1)
-        self.assertEqual(data[0]['submitted'], 1)
+        self.assertEqual(data[0]['completed'], 1)
         self.assertEqual(data[0]['draft'], 0)
 
     def test_group_pagination_by_period(self):

@@ -270,6 +270,87 @@ export function groupStepsByPhase(steps, presetPhases = []) {
 }
 
 /**
+ * 计算回退到目标阶段的影响面（回退确认预览用）。
+ *
+ * 口径与后端 StatusLogService._reset_steps_for_rollback 一致：
+ * 阶段顺序 = 步骤 sequence 顺序保序去重（groupStepsByPhase 同源），
+ * 目标阶段及其后所有阶段的步骤全部重置为待执行（无论当前状态）；
+ * 无阶段名的步骤不受回退影响，不计入。
+ *
+ * @param {Array} steps - 记录的步骤清单（真实数据）
+ * @param {string} targetPhase - 回退目标阶段名
+ * @returns {{found: boolean, phases: string[], stepCount: number}}
+ */
+export function computeRollbackImpact(steps, targetPhase) {
+  const {groups} = groupStepsByPhase(steps || []);
+  const idx = groups.findIndex(g => g.name === targetPhase);
+  if (idx < 0) return {found: false, phases: [], stepCount: 0};
+  const affected = groups.slice(idx);
+  return {
+    found: true,
+    phases: affected.map(g => g.name),
+    stepCount: affected.reduce((n, g) => n + g.steps.length, 0),
+  };
+}
+
+/**
+ * 根据流程节点状态生成"阶段操作"菜单分组（纯数据，渲染在时间线面板）。
+ * 仅收录当前真实状态下的合法操作：current→暂停/标记失败、paused→继续、
+ * completed→回退、failed→提示（禁用项）。
+ */
+export function buildPhaseActionGroups(nodes) {
+  const groups = [];
+  const current = nodes.find(n => n.state === 'current');
+  const paused = nodes.find(n => n.state === 'paused');
+  const failed = nodes.find(n => n.state === 'failed');
+  const completed = nodes.filter(n => n.state === 'completed');
+
+  if (current) {
+    groups.push({key: 'current', title: '当前阶段', items: [
+      {key: `pause::${current.label}`, action: 'pause', node: current,
+        label: `暂停【${current.label}】`},
+      {key: `test_fail::${current.label}`, action: 'test_fail', node: current,
+        label: `标记【${current.label}】失败`, danger: true},
+    ]});
+  }
+  if (paused) {
+    groups.push({key: 'resume', title: '继续执行', items: [
+      {key: `resume::${paused.label}`, action: 'resume', node: paused,
+        label: `继续【${paused.label}】`},
+    ]});
+  }
+  if (failed) {
+    groups.push({key: 'failed', title: '异常', items: [
+      {key: '__failed_hint', action: null, node: failed, disabled: true,
+        label: `【${failed.label}】阶段失败，可回退到之前的阶段重做`},
+    ]});
+  }
+  if (completed.length > 0) {
+    groups.push({key: 'rollback', title: '回退', items: completed.map(n => ({
+      key: `rollback::${n.label}`, action: 'rollback', node: n,
+      label: `回退到【${n.label}】`, danger: true,
+    }))});
+  }
+  return groups;
+}
+
+/**
+ * 流程区标题文案：优先当前阶段，其次暂停/失败状态，全部完成给出完成文案。
+ */
+export function flowHeadline(nodes) {
+  const current = nodes.find(n => n.state === 'current');
+  const failed = nodes.find(n => n.state === 'failed');
+  const paused = nodes.find(n => n.state === 'paused');
+  if (current) return `当前阶段：【${current.label}】`;
+  if (failed) return `当前阶段：【${failed.label}】（失败）`;
+  if (paused) return `当前阶段：【${paused.label}】（已暂停）`;
+  if (nodes.length > 0 && nodes.every(n => n.state === 'completed')) {
+    return '全部阶段已完成';
+  }
+  return '暂无阶段';
+}
+
+/**
  * 根据步骤清单的阶段分组推算"升级流程"参考条节点状态。
  *
  * 节点 = 步骤的阶段（去重保序，预设在前），状态由该阶段步骤完成度决定：

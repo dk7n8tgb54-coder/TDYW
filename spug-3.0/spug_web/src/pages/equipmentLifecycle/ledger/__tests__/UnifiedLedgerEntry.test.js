@@ -85,7 +85,7 @@ const BINDINGS = [{
 function makeExcelDetail(status = 'draft', values = {}) {
   return {
     id: 33, ledger_no: 'EL-WM-20260928-001', ledger_type: 'week_month',
-    executed_date: '2026-09-28', executor_names: '验收人', status,
+    executed_date: '2026-09-28', status,
     created_from: 'excel_template',
     excel: {
       record_id: 7, values, editable: status === 'draft' || status === 'returned',
@@ -106,7 +106,7 @@ function makeManualDetail() {
   return {
     id: 1, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month',
     executed_date: '2026-09-10', status: 'draft', created_from: 'manual',
-    entry_channel: 'web', executor_names: '王五', version: 1,
+    entry_channel: 'web', version: 1,
     created_by_name: 'op1', items: [], corrections: [],
   };
 }
@@ -114,14 +114,14 @@ function makeManualDetail() {
 const LIST_PAYLOAD = {
   data: [
     {id: 1, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month',
-     executed_date: '2026-09-10', status: 'draft', executor_names: '王五',
+     executed_date: '2026-09-10', status: 'draft',
      created_by_name: 'op1',
      created_at: '2026-09-11 09:00', created_from: 'manual',
      source_type: 'manual', source_template_name: '',
      source_version_no: null,
      detail_route: '/el/week-month-ledgers?detail=1&source=manual'},
     {id: 33, ledger_no: 'EL-WM-20260928-001', ledger_type: 'week_month',
-     executed_date: '2026-09-28', status: 'draft', executor_names: '验收人',
+     executed_date: '2026-09-28', status: 'draft',
      created_by_name: 'op1',
      created_at: '2026-09-28 10:00', created_from: 'excel_template',
      source_type: 'excel', source_template_name: '信道Excel维护台账',

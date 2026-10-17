@@ -73,6 +73,8 @@ urlpatterns = [
     path('excel-templates/sample/', excel_template_views.ExcelTemplateSampleView.as_view()),
     path('excel-templates/', excel_template_views.ExcelTemplateView.as_view()),
     path('excel-templates/<int:pk>/', excel_template_views.ExcelTemplateDetailView.as_view()),
+    # 停用（逻辑停用，幂等）；DELETE <pk>/ 为物理删除（后端复查引用）
+    path('excel-templates/<int:pk>/deactivate/', excel_template_views.ExcelTemplateDeactivateView.as_view()),
     path('excel-templates/<int:pk>/draft-file/', excel_template_views.ExcelTemplateDraftFileView.as_view()),
     path('excel-templates/<int:pk>/bindings/', excel_template_views.ExcelTemplateBindingsView.as_view()),
     path('excel-templates/<int:pk>/generation-config/', excel_template_views.ExcelTemplateGenerationConfigView.as_view()),
@@ -81,10 +83,11 @@ urlpatterns = [
     path('excel-templates/<int:pk>/versions/', excel_template_views.ExcelTemplateVersionListView.as_view()),
     path('excel-templates/<int:pk>/versions/<int:version_no>/', excel_template_views.ExcelTemplateVersionDetailView.as_view()),
     path('excel-templates/<int:pk>/preview/pdf/', excel_template_views.ExcelTemplatePdfPreviewView.as_view()),
-    # Excel 路线维护台账（created_from=excel_template；复核/退回/作废沿用既有 ledgers 端点）
+    # Excel 路线维护台账（created_from=excel_template；作废/删除沿用既有 ledgers 端点）
     path('excel-ledgers/', excel_ledger_views.ExcelLedgerView.as_view()),
     path('excel-ledgers/<int:pk>/', excel_ledger_views.ExcelLedgerDetailView.as_view()),
-    path('excel-ledgers/<int:pk>/submit/', excel_ledger_views.ExcelLedgerSubmitView.as_view()),
+    path('excel-ledgers/<int:pk>/complete/', excel_ledger_views.ExcelLedgerCompleteView.as_view()),
+    path('excel-ledgers/<int:pk>/correct/', excel_ledger_views.ExcelLedgerCorrectView.as_view()),
     path('excel-ledgers/<int:pk>/export/check/', excel_ledger_views.ExcelLedgerExportCheckView.as_view()),
     path('excel-ledgers/<int:pk>/export/excel/', excel_ledger_views.ExcelLedgerExportView.as_view(), {'fmt': 'excel'}),
     path('excel-ledgers/<int:pk>/export/pdf/', excel_ledger_views.ExcelLedgerExportView.as_view(), {'fmt': 'pdf'}),
@@ -96,6 +99,8 @@ urlpatterns = [
     path('ledgers/batch-create/', ledger_views.LedgerBatchCreateView.as_view()),
     # 本期应填台账生成（2026-10-14）：GET 预览 / POST 确认生成（按 Excel 模板）
     path('ledgers/period-generate/', ledger_views.LedgerPeriodGenerateView.as_view()),
+    # 明确补建（2026-10-16）：作废占用的本期槽位重新生成（作废台账保留）
+    path('ledgers/period-generate/rebuild/', ledger_views.LedgerPeriodGenerateRebuildView.as_view()),
     # 本期工作概览（2026-10-14）：本周/本月或本航季应填情况真实统计
     path('ledgers/period-overview/', ledger_views.LedgerPeriodOverviewView.as_view()),
     # 按维护类型+周期分组的台账列表（组内含各系统台账与填写状态）
@@ -109,9 +114,8 @@ urlpatterns = [
     path('ledgers/template-groups/<str:group_key>/export-pdf/',
          excel_ledger_views.LedgerTemplateGroupPdfExportView.as_view()),
     path('ledgers/<int:pk>/', ledger_views.LedgerDetailView.as_view()),
-    path('ledgers/<int:pk>/submit/', ledger_views.LedgerSubmitView.as_view()),
-    path('ledgers/<int:pk>/return/', ledger_views.LedgerReturnView.as_view()),
-    path('ledgers/<int:pk>/review/', ledger_views.LedgerReviewView.as_view()),
+    # 完成填写（流程终点：草稿 → 已完成；2026-10-16 替代旧 submit/return/review）
+    path('ledgers/<int:pk>/complete/', ledger_views.LedgerCompleteView.as_view()),
     path('ledgers/<int:pk>/void/', ledger_views.LedgerVoidView.as_view()),
     path('ledgers/<int:pk>/correct/', ledger_views.LedgerCorrectView.as_view()),
     path('ledgers/<int:pk>/confirm-normal/', ledger_views.LedgerConfirmNormalView.as_view()),

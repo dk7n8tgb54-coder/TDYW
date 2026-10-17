@@ -5,11 +5,15 @@
  * Excel 上传版维护台账 Store（2026-09-28 试点）。
  *
  * 状态：台账列表、当前台账详情（表头 + 版本快照 + 填写值）、可用模板版本。
- * 提交前本地先做必填校验（warning 提示，不发请求），后端仍独立校验；
+ * 完成填写（2026-10-16 流程简化，原"保存并提交"）：先把未保存的填写值/
+ * 实际执行日期保存成功，再请求完成（草稿 → 已完成），带脏值跟踪
+ * （values vs savedValues + 日期草稿）供返回列表前未保存提示；
+ * 已完成台账更正：进入更正模式（须填原因）后可修改填写值/执行日期，
+ * 提交更正走 /correct/（后端记录修改人/时间/前后值），再次修改留痕；
  * 一键正常（2026-09-30）仅本地填充未填写的正常/异常格，不覆盖已填值；
  * 导出经公共 exportFile 二进制下载；PDF 导出先走预检接口（溢出/空白页/
  * 分页越界提示，确认后继续），默认使用版本快照参数，可传覆盖参数；
- * 复核/作废沿用既有 /ledgers 端点。
+ * 作废/删除沿用既有 /ledgers 端点（删除仅草稿与旧流程历史状态）。
  */
 import {observable, action, computed} from 'mobx';
 import {message} from 'antd';
@@ -18,6 +22,17 @@ import {http, exportFile} from 'libs';
 export const API = '/api/equipment-lifecycle/excel-ledgers';
 export const LEDGER_API = '/api/equipment-lifecycle/ledgers';
 export const TPL_AVAILABLE_API = '/api/equipment-lifecycle/excel-templates/available/';
+
+/** 脏值比对快照：剔除未填写（undefined/null/空串）并排序键，避免键序干扰。 */
+function _comparableValues(values) {
+  const result = {};
+  Object.keys(values || {}).sort().forEach(key => {
+    const value = values[key];
+    if (value === undefined || value === null || value === '') return;
+    result[key] = value;
+  });
+  return result;
+}
 
 export class ExcelLedgerStore {
   @observable list = [];
@@ -28,10 +43,14 @@ export class ExcelLedgerStore {
   @observable loading = false;
   @observable detail = null;      // 台账详情（含 excel：version/values/editable）
   @observable values = {};        // field_id -> 填写值（编辑副本）
+  @observable savedValues = {};   // 最近一次保存成功的服务端值（脏值比对基线）
+  @observable dateDraft;          // 实际执行日期草稿：undefined=未动 | 'YYYY-MM-DD' | ''=显式清空
   @observable saving = false;
   @observable submitting = false;
   @observable creating = false;
   @observable available = [];     // 可用模板（含已发布版本）
+  @observable correcting = false; // 已完成台账更正模式（修改后整体提交，须填原因）
+  @observable correctReason = ''; // 更正原因（进入更正模式时必填）
 
   @computed get current() {
     return this.detail;
@@ -77,24 +96,39 @@ export class ExcelLedgerStore {
     return !!(this.excel && this.excel.editable);
   }
 
+  /** 更正模式下填写区可编辑（已完成台账；草稿走 editable）。 */
+  @computed get correctingEditable() {
+    return this.editable || this.correcting;
+  }
+
   @action applyDetail(detail) {
     const payload = detail && detail.data ? detail.data : detail;
     this.detail = payload;
     this.values = {...(payload && payload.excel ? payload.excel.values : {})};
+    // 服务端真值即脏值比对基线；详情刷新即日期草稿作废（以服务端为准），
+    // 更正模式随详情刷新退出（是否更正成功以服务端详情为准）
+    this.savedValues = {...this.values};
+    this.dateDraft = undefined;
+    this.correcting = false;
+    this.correctReason = '';
   }
 
   async fetchList(filters) {
-    this.loading = true;
-    this.filters = filters || this.filters;
+    action(() => {
+      this.loading = true;
+      this.filters = filters || this.filters;
+    })();
     try {
       const res = await http.get(`${API}/`, {params: {...this.filters, page: this.page, page_size: this.pageSize}});
       // 拦截器剥一层后：列表端点 res = {data: [...], total}；兼容双层包装
       const payload = res && res.data && !Array.isArray(res.data) && res.data.data
         ? res.data : res;
-      this.list = (payload && payload.data) || [];
-      this.total = (payload && payload.total) || 0;
+      action(() => {
+        this.list = (payload && payload.data) || [];
+        this.total = (payload && payload.total) || 0;
+      })();
     } finally {
-      this.loading = false;
+      action(() => { this.loading = false; })();
     }
   }
 
@@ -122,7 +156,6 @@ export class ExcelLedgerStore {
       const res = await http.post(`${API}/`, {
         version_id: form.version_id,
         executed_date: form.executed_date,
-        executor_names: form.executor_names || '',
         ledger_type: form.ledger_type || '',
         client_token: form.client_token || '',
       });
@@ -130,23 +163,69 @@ export class ExcelLedgerStore {
       message.success('台账已创建');
       return this.detail;
     } finally {
-      this.creating = false;
+      action(() => { this.creating = false; })();
     }
   }
 
   async fetchDetail(ledgerId) {
-    this.loading = true;
+    action(() => { this.loading = true; })();
     try {
       const res = await http.get(`${API}/${ledgerId}/`);
       this.applyDetail(res);
       return this.detail;
     } finally {
-      this.loading = false;
+      // action 包裹：详情请求完成后 loading 复位必须触发订阅者重渲染
+      // （裸写在渲染调度竞态下会让详情卡加载态永久定格，2026-10-17 实机缺陷）
+      action(() => { this.loading = false; })();
     }
   }
 
   @action setValue(fieldId, value) {
     this.values = {...this.values, [fieldId]: value};
+  }
+
+  @action setDateDraft(value) {
+    this.dateDraft = value;
+  }
+
+  /** 未保存修改（草稿或更正模式）：填写值与实际执行日期草稿任一未保存。 */
+  @computed get hasUnsaved() {
+    if (!this.detail || (!this.editable && !this.correcting)) return false;
+    return this.valuesDirty || this.dateDirty;
+  }
+
+  @computed get valuesDirty() {
+    return JSON.stringify(_comparableValues(this.savedValues))
+      !== JSON.stringify(_comparableValues(this.values));
+  }
+
+  @computed get dateDirty() {
+    if (!this.detail || this.dateDraft === undefined) return false;
+    const saved = this.detail.executed_date
+      ? String(this.detail.executed_date).slice(0, 10) : '';
+    return this.dateDraft !== saved;
+  }
+
+  /** 保存成功提示文案（须在保存动作前取，保存后脏标记已复位）。 */
+  _saveSuccessText() {
+    if (this.valuesDirty && this.dateDirty) return '填写值与执行日期已保存';
+    if (this.dateDirty) return '执行日期已保存';
+    return '填写值已保存';
+  }
+
+  /**
+   * 把未保存修改（填写值 + 未保存执行日期）一次 PUT 保存成功；无未保存
+   * 修改时不发请求。失败向上抛出（拦截器已提示），页面内容不受影响。
+   */
+  async _savePendingChanges(options = {}) {
+    if (!this.valuesDirty && !this.dateDirty) return this.detail;
+    const body = {};
+    if (this.valuesDirty) body.values = this.values;
+    if (this.dateDirty) body.header = {executed_date: this.dateDraft};
+    const res = await http.put(`${API}/${this.detail.id}/`, body);
+    this.applyDetail(res);
+    if (options.successText) message.success(options.successText);
+    return this.detail;
   }
 
   /**
@@ -174,15 +253,17 @@ export class ExcelLedgerStore {
     return targets.length;
   }
 
+  /**
+   * 保存草稿（次操作）：保存未保存的填写值与未保存执行日期，一次请求；
+   * 保存中/提交中重复点击忽略。
+   */
   async saveValues() {
-    if (!this.detail) return;
+    if (!this.detail || this.saving || this.submitting) return;
     this.saving = true;
     try {
-      const res = await http.put(`${API}/${this.detail.id}/`, {values: this.values});
-      this.applyDetail(res);
-      message.success('填写值已保存');
+      await this._savePendingChanges({successText: this._saveSuccessText()});
     } finally {
-      this.saving = false;
+      action(() => { this.saving = false; })();
     }
   }
 
@@ -192,7 +273,7 @@ export class ExcelLedgerStore {
    * 提前生成不把创建当天伪装成实际维护日期。
    */
   async saveHeader(header) {
-    if (!this.detail) return;
+    if (!this.detail || this.saving || this.submitting) return;
     this.saving = true;
     try {
       const res = await http.put(`${API}/${this.detail.id}/`, {header});
@@ -200,7 +281,7 @@ export class ExcelLedgerStore {
       message.success('执行信息已保存');
       return this.detail;
     } finally {
-      this.saving = false;
+      action(() => { this.saving = false; })();
     }
   }
 
@@ -214,23 +295,68 @@ export class ExcelLedgerStore {
       .map(b => b.field_name);
   }
 
-  async submit() {
+  /**
+   * 完成填写（主操作，流程终点）：先把未保存的填写值与实际执行日期保存
+   * 成功，再请求完成（草稿 → 已完成）；任一步失败向上抛出（拦截器已提示），
+   * 不显示完成成功、不丢弃页面内容。保存中/完成中重复调用直接忽略，
+   * 防止重复点击与并发处理；成功提示只出现一次（已完成填写）。
+   * 必填项的本地预检仅作提醒，服务端完成后仍终验（返回详情以服务端为准）。
+   */
+  async complete() {
+    if (!this.detail || this.saving || this.submitting) return;
     this.submitting = true;
     try {
-      const res = await http.post(`${API}/${this.detail.id}/submit/`);
+      await this._savePendingChanges();
+      const res = await http.post(`${API}/${this.detail.id}/complete/`);
       this.applyDetail(res);
-      message.success('台账已提交');
+      message.success('已完成填写');
     } finally {
-      this.submitting = false;
+      action(() => { this.submitting = false; })();
     }
   }
 
-  /** 复核沿用既有台账端点（提交 → 已复核；响应为普通详情形态，重取 Excel 详情）。 */
-  async review() {
-    await http.post(`${LEDGER_API}/${this.detail.id}/review/`);
-    await this.fetchDetail(this.detail.id);
-    message.success('已复核');
-    return this.detail;
+  // ==================== 已完成台账更正（2026-10-16） ====================
+
+  /** 进入更正模式（原因已在弹窗确认时校验非空）。 */
+  @action startCorrection(reason) {
+    this.correcting = true;
+    this.correctReason = reason;
+  }
+
+  /** 取消更正：恢复为服务端已保存值，退出更正模式。 */
+  @action cancelCorrection() {
+    this.values = {...this.savedValues};
+    this.dateDraft = undefined;
+    this.correcting = false;
+    this.correctReason = '';
+  }
+
+  /**
+   * 提交更正：整体提交当前填写值与执行日期 + 原因，后端记录修改人/时间/
+   * 前后值并生成更正记录；成功后以服务端详情为准（更正模式自动退出）。
+   */
+  async submitCorrection() {
+    if (!this.detail || !this.correcting) return;
+    this.saving = true;
+    try {
+      const body = {reason: this.correctReason, values: this.values};
+      const savedDate = this.detail.executed_date
+        ? String(this.detail.executed_date).slice(0, 10) : '';
+      const rawDate = this.dateDraft !== undefined ? this.dateDraft : savedDate;
+      body.header = {executed_date: rawDate};
+      const res = await http.post(`${API}/${this.detail.id}/correct/`, body);
+      this.applyDetail(res);
+      message.success('更正已保存');
+      return this.detail;
+    } finally {
+      action(() => { this.saving = false; })();
+    }
+  }
+
+  /** 物理删除台账（草稿/旧流程历史状态；已完成与已作废由后端拒绝）。 */
+  async deleteLedger() {
+    if (!this.detail) return;
+    await http.delete(`${LEDGER_API}/${this.detail.id}/`);
   }
 
   /** 作废沿用既有台账端点（须填原因；响应为普通详情形态，重取 Excel 详情）。 */

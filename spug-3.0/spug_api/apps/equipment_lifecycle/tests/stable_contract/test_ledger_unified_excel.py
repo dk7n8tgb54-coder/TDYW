@@ -52,7 +52,7 @@ class UnifiedLedgerExcelTests(ExcelLedgerContractBase):
     def _create_excel_ledger(self, version_id, client=None, **kwargs):
         client = client or self.owner_client
         body = {'version_id': version_id, 'executed_date': '2026-09-28',
-                'executor_names': '验收人', 'ledger_type': 'week_month',
+                'ledger_type': 'week_month',
                 'client_token': ''}
         body.update(kwargs)
         response = client.post(
@@ -61,7 +61,7 @@ class UnifiedLedgerExcelTests(ExcelLedgerContractBase):
         self.assertEqual(payload.get('error', ''), '')
         return payload['data']['data']
 
-    def _fill_required_and_submit(self, excel_detail, bindings):
+    def _fill_required_and_complete(self, excel_detail, bindings):
         values = {b['field_id']: ('异常' if b['input_type'] == 'status' else '已填写')
                   for b in bindings if b.get('is_required')}
         response = self.owner_client.put(
@@ -69,7 +69,7 @@ class UnifiedLedgerExcelTests(ExcelLedgerContractBase):
             json.dumps({'values': values}), content_type='application/json')
         self.assertEqual(response.json().get('error', ''), '')
         response = self.owner_client.post(
-            '%s/%s/submit/' % (LEDGER_URL, excel_detail['id']))
+            '%s/%s/complete/' % (LEDGER_URL, excel_detail['id']))
         self.assertEqual(response.json().get('error', ''), '')
         return values
 
@@ -172,32 +172,30 @@ class UnifiedLedgerExcelTests(ExcelLedgerContractBase):
             json.dumps({'ledger_type': 'week_month', 'executed_date': '2026-09-28',
                         'entries': []}), content_type='application/json')
         self.assertEqual(response.json()['error'], 'Excel 模板台账请通过 Excel 台账填写接口编辑')
-        # 普通提交接口显式拒绝（须走 Excel 提交接口，含必填校验）
+        # 完成填写为统一端点：Excel 台账走同一端点，服务层按版本绑定校验必填
         response = self.owner_client.post(
-            '%s/%s/submit/' % (NORMAL_LEDGER_URL, excel['id']))
-        self.assertEqual(response.json()['error'], 'Excel 模板台账请通过 Excel 台账接口提交')
-        self.assertFalse(OperationLedger.objects.filter(pk=excel['id'], status='submitted').exists())
-        # 正确路径：Excel 提交接口在填齐必填后可用
-        self._fill_required_and_submit(excel, bindings)
-        self.assertTrue(OperationLedger.objects.filter(pk=excel['id'], status='submitted').exists())
+            '%s/%s/complete/' % (NORMAL_LEDGER_URL, excel['id']))
+        self.assertIn('必填字段未填写', response.json()['error'])
+        self.assertFalse(OperationLedger.objects.filter(pk=excel['id'], status='completed').exists())
+        # 正确路径：Excel 完成填写接口在填齐必填后可用
+        self._fill_required_and_complete(excel, bindings)
+        self.assertTrue(OperationLedger.objects.filter(pk=excel['id'], status='completed').exists())
 
-    def test_excel_ledger_review_void_via_formal_endpoints(self):
+    def test_excel_ledger_void_via_formal_endpoints(self):
         template, version, bindings = self.create_published_version()
         excel = self._create_excel_ledger(version['id'])
-        self._fill_required_and_submit(excel, bindings)
-        reviewer = make_user('unified_reviewer_%s' % uuid.uuid4().hex[:8],
+        self._fill_required_and_complete(excel, bindings)
+        operator = make_user('unified_void_%s' % uuid.uuid4().hex[:8],
                              perms=EXCEL_P_LEDGER + ALL_LEDGER_PERMS + [
-                                 'equipment_lifecycle.ledger.review',
                                  'equipment_lifecycle.ledger.del'])
-        client = make_client(reviewer)
-        # 复核沿用正式端点：状态机一致，响应为 Excel 详情形态
-        response = client.post('%s/%s/review/' % (NORMAL_LEDGER_URL, excel['id']))
-        self.assertEqual(response.json().get('error', ''), '')
+        client = make_client(operator)
+        # 已完成详情为 Excel 详情形态（版本快照保留，不可编辑）
+        response = client.get('%s/%s/' % (NORMAL_LEDGER_URL, excel['id']))
         data = response.json()['data']
-        self.assertEqual(data['status'], 'reviewed')
+        self.assertEqual(data['status'], 'completed')
         self.assertEqual(data['excel']['version']['version_no'], 1)
         self.assertFalse(data['excel']['editable'])
-        # 已复核不可再编辑填写值（状态机限制）
+        # 已完成不可再编辑填写值（状态机限制）
         response = client.put(
             '%s/%s/' % (LEDGER_URL, excel['id']),
             json.dumps({'values': {}}), content_type='application/json')
@@ -246,7 +244,8 @@ class UnifiedLedgerExcelTests(ExcelLedgerContractBase):
                                    'equipment_lifecycle.ledger.view',
                                    'equipment_lifecycle.ledger.add'])
         client = make_client(manager)
-        response = client.delete('%s/%s/' % (TPL_URL, template['id']))
+        # 停用（逻辑停用）：DELETE 已拆分为物理删除（被引用模板不可删）
+        response = client.post('%s/%s/deactivate/' % (TPL_URL, template['id']))
         self.assertEqual(response.json().get('error', ''), '')
         # 停用模板不出现在正式新增选择项
         data = client.get(

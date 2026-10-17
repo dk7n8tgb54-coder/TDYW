@@ -1,10 +1,12 @@
 /**
- * 升级表单列表编号列测试（2026-10 升级编号回归）
+ * 升级表单列表测试（2026-10 升级编号回归 + 2026-10-15 体验小改）
  *
  * 真实渲染 Table 组件（ReactDOM + jsdom，仓库惯例），mock libs 与 components
  * （TableCard 以 antd Table 透传，保留真实 antd Table 列渲染），验证：
  * - 列表首列为「编号」，行内展示后端返回的 upgrade_no（如 SJ20261001-0007）；
- * - 历史数据编号缺失时行渲染不报错。
+ * - 历史数据编号缺失时行渲染不报错；
+ * - 列名使用「计划升级时间」；导出日期选择器带"导出日期"标识；
+ * - 标题为链接，单击进入工作台（history.push 一次）。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -32,11 +34,14 @@ jest.mock('components', () => {
   const React = require('react');
   const {Table} = require('antd');
   return {
-    // 透传给真实 antd Table，保留列的真实渲染行为
-    TableCard: ({children, dataSource, rowKey, loading, pagination}) => (
-      <Table dataSource={dataSource} rowKey={rowKey} loading={loading} pagination={pagination}>
-        {children}
-      </Table>
+    // 透传给真实 antd Table，保留列的真实渲染行为；actions 一并渲染（导出日期区）
+    TableCard: ({children, dataSource, rowKey, loading, pagination, actions}) => (
+      <>
+        <div className="test-card-actions">{actions}</div>
+        <Table dataSource={dataSource} rowKey={rowKey} loading={loading} pagination={pagination}>
+          {children}
+        </Table>
+      </>
     ),
     Action: Object.assign(
       ({children}) => <span>{children}</span>,
@@ -120,5 +125,31 @@ describe('升级表单列表编号列', () => {
     const row = Array.from(container.querySelectorAll('.ant-table-tbody tr'))
       .find(tr => tr.textContent.includes('历史存量记录'));
     expect(row).toBeDefined();
+  });
+
+  it('时间列列名为「计划升级时间」，导出区带"导出日期"标识', () => {
+    act(() => {
+      renderTable();
+    });
+    const headers = Array.from(container.querySelectorAll('.ant-table-thead th'))
+      .map(th => th.textContent);
+    expect(headers).toContain('计划升级时间');
+    expect(headers).not.toContain('升级时间');
+    expect(container.textContent).toContain('导出日期');
+  });
+
+  it('标题为链接按钮，单击进入工作台且只跳转一次', () => {
+    act(() => {
+      renderTable();
+    });
+    const history = require('libs/history').default;
+    const link = Array.from(container.querySelectorAll('.ant-table-tbody button'))
+      .find(b => b.textContent === 'DVOR 软件升级');
+    expect(link).toBeDefined();
+    act(() => {
+      link.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
+    });
+    expect(history.push).toHaveBeenCalledTimes(1);
+    expect(history.push).toHaveBeenCalledWith('/upgrade/workbench/1');
   });
 });

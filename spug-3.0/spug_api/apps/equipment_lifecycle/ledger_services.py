@@ -15,7 +15,11 @@
 - 旧可视化模板路线（template 创建/矩阵台账/预览）已于 2026-10 整体删除，
   正式台账统一走 Excel/WPS 模板路线（excel_ledger_services）；本模块保留
   手工补录台账（created_from=manual）的创建/编辑/状态机与更正能力，
-  entries 携带 template_id/row_nodes 等旧参数时显式拒绝。
+  entries 携带 template_id/row_nodes 等旧参数时显式拒绝；
+- 流程简化（2026-10-16）：新流程只用 草稿/已完成/已作废 三状态，不再提交
+  其他账号复核（submit/return/review 端点与服务已删除）；"完成填写"
+  （complete_ledger）为流程终点；草稿与旧流程历史状态可物理删除
+  （delete_ledger，审计留痕），已完成/已作废不可删除。
 
 核心约定：
 - 系统关联一律使用系统 ID，页面显示的名称/编号/地点均保存快照；
@@ -47,12 +51,9 @@ from apps.equipment_lifecycle.models import (
     LEDGER_FROM_VALUES,
     LEDGER_INPUT_TYPE_VALUES,
     LEDGER_NO_PREFIX_MAP,
+    LEDGER_STATUS_COMPLETED,
     LEDGER_STATUS_DRAFT,
-    LEDGER_STATUS_RETURNED,
-    LEDGER_STATUS_REVIEWED,
-    LEDGER_STATUS_SUBMITTED,
     LEDGER_STATUS_VOID,
-    LEDGER_STATUS_VALUES,
     LEDGER_TYPE_VALUES,
     LEDGER_TYPE_WEEK_MONTH,
     ENTRY_CHANNEL_WEB,
@@ -79,9 +80,9 @@ LEDGER_CHOICE_ABNORMAL = '不正常'
 LEGACY_INSPECTION_ERROR = '旧巡检台账（历史）已删除，巡检类型不再支持该操作'
 
 # Excel 路线台账（created_from=excel_template）无普通明细，明细编辑与
-# 提交须走 /excel-ledgers/ 专用接口；复核/退回/作废沿用正式端点
+# 完成填写须走 /excel-ledgers/ 专用接口；作废/删除沿用正式端点
 EXCEL_LEDGER_EDIT_ERROR = 'Excel 模板台账请通过 Excel 台账填写接口编辑'
-EXCEL_LEDGER_SUBMIT_ERROR = 'Excel 模板台账请通过 Excel 台账接口提交'
+EXCEL_LEDGER_COMPLETE_ERROR = 'Excel 模板台账请通过 Excel 台账接口完成填写'
 
 
 def excel_ledger_write_error(ledger):
@@ -164,6 +165,9 @@ def get_systems_for_user(user, system_ids):
 
 # 旧可视化模板路线已删除（2026-10）：entries 携带模板引用时统一报错文案
 TEMPLATE_ROUTE_REMOVED_ERROR = '可视化模板台账路线已下线，请使用 Excel/WPS 模板创建台账'
+# 执行人字段（表头 executor_names / 明细 executor_name）已于 2026-10-16 删除，
+# 写路径对旧参数显式拒绝，避免静默丢弃
+EXECUTOR_FIELD_REMOVED_ERROR = '执行人字段已删除，请勿传参'
 
 
 def validate_item_value(input_type, payload):
@@ -285,6 +289,8 @@ def build_manual_snapshot(payload):
 
 def _parse_header_payload(user, body, for_update=False):
     """解析并校验台账表头字段，返回头部字段 dict。"""
+    if 'executor_names' in body:
+        raise LedgerValidationError(EXECUTOR_FIELD_REMOVED_ERROR)
     ledger_type = body.get('ledger_type')
     validate_ledger_type(ledger_type)
     created_from = body.get('created_from') or ''
@@ -300,7 +306,6 @@ def _parse_header_payload(user, body, for_update=False):
     return {
         'ledger_type': ledger_type,
         'executed_date': executed_date,
-        'executor_names': str(body.get('executor_names') or '').strip(),
         'executed_start': parse_datetime_value(body.get('executed_start'), '实际执行开始时间', allow_empty=True),
         'executed_end': parse_datetime_value(body.get('executed_end'), '实际执行结束时间', allow_empty=True),
         'client_token': str(body.get('client_token') or '')[:64],
@@ -332,6 +337,8 @@ def _build_item_instances(user, ledger, systems_map, entries_payload):
         for row in rows:
             if not isinstance(row, dict):
                 raise LedgerValidationError('台账明细格式不正确')
+            if 'executor_name' in row:
+                raise LedgerValidationError(EXECUTOR_FIELD_REMOVED_ERROR)
             order += 1
             items.append(_build_item_instance(ledger, system, row, order))
     if not seen_system_ids:
@@ -359,7 +366,6 @@ def _build_item_instance(ledger, system, row, order):
         abnormal_desc=str(row.get('abnormal_desc') or '').strip(),
         na_reason=str(row.get('na_reason') or '').strip(),
         onsite_action=str(row.get('onsite_action') or '').strip(),
-        executor_name=str(row.get('executor_name') or '').strip(),
         executed_at=parse_datetime_value(row.get('executed_at'), '明细实际执行时间', allow_empty=True),
         is_temporary=True,
         display_order=row.get('display_order') if isinstance(row.get('display_order'), int) else order,
@@ -441,7 +447,7 @@ def _validate_expected_version(ledger, version):
 
 @transaction.atomic
 def update_ledger(user, pk, body):
-    """编辑可编辑状态（草稿/已退回）的手工补录台账：区分新增、修改、移除并记录变化。
+    """编辑草稿状态的手工补录台账：区分新增、修改、移除并记录变化。
 
     - version 不匹配视为并发冲突，拒绝静默覆盖；
     - Excel 路线台账（created_from=excel_template）拒绝走本接口；
@@ -486,8 +492,7 @@ def update_ledger(user, pk, body):
         _remove_absent_items(ledger, keep_ids, changed)
         ledger.version += 1
         ledger.save(update_fields=[
-            'ledger_type', 'executed_date',
-            'executor_names', 'executed_start', 'executed_end', 'version'])
+            'ledger_type', 'executed_date', 'executed_start', 'executed_end', 'version'])
         return ledger, changed, None
     except LedgerValidationError as e:
         return None, None, str(e)
@@ -559,79 +564,65 @@ def _apply_item_edits(item, row, system):
     if 'onsite_action' in row:
         item.onsite_action = str(row.get('onsite_action') or '').strip()
     if 'executor_name' in row:
-        item.executor_name = str(row.get('executor_name') or '').strip()
+        raise LedgerValidationError(EXECUTOR_FIELD_REMOVED_ERROR)
     if 'executed_at' in row:
         item.executed_at = parse_datetime_value(row.get('executed_at'), '明细实际执行时间', allow_empty=True)
     item.save()
 
 
 @transaction.atomic
-def submit_ledger(user, pk):
-    """提交台账：草稿/已退回 → 已提交（重复提交返回明确错误，无重复副作用）。"""
+def complete_ledger(user, pk):
+    """完成填写（流程终点）：草稿 → 已完成，记录完成时间与人。
+
+    - 必填校验：实际执行日期必填；全部明细的必填项必须已填写
+      （保存草稿允许必填未填完，完成填写时统一校验）；
+    - Excel 路线台账须走 /excel-ledgers/<pk>/complete/（按版本绑定校验必填）；
+    - 重复完成被状态机拦截（completed 不在 draft 的可达状态），无重复副作用。
+    """
     ledger = _get_ledger_for_user(pk, user, for_update=True)
     if not ledger:
         return None, '台账不存在'
     error = legacy_inspection_error(ledger)
     if error:
         return None, error
-    # Excel 路线台账提交须走 /excel-ledgers/<pk>/submit/（含必填校验）
     if ledger.created_from == LEDGER_FROM_EXCEL:
-        return None, EXCEL_LEDGER_SUBMIT_ERROR
-    if not ledger.can_transition_to(LEDGER_STATUS_SUBMITTED):
-        return None, '当前状态不允许提交（已提交或已复核台账请勿重复操作）'
+        return None, EXCEL_LEDGER_COMPLETE_ERROR
+    if not ledger.can_transition_to(LEDGER_STATUS_COMPLETED):
+        return None, '当前状态不允许完成填写'
+    if ledger.executed_date is None:
+        return None, '请先填写实际执行日期'
     if not ledger.items.exists():
-        return None, '台账没有明细，不能提交'
-    ledger.status = LEDGER_STATUS_SUBMITTED
-    ledger.submitted_at = timezone.now()
-    ledger.submitted_by = user
-    ledger.save(update_fields=['status', 'submitted_at', 'submitted_by'])
+        return None, '台账没有明细，不能完成填写'
+    missing = [item.item_name_snapshot for item in ledger.items.all()
+               if item.is_required and not _item_has_value(item)]
+    if missing:
+        return None, '必填项未填写：%s' % '、'.join(missing)
+    ledger.status = LEDGER_STATUS_COMPLETED
+    ledger.completed_at = timezone.now()
+    ledger.completed_by = user
+    ledger.save(update_fields=['status', 'completed_at', 'completed_by'])
     return ledger, None
 
 
-@transaction.atomic
-def return_ledger(user, pk, reason):
-    """退回台账：已提交 → 已退回，必须填写原因。"""
-    reason = str(reason or '').strip()
-    if not reason:
-        return None, '退回必须填写原因'
-    ledger = _get_ledger_for_user(pk, user, for_update=True)
-    if not ledger:
-        return None, '台账不存在'
-    error = legacy_inspection_error(ledger)
-    if error:
-        return None, error
-    if not ledger.can_transition_to(LEDGER_STATUS_RETURNED):
-        return None, '当前状态不允许退回'
-    ledger.status = LEDGER_STATUS_RETURNED
-    ledger.returned_at = timezone.now()
-    ledger.returned_by = user
-    ledger.return_reason = reason
-    ledger.save(update_fields=['status', 'returned_at', 'returned_by', 'return_reason'])
-    return ledger, None
-
-
-@transaction.atomic
-def review_ledger(user, pk):
-    """复核台账：已提交 → 已复核，记录复核人。"""
-    ledger = _get_ledger_for_user(pk, user, for_update=True)
-    if not ledger:
-        return None, '台账不存在'
-    error = legacy_inspection_error(ledger)
-    if error:
-        return None, error
-    if not ledger.can_transition_to(LEDGER_STATUS_REVIEWED):
-        return None, '当前状态不允许复核'
-    ledger.status = LEDGER_STATUS_REVIEWED
-    ledger.reviewed_at = timezone.now()
-    ledger.reviewed_by = user
-    ledger.reviewer_name = user.username
-    ledger.save(update_fields=['status', 'reviewed_at', 'reviewed_by', 'reviewer_name'])
-    return ledger, None
+def _item_has_value(item):
+    """明细必填判断：按录入类型检查填写值是否已填。"""
+    if item.input_type == 'number':
+        return item.value_number is not None
+    if item.input_type == 'boolean':
+        return item.value_bool is not None
+    if item.input_type == 'attachment':
+        return True  # 附件由附件接口管理，完成填写不做必填校验
+    return bool(str(item.value_text or '').strip())
 
 
 @transaction.atomic
 def void_ledger(user, pk, reason):
-    """受控作废：不物理删除；已作废台账不参与正常统计。"""
+    """受控作废：不物理删除；已作废台账不参与正常统计。
+
+    作废同时把 slot_active 置 NULL：作废台账不再占用周期生成槽位
+    （唯一约束豁免），但自动生成仍会将其标记"需人工处理"、不自动重建，
+    重做须使用明确的补建操作（period_generate_rebuild）。
+    """
     reason = str(reason or '').strip()
     if not reason:
         return None, '作废必须填写原因'
@@ -644,14 +635,67 @@ def void_ledger(user, pk, reason):
     if not ledger.can_transition_to(LEDGER_STATUS_VOID):
         return None, '当前状态不允许作废'
     ledger.status = LEDGER_STATUS_VOID
+    ledger.slot_active = None
     ledger.voided_at = timezone.now()
     ledger.voided_by = user
     ledger.void_reason = reason
-    ledger.save(update_fields=['status', 'voided_at', 'voided_by', 'void_reason'])
+    ledger.save(update_fields=['status', 'slot_active', 'voided_at', 'voided_by', 'void_reason'])
     return ledger, None
 
 
-# 复核后台账允许更正的明细字段
+# 可删除状态：草稿（新流程允许删除重填）与旧流程历史状态（含旧
+# submitted/returned/reviewed，删除前仍可正常查看）；已完成只允许
+# 查看/导出/更正/作废，已作废保留作废信息，两者均不可删除。
+DELETABLE_LEDGER_STATUSES = {
+    LEDGER_STATUS_DRAFT,
+    'submitted', 'returned', 'reviewed',
+}
+
+
+@transaction.atomic
+def delete_ledger(user, pk):
+    """物理删除台账（草稿与旧流程历史状态）：级联清理并留审计痕迹。
+
+    - 已完成/已作废不可删除（分别只允许 查看导出更正作废 / 保留作废信息）；
+    - 存在已转设备故障的明细时拒绝删除（SystemOperationRecord.source_ledger_item
+      为 PROTECT 外键，删除会产生悬挂引用；此类台账请改用作废）；
+    - 附件统一走 EvidenceAttachment 软删除留痕（表头 + 各明细），
+      物理文件删除失败由 evidence 侧记录，不回滚数据库；
+    - 更正记录与明细随台账级联/显式删除；审计事件与删除同事务写入。
+    返回 (ledger_info, None) 或 (None, error_message)；ledger_info 为删除前
+    快照（id/ledger_no/status/ledger_type/created_from），供视图层记录审计。
+    """
+    ledger = _get_ledger_for_user(pk, user, for_update=True)
+    if not ledger:
+        return None, '台账不存在'
+    if ledger.status not in DELETABLE_LEDGER_STATUSES:
+        return None, '当前状态不允许删除台账（已完成台账请改用作废，已作废台账保留作废信息）'
+    converted = ledger.items.filter(generated_records__isnull=False).exists()
+    if converted:
+        return None, '台账存在已转为设备故障的明细，运行处置记录仍在引用，不能删除，请改用作废'
+    from apps.equipment_lifecycle.views import EL_ATTACHMENT_MODULE
+    from apps.evidence.attachment_service import AttachmentService
+    from apps.equipment_lifecycle.ledger_views import (
+        LEDGER_ATTACHMENT_OBJECT_TYPE, LEDGER_ITEM_ATTACHMENT_OBJECT_TYPE,
+    )
+    AttachmentService.soft_delete_by_object(
+        user, EL_ATTACHMENT_MODULE, LEDGER_ATTACHMENT_OBJECT_TYPE, ledger.id,
+        reason='维护台账删除联动清理', delete_file=True)
+    for item in ledger.items.all():
+        AttachmentService.soft_delete_by_object(
+            user, EL_ATTACHMENT_MODULE, LEDGER_ITEM_ATTACHMENT_OBJECT_TYPE, item.id,
+            reason='维护台账删除联动清理', delete_file=True)
+    ledger.corrections.all().delete()
+    # delete() 后主键被置空，审计所需字段先快照
+    info = {
+        'id': ledger.id, 'ledger_no': ledger.ledger_no, 'status': ledger.status,
+        'ledger_type': ledger.ledger_type, 'created_from': ledger.created_from,
+    }
+    ledger.delete()
+    return info, None
+
+
+# 已完成台账允许更正的明细字段
 CORRECTABLE_FIELDS = {
     'value_text': '填写值', 'value_number': '数值填写值', 'value_bool': '布尔填写值',
     'result': '结果', 'abnormal_desc': '异常说明', 'na_reason': '不适用原因',
@@ -661,15 +705,15 @@ CORRECTABLE_FIELDS = {
 
 @transaction.atomic
 def correct_ledger(user, pk, body):
-    """复核后台账更正：必须填写原因，保存字段前后值（不静默修改）。"""
+    """已完成台账更正：必须填写原因，保存字段前后值（不静默修改）。"""
     ledger = _get_ledger_for_user(pk, user, for_update=True)
     if not ledger:
         return None, None, '台账不存在'
     error = legacy_inspection_error(ledger)
     if error:
         return None, None, error
-    if ledger.status != 'reviewed':
-        return None, None, '只有已复核台账可以进行更正'
+    if ledger.status != LEDGER_STATUS_COMPLETED:
+        return None, None, '只有已完成台账可以进行更正'
     reason = str(body.get('reason') or '').strip()
     if not reason:
         return None, None, '更正必须填写原因'
@@ -682,8 +726,8 @@ def correct_ledger(user, pk, body):
     try:
         if item is not None:
             _correct_ledger_item(item, body, changes)
-        else:
-            _correct_ledger_header(ledger, body, changes)
+        # 表头更正随执行人字段退役（原唯一可更正表头字段即执行人）：
+        # 无 item_id 时无字段可更正，落"没有需要更正的内容"
         if not changes:
             return None, None, '没有需要更正的内容'
         correction = OperationLedgerCorrection.objects.create(
@@ -695,7 +739,12 @@ def correct_ledger(user, pk, body):
 
 
 def _correct_ledger_item(item, body, changes):
-    """复核后更正单条明细：校验填写值与结果，比较前后值并应用变更。"""
+    """已完成台账更正单条明细：校验填写值与结果，比较前后值并应用变更。
+
+    result 显式提交时校验合法性；未提交且填写值变化时按新值派生
+    （正常/不正常单选填"不正常"记 abnormal，其余保留 normal），
+    避免"填写值=不正常、结果=正常"的数据矛盾。
+    """
     payload = {
         'value_text': body.get('value_text', item.value_text),
         'value_number': body.get('value_number', item.value_number),
@@ -704,9 +753,17 @@ def _correct_ledger_item(item, body, changes):
         'choices': item.get_choices(),
     }
     value_text, value_number, value_bool = validate_item_value(item.input_type, payload)
-    new_result = body.get('result', item.result)
-    if new_result not in ITEM_RESULT_VALUES:
-        raise LedgerValidationError('结果不合法：%s' % new_result)
+    value_changed = (item.value_text, item.value_number, item.value_bool) != (
+        value_text, value_number, value_bool)
+    if 'result' in body:
+        new_result = body.get('result')
+        if new_result not in ITEM_RESULT_VALUES:
+            raise LedgerValidationError('结果不合法：%s' % new_result)
+    elif value_changed:
+        new_result = resolve_item_result({
+            'value_text': value_text, 'value_number': value_number})
+    else:
+        new_result = item.result
     updates = {
         'value_text': value_text,
         'value_number': value_number,
@@ -728,22 +785,6 @@ def _correct_ledger_item(item, body, changes):
             })
             setattr(item, field, new_value)
     item.save()
-
-
-def _correct_ledger_header(ledger, body, changes):
-    """复核后更正表头允许字段（当前仅执行人），比较前后值并应用变更。"""
-    header_updates = {
-        'executor_names': ('执行人', body.get('executor_names')),
-    }
-    for field, (label, new_value) in header_updates.items():
-        if new_value is None:
-            continue
-        new_value = str(new_value).strip()
-        old_value = getattr(ledger, field)
-        if old_value != new_value:
-            changes.append({'field': field, 'label': label, 'old': old_value, 'new': new_value})
-            setattr(ledger, field, new_value)
-    ledger.save(update_fields=['executor_names'])
 
 
 @transaction.atomic

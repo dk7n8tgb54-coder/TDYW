@@ -112,7 +112,7 @@ class GroupPdfExportPreviewTests(TemplateGroupTestBase):
         self.assertEqual(body['template_name'], '信道维护台账')
         self.assertEqual(body['total'], 3)
         self.assertEqual(body['status_scope'],
-                         ['submitted', 'returned', 'reviewed'])
+                         ['completed', 'submitted', 'returned', 'reviewed'])
         self.assertEqual(str(body['executed_from']), '2026-10-01')
         self.assertEqual(str(body['executed_to']), '2026-10-08')
         self.assertEqual(body['versions'], [
@@ -370,7 +370,7 @@ class GroupPdfRealConversionTests(ExcelLedgerContractBase):
             json.dumps({'values': values}), content_type='application/json')
         self.assertEqual(response.json().get('error', ''), '')
         response = self.owner_client.post(
-            '%s/%s/submit/' % (LEDGER_URL, ledger_id))
+            '%s/%s/complete/' % (LEDGER_URL, ledger_id))
         self.assertEqual(response.json().get('error', ''), '')
         return ledger_id
 

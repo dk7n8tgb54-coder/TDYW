@@ -4,9 +4,17 @@
  */
 /**
  * 运行处置记录详情模块共享小工具（区块标题内联样式，不新增全局样式）。
+ * 2026-10-15 起同时承载列表展示单元（状态/故障影响标签、标题、编号）：
+ * 主列表与系统档案页签两个真实场景共用同一套展示规则，避免复制业务规则。
  */
 import React from 'react';
 import moment from 'moment';
+import {Tag, Typography} from 'antd';
+import {
+  RECORD_STATUS_TEXT, RECORD_STATUS_COLOR,
+  RECORD_TYPE_TEXT, RECORD_TYPE_COLOR,
+  FAULT_IMPACT_TEXT, FAULT_IMPACT_COLOR,
+} from '../constants';
 
 // 进展条目的显示名随记录类型（详情页签/时间线标题/概览指称共用）：
 // 一般记录=补充记录 / 异常事件=跟进记录 / 设备故障=处置记录；
@@ -17,6 +25,62 @@ export const PROGRESS_TAB_TEXT = {
   abnormal: '跟进记录',
   fault: '处置记录',
 };
+
+// ==================== 列表展示单元（主列表与系统页签共用） ====================
+
+// 状态标签：已撤销使用虚线灰样式，与进行态明显区分
+export function RecordStatusTag({status}) {
+  if (status === 'cancelled') {
+    return (
+      <Tag
+        color="default"
+        style={{borderStyle: 'dashed', color: 'rgba(0, 0, 0, 0.45)'}}
+      >
+        {RECORD_STATUS_TEXT[status] || status}
+      </Tag>
+    );
+  }
+  return <Tag color={RECORD_STATUS_COLOR[status]}>{RECORD_STATUS_TEXT[status] || status}</Tag>;
+}
+
+// 设备故障影响程度并入状态列的规则：仅设备故障显示；影响运行时展示
+// 程度标签（降级/故障/中断），否则展示中性"不影响运行"标签
+export function FaultImpactTag({record}) {
+  if (!record || record.record_type !== 'fault') return null;
+  if (record.affects_system_operation) {
+    return (
+      <Tag color={FAULT_IMPACT_COLOR[record.impact_status]} style={{marginLeft: 4}}>
+        {FAULT_IMPACT_TEXT[record.impact_status] || record.impact_status}
+      </Tag>
+    );
+  }
+  return <Tag style={{marginLeft: 4}}>不影响运行</Tag>;
+}
+
+// 标题单元格：前置记录类型标签，标题为主要入口点击打开统一详情；
+// 长标题由列 ellipsis 截断，悬浮可见全文（native title）
+export function RecordTitleCell({record, onOpen}) {
+  return (
+    <span>
+      <Tag color={RECORD_TYPE_COLOR[record.record_type]} style={{marginRight: 4}}>
+        {RECORD_TYPE_TEXT[record.record_type] || record.record_type}
+      </Tag>
+      <a onClick={() => onOpen(record)} title={record.title}>{record.title}</a>
+    </span>
+  );
+}
+
+// 编号单元格：一键复制（引用字段可查找、可复制）
+export function RecordNoCell({value}) {
+  return (
+    <Typography.Text
+      copyable={{tooltips: ['复制编号', '已复制']}}
+      style={{maxWidth: 140}}
+    >
+      {value}
+    </Typography.Text>
+  );
+}
 
 // 区块标题（基本信息区块与进展工作区共用，与系统档案详情同款内联样式）
 export function sectionTitle(text, style) {
