@@ -4,7 +4,7 @@
 真实执行 HTTP → View → Service → Model 链路（Docker + 隔离测试库）：
 - 本期工作概览 /ledgers/period-overview/：周月维护给 本周+本月 两块、季维护
   给本航季一块；应填/待生成按模板生成规则计算（不统计已有台账冒充），
-  待填写/已退回/已完成为本期台账真实状态数量；待生成生成后归零；
+  待填写/已完成为本期台账真实状态数量；待生成生成后归零；
 - 周期分组 /ledgers/period-groups/ 修复与增强：台账编号 keyword 筛选真实
   生效（此前前端已发送但视图未读取）；分页按期次组切片；组内五状态统计
   与可见行一致；is_current 标记本期组；分组标题为期次完整标签；
@@ -142,7 +142,7 @@ class OverviewTestBase(TestCase):
 
 
 class PeriodGroupsEnhancementTests(OverviewTestBase):
-    """周期分组：keyword 修复、分页、五状态统计、本期标记、期次标签。"""
+    """周期分组：keyword 修复、分页、三状态统计、本期标记、期次标签。"""
 
     def setUp(self):
         super().setUp()
@@ -150,13 +150,13 @@ class PeriodGroupsEnhancementTests(OverviewTestBase):
             'EL-WM-20261012-0001', status='draft', executed_date=None,
             maintenance_period='2026-10-12', system=self.system_a)
         self.make_ledger(
-            'EL-WM-20261012-0002', status='returned', executed_date=None,
+            'EL-WM-20261012-0002', status='draft', executed_date=None,
             maintenance_period='2026-10-12', system=self.system_b)
         self.make_ledger(
-            'EL-WM-20261001-0003', status='submitted', executed_date=None,
+            'EL-WM-20261001-0003', status='draft', executed_date=None,
             maintenance_period='2026-10', system=self.system_a)
         self.make_ledger(
-            'EL-WM-20261001-0004', status='reviewed', executed_date=None,
+            'EL-WM-20261001-0004', status='completed', executed_date=None,
             maintenance_period='2026-10', system=self.system_b)
         self.make_ledger(
             'EL-WM-20261001-0005', status='void', executed_date=None,
@@ -187,17 +187,29 @@ class PeriodGroupsEnhancementTests(OverviewTestBase):
         data = self.groups({'ledger_type': LEDGER_TYPE_WEEK_MONTH})['data']
         by_period = {g['maintenance_period']: g for g in data}
         week = by_period['2026-10-12']
-        # completed 为完成口径：旧流程已提交/已退回历史状态一并计入
         self.assertEqual(
             {k: week[k] for k in ('total', 'draft', 'completed', 'void')},
-            {'total': 2, 'draft': 1, 'completed': 0, 'void': 0})
+            {'total': 2, 'draft': 2, 'completed': 0, 'void': 0})
         month = by_period['2026-10']
+        # 默认视图不含已作废（2026-10-17）：组统计与可见行一致
         self.assertEqual(
             {k: month[k] for k in ('total', 'draft', 'completed', 'void')},
-            {'total': 3, 'draft': 0, 'completed': 2, 'void': 1})
+            {'total': 2, 'draft': 1, 'completed': 1, 'void': 0})
+        # status=void 主动查看已作废；status=all 明确包含已作废
+        data = self.groups({'ledger_type': LEDGER_TYPE_WEEK_MONTH,
+                            'status': 'all'})['data']
+        month_all = {g['maintenance_period']: g for g in data}['2026-10']
+        self.assertEqual(
+            {k: month_all[k] for k in ('total', 'draft', 'completed', 'void')},
+            {'total': 3, 'draft': 1, 'completed': 1, 'void': 1})
+        void_only = self.groups({'ledger_type': LEDGER_TYPE_WEEK_MONTH,
+                                 'status': 'void'})['data']
+        self.assertEqual(
+            {k: void_only[0][k] for k in ('total', 'draft', 'completed', 'void')},
+            {'total': 1, 'draft': 0, 'completed': 0, 'void': 1})
         # 状态筛选后组内统计与可见行一致
         data = self.groups({'ledger_type': LEDGER_TYPE_WEEK_MONTH,
-                            'status': 'submitted'})['data']
+                            'status': 'completed'})['data']
         self.assertEqual([g['maintenance_period'] for g in data], ['2026-10'])
         self.assertEqual(data[0]['total'], 1)
         self.assertEqual(data[0]['completed'], 1)
@@ -324,13 +336,13 @@ class WeekMonthOverviewTests(OverviewTestBase):
         with fake_today(2026, 10, 14):
             post_json(self.client, GENERATE_URL,
                       {'ledger_type': LEDGER_TYPE_WEEK_MONTH})
-        self.make_ledger('EL-WM-20261005-0010', status='returned',
+        self.make_ledger('EL-WM-20261005-0010', status='draft',
                          executed_date=datetime(2026, 10, 5).date(),
                          maintenance_period='', system=self.system_b)
-        self.make_ledger('EL-WM-20261006-0011', status='submitted',
+        self.make_ledger('EL-WM-20261006-0011', status='completed',
                          executed_date=datetime(2026, 10, 6).date(),
                          maintenance_period='', system=self.system_b)
-        self.make_ledger('EL-WM-20261007-0012', status='reviewed',
+        self.make_ledger('EL-WM-20261007-0012', status='completed',
                          executed_date=datetime(2026, 10, 7).date(),
                          maintenance_period='', system=self.system_b)
         self.make_ledger('EL-WM-20261008-0013', status='void',
@@ -338,9 +350,8 @@ class WeekMonthOverviewTests(OverviewTestBase):
                          maintenance_period='', system=self.system_b)
         data = self.overview(today=(2026, 10, 14))
         month = self.block(data, 'month')
-        self.assertEqual(month['drafting'], 1)
-        self.assertEqual(month['returned'], 1)
-        self.assertEqual(month['completed'], 2)  # 已提交 + 已复核
+        self.assertEqual(month['drafting'], 2)
+        self.assertEqual(month['completed'], 2)
         self.assertEqual(month['voided'], 1)
         # 历史台账不串到周块（周块无执行日期推导路径）
         self.assertEqual(self.block(data, 'week')['drafting'], 0)

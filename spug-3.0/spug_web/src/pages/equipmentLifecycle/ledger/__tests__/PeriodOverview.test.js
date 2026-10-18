@@ -9,8 +9,8 @@
  *   状态统计与"本期"徽标可见；点击展开历史组后状态持久化（localStorage）；
  *   分页切换携带 page 参数重新请求；
  * - 列操作（buildColumns 2026-10-16 流程简化）：草稿 Excel 行主操作
- *   "继续填写"发起详情请求；旧流程历史行（已退回）"查看"并可删除
- *   （Modal 确认后 DELETE）；已复核行"查看"；作废收进"更多"菜单，
+ *   "继续填写"发起详情请求；草稿行"查看"入口与更多菜单删除
+ *   （Modal 确认后 DELETE）；已完成行"查看"；作废收进"更多"菜单，
  *   弹窗必须填写作废原因才可确认（POST void 携带原因），空原因时确认
  *   按钮禁用；
  * - 两个填写列表隔离：概览请求按各自 ledger_type 发送，互不串扰。
@@ -101,12 +101,12 @@ const OVERVIEW_PAYLOAD = {
       {key: 'week', title: '本周', maintenance_period: '2026-10-12',
        period_label: '每周｜2026-10-12 ~ 2026-10-18',
        period_start: '2026-10-12', period_end: '2026-10-18',
-       expected: 3, to_generate: 2, drafting: 0, returned: 1, completed: 0,
+       expected: 3, to_generate: 2, drafting: 0, completed: 0,
        voided: 0, attention: 0},
       {key: 'month', title: '本月', maintenance_period: '2026-10',
        period_label: '每月｜2026年10月',
        period_start: '2026-10-01', period_end: '2026-10-31',
-       expected: 1, to_generate: 0, drafting: 1, returned: 0, completed: 0,
+       expected: 1, to_generate: 0, drafting: 1, completed: 0,
        voided: 0, attention: 0},
     ],
     unconfigured_templates: 2,
@@ -117,7 +117,7 @@ const GROUPS_PAYLOAD = (groups) => ({data: {data: groups, total: groups.length}}
 
 const GROUPS = [
   {maintenance_period: '2026-10-12', period_text: '每周｜2026-10-12 ~ 2026-10-18',
-   is_current: true, total: 2, draft: 1, completed: 1,
+   is_current: true, total: 2, draft: 2, completed: 0,
    void: 0, ledgers: [
      {id: 11, ledger_no: 'EL-WM-20261012-0001', ledger_type: 'week_month',
       status: 'draft', system_name: 'DVOR系统', created_from: 'excel_template',
@@ -125,8 +125,8 @@ const GROUPS = [
       period_label: '每周｜2026-10-12 ~ 2026-10-18', period_is_derived: false,
       period_source_text: ''},
      {id: 12, ledger_no: 'EL-WM-20261012-0002', ledger_type: 'week_month',
-      status: 'returned', system_name: 'ILS系统', created_from: 'manual',
-      source_type: 'manual', return_reason: '明细填写不完整',
+      status: 'draft', system_name: 'ILS系统', created_from: 'manual',
+      source_type: 'manual',
       period_label: '每周｜2026-10-12 ~ 2026-10-18', period_is_derived: false,
       period_source_text: ''},
    ]},
@@ -134,7 +134,7 @@ const GROUPS = [
    is_current: false, total: 1, draft: 0, completed: 1,
    void: 0, ledgers: [
      {id: 21, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month',
-      status: 'reviewed', system_name: 'DVOR系统', created_from: 'manual',
+      status: 'completed', system_name: 'DVOR系统', created_from: 'manual',
       source_type: 'manual',
       period_label: '每月｜2026年9月', period_is_derived: true,
       period_source_text: '按实际执行日期归档'},
@@ -264,6 +264,24 @@ describe('LedgerGroupTable 周期分组展开与分页', () => {
     const call = mockHttpGet.mock.calls.find(c => c[0].endsWith('/ledgers/period-groups/'));
     expect(call[1].params.page).toBe(2);
   });
+
+  test('展开的内嵌台账表启用横向滚动（scroll.x 与列宽总和一致），操作列固定右侧', async () => {
+    mockHttpGet.mockResolvedValue(GROUPS_PAYLOAD(GROUPS));
+    const store = new LedgerStore('week_month');
+    await store.fetchGroups();
+    renderTable(store);
+    // 外层分组表固定布局：宽度不被展开内容撑宽，内嵌表才拥有自己的横向滚动
+    const outerTable = container.querySelector('main table, table');
+    expect(outerTable.style.tableLayout).toBe('fixed');
+    const innerTable = container.querySelector('.ant-table-expanded-row table');
+    expect(innerTable).toBeTruthy();
+    // antd 对数字 scroll.x 生成固定布局：table 内联宽度 = 列宽总和，
+    // 窄屏容器出现横向滚动条时 fixed right 列保持可见
+    expect(innerTable.style.width).toBe('990px');
+    const innerHeaders = Array.from(innerTable.querySelectorAll('thead th'));
+    expect(innerHeaders[innerHeaders.length - 1].textContent).toBe('操作');
+    expect(innerHeaders[innerHeaders.length - 1].className).toContain('ant-table-cell-fix-right');
+  });
 });
 
 describe('台账行操作（buildColumns 2026-10-14）', () => {
@@ -299,17 +317,15 @@ describe('台账行操作（buildColumns 2026-10-14）', () => {
     expect(row.textContent).not.toContain('提交');
   });
 
-  test('旧流程历史已退回行：主操作"查看"，更多菜单提供删除（确认后 DELETE）', async () => {
+  test('草稿行：更多菜单提供删除（确认后 DELETE），已完成行不可删除', async () => {
     mockHttpDelete.mockResolvedValue({});
-    const rows = [{id: 12, ledger_no: 'EL-WM-20261012-0002', status: 'returned',
-      created_from: 'manual', source_type: 'manual', ledger_type: 'week_month',
-      return_reason: '明细填写不完整'}];
+    const rows = [{id: 12, ledger_no: 'EL-WM-20261012-0002', status: 'draft',
+      created_from: 'manual', source_type: 'manual', ledger_type: 'week_month'}];
     const {store} = renderRows(rows);
     const row = rowByNo('EL-WM-20261012-0002');
     const primary = row.querySelector('[data-testid="row-primary-action"]');
-    // 旧流程历史状态不再提供编辑/提交，仅查看
-    expect(primary.textContent).toBe('查看');
-    expect(row.textContent).not.toContain('提交');
+    // 草稿行主操作为"继续填写"
+    expect(primary.textContent).toBe('继续填写');
     // 更多菜单 → 删除（Modal 确认）
     await act(async () => {
       row.querySelector('[data-testid="row-more"]').click();
@@ -336,9 +352,9 @@ describe('台账行操作（buildColumns 2026-10-14）', () => {
     expect(store.isDeleting).toBe(false);
   });
 
-  test('已复核行主操作"查看"；作废收进更多菜单且必须填写原因', async () => {
+  test('已完成行主操作"查看"；作废收进更多菜单且必须填写原因', async () => {
     mockHttpPost.mockResolvedValue({});
-    const rows = [{id: 21, ledger_no: 'EL-WM-20260910-0001', status: 'reviewed',
+    const rows = [{id: 21, ledger_no: 'EL-WM-20260910-0001', status: 'completed',
       created_from: 'manual', source_type: 'manual', ledger_type: 'week_month'}];
     renderRows(rows);
     const row = rowByNo('EL-WM-20260910-0001');
@@ -378,6 +394,30 @@ describe('台账行操作（buildColumns 2026-10-14）', () => {
     await act(flush);
     expect(mockHttpPost).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/ledgers/21/void/', {reason: '录入错误重复台账'});
+  });
+});
+
+describe('台账列序与固定操作列（2026-10-18）', () => {
+  test('次要信息在前，操作列固定最右（与其他业务列表一致）', () => {
+    const store = new LedgerStore('week_month');
+    const Table = require('antd').Table;
+    render(h(Table, {
+      rowKey: 'id',
+      dataSource: [{id: 31, ledger_no: 'EL-WM-20261012-0003', status: 'draft',
+        created_from: 'excel_template', source_type: 'excel',
+        source_template_name: '信道周模板', ledger_type: 'week_month'}],
+      columns: buildColumns(store, 'week_month', () => {}),
+      pagination: false,
+    }));
+    const headers = Array.from(container.querySelectorAll('.ant-table-thead th'))
+      .map(th => th.textContent);
+    expect(headers).toEqual(['模板名称', '系统', '期次', '状态', '台账编号', '操作']);
+    const fixRight = container.querySelectorAll(
+      '.ant-table-thead th.ant-table-cell-fix-right, .ant-table-tbody td.ant-table-cell-fix-right');
+    expect(fixRight.length).toBeGreaterThanOrEqual(2);
+    // 固定列即最后的操作列，主操作/更多菜单在其单元格内
+    expect(fixRight[0].textContent).toBe('操作');
+    expect(fixRight[1].querySelector('[data-testid="row-primary-action"]')).toBeTruthy();
   });
 });
 

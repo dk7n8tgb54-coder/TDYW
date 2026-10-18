@@ -20,9 +20,8 @@ from apps.equipment_lifecycle.excel_models import (
 from apps.equipment_lifecycle.models import (
     LEDGER_FROM_EXCEL,
     LEDGER_FROM_MANUAL,
+    LEDGER_STATUS_COMPLETED,
     LEDGER_STATUS_DRAFT,
-    LEDGER_STATUS_REVIEWED,
-    LEDGER_STATUS_SUBMITTED,
     LEDGER_STATUS_VOID,
     LEDGER_TYPE_SEASONAL,
     LEDGER_TYPE_WEEK_MONTH,
@@ -153,16 +152,24 @@ class TemplateGroupingTests(TemplateGroupTestBase):
         template = self.make_template('状态统计模板')
         v1 = self.make_version(template, 1)
         self.make_excel_ledger(v1, '2026-10-01', status=LEDGER_STATUS_DRAFT)
-        self.make_excel_ledger(v1, '2026-10-05', status=LEDGER_STATUS_SUBMITTED)
-        self.make_excel_ledger(v1, '2026-10-08', status=LEDGER_STATUS_REVIEWED)
+        self.make_excel_ledger(v1, '2026-10-08', status=LEDGER_STATUS_COMPLETED)
         self.make_excel_ledger(v1, '2026-10-03', status=LEDGER_STATUS_VOID)
+        # 默认视图不含已作废（2026-10-17）：组统计与可见行一致
         group = self.fetch_group_rows(ledger_type=LEDGER_TYPE_WEEK_MONTH)[0]
-        self.assertEqual(group['total'], 4)
+        self.assertEqual(group['total'], 2)
         self.assertEqual(group['draft'], 1)
-        # completed 为完成口径：旧流程已提交/已复核历史状态一并计入
-        self.assertEqual(group['completed'], 2)
-        self.assertEqual(group['void'], 1)
+        self.assertEqual(group['completed'], 1)
+        self.assertEqual(group['void'], 0)
         self.assertEqual(str(group['last_executed_date']), '2026-10-08')
+        # status=void 主动查看已作废；status=all 明确包含已作废
+        void_group = self.fetch_group_rows(
+            ledger_type=LEDGER_TYPE_WEEK_MONTH, status=LEDGER_STATUS_VOID)[0]
+        self.assertEqual(void_group['total'], 1)
+        self.assertEqual(void_group['void'], 1)
+        all_group = self.fetch_group_rows(
+            ledger_type=LEDGER_TYPE_WEEK_MONTH, status='all')[0]
+        self.assertEqual(all_group['total'], 3)
+        self.assertEqual(all_group['void'], 1)
 
 
 class TemplateGroupHistoryTests(TemplateGroupTestBase):
@@ -248,20 +255,20 @@ class TemplateGroupFilterTests(TemplateGroupTestBase):
         ledger = self.make_excel_ledger(
             self.make_version(self.week_template, 2), '2026-10-09')
         data = self.fetch_group_rows(
-            ledger_type=LEDGER_TYPE_WEEK_MONTH, status=LEDGER_STATUS_SUBMITTED)
-        # 状态筛选下仅剩提交态台账所在组，统计只计提交态
+            ledger_type=LEDGER_TYPE_WEEK_MONTH, status=LEDGER_STATUS_COMPLETED)
+        # 状态筛选下仅剩完成态台账所在组，统计只计完成态
         week_group = [g for g in data if g['group_key'] == str(self.week_template.id)]
         self.assertEqual(week_group, [])
-        ledger.status = LEDGER_STATUS_SUBMITTED
+        ledger.status = LEDGER_STATUS_COMPLETED
         ledger.save(update_fields=['status'])
         data = self.fetch_group_rows(
-            ledger_type=LEDGER_TYPE_WEEK_MONTH, status=LEDGER_STATUS_SUBMITTED)
+            ledger_type=LEDGER_TYPE_WEEK_MONTH, status=LEDGER_STATUS_COMPLETED)
         week_group = [g for g in data if g['group_key'] == str(self.week_template.id)][0]
         self.assertEqual(week_group['total'], 1)
         # 组内列表：状态/编号关键词/日期范围筛选
         body = self.ok_data(self.client.get(
             group_ledgers_url(self.week_template.id), {
-                'ledger_type': LEDGER_TYPE_WEEK_MONTH, 'status': LEDGER_STATUS_SUBMITTED}))
+                'ledger_type': LEDGER_TYPE_WEEK_MONTH, 'status': LEDGER_STATUS_COMPLETED}))
         self.assertEqual([r['id'] for r in body['data']], [ledger.id])
         body = self.ok_data(self.client.get(
             group_ledgers_url(self.week_template.id), {

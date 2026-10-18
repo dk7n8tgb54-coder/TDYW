@@ -94,19 +94,19 @@ const TEMPLATE_GROUPS_PAYLOAD = {
     {
       group_key: '7', source_type: 'excel', template_id: 7,
       template_name: '信道维护台账', is_active: true,
-      total: 5, draft: 1, submitted: 2, returned: 0, reviewed: 1, void: 1,
+      total: 3, draft: 1, completed: 1, void: 1,
       last_executed_date: '2026-10-08',
     },
     {
       group_key: '9', source_type: 'excel', template_id: 9,
       template_name: '退役模板', is_active: false,
-      total: 2, draft: 2, submitted: 0, returned: 0, reviewed: 0, void: 0,
+      total: 2, draft: 2, completed: 0, void: 0,
       last_executed_date: '2026-09-01',
     },
     {
       group_key: 'manual', source_type: 'manual', template_id: null,
       template_name: '无模板/临时补录', is_active: null,
-      total: 1, draft: 1, submitted: 0, returned: 0, reviewed: 0, void: 0,
+      total: 1, draft: 1, completed: 0, void: 0,
       last_executed_date: '2026-10-02',
     },
   ],
@@ -118,7 +118,7 @@ const GROUP_LEDGERS_PAYLOAD = {
   data: [
     {
       id: 21, ledger_no: 'EL-WM-20261008-0001', ledger_type: 'week_month',
-      executed_date: '2026-10-08', status: 'reviewed', source_type: 'excel',
+      executed_date: '2026-10-08', status: 'completed', source_type: 'excel',
       source_template_name: '信道维护台账', source_version_no: 2,
       created_by_name: 'op1', created_at: '2026-10-08 09:00',
     },
@@ -148,7 +148,7 @@ const DETAIL_SHEET = {
 function makeExcelDetailPayload() {
   return {
     id: 21, ledger_no: 'EL-WM-20261008-0001', ledger_type: 'week_month',
-    executed_date: '2026-10-08', status: 'reviewed',
+    executed_date: '2026-10-08', status: 'completed',
     created_from: 'excel_template',
     excel: {
       record_id: 7, values: {}, editable: false,
@@ -313,7 +313,7 @@ describe('维护台账模板视图', () => {
       return Promise.resolve({data: [], total: 0});
     });
     const detailAnchor = Array.from(container.querySelectorAll('a'))
-      .find(el => el.textContent === '查看'); // 已提交/已复核行的主操作为"查看"（2026-10-14 列改版）
+      .find(el => el.textContent === '查看'); // 已完成行的主操作为"查看"（2026-10-14 列改版）
     await act(async () => {
       detailAnchor.click();
     });
@@ -325,12 +325,53 @@ describe('维护台账模板视图', () => {
   });
 });
 
+describe('模板组内台账表列序与横向滚动（2026-10-18）', () => {
+  beforeEach(() => {
+    // getLedgerStore 模块级缓存：跨用例重置视图相关状态（与上组一致）
+    const store = storeModule.getLedgerStore('week_month');
+    store.viewMode = 'period';
+    store.activeGroup = null;
+    store.templateGroupsPage = 1;
+    store.templateGroups = [];
+    store.templateGroupsTotal = 0;
+    store.groupLedgers = [];
+    store.groupLedgersTotal = 0;
+    store.f_keyword = undefined;
+    store.f_status = undefined;
+    store.f_date_range = undefined;
+    mockHttpEndpoints();
+  });
+
+  test('组内台账表横向滚动（scroll.x 与列宽总和一致），操作列固定最右', async () => {
+    await renderIndex();
+    await act(async () => {
+      findRadioInput('按模板查看').querySelector('input').click();
+    });
+    await act(flush);
+    await act(async () => {
+      findAnchor('查看台账').click();
+    });
+    await act(flush);
+    const groupTable = Array.from(container.querySelectorAll('table'))
+      .find(t => t.textContent.includes('EL-WM-20261008-0001'));
+    expect(groupTable).toBeTruthy();
+    // antd 对数字 scroll.x 生成固定布局：table 内联宽度 = 列宽总和，
+    // 窄屏容器出现横向滚动条时 fixed right 列保持可见
+    expect(groupTable.style.width).toBe('990px');
+    const headers = Array.from(groupTable.querySelectorAll('thead th'))
+      .map(th => th.textContent);
+    expect(headers[headers.length - 1]).toBe('操作');
+    expect(groupTable.querySelector('thead th.ant-table-cell-fix-right').textContent)
+      .toBe('操作');
+  });
+});
+
 // ===== 组内批量导出"导出本模板台账"（2026-10-11）共享夹具 =====
 const EXPORT_PREVIEW_PAYLOAD = {
   data: {
     group_key: '7', template_id: 7, template_name: '信道维护台账',
     ledger_type: 'week_month', total: 3,
-    status_scope: ['submitted', 'returned', 'reviewed'],
+    status_scope: ['completed'],
     executed_from: '2026-10-01', executed_to: '2026-10-08',
     versions: [{version_no: 1, count: 1}, {version_no: 2, count: 2}],
     max_records: 50,
@@ -426,7 +467,7 @@ describe('组内批量导出·确认框与发起（2026-10-11）', () => {
     expect(modalText).toContain('匹配记录数');
     expect(modalText).toContain('3 条');
     expect(modalText).toContain('2026-10-01 ~ 2026-10-08');
-    expect(modalText).toContain('已提交、已退回、已复核');
+    expect(modalText).toContain('已完成');
     expect(modalText).toContain('v1（1 条）、v2（2 条）');
     // 页数无法可靠预估，确认框不展示预计页数
     expect(modalText).not.toContain('预计页数');

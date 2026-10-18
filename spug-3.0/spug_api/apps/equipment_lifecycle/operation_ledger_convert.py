@@ -30,7 +30,6 @@ from apps.equipment_lifecycle import operation_services
 from apps.equipment_lifecycle.models import (
     ITEM_RESULT_ABNORMAL,
     LEDGER_STATUS_DRAFT,
-    LEDGER_STATUS_RETURNED,
     LEDGER_STATUS_VOID,
     LEGACY_LEDGER_TYPE_INSPECTION,
     LEDGER_TYPE_TEXT,
@@ -47,9 +46,8 @@ from apps.equipment_lifecycle.operation_views import (
     _record_detail_response,
 )
 
-# 台账异常明细可转故障的台账状态（新流程=已完成；草稿/退回/作废不可转；
-# 旧流程历史状态 已提交/已复核 存量兼容）
-CONVERTIBLE_LEDGER_STATUSES = ('completed', 'submitted', 'reviewed')
+# 台账异常明细可转故障的台账状态（已完成；草稿/作废不可转）
+CONVERTIBLE_LEDGER_STATUSES = ('completed',)
 
 
 def _item_value_text(item):
@@ -81,8 +79,8 @@ def _get_ledger_item_for_convert(ledger_pk, item_pk, user, for_update=False):
     # 周月/季维护不受影响。
     if ledger.ledger_type == LEGACY_LEDGER_TYPE_INSPECTION:
         return None, None, '旧巡检台账（历史）已删除，不能转故障'
-    if ledger.status in (LEDGER_STATUS_DRAFT, LEDGER_STATUS_RETURNED, LEDGER_STATUS_VOID):
-        return None, None, '草稿、已退回或已作废的台账不能转故障'
+    if ledger.status in (LEDGER_STATUS_DRAFT, LEDGER_STATUS_VOID):
+        return None, None, '草稿或已作废的台账不能转故障'
     if ledger.status not in CONVERTIBLE_LEDGER_STATUSES:
         return None, None, '当前台账状态不能转故障'
     if item.result != ITEM_RESULT_ABNORMAL:

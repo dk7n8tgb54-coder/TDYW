@@ -11,13 +11,15 @@
  *   组；统计不受分页影响，分页由后端切片、本组件只渲染当前页）；
  * - 组内页码等状态保存在 LedgerStore（activeGroup/templateGroupsPage），
  *   从组内返回、详情返回后均保留；
- * - 无模板/临时补录组（source_type=manual）名称与停用标注由后端下发。
+ * - 无模板/临时补录组（source_type=manual）名称与停用标注由后端下发；
+ * - Excel 模板组行内提供"翻阅台账"（2026-10-18）：进入翻阅视图连续查看
+ *   该模板历次台账（manual 组无模板版式，不提供）。
  */
 import React from 'react';
 import {observer} from 'mobx-react';
 import {Table} from 'antd';
 
-const GROUP_COLUMNS = (onOpen) => [
+const GROUP_COLUMNS = (onOpen, onBrowse) => [
   {
     title: '模板名称', dataIndex: 'template_name', width: 240, ellipsis: true,
     render: (v, record) => (
@@ -33,13 +35,26 @@ const GROUP_COLUMNS = (onOpen) => [
   {title: '最近执行日期', dataIndex: 'last_executed_date', width: 130,
     render: v => v || '—'},
   {
-    title: '操作', width: 100, align: 'center',
-    render: (text, record) => <a onClick={() => onOpen(record)}>查看台账</a>,
+    title: '操作', width: 150, align: 'center',
+    render: (text, record) => (
+      <span>
+        {record.source_type === 'excel' && (
+          <a data-testid="group-browse" onClick={() => onBrowse(record)}>翻阅台账</a>
+        )}
+        <a
+          style={record.source_type === 'excel' ? {marginLeft: 8} : undefined}
+          onClick={() => onOpen(record)}>
+          查看台账
+        </a>
+      </span>
+    ),
   },
 ];
 
 function LedgerTemplateGroupTable({store}) {
-  const columns = GROUP_COLUMNS(group => store.openTemplateGroup(group));
+  const columns = GROUP_COLUMNS(
+    group => store.openTemplateGroup(group),
+    group => store.openBrowse(group).catch(() => {}));
   return (
     <Table
       rowKey="group_key"

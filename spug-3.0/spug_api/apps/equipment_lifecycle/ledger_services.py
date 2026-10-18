@@ -18,8 +18,8 @@
   entries 携带 template_id/row_nodes 等旧参数时显式拒绝；
 - 流程简化（2026-10-16）：新流程只用 草稿/已完成/已作废 三状态，不再提交
   其他账号复核（submit/return/review 端点与服务已删除）；"完成填写"
-  （complete_ledger）为流程终点；草稿与旧流程历史状态可物理删除
-  （delete_ledger，审计留痕），已完成/已作废不可删除。
+  （complete_ledger）为流程终点；草稿可物理删除（delete_ledger，审计留痕），
+  已完成/已作废不可删除。
 
 核心约定：
 - 系统关联一律使用系统 ID，页面显示的名称/编号/地点均保存快照；
@@ -109,6 +109,29 @@ def validate_ledger_type(ledger_type):
         raise LedgerValidationError(LEGACY_INSPECTION_ERROR)
     if ledger_type not in LEDGER_TYPE_VALUES:
         raise LedgerValidationError('台账类型不合法')
+
+
+# 状态筛选特殊值（2026-10-17）：列表状态筛选传 'all' 表示"全部"——
+# 明确包含已作废；不传或传空为默认视图（不含已作废）
+LEDGER_STATUS_FILTER_ALL = 'all'
+
+
+def apply_ledger_status_filter(query, status, field='status'):
+    """台账列表状态筛选统一口径（统一列表/周期分组/模板分组/明细导出共用）：
+
+    - 空：默认视图——排除已作废；
+    - 'all'：全部——明确包含已作废；
+    - 其他值：精确匹配该状态（含 status=void 主动查看已作废）。
+
+    默认隐藏只是查询筛选而非物理删除：详情、按主键访问与显式筛选不受影响，
+    权限与租户过滤仍由各调用方独立保证。
+    """
+    status = str(status or '').strip()
+    if status == LEDGER_STATUS_FILTER_ALL:
+        return query
+    if status:
+        return query.filter(**{field: status})
+    return query.exclude(**{field: LEDGER_STATUS_VOID})
 
 
 def parse_datetime_value(value, field_label, allow_empty=False):
@@ -643,18 +666,16 @@ def void_ledger(user, pk, reason):
     return ledger, None
 
 
-# 可删除状态：草稿（新流程允许删除重填）与旧流程历史状态（含旧
-# submitted/returned/reviewed，删除前仍可正常查看）；已完成只允许
-# 查看/导出/更正/作废，已作废保留作废信息，两者均不可删除。
+# 可删除状态：草稿（允许删除重填）。已完成只允许查看/导出/更正/作废，
+# 已作废保留作废信息，两者均不可删除。
 DELETABLE_LEDGER_STATUSES = {
     LEDGER_STATUS_DRAFT,
-    'submitted', 'returned', 'reviewed',
 }
 
 
 @transaction.atomic
 def delete_ledger(user, pk):
-    """物理删除台账（草稿与旧流程历史状态）：级联清理并留审计痕迹。
+    """物理删除台账（草稿）：级联清理并留审计痕迹。
 
     - 已完成/已作废不可删除（分别只允许 查看导出更正作废 / 保留作废信息）；
     - 存在已转设备故障的明细时拒绝删除（SystemOperationRecord.source_ledger_item

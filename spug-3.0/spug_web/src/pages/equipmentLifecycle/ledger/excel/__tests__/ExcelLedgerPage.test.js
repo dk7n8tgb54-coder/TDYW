@@ -3,8 +3,8 @@
  *
  * 覆盖：列表渲染（模板版本列）→ 创建台账（可用版本加载/提交载荷）→
  * 填写详情（绑定单元格渲染输入控件、setValue、保存载荷）→ 提交必填拦截
- * 与成功提交 → 已提交历史只读回放（无输入控件、有填写值文本）→ 导出
- * 走 exportFile → 复核沿用既有端点并重取 Excel 详情。
+ * 与成功完成填写 → 已完成只读回放（无输入控件、有填写值文本）→ 导出
+ * 走 exportFile → 导出后重取 Excel 详情。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -62,7 +62,7 @@ const BINDINGS = [
    abnormal_rule: '', maintenance_cycles: ['all']},
 ];
 
-function makeDetail(status = 'draft', values = {}, editable = status === 'draft' || status === 'returned') {
+function makeDetail(status = 'draft', values = {}, editable = status === 'draft') {
   return {
     id: 33,
     ledger_no: 'EL-WM-20260928-001',
@@ -230,7 +230,7 @@ test('完成填写：必填未填拦截不发请求，填写齐全后完成成�
 });
 
 test('历史详情只读回放：无输入控件、展示当时填写值', async () => {
-  store.applyDetail({data: makeDetail('reviewed', {[FIELD_PS]: '正常', [FIELD_REMARK]: '测试完成'}, false)});
+  store.applyDetail({data: makeDetail('completed', {[FIELD_PS]: '正常', [FIELD_REMARK]: '测试完成'}, false)});
   await renderPage();
   expect(store.editable).toBe(false);
   expect(container.querySelector('td[data-coord="C3"] .ant-select')).toBeNull();
@@ -240,7 +240,6 @@ test('历史详情只读回放：无输入控件、展示当时填写值', async
   // 只读态没有保存/完成按钮
   expect(buttonByText('保存草稿')).toBeUndefined();
   expect(buttonByText('完成填写')).toBeUndefined();
-  expect(buttonByText('复核')).toBeUndefined();
 });
 
 test('点击单元格不报错（填写/历史视图缺省选格回调无副作用）', async () => {
@@ -253,7 +252,7 @@ test('点击单元格不报错（填写/历史视图缺省选格回调无副作�
   });
   expect(container.querySelector('td[data-coord="C3"] .ant-select')).toBeTruthy();
   // 历史只读态同样可点击
-  store.applyDetail({data: makeDetail('reviewed', {[FIELD_PS]: '正常'}, false)});
+  store.applyDetail({data: makeDetail('completed', {[FIELD_PS]: '正常'}, false)});
   await flush();
   await act(async () => {
     container.querySelector('td[data-coord="C3"]').click();
@@ -349,7 +348,7 @@ test('一键正常：已填异常不覆盖，无未填项时警告且不改值',
 });
 
 test('一键正常：只读历史态不渲染按钮', async () => {
-  store.applyDetail({data: makeDetail('reviewed', {}, false)});
+  store.applyDetail({data: makeDetail('completed', {}, false)});
   await renderPage();
   expect(buttonByText('一键正常')).toBeUndefined();
 });

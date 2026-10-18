@@ -8,8 +8,8 @@
  * 实际日期范围/状态范围/涉及模板版本），本组件只做展示与确认；确认后以
  * 相同筛选发起 POST 导出，由后端重新查询并逐条生成、依序合并为一份 PDF。
  * 预计页数依赖逐条 LibreOffice 转换，无可靠估算口径，不予展示。默认状态
- * 范围（已提交及后续有效状态，不含草稿/已作废）由后端下发，前端仅做文本
- * 映射；无匹配记录或超过单次上限时禁用"导出 PDF"并给出明确提示。
+ * 范围（已完成，不含草稿/已作废）由后端下发，前端仅做文本映射；无匹配
+ * 记录或超过单次上限时禁用"导出 PDF"并给出明确提示。
  */
 import React from 'react';
 import {observer} from 'mobx-react';
@@ -23,7 +23,8 @@ const LedgerBatchExportModal = observer(function LedgerBatchExportModal({store})
   const maxRecords = preview ? preview.max_records : 0;
   const overLimit = visible && maxRecords > 0 && total > maxRecords;
   const statusText = visible
-    ? (preview.status_scope || []).map(code => STATUS_TEXT[code] || code).join('、') || '—'
+    ? (preview.status_scope || []).map(code => code === 'all'
+      ? '全部（含草稿/已作废）' : STATUS_TEXT[code] || code).join('、') || '—'
     : '';
   const versionText = visible
     ? (preview.versions || []).map(v => `v${v.version_no}（${v.count} 条）`).join('、') || '—'

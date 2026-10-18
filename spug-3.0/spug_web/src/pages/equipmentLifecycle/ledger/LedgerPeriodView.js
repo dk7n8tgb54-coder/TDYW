@@ -15,7 +15,7 @@ import {AppstoreAddOutlined, PlusOutlined} from '@ant-design/icons';
 import {AuthButton, ExportButton, SearchForm} from 'components';
 import LedgerPeriodOverviewCard from './LedgerPeriodOverviewCard';
 import LedgerGroupTable from './LedgerGroupTable';
-import {API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_FILTER_OPTIONS, STATUS_TEXT} from './constants';
+import {API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_FILTER_OPTIONS} from './constants';
 
 // observer：筛选控件直接读取 store.f_keyword / f_status / f_system，输入后需触发重渲染
 const PeriodSearchForm = observer(function PeriodSearchForm({store}) {
@@ -40,9 +40,9 @@ const PeriodSearchForm = observer(function PeriodSearchForm({store}) {
             store.f_status = v;
             refresh();
           }}
-          placeholder="请选择状态">
-          {STATUS_FILTER_OPTIONS.map(key => (
-            <Select.Option value={key} key={key}>{STATUS_TEXT[key]}</Select.Option>
+          placeholder="默认不含已作废">
+          {STATUS_FILTER_OPTIONS.map(opt => (
+            <Select.Option value={opt.value} key={opt.value}>{opt.label}</Select.Option>
           ))}
         </Select>
       </SearchForm.Item>

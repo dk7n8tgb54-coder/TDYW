@@ -11,8 +11,8 @@
  * （草稿 → 已完成，校验必填），次操作"保存草稿"；返回列表前有未保存修改
  * 先确认（继续填写保留内容）；已完成台账支持"更正"（进入更正模式修改后
  * 提交，记录原因与前后值）+ 更正记录展示；一键正常（仅填充未填写的
- * 正常/异常格，不覆盖已填）/ 作废（沿用既有台账端点）/ 删除（仅草稿与
- * 旧流程历史状态）/ 导出 Excel 与 PDF；导出 PDF 先走预检接口，默认使用
+ * 正常/异常格，不覆盖已填）/ 作废（沿用既有台账端点）/ 删除（仅草稿）/
+ * 导出 Excel 与 PDF；导出 PDF 先走预检接口，默认使用
  * 版本快照的模板级参数，高级设置弹窗可覆盖（仅本次）。
  *
  * onBack：返回回调；缺省时回到试点页列表（清空详情并刷新），
@@ -34,17 +34,15 @@ import PdfParamsForm from './PdfParamsForm';
 import {normalizePdfParams, serializePdfParams} from './pdfParams';
 
 export const LEDGER_TYPE_TEXT = {week_month: '周月维护', seasonal: '季维护'};
-// 新流程三状态 + 旧流程历史状态（仅存量台账展示）
+// 草稿/已完成/已作废 三状态（与后端值域一致，旧流程状态已退役）
 export const STATUS_TEXT = {
   draft: '草稿', completed: '已完成', void: '已作废',
-  submitted: '已提交', returned: '已退回', reviewed: '已复核',
 };
 export const STATUS_COLOR = {
   draft: 'default', completed: 'success', void: 'error',
-  submitted: 'processing', returned: 'warning', reviewed: 'success',
 };
-// 可删除状态（与后端一致：草稿与旧流程历史状态；已完成/已作废不可删除）
-const DELETABLE_STATUS = ['draft', 'submitted', 'returned', 'reviewed'];
+// 可删除状态（与后端一致：仅草稿；已完成/已作废不可删除）
+const DELETABLE_STATUS = ['draft'];
 
 /** 表头信息（状态/类型/计划期次/执行日期/完成时间/录入人/模板/版本/源文件/哈希）。
  * 实际执行日期在可编辑（草稿）或更正模式由填写人录入（周期生成的应填台账
@@ -98,6 +96,10 @@ const DetailDescriptions = observer(function DetailDescriptions({detail, version
         {detail.completed_at ? String(detail.completed_at).slice(0, 19).replace('T', ' ') : '—'}
       </Descriptions.Item>
       <Descriptions.Item label="录入人">{detail.created_by_name || '—'}</Descriptions.Item>
+      {/* 列表已不放录入时间（2026-10-18 移入详情），Excel 详情头部补齐该信息 */}
+      <Descriptions.Item label="录入时间">
+        {detail.created_at ? String(detail.created_at).slice(0, 19).replace('T', ' ') : '—'}
+      </Descriptions.Item>
       <Descriptions.Item label="模板">{version ? version.template_name : '—'}</Descriptions.Item>
       <Descriptions.Item label="版本">{version ? `v${version.version_no}` : '—'}</Descriptions.Item>
       <Descriptions.Item label="源文件">{version ? version.source_filename : '—'}</Descriptions.Item>
@@ -115,7 +117,6 @@ const DetailDescriptions = observer(function DetailDescriptions({detail, version
  *   + 删除（草稿不走作废，直接删除重填）+ 导出；
  * - 已完成：更正（进入更正模式，须填原因）+ 作废 + 导出（不可删除）；
  * - 更正模式中：提交更正（主）+ 取消更正 + 导出；
- * - 旧流程历史状态（已提交/已退回/已复核）：查看 + 作废 + 删除 + 导出；
  * - 已作废：仅查看 + 导出（保留作废信息，不再编辑/删除）。
  * 保存与完成互斥（disabled/loading 双保险），防止重复点击与并发处理。
  * observer：按 store 状态显隐按钮，状态流转（完成/作废/更正）须即时反映。 */

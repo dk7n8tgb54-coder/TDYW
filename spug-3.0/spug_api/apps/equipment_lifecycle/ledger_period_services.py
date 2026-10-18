@@ -32,9 +32,6 @@ from apps.equipment_lifecycle.models import (
     LEDGER_FROM_MANUAL,
     LEDGER_STATUS_COMPLETED,
     LEDGER_STATUS_DRAFT,
-    LEDGER_STATUS_RETURNED,
-    LEDGER_STATUS_REVIEWED,
-    LEDGER_STATUS_SUBMITTED,
     LEDGER_STATUS_VOID,
     LEDGER_TYPE_SEASONAL,
     LEDGER_TYPE_WEEK_MONTH,
@@ -43,6 +40,7 @@ from apps.equipment_lifecycle.models import (
 )
 from apps.equipment_lifecycle.ledger_services import (
     LedgerValidationError,
+    apply_ledger_status_filter,
     generate_ledger_no,
     validate_ledger_type,
 )
@@ -618,11 +616,14 @@ def _create_generated_ledger(user, template, version, entry):
 
 
 def _filtered_period_ledger_query(user, ledger_type, status='', system_id=None, keyword=''):
-    """周期分组基础查询：租户 + 类型 + 状态/系统/编号筛选。"""
+    """周期分组基础查询：租户 + 类型 + 状态/系统/编号筛选。
+
+    状态口径与统一列表一致（apply_ledger_status_filter）：默认视图不含
+    已作废，组内统计与可见行保持一致。
+    """
     query = apply_tenant_filter(OperationLedger.objects.all(), user).filter(
         ledger_type=ledger_type).select_related('system', 'excel_record__version')
-    if status:
-        query = query.filter(status=status)
+    query = apply_ledger_status_filter(query, status)
     if system_id and str(system_id).isdigit():
         query = query.filter(
             Q(items__system_id=system_id) | Q(system_id=system_id)).distinct()
@@ -664,11 +665,7 @@ def _period_group_sort_key(ledger_type, key):
 
 
 def _period_group_entry(ledger_type, key, rows, current_keys):
-    """单期次组条目：完整期次标签 + 本期标记 + 状态统计（与可见行一致）。
-
-    completed 为业务完成口径：新流程已完成 + 旧流程已提交/已复核（历史）；
-    draft/returned/submitted/reviewed/void 为原始状态计数（历史兼容）。
-    """
+    """单期次组条目：完整期次标签 + 本期标记 + 状态统计（与可见行一致）。"""
     rows.sort(key=lambda r: (not r['system_name'], r['system_name'], r['id']))
     return {
         'maintenance_period': key,
@@ -676,8 +673,7 @@ def _period_group_entry(ledger_type, key, rows, current_keys):
         'is_current': key in current_keys,
         'total': len(rows),
         'draft': sum(1 for r in rows if r['status'] == LEDGER_STATUS_DRAFT),
-        'completed': sum(1 for r in rows if r['status'] in (
-            LEDGER_STATUS_COMPLETED, LEDGER_STATUS_SUBMITTED, LEDGER_STATUS_REVIEWED)),
+        'completed': sum(1 for r in rows if r['status'] == LEDGER_STATUS_COMPLETED),
         'void': sum(1 for r in rows if r['status'] == LEDGER_STATUS_VOID),
         'ledgers': rows,
     }
@@ -695,7 +691,7 @@ def list_period_groups(user, ledger_type, status='', system_id=None, keyword='',
     - 组按期次起始日期倒序（无法解析的组键排最后），组内按系统名（空系统
       靠后）+ID 排序；
     - is_current 标记本期组（本周/本月或当前航季），前端默认只展开本期；
-    - 组内统计区分 草稿/已退回/已提交/已复核/已作废 五状态，
+    - 组内统计区分 草稿/已完成/已作废 三状态，
       period_text 为完整期次标签（每周｜… / 每月｜… / 航季含起止日期）。
     """
     validate_ledger_type(ledger_type)
@@ -719,7 +715,7 @@ def list_period_groups(user, ledger_type, status='', system_id=None, keyword='',
 
 
 def _period_ledger_counts(user, ledger_type, period, start, end):
-    """指定期次的台账状态统计（与周期分组同口径，历史台账兼容）。
+    """指定期次的台账状态统计（与周期分组同口径）。
 
     显式期次标记直接命中；无标记的历史台账按执行日期落在 [start, end)
     归档（与 ledger_period_key 推导一致）；每周键无执行日期推导路径，
@@ -736,11 +732,7 @@ def _period_ledger_counts(user, ledger_type, period, start, end):
              & Q(executed_date__lt=end)))
     return query.aggregate(
         draft=Count('id', filter=Q(status=LEDGER_STATUS_DRAFT)),
-        completed=Count('id', filter=Q(status__in=[
-            LEDGER_STATUS_COMPLETED, LEDGER_STATUS_SUBMITTED, LEDGER_STATUS_REVIEWED])),
-        returned=Count('id', filter=Q(status=LEDGER_STATUS_RETURNED)),
-        submitted=Count('id', filter=Q(status=LEDGER_STATUS_SUBMITTED)),
-        reviewed=Count('id', filter=Q(status=LEDGER_STATUS_REVIEWED)),
+        completed=Count('id', filter=Q(status=LEDGER_STATUS_COMPLETED)),
         void=Count('id', filter=Q(status=LEDGER_STATUS_VOID)),
     )
 
@@ -754,8 +746,7 @@ def period_overview(user, ledger_type):
     - to_generate 待生成 = 其中尚未生成且可自动生成的槽位（依据模板生成
       规则计算，与 period_generate_preview 同口径）；
     - drafting/completed/void = 本期已有台账的真实状态数量
-      （completed = 已完成 + 旧流程已提交/已复核历史状态；与周期分组
-      同口径，含历史归档台账；returned 一并返回供历史兼容展示）；
+      （与周期分组同口径，含历史归档台账）；
     - attention 需处理 = 缺少版本/系统停用/作废或历史草稿占用的槽位数；
     - unconfigured_templates = 适用系统或生成周期待配置的模板数。
     """
@@ -806,7 +797,6 @@ def period_overview(user, ledger_type):
                             if s in (GENERATE_CREATE, GENERATE_EXISTS)),
             'to_generate': sum(1 for s in slot_statuses if s == GENERATE_CREATE),
             'drafting': counts['draft'],
-            'returned': counts['returned'],
             'completed': counts['completed'],
             'voided': counts['void'],
             'attention': sum(1 for s in slot_statuses

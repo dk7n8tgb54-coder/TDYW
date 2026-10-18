@@ -20,7 +20,9 @@
  *   fetchTemplateGroups 拉取模板组统计（后端聚合，组内数量不受分页影响），
  *   openTemplateGroup 进入组内台账分页列表，refresh 按 当前视图+组内层级
  *   分发刷新（提交/作废/详情返回共用）；组内批量 PDF 导出（导出本模板
- *   台账）先取确认数据再按同口径 POST 生成合并 PDF；
+ *   台账）先取确认数据再按同口径 POST 生成合并 PDF；模板组翻阅
+ *   （2026-10-18）openBrowse 拉取组内有序清单（筛选与组内列表同口径），
+ *   setBrowseIndex 在清单内翻页（跨分页边界、同期多张逐张可翻）；
  * - 旧可视化模板 TemplateStore 已随旧可视化模板路线删除（2026-10）；
  * - 错误提示统一由 http 拦截器弹出，业务代码不重复提示。
  */
@@ -97,6 +99,12 @@ export class LedgerStore {
   // 组内批量 PDF 导出（"导出本模板台账"）：确认框数据 + 生成下载
   @observable batchExportPreview = null; // 后端确认数据（模板名/数量/范围/版本）
   @observable isBatchExportFetching = false;
+
+  // 模板组翻阅（2026-10-18）：后端一次性返回组内符合筛选的有序清单
+  // （期次起始日期升序、无期次标记回退执行日期+ID 兜底、同期补建多张
+  // 全部保留），翻页在前端清单内移动，可跨组内列表分页边界
+  @observable browseState = null; // {groupKey, groupName, entries, index}
+  @observable isBrowseFetching = false;
 
   // 本期应填台账生成（2026-10-14）：预览数据 + 请求态
   @observable generatePreview = null;   // 后端预览（entries + summary）
@@ -334,6 +342,39 @@ export class LedgerStore {
 
   @action closeBatchExport = () => {
     this.batchExportPreview = null;
+  };
+
+  /** 打开模板组翻阅：按进入时的模板视图筛选（编号/状态/日期）拉取有序清单。
+   * 后端一次性返回全部条目，翻页在前端移动，不受组内列表分页限制。 */
+  openBrowse = (group) => {
+    this.isBrowseFetching = true;
+    return http.get(
+      `${API_PREFIX_L}/ledgers/template-groups/${group.group_key}/browse/`,
+      {params: {ledger_type: this.ledgerType, ...this.templateFilterParams()}})
+      .then(action(res => {
+        const payload = res && res.data ? res.data : res;
+        this.browseState = {
+          groupKey: String(group.group_key),
+          groupName: (payload && payload.group_name) || group.template_name || '',
+          entries: (payload && payload.entries) || [],
+          index: 0,
+        };
+      }))
+      .finally(action(() => {
+        this.isBrowseFetching = false;
+      }));
+  };
+
+  /** 退出翻阅（清空翻阅状态；列表刷新由调用方按进入层级执行）。 */
+  @action closeBrowse = () => {
+    this.browseState = null;
+  };
+
+  /** 翻阅定位（上一张/下一张/期次跳转共用），越界不动。 */
+  @action setBrowseIndex = (index) => {
+    if (!this.browseState) return;
+    if (index < 0 || index >= this.browseState.entries.length) return;
+    this.browseState.index = index;
   };
 
   /** 确认后实际导出：POST 同口径筛选，exportFile 二进制下载合并 PDF。 */

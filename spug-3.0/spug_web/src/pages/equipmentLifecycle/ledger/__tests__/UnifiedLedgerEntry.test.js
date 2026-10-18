@@ -88,7 +88,7 @@ function makeExcelDetail(status = 'draft', values = {}) {
     executed_date: '2026-09-28', status,
     created_from: 'excel_template',
     excel: {
-      record_id: 7, values, editable: status === 'draft' || status === 'returned',
+      record_id: 7, values, editable: status === 'draft',
       version: {
         id: 5, version_no: 2, template_name: '信道Excel维护台账',
         ledger_type: 'week_month', source_filename: 'channel.xlsx',
@@ -140,7 +140,7 @@ const GROUPS_FROM_LIST = {
       maintenance_period: '2026-09', period_text: '每月｜2026年9月',
       is_current: true,
       total: LIST_PAYLOAD.data.length, draft: LIST_PAYLOAD.data.length,
-      returned: 0, submitted: 0, reviewed: 0, void: 0,
+      completed: 0, void: 0,
       ledgers: LIST_PAYLOAD.data,
     }],
     total: 1,

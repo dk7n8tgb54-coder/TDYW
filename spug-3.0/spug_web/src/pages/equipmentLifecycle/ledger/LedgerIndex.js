@@ -92,6 +92,9 @@ function LedgerIndex({ledgerType, location}) {
         {store.viewMode === 'template' && !!store.activeGroup && (
           <Breadcrumb.Item>{store.activeGroup.group_name}</Breadcrumb.Item>
         )}
+        {store.viewMode === 'template' && !!store.browseState && (
+          <Breadcrumb.Item>翻阅台账</Breadcrumb.Item>
+        )}
       </Breadcrumb>
       {!excelDetailOpen && (
         <React.Fragment>

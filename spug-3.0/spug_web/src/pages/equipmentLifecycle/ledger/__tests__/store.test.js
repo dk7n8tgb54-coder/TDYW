@@ -3,7 +3,7 @@
  * 真实执行 Store 方法与请求参数组装，mock libs.http 返回真实响应格式。
  */
 import {LedgerStore, getLedgerStore} from '../store';
-import {LEDGER_TYPE} from '../constants';
+import {LEDGER_TYPE, STATUS_FILTER_ALL, STATUS_FILTER_OPTIONS} from '../constants';
 
 const mockHttpGet = jest.fn();
 const mockHttpPost = jest.fn();
@@ -37,13 +37,13 @@ describe('LedgerStore', () => {
   test('fetchRecords 携带台账类型与筛选参数（按类型区分请求）', async () => {
     mockHttpGet.mockResolvedValue({data: [{id: 1}], total: 1, page: 1, page_size: 20});
     const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
-    store.f_status = 'submitted';
+    store.f_status = 'draft';
     store.page = 2;
     await store.fetchRecords();
     const [url, config] = mockHttpGet.mock.calls[0];
     expect(url).toBe('/api/equipment-lifecycle/ledgers/');
     expect(config.params.ledger_type).toBe('week_month');
-    expect(config.params.status).toBe('submitted');
+    expect(config.params.status).toBe('draft');
     expect(config.params.page).toBe(2);
     expect(store.records).toEqual([{id: 1}]);
     expect(store.total).toBe(1);
@@ -113,14 +113,14 @@ describe('LedgerStore 模板分组视图（2026-10-11）', () => {
   test('fetchTemplateGroups 携带同口径筛选（关键词/状态/执行日期范围，模板视图独立字段）', async () => {
     const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
     store.t_keyword = 'EL-WM';
-    store.t_status = 'submitted';
+    store.t_status = 'completed';
     store.t_date_range = [{format: () => '2026-10-01'}, {format: () => '2026-10-31'}];
     store.templateGroupsPage = 2;
     await store.fetchTemplateGroups();
     const call = mockHttpGet.mock.calls.find(c => c[0] === GROUPS_URL);
     expect(call[1].params).toEqual({
       ledger_type: 'week_month', page: 2, page_size: 10,
-      keyword: 'EL-WM', status: 'submitted',
+      keyword: 'EL-WM', status: 'completed',
       executed_from: '2026-10-01', executed_to: '2026-10-31',
     });
   });
@@ -129,10 +129,10 @@ describe('LedgerStore 模板分组视图（2026-10-11）', () => {
     const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
     store.f_keyword = '周期关键词';
     store.f_status = 'draft';
-    store.t_status = 'reviewed';
+    store.t_status = 'void';
     await store.fetchTemplateGroups();
     const call = mockHttpGet.mock.calls.find(c => c[0] === GROUPS_URL);
-    expect(call[1].params.status).toBe('reviewed');
+    expect(call[1].params.status).toBe('void');
     expect(call[1].params.keyword).toBeUndefined();
   });
 
@@ -203,7 +203,7 @@ describe('LedgerStore 组内批量 PDF 导出（2026-10-11）', () => {
   const EXPORT_PREVIEW = {
     group_key: '7', template_id: 7, template_name: '信道台账',
     ledger_type: 'week_month', total: 3,
-    status_scope: ['submitted', 'returned', 'reviewed'],
+    status_scope: ['completed'],
     executed_from: '2026-10-01', executed_to: '2026-10-08',
     versions: [{version_no: 1, count: 1}, {version_no: 2, count: 2}],
     max_records: 50,
@@ -217,12 +217,12 @@ describe('LedgerStore 组内批量 PDF 导出（2026-10-11）', () => {
   test('openBatchExport 取确认数据（与组内列表同口径筛选）并剥层读取', async () => {
     mockHttpGet.mockResolvedValue({data: EXPORT_PREVIEW});
     const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
-    store.t_status = 'submitted';
+    store.t_status = 'completed';
     store.activeGroup = {group_key: '7', group_name: '信道台账'};
     await store.openBatchExport();
     const [url, config] = mockHttpGet.mock.calls[0];
     expect(url).toBe('/api/equipment-lifecycle/ledgers/template-groups/7/export-pdf/');
-    expect(config.params).toEqual({ledger_type: 'week_month', status: 'submitted'});
+    expect(config.params).toEqual({ledger_type: 'week_month', status: 'completed'});
     expect(store.batchExportPreview).toEqual(EXPORT_PREVIEW);
     expect(store.isBatchExportFetching).toBe(false);
   });
@@ -379,5 +379,77 @@ describe('LedgerStore 本期工作概览与周期分组增强（2026-10-14）', 
     store.togglePeriodExpanded([]);
     await store.generatePeriodLedgers(LEDGER_TYPE.WEEK_MONTH);
     expect(store.expandedPeriodKeys).toEqual([]);
+  });
+});
+
+describe('LedgerStore 已作废默认隐藏与"全部"筛选（2026-10-17）', () => {
+  const GROUPS_URL = '/api/equipment-lifecycle/ledgers/period-groups/';
+  const TEMPLATE_GROUPS_URL = '/api/equipment-lifecycle/ledgers/template-groups/';
+  const OVERVIEW_URL = '/api/equipment-lifecycle/ledgers/period-overview/';
+  const groupsPayload = (groups) => ({data: {data: groups, total: groups.length}});
+
+  beforeEach(() => {
+    [mockHttpGet, mockHttpPost].forEach(fn => fn.mockReset());
+    window.localStorage.clear();
+    mockHttpGet.mockResolvedValue(groupsPayload([]));
+  });
+
+  test('状态筛选选项含"全部"，全部/已作废/草稿/已完成齐备且与后端口径一致', () => {
+    expect(STATUS_FILTER_ALL).toBe('all');
+    expect(STATUS_FILTER_OPTIONS.map(o => o.value)).toEqual(
+      ['all', 'draft', 'completed', 'void']);
+    const labels = Object.fromEntries(STATUS_FILTER_OPTIONS.map(o => [o.value, o.label]));
+    expect(labels.all).toBe('全部');
+    expect(labels.draft).toBe('草稿');
+    expect(labels.completed).toBe('已完成');
+    expect(labels.void).toBe('已作废');
+  });
+
+  test('默认视图（未选状态）请求不携带 status 参数（后端默认不含已作废）', async () => {
+    const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
+    await store.fetchGroups();
+    const call = mockHttpGet.mock.calls.find(c => c[0] === GROUPS_URL);
+    expect(call[1].params.status).toBeUndefined();
+  });
+
+  test('选择"全部"后周期分组与明细 CSV 导出请求携带 status=all', async () => {
+    const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
+    store.f_status = STATUS_FILTER_ALL;
+    await store.fetchGroups();
+    const call = mockHttpGet.mock.calls.find(c => c[0] === GROUPS_URL);
+    expect(call[1].params.status).toBe('all');
+    expect(store.periodExportParams()).toEqual(
+      {ledger_type: 'week_month', status: 'all'});
+  });
+
+  test('模板视图选"全部"：组列表与组内列表同口径携带 status=all', async () => {
+    const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
+    store.t_status = STATUS_FILTER_ALL;
+    await store.fetchTemplateGroups();
+    let call = mockHttpGet.mock.calls.find(c => c[0] === TEMPLATE_GROUPS_URL);
+    expect(call[1].params.status).toBe('all');
+    store.activeGroup = {group_key: '7', group_name: '信道模板'};
+    await store.fetchGroupLedgers();
+    call = mockHttpGet.mock.calls.find(c => c[0].endsWith('/template-groups/7/ledgers/'));
+    expect(call[1].params.status).toBe('all');
+  });
+
+  test('作废成功后刷新当前视图：默认口径重拉，已作废记录从默认视图消失', async () => {
+    mockHttpPost.mockResolvedValue({});
+    const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
+    await store.voidLedger(5, '整单填错');
+    expect(mockHttpPost).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/ledgers/5/void/', {reason: '整单填错'});
+    const urls = mockHttpGet.mock.calls.map(c => c[0]);
+    expect(urls).toContain(GROUPS_URL);
+    expect(urls).toContain(OVERVIEW_URL);
+    // 刷新请求仍为默认口径（无 status → 后端默认视图不含已作废）；
+    // 切换"已作废"筛选后（f_status='void'）重新拉取即可找回
+    const refreshCall = mockHttpGet.mock.calls.find(c => c[0] === GROUPS_URL);
+    expect(refreshCall[1].params.status).toBeUndefined();
+    store.f_status = 'void';
+    await store.fetchGroups();
+    const voidCall = mockHttpGet.mock.calls.filter(c => c[0] === GROUPS_URL).pop();
+    expect(voidCall[1].params.status).toBe('void');
   });
 });

@@ -5,7 +5,7 @@
  * - 周期生成的应填台账（执行日期为空）：详情显示计划期次、执行日期
  *   占位"执行后录入"，可编辑状态提供录入控件；
  * - 保存执行日期经 PUT header 提交（不冒充创建当天、不改台账编号）；
- * - 已提交（不可编辑）状态只读展示，不提供录入控件。
+ * - 已完成（不可编辑）状态只读展示，不提供录入控件。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -62,6 +62,7 @@ function makeDetail(overrides = {}) {
     ledger_no: 'EL-WM-20261012-0001',
     ledger_type: 'week_month',
     executed_date: null,
+    created_at: '2026-10-12 08:30:00',
     created_by_name: '王五',
     maintenance_period: '2026-10-12',
     status: 'draft',
@@ -123,6 +124,9 @@ describe('ExcelLedgerDetail 表头执行信息', () => {
     expect(text).toContain('计划期次');
     expect(text).toContain('2026-10-12');
     expect(text).toContain('实际执行日期');
+    // 列表已不放录入时间（2026-10-18 移入详情），Excel 详情头部展示创建时间
+    expect(text).toContain('录入时间');
+    expect(text).toContain('2026-10-12 08:30:00');
     // 可编辑状态提供录入控件（占位提示执行后录入），不做创建当天伪装
     expect(document.body.querySelector('[data-testid="excel-executed-date"]')).toBeTruthy();
     expect(document.body.querySelector('[data-testid="excel-save-executed-date"]')).toBeTruthy();
@@ -150,9 +154,9 @@ describe('ExcelLedgerDetail 表头执行信息', () => {
     expect(container.textContent).toContain('王五');
   });
 
-  test('已提交（不可编辑）状态只读展示执行日期，不提供录入控件', async () => {
+  test('已完成（不可编辑）状态只读展示执行日期，不提供录入控件', async () => {
     await renderDetail(makeDetail({
-      status: 'submitted', executed_date: '2026-10-16',
+      status: 'completed', executed_date: '2026-10-16',
       excel: {
         record_id: 7, values: { [FIELD_PS]: '正常' }, editable: false,
         version: makeDetail().excel.version,

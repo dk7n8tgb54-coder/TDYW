@@ -160,9 +160,9 @@ describe('ExcelLedgerStore 未保存状态跟踪', () => {
     expect(store.dateDirty).toBe(true);
   });
 
-  test('不可编辑状态（已提交等）恒无未保存', () => {
+  test('不可编辑状态（已完成等）恒无未保存', () => {
     const store = new ExcelLedgerStore();
-    store.applyDetail({data: makeDetail({status: 'reviewed', editable: false})});
+    store.applyDetail({data: makeDetail({status: 'completed', editable: false})});
     store.setValue(FIELD_PS, '正常');
     store.setDateDraft('2026-10-18');
     expect(store.hasUnsaved).toBe(false);
@@ -361,16 +361,15 @@ function setupDetailSuite() {
 describe('ExcelLedgerDetail 完成填写按钮', () => {
   const suite = setupDetailSuite();
 
-  test('草稿提供"保存草稿 + 完成填写"；旧流程历史状态只读（无编辑按钮，含删除）', async () => {
+  test('草稿提供"保存草稿 + 完成填写"；已作废只读（无编辑/删除/更正按钮）', async () => {
     await suite.renderDetail({status: 'draft'});
     expect(buttonByText('保存草稿', suite.getContainer())).toBeTruthy();
     expect(buttonByText('完成填写', suite.getContainer())).toBeTruthy();
     ReactDOM.unmountComponentAtNode(suite.getContainer());
-    await suite.renderDetail({status: 'submitted', editable: false});
+    await suite.renderDetail({status: 'void', editable: false});
     expect(buttonByText('保存草稿', suite.getContainer())).toBeUndefined();
     expect(buttonByText('完成填写', suite.getContainer())).toBeUndefined();
-    // 旧流程历史状态：可删除（更多确认按钮），不可更正
-    expect(buttonByText('删除', suite.getContainer())).toBeTruthy();
+    expect(buttonByText('删除', suite.getContainer())).toBeUndefined();
     expect(buttonByText('更正', suite.getContainer())).toBeUndefined();
   });
 
@@ -476,7 +475,7 @@ describe('ExcelLedgerDetail 返回确认与执行日期草稿', () => {
 
   test('返回列表：有未保存修改先确认，继续填写保留内容且不返回', async () => {
     await suite.renderDetail({values: {[FIELD_PS]: '正常'}});
-    // act 内变更，确保点击前重渲染已提交（避免点击到已脱管的旧节点）
+    // act 内变更，确保点击前重渲染完成（避免点击到已脱管的旧节点）
     await act(async () => {
       suite.getStore().setValue(FIELD_PS, '异常');
     });

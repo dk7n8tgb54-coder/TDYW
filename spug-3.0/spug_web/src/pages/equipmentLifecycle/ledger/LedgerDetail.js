@@ -208,11 +208,6 @@ class LedgerDetail extends React.Component {
         <Descriptions.Item label="实际执行结束">{d.executed_end || '-'}</Descriptions.Item>
         <Descriptions.Item label="创建方式">{CREATED_FROM_TEXT[d.created_from] || d.created_from}</Descriptions.Item>
         <Descriptions.Item label="录入渠道">{d.entry_channel}</Descriptions.Item>
-        {d.status === 'returned' && (
-          <Descriptions.Item label="退回原因" span={2}>
-            <span style={{color: '#fa8c16'}}>{d.return_reason}</span>
-          </Descriptions.Item>
-        )}
         {d.status === 'void' && (
           <Descriptions.Item label="作废原因" span={2}>{d.void_reason}</Descriptions.Item>
         )}
@@ -221,11 +216,6 @@ class LedgerDetail extends React.Component {
         {d.completed_at && (
           <Descriptions.Item label="完成时间" span={2}>
             {String(d.completed_at).slice(0, 19).replace('T', ' ')}
-          </Descriptions.Item>
-        )}
-        {d.reviewer_name && (
-          <Descriptions.Item label="复核人（历史）" span={2}>
-            {d.reviewer_name}（{d.reviewed_at}）
           </Descriptions.Item>
         )}
       </Descriptions>

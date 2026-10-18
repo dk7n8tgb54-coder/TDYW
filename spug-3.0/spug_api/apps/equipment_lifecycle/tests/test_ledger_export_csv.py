@@ -94,10 +94,10 @@ class LedgerExportCsvTests(TestCase):
         """导出重新执行筛选：状态/日期范围只命中匹配台账的明细。"""
         draft = _create_ledger(self.user, system_code='SYS-DRAFT',
                                executed_date='2026-09-10')
-        submitted = _create_ledger(self.user, system_code='SYS-SUBMITTED',
-                                   executed_date='2026-10-01')
+        filled = _create_ledger(self.user, system_code='SYS-FILLED',
+                                executed_date='2026-10-01')
         client = make_client(self.user)
-        resp = post_json(client, '/equipment-lifecycle/ledgers/%s/complete/' % submitted['id'], {})
+        resp = post_json(client, '/equipment-lifecycle/ledgers/%s/complete/' % filled['id'], {})
         self.assertFalse(resp.json().get('error'), resp.json())
 
         # 状态筛选：仅已完成台账的明细
@@ -105,8 +105,8 @@ class LedgerExportCsvTests(TestCase):
         rows = _csv_rows(response.content)
         self.assertEqual(len(rows), 3)
         content = response.content.decode('utf-8-sig')
-        self.assertIn(submitted['ledger_no'], content)
-        self.assertIn('SYS-SUBMITTED', content)
+        self.assertIn(filled['ledger_no'], content)
+        self.assertIn('SYS-FILLED', content)
         self.assertNotIn('SYS-DRAFT', content)
 
         # 日期范围筛选：仅 10 月台账（编号内嵌执行日期，两台账编号不同）
@@ -114,7 +114,7 @@ class LedgerExportCsvTests(TestCase):
         rows = _csv_rows(response.content)
         self.assertEqual(len(rows), 3)
         content = response.content.decode('utf-8-sig')
-        self.assertIn('SYS-SUBMITTED', content)
+        self.assertIn('SYS-FILLED', content)
         self.assertNotIn('SYS-DRAFT', content)
         self.assertNotIn(draft['ledger_no'], content)
 
@@ -138,7 +138,9 @@ class LedgerExportCsvTests(TestCase):
             make_client(self.user).get(EXPORT_URL)
         _, kwargs = audit.call_args
         self.assertEqual(kwargs['after_value']['rows'], 2)
-        self.assertEqual(kwargs['after_value']['filters'], {})
+        # 2026-10-17 起默认视图排除已作废：审计如实记录生效的状态口径
+        self.assertEqual(kwargs['after_value']['filters'],
+                         {'status': '默认(不含已作废)'})
 
     def test_export_empty_result_returns_header_only(self):
         """空结果：仅表头 CSV，审计 rows=0，不报错。"""

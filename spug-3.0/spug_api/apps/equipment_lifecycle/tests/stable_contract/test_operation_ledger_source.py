@@ -76,7 +76,7 @@ class LedgerConvertToFaultTest(TestCase):
         self.user = make_user('ledger_convert_user', perms=perms)
         self.client = make_client(self.user)
         self.system = make_system(self.user)
-        # 一张已提交台账（夹具固定两项：指示灯正常 + 电源电压测量异常）
+        # 一张台账（夹具固定两项：指示灯正常 + 电源电压测量异常）
         detail, system = make_full_ledger(self.user, system=self.system)
         self.ledger = OperationLedger.objects.get(pk=detail['id'])
         items = list(self.ledger.items.order_by('id'))
@@ -249,7 +249,7 @@ class LegacyInspectionLedgerConvertRejectedTest(TransactionTestCase):
         try:
             ledger = OperationLedger.objects.create(
                 ledger_no='EL-INS-20260101-0001', ledger_type='inspection',
-                executed_date='2026-01-01', status='submitted',
+                executed_date='2026-01-01', status='completed',
                 tenant_id=user.tenant_id, created_by=user)
             item = OperationLedgerItem.objects.create(
                 ledger=ledger, system=system,

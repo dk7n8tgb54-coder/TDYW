@@ -38,11 +38,9 @@ from apps.equipment_lifecycle.ledger_views import (
     _read_json_body,
 )
 
-# 导出文件名后缀（与前端 constants.js 的状态文案一致；submitted/returned/
-# reviewed 为旧流程历史状态，仅存量台账导出时出现）
+# 导出文件名后缀（与前端 constants.js 的状态文案一致）
 LEDGER_STATUS_SUFFIX = {
     'draft': '草稿', 'completed': '已完成', 'void': '已作废',
-    'submitted': '已提交', 'returned': '已退回', 'reviewed': '已复核',
 }
 
 PDF_CONTENT_TYPE = 'application/pdf'

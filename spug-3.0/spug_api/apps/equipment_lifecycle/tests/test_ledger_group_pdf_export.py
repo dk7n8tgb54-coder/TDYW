@@ -2,7 +2,7 @@
 """模板组批量 PDF 导出（"导出本模板台账"，2026-10-11）行为测试。
 
 真实执行 HTTP → View → Service → Model 链路（Docker + 隔离测试库）：
-- 默认状态范围：仅已提交及后续有效状态（草稿/已作废不默认纳入），
+- 默认状态范围：仅已完成（草稿/已作废不默认纳入），
   组内状态筛选可显式调整到业务允许的范围（与单条导出一致）；
 - 确认与生成同口径：预览（模板名/匹配数/实际日期范围/状态范围/涉及版本）
   与实际导出走同一筛选查询，确认数量与生成条数一致；
@@ -29,9 +29,8 @@ from apps.equipment_lifecycle import ledger_template_group_services
 from apps.equipment_lifecycle.excel_ledger_services import ExcelLedgerError
 from apps.equipment_lifecycle.excel_pdf_service import detect_soffice
 from apps.equipment_lifecycle.models import (
+    LEDGER_STATUS_COMPLETED,
     LEDGER_STATUS_DRAFT,
-    LEDGER_STATUS_REVIEWED,
-    LEDGER_STATUS_SUBMITTED,
     LEDGER_STATUS_VOID,
     LEDGER_TYPE_WEEK_MONTH,
     OperationLedger,
@@ -98,9 +97,9 @@ class GroupPdfExportPreviewTests(TemplateGroupTestBase):
         template = self.make_template('信道维护台账')
         v1 = self.make_version(template, 1)
         v2 = self.make_version(template, 2)
-        self.make_excel_ledger(v1, '2026-10-01', status=LEDGER_STATUS_SUBMITTED)
-        self.make_excel_ledger(v2, '2026-10-05', status=LEDGER_STATUS_SUBMITTED)
-        self.make_excel_ledger(v2, '2026-10-08', status=LEDGER_STATUS_REVIEWED)
+        self.make_excel_ledger(v1, '2026-10-01', status=LEDGER_STATUS_COMPLETED)
+        self.make_excel_ledger(v2, '2026-10-05', status=LEDGER_STATUS_COMPLETED)
+        self.make_excel_ledger(v2, '2026-10-08', status=LEDGER_STATUS_COMPLETED)
         self.make_excel_ledger(v1, '2026-10-03', status=LEDGER_STATUS_DRAFT)
         self.make_excel_ledger(v1, '2026-10-02', status=LEDGER_STATUS_VOID)
         return template
@@ -111,8 +110,7 @@ class GroupPdfExportPreviewTests(TemplateGroupTestBase):
             export_url(template.id), {'ledger_type': LEDGER_TYPE_WEEK_MONTH}))
         self.assertEqual(body['template_name'], '信道维护台账')
         self.assertEqual(body['total'], 3)
-        self.assertEqual(body['status_scope'],
-                         ['completed', 'submitted', 'returned', 'reviewed'])
+        self.assertEqual(body['status_scope'], ['completed'])
         self.assertEqual(str(body['executed_from']), '2026-10-01')
         self.assertEqual(str(body['executed_to']), '2026-10-08')
         self.assertEqual(body['versions'], [
@@ -170,7 +168,7 @@ class GroupPdfExportGenerationTests(TemplateGroupTestBase):
         ledgers = []
         for index in range(count):
             version = v1 if index == 0 else v2
-            status = LEDGER_STATUS_SUBMITTED if index < 2 else LEDGER_STATUS_REVIEWED
+            status = LEDGER_STATUS_COMPLETED
             ledgers.append(self.make_excel_ledger(
                 version, dates[index], status=status))
         return template, v1, v2, ledgers
@@ -219,12 +217,12 @@ class GroupPdfExportGenerationTests(TemplateGroupTestBase):
     def test_other_template_records_not_included(self):
         t1 = self.make_template('模板一')
         self.make_excel_ledger(self.make_version(t1, 1), '2026-10-01',
-                               status=LEDGER_STATUS_SUBMITTED)
+                               status=LEDGER_STATUS_COMPLETED)
         self.make_excel_ledger(self.make_version(t1, 2), '2026-10-05',
-                               status=LEDGER_STATUS_SUBMITTED)
+                               status=LEDGER_STATUS_COMPLETED)
         t2 = self.make_template('模板二')
         self.make_excel_ledger(self.make_version(t2, 1), '2026-10-06',
-                               status=LEDGER_STATUS_SUBMITTED)
+                               status=LEDGER_STATUS_COMPLETED)
 
         def fake_export(user, ledger):
             return fake_pdf(100, 100)
@@ -285,7 +283,7 @@ class GroupPdfExportGenerationTests(TemplateGroupTestBase):
     def test_filename_includes_template_name_and_date_sanitized(self):
         template = self.make_template('非法/名称:模板')
         self.make_excel_ledger(self.make_version(template, 1), '2026-10-01',
-                               status=LEDGER_STATUS_SUBMITTED)
+                               status=LEDGER_STATUS_COMPLETED)
         with self._patch_export(lambda user, ledger: fake_pdf(100, 100)):
             response = post_export(self.client, template.id,
                                    {'ledger_type': LEDGER_TYPE_WEEK_MONTH})
@@ -356,8 +354,8 @@ class GroupPdfRealConversionTests(ExcelLedgerContractBase):
         version = self.publish(template['id'])
         return template, version, bindings
 
-    def _create_submitted_ledger(self, version_id, bindings, executed_date):
-        """创建并提交台账：批量导出默认状态范围不含草稿，须经真实提交端点。"""
+    def _create_completed_ledger(self, version_id, bindings, executed_date):
+        """创建并完成填写台账：批量导出默认状态范围不含草稿，须经真实完成端点。"""
         response = self.owner_client.post(
             LEDGER_URL + '/',
             json.dumps({'version_id': version_id, 'executed_date': executed_date}),
@@ -377,7 +375,7 @@ class GroupPdfRealConversionTests(ExcelLedgerContractBase):
     @skipUnless(detect_soffice(), 'LibreOffice 不可用，真实转换用例 NOT_RUN')
     def test_batch_keeps_versions_page_setup_and_single_export_regression(self):
         template, v1, bindings = self._publish_version(None)
-        ledger_a = self._create_submitted_ledger(v1['id'], bindings, '2026-10-01')
+        ledger_a = self._create_completed_ledger(v1['id'], bindings, '2026-10-01')
         # v2：A3 横向（v1 台账固定使用 v1 快照的 A4 纵向缺省参数）
         response = self.owner_client.put(
             '%s/%s/pdf-params/' % (TPL_URL, template['id']),
@@ -385,7 +383,7 @@ class GroupPdfRealConversionTests(ExcelLedgerContractBase):
             content_type='application/json')
         self.assertEqual(response.json().get('error', ''), '')
         v2 = self.publish(template['id'])
-        ledger_b = self._create_submitted_ledger(v2['id'], bindings, '2026-10-05')
+        ledger_b = self._create_completed_ledger(v2['id'], bindings, '2026-10-05')
 
         # 单条导出回归哨兵：仍走既有端点，各用创建时版本参数
         single_a = self.owner_client.post(

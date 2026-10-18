@@ -158,19 +158,11 @@ LEDGER_TYPE_WEEK_MONTH = 'week_month'    # 周月维护（周表/月表合一）
 LEDGER_TYPE_SEASONAL = 'seasonal'        # 季维护（正式名称，不用"季度维护"）
 LEDGER_TYPE_VALUES = ['week_month', 'seasonal']
 
-# 台账状态（2026-10-16 流程简化）：新流程只用 草稿/已完成/已作废 三状态，
-# 不再提交其他账号复核；submitted/returned/reviewed 为旧流程历史状态，
-# 仅存量数据保留（可查看/导出/作废/删除，不产生新流转），不得从值域删除
+# 台账状态（2026-10-16 流程简化）：草稿/已完成/已作废 三状态
 LEDGER_STATUS_DRAFT = 'draft'
 LEDGER_STATUS_COMPLETED = 'completed'
-LEDGER_STATUS_SUBMITTED = 'submitted'   # 旧流程历史状态（存量兼容）
-LEDGER_STATUS_RETURNED = 'returned'     # 旧流程历史状态（存量兼容）
-LEDGER_STATUS_REVIEWED = 'reviewed'     # 旧流程历史状态（存量兼容）
 LEDGER_STATUS_VOID = 'void'
-LEDGER_STATUS_VALUES = [
-    'draft', 'completed', 'submitted', 'returned', 'reviewed', 'void']
-# 新流程状态（前端筛选项/新建流程展示）；历史状态仅详情与列表展示
-LEDGER_ACTIVE_STATUS_VALUES = ['draft', 'completed', 'void']
+LEDGER_STATUS_VALUES = ['draft', 'completed', 'void']
 
 # 台账明细结果
 ITEM_RESULT_NORMAL = 'normal'
@@ -297,18 +289,15 @@ class OperationLedger(TenantModelMixin, models.Model):
 
     # 状态机：允许的流转（后端强制校验；2026-10-16 流程简化）
     # - 新流程：草稿 →（完成填写）已完成 →（受控作废）已作废；作废为受控终态；
-    # - 旧流程历史状态（submitted/returned/reviewed）无前向流转，仅允许作废收尾；
-    # - 删除不走状态机：draft 与历史状态可物理删除（completed/void 不可，
+    # - 作废为受控终态；已完成仅可作废收尾；
+    # - 删除不走状态机：draft 可物理删除（completed/void 不可，
     #   见 ledger_services.delete_ledger）。
     STATE_TRANSITIONS = {
         LEDGER_STATUS_DRAFT: {LEDGER_STATUS_COMPLETED, LEDGER_STATUS_VOID},
         LEDGER_STATUS_COMPLETED: {LEDGER_STATUS_VOID},
-        LEDGER_STATUS_SUBMITTED: {LEDGER_STATUS_VOID},
-        LEDGER_STATUS_RETURNED: {LEDGER_STATUS_VOID},
-        LEDGER_STATUS_REVIEWED: {LEDGER_STATUS_VOID},
         LEDGER_STATUS_VOID: set(),
     }
-    # 允许编辑明细/填写值的状态（仅草稿；已退回为历史状态，不再开放编辑）
+    # 允许编辑明细/填写值的状态（仅草稿）
     EDITABLE_STATUSES = {LEDGER_STATUS_DRAFT}
 
     class Meta:
@@ -376,11 +365,6 @@ class OperationLedger(TenantModelMixin, models.Model):
             'version': self.version,
             'completed_at': self.completed_at,
             'completed_by_name': self.completed_by.username if self.completed_by_id else '',
-            'submitted_at': self.submitted_at,
-            'reviewed_at': self.reviewed_at,
-            'reviewer_name': self.reviewer_name,
-            'returned_at': self.returned_at,
-            'return_reason': self.return_reason,
             'voided_at': self.voided_at,
             'void_reason': self.void_reason,
             'created_at': self.created_at,

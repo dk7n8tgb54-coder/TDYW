@@ -5,16 +5,20 @@
 /**
  * 运维台账列表列定义（2026-10-14 重排视觉优先级）：
  * - sourceTypeOf：优先取后端 source_type，兼容旧数据仅返回 created_from；
- * - 列顺序以"找台账→辨状态→执行操作"为主链：模板名称/系统/期次/状态/操作
- *   在前，台账编号/实际执行日期/录入时间作为次要信息靠后（执行人/录入人
- *   两列已于 2026-10-16 删除，录入人仅在详情保留）；
+ * - 列顺序以"找台账→辨状态"为主链：模板名称/系统/期次/状态/台账编号在前，
+ *   操作列固定在最右（fixed right，与其他业务列表一致，2026-10-18），窄屏
+ *   横向滚动时始终可见；实际执行日期/录入时间两列已移入详情展示
+ *   （2026-10-18，列表只保留辨认与操作所需信息）；
  * - 期次列显示完整标签（每周｜周一—周日 / 每月｜YYYY年M月 / 航季含起止
  *   日期），历史台账按执行日期归档时以气泡标注来源（不改写历史记录）；
  * - 操作与真实流程一致（2026-10-16 流程简化：草稿/已完成/已作废三状态）：
- *   草稿→继续填写（完成填写在台账详情内），已完成/历史状态/已作废→查看；
- *   作废与删除为低频危险操作收进"更多"菜单（作废须填原因；删除仅草稿与
- *   旧流程历史状态，已完成/已作废不可删除，后端独立校验）。
+ *   草稿→继续填写（完成填写在台账详情内），已完成/已作废→查看；
+ *   作废与删除为低频危险操作收进"更多"菜单（作废须填原因；删除仅草稿，
+ *   已完成/已作废不可删除，后端独立校验）。
  * - inGroup=true 时第一列换为"模板版本"（模板组内组名即模板，不重复列名）。
+ * - 列宽按固定布局（scroll.x）下最长内容核定：周/航季期次标签与 19 位编号
+ *   均单行不换行；总宽即 LEDGER_TABLE_SCROLL_X，承载该列集合的表格
+ *   （周期分组展开内嵌表/模板组内表）须同步此配置。
  */
 import React, {useState} from 'react';
 import {Dropdown, Input, Menu, Modal, Tag, Tooltip} from 'antd';
@@ -29,9 +33,6 @@ export function sourceTypeOf(record) {
 }
 
 function statusTitle(record) {
-  if (record.status === 'returned' && record.return_reason) {
-    return `退回原因：${record.return_reason}`;
-  }
   if (record.status === 'void' && record.void_reason) {
     return `作废原因：${record.void_reason}`;
   }
@@ -86,7 +87,7 @@ function MoreMenu({record, onVoid, onDelete}) {
   if (record.status === 'void') return null;
   const canDelete = DELETABLE_STATUS.includes(record.status);
   // 草稿只提供删除（删得干净并释放生成期次槽位）；作废留给已有内容、
-  // 需要保留作废痕迹的台账（已完成/旧流程历史状态），与 Excel 详情一致
+  // 需要保留作废痕迹的台账（已完成），与 Excel 详情一致
   const canVoid = record.status !== 'draft';
   const menu = (
     <Menu onClick={({key}) => {
@@ -163,6 +164,13 @@ function ActionCell({record, ledgerType, store, openDetail}) {
   );
 }
 
+/**
+ * 台账行列表总宽（scroll.x）：与 buildColumns 各列宽之和一致。
+ * 周期分组展开内嵌表与模板组内表共用此配置，窄屏横向滚动时
+ * 操作列（fixed right）保持可见。
+ */
+export const LEDGER_TABLE_SCROLL_X = 990;
+
 export function buildColumns(store, ledgerType, openDetail, inGroup = false) {
   return [
     inGroup ? {
@@ -181,7 +189,7 @@ export function buildColumns(store, ledgerType, openDetail, inGroup = false) {
     },
     {
       // 期次：每周｜周一—周日 / 每月｜YYYY年M月 / 航季含起止日期；历史台账标注归档来源
-      title: '期次', key: 'period', width: 200,
+      title: '期次', key: 'period', width: 250,
       render: (v, record) => <PeriodCell record={record}/>,
     },
     {
@@ -192,17 +200,15 @@ export function buildColumns(store, ledgerType, openDetail, inGroup = false) {
         return tip ? <Tooltip title={tip}>{tag}</Tooltip> : tag;
       },
     },
+    // —— 次要信息 ——
+    {title: '台账编号', dataIndex: 'ledger_no', width: 190},
     {
-      title: '操作', key: 'actions', width: 150, align: 'center',
+      // 操作固定最右（与全项目业务列表一致），窄屏横向滚动时始终可见；
+      // 只突出当前状态主动作，作废/删除收进"更多"菜单
+      title: '操作', key: 'actions', width: 150, align: 'center', fixed: 'right',
       render: (v, record) => (
         <ActionCell record={record} ledgerType={ledgerType} store={store} openDetail={openDetail}/>
       ),
     },
-    // —— 次要信息 ——
-    {title: '台账编号', dataIndex: 'ledger_no', width: 180},
-    // 周期生成的应填台账执行日期为空（填写人执行后录入），显示 —
-    {title: '实际执行日期', dataIndex: 'executed_date', width: 110,
-     render: v => v ? String(v).slice(0, 10) : '—'},
-    {title: '录入时间', dataIndex: 'created_at', width: 160},
   ];
 }

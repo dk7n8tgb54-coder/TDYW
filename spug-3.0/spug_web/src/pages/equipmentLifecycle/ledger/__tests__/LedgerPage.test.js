@@ -87,7 +87,7 @@ const LEDGERS_PAYLOAD = {
   data: [
     {
       id: 1, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month',
-      executed_date: '2026-09-10', status: 'submitted',
+      executed_date: '2026-09-10', status: 'completed',
       created_by_name: 'op1', created_at: '2026-09-11 09:00',
     },
   ],

@@ -12,18 +12,22 @@
  * （2026-10-14）。模板组内提供"导出本模板台账"：先弹确认框
  * （LedgerBatchExportModal）展示匹配数/日期范围/状态范围/涉及版本，确认后
  * 按同口径批量生成合并 PDF（manual 组无模板版式不提供该入口）。
+ * 模板组提供"翻阅台账"（2026-10-18）：组列表行内入口或组内按钮进入
+ * （LedgerGroupBrowse），按进入时筛选翻阅组内历次台账；manual 组无模板
+ * 版式不提供。
  */
 import React from 'react';
 import {observer} from 'mobx-react';
 import {Button, Input, Select, Table, DatePicker, Tooltip} from 'antd';
 import {
-  AppstoreAddOutlined, ArrowLeftOutlined, FilePdfOutlined, PlusOutlined,
+  AppstoreAddOutlined, ArrowLeftOutlined, BookOutlined, FilePdfOutlined, PlusOutlined,
 } from '@ant-design/icons';
 import {AuthButton, ExportButton, SearchForm} from 'components';
 import LedgerTemplateGroupTable from './LedgerTemplateGroupTable';
 import LedgerBatchExportModal from './LedgerBatchExportModal';
-import {buildColumns} from './LedgerColumns';
-import {API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_FILTER_OPTIONS, STATUS_TEXT} from './constants';
+import LedgerGroupBrowse from './LedgerGroupBrowse';
+import {buildColumns, LEDGER_TABLE_SCROLL_X} from './LedgerColumns';
+import {API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_FILTER_OPTIONS} from './constants';
 
 // observer：筛选控件直接读取 store 可观察字段，输入后需触发重渲染。
 // 模板视图使用独立筛选字段（t_keyword/t_status/t_date_range），与周期视图
@@ -50,9 +54,9 @@ const TemplateSearchForm = observer(function TemplateSearchForm({store}) {
             store.t_status = v;
             refresh();
           }}
-          placeholder="请选择状态">
-          {STATUS_FILTER_OPTIONS.map(key => (
-            <Select.Option value={key} key={key}>{STATUS_TEXT[key]}</Select.Option>
+          placeholder="默认不含已作废">
+          {STATUS_FILTER_OPTIONS.map(opt => (
+            <Select.Option value={opt.value} key={opt.value}>{opt.label}</Select.Option>
           ))}
         </Select>
       </SearchForm.Item>
@@ -74,8 +78,13 @@ const TemplateSearchForm = observer(function TemplateSearchForm({store}) {
 });
 
 function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenExcelCreate}) {
+  // 翻阅模式（2026-10-18）：整页切换为翻阅视图，退出后回到进入前的层级
+  if (store.browseState) {
+    return <LedgerGroupBrowse store={store}/>;
+  }
   const inGroup = !!store.activeGroup;
   const columns = buildColumns(store, ledgerType, openDetail, inGroup);
+  const openGroupBrowse = () => store.openBrowse(store.activeGroup).catch(() => {});
   return (
     <React.Fragment>
       <TemplateSearchForm store={store}/>
@@ -103,6 +112,18 @@ function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenEx
           onClick={onOpenExcelCreate}>
           新增{LEDGER_TYPE_TEXT[ledgerType]}台账
         </AuthButton>
+        {inGroup && store.activeGroup.group_key !== 'manual' && (
+          <AuthButton
+            auth={PERM_L.LED_VIEW}
+            icon={<BookOutlined/>}
+            style={{marginLeft: 8}}
+            data-testid="group-browse-open"
+            loading={store.isBrowseFetching}
+            disabled={store.groupLedgersTotal === 0}
+            onClick={openGroupBrowse}>
+            翻阅台账
+          </AuthButton>
+        )}
         {inGroup && store.activeGroup.group_key !== 'manual' && (
           <AuthButton
             auth={PERM_L.LED_EXPORT}
@@ -133,6 +154,7 @@ function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenEx
           loading={store.isGroupLedgersFetching}
           dataSource={store.groupLedgers}
           columns={columns}
+          scroll={{x: LEDGER_TABLE_SCROLL_X}}
           pagination={{
             total: store.groupLedgersTotal,
             current: store.groupLedgersPage,

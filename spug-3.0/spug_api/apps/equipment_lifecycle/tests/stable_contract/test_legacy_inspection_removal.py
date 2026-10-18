@@ -350,7 +350,7 @@ class LegacyPurgeCommandTest(TransactionTestCase):
             tenant_id=system.tenant_id,
             ledger_no=ledger_no or 'EL-TEST-%s-%d' % (ledger_type, system.id),
             ledger_type=ledger_type,
-            executed_date='2026-09-01', status='reviewed',
+            executed_date='2026-09-01', status='completed',
             created_by=self.user_a if system is self.system_a else self.user_b)
         OperationLedgerItem.objects.create(
             tenant_id=system.tenant_id, ledger=ledger, system=system,

@@ -5,7 +5,7 @@
 
 权限域（前后端一致，后端独立校验）：
 - equipment_lifecycle.ledger.view|add|edit|submit|del|export
-  （submit=完成填写；del=作废/删除；历史 review 码随复核流程下线退役）
+  （submit=完成填写；del=作废/删除）
 - Excel 模板管理使用 equipment_lifecycle.ledger_template.view|add|edit|del
   （见 excel_template_views），旧可视化模板台账路线已删除（2026-10）
 
@@ -13,10 +13,12 @@
 - 台账系统关联通过系统 ID，后端重新查询系统，不信任前端传来的名称；
 - 正式新增台账统一走 Excel/WPS 模板路线（/excel-ledgers/），
   POST /ledgers/ 仅保留手工补录（created_from=manual）能力；
-- 流程简化（2026-10-16）：完成填写（complete）为流程终点，旧
-  submit/return/review 端点已删除；删除为物理删除（草稿与旧流程历史
-  状态，审计留痕）；台账创建/完成/作废/删除均考虑重复请求（状态机 +
-  client_token）；
+- 流程简化（2026-10-16）：完成填写（complete）为流程终点，不再提交复核；
+  删除为物理删除（草稿，审计留痕）；台账创建/完成/作废/删除均考虑重复
+  请求（状态机 + client_token）；
+- 列表默认视图（2026-10-17）：状态筛选为空时不展示已作废（默认隐藏只是
+  筛选），status=void 主动查看、status=all 明确包含已作废；四个查询入口
+  （统一列表/周期分组/模板分组/明细导出）共用同一口径；
 - HTTP 200 + error 为业务失败；写操作记录业务审计并使用状态动作接口；
 - 附件走 evidence 体系，访问前校验所属台账/明细与租户归属。
 """
@@ -41,6 +43,7 @@ from apps.evidence.models import EvidenceAttachment
 
 from apps.equipment_lifecycle import ledger_period_services, ledger_services, ledger_template_group_services
 from apps.equipment_lifecycle.ledger_services import (
+    LEDGER_STATUS_FILTER_ALL,
     LedgerValidationError, legacy_inspection_error,
     append_item_disposition,
 )
@@ -153,9 +156,10 @@ class LedgerView(View):
         ledger_type = request.GET.get('ledger_type')
         if ledger_type:
             query = query.filter(ledger_type=ledger_type)
-        status = request.GET.get('status')
-        if status:
-            query = query.filter(status=status)
+        # 状态筛选统一口径（2026-10-17）：默认视图不含已作废；
+        # status=void 主动查看已作废，status=all 明确包含已作废
+        query = ledger_services.apply_ledger_status_filter(
+            query, request.GET.get('status'))
         system_id = request.GET.get('system')
         if system_id and str(system_id).isdigit():
             # 表头级系统（周期批量台账）与明细系统（手工/历史台账）均命中
@@ -281,7 +285,7 @@ class LedgerPeriodGenerateRebuildView(View):
 class LedgerPeriodOverviewView(View):
     """本期工作概览（2026-10-14）：周月维护展示 本周+本月，季维护展示本航季。
 
-    返回 应填/待生成/待填写/已退回/已完成 等真实数量；待生成依据模板生成
+    返回 应填/待生成/待填写/已完成 等真实数量；待生成依据模板生成
     规则计算（与 period-generate 预览同口径），不统计已有台账冒充、不在
     前端伪造数字。
     """
@@ -367,6 +371,31 @@ class LedgerTemplateGroupLedgersView(View):
         return json_response(data)
 
 
+class LedgerTemplateGroupBrowseView(View):
+    """模板组翻阅清单（"翻阅台账"，2026-10-18）：组内符合筛选的台账有序清单。
+
+    - 筛选口径与组内列表一致（默认不含已作废，status=void/all 显式放宽）；
+    - 一次性返回全部条目（ID+期次/状态/版本元数据），前端"上一张/下一张/
+      期次跳转"在该清单内移动，可跨组内列表分页边界逐张查看；
+    - 排序以计划维护期次为主（起始日期升序），无期次标记的历史台账回退
+      按执行日期、ID 兜底稳定；同一期次补建并存的多张台账全部保留；
+    - 每张台账版式回放仍走既有 Excel 详情端点（创建时版本快照）。
+    """
+
+    @auth('equipment_lifecycle.ledger.view')
+    def get(self, request, group_key):
+        try:
+            data = ledger_template_group_services.browse_group_ledgers(
+                request.user, group_key, request.GET.get('ledger_type'),
+                status=request.GET.get('status') or '',
+                keyword=request.GET.get('keyword') or '',
+                executed_from=request.GET.get('executed_from') or '',
+                executed_to=request.GET.get('executed_to') or '')
+        except LedgerValidationError as e:
+            return json_response(error=str(e))
+        return json_response(data)
+
+
 class LedgerDetailView(View):
     @auth('equipment_lifecycle.ledger.view')
     def get(self, request, pk):
@@ -390,7 +419,7 @@ class LedgerDetailView(View):
 
     @auth('equipment_lifecycle.ledger.del')
     def delete(self, request, pk):
-        """物理删除台账（草稿/旧流程历史状态；已完成与已作废拒绝）。
+        """物理删除台账（草稿；已完成与已作废拒绝）。
 
         删除与审计事件同事务写入；附件走 evidence 软删除留痕。
         """
@@ -514,8 +543,10 @@ class LedgerAbnormalItemsView(View):
 def _apply_ledger_item_filters(query, params):
     """导出/明细查询共用过滤（GET 参数 → ORM 条件，日期用范围查询）。
 
-    返回 (query, applied_filters)：applied_filters 只记录实际生效的筛选
-    （system 仅在为数字时生效），供导出审计如实记录真实筛选范围。
+    状态筛选与列表同口径（apply_ledger_status_filter）：默认视图排除
+    已作废，status=void/all 显式调整范围。返回 (query, applied_filters)：
+    applied_filters 只记录实际生效的筛选（system 仅在为数字时生效；状态
+    默认口径也如实记录），供导出审计如实记录真实筛选范围。
     """
     applied = {}
     ledger_type = params.get('ledger_type')
@@ -523,9 +554,8 @@ def _apply_ledger_item_filters(query, params):
         query = query.filter(ledger__ledger_type=ledger_type)
         applied['ledger_type'] = ledger_type
     status = params.get('status')
-    if status:
-        query = query.filter(ledger__status=status)
-        applied['status'] = status
+    query = ledger_services.apply_ledger_status_filter(query, status, field='ledger__status')
+    applied['status'] = status if status else '默认(不含已作废)'
     system_id = params.get('system')
     if system_id and str(system_id).isdigit():
         query = query.filter(system_id=system_id)
@@ -561,8 +591,9 @@ def _format_ledger_item_value(item):
 class LedgerExportView(View):
     """台账明细级 CSV 导出：重新执行查询与租户过滤，不信任前端明细 ID。
 
-    - 带签名的筛选参数（ledger_type/status/system/日期范围/keyword）原样
-      重新执行 ORM 过滤，租户边界由 tenant_id 过滤独立保证；
+    - 筛选参数（ledger_type/status/system/日期范围/keyword）原样重新执行
+      ORM 过滤，状态口径与列表一致（默认视图不含已作废，status=void/all
+      显式调整），租户边界由 tenant_id 过滤独立保证；
     - 审计记录真实生效的筛选范围与导出行数；
     - Excel 模板路线台账没有普通明细行，天然不出现在本导出中（其完整
       填写内容走详情内导出 Excel/PDF）。

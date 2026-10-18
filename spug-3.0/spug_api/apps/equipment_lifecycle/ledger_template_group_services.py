@@ -25,17 +25,17 @@ from django.db.models import Count, Max, Min, Q
 
 from libs.tenant_utils import apply_tenant_filter
 
-from apps.equipment_lifecycle import excel_ledger_services, excel_pdf_service
+from apps.equipment_lifecycle import excel_ledger_services, excel_pdf_service, ledger_period_services
 from apps.equipment_lifecycle.excel_models import OperationLedgerExcelTemplate
-from apps.equipment_lifecycle.ledger_services import LedgerValidationError, validate_ledger_type
+from apps.equipment_lifecycle.ledger_services import (
+    LEDGER_STATUS_FILTER_ALL,
+    LedgerValidationError, apply_ledger_status_filter, validate_ledger_type,
+)
 from apps.equipment_lifecycle.models import (
     LEDGER_FROM_EXCEL,
     LEDGER_FROM_MANUAL,
     LEDGER_STATUS_COMPLETED,
     LEDGER_STATUS_DRAFT,
-    LEDGER_STATUS_RETURNED,
-    LEDGER_STATUS_REVIEWED,
-    LEDGER_STATUS_SUBMITTED,
     LEDGER_STATUS_VOID,
     OperationLedger,
 )
@@ -44,13 +44,11 @@ from apps.equipment_lifecycle.models import (
 MANUAL_GROUP_KEY = 'manual'
 MANUAL_GROUP_NAME = '无模板/临时补录'
 
-# 组统计口径：total + 已完成口径（新流程 completed + 旧流程已提交/已复核）
-# + 各原始状态数量 + 最近执行日期
+# 组统计口径：total + 各状态数量 + 最近执行日期
 _GROUP_ANNOTATIONS = dict(
     total=Count('id'),
     draft=Count('id', filter=Q(status=LEDGER_STATUS_DRAFT)),
-    completed=Count('id', filter=Q(status__in=[
-        LEDGER_STATUS_COMPLETED, LEDGER_STATUS_SUBMITTED, LEDGER_STATUS_REVIEWED])),
+    completed=Count('id', filter=Q(status=LEDGER_STATUS_COMPLETED)),
     void=Count('id', filter=Q(status=LEDGER_STATUS_VOID)),
     last_executed_date=Max('executed_date'),
 )
@@ -59,9 +57,12 @@ _TEMPLATE_NOT_FOUND = '模板不存在或无权限访问'
 
 
 def _apply_group_filters(query, status='', keyword='', executed_from='', executed_to=''):
-    """组统计与组内列表共用筛选（与统一列表 /ledgers/ 同口径，日期用范围查询）。"""
-    if status:
-        query = query.filter(status=status)
+    """组统计与组内列表共用筛选（与统一列表 /ledgers/ 同口径，日期用范围查询）。
+
+    状态口径与统一列表一致（apply_ledger_status_filter）：默认视图不含
+    已作废，组统计数量与可见行保持一致。
+    """
+    query = apply_ledger_status_filter(query, status)
     if keyword:
         query = query.filter(ledger_no__icontains=keyword)
     if executed_from:
@@ -188,19 +189,16 @@ def list_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
 # 组内批量 PDF 导出（"导出本模板台账"，2026-10-11）
 # ======================================================================
 
-# 默认导出状态范围：已完成及旧流程历史有效状态（草稿/已作废不默认纳入；
-# 用户可通过组内状态筛选显式调整到业务允许的范围，与单条导出一致）
-DEFAULT_EXPORT_STATUSES = [
-    LEDGER_STATUS_COMPLETED, LEDGER_STATUS_SUBMITTED, LEDGER_STATUS_RETURNED,
-    LEDGER_STATUS_REVIEWED]
+# 默认导出状态范围：已完成（草稿/已作废不默认纳入；用户可通过组内状态
+# 筛选显式调整到业务允许的范围，与单条导出一致）
+DEFAULT_EXPORT_STATUSES = [LEDGER_STATUS_COMPLETED]
 
 # 单次批量导出条数上限：每条台账一次 LibreOffice 转换（约 2~5 秒），
 # 50 条在 gunicorn 300 秒超时内可同步完成，超过时提示缩小筛选范围
 MAX_BATCH_EXPORT_RECORDS = 50
 
 LEDGER_STATUS_LABELS = {
-    'draft': '草稿', 'completed': '已完成', 'submitted': '已提交',
-    'returned': '已退回', 'reviewed': '已复核', 'void': '已作废',
+    'draft': '草稿', 'completed': '已完成', 'void': '已作废',
 }
 
 _FILE_NAME_ILLEGAL = re.compile(r'[\\/:*?"<>|\r\n]')
@@ -230,7 +228,8 @@ def _group_export_query(user, group_key, ledger_type='', status='', keyword='',
                         executed_from='', executed_to=''):
     """导出预览与实际导出共用的组内筛选查询（与组内列表同口径）。
 
-    状态未显式筛选时默认取已提交及后续有效状态（不含草稿/已作废）。
+    状态未显式筛选时默认取已完成及后续有效状态（不含草稿/已作废）；
+    status='all'（全部）明确包含草稿与已作废，status=void 仅导出已作废。
     返回 (template, query)。
     """
     template = _resolve_export_template(user, group_key, ledger_type)
@@ -238,12 +237,10 @@ def _group_export_query(user, group_key, ledger_type='', status='', keyword='',
         created_from=LEDGER_FROM_EXCEL,
         excel_record__version__template_id=template.id,
         ledger_type=template.ledger_type)
-    if status:
-        query = query.filter(status=status)
-    else:
+    if not status:
         query = query.filter(status__in=DEFAULT_EXPORT_STATUSES)
     return template, _apply_group_filters(
-        query, status='', keyword=keyword,
+        query, status=status, keyword=keyword,
         executed_from=executed_from, executed_to=executed_to)
 
 
@@ -308,7 +305,10 @@ def export_group_pdfs(user, group_key, ledger_type='', status='', keyword='',
         raise LedgerValidationError(
             '符合条件的台账共 %d 条，超过单次导出上限 %d 条，请缩小日期范围或筛选条件'
             % (len(record_ids), MAX_BATCH_EXPORT_RECORDS))
-    allowed_statuses = {status} if status else set(DEFAULT_EXPORT_STATUSES)
+    if status == LEDGER_STATUS_FILTER_ALL:
+        allowed_statuses = None  # "全部"：不限制状态（含草稿/已作废）
+    else:
+        allowed_statuses = {status} if status else set(DEFAULT_EXPORT_STATUSES)
     # 固定 ID 清单后逐条实时复核：租户过滤 + Excel 来源 + 填写记录存在 +
     # 状态漂移（查询与生成之间状态变化的记录在此拒绝）
     parts = []
@@ -319,7 +319,7 @@ def export_group_pdfs(user, group_key, ledger_type='', status='', keyword='',
             .select_related('excel_record__version__template').first()
         if ledger is None:
             raise LedgerValidationError('台账不存在或已被删除，导出已终止')
-        if ledger.status not in allowed_statuses:
+        if allowed_statuses is not None and ledger.status not in allowed_statuses:
             raise LedgerValidationError(
                 '台账 %s 状态已变化（%s），请重新确认后导出'
                 % (ledger.ledger_no,
@@ -336,3 +336,91 @@ def export_group_pdfs(user, group_key, ledger_type='', status='', keyword='',
     filename = '%s-批量导出-%s.pdf' % (
         _safe_file_name(template.name), date.today().strftime('%Y%m%d'))
     return filename, content, len(parts)
+
+
+# ======================================================================
+# 模板组翻阅（"翻阅台账"，2026-10-18）
+# ----------------------------------------------------------------------
+# 网页内像翻同一本纸质台账一样连续查看某模板的历次记录：
+# - 本服务只提供"翻阅清单"（一次性返回组内符合筛选的台账 ID 与展示元数据），
+#   每张台账的版式回放仍走既有 Excel 详情端点（创建时版本快照不变）；
+# - 翻页由前端在该清单内移动，不受组内列表分页（page_size=20）限制，
+#   跨分页边界、同一期次补建并存的多张台账都能逐张查看；
+# - manual 组无模板版式，不提供翻阅（与批量 PDF 导出同口径拒绝）。
+# ======================================================================
+
+def _browse_sort_key(ledger):
+    """翻阅排序键（升序，像翻纸质台账从最早一张开始）：
+
+    - 主序 = 计划维护期次的起始日期（期次标记优先，历史无标记台账按执行
+      日期推导，与周期分组同口径）；
+    - 回退 = 既无期次标记又无执行日期（或标记不可解析）的记录排在最后；
+    - 同键内以 ID 升序兜底（= 创建顺序）保证顺序稳定；同一期次的多张
+      台账（补建并存）相邻排列、先建先翻，逐张可翻不漏。
+    """
+    period_key = ledger_period_services.ledger_period_key(ledger)
+    if period_key:
+        try:
+            _, start, _ = ledger_period_services.parse_maintenance_period(
+                ledger.ledger_type, period_key)
+            return (start, ledger.id)
+        except ledger_period_services.LedgerValidationError:
+            pass
+    return (date.max, ledger.id)
+
+
+def browse_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
+                         executed_from='', executed_to=''):
+    """模板组翻阅清单（只读）：组内符合筛选的台账按翻阅顺序一次性返回。
+
+    - 筛选口径与组内列表完全一致（_apply_group_filters：默认不含已作废，
+      status=void 仅已作废，status=all 全部；keyword 编号模糊；执行日期
+      范围），用户以什么筛选范围进入组内就按什么范围翻阅；
+    - 每条条目仅含 ID 与展示元数据（编号/状态/期次标签/版本号），量级为
+      组内台账数；期次标签由 ledger_period_display 下发（历史无期次标记
+      的台账标注"按实际执行日期归档"，不猜测不改写）；
+    - 每张台账的版式回放由前端按条目 ID 调既有 Excel 详情端点完成，创建
+      时固定的版本快照不受模板改名/更新/停用影响。
+    """
+    if str(group_key) == MANUAL_GROUP_KEY:
+        raise LedgerValidationError('无模板/临时补录台账没有模板版式，不支持翻阅')
+    if not str(group_key).isdigit():
+        raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
+    template = _get_group_template(user, group_key)
+    if template is None:
+        raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
+    if ledger_type and ledger_type != template.ledger_type:
+        raise LedgerValidationError('台账类型与模板不匹配')
+    query = _apply_group_filters(
+        apply_tenant_filter(OperationLedger.objects.all(), user).filter(
+            created_from=LEDGER_FROM_EXCEL,
+            excel_record__version__template_id=template.id,
+            ledger_type=template.ledger_type),
+        status, keyword, executed_from, executed_to)
+    ledgers = sorted(
+        query.select_related('system', 'excel_record__version'),
+        key=_browse_sort_key)
+    entries = []
+    for ledger in ledgers:
+        display = ledger_period_services.ledger_period_display(ledger)
+        record = getattr(ledger, 'excel_record', None)
+        version = record.version if record is not None else None
+        entries.append({
+            'id': ledger.id,
+            'ledger_no': ledger.ledger_no,
+            'status': ledger.status,
+            'executed_date': ledger.executed_date,
+            'maintenance_period': ledger.maintenance_period,
+            'period_key': ledger_period_services.ledger_period_key(ledger),
+            'period_label': display['period_label'],
+            'period_is_derived': display['period_is_derived'],
+            'source_version_no': version.version_no if version else None,
+        })
+    return {
+        'group_key': str(group_key),
+        'template_id': template.id,
+        'group_name': template.name,
+        'ledger_type': template.ledger_type,
+        'total': len(entries),
+        'entries': entries,
+    }

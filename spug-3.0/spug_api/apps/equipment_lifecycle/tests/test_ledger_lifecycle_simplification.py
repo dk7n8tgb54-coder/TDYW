@@ -4,9 +4,9 @@
 真实执行 HTTP → View → Service → Model 链路（Docker + 隔离测试库），覆盖：
 - 完成填写（流程终点）：先保存填写值再完成（草稿 → 已完成，completed_at/by
   落库）；必填缺失时拒绝且状态不变、已保存内容保留；
-- 物理删除：草稿与旧流程历史状态（submitted/returned/reviewed）可直接删除，
-  明细/更正记录/Excel 填写记录级联清理，附件走 evidence 软删除留痕并记审计；
-  已完成/已作废不可删除；存在已转设备故障明细的台账由后端拒绝删除；
+- 物理删除：草稿可直接删除，明细/更正记录/Excel 填写记录级联清理，
+  附件走 evidence 软删除留痕并记审计；已完成/已作废不可删除；
+  存在已转设备故障明细的台账由后端拒绝删除；
 - 本期一键生成：删除草稿后允许重新生成（唯一约束以 slot_active 豁免）；
   已作废不自动重建（预览标记需人工处理 + rebuildable），明确补建后新草稿
   与作废记录并存，再次自动生成按"已存在"跳过；
@@ -238,33 +238,30 @@ class ExcelCompleteFlowTests(LifecycleTestBase):
 
 
 class LedgerDeletionTests(LifecycleTestBase):
-    """物理删除：历史旧状态与草稿可删（级联+软删附件+审计）；受限状态拒绝。"""
+    """物理删除：草稿可删（级联+软删附件+审计）；受限状态拒绝。"""
 
     def _delete(self, ledger_id, client=None):
         client = client or self.client
         return client.delete('%s/%s/' % (LEDGERS_URL, ledger_id))
 
-    def test_legacy_and_draft_ledgers_deletable(self):
-        """旧流程历史状态（submitted/returned/reviewed）与草稿可直接删除。"""
-        for status in ('submitted', 'returned', 'reviewed', LEDGER_STATUS_DRAFT):
-            with self.subTest(status=status):
-                ledger = self.make_manual_ledger(
-                    status=status, with_correction=True,
-                    ledger_no='EL-WM-20261010-%s' % status)
-                att = self.make_ledger_attachment(ledger)
-                resp = self._delete(ledger.id)
-                self.assertFalse(resp.json().get('error'), resp.json())
-                # 台账、明细、更正记录级联清理
-                self.assertFalse(OperationLedger.objects.filter(pk=ledger.id).exists())
-                self.assertFalse(OperationLedgerItem.objects.filter(ledger_id=ledger.id).exists())
-                self.assertFalse(
-                    OperationLedgerCorrection.objects.filter(ledger_id=ledger.id).exists())
-                # 附件走 evidence 软删除留痕（记录保留，标记已删除）
-                att.refresh_from_db()
-                self.assertTrue(att.is_deleted)
-                self.assertTrue(AuditLog.objects.filter(
-                    target_type='el_operation_ledger',
-                    target_id=str(ledger.id), action='delete').exists())
+    def test_draft_ledger_deletable(self):
+        """草稿可直接删除（级联+软删附件+审计）。"""
+        ledger = self.make_manual_ledger(
+            status=LEDGER_STATUS_DRAFT, with_correction=True)
+        att = self.make_ledger_attachment(ledger)
+        resp = self._delete(ledger.id)
+        self.assertFalse(resp.json().get('error'), resp.json())
+        # 台账、明细、更正记录级联清理
+        self.assertFalse(OperationLedger.objects.filter(pk=ledger.id).exists())
+        self.assertFalse(OperationLedgerItem.objects.filter(ledger_id=ledger.id).exists())
+        self.assertFalse(
+            OperationLedgerCorrection.objects.filter(ledger_id=ledger.id).exists())
+        # 附件走 evidence 软删除留痕（记录保留，标记已删除）
+        att.refresh_from_db()
+        self.assertTrue(att.is_deleted)
+        self.assertTrue(AuditLog.objects.filter(
+            target_type='el_operation_ledger',
+            target_id=str(ledger.id), action='delete').exists())
 
     def test_completed_and_void_not_deletable(self):
         """已完成只允许 查看/导出/更正/作废；已作废保留作废信息：均不可删除。"""
@@ -280,8 +277,12 @@ class LedgerDeletionTests(LifecycleTestBase):
                         target_id=str(ledger.id), action='delete').count(), 0)
 
     def test_delete_blocked_when_item_converted_to_fault(self):
-        """存在已转设备故障明细的台账拒绝删除（运行处置记录 PROTECT 引用）。"""
-        ledger = self.make_manual_ledger(status='reviewed')
+        """存在已转设备故障明细的台账拒绝删除（运行处置记录 PROTECT 引用）。
+
+        转故障仅发生在已完成台账（草稿由状态机拒绝转换），此处直接 ORM
+        构造草稿+已转明细的边界数据，验证删除服务的 PROTECT 防护分支。
+        """
+        ledger = self.make_manual_ledger(status=LEDGER_STATUS_DRAFT)
         item = ledger.items.first()
         item.result = 'abnormal'
         item.save(update_fields=['result'])

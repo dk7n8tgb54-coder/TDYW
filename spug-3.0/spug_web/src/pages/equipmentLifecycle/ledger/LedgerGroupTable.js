@@ -15,6 +15,7 @@
 import React from 'react';
 import {observer} from 'mobx-react';
 import {Table, Tag} from 'antd';
+import {LEDGER_TABLE_SCROLL_X} from './LedgerColumns';
 
 const GROUP_COLUMNS = [
   {
@@ -34,7 +35,6 @@ const GROUP_COLUMNS = [
     render: v => v || 0,
   },
   {
-    // 已完成口径：新流程已完成 + 旧流程已提交/已复核历史状态（后端聚合）
     title: '已完成', dataIndex: 'completed', width: 80, align: 'center',
     render: v => v || 0,
   },
@@ -44,6 +44,8 @@ const GROUP_COLUMNS = [
   },
 ];
 
+const GROUP_COLUMNS_TOTAL = 648; // 展开列 48 + 五列宽合计 600
+
 function LedgerGroupTable({store, columns}) {
   return (
     <Table
@@ -51,6 +53,13 @@ function LedgerGroupTable({store, columns}) {
       loading={store.isGroupsFetching}
       dataSource={store.groups}
       columns={GROUP_COLUMNS}
+      // 数字 scroll.x + 显式 tableLayout fixed 使外层分组表宽度锁定容器
+      // （min-width 100%），不被展开内容撑宽——展开的内嵌台账表
+      // （scroll.x 1270）因而在自身容器内横向滚动，fixed right 操作列
+      // 保持可见；无显式 tableLayout 时 rc-table 对本表推导 auto，
+      // 展开内容仍会把 auto 布局的表格撑宽（2026-10-18）
+      tableLayout="fixed"
+      scroll={{x: GROUP_COLUMNS_TOTAL}}
       pagination={{
         total: store.groupsTotal,
         current: store.groupsPage,
@@ -68,6 +77,7 @@ function LedgerGroupTable({store, columns}) {
           dataSource={group.ledgers}
           columns={columns}
           pagination={false}
+          scroll={{x: LEDGER_TABLE_SCROLL_X}}
         />
       )}
     />

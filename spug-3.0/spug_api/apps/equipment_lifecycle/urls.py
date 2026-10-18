@@ -110,6 +110,9 @@ urlpatterns = [
     path('ledgers/template-groups/', ledger_views.LedgerTemplateGroupsView.as_view()),
     path('ledgers/template-groups/<str:group_key>/ledgers/',
          ledger_views.LedgerTemplateGroupLedgersView.as_view()),
+    # 模板组翻阅清单（"翻阅台账"，2026-10-18）：组内台账有序清单，前端逐张翻阅
+    path('ledgers/template-groups/<str:group_key>/browse/',
+         ledger_views.LedgerTemplateGroupBrowseView.as_view()),
     # 模板组内批量 PDF 导出（2026-10-11）：GET 确认数据 / POST 生成合并 PDF
     path('ledgers/template-groups/<str:group_key>/export-pdf/',
          excel_ledger_views.LedgerTemplateGroupPdfExportView.as_view()),

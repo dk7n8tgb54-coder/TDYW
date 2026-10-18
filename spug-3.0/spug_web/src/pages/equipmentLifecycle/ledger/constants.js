@@ -42,31 +42,33 @@ export const LEDGER_TYPE_PATH = {
   seasonal: '/el/seasonal-ledgers',
 };
 
-// 台账状态（2026-10-16 流程简化）：新流程只用 草稿/已完成/已作废 三状态；
-// submitted/returned/reviewed 为旧流程历史状态，仅存量台账展示用
+// 台账状态（2026-10-16 流程简化）：草稿/已完成/已作废 三状态
 export const STATUS_TEXT = {
   draft: '草稿',
   completed: '已完成',
   void: '已作废',
-  submitted: '已提交',
-  returned: '已退回',
-  reviewed: '已复核',
 };
 
 export const STATUS_COLOR = {
   draft: 'default',
   completed: 'success',
   void: 'default',
-  submitted: 'processing',
-  returned: 'warning',
-  reviewed: 'success',
 };
 
-// 状态筛选项：仅新流程三状态（历史状态台账仍在默认列表中展示）
-export const STATUS_FILTER_OPTIONS = ['draft', 'completed', 'void'];
+// 状态筛选项（2026-10-17）：默认视图（未选择状态）不展示已作废，历史
+// 状态台账仍在默认列表中展示；"已作废"选项主动查看；"全部"（'all'，筛选
+// 专用值、非台账状态）明确包含已作废。与后端 apply_ledger_status_filter 口径一致
+export const STATUS_FILTER_ALL = 'all';
 
-// 可删除状态：草稿与旧流程历史状态（已完成/已作废不可删除，与后端一致）
-export const DELETABLE_STATUS = ['draft', 'submitted', 'returned', 'reviewed'];
+export const STATUS_FILTER_OPTIONS = [
+  {value: STATUS_FILTER_ALL, label: '全部'},
+  {value: 'draft', label: STATUS_TEXT.draft},
+  {value: 'completed', label: STATUS_TEXT.completed},
+  {value: 'void', label: STATUS_TEXT.void},
+];
+
+// 可删除状态：草稿（已完成/已作废不可删除，与后端一致）
+export const DELETABLE_STATUS = ['draft'];
 
 export const RESULT_TEXT = {
   normal: '正常',
