@@ -13,8 +13,7 @@
  */
 import React, {useEffect, useRef} from 'react';
 import {observer} from 'mobx-react';
-import {Button, Card, DatePicker, Descriptions, Space, Table, Tag} from 'antd';
-import moment from 'moment';
+import {Card, Descriptions, Table, Tag} from 'antd';
 
 import {useEditorChannel} from './bridge';
 import EditorIframePane from './EditorIframePane';
@@ -22,24 +21,15 @@ import NativeLedgerToolbar from './NativeLedgerToolbar';
 import useNativeLedgerHandlers from './useNativeLedgerHandlers';
 import {LEDGER_TYPE_TEXT, STATUS_TEXT, STATUS_COLOR} from '../constants';
 
-/** 表头信息（状态/类型/期次/执行日期/完成时间/录入人/模板/版本）。 */
-const DetailDescriptions = observer(function DetailDescriptions({store, editable, correcting}) {
-  const detail = store.detail;
-  const version = store.version;
-  const dateEditable = editable || correcting;
-  const dateValue = store.dateDraft === undefined
-    ? (detail.executed_date ? moment(String(detail.executed_date).slice(0, 10)) : null)
-    : (store.dateDraft === '' ? null : moment(store.dateDraft));
-  const handleSaveDate = () => {
-    const raw = store.dateDraft !== undefined
-      ? store.dateDraft
-      : (detail.executed_date ? String(detail.executed_date).slice(0, 10) : '');
-    // 执行日期草稿经保存动作统一提交（与填写值一次 PUT）
-    store.setDateDraft(raw);
-    store.saveValues(null, null).catch(() => {});
-  };
+/** 表头信息（模板/状态/类型/期次/完成时间/录入人/版本）。
+ * 模板信息置首便于按模板辨认台账；执行日期由台账表格内容承载，
+ * 不再单列表头字段（2026-10-19）。 */
+const DetailDescriptions = observer(function DetailDescriptions({detail, version}) {
   return (
     <Descriptions size="small" bordered column={4} style={{marginBottom: 12}}>
+      <Descriptions.Item label="模板">
+        {version ? version.template_name : '—'}
+      </Descriptions.Item>
       <Descriptions.Item label="状态">
         <Tag color={STATUS_COLOR[detail.status] || 'default'}>
           {STATUS_TEXT[detail.status] || detail.status}
@@ -49,33 +39,12 @@ const DetailDescriptions = observer(function DetailDescriptions({store, editable
         {LEDGER_TYPE_TEXT[detail.ledger_type] || detail.ledger_type}
       </Descriptions.Item>
       <Descriptions.Item label="计划期次">{detail.maintenance_period || '—'}</Descriptions.Item>
-      <Descriptions.Item label="实际执行日期">
-        {dateEditable ? (
-          <Space size={4}>
-            <DatePicker
-              data-testid="native-executed-date"
-              size="small" style={{width: 130}} placeholder="执行后录入"
-              value={dateValue}
-              onChange={value => store.setDateDraft(value ? value.format('YYYY-MM-DD') : '')}/>
-            {editable && (
-              <Button data-testid="native-save-executed-date" size="small"
-                      disabled={store.submitting} loading={store.saving}
-                      onClick={handleSaveDate}>保存</Button>
-            )}
-          </Space>
-        ) : (
-          detail.executed_date ? String(detail.executed_date).slice(0, 10) : '—'
-        )}
-      </Descriptions.Item>
       <Descriptions.Item label="完成时间">
         {detail.completed_at ? String(detail.completed_at).slice(0, 19).replace('T', ' ') : '—'}
       </Descriptions.Item>
       <Descriptions.Item label="录入人">{detail.created_by_name || '—'}</Descriptions.Item>
       <Descriptions.Item label="录入时间">
         {detail.created_at ? String(detail.created_at).slice(0, 19).replace('T', ' ') : '—'}
-      </Descriptions.Item>
-      <Descriptions.Item label="原生模板">
-        {version ? version.template_name : '—'}
       </Descriptions.Item>
       <Descriptions.Item label="版本">{version ? `v${version.version_no}` : '—'}</Descriptions.Item>
     </Descriptions>
@@ -109,8 +78,6 @@ function NativeLedgerDetail({store, onBack}) {
         ledgerNo: detail.ledger_no,
         templateName: version.template_name,
         versionNo: version.version_no,
-        executedDate: detail.executed_date
-          ? String(detail.executed_date).slice(0, 10) : '',
         statusText: STATUS_TEXT[detail.status] || detail.status,
         editable: correctingEditable,
       },
@@ -124,8 +91,7 @@ function NativeLedgerDetail({store, onBack}) {
     <Card bordered={false}
           title={`原生台账：${detail.ledger_no}`}
           extra={<NativeLedgerToolbar detail={detail} store={store} handlers={handlers}/>}>
-      <DetailDescriptions store={store} editable={store.editable}
-                          correcting={store.correcting}/>
+      <DetailDescriptions detail={detail} version={store.version}/>
       {corrections.length > 0 && (
         <Table
           data-testid="native-corrections"
@@ -160,7 +126,7 @@ function NativeLedgerDetail({store, onBack}) {
         errorText="编辑器加载失败（静态资源未就绪），请刷新重试或联系管理员检查部署。"/>
       {store.editable && !store.correcting && (
         <div style={{color: '#999', marginTop: 8}}>
-          仅绑定单元格可填写；"完成填写"会先保存未保存的填写值与实际执行日期并校验必填项，
+          仅绑定单元格可填写；"完成填写"会先保存未保存的填写值并校验必填项，
           完成后流程结束。
         </div>
       )}

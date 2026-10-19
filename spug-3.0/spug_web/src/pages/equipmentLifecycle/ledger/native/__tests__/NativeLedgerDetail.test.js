@@ -87,7 +87,7 @@ function makeDetail(overrides = {}) {
     corrections = [], ...rest} = overrides;
   return {
     id: 66, ledger_no: 'EL-WM-20261018-001', ledger_type: 'week_month',
-    executed_date: '2026-10-18', status, corrections,
+    status, corrections,
     native: {record_id: 9, values, editable, voided: status === 'void', version: VERSION},
     ...rest,
   };

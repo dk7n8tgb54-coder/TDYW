@@ -69,7 +69,6 @@ class LedgerVisibilityTestBase(TestCase):
             tenant_id=self.user.tenant_id,
             ledger_no='EL-WM-20261017-%04d' % next(_ledger_no_seq),
             ledger_type=LEDGER_TYPE_WEEK_MONTH,
-            executed_date='2026-10-15',
             status=status,
             entry_channel='web',
             created_from='manual',

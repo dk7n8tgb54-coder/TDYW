@@ -250,7 +250,7 @@ class NativeLedgerView(View):
 
 
 class NativeLedgerDetailView(View):
-    """台账详情（表头 + 版本快照 + 填写值）/ 保存填写值与执行日期。"""
+    """台账详情（表头 + 版本快照 + 填写值）/ 保存填写值。"""
 
     @auth('equipment_lifecycle.ledger.view')
     def get(self, request, pk):
@@ -267,21 +267,16 @@ class NativeLedgerDetailView(View):
         ledger = native_ledger_services.get_ledger(pk, request.user)
         if not ledger:
             return json_response(error='台账不存在')
-        header_updated = False
         try:
-            if isinstance(body.get('header'), dict):
-                native_ledger_services.update_header(request.user, ledger, body['header'])
-                header_updated = True
+            # 填写值整体替换（仅草稿可编辑）
             if 'values' in body:
                 native_ledger_services.update_values(request.user, ledger, body.get('values'))
         except native_ledger_services.NativeLedgerError as e:
             return json_response(error=str(e))
         record_audit_event(
             request, 'update', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
-            after_value={'action_kind': 'save_native_values' if not header_updated
-                         else 'save_native_header',
-                         'version_id': ledger.native_record.version_id,
-                         'executed_date': str(ledger.executed_date or '')})
+            after_value={'action_kind': 'save_native_values',
+                         'version_id': ledger.native_record.version_id})
         return json_response({'data': native_ledger_services.ledger_detail(ledger)})
 
 

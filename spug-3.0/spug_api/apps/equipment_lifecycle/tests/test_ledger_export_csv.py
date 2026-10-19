@@ -90,12 +90,10 @@ class LedgerExportCsvTests(TestCase):
         filename = unquote(response['Content-Disposition'].split("''", 1)[1])
         self.assertEqual(filename, '维护台账明细.csv')
 
-    def test_export_applies_status_and_date_filters(self):
-        """导出重新执行筛选：状态/日期范围只命中匹配台账的明细。"""
-        draft = _create_ledger(self.user, system_code='SYS-DRAFT',
-                               executed_date='2026-09-10')
-        filled = _create_ledger(self.user, system_code='SYS-FILLED',
-                                executed_date='2026-10-01')
+    def test_export_applies_status_filter(self):
+        """导出重新执行筛选：状态只命中匹配台账的明细。"""
+        draft = _create_ledger(self.user, system_code='SYS-DRAFT')
+        filled = _create_ledger(self.user, system_code='SYS-FILLED')
         client = make_client(self.user)
         resp = post_json(client, '/equipment-lifecycle/ledgers/%s/complete/' % filled['id'], {})
         self.assertFalse(resp.json().get('error'), resp.json())
@@ -109,14 +107,11 @@ class LedgerExportCsvTests(TestCase):
         self.assertIn('SYS-FILLED', content)
         self.assertNotIn('SYS-DRAFT', content)
 
-        # 日期范围筛选：仅 10 月台账（编号内嵌执行日期，两台账编号不同）
+        # 实际执行日期字段已删除（2026-10-19），日期范围筛选参数随之退役，
+        # 未知参数被忽略：导出不因旧客户端携带 executed_from 而报错
         response = client.get(EXPORT_URL, {'executed_from': '2026-10-01'})
         rows = _csv_rows(response.content)
-        self.assertEqual(len(rows), 3)
-        content = response.content.decode('utf-8-sig')
-        self.assertIn('SYS-FILLED', content)
-        self.assertNotIn('SYS-DRAFT', content)
-        self.assertNotIn(draft['ledger_no'], content)
+        self.assertEqual(len(rows), 5)
 
     def test_export_records_audit_with_rows_and_applied_filters(self):
         """审计记录真实行数与生效筛选；无筛选时 filters 为空 dict。"""

@@ -200,7 +200,6 @@ class LedgerDetail extends React.Component {
       <Descriptions size="small" column={2} bordered>
         <Descriptions.Item label="台账编号">{d.ledger_no}</Descriptions.Item>
         <Descriptions.Item label="台账类型">{LEDGER_TYPE_TEXT[d.ledger_type]}</Descriptions.Item>
-        <Descriptions.Item label="实际执行日期">{d.executed_date}</Descriptions.Item>
         <Descriptions.Item label="状态">
           <Tag color={STATUS_COLOR[d.status]}>{STATUS_TEXT[d.status] || d.status}</Tag>
         </Descriptions.Item>

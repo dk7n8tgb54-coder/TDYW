@@ -68,7 +68,6 @@ export class LedgerStore {
   // —— 按模板查看视图筛选 ——
   @observable t_keyword = undefined;
   @observable t_status = undefined;
-  @observable t_date_range = undefined; // 日期范围 [moment, moment]
 
   @observable groups = [];
   @observable groupsTotal = 0;
@@ -144,10 +143,6 @@ export class LedgerStore {
     const params = {};
     if (this.t_keyword) params.keyword = this.t_keyword;
     if (this.t_status) params.status = this.t_status;
-    if (this.t_date_range && this.t_date_range.length === 2) {
-      params.executed_from = this.t_date_range[0].format('YYYY-MM-DD');
-      params.executed_to = this.t_date_range[1].format('YYYY-MM-DD');
-    }
     return params;
   }
 

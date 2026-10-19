@@ -249,7 +249,7 @@ class LegacyInspectionLedgerConvertRejectedTest(TransactionTestCase):
         try:
             ledger = OperationLedger.objects.create(
                 ledger_no='EL-INS-20260101-0001', ledger_type='inspection',
-                executed_date='2026-01-01', status='completed',
+                status='completed',
                 tenant_id=user.tenant_id, created_by=user)
             item = OperationLedgerItem.objects.create(
                 ledger=ledger, system=system,

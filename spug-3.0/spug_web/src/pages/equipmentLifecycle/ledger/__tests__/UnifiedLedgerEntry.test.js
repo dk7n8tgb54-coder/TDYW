@@ -84,8 +84,7 @@ const BINDINGS = [{
 
 function makeExcelDetail(status = 'draft', values = {}) {
   return {
-    id: 33, ledger_no: 'EL-WM-20260928-001', ledger_type: 'week_month',
-    executed_date: '2026-09-28', status,
+    id: 33, ledger_no: 'EL-WM-20260928-001', ledger_type: 'week_month', status,
     created_from: 'excel_template',
     excel: {
       record_id: 7, values, editable: status === 'draft',
@@ -104,8 +103,7 @@ function makeExcelDetail(status = 'draft', values = {}) {
 
 function makeManualDetail() {
   return {
-    id: 1, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month',
-    executed_date: '2026-09-10', status: 'draft', created_from: 'manual',
+    id: 1, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month', status: 'draft', created_from: 'manual',
     entry_channel: 'web', version: 1,
     created_by_name: 'op1', items: [], corrections: [],
   };
@@ -113,15 +111,13 @@ function makeManualDetail() {
 
 const LIST_PAYLOAD = {
   data: [
-    {id: 1, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month',
-     executed_date: '2026-09-10', status: 'draft',
+    {id: 1, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month', status: 'draft',
      created_by_name: 'op1',
      created_at: '2026-09-11 09:00', created_from: 'manual',
      source_type: 'manual', source_template_name: '',
      source_version_no: null,
      detail_route: '/el/week-month-ledgers?detail=1&source=manual'},
-    {id: 33, ledger_no: 'EL-WM-20260928-001', ledger_type: 'week_month',
-     executed_date: '2026-09-28', status: 'draft',
+    {id: 33, ledger_no: 'EL-WM-20260928-001', ledger_type: 'week_month', status: 'draft',
      created_by_name: 'op1',
      created_at: '2026-09-28 10:00', created_from: 'excel_template',
      source_type: 'excel', source_template_name: '信道Excel维护台账',
@@ -334,7 +330,6 @@ test('Excel 创建成功后进入 Excel 台账详情', async () => {
   await flush();
   expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-ledgers/',
     expect.objectContaining({version_id: 5, ledger_type: 'week_month',
-                             executed_date: expect.any(String),
                              client_token: expect.any(String)}));
   // 创建成功：弹窗关闭，统一列表被 Excel 台账详情视图替换（ExcelLedgerDetail 复用）
   expect(modalRootByTitle('选择 Excel/WPS 模板创建周月维护台账')).toBeUndefined();

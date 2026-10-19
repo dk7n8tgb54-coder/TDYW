@@ -3,19 +3,21 @@
 # Released under the AGPL-3.0 License.
 """设备全生命周期——系统配置视图（2026-10）。
 
-产品定位：配置不是独立一级菜单/独立页面，只在「系统详情 → 配置」页签内
-使用（当前配置 + 配置变更历史两个信息区域 + 记录配置变更 Modal）。
+产品定位（2026-10-19 起）：配置的写操作集中在「设备管理 → 系统配置」独立
+维护入口（选择系统、初始建档、维护参数定义、处理配置变更）；「系统详情 →
+配置」页签只读展示（当前配置 + 建档信息 + 变更历史），可跳转维护入口。
 不与运行记录、巡视维护、系统升级混淆：多步骤升级/测试/回退仍由系统升级
-管理负责，本模块只管配置参数值的变更留痕。
+管理负责，本模块只管配置参数值的建档与变更留痕。
 
 权限域（前后端一致，后端独立校验）：
-- equipment_lifecycle.config.view       当前配置/变更历史/详情/参数定义查询
+- equipment_lifecycle.config.view       当前配置/变更历史/详情/参数定义查询/建档状态
+- equipment_lifecycle.config.baseline   建立初始配置（基线建档，独立权限码）
 - equipment_lifecycle.config.add        创建配置变更
 - equipment_lifecycle.config.edit       编辑/取消草稿变更
 - equipment_lifecycle.config.apply      应用变更
 - equipment_lifecycle.config.verify     验证变更
 - equipment_lifecycle.config.rollback   回退变更
-- equipment_lifecycle.config.template   参数定义维护（新增/编辑）
+- equipment_lifecycle.config.template   参数定义维护（新增/编辑/停用）
 
 设计要点：
 - 创建/回退持 el_config_change_no 编号锁（non_atomic 装配，锁 → 事务提交
@@ -30,7 +32,7 @@
 import json
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 from django.views.generic import View
 
@@ -41,24 +43,29 @@ from libs.tenant_utils import apply_tenant_filter
 
 from apps.logs.audit import record_audit_event
 
-from apps.equipment_lifecycle import config_services
+from apps.equipment_lifecycle import config_baseline_services, config_services
 from apps.equipment_lifecycle.config_models import (
     CONFIG_CHANGE_APPLIED,
     CONFIG_CHANGE_DRAFT,
     CONFIG_CHANGE_STATUS_TEXT_MAP,
     CONFIG_CHANGE_STATUS_VALUES,
+    PARAM_CATEGORY_CHOICES,
+    PARAM_CATEGORY_RUNTIME,
+    PARAM_CATEGORY_VALUES,
     PARAM_SCOPE_ALL,
     PARAM_SCOPE_SPECIFIC,
     PARAM_TYPE_VALUES,
     ConfigChangeRecord,
     ConfigParamDefinition,
     ConfigParamSystemScope,
+    SystemConfigBaseline,
 )
 from apps.equipment_lifecycle.models import LifecycleSystem
 from apps.equipment_lifecycle.operation_views import _parse_dt, _read_json_body
 
 AUDIT_TARGET_CONFIG_CHANGE = 'el_config_change'
 AUDIT_TARGET_CONFIG_PARAM = 'el_config_param'
+AUDIT_TARGET_CONFIG_BASELINE = 'el_config_baseline'
 IDEMPOTENCY_WINDOW_SECONDS = 30
 
 
@@ -129,6 +136,8 @@ class SystemConfigParamOptionsView(View):
                 'param': param.id,
                 'param_code': param.param_code,
                 'param_name': param.param_name,
+                'category': param.category,
+                'category_text': dict(PARAM_CATEGORY_CHOICES).get(param.category, param.category),
                 'data_type': param.data_type,
                 'unit': param.unit,
                 'is_required': param.is_required,
@@ -216,6 +225,15 @@ def _pick_field(body, key, current=None):
     return value
 
 
+def _validate_param_type_scope(data_type, scope_type):
+    """数据类型与适用范围取值校验，返回错误文案或 None。"""
+    if data_type not in PARAM_TYPE_VALUES:
+        return '数据类型不正确'
+    if scope_type not in (PARAM_SCOPE_ALL, PARAM_SCOPE_SPECIFIC):
+        return '适用范围不正确'
+    return None
+
+
 def _extract_param_payload(body, current=None):
     """参数定义维护入参提取与校验（POST/PUT 共用）。
 
@@ -226,23 +244,25 @@ def _extract_param_payload(body, current=None):
     param_name = (body.get('param_name') or '').strip()
     data_type = (_pick_field(body, 'data_type', current) or '').strip()
     scope_type = (_pick_field(body, 'scope_type', current) or '').strip()
-    if data_type not in PARAM_TYPE_VALUES:
-        return None, None, '数据类型不正确'
-    if scope_type not in (PARAM_SCOPE_ALL, PARAM_SCOPE_SPECIFIC):
-        return None, None, '适用范围不正确'
+    # 分类：编辑未提交回落现值；新建未提交默认"运行参数"（兼容旧调用方）
+    category = (_pick_field(body, 'category', current) or '').strip() or PARAM_CATEGORY_RUNTIME
+    type_scope_error = _validate_param_type_scope(data_type, scope_type)
+    if type_scope_error:
+        return None, None, type_scope_error
     options = config_services.load_json_options(body.get('enum_options'))
     system_ids, error = _normalize_scope_system_ids(scope_type, body.get('system_ids'))
     if error:
         return None, None, error
     error = config_services.validate_param_definition(
         param_code=param_code, param_name=param_name, data_type=data_type,
-        scope_type=scope_type, options=options,
+        scope_type=scope_type, options=options, category=category,
         validation_regex=(body.get('validation_regex') or '').strip())
     if error:
         return None, None, error
     fields = {
         'param_code': param_code,
         'param_name': param_name,
+        'category': category,
         'data_type': data_type,
         'scope_type': scope_type,
         'unit': (body.get('unit') or '').strip()[:20],
@@ -504,6 +524,11 @@ class ConfigParamView(View):
                 Q(scope_type=PARAM_SCOPE_ALL)
                 | Q(scope_type=PARAM_SCOPE_SPECIFIC, system_scopes__system_id=system.id),
             )
+        category = request.GET.get('category', '').strip()
+        if category:
+            if category not in PARAM_CATEGORY_VALUES:
+                return json_response(error='参数分类筛选值不正确')
+            query = query.filter(category=category)
         query = query.distinct().order_by('param_code')
         page, page_size = paginate(request)
         data = paginate_response(query, page, page_size, serialize_fn=lambda x: x.to_view())
@@ -566,3 +591,78 @@ class ConfigParamDetailView(View):
                              'is_enabled': param.is_enabled,
                              'scope_type': param.scope_type})
         return json_response(param.to_view())
+
+
+class SystemConfigBaselineView(View):
+    """系统初始配置建档：状态查询（view）/ 建立建档（baseline 独立权限码）。
+
+    GET：建档内容（含明细）+ 是否可建档 + 拦截原因（停用系统同样可查）；
+    POST：仅可用系统；事务内持系统行锁（与配置变更应用/回退串行化），
+    服务层复核建档资格后写建档主表/明细与当前配置值（fail-closed）。
+    """
+
+    @auth('equipment_lifecycle.config.view')
+    def get(self, request, pk):
+        system = _get_system_for_user(pk, request.user)
+        if not system:
+            return json_response(error='系统不存在')
+        return json_response(config_baseline_services.get_baseline_state(system))
+
+    @auth('equipment_lifecycle.config.baseline')
+    def post(self, request, pk):
+        body = _read_json_body(request)
+        if body is None:
+            return json_response(error='请求体格式不正确')
+        with transaction.atomic():
+            system = _get_active_system_for_user(pk, request.user)
+            if not system:
+                return json_response(error='系统不存在或已停用')
+            system = LifecycleSystem.objects.select_for_update().get(pk=system.pk)
+            try:
+                baseline = config_baseline_services.establish_baseline(
+                    system=system,
+                    established_by=request.user,
+                    source=body.get('source') or '',
+                    remark=body.get('remark') or '',
+                    items=body.get('items'),
+                )
+            except (config_baseline_services.ConfigBaselineError,
+                    config_services.ConfigValueError) as exc:
+                return json_response(error=str(exc))
+            record_audit_event(
+                request, 'create', AUDIT_TARGET_CONFIG_BASELINE,
+                baseline.id, f'{baseline.system_code} {baseline.system_name}',
+                after_value={'action': 'establish_baseline',
+                             'source': baseline.source,
+                             'items_count': baseline.items.count()})
+        return json_response(config_baseline_services.get_baseline_detail(baseline))
+
+
+class ConfigSystemOptionsView(View):
+    """系统配置维护入口的系统候选（config.view 即可访问，不要求 system.view）。
+
+    返回系统档案引用字段（型号/厂家/呼号/工作频率）与建档状态标记，
+    供维护入口选择系统并区分"未核实/已填写"；含停用系统（is_active 标记）。
+    """
+
+    @auth('equipment_lifecycle.config.view')
+    def get(self, request):
+        baseline_qs = SystemConfigBaseline.objects.filter(
+            tenant_id=request.user.tenant_id, system=OuterRef('pk'))
+        query = apply_tenant_filter(
+            LifecycleSystem.objects.annotate(has_baseline=Exists(baseline_qs)),
+            request.user,
+        ).order_by('system_code', 'id')
+        items = [{
+            'id': system.id,
+            'system_code': system.system_code,
+            'name': system.name,
+            'system_model': system.system_model,
+            'manufacturer': system.manufacturer,
+            'install_location': system.install_location,
+            'callsign': system.callsign,
+            'work_frequency': system.work_frequency,
+            'is_active': system.is_active,
+            'has_baseline': system.has_baseline,
+        } for system in query]
+        return json_response({'items': items})

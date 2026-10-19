@@ -192,7 +192,7 @@ class PdfParamsContractTests(ExcelLedgerContractBase):
         response = self.owner_client.post(
             LEDGER_URL + '/',
             json.dumps({'version_id': version['id'],
-                        'executed_date': '2026-09-30'}),
+                        }),
             content_type='application/json')
         self.assertEqual(response.json().get('error', ''), '')
         rows = self._list_rows_by_id()
@@ -231,7 +231,7 @@ class PdfApplyAndCheckTests(ExcelLedgerContractBase):
         response = self.owner_client.post(
             LEDGER_URL + '/',
             json.dumps({'version_id': version_id,
-                        'executed_date': '2026-09-30'}),
+                        }),
             content_type='application/json')
         self.assertEqual(response.json().get('error', ''), '')
         ledger_id = response.json()['data']['data']['id']
@@ -604,7 +604,7 @@ class PdfPresetModeTests(ExcelLedgerContractBase):
         response = self.owner_client.post(
             LEDGER_URL + '/',
             json.dumps({'version_id': version_id,
-                        'executed_date': '2026-10-01'}),
+                        }),
             content_type='application/json')
         self.assertEqual(response.json().get('error', ''), '')
         ledger_id = response.json()['data']['data']['id']

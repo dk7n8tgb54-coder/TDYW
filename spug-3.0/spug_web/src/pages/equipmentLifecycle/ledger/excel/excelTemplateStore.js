@@ -33,6 +33,11 @@
  *   "待配置"（历史模板不自动推断），只影响自动生成，不影响手工创建；
  * - 版本记录支持列表页按行查看（fetchVersions 按 templateId 取数，
  *   不影响当前模板详情），抽屉标题标注归属模板；
+ * - 模板列表双视图（2026-10-19）：在用/已停用按 is_active 拆分，默认
+ *   在用；两视图共用关键词（名称/说明/适用系统）与维护类型过滤及
+ *   分页，视图数量为各自 is_active 口径的准确总数；
+ * - 重新启用（2026-10-19）：停用的逆操作（幂等），成功后重取列表，
+ *   模板回到在用视图并恢复用于新台账与自动生成；
  * - 字段名称自动生成（2026-10-19）：新绑定默认「工作表 · 坐标」、
  *   批量每格各生成一个，前缀/名称改为可选；留空保存时回退默认名，
  *   已有自定义名称保持不变，载荷 field_name 始终非空；
@@ -47,6 +52,9 @@ import {bindBlockReason, parseCoord, coordName} from './components/LayoutTable';
 import {normalizePdfParams, serializePdfParams} from './pdfParams';
 
 export const API = '/api/equipment-lifecycle/excel-templates';
+
+/** 模板列表每页条数（在用/已停用两视图共用分页规格）。 */
+export const LIST_PAGE_SIZE = 10;
 
 /** 坐标按行列升序（预览与保存顺序稳定） */
 export function sortCoords(coordinates) {
@@ -80,6 +88,11 @@ export function batchFieldNames(prefix, coordinates, sheetName) {
 export class ExcelTemplateStore {
   @observable list = [];
   @observable loading = false;
+  // 模板列表双视图状态（2026-10-19）：默认在用；切换/过滤时分页回到第 1 页
+  @observable listView = 'active';  // 'active' 在用 | 'disabled' 已停用
+  @observable listKeyword = '';     // 关键词（名称/说明/适用系统）
+  @observable listType = '';        // 维护类型筛选（空=全部）
+  @observable listPage = 1;
   @observable current = null;       // 当前模板详情（含 draft：layout/field_bindings）
   @observable activeSheet = '';
   @observable selectedCell = '';
@@ -167,6 +180,51 @@ export class ExcelTemplateStore {
 
   @action setUploadField(key, value) {
     this[key] = value;
+  }
+
+  // ==================== 模板列表双视图（在用/已停用，2026-10-19） ====================
+
+  /** 在用视图数据源：按 is_active 拆分后再套用关键词与类型过滤。 */
+  @computed get activeTemplates() {
+    return this._filterRows(this.list.filter(t => t.is_active));
+  }
+
+  /** 已停用视图数据源。 */
+  @computed get disabledTemplates() {
+    return this._filterRows(this.list.filter(t => !t.is_active));
+  }
+
+  /** 视图数量：只按启用状态统计的准确总数（不受关键词/类型过滤影响）。 */
+  @computed get activeCount() {
+    return this.list.filter(t => t.is_active).length;
+  }
+
+  @computed get disabledCount() {
+    return this.list.filter(t => !t.is_active).length;
+  }
+
+  /** 视图内过滤：维护类型 + 关键词（名称/说明/适用系统，大小写不敏感）。 */
+  _filterRows(rows) {
+    const keyword = this.listKeyword.trim().toLowerCase();
+    return rows.filter(row => {
+      if (this.listType && row.ledger_type !== this.listType) return false;
+      if (!keyword) return true;
+      const haystack = [
+        row.name, row.description, row.system_name, row.system_code,
+      ].join(' ').toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }
+
+  @action setListView(view) {
+    if (this.listView === view) return;
+    this.listView = view === 'disabled' ? 'disabled' : 'active';
+    this.listPage = 1;
+  }
+
+  @action setListFilter(key, value) {
+    this[key] = value;
+    if (key !== 'listPage') this.listPage = 1;
   }
 
   // ==================== 生成配置（适用系统 + 生成周期，2026-10-14） ====================
@@ -628,7 +686,8 @@ export class ExcelTemplateStore {
 
   /**
    * 停用模板（逻辑停用，幂等）：停用后不可用于新台账，历史台账继续按
-   * 创建时版本查看与导出；成功提示后重取列表（不做乐观停用）。
+   * 创建时版本查看与导出；成功提示后重取列表（不做乐观停用），模板
+   * 即从在用视图移出、进入已停用视图。
    * 失败由公共拦截器统一提示业务错误，这里不再重复弹窗，只向上传递拒绝。
    */
   async deactivateTemplate(templateId) {
@@ -636,6 +695,22 @@ export class ExcelTemplateStore {
     try {
       await http.post(`${API}/${templateId}/deactivate/`);
       message.success('模板已停用');
+      await this.fetchList();
+    } finally {
+      this.deletingId = '';
+    }
+  }
+
+  /**
+   * 重新启用模板（停用的逆操作，幂等）：启用后恢复用于新台账与本期
+   * 应填台账自动生成，模板回到在用视图；成功提示后重取列表（不做
+   * 乐观更新）。失败由公共拦截器统一提示业务错误，这里不再重复弹窗。
+   */
+  async activateTemplate(templateId) {
+    this.deletingId = templateId;
+    try {
+      await http.post(`${API}/${templateId}/activate/`);
+      message.success('模板已重新启用');
       await this.fetchList();
     } finally {
       this.deletingId = '';

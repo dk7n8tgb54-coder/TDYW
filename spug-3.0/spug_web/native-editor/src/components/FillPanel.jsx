@@ -35,7 +35,6 @@ export default function FillPanel({
           <span>模板 v{meta?.versionNo ?? "—"}</span>
         </div>
         <div className="record-meta">
-          <span>执行日期：{meta?.executedDate || "—"}</span>
           <span>已填写 {filled} / {bindings.length} 字段</span>
         </div>
         <div className="action-row">

@@ -56,6 +56,8 @@ from apps.equipment_lifecycle.ledger_services import (
 #     算一个期次，归入周一所在月份，展示完整起止日期；
 #   · 每月模板：YYYY-MM（自然月）；
 #   · 季维护模板：YYYY-夏秋 / YYYY-冬春（民航航季边界）；
+#   期次归属只看该表头标记（2026-10-19 删除 executed_date，历史台账已在
+#   迁移 0024 按当时推导口径回填标记）；
 # - 本期 = 以当前日期为基准的当前周/当前月/当前航季，不预建未来期次；
 # - 去重：同租户+模板+系统+期次仅一张有效台账（唯一约束
 #   uniq_el_ledger_tpl_period，以 slot_active 参与：非作废=True、作废=NULL
@@ -65,10 +67,6 @@ from apps.equipment_lifecycle.ledger_services import (
 # - 生成物 = created_from=excel_template 的正式台账，创建即固定引用模板
 #   最新已发布版本快照（OperationLedgerExcelRecord），可直接进入 Excel
 #   填写；不再生成没有明细且无法补录的手工草稿；
-# - 计划填写期次（maintenance_period）与实际执行日期（executed_date）是
-#   不同概念：生成的应填台账 executed_date 为空，由填写人执行后录入
-#   （excel_ledger_services.update_header）；台账编号以期次起始日期为基准，
-#   创建后不随执行日期改变；
 # - 历史兼容：旧批量新增的手工壳（created_from=manual 且带期次标记）不
 #   改写，同系统同期次存在未作废手工壳时该模板标记需人工处理，不自动生成。
 # ======================================================================
@@ -190,8 +188,6 @@ def maintenance_period_text(ledger_type, period):
 # 对应哪一周（每周｜周一日期—周日日期）/ 哪个月（每月｜YYYY年M月）
 PERIOD_LABEL_WEEK_PREFIX = '每周｜'
 PERIOD_LABEL_MONTH_PREFIX = '每月｜'
-# 历史台账无期次标记时按执行日期归档的来源标注（不改写历史记录，也不凭模板名称推断周/月周期）
-PERIOD_SOURCE_DERIVED_TEXT = '按实际执行日期归档'
 PERIOD_UNMARKED_LABEL = '未标注期次'
 
 
@@ -234,35 +230,23 @@ def period_current_keys(ledger_type, today=None):
 
 
 def ledger_period_display(ledger):
-    """台账行级期次展示字段（兼容历史台账，不改写历史记录）。
+    """台账行级期次展示字段（期次归属只看表头标记，2026-10-19 起）。
 
-    - 明确期次：表头 maintenance_period 标记 → period_is_derived=False；
-    - 历史归档：无标记时按实际执行日期推导（与 ledger_period_key 同口径），
-      period_is_derived=True 且 period_source_text 标注来源；
-    - 两者皆缺：显示"未标注期次"。
+    - 明确期次：表头 maintenance_period 标记；
+    - 无标记：显示"未标注期次"（历史无标记台账已在迁移 0024 按当时推导
+      口径回填标记，此处不再读时推导）。
     """
     period = ledger_period_key(ledger)
     if not period:
         return {'period_label': PERIOD_UNMARKED_LABEL, 'period_is_derived': False,
-                'period_source_text': '台账缺少期次标记与执行日期'}
-    if ledger.maintenance_period:
-        return {'period_label': maintenance_period_label(ledger.ledger_type, period),
-                'period_is_derived': False, 'period_source_text': ''}
+                'period_source_text': '台账缺少期次标记'}
     return {'period_label': maintenance_period_label(ledger.ledger_type, period),
-            'period_is_derived': True, 'period_source_text': PERIOD_SOURCE_DERIVED_TEXT}
+            'period_is_derived': False, 'period_source_text': ''}
 
 
 def ledger_period_key(ledger):
-    """台账归属期次：优先表头计划期次标记，历史台账按实际执行日期推导。"""
-    if ledger.maintenance_period:
-        return ledger.maintenance_period
-    executed = ledger.executed_date
-    if executed is None:
-        return ''
-    if ledger.ledger_type == LEDGER_TYPE_SEASONAL:
-        # 按航季边界推导：夏秋=3月末周日~10月末周日；冬春=10月末周日~次年3月末周日
-        return season_key_of(executed)
-    return executed.strftime('%Y-%m')
+    """台账归属期次：表头计划期次标记（无标记返回空串）。"""
+    return ledger.maintenance_period or ''
 
 
 def _generatable_templates(user, ledger_type, for_update=False):
@@ -576,8 +560,8 @@ def period_generate_rebuild(user, template_id):
 def _create_generated_ledger(user, template, version, entry):
     """创建一张周期生成的 Excel 应填台账（表头 + 填写记录，固定版本快照）。
 
-    - executed_date 留空（计划填写期次 ≠ 实际执行日期，执行后由填写人录入）；
-    - 台账编号以期次起始日期为基准，创建后不随执行日期改变；
+    - 期次归属由 maintenance_period 标记承载；
+    - 台账编号以期次起始日期为基准，创建后不变；
     - 编号序列冲突（同基准日期并发）时重算序号重试（有界）。
     """
     # excel_template_manage / excel_ledger_services 反向依赖本模块，函数内延迟导入
@@ -593,7 +577,6 @@ def _create_generated_ledger(user, template, version, entry):
                     ledger_no=generate_ledger_no(
                         user.tenant_id, template.ledger_type, base_date),
                     ledger_type=template.ledger_type,
-                    executed_date=None,
                     status=LEDGER_STATUS_DRAFT,
                     entry_channel=ENTRY_CHANNEL_WEB,
                     created_from=LEDGER_FROM_EXCEL,
@@ -683,7 +666,7 @@ def list_period_groups(user, ledger_type, status='', system_id=None, keyword='',
                        page=1, page_size=20, row_serializer=None):
     """按周期分组返回台账列表（组内含各系统台账与填写状态，分页按期次组切片）。
 
-    - 分组键 = 维护类型 + 周期（周期优先取表头标记，历史台账按执行日期推导）；
+    - 分组键 = 维护类型 + 期次标记（maintenance_period，无标记归"未标注期次"）；
     - status/system/keyword 支持筛选：keyword 按台账编号模糊匹配（命中台账
       所在的期次组保留，组内数量与可见行一致）；system 命中表头级系统或明细
       系统；
@@ -717,19 +700,10 @@ def list_period_groups(user, ledger_type, status='', system_id=None, keyword='',
 def _period_ledger_counts(user, ledger_type, period, start, end):
     """指定期次的台账状态统计（与周期分组同口径）。
 
-    显式期次标记直接命中；无标记的历史台账按执行日期落在 [start, end)
-    归档（与 ledger_period_key 推导一致）；每周键无执行日期推导路径，
-    仅按标记命中（与分组展示一致）。
+    期次归属只看表头标记（历史无标记台账已在迁移 0024 回填）。
     """
     query = apply_tenant_filter(OperationLedger.objects.all(), user).filter(
-        ledger_type=ledger_type)
-    if PERIOD_WEEK_RE.match(period):
-        query = query.filter(maintenance_period=period)
-    else:
-        query = query.filter(
-            Q(maintenance_period=period) |
-            (Q(maintenance_period='') & Q(executed_date__gte=start)
-             & Q(executed_date__lt=end)))
+        ledger_type=ledger_type, maintenance_period=period)
     return query.aggregate(
         draft=Count('id', filter=Q(status=LEDGER_STATUS_DRAFT)),
         completed=Count('id', filter=Q(status=LEDGER_STATUS_COMPLETED)),

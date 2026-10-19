@@ -150,7 +150,7 @@ function LedgerPeriodGenerateModal({visible, ledgerType, store, onCancel}) {
                   showIcon
                   style={{marginBottom: 12}}
                   message="将按各模板配置的适用系统与生成周期，生成本期（当前周/月/航季）应填台账"
-                  description="生成的台账为 Excel 模板台账（固定引用最新发布版本），可直接填写；实际执行日期由填写人执行后录入。"/>
+                  description="生成的台账为 Excel 模板台账（固定引用最新发布版本），可直接填写。"/>
                 <Table
                   rowKey="template_id"
                   size="small"

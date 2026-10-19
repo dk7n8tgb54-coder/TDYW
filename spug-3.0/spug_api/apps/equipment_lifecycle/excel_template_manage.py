@@ -18,6 +18,9 @@
   历史台账全部保留（幂等）；删除=物理删除（未发布模板、已发布且所有
   版本均未被台账引用的模板），删除时在行锁内重新检查引用关系，版本
   文件随行删除；被引用（含已作废台账引用）的模板只能停用；
+- 重新启用（2026-10-19）：停用的逆操作（is_active=True，幂等），恢复
+  可用模板接口返回与本期应填台账自动生成参与资格；停用期间版本、
+  草稿与历史台账原样保留，启用不改动任何数据；
 - 草稿 PDF 预览：以草稿源文件为事实生成空白预览（未填写字段留空），
   只读不改草稿、不创建版本；LibreOffice 不可用时明确业务错误；
 - 兼容性检查：模板详情返回草稿文件/哈希/不支持特性/打印区域/LibreOffice
@@ -64,6 +67,7 @@ from apps.equipment_lifecycle.excel_template_services import (
     describe_unsupported_features,
     parse_workbook,
     preview_blank_pdf,
+    refresh_column_layout,
     validate_bindings,
     validate_values,
 )
@@ -349,6 +353,25 @@ def deactivate_template(user, template):
     return template, True
 
 
+def activate_template(user, template):
+    """重新启用模板（停用的逆操作）：is_active=True，幂等。
+
+    - 启用后恢复可用模板接口返回与本期应填台账自动生成参与资格，
+      可用于新台账；停用期间版本、草稿与历史台账原样保留，启用不做
+      任何数据变更；
+    - 幂等：已启用再次调用直接返回，不重复变更；
+    - 返回 (template, activated_now)，activated_now 标记本次是否实际
+      发生变更（View 层据此决定是否记录审计事件）。
+    """
+    if template.is_active:
+        return template, False
+    template.is_active = True
+    template.updated_at = timezone.now()
+    template.updated_by = user
+    template.save(update_fields=['is_active', 'updated_at', 'updated_by'])
+    return template, True
+
+
 def template_ledger_reference_count(template):
     """统计引用模板任意版本的台账数（含已作废——作废台账仍需查看/导出，
     其版本快照不可消失，因此同样阻止物理删除）。"""
@@ -468,13 +491,17 @@ def _file_compatibility(template):
 
 
 def _version_meta(version):
-    """由版本快照组装导出用 meta（布局 + 绑定 + PDF 参数 + 文件定位）。"""
+    """由版本快照组装导出用 meta（布局 + 绑定 + PDF 参数 + 文件定位）。
+
+    布局经读取端列宽修正：导出本身以源文件为事实不受影响，导出预检
+    （estimate_pdf_warnings）按修正后列宽估算内容宽度。
+    """
     part = version.get_layout()
     return {
         'source_filename': version.source_filename,
         'source_file_hash': version.source_hash,
         'sheet_name': part.get('sheet_name'),
-        'layout': part.get('layout'),
+        'layout': _corrected_version_layout(version),
         'field_bindings': version.get_bindings(),
         'sample_values': {},
         'pdf_params': part.get('pdf_params') or {},
@@ -489,14 +516,46 @@ def version_source_path(version):
     return path
 
 
+def _corrected_version_layout(version):
+    """版本布局快照的读取端列宽修正（快照不可变，仅修读取视图）。
+
+    历史快照由旧解析逻辑生成：<col min="1" max="3"> 范围只落在起始列，
+    其余列被误记为 openpyxl 缺省宽度 13、隐藏范围漏报，网页按快照渲染
+    会把范围列画窄。以版本源文件为准重新推导 column_widths/
+    hidden_columns；源文件缺失等异常原样返回快照，不影响详情与导出
+    （导出另有源文件校验）。详见 excel_template_services.refresh_column_layout。
+    """
+    layout = version.get_layout().get('layout') or {}
+    try:
+        path = version_source_path(version)
+    except ExcelTemplateError:
+        return layout
+    return refresh_column_layout(layout, path)
+
+
+def version_content_view(version):
+    """版本详情视图（含布局与绑定快照；布局经读取端列宽修正）。
+
+    台账详情与版本详情接口共用，历史台账据此以正确列宽回放版式。
+    """
+    view = version.to_view(with_content=True)
+    view['layout'] = _corrected_version_layout(version)
+    return view
+
+
 def draft_meta_view(template):
-    """草稿布局+绑定视图（前端绑定工作区数据源）；无草稿返回 None。"""
+    """草稿布局+绑定视图（前端绑定工作区数据源）；无草稿返回 None。
+
+    布局经读取端列宽修正（历史草稿 <col min max> 范围只记起始列），
+    工作区按正确列宽渲染；草稿文件缺失/解析失败时原样返回快照。
+    """
     if not template.draft_layout:
         return None
     meta = _draft_meta(template)
     return {
         'sheet_name': meta['sheet_name'],
-        'layout': meta['layout'],
+        'layout': refresh_column_layout(
+            meta['layout'], excel_template_storage.draft_path(template.pk)),
         'field_bindings': json.loads(template.draft_bindings) if template.draft_bindings else [],
         'pdf_params': meta.get('pdf_params') or {},
         'source_filename': template.draft_source_filename,
@@ -526,7 +585,12 @@ def list_templates(user):
 
 
 def available_templates(user, ledger_type=None):
-    """台账创建用：启用且有已发布版本的模板（可按类型过滤），含版本列表。"""
+    """台账创建用：启用且有已发布版本的模板（可按类型过滤）。
+
+    versions 只含当前在用版本（模板内最大 version_no）：新增台账固定
+    使用当前版本，旧版本仅供历史追溯，不进入创建入口；发布新版本后
+    本接口自动切换到新版本。历史台账仍绑定创建时的版本快照，不受影响。
+    """
     query = apply_tenant_filter(
         OperationLedgerExcelTemplate.objects.filter(is_active=True), user)
     if ledger_type:
@@ -534,13 +598,13 @@ def available_templates(user, ledger_type=None):
     query = query.annotate(versions_count=Count('versions')).filter(versions_count__gt=0)
     items = []
     for template in query:
-        versions = [v.to_view() for v in template.versions.all()]
+        current = template.versions.first()
         items.append({
             'id': template.id,
             'name': template.name,
             'ledger_type': template.ledger_type,
             'description': template.description,
-            'versions': versions,
+            'versions': [current.to_view()] if current else [],
         })
     return items
 

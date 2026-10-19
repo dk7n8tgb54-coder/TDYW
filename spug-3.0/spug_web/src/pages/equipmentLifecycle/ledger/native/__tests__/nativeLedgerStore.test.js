@@ -2,7 +2,7 @@
  * 原生路线维护台账 Store 行为测试（真实 store + http mock）。
  *
  * 覆盖：
- * - 详情应用与脏值跟踪（values vs savedValues、执行日期草稿）；
+ * - 详情应用与脏值跟踪（values vs savedValues）；
  * - 创建（client_token 幂等走后端，前端只发请求）；
  * - 保存：编辑器 collect 值合并 → PUT（values/header 形态），成功后通知
  *   编辑器复位；无未保存修改不发请求；
@@ -46,12 +46,11 @@ const VERSION = {
 
 function makeDetail(overrides = {}) {
   const {status = 'draft', values = {}, editable = status === 'draft',
-    executed_date = '2026-10-18', corrections = [], ...rest} = overrides;
+    corrections = [], ...rest} = overrides;
   return {
     id: 66,
     ledger_no: 'EL-WM-20261018-001',
     ledger_type: 'week_month',
-    executed_date,
     status,
     corrections,
     native: {record_id: 9, values, editable, voided: status === 'void', version: VERSION},
@@ -94,20 +93,9 @@ describe('NativeLedgerStore 脏值跟踪与保存', () => {
     expect(store.valuesDirty).toBe(false);
   });
 
-  test('dateDraft：undefined=未动、修改后 dateDirty、显式空串参与脏值', () => {
-    store.applyDetail(makeDetail({executed_date: '2026-10-18'}));
-    expect(store.dateDirty).toBe(false);
-    store.setDateDraft('2026-10-19');
-    expect(store.dateDirty).toBe(true);
-    store.setDateDraft('');
-    expect(store.dateDirty).toBe(true);
-    store.setDateDraft('2026-10-18');
-    expect(store.dateDirty).toBe(false);
-  });
-
   test('hasUnsaved：仅草稿/更正模式参与', () => {
     store.applyDetail(makeDetail({status: 'completed', editable: false}));
-    store.setDateDraft('2026-10-20');
+    store.values = {...store.values, conclusion: '改了'};
     expect(store.hasUnsaved).toBe(false);
   });
 
@@ -202,7 +190,6 @@ describe('NativeLedgerStore 完成/更正/状态流转', () => {
     expect(mockHttpPost).toHaveBeenCalledWith(`${API}/66/correct/`, {
       reason: '复核修正',
       values: {conclusion: '修正值', note: ''},
-      header: {executed_date: '2026-10-18'},
     });
     expect(message.success).toHaveBeenCalledWith('更正已保存');
     // 更正模式随详情刷新退出

@@ -63,27 +63,25 @@ class TemplateGroupTestBase(TestCase):
             layout='', bindings='', field_count=0,
             published_by=user or self.user, tenant_id=template.tenant_id)
 
-    def make_excel_ledger(self, version, executed_date='2026-10-01',
-                          status=LEDGER_STATUS_DRAFT, user=None):
+    def make_excel_ledger(self, version, status=LEDGER_STATUS_DRAFT, user=None):
         self._ledger_seq += 1
         user = user or self.user
         ledger = OperationLedger.objects.create(
             ledger_no='EL-TG-%04d' % self._ledger_seq,
             ledger_type=version.template.ledger_type,
-            executed_date=executed_date, status=status,
+            status=status,
             created_from=LEDGER_FROM_EXCEL, created_by=user, tenant_id=user.tenant_id)
         OperationLedgerExcelRecord.objects.create(
             ledger=ledger, version=version, tenant_id=user.tenant_id)
         return ledger
 
-    def make_manual_ledger(self, executed_date='2026-10-02',
-                           status=LEDGER_STATUS_DRAFT, ledger_type=LEDGER_TYPE_WEEK_MONTH,
-                           user=None):
+    def make_manual_ledger(self, status=LEDGER_STATUS_DRAFT,
+                           ledger_type=LEDGER_TYPE_WEEK_MONTH, user=None):
         self._ledger_seq += 1
         user = user or self.user
         return OperationLedger.objects.create(
             ledger_no='EL-TG-%04d' % self._ledger_seq,
-            ledger_type=ledger_type, executed_date=executed_date, status=status,
+            ledger_type=ledger_type, status=status,
             created_from=LEDGER_FROM_MANUAL, created_by=user, tenant_id=user.tenant_id)
 
     @staticmethod
@@ -108,8 +106,8 @@ class TemplateGroupingTests(TemplateGroupTestBase):
         template = self.make_template('信道维护台账')
         v1 = self.make_version(template, 1)
         v2 = self.make_version(template, 2)
-        self.make_excel_ledger(v1, executed_date='2026-10-05')
-        self.make_excel_ledger(v2, executed_date='2026-10-08')
+        self.make_excel_ledger(v1)
+        self.make_excel_ledger(v2)
         data = self.fetch_group_rows(ledger_type=LEDGER_TYPE_WEEK_MONTH)
         self.assertEqual(len(data), 1)
         group = data[0]
@@ -148,19 +146,19 @@ class TemplateGroupingTests(TemplateGroupTestBase):
         self.assertEqual([r['id'] for r in rows], [manual.id])
         self.assertTrue(all(r['source_type'] == 'manual' for r in rows))
 
-    def test_status_counts_and_last_executed_date(self):
+    def test_status_counts_and_last_created_at(self):
         template = self.make_template('状态统计模板')
         v1 = self.make_version(template, 1)
-        self.make_excel_ledger(v1, '2026-10-01', status=LEDGER_STATUS_DRAFT)
-        self.make_excel_ledger(v1, '2026-10-08', status=LEDGER_STATUS_COMPLETED)
-        self.make_excel_ledger(v1, '2026-10-03', status=LEDGER_STATUS_VOID)
+        self.make_excel_ledger(v1, status=LEDGER_STATUS_DRAFT)
+        self.make_excel_ledger(v1, status=LEDGER_STATUS_COMPLETED)
+        self.make_excel_ledger(v1, status=LEDGER_STATUS_VOID)
         # 默认视图不含已作废（2026-10-17）：组统计与可见行一致
         group = self.fetch_group_rows(ledger_type=LEDGER_TYPE_WEEK_MONTH)[0]
         self.assertEqual(group['total'], 2)
         self.assertEqual(group['draft'], 1)
         self.assertEqual(group['completed'], 1)
         self.assertEqual(group['void'], 0)
-        self.assertEqual(str(group['last_executed_date']), '2026-10-08')
+        self.assertIn('last_created_at', group)
         # status=void 主动查看已作废；status=all 明确包含已作废
         void_group = self.fetch_group_rows(
             ledger_type=LEDGER_TYPE_WEEK_MONTH, status=LEDGER_STATUS_VOID)[0]
@@ -199,8 +197,8 @@ class TemplateGroupHistoryTests(TemplateGroupTestBase):
         template = self.make_template('版本展示模板')
         v1 = self.make_version(template, 1)
         v2 = self.make_version(template, 2)
-        self.make_excel_ledger(v1, '2026-10-01')
-        self.make_excel_ledger(v2, '2026-10-02')
+        self.make_excel_ledger(v1)
+        self.make_excel_ledger(v2)
         body = self.ok_data(self.client.get(
             group_ledgers_url(template.id), {'ledger_type': LEDGER_TYPE_WEEK_MONTH}))
         by_version = {r['source_version_no']: r for r in body['data']}
@@ -223,9 +221,9 @@ class TemplateGroupFilterTests(TemplateGroupTestBase):
         super().setUp()
         self.week_template = self.make_template('周月模板')
         self.season_template = self.make_template('季维护模板', ledger_type=LEDGER_TYPE_SEASONAL)
-        self.make_excel_ledger(self.make_version(self.week_template, 1), '2026-10-05')
-        self.make_excel_ledger(self.make_version(self.season_template, 1), '2026-10-06')
-        self.make_manual_ledger('2026-10-07')
+        self.make_excel_ledger(self.make_version(self.week_template, 1))
+        self.make_excel_ledger(self.make_version(self.season_template, 1))
+        self.make_manual_ledger()
 
     def test_ledger_type_filter(self):
         data = self.fetch_group_rows(ledger_type=LEDGER_TYPE_WEEK_MONTH)
@@ -253,7 +251,7 @@ class TemplateGroupFilterTests(TemplateGroupTestBase):
 
     def test_filters_apply_to_group_statistics_and_rows(self):
         ledger = self.make_excel_ledger(
-            self.make_version(self.week_template, 2), '2026-10-09')
+            self.make_version(self.week_template, 2))
         data = self.fetch_group_rows(
             ledger_type=LEDGER_TYPE_WEEK_MONTH, status=LEDGER_STATUS_COMPLETED)
         # 状态筛选下仅剩完成态台账所在组，统计只计完成态
@@ -265,7 +263,7 @@ class TemplateGroupFilterTests(TemplateGroupTestBase):
             ledger_type=LEDGER_TYPE_WEEK_MONTH, status=LEDGER_STATUS_COMPLETED)
         week_group = [g for g in data if g['group_key'] == str(self.week_template.id)][0]
         self.assertEqual(week_group['total'], 1)
-        # 组内列表：状态/编号关键词/日期范围筛选
+        # 组内列表：状态/编号关键词筛选（执行日期范围参数已随字段删除退役）
         body = self.ok_data(self.client.get(
             group_ledgers_url(self.week_template.id), {
                 'ledger_type': LEDGER_TYPE_WEEK_MONTH, 'status': LEDGER_STATUS_COMPLETED}))
@@ -274,16 +272,11 @@ class TemplateGroupFilterTests(TemplateGroupTestBase):
             group_ledgers_url(self.week_template.id), {
                 'ledger_type': LEDGER_TYPE_WEEK_MONTH, 'keyword': 'TG'}))
         self.assertEqual(body['total'], 2)
-        body = self.ok_data(self.client.get(
-            group_ledgers_url(self.week_template.id), {
-                'ledger_type': LEDGER_TYPE_WEEK_MONTH,
-                'executed_from': '2026-10-06', 'executed_to': '2026-10-09'}))
-        self.assertEqual([r['id'] for r in body['data']], [ledger.id])
 
     def test_group_ledgers_pagination_and_order(self):
         v1 = self.make_version(self.week_template, 2)
         # setUp 已有 2026-10-05 一张；新造三张更晚日期，组内共 4 张
-        ledgers = [self.make_excel_ledger(v1, '2026-10-2%d' % (i + 1)) for i in range(3)]
+        ledgers = [self.make_excel_ledger(v1) for i in range(3)]
         body = self.ok_data(self.client.get(
             group_ledgers_url(self.week_template.id),
             {'ledger_type': LEDGER_TYPE_WEEK_MONTH, 'page': 1, 'page_size': 2}))
@@ -298,7 +291,7 @@ class TemplateGroupFilterTests(TemplateGroupTestBase):
         # 第 2 页剩新造最早一张 + setUp 的 2026-10-05 台账
         self.assertEqual([r['id'] for r in body['data']][0], ledgers[0].id)
         self.assertEqual(len(body['data']), 2)
-        self.assertEqual(body['data'][1]['executed_date'], '2026-10-05')
+        self.assertEqual(body['data'][1]['ledger_no'], 'EL-TG-0001')
 
     def test_invalid_group_key_rejected(self):
         resp = self.client.get(group_ledgers_url('abc'),
@@ -346,8 +339,8 @@ class TemplateGroupRegressionTests(TemplateGroupTestBase):
 
     def test_period_groups_and_unified_list_still_work(self):
         template = self.make_template('周月模板')
-        self.make_excel_ledger(self.make_version(template, 1), '2026-10-05')
-        self.make_manual_ledger('2026-10-06')
+        self.make_excel_ledger(self.make_version(template, 1))
+        self.make_manual_ledger()
         period_groups = self.client.get(
             URL_PREFIX + '/ledgers/period-groups/',
             {'ledger_type': LEDGER_TYPE_WEEK_MONTH}).json()['data']['data']

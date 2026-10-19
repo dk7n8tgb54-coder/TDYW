@@ -4,23 +4,22 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 系统详情 → 配置页签（2026-10）。
- * 一个页签、两个信息区域：当前配置 + 配置变更历史；"记录配置变更"只是
- * Modal 操作，变更详情是 Drawer——不新增任何一级菜单或独立页面。
- * 普通配置变更只留变更历史与审计（系统履历已随 2026-10-11 合并改造退役，
- * 不再区分"重要变更纳入履历"）。
+ * 系统详情 → 配置页签（2026-10-19 起只读）。
+ * 展示三个信息区域：建档信息 + 当前配置（按 硬件规格/运行参数 分类）+
+ * 配置变更历史；变更详情为只读 Drawer（隐藏写操作）。
+ * 全部写操作（初始建档/维护参数定义/记录与处理配置变更）集中在
+ * 「设备管理 → 系统配置」维护入口，本页签右上角提供跳转链接。
+ * 普通配置变更只留变更历史与审计（系统履历已随 2026-10-11 合并改造退役）。
  */
 import React from 'react';
 import {observer} from 'mobx-react';
+import {Link} from 'react-router-dom';
 import {Table, Tag, Empty, Button, Select, DatePicker, Divider} from 'antd';
-import {AuthButton, AuthDiv} from 'components';
+import {AuthDiv} from 'components';
 import store from './store';
-import SystemConfigChangeModal from './SystemConfigChangeModal';
+import {buildConfigColumns, buildChangeColumns, renderCategoryTag} from './shared';
 import SystemConfigChangeDetail from './SystemConfigChangeDetail';
-import {
-  PERM, PARAM_TYPE_TEXT, CONFIG_CHANGE_STATUS_OPTIONS, CONFIG_CHANGE_STATUS_TEXT,
-  CONFIG_CHANGE_STATUS_COLOR, CONFIG_VERIFY_STATUS_TEXT, CONFIG_VERIFY_STATUS_COLOR,
-} from '../constants';
+import {PERM, PARAM_CATEGORY_HARDWARE, PARAM_CATEGORY_RUNTIME, CONFIG_CHANGE_STATUS_OPTIONS} from '../constants';
 
 const {RangePicker} = DatePicker;
 
@@ -35,10 +34,7 @@ class SystemConfigTab extends React.Component {
 
   componentWillUnmount() {
     // 页签切换即卸载：清空 store 中的数据，避免污染其他系统的展示
-    store.configItems = [];
-    store.changes = [];
-    store.total = 0;
-    store.page = 1;
+    store.clearView();
   }
 
   fetchChanges = () => {
@@ -60,86 +56,43 @@ class SystemConfigTab extends React.Component {
     store.refreshAll(this.props.systemId);
   };
 
-  configColumns = [{
-    title: '参数名称',
-    dataIndex: 'param_name',
-    width: 160,
-    render: (text, record) => (
-      <span>
-        {record.is_required && <Tag color="orange" style={{marginRight: 4}}>必填</Tag>}
-        {text}
-      </span>
-    ),
-  }, {
-    title: '参数编码',
-    dataIndex: 'param_code',
-    width: 140,
-  }, {
-    title: '当前值',
-    dataIndex: 'display_value',
-    width: 130,
-    render: (text, record) => {
-      if (text === '未设置') return <Tag>未设置</Tag>;
-      if (record.data_type === 'bool') return record.value_bool === true ? '是' : '否';
-      return text;
-    },
-  }, {
-    title: '单位',
-    dataIndex: 'unit',
-    width: 70,
-    render: text => text || '-',
-  }, {
-    title: '数据类型',
-    dataIndex: 'data_type',
-    width: 80,
-    render: text => PARAM_TYPE_TEXT[text] || text,
-  }, {
-    title: '最后生效时间',
-    dataIndex: 'effective_at',
-    width: 140,
-    render: text => text || '-',
-  }, {
-    title: '最后变更人',
-    dataIndex: 'last_changed_by_name',
-    width: 100,
-    render: text => text || '-',
-  }];
+  // 按"分类展示"拆分：硬件规格（系统级静态规格）在前，其余归运行参数
+  get hardwareItems() {
+    return store.configItems.filter(item => item.category === PARAM_CATEGORY_HARDWARE);
+  }
 
-  changeColumns = [{
-    title: '变更编号',
-    dataIndex: 'change_no',
-    width: 130,
-  }, {
-    title: '变更原因',
-    dataIndex: 'reason',
-    ellipsis: true,
-  }, {
-    title: '状态',
-    dataIndex: 'status',
-    width: 80,
-    render: text => <Tag color={CONFIG_CHANGE_STATUS_COLOR[text]}>{CONFIG_CHANGE_STATUS_TEXT[text] || text}</Tag>,
-  }, {
-    title: '验证状态',
-    dataIndex: 'verify_status',
-    width: 90,
-    render: (text) => (
-      <Tag color={CONFIG_VERIFY_STATUS_COLOR[text || '']}>
-        {CONFIG_VERIFY_STATUS_TEXT[text || ''] || '未验证'}
-      </Tag>
-    ),
-  }, {
-    title: '操作人',
-    dataIndex: 'created_by_name',
-    width: 100,
-  }, {
-    title: '变更时间',
-    dataIndex: 'created_at',
-    width: 140,
-  }, {
-    title: '操作',
-    width: 60,
-    render: (text, record) => <a onClick={() => this.showDetail(record.id)}>详情</a>,
-  }];
+  get runtimeItems() {
+    return store.configItems.filter(item => item.category !== PARAM_CATEGORY_HARDWARE);
+  }
+
+  configColumns = buildConfigColumns({showSource: true});
+
+  changeColumns = buildChangeColumns(changeId => this.showDetail(changeId));
+
+  renderConfigTable(items) {
+    return (
+      <Table
+        rowKey="param"
+        size="small"
+        loading={store.isConfigFetching}
+        pagination={false}
+        dataSource={items}
+        columns={this.configColumns}
+        locale={{emptyText: <Empty description="暂无该分类下的配置参数" image={Empty.PRESENTED_IMAGE_SIMPLE}/>}}
+      />
+    );
+  }
+
+  renderBaselineLine() {
+    const baseline = store.configBaseline;
+    if (!baseline) return <Tag>未建档</Tag>;
+    return (
+      <span style={{fontSize: 12, color: '#888'}}>
+        初始建档：{baseline.source}
+        （{baseline.established_by_name} · {baseline.established_at}）
+      </span>
+    );
+  }
 
   render() {
     const paramOptions = store.configItems.map(item => (
@@ -153,20 +106,23 @@ class SystemConfigTab extends React.Component {
           {/* Divider 自身内容宽度会撑满容器，必须允许收缩，否则把右侧按钮挤出可视区产生横向滚动 */}
           <Divider orientation="left" plain
             style={{fontSize: 13, margin: '0 0 8px', flex: 1, minWidth: 0}}>当前配置</Divider>
-          <AuthButton auth={PERM.CONFIG_ADD} type="primary" size="small"
-            style={{marginBottom: 8, flexShrink: 0}} onClick={() => store.showForm()}>
-            记录配置变更
-          </AuthButton>
+          <div style={{flexShrink: 0, marginBottom: 8, marginLeft: 8}}>
+            {this.renderBaselineLine()}
+            <Link to={`/el/system-config?system=${this.props.systemId}`}>
+              <Button size="small" type="primary" ghost style={{marginLeft: 8}}>
+                前往系统配置维护
+              </Button>
+            </Link>
+          </div>
         </div>
-        <Table
-          rowKey="param"
-          size="small"
-          loading={store.isConfigFetching}
-          pagination={false}
-          dataSource={store.configItems}
-          columns={this.configColumns}
-          locale={{emptyText: <Empty description="当前系统暂无适用的配置参数" image={Empty.PRESENTED_IMAGE_SIMPLE}/>}}
-        />
+        <Divider orientation="left" plain style={{fontSize: 12, margin: '4px 0 6px'}}>
+          {renderCategoryTag(PARAM_CATEGORY_HARDWARE)}（引用系统档案视角，实测值记录在运行处置记录）
+        </Divider>
+        {this.renderConfigTable(this.hardwareItems)}
+        <Divider orientation="left" plain style={{fontSize: 12, margin: '12px 0 6px'}}>
+          {renderCategoryTag(PARAM_CATEGORY_RUNTIME)}（可调整的设定值）
+        </Divider>
+        {this.renderConfigTable(this.runtimeItems)}
         <Divider orientation="left" plain style={{fontSize: 13, marginTop: 16, marginBottom: 8}}>配置变更历史</Divider>
         <div style={{marginBottom: 10}}>
           <Select
@@ -224,11 +180,11 @@ class SystemConfigTab extends React.Component {
           columns={this.changeColumns}
           locale={{emptyText: <Empty description="当前系统暂无配置变更记录" image={Empty.PRESENTED_IMAGE_SIMPLE}/>}}
         />
-        <SystemConfigChangeModal systemId={this.props.systemId}/>
         {this.state.detailId && (
           <SystemConfigChangeDetail
             changeId={this.state.detailId}
             systemId={this.props.systemId}
+            readOnly
             onClose={this.handleCloseDetail}
           />
         )}

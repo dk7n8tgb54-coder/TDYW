@@ -15,12 +15,105 @@
  * 横向合并不增加高度（与 Excel 中"行高决定单元格高度"一致），
  * 隐藏行计 0。供填写输入控件选择（LayoutTable）与单行高合并格的
  * 尺寸提示（ExcelTemplatePage）共用。
+ *
+ * 显示几何（2026-10-19）：「适合页宽/原始尺寸」缩放与纸张显示信息
+ * 纯函数（fitPageWidthScale/defaultDisplayMode/paperViewInfo），缩放
+ * 只作用于网页显示（乘在布局像素上，不进版本快照、不改变导出）。
  */
 
 /** Excel 缺省行高（pt）；布局 meta 未记录行高时按此值。 */
 export const DEFAULT_ROW_HEIGHT_PT = 14.25;
 /** 纵向"足够高"阈值：≥2 行默认高度（28.5pt ≈ 38px）按多行填写。 */
 export const TALL_FILL_THRESHOLD_PT = DEFAULT_ROW_HEIGHT_PT * 2;
+
+/** 96dpi 网页显示换算（仅网页显示用，不改变导出版式）。 */
+export const PX_PER_MM = 96 / 25.4;
+export const PX_PER_CM = 96 / 2.54;
+
+/** 纸张尺寸（短边, 长边 mm；与 excel_pdf_params.PAPER_SIZE_MM 同源）。 */
+const PAPER_SIZE_MM = {
+  A4: [210, 297], A3: [297, 420], A5: [148, 210],
+  B4: [250, 353], B5: [176, 250], letter: [216, 279], legal: [216, 356],
+};
+
+/** openpyxl paperSize 编号 → 名称（excel_pdf_params.PAPER_SIZE_CODES 同源）。 */
+const PAPER_CODE_NAME = {9: 'A4', 8: 'A3', 11: 'A5', 12: 'B4', 13: 'B5', 1: 'letter', 5: 'legal'};
+
+/** 显示模式缩放上下限：适合页宽过小不可读、过大失真，均夹取。 */
+export const FIT_MIN_SCALE = 0.4;
+export const FIT_MAX_SCALE = 2.5;
+
+/** 「适合页宽」缩放值：可用宽度 / 表格自然宽度，夹取在上下限内。 */
+export function fitPageWidthScale(naturalWidth, availableWidth,
+                                  minScale = FIT_MIN_SCALE, maxScale = FIT_MAX_SCALE) {
+  if (!naturalWidth || !availableWidth) return 1;
+  return Math.min(maxScale, Math.max(minScale, availableWidth / naturalWidth));
+}
+
+/** 默认显示模式：宽表超出可用宽度选「适合页宽」，否则「原始尺寸」（100%）。 */
+export function defaultDisplayMode(naturalWidth, availableWidth) {
+  if (!naturalWidth || !availableWidth) return 'original';
+  return naturalWidth > availableWidth ? 'fit_width' : 'original';
+}
+
+/** 常规页边距（cm，A4 文档默认值；打印参数缺页边距时的近似显示值）。 */
+const NOMINAL_MARGINS_CM = {top: 1.91, bottom: 1.91, left: 1.78, right: 1.78};
+
+/**
+ * 纸张显示信息（仅网页显示参考，不影响模板与导出版式）。
+ *
+ * 版本打印参数 pdf_params（2026-09-30 起版本快照携带，含页边距）优先；
+ * 缺失回退布局 meta 的工作表打印设置（无页边距，按常规页边距近似）。
+ * 两处都无纸张信息返回 null（不画纸张边界）。
+ * orientation=auto：按表格自然宽度是否超出纵向可打印宽度选横向，
+ * 与后端 _resolve_orientation 的判定意图一致。
+ * 返回 caption（纸张说明 + 横向溢出提示）、纸张像素尺寸、页边距像素。
+ */
+export function paperViewInfo(pdfParams, sheet, naturalWidthPx) {
+  let paperName = null;
+  let orientation = null;
+  let margins = null;
+  const params = pdfParams || {};
+  if (params.paper_size && PAPER_SIZE_MM[params.paper_size]) {
+    paperName = params.paper_size;
+    orientation = params.orientation || 'portrait';
+    margins = params.margins || null;
+  } else {
+    const print = (sheet && sheet.print) || {};
+    const name = PAPER_CODE_NAME[Number(print.paper_size)];
+    if (name) {
+      paperName = name;
+      orientation = print.orientation && print.orientation !== 'default'
+        ? print.orientation : 'portrait';
+    }
+  }
+  if (!paperName) return null;
+  const shortMm = PAPER_SIZE_MM[paperName][0];
+  const longMm = PAPER_SIZE_MM[paperName][1];
+  let landscape = orientation === 'landscape';
+  if (!landscape && orientation === 'auto') {
+    const printablePortraitPx = (shortMm - (NOMINAL_MARGINS_CM.left + NOMINAL_MARGINS_CM.right) * 10)
+      * PX_PER_MM;
+    landscape = naturalWidthPx > printablePortraitPx;
+  }
+  const m = {...NOMINAL_MARGINS_CM, ...(margins || {})};
+  const pageWidthMm = landscape ? longMm : shortMm;
+  const pageHeightMm = landscape ? shortMm : longMm;
+  const printableWidthPx = Math.round(
+    pageWidthMm * PX_PER_MM - (Number(m.left) + Number(m.right)) * PX_PER_CM);
+  const overflow = naturalWidthPx > printableWidthPx;
+  const caption = `纸张：${paperName} · ${landscape ? '横向' : '纵向'}`
+    + (overflow ? ' · 表格宽度超出可打印区域，导出打印时将横向分页' : '');
+  return {
+    paperName, landscape, caption, overflow,
+    widthPx: Math.round(pageWidthMm * PX_PER_MM),
+    heightPx: Math.round(pageHeightMm * PX_PER_MM),
+    marginLeftPx: Math.round(Number(m.left) * PX_PER_CM),
+    marginRightPx: Math.round(Number(m.right) * PX_PER_CM),
+    marginTopPx: Math.round(Number(m.top) * PX_PER_CM),
+    printableWidthPx,
+  };
+}
 
 export function colLetter(col) {
   let letters = '';

@@ -43,6 +43,7 @@ from apps.equipment_lifecycle.excel_template_services import (
     MAX_COLUMNS,
     MAX_ROWS,
     ExcelLayoutError,
+    column_layout,
 )
 
 # openpyxl paperSize 编号（与 Worksheet.PAPERSIZE_* 常量同值）
@@ -386,16 +387,20 @@ def _resolve_orientation(worksheet, params):
 
 
 def _worksheet_content_width_cm(worksheet):
-    """工作表内容总宽度估算（cm）：显式列宽 + 未设置列的缺省宽度。"""
-    dimensions = worksheet.column_dimensions
+    """工作表内容总宽度估算（cm）：显式列宽 + 未设置列的缺省宽度。
+
+    列宽与隐藏列经 min/max 范围展开（与上传解析同源 column_layout，
+    避免 <col min="1" max="3"> 范围文件被按缺省宽度低估、方向误判纵向）。
+    """
+    widths, hidden = column_layout(worksheet)
+    hidden_set = set(hidden)
     total = 0.0
     unspecified = 0
     for idx in range(1, worksheet.max_column + 1):
         letter = get_column_letter(idx)
-        dim = dimensions.get(letter)
-        width = dim.width if dim is not None else None
-        if dim is not None and dim.hidden:
+        if letter in hidden_set:
             continue
+        width = widths.get(letter)
         if width is None:
             unspecified += 1
         else:

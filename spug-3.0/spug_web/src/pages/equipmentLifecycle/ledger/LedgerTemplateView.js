@@ -18,7 +18,7 @@
  */
 import React from 'react';
 import {observer} from 'mobx-react';
-import {Button, Input, Select, Table, DatePicker, Tooltip} from 'antd';
+import {Button, Input, Select, Table, Tooltip} from 'antd';
 import {
   AppstoreAddOutlined, ArrowLeftOutlined, BookOutlined, FilePdfOutlined, PlusOutlined,
 } from '@ant-design/icons';
@@ -30,7 +30,7 @@ import {buildColumns, LEDGER_TABLE_SCROLL_X} from './LedgerColumns';
 import {API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_FILTER_OPTIONS} from './constants';
 
 // observer：筛选控件直接读取 store 可观察字段，输入后需触发重渲染。
-// 模板视图使用独立筛选字段（t_keyword/t_status/t_date_range），与周期视图
+// 模板视图使用独立筛选字段（t_keyword/t_status），与周期视图
 // （f_keyword/f_status/f_system）互不混淆。
 const TemplateSearchForm = observer(function TemplateSearchForm({store}) {
   const refresh = () => store.refresh();
@@ -59,19 +59,6 @@ const TemplateSearchForm = observer(function TemplateSearchForm({store}) {
             <Select.Option value={opt.value} key={opt.value}>{opt.label}</Select.Option>
           ))}
         </Select>
-      </SearchForm.Item>
-      <SearchForm.Item span={8} title="实际执行日期">
-        <DatePicker.RangePicker
-          style={{width: '100%'}}
-          value={store.t_date_range}
-          onChange={v => {
-            store.t_date_range = v;
-            store.templateGroupsPage = 1;
-            store.groupLedgersPage = 1;
-            refresh();
-          }}
-          placeholder={['执行日期起', '执行日期止']}
-        />
       </SearchForm.Item>
     </SearchForm>
   );

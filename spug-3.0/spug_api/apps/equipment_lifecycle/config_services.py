@@ -48,6 +48,9 @@ from apps.equipment_lifecycle.config_models import (
     CONFIG_CHANGE_VERIFIED,
     CONFIG_VERIFY_FAILED,
     CONFIG_VERIFY_PASSED,
+    PARAM_CATEGORY_CHOICES,
+    PARAM_CATEGORY_RUNTIME,
+    PARAM_CATEGORY_VALUES,
     PARAM_SCOPE_ALL,
     PARAM_SCOPE_SPECIFIC,
     PARAM_TYPE_BOOL,
@@ -59,6 +62,7 @@ from apps.equipment_lifecycle.config_models import (
     ConfigChangeItem,
     ConfigChangeRecord,
     ConfigParamDefinition,
+    SystemConfigBaseline,
     SystemParamValue,
 )
 
@@ -171,26 +175,34 @@ def _validate_choice_options(options):
     return None
 
 
-def validate_param_definition(*, param_code, param_name, data_type, scope_type,
-                              options, validation_regex):
-    """参数定义维护校验，返回错误文案或 None。
-
-    - 编码格式固定（小写字母开头，字母/数字/下划线），防止把值塞进编码；
-    - 敏感配置（密码/令牌/密钥/私钥等）直接拒绝保存：不允许在配置参数里
-      存任何明文凭据，必要时以外部密钥系统的引用编号作为普通文本参数；
-    - 枚举类型必须提供 ≥2 个不重复选项；正则仅文本类型可填且必须可编译。
-    """
-    code = (param_code or '').strip()
-    name = (param_name or '').strip()
+def _validate_code_name_category(code, name, category):
+    """编码/名称/分类基础校验，返回错误文案或 None。"""
     if not code:
         return '参数编码不能为空'
     if not PARAM_CODE_PATTERN.match(code):
         return '参数编码须为小写字母开头，仅含小写字母/数字/下划线，长度 2-50'
     if not name:
         return '参数名称不能为空'
-    sensitive_error = _match_sensitive_words(code, name)
-    if sensitive_error:
-        return sensitive_error
+    if category is not None and category not in PARAM_CATEGORY_VALUES:
+        return '参数分类不正确'
+    return _match_sensitive_words(code, name)
+
+
+def validate_param_definition(*, param_code, param_name, data_type, scope_type,
+                              options, validation_regex, category=None):
+    """参数定义维护校验，返回错误文案或 None。
+
+    - 编码格式固定（小写字母开头，字母/数字/下划线），防止把值塞进编码；
+    - 分类必须为 硬件规格/运行参数 之一（未提交时由调用方回落默认值）；
+    - 敏感配置（密码/令牌/密钥/私钥等）直接拒绝保存：不允许在配置参数里
+      存任何明文凭据，必要时以外部密钥系统的引用编号作为普通文本参数；
+    - 枚举类型必须提供 ≥2 个不重复选项；正则仅文本类型可填且必须可编译。
+    """
+    code = (param_code or '').strip()
+    name = (param_name or '').strip()
+    basic_error = _validate_code_name_category(code, name, category)
+    if basic_error:
+        return basic_error
     if data_type == PARAM_TYPE_CHOICE:
         options_error = _validate_choice_options(options)
         if options_error:
@@ -656,15 +668,27 @@ def get_system_config_view(system):
         ).select_related('param', 'last_change')
     }
     type_text_map = dict(PARAM_TYPE_CHOICES)
+    category_text_map = dict(PARAM_CATEGORY_CHOICES)
+    baseline = SystemConfigBaseline.objects.filter(
+        tenant_id=system.tenant_id, system=system,
+    ).select_related('established_by').first()
     items = []
     for param in params:
         row = value_rows.get(param.id)
         if row:
             fields = get_current_value_fields(row)
+            if row.last_change_id:
+                source_text = f'配置变更 {row.last_change.change_no}'
+            elif row.baseline_id:
+                source_text = '初始建档'
+            else:
+                source_text = ''
             items.append({
                 'param': param.id,
                 'param_code': param.param_code,
                 'param_name': param.param_name,
+                'category': param.category,
+                'category_text': category_text_map.get(param.category, param.category),
                 'data_type': param.data_type,
                 'data_type_text': type_text_map.get(param.data_type, param.data_type),
                 'unit': param.unit,
@@ -680,12 +704,15 @@ def get_system_config_view(system):
                 'last_change_id': row.last_change_id,
                 'last_change_no': row.last_change.change_no if row.last_change_id else '',
                 'last_changed_by_name': row.last_changed_by.username if row.last_changed_by_id else '',
+                'source_text': source_text,
             })
         else:
             items.append({
                 'param': param.id,
                 'param_code': param.param_code,
                 'param_name': param.param_name,
+                'category': param.category,
+                'category_text': category_text_map.get(param.category, param.category),
                 'data_type': param.data_type,
                 'data_type_text': type_text_map.get(param.data_type, param.data_type),
                 'unit': param.unit,
@@ -698,9 +725,16 @@ def get_system_config_view(system):
                 'last_change_id': None,
                 'last_change_no': '',
                 'last_changed_by_name': '',
+                'source_text': '',
             })
     return {
         'system': {'id': system.id, 'name': system.name, 'system_code': system.system_code},
+        'baseline': {
+            'id': baseline.id,
+            'source': baseline.source,
+            'established_by_name': baseline.established_by.username if baseline.established_by_id else '',
+            'established_at': baseline.established_at,
+        } if baseline else None,
         'items': items,
     }
 

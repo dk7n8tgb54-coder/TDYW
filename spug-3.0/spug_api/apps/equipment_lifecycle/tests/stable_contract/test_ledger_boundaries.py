@@ -107,8 +107,10 @@ class LedgerBoundaryContractTests(TestCase):
             'OperationLedgerNativeRecord',
             # 系统配置（2026-10）：参数定义/适用系统/当前值 + 配置变更主表/明细
             # （SystemParamValue 与 0023 已删除的旧自定义字段值表 SystemConfigValue 刻意区分命名）
+            # 2026-10-19 增补：系统初始配置建档主表/明细（参数分类 + 基线建档）
             'ConfigParamDefinition', 'ConfigParamSystemScope', 'SystemParamValue',
             'ConfigChangeRecord', 'ConfigChangeItem',
+            'SystemConfigBaseline', 'SystemConfigBaselineItem',
         }
         self.assertEqual(model_names, expected)
 

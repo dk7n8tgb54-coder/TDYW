@@ -7,6 +7,8 @@
  * 系统详情 → 配置页签 —— 配置变更详情（Drawer，非独立页面）。
  * 展示变更公共信息、逐参数前后值快照、验证结果、附件、审计信息与回退关联；
  * 动作按钮按状态与权限显示：应用 / 验证 / 回退 / 取消。
+ * 2026-10-19 起支持 readOnly：系统档案只读页签传入 readOnly 隐藏全部写操作
+ * （应用/验证/回退/取消/附件上传删除），处理变更统一到维护入口完成。
  */
 import React, {Fragment} from 'react';
 import {observer} from 'mobx-react';
@@ -199,17 +201,17 @@ class SystemConfigChangeDetail extends React.Component {
         <Divider orientation="left" plain style={{fontSize: 13}}>附件</Divider>
         <div>
           {(this.state.attachments || []).map(att => (
-            <div key={att.id} style={{marginBottom: 4}}>
-              <PaperClipOutlined style={{marginRight: 4}}/>
-              {att.file_name}
-              {this.isDraft && (
-                <a style={{marginLeft: 8, color: '#f5222d'}}
-                  onClick={() => this.handleDeleteAttachment(att.id)}>删除</a>
-              )}
-            </div>
-          ))}
-          {this.isDraft && (
-            <Upload
+          <div key={att.id} style={{marginBottom: 4}}>
+            <PaperClipOutlined style={{marginRight: 4}}/>
+            {att.file_name}
+            {this.isDraft && !this.props.readOnly && (
+              <a style={{marginLeft: 8, color: '#f5222d'}}
+                onClick={() => this.handleDeleteAttachment(att.id)}>删除</a>
+            )}
+          </div>
+        ))}
+        {this.isDraft && !this.props.readOnly && (
+          <Upload
               multiple
               beforeUpload={this.handleUpload}
               showUploadList={false}
@@ -278,7 +280,7 @@ class SystemConfigChangeDetail extends React.Component {
             columns={this.renderItemColumns()}
           />
           {this.renderAttachments()}
-          {this.renderActions()}
+          {!this.props.readOnly && this.renderActions()}
         </Spin>
         {this.renderVerifyModal()}
       </Drawer>

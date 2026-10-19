@@ -136,8 +136,8 @@ const GROUPS = [
      {id: 21, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month',
       status: 'completed', system_name: 'DVOR系统', created_from: 'manual',
       source_type: 'manual',
-      period_label: '每月｜2026年9月', period_is_derived: true,
-      period_source_text: '按实际执行日期归档'},
+      period_label: '每月｜2026年9月', period_is_derived: false,
+      period_source_text: ''},
    ]},
 ];
 

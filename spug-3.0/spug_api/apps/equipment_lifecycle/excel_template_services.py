@@ -162,15 +162,16 @@ def _parse_sheet(ws):
             '工作表「%s」超出支持范围（最多 %d 行 × %d 列）'
             % (ws.title, MAX_ROWS, MAX_COLUMNS))
     merged_ranges, covered = _merged_layout(ws)
+    column_widths, hidden_columns = column_layout(ws)
     return {
         'name': ws.title,
         'max_row': ws.max_row,
         'max_column': ws.max_column,
         'merged_ranges': merged_ranges,
         'row_heights': _row_heights(ws),
-        'column_widths': _column_widths(ws),
+        'column_widths': column_widths,
         'hidden_rows': _hidden_rows(ws),
-        'hidden_columns': _hidden_columns(ws),
+        'hidden_columns': hidden_columns,
         'cells': _sheet_cells(ws, covered),
         'print': _print_setup(ws),
     }
@@ -198,14 +199,71 @@ def _row_heights(ws):
     return heights
 
 
-def _column_widths(ws):
-    widths = {}
-    for idx in range(1, ws.max_column + 1):
-        letter = get_column_letter(idx)
-        width = ws.column_dimensions[letter].width
-        if width is not None:
-            widths[letter] = round(float(width), 2)
-    return widths
+def _default_column_width(ws):
+    """工作表显式声明的缺省列宽（sheetFormatPr.defaultColWidth；未声明为 None）。"""
+    try:
+        width = ws.sheet_format.defaultColWidth
+    except AttributeError:
+        return None
+    if width is None:
+        return None
+    try:
+        return round(float(width), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def _dimension_column_range(dim, max_column):
+    """列维度覆盖的 (起始列, 结束列)，钳制到内容区（1..max_column）。
+
+    读取文件时 openpyxl 把 <col min="1" max="3"> 的范围记在维度的
+    min/max 属性上（只按起始列落键）；程序构造的维度（min/max 为空）
+    按 index 字母回退为单列。无法定位返回 (None, None)。
+    """
+    min_col = dim.min
+    if not min_col:
+        try:
+            min_col = column_index_from_string(dim.index)
+        except (ValueError, TypeError, AttributeError):
+            return None, None
+    max_col = dim.max or min_col
+    if max_col < min_col:
+        max_col = min_col
+    return max(1, min_col), min(max_col, max_column)
+
+
+def column_layout(ws):
+    """列宽与隐藏列（一次遍历；展开 <col> 的 min/max 覆盖范围）。
+
+    - openpyxl 读取 <col min="1" max="3" width="36"/> 时只按起始列落键
+      （范围记在 min/max 属性），B/C 在 column_dimensions 中不存在；
+      按字母下标访问缺失列会用 openpyxl 内置缺省宽度凭空造出 width=13
+      的假维度——因此只遍历已存在的维度并展开范围，单列（min=max）
+      自然覆盖；
+    - 未设显式宽度的列使用 sheetFormatPr.defaultColWidth；Excel 未声明
+      时的内置缺省 8.43 由前端兜底，不在此伪造；
+    - 重叠范围按 XML 文档顺序后者覆盖前者（与 Excel 行为一致）；
+    - 范围超出内容区（max_column）的部分忽略（渲染不出无内容列）。
+    返回 (column_widths dict, hidden_columns list)。公开供
+    excel_pdf_params 内容宽度估算复用（同一 min/max 展开语义）。
+    """
+    max_column = ws.max_column
+    covered = {}
+    for dim in list(ws.column_dimensions.values()):
+        min_col, max_col = _dimension_column_range(dim, max_column)
+        if min_col is None:
+            continue
+        for idx in range(min_col, max_col + 1):
+            covered[idx] = dim
+    widths = {idx: round(float(dim.width), 2)
+              for idx, dim in covered.items() if dim.width is not None}
+    default_width = _default_column_width(ws)
+    if default_width is not None:
+        for idx in range(1, max_column + 1):
+            widths.setdefault(idx, default_width)
+    return ({get_column_letter(idx): widths[idx] for idx in sorted(widths)},
+            [get_column_letter(idx) for idx in sorted(covered)
+             if covered[idx].hidden])
 
 
 def _hidden_rows(ws):
@@ -213,9 +271,38 @@ def _hidden_rows(ws):
             if ws.row_dimensions[idx].hidden]
 
 
-def _hidden_columns(ws):
-    return [get_column_letter(idx) for idx in range(1, ws.max_column + 1)
-            if ws.column_dimensions[get_column_letter(idx)].hidden]
+def refresh_column_layout(layout, source_path):
+    """以源文件为准修正布局中的列宽与隐藏列（读取端兼容，快照不可变）。
+
+    历史草稿/版本快照由旧解析逻辑生成：<col min max> 范围只落在起始列，
+    其余列被误记为 openpyxl 缺省宽度 13、隐藏范围漏报。这里用仍留存的
+    源文件重新推导 column_widths/hidden_columns，返回修正后的布局；
+    布局非法或源文件缺失/解析失败时原样返回（详情不因修正失败阻断，
+    导出路径另有源文件校验与报错）。修正幂等：新解析逻辑产出的快照
+    修正前后一致，已发布版本无需重建。
+    """
+    if not isinstance(layout, dict):
+        return layout
+    try:
+        data = _read_source(source_path)
+        workbook = load_workbook(io.BytesIO(data))
+    except Exception:
+        return layout
+    worksheets = {ws.title: ws for ws in workbook.worksheets}
+    patched = []
+    changed = False
+    for sheet_meta in layout.get('sheets') or []:
+        worksheet = sheet_meta.get('name') if isinstance(sheet_meta, dict) else None
+        if worksheet not in worksheets:
+            patched.append(sheet_meta)
+            continue
+        widths, hidden = column_layout(worksheets[worksheet])
+        updated = dict(sheet_meta, column_widths=widths, hidden_columns=hidden)
+        changed = changed or updated != sheet_meta
+        patched.append(updated)
+    if not changed:
+        return layout
+    return {**layout, 'sheets': patched}
 
 
 def _sheet_cells(ws, covered):

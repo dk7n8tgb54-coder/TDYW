@@ -8,8 +8,8 @@
 - equipment_lifecycle.ledger_template.add：上传创建模板（含重新上传草稿）
 - equipment_lifecycle.ledger_template.edit：保存绑定 / 发布版本 /
   保存 PDF 打印参数 / 保存生成配置（适用系统+生成周期，2026-10-14）
-- equipment_lifecycle.ledger_template.del：停用模板 / 删除模板（删除时
-  后端重新检查引用关系）
+- equipment_lifecycle.ledger_template.del：停用模板 / 重新启用模板（
+  2026-10-19）/ 删除模板（删除时后端重新检查引用关系）
 
 约定：
 - View 层只做参数解析、权限检查、调用 Service、组装响应；解析/校验/
@@ -154,6 +154,28 @@ class ExcelTemplateDeactivateView(View):
             record_audit_event(
                 request, 'delete', AUDIT_TARGET, template.pk, template.name,
                 after_value={'action_kind': 'deactivate_template', 'is_active': False})
+        return json_response({'data': excel_template_manage.template_detail(template)})
+
+
+class ExcelTemplateActivateView(View):
+    """重新启用模板：POST /excel-templates/<pk>/activate/（停用逆操作，幂等）。
+
+    启用后恢复可用模板接口返回与本期应填台账自动生成参与资格，可用于
+    新台账；停用期间版本、草稿与历史台账原样保留，启用不做任何数据
+    变更。重复启用不报错、不重复记审计。
+    """
+
+    @auth(PERM_TPL_DEL)
+    def post(self, request, pk):
+        template = _get_template_or_none(pk, request.user)
+        if not template:
+            return json_response(error='模板不存在或无权限访问')
+        template, activated_now = excel_template_manage.activate_template(
+            request.user, template)
+        if activated_now:
+            record_audit_event(
+                request, 'update', AUDIT_TARGET, template.pk, template.name,
+                after_value={'action_kind': 'activate_template', 'is_active': True})
         return json_response({'data': excel_template_manage.template_detail(template)})
 
 
@@ -329,7 +351,11 @@ class ExcelTemplateVersionListView(View):
 
 
 class ExcelTemplateVersionDetailView(View):
-    """已发布版本详情（含布局与绑定快照；只读，写方法缺失即 405）。"""
+    """已发布版本详情（含布局与绑定快照；只读，写方法缺失即 405）。
+
+    布局经读取端列宽修正：历史快照 <col min max> 范围只记起始列，
+    按模板组查看等复用此详情的页面以正确列宽回放版式。
+    """
 
     @auth(PERM_TPL_VIEW)
     def get(self, request, pk, version_no):
@@ -339,7 +365,8 @@ class ExcelTemplateVersionDetailView(View):
         version = template.versions.filter(version_no=version_no).first()
         if not version:
             return json_response(error='模板版本不存在')
-        return json_response({'data': version.to_view(with_content=True)})
+        return json_response(
+            {'data': excel_template_manage.version_content_view(version)})
 
 
 class ExcelTemplateAvailableView(View):

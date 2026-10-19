@@ -33,8 +33,8 @@ const GROUP_COLUMNS = (onOpen, onBrowse) => [
   {title: '草稿', dataIndex: 'draft', width: 80, align: 'center', render: v => v || 0},
   {title: '已完成', dataIndex: 'completed', width: 80, align: 'center', render: v => v || 0},
   {title: '已作废', dataIndex: 'void', width: 80, align: 'center', render: v => v || 0},
-  {title: '最近执行日期', dataIndex: 'last_executed_date', width: 130,
-    render: v => v || '—'},
+  {title: '最近录入时间', dataIndex: 'last_created_at', width: 150,
+    render: v => v ? String(v).slice(0, 19).replace('T', ' ') : '—'},
   {
     title: '操作', width: 150, align: 'center',
     render: (text, record) => (

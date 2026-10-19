@@ -11,7 +11,12 @@
  *   「更多」菜单（2026-10-16 拆分：停用=逻辑停用，启用模板可用；
  *   删除=物理删除，无台账引用的模板可用，引用关系后端删除时复查，
  *   del 权限门禁，Modal.confirm 二次确认）；列表展示适用系统与
- *   生成周期（2026-10-14，未配置显示"待配置"，不自动推断历史模板）；
+ *   生成周期（2026-10-14，未配置显示"待配置"，不自动推断）；
+ *   在用/已停用双视图（2026-10-19）：默认进入在用视图，已停用模板
+ *   集中在已停用视图（可查看内容/版本/关联台账，del 权限可重新启用，
+ *   停用成功后立即从在用视图移出）；两视图分别支持关键词搜索
+ *   （名称/说明/适用系统）、维护类型筛选与分页，切换视图时数量与
+ *   分页结果准确；
  *   页面底部提供前往正式周月/季维护台账的填写入口；
  * - 绑定工作区（2026-10-19 借鉴原生台账编辑工作台布局）：顶部集中展示
  *   返回入口、名称/类型/状态与全部操作，发布禁用原因在操作区下方独立
@@ -41,15 +46,16 @@ import React from 'react';
 import {observer} from 'mobx-react';
 import {
   Alert, Button, Card, Drawer, Dropdown, Empty, Input, Menu, Modal,
-  Popconfirm, Select, Space, Spin, Table, Tabs, Tag, Upload, message,
+  Popconfirm, Radio, Select, Space, Spin, Table, Tabs, Tag, Upload, message,
 } from 'antd';
 import {
-  ArrowLeftOutlined, DeleteOutlined, DownOutlined, DownloadOutlined, FilePdfOutlined,
-  HistoryOutlined, PrinterOutlined, StopOutlined, UploadOutlined,
+  ArrowLeftOutlined, CheckCircleOutlined, DeleteOutlined, DownOutlined,
+  DownloadOutlined, FilePdfOutlined, HistoryOutlined, PrinterOutlined,
+  StopOutlined, UploadOutlined,
 } from '@ant-design/icons';
 import {hasPermission, history} from 'libs';
 
-import excelTemplateStore from './excelTemplateStore';
+import excelTemplateStore, {LIST_PAGE_SIZE} from './excelTemplateStore';
 import {PERM_L} from '../constants';
 import LayoutTable, {bindBlockReason} from './components/LayoutTable';
 import FieldPanel from './components/FieldPanel';
@@ -203,6 +209,16 @@ class ExcelTemplatePage extends React.Component {
         : '停用后将停止该模板使用，历史台账仍可查看，确定停用吗？',
       okText: '停用', okType: 'danger', cancelText: '取消',
       onOk: () => this.store.deactivateTemplate(record.id),
+    });
+  };
+
+  /** 行重新启用确认（2026-10-19）：停用的逆操作，恢复新台账使用与自动生成。 */
+  confirmActivateTemplate = record => {
+    Modal.confirm({
+      title: '重新启用模板',
+      content: `重新启用后「${record.name}」将恢复用于新台账与本期应填台账自动生成，历史台账不受影响。确定重新启用吗？`,
+      okText: '重新启用', cancelText: '取消',
+      onOk: () => this.store.activateTemplate(record.id),
     });
   };
 
@@ -575,7 +591,7 @@ class ExcelTemplatePage extends React.Component {
         <Alert
           type="info" showIcon style={{marginBottom: 16}}
           message="配置后可在周月/季维护台账列表一键生成本期应填台账"
-          description="生成的台账固定引用最新发布版本并可直接填写；实际执行日期由填写人执行后录入。历史模板不自动推断配置。"/>
+          description="生成的台账固定引用最新发布版本并可直接填写。历史模板不自动推断配置。"/>
         <div style={{marginBottom: 4}}>适用系统（一个模板只对应一个系统）</div>
         <Select data-testid="tpl-config-system" showSearch optionFilterProp="children"
                 placeholder="请选择适用系统" style={{width: '100%', marginBottom: 12}}
@@ -605,8 +621,9 @@ class ExcelTemplatePage extends React.Component {
   }
 
   /**
-   * 行操作可见性（2026-10-16 停用/删除拆分）：
-   * - 停用：启用中的模板（del 权限）——停用后不可用于新台账，历史台账不受影响；
+   * 行操作可见性（2026-10-16 停用/删除拆分；2026-10-19 双视图+重新启用）：
+   * - 停用：启用中的模板（del 权限）——停用后移入已停用视图，不可用于新台账；
+   * - 重新启用：已停用模板（del 权限）——恢复新台账使用与自动生成参与资格；
    * - 删除：无任何台账引用的模板（未发布或已发布无引用，含已停用无引用）；
    *   被引用的模板只能停用（后端删除时仍会重新检查）。
    */
@@ -614,11 +631,13 @@ class ExcelTemplatePage extends React.Component {
     const openText = !record.is_active ? '查看模板'
       : (record.draft_source_filename ? '编辑草稿' : '上传源文件');
     const canStop = record.is_active && hasPermission(PERM_L.TPL_DEL);
+    const canActivate = !record.is_active && hasPermission(PERM_L.TPL_DEL);
     const canDestroy = hasPermission(PERM_L.TPL_DEL) && !record.ledgers_count;
     const menu = (
       <Menu onClick={({key}) => {
         if (key === 'versions') this.showRowVersions(record);
         if (key === 'stop') this.confirmStopTemplate(record);
+        if (key === 'activate') this.confirmActivateTemplate(record);
         if (key === 'destroy') this.confirmDestroyTemplate(record);
       }}>
         <Menu.Item key="versions" data-testid="tpl-row-versions"
@@ -626,6 +645,10 @@ class ExcelTemplatePage extends React.Component {
         {canStop && (
           <Menu.Item key="stop" data-testid="tpl-stop" danger
                      icon={<StopOutlined/>}>停用模板</Menu.Item>
+        )}
+        {canActivate && (
+          <Menu.Item key="activate" data-testid="tpl-activate"
+                     icon={<CheckCircleOutlined/>}>重新启用</Menu.Item>
         )}
         {canDestroy && (
           <Menu.Item key="destroy" data-testid="tpl-destroy" danger
@@ -644,6 +667,30 @@ class ExcelTemplatePage extends React.Component {
             更多 <DownOutlined/>
           </Button>
         </Dropdown>
+      </Space>
+    );
+  }
+
+  /** 列表过滤栏（2026-10-19 双视图）：视图切换（含准确数量）+ 关键词 + 维护类型。 */
+  _renderListFilters() {
+    const store = this.store;
+    return (
+      <Space style={{marginBottom: 12}} wrap>
+        <Radio.Group data-testid="tpl-view-switch" value={store.listView}
+                     onChange={event => store.setListView(event.target.value)}>
+          <Radio.Button value="active">在用（{store.activeCount}）</Radio.Button>
+          <Radio.Button value="disabled">已停用（{store.disabledCount}）</Radio.Button>
+        </Radio.Group>
+        <Input.Search data-testid="tpl-search" allowClear
+                      placeholder="搜索名称 / 说明 / 适用系统" style={{width: 240}}
+                      value={store.listKeyword}
+                      onChange={event => store.setListFilter('listKeyword', event.target.value)}/>
+        <Select data-testid="tpl-type-filter" allowClear placeholder="维护类型"
+                style={{width: 140}} value={store.listType || undefined}
+                onChange={value => store.setListFilter('listType', value || '')}>
+          <Select.Option value="week_month">周月维护</Select.Option>
+          <Select.Option value="seasonal">季维护</Select.Option>
+        </Select>
       </Space>
     );
   }
@@ -670,6 +717,8 @@ class ExcelTemplatePage extends React.Component {
        ) : <Tag>未上传</Tag>},
       {title: '版本', dataIndex: 'latest_version_no',
        render: (value, record) => `v${value || 0} / 共 ${record.versions_count || 0} 个`},
+      {title: '关联台账', dataIndex: 'ledgers_count', width: 90,
+       render: value => (value ? `${value} 个` : '—')},
       {title: '状态', dataIndex: 'status',
        render: value => {
          const conf = TEMPLATE_STATUS[value] || {text: value || '—'};
@@ -677,6 +726,11 @@ class ExcelTemplatePage extends React.Component {
        }},
       {title: '操作', key: 'actions', render: (_, record) => this._renderRowActions(record)},
     ];
+    const rows = store.listView === 'disabled'
+      ? store.disabledTemplates : store.activeTemplates;
+    // 分页当前页不越界（停用/删除重取后行数变少时收敛到最后一页）
+    const current = Math.min(store.listPage,
+      Math.max(1, Math.ceil(rows.length / LIST_PAGE_SIZE)));
     return (
       <Card bordered={false}
             title="Excel 维护台账模板（WPS/Excel 上传）"
@@ -686,11 +740,18 @@ class ExcelTemplatePage extends React.Component {
                 新建模板
               </Button>
             ) : null}>
-        <Table rowKey="id" columns={columns} dataSource={store.list}
-               loading={store.loading} pagination={false}/>
+        {this._renderListFilters()}
+        <Table rowKey="id" columns={columns} dataSource={rows}
+               loading={store.loading}
+               pagination={{
+                 current, pageSize: LIST_PAGE_SIZE, total: rows.length,
+                 showTotal: total => `共 ${total} 条`,
+                 onChange: page => store.setListFilter('listPage', page),
+               }}/>
         <div style={{color: '#999', marginTop: 8}}>
           仅支持固定行列、固定填写位置的 .xlsx；公式、图表、图片、外部链接、
-          透视表与宏会在上传时被明确拒绝，不会静默丢失。
+          透视表与宏会在上传时被明确拒绝，不会静默丢失。已停用模板在
+          「已停用」视图中集中管理，可重新启用（恢复新台账使用与自动生成）。
           在「周月/季维护台账」列表点击<a
             onClick={() => history.push('/el/week-month-ledgers')}
             style={{margin: '0 4px'}}>生成本期应填台账</a>可按模板配置

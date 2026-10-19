@@ -126,7 +126,7 @@ class SpaceFidelityContractTests(ExcelLedgerContractBase):
         response = self.owner_client.post(
             LEDGER_URL + '/',
             json.dumps({'version_id': version['id'],
-                        'executed_date': '2026-10-01'}),
+                        }),
             content_type='application/json')
         self.assertEqual(response.json().get('error', ''), '')
         ledger_id = response.json()['data']['data']['id']
@@ -219,7 +219,7 @@ class PdfSpaceFidelityTests(ExcelLedgerContractBase):
         response = self.owner_client.post(
             LEDGER_URL + '/',
             json.dumps({'version_id': version['id'],
-                        'executed_date': '2026-10-01'}),
+                        }),
             content_type='application/json')
         self.assertEqual(response.json().get('error', ''), '')
         ledger_id = response.json()['data']['data']['id']

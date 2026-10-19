@@ -5,7 +5,10 @@
  */
 /**
  * 设备全生命周期——系统配置状态管理（MobX, legacy decorators）。
- * 只服务「系统详情 → 配置」页签（当前配置 + 配置变更历史），不设独立菜单。
+ * 服务两处入口（共用同一套当前配置/变更数据，同一时刻只挂载一处）：
+ * - 「系统详情 → 配置」只读页签（2026-10-19 起：展示 + 详情 Drawer）；
+ * - 「设备管理 → 系统配置」维护入口的配置/变更区域（写操作所在，
+ *   建档/参数定义/系统候选在 systemConfigMaintain/store.js）。
  * 成功提示等待后端真实成功（http.js 拦截器统一提示 error，业务代码不重复提示）。
  */
 import { observable, action } from 'mobx';
@@ -16,6 +19,8 @@ class SystemConfigStore {
   // ========== 当前配置 ==========
   @observable configItems = [];
   @observable configSystem = {};
+  // 初始建档摘要（GET config 随响应返回；null=未建档）
+  @observable configBaseline = null;
   @observable isConfigFetching = false;
 
   // ========== 配置变更历史 ==========
@@ -49,12 +54,23 @@ class SystemConfigStore {
     this.page = 1;
   };
 
+  // 清空视图数据：页签/维护页卸载时调用，避免其他系统展示被残留数据污染
+  @action clearView = () => {
+    this.configItems = [];
+    this.configSystem = {};
+    this.configBaseline = null;
+    this.changes = [];
+    this.total = 0;
+    this.page = 1;
+  };
+
   fetchConfig = (systemId) => {
     this.isConfigFetching = true;
     return http.get(`${API_PREFIX}/systems/${systemId}/config/`)
       .then(action(res => {
         this.configItems = res.items || [];
         this.configSystem = res.system || {};
+        this.configBaseline = res.baseline || null;
       }))
       .catch(action(() => {}))
       .finally(action(() => {

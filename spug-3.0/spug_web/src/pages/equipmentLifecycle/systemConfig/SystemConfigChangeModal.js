@@ -23,8 +23,8 @@ function makeClientToken() {
   return `cfg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
-// 按参数数据类型渲染"变更后值"输入控件
-function ValueInput({dataType, options, value, onChange, required}) {
+// 按参数数据类型渲染"变更后值"输入控件（初始建档 Modal 复用同一套值输入）
+export function ValueInput({dataType, options, value, onChange, required}) {
   if (dataType === 'number') {
     return <InputNumber style={{width: '100%'}} value={value || null} onChange={onChange}
       placeholder={required ? '必填' : '选填'}/>;

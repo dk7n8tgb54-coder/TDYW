@@ -67,7 +67,6 @@ function makeDetail(status = 'draft', values = {}, editable = status === 'draft'
     id: 33,
     ledger_no: 'EL-WM-20260928-001',
     ledger_type: 'week_month',
-    executed_date: '2026-09-28',
     status,
     created_from: 'excel_template',
     excel: {
@@ -143,8 +142,7 @@ afterEach(() => {
 
 test('列表渲染 Excel 台账与模板版本信息', async () => {
   mockHttpGet.mockResolvedValue({data: {
-    data: [{id: 33, ledger_no: 'EL-WM-20260928-001', ledger_type: 'week_month',
-            executed_date: '2026-09-28', status: 'draft',
+    data: [{id: 33, ledger_no: 'EL-WM-20260928-001', ledger_type: 'week_month', status: 'draft',
             excel: {version_no: 1, template_name: '信道Excel维护台账'}}],
     total: 1, page: 1, page_size: 20,
   }});
@@ -175,13 +173,13 @@ test('创建台账：加载可用版本并提交正确载荷', async () => {
     expect.objectContaining({params: {}}));
   await act(async () => {
     await store.createLedger({
-      version_id: 5, executed_date: '2026-09-28',
+      version_id: 5,
       ledger_type: 'week_month',
       client_token: 'excel-5-20260928',
     });
   });
   expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-ledgers/', {
-    version_id: 5, executed_date: '2026-09-28',
+    version_id: 5,
     ledger_type: 'week_month', client_token: 'excel-5-20260928',
   });
 });

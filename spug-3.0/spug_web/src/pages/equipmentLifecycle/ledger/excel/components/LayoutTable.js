@@ -22,6 +22,14 @@
  * 表格外层容器加 proto-drag-selecting 类并内联 user-select:none，阻止
  * 浏览器把表格文字选中；仅模板编辑模式启用，填写/历史视图与松开后的
  * 正常复制不受影响。
+ *
+ * 填写工作区扩展（2026-10-19）：
+ * - scale：网页显示缩放（乘在列宽/行高/填写区像素上，等比缩放不改变
+ *   单元格相对尺寸与合并关系；缺省 1 = 既有原始尺寸，模板工作台不受影响）；
+ * - locate：{coordinate, nonce} 变化时把目标单元格滚动到可视区域并短暂
+ *   高亮，可编辑（fillMode 且非 readOnly）时聚焦格内输入控件；合并格
+ *   传锚点坐标（绑定只允许锚点，锚点即实际填写区域）；
+ * - tableRef：父级测量表格自然宽度（显示模式计算）用的转发挂点。
  */
 import React from 'react';
 import {Input, Select} from 'antd';
@@ -34,6 +42,9 @@ import {
 // 坐标解析纯函数下沉到 ../utils（2026-10-14，供几何计算共用）；
 // 这里原样再导出，保持既有导入路径（excelTemplateStore 等）不变。
 export {colLetter, parseCoord, coordName};
+
+/** 定位高亮时长（ms）：与 proto-cell-locate 动画时长一致。 */
+const LOCATE_FLASH_MS = 1800;
 
 /** 解析合并区域：anchors[锚点] = {rowSpan, colSpan}；covered[覆盖格] = 锚点 */
 export function buildMergeInfo(ranges) {
@@ -172,9 +183,71 @@ function CellInput({binding, value, onValueChange, tallFill, fillHeightPx}) {
 }
 
 export default class LayoutTable extends React.Component {
+  wrapRef = React.createRef();
+  locateTimer = null;
+
+  componentDidMount() {
+    this._locateTargetCell();
+  }
+
+  componentDidUpdate(prevProps) {
+    const prev = prevProps.locate;
+    const next = this.props.locate;
+    if (next && next.coordinate && (!prev || prev.nonce !== next.nonce)) {
+      this._locateTargetCell();
+    }
+  }
+
+  componentWillUnmount() {
+    if (this.locateTimer) clearTimeout(this.locateTimer);
+  }
+
+  /** 定位目标格：滚动进入可视区域 + 短暂高亮 + 可编辑时聚焦输入控件。
+   * 缩放按真实布局尺寸生效（非 transform），滚动与聚焦坐标天然准确；
+   * 合并格只可能是锚点（绑定校验保证），即实际填写区域。 */
+  _locateTargetCell() {
+    const locate = this.props.locate;
+    const wrap = this.wrapRef.current;
+    if (!locate || !locate.coordinate || !wrap) return;
+    const td = wrap.querySelector(`td[data-coord="${locate.coordinate}"]`);
+    if (!td) return;
+    if (typeof td.scrollIntoView === 'function') {
+      try {
+        td.scrollIntoView({block: 'center', inline: 'center'});
+      } catch (e) {
+        td.scrollIntoView();
+      }
+    }
+    // 重复定位同一格也要重新闪一次：先移除再强制重排重启动画
+    td.classList.remove('proto-cell-locate');
+    void td.offsetWidth;
+    td.classList.add('proto-cell-locate');
+    if (this.locateTimer) clearTimeout(this.locateTimer);
+    this.locateTimer = setTimeout(() => {
+      td.classList.remove('proto-cell-locate');
+    }, LOCATE_FLASH_MS);
+    if (this.props.fillMode && !this.props.readOnly) {
+      const input = td.querySelector('input, textarea');
+      if (input && typeof input.focus === 'function') {
+        try {
+          input.focus({preventScroll: true});
+        } catch (e) {
+          input.focus();
+        }
+      }
+    }
+  }
+
+  /** 网页显示缩放（缺省 1；乘在布局像素上，等比不改变相对尺寸）。 */
+  _displayScale() {
+    const scale = Number(this.props.scale);
+    return Number.isFinite(scale) && scale > 0 ? scale : 1;
+  }
+
   render() {
     const {sheet} = this.props;
     if (!sheet) return null;
+    const scale = this._displayScale();
     const {anchors, covered} = buildMergeInfo(sheet.merged_ranges);
     const hiddenColumns = sheet.hidden_columns || [];
     const hiddenRows = sheet.hidden_rows || [];
@@ -190,14 +263,15 @@ export default class LayoutTable extends React.Component {
       const width = (sheet.column_widths || {})[letter];
       columns.push(
         <col key={letter}
-             style={{width: colHidden[letter] ? 0 : Math.round((width || 8.43) * 7 + 5)}}/>);
+             style={{width: colHidden[letter]
+               ? 0 : Math.round((width || 8.43) * 7 + 5) * scale}}/>);
     }
     const rows = [];
     for (let row = 1; row <= sheet.max_row; row++) {
       const height = (sheet.row_heights || {})[String(row)];
       const rowHidden = hiddenRows.indexOf(String(row)) !== -1;
       rows.push(this._renderRow(row, rowHidden ? 0 : height, anchors, covered,
-        rowHidden, colHidden));
+        rowHidden, colHidden, scale));
     }
     // 拖拽矩形选区进行中：阻止浏览器把表格文字选中（内联样式 +
     // proto-drag-selecting 类，仅模板编辑模式由父级传入）
@@ -208,10 +282,12 @@ export default class LayoutTable extends React.Component {
       wrapStyle.WebkitUserSelect = 'none';
     }
     return (
-      <div className={preventTextSelect
-        ? 'proto-table-wrap proto-drag-selecting' : 'proto-table-wrap'}
+      <div ref={this.wrapRef}
+           className={preventTextSelect
+             ? 'proto-table-wrap proto-drag-selecting' : 'proto-table-wrap'}
            style={wrapStyle}>
-        <table className="proto-table" style={{borderCollapse: 'collapse', tableLayout: 'fixed'}}>
+        <table ref={this.props.tableRef}
+               className="proto-table" style={{borderCollapse: 'collapse', tableLayout: 'fixed'}}>
           <colgroup>{columns}</colgroup>
           <tbody>{rows}</tbody>
         </table>
@@ -219,23 +295,23 @@ export default class LayoutTable extends React.Component {
     );
   }
 
-  _renderRow(row, height, anchors, covered, rowHidden, colHidden) {
+  _renderRow(row, height, anchors, covered, rowHidden, colHidden, scale) {
     const cells = [];
     for (let col = 1; col <= this.props.sheet.max_column; col++) {
       const coordinate = coordName(row, col);
       if (covered[coordinate]) continue;
       cells.push(this._renderCell(row, col, coordinate, anchors,
-        rowHidden || colHidden[colLetter(col)]));
+        rowHidden || colHidden[colLetter(col)], scale));
     }
     return (
-      <tr key={row} style={{height: Math.round((height || 14.25) * 4 / 3),
+      <tr key={row} style={{height: Math.round((height || 14.25) * 4 / 3) * scale,
         lineHeight: rowHidden ? 0 : undefined}}>
         {cells}
       </tr>
     );
   }
 
-  _renderCell(row, col, coordinate, anchors, collapsed) {
+  _renderCell(row, col, coordinate, anchors, collapsed, scale) {
     const {sheet, bindingByCell, fillMode, selectedCell, selectedCells, values, readOnly} = this.props;
     const cell = (sheet.cells || {})[coordinate];
     const text = cell && cell.v !== null && cell.v !== undefined ? String(cell.v) : '';
@@ -288,7 +364,8 @@ export default class LayoutTable extends React.Component {
     const tallFill = !!(fillMode && binding && !readOnly
       && binding.input_type === 'text'
       && effectiveFillHeightPt(sheet, coordinate) >= TALL_FILL_THRESHOLD_PT);
-    const fillHeightPx = tallFill ? effectiveFillHeightPx(sheet, coordinate) : 0;
+    // 文本域按缩放后的填写区高度绝对定位（保持填满单元格）
+    const fillHeightPx = tallFill ? effectiveFillHeightPx(sheet, coordinate) * scale : 0;
     return (
       <td key={coordinate}
           className={classNames.join(' ')}

@@ -34,7 +34,6 @@ export class NativeLedgerStore {
   @observable detail = null;      // 台账详情（含 native：version/values/editable）
   @observable values = {};        // 绑定 key -> 填写值（编辑副本，来自编辑器推送）
   @observable savedValues = {};   // 最近一次保存成功的服务端值（脏值比对基线）
-  @observable dateDraft;          // 实际执行日期草稿：undefined=未动 | 'YYYY-MM-DD' | ''
   @observable loading = false;
   @observable saving = false;
   @observable submitting = false;
@@ -71,7 +70,6 @@ export class NativeLedgerStore {
     this.detail = payload;
     this.values = {...(payload && payload.native ? payload.native.values : {})};
     this.savedValues = {...this.values};
-    this.dateDraft = undefined;
     this.correcting = false;
     this.correctReason = '';
     this.editorValues = {};
@@ -111,47 +109,32 @@ export class NativeLedgerStore {
     }
   }
 
-  @action setDateDraft(value) {
-    this.dateDraft = value;
-  }
-
   @computed get valuesDirty() {
     return JSON.stringify(_comparableValues(this.savedValues))
       !== JSON.stringify(_comparableValues(this.values));
   }
 
-  @computed get dateDirty() {
-    if (!this.detail || this.dateDraft === undefined) return false;
-    const saved = this.detail.executed_date
-      ? String(this.detail.executed_date).slice(0, 10) : '';
-    return this.dateDraft !== saved;
-  }
-
-  /** 未保存修改（草稿或更正模式）：填写值与实际执行日期草稿任一未保存。 */
+  /** 未保存修改（草稿或更正模式）：填写值有未保存修改。 */
   @computed get hasUnsaved() {
     if (!this.detail || (!this.editable && !this.correcting)) return false;
-    return this.valuesDirty || this.dateDirty;
+    return this.valuesDirty;
   }
 
   _saveSuccessText() {
-    if (this.valuesDirty && this.dateDirty) return '填写值与执行日期已保存';
-    if (this.dateDirty) return '执行日期已保存';
     return '填写值已保存';
   }
 
   /**
-   * 把未保存修改（填写值 + 未保存执行日期）一次 PUT 保存成功；无未保存
-   * 修改时不发请求。editorState 为编辑器 collect 的最新值（保存前兜底）；
+   * 把未保存修改（填写值）一次 PUT 保存成功；无未保存修改时不发请求。
+   * editorState 为编辑器 collect 的最新值（保存前兜底）；
    * collect 失败时退回最近一次推送值（editorValues，可能有 <250ms 延迟）。
    */
   async _savePendingChanges(editorState) {
     if (editorState && typeof editorState.values === 'object') {
       this.values = {...this.values, ...editorState.values};
     }
-    if (!this.valuesDirty && !this.dateDirty) return this.detail;
-    const body = {};
-    if (this.valuesDirty) body.values = this.values;
-    if (this.dateDirty) body.header = {executed_date: this.dateDraft};
+    if (!this.valuesDirty) return this.detail;
+    const body = {values: this.values};
     const res = await http.put(`${API}/${this.detail.id}/`, body);
     this.applyDetail(res);
     return this.detail;
@@ -220,13 +203,12 @@ export class NativeLedgerStore {
   /** 取消更正：恢复为服务端已保存值，退出更正模式。 */
   @action cancelCorrection() {
     this.values = {...this.savedValues};
-    this.dateDraft = undefined;
     this.correcting = false;
     this.correctReason = '';
   }
 
   /**
-   * 提交更正：整体提交当前填写值与执行日期 + 原因，后端记录修改人/时间/
+   * 提交更正：整体提交当前填写值 + 原因，后端记录修改人/时间/
    * 前后值并生成更正记录；成功后以服务端详情为准（更正模式自动退出）。
    */
   async submitCorrection(collect) {
@@ -239,10 +221,6 @@ export class NativeLedgerStore {
         currentValues = {...currentValues, ...(editorState.values || {})};
       }
       const body = {reason: this.correctReason, values: currentValues};
-      const savedDate = this.detail.executed_date
-        ? String(this.detail.executed_date).slice(0, 10) : '';
-      const rawDate = this.dateDraft !== undefined ? this.dateDraft : savedDate;
-      body.header = {executed_date: rawDate};
       const res = await http.post(`${API}/${this.detail.id}/correct/`, body);
       this.applyDetail(res);
       message.success('更正已保存');

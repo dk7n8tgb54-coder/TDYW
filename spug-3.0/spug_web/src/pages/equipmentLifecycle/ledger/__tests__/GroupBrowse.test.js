@@ -76,7 +76,6 @@ function makeEntry(id, overrides = {}) {
     id,
     ledger_no: `EL-WM-2026-1${id}`,
     status: 'draft',
-    executed_date: null,
     maintenance_period: '2026-10-05',
     period_key: '2026-10-05',
     period_label: '每周｜2026-10-05 ~ 2026-10-11',
@@ -91,7 +90,6 @@ function makeDetail(entry) {
     id: entry.id,
     ledger_no: entry.ledger_no,
     ledger_type: 'week_month',
-    executed_date: entry.executed_date,
     status: entry.status,
     maintenance_period: entry.maintenance_period,
     created_from: 'excel_template',
@@ -258,7 +256,7 @@ describe('LedgerGroupBrowse 翻阅上下文与导航', () => {
       }),
       makeEntry(204, {
         maintenance_period: '', period_key: '',
-        period_label: '未标注期次', executed_date: '2026-08-05',
+        period_label: '未标注期次',
       }),
     ];
     await renderBrowse(entries);

@@ -147,6 +147,17 @@ async function openRowMenu(index = 0) {
   return document.body.querySelector('.ant-dropdown:not(.ant-dropdown-hidden)');
 }
 
+/** 切换在用/已停用视图（Radio.Button 须点击内部 input 才触发 onChange）。 */
+async function switchView(view) {
+  const input = Array.from(
+    container.querySelectorAll('[data-testid="tpl-view-switch"] input'))
+    .find(node => node.value === view);
+  await act(async () => {
+    input.click();
+  });
+  await flush();
+}
+
 test('列表渲染模板行与版本信息', async () => {
   mockHttpGet.mockResolvedValue({data: [makeDetail().id && {
     id: 11, name: '信道Excel维护台账', ledger_type: 'week_month',
@@ -197,16 +208,22 @@ test('无 add 权限时列表不显示「新建模板」', async () => {
   expect(container.querySelector('[data-testid="tpl-create"]')).toBeNull();
 });
 
-test('行操作按状态显示：编辑草稿/上传源文件/查看模板', async () => {
+test('行操作按状态显示：编辑草稿/上传源文件（在用）与查看模板（已停用视图）', async () => {
   mockHttpGet.mockResolvedValue({data: [
     listRow(),
     listRow({id: 12, name: '无草稿模板', draft_source_filename: ''}),
     listRow({id: 13, name: '已停用模板', is_active: false}),
   ]});
   await renderPage();
+  // 默认在用视图只显示启用模板
   const openButtons = container.querySelectorAll('[data-testid="tpl-open"]');
   expect(Array.from(openButtons).map(b => b.textContent.replace(/\s/g, '')))
-    .toEqual(['编辑草稿', '上传源文件', '查看模板']);
+    .toEqual(['编辑草稿', '上传源文件']);
+  // 切换已停用视图后停用模板显示为「查看模板」
+  await switchView('disabled');
+  const disabledButtons = container.querySelectorAll('[data-testid="tpl-open"]');
+  expect(Array.from(disabledButtons).map(b => b.textContent.replace(/\s/g, '')))
+    .toEqual(['查看模板']);
 });
 
 test('行「更多」菜单：版本记录按行取数打开抽屉，不改动当前模板详情', async () => {
@@ -252,7 +269,7 @@ test('停用模板：确认框保留引用台账数提示，取消不发请求',
   expect(mockHttpDelete).not.toHaveBeenCalled();
 });
 
-test('确认停用：调用停用端点，提示已停用并重取列表', async () => {
+test('确认停用：调用停用端点，提示已停用并重取列表，模板立即移出在用视图', async () => {
   mockHttpGet.mockResolvedValue({data: [listRow()]});
   await renderPage();
   const dropdown = await openRowMenu();
@@ -261,7 +278,8 @@ test('确认停用：调用停用端点，提示已停用并重取列表', async
   });
   await flush();
   mockHttpPost.mockResolvedValue({data: {}});
-  mockHttpGet.mockResolvedValue({data: []});
+  // 停用成功后重取列表：该模板已呈停用状态
+  mockHttpGet.mockResolvedValue({data: [listRow({is_active: false})]});
   await act(async () => {
     popconfirmButton('停用').click();
   });
@@ -271,6 +289,13 @@ test('确认停用：调用停用端点，提示已停用并重取列表', async
   // 成功后重新拉取模板列表（不做乐观停用）
   expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/');
   expect(store.deletingId).toBe('');
+  // 停用后模板立即从在用视图移出，视图数量准确
+  expect(container.textContent).not.toContain('信道Excel维护台账');
+  expect(container.textContent).toContain('在用（0）');
+  expect(container.textContent).toContain('已停用（1）');
+  // 切到已停用视图可见该模板
+  await switchView('disabled');
+  expect(container.textContent).toContain('信道Excel维护台账');
 });
 
 test('停用失败：不显示成功提示，状态复位', async () => {
@@ -340,11 +365,160 @@ test('无 del 权限：行更多菜单无停用项，列表无新建入口', asy
   expect(dropdown.querySelector('[data-testid="tpl-stop"]')).toBeNull();
 });
 
-test('已停用行：更多菜单只有版本记录，无停用项', async () => {
+test('已停用行（已停用视图）：菜单有版本记录与重新启用，无停用项', async () => {
   mockHttpGet.mockResolvedValue({data: [listRow({is_active: false})]});
   await renderPage();
+  await switchView('disabled');
   const dropdown = await openRowMenu();
   expect(dropdown.querySelector('[data-testid="tpl-stop"]')).toBeNull();
+  expect(dropdown.querySelector('[data-testid="tpl-activate"]')).toBeTruthy();
+});
+
+test('已停用视图重新启用：确认后调用 activate 端点，提示并重取列表', async () => {
+  mockHttpGet.mockResolvedValue({data: [listRow({is_active: false})]});
+  await renderPage();
+  // 默认在用视图不显示停用模板，数量准确
+  expect(container.textContent).not.toContain('信道Excel维护台账');
+  expect(container.textContent).toContain('在用（0）');
+  expect(container.textContent).toContain('已停用（1）');
+  await switchView('disabled');
+  expect(container.textContent).toContain('信道Excel维护台账');
+  const dropdown = await openRowMenu();
+  await act(async () => {
+    dropdown.querySelector('[data-testid="tpl-activate"]').click();
+  });
+  await flush();
+  const modal = document.body.querySelector('.ant-modal-confirm');
+  expect(modal.textContent).toContain('重新启用模板');
+  expect(modal.textContent).toContain('恢复用于新台账');
+  mockHttpPost.mockResolvedValue({data: {}});
+  // 启用成功后重取列表：模板回到在用视图
+  mockHttpGet.mockResolvedValue({data: [listRow()]});
+  await act(async () => {
+    popconfirmButton('重新启用').click();
+  });
+  await flush();
+  expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/11/activate/');
+  expect(message.success).toHaveBeenCalledWith('模板已重新启用');
+  expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/');
+  expect(store.deletingId).toBe('');
+  expect(store.disabledCount).toBe(0);
+});
+
+test('重新启用失败：不显示成功提示，状态复位', async () => {
+  mockHttpGet.mockResolvedValue({data: [listRow({is_active: false})]});
+  await renderPage();
+  await switchView('disabled');
+  const dropdown = await openRowMenu();
+  await act(async () => {
+    dropdown.querySelector('[data-testid="tpl-activate"]').click();
+  });
+  await flush();
+  mockHttpPost.mockRejectedValue('模板不存在或无权限访问');
+  await act(async () => {
+    popconfirmButton('重新启用').click();
+  });
+  await flush();
+  expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-templates/11/activate/');
+  expect(message.success).not.toHaveBeenCalledWith('模板已重新启用');
+  expect(store.deletingId).toBe('');
+});
+
+test('无 del 权限：已停用行菜单无重新启用项', async () => {
+  require('libs').hasPermission.mockReturnValue(false);
+  mockHttpGet.mockResolvedValue({data: [listRow({is_active: false})]});
+  await renderPage();
+  await switchView('disabled');
+  const dropdown = await openRowMenu();
+  expect(dropdown.textContent).toContain('版本记录');
+  expect(dropdown.querySelector('[data-testid="tpl-activate"]')).toBeNull();
+});
+
+test('视图内搜索：关键词过滤行，清空后恢复', async () => {
+  mockHttpGet.mockResolvedValue({data: [
+    listRow({id: 11, name: '信道Excel维护台账'}),
+    listRow({id: 12, name: 'ILS月维护模板'}),
+  ]});
+  await renderPage();
+  expect(container.textContent).toContain('信道Excel维护台账');
+  expect(container.textContent).toContain('ILS月维护模板');
+  // antd Input 会把 data-testid 铺到内层 input（或其包装节点），两形态兼容
+  const searchBox = container.querySelector('[data-testid="tpl-search"]');
+  const input = searchBox.tagName === 'INPUT' ? searchBox : searchBox.querySelector('input');
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype, 'value').set;
+  await act(async () => {
+    setter.call(input, 'ILS');
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+  await flush();
+  expect(container.textContent).toContain('ILS月维护模板');
+  expect(container.textContent).not.toContain('信道Excel维护台账');
+  // 清空关键词恢复全量
+  await act(async () => {
+    setter.call(input, '');
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+  await flush();
+  expect(container.textContent).toContain('信道Excel维护台账');
+});
+
+test('视图内分页：默认每页 10 条，翻页显示剩余行', async () => {
+  const rows = [];
+  for (let i = 1; i <= 12; i++) {
+    rows.push(listRow({id: i, name: `批量模板${String(i).padStart(2, '0')}`}));
+  }
+  mockHttpGet.mockResolvedValue({data: rows});
+  await renderPage();
+  expect(container.textContent).toContain('共 12 条');
+  let moreButtons = container.querySelectorAll('[data-testid="tpl-more"]');
+  expect(moreButtons).toHaveLength(10);
+  expect(container.textContent).not.toContain('批量模板12');
+  await act(async () => {
+    container.querySelector('li.ant-pagination-item-2').click();
+  });
+  await flush();
+  moreButtons = container.querySelectorAll('[data-testid="tpl-more"]');
+  expect(moreButtons).toHaveLength(2);
+  expect(container.textContent).toContain('批量模板12');
+});
+
+test('store 双视图：拆分数量、关键词与类型过滤、切换分页复位', async () => {
+  const rows = [];
+  for (let i = 1; i <= 12; i++) {
+    rows.push(listRow({id: i, name: `在用模板${String(i).padStart(2, '0')}`,
+                       ledger_type: 'week_month'}));
+  }
+  rows.push(listRow({id: 100, name: '停用模板A', is_active: false,
+                     ledger_type: 'week_month'}));
+  rows.push(listRow({id: 101, name: '停用季模板B', is_active: false,
+                     ledger_type: 'seasonal'}));
+  mockHttpGet.mockResolvedValue({data: rows});
+  await act(async () => {
+    await store.fetchList();
+  });
+  // 视图数量只按启用状态统计，不受过滤影响
+  expect(store.activeCount).toBe(12);
+  expect(store.disabledCount).toBe(2);
+  expect(store.activeTemplates).toHaveLength(12);
+  expect(store.disabledTemplates.map(t => t.id)).toEqual([100, 101]);
+  // 切换视图分页复位
+  store.setListFilter('listPage', 2);
+  store.setListView('disabled');
+  expect(store.listPage).toBe(1);
+  // 维护类型过滤（已停用视图内只看季维护）
+  store.setListFilter('listType', 'seasonal');
+  expect(store.disabledTemplates.map(t => t.id)).toEqual([101]);
+  expect(store.disabledCount).toBe(2);
+  // 关键词过滤（名称，大小写不敏感）
+  store.setListFilter('listType', '');
+  store.setListFilter('listKeyword', '模板a');
+  expect(store.disabledTemplates.map(t => t.id)).toEqual([100]);
+  // 清空关键词并切回在用视图，行与分页复位
+  store.setListFilter('listKeyword', '');
+  store.setListView('active');
+  expect(store.activeTemplates).toHaveLength(12);
+  expect(store.listPage).toBe(1);
 });
 
 test('上传守卫：未填名称/类型不发请求，填齐后走上传', async () => {

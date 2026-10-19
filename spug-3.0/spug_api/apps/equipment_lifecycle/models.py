@@ -229,10 +229,11 @@ class OperationLedger(TenantModelMixin, models.Model):
     - 系统不是整张台账的边界，而是每条明细（OperationLedgerItem）的归属；
       例外：周期生成/批量新增的台账为"一系统一台账"（表头 system 标记），
       明细由用户后续补录（手工壳）或以 Excel 填写值承载（source_template 路线）；
-    - 实际执行时间（executed_date/executed_start/executed_end）与平台录入
-      时间（created_at）分别保存，录入时间不冒充实际执行时间；周期生成的
-      应填台账 executed_date 为空，由填写人执行后录入（计划填写期次见
-      maintenance_period，两者是不同概念）；
+    - 实际执行起止时间（executed_start/executed_end）与平台录入时间
+      （created_at）分别保存，录入时间不冒充实际执行时间；执行日期由台账
+      表格内容（模板填写值）承载，不再单列表头字段（2026-10-19 删除
+      executed_date；历史台账的期次归属已在同迁移中按原推导口径回填
+      maintenance_period，计划填写期次见 maintenance_period）；
     - 周期生成（2026-10-14）：source_template 固定模板身份，创建即引用
       发布版本快照（excel_record.version），发布新版本不回溯历史台账；
       (tenant, source_template, system, maintenance_period) 唯一去重；
@@ -243,9 +244,6 @@ class OperationLedger(TenantModelMixin, models.Model):
 
     ledger_no = models.CharField(max_length=50, help_text='台账编号，租户内唯一，自动生成')
     ledger_type = models.CharField(max_length=20, help_text='台账类型')
-    # 周期生成的应填台账在填写人录入执行情况前为空（创建时间不冒充实际执行日期；
-    # 手工补录/单条新增仍必填），填写入口见 excel_ledger_services.update_header
-    executed_date = models.DateField(null=True, blank=True, help_text='实际执行日期（周期生成草稿为空，填写人执行后录入）')
     status = models.CharField(max_length=20, default=LEDGER_STATUS_DRAFT, help_text='台账状态')
     executed_start = models.DateTimeField(null=True, blank=True, help_text='实际执行开始时间')
     executed_end = models.DateTimeField(null=True, blank=True, help_text='实际执行结束时间')
@@ -340,7 +338,6 @@ class OperationLedger(TenantModelMixin, models.Model):
         ]
         indexes = [
             models.Index(fields=['tenant_id', 'ledger_type', 'status']),
-            models.Index(fields=['tenant_id', 'executed_date']),
             models.Index(fields=['tenant_id', 'client_token']),
             models.Index(fields=['tenant_id', 'ledger_type', 'maintenance_period'],
                          name='el_ledger_type_period_idx'),
@@ -357,7 +354,6 @@ class OperationLedger(TenantModelMixin, models.Model):
             'id': self.id,
             'ledger_no': self.ledger_no,
             'ledger_type': self.ledger_type,
-            'executed_date': self.executed_date,
             'status': self.status,
             'executed_start': self.executed_start,
             'executed_end': self.executed_end,

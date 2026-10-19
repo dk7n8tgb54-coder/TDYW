@@ -32,8 +32,11 @@ export const PERM = {
   OP_CANCEL: 'equipment_lifecycle.operation_record.cancel',
   OP_DEL: 'equipment_lifecycle.operation_record.del',
   OP_EXPORT: 'equipment_lifecycle.operation_record.export',
-  // 系统配置（2026-10）：只在系统详情"配置"页签内使用，不设独立菜单
+  // 系统配置（2026-10；2026-10-19 起写操作集中在「设备管理 → 系统配置」
+  // 独立维护入口，「系统详情 → 配置」页签只读展示并可跳转维护入口）
   CONFIG_VIEW: 'equipment_lifecycle.config.view',
+  // 建立初始配置（基线建档，独立权限码：建档身份明确，不伪装成普通变更）
+  CONFIG_BASELINE: 'equipment_lifecycle.config.baseline',
   CONFIG_ADD: 'equipment_lifecycle.config.add',
   CONFIG_EDIT: 'equipment_lifecycle.config.edit',
   CONFIG_APPLY: 'equipment_lifecycle.config.apply',
@@ -199,6 +202,22 @@ export const PARAM_TYPE_OPTIONS = [
 ];
 
 export const PARAM_TYPE_TEXT = PARAM_TYPE_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
+// 参数分类（2026-10-19，与后端 config_models.PARAM_CATEGORY_* 一致）：
+// hardware_spec 硬件规格=整套系统的静态规格（额定功率/容量等，不得登记
+// 单台设备规格）；runtime_param 运行参数=可调整设定值（设定功率/工作模式）。
+export const PARAM_CATEGORY_HARDWARE = 'hardware_spec';
+export const PARAM_CATEGORY_RUNTIME = 'runtime_param';
+
+export const PARAM_CATEGORY_OPTIONS = [
+  {value: PARAM_CATEGORY_HARDWARE, label: '硬件规格'},
+  {value: PARAM_CATEGORY_RUNTIME, label: '运行参数'},
+];
+
+export const PARAM_CATEGORY_TEXT = PARAM_CATEGORY_OPTIONS.reduce((acc, item) => {
   acc[item.value] = item.label;
   return acc;
 }, {});

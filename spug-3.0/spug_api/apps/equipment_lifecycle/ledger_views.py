@@ -184,12 +184,6 @@ class LedgerView(View):
         keyword = request.GET.get('keyword')
         if keyword:
             query = query.filter(ledger_no__icontains=keyword)
-        executed_from = request.GET.get('executed_from')
-        if executed_from:
-            query = query.filter(executed_date__gte=executed_from)
-        executed_to = request.GET.get('executed_to')
-        if executed_to:
-            query = query.filter(executed_date__lte=executed_to)
         query = query.select_related('system', 'excel_record__version',
                                      'native_record__version')
         page, page_size = paginate(request)
@@ -344,7 +338,7 @@ class LedgerTemplateGroupsView(View):
     """按模板身份分组的台账统计（"按模板查看"视图，2026-10-11）。
 
     - 组 = Excel 模板组（模板主键为组键）+ 无模板/临时补录组（manual）；
-    - 统计（总数/各状态/最近执行日期）在数据库端按组聚合，不受组内分页影响；
+    - 统计（总数/各状态/最近录入时间）在数据库端按组聚合，不受组内分页影响；
     - 仅返回有历史台账的组；支持与组内列表同口径的筛选参数。
     """
 
@@ -356,8 +350,6 @@ class LedgerTemplateGroupsView(View):
                 request.user, request.GET.get('ledger_type'),
                 status=request.GET.get('status') or '',
                 keyword=request.GET.get('keyword') or '',
-                executed_from=request.GET.get('executed_from') or '',
-                executed_to=request.GET.get('executed_to') or '',
                 page=page, page_size=page_size)
         except LedgerValidationError as e:
             return json_response(error=str(e))
@@ -379,8 +371,6 @@ class LedgerTemplateGroupLedgersView(View):
                 request.user, group_key, request.GET.get('ledger_type'),
                 status=request.GET.get('status') or '',
                 keyword=request.GET.get('keyword') or '',
-                executed_from=request.GET.get('executed_from') or '',
-                executed_to=request.GET.get('executed_to') or '',
                 page=page, page_size=page_size,
                 row_serializer=_ledger_row_fields)
         except LedgerValidationError as e:
@@ -394,8 +384,8 @@ class LedgerTemplateGroupBrowseView(View):
     - 筛选口径与组内列表一致（默认不含已作废，status=void/all 显式放宽）；
     - 一次性返回全部条目（ID+期次/状态/版本元数据），前端"上一张/下一张/
       期次跳转"在该清单内移动，可跨组内列表分页边界逐张查看；
-    - 排序以计划维护期次为主（起始日期升序），无期次标记的历史台账回退
-      按执行日期、ID 兜底稳定；同一期次补建并存的多张台账全部保留；
+    - 排序以计划维护期次为主（起始日期升序），无期次标记的台账排最后、
+      ID 兜底稳定；同一期次补建并存的多张台账全部保留；
     - 每张台账版式回放仍走既有 Excel 详情端点（创建时版本快照）。
     """
 
@@ -405,9 +395,7 @@ class LedgerTemplateGroupBrowseView(View):
             data = ledger_template_group_services.browse_group_ledgers(
                 request.user, group_key, request.GET.get('ledger_type'),
                 status=request.GET.get('status') or '',
-                keyword=request.GET.get('keyword') or '',
-                executed_from=request.GET.get('executed_from') or '',
-                executed_to=request.GET.get('executed_to') or '')
+                keyword=request.GET.get('keyword') or '')
         except LedgerValidationError as e:
             return json_response(error=str(e))
         return json_response(data)
@@ -534,13 +522,7 @@ class LedgerAbnormalItemsView(View):
         system_id = request.GET.get('system')
         if system_id and str(system_id).isdigit():
             query = query.filter(system_id=system_id)
-        date_from = request.GET.get('date_from')
-        if date_from:
-            query = query.filter(ledger__executed_date__gte=date_from)
-        date_to = request.GET.get('date_to')
-        if date_to:
-            query = query.filter(ledger__executed_date__lte=date_to)
-        query = query.select_related('ledger', 'system').order_by('-ledger__executed_date', '-id')
+        query = query.select_related('ledger', 'system').order_by('-ledger__created_at', '-id')
         page, page_size = paginate(request)
         total = query.count()
         records = query[(page - 1) * page_size: page * page_size] if total else []
@@ -549,7 +531,6 @@ class LedgerAbnormalItemsView(View):
             view = item.to_view()
             view['ledger_no'] = item.ledger.ledger_no
             view['ledger_type'] = item.ledger.ledger_type
-            view['ledger_executed_date'] = item.ledger.executed_date
             view['ledger_status'] = item.ledger.status
             data.append(view)
         # 异常明细处置状态：由来源故障关系动态计算
@@ -577,14 +558,6 @@ def _apply_ledger_item_filters(query, params):
     if system_id and str(system_id).isdigit():
         query = query.filter(system_id=system_id)
         applied['system'] = system_id
-    date_from = params.get('executed_from')
-    if date_from:
-        query = query.filter(ledger__executed_date__gte=date_from)
-        applied['executed_from'] = date_from
-    date_to = params.get('executed_to')
-    if date_to:
-        query = query.filter(ledger__executed_date__lte=date_to)
-        applied['executed_to'] = date_to
     keyword = params.get('keyword')
     if keyword:
         query = query.filter(ledger__ledger_no__icontains=keyword)
@@ -622,11 +595,11 @@ class LedgerExportView(View):
             OperationLedgerItem.objects.filter(
                 tenant_id=request.user.tenant_id, ledger__isnull=False),
             request.GET)
-        rows = query.select_related('ledger', 'system').order_by('-ledger__executed_date', '-id')
+        rows = query.select_related('ledger', 'system').order_by('-ledger__created_at', '-id')
         buffer = io.StringIO()
         writer = csv.writer(buffer)
         writer.writerow([
-            '台账编号', '台账类型', '实际执行日期', '状态', '系统编号', '系统名称',
+            '台账编号', '台账类型', '状态', '系统编号', '系统名称',
             '项目名称', '录入类型', '填写值', '单位',
             '结果', '异常说明', '不适用原因', '现场处理内容',
             '明细执行时间', '录入渠道', '录入时间'])
@@ -636,7 +609,6 @@ class LedgerExportView(View):
             value = _format_ledger_item_value(item)
             writer.writerow([
                 ledger.ledger_no, LEDGER_TYPE_TEXT.get(ledger.ledger_type, ledger.ledger_type),
-                ledger.executed_date,
                 ledger.status, item.system_code_snapshot, item.system_name_snapshot,
                 item.item_name_snapshot,
                 item.input_type, value, item.unit_snapshot,

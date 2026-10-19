@@ -74,8 +74,10 @@ urlpatterns = [
     path('excel-templates/sample/', excel_template_views.ExcelTemplateSampleView.as_view()),
     path('excel-templates/', excel_template_views.ExcelTemplateView.as_view()),
     path('excel-templates/<int:pk>/', excel_template_views.ExcelTemplateDetailView.as_view()),
-    # 停用（逻辑停用，幂等）；DELETE <pk>/ 为物理删除（后端复查引用）
+    # 停用（逻辑停用，幂等）/ 重新启用（停用逆操作，幂等）；
+    # DELETE <pk>/ 为物理删除（后端复查引用）
     path('excel-templates/<int:pk>/deactivate/', excel_template_views.ExcelTemplateDeactivateView.as_view()),
+    path('excel-templates/<int:pk>/activate/', excel_template_views.ExcelTemplateActivateView.as_view()),
     path('excel-templates/<int:pk>/draft-file/', excel_template_views.ExcelTemplateDraftFileView.as_view()),
     path('excel-templates/<int:pk>/bindings/', excel_template_views.ExcelTemplateBindingsView.as_view()),
     path('excel-templates/<int:pk>/generation-config/', excel_template_views.ExcelTemplateGenerationConfigView.as_view()),
@@ -150,10 +152,14 @@ urlpatterns = [
     # 台账异常明细转统一记录（设备故障；视图自原 fault_views 迁入
     # operation_ledger_convert，转换目标改为统一主表，不再创建第二张单）
     path('ledgers/<int:ledger_pk>/items/<int:item_pk>/convert-to-fault/', _na(operation_ledger_convert.LedgerItemConvertToFaultView.as_view())),
-    # ==================== 系统配置（系统详情"配置"页签） ====================
-    # 只在系统详情内展示，不设独立菜单；配置值只经"创建草稿 → 应用生效"流程
-    # 写入；创建/回退持编号锁（non_atomic 装配），应用/验证/取消走请求级事务+行锁。
+    # ==================== 系统配置（设备管理 → 系统配置维护入口） ====================
+    # 2026-10-19 起：写操作集中在「设备管理 → 系统配置」独立维护页；「系统详情 →
+    # 配置」页签只读展示并跳转维护入口。配置值只经"初始建档"或"创建草稿 →
+    # 应用生效"流程写入；创建/回退持编号锁（non_atomic 装配），应用/验证/取消/
+    # 建档走请求级事务+行锁。
+    path('config/system-options/', config_views.ConfigSystemOptionsView.as_view()),
     path('systems/<int:pk>/config/', config_views.SystemConfigView.as_view()),
+    path('systems/<int:pk>/config/baseline/', config_views.SystemConfigBaselineView.as_view()),
     path('systems/<int:pk>/config/param-options/', config_views.SystemConfigParamOptionsView.as_view()),
     path('systems/<int:pk>/config/changes/', config_views.SystemConfigChangeListView.as_view()),
     path('config-changes/', _na(config_views.ConfigChangeView.as_view())),

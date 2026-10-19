@@ -371,7 +371,7 @@ class LegacyBindingCompatTests(ExcelLedgerContractBase):
         # 历史版本创建台账：旧默认值仍按类型校验预填
         response = self.owner_client.post(
             LEDGER_URL + '/', json.dumps({'version_id': version['id'],
-                                          'executed_date': '2026-09-29'}),
+                                          }),
             content_type='application/json')
         detail = response.json()['data']['data']
         ledger_id = detail['id']
@@ -458,8 +458,7 @@ class LedgerLifecycleTests(ExcelLedgerContractBase):
 
     def _create_ledger(self, version_id, client=None, **kwargs):
         client = client or self.owner_client
-        body = {'version_id': version_id, 'executed_date': '2026-09-28',
-                'ledger_type': 'week_month'}
+        body = {'version_id': version_id,                'ledger_type': 'week_month'}
         body.update(kwargs)
         return client.post(LEDGER_URL + '/', json.dumps(body), content_type='application/json')
 
@@ -654,7 +653,7 @@ class PdfPrintAreaSanitizeTests(ExcelLedgerContractBase):
         version = self.publish(template['id'])
         response = self.owner_client.post(
             LEDGER_URL + '/', json.dumps({'version_id': version['id'],
-                                          'executed_date': '2026-09-29'}),
+                                          }),
             content_type='application/json')
         ledger_id = response.json()['data']['data']['id']
         self.owner_client.put(
@@ -694,7 +693,7 @@ class ListIsolationTests(ExcelLedgerContractBase):
         )
         template, version, _ = self.create_published_version()
         response = self.owner_client.post(
-            LEDGER_URL + '/', json.dumps({'version_id': version['id'], 'executed_date': '2026-09-28'}),
+            LEDGER_URL + '/', json.dumps({'version_id': version['id'], }),
             content_type='application/json')
         excel_id = response.json()['data']['data']['id']
         system = self._make_system()
@@ -723,7 +722,7 @@ class TenantIsolationTests(ExcelLedgerContractBase):
         response = self.other_client.get('%s/%s/' % (TPL_URL, template['id']))
         self.assertEqual(response.json()['error'], 'Excel台账模板不存在')
         response = self.other_client.post(
-            LEDGER_URL + '/', json.dumps({'version_id': version['id'], 'executed_date': '2026-09-28'}),
+            LEDGER_URL + '/', json.dumps({'version_id': version['id'], }),
             content_type='application/json')
         self.assertEqual(response.json()['error'], '模板版本不存在或未发布')
         self.assertFalse(OperationLedger.objects.filter(created_from='excel_template').exists())
@@ -738,8 +737,8 @@ class TenantIsolationTests(ExcelLedgerContractBase):
 
 
 class TemplateDeleteTests(ExcelLedgerContractBase):
-    """模板停用（逻辑停用）与删除（物理删除，2026-10-16 拆分）：
-    权限、租户隔离、幂等、引用复查与历史完整性。"""
+    """模板停用（逻辑停用）、重新启用（2026-10-19）与删除（物理删除，
+    2026-10-16 拆分）：权限、租户隔离、幂等、引用复查与历史完整性。"""
 
     P_TPL_DEL = 'equipment_lifecycle.ledger_template.del'
 
@@ -762,6 +761,11 @@ class TemplateDeleteTests(ExcelLedgerContractBase):
         client = client or self.owner_client
         return client.post('%s/%s/deactivate/' % (TPL_URL, template_id))
 
+    def _activate(self, template_id, client=None):
+        """重新启用（停用逆操作，幂等）。"""
+        client = client or self.owner_client
+        return client.post('%s/%s/activate/' % (TPL_URL, template_id))
+
     def _delete(self, template_id, client=None):
         """物理删除（后端删除时重新检查引用关系）。"""
         client = client or self.owner_client
@@ -771,7 +775,7 @@ class TemplateDeleteTests(ExcelLedgerContractBase):
         """创建台账并填齐必填值（导出有必填校验），返回 (ledger_id, values)。"""
         response = self.owner_client.post(
             LEDGER_URL + '/', json.dumps({'version_id': version['id'],
-                                          'executed_date': '2026-09-29'}),
+                                          }),
             content_type='application/json')
         payload = response.json()
         self.assertEqual(payload.get('error', ''), '')
@@ -800,7 +804,7 @@ class TemplateDeleteTests(ExcelLedgerContractBase):
         # 新建台账拒绝使用该模板
         ledger_response = self.owner_client.post(
             LEDGER_URL + '/', json.dumps({'version_id': version['id'],
-                                          'executed_date': '2026-09-29'}),
+                                          }),
             content_type='application/json')
         self.assertIn('已停用', ledger_response.json()['error'])
 
@@ -883,9 +887,80 @@ class TemplateDeleteTests(ExcelLedgerContractBase):
         workbook = load_workbook(filename=io.BytesIO(export.content))
         self.assertEqual(workbook[SHEET_MAIN][bindings[0]['cell_coordinate']].value,
                          values[bindings[0]['field_id']])
+        # 停用不影响历史页面：台账列表仍显示可识别的模板名称快照
+        rows = self.owner_client.get(LEDGER_URL + '/').json()['data']['data']
+        row = next(r for r in rows if r['id'] == ledger_id)
+        self.assertEqual(row['excel']['template_name'], template['name'])
         # 填写记录与版本记录完整保留
         self.assertTrue(
             OperationLedgerExcelRecord.objects.filter(ledger_id=ledger_id).exists())
+
+    def test_activate_restores_availability_and_creation(self):
+        """重新启用（停用逆操作）：可用模板接口恢复返回，新台账可再次使用。"""
+        template, version, _ = self.create_published_version()
+        self.assertEqual(self._deactivate(template['id']).json().get('error', ''), '')
+        response = self._activate(template['id'])
+        payload = response.json()
+        self.assertEqual(payload.get('error', ''), '')
+        self.assertTrue(payload['data']['data']['is_active'])
+        # 可用模板接口（新建台账模板选择列表）恢复返回
+        available = self.owner_client.get(TPL_URL + '/available/').json()['data']['data']
+        self.assertEqual([t['id'] for t in available], [template['id']])
+        # 管理列表呈启用状态
+        rows = self.owner_client.get(TPL_URL + '/').json()['data']['data']
+        row = next(r for r in rows if r['id'] == template['id'])
+        self.assertTrue(row['is_active'])
+        # 新建台账恢复可用（后端独立校验按 is_active 放行）
+        ledger_response = self.owner_client.post(
+            LEDGER_URL + '/', json.dumps({'version_id': version['id'],
+                                          }),
+            content_type='application/json')
+        self.assertEqual(ledger_response.json().get('error', ''), '')
+
+    def test_activate_idempotent_and_audited_once(self):
+        """重复启用不报错、不重复变更，审计只记实际启用的一次。"""
+        template, _, _ = self.create_published_version()
+        self.assertEqual(self._deactivate(template['id']).json().get('error', ''), '')
+        from apps.logs.models import AuditLog
+        # 上传/绑定/发布流程本身已产生 update 类审计（save_bindings），
+        # 以"激活前后增量"口径断言重新启用只记一次、重复启用不补记
+        def update_audit_ids():
+            return list(AuditLog.objects.filter(
+                target_type='el_ledger_excel_template',
+                target_id=str(template['id']), action='update')
+                .values_list('id', flat=True))
+        before = set(update_audit_ids())
+        first = self._activate(template['id'])
+        self.assertEqual(first.json().get('error', ''), '')
+        second = self._activate(template['id'])
+        self.assertEqual(second.json().get('error', ''), '')
+        self.assertTrue(second.json()['data']['data']['is_active'])
+        new_ids = [aid for aid in update_audit_ids() if aid not in before]
+        self.assertEqual(len(new_ids), 1)
+        self.assertEqual(AuditLog.objects.get(pk=new_ids[0]).username,
+                         self.owner.username)
+
+    def test_activate_without_permission_rejected(self):
+        """重新启用与停用同样要求 del 权限，后端独立校验。"""
+        from apps.equipment_lifecycle.excel_models import OperationLedgerExcelTemplate
+        template, _, _ = self.create_published_version()
+        self.assertEqual(self._deactivate(template['id']).json().get('error', ''), '')
+        limited = make_user('excel_nodel_%s' % uuid.uuid4().hex[:8], perms=P_TPL)
+        client = make_client(limited)
+        response = client.post('%s/%s/activate/' % (TPL_URL, template['id']))
+        self.assertEqual(response.json()['error'], '权限拒绝')
+        self.assertFalse(
+            OperationLedgerExcelTemplate.objects.get(pk=template['id']).is_active)
+
+    def test_cross_tenant_activate_rejected(self):
+        """跨租户重新启用统一按不存在拒绝，目标模板状态不变。"""
+        from apps.equipment_lifecycle.excel_models import OperationLedgerExcelTemplate
+        template, _, _ = self.create_published_version()
+        self.assertEqual(self._deactivate(template['id']).json().get('error', ''), '')
+        response = self.other_client.post('%s/%s/activate/' % (TPL_URL, template['id']))
+        self.assertEqual(response.json()['error'], '模板不存在或无权限访问')
+        self.assertFalse(
+            OperationLedgerExcelTemplate.objects.get(pk=template['id']).is_active)
 
     def test_destroy_unreferenced_template_physical(self):
         """物理删除：未发布模板与已发布且无引用的模板可删除，行与版本消失。"""
@@ -1213,8 +1288,7 @@ class FillAreaSizeContractTests(ExcelLedgerContractBase):
                   bindings[1]['field_id']: '李四',
                   bindings[2]['field_id']: '王五'}
         response = self.owner_client.post(LEDGER_URL + '/', json.dumps({
-            'version_id': version['id'], 'executed_date': '2026-10-14',
-            'ledger_type': 'week_month',
+            'version_id': version['id'],            'ledger_type': 'week_month',
         }), content_type='application/json')
         ledger_id = response.json()['data']['data']['id']
         response = self.owner_client.put(

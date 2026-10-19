@@ -2,7 +2,7 @@
  * Excel 台账"完成填写"改版测试（2026-10-16 流程简化）。
  *
  * 覆盖（真实 store 行为 + jsdom 组件交互 + http mock）：
- * - 脏值跟踪：填写值快照比对、执行日期草稿（undefined=未动/''=显式清空）；
+ * - 脏值跟踪：填写值快照比对（执行日期字段已删除，2026-10-19）；
  * - 完成填写（流程终点）：先 PUT 保存未保存修改再 POST 完成
  *   （草稿 → 已完成），成功提示只出现一次；任一步失败不显示完成成功、
  *   不丢弃页面内容；完成中重复调用忽略；
@@ -10,7 +10,7 @@
  *   /correct/ 并以服务端详情为准；取消更正恢复服务端值；
  * - 组件：草稿提供"保存草稿 + 完成填写"，旧流程历史状态只读（含删除），
  *   已完成提供"更正"；返回列表未保存确认（继续填写保留内容 /
- *   放弃修改并返回）；执行日期草稿保存请求形态。
+ *   放弃修改并返回）。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -61,13 +61,12 @@ const BINDINGS = [
 function makeDetail(overrides = {}) {
   const {
     status = 'draft', values = {}, editable = status === 'draft',
-    executed_date = null, ...rest
+    ...rest
   } = overrides;
   return {
     id: 66,
     ledger_no: 'EL-WM-20261015-001',
     ledger_type: 'week_month',
-    executed_date,
     status,
     created_from: 'excel_template',
     excel: {
@@ -141,30 +140,10 @@ describe('ExcelLedgerStore 未保存状态跟踪', () => {
     expect(store.valuesDirty).toBe(false);
   });
 
-  test('执行日期草稿：未动不脏；改期/清空已录日期为脏；清空空日期不脏', () => {
-    const store = new ExcelLedgerStore();
-    store.applyDetail({data: makeDetail({executed_date: '2026-10-16'})});
-    store.setDateDraft('2026-10-17');
-    expect(store.dateDirty).toBe(true);
-    store.setDateDraft('2026-10-16');
-    expect(store.dateDirty).toBe(false);
-    store.setDateDraft('');
-    expect(store.dateDirty).toBe(true);
-    store.setDateDraft(undefined);
-    expect(store.dateDirty).toBe(false);
-    // 已录日期为空的台账：显式清空（''）等同未动
-    store.applyDetail({data: makeDetail({executed_date: null})});
-    store.setDateDraft('');
-    expect(store.dateDirty).toBe(false);
-    store.setDateDraft('2026-10-18');
-    expect(store.dateDirty).toBe(true);
-  });
-
   test('不可编辑状态（已完成等）恒无未保存', () => {
     const store = new ExcelLedgerStore();
     store.applyDetail({data: makeDetail({status: 'completed', editable: false})});
     store.setValue(FIELD_PS, '正常');
-    store.setDateDraft('2026-10-18');
     expect(store.hasUnsaved).toBe(false);
   });
 });
@@ -172,22 +151,19 @@ describe('ExcelLedgerStore 未保存状态跟踪', () => {
 // ===== Store：完成填写（流程终点） =====
 
 describe('ExcelLedgerStore 完成填写', () => {
-  test('有未保存修改：先 PUT 保存（含日期）再 POST 完成，成功提示只出现一次', async () => {
+  test('有未保存修改：先 PUT 保存（仅填写值）再 POST 完成，成功提示只出现一次', async () => {
     const store = new ExcelLedgerStore();
     store.applyDetail({data: makeDetail()});
     store.setValue(FIELD_PS, '正常');
-    store.setDateDraft('2026-10-16');
     mockHttpPut.mockResolvedValue({data: makeDetail({
-      values: {[FIELD_PS]: '正常'}, executed_date: '2026-10-16'})});
+      values: {[FIELD_PS]: '正常'}})});
     mockHttpPost.mockResolvedValue({data: makeDetail({
-      status: 'completed', values: {[FIELD_PS]: '正常'},
-      executed_date: '2026-10-16', editable: false})});
+      status: 'completed', values: {[FIELD_PS]: '正常'}, editable: false})});
     await act(async () => {
       await store.complete();
     });
     expect(mockHttpPut).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-ledgers/66/', {
       values: {[FIELD_PS]: '正常'},
-      header: {executed_date: '2026-10-16'},
     });
     expect(mockHttpPost).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-ledgers/66/complete/');
     // 只出现一次完成成功提示，不出现保存成功提示
@@ -201,16 +177,14 @@ describe('ExcelLedgerStore 完成填写', () => {
     const store = new ExcelLedgerStore();
     store.applyDetail({data: makeDetail()});
     store.setValue(FIELD_PS, '正常');
-    store.setDateDraft('2026-10-16');
     mockHttpPut.mockRejectedValue(new Error('network down'));
     await act(async () => {
       await store.complete().catch(() => {});
     });
     expect(mockHttpPost).not.toHaveBeenCalled();
     expect(message.success).not.toHaveBeenCalled();
-    // 填写值与日期草稿原样保留，可继续编辑重试
+    // 填写值原样保留，可继续编辑重试
     expect(store.values[FIELD_PS]).toBe('正常');
-    expect(store.dateDraft).toBe('2026-10-16');
     expect(store.hasUnsaved).toBe(true);
   });
 
@@ -291,19 +265,17 @@ describe('ExcelLedgerStore 已完成台账更正', () => {
     expect(store.hasUnsaved).toBe(false);
   });
 
-  test('提交更正：POST /correct/（原因+整体值+日期），以服务端详情为准并退出更正模式', async () => {
+  test('提交更正：POST /correct/（原因+整体值），以服务端详情为准并退出更正模式', async () => {
     const store = new ExcelLedgerStore();
     store.applyDetail({data: makeDetail({
       status: 'completed', editable: false,
-      values: {[FIELD_PS]: '正常'}, executed_date: '2026-10-16'})});
+      values: {[FIELD_PS]: '正常'}})});
     await act(async () => {
       store.startCorrection('登记时选错模块');
       store.setValue(FIELD_PS, '异常');
-      store.setDateDraft('2026-10-17');
     });
     mockHttpPost.mockResolvedValue({data: makeDetail({
       status: 'completed', editable: false, values: {[FIELD_PS]: '异常'},
-      executed_date: '2026-10-17',
       corrections: [{id: 3, reason: '登记时选错模块', changes: []}]})});
     await act(async () => {
       await store.submitCorrection();
@@ -311,8 +283,7 @@ describe('ExcelLedgerStore 已完成台账更正', () => {
     expect(mockHttpPost).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/excel-ledgers/66/correct/',
       {reason: '登记时选错模块',
-       values: {[FIELD_PS]: '异常'},
-       header: {executed_date: '2026-10-17'}});
+       values: {[FIELD_PS]: '异常'}});
     expect(message.success).toHaveBeenCalledWith('更正已保存');
     expect(store.correcting).toBe(false);
     expect(store.detail.status).toBe('completed');
@@ -411,7 +382,7 @@ describe('ExcelLedgerDetail 更正模式', () => {
 
   test('已完成台账经"更正"进入更正模式（须填原因），提交更正走 /correct/', async () => {
     await suite.renderDetail({status: 'completed', editable: false,
-                             values: {[FIELD_PS]: '正常'}, executed_date: '2026-10-16'});
+                             values: {[FIELD_PS]: '正常'}});
     await act(async () => {
       buttonByText('更正', suite.getContainer()).click();
     });
@@ -442,7 +413,7 @@ describe('ExcelLedgerDetail 更正模式', () => {
     removeModals();
     expect(suite.getStore().correcting).toBe(true);
     expect(document.querySelector('[data-testid="correct-mode-banner"]')).toBeTruthy();
-    // 提交更正：POST /correct/（原因 + 整体值 + 日期）
+    // 提交更正：POST /correct/（原因 + 整体值）
     mockHttpPost.mockResolvedValue({data: makeDetail({
       status: 'completed', editable: false, values: {[FIELD_PS]: '异常'},
       corrections: [{id: 3, reason: '登记时选错模块', changes: []}]})});
@@ -461,7 +432,7 @@ describe('ExcelLedgerDetail 更正模式', () => {
   });
 });
 
-describe('ExcelLedgerDetail 返回确认与执行日期草稿', () => {
+describe('ExcelLedgerDetail 返回确认', () => {
   const suite = setupDetailSuite();
 
   test('返回列表：无未保存修改直接返回，不弹确认', async () => {
@@ -520,28 +491,4 @@ describe('ExcelLedgerDetail 返回确认与执行日期草稿', () => {
     expect(suite.getOnBack()).toHaveBeenCalledTimes(1);
   });
 
-  test('执行日期草稿：未动时保存保持当前日期（不误清空），改期后保存新日期', async () => {
-    await suite.renderDetail({executed_date: '2026-10-16'});
-    // 未改动日期直接点保存：保持已录日期而非清空
-    mockHttpPut.mockResolvedValue({data: makeDetail({executed_date: '2026-10-16'})});
-    await act(async () => {
-      document.body.querySelector('[data-testid="excel-save-executed-date"]').click();
-    });
-    await flush();
-    expect(mockHttpPut).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-ledgers/66/',
-      {header: {executed_date: '2026-10-16'}});
-    // 改期后保存：提交草稿日期
-    mockHttpPut.mockClear();
-    mockHttpPut.mockResolvedValue({data: makeDetail({executed_date: '2026-10-17'})});
-    await act(async () => {
-      suite.getStore().setDateDraft('2026-10-17');
-    });
-    await act(async () => {
-      document.body.querySelector('[data-testid="excel-save-executed-date"]').click();
-    });
-    await flush();
-    expect(mockHttpPut).toHaveBeenCalledWith('/api/equipment-lifecycle/excel-ledgers/66/',
-      {header: {executed_date: '2026-10-17'}});
-    expect(suite.getStore().dateDirty).toBe(false);
-  });
 });

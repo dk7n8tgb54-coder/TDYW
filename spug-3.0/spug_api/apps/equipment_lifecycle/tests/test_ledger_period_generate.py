@@ -11,8 +11,6 @@
   并发请求/版本升级都不重复生成）；已作废台账不在一键生成中悄悄重建；
 - 生成物：created_from=excel_template 的正式台账，固定引用最新发布版本
   快照，可直接进入 Excel 填写；不再生成无明细的手工草稿；
-- 日期语义：计划填写期次（maintenance_period）与实际执行日期
-  （executed_date）分离，生成台账执行日期为空，由填写人事后录入；
 - 两个填写列表（周月维护/季维护）各自生成各自的模板，互不串扰。
 """
 import json
@@ -161,11 +159,10 @@ class WeeklyGenerationTests(PeriodGenerateTestBase):
         self.assertEqual(row['maintenance_period'], '2026-10-12')
         self.assertEqual(row['period_text'], '2026-10-12 ~ 2026-10-18')
         self.assertEqual(row['version_no'], 1)
-        # 数据库真实状态：Excel 路线台账，固定版本快照，执行日期留空
+        # 数据库真实状态：Excel 路线台账，固定版本快照，期次归属明确
         ledger = OperationLedger.objects.get(pk=row['id'])
         self.assertEqual(ledger.created_from, 'excel_template')
         self.assertEqual(ledger.maintenance_period, '2026-10-12')
-        self.assertIsNone(ledger.executed_date)
         self.assertEqual(ledger.system_id, self.system_a.id)
         self.assertEqual(ledger.source_template_id, self.template['id'])
         self.assertEqual(ledger.status, 'draft')
@@ -361,7 +358,6 @@ class DedupAndConflictTests(PeriodGenerateTestBase):
             tenant_id=self.user.tenant_id,
             ledger_no='EL-WM-20261001-9001',
             ledger_type=LEDGER_TYPE_WEEK_MONTH,
-            executed_date=datetime(2026, 10, 11).date(),
             status='draft',
             entry_channel='web',
             created_from='manual',
@@ -403,8 +399,10 @@ class DedupAndConflictTests(PeriodGenerateTestBase):
         self.publish_template(
             name='周模板', system=self.system_b, generation_period='weekly')
         self.generate(today=(2026, 10, 14))
-        groups = self.client.get(
-            GROUPS_URL, {'ledger_type': LEDGER_TYPE_WEEK_MONTH}).json()['data']['data']
+        with fake_today(2026, 10, 14):
+            groups = self.client.get(
+                GROUPS_URL,
+                {'ledger_type': LEDGER_TYPE_WEEK_MONTH}).json()['data']['data']
         by_period = {g['maintenance_period']: g for g in groups}
         # 2026-10-14 起分组标题为期次完整标签，统计区分五状态
         self.assertEqual(by_period['2026-10']['period_text'], '每月｜2026年10月')
@@ -516,93 +514,40 @@ class PermissionAndTenantTests(PeriodGenerateTestBase):
             tenant_id='tenant-b').count(), 1)
 
 
-class ActualExecutionDateTests(PeriodGenerateTestBase):
-    """实际执行日期：生成留空、填写人事后录入、编号不随日期改变。"""
+class ExecutionDateRemovedTests(PeriodGenerateTestBase):
+    """表头"实际执行日期"已删除（2026-10-19）：执行日期由台账表格内容承载。
+
+    - 单条新增不再要求日期，编号以录入当天为基准；
+    - 旧客户端携带 executed_date 参数时被忽略（不报错、不落库），前端已同步
+      移除该输入，此用例固化灰度兼容口径；
+    - 完成填写不再校验执行日期（必填校验只看版本绑定）。
+    """
 
     def setUp(self):
         super().setUp()
         self.template = self.publish_template(
             system=self.system_a, generation_period='monthly')
 
-    def test_generated_ledger_has_empty_executed_date(self):
-        data = self.generate(today=(2026, 10, 14))
-        ledger_id = data['created'][0]['id']
-        ledger = OperationLedger.objects.get(pk=ledger_id)
-        self.assertIsNone(ledger.executed_date)
-        # 列表行执行日期为空（不冒充创建当天）
-        resp = self.client.get(LEDGERS_URL + '/', {'ledger_type': LEDGER_TYPE_WEEK_MONTH})
-        row = resp.json()['data']['data'][0]
-        self.assertIsNone(row['executed_date'])
-
-    def test_filler_records_execution_date_via_header(self):
-        data = self.generate(today=(2026, 10, 14))
-        ledger_id = data['created'][0]['id']
-        ledger_no = data['created'][0]['ledger_no']
-        resp = self.client.put(
-            '%s/%d/' % (EXCEL_LEDGERS_URL, ledger_id),
-            json.dumps({'header': {'executed_date': '2026-10-16'}}),
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.json())
-        detail = resp.json()['data']['data']
-        self.assertEqual(str(detail['executed_date'])[:10], '2026-10-16')
-        ledger = OperationLedger.objects.get(pk=ledger_id)
-        self.assertEqual(ledger.ledger_no, ledger_no)  # 编号不变
-        # 录入后预览仍为已存在（日期不影响去重）
-        after = self.preview(today=(2026, 10, 20))
-        self.assertEqual(
-            self.entry_by_template(after, self.template['id'])['status'], 'exists')
-
-    def test_header_invalid_date_and_clear(self):
-        data = self.generate(today=(2026, 10, 14))
-        ledger_id = data['created'][0]['id']
-        resp = self.client.put(
-            '%s/%d/' % (EXCEL_LEDGERS_URL, ledger_id),
-            json.dumps({'header': {'executed_date': 'not-a-date'}}),
-            content_type='application/json')
-        self.assertIn('格式不正确', resp.json()['error'])
-        # 录入后可显式清空回未录入
-        self.client.put(
-            '%s/%d/' % (EXCEL_LEDGERS_URL, ledger_id),
-            json.dumps({'header': {'executed_date': '2026-10-16'}}),
-            content_type='application/json')
-        resp = self.client.put(
-            '%s/%d/' % (EXCEL_LEDGERS_URL, ledger_id),
-            json.dumps({'header': {'executed_date': ''}}),
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.json())
-        self.assertIsNone(resp.json()['data']['data']['executed_date'])
-
-    def test_header_update_rejected_after_complete(self):
-        data = self.generate(today=(2026, 10, 14))
-        ledger_id = data['created'][0]['id']
-        record = OperationLedgerExcelRecord.objects.get(ledger_id=ledger_id)
-        values = {b['field_id']: '正常' for b in record.version.get_bindings()
-                  if b.get('is_required')}
-        # 周期生成的应填台账 executed_date 为空，完成填写前须先录入执行日期
-        resp = post_json(self.client, '%s/%d/complete/' % (EXCEL_LEDGERS_URL, ledger_id), {})
-        self.assertIn('实际执行日期', resp.json()['error'])
-        resp = self.client.put(
-            '%s/%d/' % (EXCEL_LEDGERS_URL, ledger_id),
-            json.dumps({'values': values,
-                        'header': {'executed_date': '2026-10-16'}}),
-            content_type='application/json')
-        self.assertFalse(resp.json().get('error'), resp.json())
-        resp = post_json(self.client, '%s/%d/complete/' % (EXCEL_LEDGERS_URL, ledger_id), {})
-        self.assertFalse(resp.json().get('error'), resp.json())
-        resp = self.client.put(
-            '%s/%d/' % (EXCEL_LEDGERS_URL, ledger_id),
-            json.dumps({'header': {'executed_date': '2026-10-16'}}),
-            content_type='application/json')
-        self.assertIn('不允许', resp.json()['error'])
-
-    def test_single_creation_still_requires_executed_date(self):
-        # 单条新增入口（临时创建）保持原契约：必须填写实际执行日期
+    def test_single_creation_without_executed_date(self):
         version = OperationLedgerExcelTemplateVersion.objects.filter(
             template_id=self.template['id']).first()
         resp = post_json(self.client, EXCEL_LEDGERS_URL + '/', {
-            'version_id': version.id, 'executed_date': ''})
-        self.assertIn('实际执行日期', resp.json()['error'])
-        self.assertEqual(OperationLedger.objects.count(), 0)
+            'version_id': version.id})
+        self.assertFalse(resp.json().get('error'), resp.json())
+        detail = resp.json()['data']['data']
+        self.assertEqual(detail['status'], 'draft')
+        # 编号基准=录入当天（period 生成仍以期次起始日期为基准，见生成用例）
+        self.assertTrue(detail['ledger_no'].startswith('EL-WM-'))
+        self.assertEqual(OperationLedger.objects.count(), 1)
+
+    def test_legacy_executed_date_payload_is_ignored(self):
+        version = OperationLedgerExcelTemplateVersion.objects.filter(
+            template_id=self.template['id']).first()
+        resp = post_json(self.client, EXCEL_LEDGERS_URL + '/', {
+            'version_id': version.id, 'executed_date': '2026-10-16'})
+        self.assertFalse(resp.json().get('error'), resp.json())
+        self.assertEqual(OperationLedger.objects.count(), 1)
+
 
 
 class TemplateGenerationConfigTests(PeriodGenerateTestBase):
@@ -710,3 +655,24 @@ class TemplateGenerationConfigTests(PeriodGenerateTestBase):
         self.assertEqual(data['entries'], [])
         result = self.generate(today=(2026, 10, 14))
         self.assertEqual(result['created'], [])
+
+    def test_deactivated_template_excluded_from_generation(self):
+        """停用（is_active=False，非物理删除）模板同样退出自动生成范围。"""
+        template = self.publish_template(system=self.system_a, generation_period='weekly')
+        resp = self.client.post('%s/%s/deactivate/' % (TPL_URL, template['id']))
+        self.assertFalse(resp.json().get('error'), resp.json())
+        data = self.preview(today=(2026, 10, 14))
+        self.assertEqual(data['entries'], [])
+        result = self.generate(today=(2026, 10, 14))
+        self.assertEqual(result['created'], [])
+
+    def test_rebuild_rejects_deactivated_template(self):
+        """补建入口后端独立校验：停用模板按"不存在或已停用"拒绝。"""
+        template = self.publish_template(system=self.system_a, generation_period='weekly')
+        resp = self.client.post('%s/%s/deactivate/' % (TPL_URL, template['id']))
+        self.assertFalse(resp.json().get('error'), resp.json())
+        with fake_today(2026, 10, 14):
+            result, error = ledger_period_services.period_generate_rebuild(
+                self.user, template['id'])
+        self.assertIsNone(result)
+        self.assertIn('已停用', error)

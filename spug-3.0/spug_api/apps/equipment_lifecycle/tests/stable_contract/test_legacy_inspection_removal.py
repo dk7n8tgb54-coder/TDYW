@@ -177,7 +177,7 @@ class MaintenanceLedgerStillWorksTest(TestCase):
         self.system = make_system(self.user)
         self.client_ = make_client(self.user)
 
-    def _create_ledger(self, executed_date='2026-09-10', ledger_type=LEDGER_TYPE_WEEK_MONTH):
+    def _create_ledger(self, ledger_type=LEDGER_TYPE_WEEK_MONTH):
         payload = ledger_payload(
             [entry_payload(self.system.id, [
                 item_payload(),
@@ -185,7 +185,7 @@ class MaintenanceLedgerStillWorksTest(TestCase):
                              value_text='', value_number=52,
                              result='abnormal', abnormal_desc='电压偏低'),
             ])],
-            ledger_type=ledger_type, executed_date=executed_date)
+            ledger_type=ledger_type)
         return create_ledger_ok(self.client_, payload)
 
     def test_full_maintenance_workflow(self):
@@ -197,7 +197,7 @@ class MaintenanceLedgerStillWorksTest(TestCase):
             [entry_payload(self.system.id, [item_payload(), item_payload(
                 item_name='新增项', value_text='正常')])],
             ledger_type=LEDGER_TYPE_WEEK_MONTH,
-            executed_date='2026-09-10', version=1)
+            version=1)
         resp = put_json(self.client_, '%s/%s/' % (LEDGER_URL, ledger_id), payload)
         self.assertFalse(resp.json().get('error'), resp.content)
         self.assertEqual(resp.json()['data']['version'], 2)
@@ -226,12 +226,11 @@ class MaintenanceLedgerStillWorksTest(TestCase):
 
     def test_week_month_seasonal_all_creatable(self):
         """4/5/6：周月维护（单表）与季维护台账均可正常创建并保留。"""
-        self._create_ledger('2026-09-10')
-        self._create_ledger('2026-09-30')
+        self._create_ledger()
+        self._create_ledger()
         payload = ledger_payload(
             [entry_payload(self.system.id, [item_payload()])],
-            ledger_type=LEDGER_TYPE_SEASONAL,
-            executed_date='2026-09-20')
+            ledger_type=LEDGER_TYPE_SEASONAL)
         seasonal = create_ledger_ok(self.client_, payload)
         self.assertEqual(seasonal['ledger_type'], 'seasonal')
         self.assertEqual(
@@ -350,7 +349,7 @@ class LegacyPurgeCommandTest(TransactionTestCase):
             tenant_id=system.tenant_id,
             ledger_no=ledger_no or 'EL-TEST-%s-%d' % (ledger_type, system.id),
             ledger_type=ledger_type,
-            executed_date='2026-09-01', status='completed',
+            status='completed',
             created_by=self.user_a if system is self.system_a else self.user_b)
         OperationLedgerItem.objects.create(
             tenant_id=system.tenant_id, ledger=ledger, system=system,

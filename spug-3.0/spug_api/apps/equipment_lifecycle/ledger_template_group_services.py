@@ -17,7 +17,7 @@
   展示各台账创建时的 template_name_snapshot + version_no；
 - 模板 ledger_type 创建后不可修改，组内台账类型与模板类型一致；
 - 组列表统计在数据库端按组聚合（GROUP BY 单条 SQL），组列表与组内列表共用
-  同一筛选口径（状态/编号关键词/执行日期范围），统计不受组内分页影响；
+  同一筛选口径（状态/编号关键词），统计不受组内分页影响；
 - 组内批量 PDF 导出（2026-10-11）：预览与实际导出共用 _group_export_query
   筛选口径，后端重查固定 ID 清单后逐条用创建时模板版本生成 PDF 并依序
   合并（复用单条导出服务与 pypdf 合并），manual 组无模板版式不支持导出。
@@ -25,7 +25,7 @@
 import re
 from datetime import date
 
-from django.db.models import Count, Max, Min, Q
+from django.db.models import Count, Max, Q
 
 from libs.tenant_utils import apply_tenant_filter
 
@@ -56,20 +56,21 @@ NATIVE_GROUP_PREFIX = 'native-'
 _NATIVE_GROUP_NOT_SUPPORTED = '原生模板组暂不支持批量导出（当前支持在台账详情内单条导出 PDF）'
 _NATIVE_GROUP_BROWSE_NOT_SUPPORTED = '原生模板组暂不支持连续翻阅（当前支持在台账详情内逐条查看）'
 
-# 组统计口径：total + 各状态数量 + 最近执行日期
+# 组统计口径：total + 各状态数量 + 最近录入时间
+# （executed_date 已于 2026-10-19 删除，组排序/展示改用平台录入时间）
 _GROUP_ANNOTATIONS = dict(
     total=Count('id'),
     draft=Count('id', filter=Q(status=LEDGER_STATUS_DRAFT)),
     completed=Count('id', filter=Q(status=LEDGER_STATUS_COMPLETED)),
     void=Count('id', filter=Q(status=LEDGER_STATUS_VOID)),
-    last_executed_date=Max('executed_date'),
+    last_created_at=Max('created_at'),
 )
 
 _TEMPLATE_NOT_FOUND = '模板不存在或无权限访问'
 
 
-def _apply_group_filters(query, status='', keyword='', executed_from='', executed_to=''):
-    """组统计与组内列表共用筛选（与统一列表 /ledgers/ 同口径，日期用范围查询）。
+def _apply_group_filters(query, status='', keyword=''):
+    """组统计与组内列表共用筛选（与统一列表 /ledgers/ 同口径）。
 
     状态口径与统一列表一致（apply_ledger_status_filter）：默认视图不含
     已作废，组统计数量与可见行保持一致。
@@ -77,10 +78,6 @@ def _apply_group_filters(query, status='', keyword='', executed_from='', execute
     query = apply_ledger_status_filter(query, status)
     if keyword:
         query = query.filter(ledger_no__icontains=keyword)
-    if executed_from:
-        query = query.filter(executed_date__gte=executed_from)
-    if executed_to:
-        query = query.filter(executed_date__lte=executed_to)
     return query
 
 
@@ -96,22 +93,22 @@ def _group_view(group_key, source_type, template, counts):
         'draft': counts['draft'],
         'completed': counts['completed'],
         'void': counts['void'],
-        'last_executed_date': counts['last_executed_date'],
+        'last_created_at': counts['last_created_at'],
     }
 
 
 def list_template_groups(user, ledger_type, status='', keyword='',
-                         executed_from='', executed_to='', page=1, page_size=20):
+                         page=1, page_size=20):
     """按模板身份分组返回台账统计（仅含有历史台账的组，分页由本函数切片）。
 
     - Excel 组：按填写记录引用版本的所属模板 GROUP BY 聚合（单条 SQL）；
     - 手工补录组：created_from=manual 全量聚合为一组；
-    - 组按最近执行日期倒序（无记录日期靠后），同日期按组键稳定排序。
+    - 组按最近录入时间倒序（无记录靠后），同时间按组键稳定排序。
     """
     validate_ledger_type(ledger_type)
     base = _apply_group_filters(
         apply_tenant_filter(OperationLedger.objects.all(), user).filter(ledger_type=ledger_type),
-        status, keyword, executed_from, executed_to)
+        status, keyword)
     template_counts = list(
         base.filter(created_from=LEDGER_FROM_EXCEL, excel_record__isnull=False)
         .values('excel_record__version__template_id')
@@ -152,7 +149,7 @@ def list_template_groups(user, ledger_type, status='', keyword='',
     if manual_counts['total']:
         groups.append(_group_view(MANUAL_GROUP_KEY, 'manual', None, manual_counts))
     groups.sort(key=lambda g: (
-        g['last_executed_date'] or date.min,
+        g['last_created_at'] or date.min,
         g['group_key'],
     ), reverse=True)
     total = len(groups)
@@ -180,7 +177,7 @@ def _get_native_group_template(user, template_key):
 
 
 def list_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
-                       executed_from='', executed_to='', page=1, page_size=20,
+                       page=1, page_size=20,
                        row_serializer=None):
     """返回模板组内台账分页列表（组键 manual=无模板/临时补录组）。
 
@@ -188,7 +185,7 @@ def list_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
       source_version_no 为台账创建时引用的模板版本号）；
     - 台账类型以模板为准：传入 ledger_type 与模板类型不一致时拒绝
       （防 URL 参数篡改造成跨类型误读）；
-    - 组内按执行日期倒序 + ID 倒序。
+    - 组内按录入时间倒序 + ID 倒序。
     """
     query = apply_tenant_filter(OperationLedger.objects.all(), user)
     if str(group_key) == MANUAL_GROUP_KEY:
@@ -220,10 +217,10 @@ def list_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
             created_from=LEDGER_FROM_EXCEL,
             excel_record__version__template_id=template.id,
             ledger_type=template.ledger_type)
-    query = _apply_group_filters(query, status, keyword, executed_from, executed_to)
+    query = _apply_group_filters(query, status, keyword)
     query = query.select_related(
         'system', 'excel_record__version', 'native_record__version') \
-        .order_by('-executed_date', '-id')
+        .order_by('-created_at', '-id')
     total = query.count()
     records = query[(page - 1) * page_size: page * page_size] if total else []
     data = []
@@ -279,8 +276,7 @@ def _resolve_export_template(user, group_key, ledger_type):
     return template
 
 
-def _group_export_query(user, group_key, ledger_type='', status='', keyword='',
-                        executed_from='', executed_to=''):
+def _group_export_query(user, group_key, ledger_type='', status='', keyword=''):
     """导出预览与实际导出共用的组内筛选查询（与组内列表同口径）。
 
     状态未显式筛选时默认取已完成及后续有效状态（不含草稿/已作废）；
@@ -294,24 +290,19 @@ def _group_export_query(user, group_key, ledger_type='', status='', keyword='',
         ledger_type=template.ledger_type)
     if not status:
         query = query.filter(status__in=DEFAULT_EXPORT_STATUSES)
-    return template, _apply_group_filters(
-        query, status=status, keyword=keyword,
-        executed_from=executed_from, executed_to=executed_to)
+    return template, _apply_group_filters(query, status=status, keyword=keyword)
 
 
-def preview_group_pdf_export(user, group_key, ledger_type='', status='', keyword='',
-                             executed_from='', executed_to=''):
-    """导出确认框数据（只读）：模板名/匹配数/实际日期范围/状态范围/涉及版本。
+def preview_group_pdf_export(user, group_key, ledger_type='', status='', keyword=''):
+    """导出确认框数据（只读）：模板名/匹配数/状态范围/涉及版本。
 
     与实际导出走同一 _group_export_query，保证确认与生成口径一致；状态
     范围返回状态编码列表（前端做文本映射）。预计页数依赖逐条 LibreOffice
     转换，无可靠估算口径，不返回。
     """
     template, query = _group_export_query(
-        user, group_key, ledger_type, status, keyword, executed_from, executed_to)
+        user, group_key, ledger_type, status, keyword)
     total = query.count()
-    stats = query.aggregate(
-        first_executed=Min('executed_date'), last_executed=Max('executed_date'))
     versions = []
     if total:
         version_rows = query.values('excel_record__version__version_no') \
@@ -326,21 +317,18 @@ def preview_group_pdf_export(user, group_key, ledger_type='', status='', keyword
         'ledger_type': template.ledger_type,
         'total': total,
         'status_scope': [status] if status else list(DEFAULT_EXPORT_STATUSES),
-        'executed_from': stats['first_executed'],
-        'executed_to': stats['last_executed'],
         'versions': versions,
         'max_records': MAX_BATCH_EXPORT_RECORDS,
     }
 
 
-def export_group_pdfs(user, group_key, ledger_type='', status='', keyword='',
-                      executed_from='', executed_to=''):
+def export_group_pdfs(user, group_key, ledger_type='', status='', keyword=''):
     """模板组内批量 PDF 导出：重查 → 固定 ID 清单 → 逐条复核 → 生成 → 合并。
 
     - 后端按与预览一致的筛选重新查询（租户 + 模板归属），不信任前端传入
       的台账 ID、模板名称或记录数；
     - 生成前固定本次记录 ID 清单，逐条复核访问权限（租户 + Excel 来源 +
-      填写记录）与状态漂移；按 实际执行日期→台账编号→ID 升序稳定排序；
+      填写记录）与状态漂移；按 台账编号→ID 升序稳定排序；
     - 每条台账用其创建时引用的模板版本与打印参数生成 PDF（复用单条导出
       服务 export_pdf_file），pypdf 依序合并，页面尺寸/方向原样保留；
     - 任一条生成失败立即终止并抛出携带台账编号的错误，绝不返回部分 PDF；
@@ -350,15 +338,15 @@ def export_group_pdfs(user, group_key, ledger_type='', status='', keyword='',
     返回 (filename, content, count)。
     """
     template, query = _group_export_query(
-        user, group_key, ledger_type, status, keyword, executed_from, executed_to)
+        user, group_key, ledger_type, status, keyword)
     query = query.select_related('excel_record__version__template') \
-        .order_by('executed_date', 'ledger_no', 'id')
+        .order_by('ledger_no', 'id')
     record_ids = list(query.values_list('id', flat=True))
     if not record_ids:
         raise LedgerValidationError('没有符合条件的台账，请调整筛选条件后重试')
     if len(record_ids) > MAX_BATCH_EXPORT_RECORDS:
         raise LedgerValidationError(
-            '符合条件的台账共 %d 条，超过单次导出上限 %d 条，请缩小日期范围或筛选条件'
+            '符合条件的台账共 %d 条，超过单次导出上限 %d 条，请调整筛选条件缩小范围'
             % (len(record_ids), MAX_BATCH_EXPORT_RECORDS))
     if status == LEDGER_STATUS_FILTER_ALL:
         allowed_statuses = None  # "全部"：不限制状态（含草稿/已作废）
@@ -407,9 +395,8 @@ def export_group_pdfs(user, group_key, ledger_type='', status='', keyword='',
 def _browse_sort_key(ledger):
     """翻阅排序键（升序，像翻纸质台账从最早一张开始）：
 
-    - 主序 = 计划维护期次的起始日期（期次标记优先，历史无标记台账按执行
-      日期推导，与周期分组同口径）；
-    - 回退 = 既无期次标记又无执行日期（或标记不可解析）的记录排在最后；
+    - 主序 = 计划维护期次的起始日期（表头期次标记，与周期分组同口径）；
+    - 回退 = 无期次标记（或标记不可解析）的记录排在最后；
     - 同键内以 ID 升序兜底（= 创建顺序）保证顺序稳定；同一期次的多张
       台账（补建并存）相邻排列、先建先翻，逐张可翻不漏。
     """
@@ -424,16 +411,15 @@ def _browse_sort_key(ledger):
     return (date.max, ledger.id)
 
 
-def browse_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
-                         executed_from='', executed_to=''):
+def browse_group_ledgers(user, group_key, ledger_type='', status='', keyword=''):
     """模板组翻阅清单（只读）：组内符合筛选的台账按翻阅顺序一次性返回。
 
     - 筛选口径与组内列表完全一致（_apply_group_filters：默认不含已作废，
-      status=void 仅已作废，status=all 全部；keyword 编号模糊；执行日期
-      范围），用户以什么筛选范围进入组内就按什么范围翻阅；
+      status=void 仅已作废，status=all 全部；keyword 编号模糊），
+      用户以什么筛选范围进入组内就按什么范围翻阅；
     - 每条条目仅含 ID 与展示元数据（编号/状态/期次标签/版本号），量级为
-      组内台账数；期次标签由 ledger_period_display 下发（历史无期次标记
-      的台账标注"按实际执行日期归档"，不猜测不改写）；
+      组内台账数；期次标签由 ledger_period_display 下发（无期次标记的
+      台账展示"未标注期次"）；
     - 每张台账的版式回放由前端按条目 ID 调既有 Excel 详情端点完成，创建
       时固定的版本快照不受模板改名/更新/停用影响。
     """
@@ -453,7 +439,7 @@ def browse_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
             created_from=LEDGER_FROM_EXCEL,
             excel_record__version__template_id=template.id,
             ledger_type=template.ledger_type),
-        status, keyword, executed_from, executed_to)
+        status, keyword)
     ledgers = sorted(
         query.select_related('system', 'excel_record__version'),
         key=_browse_sort_key)
@@ -466,7 +452,6 @@ def browse_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
             'id': ledger.id,
             'ledger_no': ledger.ledger_no,
             'status': ledger.status,
-            'executed_date': ledger.executed_date,
             'maintenance_period': ledger.maintenance_period,
             'period_key': ledger_period_services.ledger_period_key(ledger),
             'period_label': display['period_label'],

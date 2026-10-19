@@ -92,7 +92,6 @@ class LifecycleTestBase(TestCase):
             tenant_id=self.user.tenant_id,
             ledger_no=ledger_no or 'EL-WM-20261010-%04d' % OperationLedger.objects.count(),
             ledger_type=LEDGER_TYPE_WEEK_MONTH,
-            executed_date='2026-10-10',
             status=status,
             entry_channel='web',
             created_from='manual',
@@ -165,9 +164,9 @@ class LifecycleTestBase(TestCase):
             self.assertFalse(resp.json().get('error'), resp.json())
         return template
 
-    def create_excel_ledger(self, version_id, executed_date='2026-10-16'):
+    def create_excel_ledger(self, version_id):
         resp = post_json(self.client, EXCEL_LEDGERS_URL + '/', {
-            'version_id': version_id, 'executed_date': executed_date,
+            'version_id': version_id,
             'ledger_type': LEDGER_TYPE_WEEK_MONTH})
         self.assertFalse(resp.json().get('error'), resp.json())
         return resp.json()['data']['data']
@@ -359,8 +358,9 @@ class PeriodGenerationSlotTests(LifecycleTestBase):
         self.assertEqual(entry['status'], 'manual_needed')
         self.assertTrue(entry['rebuildable'])
         self.assertEqual(entry['existing_ledger']['id'], ledger_id)
-        # 明确补建：创建新草稿，作废记录保留并存
-        resp = post_json(self.client, REBUILD_URL, {'template_id': template['id']})
+        # 明确补建：创建新草稿，作废记录保留并存（补建与生成同用假定时钟）
+        with fake_today(2026, 10, 14):
+            resp = post_json(self.client, REBUILD_URL, {'template_id': template['id']})
         self.assertFalse(resp.json().get('error'), resp.json())
         row = resp.json()['data']
         self.assertNotEqual(row['id'], ledger_id)
@@ -374,6 +374,7 @@ class PeriodGenerationSlotTests(LifecycleTestBase):
         self.assertEqual(len(again['created']), 0)
         self.assertTrue(any(s['template_id'] == template['id'] for s in again['skipped']))
         # 本期已有有效台账时补建被拒绝
-        resp = post_json(self.client, REBUILD_URL, {'template_id': template['id']})
+        with fake_today(2026, 10, 14):
+            resp = post_json(self.client, REBUILD_URL, {'template_id': template['id']})
         self.assertTrue(resp.json().get('error'))
         self.assertIn('无需补建', resp.json()['error'])

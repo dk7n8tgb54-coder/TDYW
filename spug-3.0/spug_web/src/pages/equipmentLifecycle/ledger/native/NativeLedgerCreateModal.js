@@ -6,27 +6,24 @@
  *
  * - ledgerType 由页面注入并固定；只加载当前台账类型对应的已发布原生
  *   模板版本（available 接口已过滤停用模板与无发布版本模板）；
- * - 选择版本后填写实际执行日期，经 nativeLedgerStore.createLedger 调用
- *   POST /native-ledgers/ 创建（client_token 幂等，后端二次校验模板
- *   类型/发布状态/启用状态/权限/租户归属）；
+ * - 选择版本后经 nativeLedgerStore.createLedger 调用 POST /native-ledgers/
+ *   创建（client_token 幂等，后端二次校验模板类型/发布状态/启用状态/
+ *   权限/租户归属；执行日期由台账表格内容承载，不在创建时单列）；
  * - 创建成功回调 onCreated（store 已持有详情，调用方切换到详情视图）。
  */
 import React, {useEffect, useState} from 'react';
 import {observer} from 'mobx-react';
-import {DatePicker, Modal, Select, message} from 'antd';
-import moment from 'moment';
+import {Modal, Select, message} from 'antd';
 import {LEDGER_TYPE_TEXT} from '../constants';
 
 function NativeLedgerCreateModal({visible, ledgerType, store, onCancel, onCreated}) {
   const [versionId, setVersionId] = useState(undefined);
-  const [executedDate, setExecutedDate] = useState(moment());
   const [clientToken, setClientToken] = useState('');
 
   useEffect(() => {
     // 每次打开重置表单并生成新的幂等令牌（一次弹窗一次创建）
     if (!visible) return;
     setVersionId(undefined);
-    setExecutedDate(moment());
     setClientToken(`eln_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
     store.fetchAvailable(ledgerType).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -43,13 +40,12 @@ function NativeLedgerCreateModal({visible, ledgerType, store, onCancel, onCreate
   })();
 
   const handleOk = () => {
-    if (!versionId || !executedDate) {
-      message.warning('请选择模板版本和实际执行日期');
+    if (!versionId) {
+      message.warning('请选择模板版本');
       return;
     }
     store.createLedger({
       version_id: versionId,
-      executed_date: executedDate.format('YYYY-MM-DD'),
       ledger_type: ledgerType,
       client_token: clientToken,
     }).then(() => {
@@ -80,10 +76,6 @@ function NativeLedgerCreateModal({visible, ledgerType, store, onCancel, onCreate
             ? String(selectedVersion.published_at).slice(0, 19).replace('T', ' ') : '—'}
         </div>
       )}
-      <div style={{marginBottom: 10, marginTop: 12}}>实际执行日期</div>
-      <DatePicker data-testid="native-create-date" style={{width: '100%'}}
-                  value={executedDate}
-                  onChange={value => setExecutedDate(value)}/>
     </Modal>
   );
 }

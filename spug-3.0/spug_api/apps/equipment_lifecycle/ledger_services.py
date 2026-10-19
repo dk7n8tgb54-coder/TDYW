@@ -150,14 +150,15 @@ def parse_datetime_value(value, field_label, allow_empty=False):
     raise LedgerValidationError('%s格式不正确' % field_label)
 
 
-def generate_ledger_no(tenant_id, ledger_type, executed_date):
+def generate_ledger_no(tenant_id, ledger_type, base_date):
     """生成台账编号：{前缀}-{YYYYMMDD}-{当日序号:04d}，租户内唯一。
 
-    并发冲突由 (tenant_id, ledger_no) 唯一约束兜底，调用方捕获
+    base_date 为编号基准日期（手工/单条新增=录入当天，周期生成=期次起始
+    日期）。并发冲突由 (tenant_id, ledger_no) 唯一约束兜底，调用方捕获
     IntegrityError 后重试。
     """
     prefix = LEDGER_NO_PREFIX_MAP[ledger_type]
-    base = '%s-%s-' % (prefix, executed_date.strftime('%Y%m%d'))
+    base = '%s-%s-' % (prefix, base_date.strftime('%Y%m%d'))
     rows = OperationLedger.objects.all_with_deleted().filter(
         tenant_id=tenant_id, ledger_no__startswith=base).values_list('ledger_no', flat=True)
     seq = 0
@@ -319,16 +320,8 @@ def _parse_header_payload(user, body, for_update=False):
     created_from = body.get('created_from') or ''
     if created_from and created_from not in LEDGER_FROM_VALUES:
         raise LedgerValidationError('创建方式不合法')
-    executed_date = body.get('executed_date')
-    if not executed_date:
-        raise LedgerValidationError('请填写实际执行日期')
-    try:
-        executed_date = datetime.strptime(str(executed_date)[:10], '%Y-%m-%d').date()
-    except ValueError:
-        raise LedgerValidationError('实际执行日期格式不正确')
     return {
         'ledger_type': ledger_type,
-        'executed_date': executed_date,
         'executed_start': parse_datetime_value(body.get('executed_start'), '实际执行开始时间', allow_empty=True),
         'executed_end': parse_datetime_value(body.get('executed_end'), '实际执行结束时间', allow_empty=True),
         'client_token': str(body.get('client_token') or '')[:64],
@@ -446,7 +439,8 @@ def create_ledger(user, body):
             **header,
         )
         items = _build_item_instances(user, ledger, systems_map, entries)
-        ledger.ledger_no = generate_ledger_no(user.tenant_id, ledger.ledger_type, ledger.executed_date)
+        ledger.ledger_no = generate_ledger_no(
+            user.tenant_id, ledger.ledger_type, timezone.now().date())
         ledger.client_token = client_token
         ledger.save()
         OperationLedgerItem.objects.bulk_create(items)
@@ -514,8 +508,7 @@ def update_ledger(user, pk, body):
         keep_ids = _apply_entry_edits(user, ledger, entries, systems_map, changed)
         _remove_absent_items(ledger, keep_ids, changed)
         ledger.version += 1
-        ledger.save(update_fields=[
-            'ledger_type', 'executed_date', 'executed_start', 'executed_end', 'version'])
+        ledger.save(update_fields=['ledger_type', 'executed_start', 'executed_end', 'version'])
         return ledger, changed, None
     except LedgerValidationError as e:
         return None, None, str(e)
@@ -597,7 +590,7 @@ def _apply_item_edits(item, row, system):
 def complete_ledger(user, pk):
     """完成填写（流程终点）：草稿 → 已完成，记录完成时间与人。
 
-    - 必填校验：实际执行日期必填；全部明细的必填项必须已填写
+    - 必填校验：全部明细的必填项必须已填写
       （保存草稿允许必填未填完，完成填写时统一校验）；
     - Excel 路线台账须走 /excel-ledgers/<pk>/complete/（按版本绑定校验必填）；
     - 重复完成被状态机拦截（completed 不在 draft 的可达状态），无重复副作用。
@@ -612,8 +605,6 @@ def complete_ledger(user, pk):
         return None, EXCEL_LEDGER_COMPLETE_ERROR
     if not ledger.can_transition_to(LEDGER_STATUS_COMPLETED):
         return None, '当前状态不允许完成填写'
-    if ledger.executed_date is None:
-        return None, '请先填写实际执行日期'
     if not ledger.items.exists():
         return None, '台账没有明细，不能完成填写'
     missing = [item.item_name_snapshot for item in ledger.items.all()

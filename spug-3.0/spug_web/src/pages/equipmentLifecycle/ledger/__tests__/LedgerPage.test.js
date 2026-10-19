@@ -86,8 +86,7 @@ function flush() {
 const LEDGERS_PAYLOAD = {
   data: [
     {
-      id: 1, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month',
-      executed_date: '2026-09-10', status: 'completed',
+      id: 1, ledger_no: 'EL-WM-20260910-0001', ledger_type: 'week_month', status: 'completed',
       created_by_name: 'op1', created_at: '2026-09-11 09:00',
     },
   ],
@@ -101,10 +100,10 @@ const GROUPS_PAYLOAD = [
     total: 2, pending: 2, filled: 0,
     ledgers: [
       {id: 11, ledger_no: 'EL-WM-20261011-0001', ledger_type: 'week_month',
-       system: 3, system_name: 'DVOR系统', executed_date: '2026-10-11',
+       system: 3, system_name: 'DVOR系统',
        status: 'draft', created_by_name: 'op1', created_at: '2026-10-11 09:00'},
       {id: 12, ledger_no: 'EL-WM-20261011-0002', ledger_type: 'week_month',
-       system: 4, system_name: 'ILS系统', executed_date: '2026-10-11',
+       system: 4, system_name: 'ILS系统',
        status: 'draft', created_by_name: 'op1', created_at: '2026-10-11 09:00'},
     ],
   },

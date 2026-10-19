@@ -46,6 +46,7 @@ import CoopTaskIndex from './pages/coopTask';
 import RegulationIndex from './pages/regulation';
 import EquipmentSystemIndex from './pages/equipmentLifecycle';
 import EquipmentOperationRecordIndex from './pages/equipmentLifecycle/operationRecord';
+import SystemConfigMaintainIndex from './pages/equipmentLifecycle/systemConfigMaintain';
 import {
   WeekMonthLedgerIndex, SeasonalLedgerIndex,
 } from './pages/equipmentLifecycle/ledger/entries';
@@ -75,8 +76,11 @@ export default [
   // "事件管理"（runlog）与"值班日志"（duty）菜单已随 2026-10-11 模块下线
   // 整体删除（前端页面/路由/权限码与后端 API、数据表同步移除），
   // "部门值班日志"（department_duty_log）为独立模块，继续保留。
-  {icon: <ApartmentOutlined/>, title: '设备管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.operation_record.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|upgrade.upgrade.view', child: [
+  {icon: <ApartmentOutlined/>, title: '设备管理', auth: 'equipment_lifecycle.system.view|equipment_lifecycle.operation_record.view|equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view|equipment_lifecycle.config.view|upgrade.upgrade.view', child: [
     {title: '系统档案', auth: 'equipment_lifecycle.system.view', path: '/el/systems', component: EquipmentSystemIndex},
+    // 系统配置维护入口（2026-10-19）：选择系统、初始建档、维护参数定义并处理
+    // 配置变更；「系统详情 → 配置」页签同步改为只读展示并跳转本入口
+    {title: '系统配置', auth: 'equipment_lifecycle.config.view', path: '/el/system-config', component: SystemConfigMaintainIndex},
     // 运行处置记录（2026-10-11 合并改造；2026-10-14 由"运行与故障记录"更名）：
     // 原"运行处置"分组下的"故障处置""运行记录"两菜单合并为统一入口，
     // 承载一般记录/异常事件/设备故障三类记录；旧 /el/faults、

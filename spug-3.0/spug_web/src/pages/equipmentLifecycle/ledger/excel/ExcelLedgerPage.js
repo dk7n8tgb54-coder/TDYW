@@ -10,18 +10,17 @@
  *
  * 三种视图：
  * - 列表：Excel 路线台账（created_from=excel_template），按类型/状态筛选；
- * - 创建：选择已发布 Excel 模板版本 + 执行日期（周月/季类型边界
- *   由后端校验，前端按模板类型回显）；
+ * - 创建：选择已发布 Excel 模板版本（周月/季类型边界由后端校验，前端按
+ *   模板类型回显；执行日期由台账表格内容承载，2026-10-19 起创建不再单列）；
  * - 详情：委托 ExcelLedgerDetail（版式回放/保存/提交/复核/作废/导出）。
  */
 import React from 'react';
 import {observer} from 'mobx-react';
 import {
-  Button, Card, DatePicker, Modal,
+  Button, Card, Modal,
   Select, Table, Tag, message,
 } from 'antd';
 import {PlusOutlined} from '@ant-design/icons';
-import moment from 'moment';
 
 import excelLedgerStore from './excelLedgerStore';
 import ExcelLedgerDetail, {
@@ -38,7 +37,7 @@ class ExcelLedgerPage extends React.Component {
 
   state = {
     createVisible: false,
-    form: {ledger_type: undefined, version_id: undefined, executed_date: moment()},
+    form: {ledger_type: undefined, version_id: undefined},
   };
 
   componentDidMount() {
@@ -47,15 +46,14 @@ class ExcelLedgerPage extends React.Component {
 
   handleCreate = () => {
     const {form} = this.state;
-    if (!form.version_id || !form.executed_date) {
-      message.warning('请选择模板版本和实际执行日期');
+    if (!form.version_id) {
+      message.warning('请选择模板版本');
       return;
     }
     this.store.createLedger({
       version_id: form.version_id,
-      executed_date: form.executed_date.format('YYYY-MM-DD'),
       ledger_type: form.ledger_type || '',
-      client_token: `excel-${form.version_id}-${form.executed_date.format('YYYYMMDD')}`,
+      client_token: `excel-${form.version_id}-${Date.now()}`,
     }).then(detail => {
       this.setState({createVisible: false});
       return this.store.fetchDetail(detail.id);
@@ -114,10 +112,6 @@ class ExcelLedgerPage extends React.Component {
             源文件：{selectedTemplate.versions.find(v => v.id === form.version_id).source_filename}
           </div>
         )}
-        <div style={{marginBottom: 10, marginTop: 12}}>实际执行日期</div>
-        <DatePicker data-testid="ledger-date" style={{width: '100%'}}
-                    value={form.executed_date}
-                    onChange={value => this.setState({form: {...form, executed_date: value}})}/>
       </Modal>
     );
   }
@@ -131,8 +125,6 @@ class ExcelLedgerPage extends React.Component {
       {title: '模板版本', key: 'version',
        render: (_, record) => record.excel
          ? `${record.excel.template_name} v${record.excel.version_no}` : '—'},
-      {title: '执行日期', dataIndex: 'executed_date',
-       render: value => String(value).slice(0, 10)},
       {title: '状态', dataIndex: 'status',
        render: value => <Tag color={STATUS_COLOR[value]}>{STATUS_TEXT[value] || value}</Tag>},
       {title: '操作', key: 'actions', render: (_, record) => (

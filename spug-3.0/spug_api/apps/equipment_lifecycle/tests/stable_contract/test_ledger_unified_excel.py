@@ -51,7 +51,7 @@ class UnifiedLedgerExcelTests(ExcelLedgerContractBase):
 
     def _create_excel_ledger(self, version_id, client=None, **kwargs):
         client = client or self.owner_client
-        body = {'version_id': version_id, 'executed_date': '2026-09-28',
+        body = {'version_id': version_id,
                 'ledger_type': 'week_month',
                 'client_token': ''}
         body.update(kwargs)
@@ -106,8 +106,7 @@ class UnifiedLedgerExcelTests(ExcelLedgerContractBase):
     def test_unified_list_filters_apply_to_both_routes(self):
         template, version, _ = self.create_published_version()
         excel = self._create_excel_ledger(version['id'])
-        normal = self._create_normal_ledger(created_from='manual',
-                                            executed_date='2026-09-28')
+        normal = self._create_normal_ledger(created_from='manual')
         # 状态筛选：两条路线的草稿都命中
         rows = self.owner_client.get(
             NORMAL_LEDGER_URL + '/?status=draft').json()['data']['data']
@@ -169,7 +168,7 @@ class UnifiedLedgerExcelTests(ExcelLedgerContractBase):
         # 普通明细编辑接口显式拒绝（须走 Excel 填写值接口）
         response = self.owner_client.put(
             '%s/%s/' % (NORMAL_LEDGER_URL, excel['id']),
-            json.dumps({'ledger_type': 'week_month', 'executed_date': '2026-09-28',
+            json.dumps({'ledger_type': 'week_month',
                         'entries': []}), content_type='application/json')
         self.assertEqual(response.json()['error'], 'Excel 模板台账请通过 Excel 台账填写接口编辑')
         # 完成填写为统一端点：Excel 台账走同一端点，服务层按版本绑定校验必填
@@ -254,7 +253,7 @@ class UnifiedLedgerExcelTests(ExcelLedgerContractBase):
         # 已发布版本直接创建也被拒绝
         response = client.post(
             LEDGER_URL + '/', json.dumps({'version_id': version['id'],
-                                          'executed_date': '2026-09-28'}),
+                                          }),
             content_type='application/json')
         self.assertIn('已停用', response.json()['error'])
 
@@ -263,8 +262,7 @@ class UnifiedLedgerExcelTests(ExcelLedgerContractBase):
         # 季维护入口不能选择周月模板（后端独立校验，不信任前端）
         response = self.owner_client.post(
             LEDGER_URL + '/',
-            json.dumps({'version_id': version['id'], 'executed_date': '2026-09-28',
-                        'ledger_type': 'seasonal'}),
+            json.dumps({'version_id': version['id'],                        'ledger_type': 'seasonal'}),
             content_type='application/json')
         self.assertIn('不一致', response.json()['error'])
         self.assertFalse(
@@ -276,7 +274,7 @@ class UnifiedLedgerExcelTests(ExcelLedgerContractBase):
                             perms=['equipment_lifecycle.ledger.view'])
         response = make_client(limited).post(
             LEDGER_URL + '/',
-            json.dumps({'version_id': version['id'], 'executed_date': '2026-09-28'}),
+            json.dumps({'version_id': version['id'], }),
             content_type='application/json')
         self.assertEqual(response.json()['error'], '权限拒绝')
         self.assertFalse(

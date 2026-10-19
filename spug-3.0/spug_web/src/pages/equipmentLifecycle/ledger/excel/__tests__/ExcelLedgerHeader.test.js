@@ -1,11 +1,10 @@
 /**
- * Excel 台账表头执行信息录入（2026-10-14）页面行为测试。
+ * Excel 台账详情表头（2026-10-19 改版）页面行为测试。
  *
  * 真实渲染 ExcelLedgerDetail（jsdom + http mock），验证：
- * - 周期生成的应填台账（执行日期为空）：详情显示计划期次、执行日期
- *   占位"执行后录入"，可编辑状态提供录入控件；
- * - 保存执行日期经 PUT header 提交（不冒充创建当天、不改台账编号）；
- * - 已完成（不可编辑）状态只读展示，不提供录入控件。
+ * - 模板信息置首（用户指定顺序），状态/类型/计划期次/完成时间/录入人/
+ *   录入时间依次排列；执行日期字段已删除（由台账表格内容承载）；
+ * - 草稿与已完成状态都不再提供执行日期录入控件。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -61,7 +60,6 @@ function makeDetail(overrides = {}) {
     id: 101,
     ledger_no: 'EL-WM-20261012-0001',
     ledger_type: 'week_month',
-    executed_date: null,
     created_at: '2026-10-12 08:30:00',
     created_by_name: '王五',
     maintenance_period: '2026-10-12',
@@ -117,52 +115,41 @@ async function renderDetail(detail) {
   await flush();
 }
 
-describe('ExcelLedgerDetail 表头执行信息', () => {
-  test('周期生成台账显示计划期次与空的执行日期录入控件', async () => {
+/** Descriptions 渲染顺序 = DOM 中 ant-descriptions-item 的出现顺序。 */
+function headerLabels(root) {
+  return Array.from(root.querySelectorAll('.ant-descriptions-item-label'))
+    .map(node => node.textContent.trim());
+}
+
+describe('ExcelLedgerDetail 表头信息', () => {
+  test('模板信息置首，其余字段依次排列；执行日期字段不再展示', async () => {
     await renderDetail(makeDetail());
     const text = container.textContent;
+    expect(headerLabels(container)).toEqual([
+      '模板', '状态', '类型', '计划期次',
+      '完成时间', '录入人', '录入时间', '版本', '源文件', 'SHA-256']);
+    // 模板名取自版本快照
+    expect(text).toContain('信道Excel维护台账');
     expect(text).toContain('计划期次');
     expect(text).toContain('2026-10-12');
-    expect(text).toContain('实际执行日期');
     // 列表已不放录入时间（2026-10-18 移入详情），Excel 详情头部展示创建时间
     expect(text).toContain('录入时间');
     expect(text).toContain('2026-10-12 08:30:00');
-    // 可编辑状态提供录入控件（占位提示执行后录入），不做创建当天伪装
-    expect(document.body.querySelector('[data-testid="excel-executed-date"]')).toBeTruthy();
-    expect(document.body.querySelector('[data-testid="excel-save-executed-date"]')).toBeTruthy();
+    // 执行日期字段已删除：不出现标签，也不再有录入控件
+    expect(text).not.toContain('实际执行日期');
+    expect(document.body.querySelector('[data-testid="excel-executed-date"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="excel-save-executed-date"]')).toBeNull();
   });
 
-  test('保存执行日期经 PUT header 提交并以详情回显', async () => {
-    await renderDetail(makeDetail());
-    mockHttpPut.mockResolvedValue({data: makeDetail({
-      executed_date: '2026-10-16', created_by_name: '王五',
-    })});
-    const save = document.body.querySelector('[data-testid="excel-save-executed-date"]');
-    await act(async () => {
-      save.click();
-    });
-    await flush();
-    // 未选日期保存 = 清空语义（空串），此处验证请求形态与回显链路
-    expect(mockHttpPut).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/excel-ledgers/101/',
-      {header: {executed_date: ''}});
-    // 回显：执行日期经 DatePicker input value 展示（不在 textContent），录入人入文本
-    const pickerNode = document.body.querySelector('[data-testid="excel-executed-date"]');
-    const pickerInput = pickerNode.tagName === 'INPUT'
-      ? pickerNode : pickerNode.querySelector('input');
-    expect(pickerInput.value).toBe('2026-10-16');
-    expect(container.textContent).toContain('王五');
-  });
-
-  test('已完成（不可编辑）状态只读展示执行日期，不提供录入控件', async () => {
+  test('已完成（不可编辑）状态同样无执行日期录入控件', async () => {
     await renderDetail(makeDetail({
-      status: 'completed', executed_date: '2026-10-16',
+      status: 'completed',
       excel: {
-        record_id: 7, values: { [FIELD_PS]: '正常' }, editable: false,
+        record_id: 7, values: {[FIELD_PS]: '正常'}, editable: false,
         version: makeDetail().excel.version,
       },
     }));
-    expect(container.textContent).toContain('2026-10-16');
+    expect(container.textContent).toContain('已完成');
     expect(document.body.querySelector('[data-testid="excel-executed-date"]')).toBeNull();
   });
 });

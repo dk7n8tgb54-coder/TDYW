@@ -16,7 +16,6 @@ source_ledger_item 正式外键 + source_id 冗余）保持双向可追溯。
 - 持健康重算锁 + 单事务，转换与来源关系/健康重算处于同一事务。
 """
 import json
-from datetime import datetime
 
 from django.db import transaction
 from django.utils import timezone
@@ -188,15 +187,15 @@ class LedgerItemConvertToFaultView(View):
 
 
 def _resolve_convert_occurred_at(form, item, ledger):
-    """解析转故障发生时间：显式提交 > 明细执行时间 > 台账执行日期（零点）。"""
+    """解析转故障发生时间：显式提交 > 明细执行时间 > 台账平台录入时间。"""
     occurred_at = _parse_dt(form.occurred_at) if form.occurred_at else None
     if form.occurred_at and not occurred_at:
         return None, '故障发生时间格式不正确'
     if not occurred_at:
         occurred_at = item.executed_at
     if not occurred_at:
-        # 明细无独立执行时间时取台账实际执行日期（USE_TZ=False 直接取本地 naive）
-        occurred_at = datetime.combine(ledger.executed_date, datetime.min.time())
+        # 明细无独立执行时间时取台账平台录入时间（USE_TZ=False 直接取本地 naive）
+        occurred_at = ledger.created_at
     if occurred_at > timezone.now():
         return None, '故障发生时间不能晚于当前时间'
     return occurred_at, None

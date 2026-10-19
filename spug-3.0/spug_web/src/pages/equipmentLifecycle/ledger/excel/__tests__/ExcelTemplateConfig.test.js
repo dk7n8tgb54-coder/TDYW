@@ -227,6 +227,12 @@ describe('ExcelTemplatePage 生成配置', () => {
       ReactDOM.render(h(ExcelTemplatePage, {store}), container);
     });
     await act(flush);
+    // 已停用模板集中在「已停用」视图（2026-10-19 双视图），先切换再进入
+    await act(async () => {
+      Array.from(container.querySelectorAll('[data-testid="tpl-view-switch"] input'))
+        .find(node => node.value === 'disabled').click();
+    });
+    await act(flush);
     await act(async () => {
       findButton('查看模板').click();
     });

@@ -123,7 +123,7 @@ class OverviewTestBase(TestCase):
                 return item
         return None
 
-    def make_ledger(self, ledger_no, status='draft', executed_date=None,
+    def make_ledger(self, ledger_no, status='draft',
                     maintenance_period='', ledger_type=LEDGER_TYPE_WEEK_MONTH,
                     system=None, tenant_id='default', created_by=None):
         """直接造台账行（状态统计的真实数据源）。"""
@@ -131,7 +131,6 @@ class OverviewTestBase(TestCase):
             tenant_id=tenant_id,
             ledger_no=ledger_no,
             ledger_type=ledger_type,
-            executed_date=executed_date,
             status=status,
             entry_channel='web',
             created_from='manual',
@@ -147,19 +146,19 @@ class PeriodGroupsEnhancementTests(OverviewTestBase):
     def setUp(self):
         super().setUp()
         self.make_ledger(
-            'EL-WM-20261012-0001', status='draft', executed_date=None,
+            'EL-WM-20261012-0001', status='draft',
             maintenance_period='2026-10-12', system=self.system_a)
         self.make_ledger(
-            'EL-WM-20261012-0002', status='draft', executed_date=None,
+            'EL-WM-20261012-0002', status='draft',
             maintenance_period='2026-10-12', system=self.system_b)
         self.make_ledger(
-            'EL-WM-20261001-0003', status='draft', executed_date=None,
+            'EL-WM-20261001-0003', status='draft',
             maintenance_period='2026-10', system=self.system_a)
         self.make_ledger(
-            'EL-WM-20261001-0004', status='completed', executed_date=None,
+            'EL-WM-20261001-0004', status='completed',
             maintenance_period='2026-10', system=self.system_b)
         self.make_ledger(
-            'EL-WM-20261001-0005', status='void', executed_date=None,
+            'EL-WM-20261001-0005', status='void',
             maintenance_period='2026-10', system=self.system_a)
 
     def groups(self, params=None, today=None):
@@ -217,9 +216,9 @@ class PeriodGroupsEnhancementTests(OverviewTestBase):
 
     def test_group_pagination_by_period(self):
         # 再造 2026-08/2026-09 两个月组 → 共 4 个期次组
-        self.make_ledger('EL-WM-20260801-0006', status='draft', executed_date=None,
+        self.make_ledger('EL-WM-20260801-0006', status='draft',
                          maintenance_period='2026-08', system=self.system_a)
-        self.make_ledger('EL-WM-20260901-0007', status='draft', executed_date=None,
+        self.make_ledger('EL-WM-20260901-0007', status='draft',
                          maintenance_period='2026-09', system=self.system_a)
         page = self.groups({'ledger_type': LEDGER_TYPE_WEEK_MONTH,
                             'page': 1, 'page_size': 2}, today=(2026, 10, 14))
@@ -245,7 +244,7 @@ class PeriodGroupsEnhancementTests(OverviewTestBase):
         self.assertEqual(by_period['2026-10']['period_text'], '每月｜2026年10月')
 
     def test_cross_month_week_grouped_by_monday_month(self):
-        self.make_ledger('EL-WM-20261026-0008', status='draft', executed_date=None,
+        self.make_ledger('EL-WM-20261026-0008', status='draft',
                          maintenance_period='2026-10-26', system=self.system_a)
         data = self.groups({'ledger_type': LEDGER_TYPE_WEEK_MONTH})['data']
         self.assertIn('2026-10-26', [g['maintenance_period'] for g in data])
@@ -268,19 +267,19 @@ class PeriodGroupsEnhancementTests(OverviewTestBase):
                          '每周｜2026-10-12 ~ 2026-10-18')
         self.assertFalse(generated_row['period_is_derived'])
         self.assertEqual(generated_row['period_source_text'], '')
-        # 历史台账：无期次标记、有执行日期 → 按执行日期归档并标注来源
+        # 历史台账：无期次标记 → 未标注期次（读时推导已随 executed_date 删除退役，
+        # 历史无标记行已在迁移 0024 按当时口径回填标记）
         self.make_ledger('EL-WM-20260920-0009', status='draft',
-                         executed_date=datetime(2026, 9, 20).date(),
                          maintenance_period='', system=self.system_a)
         data = self.groups({'ledger_type': LEDGER_TYPE_WEEK_MONTH})['data']
-        sep = [g for g in data if g['maintenance_period'] == '2026-09'][0]
+        sep = [g for g in data if not g['maintenance_period']][0]
         legacy_row = sep['ledgers'][0]
-        self.assertEqual(legacy_row['period_label'], '每月｜2026年9月')
-        self.assertTrue(legacy_row['period_is_derived'])
-        self.assertEqual(legacy_row['period_source_text'], '按实际执行日期归档')
+        self.assertEqual(legacy_row['period_label'], '未标注期次')
+        self.assertFalse(legacy_row['period_is_derived'])
+        self.assertEqual(legacy_row['period_source_text'], '台账缺少期次标记')
 
     def test_ledger_without_period_and_date_shows_unmarked(self):
-        self.make_ledger('EL-WM-20260101-0099', status='draft', executed_date=None,
+        self.make_ledger('EL-WM-20260101-0099', status='draft',
                          maintenance_period='')
         data = self.groups({'ledger_type': LEDGER_TYPE_WEEK_MONTH})['data']
         unmarked = [g for g in data if not g['maintenance_period']]
@@ -330,30 +329,26 @@ class WeekMonthOverviewTests(OverviewTestBase):
         data = self.overview(today=(2026, 10, 18))  # 同一周的周日
         self.assertEqual(self.block(data, 'week')['maintenance_period'], '2026-10-12')
 
-    def test_status_counts_use_real_ledgers_including_legacy_fallback(self):
+    def test_status_counts_use_real_ledgers(self):
         # 本期月组：生成的应填台账（draft）+ 历史台账（无期次标记按执行日期归档）
         self.publish_template(system=self.system_a, generation_period='monthly')
         with fake_today(2026, 10, 14):
             post_json(self.client, GENERATE_URL,
                       {'ledger_type': LEDGER_TYPE_WEEK_MONTH})
         self.make_ledger('EL-WM-20261005-0010', status='draft',
-                         executed_date=datetime(2026, 10, 5).date(),
-                         maintenance_period='', system=self.system_b)
+                         maintenance_period='2026-10', system=self.system_b)
         self.make_ledger('EL-WM-20261006-0011', status='completed',
-                         executed_date=datetime(2026, 10, 6).date(),
-                         maintenance_period='', system=self.system_b)
+                         maintenance_period='2026-10', system=self.system_b)
         self.make_ledger('EL-WM-20261007-0012', status='completed',
-                         executed_date=datetime(2026, 10, 7).date(),
-                         maintenance_period='', system=self.system_b)
+                         maintenance_period='2026-10', system=self.system_b)
         self.make_ledger('EL-WM-20261008-0013', status='void',
-                         executed_date=datetime(2026, 10, 8).date(),
-                         maintenance_period='', system=self.system_b)
+                         maintenance_period='2026-10', system=self.system_b)
         data = self.overview(today=(2026, 10, 14))
         month = self.block(data, 'month')
         self.assertEqual(month['drafting'], 2)
         self.assertEqual(month['completed'], 2)
         self.assertEqual(month['voided'], 1)
-        # 历史台账不串到周块（周块无执行日期推导路径）
+        # 月键标记台账不串到周块（周块只按每周键命中）
         self.assertEqual(self.block(data, 'week')['drafting'], 0)
 
     def test_attention_counts_blocked_slots(self):

@@ -1,0 +1,234 @@
+/**
+ * Excel 台账填写工作区样式（2026-10-19）。前缀 el-fill- 仅填写视图使用，
+ * 不影响模板工作台（excel-workspace-*）与历史回放。
+ */
+
+.el-fill-workspace {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+
+// —— 填写导航（左侧可收起面板） ——
+.el-fill-nav {
+  flex: 0 0 264px;
+  min-width: 0;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+  border: 1px solid #e5e9ef;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.el-fill-nav-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid #eef1f5;
+}
+
+.el-fill-nav-title {
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.el-fill-nav-progress {
+  padding: 10px 12px;
+  border-bottom: 1px solid #eef1f5;
+}
+
+.el-fill-nav-progress-text {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #556677;
+}
+
+.el-fill-nav-progress .ant-btn {
+  margin-top: 8px;
+}
+
+.el-fill-nav-sheet {
+  padding: 6px 0;
+}
+
+.el-fill-nav-sheet-name {
+  padding: 4px 12px;
+  font-size: 12px;
+  color: #8a97a5;
+}
+
+.el-fill-nav-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 13px;
+
+  &:hover {
+    background: #f2f7fd;
+  }
+}
+
+.el-fill-nav-field-state {
+  flex: 0 0 14px;
+  text-align: center;
+  color: #b8c2cc;
+}
+
+.el-fill-nav-field-filled .el-fill-nav-field-state {
+  color: #52c41a;
+}
+
+.el-fill-nav-field-missing {
+  .el-fill-nav-field-state {
+    color: #f5222d;
+    font-weight: 700;
+  }
+
+  .el-fill-nav-field-name {
+    color: #f5222d;
+  }
+}
+
+.el-fill-nav-field-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.el-fill-nav-field-coord {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: #9aa7b4;
+  font-family: monospace;
+}
+
+.el-fill-nav-empty {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: #8a97a5;
+}
+
+// —— 主区（工具栏 + 表格区） ——
+.el-fill-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.el-fill-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.el-fill-sheet-tabs {
+  flex: 1 1 auto;
+  margin-bottom: 0;
+
+  .ant-tabs-nav {
+    margin-bottom: 0;
+  }
+}
+
+.el-fill-toolbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.el-fill-paper-caption {
+  font-size: 12px;
+  color: #7b8794;
+  white-space: nowrap;
+}
+
+.el-fill-paper-caption-warn {
+  color: #fa8c16;
+}
+
+// —— 表格区（文档查看器式：灰底 + 白纸，区域限高内滚动） ——
+.el-fill-sheet-area {
+  overflow: auto;
+  max-height: calc(100vh - 280px);
+  min-height: 320px;
+  background: #eceff3;
+  border-radius: 4px;
+}
+
+.el-fill-paper {
+  position: relative;
+  width: max-content;
+  margin: 16px auto;
+  background: #fff;
+  border: 1px solid #dfe4ea;
+  box-shadow: 0 1px 6px rgba(31, 45, 61, 0.12);
+  padding-bottom: 24px;
+
+  // 可打印区域参考线（有纸张信息时由内联 CSS 变量给出门距）
+  &::before {
+    content: '';
+    position: absolute;
+    top: var(--el-fill-margin-top, 0);
+    left: var(--el-fill-margin-left, 0);
+    right: var(--el-fill-margin-right, 0);
+    bottom: 0;
+    border: 1px dashed #cfe3f5;
+    pointer-events: none;
+  }
+}
+
+.el-fill-paper-plain {
+  box-shadow: 0 1px 4px rgba(31, 45, 61, 0.08);
+
+  &::before {
+    display: none;
+  }
+}
+
+// 纸张视图内表格交给外层区域滚动（内层不裁剪，纸张随内容撑开）
+.el-fill-paper .proto-table-wrap {
+  overflow: visible;
+  max-height: none;
+}
+
+// —— 定位高亮闪烁（LayoutTable 定位时加 proto-cell-locate） ——
+@keyframes el-fill-locate-flash {
+  0%, 60% {
+    box-shadow: inset 0 0 0 3px #faad14;
+    background-color: #fffbe6;
+  }
+
+  100% {
+    box-shadow: inset 0 0 0 3px rgba(250, 173, 20, 0);
+    background-color: transparent;
+  }
+}
+
+.proto-cell-locate {
+  animation: el-fill-locate-flash 1.8s ease-out;
+}
+
+// —— 窄窗口：导航移到表格下方，表格优先阅读 ——
+@media (max-width: 1100px) {
+  .el-fill-workspace {
+    flex-direction: column;
+  }
+
+  .el-fill-nav {
+    flex: 0 0 auto;
+    order: 1;
+    max-height: 34vh;
+  }
+
+  .el-fill-main {
+    order: 0;
+    width: 100%;
+  }
+}

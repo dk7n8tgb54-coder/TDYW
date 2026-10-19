@@ -114,8 +114,7 @@ def make_published_version(template, user, bindings=None, snapshot=None,
     return OperationLedgerNativeTemplateVersion.objects.create(**defaults)
 
 
-def make_native_ledger(user, version, status='draft',
-                       executed_date='2026-10-18', values=None, **kwargs):
+def make_native_ledger(user, version, status='draft', values=None, **kwargs):
     """原生路线台账夹具（表头 + 填写记录；编号手动给定避免依赖生成器）。"""
     from itertools import count
 
@@ -127,7 +126,6 @@ def make_native_ledger(user, version, status='draft',
         tenant_id=user.tenant_id,
         ledger_no='%s-20261018-%04d' % (prefix, seq),
         ledger_type=version.template.ledger_type,
-        executed_date=executed_date,
         status=status,
         created_from=LEDGER_FROM_NATIVE,
         created_by=user,

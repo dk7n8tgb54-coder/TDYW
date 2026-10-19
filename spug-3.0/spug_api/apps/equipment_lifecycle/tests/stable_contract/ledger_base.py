@@ -57,7 +57,6 @@ def ledger_payload(entries, **kwargs):
     写路径契约测试一律落在仍活跃的周月/季维护台账上）。"""
     payload = {
         'ledger_type': LEDGER_TYPE_WEEK_MONTH,
-        'executed_date': '2026-09-10',
         'executed_start': '2026-09-10 09:00',
         'executed_end': '2026-09-10 11:00',
         'created_from': 'manual',

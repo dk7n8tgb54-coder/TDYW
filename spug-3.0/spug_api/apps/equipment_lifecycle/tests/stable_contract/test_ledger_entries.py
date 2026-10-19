@@ -113,12 +113,9 @@ class LedgerMultiSystemContractTests(TestCase):
                 item_payload(executed_at='2026-09-10 09:30')])]))
         ledger = OperationLedger.objects.get(pk=data['id'])
         item = OperationLedgerItem.objects.get(ledger_id=data['id'])
-        self.assertEqual(str(ledger.executed_date), '2026-09-10')
         self.assertEqual(ledger.executed_start, datetime(2026, 9, 10, 9, 0))
         self.assertEqual(ledger.executed_end, datetime(2026, 9, 10, 11, 0))
         self.assertEqual(item.executed_at, datetime(2026, 9, 10, 9, 30))
-        # created_at 为录入时间（当前），晚于实际执行日期
-        self.assertGreater(ledger.created_at.date(), ledger.executed_date)
 
     def test_manual_ledger_entry_note_removed(self):
         """23. 补录说明字段已删除（2026-09-21）：临时直接新建不再要求补录说明。"""
@@ -133,11 +130,13 @@ class LedgerMultiSystemContractTests(TestCase):
         self.assertNotIn('summary', data)
 
     def test_ledger_no_unique_per_type_and_day(self):
-        """台账编号按类型+日期自增且租户内唯一。"""
+        """台账编号按类型+录入当天基准自增且租户内唯一。"""
         client = make_client(self.user)
         first = create_ledger_ok(client, ledger_payload(
             [entry_payload(self.system_a.id, [item_payload()])]))
         second = create_ledger_ok(client, ledger_payload(
             [entry_payload(self.system_a.id, [item_payload()])]))
         self.assertNotEqual(first['ledger_no'], second['ledger_no'])
-        self.assertTrue(first['ledger_no'].startswith('EL-WM-20260910-'))
+        today = datetime.now().strftime('%Y%m%d')
+        self.assertTrue(first['ledger_no'].startswith('EL-WM-%s-' % today))
+        self.assertTrue(second['ledger_no'].startswith('EL-WM-%s-' % today))

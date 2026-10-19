@@ -3,19 +3,33 @@
 # Released under the AGPL-3.0 License.
 """设备全生命周期——系统配置参数与配置变更模型（2026-10）。
 
-产品定位：配置变更不是独立一级菜单/独立页面，只在「系统详情 → 配置」页签
-展示（当前配置 + 配置变更历史两个信息区域 + 记录配置变更 Modal）。
+产品定位（2026-10-19 起）：配置的写操作集中在「设备管理 → 系统配置」独立
+维护入口（选择系统、初始建档、维护参数定义、处理配置变更）；「系统详情 →
+配置」页签改为只读展示（当前配置 + 建档信息 + 变更历史），可跳转维护入口。
 本组模型与已删除的旧"配置三表/自定义字段"路线（0021/0023）无关：
-- ConfigParamDefinition    配置参数定义（编码/名称/适用范围/类型/单位/必填/枚举/校验/启用）
+- ConfigParamDefinition    配置参数定义（编码/名称/分类/适用范围/类型/单位/必填/枚举/校验/启用）
 - ConfigParamSystemScope   参数适用系统范围（scope_type=specific 时的显式系统清单）
 - SystemParamValue         系统当前配置值（类型化字段，同系统同参数唯一生效值）
+- SystemConfigBaseline     系统初始配置建档（基线：建档人/时间/来源，每系统至多一份）
+- SystemConfigBaselineItem 初始建档明细（参数快照 + 基线值快照）
 - ConfigChangeRecord       配置变更主表（草稿/已生效/已验证/已回退/已取消）
 - ConfigChangeItem         配置变更明细（参数快照 + 变更前后值快照）
+
+参数分类（2026-10-19）：hardware_spec=硬件规格（能明确描述整套系统的规格，
+如系统额定功率、容量；仅属于某台设备的规格不得登记为系统规格）；
+runtime_param=运行参数（可调整的设定值，如设定功率、工作模式）。
+实测值不属于配置，仍记录在运行处置记录中。
+
+初始建档原则：建档是独立于配置变更的明确身份（建档人/建档时间/来源），
+不是一条伪装的普通变更；建档后参数修改一律走配置变更流程。只有"干净"
+系统（无建档、无当前配置值、无已生效变更）允许建档——已有配置数据的
+老系统保留原有记录，不补建、不凭空推断历史基线。
 
 历史快照原则：明细保存参数编码/名称/类型/单位与变更前后值的规范化文本
 快照，参数定义后续修改/停用不改变历史含义；参数定义不提供删除接口
 （只有启用/停用），停用后当前值与历史记录全部保留。
-配置值只经「配置变更」流程修改（创建草稿 → 应用生效），不提供散改接口。
+配置值只经「初始建档」或「配置变更」（创建草稿 → 应用生效）流程写入，
+不提供散改接口。
 （系统履历已于 2026-10-11 整体退役：配置变更不再写履历事件，变更历史与
 审计留痕承载追溯需求。）
 """
@@ -53,6 +67,18 @@ PARAM_TYPE_CHOICES = (
     (PARAM_TYPE_CHOICE, '枚举'),
 )
 PARAM_TYPE_TEXT_MAP = dict(PARAM_TYPE_CHOICES)
+
+# 参数分类（2026-10-19）：硬件规格=整套系统的静态规格（额定功率/容量等，
+# 引用系统档案视角，不得登记单台设备规格）；运行参数=可调整的设定值
+# （设定功率/工作模式等）。存量参数默认归入运行参数，不凭空推断历史分类。
+PARAM_CATEGORY_HARDWARE = 'hardware_spec'
+PARAM_CATEGORY_RUNTIME = 'runtime_param'
+PARAM_CATEGORY_VALUES = [PARAM_CATEGORY_HARDWARE, PARAM_CATEGORY_RUNTIME]
+PARAM_CATEGORY_CHOICES = (
+    (PARAM_CATEGORY_HARDWARE, '硬件规格'),
+    (PARAM_CATEGORY_RUNTIME, '运行参数'),
+)
+PARAM_CATEGORY_TEXT_MAP = dict(PARAM_CATEGORY_CHOICES)
 
 # 配置变更状态：draft(草稿) → applied(已生效) → verified(已验证)；
 # applied/verified → rolled_back(已回退，生成一条新的反向变更)；
@@ -100,6 +126,10 @@ class ConfigParamDefinition(TenantModelMixin, models.Model):
 
     param_code = models.CharField(max_length=100, help_text='参数编码（小写字母开头的字母/数字/下划线，租户内唯一，创建后不可修改）')
     param_name = models.CharField(max_length=100, help_text='参数名称')
+    category = models.CharField(
+        max_length=20, choices=PARAM_CATEGORY_CHOICES, default=PARAM_CATEGORY_RUNTIME,
+        help_text='参数分类：hardware_spec 硬件规格（系统级规格，如额定功率/容量）/'
+                  'runtime_param 运行参数（可调整设定值，如设定功率/工作模式）')
     scope_type = models.CharField(
         max_length=20, choices=PARAM_SCOPE_CHOICES, default=PARAM_SCOPE_ALL,
         help_text='适用范围：all 全部系统 / specific 指定系统清单')
@@ -136,6 +166,10 @@ class ConfigParamDefinition(TenantModelMixin, models.Model):
                 check=models.Q(data_type__in=PARAM_TYPE_VALUES),
                 name='el_config_params_type_valid',
             ),
+            models.CheckConstraint(
+                check=models.Q(category__in=PARAM_CATEGORY_VALUES),
+                name='el_config_params_category_valid',
+            ),
         ]
         indexes = [
             models.Index(fields=['tenant_id', 'is_enabled', 'param_code']),
@@ -167,6 +201,8 @@ class ConfigParamDefinition(TenantModelMixin, models.Model):
             'id': self.id,
             'param_code': self.param_code,
             'param_name': self.param_name,
+            'category': self.category,
+            'category_text': PARAM_CATEGORY_TEXT_MAP.get(self.category, self.category),
             'scope_type': self.scope_type,
             'scope_type_text': dict(PARAM_SCOPE_CHOICES).get(self.scope_type, self.scope_type),
             'system_ids': list(self.system_scopes.values_list('system_id', flat=True)),
@@ -232,11 +268,15 @@ class SystemParamValue(TenantModelMixin, models.Model):
     value_bool = models.BooleanField(null=True, blank=True, help_text='布尔值（bool 类型）')
     value_date = models.DateField(null=True, blank=True, help_text='日期值（date 类型）')
     value_choice = models.CharField(max_length=200, default='', blank=True, help_text='枚举值（choice 类型，必须是参数选项之一）')
-    effective_at = models.DateTimeField(help_text='当前值生效时间（应用变更时间）')
+    effective_at = models.DateTimeField(help_text='当前值生效时间（应用变更时间或建档时间）')
     last_change = models.ForeignKey(
         'ConfigChangeRecord', models.PROTECT, related_name='applied_config_values',
         null=True, blank=True,
-        help_text='最后变更记录（应用该值的配置变更；首次无变更来源时为空）')
+        help_text='最后变更记录（应用该值的配置变更；初始建档写入的值为空）')
+    baseline = models.ForeignKey(
+        'SystemConfigBaseline', models.PROTECT, related_name='baseline_config_values',
+        null=True, blank=True,
+        help_text='初始建档来源（建档建立该值时填写；后续配置变更不改写本标记）')
     last_changed_by = models.ForeignKey(
         User, models.PROTECT, related_name='+', null=True, blank=True,
         help_text='最后变更操作账号')
@@ -455,3 +495,105 @@ class ConfigChangeItem(TenantModelMixin, models.Model):
             'verify_status_text': {'passed': '验证通过', 'failed': '验证不通过'}.get(self.verify_status, ''),
             'remark': self.remark,
         }
+
+
+class SystemConfigBaseline(TenantModelMixin, models.Model):
+    """系统初始配置建档（基线）：每系统至多一份，独立于配置变更的明确身份。
+
+    - 记录基线值（明细见 SystemConfigBaselineItem）、建档人、建档时间与
+      来源（source，如验收文档/出厂技术资料/人工核定）；
+    - 建档后参数修改一律走配置变更流程；建档写入的当前值 last_change 为空、
+      baseline 指向本行，当前值展示据此区分"初始建档"与"配置变更"；
+    - 只有"干净"系统允许建档（无建档、无当前配置值、无非草稿配置变更），
+      校验在 config_baseline_services；已有配置数据的老系统保留原记录，
+      不补建、不凭空推断历史基线；
+    - 建档不提供删除/修改接口（基线是档案性记录）。
+    """
+
+    system = models.ForeignKey(
+        LifecycleSystem, models.PROTECT, related_name='config_baseline',
+        help_text='所属系统（每系统至多一份建档，租户内唯一）')
+    system_code = models.CharField(max_length=50, help_text='系统编号快照')
+    system_name = models.CharField(max_length=100, help_text='系统名称快照')
+    source = models.CharField(max_length=200, help_text='建档来源（如验收文档、出厂技术资料、人工核定）')
+    remark = models.CharField(max_length=200, default='', blank=True, help_text='备注（选填）')
+    established_at = models.DateTimeField(help_text='建档时间')
+    established_by = models.ForeignKey(User, models.PROTECT, related_name='+', help_text='建档人')
+
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    class Meta:
+        db_table = 'tdyw_el_config_baselines'
+        verbose_name = '系统初始配置建档'
+        verbose_name_plural = '系统初始配置建档'
+        ordering = ('-established_at', '-id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['tenant_id', 'system'], name='uniq_el_config_baselines_system'),
+        ]
+        indexes = [
+            models.Index(fields=['tenant_id', 'system']),
+        ]
+
+    def __repr__(self):
+        return '<SystemConfigBaseline system=%s>' % self.system_id
+
+    def to_view(self):
+        return {
+            'id': self.id,
+            'system': self.system_id,
+            'system_code': self.system_code,
+            'system_name': self.system_name,
+            'source': self.source,
+            'remark': self.remark,
+            'established_at': self.established_at,
+            'established_by_name': self.established_by.username if self.established_by_id else '',
+        }
+
+
+class SystemConfigBaselineItem(TenantModelMixin, models.Model):
+    """初始建档明细：参数定义快照 + 基线值（类型化字段）。
+
+    - 快照原则与 ConfigChangeItem 一致：参数定义后续修改/停用不改变建档
+      的历史含义；展示值由 canonical_value_text 按类型派生；
+    - 建档值不允许为空（空值参数不纳入建档，保持"未设置"）。
+    """
+
+    baseline = models.ForeignKey(
+        SystemConfigBaseline, models.CASCADE, related_name='items',
+        help_text='所属建档')
+    param = models.ForeignKey(
+        ConfigParamDefinition, models.PROTECT, related_name='baseline_items',
+        help_text='参数定义（快照外键）')
+    param_code = models.CharField(max_length=100, help_text='参数编码快照')
+    param_name = models.CharField(max_length=100, help_text='参数名称快照')
+    param_data_type = models.CharField(max_length=20, help_text='参数类型快照')
+    unit = models.CharField(max_length=20, default='', blank=True, help_text='单位快照')
+    value_text = models.CharField(max_length=500, default='', blank=True, help_text='文本基线值（text 类型）')
+    value_number = models.DecimalField(
+        max_digits=20, decimal_places=6, null=True, blank=True, help_text='数字基线值（number 类型）')
+    value_bool = models.BooleanField(null=True, blank=True, help_text='布尔基线值（bool 类型）')
+    value_date = models.DateField(null=True, blank=True, help_text='日期基线值（date 类型）')
+    value_choice = models.CharField(max_length=200, default='', blank=True, help_text='枚举基线值（choice 类型）')
+
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    class Meta:
+        db_table = 'tdyw_el_config_baseline_items'
+        verbose_name = '初始建档明细'
+        verbose_name_plural = '初始建档明细'
+        ordering = ('id',)
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(param_data_type__in=PARAM_TYPE_VALUES),
+                name='el_config_baseline_items_type_valid',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['tenant_id', 'param']),
+        ]
+
+    def __repr__(self):
+        return '<SystemConfigBaselineItem baseline=%s %s>' % (self.baseline_id, self.param_code)

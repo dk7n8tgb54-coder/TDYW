@@ -115,7 +115,7 @@ function LedgerGroupBrowse({store}) {
     }
     Modal.confirm({
       title: '有未保存的修改',
-      content: `${actionText}将放弃尚未保存的填写值与实际执行日期，是否继续？`,
+      content: `${actionText}将放弃尚未保存的填写值，是否继续？`,
       okText: '放弃修改并继续',
       cancelText: '继续填写',
       onOk: () => {

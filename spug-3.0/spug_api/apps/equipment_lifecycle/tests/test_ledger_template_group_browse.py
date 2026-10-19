@@ -4,17 +4,15 @@
 真实执行 HTTP → View → Service → Model 链路（Docker + 隔离测试库）：
 - 翻阅清单 = 模板组内符合筛选的台账按翻阅顺序一次性返回（网页内连续翻阅，
   不以下载 PDF 代替）；筛选口径与组内列表一致（默认不含已作废，
-  status=void 仅已作废，status=all 全部，keyword 编号模糊，执行日期范围）；
-- 排序以计划维护期次为主（期次起始日期升序），无期次标记的历史台账回退
-  按实际执行日期，两者皆缺排最后；同键内 ID 兜底保证顺序稳定；
+  status=void 仅已作废，status=all 全部，keyword 编号模糊）；
+- 排序以计划维护期次为主（期次起始日期升序），无期次标记的台账排最后；
+  同键内 ID 兜底保证顺序稳定；
 - 同一期次多张台账（作废后补建并存）全部保留、相邻排列，逐张可翻不漏；
 - 清单量级为组内全部条目：组内列表分页（20 条）只是展示形态，翻页必须
   能跨过分页边界覆盖全部条目；
 - 每条条目携带该台账创建时引用的版本号（版本快照随台账，不随模板当前
   版本漂移）；manual 组无模板版式不支持翻阅；跨租户组键一律拒绝。
 """
-from datetime import date
-
 from django.test import TestCase
 
 from apps.equipment_lifecycle.excel_models import (
@@ -68,15 +66,14 @@ class TemplateGroupBrowseTestBase(TestCase):
             layout='', bindings='', field_count=0,
             published_by=user or self.user, tenant_id=template.tenant_id)
 
-    def make_excel_ledger(self, version, executed_date='2026-10-01',
-                          status=LEDGER_STATUS_DRAFT, maintenance_period='',
-                          user=None):
+    def make_excel_ledger(self, version, status=LEDGER_STATUS_DRAFT,
+                          maintenance_period='', user=None):
         self._ledger_seq += 1
         user = user or self.user
         ledger = OperationLedger.objects.create(
             ledger_no='EL-TB-%04d' % self._ledger_seq,
             ledger_type=version.template.ledger_type,
-            executed_date=executed_date, status=status,
+            status=status,
             maintenance_period=maintenance_period,
             created_from=LEDGER_FROM_EXCEL, created_by=user, tenant_id=user.tenant_id)
         OperationLedgerExcelRecord.objects.create(
@@ -101,35 +98,29 @@ class TemplateGroupBrowseTestBase(TestCase):
 class BrowseOrderingTests(TemplateGroupBrowseTestBase):
     """翻阅顺序：期次为主、历史回退、ID 兜底稳定、同期多张相邻。"""
 
-    def test_order_by_period_then_executed_date_then_id(self):
+    def test_order_by_period_start_then_id(self):
         template = self.make_template('信道维护台账')
         version = self.make_version(template, 1)
-        # A：9 月期次标记（期次起始 2026-09-01，执行日期空）
+        # A：9 月期次标记（期次起始 2026-09-01）
         ledger_a = self.make_excel_ledger(
-            version, executed_date=None, maintenance_period='2026-09')
-        # C：无期次标记，执行日期 2026-09-15 → 按执行日期推导归入 9 月期次
-        ledger_c = self.make_excel_ledger(
-            version, executed_date='2026-09-15', maintenance_period='')
+            version, maintenance_period='2026-09')
         # B/E：同周期次标记（10 月第一周），B 先建 E 后建（ID 兜底稳定）
         ledger_b = self.make_excel_ledger(
-            version, executed_date='2026-10-08', maintenance_period='2026-10-05')
+            version, maintenance_period='2026-10-05')
         ledger_e = self.make_excel_ledger(
-            version, executed_date='2026-10-09', maintenance_period='2026-10-05')
-        # D：无期次标记也无执行日期 → 排最后
-        ledger_d = self.make_excel_ledger(
-            version, executed_date=None, maintenance_period='')
+            version, maintenance_period='2026-10-05')
+        # D：无期次标记 → 排最后
+        ledger_d = self.make_excel_ledger(version)
         data = self.browse(template.id)
-        self.assertEqual(data['total'], 5)
+        self.assertEqual(data['total'], 4)
         self.assertEqual(
             self.entry_ids(data),
-            [ledger_a.id, ledger_c.id, ledger_b.id, ledger_e.id, ledger_d.id])
-        # 期次标签随条目下发：标记期次完整展示，历史台账标注归档来源
+            [ledger_a.id, ledger_b.id, ledger_e.id, ledger_d.id])
+        # 期次标签随条目下发：标记期次完整展示，无标记台账"未标注期次"
         by_id = {entry['id']: entry for entry in data['entries']}
         self.assertEqual(by_id[ledger_b.id]['period_label'],
                          '每周｜2026-10-05 ~ 2026-10-11')
         self.assertFalse(by_id[ledger_b.id]['period_is_derived'])
-        self.assertEqual(by_id[ledger_c.id]['period_label'], '每月｜2026年9月')
-        self.assertTrue(by_id[ledger_c.id]['period_is_derived'])
         self.assertEqual(by_id[ledger_d.id]['period_label'], '未标注期次')
         self.assertEqual(by_id[ledger_d.id]['period_key'], '')
 
@@ -139,13 +130,13 @@ class BrowseOrderingTests(TemplateGroupBrowseTestBase):
         version = self.make_version(template, 1)
         # 同一期次三张（作废→补建场景）：有效与补建并存，作废默认隐藏
         first = self.make_excel_ledger(
-            version, executed_date='2026-10-03', status=LEDGER_STATUS_COMPLETED,
+            version, status=LEDGER_STATUS_COMPLETED,
             maintenance_period='2026-10')
         rebuilt = self.make_excel_ledger(
-            version, executed_date=None, status=LEDGER_STATUS_DRAFT,
+            version, status=LEDGER_STATUS_DRAFT,
             maintenance_period='2026-10')
         voided = self.make_excel_ledger(
-            version, executed_date='2026-10-02', status=LEDGER_STATUS_VOID,
+            version, status=LEDGER_STATUS_VOID,
             maintenance_period='2026-10')
         # 默认范围（不含已作废）：两张有效相邻、按创建顺序（ID）稳定排序
         data = self.browse(template.id)
@@ -160,9 +151,9 @@ class BrowseOrderingTests(TemplateGroupBrowseTestBase):
         template = self.make_template('季维护台账', ledger_type=LEDGER_TYPE_SEASONAL)
         version = self.make_version(template, 1)
         winter = self.make_excel_ledger(
-            version, executed_date='2026-11-10', maintenance_period='2026-冬春')
+            version, maintenance_period='2026-冬春')
         summer = self.make_excel_ledger(
-            version, executed_date='2026-08-10', maintenance_period='2026-夏秋')
+            version, maintenance_period='2026-夏秋')
         data = self.browse(template.id)
         # 夏秋航季在前（3 月末~10 月末），冬春在后；航季标签含起止日期
         self.assertEqual(self.entry_ids(data), [summer.id, winter.id])
@@ -174,18 +165,18 @@ class BrowseOrderingTests(TemplateGroupBrowseTestBase):
 
 
 class BrowseFilterScopeTests(TemplateGroupBrowseTestBase):
-    """翻阅范围与组内列表同口径：状态（默认不含已作废）/编号/日期范围。"""
+    """翻阅范围与组内列表同口径：状态（默认不含已作废）/编号关键词。"""
 
     def setUp(self):
         super().setUp()
         self.template = self.make_template('信道维护台账')
         self.version = self.make_version(self.template, 1)
         self.draft = self.make_excel_ledger(
-            self.version, executed_date='2026-10-08', status=LEDGER_STATUS_DRAFT)
+            self.version, status=LEDGER_STATUS_DRAFT)
         self.completed = self.make_excel_ledger(
-            self.version, executed_date='2026-10-12', status=LEDGER_STATUS_COMPLETED)
+            self.version, status=LEDGER_STATUS_COMPLETED)
         self.voided = self.make_excel_ledger(
-            self.version, executed_date='2026-10-15', status=LEDGER_STATUS_VOID)
+            self.version, status=LEDGER_STATUS_VOID)
 
     def test_default_scope_excludes_void(self):
         data = self.browse(self.template.id)
@@ -204,23 +195,11 @@ class BrowseFilterScopeTests(TemplateGroupBrowseTestBase):
         data = self.browse(self.template.id, keyword=self.completed.ledger_no)
         self.assertEqual(self.entry_ids(data), [self.completed.id])
 
-    def test_executed_date_range_filters(self):
-        data = self.browse(
-            self.template.id, executed_from='2026-10-10', executed_to='2026-10-12')
-        # 草稿（10-08）出范围；已作废（10-15）出范围且默认被排除
-        self.assertEqual(self.entry_ids(data), [self.completed.id])
-        # 日期命中的已作废台账在默认范围仍隐藏，显式"全部"才进入翻阅
-        empty = self.browse(self.template.id, executed_from='2026-10-13')
-        self.assertEqual(empty['entries'], [])
-        void_in_range = self.browse(
-            self.template.id, status='all', executed_from='2026-10-13')
-        self.assertEqual(self.entry_ids(void_in_range), [self.voided.id])
 
     def test_browse_list_covers_beyond_group_list_pagination(self):
         """组内列表分页（20 条）不限制翻阅：夹具 3 张 + 25 张全部进入翻阅清单。"""
         for _ in range(25):
-            self.make_excel_ledger(
-                self.version, executed_date='2026-09-%02d' % (self._ledger_seq % 28 + 1))
+            self.make_excel_ledger(self.version)
         group_rows = self.ok_data(
             self.client.get(
                 '%s/%s/ledgers/' % (GROUPS_URL, self.template.id),
@@ -243,8 +222,8 @@ class BrowseSnapshotAndGuardTests(TemplateGroupBrowseTestBase):
         template = self.make_template('信道维护台账')
         v1 = self.make_version(template, 1)
         v2 = self.make_version(template, 2)
-        old = self.make_excel_ledger(v1, executed_date='2026-09-05')
-        new = self.make_excel_ledger(v2, executed_date='2026-10-05')
+        old = self.make_excel_ledger(v1)
+        new = self.make_excel_ledger(v2)
         data = self.browse(template.id)
         by_id = {entry['id']: entry for entry in data['entries']}
         self.assertEqual(by_id[old.id]['source_version_no'], 1)
@@ -253,7 +232,7 @@ class BrowseSnapshotAndGuardTests(TemplateGroupBrowseTestBase):
     def test_template_rename_keeps_group_and_snapshot(self):
         template = self.make_template('旧名称台账')
         version = self.make_version(template, 1)
-        self.make_excel_ledger(version, executed_date='2026-09-05')
+        self.make_excel_ledger(version)
         template.name = '新名称台账'
         template.save()
         data = self.browse(template.id)
@@ -282,11 +261,11 @@ class BrowseSnapshotAndGuardTests(TemplateGroupBrowseTestBase):
     def test_tenant_isolation(self):
         template = self.make_template('信道维护台账')
         version = self.make_version(template, 1)
-        self.make_excel_ledger(version, executed_date='2026-09-05')
+        self.make_excel_ledger(version)
         other_template = self.make_template(
             'B租户模板', user=self.other_user)
         other_version = self.make_version(other_template, 1, user=self.other_user)
-        self.make_excel_ledger(other_version, executed_date='2026-09-06',
+        self.make_excel_ledger(other_version,
                                user=self.other_user)
         # B 租户访问 A 租户组键：一律拒绝（不泄露存在性）
         resp = self.other_client.get('%s/%s/browse/' % (GROUPS_URL, template.id))
@@ -301,7 +280,7 @@ class BrowseSnapshotAndGuardTests(TemplateGroupBrowseTestBase):
     def test_requires_view_permission(self):
         template = self.make_template('信道维护台账')
         version = self.make_version(template, 1)
-        self.make_excel_ledger(version, executed_date='2026-09-05')
+        self.make_excel_ledger(version)
         viewer = make_user('tg_browse_view', perms=['equipment_lifecycle.ledger.view'])
         data = self.browse(template.id, client=make_client(viewer))
         self.assertEqual(data['total'], 1)
@@ -313,12 +292,12 @@ class BrowseSnapshotAndGuardTests(TemplateGroupBrowseTestBase):
         """手工补录台账不属于任何模板组：不混入模板翻阅清单。"""
         template = self.make_template('信道维护台账')
         version = self.make_version(template, 1)
-        self.make_excel_ledger(version, executed_date='2026-09-05')
+        self.make_excel_ledger(version)
         self._ledger_seq += 1
         OperationLedger.objects.create(
             ledger_no='EL-TB-M%04d' % self._ledger_seq,
             ledger_type=LEDGER_TYPE_WEEK_MONTH,
-            executed_date=date(2026, 9, 6), status=LEDGER_STATUS_DRAFT,
+            status=LEDGER_STATUS_DRAFT,
             created_from=LEDGER_FROM_MANUAL, created_by=self.user,
             tenant_id=self.user.tenant_id)
         data = self.browse(template.id)

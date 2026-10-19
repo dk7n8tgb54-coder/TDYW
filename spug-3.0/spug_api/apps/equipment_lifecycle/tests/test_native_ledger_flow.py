@@ -53,7 +53,6 @@ def make_excel_ledger(user, status):
         tenant_id=user.tenant_id,
         ledger_no='EL-WM-20261017-9001',
         ledger_type='week_month',
-        executed_date='2026-10-17',
         status=status,
         created_from=LEDGER_FROM_EXCEL,
         source_template=template,
@@ -98,7 +97,6 @@ class NativeLedgerFlowTests(TestCase):
     def _create(self, **overrides):
         payload = {
             'version_id': self.version.id,
-            'executed_date': '2026-10-18',
             'client_token': 'tok_native_1',
         }
         payload.update(overrides)
@@ -124,7 +122,8 @@ class NativeLedgerFlowTests(TestCase):
         detail = res.json()['data']['data']
         self.assertEqual(detail['created_from'], 'native_template')
         self.assertEqual(detail['status'], 'draft')
-        self.assertTrue(detail['ledger_no'].startswith('EL-WM-20261018'))
+        # 编号基准=录入当天（执行日期由表格内容承载，不再单列）
+        self.assertTrue(detail['ledger_no'].startswith('EL-WM-'))
         self.assertEqual(detail['native']['version']['id'], self.version.id)
         self.assertEqual(detail['native']['version']['version_no'], 1)
         # 预填骨架：全部绑定 key → 空串
@@ -144,8 +143,6 @@ class NativeLedgerFlowTests(TestCase):
     def test_create_type_mismatch_and_missing_fields(self):
         res = self._create(ledger_type='seasonal')
         self.assertIn('与所选台账类型不一致', res.json()['error'])
-        res = self._create(executed_date='')
-        self.assertIn('实际执行日期', res.json()['error'])
         res = self._create(version_id=999999)
         self.assertIn('不存在或未发布', res.json()['error'])
 
@@ -170,35 +167,15 @@ class NativeLedgerFlowTests(TestCase):
                                   content_type='application/json')
             self.assertIn(expect, res.json()['error'], bad)
 
-    def test_update_header_executed_date(self):
-        ledger = make_native_ledger(self.user, self.version,
-                                    executed_date='2026-10-18')
-        url = '%s/%d/' % (LEDGER_URL, ledger.id)
-        res = self.client.put(url, {'header': {'executed_date': '2026-10-19'}},
-                              content_type='application/json')
-        self.assertEqual(res.json()['error'], '')
-        ledger.refresh_from_db()
-        self.assertEqual(str(ledger.executed_date), '2026-10-19')
-        # 空串显式清空
-        res = self.client.put(url, {'header': {'executed_date': ''}},
-                              content_type='application/json')
-        self.assertEqual(res.json()['error'], '')
-        ledger.refresh_from_db()
-        self.assertIsNone(ledger.executed_date)
 
     # ==================== 完成填写 ====================
 
     def test_complete_flow_and_state_machine(self):
-        ledger = make_native_ledger(self.user, self.version,
-                                    executed_date=None, status='draft')
+        ledger = make_native_ledger(self.user, self.version, status='draft')
         url = '%s/%d/complete/' % (LEDGER_URL, ledger.id)
-        # 未填执行日期
-        res = self.client.post(url)
-        self.assertIn('实际执行日期', res.json()['error'])
-        # 保存值 + 日期后完成
+        # 先保存填写值再完成
         self.client.put('%s/%d/' % (LEDGER_URL, ledger.id), {
             'values': self._values(),
-            'header': {'executed_date': '2026-10-18'},
         }, content_type='application/json')
         res = self.client.post(url)
         self.assertEqual(res.json()['error'], '')
@@ -218,7 +195,7 @@ class NativeLedgerFlowTests(TestCase):
             make_binding('must', label='必填结论', cell_range='B2', required=True),
         ])
         ledger = make_native_ledger(
-            self.user, version, values={'must': ''}, executed_date='2026-10-18')
+            self.user, version, values={'must': ''})
         res = self.client.post('%s/%d/complete/' % (LEDGER_URL, ledger.id))
         self.assertIn('必填字段未填写', res.json()['error'])
         self.assertIn('必填结论', res.json()['error'])
@@ -246,28 +223,22 @@ class NativeLedgerFlowTests(TestCase):
         res = self.client.post(url, {
             'reason': '复核发现结论有误',
             'values': self._values(conclusion='结论修正'),
-            'header': {'executed_date': '2026-10-19'},
         }, content_type='application/json')
         self.assertEqual(res.json()['error'], '')
-        ledger.refresh_from_db()
-        self.assertEqual(str(ledger.executed_date), '2026-10-19')
         record = OperationLedgerCorrection.objects.get(ledger=ledger)
         self.assertEqual(record.reason, '复核发现结论有误')
         fields = {c['field']: c for c in json_changes(record.changes)}
         self.assertEqual(fields['conclusion']['old'], '链路正常')
         self.assertEqual(fields['conclusion']['new'], '结论修正')
-        self.assertEqual(fields['executed_date']['new'], '2026-10-19')
         # 详情带更正记录
         res = self.client.get('%s/%d/' % (LEDGER_URL, ledger.id))
         self.assertEqual(len(res.json()['data']['data']['corrections']), 1)
 
     def test_correct_without_change_rejected(self):
         ledger = make_native_ledger(self.user, self.version,
-                                    status='completed', values=self._values(),
-                                    executed_date='2026-10-18')
+                                    status='completed', values=self._values())
         res = self.client.post('%s/%d/correct/' % (LEDGER_URL, ledger.id), {
             'reason': '无变化', 'values': self._values(),
-            'header': {'executed_date': '2026-10-18'},
         }, content_type='application/json')
         self.assertIn('没有需要更正的内容', res.json()['error'])
 
@@ -307,7 +278,7 @@ class NativeLedgerVisibilityTests(TestCase):
         self.template = make_native_template(self.user, name='可见性原生模板')
         self.version = make_published_version(self.template, self.user)
         self.ledger = make_native_ledger(self.user, self.version,
-                                         executed_date='2026-10-18')
+)
 
     def test_unified_list_source_fields(self):
         res = self.client.get('%s/?ledger_type=week_month' % UNIFIED_URL)
@@ -357,7 +328,7 @@ class NativeTemplateGroupTests(TestCase):
         self.template = make_native_template(self.user, name='分组原生模板')
         self.version = make_published_version(self.template, self.user)
         self.ledger = make_native_ledger(self.user, self.version,
-                                         executed_date='2026-10-18')
+)
 
     def test_group_list_contains_native_group(self):
         res = self.client.get(

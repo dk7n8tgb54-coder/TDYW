@@ -110,18 +110,16 @@ describe('LedgerStore 模板分组视图（2026-10-11）', () => {
     expect(call[1].params.ledger_type).toBe('week_month');
   });
 
-  test('fetchTemplateGroups 携带同口径筛选（关键词/状态/执行日期范围，模板视图独立字段）', async () => {
+  test('fetchTemplateGroups 携带同口径筛选（关键词/状态，模板视图独立字段）', async () => {
     const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
     store.t_keyword = 'EL-WM';
     store.t_status = 'completed';
-    store.t_date_range = [{format: () => '2026-10-01'}, {format: () => '2026-10-31'}];
     store.templateGroupsPage = 2;
     await store.fetchTemplateGroups();
     const call = mockHttpGet.mock.calls.find(c => c[0] === GROUPS_URL);
     expect(call[1].params).toEqual({
       ledger_type: 'week_month', page: 2, page_size: 10,
       keyword: 'EL-WM', status: 'completed',
-      executed_from: '2026-10-01', executed_to: '2026-10-31',
     });
   });
 
@@ -204,7 +202,6 @@ describe('LedgerStore 组内批量 PDF 导出（2026-10-11）', () => {
     group_key: '7', template_id: 7, template_name: '信道台账',
     ledger_type: 'week_month', total: 3,
     status_scope: ['completed'],
-    executed_from: '2026-10-01', executed_to: '2026-10-08',
     versions: [{version_no: 1, count: 1}, {version_no: 2, count: 2}],
     max_records: 50,
   };
@@ -229,16 +226,13 @@ describe('LedgerStore 组内批量 PDF 导出（2026-10-11）', () => {
 
   test('exportBatchPdf 以相同筛选 POST 交给 exportFile 二进制下载', async () => {
     const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
-    store.t_date_range = [{format: () => '2026-10-01'}, {format: () => '2026-10-31'}];
     store.activeGroup = {group_key: '7', group_name: '信道台账'};
     await store.exportBatchPdf();
     expect(mockExportFile).toHaveBeenCalledTimes(1);
     const options = mockExportFile.mock.calls[0][0];
     expect(options.url).toBe('/api/equipment-lifecycle/ledgers/template-groups/7/export-pdf/');
     expect(options.method).toBe('post');
-    expect(options.params).toEqual({
-      ledger_type: 'week_month', executed_from: '2026-10-01', executed_to: '2026-10-31',
-    });
+    expect(options.params).toEqual({ledger_type: 'week_month'});
     expect(options.timeout).toBe(300000);
   });
 

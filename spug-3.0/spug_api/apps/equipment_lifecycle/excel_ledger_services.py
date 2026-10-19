@@ -2,15 +2,18 @@
 # Released under the AGPL-3.0 License.
 """设备全生命周期——Excel 路线维护台账服务（创建/填写/提交/历史/导出，2026-09-28）。
 
-- 台账行复用正式 OperationLedger（ledger_no/状态机/执行日期），
+- 台账行复用正式 OperationLedger（ledger_no/状态机/审计），
   created_from='excel_template'；填写值与所用模板版本保存在
   OperationLedgerExcelRecord（与台账一对一）；
 - 版本不可变：台账创建即固定引用某已发布版本（PROTECT），历史详情
   据版本快照回放当时的字段、绑定与版式，导出读取该版本原始 .xlsx 副本；
+- 仅当前版本可用于新增（2026-10-19）：创建只接受模板当前在用版本
+  （最大 version_no，行锁内复核防并发发布竞态），旧版本仅供历史追溯，
+  提交旧版本 ID 返回明确业务错误；批量生成同口径（锁内取最新版本）；
 - 周期边界：台账类型取自版本所属模板（week_month/seasonal），请求显式
   携带 ledger_type 时必须与模板一致（另一种类型在此校验拦截）；
 - 完成填写（2026-10-16 流程简化，原"提交"）：状态机校验（草稿 → 已完成）
-  + 必填字段校验（类型校验在保存填写值时已完成）+ 实际执行日期校验；
+  + 必填字段校验（类型校验在保存填写值时已完成）；
   已完成后如需修改走 /excel-ledgers/<pk>/correct/ 更正（须填原因，
   记录修改人/时间/前后值）；
 - 导出前必填校验与原型一致：必填未填拦截导出（设计行为，不伪造输出）；
@@ -21,9 +24,9 @@
 业务错误统一抛 ExcelLedgerError，View 层转 json_response(error=...)。
 """
 import json
-from datetime import datetime
 
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
 
 from libs.pagination import paginate
@@ -93,10 +96,6 @@ def create_ledger(user, body):
     if requested_type and requested_type != template.ledger_type:
         return None, '模板「%s」为%s模板，与所选台账类型不一致' % (
             template.name, _type_label(template.ledger_type))
-    try:
-        executed_date = _parse_executed_date(body.get('executed_date'))
-    except ExcelLedgerError as e:
-        return None, str(e)
     client_token = str(body.get('client_token') or '')[:64]
     if client_token:
         exists = apply_tenant_filter(OperationLedger.objects.all(), user) \
@@ -106,8 +105,7 @@ def create_ledger(user, body):
     if 'executor_names' in body:
         return None, EXECUTOR_FIELD_REMOVED_ERROR
     try:
-        ledger = _create_ledger_row(
-            user, template, version, executed_date, client_token)
+        ledger = _create_ledger_row(user, template, version, client_token)
     except ExcelLedgerError as e:
         return None, str(e)
     return ledger, None
@@ -117,23 +115,25 @@ def _type_label(ledger_type):
     return {'week_month': '周月维护', 'seasonal': '季维护'}.get(ledger_type, ledger_type)
 
 
-def _parse_executed_date(raw):
-    if not raw:
-        _fail('请填写实际执行日期')
-    try:
-        return datetime.strptime(str(raw)[:10], '%Y-%m-%d').date()
-    except ValueError:
-        _fail('实际执行日期格式不正确')
-
-
 @transaction.atomic
-def _create_ledger_row(user, template, version, executed_date, client_token):
+def _create_ledger_row(user, template, version, client_token):
+    # 行锁模板并复核版本仍是模板当前在用版本（最大 version_no）：与
+    # publish_version（同锁）串行化，关闭"校验后、落库前"被并发发布
+    # 新版本的竞态窗口；绕过前端提交旧版本 ID 在此独立拒绝，不产生台账。
+    locked = excel_template_manage.get_excel_template(template.pk, user, for_update=True)
+    if locked is None:
+        _fail('模板不存在或已删除，不能用于新台账')
+    current_no = locked.versions.aggregate(max_no=Max('version_no'))['max_no'] or 0
+    if version.version_no != current_no:
+        _fail('模板「%s」当前在用版本为 v%s，您提交的 v%s 已不是当前版本，'
+              '不能用于新台账；如需采用旧版内容，请基于旧版内容发布新版本'
+              % (locked.name, current_no, version.version_no))
     bindings = version.get_bindings()
     ledger = OperationLedger(
         tenant_id=user.tenant_id,
-        ledger_no=generate_ledger_no(user.tenant_id, template.ledger_type, executed_date),
+        ledger_no=generate_ledger_no(
+            user.tenant_id, template.ledger_type, timezone.now().date()),
         ledger_type=template.ledger_type,
-        executed_date=executed_date,
         status=LEDGER_STATUS_DRAFT,
         entry_channel=ENTRY_CHANNEL_WEB,
         created_from=LEDGER_FROM_EXCEL,
@@ -174,48 +174,13 @@ def update_values(user, ledger, values):
     return record
 
 
-def update_header(user, ledger, header):
-    """录入/修正表头执行信息（实际执行日期；仅草稿可编辑）。
-
-    - 周期生成的应填台账 executed_date 为空，由填写人在执行后录入；提前
-      生成不把创建当天伪装成实际维护日期（计划填写期次见 maintenance_period）；
-    - 字段缺省表示不修改；executed_date 传空串显式清空（回退未录入）；
-    - 台账编号创建后不变，不随执行日期重算。
-    """
-    if ledger.status not in EDITABLE_STATUSES:
-        _fail('当前状态不允许修改表头信息')
-    if not isinstance(header, dict):
-        _fail('表头参数格式不正确')
-    if 'executor_names' in header:
-        _fail(EXECUTOR_FIELD_REMOVED_ERROR)
-    updates = {}
-    if 'executed_date' in header:
-        raw = header.get('executed_date')
-        if raw in (None, ''):
-            updates['executed_date'] = None
-        else:
-            try:
-                updates['executed_date'] = datetime.strptime(
-                    str(raw)[:10], '%Y-%m-%d').date()
-            except ValueError:
-                _fail('实际执行日期格式不正确')
-    if not updates:
-        return ledger
-    for field, value in updates.items():
-        setattr(ledger, field, value)
-    ledger.save(update_fields=list(updates.keys()))
-    return ledger
-
-
 @transaction.atomic
 def complete_ledger(user, pk):
-    """完成填写（流程终点）：草稿 → 已完成；必填字段与执行日期未填拦截。
+    """完成填写（流程终点）：草稿 → 已完成；必填字段未填拦截。
 
     - 状态机校验（重复完成/历史状态进入均被拦截，无重复副作用）；
-    - 必填校验按台账创建时固定的版本绑定执行；周期生成的应填台账
-      executed_date 为空，须先录入实际执行日期再完成填写；
-    - 填写值与执行日期的保存由前端在完成前先行调用保存接口（保存失败
-      不进入完成步骤），此处再做一次服务端终验。
+    - 必填校验按台账创建时固定的版本绑定执行；填写值的保存由前端在完成
+      前先行调用保存接口（保存失败不进入完成步骤），此处再做一次服务端终验。
     """
     ledger = get_ledger(pk, user, for_update=True)
     if not ledger:
@@ -223,8 +188,6 @@ def complete_ledger(user, pk):
     record = _require_record(ledger)
     if not ledger.can_transition_to(LEDGER_STATUS_COMPLETED):
         return None, '当前状态不允许完成填写'
-    if ledger.executed_date is None:
-        return None, '请先填写实际执行日期'
     bindings = record.version.get_bindings()
     values = record.get_values()
     missing = [b['field_name'] for b in bindings
@@ -236,10 +199,6 @@ def complete_ledger(user, pk):
     ledger.completed_by = user
     ledger.save(update_fields=['status', 'completed_at', 'completed_by'])
     return ledger, None
-
-
-# Excel 路线已完成台账允许更正的表头字段（值前后差异进入更正记录）
-EXCEL_CORRECTABLE_HEADER_FIELDS = {'executed_date': '实际执行日期'}
 
 
 def _correct_value_changes(bindings, old_values, new_values):
@@ -259,31 +218,12 @@ def _correct_value_changes(bindings, old_values, new_values):
     return changes
 
 
-def _parse_correction_header(ledger, body):
-    """解析更正请求的表头执行日期，返回 (header_updates, change, error)。"""
-    if not isinstance(body.get('header'), dict) or 'executed_date' not in body['header']:
-        return {}, None, None
-    raw = body['header'].get('executed_date')
-    if raw in (None, ''):
-        return None, None, '实际执行日期不能为空'
-    try:
-        value = datetime.strptime(str(raw)[:10], '%Y-%m-%d').date()
-    except ValueError:
-        return None, None, '实际执行日期格式不正确'
-    if ledger.executed_date == value:
-        return {}, None, None
-    return {'executed_date': value}, {
-        'field': 'executed_date', 'label': '实际执行日期',
-        'old': str(ledger.executed_date or ''), 'new': str(value),
-    }, None
-
-
 @transaction.atomic
 def correct_completed_ledger(user, ledger, body):
     """已完成 Excel 台账更正：必须填写原因，记录修改人/时间/前后值。
 
-    - 仅已完成状态可更正；填写值整体校验后替换，实际执行日期可选修正；
-    - 变更前后值逐项写入 OperationLedgerCorrection（item 为空，表头级更正），
+    - 仅已完成状态可更正；填写值整体校验后替换；
+    - 变更前后值逐项写入 OperationLedgerCorrection（item 为空，填写值级更正），
       无实际变化时拒绝（"没有需要更正的内容"），不产生空更正记录。
     返回 (ledger, correction, changes, None) 或 (None, None, None, error)。
     """
@@ -306,17 +246,8 @@ def correct_completed_ledger(user, ledger, body):
             return None, None, None, str(e)
         changes.extend(_correct_value_changes(
             bindings, record.get_values(), new_values))
-    header_updates, header_change, error = _parse_correction_header(ledger, body)
-    if error:
-        return None, None, None, error
-    if header_change:
-        changes.append(header_change)
     if not changes:
         return None, None, None, '没有需要更正的内容'
-    if header_updates:
-        for field, value in header_updates.items():
-            setattr(ledger, field, value)
-        ledger.save(update_fields=list(header_updates.keys()))
     record.values = _canonical(new_values)
     record.updated_at = timezone.now()
     record.save(update_fields=['values', 'updated_at'])
@@ -336,7 +267,7 @@ def ledger_detail(ledger):
         'values': record.get_values(),
         'editable': ledger.status in EDITABLE_STATUSES,
         'voided': ledger.status == LEDGER_STATUS_VOID,
-        'version': version.to_view(with_content=True),
+        'version': excel_template_manage.version_content_view(version),
     }
     # 更正记录（已完成台账的修改留痕；旧流程历史数据同样透出）
     view['corrections'] = [c.to_view() for c in ledger.corrections.all()]
@@ -357,12 +288,6 @@ def list_ledgers(user, request):
     keyword = params.get('keyword')
     if keyword:
         query = query.filter(ledger_no__icontains=keyword)
-    executed_from = params.get('executed_from')
-    if executed_from:
-        query = query.filter(executed_date__gte=executed_from)
-    executed_to = params.get('executed_to')
-    if executed_to:
-        query = query.filter(executed_date__lte=executed_to)
     page, page_size = paginate(request)
     total = query.count()
     records = query[(page - 1) * page_size: page * page_size] if total else []

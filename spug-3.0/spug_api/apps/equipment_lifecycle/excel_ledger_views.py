@@ -87,22 +87,16 @@ class ExcelLedgerDetailView(View):
         ledger = excel_ledger_services.get_ledger(pk, request.user)
         if not ledger:
             return json_response(error='台账不存在')
-        header_updated = False
         try:
-            # 表头执行信息（实际执行日期）与填写值可同请求分别提交
-            if isinstance(body.get('header'), dict):
-                excel_ledger_services.update_header(request.user, ledger, body['header'])
-                header_updated = True
+            # 填写值整体替换（仅草稿可编辑）
             if 'values' in body:
                 excel_ledger_services.update_values(request.user, ledger, body.get('values'))
         except ExcelLedgerError as e:
             return json_response(error=str(e))
         record_audit_event(
             request, 'update', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
-            after_value={'action_kind': 'save_excel_values' if not header_updated
-                         else 'save_excel_header',
-                         'version_id': ledger.excel_record.version_id,
-                         'executed_date': str(ledger.executed_date or '')})
+            after_value={'action_kind': 'save_excel_values',
+                         'version_id': ledger.excel_record.version_id})
         return json_response({'data': excel_ledger_services.ledger_detail(ledger)})
 
 
@@ -124,7 +118,7 @@ class ExcelLedgerCompleteView(View):
 class ExcelLedgerCorrectView(View):
     """已完成台账更正：POST /excel-ledgers/<pk>/correct/。
 
-    body: {"reason": 必填原因, "values"?: 整体填写值, "header"?: {executed_date}}。
+    body: {"reason": 必填原因, "values"?: 整体填写值}。
     变更前后值逐项写入更正记录（修改人/时间由更正记录承载），无实际变更拒绝。
     """
 
@@ -222,9 +216,8 @@ class LedgerTemplateGroupPdfExportView(View):
     """模板组内批量 PDF 导出（"按模板查看 → 导出本模板台账"，2026-10-11）。
 
     URL：/ledgers/template-groups/<group_key>/export-pdf/，筛选参数经
-    query string 传入（与组内列表同口径：status/keyword/executed_from/
-    executed_to/ledger_type）：
-    - GET：确认框数据（模板名/匹配数/实际日期范围/状态范围/涉及版本），
+    query string 传入（与组内列表同口径：status/keyword/ledger_type）：
+    - GET：确认框数据（模板名/匹配数/状态范围/涉及版本），
       状态未显式筛选时返回默认有效状态范围（不含草稿/已作废）；
     - POST：实际导出。后端按同口径重新查询并固定 ID 清单（不信任前端
       台账 ID/数量），每条台账用创建时模板版本生成 PDF 后依序合并下发，
@@ -238,8 +231,6 @@ class LedgerTemplateGroupPdfExportView(View):
             ledger_type=params.get('ledger_type') or '',
             status=params.get('status') or '',
             keyword=params.get('keyword') or '',
-            executed_from=params.get('executed_from') or '',
-            executed_to=params.get('executed_to') or '',
         )
 
     @_na
@@ -265,7 +256,5 @@ class LedgerTemplateGroupPdfExportView(View):
             request, 'export', AUDIT_TARGET_LEDGER, None, filename,
             after_value={'action_kind': 'batch_template_pdf',
                          'group_key': str(group_key), 'count': count,
-                         'status': filters['status'],
-                         'executed_from': filters['executed_from'],
-                         'executed_to': filters['executed_to']})
+                         'status': filters['status']})
         return file_response(filename, content, PDF_CONTENT_TYPE)

@@ -95,19 +95,19 @@ const TEMPLATE_GROUPS_PAYLOAD = {
       group_key: '7', source_type: 'excel', template_id: 7,
       template_name: '信道维护台账', is_active: true,
       total: 3, draft: 1, completed: 1, void: 1,
-      last_executed_date: '2026-10-08',
+      last_created_at: '2026-10-08 09:00:00',
     },
     {
       group_key: '9', source_type: 'excel', template_id: 9,
       template_name: '退役模板', is_active: false,
       total: 2, draft: 2, completed: 0, void: 0,
-      last_executed_date: '2026-09-01',
+      last_created_at: '2026-09-01 09:00:00',
     },
     {
       group_key: 'manual', source_type: 'manual', template_id: null,
       template_name: '无模板/临时补录', is_active: null,
       total: 1, draft: 1, completed: 0, void: 0,
-      last_executed_date: '2026-10-02',
+      last_created_at: '2026-10-02 09:00:00',
     },
   ],
   total: 3, page: 1, page_size: 10,
@@ -118,13 +118,13 @@ const GROUP_LEDGERS_PAYLOAD = {
   data: [
     {
       id: 21, ledger_no: 'EL-WM-20261008-0001', ledger_type: 'week_month',
-      executed_date: '2026-10-08', status: 'completed', source_type: 'excel',
+      status: 'completed', source_type: 'excel',
       source_template_name: '信道维护台账', source_version_no: 2,
       created_by_name: 'op1', created_at: '2026-10-08 09:00',
     },
     {
       id: 20, ledger_no: 'EL-WM-20261005-0002', ledger_type: 'week_month',
-      executed_date: '2026-10-05', status: 'draft', source_type: 'excel',
+      status: 'draft', source_type: 'excel',
       source_template_name: '信道维护台账', source_version_no: 1,
       created_by_name: 'op1', created_at: '2026-10-05 09:00',
     },
@@ -148,7 +148,7 @@ const DETAIL_SHEET = {
 function makeExcelDetailPayload() {
   return {
     id: 21, ledger_no: 'EL-WM-20261008-0001', ledger_type: 'week_month',
-    executed_date: '2026-10-08', status: 'completed',
+    status: 'completed',
     created_from: 'excel_template',
     excel: {
       record_id: 7, values: {}, editable: false,
@@ -372,7 +372,6 @@ const EXPORT_PREVIEW_PAYLOAD = {
     group_key: '7', template_id: 7, template_name: '信道维护台账',
     ledger_type: 'week_month', total: 3,
     status_scope: ['completed'],
-    executed_from: '2026-10-01', executed_to: '2026-10-08',
     versions: [{version_no: 1, count: 1}, {version_no: 2, count: 2}],
     max_records: 50,
   },
@@ -449,7 +448,7 @@ describe('组内批量导出·确认框与发起（2026-10-11）', () => {
     resetLedgerStore();
   });
 
-  test('点击导出按钮先取确认数据：展示模板名/数量/日期范围/状态范围/涉及版本', async () => {
+  test('点击导出按钮先取确认数据：展示模板名/数量/状态范围/涉及版本', async () => {
     mockBatchEndpoints({preview: EXPORT_PREVIEW_PAYLOAD});
     await enterGroup();
     const exportButton = findButton('导出本模板台账');
@@ -466,7 +465,6 @@ describe('组内批量导出·确认框与发起（2026-10-11）', () => {
     const modalText = document.body.textContent;
     expect(modalText).toContain('匹配记录数');
     expect(modalText).toContain('3 条');
-    expect(modalText).toContain('2026-10-01 ~ 2026-10-08');
     expect(modalText).toContain('已完成');
     expect(modalText).toContain('v1（1 条）、v2（2 条）');
     // 页数无法可靠预估，确认框不展示预计页数
@@ -514,7 +512,6 @@ describe('组内批量导出·确认框与发起（2026-10-11）', () => {
   test('确认框内无匹配记录时禁用导出并给出明确提示', async () => {
     mockBatchEndpoints({preview: {...EXPORT_PREVIEW_PAYLOAD, data: {
       ...EXPORT_PREVIEW_PAYLOAD.data, total: 0, versions: [],
-      executed_from: null, executed_to: null,
     }}});
     await enterGroup();
     await act(async () => {

@@ -5,15 +5,18 @@
  * Excel 路线维护台账详情视图（2026-10 自 ExcelLedgerPage 抽出复用）。
  *
  * 正式周月/季维护台账列表点击 Excel 来源记录时复用本组件；试点页
- * ExcelLedgerPage 委托同一实现。版式回放（LayoutTable 填写模式）——
+ * ExcelLedgerPage 委托同一实现。版式回放（FillWorkspace 填写工作区：
+ * 填写导航/多工作表切换/适合页宽与原始尺寸显示，2026-10-19）——
  * 草稿渲染输入控件，历史状态只读展示当时填写值；主操作"完成填写"
- * （2026-10-16 流程简化，草稿专用）先保存未保存的填写值与执行日期再完成
+ * （2026-10-16 流程简化，草稿专用）先保存未保存的填写值再完成
  * （草稿 → 已完成，校验必填），次操作"保存草稿"；返回列表前有未保存修改
  * 先确认（继续填写保留内容）；已完成台账支持"更正"（进入更正模式修改后
  * 提交，记录原因与前后值）+ 更正记录展示；一键正常（仅填充未填写的
  * 正常/异常格，不覆盖已填）/ 作废（沿用既有台账端点）/ 删除（仅草稿）/
  * 导出 Excel 与 PDF；导出 PDF 先走预检接口，默认使用
  * 版本快照的模板级参数，高级设置弹窗可覆盖（仅本次）。
+ * 表头"模板"信息置首（2026-10-19）；执行日期由台账表格内容承载，不再
+ * 单列表头字段。
  *
  * onBack：返回回调；缺省时回到试点页列表（清空详情并刷新），
  * 正式台账页传入自己的返回逻辑（关闭详情并刷新统一列表）。
@@ -21,15 +24,14 @@
 import React, {useState} from 'react';
 import {observer} from 'mobx-react';
 import {
-  Button, Card, DatePicker, Descriptions, Dropdown, Input, Menu, Modal,
+  Button, Card, Descriptions, Dropdown, Input, Menu, Modal,
   Popconfirm, Space, Spin, Table, Tag, message,
 } from 'antd';
-import moment from 'moment';
 import {
   ArrowLeftOutlined, FileExcelOutlined, FilePdfOutlined, SettingOutlined,
 } from '@ant-design/icons';
 
-import LayoutTable from './components/LayoutTable';
+import FillWorkspace from './components/FillWorkspace';
 import PdfParamsForm from './PdfParamsForm';
 import {normalizePdfParams, serializePdfParams} from './pdfParams';
 
@@ -44,25 +46,15 @@ export const STATUS_COLOR = {
 // 可删除状态（与后端一致：仅草稿；已完成/已作废不可删除）
 const DELETABLE_STATUS = ['draft'];
 
-/** 表头信息（状态/类型/计划期次/执行日期/完成时间/录入人/模板/版本/源文件/哈希）。
- * 实际执行日期在可编辑（草稿）或更正模式由填写人录入（周期生成的应填台账
- * 生成时留空，创建时间不冒充执行日期）；日期草稿入 store 参与未保存状态
- * 判断，未改动时保存保持当前日期（不再误清空已录入日期）。
- * observer：直接读取 store.dateDraft/submitting 等可观察值，不包 observer 时
+/** 表头信息（模板/状态/类型/计划期次/完成时间/录入人/版本/源文件/哈希）。
+ * 模板信息置首便于按模板辨认台账；执行日期由台账表格内容承载，
+ * 不再单列表头字段（2026-10-19）。
+ * observer：直接读取 store.submitting 等可观察值，不包 observer 时
  * store 变化不会触发本组件重渲染（详情卡加载态定格缺陷的根因之一）。 */
-const DetailDescriptions = observer(function DetailDescriptions({detail, version, editable, correcting, saving, store, onSaveHeader}) {
-  const dateEditable = editable || correcting;
-  const dateValue = store.dateDraft === undefined
-    ? (detail.executed_date ? moment(String(detail.executed_date).slice(0, 10)) : null)
-    : (store.dateDraft === '' ? null : moment(store.dateDraft));
-  const handleSaveDate = () => {
-    const raw = store.dateDraft !== undefined
-      ? store.dateDraft
-      : (detail.executed_date ? String(detail.executed_date).slice(0, 10) : '');
-    onSaveHeader({executed_date: raw});
-  };
+const DetailDescriptions = observer(function DetailDescriptions({detail, version}) {
   return (
     <Descriptions size="small" bordered column={4} style={{marginBottom: 12}}>
+      <Descriptions.Item label="模板">{version ? version.template_name : '—'}</Descriptions.Item>
       <Descriptions.Item label="状态">
         <Tag color={STATUS_COLOR[detail.status]}>{STATUS_TEXT[detail.status] || detail.status}</Tag>
       </Descriptions.Item>
@@ -72,26 +64,6 @@ const DetailDescriptions = observer(function DetailDescriptions({detail, version
       <Descriptions.Item label="计划期次">
         {detail.maintenance_period || '—'}
       </Descriptions.Item>
-      <Descriptions.Item label="实际执行日期">
-        {dateEditable ? (
-          <Space size={4}>
-            <DatePicker
-              data-testid="excel-executed-date"
-              size="small"
-              style={{width: 130}}
-              placeholder="执行后录入"
-              value={dateValue}
-              onChange={value => store.setDateDraft(value ? value.format('YYYY-MM-DD') : '')}/>
-            {editable && (
-              <Button data-testid="excel-save-executed-date" size="small"
-                      disabled={store.submitting} loading={saving}
-                      onClick={handleSaveDate}>保存</Button>
-            )}
-          </Space>
-        ) : (
-          detail.executed_date ? String(detail.executed_date).slice(0, 10) : '—'
-        )}
-      </Descriptions.Item>
       <Descriptions.Item label="完成时间">
         {detail.completed_at ? String(detail.completed_at).slice(0, 19).replace('T', ' ') : '—'}
       </Descriptions.Item>
@@ -100,7 +72,6 @@ const DetailDescriptions = observer(function DetailDescriptions({detail, version
       <Descriptions.Item label="录入时间">
         {detail.created_at ? String(detail.created_at).slice(0, 19).replace('T', ' ') : '—'}
       </Descriptions.Item>
-      <Descriptions.Item label="模板">{version ? version.template_name : '—'}</Descriptions.Item>
       <Descriptions.Item label="版本">{version ? `v${version.version_no}` : '—'}</Descriptions.Item>
       <Descriptions.Item label="源文件">{version ? version.source_filename : '—'}</Descriptions.Item>
       <Descriptions.Item label="SHA-256">
@@ -272,11 +243,7 @@ const DetailBody = observer(function DetailBody({store, detail, version, sheet, 
   const corrections = detail.corrections || [];
   return (
     <React.Fragment>
-      <DetailDescriptions key={detail.id} detail={detail} version={version}
-                          editable={store.editable} correcting={store.correcting}
-                          saving={store.saving}
-                          store={store}
-                          onSaveHeader={header => store.saveHeader(header).catch(() => {})}/>
+      <DetailDescriptions key={detail.id} detail={detail} version={version}/>
       {corrections.length > 0 && (
         <Table
           data-testid="excel-corrections"
@@ -297,13 +264,7 @@ const DetailBody = observer(function DetailBody({store, detail, version, sheet, 
       )}
       <Spin spinning={store.loading}>
         {sheet ? (
-          <LayoutTable
-            sheet={sheet}
-            bindingByCell={store.bindingByCell}
-            fillMode
-            readOnly={!store.correctingEditable}
-            values={store.values}
-            onValueChange={(fieldId, value) => store.setValue(fieldId, value)}/>
+          <FillWorkspace store={store} readOnly={!store.correctingEditable}/>
         ) : (
           <div>版本快照缺失</div>
         )}
@@ -311,7 +272,7 @@ const DetailBody = observer(function DetailBody({store, detail, version, sheet, 
       {store.editable && (
         <div style={{color: '#999', marginTop: 8}}>
           仅绑定单元格可填写（标题与普通单元格不可编辑）；"完成填写"会先保存
-          未保存的填写值与实际执行日期，并校验必填项，完成后流程结束。
+          未保存的填写值并校验必填项，完成后流程结束。
         </div>
       )}
       {store.correcting && (
@@ -358,7 +319,7 @@ function useDetailHandlers(store, onBack, ref) {
       // 有未保存修改先确认：继续填写保留内容，确认放弃才返回
       Modal.confirm({
         title: '有未保存的修改',
-        content: '返回列表将放弃尚未保存的填写值与实际执行日期，是否继续？',
+        content: '返回列表将放弃尚未保存的填写值，是否继续？',
         okText: '放弃修改并返回',
         cancelText: '继续填写',
         onOk: () => doBack(),

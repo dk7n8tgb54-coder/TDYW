@@ -210,7 +210,7 @@ class NativeTemplateApiTests(TestCase):
                               self._draft_payload(), content_type='application/json')
         self.assertIn('停用', res.json()['error'])
         res = self.client.post('/equipment-lifecycle/native-ledgers/', {
-            'version_id': version.id, 'executed_date': '2026-10-18',
+            'version_id': version.id,
             'client_token': '',
         }, content_type='application/json')
         self.assertIn('停用', res.json()['error'])

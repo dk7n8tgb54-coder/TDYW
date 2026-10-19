@@ -3,7 +3,7 @@
  * Released under the AGPL-3.0 License.
  *
  * 原生台账详情动作集合（自 NativeLedgerDetail 拆出，组件只负责渲染）：
- * 必填/日期预检、保存草稿、完成填写、导出 PDF（先保存未提交修改）、
+ * 必填预检、保存草稿、完成填写、导出 PDF（先保存未提交修改）、
  * 更正模式进出（原因弹窗）、返回守卫（未保存确认）、删除与作废。
  */
 import React from 'react';
@@ -18,10 +18,6 @@ export default function useNativeLedgerHandlers(store, channel, onBack) {
     const missing = store.requiredMissing();
     if (missing.length) {
       message.warning(`必填字段未填写：${missing.join('、')}`);
-      return;
-    }
-    if (!store.detail.executed_date && store.dateDraft === undefined) {
-      message.warning('请先填写实际执行日期');
       return;
     }
     store.complete(channel.collect, channel.notifySaved).catch(() => {});
@@ -86,7 +82,7 @@ export default function useNativeLedgerHandlers(store, channel, onBack) {
       // 有未保存修改先确认：继续填写保留内容，确认放弃才返回
       Modal.confirm({
         title: '有未保存的修改',
-        content: '返回列表将放弃尚未保存的填写值与实际执行日期，是否继续？',
+        content: '返回列表将放弃尚未保存的填写值，是否继续？',
         okText: '放弃修改并返回',
         cancelText: '继续填写',
         onOk: () => onBack(),
