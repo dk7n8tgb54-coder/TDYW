@@ -120,5 +120,10 @@ class RecordValidator:
         if new_status and new_status != record.status:
             if new_status not in VALID_STATUS_TRANSITIONS.get(record.status, []):
                 return f'不允许从 [{record.status}] 转为 [{new_status}]'
+            # 手动标记完成门禁：存在失败待处理时不能把记录置为"已完成"
+            if new_status == UpgradeStatus.COMPLETED:
+                from .services.failure_service import FailureService
+                if FailureService.has_pending_failure(record.pk, user):
+                    return '存在未处理完的失败阶段，请先在"处理失败"中完成重做或更正'
 
         return None

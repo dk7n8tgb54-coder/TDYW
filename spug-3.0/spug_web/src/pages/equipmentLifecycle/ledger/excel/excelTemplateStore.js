@@ -11,9 +11,12 @@
  *   （2026-10-16 拆分），成功后重取列表，失败由公共拦截器提示（不重复弹窗）；
  * - 绑定保存失败回退本地并依赖公共拦截器提示（不重复弹错、不吞拒绝）；
  * - field_id 由前端生成 UUID（不经坐标派生），服务端全量校验；
- * - 批量绑定：单选/Ctrl 加选/拖拽矩形多选可绑定单元格后，用同一组字段
+ * - 批量绑定：单选/Ctrl 加选/拖拽矩形多选可填写单元格后，用同一组字段
  *   属性一次保存；选区限定当前工作表（切换工作表即清空），已绑定与
- *   被阻挡（内容/合并覆盖）单元格不进入选区；
+ *   未绑定格可混合进入选区（2026-10-19），表头内容格与合并内部格仍排除；
+ * - 混合批量保存（2026-10-19）：已绑定格保留 field_id 与自定义名称，
+ *   仅更新面板明确修改过的属性（touched 标记）；未绑定格新建绑定并按
+ *   规则自动命名；批量解绑为独立操作（面板确认后调用）；
  * - 批量字段命名：多格=「前缀-坐标」按行列排序生成，单格保留前缀原样；
  * - 保存成功后重新拉取详情，以服务端数据为最终状态；
  * - 草稿 PDF 预览：POST preview/pdf/ 取二进制后新窗口打开（弹窗被拦截
@@ -30,6 +33,9 @@
  *   "待配置"（历史模板不自动推断），只影响自动生成，不影响手工创建；
  * - 版本记录支持列表页按行查看（fetchVersions 按 templateId 取数，
  *   不影响当前模板详情），抽屉标题标注归属模板；
+ * - 字段名称自动生成（2026-10-19）：新绑定默认「工作表 · 坐标」、
+ *   批量每格各生成一个，前缀/名称改为可选；留空保存时回退默认名，
+ *   已有自定义名称保持不变，载荷 field_name 始终非空；
  * - default_value/operation_guide/abnormal_rule/maintenance_cycles 已
  *   退役，绑定载荷不再携带（历史数据由服务端原样兼容）。
  */
@@ -51,10 +57,24 @@ export function sortCoords(coordinates) {
   });
 }
 
-/** 批量字段命名规则：单格保留前缀原样，多格=「前缀-坐标」 */
-export function batchFieldNames(prefix, coordinates) {
+/**
+ * 绑定字段默认名（2026-10-19 起新绑定不再要求手输名称）：
+ * 「工作表名 · 坐标」，如「信道维护记录 · C4」；无工作表名时退为坐标。
+ */
+export function defaultFieldName(sheetName, coordinate) {
+  return sheetName ? `${sheetName} · ${coordinate}` : coordinate;
+}
+
+/**
+ * 批量字段命名规则（2026-10-19 起前缀可选）：
+ * 填写前缀 → 单格保留前缀、多格「前缀-坐标」（历史行为不变）；
+ * 留空 → 每格默认名「工作表名 · 坐标」。
+ */
+export function batchFieldNames(prefix, coordinates, sheetName) {
   const sorted = sortCoords(coordinates);
-  return sorted.map(coord => (sorted.length === 1 ? prefix : `${prefix}-${coord}`));
+  const trimmed = (prefix || '').trim();
+  if (!trimmed) return sorted.map(coord => defaultFieldName(sheetName, coord));
+  return sorted.map(coord => (sorted.length === 1 ? trimmed : `${trimmed}-${coord}`));
 }
 
 export class ExcelTemplateStore {
@@ -295,11 +315,13 @@ export class ExcelTemplateStore {
     this.resetSelection();
   }
 
-  /** 单元格是否可进入批量选区（未绑定且无内容/合并阻挡） */
+  /**
+   * 单元格是否可进入批量选区（2026-10-19 起已绑定格也可进入，支持
+   * 已绑定+未绑定混合选区）：仍排除表头/有内容格与合并区域内部格。
+   */
   isCellSelectable(coordinate) {
     const sheet = this.currentSheet;
     if (!sheet || !coordinate) return false;
-    if (this.bindingByCell[`${this.activeSheet}!${coordinate}`]) return false;
     return !bindBlockReason(sheet, coordinate);
   }
 
@@ -372,7 +394,11 @@ export class ExcelTemplateStore {
     this.selectCell(coordinate);
   }
 
-  /** 保存绑定（新建或编辑，field_id 保持稳定），失败回退本地数据。 */
+  /**
+   * 保存绑定（新建或编辑，field_id 保持稳定），失败回退本地数据。
+   * 字段名留空（含纯空白）时回退默认名「工作表 · 坐标」，保证载荷
+   * field_name 非空（后端仍为非空校验权威）；自定义名称原样保留。
+   */
   @action async saveBinding(form) {
     if (!this.current) return;
     const existing = this.selectedBinding;
@@ -380,7 +406,8 @@ export class ExcelTemplateStore {
       field_id: existing ? existing.field_id : uuidv4(),
       sheet_name: this.activeSheet,
       cell_coordinate: this.selectedCell,
-      field_name: form.field_name,
+      field_name: (form.field_name || '').trim()
+        ? form.field_name : defaultFieldName(this.activeSheet, this.selectedCell),
       input_type: form.input_type,
       is_required: !!form.is_required,
       unit: form.unit || '',
@@ -404,17 +431,48 @@ export class ExcelTemplateStore {
   }
 
   /**
-   * 批量绑定：为选区内每个单元格生成独立 UUID 的绑定并整体保存。
-   * 失败回退本地数据（不显示成功提示）；成功后重新拉取详情，
-   * 以服务端返回为最终状态。
+   * 批量保存（2026-10-19 混合选区：已绑定+未绑定格可同选区）：
+   * - 未绑定格新建绑定，名称按现有规则自动生成（前缀可选，batchFieldNames
+   *   兜底）；
+   * - 已绑定格保留 field_id 与自定义字段名称，仅更新面板明确修改过的属性
+   *   （form.touched 标记：input_type/is_required/unit/options），未触碰
+   *   属性原样保留；
+   * - 失败回退本地数据（不显示成功提示）；成功后重新拉取详情，
+   *   以服务端返回为最终状态。
    */
   @action async saveBatchBinding(form) {
     if (!this.current || !this.selectedCells.length) return;
     const coords = sortCoords(toJS(this.selectedCells));
-    const names = batchFieldNames(form.field_name.trim(), coords);
-    const options = form.input_type === 'status' ? ['正常', '异常']
+    const touched = form.touched || {};
+    const canonicalOptions = form.input_type === 'status' ? ['正常', '异常']
       : (form.input_type === 'choice' ? (form.options || []) : []);
-    const additions = coords.map((coordinate, index) => ({
+    const coordSet = new Set(coords);
+    const anyTouched = ['input_type', 'is_required', 'unit', 'options']
+      .some(key => touched[key]);
+    const nextBindings = [];
+    let updatedCount = 0;
+    this.bindings.forEach(binding => {
+      const inSelection = binding.sheet_name === this.activeSheet
+        && coordSet.has(binding.cell_coordinate);
+      if (!inSelection) {
+        nextBindings.push(binding);
+        return;
+      }
+      if (anyTouched) updatedCount += 1;
+      const updated = {...binding};
+      if (touched.input_type) {
+        updated.input_type = form.input_type;
+        updated.options = [...canonicalOptions];
+      }
+      if (touched.options) updated.options = [...canonicalOptions];
+      if (touched.is_required) updated.is_required = !!form.is_required;
+      if (touched.unit) updated.unit = form.unit || '';
+      nextBindings.push(updated);
+    });
+    const freshCoords = coords.filter(
+      coordinate => !this.bindingByCell[`${this.activeSheet}!${coordinate}`]);
+    const names = batchFieldNames(form.field_name, freshCoords, this.activeSheet);
+    const additions = freshCoords.map((coordinate, index) => ({
       field_id: uuidv4(),
       sheet_name: this.activeSheet,
       cell_coordinate: coordinate,
@@ -422,19 +480,58 @@ export class ExcelTemplateStore {
       input_type: form.input_type,
       is_required: !!form.is_required,
       unit: form.unit || '',
-      options,
+      options: canonicalOptions,
     }));
     const previous = this.current;
     this.current = {
       ...this.current,
-      draft: {...this.draft, field_bindings: [...this.bindings, ...additions]},
+      draft: {...this.draft, field_bindings: [...nextBindings, ...additions]},
     };
     try {
       await this.persist();
       await this.fetchDetail(this.current.id);
       this.resetSelection();
       this.selectedCell = '';
-      message.success(`已批量绑定 ${additions.length} 个字段`);
+      if (updatedCount && additions.length) {
+        message.success(`批量保存完成：更新 ${updatedCount} 个、新增 ${additions.length} 个字段`);
+      } else if (updatedCount) {
+        message.success(`批量修改完成：已更新 ${updatedCount} 个字段`);
+      } else if (additions.length) {
+        message.success(`已批量绑定 ${additions.length} 个字段`);
+      } else {
+        message.success('选区内已绑定字段保持不变');
+      }
+    } catch (e) {
+      this.current = previous;
+      throw e;
+    }
+  }
+
+  /**
+   * 批量解绑（独立操作，面板 Popconfirm 确认后调用）：移除选区内
+   * （限当前工作表）全部已绑定字段并整体保存；失败回退本地数据。
+   * persist 成功后 applyDetail 会顺带清空单格与批量选区。
+   */
+  @action async saveBatchUnbind() {
+    if (!this.current || !this.selectedCells.length) return;
+    const coords = toJS(this.selectedCells);
+    const removing = this.bindings.filter(binding =>
+      binding.sheet_name === this.activeSheet
+      && coords.indexOf(binding.cell_coordinate) !== -1);
+    if (!removing.length) return;
+    const removingIds = new Set(removing.map(binding => binding.field_id));
+    const previous = this.current;
+    this.current = {
+      ...this.current,
+      draft: {
+        ...this.draft,
+        field_bindings: this.bindings.filter(
+          binding => !removingIds.has(binding.field_id)),
+      },
+    };
+    try {
+      await this.persist();
+      message.success(`已解绑 ${removing.length} 个字段`);
     } catch (e) {
       this.current = previous;
       throw e;

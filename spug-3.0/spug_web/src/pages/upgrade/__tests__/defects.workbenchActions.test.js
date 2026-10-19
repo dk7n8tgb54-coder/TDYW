@@ -5,18 +5,17 @@
  *     后端步骤操作会联动主表 status（步骤打勾→已完成、加/删步骤→回退处理中），
  *     动作层只刷新步骤与列表，工作台头部状态标签继续显示旧值。
  *     期望：三个动作成功后都调用 store.fetchRecord(recordId)。
- *     （deleteStatusLog 已有此刷新，此处对齐同一契约。）
  *
  * 2026-10-15 追加（体验改造）：
  * G1  postStepAction/postNodeAction 在途守卫：同一目标相同动作请求返回前
  *     不重复提交（弱网双击防护）。
- * G2  confirmRollback：以 Modal.confirm 弹出回退影响预览（目标阶段/重置阶段/
- *     步骤数，基于真实步骤数据，口径同后端 _reset_steps_for_rollback），
- *     确认后才发起 rollback 请求。
+ *
+ * 2026-10-18 追加（失败闭环改造）：
+ * F1  markPhaseFailure/startFailureRedo/correctFailure/executeRedoFrom
+ *     请求契约（URL/payload）与成功后刷新（步骤/时间线/失败单/主记录）。
+ *     删除状态日志已下线（历史事件禁删改），deleteStatusLog 动作移除。
  */
-import React from 'react';
 import {act} from 'react-dom/test-utils';
-import ReactDOMServer from 'react-dom/server';
 
 jest.mock('libs', () => ({
   http: {
@@ -39,29 +38,35 @@ jest.mock('antd', () => {
       info: jest.fn(),
       confirm: jest.fn(),
     },
-    // Modal 组件本体保留，静态 confirm 由测试 spyOn 拦截
+    // Modal 组件本体保留（applyPlanToRecord 的替换确认真实渲染）
   };
 });
 
 const {http} = require('libs');
-const antd = require('antd');
 const store = require('../store').default;
-const {postStepAction, deleteStep, addStep, postNodeAction, confirmRollback} =
-  require('../workbenchActions');
+const {
+  postStepAction, deleteStep, addStep, postNodeAction,
+  markPhaseFailure, startFailureRedo, correctFailure, executeRedoFrom,
+} = require('../workbenchActions');
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
-let confirmSpy = null;
+
+function mockRefreshers() {
+  const fetchRecord = jest.fn(() => Promise.resolve({id: 1}));
+  store.fetchRecord = fetchRecord;
+  store.fetchRecordSteps = jest.fn(() => Promise.resolve());
+  store.fetchStatusLogs = jest.fn(() => Promise.resolve());
+  store.fetchRecords = jest.fn(() => Promise.resolve());
+  store.fetchFailures = jest.fn(() => Promise.resolve());
+  return fetchRecord;
+}
 
 describe('缺陷复现：步骤动作后刷新主记录（P1）', () => {
   let fetchRecord;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    fetchRecord = jest.fn(() => Promise.resolve({id: 1}));
-    store.fetchRecord = fetchRecord;
-    store.fetchRecordSteps = jest.fn(() => Promise.resolve());
-    store.fetchStatusLogs = jest.fn(() => Promise.resolve());
-    store.fetchRecords = jest.fn(() => Promise.resolve());
+    fetchRecord = mockRefreshers();
   });
 
   it('postStepAction 成功后刷新 store.record', async () => {
@@ -91,24 +96,12 @@ describe('缺陷复现：步骤动作后刷新主记录（P1）', () => {
     await flush();
     expect(fetchRecord).toHaveBeenCalledWith('1');
   });
-
-  it('deleteStatusLog 已有的刷新行为保持不变（对照）', async () => {
-    const {deleteStatusLog} = require('../workbenchActions');
-    http.delete.mockResolvedValue({});
-    deleteStatusLog('1', 99);
-    await flush();
-    await flush();
-    expect(fetchRecord).toHaveBeenCalledWith('1');
-  });
 });
 
 describe('G1：动作在途守卫（重复提交防护）', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    store.fetchRecord = jest.fn(() => Promise.resolve({id: 1}));
-    store.fetchRecordSteps = jest.fn(() => Promise.resolve());
-    store.fetchStatusLogs = jest.fn(() => Promise.resolve());
-    store.fetchRecords = jest.fn(() => Promise.resolve());
+    mockRefreshers();
   });
 
   it('postStepAction 请求未返回前重复点击只提交一次', async () => {
@@ -133,15 +126,15 @@ describe('G1：动作在途守卫（重复提交防护）', () => {
     let resolvePost;
     http.post.mockImplementation(() => new Promise(r => { resolvePost = r; }));
     const node = {label: '备份'};
-    postNodeAction('1', 'pause', node);
-    postNodeAction('1', 'pause', node);
+    postNodeAction('1', 'test_fail', node);
+    postNodeAction('1', 'test_fail', node);
     expect(http.post).toHaveBeenCalledTimes(1);
     await act(async () => {
       resolvePost({id: 9});
       await flush();
       await flush();
     });
-    postNodeAction('1', 'pause', node);
+    postNodeAction('1', 'test_fail', node);
     expect(http.post).toHaveBeenCalledTimes(2);
   });
 
@@ -156,68 +149,66 @@ describe('G1：动作在途守卫（重复提交防护）', () => {
   });
 });
 
-describe('G2：confirmRollback 回退影响预览', () => {
-  const NODE = {label: '备份'};
+describe('F1：失败闭环动作契约', () => {
+  let fetchRecord;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    confirmSpy = jest.spyOn(antd.Modal, 'confirm').mockImplementation(() => {});
-    // 真实步骤数据：备份(2步,已完成) + 灰度发布(3步) + 无阶段步骤(1步，不受回退影响)
-    store.recordSteps = [
-      {id: 1, sequence: 1, phase: '备份', title: '备份数据库', status: 'completed'},
-      {id: 2, sequence: 2, phase: '备份', title: '校验备份', status: 'completed'},
-      {id: 3, sequence: 3, phase: '灰度发布', title: '执行脚本', status: 'pending'},
-      {id: 4, sequence: 4, phase: '灰度发布', title: '更新终端', status: 'pending'},
-      {id: 5, sequence: 5, phase: '灰度发布', title: '观察终端', status: 'pending'},
-      {id: 6, sequence: 6, phase: '', title: '临时步骤', status: 'pending'},
-    ];
-    store.fetchRecordSteps = jest.fn(() => Promise.resolve());
-    store.fetchRecords = jest.fn(() => Promise.resolve());
-    store.fetchStatusLogs = jest.fn(() => Promise.resolve());
+    fetchRecord = mockRefreshers();
   });
 
-  it('弹出确认：目标阶段/重置阶段/步骤数基于真实步骤数据', async () => {
-    confirmRollback('1', NODE);
-    expect(antd.Modal.confirm).toHaveBeenCalledTimes(1);
-    const options = antd.Modal.confirm.mock.calls[0][0];
-    expect(options.title).toBe('回退到【备份】');
-    expect(options.okText).toBe('确认回退');
-    expect(options.okButtonProps.danger).toBe(true);
-    const html = ReactDOMServer.renderToStaticMarkup(options.content);
-    expect(html).toContain('备份');
-    expect(html).toContain('灰度发布');
-    // 备份(2) + 灰度发布(3) = 5；无阶段步骤不计入
-    expect(html).toContain('5 个步骤');
-  });
-
-  it('确认后发起 rollback 请求；阶段名在 payload.target_action', async () => {
+  it('markPhaseFailure：POST test_fail（阶段+原因），成功后刷新失败单并乐观插入日志', async () => {
     http.post.mockResolvedValue({id: 77});
-    confirmRollback('1', NODE);
-    const options = antd.Modal.confirm.mock.calls[0][0];
-    await act(async () => {
-      await options.onOk();
-      await flush();
-      await flush();
-    });
+    store.statusLogs = [];
+    await markPhaseFailure('1', '灰度发布', '指标异常');
     expect(http.post).toHaveBeenCalledWith(
       '/api/upgrade/records/1/status-logs/',
-      expect.objectContaining({action: 'rollback', target_action: '备份'}));
-    // 回退后刷新步骤清单
+      {action: 'test_fail', phase: '灰度发布', remark: '指标异常'});
+    expect(store.fetchFailures).toHaveBeenCalledWith('1');
+    // 后端返回完整日志时乐观插入时间线顶部，不发重复请求
+    expect(store.statusLogs[0].id).toBe(77);
+  });
+
+  it('startFailureRedo：POST start-redo（选择/实际数量由后端返回），刷新步骤与主记录', async () => {
+    http.post.mockResolvedValue({failure_id: 5, selected_count: 3, reset_count: 2});
+    const res = await startFailureRedo('1', 5, {stepIds: [1, 2, 3], note: ''});
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/upgrade/records/1/failures/5/start-redo/',
+      {step_ids: [1, 2, 3], all_steps: false, note: ''});
+    expect(res.selected_count).toBe(3);
     expect(store.fetchRecordSteps).toHaveBeenCalledWith('1');
+    expect(store.fetchFailures).toHaveBeenCalledWith('1');
+    expect(fetchRecord).toHaveBeenCalledWith('1');
   });
 
-  it('未知目标阶段退回通用文案（不崩溃）', () => {
-    store.recordSteps = [];
-    confirmRollback('1', NODE);
-    const options = antd.Modal.confirm.mock.calls[0][0];
-    expect(typeof options.content).toBe('string');
-    expect(options.content).toContain('重置为待执行');
+  it('startFailureRedo 支持整阶段重做（all_steps=true）', async () => {
+    http.post.mockResolvedValue({failure_id: 5, selected_count: 3, reset_count: 3});
+    await startFailureRedo('1', 5, {allSteps: true});
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/upgrade/records/1/failures/5/start-redo/',
+      {step_ids: [], all_steps: true, note: ''});
   });
-});
 
-afterEach(() => {
-  if (confirmSpy) {
-    confirmSpy.mockRestore();
-    confirmSpy = null;
-  }
+  it('correctFailure：POST correct（原因必填语义由后端校验），刷新失败单', async () => {
+    http.post.mockResolvedValue({});
+    await correctFailure('1', 5, '误报：指标恢复');
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/upgrade/records/1/failures/5/correct/', {reason: '误报：指标恢复'});
+    expect(store.fetchFailures).toHaveBeenCalledWith('1');
+    expect(store.fetchStatusLogs).toHaveBeenCalledWith('1');
+  });
+
+  it('executeRedoFrom：POST redo-execute（目标阶段+后续结果决定），全面刷新', async () => {
+    http.post.mockResolvedValue({id: 88});
+    await executeRedoFrom('1', {
+      targetPhase: '备份', laterAction: 'keep', laterReason: '后续已验证有效', note: '',
+    });
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/upgrade/records/1/redo-execute/',
+      {target_phase: '备份', later_action: 'keep',
+       later_reason: '后续已验证有效', note: ''});
+    expect(store.fetchRecordSteps).toHaveBeenCalledWith('1');
+    expect(store.fetchFailures).toHaveBeenCalledWith('1');
+    expect(fetchRecord).toHaveBeenCalledWith('1');
+  });
 });

@@ -1,0 +1,54 @@
+{
+  "completedAt": "2026-10-18T03:56:50.017Z",
+  "selection": [
+    "M13:M16"
+  ],
+  "batchFieldCount": 37,
+  "typeOptions": [
+    "文本",
+    "数值",
+    "日期",
+    "正常/不正常",
+    "多行文本"
+  ],
+  "statusCount": 4,
+  "reopenedStatus": [
+    "正常",
+    "不正常",
+    "正常",
+    "正常"
+  ],
+  "savedCode": "TX-2026-Q3-002",
+  "scrollBefore": {
+    "scroll": {
+      "x": 0,
+      "y": 0
+    },
+    "tx": {
+      "y": 357,
+      "h": 23
+    },
+    "name": {
+      "y": 855,
+      "h": 53
+    },
+    "status": {
+      "y": 555
+    }
+  },
+  "scrollAfter": {
+    "scroll": {
+      "x": 0,
+      "y": 234.09158050221563
+    },
+    "tx": null,
+    "name": {
+      "y": 715,
+      "h": 53
+    },
+    "status": {
+      "y": 415
+    }
+  },
+  "consoleErrors": []
+}

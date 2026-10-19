@@ -31,7 +31,8 @@ import {SearchForm, AuthDiv} from 'components';
 import {history} from 'libs';
 import store, {SYSTEM_RECORDS_PAGE_SIZE} from './store';
 import RecordDetail from './RecordDetail';
-import {RecordStatusTag, FaultImpactTag, RecordTitleCell, RecordNoCell} from './shared';
+import {RecordStatusTag, FaultImpactTag, RecordTitleCell, RecordNoCell,
+  RecordAttachmentCountCell} from './shared';
 import {
   PERM, RECORD_STATUS_OPTIONS,
   RECORD_CATEGORY_OPTIONS, RECORD_TYPE_OPTIONS,
@@ -100,8 +101,8 @@ class SystemOperationRecordsTab extends React.Component {
     width: 150,
     render: (text) => text || '-',
   }, {
-    // 统一进展数：后端列表聚合统计（progress_count，只读）；
-    // 点击数量打开详情并定位到"进展"页签
+    // 进展数：后端列表聚合统计（progress_count，只读）；
+    // 点击数量打开详情并定位到进展时间线区块（2026-10-18 详情页签改分区）
     title: '进展数',
     dataIndex: 'progress_count',
     width: 80,
@@ -109,6 +110,14 @@ class SystemOperationRecordsTab extends React.Component {
       <a onClick={() => store.showDetail(record, 'progress')}>
         {record.progress_count ?? 0} 条
       </a>
+    ),
+  }, {
+    title: '附件',
+    dataIndex: 'attachment_count',
+    width: 70,
+    align: 'center',
+    render: (count, record) => (
+      <RecordAttachmentCountCell record={record} onOpen={store.showDetail}/>
     ),
   }];
 
@@ -146,7 +155,7 @@ class SystemOperationRecordsTab extends React.Component {
           rowKey="id"
           size="small"
           loading={store.isSystemRecordsFetching}
-          scroll={{x: 890}}
+          scroll={{x: 960}}
           pagination={{
             current: store.systemRecordsPage,
             pageSize: SYSTEM_RECORDS_PAGE_SIZE,

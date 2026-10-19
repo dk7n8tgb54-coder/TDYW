@@ -11,8 +11,17 @@
  * 2026-10-15 体验四轮：关键词输入草稿（input_keyword/sf_input_keyword）与
  * 已执行条件（f_keyword/sf_keyword）分离，查询按钮/回车提交草稿，列表取数/
  * 导出参数/联动刷新/导出范围文案一律只用已执行条件；详情加载失败置
- * detailError 显式呈现并可重试（保持当前记录与页签），详情与附件请求的
+ * detailError 显式呈现并可重试（保持当前记录与目标区块），详情与附件请求的
  * 旧响应/迟到失败由请求序号防护拦截，不覆盖新记录。
+ * 2026-10-18 详情页签改单页分区：activeTab/setActiveTab 退役，定位目标改为
+ * 非受控 pendingSection（'basic'|'progress'|'attachments'），由详情组件在
+ * 内容加载完成后滚动定位到对应区块并复位（见 detailSections.js）。
+ * 2026-10-18 附件可见性改造：附件列表请求收敛为 AttachmentManager 的
+ * listRequest 适配器（store.fetchAttachmentList，单请求同时供附件表格与
+ * 顶部/区块标题数量展示），showDetail 不再重复发附件请求；上传/删除真实
+ * 成功后由 AttachmentManager 的 onCountChange 回调回写 attachmentsTotal，
+ * 失败路径不触发、数量不变；新增 isAttachmentsFetching/attachmentsError/
+ * attachmentsExpanded 状态（切换记录在 showDetail 重置并失效在途请求）。
  */
 import { observable, action } from 'mobx';
 import { http } from 'libs';
@@ -64,21 +73,39 @@ class OperationRecordStore {
   @observable detailError = false;
   // 详情可能被多个入口并发刷新；只接受最后一次响应。
   detailRequestSeq = 0;
-  // 详情页签受控（列表"进展数"列点击可直达进展页签）
-  @observable activeTab = 'basic';
+  // 详情定位目标（2026-10-18 原 activeTab 页签语义改区块定位）：列表
+  // "进展数"列等入口传 'progress' 时，详情组件在内容加载完成后滚动到
+  // 进展区块并复位为 'basic'；普通入口默认 'basic' 从顶部展示。
+  // 非受控普通字段：定位由组件生命周期消费，不需要驱动渲染
+  pendingSection = 'basic';
 
   // ========== 统一进展 ==========
   @observable progressRecords = [];
-  // 进展列表接口返回的 total（详情打开时已随列表一并请求，详情"进展概览"
-  // 直接复用，不额外发请求）
+  // 进展列表接口返回的 total（详情打开时已随详情一并请求，单页分区后由
+  // 进展区块标题"跟进记录（N）"直接复用，不额外发请求）
   @observable progressTotal = 0;
   @observable isProgressFetching = false;
   progressRequestSeq = 0;
 
   // ========== 附件 ==========
   @observable attachments = [];
-  // 附件请求序号：快速切换记录时旧记录的迟到响应不覆盖新记录附件
+  // 附件总数（全部有效附件，后端列表接口返回全量裸数组，长度即总数）：
+  // 顶部快捷入口与附件区块标题共用的唯一数量口径；列表请求成功时由
+  // fetchAttachmentList 写入，上传/删除真实成功后由 AttachmentManager 的
+  // onCountChange 回调回写（失败路径不触发，数量不变）
+  @observable attachmentsTotal = 0;
+  // 附件列表加载中/失败标记：加载中与失败都不把数量显示为 0，由顶部入口
+  // 与区块标题呈现"附件加载中/附件加载失败"，失败可经 retryAttachments 重试
+  @observable isAttachmentsFetching = false;
+  @observable attachmentsError = false;
+  // 附件区块展开状态（2026-10-18 单页分区可折叠）：每次打开详情默认收起，
+  // 切换记录时随 showDetail 重置
+  @observable attachmentsExpanded = false;
+  // 附件列表请求序号：快速切换记录时旧记录的迟到响应不覆盖新记录附件
   attachmentRequestSeq = 0;
+  // 附件表格重试序号：自增触发 AttachmentManager 重挂载并重发列表请求
+  // （重试入口：顶部"附件加载失败"与附件区块标题）
+  @observable attachmentRetrySeq = 0;
 
   // ========== 动作执行中 ==========
   @observable isActionSubmitting = false;
@@ -218,24 +245,27 @@ class OperationRecordStore {
       }));
   };
 
-  setActiveTab = action((tab) => {
-    this.activeTab = tab;
-  });
-
-  showDetail = action((recordOrId, tab = 'basic') => {
+  showDetail = action((recordOrId, section = 'basic') => {
     // 支持对象或纯 ID（系统详情页签/跨页跳转直达详情）。
     this.detailId = typeof recordOrId === 'object' ? recordOrId.id : recordOrId;
     this.detail = typeof recordOrId === 'object' ? recordOrId : {};
     this.detailVisible = true;
-    this.activeTab = tab;
+    this.pendingSection = section || 'basic';
     // 新记录重新加载：清失败标记（是否失败由本次请求结果决定）
     this.detailError = false;
     this.progressRecords = [];
     this.progressTotal = 0;
+    // 附件状态随记录重置：数量/失败/展开态不跨记录残留；在途旧请求全部
+    // 失效（迟到响应不写状态）。附件列表由详情内的 AttachmentManager 挂载
+    // 时经 listRequest 适配器（fetchAttachmentList）统一请求，这里不再重复发
     this.attachments = [];
+    this.attachmentsTotal = 0;
+    this.attachmentsError = false;
+    this.attachmentsExpanded = false;
+    this.isAttachmentsFetching = true;
+    this.attachmentRequestSeq += 1;
     this.fetchDetail();
     this.fetchProgressRecords();
-    this.fetchAttachments();
   });
 
   closeDetail = action(() => {
@@ -271,14 +301,74 @@ class OperationRecordStore {
     // 与 fetchDetail 一致：resolve 详情本体，供编辑表单回填
     return http.get(`${API_PREFIX}/records/${id}/`);
   };
-
-  // 详情加载失败重试（详情失败态入口）：保持当前 detailId 与目标页签，
-  // 重发详情/进展/附件三个请求（失败可能发生在任一请求），成功后由各自
-  // 响应恢复正常显示
+  // 详情加载失败重试（详情失败态入口）：保持当前 detailId 与目标定位区块，
+  // 重发详情/进展两个请求（失败可能发生在任一请求），成功后由各自
+  // 响应恢复正常显示（定位区块由详情组件在加载完成后消费）。附件列表无需
+  // 在此重发：失败态期间附件表格未挂载，恢复渲染后随挂载自动请求
   retryDetailLoad = () => {
     this.fetchDetail();
     this.fetchProgressRecords();
-    this.fetchAttachments();
+  };
+
+  // 附件列表请求（AttachmentManager 的 listRequest 适配器，2026-10-18）：
+  // 一份请求同时供附件表格渲染与数量统计，不重复请求。后端返回全量裸数组
+  // （无分页，软删除已过滤），长度即全部有效附件总数；兼容 {data: [...]}
+  // 包装形态。加载中/失败由状态标记呈现，不把数量显示为 0；快速切换记录时
+  // 旧记录迟到响应直接失效（不写状态、不把旧数据交给附件表格）
+  fetchAttachmentList = () => {
+    if (!this.detailId) return Promise.resolve([]);
+    const requestSeq = ++this.attachmentRequestSeq;
+    this.isAttachmentsFetching = true;
+    this.attachmentsError = false;
+    return http.get(`${API_PREFIX}/records/${this.detailId}/attachments/`)
+      .then(res => {
+        if (requestSeq !== this.attachmentRequestSeq) {
+          throw new Error('stale attachment list response');
+        }
+        const rows = Array.isArray(res) ? res : (res && res.data);
+        if (!Array.isArray(rows)) throw new Error('Invalid attachment list response');
+        this.attachments = rows;
+        this.attachmentsTotal = rows.length;
+        this.attachmentsError = false;
+        return rows;
+      })
+      .catch(err => {
+        if (requestSeq === this.attachmentRequestSeq) {
+          this.attachmentsError = true;
+        }
+        throw err;
+      })
+      .finally(() => {
+        if (requestSeq === this.attachmentRequestSeq) {
+          this.isAttachmentsFetching = false;
+        }
+      });
+  };
+
+  // 附件数量回写（AttachmentManager onCountChange 回调）：组件在列表加载、
+  // 上传成功、删除成功后以最新全量长度调用；失败路径不会触发，数量不变
+  syncAttachmentCount = action((count, recordId) => {
+    if (recordId !== this.detailId) return;
+    const changed = count !== this.attachmentsTotal;
+    this.attachmentsTotal = count;
+    if (changed) {
+      this.fetchRecords();
+      this.refreshSystemRecordsIfActive();
+    }
+  });
+
+  // 附件加载失败重试：自增重试序号使附件表格重挂载并重发列表请求
+  //（数量/加载/失败状态随新请求刷新）
+  retryAttachments = action(() => {
+    this.attachmentRetrySeq += 1;
+  });
+
+  @action setAttachmentsExpanded = (value) => {
+    this.attachmentsExpanded = value;
+  };
+
+  @action toggleAttachmentsExpanded = () => {
+    this.attachmentsExpanded = !this.attachmentsExpanded;
   };
 
   fetchProgressRecords = () => {
@@ -298,18 +388,6 @@ class OperationRecordStore {
           this.isProgressFetching = false;
         }
       }));
-  };
-
-  fetchAttachments = () => {
-    if (!this.detailId) return Promise.resolve();
-    const requestSeq = ++this.attachmentRequestSeq;
-    return http.get(`${API_PREFIX}/records/${this.detailId}/attachments/`)
-      .then(action(res => {
-        if (requestSeq === this.attachmentRequestSeq) {
-          this.attachments = res.data || [];
-        }
-      }))
-      .catch(action(() => {}));
   };
 
   // ========== 状态动作（成功后重新获取真实数据） ==========

@@ -25,6 +25,22 @@
  * RecordDetailActions）；"持续时间"更名"发生至最近进展"并附口径说明
  * （不暗示故障恢复耗时），已关闭故障在处置结果中展示真实"恢复耗时"
  * （恢复时间-发生时间）；Descriptions 与弹窗宽度适配窄屏。
+ * 2026-10-18 顶部按钮样式统一：主操作=蓝色实心、常规操作=普通描边、删除/
+ * 撤销=红色描边，间距由顶部动作区 flex 容器统一管理（见 ACTION_BAR_STYLE），
+ * 危险操作与常规操作分组；异常事件已完成的主按钮呈现"重新跟进"（复用
+ * 添加跟进记录弹窗，提交后由后端驱动重新进入"跟进中"）。
+ * 2026-10-18 页签改单页分区：移除"基本信息/进展/附件"三页签，详情为单一
+ * 滚动内容区，依次展示 基本信息各区块 → 进展时间线（标题随记录类型并携带
+ * 总数）→ 附件；原"进展概览"摘要区退役（同一份进展内容不再重复展示）。
+ * 原进展页签定位入口（进展数列等）改为区块锚点滚动定位，在详情内容加载
+ * 完成后执行并复位（见 detailSections.js/componentDidUpdate）。
+ * 2026-10-18 附件可见性改善：顶部动作区尾部新增"附件（N）"快捷入口（与
+ * 附件区块标题共用 store 附件状态，打开详情即可见数量，点击展开并定位）；
+ * 附件区块改为可折叠并上移到进展时间线之前（避免被大量进展推到页尾），
+ * 默认收起、点击标题展开/收起，面板常驻挂载仅切换显示（折叠不中断上传）；
+ * 附件数量=全部有效附件（列表请求收敛为 AttachmentManager 的 listRequest
+ * 适配器走 store，单请求；上传/删除真实成功后经 onCountChange 回写总数，
+ * 失败不显示为 0 而呈现"附件加载失败"并可重试）。
  * 进展页签 = 追加式时间线（更正走弹窗，原内容留痕）；2026-10-14 起
  * "添加跟进记录/补充记录/处置记录"入口在顶部动作区（弹窗录入，按记录类型
  * 命名），页签不再放内联表单。材料统一在"附件"页签以记录级管理。
@@ -34,13 +50,10 @@
  * 页签，不把列表行旧数据冒充完整详情。
  * 约束：凡在 render 中读取 store observable 的函数组件必须用 observer 包裹。
  */
-import React, {useState, useEffect} from 'react';
+import React from 'react';
 import {observer} from 'mobx-react';
-import {Tabs, Descriptions, Tag, Spin, Button, Timeline, Modal, Form,
-  Input, DatePicker, Select, Checkbox, InputNumber, Row, Col, message,
-  Empty, Alert, Tooltip, Result} from 'antd';
-import {PlusOutlined, QuestionCircleOutlined} from '@ant-design/icons';
-import moment from 'moment';
+import {Descriptions, Tag, Spin, Button, Modal, Alert, Tooltip, Result} from 'antd';
+import {CaretRightOutlined, PaperClipOutlined, QuestionCircleOutlined} from '@ant-design/icons';
 import {AttachmentManager} from 'components';
 import {http, history} from 'libs';
 import store from './store';
@@ -56,11 +69,12 @@ import {
 import ReasonAnalysisCell from './ReasonAnalysisModal';
 import ProgressTimeline from './ProgressTimeline';
 import {LEDGER_TYPE_PATH} from '../ledger/constants';
+import {
+  PROGRESS_SECTION_ID, ATTACHMENT_SECTION_ID, ATTACHMENT_PANEL_ID,
+  scrollToSection,
+} from './detailSections';
 import {sectionTitle, PROGRESS_TAB_TEXT, formatDuration, nextStepHint,
   recoveryDurationSeconds} from './shared';
-
-const {TextArea} = Input;
-const {TabPane} = Tabs;
 
 // 记录可编辑（追加进展/更正/记录附件上传）的状态集合（由后端 editable_statuses 对应）：
 // routine 恒 recorded；abnormal 无终态；fault 仅处置中
@@ -68,6 +82,65 @@ const EDITABLE_STATUSES = ['recorded', 'following_up', 'completed', 'handling'];
 
 // Descriptions 响应式列数：宽屏两列、窄屏单列（避免窄屏下标签与内容挤压）
 const DESCRIPTION_COLUMN = {xxl: 2, xl: 2, lg: 2, md: 1, sm: 1, xs: 1};
+
+// 顶部动作区布局（2026-10-18 样式统一）：flex + gap 统一各按钮的横向间距与
+// 换行后的纵向间距，各按钮不再携带零散 marginLeft / padding:0；危险操作
+// （删除/撤销故障登记）通过 DANGER_GROUP_STYLE 与常规操作分组（叠加 gap
+// 约 16px），样式经 AuthButton 透传到真实按钮——无权限时按钮返回 null，
+// 不留空白或多余间距
+const ACTION_BAR_STYLE = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 8,
+  marginBottom: 12,
+};
+const DANGER_GROUP_STYLE = {marginLeft: 8};
+
+// Loading and failure must not be presented as an empty attachment list.
+function attachmentTitleText() {
+  if (store.attachmentsError) return '附件加载失败，重试';
+  if (store.isAttachmentsFetching || !store.detail.id) return '附件加载中';
+  return `附件（${store.attachmentsTotal}）`;
+}
+
+// 附件区块折叠标题样式：与 sectionTitle 同观感的可聚焦按钮（键盘可达，
+// aria-expanded 关联折叠面板）
+const ATTACHMENT_HEADER_STYLE = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  padding: 0,
+  border: 'none',
+  background: 'none',
+  fontSize: 14,
+  fontWeight: 600,
+  color: 'inherit',
+  cursor: 'pointer',
+  marginBottom: 8,
+};
+
+// 顶部附件数量快捷入口（2026-10-18）：打开详情即可见附件数量（与附件
+// 区块标题共用 attachmentTitleText 单一口径），点击展开附件区块并在弹窗内
+// 定位；失败态点击即重试（附件表格重挂载重发列表请求）
+const AttachmentQuickEntry = observer(function AttachmentQuickEntry() {
+  const loading = store.isAttachmentsFetching || !store.detail.id;
+  return (
+    <Button
+      type="link"
+      icon={<PaperClipOutlined/>}
+      disabled={loading}
+      aria-label={`查看附件：${attachmentTitleText()}`}
+      onClick={() => {
+        store.setAttachmentsExpanded(true);
+        if (store.attachmentsError) store.retryAttachments();
+        scrollToSection(ATTACHMENT_SECTION_ID);
+      }}
+    >
+      {attachmentTitleText()}
+    </Button>
+  );
+});
 
 @observer
 class RecordDetail extends React.Component {
@@ -223,28 +296,55 @@ class RecordDetail extends React.Component {
     );
   }
 
-  // 进展概览：基本信息底部只读紧凑信息条（后端聚合的条数/最近进展时间/内容）。
-  // 概览标题保留通用名"进展概览"；条目指称随记录类型（与进展页签一致）
-  renderProgressOverview() {
+  // 进展区块（2026-10-18 单页分区，原"进展概览"摘要与进展页签合并）：
+  // 摘要区退役——同一份进展内容不再重复展示，总数并入区块标题
+  // "跟进记录（N）"（加载中不带数量，与原页签标题口径一致）；
+  // 时间线完整内容直接在此展示，区块锚点承接原进展页签定位入口
+  renderProgressSection(editable) {
     const d = store.detail;
     const typeLabel = PROGRESS_TAB_TEXT[d.record_type] || '处理进展';
-    const count = d.progress_count ?? store.progressTotal ?? 0;
-    const goToProgress = () => store.setActiveTab('progress');
+    const title = store.isProgressFetching
+      ? typeLabel : `${typeLabel}（${store.progressTotal}）`;
     return (
-      <div style={{marginTop: 16}}>
-        {this.renderSectionTitle('进展概览')}
-        {count > 0 ? (
-          <div style={{fontSize: 13}}>
-            <a onClick={goToProgress}>{typeLabel} {count} 条</a>
-            <span style={{marginLeft: 16}}>最近进展时间：{d.latest_progress_at || '-'}</span>
-            <span style={{marginLeft: 16}}>最近进展：{d.latest_progress_content || '-'}</span>
-            <Button type="link" style={{padding: 0, marginLeft: 16}} onClick={goToProgress}>
-              查看全部{typeLabel}
-            </Button>
-          </div>
-        ) : (
-          <div style={{color: 'rgba(0, 0, 0, 0.45)'}}>暂无{typeLabel}</div>
-        )}
+      <div id={PROGRESS_SECTION_ID} style={{marginTop: 16}}>
+        {this.renderSectionTitle(title)}
+        <ProgressTimeline editable={editable}/>
+      </div>
+    );
+  }
+
+  // 附件区块（2026-10-18 可折叠，置于进展时间线之前）：标题始终展示数量
+  // 或加载/失败状态，点击展开/收起（失败态点击=重试）；面板常驻挂载仅
+  // 切换显示——折叠不中断正在进行的上传、不丢失操作状态。展开/收起状态
+  // 在 store（attachmentsExpanded），切换记录时随 showDetail 重置为收起
+  renderAttachmentSection(editable) {
+    const expanded = store.attachmentsExpanded;
+    return (
+      <div id={ATTACHMENT_SECTION_ID} style={{marginTop: 16}}>
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={ATTACHMENT_PANEL_ID}
+          onClick={() => {
+            if (store.attachmentsError) {
+              // 失败态点击标题=重试（并展开便于确认恢复结果）
+              store.retryAttachments();
+              store.setAttachmentsExpanded(true);
+              return;
+            }
+            store.toggleAttachmentsExpanded();
+          }}
+          style={ATTACHMENT_HEADER_STYLE}
+        >
+          <CaretRightOutlined rotate={expanded ? 90 : 0}/>
+          {attachmentTitleText()}
+        </button>
+        <div
+          id={ATTACHMENT_PANEL_ID}
+          style={{display: expanded ? 'block' : 'none'}}
+        >
+          <AttachmentTab editable={editable}/>
+        </div>
       </div>
     );
   }
@@ -261,9 +361,26 @@ class RecordDetail extends React.Component {
         {isFault && this.renderResultSection(editable)}
         {d.status === 'cancelled' && this.renderCancelSection()}
         {this.renderRegistrySection()}
-        {this.renderProgressOverview()}
       </div>
     );
+  }
+
+  // 定位到目标区块（2026-10-18 页签改分区）：原 progress/attachments 定位
+  // 入口（进展数列等）在详情内容加载完成后滚动定位并复位目标。加载中/
+  // 失败态不消费目标——失败保留目标，重试成功后仍按原目标定位；定位执行
+  // 一次后复位，后续动作刷新等重渲染不再重复滚动
+  componentDidUpdate() {
+    const target = store.pendingSection;
+    if (target === 'basic' || !store.detailVisible
+        || store.isDetailFetching || store.detailError) return;
+    if (target === 'progress') {
+      scrollToSection(PROGRESS_SECTION_ID);
+    } else if (target === 'attachments') {
+      // 原"查看附件"类定位入口：自动展开附件区块并定位（内容就绪后执行）
+      store.setAttachmentsExpanded(true);
+      scrollToSection(ATTACHMENT_SECTION_ID);
+    }
+    store.pendingSection = 'basic';
   }
 
   renderTitle() {
@@ -359,9 +476,6 @@ class RecordDetail extends React.Component {
     const isRoutine = d.record_type === 'routine';
     const isAbnormal = d.record_type === 'abnormal';
     const handling = status === 'handling';
-    const progressTabLabel = PROGRESS_TAB_TEXT[d.record_type] || '处理进展';
-    const progressTab = store.isProgressFetching
-      ? progressTabLabel : `${progressTabLabel}（${store.progressTotal}）`;
     return (
       <Modal
         title={this.renderTitle()}
@@ -399,14 +513,19 @@ class RecordDetail extends React.Component {
               {nextStepHint(d) && (
                 <Alert type="info" showIcon message={nextStepHint(d)} style={{marginBottom: 12}}/>
               )}
-              <div style={{marginBottom: 12}}>
-                {/* 添加跟进/补充/处置记录（2026-10-14 自进展页签迁入顶部动作区，
-                    弹窗录入）：可编辑状态（非终态）即可追加；权限=operation_record.
-                    progress。异常事件不再单独提供"开始跟进/重新跟进"跳页签按钮，
-                    首条跟进记录提交后由后端驱动状态变化 */}
+              {/* 顶部动作区（2026-10-18 样式统一）：各阶段可用组合——
+                  一般记录已记录 = 添加补充记录〔主按钮〕/ 编辑〔描边〕/
+                  删除〔红色描边〕；异常事件已记录 = 添加跟进记录/编辑/
+                  认定设备故障，跟进中追加完成跟进，已完成 = 重新跟进/编辑
+                  （重新跟进复用添加跟进记录弹窗，提交后由后端驱动重新进入
+                  "跟进中"）；设备故障处置中 = 添加处置记录/确认恢复并结案/
+                  撤销故障登记，已关闭与已撤销保持只读。添加跟进/补充/处置
+                  记录自 2026-10-14 起弹窗录入，异常事件第一条跟进记录即开始
+                  跟进、已完成追加即重新跟进（后端驱动状态变化） */}
+              <div style={ACTION_BAR_STYLE}>
                 {EDITABLE_STATUSES.includes(status) && <AuthAddProgressButton/>}
                 {isRoutine && <AuthEditButton/>}
-                {isRoutine && <AuthDeleteButton/>}
+                {isRoutine && <AuthDeleteButton style={DANGER_GROUP_STYLE}/>}
                 {isAbnormal && (status === 'recorded' || status === 'following_up'
                   || status === 'completed') && <AuthEditButton/>}
                 {isAbnormal && status === 'following_up' && <AuthCompleteButton/>}
@@ -414,20 +533,20 @@ class RecordDetail extends React.Component {
                   <AuthIdentifyFaultButton/>
                 )}
                 {isFault && handling && <AuthRecoverAndCloseButton record={d}/>}
-                {isFault && handling && <AuthCancelButton record={d}/>}
+                {isFault && handling && (
+                  <AuthCancelButton record={d} style={DANGER_GROUP_STYLE}/>
+                )}
+                {/* 附件数量快捷入口（2026-10-18）：与附件区块标题共用状态，
+                    打开详情即可见数量，点击展开并定位到附件区块 */}
+                <AttachmentQuickEntry/>
               </div>
-              {/* 页签受控（store.activeTab）：进展概览可直达进展页签 */}
-              <Tabs activeKey={store.activeTab} onChange={(key) => store.setActiveTab(key)}>
-                <TabPane tab="基本信息" key="basic">
-                  {this.renderBasic()}
-                </TabPane>
-                <TabPane tab={progressTab} key="progress">
-                  <ProgressTimeline editable={editable}/>
-                </TabPane>
-                <TabPane tab="附件" key="attachments">
-                  <AttachmentTab editable={editable}/>
-                </TabPane>
-              </Tabs>
+              {/* 单页分区（2026-10-18 页签改分区；2026-10-18 附件上移）：
+                  基本信息各区块 → 可折叠附件区（避免被大量进展推到页尾）→
+                  进展时间线（标题随类型并携带总数），同一滚动内容区依次
+                  展示；滚动由弹窗内容区统一承载（bodyStyle overflow auto） */}
+              {this.renderBasic()}
+              {this.renderAttachmentSection(editable)}
+              {this.renderProgressSection(editable)}
             </React.Fragment>
           )}
         </Spin>
@@ -436,16 +555,23 @@ class RecordDetail extends React.Component {
   }
 }
 
+// 附件区块内容（2026-10-18 可折叠面板，常驻挂载仅切换显示）：沿用公共
+// AttachmentManager 的记录级附件管理（上传/预览/下载/删除与权限控制不变），
+// 非可编辑状态（已关闭/已撤销）只读展示。列表请求走 store 的 listRequest
+// 适配器（单请求同时供数量统计），上传/删除真实成功后经 onCountChange
+// 回写 store 总数；key 绑定重试序号——重试时重挂载并重发列表请求
 function AttachmentTab({editable}) {
   const d = store.detail;
   if (!d.id) return null;
   const base = `${API_PREFIX}/records/${d.id}/attachments/`;
   return (
     <AttachmentManager
+      key={`${d.id}-${store.attachmentRetrySeq}`}
       module="equipment_lifecycle"
       objectType="el_operation_record"
       recordId={d.id}
-      listUrl={base}
+      listRequest={store.fetchAttachmentList}
+      onCountChange={count => store.syncAttachmentCount(count, d.id)}
       uploadUrl={base}
       deleteRequest={att => http.delete(`${base}${att.id}/`)}
       downloadUrlPrefix={base}
@@ -458,5 +584,3 @@ function AttachmentTab({editable}) {
 }
 
 export default RecordDetail;
-
-// AttachmentTab 引用共享工具（sectionTitle 由各子模块自行引入）

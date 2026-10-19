@@ -66,6 +66,8 @@ jest.mock('components', () => {
     TableCard: Shell,
     AttachmentManager: (props) => React.createElement(
       'div', {'data-object-type': props.objectType}, 'attachments'),
+    // 列表附件列复用真实 AttachmentCountBadge（与无线电台执照同款样式）
+    AttachmentCountBadge: jest.requireActual('components').AttachmentCountBadge,
   };
 });
 
@@ -113,7 +115,7 @@ beforeEach(() => {
   store.todoRecords = [];
   store.todoCounts = null;
   store.statistics = null;
-  store.activeTab = 'basic';
+  store.pendingSection = 'basic';
   store.input_keyword = '';
   store.f_keyword = undefined;
   store.sf_input_keyword = '';
@@ -171,6 +173,37 @@ const FAULT_DETAIL = {
   progress_count: 0, created_by_name: 'op_user',
   latest_progress_at: '2026-10-11 10:30:00', duration_seconds: 9000,
 };
+
+describe('运行处置记录列表页——附件列（2026-10-19）', () => {
+  it('附件列区分 0、有效数量和缺失字段，数量直达附件区', async () => {
+    mockHttpGet.mockImplementation(url => {
+      if (url.endsWith('/progress/')) return Promise.resolve({data: [], total: 0});
+      if (url.endsWith('/attachments/')) return Promise.resolve([{id: 1}]);
+      if (url.includes('/records/11/')) return Promise.resolve(FAULT_DETAIL);
+      return Promise.resolve({data: [
+        {...FAULT_DETAIL, attachment_count: 3},
+        {...FAULT_DETAIL, id: 12, title: '空附件', attachment_count: 0},
+        {...FAULT_DETAIL, id: 13, title: '计数异常'},
+      ], total: 3});
+    });
+    await renderIndex();
+    const rows = container.querySelectorAll('.ant-table-tbody .ant-table-row');
+    // 数量样式与无线电台执照一致：公共 AttachmentCountBadge（📎+蓝色数字）
+    expect(rows[0].querySelector('span[title="查看附件"] a').textContent).toContain('3');
+    expect(rows[0].querySelector('span[title="查看附件"] .anticon-paper-clip')).toBeTruthy();
+    expect(rows[1].textContent).toContain('-');
+    expect(rows[1].querySelector('span[title="查看附件"]')).toBeNull();
+    expect(rows[2].querySelector('[title="附件数量不可用"]').textContent).toBe('?');
+    await act(async () => {
+      rows[0].querySelector('span[title="查看附件"] a').dispatchEvent(
+        new MouseEvent('click', {bubbles: true, cancelable: true}));
+      await flush();
+    });
+    const store = require('../store').default;
+    expect(store.attachmentsExpanded).toBe(true);
+    expect(store.pendingSection).toBe('basic');
+  });
+});
 
 describe('运行处置记录列表页', () => {
   it('渲染三个页签、筛选区与"新增记录"入口，列表请求统一路由', async () => {

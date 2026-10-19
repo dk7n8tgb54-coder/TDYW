@@ -10,7 +10,12 @@
  * 2026-10-14 添加跟进/补充/处置记录入口迁入顶部动作区（弹窗承载，原为
  * 进展页签内联表单）：按钮按记录类型命名，权限=operation_record.progress；
  * 异常事件第一条跟进记录即进入"跟进中"、已完成追加即重新跟进（后端驱动，
- * 弹窗内以提示说明），原"开始跟进/新增跟进记录/重新跟进"跳页签按钮退役。
+ * 弹窗内以提示说明），原"开始跟进/新增跟进记录"跳页签按钮退役。
+ * 2026-10-18 顶部按钮样式统一：添加跟进/补充/处置记录（含异常事件已完成
+ * 的"重新跟进"，复用同一弹窗）=蓝色实心主按钮；编辑/完成跟进/认定设备故障/
+ * 确认恢复并结案=普通描边；删除/撤销故障登记=红色描边（不再用链接或实心）。
+ * 按钮自身不再携带零散 marginLeft / padding:0，间距统一由详情顶部动作区
+ * （RecordDetail 的 flex 容器）管理，危险操作分组间距经 style 透传。
  * 约束：读取 store observable 的函数组件必须用 observer 包裹。
  */
 import React, {useState} from 'react';
@@ -28,8 +33,6 @@ export function AuthEditButton() {
   return (
     <AuthButton
       auth={PERM.OP_EDIT}
-      type="link"
-      style={{marginLeft: 8, padding: 0}}
       onClick={() => store.showForm(store.detail)}
     >
       编辑
@@ -38,16 +41,16 @@ export function AuthEditButton() {
 }
 
 // 删除记录（仅一般记录；后端独立校验记录类型）：确认后物理删除并联动清理附件。
-// 删除是低频操作：链接样式降低视觉权重（2026-10-14），确认弹窗防重复提交
-export function AuthDeleteButton() {
+// 删除是低频危险操作：红色描边按钮（2026-10-18 样式统一，不再用链接），
+// 确认弹窗防重复提交；分组间距由动作区经 style 透传，无权限时整体不渲染
+export function AuthDeleteButton({style}) {
   const [visible, setVisible] = useState(false);
   return (
-    <span style={{marginLeft: 8}}>
+    <span>
       <AuthButton
         auth={PERM.OP_DEL}
-        type="link"
         danger
-        style={{padding: 0}}
+        style={style}
         onClick={() => setVisible(true)}
       >
         删除
@@ -77,12 +80,15 @@ export function AuthDeleteButton() {
 }
 
 // 添加跟进/补充/处置记录（2026-10-14 自进展页签内联表单迁入顶部动作区）：
-// 按钮文本随记录类型（跟进记录/补充记录/处置记录），权限与后端进展追加
-// 端点一致（operation_record.progress）；字段与口径同原内联表单
+// 蓝色实心主按钮，按钮文本随记录类型（跟进记录/补充记录/处置记录），权限与
+// 后端进展追加端点一致（operation_record.progress）；异常事件已完成呈现
+// "重新跟进"（2026-10-18）：仍打开同一添加跟进记录弹窗，提交成功后由后端
+// 驱动重新进入"跟进中"，不新增端点、点击按钮不改状态
 export const AuthAddProgressButton = observer(function AuthAddProgressButton() {
   const [visible, setVisible] = useState(false);
   const d = store.detail;
   const typeLabel = PROGRESS_TAB_TEXT[d.record_type] || '处理进展';
+  const isReopen = d.record_type === 'abnormal' && d.status === 'completed';
   return (
     <span>
       <AuthButton
@@ -90,7 +96,7 @@ export const AuthAddProgressButton = observer(function AuthAddProgressButton() {
         type="primary"
         onClick={() => setVisible(true)}
       >
-        添加{typeLabel}
+        {isReopen ? '重新跟进' : `添加${typeLabel}`}
       </AuthButton>
       <AddProgressModal
         visible={visible}
@@ -115,7 +121,7 @@ const AddProgressModal = function AddProgressModal(
     if (status === 'recorded') {
       statusHint = '提交第一条跟进记录后，本事件将进入"跟进中"。';
     } else if (status === 'completed') {
-      statusHint = '提交后本事件将回到"跟进中"（重新跟进）。';
+      statusHint = '提交这条跟进记录后，本事件将重新进入"跟进中"（重新跟进）。';
     }
   }
   return (
@@ -177,11 +183,12 @@ const AddProgressModal = function AddProgressModal(
   );
 };
 
-// 完成跟进：跟进中 → 已完成（纯确认动作，完成后可重新跟进）
+// 完成跟进：跟进中 → 已完成（纯确认动作，完成后可通过"重新跟进"继续）。
+// 普通描边按钮（2026-10-18 样式统一），间距由动作区统一管理
 export function AuthCompleteButton() {
   const [visible, setVisible] = useState(false);
   return (
-    <span style={{marginLeft: 8}}>
+    <span>
       <AuthButton auth={PERM.OP_COMPLETE} onClick={() => setVisible(true)}>
         完成跟进
       </AuthButton>
@@ -208,13 +215,13 @@ export function AuthCompleteButton() {
   );
 }
 
-// 认定设备故障（异常事件原记录原地变更）：补充故障所需字段，一次弹窗一次提交
+// 认定设备故障（异常事件原记录原地变更）：补充故障所需字段，一次弹窗一次提交。
+// 普通描边按钮（2026-10-18 样式统一）：转化本身有弹窗确认环节，不再用红色实心
 export function AuthIdentifyFaultButton() {
   const [visible, setVisible] = useState(false);
   return (
-    <span style={{marginLeft: 8}}>
-      <AuthButton auth={PERM.OP_IDENTIFY_FAULT} type="primary" danger
-        onClick={() => setVisible(true)}>
+    <span>
+      <AuthButton auth={PERM.OP_IDENTIFY_FAULT} onClick={() => setVisible(true)}>
         认定设备故障
       </AuthButton>
       <IdentifyFaultModal visible={visible} onClose={() => setVisible(false)}/>
@@ -292,16 +299,16 @@ const IdentifyFaultModal = observer(function IdentifyFaultModal({visible, onClos
 
 // 确认恢复并结案（设备故障）：恢复时间/恢复确认人/最终原因分析/结案说明
 // 一次填写一次校验，提交后直接进入终态"已关闭"。
+// 普通描边按钮（2026-10-18 样式统一，不再用蓝色实心抢占主按钮位）。
 // 合并操作须同时具备 recover 与 close 两项权限（AuthButton 以 & 表达 AND，
 // 后端独立校验，不因按钮合并放宽权限边界）。
 export function AuthRecoverAndCloseButton({record}) {
   const [visible, setVisible] = useState(false);
   const [form] = Form.useForm();
   return (
-    <span style={{marginLeft: 8}}>
+    <span>
       <AuthButton
         auth={`${PERM.OP_RECOVER}&${PERM.OP_CLOSE}`}
-        type="primary"
         onClick={() => setVisible(true)}
       >
         确认恢复并结案
@@ -416,17 +423,17 @@ const RecoverModal = observer(function RecoverModal({visible, form, record, onCl
 });
 
 // 撤销故障登记（设备故障处置中）：错误/重复登记受控撤销，原因必填留痕。
-// 撤销是低频操作：链接样式降低视觉权重（2026-10-14）
-export const AuthCancelButton = observer(function AuthCancelButton({record}) {
+// 红色描边按钮（2026-10-18 样式统一，不再用链接）；分组间距由动作区经
+// style 透传，无权限时整体不渲染
+export const AuthCancelButton = observer(function AuthCancelButton({record, style}) {
   const [visible, setVisible] = useState(false);
   const [reason, setReason] = useState('');
   return (
-    <span style={{marginLeft: 8}}>
+    <span>
       <AuthButton
         auth={PERM.OP_CANCEL}
-        type="link"
         danger
-        style={{padding: 0}}
+        style={style}
         onClick={() => setVisible(true)}
       >
         撤销故障登记

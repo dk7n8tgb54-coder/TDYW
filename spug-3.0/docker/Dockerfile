@@ -24,6 +24,11 @@ RUN npm config set registry https://registry.npmmirror.com && \
 # 复制源代码
 COPY spug_web/ ./
 
+# 先构建原生台账正式编辑器（Univer 独立工程，产物输出到 public/native-ledger，
+# 随后 CRA 构建自动拷贝进最终 build/；生产 iframe 经 /native-ledger/index.html 访问。
+# 注意：npmmirror 缺失 @univerjs 1.1.0 部分子包，此处必须使用官方源）
+RUN cd native-editor && npm install --registry=https://registry.npmjs.org --no-audit --no-fund && npm run build
+
 # 构建前端
 RUN npm run build
 

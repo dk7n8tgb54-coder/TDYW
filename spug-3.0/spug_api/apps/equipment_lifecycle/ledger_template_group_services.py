@@ -6,11 +6,15 @@
 - Excel 模板台账（created_from=excel_template）：组键 = 填写记录引用版本的
   template_id；同一模板 v1/v2… 各发布版本创建的台账归同一组（版本不可变，
   每条台账仍用创建时版本快照展示与导出）；
+- 原生模板台账（created_from=native_template，2026-10-18 接入）：组键 =
+  'native-<模板主键>'（带前缀命名空间，避免与 Excel 模板组键撞号）；
+  组内列表支持、逐条详情/导出走原生路线；组内批量 PDF 导出与翻阅
+  本阶段未接入，显式拒绝并提示支持范围（不误调用 Excel 专用接口）；
 - 手工补录台账（created_from=manual）：单独归入"无模板/临时补录"组，不同
   来源类型即使模板 ID 相同也不混组；
-- 模板只有逻辑删除（停用，is_active=False），无物理删除路径，分组键与组名
-  永远可解析；模板改名后组名取当前名，行内"模板版本"继续展示各台账创建
-  时的 template_name_snapshot + version_no；
+- 模板只有逻辑删除（停用，is_active=False），无物理删除路径（被引用时），
+  分组键与组名永远可解析；模板改名后组名取当前名，行内"模板版本"继续
+  展示各台账创建时的 template_name_snapshot + version_no；
 - 模板 ledger_type 创建后不可修改，组内台账类型与模板类型一致；
 - 组列表统计在数据库端按组聚合（GROUP BY 单条 SQL），组列表与组内列表共用
   同一筛选口径（状态/编号关键词/执行日期范围），统计不受组内分页影响；
@@ -34,15 +38,23 @@ from apps.equipment_lifecycle.ledger_services import (
 from apps.equipment_lifecycle.models import (
     LEDGER_FROM_EXCEL,
     LEDGER_FROM_MANUAL,
+    LEDGER_FROM_NATIVE,
     LEDGER_STATUS_COMPLETED,
     LEDGER_STATUS_DRAFT,
     LEDGER_STATUS_VOID,
     OperationLedger,
 )
+from apps.equipment_lifecycle.native_models import OperationLedgerNativeTemplate
 
 # 无模板/临时补录组的 URL 组键（模板组键为模板主键数字字符串）
 MANUAL_GROUP_KEY = 'manual'
 MANUAL_GROUP_NAME = '无模板/临时补录'
+
+# 原生模板组组键前缀（<前缀><模板主键>）
+NATIVE_GROUP_PREFIX = 'native-'
+
+_NATIVE_GROUP_NOT_SUPPORTED = '原生模板组暂不支持批量导出（当前支持在台账详情内单条导出 PDF）'
+_NATIVE_GROUP_BROWSE_NOT_SUPPORTED = '原生模板组暂不支持连续翻阅（当前支持在台账详情内逐条查看）'
 
 # 组统计口径：total + 各状态数量 + 最近执行日期
 _GROUP_ANNOTATIONS = dict(
@@ -118,6 +130,24 @@ def list_template_groups(user, ledger_type, status='', keyword='',
             # 填写记录缺失或模板行缺失的异常数据不进组（组名不可解析）
             continue
         groups.append(_group_view(str(template.id), 'excel', template, row))
+    # 原生模板组（组键带前缀命名空间，避免与 Excel 模板主键撞号）
+    native_counts = list(
+        base.filter(created_from=LEDGER_FROM_NATIVE, native_record__isnull=False)
+        .values('native_record__version__template_id')
+        .annotate(**_GROUP_ANNOTATIONS)
+        .order_by())
+    native_ids = [row['native_record__version__template_id'] for row in native_counts]
+    native_map = {}
+    if native_ids:
+        native_templates = apply_tenant_filter(
+            OperationLedgerNativeTemplate.objects.all(), user).filter(pk__in=native_ids)
+        native_map = {t.id: t for t in native_templates}
+    for row in native_counts:
+        template = native_map.get(row['native_record__version__template_id'])
+        if template is None:
+            continue
+        groups.append(_group_view(
+            NATIVE_GROUP_PREFIX + str(template.id), 'native', template, row))
     manual_counts = base.filter(created_from=LEDGER_FROM_MANUAL).aggregate(**_GROUP_ANNOTATIONS)
     if manual_counts['total']:
         groups.append(_group_view(MANUAL_GROUP_KEY, 'manual', None, manual_counts))
@@ -140,6 +170,15 @@ def _get_group_template(user, group_key):
     ).filter(pk=int(group_key)).first()
 
 
+def _get_native_group_template(user, template_key):
+    """解析原生模板组（租户内），不存在返回 None。"""
+    if not str(template_key).isdigit():
+        raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
+    return apply_tenant_filter(
+        OperationLedgerNativeTemplate.objects.all(), user
+    ).filter(pk=int(template_key)).first()
+
+
 def list_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
                        executed_from='', executed_to='', page=1, page_size=20,
                        row_serializer=None):
@@ -156,6 +195,18 @@ def list_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
         validate_ledger_type(ledger_type)
         group_name = MANUAL_GROUP_NAME
         query = query.filter(created_from=LEDGER_FROM_MANUAL, ledger_type=ledger_type)
+    elif str(group_key).startswith(NATIVE_GROUP_PREFIX):
+        template = _get_native_group_template(
+            user, str(group_key)[len(NATIVE_GROUP_PREFIX):])
+        if template is None:
+            raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
+        if ledger_type and ledger_type != template.ledger_type:
+            raise LedgerValidationError('台账类型与模板不匹配')
+        group_name = template.name
+        query = query.filter(
+            created_from=LEDGER_FROM_NATIVE,
+            native_record__version__template_id=template.id,
+            ledger_type=template.ledger_type)
     else:
         if not str(group_key).isdigit():
             raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
@@ -170,7 +221,9 @@ def list_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
             excel_record__version__template_id=template.id,
             ledger_type=template.ledger_type)
     query = _apply_group_filters(query, status, keyword, executed_from, executed_to)
-    query = query.select_related('system', 'excel_record__version').order_by('-executed_date', '-id')
+    query = query.select_related(
+        'system', 'excel_record__version', 'native_record__version') \
+        .order_by('-executed_date', '-id')
     total = query.count()
     records = query[(page - 1) * page_size: page * page_size] if total else []
     data = []
@@ -211,9 +264,11 @@ def _safe_file_name(name):
 
 
 def _resolve_export_template(user, group_key, ledger_type):
-    """解析可导出的模板组（租户内）；manual 组无模板版式统一拒绝。"""
+    """解析可导出的模板组（租户内）；manual/native 组按支持范围明确拒绝。"""
     if str(group_key) == MANUAL_GROUP_KEY:
         raise LedgerValidationError('无模板/临时补录台账没有模板版式，不支持批量 PDF 导出')
+    if str(group_key).startswith(NATIVE_GROUP_PREFIX):
+        raise LedgerValidationError(_NATIVE_GROUP_NOT_SUPPORTED)
     if not str(group_key).isdigit():
         raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
     template = _get_group_template(user, group_key)
@@ -384,6 +439,8 @@ def browse_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
     """
     if str(group_key) == MANUAL_GROUP_KEY:
         raise LedgerValidationError('无模板/临时补录台账没有模板版式，不支持翻阅')
+    if str(group_key).startswith(NATIVE_GROUP_PREFIX):
+        raise LedgerValidationError(_NATIVE_GROUP_BROWSE_NOT_SUPPORTED)
     if not str(group_key).isdigit():
         raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
     template = _get_group_template(user, group_key)

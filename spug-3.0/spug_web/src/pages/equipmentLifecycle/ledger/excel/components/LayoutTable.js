@@ -18,6 +18,10 @@
  * 多选（批量绑定）：传入 selectedCells 渲染选区高亮；onSelectCell 追加
  * event 参数供父级识别 Ctrl/Cmd 加选；onCellMouseDown/onCellMouseEnter
  * 供父级实现拖拽矩形选区（本组件只上报事件，不持有选区状态）。
+ * preventTextSelect（2026-10-19）：拖拽矩形选区进行中由父级传入 true，
+ * 表格外层容器加 proto-drag-selecting 类并内联 user-select:none，阻止
+ * 浏览器把表格文字选中；仅模板编辑模式启用，填写/历史视图与松开后的
+ * 正常复制不受影响。
  */
 import React from 'react';
 import {Input, Select} from 'antd';
@@ -195,8 +199,18 @@ export default class LayoutTable extends React.Component {
       rows.push(this._renderRow(row, rowHidden ? 0 : height, anchors, covered,
         rowHidden, colHidden));
     }
+    // 拖拽矩形选区进行中：阻止浏览器把表格文字选中（内联样式 +
+    // proto-drag-selecting 类，仅模板编辑模式由父级传入）
+    const preventTextSelect = !!this.props.preventTextSelect;
+    const wrapStyle = {overflow: 'auto'};
+    if (preventTextSelect) {
+      wrapStyle.userSelect = 'none';
+      wrapStyle.WebkitUserSelect = 'none';
+    }
     return (
-      <div className="proto-table-wrap" style={{overflow: 'auto'}}>
+      <div className={preventTextSelect
+        ? 'proto-table-wrap proto-drag-selecting' : 'proto-table-wrap'}
+           style={wrapStyle}>
         <table className="proto-table" style={{borderCollapse: 'collapse', tableLayout: 'fixed'}}>
           <colgroup>{columns}</colgroup>
           <tbody>{rows}</tbody>

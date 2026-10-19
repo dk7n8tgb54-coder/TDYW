@@ -30,6 +30,12 @@ ACTION_RESUME = 'resume'              # 继续
 ACTION_OBSERVE = 'observe'            # 观察完成
 ACTION_COMPLETE = 'complete'          # 升级完成
 ACTION_PHASE_DONE = 'phase_done'      # 阶段完成（由步骤完成自动触发，非人工记录）
+# 步骤级操作事件（2026-10 改造：步骤真实状态变更必须留痕，原始完成不被后续覆盖）
+ACTION_STEP_DONE = 'step_done'        # 单步完成
+ACTION_STEP_SKIP = 'step_skip'        # 单步跳过
+ACTION_STEP_RESET = 'step_reset'      # 步骤重置（单步或批量摘要，detail 存步骤快照）
+ACTION_REDO_START = 'redo_start'      # 失败处理-开始重做（detail 存选择数/实际重置数/步骤快照）
+ACTION_FAILURE_CORRECTED = 'failure_corrected'  # 更正失败记录（原失败事件保留，追加更正）
 
 ACTION_CHOICES = [
     (ACTION_START, '升级启动'),
@@ -45,6 +51,11 @@ ACTION_CHOICES = [
     (ACTION_OBSERVE, '观察完成'),
     (ACTION_COMPLETE, '升级完成'),
     (ACTION_PHASE_DONE, '阶段完成'),
+    (ACTION_STEP_DONE, '完成步骤'),
+    (ACTION_STEP_SKIP, '跳过步骤'),
+    (ACTION_STEP_RESET, '重置步骤'),
+    (ACTION_REDO_START, '开始重做'),
+    (ACTION_FAILURE_CORRECTED, '更正失败记录'),
 ]
 
 # 阶段完成记录的结果状态（仅 action=phase_done 时使用）
@@ -75,6 +86,11 @@ ACTION_COLOR_MAP = {
     ACTION_OBSERVE: 'purple',
     ACTION_COMPLETE: 'green',
     ACTION_PHASE_DONE: 'green',
+    ACTION_STEP_DONE: 'green',
+    ACTION_STEP_SKIP: 'orange',
+    ACTION_STEP_RESET: 'orange',
+    ACTION_REDO_START: 'orange',
+    ACTION_FAILURE_CORRECTED: 'gray',
 }
 
 # 会联动主表 status 的动作
@@ -108,6 +124,9 @@ class UpgradeStatusLog(models.Model, ModelMixin):
     )
     # 关联阶段名（仅 action=phase_done 时使用，记录哪个阶段完成）
     phase = models.CharField(max_length=50, default='', blank=True, verbose_name='关联阶段')
+    # 结构化明细（JSON 文本）：步骤快照/选择数与实际重置数/后续结果决定等。
+    # 快照保存事件发生时的步骤名称、阶段、标识与状态，后续改名/删除步骤不影响历史。
+    detail = models.TextField(default='', blank=True, verbose_name='事件明细JSON')
     # 阶段完成结果（仅 phase_done 有意义）：done/failed/revoked
     outcome = models.CharField(
         max_length=20, default=OUTCOME_DONE, choices=OUTCOME_CHOICES,

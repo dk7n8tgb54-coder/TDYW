@@ -6,7 +6,9 @@
  * 保存）→ 多工作表切换清空选区 → 编辑页头部信息与左侧返回 → 发布按钮
  * 真实条件约束（无绑定/兼容性 error 禁用并说明原因，UI 全流程发布）→
  * 版本抽屉 → 替换源文件确认与取消 → 已停用模板只读冻结 → 「预览空白
- * 打印稿」→ 兼容性提示 → 填写区尺寸提示。
+ * 打印稿」→ 兼容性提示 → 填写区尺寸提示。绑定字段导航（2026-10-19
+ * 工作区改版）与混合选区批量修改/解绑/拖拽禁文字选择（同日）另见同目录
+ * ExcelTemplateBindingNavigator.test.js、ExcelTemplateMixedSelection.test.js。
  * 全部走真实组件与 store 代码路径，http/exportFile 仅打桩。
  */
 import React from 'react';
@@ -223,17 +225,21 @@ test('Ctrl 加选多格显示批量面板与数量，可清空选择', async () 
   await ctrlClickCell('C4');
   await ctrlClickCell('E4');
   expect(store.selectedCells.slice().sort()).toEqual(['C4', 'E4']);
-  // 已绑定单元格不可加选
+  // 已绑定单元格也可加选（2026-10-19 混合选区），面板摘要含绑定拆分
   const boundDetail = makeDetail([BOUND_PS]);
   store.applyDetail({data: boundDetail});
   await flush();
   await ctrlClickCell('C4');
   await ctrlClickCell('D4');
-  expect(store.selectedCells).toEqual(['D4']);
+  expect(store.selectedCells.slice().sort()).toEqual(['C4', 'D4']);
   expect(container.textContent).toContain('批量绑定');
-  expect(container.textContent).toContain('已选 1 格');
-  // Ctrl 再点已选格 → 取消单个选择；清空后批量面板消失
+  expect(container.textContent).toContain('已选 2 格');
+  expect(container.querySelector('[data-testid="batch-selection-summary"]').textContent)
+    .toContain('已选 2 格：已绑定 1 · 未绑定 1');
+  // Ctrl 再点已选格 → 取消单个选择；全部清掉后批量面板消失
   await ctrlClickCell('D4');
+  expect(store.selectedCells).toEqual(['C4']);
+  await ctrlClickCell('C4');
   expect(store.selectedCells).toEqual([]);
   expect(container.querySelector('[data-testid="batch-clear"]')).toBeNull();
   // 重新选两格后点「清空选择」按钮

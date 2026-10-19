@@ -408,25 +408,30 @@
   background: #e6f7ff;
 }
 
-.logMain {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
+// 第一行事件标题：普通文本按基调着色（常规/失败红/暂停回退橙/撤销失效灰），长标题自然换行
+.logTitle {
+  font-size: 13px;
+  line-height: 20px;
+  color: rgba(0, 0, 0, 0.85);
+  word-break: break-word;
 }
 
-.logTag {
-  margin-right: 0;
-}
-
-.logWarnText {
+.logTitleDanger {
   color: #ff4d4f;
-  font-size: 11px;
+}
+
+.logTitleWarn {
+  color: #fa8c16;
+}
+
+.logTitleMuted {
+  color: #999;
 }
 
 .logStatusText {
   color: #999;
   font-size: 11px;
+  margin-top: 2px;
 }
 
 .logMeta {
@@ -440,6 +445,43 @@
   margin-top: 4px;
   font-size: 12px;
   white-space: pre-wrap;
+}
+
+// 事件明细（detail.steps 快照）：摘要行 + 可展开步骤清单
+.logDetail {
+  margin-top: 4px;
+}
+
+.logDetailSummary {
+  color: #999;
+  font-size: 11px;
+}
+
+.logDetailNote {
+  color: #999;
+  font-size: 11px;
+  margin-top: 2px;
+  white-space: pre-wrap;
+}
+
+.logDetailToggle {
+  padding: 0;
+  height: 20px;
+  font-size: 11px;
+}
+
+.logDetailSteps {
+  margin-top: 2px;
+  padding: 4px 8px;
+  background: #fafafa;
+  border-radius: 4px;
+}
+
+.logDetailStep {
+  color: #666;
+  font-size: 11px;
+  line-height: 18px;
+  word-break: break-word;
 }
 
 // ===== 窄屏：上下排列，保证控件可用 =====

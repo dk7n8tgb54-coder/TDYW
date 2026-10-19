@@ -23,7 +23,7 @@ import {
 } from 'antd';
 import {
   PlusOutlined, CheckCircleOutlined, MoreOutlined, AimOutlined,
-  PrinterOutlined, DeleteOutlined, PaperClipOutlined, DownOutlined, FormOutlined,
+  PaperClipOutlined,
 } from '@ant-design/icons';
 import { AttachmentManager } from 'components';
 import { hasPermission } from 'libs';
@@ -31,14 +31,18 @@ import moment from 'moment';
 import store from './store';
 import { useSyncRecordToForm, useBasicInfoEditor } from './hooks';
 import {
-  getActionColor, computeStepFlowState, renderFlowNode, STATUS_TAG_COLOR, StepStatusTag,
-  groupStepsByPhase, buildPhaseActionGroups, flowHeadline,
+  computeStepFlowState, StepStatusTag,
+  groupStepsByPhase, buildPhaseActionGroups,
+  LOG_TONE, getLogTone, buildLogTitle, STEP_STATUS_TEXT,
+  UPGRADE_TYPE_OPTIONS,
 } from './shared';
 import SystemSelect from './components/SystemSelect';
+import RecordInfoBar from './components/WorkbenchInfoBar';
+import {PhaseActionMenu, PhaseFlowArea, TimelineActionModals} from './components/TimelineModals';
 import { printUpgradeArchive, printUpgradeSteps } from './archivePrint';
 import {
   submitUpgradeForm, postStepAction, deleteStep, addStep, clearSteps,
-  applyPlanToRecord, postNodeAction, deleteStatusLog, confirmRollback,
+  applyPlanToRecord,
 } from './workbenchActions';
 import styles from './Workbench.module.less';
 
@@ -46,8 +50,6 @@ const { Option } = Select;
 const { TextArea } = Input;
 const { Panel } = Collapse;
 
-const UPGRADE_TYPE_OPTIONS = ['功能升级', 'Bug修复', '安全补丁', '性能优化'];
-const STATUS_OPTIONS = ['处理中', '已完成', '已回退'];
 const STEP_DONE = s => s.status === 'completed' || s.status === 'skipped';
 
 /** 步骤"更多"菜单项：按状态与权限生成（跳过/重置/删除，权限码与原有口径一致） */
@@ -74,10 +76,14 @@ function dispatchStepMoreAction(recordId, step, key) {
 /**
  * 单个步骤行：待执行"完成"为行内主要操作，跳过/重置/删除收进"更多"菜单；
  * 说明点击展开/收起（长内容可读）；已完成/已跳过降低强调但保持可读。
+ * 失败待处理（phaseBlocked）阶段：完成/跳过禁用并提示先走"处理失败"。
  */
-function StepRow({recordId, step, canEdit, descExpanded, onToggleDesc}) {
+function StepRow({recordId, step, canEdit, phaseBlocked, descExpanded, onToggleDesc}) {
   const done = step.status !== 'pending';
-  const moreItems = canEdit ? buildStepMoreItems(step) : [];
+  const blockedTip = '该阶段有未处理完的失败，请先在"处理失败"中选择重做范围';
+  // 失败待处理阶段：跳过收起（后端同样拒绝）；重置/删除仍可用（重置为重做范围的一部分）
+  const moreItems = canEdit ? buildStepMoreItems(step)
+    .filter(item => !(phaseBlocked && item.key === 'skip')) : [];
   return (
     <div className={done ? styles.stepRowDone : styles.stepRowTodo} data-step-id={step.id}>
       <div className={styles.stepMain}>
@@ -96,9 +102,11 @@ function StepRow({recordId, step, canEdit, descExpanded, onToggleDesc}) {
           {step.completed_by ? `${step.completed_by} ${step.completed_at}` : ''}
         </span>
         {canEdit && step.status === 'pending' && (
-          <Button size="small" type="link" icon={<CheckCircleOutlined />}
-            className={styles.completeBtn}
-            onClick={() => postStepAction(recordId, step, 'complete')}>完成</Button>
+          <Tooltip title={phaseBlocked ? blockedTip : ''}>
+            <Button size="small" type="link" icon={<CheckCircleOutlined />}
+              className={styles.completeBtn} disabled={phaseBlocked}
+              onClick={() => postStepAction(recordId, step, 'complete')}>完成</Button>
+          </Tooltip>
         )}
         {moreItems.length > 0 && (
           <Dropdown trigger={['click']} overlay={(
@@ -190,155 +198,6 @@ const CreateFormCards = observer(function CreateFormCards({selectedPlan, setSele
         </Form.Item>
       </Card>
     </>
-  );
-});
-
-/** 只读详细说明块：查看用户也能阅读升级内容/影响范围/风险说明/回退摘要 */
-const DETAIL_BLOCKS = [
-  ['upgrade_content', '升级内容'],
-  ['impact_scope', '影响范围'],
-  ['risk_desc', '风险说明'],
-  ['rollback_plan', '回退方案摘要'],
-];
-
-function DetailBlocks() {
-  return (
-    <div className={styles.detailBlocks}>
-      {DETAIL_BLOCKS.map(([field, label]) => (
-        <div key={field} className={styles.detailBlock}>
-          <div className={styles.detailBlockTitle}>{label}</div>
-          <div className={styles.detailBlockBody}>{store.record[field] || '—'}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** 编辑基本信息面板：表单字段与原折叠面板一致，面板内提供保存修改/取消 */
-function EditBasicInfoPanel({form, saving, onSaveEdit, onCancelEdit}) {
-  return (
-    <div className={styles.editPanel}>
-      <Form form={form} layout="vertical">
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item name="title" label="标题">
-              <Input placeholder="标题" />
-            </Form.Item>
-          </Col>
-          <Col span={6}>
-            <Form.Item name="system" label="系统">
-              <SystemSelect placeholder="系统" />
-            </Form.Item>
-          </Col>
-          <Col span={6}>
-            <Form.Item name="upgrade_type" label="类型">
-              <Select placeholder="类型">
-                {UPGRADE_TYPE_OPTIONS.map(t => <Option key={t} value={t}>{t}</Option>)}
-              </Select>
-            </Form.Item>
-          </Col>
-          <Col span={6}>
-            <Form.Item name="owner" label="负责人">
-              <Input placeholder="负责人" />
-            </Form.Item>
-          </Col>
-          <Col span={6}>
-            <Form.Item name="upgrade_time" label="计划升级时间">
-              <DatePicker showTime style={{ width: '100%' }} placeholder="计划升级时间" />
-            </Form.Item>
-          </Col>
-          <Col span={6}>
-            <Form.Item name="status" label="状态">
-              <Select placeholder="状态">
-                {STATUS_OPTIONS.map(s => <Option key={s} value={s}>{s}</Option>)}
-              </Select>
-            </Form.Item>
-          </Col>
-          <Col span={24}>
-            <Form.Item name="upgrade_content" label="升级内容">
-              <TextArea rows={2} placeholder="升级内容" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="impact_scope" label="影响范围">
-              <TextArea rows={2} placeholder="影响范围（选填）" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="risk_desc" label="风险说明">
-              <TextArea rows={2} placeholder="风险说明（选填）" />
-            </Form.Item>
-          </Col>
-          <Col span={24}>
-            <Form.Item name="rollback_plan" label="回退方案摘要">
-              <TextArea rows={2} placeholder="回退方案摘要（选填）" />
-            </Form.Item>
-          </Col>
-        </Row>
-      </Form>
-      <div className={styles.editActions}>
-        <Button type="primary" loading={saving} onClick={onSaveEdit}>保存修改</Button>
-        <Button onClick={onCancelEdit}>取消</Button>
-      </div>
-    </div>
-  );
-}
-
-/**
- * 顶部信息栏（紧凑两行）：
- * 第一行 = 升级标题 + 状态，右侧编辑/打印入口；
- * 第二行 = 系统/计划升级时间/负责人主字段，编号/升级类型为次要信息；
- * 详细说明默认收起，展开后只读展示四段说明。
- */
-const RecordInfoBar = observer(function RecordInfoBar(
-  {canEdit, form, editVisible, saving, onToggleEdit, onSaveEdit, onCancelEdit, onPrintBasicInfo, onPrintSteps}) {
-  const [detailVisible, setDetailVisible] = useState(false);
-  const info = store.record;
-  return (
-    <div className={styles.infoBar}>
-      <div className={styles.infoRowMain}>
-        <span className={styles.infoTitle}>{info.title || '（未命名）'}</span>
-        <Tag color={STATUS_TAG_COLOR[info.status] || 'default'}>{info.status}</Tag>
-        <span className={styles.infoActions}>
-          <Button size="small" icon={<PrinterOutlined />} onClick={onPrintBasicInfo}>打印基本信息</Button>
-          <Dropdown overlay={(
-            <Menu>
-              <Menu.Item key="all" onClick={() => onPrintSteps()} disabled={store.recordSteps.length === 0}>打印全部阶段</Menu.Item>
-              <Menu.Divider />
-              {(store.filterOptions.phases || []).map(p => (
-                <Menu.Item key={p} onClick={() => onPrintSteps(p)}>只打印【{p}】</Menu.Item>
-              ))}
-            </Menu>
-          )}>
-            <Button size="small" icon={<PrinterOutlined />} disabled={store.recordSteps.length === 0}>
-              打印步骤 <DownOutlined />
-            </Button>
-          </Dropdown>
-          {canEdit && (
-            <Button size="small" icon={<FormOutlined />} aria-expanded={!!editVisible}
-              onClick={onToggleEdit}>编辑基本信息</Button>
-          )}
-        </span>
-      </div>
-      <div className={styles.infoRowSub}>
-        <span><span className={styles.infoLabel}>系统</span>{info.system_name || '-'}</span>
-        <span><span className={styles.infoLabel}>计划升级时间</span>{info.upgrade_time || '-'}</span>
-        <span><span className={styles.infoLabel}>负责人</span>{info.owner || '-'}</span>
-        <span className={styles.infoMinor}><span className={styles.infoLabel}>编号</span>{info.upgrade_no || '-'}</span>
-        <span className={styles.infoMinor}><span className={styles.infoLabel}>升级类型</span>{info.upgrade_type || '-'}</span>
-        <Button type="link" size="small" className={styles.detailToggle}
-          aria-expanded={detailVisible}
-          onClick={() => setDetailVisible(v => !v)}>
-          {detailVisible ? '收起详细说明' : '详细说明'}
-        </Button>
-      </div>
-      {detailVisible && <DetailBlocks />}
-      {canEdit && editVisible && (
-        <EditBasicInfoPanel
-          form={form} saving={saving}
-          onSaveEdit={onSaveEdit} onCancelEdit={onCancelEdit}/>
-      )}
-    </div>
   );
 });
 
@@ -438,10 +297,13 @@ const WorkbenchStepsPanel = observer(function WorkbenchStepsPanel({recordId, can
   const canAdd = hasPermission('upgrade.upgrade.add');
   const phases = store.filterOptions.phases || [];
   const {groups, ungrouped} = groupStepsByPhase(store.recordSteps, phases);
-  // 阶段状态复用 computeStepFlowState（当前阶段标记底色，不另加业务判断）
+  // 阶段状态复用 computeStepFlowState（结合失败单推断 failed/redoing）
   const phaseStateMap = computeStepFlowState(
-    store.recordSteps, phases, store.statusLogs).nodes
+    store.recordSteps, phases, store.statusLogs, store.failures).nodes
     .reduce((map, n) => { map[n.label] = n.state; return map; }, {});
+  // 失败待处理（pending）阶段：步骤的普通完成/跳过被后端拒绝，前端同步禁用并提示
+  const blockedPhases = new Set((store.failures || [])
+    .filter(f => f.status === 'pending').map(f => f.phase));
   const hasPending = store.recordSteps.some(s => s.status === 'pending');
 
   const stepStats = store.recordStepStats || {};
@@ -486,6 +348,7 @@ const WorkbenchStepsPanel = observer(function WorkbenchStepsPanel({recordId, can
   function renderStepOf(step) {
     return (
       <StepRow key={step.id} recordId={recordId} step={step} canEdit={canEdit}
+        phaseBlocked={(step.phase || '') && blockedPhases.has(step.phase || '')}
         descExpanded={descExpandedIds.has(step.id)} onToggleDesc={toggleDesc}/>
     );
   }
@@ -535,98 +398,67 @@ const WorkbenchStepsPanel = observer(function WorkbenchStepsPanel({recordId, can
   );
 });
 
-/** 键盘可操作的流程节点包装（Enter/空格触发点击，焦点样式见 nodeClickable:focus-visible） */
-function ClickableNode({onClick, children}) {
+/** 事件明细（detail.steps 快照）：默认只显示数量摘要，可展开查看受影响步骤 */
+function LogEventDetail({detail}) {
+  const [expanded, setExpanded] = useState(false);
+  if (!detail || !Array.isArray(detail.steps) || detail.steps.length === 0) return null;
+  const summary = [];
+  if (typeof detail.selected_count === 'number') summary.push(`选择 ${detail.selected_count} 个步骤`);
+  if (typeof detail.reset_count === 'number') summary.push(`实际重置 ${detail.reset_count} 个`);
+  if (detail.later_action === 'keep') summary.push('后续结果已确认保留');
+  if (detail.later_action === 'redo') summary.push('后续阶段一并重新执行');
+  if (Array.isArray(detail.failures_resolved) && detail.failures_resolved.length > 0) {
+    summary.push(`解除失败阻塞 ${detail.failures_resolved.length} 项`);
+  }
   return (
-    <span className={styles.nodeClickable} tabIndex={0} role="button" onClick={onClick}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') e.target.click(); }}>
-      {children}
-    </span>
+    <div className={styles.logDetail}>
+      {summary.length > 0 && (
+        <div className={styles.logDetailSummary}>{summary.join(' · ')}</div>
+      )}
+      {detail.later_reason && (
+        <div className={styles.logDetailNote}>保留理由：{detail.later_reason}</div>
+      )}
+      {detail.note && (
+        <div className={styles.logDetailNote}>说明：{detail.note}</div>
+      )}
+      <Button type="link" size="small" className={styles.logDetailToggle}
+        onClick={() => setExpanded(v => !v)}>
+        {expanded ? '收起明细' : `展开明细（${detail.steps.length}）`}
+      </Button>
+      {expanded && (
+        <div className={styles.logDetailSteps}>
+          {detail.steps.map(s => (
+            <div key={s.id} className={styles.logDetailStep}>
+              {s.phase ? `【${s.phase}】` : ''}{s.title}：
+              {STEP_STATUS_TEXT[s.from_status] || s.from_status}
+              →{STEP_STATUS_TEXT[s.to_status] || s.to_status}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
-/** 流程节点快捷交互（保留原有入口；回退改走带影响预览的统一确认） */
-function FlowNodeWithAction({node, idx, canEdit, recordId}) {
-  const el = renderFlowNode(node, idx);
-  if (!canEdit) return <span key={node.action}>{el}</span>;
-  if (node.state === 'current') {
-    return (
-      <Dropdown key={node.action} trigger={['click']} overlay={(
-        <Menu onClick={({key}) => postNodeAction(recordId, key, node)}>
-          <Menu.Item key="pause">暂停该阶段</Menu.Item>
-          <Menu.Item key="test_fail">标记失败</Menu.Item>
-        </Menu>
-      )}>
-        <ClickableNode>{el}</ClickableNode>
-      </Dropdown>
-    );
-  }
-  if (node.state === 'paused') {
-    return (
-      <Popconfirm key={node.action} title="继续该阶段？" onConfirm={() => postNodeAction(recordId, 'resume', node)}>
-        <ClickableNode>{el}</ClickableNode>
-      </Popconfirm>
-    );
-  }
-  if (node.state === 'completed') {
-    return (
-      <ClickableNode key={node.action} onClick={() => confirmRollback(recordId, node)}>
-        {el}
-      </ClickableNode>
-    );
-  }
-  if (node.state === 'failed') {
-    return <Tooltip key={node.action} title="该阶段失败，请回退到之前的阶段重做">{el}</Tooltip>;
-  }
-  return <span key={node.action}>{el}</span>;
-}
-
-/** 单条状态日志：结果为一级文案，操作人/时间次要，备注可读（撤销条目弱化） */
-function LogTimelineItem({log, canEdit, recordId, highlightId}) {
-  const isPhaseDone = log.action === 'phase_done';
-  const dimmed = isPhaseDone && log.outcome === 'revoked';
-  let logColor;
-  let mainText;
-  let tagColor;
-  if (isPhaseDone) {
-    const phase = log.phase || '阶段';
-    if (log.outcome === 'failed') {
-      logColor = 'red'; tagColor = 'red'; mainText = `${phase}阶段未通过`;
-    } else if (log.outcome === 'revoked') {
-      logColor = 'gray'; tagColor = 'default'; mainText = `${phase}阶段已撤销`;
-    } else {
-      logColor = 'green'; tagColor = 'success'; mainText = `${phase}阶段已完成`;
-    }
-  } else {
-    logColor = getActionColor(log.action);
-    tagColor = logColor;
-    mainText = log.action_text;
-  }
+/** 单条状态日志：第一行事件标题，第二行操作人/时间，状态变化、明细与备注为辅助内容（撤销/失效整体弱化） */
+function LogTimelineItem({log, highlightId}) {
+  const tone = LOG_TONE[getLogTone(log)];
+  const dimmed = tone === LOG_TONE.muted;
   return (
-    <Timeline.Item key={log.id} color={logColor}>
+    <Timeline.Item color={tone.dot}>
       <div className={styles.logRow} style={dimmed ? {opacity: 0.55} : undefined}>
         <div className={highlightId === log.id
           ? `${styles.logItem} ${styles.logItemHighlight}` : styles.logItem}>
-          <div className={styles.logMain}>
-            <Tag color={tagColor} className={styles.logTag}>{mainText}</Tag>
-            {log.action === 'rollback' && log.target_action_text && (
-              <span className={styles.logWarnText}>回退到：{log.target_action_text}</span>
-            )}
-            {log.action === 'test_fail' && log.phase && (
-              <span className={styles.logWarnText}>失败阶段：{log.phase}</span>
-            )}
-            {log.to_status && log.to_status !== log.from_status && (
-              <span className={styles.logStatusText}>{log.from_status}→{log.to_status}</span>
-            )}
+          <div className={`${styles.logTitle}${tone.title ? ` ${styles[tone.title]}` : ''}`}>
+            {buildLogTitle(log)}
           </div>
           <div className={styles.logMeta}>{log.operator_name} · {log.created_at}</div>
+          {log.to_status && log.to_status !== log.from_status && (
+            <div className={styles.logStatusText}>{log.from_status}→{log.to_status}</div>
+          )}
+          <LogEventDetail detail={log.detail} />
           {log.remark && <div className={styles.logRemark}>{log.remark}</div>}
         </div>
-        {canEdit && (
-          <Popconfirm title="确定删除此日志？" onConfirm={() => deleteStatusLog(recordId, log.id)}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} style={{ padding: 0 }} />
-          </Popconfirm>
-        )}
       </div>
     </Timeline.Item>
   );
@@ -634,17 +466,23 @@ function LogTimelineItem({log, canEdit, recordId, highlightId}) {
 
 /**
  * 状态时间线面板：流程节点（带快捷交互）+ 阶段操作菜单 + 状态日志时间线。
- * - 日志条目以事件结果为一级信息（如"备份阶段已完成"），操作人/时间为次要信息；
+ * - 日志条目两行主结构：第一行事件标题（如"备份阶段完成""回退至「备份」"），
+ *   第二行操作人/时间；状态变化与备注为下方辅助内容；
  * - 新日志到达时短暂高亮；用户已滚离顶部时不抢滚动，改用"有新记录"按钮定位。
  */
 const WorkbenchTimelinePanel = observer(function WorkbenchTimelinePanel({recordId, canEdit}) {
-  const flowNodes = computeStepFlowState(store.recordSteps, store.filterOptions.phases, store.statusLogs).nodes;
-  const actionGroups = buildPhaseActionGroups(flowNodes);
+  const flowNodes = computeStepFlowState(
+    store.recordSteps, store.filterOptions.phases, store.statusLogs, store.failures).nodes;
+  const actionGroups = buildPhaseActionGroups(flowNodes, store.failures);
   const listRef = useRef(null);
   const prevLogIdsRef = useRef(null);
   const [highlightId, setHighlightId] = useState(null);
   const [hasNewBelow, setHasNewBelow] = useState(false);
   const highlightTimerRef = useRef(null);
+  // 失败处理/重新执行弹窗（phase 为空表示关闭）
+  const [createFailurePhase, setCreateFailurePhase] = useState(null);
+  const [handleFailure, setHandleFailure] = useState(null);   // 失败单对象
+  const [redoPhase, setRedoPhase] = useState(null);
 
   // 新日志检测：仅当顶部出现旧列表中不存在的日志（真实新增，删除/重取不触发）
   // 时短暂高亮；用户滚离顶部则不打断阅读，显示"有新记录"按钮
@@ -680,17 +518,29 @@ const WorkbenchTimelinePanel = observer(function WorkbenchTimelinePanel({recordI
     setHasNewBelow(false);
   }
 
-  /** "阶段操作"菜单点击 → 复用既有节点动作（回退走确认预览） */
+  /** 打开"处理失败"弹窗：优先找该阶段未结失败单；无失败单则退化为标记失败 */
+  function openFailureFor(phase) {
+    const failure = (store.failures || []).find(f =>
+      f.phase === phase && (f.status === 'pending' || f.status === 'redoing'));
+    if (failure) setHandleFailure(failure);
+    else setCreateFailurePhase(phase);
+  }
+
+  /** "阶段操作"菜单点击：标记失败弹原因；处理失败/重新执行弹对应窗口 */
   function handlePhaseMenuClick({key}) {
     const [action, ...rest] = key.split('::');
     if (!action) return;
-    const node = flowNodes.find(n => n.label === rest.join('::'));
-    if (!node) return;
-    if (action === 'rollback') return confirmRollback(recordId, node);
-    if (['pause', 'resume', 'test_fail'].includes(action)) {
-      return postNodeAction(recordId, action, node);
-    }
+    const phase = rest.join('::');
+    if (!phase) return;
+    if (action === 'test_fail') return setCreateFailurePhase(phase);
+    if (action === 'handle_failure') return openFailureFor(phase);
+    if (action === 'redo') return setRedoPhase(phase);
     return undefined;
+  }
+
+  /** 该阶段的未结失败单（处理失败弹窗渲染用） */
+  function failureSteps(failure) {
+    return store.recordSteps.filter(s => (s.phase || '') === failure.phase);
   }
 
   return (
@@ -701,36 +551,13 @@ const WorkbenchTimelinePanel = observer(function WorkbenchTimelinePanel({recordI
         </span>
         {canEdit && actionGroups.length > 0 && (
           <span className={styles.panelHeaderActions}>
-            <Dropdown trigger={['click']} overlay={(
-              <Menu onClick={handlePhaseMenuClick}>
-                {actionGroups.map(g => (
-                  <Menu.ItemGroup key={g.key} title={g.title}>
-                    {g.items.map(item => (
-                      <Menu.Item key={item.key} danger={item.danger} disabled={item.disabled}>
-                        {item.label}
-                      </Menu.Item>
-                    ))}
-                  </Menu.ItemGroup>
-                ))}
-              </Menu>
-            )}>
-              <Button size="small">阶段操作 <DownOutlined /></Button>
-            </Dropdown>
+            <PhaseActionMenu groups={actionGroups} onClick={handlePhaseMenuClick}/>
           </span>
         )}
       </div>
 
-      <div className={styles.flowArea}>
-        <div className={styles.flowHeadline}>{flowHeadline(flowNodes)}</div>
-        <div className={styles.flowNodes}>
-          {flowNodes.length > 0
-            ? flowNodes.map((node, idx) => (
-              <FlowNodeWithAction key={node.action} node={node} idx={idx + 1}
-                canEdit={canEdit} recordId={recordId}/>
-            ))
-            : <span className={styles.flowEmpty}>暂无阶段（请为步骤设置阶段）</span>}
-        </div>
-      </div>
+      <PhaseFlowArea flowNodes={flowNodes} canEdit={canEdit}
+        onMarkFailure={setCreateFailurePhase} onOpenFailure={openFailureFor}/>
 
       <div className={styles.timelineWrap}>
         {hasNewBelow && (
@@ -740,12 +567,23 @@ const WorkbenchTimelinePanel = observer(function WorkbenchTimelinePanel({recordI
         <div className={styles.timelineScroll} ref={listRef} onScroll={handleListScroll}>
           {store.statusLogs.length > 0
             ? <Timeline>{store.statusLogs.map(log => (
-              <LogTimelineItem key={log.id} log={log} canEdit={canEdit}
-                recordId={recordId} highlightId={highlightId}/>
+              <LogTimelineItem key={log.id} log={log} highlightId={highlightId}/>
             ))}</Timeline>
             : <Empty description="暂无状态记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
         </div>
       </div>
+
+      {canEdit && (
+        <TimelineActionModals
+          recordId={recordId}
+          createFailurePhase={createFailurePhase}
+          handleFailure={handleFailure}
+          redoPhase={redoPhase}
+          failureSteps={failureSteps}
+          onCloseCreate={() => setCreateFailurePhase(null)}
+          onCloseHandle={() => setHandleFailure(null)}
+          onCloseRedo={() => setRedoPhase(null)}/>
+      )}
     </div>
   );
 });

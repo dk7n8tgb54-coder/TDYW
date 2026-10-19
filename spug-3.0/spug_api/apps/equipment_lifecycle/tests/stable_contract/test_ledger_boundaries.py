@@ -101,6 +101,10 @@ class LedgerBoundaryContractTests(TestCase):
             # Excel 上传版维护台账模板（2026-09-28 试点）：模板 + 不可变版本 + 台账填写记录
             'OperationLedgerExcelTemplate', 'OperationLedgerExcelTemplateVersion',
             'OperationLedgerExcelRecord',
+            # 原生维护台账模板（2026-10-18 接入，Univer 在线编辑路线）：
+            # 模板 + 不可变版本 + 台账填写记录（与 Excel 三件套同构）
+            'OperationLedgerNativeTemplate', 'OperationLedgerNativeTemplateVersion',
+            'OperationLedgerNativeRecord',
             # 系统配置（2026-10）：参数定义/适用系统/当前值 + 配置变更主表/明细
             # （SystemParamValue 与 0023 已删除的旧自定义字段值表 SystemConfigValue 刻意区分命名）
             'ConfigParamDefinition', 'ConfigParamSystemScope', 'SystemParamValue',

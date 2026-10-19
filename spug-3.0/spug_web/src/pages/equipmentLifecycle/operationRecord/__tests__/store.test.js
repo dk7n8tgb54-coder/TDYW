@@ -13,7 +13,8 @@
  * 条件），换系统重置条件；详情动作/删除后页签在位时联动刷新不显示过期行。
  * 2026-10-15 体验四轮：关键词输入草稿与已执行条件分离（列表/导出/联动刷新
  * 只用已执行条件，导出范围文案按已执行条件逐项列出）；详情加载失败置
- * detailError、重试保持当前记录与页签；快速切换记录时旧详情/旧附件的迟到
+ * detailError、重试保持当前记录与目标定位区块（2026-10-18 页签改分区后由
+ * 详情组件在加载完成后消费）；快速切换记录时旧详情/旧附件的迟到
  * 响应与迟到失败不覆盖新记录。
  */
 const mockHttpGet = jest.fn();
@@ -419,19 +420,30 @@ describe('运行处置记录 Store——详情加载失败/重试/竞态（2026-
     expect(store.detail).toMatchObject({id: 11, record_no: 'JL-11'});
   });
 
-  it('重试保持当前记录与目标页签，重发详情/进展/附件请求', async () => {
+  it('重试保持当前记录与目标定位区块，重发详情/进展请求', async () => {
     const store = loadStore();
     await store.showDetail(11);
     await flush();
-    store.setActiveTab('progress');
+    // 定位目标由详情组件在内容加载完成后消费，Store 层重试不改动它
+    store.pendingSection = 'progress';
     mockHttpGet.mockClear();
     mockHttpGet.mockResolvedValue({id: 11, record_no: 'JL-11'});
     await store.retryDetailLoad();
     expect(store.detailId).toBe(11);
-    expect(store.activeTab).toBe('progress');
+    expect(store.pendingSection).toBe('progress');
+    // 附件列表不在 Store 层重试：由详情内附件表格挂载/重试入口自行请求
     expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/records/11/');
     expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/records/11/progress/');
-    expect(mockHttpGet).toHaveBeenCalledWith('/api/equipment-lifecycle/records/11/attachments/');
+    expect(mockHttpGet).not.toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/records/11/attachments/');
+  });
+
+  it('showDetail 第二参设置定位目标区块，缺省从顶部展示', async () => {
+    const store = loadStore();
+    await store.showDetail(21, 'progress');
+    expect(store.pendingSection).toBe('progress');
+    await store.showDetail(22);
+    expect(store.pendingSection).toBe('basic');
   });
 
   it('切换记录重开详情时重置失败标记', async () => {
@@ -488,6 +500,49 @@ describe('运行处置记录 Store——详情加载失败/重试/竞态（2026-
     expect(store.detailError).toBe(false);
     expect(store.detail.record_no).toBe('JL-12');
   });
+});
+
+describe('运行处置记录 Store——附件列表请求与数量同步（2026-10-18）', () => {
+  it('fetchAttachmentList 解析裸数组并写入数量/加载/失败状态', async () => {
+    const store = loadStore();
+    store.detailId = 11;
+    mockHttpGet.mockResolvedValueOnce(
+      [{id: 1, file_name: 'a.png'}, {id: 2, file_name: 'b.pdf'}]);
+    const rows = await store.fetchAttachmentList();
+    expect(mockHttpGet).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/records/11/attachments/');
+    expect(rows).toHaveLength(2);
+    expect(store.attachmentsTotal).toBe(2);
+    expect(store.attachmentsError).toBe(false);
+    expect(store.isAttachmentsFetching).toBe(false);
+    // 失败：置失败标记且数量不变（不显示为 0）
+    mockHttpGet.mockRejectedValueOnce(new Error('boom'));
+    await store.fetchAttachmentList().catch(() => {});
+    expect(store.attachmentsError).toBe(true);
+    expect(store.attachmentsTotal).toBe(2);
+    mockHttpGet.mockResolvedValueOnce({});
+    await expect(store.fetchAttachmentList()).rejects.toThrow('Invalid attachment');
+    expect(store.attachmentsError).toBe(true);
+    expect(store.attachmentsTotal).toBe(2);
+  });
+
+  it('附件数量变化只刷新当前记录对应列表，旧回调不更新', async () => {
+    const store = loadStore();
+    store.detailId = 11;
+    store.attachmentsTotal = 2;
+    store.systemRecordsSystemId = 7;
+    store.syncAttachmentCount(2, 11);
+    expect(mockHttpGet).not.toHaveBeenCalled();
+    store.syncAttachmentCount(3, 12);
+    expect(store.attachmentsTotal).toBe(2);
+    store.syncAttachmentCount(3, 11);
+    await flush();
+    expect(store.attachmentsTotal).toBe(3);
+    expect(mockHttpGet).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/records/', expect.any(Object));
+    expect(mockHttpGet).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/systems/7/records/', expect.any(Object));
+  });
 
   it('快速切换记录：旧记录附件迟到响应不覆盖新记录附件', async () => {
     const store = loadStore();
@@ -497,15 +552,25 @@ describe('运行处置记录 Store——详情加载失败/重试/竞态（2026-
         return new Promise((resolve) => { resolveOld = resolve; });
       }
       if (url.endsWith('/records/12/attachments/')) {
-        return Promise.resolve({data: [{id: 2, file_name: '新附件'}]});
+        return Promise.resolve([{id: 2, file_name: '新附件'}]);
       }
-      return Promise.resolve({data: [], total: 0});
+      return Promise.resolve([]);
     });
     await store.showDetail(11);
+    const staleRequest = store.fetchAttachmentList();
+    // 切换记录：showDetail 使在途请求失效并重置附件状态
     await store.showDetail(12);
-    await flush();
-    resolveOld({data: [{id: 1, file_name: '旧附件'}]});
-    await flush();
+    expect(store.attachments).toEqual([]);
+    expect(store.attachmentsTotal).toBe(0);
+    const freshRows = await store.fetchAttachmentList();
+    expect(freshRows).toEqual([{id: 2, file_name: '新附件'}]);
     expect(store.attachments).toEqual([{id: 2, file_name: '新附件'}]);
+    expect(store.attachmentsTotal).toBe(1);
+    // 旧记录迟到响应：仅拒绝，不写状态也不产出旧数据
+    resolveOld([{id: 1, file_name: '旧附件'}]);
+    await expect(staleRequest).rejects.toThrow('stale');
+    expect(store.attachments).toEqual([{id: 2, file_name: '新附件'}]);
+    expect(store.attachmentsTotal).toBe(1);
+    expect(store.attachmentsError).toBe(false);
   });
 });

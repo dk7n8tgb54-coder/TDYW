@@ -69,7 +69,7 @@ const PeriodSearchForm = observer(function PeriodSearchForm({store}) {
   );
 });
 
-function LedgerPeriodView({store, ledgerType, columns, onGenerate, onExcelCreate}) {
+function LedgerPeriodView({store, ledgerType, columns, onGenerate, onExcelCreate, onNativeCreate}) {
   return (
     <React.Fragment>
       <LedgerPeriodOverviewCard store={store}/>
@@ -90,7 +90,15 @@ function LedgerPeriodView({store, ledgerType, columns, onGenerate, onExcelCreate
           onClick={onExcelCreate}>
           新增{LEDGER_TYPE_TEXT[ledgerType]}台账
         </AuthButton>
-        <Tooltip title="导出台账明细数据（手工补录台账的检查项目明细行，携带当前筛选）；Excel 模板台账请在台账详情中导出填写完整的 Excel/PDF。">
+        <AuthButton
+          auth={PERM_L.LED_ADD}
+          style={{marginLeft: 8}}
+          icon={<PlusOutlined/>}
+          data-testid="native-create-open"
+          onClick={onNativeCreate}>
+          按原生模板新增
+        </AuthButton>
+        <Tooltip title="导出台账明细数据（手工补录台账的检查项目明细行，携带当前筛选）；Excel/原生模板台账请在台账详情中导出填写完整的 PDF。">
           <ExportButton
             auth={PERM_L.LED_EXPORT}
             style={{marginLeft: 8}}

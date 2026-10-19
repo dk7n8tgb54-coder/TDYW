@@ -279,7 +279,7 @@ def _record_detail_response(record):
     return json_response(data)
 
 
-def _record_list_rows(records, overview_map):
+def _record_list_rows(records, overview_map, attachment_counts):
     """列表行序列化统一出口：主表摘要 + 进展概览 + 持续时间（计算展示字段）。
 
     latest_progress_at 为全部进展处理时间的最大值（progress_overview_map
@@ -292,7 +292,9 @@ def _record_list_rows(records, overview_map):
         overview = dict(overview_map.get(r.id, {}))
         overview['duration_seconds'] = operation_services.duration_seconds(
             r.occurred_at, overview.get('latest_progress_at'))
-        rows.append({**r.to_view(), **overview})
+        rows.append({**r.to_view(), **overview,
+                     'attachment_count': attachment_counts.get(
+                         (r.tenant_id, str(r.id)), 0)})
     return rows
 
 
@@ -402,8 +404,11 @@ class RecordView(View):
         records = list(query[(page - 1) * page_size: page * page_size])
         # 进展概览后端聚合（单次 IN 查询，随本页记录合并返回，附持续时间）
         overview_map = operation_services.progress_overview_map([r.id for r in records])
+        attachment_counts = operation_services.attachment_count_map(
+            records, request.user, RECORD_ATTACHMENT_MODULE,
+            RECORD_ATTACHMENT_OBJECT_TYPE)
         return json_response({
-            'data': _record_list_rows(records, overview_map),
+            'data': _record_list_rows(records, overview_map, attachment_counts),
             'total': total, 'page': page, 'page_size': page_size,
         })
 
@@ -708,8 +713,11 @@ class SystemRecordListView(View):
         total = query.count()
         records = list(query[(page - 1) * page_size: page * page_size])
         overview_map = operation_services.progress_overview_map([r.id for r in records])
+        attachment_counts = operation_services.attachment_count_map(
+            records, request.user, RECORD_ATTACHMENT_MODULE,
+            RECORD_ATTACHMENT_OBJECT_TYPE)
         return json_response({
-            'data': _record_list_rows(records, overview_map),
+            'data': _record_list_rows(records, overview_map, attachment_counts),
             'total': total, 'page': page, 'page_size': page_size,
             'latest_occurred_at': latest_occurred_at,
         })

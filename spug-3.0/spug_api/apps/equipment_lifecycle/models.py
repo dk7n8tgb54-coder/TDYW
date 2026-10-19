@@ -200,7 +200,11 @@ LEDGER_FROM_MANUAL = 'manual'
 # Excel 上传版模板（固定版式 .xlsx，2026-09-28 试点）：台账明细为模板版本
 # 填写值（OperationLedgerExcelRecord），无 OperationLedgerItem
 LEDGER_FROM_EXCEL = 'excel_template'
-LEDGER_FROM_VALUES = ['manual', 'excel_template']
+# 原生维护台账模板（Univer 在线编辑，2026-10-18 接入）：与 Excel 模板长期
+# 并行，台账明细为模板版本填写值（OperationLedgerNativeRecord），共用
+# 编号/权限/状态机/审计；周期批量生成仍只面向 Excel 模板
+LEDGER_FROM_NATIVE = 'native_template'
+LEDGER_FROM_VALUES = ['manual', 'excel_template', 'native_template']
 
 # 录入渠道：当前固定 web（平台电脑端事后录入），保留字段作未来扩展边界
 ENTRY_CHANNEL_WEB = 'web'
@@ -259,7 +263,7 @@ class OperationLedger(TenantModelMixin, models.Model):
         help_text='计划填写期次标记（week_month: YYYY-MM 或每周键 YYYY-MM-DD；'
                   'seasonal: YYYY-夏秋/YYYY-冬春；历史台账为空），'
                   '仅用于周期分组与周期生成去重，不表达周/月维护拆分')
-    created_from = models.CharField(max_length=20, default=LEDGER_FROM_MANUAL, help_text='创建方式（manual 临时补录 / excel_template Excel模板）')
+    created_from = models.CharField(max_length=20, default=LEDGER_FROM_MANUAL, help_text='创建方式（manual 临时补录 / excel_template Excel模板 / native_template 原生模板）')
     client_token = models.CharField(max_length=64, default='', blank=True, help_text='客户端幂等令牌（创建防重复）')
     version = models.IntegerField(default=1, help_text='并发编辑版本号')
     completed_at = models.DateTimeField(null=True, blank=True, help_text='完成填写时间（2026-10-16 新流程终点）')
@@ -576,6 +580,13 @@ from apps.equipment_lifecycle.excel_models import (  # noqa: E402
     OperationLedgerExcelRecord,
     OperationLedgerExcelTemplate,
     OperationLedgerExcelTemplateVersion,
+)
+# 原生维护台账模板（2026-10-18 接入）：模型主体在 native_models.py（文件行数
+# 治理），底部导入完成模型注册，使 makemigrations/迁移状态一致。
+from apps.equipment_lifecycle.native_models import (  # noqa: E402
+    OperationLedgerNativeRecord,
+    OperationLedgerNativeTemplate,
+    OperationLedgerNativeTemplateVersion,
 )
 # 系统配置参数与配置变更（2026-10）：模型主体在 config_models.py（文件行数治理），
 # 底部导入完成模型注册，使 makemigrations/迁移状态一致。

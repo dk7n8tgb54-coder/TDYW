@@ -1,0 +1,169 @@
+.excel-template-workspace {
+  background: #fff;
+  border: 1px solid #e5e9ef;
+  color: #263238;
+
+  .excel-workspace-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    padding: 12px 16px;
+    border-bottom: 1px solid #e5e9ef;
+  }
+
+  .excel-workspace-heading,
+  .excel-workspace-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .excel-workspace-heading strong {
+    font-size: 15px;
+    overflow-wrap: anywhere;
+  }
+
+  .excel-workspace-heading .ant-tag {
+    margin-right: 0;
+  }
+
+  .excel-workspace-publish-reason {
+    padding: 5px 16px;
+    background: #fff7e6;
+    color: #ad4e00;
+    border-bottom: 1px solid #ffe7ba;
+  }
+
+  .excel-workspace-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    padding: 9px 16px;
+    background: #fafbfc;
+    border-bottom: 1px solid #e5e9ef;
+    color: #596773;
+    font-size: 12px;
+  }
+
+  .excel-workspace-body {
+    display: grid;
+    grid-template-columns: 310px minmax(0, 1fr);
+    min-height: 520px;
+  }
+
+  .excel-workspace-sidebar {
+    min-width: 0;
+    max-height: 72vh;
+    overflow-y: auto;
+    background: #fafbfc;
+    border-right: 1px solid #e5e9ef;
+  }
+
+  .excel-workspace-section {
+    padding: 14px;
+    border-bottom: 1px solid #e5e9ef;
+  }
+
+  .excel-workspace-section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .excel-workspace-section-title strong {
+    font-size: 13px;
+  }
+
+  .excel-workspace-section-title .ant-tag {
+    margin-right: 0;
+  }
+
+  .proto-field-panel {
+    width: 100% !important;
+    flex-shrink: 1 !important;
+  }
+
+  .proto-field-panel > div:first-child {
+    display: none;
+  }
+
+  .excel-workspace-binding-list {
+    max-height: 230px;
+    overflow-y: auto;
+    margin-top: 8px;
+  }
+
+  .excel-workspace-binding-row {
+    display: block;
+    width: 100%;
+    padding: 7px 8px;
+    text-align: left;
+    border: 0;
+    border-bottom: 1px solid #edf0f2;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .excel-workspace-binding-row:hover,
+  .excel-workspace-binding-row:focus-visible {
+    background: #eaf4fb;
+  }
+
+  .excel-workspace-binding-row:disabled {
+    cursor: default;
+    opacity: 0.65;
+  }
+
+  .excel-workspace-binding-name,
+  .excel-workspace-binding-location {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+
+  .excel-workspace-binding-name {
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .excel-workspace-binding-location {
+    margin-top: 3px;
+    color: #687782;
+    font-size: 11px;
+  }
+
+  .excel-workspace-sheet {
+    min-width: 0;
+    padding: 12px;
+  }
+
+  .excel-workspace-sheet .proto-table-wrap {
+    max-height: 70vh;
+  }
+}
+
+@media (max-width: 1100px) {
+  .excel-template-workspace {
+    .excel-workspace-body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .excel-workspace-sheet {
+      order: 0;
+    }
+
+    .excel-workspace-sidebar {
+      order: 1;
+      max-height: none;
+      border-right: 0;
+      border-top: 1px solid #e5e9ef;
+    }
+  }
+}

@@ -21,13 +21,15 @@ class RecordStepService:
         """检查步骤完成情况，自动更新升级记录状态
 
         规则：
-        - 所有步骤都已完成/已跳过 → 自动将记录状态设为'已完成'
+        - 所有步骤都已完成/已跳过，且不存在失败待处理 → 自动将记录状态设为'已完成'
+          （存在失败待处理时不自动完成，须先在"处理失败"中重做或更正）
         - 存在待执行步骤且记录状态为'已完成' → 回退为'处理中'
         - 无步骤时不自动变更状态
         """
         from ..models_checklist import UpgradeRecordStep
         from ..models import UpgradeRecord
         from ..constants import UpgradeStatus
+        from .failure_service import FailureService
 
         record = apply_tenant_filter(
             UpgradeRecord.objects.filter(pk=upgrade_id), user
@@ -45,7 +47,12 @@ class RecordStepService:
         pending_count = steps.filter(status='pending').count()
 
         if pending_count == 0 and record.status != UpgradeStatus.COMPLETED:
-            # 所有步骤已执行完毕，自动标记为已完成
+            if FailureService.has_pending_failure(upgrade_id, user):
+                logger.info(
+                    f'[Upgrade] 升级表单 {record.title} 存在失败待处理，'
+                    f'不自动完成（须先处理失败）')
+                return
+            # 所有步骤已执行完毕且无失败待处理，自动标记为已完成
             record.status = UpgradeStatus.COMPLETED
             record.updated_at = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
             record.updated_by = user
@@ -155,8 +162,18 @@ class RecordStepService:
 
     @staticmethod
     def update_step_status(step_id, user, data):
-        """更新步骤执行状态"""
+        """更新步骤执行状态（complete/skip/reset）
+
+        - 失败待处理（pending）阶段禁止普通完成/跳过，须先走"处理失败"；
+        - 已是待执行的步骤重置拒绝（无状态变化，不制造虚假事件）；
+        - 状态变更、阶段完成联动与步骤事件写入在同一事务，
+          事件带步骤快照（id/标题/阶段/变更前后状态），锁升级记录行防并发覆盖。
+        """
         from ..models_checklist import UpgradeRecordStep
+        from ..models import UpgradeRecord
+        from ..models_status_log import ACTION_STEP_DONE, ACTION_STEP_SKIP, ACTION_STEP_RESET
+        from ..services.status_log_service import StatusLogService
+        from ..services.failure_service import FailureService
 
         step = apply_tenant_filter(
             UpgradeRecordStep.objects.filter(is_deleted=False, pk=step_id), user
@@ -166,36 +183,89 @@ class RecordStepService:
 
         action = getattr(data, 'action', None)
         remark = getattr(data, 'remark', '') or ''
-
-        from ..services.status_log_service import StatusLogService
         phase = step.phase or ''
-        if action == 'complete':
-            step.mark_completed(user, remark)
-            StatusLogService.check_phase_completion(step.upgrade_id, user, phase)
-        elif action == 'skip':
-            step.mark_skipped(user, remark)
-            StatusLogService.check_phase_completion(step.upgrade_id, user, phase)
-        elif action == 'reset':
-            step.reset_status()
-            StatusLogService.on_step_reset(step.upgrade_id, user, phase)
-        else:
+        upgrade_id = step.upgrade_id
+
+        if action not in ('complete', 'skip', 'reset'):
             return None, '无效操作，支持: complete/skip/reset'
 
-        # 检查是否所有步骤已完成，自动更新升级记录状态
-        RecordStepService._check_and_update_record_status(step.upgrade_id, user)
+        try:
+            with transaction.atomic():
+                record = apply_tenant_filter(
+                    UpgradeRecord.objects.select_for_update().filter(pk=upgrade_id), user
+                ).first()
+                if record is None:
+                    return None, '升级表单不存在或无权限访问'
 
-        return step, None
+                # 事务内加锁重取步骤，防止并发下用过期状态覆盖
+                locked_step = apply_tenant_filter(
+                    UpgradeRecordStep.objects.select_for_update().filter(pk=step.pk), user
+                ).first()
+                if locked_step is None:
+                    return None, '步骤不存在或无权限'
+                step = locked_step
+
+                blocked = FailureService.blocked_phases(upgrade_id, user)
+                from_status = step.status
+                if action == 'complete':
+                    if phase in blocked:
+                        return None, (f'阶段【{phase}】有未处理完的失败，'
+                                      f'请先在"处理失败"中选择重做范围')
+                    step.mark_completed(user, remark)
+                    event_action = ACTION_STEP_DONE
+                elif action == 'skip':
+                    if phase in blocked:
+                        return None, (f'阶段【{phase}】有未处理完的失败，'
+                                      f'请先在"处理失败"中选择重做范围')
+                    step.mark_skipped(user, remark)
+                    event_action = ACTION_STEP_SKIP
+                else:
+                    if step.status == 'pending':
+                        return None, '该步骤已是待执行状态，无需重置'
+                    step.reset_status()
+                    event_action = ACTION_STEP_RESET
+
+                if action == 'reset':
+                    StatusLogService.on_step_reset(upgrade_id, user, phase)
+                else:
+                    StatusLogService.check_phase_completion(upgrade_id, user, phase)
+
+                StatusLogService._persist_log(
+                    upgrade_id=upgrade_id, user=user, action=event_action,
+                    remark=remark, target_action='', is_override=False,
+                    from_status='', to_status='', target_main_status=None,
+                    needs_update=False, record=record, phase=phase,
+                    detail={'steps': [{
+                        'id': step.id, 'title': step.title, 'phase': phase,
+                        'from_status': from_status, 'to_status': step.status,
+                    }]},
+                )
+                RecordStepService._check_and_update_record_status(upgrade_id, user)
+            return step, None
+        except Exception as e:
+            logger.error(f'[Upgrade] 步骤操作失败: {e}', exc_info=True)
+            return None, f'步骤操作失败: {str(e)}'
 
     @staticmethod
     def delete_step(step_id, user):
-        """删除升级记录的步骤"""
+        """删除升级记录的步骤
+
+        失败待处理阶段禁止删除步骤（保留失败发生时的现场，防止绕过失败处理）。
+        """
         from ..models_checklist import UpgradeRecordStep
+        from ..services.failure_service import FailureService
 
         step = apply_tenant_filter(
             UpgradeRecordStep.objects.filter(is_deleted=False, pk=step_id), user
         ).first()
         if not step:
             return '步骤不存在或无权限'
+
+        phase = step.phase or ''
+        blocked = FailureService.blocked_phases(step.upgrade_id, user)
+        if phase and phase in blocked:
+            return (f'阶段【{phase}】有未处理完的失败，删除步骤会破坏失败现场，'
+                    f'请先在"处理失败"中完成重做或更正')
 
         upgrade_id = step.upgrade_id
         from django.utils import timezone
@@ -209,8 +279,79 @@ class RecordStepService:
         return None
 
     @staticmethod
+    def _apply_batch_item(user, step, action, remark, blocked, done_events,
+                          reset_snapshots, reset_phases, done_phases):
+        """处理单条批量项并归类（事件由调用方统一写入）。
+
+        - complete/skip：失败待处理阶段拒绝；逐条记 done_events；
+        - reset：待执行步骤视为无变化跳过；其余记 reset_snapshots。
+
+        Returns:
+            str: 错误消息，None 表示成功
+        """
+        from ..models_status_log import ACTION_STEP_DONE, ACTION_STEP_SKIP
+        phase = step.phase or ''
+        from_status = step.status
+        if action in ('complete', 'skip'):
+            if phase and phase in blocked:
+                return (f'批量更新失败: 阶段【{phase}】有未处理完的失败，'
+                        f'请先在"处理失败"中选择重做范围')
+            if action == 'complete':
+                step.mark_completed(user, remark)
+                done_events.append((step, from_status, ACTION_STEP_DONE, remark))
+            else:
+                step.mark_skipped(user, remark)
+                done_events.append((step, from_status, ACTION_STEP_SKIP, remark))
+            done_phases.add(phase)
+        else:
+            if step.status == 'pending':
+                return None  # 无状态变化：不重复重置、不制造虚假事件
+            reset_snapshots.append({
+                'id': step.id, 'title': step.title, 'phase': phase,
+                'from_status': from_status, 'to_status': 'pending',
+            })
+            step.reset_status()
+            reset_phases.add(phase)
+        return None
+
+    @staticmethod
+    def _persist_batch_events(user, record, upgrade_id, done_events, reset_snapshots):
+        """批量事件写入：complete/skip 逐条 step_done/step_skip；
+        reset 组合写一条摘要事件（detail.batch + 步骤快照，前端可展开）。"""
+        from ..models_status_log import ACTION_STEP_RESET
+        from ..services.status_log_service import StatusLogService
+
+        for step, from_status, event_action, remark in done_events:
+            StatusLogService._persist_log(
+                upgrade_id=upgrade_id, user=user, action=event_action,
+                remark=remark, target_action='', is_override=False,
+                from_status='', to_status='', target_main_status=None,
+                needs_update=False, record=record, phase=step.phase or '',
+                detail={'steps': [{
+                    'id': step.id, 'title': step.title,
+                    'phase': step.phase or '',
+                    'from_status': from_status, 'to_status': step.status,
+                }]},
+            )
+        if reset_snapshots:
+            StatusLogService._persist_log(
+                upgrade_id=upgrade_id, user=user, action=ACTION_STEP_RESET,
+                remark='批量重置', target_action='', is_override=False,
+                from_status='', to_status='', target_main_status=None,
+                needs_update=False, record=record,
+                phase=reset_snapshots[0].get('phase', ''),
+                detail={'steps': reset_snapshots, 'batch': True,
+                        'reset_count': len(reset_snapshots)},
+            )
+
+    @staticmethod
     def batch_update_status(upgrade_id, user, steps_data):
         """批量更新步骤状态
+
+        - 失败待处理阶段禁止 complete/skip（整体拒绝，不产生部分变更）；
+        - reset 本来就是待执行的步骤视为无变化，跳过且不产生事件；
+        - reset 组合写一条摘要事件（detail.steps 可展开受影响步骤）；
+        - complete/skip 逐条写事件；全部变更与事件同事务。
 
         Args:
             upgrade_id: 升级表单ID
@@ -218,7 +359,10 @@ class RecordStepService:
             steps_data: list of {step_id, action, remark}
         """
         from ..models_checklist import UpgradeRecordStep
+        from ..models import UpgradeRecord
+        from ..models_status_log import ACTION_STEP_DONE, ACTION_STEP_RESET, ACTION_STEP_SKIP
         from ..services.status_log_service import StatusLogService
+        from ..services.failure_service import FailureService
 
         # 预校验：任一无效 action 直接拒绝（与单步接口一致），不产生部分变更
         valid_actions = ('complete', 'skip', 'reset')
@@ -228,43 +372,43 @@ class RecordStepService:
                 return (f'批量更新失败: 无效操作 [{action}]，'
                         f'支持: {"/".join(valid_actions)}')
 
-        affected = []  # [(phase, is_reset), ...]
         try:
             with transaction.atomic():
-                for item in steps_data:
-                    step_id = item.get('step_id')
-                    action = item.get('action')
-                    remark = item.get('remark', '')
+                record = apply_tenant_filter(
+                    UpgradeRecord.objects.select_for_update().filter(pk=upgrade_id), user
+                ).first()
+                if record is None:
+                    return '升级表单不存在或无权限'
 
+                blocked = set(FailureService.blocked_phases(upgrade_id, user))
+                done_events = []   # [(step, from_status, event_action, remark)]
+                reset_snapshots = []
+                reset_phases = set()
+                done_phases = set()
+
+                for item in steps_data:
                     step = apply_tenant_filter(
                         UpgradeRecordStep.objects.filter(
-                            pk=step_id, upgrade_id=upgrade_id
+                            pk=item.get('step_id'), upgrade_id=upgrade_id, is_deleted=False
                         ), user
                     ).first()
                     if not step:
                         continue
+                    error = RecordStepService._apply_batch_item(
+                        user, step, item.get('action'), item.get('remark', '') or '',
+                        blocked, done_events, reset_snapshots, reset_phases, done_phases)
+                    if error:
+                        return error
 
-                    phase = step.phase or ''
-                    if action == 'complete':
-                        step.mark_completed(user, remark)
-                        affected.append((phase, False))
-                    elif action == 'skip':
-                        step.mark_skipped(user, remark)
-                        affected.append((phase, False))
-                    elif action == 'reset':
-                        step.reset_status()
-                        affected.append((phase, True))
-
-                # 状态日志写入在事务内，确保步骤状态与日志一致
-                reset_phases = {ph for ph, is_reset in affected if is_reset}
-                done_phases = {ph for ph, is_reset in affected if not is_reset}
                 for ph in reset_phases:
                     StatusLogService.on_step_reset(upgrade_id, user, ph)
                 for ph in done_phases:
                     StatusLogService.check_phase_completion(upgrade_id, user, ph)
 
-            # 事务成功后检查是否所有步骤已完成，自动更新升级记录状态
-            RecordStepService._check_and_update_record_status(upgrade_id, user)
+                RecordStepService._persist_batch_events(
+                    user, record, upgrade_id, done_events, reset_snapshots)
+
+                RecordStepService._check_and_update_record_status(upgrade_id, user)
             return None
         except Exception as e:
             logger.error(f'[Upgrade] 批量更新步骤状态失败: {e}', exc_info=True)
@@ -272,15 +416,29 @@ class RecordStepService:
 
     @staticmethod
     def clear_record_steps(upgrade_id, user):
-        """清空升级表单的所有步骤"""
+        """清空升级表单的所有步骤
+
+        存在未结失败单（失败待处理/重做中）时拒绝：
+        清空会丢失失败现场与重做进度，须先在"处理失败"中完成重做或更正。
+        """
         from ..models_checklist import UpgradeRecordStep
         from ..models import UpgradeRecord
+        from ..models_failure import FAILURE_UNRESOLVED_STATUSES
 
         record = apply_tenant_filter(
             UpgradeRecord.objects.filter(is_deleted=False, pk=upgrade_id), user
         ).first()
         if not record:
             return '升级表单不存在或无权限'
+
+        from ..models_failure import UpgradeFailureHandling
+        unresolved = apply_tenant_filter(
+            UpgradeFailureHandling.objects.filter(
+                upgrade_id=upgrade_id, status__in=FAILURE_UNRESOLVED_STATUSES), user
+        ).exists()
+        if unresolved:
+            return ('存在未处理完的失败记录，清空步骤会丢失失败现场与重做进度，'
+                    '请先在"处理失败"中完成重做或更正')
 
         from django.utils import timezone
         now = timezone.now()

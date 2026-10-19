@@ -7,14 +7,12 @@
  * 只封装 http 调用 + store 刷新 + 消息提示的纯动作函数，
  * 不持有组件状态；组件层（WorkbenchForm 及其子组件）负责编排。
  */
-import React from 'react';
 import { http } from 'libs';
 import { message, Modal } from 'antd';
 import store from './store';
-import { computeRollbackImpact } from './shared';
 
 const STEP_ACTION_TEXT = {complete: '完成', skip: '已跳过', reset: '待执行'};
-const NODE_ACTION_TEXT = {pause: '已暂停', resume: '已继续', test_fail: '已标记失败', rollback: '已回退'};
+const NODE_ACTION_TEXT = {test_fail: '已标记失败'};
 
 // 在途请求守卫：同一目标的相同动作在请求返回前不重复提交（jsdom/弱网双击防护）
 const pendingStepKeys = new Set();
@@ -71,7 +69,7 @@ export function submitUpgradeForm({form, isNew, recordId, redirectMode, selected
   });
 }
 
-/** 步骤操作（完成/跳过/重置），成功后刷新步骤、状态时间线与主记录 */
+/** 步骤操作（完成/跳过/重置），成功后刷新步骤、状态时间线、失败单与主记录 */
 export function postStepAction(recordId, step, action) {
   const guardKey = `${step.id}::${action}`;
   if (pendingStepKeys.has(guardKey)) return;
@@ -82,6 +80,7 @@ export function postStepAction(recordId, step, action) {
       message.success(`步骤已标记为${actionText}`);
       store.fetchRecordSteps(recordId);
       store.fetchStatusLogs(recordId);
+      store.fetchFailures(recordId);
       store.fetchRecords();
       // 后端步骤联动会自动更新主表 status（全部完成→已完成等），同步刷新
       store.fetchRecord(recordId).catch(() => {});
@@ -185,33 +184,10 @@ export function applyPlanToRecord(recordId, planId, onSettled) {
 }
 
 /**
- * 回退确认（阶段节点点击与"阶段操作"菜单共用）：
- * 预览基于真实步骤数据（store.recordSteps）计算，口径与后端
- * _reset_steps_for_rollback 一致——目标阶段及其后所有阶段的步骤全部重置。
+ * 流程节点操作（标记失败），成功后刷新时间线与失败单。
+ * 回退/重新执行不再走 status-logs 旧接口，由 RedoFromModal 调 redo-execute；
+ * 暂停/继续已下线。
  */
-export function confirmRollback(recordId, node) {
-  const impact = computeRollbackImpact(store.recordSteps, node.label);
-  const content = impact.found ? (
-    <div>
-      <div>将回退到阶段：<strong>{node.label}</strong></div>
-      <div>
-        将被重置的阶段（{impact.phases.length}个）：
-        {impact.phases.join('、')}
-      </div>
-      <div>共 {impact.stepCount} 个步骤将重置为待执行</div>
-    </div>
-  ) : `确定回退到【${node.label}】？该阶段及之后的步骤将重置为待执行`;
-  Modal.confirm({
-    title: `回退到【${node.label}】`,
-    content,
-    okText: '确认回退',
-    cancelText: '取消',
-    okButtonProps: {danger: true},
-    onOk: () => postNodeAction(recordId, 'rollback', node),
-  });
-}
-
-/** 流程节点操作（暂停/继续/标记失败/回退），回退需刷新步骤清单 */
 export function postNodeAction(recordId, action, node) {
   const guardKey = `${action}::${node.label}`;
   if (pendingNodeKeys.has(guardKey)) return;
@@ -219,8 +195,8 @@ export function postNodeAction(recordId, action, node) {
   const payload = {
     action,
     remark: '',
-    target_action: action === 'rollback' ? node.label : '',
-    phase: ['pause', 'resume', 'test_fail'].includes(action) ? node.label : '',
+    target_action: '',
+    phase: action === 'test_fail' ? node.label : '',
   };
   http.post(`/api/upgrade/records/${recordId}/status-logs/`, payload)
     .then((res) => {
@@ -233,24 +209,80 @@ export function postNodeAction(recordId, action, node) {
       } else {
         store.fetchStatusLogs(recordId);
       }
-      // rollback 会重置步骤，需刷新步骤清单
-      if (action === 'rollback') {
-        store.fetchRecordSteps(recordId);
-      }
+      store.fetchFailures(recordId);
       store.fetchRecords();
     })
     .catch(() => {})
     .finally(() => pendingNodeKeys.delete(guardKey));
 }
 
-/** 删除状态日志并同步刷新主表状态 */
-export function deleteStatusLog(recordId, logId) {
-  http.delete(`/api/upgrade/status-logs/${logId}/delete/`)
-    .then(() => {
-      message.success('日志已删除');
+/** 标记阶段失败（带原因）：走 status-logs 旧入口，失败单由后端创建 */
+export function markPhaseFailure(recordId, phase, reason) {
+  return http.post(`/api/upgrade/records/${recordId}/status-logs/`, {
+    action: 'test_fail', phase, remark: reason,
+  }).then(res => {
+    message.success(`已标记【${phase}】失败，请在"处理失败"中选择重做范围`);
+    if (res && res.id) {
+      store.statusLogs = [res, ...store.statusLogs];
+    } else {
       store.fetchStatusLogs(recordId);
-      store.fetchRecords();
-      // 后端删除日志后重算了主表 status，同步刷新当前记录
-      store.fetchRecord(recordId).catch(() => {});
-    });
+    }
+    store.fetchFailures(recordId);
+    store.fetchRecords();
+    return res;
+  });
+}
+
+/** 开始重做：提交选定范围，成功后刷新步骤/时间线/失败单/主记录 */
+export function startFailureRedo(recordId, failureId, {stepIds, allSteps, note}) {
+  return http.post(
+    `/api/upgrade/records/${recordId}/failures/${failureId}/start-redo/`,
+    {step_ids: stepIds || [], all_steps: !!allSteps, note: note || ''},
+  ).then(res => {
+    const selected = (res && res.selected_count) || 0;
+    const reset = (res && res.reset_count) || 0;
+    message.success(`已开始重做：选择 ${selected} 个步骤，实际重置 ${reset} 个步骤`);
+    store.fetchRecordSteps(recordId);
+    store.fetchStatusLogs(recordId);
+    store.fetchFailures(recordId);
+    store.fetchRecord(recordId).catch(() => {});
+    store.fetchRecords();
+    return res;
+  });
+}
+
+/** 更正失败记录（误标场景）：填写原因，追加更正事件 */
+export function correctFailure(recordId, failureId, reason) {
+  return http.post(
+    `/api/upgrade/records/${recordId}/failures/${failureId}/correct/`,
+    {reason},
+  ).then(() => {
+    message.success('已更正失败记录');
+    store.fetchStatusLogs(recordId);
+    store.fetchFailures(recordId);
+    store.fetchRecord(recordId).catch(() => {});
+    store.fetchRecords();
+  });
+}
+
+/**
+ * 从某阶段重新执行：目标阶段及后续阶段重新执行，前面阶段保持原状。
+ * 仅重置工作清单，不代表软件/配置/数据库已实际回滚；
+ * later_action: 'redo' 同时重新执行后续阶段 | 'keep' 保留后续结果（须填理由）。
+ */
+export function executeRedoFrom(recordId, {targetPhase, laterAction, laterReason, note}) {
+  return http.post(`/api/upgrade/records/${recordId}/redo-execute/`, {
+    target_phase: targetPhase,
+    later_action: laterAction,
+    later_reason: laterReason || '',
+    note: note || '',
+  }).then(res => {
+    message.success(`已从「${targetPhase}」重新执行（仅重置工作清单）`);
+    store.fetchRecordSteps(recordId);
+    store.fetchStatusLogs(recordId);
+    store.fetchFailures(recordId);
+    store.fetchRecord(recordId).catch(() => {});
+    store.fetchRecords();
+    return res;
+  });
 }

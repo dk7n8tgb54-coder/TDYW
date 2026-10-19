@@ -315,6 +315,17 @@ class PlanService:
         if not record:
             return None, '升级表单不存在或无权限'
 
+        # 替换模式门禁：存在未结失败单时拒绝（保留失败现场与重做进度）
+        if replace:
+            from ..models_failure import UpgradeFailureHandling, FAILURE_UNRESOLVED_STATUSES
+            unresolved = apply_tenant_filter(
+                UpgradeFailureHandling.objects.filter(
+                    upgrade_id=upgrade_id, status__in=FAILURE_UNRESOLVED_STATUSES), user
+            ).exists()
+            if unresolved:
+                return None, ('存在未处理完的失败记录，应用方案替换会丢失失败现场，'
+                              '请先在"处理失败"中完成重做或更正')
+
         # 校验方案
         template = apply_tenant_filter(
             UpgradeTemplate.objects.filter(pk=plan_id), user

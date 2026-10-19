@@ -1,0 +1,162 @@
+{
+  "A4_landscape": {
+    "file": "native-ledger_A4_landscape.pdf",
+    "bytes": 130624,
+    "page_count": 2,
+    "pages": [
+      {
+        "width_mm": 297.0,
+        "height_mm": 209.9,
+        "text_chars": 1056,
+        "checks": {
+          "TX-2026-Q3-002": true,
+          "李敏": false,
+          "2026-09-20": true,
+          "1.22": true,
+          "43.6": true,
+          "2026 年第三季度": true
+        },
+        "fonts": [
+          "AAAAAA+MicrosoftYaHei"
+        ]
+      },
+      {
+        "width_mm": 297.0,
+        "height_mm": 209.9,
+        "text_chars": 475,
+        "checks": {
+          "TX-2026-Q3-002": true,
+          "李敏": true,
+          "2026-09-20": true,
+          "1.22": false,
+          "43.6": false,
+          "2026 年第三季度": false
+        },
+        "fonts": [
+          "AAAAAA+MicrosoftYaHei",
+          "BAAAAA+MicrosoftYaHei-Bold"
+        ]
+      }
+    ]
+  },
+  "A3_landscape": {
+    "file": "native-ledger_A3_landscape.pdf",
+    "bytes": 130405,
+    "page_count": 2,
+    "pages": [
+      {
+        "width_mm": 420.2,
+        "height_mm": 297.0,
+        "text_chars": 1056,
+        "checks": {
+          "TX-2026-Q3-002": true,
+          "李敏": false,
+          "2026-09-20": true,
+          "1.22": true,
+          "43.6": true,
+          "2026 年第三季度": true
+        },
+        "fonts": [
+          "AAAAAA+MicrosoftYaHei"
+        ]
+      },
+      {
+        "width_mm": 420.2,
+        "height_mm": 297.0,
+        "text_chars": 475,
+        "checks": {
+          "TX-2026-Q3-002": true,
+          "李敏": true,
+          "2026-09-20": true,
+          "1.22": false,
+          "43.6": false,
+          "2026 年第三季度": false
+        },
+        "fonts": [
+          "AAAAAA+MicrosoftYaHei",
+          "BAAAAA+MicrosoftYaHei-Bold"
+        ]
+      }
+    ]
+  },
+  "A4_portrait_fit": {
+    "file": "native-ledger_A4_portrait.pdf",
+    "bytes": 130687,
+    "page_count": 2,
+    "pages": [
+      {
+        "width_mm": 209.9,
+        "height_mm": 297.0,
+        "text_chars": 1056,
+        "checks": {
+          "TX-2026-Q3-002": true,
+          "李敏": false,
+          "2026-09-20": true,
+          "1.22": true,
+          "43.6": true,
+          "2026 年第三季度": true
+        },
+        "fonts": [
+          "AAAAAA+MicrosoftYaHei"
+        ]
+      },
+      {
+        "width_mm": 209.9,
+        "height_mm": 297.0,
+        "text_chars": 476,
+        "checks": {
+          "TX-2026-Q3-002": true,
+          "李敏": true,
+          "2026-09-20": true,
+          "1.22": false,
+          "43.6": false,
+          "2026 年第三季度": false
+        },
+        "fonts": [
+          "AAAAAA+MicrosoftYaHei",
+          "BAAAAA+MicrosoftYaHei-Bold"
+        ]
+      }
+    ]
+  },
+  "A4_portrait_actual": {
+    "file": "native-ledger_A4_portrait_actual.pdf",
+    "bytes": 106360,
+    "page_count": 2,
+    "pages": [
+      {
+        "width_mm": 209.9,
+        "height_mm": 297.0,
+        "text_chars": 778,
+        "checks": {
+          "TX-2026-Q3-002": true,
+          "李敏": false,
+          "2026-09-20": true,
+          "1.22": true,
+          "43.6": true,
+          "2026 年第三季度": true
+        },
+        "fonts": [
+          "AAAAAA+MicrosoftYaHei"
+        ]
+      },
+      {
+        "width_mm": 209.9,
+        "height_mm": 297.0,
+        "text_chars": 379,
+        "checks": {
+          "TX-2026-Q3-002": true,
+          "李敏": true,
+          "2026-09-20": false,
+          "1.22": false,
+          "43.6": false,
+          "2026 年第三季度": false
+        },
+        "fonts": [
+          "AAAAAA+MicrosoftYaHei",
+          "BAAAAA+MicrosoftYaHei-Bold"
+        ]
+      }
+    ]
+  }
+}

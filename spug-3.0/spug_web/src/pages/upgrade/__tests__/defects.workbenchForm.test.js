@@ -48,7 +48,7 @@ const {http, hasPermission} = require('libs');
 const {message, ConfigProvider} = require('antd');
 const zhCN = require('antd/lib/locale/zh_CN').default;
 const store = require('../store').default;
-const {deleteStatusLog} = require('../workbenchActions');
+const {postStepAction} = require('../workbenchActions');
 
 if (!window.matchMedia) {
   window.matchMedia = (query) => ({
@@ -230,7 +230,7 @@ describe('W3：应用方案/添加步骤受 upgrade.upgrade.add 门控', () => {
   });
 });
 
-describe('W4：删除状态日志不冲掉未保存草稿', () => {
+describe('W4：动作后重取记录不冲掉未保存草稿', () => {
   it('同记录重取后编辑面板中已触碰字段保留用户输入', async () => {
     renderForm();
     await act(async () => { await flush(); });
@@ -242,10 +242,11 @@ describe('W4：删除状态日志不冲掉未保存草稿', () => {
     expect(input.value).toBe('DVOR 软件升级');
     setInputValue(input, '用户手改的标题');
 
-    // 删除一条状态日志 → 后端重算主表状态 → 动作层重取当前记录
-    http.delete.mockImplementation(() => Promise.resolve({}));
+    // 步骤操作成功 → 动作层重取当前记录（后端已联动主表状态）
+    http.put.mockImplementation(() => Promise.resolve({}));
     const serverRecord = {...RECORD, title: '服务器端标题', status: '已完成'};
     http.get.mockImplementation((url) => {
+      if (url.includes('/failures/')) return Promise.resolve([]);
       if (url.includes('/status-logs/')) return Promise.resolve([]);
       if (url.includes('/steps/')) return Promise.resolve({steps: [], stats: {}});
       if (url.includes('/records/1/')) return Promise.resolve(serverRecord);
@@ -253,7 +254,7 @@ describe('W4：删除状态日志不冲掉未保存草稿', () => {
     });
 
     await act(async () => {
-      deleteStatusLog('1', 99);
+      postStepAction('1', {id: 99}, 'complete');
       await flush();
       await flush();
       await flush();

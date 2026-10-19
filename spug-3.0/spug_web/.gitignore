@@ -12,6 +12,13 @@
 # production
 /build
 
+# 实验室原型静态包（由 quality/prototypes/native_ledger 的 npm run build:lab 生成）
+/public/lab
+
+# 原生台账正式编辑器静态包（由 spug_web/native-editor 的 npm run build 生成，
+# 生产镜像在 Dockerfile 前端构建阶段自动构建）
+/public/native-ledger
+
 # misc
 .DS_Store
 .env.local

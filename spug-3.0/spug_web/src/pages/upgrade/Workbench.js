@@ -87,6 +87,7 @@ export default observer(function Workbench(props) {
         store.fetchRecord(recordId),
         store.fetchRecordSteps(recordId),
         store.fetchStatusLogs(recordId),
+        store.fetchFailures(recordId),
         store.fetchActionOptions(recordId),
         store.fetchFilterOptions(),
         store.fetchPlans(),
@@ -107,6 +108,7 @@ export default observer(function Workbench(props) {
       store.recordStepStats = {};
       store.statusLogs = [];
       store.actionOptions = [];
+      store.failures = [];
     };
     // isNew 由 recordId 派生，仅依赖 recordId 等价且避免重复执行
     // eslint-disable-next-line react-hooks/exhaustive-deps

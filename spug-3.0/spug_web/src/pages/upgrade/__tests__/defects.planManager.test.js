@@ -236,8 +236,10 @@ describe('P3：PlanForm 校验拒绝被本地吸收', () => {
 
 describe('P1c：工作台加载失败只提示一次', () => {
   it('fetchRecord 拒绝时拦截器提示一次，不再弹"加载数据失败"', async () => {
-    // 注意 /attachments/、/status-logs/、/steps/ 先于 /records/1/ 匹配（URL 前缀包含关系）
+    // 注意 /failures/、/attachments/、/status-logs/、/steps/ 先于 /records/1/ 匹配
+    // （URL 前缀包含关系：/records/1/failures/ 同样命中 /records/1/）
     http.get.mockImplementation((url) => {
+      if (url.includes('/failures/')) return Promise.resolve([]);
       if (url.includes('/attachments/')) return Promise.resolve([]);
       if (url.includes('/status-logs/')) return Promise.resolve([]);
       if (url.includes('/steps/')) return Promise.resolve({steps: [], stats: {}});

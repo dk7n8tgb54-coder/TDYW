@@ -22,6 +22,7 @@ from django.urls import path
 from apps.equipment_lifecycle import (
     config_attachment_views, config_views,
     excel_ledger_views, excel_template_views, ledger_views,
+    native_views,
     operation_action_views, operation_attachment_views,
     operation_ledger_convert, operation_progress_views, operation_views,
     views,
@@ -91,6 +92,22 @@ urlpatterns = [
     path('excel-ledgers/<int:pk>/export/check/', excel_ledger_views.ExcelLedgerExportCheckView.as_view()),
     path('excel-ledgers/<int:pk>/export/excel/', excel_ledger_views.ExcelLedgerExportView.as_view(), {'fmt': 'excel'}),
     path('excel-ledgers/<int:pk>/export/pdf/', excel_ledger_views.ExcelLedgerExportView.as_view(), {'fmt': 'pdf'}),
+    # 原生路线维护台账模板（Univer 在线编辑，2026-10-18 接入；台账创建走 native-ledgers）
+    path('native-templates/available/', native_views.NativeTemplateAvailableView.as_view()),
+    path('native-templates/', native_views.NativeTemplateView.as_view()),
+    path('native-templates/<int:pk>/', native_views.NativeTemplateDetailView.as_view()),
+    path('native-templates/<int:pk>/deactivate/', native_views.NativeTemplateDeactivateView.as_view()),
+    path('native-templates/<int:pk>/draft/', native_views.NativeTemplateDraftView.as_view()),
+    path('native-templates/<int:pk>/publish/', native_views.NativeTemplatePublishView.as_view()),
+    path('native-templates/<int:pk>/versions/', native_views.NativeTemplateVersionsView.as_view()),
+    path('native-templates/<int:pk>/versions/<int:version_no>/',
+         native_views.NativeTemplateVersionDetailView.as_view()),
+    # 原生路线维护台账（created_from=native_template；作废/删除沿用既有 ledgers 端点）
+    path('native-ledgers/', native_views.NativeLedgerView.as_view()),
+    path('native-ledgers/<int:pk>/', native_views.NativeLedgerDetailView.as_view()),
+    path('native-ledgers/<int:pk>/complete/', native_views.NativeLedgerCompleteView.as_view()),
+    path('native-ledgers/<int:pk>/correct/', native_views.NativeLedgerCorrectView.as_view()),
+    path('native-ledgers/<int:pk>/export/pdf/', native_views.NativeLedgerExportPdfView.as_view()),
     # 台账
     path('ledgers/', ledger_views.LedgerView.as_view()),
     path('ledgers/abnormal-items/', ledger_views.LedgerAbnormalItemsView.as_view()),

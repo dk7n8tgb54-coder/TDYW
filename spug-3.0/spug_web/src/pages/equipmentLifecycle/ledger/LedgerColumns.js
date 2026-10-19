@@ -174,14 +174,20 @@ export const LEDGER_TABLE_SCROLL_X = 990;
 export function buildColumns(store, ledgerType, openDetail, inGroup = false) {
   return [
     inGroup ? {
-      // 模板组内：列展示创建时引用的版本快照（组名即模板，不重复列模板名）
+      // 模板组内：列展示创建时引用的版本快照（组名即模板，不重复列名）
       title: '模板版本', key: 'source_version', width: 90,
-      render: (v, record) => sourceTypeOf(record) === 'excel' && record.source_version_no
-        ? `v${record.source_version_no}` : '—',
+      render: (v, record) => {
+        const source = sourceTypeOf(record);
+        return (source === 'excel' || source === 'native') && record.source_version_no
+          ? `v${record.source_version_no}` : '—';
+      },
     } : {
       title: '模板名称', key: 'template_name', width: 160, ellipsis: true,
-      render: (v, record) => sourceTypeOf(record) === 'excel'
-        ? (record.source_template_name || '—') : '—',
+      render: (v, record) => {
+        const source = sourceTypeOf(record);
+        return (source === 'excel' || source === 'native')
+          ? (record.source_template_name || '—') : '—';
+      },
     },
     {
       title: '系统', dataIndex: 'system_name', width: 150, ellipsis: true,

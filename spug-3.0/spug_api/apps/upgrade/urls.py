@@ -45,6 +45,10 @@ from .views.step import (
 # === 新接口 - 升级状态日志 ===
 from .views.status_log import StatusLogListView, StatusLogDeleteView
 
+# === 新接口 - 失败处理与从某阶段重新执行 ===
+from .views.failure import FailureListView, FailureStartRedoView, FailureCorrectView
+from .views.redo import RedoPreviewView, RedoExecuteView
+
 # === 新接口 - 系统档案候选 / 按系统查询升级记录 ===
 from .views.system_records import UpgradeCandidateSystemsView, SystemUpgradeRecordsView
 
@@ -103,7 +107,16 @@ urlpatterns = [
 
     # === 升级状态日志（时间线）===
     path('records/<int:record_id>/status-logs/', StatusLogListView.as_view()),            # GET 列表 / POST 记录 / GET ?action=options 动作选项
-    path('status-logs/<int:pk>/delete/', StatusLogDeleteView.as_view()),                  # DELETE 删除日志
+    path('status-logs/<int:pk>/delete/', StatusLogDeleteView.as_view()),                  # DELETE（已下线：历史事件不可删除，恒拒绝）
+
+    # === 失败处理闭环（标记失败走 status-logs POST action=test_fail）===
+    path('records/<int:record_id>/failures/', FailureListView.as_view()),                 # GET 失败单列表
+    path('records/<int:record_id>/failures/<int:pk>/start-redo/', FailureStartRedoView.as_view()),  # POST 开始重做
+    path('records/<int:record_id>/failures/<int:pk>/correct/', FailureCorrectView.as_view()),       # POST 更正失败
+
+    # === 从某阶段重新执行（原"回退"的明确化；预览与执行同口径）===
+    path('records/<int:record_id>/redo-preview/', RedoPreviewView.as_view()),             # GET 影响范围预览
+    path('records/<int:record_id>/redo-execute/', RedoExecuteView.as_view()),             # POST 执行
 
     # === 系统档案候选与按系统查询（升级管理挂接系统档案）===
     path('candidate-systems/', UpgradeCandidateSystemsView.as_view()),               # GET 表单系统候选项

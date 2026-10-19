@@ -10,6 +10,7 @@
 import React from 'react';
 import moment from 'moment';
 import {Tag, Typography} from 'antd';
+import {AttachmentCountBadge} from 'components';
 import {
   RECORD_STATUS_TEXT, RECORD_STATUS_COLOR,
   RECORD_TYPE_TEXT, RECORD_TYPE_COLOR,
@@ -82,6 +83,29 @@ export function RecordNoCell({value}) {
   );
 }
 
+// 两个列表入口共用同一套数量与详情导航规则；数量样式与"无线电台执照"
+// 模块一致——直接复用公共 AttachmentCountBadge（📎 图标 + 蓝色数字，无
+// 附件灰色 "-"）。数量缺失或非法时显示 "?" 并带说明（后端列表恒返回
+// attachment_count 且无附件明确为 0，缺失说明响应异常，不得冒充无附件）
+export function RecordAttachmentCountCell({record, onOpen}) {
+  const count = record.attachment_count;
+  if (!Number.isInteger(count) || count < 0) {
+    return <span title="附件数量不可用" style={{color: '#999'}}>{'?'}</span>;
+  }
+  // 无附件：灰色 "-"，不可点击也不带提示（与执照模块渲染一致）
+  if (!count) {
+    return <AttachmentCountBadge count={count}/>;
+  }
+  return (
+    <span title="查看附件">
+      <AttachmentCountBadge
+        count={count}
+        onClick={() => onOpen(record, 'attachments')}
+      />
+    </span>
+  );
+}
+
 // 区块标题（基本信息区块与进展工作区共用，与系统档案详情同款内联样式）
 export function sectionTitle(text, style) {
   return <div style={{fontWeight: 600, marginBottom: 8, ...style}}>{text}</div>;
@@ -135,7 +159,7 @@ export function nextStepHint(record) {
     }
     if (status === 'following_up') return '跟进中：持续跟进，完成后点击"完成跟进"。';
     if (status === 'completed') {
-      return '已完成：如需继续跟进，追加一条跟进记录即可重新跟进。';
+      return '已完成：点击"重新跟进"追加跟进记录，提交后重新进入"跟进中"。';
     }
     return null;
   }

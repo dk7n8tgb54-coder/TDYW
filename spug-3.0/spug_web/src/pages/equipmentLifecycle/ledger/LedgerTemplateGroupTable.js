@@ -24,7 +24,8 @@ const GROUP_COLUMNS = (onOpen, onBrowse) => [
     title: '模板名称', dataIndex: 'template_name', width: 240, ellipsis: true,
     render: (v, record) => (
       <a onClick={() => onOpen(record)}>
-        {v}{record.source_type === 'excel' && record.is_active === false ? ' [已停用]' : ''}
+        {v}{(record.source_type === 'excel' || record.source_type === 'native')
+          && record.is_active === false ? ' [已停用]' : ''}
       </a>
     ),
   },

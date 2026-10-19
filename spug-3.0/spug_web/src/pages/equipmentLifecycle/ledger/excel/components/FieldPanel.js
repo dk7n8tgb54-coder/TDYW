@@ -6,13 +6,18 @@
  * 导入验证原型迁出；2026-09-29 协议收敛）。
  *
  * 选中单元格后配置维护填写字段属性：名称、输入类型、必填、单位、
- * 候选项；已绑定单元格支持编辑（field_id 保持不变）与 Popconfirm
+ * 候选项。字段名称自动生成（2026-10-19）：新绑定预填默认名
+ * 「工作表名 · 坐标」（sheetName 由父组件传入），可按需修改，留空
+ * 保存时由 store 回退默认名；编辑已有绑定时保留原名称。
+ * 已绑定单元格支持编辑（field_id 保持不变）与 Popconfirm
  * 明确确认后删除绑定。default_value/operation_guide/abnormal_rule/
  * maintenance_cycles 已退役，不再提供控件、不再写入绑定载荷。
  * 父组件以 key={coord+fieldId} 挂载，切换单元格即重置表单。
  */
 import React, {useState} from 'react';
 import {Button, Checkbox, Input, Popconfirm, Select, Tag} from 'antd';
+
+import {defaultFieldName} from '../excelTemplateStore';
 
 const INPUT_TYPES = [
   {value: 'text', label: '文本'},
@@ -27,7 +32,8 @@ const itemStyle = {marginBottom: 10};
 
 function initialValues(binding, props) {
   return {
-    field_name: binding ? binding.field_name : (props.headerText || ''),
+    field_name: binding ? binding.field_name
+      : defaultFieldName(props.sheetName, props.coord),
     input_type: binding ? binding.input_type : 'text',
     is_required: binding ? !!binding.is_required : false,
     unit: binding ? binding.unit : '',
@@ -41,7 +47,8 @@ function BindingFields({form, setField}) {
     <div>
       <div style={itemStyle}>
         <div>字段名称</div>
-        <Input value={form.field_name} maxLength={50} placeholder="如：PS模块"
+        <Input data-testid="binding-field-name" value={form.field_name} maxLength={50}
+               placeholder="留空保存时自动生成「工作表 · 坐标」"
                onChange={e => setField('field_name', e.target.value)}/>
       </div>
       <div style={itemStyle}>
@@ -101,7 +108,7 @@ export default function FieldPanel(props) {
         单元格 <Tag color="blue">{coord || '未选择'}</Tag>
         {binding && <Tag color="green">已绑定</Tag>}
       </div>
-      {!coord && <div style={{color: '#999'}}>点击左侧表格中的空白单元格进行绑定</div>}
+      {!coord && <div style={{color: '#999'}}>点击右侧表格中的空白单元格进行绑定</div>}
       {coord && blockReason && (
         <div style={{color: '#fa541c', marginBottom: 8}}>{blockReason}</div>
       )}
@@ -109,7 +116,7 @@ export default function FieldPanel(props) {
         <div>
           <BindingFields form={form} setField={setField}/>
           <div style={{display: 'flex', gap: 8}}>
-            <Button type="primary" loading={saving} disabled={!form.field_name.trim()}
+            <Button type="primary" loading={saving}
                     onClick={handleSave}>
               {binding ? '更新绑定' : '保存绑定'}
             </Button>

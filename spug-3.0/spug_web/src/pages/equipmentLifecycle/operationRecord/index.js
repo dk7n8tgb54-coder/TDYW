@@ -35,6 +35,7 @@ import RecordStatistics from './RecordStatistics';
 import store from './store';
 import {
   RecordStatusTag, FaultImpactTag, RecordTitleCell, RecordNoCell,
+  RecordAttachmentCountCell,
 } from './shared';
 import {
   PERM, RECORD_STATUS_OPTIONS,
@@ -103,8 +104,8 @@ class RecordTable extends React.Component {
     width: 150,
     render: (text) => text || '-',
   }, {
-    // 统一进展数：后端列表聚合统计（progress_count，只读）；
-    // 点击数量打开详情并定位到"统一进展"页签
+    // 进展数：后端列表聚合统计（progress_count，只读）；
+    // 点击数量打开详情并定位到进展时间线区块（2026-10-18 详情页签改分区）
     title: '进展数',
     dataIndex: 'progress_count',
     width: 80,
@@ -112,6 +113,14 @@ class RecordTable extends React.Component {
       <a onClick={() => store.showDetail(record, 'progress')}>
         {record.progress_count ?? 0} 条
       </a>
+    ),
+  }, {
+    title: '附件',
+    dataIndex: 'attachment_count',
+    width: 70,
+    align: 'center',
+    render: (count, record) => (
+      <RecordAttachmentCountCell record={record} onOpen={store.showDetail}/>
     ),
   }, {
     title: '操作',
@@ -164,7 +173,7 @@ class RecordTable extends React.Component {
         <Table
           rowKey="id"
           loading={store.isFetching}
-          scroll={{x: 1140}}
+          scroll={{x: 1210}}
           pagination={{
             current: store.page,
             pageSize: store.pageSize,

@@ -93,3 +93,5 @@ from .models_template import UpgradeTemplate, UpgradePlanStep  # noqa: E402, F40
 from .models_checklist import UpgradeRecordStep  # noqa: E402, F401
 # 导入升级状态日志模型，确保 Django 发现
 from .models_status_log import UpgradeStatusLog  # noqa: E402, F401
+# 导入升级失败处理单模型，确保 Django 发现
+from .models_failure import UpgradeFailureHandling  # noqa: E402, F401

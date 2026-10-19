@@ -5,7 +5,8 @@
  * - 挂载即以当前系统第 1 页请求 systems/<id>/records/（系统档案直接查询
  *   统一主表，不经过履历事件表）；
  * - 统一列呈现与主列表一致：标题为主要入口（前置类型标签，点击打开统一
- *   详情）、编号一键复制、故障影响并入状态列、进展数直达详情进展页签；
+ *   详情）、编号一键复制、故障影响并入状态列、进展数打开详情并定位进展
+ *   区块（2026-10-18 详情页签改分区）；
  *   不再保留重复的"详情"操作列；
  * - 筛选与主列表同构：关键词/状态常驻，记录类型/异常类别/发生时间收入
  *   "更多筛选"；状态变更即带参刷新（重置回第 1 页）；
@@ -39,6 +40,8 @@ jest.mock('libs', () => ({
 
 jest.mock('components', () => {
   const React = require('react');
+  // 列表附件列复用真实 AttachmentCountBadge（与无线电台执照同款样式）
+  const actual = jest.requireActual('components');
   const Shell = (props) => React.createElement('div', null, props.children);
   const SearchForm = (props) => React.createElement('div', null, props.children);
   // 与 Shell.Item 一致：渲染 title（筛选分层测试依赖标签文案）
@@ -52,8 +55,12 @@ jest.mock('components', () => {
     SearchForm,
     AttachmentManager: (props) => React.createElement(
       'div', {'data-object-type': props.objectType}, 'attachments'),
+    AttachmentCountBadge: actual.AttachmentCountBadge,
   };
 });
+
+// 进展区块锚点（2026-10-18 详情页签改分区）
+const {PROGRESS_SECTION_ID} = require('../detailSections');
 
 if (!window.matchMedia) {
   window.matchMedia = (query) => ({
@@ -79,7 +86,7 @@ beforeEach(() => {
   store.detailVisible = false;
   store.detailId = null;
   store.detail = {};
-  store.activeTab = 'basic';
+  store.pendingSection = 'basic';
   store.systemRecords = [];
   store.systemRecordsTotal = 0;
   store.systemLatestOccurredAt = null;
@@ -161,11 +168,12 @@ const SYSTEM_RECORDS = {
     {id: 21, record_no: 'JL20261011-0021', record_type: 'routine',
       title: 'UPS巡检', status: 'recorded', category_text: '',
       occurred_at: '2026-10-11 08:00:00',
-      progress_count: 2, latest_progress_at: '2026-10-11 09:30:00'},
+      progress_count: 2, attachment_count: 3,
+      latest_progress_at: '2026-10-11 09:30:00'},
     {id: 22, record_no: 'JL20261011-0022', record_type: 'abnormal',
       title: '信号波动', status: 'following_up', category_text: '信号异常',
       occurred_at: '2026-10-11 09:00:00',
-      progress_count: 0, latest_progress_at: null},
+      progress_count: 0, attachment_count: 0, latest_progress_at: null},
     {id: 23, record_no: 'JL20261011-0023', record_type: 'fault',
       title: '发射机故障', status: 'cancelled', category_text: '',
       occurred_at: '2026-10-11 10:00:00', progress_count: 1},
@@ -207,6 +215,9 @@ describe('系统档案运行处置记录页签——统一列呈现（2026-10-15
     expect(document.querySelector('.ant-typography-copy')).toBeTruthy();
     // 进展数可点击（直达进展页签）
     expect(text).toContain('2 条');
+    expect(container.querySelector('span[title="查看附件"] a').textContent).toContain('3');
+    expect(Array.from(container.querySelectorAll('.ant-table-tbody .ant-table-row'))[1]
+      .textContent).toContain('-');
     // 系统维度摘要与跳转入口
     expect(text).toContain('最近发生时间：2026-10-11 12:00:00');
     expect(text).toContain('查看该系统全部记录');
@@ -242,7 +253,7 @@ describe('系统档案运行处置记录页签——统一列呈现（2026-10-15
     expect(textContent()).toContain('JL20261011-0021');
   });
 
-  it('进展数点击直达详情进展页签', async () => {
+  it('进展数点击打开详情并定位进展区块（2026-10-18 单页分区）', async () => {
     mockHttpGet.mockImplementation((url) => {
       if (url.endsWith('/progress/')) {
         return Promise.resolve({data: [], total: 2});
@@ -266,10 +277,34 @@ describe('系统档案运行处置记录页签——统一列呈现（2026-10-15
       await flush();
     });
     expect(document.querySelector('.ant-modal')).toBeTruthy();
-    expect(store.activeTab).toBe('progress');
-    // 进展页签为当前激活页签（一般记录=补充记录）
-    const activeTab = document.querySelector('.ant-tabs-tab-active');
-    expect(activeTab.textContent).toContain('补充记录');
+    // 定位目标已被详情消费（内容加载完成后定位并复位），进展区块锚点在位
+    expect(store.pendingSection).toBe('basic');
+    expect(document.getElementById(PROGRESS_SECTION_ID)).toBeTruthy();
+    // 进展区块在单页内直接可见，标题随记录类型（一般记录=补充记录）
+    expect(textContent()).toContain('补充记录（2）');
+  });
+
+  it('附件数量点击打开同一详情并展开附件区', async () => {
+    mockHttpGet.mockImplementation(url => {
+      if (url.endsWith('/progress/')) return Promise.resolve({data: [], total: 0});
+      if (url.endsWith('/attachments/')) return Promise.resolve([{id: 1}]);
+      if (url.includes('/records/21/')) return Promise.resolve({
+        id: 21, record_no: 'JL20261011-0021', record_type: 'routine',
+        system_name: 'DVOR系统', status: 'recorded', title: 'UPS巡检',
+        description: '巡检正常', source_type: 'manual',
+      });
+      return Promise.resolve(SYSTEM_RECORDS);
+    });
+    await renderTab();
+    await act(async () => {
+      container.querySelector('span[title="查看附件"] a').dispatchEvent(
+        new MouseEvent('click', {bubbles: true, cancelable: true}));
+      await flush();
+    });
+    const store = require('../store').default;
+    expect(store.attachmentsExpanded).toBe(true);
+    expect(store.pendingSection).toBe('basic');
+    expect(document.getElementById('op-record-attachment-section')).toBeTruthy();
   });
 });
 

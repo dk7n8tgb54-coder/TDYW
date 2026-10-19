@@ -77,12 +77,15 @@ const TemplateSearchForm = observer(function TemplateSearchForm({store}) {
   );
 });
 
-function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenExcelCreate}) {
+function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenExcelCreate, onOpenNativeCreate}) {
   // 翻阅模式（2026-10-18）：整页切换为翻阅视图，退出后回到进入前的层级
   if (store.browseState) {
     return <LedgerGroupBrowse store={store}/>;
   }
   const inGroup = !!store.activeGroup;
+  // 原生模板组（2026-10-18）：组内列表与详情可用；批量 PDF 导出与翻阅
+  // 为 Excel 组专属能力，原生组不提供入口（后端同口径拒绝）
+  const isNativeGroup = inGroup && store.activeGroup.source_type === 'native';
   const columns = buildColumns(store, ledgerType, openDetail, inGroup);
   const openGroupBrowse = () => store.openBrowse(store.activeGroup).catch(() => {});
   return (
@@ -112,7 +115,14 @@ function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenEx
           onClick={onOpenExcelCreate}>
           新增{LEDGER_TYPE_TEXT[ledgerType]}台账
         </AuthButton>
-        {inGroup && store.activeGroup.group_key !== 'manual' && (
+        <AuthButton
+          auth={PERM_L.LED_ADD}
+          icon={<PlusOutlined/>}
+          style={{marginLeft: 8}}
+          onClick={onOpenNativeCreate}>
+          按原生模板新增
+        </AuthButton>
+        {inGroup && !isNativeGroup && (
           <AuthButton
             auth={PERM_L.LED_VIEW}
             icon={<BookOutlined/>}
@@ -124,7 +134,7 @@ function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenEx
             翻阅台账
           </AuthButton>
         )}
-        {inGroup && store.activeGroup.group_key !== 'manual' && (
+        {inGroup && !isNativeGroup && store.activeGroup.group_key !== 'manual' && (
           <AuthButton
             auth={PERM_L.LED_EXPORT}
             icon={<FilePdfOutlined/>}
@@ -136,7 +146,7 @@ function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenEx
           </AuthButton>
         )}
         {!inGroup && (
-          <Tooltip title="导出台账明细数据（手工补录台账的检查项目明细行，携带当前筛选）；Excel 模板台账请在台账详情中导出填写完整的 Excel/PDF。">
+          <Tooltip title="导出台账明细数据（手工补录台账的检查项目明细行，携带当前筛选）；Excel/原生模板台账请在台账详情中导出填写完整的 PDF。">
             <ExportButton
               auth={PERM_L.LED_EXPORT}
               style={{marginLeft: 8}}

@@ -156,16 +156,34 @@ describe('computeStepFlowState 阶段状态推算', () => {
     expect(nodes.every(n => n.state === 'completed')).toBe(true);
   });
 
-  it('当前阶段最近一次 pause 事件 → paused；test_fail → failed；resume → current', () => {
-    const mkLogs = (actions) => actions.map((a, i) => log(a, i + 1, {phase: '发布'}));
-    const paused = computeStepFlowState(STEPS, [], mkLogs(['pause']));
-    expect(paused.nodes[1].state).toBe('paused');
+  it('旧 test_fail 事件（无失败单）不再推断为失败状态（不凭旧事件推断未结失败）', () => {
+    const logs = [log('test_fail', 1, {phase: '发布'})];
+    const {nodes} = computeStepFlowState(STEPS, [], logs);
+    expect(nodes[1].state).toBe('current');
+  });
 
-    const failed = computeStepFlowState(STEPS, [], mkLogs(['test_fail']));
-    expect(failed.nodes[1].state).toBe('failed');
+  it('暂停事件不再产生 paused（暂停/继续已下线，历史事件仅展示）', () => {
+    const logs = [log('pause', 1, {phase: '发布'})];
+    const {nodes} = computeStepFlowState(STEPS, [], logs);
+    expect(nodes[1].state).toBe('current');
+  });
 
-    // pause 后 resume：最近生效事件是 resume → 恢复 current
-    const resumed = computeStepFlowState(STEPS, [], mkLogs(['pause', 'resume']));
-    expect(resumed.nodes[1].state).toBe('current');
+  it('失败单优先：pending → failed，redoing → redoing', () => {
+    const failures = [
+      {id: 1, phase: '发布', status: 'pending'},
+    ];
+    const withFailure = computeStepFlowState(STEPS, [], [], failures);
+    expect(withFailure.nodes[1].state).toBe('failed');
+
+    const redoing = computeStepFlowState(STEPS, [], [], [
+      {id: 1, phase: '发布', status: 'redoing'},
+    ]);
+    expect(redoing.nodes[1].state).toBe('redoing');
+
+    // 已结案失败单不影响状态
+    const resolved = computeStepFlowState(STEPS, [], [], [
+      {id: 1, phase: '发布', status: 'resolved'},
+    ]);
+    expect(resolved.nodes[1].state).toBe('current');
   });
 });

@@ -13,16 +13,24 @@
  *   del 权限门禁，Modal.confirm 二次确认）；列表展示适用系统与
  *   生成周期（2026-10-14，未配置显示"待配置"，不自动推断历史模板）；
  *   页面底部提供前往正式周月/季维护台账的填写入口；
- * - 绑定工作区：左侧「返回模板列表」入口；标题区展示名称/类型/状态，
- *   信息行展示源文件、绑定字段数、当前版本与生成配置（适用系统/生成
- *   周期，2026-10-14，未停用模板提供「配置」入口）；操作区唯一主按钮
- *   「发布版本」（无草稿/无绑定/兼容性 error 时禁用并在按钮旁说明
- *   原因，warning 不阻断）+ 次级「预览空白打印稿」+「更多操作」菜单
- *   （版本记录/打印设置/替换源文件）；替换源文件选定文件后先弹确认
- *   （提示将清空的绑定数与打印参数重置），确认后才上传，取消不请求；
- *   多工作表时提供工作表切换（Tabs，复用 store.setSheet，切换即清空
- *   单格与批量选区）；字段绑定面板紧邻表格；已停用模板仅供查看，
- *   替换/发布/打印设置/选格编辑全部冻结（后端独立校验兜底）；
+ * - 绑定工作区（2026-10-19 借鉴原生台账编辑工作台布局）：顶部集中展示
+ *   返回入口、名称/类型/状态与全部操作，发布禁用原因在操作区下方独立
+ *   一行说明；信息行展示源文件、绑定字段数、当前版本与生成配置（适用
+ *   系统/生成周期，2026-10-14，未停用模板提供「配置」入口）；主按钮
+ *   「发布版本」（无草稿/无绑定/兼容性 error 时禁用，warning 不阻断）+
+ *   次级「预览空白打印稿」+「更多操作」菜单（版本记录/打印设置/替换
+ *   源文件）；替换源文件选定文件后先弹确认（提示将清空的绑定数与打印
+ *   参数重置），确认后才上传，取消不请求；左侧为字段属性面板与已绑定
+ *   字段导航（支持搜索，点击跨工作表定位并选中单元格），右侧为版式
+ *   预览；字段名称自动生成（2026-10-19）：新绑定默认「工作表 · 坐标」、
+ *   批量每格各生成一个，前缀可选，留空保存回退默认名，已有自定义
+ *   名称保持不变；混合批量选区（2026-10-19）：已绑定与未绑定格可同选区
+ *   （拖拽可从已绑定格开始），面板显示选中总数/已绑定/未绑定，批量保存
+ *   只更新明确修改过的属性并保留已有 field_id 与名称，批量解绑独立确认；
+ *   拖拽选区期间表格禁止文字选择，松开/离开窗口/Escape 取消后恢复；
+ *   多工作表时提供工作表切换（Tabs，复用 store.setSheet，
+ *   切换即清空单格与批量选区）；已停用模板仅供查看，替换/发布/打印设置/
+ *   选格编辑与导航定位全部冻结（后端独立校验兜底）；
  *   兼容性检查提示（error=须处理后才能发布，warning=可能有格式差异）；
  *   填写区尺寸提示（2026-10-14）与 PDF 参数抽屉保持不变。
  *
@@ -48,6 +56,7 @@ import FieldPanel from './components/FieldPanel';
 import BatchBindingPanel from './BatchBindingPanel';
 import PdfParamsForm from './PdfParamsForm';
 import {tightMergedTextBindings} from './utils';
+import './ExcelTemplateWorkspace.less';
 
 const LEDGER_TYPE_TEXT = {week_month: '周月维护', seasonal: '季维护'};
 const TEMPLATE_STATUS = {
@@ -63,6 +72,37 @@ function systemColumn(record) {
   return `${record.system_name}（${record.system_code}）`;
 }
 
+function BindingNavigator({bindings, onSelect, disabled}) {
+  const [query, setQuery] = React.useState('');
+  const matches = bindings.filter(binding =>
+    `${binding.field_name} ${binding.sheet_name} ${binding.cell_coordinate}`
+      .toLowerCase().includes(query.trim().toLowerCase()));
+  return (
+    <section className="excel-workspace-section">
+      <div className="excel-workspace-section-title">
+        <strong>已绑定字段</strong><Tag>{bindings.length}</Tag>
+      </div>
+      <Input.Search data-testid="tpl-binding-search" aria-label="搜索字段或单元格"
+                    placeholder="搜索字段或单元格"
+                    value={query} onChange={event => setQuery(event.target.value)}/>
+      <div className="excel-workspace-binding-list">
+        {matches.length ? matches.map(binding => (
+          <button type="button" key={binding.field_id}
+                  data-testid="tpl-binding-item"
+                  className="excel-workspace-binding-row" disabled={disabled}
+                  onClick={() => onSelect(binding)}>
+            <span className="excel-workspace-binding-name">{binding.field_name}</span>
+            <span className="excel-workspace-binding-location">
+              {binding.sheet_name} · {binding.cell_coordinate}
+              {binding.is_required ? ' · 必填' : ''}
+            </span>
+          </button>
+        )) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? '没有匹配字段' : '暂无绑定字段'}/>}
+      </div>
+    </section>
+  );
+}
+
 @observer
 class ExcelTemplatePage extends React.Component {
   get store() {
@@ -71,16 +111,28 @@ class ExcelTemplatePage extends React.Component {
 
   componentDidMount() {
     this.store.fetchList().catch(() => {});
-    // 拖拽矩形选区在表格任意位置松开鼠标即结束
+    // 拖拽矩形选区在表格任意位置松开鼠标即结束；鼠标离开窗口/取消拖拽
+    // （Escape）同样结束，并恢复表格正常文字选择
     this._handleMouseUp = () => this.store.endDrag();
     document.addEventListener('mouseup', this._handleMouseUp);
+    this._handleMouseLeave = () => this.store.endDrag();
+    document.addEventListener('mouseleave', this._handleMouseLeave);
+    this._handleKeyDown = event => {
+      if (event.key === 'Escape' && this.store.isDragging) {
+        this.store.resetSelection();
+      }
+    };
+    document.addEventListener('keydown', this._handleKeyDown);
   }
 
   componentWillUnmount() {
-    if (this._handleMouseUp) {
-      document.removeEventListener('mouseup', this._handleMouseUp);
-      this._handleMouseUp = null;
-    }
+    [['mouseup', '_handleMouseUp'], ['mouseleave', '_handleMouseLeave'],
+      ['keydown', '_handleKeyDown']].forEach(([eventName, key]) => {
+      if (this[key]) {
+        document.removeEventListener(eventName, this[key]);
+        this[key] = null;
+      }
+    });
   }
 
   /** 新建模板流程（弹窗内）：守卫 → 上传 → 成功后关弹窗进入绑定工作区。 */
@@ -218,14 +270,6 @@ class ExcelTemplatePage extends React.Component {
     );
   }
 
-  _renderHeaderText(sheet, coordinate) {
-    if (!sheet || !coordinate) return '';
-    const match = /^([A-Z]+)([0-9]+)$/.exec(coordinate);
-    if (!match) return '';
-    const header = (sheet.cells || {})[`${match[1]}1`];
-    return header && header.v ? String(header.v) : '';
-  }
-
   /** 草稿兼容性检查提示（error=须处理后才能发布；warning=可能有格式差异）。 */
   _renderCompatibilityAlert() {
     const compat = this.store.compatibility;
@@ -345,8 +389,7 @@ class ExcelTemplatePage extends React.Component {
   _renderWorkspaceActions(deleted, blockReason) {
     const store = this.store;
     return (
-      <div style={{display: 'flex', flexWrap: 'wrap', alignItems: 'center',
-                   gap: 8, marginBottom: 12}}>
+      <div className="excel-workspace-actions">
         <Popconfirm title="发布后版本与源文件不可修改，确认发布当前草稿？"
                     onConfirm={this.handlePublish} okText="发布" cancelText="取消">
           <Button data-testid="tpl-publish" type="primary" loading={store.publishing}
@@ -354,11 +397,6 @@ class ExcelTemplatePage extends React.Component {
             发布版本
           </Button>
         </Popconfirm>
-        {blockReason && (
-          <span data-testid="tpl-publish-reason" style={{color: '#fa541c'}}>
-            {blockReason}，暂不能发布
-          </span>
-        )}
         <Button data-testid="tpl-pdf-preview" icon={<FilePdfOutlined/>}
                 disabled={!store.draft} loading={store.previewing}
                 onClick={() => store.previewPdf().catch(() => {})}>
@@ -374,6 +412,51 @@ class ExcelTemplatePage extends React.Component {
     );
   }
 
+  _selectBinding = binding => {
+    const store = this.store;
+    if (!store.current.is_active) return;
+    if (store.activeSheet !== binding.sheet_name) store.setSheet(binding.sheet_name);
+    store.clearSelection();
+    if (store.selectedCell !== binding.cell_coordinate) store.selectCell(binding.cell_coordinate);
+    setTimeout(() => {
+      const sheet = this.workspaceSheetRef;
+      const cell = sheet && sheet.querySelector(`[data-coord="${binding.cell_coordinate}"]`);
+      if (cell && cell.scrollIntoView) cell.scrollIntoView({block: 'nearest', inline: 'nearest'});
+    }, 0);
+  };
+
+  /** 右侧版式预览区：工作表切换 + 布局表格（拖拽选区/文字选择控制在此）。 */
+  _renderSheetPane(deleted) {
+    const store = this.store;
+    return (
+      <div className="excel-workspace-sheet" ref={node => { this.workspaceSheetRef = node; }}>
+        {this._renderSheetTabs()}
+        <LayoutTable
+          sheet={store.currentSheet}
+          bindingByCell={store.bindingByCell}
+          fillMode={false}
+          selectedCell={store.selectedCell}
+          selectedCells={store.selectedCells}
+          preventTextSelect={store.isDragging}
+          onSelectCell={(coord, event) => {
+            if (deleted) return;
+            store.handleCellClick(coord, event);
+          }}
+          onCellMouseDown={(coord, event) => {
+            if (deleted) return;
+            store.beginDrag(coord, event);
+            // 拖拽从可填写格（含已绑定）开始时阻断浏览器文字选择，
+            // 只作用于模板编辑表格的 mousedown，不影响其他区域
+            if (store.isDragging && event
+                && typeof event.preventDefault === 'function') {
+              event.preventDefault();
+            }
+          }}
+          onCellMouseEnter={coord => store.extendDrag(coord)}/>
+      </div>
+    );
+  }
+
   _renderWorkspace() {
     const store = this.store;
     const sheet = store.currentSheet;
@@ -382,95 +465,92 @@ class ExcelTemplatePage extends React.Component {
     const deleted = !store.current.is_active;
     const blockReason = this.publishBlockReason();
     return (
-      <div>
-        <div style={{marginBottom: 8}}>
-          <Button type="link" data-testid="tpl-back" icon={<ArrowLeftOutlined/>}
-                  style={{paddingLeft: 0}}
-                  onClick={() => store.applyDetail(null)}>
-            返回模板列表
-          </Button>
-        </div>
-        <Card bordered={false}
-              title={(
-                <Space wrap size={8}>
-                  <span>{store.current.name}</span>
-                  <Tag>{LEDGER_TYPE_TEXT[store.current.ledger_type] || store.current.ledger_type}</Tag>
-                  {deleted && <Tag color="red" data-testid="tpl-deleted-tag">已停用，仅供查看</Tag>}
-                </Space>
-              )}>
-          <div style={{display: 'flex', flexWrap: 'wrap', gap: '4px 24px',
-                       color: '#666', marginBottom: 12, alignItems: 'center'}}>
-            <span data-testid="tpl-source-file">
-              源文件：{draft ? draft.source_filename : '未上传'}
-            </span>
-            <span data-testid="tpl-binding-count">绑定字段：{store.bindings.length} 个</span>
-            <span data-testid="tpl-version-line">
-              当前版本：v{store.current.latest_version_no || 0}（共 {store.current.versions_count || 0} 个）
-            </span>
-            <span data-testid="tpl-generation-config-line">
-              适用系统：{store.current.system
-                ? `${store.current.system_name}（${store.current.system_code}）`
-                : '待配置'}　
-              生成周期：{store.current.generation_period_text || '待配置'}
-              {!deleted && (
-                <a data-testid="tpl-config" style={{marginLeft: 8}}
-                   onClick={() => store.openConfigModal().catch(() => {})}>
-                  配置
-                </a>
-              )}
-            </span>
+      <div className="excel-template-workspace">
+        <div className="excel-workspace-header">
+          <div className="excel-workspace-heading">
+            <Button data-testid="tpl-back" icon={<ArrowLeftOutlined/>}
+                    onClick={() => store.applyDetail(null)}>返回模板列表</Button>
+            <strong>{store.current.name}</strong>
+            <Tag>{LEDGER_TYPE_TEXT[store.current.ledger_type] || store.current.ledger_type}</Tag>
+            <Tag color={deleted ? 'red' : (store.current.latest_version_no ? 'blue' : 'default')}
+                 data-testid={deleted ? 'tpl-deleted-tag' : 'tpl-status-tag'}>
+              {deleted ? '已停用，仅供查看'
+                : `${(TEMPLATE_STATUS[store.current.status] || TEMPLATE_STATUS.draft).text} · v${store.current.latest_version_no || 0}`}
+            </Tag>
           </div>
           {this._renderWorkspaceActions(deleted, blockReason)}
-          <Spin spinning={store.loading || store.uploading}
-                tip={store.uploading ? `上传解析中 ${store.uploadProgress}%` : '加载中...'}>
-            {this._renderCompatibilityAlert()}
-            {this._renderSizeHintAlert()}
-            {this._renderSheetTabs()}
-            {draft && draft.layout ? (
-              <div style={{display: 'flex', gap: 16, alignItems: 'flex-start'}}>
-                <div style={{flex: 1, minWidth: 0}}>
-                  <LayoutTable
-                    sheet={sheet}
-                    bindingByCell={store.bindingByCell}
-                    fillMode={false}
-                    selectedCell={store.selectedCell}
-                    selectedCells={store.selectedCells}
-                    onSelectCell={(coord, event) => {
-                      if (deleted) return;
-                      store.handleCellClick(coord, event);
-                    }}
-                    onCellMouseDown={(coord, event) => {
-                      if (deleted) return;
-                      store.beginDrag(coord, event);
-                    }}
-                    onCellMouseEnter={coord => store.extendDrag(coord)}/>
-                </div>
-                {store.selectedCells.length > 0 ? (
-                  <BatchBindingPanel
-                    selectedCells={store.selectedCells}
-                    saving={store.saving}
-                    onSave={form => store.saveBatchBinding(form)}
-                    onClear={() => store.clearSelection()}/>
-                ) : (
-                  <FieldPanel
-                    key={`${store.activeSheet}!${store.selectedCell}!${store.selectedBinding ? store.selectedBinding.field_id : 'none'}`}
-                    coord={store.selectedCell}
-                    binding={store.selectedBinding}
-                    blockReason={store.selectedCell && !store.selectedBinding
-                      ? bindBlockReason(sheet, store.selectedCell) : null}
-                    headerText={this._renderHeaderText(sheet, store.selectedCell)}
-                    saving={store.saving}
-                    onSave={form => store.saveBinding(form)}
-                    onRemove={() => store.selectedBinding
-                      && store.removeBinding(store.selectedBinding.field_id)}/>
-                )}
-              </div>
-            ) : (
-              <Empty description="当前模板没有草稿源文件，请通过「更多操作 → 上传源文件」上传 .xlsx"
-                     style={{padding: 60}}/>
+        </div>
+        {blockReason && (
+          <div data-testid="tpl-publish-reason" className="excel-workspace-publish-reason">
+            {blockReason}，暂不能发布
+          </div>
+        )}
+        <div className="excel-workspace-meta">
+          <span data-testid="tpl-source-file">
+            源文件：{draft ? draft.source_filename : '未上传'}
+          </span>
+          <span data-testid="tpl-binding-count">绑定字段：{store.bindings.length} 个</span>
+          <span data-testid="tpl-version-line">
+            当前版本：v{store.current.latest_version_no || 0}（共 {store.current.versions_count || 0} 个）
+          </span>
+          <span data-testid="tpl-generation-config-line">
+            适用系统：{store.current.system
+              ? `${store.current.system_name}（${store.current.system_code}）`
+              : '待配置'}　
+            生成周期：{store.current.generation_period_text || '待配置'}
+            {!deleted && (
+              <a data-testid="tpl-config" style={{marginLeft: 8}}
+                 onClick={() => store.openConfigModal().catch(() => {})}>
+                配置
+              </a>
             )}
-          </Spin>
-        </Card>
+          </span>
+        </div>
+        <Spin spinning={store.loading || store.uploading}
+              tip={store.uploading ? `上传解析中 ${store.uploadProgress}%` : '加载中...'}>
+          {this._renderCompatibilityAlert()}
+          {this._renderSizeHintAlert()}
+          {draft && draft.layout ? (
+            <div className="excel-workspace-body">
+              <aside className="excel-workspace-sidebar">
+                <section className="excel-workspace-section">
+                  <div className="excel-workspace-section-title">
+                    <strong>{store.selectedCells.length ? '批量绑定' : '字段绑定'}</strong>
+                    <Tag color="blue">{store.selectedCells.length
+                      ? `已选 ${store.selectedCells.length} 格` : (store.selectedCell || '未选择')}</Tag>
+                  </div>
+                  {store.selectedCells.length > 0 ? (
+                    <BatchBindingPanel selectedCells={store.selectedCells}
+                                       sheetName={store.activeSheet}
+                                       bindingByCell={store.bindingByCell}
+                                       saving={store.saving}
+                                       onSave={form => store.saveBatchBinding(form)}
+                                       onUnbind={() => store.saveBatchUnbind()}
+                                       onClear={() => store.clearSelection()}/>
+                  ) : (
+                    <FieldPanel
+                      key={`${store.activeSheet}!${store.selectedCell}!${store.selectedBinding ? store.selectedBinding.field_id : 'none'}`}
+                      coord={store.selectedCell}
+                      binding={store.selectedBinding}
+                      sheetName={store.activeSheet}
+                      blockReason={store.selectedCell && !store.selectedBinding
+                        ? bindBlockReason(sheet, store.selectedCell) : null}
+                      saving={store.saving}
+                      onSave={form => store.saveBinding(form)}
+                      onRemove={() => store.selectedBinding
+                        && store.removeBinding(store.selectedBinding.field_id)}/>
+                  )}
+                </section>
+                <BindingNavigator bindings={store.bindings}
+                                  disabled={deleted} onSelect={this._selectBinding}/>
+              </aside>
+              {this._renderSheetPane(deleted)}
+            </div>
+          ) : (
+            <Empty description="当前模板没有草稿源文件，请通过「更多操作 → 上传源文件」上传 .xlsx"
+                   style={{padding: 60}}/>
+          )}
+        </Spin>
         {this._renderReuploadConfirmModal()}
         {this._renderConfigModal()}
       </div>

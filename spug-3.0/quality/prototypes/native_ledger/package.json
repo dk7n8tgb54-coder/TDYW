@@ -1,0 +1,25 @@
+{
+  "name": "native-ledger-poc",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Univer-based native maintenance ledger prototype",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 4173",
+    "build": "vite build",
+    "build:lab": "vite build && node tools/copy_lab_bundle.mjs",
+    "preview": "vite preview --host 127.0.0.1 --port 4174"
+  },
+  "dependencies": {
+    "@univerjs/preset-sheets-core": "1.1.0",
+    "@univerjs/presets": "1.1.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.3.4",
+    "playwright": "1.62.1",
+    "vite": "5.4.21"
+  }
+}

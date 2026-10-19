@@ -1,0 +1,22 @@
+{
+  "name": "native-ledger-editor",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "原生维护台账正式编辑器（Univer 独立工程，构建产物嵌入 spug_web/public/native-ledger，经 iframe 接入正式页面）",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 4173",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@univerjs/preset-sheets-core": "1.1.0",
+    "@univerjs/presets": "1.1.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.3.4",
+    "vite": "5.4.21"
+  }
+}

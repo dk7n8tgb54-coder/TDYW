@@ -24,6 +24,10 @@ export const PERM_L = {
   LED_EXPORT: 'equipment_lifecycle.ledger.export',
 };
 
+// 原生台账模板管理（2026-10-18 接入）复用 ledger_template.* 权限码
+// （后端 native_views 独立校验；与 Excel 模板同权同管）
+export const PERM_T = PERM_L;
+
 // 台账类型：旧巡检类型 inspection 已删除（2026-09-24），巡检业务走独立巡检单
 export const LEDGER_TYPE = {
   WEEK_MONTH: 'week_month',
@@ -96,6 +100,7 @@ export const INPUT_TYPE_TEXT = {
 export const CREATED_FROM_TEXT = {
   manual: '临时补录',
   excel_template: 'Excel模板',
+  native_template: '原生模板',
 };
 
 export const API_PREFIX_L = '/api/equipment-lifecycle';

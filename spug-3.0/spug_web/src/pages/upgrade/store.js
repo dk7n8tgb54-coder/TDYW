@@ -49,6 +49,8 @@ class Store {
   @observable statusLogs = [];
   @observable actionOptions = [];
   @observable attachmentCount = 0;
+  // 失败处理单（阶段失败闭环：pending 阻塞普通执行，redoing 重做中）
+  @observable failures = [];
 
   // === 工作台数据加载 ===
   fetchRecord = (id) => {
@@ -110,6 +112,17 @@ class Store {
       })
       .catch(() => {
         this.actionOptions = [];
+      });
+  };
+
+  fetchFailures = (id) => {
+    if (!id) return Promise.resolve();
+    return http.get(`/api/upgrade/records/${id}/failures/`)
+      .then(data => {
+        this.failures = Array.isArray(data) ? data : [];
+      })
+      .catch(() => {
+        this.failures = [];
       });
   };
 

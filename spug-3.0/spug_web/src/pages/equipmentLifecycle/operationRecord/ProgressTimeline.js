@@ -3,14 +3,17 @@
  * Released under the AGPL-3.0 License.
  */
 /**
- * 运行处置记录——进展工作区（页签/条目名称随记录类型，见 shared.PROGRESS_TAB_TEXT）。
+ * 运行处置记录——进展时间线（条目名称随记录类型，见 shared.PROGRESS_TAB_TEXT）。
  * 自 RecordDetail 拆出：追加式时间线 → 更正弹窗（原内容留痕）。
  * 2026-10-14 新增进展入口迁至详情顶部动作按钮（弹窗承载，见
  * RecordDetailActions.AddProgressModal），本页签不再放内联表单。
  * 2026-10-13 本次工时退役：追加/更正表单与时间线展示一并移除（模型列与
  * 后端契约保留，历史数据不删仅不再展示，更正缺参时后端保旧值）。
  * 2026-10-13 进展级附件退役：时间线不再逐条挂附件入口，材料统一在详情
- * "附件"页签以记录级管理（el_operation_record）。
+ * 附件区块以记录级管理（el_operation_record）。
+ * 2026-10-18 页签改单页分区：区块标题（随类型并携带总数）由 RecordDetail
+ * 统一渲染（与其他区块标题同款），本组件只渲染说明与时间线本体，不再
+ * 自带标题。
  * 约束：读取 store observable 的函数组件必须用 observer 包裹。
  */
 import React, {useState} from 'react';
@@ -21,7 +24,7 @@ import moment from 'moment';
 import {AuthButton} from 'components';
 import store from './store';
 import {PERM} from '../constants';
-import {sectionTitle, PROGRESS_TAB_TEXT} from './shared';
+import {PROGRESS_TAB_TEXT} from './shared';
 
 const {TextArea} = Input;
 
@@ -37,7 +40,6 @@ const ProgressTimeline = observer(function ProgressTimeline({editable}) {
         "添加{typeLabel}"按钮录入）
         {d.record_type === 'fault' ? '；原因结论请在基本信息"原因分析"中维护' : ''}。
       </p>
-      {sectionTitle(`${typeLabel}时间线`)}
       <Spin spinning={store.isProgressFetching}>
         {store.progressRecords.length ? (
           <Timeline style={{marginTop: 8}}>

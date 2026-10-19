@@ -33,6 +33,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from apps.evidence.models import EvidenceAttachment
+from libs.tenant_utils import apply_tenant_filter
 from apps.equipment_lifecycle.models import LifecycleSystem
 from apps.equipment_lifecycle.operation_models import (
     FAULT_IMPACT_TEXT_MAP,
@@ -353,6 +355,23 @@ def identify_record_as_fault(*, record, created_by, occurred_at=None,
     record.save()
     recompute_systems_health(record.tenant_id, [record.system_id], request=request)
     return record
+
+
+def attachment_count_map(records, user, module, object_type):
+    """Count visible, active attachments for the records on one list page."""
+    if not records:
+        return {}
+    record_keys = {(r.tenant_id, str(r.id)) for r in records}
+    attachments = apply_tenant_filter(
+        EvidenceAttachment.objects.filter(
+            is_deleted=False, module=module, object_type=object_type,
+            object_id__in=[str(r.id) for r in records],
+            tenant_id__in={r.tenant_id for r in records},
+        ), user)
+    counts = attachments.values('tenant_id', 'object_id').annotate(
+        total=Count('id')).order_by()
+    return {(row['tenant_id'], row['object_id']): row['total']
+            for row in counts if (row['tenant_id'], row['object_id']) in record_keys}
 
 
 def progress_overview_map(record_ids):
