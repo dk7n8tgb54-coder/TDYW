@@ -14,11 +14,12 @@ import React, {useEffect, useState} from 'react';
 import {observer} from 'mobx-react';
 import {Alert, Button, Card, Form, Input, Modal, Select, Space, Table, Tag, Tooltip} from 'antd';
 import {DeleteOutlined, EditOutlined, PlusOutlined, StopOutlined} from '@ant-design/icons';
-import {AuthButton, AuthDiv, Breadcrumb} from 'components';
+import {AuthButton, AuthDiv} from 'components';
 
 import NativeTemplateEditorHost from './NativeTemplateEditorHost';
 import {PERM_T} from '../constants';
 import store from './nativeTemplateStore';
+import useWorkTabUnsaved from 'layout/useWorkTabUnsaved';
 const LEDGER_TYPE_TEXT = {week_month: '周月维护', seasonal: '季维护'};
 const STATUS_TEXT = {draft: '草稿', published: '已发布', used: '使用中', deleted: '已停用'};
 const STATUS_COLOR = {draft: 'default', published: 'blue', used: 'green', deleted: 'default'};
@@ -155,6 +156,9 @@ const TemplateTable = observer(function TemplateTable({onEdit}) {
 function NativeTemplatePage({location}) {
   const [createVisible, setCreateVisible] = useState(false);
   const editing = store.editing && !!store.detail;
+  // 在线编辑器有未保存修改（editorDirty）时，当前页签不参与自动淘汰：
+  // iframe 编辑内容不落盘，页签被自动关闭会丢失编辑中的版式修改
+  useWorkTabUnsaved(!!store.editorDirty);
 
   useEffect(() => {
     store.fetchList().catch(() => {});
@@ -174,12 +178,6 @@ function NativeTemplatePage({location}) {
 
   return (
     <AuthDiv auth={PERM_T.TPL_VIEW}>
-      <Breadcrumb>
-        <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>设备管理</Breadcrumb.Item>
-        <Breadcrumb.Item>维护台账</Breadcrumb.Item>
-        <Breadcrumb.Item>原生台账模板</Breadcrumb.Item>
-      </Breadcrumb>
       {editing ? (
         <NativeTemplateEditorHost store={store} onBack={handleBack}/>
       ) : (

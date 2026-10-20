@@ -24,6 +24,7 @@ import React, {useEffect, useState} from 'react';
 import {observer} from 'mobx-react';
 import {Radio} from 'antd';
 import {AuthDiv, Breadcrumb} from 'components';
+import useWorkTabUnsaved from 'layout/useWorkTabUnsaved';
 import LedgerPeriodView from './LedgerPeriodView';
 import LedgerTemplateView from './LedgerTemplateView';
 import LedgerDetailLayer from './LedgerDetailLayer';
@@ -32,7 +33,7 @@ import {ExcelLedgerStore} from './excel/excelLedgerStore';
 import {NativeLedgerStore} from './native/nativeLedgerStore';
 import {getLedgerStore} from './store';
 import {buildColumns, sourceTypeOf} from './LedgerColumns';
-import {LEDGER_TYPE_TEXT, PERM_L} from './constants';
+import {PERM_L} from './constants';
 
 function LedgerIndex({ledgerType, location}) {
   const store = getLedgerStore(ledgerType);
@@ -42,6 +43,9 @@ function LedgerIndex({ledgerType, location}) {
   const [excelCreateVisible, setExcelCreateVisible] = useState(false);
   const [nativeCreateVisible, setNativeCreateVisible] = useState(false);
   const [generateVisible, setGenerateVisible] = useState(false);
+  // Excel/原生详情填写有未保存修改时，当前页签不参与自动淘汰（翻阅视图
+  // 的独立 Store 由 LedgerGroupBrowse 自行登记）
+  useWorkTabUnsaved(!!(excelStore.hasUnsaved || nativeStore.hasUnsaved));
 
   useEffect(() => {
     // 跨页跳转直达详情（故障详情跳入：?detail=<台账ID>；
@@ -87,24 +91,20 @@ function LedgerIndex({ledgerType, location}) {
 
   return (
     <AuthDiv auth={PERM_L.LED_VIEW}>
-      <Breadcrumb>
-        <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>设备管理</Breadcrumb.Item>
-        <Breadcrumb.Item>维护台账</Breadcrumb.Item>
-        <Breadcrumb.Item>{LEDGER_TYPE_TEXT[ledgerType]}台账</Breadcrumb.Item>
-        {store.viewMode === 'template' && (
+      {store.viewMode === 'template' && (
+        <Breadcrumb>
           <Breadcrumb.Item>按模板查看</Breadcrumb.Item>
-        )}
-        {store.viewMode === 'template' && !!store.activeGroup && (
-          <Breadcrumb.Item>{store.activeGroup.group_name}</Breadcrumb.Item>
-        )}
-        {store.viewMode === 'template' && !!store.browseState && (
-          <Breadcrumb.Item>翻阅台账</Breadcrumb.Item>
-        )}
-      </Breadcrumb>
+          {!!store.activeGroup && (
+            <Breadcrumb.Item>{store.activeGroup.group_name}</Breadcrumb.Item>
+          )}
+          {!!store.browseState && (
+            <Breadcrumb.Item>翻阅台账</Breadcrumb.Item>
+          )}
+        </Breadcrumb>
+      )}
       {!detailLayerOpen && (
         <React.Fragment>
-          <div style={{marginBottom: 12}}>
+          <div style={{marginBottom: 8}}>
             <Radio.Group
               value={store.viewMode}
               onChange={e => store.setViewMode(e.target.value)}

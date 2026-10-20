@@ -23,6 +23,9 @@
   草稿与历史台账原样保留，启用不改动任何数据；
 - 草稿 PDF 预览：以草稿源文件为事实生成空白预览（未填写字段留空），
   只读不改草稿、不创建版本；LibreOffice 不可用时明确业务错误；
+- 预览反馈（2026-10-19）：preview_template_pdf 支持未保存打印参数与
+  临时样例值（均只作用于本次预览副本），返回真实页数/纸张尺寸
+  （pypdf 读取生成 PDF）与版式预检提示，供"应用当前设置并预览"；
 - 兼容性检查：模板详情返回草稿文件/哈希/不支持特性/打印区域/LibreOffice
   环境的检查结果（status: ok/warning/error），error 对齐发布自身会拒绝
   的条件，不新增阻断口径；
@@ -59,14 +62,19 @@ from apps.equipment_lifecycle.excel_models import (
     OperationLedgerExcelTemplate,
     OperationLedgerExcelTemplateVersion,
 )
-from apps.equipment_lifecycle.excel_pdf_params import validate_pdf_params
+from apps.equipment_lifecycle.excel_pdf_params import (
+    estimate_pdf_warnings,
+    validate_pdf_params,
+)
 from apps.equipment_lifecycle.excel_template_services import (
     ExcelLayoutError,
     assess_compatibility,
     collect_unsupported_features,
     describe_unsupported_features,
+    main_sheet_size,
     parse_workbook,
     preview_blank_pdf,
+    preview_pdf,
     refresh_column_layout,
     validate_bindings,
     validate_values,
@@ -253,10 +261,7 @@ def save_pdf_params(user, template, raw_params):
 
 def _draft_main_sheet_size(meta):
     """主工作表 (行数, 列数)（PDF 分页/打印区域越界校验；缺失返回 None 不校验）。"""
-    for sheet_meta in (meta.get('layout') or {}).get('sheets') or []:
-        if sheet_meta.get('name') == meta.get('sheet_name'):
-            return sheet_meta.get('max_row'), sheet_meta.get('max_column')
-    return None, None
+    return main_sheet_size(meta)
 
 
 def _draft_meta(template):
@@ -445,6 +450,45 @@ def preview_draft_pdf(template):
         _fail(str(e))
     except excel_pdf_service.PdfConversionError as e:
         _fail(str(e))
+
+
+def preview_template_pdf(template, raw_params=None, raw_values=None):
+    """模板预览 PDF（可携带未保存参数与临时样例值，全部只作用于本次）。
+
+    - raw_params 为打印设置表单当前值（可含未保存修改）：整体校验后仅
+      本次预览生效，不写草稿；未传时使用草稿已保存参数（与既有空白
+      预览一致）；
+    - raw_values 为临时样例值（键为 field_id）：validate_values 校验
+      （未知 field_id 拒绝、按字段类型归一化）后只写入预览副本，不写
+      数据库、不改模板源文件、不影响发布与已有台账；空值生成空白版式；
+    - 返回 {'content', 'pages', 'paper', 'warnings'}：页数与纸张来自
+      真实生成的 PDF（pypdf 读取第 1 页），warnings 复用导出版式预检
+      （estimate_pdf_warnings，预览不检查必填），依据实际参数估算，
+      不伪造预览结果。
+    """
+    if not template.draft_layout or not template.draft_source_hash:
+        _fail('当前没有可预览的草稿，请先上传 .xlsx 源文件')
+    if raw_values is not None and not isinstance(raw_values, dict):
+        _fail('预览数据必须是对象')
+    draft_path = excel_template_storage.draft_path(template.pk)
+    if not os.path.isfile(draft_path):
+        _fail('模板草稿源文件丢失，请重新上传后再预览')
+    meta = _draft_meta(template)
+    meta['field_bindings'] = (
+        json.loads(template.draft_bindings) if template.draft_bindings else [])
+    try:
+        values = validate_values(meta['field_bindings'], raw_values)
+        content = preview_pdf(meta, draft_path, values=values,
+                              pdf_params=raw_params)
+    except ExcelLayoutError as e:
+        _fail(str(e))
+    except excel_pdf_service.PdfConversionError as e:
+        _fail(str(e))
+    effective = raw_params if raw_params is not None else meta.get('pdf_params')
+    warnings = estimate_pdf_warnings(meta, values, effective, check_required=False)
+    info = excel_pdf_service.pdf_page_info(content)
+    return {'content': content, 'pages': info['pages'],
+            'paper': info['paper'], 'warnings': warnings}
 
 
 def draft_compatibility(template):

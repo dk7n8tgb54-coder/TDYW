@@ -6,7 +6,7 @@
  */
 import React, {useState, useEffect, useCallback} from 'react';
 import {observer} from 'mobx-react';
-import {Breadcrumb, SearchForm, AuthDiv} from 'components';
+import {SearchForm, AuthDiv} from 'components';
 import {Table, Button, Tag, Space, Select, Input, Popconfirm, notification} from 'antd';
 import {PlusOutlined} from '@ant-design/icons';
 import {http, hasPermission} from 'libs';
@@ -112,11 +112,6 @@ function ReleaseNotesAdmin() {
 
   return (
     <AuthDiv auth="system.release_note.view">
-      <Breadcrumb>
-        <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>系统管理</Breadcrumb.Item>
-        <Breadcrumb.Item>更新日志</Breadcrumb.Item>
-      </Breadcrumb>
       <div style={{marginBottom: 12}}>
         {canAdd && (
           <Button type="primary" icon={<PlusOutlined/>} onClick={openCreate}>新建更新日志</Button>

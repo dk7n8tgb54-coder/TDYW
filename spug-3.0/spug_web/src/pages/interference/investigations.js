@@ -3,7 +3,7 @@ import {Button, Input, Modal, Select, message} from 'antd';
 import {DeleteOutlined, EditOutlined, PlusOutlined, SearchOutlined} from '@ant-design/icons';
 import {observer} from 'mobx-react';
 import {http} from 'libs';
-import {Action, AuthButton, AuthDiv, Breadcrumb, SearchForm, TableCard} from 'components';
+import {Action, AuthButton, AuthDiv, SearchForm, TableCard} from 'components';
 import store from './store';
 import InvestigationForm from './InvestigationForm';
 
@@ -43,7 +43,6 @@ function InvestigationsPage() {
   ];
 
   return <AuthDiv auth="interference.investigation.view">
-    <Breadcrumb><Breadcrumb.Item>首页</Breadcrumb.Item><Breadcrumb.Item>干扰管理</Breadcrumb.Item><Breadcrumb.Item>规律调查</Breadcrumb.Item></Breadcrumb>
     <SearchForm>
       <SearchForm.Item span={7} title="调查名称"><Input allowClear value={store.investigationName} onChange={event => {store.investigationName = event.target.value;}} onPressEnter={() => store.fetchInvestigations({name: store.investigationName})}/></SearchForm.Item>
       <SearchForm.Item span={5} title="调查状态"><Select allowClear style={{width: '100%'}} value={store.investigationStatus} options={Object.keys(STATUS_LABELS).map(value => ({value, label: STATUS_LABELS[value]}))} onChange={value => {store.investigationStatus = value; store.fetchInvestigations({status: value});}}/></SearchForm.Item>

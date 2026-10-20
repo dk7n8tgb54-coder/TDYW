@@ -105,14 +105,13 @@ function headerButtons() {
 }
 
 describe('升级工作台顶栏（编辑模式）', () => {
-  it('不渲染全局保存按钮，顶栏与面包屑不重复展示记录标题', async () => {
+  it('不渲染全局保存按钮，顶栏不重复展示记录标题且不再渲染页内面包屑', async () => {
     await renderWorkbenchAsync('1');
     expect(headerButtons()).toEqual(['返回列表']);
     expect(container.querySelector('.ant-layout-header').textContent)
       .not.toContain('DVOR 软件升级');
-    const breadcrumb = container.querySelector('.test-breadcrumb');
-    expect(breadcrumb.textContent).not.toContain('DVOR 软件升级');
-    expect(breadcrumb.textContent).toContain('工作台');
+    // 2026-10-19 导航改造：页面路径由全局 Header 面包屑承担，工作台页内不再渲染面包屑
+    expect(container.querySelector('.test-breadcrumb')).toBe(null);
     // 顶栏页面名不再携带标题
     expect(container.querySelector('.ant-layout-header').textContent)
       .toContain('升级工作台');

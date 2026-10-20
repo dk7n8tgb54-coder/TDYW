@@ -37,6 +37,8 @@ jest.mock('../AlertStore', () => ({start: jest.fn(), stop: jest.fn()}));
 
 jest.mock('../Sider', () => () => <div data-testid="sider"/>);
 jest.mock('../Header', () => () => <div/>);
+// 2026-10-19 导航改造：工作页签条为布局子组件，这里 mock 掉（其行为有独立测试）
+jest.mock('../WorkTabs', () => () => <div data-testid="work-tabs"/>);
 jest.mock('../Footer', () => () => <div/>);
 jest.mock('components', () => ({NotFound: () => <div/>}));
 jest.mock('components/expirationReminderConfigs', () => ({licenseReminderConfig: {}}));

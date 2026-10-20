@@ -15,6 +15,7 @@ import ReleaseNoteDrawer from '../pages/release/ReleaseNoteDrawer';
 import releaseNoteStore from '../pages/release/store';
 import Sider from './Sider';
 import Header from './Header';
+import WorkTabs from './WorkTabs';
 import Footer from './Footer'
 import routes from '../routes';
 import radioLicenseBadge from './RadioLicenseBadgeStore';
@@ -87,6 +88,7 @@ export default function () {
       <Sider collapsed={collapsed} isPhone={isPhone}/>
       <Layout style={{height: '100vh', display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0}}>
         <Header collapsed={collapsed} toggle={() => setCollapsed(!collapsed)}/>
+        <WorkTabs/>
         <Layout.Content className={styles.content} id="spug-container" style={{flex: 1, minWidth: 0, width: '100%', overflow: 'auto'}}>
           <Switch>
             {Routes}

@@ -5,12 +5,132 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Input, Select, DatePicker, Button } from 'antd';
-import { SearchForm, AuthDiv, Breadcrumb } from 'components';
+import { Input, Select, DatePicker } from 'antd';
+import {SearchForm, AuthDiv} from 'components';
 import ComTable from './Table';
 import ComForm from './Form';
 import store from './store';
 import moment from 'moment';
+
+/**
+ * 筛选区（2026-10-20 统一交互，参照运行处置记录 RecordFilters）：
+ * 常驻 合同名称（草稿，查询/回车提交）/类型/状态，合同编号/费用/签约方/
+ * 截止日期收入"更多筛选"；下拉与截止日期变更即查询但不代提交文本草稿；
+ * 重置清空全部条件及草稿并回到第 1 页；展开收起本身不触发请求，收起时
+ * 显示折叠区已启用条件数量（false 是有效布尔条件同样计数，日期范围按
+ * 一个条件计数）。
+ */
+// 独立 observer：筛选区直接读取 store 筛选字段渲染，须自身订阅才能在
+// store 变化时重渲染（父组件不读这些字段，不会带着子组件刷新）
+const ContractFilters = observer(function ContractFilters() {
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const advancedCount = [
+    store.input_contract_no,
+    store.f_has_fee !== undefined && store.f_has_fee !== null,
+    store.input_signing_party,
+    store.f_valid_end_range && store.f_valid_end_range.length === 2,
+  ].filter(Boolean).length;
+
+  return (
+    <SearchForm>
+      <SearchForm.Item span={6} title="合同名称">
+        <Input
+          allowClear
+          value={store.input_contract_name}
+          onChange={e => store.setContractNameInput(e.target.value)}
+          placeholder="请输入合同名称"
+          onPressEnter={() => store.commitFilters()}
+        />
+      </SearchForm.Item>
+      <SearchForm.Item span={6} title="类型">
+        <Select
+          allowClear
+          value={store.f_contract_type}
+          onChange={v => {store.f_contract_type = v; store.pageNum = 1; store.fetchRecords();}}
+          placeholder="请选择类型"
+        >
+          {store.contractTypeOptions.map(item => (
+            <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
+          ))}
+        </Select>
+      </SearchForm.Item>
+      <SearchForm.Item span={6} title="状态">
+        <Select
+          allowClear
+          value={store.f_status}
+          onChange={v => {store.f_status = v; store.pageNum = 1; store.fetchRecords();}}
+          placeholder="请选择状态"
+        >
+          {store.statusOptions.map(item => (
+            <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
+          ))}
+        </Select>
+      </SearchForm.Item>
+      <SearchForm.Actions
+        onSearch={() => store.commitFilters()}
+        onReset={() => {store.resetFilter(); store.fetchRecords();}}
+        advancedOpen={advancedOpen}
+        advancedCount={advancedCount}
+        onToggleAdvanced={() => setAdvancedOpen(!advancedOpen)}
+      />
+      {advancedOpen && (
+        <React.Fragment>
+          <SearchForm.Item span={6} title="合同编号">
+            <Input
+              allowClear
+              value={store.input_contract_no}
+              onChange={e => store.setContractNoInput(e.target.value)}
+              placeholder="请输入合同编号"
+              onPressEnter={() => store.commitFilters()}
+            />
+          </SearchForm.Item>
+          <SearchForm.Item span={4} title="费用">
+            <Select
+              allowClear
+              value={store.f_has_fee}
+              onChange={v => {store.f_has_fee = v; store.pageNum = 1; store.fetchRecords();}}
+              placeholder="请选择费用"
+            >
+              <Select.Option value={true}>有</Select.Option>
+              <Select.Option value={false}>无</Select.Option>
+            </Select>
+          </SearchForm.Item>
+          <SearchForm.Item span={6} title="签约方">
+            <Input
+              allowClear
+              value={store.input_signing_party}
+              onChange={e => store.setSigningPartyInput(e.target.value)}
+              placeholder="请输入签约方"
+              onPressEnter={() => store.commitFilters()}
+            />
+          </SearchForm.Item>
+          <SearchForm.Item span={8} title="截止日期">
+            <DatePicker.RangePicker
+              allowClear
+              value={store.f_valid_end_range
+                ? [moment(store.f_valid_end_range[0]), moment(store.f_valid_end_range[1])]
+                : null}
+              onChange={(dates) => {
+                if (dates && dates[0] && dates[1]) {
+                  store.f_valid_end_range = [
+                    dates[0].format('YYYY-MM-DD'),
+                    dates[1].format('YYYY-MM-DD')
+                  ];
+                } else {
+                  store.f_valid_end_range = undefined;
+                }
+                store.pageNum = 1;
+                store.fetchRecords();
+              }}
+              placeholder={['开始日期', '结束日期']}
+              style={{width: '100%'}}
+            />
+          </SearchForm.Item>
+        </React.Fragment>
+      )}
+    </SearchForm>
+  );
+});
 
 function ContractAgreement() {
   React.useEffect(() => {
@@ -23,108 +143,7 @@ function ContractAgreement() {
 
   return (
     <AuthDiv auth="contract_agreement.agreement.view">
-      <Breadcrumb>
-        <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>合同协议</Breadcrumb.Item>
-      </Breadcrumb>
-      <SearchForm>
-        <SearchForm.Item span={6} title="合同名称">
-          <Input
-            allowClear
-            value={store.f_contract_name}
-            onChange={e => store.f_contract_name = e.target.value}
-            placeholder="请输入合同名称"
-            onPressEnter={() => {store.pageNum = 1; store.fetchRecords();}}
-          />
-        </SearchForm.Item>
-        <SearchForm.Item span={6} title="合同编号">
-          <Input
-            allowClear
-            value={store.f_contract_no}
-            onChange={e => store.f_contract_no = e.target.value}
-            placeholder="请输入合同编号"
-            onPressEnter={() => {store.pageNum = 1; store.fetchRecords();}}
-          />
-        </SearchForm.Item>
-        <SearchForm.Item span={6} title="类型">
-          <Select
-            allowClear
-            value={store.f_contract_type}
-            onChange={v => {store.f_contract_type = v; store.pageNum = 1; store.fetchRecords();}}
-            placeholder="请选择类型"
-          >
-            {store.contractTypeOptions.map(item => (
-              <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
-            ))}
-          </Select>
-        </SearchForm.Item>
-        <SearchForm.Item span={6} title="状态">
-          <Select
-            allowClear
-            value={store.f_status}
-            onChange={v => {store.f_status = v; store.pageNum = 1; store.fetchRecords();}}
-            placeholder="请选择状态"
-          >
-            {store.statusOptions.map(item => (
-              <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
-            ))}
-          </Select>
-        </SearchForm.Item>
-        <SearchForm.Item span={6} title="费用">
-          <Select
-            allowClear
-            value={store.f_has_fee}
-            onChange={v => {store.f_has_fee = v; store.pageNum = 1; store.fetchRecords();}}
-            placeholder="请选择费用"
-          >
-            <Select.Option value={true}>有</Select.Option>
-            <Select.Option value={false}>无</Select.Option>
-          </Select>
-        </SearchForm.Item>
-        <SearchForm.Item span={6} title="签约方">
-          <Input
-            allowClear
-            value={store.f_signing_party}
-            onChange={e => store.f_signing_party = e.target.value}
-            placeholder="请输入签约方"
-            onPressEnter={() => {store.pageNum = 1; store.fetchRecords();}}
-          />
-        </SearchForm.Item>
-        <SearchForm.Item span={6} title="截止日期">
-          <DatePicker.RangePicker
-            allowClear
-            value={store.f_valid_end_range
-              ? [moment(store.f_valid_end_range[0]), moment(store.f_valid_end_range[1])]
-              : null}
-            onChange={(dates) => {
-              if (dates && dates[0] && dates[1]) {
-                store.f_valid_end_range = [
-                  dates[0].format('YYYY-MM-DD'),
-                  dates[1].format('YYYY-MM-DD')
-                ];
-              } else {
-                store.f_valid_end_range = undefined;
-              }
-            }}
-            placeholder={['开始日期', '结束日期']}
-            style={{width: '100%'}}
-          />
-        </SearchForm.Item>
-        <SearchForm.Item span={24}>
-          <Button type="primary" onClick={() => {store.pageNum = 1; store.fetchRecords();}}>查询</Button>
-          <Button style={{marginLeft: 8}} onClick={() => {
-            store.f_contract_name = undefined;
-            store.f_contract_no = undefined;
-            store.f_contract_type = undefined;
-            store.f_status = undefined;
-            store.f_has_fee = undefined;
-            store.f_signing_party = undefined;
-            store.f_valid_end_range = undefined;
-            store.pageNum = 1;
-            store.fetchRecords();
-          }}>重置</Button>
-        </SearchForm.Item>
-      </SearchForm>
+      <ContractFilters/>
       <ComTable/>
       {store.formVisible && <ComForm/>}
       {store.detailVisible && <ComForm/>}

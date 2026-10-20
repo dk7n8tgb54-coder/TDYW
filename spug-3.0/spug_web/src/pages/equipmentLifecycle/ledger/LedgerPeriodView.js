@@ -4,9 +4,9 @@
  */
 /**
  * 运维台账"按维护周期"视图（2026-10-11 自 LedgerIndex 迁出）：
- * 维护类型＋周期分组表（组内为各系统台账及填写状态）＋"生成本期应填台账"
- * 入口（2026-10-14 重构：按 Excel 模板配置生成本周/本月/本航季应填台账）；
- * 筛选为 编号/状态/按系统查看。
+ * 维护类型＋周期分组表（2026-10-20 单表头：分组行贯通 + 组内直接铺台账
+ * 记录行）＋"生成本期应填台账"入口（2026-10-14 重构：按 Excel 模板配置
+ * 生成本周/本月/本航季应填台账）；筛选为 编号/状态/按系统查看。
  */
 import React from 'react';
 import {observer} from 'mobx-react';
@@ -21,7 +21,10 @@ import {API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_FILTER_OPTIONS} from './c
 const PeriodSearchForm = observer(function PeriodSearchForm({store}) {
   const refresh = () => store.refresh();
   return (
-    <SearchForm>
+    // SearchForm 会把 style 同时作用于外层容器与内层 Form（components/SearchForm.js），
+    // paddingTop 4 经两次叠加即 8px 视觉内边距；marginBottom 8 替代类默认 16，
+    // 使 概览卡/筛选区/操作区 形成连续工作区（2026-10-20 视觉密度压缩）
+    <SearchForm style={{paddingTop: 4, marginBottom: 8}}>
       <SearchForm.Item span={6} title="台账编号">
         <Input
           allowClear
@@ -74,7 +77,9 @@ function LedgerPeriodView({store, ledgerType, columns, onGenerate, onExcelCreate
     <React.Fragment>
       <LedgerPeriodOverviewCard store={store}/>
       <PeriodSearchForm store={store}/>
-      <div style={{marginBottom: 12}}>
+      {/* 操作区（2026-10-20 整理）：主操作仅"生成本期应填台账"（primary），
+          新增/导出为默认按钮低视觉权重；统一 8px 间距，窄屏自动换行 */}
+      <div style={{marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 8}}>
         <AuthButton
           auth={PERM_L.LED_ADD}
           type="primary"
@@ -85,14 +90,12 @@ function LedgerPeriodView({store, ledgerType, columns, onGenerate, onExcelCreate
         </AuthButton>
         <AuthButton
           auth={PERM_L.LED_ADD}
-          style={{marginLeft: 8}}
           icon={<PlusOutlined/>}
           onClick={onExcelCreate}>
           新增{LEDGER_TYPE_TEXT[ledgerType]}台账
         </AuthButton>
         <AuthButton
           auth={PERM_L.LED_ADD}
-          style={{marginLeft: 8}}
           icon={<PlusOutlined/>}
           data-testid="native-create-open"
           onClick={onNativeCreate}>
@@ -101,7 +104,6 @@ function LedgerPeriodView({store, ledgerType, columns, onGenerate, onExcelCreate
         <Tooltip title="导出台账明细数据（手工补录台账的检查项目明细行，携带当前筛选）；Excel/原生模板台账请在台账详情中导出填写完整的 PDF。">
           <ExportButton
             auth={PERM_L.LED_EXPORT}
-            style={{marginLeft: 8}}
             url={`${API_PREFIX_L}/ledgers/export/`}
             params={store.periodExportParams()}
             filename={`${LEDGER_TYPE_TEXT[ledgerType]}台账明细.csv`}>

@@ -452,16 +452,22 @@ def _apply_sheet_pagination(worksheet, params):
         worksheet.print_area = print_area
 
 
-def estimate_pdf_warnings(meta, values=None, pdf_params=None):
-    """导出前版式预检：返回中文提示列表（不阻断，阻断由导出自身校验）。"""
+def estimate_pdf_warnings(meta, values=None, pdf_params=None,
+                          check_required=True):
+    """导出前版式预检：返回中文提示列表（不阻断，阻断由导出自身校验）。
+
+    check_required=False 时不提示必填未填写（模板预览允许留空，导出
+    预检缺省 True 维持既有口径）。
+    """
     params = copy.deepcopy(DEFAULT_PDF_PARAMS)
     params.update(pdf_params or {})
     warnings = []
-    missing = [b['field_name'] for b in meta.get('field_bindings') or []
-               if b.get('is_required') and not (values or {}).get(b['field_id'])]
-    if missing:
-        warnings.append('必填字段未填写：%s（导出会被拦截，请先填写）'
-                        % '、'.join(missing))
+    if check_required:
+        missing = [b['field_name'] for b in meta.get('field_bindings') or []
+                   if b.get('is_required') and not (values or {}).get(b['field_id'])]
+        if missing:
+            warnings.append('必填字段未填写：%s（导出会被拦截，请先填写）'
+                            % '、'.join(missing))
     for sheet_meta in (meta.get('layout') or {}).get('sheets') or []:
         _estimate_sheet_warnings(sheet_meta, params, warnings)
     _estimate_pagination_warnings(meta, params, warnings)

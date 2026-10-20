@@ -3,7 +3,7 @@
  * 支持发布部门、发布时间范围、阅读状态、关键字筛选；点击标题查看详情（自动标记已读）。
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { Breadcrumb, SearchForm } from 'components';
+import {SearchForm} from 'components';
 import { Table, Input, Select, DatePicker, Button, Tag, Space } from 'antd';
 import { http, history, hasPermission } from 'libs';
 import AnnouncementDetail from './AnnouncementDetail';
@@ -94,10 +94,6 @@ export default function AnnouncementList() {
 
   return (
     <div>
-      <Breadcrumb>
-        <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>系统公告</Breadcrumb.Item>
-      </Breadcrumb>
       <SearchForm>
         <SearchForm.Item span={6} title="关键字">
           <Input allowClear value={keyword} placeholder="标题关键字" onChange={e => setKeyword(e.target.value)} />

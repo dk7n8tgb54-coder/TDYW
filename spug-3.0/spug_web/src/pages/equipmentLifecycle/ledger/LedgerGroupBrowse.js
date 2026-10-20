@@ -26,6 +26,7 @@ import {ArrowLeftOutlined, ArrowRightOutlined} from '@ant-design/icons';
 import ExcelLedgerDetail from './excel/ExcelLedgerDetail';
 import {ExcelLedgerStore} from './excel/excelLedgerStore';
 import {STATUS_COLOR, STATUS_TEXT} from './constants';
+import useWorkTabUnsaved from 'layout/useWorkTabUnsaved';
 
 // 期次跳转里"未标注期次"的选项键（period_key 为空的条目归并为一组）
 const UNMARKED_PERIOD_KEY = '__unmarked__';
@@ -91,6 +92,8 @@ function BrowseBody({entries, excelStore, detail, loadError, onRetry, onDetailBa
 function LedgerGroupBrowse({store}) {
   const [excelStore] = useState(() => new ExcelLedgerStore());
   const [loadError, setLoadError] = useState(false);
+  // 翻阅中台账有未保存修改时，当前页签不参与自动淘汰
+  useWorkTabUnsaved(!!excelStore.hasUnsaved);
   const browse = store.browseState;
   const entries = browse ? browse.entries : [];
   const entry = browse && browse.index < entries.length

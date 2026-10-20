@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { observer } from 'mobx-react';
 import { Button, Input, Popconfirm, Select, Space, Tag, Tooltip, Typography } from 'antd';
 import { CheckCircleOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons';
-import { AuthDiv, AuthFragment, Breadcrumb, SearchForm, TableCard } from 'components';
+import {AuthDiv, AuthFragment, SearchForm, TableCard} from 'components';
 import store from './store';
 
 const { Option } = Select;
@@ -149,11 +149,6 @@ export default observer(function AlertIndex({embedded = false}) {
   }, []);
 
   const content = <>
-      {!embedded && <Breadcrumb>
-        <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>系统管理</Breadcrumb.Item>
-        <Breadcrumb.Item>系统告警</Breadcrumb.Item>
-      </Breadcrumb>}
       <SearchForm>
         <SearchForm.Item span={5} title="告警级别">
           <Select

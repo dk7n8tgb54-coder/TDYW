@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { observer } from 'mobx-react';
 import { Layout, Button, Space } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined } from '@ant-design/icons';
-import { Breadcrumb } from 'components';
+
 import history from 'libs/history';
 import { hasPermission } from 'libs/functools';
 import store from './store';
@@ -131,16 +131,6 @@ export default observer(function Workbench(props) {
         onSaveList={() => formRef.current && formRef.current.submit('list')}
         onSaveWorkbench={() => formRef.current && formRef.current.submit('workbench')}/>
       <Content className={styles.content}>
-        <div className={styles.breadcrumb}>
-          <Breadcrumb>
-            <Breadcrumb.Item>首页</Breadcrumb.Item>
-            <Breadcrumb.Item>系统升级管理</Breadcrumb.Item>
-            <Breadcrumb.Item>
-              <Button type="link" style={{padding: 0}} onClick={() => history.push('/upgrade')}>升级表单</Button>
-            </Breadcrumb.Item>
-            <Breadcrumb.Item>{isNew ? '新建' : '工作台'}</Breadcrumb.Item>
-          </Breadcrumb>
-        </div>
         <WorkbenchForm
           ref={formRef}
           isNew={isNew}

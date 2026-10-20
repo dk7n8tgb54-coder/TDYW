@@ -25,6 +25,50 @@ class Store {
   @observable f_has_fee = undefined;
   @observable f_valid_end_range = undefined;
 
+  // 合同名称/合同编号/签约方文本输入草稿（输入中、未执行，2026-10-20 筛选
+  // 交互统一）：Input 绑定草稿，查询按钮/回车提交后才转正为 f_*，避免
+  // "输入未查询"的文本混入类型/状态/费用下拉与截止日期触发的即时查询
+  @observable input_contract_name = '';
+  @observable input_contract_no = '';
+  @observable input_signing_party = '';
+
+  // 文本草稿输入（三个文本条件共用一套草稿→已执行口径）
+  setContractNameInput = (value) => {
+    this.input_contract_name = value;
+  };
+
+  setContractNoInput = (value) => {
+    this.input_contract_no = value;
+  };
+
+  setSigningPartyInput = (value) => {
+    this.input_signing_party = value;
+  };
+
+  // 查询按钮/文本框回车共用：提交全部文本草稿为已执行条件，回到第 1 页刷新
+  commitFilters = () => {
+    this.f_contract_name = this.input_contract_name || undefined;
+    this.f_contract_no = this.input_contract_no || undefined;
+    this.f_signing_party = this.input_signing_party || undefined;
+    this.pageNum = 1;
+    return this.fetchRecords();
+  };
+
+  // 重置：清空常驻与折叠区全部条件及文本草稿，回到第 1 页（刷新由调用方执行）
+  resetFilter = () => {
+    this.input_contract_name = '';
+    this.input_contract_no = '';
+    this.input_signing_party = '';
+    this.f_contract_name = undefined;
+    this.f_contract_no = undefined;
+    this.f_contract_type = undefined;
+    this.f_status = undefined;
+    this.f_signing_party = undefined;
+    this.f_has_fee = undefined;
+    this.f_valid_end_range = undefined;
+    this.pageNum = 1;
+  };
+
   contractTypeOptions = [
     {value: 'device_purchase', label: '设备采购合同'},
     {value: 'info_access', label: '信息引接合同'},

@@ -18,7 +18,7 @@
  * - inGroup=true 时第一列换为"模板版本"（模板组内组名即模板，不重复列名）。
  * - 列宽按固定布局（scroll.x）下最长内容核定：周/航季期次标签与 19 位编号
  *   均单行不换行；总宽即 LEDGER_TABLE_SCROLL_X，承载该列集合的表格
- *   （周期分组展开内嵌表/模板组内表）须同步此配置。
+ *   （周期分组表/模板组内表）须同步此配置。
  */
 import React, {useState} from 'react';
 import {Dropdown, Input, Menu, Modal, Tag, Tooltip} from 'antd';
@@ -166,7 +166,7 @@ function ActionCell({record, ledgerType, store, openDetail}) {
 
 /**
  * 台账行列表总宽（scroll.x）：与 buildColumns 各列宽之和一致。
- * 周期分组展开内嵌表与模板组内表共用此配置，窄屏横向滚动时
+ * 周期分组表与模板组内表共用此配置，窄屏横向滚动时
  * 操作列（fixed right）保持可见。
  */
 export const LEDGER_TABLE_SCROLL_X = 990;

@@ -27,7 +27,7 @@ import React, {useEffect, useState} from 'react';
 import {observer} from 'mobx-react';
 import {Input, Select, Button, Table, DatePicker, Tabs, Alert} from 'antd';
 import {PlusOutlined, DownOutlined, UpOutlined} from '@ant-design/icons';
-import {SearchForm, AuthDiv, AuthButton, Breadcrumb, ExportButton} from 'components';
+import {SearchForm, AuthDiv, AuthButton, ExportButton} from 'components';
 import RecordForm from './RecordForm';
 import RecordDetail from './RecordDetail';
 import RecordTodo from './RecordTodo';
@@ -380,11 +380,6 @@ function RecordIndex(props) {
   }, []);
   return (
     <AuthDiv auth={PERM.OP_VIEW}>
-      <Breadcrumb>
-        <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>设备管理</Breadcrumb.Item>
-        <Breadcrumb.Item>运行处置记录</Breadcrumb.Item>
-      </Breadcrumb>
       <Tabs defaultActiveKey="records" onChange={handleTabChange}>
         <TabPane tab="全部记录" key="records">
           <RecordFilters/>

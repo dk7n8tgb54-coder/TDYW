@@ -293,6 +293,13 @@ describe('LedgerStore 本期工作概览与周期分组增强（2026-10-14）', 
     expect(store.groups).toEqual([{maintenance_period: '2026-08'}]);
     expect(store.groupsTotal).toBe(1);
   });
+});
+
+describe('LedgerStore 展开状态持久化与跨周期恢复（2026-10-20 修复）', () => {
+  const GROUPS_URL = '/api/equipment-lifecycle/ledgers/period-groups/';
+  const OVERVIEW_URL = '/api/equipment-lifecycle/ledgers/period-overview/';
+  const GENERATE_URL = '/api/equipment-lifecycle/ledgers/period-generate/';
+  const groupsPayload = (groups) => ({data: {data: groups, total: groups.length}});
 
   test('首次加载默认只展开本期组，历史期次折叠', async () => {
     mockHttpGet.mockResolvedValue(groupsPayload([
@@ -323,6 +330,55 @@ describe('LedgerStore 本期工作概览与周期分组增强（2026-10-14）', 
     expect(seasonal.expandedPeriodKeys).toEqual(['2026-10-12']); // 无存储状态 → 默认本期
     expect(seasonal.expandedPeriodKeys).not.toEqual(reloaded.expandedPeriodKeys);
   });
+
+  test('跨周期恢复：滚出本期的自动展开键不再恢复，手动历史组保留（2026-10-20 缺陷回归）', async () => {
+    // 上周访问时 '2026-10-12' 是本期，自动展开并随快照持久化；本周再进入，
+    // 该组已不是本期，不得自动展开（否则"不属于本期的组自动展开"）
+    window.localStorage.setItem(
+      'el_ledger_expanded_periods_week_month',
+      JSON.stringify({keys: ['2026-10-12', '2026-10', '2026-09'],
+                      current: ['2026-10-12', '2026-10']}));
+    mockHttpGet.mockResolvedValue(groupsPayload([
+      {maintenance_period: '2026-10-19', is_current: true},  // 新的一周
+      {maintenance_period: '2026-10-12', is_current: false}, // 已滚出本期
+      {maintenance_period: '2026-10', is_current: true},
+      {maintenance_period: '2026-09', is_current: false},
+    ]));
+    const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
+    await store.fetchGroups();
+    // 当下本期（2026-10-19）自动展开；上周的自动展开被丢弃；
+    // 用户上周手动展开的 9 月历史组保留
+    expect(store.expandedPeriodKeys).toContain('2026-10-19');
+    expect(store.expandedPeriodKeys).toContain('2026-10');
+    expect(store.expandedPeriodKeys).toContain('2026-09');
+    expect(store.expandedPeriodKeys).not.toContain('2026-10-12');
+    // 恢复后的快照回写为当下口径（旧键被清洗）
+    const snapshot = JSON.parse(
+      window.localStorage.getItem('el_ledger_expanded_periods_week_month'));
+    expect(snapshot.current.slice().sort()).toEqual(['2026-10', '2026-10-19']);
+    expect(snapshot.keys).toEqual(store.expandedPeriodKeys.slice());
+  });
+
+  test('旧版裸数组持久化（含自动展开污染）读取时弃用，按当下本期默认展开', async () => {
+    window.localStorage.setItem(
+      'el_ledger_expanded_periods_week_month',
+      JSON.stringify(['2026-10-12', '2026-09']));
+    mockHttpGet.mockResolvedValue(groupsPayload([
+      {maintenance_period: '2026-10-12', is_current: true},
+      {maintenance_period: '2026-09', is_current: false},
+    ]));
+    const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
+    await store.fetchGroups();
+    // 旧数组无法区分自动/手动，整体弃用：只展开当下本期
+    expect(store.expandedPeriodKeys).toEqual(['2026-10-12']);
+    expect(store.expandedPeriodKeys).not.toContain('2026-09');
+  });
+});
+
+describe('LedgerStore 生成后展开联动与周期视图刷新', () => {
+  const OVERVIEW_URL = '/api/equipment-lifecycle/ledgers/period-overview/';
+  const GENERATE_URL = '/api/equipment-lifecycle/ledgers/period-generate/';
+  const groupsPayload = (groups) => ({data: {data: groups, total: groups.length}});
 
   test('generatePeriodLedgers 成功后刷新并强制展开本期组', async () => {
     mockHttpGet.mockResolvedValue(groupsPayload([

@@ -32,10 +32,17 @@ jest.mock('libs', () => ({
     delete: (...args) => mockHttpDelete(...args),
   },
   exportFile: jest.fn(),
-  history: {location: {search: ''}, replace: jest.fn(), push: jest.fn()},
+  history: {location: {pathname: '/el/week-month-ledgers', search: ''}, replace: jest.fn(), push: jest.fn()},
   hasPermission: jest.fn(() => true),
   Permission: {isSuper: true},
 }));
+
+// 工作页签 Store（经 useWorkTabUnsaved 间接引入 routeMeta → routes）：
+// routes 以最小等价结构 mock，避免本文件引入整棵页面依赖树
+jest.mock('../../../../routes', () => [
+  {icon: 'home', title: '工作台', auth: 'dashboard.dashboard.view', path: '/home', component: 'Home'},
+  {title: '周月维护台账', auth: 'el.ledger.view', path: '/el/week-month-ledgers', component: 'W'},
+]);
 
 // 翻阅组件内部自建 ExcelLedgerStore（useState）：用真实类的跟踪子类捕获
 // 实例，未保存拦截测试经由该实例驱动真实脏值跟踪行为
@@ -61,6 +68,7 @@ if (!window.matchMedia) {
 }
 
 const {LedgerStore} = require('../store');
+const workTabStore = require('../../../../layout/workTabStore').default;
 const LedgerGroupBrowse = require('../LedgerGroupBrowse').default;
 
 const FIELD_PS = 'aaaaaaaa-1111-4aaa-8aaa-000000000001';
@@ -383,5 +391,55 @@ describe('LedgerGroupBrowse 未保存拦截与退出', () => {
     expect(container.textContent).toContain('当前筛选范围内没有可翻阅的台账');
     expect(buttonByText('上一张台账').disabled).toBe(true);
     expect(buttonByText('下一张台账').disabled).toBe(true);
+  });
+});
+
+describe('LedgerGroupBrowse 工作页签未保存登记', () => {
+  test('翻阅台账有未保存修改时，工作页签同步登记为不可自动淘汰', async () => {
+    await renderBrowse();
+    const excelStore = mockCreatedExcelStores[0];
+    expect(workTabStore.hasUnsaved('/el/week-month-ledgers')).toBe(false);
+    // 翻到第二张（草稿）并制造未保存修改：页签登记随之建立
+    await act(async () => {
+      buttonByText('下一张台账').dispatchEvent(
+        new MouseEvent('click', {bubbles: true}));
+    });
+    await flush();
+    await act(async () => {
+      excelStore.setValue(FIELD_PS, '正常');
+    });
+    await flush();
+    expect(excelStore.hasUnsaved).toBe(true);
+    expect(workTabStore.hasUnsaved('/el/week-month-ledgers')).toBe(true);
+    // 放弃修改并切换后登记撤销
+    await act(async () => {
+      buttonByText('下一张台账').dispatchEvent(
+        new MouseEvent('click', {bubbles: true}));
+    });
+    await flush();
+    const confirmModal = confirmModalByText('有未保存的修改');
+    await act(async () => {
+      buttonByText('放弃修改并继续', confirmModal).dispatchEvent(
+        new MouseEvent('click', {bubbles: true}));
+    });
+    await flush();
+    expect(workTabStore.hasUnsaved('/el/week-month-ledgers')).toBe(false);
+  });
+
+  test('组件卸载（页签关闭）后登记撤销，不留残留', async () => {
+    await renderBrowse();
+    const excelStore = mockCreatedExcelStores[0];
+    await act(async () => {
+      buttonByText('下一张台账').dispatchEvent(
+        new MouseEvent('click', {bubbles: true}));
+    });
+    await flush();
+    await act(async () => {
+      excelStore.setValue(FIELD_PS, '正常');
+    });
+    await flush();
+    expect(workTabStore.hasUnsaved('/el/week-month-ledgers')).toBe(true);
+    ReactDOM.unmountComponentAtNode(container);
+    expect(workTabStore.hasUnsaved('/el/week-month-ledgers')).toBe(false);
   });
 });

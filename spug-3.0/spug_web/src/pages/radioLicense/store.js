@@ -25,6 +25,40 @@ class Store {
   @observable f_status = undefined;
   @observable f_valid_to_range = undefined;
 
+  // 台站/用途文本输入草稿（输入中、未执行，2026-10-20 筛选交互统一）：
+  // Input 绑定草稿，查询按钮/回车提交后才转正为 f_*，避免"输入未查询"的
+  // 文本混入状态下拉/截止日期触发的即时查询
+  @observable input_station_name = '';
+  @observable input_purpose = '';
+
+  // 文本草稿输入（台站/用途共用一套草稿→已执行口径）
+  setStationNameInput = (value) => {
+    this.input_station_name = value;
+  };
+
+  setPurposeInput = (value) => {
+    this.input_purpose = value;
+  };
+
+  // 查询按钮/文本框回车共用：提交全部文本草稿为已执行条件，回到第 1 页刷新
+  commitFilters = () => {
+    this.f_station_name = this.input_station_name || undefined;
+    this.f_purpose = this.input_purpose || undefined;
+    this.pageNum = 1;
+    return this.fetchRecords();
+  };
+
+  // 重置：清空常驻与折叠区全部条件及文本草稿，回到第 1 页（刷新由调用方执行）
+  resetFilter = () => {
+    this.input_station_name = '';
+    this.input_purpose = '';
+    this.f_station_name = undefined;
+    this.f_purpose = undefined;
+    this.f_status = undefined;
+    this.f_valid_to_range = undefined;
+    this.pageNum = 1;
+  };
+
   // ========== 状态选项 ==========
   statusOptions = [
     {value: 'normal', label: '正常'},

@@ -45,8 +45,9 @@
 import React from 'react';
 import {observer} from 'mobx-react';
 import {
-  Alert, Button, Card, Drawer, Dropdown, Empty, Input, Menu, Modal,
-  Popconfirm, Radio, Select, Space, Spin, Table, Tabs, Tag, Upload, message,
+  Alert, Button, Card, Drawer, Dropdown, Empty, Input, Menu,
+  Modal, Popconfirm, Radio, Select, Space, Spin, Table, Tabs, Tag, Upload,
+  message,
 } from 'antd';
 import {
   ArrowLeftOutlined, CheckCircleOutlined, DeleteOutlined, DownOutlined,
@@ -56,11 +57,11 @@ import {
 import {hasPermission, history} from 'libs';
 
 import excelTemplateStore, {LIST_PAGE_SIZE} from './excelTemplateStore';
+import PdfParamsDrawer, {PreviewInfoAlert} from './PdfParamsDrawer';
 import {PERM_L} from '../constants';
 import LayoutTable, {bindBlockReason} from './components/LayoutTable';
 import FieldPanel from './components/FieldPanel';
 import BatchBindingPanel from './BatchBindingPanel';
-import PdfParamsForm from './PdfParamsForm';
 import {tightMergedTextBindings} from './utils';
 import './ExcelTemplateWorkspace.less';
 
@@ -352,6 +353,16 @@ class ExcelTemplatePage extends React.Component {
     );
   }
 
+  /**
+   * 预览反馈（2026-10-19）：页数/纸张来自后端真实生成的 PDF，提示为按
+   * 本次实际参数的版式预检结果；参数来源标注已保存参数或当前未保存
+   * 参数。展示组件随打印设置抽屉拆分至 PdfParamsDrawer（控制主页面
+   * 文件规模），工作区与抽屉共用同一份 store 状态。
+   */
+  _renderPreviewInfoAlert() {
+    return <PreviewInfoAlert info={this.store.previewInfo}/>;
+  }
+
   /** 替换源文件确认弹窗：明确提示清空的绑定数，确认后才上传。 */
   _renderReuploadConfirmModal() {
     const store = this.store;
@@ -416,7 +427,7 @@ class ExcelTemplatePage extends React.Component {
         <Button data-testid="tpl-pdf-preview" icon={<FilePdfOutlined/>}
                 disabled={!store.draft} loading={store.previewing}
                 onClick={() => store.previewPdf().catch(() => {})}>
-          预览空白打印稿
+          预览空白打印稿（已保存参数）
         </Button>
         <Dropdown overlay={this._renderWorkspaceMoreMenu(deleted, store.draft)}
                   trigger={['click']}>
@@ -524,6 +535,7 @@ class ExcelTemplatePage extends React.Component {
         </div>
         <Spin spinning={store.loading || store.uploading}
               tip={store.uploading ? `上传解析中 ${store.uploadProgress}%` : '加载中...'}>
+          {this._renderPreviewInfoAlert()}
           {this._renderCompatibilityAlert()}
           {this._renderSizeHintAlert()}
           {draft && draft.layout ? (
@@ -790,31 +802,12 @@ class ExcelTemplatePage extends React.Component {
     );
   }
 
+  /**
+   * 临时预览数据区与预览反馈随打印设置抽屉拆分至 PdfParamsDrawer
+   * （2026-10-19，控制主页面文件规模）；此处仅挂载。
+   */
   _renderPdfParamsDrawer() {
-    const store = this.store;
-    return (
-      <Drawer title="PDF 打印参数" width={520} visible={store.pdfDrawerVisible}
-              onClose={() => store.closePdfDrawer()}>
-        <div style={{color: '#999', marginBottom: 12}}>
-          导出 PDF 与草稿预览默认使用以下参数；发布后随版本快照固定，
-          历史台账不受后续修改影响。
-        </div>
-        {store.pdfForm && (
-          <PdfParamsForm value={store.pdfForm}
-                         onChange={form => store.setPdfForm(form)}/>
-        )}
-        <div style={{textAlign: 'right', marginTop: 8}}>
-          <Space>
-            <Button onClick={() => store.closePdfDrawer()}>取消</Button>
-            <Button data-testid="tpl-pdf-params-save" type="primary"
-                    loading={store.savingPdfParams}
-                    onClick={() => store.savePdfParams().catch(() => {})}>
-              保存
-            </Button>
-          </Space>
-        </div>
-      </Drawer>
-    );
+    return <PdfParamsDrawer store={this.store}/>;
   }
 
   render() {

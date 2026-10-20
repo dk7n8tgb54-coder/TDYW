@@ -6,7 +6,7 @@
 import React from 'react';
 import { observer } from 'mobx-react';
 import { Input, Select } from 'antd';
-import { AuthDiv, Breadcrumb, SearchForm } from 'components';
+import {AuthDiv, SearchForm} from 'components';
 import ComTable from './Table';
 import ComForm from './Form';
 import CategoryTree from './CategoryTree';
@@ -17,12 +17,6 @@ import styles from './index.module.less';
 function RegulationIndex() {
   return (
     <AuthDiv auth="document.regulation.view">
-      <Breadcrumb>
-        <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>资料库</Breadcrumb.Item>
-        <Breadcrumb.Item>规章管理</Breadcrumb.Item>
-      </Breadcrumb>
-
       <div className={styles.container}>
         {/* 左侧分类树 */}
         <div className={styles.sidebar}>

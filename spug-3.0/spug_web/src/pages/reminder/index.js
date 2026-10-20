@@ -5,7 +5,7 @@
  * 列表可查看今日各接收人的确认状态。
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { Breadcrumb, AuthDiv } from 'components';
+import {AuthDiv} from 'components';
 import { Table, Button, Tag, Space, Switch, Popconfirm, notification, Tooltip } from 'antd';
 import { PlusOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { http } from 'libs';
@@ -122,9 +122,6 @@ function ReminderAdmin() {
 
   return (
     <AuthDiv auth="home.reminder.view">
-      <Breadcrumb>
-        <Breadcrumb.Item>提醒事项</Breadcrumb.Item>
-      </Breadcrumb>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建提醒规则</Button>
         <Button icon={<InfoCircleOutlined />} onClick={() => setStatusVisible(true)}>今日确认状态</Button>

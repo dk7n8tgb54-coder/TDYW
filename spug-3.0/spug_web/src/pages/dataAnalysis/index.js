@@ -9,7 +9,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import { observer } from 'mobx-react';
 import { useLocation } from 'react-router-dom';
-import { Breadcrumb } from 'components';
+
 import { hasPermission } from 'libs';
 import store, { TABS, MAX_RANGE_DAYS, getDatePresets } from './store';
 import Overview from './Overview';
@@ -93,11 +93,6 @@ function DataAnalysisIndex() {
 
   return (
     <div>
-      <Breadcrumb>
-        <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>数据分析</Breadcrumb.Item>
-      </Breadcrumb>
-
       {visibleTabs.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 0', color: '#999' }}>
           您没有数据分析模块的访问权限

@@ -102,8 +102,8 @@ export default [
       {title: '原生台账模板', auth: 'equipment_lifecycle.ledger_template.view', path: '/el/native-ledger-templates', component: NativeTemplatePage},
       // Excel 维护台账独立入口已并入正式周月/季维护台账（2026-10）：菜单不再
       // 展示，旧路径保留隐藏兼容路由并原样携带查询参数（?detail=&source=excel
-      // 由正式台账页打开 Excel 台账详情）
-      {path: '/el/excel-ledgers', auth: 'equipment_lifecycle.ledger.view', component: props => <ExcelLedgerRedirect {...props}/>},
+      // 由正式台账页打开 Excel 台账详情）；hideInTab：兼容重定向不进入工作页签
+      {path: '/el/excel-ledgers', auth: 'equipment_lifecycle.ledger.view', component: props => <ExcelLedgerRedirect {...props}/>, hideInTab: true},
     ]},
     // 系统升级管理并入设备全生命周期管理（2026-09），升级记录/方案挂接系统档案；
     // 升级表单/升级方案融合为页签（2026-10，参照巡检中心），不再各占菜单项
@@ -128,7 +128,8 @@ export default [
     icon: <ToolOutlined/>, title: '运维管理', auth: 'system.audit.view|system.alert.view', child: [
       {title: '操作日志', auth: 'system.audit.view', path: '/maintenance/audit', component: SystemAudit},
       {title: '系统监控', auth: 'system.alert.view', path: '/maintenance/alert', component: SystemMonitor},
-      {path: '/maintenance/data-quality', component: SystemDataQuality},
+      // 数据质量巡检为系统监控页内嵌页签（隐藏路由），独立访问时归属运维管理
+      {path: '/maintenance/data-quality', component: SystemDataQuality, tabTitle: '数据质量巡检', tabCrumbs: ['运维管理']},
     ]
   },
   {
@@ -141,12 +142,13 @@ export default [
       {title: '更新日志', auth: 'system.release_note.view', path: '/system/release-notes', component: ReleaseNotesAdmin},
     ]
   },
-  {path: '/welcome/index', component: WelcomeIndex},
-  {path: '/welcome/info', component: WelcomeInfo},
-  // 升级工作台全屏页面（新建走列表页弹窗，此处仅保留编辑/查看入口）
-  {path: '/upgrade/workbench/:id', component: UpgradeWorkbench},
+  {path: '/welcome/index', component: WelcomeIndex, hideInTab: true},
+  {path: '/welcome/info', component: WelcomeInfo, tabTitle: '个人中心'},
+  // 升级工作台全屏页面（新建走列表页弹窗，此处仅保留编辑/查看入口）：
+  // 带参数路由按完整路径各占一个页签，标题与层级链单独声明
+  {path: '/upgrade/workbench/:id', component: UpgradeWorkbench, tabTitle: '升级工作台', tabCrumbs: ['设备管理', '系统升级管理']},
   // 旧升级方案独立路径兼容入口（菜单不再展示）：跳转到升级中心方案页签
-  {path: '/upgrade/plans', auth: 'upgrade.upgrade.view', component: props => <UpgradeCenterRedirect tab="plans" {...props}/>},
+  {path: '/upgrade/plans', auth: 'upgrade.upgrade.view', component: props => <UpgradeCenterRedirect tab="plans" {...props}/>, hideInTab: true},
   // 公告查询页（用户端，从首页“更多”进入，不在菜单展示）
-  {path: '/announcement', component: AnnouncementList},
+  {path: '/announcement', component: AnnouncementList, tabTitle: '系统公告'},
 ]

@@ -100,3 +100,45 @@ def merge_pdf_bytes(pdf_contents):
     output = io.BytesIO()
     writer.write(output)
     return output.getvalue()
+
+
+# 已知纸张物理尺寸 mm（纵向：宽, 高）；第 1 页尺寸匹配容差
+_PAPER_MM = {
+    'A4': (210, 297), 'A3': (297, 420), 'A5': (148, 210),
+    'B4': (257, 364), 'B5': (176, 250),
+    'letter': (216, 279), 'legal': (216, 356),
+}
+_PAPER_MATCH_TOLERANCE_MM = 2
+
+
+def pdf_page_info(pdf_content):
+    """读取真实生成的 PDF 的页数与第 1 页纸张尺寸（预览反馈用）。
+
+    返回 {'pages': int|None, 'paper': 文本|None}；paper 形如
+    'A4 210x297mm'（label 按第 1 页宽高匹配已知纸张，±2mm，未匹配只给
+    尺寸）。pypdf 缺失或解析失败返回 None 值（预览本身不受影响，反馈
+    缺失优于伪造）。多工作表可能混排页面尺寸，此处以第 1 页为准。
+    """
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(pdf_content))
+        pages = len(reader.pages)
+        box = reader.pages[0].mediabox
+        width_mm = round(float(box.width) * 25.4 / 72)
+        height_mm = round(float(box.height) * 25.4 / 72)
+    except Exception:
+        return {'pages': None, 'paper': None}
+    label = ''
+    for name, (w, h) in _PAPER_MM.items():
+        if (abs(width_mm - w) <= _PAPER_MATCH_TOLERANCE_MM
+                and abs(height_mm - h) <= _PAPER_MATCH_TOLERANCE_MM):
+            label = name
+            break
+        # 横向输出（宽高互换）同样按纸张名匹配
+        if (abs(width_mm - h) <= _PAPER_MATCH_TOLERANCE_MM
+                and abs(height_mm - w) <= _PAPER_MATCH_TOLERANCE_MM):
+            label = name
+            break
+    paper = '%s %dx%dmm' % (label, width_mm, height_mm) if label \
+        else '%dx%dmm' % (width_mm, height_mm)
+    return {'pages': pages, 'paper': paper}

@@ -8,7 +8,9 @@
  *   四类判定汇总（将新建/已存在跳过/缺少可用版本/需人工处理，含原因）；
  *   无可新建条目时确认按钮禁用；确认后按后端实际结果如实展示；
  * - 两个填写列表入口：周月维护与季维护列表各有"生成本期应填台账"按钮，
- *   点击后拉取对应类型的预览（互不串扰）。
+ *   点击后拉取对应类型的预览（互不串扰）；
+ * - 周期视图操作区（2026-10-20 视觉密度整轮）："生成本期应填台账"为唯一
+ *   主按钮，Excel/原生新增与导出明细 CSV 为次级默认按钮且全部在位。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -42,6 +44,7 @@ jest.mock('components', () => {
   const AuthButton = (props) => React.createElement('button', {
     type: 'button',
     'data-testid': props['data-testid'],
+    'data-btn-type': props.type,
     onClick: props.onClick,
     disabled: props.disabled,
   }, props.children);
@@ -342,5 +345,22 @@ describe('两个填写列表的生成入口', () => {
     const buttons = Array.from(container.querySelectorAll('button'))
       .filter(el => el.textContent.includes('生成本期应填台账'));
     expect(buttons.length).toBe(1);
+  });
+
+  test('周期视图操作区：生成为唯一主按钮，新增/原生新增/导出次级入口全部在位', async () => {
+    await renderIndex('week_month');
+    const buttons = Array.from(container.querySelectorAll('button'));
+    // 唯一突出主操作
+    const primary = buttons.filter(el => el.getAttribute('data-btn-type') === 'primary');
+    expect(primary).toHaveLength(1);
+    expect(primary[0].textContent).toContain('生成本期应填台账');
+    // 现有操作不隐藏：手动新增两条路线 + 明细导出均为次级默认按钮
+    const entryOf = text => buttons.find(el => el.textContent.includes(text));
+    expect(entryOf('新增周月维护台账')).toBeTruthy();
+    expect(entryOf('按原生模板新增')).toBeTruthy();
+    expect(entryOf('导出明细 CSV')).toBeTruthy();
+    ['新增周月维护台账', '按原生模板新增', '导出明细 CSV'].forEach(text => {
+      expect(entryOf(text).getAttribute('data-btn-type')).toBeNull();
+    });
   });
 });

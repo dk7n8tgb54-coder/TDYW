@@ -4,7 +4,7 @@
 import React from 'react';
 import { observer } from 'mobx-react';
 import { Input, DatePicker, Button, Select, Tag, Tooltip } from 'antd';
-import { SearchForm, AuthDiv, Breadcrumb } from 'components';
+import {SearchForm, AuthDiv} from 'components';
 import ComTable from './Table';
 import store from './store';
 
@@ -18,11 +18,6 @@ export default observer(function () {
 
   return (
     <AuthDiv auth="system.audit.view">
-      <Breadcrumb>
-        <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>系统管理</Breadcrumb.Item>
-        <Breadcrumb.Item>操作日志</Breadcrumb.Item>
-      </Breadcrumb>
       <SearchForm>
         <SearchForm.Item span={6} title="操作人">
           <Input allowClear value={store.f_username} onChange={e => store.f_username = e.target.value} placeholder="请输入用户名"/>

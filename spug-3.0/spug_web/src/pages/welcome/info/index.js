@@ -5,7 +5,7 @@
  */
 import React, { useState } from 'react';
 import { Menu } from 'antd';
-import { Breadcrumb } from 'components';
+
 import Basic from './Basic';
 import Reset from './Reset';
 import styles from './index.module.css';
@@ -15,10 +15,6 @@ function Index() {
 
   return (
     <div>
-      <Breadcrumb>
-        <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>个人中心</Breadcrumb.Item>
-      </Breadcrumb>
       <div className={styles.container}>
         <div className={styles.left}>
           <Menu

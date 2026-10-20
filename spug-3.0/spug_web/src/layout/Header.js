@@ -4,15 +4,16 @@
  * Released under the AGPL-3.0 License.
  */
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { observer } from 'mobx-react';
-import { Layout, Dropdown, Menu, Avatar, Badge, Popover, List, Tag, Button, Empty, Spin } from 'antd';
+import { Layout, Dropdown, Menu, Avatar, Badge, Popover, List, Tag, Button, Empty, Spin, Breadcrumb } from 'antd';
 import { MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, LogoutOutlined, BellOutlined, TagsOutlined } from '@ant-design/icons';
 import styles from './layout.module.less';
 import http from '../libs/http';
 import history from '../libs/history';
 import avatar from './avatar.png';
 import alertStore from './AlertStore';
+import { crumbsFor } from './routeMeta';
 import releaseNoteStore from '../pages/release/store';
 
 const LEVEL_CONFIG = {
@@ -20,6 +21,21 @@ const LEVEL_CONFIG = {
   warning: { color: 'orange', text: '警告' },
   info: { color: 'blue', text: '提示' },
 };
+
+// 全局路径面包屑（模块级子组件）：标题与层级统一取自 routes.js，
+// 各页面不再重复渲染路径；窄屏时整体省略号收缩
+function HeaderCrumbs() {
+  const location = useLocation();
+  return (
+    <div className={styles.crumbs}>
+      <Breadcrumb>
+        {crumbsFor(location.pathname).map((item, index) => (
+          <Breadcrumb.Item key={index}>{item}</Breadcrumb.Item>
+        ))}
+      </Breadcrumb>
+    </div>
+  );
+}
 
 export default observer(function (props) {
   const [bellOpen, setBellOpen] = useState(false);
@@ -109,6 +125,7 @@ export default observer(function (props) {
       <div className={styles.trigger} onClick={props.toggle}>
         {props.collapsed ? <MenuUnfoldOutlined/> : <MenuFoldOutlined/>}
       </div>
+      <HeaderCrumbs/>
       <div className={styles.right}>
         {isSupper && (
           <Popover

@@ -35,8 +35,47 @@ class DepartmentDutyLogStore {
   @observable f_status = undefined;
   @observable f_keyword = undefined;
 
+  // 关键字/值班人员文本输入草稿（输入中、未执行，2026-10-20 筛选交互统一）：
+  // Input 绑定草稿，查询按钮/回车提交后才转正为 f_*，避免"输入未查询"的
+  // 文本混入下拉/日期触发的即时查询与导出参数
+  @observable input_keyword = '';
+  @observable input_duty_person_name = '';
+
   // 选项
   @observable currentUser = null;
+
+  // 文本草稿输入（关键字/值班人员共用一套草稿→已执行口径）
+  @action.bound
+  setKeywordInput(value) {
+    this.input_keyword = value;
+  }
+
+  @action.bound
+  setDutyPersonNameInput(value) {
+    this.input_duty_person_name = value;
+  }
+
+  // 查询按钮/文本框回车共用：提交全部文本草稿为已执行条件，回到第 1 页刷新
+  @action.bound
+  commitFilters() {
+    this.f_keyword = this.input_keyword || undefined;
+    this.f_duty_person_name = this.input_duty_person_name || undefined;
+    this.pageNum = 1;
+    return this.fetchRecords();
+  }
+
+  // 重置：清空常驻与折叠区全部条件及文本草稿，回到第 1 页（刷新由调用方执行）
+  @action.bound
+  resetFilter() {
+    this.input_keyword = '';
+    this.input_duty_person_name = '';
+    this.f_start_date = undefined;
+    this.f_end_date = undefined;
+    this.f_duty_person_name = undefined;
+    this.f_status = undefined;
+    this.f_keyword = undefined;
+    this.pageNum = 1;
+  }
 
   // 日期选择器面板上"已有已签署值班日志"的日期集合，按 "YYYY-MM" 缓存
   // 结构：{ 'YYYY-MM': Set(['YYYY-MM-DD', ...]) }

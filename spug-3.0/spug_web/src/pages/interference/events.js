@@ -3,7 +3,7 @@ import {Button, DatePicker, Input, Modal, Radio, Select, message} from 'antd';
 import {DeleteOutlined, EditOutlined, PlusOutlined, SearchOutlined} from '@ant-design/icons';
 import {observer} from 'mobx-react';
 import {http} from 'libs';
-import {Action, AuthButton, AuthDiv, Breadcrumb, SearchForm, TableCard} from 'components';
+import {Action, AuthButton, AuthDiv, SearchForm, TableCard} from 'components';
 import store from './store';
 import EventForm from './EventForm';
 
@@ -97,7 +97,6 @@ function EventsPage() {
   }
 
   return <AuthDiv auth="interference.interference.view">
-    <Breadcrumb><Breadcrumb.Item>首页</Breadcrumb.Item><Breadcrumb.Item>干扰管理</Breadcrumb.Item><Breadcrumb.Item>干扰记录</Breadcrumb.Item></Breadcrumb>
     <SearchForm>
       <SearchForm.Item span={5} title="场景"><Radio.Group value={store.eventFilters.scene_code || ''} onChange={event => updateFilter('scene_code', event.target.value || undefined)} optionType="button" buttonStyle="solid"><Radio.Button value="">全部</Radio.Button><Radio.Button value="ground">地面</Radio.Button><Radio.Button value="air">空中</Radio.Button><Radio.Button value="cross">地面+空中</Radio.Button><Radio.Button value="unknown">未知</Radio.Button></Radio.Group></SearchForm.Item>
       <SearchForm.Item span={4} title="分类"><Select allowClear value={store.eventFilters.classification_status} onChange={value => updateFilter('classification_status', value)} options={[{value: 'pending', label: '待分类'}, {value: 'confirmed', label: '已确认'}]} style={{width: '100%'}}/></SearchForm.Item>

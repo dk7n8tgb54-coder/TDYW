@@ -215,7 +215,8 @@ test('PdfParamsForm original 模式：提示并禁用详细字段', async () => 
   await act(async () => {
     ReactDOM.render(<PdfParamsForm value={value} onChange={onChange}/>, container);
   });
-  expect(container.textContent).toContain('使用上传文件已有的页面设置');
+  expect(container.textContent).toContain('沿用上传文件在 Excel/WPS 中的打印设置');
+  expect(container.textContent).toContain('平台 PDF 引擎排版');
   const areaInput = container.querySelector('input[placeholder="如 A1:E25"]');
   expect(areaInput).toBeTruthy();
   expect(areaInput.disabled).toBe(true);

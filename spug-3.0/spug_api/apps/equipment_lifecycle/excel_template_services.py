@@ -14,6 +14,9 @@
   整份空白），导出 Excel 与源文件不做任何改写；
 - preview_blank_pdf：模板草稿空白预览 PDF（不写入填写值，未绑定字段
   保持空白），同样经布局校验与打印区域净化后转换，只读源文件；
+- preview_pdf：预览通用入口，可携带临时样例值（validate_values 校验，
+  只写预览副本）与未保存打印参数（显式校验后仅本次生效），供打印
+  设置"应用当前设置并预览"使用，不写库、不改草稿与版本；
 - assess_compatibility：对草稿源文件做单次解析的兼容性评估（不支持
   特性 / 打印区域覆盖），供模板详情返回 status/warnings/unsupported；
 - collect_unsupported_features：上传前显式检测平台不支持的文件特性
@@ -676,20 +679,66 @@ def preview_blank_pdf(meta, source_file_path, converter=None):
     转换；预览即发布后台账未填写时的最终版式基准。只读源文件，
     不改草稿、不创建版本、不产生任何写库副作用。
     """
+    return preview_pdf(meta, source_file_path, converter=converter)
+
+
+def main_sheet_size(meta):
+    """主工作表 (行数, 列数)（打印区域/分页参数越界校验；缺失返回 None）。"""
+    for sheet_meta in (meta.get('layout') or {}).get('sheets') or []:
+        if sheet_meta.get('name') == meta.get('sheet_name'):
+            return sheet_meta.get('max_row'), sheet_meta.get('max_column')
+    return None, None
+
+
+def preview_pdf(meta, source_file_path, values=None, pdf_params=None,
+                converter=None):
+    """模板草稿预览 PDF（可携带临时样例值与未保存参数，均只作用于本次）。
+
+    - values（键为 field_id）经 validate_values 校验（未知 field_id 拒绝、
+      按字段类型归一化）后写入预览副本；必填不做检查（预览允许留空），
+      空值/无样例时生成空白版式；
+    - pdf_params 显式传入时按主工作表尺寸整体校验后优先生效（未保存参数
+      预览），缺省使用 meta 携带的模板级参数（发布快照同源）；两者都只
+      作用于临时副本：不改草稿源文件、不写库、不创建版本；
+    - 与台账导出同一 prepare 路径：布局校验（合并关系一致）+ 打印区域
+      净化后 LibreOffice 转换，绝不返回伪造 PDF。
+    """
     if converter is None:
         converter = excel_pdf_service
-    from apps.equipment_lifecycle.excel_pdf_params import apply_pdf_params
+    from apps.equipment_lifecycle.excel_pdf_params import (
+        apply_pdf_params,
+        validate_pdf_params,
+    )
     data = _read_source(source_file_path)
     try:
         workbook = load_workbook(io.BytesIO(data))
     except Exception:
         raise ExcelLayoutError('源模板文件读取失败')
     _verify_layout_matches(workbook, meta)
+    _apply_preview_values(workbook, meta, values)
     _sanitize_print_areas(workbook)
-    apply_pdf_params(workbook, meta.get('pdf_params'), meta.get('sheet_name'))
+    if pdf_params is not None:
+        max_row, max_column = main_sheet_size(meta)
+        pdf_params = validate_pdf_params(pdf_params, max_row=max_row,
+                                         max_column=max_column)
+    else:
+        pdf_params = meta.get('pdf_params')
+    apply_pdf_params(workbook, pdf_params, meta.get('sheet_name'))
     output = io.BytesIO()
     workbook.save(output)
     return _xlsx_bytes_to_pdf(output.getvalue(), converter)
+
+
+def _apply_preview_values(workbook, meta, values):
+    """把临时样例值写入预览副本（validate_values 校验；空值不写入）。"""
+    if not values:
+        return
+    normalized = validate_values(meta.get('field_bindings') or [], values)
+    for binding in meta.get('field_bindings') or []:
+        value = normalized.get(binding['field_id'])
+        if value is None or value == '':
+            continue
+        workbook[binding['sheet_name']][binding['cell_coordinate']] = value
 
 
 def _xlsx_bytes_to_pdf(data, converter):

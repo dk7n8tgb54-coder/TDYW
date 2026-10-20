@@ -292,11 +292,20 @@ class ExcelTemplatePublishView(View):
 
 
 class ExcelTemplatePdfPreviewView(View):
-    """模板草稿 PDF 预览（发布前真实打印效果；未填写字段保持空白）。
+    """模板草稿 PDF 预览（发布前真实打印效果；幂等只读，可重复调用）。
 
-    URL：POST /excel-templates/<pk>/preview/pdf/（POST 语义：触发生成，
-    幂等只读，可重复调用）。只读草稿源文件与当前绑定，不改草稿文件、
-    不创建版本、不改变绑定；文件副作用仅限临时目录（自动清理）。
+    URL：POST /excel-templates/<pk>/preview/pdf/（POST 语义：触发生成）。
+    body 可选（JSON，缺省/无法解析时按未携带处理）：
+    - {"pdf_params": {...}}：打印设置表单当前值（可含未保存修改），
+      校验后仅本次预览生效，不写草稿；缺省使用草稿已保存参数；
+    - {"sample_values": {field_id: 值}}：临时样例内容（如长文本维护
+      记录），经字段绑定与类型校验后只写入预览副本，不落库；留空/
+      缺省为空白打印稿。
+    响应为二进制 PDF，并携带真实反馈响应头（由生成的 PDF 读取）：
+    X-El-Pdf-Pages（页数）、X-El-Pdf-Paper（如 "A4 210x297mm"）、
+    X-El-Pdf-Warnings（版式预检提示，percent 编码 JSON 数组）。
+    不改草稿文件、不创建版本、不写任何业务数据；文件副作用仅限
+    临时目录（自动清理）。
     """
 
     @_na
@@ -305,12 +314,26 @@ class ExcelTemplatePdfPreviewView(View):
         template = _get_template_or_none(pk, request.user)
         if not template:
             return json_response(error='Excel台账模板不存在')
+        # body 整体可选：缺省/无法解析时按未携带处理（与导出预检端点
+        # 同一约定），空白预览不携带任何 JSON
+        body = _read_json_body(request) or {}
+        raw_params = body.get('pdf_params')
+        raw_values = body.get('sample_values')
         try:
-            content = excel_template_manage.preview_draft_pdf(template)
+            result = excel_template_manage.preview_template_pdf(
+                template, raw_params=raw_params, raw_values=raw_values)
         except ExcelTemplateError as e:
             return json_response(error=str(e))
         base_name = (template.draft_source_filename or '模板').rsplit('.', 1)[0]
-        return file_response('%s-模板预览.pdf' % base_name, content, PDF_CONTENT_TYPE)
+        response = file_response(
+            '%s-模板预览.pdf' % base_name, result['content'], PDF_CONTENT_TYPE)
+        if result['pages'] is not None:
+            response['X-El-Pdf-Pages'] = str(result['pages'])
+        if result['paper']:
+            response['X-El-Pdf-Paper'] = result['paper']
+        response['X-El-Pdf-Warnings'] = quote(
+            json.dumps(result['warnings'], ensure_ascii=False))
+        return response
 
 
 class ExcelTemplatePdfParamsView(View):

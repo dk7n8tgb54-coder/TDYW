@@ -21,6 +21,10 @@
  * - 保存成功后重新拉取详情，以服务端数据为最终状态；
  * - 草稿 PDF 预览：POST preview/pdf/ 取二进制后新窗口打开（弹窗被拦截
  *   时回退下载），错误由公共拦截器统一提示（不重复弹错、不乐观成功）；
+ * - 预览反馈（2026-10-19）：响应头携带真实页数/纸张尺寸/版式预检提示
+ *   （parsePdfMetaHeaders 解析），previewInfo 标注参数来源（已保存参数/
+ *   当前未保存参数）；previewWithFormParams 以表单当前值（含未保存
+ *   修改）+ 临时样例数据预览，全部只作用于本次预览副本，不写草稿；
  * - 兼容性检查：详情接口返回的草稿/环境检查结果原样透传给页面展示；
  * - PDF 参数（2026-09-30）：模板级参数抽屉配置（草稿布局 JSON 内），
  *   PUT pdf-params/ 整体校验保存，发布随版本快照固定；
@@ -63,6 +67,38 @@ export function sortCoords(coordinates) {
     const right = parseCoord(b);
     return left.row - right.row || left.col - right.col;
   });
+}
+
+/**
+ * 预览反馈响应头解析（后端由真实生成的 PDF 读取，解析失败不阻断）：
+ * X-El-Pdf-Pages（页数）/X-El-Pdf-Paper（如 "A4 210x297mm"）/
+ * X-El-Pdf-Warnings（percent 编码 JSON 数组，版式预检提示）。
+ */
+export function parsePdfMetaHeaders(response) {
+  const headers = (response && response.headers) || {};
+  const pagesRaw = headers['x-el-pdf-pages'];
+  const pages = pagesRaw ? parseInt(pagesRaw, 10) : null;
+  let warnings = [];
+  try {
+    const raw = headers['x-el-pdf-warnings'];
+    if (raw) warnings = JSON.parse(decodeURIComponent(raw));
+  } catch (e) {
+    warnings = [];
+  }
+  if (!Array.isArray(warnings)) warnings = [];
+  return {
+    pages: Number.isInteger(pages) && pages > 0 ? pages : null,
+    paper: headers['x-el-pdf-paper'] || '',
+    warnings,
+  };
+}
+
+/** 纸张反馈文本格式化："A4 210x297mm" → "A4（210×297 mm）"，原样兜底。 */
+export function formatPaperText(paper) {
+  const match = /^(?:([A-Za-z0-9]+) )?(\d+)x(\d+)mm$/.exec(paper || '');
+  if (!match) return paper || '';
+  const [, label, width, height] = match;
+  return label ? `${label}（${width}×${height} mm）` : `${width}×${height} mm`;
 }
 
 /**
@@ -112,6 +148,8 @@ export class ExcelTemplateStore {
   @observable pdfDrawerVisible = false;  // PDF 参数抽屉
   @observable pdfForm = null;            // PDF 参数表单态（null=抽屉未打开）
   @observable savingPdfParams = false;   // PDF 参数保存进行中
+  @observable sampleForm = {};           // 临时预览数据（field_id → 值，仅本次预览）
+  @observable previewInfo = null;        // 最近一次预览反馈（页数/纸张/提示/参数来源）
   @observable uploadName = '';      // 上传面板：模板名称
   @observable uploadType = undefined; // 上传面板：维护类型
   // 生成配置弹窗（适用系统 + 生成周期，2026-10-14 本期应填台账生成）
@@ -140,6 +178,19 @@ export class ExcelTemplateStore {
   /** 模板级 PDF 参数（草稿携带；旧草稿无此键时为空对象）。 */
   @computed get pdfParams() {
     return this.draft ? (this.draft.pdf_params || {}) : {};
+  }
+
+  /**
+   * 打印设置表单是否有未保存修改（与草稿已保存参数序列化对比）：
+   * 用于区分「预览空白打印稿」（已保存参数）与「应用当前设置并预览」
+   * （表单当前值）两个入口的参数来源。
+   */
+  @computed get pdfFormDirty() {
+    if (!this.pdfForm) return false;
+    const current = serializePdfParams(this.pdfForm);
+    if (current.error) return true;
+    const saved = serializePdfParams(normalizePdfParams(toJS(this.pdfParams)));
+    return JSON.stringify(current.payload) !== JSON.stringify(saved.payload);
   }
 
   @computed get layout() {
@@ -644,19 +695,25 @@ export class ExcelTemplateStore {
 
   // ==================== PDF 打印参数（模板级，随版本快照） ====================
 
-  /** 打开参数抽屉：以当前草稿参数预填表单（缺省项补全）。 */
+  /** 打开参数抽屉：以当前草稿参数预填表单（缺省项补全），样例数据清空。 */
   @action openPdfDrawer() {
     this.pdfForm = normalizePdfParams(toJS(this.pdfParams));
+    this.sampleForm = {};
     this.pdfDrawerVisible = true;
   }
 
   @action closePdfDrawer() {
     this.pdfDrawerVisible = false;
     this.pdfForm = null;
+    this.sampleForm = null;
   }
 
   @action setPdfForm(form) {
     this.pdfForm = form;
+  }
+
+  @action setSampleValue(fieldId, value) {
+    this.sampleForm = {...this.sampleForm, [fieldId]: value};
   }
 
   /**
@@ -733,9 +790,10 @@ export class ExcelTemplateStore {
   }
 
   /**
-   * 草稿 PDF 预览：请求二进制后新窗口打开（弹窗被拦截时回退下载）。
-   * 失败由公共拦截器统一提示业务错误（如 LibreOffice 不可用），
+   * 草稿 PDF 预览（已保存参数）：请求二进制后新窗口打开（弹窗被拦截时
+   * 回退下载）。失败由公共拦截器统一提示业务错误（如 LibreOffice 不可用），
    * 这里不重复弹错、不做乐观成功提示；只读接口可重复调用。
+   * 反馈（页数/纸张/提示）记入 previewInfo，参数来源标注"已保存参数"。
    */
   async previewPdf() {
     if (!this.current || !this.draft) return;
@@ -745,6 +803,34 @@ export class ExcelTemplateStore {
         `${API}/${this.current.id}/preview/pdf/`, null,
         {responseType: 'arraybuffer', timeout: 180000});
       this.openPdfResponse(response);
+      this.previewInfo = {source: 'saved', ...parsePdfMetaHeaders(response)};
+    } finally {
+      this.previewing = false;
+    }
+  }
+
+  /**
+   * 应用当前设置并预览（2026-10-19）：以打印设置表单当前值（可含未保存
+   * 修改）+ 临时样例数据请求预览，后端只作用于本次预览副本，不写草稿。
+   * 序列化失败 warning 提示并返回 false（不发请求）；成功后反馈记入
+   * previewInfo，参数来源标注"当前未保存参数"。
+   */
+  @action async previewWithFormParams() {
+    if (!this.current || !this.pdfForm) return false;
+    const {payload, error} = serializePdfParams(this.pdfForm);
+    if (error) {
+      message.warning(error);
+      return false;
+    }
+    this.previewing = true;
+    try {
+      const response = await http.post(
+        `${API}/${this.current.id}/preview/pdf/`,
+        {pdf_params: payload, sample_values: toJS(this.sampleForm || {})},
+        {responseType: 'arraybuffer', timeout: 180000});
+      this.openPdfResponse(response);
+      this.previewInfo = {source: 'form', ...parsePdfMetaHeaders(response)};
+      return true;
     } finally {
       this.previewing = false;
     }

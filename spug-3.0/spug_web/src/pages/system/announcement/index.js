@@ -4,7 +4,7 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { observer } from 'mobx-react';
-import { Breadcrumb, SearchForm, AuthDiv } from 'components';
+import {SearchForm, AuthDiv} from 'components';
 import { Table, Button, Tag, Space, Select, Input, Radio, Popconfirm, notification } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { http, hasPermission } from 'libs';
@@ -128,11 +128,6 @@ function AnnouncementAdmin() {
 
   return (
     <AuthDiv auth="home.announcement.view">
-      <Breadcrumb>
-        <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>系统管理</Breadcrumb.Item>
-        <Breadcrumb.Item>发布公告</Breadcrumb.Item>
-      </Breadcrumb>
       <div style={{ marginBottom: 12 }}>
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建公告</Button>
       </div>

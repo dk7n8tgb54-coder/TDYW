@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { Row, Col } from 'antd';
-import { Breadcrumb } from 'components';
+
 import CoopTaskOverview from './CoopTaskOverview';
 import ExpiryOverview from './ExpiryOverview';
 import UpgradeOverview from './UpgradeOverview';
@@ -16,11 +16,6 @@ import ReminderPanel from './ReminderPanel';
 function HomeIndex() {
   return (
     <div>
-      <Breadcrumb>
-        <Breadcrumb.Item>首页</Breadcrumb.Item>
-        <Breadcrumb.Item>工作台</Breadcrumb.Item>
-      </Breadcrumb>
-
       {/* 第1行：公告 + 提醒事项 */}
       <Row gutter={12} style={{ marginBottom: 12 }}>
         <Col span={16}>

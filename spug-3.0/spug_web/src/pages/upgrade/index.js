@@ -17,7 +17,24 @@ import moment from 'moment';
 
 const { Option } = Select;
 
+/**
+ * 升级表单页（升级中心"升级表单"页签）。
+ *
+ * 筛选区（2026-10-20 统一交互，参照运行处置记录 RecordFilters）：
+ * 常驻 系统/状态/升级类型（下拉变更即查询），计划升级时间收入"更多筛选"；
+ * 重置清空全部条件并回到第 1 页；展开收起本身不触发请求，收起时显示折叠区
+ * 已启用条件数量（日期范围按一个条件计数）。
+ *
+ * 视图链路（2026-10-20 核查）：
+ * - 列表视图：查询/重置经 commitFilters/resetFilter 回到第 1 页并重取列表；
+ * - 日历视图：日期窗口由当前浏览月份决定（翻月即切换窗口），顶部"计划升级
+ *   时间"仅作用于列表筛选、不参与日历取数（业务语义见 CalendarView）；
+ *   系统/状态/升级类型变更或查询/重置提交（filterCommitSeq）均会重取日历。
+ */
 export default observer(function ({ embedded }) {
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const advancedCount = [store.f_start_date && store.f_end_date].filter(Boolean).length;
+
   useEffect(() => {
     store.fetchFilterOptions();
 
@@ -35,7 +52,8 @@ export default observer(function ({ embedded }) {
 
   return (
     <AuthDiv auth="upgrade.upgrade.view">
-      {/* embedded：被升级中心页签嵌入时隐藏本页完整面包屑（由外壳统一显示） */}
+      {/* embedded：被升级中心页签嵌入时隐藏本页完整面包屑；
+          独立访问时页面路径也由全局 Header 面包屑统一显示 */}
       {!embedded && (
         <Breadcrumb>
           <Breadcrumb.Item>首页</Breadcrumb.Item>
@@ -45,37 +63,49 @@ export default observer(function ({ embedded }) {
       )}
       <SearchForm>
         <SearchForm.Item span={6} title="系统">
-          <Select allowClear showSearch optionFilterProp="children" value={store.f_system} onChange={v => { store.f_system = v; store.page = 1; store.fetchRecords(); }} placeholder="请选择系统">
+          <Select allowClear showSearch optionFilterProp="children" style={{width: '100%'}} value={store.f_system} onChange={v => { store.f_system = v; store.page = 1; store.fetchRecords(); }} placeholder="请选择系统">
             {store.filterOptions.systems.map(item => (
               <Option value={item.id} key={item.id}>{item.name}</Option>
             ))}
           </Select>
         </SearchForm.Item>
         <SearchForm.Item span={6} title="状态">
-          <Select allowClear value={store.f_status} onChange={v => { store.f_status = v; store.page = 1; store.fetchRecords(); }} placeholder="请选择状态">
+          <Select allowClear style={{width: '100%'}} value={store.f_status} onChange={v => { store.f_status = v; store.page = 1; store.fetchRecords(); }} placeholder="请选择状态">
             {store.filterOptions.statuses.map(item => (
               <Option value={item} key={item}>{item}</Option>
             ))}
           </Select>
         </SearchForm.Item>
         <SearchForm.Item span={6} title="升级类型">
-          <Select allowClear value={store.f_upgrade_type} onChange={v => { store.f_upgrade_type = v; store.page = 1; store.fetchRecords(); }} placeholder="请选择升级类型">
+          <Select allowClear style={{width: '100%'}} value={store.f_upgrade_type} onChange={v => { store.f_upgrade_type = v; store.page = 1; store.fetchRecords(); }} placeholder="请选择升级类型">
             {store.filterOptions.upgradeTypes.map(item => (
               <Option value={item} key={item}>{item}</Option>
             ))}
           </Select>
         </SearchForm.Item>
-        <SearchForm.Item span={6} title="计划升级时间">
-          <DatePicker.RangePicker
-            value={store.f_start_date && store.f_end_date ? [moment(store.f_start_date), moment(store.f_end_date)] : null}
-            onChange={(dates) => {
-              store.f_start_date = dates ? dates[0].format('YYYY-MM-DD') : null;
-              store.f_end_date = dates ? dates[1].format('YYYY-MM-DD') : null;
-              store.page = 1;
-              store.fetchRecords();
-            }}
-          />
-        </SearchForm.Item>
+        <SearchForm.Actions
+          onSearch={() => store.commitFilters()}
+          onReset={() => {store.resetFilter(); store.fetchRecords();}}
+          advancedOpen={advancedOpen}
+          advancedCount={advancedCount}
+          onToggleAdvanced={() => setAdvancedOpen(!advancedOpen)}
+        />
+        {advancedOpen && (
+          <SearchForm.Item span={8} title="计划升级时间">
+            <DatePicker.RangePicker
+              allowClear
+              style={{width: '100%'}}
+              value={store.f_start_date && store.f_end_date ? [moment(store.f_start_date), moment(store.f_end_date)] : null}
+              onChange={(dates) => {
+                store.f_start_date = dates ? dates[0].format('YYYY-MM-DD') : null;
+                store.f_end_date = dates ? dates[1].format('YYYY-MM-DD') : null;
+                store.page = 1;
+                store.fetchRecords();
+              }}
+              placeholder={['开始日期', '结束日期']}
+            />
+          </SearchForm.Item>
+        )}
       </SearchForm>
       {/* 视图切换 */}
       <div style={{ marginBottom: 12, textAlign: 'right' }}>

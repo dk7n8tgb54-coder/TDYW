@@ -21,7 +21,7 @@
 import React, {useEffect, useState} from 'react';
 import {Tabs} from 'antd';
 import {useLocation} from 'react-router-dom';
-import {Breadcrumb, AuthDiv} from 'components';
+import {AuthDiv} from 'components';
 import {history} from 'libs';
 import UpgradeRecordIndex from './index';
 import PlanManager from './plan/PlanManager';
@@ -61,16 +61,13 @@ function UpgradeCenter() {
 
   return (
     <AuthDiv auth="upgrade.upgrade.view">
-      <Breadcrumb>
-        <Breadcrumb.Item>设备管理</Breadcrumb.Item>
-        <Breadcrumb.Item>系统升级管理</Breadcrumb.Item>
-      </Breadcrumb>
       <div>
         <Tabs activeKey={activeTab} onChange={handleTabChange}>
           {TABS.map(t => <Tabs.TabPane key={t.key} tab={t.label}/>)}
         </Tabs>
         {/* 只挂载当前页签的页面组件（原页面自带数据加载与权限控制，
-            embedded 仅用于隐藏升级表单页自身的完整面包屑） */}
+            embedded 仅用于隐藏升级表单页自身的完整面包屑，页面路径
+            由全局 Header 面包屑统一显示） */}
         {activeTab === 'records' && <UpgradeRecordIndex embedded/>}
         {activeTab === 'plans' && <PlanManager/>}
       </div>

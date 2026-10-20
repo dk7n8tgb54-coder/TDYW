@@ -157,6 +157,9 @@ function ScaleAndPaginationFields({value, disabled, set}) {
           </Checkbox>
         </span>
       </Field>
+      <div style={{color: '#999', fontSize: 12, marginTop: -6, marginBottom: 10}}>
+        居中只调整内容在页面中的位置，不会放大表格或增加行高。
+      </div>
     </div>
   );
 }
@@ -182,8 +185,10 @@ export default function PdfParamsForm({value, onChange, disabled}) {
       </Field>
       {original && (
         <div style={{color: '#999', marginBottom: 10}}>
-          使用上传文件已有的页面设置（纸张/方向/边距/缩放以 Excel/WPS 中
-          的打印设置为准），以下详细字段不生效。
+          沿用上传文件在 Excel/WPS 中的打印设置：纸张、方向、页边距、缩放、
+          居中、重复表头、手动分页与打印区域均以源文件为准，上方详细字段
+          全部忽略（已禁用）。结果由平台 PDF 引擎排版，不能保证与
+          Excel/WPS 打印预览完全一致，请以平台预览为准。
         </div>
       )}
       <PageSetupFields value={value} disabled={disabled || original}

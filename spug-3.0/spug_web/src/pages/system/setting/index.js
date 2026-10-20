@@ -7,7 +7,7 @@ import React from 'react';
 import { Menu } from 'antd';
 import { observer } from 'mobx-react';
 import { autorun } from 'mobx';
-import { AuthDiv, Breadcrumb } from 'components';
+import {AuthDiv} from 'components';
 
 import OpenService from './OpenService';
 import SecuritySetting from './SecuritySetting';
@@ -45,11 +45,6 @@ class Index extends React.Component {
     void store.settings;
     return (
       <AuthDiv auth="system.setting.view">
-        <Breadcrumb>
-          <Breadcrumb.Item>首页</Breadcrumb.Item>
-          <Breadcrumb.Item>系统管理</Breadcrumb.Item>
-          <Breadcrumb.Item>系统设置</Breadcrumb.Item>
-        </Breadcrumb>
         <div className={styles.container}>
           <div className={styles.left}>
             <Menu

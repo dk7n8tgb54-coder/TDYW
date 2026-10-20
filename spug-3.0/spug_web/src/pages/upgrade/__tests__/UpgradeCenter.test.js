@@ -150,7 +150,7 @@ describe('升级中心页签外壳', () => {
     mockListResponses();
   });
 
-  it('显示两个页签，默认打开升级表单；外壳面包屑唯一（表单页 embedded 隐藏自身面包屑）', async () => {
+  it('显示两个页签，默认打开升级表单；外壳不渲染面包屑（页面路径由全局 Header 承担）', async () => {
     await act(async () => {
       renderCenter('');
       await flush();
@@ -163,8 +163,8 @@ describe('升级中心页签外壳', () => {
     const called = mockHttpGet.mock.calls.map(c => c[0]);
     expect(called.some(u => u.includes('/api/upgrade/filter-options/'))).toBe(true);
     expect(called.some(u => u.includes('/api/upgrade/records/'))).toBe(true);
-    // 仅外壳渲染一份面包屑
-    expect(container.querySelectorAll('.ant-breadcrumb').length).toBe(1);
+    // 2026-10-19 导航改造：外壳不再渲染面包屑，表单页 embedded 亦不渲染
+    expect(container.querySelectorAll('.ant-breadcrumb').length).toBe(0);
   });
 
   it('URL ?tab=plans 打开升级方案页签并真实挂载方案列表', async () => {
@@ -201,6 +201,13 @@ describe('升级中心页签外壳', () => {
       await flush();
     });
     expect(activeTabLabel()).toBe('升级表单');
+    // 2026-10-20 筛选统一：计划升级时间收入"更多筛选"折叠区，展开后可见
+    const moreLink = Array.from(container.querySelectorAll('a'))
+      .find(a => (a.textContent || '').includes('更多筛选'));
+    await act(async () => {
+      moreLink.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+      await flush();
+    });
     expect(container.textContent).toContain('计划升级时间');
     expect(mockHistoryReplace).toHaveBeenCalledWith('/upgrade?tab=records');
     // 切回后升级表单页重新挂载并请求列表

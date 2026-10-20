@@ -5,7 +5,7 @@ import React from 'react';
 import { observer } from 'mobx-react';
 import { Button, Card, Table, Tag, Typography, Space, Spin, Alert, Empty } from 'antd';
 import { PlayCircleOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
-import { AuthDiv, Breadcrumb } from 'components';
+import {AuthDiv} from 'components';
 import store from './store';
 
 const { Title, Text } = Typography;
@@ -112,14 +112,9 @@ class DataQualityIndex extends React.Component {
   };
 
   render() {
-    const embedded = this.props.embedded;
     const { loading, results } = store;
     return (
       <AuthDiv auth="system.alert.view">
-        {!embedded && <Breadcrumb>
-          <Breadcrumb.Item>运维管理</Breadcrumb.Item>
-          <Breadcrumb.Item>数据质量巡检</Breadcrumb.Item>
-        </Breadcrumb>}
         <div style={{ marginBottom: 16 }}>
           <Space>
             <Button

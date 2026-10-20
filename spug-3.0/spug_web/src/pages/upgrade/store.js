@@ -25,6 +25,32 @@ class Store {
   @observable f_upgrade_type;
   @observable f_export_date_range;
 
+  // === 查询/重置提交序号（2026-10-20 筛选交互统一）===
+  // 查询/重置按钮每次提交自增。列表取数由 fetchRecords 直接承担；日历
+  // 视图按月取数且依赖 f_system/f_status/f_upgrade_type 变化重取，但当
+  // 条件值未变化（或仅重置为空）时依赖不变，须靠此序号保证按钮提交对
+  // 当前日历视图真实生效（重新取数）。
+  @observable filterCommitSeq = 0;
+
+  // 查询按钮：回到第 1 页重取列表，并递增提交序号驱动日历视图重取
+  commitFilters = () => {
+    this.page = 1;
+    this.filterCommitSeq += 1;
+    this.fetchRecords();
+  };
+
+  // 重置：清空常驻与折叠区全部条件，回到第 1 页并递增提交序号；
+  // 列表刷新由调用方执行（日历由序号驱动）
+  resetFilter = () => {
+    this.f_system = undefined;
+    this.f_status = undefined;
+    this.f_upgrade_type = undefined;
+    this.f_start_date = undefined;
+    this.f_end_date = undefined;
+    this.page = 1;
+    this.filterCommitSeq += 1;
+  };
+
   // === 表单 ===
   @observable record = {};
   @observable formVisible = false;

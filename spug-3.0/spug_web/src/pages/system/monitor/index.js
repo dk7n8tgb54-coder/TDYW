@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { observer } from 'mobx-react';
 import { Tabs } from 'antd';
 import { useLocation } from 'react-router-dom';
-import { AuthDiv, Breadcrumb } from 'components';
+import {AuthDiv} from 'components';
 import AlertIndex from '../alert';
 import DataQualityIndex from '../dataQuality';
 import PlatformHealth from '../alert/PlatformHealth';
@@ -21,7 +21,6 @@ export default observer(function SystemMonitor() {
   }, [requestedKey]);
 
   return <AuthDiv auth="system.alert.view">
-    <Breadcrumb><Breadcrumb.Item>运维管理</Breadcrumb.Item><Breadcrumb.Item>系统监控</Breadcrumb.Item></Breadcrumb>
     <Tabs activeKey={activeKey} onChange={setActiveKey} destroyInactiveTabPane>
       <TabPane tab="平台健康" key="health"><PlatformHealth /></TabPane>
       <TabPane tab="系统告警" key="alerts"><AlertIndex embedded /></TabPane>

@@ -353,13 +353,7 @@ const DocumentIndex = observer(function ({ mode = 'normal', systemFolderCode = n
     <div className={styles.pageWrapper}>
       {/* 【2026-07-17 布局优化】紧凑顶部信息栏：站点面包屑 + 磁盘状态 + 搜索框 */}
       <div className={styles.topBar}>
-        <div className={styles.topBarLeft}>
-          <AntdBreadcrumb className={styles.siteBreadcrumb}>
-            <AntdBreadcrumb.Item>首页</AntdBreadcrumb.Item>
-            <AntdBreadcrumb.Item>资料库</AntdBreadcrumb.Item>
-            <AntdBreadcrumb.Item>{isPartyBuildingDocuments ? title : '公共文档'}</AntdBreadcrumb.Item>
-          </AntdBreadcrumb>
-        </div>
+        <div className={styles.topBarLeft}/>
         <div className={styles.topBarRight}>
           <DiskStatus isPublic={navigationStore.isPublic} />
           <SearchBox

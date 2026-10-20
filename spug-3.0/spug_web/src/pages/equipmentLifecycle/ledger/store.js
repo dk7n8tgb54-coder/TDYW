@@ -10,7 +10,8 @@
  *   ExcelLedgerStore（excel/excelLedgerStore.js）独立承载；
  * - 周期分组（2026-10-11，2026-10-14 增强）：fetchGroups 按 维护类型+周期
  *   拉取分页分组列表（后端切片），组内五状态统计；展开状态受控持久化
- *   （默认只展开本期，历史期次折叠，刷新后保留）；本期工作概览
+ *   （默认只展开本期，历史期次折叠，刷新后保留；2026-10-20 起带本期快照，
+ *   滚出本期的自动展开键跨周不再恢复）；本期工作概览
  *   fetchOverview 提供本周/本月或本航季应填情况真实统计；两个视图的筛选
  *   字段各自独立（周期 f_* / 模板 t_*），互不混淆；
  * - 本期应填台账生成（2026-10-14 重构原一键新增）：fetchGeneratePreview
@@ -30,23 +31,32 @@ import {observable, action} from 'mobx';
 import {http, exportFile} from 'libs';
 import {API_PREFIX_L} from './constants';
 
-// 周期视图展开状态持久化（按台账类型隔离，刷新/重进页面后保留合理展开状态）
+// 周期视图展开状态持久化（按台账类型隔离，刷新/重进页面后保留合理展开状态）。
+// v2 形态 {keys, current}：current 是保存时的本期键快照——恢复时丢弃
+// "当时本期、现已滚出本期"的自动展开键（否则上周的本期展开会泄漏到本周，
+// 2026-10-20 用户实测发现），本期以当下为准；手动展开的历史期次保留。
+// v1（裸数组）无法区分自动与手动，读取时弃用重建（重新按本期默认展开）。
 const EXPANDED_STORAGE_KEY = 'el_ledger_expanded_periods_';
 
 function loadExpandedPeriods(ledgerType) {
   try {
     const raw = window.localStorage.getItem(EXPANDED_STORAGE_KEY + ledgerType);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return Array.isArray(parsed) ? parsed : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.keys) && Array.isArray(parsed.current)) {
+      return parsed;
+    }
+    return null; // 旧版裸数组含自动展开污染，弃用
   } catch (e) {
     return null;
   }
 }
 
-function saveExpandedPeriods(ledgerType, keys) {
+function saveExpandedPeriods(ledgerType, keys, currentKeys) {
   try {
     window.localStorage.setItem(
-      EXPANDED_STORAGE_KEY + ledgerType, JSON.stringify(keys || []));
+      EXPANDED_STORAGE_KEY + ledgerType,
+      JSON.stringify({keys: keys || [], current: currentKeys || []}));
   } catch (e) {
     // 存储不可用（隐私模式等）时静默降级：仅本次会话内保留
   }
@@ -117,18 +127,15 @@ export class LedgerStore {
   @observable isDeleting = false; // 台账物理删除请求进行中（删除确认按钮 loading）
   @observable isCorrecting = false; // 更正已完成台账明细请求进行中
 
-  // 首次周期分组加载前是否已有持久化展开状态（无则默认只展开本期）
-  _expandedInitialized = false;
+  // 首次周期分组加载前的持久化恢复快照（无则默认只展开本期）与播种标记
+  _savedExpanded = null;
+  _expandedSeeded = false;
   // 生成成功后要求下一轮分组把本期组展开（新台账立即可见）
   _ensureCurrentExpanded = false;
 
   constructor(ledgerType) {
     this.ledgerType = ledgerType;
-    const saved = loadExpandedPeriods(ledgerType);
-    if (saved !== null) {
-      this.expandedPeriodKeys = saved;
-      this._expandedInitialized = true;
-    }
+    this._savedExpanded = loadExpandedPeriods(ledgerType);
   }
 
   @action resetFilter = () => {
@@ -197,27 +204,42 @@ export class LedgerStore {
    * 周期分组展开状态：默认只展开本期（is_current），历史期次折叠；
    * 用户手动展开/折叠与刷新（提交/作废/返回详情）后的分组更新都会保留，
    * 生成成功后强制展开本期让新台账立即可见；变更持久化到 localStorage。
+   *
+   * 恢复口径（2026-10-20 修复跨周期泄漏）：持久化快照里"保存时的本期"若已
+   * 滚出本期则整体丢弃（那是当时的自动展开，不该跟着走到本周），当下本期
+   * 中从未见过的键默认展开；手动展开的历史期次始终保留。
    */
   @action applyExpandedPeriods = () => {
     const currentKeys = this.groups
       .filter(g => g.is_current)
       .map(g => g.maintenance_period);
-    let keys = [...this.expandedPeriodKeys];
-    if (this._ensureCurrentExpanded) {
-      keys = Array.from(new Set([...keys, ...currentKeys]));
-      this._ensureCurrentExpanded = false;
-    } else if (!this._expandedInitialized) {
+    if (this._savedExpanded) {
+      const saved = this._savedExpanded;
+      this._savedExpanded = null;
+      this._expandedSeeded = true;
+      const base = saved.keys.filter(
+        k => !(saved.current.includes(k) && !currentKeys.includes(k)));
+      const newCurrentKeys = currentKeys.filter(k => !saved.current.includes(k));
+      this.expandedPeriodKeys = Array.from(new Set([...base, ...newCurrentKeys]));
+    } else if (!this._expandedSeeded) {
       // 无持久化状态时的首次加载：默认只展开本期
-      keys = Array.from(new Set([...keys, ...currentKeys]));
-      this._expandedInitialized = true;
+      this._expandedSeeded = true;
+      this.expandedPeriodKeys = Array.from(new Set([
+        ...this.expandedPeriodKeys, ...currentKeys]));
+    } else if (this._ensureCurrentExpanded) {
+      this._ensureCurrentExpanded = false;
+      this.expandedPeriodKeys = Array.from(new Set([
+        ...this.expandedPeriodKeys, ...currentKeys]));
     }
-    this.expandedPeriodKeys = keys;
-    saveExpandedPeriods(this.ledgerType, keys);
+    // 已播种的常规刷新不改动展开状态（用户手动收起的本期组保持收起）
+    saveExpandedPeriods(this.ledgerType, this.expandedPeriodKeys, currentKeys);
   };
 
   @action togglePeriodExpanded = (keys) => {
     this.expandedPeriodKeys = keys || [];
-    saveExpandedPeriods(this.ledgerType, this.expandedPeriodKeys);
+    saveExpandedPeriods(
+      this.ledgerType, this.expandedPeriodKeys,
+      this.groups.filter(g => g.is_current).map(g => g.maintenance_period));
   };
 
   @action setGroupsPage = (page) => {

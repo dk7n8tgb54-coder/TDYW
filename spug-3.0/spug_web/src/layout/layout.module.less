@@ -9,6 +9,23 @@
   box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08);
   z-index: 2;
 
+  // 全局路径面包屑：占满触发按钮与右侧操作之间的空间，窄屏整体省略号收缩
+  .crumbs {
+    flex: 1;
+    min-width: 0;
+    margin-left: 8px;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+
+    :global(.ant-breadcrumb) {
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+  }
+
   .right {
     min-width: 0;
     display: flex;
@@ -96,6 +113,30 @@
   width: 100%;
   flex: 1 1 auto;
   box-sizing: border-box;
+}
+
+// 工作页签条：Header 之下、内容区之上，替代原页面内面包屑条的位置；
+// 紧凑高度（约 32px），页内原面包屑条（约 56px）移除后内容区净高不减少
+.workTabs {
+  flex: 0 0 auto;
+  background: #fff;
+  padding: 4px 0 0;
+  box-shadow: 0 1px 2px rgba(0, 21, 41, 0.04);
+  z-index: 1;
+
+  :global(.ant-tabs-nav) {
+    margin: 0;
+  }
+
+  :global(.ant-tabs-card .ant-tabs-tab) {
+    padding: 3px 12px;
+    margin: 0 2px 0 0;
+    line-height: 20px;
+
+    &:first-child {
+      margin-left: 12px;
+    }
+  }
 }
 
 .content::-webkit-scrollbar {

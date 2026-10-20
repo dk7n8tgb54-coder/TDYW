@@ -658,13 +658,13 @@ test('有草稿时显示「预览空白打印稿」按钮，无草稿时禁用',
   const detail = makeDetail([BOUND_PS]);
   store.applyDetail({data: detail});
   await renderPage();
-  const button = buttonByText('预览空白打印稿');
+  const button = buttonByText('预览空白打印稿（已保存参数）');
   expect(button).toBeTruthy();
   expect(button.disabled).toBe(false);
   // 无草稿：按钮仍在但不可用
   store.applyDetail({data: makeDetail([], {draft: null})});
   await flush();
-  expect(buttonByText('预览空白打印稿').disabled).toBe(true);
+  expect(buttonByText('预览空白打印稿（已保存参数）').disabled).toBe(true);
 });
 
 test('点击「预览空白打印稿」：POST 预览接口，成功后新窗口打开', async () => {
@@ -677,7 +677,7 @@ test('点击「预览空白打印稿」：POST 预览接口，成功后新窗口
   });
   await renderPage();
   await act(async () => {
-    buttonByText('预览空白打印稿').click();
+    buttonByText('预览空白打印稿（已保存参数）').click();
   });
   await flush();
   expect(mockHttpPost).toHaveBeenCalledWith(
@@ -699,16 +699,16 @@ test('「预览空白打印稿」请求期间按钮 loading，结束后恢复', 
   }));
   await renderPage();
   await act(async () => {
-    buttonByText('预览空白打印稿').click();
+    buttonByText('预览空白打印稿（已保存参数）').click();
   });
   await flush();
-  expect(buttonByText('预览空白打印稿').className).toContain('ant-btn-loading');
+  expect(buttonByText('预览空白打印稿（已保存参数）').className).toContain('ant-btn-loading');
   await act(async () => {
     resolvePreview({data: new ArrayBuffer(16), headers: {}});
     await new Promise(resolve => setTimeout(resolve, 0));
   });
   await flush();
-  expect(buttonByText('预览空白打印稿').className).not.toContain('ant-btn-loading');
+  expect(buttonByText('预览空白打印稿（已保存参数）').className).not.toContain('ant-btn-loading');
 });
 
 test('弹窗被拦截时回退为下载', async () => {
@@ -722,7 +722,7 @@ test('弹窗被拦截时回退为下载', async () => {
   });
   await renderPage();
   await act(async () => {
-    buttonByText('预览空白打印稿').click();
+    buttonByText('预览空白打印稿（已保存参数）').click();
   });
   await flush();
   // window.open 返回空（拦截）→ 仍创建对象 URL 并走下载（不报错、不提示成功之外的副作用）
@@ -737,7 +737,7 @@ test('「预览空白打印稿」失败：不显示成功提示，loading 复位
   mockHttpPost.mockRejectedValue('LibreOffice 不可用，无法生成 PDF');
   await renderPage();
   await act(async () => {
-    buttonByText('预览空白打印稿').click();
+    buttonByText('预览空白打印稿（已保存参数）').click();
     await new Promise(resolve => setTimeout(resolve, 0));
   });
   await flush();

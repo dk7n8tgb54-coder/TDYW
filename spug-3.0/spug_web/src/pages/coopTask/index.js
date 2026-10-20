@@ -9,7 +9,7 @@
 import React, {useState, useEffect} from 'react';
 import {observer} from 'mobx-react';
 import {Tabs} from 'antd';
-import {AuthDiv, Breadcrumb} from 'components';
+import {AuthDiv} from 'components';
 import TaskTable from './Table';
 import InboxTable from './InboxTable';
 import InboxDetail from './InboxDetail';
@@ -47,9 +47,6 @@ function CoopTaskIndex() {
 
   return (
     <AuthDiv auth="coop.task.view|coop.task.submit">
-      <Breadcrumb>
-        <Breadcrumb.Item>协作任务</Breadcrumb.Item>
-      </Breadcrumb>
       <Tabs activeKey={activeKey} onChange={setActiveKey}>
         <Tabs.TabPane tab="我发起的" key="tasks">
           {activeKey === 'tasks' && <TaskTable/>}
