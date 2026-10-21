@@ -229,15 +229,18 @@ test.describe.serial('系统档案运行处置记录页签 UX 走查', () => {
     expect(after).toBe(before + 1);
     await saveShot(page, 'desktop', '05-after-progress-refresh.png');
 
-    // 进展数直达详情进展页签（直达时基本信息页签未渲染，按时间线文案锚定）
+    // 进展数直达详情进展区块（2026-10 详情改版：分区布局，无独立时间线弹窗；
+    // 区块名随记录类型：补充/跟进/处置记录）
     const countLink = page.locator('.ant-modal .ant-table-tbody tr')
       .filter({hasText: routineTitle}).locator('a').last();
     await countLink.click();
-    const progressModal = page.locator('.ant-modal:has-text("补充记录时间线")');
+    const progressModal = page.locator('.ant-modal:has-text("来源与登记")');
     await progressModal.waitFor({state: 'visible', timeout: 15000});
     await page.waitForTimeout(600);
-    const activeTab = await progressModal.locator('.ant-tabs-tab-active').textContent();
-    expect(activeTab).toContain('补充记录');
+    expect(await progressModal.locator(':text("来源与登记")').count()).toBeGreaterThan(0);
+    expect(await progressModal
+      .locator('.ant-modal-body :text-matches("(补充|跟进|处置)记录")')
+      .count()).toBeGreaterThan(0);
     await progressModal.locator('.ant-modal-footer button').first().click();
     await progressModal.waitFor({state: 'hidden', timeout: 15000});
     await page.waitForTimeout(400);

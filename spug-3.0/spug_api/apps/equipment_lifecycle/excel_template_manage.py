@@ -76,6 +76,7 @@ from apps.equipment_lifecycle.excel_template_services import (
     preview_blank_pdf,
     preview_pdf,
     refresh_column_layout,
+    refresh_print_layout,
     validate_bindings,
     validate_values,
 )
@@ -158,9 +159,49 @@ def _parse_or_fail(filename, data):
         _fail(str(e))
 
 
+def _resolve_template_system(user, raw_system_id):
+    """解析并校验适用系统（租户内存在性校验，跨租户按不存在拒绝）。
+
+    空值（None/''/'0'）= 不配置（待配置）；非数字、租户外或已不存在的
+    系统一律业务错误——后端独立校验，不信任前端传值。
+    """
+    if raw_system_id in (None, '', 0, '0'):
+        return None
+    from apps.equipment_lifecycle.models import LifecycleSystem
+    if not str(raw_system_id).isdigit():
+        _fail('适用系统参数不合法')
+    system = apply_tenant_filter(LifecycleSystem.objects.all(), user).filter(
+        pk=int(raw_system_id)).first()
+    if system is None:
+        _fail('适用系统不存在或无权限访问')
+    return system
+
+
+def _validate_template_period(ledger_type, raw_period):
+    """校验生成周期与台账类型匹配（周月维护=每周/每月，季维护=每航季）。
+
+    空值 = 待配置；类型不匹配的周期值业务错误。
+    """
+    generation_period = str(raw_period or '').strip()
+    if generation_period:
+        allowed = TEMPLATE_PERIOD_BY_LEDGER_TYPE.get(ledger_type) or []
+        if generation_period not in allowed:
+            _fail('该台账类型的生成周期应为：%s'
+                  % '、'.join(TEMPLATE_PERIOD_TEXT.get(v, v) for v in allowed))
+    return generation_period
+
+
 def create_template(user, filename, data, body):
-    """上传 .xlsx 创建模板：特性检测 → 解析 → 草稿文件落盘 → 模板落库。"""
+    """上传 .xlsx 创建模板：配置校验 → 特性检测 → 解析 → 落盘 → 模板落库。
+
+    适用系统与生成周期（2026-10-21 新建流程前置）随同一次创建请求保存：
+    全部校验通过才创建模板，任一校验失败不产生任何数据（不出现"创建
+    成功但配置丢失"）。未携带配置字段时保持待配置（旧调用方兼容）。
+    """
     name, ledger_type, description = _validate_template_meta(body)
+    system = _resolve_template_system(user, body.get('system'))
+    generation_period = _validate_template_period(
+        ledger_type, body.get('generation_period'))
     _check_unsupported(filename, data)
     meta = _parse_or_fail(filename, data)
     with transaction.atomic():
@@ -169,6 +210,8 @@ def create_template(user, filename, data, body):
             name=name,
             ledger_type=ledger_type,
             description=description,
+            system=system,
+            generation_period=generation_period,
             draft_source_filename=meta['source_filename'],
             draft_source_hash=meta['source_file_hash'],
             draft_layout=_canonical(_layout_part(meta)),
@@ -504,7 +547,20 @@ def draft_compatibility(template):
     if not template.draft_layout or not template.draft_source_hash:
         return None
     result = _file_compatibility(template)
-    if not excel_pdf_service.detect_soffice():
+    try:
+        engine = excel_pdf_service.resolve_engine()
+        chromium_ready = excel_pdf_service.browser_engine_available()
+    except excel_pdf_service.PdfConversionError:
+        engine, chromium_ready = excel_pdf_service.ENGINE_LIBREOFFICE, False
+    if engine == excel_pdf_service.ENGINE_CHROMIUM:
+        if not chromium_ready:
+            result['warnings'].append(
+                '部署环境未安装浏览器打印引擎（chromium），PDF 预览与导出不可用'
+                '（请在镜像中安装 playwright chromium 与中文字体）')
+            if result['status'] == 'ok':
+                result['status'] = 'warning'
+    elif engine == excel_pdf_service.ENGINE_LIBREOFFICE \
+            and not excel_pdf_service.detect_soffice():
         result['warnings'].append(
             '部署环境未安装 LibreOffice，PDF 预览与导出不可用'
             '（请安装 libreoffice-calc 与中文字体）')
@@ -561,29 +617,48 @@ def version_source_path(version):
 
 
 def _corrected_version_layout(version):
-    """版本布局快照的读取端列宽修正（快照不可变，仅修读取视图）。
+    """版本布局快照的读取端修正（快照不可变，仅修读取视图）。
 
-    历史快照由旧解析逻辑生成：<col min="1" max="3"> 范围只落在起始列，
-    其余列被误记为 openpyxl 缺省宽度 13、隐藏范围漏报，网页按快照渲染
-    会把范围列画窄。以版本源文件为准重新推导 column_widths/
-    hidden_columns；源文件缺失等异常原样返回快照，不影响详情与导出
-    （导出另有源文件校验）。详见 excel_template_services.refresh_column_layout。
+    - 列宽修正（既有）：历史快照 <col min="1" max="3"> 范围只落在起始列，
+      其余列被误记为 openpyxl 缺省宽度 13、隐藏范围漏报，网页按快照渲染
+      会把范围列画窄；以版本源文件为准重新推导 column_widths/
+      hidden_columns（详见 excel_template_services.refresh_column_layout）；
+    - 打印设置补全（2026-10-21）：历史快照 print 段缺 scale/page_margins/
+      print_area，浏览器打印引擎需要物理边距与打印区域才能复现源文件
+      版式（详见 excel_template_services.refresh_print_layout）。
+    源文件缺失等异常原样返回快照，不影响详情与导出（导出另有源文件校验）。
     """
     layout = version.get_layout().get('layout') or {}
     try:
         path = version_source_path(version)
     except ExcelTemplateError:
         return layout
-    return refresh_column_layout(layout, path)
+    layout = refresh_column_layout(layout, path)
+    return refresh_print_layout(layout, path)
 
 
 def version_content_view(version):
-    """版本详情视图（含布局与绑定快照；布局经读取端列宽修正）。
+    """版本详情视图（含布局与绑定快照 + 统一打印计划）。
 
-    台账详情与版本详情接口共用，历史台账据此以正确列宽回放版式。
+    台账详情与版本详情接口共用，历史台账据此以正确列宽回放版式；
+    print_plan（excel_print_layout.build_print_plan）是网页与浏览器 PDF
+    共用的分页计划：网页据此画分页参考线并展示纸张信息，保证「网页翻阅
+    = 导出 PDF」的版式一致；计算异常时返回 None（网页回落按打印参数
+    近似显示，不影响填写与导出）。
     """
     view = version.to_view(with_content=True)
-    view['layout'] = _corrected_version_layout(version)
+    layout = _corrected_version_layout(version)
+    view['layout'] = layout
+    try:
+        from apps.equipment_lifecycle.excel_print_layout import build_print_plan
+        snapshot = version.get_layout()
+        view['print_plan'] = build_print_plan({
+            'sheet_name': snapshot.get('sheet_name'),
+            'layout': layout,
+            'pdf_params': snapshot.get('pdf_params') or {},
+        })
+    except Exception:
+        view['print_plan'] = None
     return view
 
 
@@ -592,16 +667,27 @@ def draft_meta_view(template):
 
     布局经读取端列宽修正（历史草稿 <col min max> 范围只记起始列），
     工作区按正确列宽渲染；草稿文件缺失/解析失败时原样返回快照。
+    print_plan（2026-10-21）：与版本详情同一 build_print_plan 统一打印
+    计划——模板编辑工作区据此绘制与台账填写一致的纸张、页边距与分页
+    参考线；计算异常返回 None（前端回落打印参数近似显示）。
     """
     if not template.draft_layout:
         return None
     meta = _draft_meta(template)
+    meta['field_bindings'] = (
+        json.loads(template.draft_bindings) if template.draft_bindings else [])
+    try:
+        from apps.equipment_lifecycle.excel_print_layout import build_print_plan
+        print_plan = build_print_plan(meta)
+    except Exception:
+        print_plan = None
     return {
         'sheet_name': meta['sheet_name'],
         'layout': refresh_column_layout(
             meta['layout'], excel_template_storage.draft_path(template.pk)),
-        'field_bindings': json.loads(template.draft_bindings) if template.draft_bindings else [],
+        'field_bindings': meta['field_bindings'],
         'pdf_params': meta.get('pdf_params') or {},
+        'print_plan': print_plan,
         'source_filename': template.draft_source_filename,
         'source_hash': template.draft_source_hash,
         'draft_updated_at': template.draft_updated_at,
@@ -686,22 +772,9 @@ def save_generation_config(user, template, body):
     """
     if not template.is_active:
         _fail('模板已删除（停用），不能修改生成配置')
-    system_id = body.get('system')
-    generation_period = str(body.get('generation_period') or '').strip()
-    system = None
-    if system_id not in (None, '', 0, '0'):
-        from apps.equipment_lifecycle.models import LifecycleSystem
-        if not str(system_id).isdigit():
-            _fail('适用系统参数不合法')
-        system = apply_tenant_filter(LifecycleSystem.objects.all(), user).filter(
-            pk=int(system_id)).first()
-        if system is None:
-            _fail('适用系统不存在或无权限访问')
-    if generation_period:
-        allowed = TEMPLATE_PERIOD_BY_LEDGER_TYPE.get(template.ledger_type) or []
-        if generation_period not in allowed:
-            _fail('该台账类型的生成周期应为：%s'
-                  % '、'.join(TEMPLATE_PERIOD_TEXT.get(v, v) for v in allowed))
+    system = _resolve_template_system(user, body.get('system'))
+    generation_period = _validate_template_period(
+        template.ledger_type, body.get('generation_period'))
     with transaction.atomic():
         template.system = system
         template.generation_period = generation_period

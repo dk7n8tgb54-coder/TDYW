@@ -22,6 +22,7 @@
 - **MariaDB 10.8**：不支持部分唯一索引；`LIKE '%xxx'` 前缀通配无法走索引；不支持 `JSON_FIELD` 的部分查询操作。
 - **Python 3.10**：可使用 match-case，但项目代码风格以传统 if/elif 为主。
 - **行尾符统一 LF**：所有新建或修改的前后端源码文件（Python、JS/JSX、LESS、HTML、JSON、YAML、配置及测试代码）一律使用 LF 行尾，禁止 CRLF；在 Windows 环境下编辑时也必须保持 LF，不得因编辑器默认设置引入 `\r`。
+- **维护台账统一打印布局（2026-10-21）**：Excel 路线台账的网页分页参考线与 PDF 导出共用同一份分页计划——`equipment_lifecycle/excel_print_layout.build_print_plan` 是纸张/方向/边距/缩放/分页的唯一事实来源，随版本快照以 `print_plan` 下发；浏览器 PDF 引擎（`EXCEL_PDF_ENGINE=chromium`，生产 compose 缺省）经 `excel_print_html` 渲染统一打印 HTML 后由无头 Chromium 出 PDF，网页与 PDF 排版规则必须一致，改动布局算法时两处（网页 utils/LayoutTable 与 excel_print_layout）必须同步修改；行高列宽是模板精确值（td 定高 + line-height 1 + overflow hidden），不得引入浏览器行框撑高；打印转换只作用于副本，绝不改写源 Excel 与历史快照；`render_html_to_pdf`（HTML→PDF 适配器，worker 子进程隔离）后续其他模块复用时须先上提公共层（当前仅台账一个真实调用场景，不上提）。
 
 ---
 
@@ -36,7 +37,7 @@
 | `contractAgreement/` | `contract_agreement/` | 合同协议 |
 | `coopTask/` | `coop_task/` | 协作任务及附件清理 |
 | `document/`、党建页面、`regulation/` | `document/`、`regulation/` | 文档、党建隔离和规章 |
-| `upgrade/`、`exec/fault/`、`interference/` | 同名应用 | 技术运维业务（device 设备管理模块已于 2026-09 整体移除） |
+| `upgrade/`、`exec/fault/`、`interference/` | 同名应用 | 技术运维业务（device 设备管理模块已于 2026-09 整体移除；原生维护台账路线与实验室原生样板已于 2026-10-20 整体移除，维护台账只保留 Excel 模板、Excel 台账与手工补录，清理见 equipment_lifecycle 迁移 0026） |
 | `maintenance/` | `logs/`、`alert/` | 审计日志和系统告警 |
 | 公共附件、签名能力 | `evidence/`、`signature/` | 业务入口负责权限和归属校验 |
 

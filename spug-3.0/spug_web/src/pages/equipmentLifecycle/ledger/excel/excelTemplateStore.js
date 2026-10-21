@@ -30,11 +30,16 @@
  *   PUT pdf-params/ 整体校验保存，发布随版本快照固定；
  * - 替换源文件（2026-10-14 交互改造）：选定文件先进入确认弹窗（提示将
  *   清空的绑定数），确认后才调用 draft-file/；取消不产生任何请求；
- * - 新建模板弹窗（2026-10-14）：列表页主操作，名称/类型/上传集中在
- *   弹窗内完成（下载样例随流程内提供），成功后进入绑定工作区；
+ * - 新建模板流程（2026-10-21 配置前置）：名称/台账类型/适用系统/生成
+ *   周期/源文件集中在弹窗内一次完成；选定文件只登记不上传，「创建并
+ *   进入模板编辑」统一缺项校验后一次提交（适用系统与生成周期随创建
+ *   同请求保存，后端独立校验），成功才提示并进入绑定工作区，失败弹窗
+ *   保持打开可修正重试（下载样例随流程内提供）；
  * - 生成配置（2026-10-14）：适用系统（一模板一系统）+ 生成周期
  *   （按台账类型收敛）经 generation-config 接口保存；空值显式清空回
  *   "待配置"（历史模板不自动推断），只影响自动生成，不影响手工创建；
+ *   配置目标默认当前模板详情，也支持列表行级补全（openConfigModal
+ *   传入列表行，2026-10-21 待配置模板列表直接补全）；
  * - 版本记录支持列表页按行查看（fetchVersions 按 templateId 取数，
  *   不影响当前模板详情），抽屉标题标注归属模板；
  * - 模板列表双视图（2026-10-19）：在用/已停用按 is_active 拆分，默认
@@ -152,6 +157,14 @@ export class ExcelTemplateStore {
   @observable previewInfo = null;        // 最近一次预览反馈（页数/纸张/提示/参数来源）
   @observable uploadName = '';      // 上传面板：模板名称
   @observable uploadType = undefined; // 上传面板：维护类型
+  // 新建模板流程（2026-10-21 配置前置）：适用系统/生成周期/源文件与
+  // 表单缺项提示；选定文件只登记不立即上传，「创建并进入模板编辑」
+  // 统一校验后一次提交（成功才提示并进入工作区，失败弹窗保持可重试）
+  @observable uploadSystem = undefined;   // 新建流程：适用系统 id
+  @observable uploadPeriod = '';          // 新建流程：生成周期
+  @observable createOptions = {systems: [], periods: {}}; // 新建表单选项
+  @observable createErrors = {};          // 新建表单缺项提示（字段 → 文案）
+  @observable uploadFileName = '';        // 新建流程：已选源文件名（展示）
   // 生成配置弹窗（适用系统 + 生成周期，2026-10-14 本期应填台账生成）
   @observable configVisible = false;
   @observable configSaving = false;
@@ -159,11 +172,23 @@ export class ExcelTemplateStore {
   @observable configPeriod = '';          // 表单态：生成周期
   @observable configSystems = [];         // 可选系统（后端专用接口返回）
   @observable configPeriodOptions = [];   // 按台账类型收敛的周期候选
+  @observable configTemplateId = null;    // 配置目标模板（工作区当前或列表行）
+  @observable configTemplateName = '';    // 行级补全时弹窗标题标注归属
+  @observable configLedgerType = '';      // 目标模板类型（周期候选收敛用）
+  // 模板编辑页内打印预览（2026-10-21 统一观感）：iframe 展示与导出同一
+  // 生成服务的真实 PDF；草稿在预览后再变更时标记过期提示刷新
+  @observable printPreviewUrl = '';       // blob 对象 URL（iframe 展示）
+  @observable printPreviewMeta = null;    // {pages, paper, source}（反馈头）
+  @observable printPreviewLoading = false;
+  @observable printPreviewError = '';
+  @observable printPreviewStale = false;  // 预览生成后草稿又有变更
   // 拖拽内部状态（不驱动渲染，不设 observable）
   dragAnchor = '';
   dragMoved = false;
   // 待确认替换的源文件（弹窗确认前不发起请求，不驱动渲染）
   pendingReuploadFile = null;
+  // 新建流程待提交源文件（File 对象不进 observable，提交前不发起请求）
+  pendingCreateFile = null;
 
   @computed get draft() {
     return this.current ? this.current.draft : null;
@@ -227,6 +252,13 @@ export class ExcelTemplateStore {
     this.activeSheet = payload && payload.draft ? (payload.draft.sheet_name || '') : '';
     this.selectedCell = '';
     this.resetSelection();
+    // 返回列表清掉页内预览（blob URL 释放）；保存/刷新详情后已有预览
+    // 标记过期（草稿已变更，预览需手动刷新，不静默当作最新版式）
+    if (!payload) {
+      this.resetPrintPreview();
+    } else if (this.printPreviewUrl) {
+      this.printPreviewStale = true;
+    }
   }
 
   @action setUploadField(key, value) {
@@ -280,19 +312,25 @@ export class ExcelTemplateStore {
 
   // ==================== 生成配置（适用系统 + 生成周期，2026-10-14） ====================
 
-  /** 打开配置弹窗：拉取当前配置与选项（系统清单/周期候选），失败由公共拦截器提示。 */
-  @action async openConfigModal() {
-    if (!this.current) return;
+  /** 打开配置弹窗：拉取当前配置与选项（系统清单/周期候选），失败由公共拦截器提示。
+   * record 缺省为当前模板详情（工作区「配置」入口）；传入列表行时为
+   * 行级补全入口（2026-10-21 待配置模板在列表直接补全，不进工作区）。 */
+  @action async openConfigModal(record) {
+    const target = record || this.current;
+    if (!target) return;
     this.configVisible = true;
-    this.configSystem = this.current.system || undefined;
-    this.configPeriod = this.current.generation_period || '';
+    this.configTemplateId = target.id;
+    this.configTemplateName = target.name || '';
+    this.configLedgerType = target.ledger_type || '';
+    this.configSystem = target.system || undefined;
+    this.configPeriod = target.generation_period || '';
     this.configSystems = [];
     this.configPeriodOptions = [];
-    const res = await http.get(`${API}/${this.current.id}/generation-config/`);
+    const res = await http.get(`${API}/${target.id}/generation-config/`);
     const payload = res && res.data ? res.data : res;
     this.configSystems = (payload && payload.systems) || [];
     const periods = (payload && payload.periods) || {};
-    this.configPeriodOptions = periods[this.current.ledger_type] || [];
+    this.configPeriodOptions = periods[this.configLedgerType] || [];
   }
 
   @action closeConfigModal() {
@@ -305,17 +343,19 @@ export class ExcelTemplateStore {
 
   /**
    * 保存生成配置（整体校验后落库）；空值显式清空回"待配置"。
-   * 成功后重取详情以服务端数据为最终状态。
+   * 成功后重取列表；目标是当前模板时同步刷新详情以服务端数据为准。
    */
   @action async saveGenerationConfig() {
-    if (!this.current) return;
+    if (!this.configTemplateId) return;
     this.configSaving = true;
     try {
-      const res = await http.put(`${API}/${this.current.id}/generation-config/`, {
+      const res = await http.put(`${API}/${this.configTemplateId}/generation-config/`, {
         system: this.configSystem || '',
         generation_period: this.configPeriod || '',
       });
-      this.applyDetail(res);
+      if (this.current && this.current.id === this.configTemplateId) {
+        this.applyDetail(res);
+      }
       this.configVisible = false;
       message.success('生成配置已保存');
       await this.fetchList();
@@ -325,14 +365,116 @@ export class ExcelTemplateStore {
     }
   }
 
-  // ==================== 新建模板弹窗 / 替换源文件确认（2026-10-14） ====================
+  // ==================== 新建模板流程（2026-10-21 配置前置） ====================
+
+  /** 新建表单周期候选：按所选台账类型收敛（周月=每周/每月，季=每航季）。 */
+  @computed get createPeriodOptions() {
+    return this.createOptions.periods[this.uploadType] || [];
+  }
 
   @action openCreateModal() {
     this.createVisible = true;
+    this.createErrors = {};
+    // 选项（系统清单/周期候选）随弹窗拉取，失败由公共拦截器提示，
+    // 弹窗保持打开可重试（关闭再打开会重新拉取）
+    http.get(`${API}/create-options/`).then(res => {
+      const payload = res && res.data ? res.data : res;
+      this.createOptions = {
+        systems: (payload && payload.systems) || [],
+        periods: (payload && payload.periods) || {},
+      };
+    }).catch(() => {});
   }
 
   @action closeCreateModal() {
     this.createVisible = false;
+  }
+
+  /**
+   * 设置新建表单字段；切换台账类型时按类型收敛生成周期（季维护自动
+   * 设为每航季并明确显示；周月维护保留每周/每月、清除不兼容的周期值），
+   * 并清除该字段已有的缺项提示。
+   */
+  @action setUploadField(key, value) {
+    this[key] = value;
+    if (key === 'uploadType') {
+      if (value === 'seasonal') {
+        this.uploadPeriod = 'seasonal';
+      } else if (this.uploadPeriod && this.uploadPeriod !== 'weekly'
+                 && this.uploadPeriod !== 'monthly') {
+        this.uploadPeriod = '';
+      }
+    }
+    if (this.createErrors[key]) {
+      const next = {...this.createErrors};
+      delete next[key];
+      this.createErrors = next;
+    }
+  }
+
+  /** 新建流程选定源文件：只登记（校验扩展名），不发起任何上传请求。 */
+  @action pickCreateFile(file) {
+    if (!/\.xlsx$/i.test(file.name)) {
+      message.error('仅支持 .xlsx 文件（暂不支持 .xls 与 WPS 私有格式）');
+      return false;
+    }
+    this.pendingCreateFile = file;
+    this.uploadFileName = file.name;
+    if (this.createErrors.file) {
+      const next = {...this.createErrors};
+      delete next.file;
+      this.createErrors = next;
+    }
+    return false;
+  }
+
+  /** 移除已选源文件（回退为未选择状态，不产生请求）。 */
+  @action removeCreateFile() {
+    this.pendingCreateFile = null;
+    this.uploadFileName = '';
+  }
+
+  /** 新建表单缺项校验：名称/类型/适用系统/生成周期/文件逐项给出提示。 */
+  @action validateCreateForm() {
+    const errors = {};
+    if (!(this.uploadName || '').trim()) errors.name = '请填写模板名称';
+    if (!this.uploadType) errors.uploadType = '请选择台账类型';
+    if (!this.uploadSystem) errors.uploadSystem = '请选择适用系统';
+    if (!this.uploadPeriod) errors.uploadPeriod = '请选择生成周期';
+    if (!this.pendingCreateFile) errors.file = '请选择 .xlsx 模板文件';
+    this.createErrors = errors;
+    return !Object.keys(errors).length;
+  }
+
+  /** 成功创建后清空新建表单（含已登记文件），弹窗由页面关闭。 */
+  @action resetCreateForm() {
+    this.uploadName = '';
+    this.uploadType = undefined;
+    this.uploadSystem = undefined;
+    this.uploadPeriod = '';
+    this.uploadFileName = '';
+    this.pendingCreateFile = null;
+    this.createErrors = {};
+  }
+
+  /**
+   * 创建并进入模板编辑（统一校验后一次提交）：名称/类型/适用系统/
+   * 生成周期/文件全部就绪才发请求（缺项只提示不发请求）；提交中重复
+   * 调用忽略（防重复提交）；失败向上抛出（公共拦截器已提示），弹窗
+   * 保持打开可修正重试——绝不出现"保存失败却提示创建完成"。
+   */
+  @action async submitCreate() {
+    if (this.uploading) return null;
+    if (!this.validateCreateForm()) return null;
+    const fields = {
+      name: this.uploadName,
+      ledger_type: this.uploadType,
+      system: this.uploadSystem || '',
+      generation_period: this.uploadPeriod || '',
+    };
+    const detail = await this.upload(fields, this.pendingCreateFile);
+    this.resetCreateForm();
+    return detail;
   }
 
   /** 选定待替换文件：只登记并弹确认框，不发起任何请求。 */
@@ -859,6 +1001,68 @@ export class ExcelTemplateStore {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  }
+
+  // ==================== 模板编辑页内打印预览（2026-10-21 统一观感） ====================
+
+  _revokePrintPreviewUrl() {
+    if (this.printPreviewUrl) {
+      try {
+        window.URL.revokeObjectURL(this.printPreviewUrl);
+      } catch (e) {
+        // URL 已释放时忽略
+      }
+    }
+  }
+
+  /** 重置页内预览（返回列表/切换模板时调用；blob URL 释放防泄漏）。 */
+  @action resetPrintPreview() {
+    this._revokePrintPreviewUrl();
+    this.printPreviewUrl = '';
+    this.printPreviewMeta = null;
+    this.printPreviewError = '';
+    this.printPreviewStale = false;
+  }
+
+  /**
+   * 页内打印预览（打印预览视图）：POST preview/pdf/（草稿已保存打印
+   * 参数）取二进制后以 blob URL 在当前页面 iframe 内展示——与「预览空白
+   * 打印稿」同一后端生成服务，保证「预览 = 发布/导出的真实版式」。
+   * 成功记录 X-El-Pdf-* 反馈（页数/纸张/提示）并清除过期标记；草稿在
+   * 预览后再变更由 applyDetail 标记 printPreviewStale（页面提示刷新）。
+   * 失败记录错误态可重试，业务错误由公共拦截器统一提示。
+   */
+  async fetchTemplatePrintPreview() {
+    if (!this.current || this.printPreviewLoading) return '';
+    action(() => {
+      this.printPreviewLoading = true;
+      this.printPreviewError = '';
+    })();
+    try {
+      const response = await http.post(
+        `${API}/${this.current.id}/preview/pdf/`, null,
+        {responseType: 'arraybuffer', timeout: 180000});
+      const bytes = response && response.data;
+      if (!bytes || !bytes.byteLength) {
+        throw new Error('预览内容为空');
+      }
+      const blob = new Blob([bytes], {type: 'application/pdf'});
+      const url = window.URL.createObjectURL(blob);
+      this._revokePrintPreviewUrl();
+      return action(() => {
+        this.printPreviewUrl = url;
+        this.printPreviewMeta = {source: 'saved', ...parsePdfMetaHeaders(response)};
+        this.printPreviewStale = false;
+        return url;
+      })();
+    } catch (e) {
+      action(() => {
+        this.printPreviewError = '预览生成失败，可点击「刷新预览」重试';
+      })();
+      throw e;
+    } finally {
+      action(() => { this.printPreviewLoading = false; })();
+    }
   }
 
   /**

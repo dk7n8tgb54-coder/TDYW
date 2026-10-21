@@ -25,6 +25,9 @@
 export const DEFAULT_ROW_HEIGHT_PT = 14.25;
 /** 纵向"足够高"阈值：≥2 行默认高度（28.5pt ≈ 38px）按多行填写。 */
 export const TALL_FILL_THRESHOLD_PT = DEFAULT_ROW_HEIGHT_PT * 2;
+/** Excel 缺省字号（pt）：网页与浏览器 PDF 打印共用（Excel 内置缺省 11pt），
+ * 模板未显式设置字号时两端渲染一致。 */
+export const DEFAULT_FONT_SIZE_PT = 11;
 
 /** 96dpi 网页显示换算（仅网页显示用，不改变导出版式）。 */
 export const PX_PER_MM = 96 / 25.4;
@@ -101,6 +104,8 @@ export function paperViewInfo(pdfParams, sheet, naturalWidthPx) {
   const pageHeightMm = landscape ? shortMm : longMm;
   const printableWidthPx = Math.round(
     pageWidthMm * PX_PER_MM - (Number(m.left) + Number(m.right)) * PX_PER_CM);
+  const printableHeightPx = Math.round(
+    pageHeightMm * PX_PER_MM - (Number(m.top) + Number(m.bottom)) * PX_PER_CM);
   const overflow = naturalWidthPx > printableWidthPx;
   const caption = `纸张：${paperName} · ${landscape ? '横向' : '纵向'}`
     + (overflow ? ' · 表格宽度超出可打印区域，导出打印时将横向分页' : '');
@@ -111,8 +116,157 @@ export function paperViewInfo(pdfParams, sheet, naturalWidthPx) {
     marginLeftPx: Math.round(Number(m.left) * PX_PER_CM),
     marginRightPx: Math.round(Number(m.right) * PX_PER_CM),
     marginTopPx: Math.round(Number(m.top) * PX_PER_CM),
+    marginBottomPx: Math.round(Number(m.bottom) * PX_PER_CM),
     printableWidthPx,
+    printableHeightPx,
   };
+}
+
+/**
+ * 统一打印计划的网页视图信息（2026-10-21）。
+ *
+ * print_plan 是后端 excel_print_layout 计算的权威分页计划（网页与浏览器
+ * PDF 共用，随版本快照下发），本函数只做像素换算与展示封装：纸张尺寸、
+ * 页边距（含下边距——页高计算必须包含底部留白）、缩放倍率、分页参考线
+ * （行/列断点索引，前端按布局行高列宽累计成像素）与计划页数/告警。
+ * print_plan 缺失返回 null（调用方回落 paperViewInfo 近似显示）。
+ */
+export function printPlanViewInfo(plan, sheetName) {
+  if (!plan || !plan.plan_version || !plan.sheets) return null;
+  const sheet = plan.sheets[sheetName] || Object.values(plan.sheets)[0];
+  if (!sheet) return null;
+  const paper = plan.paper || {};
+  const margins = plan.margins_mm || {};
+  const landscape = paper.orientation === 'landscape';
+  const widthPx = Math.round((paper.width_mm || 210) * PX_PER_MM);
+  const heightPx = Math.round((paper.height_mm || 297) * PX_PER_MM);
+  // 页边距（mm）→ 像素：print_plan 的边距单位是毫米（与 PAPER_SIZE_MM 同源）
+  const marginLeftPx = Math.round((margins.left || 0) * PX_PER_MM);
+  const marginRightPx = Math.round((margins.right || 0) * PX_PER_MM);
+  const marginTopPx = Math.round((margins.top || 0) * PX_PER_MM);
+  const marginBottomPx = Math.round((margins.bottom || 0) * PX_PER_MM);
+  const printableWidthPx = Math.max(0, widthPx - marginLeftPx - marginRightPx);
+  const printableHeightPx = Math.max(0, heightPx - marginTopPx - marginBottomPx);
+  const overflow = (sheet.col_breaks || []).length > 0;
+  const caption = `纸张：${paper.name || 'A4'} · ${landscape ? '横向' : '纵向'}`
+    + (plan.page_count ? ` · 共 ${plan.page_count} 页` : '')
+    + (overflow ? ' · 表格宽度超出可打印区域，导出时将横向分页' : '');
+  return {
+    paperName: paper.name || 'A4',
+    landscape,
+    caption,
+    overflow,
+    widthPx,
+    heightPx,
+    marginLeftPx,
+    marginRightPx,
+    marginTopPx,
+    marginBottomPx,
+    printableWidthPx,
+    printableHeightPx,
+    scale: sheet.scale || 1,
+    rowBreaks: sheet.row_breaks || [],
+    colBreaks: sheet.col_breaks || [],
+    pageCount: sheet.page_count || 0,
+    horizontalCentered: !!plan.horizontal_centered,
+    verticalCentered: !!plan.vertical_centered,
+    warnings: plan.warnings || [],
+  };
+}
+
+/** 行高像素（与 LayoutTable 渲染同一公式：Math.round(pt*4/3)，隐藏行 0）。 */
+function _rowDisplayPx(sheet, row) {
+  const height = (sheet.row_heights || {})[String(row)];
+  if ((sheet.hidden_rows || []).indexOf(String(row)) !== -1) return 0;
+  return Math.round((height === undefined || height === null
+    ? DEFAULT_ROW_HEIGHT_PT : Number(height)) * 4 / 3);
+}
+
+/** 列宽像素（与 LayoutTable 渲染同一公式：Math.round(chars*7+5)，隐藏列 0）。 */
+function _colDisplayPx(sheet, col) {
+  const letter = colLetter(col);
+  if ((sheet.hidden_columns || []).indexOf(letter) !== -1) return 0;
+  const width = (sheet.column_widths || {})[letter];
+  return Math.round((width || 8.43) * 7 + 5);
+}
+
+/**
+ * 分页参考线像素位置（相对表格原点）：后端计划给出每页起始行/列索引，
+ * 前端按布局行列尺寸累计出参考线应在的偏移（与 DOM 累计一致）。
+ * 返回 [{row, offsetPx}] / [{col, offsetPx}]。
+ */
+export function rowGuideOffsets(sheet, breakRows) {
+  const list = [];
+  let acc = 0;
+  for (let row = 1; row <= (sheet.max_row || 0); row++) {
+    if ((breakRows || []).indexOf(row) !== -1) list.push({row, offsetPx: acc});
+    acc += _rowDisplayPx(sheet, row);
+  }
+  return list;
+}
+
+export function colGuideOffsets(sheet, breakCols) {
+  const list = [];
+  let acc = 0;
+  for (let col = 1; col <= (sheet.max_column || 0); col++) {
+    if ((breakCols || []).indexOf(col) !== -1) list.push({col, offsetPx: acc});
+    acc += _colDisplayPx(sheet, col);
+  }
+  return list;
+}
+
+/**
+ * 填写工作区的纸张视图模型（FillWorkspace useMemo 的纯函数化）：
+ * print_plan 优先，缺失回落 paperViewInfo 近似；在纸张基础信息上叠加：
+ * - 打印缩放层：表格在纸张内先乘 plan.scale（与浏览器 PDF 同源，保证
+ *   「原始尺寸」模式下表格与纸张的比例 = 打印真实比例），参考线偏移
+ *   同步缩放到同一坐标系；
+ * - tableOffsetX/Y：horizontal/vertical_centered 时表格在可打印区内的
+ *   居中偏移（与打印 HTML 的居中偏移同一算法）；
+ * - totalWidthPx/totalHeightPx：纸张卡片总尺寸（border-box：含页边距
+ *   padding 与 1px 边框）——页宽与缩放后表格 + 左右边距取大（宽表超出
+ *   页宽时保持可视可填写，参考线提示导出时的横向分块）；高度为整页
+ *   倍数（含下边距），内容更高时向下延展整页。
+ * store 只取 version|draft 与 activeSheet（便于 useMemo 依赖收敛）：
+ * version（台账填写）优先，缺失回落 draft（模板编辑，2026-10-21 共用）。
+ */
+/** 纸张卡片边框（上下/左右各 1px，计入总尺寸）。 */
+const PAPER_BORDER_PX = 2;
+
+export function paperViewModel(store, sheet, naturalSize) {
+  if (!sheet) return null;
+  // 计划/参数来源：台账填写取版本快照（version.print_plan/pdf_params），
+  // 模板编辑取草稿（draft.print_plan/pdf_params，2026-10-21 统一观感），
+  // 两者字段同构
+  const source = store.version || store.draft || {};
+  const base = source.print_plan
+    ? printPlanViewInfo(source.print_plan, store.activeSheet)
+    : paperViewInfo(source.pdf_params || {}, sheet, naturalSize.width);
+  if (!base) return null;
+  const printScale = base.scale || 1;
+  const scaledTableW = Math.round(naturalSize.width * printScale * 100) / 100;
+  const scaledTableH = Math.round(naturalSize.height * printScale * 100) / 100;
+  const rowGuides = base.rowBreaks && base.rowBreaks.length
+    ? rowGuideOffsets(sheet, base.rowBreaks)
+      .map(g => ({row: g.row, offsetPx: Math.round(g.offsetPx * printScale * 100) / 100}))
+    : [];
+  const colGuides = base.colBreaks && base.colBreaks.length
+    ? colGuideOffsets(sheet, base.colBreaks)
+      .map(g => ({col: g.col, offsetPx: Math.round(g.offsetPx * printScale * 100) / 100}))
+    : [];
+  const contentWidth = naturalSize.width
+    ? base.marginLeftPx + scaledTableW + base.marginRightPx + PAPER_BORDER_PX : 0;
+  const totalWidthPx = Math.max(base.widthPx, contentWidth);
+  const contentHeight = base.marginTopPx + scaledTableH + base.marginBottomPx
+    + PAPER_BORDER_PX;
+  const pages = Math.max(1, Math.ceil(contentHeight / base.heightPx));
+  const totalHeightPx = Math.max(base.heightPx, pages * base.heightPx);
+  const tableOffsetX = base.horizontalCentered
+    ? Math.max(0, Math.round((base.printableWidthPx - scaledTableW) / 2)) : 0;
+  const tableOffsetY = base.verticalCentered
+    ? Math.max(0, Math.round((base.printableHeightPx - scaledTableH) / 2)) : 0;
+  return {...base, printScale, rowGuides, colGuides, totalWidthPx,
+    totalHeightPx, tableOffsetX, tableOffsetY};
 }
 
 export function colLetter(col) {

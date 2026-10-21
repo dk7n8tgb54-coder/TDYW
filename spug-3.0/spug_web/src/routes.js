@@ -13,7 +13,6 @@ import {
   FileTextOutlined,
   ExceptionOutlined,
   ApartmentOutlined,
-  ExperimentOutlined,
   SafetyCertificateOutlined,
   NotificationOutlined,
   ScheduleOutlined,
@@ -52,7 +51,6 @@ import {
 } from './pages/equipmentLifecycle/ledger/entries';
 import ExcelTemplatePage from './pages/equipmentLifecycle/ledger/excel/ExcelTemplatePage';
 import ExcelLedgerRedirect from './pages/equipmentLifecycle/ledger/excel/ExcelLedgerRedirect';
-import NativeTemplatePage from './pages/equipmentLifecycle/ledger/native/NativeTemplatePage';
 import AnnouncementList from './pages/home/AnnouncementList';
 import AnnouncementAdmin from './pages/system/announcement';
 import ReminderAdmin from './pages/reminder';
@@ -96,14 +94,12 @@ export default [
       // 正式新增台账统一在各台账列表页选择已发布的 Excel/WPS 模板版本创建
       // Excel 上传版维护台账模板管理（上传/绑定/批量绑定/PDF 参数/发布/停用/删除）
       {title: 'Excel台账模板', auth: 'equipment_lifecycle.ledger_template.view', path: '/el/excel-ledger-templates', component: ExcelTemplatePage},
-      // 原生维护台账模板管理（2026-10-18 接入，Univer 在线编辑路线）：
-      // 在线编辑版式/字段绑定/纸张设置/草稿保存/发布不可变版本，与 Excel
-      // 模板并行、共用 ledger_template.* 权限码（后端 native_views 独立校验）
-      {title: '原生台账模板', auth: 'equipment_lifecycle.ledger_template.view', path: '/el/native-ledger-templates', component: NativeTemplatePage},
       // Excel 维护台账独立入口已并入正式周月/季维护台账（2026-10）：菜单不再
       // 展示，旧路径保留隐藏兼容路由并原样携带查询参数（?detail=&source=excel
       // 由正式台账页打开 Excel 台账详情）；hideInTab：兼容重定向不进入工作页签
       {path: '/el/excel-ledgers', auth: 'equipment_lifecycle.ledger.view', component: props => <ExcelLedgerRedirect {...props}/>, hideInTab: true},
+      // 原生台账模板入口已随原生维护台账路线整体下线删除（2026-10-20），
+      // 不保留兼容层
     ]},
     // 系统升级管理并入设备全生命周期管理（2026-09），升级记录/方案挂接系统档案；
     // 升级表单/升级方案融合为页签（2026-10，参照巡检中心），不再各占菜单项
@@ -111,11 +107,7 @@ export default [
     // 系统档案按系统直接查询统一记录等业务表）
     {title: '系统升级管理', auth: 'upgrade.upgrade.view', path: '/upgrade', component: UpgradeCenter},
   ]},
-  {icon: <ExperimentOutlined/>, title: '实验室', auth: 'lab.native_ledger.view', child: [
-    // 全屏内嵌原生维护台账样板（Univer 路线）；路由在 App.js 中挂载于 Layout 之前，
-    // 这里只负责菜单展示与权限门禁，不参与 Layout 内部路由。
-    {title: '原生维护台账', auth: 'lab.native_ledger.view', path: '/lab/native-ledger'},
-  ]},
+  // "实验室"菜单与原生维护台账样板已随原生路线整体下线删除（2026-10-20）
   {icon: <ExceptionOutlined/>, title: '干扰管理', auth: 'interference.interference.view|interference.investigation.view', child: [
     {title: '干扰记录', auth: 'interference.interference.view', path: '/interference/events', component: InterferenceEvents},
     {title: '规律调查', auth: 'interference.investigation.view', path: '/interference/investigations', component: InterferenceInvestigations},

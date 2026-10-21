@@ -29,7 +29,7 @@
  */
 import {observable, action} from 'mobx';
 import {http, exportFile} from 'libs';
-import {API_PREFIX_L} from './constants';
+import {API_PREFIX_L, LEDGER_TYPE_TEXT, exportableCountOf} from './constants';
 
 // 周期视图展开状态持久化（按台账类型隔离，刷新/重进页面后保留合理展开状态）。
 // v2 形态 {keys, current}：current 是保存时的本期键快照——恢复时丢弃
@@ -108,6 +108,14 @@ export class LedgerStore {
   // 组内批量 PDF 导出（"导出本模板台账"）：确认框数据 + 生成下载
   @observable batchExportPreview = null; // 后端确认数据（模板名/数量/范围/版本）
   @observable isBatchExportFetching = false;
+
+  // 多模板批量导出（"批量导出 PDF"，2026-10-21）：模板候选 + 选择与状态范围
+  @observable multiExportVisible = false;
+  @observable multiExportTemplates = null; // 后端候选清单（含各状态数量/版本分布）
+  @observable isMultiExportFetching = false;
+  @observable isMultiExporting = false;
+  @observable multiExportSelected = []; // 已选模板 ID（number[]）
+  @observable multiExportStatus = ''; // '' 默认已完成（口径见 constants）
 
   // 模板组翻阅（2026-10-18）：后端一次性返回组内符合筛选的有序清单
   // （期次起始日期升序、无期次标记回退执行日期+ID 兜底、同期补建多张
@@ -332,15 +340,6 @@ export class LedgerStore {
     return {ledger_type: this.ledgerType, ...this.templateFilterParams()};
   }
 
-  /** 明细 CSV 导出参数：与周期视图当前筛选同口径（编号/状态/按系统查看）。 */
-  periodExportParams() {
-    const params = {ledger_type: this.ledgerType};
-    if (this.f_keyword) params.keyword = this.f_keyword;
-    if (this.f_status) params.status = this.f_status;
-    if (this.f_system) params.system = this.f_system;
-    return params;
-  }
-
   /** 点击"导出本模板台账"：先取后端确认数据（模板名/数量/日期范围/状态范围/版本）。 */
   openBatchExport = () => {
     if (!this.activeGroup) return Promise.resolve();
@@ -359,6 +358,65 @@ export class LedgerStore {
 
   @action closeBatchExport = () => {
     this.batchExportPreview = null;
+  };
+
+  /** 打开"批量导出 PDF"：拉取模板候选清单（本租户、当前台账类型，含已停用）。
+   * 每次打开重置选择与状态范围（不继承上次会话状态）。 */
+  openMultiExport = () => {
+    this.multiExportVisible = true;
+    this.multiExportSelected = [];
+    this.multiExportStatus = '';
+    this.multiExportTemplates = null;
+    this.isMultiExportFetching = true;
+    return http.get(`${API_PREFIX_L}/ledgers/export-pdf/`,
+      {params: {ledger_type: this.ledgerType}})
+      .then(action(res => {
+        this.multiExportTemplates = (res && res.data) ? res.data : res;
+      }))
+      .catch(action(() => {}))
+      .finally(action(() => {
+        this.isMultiExportFetching = false;
+      }));
+  };
+
+  @action closeMultiExport = () => {
+    this.multiExportVisible = false;
+  };
+
+  @action setMultiExportSelected = (ids) => {
+    this.multiExportSelected = ids || [];
+  };
+
+  @action setMultiExportStatus = (status) => {
+    this.multiExportStatus = status || '';
+  };
+
+  /** 确认导出：POST 模板 ID + 状态范围 + 预览数量（expected_totals）。
+   * 后端重查完整记录并复核数量一致性，单模板下发 PDF、多模板下发 ZIP。 */
+  exportMultiPdf = () => {
+    const templates = (this.multiExportTemplates && this.multiExportTemplates.templates) || [];
+    const expected = {};
+    for (const template of templates) {
+      if (this.multiExportSelected.includes(template.template_id)) {
+        expected[template.template_id] = exportableCountOf(template, this.multiExportStatus);
+      }
+    }
+    this.isMultiExporting = true;
+    return exportFile({
+      url: `${API_PREFIX_L}/ledgers/export-pdf/`,
+      method: 'post',
+      data: {
+        ledger_type: this.ledgerType,
+        template_ids: this.multiExportSelected,
+        status: this.multiExportStatus,
+        expected_totals: expected,
+      },
+      defaultFilename: `${LEDGER_TYPE_TEXT[this.ledgerType] || ''}台账批量导出.pdf`,
+      timeout: 300000,
+      loadingText: '正在生成 PDF...',
+    }).finally(action(() => {
+      this.isMultiExporting = false;
+    }));
   };
 
   /** 打开模板组翻阅：按进入时的模板视图筛选（编号/状态/日期）拉取有序清单。
@@ -428,11 +486,13 @@ export class LedgerStore {
   };
 
   /** 本期应填台账预览（只读）：逐模板给出当前期次与可生成性判定。 */
-  fetchGeneratePreview = (ledgerType) => {
+  fetchGeneratePreview = (ledgerType, maintenanceCycles) => {
     this.isGenerateFetching = true;
     this.generatePeriodResult = null;
+    const params = {ledger_type: ledgerType || this.ledgerType};
+    if (Array.isArray(maintenanceCycles)) params.maintenance_cycles = maintenanceCycles;
     return http.get(`${API_PREFIX_L}/ledgers/period-generate/`, {
-      params: {ledger_type: ledgerType || this.ledgerType}})
+      params})
       .then(action(res => {
         this.generatePreview = res && res.data ? res.data : res;
         return this.generatePreview;
@@ -447,10 +507,12 @@ export class LedgerStore {
    * 确认生成：后端按预览同口径重算并创建缺项，返回实际结果
    * （created/skipped/failed）；成功后按当前视图刷新列表让新草稿可见。
    */
-  generatePeriodLedgers = (ledgerType) => {
+  generatePeriodLedgers = (ledgerType, maintenanceCycles, templateIds) => {
     this.isGenerating = true;
-    return http.post(`${API_PREFIX_L}/ledgers/period-generate/`, {
-      ledger_type: ledgerType || this.ledgerType})
+    const payload = {ledger_type: ledgerType || this.ledgerType};
+    if (Array.isArray(maintenanceCycles)) payload.maintenance_cycles = maintenanceCycles;
+    if (Array.isArray(templateIds)) payload.template_ids = templateIds;
+    return http.post(`${API_PREFIX_L}/ledgers/period-generate/`, payload)
       .then(action(res => {
         const result = res && res.data ? res.data : res;
         this.generatePeriodResult = result;

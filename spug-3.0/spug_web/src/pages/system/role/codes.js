@@ -381,14 +381,4 @@ export default [{
       {key: 'view', label: '查看升级分析'},
     ]
   }]
-}, {
-  key: 'lab',
-  label: '实验室',
-  pages: [{
-    key: 'native_ledger',
-    label: '原生维护台账',
-    perms: [
-      {key: 'view', label: '查看原生维护台账'},
-    ]
-  }]
 }]

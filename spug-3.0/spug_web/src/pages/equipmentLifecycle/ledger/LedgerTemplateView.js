@@ -18,16 +18,16 @@
  */
 import React from 'react';
 import {observer} from 'mobx-react';
-import {Button, Input, Select, Table, Tooltip} from 'antd';
+import {Button, Input, Select, Table} from 'antd';
 import {
   AppstoreAddOutlined, ArrowLeftOutlined, BookOutlined, FilePdfOutlined, PlusOutlined,
 } from '@ant-design/icons';
-import {AuthButton, ExportButton, SearchForm} from 'components';
+import {AuthButton, SearchForm} from 'components';
 import LedgerTemplateGroupTable from './LedgerTemplateGroupTable';
 import LedgerBatchExportModal from './LedgerBatchExportModal';
 import LedgerGroupBrowse from './LedgerGroupBrowse';
 import {buildColumns, LEDGER_TABLE_SCROLL_X} from './LedgerColumns';
-import {API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_FILTER_OPTIONS} from './constants';
+import {LEDGER_TYPE_TEXT, PERM_L, STATUS_FILTER_OPTIONS} from './constants';
 
 // observer：筛选控件直接读取 store 可观察字段，输入后需触发重渲染。
 // 模板视图使用独立筛选字段（t_keyword/t_status），与周期视图
@@ -64,15 +64,12 @@ const TemplateSearchForm = observer(function TemplateSearchForm({store}) {
   );
 });
 
-function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenExcelCreate, onOpenNativeCreate}) {
+function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenExcelCreate, onMultiExport}) {
   // 翻阅模式（2026-10-18）：整页切换为翻阅视图，退出后回到进入前的层级
   if (store.browseState) {
     return <LedgerGroupBrowse store={store}/>;
   }
   const inGroup = !!store.activeGroup;
-  // 原生模板组（2026-10-18）：组内列表与详情可用；批量 PDF 导出与翻阅
-  // 为 Excel 组专属能力，原生组不提供入口（后端同口径拒绝）
-  const isNativeGroup = inGroup && store.activeGroup.source_type === 'native';
   const columns = buildColumns(store, ledgerType, openDetail, inGroup);
   const openGroupBrowse = () => store.openBrowse(store.activeGroup).catch(() => {});
   return (
@@ -102,14 +99,7 @@ function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenEx
           onClick={onOpenExcelCreate}>
           新增{LEDGER_TYPE_TEXT[ledgerType]}台账
         </AuthButton>
-        <AuthButton
-          auth={PERM_L.LED_ADD}
-          icon={<PlusOutlined/>}
-          style={{marginLeft: 8}}
-          onClick={onOpenNativeCreate}>
-          按原生模板新增
-        </AuthButton>
-        {inGroup && !isNativeGroup && (
+        {inGroup && (
           <AuthButton
             auth={PERM_L.LED_VIEW}
             icon={<BookOutlined/>}
@@ -121,7 +111,7 @@ function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenEx
             翻阅台账
           </AuthButton>
         )}
-        {inGroup && !isNativeGroup && store.activeGroup.group_key !== 'manual' && (
+        {inGroup && store.activeGroup.group_key !== 'manual' && (
           <AuthButton
             auth={PERM_L.LED_EXPORT}
             icon={<FilePdfOutlined/>}
@@ -133,16 +123,16 @@ function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenEx
           </AuthButton>
         )}
         {!inGroup && (
-          <Tooltip title="导出台账明细数据（手工补录台账的检查项目明细行，携带当前筛选）；Excel/原生模板台账请在台账详情中导出填写完整的 PDF。">
-            <ExportButton
-              auth={PERM_L.LED_EXPORT}
-              style={{marginLeft: 8}}
-              url={`${API_PREFIX_L}/ledgers/export/`}
-              params={{ledger_type: ledgerType, ...store.templateFilterParams()}}
-              filename={`${LEDGER_TYPE_TEXT[ledgerType]}台账明细.csv`}>
-              导出明细 CSV
-            </ExportButton>
-          </Tooltip>
+          // 批量导出 PDF（2026-10-21）：替换原"导出明细 CSV"入口，按模板多选导出；
+          // 组内"导出本模板台账"（单模板、沿用列表筛选口径）保留不变
+          <AuthButton
+            auth={PERM_L.LED_EXPORT}
+            icon={<FilePdfOutlined/>}
+            style={{marginLeft: 8}}
+            data-testid="multi-export-open"
+            onClick={onMultiExport}>
+            批量导出 PDF
+          </AuthButton>
         )}
       </div>
       {inGroup ? (

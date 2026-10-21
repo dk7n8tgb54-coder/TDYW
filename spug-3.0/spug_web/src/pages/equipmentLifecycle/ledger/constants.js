@@ -24,10 +24,6 @@ export const PERM_L = {
   LED_EXPORT: 'equipment_lifecycle.ledger.export',
 };
 
-// 原生台账模板管理（2026-10-18 接入）复用 ledger_template.* 权限码
-// （后端 native_views 独立校验；与 Excel 模板同权同管）
-export const PERM_T = PERM_L;
-
 // 台账类型：旧巡检类型 inspection 已删除（2026-09-24），巡检业务走独立巡检单
 export const LEDGER_TYPE = {
   WEEK_MONTH: 'week_month',
@@ -74,6 +70,50 @@ export const STATUS_FILTER_OPTIONS = [
 // 可删除状态：草稿（已完成/已作废不可删除，与后端一致）
 export const DELETABLE_STATUS = ['draft'];
 
+// ======================================================================
+// "批量导出 PDF"（2026-10-21）：状态范围口径与后端一致
+// - ''（默认）：仅已完成（不含草稿/已作废）；
+// - 'all'：全部（含草稿、已作废）；其余值为精确单状态。
+// 模板候选数据（GET /ledgers/export-pdf/）的 counts/versions 按"状态 → 数量"
+// 下发，以下纯函数负责计算所选范围下的可导出数量与涉及版本。
+// ======================================================================
+
+export const EXPORT_SCOPE_STATUSES = {
+  '': ['completed'],
+  all: ['completed', 'draft', 'void'],
+  draft: ['draft'],
+  completed: ['completed'],
+  void: ['void'],
+};
+
+export const EXPORT_STATUS_OPTIONS = [
+  {value: '', label: '已完成（默认，不含草稿/已作废）'},
+  {value: 'all', label: '全部（含草稿、已作废）'},
+  {value: 'draft', label: '草稿'},
+  {value: 'void', label: '已作废'},
+];
+
+/** 模板在所选状态范围下的可导出台账数量。 */
+export function exportableCountOf(template, status) {
+  if (!template) return 0;
+  const statuses = EXPORT_SCOPE_STATUSES[status] || EXPORT_SCOPE_STATUSES[''];
+  return statuses.reduce((sum, key) => sum + ((template.counts || {})[key] || 0), 0);
+}
+
+/** 模板在所选状态范围下的涉及版本（[{version_no, count}]，版本号升序）。 */
+export function versionsUnderScope(template, status) {
+  if (!template) return [];
+  const statuses = EXPORT_SCOPE_STATUSES[status] || EXPORT_SCOPE_STATUSES[''];
+  return Object.keys(template.versions || {})
+    .map(versionNo => ({
+      version_no: parseInt(versionNo, 10),
+      count: statuses.reduce(
+        (sum, key) => sum + ((template.versions[versionNo] || {})[key] || 0), 0),
+    }))
+    .filter(item => item.count > 0)
+    .sort((a, b) => a.version_no - b.version_no);
+}
+
 export const RESULT_TEXT = {
   normal: '正常',
   abnormal: '异常',
@@ -100,7 +140,6 @@ export const INPUT_TYPE_TEXT = {
 export const CREATED_FROM_TEXT = {
   manual: '临时补录',
   excel_template: 'Excel模板',
-  native_template: '原生模板',
 };
 
 export const API_PREFIX_L = '/api/equipment-lifecycle';

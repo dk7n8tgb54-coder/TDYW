@@ -2,42 +2,36 @@
  * Copyright (c) OpenSpug Organization. https://github.com/openspug
  * Released under the AGPL-3.0 License.
  *
- * Excel 上传版维护台账模板页（2026-09-28 试点；2026-10-14 交互改造）。
+ * Excel 上传版维护台账模板页（2026-09-28 试点；2026-10-14 交互改造；
+ * 2026-10-21 新建流程配置前置 + 编辑视图统一观感）。
  *
  * 两种视图：
- * - 列表：唯一主操作「新建模板」——名称/类型/上传集中在弹窗内完成
- *   （下载样例随流程内提供，页面不再重复出现）；行操作按状态显示
- *   「编辑草稿 / 上传源文件 / 查看模板」，版本记录与停用/删除收进行内
- *   「更多」菜单（2026-10-16 拆分：停用=逻辑停用，启用模板可用；
- *   删除=物理删除，无台账引用的模板可用，引用关系后端删除时复查，
- *   del 权限门禁，Modal.confirm 二次确认）；列表展示适用系统与
- *   生成周期（2026-10-14，未配置显示"待配置"，不自动推断）；
- *   在用/已停用双视图（2026-10-19）：默认进入在用视图，已停用模板
- *   集中在已停用视图（可查看内容/版本/关联台账，del 权限可重新启用，
- *   停用成功后立即从在用视图移出）；两视图分别支持关键词搜索
- *   （名称/说明/适用系统）、维护类型筛选与分页，切换视图时数量与
- *   分页结果准确；
+ * - 列表：唯一主操作「新建模板」——名称/台账类型/适用系统/生成周期/
+ *   源文件集中在弹窗内一次完成（2026-10-21 配置前置：选择文件不立即
+ *   创建模板或上传，「创建并进入模板编辑」统一缺项校验后一次提交，
+ *   适用系统与生成周期随创建同请求保存，缺项在对应位置提示；季维护
+ *   自动设置并显示「每航季」，切换台账类型清除不兼容周期）；下载样例
+ *   随流程内提供；行操作按状态显示「编辑草稿 / 上传源文件 / 查看模板」，
+ *   待配置模板（缺适用系统或生成周期）提供行内「补全配置」入口
+ *   （2026-10-21，不做自动推断），版本记录与停用/删除收进行内「更多」
+ *   菜单（停用=逻辑停用，删除=物理删除，del 权限门禁）；在用/已停用
+ *   双视图 + 关键词/类型过滤 + 分页（2026-10-19）；
  *   页面底部提供前往正式周月/季维护台账的填写入口；
- * - 绑定工作区（2026-10-19 借鉴原生台账编辑工作台布局）：顶部集中展示
- *   返回入口、名称/类型/状态与全部操作，发布禁用原因在操作区下方独立
- *   一行说明；信息行展示源文件、绑定字段数、当前版本与生成配置（适用
- *   系统/生成周期，2026-10-14，未停用模板提供「配置」入口）；主按钮
- *   「发布版本」（无草稿/无绑定/兼容性 error 时禁用，warning 不阻断）+
- *   次级「预览空白打印稿」+「更多操作」菜单（版本记录/打印设置/替换
- *   源文件）；替换源文件选定文件后先弹确认（提示将清空的绑定数与打印
- *   参数重置），确认后才上传，取消不请求；左侧为字段属性面板与已绑定
- *   字段导航（支持搜索，点击跨工作表定位并选中单元格），右侧为版式
- *   预览；字段名称自动生成（2026-10-19）：新绑定默认「工作表 · 坐标」、
- *   批量每格各生成一个，前缀可选，留空保存回退默认名，已有自定义
- *   名称保持不变；混合批量选区（2026-10-19）：已绑定与未绑定格可同选区
- *   （拖拽可从已绑定格开始），面板显示选中总数/已绑定/未绑定，批量保存
- *   只更新明确修改过的属性并保留已有 field_id 与名称，批量解绑独立确认；
- *   拖拽选区期间表格禁止文字选择，松开/离开窗口/Escape 取消后恢复；
- *   多工作表时提供工作表切换（Tabs，复用 store.setSheet，
- *   切换即清空单格与批量选区）；已停用模板仅供查看，替换/发布/打印设置/
- *   选格编辑与导航定位全部冻结（后端独立校验兜底）；
- *   兼容性检查提示（error=须处理后才能发布，warning=可能有格式差异）；
- *   填写区尺寸提示（2026-10-14）与 PDF 参数抽屉保持不变。
+ * - 绑定工作区（2026-10-21 统一观感）：顶部返回入口/名称/类型/状态与
+ *   全部操作，信息行集中展示台账类型、源文件、绑定字段数、当前版本与
+ *   生成配置（未配置显示"待配置"并提供「配置」入口）；「字段绑定 /
+ *   打印预览」两个视图（默认字段绑定）——字段绑定视图左侧为可收起的
+ *   字段绑定面板（单字段属性 + 批量绑定 + 已绑定字段导航），中央表格
+ *   与台账填写界面同一套纸张观感（灰底白纸/页边距/分页参考线/适合
+ *   页宽与原始尺寸/多工作表切换，共用 PaperSheetArea，分页信息优先取
+ *   草稿统一打印计划 print_plan）；打印预览视图当前页面内 iframe 展示
+ *   真实生成的 PDF（同一模板预览服务，已保存参数），标注页数/纸张与
+ *   参数来源，草稿在预览后变更提示刷新；发布禁用原因独立一行说明；
+ *   替换源文件选定文件后先弹确认（提示将清空的绑定数与打印参数重置）；
+ *   已停用模板仅供查看（替换/发布/打印设置/选格编辑与导航定位冻结，
+ *   后端独立校验兜底）；字段名称自动生成、混合批量选区、拖拽选区禁
+ *   文字选择、Escape 取消等交互保持不变（实现见 TemplateWorkspace
+ *   与 store）。
  *
  * 不支持的文件特性（公式/图表/图片/外部链接/透视表）由后端显式拒绝，
  * 错误信息逐项列出（公共拦截器提示，不静默导入）。
@@ -46,12 +40,12 @@ import React from 'react';
 import {observer} from 'mobx-react';
 import {
   Alert, Button, Card, Drawer, Dropdown, Empty, Input, Menu,
-  Modal, Popconfirm, Radio, Select, Space, Spin, Table, Tabs, Tag, Upload,
+  Modal, Popconfirm, Radio, Select, Space, Spin, Table, Tag, Upload,
   message,
 } from 'antd';
 import {
   ArrowLeftOutlined, CheckCircleOutlined, DeleteOutlined, DownOutlined,
-  DownloadOutlined, FilePdfOutlined, HistoryOutlined, PrinterOutlined,
+  DownloadOutlined, FileExcelOutlined, HistoryOutlined, PrinterOutlined,
   StopOutlined, UploadOutlined,
 } from '@ant-design/icons';
 import {hasPermission, history} from 'libs';
@@ -59,10 +53,7 @@ import {hasPermission, history} from 'libs';
 import excelTemplateStore, {LIST_PAGE_SIZE} from './excelTemplateStore';
 import PdfParamsDrawer, {PreviewInfoAlert} from './PdfParamsDrawer';
 import {PERM_L} from '../constants';
-import LayoutTable, {bindBlockReason} from './components/LayoutTable';
-import FieldPanel from './components/FieldPanel';
-import BatchBindingPanel from './BatchBindingPanel';
-import {tightMergedTextBindings} from './utils';
+import {TemplateWorkspaceBody} from './components/TemplateWorkspace';
 import './ExcelTemplateWorkspace.less';
 
 const LEDGER_TYPE_TEXT = {week_month: '周月维护', seasonal: '季维护'};
@@ -77,37 +68,6 @@ const TEMPLATE_STATUS = {
 function systemColumn(record) {
   if (!record.system) return <Tag data-testid="tpl-system-unset">待配置</Tag>;
   return `${record.system_name}（${record.system_code}）`;
-}
-
-function BindingNavigator({bindings, onSelect, disabled}) {
-  const [query, setQuery] = React.useState('');
-  const matches = bindings.filter(binding =>
-    `${binding.field_name} ${binding.sheet_name} ${binding.cell_coordinate}`
-      .toLowerCase().includes(query.trim().toLowerCase()));
-  return (
-    <section className="excel-workspace-section">
-      <div className="excel-workspace-section-title">
-        <strong>已绑定字段</strong><Tag>{bindings.length}</Tag>
-      </div>
-      <Input.Search data-testid="tpl-binding-search" aria-label="搜索字段或单元格"
-                    placeholder="搜索字段或单元格"
-                    value={query} onChange={event => setQuery(event.target.value)}/>
-      <div className="excel-workspace-binding-list">
-        {matches.length ? matches.map(binding => (
-          <button type="button" key={binding.field_id}
-                  data-testid="tpl-binding-item"
-                  className="excel-workspace-binding-row" disabled={disabled}
-                  onClick={() => onSelect(binding)}>
-            <span className="excel-workspace-binding-name">{binding.field_name}</span>
-            <span className="excel-workspace-binding-location">
-              {binding.sheet_name} · {binding.cell_coordinate}
-              {binding.is_required ? ' · 必填' : ''}
-            </span>
-          </button>
-        )) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? '没有匹配字段' : '暂无绑定字段'}/>}
-      </div>
-    </section>
-  );
 }
 
 @observer
@@ -142,24 +102,16 @@ class ExcelTemplatePage extends React.Component {
     });
   }
 
-  /** 新建模板流程（弹窗内）：守卫 → 上传 → 成功后关弹窗进入绑定工作区。 */
-  handleUpload = file => {
-    if (!/\.xlsx$/i.test(file.name)) {
-      message.error('仅支持 .xlsx 文件（暂不支持 .xls 与 WPS 私有格式）');
-      return false;
-    }
-    const store = this.store;
-    if (!store.uploadName || !store.uploadType) {
-      message.warning('请先填写模板名称并选择维护类型');
-      return false;
-    }
-    store.upload({name: store.uploadName, ledger_type: store.uploadType}, file)
-      .then(() => {
-        store.closeCreateModal();
-        message.success('模板解析成功，请绑定可填写单元格');
+  /** 创建并进入模板编辑：store 统一校验后一次提交；成功关闭弹窗并进入
+   * 绑定工作区（失败弹窗保持打开可修正重试，公共拦截器已提示）。 */
+  handleCreateSubmit = () => {
+    this.store.submitCreate()
+      .then(detail => {
+        if (!detail) return;
+        this.store.closeCreateModal();
+        message.success('模板创建成功，请绑定可填写单元格');
       })
       .catch(() => {});
-    return false;
   };
 
   /** 替换源文件：只校验扩展名并登记待确认文件，确认弹窗通过后才上传。 */
@@ -244,120 +196,110 @@ class ExcelTemplatePage extends React.Component {
   };
 
   /**
-   * 新建模板弹窗（列表页唯一主操作流程）：名称/类型/上传集中一处，
-   * 下载样例只在此流程出现；上传成功后关闭弹窗并进入绑定工作区。
+   * 新建模板弹窗（列表页唯一主操作流程，2026-10-21 配置前置）：
+   * 名称/台账类型/适用系统/生成周期/源文件一次填齐；选择文件只登记
+   * 不上传，「创建并进入模板编辑」统一校验后一次提交；缺项在对应
+   * 位置提示；下载样例随流程内提供。
    */
   _renderCreateModal() {
     const store = this.store;
+    const errorLine = key => (store.createErrors[key] ? (
+      <div className="excel-create-field-error"
+           data-testid={`tpl-create-error-${key}`}>{store.createErrors[key]}</div>
+    ) : null);
     return (
       <Modal title="新建 Excel 台账模板" visible={store.createVisible}
-             width={520} footer={null}
-             onCancel={() => store.closeCreateModal()}>
+             width={560} confirmLoading={store.uploading}
+             okText="创建并进入模板编辑"
+             okButtonProps={{'data-testid': 'tpl-create-submit'}}
+             cancelText="取消"
+             onOk={this.handleCreateSubmit}
+             onCancel={() => {
+               if (!store.uploading) store.closeCreateModal();
+             }}>
         <div style={{marginBottom: 12}}>
           <div style={{marginBottom: 4}}>模板名称</div>
           <Input data-testid="tpl-name" placeholder="如：信道维护记录表" maxLength={100}
                  value={store.uploadName}
                  onChange={e => store.setUploadField('uploadName', e.target.value)}/>
+          {errorLine('name')}
         </div>
-        <div style={{marginBottom: 16}}>
-          <div style={{marginBottom: 4}}>维护类型</div>
-          <Select data-testid="tpl-type" placeholder="请选择维护类型" style={{width: '100%'}}
+        <div style={{marginBottom: 12}}>
+          <div style={{marginBottom: 4}}>台账类型</div>
+          <Select data-testid="tpl-type" placeholder="请选择台账类型" style={{width: '100%'}}
                   value={store.uploadType}
                   onChange={value => store.setUploadField('uploadType', value)}>
             <Select.Option value="week_month">周月维护</Select.Option>
             <Select.Option value="seasonal">季维护</Select.Option>
           </Select>
+          {errorLine('uploadType')}
         </div>
-        <Space wrap>
-          <Upload accept=".xlsx" showUploadList={false} beforeUpload={this.handleUpload}>
-            <Button data-testid="tpl-upload" type="primary" icon={<UploadOutlined/>}
-                    loading={store.uploading}>
-              上传 .xlsx 模板
+        <div style={{marginBottom: 12}}>
+          <div style={{marginBottom: 4}}>适用系统（一个模板只对应一个系统）</div>
+          <Select data-testid="tpl-system" showSearch optionFilterProp="children"
+                  placeholder="请选择适用系统" style={{width: '100%'}}
+                  value={store.uploadSystem}
+                  onChange={value => store.setUploadField('uploadSystem', value)}>
+            {store.createOptions.systems.map(s => (
+              <Select.Option key={s.id} value={s.id}>
+                {`${s.name}（${s.system_code}）${s.is_active ? '' : ' [已停用]'}`}
+              </Select.Option>
+            ))}
+          </Select>
+          {errorLine('uploadSystem')}
+        </div>
+        <div style={{marginBottom: 12}}>
+          <div style={{marginBottom: 4}}>生成周期
+            {store.uploadType === 'seasonal' && (
+              <span style={{color: '#999', marginLeft: 8}}>季维护固定为每航季（已自动设置）</span>
+            )}
+          </div>
+          <Select data-testid="tpl-period" placeholder="请选择生成周期"
+                  style={{width: '100%'}}
+                  value={store.uploadPeriod || undefined}
+                  onChange={value => store.setUploadField('uploadPeriod', value || '')}>
+            {store.createPeriodOptions.map(p => (
+              <Select.Option key={p.value} value={p.value}>{p.label}</Select.Option>
+            ))}
+          </Select>
+          {errorLine('uploadPeriod')}
+        </div>
+        <div style={{marginBottom: 12}}>
+          <div style={{marginBottom: 4}}>模板文件</div>
+          <Space wrap>
+            <Upload accept=".xlsx" showUploadList={false}
+                    beforeUpload={file => store.pickCreateFile(file)}>
+              <Button data-testid="tpl-upload" icon={<UploadOutlined/>}>
+                选择 .xlsx 文件
+              </Button>
+            </Upload>
+            {store.uploadFileName ? (
+              <span data-testid="tpl-file-name">
+                <FileExcelOutlined/> {store.uploadFileName}
+                <a data-testid="tpl-file-remove" style={{marginLeft: 8}}
+                   onClick={() => store.removeCreateFile()}>移除</a>
+              </span>
+            ) : null}
+            <Button data-testid="tpl-sample" icon={<DownloadOutlined/>}
+                    onClick={() => store.downloadSample()}>
+              下载样例
             </Button>
-          </Upload>
-          <Button data-testid="tpl-sample" icon={<DownloadOutlined/>}
-                  onClick={() => store.downloadSample()}>
-            下载样例
-          </Button>
-        </Space>
-        <div style={{color: '#999', marginTop: 8}}>
-          请先填写名称并选择维护类型，再上传 .xlsx 源文件；解析成功后进入绑定工作区。
+          </Space>
+          {errorLine('file')}
+        </div>
+        <div style={{color: '#999'}}>
+          请填齐全部信息后点击「创建并进入模板编辑」统一提交（选择文件不会
+          立即上传）；仅支持固定行列、固定填写位置的 .xlsx，公式/图表等
+          不支持特性会在创建时明确拒绝。
         </div>
       </Modal>
     );
   }
 
-  /** 草稿兼容性检查提示（error=须处理后才能发布；warning=可能有格式差异）。 */
-  _renderCompatibilityAlert() {
-    const compat = this.store.compatibility;
-    if (!compat || compat.status === 'ok') return null;
-    const messages = [
-      ...(compat.warnings || []),
-      ...(compat.unsupported && compat.unsupported.length
-        ? [`包含平台暂不支持的特性：${compat.unsupported.join('、')}，请处理后重新上传源文件`]
-        : []),
-    ];
-    if (!messages.length) return null;
-    return (
-      <Alert data-testid="tpl-compat" showIcon style={{marginBottom: 12}}
-             type={compat.status === 'error' ? 'error' : 'warning'}
-             message={compat.status === 'error'
-               ? '模板草稿存在问题，处理后才能发布'
-               : '模板可能存在格式差异'}
-             description={messages.join('；')}/>
-    );
-  }
-
   /**
-   * 填写区尺寸提示（2026-10-14）：横向合并多列不会增加填写高度，只有
-   * 一行默认高度的合并文本填写格在网页上填写区域较小；提示在 Excel/WPS
-   * 中设置行高后重传。只提示不改模板、不阻断发布。
-   */
-  _renderSizeHintAlert() {
-    const store = this.store;
-    const sheet = store.currentSheet;
-    if (!sheet) return null;
-    const tight = tightMergedTextBindings(sheet, store.bindings);
-    if (!tight.length) return null;
-    const rowText = coord => coord.replace(/[A-Z]/g, '');
-    return (
-      <Alert data-testid="tpl-size-hints" showIcon type="info" style={{marginBottom: 12}}
-             message="部分填写格只有一行高度，网页填写区域较小"
-             description={(
-               <div>
-                 {tight.map(item => (
-                   <div key={item.coordinate}>
-                     「{item.field_name}」（{item.coordinate}）位于单行高的合并区域：
-                     横向合并多列不会增加填写高度。如需更大的填写区域，请在 Excel/WPS
-                     中选中第 {rowText(item.coordinate)} 行，右键选择「行高」设置更大的值
-                     （如 40 磅以上），然后重新上传源文件并重新绑定（重传会清空现有绑定）。
-                   </div>
-                 ))}
-               </div>
-             )}/>
-    );
-  }
-
-  /** 多工作表切换（复用 store.setSheet：切换即清空单格与批量选区）。 */
-  _renderSheetTabs() {
-    const store = this.store;
-    const layout = store.layout;
-    if (!layout || !layout.sheets || layout.sheets.length < 2) return null;
-    const sheet = store.currentSheet;
-    return (
-      <Tabs data-testid="tpl-sheet-tabs" size="small" style={{marginBottom: 8}}
-            activeKey={sheet ? sheet.name : undefined}
-            onChange={name => store.setSheet(name)}>
-        {layout.sheets.map(item => <Tabs.TabPane tab={item.name} key={item.name}/>)}
-      </Tabs>
-    );
-  }
-
-  /**
-   * 预览反馈（2026-10-19）：页数/纸张来自后端真实生成的 PDF，提示为按
-   * 本次实际参数的版式预检结果；参数来源标注已保存参数或当前未保存
-   * 参数。展示组件随打印设置抽屉拆分至 PdfParamsDrawer（控制主页面
-   * 文件规模），工作区与抽屉共用同一份 store 状态。
+   * 预览反馈（2026-10-19）：打印设置抽屉「应用当前设置并预览」的反馈
+   * （页数/纸张/参数来源），展示组件随抽屉拆分至 PdfParamsDrawer；
+   * 打印预览视图自己的反馈在 TemplateWorkspace 内展示。
    */
   _renderPreviewInfoAlert() {
     return <PreviewInfoAlert info={this.store.previewInfo}/>;
@@ -412,7 +354,7 @@ class ExcelTemplatePage extends React.Component {
     );
   }
 
-  /** 工作区操作区：唯一主按钮「发布版本」+ 次级预览 + 更多操作菜单。 */
+  /** 工作区操作区：主按钮「发布版本」+ 更多操作菜单（预览为独立视图）。 */
   _renderWorkspaceActions(deleted, blockReason) {
     const store = this.store;
     return (
@@ -424,11 +366,6 @@ class ExcelTemplatePage extends React.Component {
             发布版本
           </Button>
         </Popconfirm>
-        <Button data-testid="tpl-pdf-preview" icon={<FilePdfOutlined/>}
-                disabled={!store.draft} loading={store.previewing}
-                onClick={() => store.previewPdf().catch(() => {})}>
-          预览空白打印稿（已保存参数）
-        </Button>
         <Dropdown overlay={this._renderWorkspaceMoreMenu(deleted, store.draft)}
                   trigger={['click']}>
           <Button data-testid="tpl-more-actions">
@@ -439,54 +376,13 @@ class ExcelTemplatePage extends React.Component {
     );
   }
 
-  _selectBinding = binding => {
-    const store = this.store;
-    if (!store.current.is_active) return;
-    if (store.activeSheet !== binding.sheet_name) store.setSheet(binding.sheet_name);
-    store.clearSelection();
-    if (store.selectedCell !== binding.cell_coordinate) store.selectCell(binding.cell_coordinate);
-    setTimeout(() => {
-      const sheet = this.workspaceSheetRef;
-      const cell = sheet && sheet.querySelector(`[data-coord="${binding.cell_coordinate}"]`);
-      if (cell && cell.scrollIntoView) cell.scrollIntoView({block: 'nearest', inline: 'nearest'});
-    }, 0);
-  };
-
-  /** 右侧版式预览区：工作表切换 + 布局表格（拖拽选区/文字选择控制在此）。 */
-  _renderSheetPane(deleted) {
-    const store = this.store;
-    return (
-      <div className="excel-workspace-sheet" ref={node => { this.workspaceSheetRef = node; }}>
-        {this._renderSheetTabs()}
-        <LayoutTable
-          sheet={store.currentSheet}
-          bindingByCell={store.bindingByCell}
-          fillMode={false}
-          selectedCell={store.selectedCell}
-          selectedCells={store.selectedCells}
-          preventTextSelect={store.isDragging}
-          onSelectCell={(coord, event) => {
-            if (deleted) return;
-            store.handleCellClick(coord, event);
-          }}
-          onCellMouseDown={(coord, event) => {
-            if (deleted) return;
-            store.beginDrag(coord, event);
-            // 拖拽从可填写格（含已绑定）开始时阻断浏览器文字选择，
-            // 只作用于模板编辑表格的 mousedown，不影响其他区域
-            if (store.isDragging && event
-                && typeof event.preventDefault === 'function') {
-              event.preventDefault();
-            }
-          }}
-          onCellMouseEnter={coord => store.extendDrag(coord)}/>
-      </div>
-    );
-  }
-
+  /**
+   * 绑定工作区（2026-10-21 统一观感）：头部/信息行/发布原因在页面层，
+   * 「字段绑定 / 打印预览」双视图主体在 TemplateWorkspaceBody（与台账
+   * 填写界面共用纸张展示层）；替换源文件/生成配置弹窗保持页面层挂载。
+   */
   _renderWorkspace() {
     const store = this.store;
-    const sheet = store.currentSheet;
     const draft = store.draft;
     // 已停用模板仅供查看：禁用替换/发布/打印设置入口，选格编辑一并冻结
     const deleted = !store.current.is_active;
@@ -536,44 +432,8 @@ class ExcelTemplatePage extends React.Component {
         <Spin spinning={store.loading || store.uploading}
               tip={store.uploading ? `上传解析中 ${store.uploadProgress}%` : '加载中...'}>
           {this._renderPreviewInfoAlert()}
-          {this._renderCompatibilityAlert()}
-          {this._renderSizeHintAlert()}
           {draft && draft.layout ? (
-            <div className="excel-workspace-body">
-              <aside className="excel-workspace-sidebar">
-                <section className="excel-workspace-section">
-                  <div className="excel-workspace-section-title">
-                    <strong>{store.selectedCells.length ? '批量绑定' : '字段绑定'}</strong>
-                    <Tag color="blue">{store.selectedCells.length
-                      ? `已选 ${store.selectedCells.length} 格` : (store.selectedCell || '未选择')}</Tag>
-                  </div>
-                  {store.selectedCells.length > 0 ? (
-                    <BatchBindingPanel selectedCells={store.selectedCells}
-                                       sheetName={store.activeSheet}
-                                       bindingByCell={store.bindingByCell}
-                                       saving={store.saving}
-                                       onSave={form => store.saveBatchBinding(form)}
-                                       onUnbind={() => store.saveBatchUnbind()}
-                                       onClear={() => store.clearSelection()}/>
-                  ) : (
-                    <FieldPanel
-                      key={`${store.activeSheet}!${store.selectedCell}!${store.selectedBinding ? store.selectedBinding.field_id : 'none'}`}
-                      coord={store.selectedCell}
-                      binding={store.selectedBinding}
-                      sheetName={store.activeSheet}
-                      blockReason={store.selectedCell && !store.selectedBinding
-                        ? bindBlockReason(sheet, store.selectedCell) : null}
-                      saving={store.saving}
-                      onSave={form => store.saveBinding(form)}
-                      onRemove={() => store.selectedBinding
-                        && store.removeBinding(store.selectedBinding.field_id)}/>
-                  )}
-                </section>
-                <BindingNavigator bindings={store.bindings}
-                                  disabled={deleted} onSelect={this._selectBinding}/>
-              </aside>
-              {this._renderSheetPane(deleted)}
-            </div>
+            <TemplateWorkspaceBody store={store} deleted={deleted}/>
           ) : (
             <Empty description="当前模板没有草稿源文件，请通过「更多操作 → 上传源文件」上传 .xlsx"
                    style={{padding: 60}}/>
@@ -586,15 +446,19 @@ class ExcelTemplatePage extends React.Component {
   }
 
   /**
-   * 生成配置弹窗（2026-10-14）：适用系统（一模板一系统）+ 生成周期
-   * （按台账类型收敛：周月维护=每周/每月，季维护=每航季）。空值显式
-   * 清空回"待配置"，不做任何自动推断。
+   * 生成配置弹窗（2026-10-14；2026-10-21 支持行级补全）：适用系统
+   * （一模板一系统）+ 生成周期（按台账类型收敛：周月维护=每周/每月，
+   * 季维护=每航季）。空值显式清空回"待配置"，不做任何自动推断。
    */
   _renderConfigModal() {
     const store = this.store;
-    if (!store.current) return null;
+    if (!store.configTemplateId) return null;
+    const fromWorkspace = store.current
+      && store.current.id === store.configTemplateId;
     return (
-      <Modal title="生成配置（本期应填台账）"
+      <Modal title={fromWorkspace || !store.configTemplateName
+        ? '生成配置（本期应填台账）'
+        : `生成配置：${store.configTemplateName}（本期应填台账）`}
              visible={store.configVisible}
              confirmLoading={store.configSaving}
              okText="保存" cancelText="取消"
@@ -634,10 +498,11 @@ class ExcelTemplatePage extends React.Component {
 
   /**
    * 行操作可见性（2026-10-16 停用/删除拆分；2026-10-19 双视图+重新启用）：
-   * - 停用：启用中的模板（del 权限）——停用后移入已停用视图，不可用于新台账；
-   * - 重新启用：已停用模板（del 权限）——恢复新台账使用与自动生成参与资格；
-   * - 删除：无任何台账引用的模板（未发布或已发布无引用，含已停用无引用）；
-   *   被引用的模板只能停用（后端删除时仍会重新检查）。
+   * - 补全配置：在用且缺适用系统或生成周期的模板（2026-10-21 待配置
+   *   列表直接补全，不自动推断）；
+   * - 停用：启用中的模板（del 权限）；重新启用：已停用模板（del 权限）；
+   * - 删除：无任何台账引用的模板；被引用的模板只能停用（后端删除时
+   *   仍会重新检查）。
    */
   _renderRowActions(record) {
     const openText = !record.is_active ? '查看模板'
@@ -645,6 +510,8 @@ class ExcelTemplatePage extends React.Component {
     const canStop = record.is_active && hasPermission(PERM_L.TPL_DEL);
     const canActivate = !record.is_active && hasPermission(PERM_L.TPL_DEL);
     const canDestroy = hasPermission(PERM_L.TPL_DEL) && !record.ledgers_count;
+    const needsConfig = record.is_active
+      && (!record.system || !record.generation_period);
     const menu = (
       <Menu onClick={({key}) => {
         if (key === 'versions') this.showRowVersions(record);
@@ -674,6 +541,12 @@ class ExcelTemplatePage extends React.Component {
                 onClick={() => this.store.fetchDetail(record.id).catch(() => {})}>
           {openText}
         </Button>
+        {needsConfig && (
+          <Button type="link" size="small" data-testid="tpl-row-config"
+                  onClick={() => this.store.openConfigModal(record).catch(() => {})}>
+            补全配置
+          </Button>
+        )}
         <Dropdown overlay={menu} trigger={['click']}>
           <Button type="link" size="small" data-testid="tpl-more">
             更多 <DownOutlined/>
@@ -762,18 +635,21 @@ class ExcelTemplatePage extends React.Component {
                }}/>
         <div style={{color: '#999', marginTop: 8}}>
           仅支持固定行列、固定填写位置的 .xlsx；公式、图表、图片、外部链接、
-          透视表与宏会在上传时被明确拒绝，不会静默丢失。已停用模板在
-          「已停用」视图中集中管理，可重新启用（恢复新台账使用与自动生成）。
+          透视表与宏会在创建时被明确拒绝，不会静默丢失。新建模板时即配置
+          适用系统与生成周期；历史待配置模板在行内「补全配置」补齐，
+          不做自动推断。已停用模板在「已停用」视图中集中管理，可重新启用
+          （恢复新台账使用与自动生成）。
           在「周月/季维护台账」列表点击<a
             onClick={() => history.push('/el/week-month-ledgers')}
             style={{margin: '0 4px'}}>生成本期应填台账</a>可按模板配置
-          （适用系统＋生成周期）批量生成可填写的应填台账；历史模板未配置的
-          显示"待配置"，请在本页行内进入配置，不做自动推断。
+          （适用系统＋生成周期）批量生成可填写的应填台账，缺配置的模板
+          会在预览中标注原因。
           如需手工临时补录，请前往<a
             onClick={() => history.push('/el/week-month-ledgers')}
             style={{marginLeft: 4}}>周月/季维护台账</a>。
         </div>
         {this._renderCreateModal()}
+        {this._renderConfigModal()}
       </Card>
     );
   }

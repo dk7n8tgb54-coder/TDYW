@@ -42,8 +42,8 @@ jest.mock('../../routes', () => [
     {title: '系统档案', auth: 'el.system.view', path: '/el/systems', component: 'Systems'},
     {title: '维护台账', child: [
       {title: '周月维护台账', auth: 'el.ledger.view', path: '/el/week-month-ledgers', component: 'W'},
+      {title: '季维护台账', auth: 'el.ledger.view', path: '/el/seasonal-ledgers', component: 'S'},
       {title: 'Excel台账模板', auth: 'el.template.view', path: '/el/excel-ledger-templates', component: 'ET'},
-      {title: '原生台账模板', auth: 'el.template.view', path: '/el/native-ledger-templates', component: 'NT'},
     ]},
     {title: '运行处置记录', auth: 'el.record.view', path: '/el/records', component: 'R'},
   ]},
@@ -194,7 +194,7 @@ describe('WorkTabs 数量上限与导航拦截', () => {
     // 以真实导航链路开满 6 个非固定页签，并全部登记未保存内容
     act(() => {
       ['/el/systems', '/el/week-month-ledgers', '/el/excel-ledger-templates',
-        '/el/native-ledger-templates', '/el/records', '/data-analysis'].forEach(
+        '/el/seasonal-ledgers', '/el/records', '/data-analysis'].forEach(
         path => historyListener({pathname: path, search: ''}));
     });
     expect(store.tabs).toHaveLength(7);
@@ -226,7 +226,7 @@ describe('WorkTabs 数量上限与导航拦截', () => {
     });
     act(() => {
       ['/el/systems', '/el/week-month-ledgers', '/el/excel-ledger-templates',
-        '/el/native-ledger-templates', '/el/records', '/data-analysis'].forEach(
+        '/el/seasonal-ledgers', '/el/records', '/data-analysis'].forEach(
         path => historyListener({pathname: path, search: ''}));
     });
     // 只有系统档案登记未保存，其余 5 个均为可淘汰候选

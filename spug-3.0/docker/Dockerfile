@@ -24,11 +24,6 @@ RUN npm config set registry https://registry.npmmirror.com && \
 # 复制源代码
 COPY spug_web/ ./
 
-# 先构建原生台账正式编辑器（Univer 独立工程，产物输出到 public/native-ledger，
-# 随后 CRA 构建自动拷贝进最终 build/；生产 iframe 经 /native-ledger/index.html 访问。
-# 注意：npmmirror 缺失 @univerjs 1.1.0 部分子包，此处必须使用官方源）
-RUN cd native-editor && npm install --registry=https://registry.npmjs.org --no-audit --no-fund && npm run build
-
 # 构建前端
 RUN npm run build
 
@@ -72,6 +67,8 @@ ENV TZ=Asia/Shanghai \
     DEBIAN_FRONTEND=noninteractive
 
 # 安装运行时依赖
+# fonts-noto-cjk：中文渲染字体（Excel 台账 PDF 打印引擎共用，2026-10-21；
+# 未安装时 Chromium/LibreOffice 中文渲染为替换字体或方框）
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     python3.10 \
@@ -90,6 +87,7 @@ RUN apt-get update && \
     pkg-config \
     gcc \
     g++ \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 # 设置 Python 命令
@@ -111,6 +109,15 @@ COPY --from=backend-builder /app ./spug_api
 # 在生产镜像阶段安装 Python 依赖
 RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
     pip install --no-cache-dir -r spug_api/requirements.txt
+
+# 浏览器打印引擎（EXCEL_PDF_ENGINE=chromium，网页与 PDF 统一排版）：
+# 在 requirements 中的 playwright 安装完成后，下载其对应版本的 chromium
+# 及系统依赖库（版本必须一致，浏览器按 revision 目录查找）；浏览器固定到
+# /opt/ms-playwright，运行时 excel_browser_pdf_service 自动探测。
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN python3 -m playwright install-deps chromium && \
+    python3 -m playwright install chromium && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # 复制配置文件
 COPY docker/config/nginx.conf /etc/nginx/nginx.conf

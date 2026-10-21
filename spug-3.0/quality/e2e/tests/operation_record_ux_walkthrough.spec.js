@@ -193,13 +193,14 @@ test.describe.serial('运行处置记录 UX 走查', () => {
     await saveShot(page, 'desktop', '05-detail-basic');
     const mw = await modalWithinViewport(page);
     expect(mw.overflow).toBe(false);
-    // 进展页签（名称随类型：补充/跟进/处置记录），限定在详情 Modal 内
-    const progressTab = page.locator('.ant-modal .ant-tabs-tab')
-      .filter({hasText: /(补充|跟进|处置)记录/}).first();
-    await progressTab.click();
+    // 详情为"顶部动作按钮 + 分区"布局（2026-10 详情改版，无页签）：
+    // 运行概况 / 来源与登记 / 附件 / 进展区块（名称随类型：补充/跟进/处置记录）
+    expect(await page.locator('.ant-modal:has-text("运行概况")').count()).toBeGreaterThan(0);
+    expect(await page.locator('.ant-modal-body :text-matches("(补充|跟进|处置)记录")')
+      .count()).toBeGreaterThan(0);
     await page.waitForTimeout(600);
     await saveShot(page, 'desktop', '06-detail-progress');
-    await page.click('.ant-modal .ant-tabs-tab:has-text("附件")');
+    expect(await page.locator('.ant-modal:has-text("附件")').count()).toBeGreaterThan(0);
     await page.waitForTimeout(600);
     await saveShot(page, 'desktop', '07-detail-attachments');
     await page.keyboard.press('Escape');

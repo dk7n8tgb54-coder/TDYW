@@ -12,6 +12,8 @@ openpyxl==3.0.3
 user_agents==2.2.0
 reportlab>=3.6.0
 pypdf>=3,<7
+# Browser print engine (EXCEL_PDF_ENGINE=chromium): unified print HTML -> headless Chromium PDF
+playwright>=1.40,<2
 celery==5.2.7
 kombu>=5.2.0,<6.0
 django-celery-results==2.4.0

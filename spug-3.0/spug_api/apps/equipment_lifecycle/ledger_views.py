@@ -52,7 +52,6 @@ from apps.equipment_lifecycle.models import (
     ITEM_RESULT_TEXT_MAP_FULL,
     LEDGER_FROM_EXCEL,
     LEDGER_FROM_MANUAL,
-    LEDGER_FROM_NATIVE,
     LEDGER_STATUS_VOID,
     LEDGER_TYPE_TEXT,
     LifecycleSystem,
@@ -80,7 +79,6 @@ LEDGER_TYPE_DETAIL_PATH = {
 LEDGER_FROM_SOURCE_TYPE = {
     LEDGER_FROM_MANUAL: 'manual',
     LEDGER_FROM_EXCEL: 'excel',
-    LEDGER_FROM_NATIVE: 'native',
 }
 
 
@@ -103,14 +101,6 @@ def _ledger_detail(ledger, user=None):
         except excel_ledger_services.ExcelLedgerError:
             # 缺少填写记录的异常数据降级为基础视图，不让统一详情整体失败
             pass
-    if ledger.created_from == LEDGER_FROM_NATIVE:
-        # 原生路线台账同样没有普通明细，返回原生详情（版本快照 + 填写值）
-        from apps.equipment_lifecycle import native_ledger_services
-
-        try:
-            return native_ledger_services.ledger_detail(ledger)
-        except native_ledger_services.NativeLedgerError:
-            pass
     view = ledger.to_view(with_counts=True)
     items = [it.to_view() for it in ledger.items.all()]
     if user is not None:
@@ -125,8 +115,7 @@ def _ledger_source_fields(ledger):
     """统一列表来源字段：source_type + 路线模板/版本 + 详情路由。
 
     Excel 路线台账的来源版本经 select_related('excel_record__version')
-    读取；原生路线经 select_related('native_record__version') 读取；
-    记录缺失（异常数据）时来源信息降级为空，不影响列表返回。
+    读取；记录缺失（异常数据）时来源信息降级为空，不影响列表返回。
     """
     source_type = LEDGER_FROM_SOURCE_TYPE.get(ledger.created_from, ledger.created_from)
     fields = {
@@ -137,11 +126,6 @@ def _ledger_source_fields(ledger):
     }
     if source_type == 'excel':
         record = getattr(ledger, 'excel_record', None)
-        version = record.version if record is not None else None
-        fields['source_template_name'] = version.template_name_snapshot if version else ''
-        fields['source_version_no'] = version.version_no if version else None
-    elif source_type == 'native':
-        record = getattr(ledger, 'native_record', None)
         version = record.version if record is not None else None
         fields['source_template_name'] = version.template_name_snapshot if version else ''
         fields['source_version_no'] = version.version_no if version else None
@@ -184,8 +168,7 @@ class LedgerView(View):
         keyword = request.GET.get('keyword')
         if keyword:
             query = query.filter(ledger_no__icontains=keyword)
-        query = query.select_related('system', 'excel_record__version',
-                                     'native_record__version')
+        query = query.select_related('system', 'excel_record__version')
         page, page_size = paginate(request)
         total = query.count()
         records = query[(page - 1) * page_size: page * page_size] if total else []
@@ -245,8 +228,12 @@ class LedgerPeriodGenerateView(View):
 
     @auth('equipment_lifecycle.ledger.view')
     def get(self, request):
+        maintenance_cycles = request.GET.getlist('maintenance_cycles')
+        if not maintenance_cycles:
+            maintenance_cycles = request.GET.getlist('maintenance_cycles[]')
         result, error = ledger_period_services.period_generate_preview(
-            request.user, request.GET.get('ledger_type'))
+            request.user, request.GET.get('ledger_type'),
+            maintenance_cycles if maintenance_cycles else None)
         if error:
             return json_response(error=error)
         return json_response(result)
@@ -254,7 +241,9 @@ class LedgerPeriodGenerateView(View):
     @auth('equipment_lifecycle.ledger.add')
     def post(self, request):
         body = _read_json_body(request) or {}
-        result, error = ledger_period_services.period_generate(request.user, body.get('ledger_type'))
+        result, error = ledger_period_services.period_generate(
+            request.user, body.get('ledger_type'), body.get('maintenance_cycles'),
+            body.get('template_ids'))
         if error:
             return json_response(error=error)
         record_audit_event(

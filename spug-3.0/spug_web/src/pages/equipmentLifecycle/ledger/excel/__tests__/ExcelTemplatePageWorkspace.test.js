@@ -5,11 +5,13 @@
  * 覆盖：选格绑定（保存载荷/服务端拒绝回退）→ 批量绑定（加选/拖拽/命名/
  * 保存）→ 多工作表切换清空选区 → 编辑页头部信息与左侧返回 → 发布按钮
  * 真实条件约束（无绑定/兼容性 error 禁用并说明原因，UI 全流程发布）→
- * 版本抽屉 → 替换源文件确认与取消 → 已停用模板只读冻结 → 「预览空白
- * 打印稿」→ 兼容性提示 → 填写区尺寸提示。绑定字段导航（2026-10-19
- * 工作区改版）与混合选区批量修改/解绑/拖拽禁文字选择（同日）另见同目录
- * ExcelTemplateBindingNavigator.test.js、ExcelTemplateMixedSelection.test.js。
- * 全部走真实组件与 store 代码路径，http/exportFile 仅打桩。
+ * 版本抽屉 → 替换源文件确认与取消 → 已停用模板只读冻结 → 打印预览视图
+ * （2026-10-21 统一观感：页内 iframe 真实 PDF/刷新 loading/过期提示/
+ * 失败错误态/视图切换不丢绑定状态）→ 兼容性提示 → 填写区尺寸提示。
+ * 绑定字段导航（2026-10-19 工作区改版）与混合选区批量修改/解绑/拖拽
+ * 禁文字选择（同日）另见同目录 ExcelTemplateBindingNavigator.test.js、
+ * ExcelTemplateMixedSelection.test.js。全部走真实组件与 store 代码路径，
+ * http/exportFile 仅打桩。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -104,12 +106,6 @@ async function renderPage() {
     ReactDOM.render(<Page store={store}/>, container);
   });
   await flush();
-}
-
-function buttonByText(text, root) {
-  const scope = root || container;
-  return Array.from(scope.querySelectorAll('button'))
-    .find(node => node.textContent.replace(/\s/g, '') === text.replace(/\s/g, ''));
 }
 
 function popconfirmButton(text) {
@@ -644,7 +640,7 @@ test('已停用模板工作区只读：发布禁用并说明原因，替换/打�
   expect(container.querySelector('.proto-field-panel').textContent).toContain('未选择');
 });
 
-// ==================== 「预览空白打印稿」+ 兼容性检查（2026-09-29） ====================
+// ==================== 打印预览视图（2026-10-21 统一观感，页内 iframe） ====================
 
 function stubPdfWindow() {
   const openMock = jest.fn().mockReturnValue({});
@@ -654,42 +650,66 @@ function stubPdfWindow() {
   return openMock;
 }
 
-test('有草稿时显示「预览空白打印稿」按钮，无草稿时禁用', async () => {
+/** 切换到「打印预览」视图（Radio.Button 须点击内部 input 才触发 onChange）。 */
+async function switchToPreview() {
+  const input = Array.from(
+    container.querySelectorAll('[data-testid="tpl-view-mode"] input'))
+    .find(node => node.value === 'preview');
+  await act(async () => {
+    input.click();
+  });
+  await flush();
+}
+
+test('工作区提供「字段绑定/打印预览」视图切换，默认字段绑定', async () => {
   const detail = makeDetail([BOUND_PS]);
   store.applyDetail({data: detail});
   await renderPage();
-  const button = buttonByText('预览空白打印稿（已保存参数）');
-  expect(button).toBeTruthy();
-  expect(button.disabled).toBe(false);
-  // 无草稿：按钮仍在但不可用
-  store.applyDetail({data: makeDetail([], {draft: null})});
+  expect(container.querySelector('[data-testid="tpl-view-mode"]')).toBeTruthy();
+  expect(container.querySelector('[data-testid="tpl-binding-view"]')).toBeTruthy();
+  expect(container.querySelector('[data-testid="tpl-print-preview"]')).toBeNull();
+  // 切到打印预览再切回：字段绑定视图与绑定面板状态保留（编辑状态不丢）
+  await switchToPreview();
+  expect(container.querySelector('[data-testid="tpl-print-preview"]')).toBeTruthy();
+  expect(container.querySelector('[data-testid="tpl-binding-view"]')).toBeNull();
+  await act(async () => {
+    Array.from(container.querySelectorAll('[data-testid="tpl-view-mode"] input'))
+      .find(node => node.value === 'binding').click();
+  });
   await flush();
-  expect(buttonByText('预览空白打印稿（已保存参数）').disabled).toBe(true);
+  expect(container.querySelector('[data-testid="tpl-binding-view"]')).toBeTruthy();
+  expect(container.querySelector('.proto-field-panel')).toBeTruthy();
 });
 
-test('点击「预览空白打印稿」：POST 预览接口，成功后新窗口打开', async () => {
-  const openMock = stubPdfWindow();
+test('打印预览视图：进入即请求预览接口，页面内 iframe 展示真实 PDF', async () => {
+  stubPdfWindow();
   const detail = makeDetail([BOUND_PS]);
   store.applyDetail({data: detail});
   mockHttpPost.mockResolvedValue({
     data: new ArrayBuffer(16),
-    headers: {'content-type': 'application/pdf'},
+    headers: {'content-type': 'application/pdf', 'x-el-pdf-pages': '2',
+              'x-el-pdf-paper': 'A4 210x297mm'},
   });
   await renderPage();
-  await act(async () => {
-    buttonByText('预览空白打印稿（已保存参数）').click();
-  });
-  await flush();
+  expect(mockHttpPost).not.toHaveBeenCalled();
+  await switchToPreview();
   expect(mockHttpPost).toHaveBeenCalledWith(
     '/api/equipment-lifecycle/excel-templates/11/preview/pdf/', null,
     expect.objectContaining({responseType: 'arraybuffer'}));
-  expect(window.URL.createObjectURL).toHaveBeenCalledTimes(1);
-  expect(openMock).toHaveBeenCalledWith('blob:preview-url', '_blank');
-  // 请求结束后 loading 复位
-  expect(store.previewing).toBe(false);
+  const iframe = container.querySelector('[data-testid="tpl-preview-iframe"]');
+  expect(iframe).toBeTruthy();
+  expect(iframe.src).toContain('blob:preview-url');
+  // 反馈：页数/纸张来自响应头真实读取，参数来源明确标注
+  expect(container.querySelector('[data-testid="tpl-preview-meta"]').textContent)
+    .toContain('2 页');
+  expect(container.querySelector('[data-testid="tpl-preview-meta"]').textContent)
+    .toContain('A4（210×297 mm）');
+  expect(container.querySelector('[data-testid="tpl-preview-meta"]').textContent)
+    .toContain('模板已保存的打印参数');
+  expect(store.printPreviewStale).toBe(false);
 });
 
-test('「预览空白打印稿」请求期间按钮 loading，结束后恢复', async () => {
+test('打印预览请求期间「刷新预览」按钮 loading，结束后恢复', async () => {
   stubPdfWindow();
   const detail = makeDetail([BOUND_PS]);
   store.applyDetail({data: detail});
@@ -698,51 +718,54 @@ test('「预览空白打印稿」请求期间按钮 loading，结束后恢复', 
     resolvePreview = resolve;
   }));
   await renderPage();
-  await act(async () => {
-    buttonByText('预览空白打印稿（已保存参数）').click();
-  });
+  await switchToPreview();
   await flush();
-  expect(buttonByText('预览空白打印稿（已保存参数）').className).toContain('ant-btn-loading');
+  const refresh = container.querySelector('[data-testid="tpl-preview-refresh"]');
+  expect(refresh.className).toContain('ant-btn-loading');
   await act(async () => {
     resolvePreview({data: new ArrayBuffer(16), headers: {}});
     await new Promise(resolve => setTimeout(resolve, 0));
   });
   await flush();
-  expect(buttonByText('预览空白打印稿（已保存参数）').className).not.toContain('ant-btn-loading');
+  expect(container.querySelector('[data-testid="tpl-preview-refresh"]').className)
+    .not.toContain('ant-btn-loading');
+  expect(store.printPreviewLoading).toBe(false);
 });
 
-test('弹窗被拦截时回退为下载', async () => {
-  const openMock = stubPdfWindow();
-  openMock.mockReturnValue(null);
+test('预览生成后保存绑定等详情刷新标记过期，页面提示需要刷新', async () => {
+  stubPdfWindow();
   const detail = makeDetail([BOUND_PS]);
   store.applyDetail({data: detail});
   mockHttpPost.mockResolvedValue({
-    data: new ArrayBuffer(16),
-    headers: {'content-type': 'application/pdf'},
+    data: new ArrayBuffer(16), headers: {'content-type': 'application/pdf'},
   });
   await renderPage();
+  await switchToPreview();
+  await flush();
+  expect(container.querySelector('[data-testid="tpl-preview-stale"]')).toBeNull();
+  // 预览后再保存绑定（applyDetail 是保存/刷新详情的真实路径）→ 过期提示
   await act(async () => {
-    buttonByText('预览空白打印稿（已保存参数）').click();
+    store.applyDetail({data: makeDetail([BOUND_PS])});
   });
   await flush();
-  // window.open 返回空（拦截）→ 仍创建对象 URL 并走下载（不报错、不提示成功之外的副作用）
-  expect(window.URL.createObjectURL).toHaveBeenCalledTimes(1);
-  expect(store.previewing).toBe(false);
+  expect(store.printPreviewStale).toBe(true);
+  expect(container.querySelector('[data-testid="tpl-preview-stale"]').textContent)
+    .toContain('请刷新预览');
 });
 
-test('「预览空白打印稿」失败：不显示成功提示，loading 复位', async () => {
+test('预览失败显示错误态可重试，不显示成功提示', async () => {
   stubPdfWindow();
   const detail = makeDetail([BOUND_PS]);
   store.applyDetail({data: detail});
   mockHttpPost.mockRejectedValue('LibreOffice 不可用，无法生成 PDF');
   await renderPage();
-  await act(async () => {
-    buttonByText('预览空白打印稿（已保存参数）').click();
-    await new Promise(resolve => setTimeout(resolve, 0));
-  });
+  await switchToPreview();
   await flush();
-  expect(store.previewing).toBe(false);
-  expect(window.URL.createObjectURL).not.toHaveBeenCalled();
+  expect(store.printPreviewLoading).toBe(false);
+  expect(store.printPreviewUrl).toBe('');
+  const errorPane = container.querySelector('[data-testid="tpl-preview-error"]');
+  expect(errorPane).toBeTruthy();
+  expect(errorPane.textContent).toContain('重试');
   expect(message.success).not.toHaveBeenCalled();
 });
 

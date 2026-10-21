@@ -20,12 +20,17 @@
 """
 from django.db import transaction
 from django.http import HttpResponse
+from django.utils.encoding import quote
 from django.views.generic import View
 
 from libs import auth, json_response
 
 from apps.logs.audit import record_audit_event
-from apps.equipment_lifecycle import excel_ledger_services, ledger_template_group_services
+from apps.equipment_lifecycle import (
+    excel_ledger_services,
+    excel_pdf_service,
+    ledger_template_group_services,
+)
 from apps.equipment_lifecycle.excel_ledger_services import ExcelLedgerError
 from apps.equipment_lifecycle.excel_template_views import (
     XLSX_CONTENT_TYPE,
@@ -189,6 +194,43 @@ class ExcelLedgerExportView(View):
         return response if response is not None else error
 
 
+class ExcelLedgerPrintPreviewView(View):
+    """打印预览 PDF（详情"打印预览"页签 / 翻阅真实打印预览）。
+
+    URL：POST /excel-ledgers/<pk>/print-preview/。与导出 PDF 同一生成
+    服务与同一模板级参数（保证「预览 = 下载」一致），Content-Disposition
+    inline 供 iframe/新窗口展示；带 X-El-Pdf-Pages/X-El-Pdf-Paper 真实
+    反馈头（pypdf 读取生成结果）。结果按内容寻址缓存，台账值、版本或
+    参数变化自然失效。
+    """
+
+    @_na
+    @auth('equipment_lifecycle.ledger.export')
+    def post(self, request, pk):
+        ledger = excel_ledger_services.get_ledger(pk, request.user)
+        if not ledger:
+            return json_response(error='台账不存在')
+        try:
+            content, cached = excel_ledger_services.print_preview_pdf(
+                request.user, ledger)
+        except ExcelLedgerError as e:
+            return json_response(error=str(e))
+        record_audit_event(
+            request, 'export', AUDIT_TARGET_LEDGER, ledger.id, ledger.ledger_no,
+            after_value={'format': 'pdf', 'preview': True, 'cached': cached,
+                         'version_id': ledger.excel_record.version_id})
+        base_name = excel_ledger_services.export_base_name(ledger)
+        response = HttpResponse(content, content_type=PDF_CONTENT_TYPE)
+        response['Content-Disposition'] = "inline; filename*=UTF-8''%s" % quote(
+            '%s-打印预览.pdf' % base_name)
+        info = excel_pdf_service.pdf_page_info(content)
+        if info.get('pages') is not None:
+            response['X-El-Pdf-Pages'] = str(info['pages'])
+        if info.get('paper'):
+            response['X-El-Pdf-Paper'] = info['paper']
+        return response
+
+
 class ExcelLedgerExportCheckView(View):
     """导出前版式预检：POST /excel-ledgers/<pk>/export/check/。
 
@@ -258,3 +300,54 @@ class LedgerTemplateGroupPdfExportView(View):
                          'group_key': str(group_key), 'count': count,
                          'status': filters['status']})
         return file_response(filename, content, PDF_CONTENT_TYPE)
+
+
+class LedgerMultiTemplatePdfExportView(View):
+    """台账列表"批量导出 PDF"（按模板多选，2026-10-21）。
+
+    URL：/ledgers/export-pdf/，替换原"导出明细 CSV"入口（周月维护/季维护
+    两个列表的"按维护周期"与"按模板查看"视图共用）：
+    - GET：模板候选清单（本租户、指定台账类型，含已停用但有历史台账的
+      模板；各状态数量与版本分布供弹窗预览与选择）；
+    - POST：实际导出。请求体 JSON {ledger_type, template_ids, status,
+      expected_totals}：后端按模板 ID 重新查询完整记录（不信任前端数量），
+      每模板一份合并 PDF，多模板打包 ZIP；expected_totals 与当前数量不一致
+      时明确报错要求重新确认；任一条生成失败整体失败，不返回部分产物。
+    导出为文件副作用视图，使用 transaction.non_atomic_requests。
+    """
+
+    @_na
+    @auth('equipment_lifecycle.ledger.export')
+    def get(self, request):
+        try:
+            data = ledger_template_group_services.list_export_templates(
+                request.user, request.GET.get('ledger_type') or '')
+        except LedgerValidationError as e:
+            return json_response(error=str(e))
+        return json_response({'data': data})
+
+    @_na
+    @auth('equipment_lifecycle.ledger.export')
+    def post(self, request):
+        body = _read_json_body(request)
+        if not isinstance(body, dict):
+            return json_response(error='请先选择要导出的模板')
+        try:
+            filename, content, count = ledger_template_group_services.export_templates_pdfs(
+                request.user,
+                body.get('ledger_type') or '',
+                body.get('template_ids'),
+                status=body.get('status') or '',
+                expected_totals=body.get('expected_totals'),
+            )
+        except LedgerValidationError as e:
+            return json_response(error=str(e))
+        record_audit_event(
+            request, 'export', AUDIT_TARGET_LEDGER, None, filename,
+            after_value={'action_kind': 'batch_templates_pdf',
+                         'ledger_type': body.get('ledger_type') or '',
+                         'templates': len(body.get('template_ids') or []),
+                         'count': count, 'status': body.get('status') or ''})
+        content_type = (ledger_template_group_services.ZIP_CONTENT_TYPE
+                        if filename.endswith('.zip') else PDF_CONTENT_TYPE)
+        return file_response(filename, content, content_type)

@@ -1,10 +1,13 @@
 /**
  * Excel 台账模板页列表测试（真实渲染 + jsdom + http mock，2026-09-28 试点；
- * 2026-10-14 交互改造；绑定工作区测试见同目录 ExcelTemplatePageWorkspace.test.js）。
+ * 2026-10-14 交互改造；2026-10-21 新建流程配置前置；绑定工作区测试见同目录
+ * ExcelTemplatePageWorkspace.test.js）。
  *
- * 覆盖：列表渲染（唯一主操作「新建模板」+ 弹窗流程、行操作按状态、更多
- * 菜单、停用确认与权限）→ 上传守卫 → 上传成功进入绑定工作区。
- * 全部走真实组件与 store 代码路径，http/exportFile 仅打桩。
+ * 覆盖：列表渲染（唯一主操作「新建模板」、行操作按状态、更多菜单、停用
+ * 确认与权限）→ 新建流程（2026-10-21 配置前置：名称/类型/适用系统/
+ * 生成周期/文件集中弹窗一次完成，缺项在对应位置提示，选择文件不上传，
+ * 切换类型收敛周期，一次提交全部字段，失败可重试）→ 上传成功进入绑定
+ * 工作区。全部走真实组件与 store 代码路径，http/exportFile 仅打桩。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -521,30 +524,206 @@ test('store 双视图：拆分数量、关键词与类型过滤、切换分页�
   expect(store.listPage).toBe(1);
 });
 
-test('上传守卫：未填名称/类型不发请求，填齐后走上传', async () => {
-  const Page = loadPage();
-  let instance = null;
+// ==================== 新建模板流程（2026-10-21 配置前置） ====================
+
+/** 新建表单选项（create-options 端点返回：系统清单 + 按类型收敛的周期）。 */
+const CREATE_OPTIONS = {
+  systems: [
+    {id: 3, system_code: 'SYS-3', name: 'DVOR系统', is_active: true},
+    {id: 4, system_code: 'SYS-4', name: 'ILS系统', is_active: false},
+  ],
+  periods: {
+    week_month: [
+      {value: 'weekly', label: '每周'},
+      {value: 'monthly', label: '每月'},
+    ],
+    seasonal: [{value: 'seasonal', label: '每航季'}],
+  },
+};
+
+function mockListAndOptions() {
+  mockHttpGet.mockImplementation(url => {
+    if (url.endsWith('/create-options/')) {
+      return Promise.resolve({data: CREATE_OPTIONS});
+    }
+    return Promise.resolve({data: []});
+  });
+}
+
+async function openCreateModal() {
+  mockListAndOptions();
+  await renderPage();
   await act(async () => {
-    instance = ReactDOM.render(<Page store={store}/>, container);
+    container.querySelector('[data-testid="tpl-create"]').click();
   });
   await flush();
-  // 守卫：名称/类型未填 → 返回 false、warning、不发请求
-  let result = null;
+  return document.body.querySelector('.ant-modal');
+}
+
+function modalButton(modal, text) {
+  return Array.from(modal.querySelectorAll('button'))
+    .find(node => node.textContent.replace(/\s/g, '') === text);
+}
+
+test('新建流程：弹窗集中名称/类型/适用系统/生成周期/文件，下载样例仅一处', async () => {
+  const modal = await openCreateModal();
+  expect(modal.textContent).toContain('新建 Excel 台账模板');
+  expect(modal.querySelector('[data-testid="tpl-name"]')).toBeTruthy();
+  expect(modal.querySelector('[data-testid="tpl-type"]')).toBeTruthy();
+  expect(modal.querySelector('[data-testid="tpl-system"]')).toBeTruthy();
+  expect(modal.querySelector('[data-testid="tpl-period"]')).toBeTruthy();
+  expect(modal.querySelector('[data-testid="tpl-upload"]')).toBeTruthy();
+  expect(modal.querySelector('[data-testid="tpl-create-submit"]')).toBeTruthy();
+  // 下载样例只出现在该流程内（全页面仅一处）
+  const samples = Array.from(document.body.querySelectorAll('button'))
+    .filter(node => node.textContent.replace(/\s/g, '') === '下载样例');
+  expect(samples).toHaveLength(1);
   await act(async () => {
-    result = instance.handleUpload({name: 'channel.xlsx'});
+    samples[0].click();
   });
-  expect(result).toBe(false);
-  expect(message.warning).toHaveBeenCalledWith('请先填写模板名称并选择维护类型');
+  expect(mockExportFile).toHaveBeenCalledWith(expect.objectContaining({
+    url: '/api/equipment-lifecycle/excel-templates/sample/',
+    method: 'get',
+  }));
+});
+
+test('新建流程：缺项在对应位置提示且不发请求', async () => {
+  const modal = await openCreateModal();
+  await act(async () => {
+    modalButton(modal, '创建并进入模板编辑').click();
+  });
+  await flush();
+  // 统一校验：缺项逐项提示，不发起任何创建请求
   expect(mockHttpPost).not.toHaveBeenCalled();
-  // 填齐 → 走上传（返回 false 阻止 antd 默认上传行为，请求已发出）
+  ['name', 'uploadType', 'uploadSystem', 'uploadPeriod', 'file'].forEach(key => {
+    const line = modal.querySelector(`[data-testid="tpl-create-error-${key}"]`);
+    expect(line).toBeTruthy();
+    expect(line.textContent).toContain('请');
+  });
+});
+
+test('新建流程：选择文件只登记不上传，可移除重新选择', async () => {
+  const modal = await openCreateModal();
+  const input = modal.querySelector('input[type="file"]');
+  expect(input).toBeTruthy();
+  Object.defineProperty(input, 'files', {
+    value: [new window.File(['x'], 'channel.xlsx')],
+  });
+  await act(async () => {
+    input.dispatchEvent(new window.Event('change', {bubbles: true}));
+  });
+  await flush();
+  // 文件名展示，无任何上传请求
+  expect(modal.querySelector('[data-testid="tpl-file-name"]').textContent)
+    .toContain('channel.xlsx');
+  expect(mockHttpPost).not.toHaveBeenCalled();
+  // 非 .xlsx 直接拒绝
+  Object.defineProperty(input, 'files', {
+    value: [new window.File(['x'], 'old.xls')],
+  });
+  await act(async () => {
+    input.dispatchEvent(new window.Event('change', {bubbles: true}));
+  });
+  await flush();
+  expect(message.error).toHaveBeenCalledWith(
+    '仅支持 .xlsx 文件（暂不支持 .xls 与 WPS 私有格式）');
+  expect(store.uploadFileName).toBe('channel.xlsx');
+  // 移除已选文件
+  await act(async () => {
+    modal.querySelector('[data-testid="tpl-file-remove"]').click();
+  });
+  await flush();
+  expect(modal.querySelector('[data-testid="tpl-file-name"]')).toBeNull();
+  expect(store.pendingCreateFile).toBeNull();
+  expect(mockHttpPost).not.toHaveBeenCalled();
+});
+
+test('新建流程：切换台账类型收敛生成周期（季维护自动设每航季）', async () => {
+  await openCreateModal();
+  // 季维护：自动设置并明确显示每航季
+  store.setUploadField('uploadType', 'seasonal');
+  expect(store.uploadPeriod).toBe('seasonal');
+  // 切回周月维护：清除不兼容的周期值
+  store.setUploadField('uploadType', 'week_month');
+  expect(store.uploadPeriod).toBe('');
+  // 周月维护兼容周期保留
+  store.setUploadField('uploadPeriod', 'weekly');
+  store.setUploadField('uploadType', 'week_month');
+  expect(store.uploadPeriod).toBe('weekly');
+  // 再切季维护：重新自动设置为每航季
+  store.setUploadField('uploadType', 'seasonal');
+  expect(store.uploadPeriod).toBe('seasonal');
+  // 周期候选按类型收敛（季维护只有每航季）
+  expect(store.createPeriodOptions.map(p => p.value)).toEqual(['seasonal']);
+});
+
+test('新建流程：填齐后点创建一次提交全部字段并进入工作区', async () => {
+  const modal = await openCreateModal();
   store.setUploadField('uploadName', '信道Excel维护台账');
   store.setUploadField('uploadType', 'week_month');
-  await act(async () => {
-    result = instance.handleUpload({name: 'channel.xlsx'});
+  store.setUploadField('uploadSystem', 3);
+  store.setUploadField('uploadPeriod', 'weekly');
+  const input = modal.querySelector('input[type="file"]');
+  Object.defineProperty(input, 'files', {
+    value: [new window.File(['x'], 'channel.xlsx')],
   });
-  expect(result).toBe(false);
+  await act(async () => {
+    input.dispatchEvent(new window.Event('change', {bubbles: true}));
+  });
+  await flush();
+  expect(mockHttpPost).not.toHaveBeenCalled();
+  mockHttpPost.mockResolvedValue({data: makeDetail()});
+  await act(async () => {
+    modalButton(modal, '创建并进入模板编辑').click();
+  });
+  await flush();
+  // 一次提交携带全部字段（multipart），成功后才提示并进入绑定工作区
   expect(mockHttpPost).toHaveBeenCalledTimes(1);
-  expect(mockHttpPost.mock.calls[0][0]).toBe('/api/equipment-lifecycle/excel-templates/');
+  const [url, formData] = mockHttpPost.mock.calls[0];
+  expect(url).toBe('/api/equipment-lifecycle/excel-templates/');
+  expect(formData.get('name')).toBe('信道Excel维护台账');
+  expect(formData.get('ledger_type')).toBe('week_month');
+  expect(String(formData.get('system'))).toBe('3');
+  expect(formData.get('generation_period')).toBe('weekly');
+  expect(formData.get('file')).toBeTruthy();
+  expect(store.createVisible).toBe(false);
+  expect(store.current.name).toBe('信道Excel维护台账');
+  expect(container.textContent).toContain('信道Excel维护台账');
+  expect(message.success).toHaveBeenCalledWith('模板创建成功，请绑定可填写单元格');
+});
+
+test('新建流程：创建失败弹窗保持打开可重试，不显示成功提示', async () => {
+  const modal = await openCreateModal();
+  store.setUploadField('uploadName', '信道Excel维护台账');
+  store.setUploadField('uploadType', 'week_month');
+  store.setUploadField('uploadSystem', 3);
+  store.setUploadField('uploadPeriod', 'weekly');
+  const input = modal.querySelector('input[type="file"]');
+  Object.defineProperty(input, 'files', {
+    value: [new window.File(['x'], 'bad.xlsx')],
+  });
+  await act(async () => {
+    input.dispatchEvent(new window.Event('change', {bubbles: true}));
+  });
+  await flush();
+  mockHttpPost.mockRejectedValue('模板包含平台暂不支持的特性：公式计算');
+  await act(async () => {
+    modalButton(modal, '创建并进入模板编辑').click();
+  });
+  await flush();
+  expect(mockHttpPost).toHaveBeenCalledTimes(1);
+  expect(store.createVisible).toBe(true);
+  expect(store.current).toBeNull();
+  expect(message.success).not.toHaveBeenCalled();
+  // 修正后可重试：第二次请求成功
+  mockHttpPost.mockResolvedValue({data: makeDetail()});
+  await act(async () => {
+    modalButton(modal, '创建并进入模板编辑').click();
+  });
+  await flush();
+  expect(mockHttpPost).toHaveBeenCalledTimes(2);
+  expect(store.createVisible).toBe(false);
+  expect(message.success).toHaveBeenCalledWith('模板创建成功，请绑定可填写单元格');
 });
 
 test('上传成功进入绑定工作区并渲染合并布局', async () => {

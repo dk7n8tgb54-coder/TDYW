@@ -10,12 +10,12 @@
  */
 import React from 'react';
 import {observer} from 'mobx-react';
-import {Input, Select, Tooltip} from 'antd';
-import {AppstoreAddOutlined, PlusOutlined} from '@ant-design/icons';
-import {AuthButton, ExportButton, SearchForm} from 'components';
+import {Input, Select} from 'antd';
+import {AppstoreAddOutlined, FilePdfOutlined, PlusOutlined} from '@ant-design/icons';
+import {AuthButton, SearchForm} from 'components';
 import LedgerPeriodOverviewCard from './LedgerPeriodOverviewCard';
 import LedgerGroupTable from './LedgerGroupTable';
-import {API_PREFIX_L, LEDGER_TYPE_TEXT, PERM_L, STATUS_FILTER_OPTIONS} from './constants';
+import {LEDGER_TYPE_TEXT, PERM_L, STATUS_FILTER_OPTIONS} from './constants';
 
 // observer：筛选控件直接读取 store.f_keyword / f_status / f_system，输入后需触发重渲染
 const PeriodSearchForm = observer(function PeriodSearchForm({store}) {
@@ -72,7 +72,7 @@ const PeriodSearchForm = observer(function PeriodSearchForm({store}) {
   );
 });
 
-function LedgerPeriodView({store, ledgerType, columns, onGenerate, onExcelCreate, onNativeCreate}) {
+function LedgerPeriodView({store, ledgerType, columns, onGenerate, onExcelCreate, onMultiExport}) {
   return (
     <React.Fragment>
       <LedgerPeriodOverviewCard store={store}/>
@@ -94,22 +94,14 @@ function LedgerPeriodView({store, ledgerType, columns, onGenerate, onExcelCreate
           onClick={onExcelCreate}>
           新增{LEDGER_TYPE_TEXT[ledgerType]}台账
         </AuthButton>
+        {/* 批量导出 PDF（2026-10-21）：替换原"导出明细 CSV"入口，按模板多选导出 */}
         <AuthButton
-          auth={PERM_L.LED_ADD}
-          icon={<PlusOutlined/>}
-          data-testid="native-create-open"
-          onClick={onNativeCreate}>
-          按原生模板新增
+          auth={PERM_L.LED_EXPORT}
+          icon={<FilePdfOutlined/>}
+          data-testid="multi-export-open"
+          onClick={onMultiExport}>
+          批量导出 PDF
         </AuthButton>
-        <Tooltip title="导出台账明细数据（手工补录台账的检查项目明细行，携带当前筛选）；Excel/原生模板台账请在台账详情中导出填写完整的 PDF。">
-          <ExportButton
-            auth={PERM_L.LED_EXPORT}
-            url={`${API_PREFIX_L}/ledgers/export/`}
-            params={store.periodExportParams()}
-            filename={`${LEDGER_TYPE_TEXT[ledgerType]}台账明细.csv`}>
-            导出明细 CSV
-          </ExportButton>
-        </Tooltip>
       </div>
       <LedgerGroupTable store={store} columns={columns}/>
     </React.Fragment>

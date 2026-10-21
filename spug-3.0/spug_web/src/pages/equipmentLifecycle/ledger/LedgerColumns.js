@@ -31,7 +31,6 @@ export function sourceTypeOf(record) {
   if (record.created_from === 'excel_template') return 'excel';
   return 'manual';
 }
-
 function statusTitle(record) {
   if (record.status === 'void' && record.void_reason) {
     return `作废原因：${record.void_reason}`;
@@ -178,14 +177,14 @@ export function buildColumns(store, ledgerType, openDetail, inGroup = false) {
       title: '模板版本', key: 'source_version', width: 90,
       render: (v, record) => {
         const source = sourceTypeOf(record);
-        return (source === 'excel' || source === 'native') && record.source_version_no
+        return source === 'excel' && record.source_version_no
           ? `v${record.source_version_no}` : '—';
       },
     } : {
       title: '模板名称', key: 'template_name', width: 160, ellipsis: true,
       render: (v, record) => {
         const source = sourceTypeOf(record);
-        return (source === 'excel' || source === 'native')
+        return source === 'excel'
           ? (record.source_template_name || '—') : '—';
       },
     },

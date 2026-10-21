@@ -10,7 +10,9 @@
  * - 两个填写列表入口：周月维护与季维护列表各有"生成本期应填台账"按钮，
  *   点击后拉取对应类型的预览（互不串扰）；
  * - 周期视图操作区（2026-10-20 视觉密度整轮）："生成本期应填台账"为唯一
- *   主按钮，Excel/原生新增与导出明细 CSV 为次级默认按钮且全部在位。
+ *   主按钮，Excel 新增与"批量导出 PDF"为次级默认按钮且全部在位
+ *   （原生模板新增入口已随原生路线整体下线删除，2026-10-20；
+ *   明细导出 CSV 已于 2026-10-21 替换为"批量导出 PDF"按模板多选入口）。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -162,6 +164,11 @@ function findButton(text) {
     .find(el => el.textContent.replace(/\s+/g, '') === text);
 }
 
+function findButtonStarting(text) {
+  return Array.from(document.body.querySelectorAll('button'))
+    .find(el => el.textContent.replace(/\s+/g, '').startsWith(text));
+}
+
 describe('LedgerStore 生成预览与生成', () => {
   test('fetchGeneratePreview 携带台账类型并映射预览数据', async () => {
     mockHttpGet.mockResolvedValue({data: PREVIEW_PAYLOAD});
@@ -178,9 +185,10 @@ describe('LedgerStore 生成预览与生成', () => {
   test('generatePeriodLedgers 提交类型、保存实际结果并刷新当前视图', async () => {
     mockHttpPost.mockResolvedValue({data: GENERATE_RESULT});
     const store = new LedgerStore('week_month');
-    const result = await store.generatePeriodLedgers('week_month');
+    const result = await store.generatePeriodLedgers('week_month', ['weekly'], [7]);
     expect(mockHttpPost).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/ledgers/period-generate/', {ledger_type: 'week_month'});
+      '/api/equipment-lifecycle/ledgers/period-generate/', {
+        ledger_type: 'week_month', maintenance_cycles: ['weekly'], template_ids: [7]});
     expect(result.created).toHaveLength(1);
     expect(result.created[0].ledger_no).toBe('EL-WM-20261012-0001');
     expect(store.generatePeriodResult.failed).toHaveLength(2);
@@ -222,15 +230,17 @@ describe('LedgerPeriodGenerateModal 预览与生成弹窗', () => {
     expect(text).toContain('缺少可用版本：模板尚未发布任何版本');
     expect(mockHttpGet).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/ledgers/period-generate/',
-      {params: {ledger_type: 'week_month'}});
+      {params: {ledger_type: 'week_month', maintenance_cycles: ['weekly']}});
   });
 
   test('无可新建条目时确认按钮禁用，不发起生成请求', async () => {
     mockHttpGet.mockResolvedValue({data: {...PREVIEW_PAYLOAD,
-      summary: {create: 0, exists: 2, no_version: 1, manual_needed: 1}}});
+      entries: PREVIEW_PAYLOAD.entries.map(entry => entry.status === 'create'
+        ? {...entry, status: 'exists'} : entry),
+      summary: {create: 0, exists: 3, no_version: 1, manual_needed: 1}}});
     const store = new LedgerStore('week_month');
     await renderModal(store);
-    const ok = findButton('确认生成');
+    const ok = findButtonStarting('确认生成（');
     expect(ok.disabled).toBe(true);
     expect(mockHttpPost).not.toHaveBeenCalled();
   });
@@ -240,7 +250,7 @@ describe('LedgerPeriodGenerateModal 预览与生成弹窗', () => {
     mockHttpPost.mockResolvedValue({data: GENERATE_RESULT});
     const store = new LedgerStore('week_month');
     await renderModal(store);
-    const ok = findButton('确认生成');
+    const ok = findButtonStarting('确认生成（');
     await act(async () => {
       ok.click();
     });
@@ -251,7 +261,8 @@ describe('LedgerPeriodGenerateModal 预览与生成弹窗', () => {
     expect(text).toContain('EL-WM-20261012-0001');
     expect(text).toContain('缺少可用版本：模板尚未发布任何版本');
     expect(mockHttpPost).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/ledgers/period-generate/', {ledger_type: 'week_month'});
+      '/api/equipment-lifecycle/ledgers/period-generate/', {
+        ledger_type: 'week_month', maintenance_cycles: ['weekly'], template_ids: [7]});
   });
 
   test('作废占用的槽位提供"补建"（2026-10-16），补建后重拉预览刷新判定', async () => {
@@ -347,19 +358,22 @@ describe('两个填写列表的生成入口', () => {
     expect(buttons.length).toBe(1);
   });
 
-  test('周期视图操作区：生成为唯一主按钮，新增/原生新增/导出次级入口全部在位', async () => {
+  test('周期视图操作区：生成为唯一主按钮，新增/导出次级入口全部在位', async () => {
     await renderIndex('week_month');
     const buttons = Array.from(container.querySelectorAll('button'));
     // 唯一突出主操作
     const primary = buttons.filter(el => el.getAttribute('data-btn-type') === 'primary');
     expect(primary).toHaveLength(1);
     expect(primary[0].textContent).toContain('生成本期应填台账');
-    // 现有操作不隐藏：手动新增两条路线 + 明细导出均为次级默认按钮
+    // 现有操作不隐藏：手动新增 + 批量导出 PDF 均为次级默认按钮
+    // （原生模板新增入口已随原生路线整体下线删除，不得再出现；
+    // 明细导出 CSV 已于 2026-10-21 替换为"批量导出 PDF"入口）
     const entryOf = text => buttons.find(el => el.textContent.includes(text));
     expect(entryOf('新增周月维护台账')).toBeTruthy();
-    expect(entryOf('按原生模板新增')).toBeTruthy();
-    expect(entryOf('导出明细 CSV')).toBeTruthy();
-    ['新增周月维护台账', '按原生模板新增', '导出明细 CSV'].forEach(text => {
+    expect(entryOf('按原生模板新增')).toBeUndefined();
+    expect(entryOf('批量导出 PDF')).toBeTruthy();
+    expect(entryOf('导出明细 CSV')).toBeUndefined();
+    ['新增周月维护台账', '批量导出 PDF'].forEach(text => {
       expect(entryOf(text).getAttribute('data-btn-type')).toBeNull();
     });
   });

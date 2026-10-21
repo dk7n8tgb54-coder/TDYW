@@ -1,3 +1,11 @@
+/**
+ * Excel 模板工作区样式（2026-10-21 统一观感改版）。
+ *
+ * 头部/信息行/配置弹窗样式保持 excel-workspace-*；绑定视图中央表格区
+ * 复用填写视图的 el-fill-*（灰底白纸/纸张卡片/分页参考线/缩放视口，
+ * 见 components/FillWorkspace.less——展示层共用，不在此重复定义）。
+ */
+
 .excel-template-workspace {
   background: #fff;
   border: 1px solid #e5e9ef;
@@ -50,18 +58,27 @@
     font-size: 12px;
   }
 
-  .excel-workspace-body {
-    display: grid;
-    grid-template-columns: 310px minmax(0, 1fr);
-    min-height: 520px;
-  }
-
   .excel-workspace-sidebar {
+    flex: 0 0 300px;
     min-width: 0;
-    max-height: 72vh;
+    max-height: calc(100vh - 220px);
     overflow-y: auto;
     background: #fafbfc;
-    border-right: 1px solid #e5e9ef;
+    border: 1px solid #e5e9ef;
+    border-radius: 4px;
+  }
+
+  .excel-workspace-sidebar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 8px 8px 14px;
+    border-bottom: 1px solid #eef1f5;
+
+    strong {
+      font-size: 13px;
+      color: #2c3e50;
+    }
   }
 
   .excel-workspace-section {
@@ -137,33 +154,27 @@
     color: #687782;
     font-size: 11px;
   }
+}
 
-  .excel-workspace-sheet {
-    min-width: 0;
-    padding: 12px;
-  }
-
-  .excel-workspace-sheet .proto-table-wrap {
-    max-height: 70vh;
-  }
+// 新建模板弹窗缺项提示（2026-10-21 配置前置：缺项在对应位置提示）
+.excel-create-field-error {
+  margin-top: 4px;
+  color: #f5222d;
+  font-size: 12px;
 }
 
 @media (max-width: 1100px) {
   .excel-template-workspace {
-    .excel-workspace-body {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .excel-workspace-sheet {
-      order: 0;
-    }
-
     .excel-workspace-sidebar {
+      flex: 0 0 auto;
       order: 1;
-      max-height: none;
-      border-right: 0;
-      border-top: 1px solid #e5e9ef;
+      width: 100%;
+      max-height: 34vh;
+    }
+
+    .el-fill-main {
+      order: 0;
+      width: 100%;
     }
   }
 }

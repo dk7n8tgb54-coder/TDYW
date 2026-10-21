@@ -1,0 +1,41 @@
+{
+  "plan_version": 1,
+  "paper": {
+    "name": "A4",
+    "width_mm": 297,
+    "height_mm": 210,
+    "orientation": "landscape"
+  },
+  "margins_mm": {
+    "top": 25.4,
+    "bottom": 25.4,
+    "left": 19.1,
+    "right": 19.1
+  },
+  "scale": 0.7914,
+  "horizontal_centered": false,
+  "vertical_centered": false,
+  "page_count": 1,
+  "warnings": [],
+  "sheets": {
+    "巡检记录": {
+      "scale": 0.7914,
+      "page_count": 1,
+      "print_row_start": 1,
+      "print_row_end": 33,
+      "print_col_start": 1,
+      "print_col_end": 12,
+      "row_breaks": [],
+      "col_breaks": [],
+      "pages": [
+        {
+          "row_start": 1,
+          "row_end": 33,
+          "repeat_rows": null,
+          "col_start": 1,
+          "col_end": 12
+        }
+      ]
+    }
+  }
+}

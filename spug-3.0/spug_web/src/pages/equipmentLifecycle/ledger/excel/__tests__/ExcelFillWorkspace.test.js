@@ -162,40 +162,78 @@ test('合并格定位到实际填写锚点（B2:D2 的锚点即输入控件所�
   expect(td.className).toContain('proto-cell-locate');
 });
 
-test('适合页宽按可用宽度等比缩放，原始尺寸恢复 100%', async () => {
+test('适合页宽用 transform 等比缩放，布局像素保持不变（2026-10-21 统一打印布局）', async () => {
   const store = makeStore();
   await renderWorkspace(store);
   const table = container.querySelector('table.proto-table');
   const area = container.querySelector('[data-testid="fill-sheet-area"]');
   Object.defineProperty(table, 'offsetWidth', {value: 1200, configurable: true});
-  Object.defineProperty(area, 'clientWidth', {value: 1048, configurable: true});
+  Object.defineProperty(table, 'offsetHeight', {value: 200, configurable: true});
+  Object.defineProperty(area, 'clientWidth', {value: 1248, configurable: true});
   await act(async () => { clickRadio(container, '适合页宽'); });
-  const scale = 1000 / 1200;
-  // 列宽/行高基准：A 列 12.5 字符 → round(12.5×7+5)=93；默认行高 → 19px
-  expect(parseFloat(container.querySelector('col').style.width))
-    .toBeCloseTo(93 * scale, 5);
-  expect(parseFloat(container.querySelector('tbody tr').style.height))
-    .toBeCloseTo(19 * scale, 5);
+  // 内容宽度 = max(纸张页宽 794, 左边距 67 + 表格 1200 + 右边距 67
+  // + 卡片边框 2) = 1336，缩放 = 可用宽 1200 / 1336，只作用于外层
+  // transform——列宽行高等布局像素不乘缩放，文字/边框/内边距随
+  // transform 同步等比（换行与分页位置不随倍率变化）
+  const viewport = container.querySelector('.el-fill-zoom-viewport');
+  const sizer = container.querySelector('[data-testid="fill-zoom-sizer"]');
+  expect(parseFloat(viewport.style.transform.replace('scale(', '')))
+    .toBeCloseTo(1200 / 1336, 5);
+  expect(sizer.style.width).toBe(`${Math.round(1336 * (1200 / 1336))}px`);
+  expect(container.querySelector('col').style.width).toBe('93px');
+  expect(container.querySelector('tbody tr').style.height).toBe('19px');
   await act(async () => { clickRadio(container, '原始尺寸'); });
+  expect(container.querySelector('.el-fill-zoom-viewport').style.transform)
+    .toBe('scale(1)');
   expect(container.querySelector('col').style.width).toBe('93px');
   expect(container.querySelector('tbody tr').style.height).toBe('19px');
 });
 
-test('纸张边界：A4 纵向卡片与说明（模板打印参数跨工作表保持）', async () => {
+test('纸张边界：A4 纵向卡片整页高度含下边距，说明与参考框（模板打印参数跨工作表保持）', async () => {
   const store = makeStore();
   await renderWorkspace(store);
   expect(container.querySelector('[data-testid="fill-paper-caption"]').textContent)
     .toBe('纸张：A4 · 纵向');
   const paper = container.querySelector('[data-testid="fill-paper"]');
   expect(paper.style.width).toBe('794px');   // 210mm @96dpi
-  expect(paper.style.minHeight).toBe('1123px');
+  expect(paper.style.height).toBe('1123px'); // 297mm 整页（含上下边距，2026-10-21）
+  expect(paper.style.paddingBottom).toBe('72px'); // 下边距 1.91cm → 72px
   expect(paper.className).not.toContain('el-fill-paper-plain');
+  // 每页一张打印范围参考框（四边缩进页边距；仅网页辅助）
+  const rect = container.querySelector('.el-fill-print-rect');
+  expect(rect).toBeTruthy();
+  expect(rect.style.top).toBe('72px');
   // 模板级打印参数作用于整个工作簿：切到其它工作表纸张说明保持
   await act(async () => { clickSheetTab(1); });
   expect(container.querySelector('[data-testid="fill-paper-caption"]').textContent)
     .toBe('纸张：A4 · 纵向');
   expect(container.querySelector('[data-testid="fill-paper"]').className)
     .not.toContain('el-fill-paper-plain');
+});
+
+test('统一打印计划：分页参考线按计划换算像素，页数进纸张说明', async () => {
+  const plan = {
+    plan_version: 1,
+    paper: {name: 'A4', width_mm: 210, height_mm: 297, orientation: 'portrait'},
+    margins_mm: {top: 19.1, bottom: 19.1, left: 17.8, right: 17.8},
+    scale: 1, page_count: 2, warnings: [],
+    sheets: {
+      '维护记录': {
+        scale: 1, page_count: 2, print_row_start: 1, print_row_end: 6,
+        print_col_start: 1, print_col_end: 6,
+        row_breaks: [4], col_breaks: [], pages: [],
+      },
+    },
+  };
+  const store = makeStore({excel: {version: {print_plan: plan}}});
+  await renderWorkspace(store);
+  expect(container.querySelector('[data-testid="fill-paper-caption"]').textContent)
+    .toBe('纸张：A4 · 纵向 · 共 2 页');
+  // 分页行 4 的参考线：上方 3 行默认行高 19px × 3 = 57px，加页面上边距 72px
+  const guide = container.querySelector('[data-testid="fill-page-guide"]');
+  expect(guide).toBeTruthy();
+  expect(guide.style.top).toBe('129px');
+  expect(guide.textContent).toContain('第 2 页');
 });
 
 test('版本无打印参数时回退布局 meta 页面设置：按工作表差异退化', async () => {

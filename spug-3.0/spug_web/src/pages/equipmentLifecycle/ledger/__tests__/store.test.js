@@ -462,14 +462,12 @@ describe('LedgerStore 已作废默认隐藏与"全部"筛选（2026-10-17）', (
     expect(call[1].params.status).toBeUndefined();
   });
 
-  test('选择"全部"后周期分组与明细 CSV 导出请求携带 status=all', async () => {
+  test('选择"全部"后周期分组请求携带 status=all', async () => {
     const store = new LedgerStore(LEDGER_TYPE.WEEK_MONTH);
     store.f_status = STATUS_FILTER_ALL;
     await store.fetchGroups();
     const call = mockHttpGet.mock.calls.find(c => c[0] === GROUPS_URL);
     expect(call[1].params.status).toBe('all');
-    expect(store.periodExportParams()).toEqual(
-      {ledger_type: 'week_month', status: 'all'});
   });
 
   test('模板视图选"全部"：组列表与组内列表同口径携带 status=all', async () => {

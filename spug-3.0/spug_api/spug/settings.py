@@ -344,6 +344,11 @@ TEXT_PREVIEW_MAX_SIZE = 2 * 1024 * 1024
 KKFILEVIEW_API_URL = os.environ.get('KKFILEVIEW_API_URL', '')
 KKFILEVIEW_SERVER_URL = os.environ.get('KKFILEVIEW_SERVER_URL', '')
 
+# Excel 台账 PDF 生成引擎（2026-10-21）：libreoffice（缺省，既有路径）/
+# chromium（浏览器打印引擎：网页与 PDF 共用统一打印布局）/ auto（chromium
+# 可用时优先，回落 libreoffice）。生产 compose 缺省注入 chromium。
+EXCEL_PDF_ENGINE = os.environ.get('EXCEL_PDF_ENGINE', '')
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',

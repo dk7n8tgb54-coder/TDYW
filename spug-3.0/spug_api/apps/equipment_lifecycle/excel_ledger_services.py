@@ -32,7 +32,7 @@ from django.utils import timezone
 from libs.pagination import paginate
 from libs.tenant_utils import apply_tenant_filter
 
-from apps.equipment_lifecycle import excel_pdf_service, excel_template_manage, excel_template_storage
+from apps.equipment_lifecycle import excel_pdf_service, excel_template_manage, excel_template_storage, excel_print_cache
 from apps.equipment_lifecycle.excel_models import OperationLedgerExcelRecord
 from apps.equipment_lifecycle.excel_pdf_params import estimate_pdf_warnings
 from apps.equipment_lifecycle.excel_template_services import (
@@ -323,11 +323,14 @@ def export_excel(user, ledger):
 
 
 def export_pdf_file(user, ledger, pdf_params=None):
-    """导出 PDF：填充后的 Excel 经 LibreOffice headless 转换。
+    """导出 PDF：按生效引擎（resolve_engine）生成。
 
+    chromium（浏览器打印引擎）：统一打印布局分页计划（与网页 print_plan
+    同源）→ 统一打印 HTML → 无头 Chromium，网页与 PDF 排版一致；
+    libreoffice：填充后的 Excel 经 headless 转换（既有路径）。
     pdf_params 显式传入时优先生效（导出高级设置覆盖，仅当次），否则使用
     台账引用版本快照中的模板级参数（旧版本无参数时按内置缺省）。
-    LibreOffice 不可用/转换失败转为业务错误，绝不返回伪造 PDF。
+    转换不可用/失败转为业务错误，绝不返回伪造 PDF。
     """
     record, version, meta = _export_meta(ledger)
     path = excel_template_storage.version_path(version.template_id, version.version_no)
@@ -337,6 +340,35 @@ def export_pdf_file(user, ledger, pdf_params=None):
         _fail(str(e))
     except excel_pdf_service.PdfConversionError as e:
         _fail(str(e))
+
+
+def print_preview_pdf(user, ledger):
+    """打印预览 PDF（翻阅"打印预览"页签）：与导出 PDF 同一生成服务。
+
+    使用版本快照模板级参数（与默认导出完全一致，保证「预览 = 下载」），
+    填写值取最近一次保存的服务端值（未保存修改由前端明确提示）。结果按
+    内容寻址缓存（值/版本/参数/引擎任一变化即新键），命中直接返回。
+    返回 (pdf 字节, 是否命中缓存)。
+    """
+    record, version, meta = _export_meta(ledger)
+    engine = excel_pdf_service.resolve_engine()
+    key = excel_print_cache.cache_key(
+        record.id, version.id, record.values or '',
+        _canonical(meta.get('pdf_params') or {}), engine)
+    cached = excel_print_cache.load(key)
+    if cached is not None:
+        return cached, True
+    path = excel_template_storage.version_path(version.template_id, version.version_no)
+    try:
+        # 预览允许留空（与模板预览同口径，不做必填拦截；导出仍拦截）
+        content = export_pdf(meta, path, record.get_values(), pdf_params=None,
+                             check_required=False)
+    except ExcelLayoutError as e:
+        _fail(str(e))
+    except excel_pdf_service.PdfConversionError as e:
+        _fail(str(e))
+    excel_print_cache.store(key, content)
+    return content, False
 
 
 def export_check(user, ledger, pdf_params=None):

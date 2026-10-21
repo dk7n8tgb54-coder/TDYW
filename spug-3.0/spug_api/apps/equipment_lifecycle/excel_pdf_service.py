@@ -19,8 +19,11 @@
   不产生报错，模板详情兼容性检查会提示 LibreOffice 可用性；
 - 转换超时默认 120 秒（CONVERT_TIMEOUT_SECONDS）。
 
-高保真引擎扩展位：settings.EXCEL_PDF_ENGINE（缺省/当前唯一支持
-'libreoffice'；配置为其他值时显式报错，不静默回退）。
+高保真引擎扩展位：settings.EXCEL_PDF_ENGINE——'libreoffice'（缺省，经
+openpyxl 填值后转换）、'chromium'（浏览器打印引擎：excel_print_html 按
+网页同一布局规则渲染统一打印 HTML，无头 Chromium 出 PDF）、'auto'
+（chromium 可用时优先，回落 libreoffice）；resolve_engine 负责解析，
+配置为其他值时显式报错，不静默回退。
 """
 import io
 import os
@@ -35,10 +38,40 @@ class PdfConversionError(Exception):
 
 
 CONVERT_TIMEOUT_SECONDS = 120
+ENGINE_LIBREOFFICE = 'libreoffice'
+ENGINE_CHROMIUM = 'chromium'
+ENGINE_AUTO = 'auto'
+_ENGINE_CHOICES = (ENGINE_LIBREOFFICE, ENGINE_CHROMIUM, ENGINE_AUTO)
 
 
 def configured_engine():
-    return getattr(settings, 'EXCEL_PDF_ENGINE', None) or 'libreoffice'
+    raw = (getattr(settings, 'EXCEL_PDF_ENGINE', None) or '').strip().lower()
+    return raw or ENGINE_LIBREOFFICE
+
+
+def resolve_engine():
+    """实际生效的 PDF 引擎：auto 按可用性解析（chromium 优先）。
+
+    浏览器引擎可用性探测失败回落 libreoffice；显式配置 chromium 但环境
+    不可用时由浏览器服务在转换时报明确错误（不静默改道）。
+    """
+    raw = configured_engine()
+    if raw == ENGINE_AUTO:
+        from apps.equipment_lifecycle import excel_browser_pdf_service
+        if excel_browser_pdf_service.detect_browser():
+            return ENGINE_CHROMIUM
+        return ENGINE_LIBREOFFICE
+    if raw not in (ENGINE_LIBREOFFICE, ENGINE_CHROMIUM):
+        raise PdfConversionError(
+            'EXCEL_PDF_ENGINE=%s 不支持（可选：libreoffice、chromium、auto）'
+            % raw)
+    return raw
+
+
+def browser_engine_available():
+    """chromium 引擎是否可用（部署检查/兼容性提示用）。"""
+    from apps.equipment_lifecycle import excel_browser_pdf_service
+    return excel_browser_pdf_service.detect_browser() is not None
 
 
 def detect_soffice():
@@ -46,11 +79,11 @@ def detect_soffice():
 
 
 def convert_xlsx_to_pdf(xlsx_path, out_dir, timeout=CONVERT_TIMEOUT_SECONDS, detector=None):
-    """把 xlsx 转换为同目录同名 pdf，返回 pdf 路径。"""
-    engine = configured_engine()
-    if engine != 'libreoffice':
+    """把 xlsx 转换为同目录同名 pdf，返回 pdf 路径（LibreOffice 引擎路径）。"""
+    if resolve_engine() != ENGINE_LIBREOFFICE:
         raise PdfConversionError(
-            'EXCEL_PDF_ENGINE=%s 暂未接入，当前仅支持 libreoffice' % engine)
+            '当前 EXCEL_PDF_ENGINE=%s 不使用 LibreOffice 转换'
+            % configured_engine())
     soffice = (detector or detect_soffice)()
     if not soffice:
         raise PdfConversionError(

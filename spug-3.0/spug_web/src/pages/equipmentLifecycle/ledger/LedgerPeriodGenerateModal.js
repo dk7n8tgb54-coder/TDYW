@@ -16,9 +16,9 @@
  *   待配置（在 Excel 模板管理页配置）；
  * - antd 4.21.5：Modal 用 visible；错误提示由 http 拦截器统一弹出。
  */
-import React, {useEffect} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {observer} from 'mobx-react';
-import {Alert, Button, Modal, Table, Tag} from 'antd';
+import {Alert, Checkbox, Modal, Table, Tag} from 'antd';
 import {AuthButton} from 'components';
 import {LEDGER_TYPE_TEXT, PERM_L} from './constants';
 
@@ -52,23 +52,72 @@ function SummaryCounts({summary}) {
 
 function LedgerPeriodGenerateModal({visible, ledgerType, store, onCancel}) {
   const preview = store.generatePreview;
+  const isSeasonal = ledgerType === 'seasonal';
+  const [maintenanceCycles, setMaintenanceCycles] = useState(
+    isSeasonal ? ['seasonal'] : ['weekly']);
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState([]);
+  const initializedTemplateIds = useRef(new Set());
 
   useEffect(() => {
     if (visible) {
-      store.fetchGeneratePreview(ledgerType);
+      const initialCycles = isSeasonal ? ['seasonal'] : ['weekly'];
+      setMaintenanceCycles(initialCycles);
+      setSelectedTemplateIds([]);
+      initializedTemplateIds.current = new Set();
+      store.fetchGeneratePreview(ledgerType, initialCycles);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
+  useEffect(() => {
+    if (!visible || !preview || !preview.entries) return;
+    const newIds = [];
+    preview.entries.forEach(entry => {
+      if (entry.status === 'create'
+          && !initializedTemplateIds.current.has(entry.template_id)) {
+        initializedTemplateIds.current.add(entry.template_id);
+        newIds.push(entry.template_id);
+      }
+    });
+    if (newIds.length) {
+      setSelectedTemplateIds(current => Array.from(new Set([...current, ...newIds])));
+    }
+  }, [visible, preview]);
+
   const handleGenerate = () => {
-    store.generatePeriodLedgers(ledgerType).catch(() => {});
+    const eligibleIds = (preview && preview.entries || [])
+      .filter(entry => entry.status === 'create'
+        && selectedTemplateIds.includes(entry.template_id))
+      .map(entry => entry.template_id);
+    store.generatePeriodLedgers(ledgerType, maintenanceCycles, eligibleIds)
+      .catch(() => {});
+  };
+
+  const handleCyclesChange = (cycles) => {
+    setMaintenanceCycles(cycles);
+    if (cycles.length) {
+      store.fetchGeneratePreview(ledgerType, cycles);
+    } else {
+      store.generatePreview = null;
+      store.generatePeriodResult = null;
+    }
   };
 
   /** 明确补建（已作废占用的本期槽位）：成功后重拉预览刷新判定结果。 */
   const handleRebuild = (entry) => {
     store.rebuildPeriodLedger(entry.template_id, ledgerType)
-      .then(() => store.fetchGeneratePreview(ledgerType))
+      .then(() => store.fetchGeneratePreview(ledgerType, maintenanceCycles))
       .catch(() => {});
+  };
+
+  const eligibleEntries = (preview && preview.entries || [])
+    .filter(entry => entry.status === 'create');
+  const selectedCount = eligibleEntries.filter(
+    entry => selectedTemplateIds.includes(entry.template_id)).length;
+  const rowSelection = {
+    selectedRowKeys: selectedTemplateIds,
+    onChange: keys => setSelectedTemplateIds(keys),
+    getCheckboxProps: entry => ({disabled: entry.status !== 'create'}),
   };
 
   const columns = [
@@ -107,6 +156,11 @@ function LedgerPeriodGenerateModal({visible, ledgerType, store, onCancel}) {
   ];
 
   const result = store.generatePeriodResult;
+  const periodLabels = (preview && preview.period_labels) || {};
+  const cycleOptions = isSeasonal ? [] : [
+    {value: 'weekly', label: `周维护（本周 ${periodLabels.weekly || ''}）`},
+    {value: 'monthly', label: `月维护（${periodLabels.monthly || ''}）`},
+  ];
 
   return (
     <Modal
@@ -115,14 +169,26 @@ function LedgerPeriodGenerateModal({visible, ledgerType, store, onCancel}) {
       confirmLoading={store.isGenerating}
       onOk={handleGenerate}
       onCancel={onCancel}
-      okText="确认生成"
-      okButtonProps={{disabled: !preview || !preview.summary
-        || preview.summary.create === 0}}
+      okText={`确认生成（${selectedCount}项）`}
+      okButtonProps={{disabled: !preview || !maintenanceCycles.length
+        || selectedCount === 0}}
       cancelText={result ? '关闭' : '取消'}
       width={860}
       destroyOnClose>
       <div data-testid="period-generate-body">
         {!preview && store.isGenerateFetching && <Alert type="info" showIcon message="正在获取本期应填台账预览..."/>}
+        {!isSeasonal && !maintenanceCycles.length && (
+          <Alert type="warning" showIcon message="请至少选择一个维护周期"/>
+        )}
+        {!isSeasonal && (
+          <div style={{marginBottom: 12}}>
+            <div style={{fontWeight: 600, marginBottom: 6}}>维护周期</div>
+            <Checkbox.Group
+              options={cycleOptions}
+              value={maintenanceCycles}
+              onChange={handleCyclesChange}/>
+          </div>
+        )}
         {preview && (
           <React.Fragment>
             <SummaryCounts summary={preview.summary}/>
@@ -153,6 +219,7 @@ function LedgerPeriodGenerateModal({visible, ledgerType, store, onCancel}) {
                   description="生成的台账为 Excel 模板台账（固定引用最新发布版本），可直接填写。"/>
                 <Table
                   rowKey="template_id"
+                  rowSelection={rowSelection}
                   size="small"
                   loading={store.isGenerateFetching}
                   dataSource={preview.entries}

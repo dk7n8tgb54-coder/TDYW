@@ -71,7 +71,12 @@ def _get_template_or_none(pk, user):
 
 
 class ExcelTemplateView(View):
-    """模板列表 / 上传 .xlsx 创建模板（multipart：file + name + ledger_type + description）。"""
+    """模板列表 / 上传 .xlsx 创建模板。
+
+    multipart：file + name + ledger_type + description（既有）+
+    system + generation_period（2026-10-21 新建流程前置配置，可选——
+    携带时随创建同请求校验保存，后端独立校验租户归属与类型匹配）。
+    """
 
     @auth(PERM_TPL_VIEW)
     def get(self, request):
@@ -87,6 +92,8 @@ class ExcelTemplateView(View):
             'name': request.POST.get('name'),
             'ledger_type': request.POST.get('ledger_type'),
             'description': request.POST.get('description'),
+            'system': request.POST.get('system'),
+            'generation_period': request.POST.get('generation_period'),
         }
         data = file.read()
         try:
@@ -100,6 +107,20 @@ class ExcelTemplateView(View):
                          'source_filename': template.draft_source_filename,
                          'source_hash': template.draft_source_hash})
         return json_response({'data': excel_template_manage.template_detail(template)})
+
+
+class ExcelTemplateCreateOptionsView(View):
+    """新建模板表单选项（2026-10-21 新建流程前置配置）。
+
+    GET /excel-templates/create-options/：本租户系统清单 + 按台账类型
+    收敛的生成周期候选（与生成配置弹窗同一数据源）。新建模板必填适用
+    系统与生成周期，选项须在进入弹窗时可用，不依赖任何既有模板。
+    """
+
+    @auth(PERM_TPL_ADD)
+    def get(self, request):
+        options = excel_template_manage.generation_config_options(request.user)
+        return json_response({'data': options})
 
 
 class ExcelTemplateDetailView(View):

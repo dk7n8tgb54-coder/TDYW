@@ -231,6 +231,12 @@ test('历史详情只读回放：无输入控件、展示当时填写值', async
   store.applyDetail({data: makeDetail('completed', {[FIELD_PS]: '正常', [FIELD_REMARK]: '测试完成'}, false)});
   await renderPage();
   expect(store.editable).toBe(false);
+  // 历史台账默认「打印预览」页签（2026-10-21）：切回「填写」验证只读回放
+  await act(async () => {
+    [...container.querySelectorAll('[data-testid="ledger-view-mode"] .ant-radio-button-wrapper')]
+      .find(el => el.textContent.includes('填写'))
+      .querySelector('input').click();
+  });
   expect(container.querySelector('td[data-coord="C3"] .ant-select')).toBeNull();
   expect(container.querySelector('td[data-coord="H3"] input')).toBeNull();
   expect(container.querySelector('td[data-coord="C3"]').textContent).toContain('正常');

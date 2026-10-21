@@ -57,6 +57,11 @@ export class ExcelLedgerStore {
   @observable correcting = false; // 已完成台账更正模式（修改后整体提交，须填原因）
   @observable correctReason = ''; // 更正原因（进入更正模式时必填）
   @observable activeSheetName = ''; // 填写视图当前工作表（'' = 主工作表）
+  // 打印预览（2026-10-21）：与导出 PDF 同一生成服务的 inline 预览
+  @observable printPreviewUrl = '';   // blob 对象 URL（iframe 展示）
+  @observable printPreviewMeta = null; // {pages, paper}（X-El-Pdf-* 反馈头）
+  @observable printPreviewLoading = false;
+  @observable printPreviewError = '';
 
   @computed get current() {
     return this.detail;
@@ -161,6 +166,8 @@ export class ExcelLedgerStore {
     this.correctReason = '';
     // 切换台账详情回到主工作表（手选工作表不跨详情残留）
     this.activeSheetName = '';
+    // 预览属于上一张台账，切换详情即失效（blob URL 一并释放）
+    this.resetPrintPreview();
   }
 
   async fetchList(filters) {
@@ -410,6 +417,72 @@ export class ExcelLedgerStore {
       timeout: 180000,
       loadingText: '正在转换 PDF...',
     });
+  }
+
+  // ==================== 打印预览（2026-10-21 统一打印布局） ====================
+
+  _revokePreviewUrl() {
+    if (this.printPreviewUrl) {
+      try {
+        window.URL.revokeObjectURL(this.printPreviewUrl);
+      } catch (e) {
+        // URL 已释放时忽略
+      }
+    }
+  }
+
+  /** 重置预览（切换台账/详情刷新时调用；blob URL 释放防泄漏）。 */
+  @action resetPrintPreview() {
+    this._revokePreviewUrl();
+    this.printPreviewUrl = '';
+    this.printPreviewMeta = null;
+    this.printPreviewError = '';
+  }
+
+  /**
+   * 拉取打印预览 PDF（POST print-preview/，arraybuffer）：与导出 PDF
+   * 同一后端生成服务与同一模板级参数，保证「预览 = 下载」；填写值取
+   * 最近一次保存的服务端值（未保存修改由页面横幅明确提示）。
+   * 成功返回 blob URL 并记录 X-El-Pdf-Pages/Paper 反馈头；失败向上抛出
+   * （公共拦截器已提示业务错误），页面显示失败态可重试。
+   * await 后的可观察变更用 action 包裹（mobx legacy 装饰器只包同步段，
+   * 与本 store 既有 fetchDetail/fetchList 同一约定）。
+   */
+  async fetchPrintPreview() {
+    if (!this.detail || this.printPreviewLoading) return '';
+    action(() => {
+      this.printPreviewLoading = true;
+      this.printPreviewError = '';
+    })();
+    try {
+      const response = await http.post(
+        `${API}/${this.detail.id}/print-preview/`, {},
+        {responseType: 'arraybuffer', timeout: 180000});
+      const bytes = response && response.data;
+      if (!bytes || !bytes.byteLength) {
+        throw new Error('预览内容为空');
+      }
+      const headers = (response && response.headers) || {};
+      const meta = {
+        pages: headers['x-el-pdf-pages'] || '',
+        paper: headers['x-el-pdf-paper'] || '',
+      };
+      const blob = new Blob([bytes], {type: 'application/pdf'});
+      const url = window.URL.createObjectURL(blob);
+      this._revokePreviewUrl();
+      return action(() => {
+        this.printPreviewUrl = url;
+        this.printPreviewMeta = meta;
+        return url;
+      })();
+    } catch (e) {
+      action(() => {
+        this.printPreviewError = '预览生成失败，可点击「刷新预览」重试或直接导出 PDF';
+      })();
+      throw e;
+    } finally {
+      action(() => { this.printPreviewLoading = false; })();
+    }
   }
 }
 

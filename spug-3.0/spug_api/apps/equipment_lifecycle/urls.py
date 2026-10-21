@@ -22,7 +22,6 @@ from django.urls import path
 from apps.equipment_lifecycle import (
     config_attachment_views, config_views,
     excel_ledger_views, excel_template_views, ledger_views,
-    native_views,
     operation_action_views, operation_attachment_views,
     operation_ledger_convert, operation_progress_views, operation_views,
     views,
@@ -72,6 +71,7 @@ urlpatterns = [
     # 台账创建走 excel-ledgers）
     path('excel-templates/available/', excel_template_views.ExcelTemplateAvailableView.as_view()),
     path('excel-templates/sample/', excel_template_views.ExcelTemplateSampleView.as_view()),
+    path('excel-templates/create-options/', excel_template_views.ExcelTemplateCreateOptionsView.as_view()),
     path('excel-templates/', excel_template_views.ExcelTemplateView.as_view()),
     path('excel-templates/<int:pk>/', excel_template_views.ExcelTemplateDetailView.as_view()),
     # 停用（逻辑停用，幂等）/ 重新启用（停用逆操作，幂等）；
@@ -94,22 +94,9 @@ urlpatterns = [
     path('excel-ledgers/<int:pk>/export/check/', excel_ledger_views.ExcelLedgerExportCheckView.as_view()),
     path('excel-ledgers/<int:pk>/export/excel/', excel_ledger_views.ExcelLedgerExportView.as_view(), {'fmt': 'excel'}),
     path('excel-ledgers/<int:pk>/export/pdf/', excel_ledger_views.ExcelLedgerExportView.as_view(), {'fmt': 'pdf'}),
-    # 原生路线维护台账模板（Univer 在线编辑，2026-10-18 接入；台账创建走 native-ledgers）
-    path('native-templates/available/', native_views.NativeTemplateAvailableView.as_view()),
-    path('native-templates/', native_views.NativeTemplateView.as_view()),
-    path('native-templates/<int:pk>/', native_views.NativeTemplateDetailView.as_view()),
-    path('native-templates/<int:pk>/deactivate/', native_views.NativeTemplateDeactivateView.as_view()),
-    path('native-templates/<int:pk>/draft/', native_views.NativeTemplateDraftView.as_view()),
-    path('native-templates/<int:pk>/publish/', native_views.NativeTemplatePublishView.as_view()),
-    path('native-templates/<int:pk>/versions/', native_views.NativeTemplateVersionsView.as_view()),
-    path('native-templates/<int:pk>/versions/<int:version_no>/',
-         native_views.NativeTemplateVersionDetailView.as_view()),
-    # 原生路线维护台账（created_from=native_template；作废/删除沿用既有 ledgers 端点）
-    path('native-ledgers/', native_views.NativeLedgerView.as_view()),
-    path('native-ledgers/<int:pk>/', native_views.NativeLedgerDetailView.as_view()),
-    path('native-ledgers/<int:pk>/complete/', native_views.NativeLedgerCompleteView.as_view()),
-    path('native-ledgers/<int:pk>/correct/', native_views.NativeLedgerCorrectView.as_view()),
-    path('native-ledgers/<int:pk>/export/pdf/', native_views.NativeLedgerExportPdfView.as_view()),
+    # 打印预览（详情"打印预览"页签/翻阅真实打印预览，2026-10-21）：与导出 PDF
+    # 同一生成服务与参数，inline 下发 + 内容寻址缓存
+    path('excel-ledgers/<int:pk>/print-preview/', excel_ledger_views.ExcelLedgerPrintPreviewView.as_view()),
     # 台账
     path('ledgers/', ledger_views.LedgerView.as_view()),
     path('ledgers/abnormal-items/', ledger_views.LedgerAbnormalItemsView.as_view()),
@@ -135,6 +122,9 @@ urlpatterns = [
     # 模板组内批量 PDF 导出（2026-10-11）：GET 确认数据 / POST 生成合并 PDF
     path('ledgers/template-groups/<str:group_key>/export-pdf/',
          excel_ledger_views.LedgerTemplateGroupPdfExportView.as_view()),
+    # 台账列表"批量导出 PDF"（2026-10-21，替换原导出明细 CSV 入口）：
+    # GET 模板候选清单 / POST 多模板导出（每模板一份 PDF，多模板打包 ZIP）
+    path('ledgers/export-pdf/', excel_ledger_views.LedgerMultiTemplatePdfExportView.as_view()),
     path('ledgers/<int:pk>/', ledger_views.LedgerDetailView.as_view()),
     # 完成填写（流程终点：草稿 → 已完成；2026-10-16 替代旧 submit/return/review）
     path('ledgers/<int:pk>/complete/', ledger_views.LedgerCompleteView.as_view()),

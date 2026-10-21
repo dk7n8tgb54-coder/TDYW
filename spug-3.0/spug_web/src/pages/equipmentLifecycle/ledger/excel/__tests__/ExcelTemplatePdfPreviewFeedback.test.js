@@ -5,9 +5,10 @@
  * 覆盖：parsePdfMetaHeaders/formatPaperText（响应头解析与纸张文本格式化，
  * 异常兜底不伪造）→ store 预览反馈（previewPdf 标注已保存参数来源；
  * previewWithFormParams 携带表单当前值与临时样例数据、序列化失败不发
- * 请求）→ pdfFormDirty 未保存修改判定 → 打印设置抽屉渲染（新入口按钮、
- * 临时预览数据区按字段类型渲染、样例值回传 store、反馈 Alert 与参数
- * 来源文案）→ 工作区「预览空白打印稿（已保存参数）」按钮与快捷入口区分。
+ * 请求）→ pdfFormDirty 未保存修改判定 → 打印设置抽屉渲染（预览视图
+ * 入口、临时预览数据区按字段类型渲染、样例值回传 store、反馈 Alert 与
+ * 参数来源文案）→ 打印预览视图页内展示真实 PDF 并标注已保存参数来源
+ * （2026-10-21 统一观感）。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -249,12 +250,15 @@ async function openPdfDrawer(store) {
   await flush();
 }
 
-test('打印设置抽屉：新预览入口与临时样例数据区按字段类型渲染', async () => {
+test('打印设置抽屉：预览视图入口与临时样例数据区按字段类型渲染', async () => {
   const store = new ExcelTemplateStore();
   store.applyDetail({data: makeDetail()});
   await renderPage(store);
-  // 工作区快捷入口明确标注使用已保存参数
-  expect(container.textContent).toContain('预览空白打印稿（已保存参数）');
+  // 工作区提供「字段绑定 / 打印预览」双视图（2026-10-21 统一观感，
+  // 预览使用模板已保存打印参数，随预览视图内展示参数来源）
+  expect(container.querySelector('[data-testid="tpl-view-mode"]')).toBeTruthy();
+  expect(container.querySelector('[data-testid="tpl-view-mode-preview"]'))
+    .toBeTruthy();
   await openPdfDrawer(store);
   expect(store.pdfDrawerVisible).toBe(true);
   expect(document.querySelector('[data-testid="tpl-pdf-preview-form"]'))
@@ -299,24 +303,35 @@ test('抽屉预览后渲染反馈 Alert：页数/纸张/提示/参数来源', as
   expect(alert.className).toContain('ant-alert-warning');
 });
 
-test('工作区预览后反馈 Alert 标注已保存参数来源', async () => {
-  stubPdfWindow();
+test('打印预览视图：页内展示真实 PDF 并标注已保存参数来源', async () => {
+  window.URL.createObjectURL = jest.fn(() => 'blob:preview-url');
+  window.URL.revokeObjectURL = jest.fn();
   const store = new ExcelTemplateStore();
   store.applyDetail({data: makeDetail()});
   mockHttpPost.mockResolvedValue({
     data: new ArrayBuffer(16), headers: PDF_RESPONSE_HEADERS,
   });
   await renderPage(store);
-  const button = Array.from(container.querySelectorAll('button'))
-    .find(node => node.textContent.replace(/\s/g, '') === '预览空白打印稿（已保存参数）');
+  // 切到打印预览视图：自动请求预览接口（与「预览空白打印稿」同一服务）
+  const previewInput = Array.from(
+    container.querySelectorAll('[data-testid="tpl-view-mode"] input'))
+    .find(node => node.value === 'preview');
   await act(async () => {
-    button.click();
+    previewInput.click();
   });
   await flush();
-  expect(store.previewInfo.source).toBe('saved');
-  const alert = container.querySelector('[data-testid="tpl-pdf-preview-info"]');
-  expect(alert).toBeTruthy();
-  expect(alert.textContent).toContain('已保存参数');
+  expect(mockHttpPost).toHaveBeenCalledWith(
+    '/api/equipment-lifecycle/excel-templates/11/preview/pdf/', null,
+    expect.objectContaining({responseType: 'arraybuffer'}));
+  const iframe = container.querySelector('[data-testid="tpl-preview-iframe"]');
+  expect(iframe).toBeTruthy();
+  expect(store.printPreviewMeta.source).toBe('saved');
+  expect(store.printPreviewMeta.pages).toBe(3);
+  // 预览内反馈：页数/纸张/参数来源（与抽屉反馈 Alert 区分入口）
+  const meta = container.querySelector('[data-testid="tpl-preview-meta"]');
+  expect(meta.textContent).toContain('3 页');
+  expect(meta.textContent).toContain('A4（297×210 mm）');
+  expect(meta.textContent).toContain('模板已保存的打印参数');
 });
 
 test('无绑定字段时样例数据区提示空白打印稿', async () => {

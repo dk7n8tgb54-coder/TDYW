@@ -213,6 +213,55 @@ describe('ExcelTemplatePage 生成配置', () => {
     expect(document.body.querySelectorAll('.ant-select').length).toBeGreaterThanOrEqual(2);
   });
 
+  test('列表行级补全：待配置模板行内入口拉取该行配置并按行保存', async () => {
+    // 在用 + 已配置两种行：仅待配置行提供补全配置入口
+    mockHttpGet.mockImplementation(url => {
+      if (url.endsWith('/excel-templates/')) {
+        return Promise.resolve({data: [
+          templateSummary(),
+          templateSummary({id: 8, name: '已配置模板', system: 3,
+            system_name: 'DVOR系统', system_code: 'SYS-3',
+            generation_period: 'weekly', generation_period_text: '每周'}),
+        ]});
+      }
+      if (url.includes('/generation-config/')) {
+        return Promise.resolve(configPayload());
+      }
+      return Promise.resolve({});
+    });
+    await act(async () => {
+      ReactDOM.render(h(ExcelTemplatePage, {store}), container);
+    });
+    await act(flush);
+    const configButtons = container.querySelectorAll('[data-testid="tpl-row-config"]');
+    expect(configButtons).toHaveLength(1);
+    // 点击待配置行的「补全配置」：按该行拉取配置与选项（不进入工作区）
+    await act(async () => {
+      configButtons[0].click();
+    });
+    await act(flush);
+    expect(mockHttpGet).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/excel-templates/7/generation-config/');
+    expect(store.current).toBeNull();
+    const modal = document.body.querySelector('.ant-modal');
+    expect(modal.textContent).toContain('生成配置：信道Excel维护台账');
+    // 保存：PUT 到该行模板，成功后重取列表且不进入工作区
+    mockHttpPut.mockResolvedValue({data: templateDetailPayload({
+      system: 3, system_name: 'DVOR系统', system_code: 'SYS-3',
+      generation_period: 'weekly', generation_period_text: '每周',
+    })});
+    await act(async () => {
+      Array.from(modal.querySelectorAll('button'))
+        .find(node => node.textContent.replace(/\s/g, '') === '保 存').click();
+    });
+    await act(flush);
+    expect(mockHttpPut).toHaveBeenCalledWith(
+      '/api/equipment-lifecycle/excel-templates/7/generation-config/',
+      {system: null, generation_period: ''});
+    expect(store.current).toBeNull();
+    expect(store.configVisible).toBe(false);
+  });
+
   test('已停用模板不提供配置入口（仅供查看）', async () => {
     mockHttpGet.mockImplementation(url => {
       if (url.endsWith('/excel-templates/7/')) {

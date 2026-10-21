@@ -42,6 +42,8 @@ services:
       - TZ=Asia/Shanghai
       - KKFILEVIEW_API_URL=${KKFILEVIEW_API_URL:-/kkfileview}
       - KKFILEVIEW_SERVER_URL=${KKFILEVIEW_SERVER_URL:-http://tdyw}
+      # Excel 台账 PDF 引擎：chromium（浏览器打印引擎，网页与 PDF 统一排版）/ libreoffice / auto
+      - EXCEL_PDF_ENGINE=${EXCEL_PDF_ENGINE:-chromium}
       # 延迟上线开关：逗号分隔的暂不上线模块名（如 equipment_lifecycle），
       # 对应模块不迁移数据库、不注册 API；不设置（默认空）则全量加载
       - RELEASE_PENDING_APPS=${RELEASE_PENDING_APPS:-}

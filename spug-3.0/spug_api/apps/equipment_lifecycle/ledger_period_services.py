@@ -365,6 +365,9 @@ def _generation_entry(user, template, ledger_type, today, latest, slot_ledgers):
         'reason': '',
         'existing_ledger': None,
     }
+    if not template.is_active:
+        entry['reason'] = '模板已停用，不能用于新台账'
+        return entry
     period, start, end = _template_slot(template, ledger_type, today)
     if period is None:
         missing = []
@@ -402,7 +405,28 @@ def _generation_entry(user, template, ledger_type, today, latest, slot_ledgers):
     return entry
 
 
-def period_generate_preview(user, ledger_type):
+def _validate_maintenance_cycles(ledger_type, maintenance_cycles, required=False):
+    """校验本次选择的维护周期；季维护固定为 seasonal。"""
+    allowed = {'seasonal'} if ledger_type == LEDGER_TYPE_SEASONAL else {'weekly', 'monthly'}
+    if maintenance_cycles is None:
+        if required:
+            return None, '请选择维护周期'
+        return allowed, None
+    if not isinstance(maintenance_cycles, (list, tuple)) or not maintenance_cycles:
+        return None, '至少选择一个维护周期'
+    if any(not isinstance(value, str) or value not in allowed
+           for value in maintenance_cycles):
+        return None, '维护周期参数与台账类型不匹配'
+    selected = set(maintenance_cycles)
+    return selected, None
+
+
+def _selected_entry_cycles(entry):
+    return 'seasonal' if entry.get('generation_period') == 'seasonal' \
+        else entry.get('generation_period')
+
+
+def period_generate_preview(user, ledger_type, maintenance_cycles=None):
     """本期应填台账预览（只读）：逐模板给出当前期次与可生成性判定。
 
     返回 (result, None) 或 (None, error)。条目状态：create 将新建 /
@@ -412,6 +436,10 @@ def period_generate_preview(user, ledger_type):
         validate_ledger_type(ledger_type)
     except LedgerValidationError as e:
         return None, str(e)
+    selected_cycles, error = _validate_maintenance_cycles(
+        ledger_type, maintenance_cycles)
+    if error:
+        return None, error
     today = timezone.now().date()
     templates = list(_generatable_templates(user, ledger_type))
     slots = []
@@ -425,19 +453,41 @@ def period_generate_preview(user, ledger_type):
         _generation_entry(user, t, ledger_type, today, latest, slot_ledgers)
         for t in templates
     ]
+    entries = [entry for entry in entries
+               if not _selected_entry_cycles(entry)
+               or _selected_entry_cycles(entry) in selected_cycles]
     summary = {status: 0 for status in GENERATE_STATUS_VALUES}
     for entry in entries:
         summary[entry['status']] += 1
     return {
         'ledger_type': ledger_type,
         'base_date': today.strftime('%Y-%m-%d'),
+        'maintenance_cycles': sorted(selected_cycles),
+        'period_labels': {
+            'weekly': '%s ~ %s' % (week_start(today).strftime('%Y-%m-%d'),
+                                   (week_start(today) + timedelta(days=6)).strftime('%Y-%m-%d')),
+            'monthly': '%s年%s月' % (today.year, today.month),
+            'seasonal': maintenance_period_text(LEDGER_TYPE_SEASONAL,
+                                                current_period_key(LEDGER_TYPE_SEASONAL, 'seasonal', today)),
+        },
         'entries': entries,
         'summary': summary,
     }, None
 
 
+def _validate_template_ids(template_ids):
+    if not isinstance(template_ids, (list, tuple)) or not template_ids:
+        return None, '至少选择一个可生成模板'
+    if any(not str(value).isdigit() for value in template_ids):
+        return None, '模板选择参数不合法'
+    normalized = [int(value) for value in template_ids]
+    if len(set(normalized)) != len(normalized):
+        return None, '模板选择参数重复'
+    return normalized, None
+
+
 @transaction.atomic
-def period_generate(user, ledger_type):
+def period_generate(user, ledger_type, maintenance_cycles=None, template_ids=None):
     """生成缺项（确认后执行）：按预览同口径重新计算并创建，返回实际结果。
 
     - 模板行锁（select_for_update）串行化同模板并发请求，锁内重算判定，
@@ -450,8 +500,19 @@ def period_generate(user, ledger_type):
         validate_ledger_type(ledger_type)
     except LedgerValidationError as e:
         return None, str(e)
+    selected_cycles, error = _validate_maintenance_cycles(
+        ledger_type, maintenance_cycles, required=True)
+    if error:
+        return None, error
+    selected_ids, error = _validate_template_ids(template_ids)
+    if error:
+        return None, error
     today = timezone.now().date()
-    templates = list(_generatable_templates(user, ledger_type, for_update=True))
+    templates = list(apply_tenant_filter(
+        OperationLedgerExcelTemplate.objects.filter(pk__in=selected_ids), user
+    ).filter(ledger_type=ledger_type).select_related('system').select_for_update().order_by('id'))
+    if len(templates) != len(selected_ids):
+        return None, '所选模板不存在、类型不匹配或无权访问'
     slots = []
     for template in templates:
         period, start, _ = _template_slot(template, ledger_type, today)
@@ -462,6 +523,14 @@ def period_generate(user, ledger_type):
     created, skipped, failed = [], [], []
     for template in templates:
         entry = _generation_entry(user, template, ledger_type, today, latest, slot_ledgers)
+        entry_cycle = _selected_entry_cycles(entry)
+        if entry_cycle and entry_cycle not in selected_cycles:
+            failed.append({
+                'template_id': template.id, 'template_name': template.name,
+                'system_name': entry['system_name'], 'status': GENERATE_MANUAL_NEEDED,
+                'reason': '模板维护周期已变化，不属于本次选择的维护周期',
+            })
+            continue
         if entry['status'] == GENERATE_EXISTS:
             skipped.append({
                 'template_id': template.id, 'template_name': template.name,

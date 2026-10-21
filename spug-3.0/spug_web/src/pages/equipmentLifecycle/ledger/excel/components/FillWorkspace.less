@@ -162,40 +162,106 @@
   border-radius: 4px;
 }
 
+// —— transform 等比缩放（2026-10-21 统一打印布局） ——
+// sizer 按缩放后尺寸撑出滚动范围（padding 保留纸张上下留白）；
+// viewport 按 100% 布局后整体缩放，文字/边框/行高/列宽/内边距同步等比，
+// 倍率切换不改变换行与分页位置
+.el-fill-zoom-sizer {
+  margin: 0 auto;
+  padding: 16px 0;
+  box-sizing: content-box;
+  width: max-content;
+}
+
+.el-fill-zoom-viewport {
+  transform-origin: 0 0;
+}
+
 .el-fill-paper {
   position: relative;
   width: max-content;
-  margin: 16px auto;
+  margin: 0 auto;
   background: #fff;
   border: 1px solid #dfe4ea;
   box-shadow: 0 1px 6px rgba(31, 45, 61, 0.12);
-  padding-bottom: 24px;
+  // border-box：内联 width/height = 纸张总尺寸（含页边距 padding 与边框），
+  // A4 卡片渲染宽度恒等于 794px，与打印 PDF 的纸张几何一致
+  box-sizing: border-box;
+  overflow: hidden;
 
-  // 可打印区域参考线（有纸张信息时由内联 CSS 变量给出门距）
-  &::before {
-    content: '';
-    position: absolute;
-    top: var(--el-fill-margin-top, 0);
-    left: var(--el-fill-margin-left, 0);
-    right: var(--el-fill-margin-right, 0);
-    bottom: 0;
-    border: 1px dashed #cfe3f5;
-    pointer-events: none;
+  &.el-fill-paper-plain {
+    box-shadow: 0 1px 4px rgba(31, 45, 61, 0.08);
+    overflow: visible;
   }
 }
 
-.el-fill-paper-plain {
-  box-shadow: 0 1px 4px rgba(31, 45, 61, 0.08);
-
-  &::before {
-    display: none;
-  }
+// 每页一张的打印范围参考框（四边缩进页边距；仅网页辅助，不进入 PDF）
+.el-fill-print-rect {
+  position: absolute;
+  border: 1px dashed #cfe3f5;
+  pointer-events: none;
 }
 
-// 纸张视图内表格交给外层区域滚动（内层不裁剪，纸张随内容撑开）
+// 分页参考线（来自统一打印计划）：行分页横线 + 横向分块竖线
+.el-fill-page-guide-row {
+  position: absolute;
+  border-top: 1px dashed #f0b25f;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.el-fill-page-guide-tag {
+  position: absolute;
+  right: 4px;
+  top: -16px;
+  font-size: 10px;
+  line-height: 14px;
+  color: #d48806;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 2px;
+  padding: 0 4px;
+}
+
+.el-fill-page-guide-col {
+  position: absolute;
+  border-left: 1px dashed #f0b25f;
+  pointer-events: none;
+  z-index: 1;
+}
+
+// 纸张视图内表格交给外层区域滚动（内层不裁剪）
 .el-fill-paper .proto-table-wrap {
   overflow: visible;
   max-height: none;
+}
+
+// —— 打印预览页签（详情视图内 iframe，2026-10-21） ——
+.el-print-preview-frame {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 300px);
+  min-height: 420px;
+  border: 1px solid #e5e9ef;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.el-print-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.el-print-preview-meta {
+  font-size: 12px;
+  color: #7b8794;
+}
+
+.el-print-preview-dirty {
+  font-size: 12px;
+  color: #fa8c16;
 }
 
 // —— 定位高亮闪烁（LayoutTable 定位时加 proto-cell-locate） ——

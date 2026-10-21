@@ -1,0 +1,50 @@
+{
+  "plan_version": 1,
+  "paper": {
+    "name": "A4",
+    "width_mm": 210,
+    "height_mm": 297,
+    "orientation": "portrait"
+  },
+  "margins_mm": {
+    "top": 25.4,
+    "bottom": 25.4,
+    "left": 19.1,
+    "right": 19.1
+  },
+  "scale": 1.0,
+  "horizontal_centered": false,
+  "vertical_centered": false,
+  "page_count": 2,
+  "warnings": [],
+  "sheets": {
+    "维护台账": {
+      "scale": 1.0,
+      "page_count": 2,
+      "print_row_start": 1,
+      "print_row_end": 85,
+      "print_col_start": 1,
+      "print_col_end": 8,
+      "row_breaks": [
+        50
+      ],
+      "col_breaks": [],
+      "pages": [
+        {
+          "row_start": 1,
+          "row_end": 49,
+          "repeat_rows": null,
+          "col_start": 1,
+          "col_end": 8
+        },
+        {
+          "row_start": 50,
+          "row_end": 85,
+          "repeat_rows": null,
+          "col_start": 1,
+          "col_end": 8
+        }
+      ]
+    }
+  }
+}

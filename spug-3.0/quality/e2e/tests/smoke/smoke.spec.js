@@ -61,8 +61,8 @@ test.describe('Smoke Tests - System Availability', () => {
     await page.goto('/home');
     await page.waitForLoadState('networkidle');
 
-    // Check for menu items
-    const menuLabels = ['工作台', '数据分析', '部门值班日志', '执照管理', '合同协议', '资料库', '跨日事项跟踪', '设备管理', '干扰管理', '值班日志', '公告与提醒', '系统管理'];
+    // Check for menu items（2026-10-20 对齐现行 routes.js：'跨日事项跟踪'、'值班日志' 已随模块下线移除）
+    const menuLabels = ['工作台', '数据分析', '部门值班日志', '执照管理', '合同协议', '资料库', '设备管理', '干扰管理', '公告与提醒', '系统管理'];
     for (const label of menuLabels) {
       const menuItem = page.locator('.ant-menu-item, .ant-menu-submenu-title').filter({ hasText: label });
       const count = await menuItem.count();

@@ -24,8 +24,8 @@
 import React, {useState} from 'react';
 import {observer} from 'mobx-react';
 import {
-  Button, Card, Descriptions, Dropdown, Input, Menu, Modal,
-  Popconfirm, Space, Spin, Table, Tag, message,
+  Button, Card, Descriptions, Dropdown, Empty, Input, Menu, Modal,
+  Popconfirm, Radio, Space, Spin, Table, Tag, message,
 } from 'antd';
 import {
   ArrowLeftOutlined, FileExcelOutlined, FilePdfOutlined, SettingOutlined,
@@ -179,10 +179,108 @@ function PdfAdvancedModal({visible, pdfForm, onChange, onOk, onCancel}) {
   );
 }
 
-/** PDF 导出链路：预检确认弹窗 + 高级设置弹窗状态 + 覆盖导出（仅本次生效）。 */
+/** 打印预览页签（2026-10-21 统一打印布局）：iframe 展示与导出 PDF 同一
+ * 生成服务与参数的真实产物（预览 = 下载）；填写值取最近一次保存的服务
+ * 端值，存在未保存修改时横幅明确提示（不静默使用旧值）。 */
+const PrintPreviewPane = observer(function PrintPreviewPane({store}) {
+  const meta = store.printPreviewMeta;
+  return (
+    <div data-testid="ledger-print-preview">
+      <div className="el-print-preview-bar">
+        <Button size="small" type="primary" ghost
+                data-testid="preview-refresh"
+                loading={store.printPreviewLoading}
+                onClick={() => store.fetchPrintPreview().catch(() => {})}>
+          刷新预览
+        </Button>
+        {meta && (meta.pages || meta.paper) && (
+          <span className="el-print-preview-meta" data-testid="preview-meta">
+            {meta.paper}{meta.pages ? ` · ${meta.pages} 页` : ''}
+          </span>
+        )}
+        {store.hasUnsaved && (
+          <span className="el-print-preview-dirty" data-testid="preview-unsaved-banner">
+            存在未保存的修改，预览显示最近保存的填写值；导出前请先保存
+          </span>
+        )}
+      </div>
+      {store.printPreviewError ? (
+        <div data-testid="preview-error" style={{padding: 24}}>
+          <Empty description={store.printPreviewError}>
+            <Button type="primary" onClick={() => store.fetchPrintPreview().catch(() => {})}>
+              重试
+            </Button>
+          </Empty>
+        </div>
+      ) : store.printPreviewUrl ? (
+        <iframe title="打印预览" src={store.printPreviewUrl}
+                className="el-print-preview-frame" data-testid="preview-iframe"/>
+      ) : (
+        <Empty description="点击「刷新预览」生成与导出一致的打印预览"
+               style={{padding: 48}}/>
+      )}
+    </div>
+  );
+});
+
+/** 详情视图模式（2026-10-21）：填写（交互表格）与打印预览（真实 PDF）
+ * 两个页签；可编辑台账默认填写，历史/已作废默认打印预览（翻阅真实
+ * 打印效果），随时可切换，互不影响对方状态。
+ * observer：读取 store.editable 决定默认页签、Spin 绑定 store.loading——
+ * 不包 observer 时 loading 复位不触发本组件重渲染，加载态会永久定格
+ * （与 2026-10-17 详情卡定格缺陷同根因）。 */
+const DetailViewMode = observer(function DetailViewMode({store, sheet}) {
+  const editableLike = store.editable || store.correcting;
+  const [mode, setMode] = useState(editableLike ? 'fill' : 'preview');
+  return (
+    <React.Fragment>
+      <div style={{marginBottom: 8}}>
+        <Radio.Group size="small" buttonStyle="solid" value={mode}
+                     data-testid="ledger-view-mode"
+                     onChange={event => setMode(event.target.value)}>
+          <Radio.Button value="fill" data-testid="view-mode-fill">填写</Radio.Button>
+          <Radio.Button value="preview" data-testid="view-mode-preview">打印预览</Radio.Button>
+        </Radio.Group>
+      </div>
+      {mode === 'preview' ? (
+        <PrintPreviewPane store={store}/>
+      ) : (
+        <Spin spinning={store.loading}>
+          {sheet ? (
+            <FillWorkspace store={store} readOnly={!store.correctingEditable}/>
+          ) : (
+            <div>版本快照缺失</div>
+          )}
+        </Spin>
+      )}
+    </React.Fragment>
+  );
+});
+
+/** PDF 导出链路：未保存确认 + 预检确认弹窗 + 高级设置弹窗状态 + 覆盖导出。
+ * 未保存修改（2026-10-21）：导出使用最近一次保存的服务端填写值——存在
+ * 未保存修改时先弹窗明确提示，主操作「保存并导出」先保存成功再导出，
+ * 取消则不导出，绝不静默用旧值导出。 */
 function usePdfExport(store, guardRequired) {
   const [pdfAdvancedVisible, setPdfAdvancedVisible] = useState(false);
   const [pdfForm, setPdfForm] = useState(null);
+
+  /** 未保存修改确认：返回是否已放行（保存并导出为异步链路）。 */
+  function confirmUnsavedThen(runExport) {
+    if (!store.hasUnsaved) {
+      runExport();
+      return;
+    }
+    Modal.confirm({
+      title: '存在未保存的修改',
+      content: '导出将使用最近保存的填写值，当前页面未保存的修改不会包含在导出结果中。',
+      okText: '保存并导出', cancelText: '取消',
+      onOk: async () => {
+        await store.saveValues();
+        await runExport();
+      },
+    });
+  }
 
   /** 导出前预检：有提示先弹窗确认（仍要导出/取消），无提示直接导出。
    * params 为高级设置覆盖参数，预检与导出用同一份参数估算。 */
@@ -208,6 +306,11 @@ function usePdfExport(store, guardRequired) {
     }
   }
 
+  /** 统一导出入口：未保存确认 → 预检 → 导出（Excel 与 PDF 共用未保存确认）。 */
+  function exportWithUnsavedGuard(runExport, params) {
+    confirmUnsavedThen(() => checkThenExport(runExport, params));
+  }
+
   /** 高级设置导出：以版本快照参数预填，调整仅对本次导出生效。 */
   function openAdvanced() {
     if (!guardRequired()) return;
@@ -222,7 +325,7 @@ function usePdfExport(store, guardRequired) {
       return Promise.reject();
     }
     setPdfAdvancedVisible(false);
-    await checkThenExport(() => store.exportPdf(payload), payload);
+    exportWithUnsavedGuard(() => store.exportPdf(payload), payload);
   }
 
   function closeAdvanced() {
@@ -231,7 +334,8 @@ function usePdfExport(store, guardRequired) {
 
   return {
     pdfAdvancedVisible, pdfForm, setPdfForm,
-    checkThenExport, openAdvanced, advancedExportOk, closeAdvanced,
+    checkThenExport, exportWithUnsavedGuard, openAdvanced, advancedExportOk,
+    closeAdvanced,
   };
 }
 
@@ -262,13 +366,7 @@ const DetailBody = observer(function DetailBody({store, detail, version, sheet, 
           ]}
           dataSource={corrections}/>
       )}
-      <Spin spinning={store.loading}>
-        {sheet ? (
-          <FillWorkspace store={store} readOnly={!store.correctingEditable}/>
-        ) : (
-          <div>版本快照缺失</div>
-        )}
-      </Spin>
+      <DetailViewMode key={detail.id} store={store} sheet={sheet}/>
       {store.editable && (
         <div style={{color: '#999', marginTop: 8}}>
           仅绑定单元格可填写（标题与普通单元格不可编辑）；"完成填写"会先保存
@@ -393,7 +491,7 @@ function useDetailHandlers(store, onBack, ref) {
 
   const handleExportPdf = async () => {
     if (!guardRequired()) return;
-    await pdfExport.checkThenExport(() => store.exportPdf());
+    pdfExport.exportWithUnsavedGuard(() => store.exportPdf());
   };
 
   React.useImperativeHandle(ref, () => ({
@@ -437,7 +535,9 @@ const ExcelLedgerDetail = React.forwardRef(function ExcelLedgerDetail({store, on
                 onDelete: handleDelete,
                 onVoid: handleVoid,
                 onExportExcel: () => {
-                  if (guardRequired()) store.exportExcel().catch(() => {});
+                  if (!guardRequired()) return;
+                  // Excel 导出与 PDF 同口径：未保存修改先确认（保存并导出/取消）
+                  pdfExport.exportWithUnsavedGuard(() => store.exportExcel());
                 },
                 onExportPdf: handleExportPdf,
                 onOpenPdfAdvanced: pdfExport.openAdvanced,

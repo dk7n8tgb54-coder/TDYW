@@ -308,6 +308,47 @@ def refresh_column_layout(layout, source_path):
     return {**layout, 'sheets': patched}
 
 
+def refresh_print_layout(layout, source_path):
+    """以源文件为准补全布局快照的打印设置（读取端修正，快照不可变）。
+
+    历史版本快照的 print 段只有 orientation/paper_size/fit（2026-09-28
+    解析口径），缺 scale/page_margins/print_area——浏览器打印引擎需要
+    物理边距与打印区域才能复现源文件版式。这里对缺失的键用仍留存的
+    源文件重新推导补齐（只补缺，不覆盖已有键，幂等：新解析逻辑产出的
+    快照补齐前后一致）；布局非法或源文件缺失/解析失败时原样返回，
+    不影响详情与导出。
+    """
+    if not isinstance(layout, dict):
+        return layout
+    try:
+        data = _read_source(source_path)
+        workbook = load_workbook(io.BytesIO(data))
+    except Exception:
+        return layout
+    worksheets = {ws.title: ws for ws in workbook.worksheets}
+    patched = []
+    changed = False
+    for sheet_meta in layout.get('sheets') or []:
+        worksheet = sheet_meta.get('name') if isinstance(sheet_meta, dict) else None
+        if worksheet not in worksheets:
+            patched.append(sheet_meta)
+            continue
+        current = dict(sheet_meta.get('print') or {})
+        updated = _print_setup(worksheets[worksheet])
+        merged = dict(current)
+        for key, value in updated.items():
+            if key not in merged or merged.get(key) in (None, '', {}):
+                merged[key] = value
+        if merged != current:
+            changed = True
+            patched.append(dict(sheet_meta, print=merged))
+        else:
+            patched.append(sheet_meta)
+    if not changed:
+        return layout
+    return {**layout, 'sheets': patched}
+
+
 def _sheet_cells(ws, covered):
     """收集有值或有样式的单元格（被合并覆盖的空格无独立展示意义）。"""
     cells = {}
@@ -325,13 +366,37 @@ def _sheet_cells(ws, covered):
 
 
 def _print_setup(ws):
+    """工作表打印设置快照（统一打印布局的源文件口径）。
+
+    orientation/paper_size/fit_to_width/fit_to_height 为 2026-09-28 既有
+    键；2026-10-21 补充 scale（百分比缩放）、page_margins（物理边距，
+    inch→cm）与 print_area（净化 $ 与表名前缀），供浏览器打印引擎在
+    不经 LibreOffice 的情况下复现源文件打印版式。
+    """
     page_setup = ws.page_setup
-    return {
+    setup = {
         'orientation': page_setup.orientation or 'default',
         'paper_size': page_setup.paperSize,
         'fit_to_width': page_setup.fitToWidth,
         'fit_to_height': page_setup.fitToHeight,
+        'scale': page_setup.scale,
     }
+    margins = ws.page_margins
+    if margins is not None:
+        setup['page_margins'] = {
+            key: round(float(getattr(margins, key)) * 2.54, 2)
+            for key in ('top', 'bottom', 'left', 'right')
+            if getattr(margins, key) is not None
+        }
+    parts = []
+    for part in (ws.print_area or []):
+        text = str(part).strip().strip("'")
+        if '!' in text:
+            text = text.rsplit('!', 1)[-1]
+        if text:
+            parts.append(text.replace('$', ''))
+    setup['print_area'] = ','.join(parts)
+    return setup
 
 
 def _cell_value(value):
@@ -637,9 +702,12 @@ def _date_value(text, name):
     return text
 
 
-def export_filled_excel(meta, source_file_path, values):
-    """按服务端保存的绑定关系向源模板副本写入填写值，返回 xlsx 字节。"""
-    writes = _prepare_writes(meta, values)
+def export_filled_excel(meta, source_file_path, values, check_required=True):
+    """按服务端保存的绑定关系向源模板副本写入填写值，返回 xlsx 字节。
+
+    check_required=False 时不做必填拦截（打印预览允许留空，类型校验保留）。
+    """
+    writes = _prepare_writes(meta, values, check_required=check_required)
     data = _read_source(source_file_path)
     try:
         workbook = load_workbook(io.BytesIO(data))
@@ -653,23 +721,63 @@ def export_filled_excel(meta, source_file_path, values):
     return output.getvalue()
 
 
-def export_pdf(meta, source_file_path, values, converter=None, pdf_params=None):
-    """填充后经 LibreOffice headless 转换为 PDF，返回 pdf 字节。
+def export_pdf(meta, source_file_path, values, converter=None, pdf_params=None,
+               check_required=True):
+    """填充后转换为 PDF，返回 pdf 字节。
 
-    converter 须提供 convert_xlsx_to_pdf；缺省用正式 excel_pdf_service，
-    原型兼容外壳传入自身 pdf_service 模块以保持既有测试补丁目标。
-    pdf_params 显式传入时优先生效（导出高级设置覆盖），否则使用 meta
-    携带的模板级参数（旧版本快照无参数时按内置缺省）。转换前对填写结果
-    做打印区域净化（prepare_pdf_workbook）：WPS/Excel 误留的空打印区域
-    会被 LibreOffice 严格执行，产生整份空白 PDF。
+    引擎分派（resolve_engine）：chromium（浏览器打印引擎）走统一打印布局
+    —— excel_print_layout 计算分页计划（与网页 print_plan 同源），经
+    excel_print_html 渲染统一打印 HTML 后由无头 Chromium 打印，网页与 PDF
+    排版规则完全一致；libreoffice 走既有 openpyxl 填值 + headless 转换。
+
+    converter 须提供 convert_xlsx_to_pdf；显式传入时固定走 LibreOffice
+    路径（既有测试补丁目标），引擎分派仅在缺省转换器时生效。pdf_params
+    显式传入时优先生效（导出高级设置覆盖），否则使用 meta 携带的模板级
+    参数（旧版本快照无参数时按内置缺省）。LibreOffice 路径转换前对填写
+    结果做打印区域净化（prepare_pdf_workbook）：WPS/Excel 误留的空打印
+    区域会被 LibreOffice 严格执行，产生整份空白 PDF。两条路径共用同一
+    必填与类型校验（_prepare_writes，check_required=False 供打印预览
+    允许留空，与模板预览同口径），导出 Excel 与源文件不做任何改写。
     """
-    if converter is None:
-        converter = excel_pdf_service
     effective = pdf_params if pdf_params is not None else meta.get('pdf_params')
+    if converter is None and excel_pdf_service.resolve_engine() == \
+            excel_pdf_service.ENGINE_CHROMIUM:
+        return _export_pdf_browser(meta, values, effective,
+                                   check_required=check_required)
     filled = prepare_pdf_workbook(
-        export_filled_excel(meta, source_file_path, values),
+        export_filled_excel(meta, source_file_path, values,
+                            check_required=check_required),
         effective, meta.get('sheet_name'))
-    return _xlsx_bytes_to_pdf(filled, converter)
+    return _xlsx_bytes_to_pdf(filled, converter or excel_pdf_service)
+
+
+def _export_pdf_browser(meta, values, effective, check_required=True):
+    """浏览器打印引擎导出：统一打印布局 → 统一打印 HTML → Chromium PDF。"""
+    from apps.equipment_lifecycle import (
+        excel_browser_pdf_service,
+        excel_print_html,
+        excel_print_layout,
+    )
+    # _prepare_writes 返回 [(sheet, coordinate, value)]：与 Excel 导出同一
+    # 必填+类型校验口径，这里转坐标映射供 HTML 渲染取值
+    values_by_cell = {
+        (sheet_name, coordinate): value
+        for sheet_name, coordinate, value in _prepare_writes(
+            meta, values, check_required=check_required)
+    }
+    plan = excel_print_layout.build_print_plan(meta, pdf_params=effective)
+    html = excel_print_html.render_print_html(meta, values_by_cell, plan)
+    return _render_pdf_via_browser(html)
+
+
+def _render_pdf_via_browser(html):
+    """HTML 落临时目录 → Chromium 打印 → 读取 pdf 字节（目录自动清理）。"""
+    import tempfile
+    from apps.equipment_lifecycle import excel_browser_pdf_service
+    with tempfile.TemporaryDirectory(prefix='el_excel_browser_pdf_') as tmp_dir:
+        pdf_path = excel_browser_pdf_service.render_html_to_pdf(html, tmp_dir)
+        with open(pdf_path, 'rb') as f:
+            return f.read()
 
 
 def preview_blank_pdf(meta, source_file_path, converter=None):
@@ -700,15 +808,23 @@ def preview_pdf(meta, source_file_path, values=None, pdf_params=None,
     - pdf_params 显式传入时按主工作表尺寸整体校验后优先生效（未保存参数
       预览），缺省使用 meta 携带的模板级参数（发布快照同源）；两者都只
       作用于临时副本：不改草稿源文件、不写库、不创建版本；
-    - 与台账导出同一 prepare 路径：布局校验（合并关系一致）+ 打印区域
-      净化后 LibreOffice 转换，绝不返回伪造 PDF。
+    - 引擎分派与 export_pdf 一致：chromium 走统一打印布局（校验通过后
+      直接从快照渲染，不经源文件）；libreoffice 走既有 prepare 路径
+      （布局校验（合并关系一致）+ 打印区域净化后 LibreOffice 转换），
+      两条路径都绝不返回伪造 PDF。
     """
-    if converter is None:
-        converter = excel_pdf_service
     from apps.equipment_lifecycle.excel_pdf_params import (
         apply_pdf_params,
         validate_pdf_params,
     )
+    if pdf_params is not None:
+        max_row, max_column = main_sheet_size(meta)
+        pdf_params = validate_pdf_params(pdf_params, max_row=max_row,
+                                         max_column=max_column)
+    else:
+        pdf_params = meta.get('pdf_params')
+    if excel_pdf_service.resolve_engine() == excel_pdf_service.ENGINE_CHROMIUM:
+        return _preview_pdf_browser(meta, values, pdf_params)
     data = _read_source(source_file_path)
     try:
         workbook = load_workbook(io.BytesIO(data))
@@ -717,16 +833,29 @@ def preview_pdf(meta, source_file_path, values=None, pdf_params=None,
     _verify_layout_matches(workbook, meta)
     _apply_preview_values(workbook, meta, values)
     _sanitize_print_areas(workbook)
-    if pdf_params is not None:
-        max_row, max_column = main_sheet_size(meta)
-        pdf_params = validate_pdf_params(pdf_params, max_row=max_row,
-                                         max_column=max_column)
-    else:
-        pdf_params = meta.get('pdf_params')
     apply_pdf_params(workbook, pdf_params, meta.get('sheet_name'))
     output = io.BytesIO()
     workbook.save(output)
-    return _xlsx_bytes_to_pdf(output.getvalue(), converter)
+    return _xlsx_bytes_to_pdf(output.getvalue(), converter or excel_pdf_service)
+
+
+def _preview_pdf_browser(meta, values, effective):
+    """浏览器打印引擎预览：样例值经 validate_values 归一化后按坐标映射。"""
+    from apps.equipment_lifecycle import (
+        excel_print_html,
+        excel_print_layout,
+    )
+    normalized = validate_values(meta.get('field_bindings') or [], values or {})
+    values_by_cell = {}
+    for binding in meta.get('field_bindings') or []:
+        value = normalized.get(binding['field_id'])
+        if value is None or value == '':
+            continue
+        values_by_cell[(binding['sheet_name'],
+                        binding['cell_coordinate'])] = value
+    plan = excel_print_layout.build_print_plan(meta, pdf_params=effective)
+    html = excel_print_html.render_print_html(meta, values_by_cell, plan)
+    return _render_pdf_via_browser(html)
 
 
 def _apply_preview_values(workbook, meta, values):
@@ -846,14 +975,18 @@ def _compatibility_status(features, warnings):
     return 'warning' if warnings else 'ok'
 
 
-def _prepare_writes(meta, values):
-    """全量校验（必填 + 类型）后再写文件；空值不写入，保留原单元格。"""
+def _prepare_writes(meta, values, check_required=True):
+    """全量校验（必填 + 类型）后再写文件；空值不写入，保留原单元格。
+
+    check_required=False 时不拦截必填（打印预览允许留空，与模板预览
+    同一设计口径），字段类型校验保留。
+    """
     writes = []
     missing = []
     for binding in meta.get('field_bindings') or []:
         raw = (values or {}).get(binding['field_id'])
         if raw is None or raw == '':
-            if binding['is_required']:
+            if binding['is_required'] and check_required:
                 missing.append(binding['field_name'])
             continue
         writes.append((binding['sheet_name'], binding['cell_coordinate'],

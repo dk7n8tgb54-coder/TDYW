@@ -91,9 +91,9 @@ describe('日巡视活跃功能下线', () => {
     expect(menu.auth).toBe(
       'equipment_lifecycle.ledger.view|equipment_lifecycle.ledger_template.view');
     const titles = (menu.child || []).map(r => r.title).filter(Boolean);
-    // 2026-10-18 接入原生台账模板（Univer 在线编辑路线，与 Excel 模板并行）
+    // 原生台账模板菜单已随原生路线整体下线删除（2026-10-20）
     expect(titles).toEqual(
-      ['周月维护台账', '季维护台账', 'Excel台账模板', '原生台账模板']);
+      ['周月维护台账', '季维护台账', 'Excel台账模板']);
   });
 
   it('顶层"设备管理"权限串不再包含巡检权限码', () => {

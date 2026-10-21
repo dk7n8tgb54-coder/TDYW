@@ -6,10 +6,6 @@
 - Excel 模板台账（created_from=excel_template）：组键 = 填写记录引用版本的
   template_id；同一模板 v1/v2… 各发布版本创建的台账归同一组（版本不可变，
   每条台账仍用创建时版本快照展示与导出）；
-- 原生模板台账（created_from=native_template，2026-10-18 接入）：组键 =
-  'native-<模板主键>'（带前缀命名空间，避免与 Excel 模板组键撞号）；
-  组内列表支持、逐条详情/导出走原生路线；组内批量 PDF 导出与翻阅
-  本阶段未接入，显式拒绝并提示支持范围（不误调用 Excel 专用接口）；
 - 手工补录台账（created_from=manual）：单独归入"无模板/临时补录"组，不同
   来源类型即使模板 ID 相同也不混组；
 - 模板只有逻辑删除（停用，is_active=False），无物理删除路径（被引用时），
@@ -20,9 +16,14 @@
   同一筛选口径（状态/编号关键词），统计不受组内分页影响；
 - 组内批量 PDF 导出（2026-10-11）：预览与实际导出共用 _group_export_query
   筛选口径，后端重查固定 ID 清单后逐条用创建时模板版本生成 PDF 并依序
-  合并（复用单条导出服务与 pypdf 合并），manual 组无模板版式不支持导出。
+  合并（复用单条导出服务与 pypdf 合并），manual 组无模板版式不支持导出；
+- 多模板批量 PDF 导出（2026-10-21，"批量导出 PDF"入口）：按模板 ID 跨组
+  导出，每模板一份合并 PDF、多模板打包 ZIP，状态口径与组内导出一致，
+  模板内按维护期次从早到晚排序。
 """
+import io
 import re
+import zipfile
 from datetime import date
 
 from django.db.models import Count, Max, Q
@@ -38,23 +39,16 @@ from apps.equipment_lifecycle.ledger_services import (
 from apps.equipment_lifecycle.models import (
     LEDGER_FROM_EXCEL,
     LEDGER_FROM_MANUAL,
-    LEDGER_FROM_NATIVE,
     LEDGER_STATUS_COMPLETED,
     LEDGER_STATUS_DRAFT,
     LEDGER_STATUS_VOID,
+    LEDGER_TYPE_TEXT,
     OperationLedger,
 )
-from apps.equipment_lifecycle.native_models import OperationLedgerNativeTemplate
 
 # 无模板/临时补录组的 URL 组键（模板组键为模板主键数字字符串）
 MANUAL_GROUP_KEY = 'manual'
 MANUAL_GROUP_NAME = '无模板/临时补录'
-
-# 原生模板组组键前缀（<前缀><模板主键>）
-NATIVE_GROUP_PREFIX = 'native-'
-
-_NATIVE_GROUP_NOT_SUPPORTED = '原生模板组暂不支持批量导出（当前支持在台账详情内单条导出 PDF）'
-_NATIVE_GROUP_BROWSE_NOT_SUPPORTED = '原生模板组暂不支持连续翻阅（当前支持在台账详情内逐条查看）'
 
 # 组统计口径：total + 各状态数量 + 最近录入时间
 # （executed_date 已于 2026-10-19 删除，组排序/展示改用平台录入时间）
@@ -127,24 +121,6 @@ def list_template_groups(user, ledger_type, status='', keyword='',
             # 填写记录缺失或模板行缺失的异常数据不进组（组名不可解析）
             continue
         groups.append(_group_view(str(template.id), 'excel', template, row))
-    # 原生模板组（组键带前缀命名空间，避免与 Excel 模板主键撞号）
-    native_counts = list(
-        base.filter(created_from=LEDGER_FROM_NATIVE, native_record__isnull=False)
-        .values('native_record__version__template_id')
-        .annotate(**_GROUP_ANNOTATIONS)
-        .order_by())
-    native_ids = [row['native_record__version__template_id'] for row in native_counts]
-    native_map = {}
-    if native_ids:
-        native_templates = apply_tenant_filter(
-            OperationLedgerNativeTemplate.objects.all(), user).filter(pk__in=native_ids)
-        native_map = {t.id: t for t in native_templates}
-    for row in native_counts:
-        template = native_map.get(row['native_record__version__template_id'])
-        if template is None:
-            continue
-        groups.append(_group_view(
-            NATIVE_GROUP_PREFIX + str(template.id), 'native', template, row))
     manual_counts = base.filter(created_from=LEDGER_FROM_MANUAL).aggregate(**_GROUP_ANNOTATIONS)
     if manual_counts['total']:
         groups.append(_group_view(MANUAL_GROUP_KEY, 'manual', None, manual_counts))
@@ -167,15 +143,6 @@ def _get_group_template(user, group_key):
     ).filter(pk=int(group_key)).first()
 
 
-def _get_native_group_template(user, template_key):
-    """解析原生模板组（租户内），不存在返回 None。"""
-    if not str(template_key).isdigit():
-        raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
-    return apply_tenant_filter(
-        OperationLedgerNativeTemplate.objects.all(), user
-    ).filter(pk=int(template_key)).first()
-
-
 def list_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
                        page=1, page_size=20,
                        row_serializer=None):
@@ -192,18 +159,6 @@ def list_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
         validate_ledger_type(ledger_type)
         group_name = MANUAL_GROUP_NAME
         query = query.filter(created_from=LEDGER_FROM_MANUAL, ledger_type=ledger_type)
-    elif str(group_key).startswith(NATIVE_GROUP_PREFIX):
-        template = _get_native_group_template(
-            user, str(group_key)[len(NATIVE_GROUP_PREFIX):])
-        if template is None:
-            raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
-        if ledger_type and ledger_type != template.ledger_type:
-            raise LedgerValidationError('台账类型与模板不匹配')
-        group_name = template.name
-        query = query.filter(
-            created_from=LEDGER_FROM_NATIVE,
-            native_record__version__template_id=template.id,
-            ledger_type=template.ledger_type)
     else:
         if not str(group_key).isdigit():
             raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
@@ -219,7 +174,7 @@ def list_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
             ledger_type=template.ledger_type)
     query = _apply_group_filters(query, status, keyword)
     query = query.select_related(
-        'system', 'excel_record__version', 'native_record__version') \
+        'system', 'excel_record__version') \
         .order_by('-created_at', '-id')
     total = query.count()
     records = query[(page - 1) * page_size: page * page_size] if total else []
@@ -261,11 +216,9 @@ def _safe_file_name(name):
 
 
 def _resolve_export_template(user, group_key, ledger_type):
-    """解析可导出的模板组（租户内）；manual/native 组按支持范围明确拒绝。"""
+    """解析可导出的模板组（租户内）；manual 组按支持范围明确拒绝。"""
     if str(group_key) == MANUAL_GROUP_KEY:
         raise LedgerValidationError('无模板/临时补录台账没有模板版式，不支持批量 PDF 导出')
-    if str(group_key).startswith(NATIVE_GROUP_PREFIX):
-        raise LedgerValidationError(_NATIVE_GROUP_NOT_SUPPORTED)
     if not str(group_key).isdigit():
         raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
     template = _get_group_template(user, group_key)
@@ -425,8 +378,6 @@ def browse_group_ledgers(user, group_key, ledger_type='', status='', keyword='')
     """
     if str(group_key) == MANUAL_GROUP_KEY:
         raise LedgerValidationError('无模板/临时补录台账没有模板版式，不支持翻阅')
-    if str(group_key).startswith(NATIVE_GROUP_PREFIX):
-        raise LedgerValidationError(_NATIVE_GROUP_BROWSE_NOT_SUPPORTED)
     if not str(group_key).isdigit():
         raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
     template = _get_group_template(user, group_key)
@@ -466,3 +417,238 @@ def browse_group_ledgers(user, group_key, ledger_type='', status='', keyword='')
         'total': len(entries),
         'entries': entries,
     }
+
+
+# ======================================================================
+# 多模板批量 PDF 导出（"批量导出 PDF"，2026-10-21）
+# ----------------------------------------------------------------------
+# 台账列表页（按维护周期 / 按模板查看）的"批量导出 PDF"入口：用户勾选
+# 若干模板后按模板身份导出。与组内批量导出（"导出本模板台账"）的区别：
+# - 范围由弹窗中的模板与状态选择明确决定，不继承列表的日期/本周/本月/
+#   航季筛选，也不按当前分页截取；
+# - 按模板 ID 组织导出（同一模板各版本台账归同一模板），每个模板一份
+#   合并 PDF，多模板打包 ZIP，不同模板不混成一个 PDF；
+# - 模板内排序按维护期次从早到晚（与"翻阅台账"同口径），无可靠期次的
+#   排最后按创建顺序兜底；组内导出仍按台账编号排序（既有交互保留）。
+# ======================================================================
+
+# 已知台账状态集合（三状态简化后固定）；counts 聚合兜底未知状态
+_EXPORT_STATUS_KEYS = (LEDGER_STATUS_COMPLETED, LEDGER_STATUS_DRAFT, LEDGER_STATUS_VOID)
+
+ZIP_CONTENT_TYPE = 'application/zip'
+
+
+def _export_scope_statuses(status):
+    """状态范围 → 参与导出的状态集合（与 _group_export_query 同口径）。
+
+    - ''（默认）：仅已完成（不含草稿/已作废）；
+    - 'all'：全部（含草稿/已作废）；
+    - 其他值：精确匹配该状态（draft/void）。
+    """
+    if not status:
+        return set(DEFAULT_EXPORT_STATUSES)
+    if status == LEDGER_STATUS_FILTER_ALL:
+        return None
+    return {status}
+
+
+def list_export_templates(user, ledger_type):
+    """"批量导出 PDF"模板候选清单（只读，弹窗打开时拉取一次）。
+
+    - 仅本租户、指定台账类型的 Excel 模板（含已停用——停用只禁止用于
+      新建，仍有历史台账的模板可正常导出）；manual 补录无模板版式不提供；
+    - 仅有历史台账（任意状态）的模板进入清单，无任何台账的模板不出现；
+    - 每模板下发各状态数量与"版本 × 状态"分布，前端据此计算所选状态
+      范围下的可导出数量、涉及版本与合计（与实际导出共用 _group_export_query
+      筛选定义，实际导出时后端重查并做数量一致性复核）。
+    """
+    validate_ledger_type(ledger_type)
+    rows = apply_tenant_filter(OperationLedger.objects.all(), user).filter(
+        created_from=LEDGER_FROM_EXCEL, ledger_type=ledger_type,
+        excel_record__version__template_id__isnull=False,
+    ).values(
+        'excel_record__version__template_id',
+        'excel_record__version__version_no', 'status',
+    ).annotate(count=Count('id')).order_by()
+    template_ids = sorted({row['excel_record__version__template_id'] for row in rows})
+    templates_out = []
+    if template_ids:
+        template_map = {
+            t.id: t for t in apply_tenant_filter(
+                OperationLedgerExcelTemplate.objects.all(), user).filter(
+                pk__in=template_ids)}
+        grouped = {}
+        for row in rows:
+            template = template_map.get(row['excel_record__version__template_id'])
+            if template is None:
+                # 填写记录缺失或模板行缺失的异常数据不进清单（组名不可解析）
+                continue
+            item = grouped.setdefault(template.id, {
+                'template_id': template.id,
+                'template_name': template.name,
+                'is_active': template.is_active,
+                'ledger_type': template.ledger_type,
+                'counts': {key: 0 for key in _EXPORT_STATUS_KEYS},
+                'versions': {},
+            })
+            item['counts'][row['status']] = \
+                item['counts'].get(row['status'], 0) + row['count']
+            version_key = str(row['excel_record__version__version_no'])
+            version_entry = item['versions'].setdefault(
+                version_key, {key: 0 for key in _EXPORT_STATUS_KEYS})
+            version_entry[row['status']] = \
+                version_entry.get(row['status'], 0) + row['count']
+        templates_out = sorted(
+            grouped.values(), key=lambda item: (item['template_name'], item['template_id']))
+    return {
+        'ledger_type': ledger_type,
+        'templates': templates_out,
+        'default_statuses': list(DEFAULT_EXPORT_STATUSES),
+        'max_records': MAX_BATCH_EXPORT_RECORDS,
+    }
+
+
+def _parse_template_ids(template_ids):
+    """导出模板 ID 清单解析：非空、整数、不重复（防模板混选与重复提交）。"""
+    if not isinstance(template_ids, (list, tuple)) or not template_ids:
+        raise LedgerValidationError('请先选择要导出的模板')
+    parsed = []
+    for value in template_ids:
+        text = str(value).strip()
+        if not text.isdigit():
+            raise LedgerValidationError('模板选择参数不正确：%s' % value)
+        parsed.append(int(text))
+    if len(set(parsed)) != len(parsed):
+        raise LedgerValidationError('模板选择包含重复项，请检查后重试')
+    return parsed
+
+
+def _check_expected_totals(expected_totals, template, count):
+    """预览一致性守卫：导出数量与确认时不一致须重新确认，不静默漏导。
+
+    expected_totals 为前端预览时各模板的数量（键为模板 ID 字符串）；预览后
+    数据变化（新完成/被作废/删除等）导致数量漂移时明确报错。
+    """
+    if not isinstance(expected_totals, dict):
+        return
+    expected = expected_totals.get(str(template.id))
+    if expected is None:
+        return
+    try:
+        expected = int(expected)
+    except (TypeError, ValueError):
+        raise LedgerValidationError('导出确认数量参数不正确，请重新打开导出确认后重试')
+    if expected != count:
+        raise LedgerValidationError(
+            '模板「%s」当前可导出 %d 条，与确认时（%d 条）不一致，'
+            '数据可能已变化，请重新确认后导出' % (template.name, count, expected))
+
+
+def _collect_template_export_plan(user, template_id, ledger_type, status,
+                                  expected_totals):
+    """解析单个导出模板并生成记录计划（数量校验 + 期次排序）。
+
+    返回 (template, ledgers)；无可导出记录 / 跨类型 / 跨租户 / 数量漂移
+    均在此明确报错。排序 = 维护期次从早到晚（_browse_sort_key：期次起始
+    日期升序，无可靠期次的排最后按创建顺序），每条台账生成时仍逐条复核。
+    """
+    template = _resolve_export_template(user, str(template_id), ledger_type)
+    _, query = _group_export_query(
+        user, str(template_id), ledger_type, status=status, keyword='')
+    count = query.count()
+    if not count:
+        raise LedgerValidationError(
+            '模板「%s」在所选状态范围内没有可导出的台账' % template.name)
+    _check_expected_totals(expected_totals, template, count)
+    ledgers = sorted(
+        query.select_related('system', 'excel_record__version'),
+        key=_browse_sort_key)
+    return template, ledgers
+
+
+def _dedupe_pdf_names(templates):
+    """各模板合并 PDF 的文件名（同名模板以模板 ID 区分，非法字符净化）。"""
+    names = [_safe_file_name(template.name) for template in templates]
+    duplicated = {name for name in names if names.count(name) > 1}
+    stamp = date.today().strftime('%Y%m%d')
+    filenames = []
+    for name, template in zip(names, templates):
+        if name in duplicated:
+            name = '%s-%d' % (name, template.id)
+        filenames.append('%s-批量导出-%s.pdf' % (name, stamp))
+    return filenames
+
+
+def export_templates_pdfs(user, ledger_type, template_ids, status='',
+                          expected_totals=None):
+    """多模板批量导出：每模板一份合并 PDF，多模板打包 ZIP 下载。
+
+    - 后端按模板 ID 重新查询完整记录（租户 + 台账类型 + Excel 来源），
+      不信任前端传入的数量；expected_totals 与预览数量不一致时明确报错；
+    - 状态范围由 status 决定（默认已完成；all 含草稿/已作废），与预览、
+      组内导出同口径；导出不受列表筛选与分页影响；
+    - 每条台账用创建时引用的模板版本与打印参数生成 PDF（复用单条导出
+      服务），模板内依期次排序后 pypdf 合并；任一条失败立即终止并抛出
+      携带模板名与台账编号的错误，绝不返回部分产物；单条转换临时文件由
+      既有临时目录机制自清理，合并与 ZIP 打包在内存完成，无持久化中间产物；
+    - 单模板返回 (pdf文件名, pdf内容, 条数)；多模板返回
+      (zip文件名, zip内容, 条数)，ZIP 内各 PDF 文件名含模板名与导出日期，
+      同名模板以模板 ID 区分。
+
+    状态范围允许的模板台账总量受 MAX_BATCH_EXPORT_RECORDS 约束（与组内
+    导出同一上限，同步生成在请求超时内可完成；LibreOffice 单条约 2~5 秒）。
+    """
+    validate_ledger_type(ledger_type)
+    ids = _parse_template_ids(template_ids)
+    allowed_statuses = _export_scope_statuses(status)
+    resolved = [_collect_template_export_plan(
+        user, template_id, ledger_type, status, expected_totals)
+        for template_id in ids]
+    total = sum(len(ledgers) for _, ledgers in resolved)
+    if total > MAX_BATCH_EXPORT_RECORDS:
+        raise LedgerValidationError(
+            '所选模板可导出台账共 %d 条，超过单次导出上限 %d 条，'
+            '请减少模板或缩小状态范围' % (total, MAX_BATCH_EXPORT_RECORDS))
+    # 生成顺序与 ZIP 内顺序 = 模板名称 → ID（与弹窗清单一致，稳定可复现）
+    resolved.sort(key=lambda pair: (pair[0].name, pair[0].id))
+    template_pdfs = []
+    generated = 0
+    for template, ledgers in resolved:
+        parts = []
+        for ledger in ledgers:
+            # 固定清单后逐条实时复核：租户过滤 + Excel 来源 + 填写记录存在
+            # + 状态漂移（查询与生成之间状态变化的记录在此拒绝）
+            fresh = apply_tenant_filter(
+                OperationLedger.objects.filter(created_from=LEDGER_FROM_EXCEL), user
+            ).filter(pk=ledger.id, excel_record__isnull=False) \
+                .select_related('excel_record__version__template').first()
+            if fresh is None:
+                raise LedgerValidationError(
+                    '模板「%s」的台账已不存在或已被删除，导出已终止' % template.name)
+            if allowed_statuses is not None and fresh.status not in allowed_statuses:
+                raise LedgerValidationError(
+                    '模板「%s」的台账 %s 状态已变化（%s），请重新确认后导出'
+                    % (template.name, fresh.ledger_no,
+                       LEDGER_STATUS_LABELS.get(fresh.status, fresh.status)))
+            try:
+                parts.append(excel_ledger_services.export_pdf_file(user, fresh))
+            except (excel_ledger_services.ExcelLedgerError,
+                    excel_pdf_service.PdfConversionError) as e:
+                raise LedgerValidationError(
+                    '模板「%s」的台账 %s 生成 PDF 失败：%s'
+                    % (template.name, fresh.ledger_no, e))
+            generated += 1
+        try:
+            template_pdfs.append(excel_pdf_service.merge_pdf_bytes(parts))
+        except excel_pdf_service.PdfConversionError as e:
+            raise LedgerValidationError('模板「%s」PDF 合并失败：%s' % (template.name, e))
+    if len(template_pdfs) == 1:
+        return _dedupe_pdf_names([resolved[0][0]])[0], template_pdfs[0], generated
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for filename, content in zip(_dedupe_pdf_names(
+                [template for template, _ in resolved]), template_pdfs):
+            zf.writestr(filename, content)
+    zip_name = '%s台账批量导出-%s.zip' % (
+        LEDGER_TYPE_TEXT.get(ledger_type, ''), date.today().strftime('%Y%m%d'))
+    return zip_name, buffer.getvalue(), generated
