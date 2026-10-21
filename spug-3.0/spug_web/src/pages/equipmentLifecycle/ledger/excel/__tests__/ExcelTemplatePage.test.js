@@ -606,7 +606,9 @@ test('新建流程：选择文件只登记不上传，可移除重新选择', as
   const modal = await openCreateModal();
   const input = modal.querySelector('input[type="file"]');
   expect(input).toBeTruthy();
+  // 同一节点要模拟两次选文件，files 必须可重定义
   Object.defineProperty(input, 'files', {
+    configurable: true,
     value: [new window.File(['x'], 'channel.xlsx')],
   });
   await act(async () => {
@@ -617,12 +619,14 @@ test('新建流程：选择文件只登记不上传，可移除重新选择', as
   expect(modal.querySelector('[data-testid="tpl-file-name"]').textContent)
     .toContain('channel.xlsx');
   expect(mockHttpPost).not.toHaveBeenCalled();
-  // 非 .xlsx 直接拒绝
-  Object.defineProperty(input, 'files', {
+  // 非 .xlsx 直接拒绝（首次选择后组件重渲染，重新取当前 input 节点）
+  const rejectInput = modal.querySelector('input[type="file"]');
+  Object.defineProperty(rejectInput, 'files', {
+    configurable: true,
     value: [new window.File(['x'], 'old.xls')],
   });
   await act(async () => {
-    input.dispatchEvent(new window.Event('change', {bubbles: true}));
+    rejectInput.dispatchEvent(new window.Event('change', {bubbles: true}));
   });
   await flush();
   expect(message.error).toHaveBeenCalledWith(

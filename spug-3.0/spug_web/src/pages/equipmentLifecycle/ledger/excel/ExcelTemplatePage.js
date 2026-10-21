@@ -31,7 +31,15 @@
  *   已停用模板仅供查看（替换/发布/打印设置/选格编辑与导航定位冻结，
  *   后端独立校验兜底）；字段名称自动生成、混合批量选区、拖拽选区禁
  *   文字选择、Escape 取消等交互保持不变（实现见 TemplateWorkspace
- *   与 store）。
+ *   与 store）；
+ * - 历史版本（2026-10-21）：打开模板固定进入当前草稿（不回退到最新
+ *   发布版本），信息行显示草稿更新时间/人与内容关系（identical/
+ *   modified/unknown 由后端按内容签名判定，无法确认时如实显示）；
+ *   版本记录抽屉每行可「查看内容」——只读查看器（VersionViewerDrawer）
+ *   用版本自身快照渲染版式/绑定/打印参数与真实 PDF 预览（与模板编辑
+ *   同一套纸张展示层），并提供「复制为新草稿」（二次确认明确替换当前
+ *   草稿/绑定/打印参数，历史版本不修改、不自动发布，成功后刷新详情，
+ *   失败保留现状不提示成功）。
  *
  * 不支持的文件特性（公式/图表/图片/外部链接/透视表）由后端显式拒绝，
  * 错误信息逐项列出（公共拦截器提示，不静默导入）。
@@ -51,9 +59,12 @@ import {
 import {hasPermission, history} from 'libs';
 
 import excelTemplateStore, {LIST_PAGE_SIZE} from './excelTemplateStore';
+import excelVersionStore from './excelVersionStore';
+import {draftRelationText} from './excelVersionView';
 import PdfParamsDrawer, {PreviewInfoAlert} from './PdfParamsDrawer';
 import {PERM_L} from '../constants';
 import {TemplateWorkspaceBody} from './components/TemplateWorkspace';
+import VersionViewerDrawer from './components/VersionViewerDrawer';
 import './ExcelTemplateWorkspace.less';
 
 const LEDGER_TYPE_TEXT = {week_month: '周月维护', seasonal: '季维护'};
@@ -72,8 +83,14 @@ function systemColumn(record) {
 
 @observer
 class ExcelTemplatePage extends React.Component {
+  state = {versionTarget: null};  // 版本抽屉归属模板 {id, name, isActive}
+
   get store() {
     return this.props.store || excelTemplateStore;
+  }
+
+  get versionStore() {
+    return this.props.versionStore || excelVersionStore;
   }
 
   componentDidMount() {
@@ -144,13 +161,69 @@ class ExcelTemplatePage extends React.Component {
     return '';
   }
 
+  /** 工作区「版本记录」：记录归属模板后打开抽屉（查看内容/复制入口可用）。 */
   showVersions = () => {
-    this.store.showVersionsFor(this.store.current).catch(() => {});
+    const current = this.store.current;
+    this.setState({versionTarget: current
+      ? {id: current.id, name: current.name, isActive: current.is_active}
+      : null});
+    this.store.showVersionsFor(current).catch(() => {});
   };
 
-  /** 列表行「版本记录」：按行取数打开抽屉，不改动当前模板详情。 */
+  /** 列表行「版本记录」：按行取数打开抽屉，不改动当前模板详情；此时
+   * 只提供只读查看（复制入口仅在打开同一模板详情时出现）。 */
   showRowVersions = record => {
+    this.setState({versionTarget: record
+      ? {id: record.id, name: record.name, isActive: record.is_active}
+      : null});
     this.store.showVersionsFor(record).catch(() => {});
+  };
+
+  /** 版本抽屉行「查看内容」：拉取该版本快照并打开只读查看抽屉。 */
+  handleViewVersion = row => {
+    const target = this.state.versionTarget;
+    if (!target) return;
+    this.versionStore.open(target.id, target.name, row.version_no,
+                           target.isActive).catch(() => {});
+  };
+
+  /**
+   * 「复制为新草稿」：二次确认明确替换范围（当前草稿/绑定/打印参数被
+   * 整体替换；历史版本不修改、不自动发布），确认后才调用复制接口；
+   * 成功后以服务端返回刷新模板详情并回到草稿编辑视图；失败保留当前
+   * 状态（确认弹窗保持打开，错误由公共拦截器提示，不提示成功）。
+   */
+  handleCopyVersion = () => {
+    const versionStore = this.versionStore;
+    const version = versionStore.version;
+    if (!version || versionStore.copying) return;
+    Modal.confirm({
+      title: `把 v${version.version_no} 复制为当前草稿？`,
+      content: (
+        <div data-testid="tpl-copy-confirm">
+          <p style={{color: '#fa541c'}}>
+            当前草稿将被 v{version.version_no} 的内容整体替换：
+          </p>
+          <ul style={{paddingLeft: 20, margin: '8px 0'}}>
+            <li>当前草稿源文件将被替换</li>
+            <li>现有字段绑定将被替换</li>
+            <li>当前打印参数将被替换</li>
+          </ul>
+          <p>
+            历史版本（包括本版本）不会被修改，复制后<b>不会自动发布</b>，
+            需要发布时请手动操作。
+          </p>
+        </div>
+      ),
+      okText: '复制并替换草稿', okType: 'danger', cancelText: '取消',
+      onOk: async () => {
+        const detail = await versionStore.copyToDraft();
+        this.store.applyDetail(detail);
+        versionStore.close();
+        message.success(`已把 v${version.version_no} 复制为当前草稿`);
+        return detail;
+      },
+    });
   };
 
   /** 行停用确认（Modal.confirm）：保留引用台账数提示与 del 权限门禁。 */
@@ -387,6 +460,9 @@ class ExcelTemplatePage extends React.Component {
     // 已停用模板仅供查看：禁用替换/发布/打印设置入口，选格编辑一并冻结
     const deleted = !store.current.is_active;
     const blockReason = this.publishBlockReason();
+    // 草稿状态（2026-10-21）：后端按内容签名判定与发布版本的关系，
+    // 无法可靠判断时前端原样展示"无法确认"，不做任何时间推断
+    const draftState = store.current.draft_state || {};
     return (
       <div className="excel-template-workspace">
         <div className="excel-workspace-header">
@@ -409,12 +485,19 @@ class ExcelTemplatePage extends React.Component {
           </div>
         )}
         <div className="excel-workspace-meta">
+          <span data-testid="tpl-editing-mode">当前编辑：草稿</span>
+          <span data-testid="tpl-draft-updated">
+            草稿更新：{draftState.updated_at || '—'}
+            {draftState.updated_by ? ` · ${draftState.updated_by}` : ''}
+          </span>
+          <span data-testid="tpl-draft-relation">{draftRelationText(draftState)}</span>
           <span data-testid="tpl-source-file">
             源文件：{draft ? draft.source_filename : '未上传'}
           </span>
           <span data-testid="tpl-binding-count">绑定字段：{store.bindings.length} 个</span>
           <span data-testid="tpl-version-line">
-            当前版本：v{store.current.latest_version_no || 0}（共 {store.current.versions_count || 0} 个）
+            最新发布版本：v{store.current.latest_version_no || 0}
+            （共 {store.current.versions_count || 0} 个）
           </span>
           <span data-testid="tpl-generation-config-line">
             适用系统：{store.current.system
@@ -664,17 +747,40 @@ class ExcelTemplatePage extends React.Component {
        render: v => <span style={{fontFamily: 'monospace'}}>{String(v).slice(0, 16)}…</span>},
       {title: '字段数', dataIndex: 'field_count'},
       {title: '发布时间', dataIndex: 'published_at'},
+      {title: '操作', key: 'view', width: 90,
+       render: (_, record) => (
+         <a data-testid="tpl-version-view"
+            onClick={() => this.handleViewVersion(record)}>查看内容</a>
+       )},
     ];
     return (
       <Drawer title={store.versionsOwner
         ? `已发布版本：${store.versionsOwner}` : '已发布版本（不可变）'}
-              width={720} visible={store.versionsVisible}
+              width={780} visible={store.versionsVisible}
               onClose={() => {
                 store.versionsVisible = false;
               }}>
+        <div style={{color: '#999', marginBottom: 8}}>
+          已发布版本为不可变快照，仅供查看与追溯；如需继续使用某个旧版本，
+          请点「查看内容」后选择「复制为新草稿」（不会修改历史版本、不会自动发布）。
+        </div>
         <Table rowKey="id" columns={columns} dataSource={store.versions}
                pagination={false} size="small"/>
       </Drawer>
+    );
+  }
+
+  /** 历史版本只读查看抽屉（复制入口仅在打开同一模板详情时可用）。 */
+  _renderVersionViewer() {
+    const target = this.state.versionTarget;
+    const canCopy = !!(target && target.isActive
+      && this.store.current && this.store.current.id === target.id
+      && hasPermission(PERM_L.TPL_EDIT));
+    return (
+      <VersionViewerDrawer store={this.versionStore}
+                           templateId={target ? target.id : null}
+                           canCopy={canCopy}
+                           onCopy={this.handleCopyVersion}/>
     );
   }
 
@@ -693,6 +799,7 @@ class ExcelTemplatePage extends React.Component {
         <div className="excel-template-page">
           {this._renderList()}
           {this._renderVersionsDrawer()}
+          {this._renderVersionViewer()}
         </div>
       );
     }
@@ -700,6 +807,7 @@ class ExcelTemplatePage extends React.Component {
       <div className="excel-template-page">
         {this._renderWorkspace()}
         {this._renderVersionsDrawer()}
+        {this._renderVersionViewer()}
         {this._renderPdfParamsDrawer()}
       </div>
     );

@@ -4,10 +4,12 @@
 
 权限域（复用既有台账模板权限码，不新增）：
 - equipment_lifecycle.ledger_template.view：列表 / 详情 / 版本 / 可用模板 /
-  验收样例下载 / 草稿 PDF 预览 / 生成配置查看
+  验收样例下载 / 草稿 PDF 预览 / 生成配置查看 / 历史版本只读 PDF 预览 /
+  历史版本源文件下载
 - equipment_lifecycle.ledger_template.add：上传创建模板（含重新上传草稿）
 - equipment_lifecycle.ledger_template.edit：保存绑定 / 发布版本 /
-  保存 PDF 打印参数 / 保存生成配置（适用系统+生成周期，2026-10-14）
+  保存 PDF 打印参数 / 保存生成配置（适用系统+生成周期，2026-10-14）/
+  复制历史版本为新草稿（2026-10-21）
 - equipment_lifecycle.ledger_template.del：停用模板 / 重新启用模板（
   2026-10-19）/ 删除模板（删除时后端重新检查引用关系）
 
@@ -411,6 +413,91 @@ class ExcelTemplateVersionDetailView(View):
             return json_response(error='模板版本不存在')
         return json_response(
             {'data': excel_template_manage.version_content_view(version)})
+
+
+class ExcelTemplateVersionPreviewView(View):
+    """历史版本只读 PDF 预览（POST 语义：触发生成）。
+
+    POST /excel-templates/<pk>/versions/<no>/preview/pdf/
+    使用该版本自身的源文件、布局、绑定与打印参数生成空白打印稿；
+    不读取请求体参数（不允许用表单参数改写历史版本预览），绝不临时
+    改写当前草稿、不写库、不创建版本。响应头与草稿预览一致：
+    X-El-Pdf-Pages / X-El-Pdf-Paper / X-El-Pdf-Warnings。
+    """
+
+    @_na
+    @auth(PERM_TPL_VIEW)
+    def post(self, request, pk, version_no):
+        template = _get_template_or_none(pk, request.user)
+        if not template:
+            return json_response(error='Excel台账模板不存在')
+        version = template.versions.filter(version_no=version_no).first()
+        if not version:
+            return json_response(error='模板版本不存在')
+        try:
+            result = excel_template_manage.preview_version_pdf(version)
+        except ExcelTemplateError as e:
+            return json_response(error=str(e))
+        base_name = (version.source_filename or '模板').rsplit('.', 1)[0]
+        response = file_response(
+            '%s-v%s-版本预览.pdf' % (base_name, version.version_no),
+            result['content'], PDF_CONTENT_TYPE)
+        if result['pages'] is not None:
+            response['X-El-Pdf-Pages'] = str(result['pages'])
+        if result['paper']:
+            response['X-El-Pdf-Paper'] = result['paper']
+        response['X-El-Pdf-Warnings'] = quote(
+            json.dumps(result['warnings'], ensure_ascii=False))
+        return response
+
+
+class ExcelTemplateVersionSourceView(View):
+    """历史版本源文件下载（只读；文件缺失返回业务错误不返回空文件）。"""
+
+    @auth(PERM_TPL_VIEW)
+    def get(self, request, pk, version_no):
+        template = _get_template_or_none(pk, request.user)
+        if not template:
+            return json_response(error='Excel台账模板不存在')
+        version = template.versions.filter(version_no=version_no).first()
+        if not version:
+            return json_response(error='模板版本不存在')
+        try:
+            filename, content = excel_template_manage.version_source_content(version)
+        except ExcelTemplateError as e:
+            return json_response(error=str(e))
+        return file_response(filename, content, XLSX_CONTENT_TYPE)
+
+
+class ExcelTemplateVersionCopyView(View):
+    """复制历史版本为新草稿：POST /excel-templates/<pk>/versions/<no>/copy-to-draft/
+
+    - 只替换当前草稿（源文件/布局/绑定/打印参数），不修改历史版本、
+      不创建新发布版本、不自动发布；
+    - 模板归属/启用状态/版本归属/源文件哈希由服务层重新校验，不信任
+      前端；文件副作用视图（non_atomic）以便失败时文件补偿可回滚；
+    - 失败返回业务错误（不返回成功响应），成功返回更新后的模板详情。
+    """
+
+    @_na
+    @auth(PERM_TPL_EDIT)
+    def post(self, request, pk, version_no):
+        template = _get_template_or_none(pk, request.user)
+        if not template:
+            return json_response(error='Excel台账模板不存在')
+        try:
+            template, version = excel_template_manage.copy_version_to_draft(
+                request.user, template, version_no)
+        except ExcelTemplateError as e:
+            return json_response(error=str(e))
+        record_audit_event(
+            request, 'update', AUDIT_TARGET, template.pk, template.name,
+            after_value={'action_kind': 'copy_version_to_draft',
+                         'source_version_no': version.version_no,
+                         'source_hash': version.source_hash,
+                         'draft_binding_count': _binding_count(template)})
+        return json_response({'data': excel_template_manage.template_detail(template)})
+
 
 
 class ExcelTemplateAvailableView(View):

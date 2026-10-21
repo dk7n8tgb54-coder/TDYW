@@ -85,6 +85,14 @@ urlpatterns = [
     path('excel-templates/<int:pk>/publish/', excel_template_views.ExcelTemplatePublishView.as_view()),
     path('excel-templates/<int:pk>/versions/', excel_template_views.ExcelTemplateVersionListView.as_view()),
     path('excel-templates/<int:pk>/versions/<int:version_no>/', excel_template_views.ExcelTemplateVersionDetailView.as_view()),
+    # 历史版本只读能力（2026-10-21）：版本自身打印预览 / 源文件下载 /
+    # 复制为新草稿（仅替换当前草稿，不改历史版本、不自动发布）
+    path('excel-templates/<int:pk>/versions/<int:version_no>/preview/pdf/',
+         excel_template_views.ExcelTemplateVersionPreviewView.as_view()),
+    path('excel-templates/<int:pk>/versions/<int:version_no>/source/',
+         excel_template_views.ExcelTemplateVersionSourceView.as_view()),
+    path('excel-templates/<int:pk>/versions/<int:version_no>/copy-to-draft/',
+         excel_template_views.ExcelTemplateVersionCopyView.as_view()),
     path('excel-templates/<int:pk>/preview/pdf/', excel_template_views.ExcelTemplatePdfPreviewView.as_view()),
     # Excel 路线维护台账（created_from=excel_template；作废/删除沿用既有 ledgers 端点）
     path('excel-ledgers/', excel_ledger_views.ExcelLedgerView.as_view()),

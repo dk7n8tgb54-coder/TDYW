@@ -53,11 +53,19 @@ def version_path(template_id, version_no):
 
 
 def write_draft(template_id, data):
-    """写入/覆盖草稿源文件（先建目录再落盘）。"""
+    """写入/覆盖草稿源文件（同目录临时文件 + os.replace 原子替换）。
+
+    临时文件与目标同目录，避免跨设备 rename 失败；替换前已有草稿保持
+    完整（写一半中断不会留下截断的半份草稿），复制历史版本为新草稿等
+    需要「失败后可回滚」的写入路径依赖这一点。
+    """
     target = draft_path(template_id)
-    os.makedirs(os.path.dirname(target), exist_ok=True)
-    with open(target, 'wb') as f:
+    directory = os.path.dirname(target)
+    os.makedirs(directory, exist_ok=True)
+    temp_path = os.path.join(directory, '.draft.%d.tmp' % os.getpid())
+    with open(temp_path, 'wb') as f:
         f.write(data)
+    os.replace(temp_path, target)
     return target
 
 

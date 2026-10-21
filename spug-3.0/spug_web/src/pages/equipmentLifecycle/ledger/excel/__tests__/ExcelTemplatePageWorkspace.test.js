@@ -439,7 +439,7 @@ test('编辑页头部信息完整，左侧返回入口点击后回到列表', as
     latest_version_no: 2, versions_count: 3,
   })});
   await renderPage();
-  // 标题区：名称 + 类型；信息行：源文件/绑定字段数/当前版本
+  // 标题区：名称 + 类型；信息行：源文件/绑定字段数/最新发布版本
   expect(container.textContent).toContain('信道Excel维护台账');
   expect(container.textContent).toContain('周月维护');
   expect(container.querySelector('[data-testid="tpl-source-file"]').textContent)
@@ -447,7 +447,7 @@ test('编辑页头部信息完整，左侧返回入口点击后回到列表', as
   expect(container.querySelector('[data-testid="tpl-binding-count"]').textContent)
     .toContain('绑定字段：1 个');
   expect(container.querySelector('[data-testid="tpl-version-line"]').textContent)
-    .toContain('当前版本：v2（共 3 个）');
+    .toContain('最新发布版本：v2（共 3 个）');
   // 左侧返回入口 → 清空当前模板回到列表
   expect(container.querySelector('[data-testid="tpl-back"]')).toBeTruthy();
   await act(async () => {

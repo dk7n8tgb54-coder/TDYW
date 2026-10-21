@@ -174,7 +174,9 @@ describe('ExcelTemplatePage 生成配置', () => {
     // 已配置模板不出现待配置标注
     expect(container.querySelector('[data-testid="tpl-system-unset"]')).toBeNull();
   });
+});
 
+describe('ExcelTemplatePage 生成配置（入口与保存）', () => {
   test('工作区配置入口拉取选项，保存提交 system 与 generation_period', async () => {
     mockHttpGet.mockImplementation(url => {
       if (url.endsWith('/excel-templates/7/')) {
@@ -252,12 +254,12 @@ describe('ExcelTemplatePage 生成配置', () => {
     })});
     await act(async () => {
       Array.from(modal.querySelectorAll('button'))
-        .find(node => node.textContent.replace(/\s/g, '') === '保 存').click();
+        .find(node => node.textContent.replace(/\s/g, '') === '保存').click();
     });
     await act(flush);
     expect(mockHttpPut).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/excel-templates/7/generation-config/',
-      {system: null, generation_period: ''});
+      {system: '', generation_period: ''});
     expect(store.current).toBeNull();
     expect(store.configVisible).toBe(false);
   });

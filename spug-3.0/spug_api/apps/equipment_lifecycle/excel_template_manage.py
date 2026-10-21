@@ -39,6 +39,11 @@
   配置只影响本期应填台账自动生成（ledger_period_services），不影响
   手工创建，已生成台账不回溯；
 - 历史台账经 OperationLedgerExcelRecord 继续引用创建时版本。
+- 草稿与版本历史（2026-10-21）：模板详情返回 draft_state（草稿更新时间/
+  更新人/绑定数 + 与最新发布版本的内容关系；来源只按内容签名判定，不做
+  时间推断）；历史版本可只读预览 PDF（用版本自身源文件/布局/绑定/参数，
+  绝不临时改写草稿）并下载版本源文件；「复制为新草稿」经显式接口把版本
+  快照整体复制为草稿（含失败补偿与审计），历史版本与其文件保持只读。
 
 业务错误统一抛 ExcelTemplateError，View 层转 json_response(error=...)。
 """
@@ -308,18 +313,31 @@ def _draft_main_sheet_size(meta):
 
 
 def _draft_meta(template):
-    """草稿布局 meta（含文件名/哈希，供绑定校验与导出组装）。"""
+    """草稿布局 meta（含文件名/哈希，供绑定校验与导出组装）。
+
+    布局经读取端修正（与版本快照同一规则，见 _corrected_version_layout）：
+    历史草稿/复制自旧版本快照的草稿由旧解析口径生成——列宽范围列漏记、
+    print 段缺 scale/page_margins/print_area，网页分页计划与 PDF 预览
+    必须与版本查看器使用同一修正后的布局，否则"复制 v3 后草稿 2 页、
+    版本查看 1 页"这类口径分裂就会出现；修正幂等，新解析产出的草稿
+    前后一致；草稿文件缺失/解析失败时原样返回快照。
+    """
     try:
         part = json.loads(template.draft_layout)
     except (ValueError, TypeError):
         _fail('模板草稿内容损坏，请重新上传源文件')
     if not isinstance(part, dict) or 'layout' not in part:
         _fail('模板草稿内容损坏，请重新上传源文件')
+    layout = part.get('layout')
+    if isinstance(layout, dict) and layout.get('sheets'):
+        draft_path = excel_template_storage.draft_path(template.pk)
+        layout = refresh_print_layout(
+            refresh_column_layout(layout, draft_path), draft_path)
     return {
         'source_filename': template.draft_source_filename,
         'source_file_hash': template.draft_source_hash,
         'sheet_name': part.get('sheet_name'),
-        'layout': part.get('layout'),
+        'layout': layout,
         'field_bindings': [],
         'sample_values': {},
         'pdf_params': part.get('pdf_params') or {},
@@ -380,6 +398,74 @@ def publish_version(user, template):
     locked.updated_by = user
     locked.save(update_fields=['updated_at', 'updated_by'])
     return version
+
+
+def copy_version_to_draft(user, template, version_no):
+    """把历史版本快照复制为当前草稿（不修改版本、不创建新版本、不发布）。
+
+    - 校验一律在服务内重新执行：模板存在且启用、版本属于该模板、版本
+      布局快照完整、版本源文件存在且与登记哈希一致；
+    - 当前草稿的源文件、布局、绑定与打印参数整体替换为该版本内容，
+      草稿更新时间/更新人同步刷新；
+    - 物理文件先写、数据库后写；数据库写入失败时还原草稿文件原字节
+      （此前无草稿则删除），不出现「数据库指向复制后的文件但复制失败」；
+    - 历史版本记录与其版本文件全程只读。
+    返回 (template, version)。
+    """
+    locked = get_excel_template(template.pk, user, for_update=True)
+    if locked is None:
+        _fail('Excel台账模板不存在')
+    if not locked.is_active:
+        _fail('模板已删除（停用），不能复制版本为新草稿')
+    version = locked.versions.filter(version_no=version_no).first()
+    if version is None:
+        _fail('模板版本不存在')
+    snapshot = version.get_layout()
+    if not (snapshot.get('layout') or {}).get('sheets'):
+        _fail('该版本布局快照不完整，无法复制为新草稿')
+    data = excel_template_storage.read_source(version_source_path(version))
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != version.source_hash:
+        _fail('该版本源文件与登记哈希不一致，无法复制为新草稿')
+    draft_path = excel_template_storage.draft_path(locked.pk)
+    previous = excel_template_storage.read_source(draft_path) \
+        if os.path.isfile(draft_path) else None
+    try:
+        excel_template_storage.write_draft(locked.pk, data)
+        with transaction.atomic():
+            locked.draft_source_filename = version.source_filename
+            locked.draft_source_hash = digest
+            locked.draft_layout = version.layout
+            locked.draft_bindings = version.bindings
+            locked.draft_updated_at = timezone.now()
+            locked.draft_updated_by = user
+            locked.updated_at = timezone.now()
+            locked.updated_by = user
+            locked.save(update_fields=[
+                'draft_source_filename', 'draft_source_hash', 'draft_layout',
+                'draft_bindings', 'draft_updated_at', 'draft_updated_by',
+                'updated_at', 'updated_by'])
+    except Exception:
+        _restore_draft_file(locked.pk, previous)
+        raise
+    return locked, version
+
+
+def _restore_draft_file(template_id, previous):
+    """草稿文件补偿：还原复制前字节；此前无草稿则删除新建文件。
+
+    补偿本身失败只遗留草稿文件（数据库仍为复制前内容，可重新上传），
+    不再抛出以避免掩盖原始异常。
+    """
+    try:
+        if previous is not None:
+            excel_template_storage.write_draft(template_id, previous)
+            return
+        path = excel_template_storage.draft_path(template_id)
+        if os.path.isfile(path):
+            os.remove(path)
+    except OSError:
+        return
 
 
 def deactivate_template(user, template):
@@ -616,6 +702,38 @@ def version_source_path(version):
     return path
 
 
+def version_source_content(version):
+    """历史版本源文件（文件名, 字节）：只读历史版本文件，不改任何草稿。"""
+    return version.source_filename, excel_template_storage.read_source(
+        version_source_path(version))
+
+
+def preview_version_pdf(version):
+    """历史版本只读 PDF 预览：用该版本自身的源文件/布局/绑定/打印参数。
+
+    - 只读版本文件与版本快照，绝不临时改写当前草稿、不写库、不创建版本；
+    - 与草稿预览同一转换服务（引擎、打印区域净化、临时目录清理一致），
+      参数取版本快照内 pdf_params，不受草稿现状影响；
+    - 返回 {'content', 'pages', 'paper', 'warnings'}（页数/纸张来自生成的
+      PDF，warnings 为版式预检，不伪造预览结果）。
+    """
+    meta = _version_meta(version)
+    if not (meta.get('layout') or {}).get('sheets'):
+        _fail('该版本布局快照不完整，无法预览')
+    source_path = version_source_path(version)
+    try:
+        content = preview_blank_pdf(meta, source_path)
+    except ExcelLayoutError as e:
+        _fail(str(e))
+    except excel_pdf_service.PdfConversionError as e:
+        _fail(str(e))
+    warnings = estimate_pdf_warnings(
+        meta, {}, meta.get('pdf_params'), check_required=False)
+    info = excel_pdf_service.pdf_page_info(content)
+    return {'content': content, 'pages': info['pages'],
+            'paper': info['paper'], 'warnings': warnings}
+
+
 def _corrected_version_layout(version):
     """版本布局快照的读取端修正（快照不可变，仅修读取视图）。
 
@@ -665,11 +783,12 @@ def version_content_view(version):
 def draft_meta_view(template):
     """草稿布局+绑定视图（前端绑定工作区数据源）；无草稿返回 None。
 
-    布局经读取端列宽修正（历史草稿 <col min max> 范围只记起始列），
-    工作区按正确列宽渲染；草稿文件缺失/解析失败时原样返回快照。
-    print_plan（2026-10-21）：与版本详情同一 build_print_plan 统一打印
-    计划——模板编辑工作区据此绘制与台账填写一致的纸张、页边距与分页
-    参考线；计算异常返回 None（前端回落打印参数近似显示）。
+    布局经读取端修正（列宽 + 打印设置，见 _draft_meta——与版本详情
+    同一修正规则），工作区按正确列宽渲染；草稿文件缺失/解析失败时
+    原样返回快照。print_plan（2026-10-21）：与版本详情同一
+    build_print_plan 统一打印计划——模板编辑工作区据此绘制与台账填写
+    一致的纸张、页边距与分页参考线；计算异常返回 None（前端回落打印
+    参数近似显示）。
     """
     if not template.draft_layout:
         return None
@@ -683,8 +802,7 @@ def draft_meta_view(template):
         print_plan = None
     return {
         'sheet_name': meta['sheet_name'],
-        'layout': refresh_column_layout(
-            meta['layout'], excel_template_storage.draft_path(template.pk)),
+        'layout': meta['layout'],
         'field_bindings': meta['field_bindings'],
         'pdf_params': meta.get('pdf_params') or {},
         'print_plan': print_plan,
@@ -785,6 +903,97 @@ def save_generation_config(user, template, body):
     return template
 
 
+def _canonical_layout_signature(source_hash, part, bindings):
+    """内容签名：源文件哈希 + 布局（不含打印参数）+ 绑定 + 打印参数。
+
+    时间戳不参与签名——草稿更新时间只记"何时改过"，不能证明来源版本；
+    来源关系一律由内容比较得出，比较不成立就明确"无法确认"。
+    """
+    part = part if isinstance(part, dict) else {}
+    layout = part.get('layout')
+    return {
+        'source_hash': source_hash or '',
+        'layout': _canonical(layout if isinstance(layout, dict) else {}),
+        'bindings': _canonical(bindings if isinstance(bindings, list) else []),
+        'pdf_params': _canonical(part.get('pdf_params') or {}),
+    }
+
+
+def _draft_signature(template):
+    """当前草稿内容签名（草稿损坏时返回空布局签名，不抛错影响详情）。"""
+    try:
+        part = json.loads(template.draft_layout) if template.draft_layout else {}
+    except (ValueError, TypeError):
+        part = {}
+    try:
+        bindings = json.loads(template.draft_bindings) if template.draft_bindings else []
+    except (ValueError, TypeError):
+        bindings = []
+    return _canonical_layout_signature(
+        template.draft_source_hash, part,
+        bindings if isinstance(bindings, list) else [])
+
+
+def draft_version_state(template):
+    """草稿状态与发布版本的内容关系（模板详情返回，前端信息栏数据源）。
+
+    relation 取值：no_draft（无草稿）/ no_versions（尚无发布版本）/
+    identical（与某版本内容完全一致，based_on 为该版本）/ modified（源文件
+    与**唯一**版本的哈希相同但内容有改动，可判定基于该版本）/ unknown
+    （源文件不匹配任何版本，或匹配多个版本无法区分，不猜测来源）。
+    """
+    versions = list(template.versions.all())
+    latest_no = max([v.version_no for v in versions], default=0)
+    updated_by = template.draft_updated_by
+    state = {
+        'latest_version_no': latest_no,
+        'versions_count': len(versions),
+        'updated_at': template.draft_updated_at,
+        'updated_by': updated_by.nickname if updated_by else '',
+        'updated_by_username': updated_by.username if updated_by else '',
+        'source_filename': template.draft_source_filename,
+        'source_hash': template.draft_source_hash,
+        'binding_count': _draft_binding_count(template),
+        'relation': 'no_draft',
+        'based_on_version_no': None,
+        'differs_from_latest': None,
+    }
+    if not template.draft_layout or not template.draft_source_hash:
+        return state
+    if not versions:
+        state['relation'] = 'no_versions'
+        return state
+    draft = _draft_signature(template)
+    signatures = {
+        version.version_no: _canonical_layout_signature(
+            version.source_hash, version.get_layout(), version.get_bindings())
+        for version in versions
+    }
+    same_source = [no for no, sig in signatures.items()
+                   if sig['source_hash'] == draft['source_hash']]
+    identical = [no for no in same_source if signatures[no] == draft]
+    if identical:
+        state['relation'] = 'identical'
+        state['based_on_version_no'] = max(identical)
+    elif len(same_source) == 1:
+        state['relation'] = 'modified'
+        state['based_on_version_no'] = same_source[0]
+    else:
+        state['relation'] = 'unknown'
+    state['differs_from_latest'] = signatures[latest_no] != draft
+    return state
+
+
+def _draft_binding_count(template):
+    if not template.draft_bindings:
+        return 0
+    try:
+        bindings = json.loads(template.draft_bindings)
+    except (ValueError, TypeError):
+        return 0
+    return len(bindings) if isinstance(bindings, list) else 0
+
+
 def template_detail(template):
     latest_no = template.versions.aggregate(max_no=Max('version_no'))['max_no'] or 0
     total = template.versions.count()
@@ -792,6 +1001,7 @@ def template_detail(template):
         total=Count('ledger_records', distinct=True))['total'] or 0
     view = _template_summary(template, latest_no, total, ledgers)
     view['draft'] = draft_meta_view(template)
+    view['draft_state'] = draft_version_state(template)
     view['compatibility'] = draft_compatibility(template)
     return view
 

@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>维护台账填写交互样板</title>
+  <style>
+    :root {
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif;
+      color: #20292b;
+      background: #eef2f1;
+      font-size: 14px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 360px; }
+    button, input, textarea { font: inherit; }
+    .app { min-height: 100vh; display: grid; grid-template-columns: 216px minmax(0, 1fr); }
+    .side { background: #17292c; color: #d7e3e1; padding: 22px 14px; }
+    .brand { color: #fff; font-weight: 700; font-size: 17px; padding: 0 12px 24px; }
+    .side-label { color: #91a5a3; font-size: 11px; padding: 18px 12px 8px; }
+    .side-item { height: 38px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 5px; color: #c6d3d1; }
+    .side-item.active { color: #fff; background: #28504c; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #819493; }
+    .side-item.active .dot { background: #6ed0ae; }
+    main { min-width: 0; }
+    .topbar { height: 58px; background: #fff; border-bottom: 1px solid #dce4e2; display: flex; align-items: center; justify-content: space-between; padding: 0 30px; color: #667371; }
+    .user { color: #344543; }
+    .content { max-width: 1320px; padding: 24px 30px 40px; margin: 0 auto; }
+    .crumb { color: #788583; font-size: 12px; margin-bottom: 17px; }
+    .title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+    h1 { font-size: 23px; margin: 0 0 7px; font-weight: 650; }
+    .subtitle { color: #74817f; font-size: 13px; }
+    .title-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .btn { height: 34px; border: 1px solid #cbd6d3; border-radius: 4px; padding: 0 13px; background: #fff; color: #344441; }
+    .btn.primary { background: #16755f; border-color: #16755f; color: #fff; }
+    .btn.quiet { color: #596764; }
+    .summary { display: grid; grid-template-columns: minmax(210px, 1.1fr) minmax(160px, .8fr) minmax(160px, .8fr) minmax(220px, 1.2fr); background: #fff; border: 1px solid #dce4e2; border-radius: 5px; margin-bottom: 18px; }
+    .summary-item { padding: 14px 18px; border-right: 1px solid #e6ecea; min-width: 0; }
+    .summary-item:last-child { border: 0; }
+    .label { color: #75817f; font-size: 12px; margin-bottom: 7px; }
+    .value { font-weight: 600; color: #2c3937; }
+    .progress-line { display: flex; align-items: center; gap: 9px; }
+    .progress { height: 6px; background: #e6eeeb; border-radius: 6px; flex: 1; overflow: hidden; }
+    .progress > span { display: block; width: 78%; height: 100%; background: #24876e; }
+    .progress-count { color: #24745f; font-weight: 600; white-space: nowrap; }
+    .workspace { display: grid; grid-template-columns: 218px minmax(0, 1fr); gap: 18px; align-items: start; }
+    .section-nav { background: #fff; border: 1px solid #dce4e2; border-radius: 5px; padding: 12px 8px; position: sticky; top: 14px; }
+    .nav-heading { color: #82908d; font-size: 11px; padding: 5px 10px 10px; }
+    .nav-link { min-height: 39px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-radius: 4px; color: #53615e; }
+    .nav-link.current { background: #e9f4f0; color: #176d59; font-weight: 600; }
+    .nav-link .count { color: #8b9794; font-size: 11px; }
+    .nav-link.current .count { color: #287a65; }
+    .form { min-width: 0; }
+    .section { background: #fff; border: 1px solid #dce4e2; border-radius: 5px; margin-bottom: 14px; overflow: hidden; }
+    .section-head { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 18px; border-bottom: 1px solid #e6ecea; }
+    h2 { font-size: 16px; margin: 0; font-weight: 650; }
+    .section-meta { color: #7a8784; font-size: 12px; }
+    .matrix-wrap { overflow-x: auto; }
+    table { width: 100%; min-width: 660px; border-collapse: collapse; table-layout: fixed; }
+    th { height: 38px; text-align: left; background: #f6f8f7; color: #697673; font-size: 12px; font-weight: 600; border-bottom: 1px solid #e4eae8; padding: 0 12px; }
+    td { height: 50px; border-bottom: 1px solid #edf0ef; padding: 6px 12px; }
+    tr:last-child td { border-bottom: 0; }
+    .group-cell { color: #52615e; font-weight: 600; width: 150px; }
+    .item-cell { color: #34413f; }
+    .input { height: 34px; width: 100%; border: 1px solid #ccd7d4; border-radius: 4px; background: #fff; padding: 0 10px; color: #34413f; }
+    .input.placeholder { color: #9ba5a2; }
+    .select { display: flex; align-items: center; justify-content: space-between; }
+    .status-ok { color: #23755f; }
+    .status-alert { color: #a84f35; }
+    .status-choice { display: inline-flex; border: 1px solid #d2dcda; border-radius: 4px; overflow: hidden; height: 32px; }
+    .status-choice span { min-width: 62px; display: grid; place-items: center; color: #65716e; font-size: 12px; border-right: 1px solid #d2dcda; }
+    .status-choice span:last-child { border: 0; }
+    .status-choice .selected { background: #e8f4ef; color: #197158; font-weight: 600; }
+    .status-choice .selected-warn { background: #fff0e9; color: #a84f35; font-weight: 600; }
+    .alert-row td { background: #fffaf7; }
+    .alert-note { display: grid; grid-template-columns: 118px minmax(0,1fr); gap: 10px; padding: 12px 14px; background: #fff8f4; border-top: 1px solid #f2e5de; }
+    .alert-note label { color: #885b49; font-size: 12px; padding-top: 9px; }
+    .textarea { min-height: 62px; resize: vertical; width: 100%; border: 1px solid #dfc9bd; border-radius: 4px; padding: 9px 10px; color: #57463e; }
+    .section-body { padding: 16px 18px 18px; }
+    .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; }
+    .field label { display: block; color: #667370; font-size: 12px; margin-bottom: 7px; }
+    .field .input { max-width: 100%; }
+    .record-area { min-height: 76px; border-color: #ccd7d4; color: #44514e; }
+    .footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 5px 2px; }
+    .save-state { color: #71807c; font-size: 12px; }
+    .footer-actions { display: flex; gap: 8px; }
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 64px minmax(0, 1fr); }
+      .side { padding: 18px 8px; }
+      .brand { font-size: 0; padding: 0 0 22px; text-align: center; }
+      .brand::after { content: "设"; font-size: 18px; }
+      .side-label { display: none; }
+      .side-item { justify-content: center; padding: 0; font-size: 0; margin-bottom: 5px; }
+      .side-item .dot { width: 9px; height: 9px; }
+      .content { padding: 18px 16px 30px; }
+      .summary { grid-template-columns: 1fr 1fr; }
+      .summary-item:nth-child(2) { border-right: 0; }
+      .summary-item:nth-child(-n+2) { border-bottom: 1px solid #e6ecea; }
+      .workspace { grid-template-columns: 1fr; }
+      .section-nav { position: static; display: flex; gap: 4px; overflow-x: auto; padding: 8px; }
+      .nav-heading { display: none; }
+      .nav-link { white-space: nowrap; min-height: 34px; }
+    }
+    @media (max-width: 560px) {
+      .topbar { padding: 0 14px; }
+      .content { padding-left: 12px; padding-right: 12px; }
+      .title-row { display: block; }
+      h1 { font-size: 20px; }
+      .title-actions { margin-top: 14px; }
+      .summary-item { padding: 11px 12px; }
+      .section-head { padding: 0 13px; }
+      .section-body { padding: 14px 13px; }
+      .field-grid { grid-template-columns: 1fr; }
+      .footer { align-items: flex-start; flex-direction: column; }
+      .footer-actions { width: 100%; }
+      .footer-actions .btn { flex: 1; }
+      .alert-note { grid-template-columns: 1fr; gap: 6px; }
+      .alert-note label { padding-top: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side" aria-label="主导航">
+      <div class="brand">设备管理平台</div>
+      <div class="side-label">设备管理</div>
+      <div class="side-item"><span class="dot"></span>设备总览</div>
+      <div class="side-item active"><span class="dot"></span>维护台账</div>
+      <div class="side-label">台账类型</div>
+      <div class="side-item"><span class="dot"></span>周月维护</div>
+      <div class="side-item"><span class="dot"></span>季维护</div>
+    </aside>
+    <main>
+      <header class="topbar"><span>设备管理 / 周月维护台账</span><span class="user">Jay Choi　⌄</span></header>
+      <div class="content">
+        <div class="crumb">维护台账　/　周月维护　/　填写台账</div>
+        <div class="title-row">
+          <div>
+            <h1>NDB-500 无方向信标台 · 月维护记录</h1>
+            <div class="subtitle">2026 年 10 月　·　模板版本 3　·　草稿</div>
+          </div>
+          <div class="title-actions"><button class="btn quiet">返回列表</button><button class="btn">更多操作　⌄</button></div>
+        </div>
+        <section class="summary" aria-label="台账信息">
+          <div class="summary-item"><div class="label">所属系统</div><div class="value">NDB-500 无方向信标台</div></div>
+          <div class="summary-item"><div class="label">维护日期</div><div class="value">2026-10-19</div></div>
+          <div class="summary-item"><div class="label">维护人员</div><div class="value">崔林杰、林杰</div></div>
+          <div class="summary-item"><div class="label">填写进度</div><div class="progress-line"><div class="progress"><span></span></div><span class="progress-count">18 / 23</span></div></div>
+        </section>
+        <div class="workspace">
+          <nav class="section-nav" aria-label="台账分组">
+            <div class="nav-heading">本次维护内容</div>
+            <div class="nav-link current"><span>伺服检测组件</span><span class="count">5/5</span></div>
+            <div class="nav-link"><span>监控器</span><span class="count">6/7</span></div>
+            <div class="nav-link"><span>谐波滤波器</span><span class="count">3/3</span></div>
+            <div class="nav-link"><span>发射机</span><span class="count">3/3</span></div>
+            <div class="nav-link"><span>维护记录</span><span class="count">1/2</span></div>
+          </nav>
+          <div class="form">
+            <section class="section">
+              <div class="section-head"><h2>伺服检测组件</h2><span class="section-meta">5 项已完成</span></div>
+              <div class="matrix-wrap">
+                <table>
+                  <thead><tr><th style="width:24%">检查项目</th><th style="width:25%">A 机</th><th style="width:25%">B 机</th><th style="width:26%">其他</th></tr></thead>
+                  <tbody>
+                    <tr><td class="item-cell">天线电流</td><td><input class="input" value="1.8 A" aria-label="A机天线电流"></td><td><input class="input" value="1.9 A" aria-label="B机天线电流"></td><td><input class="input placeholder" placeholder="填写数值"></td></tr>
+                    <tr><td class="item-cell">电源电流</td><td><input class="input" value="0.6 A"></td><td><input class="input" value="0.6 A"></td><td><input class="input placeholder" placeholder="填写数值"></td></tr>
+                    <tr><td class="item-cell">-54 V</td><td><input class="input" value="正常"></td><td><input class="input" value="正常"></td><td><input class="input placeholder" placeholder="填写结果"></td></tr>
+                    <tr><td class="item-cell">+24 V</td><td><input class="input" value="正常"></td><td><input class="input" value="正常"></td><td><input class="input placeholder" placeholder="填写结果"></td></tr>
+                    <tr><td class="item-cell">+15 V</td><td><input class="input" value="正常"></td><td><input class="input" value="正常"></td><td><input class="input placeholder" placeholder="填写结果"></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+            <section class="section">
+              <div class="section-head"><h2>监控器</h2><span class="section-meta">6 项已完成 · 1 项待填</span></div>
+              <div class="matrix-wrap">
+                <table>
+                  <thead><tr><th style="width:27%">检查项目</th><th style="width:24%">A 机</th><th style="width:24%">B 机</th><th style="width:25%">检查结果</th></tr></thead>
+                  <tbody>
+                    <tr><td class="item-cell">电池电压</td><td><input class="input" value="54.1 V"></td><td><input class="input" value="54.0 V"></td><td><span class="status-ok">正常</span></td></tr>
+                    <tr class="alert-row"><td class="item-cell">机房温湿度</td><td><input class="input" value="25 ℃ / 48%"></td><td><input class="input" value="26 ℃ / 50%"></td><td><div class="status-choice"><span>正常</span><span class="selected-warn">异常</span></div></td></tr>
+                  </tbody>
+                </table>
+                <div class="alert-note"><label for="alert-reason">异常说明 <span style="color:#b85838">*</span></label><textarea id="alert-reason" class="textarea">B 机温度偏高，已检查空调运行状态，持续观察。</textarea></div>
+              </div>
+            </section>
+            <section class="section">
+              <div class="section-head"><h2>维护记录</h2><span class="section-meta">记录处理情况和维护人员</span></div>
+              <div class="section-body">
+                <div class="field" style="margin-bottom:16px"><label>维护情况 <span style="color:#b85838">*</span></label><textarea class="textarea record-area">各项指标正常，B 机机房温度偏高，已检查空调并继续观察。</textarea></div>
+                <div class="field-grid">
+                  <div class="field"><label>维护人员姓名</label><input class="input" value="崔林杰、林杰"></div>
+                  <div class="field"><label>维护日期</label><input class="input" value="2026-10-19"></div>
+                </div>
+              </div>
+            </section>
+            <div class="footer">
+              <span class="save-state">●　草稿已保存　·　刚刚</span>
+              <div class="footer-actions"><button class="btn">保存草稿</button><button class="btn primary">完成填写</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
