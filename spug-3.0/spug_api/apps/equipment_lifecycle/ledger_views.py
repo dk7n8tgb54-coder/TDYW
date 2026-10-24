@@ -51,6 +51,7 @@ from apps.equipment_lifecycle.models import (
     ITEM_RESULT_ABNORMAL,
     ITEM_RESULT_TEXT_MAP_FULL,
     LEDGER_FROM_EXCEL,
+    LEDGER_FROM_FORM,
     LEDGER_FROM_MANUAL,
     LEDGER_STATUS_VOID,
     LEDGER_TYPE_TEXT,
@@ -79,6 +80,7 @@ LEDGER_TYPE_DETAIL_PATH = {
 LEDGER_FROM_SOURCE_TYPE = {
     LEDGER_FROM_MANUAL: 'manual',
     LEDGER_FROM_EXCEL: 'excel',
+    LEDGER_FROM_FORM: 'form',
 }
 
 
@@ -101,6 +103,15 @@ def _ledger_detail(ledger, user=None):
         except excel_ledger_services.ExcelLedgerError:
             # 缺少填写记录的异常数据降级为基础视图，不让统一详情整体失败
             pass
+    if ledger.created_from == LEDGER_FROM_FORM:
+        # 数字表单路线台账同样没有普通明细，返回表单详情（版本快照 +
+        # 表单定义 + 填写值 + 编辑状态；2026-10-21 数字表单路线）
+        from apps.equipment_lifecycle import form_ledger_services
+
+        try:
+            return form_ledger_services.ledger_detail(ledger)
+        except form_ledger_services.FormLedgerError:
+            pass
     view = ledger.to_view(with_counts=True)
     items = [it.to_view() for it in ledger.items.all()]
     if user is not None:
@@ -115,7 +126,8 @@ def _ledger_source_fields(ledger):
     """统一列表来源字段：source_type + 路线模板/版本 + 详情路由。
 
     Excel 路线台账的来源版本经 select_related('excel_record__version')
-    读取；记录缺失（异常数据）时来源信息降级为空，不影响列表返回。
+    读取，数字表单路线经 select_related('form_record__version') 读取；
+    记录缺失（异常数据）时来源信息降级为空，不影响列表返回。
     """
     source_type = LEDGER_FROM_SOURCE_TYPE.get(ledger.created_from, ledger.created_from)
     fields = {
@@ -126,6 +138,11 @@ def _ledger_source_fields(ledger):
     }
     if source_type == 'excel':
         record = getattr(ledger, 'excel_record', None)
+        version = record.version if record is not None else None
+        fields['source_template_name'] = version.template_name_snapshot if version else ''
+        fields['source_version_no'] = version.version_no if version else None
+    elif source_type == 'form':
+        record = getattr(ledger, 'form_record', None)
         version = record.version if record is not None else None
         fields['source_template_name'] = version.template_name_snapshot if version else ''
         fields['source_version_no'] = version.version_no if version else None
@@ -168,7 +185,8 @@ class LedgerView(View):
         keyword = request.GET.get('keyword')
         if keyword:
             query = query.filter(ledger_no__icontains=keyword)
-        query = query.select_related('system', 'excel_record__version')
+        query = query.select_related(
+            'system', 'excel_record__version', 'form_record__version')
         page, page_size = paginate(request)
         total = query.count()
         records = query[(page - 1) * page_size: page * page_size] if total else []
@@ -243,7 +261,7 @@ class LedgerPeriodGenerateView(View):
         body = _read_json_body(request) or {}
         result, error = ledger_period_services.period_generate(
             request.user, body.get('ledger_type'), body.get('maintenance_cycles'),
-            body.get('template_ids'))
+            body.get('template_ids'), body.get('template_kinds'))
         if error:
             return json_response(error=error)
         record_audit_event(
@@ -261,21 +279,23 @@ class LedgerPeriodGenerateView(View):
 class LedgerPeriodGenerateRebuildView(View):
     """明确补建（2026-10-16）：POST /ledgers/period-generate/rebuild/。
 
-    body: {"template_id": <id>}——为"已作废占用"的本期槽位重新生成应填
-    台账（作废台账保留不动）；本期已存在有效台账时拒绝。
+    body: {"template_id": <id>, "template_kind": "excel"|"form"（缺省 excel）}——
+    为"已作废占用"的本期槽位重新生成应填台账（作废台账保留不动）；
+    本期已存在有效台账时拒绝。
     """
 
     @auth('equipment_lifecycle.ledger.add')
     def post(self, request):
         body = _read_json_body(request) or {}
         row, error = ledger_period_services.period_generate_rebuild(
-            request.user, body.get('template_id'))
+            request.user, body.get('template_id'), body.get('template_kind') or 'excel')
         if error:
             return json_response(error=error)
         record_audit_event(
             request, 'create', AUDIT_TARGET_LEDGER, row['id'], row['ledger_no'],
             after_value={
                 'action_kind': 'period_generate_rebuild',
+                'template_kind': row['template_kind'],
                 'template_id': row['template_id'],
                 'maintenance_period': row['maintenance_period'],
             })
@@ -441,6 +461,9 @@ class LedgerCompleteView(View):
         if ledger.created_from == LEDGER_FROM_EXCEL:
             from apps.equipment_lifecycle import excel_ledger_services
             ledger, error = excel_ledger_services.complete_ledger(request.user, pk)
+        elif ledger.created_from == LEDGER_FROM_FORM:
+            from apps.equipment_lifecycle import form_ledger_services
+            ledger, error = form_ledger_services.complete_ledger(request.user, pk)
         else:
             ledger, error = ledger_services.complete_ledger(request.user, pk)
         if error:

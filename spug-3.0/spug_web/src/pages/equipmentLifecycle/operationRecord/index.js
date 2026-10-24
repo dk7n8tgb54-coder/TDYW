@@ -10,7 +10,8 @@
  * 筛选（2026-10-14 体验二轮）：关键词/所属系统/状态为高频条件常驻，
  * 记录类型/异常类别/发生时间收入"更多筛选"；筛选、查询、重置、分页
  * 状态保持一致（任一变更即重置页码）。导出与当前筛选完全一致（后端
- * 同一筛选口径，截止时间包含所选整分钟）。
+ * 同一筛选口径，截止时间包含所选整分钟）。故障等级筛选（2026-10-23）
+ * 仅在记录类型选中"设备故障"时显示，切换/清空类型即清除已选等级。
  * 列表（2026-10-14 体验二轮）：标题置首可直接打开详情（前置类型标签），
  * 编号可一键复制；故障影响程度并入状态列；登记人/持续时间收敛到详情，
  * 减少横向滚动。加载失败显式提示并可重试，不把旧结果冒充新查询结果。
@@ -40,6 +41,7 @@ import {
 import {
   PERM, RECORD_STATUS_OPTIONS,
   RECORD_CATEGORY_OPTIONS, RECORD_TYPE_OPTIONS,
+  FAULT_LEVEL_OPTIONS,
   API_PREFIX,
 } from '../constants';
 
@@ -204,6 +206,26 @@ class RecordTable extends React.Component {
   }
 }
 
+// 故障等级筛选项（仅设备故障类型下由 RecordFilters 条件渲染）：等级值
+// 读取独立成 observer 组件，选中/清除即时反映（不依赖父组件碰巧重渲染）
+const FaultLevelFilterItem = observer(function FaultLevelFilterItem() {
+  return (
+    <SearchForm.Item span={4} title="故障等级">
+      <Select
+        allowClear
+        style={{width: '100%'}}
+        value={store.f_fault_level}
+        onChange={v => {store.f_fault_level = v; store.page = 1; store.fetchRecords();}}
+        placeholder="请选择"
+      >
+        {FAULT_LEVEL_OPTIONS.map(item => (
+          <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
+        ))}
+      </Select>
+    </SearchForm.Item>
+  );
+});
+
 // 筛选区（2026-10-14 体验二轮分层）：关键词/所属系统/状态为高频条件常驻，
 // 记录类型/异常类别/发生时间收入"更多筛选"（折叠时显示活跃条件数）。
 // 任一筛选变更即重置页码并刷新，查询/重置与筛选条件、分页状态保持一致
@@ -278,7 +300,7 @@ const RecordFilters = observer(function RecordFilters() {
               allowClear
               style={{width: '100%'}}
               value={store.f_record_type}
-              onChange={v => {store.f_record_type = v; store.page = 1; store.fetchRecords();}}
+              onChange={v => store.setRecordTypeFilter(v)}
               placeholder="请选择"
             >
               {RECORD_TYPE_OPTIONS.map(item => (
@@ -286,6 +308,9 @@ const RecordFilters = observer(function RecordFilters() {
               ))}
             </Select>
           </SearchForm.Item>
+          {/* 故障等级仅对"设备故障"生效：选中设备故障类型才显示，切换到
+              其他类型或清空类型时由 setRecordTypeFilter 清除已选等级 */}
+          {store.f_record_type === 'fault' && <FaultLevelFilterItem/>}
           <SearchForm.Item span={4} title="异常类别">
             <Select
               allowClear

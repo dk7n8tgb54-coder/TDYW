@@ -525,7 +525,7 @@ class OperationRecordExportTest(TestCase):
 
     @staticmethod
     def _assert_progress_at(ws, row, expected):
-        value = ws.cell(row=row, column=16).value
+        value = ws.cell(row=row, column=17).value
         assert isinstance(value, datetime), '处理时间列应为日期单元格: %r' % value
         assert abs(value - expected) < timedelta(seconds=1), (value, expected)
 
@@ -536,10 +536,11 @@ class OperationRecordExportTest(TestCase):
         self.assertEqual(ws.title, '运行处置记录')
         self.assertEqual(ws.freeze_panes, 'A2')
         self.assertEqual(ws.cell(row=1, column=1).value, '记录编号')
-        self.assertEqual(ws.cell(row=1, column=16).value, '处理时间')
-        self.assertEqual(ws.cell(row=1, column=17).value, '处理人')
-        self.assertEqual(ws.cell(row=1, column=18).value, '处理内容')
-        headers = [ws.cell(row=1, column=col).value for col in range(1, 19)]
+        self.assertEqual(ws.cell(row=1, column=8).value, '故障等级')
+        self.assertEqual(ws.cell(row=1, column=17).value, '处理时间')
+        self.assertEqual(ws.cell(row=1, column=18).value, '处理人')
+        self.assertEqual(ws.cell(row=1, column=19).value, '处理内容')
+        headers = [ws.cell(row=1, column=col).value for col in range(1, 20)]
         self.assertNotIn('工时', headers)
 
     def test_export_progress_flattened_with_merged_base_columns(self):
@@ -549,25 +550,25 @@ class OperationRecordExportTest(TestCase):
         # 两条进展两行：处理时间按时间线正序，处理人与内容对应。
         # openpyxl 读回 Excel 串行日期存在亚秒级浮点误差，按 1 秒容差断言。
         self._assert_progress_at(ws, first, datetime(2026, 10, 11, 10, 30))
-        self.assertEqual(ws.cell(row=first, column=17).value, '李四')
-        self.assertEqual(ws.cell(row=first, column=18).value, '更换主控板')
+        self.assertEqual(ws.cell(row=first, column=18).value, '李四')
+        self.assertEqual(ws.cell(row=first, column=19).value, '更换主控板')
         self._assert_progress_at(ws, first + 1, datetime(2026, 10, 11, 16, 0))
-        self.assertEqual(ws.cell(row=first + 1, column=18).value,
+        self.assertEqual(ws.cell(row=first + 1, column=19).value,
                          '恢复正常，观察两小时')
-        self.assertEqual(ws.cell(row=first + 1, column=18).value,
+        self.assertEqual(ws.cell(row=first + 1, column=19).value,
                          '恢复正常，观察两小时')
         # 记录基础列在两行间纵向合并（编号列与类型列），进展列不合并
         merged = [(r.min_row, r.max_row, r.min_col, r.max_col)
                   for r in ws.merged_cells.ranges]
         self.assertIn((first, first + 1, 1, 1), merged)
         self.assertIn((first, first + 1, 2, 2), merged)
-        self.assertNotIn((first, first + 1, 18, 18), merged)
+        self.assertNotIn((first, first + 1, 19, 19), merged)
 
     def test_export_record_without_progress_single_row(self):
         res = self.client.get(RECORDS_URL + '/export/')
         ws = load_workbook(io.BytesIO(res.content)).active
         row = self._find_row(ws, self.routine.record_no)
-        self.assertEqual(ws.cell(row=row, column=18).value, '—')
+        self.assertEqual(ws.cell(row=row, column=19).value, '—')
 
     def test_export_default_excludes_cancelled(self):
         ws = self._load_sheet()

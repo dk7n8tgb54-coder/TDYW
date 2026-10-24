@@ -47,6 +47,16 @@ FAULT_IMPACT_TEXT_MAP = {
     'interrupted': '中断',
 }
 
+# 故障等级（设备故障专用，固定四级；空串=未选择，选填；2026-10-23 新增）
+FAULT_LEVEL_VALUES = ['level1', 'level2', 'level3', 'level4']
+FAULT_LEVEL_DB_VALUES = [''] + FAULT_LEVEL_VALUES
+FAULT_LEVEL_TEXT_MAP = {
+    'level1': '一级',
+    'level2': '二级',
+    'level3': '三级',
+    'level4': '四级',
+}
+
 # 统一记录类型
 RECORD_TYPE_ROUTINE = 'routine'
 RECORD_TYPE_ABNORMAL = 'abnormal'
@@ -155,8 +165,8 @@ class SystemOperationRecord(TenantModelMixin, models.Model):
       保留原描述、登记人、附件与全部进展，不创建第二张单）；
     - 系统快照（编号/名称/安装地点）仅用于历史展示，正式关联一律用
       system 外键（PROTECT）；切换系统由编辑动作完成并重算健康状态；
-    - 故障专用字段（影响系统运行/影响程度/原因分析/原因未明/恢复信息/
-      结案说明）仅设备故障使用，一般记录与异常事件恒为默认值；
+    - 故障专用字段（故障等级/影响系统运行/影响程度/原因分析/原因未明/
+      恢复信息/结案说明）仅设备故障使用，一般记录与异常事件恒为默认值；
     - 取消语义：cancel_reason/cancelled_at/cancelled_by 为撤销留痕，
       仅设备故障可撤销，历史记录保留可追溯（不物理删除）；
     - 来源信息：台账异常转故障写入 source_ledger_item 正式外键 +
@@ -198,6 +208,11 @@ class SystemOperationRecord(TenantModelMixin, models.Model):
                   'power供电异常/environment机房环境/software软件数据/other其他；空串=未选择）')
 
     # —— 设备故障专用字段 ——
+    fault_level = models.CharField(
+        max_length=20, default='', blank=True,
+        help_text='故障等级（设备故障专用，固定四级：level1一级/level2二级/'
+                  'level3三级/level4四级；空串=未选择，选填；'
+                  '一般记录与异常事件恒为空串）')
     fault_object_name = models.CharField(max_length=100, default='', blank=True,
                                          help_text='具体故障对象名称快照（设备故障）')
     fault_object_model = models.CharField(max_length=100, default='', blank=True,
@@ -283,6 +298,9 @@ class SystemOperationRecord(TenantModelMixin, models.Model):
                 check=models.Q(category__in=RECORD_CATEGORY_DB_VALUES),
                 name='el_operation_record_category_valid'),
             models.CheckConstraint(
+                check=models.Q(fault_level__in=FAULT_LEVEL_DB_VALUES),
+                name='el_operation_record_fault_level_valid'),
+            models.CheckConstraint(
                 check=models.Q(source_type__in=SOURCE_TYPE_VALUES),
                 name='el_operation_record_source_valid'),
             models.CheckConstraint(
@@ -355,6 +373,9 @@ class SystemOperationRecord(TenantModelMixin, models.Model):
             'category_text': RECORD_CATEGORY_TEXT_MAP.get(self.category, '') if self.category else '',
             'status': self.status,
             'status_text': RECORD_STATUS_TEXT_MAP.get(self.status, self.status),
+            'fault_level': self.fault_level,
+            'fault_level_text': (
+                FAULT_LEVEL_TEXT_MAP.get(self.fault_level, '') if self.fault_level else ''),
             'affects_system_operation': self.affects_system_operation,
             'impact_status': self.impact_status,
             'impact_status_text': FAULT_IMPACT_TEXT_MAP.get(self.impact_status, '') if self.impact_status else '',

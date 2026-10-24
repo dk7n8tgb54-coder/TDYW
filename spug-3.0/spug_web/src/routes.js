@@ -51,6 +51,7 @@ import {
 } from './pages/equipmentLifecycle/ledger/entries';
 import ExcelTemplatePage from './pages/equipmentLifecycle/ledger/excel/ExcelTemplatePage';
 import ExcelLedgerRedirect from './pages/equipmentLifecycle/ledger/excel/ExcelLedgerRedirect';
+import FormTemplatePage from './pages/equipmentLifecycle/ledger/form/FormTemplatePage';
 import AnnouncementList from './pages/home/AnnouncementList';
 import AnnouncementAdmin from './pages/system/announcement';
 import ReminderAdmin from './pages/reminder';
@@ -94,6 +95,9 @@ export default [
       // 正式新增台账统一在各台账列表页选择已发布的 Excel/WPS 模板版本创建
       // Excel 上传版维护台账模板管理（上传/绑定/批量绑定/PDF 参数/发布/停用/删除）
       {title: 'Excel台账模板', auth: 'equipment_lifecycle.ledger_template.view', path: '/el/excel-ledger-templates', component: ExcelTemplatePage},
+      // 数字表单台账模板管理（2026-10-21 数字表单路线）：分组/字段/明细组/矩阵
+      // 的结构化表单配置器 + 发布不可变版本；与 Excel 模板同权限域（ledger_template.*）
+      {title: '数字表单模板', auth: 'equipment_lifecycle.ledger_template.view', path: '/el/form-ledger-templates', component: FormTemplatePage},
       // Excel 维护台账独立入口已并入正式周月/季维护台账（2026-10）：菜单不再
       // 展示，旧路径保留隐藏兼容路由并原样携带查询参数（?detail=&source=excel
       // 由正式台账页打开 Excel 台账详情）；hideInTab：兼容重定向不进入工作页签

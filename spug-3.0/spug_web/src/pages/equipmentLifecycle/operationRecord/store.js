@@ -27,6 +27,7 @@ import { observable, action } from 'mobx';
 import { http } from 'libs';
 import {
   API_PREFIX, RECORD_STATUS_TEXT, RECORD_TYPE_TEXT, RECORD_CATEGORY_TEXT,
+  FAULT_LEVEL_TEXT,
 } from '../constants';
 
 // 系统详情"运行处置记录"页签固定每页条数（1100px 系统详情弹窗内紧凑分页）
@@ -50,6 +51,8 @@ class OperationRecordStore {
   @observable f_system = undefined;
   @observable f_category = undefined;
   @observable f_record_type = undefined;
+  // 故障等级筛选（仅设备故障；切换到其他类型或清空类型时清除，见 setRecordTypeFilter）
+  @observable f_fault_level = undefined;
   @observable f_occurred_range = undefined;
   // 关键词输入草稿（输入中、未执行）：Input 绑定草稿，查询按钮/回车提交后
   // 才转正为 f_keyword，避免"输入未查询"的条件混入导出与联动刷新
@@ -117,12 +120,24 @@ class OperationRecordStore {
     this.f_system = undefined;
     this.f_category = undefined;
     this.f_record_type = undefined;
+    this.f_fault_level = undefined;
     this.f_occurred_range = undefined;
     this.page = 1;
   };
 
   @action setKeywordInput = (value) => {
     this.input_keyword = value;
+  };
+
+  // 记录类型筛选变更：故障等级仅对"设备故障"生效，切换到其他类型或清空
+  // 记录类型时同步清除已选等级（已选等级不残留为隐藏条件）
+  @action setRecordTypeFilter = (value) => {
+    this.f_record_type = value;
+    if (value !== 'fault') {
+      this.f_fault_level = undefined;
+    }
+    this.page = 1;
+    return this.fetchRecords();
   };
 
   // 提交关键词草稿为已执行条件（查询按钮/回车共用）：任何提交都回到第 1 页
@@ -140,6 +155,7 @@ class OperationRecordStore {
     if (this.f_system) params.system = this.f_system;
     if (this.f_category) params.category = this.f_category;
     if (this.f_record_type) params.record_type = this.f_record_type;
+    if (this.f_fault_level) params.fault_level = this.f_fault_level;
     if (this.f_occurred_range && this.f_occurred_range.length === 2) {
       params.occurred_from = this.f_occurred_range[0].format('YYYY-MM-DD HH:mm');
       params.occurred_to = this.f_occurred_range[1].format('YYYY-MM-DD HH:mm');
@@ -168,6 +184,7 @@ class OperationRecordStore {
     if (this.f_system) params.system = this.f_system;
     if (this.f_category) params.category = this.f_category;
     if (this.f_record_type) params.record_type = this.f_record_type;
+    if (this.f_fault_level) params.fault_level = this.f_fault_level;
     if (this.f_occurred_range && this.f_occurred_range.length === 2) {
       params.occurred_from = this.f_occurred_range[0].format('YYYY-MM-DD HH:mm');
       params.occurred_to = this.f_occurred_range[1].format('YYYY-MM-DD HH:mm');
@@ -179,7 +196,7 @@ class OperationRecordStore {
   get hasActiveFilter() {
     return Boolean(
       this.f_keyword || this.f_status || this.f_system || this.f_category ||
-      this.f_record_type ||
+      this.f_record_type || this.f_fault_level ||
       (this.f_occurred_range && this.f_occurred_range.length === 2));
   }
 
@@ -197,6 +214,9 @@ class OperationRecordStore {
     }
     if (this.f_record_type) {
       parts.push(`类型「${RECORD_TYPE_TEXT[this.f_record_type] || this.f_record_type}」`);
+    }
+    if (this.f_fault_level) {
+      parts.push(`故障等级「${FAULT_LEVEL_TEXT[this.f_fault_level] || this.f_fault_level}」`);
     }
     if (this.f_category) {
       parts.push(`异常类别「${RECORD_CATEGORY_TEXT[this.f_category] || this.f_category}」`);

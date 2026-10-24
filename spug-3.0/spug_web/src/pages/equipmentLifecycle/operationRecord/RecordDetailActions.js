@@ -24,7 +24,7 @@ import {Modal, Form, Input, Select, DatePicker, Checkbox, message} from 'antd';
 import moment from 'moment';
 import {AuthButton} from 'components';
 import store from './store';
-import {PERM, FAULT_IMPACT_TEXT} from '../constants';
+import {PERM, FAULT_IMPACT_TEXT, FAULT_LEVEL_OPTIONS} from '../constants';
 import {PROGRESS_TAB_TEXT} from './shared';
 
 const {TextArea} = Input;
@@ -243,6 +243,7 @@ const IdentifyFaultModal = observer(function IdentifyFaultModal({visible, onClos
           store.identifyFault({
             affects_system_operation: !!values.affects_system_operation,
             impact_status: values.impact_status || '',
+            fault_level: values.fault_level || '',
             reason_analysis: values.reason_analysis || '',
             fault_object_name: values.fault_object_name || '',
           }).then(() => {
@@ -285,6 +286,13 @@ const IdentifyFaultModal = observer(function IdentifyFaultModal({visible, onClos
               </Select>
             </Form.Item>
           ) : null}
+        </Form.Item>
+        <Form.Item name="fault_level" label="故障等级">
+          <Select allowClear placeholder="一级 / 二级 / 三级 / 四级（选填）">
+            {FAULT_LEVEL_OPTIONS.map(item => (
+              <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
+            ))}
+          </Select>
         </Form.Item>
         <Form.Item name="fault_object_name" label="故障部位/设备">
           <Input placeholder="选填，如 信道机 / 天馈系统"/>

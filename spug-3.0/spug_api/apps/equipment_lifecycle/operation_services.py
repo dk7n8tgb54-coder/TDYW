@@ -39,6 +39,7 @@ from apps.equipment_lifecycle.models import LifecycleSystem
 from apps.equipment_lifecycle.operation_models import (
     FAULT_IMPACT_TEXT_MAP,
     FAULT_IMPACT_VALUES,
+    FAULT_LEVEL_TEXT_MAP,
     RECORD_NO_PREFIX,
     RECORD_NO_SEQ_LIMIT,
     RECORD_STATUS_FOLLOWING_UP,
@@ -254,6 +255,7 @@ def create_operation_record(*, tenant_id, created_by, system, record_type,
                             registrar_name='', client_token='',
                             category='',
                             affects_system_operation=False, impact_status='',
+                            fault_level='',
                             fault_object_name='', fault_object_model='',
                             fault_object_sn='', reason_analysis='',
                             source_type=None, source_ledger_item=None,
@@ -263,6 +265,7 @@ def create_operation_record(*, tenant_id, created_by, system, record_type,
     - record_type 必须为三种合法类型之一；fault 默认"部件故障但不影响系统
       运行"（affects=False 时 impact_status 强制空串且不参与健康计算），
       创建即处置中；routine/abnormal 创建即已记录；
+    - fault_level 为故障等级（仅设备故障，选填固定四级；非故障记录强制空串）；
     - registrar_name 为登记人（手动输入姓名），缺省取创建人显示姓名
       （台账异常转故障等程序化入口由操作人登记）；
     - source_type/source_ledger_item 供台账异常转故障写入来源关系，
@@ -279,6 +282,7 @@ def create_operation_record(*, tenant_id, created_by, system, record_type,
         # 非故障记录不携带故障专用字段（后端独立兜底，视图层已拒绝）
         affects_system_operation = False
         impact_status = ''
+        fault_level = ''
         fault_object_name = fault_object_model = fault_object_sn = ''
         reason_analysis = ''
     elif not affects_system_operation:
@@ -297,6 +301,7 @@ def create_operation_record(*, tenant_id, created_by, system, record_type,
         registrar_name=_clean(registrar_name, 200) or user_display_name(created_by),
         status=RECORD_STATUS_HANDLING if is_fault else RECORD_STATUS_RECORDED,
         category='' if is_fault else _clean(category, 20),
+        fault_level=_clean(fault_level, 20),
         fault_object_name=_clean(fault_object_name, 100),
         fault_object_model=_clean(fault_object_model, 100),
         fault_object_sn=_clean(fault_object_sn, 100),
@@ -316,6 +321,7 @@ def create_operation_record(*, tenant_id, created_by, system, record_type,
 
 def identify_record_as_fault(*, record, created_by, occurred_at=None,
                              affects_system_operation=False, impact_status='',
+                             fault_level='',
                              reason_analysis='', fault_object_name='',
                              fault_object_model='', fault_object_sn='',
                              request=None):
@@ -323,8 +329,8 @@ def identify_record_as_fault(*, record, created_by, occurred_at=None,
 
     - 仅异常事件（abnormal）且处于 已记录/跟进中 可认定；
     - 更新同一条主记录：record_type→fault、status→处置中，补充故障所需字段
-      （影响系统运行/影响程度/原因分析/对象快照）；原描述、登记人、附件与
-      全部进展原样保留（进展外键挂主记录，类型变更不受影响）；
+      （故障等级/影响系统运行/影响程度/原因分析/对象快照）；原描述、登记人、
+      附件与全部进展原样保留（进展外键挂主记录，类型变更不受影响）；
     - 发生时间缺省沿用原值（可显式覆盖，不得晚于当前时间——视图层校验）；
     - 同事务重算系统健康状态（认定可能新增有效影响）。
 
@@ -334,6 +340,9 @@ def identify_record_as_fault(*, record, created_by, occurred_at=None,
         raise IdentifyFaultError('只有异常事件记录可以认定为设备故障')
     if record.status not in (RECORD_STATUS_RECORDED, RECORD_STATUS_FOLLOWING_UP):
         raise IdentifyFaultError('已完成或其他状态的异常事件不能认定为设备故障')
+    fault_level = _clean(fault_level, 20)
+    if fault_level and fault_level not in FAULT_LEVEL_TEXT_MAP:
+        raise IdentifyFaultError('故障等级取值不合法')
     if affects_system_operation:
         if impact_status not in FAULT_IMPACT_VALUES:
             raise IdentifyFaultError('影响系统运行时必须选择影响程度（降级/故障/中断）')
@@ -345,6 +354,7 @@ def identify_record_as_fault(*, record, created_by, occurred_at=None,
         record.occurred_at = occurred_at
     record.affects_system_operation = bool(affects_system_operation)
     record.impact_status = impact_status or ''
+    record.fault_level = fault_level
     record.reason_analysis = _clean(reason_analysis, 2000)
     record.fault_object_name = _clean(fault_object_name, 100)
     record.fault_object_model = _clean(fault_object_model, 100)
@@ -557,19 +567,20 @@ RECORD_EXPORT_SHEET_NAME = '运行处置记录'
 
 # 列规格：(表头, 列宽, 是否自动换行)；前 EXPORT_RECORD_COLUMN_COUNT 列随记录
 # 合并，其余为进展列（逐行）。
-EXPORT_RECORD_COLUMN_COUNT = 15
+EXPORT_RECORD_COLUMN_COUNT = 16
 RECORD_EXPORT_COLUMN_SPECS = [
     ('记录编号', 16, False), ('记录类型', 10, False), ('所属系统', 14, False),
     ('系统编号', 12, False), ('状态', 9, False), ('影响系统运行', 12, False),
-    ('系统影响程度', 12, False), ('发生时间', 17, False), ('标题', 22, True),
-    ('情况描述', 40, True), ('登记人', 10, False), ('恢复时间', 17, False),
-    ('结案说明', 24, True), ('恢复确认人', 12, False), ('来源类型', 11, False),
+    ('系统影响程度', 12, False), ('故障等级', 9, False), ('发生时间', 17, False),
+    ('标题', 22, True), ('情况描述', 40, True), ('登记人', 10, False),
+    ('恢复时间', 17, False), ('结案说明', 24, True), ('恢复确认人', 12, False),
+    ('来源类型', 11, False),
     ('处理时间', 17, False), ('处理人', 10, False), ('处理内容', 40, True),
 ]
 # 记录基础列中需要自动换行的列（0 基下标：标题/情况描述/结案说明）
-RECORD_EXPORT_WRAP_COLUMNS = (8, 9, 12)
+RECORD_EXPORT_WRAP_COLUMNS = (9, 10, 13)
 # 记录基础列中的时间列（0 基下标：发生时间/恢复时间）
-RECORD_EXPORT_DATETIME_COLUMNS = (7, 11)
+RECORD_EXPORT_DATETIME_COLUMNS = (8, 12)
 RECORD_EXPORT_DATETIME_FORMAT = 'YYYY-MM-DD HH:MM'
 # 每行文本行数折算行高（pt）与最小行高
 RECORD_EXPORT_LINE_HEIGHT = 14
@@ -594,6 +605,7 @@ def _export_base_values(item):
         RECORD_STATUS_TEXT_MAP.get(item.status, item.status),
         '是' if item.affects_system_operation else '否',
         FAULT_IMPACT_TEXT_MAP.get(item.impact_status, ''),
+        FAULT_LEVEL_TEXT_MAP.get(item.fault_level, '') if item.fault_level else '',
         item.occurred_at,
         item.title,
         item.description,

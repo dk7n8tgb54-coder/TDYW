@@ -201,7 +201,11 @@ LEDGER_FROM_MANUAL = 'manual'
 # Excel 上传版模板（固定版式 .xlsx，2026-09-28 试点）：台账明细为模板版本
 # 填写值（OperationLedgerExcelRecord），无 OperationLedgerItem
 LEDGER_FROM_EXCEL = 'excel_template'
-LEDGER_FROM_VALUES = ['manual', 'excel_template']
+# 数字表单模板（结构化表单路线，2026-10-21）：台账填写值为表单版本填写值
+# （OperationLedgerFormRecord），无 OperationLedgerItem，模板/版本/填写值
+# 模型见 form_models.py（与 Excel 专属模型隔离）
+LEDGER_FROM_FORM = 'form_template'
+LEDGER_FROM_VALUES = ['manual', 'excel_template', 'form_template']
 
 # 录入渠道：当前固定 web（平台电脑端事后录入），保留字段作未来扩展边界
 ENTRY_CHANNEL_WEB = 'web'
@@ -252,6 +256,11 @@ class OperationLedger(TenantModelMixin, models.Model):
         null=True, blank=True,
         help_text='周期生成引用的 Excel 台账模板（手工补录/单条新增为空）；'
                   '台账创建即固定模板身份，版本快照见 excel_record.version')
+    source_form_template = models.ForeignKey(
+        'OperationLedgerFormTemplate', models.PROTECT, related_name='generated_form_ledgers',
+        null=True, blank=True,
+        help_text='周期生成/单条新增引用的数字表单台账模板（仅 form_template 路线，'
+                  '其余路线为空）；台账创建即固定模板身份，版本快照见 form_record.version')
     entry_channel = models.CharField(max_length=20, default=ENTRY_CHANNEL_WEB, help_text='录入渠道（当前固定 web）')
     maintenance_period = models.CharField(
         max_length=10, default='', blank=True,
@@ -316,6 +325,12 @@ class OperationLedger(TenantModelMixin, models.Model):
                 fields=['tenant_id', 'source_template', 'system', 'maintenance_period',
                         'slot_active'],
                 name='uniq_el_ledger_tpl_period'),
+            # 数字表单路线槽位去重（2026-10-21）：与 Excel 路线约束同构，
+            # 以 source_form_template 参与约束（其余路线该列为 NULL 天然豁免）。
+            models.UniqueConstraint(
+                fields=['tenant_id', 'source_form_template', 'system', 'maintenance_period',
+                        'slot_active'],
+                name='uniq_el_ledger_form_tpl_period'),
             models.CheckConstraint(
                 check=models.Q(ledger_type__in=LEDGER_TYPE_VALUES),
                 name='el_operation_ledger_type_valid',
@@ -573,6 +588,13 @@ from apps.equipment_lifecycle.excel_models import (  # noqa: E402
     OperationLedgerExcelRecord,
     OperationLedgerExcelTemplate,
     OperationLedgerExcelTemplateVersion,
+)
+# 数字表单台账模板/版本/填写记录（2026-10-21）：模型主体在 form_models.py
+# （文件行数治理），底部导入完成模型注册，使 makemigrations/迁移状态一致。
+from apps.equipment_lifecycle.form_models import (  # noqa: E402
+    OperationLedgerFormRecord,
+    OperationLedgerFormTemplate,
+    OperationLedgerFormTemplateVersion,
 )
 # 系统配置参数与配置变更（2026-10）：模型主体在 config_models.py（文件行数治理），
 # 底部导入完成模型注册，使 makemigrations/迁移状态一致。

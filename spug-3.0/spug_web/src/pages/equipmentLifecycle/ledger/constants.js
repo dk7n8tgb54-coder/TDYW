@@ -140,6 +140,7 @@ export const INPUT_TYPE_TEXT = {
 export const CREATED_FROM_TEXT = {
   manual: '临时补录',
   excel_template: 'Excel模板',
+  form_template: '数字表单',
 };
 
 export const API_PREFIX_L = '/api/equipment-lifecycle';

@@ -10,7 +10,8 @@
  * - 异常事件（abnormal）：同上 + 异常类别；可在详情页认定设备故障；
  * - 设备故障（fault）：直接登记（须 operation_record.add_fault 权限），
  *   额外展示故障专用字段：影响系统运行开关 + 影响程度（影响运行时必填）/
- *   故障部位设备（选填）/初步原因分析（选填）；创建即"处置中"。
+ *   故障等级（选填固定四级）/ 故障部位设备（选填）/初步原因分析（选填）；
+ *   创建即"处置中"。
  * 故障专用字段只在直接登记故障（或详情认定故障弹窗）时显示；
  * 编辑提交不携带登记人（后端保留原登记人）；未提交的对象快照/原因分析
  * 字段后端保留原值，不静默清空历史数据。
@@ -26,7 +27,7 @@ import {hasPermission} from 'libs';
 import store from './store';
 import {
   PERM, RECORD_CATEGORY_OPTIONS, RECORD_TYPE_OPTIONS, RECORD_TYPE_HINTS,
-  FAULT_IMPACT_OPTIONS,
+  FAULT_IMPACT_OPTIONS, FAULT_LEVEL_OPTIONS,
 } from '../constants';
 
 const {TextArea} = Input;
@@ -57,6 +58,7 @@ function applyDetailToForm(form, detail) {
     affects_system_operation: detail.record_type === 'fault'
       ? !!detail.affects_system_operation : false,
     impact_status: detail.impact_status || undefined,
+    fault_level: detail.fault_level || undefined,
     fault_object_name: detail.fault_object_name,
     reason_analysis: detail.reason_analysis,
   });
@@ -186,6 +188,17 @@ function FaultFields() {
           </Form.Item>
         ) : null}
       </Form.Item>
+      <Form.Item
+        name="fault_level"
+        label="故障等级"
+        extra="选填：按运维规程固定四级，处置过程中可在编辑中修改"
+      >
+        <Select allowClear placeholder="一级 / 二级 / 三级 / 四级">
+          {FAULT_LEVEL_OPTIONS.map(item => (
+            <Select.Option value={item.value} key={item.value}>{item.label}</Select.Option>
+          ))}
+        </Select>
+      </Form.Item>
       <Form.Item name="fault_object_name" label="故障部位/设备">
         <Input placeholder="故障的部位或设备，如 信道机 / 天馈系统（选填）"/>
       </Form.Item>
@@ -299,10 +312,15 @@ const RecordForm = observer(function RecordForm() {
         // 一般记录/异常事件：故障专用字段不提交（切换类型前残留值不带给后端）
         delete payload.affects_system_operation;
         delete payload.impact_status;
+        delete payload.fault_level;
         delete payload.fault_object_name;
         delete payload.fault_object_model;
         delete payload.fault_object_sn;
         delete payload.reason_analysis;
+      } else if (form.isFieldTouched('fault_level')) {
+        // 等级被触碰过才显式提交（含清空后的空串=未选择）；未触碰不提交，
+        // 后端保留原值（编辑回填值原样带上无害，防御详情拉取失败的空表单误清）
+        payload.fault_level = values.fault_level || '';
       }
       if (isEdit) {
         // 登记人仅新增可填：编辑不提交该键，后端保留原登记人

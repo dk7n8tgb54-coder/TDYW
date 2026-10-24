@@ -6,6 +6,10 @@
 - Excel 模板台账（created_from=excel_template）：组键 = 填写记录引用版本的
   template_id；同一模板 v1/v2… 各发布版本创建的台账归同一组（版本不可变，
   每条台账仍用创建时版本快照展示与导出）；
+- 数字表单模板台账（created_from=form_template，2026-10-21）：组键 =
+  'form:<模板主键>' 前缀形态（与 Excel 组键的纯数字、manual 保留字互不
+  冲突）；组内列表/详情走数字表单台账接口；版式类能力（批量 PDF 导出、
+  翻阅回放）为 Excel 版式专属，数字表单组显式拒绝并提示；
 - 手工补录台账（created_from=manual）：单独归入"无模板/临时补录"组，不同
   来源类型即使模板 ID 相同也不混组；
 - 模板只有逻辑删除（停用，is_active=False），无物理删除路径（被引用时），
@@ -32,12 +36,14 @@ from libs.tenant_utils import apply_tenant_filter
 
 from apps.equipment_lifecycle import excel_ledger_services, excel_pdf_service, ledger_period_services
 from apps.equipment_lifecycle.excel_models import OperationLedgerExcelTemplate
+from apps.equipment_lifecycle.form_models import OperationLedgerFormTemplate
 from apps.equipment_lifecycle.ledger_services import (
     LEDGER_STATUS_FILTER_ALL,
     LedgerValidationError, apply_ledger_status_filter, validate_ledger_type,
 )
 from apps.equipment_lifecycle.models import (
     LEDGER_FROM_EXCEL,
+    LEDGER_FROM_FORM,
     LEDGER_FROM_MANUAL,
     LEDGER_STATUS_COMPLETED,
     LEDGER_STATUS_DRAFT,
@@ -49,6 +55,10 @@ from apps.equipment_lifecycle.models import (
 # 无模板/临时补录组的 URL 组键（模板组键为模板主键数字字符串）
 MANUAL_GROUP_KEY = 'manual'
 MANUAL_GROUP_NAME = '无模板/临时补录'
+
+# 数字表单模板组键前缀：'form:<模板主键>'（Excel 组键为纯数字字符串，
+# manual 为保留字，三者互不冲突）
+FORM_GROUP_KEY_PREFIX = 'form:'
 
 # 组统计口径：total + 各状态数量 + 最近录入时间
 # （executed_date 已于 2026-10-19 删除，组排序/展示改用平台录入时间）
@@ -96,6 +106,8 @@ def list_template_groups(user, ledger_type, status='', keyword='',
     """按模板身份分组返回台账统计（仅含有历史台账的组，分页由本函数切片）。
 
     - Excel 组：按填写记录引用版本的所属模板 GROUP BY 聚合（单条 SQL）；
+    - 数字表单组（2026-10-21）：按 form_record 引用版本的所属模板聚合，
+      组键 'form:<id>'；
     - 手工补录组：created_from=manual 全量聚合为一组；
     - 组按最近录入时间倒序（无记录靠后），同时间按组键稳定排序。
     """
@@ -121,6 +133,23 @@ def list_template_groups(user, ledger_type, status='', keyword='',
             # 填写记录缺失或模板行缺失的异常数据不进组（组名不可解析）
             continue
         groups.append(_group_view(str(template.id), 'excel', template, row))
+    form_counts = list(
+        base.filter(created_from=LEDGER_FROM_FORM, form_record__isnull=False)
+        .values('form_record__version__template_id')
+        .annotate(**_GROUP_ANNOTATIONS)
+        .order_by())
+    form_template_map = {}
+    form_template_ids = [row['form_record__version__template_id'] for row in form_counts]
+    if form_template_ids:
+        form_templates = apply_tenant_filter(
+            OperationLedgerFormTemplate.objects.all(), user).filter(pk__in=form_template_ids)
+        form_template_map = {t.id: t for t in form_templates}
+    for row in form_counts:
+        template = form_template_map.get(row['form_record__version__template_id'])
+        if template is None:
+            continue
+        groups.append(_group_view(
+            FORM_GROUP_KEY_PREFIX + str(template.id), 'form', template, row))
     manual_counts = base.filter(created_from=LEDGER_FROM_MANUAL).aggregate(**_GROUP_ANNOTATIONS)
     if manual_counts['total']:
         groups.append(_group_view(MANUAL_GROUP_KEY, 'manual', None, manual_counts))
@@ -137,16 +166,27 @@ def list_template_groups(user, ledger_type, status='', keyword='',
 
 
 def _get_group_template(user, group_key):
-    """解析模板组（租户内），不存在返回 None（不区分不存在与跨租户）。"""
+    """解析 Excel 模板组（租户内），不存在返回 None（不区分不存在与跨租户）。"""
     return apply_tenant_filter(
         OperationLedgerExcelTemplate.objects.all(), user
     ).filter(pk=int(group_key)).first()
 
 
+def _get_group_form_template(user, group_key):
+    """解析数字表单模板组（form:<id>），不存在返回 None。"""
+    raw = str(group_key)[len(FORM_GROUP_KEY_PREFIX):]
+    if not raw.isdigit():
+        return None
+    return apply_tenant_filter(
+        OperationLedgerFormTemplate.objects.all(), user
+    ).filter(pk=int(raw)).first()
+
+
 def list_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
                        page=1, page_size=20,
                        row_serializer=None):
-    """返回模板组内台账分页列表（组键 manual=无模板/临时补录组）。
+    """返回模板组内台账分页列表（组键 manual=无模板/临时补录组，
+    form:<id>=数字表单模板组）。
 
     - 行结构与统一列表 /ledgers/ 一致（row_serializer 注入来源字段，
       source_version_no 为台账创建时引用的模板版本号）；
@@ -159,6 +199,17 @@ def list_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
         validate_ledger_type(ledger_type)
         group_name = MANUAL_GROUP_NAME
         query = query.filter(created_from=LEDGER_FROM_MANUAL, ledger_type=ledger_type)
+    elif str(group_key).startswith(FORM_GROUP_KEY_PREFIX):
+        template = _get_group_form_template(user, group_key)
+        if template is None:
+            raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
+        if ledger_type and ledger_type != template.ledger_type:
+            raise LedgerValidationError('台账类型与模板不匹配')
+        group_name = template.name
+        query = query.filter(
+            created_from=LEDGER_FROM_FORM,
+            form_record__version__template_id=template.id,
+            ledger_type=template.ledger_type)
     else:
         if not str(group_key).isdigit():
             raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
@@ -174,7 +225,7 @@ def list_group_ledgers(user, group_key, ledger_type='', status='', keyword='',
             ledger_type=template.ledger_type)
     query = _apply_group_filters(query, status, keyword)
     query = query.select_related(
-        'system', 'excel_record__version') \
+        'system', 'excel_record__version', 'form_record__version') \
         .order_by('-created_at', '-id')
     total = query.count()
     records = query[(page - 1) * page_size: page * page_size] if total else []
@@ -216,9 +267,11 @@ def _safe_file_name(name):
 
 
 def _resolve_export_template(user, group_key, ledger_type):
-    """解析可导出的模板组（租户内）；manual 组按支持范围明确拒绝。"""
+    """解析可导出的模板组（租户内）；manual 组与数字表单组按支持范围明确拒绝。"""
     if str(group_key) == MANUAL_GROUP_KEY:
         raise LedgerValidationError('无模板/临时补录台账没有模板版式，不支持批量 PDF 导出')
+    if str(group_key).startswith(FORM_GROUP_KEY_PREFIX):
+        raise LedgerValidationError('数字表单台账暂不支持批量 PDF 导出')
     if not str(group_key).isdigit():
         raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
     template = _get_group_template(user, group_key)
@@ -378,6 +431,8 @@ def browse_group_ledgers(user, group_key, ledger_type='', status='', keyword='')
     """
     if str(group_key) == MANUAL_GROUP_KEY:
         raise LedgerValidationError('无模板/临时补录台账没有模板版式，不支持翻阅')
+    if str(group_key).startswith(FORM_GROUP_KEY_PREFIX):
+        raise LedgerValidationError('数字表单台账暂不支持翻阅查看')
     if not str(group_key).isdigit():
         raise LedgerValidationError(_TEMPLATE_NOT_FOUND)
     template = _get_group_template(user, group_key)

@@ -29,6 +29,7 @@ import {DELETABLE_STATUS, PERM_L, STATUS_COLOR, STATUS_TEXT} from './constants';
 export function sourceTypeOf(record) {
   if (record.source_type) return record.source_type;
   if (record.created_from === 'excel_template') return 'excel';
+  if (record.created_from === 'form_template') return 'form';
   return 'manual';
 }
 function statusTitle(record) {
@@ -177,14 +178,14 @@ export function buildColumns(store, ledgerType, openDetail, inGroup = false) {
       title: '模板版本', key: 'source_version', width: 90,
       render: (v, record) => {
         const source = sourceTypeOf(record);
-        return source === 'excel' && record.source_version_no
+        return (source === 'excel' || source === 'form') && record.source_version_no
           ? `v${record.source_version_no}` : '—';
       },
     } : {
       title: '模板名称', key: 'template_name', width: 160, ellipsis: true,
       render: (v, record) => {
         const source = sourceTypeOf(record);
-        return source === 'excel'
+        return (source === 'excel' || source === 'form')
           ? (record.source_template_name || '—') : '—';
       },
     },

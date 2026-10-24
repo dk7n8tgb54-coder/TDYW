@@ -151,7 +151,7 @@ export default observer(function () {
             uploadPerm="contract_agreement.attachment.upload"
             deletePerm="contract_agreement.attachment.delete"
             previewPerm="contract_agreement.agreement.view"
-            maxFileSize={50}
+            maxFileSize={100}
             multiple
             maxFilesPerBatch={20}
             accept=".pdf,.jpg,.jpeg,.png,.gif,.bmp,.webp,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z"

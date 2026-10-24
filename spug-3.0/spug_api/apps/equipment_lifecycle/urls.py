@@ -21,7 +21,8 @@ from django.urls import path
 
 from apps.equipment_lifecycle import (
     config_attachment_views, config_views,
-    excel_ledger_views, excel_template_views, ledger_views,
+    excel_ledger_views, excel_template_views, form_ledger_views,
+    form_template_views, ledger_views,
     operation_action_views, operation_attachment_views,
     operation_ledger_convert, operation_progress_views, operation_views,
     views,
@@ -105,6 +106,33 @@ urlpatterns = [
     # 打印预览（详情"打印预览"页签/翻阅真实打印预览，2026-10-21）：与导出 PDF
     # 同一生成服务与参数，inline 下发 + 内容寻址缓存
     path('excel-ledgers/<int:pk>/print-preview/', excel_ledger_views.ExcelLedgerPrintPreviewView.as_view()),
+    # ==================== 数字表单台账模板（2026-10-21，与 Excel 路线平行） ====================
+    # 结构化表单模板：草稿表单 JSON 编辑 + 发布不可变版本；台账创建走 form-ledgers；
+    # 权限域与 Excel 模板一致（ledger_template.*，available 为台账域）
+    path('form-templates/available/', form_template_views.FormTemplateAvailableView.as_view()),
+    path('form-templates/sample/', form_template_views.FormTemplateSampleView.as_view()),
+    path('form-templates/create-options/', form_template_views.FormTemplateCreateOptionsView.as_view()),
+    path('form-templates/', form_template_views.FormTemplateView.as_view()),
+    path('form-templates/<int:pk>/', form_template_views.FormTemplateDetailView.as_view()),
+    path('form-templates/<int:pk>/deactivate/', form_template_views.FormTemplateDeactivateView.as_view()),
+    path('form-templates/<int:pk>/activate/', form_template_views.FormTemplateActivateView.as_view()),
+    path('form-templates/<int:pk>/generation-config/', form_template_views.FormTemplateGenerationConfigView.as_view()),
+    path('form-templates/<int:pk>/publish/', form_template_views.FormTemplatePublishView.as_view()),
+    # 发布检查（2026-10-23 P2）：无状态预检提示（errors/warnings + anchor），
+    # 不落库不是放行凭证；可携带未保存 form 解决"非法草稿无法先保存"矛盾
+    path('form-templates/<int:pk>/publish-check/', form_template_views.FormTemplatePublishCheckView.as_view()),
+    path('form-templates/<int:pk>/versions/', form_template_views.FormTemplateVersionListView.as_view()),
+    path('form-templates/<int:pk>/versions/<int:version_no>/', form_template_views.FormTemplateVersionDetailView.as_view()),
+    # 模板样张 PDF 预览（2026-10-22）：当前草稿结构的空白样例（POST 触发生成）
+    path('form-templates/<int:pk>/preview/pdf/', form_template_views.FormTemplatePdfPreviewView.as_view()),
+    # 数字表单路线台账（created_from=form_template；作废/删除沿用既有 ledgers 端点）
+    path('form-ledgers/', form_ledger_views.FormLedgerView.as_view()),
+    path('form-ledgers/<int:pk>/', form_ledger_views.FormLedgerDetailView.as_view()),
+    path('form-ledgers/<int:pk>/complete/', form_ledger_views.FormLedgerCompleteView.as_view()),
+    # 数字表单台账 PDF 预览/导出（2026-10-22）：同一生成函数（预览=下载），
+    # 预览 inline 下发 + 真实反馈头；导出附件下发
+    path('form-ledgers/<int:pk>/preview/pdf/', form_ledger_views.FormLedgerPdfPreviewView.as_view()),
+    path('form-ledgers/<int:pk>/export/pdf/', form_ledger_views.FormLedgerPdfExportView.as_view()),
     # 台账
     path('ledgers/', ledger_views.LedgerView.as_view()),
     path('ledgers/abnormal-items/', ledger_views.LedgerAbnormalItemsView.as_view()),

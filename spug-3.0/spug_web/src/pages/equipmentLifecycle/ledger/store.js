@@ -506,12 +506,15 @@ export class LedgerStore {
   /**
    * 确认生成：后端按预览同口径重算并创建缺项，返回实际结果
    * （created/skipped/failed）；成功后按当前视图刷新列表让新草稿可见。
+   * templateKinds 为与 templateIds 平行的路线标记（excel/form，2026-10-21
+   * 数字表单路线并入生成），缺省后端按全 excel 兼容旧调用。
    */
-  generatePeriodLedgers = (ledgerType, maintenanceCycles, templateIds) => {
+  generatePeriodLedgers = (ledgerType, maintenanceCycles, templateIds, templateKinds) => {
     this.isGenerating = true;
     const payload = {ledger_type: ledgerType || this.ledgerType};
     if (Array.isArray(maintenanceCycles)) payload.maintenance_cycles = maintenanceCycles;
     if (Array.isArray(templateIds)) payload.template_ids = templateIds;
+    if (Array.isArray(templateKinds)) payload.template_kinds = templateKinds;
     return http.post(`${API_PREFIX_L}/ledgers/period-generate/`, payload)
       .then(action(res => {
         const result = res && res.data ? res.data : res;
@@ -530,12 +533,14 @@ export class LedgerStore {
 
   /**
    * 明确补建（2026-10-16）：为"已作废占用"的本期槽位重新生成应填台账。
-   * 成功后强制展开本期组并刷新当前视图。
+   * templateKind 选择模板路线（excel/form，缺省 excel）；成功后强制展开
+   * 本期组并刷新当前视图。
    */
-  rebuildPeriodLedger = (templateId) => {
+  rebuildPeriodLedger = (templateId, templateKind) => {
     this.isGenerating = true;
-    return http.post(`${API_PREFIX_L}/ledgers/period-generate/rebuild/`, {
-      template_id: templateId})
+    const payload = {template_id: templateId};
+    if (templateKind) payload.template_kind = templateKind;
+    return http.post(`${API_PREFIX_L}/ledgers/period-generate/rebuild/`, payload)
       .then(action(res => {
         const row = res && res.data ? res.data : res;
         this._ensureCurrentExpanded = true;

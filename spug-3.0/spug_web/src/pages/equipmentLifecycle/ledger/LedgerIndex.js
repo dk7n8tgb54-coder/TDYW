@@ -30,28 +30,61 @@ import LedgerDetailLayer from './LedgerDetailLayer';
 import LedgerPeriodGenerateModal from './LedgerPeriodGenerateModal';
 import LedgerMultiExportModal from './LedgerMultiExportModal';
 import {ExcelLedgerStore} from './excel/excelLedgerStore';
+import {FormLedgerStore} from './form/formLedgerStore';
 import {getLedgerStore} from './store';
 import {buildColumns, sourceTypeOf} from './LedgerColumns';
 import {PERM_L} from './constants';
+
+/** 详情/创建/生成/导出弹窗承载（自 LedgerIndex 函数体抽出，控制函数行数）。 */
+function LedgerLayersHost(props) {
+  return (
+    <React.Fragment>
+      <LedgerDetailLayer
+        store={props.store}
+        excelStore={props.excelStore}
+        formStore={props.formStore}
+        ledgerType={props.ledgerType}
+        excelCreateVisible={props.excelCreateVisible}
+        formCreateVisible={props.formCreateVisible}
+        onExcelCreateCancel={props.onExcelCreateCancel}
+        onFormCreateCancel={props.onFormCreateCancel}
+        onExcelDetailBack={props.onExcelDetailBack}
+        onFormDetailBack={props.onFormDetailBack}/>
+      <LedgerPeriodGenerateModal
+        visible={props.generateVisible}
+        ledgerType={props.ledgerType}
+        store={props.store}
+        onCancel={props.onGenerateCancel}/>
+      {/* "批量导出 PDF"弹窗（2026-10-21）：两个视图共用，按当前 ledgerType 拉取候选 */}
+      <LedgerMultiExportModal store={props.store}/>
+    </React.Fragment>
+  );
+}
 
 function LedgerIndex({ledgerType, location}) {
   const store = getLedgerStore(ledgerType);
   // Excel 路线详情独立 Store（与试点页单例隔离，互不干扰）
   const [excelStore] = useState(() => new ExcelLedgerStore());
+  // 数字表单路线详情独立 Store（2026-10-21 数字表单路线）
+  const [formStore] = useState(() => new FormLedgerStore());
   const [excelCreateVisible, setExcelCreateVisible] = useState(false);
+  const [formCreateVisible, setFormCreateVisible] = useState(false);
   const [generateVisible, setGenerateVisible] = useState(false);
-  // Excel 详情填写有未保存修改时，当前页签不参与自动淘汰（翻阅视图
+  // Excel/数字表单详情填写有未保存修改时，当前页签不参与自动淘汰（翻阅视图
   // 的独立 Store 由 LedgerGroupBrowse 自行登记）
-  useWorkTabUnsaved(!!excelStore.hasUnsaved);
+  useWorkTabUnsaved(!!excelStore.hasUnsaved || !!formStore.hasUnsaved);
 
   useEffect(() => {
     // 跨页跳转直达详情（故障详情跳入：?detail=<台账ID>；
-    // Excel 来源跳转：?detail=<ID>&source=excel）
+    // Excel 来源跳转：?detail=<ID>&source=excel；数字表单：source=form）
     const params = new URLSearchParams(location ? location.search : '');
     const detailId = params.get('detail');
     if (detailId && /^\d+$/.test(detailId)) {
-      if (params.get('source') === 'excel') {
+      const source = params.get('source');
+      if (source === 'excel') {
         excelStore.fetchDetail(parseInt(detailId, 10)).catch(() => {});
+      } else if (source === 'form') {
+        formStore.fetchDetail(parseInt(detailId, 10)).catch(() => {});
       } else {
         store.fetchDetail(parseInt(detailId, 10));
       }
@@ -62,8 +95,11 @@ function LedgerIndex({ledgerType, location}) {
   }, []);
 
   const openDetail = record => {
-    if (sourceTypeOf(record) === 'excel') {
+    const source = sourceTypeOf(record);
+    if (source === 'excel') {
       excelStore.fetchDetail(record.id).catch(() => {});
+    } else if (source === 'form') {
+      formStore.fetchDetail(record.id).catch(() => {});
     } else {
       store.fetchDetail(record.id);
     }
@@ -74,8 +110,13 @@ function LedgerIndex({ledgerType, location}) {
     store.refresh();
   };
 
+  const handleFormDetailBack = () => {
+    formStore.applyDetail(null);
+    store.refresh();
+  };
+
   const columns = buildColumns(store, ledgerType, openDetail);
-  const detailLayerOpen = !!excelStore.detail;
+  const detailLayerOpen = !!excelStore.detail || !!formStore.detail;
 
   return (
     <AuthDiv auth={PERM_L.LED_VIEW}>
@@ -109,6 +150,7 @@ function LedgerIndex({ledgerType, location}) {
               columns={columns}
               onGenerate={() => setGenerateVisible(true)}
               onExcelCreate={() => setExcelCreateVisible(true)}
+              onFormCreate={() => setFormCreateVisible(true)}
               onMultiExport={() => store.openMultiExport()}/>
           )}
           {store.viewMode === 'template' && (
@@ -118,24 +160,24 @@ function LedgerIndex({ledgerType, location}) {
               openDetail={openDetail}
               onGenerate={() => setGenerateVisible(true)}
               onOpenExcelCreate={() => setExcelCreateVisible(true)}
+              onOpenFormCreate={() => setFormCreateVisible(true)}
               onMultiExport={() => store.openMultiExport()}/>
           )}
         </React.Fragment>
       )}
-      <LedgerDetailLayer
+      <LedgerLayersHost
         store={store}
         excelStore={excelStore}
+        formStore={formStore}
         ledgerType={ledgerType}
         excelCreateVisible={excelCreateVisible}
+        formCreateVisible={formCreateVisible}
         onExcelCreateCancel={() => setExcelCreateVisible(false)}
-        onExcelDetailBack={handleExcelDetailBack}/>
-      <LedgerPeriodGenerateModal
-        visible={generateVisible}
-        ledgerType={ledgerType}
-        store={store}
-        onCancel={() => setGenerateVisible(false)}/>
-      {/* "批量导出 PDF"弹窗（2026-10-21）：两个视图共用，按当前 ledgerType 拉取候选 */}
-      <LedgerMultiExportModal store={store}/>
+        onFormCreateCancel={() => setFormCreateVisible(false)}
+        onExcelDetailBack={handleExcelDetailBack}
+        onFormDetailBack={handleFormDetailBack}
+        generateVisible={generateVisible}
+        onGenerateCancel={() => setGenerateVisible(false)}/>
     </AuthDiv>
   );
 }

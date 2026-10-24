@@ -53,6 +53,7 @@ from apps.logs.audit import record_audit_event
 from apps.equipment_lifecycle import operation_services
 from apps.equipment_lifecycle.operation_models import (
     FAULT_IMPACT_TEXT_MAP,
+    FAULT_LEVEL_TEXT_MAP,
     RECORD_CATEGORY_TEXT_MAP,
     RECORD_STATUS_CANCELLED,
     RECORD_STATUS_FOLLOWING_UP,
@@ -182,6 +183,13 @@ def _validate_category_value(category):
     return None
 
 
+def _validate_fault_level_value(fault_level):
+    """故障等级取值校验，返回错误消息或 None（空串=未选择，合法）。"""
+    if fault_level and fault_level not in FAULT_LEVEL_TEXT_MAP:
+        return '故障等级取值不合法'
+    return None
+
+
 def _validate_affects_and_impact(form, fallback_affects=False, fallback_impact=''):
     """校验"影响系统运行"开关与影响程度，返回 (affects, impact_status, error)。
 
@@ -208,6 +216,21 @@ def _validate_registrar_name(form):
     return registrar_name, None
 
 
+def _validate_identify_fault_fields(form):
+    """认定设备故障载荷校验：影响设置 + 故障等级（选填固定四级）。
+
+    返回 (affects, impact_status, fault_level, error)，供认定端点一次校验。
+    """
+    affects, impact_status, err = _validate_affects_and_impact(form)
+    if err:
+        return None, None, None, err
+    fault_level = (form.fault_level or '').strip()
+    err = _validate_fault_level_value(fault_level)
+    if err:
+        return None, None, None, err
+    return affects, impact_status, fault_level, None
+
+
 def _apply_occurred_range(query, form):
     """解析并应用发生时间范围筛选（__gte/__lt），返回 (query, error)。
 
@@ -227,7 +250,7 @@ def _apply_occurred_range(query, form):
 
 
 def _filter_records(query, form):
-    """列表筛选（类型/状态/系统/类别/关键词 + 时间范围），返回 (query, error)。"""
+    """列表筛选（类型/状态/系统/类别/故障等级/关键词 + 时间范围），返回 (query, error)。"""
     if form.record_type:
         if form.record_type not in RECORD_TYPE_TEXT_MAP:
             return None, '记录类型筛选值不合法'
@@ -245,6 +268,13 @@ def _filter_records(query, form):
         if form.category not in RECORD_CATEGORY_TEXT_MAP:
             return None, '异常类别筛选值不合法'
         query = query.filter(category=form.category)
+    if form.fault_level:
+        if form.fault_level not in FAULT_LEVEL_TEXT_MAP:
+            return None, '故障等级筛选值不合法'
+        # 等级仅设备故障记录持有（非故障记录恒为空串）：显式叠加类型约束，
+        # 保证等级筛选只作用于设备故障记录（与其他筛选条件、分页正交组合）
+        query = query.filter(
+            record_type=RECORD_TYPE_FAULT, fault_level=form.fault_level)
     if form.keyword:
         query = query.filter(
             Q(record_no__icontains=form.keyword) | Q(title__icontains=form.keyword) |
@@ -260,6 +290,7 @@ def _record_audit_summary(record):
         'system': record.system_name,
         'affects_system_operation': record.affects_system_operation,
         'impact_status': record.impact_status,
+        'fault_level': record.fault_level,
         'registrar_name': record.registrar_name,
     }
 
@@ -308,6 +339,33 @@ def _validate_create_category(record_type, category):
     return (None, err) if err else (category, None)
 
 
+def _validate_create_fault_level(record_type, fault_level):
+    """创建时故障等级校验：仅设备故障支持（值域校验，空串=未选择合法）。
+
+    非故障记录提交的等级强制空串（服务层兜底清空，行为与存量一致）。
+    """
+    fault_level = (fault_level or '').strip()
+    if record_type != RECORD_TYPE_FAULT:
+        return '', None
+    err = _validate_fault_level_value(fault_level)
+    return (None, err) if err else (fault_level, None)
+
+
+def _validate_create_typed_fields(record_type, category, fault_level):
+    """创建时类型专属字段校验（异常类别与故障等级按类型互斥）。
+
+    返回 (category, fault_level, error)：设备故障带等级不带类别，
+    一般记录/异常事件带类别不带等级。
+    """
+    category, err = _validate_create_category(record_type, category)
+    if err:
+        return None, None, err
+    fault_level, err = _validate_create_fault_level(record_type, fault_level)
+    if err:
+        return None, None, err
+    return category, fault_level, None
+
+
 def _validate_create_payload(request, form):
     """创建载荷统一校验，返回 (error, params)。
 
@@ -335,7 +393,8 @@ def _validate_create_payload(request, form):
     registrar_name, err = _validate_registrar_name(form)
     if err:
         return err, None
-    category, err = _validate_create_category(record_type, (form.category or '').strip())
+    category, fault_level, err = _validate_create_typed_fields(
+        record_type, (form.category or '').strip(), form.fault_level)
     if err:
         return err, None
     affects, impact_status, err = _validate_affects_and_impact(form)
@@ -349,6 +408,7 @@ def _validate_create_payload(request, form):
         'description': description,
         'registrar_name': registrar_name,
         'category': category,
+        'fault_level': fault_level,
         'affects': affects,
         'impact_status': impact_status,
         'client_token': (form.client_token or '').strip()[:64],
@@ -368,6 +428,8 @@ class RecordView(View):
                  help='登记人姓名（手动输入必填，多人以顿号分隔）'),
         Argument('category', type=str, required=False, default='',
                  help='异常类别（一般记录/异常事件选填）'),
+        Argument('fault_level', type=str, required=False, default='',
+                 help='故障等级（仅设备故障，一级/二级/三级/四级）'),
         Argument('affects_system_operation', type=bool, required=False, default=False,
                  help='是否影响系统运行（仅设备故障）'),
         Argument('impact_status', type=str, required=False, default='',
@@ -385,6 +447,7 @@ class RecordView(View):
             Argument('system', type=int, required=False),
             Argument('status', type=str, required=False),
             Argument('category', type=str, required=False),
+            Argument('fault_level', type=str, required=False),
             Argument('record_type', type=str, required=False),
             Argument('keyword', type=str, required=False),
             Argument('occurred_from', type=str, required=False),
@@ -446,8 +509,8 @@ class RecordView(View):
 
     @staticmethod
     def _create_locked(request, form, record_type, system, occurred_at, title,
-                       description, registrar_name, category, affects,
-                       impact_status, client_token):
+                       description, registrar_name, category, fault_level,
+                       affects, impact_status, client_token):
         """锁内创建：幂等令牌 + 窗口期查重 + 统一创建服务 + 审计。
 
         返回 (record, error)：幂等令牌命中返回已有记录；窗口期查重命中返回
@@ -483,6 +546,7 @@ class RecordView(View):
             registrar_name=registrar_name,
             client_token=client_token,
             category=category,
+            fault_level=fault_level,
             affects_system_operation=affects,
             impact_status=impact_status,
             fault_object_name=form.fault_object_name or '',
@@ -521,6 +585,9 @@ class RecordDetailView(View):
             Argument('description', type=str, required=True, help='情况描述'),
             Argument('category', type=str, required=False, default=None,
                      help='异常类别；未提交时保留原值'),
+            # 无 help：显式空串=清空为未选择（与 fault_object_name 等同款语义；
+            # 带 help 的 Argument 会对显式空串抛 ParseError），未提交保留原值
+            Argument('fault_level', type=str, required=False, default=None),
             Argument('affects_system_operation', type=bool, required=False, default=None,
                      help='是否影响系统运行（仅设备故障）；未提交时保留原值'),
             Argument('impact_status', type=str, required=False, default='',
@@ -565,6 +632,12 @@ class RecordDetailView(View):
                 fallback_impact=record.impact_status)
             if err:
                 return json_response(error=err)
+            # 故障等级：显式提交（含空串=清空为未选择）才校验并覆盖；
+            # 未提交保留原值。非故障记录不处理该字段（保持空串）
+            if form.fault_level is not None:
+                err = _validate_fault_level_value((form.fault_level or '').strip())
+                if err:
+                    return json_response(error=err)
 
         before_summary = _record_audit_summary(record)
         _apply_edit_fields(request, record, form, system, occurred_at,
@@ -638,6 +711,8 @@ def _apply_edit_fields(request, record, form, system, occurred_at, title,
     if record.is_fault:
         record.affects_system_operation = affects
         record.impact_status = impact_status
+        if form.fault_level is not None:
+            record.fault_level = (form.fault_level or '').strip()[:20]
         if form.fault_object_name is not None:
             record.fault_object_name = form.fault_object_name.strip()[:100]
         if form.fault_object_model is not None:
@@ -692,6 +767,7 @@ class SystemRecordListView(View):
             Argument('system', type=int, required=False),
             Argument('status', type=str, required=False),
             Argument('category', type=str, required=False),
+            Argument('fault_level', type=str, required=False),
             Argument('record_type', type=str, required=False),
             Argument('keyword', type=str, required=False),
             Argument('occurred_from', type=str, required=False),
@@ -726,9 +802,9 @@ class SystemRecordListView(View):
 class RecordExportView(View):
     """统一记录导出（xlsx）：单工作表，记录基础列纵向合并、进展逐行展平。
 
-    导出范围与列表筛选完全一致：记录类型/状态/系统/异常类别/关键词/
-    发生时间范围全部生效（与主列表同一 _filter_records 口径，截止时间
-    同样包含所选整分钟）；默认只导出未撤销记录，显式指定 status 时按
+    导出范围与列表筛选完全一致：记录类型/状态/系统/异常类别/故障等级/
+    关键词/发生时间范围全部生效（与主列表同一 _filter_records 口径，截止
+    时间同样包含所选整分钟）；默认只导出未撤销记录，显式指定 status 时按
     指定状态导出。进展列（处理时间/处理人/处理内容）跟随记录，工作簿
     构建见 operation_services（build_record_export_workbook）。
     """
@@ -739,6 +815,7 @@ class RecordExportView(View):
             Argument('system', type=int, required=False),
             Argument('status', type=str, required=False),
             Argument('category', type=str, required=False),
+            Argument('fault_level', type=str, required=False),
             Argument('record_type', type=str, required=False),
             Argument('keyword', type=str, required=False),
             Argument('occurred_from', type=str, required=False),

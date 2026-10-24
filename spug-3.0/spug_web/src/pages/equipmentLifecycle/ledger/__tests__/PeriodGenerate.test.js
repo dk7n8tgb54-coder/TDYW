@@ -185,10 +185,11 @@ describe('LedgerStore 生成预览与生成', () => {
   test('generatePeriodLedgers 提交类型、保存实际结果并刷新当前视图', async () => {
     mockHttpPost.mockResolvedValue({data: GENERATE_RESULT});
     const store = new LedgerStore('week_month');
-    const result = await store.generatePeriodLedgers('week_month', ['weekly'], [7]);
+    const result = await store.generatePeriodLedgers('week_month', ['weekly'], [7], ['excel']);
     expect(mockHttpPost).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/ledgers/period-generate/', {
-        ledger_type: 'week_month', maintenance_cycles: ['weekly'], template_ids: [7]});
+        ledger_type: 'week_month', maintenance_cycles: ['weekly'], template_ids: [7],
+        template_kinds: ['excel']});
     expect(result.created).toHaveLength(1);
     expect(result.created[0].ledger_no).toBe('EL-WM-20261012-0001');
     expect(store.generatePeriodResult.failed).toHaveLength(2);
@@ -262,7 +263,8 @@ describe('LedgerPeriodGenerateModal 预览与生成弹窗', () => {
     expect(text).toContain('缺少可用版本：模板尚未发布任何版本');
     expect(mockHttpPost).toHaveBeenCalledWith(
       '/api/equipment-lifecycle/ledgers/period-generate/', {
-        ledger_type: 'week_month', maintenance_cycles: ['weekly'], template_ids: [7]});
+        ledger_type: 'week_month', maintenance_cycles: ['weekly'], template_ids: [7],
+        template_kinds: ['excel']});
   });
 
   test('作废占用的槽位提供"补建"（2026-10-16），补建后重拉预览刷新判定', async () => {
@@ -282,7 +284,7 @@ describe('LedgerPeriodGenerateModal 预览与生成弹窗', () => {
     });
     await act(flush);
     expect(mockHttpPost).toHaveBeenCalledWith(
-      '/api/equipment-lifecycle/ledgers/period-generate/rebuild/', {template_id: 12});
+      '/api/equipment-lifecycle/ledgers/period-generate/rebuild/', {template_id: 12, template_kind: 'excel'});
     // 预览重拉后补建按钮消失（该槽位已重建）
     expect(document.body.querySelector('[data-testid="period-rebuild"]')).toBeNull();
   });

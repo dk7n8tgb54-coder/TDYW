@@ -54,23 +54,39 @@ class AttachmentUploadValidationTest(ContractTestCase):
         self.assertNoError(body)
         self.assertEqual(body['data']['file_size'], 0)
 
-    def test_oversize_file_rejected(self):
-        big_path = os.path.join(tempfile.mkdtemp(prefix='contract_big_'), 'big.pdf')
-        size = 50 * 1024 * 1024 + 1
-        with open(big_path, 'wb') as f:
-            f.write(b'x' * size)
-        with open(big_path, 'rb') as fh:
-            body = self.upload(self.pk, upload_file('超大文件.pdf', fh.read()))
-        tempfile_dir = os.path.dirname(big_path)
+    def _upload_boundary_file(self, name, size):
+        """真实构造 size 字节的文件并走上传接口（用于单文件上限边界用例）。"""
+        big_dir = tempfile.mkdtemp(prefix='contract_big_')
+        big_path = os.path.join(big_dir, 'big.pdf')
         try:
-            self.assertBusinessError(body, '超过 50MB 的文件应被拒绝')
-            self.assertIn('50MB', body.get('error', ''))
+            with open(big_path, 'wb') as f:
+                f.write(b'x' * size)
+            with open(big_path, 'rb') as fh:
+                return self.upload(self.pk, upload_file(name, fh.read()))
         finally:
             try:
                 os.remove(big_path)
-                os.rmdir(tempfile_dir)
+                os.rmdir(big_dir)
             except OSError:
                 pass
+
+    def test_100mb_file_allowed(self):
+        """边界：恰好 100MB（等于上限）的文件应允许上传，附件按真实大小落库。"""
+        size = 100 * 1024 * 1024
+        body = self._upload_boundary_file('上限文件.pdf', size)
+        self.assertNoError(body)
+        att = EvidenceAttachment.objects.get(pk=body['data']['id'])
+        self.assertEqual(att.file_size, size)
+
+    def test_oversize_file_rejected(self):
+        """边界：100MB+1 字节应被拒绝，错误提示体现 100MB 上限且无附件落库。"""
+        body = self._upload_boundary_file('超大文件.pdf', 100 * 1024 * 1024 + 1)
+        self.assertBusinessError(body, '超过 100MB 的文件应被拒绝')
+        self.assertIn('100MB', body.get('error', ''))
+        self.assertFalse(
+            EvidenceAttachment.objects.filter(
+                object_id=str(self.pk), file_name='超大文件.pdf').exists(),
+            '被拒绝的超限文件不得产生附件记录')
 
     def test_path_traversal_filename_sanitized(self):
         body = self.upload(self.pk, upload_file('../../../../etc/passwd.pdf', b'pwned'))

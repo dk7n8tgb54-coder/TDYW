@@ -25,10 +25,16 @@ from apps.equipment_lifecycle.excel_models import (
     OperationLedgerExcelTemplate,
     OperationLedgerExcelTemplateVersion,
 )
+from apps.equipment_lifecycle.form_models import (
+    OperationLedgerFormRecord,
+    OperationLedgerFormTemplate,
+    OperationLedgerFormTemplateVersion,
+)
 from apps.equipment_lifecycle.models import (
     ENTRY_CHANNEL_WEB,
     ITEM_RESULT_ABNORMAL,
     LEDGER_FROM_EXCEL,
+    LEDGER_FROM_FORM,
     LEDGER_FROM_MANUAL,
     LEDGER_STATUS_COMPLETED,
     LEDGER_STATUS_DRAFT,
@@ -48,9 +54,11 @@ from apps.equipment_lifecycle.ledger_services import (
 # ======================================================================
 # 本期应填台账生成（2026-10-14 重构原"周期批量新增"：不再创建手工壳）
 # ----------------------------------------------------------------------
-# - 生成对象 = 已显式配置 适用系统 + 生成周期 的启用 Excel 模板（一模板一
-#   系统，同系统可多模板；配置不从模板名称或表格内容推断；历史模板未配置
-#   的标记"待配置"，不猜测、不改写历史记录）；
+# - 生成对象 = 已显式配置 适用系统 + 生成周期 的启用模板（一模板一系统，
+#   同系统可多模板；配置不从模板名称或表格内容推断；历史模板未配置
+#   的标记"待配置"，不猜测、不改写历史记录）。2026-10-21 起同时覆盖
+#   两条路线：Excel 模板（excel_template）与数字表单模板（form_template），
+#   槽位与期次语义完全一致，条目以 template_kind 区分（excel/form）；
 # - 期次键（maintenance_period，计划填写期次）：
 #   · 每周模板：本周一日期 YYYY-MM-DD——周一至周日为一个自然周，跨月周只
 #     算一个期次，归入周一所在月份，展示完整起止日期；
@@ -59,14 +67,16 @@ from apps.equipment_lifecycle.ledger_services import (
 #   期次归属只看该表头标记（2026-10-19 删除 executed_date，历史台账已在
 #   迁移 0024 按当时推导口径回填标记）；
 # - 本期 = 以当前日期为基准的当前周/当前月/当前航季，不预建未来期次；
-# - 去重：同租户+模板+系统+期次仅一张有效台账（唯一约束
-#   uniq_el_ledger_tpl_period，以 slot_active 参与：非作废=True、作废=NULL
-#   豁免；作废台账不在一键生成中悄悄重建，预览标记需人工处理，确需重做
-#   走明确补建 period_generate_rebuild）；
-#   模板行锁串行化并发，发布新版本/重复点击/并发请求都不重复生成；
-# - 生成物 = created_from=excel_template 的正式台账，创建即固定引用模板
-#   最新已发布版本快照（OperationLedgerExcelRecord），可直接进入 Excel
-#   填写；不再生成没有明细且无法补录的手工草稿；
+# - 去重：同租户+路线模板+系统+期次仅一张有效台账（Excel 路线唯一约束
+#   uniq_el_ledger_tpl_period、数字表单路线 uniq_el_ledger_form_tpl_period，
+#   均以 slot_active 参与：非作废=True、作废=NULL 豁免；作废台账不在一键
+#   生成中悄悄重建，预览标记需人工处理，确需重做走明确补建
+#   period_generate_rebuild）；模板行锁串行化并发，发布新版本/重复点击/
+#   并发请求都不重复生成；
+# - 生成物 = created_from=excel_template / form_template 的正式台账，创建
+#   即固定引用模板最新已发布版本快照（Excel: OperationLedgerExcelRecord，
+#   数字表单：OperationLedgerFormRecord），可直接进入对应填写界面；不再
+#   生成没有明细且无法补录的手工草稿；
 # - 历史兼容：旧批量新增的手工壳（created_from=manual 且带期次标记）不
 #   改写，同系统同期次存在未作废手工壳时该模板标记需人工处理，不自动生成。
 # ======================================================================
@@ -249,25 +259,31 @@ def ledger_period_key(ledger):
     return ledger.maintenance_period or ''
 
 
-def _generatable_templates(user, ledger_type, for_update=False):
-    """本租户指定类型的启用模板（生成范围；含待配置模板，预览中显式标注）。"""
+def _generatable_templates(user, ledger_type, kind='excel', for_update=False):
+    """本租户指定类型、指定路线的启用模板（生成范围；含待配置模板，预览中
+    显式标注）。kind='excel' 查 Excel 模板表，kind='form' 查数字表单模板表；
+    两类模板同名字段（system/generation_period/ledger_type/is_active）同义。"""
+    model = OperationLedgerFormTemplate if kind == 'form' else OperationLedgerExcelTemplate
     query = apply_tenant_filter(
-        OperationLedgerExcelTemplate.objects.filter(is_active=True), user,
+        model.objects.filter(is_active=True), user,
     ).filter(ledger_type=ledger_type).select_related('system')
     if for_update:
         query = query.select_for_update()
     return query.order_by('id')
 
 
-def _latest_versions(template_ids):
+def _latest_versions(template_ids, kind='excel'):
     """模板 → 最新已发布版本（无发布版本的模板不出现）。
 
-    template_ids 来自已按租户过滤的模板集合，版本随模板租户归属。
+    template_ids 来自已按租户过滤的模板集合，版本随模板租户归属；
+    两张版本表主键独立，结果以 kind 分开使用，不跨表合并。
     """
+    model = (OperationLedgerFormTemplateVersion if kind == 'form'
+             else OperationLedgerExcelTemplateVersion)
     latest = {}
     if not template_ids:
         return latest
-    rows = OperationLedgerExcelTemplateVersion.objects.filter(
+    rows = model.objects.filter(
         template_id__in=template_ids).order_by('template_id', '-version_no')
     for version in rows:
         latest.setdefault(version.template_id, version)
@@ -275,28 +291,48 @@ def _latest_versions(template_ids):
 
 
 def _generation_slot_ledgers(user, ledger_type, slots):
-    """批量查询各 (模板, 系统, 期次) 槽位的现有台账（含已作废，用于分类判定）。
+    """批量查询各 (路线, 模板, 系统, 期次) 槽位的现有台账（含已作废，用于分类判定）。
 
-    返回 {(template_id, system_id, period): [ledger, ...]}；同时把旧批量
-    新增的手工壳（created_from=manual、无模板、同系统同期次）并入同槽位，
-    一并占位（不自动改写历史记录，由预览显式标注需人工处理）。
+    slots 为 (kind, template_id, system_id, period)；返回 {'excel': 桶,
+    'form': 桶}，桶键为 (kind, template_id, system_id, period)——两条路线
+    的模板主键分属不同表、互不比较，必须带 kind 分桶。旧批量新增的手工壳
+    （created_from=manual、无路线模板、同系统同期次）同时并入两条路线的
+    (kind, None, 系统, 期次) 桶，一并占位（不自动改写历史记录，由预览
+    显式标注需人工处理）。
     """
     if not slots:
-        return {}
+        return {'excel': {}, 'form': {}}
     template_q = Q()
+    form_q = Q()
     shell_q = Q()
-    for template_id, system_id, period in slots:
-        template_q |= Q(source_template_id=template_id, system_id=system_id,
+    for kind, template_id, system_id, period in slots:
+        if kind == 'form':
+            form_q |= Q(source_form_template_id=template_id, system_id=system_id,
                         maintenance_period=period)
+        else:
+            template_q |= Q(source_template_id=template_id, system_id=system_id,
+                            maintenance_period=period)
         shell_q |= Q(created_from=LEDGER_FROM_MANUAL, source_template__isnull=True,
+                     source_form_template__isnull=True,
                      system_id=system_id, maintenance_period=period)
     rows = apply_tenant_filter(OperationLedger.objects.all(), user).filter(
-        Q(ledger_type=ledger_type) & (template_q | shell_q),
-    ).select_related('source_template')
-    grouped = {}
+        Q(ledger_type=ledger_type) & (template_q | form_q | shell_q),
+    )
+    grouped = {'excel': {}, 'form': {}}
     for ledger in rows:
-        key = (ledger.source_template_id, ledger.system_id, ledger.maintenance_period)
-        grouped.setdefault(key, []).append(ledger)
+        kind = 'form' if ledger.created_from == LEDGER_FROM_FORM else 'excel'
+        template_id = (ledger.source_form_template_id if kind == 'form'
+                       else ledger.source_template_id)
+        if template_id is None:
+            # 手工壳（无路线模板）：对两条路线的槽位判定同时占位
+            for bucket_kind in ('excel', 'form'):
+                grouped[bucket_kind].setdefault(
+                    (bucket_kind, None, ledger.system_id, ledger.maintenance_period),
+                    []).append(ledger)
+            continue
+        grouped[kind].setdefault(
+            (kind, template_id, ledger.system_id, ledger.maintenance_period),
+            []).append(ledger)
     return grouped
 
 
@@ -312,24 +348,26 @@ def _template_slot(template, ledger_type, today):
     return period, start, end
 
 
-def _classify_slot(template, slot_ledgers, period):
+def _classify_slot(template, kind, slot_ledgers, period):
     """槽位分类：返回 (status, reason, existing_ledger)。
 
     判定顺序：本模板有效台账已存在（跳过）→ 历史手工壳占用（需人工处理）
     → 已作废占用（需人工处理，不悄悄重建）→ 可新建。
-    手工壳（无模板）以 (None, 系统, 期次) 落桶，与模板槽位合并判定；
-    本模板槽位受唯一约束（含已作废），不会同时存在有效与作废两张。
+    手工壳（无路线模板）以 (kind, None, 系统, 期次) 落桶，与模板槽位合并
+    判定；本模板槽位受唯一约束（含已作废），不会同时存在有效与作废两张。
     """
-    ledgers = list(slot_ledgers.get((template.id, template.system_id, period)) or [])
-    ledgers += slot_ledgers.get((None, template.system_id, period)) or []
+    ledgers = list(slot_ledgers.get(
+        (kind, template.id, template.system_id, period)) or [])
+    ledgers += slot_ledgers.get((kind, None, template.system_id, period)) or []
+    own_field = 'source_form_template_id' if kind == 'form' else 'source_template_id'
     template_valid = [x for x in ledgers
-                      if x.source_template_id is not None
+                      if getattr(x, own_field) is not None
                       and x.status != LEDGER_STATUS_VOID]
     if template_valid:
         ledger = sorted(template_valid, key=lambda x: -x.id)[0]
         return GENERATE_EXISTS, '', ledger
     shells = [x for x in ledgers
-              if x.source_template_id is None and x.status != LEDGER_STATUS_VOID]
+              if getattr(x, own_field) is None and x.status != LEDGER_STATUS_VOID]
     if shells:
         ledger = sorted(shells, key=lambda x: -x.id)[0]
         return (GENERATE_MANUAL_NEEDED,
@@ -344,9 +382,11 @@ def _classify_slot(template, slot_ledgers, period):
     return GENERATE_CREATE, '', None
 
 
-def _generation_entry(user, template, ledger_type, today, latest, slot_ledgers):
-    """单模板本期生成判定（预览与生成共用同一口径）。"""
+def _generation_entry(user, template, ledger_type, today, latest, slot_ledgers,
+                      kind='excel'):
+    """单模板本期生成判定（预览与生成共用同一口径；kind 标识路线）。"""
     entry = {
+        'template_kind': kind,
         'template_id': template.id,
         'template_name': template.name,
         'system_id': template.system_id,
@@ -392,7 +432,7 @@ def _generation_entry(user, template, ledger_type, today, latest, slot_ledgers):
         entry['status'] = GENERATE_MANUAL_NEEDED
         entry['reason'] = '适用系统已停用，不能用于新台账'
         return entry
-    status, reason, existing = _classify_slot(template, slot_ledgers, period)
+    status, reason, existing = _classify_slot(template, kind, slot_ledgers, period)
     entry['status'] = status
     entry['reason'] = reason
     if existing is not None:
@@ -426,11 +466,51 @@ def _selected_entry_cycles(entry):
         else entry.get('generation_period')
 
 
+def _collect_generation_slots(user, ledger_type, today):
+    """两条路线启用模板的本期槽位统一收集（预览/生成/概览共用）。
+
+    返回 (excel_templates, form_templates, latest, slot_maps)：
+    - latest 为 {kind: {template_id: 最新版本}}；
+    - slot_maps 为 _generation_slot_ledgers 结果（桶键带 kind）。
+    """
+    excel_templates = list(_generatable_templates(user, ledger_type, kind='excel'))
+    form_templates = list(_generatable_templates(user, ledger_type, kind='form'))
+    slots = []
+    for kind, templates in (('excel', excel_templates), ('form', form_templates)):
+        for template in templates:
+            period, _, _ = _template_slot(template, ledger_type, today)
+            if period is not None:
+                slots.append((kind, template.id, template.system_id, period))
+    latest = {
+        'excel': _latest_versions([t.id for t in excel_templates], kind='excel'),
+        'form': _latest_versions([t.id for t in form_templates], kind='form'),
+    }
+    slot_maps = _generation_slot_ledgers(user, ledger_type, slots)
+    return excel_templates, form_templates, latest, slot_maps
+
+
+def _merged_generation_entries(user, ledger_type, today, excel_templates,
+                               form_templates, latest, slot_maps):
+    """两条路线生成条目合并（Excel 路线在前，路线内按模板 id 升序）。"""
+    entries = [
+        _generation_entry(user, t, ledger_type, today, latest['excel'],
+                          slot_maps['excel'], kind='excel')
+        for t in excel_templates
+    ]
+    entries += [
+        _generation_entry(user, t, ledger_type, today, latest['form'],
+                          slot_maps['form'], kind='form')
+        for t in form_templates
+    ]
+    return entries
+
+
 def period_generate_preview(user, ledger_type, maintenance_cycles=None):
     """本期应填台账预览（只读）：逐模板给出当前期次与可生成性判定。
 
     返回 (result, None) 或 (None, error)。条目状态：create 将新建 /
-    exists 已存在跳过 / no_version 缺少可用版本 / manual_needed 需人工处理。
+    exists 已存在跳过 / no_version 缺少可用版本 / manual_needed 需人工处理；
+    条目含 template_kind（excel/form）区分模板路线。
     """
     try:
         validate_ledger_type(ledger_type)
@@ -441,18 +521,10 @@ def period_generate_preview(user, ledger_type, maintenance_cycles=None):
     if error:
         return None, error
     today = timezone.now().date()
-    templates = list(_generatable_templates(user, ledger_type))
-    slots = []
-    for template in templates:
-        period, start, _ = _template_slot(template, ledger_type, today)
-        if period is not None:
-            slots.append((template.id, template.system_id, period))
-    latest = _latest_versions([t.id for t in templates])
-    slot_ledgers = _generation_slot_ledgers(user, ledger_type, slots)
-    entries = [
-        _generation_entry(user, t, ledger_type, today, latest, slot_ledgers)
-        for t in templates
-    ]
+    excel_templates, form_templates, latest, slot_maps = _collect_generation_slots(
+        user, ledger_type, today)
+    entries = _merged_generation_entries(
+        user, ledger_type, today, excel_templates, form_templates, latest, slot_maps)
     entries = [entry for entry in entries
                if not _selected_entry_cycles(entry)
                or _selected_entry_cycles(entry) in selected_cycles]
@@ -476,20 +548,132 @@ def period_generate_preview(user, ledger_type, maintenance_cycles=None):
 
 
 def _validate_template_ids(template_ids):
+    """校验模板 ID 清单：非空、全为数字（不去重——Excel 与数字表单两条路线
+    的模板主键分属不同表、可能撞号，去重按 (kind, id) 在路线校验后进行）。"""
     if not isinstance(template_ids, (list, tuple)) or not template_ids:
         return None, '至少选择一个可生成模板'
     if any(not str(value).isdigit() for value in template_ids):
         return None, '模板选择参数不合法'
-    normalized = [int(value) for value in template_ids]
-    if len(set(normalized)) != len(normalized):
+    return [int(value) for value in template_ids], None
+
+
+# 模板路线（生成确认可按路线选择；缺省全按 Excel 路线，兼容旧调用）
+GENERATION_KIND_VALUES = ['excel', 'form']
+
+
+def _validate_template_kinds(template_kinds, template_ids):
+    """校验 template_ids 对应的路线标记（平行数组，缺省补 'excel'）。
+
+    去重按 (kind, id)：两条路线主键空间独立，同号分属不同模板均合法。"""
+    if template_kinds is None:
+        kinds = ['excel'] * len(template_ids)
+    elif isinstance(template_kinds, (list, tuple)) \
+            and len(template_kinds) == len(template_ids):
+        kinds = []
+        for value in template_kinds:
+            if value not in GENERATION_KIND_VALUES:
+                return None, '模板路线参数不合法：%s' % value
+            kinds.append(value)
+    else:
+        return None, '模板路线参数与模板选择不一致'
+    pairs = list(zip(kinds, template_ids))
+    if len(set(pairs)) != len(pairs):
         return None, '模板选择参数重复'
-    return normalized, None
+    return kinds, None
+
+
+def _locked_generation_templates(user, ledger_type, selected_ids, selected_kinds):
+    """按 (kind, id) 行锁取所选模板，返回 (templates, kinds) 或 (None, None)。
+
+    行锁（select_for_update）串行化同模板并发请求；任一模板不存在/类型
+    不匹配/跨租户时整体拒绝。"""
+    template_map = {}
+    for kind in ('excel', 'form'):
+        ids = [tid for tid, k in zip(selected_ids, selected_kinds) if k == kind]
+        if not ids:
+            continue
+        model = (OperationLedgerFormTemplate if kind == 'form'
+                 else OperationLedgerExcelTemplate)
+        for template in apply_tenant_filter(
+                model.objects.filter(pk__in=ids), user
+        ).filter(ledger_type=ledger_type).select_related('system') \
+                .select_for_update().order_by('id'):
+            template_map[(kind, template.id)] = template
+    if len(template_map) != len(selected_ids):
+        return None, None
+    return ([template_map[(kind, tid)]
+             for kind, tid in zip(selected_kinds, selected_ids)],
+            selected_kinds)
+
+
+def _collect_generation_context(user, ledger_type, templates, kinds, today):
+    """所选模板的槽位/版本/台账占用（生成执行用，与预览同口径）。"""
+    slots = []
+    for template, kind in zip(templates, kinds):
+        period, _, _ = _template_slot(template, ledger_type, today)
+        if period is not None:
+            slots.append((kind, template.id, template.system_id, period))
+    latest = {
+        'excel': _latest_versions(
+            [t.id for t, k in zip(templates, kinds) if k == 'excel'], kind='excel'),
+        'form': _latest_versions(
+            [t.id for t, k in zip(templates, kinds) if k == 'form'], kind='form'),
+    }
+    return latest, _generation_slot_ledgers(user, ledger_type, slots)
+
+
+def _dispatch_generation_entry(user, template, kind, ledger_type, today, latest,
+                               slot_maps, selected_cycles, created, skipped,
+                               failed):
+    """单模板生成判定与落桶（created/skipped/failed 之一）。"""
+    entry = _generation_entry(user, template, ledger_type, today,
+                              latest[kind], slot_maps[kind], kind=kind)
+    base = {
+        'template_kind': kind,
+        'template_id': template.id, 'template_name': template.name,
+        'system_name': entry['system_name'],
+    }
+    entry_cycle = _selected_entry_cycles(entry)
+    if entry_cycle and entry_cycle not in selected_cycles:
+        failed.append({**base, 'status': GENERATE_MANUAL_NEEDED,
+                       'reason': '模板维护周期已变化，不属于本次选择的维护周期'})
+        return
+    if entry['status'] == GENERATE_EXISTS:
+        skipped.append({**base,
+                        'maintenance_period': entry['maintenance_period'],
+                        'period_text': entry['period_text'],
+                        'ledger': entry['existing_ledger']})
+        return
+    if entry['status'] != GENERATE_CREATE:
+        failed.append({**base, 'status': entry['status'],
+                       'reason': entry['reason']})
+        return
+    try:
+        ledger = _create_generated_ledger(
+            user, template, latest[kind][template.id], entry, kind=kind)
+    except LedgerValidationError as e:
+        failed.append({**base, 'status': GENERATE_MANUAL_NEEDED, 'reason': str(e)})
+        return
+    created.append({
+        **base,
+        'id': ledger.id, 'ledger_no': ledger.ledger_no,
+        'system_id': ledger.system_id,
+        'maintenance_period': entry['maintenance_period'],
+        'period_text': entry['period_text'],
+        'version_no': entry['version_no'],
+    })
+    slot_maps[kind].setdefault(
+        (kind, template.id, template.system_id, entry['maintenance_period']),
+        []).append(ledger)
 
 
 @transaction.atomic
-def period_generate(user, ledger_type, maintenance_cycles=None, template_ids=None):
+def period_generate(user, ledger_type, maintenance_cycles=None, template_ids=None,
+                    template_kinds=None):
     """生成缺项（确认后执行）：按预览同口径重新计算并创建，返回实际结果。
 
+    - template_ids 为所选模板主键；template_kinds 为对应路线标记平行数组
+      （excel/form，缺省全按 excel 兼容旧调用）；
     - 模板行锁（select_for_update）串行化同模板并发请求，锁内重算判定，
       重复点击/并发只能创建一次（唯一约束兜底）；
     - 每条创建走独立保存点，编号冲突（IntegrityError）重算序号重试，
@@ -507,67 +691,21 @@ def period_generate(user, ledger_type, maintenance_cycles=None, template_ids=Non
     selected_ids, error = _validate_template_ids(template_ids)
     if error:
         return None, error
-    today = timezone.now().date()
-    templates = list(apply_tenant_filter(
-        OperationLedgerExcelTemplate.objects.filter(pk__in=selected_ids), user
-    ).filter(ledger_type=ledger_type).select_related('system').select_for_update().order_by('id'))
-    if len(templates) != len(selected_ids):
+    selected_kinds, error = _validate_template_kinds(template_kinds, selected_ids)
+    if error:
+        return None, error
+    templates, kinds = _locked_generation_templates(
+        user, ledger_type, selected_ids, selected_kinds)
+    if templates is None:
         return None, '所选模板不存在、类型不匹配或无权访问'
-    slots = []
-    for template in templates:
-        period, start, _ = _template_slot(template, ledger_type, today)
-        if period is not None:
-            slots.append((template.id, template.system_id, period))
-    latest = _latest_versions([t.id for t in templates])
-    slot_ledgers = _generation_slot_ledgers(user, ledger_type, slots)
+    today = timezone.now().date()
+    latest, slot_maps = _collect_generation_context(
+        user, ledger_type, templates, kinds, today)
     created, skipped, failed = [], [], []
-    for template in templates:
-        entry = _generation_entry(user, template, ledger_type, today, latest, slot_ledgers)
-        entry_cycle = _selected_entry_cycles(entry)
-        if entry_cycle and entry_cycle not in selected_cycles:
-            failed.append({
-                'template_id': template.id, 'template_name': template.name,
-                'system_name': entry['system_name'], 'status': GENERATE_MANUAL_NEEDED,
-                'reason': '模板维护周期已变化，不属于本次选择的维护周期',
-            })
-            continue
-        if entry['status'] == GENERATE_EXISTS:
-            skipped.append({
-                'template_id': template.id, 'template_name': template.name,
-                'system_name': entry['system_name'],
-                'maintenance_period': entry['maintenance_period'],
-                'period_text': entry['period_text'],
-                'ledger': entry['existing_ledger'],
-            })
-            continue
-        if entry['status'] != GENERATE_CREATE:
-            failed.append({
-                'template_id': template.id, 'template_name': template.name,
-                'system_name': entry['system_name'],
-                'status': entry['status'],
-                'reason': entry['reason'],
-            })
-            continue
-        try:
-            ledger = _create_generated_ledger(user, template, latest[template.id], entry)
-        except LedgerValidationError as e:
-            failed.append({
-                'template_id': template.id, 'template_name': template.name,
-                'system_name': entry['system_name'],
-                'status': GENERATE_MANUAL_NEEDED, 'reason': str(e)})
-            continue
-        row = {
-            'id': ledger.id, 'ledger_no': ledger.ledger_no,
-            'template_id': template.id, 'template_name': template.name,
-            'system_id': ledger.system_id, 'system_name': entry['system_name'],
-            'maintenance_period': entry['maintenance_period'],
-            'period_text': entry['period_text'],
-            'version_no': entry['version_no'],
-        }
-        created.append(row)
-        slot_ledgers.setdefault(
-            (template.id, template.system_id, entry['maintenance_period']), []
-        ).append(ledger)
+    for template, kind in zip(templates, kinds):
+        _dispatch_generation_entry(
+            user, template, kind, ledger_type, today, latest, slot_maps,
+            selected_cycles, created, skipped, failed)
     return {
         'ledger_type': ledger_type,
         'created': created,
@@ -577,46 +715,52 @@ def period_generate(user, ledger_type, maintenance_cycles=None, template_ids=Non
 
 
 @transaction.atomic
-def period_generate_rebuild(user, template_id):
+def period_generate_rebuild(user, template_id, template_kind='excel'):
     """明确补建（2026-10-16）：为"已作废占用"的本期槽位重新生成应填台账。
 
     - 仅处理当期（本期）槽位：模板行锁内重算判定；本期已存在有效台账
       （草稿/已完成/旧流程状态）时拒绝；已作废占用或槽位为空时创建；
+    - template_kind 选择模板路线（excel/form，缺省 excel 兼容旧调用）；
     - 作废台账保留不动（不删除、不改写），新旧台账并存；
     - 槽位唯一约束以 slot_active 豁免作废行，补建不再被作废记录阻塞。
     返回 (created_row, None) 或 (None, error_message)。
     """
     if not str(template_id or '').isdigit():
         return None, '模板参数不合法'
+    if template_kind not in GENERATION_KIND_VALUES:
+        return None, '模板路线参数不合法'
+    model = (OperationLedgerFormTemplate if template_kind == 'form'
+             else OperationLedgerExcelTemplate)
     today = timezone.now().date()
-    templates = apply_tenant_filter(
-        OperationLedgerExcelTemplate.objects.filter(is_active=True, pk=int(template_id)),
-        user).select_related('system').select_for_update()
-    template = templates.first()
+    template = apply_tenant_filter(
+        model.objects.filter(is_active=True, pk=int(template_id)), user
+    ).select_related('system').select_for_update().first()
     if template is None:
         return None, '模板不存在或已停用'
     period, start, _ = _template_slot(template, template.ledger_type, today)
     if period is None:
         return None, '模板待配置适用系统/生成周期，请先在模板管理中配置'
-    latest = _latest_versions([template.id])
+    latest = _latest_versions([template.id], kind=template_kind)
     version = latest.get(template.id)
     if version is None:
         return None, '缺少可用版本：模板尚未发布任何版本'
     if template.system_id and not template.system.is_active:
         return None, '适用系统已停用，不能用于新台账'
-    slot_ledgers = _generation_slot_ledgers(user, template.ledger_type, [
-        (template.id, template.system_id, period)])
-    status, _, existing = _classify_slot(template, slot_ledgers, period)
+    slot_maps = _generation_slot_ledgers(user, template.ledger_type, [
+        (template_kind, template.id, template.system_id, period)])
+    status, _, existing = _classify_slot(
+        template, template_kind, slot_maps[template_kind], period)
     if status == GENERATE_EXISTS:
         return None, '本期已存在有效台账 %s，无需补建' % existing.ledger_no
     try:
         ledger = _create_generated_ledger(user, template, version, {
             'period_start': start,
             'maintenance_period': period,
-        })
+        }, kind=template_kind)
     except LedgerValidationError as e:
         return None, str(e)
     return {
+        'template_kind': template_kind,
         'id': ledger.id, 'ledger_no': ledger.ledger_no,
         'template_id': template.id, 'template_name': template.name,
         'system_id': ledger.system_id, 'system_name': template.system.name if template.system_id else '',
@@ -626,9 +770,18 @@ def period_generate_rebuild(user, template_id):
     }, None
 
 
-def _create_generated_ledger(user, template, version, entry):
-    """创建一张周期生成的 Excel 应填台账（表头 + 填写记录，固定版本快照）。
+def _type_of_kind_for_query():
+    """补建查询按模板自身 ledger_type 过滤（行锁查询内已限定租户与启用状态）。"""
+    from apps.equipment_lifecycle.models import (
+        LEDGER_TYPE_SEASONAL, LEDGER_TYPE_WEEK_MONTH)
+    return LEDGER_TYPE_WEEK_MONTH
 
+
+def _create_generated_ledger(user, template, version, entry, kind='excel'):
+    """创建一张周期生成的应填台账（表头 + 填写记录，固定版本快照）。
+
+    - kind 选择路线：excel 创建 OperationLedgerExcelRecord（含默认值骨架），
+      form 创建 OperationLedgerFormRecord（空填写值，直接进入表单填写）；
     - 期次归属由 maintenance_period 标记承载；
     - 台账编号以期次起始日期为基准，创建后不变；
     - 编号序列冲突（同基准日期并发）时重算序号重试（有界）。
@@ -641,26 +794,39 @@ def _create_generated_ledger(user, template, version, entry):
     for _ in range(3):
         try:
             with transaction.atomic():
-                ledger = OperationLedger(
+                common = dict(
                     tenant_id=user.tenant_id,
                     ledger_no=generate_ledger_no(
                         user.tenant_id, template.ledger_type, base_date),
                     ledger_type=template.ledger_type,
                     status=LEDGER_STATUS_DRAFT,
                     entry_channel=ENTRY_CHANNEL_WEB,
-                    created_from=LEDGER_FROM_EXCEL,
                     system=template.system,
-                    source_template=template,
                     maintenance_period=entry['maintenance_period'],
                     created_by=user,
                 )
-                ledger.save()
-                OperationLedgerExcelRecord.objects.create(
-                    tenant_id=user.tenant_id,
-                    ledger=ledger,
-                    version=version,
-                    values=_canonical(default_prefill(version.get_bindings())),
-                )
+                if kind == 'form':
+                    ledger = OperationLedger(
+                        created_from=LEDGER_FROM_FORM,
+                        source_form_template=template, **common)
+                    ledger.save()
+                    OperationLedgerFormRecord.objects.create(
+                        tenant_id=user.tenant_id,
+                        ledger=ledger,
+                        version=version,
+                        values=_canonical({}),
+                    )
+                else:
+                    ledger = OperationLedger(
+                        created_from=LEDGER_FROM_EXCEL,
+                        source_template=template, **common)
+                    ledger.save()
+                    OperationLedgerExcelRecord.objects.create(
+                        tenant_id=user.tenant_id,
+                        ledger=ledger,
+                        version=version,
+                        values=_canonical(default_prefill(version.get_bindings())),
+                    )
                 return ledger
         except IntegrityError as e:
             last_error = e
@@ -674,7 +840,8 @@ def _filtered_period_ledger_query(user, ledger_type, status='', system_id=None, 
     已作废，组内统计与可见行保持一致。
     """
     query = apply_tenant_filter(OperationLedger.objects.all(), user).filter(
-        ledger_type=ledger_type).select_related('system', 'excel_record__version')
+        ledger_type=ledger_type).select_related(
+        'system', 'excel_record__version', 'form_record__version')
     query = apply_ledger_status_filter(query, status)
     if system_id and str(system_id).isdigit():
         query = query.filter(
@@ -798,24 +965,29 @@ def period_overview(user, ledger_type):
     except LedgerValidationError as e:
         return None, str(e)
     today = timezone.now().date()
-    templates = list(_generatable_templates(user, ledger_type))
     slots = []
     unconfigured = 0
-    for template in templates:
-        period, start, end = _template_slot(template, ledger_type, today)
-        if period is None:
-            unconfigured += 1
-            continue
-        slots.append({'template': template, 'period': period,
-                      'start': start, 'end': end})
-    latest = _latest_versions([s['template'].id for s in slots])
-    slot_ledgers = _generation_slot_ledgers(user, ledger_type, [
-        (s['template'].id, s['template'].system_id, s['period']) for s in slots])
+    latest = {'excel': {}, 'form': {}}
+    for kind in ('excel', 'form'):
+        templates = list(_generatable_templates(user, ledger_type, kind=kind))
+        for template in templates:
+            period, start, end = _template_slot(template, ledger_type, today)
+            if period is None:
+                unconfigured += 1
+                continue
+            slots.append({'template': template, 'kind': kind, 'period': period,
+                          'start': start, 'end': end})
+        latest[kind] = _latest_versions(
+            [s['template'].id for s in slots if s['kind'] == kind], kind=kind)
+    slot_maps = _generation_slot_ledgers(user, ledger_type, [
+        (s['kind'], s['template'].id, s['template'].system_id, s['period'])
+        for s in slots])
     statuses = {}
     for slot in slots:
         # 复用预览条目判定：包含 缺少版本/系统停用 的槽位状态（与生成口径一致）
         entry = _generation_entry(
-            user, slot['template'], ledger_type, today, latest, slot_ledgers)
+            user, slot['template'], ledger_type, today, latest[slot['kind']],
+            slot_maps[slot['kind']], kind=slot['kind'])
         statuses.setdefault(slot['period'], []).append(entry['status'])
     if ledger_type == LEDGER_TYPE_SEASONAL:
         block_defs = [('season', '本航季', season_key_of(today))]

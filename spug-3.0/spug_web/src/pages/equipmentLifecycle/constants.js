@@ -145,6 +145,20 @@ export const FAULT_IMPACT_COLOR = {
   interrupted: 'red',
 };
 
+// 故障等级（2026-10-23 新增，设备故障专用固定四级；空=未选择，选填；
+// 与后端 operation_models.FAULT_LEVEL_* 一致）
+export const FAULT_LEVEL_OPTIONS = [
+  {value: 'level1', label: '一级'},
+  {value: 'level2', label: '二级'},
+  {value: 'level3', label: '三级'},
+  {value: 'level4', label: '四级'},
+];
+
+export const FAULT_LEVEL_TEXT = FAULT_LEVEL_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {});
+
 // 异常类别（2026-10-11 合并改造，与后端 RECORD_CATEGORY_* 一致；空串=未选择；
 // 仅一般记录与异常事件使用，设备故障不适用）
 export const RECORD_CATEGORY_OPTIONS = [

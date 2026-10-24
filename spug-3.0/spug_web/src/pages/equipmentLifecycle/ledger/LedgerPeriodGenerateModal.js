@@ -5,15 +5,18 @@
 /**
  * 生成本期应填台账弹窗（2026-10-14 重构原"一键新增"弹窗）。
  *
- * - 打开即拉取后端预览：逐模板展示 模板名称/适用系统/生成周期/具体期次/
- *   将使用的版本，并汇总 将新建/已存在跳过/缺少可用版本/需人工处理 的
- *   数量与原因；每周模板期次显示完整起止日期（周一~周日，跨月周归入
- *   周一所在月份）；
+ * - 打开即拉取后端预览：逐模板展示 模板路线/模板名称/适用系统/生成周期/
+ *   具体期次/将使用的版本，并汇总 将新建/已存在跳过/缺少可用版本/需人工
+ *   处理 的数量与原因；每周模板期次显示完整起止日期（周一~周日，跨月周
+ *   归入周一所在月份）；
+ * - 2026-10-21 数字表单路线并入生成：预览条目含 template_kind（excel/
+ *   form），行键为 kind+id 组合（两条路线模板主键分属不同表可能撞号），
+ *   确认时提交 template_ids + template_kinds 平行数组；
  * - 确认后按预览口径重新计算并创建缺项，结果如实展示实际新增/跳过/
  *   未处理（不以预览数量冒充实际结果），成功后刷新当前填写列表；
  * - 已作废台账不在一键生成中重建（预览标记需人工处理，行内提供"补建"
- *   明确补建操作，2026-10-16）；未配置适用系统/生成周期的历史模板标记
- *   待配置（在 Excel 模板管理页配置）；
+ *   明确补建操作，2026-10-16）；未配置适用系统/生成周期的模板标记
+ *   待配置（在对应模板管理页配置）；
  * - antd 4.21.5：Modal 用 visible；错误提示由 http 拦截器统一弹出。
  */
 import React, {useEffect, useRef, useState} from 'react';
@@ -21,6 +24,12 @@ import {observer} from 'mobx-react';
 import {Alert, Checkbox, Modal, Table, Tag} from 'antd';
 import {AuthButton} from 'components';
 import {LEDGER_TYPE_TEXT, PERM_L} from './constants';
+import {TEMPLATE_KIND_TEXT} from './form/constants';
+
+/** 预览行键：路线+模板主键（两条路线模板主键分属不同表，可能撞号）。 */
+export function entryKeyOf(entry) {
+  return `${entry.template_kind || 'excel'}-${entry.template_id}`;
+}
 
 const GENERATE_STATUS = {
   create: {text: '将新建', color: 'processing'},
@@ -50,77 +59,59 @@ function SummaryCounts({summary}) {
   );
 }
 
-function LedgerPeriodGenerateModal({visible, ledgerType, store, onCancel}) {
-  const preview = store.generatePreview;
-  const isSeasonal = ledgerType === 'seasonal';
-  const [maintenanceCycles, setMaintenanceCycles] = useState(
-    isSeasonal ? ['seasonal'] : ['weekly']);
-  const [selectedTemplateIds, setSelectedTemplateIds] = useState([]);
-  const initializedTemplateIds = useRef(new Set());
+/** 生成结果区（实际新增/跳过/未处理如实展示；自弹窗函数体抽出）。 */
+function ResultSection({result}) {
+  return (
+    <React.Fragment>
+      <Alert
+        type={result.created.length ? 'success' : 'info'}
+        showIcon
+        style={{marginBottom: 12}}
+        message={`实际新增 ${result.created.length} 张，已存在跳过 ${result.skipped.length} 张，未处理 ${result.failed.length} 项`}
+        description={result.failed.length
+          ? result.failed.map(item => `${item.template_name}：${item.reason}`).join('；')
+          : undefined}/>
+      {result.created.length > 0 && (
+        <div style={{color: '#666', marginBottom: 8}}>
+          新增台账：{result.created.map(item => item.ledger_no).join('、')}
+          （已回到填写列表，点击详情即可填写）
+        </div>
+      )}
+    </React.Fragment>
+  );
+}
 
-  useEffect(() => {
-    if (visible) {
-      const initialCycles = isSeasonal ? ['seasonal'] : ['weekly'];
-      setMaintenanceCycles(initialCycles);
-      setSelectedTemplateIds([]);
-      initializedTemplateIds.current = new Set();
-      store.fetchGeneratePreview(ledgerType, initialCycles);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
+/** 预览区（路线提示 + 判定表；自弹窗函数体抽出）。 */
+function PreviewSection({preview, rowSelection, columns, store}) {
+  return (
+    <React.Fragment>
+      <Alert
+        type="info"
+        showIcon
+        style={{marginBottom: 12}}
+        message="将按各模板配置的适用系统与生成周期，生成本期（当前周/月/航季）应填台账"
+        description="Excel 模板生成 Excel 台账、数字表单模板生成表单台账（均固定引用最新发布版本），可直接填写。"/>
+      <Table
+        rowKey={entryKeyOf}
+        rowSelection={rowSelection}
+        size="small"
+        loading={store.isGenerateFetching}
+        dataSource={preview.entries}
+        columns={columns}
+        pagination={false}/>
+    </React.Fragment>
+  );
+}
 
-  useEffect(() => {
-    if (!visible || !preview || !preview.entries) return;
-    const newIds = [];
-    preview.entries.forEach(entry => {
-      if (entry.status === 'create'
-          && !initializedTemplateIds.current.has(entry.template_id)) {
-        initializedTemplateIds.current.add(entry.template_id);
-        newIds.push(entry.template_id);
-      }
-    });
-    if (newIds.length) {
-      setSelectedTemplateIds(current => Array.from(new Set([...current, ...newIds])));
-    }
-  }, [visible, preview]);
-
-  const handleGenerate = () => {
-    const eligibleIds = (preview && preview.entries || [])
-      .filter(entry => entry.status === 'create'
-        && selectedTemplateIds.includes(entry.template_id))
-      .map(entry => entry.template_id);
-    store.generatePeriodLedgers(ledgerType, maintenanceCycles, eligibleIds)
-      .catch(() => {});
-  };
-
-  const handleCyclesChange = (cycles) => {
-    setMaintenanceCycles(cycles);
-    if (cycles.length) {
-      store.fetchGeneratePreview(ledgerType, cycles);
-    } else {
-      store.generatePreview = null;
-      store.generatePeriodResult = null;
-    }
-  };
-
-  /** 明确补建（已作废占用的本期槽位）：成功后重拉预览刷新判定结果。 */
-  const handleRebuild = (entry) => {
-    store.rebuildPeriodLedger(entry.template_id, ledgerType)
-      .then(() => store.fetchGeneratePreview(ledgerType, maintenanceCycles))
-      .catch(() => {});
-  };
-
-  const eligibleEntries = (preview && preview.entries || [])
-    .filter(entry => entry.status === 'create');
-  const selectedCount = eligibleEntries.filter(
-    entry => selectedTemplateIds.includes(entry.template_id)).length;
-  const rowSelection = {
-    selectedRowKeys: selectedTemplateIds,
-    onChange: keys => setSelectedTemplateIds(keys),
-    getCheckboxProps: entry => ({disabled: entry.status !== 'create'}),
-  };
-
-  const columns = [
+/** 预览判定表列定义（路线/模板/系统/周期/期次/版本/判定+补建）。 */
+function buildPreviewColumns(handleRebuild, isGenerating) {
+  return [
+    {title: '模板路线', key: 'kind', width: 90,
+     render: (v, entry) => (
+       <Tag color={entry.template_kind === 'form' ? 'purple' : 'blue'}>
+         {TEMPLATE_KIND_TEXT[entry.template_kind || 'excel']}
+       </Tag>
+     )},
     {title: '模板名称', dataIndex: 'template_name', ellipsis: true},
     {title: '适用系统', key: 'system', width: 150, ellipsis: true,
      render: (v, entry) => entry.system_name
@@ -145,7 +136,7 @@ function LedgerPeriodGenerateModal({visible, ledgerType, store, onCancel}) {
                auth={PERM_L.LED_ADD}
                data-testid="period-rebuild"
                type="link" size="small"
-               disabled={store.isGenerating}
+               disabled={isGenerating}
                onClick={() => handleRebuild(entry)}>
                补建
              </AuthButton>
@@ -154,6 +145,87 @@ function LedgerPeriodGenerateModal({visible, ledgerType, store, onCancel}) {
        );
      }},
   ];
+}
+
+/** 预览到达后自动勾选"将新建"条目（每条只勾一次，重拉预览不重复加入）。 */
+function useAutoSelectCreateEntries(visible, preview, initializedRef, setSelected) {
+  React.useEffect(() => {
+    if (!visible || !preview || !preview.entries) return;
+    const newKeys = [];
+    preview.entries.forEach(entry => {
+      const key = entryKeyOf(entry);
+      if (entry.status === 'create'
+          && !initializedRef.current.has(key)) {
+        initializedRef.current.add(key);
+        newKeys.push(key);
+      }
+    });
+    if (newKeys.length) {
+      setSelected(current => Array.from(new Set([...current, ...newKeys])));
+    }
+  }, [visible, preview]);
+}
+
+function LedgerPeriodGenerateModal({visible, ledgerType, store, onCancel}) {
+  const preview = store.generatePreview;
+  const isSeasonal = ledgerType === 'seasonal';
+  const [maintenanceCycles, setMaintenanceCycles] = useState(
+    isSeasonal ? ['seasonal'] : ['weekly']);
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState([]);
+  const initializedTemplateIds = useRef(new Set());
+
+  useEffect(() => {
+    if (visible) {
+      const initialCycles = isSeasonal ? ['seasonal'] : ['weekly'];
+      setMaintenanceCycles(initialCycles);
+      setSelectedTemplateIds([]);
+      initializedTemplateIds.current = new Set();
+      store.fetchGeneratePreview(ledgerType, initialCycles);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  useAutoSelectCreateEntries(visible, preview, initializedTemplateIds, setSelectedTemplateIds);
+
+  const handleGenerate = () => {
+    const eligible = (preview && preview.entries || [])
+      .filter(entry => entry.status === 'create'
+        && selectedTemplateIds.includes(entryKeyOf(entry)));
+    store.generatePeriodLedgers(
+      ledgerType, maintenanceCycles,
+      eligible.map(entry => entry.template_id),
+      eligible.map(entry => entry.template_kind || 'excel'))
+      .catch(() => {});
+  };
+
+  const handleCyclesChange = (cycles) => {
+    setMaintenanceCycles(cycles);
+    if (cycles.length) {
+      store.fetchGeneratePreview(ledgerType, cycles);
+    } else {
+      store.generatePreview = null;
+      store.generatePeriodResult = null;
+    }
+  };
+
+  /** 明确补建（已作废占用的本期槽位）：成功后重拉预览刷新判定结果。 */
+  const handleRebuild = (entry) => {
+    store.rebuildPeriodLedger(entry.template_id, entry.template_kind || 'excel')
+      .then(() => store.fetchGeneratePreview(ledgerType, maintenanceCycles))
+      .catch(() => {});
+  };
+
+  const eligibleEntries = (preview && preview.entries || [])
+    .filter(entry => entry.status === 'create');
+  const selectedCount = eligibleEntries.filter(
+    entry => selectedTemplateIds.includes(entryKeyOf(entry))).length;
+  const rowSelection = {
+    selectedRowKeys: selectedTemplateIds,
+    onChange: keys => setSelectedTemplateIds(keys),
+    getCheckboxProps: entry => ({disabled: entry.status !== 'create'}),
+  };
+
+  const columns = buildPreviewColumns(handleRebuild, store.isGenerating);
 
   const result = store.generatePeriodResult;
   const periodLabels = (preview && preview.period_labels) || {};
@@ -193,39 +265,11 @@ function LedgerPeriodGenerateModal({visible, ledgerType, store, onCancel}) {
           <React.Fragment>
             <SummaryCounts summary={preview.summary}/>
             {result ? (
-              <React.Fragment>
-                <Alert
-                  type={result.created.length ? 'success' : 'info'}
-                  showIcon
-                  style={{marginBottom: 12}}
-                  message={`实际新增 ${result.created.length} 张，已存在跳过 ${result.skipped.length} 张，未处理 ${result.failed.length} 项`}
-                  description={result.failed.length
-                    ? result.failed.map(item => `${item.template_name}：${item.reason}`).join('；')
-                    : undefined}/>
-                {result.created.length > 0 && (
-                  <div style={{color: '#666', marginBottom: 8}}>
-                    新增台账：{result.created.map(item => item.ledger_no).join('、')}
-                    （已回到填写列表，点击详情即可填写）
-                  </div>
-                )}
-              </React.Fragment>
+              <ResultSection result={result}/>
             ) : (
-              <React.Fragment>
-                <Alert
-                  type="info"
-                  showIcon
-                  style={{marginBottom: 12}}
-                  message="将按各模板配置的适用系统与生成周期，生成本期（当前周/月/航季）应填台账"
-                  description="生成的台账为 Excel 模板台账（固定引用最新发布版本），可直接填写。"/>
-                <Table
-                  rowKey="template_id"
-                  rowSelection={rowSelection}
-                  size="small"
-                  loading={store.isGenerateFetching}
-                  dataSource={preview.entries}
-                  columns={columns}
-                  pagination={false}/>
-              </React.Fragment>
+              <PreviewSection
+                preview={preview} rowSelection={rowSelection}
+                columns={columns} store={store}/>
             )}
           </React.Fragment>
         )}

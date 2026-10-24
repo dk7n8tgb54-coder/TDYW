@@ -47,7 +47,7 @@ from apps.equipment_lifecycle.operation_views import (
     _record_audit_summary,
     _record_detail_response,
     _reject_retired_params,
-    _validate_affects_and_impact,
+    _validate_identify_fault_fields,
 )
 
 
@@ -117,7 +117,8 @@ class RecordIdentifyFaultView(View):
 
     - 仅异常事件且处于 已记录/跟进中 可认定；
     - 认定时补充故障所需字段：是否影响系统运行（默认不影响）、影响程度
-      （影响运行时必填）、原因分析（选填）、对象快照（选填）；
+      （影响运行时必填）、故障等级（选填固定四级）、原因分析（选填）、
+      对象快照（选填）；
     - 保留原描述（情况描述即故障现象）、登记人、附件与全部进展；
     - 行锁防并发重复认定；持健康重算锁 + 单事务，同事务重算健康状态；
     - 后端独立校验 identify_fault 权限。
@@ -138,6 +139,8 @@ class RecordIdentifyFaultView(View):
                      help='是否影响系统运行，默认不影响（部件故障）'),
             Argument('impact_status', type=str, required=False, default='',
                      help='系统影响程度：影响系统运行时必填（降级/故障/中断）'),
+            Argument('fault_level', type=str, required=False, default='',
+                     help='故障等级（选填：一级/二级/三级/四级）'),
             Argument('reason_analysis', type=str, required=False, default='',
                      help='初步原因分析（选填）'),
             Argument('fault_object_name', type=str, required=False, default=''),
@@ -153,7 +156,7 @@ class RecordIdentifyFaultView(View):
                 return json_response(error='故障发生时间格式不正确')
             if occurred_at > timezone.now():
                 return json_response(error='故障发生时间不能晚于当前时间')
-        affects, impact_status, err = _validate_affects_and_impact(form)
+        affects, impact_status, fault_level, err = _validate_identify_fault_fields(form)
         if err:
             return json_response(error=err)
         try:
@@ -168,6 +171,7 @@ class RecordIdentifyFaultView(View):
                         occurred_at=occurred_at,
                         affects_system_operation=affects,
                         impact_status=impact_status,
+                        fault_level=fault_level,
                         reason_analysis=form.reason_analysis or '',
                         fault_object_name=form.fault_object_name or '',
                         fault_object_model=form.fault_object_model or '',
@@ -183,6 +187,7 @@ class RecordIdentifyFaultView(View):
                                            'affects_system_operation':
                                                record.affects_system_operation,
                                            'impact_status': record.impact_status,
+                                           'fault_level': record.fault_level,
                                        })
                     record.refresh_from_db()
         except (operation_services.HealthRecalcLockTimeout,

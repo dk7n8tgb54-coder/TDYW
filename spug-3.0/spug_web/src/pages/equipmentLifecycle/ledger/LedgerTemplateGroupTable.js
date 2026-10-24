@@ -24,8 +24,11 @@ const GROUP_COLUMNS = (onOpen, onBrowse) => [
     title: '模板名称', dataIndex: 'template_name', width: 240, ellipsis: true,
     render: (v, record) => (
       <a onClick={() => onOpen(record)}>
-        {v}{record.source_type === 'excel'
+        {v}{(record.source_type === 'excel' || record.source_type === 'form')
           && record.is_active === false ? ' [已停用]' : ''}
+        {record.source_type === 'form' ? (
+          <span style={{color: '#722ed1', marginLeft: 6, fontSize: 12}}>[数字表单]</span>
+        ) : null}
       </a>
     ),
   },

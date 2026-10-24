@@ -33,7 +33,7 @@ ContractAgreementAttachmentConfig = AttachmentConfig(
     allowed_extensions=('.pdf', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
                         '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
                         '.zip', '.rar', '.7z'),
-    max_size_mb=50,
+    max_size_mb=100,
 )
 
 

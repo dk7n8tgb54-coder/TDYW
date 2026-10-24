@@ -1,0 +1,8 @@
+# tdyw_restore client config (production restore: DROP/CREATE + import)
+# Laptop drill copy 2026-10-24: same credentials as tdyw_backup.cnf (root@% has ALL PRIVILEGES).
+# The restore script docker-cp this into the DB container and overrides host/port on the command line.
+[client]
+host=tdyw-db
+port=3306
+user=root
+password=Dt6299093

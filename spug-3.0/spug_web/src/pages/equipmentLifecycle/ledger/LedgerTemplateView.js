@@ -64,7 +64,7 @@ const TemplateSearchForm = observer(function TemplateSearchForm({store}) {
   );
 });
 
-function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenExcelCreate, onMultiExport}) {
+function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenExcelCreate, onOpenFormCreate, onMultiExport}) {
   // 翻阅模式（2026-10-18）：整页切换为翻阅视图，退出后回到进入前的层级
   if (store.browseState) {
     return <LedgerGroupBrowse store={store}/>;
@@ -99,7 +99,17 @@ function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenEx
           onClick={onOpenExcelCreate}>
           新增{LEDGER_TYPE_TEXT[ledgerType]}台账
         </AuthButton>
-        {inGroup && (
+        {/* 数字表单路线（2026-10-21）：按数字表单模板创建，与 Excel 路线并行 */}
+        <AuthButton
+          auth={PERM_L.LED_ADD}
+          icon={<PlusOutlined/>}
+          style={{marginLeft: 8}}
+          data-testid="form-create-open"
+          onClick={onOpenFormCreate}>
+          新增数字表单台账
+        </AuthButton>
+        {/* 翻阅为 Excel 版式回放，数字表单组不提供（后端同口径拒绝） */}
+        {inGroup && store.activeGroup.source_type !== 'form' && (
           <AuthButton
             auth={PERM_L.LED_VIEW}
             icon={<BookOutlined/>}
@@ -111,7 +121,9 @@ function LedgerTemplateView({store, ledgerType, openDetail, onGenerate, onOpenEx
             翻阅台账
           </AuthButton>
         )}
-        {inGroup && store.activeGroup.group_key !== 'manual' && (
+        {/* 数字表单组暂不支持版式类批量 PDF 导出（后端同口径拒绝） */}
+        {inGroup && store.activeGroup.group_key !== 'manual'
+          && store.activeGroup.source_type !== 'form' && (
           <AuthButton
             auth={PERM_L.LED_EXPORT}
             icon={<FilePdfOutlined/>}

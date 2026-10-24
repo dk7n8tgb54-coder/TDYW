@@ -72,7 +72,7 @@ const PeriodSearchForm = observer(function PeriodSearchForm({store}) {
   );
 });
 
-function LedgerPeriodView({store, ledgerType, columns, onGenerate, onExcelCreate, onMultiExport}) {
+function LedgerPeriodView({store, ledgerType, columns, onGenerate, onExcelCreate, onFormCreate, onMultiExport}) {
   return (
     <React.Fragment>
       <LedgerPeriodOverviewCard store={store}/>
@@ -93,6 +93,14 @@ function LedgerPeriodView({store, ledgerType, columns, onGenerate, onExcelCreate
           icon={<PlusOutlined/>}
           onClick={onExcelCreate}>
           新增{LEDGER_TYPE_TEXT[ledgerType]}台账
+        </AuthButton>
+        {/* 数字表单路线（2026-10-21）：按数字表单模板创建，与 Excel 路线并行 */}
+        <AuthButton
+          auth={PERM_L.LED_ADD}
+          icon={<PlusOutlined/>}
+          data-testid="form-create-open"
+          onClick={onFormCreate}>
+          新增数字表单台账
         </AuthButton>
         {/* 批量导出 PDF（2026-10-21）：替换原"导出明细 CSV"入口，按模板多选导出 */}
         <AuthButton

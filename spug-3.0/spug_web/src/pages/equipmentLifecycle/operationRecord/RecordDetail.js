@@ -60,7 +60,7 @@ import store from './store';
 import {
   API_PREFIX, PERM, RECORD_STATUS_TEXT, RECORD_STATUS_COLOR,
   RECORD_TYPE_TEXT, RECORD_TYPE_COLOR, RECORD_CATEGORY_TEXT,
-  FAULT_IMPACT_TEXT, FAULT_IMPACT_COLOR,
+  FAULT_IMPACT_TEXT, FAULT_IMPACT_COLOR, FAULT_LEVEL_TEXT,
 } from '../constants';
 import {
   AuthEditButton, AuthDeleteButton, AuthAddProgressButton, AuthCompleteButton,
@@ -150,7 +150,8 @@ class RecordDetail extends React.Component {
     return sectionTitle(text, style);
   }
 
-  // 一、运行概况：只展示记录发生时的事实；设备故障展示故障部位/设备。
+  // 一、运行概况：只展示记录发生时的事实；设备故障展示故障部位/设备与
+  // 故障等级（未选择显示"-"，历史记录兼容）。
   // "发生至最近进展"（2026-10-14 由"持续时间"更名）：口径为最近一条进展
   // 的处理时间 - 发生时间，不暗示故障恢复耗时（真实恢复耗时见"处置结果"
   // 的"恢复耗时"），附 Tooltip 说明避免误读
@@ -180,6 +181,11 @@ class RecordDetail extends React.Component {
         {isFault && (
           <Descriptions.Item label="故障部位/设备" span={2}>
             {faultObject || '-'}
+          </Descriptions.Item>
+        )}
+        {isFault && (
+          <Descriptions.Item label="故障等级">
+            {FAULT_LEVEL_TEXT[d.fault_level] || '-'}
           </Descriptions.Item>
         )}
         {!isFault && (

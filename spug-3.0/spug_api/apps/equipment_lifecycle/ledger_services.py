@@ -46,6 +46,7 @@ from apps.equipment_lifecycle.models import (
     ITEM_RESULT_NORMAL,
     ITEM_RESULT_VALUES,
     LEGACY_LEDGER_TYPE_INSPECTION,
+    LEDGER_FROM_FORM,
     LEDGER_FROM_MANUAL,
     LEDGER_FROM_EXCEL,
     LEDGER_FROM_VALUES,
@@ -83,12 +84,23 @@ LEGACY_INSPECTION_ERROR = '旧巡检台账（历史）已删除，巡检类型�
 # 完成填写须走 /excel-ledgers/ 专用接口；作废/删除沿用正式端点
 EXCEL_LEDGER_EDIT_ERROR = 'Excel 模板台账请通过 Excel 台账填写接口编辑'
 EXCEL_LEDGER_COMPLETE_ERROR = 'Excel 模板台账请通过 Excel 台账接口完成填写'
+# 数字表单路线台账（created_from=form_template）同样无普通明细，编辑与
+# 完成填写须走 /form-ledgers/ 专用接口（2026-10-21 数字表单路线）
+FORM_LEDGER_EDIT_ERROR = '数字表单模板台账请通过数字表单台账填写接口编辑'
+FORM_LEDGER_COMPLETE_ERROR = '数字表单模板台账请通过数字表单台账接口完成填写'
 
 
 def excel_ledger_write_error(ledger):
     """Excel 路线台账误走普通明细编辑/提交接口时返回明确错误。"""
     if ledger is not None and ledger.created_from == LEDGER_FROM_EXCEL:
         return EXCEL_LEDGER_EDIT_ERROR
+    return None
+
+
+def form_ledger_write_error(ledger):
+    """数字表单路线台账误走普通明细编辑/提交接口时返回明确错误。"""
+    if ledger is not None and ledger.created_from == LEDGER_FROM_FORM:
+        return FORM_LEDGER_EDIT_ERROR
     return None
 
 
@@ -421,6 +433,11 @@ def create_ledger(user, body):
             client_token=client_token).first()
         if exists:
             return exists, None
+    # 本入口只承载手工补录：Excel/数字表单路线台账一律走各自专用接口创建
+    # （/excel-ledgers/、/form-ledgers/），携带路线标记时显式拒绝，
+    # 不产生"有路线标记却无路线填写记录"的混合数据
+    if body['created_from'] != LEDGER_FROM_MANUAL:
+        return None, '该创建方式不支持在本接口使用，请使用对应模板路线的创建接口'
 
     entries = body.get('entries')
     if not isinstance(entries, list) or not entries:
@@ -480,6 +497,10 @@ def update_ledger(user, pk, body):
         return None, None, error
     # Excel 路线台账没有普通明细，编辑须走 Excel 填写值接口（2026-10 统一入口）
     error = excel_ledger_write_error(ledger)
+    if error:
+        return None, None, error
+    # 数字表单路线台账没有普通明细，编辑须走数字表单填写值接口（2026-10-21）
+    error = form_ledger_write_error(ledger)
     if error:
         return None, None, error
     if ledger.status not in OperationLedger.EDITABLE_STATUSES:
@@ -603,6 +624,8 @@ def complete_ledger(user, pk):
         return None, error
     if ledger.created_from == LEDGER_FROM_EXCEL:
         return None, EXCEL_LEDGER_COMPLETE_ERROR
+    if ledger.created_from == LEDGER_FROM_FORM:
+        return None, FORM_LEDGER_COMPLETE_ERROR
     if not ledger.can_transition_to(LEDGER_STATUS_COMPLETED):
         return None, '当前状态不允许完成填写'
     if not ledger.items.exists():

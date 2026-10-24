@@ -244,7 +244,11 @@ stop_application() {
         docker stop -t "${APP_STOP_TIMEOUT}" "${APP_CONTAINER}" >/dev/null
         APP_STOPPED_BY_SCRIPT=1
     fi
-    container_running "${APP_CONTAINER}" && fail "application container did not stop"
+    # 不得以 `xxx && fail ...` 收尾：检查通过时 && 列表整体非零会成为函数返回值，
+    # set -e 在调用点误杀脚本（2026-10-24 生产恢复在 stop_application 假失败即此因）
+    if container_running "${APP_CONTAINER}"; then
+        fail "application container did not stop"
+    fi
 }
 
 wait_for_app_health() {
@@ -328,17 +332,33 @@ restore_fileset() {
     CURRENT_STAGE="restore_${name}"
     local extract_root
     extract_root="$(mktemp -d /tmp/tdyw-restore-${name}.XXXXXX)"
+    local archive_path
 
-    log "Extracting ${name} from archive to ${extract_root}"
-    # borg extract 在当前目录重建 archive 内的绝对路径树
-    # archive 里 documents/media 存的是 volume mountpoint 绝对路径（如 /var/lib/docker/volumes/.../_data）
-    ( cd "${extract_root}" && borg extract "${BORG_REPO}::${ARCHIVE}" "${mp}" )
+    # archive 存的是创建机当时的 mountpoint 绝对路径（无前导 /）。跨机恢复或手工暂存根
+    # （如 /mnt/e/.../data/docker/volumes/...）时与本机 mountpoint 不同，不能拿本机路径当
+    # include 模式；按 volume 名定位成员根（…/<vol>/_data 结尾的目录条目，取最短匹配）
+    if ! archive_path="$(borg list --short "${BORG_REPO}::${ARCHIVE}" 2>/dev/null \
+        | awk -v suffix="/${vol}/_data" 'index($0, suffix) > 0 && index($0, suffix) == length($0) - length(suffix) + 1' \
+        | awk 'NR == 1 || length($0) < length(shortest) { shortest = $0 } END { if (NR) print shortest }')"; then
+        rm -rf -- "${extract_root}"
+        fail "borg list failed while locating ${vol} in archive ${ARCHIVE}"
+    fi
+    if [ -z "${archive_path}" ]; then
+        rm -rf -- "${extract_root}"
+        fail "${vol}/_data not found in archive ${ARCHIVE}"
+    fi
+
+    log "Extracting ${name} (${archive_path}) from archive to ${extract_root}"
+    if ! ( cd "${extract_root}" && borg extract "${BORG_REPO}::${ARCHIVE}" "${archive_path}" ); then
+        rm -rf -- "${extract_root}"
+        fail "borg extract failed for ${name} (${archive_path})"
+    fi
 
     # 验证 extract 结果存在
-    local extracted_path="${extract_root}${mp}"
+    local extracted_path="${extract_root}/${archive_path}"
     if [ ! -d "${extracted_path}" ]; then
         rm -rf -- "${extract_root}"
-        fail "${name} not found in archive (expected ${mp})"
+        fail "${name} extract incomplete (expected ${archive_path})"
     fi
 
     if [ "${RESTORE_MODE}" = drill ]; then
