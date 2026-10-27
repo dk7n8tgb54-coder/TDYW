@@ -18,6 +18,10 @@
  *   明确补建操作，2026-10-16）；未配置适用系统/生成周期的模板标记
  *   待配置（在对应模板管理页配置）；
  * - antd 4.21.5：Modal 用 visible；错误提示由 http 拦截器统一弹出。
+ * - 2026-10-27 修复：预览区抽出组件必须 observer（Table 的 loading 直读
+ *   store.isGenerateFetching，非 observer 时预览到达后无人再追踪该值，
+ *   转圈永久残留）；判定表定宽列合计超出弹窗内容区，加 scroll.x + fixed
+ *   布局并给"模板名称"定宽，否则该列被自动布局压缩成 0 宽整列消失。
  */
 import React, {useEffect, useRef, useState} from 'react';
 import {observer} from 'mobx-react';
@@ -81,8 +85,19 @@ function ResultSection({result}) {
   );
 }
 
-/** 预览区（路线提示 + 判定表；自弹窗函数体抽出）。 */
-function PreviewSection({preview, rowSelection, columns, store}) {
+/** 预览判定表总宽：勾选列 + 各定宽列之和（与 buildPreviewColumns 保持一致）。 */
+const PERIOD_PREVIEW_SCROLL_X = 32 + 90 + 160 + 150 + 80 + 190 + 80 + 300;
+
+/** 预览区（路线提示 + 判定表；自弹窗函数体抽出）。
+ *
+ * 必须保持 observer：Table 的 loading 直读 store.isGenerateFetching，而父组件
+ * 的 `{!preview && store.isGenerateFetching && ...}` 在预览到达后短路、不再
+ * 追踪该 observable——非 observer 时预览渲染发生在 spinner 复位之前，此后
+ * 无任何 observer 追踪它，转圈将永久残留（2026-10-27 修复）。
+ * 判定表定宽列合计超出弹窗内容区，须 scroll.x + fixed 布局兜底，否则唯一
+ * 无宽度的"模板名称"列会被自动布局压缩成 0 宽整列消失（同日修复）；
+ * "判定"列 fixed:right，横向滚动时判定与原因始终可见。 */
+const PreviewSection = observer(function PreviewSection({preview, rowSelection, columns, store}) {
   return (
     <React.Fragment>
       <Alert
@@ -98,10 +113,11 @@ function PreviewSection({preview, rowSelection, columns, store}) {
         loading={store.isGenerateFetching}
         dataSource={preview.entries}
         columns={columns}
+        scroll={{x: PERIOD_PREVIEW_SCROLL_X}}
         pagination={false}/>
     </React.Fragment>
   );
-}
+});
 
 /** 预览判定表列定义（路线/模板/系统/周期/期次/版本/判定+补建）。 */
 function buildPreviewColumns(handleRebuild, isGenerating) {
@@ -112,7 +128,7 @@ function buildPreviewColumns(handleRebuild, isGenerating) {
          {TEMPLATE_KIND_TEXT[entry.template_kind || 'excel']}
        </Tag>
      )},
-    {title: '模板名称', dataIndex: 'template_name', ellipsis: true},
+    {title: '模板名称', dataIndex: 'template_name', width: 160, ellipsis: true},
     {title: '适用系统', key: 'system', width: 150, ellipsis: true,
      render: (v, entry) => entry.system_name
        ? `${entry.system_name}（${entry.system_code}）`
@@ -122,7 +138,7 @@ function buildPreviewColumns(handleRebuild, isGenerating) {
      render: (v, entry) => entry.period_text || '—'},
     {title: '使用版本', key: 'version', width: 80, align: 'center',
      render: (v, entry) => entry.version_no ? `v${entry.version_no}` : '—'},
-    {title: '判定', key: 'status', width: 300,
+    {title: '判定', key: 'status', width: 300, fixed: 'right',
      render: (v, entry) => {
        const conf = GENERATE_STATUS[entry.status] || {text: entry.status};
        return (
@@ -245,7 +261,7 @@ function LedgerPeriodGenerateModal({visible, ledgerType, store, onCancel}) {
       okButtonProps={{disabled: !preview || !maintenanceCycles.length
         || selectedCount === 0}}
       cancelText={result ? '关闭' : '取消'}
-      width={860}
+      width={1160}
       destroyOnClose>
       <div data-testid="period-generate-body">
         {!preview && store.isGenerateFetching && <Alert type="info" showIcon message="正在获取本期应填台账预览..."/>}

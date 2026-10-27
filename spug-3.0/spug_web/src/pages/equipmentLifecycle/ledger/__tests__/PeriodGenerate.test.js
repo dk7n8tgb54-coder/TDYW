@@ -234,6 +234,27 @@ describe('LedgerPeriodGenerateModal 预览与生成弹窗', () => {
       {params: {ledger_type: 'week_month', maintenance_cycles: ['weekly']}});
   });
 
+  test('预览到达后解除表格 loading，转圈不残留（2026-10-27 回归）', async () => {
+    // 回归背景：预览区抽出组件曾缺 observer——父组件的
+    // `!preview && store.isGenerateFetching` 在预览到达后短路不再追踪该值，
+    // spinner 复位时无人重渲染，转圈盖在已渲染的表格上永久不消失。
+    mockHttpGet.mockResolvedValue({data: PREVIEW_PAYLOAD});
+    const store = new LedgerStore('week_month');
+    await renderModal(store);
+    expect(store.isGenerateFetching).toBe(false);
+    expect(document.body.querySelectorAll('.ant-modal .ant-spin-spinning'))
+      .toHaveLength(0);
+    // 判定表须 fixed 布局兜底（scroll.x）：定宽列合计超出弹窗内容区时，
+    // 自动布局会把唯一无宽度的"模板名称"列压缩成 0 宽整列消失
+    const table = document.body.querySelector('.ant-modal .ant-table table');
+    expect(table).toBeTruthy();
+    expect(table.getAttribute('style') || '').toContain('table-layout: fixed');
+    const headers = Array.from(
+      document.body.querySelectorAll('.ant-modal .ant-table-thead th'))
+      .map(th => th.textContent.trim());
+    expect(headers).toContain('模板名称');
+  });
+
   test('无可新建条目时确认按钮禁用，不发起生成请求', async () => {
     mockHttpGet.mockResolvedValue({data: {...PREVIEW_PAYLOAD,
       entries: PREVIEW_PAYLOAD.entries.map(entry => entry.status === 'create'
